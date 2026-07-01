@@ -5,3 +5,6 @@
 # Branch "beta" gets its own preview URL (test before promoting to live).
 [context.beta]
   # deployed at the beta branch subdomain / branch-deploy URL
+
+[functions]
+  directory = "netlify/functions"
