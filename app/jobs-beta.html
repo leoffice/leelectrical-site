@@ -1,0 +1,258 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<meta name="theme-color" content="#0f172a">
+<title>LE Electric — Jobs in Progress</title>
+<style>
+  :root{
+    --bg:#f1f5f9;--card:#fff;--ink:#0f172a;--muted:#64748b;--line:#e2e8f0;
+    --brand:#1d4ed8;--brand-ink:#1e3a8a;--done:#16a34a;--current:#d97706;--upcoming:#cbd5e1;
+    --beta:#7c3aed;--pill:#eff6ff;--pill-ink:#1d4ed8;--danger:#dc2626;--ok:#16a34a;
+    --shadow:0 1px 3px rgba(15,23,42,.08),0 1px 2px rgba(15,23,42,.04);
+  }
+  *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+  html,body{margin:0;padding:0}
+  body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;background:var(--bg);color:var(--ink);line-height:1.45;max-width:860px;margin:0 auto;padding-bottom:96px}
+  header.app{position:sticky;top:0;z-index:20;background:var(--ink);color:#fff;padding:14px 18px 11px;box-shadow:var(--shadow)}
+  header.app h1{font-size:18px;margin:0;font-weight:650}
+  header.app .sub{font-size:12px;color:#94a3b8;margin-top:2px}
+  .beta-banner{background:linear-gradient(90deg,#7c3aed,#a855f7);color:#fff;font-size:12px;font-weight:700;text-align:center;padding:6px 12px;letter-spacing:.4px}
+  main{padding:14px}
+  .view{display:none}.view.active{display:block}
+  .seclabel{font-size:12px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.6px;margin:6px 2px 10px}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:14px 15px;margin-bottom:11px;box-shadow:var(--shadow);cursor:pointer;display:flex;align-items:center;gap:12px}
+  .card .body{flex:1;min-width:0}
+  .card .title{font-weight:640;font-size:15.5px}
+  .card .meta{font-size:12.5px;color:var(--muted);margin-top:1px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .card .next{font-size:12.5px;color:var(--brand-ink);margin-top:6px;font-weight:520}
+  .card .chev{color:#cbd5e1;font-size:20px}
+  .pill{display:inline-block;font-size:11px;font-weight:650;padding:3px 9px;border-radius:999px;background:var(--pill);color:var(--pill-ink);margin-top:7px}
+  .pill.paid{background:#dcfce7;color:#166534}.pill.unpaid{background:#fee2e2;color:#991b1b}
+  .back{background:#fff;border:1px solid var(--line);border-radius:10px;padding:7px 12px;font-size:13px;font-weight:600;cursor:pointer;color:var(--ink);margin-bottom:12px}
+  .dcard{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:15px;box-shadow:var(--shadow);margin-bottom:12px}
+  .contact h2{margin:0 0 3px;font-size:19px}
+  .contact .row{display:flex;flex-wrap:wrap;gap:8px;margin-top:8px}
+  .cbtn{display:inline-flex;align-items:center;gap:6px;text-decoration:none;font-size:13px;font-weight:600;padding:8px 12px;border-radius:10px;border:1px solid #bfdbfe;background:#eff6ff;color:#1d4ed8}
+  .cbtn.muted{border-color:var(--line);background:#f8fafc;color:var(--muted)}
+  .addr{font-size:13px;color:var(--muted);margin-top:8px}
+  .followbox{background:#fff7ed;border:1px solid #fed7aa;border-radius:12px;padding:12px 14px;margin-bottom:12px}
+  .followbox .lbl{font-size:11px;font-weight:700;color:#c2410c;text-transform:uppercase;letter-spacing:.5px}
+  .nextbox{background:#eff6ff;border:1px solid #bfdbfe;border-radius:12px;padding:12px 14px;margin-bottom:12px}
+  .nextbox .lbl{font-size:11px;font-weight:700;color:#1d4ed8;text-transform:uppercase;letter-spacing:.5px}
+  .nextbox .txt{font-size:15px;font-weight:600;margin-top:3px;color:#1e3a8a}
+  .nextbox .when{font-size:12.5px;color:#2563eb;margin-top:2px;font-weight:600}
+  .tl{list-style:none;margin:0;padding:0}
+  .tl li{display:flex;gap:12px}
+  .tl .dot{position:relative;flex:none;width:24px;display:flex;justify-content:center}
+  .tl .dot i{width:16px;height:16px;border-radius:50%;background:var(--upcoming);display:flex;align-items:center;justify-content:center;color:#fff;font-size:10px;font-style:normal;font-weight:700;z-index:2;margin-top:3px}
+  .tl .dot.done i{background:var(--done)}.tl .dot.current i{background:var(--current);box-shadow:0 0 0 4px #fde68a}.tl .dot.skipped i{background:#e2e8f0;color:#94a3b8}
+  .tl .dot::after{content:"";position:absolute;top:18px;bottom:-4px;width:2px;background:var(--line);z-index:1}
+  .tl li:last-child .dot::after{display:none}
+  .tl .lbl{flex:1;padding-bottom:14px}
+  .tl .lbl .s{font-size:14px;font-weight:600}
+  .tl .lbl .d{font-size:12px;color:var(--muted);margin-top:1px}
+  .tl .skipped .s{color:#94a3b8;font-weight:500}
+  .stepbtns{margin-top:5px;display:flex;gap:6px;flex-wrap:wrap}
+  .mini{font-size:11.5px;font-weight:600;padding:4px 9px;border-radius:8px;border:1px solid var(--line);background:#fff;cursor:pointer;color:var(--ink)}
+  .mini.go{border-color:#bbf7d0;background:#f0fdf4;color:#166534}
+  .mini.undo{border-color:#fecaca;background:#fef2f2;color:#991b1b}
+  .mini.jump{border-color:#bfdbfe;background:#eff6ff;color:#1d4ed8}
+  .actions{display:flex;flex-wrap:wrap;gap:8px}
+  .btn{display:inline-block;text-decoration:none;background:var(--brand);color:#fff;font-size:13.5px;font-weight:650;padding:11px 14px;border-radius:11px;border:0;cursor:pointer}
+  .btn.sec{background:#fff;color:var(--brand);border:1px solid #bfdbfe}
+  .btn.warn{background:#f59e0b}
+  .btn.full{width:100%;margin-top:8px}
+  textarea,input[type=text],input[type=date]{width:100%;border:1px solid var(--line);border-radius:10px;padding:10px 12px;font-size:14px;font-family:inherit;background:#fff;color:var(--ink);outline:none;margin-bottom:6px}
+  textarea{resize:vertical;min-height:70px}
+  .note{font-size:13px;color:var(--muted);margin-top:8px}
+  .att{display:flex;align-items:center;gap:8px;font-size:13px;padding:8px 10px;border:1px solid var(--line);border-radius:10px;margin-bottom:6px;background:#f8fafc}
+  .att a{color:var(--brand);text-decoration:none;flex:1;overflow:hidden;text-overflow:ellipsis}
+  .modal{position:fixed;inset:0;z-index:400;background:rgba(15,23,42,.55);display:none;align-items:center;justify-content:center;padding:18px}
+  .modal.open{display:flex}
+  .modal .box{background:#fff;border-radius:16px;max-width:440px;width:100%;padding:18px;max-height:80vh;overflow:auto}
+  .modal h3{margin:0 0 10px;font-size:16px}
+  .modal .close{float:right;background:none;border:0;font-size:20px;cursor:pointer;color:var(--muted)}
+  .hist{font-size:13px;padding:8px 0;border-bottom:1px solid var(--line)}
+  #toast{position:fixed;bottom:110px;left:50%;transform:translateX(-50%);background:#0f172a;color:#fff;font-size:13px;font-weight:600;padding:10px 16px;border-radius:12px;opacity:0;transition:opacity .25s;z-index:500;max-width:90%;text-align:center}
+  #toast.show{opacity:1}
+  nav.tabs{position:fixed;bottom:0;left:0;right:0;max-width:860px;margin:0 auto;background:#fff;border-top:1px solid var(--line);display:flex;z-index:30;padding-bottom:env(safe-area-inset-bottom,0)}
+  nav.tabs button{flex:1;background:none;border:none;padding:8px 3px 7px;cursor:pointer;color:var(--muted);font-size:10px;font-weight:600;display:flex;flex-direction:column;align-items:center;gap:3px}
+  nav.tabs button .ic{font-size:18px;line-height:1}
+  nav.tabs button.on{color:var(--brand)}
+  nav.tabs button.progress{color:#7c3aed}
+  .taskrow{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:12px 14px;margin-bottom:9px;box-shadow:var(--shadow);cursor:pointer}
+  .taskrow .who{font-size:12px;color:var(--muted);font-weight:600}
+  .taskrow .what{font-size:14px;font-weight:600;margin-top:2px;color:#1e3a8a}
+</style>
+</head>
+<body>
+<header class="app"><h1>LE Electric — Jobs in Progress</h1><div class="sub" id="subtitle">Jobs &amp; Projects</div></header>
+<div class="beta-banner">⚡ BETA · Early Access — test freely; changes here don't touch the live system</div>
+<main>
+  <section class="view active" id="view-jobs"></section>
+  <section class="view" id="view-detail"></section>
+  <section class="view" id="view-estimates"></section>
+  <section class="view" id="view-appts"></section>
+  <section class="view" id="view-tasks"></section>
+  <section class="view" id="view-progress"></section>
+</main>
+<nav class="tabs">
+  <button data-tab="jobs" class="on"><span class="ic">📋</span>Jobs</button>
+  <button data-tab="estimates"><span class="ic">🧾</span>Estimates</button>
+  <button data-tab="appts"><span class="ic">📅</span>Appts</button>
+  <button data-tab="tasks"><span class="ic">✅</span>Next</button>
+  <button data-tab="progress" class="progress"><span class="ic">⚡</span>Progress</button>
+</nav>
+<div class="modal" id="modal"><div class="box"><button class="close" onclick="closeModal()">✕</button><div id="modalBody"></div></div></div>
+<div id="toast"></div>
+<script>
+const STAGES=["Lead","Site Visit","Estimate","Accepted","Invoiced","Scheduled","Done","Follow-up","Paid"];
+const JOBS=[
+ {id:"JP-001",customer:"Peretz Chein",title:"Main panel upgrade",amount:"$2,300",
+  phone:"",email:"Peretzch@gmail.com",address:"1370 Carroll St, Brooklyn NY 11213",
+  estimateNo:"25412",invoiceNo:"251841",paid:false,
+  invoiceHistory:[{date:"2026-06-30",to:"Peretzch@gmail.com",kind:"Invoice sent"}],
+  paperwork:{permit:{enabled:true,steps:{"File permit application (DOB/city)":"done"}},coned:{enabled:true,steps:{"File application with Con Edison":"done","Con Edison case submitted":"done"}}},
+  followUp:{type:"Payment / collect",text:"Do installation, then collect payment",date:"2026-07-01",remind:true},notes:"",attachments:[],
+  status:{"Lead":{s:"done",d:"2026-06-29"},"Site Visit":{s:"skipped"},"Estimate":{s:"done",d:"2025-08-20"},"Accepted":{s:"done",d:"2025-08-20"},"Invoiced":{s:"done",d:"2026-06-30"},"Scheduled":{s:"current",d:"2026-07-01"},"Done":{s:"upcoming"},"Follow-up":{s:"upcoming"},"Paid":{s:"upcoming"}}},
+ {id:"JP-002",customer:"Dani Babalov",title:"4-meter multimeter service upgrade",amount:"$9,800",
+  phone:"718-558-0496",email:"D7185580496@gmail.com",address:"(not on file)",
+  estimateNo:"25477",invoiceNo:"",paid:false,invoiceHistory:[],
+  followUp:{text:"Follow up with Dani for acceptance",date:"2026-07-03"},notes:"",attachments:[],
+  status:{"Lead":{s:"done",d:"2026-06-29"},"Site Visit":{s:"skipped"},"Estimate":{s:"done",d:"2026-06-29"},"Accepted":{s:"current"},"Invoiced":{s:"upcoming"},"Scheduled":{s:"upcoming"},"Done":{s:"upcoming"},"Follow-up":{s:"upcoming"},"Paid":{s:"upcoming"}}},
+ {id:"JP-003",customer:"Naftali — S&T Consulting",title:"Estimate inquiry (electrical)",amount:"—",
+  phone:"",email:"Naftalis@sandtconsulting.us",address:"TBD — 84th or 91st St (confirm)",
+  estimateNo:"",invoiceNo:"",paid:false,invoiceHistory:[],
+  followUp:{text:"Finalize scope + price, then send estimate",date:""},notes:"Blueprints to attach.",attachments:[],
+  status:{"Lead":{s:"done"},"Site Visit":{s:"skipped"},"Estimate":{s:"current"},"Accepted":{s:"upcoming"},"Invoiced":{s:"upcoming"},"Scheduled":{s:"upcoming"},"Done":{s:"upcoming"},"Follow-up":{s:"upcoming"},"Paid":{s:"upcoming"}}}
+];
+const LS="le_jobs_beta_v1";
+function loadOv(){try{return JSON.parse(localStorage.getItem(LS))||{}}catch(e){return{}}}
+function saveOv(o){try{localStorage.setItem(LS,JSON.stringify(o))}catch(e){}}
+let OV=loadOv();
+const FOLLOWUP_TYPES=["Acceptance","Payment / collect","Schedule the job","Paperwork / permits","Con Edison case","Final inspection","Other"];
+const PERMIT_STEPS=["File permit application (DOB/city)","Permit issued","Schedule final inspection","Inspection passed / signed off"];
+const CONED_STEPS=["File application with Con Edison","Con Edison case submitted","Con Edison review / approval","Service / meter work scheduled","Final inspection scheduled","Inspection passed / sign-off"];
+function paper(id){const base=(JOBS.find(x=>x.id===id)||{}).paperwork||{};const o=(OV[id]&&OV[id].paperwork)||{};function mk(k){const b=base[k]||{},ov=o[k]||{};return {enabled:ov.enabled!==undefined?ov.enabled:!!b.enabled,steps:Object.assign({},b.steps||{},ov.steps||{})};}return {permit:mk('permit'),coned:mk('coned')};}
+function job(id){const j=JOBS.find(x=>x.id===id);const o=OV[id]||{};
+  const m=JSON.parse(JSON.stringify(j));
+  if(o.status)for(const k in o.status)m.status[k]=o.status[k];
+  if(o.notes!==undefined)m.notes=o.notes;
+  if(o.followUp)m.followUp=o.followUp;
+  if(o.paid!==undefined)m.paid=o.paid;
+  if(o.attachments)m.attachments=o.attachments;
+  if(o.invoiceHistory)m.invoiceHistory=m.invoiceHistory.concat(o.invoiceHistory);
+  return m;}
+function patch(id,fn){OV[id]=OV[id]||{};fn(OV[id]);saveOv(OV);}
+const $=s=>document.querySelector(s);
+function esc(t){return(t||"").toString().replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;")}
+function toast(m){const t=$("#toast");t.textContent=m;t.classList.add("show");clearTimeout(t._t);t._t=setTimeout(()=>t.classList.remove("show"),2200)}
+function relDate(iso){if(!iso)return"";const d=new Date(iso+"T00:00:00");const now=new Date();now.setHours(0,0,0,0);const diff=Math.round((d-now)/86400000);
+  if(diff===0)return"Today";if(diff===1)return"Tomorrow";if(diff===-1)return"Yesterday";
+  if(diff>1&&diff<=14)return"in "+diff+" days";if(diff<-1&&diff>=-14)return Math.abs(diff)+" days ago";
+  return d.toLocaleDateString(undefined,{month:"short",day:"numeric",year:"numeric"});}
+function curStage(j){for(const s of STAGES){if(j.status[s]&&j.status[s].s==="current")return s;}
+  for(let i=STAGES.length-1;i>=0;i--){if(j.status[STAGES[i]]&&j.status[STAGES[i]].s==="done")return STAGES[Math.min(i+1,STAGES.length-1)];}return STAGES[0];}
+function stagePill(j){const c=curStage(j);return j.paid?"Paid":(c==="Paid"?"Awaiting payment":c);}
+function nextText(j){const c=curStage(j);const map={"Lead":"Log the lead / send a price","Site Visit":"Book a site visit","Estimate":"Finalize & send the estimate","Accepted":"Follow up for acceptance","Invoiced":"Create & send the invoice","Scheduled":"Do the job on the scheduled date","Done":"Mark the job done","Follow-up":"Follow up for payment","Paid":"Closed — paid"};
+  return (j.followUp&&(j.followUp.text||j.followUp.type))?(j.followUp.text||j.followUp.type):(map[c]||c);}
+function jobCard(j){return `<div class="card" onclick="openJob('${j.id}')"><div class="body">
+  <div class="title">${esc(j.customer)}</div>
+  <div class="meta">${esc(j.title)} · ${esc(j.amount)}</div>
+  <span class="pill">${esc(stagePill(j))}</span> ${j.invoiceNo?`<span class="pill ${j.paid?'paid':'unpaid'}">${j.paid?'Paid':'Unpaid'}</span>`:''}
+  <div class="next">→ ${esc(nextText(j))}${j.followUp&&j.followUp.date?` · <b>${relDate(j.followUp.date)}</b>`:''}</div>
+  </div><div class="chev">›</div></div>`;}
+function renderJobs(){$("#view-jobs").innerHTML=`<div class="seclabel">${JOBS.length} Active Jobs &amp; Projects</div>`+JOBS.map(x=>jobCard(job(x.id))).join("")}
+function renderDetail(id){const j=job(id);
+ const tl=STAGES.map((s,i)=>{const st=(j.status[s]||{s:"upcoming"});const cls=st.s;
+  const icon=cls==="done"?"✓":cls==="current"?"●":cls==="skipped"?"–":"";
+  let when="";if(st.d)when=relDate(st.d)+" · "+new Date(st.d+"T00:00:00").toLocaleDateString(undefined,{month:"short",day:"numeric"});
+   else if(cls==="current")when="In progress";else if(cls==="skipped")when="Not needed";
+  const btns=[];
+  if(cls==="done")btns.push(`<button class="mini undo" onclick="undoStep('${id}','${s}')">↩ Undo</button>`);
+  if(cls==="current"||cls==="upcoming")btns.push(`<button class="mini go" onclick="doneStep('${id}','${s}')">✓ Mark complete</button>`);
+  if(cls==="upcoming"&&i>0)btns.push(`<button class="mini jump" onclick="jumpTo('${id}','${s}')">⤼ Skip to here</button>`);
+  if(s==="Paid"&&cls!=="done")btns.push(`<button class="mini jump" onclick="jumpTo('${id}','Paid')">⏭ Jump to final</button>`);
+  return `<li><div class="dot ${cls}"><i>${icon}</i></div><div class="lbl ${cls}"><div class="s">${esc(s)}</div><div class="d">${esc(when)}</div><div class="stepbtns">${btns.join("")}</div></div></li>`;}).join("");
+ const atts=j.attachments.length?j.attachments.map((a,i)=>`<div class="att"><span>📎</span><a href="${a.url||'#'}" target="_blank">${esc(a.name)}</a><button class="mini" onclick="rmAtt('${id}',${i})">✕</button></div>`).join(""):`<div class="note">No attachments yet.</div>`;
+ $("#view-detail").innerHTML=`
+ <button class="back" onclick="go('jobs')">‹ Jobs</button>
+ <div class="dcard contact"><h2>${esc(j.customer)}</h2>
+   <div class="addr">📍 ${esc(j.address)} · ${esc(j.title)} · <b>${esc(j.amount)}</b></div>
+   <div class="row">
+     ${j.phone?`<a class="cbtn" href="tel:${esc(j.phone.replace(/[^0-9+]/g,''))}">📞 ${esc(j.phone)}</a>`:`<span class="cbtn muted">📞 Add phone</span>`}
+     ${j.email?`<a class="cbtn" href="mailto:${esc(j.email)}">✉️ ${esc(j.email)}</a>`:''}
+   </div></div>
+ <div class="followbox"><div class="lbl">Next Follow-up Step</div>
+   <select id="fuType" style="width:100%;border:1px solid var(--line);border-radius:10px;padding:10px 12px;font-size:14px;font-family:inherit;background:#fff;margin:6px 0">${FOLLOWUP_TYPES.map(t=>`<option${(j.followUp&&j.followUp.type===t)?' selected':''}>${t}</option>`).join("")}</select>
+   <input id="fuText" type="text" value="${esc(j.followUp?(j.followUp.text||''):'')}" placeholder="Custom message (optional)">
+   <input id="fuDate" type="date" value="${j.followUp&&j.followUp.date?j.followUp.date:''}">
+   <label style="display:flex;align-items:center;gap:8px;font-size:13px;color:#7c2d12;margin:2px 0 8px"><input id="fuRemind" type="checkbox" ${(j.followUp&&j.followUp.remind)?'checked':''} style="width:auto;margin:0"> 🔔 Remind me on Telegram on this date (via Office Manager)</label>
+   <button class="btn sec full" onclick="saveFollow('${id}')">Save follow-up</button></div>
+ <div class="nextbox"><div class="lbl">Next Step</div><div class="txt">${esc(nextText(j))}</div>
+   ${j.followUp&&j.followUp.date?`<div class="when">📅 ${relDate(j.followUp.date)} (${new Date(j.followUp.date+'T00:00:00').toLocaleDateString(undefined,{weekday:'short',month:'short',day:'numeric'})})</div>`:''}</div>
+ <div class="dcard"><div class="seclabel" style="margin:0 0 6px">Status: ${esc(stagePill(j))}</div><ul class="tl">${tl}</ul></div>
+ ${(j.status['Accepted']&&j.status['Accepted'].s==='done')?paperCard(id):''}
+ <div class="dcard"><div class="seclabel" style="margin:0 0 10px">Actions</div>
+   <div class="actions">
+     <button class="btn" onclick="sendInvoice('${id}')">📤 Send final invoice</button>
+     <button class="btn warn" onclick="reminderModal('${id}')">🔔 Send reminder</button>
+   </div>
+   <div style="margin-top:12px;display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+     <span class="pill ${j.paid?'paid':'unpaid'}">QuickBooks: ${j.paid?'PAID':'UNPAID'}</span>
+     ${j.invoiceNo?`<span class="note">Invoice #${esc(j.invoiceNo)}</span>`:''}
+     <button class="mini" onclick="historyModal('${id}')">🧾 Invoice history</button>
+     <button class="mini" onclick="togglePaid('${id}')">${j.paid?'Mark unpaid':'Mark paid'}</button>
+   </div>
+   <div class="note">Paid status &amp; send history sync from QuickBooks (daily). Live actions route through Dispatch.</div></div>
+ <div class="dcard"><div class="seclabel" style="margin:0 0 8px">Attachments (photos / documents)</div>${atts}
+   <button class="btn sec full" onclick="addAtt('${id}')">＋ Add attachment</button></div>
+ <div class="dcard"><div class="seclabel" style="margin:0 0 8px">Special Notes</div>
+   <textarea id="notesBox" placeholder="Anything special about this job…">${esc(j.notes)}</textarea>
+   <button class="btn sec full" onclick="saveNotes('${id}')">Save notes</button></div>`;}
+function doneStep(id,s){patch(id,o=>{o.status=o.status||{};o.status[s]={s:"done",d:new Date().toISOString().slice(0,10)};const i=STAGES.indexOf(s);if(i+1<STAGES.length){const nx=STAGES[i+1];const cur=(job(id).status[nx]||{}).s;if(cur!=="done"&&cur!=="skipped")o.status[nx]={s:"current"}}});toast("Marked '"+s+"' complete");renderDetail(id);renderJobs()}
+function undoStep(id,s){patch(id,o=>{o.status=o.status||{};o.status[s]={s:"current"};const i=STAGES.indexOf(s);for(let k=i+1;k<STAGES.length;k++){const st=(job(id).status[STAGES[k]]||{}).s;if(st==="current")o.status[STAGES[k]]={s:"upcoming"}}});toast("Undid '"+s+"'");renderDetail(id);renderJobs()}
+function jumpTo(id,s){patch(id,o=>{o.status=o.status||{};const ti=STAGES.indexOf(s);STAGES.forEach((st,i)=>{const cur=(job(id).status[st]||{s:"upcoming"}).s;if(i<ti){if(cur!=="done"&&cur!=="skipped")o.status[st]={s:"done",d:(job(id).status[st]&&job(id).status[st].d)||new Date().toISOString().slice(0,10)}}else if(i===ti){o.status[st]={s:"current"}}})});toast("Jumped to '"+s+"'");renderDetail(id);renderJobs()}
+function togglePaid(id){const j=job(id);patch(id,o=>{o.paid=!j.paid;if(o.paid){o.status=o.status||{};o.status["Paid"]={s:"done",d:new Date().toISOString().slice(0,10)}}});toast(job(id).paid?"Marked paid":"Marked unpaid");renderDetail(id);renderJobs()}
+function saveFollow(id){const ty=$("#fuType").value,t=$("#fuText").value,d=$("#fuDate").value,r=$("#fuRemind").checked;patch(id,o=>{o.followUp={type:ty,text:t,date:d,remind:r}});toast(r?("Saved — Office Manager will Telegram you"+(d?(" "+relDate(d)):"")):"Follow-up saved");renderDetail(id);renderJobs()}
+function togglePaper(id,key,on){patch(id,o=>{o.paperwork=o.paperwork||{};o.paperwork[key]=o.paperwork[key]||{steps:{}};o.paperwork[key].enabled=on});toast(on?'Enabled':'Disabled');renderDetail(id)}
+function paperStep(id,key,step){var cur=paper(id)[key].steps[step]==='done';patch(id,o=>{o.paperwork=o.paperwork||{};o.paperwork[key]=o.paperwork[key]||{enabled:true,steps:{}};o.paperwork[key].steps=o.paperwork[key].steps||{};o.paperwork[key].steps[step]=cur?'todo':'done'});renderDetail(id)}
+function subTrack(id,key,label,steps){var p=paper(id)[key];var done=steps.filter(function(s){return p.steps[s]==='done'}).length;
+ if(!p.enabled)return '<div style="border:1px solid var(--line);border-radius:12px;padding:12px;margin-bottom:8px"><div style="display:flex;justify-content:space-between;align-items:center"><b style="font-size:14px">'+label+'</b><button class="mini jump" onclick="togglePaper(\''+id+'\',\''+key+'\',true)">Enable</button></div><div class="note" style="margin-top:4px;border:0;padding:0">Not started for this job.</div></div>';
+ var rows=steps.map(function(s){var d=p.steps[s]==='done';return '<div style="display:flex;align-items:center;gap:8px;padding:5px 0"><button class="mini '+(d?'undo':'go')+'" onclick="paperStep(\''+id+'\',\''+key+'\',\''+s+'\')">'+(d?'↩':'✓')+'</button><span style="font-size:13px;'+(d?'color:#166534;font-weight:600':'')+'">'+s+'</span></div>'}).join("");
+ return '<div style="border:1px solid var(--line);border-radius:12px;padding:12px;margin-bottom:8px"><div style="display:flex;justify-content:space-between;align-items:center"><b style="font-size:14px">'+label+'</b><span class="pill">'+done+'/'+steps.length+'</span></div><div style="margin-top:6px">'+rows+'</div><button class="mini" style="margin-top:6px" onclick="togglePaper(\''+id+'\',\''+key+'\',false)">Disable</button></div>';}
+function paperCard(id){return '<div class="dcard"><div class="seclabel" style="margin:0 0 8px">📄 Paperwork (parallel to billing)</div>'+subTrack(id,'permit','⚡ Electrical Permit',PERMIT_STEPS)+subTrack(id,'coned','🏙️ Con Edison case',CONED_STEPS)+'</div>';}
+function saveNotes(id){patch(id,o=>{o.notes=$("#notesBox").value});toast("Notes saved")}
+function addAtt(id){const name=prompt("Attachment name (photo/document):");if(!name)return;const url=prompt("Link (optional):")||"";patch(id,o=>{o.attachments=(job(id).attachments||[]).concat([{name:name,url:url}])});toast("Attachment added");renderDetail(id)}
+function rmAtt(id,i){patch(id,o=>{const a=(job(id).attachments||[]).slice();a.splice(i,1);o.attachments=a});renderDetail(id)}
+function logSend(id,kind,to){patch(id,o=>{o.invoiceHistory=((OV[id]&&OV[id].invoiceHistory)||[]).concat([{date:new Date().toISOString().slice(0,10),to:to||job(id).email,kind:kind}])})}
+function sendInvoice(id){const j=job(id);if(!confirm("Queue final invoice to "+(j.email||"customer")+"?\n(Dispatch will send it via QuickBooks.)"))return;logSend(id,"Final invoice queued");toast("Invoice queued — Dispatch will send via QuickBooks");renderDetail(id)}
+function reminderModal(id){const j=job(id);openModal(`<h3>Send reminder — ${esc(j.customer)}</h3>
+  <div class="note" style="margin-top:0">Goes to ${esc(j.email||'customer')}. Edit the message:</div>
+  <textarea id="remMsg" style="margin-top:8px">Hi ${esc(j.customer.split(' ')[0])}, just a friendly reminder about your ${esc(j.title)} (invoice ${j.invoiceNo?'#'+j.invoiceNo:'pending'}). Please let us know if you have any questions. — LE Electric</textarea>
+  <button class="btn full" onclick="sendReminder('${id}')">🔔 Queue reminder</button>`)}
+function sendReminder(id){logSend(id,"Reminder queued");closeModal();toast("Reminder queued — Dispatch will send it");renderDetail(id)}
+function historyModal(id){const j=job(id);const h=(j.invoiceHistory||[]);openModal(`<h3>Invoice / send history</h3>${h.length?h.map(x=>`<div class="hist"><b>${esc(x.kind||'Sent')}</b><br>${esc(relDate(x.date))} (${esc(x.date)}) → ${esc(x.to||'')}</div>`).join(""):'<div class="note">Nothing sent yet.</div>'}<div class="note">Sync source: QuickBooks (daily).</div>`)}
+function openModal(html){$("#modalBody").innerHTML=html;$("#modal").classList.add("open")}
+function closeModal(){$("#modal").classList.remove("open")}
+function renderEstimates(){const items=JOBS.map(x=>job(x.id)).filter(j=>{const c=curStage(j);return c==="Estimate"||c==="Accepted"});$("#view-estimates").innerHTML=`<div class="seclabel">Estimates — pending / in progress</div>`+(items.length?items.map(jobCard).join(""):`<div class="note">Nothing pending.</div>`)}
+function renderAppts(){const items=JOBS.map(x=>job(x.id)).filter(j=>j.status["Scheduled"]&&j.status["Scheduled"].d&&j.status["Scheduled"].s!=="upcoming");$("#view-appts").innerHTML=`<div class="seclabel">Scheduled Appointments</div>`+(items.length?items.map(j=>`<div class="card" onclick="openJob('${j.id}')"><div class="body"><div class="title">${esc(j.customer)}</div><div class="meta">${esc(relDate(j.status["Scheduled"].d))} · ${esc(j.address)}</div><div class="next">${esc(j.title)}</div></div><div class="chev">›</div></div>`).join(""):`<div class="note">No appointments scheduled.</div>`)}
+function renderTasks(){$("#view-tasks").innerHTML=`<div class="seclabel">Next Tasks — across all jobs</div>`+JOBS.map(x=>job(x.id)).map(j=>`<div class="taskrow" onclick="openJob('${j.id}')"><div class="who">${esc(j.customer)} · ${esc(stagePill(j))}${j.followUp&&j.followUp.date?' · '+relDate(j.followUp.date):''}</div><div class="what">→ ${esc(nextText(j))}</div></div>`).join("")}
+function renderProgress(){$("#view-progress").innerHTML=`<div class="seclabel" style="color:#7c3aed">⚡ LE Electric Progress — request an update</div>
+  <div class="dcard"><div class="note" style="margin-top:0">Type what you want changed or added (a new job, a status change, a new feature), copy it, and send it to Dispatch — it'll action it.</div>
+   <textarea id="progMsg" style="margin-top:10px" placeholder="e.g. 'New lead: Cohen, panel upgrade at 12 Main, came by phone' or 'Mark Dani accepted' or 'Add a materials cost field'"></textarea>
+   <div class="actions" style="margin-top:8px"><button class="btn" onclick="copyProg()">📋 Copy request for Dispatch</button><button class="btn sec" onclick="document.getElementById('progMsg').value='';">Clear</button></div>
+   <div class="note">This BETA build stores test changes on this device only. Approved changes get promoted to the live system via "Copy update to main".</div></div>`}
+function copyProg(){const t=$("#progMsg").value.trim();if(!t){toast("Type a request first");return}const msg="[LE Job Pipeline update request] "+t;if(navigator.clipboard)navigator.clipboard.writeText(msg);toast("Copied — paste it to Dispatch")}
+const TITLES={jobs:"Jobs & Projects",detail:"Job Detail",estimates:"Estimates",appts:"Appointments",tasks:"Next Tasks",progress:"LE Electric Progress"};
+function go(tab){document.querySelectorAll(".view").forEach(v=>v.classList.remove("active"));$("#view-"+tab).classList.add("active");$("#subtitle").textContent=TITLES[tab]||"";document.querySelectorAll("nav.tabs button").forEach(b=>b.classList.toggle("on",b.dataset.tab===tab));window.scrollTo(0,0)}
+function openJob(id){renderDetail(id);go("detail");document.querySelectorAll("nav.tabs button").forEach(b=>b.classList.remove("on"))}
+document.querySelectorAll("nav.tabs button").forEach(b=>b.addEventListener("click",()=>{go(b.dataset.tab);if(b.dataset.tab==="progress")renderProgress()}));
+renderJobs();renderEstimates();renderAppts();renderTasks();
+function applyHash(){if(location.hash==='#progress'){go('progress');renderProgress();}}
+applyHash();window.addEventListener('hashchange',applyHash);
+</script>
+</body>
+</html>
