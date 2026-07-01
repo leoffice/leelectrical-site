@@ -1,0 +1,7 @@
+# Static site — no build step; publish repo root.
+[build]
+  publish = "."
+
+# Branch "beta" gets its own preview URL (test before promoting to live).
+[context.beta]
+  # deployed at the beta branch subdomain / branch-deploy URL

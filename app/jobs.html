@@ -1,0 +1,249 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="theme-color" content="#0f172a">
+<title>LE Job Pipeline</title>
+<style>
+  :root{
+    --bg:#f1f5f9; --card:#ffffff; --ink:#0f172a; --muted:#64748b;
+    --line:#e2e8f0; --brand:#1d4ed8; --brand-ink:#1e3a8a;
+    --done:#16a34a; --current:#d97706; --upcoming:#cbd5e1;
+    --pill-bg:#eff6ff; --pill-ink:#1d4ed8;
+    --shadow:0 1px 3px rgba(15,23,42,.08),0 1px 2px rgba(15,23,42,.04);
+  }
+  *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+  html,body{margin:0;padding:0}
+  body{
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+    background:var(--bg); color:var(--ink); line-height:1.45;
+    max-width:820px; margin:0 auto; padding-bottom:88px;
+  }
+  header.app{
+    position:sticky; top:0; z-index:20; background:var(--ink); color:#fff;
+    padding:16px 18px 12px; box-shadow:var(--shadow);
+  }
+  header.app h1{font-size:19px;margin:0;font-weight:650;letter-spacing:.2px}
+  header.app .sub{font-size:12.5px;color:#94a3b8;margin-top:2px}
+  .banner{background:#fffbeb;color:#92400e;font-size:12px;padding:7px 18px;border-bottom:1px solid #fde68a}
+  main{padding:14px}
+  .view{display:none}
+  .view.active{display:block}
+  /* Job cards */
+  .card{
+    background:var(--card); border:1px solid var(--line); border-radius:14px;
+    padding:14px 15px; margin-bottom:11px; box-shadow:var(--shadow); cursor:pointer;
+    display:flex; align-items:center; gap:12px; transition:transform .08s ease;
+  }
+  .card:active{transform:scale(.99)}
+  .card .body{flex:1;min-width:0}
+  .card .title{font-weight:640;font-size:15.5px}
+  .card .meta{font-size:12.5px;color:var(--muted);margin-top:1px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .card .next{font-size:12.5px;color:var(--brand-ink);margin-top:6px;font-weight:520}
+  .card .chev{color:#cbd5e1;font-size:20px;flex:none}
+  .stage-pill{
+    display:inline-block;font-size:11px;font-weight:650;padding:3px 9px;border-radius:999px;
+    background:var(--pill-bg);color:var(--pill-ink);margin-top:7px;white-space:nowrap;
+  }
+  .amt{font-size:13px;font-weight:640;color:var(--ink)}
+  /* Section labels */
+  .seclabel{font-size:12px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.6px;margin:6px 2px 10px}
+  .empty{color:var(--muted);font-size:13.5px;padding:20px 4px}
+  /* Detail */
+  .detail-head{display:flex;align-items:center;gap:8px;margin-bottom:12px}
+  .back{background:#fff;border:1px solid var(--line);border-radius:10px;padding:7px 12px;font-size:13px;font-weight:600;cursor:pointer;color:var(--ink)}
+  .dcard{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:16px;box-shadow:var(--shadow);margin-bottom:12px}
+  .dcard h2{margin:0 0 2px;font-size:18px}
+  .drow{font-size:13.5px;color:var(--muted);margin-top:3px}
+  .drow b{color:var(--ink);font-weight:600}
+  .nextbox{background:#eff6ff;border:1px solid #bfdbfe;border-radius:12px;padding:12px 14px;margin-bottom:12px}
+  .nextbox .lbl{font-size:11px;font-weight:700;color:#1d4ed8;text-transform:uppercase;letter-spacing:.5px}
+  .nextbox .txt{font-size:14.5px;font-weight:600;margin-top:3px;color:#1e3a8a}
+  /* Timeline */
+  .tl{list-style:none;margin:0;padding:0}
+  .tl li{display:flex;gap:12px;padding:0 0 2px}
+  .tl .dot{position:relative;flex:none;width:24px;display:flex;justify-content:center}
+  .tl .dot i{width:15px;height:15px;border-radius:50%;background:var(--upcoming);display:flex;align-items:center;justify-content:center;color:#fff;font-size:10px;font-style:normal;font-weight:700;z-index:2;margin-top:3px}
+  .tl .dot.done i{background:var(--done)}
+  .tl .dot.current i{background:var(--current);box-shadow:0 0 0 4px #fde68a}
+  .tl .dot.skipped i{background:#e2e8f0;color:#94a3b8}
+  .tl .dot::after{content:"";position:absolute;top:16px;bottom:-6px;width:2px;background:var(--line);z-index:1}
+  .tl li:last-child .dot::after{display:none}
+  .tl .lbl{flex:1;padding-bottom:14px}
+  .tl .lbl .s{font-size:14px;font-weight:600}
+  .tl .lbl .d{font-size:12px;color:var(--muted);margin-top:1px}
+  .tl .skipped .s{color:#94a3b8;font-weight:500}
+  .links{display:flex;flex-wrap:wrap;gap:8px;margin-top:4px}
+  .btn{display:inline-block;text-decoration:none;background:var(--brand);color:#fff;font-size:13px;font-weight:600;padding:9px 13px;border-radius:10px}
+  .btn.sec{background:#fff;color:var(--brand);border:1px solid #bfdbfe}
+  .note{font-size:13px;color:var(--muted);margin-top:10px;padding-top:10px;border-top:1px dashed var(--line)}
+  /* Bottom nav */
+  nav.tabs{
+    position:fixed;bottom:0;left:0;right:0;max-width:820px;margin:0 auto;
+    background:#fff;border-top:1px solid var(--line);display:flex;z-index:30;
+    padding-bottom:env(safe-area-inset-bottom,0);
+  }
+  nav.tabs button{
+    flex:1;background:none;border:none;padding:9px 4px 8px;cursor:pointer;
+    color:var(--muted);font-size:10.5px;font-weight:600;display:flex;flex-direction:column;align-items:center;gap:3px;
+  }
+  nav.tabs button .ic{font-size:19px;line-height:1}
+  nav.tabs button.on{color:var(--brand)}
+  nav.tabs button .badge{position:absolute;transform:translate(14px,-4px);background:#ef4444;color:#fff;font-size:9px;font-weight:700;min-width:15px;height:15px;border-radius:8px;display:flex;align-items:center;justify-content:center;padding:0 3px}
+  .taskrow{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:12px 14px;margin-bottom:9px;box-shadow:var(--shadow);cursor:pointer}
+  .taskrow .who{font-size:12px;color:var(--muted);font-weight:600}
+  .taskrow .what{font-size:14px;font-weight:600;margin-top:2px;color:#1e3a8a}
+</style>
+</head>
+<body>
+<header class="app">
+  <h1>LE Job Pipeline</h1>
+  <div class="sub" id="subtitle">Jobs &amp; Projects</div>
+</header>
+<div class="banner">Soft-launch test build · sample data · works offline</div>
+<main>
+  <section class="view active" id="view-jobs"></section>
+  <section class="view" id="view-detail"></section>
+  <section class="view" id="view-estimates"></section>
+  <section class="view" id="view-appts"></section>
+  <section class="view" id="view-tasks"></section>
+</main>
+<nav class="tabs">
+  <button data-tab="jobs" class="on"><span class="ic">📋</span>Jobs</button>
+  <button data-tab="estimates"><span class="ic">🧾</span>Estimates</button>
+  <button data-tab="appts"><span class="ic">📅</span>Appts</button>
+  <button data-tab="tasks"><span class="ic">✅</span>Next</button>
+</nav>
+
+<script>
+const STAGES = ["Lead","Site Visit","Estimate","Accepted","Invoiced","Scheduled","Done","Follow-up","Paid"];
+
+const JOBS = [
+  {
+    id:"JP-001", customer:"Peretz Chein", title:"Main panel upgrade",
+    contact:"Peretzch@gmail.com", address:"1370 Carroll St, Brooklyn NY 11213",
+    amount:"$2,300", source:"Email",
+    stagePill:"Job Scheduled", next:"Do installation tomorrow 10 AM, then collect payment",
+    status:{ "Lead":"done", "Site Visit":"skipped", "Estimate":"done", "Accepted":"done",
+             "Invoiced":"done", "Scheduled":"current", "Done":"upcoming", "Follow-up":"upcoming", "Paid":"upcoming" },
+    dates:{ "Estimate":"#25412 · accepted", "Invoiced":"#251841 · sent",
+            "Scheduled":"Tue Jul 1 · 10:00 AM – 2:00 PM" },
+    links:[
+      {label:"View Estimate", url:"https://qbo.intuit.com/app/login?pagereq=estimate%3FtxnId%3D19414&deeplinkcompanyid=123145679309372"},
+      {label:"View Invoice", url:"https://qbo.intuit.com/app/login?pagereq=invoice%3FtxnId%3D19939&deeplinkcompanyid=123145679309372"},
+      {label:"View Appointment", url:"https://www.google.com/calendar/event?eid=aDY4cTEyZWoyNG5lODlvcmk1dWdwbTgwOGsgb2ZmaWNlQGxlZWxlY3RyaWNhbC51cw", sec:true}
+    ],
+    note:"Confirmation reply to customer is waiting in Gmail drafts (you to send)."
+  },
+  {
+    id:"JP-002", customer:"Dani Babalov", title:"4-meter multimeter service upgrade",
+    contact:"D7185580496@gmail.com · tel 718-558-0496", address:"(not on file)",
+    amount:"$9,800", source:"Existing customer",
+    stagePill:"Pending Acceptance", next:"Follow up with Dani for acceptance",
+    status:{ "Lead":"done", "Site Visit":"skipped", "Estimate":"done", "Accepted":"current",
+             "Invoiced":"upcoming", "Scheduled":"upcoming", "Done":"upcoming", "Follow-up":"upcoming", "Paid":"upcoming" },
+    dates:{ "Estimate":"#25477 · sent Jun 29" },
+    links:[
+      {label:"View Estimate", url:"https://qbo.intuit.com/app/login?pagereq=estimate%3FtxnId%3D19934&deeplinkcompanyid=123145679309372"}
+    ],
+    note:"Estimate sent, awaiting the customer's yes."
+  },
+  {
+    id:"JP-003", customer:"Naftali — S&T Consulting", title:"Estimate inquiry (electrical)",
+    contact:"Naftalis@sandtconsulting.us", address:"TBD — 84th or 91st St (confirm)",
+    amount:"—", source:"Estimate inquiry",
+    stagePill:"Building Estimate", next:"Finalize scope + price, then send estimate",
+    status:{ "Lead":"done", "Site Visit":"skipped", "Estimate":"current", "Accepted":"upcoming",
+             "Invoiced":"upcoming", "Scheduled":"upcoming", "Done":"upcoming", "Follow-up":"upcoming", "Paid":"upcoming" },
+    dates:{},
+    links:[],
+    note:"Blueprints to be attached — point me to the file. Awaiting final scope."
+  }
+];
+
+const $ = s => document.querySelector(s);
+function esc(t){return (t||"").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;")}
+
+function jobCard(j){
+  return `<div class="card" onclick="openJob('${j.id}')">
+    <div class="body">
+      <div class="title">${esc(j.customer)}</div>
+      <div class="meta">${esc(j.title)} · ${esc(j.amount)}</div>
+      <span class="stage-pill">${esc(j.stagePill)}</span>
+      <div class="next">→ ${esc(j.next)}</div>
+    </div>
+    <div class="chev">›</div>
+  </div>`;
+}
+
+function renderJobs(){
+  $("#view-jobs").innerHTML = `<div class="seclabel">${JOBS.length} Active Jobs &amp; Projects</div>` + JOBS.map(jobCard).join("");
+}
+
+function renderDetail(j){
+  const tl = STAGES.map(s=>{
+    const st = j.status[s]||"upcoming";
+    const icon = st==="done"?"✓":st==="current"?"●":st==="skipped"?"–":"";
+    const d = j.dates[s]?`<div class="d">${esc(j.dates[s])}</div>`:(st==="current"?`<div class="d">In progress</div>`:(st==="skipped"?`<div class="d">Not needed</div>`:""));
+    return `<li><div class="dot ${st}"><i>${icon}</i></div><div class="lbl ${st}"><div class="s">${esc(s)}</div>${d}</div></li>`;
+  }).join("");
+  const links = j.links.length? `<div class="links">${j.links.map(l=>`<a class="btn ${l.sec?'sec':''}" href="${l.url}" target="_blank" rel="noopener">${esc(l.label)}</a>`).join("")}</div>`:"";
+  $("#view-detail").innerHTML = `
+    <div class="detail-head"><button class="back" onclick="go('jobs')">‹ Jobs</button></div>
+    <div class="dcard">
+      <h2>${esc(j.customer)}</h2>
+      <div class="drow"><b>${esc(j.title)}</b> · ${esc(j.amount)}</div>
+      <div class="drow">📍 ${esc(j.address)}</div>
+      <div class="drow">✉️ ${esc(j.contact)}</div>
+    </div>
+    <div class="nextbox"><div class="lbl">Next Step</div><div class="txt">${esc(j.next)}</div></div>
+    <div class="dcard">
+      <div class="seclabel" style="margin:0 0 12px">Progress</div>
+      <ul class="tl">${tl}</ul>
+      ${links}
+      ${j.note?`<div class="note">📎 ${esc(j.note)}</div>`:""}
+    </div>`;
+}
+
+function renderEstimates(){
+  const list = JOBS.filter(j=>j.status["Estimate"]==="current"||j.status["Accepted"]==="current"||j.status["Estimate"]==="done"&&j.status["Accepted"]==="current");
+  const items = JOBS.filter(j=>["Building Estimate","Pending Acceptance"].includes(j.stagePill));
+  $("#view-estimates").innerHTML = `<div class="seclabel">Estimates — pending / in progress</div>` +
+    (items.length? items.map(jobCard).join("") : `<div class="empty">Nothing pending.</div>`);
+}
+
+function renderAppts(){
+  const items = JOBS.filter(j=>j.dates["Scheduled"]);
+  $("#view-appts").innerHTML = `<div class="seclabel">Scheduled Appointments</div>` +
+    (items.length? items.map(j=>`<div class="card" onclick="openJob('${j.id}')"><div class="body">
+        <div class="title">${esc(j.customer)}</div>
+        <div class="meta">${esc(j.dates["Scheduled"])}</div>
+        <div class="meta">📍 ${esc(j.address)}</div>
+        <div class="next">${esc(j.title)}</div></div><div class="chev">›</div></div>`).join("")
+      : `<div class="empty">No appointments scheduled.</div>`);
+}
+
+function renderTasks(){
+  $("#view-tasks").innerHTML = `<div class="seclabel">Next Tasks — across all jobs</div>` +
+    JOBS.map(j=>`<div class="taskrow" onclick="openJob('${j.id}')">
+      <div class="who">${esc(j.customer)} · ${esc(j.stagePill)}</div>
+      <div class="what">→ ${esc(j.next)}</div></div>`).join("");
+}
+
+const TITLES = {jobs:"Jobs & Projects", detail:"Job Detail", estimates:"Estimates", appts:"Appointments", tasks:"Next Tasks"};
+function go(tab){
+  document.querySelectorAll(".view").forEach(v=>v.classList.remove("active"));
+  $("#view-"+tab).classList.add("active");
+  $("#subtitle").textContent = TITLES[tab]||"";
+  document.querySelectorAll("nav.tabs button").forEach(b=>b.classList.toggle("on", b.dataset.tab===tab));
+  window.scrollTo(0,0);
+}
+function openJob(id){ renderDetail(JOBS.find(j=>j.id===id)); go("detail"); document.querySelectorAll("nav.tabs button").forEach(b=>b.classList.remove("on")); }
+
+document.querySelectorAll("nav.tabs button").forEach(b=>b.addEventListener("click",()=>go(b.dataset.tab)));
+renderJobs(); renderEstimates(); renderAppts(); renderTasks();
+</script>
+</body>
+</html>

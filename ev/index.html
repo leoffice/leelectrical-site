@@ -1,0 +1,312 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Free EV Charger Installation for Businesses | LE Electrical</title>
+<meta name="description" content="Get Level 2 EV chargers installed at your business with no upfront cost. LE Electrical handles the paperwork, permits, and installation — and you earn from every charging session.">
+<link rel="icon" type="image/png" href="/LE.png">
+<style>
+  :root{
+    --lime:#aee63c;
+    --lime-bright:#c8f55a;
+    --green-mid:#3f9b3a;
+    --forest:#0e5c28;
+    --forest-deep:#08401c;
+    --charcoal:#222423;
+    --ink:#1c2420;
+    --gray:#5c6862;
+    --line:#dfe8e0;
+    --cream:#f5f9f2;
+    --white:#fff;
+  }
+  *{margin:0;padding:0;box-sizing:border-box}
+  body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;color:var(--ink);line-height:1.6;background:#fff}
+  .container{max-width:1060px;margin:0 auto;padding:0 20px}
+  .btn{display:inline-block;background:var(--lime);color:var(--charcoal);font-weight:800;font-size:17px;padding:15px 32px;border-radius:10px;text-decoration:none;border:none;cursor:pointer;box-shadow:0 4px 0 var(--charcoal);transition:transform .12s,box-shadow .12s}
+  .btn:hover{transform:translateY(-2px);box-shadow:0 6px 0 var(--charcoal)}
+  .btn:active{transform:translateY(2px);box-shadow:0 2px 0 var(--charcoal)}
+
+  /* Header + countdown bar stacked and pinned together at the top */
+  .ev-sticky{position:sticky;top:0;z-index:60;box-shadow:0 4px 14px rgba(8,64,28,.12)}
+  .countdown-bar{background:var(--charcoal);color:#fff;border-bottom:2px solid var(--lime);padding:9px 0}
+  .countdown-inner{display:flex;align-items:center;justify-content:center;gap:8px 16px;flex-wrap:wrap;text-align:center}
+  .cd-lead{font-weight:800;font-size:14.5px;color:#fff}
+  .cd-lead b{color:var(--lime-bright)}
+  .cd-clock{display:inline-flex;align-items:center;gap:7px}
+  .cd-unit{display:inline-flex;flex-direction:column;align-items:center;line-height:1;min-width:46px;background:rgba(174,230,60,.12);border:1px solid rgba(174,230,60,.4);border-radius:8px;padding:5px 8px}
+  .cd-unit b{font-size:21px;font-weight:900;color:var(--lime-bright);font-variant-numeric:tabular-nums}
+  .cd-unit i{font-style:normal;font-size:9.5px;text-transform:uppercase;letter-spacing:.6px;color:#9fb7a4;margin-top:3px}
+  .cd-referral{font-size:13.5px;font-weight:800;color:var(--lime-bright);background:rgba(174,230,60,.12);border:1px solid rgba(174,230,60,.4);border-radius:999px;padding:5px 13px;white-space:nowrap}
+  .cd-referral b{color:#fff}
+
+  header{background:#fff;border-bottom:1px solid var(--line)}
+  .header-inner{display:flex;align-items:center;justify-content:space-between;max-width:1060px;margin:0 auto;padding:12px 20px}
+  .logo{display:flex;align-items:center;gap:10px;text-decoration:none}
+  .logo img{height:40px;width:auto}
+  .logo b{font-size:20px;font-weight:800;color:var(--forest)}
+  .home-link{font-size:14px;color:var(--gray);text-decoration:none;border:1px solid var(--line);border-radius:8px;padding:7px 14px}
+  .home-link:hover{border-color:var(--forest);color:var(--forest)}
+  .header-phone{color:var(--forest);font-weight:700;text-decoration:none;font-size:15px}
+  .header-right{display:flex;align-items:center;gap:14px}
+
+  .hero{background:linear-gradient(175deg,var(--lime-bright) 0%,var(--lime) 22%,var(--green-mid) 58%,var(--forest) 85%,var(--forest-deep) 100%);padding:80px 0 70px;position:relative}
+  .hero h1{font-size:clamp(32px,5.2vw,52px);font-weight:800;line-height:1.12;max-width:780px;color:var(--charcoal);letter-spacing:-.5px;margin-bottom:18px;text-shadow:0 1px 0 rgba(255,255,255,.35)}
+  .hero .sub{font-size:clamp(17px,2.2vw,20px);max-width:660px;color:#10310f;font-weight:500;margin-bottom:30px}
+  .hero .sub b{color:var(--charcoal)}
+  .hero-ctas{display:flex;align-items:center;gap:16px;flex-wrap:wrap;margin-bottom:34px}
+  .hero-call{color:#eaffd8;font-weight:700;text-decoration:none;font-size:16px}
+  .hero-points{display:flex;gap:22px;flex-wrap:wrap}
+  .hero-points span{color:#eaffd8;font-weight:600;font-size:14.5px}
+  .hero-points b{color:var(--lime-bright)}
+
+  .section{padding:64px 0}
+  h2{font-size:clamp(25px,3.8vw,34px);color:var(--forest-deep);margin-bottom:10px;letter-spacing:-.3px}
+  .sub2{color:var(--gray);max-width:660px;margin-bottom:32px;font-size:17px}
+
+  .benefits{background:var(--cream)}
+  .ben-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(250px,1fr));gap:20px}
+  .ben{background:#fff;border:1px solid var(--line);border-radius:14px;padding:26px;border-top:4px solid var(--lime)}
+  .ben h3{font-size:18px;color:var(--forest-deep);margin-bottom:8px}
+  .ben p{color:var(--gray);font-size:15px}
+  .ben .tag{display:inline-block;background:var(--lime);color:var(--charcoal);font-size:11.5px;font-weight:800;letter-spacing:.8px;text-transform:uppercase;border-radius:999px;padding:3px 10px;margin-bottom:12px}
+
+  .handle{background:var(--charcoal);color:#fff}
+  .handle h2{color:#fff}
+  .handle .sub2{color:#b9c4bb}
+  .handle-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:16px}
+  .step{background:#2d302e;border-radius:12px;padding:22px;border-left:4px solid var(--lime)}
+  .step b{display:block;color:var(--lime-bright);font-size:15.5px;margin-bottom:6px}
+  .step span{color:#c3cdc4;font-size:14px}
+  .handle-note{margin-top:26px;color:#eaffd8;font-weight:600;font-size:16.5px}
+
+  .form-section{background:linear-gradient(180deg,var(--cream),#fff)}
+  .form-card{max-width:560px;margin:0 auto;background:#fff;border:1px solid var(--line);border-top:5px solid var(--lime);border-radius:16px;box-shadow:0 14px 44px rgba(8,64,28,.14);padding:34px}
+  .form-card h2{text-align:center;font-size:24px}
+  .form-card .fsub{text-align:center;color:var(--gray);font-size:15px;margin-bottom:22px}
+  .field{margin-bottom:15px}
+  .field label{display:block;font-weight:600;font-size:14px;margin-bottom:5px;color:var(--forest-deep)}
+  .field label .req{color:#c43d3d}
+  .field input{width:100%;padding:12px 13px;border:1.5px solid var(--line);border-radius:9px;font-size:15.5px;font-family:inherit}
+  .field input:focus{outline:none;border-color:var(--green-mid);box-shadow:0 0 0 3px rgba(63,155,58,.15)}
+  .field-row{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+  .form-btn{width:100%;font-size:17px}
+  .fine{text-align:center;font-size:12.5px;color:var(--gray);margin-top:12px}
+  .referral-note{margin-top:8px;font-size:12.5px;line-height:1.45;color:var(--forest);background:#f1f8ea;border:1px solid #d8ead0;border-left:3px solid var(--lime);border-radius:8px;padding:9px 12px}
+  .referral-note b{color:var(--forest-deep)}
+  .form-error{display:none;background:#fdecec;border:1px solid #f0bcbc;color:#9b2222;border-radius:9px;padding:11px 14px;font-size:14px;margin-bottom:14px}
+  .success{display:none;text-align:center;padding:24px 6px}
+  .success .check{width:64px;height:64px;border-radius:50%;background:#e8f6e3;color:#2c8a2c;font-size:32px;display:flex;align-items:center;justify-content:center;margin:0 auto 14px}
+  .success h3{font-size:21px;color:var(--forest-deep);margin-bottom:8px}
+  .success p{color:var(--gray);font-size:15px}
+
+  footer{background:var(--forest-deep);color:#a7c6ae;font-size:13px;padding:26px 0}
+  .footer-inner{max-width:1060px;margin:0 auto;padding:0 20px;display:flex;justify-content:space-between;gap:14px;flex-wrap:wrap}
+  footer a{color:#dff3d2;text-decoration:none}
+  .footer-legal{max-width:1060px;margin:10px auto 0;padding:0 20px;font-size:11.5px;color:#7da487;line-height:1.6}
+
+  @media(max-width:820px){
+    .field-row{grid-template-columns:1fr}
+    .header-phone{display:none}
+    .hero{padding:60px 0 54px}
+  }
+  @media(max-width:560px){
+    .countdown-bar{padding:8px 0}
+    .cd-lead{font-size:12.5px;display:block;width:100%}
+    .cd-unit{min-width:38px;padding:4px 6px}
+    .cd-unit b{font-size:18px}
+    .cd-unit i{font-size:9px}
+    .cd-referral{flex-basis:100%;white-space:normal;text-align:center;font-size:12px;background:transparent;border:none;padding:3px 0 0;color:var(--lime-bright)}
+    .header-inner{padding:8px 16px}
+    .logo img{height:30px}
+    .logo b{font-size:17px}
+    .home-link{font-size:13px;padding:6px 11px}
+  }
+</style>
+</head>
+<body>
+
+<!-- Header on top + countdown bar directly below, both pinned/sticky together -->
+<div class="ev-sticky">
+  <header>
+    <div class="header-inner">
+      <a class="logo" href="/ev/">
+        <img src="/LE.png" alt="LE Electrical">
+        <b>LE Electrical</b>
+      </a>
+      <div class="header-right">
+        <a class="header-phone" href="tel:+17185941850">(718) 594-1850</a>
+        <a class="home-link" href="/">&larr; Back to homepage</a>
+      </div>
+    </div>
+  </header>
+
+  <div class="countdown-bar" id="countdown-bar">
+    <div class="container countdown-inner">
+      <span class="cd-lead">⏳ Applications must be submitted within the next…</span>
+      <span class="cd-clock" id="cd-clock" aria-label="Time remaining to apply">
+        <span class="cd-unit"><b id="cd-d">00</b><i>Days</i></span>
+        <span class="cd-unit"><b id="cd-h">00</b><i>Hrs</i></span>
+        <span class="cd-unit"><b id="cd-m">00</b><i>Min</i></span>
+        <span class="cd-unit"><b id="cd-s">00</b><i>Sec</i></span>
+      </span>
+      <span class="cd-referral">🎁 Refer a friend and receive up to <b>$1,000</b> ($100 per charger)</span>
+    </div>
+  </div>
+</div>
+
+<section class="hero">
+  <div class="container">
+    <h1>Get Free EV Chargers Installed &mdash; $0 Cost. We Cover Everything.</h1>
+    <p class="sub">Utility incentive programs are covering the cost of Level&nbsp;2 EV chargers at qualifying businesses. <b>LE Electrical handles everything &mdash; you pay nothing, own the chargers, and earn from every charging session.</b></p>
+    <div class="hero-ctas">
+      <a class="btn" href="#apply">Check If My Business Qualifies</a>
+      <a class="hero-call" href="tel:+17185941850">or call (718) 594-1850</a>
+    </div>
+    <div class="hero-points">
+      <span><b>&#10003;</b> $0 Cost. We Cover Everything.</span>
+      <span><b>&#10003;</b> You set the rates &amp; keep the income</span>
+      <span><b>&#10003;</b> Licensed &amp; insured installers</span>
+    </div>
+  </div>
+</section>
+
+<section class="section benefits">
+  <div class="container">
+    <h2>Turn Your Parking Spaces Into Assets That Pay You</h2>
+    <p class="sub2">Your parking spaces can do more than sit there. The right chargers turn them into a steady income stream and a magnet for new customers.</p>
+    <div class="ben-grid">
+      <div class="ben">
+        <span class="tag">Earn</span>
+        <h3>Income From Every Space</h3>
+        <p>The chargers are yours. You set the price drivers pay per session or per kWh &mdash; price above your electricity cost and the margin is yours on every charge. Empty spaces that earned nothing start paying you. (Actual earnings depend on usage and the rates you set.)</p>
+      </div>
+      <div class="ben">
+        <span class="tag">Attract</span>
+        <h3>More Customers, Longer Visits</h3>
+        <p>EV drivers plan their stops around charging. A business with chargers gets chosen over one without &mdash; drivers pull in, stay longer while they charge, spend more, and come back. More foot traffic, more sales.</p>
+      </div>
+      <div class="ben">
+        <span class="tag">No Risk</span>
+        <h3>No Upfront Costs. No Hidden Fees.</h3>
+        <p>Incentive funding covers the equipment and installation &mdash; no capital outlay, no financing, and no surprise fees to get started. If your property qualifies, the program pays for the install, not you.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section class="section handle">
+  <div class="container">
+    <h2>We Handle Everything</h2>
+    <p class="sub2">You shouldn't need to become an expert in utility programs to benefit from one. That's our job.</p>
+    <div class="handle-grid">
+      <div class="step"><b>1 &middot; Paperwork</b><span>Incentive applications, documentation, and utility coordination &mdash; prepared and filed by us.</span></div>
+      <div class="step"><b>2 &middot; Permits</b><span>All permits and code compliance handled by our licensed team.</span></div>
+      <div class="step"><b>3 &middot; Installation</b><span>Professional installation by licensed, insured electricians &mdash; minimal disruption to your business.</span></div>
+    </div>
+    <p class="handle-note">Takes less than 3 minutes &mdash; we handle the paperwork, permits, and installation.</p>
+  </div>
+</section>
+
+<section class="section form-section" id="apply">
+  <div class="container">
+    <div class="form-card">
+      <div id="form-content">
+        <h2>Check If Your Business Qualifies</h2>
+        <p class="fsub">Free eligibility check &middot; 30 seconds &middot; no obligation. We'll contact you within one business day.</p>
+        <div class="form-error" id="form-error">Something went wrong. Please try again or call (718) 594-1850.</div>
+        <form id="lead-form" action="https://formspree.io/f/mwvjwvjk" method="POST">
+          <div class="field">
+            <label for="name">Your name <span class="req">*</span></label>
+            <input type="text" id="name" name="name" required autocomplete="name">
+          </div>
+          <div class="field-row">
+            <div class="field">
+              <label for="phone">Phone <span class="req">*</span></label>
+              <input type="tel" id="phone" name="phone" required autocomplete="tel">
+            </div>
+            <div class="field">
+              <label for="email">Email <span class="req">*</span></label>
+              <input type="email" id="email" name="email" required autocomplete="email">
+            </div>
+          </div>
+          <div class="field">
+            <label for="address">Business address <span class="req">*</span></label>
+            <input type="text" id="address" name="business_address" placeholder="Street, city, state" required>
+          </div>
+          <div class="field">
+            <label for="referred-by">Referred by <span style="color:var(--gray);font-weight:400">(optional)</span></label>
+            <input type="text" id="referred-by" name="referred_by" placeholder="Referrer's name and phone or email" autocomplete="off">
+            <p class="referral-note">💸 Refer a friend and receive up to <b>$1,000</b> ($100 per charger) &mdash; paid after completion.</p>
+          </div>
+          <input type="hidden" name="_subject" value="&#9889; New EV charger lead &mdash; leelectrical.us/ev">
+          <input type="text" name="_gotcha" style="display:none" tabindex="-1" autocomplete="off">
+          <button type="submit" class="btn form-btn" id="submit-btn">Check My Eligibility &mdash; Free</button>
+          <p class="fine">Your information is private and never shared or sold.</p>
+        </form>
+      </div>
+      <div class="success" id="success-msg">
+        <div class="check">&#10003;</div>
+        <h3>Got it &mdash; thank you!</h3>
+        <p>We've received your details and will contact you within one business day to confirm whether your property qualifies.</p>
+        <p style="margin-top:10px">Need us sooner? Call <a href="tel:+17185941850" style="color:var(--forest);font-weight:700;text-decoration:none">(718) 594-1850</a>.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<footer>
+  <div class="footer-inner">
+    <div><strong style="color:#fff">LE Electrical</strong> &middot; Licensed &amp; Insured &middot; Brooklyn, NY</div>
+    <div><a href="tel:+17185941850">(718) 594-1850</a> &middot; <a href="mailto:office@leelectrical.us">office@leelectrical.us</a> &middot; <a href="/">leelectrical.us</a></div>
+  </div>
+  <div class="footer-legal">LE Electrical is an independent electrical contracting company and is not affiliated with any utility. Incentive funding, eligibility, and availability are determined solely by the relevant program administrators and are subject to program terms and application approval. Charging revenue varies by property, usage, and pricing; no specific income is guaranteed.</div>
+</footer>
+
+<script>
+/* Countdown to end of day, July 14, 2026 (local time) */
+(function(){
+  var target = new Date(2026, 6, 14, 23, 59, 59).getTime();
+  function pad(n){ return (n < 10 ? "0" : "") + n; }
+  function tick(){
+    var diff = target - Date.now();
+    if (diff < 0) diff = 0;
+    var s = Math.floor(diff / 1000);
+    var d = Math.floor(s / 86400); s -= d * 86400;
+    var h = Math.floor(s / 3600);  s -= h * 3600;
+    var m = Math.floor(s / 60);    s -= m * 60;
+    var el;
+    if ((el = document.getElementById("cd-d"))) el.textContent = pad(d);
+    if ((el = document.getElementById("cd-h"))) el.textContent = pad(h);
+    if ((el = document.getElementById("cd-m"))) el.textContent = pad(m);
+    if ((el = document.getElementById("cd-s"))) el.textContent = pad(s);
+  }
+  tick();
+  setInterval(tick, 1000);
+})();
+(function(){
+  var form = document.getElementById("lead-form");
+  var btn = document.getElementById("submit-btn");
+  var errBox = document.getElementById("form-error");
+  form.addEventListener("submit", function(e){
+    e.preventDefault();
+    errBox.style.display = "none";
+    btn.disabled = true;
+    btn.textContent = "Sending…";
+    fetch(form.action, { method:"POST", body:new FormData(form), headers:{ "Accept":"application/json" } })
+      .then(function(res){
+        if(res.ok){
+          document.getElementById("form-content").style.display = "none";
+          document.getElementById("success-msg").style.display = "block";
+        } else { throw new Error("failed"); }
+      })
+      .catch(function(){
+        errBox.style.display = "block";
+        btn.disabled = false;
+        btn.textContent = "Check My Eligibility — Free";
+      });
+  });
+})();
+</script>
+</body>
+</html>
