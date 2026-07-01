@@ -120,6 +120,8 @@
     <div id="gLand" style="display:none">
       <button onclick="document.getElementById('gate').style.display='none'" style="display:flex;width:100%;gap:14px;align-items:center;text-align:left;background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.12);border-radius:14px;padding:16px;color:#eef3fa;cursor:pointer;margin-bottom:12px;font-family:inherit"><span style="font-size:28px">🏢</span><span><b style="font-size:16px">LE Command Center</b><br><span style="font-size:12px;color:#9bb0c9">Office floor · agents · chat · live ops</span></span></button>
       <button onclick="openJobs()" style="display:flex;width:100%;gap:14px;align-items:center;text-align:left;text-decoration:none;background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.12);border-radius:14px;padding:16px;color:#eef3fa;cursor:pointer;font-family:inherit"><span style="font-size:28px">📋</span><span><b style="font-size:16px">LE Electric — Jobs in Progress</b><br><span style="font-size:12px;color:#9bb0c9">Jobs · progress · next steps</span></span></button>
+      <button onclick="openJobs('')" style="display:flex;width:100%;gap:14px;align-items:center;text-align:left;background:linear-gradient(135deg,rgba(124,58,237,.22),rgba(168,85,247,.10));border:1px solid rgba(168,85,247,.5);border-radius:14px;padding:16px;color:#eef3fa;cursor:pointer;margin-top:12px;font-family:inherit"><span style="font-size:28px">⚡</span><span><b style="font-size:16px">Early Access — Jobs in Progress <span style="font-size:10px;font-weight:800;background:#7c3aed;color:#fff;padding:2px 7px;border-radius:999px;margin-left:4px">BETA</span></b><br><span style="font-size:12px;color:#c4b5fd">Test new features safely · promote to main when approved</span></span></button>
+      <button onclick="openProgress()" style="display:flex;width:100%;gap:14px;align-items:center;text-align:left;background:rgba(124,58,237,.12);border:1px solid rgba(168,85,247,.35);border-radius:14px;padding:16px;color:#eef3fa;cursor:pointer;margin-top:12px;font-family:inherit"><span style="font-size:28px">📝</span><span><b style="font-size:16px">LE Electric Progress</b><br><span style="font-size:12px;color:#c4b5fd">Quick prompt — request an update or change</span></span></button>
       <button id="gOut" style="display:block;margin:18px auto 0;background:none;border:0;color:#9bb0c9;font-size:12px;cursor:pointer;text-decoration:underline">Sign out</button>
     </div>
   </div>
@@ -371,7 +373,8 @@ window.addEventListener('load',()=>{build();bindRooms();applyRole('owner');fetch
   <iframe id="jobsFrame" title="Jobs in Progress" style="flex:1;width:100%;border:0" src=""></iframe>
 </div>
 <script>
-function openJobs(){var f=document.getElementById('jobsFrame');if(!f.getAttribute('src')){f.setAttribute('src','jobs.html');}document.getElementById('jobsView').style.display='flex';}
+function openJobs(hash){var f=document.getElementById('jobsFrame');f.setAttribute('src','jobs.html'+(hash||''));document.getElementById('jobsView').style.display='flex';}
+function openProgress(){openJobs('#progress');}
 function closeJobs(){document.getElementById('jobsView').style.display='none';}
 </script>
 </body>
