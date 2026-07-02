@@ -1,12 +1,11 @@
 import { getStore } from "@netlify/blobs";
 
-// Development Task List store. Two separate lists: "dashboard" and "beta".
-// GET  -> { lists:{dashboard:[...], beta:[...]}, ts }
-// POST -> { op, list, id?, task?, patch? }  ops: add | patch | remove
-//   add: server assigns num (max+1 within that list) and id; returns full doc
-//   patch: Object.assign onto the task with matching id
-//   remove: delete the task with matching id
-const KEY = "devtasks-v1";
+// Development Task List store — ONE shared list shown on both Dashboard and Beta.
+// Each task has target:{beta,dashboard}. Dashboard implies Beta (dashboard build
+// auto-propagates to beta); Beta-only stays in beta until promoted.
+// GET  -> { tasks:[...], seq, ts }
+// POST -> { op, id?, task?, patch? }   ops: add | patch | remove
+const KEY = "devtasks-v2";
 
 function json(o) {
   return new Response(JSON.stringify(o), {
@@ -21,7 +20,7 @@ function json(o) {
 }
 
 async function load(store) {
-  return (await store.get(KEY, { type: "json" })) || { lists: { dashboard: [], beta: [] }, ts: 0 };
+  return (await store.get(KEY, { type: "json" })) || { tasks: [], seq: 0, ts: 0 };
 }
 
 export default async (req) => {
@@ -31,24 +30,20 @@ export default async (req) => {
     let b = {};
     try { b = await req.json(); } catch (e) {}
     const doc = await load(store);
-    const list = b.list === "beta" ? "beta" : "dashboard";
-    doc.lists[list] = doc.lists[list] || [];
-    const arr = doc.lists[list];
+    doc.tasks = doc.tasks || [];
     if (b.op === "add" && b.task) {
-      // Global sequence across BOTH lists so a number is never reused or shared.
       doc.seq = (doc.seq || 0) + 1;
-      const num = doc.seq;
       const t = Object.assign(
-        { status: "new", understanding: "", report: "", images: [], priority: "Normal", ts: Date.now() },
+        { status: "new", understanding: "", question: "", report: "", images: [], priority: "Normal", target: { beta: false, dashboard: false }, ts: Date.now() },
         b.task,
-        { id: "t" + Date.now() + Math.random().toString(36).slice(2, 6), num }
+        { id: "t" + Date.now() + Math.random().toString(36).slice(2, 6), num: doc.seq }
       );
-      arr.push(t);
+      doc.tasks.push(t);
     } else if (b.op === "patch" && b.id && b.patch) {
-      const t = arr.find((x) => x.id === b.id);
+      const t = doc.tasks.find((x) => x.id === b.id);
       if (t) Object.assign(t, b.patch);
     } else if (b.op === "remove" && b.id) {
-      doc.lists[list] = arr.filter((x) => x.id !== b.id);
+      doc.tasks = doc.tasks.filter((x) => x.id !== b.id);
     }
     doc.ts = Date.now();
     await store.setJSON(KEY, doc);
