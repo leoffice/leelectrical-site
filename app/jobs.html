@@ -137,7 +137,13 @@ const JOBS=[
 ];
 const LS="le_jobs_beta_v1";
 function loadOv(){try{return JSON.parse(localStorage.getItem(LS))||{}}catch(e){return{}}}
-function saveOv(o){try{localStorage.setItem(LS,JSON.stringify(o))}catch(e){}}
+function saveOv(o){try{localStorage.setItem(LS,JSON.stringify(o))}catch(e){}_syncPush();}
+const SYNC_URL="/.netlify/functions/state";
+let OVTS=+(localStorage.getItem(LS+"_ts")||0),_dirty=false,_pushT=null,CURID=null;
+function _syncPush(){_dirty=true;clearTimeout(_pushT);_pushT=setTimeout(_pushNow,800);}
+async function _pushNow(){if(!_dirty)return;try{const r=await fetch(SYNC_URL,{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({ov:OV})});const d=await r.json();if(d&&d.ts){OVTS=d.ts;try{localStorage.setItem(LS+"_ts",OVTS)}catch(e){}}_dirty=false;}catch(e){setTimeout(_pushNow,5000);}}
+async function _pullNow(){try{const r=await fetch(SYNC_URL,{cache:"no-store"});const d=await r.json();if(d&&typeof d.ts==="number"&&d.ts>OVTS&&!_dirty){OV=d.ov||{};OVTS=d.ts;try{localStorage.setItem(LS,JSON.stringify(OV));localStorage.setItem(LS+"_ts",OVTS)}catch(e){}_rerender();}}catch(e){}}
+function _rerender(){["renderJobs","renderEstimates","renderAppts","renderTasks"].forEach(function(fn){try{if(typeof window[fn]==="function")window[fn]()}catch(e){}});try{var dv=document.querySelector("#view-detail");if(CURID&&dv&&dv.classList.contains("active"))renderDetail(CURID)}catch(e){}}
 let OV=loadOv();
 function job(id){const j=JOBS.find(x=>x.id===id);const o=OV[id]||{};
   const m=JSON.parse(JSON.stringify(j));
@@ -241,11 +247,12 @@ function renderProgress(){$("#view-progress").innerHTML=`<div class="seclabel" s
 function copyProg(){const t=$("#progMsg").value.trim();if(!t){toast("Type a request first");return}const msg="[LE Job Pipeline update request] "+t;if(navigator.clipboard)navigator.clipboard.writeText(msg);toast("Copied — paste it to Dispatch")}
 const TITLES={jobs:"Jobs & Projects",detail:"Job Detail",estimates:"Estimates",appts:"Appointments",tasks:"Next Tasks",progress:"LE Electric Progress"};
 function go(tab){document.querySelectorAll(".view").forEach(v=>v.classList.remove("active"));$("#view-"+tab).classList.add("active");$("#subtitle").textContent=TITLES[tab]||"";document.querySelectorAll("nav.tabs button").forEach(b=>b.classList.toggle("on",b.dataset.tab===tab));window.scrollTo(0,0)}
-function openJob(id){renderDetail(id);go("detail");document.querySelectorAll("nav.tabs button").forEach(b=>b.classList.remove("on"))}
+function openJob(id){CURID=id;renderDetail(id);go("detail");document.querySelectorAll("nav.tabs button").forEach(b=>b.classList.remove("on"))}
 document.querySelectorAll("nav.tabs button").forEach(b=>b.addEventListener("click",()=>{go(b.dataset.tab);if(b.dataset.tab==="progress")renderProgress()}));
 renderJobs();renderEstimates();renderAppts();renderTasks();
 function applyHash(){if(location.hash==='#progress'){go('progress');renderProgress();}}
 applyHash();window.addEventListener('hashchange',applyHash);
+_pullNow();setInterval(_pullNow,15000);window.addEventListener("focus",_pullNow);document.addEventListener("visibilitychange",function(){if(!document.hidden)_pullNow()});
 function sendDispatch(){var el=document.getElementById('dispatchMsg');var t=el.value.trim();if(!t){toast('Type a message');return}toast('Sending…');fetch('/.netlify/functions/iterate',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({message:t,source:'real-dashboard'})}).then(function(r){return r.json()}).then(function(d){if(d&&d.ok){el.value='';toast('✅ Sent to Dispatch')}else{toast('Send failed')}}).catch(function(){toast('Send failed')})}
 var _dm=document.getElementById('dispatchMsg');if(_dm)_dm.addEventListener('keydown',function(e){if(e.key==='Enter')sendDispatch()});
 </script>
