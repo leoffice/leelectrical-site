@@ -20,7 +20,8 @@ function json(o) {
 }
 
 async function load(store) {
-  return (await store.get(KEY, { type: "json" })) || { tasks: [], seq: 0, ts: 0 };
+  // strong consistency: avoid a stale read-modify-write clobbering a just-added task
+  return (await store.get(KEY, { type: "json", consistency: "strong" })) || { tasks: [], seq: 0, ts: 0 };
 }
 
 export default async (req) => {
