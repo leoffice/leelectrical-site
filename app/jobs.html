@@ -153,6 +153,7 @@ async function _pushNow(){if(!_dirty)return;try{const r=await fetch(SYNC_URL,{me
 async function _pullNow(){try{const r=await fetch(SYNC_URL,{cache:"no-store"});const d=await r.json();if(d&&typeof d.ts==="number"&&d.ts>OVTS&&!_dirty){OV=d.ov||{};OVTS=d.ts;try{localStorage.setItem(LS,JSON.stringify(OV));localStorage.setItem(LS+"_ts",OVTS)}catch(e){}_rerender();}}catch(e){}}
 function _rerender(){["renderJobs","renderEstimates","renderAppts","renderTasks"].forEach(function(fn){try{if(typeof window[fn]==="function")window[fn]()}catch(e){}});try{var dv=document.querySelector("#view-detail");if(CURID&&dv&&dv.classList.contains("active"))renderDetail(CURID)}catch(e){}}
 let OV=loadOv();
+let LAST_SYNC=0;
 let PEXP={};
 function togglePaperOpen(id,key){PEXP[id+key]=!PEXP[id+key];renderDetail(id)}
 const PERMIT_STEPS=["File permit application (DOB/city)","Permit issued","Schedule final inspection","Inspection passed / signed off"];
@@ -186,7 +187,7 @@ function jobCard(j){return `<div class="card" onclick="openJob('${j.id}')"><div 
   <span class="pill">${esc(stagePill(j))}</span> ${j.invoiceNo?`<span class="pill ${j.paid?'paid':'unpaid'}">${j.paid?'Paid':'Unpaid'}</span>`:''}
   <div class="next">→ ${esc(nextText(j))}${j.followUp&&j.followUp.date?` · <b>${relDate(j.followUp.date)}</b>`:''}</div>
   </div><div class="chev">›</div></div>`;}
-function renderJobs(){$("#view-jobs").innerHTML=`<div class="seclabel">${JOBS.length} Active Jobs &amp; Projects</div>`+JOBS.map(x=>jobCard(job(x.id))).join("")}
+function renderJobs(){$("#view-jobs").innerHTML=`<div style="display:flex;justify-content:space-between;align-items:center;gap:8px"><span class="seclabel" style="margin:6px 2px 10px">${JOBS.length} Active Jobs &amp; Projects</span><button class="mini" onclick="syncNow()">🔄 Sync${LAST_SYNC?' · '+new Date(LAST_SYNC).toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'}):''}</button></div>`+JOBS.map(x=>jobCard(job(x.id))).join("")}
 function renderDetail(id){const j=job(id);
  const tl=STAGES.map((s,i)=>{const st=(j.status[s]||{s:"upcoming"});const cls=st.s;
   const icon=cls==="done"?"✓":cls==="current"?"●":cls==="skipped"?"–":"";
@@ -271,7 +272,7 @@ const TITLES={jobs:"Jobs & Projects",detail:"Job Detail",estimates:"Estimates",a
 function go(tab){document.querySelectorAll(".view").forEach(v=>v.classList.remove("active"));$("#view-"+tab).classList.add("active");$("#subtitle").textContent=TITLES[tab]||"";document.querySelectorAll("nav.tabs button").forEach(b=>b.classList.toggle("on",b.dataset.tab===tab));window.scrollTo(0,0)}
 function openJob(id){CURID=id;renderDetail(id);go("detail");document.querySelectorAll("nav.tabs button").forEach(b=>b.classList.remove("on"))}
 document.querySelectorAll("nav.tabs button").forEach(b=>b.addEventListener("click",()=>{go(b.dataset.tab);if(b.dataset.tab==="progress")renderProgress();if(b.dataset.tab==="dev")devLoad()}));
-renderJobs();renderEstimates();renderAppts();renderTasks();
+renderJobs();renderEstimates();renderAppts();renderTasks();syncLoad();
 function applyHash(){if(location.hash==='#progress'){go('progress');renderProgress();}}
 applyHash();window.addEventListener('hashchange',applyHash);
 _pullNow();setInterval(_pullNow,15000);window.addEventListener("focus",_pullNow);document.addEventListener("visibilitychange",function(){if(!document.hidden)_pullNow()});
@@ -308,6 +309,9 @@ setInterval(function(){var v=document.getElementById('view-dev');if(!v||!v.class
 
 
 (function(){var ls=0;var hd=document.querySelector('header.app');window.addEventListener('scroll',function(){if(!hd)return;var y=window.scrollY||document.documentElement.scrollTop;if(y>ls&&y>48){hd.classList.add('hide')}else{hd.classList.remove('hide')}ls=y<=0?0:y},{passive:true})})();
+
+function syncLoad(){fetch('/.netlify/functions/jobsdata',{cache:'no-store'}).then(function(r){return r.json()}).then(function(d){if(d&&Array.isArray(d.jobs)&&d.jobs.length){JOBS.length=0;d.jobs.forEach(function(j){JOBS.push(j)})}if(d&&d.syncedAt)LAST_SYNC=d.syncedAt;try{renderJobs();renderEstimates();renderAppts();renderTasks()}catch(e){}}).catch(function(){})}
+function syncNow(){toast('Requesting sync…');fetch('/.netlify/functions/jobsdata',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({op:'request'})}).then(function(){return fetch('/.netlify/functions/jobsdata',{cache:'no-store'})}).then(function(r){return r.json()}).then(function(d){if(d&&Array.isArray(d.jobs)&&d.jobs.length){JOBS.length=0;d.jobs.forEach(function(j){JOBS.push(j)})}if(d&&d.syncedAt)LAST_SYNC=d.syncedAt;try{renderJobs()}catch(e){}toast(LAST_SYNC?('Synced '+new Date(LAST_SYNC).toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'})):'Sync requested — data will refresh shortly')}).catch(function(){toast('Sync failed')})}
 </script>
 </body>
 </html>
