@@ -85,6 +85,11 @@
   .taskrow{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:12px 14px;margin-bottom:9px;box-shadow:var(--shadow);cursor:pointer}
   .taskrow .who{font-size:12px;color:var(--muted);font-weight:600}
   .taskrow .what{font-size:14px;font-weight:600;margin-top:2px;color:#1e3a8a}
+  .sub{border:1px dashed #cbd5e1;border-radius:10px;padding:8px 10px;margin-top:8px;background:#f8fafc}
+  .subhead{display:flex;justify-content:space-between;align-items:center;gap:8px}
+  .subttl{font-size:13px;font-weight:650;color:#334155}
+  .substep{display:flex;align-items:center;gap:8px;padding:4px 0;font-size:13px}
+  .sub .note{border:0;padding:0;margin-top:2px}
   #dispatchBar{position:fixed;bottom:52px;left:0;right:0;max-width:860px;margin:0 auto;background:#0f172a;border-top:1px solid #1e293b;display:flex;gap:8px;padding:8px 10px;z-index:29}
   #dispatchBar input{flex:1;border:1px solid #334155;background:#1e293b;color:#fff;border-radius:10px;padding:9px 12px;font-size:13px;font-family:inherit;outline:none}
   #dispatchBar button{background:#1d4ed8;color:#fff;border:0;border-radius:10px;padding:9px 15px;font-weight:600;font-size:13px;cursor:pointer}
@@ -145,6 +150,11 @@ async function _pushNow(){if(!_dirty)return;try{const r=await fetch(SYNC_URL,{me
 async function _pullNow(){try{const r=await fetch(SYNC_URL,{cache:"no-store"});const d=await r.json();if(d&&typeof d.ts==="number"&&d.ts>OVTS&&!_dirty){OV=d.ov||{};OVTS=d.ts;try{localStorage.setItem(LS,JSON.stringify(OV));localStorage.setItem(LS+"_ts",OVTS)}catch(e){}_rerender();}}catch(e){}}
 function _rerender(){["renderJobs","renderEstimates","renderAppts","renderTasks"].forEach(function(fn){try{if(typeof window[fn]==="function")window[fn]()}catch(e){}});try{var dv=document.querySelector("#view-detail");if(CURID&&dv&&dv.classList.contains("active"))renderDetail(CURID)}catch(e){}}
 let OV=loadOv();
+let PEXP={};
+function togglePaperOpen(id,key){PEXP[id+key]=!PEXP[id+key];renderDetail(id)}
+const PERMIT_STEPS=["File permit application (DOB/city)","Permit issued","Schedule final inspection","Inspection passed / signed off"];
+const CONED_STEPS=["File application with Con Edison","Con Edison case submitted","Con Edison review / approval","Service / meter work scheduled","Final inspection scheduled","Inspection passed / sign-off"];
+function paper(id){const base=(JOBS.find(x=>x.id===id)||{}).paperwork||{};const o=(OV[id]&&OV[id].paperwork)||{};function mk(k){const b=base[k]||{},ov=o[k]||{};return {enabled:ov.enabled!==undefined?ov.enabled:!!b.enabled,steps:Object.assign({},b.steps||{},ov.steps||{})};}return {permit:mk('permit'),coned:mk('coned')};}
 function job(id){const j=JOBS.find(x=>x.id===id);const o=OV[id]||{};
   const m=JSON.parse(JSON.stringify(j));
   if(o.status)for(const k in o.status)m.status[k]=o.status[k];
@@ -184,7 +194,7 @@ function renderDetail(id){const j=job(id);
   if(cls==="current"||cls==="upcoming")btns.push(`<button class="mini go" onclick="doneStep('${id}','${s}')">✓ Mark complete</button>`);
   if(cls==="upcoming"&&i>0)btns.push(`<button class="mini jump" onclick="jumpTo('${id}','${s}')">⤼ Skip to here</button>`);
   if(s==="Paid"&&cls!=="done")btns.push(`<button class="mini jump" onclick="jumpTo('${id}','Paid')">⏭ Jump to final</button>`);
-  return `<li><div class="dot ${cls}"><i>${icon}</i></div><div class="lbl ${cls}"><div class="s">${esc(s)}</div><div class="d">${esc(when)}</div><div class="stepbtns">${btns.join("")}</div></div></li>`;}).join("");
+  return `<li><div class="dot ${cls}"><i>${icon}</i></div><div class="lbl ${cls}"><div class="s">${esc(s)}</div><div class="d">${esc(when)}</div><div class="stepbtns">${btns.join("")}</div>${stepPaper(id,s)}</div></li>`;}).join("");
  const atts=j.attachments.length?j.attachments.map((a,i)=>`<div class="att"><span>📎</span><a href="${a.url||'#'}" target="_blank">${esc(a.name)}</a><button class="mini" onclick="rmAtt('${id}',${i})">✕</button></div>`).join(""):`<div class="note">No attachments yet.</div>`;
  $("#view-detail").innerHTML=`
  <button class="back" onclick="go('jobs')">‹ Jobs</button>
@@ -223,6 +233,15 @@ function undoStep(id,s){patch(id,o=>{o.status=o.status||{};o.status[s]={s:"curre
 function jumpTo(id,s){patch(id,o=>{o.status=o.status||{};const ti=STAGES.indexOf(s);STAGES.forEach((st,i)=>{const cur=(job(id).status[st]||{s:"upcoming"}).s;if(i<ti){if(cur!=="done"&&cur!=="skipped")o.status[st]={s:"done",d:(job(id).status[st]&&job(id).status[st].d)||new Date().toISOString().slice(0,10)}}else if(i===ti){o.status[st]={s:"current"}}})});toast("Jumped to '"+s+"'");renderDetail(id);renderJobs()}
 function togglePaid(id){const j=job(id);patch(id,o=>{o.paid=!j.paid;if(o.paid){o.status=o.status||{};o.status["Paid"]={s:"done",d:new Date().toISOString().slice(0,10)}}});toast(job(id).paid?"Marked paid":"Marked unpaid");renderDetail(id);renderJobs()}
 function saveFollow(id){const t=$("#fuText").value,d=$("#fuDate").value;patch(id,o=>{o.followUp={text:t,date:d}});toast("Follow-up saved");renderDetail(id);renderJobs()}
+function togglePaper(id,key,on){patch(id,o=>{o.paperwork=o.paperwork||{};o.paperwork[key]=o.paperwork[key]||{steps:{}};o.paperwork[key].enabled=on});toast(on?'Enabled':'Disabled');renderDetail(id)}
+function paperStep(id,key,step){var cur=paper(id)[key].steps[step]==='done';patch(id,o=>{o.paperwork=o.paperwork||{};o.paperwork[key]=o.paperwork[key]||{enabled:true,steps:{}};o.paperwork[key].steps=o.paperwork[key].steps||{};o.paperwork[key].steps[step]=cur?'todo':'done'});renderDetail(id)}
+function subTrack(id,key,label,steps){var p=paper(id)[key];var done=steps.filter(function(s){return p.steps[s]==='done'}).length;var open=!!PEXP[id+key];
+ if(!p.enabled)return '<div class="sub"><div class="subhead"><span class="subttl">'+label+'</span><button class="mini jump" onclick="togglePaper(\''+id+'\',\''+key+'\',true)">＋ Add</button></div><div class="note">Add when this job needs it.</div></div>';
+ var head='<div class="subhead" style="cursor:pointer" onclick="togglePaperOpen(\''+id+'\',\''+key+'\')"><span class="subttl">'+(open?'▾':'▸')+' '+label+'</span><span class="pill '+(done===steps.length?'paid':'')+'">'+done+'/'+steps.length+'</span></div>';
+ if(!open)return '<div class="sub">'+head+'</div>';
+ var rows=steps.map(function(s){var d=p.steps[s]==='done';return '<div class="substep"><button class="mini '+(d?'undo':'go')+'" onclick="paperStep(\''+id+'\',\''+key+'\',\''+s+'\')">'+(d?'↩':'✓')+'</button><span'+(d?' style="color:#166534;font-weight:600"':'')+'>'+s+'</span></div>'}).join("");
+ return '<div class="sub">'+head+'<div style="margin-top:4px">'+rows+'</div><button class="mini" style="margin-top:6px" onclick="togglePaper(\''+id+'\',\''+key+'\',false)">Remove</button></div>';}
+function stepPaper(id,s){if(s==='Scheduled')return subTrack(id,'permit','🏙️ City permit application',PERMIT_STEPS)+subTrack(id,'coned','🔌 Con Edison case',CONED_STEPS);return '';}
 function saveNotes(id){patch(id,o=>{o.notes=$("#notesBox").value});toast("Notes saved")}
 function addAtt(id){const name=prompt("Attachment name (photo/document):");if(!name)return;const url=prompt("Link (optional):")||"";patch(id,o=>{o.attachments=(job(id).attachments||[]).concat([{name:name,url:url}])});toast("Attachment added");renderDetail(id)}
 function rmAtt(id,i){patch(id,o=>{const a=(job(id).attachments||[]).slice();a.splice(i,1);o.attachments=a});renderDetail(id)}
