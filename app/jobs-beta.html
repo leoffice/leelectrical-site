@@ -166,6 +166,13 @@ async function _pullNow(){try{const r=await fetch(SYNC_URL,{cache:"no-store"});c
 function _rerender(){["renderJobs","renderEstimates","renderAppts","renderTasks"].forEach(function(fn){try{if(typeof window[fn]==="function")window[fn]()}catch(e){}});try{var dv=document.querySelector("#view-detail");if(CURID&&dv&&dv.classList.contains("active"))renderDetail(CURID)}catch(e){}}
 let OV=loadOv();
 let LAST_SYNC=0;
+const CMD_URL="/.netlify/functions/command";
+let CMDS=[];
+function cmdLoad(){return fetch(CMD_URL,{cache:"no-store"}).then(function(r){return r.json()}).then(function(d){CMDS=d.commands||[]}).catch(function(){})}
+function cmdEnqueue(type,jobId,payload,lane){return fetch(CMD_URL,{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({op:"enqueue",command:{type:type,jobId:jobId,payload:payload||{},lane:lane||"judgment",idempotencyKey:type+"|"+jobId+"|"+Date.now()}})}).then(function(r){return r.json()})}
+function cmdRetry(cid){fetch(CMD_URL,{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({op:"update",id:cid,patch:{status:"queued"},note:"manual retry"})}).then(function(){return cmdLoad()}).then(function(){if(CURID)renderDetail(CURID)});toast("Retrying…")}
+function cmdBadge(jobId){var mine=CMDS.filter(function(c){return c.jobId===jobId}).sort(function(a,b){return (b.createdAt||0)-(a.createdAt||0)});if(!mine.length)return "";var c=mine[0];var m={queued:["⏳","Queued"],working:["🔵","Working…"],done:["✅","Done"],failed:["❌","Failed"],needs_approval:["❓","Needs your approval"]};var x=m[c.status]||["•",c.status];var s='<div class="note" style="margin-top:8px;border-top:1px solid var(--line);padding-top:8px">'+x[0]+" "+esc((c.type||"").replace(/_/g," "))+' — <b>'+x[1]+'</b></div>';if(c.status==="failed")s+='<button class="mini undo" style="margin-top:4px" onclick="cmdRetry(&#39;'+c.id+'&#39;)">↻ Retry</button>';return s}
+
 let PEXP={};
 function togglePaperOpen(id,key){PEXP[id+key]=!PEXP[id+key];renderDetail(id)}
 const FOLLOWUP_TYPES=["Acceptance","Payment / collect","Schedule the job","Paperwork / permits","Con Edison case","Final inspection","Other"];
@@ -241,7 +248,7 @@ function renderDetail(id){const j=job(id);
      <button class="mini" onclick="historyModal('${id}')">🧾 Invoice history</button>
      <button class="mini" onclick="togglePaid('${id}')">${j.paid?'Mark unpaid':'Mark paid'}</button>
    </div>
-   <div class="note">Paid status &amp; send history sync from QuickBooks (daily). Live actions route through Dispatch.</div></div>
+   <div class="note">Paid status &amp; send history sync from QuickBooks (daily). Live actions route through Dispatch.</div>${cmdBadge(id)}</div>
  <div class="dcard"><div class="seclabel" style="margin:0 0 8px">Attachments (photos / documents)</div>${atts}
    <button class="btn sec full" onclick="addAtt('${id}')">＋ Add attachment</button></div>
  <div class="dcard"><div class="seclabel" style="margin:0 0 8px">Special Notes</div>
@@ -265,7 +272,7 @@ function saveNotes(id){patch(id,o=>{o.notes=$("#notesBox").value});toast("Notes 
 function addAtt(id){const name=prompt("Attachment name (photo/document):");if(!name)return;const url=prompt("Link (optional):")||"";patch(id,o=>{o.attachments=(job(id).attachments||[]).concat([{name:name,url:url}])});toast("Attachment added");renderDetail(id)}
 function rmAtt(id,i){patch(id,o=>{const a=(job(id).attachments||[]).slice();a.splice(i,1);o.attachments=a});renderDetail(id)}
 function logSend(id,kind,to){patch(id,o=>{o.invoiceHistory=((OV[id]&&OV[id].invoiceHistory)||[]).concat([{date:new Date().toISOString().slice(0,10),to:to||job(id).email,kind:kind}])})}
-function sendInvoice(id){const j=job(id);if(!confirm("Queue final invoice to "+(j.email||"customer")+"?\n(Dispatch will send it via QuickBooks.)"))return;logSend(id,"Final invoice queued");toast("Invoice queued — Dispatch will send via QuickBooks");renderDetail(id)}
+function sendInvoice(id){const j=job(id);if(!confirm("Send invoice to "+(j.email||"customer")+" via QuickBooks?"))return;cmdEnqueue("send_invoice",id,{email:j.email,invoiceNo:j.invoiceNo},"deterministic").then(function(){toast("Queued — sending via QuickBooks (watch the status)");return cmdLoad()}).then(function(){renderDetail(id)});logSend(id,"Send-invoice command queued")}
 function reminderModal(id){const j=job(id);openModal(`<h3>Send reminder — ${esc(j.customer)}</h3>
   <div class="note" style="margin-top:0">Goes to ${esc(j.email||'customer')}. Edit the message:</div>
   <textarea id="remMsg" style="margin-top:8px">Hi ${esc(j.customer.split(' ')[0])}, just a friendly reminder about your ${esc(j.title)} (invoice ${j.invoiceNo?'#'+j.invoiceNo:'pending'}). Please let us know if you have any questions. — LE Electric</textarea>
@@ -288,7 +295,7 @@ const TITLES={jobs:"Jobs & Projects",detail:"Job Detail",estimates:"Estimates",a
 function go(tab){document.querySelectorAll(".view").forEach(v=>v.classList.remove("active"));$("#view-"+tab).classList.add("active");$("#subtitle").textContent=TITLES[tab]||"";document.querySelectorAll("nav.tabs button").forEach(b=>b.classList.toggle("on",b.dataset.tab===tab));window.scrollTo(0,0)}
 function openJob(id){CURID=id;renderDetail(id);go("detail");document.querySelectorAll("nav.tabs button").forEach(b=>b.classList.remove("on"))}
 document.querySelectorAll("nav.tabs button").forEach(b=>b.addEventListener("click",()=>{go(b.dataset.tab);if(b.dataset.tab==="progress")renderProgress();if(b.dataset.tab==="dev")devLoad()}));
-renderJobs();renderEstimates();renderAppts();renderTasks();syncLoad();
+renderJobs();renderEstimates();renderAppts();renderTasks();syncLoad();cmdLoad();setInterval(function(){var dv=document.querySelector("#view-detail");if(!(CURID&&dv&&dv.classList.contains("active")))return;var ae=document.activeElement;if(ae&&dv.contains(ae))return;cmdLoad().then(function(){renderDetail(CURID)})},8000);
 function applyHash(){if(location.hash==='#progress'){go('progress');renderProgress();}}
 applyHash();window.addEventListener('hashchange',applyHash);
 _pullNow();setInterval(_pullNow,15000);window.addEventListener("focus",_pullNow);document.addEventListener("visibilitychange",function(){if(!document.hidden)_pullNow()});
