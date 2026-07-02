@@ -35,7 +35,9 @@ export default async (req) => {
     doc.lists[list] = doc.lists[list] || [];
     const arr = doc.lists[list];
     if (b.op === "add" && b.task) {
-      const num = arr.reduce((m, t) => Math.max(m, t.num || 0), 0) + 1;
+      // Global sequence across BOTH lists so a number is never reused or shared.
+      doc.seq = (doc.seq || 0) + 1;
+      const num = doc.seq;
       const t = Object.assign(
         { status: "new", understanding: "", report: "", images: [], priority: "Normal", ts: Date.now() },
         b.task,
