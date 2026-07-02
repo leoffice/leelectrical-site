@@ -239,7 +239,7 @@ function renderDetail(id){const j=job(id);
  <div class="dcard"><div class="seclabel" style="margin:0 0 6px">Status: ${esc(stagePill(j))}</div><ul class="tl">${tl}</ul></div>
  <div class="dcard"><div class="seclabel" style="margin:0 0 10px">Actions</div>
    <div class="actions">
-     <button class="btn" onclick="sendInvoice('${id}')">📤 Send final invoice</button>
+     ${j.invoiceNo?`<button class="btn" onclick="sendInvoice('${id}')">📤 Send invoice</button>`:(j.estimateNo?`<button class="btn" onclick="sendEstimate('${id}')">📤 Send estimate</button>`:'')}
      <button class="btn warn" onclick="reminderModal('${id}')">🔔 Send reminder</button>
    </div>
    <div style="margin-top:12px;display:flex;align-items:center;gap:10px;flex-wrap:wrap">
@@ -273,6 +273,7 @@ function addAtt(id){const name=prompt("Attachment name (photo/document):");if(!n
 function rmAtt(id,i){patch(id,o=>{const a=(job(id).attachments||[]).slice();a.splice(i,1);o.attachments=a});renderDetail(id)}
 function logSend(id,kind,to){patch(id,o=>{o.invoiceHistory=((OV[id]&&OV[id].invoiceHistory)||[]).concat([{date:new Date().toISOString().slice(0,10),to:to||job(id).email,kind:kind}])})}
 function sendInvoice(id){const j=job(id);if(!confirm("Send invoice to "+(j.email||"customer")+" via QuickBooks?"))return;cmdEnqueue("send_invoice",id,{email:j.email,invoiceNo:j.invoiceNo},"deterministic").then(function(){toast("Queued — sending via QuickBooks (watch the status)");return cmdLoad()}).then(function(){renderDetail(id)});logSend(id,"Send-invoice command queued")}
+function sendEstimate(id){const j=job(id);if(!confirm("Send estimate to "+(j.email||"customer")+" via QuickBooks?"))return;cmdEnqueue("send_estimate",id,{email:j.email,estimateNo:j.estimateNo},"deterministic").then(function(){toast("Queued — sending estimate (watch the status)");return cmdLoad()}).then(function(){renderDetail(id)});logSend(id,"Send-estimate command queued")}
 function reminderModal(id){const j=job(id);openModal(`<h3>Send reminder — ${esc(j.customer)}</h3>
   <div class="note" style="margin-top:0">Goes to ${esc(j.email||'customer')}. Edit the message:</div>
   <textarea id="remMsg" style="margin-top:8px">Hi ${esc(j.customer.split(' ')[0])}, just a friendly reminder about your ${esc(j.title)} (invoice ${j.invoiceNo?'#'+j.invoiceNo:'pending'}). Please let us know if you have any questions. — LE Electric</textarea>
