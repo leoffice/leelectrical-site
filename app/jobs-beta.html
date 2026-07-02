@@ -147,7 +147,13 @@ const JOBS=[
   estimateNo:"",invoiceNo:"231608",paid:false,
   invoiceHistory:[{date:"2025-01-10",to:"cadaveira.jp@gmail.com",kind:"Invoice sent"}],
   followUp:{type:"Payment / collect",text:"Collect remaining $450 (additional inspection fee)",date:"",remind:false},notes:"$4,800 paid via Zelle; $450 balance = additional inspection fee.",attachments:[],
-  status:{"Lead":{s:"done"},"Site Visit":{s:"skipped"},"Estimate":{s:"done"},"Accepted":{s:"done"},"Invoiced":{s:"done",d:"2025-01-10"},"Scheduled":{s:"skipped"},"Done":{s:"done"},"Follow-up":{s:"current"},"Paid":{s:"upcoming"}}}
+  status:{"Lead":{s:"done"},"Site Visit":{s:"skipped"},"Estimate":{s:"done"},"Accepted":{s:"done"},"Invoiced":{s:"done",d:"2025-01-10"},"Scheduled":{s:"skipped"},"Done":{s:"done"},"Follow-up":{s:"current"},"Paid":{s:"upcoming"}}},
+ {id:"JP-005",customer:"Golan Chakov",title:"Full wiring — 971 E 23rd St",amount:"$41,000 ($11,000 due)",
+  phone:"",email:"gchakov@gmail.com",address:"971 E 23rd St",
+  estimateNo:"",invoiceNo:"231315",paid:false,
+  invoiceHistory:[{date:"2023-05-25",to:"gchakov@gmail.com",kind:"Invoice sent"}],
+  followUp:{type:"Payment / collect",text:"Collect remaining $11,000 balance",date:"",remind:false},notes:"$30,000 paid; $11,000 balance outstanding. Full wiring per May 22 2023 blueprints + 2 subpanels + 2 Tesla charger lines.",attachments:[],
+  status:{"Lead":{s:"done"},"Site Visit":{s:"skipped"},"Estimate":{s:"done"},"Accepted":{s:"done"},"Invoiced":{s:"done",d:"2023-05-25"},"Scheduled":{s:"skipped"},"Done":{s:"done"},"Follow-up":{s:"current"},"Paid":{s:"upcoming"}}}
 ];
 const LS="le_jobs_beta_v1";
 function loadOv(){try{return JSON.parse(localStorage.getItem(LS))||{}}catch(e){return{}}}
