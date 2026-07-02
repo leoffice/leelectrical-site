@@ -126,7 +126,13 @@ const JOBS=[
   phone:"",email:"Naftalis@sandtconsulting.us",address:"TBD — 84th or 91st St (confirm)",
   estimateNo:"",invoiceNo:"",paid:false,invoiceHistory:[],
   followUp:{text:"Finalize scope + price, then send estimate",date:""},notes:"Blueprints to attach.",attachments:[],
-  status:{"Lead":{s:"done"},"Site Visit":{s:"skipped"},"Estimate":{s:"current"},"Accepted":{s:"upcoming"},"Invoiced":{s:"upcoming"},"Scheduled":{s:"upcoming"},"Done":{s:"upcoming"},"Follow-up":{s:"upcoming"},"Paid":{s:"upcoming"}}}
+  status:{"Lead":{s:"done"},"Site Visit":{s:"skipped"},"Estimate":{s:"current"},"Accepted":{s:"upcoming"},"Invoiced":{s:"upcoming"},"Scheduled":{s:"upcoming"},"Done":{s:"upcoming"},"Follow-up":{s:"upcoming"},"Paid":{s:"upcoming"}}},
+ {id:"JP-004",customer:"Juan Cadaveira",title:"Permit filing + violation removal",amount:"$5,250 ($450 due)",
+  phone:"",email:"cadaveira.jp@gmail.com",address:"995 Hancock St",
+  estimateNo:"",invoiceNo:"231608",paid:false,
+  invoiceHistory:[{date:"2025-01-10",to:"cadaveira.jp@gmail.com",kind:"Invoice sent"}],
+  followUp:{type:"Payment / collect",text:"Collect remaining $450 (additional inspection fee)",date:"",remind:false},notes:"$4,800 paid via Zelle; $450 balance = additional inspection fee.",attachments:[],
+  status:{"Lead":{s:"done"},"Site Visit":{s:"skipped"},"Estimate":{s:"done"},"Accepted":{s:"done"},"Invoiced":{s:"done",d:"2025-01-10"},"Scheduled":{s:"skipped"},"Done":{s:"done"},"Follow-up":{s:"current"},"Paid":{s:"upcoming"}}}
 ];
 const LS="le_jobs_beta_v1";
 function loadOv(){try{return JSON.parse(localStorage.getItem(LS))||{}}catch(e){return{}}}
