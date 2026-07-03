@@ -56,6 +56,10 @@
   .tl .lbl .d{font-size:12px;color:var(--muted);margin-top:1px}
   .tl .skipped .s{color:#94a3b8;font-weight:500}
   .stepbtns{margin-top:5px;display:flex;gap:6px;flex-wrap:wrap}
+  .tl li .s{cursor:pointer}
+  .tl li .s .tap{color:var(--muted);font-size:11px;font-weight:400}
+  .tl li.exp>.lbl{background:#f8fafc;border-radius:8px;padding:4px 8px;margin-left:-4px}
+  .branch{border-left:2px dashed #cbd5e1;margin:6px 0 0 4px;padding-left:10px}
   .mini{font-size:11.5px;font-weight:600;padding:4px 9px;border-radius:8px;border:1px solid var(--line);background:#fff;cursor:pointer;color:var(--ink)}
   .mini.go{border-color:#bbf7d0;background:#f0fdf4;color:#166534}
   .mini.undo{border-color:#fecaca;background:#fef2f2;color:#991b1b}
@@ -127,7 +131,7 @@
 <div class="modal" id="modal"><div class="box"><button class="close" onclick="closeModal()">✕</button><div id="modalBody"></div></div></div>
 <div id="toast"></div>
 <script>
-const STAGES=["Lead","Site Visit","Estimate","Accepted","Invoiced","Scheduled","Done","Follow-up","Paid"];
+const STAGES=["Lead","Site Visit","Estimate","Accepted","Invoiced","Deposit Receipt","Paperwork","Scheduled","Done","Follow-up","Paid"];
 const JOBS=[
  {id:"JP-001",customer:"Peretz Chein",title:"Main panel upgrade",amount:"$2,300",
   phone:"",email:"Peretzch@gmail.com",address:"1370 Carroll St, Brooklyn NY 11213",
@@ -180,9 +184,10 @@ function cmdBadge(jobId){var mine=CMDS.filter(function(c){return c.jobId===jobId
 let PEXP={};
 function togglePaperOpen(id,key){PEXP[id+key]=!PEXP[id+key];renderDetail(id)}
 const FOLLOWUP_TYPES=["Acceptance","Payment / collect","Schedule the job","Paperwork / permits","Con Edison case","Final inspection","Other"];
-const PERMIT_STEPS=["File permit application (DOB/city)","Permit issued","Schedule final inspection","Inspection passed / signed off"];
-const CONED_STEPS=["File application with Con Edison","Con Edison case submitted","Con Edison review / approval","Service / meter work scheduled","Final inspection scheduled","Inspection passed / sign-off"];
-function paper(id){const base=(JOBS.find(x=>x.id===id)||{}).paperwork||{};const o=(OV[id]&&OV[id].paperwork)||{};function mk(k){const b=base[k]||{},ov=o[k]||{};return {enabled:ov.enabled!==undefined?ov.enabled:!!b.enabled,steps:Object.assign({},b.steps||{},ov.steps||{})};}return {permit:mk('permit'),coned:mk('coned')};}
+const DOB_STEPS=["Permit issued","Inspection requested","Inspection scheduled","Self certification","PAA complete"];
+const CONED_STEPS=["Application submitted","POE scheduled","Uploaded paperwork complete","New accounts activated","Interim checklist","Final checklist","Meter installation date"];
+const DATE_STEPS={"Inspection scheduled":"datetime","Meter installation date":"date"};
+function paper(id){const base=(JOBS.find(x=>x.id===id)||{}).paperwork||{};const o=(OV[id]&&OV[id].paperwork)||{};function mk(k){const b=base[k]||{},ov=o[k]||{};return {enabled:ov.enabled!==undefined?ov.enabled:!!b.enabled,steps:Object.assign({},b.steps||{},ov.steps||{}),dates:Object.assign({},b.dates||{},ov.dates||{})};}return {coned:mk('coned'),dob:mk('dob')};}
 function blankJob(id){return {id:id,customer:"",title:"",amount:"",phone:"",email:"",address:"",estimateNo:"",invoiceNo:"",paid:false,notes:"",attachments:[],invoiceHistory:[],followUp:null,calEventId:"",status:{"Lead":{s:"current"}},_new:true};}
 function job(id){const base=JOBS.find(x=>x.id===id);const o=(typeof PENDING!=="undefined"&&PENDING[id])||OV[id]||{};
   const m=base?JSON.parse(JSON.stringify(base)):JSON.parse(JSON.stringify(Object.assign(blankJob(id),o)));
@@ -275,12 +280,13 @@ function renderDetail(id){const j=job(id);
   const icon=cls==="done"?"✓":cls==="current"?"●":cls==="skipped"?"–":"";
   let when="";if(st.d)when=relDate(st.d)+" · "+new Date(st.d+"T00:00:00").toLocaleDateString(undefined,{month:"short",day:"numeric"});
    else if(cls==="current")when="In progress";else if(cls==="skipped")when="Not needed";
-  const btns=[];
-  if(cls==="done")btns.push(`<button class="mini undo" onclick="undoStep('${id}','${s}')">↩ Undo</button>`);
-  if(cls==="current"||cls==="upcoming")btns.push(`<button class="mini go" onclick="doneStep('${id}','${s}')">✓ Mark complete</button>`);
-  if(cls==="upcoming"&&i>0)btns.push(`<button class="mini jump" onclick="jumpTo('${id}','${s}')">⤼ Skip to here</button>`);
-  if(s==="Paid"&&cls!=="done")btns.push(`<button class="mini jump" onclick="jumpTo('${id}','Paid')">⏭ Jump to final</button>`);
-  return `<li><div class="dot ${cls}"><i>${icon}</i></div><div class="lbl ${cls}"><div class="s">${esc(s)}</div><div class="d">${esc(when)}</div><div class="stepbtns">${btns.join("")}</div>${stepPaper(id,s)}</div></li>`;}).join("");
+  const exp=stepOpen(id,s);
+  let btns="";
+  if(exp){
+   if(cls==="done")btns=`<button class="mini undo" onclick="undoStep('${id}','${s}')">↩ Undo</button>`;
+   else btns=`<button class="mini go" onclick="doneStep('${id}','${s}')">✓ Complete</button><button class="mini" onclick="skipStep('${id}','${s}')">✕ Skip</button>`;
+  }
+  return `<li class="${exp?'exp':''}"><div class="dot ${cls}" onclick="toggleStep('${id}','${s}')"><i>${icon}</i></div><div class="lbl ${cls}"><div class="s" onclick="toggleStep('${id}','${s}')">${esc(s)} <span class="tap">${exp?'▾':'›'}</span></div><div class="d">${esc(when)}</div>${exp?`<div class="stepbtns">${btns}</div>`:''}${stepPaper(id,s)}</div></li>`;}).join("");
  const atts=j.attachments.length?j.attachments.map((a,i)=>`<div class="att"><span>📎</span><a href="${a.url||'#'}" target="_blank">${esc(a.name)}</a><button class="mini" onclick="rmAtt('${id}',${i})">✕</button></div>`).join(""):`<div class="note">No attachments yet.</div>`;
  $("#view-detail").innerHTML=`
  <button class="back" onclick="navTo('jobs')">‹ Jobs</button>
@@ -325,20 +331,30 @@ function renderDetail(id){const j=job(id);
  <div class="dcard"><div class="seclabel" style="margin:0 0 8px">Special Notes</div>
    <textarea id="notesBox" placeholder="Anything special about this job…">${esc(j.notes)}</textarea>
    <button class="btn sec full" onclick="saveNotes('${id}')">Save notes</button></div>`;}
-function doneStep(id,s){patch(id,o=>{o.status=o.status||{};o.status[s]={s:"done",d:new Date().toISOString().slice(0,10)};const i=STAGES.indexOf(s);if(i+1<STAGES.length){const nx=STAGES[i+1];const cur=(job(id).status[nx]||{}).s;if(cur!=="done"&&cur!=="skipped")o.status[nx]={s:"current"}}});toast("Marked '"+s+"' complete");renderDetail(id);renderJobs()}
-function undoStep(id,s){patch(id,o=>{o.status=o.status||{};o.status[s]={s:"current"};const i=STAGES.indexOf(s);for(let k=i+1;k<STAGES.length;k++){const st=(job(id).status[STAGES[k]]||{}).s;if(st==="current")o.status[STAGES[k]]={s:"upcoming"}}});toast("Undid '"+s+"'");renderDetail(id);renderJobs()}
+/* Task #11 — condensed, tap-to-expand progress steps (single open, 5s auto-collapse) */
+var SEXP=null,STEP_T=null;
+function stepOpen(id,s){return SEXP===id+'|'+s}
+function toggleStep(id,s){var k=id+'|'+s;SEXP=(SEXP===k?null:k);renderDetail(id);clearTimeout(STEP_T);if(SEXP)STEP_T=setTimeout(function(){SEXP=null;if(CURID)renderDetail(CURID)},5000)}
+function skipStep(id,s){patch(id,o=>{o.status=o.status||{};o.status[s]={s:"skipped"}});SEXP=null;clearTimeout(STEP_T);toast("Skipped '"+s+"'");renderDetail(id);renderJobs()}
+function doneStep(id,s){patch(id,o=>{o.status=o.status||{};o.status[s]={s:"done",d:new Date().toISOString().slice(0,10)};const i=STAGES.indexOf(s);if(i+1<STAGES.length){const nx=STAGES[i+1];const cur=(job(id).status[nx]||{}).s;if(cur!=="done"&&cur!=="skipped")o.status[nx]={s:"current"}}});SEXP=null;clearTimeout(STEP_T);toast("Marked '"+s+"' complete");renderDetail(id);renderJobs()}
+function undoStep(id,s){patch(id,o=>{o.status=o.status||{};o.status[s]={s:"current"};const i=STAGES.indexOf(s);for(let k=i+1;k<STAGES.length;k++){const st=(job(id).status[STAGES[k]]||{}).s;if(st==="current")o.status[STAGES[k]]={s:"upcoming"}}});SEXP=null;clearTimeout(STEP_T);toast("Undid '"+s+"'");renderDetail(id);renderJobs()}
 function jumpTo(id,s){patch(id,o=>{o.status=o.status||{};const ti=STAGES.indexOf(s);STAGES.forEach((st,i)=>{const cur=(job(id).status[st]||{s:"upcoming"}).s;if(i<ti){if(cur!=="done"&&cur!=="skipped")o.status[st]={s:"done",d:(job(id).status[st]&&job(id).status[st].d)||new Date().toISOString().slice(0,10)}}else if(i===ti){o.status[st]={s:"current"}}})});toast("Jumped to '"+s+"'");renderDetail(id);renderJobs()}
 function togglePaid(id){const j=job(id);patch(id,o=>{o.paid=!j.paid;if(o.paid){o.status=o.status||{};o.status["Paid"]={s:"done",d:new Date().toISOString().slice(0,10)}}});toast(job(id).paid?"Marked paid":"Marked unpaid");renderDetail(id);renderJobs()}
 function saveFollow(id){const ty=$("#fuType").value,t=$("#fuText").value,d=$("#fuDate").value,r=$("#fuRemind").checked;patch(id,o=>{o.followUp={type:ty,text:t,date:d,remind:r}});toast(r?("Saved — Office Manager will Telegram you"+(d?(" "+relDate(d)):"")):"Follow-up saved");renderDetail(id);renderJobs()}
 function togglePaper(id,key,on){patch(id,o=>{o.paperwork=o.paperwork||{};o.paperwork[key]=o.paperwork[key]||{steps:{}};o.paperwork[key].enabled=on});toast(on?'Enabled':'Disabled');renderDetail(id)}
-function paperStep(id,key,step){var cur=paper(id)[key].steps[step]==='done';patch(id,o=>{o.paperwork=o.paperwork||{};o.paperwork[key]=o.paperwork[key]||{enabled:true,steps:{}};o.paperwork[key].steps=o.paperwork[key].steps||{};o.paperwork[key].steps[step]=cur?'todo':'done'});renderDetail(id)}
+function paperStep(id,key,step){var cur=paper(id)[key].steps[step]==='done';
+ if(!cur&&DATE_STEPS[step]){var isDT=DATE_STEPS[step]==='datetime';var dv=prompt(step+((isDT)?' — enter date & time (e.g. 2026-07-15 10:00):':' — enter date (e.g. 2026-07-15):'),'');if(dv===null)return;dv=dv.trim();
+  patch(id,o=>{o.paperwork=o.paperwork||{};o.paperwork[key]=o.paperwork[key]||{enabled:true,steps:{},dates:{}};o.paperwork[key].dates=o.paperwork[key].dates||{};if(dv)o.paperwork[key].dates[step]=dv;o.paperwork[key].steps=o.paperwork[key].steps||{};o.paperwork[key].steps[step]='done'});
+  if(step==='Inspection scheduled'&&dv){var j=job(id);if(confirm('Add this inspection to the calendar appointment?')){var d0=dv.slice(0,10);cmdEnqueue('calendar_upsert',id,{calEventId:j.calEventId,summary:'Inspection — '+j.customer,start:d0,location:j.address,description:'City permit inspection: '+dv},'judgment').then(function(){return cmdLoad()});toast('Inspection staged for calendar');}}
+  renderDetail(id);return;}
+ patch(id,o=>{o.paperwork=o.paperwork||{};o.paperwork[key]=o.paperwork[key]||{enabled:true,steps:{}};o.paperwork[key].steps=o.paperwork[key].steps||{};o.paperwork[key].steps[step]=cur?'todo':'done'});renderDetail(id)}
 function subTrack(id,key,label,steps){var p=paper(id)[key];var done=steps.filter(function(s){return p.steps[s]==='done'}).length;var open=!!PEXP[id+key];
  if(!p.enabled)return '<div class="sub"><div class="subhead"><span class="subttl">'+label+'</span><button class="mini jump" onclick="togglePaper(\''+id+'\',\''+key+'\',true)">＋ Add</button></div><div class="note">Add when this job needs it.</div></div>';
  var head='<div class="subhead" style="cursor:pointer" onclick="togglePaperOpen(\''+id+'\',\''+key+'\')"><span class="subttl">'+(open?'▾':'▸')+' '+label+'</span><span class="pill '+(done===steps.length?'paid':'')+'">'+done+'/'+steps.length+'</span></div>';
  if(!open)return '<div class="sub">'+head+'</div>';
- var rows=steps.map(function(s){var d=p.steps[s]==='done';return '<div class="substep"><button class="mini '+(d?'undo':'go')+'" onclick="paperStep(\''+id+'\',\''+key+'\',\''+s+'\')">'+(d?'↩':'✓')+'</button><span'+(d?' style="color:#166534;font-weight:600"':'')+'>'+s+'</span></div>'}).join("");
+ var rows=steps.map(function(s){var d=p.steps[s]==='done';var dt=(p.dates&&p.dates[s])?' · <b>'+esc(p.dates[s])+'</b>':(DATE_STEPS[s]?' <span class="tap">(date)</span>':'');return '<div class="substep"><button class="mini '+(d?'undo':'go')+'" onclick="paperStep(\''+id+'\',\''+key+'\',\''+s+'\')">'+(d?'↩':'✓')+'</button><span'+(d?' style="color:#166534;font-weight:600"':'')+'>'+s+dt+'</span></div>'}).join("");
  return '<div class="sub">'+head+'<div style="margin-top:4px">'+rows+'</div><button class="mini" style="margin-top:6px" onclick="togglePaper(\''+id+'\',\''+key+'\',false)">Remove</button></div>';}
-function stepPaper(id,s){if(s==='Scheduled')return subTrack(id,'permit','🏙️ City permit application',PERMIT_STEPS)+subTrack(id,'coned','🔌 Con Edison case',CONED_STEPS);return '';}
+function stepPaper(id,s){if(s==='Paperwork')return '<div class="branch">'+subTrack(id,'coned','🔌 Con Ed paperwork',CONED_STEPS)+subTrack(id,'dob','🏙️ DOB / City permit',DOB_STEPS)+'</div>';return '';}
 function saveNotes(id){patch(id,o=>{o.notes=$("#notesBox").value});toast("Staged — press Save & sync");renderDetail(id)}
 function addAtt(id){const name=prompt("Attachment name (photo/document):");if(!name)return;const url=prompt("Link (optional):")||"";patch(id,o=>{o.attachments=(job(id).attachments||[]).concat([{name:name,url:url}])});toast("Attachment added");renderDetail(id)}
 function rmAtt(id,i){patch(id,o=>{const a=(job(id).attachments||[]).slice();a.splice(i,1);o.attachments=a});renderDetail(id)}
