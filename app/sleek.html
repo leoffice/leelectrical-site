@@ -1,0 +1,773 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>LE Electric — Sleek Beta</title>
+<style>
+:root{
+  --bg:#f4f6fb; --card:#ffffff; --ink:#0f172a; --muted:#64748b; --line:#e5e9f2;
+  --brand:#4f46e5; --brand-soft:#eef2ff; --accent:#7c3aed;
+  --done:#16a34a; --done-soft:#dcfce7; --current:#d97706; --current-soft:#fef3c7;
+  --skip:#94a3b8; --danger:#dc2626; --danger-soft:#fee2e2; --ok:#16a34a;
+  --r:16px; --shadow:0 1px 2px rgba(15,23,42,.05),0 4px 16px rgba(15,23,42,.06);
+  --shadow-lg:0 8px 30px rgba(15,23,42,.14);
+}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+html,body{margin:0;padding:0;background:var(--bg);color:var(--ink);
+  font:15px/1.45 -apple-system,BlinkMacSystemFont,"SF Pro Text","Segoe UI",Roboto,sans-serif}
+button{font:inherit;border:0;cursor:pointer;background:none;color:inherit}
+input,select,textarea{font:inherit;color:var(--ink);border:1.5px solid var(--line);border-radius:10px;
+  padding:9px 11px;background:#fff;width:100%;outline:none}
+input:focus,select:focus,textarea:focus{border-color:var(--brand)}
+::placeholder{color:#a3adc2}
+
+/* ---------- shell ---------- */
+#top{position:sticky;top:0;z-index:40;background:rgba(244,246,251,.88);backdrop-filter:blur(14px);
+  -webkit-backdrop-filter:blur(14px);border-bottom:1px solid var(--line)}
+#top .bar{display:flex;align-items:center;gap:10px;padding:12px 16px 8px;max-width:760px;margin:0 auto}
+#top h1{font-size:17px;font-weight:750;margin:0;letter-spacing:-.02em;flex:1;display:flex;align-items:center;gap:8px}
+.betaTag{font-size:10px;font-weight:800;letter-spacing:.08em;color:#fff;background:linear-gradient(135deg,var(--accent),var(--brand));
+  padding:3px 7px;border-radius:6px;text-transform:uppercase}
+#syncChip{display:flex;align-items:center;gap:6px;font-size:12px;font-weight:600;color:var(--muted);
+  background:#fff;border:1px solid var(--line);border-radius:999px;padding:5px 11px}
+#syncChip .dot{width:7px;height:7px;border-radius:50%;background:var(--ok)}
+#syncChip.busy .dot{background:var(--current);animation:pulse 1s infinite}
+@keyframes pulse{50%{opacity:.35}}
+#views{max-width:760px;margin:0 auto;padding:14px 14px 120px}
+
+#nav{position:fixed;bottom:0;left:0;right:0;z-index:40;background:rgba(255,255,255,.94);
+  backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px);border-top:1px solid var(--line);
+  padding-bottom:env(safe-area-inset-bottom)}
+#nav .in{display:flex;max-width:760px;margin:0 auto}
+#nav button{flex:1;display:flex;flex-direction:column;align-items:center;gap:2px;padding:9px 0 7px;
+  font-size:10.5px;font-weight:650;color:var(--muted)}
+#nav button .ic{font-size:20px;line-height:1}
+#nav button.on{color:var(--brand)}
+#nav button .bdg{position:absolute;transform:translate(14px,-2px);background:var(--danger);color:#fff;
+  font-size:9px;font-weight:800;border-radius:999px;min-width:15px;height:15px;line-height:15px;text-align:center}
+
+/* ---------- cards / common ---------- */
+.card{background:var(--card);border-radius:var(--r);box-shadow:var(--shadow);padding:15px;margin-bottom:12px}
+.sec{font-size:11px;font-weight:800;letter-spacing:.07em;text-transform:uppercase;color:var(--muted);margin:18px 4px 8px}
+.pill{display:inline-flex;align-items:center;gap:4px;font-size:11.5px;font-weight:700;border-radius:999px;padding:3px 10px}
+.pill.paid{background:var(--done-soft);color:#166534}
+.pill.unpaid{background:var(--danger-soft);color:#991b1b}
+.pill.stage{background:var(--brand-soft);color:var(--brand)}
+.pill.grp{background:#f1f5f9;color:var(--muted)}
+.btn{display:inline-flex;align-items:center;justify-content:center;gap:6px;font-size:13.5px;font-weight:700;
+  border-radius:11px;padding:10px 14px;background:var(--brand);color:#fff;transition:transform .08s}
+.btn:active{transform:scale(.96)}
+.btn.soft{background:var(--brand-soft);color:var(--brand)}
+.btn.ghost{background:#fff;border:1.5px solid var(--line);color:var(--ink)}
+.btn.warn{background:var(--danger-soft);color:var(--danger)}
+.btn.ok{background:var(--done-soft);color:#166534}
+.btn.sm{font-size:12.5px;padding:7px 11px;border-radius:9px}
+.row{display:flex;gap:8px;align-items:center}
+.row.wrap{flex-wrap:wrap}
+.grow{flex:1}
+.muted{color:var(--muted)}
+.small{font-size:12.5px}
+.hr{height:1px;background:var(--line);margin:12px -15px}
+
+/* ---------- jobs list ---------- */
+#searchRow{display:flex;gap:8px;margin-bottom:10px}
+#q{border-radius:12px;background:#fff;box-shadow:var(--shadow);border:1.5px solid transparent}
+#chips{display:flex;gap:7px;overflow-x:auto;padding:2px 2px 10px;scrollbar-width:none}
+#chips::-webkit-scrollbar{display:none}
+.chip{flex:0 0 auto;font-size:12.5px;font-weight:700;color:var(--muted);background:#fff;
+  border:1.5px solid var(--line);border-radius:999px;padding:7px 13px}
+.chip.on{background:var(--ink);border-color:var(--ink);color:#fff}
+.jcard{display:block;width:100%;text-align:left;background:var(--card);border-radius:var(--r);
+  box-shadow:var(--shadow);padding:14px 15px;margin-bottom:10px;position:relative}
+.jcard:active{transform:scale(.985)}
+.jcard .t{font-size:15.5px;font-weight:720;letter-spacing:-.01em;display:flex;gap:8px;align-items:center}
+.jcard .sub{font-size:12.5px;color:var(--muted);margin-top:2px}
+.jcard .amt{font-weight:800;font-size:15px;margin-left:auto}
+.pbar{height:5px;border-radius:99px;background:#eef1f7;margin:10px 0 8px;overflow:hidden}
+.pbar i{display:block;height:100%;border-radius:99px;background:linear-gradient(90deg,var(--brand),var(--accent))}
+.qa{display:flex;gap:6px;margin-top:9px}
+.qa button{flex:1;font-size:12px;font-weight:700;color:var(--brand);background:var(--brand-soft);
+  border-radius:9px;padding:7px 4px}
+.qa button.gray{background:#f1f5f9;color:var(--muted)}
+.next{font-size:12px;font-weight:650;color:var(--current);display:flex;align-items:center;gap:5px}
+.stackN{position:absolute;top:-7px;right:12px;background:var(--accent);color:#fff;font-size:10.5px;
+  font-weight:800;border-radius:999px;padding:2px 8px;box-shadow:var(--shadow)}
+#fabAdd{position:fixed;right:16px;bottom:calc(76px + env(safe-area-inset-bottom));z-index:35;width:54px;height:54px;
+  border-radius:18px;background:var(--ink);color:#fff;font-size:26px;box-shadow:var(--shadow-lg)}
+
+/* ---------- detail ---------- */
+.backRow{display:flex;align-items:center;gap:8px;margin-bottom:10px}
+.backRow button.bk{font-size:14px;font-weight:750;color:var(--brand);padding:6px 10px 6px 0}
+.custCard .name{font-size:19px;font-weight:800;letter-spacing:-.02em}
+.act4{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-top:12px}
+.act4 button{display:flex;flex-direction:column;align-items:center;gap:3px;font-size:11px;font-weight:700;
+  color:var(--brand);background:var(--brand-soft);border-radius:12px;padding:10px 2px}
+.act4 button .ic{font-size:17px}
+.kv{display:flex;gap:8px;font-size:13px;margin-top:7px;color:var(--muted);align-items:baseline}
+.kv b{color:var(--ink);font-weight:650}
+.phase{border:1.5px solid var(--line);border-radius:14px;margin-bottom:9px;overflow:hidden;background:#fff}
+.phase>button.hd{width:100%;display:flex;align-items:center;gap:9px;padding:12px 13px;text-align:left}
+.phase .nm{font-weight:750;font-size:14px;flex:1}
+.phase .cnt{font-size:11.5px;font-weight:750;color:var(--muted);background:#f1f5f9;border-radius:999px;padding:2px 9px}
+.phase .cnt.all{background:var(--done-soft);color:#166534}
+.phase .chev{color:var(--muted);transition:transform .18s}
+.phase.open .chev{transform:rotate(90deg)}
+.steps{display:none;padding:2px 10px 10px}
+.phase.open .steps{display:block}
+.step{border-radius:10px;padding:8px 9px;display:flex;align-items:center;gap:9px}
+.step:active{background:#f8fafc}
+.step .dot{width:20px;height:20px;border-radius:50%;flex:0 0 20px;display:flex;align-items:center;justify-content:center;
+  font-size:11px;color:#fff;background:var(--skip)}
+.step.done .dot{background:var(--done)}
+.step.current .dot{background:var(--current);box-shadow:0 0 0 4px var(--current-soft)}
+.step.skipped{opacity:.5}
+.step .lbl{font-size:13.5px;font-weight:650;flex:1}
+.step.done .lbl{color:#166534}
+.step .dt{font-size:11px;color:var(--muted)}
+.stepAct{display:none;gap:6px;padding:4px 0 8px 38px}
+.stepAct.show{display:flex}
+.branch{margin:6px 0 4px 20px;border-left:2.5px solid var(--line);padding-left:12px}
+.branch .bhd{display:flex;align-items:center;gap:8px;font-size:13px;font-weight:750;padding:5px 0}
+.tgl{width:40px;height:24px;border-radius:99px;background:#e2e8f0;position:relative;flex:0 0 40px;transition:background .15s}
+.tgl i{position:absolute;top:2.5px;left:3px;width:19px;height:19px;border-radius:50%;background:#fff;
+  box-shadow:0 1px 3px rgba(0,0,0,.25);transition:left .15s}
+.tgl.on{background:var(--done)}
+.tgl.on i{left:18px}
+.sub{font-size:13px}
+textarea.notes{min-height:74px;resize:vertical}
+
+/* ---------- activity ---------- */
+.evt{display:flex;gap:9px;padding:7px 0;font-size:12.5px;border-bottom:1px dashed var(--line)}
+.evt:last-child{border:0}
+.evt .st{font-weight:750;border-radius:7px;padding:1px 8px;font-size:11px;flex:0 0 auto}
+.st.queued{background:#f1f5f9;color:var(--muted)}
+.st.working{background:var(--current-soft);color:#92400e}
+.st.done{background:var(--done-soft);color:#166534}
+.st.failed{background:var(--danger-soft);color:#991b1b}
+.st.needs_approval{background:#ede9fe;color:#5b21b6}
+
+/* ---------- savebar ---------- */
+#savebar{position:fixed;left:0;right:0;bottom:calc(58px + env(safe-area-inset-bottom));z-index:38;display:none;justify-content:center;padding:0 14px}
+#savebar.show{display:flex}
+#savebar .in{display:flex;align-items:center;gap:10px;background:var(--ink);color:#fff;border-radius:14px;
+  box-shadow:var(--shadow-lg);padding:10px 12px 10px 16px;max-width:730px;width:100%}
+#savebar .n{font-size:13px;font-weight:650;flex:1}
+#savebar .n b{color:#fbbf24}
+@keyframes burst{0%{box-shadow:0 0 0 0 rgba(22,163,74,.5)}100%{box-shadow:0 0 0 22px rgba(22,163,74,0)}}
+.saved{animation:burst .7s ease-out}
+
+/* ---------- sheet ---------- */
+#dim{position:fixed;inset:0;background:rgba(15,23,42,.45);z-index:50;display:none;opacity:0;transition:opacity .18s}
+#dim.show{display:block;opacity:1}
+#sheet{position:fixed;left:0;right:0;bottom:0;z-index:51;background:#fff;border-radius:22px 22px 0 0;
+  box-shadow:var(--shadow-lg);transform:translateY(105%);transition:transform .22s cubic-bezier(.3,.9,.3,1);
+  max-height:88vh;display:flex;flex-direction:column}
+#sheet.show{transform:none}
+#sheet .grab{width:38px;height:4.5px;border-radius:99px;background:#d7dce8;margin:9px auto 2px}
+#sheet .shead{display:flex;align-items:center;padding:8px 18px 10px;gap:10px}
+#sheet .shead h3{margin:0;font-size:16.5px;font-weight:780;flex:1;letter-spacing:-.01em}
+#sheet .shead .x{font-size:14px;font-weight:700;color:var(--muted);background:#f1f5f9;border-radius:99px;width:30px;height:30px}
+#sheet .sbody{overflow-y:auto;padding:2px 18px calc(20px + env(safe-area-inset-bottom))}
+.fld{margin-bottom:11px}
+.fld label{display:block;font-size:12px;font-weight:750;color:var(--muted);margin:0 2px 5px}
+.fld .hint{font-size:11px;color:#a3adc2;margin:3px 2px 0}
+.opt{display:flex;gap:10px;align-items:center;width:100%;text-align:left;border:1.5px solid var(--line);
+  border-radius:13px;padding:12px 13px;margin-bottom:9px;background:#fff}
+.opt:active{background:#f8fafc}
+.opt .ic{font-size:21px}
+.opt .tt{font-weight:750;font-size:14px}
+.opt .dd{font-size:12px;color:var(--muted)}
+
+/* ---------- dev board ---------- */
+.dvcard{background:#fff;border-radius:14px;box-shadow:var(--shadow);padding:13px 14px;margin-bottom:10px}
+.dvcard .tt{font-weight:720;font-size:14px;display:flex;gap:8px;align-items:flex-start}
+.dvcard .tt .num{color:var(--muted);font-weight:800}
+.dvcard .ds{font-size:12.5px;color:var(--muted);margin-top:4px;white-space:pre-wrap}
+.dvst{font-size:11px;font-weight:800;border-radius:7px;padding:2px 9px;text-transform:uppercase;letter-spacing:.04em}
+.dvst.new{background:#fef9c3;color:#854d0e}.dvst.understood{background:#dbeafe;color:#1e40af}
+.dvst.question{background:#ffe4e6;color:#9f1239}.dvst.approved{background:var(--current-soft);color:#92400e}
+.dvst.verify{background:#ede9fe;color:#5b21b6}.dvst.done{background:var(--done-soft);color:#166534}
+.dvbox{font-size:12.5px;background:#f8fafc;border:1px solid var(--line);border-radius:10px;padding:9px 11px;margin-top:8px;white-space:pre-wrap}
+.dvbox b{font-size:11px;text-transform:uppercase;letter-spacing:.05em;color:var(--muted);display:block;margin-bottom:3px}
+
+/* ---------- chat ---------- */
+#chatFab{position:fixed;right:16px;bottom:calc(140px + env(safe-area-inset-bottom));z-index:35;width:50px;height:50px;
+  border-radius:50%;background:linear-gradient(135deg,var(--accent),var(--brand));color:#fff;font-size:22px;box-shadow:var(--shadow-lg)}
+#chatFab .bdg{position:absolute;top:-3px;right:-3px;background:var(--danger);color:#fff;font-size:10px;
+  font-weight:800;border-radius:99px;min-width:17px;height:17px;line-height:17px;display:none}
+#chatPanel{position:fixed;right:10px;left:10px;bottom:calc(74px + env(safe-area-inset-bottom));z-index:52;max-width:420px;
+  margin-left:auto;background:#fff;border-radius:18px;box-shadow:var(--shadow-lg);display:none;flex-direction:column;
+  max-height:64vh;overflow:hidden;border:1px solid var(--line)}
+#chatPanel.show{display:flex}
+#chatPanel .ch{display:flex;align-items:center;gap:8px;padding:11px 14px;border-bottom:1px solid var(--line);
+  background:linear-gradient(135deg,var(--accent),var(--brand));color:#fff}
+#chatPanel .ch b{font-size:14px;flex:1}
+#chatLog{overflow-y:auto;padding:12px;flex:1;min-height:120px}
+.msg{max-width:82%;border-radius:14px;padding:8px 12px;font-size:13.5px;margin-bottom:8px}
+.msg.me{background:var(--brand);color:#fff;margin-left:auto;border-bottom-right-radius:5px}
+.msg.them{background:#f1f5f9;border-bottom-left-radius:5px}
+.msg .stt{display:block;font-size:10px;opacity:.75;margin-top:3px;text-align:right}
+#ctxChip{display:flex;align-items:center;gap:6px;margin:0 12px;font-size:11.5px;font-weight:650;color:var(--accent);
+  background:#f5f3ff;border-radius:9px;padding:6px 10px}
+#ctxChip button{color:var(--accent);font-weight:800;font-size:13px}
+#chatRow{display:flex;gap:7px;padding:10px 12px;border-top:1px solid var(--line);align-items:flex-end}
+#chatIn{flex:1;max-height:90px;resize:none;border-radius:12px}
+#micBtn{width:38px;height:38px;border-radius:50%;background:#f1f5f9;font-size:17px;flex:0 0 38px;transition:transform .1s}
+#micBtn.rec{background:var(--danger-soft)}
+#sendBtn{width:38px;height:38px;border-radius:50%;background:var(--brand);color:#fff;font-size:16px;flex:0 0 38px}
+
+.toast{position:fixed;left:50%;transform:translateX(-50%);bottom:calc(130px + env(safe-area-inset-bottom));z-index:60;
+  background:var(--ink);color:#fff;font-size:13px;font-weight:650;border-radius:12px;padding:10px 16px;box-shadow:var(--shadow-lg);
+  opacity:0;transition:opacity .2s;pointer-events:none;max-width:86vw;text-align:center}
+.toast.show{opacity:1}
+.empty{color:var(--muted);text-align:center;padding:40px 20px;font-size:13.5px}
+.empty .big{font-size:34px;display:block;margin-bottom:8px}
+</style>
+</head>
+<body>
+<div id="top">
+  <div class="bar">
+    <h1>LE Electric <span class="betaTag">Sleek Beta</span></h1>
+    <button id="syncChip" onclick="syncNow()"><span class="dot"></span><span id="syncTxt">Synced</span></button>
+  </div>
+</div>
+
+<div id="views">
+  <div id="v-jobs"></div>
+  <div id="v-today" style="display:none"></div>
+  <div id="v-dev" style="display:none"></div>
+  <div id="v-archive" style="display:none"></div>
+  <div id="v-detail" style="display:none"></div>
+</div>
+
+<button id="fabAdd" onclick="openNewJob()">＋</button>
+
+<div id="savebar"><div class="in">
+  <div class="n"><b id="pendN">0</b> unsaved change(s)</div>
+  <button class="btn sm ghost" style="background:transparent;border-color:#475569;color:#cbd5e1" onclick="discardChanges()">Discard</button>
+  <button class="btn sm ok" id="saveBtn" onclick="saveChanges()">Save &amp; sync</button>
+</div></div>
+
+<button id="chatFab" onclick="toggleChat()">💬<span class="bdg" id="chatBdg"></span></button>
+<div id="chatPanel">
+  <div class="ch"><b>Dispatch</b><span id="chatStat" style="font-size:11px;opacity:.85"></span>
+    <button onclick="toggleChat()" style="color:#fff;font-size:16px">✕</button></div>
+  <div id="chatLog"></div>
+  <div id="ctxChip" style="display:none"><span id="ctxTxt"></span><span class="grow"></span><button onclick="clearCtx()">✕</button></div>
+  <div id="chatRow">
+    <textarea id="chatIn" rows="1" placeholder="Message Dispatch…"></textarea>
+    <button id="micBtn" onclick="toggleMic()">🎤</button>
+    <button id="sendBtn" onclick="sendChat()">➤</button>
+  </div>
+</div>
+
+<div id="dim" onclick="closeSheet()"></div>
+<div id="sheet">
+  <div class="grab"></div>
+  <div class="shead"><h3 id="shTitle"></h3><button class="x" onclick="closeSheet()">✕</button></div>
+  <div class="sbody" id="shBody"></div>
+</div>
+
+<div id="nav"><div class="in">
+  <button data-v="jobs" class="on" onclick="go('jobs')"><span class="ic">🗂️</span>Jobs</button>
+  <button data-v="today" onclick="go('today')"><span class="ic">📅</span>Today</button>
+  <button data-v="dev" onclick="go('dev')"><span class="ic">🛠️</span>Dev<span class="bdg" id="devBdg" style="display:none"></span></button>
+  <button data-v="archive" onclick="go('archive')"><span class="ic">📦</span>Archive</button>
+</div></div>
+
+<div class="toast" id="toast"></div>
+<script>
+/* ================= DATA LAYER (schema-compatible with Dashboard/Beta) ================= */
+const FN = "/.netlify/functions/";
+const STAGES = ["Lead","Site Visit","Estimate","Accepted","Invoiced","Deposit Receipt","Paperwork","Scheduled","Done","Follow-up","Paid"];
+const PHASES = [
+  {nm:"Sales", ic:"🤝", steps:["Lead","Site Visit","Estimate","Accepted"]},
+  {nm:"Billing", ic:"🧾", steps:["Invoiced","Deposit Receipt"]},
+  {nm:"Paperwork", ic:"📑", steps:["Paperwork"]},
+  {nm:"Job", ic:"⚡", steps:["Scheduled","Done"]},
+  {nm:"Wrap-up", ic:"✅", steps:["Follow-up","Paid"]},
+];
+const OVKEY="le_jobs_beta_v1", DRAFTKEY="le_sleek_draft_v1";
+let JOBS=[], OV={}, PENDING={}, CMDS=[], CAL=[], DEVT=[], SYNCEDAT=0;
+let CURID=null, VIEW="jobs", FILTER="Active", Q="", lastOvTs=0, chatUnread=0;
+
+const $=id=>document.getElementById(id);
+const esc=s=>String(s==null?"":s).replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+const toast=(m,ms)=>{const t=$("toast");t.textContent=m;t.classList.add("show");clearTimeout(t._h);t._h=setTimeout(()=>t.classList.remove("show"),ms||2200)};
+const fmt$=v=>{if(v==null||v==="")return"";const n=typeof v==="number"?v:parseFloat(String(v).replace(/[$,]/g,""));return isNaN(n)?String(v):"$"+n.toLocaleString(undefined,{maximumFractionDigits:0})};
+const today=()=>new Date().toISOString().slice(0,10);
+const ago=ts=>{if(!ts)return"never";const m=Math.round((Date.now()-ts)/60000);if(m<1)return"just now";if(m<60)return m+"m ago";const h=Math.round(m/60);if(h<24)return h+"h ago";return Math.round(h/24)+"d ago"};
+
+function loadOv(){try{OV=JSON.parse(localStorage.getItem(OVKEY)||"{}")}catch(e){OV={}}}
+function saveOv(){localStorage.setItem(OVKEY,JSON.stringify(OV));pushSoon()}
+function loadDraft(){try{const d=JSON.parse(localStorage.getItem(DRAFTKEY)||"null");if(d&&d.id&&d.p&&Object.keys(d.p).length){PENDING[d.id]=d.p;}}catch(e){}}
+function saveDraft(){if(CURID&&PENDING[CURID])localStorage.setItem(DRAFTKEY,JSON.stringify({id:CURID,p:PENDING[CURID]}));else localStorage.removeItem(DRAFTKEY)}
+
+/* merged view of a job: synced base <- overlay <- pending */
+function deep(a){return JSON.parse(JSON.stringify(a||{}))}
+function merge2(base,over){const o=deep(base);for(const k in over){const v=over[k];
+  if(v&&typeof v==="object"&&!Array.isArray(v)&&o[k]&&typeof o[k]==="object"&&!Array.isArray(o[k]))o[k]=merge2(o[k],v);else o[k]=deep2(v)}return o}
+function deep2(v){return v&&typeof v==="object"?JSON.parse(JSON.stringify(v)):v}
+function jobView(id){const base=JOBS.find(j=>j.id===id)||OV[id]&&OV[id]._new&&{id}||null;if(!base&&!OV[id])return null;
+  let j=merge2(base||{id},OV[id]||{});if(PENDING[id])j=merge2(j,PENDING[id]);j.id=id;return j}
+function allIds(){const s=new Set(JOBS.map(j=>j.id));Object.keys(OV).forEach(k=>{if(OV[k]&&OV[k]._new)s.add(k)});return[...s]}
+function allJobs(){return allIds().map(jobView).filter(Boolean)}
+function activeJobs(){return allJobs().filter(j=>!j._archived&&!j._deleted)}
+
+function stageOf(j){const st=j.status||{};for(const s of STAGES){const e=st[s];if(!e||(e.s!=="done"&&e.s!=="skipped"))return s}return"Paid"}
+function pct(j){const st=j.status||{};let d=0;STAGES.forEach(s=>{const e=st[s];if(e&&(e.s==="done"||e.s==="skipped"))d++});return Math.round(d/STAGES.length*100)}
+
+/* ---------- server sync ---------- */
+let _pushT=null;
+function pushSoon(){clearTimeout(_pushT);_pushT=setTimeout(pushNow,900)}
+async function pushNow(){try{const r=await fetch(FN+"state",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({ov:OV})});const d=await r.json();if(d.ts)lastOvTs=d.ts}catch(e){}}
+async function pullState(){try{const r=await fetch(FN+"state");const d=await r.json();
+  if(d.ts&&d.ts>lastOvTs){lastOvTs=d.ts;const mine=JSON.stringify(OV);if(JSON.stringify(d.ov||{})!==mine){OV=d.ov||{};localStorage.setItem(OVKEY,JSON.stringify(OV));rerender()}}}catch(e){}}
+async function pullJobs(){try{const r=await fetch(FN+"jobsdata?cb="+Date.now());const d=await r.json();
+  if(Array.isArray(d.jobs)){const ch=JSON.stringify(d.jobs)!==JSON.stringify(JOBS);JOBS=d.jobs;SYNCEDAT=d.syncedAt||0;if(ch)rerender();updSync()}}catch(e){}}
+async function pullCmds(){try{const r=await fetch(FN+"command?cb="+Date.now());const d=await r.json();
+  if(Array.isArray(d.commands)){const ch=JSON.stringify(d.commands)!==JSON.stringify(CMDS);CMDS=d.commands;if(ch){checkApprovals();if(VIEW==="detail")renderDetail();}}}catch(e){}}
+async function pullCal(){try{const r=await fetch(FN+"calendar");const d=await r.json();CAL=d.events||[]}catch(e){}}
+async function pullDev(){try{const r=await fetch(FN+"devtasks?cb="+Date.now());const d=await r.json();DEVT=d.tasks||[];updDevBdg();if(VIEW==="dev")renderDev()}catch(e){}}
+function updSync(){$("syncTxt").textContent=SYNCEDAT?("QBO "+ago(SYNCEDAT)):"local";}
+async function syncNow(){$("syncChip").classList.add("busy");$("syncTxt").textContent="Syncing…";
+  try{await fetch(FN+"jobsdata",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({op:"request"})});}catch(e){}
+  await Promise.all([pullJobs(),pullState(),pullCmds(),pullCal()]);$("syncChip").classList.remove("busy");updSync();toast("Refreshed. Fresh QBO pull requested.")}
+
+/* ---------- command bus ---------- */
+async function cmdEnqueue(type,jobId,payload,lane,idk){
+  const body={op:"enqueue",command:{type,jobId,payload:payload||{},lane:lane||"judgment",idempotencyKey:idk||(type+":"+jobId+":"+today())}};
+  try{const r=await fetch(FN+"command",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify(body)});
+    const d=await r.json();if(d.deduped)toast("Already sent — deduped, no double-send.");pullCmds();return d.command}catch(e){toast("Network error — command not queued");return null}}
+async function cmdRetry(id){await fetch(FN+"command",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({op:"update",id,patch:{status:"queued",attempts:0,error:null},note:"manual retry (sleek)"})});pullCmds();toast("Retrying…")}
+function jobCmds(id){return CMDS.filter(c=>c.jobId===id).sort((a,b)=>b.createdAt-a.createdAt)}
+
+/* ================= PENDING-SAVE MODEL (#1) ================= */
+function patch(id,p){PENDING[id]=merge2(PENDING[id]||{},p);saveDraft();updSavebar();if(VIEW==="detail")renderDetail()}
+function pendCount(){let n=0;const walk=o=>{for(const k in o){const v=o[k];if(v&&typeof v==="object"&&!Array.isArray(v))walk(v);else n++}};Object.values(PENDING).forEach(walk);return n}
+function updSavebar(){const n=pendCount();$("pendN").textContent=n;$("savebar").classList.toggle("show",n>0)}
+function discardChanges(){PENDING={};saveDraft();updSavebar();rerender();toast("Changes discarded")}
+async function saveChanges(){
+  const ids=Object.keys(PENDING);if(!ids.length)return;
+  const payFlips=[];
+  ids.forEach(id=>{const p=PENDING[id];
+    if(p&&p.paid===true&&!(OV[id]&&OV[id].paid===true))payFlips.push(id);
+    OV[id]=merge2(OV[id]||{},p)});
+  PENDING={};saveDraft();
+  localStorage.setItem(OVKEY,JSON.stringify(OV));
+  updSavebar();$("saveBtn").classList.add("saved");setTimeout(()=>$("saveBtn").classList.remove("saved"),750);
+  await pushNow();
+  for(const id of payFlips){const j=jobView(id);const pay=j.payment||{};
+    if(j.invoiceNo)cmdEnqueue("record_payment",id,{invoiceNo:j.invoiceNo,amount:pay.amount||j.amount,method:pay.method||"",ref:pay.ref||"",date:pay.date||today()},"deterministic","record_payment:"+id+":"+(j.invoiceNo||""));}
+  rerender();toast("Saved ✓ synced to all devices");
+}
+let _nextNav=null;
+function leaveGuard(next){const n=pendCount();if(!n)return next();_nextNav=next;
+  sheet("Unsaved changes",`
+   <p class="small muted" style="margin:4px 2px 14px">You have <b>${n}</b> unsaved change(s) on this job.</p>
+   <button class="opt" onclick="_navSave()"><span class="ic">💾</span><div><div class="tt">Save &amp; continue</div><div class="dd">Apply changes, sync, then leave</div></div></button>
+   <button class="opt" onclick="_navDiscard()"><span class="ic">🗑️</span><div><div class="tt">Discard</div><div class="dd">Throw away the edits</div></div></button>
+   <button class="opt" onclick="closeSheet()"><span class="ic">↩️</span><div><div class="tt">Stay here</div></div></button>`)}
+function _navSave(){closeSheet();const f=_nextNav;_nextNav=null;saveChanges().then(()=>{f&&f()})}
+function _navDiscard(){closeSheet();const f=_nextNav;_nextNav=null;discardChanges();f&&f()}
+window.addEventListener("beforeunload",e=>{if(pendCount()){e.preventDefault();e.returnValue=""}});
+
+/* ================= NAV ================= */
+function go(v){const doGo=()=>{VIEW=v;CURID=v==="detail"?CURID:null;
+  ["jobs","today","dev","archive","detail"].forEach(x=>$("v-"+x).style.display=x===v?"":"none");
+  document.querySelectorAll("#nav button").forEach(b=>b.classList.toggle("on",b.dataset.v===v));
+  $("fabAdd").style.display=(v==="jobs")?"":"none";
+  rerender();window.scrollTo(0,0)};
+  if(VIEW==="detail"&&v!=="detail")leaveGuard(doGo);else doGo()}
+function openJob(id){CURID=id;go("detail")}
+function rerender(){updSavebar();
+  if(VIEW==="jobs")renderJobs();else if(VIEW==="today")renderToday();else if(VIEW==="dev")renderDev();
+  else if(VIEW==="archive")renderArchive();else if(VIEW==="detail")renderDetail()}
+
+/* ================= JOBS LIST ================= */
+const CHIPS=["Active","Leads","Estimates","Scheduled","Unpaid","Paid","All"];
+function chipTest(j,c){const st=stageOf(j);switch(c){
+  case"Active":return !j.paid;
+  case"Leads":return["Lead","Site Visit"].includes(st);
+  case"Estimates":return["Estimate","Accepted"].includes(st);
+  case"Scheduled":return st==="Scheduled"||(j.status&&j.status.Scheduled&&j.status.Scheduled.s==="done"&&st!=="Paid"&&!j.paid);
+  case"Unpaid":return !j.paid&&j.invoiceNo;
+  case"Paid":return !!j.paid;
+  default:return true}}
+function groupsOf(list){const g={},solo=[];list.forEach(j=>{if(j.clientGroup){(g[j.clientGroup]=g[j.clientGroup]||[]).push(j)}else solo.push(j)});return{g,solo}}
+function nextAction(j){const st=stageOf(j);
+  if(st==="Follow-up"&&j.followUp&&j.followUp.date&&j.followUp.date<=today())return"Follow-up due"+(j.followUp.date<today()?" (overdue)":" today");
+  if(st==="Paid"&&!j.paid)return"Collect payment";
+  return"Next: "+st}
+function jcardHtml(j,stackN){const st=stageOf(j);
+  return`<div class="jcard" style="cursor:pointer" onclick="openJob('${j.id}')">
+    ${stackN?`<span class="stackN">${stackN} jobs</span>`:""}
+    <div class="t"><span class="grow">${esc(j.customer||"—")}</span><span class="amt">${esc(fmt$(j.amount))}</span></div>
+    <div class="sub">${esc(j.title||"")}</div>
+    <div class="pbar"><i style="width:${pct(j)}%"></i></div>
+    <div class="row"><span class="pill stage">${esc(st)}</span>
+      <span class="pill ${j.paid?"paid":"unpaid"}">${j.paid?"Paid":"Unpaid"}</span>
+      <span class="grow"></span><span class="next">${esc(nextAction(j))}</span></div>
+    <div class="qa" onclick="event.stopPropagation()">
+      ${j.phone?`<button onclick="location.href='tel:${esc(j.phone)}'">📞 Call</button>`:""}
+      ${j.invoiceNo&&!j.paid?`<button onclick="quickSendInvoice('${j.id}')">📤 Invoice</button>`:""}
+      ${!j.paid?`<button onclick="openMarkPaid('${j.id}')">💵 Paid?</button>`:""}
+      <button class="gray" onclick="openJob('${j.id}')">Open ›</button>
+    </div></div>`}
+function renderJobs(){const v=$("v-jobs");const list=activeJobs().filter(j=>chipTest(j,FILTER))
+  .filter(j=>!Q||JSON.stringify([j.customer,j.title,j.address,j.invoiceNo]).toLowerCase().includes(Q));
+  list.sort((a,b)=>(parseFloat(String(b.amount).replace(/[$,]/g,""))||0)-(parseFloat(String(a.amount).replace(/[$,]/g,""))||0));
+  const{g,solo}=groupsOf(list);
+  let h=`<div id="searchRow"><input id="q" placeholder="🔍  Search customer, job, address…" value="${esc(Q)}" oninput="Q=this.value.toLowerCase();renderJobs();document.getElementById('q').focus()"></div>
+  <div id="chips">${CHIPS.map(c=>`<button class="chip ${c===FILTER?"on":""}" onclick="FILTER='${c}';renderJobs()">${c}</button>`).join("")}</div>`;
+  Object.entries(g).forEach(([k,js])=>{const top=js[0];h+=jcardHtml(top,js.length)});
+  solo.forEach(j=>h+=jcardHtml(j));
+  if(!list.length)h+=`<div class="empty"><span class="big">🗂️</span>No jobs match.<br>Try another filter, or hit ＋ to add a job.</div>`;
+  v.innerHTML=h;
+  const qEl=$("q");qEl.setSelectionRange(qEl.value.length,qEl.value.length)}
+
+/* ================= TODAY ================= */
+function renderToday(){const v=$("v-today");const js=activeJobs();const t=today();
+  const due=js.filter(j=>j.followUp&&j.followUp.date&&j.followUp.date<=t&&!j.paid);
+  const appts=CAL.slice().filter(e=>e.start&&e.start.slice(0,10)>=t).sort((a,b)=>a.start<b.start?-1:1).slice(0,8);
+  const unpaid=js.filter(j=>!j.paid&&j.invoiceNo);
+  const owed=unpaid.reduce((s,j)=>s+(parseFloat(String(j.amount).replace(/[$,]/g,""))||0),0);
+  let h=`<div class="card"><div class="row">
+      <div class="grow"><div class="small muted">Open jobs</div><div style="font-size:22px;font-weight:800">${js.filter(j=>!j.paid).length}</div></div>
+      <div class="grow"><div class="small muted">Unpaid invoices</div><div style="font-size:22px;font-weight:800">${unpaid.length}</div></div>
+      <div class="grow"><div class="small muted">Outstanding</div><div style="font-size:22px;font-weight:800">${fmt$(owed)}</div></div></div></div>`;
+  h+=`<div class="sec">Follow-ups due</div>`;
+  h+=due.length?due.map(j=>`<div class="jcard" style="cursor:pointer" onclick="openJob('${j.id}')"><div class="t">${esc(j.customer)}<span class="amt">${esc(fmt$(j.amount))}</span></div>
+    <div class="sub">📌 ${esc(j.followUp.text||"Follow up")} — <b style="color:var(--danger)">${esc(j.followUp.date)}</b></div></div>`).join("")
+    :`<div class="empty">Nothing due. 🎉</div>`;
+  h+=`<div class="sec">Upcoming appointments</div>`;
+  h+=appts.length?appts.map(e=>`<div class="card" style="padding:12px 14px"><div class="row">
+      <div class="grow"><b>${esc(e.summary||"Appointment")}</b><div class="small muted">${esc((e.start||"").replace("T"," ").slice(0,16))}${e.location?" · "+esc(e.location):""}</div></div>
+      <button class="btn sm soft" onclick='newJobFromEvent(${esc(JSON.stringify(e))})'>+ Job</button></div></div>`).join("")
+    :`<div class="empty">No synced appointments.</div>`;
+  v.innerHTML=h}
+function newJobFromEvent(e){prefillFromEvent(e)}
+
+/* ================= ARCHIVE ================= */
+function renderArchive(){const v=$("v-archive");const list=allJobs().filter(j=>j._archived&&!j._deleted);
+  v.innerHTML=`<div class="sec">Archived jobs (${list.length})</div>`+(list.length?list.map(j=>`
+    <div class="card" style="padding:12px 14px"><div class="row">
+      <div class="grow"><b>${esc(j.customer)}</b><div class="small muted">${esc(j.title||"")} · ${esc(fmt$(j.amount))}</div></div>
+      <button class="btn sm soft" onclick="patch('${j.id}',{_archived:false});saveChanges()">Restore</button>
+      <button class="btn sm ghost" onclick="openJob('${j.id}')">View</button></div></div>`).join("")
+    :`<div class="empty"><span class="big">📦</span>Nothing archived yet.<br>Finished jobs you archive land here.</div>`)}
+
+/* ================= DETAIL ================= */
+let openPhase=null,openStep=null,stepTimer=null;
+function renderDetail(){const v=$("v-detail");const j=CURID&&jobView(CURID);
+  if(!j){v.innerHTML=`<div class="empty">Job not found.</div>`;return}
+  const st=j.status||{};const cur=stageOf(j);const cmds=jobCmds(j.id);
+  if(openPhase===null)openPhase=PHASES.findIndex(p=>p.steps.includes(cur));
+  let h=`<div class="backRow"><button class="bk" onclick="go('jobs')">‹ Jobs</button><span class="grow"></span>
+    <button class="btn sm ghost" onclick="openMenu('${j.id}')">⋮ More</button></div>`;
+  /* customer card */
+  h+=`<div class="card custCard">
+    <div class="row"><div class="grow"><div class="name">${esc(j.customer||"—")}</div>
+      <div class="small muted">${esc(j.title||"")}</div></div>
+      <div style="text-align:right"><div style="font-size:20px;font-weight:800">${esc(fmt$(j.amount))}</div>
+      <span class="pill ${j.paid?"paid":"unpaid"}">${j.paid?"Paid":"Unpaid"}</span></div></div>
+    <div class="act4">
+      <button onclick="${j.phone?`location.href='tel:${esc(j.phone)}'`:`toast('No phone on file')`}"><span class="ic">📞</span>Call</button>
+      <button onclick="${j.phone?`location.href='sms:${esc(j.phone)}'`:`toast('No phone on file')`}"><span class="ic">💬</span>Text</button>
+      <button onclick="${j.email?`location.href='mailto:${esc(j.email)}'`:`toast('No email on file')`}"><span class="ic">✉️</span>Email</button>
+      <button onclick="${j.address?`window.open('https://maps.apple.com/?q='+encodeURIComponent('${esc(j.address)}'))`:`toast('No address on file')`}"><span class="ic">📍</span>Map</button></div>
+    ${j.phone?`<div class="kv"><b>Phone</b> ${esc(j.phone)}</div>`:""}
+    ${j.email?`<div class="kv"><b>Email</b> ${esc(j.email)}</div>`:""}
+    ${j.address?`<div class="kv"><b>Address</b> ${esc(j.address)}</div>`:""}
+    <div class="row" style="margin-top:12px">
+      <button class="btn sm soft grow" onclick="openCustEdit('${j.id}')">✏️ Edit info</button>
+      <button class="btn sm soft grow" onclick="custSync('${j.id}')">⇄ Sync to QuickBooks</button></div></div>`;
+  /* quick views */
+  h+=`<div class="row" style="margin-bottom:12px">
+    ${j.invoiceNo?`<button class="btn sm ghost grow" onclick="openDoc('${j.id}','invoice')">🧾 Invoice ${esc(j.invoiceNo)}</button>`:""}
+    ${j.estimateNo?`<button class="btn sm ghost grow" onclick="openDoc('${j.id}','estimate')">📝 Estimate ${esc(j.estimateNo)}</button>`:""}
+    <button class="btn sm ghost grow" onclick="openCalView('${j.id}')">📅 Calendar</button></div>`;
+  /* money */
+  if(!j.paid)h+=`<button class="btn ok" style="width:100%;margin-bottom:12px" onclick="openMarkPaid('${j.id}')">💵 Mark as paid…</button>`;
+  else if(j.payment)h+=`<div class="card small" style="background:var(--done-soft);box-shadow:none"><b>Paid</b> ${esc(fmt$(j.payment.amount))} · ${esc(j.payment.method||"")} ${j.payment.ref?"· ref "+esc(j.payment.ref):""} ${j.payment.date?"· "+esc(j.payment.date):""}</div>`;
+  /* progress phases */
+  h+=`<div class="sec">Progress — ${pct(j)}%</div><div class="pbar" style="margin:0 2px 10px"><i style="width:${pct(j)}%"></i></div>`;
+  PHASES.forEach((p,pi)=>{const done=p.steps.filter(s=>st[s]&&(st[s].s==="done"||st[s].s==="skipped")).length;
+    h+=`<div class="phase ${pi===openPhase?"open":""}">
+      <button class="hd" onclick="openPhase=${pi===openPhase?-1:pi};openStep=null;renderDetail()">
+        <span>${p.ic}</span><span class="nm">${p.nm}</span>
+        <span class="cnt ${done===p.steps.length?"all":""}">${done}/${p.steps.length}</span><span class="chev">›</span></button>
+      <div class="steps">${p.steps.map(s=>stepHtml(j,s,cur)).join("")}</div></div>`});
+  /* follow-up + notes */
+  h+=`<div class="sec">Follow-up &amp; notes</div><div class="card">
+    <div class="fld"><label>Follow-up</label><div class="row">
+      <input class="grow" placeholder="e.g. Call about balance" value="${esc(j.followUp&&j.followUp.text||"")}"
+        onchange="patch('${j.id}',{followUp:{text:this.value,date:'${esc(j.followUp&&j.followUp.date||"")}'}})">
+      <input type="date" style="width:150px" value="${esc(j.followUp&&j.followUp.date||"")}"
+        onchange="patch('${j.id}',{followUp:{text:'${esc(j.followUp&&j.followUp.text||"")}',date:this.value}})"></div></div>
+    <div class="fld"><label>Notes</label><textarea class="notes" onchange="patch('${j.id}',{notes:this.value})">${esc(j.notes||"")}</textarea></div></div>`;
+  /* activity */
+  h+=`<div class="sec">Activity</div><div class="card">${cmds.length?cmds.slice(0,8).map(c=>`
+    <div class="evt"><span class="st ${esc(c.status)}">${esc(c.status==="needs_approval"?"needs OK":c.status)}</span>
+      <span class="grow">${esc(c.type)}${c.error?` — <span style="color:var(--danger)">${esc(String(c.error).slice(0,80))}</span>`:""}</span>
+      ${c.status==="failed"?`<button class="btn sm warn" onclick="cmdRetry('${c.id}')">Retry</button>`:""}
+      <span class="muted">${ago(c.updatedAt||c.createdAt)}</span></div>`).join("")
+    :`<div class="small muted">No actions yet. Sends, payments and syncs will show here with live status.</div>`}</div>`;
+  v.innerHTML=h}
+
+function stepHtml(j,s,cur){const st=j.status||{};const e=st[s]||{};const cls=e.s==="done"?"done":e.s==="skipped"?"skipped":s===cur?"current":"";
+  const open=openStep===s;let h=`<div class="step ${cls}" onclick="tapStep('${j.id}','${s}')">
+    <span class="dot">${e.s==="done"?"✓":e.s==="skipped"?"–":""}</span>
+    <span class="lbl">${esc(s)}</span>${e.d?`<span class="dt">${esc(e.d)}</span>`:""}</div>
+  <div class="stepAct ${open?"show":""}">
+    ${e.s==="done"||e.s==="skipped"?`<button class="btn sm ghost" onclick="setStep('${j.id}','${s}',null)">↩ Undo</button>`
+      :`<button class="btn sm ok" onclick="setStep('${j.id}','${s}','done')">✓ Complete</button>
+        <button class="btn sm ghost" onclick="setStep('${j.id}','${s}','skipped')">Skip</button>`}</div>`;
+  if(s==="Paperwork"&&e.s!=="skipped")h+=paperHtml(j);
+  if(s==="Scheduled")h+=schedHtml(j);
+  return h}
+function tapStep(id,s){openStep=openStep===s?null:s;renderDetail();clearTimeout(stepTimer);
+  if(openStep)stepTimer=setTimeout(()=>{openStep=null;if(VIEW==="detail")renderDetail()},5000)}
+function setStep(id,s,val){clearTimeout(stepTimer);openStep=null;
+  const p={status:{}};p.status[s]=val?{s:val,d:today()}:{s:""};
+  if(s==="Paid")p.paid=val==="done";
+  patch(id,p)}
+
+/* paperwork branches (#13-15) */
+const PAPER={coned:{nm:"Con Edison",steps:["Application submitted","POE scheduled","Uploaded paperwork complete","New accounts activated","Interim checklist","Final checklist","Meter installation date"]},
+  dob:{nm:"DOB / City Permit",steps:["Application submitted","Permit issued","Inspection requested","Inspection scheduled","Self certification","PAA complete"]}};
+function paperHtml(j){const pw=j.paperwork||{};let h="";
+  for(const k in PAPER){const br=pw[k]||{enabled:false,steps:{},dates:{}};
+    h+=`<div class="branch"><div class="bhd"><span class="grow">${PAPER[k].nm}</span>
+      <div class="tgl ${br.enabled?"on":""}" onclick="event.stopPropagation();togglePaper('${j.id}','${k}',${!br.enabled})"><i></i></div></div>`;
+    if(br.enabled)h+=PAPER[k].steps.map(s=>{const on=br.steps&&br.steps[s];const dated=/date|scheduled/i.test(s);
+      return`<div class="row" style="padding:4px 0" onclick="event.stopPropagation()">
+        <span class="sub grow" style="${on?"color:#166534;font-weight:650":""}">${on?"✓ ":""}${esc(s)}</span>
+        ${dated?`<input type="date" style="width:135px;padding:5px 7px;font-size:12px" value="${esc(br.dates&&br.dates[s]||"")}" onchange="paperDate('${j.id}','${k}','${s}',this.value)">`:""}
+        <div class="tgl ${on?"on":""}" style="transform:scale(.8)" onclick="paperStep('${j.id}','${k}','${s}',${!on})"><i></i></div></div>`}).join("");
+    h+="</div>"}
+  return h}
+function togglePaper(id,k,on){const p={paperwork:{}};p.paperwork[k]={enabled:on};patch(id,p)}
+function paperStep(id,k,s,on){const p={paperwork:{}};p.paperwork[k]={steps:{}};p.paperwork[k].steps[s]=on;patch(id,p);
+  if(on&&s==="Inspection scheduled")askInspection(id,k)}
+function paperDate(id,k,s,d){const p={paperwork:{}};p.paperwork[k]={dates:{}};p.paperwork[k].dates[s]=d;patch(id,p)}
+function askInspection(id,k){const j=jobView(id);sheet("Inspection scheduled",`
+  <div class="fld"><label>Date &amp; time</label><input type="datetime-local" id="inspDt"></div>
+  <button class="btn" style="width:100%" onclick="confInspection('${id}','${k}')">Add to customer's calendar</button>
+  <button class="btn ghost" style="width:100%;margin-top:8px" onclick="closeSheet()">Just record it</button>`)}
+function confInspection(id,k){const dt=$("inspDt").value;closeSheet();if(!dt)return toast("No date picked");
+  paperDate(id,k,"Inspection scheduled",dt.slice(0,10));const j=jobView(id);
+  cmdEnqueue("calendar_upsert",id,{calEventId:j.calEventId||"",summary:"Inspection — "+(j.customer||""),start:dt,location:j.address||"",description:"Scheduled from Sleek Beta"},"judgment","insp:"+id+":"+dt);
+  toast("Inspection queued to calendar")}
+function schedHtml(j){const e=(j.status||{}).Scheduled||{};
+  return`<div class="branch" onclick="event.stopPropagation()"><div class="row" style="padding:4px 0">
+    <span class="sub grow muted">Job date</span>
+    <input type="date" style="width:150px;padding:5px 7px;font-size:12px" value="${esc(e.d||"")}"
+      onchange="schedDate('${j.id}',this.value)"></div></div>`}
+function schedDate(id,d){const p={status:{Scheduled:{s:"done",d}}};patch(id,p);const j=jobView(id);
+  cmdEnqueue("calendar_upsert",id,{calEventId:j.calEventId||"",summary:(j.title||"Job")+" — "+(j.customer||""),start:d,location:j.address||"",description:"Scheduled from Sleek Beta"},"judgment","sched:"+id+":"+d)}
+
+/* ================= SHEETS ================= */
+function sheet(title,html){$("shTitle").textContent=title;$("shBody").innerHTML=html;
+  $("dim").classList.add("show");$("sheet").classList.add("show")}
+function closeSheet(){$("dim").classList.remove("show");$("sheet").classList.remove("show")}
+
+/* mark paid (#4) */
+function openMarkPaid(id){const j=jobView(id);sheet("Mark as paid — "+(j.customer||""),`
+  <div class="fld"><label>Amount</label><input id="mpAmt" inputmode="decimal" value="${esc(String(j.amount||"").replace(/[$,]/g,""))}"><div class="hint">Recommended</div></div>
+  <div class="fld"><label>Payment method</label><select id="mpMth"><option value="">— choose —</option>
+    <option>Cash</option><option>Wells Fargo</option><option>Martin Dorkin</option><option>Zelle</option><option>Barder</option><option>Other</option></select><div class="hint">Recommended</div></div>
+  <div class="fld"><label>Reference / check #</label><input id="mpRef" placeholder="Optional"></div>
+  <div class="fld"><label>Date</label><input id="mpDt" type="date" value="${today()}"></div>
+  <button class="btn ok" style="width:100%" onclick="confPaid('${id}')">✓ Record payment</button>
+  <p class="hint" style="text-align:center;margin-top:8px">Staged now — QuickBooks records it when you hit Save &amp; sync.</p>`)}
+function confPaid(id){const amt=$("mpAmt").value,mth=$("mpMth").value,ref=$("mpRef").value,dt=$("mpDt").value;closeSheet();
+  patch(id,{paid:true,payment:{amount:amt,method:mth,ref,date:dt},status:{Paid:{s:"done",d:dt||today()},"Follow-up":{s:"done",d:dt||today()}}});
+  toast("Payment staged — Save & sync to record in QuickBooks")}
+
+/* customer edit + QBO sync (#20, customer-edit-only writes) */
+function openCustEdit(id){const j=jobView(id);sheet("Edit customer",`
+  ${["customer:Name","phone:Phone","email:Email","address:Billing address"].map(f=>{const[k,l]=f.split(":");
+    return`<div class="fld"><label>${l}</label><input id="ce_${k}" value="${esc(j[k]||"")}"></div>`}).join("")}
+  <button class="btn" style="width:100%" onclick="confCust('${id}')">Apply</button>
+  <p class="hint" style="text-align:center;margin-top:8px">Applies to this job now; pushes to QuickBooks only via ⇄ Sync (with your approval).</p>`)}
+function confCust(id){const p={};["customer","phone","email","address"].forEach(k=>p[k]=$("ce_"+k).value);closeSheet();patch(id,p);toast("Customer info staged")}
+function custSync(id){const j=jobView(id);
+  cmdEnqueue("customer_sync",id,{name:j.customer||"",email:j.email||"",phone:j.phone||"",addr:j.address||""},"deterministic","custsync:"+id+":"+Date.now());
+  toast("Checking QuickBooks for matches…")}
+let seenApp={};
+function checkApprovals(){CMDS.filter(c=>c.status==="needs_approval"&&!seenApp[c.id]).forEach(c=>{seenApp[c.id]=1;showApproval(c)})}
+function showApproval(c){const r=c.result||{};const p=c.payload||{};
+  const cand=(r.candidates||[]).map((x,i)=>`<button class="opt" onclick="resolveApp('${c.id}','update','${esc(x.id||"")}')">
+    <span class="ic">👤</span><div><div class="tt">${esc(x.name||"?")}</div><div class="dd">${esc(x.email||"")} ${esc(x.phone||"")} ${esc(x.addr||x.address||"")}</div></div></button>`).join("");
+  sheet("QuickBooks needs your OK",`
+    <p class="small muted" style="margin:2px 2px 12px">${esc(r.message||("For "+(p.name||"customer")+": "+(r.reason||"choose how to sync.")))}</p>
+    ${r.diff?`<div class="dvbox"><b>Proposed changes</b>${esc(typeof r.diff==="string"?r.diff:JSON.stringify(r.diff,null,1))}</div>`:""}
+    ${cand?`<div class="sec" style="margin-top:12px">Possible matches</div>${cand}`:""}
+    ${r.recommend==="update"&&r.matchId?`<button class="opt" onclick="resolveApp('${c.id}','update','${esc(r.matchId)}')"><span class="ic">🔄</span><div><div class="tt">Update existing customer</div><div class="dd">Apply the new info in QuickBooks</div></div></button>`:""}
+    <button class="opt" onclick="resolveApp('${c.id}','create','')"><span class="ic">➕</span><div><div class="tt">Create new customer</div><div class="dd">Add to QuickBooks as new</div></div></button>
+    <button class="opt" onclick="resolveApp('${c.id}','skip','')"><span class="ic">✋</span><div><div class="tt">Skip for now</div></div></button>`)}
+async function resolveApp(id,choice,matchId){closeSheet();
+  await fetch(FN+"command",{method:"POST",headers:{"content-type":"application/json"},
+    body:JSON.stringify({op:"update",id,patch:{status:"queued",approval:{choice,matchId,by:"levi",ts:Date.now()}},note:"approval: "+choice+" (sleek)"})});
+  pullCmds();toast(choice==="skip"?"Skipped":"Approved — running…")}
+
+/* docs quick view (#7) */
+function quickSendInvoice(id){const j=jobView(id);if(!j.email)return toast("No email on file — add one first");
+  sheet("Send invoice "+esc(j.invoiceNo||""),`
+   <p class="small muted" style="margin:2px 2px 12px">Send invoice <b>${esc(j.invoiceNo)}</b> to <b>${esc(j.email)}</b>?</p>
+   <button class="btn" style="width:100%" onclick="closeSheet();cmdEnqueue('send_invoice','${id}',{email:'${esc(j.email)}',invoiceNo:'${esc(j.invoiceNo)}'},'deterministic','send_invoice:${esc(j.invoiceNo)}');toast('Queued — status in Activity')">📤 Send now</button>`)}
+function openDoc(id,kind){const j=jobView(id);const no=kind==="invoice"?j.invoiceNo:j.estimateNo;
+  sheet((kind==="invoice"?"Invoice ":"Estimate ")+esc(no||""),`
+   <div class="kv"><b>Customer</b> ${esc(j.customer||"")}</div>
+   <div class="kv"><b>Amount</b> ${esc(fmt$(j.amount))}</div>
+   ${kind==="invoice"?`<div class="kv"><b>Status</b> ${j.paid?"Paid":"Open"}</div>`:""}
+   <div style="height:10px"></div>
+   <button class="opt" onclick="window.open('https://qbo.intuit.com/app/${kind==="invoice"?"invoices":"estimates"}')"><span class="ic">🔗</span><div><div class="tt">Open in QuickBooks</div></div></button>
+   ${j.email?`<button class="opt" onclick="closeSheet();cmdEnqueue('send_${kind}','${id}',{email:'${esc(j.email)}',${kind==="invoice"?"invoiceNo":"estimateNo"}:'${esc(no)}'},'deterministic','send_${kind}:${esc(no)}');toast('Queued — status in Activity')"><span class="ic">📤</span><div><div class="tt">Send to ${esc(j.email)}</div></div></button>`:""}`)}
+function openCalView(id){const j=jobView(id);const d=(j.status&&j.status.Scheduled&&j.status.Scheduled.d)||(j.followUp&&j.followUp.date)||"";
+  const url="https://calendar.google.com/calendar/u/0/r/day"+(d?"/"+d.replace(/-/g,"/"):"");
+  sheet("Calendar",`
+   ${d?`<div class="kv"><b>Job date</b> ${esc(d)}</div>`:`<p class="small muted">No date set yet — set one under Progress → Job → Scheduled.</p>`}
+   <div style="height:10px"></div>
+   <button class="opt" onclick="window.open('${url}')"><span class="ic">📅</span><div><div class="tt">Open Google Calendar</div>${d?`<div class="dd">Jumps to ${esc(d)}</div>`:""}</div></button>`)}
+
+/* job menu (#20/#21/#23) */
+function openMenu(id){const j=jobView(id);sheet(j.customer||"Job",`
+  <button class="opt" onclick="closeSheet();patch('${id}',{_archived:true});saveChanges();go('jobs')"><span class="ic">📦</span><div><div class="tt">Archive job</div><div class="dd">Moves to the Archive tab; restore anytime</div></div></button>
+  <button class="opt" onclick="openCombine('${id}')"><span class="ic">🔗</span><div><div class="tt">Combine with another job</div><div class="dd">Group multiple jobs under one client</div></div></button>
+  <button class="opt" onclick="confirmDelete('${id}')"><span class="ic" style="color:var(--danger)">🗑️</span><div><div class="tt" style="color:var(--danger)">Delete from dashboard</div><div class="dd">Never touches QuickBooks</div></div></button>`)}
+function openCombine(id){const js=activeJobs().filter(x=>x.id!==id);sheet("Combine — pick the other job",
+  js.map(x=>`<button class="opt" onclick="doCombine('${id}','${x.id}')"><span class="ic">🗂️</span>
+    <div><div class="tt">${esc(x.customer)}</div><div class="dd">${esc(x.title||"")} · ${esc(fmt$(x.amount))}</div></div></button>`).join("")||`<div class="empty">No other jobs.</div>`)}
+function doCombine(a,b){closeSheet();const g="grp"+Date.now();const ja=jobView(a),jb=jobView(b);
+  const grp=ja.clientGroup||jb.clientGroup||g;patch(a,{clientGroup:grp});patch(b,{clientGroup:grp});saveChanges();toast("Jobs grouped under one client")}
+function confirmDelete(id){sheet("Delete this job?",`
+  <p class="small muted" style="margin:2px 2px 12px">Removes it from the dashboard only — QuickBooks is never touched.</p>
+  <button class="btn warn" style="width:100%" onclick="closeSheet();patch('${id}',{_deleted:true});saveChanges();go('jobs')">Delete</button>
+  <button class="btn ghost" style="width:100%;margin-top:8px" onclick="closeSheet()">Cancel</button>`)}
+
+/* new job (#16) */
+function openNewJob(){sheet("New job",`
+  <button class="opt" onclick="newJobForm(null)"><span class="ic">✍️</span><div><div class="tt">Enter manually</div><div class="dd">Type the customer &amp; details</div></div></button>
+  <button class="opt" onclick="pickFromCal()"><span class="ic">📅</span><div><div class="tt">Choose from calendar</div><div class="dd">Prefill from an upcoming appointment</div></div></button>`)}
+function pickFromCal(){const t=today();const evs=CAL.filter(e=>e.start&&e.start.slice(0,10)>=t).sort((a,b)=>a.start<b.start?-1:1).slice(0,15);
+  sheet("Pick an appointment",evs.map(e=>`<button class="opt" onclick='prefillFromEvent(${esc(JSON.stringify(e))})'>
+    <span class="ic">📅</span><div><div class="tt">${esc(e.summary||"Appointment")}</div>
+    <div class="dd">${esc((e.start||"").replace("T"," ").slice(0,16))}${e.location?" · "+esc(e.location):""}</div></div></button>`).join("")
+    ||`<div class="empty">No synced appointments yet.</div>`)}
+function prefillFromEvent(e){const desc=e.description||"";const pick=re=>{const m=desc.match(re);return m?m[1].trim():""};
+  newJobForm({customer:(e.summary||"").replace(/(service call|estimate|install.*?)[—\-:]/i,"").trim()||e.summary||"",
+    title:e.summary||"",address:e.location||"",phone:pick(/(?:phone|tel|cell)[:\s]+([\d\-\+\(\) ]{7,})/i),
+    email:pick(/([\w.+-]+@[\w-]+\.[\w.]+)/),date:(e.start||"").slice(0,10),calEventId:e.id||""})}
+function newJobForm(pf){pf=pf||{};sheet("New job — details",`
+  ${[["customer","Customer name"],["title","Job title / scope"],["amount","Amount ($)"],["phone","Phone"],["email","Email"],["address","Service address"],["estimateNo","Estimate #"],["invoiceNo","Invoice #"]]
+    .map(([k,l])=>`<div class="fld"><label>${l}</label><input id="nj_${k}" value="${esc(pf[k]||"")}"></div>`).join("")}
+  <div class="fld"><label>Scheduled date</label><input id="nj_date" type="date" value="${esc(pf.date||"")}"></div>
+  <button class="btn" style="width:100%" onclick='createJob("${esc(pf.calEventId||"")}")'>Create job</button>`)}
+function createJob(calEventId){const g={};["customer","title","amount","phone","email","address","estimateNo","invoiceNo"].forEach(k=>g[k]=$("nj_"+k).value.trim());
+  const dt=$("nj_date").value;closeSheet();if(!g.customer&&!g.title)return toast("Give it at least a customer or title");
+  const id="local-"+Date.now();
+  const status={};STAGES.forEach(s=>status[s]={s:""});status.Lead={s:"done",d:today()};
+  if(g.estimateNo)status.Estimate={s:"done"};if(g.invoiceNo)status.Invoiced={s:"done",d:today()};
+  if(dt)status.Scheduled={s:"done",d:dt};
+  OV[id]={_new:true,...g,amount:g.amount?fmt$(g.amount):"",paid:false,notes:"",followUp:{text:"",date:""},status,calEventId:calEventId||""};
+  saveOv();
+  if(dt)cmdEnqueue("calendar_upsert",id,{calEventId:calEventId||"",summary:(g.title||"Job")+" — "+g.customer,start:dt,location:g.address||"",description:"Created in Sleek Beta"},"judgment","njcal:"+id);
+  go("jobs");openJob(id);toast("Job created")}
+
+/* ================= DEV BOARD (#21 naming, always editable) ================= */
+const DVLBL={new:"New",understood:"Understood",question:"Question",approved:"Working on it",verify:"Testing",done:"Done"};
+function updDevBdg(){const n=DEVT.filter(t=>["question","verify"].includes(t.status)).length;
+  const b=$("devBdg");b.style.display=n?"":"none";b.textContent=n}
+function renderDev(){const v=$("v-dev");const order={question:0,verify:1,approved:2,understood:3,new:4,done:5};
+  const ts=DEVT.slice().sort((a,b)=>(order[a.status]??9)-(order[b.status]??9)||(b.priority==="High")-(a.priority==="High")||b.ts-a.ts);
+  let h=`<div class="card"><div class="fld"><label>New request for Dispatch</label>
+    <textarea id="dvDesc" class="notes" placeholder="Describe what you want built or changed…"></textarea></div>
+    <div class="row"><select id="dvPri" style="width:110px"><option>Normal</option><option>High</option></select>
+    <button class="btn grow" onclick="addDev()">Submit</button></div></div>`;
+  ts.forEach(t=>{h+=`<div class="dvcard">
+    <div class="tt"><span class="num">#${t.num}</span><span class="grow">${esc(t.title||"(untitled — I'll name it when I pick it up)")}</span>
+      <span class="dvst ${esc(t.status)}">${DVLBL[t.status]||esc(t.status)}</span></div>
+    ${t.desc?`<div class="ds">${esc(t.desc)}</div>`:""}
+    ${t.understanding?`<div class="dvbox"><b>My understanding</b>${esc(t.understanding)}</div>`:""}
+    ${t.question?`<div class="dvbox" style="border-color:#fecdd3"><b>Question for you</b>${esc(t.question)}</div>`:""}
+    ${t.report?`<div class="dvbox" style="border-color:#bbf7d0"><b>Report</b>${esc(t.report)}</div>`:""}
+    <div class="row" style="margin-top:9px">
+      ${t.status==="understood"?`<button class="btn sm ok" onclick="dvPatch('${t.id}',{status:'approved'})">👍 Approve</button>`:""}
+      ${t.status==="verify"?`<button class="btn sm ok" onclick="dvPatch('${t.id}',{status:'done'})">✓ Verified</button>`:""}
+      <button class="btn sm ghost" onclick="dvEdit('${t.id}')">✏️ Edit</button>
+      <span class="grow"></span>${t.priority==="High"?`<span class="pill unpaid">High</span>`:""}</div></div>`});
+  v.innerHTML=h}
+async function addDev(){const d=$("dvDesc").value.trim();if(!d)return toast("Describe it first");
+  await fetch(FN+"devtasks",{method:"POST",headers:{"content-type":"application/json"},
+    body:JSON.stringify({op:"add",task:{title:"",desc:d,priority:$("dvPri").value,category:"build",target:{beta:true,dashboard:false}}})});
+  $("dvDesc").value="";pullDev();toast("Sent to Dispatch")}
+function dvEdit(id){const t=DEVT.find(x=>x.id===id);if(!t)return;sheet("Edit task #"+t.num,`
+  <div class="fld"><label>Title</label><input id="dvT" value="${esc(t.title||"")}"></div>
+  <div class="fld"><label>Description</label><textarea id="dvD" class="notes">${esc(t.desc||"")}</textarea></div>
+  <div class="fld"><label>Priority</label><select id="dvP"><option${t.priority!=="High"?" selected":""}>Normal</option><option${t.priority==="High"?" selected":""}>High</option></select></div>
+  <button class="btn" style="width:100%" onclick="dvSave('${id}')">Save task</button>`)}
+async function dvSave(id){await dvPatch(id,{title:$("dvT").value,desc:$("dvD").value,priority:$("dvP").value});closeSheet()}
+async function dvPatch(id,p){await fetch(FN+"devtasks",{method:"POST",headers:{"content-type":"application/json"},
+  body:JSON.stringify({op:"patch",id,patch:p})});pullDev()}
+
+/* ================= CHAT BUBBLE (#5/#6) ================= */
+let CONVO=localStorage.getItem("le_sleek_convo")||("sleek-"+Date.now());localStorage.setItem("le_sleek_convo",CONVO);
+let chatOpen=false,ctxOn=true,lastMsgN=0;
+function chatCtx(){if(!ctxOn)return"";if(VIEW==="detail"&&CURID){const j=jobView(CURID);if(j)
+    return`Regarding Job: ${j.customer||""} [${j.title||""}${j.invoiceNo?", inv "+j.invoiceNo:""}${j.amount?", "+fmt$(j.amount):""}${j.address?", "+j.address:""}] — `}
+  if(VIEW==="dev")return"";return`[Sleek Beta / ${VIEW} view] — `}
+function updCtxChip(){const c=chatCtx();const el=$("ctxChip");
+  if(c&&chatOpen){el.style.display="flex";$("ctxTxt").textContent="Context: "+c.replace(/ — $/,"")}else el.style.display="none"}
+function clearCtx(){ctxOn=false;updCtxChip();toast("Context off for this message")}
+function toggleChat(){chatOpen=!chatOpen;$("chatPanel").classList.toggle("show",chatOpen);
+  if(chatOpen){chatUnread=0;updChatBdg();ctxOn=true;updCtxChip();pollChat();$("chatIn").focus()}}
+function updChatBdg(){const b=$("chatBdg");b.style.display=chatUnread?"block":"none";b.textContent=chatUnread}
+async function sendChat(){const t=$("chatIn").value.trim();if(!t)return;$("chatIn").value="";
+  const full=chatCtx()+t;const id="m"+Date.now();ctxOn=true;updCtxChip();
+  try{await fetch(FN+"chat",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({op:"msg",convo:CONVO,id,text:full})});
+    await fetch(FN+"iterate",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({message:full,source:"sleek-bubble:"+CONVO})});
+  }catch(e){toast("Send failed — will show as unsent")}
+  pollChat()}
+async function pollChat(){try{const r=await fetch(FN+"chat?convo="+CONVO+"&cb="+Date.now());const d=await r.json();
+  const ms=d.messages||[];if(ms.length>lastMsgN&&!chatOpen){chatUnread+=ms.length-lastMsgN;updChatBdg()}
+  lastMsgN=ms.length;if(!chatOpen)return;
+  $("chatLog").innerHTML=ms.map(m=>`<div class="msg ${m.who==="dispatch"?"them":"me"}">${esc(m.text)}
+    <span class="stt">${m.who==="dispatch"?"Dispatch":esc(m.status||"Sent")}</span></div>`).join("")||`<div class="empty" style="padding:20px">Say hi — I'm listening. Messages include page context automatically.</div>`;
+  $("chatLog").scrollTop=99999;
+  $("chatStat").textContent=ms.some(m=>m.status==="Working on it")?"working…":"";}catch(e){}}
+/* mic with level animation */
+let rec=null,audioCtx=null,anim=null;
+function toggleMic(){if(rec){rec.stop();return}
+  const SR=window.SpeechRecognition||window.webkitSpeechRecognition;
+  if(!SR)return toast("Voice input not supported in this browser");
+  rec=new SR();rec.lang="en-US";rec.interimResults=true;rec.continuous=true;
+  $("micBtn").classList.add("rec");
+  navigator.mediaDevices.getUserMedia({audio:true}).then(stream=>{
+    audioCtx=new AudioContext();const src=audioCtx.createMediaStreamSource(stream);
+    const an=audioCtx.createAnalyser();an.fftSize=256;src.connect(an);const buf=new Uint8Array(an.frequencyBinCount);
+    const loop=()=>{an.getByteFrequencyData(buf);const v=buf.reduce((a,b)=>a+b,0)/buf.length/255;
+      $("micBtn").style.transform="scale("+(1+v*0.9)+")";anim=requestAnimationFrame(loop)};loop();
+    rec._stream=stream}).catch(()=>{});
+  let base=$("chatIn").value;
+  rec.onresult=e=>{let s="";for(const r of e.results)s+=r[0].transcript;$("chatIn").value=(base?base+" ":"")+s};
+  rec.onend=()=>{$("micBtn").classList.remove("rec");$("micBtn").style.transform="";cancelAnimationFrame(anim);
+    if(rec&&rec._stream)rec._stream.getTracks().forEach(t=>t.stop());if(audioCtx)audioCtx.close();rec=null};
+  rec.start()}
+$("chatIn")&&$("chatIn").addEventListener("keydown",e=>{if(e.key==="Enter"&&!e.shiftKey){e.preventDefault();sendChat()}});
+
+/* ================= INIT & POLLING ================= */
+loadOv();loadDraft();updSavebar();
+renderJobs();
+Promise.all([pullJobs(),pullState(),pullCmds(),pullCal(),pullDev()]).then(rerender);
+setInterval(pullState,15000);
+setInterval(pullJobs,60000);
+setInterval(pullCmds,8000);
+setInterval(pullDev,30000);
+setInterval(pollChat,5000);
+document.addEventListener("visibilitychange",()=>{if(!document.hidden){pullState();pullJobs();pullCmds()}});
+</script>
+</body>
+</html>

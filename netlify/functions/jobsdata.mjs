@@ -36,6 +36,19 @@ export default async (req) => {
       doc.jobs = b.jobs;
       doc.syncedAt = Date.now();
       doc.request = 0;
+    } else if (b.op === "merge" && Array.isArray(b.jobs)) {
+      // Non-destructive sync (safe alongside manual edits): upsert by id, never
+      // delete. User edits live in the ov overlay (state.mjs) and always win at
+      // render time, so a merge can never clobber Levi's manual changes.
+      const byId = new Map((doc.jobs || []).map((j) => [j.id, j]));
+      for (const nj of b.jobs) {
+        if (!nj || !nj.id) continue;
+        const cur = byId.get(nj.id);
+        byId.set(nj.id, cur ? Object.assign({}, cur, nj) : nj);
+      }
+      doc.jobs = [...byId.values()];
+      doc.syncedAt = Date.now();
+      doc.request = 0;
     } else if (b.op === "request") {
       doc.request = Date.now();
     }
