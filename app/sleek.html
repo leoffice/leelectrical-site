@@ -289,6 +289,7 @@ const PHASES = [
   {nm:"Wrap-up", ic:"✅", steps:["Follow-up","Paid"]},
 ];
 const OVKEY="le_jobs_beta_v1", DRAFTKEY="le_sleek_draft_v1";
+const FOLLOWUP_TYPES=["Acceptance","Payment / collect","Schedule the job","Paperwork / permits","Con Edison case","Final inspection","Other"];
 let JOBS=[], OV={}, PENDING={}, CMDS=[], CAL=[], DEVT=[], SYNCEDAT=0;
 let CURID=null, VIEW="jobs", FILTER="Active", Q="", lastOvTs=0, chatUnread=0;
 
@@ -499,14 +500,36 @@ function renderDetail(){const v=$("v-detail");const j=CURID&&jobView(CURID);
         <span>${p.ic}</span><span class="nm">${p.nm}</span>
         <span class="cnt ${done===p.steps.length?"all":""}">${done}/${p.steps.length}</span><span class="chev">›</span></button>
       <div class="steps">${p.steps.map(s=>stepHtml(j,s,cur)).join("")}</div></div>`});
-  /* follow-up + notes */
+  /* follow-up + notes + attachments */
+  const fu=j.followUp||{};
   h+=`<div class="sec">Follow-up &amp; notes</div><div class="card">
-    <div class="fld"><label>Follow-up</label><div class="row">
-      <input class="grow" placeholder="e.g. Call about balance" value="${esc(j.followUp&&j.followUp.text||"")}"
-        onchange="patch('${j.id}',{followUp:{text:this.value,date:'${esc(j.followUp&&j.followUp.date||"")}'}})">
-      <input type="date" style="width:150px" value="${esc(j.followUp&&j.followUp.date||"")}"
-        onchange="patch('${j.id}',{followUp:{text:'${esc(j.followUp&&j.followUp.text||"")}',date:this.value}})"></div></div>
+    <div class="fld"><label>Follow-up type</label>
+      <select onchange="patch('${j.id}',{followUp:{type:this.value}})">
+        <option value="">— none —</option>
+        ${FOLLOWUP_TYPES.map(t=>`<option${fu.type===t?" selected":""}>${t}</option>`).join("")}</select></div>
+    <div class="fld"><div class="row">
+      <input class="grow" placeholder="Custom message (optional)" value="${esc(fu.text||"")}"
+        onchange="patch('${j.id}',{followUp:{text:this.value}})">
+      <input type="date" style="width:150px" value="${esc(fu.date||"")}"
+        onchange="patch('${j.id}',{followUp:{date:this.value}})"></div></div>
+    <label class="row small" style="margin:2px 2px 12px;cursor:pointer">
+      <input type="checkbox" style="width:auto" ${fu.remind?"checked":""}
+        onchange="patch('${j.id}',{followUp:{remind:this.checked}});toast(this.checked?'Office Manager will Telegram you on that date':'Reminder off')">
+      🔔 Remind me on Telegram on this date (via Office Manager)</label>
+    ${!j.paid&&j.invoiceNo?`<button class="btn sm warn" style="width:100%;margin-bottom:12px" onclick="openReminder('${j.id}')">🔔 Send customer a payment reminder…</button>`:""}
     <div class="fld"><label>Notes</label><textarea class="notes" onchange="patch('${j.id}',{notes:this.value})">${esc(j.notes||"")}</textarea></div></div>`;
+  /* attachments */
+  const at=j.attachments||[];
+  h+=`<div class="sec">Attachments</div><div class="card">
+    ${at.length?at.map((a,i)=>`<div class="evt"><span>📎</span>
+      <span class="grow">${a.url?`<a href="${esc(a.url)}" target="_blank">${esc(a.name||"file")}</a>`:esc(a.name||"file")}</span>
+      <button class="btn sm ghost" onclick="rmAtt('${j.id}',${i})">✕</button></div>`).join("")
+      :`<div class="small muted" style="margin-bottom:8px">No attachments yet.</div>`}
+    <button class="btn sm soft" style="width:100%;margin-top:8px" onclick="openAddAtt('${j.id}')">＋ Add attachment</button></div>`;
+  /* send history */
+  const hist=(j.invoiceHistory||[]).slice().reverse();
+  if(hist.length)h+=`<div class="sec">Send history</div><div class="card">${hist.slice(0,6).map(x=>`
+    <div class="evt"><span>📤</span><span class="grow">${esc(x.kind||"Sent")}</span><span class="muted">${esc(x.date||"")}${x.to?" → "+esc(x.to):""}</span></div>`).join("")}</div>`;
   /* activity */
   h+=`<div class="sec">Activity</div><div class="card">${cmds.length?cmds.slice(0,8).map(c=>`
     <div class="evt"><span class="st ${esc(c.status)}">${esc(c.status==="needs_approval"?"needs OK":c.status)}</span>
@@ -605,19 +628,49 @@ function showApproval(c){const r=c.result||{};const p=c.payload||{};
     <p class="small muted" style="margin:2px 2px 12px">${esc(r.message||("For "+(p.name||"customer")+": "+(r.reason||"choose how to sync.")))}</p>
     ${r.diff?`<div class="dvbox"><b>Proposed changes</b>${esc(typeof r.diff==="string"?r.diff:JSON.stringify(r.diff,null,1))}</div>`:""}
     ${cand?`<div class="sec" style="margin-top:12px">Possible matches</div>${cand}`:""}
+    <div class="row" style="margin:4px 0 12px"><input id="refineQ" class="grow" placeholder="Not it? Search QuickBooks by name/address…">
+      <button class="btn sm soft" onclick="refineSearch('${c.id}','${esc(c.jobId||"")}')">Search</button></div>
     ${r.recommend==="update"&&r.matchId?`<button class="opt" onclick="resolveApp('${c.id}','update','${esc(r.matchId)}')"><span class="ic">🔄</span><div><div class="tt">Update existing customer</div><div class="dd">Apply the new info in QuickBooks</div></div></button>`:""}
     <button class="opt" onclick="resolveApp('${c.id}','create','')"><span class="ic">➕</span><div><div class="tt">Create new customer</div><div class="dd">Add to QuickBooks as new</div></div></button>
     <button class="opt" onclick="resolveApp('${c.id}','skip','')"><span class="ic">✋</span><div><div class="tt">Skip for now</div></div></button>`)}
+async function refineSearch(cmdId,jobId){const q=$("refineQ").value.trim();if(!q)return toast("Type a search term");closeSheet();
+  await resolveApp(cmdId,"skip","");const j=jobView(jobId)||{};
+  cmdEnqueue("customer_sync",jobId,{name:j.customer||"",email:j.email||"",phone:j.phone||"",addr:j.address||"",search:q},"deterministic","custsync:"+jobId+":"+Date.now());
+  toast("Searching QuickBooks for “"+q+"”…")}
 async function resolveApp(id,choice,matchId){closeSheet();
   await fetch(FN+"command",{method:"POST",headers:{"content-type":"application/json"},
     body:JSON.stringify({op:"update",id,patch:{status:"queued",approval:{choice,matchId,by:"levi",ts:Date.now()}},note:"approval: "+choice+" (sleek)"})});
   pullCmds();toast(choice==="skip"?"Skipped":"Approved — running…")}
 
+/* attachments + reminders + history */
+function logSend(id,kind,to){const j=jobView(id);patch(id,{invoiceHistory:((OV[id]&&OV[id].invoiceHistory)||j.invoiceHistory||[]).concat([{date:today(),to:to||j.email||"",kind}])});}
+function openAddAtt(id){sheet("Add attachment",`
+  <div class="fld"><label>Name</label><input id="atName" placeholder="e.g. Panel photo, blueprint"></div>
+  <div class="fld"><label>Link</label><input id="atUrl" placeholder="Optional — paste a Drive/photo link"><div class="hint">With a link + invoice, it also attaches in QuickBooks</div></div>
+  <button class="btn" style="width:100%" onclick="confAtt('${id}')">Add</button>`)}
+function confAtt(id){const name=$("atName").value.trim(),url=$("atUrl").value.trim();closeSheet();if(!name)return toast("Give it a name");
+  const j=jobView(id);patch(id,{attachments:(j.attachments||[]).concat([{name,url}])});
+  if(url&&j.invoiceNo){cmdEnqueue("attach_to_invoice",id,{invoiceNo:j.invoiceNo,name,url},"deterministic","att:"+id+":"+name);toast("Added — attaching to the QuickBooks invoice too")}
+  else toast("Attachment staged"+(url?"":" (add a link to also attach it in QuickBooks)"))}
+function rmAtt(id,i){const j=jobView(id);const a=(j.attachments||[]).slice();a.splice(i,1);patch(id,{attachments:a})}
+function openReminder(id){const j=jobView(id);sheet("Payment reminder — "+(j.customer||""),`
+  <div class="fld"><label>Message</label><textarea id="remMsg" class="notes">Hi ${esc((j.customer||"").split(" ")[0])}, just a friendly reminder about your ${esc(j.title||"job")} (invoice ${j.invoiceNo?"#"+j.invoiceNo:"pending"}). Please let us know if you have any questions. — LE Electric</textarea></div>
+  <button class="btn" style="width:100%" onclick="confReminder('${id}')">🔔 Send via Dispatch</button>
+  <p class="hint" style="text-align:center;margin-top:8px">Goes to Dispatch for review/send — status shows in Activity.</p>`)}
+function confReminder(id){const msg=$("remMsg").value;closeSheet();const j=jobView(id);
+  cmdEnqueue("send_reminder",id,{email:j.email||"",invoiceNo:j.invoiceNo||"",message:msg},"judgment","rem:"+id+":"+today());
+  logSend(id,"Payment reminder queued");toast("Reminder queued — watch Activity")}
+
 /* docs quick view (#7) */
 function quickSendInvoice(id){const j=jobView(id);if(!j.email)return toast("No email on file — add one first");
   sheet("Send invoice "+esc(j.invoiceNo||""),`
    <p class="small muted" style="margin:2px 2px 12px">Send invoice <b>${esc(j.invoiceNo)}</b> to <b>${esc(j.email)}</b>?</p>
-   <button class="btn" style="width:100%" onclick="closeSheet();cmdEnqueue('send_invoice','${id}',{email:'${esc(j.email)}',invoiceNo:'${esc(j.invoiceNo)}'},'deterministic','send_invoice:${esc(j.invoiceNo)}');toast('Queued — status in Activity')">📤 Send now</button>`)}
+   <button class="btn" style="width:100%" onclick="doSend('${id}','invoice')">📤 Send now</button>`)}
+function doSend(id,kind){closeSheet();const j=jobView(id);const no=kind==="invoice"?j.invoiceNo:j.estimateNo;
+  const pay=kind==="invoice"?{email:j.email,invoiceNo:no}:{email:j.email,estimateNo:no};
+  cmdEnqueue("send_"+kind,id,pay,"deterministic","send_"+kind+":"+no);
+  logSend(id,(kind==="invoice"?"Invoice":"Estimate")+" #"+no+" send queued",j.email);
+  toast("Queued — status in Activity")}
 function openDoc(id,kind){const j=jobView(id);const no=kind==="invoice"?j.invoiceNo:j.estimateNo;
   sheet((kind==="invoice"?"Invoice ":"Estimate ")+esc(no||""),`
    <div class="kv"><b>Customer</b> ${esc(j.customer||"")}</div>
@@ -625,7 +678,7 @@ function openDoc(id,kind){const j=jobView(id);const no=kind==="invoice"?j.invoic
    ${kind==="invoice"?`<div class="kv"><b>Status</b> ${j.paid?"Paid":"Open"}</div>`:""}
    <div style="height:10px"></div>
    <button class="opt" onclick="window.open('https://qbo.intuit.com/app/${kind==="invoice"?"invoices":"estimates"}')"><span class="ic">🔗</span><div><div class="tt">Open in QuickBooks</div></div></button>
-   ${j.email?`<button class="opt" onclick="closeSheet();cmdEnqueue('send_${kind}','${id}',{email:'${esc(j.email)}',${kind==="invoice"?"invoiceNo":"estimateNo"}:'${esc(no)}'},'deterministic','send_${kind}:${esc(no)}');toast('Queued — status in Activity')"><span class="ic">📤</span><div><div class="tt">Send to ${esc(j.email)}</div></div></button>`:""}`)}
+   ${j.email?`<button class="opt" onclick="doSend('${id}','${kind}')"><span class="ic">📤</span><div><div class="tt">Send to ${esc(j.email)}</div></div></button>`:""}`)}
 function openCalView(id){const j=jobView(id);const d=(j.status&&j.status.Scheduled&&j.status.Scheduled.d)||(j.followUp&&j.followUp.date)||"";
   const url="https://calendar.google.com/calendar/u/0/r/day"+(d?"/"+d.replace(/-/g,"/"):"");
   sheet("Calendar",`
@@ -684,9 +737,12 @@ function updDevBdg(){const n=DEVT.filter(t=>["question","verify"].includes(t.sta
 function renderDev(){const v=$("v-dev");const order={question:0,verify:1,approved:2,understood:3,new:4,done:5};
   const ts=DEVT.slice().sort((a,b)=>(order[a.status]??9)-(order[b.status]??9)||(b.priority==="High")-(a.priority==="High")||b.ts-a.ts);
   let h=`<div class="card"><div class="fld"><label>New request for Dispatch</label>
-    <textarea id="dvDesc" class="notes" placeholder="Describe what you want built or changed…"></textarea></div>
-    <div class="row"><select id="dvPri" style="width:110px"><option>Normal</option><option>High</option></select>
-    <button class="btn grow" onclick="addDev()">Submit</button></div></div>`;
+    <textarea id="dvDesc" class="notes" placeholder="Describe what you want built or changed…" oninput="DEVDRAFT=this.value">${esc(DEVDRAFT)}</textarea></div>
+    <div id="dvImgs" class="row wrap">${DEVIMGS.map((im,i)=>`<span style="position:relative"><img src="${im}" style="height:52px;border-radius:8px;border:1px solid var(--line)"><button onclick="DEVIMGS.splice(${i},1);renderDev()" style="position:absolute;top:-6px;right:-6px;background:var(--danger);color:#fff;border-radius:99px;width:17px;height:17px;font-size:10px;line-height:1">✕</button></span>`).join("")}</div>
+    <div class="row"><label class="btn sm ghost" style="cursor:pointer">📎 Photo<input type="file" accept="image/*" style="display:none" onchange="devFile(this)"></label>
+    <span class="small muted grow">or paste a screenshot</span>
+    <select id="dvPri" style="width:110px"><option>Normal</option><option>High</option></select>
+    <button class="btn" onclick="addDev()">Submit</button></div></div>`;
   ts.forEach(t=>{h+=`<div class="dvcard">
     <div class="tt"><span class="num">#${t.num}</span><span class="grow">${esc(t.title||"(untitled — I'll name it when I pick it up)")}</span>
       <span class="dvst ${esc(t.status)}">${DVLBL[t.status]||esc(t.status)}</span></div>
@@ -700,10 +756,15 @@ function renderDev(){const v=$("v-dev");const order={question:0,verify:1,approve
       <button class="btn sm ghost" onclick="dvEdit('${t.id}')">✏️ Edit</button>
       <span class="grow"></span>${t.priority==="High"?`<span class="pill unpaid">High</span>`:""}</div></div>`});
   v.innerHTML=h}
-async function addDev(){const d=$("dvDesc").value.trim();if(!d)return toast("Describe it first");
+let DEVIMGS=[],DEVDRAFT="";
+function devFile(inp){const f=inp.files&&inp.files[0];if(f)devReadImg(f);inp.value=""}
+function devReadImg(f){const r=new FileReader();r.onload=()=>{DEVIMGS.push(r.result);DEVDRAFT=$("dvDesc")?$("dvDesc").value:DEVDRAFT;renderDev()};r.readAsDataURL(f)}
+document.addEventListener("paste",e=>{if(VIEW!=="dev")return;const items=(e.clipboardData||{}).items||[];
+  for(const it of items)if(it.type&&it.type.startsWith("image")){const f=it.getAsFile();if(f)devReadImg(f)}});
+async function addDev(){const d=$("dvDesc").value.trim();if(!d&&!DEVIMGS.length)return toast("Describe it first");
   await fetch(FN+"devtasks",{method:"POST",headers:{"content-type":"application/json"},
-    body:JSON.stringify({op:"add",task:{title:"",desc:d,priority:$("dvPri").value,category:"build",target:{beta:true,dashboard:false}}})});
-  $("dvDesc").value="";pullDev();toast("Sent to Dispatch")}
+    body:JSON.stringify({op:"add",task:{title:"",desc:d,images:DEVIMGS,priority:$("dvPri").value,category:"build",target:{beta:true,dashboard:false}}})});
+  DEVIMGS=[];DEVDRAFT="";$("dvDesc").value="";pullDev();toast("Sent to Dispatch")}
 function dvEdit(id){const t=DEVT.find(x=>x.id===id);if(!t)return;sheet("Edit task #"+t.num,`
   <div class="fld"><label>Title</label><input id="dvT" value="${esc(t.title||"")}"></div>
   <div class="fld"><label>Description</label><textarea id="dvD" class="notes">${esc(t.desc||"")}</textarea></div>
