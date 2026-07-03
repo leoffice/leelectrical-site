@@ -88,6 +88,10 @@
   nav.tabs button .ic{font-size:18px;line-height:1}
   nav.tabs button.on{color:var(--brand)}
   nav.tabs button.progress{color:#7c3aed}
+  .savebar{position:sticky;top:0;z-index:25;display:flex;justify-content:space-between;align-items:center;gap:8px;background:#fff7ed;border:1px solid #fdba74;color:#9a3412;font-weight:700;font-size:13px;border-radius:12px;padding:8px 12px;margin:0 0 10px;box-shadow:var(--shadow);animation:savebarin .25s ease}
+  @keyframes savebarin{from{opacity:0;transform:translateY(-6px)}to{opacity:1;transform:none}}
+  .saveburst{position:fixed;left:50%;top:38%;transform:translate(-50%,-50%);background:#16a34a;color:#fff;font-weight:800;font-size:18px;padding:14px 22px;border-radius:16px;z-index:100;box-shadow:0 10px 30px rgba(22,163,74,.4);animation:burst 1.5s ease forwards;pointer-events:none}
+  @keyframes burst{0%{opacity:0;transform:translate(-50%,-50%) scale(.6)}18%{opacity:1;transform:translate(-50%,-50%) scale(1.12)}32%{transform:translate(-50%,-50%) scale(1)}80%{opacity:1}100%{opacity:0;transform:translate(-50%,-58%) scale(1)}}
   .taskrow{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:12px 14px;margin-bottom:9px;box-shadow:var(--shadow);cursor:pointer}
   .taskrow .who{font-size:12px;color:var(--muted);font-weight:600}
   .taskrow .what{font-size:14px;font-weight:600;margin-top:2px;color:#1e3a8a}
@@ -180,7 +184,7 @@ const PERMIT_STEPS=["File permit application (DOB/city)","Permit issued","Schedu
 const CONED_STEPS=["File application with Con Edison","Con Edison case submitted","Con Edison review / approval","Service / meter work scheduled","Final inspection scheduled","Inspection passed / sign-off"];
 function paper(id){const base=(JOBS.find(x=>x.id===id)||{}).paperwork||{};const o=(OV[id]&&OV[id].paperwork)||{};function mk(k){const b=base[k]||{},ov=o[k]||{};return {enabled:ov.enabled!==undefined?ov.enabled:!!b.enabled,steps:Object.assign({},b.steps||{},ov.steps||{})};}return {permit:mk('permit'),coned:mk('coned')};}
 function blankJob(id){return {id:id,customer:"",title:"",amount:"",phone:"",email:"",address:"",estimateNo:"",invoiceNo:"",paid:false,notes:"",attachments:[],invoiceHistory:[],followUp:null,calEventId:"",status:{"Lead":{s:"current"}},_new:true};}
-function job(id){const base=JOBS.find(x=>x.id===id);const o=OV[id]||{};
+function job(id){const base=JOBS.find(x=>x.id===id);const o=(typeof PENDING!=="undefined"&&PENDING[id])||OV[id]||{};
   const m=base?JSON.parse(JSON.stringify(base)):JSON.parse(JSON.stringify(Object.assign(blankJob(id),o)));
   ["customer","title","amount","phone","email","address","estimateNo","invoiceNo","calEventId"].forEach(function(k){if(o[k]!==undefined)m[k]=o[k];});
   if(o.status)for(const k in o.status)m.status[k]=o.status[k];
@@ -192,7 +196,20 @@ function job(id){const base=JOBS.find(x=>x.id===id);const o=OV[id]||{};
   return m;}
 function newJobIds(){return Object.keys(OV).filter(function(k){return OV[k]&&OV[k]._new})}
 function allJobIds(){return JOBS.map(function(x){return x.id}).concat(newJobIds())}
-function patch(id,fn){OV[id]=OV[id]||{};fn(OV[id]);saveOv(OV);}
+/* Task #1 — pending-changes model: edits are HELD in PENDING until Save. */
+let PENDING={};
+function isDirty(id){return id?!!PENDING[id]:Object.keys(PENDING).length>0}
+function patch(id,fn){PENDING[id]=PENDING[id]||JSON.parse(JSON.stringify(OV[id]||{}));fn(PENDING[id]);}
+function detailActive(){var dv=document.querySelector('#view-detail');return dv&&dv.classList.contains('active')}
+function saveChanges(id){if(!PENDING[id]){toast('Nothing to save');return}OV[id]=PENDING[id];delete PENDING[id];saveOv(OV);playSaveAnim();try{syncNow()}catch(e){}renderDetail(id);renderJobs();toast('Saved & syncing all systems')}
+function discardChanges(id){delete PENDING[id];renderDetail(id);renderJobs();toast('Changes discarded')}
+function playSaveAnim(){var b=document.createElement('div');b.className='saveburst';b.textContent='✓ Saved';document.body.appendChild(b);setTimeout(function(){if(b.parentNode)b.parentNode.removeChild(b)},1500)}
+var __leaveCb=null;
+function leaveGuard(cb){if(detailActive()&&CURID&&PENDING[CURID]){__leaveCb=cb;openModal('<h3>Save your changes?</h3><div class="note" style="margin-top:0">You have unsaved changes on this job.</div><div class="actions" style="margin-top:12px"><button class="btn" onclick="leaveSave()">💾 Save &amp; sync</button><button class="btn sec" onclick="leaveDiscard()">Discard</button><button class="mini" onclick="closeModal();__leaveCb=null">Stay</button></div>');return false}return true}
+function leaveSave(){var id=CURID;closeModal();if(id&&PENDING[id]){OV[id]=PENDING[id];delete PENDING[id];saveOv(OV);playSaveAnim();try{syncNow()}catch(e){}}var cb=__leaveCb;__leaveCb=null;if(cb)cb()}
+function leaveDiscard(){closeModal();if(CURID)delete PENDING[CURID];var cb=__leaveCb;__leaveCb=null;if(cb)cb()}
+function navTo(tab){var act=function(){go(tab)};if(leaveGuard(act))act()}
+window.addEventListener('beforeunload',function(e){if(isDirty()){e.preventDefault();e.returnValue=''}});
 const $=s=>document.querySelector(s);
 function esc(t){return(t||"").toString().replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;")}
 function toast(m){const t=$("#toast");t.textContent=m;t.classList.add("show");clearTimeout(t._t);t._t=setTimeout(()=>t.classList.remove("show"),2200)}
@@ -256,7 +273,8 @@ function renderDetail(id){const j=job(id);
   return `<li><div class="dot ${cls}"><i>${icon}</i></div><div class="lbl ${cls}"><div class="s">${esc(s)}</div><div class="d">${esc(when)}</div><div class="stepbtns">${btns.join("")}</div>${stepPaper(id,s)}</div></li>`;}).join("");
  const atts=j.attachments.length?j.attachments.map((a,i)=>`<div class="att"><span>📎</span><a href="${a.url||'#'}" target="_blank">${esc(a.name)}</a><button class="mini" onclick="rmAtt('${id}',${i})">✕</button></div>`).join(""):`<div class="note">No attachments yet.</div>`;
  $("#view-detail").innerHTML=`
- <button class="back" onclick="go('jobs')">‹ Jobs</button>
+ <button class="back" onclick="navTo('jobs')">‹ Jobs</button>
+ ${isDirty(id)?`<div class="savebar"><span>● Unsaved changes</span><div style="display:flex;gap:6px"><button class="mini" onclick="discardChanges('${id}')">Discard</button><button class="btn" style="padding:6px 12px" onclick="saveChanges('${id}')">💾 Save &amp; sync</button></div></div>`:''}
  <div class="dcard contact"><h2>${esc(j.customer)}</h2>
    <div class="addr">📍 ${esc(j.address)} · ${esc(j.title)} · <b>${esc(j.amount)}</b></div>
    <div class="row">
@@ -292,7 +310,7 @@ function doneStep(id,s){patch(id,o=>{o.status=o.status||{};o.status[s]={s:"done"
 function undoStep(id,s){patch(id,o=>{o.status=o.status||{};o.status[s]={s:"current"};const i=STAGES.indexOf(s);for(let k=i+1;k<STAGES.length;k++){const st=(job(id).status[STAGES[k]]||{}).s;if(st==="current")o.status[STAGES[k]]={s:"upcoming"}}});toast("Undid '"+s+"'");renderDetail(id);renderJobs()}
 function jumpTo(id,s){patch(id,o=>{o.status=o.status||{};const ti=STAGES.indexOf(s);STAGES.forEach((st,i)=>{const cur=(job(id).status[st]||{s:"upcoming"}).s;if(i<ti){if(cur!=="done"&&cur!=="skipped")o.status[st]={s:"done",d:(job(id).status[st]&&job(id).status[st].d)||new Date().toISOString().slice(0,10)}}else if(i===ti){o.status[st]={s:"current"}}})});toast("Jumped to '"+s+"'");renderDetail(id);renderJobs()}
 function togglePaid(id){const j=job(id);patch(id,o=>{o.paid=!j.paid;if(o.paid){o.status=o.status||{};o.status["Paid"]={s:"done",d:new Date().toISOString().slice(0,10)}}});toast(job(id).paid?"Marked paid":"Marked unpaid");renderDetail(id);renderJobs()}
-function saveFollow(id){const t=$("#fuText").value,d=$("#fuDate").value;patch(id,o=>{o.followUp={text:t,date:d}});toast("Follow-up saved");renderDetail(id);renderJobs()}
+function saveFollow(id){const t=$("#fuText").value,d=$("#fuDate").value;patch(id,o=>{o.followUp={text:t,date:d}});toast("Staged — press Save & sync");renderDetail(id);renderJobs()}
 function togglePaper(id,key,on){patch(id,o=>{o.paperwork=o.paperwork||{};o.paperwork[key]=o.paperwork[key]||{steps:{}};o.paperwork[key].enabled=on});toast(on?'Enabled':'Disabled');renderDetail(id)}
 function paperStep(id,key,step){var cur=paper(id)[key].steps[step]==='done';patch(id,o=>{o.paperwork=o.paperwork||{};o.paperwork[key]=o.paperwork[key]||{enabled:true,steps:{}};o.paperwork[key].steps=o.paperwork[key].steps||{};o.paperwork[key].steps[step]=cur?'todo':'done'});renderDetail(id)}
 function subTrack(id,key,label,steps){var p=paper(id)[key];var done=steps.filter(function(s){return p.steps[s]==='done'}).length;var open=!!PEXP[id+key];
@@ -302,7 +320,7 @@ function subTrack(id,key,label,steps){var p=paper(id)[key];var done=steps.filter
  var rows=steps.map(function(s){var d=p.steps[s]==='done';return '<div class="substep"><button class="mini '+(d?'undo':'go')+'" onclick="paperStep(\''+id+'\',\''+key+'\',\''+s+'\')">'+(d?'↩':'✓')+'</button><span'+(d?' style="color:#166534;font-weight:600"':'')+'>'+s+'</span></div>'}).join("");
  return '<div class="sub">'+head+'<div style="margin-top:4px">'+rows+'</div><button class="mini" style="margin-top:6px" onclick="togglePaper(\''+id+'\',\''+key+'\',false)">Remove</button></div>';}
 function stepPaper(id,s){if(s==='Scheduled')return subTrack(id,'permit','🏙️ City permit application',PERMIT_STEPS)+subTrack(id,'coned','🔌 Con Edison case',CONED_STEPS);return '';}
-function saveNotes(id){patch(id,o=>{o.notes=$("#notesBox").value});toast("Notes saved")}
+function saveNotes(id){patch(id,o=>{o.notes=$("#notesBox").value});toast("Staged — press Save & sync");renderDetail(id)}
 function addAtt(id){const name=prompt("Attachment name (photo/document):");if(!name)return;const url=prompt("Link (optional):")||"";patch(id,o=>{o.attachments=(job(id).attachments||[]).concat([{name:name,url:url}])});toast("Attachment added");renderDetail(id)}
 function rmAtt(id,i){patch(id,o=>{const a=(job(id).attachments||[]).slice();a.splice(i,1);o.attachments=a});renderDetail(id)}
 function logSend(id,kind,to){patch(id,o=>{o.invoiceHistory=((OV[id]&&OV[id].invoiceHistory)||[]).concat([{date:new Date().toISOString().slice(0,10),to:to||job(id).email,kind:kind}])})}
@@ -342,8 +360,9 @@ function renderProgress(){$("#view-progress").innerHTML=`<div class="seclabel" s
 function copyProg(){const t=$("#progMsg").value.trim();if(!t){toast("Type a request first");return}const msg="[LE Job Pipeline update request] "+t;if(navigator.clipboard)navigator.clipboard.writeText(msg);toast("Copied — paste it to Dispatch")}
 const TITLES={jobs:"Jobs & Projects",detail:"Job Detail",estimates:"Estimates",appts:"Appointments",tasks:"Next Tasks",progress:"LE Electric Progress",dev:"Development Tasks"};
 function go(tab){document.querySelectorAll(".view").forEach(v=>v.classList.remove("active"));$("#view-"+tab).classList.add("active");$("#subtitle").textContent=TITLES[tab]||"";document.querySelectorAll("nav.tabs button").forEach(b=>b.classList.toggle("on",b.dataset.tab===tab));window.scrollTo(0,0)}
-function openJob(id){CURID=id;renderDetail(id);go("detail");document.querySelectorAll("nav.tabs button").forEach(b=>b.classList.remove("on"))}
-document.querySelectorAll("nav.tabs button").forEach(b=>b.addEventListener("click",()=>{go(b.dataset.tab);if(b.dataset.tab==="progress")renderProgress();if(b.dataset.tab==="dev")devLoad()}));
+function _openJob(id){CURID=id;renderDetail(id);go("detail");document.querySelectorAll("nav.tabs button").forEach(b=>b.classList.remove("on"))}
+function openJob(id){var act=function(){_openJob(id)};if(leaveGuard(act))act()}
+document.querySelectorAll("nav.tabs button").forEach(b=>b.addEventListener("click",()=>{var tab=b.dataset.tab;var act=function(){go(tab);if(tab==="progress")renderProgress();if(tab==="dev")devLoad()};if(leaveGuard(act))act()}));
 renderJobs();renderEstimates();renderAppts();renderTasks();syncLoad();cmdLoad().then(checkApprovals);setInterval(function(){cmdLoad().then(function(){checkApprovals();var dv=document.querySelector("#view-detail");if(!(CURID&&dv&&dv.classList.contains("active")))return;var ae=document.activeElement;if(ae&&dv.contains(ae))return;renderDetail(CURID)})},8000);
 function applyHash(){if(location.hash==='#progress'){go('progress');renderProgress();}}
 applyHash();window.addEventListener('hashchange',applyHash);
