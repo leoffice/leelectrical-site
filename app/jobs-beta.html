@@ -262,7 +262,18 @@ function jobCard(j){return `<div class="card" onclick="openJob('${j.id}')"><div 
   <span class="pill">${esc(stagePill(j))}</span> ${j.invoiceNo?`<span class="pill ${j.paid?'paid':'unpaid'}">${j.paid?'Paid':'Unpaid'}</span>`:''}
   <div class="next">→ ${esc(nextText(j))}${j.followUp&&j.followUp.date?` · <b>${relDate(j.followUp.date)}</b>`:''}</div>
   </div><div class="chev">›</div></div>`;}
-function renderJobs(){var ids=allJobIds();$("#view-jobs").innerHTML=`<div style="display:flex;justify-content:space-between;align-items:center;gap:8px"><span class="seclabel" style="margin:6px 2px 10px">${ids.length} Active Jobs &amp; Projects</span><div style="display:flex;gap:6px"><button class="mini jump" onclick="newJobModal()">＋ New Job</button><button class="mini" onclick="syncNow()">🔄 Sync${LAST_SYNC?' · '+new Date(LAST_SYNC).toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'}):''}</button></div></div>`+ids.map(id=>jobCard(job(id))).join("")}
+/* Task #23 — group multiple jobs under one client */
+function clientKeyOf(j){var o=OV[j.id];if(o&&o.clientGroup)return 'g:'+o.clientGroup;return 'c:'+((j.customer||'').trim().toLowerCase())}
+var CEXP={};
+function toggleClient(i){CEXP[i]=!CEXP[i];renderJobs()}
+function clientCard(i,g){var open=!!CEXP[i];var n=g.jobs.length;var tot=g.jobs.reduce(function(s,j){return s+(parseFloat((j.amount||'').replace(/[^0-9.]/g,''))||0)},0);var unpaid=g.jobs.filter(function(j){return j.invoiceNo&&!j.paid}).length;
+ var head='<div class="card" onclick="toggleClient('+i+')"><div class="body"><div class="title">👥 '+esc(g.customer)+'</div><div class="meta">'+n+' jobs · $'+tot.toLocaleString()+' total'+(unpaid?' · '+unpaid+' unpaid':'')+'</div></div><div class="chev">'+(open?'▾':'›')+'</div></div>';
+ if(!open)return head;
+ var sub=g.jobs.map(function(j){return '<div class="card" style="margin-left:16px;border-left:3px solid var(--brand,#1d4ed8)" onclick="openJob(\''+j.id+'\')"><div class="body"><div class="title" style="font-size:14.5px">'+esc(j.title||'Job')+'</div><div class="meta">'+esc(j.amount||'')+' · '+esc(stagePill(j))+(j.invoiceNo?' · #'+esc(j.invoiceNo):'')+'</div></div><div class="chev">›</div></div>'}).join('');
+ return head+sub;}
+function renderJobs(){var ids=allJobIds();var groups=[],idx={};ids.forEach(function(id){var j=job(id);var k=clientKeyOf(j);if(idx[k]===undefined){idx[k]=groups.length;groups.push({customer:j.customer,jobs:[]})}groups[idx[k]].jobs.push(j)});
+ var head=`<div style="display:flex;justify-content:space-between;align-items:center;gap:8px"><span class="seclabel" style="margin:6px 2px 10px">${ids.length} Active Jobs &amp; Projects</span><div style="display:flex;gap:6px"><button class="mini jump" onclick="newJobModal()">＋ New Job</button><button class="mini" onclick="syncNow()">🔄 Sync${LAST_SYNC?' · '+new Date(LAST_SYNC).toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'}):''}</button></div></div>`;
+ $("#view-jobs").innerHTML=head+groups.map(function(g,i){return g.jobs.length===1?jobCard(g.jobs[0]):clientCard(i,g)}).join("");}
 /* ---- Task #16: New Job (manual OR from-calendar) + calendar link ---- */
 function newJobModal(){openModal('<h3>New job</h3><div class="note" style="margin-top:0">How do you want to start?</div>'
  +'<div class="actions" style="margin-top:12px">'
