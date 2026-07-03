@@ -92,6 +92,18 @@
   nav.tabs button .ic{font-size:18px;line-height:1}
   nav.tabs button.on{color:var(--brand)}
   nav.tabs button.progress{color:#7c3aed}
+  #chatFab{position:fixed;bottom:66px;right:16px;width:52px;height:52px;border-radius:50%;background:var(--brand,#1d4ed8);color:#fff;font-size:23px;display:flex;align-items:center;justify-content:center;box-shadow:0 6px 20px rgba(0,0,0,.28);z-index:40;cursor:pointer}
+  #chatFab .cdot{position:absolute;top:-2px;right:-2px;min-width:16px;height:16px;background:#ef4444;border-radius:9px;color:#fff;font-size:10px;font-weight:700;display:none;align-items:center;justify-content:center;padding:0 3px}
+  #chatPanel{position:fixed;bottom:66px;right:12px;width:min(370px,94vw);background:#fff;border:1px solid var(--line);border-radius:16px;box-shadow:0 14px 44px rgba(0,0,0,.3);z-index:41;display:none;flex-direction:column;overflow:hidden}
+  #chatPanel.open{display:flex}
+  .chatHead{display:flex;justify-content:space-between;align-items:center;gap:8px;padding:10px 12px;background:var(--brand,#1d4ed8);color:#fff;font-weight:700;font-size:13px}
+  .chatHead button{background:none;border:none;color:#fff;font-size:16px;cursor:pointer}
+  .chatBody{max-height:42vh;overflow:auto;padding:10px 12px;font-size:13px;background:#f8fafc}
+  .chatInput{display:flex;gap:6px;align-items:flex-end;padding:8px;border-top:1px solid var(--line);background:#fff}
+  .chatInput textarea{flex:1;border:1px solid var(--line);border-radius:10px;padding:8px;font-family:inherit;font-size:13px;resize:none;min-height:38px;max-height:120px;outline:none}
+  .chatInput .send{background:var(--brand,#1d4ed8);color:#fff;border:0;border-radius:10px;padding:9px 13px;font-weight:600;font-size:13px;cursor:pointer}
+  #chatMic{width:40px;height:38px;border-radius:10px;border:1px solid var(--line);background:#fff;cursor:pointer;font-size:16px;transition:transform .08s ease}
+  #chatMic.live{background:#fee2e2;border-color:#fca5a5}
   .savebar{position:sticky;top:0;z-index:25;display:flex;justify-content:space-between;align-items:center;gap:8px;background:#fff7ed;border:1px solid #fdba74;color:#9a3412;font-weight:700;font-size:13px;border-radius:12px;padding:8px 12px;margin:0 0 10px;box-shadow:var(--shadow);animation:savebarin .25s ease}
   @keyframes savebarin{from{opacity:0;transform:translateY(-6px)}to{opacity:1;transform:none}}
   .saveburst{position:fixed;left:50%;top:38%;transform:translate(-50%,-50%);background:#16a34a;color:#fff;font-weight:800;font-size:18px;padding:14px 22px;border-radius:16px;z-index:100;box-shadow:0 10px 30px rgba(22,163,74,.4);animation:burst 1.5s ease forwards;pointer-events:none}
@@ -128,6 +140,12 @@
   <button data-tab="progress" class="progress"><span class="ic">⚡</span>Progress</button>
   <button data-tab="dev"><span class="ic">📝</span>Dev</button>
 </nav>
+<div id="chatFab" onclick="toggleChat()">💬<span class="cdot" id="chatDot"></span></div>
+<div id="chatPanel">
+  <div class="chatHead"><span id="chatCtx">Dispatch</span><button onclick="toggleChat()">✕</button></div>
+  <div id="chatBody" class="chatBody"></div>
+  <div class="chatInput"><textarea id="dispatchMsg" placeholder="Type or speak a note…"></textarea><button id="chatMic" onclick="chatMic()">🎤</button><button class="send" onclick="sendDispatch()">Send</button></div>
+</div>
 <div class="modal" id="modal"><div class="box"><button class="close" onclick="closeModal()">✕</button><div id="modalBody"></div></div></div>
 <div id="toast"></div>
 <script>
@@ -406,6 +424,21 @@ function renderProgress(){$("#view-progress").innerHTML=`<div class="seclabel" s
    <div class="note">Send goes straight to Dispatch (Claude) — no copy-paste. Your dashboard test edits stay on this device; approved changes get promoted to the real tab.</div></div>`}
 function copyProg(){const t=$("#progMsg").value.trim();if(!t){toast("Type a request first");return}const msg="[LE Job Pipeline update request] "+t;if(navigator.clipboard)navigator.clipboard.writeText(msg);toast("Copied — paste it to Dispatch")}
 function sendProg(){var t=$("#progMsg").value.trim();if(!t){toast("Type a request first");return}toast("Sending…");fetch('/.netlify/functions/iterate',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({message:t})}).then(function(r){return r.json()}).then(function(d){if(d&&d.ok){$("#progMsg").value='';toast("✅ Sent to Dispatch")}else{toast("Send failed — use Copy instead")}}).catch(function(){toast("Send failed — use Copy instead")})}
+/* Task #5 — floating chat bubble with auto page-context + animated mic */
+function currentView(){var v=document.querySelector('.view.active');return v?v.id.replace('view-',''):'jobs'}
+function toggleChat(){var p=document.getElementById('chatPanel'),f=document.getElementById('chatFab');var open=p.classList.toggle('open');f.style.display=open?'none':'flex';if(open){var c=document.getElementById('chatCtx');if(c)c.textContent=chatCtxLabel();renderChat();var t=document.getElementById('dispatchMsg');if(t)setTimeout(function(){t.focus()},50);var d=document.getElementById('chatDot');if(d)d.style.display='none'}}
+function chatCtxLabel(){var vw=currentView();if(vw==='dev')return 'Developer — general commands';if(vw==='detail'&&CURID){return 'Regarding: '+job(CURID).customer}return 'Dispatch — '+({jobs:'Jobs',estimates:'Estimates',appts:'Schedule',progress:'Progress'}[vw]||vw)}
+function chatContext(){var vw=currentView();if(vw==='dev')return '';if(vw==='detail'&&CURID){var j=job(CURID);var bits=[];if(j.title)bits.push(j.title);if(j.invoiceNo)bits.push('invoice #'+j.invoiceNo);if(j.estimateNo)bits.push('estimate #'+j.estimateNo);if(j.amount)bits.push(j.amount);bits.push(j.paid?'PAID':'unpaid');if(j.phone)bits.push(j.phone);return 'Regarding Job: '+j.customer+' ['+bits.join(', ')+']: '}return 'On '+({jobs:'the Jobs dashboard',estimates:'Estimates',appts:'the Schedule',progress:'the Progress tab'}[vw]||vw)+': '}
+var CHATLOG=[];
+function chatAppend(who,text,status){CHATLOG.push({who:who,text:text,status:status||'',ts:Date.now()});renderChat()}
+function chatStatus(s){if(CHATLOG.length)CHATLOG[CHATLOG.length-1].status=s;renderChat()}
+function renderChat(){var b=document.getElementById('chatBody');if(!b)return;b.innerHTML=(CHATLOG.length?CHATLOG.map(function(m){return '<div style="margin:6px 0;text-align:'+(m.who==='you'?'right':'left')+'"><div style="display:inline-block;background:'+(m.who==='you'?'#dbeafe':'#e2e8f0')+';padding:6px 10px;border-radius:12px;max-width:85%;text-align:left">'+esc(m.text)+'</div>'+(m.status?'<div class="note" style="border:0;padding:0;font-size:10px;margin-top:2px">'+esc(m.status)+'</div>':'')+'</div>'}).join(''):'<div class="note" style="border:0;padding:0">Type or speak a note — I\'ll get it with this page\'s context.</div>')+'<div class="note" style="border:0;padding:0;margin-top:8px;font-size:10px">Replies appear in your Dispatch chat (in-bubble replies coming in Phase 2).</div>';b.scrollTop=b.scrollHeight}
+function sendDispatch(){var el=document.getElementById('dispatchMsg');var t=(el.value||'').trim();if(!t){toast('Type a message');return}var full=chatContext()+t;chatAppend('you',t,'Sending…');el.value='';fetch('/.netlify/functions/iterate',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({message:full,source:'chat-bubble-beta',view:currentView(),jobId:(currentView()==='detail'?CURID:null)})}).then(function(r){return r.json()}).then(function(d){chatStatus(d&&d.ok?'Sent ✓':'Send failed')}).catch(function(){chatStatus('Send failed')})}
+function stopChatMic(){var mic=document.getElementById('chatMic');if(mic){mic.classList.remove('live');mic.style.transform=''}if(window._chatMeter){clearInterval(window._chatMeter);window._chatMeter=null}if(window._chatStream){window._chatStream.getTracks().forEach(function(t){t.stop()});window._chatStream=null}if(window._chatAC){try{window._chatAC.close()}catch(e){}window._chatAC=null}window._chatRec=null}
+function chatMic(){var SR=window.SpeechRecognition||window.webkitSpeechRecognition;var mic=document.getElementById('chatMic');if(window._chatRec){window._chatRec.stop();return}if(!SR){toast('Speech not supported on this browser');return}var r=new SR();r.lang='en-US';r.interimResults=true;window._chatRec=r;mic.classList.add('live');
+ if(navigator.mediaDevices&&navigator.mediaDevices.getUserMedia){navigator.mediaDevices.getUserMedia({audio:true}).then(function(stream){window._chatStream=stream;var ac=new (window.AudioContext||window.webkitAudioContext)();window._chatAC=ac;var src=ac.createMediaStreamSource(stream);var an=ac.createAnalyser();an.fftSize=256;src.connect(an);var data=new Uint8Array(an.frequencyBinCount);window._chatMeter=setInterval(function(){an.getByteFrequencyData(data);var v=0;for(var i=0;i<data.length;i++)v+=data[i];v=v/data.length;var sc=1+Math.min(v/55,0.9);mic.style.transform='scale('+sc.toFixed(2)+')'},90)}).catch(function(){})}
+ var base=document.getElementById('dispatchMsg').value;r.onresult=function(e){var txt='';for(var i=0;i<e.results.length;i++)txt+=e.results[i][0].transcript;document.getElementById('dispatchMsg').value=(base?base+' ':'')+txt};r.onerror=function(){stopChatMic()};r.onend=function(){stopChatMic()};r.start()}
+var _dmb=document.getElementById('dispatchMsg');if(_dmb)_dmb.addEventListener('keydown',function(e){if(e.key==='Enter'&&!e.shiftKey){e.preventDefault();sendDispatch()}});
 const TITLES={jobs:"Jobs & Projects",detail:"Job Detail",estimates:"Estimates",appts:"Appointments",tasks:"Next Tasks",progress:"LE Electric Progress",dev:"Development Tasks"};
 function go(tab){document.querySelectorAll(".view").forEach(v=>v.classList.remove("active"));$("#view-"+tab).classList.add("active");$("#subtitle").textContent=TITLES[tab]||"";document.querySelectorAll("nav.tabs button").forEach(b=>b.classList.toggle("on",b.dataset.tab===tab));window.scrollTo(0,0)}
 function _openJob(id){CURID=id;renderDetail(id);go("detail");document.querySelectorAll("nav.tabs button").forEach(b=>b.classList.remove("on"))}

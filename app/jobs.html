@@ -104,9 +104,18 @@
   .subttl{font-size:13px;font-weight:650;color:#334155}
   .substep{display:flex;align-items:center;gap:8px;padding:4px 0;font-size:13px}
   .sub .note{border:0;padding:0;margin-top:2px}
-  #dispatchBar{position:fixed;bottom:52px;left:0;right:0;max-width:860px;margin:0 auto;background:#0f172a;border-top:1px solid #1e293b;display:flex;gap:8px;padding:8px 10px;z-index:29}
-  #dispatchBar input{flex:1;border:1px solid #334155;background:#1e293b;color:#fff;border-radius:10px;padding:9px 12px;font-size:13px;font-family:inherit;outline:none}
-  #dispatchBar button{background:#1d4ed8;color:#fff;border:0;border-radius:10px;padding:9px 15px;font-weight:600;font-size:13px;cursor:pointer}
+  #chatFab{position:fixed;bottom:66px;right:16px;width:52px;height:52px;border-radius:50%;background:var(--brand,#1d4ed8);color:#fff;font-size:23px;display:flex;align-items:center;justify-content:center;box-shadow:0 6px 20px rgba(0,0,0,.28);z-index:40;cursor:pointer}
+  #chatFab .cdot{position:absolute;top:-2px;right:-2px;min-width:16px;height:16px;background:#ef4444;border-radius:9px;color:#fff;font-size:10px;font-weight:700;display:none;align-items:center;justify-content:center;padding:0 3px}
+  #chatPanel{position:fixed;bottom:66px;right:12px;width:min(370px,94vw);background:#fff;border:1px solid var(--line);border-radius:16px;box-shadow:0 14px 44px rgba(0,0,0,.3);z-index:41;display:none;flex-direction:column;overflow:hidden}
+  #chatPanel.open{display:flex}
+  .chatHead{display:flex;justify-content:space-between;align-items:center;gap:8px;padding:10px 12px;background:var(--brand,#1d4ed8);color:#fff;font-weight:700;font-size:13px}
+  .chatHead button{background:none;border:none;color:#fff;font-size:16px;cursor:pointer}
+  .chatBody{max-height:42vh;overflow:auto;padding:10px 12px;font-size:13px;background:#f8fafc}
+  .chatInput{display:flex;gap:6px;align-items:flex-end;padding:8px;border-top:1px solid var(--line);background:#fff}
+  .chatInput textarea{flex:1;border:1px solid var(--line);border-radius:10px;padding:8px;font-family:inherit;font-size:13px;resize:none;min-height:38px;max-height:120px;outline:none}
+  .chatInput .send{background:var(--brand,#1d4ed8);color:#fff;border:0;border-radius:10px;padding:9px 13px;font-weight:600;font-size:13px;cursor:pointer}
+  #chatMic{width:40px;height:38px;border-radius:10px;border:1px solid var(--line);background:#fff;cursor:pointer;font-size:16px;transition:transform .08s ease}
+  #chatMic.live{background:#fee2e2;border-color:#fca5a5}
 </style>
 </head>
 <body>
@@ -122,7 +131,12 @@
   <section class="view" id="view-progress"></section>
   <section class="view" id="view-dev"></section>
 </main>
-<div id="dispatchBar"><input id="dispatchMsg" placeholder="💬 Message Dispatch — request a change…"><button onclick="sendDispatch()">Send</button></div>
+<div id="chatFab" onclick="toggleChat()">💬<span class="cdot" id="chatDot"></span></div>
+<div id="chatPanel">
+  <div class="chatHead"><span id="chatCtx">Dispatch</span><button onclick="toggleChat()">✕</button></div>
+  <div id="chatBody" class="chatBody"></div>
+  <div class="chatInput"><textarea id="dispatchMsg" placeholder="Type or speak a note…"></textarea><button id="chatMic" onclick="chatMic()">🎤</button><button class="send" onclick="sendDispatch()">Send</button></div>
+</div>
 <nav class="tabs">
   <button data-tab="jobs" class="on"><span class="ic">📋</span>Jobs</button>
   <button data-tab="estimates"><span class="ic">🧾</span>Estimates</button>
@@ -413,8 +427,21 @@ renderJobs();renderEstimates();renderAppts();renderTasks();syncLoad();cmdLoad().
 function applyHash(){if(location.hash==='#progress'){go('progress');renderProgress();}}
 applyHash();window.addEventListener('hashchange',applyHash);
 _pullNow();setInterval(_pullNow,15000);window.addEventListener("focus",_pullNow);document.addEventListener("visibilitychange",function(){if(!document.hidden)_pullNow()});
-function sendDispatch(){var el=document.getElementById('dispatchMsg');var t=el.value.trim();if(!t){toast('Type a message');return}toast('Sending…');fetch('/.netlify/functions/iterate',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({message:t,source:'real-dashboard'})}).then(function(r){return r.json()}).then(function(d){if(d&&d.ok){el.value='';toast('✅ Sent to Dispatch')}else{toast('Send failed')}}).catch(function(){toast('Send failed')})}
-var _dm=document.getElementById('dispatchMsg');if(_dm)_dm.addEventListener('keydown',function(e){if(e.key==='Enter')sendDispatch()});
+/* Task #5 — floating chat bubble with auto page-context + animated mic */
+function currentView(){var v=document.querySelector('.view.active');return v?v.id.replace('view-',''):'jobs'}
+function toggleChat(){var p=document.getElementById('chatPanel'),f=document.getElementById('chatFab');var open=p.classList.toggle('open');f.style.display=open?'none':'flex';if(open){var c=document.getElementById('chatCtx');if(c)c.textContent=chatCtxLabel();renderChat();var t=document.getElementById('dispatchMsg');if(t)setTimeout(function(){t.focus()},50);var d=document.getElementById('chatDot');if(d)d.style.display='none'}}
+function chatCtxLabel(){var vw=currentView();if(vw==='dev')return 'Developer — general commands';if(vw==='detail'&&CURID){return 'Regarding: '+job(CURID).customer}return 'Dispatch — '+({jobs:'Jobs',estimates:'Estimates',appts:'Schedule',progress:'Progress'}[vw]||vw)}
+function chatContext(){var vw=currentView();if(vw==='dev')return '';if(vw==='detail'&&CURID){var j=job(CURID);var bits=[];if(j.title)bits.push(j.title);if(j.invoiceNo)bits.push('invoice #'+j.invoiceNo);if(j.estimateNo)bits.push('estimate #'+j.estimateNo);if(j.amount)bits.push(j.amount);bits.push(j.paid?'PAID':'unpaid');if(j.phone)bits.push(j.phone);return 'Regarding Job: '+j.customer+' ['+bits.join(', ')+']: '}return 'On '+({jobs:'the Jobs dashboard',estimates:'Estimates',appts:'the Schedule',progress:'the Progress tab'}[vw]||vw)+': '}
+var CHATLOG=[];
+function chatAppend(who,text,status){CHATLOG.push({who:who,text:text,status:status||'',ts:Date.now()});renderChat()}
+function chatStatus(s){if(CHATLOG.length)CHATLOG[CHATLOG.length-1].status=s;renderChat()}
+function renderChat(){var b=document.getElementById('chatBody');if(!b)return;b.innerHTML=(CHATLOG.length?CHATLOG.map(function(m){return '<div style="margin:6px 0;text-align:'+(m.who==='you'?'right':'left')+'"><div style="display:inline-block;background:'+(m.who==='you'?'#dbeafe':'#e2e8f0')+';padding:6px 10px;border-radius:12px;max-width:85%;text-align:left">'+esc(m.text)+'</div>'+(m.status?'<div class="note" style="border:0;padding:0;font-size:10px;margin-top:2px">'+esc(m.status)+'</div>':'')+'</div>'}).join(''):'<div class="note" style="border:0;padding:0">Type or speak a note — I\'ll get it with this page\'s context.</div>')+'<div class="note" style="border:0;padding:0;margin-top:8px;font-size:10px">Replies appear in your Dispatch chat (in-bubble replies coming in Phase 2).</div>';b.scrollTop=b.scrollHeight}
+function sendDispatch(){var el=document.getElementById('dispatchMsg');var t=(el.value||'').trim();if(!t){toast('Type a message');return}var full=chatContext()+t;chatAppend('you',t,'Sending…');el.value='';fetch('/.netlify/functions/iterate',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({message:full,source:'chat-bubble',view:currentView(),jobId:(currentView()==='detail'?CURID:null)})}).then(function(r){return r.json()}).then(function(d){chatStatus(d&&d.ok?'Sent ✓':'Send failed')}).catch(function(){chatStatus('Send failed')})}
+function stopChatMic(){var mic=document.getElementById('chatMic');if(mic){mic.classList.remove('live');mic.style.transform=''}if(window._chatMeter){clearInterval(window._chatMeter);window._chatMeter=null}if(window._chatStream){window._chatStream.getTracks().forEach(function(t){t.stop()});window._chatStream=null}if(window._chatAC){try{window._chatAC.close()}catch(e){}window._chatAC=null}window._chatRec=null}
+function chatMic(){var SR=window.SpeechRecognition||window.webkitSpeechRecognition;var mic=document.getElementById('chatMic');if(window._chatRec){window._chatRec.stop();return}if(!SR){toast('Speech not supported on this browser');return}var r=new SR();r.lang='en-US';r.interimResults=true;window._chatRec=r;mic.classList.add('live');
+ if(navigator.mediaDevices&&navigator.mediaDevices.getUserMedia){navigator.mediaDevices.getUserMedia({audio:true}).then(function(stream){window._chatStream=stream;var ac=new (window.AudioContext||window.webkitAudioContext)();window._chatAC=ac;var src=ac.createMediaStreamSource(stream);var an=ac.createAnalyser();an.fftSize=256;src.connect(an);var data=new Uint8Array(an.frequencyBinCount);window._chatMeter=setInterval(function(){an.getByteFrequencyData(data);var v=0;for(var i=0;i<data.length;i++)v+=data[i];v=v/data.length;var sc=1+Math.min(v/55,0.9);mic.style.transform='scale('+sc.toFixed(2)+')'},90)}).catch(function(){})}
+ var base=document.getElementById('dispatchMsg').value;r.onresult=function(e){var txt='';for(var i=0;i<e.results.length;i++)txt+=e.results[i][0].transcript;document.getElementById('dispatchMsg').value=(base?base+' ':'')+txt};r.onerror=function(){stopChatMic()};r.onend=function(){stopChatMic()};r.start()}
+var _dm=document.getElementById('dispatchMsg');if(_dm)_dm.addEventListener('keydown',function(e){if(e.key==='Enter'&&!e.shiftKey){e.preventDefault();sendDispatch()}});
 
 const DEV_URL="/.netlify/functions/devtasks";
 let DEVDOC={tasks:[],seq:0,ts:0};
