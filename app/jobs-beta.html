@@ -202,12 +202,22 @@ let PENDING={};
 function isDirty(id){return id?!!PENDING[id]:Object.keys(PENDING).length>0}
 function patch(id,fn){PENDING[id]=PENDING[id]||JSON.parse(JSON.stringify(OV[id]||{}));fn(PENDING[id]);}
 function detailActive(){var dv=document.querySelector('#view-detail');return dv&&dv.classList.contains('active')}
-function saveChanges(id){if(!PENDING[id]){toast('Nothing to save');return}OV[id]=PENDING[id];delete PENDING[id];saveOv(OV);playSaveAnim();try{syncNow()}catch(e){}renderDetail(id);renderJobs();toast('Saved & syncing all systems')}
+function saveChanges(id){if(!PENDING[id]){toast('Nothing to save');return}OV[id]=PENDING[id];delete PENDING[id];saveOv(OV);maybeRecordPayment(id);playSaveAnim();try{syncNow()}catch(e){}renderDetail(id);renderJobs();toast('Saved & syncing all systems')}
+function maybeRecordPayment(id){var o=OV[id]||{};var j=job(id);if(o.paid&&o.payment&&!o.payment.recorded&&j.invoiceNo){var amt=(o.payment.amount||'').toString().replace(/[^0-9.]/g,'');if(amt){cmdEnqueue('record_payment',id,{invoiceNo:j.invoiceNo,amount:amt,note:(o.payment.method||'Payment')+(o.payment.ref?' #'+o.payment.ref:'')},'deterministic').then(function(){return cmdLoad()});o.payment.recorded=true;saveOv(OV)}}}
+/* Task #7 — per-job quick-view buttons */
+function quickView(id,kind){var j=job(id);
+ if(kind==='invoice'){if(!j.invoiceNo){toast('No invoice yet for this job');return}openModal('<h3>Invoice #'+esc(j.invoiceNo)+'</h3><div class="dcard" style="margin-top:8px"><div><b>Customer:</b> '+esc(j.customer)+'</div><div><b>Amount:</b> '+esc(j.amount)+'</div><div><b>Status:</b> '+(j.paid?'Paid':'Unpaid')+'</div></div><a class="btn full" style="margin-top:12px" href="https://app.qbo.intuit.com/app/invoices" target="_blank" rel="noopener">Open in QuickBooks</a><button class="btn sec full" style="margin-top:8px" onclick="closeModal();sendInvoice(&#39;'+id+'&#39;)">📤 Send invoice</button>');}
+ else if(kind==='estimate'){if(!j.estimateNo){toast('No estimate yet for this job');return}openModal('<h3>Estimate #'+esc(j.estimateNo)+'</h3><div class="dcard" style="margin-top:8px"><div><b>Customer:</b> '+esc(j.customer)+'</div><div><b>Amount:</b> '+esc(j.amount)+'</div></div><a class="btn full" style="margin-top:12px" href="https://app.qbo.intuit.com/app/estimates" target="_blank" rel="noopener">Open in QuickBooks</a><button class="btn sec full" style="margin-top:8px" onclick="closeModal();sendEstimate(&#39;'+id+'&#39;)">📤 Send estimate</button>');}
+ else if(kind==='paperwork'){PEXP[id+'permit']=true;PEXP[id+'coned']=true;renderDetail(id);setTimeout(function(){var el=document.querySelector('#view-detail .sub');if(el)el.scrollIntoView({behavior:'smooth',block:'center'})},80);toast('Paperwork expanded');}
+ else if(kind==='calendar'){var d=(j.followUp&&j.followUp.date)||'';var url='https://calendar.google.com/calendar/u/0/r';if(d){var p=d.split('-');url='https://calendar.google.com/calendar/u/0/r/day/'+p[0]+'/'+parseInt(p[1],10)+'/'+parseInt(p[2],10)}window.open(url,'_blank','noopener');}}
+/* Task #4 — Mark-as-Paid form */
+function markPaidModal(id){var j=job(id);var amt=(j.amount||'').toString().replace(/[^0-9.]/g,'');openModal('<h3>Mark paid — '+esc(j.customer)+'</h3><label class="lbl">Amount</label><input id="pmAmt" type="text" value="'+esc(amt)+'" placeholder="0.00"><label class="lbl">Method</label><select id="pmMethod" style="width:100%;padding:8px;border:1px solid var(--line);border-radius:8px"><option>Zelle</option><option>Check</option><option>Cash</option><option>Credit card</option><option>Bank transfer</option><option>Other</option></select><label class="lbl">Reference / check #</label><input id="pmRef" type="text" placeholder="optional"><label class="lbl">Date</label><input id="pmDate" type="date" value="'+new Date().toISOString().slice(0,10)+'"><button class="btn full" style="margin-top:12px" onclick="confirmPaid(&#39;'+id+'&#39;)">Mark paid</button>'+(j.invoiceNo?'<div class="note" style="margin-top:8px">On Save &amp; sync this records the payment on invoice #'+esc(j.invoiceNo)+' in QuickBooks.</div>':'<div class="note" style="margin-top:8px">No invoice # on file — marks paid on the dashboard only.</div>'))}
+function confirmPaid(id){var pay={amount:$("#pmAmt").value.trim(),method:$("#pmMethod").value,ref:$("#pmRef").value.trim(),date:$("#pmDate").value};patch(id,function(o){o.paid=true;o.payment=pay;o.status=o.status||{};o.status["Paid"]={s:"done",d:pay.date||new Date().toISOString().slice(0,10)}});closeModal();renderDetail(id);renderJobs();toast("Staged — Save & sync to record it")}
 function discardChanges(id){delete PENDING[id];renderDetail(id);renderJobs();toast('Changes discarded')}
 function playSaveAnim(){var b=document.createElement('div');b.className='saveburst';b.textContent='✓ Saved';document.body.appendChild(b);setTimeout(function(){if(b.parentNode)b.parentNode.removeChild(b)},1500)}
 var __leaveCb=null;
 function leaveGuard(cb){if(detailActive()&&CURID&&PENDING[CURID]){__leaveCb=cb;openModal('<h3>Save your changes?</h3><div class="note" style="margin-top:0">You have unsaved changes on this job.</div><div class="actions" style="margin-top:12px"><button class="btn" onclick="leaveSave()">💾 Save &amp; sync</button><button class="btn sec" onclick="leaveDiscard()">Discard</button><button class="mini" onclick="closeModal();__leaveCb=null">Stay</button></div>');return false}return true}
-function leaveSave(){var id=CURID;closeModal();if(id&&PENDING[id]){OV[id]=PENDING[id];delete PENDING[id];saveOv(OV);playSaveAnim();try{syncNow()}catch(e){}}var cb=__leaveCb;__leaveCb=null;if(cb)cb()}
+function leaveSave(){var id=CURID;closeModal();if(id&&PENDING[id]){OV[id]=PENDING[id];delete PENDING[id];saveOv(OV);maybeRecordPayment(id);playSaveAnim();try{syncNow()}catch(e){}}var cb=__leaveCb;__leaveCb=null;if(cb)cb()}
 function leaveDiscard(){closeModal();if(CURID)delete PENDING[CURID];var cb=__leaveCb;__leaveCb=null;if(cb)cb()}
 function navTo(tab){var act=function(){go(tab)};if(leaveGuard(act))act()}
 window.addEventListener('beforeunload',function(e){if(isDirty()){e.preventDefault();e.returnValue=''}});
@@ -281,6 +291,12 @@ function renderDetail(id){const j=job(id);
      ${j.phone?`<a class="cbtn" href="tel:${esc(j.phone.replace(/[^0-9+]/g,''))}">📞 ${esc(j.phone)}</a>`:`<span class="cbtn muted">📞 Add phone</span>`}
      ${j.email?`<a class="cbtn" href="mailto:${esc(j.email)}">✉️ ${esc(j.email)}</a>`:''}
    </div></div>
+ <div class="dcard"><div class="seclabel" style="margin:0 0 8px">Quick view</div><div style="display:flex;gap:6px;flex-wrap:wrap">
+   <button class="mini${j.invoiceNo?' jump':''}" onclick="quickView('${id}','invoice')">📄 Invoice</button>
+   <button class="mini${j.estimateNo?' jump':''}" onclick="quickView('${id}','estimate')">📝 Estimate</button>
+   <button class="mini" onclick="quickView('${id}','paperwork')">📎 Paperwork</button>
+   <button class="mini" onclick="quickView('${id}','calendar')">📅 Calendar</button>
+ </div></div>
  <div class="followbox"><div class="lbl">Next Follow-up Step</div>
    <select id="fuType" style="width:100%;border:1px solid var(--line);border-radius:10px;padding:10px 12px;font-size:14px;font-family:inherit;background:#fff;margin:6px 0">${FOLLOWUP_TYPES.map(t=>`<option${(j.followUp&&j.followUp.type===t)?' selected':''}>${t}</option>`).join("")}</select>
    <input id="fuText" type="text" value="${esc(j.followUp?(j.followUp.text||''):'')}" placeholder="Custom message (optional)">
@@ -300,7 +316,8 @@ function renderDetail(id){const j=job(id);
      <span class="pill ${j.paid?'paid':'unpaid'}">QuickBooks: ${j.paid?'PAID':'UNPAID'}</span>
      ${j.invoiceNo?`<span class="note">Invoice #${esc(j.invoiceNo)}</span>`:''}
      <button class="mini" onclick="historyModal('${id}')">🧾 Invoice history</button>
-     <button class="mini" onclick="togglePaid('${id}')">${j.paid?'Mark unpaid':'Mark paid'}</button>
+     <button class="mini" onclick="${j.paid?`togglePaid('${id}')`:`markPaidModal('${id}')`}">${j.paid?'Mark unpaid':'Mark paid'}</button>
+     ${j.paid&&j.payment?`<span class="note" style="border:0;padding:0">💵 ${esc(j.payment.method||'')}${j.payment.ref?' · #'+esc(j.payment.ref):''}${j.payment.date?' · '+esc(j.payment.date):''}</span>`:''}
    </div>
    <div class="note">Paid status &amp; send history sync from QuickBooks (daily). Live actions route through Dispatch.</div>${cmdBadge(id)}</div>
  <div class="dcard"><div class="seclabel" style="margin:0 0 8px">Attachments (photos / documents)</div>${atts}
