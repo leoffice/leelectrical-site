@@ -179,15 +179,19 @@ function togglePaperOpen(id,key){PEXP[id+key]=!PEXP[id+key];renderDetail(id)}
 const PERMIT_STEPS=["File permit application (DOB/city)","Permit issued","Schedule final inspection","Inspection passed / signed off"];
 const CONED_STEPS=["File application with Con Edison","Con Edison case submitted","Con Edison review / approval","Service / meter work scheduled","Final inspection scheduled","Inspection passed / sign-off"];
 function paper(id){const base=(JOBS.find(x=>x.id===id)||{}).paperwork||{};const o=(OV[id]&&OV[id].paperwork)||{};function mk(k){const b=base[k]||{},ov=o[k]||{};return {enabled:ov.enabled!==undefined?ov.enabled:!!b.enabled,steps:Object.assign({},b.steps||{},ov.steps||{})};}return {permit:mk('permit'),coned:mk('coned')};}
-function job(id){const j=JOBS.find(x=>x.id===id);const o=OV[id]||{};
-  const m=JSON.parse(JSON.stringify(j));
+function blankJob(id){return {id:id,customer:"",title:"",amount:"",phone:"",email:"",address:"",estimateNo:"",invoiceNo:"",paid:false,notes:"",attachments:[],invoiceHistory:[],followUp:null,calEventId:"",status:{"Lead":{s:"current"}},_new:true};}
+function job(id){const base=JOBS.find(x=>x.id===id);const o=OV[id]||{};
+  const m=base?JSON.parse(JSON.stringify(base)):JSON.parse(JSON.stringify(Object.assign(blankJob(id),o)));
+  ["customer","title","amount","phone","email","address","estimateNo","invoiceNo","calEventId"].forEach(function(k){if(o[k]!==undefined)m[k]=o[k];});
   if(o.status)for(const k in o.status)m.status[k]=o.status[k];
   if(o.notes!==undefined)m.notes=o.notes;
   if(o.followUp)m.followUp=o.followUp;
   if(o.paid!==undefined)m.paid=o.paid;
   if(o.attachments)m.attachments=o.attachments;
-  if(o.invoiceHistory)m.invoiceHistory=m.invoiceHistory.concat(o.invoiceHistory);
+  if(base&&o.invoiceHistory)m.invoiceHistory=m.invoiceHistory.concat(o.invoiceHistory);
   return m;}
+function newJobIds(){return Object.keys(OV).filter(function(k){return OV[k]&&OV[k]._new})}
+function allJobIds(){return JOBS.map(function(x){return x.id}).concat(newJobIds())}
 function patch(id,fn){OV[id]=OV[id]||{};fn(OV[id]);saveOv(OV);}
 const $=s=>document.querySelector(s);
 function esc(t){return(t||"").toString().replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;")}
@@ -207,7 +211,38 @@ function jobCard(j){return `<div class="card" onclick="openJob('${j.id}')"><div 
   <span class="pill">${esc(stagePill(j))}</span> ${j.invoiceNo?`<span class="pill ${j.paid?'paid':'unpaid'}">${j.paid?'Paid':'Unpaid'}</span>`:''}
   <div class="next">→ ${esc(nextText(j))}${j.followUp&&j.followUp.date?` · <b>${relDate(j.followUp.date)}</b>`:''}</div>
   </div><div class="chev">›</div></div>`;}
-function renderJobs(){$("#view-jobs").innerHTML=`<div style="display:flex;justify-content:space-between;align-items:center;gap:8px"><span class="seclabel" style="margin:6px 2px 10px">${JOBS.length} Active Jobs &amp; Projects</span><button class="mini" onclick="syncNow()">🔄 Sync${LAST_SYNC?' · '+new Date(LAST_SYNC).toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'}):''}</button></div>`+JOBS.map(x=>jobCard(job(x.id))).join("")}
+function renderJobs(){var ids=allJobIds();$("#view-jobs").innerHTML=`<div style="display:flex;justify-content:space-between;align-items:center;gap:8px"><span class="seclabel" style="margin:6px 2px 10px">${ids.length} Active Jobs &amp; Projects</span><div style="display:flex;gap:6px"><button class="mini jump" onclick="newJobModal()">＋ New Job</button><button class="mini" onclick="syncNow()">🔄 Sync${LAST_SYNC?' · '+new Date(LAST_SYNC).toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'}):''}</button></div></div>`+ids.map(id=>jobCard(job(id))).join("")}
+/* ---- Task #16: New Job (manual OR from-calendar) + calendar link ---- */
+function newJobModal(){openModal('<h3>New job</h3><div class="note" style="margin-top:0">How do you want to start?</div>'
+ +'<div class="actions" style="margin-top:12px">'
+ +'<button class="btn" onclick="newJobForm(null)">✍️ Enter manually</button>'
+ +'<button class="btn sec" onclick="calendarPick()">📅 Choose from calendar</button></div>')}
+function calendarPick(){openModal('<h3>Choose from calendar</h3><div class="note" style="margin-top:0" id="calNote">Loading upcoming appointments…</div><div id="calList" style="margin-top:8px"></div>');
+ fetch("/.netlify/functions/calendar",{cache:"no-store"}).then(function(r){return r.json()}).then(function(d){var ev=(d.events||[]).slice(0,40);
+  document.getElementById('calNote').textContent=ev.length?'Pick an appointment to prefill the job:':'No synced appointments yet. Enter manually instead.';
+  document.getElementById('calList').innerHTML=ev.map(function(e){var t=e.start?new Date(e.start):null;var when=t?t.toLocaleDateString(undefined,{weekday:'short',month:'short',day:'numeric'})+(e.start.length>10?' '+t.toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'}):''):'';CAL_EV[e.id]=e;return '<div class="card" onclick="newJobFromEvent(&#39;'+e.id+'&#39;)"><div class="body"><div class="title">'+esc(e.summary||'(no title)')+'</div><div class="meta">'+esc(when)+(e.location?' · '+esc(e.location):'')+'</div></div><div class="chev">›</div></div>'}).join('')||'<button class="btn" onclick="newJobForm(null)">Enter manually</button>';
+ }).catch(function(){document.getElementById('calNote').textContent='Could not load the calendar. Enter manually instead.';document.getElementById('calList').innerHTML='<button class="btn" onclick="newJobForm(null)">Enter manually</button>'})}
+var CAL_EV={};
+function newJobFromEvent(eid){var e=CAL_EV[eid]||{};var d=e.start?e.start.slice(0,10):'';var desc=e.description||'';var name='';var m=desc.match(/(?:name|costemer|customer)\s*[:\-]\s*(.+)/i);if(m){name=m[1].trim();}else{var f=(desc.split('\n').map(function(s){return s.trim()}).filter(Boolean)[0]||'');if(f&&f.length<40&&f.indexOf(':')<0)name=f;}var mp=desc.match(/(?:number|phone|tel)\s*[:\-]?\s*([\d()][\d()\-\s+]{6,})/i);var me=desc.match(/[\w.+-]+@[\w.-]+\.[A-Za-z]{2,}/);newJobForm({customer:name||e.summary||'',phone:mp?mp[1].trim():'',email:me?me[0]:'',title:e.summary||'',address:e.location||'',date:d,calEventId:eid,scope:desc})}
+function newJobForm(pf){pf=pf||{};openModal('<h3>New job</h3>'
+ +(pf.calEventId?'<div class="note" style="margin-top:0">Prefilled from a calendar appointment. Confirm or edit, then save.</div>':'')
+ +'<label class="lbl">Customer name</label><input id="njCust" type="text" value="'+esc(pf.customer||'')+'">'
+ +'<label class="lbl">Phone</label><input id="njPhone" type="text" value="'+esc(pf.phone||'')+'">'
+ +'<label class="lbl">Email</label><input id="njEmail" type="text" value="'+esc(pf.email||'')+'">'
+ +'<label class="lbl">Service address</label><input id="njAddr" type="text" value="'+esc(pf.address||'')+'">'
+ +'<label class="lbl">Job / scope</label><input id="njTitle" type="text" value="'+esc(pf.title||pf.scope||'')+'">'
+ +'<label class="lbl">Amount (optional)</label><input id="njAmt" type="text" placeholder="$" value="'+esc(pf.amount||'')+'">'
+ +'<label class="lbl">Scheduled date (optional)</label><input id="njDate" type="date" value="'+esc(pf.date||'')+'">'
+ +'<input id="njCal" type="hidden" value="'+esc(pf.calEventId||'')+'">'
+ +'<button class="btn full" style="margin-top:12px" onclick="createJob()">Create job</button>')}
+function createJob(){var cust=($("#njCust").value||'').trim();if(!cust){toast('Customer name is required');return}
+ var id='LOCAL-'+Date.now().toString(36);var date=$("#njDate").value;
+ var o=blankJob(id);o.customer=cust;o.phone=$("#njPhone").value.trim();o.email=$("#njEmail").value.trim();o.address=$("#njAddr").value.trim();o.title=$("#njTitle").value.trim()||'New job';var amt=$("#njAmt").value.trim();o.amount=amt?(amt[0]==='$'?amt:'$'+amt):'';o.calEventId=$("#njCal").value.trim();
+ if(date)o.followUp={text:'Scheduled',date:date};
+ OV[id]=o;saveOv(OV);closeModal();renderJobs();toast('Job created');
+ if(date){/* two-way write: push the schedule to Google Calendar via the command bus */
+  cmdEnqueue('calendar_upsert',id,{calEventId:o.calEventId,summary:cust+' — '+o.title,start:date,location:o.address,description:o.title},'judgment').then(function(){return cmdLoad()});}
+ openJob(id)}
 function renderDetail(id){const j=job(id);
  const tl=STAGES.map((s,i)=>{const st=(j.status[s]||{s:"upcoming"});const cls=st.s;
   const icon=cls==="done"?"✓":cls==="current"?"●":cls==="skipped"?"–":"";
