@@ -739,6 +739,10 @@ function renderDev(){const v=$("v-dev");const order={question:0,verify:1,approve
   let h=`<div class="card"><div class="fld"><label>New request for Dispatch</label>
     <textarea id="dvDesc" class="notes" placeholder="Describe what you want built or changed…" oninput="DEVDRAFT=this.value">${esc(DEVDRAFT)}</textarea></div>
     <div id="dvImgs" class="row wrap">${DEVIMGS.map((im,i)=>`<span style="position:relative"><img src="${im}" style="height:52px;border-radius:8px;border:1px solid var(--line)"><button onclick="DEVIMGS.splice(${i},1);renderDev()" style="position:absolute;top:-6px;right:-6px;background:var(--danger);color:#fff;border-radius:99px;width:17px;height:17px;font-size:10px;line-height:1">✕</button></span>`).join("")}</div>
+    <div class="row wrap" style="margin-bottom:9px"><span class="small muted">Build for:</span>
+      <label class="pill grp" style="cursor:pointer"><input type="checkbox" id="dvTgS" checked style="width:auto"> Sleek</label>
+      <label class="pill grp" style="cursor:pointer"><input type="checkbox" id="dvTgB" style="width:auto"> Beta</label>
+      <label class="pill grp" style="cursor:pointer"><input type="checkbox" id="dvTgD" style="width:auto"> Dashboard</label></div>
     <div class="row"><label class="btn sm ghost" style="cursor:pointer">📎 Photo<input type="file" accept="image/*" style="display:none" onchange="devFile(this)"></label>
     <span class="small muted grow">or paste a screenshot</span>
     <select id="dvPri" style="width:110px"><option>Normal</option><option>High</option></select>
@@ -754,7 +758,7 @@ function renderDev(){const v=$("v-dev");const order={question:0,verify:1,approve
       ${t.status==="understood"?`<button class="btn sm ok" onclick="dvPatch('${t.id}',{status:'approved'})">👍 Approve</button>`:""}
       ${t.status==="verify"?`<button class="btn sm ok" onclick="dvPatch('${t.id}',{status:'done'})">✓ Verified</button>`:""}
       <button class="btn sm ghost" onclick="dvEdit('${t.id}')">✏️ Edit</button>
-      <span class="grow"></span>${t.priority==="High"?`<span class="pill unpaid">High</span>`:""}</div></div>`});
+      <span class="grow"></span>${(t.target?["sleek","beta","dashboard"].filter(k=>t.target[k]):[]).map(k=>`<span class="pill grp">${k}</span>`).join("")}${t.priority==="High"?`<span class="pill unpaid">High</span>`:""}</div></div>`});
   v.innerHTML=h}
 let DEVIMGS=[],DEVDRAFT="";
 function devFile(inp){const f=inp.files&&inp.files[0];if(f)devReadImg(f);inp.value=""}
@@ -763,7 +767,7 @@ document.addEventListener("paste",e=>{if(VIEW!=="dev")return;const items=(e.clip
   for(const it of items)if(it.type&&it.type.startsWith("image")){const f=it.getAsFile();if(f)devReadImg(f)}});
 async function addDev(){const d=$("dvDesc").value.trim();if(!d&&!DEVIMGS.length)return toast("Describe it first");
   await fetch(FN+"devtasks",{method:"POST",headers:{"content-type":"application/json"},
-    body:JSON.stringify({op:"add",task:{title:"",desc:d,images:DEVIMGS,priority:$("dvPri").value,category:"build",target:{beta:true,dashboard:false}}})});
+    body:JSON.stringify({op:"add",task:{title:"",desc:d,images:DEVIMGS,priority:$("dvPri").value,category:"build",target:{sleek:$("dvTgS").checked,beta:$("dvTgB").checked,dashboard:$("dvTgD").checked}}})});
   DEVIMGS=[];DEVDRAFT="";$("dvDesc").value="";pullDev();toast("Sent to Dispatch")}
 function dvEdit(id){const t=DEVT.find(x=>x.id===id);if(!t)return;sheet("Edit task #"+t.num,`
   <div class="fld"><label>Title</label><input id="dvT" value="${esc(t.title||"")}"></div>
