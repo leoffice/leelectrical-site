@@ -8,9 +8,12 @@
 <style>
   :root{
     --bg:#f1f5f9;--card:#fff;--ink:#0f172a;--muted:#64748b;--line:#e2e8f0;
-    --brand:#1d4ed8;--brand-ink:#1e3a8a;--done:#16a34a;--current:#d97706;--upcoming:#cbd5e1;
-    --beta:#7c3aed;--pill:#eff6ff;--pill-ink:#1d4ed8;--danger:#dc2626;--ok:#16a34a;
-    --shadow:0 1px 3px rgba(15,23,42,.08),0 1px 2px rgba(15,23,42,.04);
+    --brand:#4f46e5;--brand-ink:#4338ca;--done:#16a34a;--current:#d97706;--upcoming:#cbd5e1;
+    --beta:#7c3aed;--accent:#7c3aed;--pill:#eef2ff;--pill-ink:#4f46e5;--danger:#dc2626;--ok:#16a34a;
+    --brand-soft:#eef2ff;--done-soft:#dcfce7;--current-soft:#fef3c7;--danger-soft:#fee2e2;--skip:#94a3b8;
+    --r:16px;
+    --shadow:0 1px 2px rgba(15,23,42,.05),0 4px 16px rgba(15,23,42,.06);
+    --shadow-lg:0 8px 30px rgba(15,23,42,.14);
   }
   *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
   html,body{margin:0;padding:0}
@@ -92,11 +95,11 @@
   nav.tabs button .ic{font-size:18px;line-height:1}
   nav.tabs button.on{color:var(--brand)}
   nav.tabs button.progress{color:#7c3aed}
-  #chatFab{position:fixed;bottom:66px;right:16px;width:52px;height:52px;border-radius:50%;background:var(--brand,#1d4ed8);color:#fff;font-size:23px;display:flex;align-items:center;justify-content:center;box-shadow:0 6px 20px rgba(0,0,0,.28);z-index:40;cursor:pointer}
+  #chatFab{position:fixed;bottom:calc(128px + env(safe-area-inset-bottom,0px));right:16px;width:52px;height:52px;border-radius:50%;background:linear-gradient(135deg,var(--accent),var(--brand));color:#fff;font-size:23px;display:flex;align-items:center;justify-content:center;box-shadow:var(--shadow-lg);z-index:40;cursor:pointer}
   #chatFab .cdot{position:absolute;top:-2px;right:-2px;min-width:16px;height:16px;background:#ef4444;border-radius:9px;color:#fff;font-size:10px;font-weight:700;display:none;align-items:center;justify-content:center;padding:0 3px}
   #chatPanel{position:fixed;bottom:66px;right:12px;width:min(370px,94vw);background:#fff;border:1px solid var(--line);border-radius:16px;box-shadow:0 14px 44px rgba(0,0,0,.3);z-index:41;display:none;flex-direction:column;overflow:hidden}
   #chatPanel.open{display:flex}
-  .chatHead{display:flex;justify-content:space-between;align-items:center;gap:8px;padding:10px 12px;background:var(--brand,#1d4ed8);color:#fff;font-weight:700;font-size:13px}
+  .chatHead{display:flex;justify-content:space-between;align-items:center;gap:8px;padding:10px 12px;background:linear-gradient(135deg,var(--accent),var(--brand));color:#fff;font-weight:700;font-size:13px}
   .chatHead button{background:none;border:none;color:#fff;font-size:16px;cursor:pointer}
   .chatBody{max-height:42vh;overflow:auto;padding:10px 12px;font-size:13px;background:#f8fafc}
   .chatInput{display:flex;gap:6px;align-items:flex-end;padding:8px;border-top:1px solid var(--line);background:#fff}
@@ -111,17 +114,76 @@
   .taskrow{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:12px 14px;margin-bottom:9px;box-shadow:var(--shadow);cursor:pointer}
   .taskrow .who{font-size:12px;color:var(--muted);font-weight:600}
   .taskrow .what{font-size:14px;font-weight:600;margin-top:2px;color:#1e3a8a}
-  .sub{border:1px dashed #cbd5e1;border-radius:10px;padding:8px 10px;margin-top:8px;background:#f8fafc}
+  .branch .sub{border:1px dashed #cbd5e1;border-radius:10px;padding:8px 10px;margin-top:8px;background:#f8fafc}
   .subhead{display:flex;justify-content:space-between;align-items:center;gap:8px}
   .subttl{font-size:13px;font-weight:650;color:#334155}
   .substep{display:flex;align-items:center;gap:8px;padding:4px 0;font-size:13px}
-  .sub .note{border:0;padding:0;margin-top:2px}
+  .branch .sub .note{border:0;padding:0;margin-top:2px}
+
+  /* ---------- ported from Sleek Beta ---------- */
+  .grow{flex:1}
+  #searchRow{display:flex;gap:8px;margin-bottom:10px}
+  #q{border-radius:12px;background:#fff;box-shadow:var(--shadow);border:1.5px solid transparent;margin-bottom:0}
+  #q:focus{border-color:var(--brand)}
+  .jcard{display:block;width:100%;text-align:left;background:var(--card);border-radius:var(--r);box-shadow:var(--shadow);padding:14px 15px;margin-bottom:10px;position:relative;cursor:pointer}
+  .jcard:active{transform:scale(.985)}
+  .jcard .t{font-size:15.5px;font-weight:720;letter-spacing:-.01em;display:flex;gap:8px;align-items:center}
+  .jcard .jsub{font-size:12.5px;color:var(--muted);margin-top:2px}
+  .jcard .amt{font-weight:800;font-size:15px;margin-left:auto}
+  .pbar{height:5px;border-radius:99px;background:#eef1f7;margin:10px 0 8px;overflow:hidden}
+  .pbar i{display:block;height:100%;border-radius:99px;background:linear-gradient(90deg,var(--brand),var(--accent))}
+  .prow{display:flex;gap:8px;align-items:center}
+  .prow .pill,.custCard .pill{margin-top:0}
+  .pill.stage{background:var(--brand-soft);color:var(--brand)}
+  .qa{display:flex;gap:6px;margin-top:9px}
+  .qa button{flex:1;font-size:12px;font-weight:700;font-family:inherit;color:var(--brand);background:var(--brand-soft);border:0;border-radius:9px;padding:7px 4px;cursor:pointer}
+  .qa button.gray{background:#f1f5f9;color:var(--muted)}
+  .next{font-size:12px;font-weight:650;color:var(--current);display:flex;align-items:center;gap:5px}
+  .stackN{position:absolute;top:-7px;right:12px;background:var(--accent);color:#fff;font-size:10.5px;font-weight:800;border-radius:999px;padding:2px 8px;box-shadow:var(--shadow);z-index:2}
+  .cgroup{margin:-2px 0 12px 12px;border-left:3px solid var(--brand);padding-left:10px}
+  #fabAdd{position:fixed;right:16px;bottom:calc(64px + env(safe-area-inset-bottom,0px));z-index:35;width:54px;height:54px;border-radius:18px;background:var(--ink);color:#fff;font-size:26px;border:0;cursor:pointer;box-shadow:var(--shadow-lg)}
+  #syncChip{display:flex;align-items:center;gap:6px;font-size:12px;font-weight:600;font-family:inherit;color:var(--muted);background:#fff;border:1px solid var(--line);border-radius:999px;padding:5px 11px;cursor:pointer;flex-shrink:0}
+  #syncChip .dot{width:7px;height:7px;border-radius:50%;background:var(--ok)}
+  #syncChip.busy .dot{background:var(--current);animation:lepulse 1s infinite}
+  @keyframes lepulse{50%{opacity:.35}}
+  .custCard .name{font-size:19px;font-weight:800;letter-spacing:-.02em}
+  .act4{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-top:12px}
+  .act4 button{display:flex;flex-direction:column;align-items:center;gap:3px;font-size:11px;font-weight:700;font-family:inherit;color:var(--brand);background:var(--brand-soft);border:0;border-radius:12px;padding:10px 2px;cursor:pointer}
+  .act4 button .ic{font-size:17px}
+  .kv{display:flex;gap:8px;font-size:13px;margin-top:7px;color:var(--muted);align-items:baseline}
+  .kv b{color:var(--ink);font-weight:650}
+  .phase{border:1.5px solid var(--line);border-radius:14px;margin-bottom:9px;overflow:hidden;background:#fff}
+  .phase>button.hd{width:100%;display:flex;align-items:center;gap:9px;padding:12px 13px;text-align:left;background:none;border:0;cursor:pointer;font:inherit;color:inherit}
+  .phase .nm{font-weight:750;font-size:14px;flex:1}
+  .phase .cnt{font-size:11.5px;font-weight:750;color:var(--muted);background:#f1f5f9;border-radius:999px;padding:2px 9px}
+  .phase .cnt.all{background:var(--done-soft);color:#166534}
+  .phase .chev{color:var(--muted);transition:transform .18s}
+  .phase.open .chev{transform:rotate(90deg)}
+  .phase .steps{display:none;padding:2px 10px 10px}
+  .phase.open .steps{display:block}
+  .step{border-radius:10px;padding:8px 9px;display:flex;align-items:center;gap:9px;cursor:pointer}
+  .step:active{background:#f8fafc}
+  .step .sdot{width:20px;height:20px;border-radius:50%;flex:0 0 20px;display:flex;align-items:center;justify-content:center;font-size:11px;color:#fff;background:var(--skip)}
+  .step.done .sdot{background:var(--done)}
+  .step.current .sdot{background:var(--current);box-shadow:0 0 0 4px var(--current-soft)}
+  .step.skipped{opacity:.55}
+  .step .slbl{font-size:13.5px;font-weight:650;flex:1}
+  .step.done .slbl{color:#166534}
+  .step .dt{font-size:11px;color:var(--muted)}
+  .stepAct{display:none;gap:6px;padding:4px 0 8px 38px}
+  .stepAct.show{display:flex}
+  .msg{max-width:82%;border-radius:14px;padding:8px 12px;font-size:13.5px;margin-bottom:8px}
+  .msg.me{background:var(--brand);color:#fff;margin-left:auto;border-bottom-right-radius:5px}
+  .msg.them{background:#f1f5f9;border-bottom-left-radius:5px;margin-right:auto}
+  .msg .stt{display:block;font-size:10px;opacity:.75;margin-top:3px;text-align:right}
+  #ctxChip{display:none;align-items:center;gap:6px;margin:8px 12px 0;font-size:11.5px;font-weight:650;color:var(--accent);background:#f5f3ff;border-radius:9px;padding:6px 10px}
+  #ctxChip button{background:none;border:0;color:var(--accent);font-weight:800;font-size:13px;cursor:pointer}
 </style>
 </head>
 <body>
 <div id="ptr"><b>&#8635;</b></div>
 
-<header class="app"><h1>Beta Development</h1><div class="sub" id="subtitle">Jobs &amp; Projects</div></header>
+<header class="app"><div style="display:flex;align-items:center;gap:10px"><div style="flex:1;min-width:0"><h1>Beta Development</h1><div class="sub" id="subtitle">Jobs &amp; Projects</div></div><button id="syncChip" onclick="syncNow()"><span class="dot"></span><span id="syncTxt">QBO</span></button></div></header>
 <div class="beta-banner">⚡ BETA · Early Access — test freely; changes here don't touch the live system</div>
 <main>
   <section class="view active" id="view-jobs"></section>
@@ -140,16 +202,28 @@
   <button data-tab="progress" class="progress"><span class="ic">⚡</span>Progress</button>
   <button data-tab="dev"><span class="ic">📝</span>Dev</button>
 </nav>
+<button id="fabAdd" onclick="newJobModal()">＋</button>
 <div id="chatFab" onclick="toggleChat()">💬<span class="cdot" id="chatDot"></span></div>
 <div id="chatPanel">
   <div class="chatHead"><span id="chatCtx">Dispatch</span><button onclick="toggleChat()">✕</button></div>
   <div id="chatBody" class="chatBody"></div>
+  <div id="ctxChip"><span id="ctxTxt"></span><span class="grow"></span><button onclick="clearCtx()">✕</button></div>
   <div class="chatInput"><textarea id="dispatchMsg" placeholder="Type or speak a note…"></textarea><button id="chatMic" onclick="chatMic()">🎤</button><button class="send" onclick="sendDispatch()">Send</button></div>
 </div>
 <div class="modal" id="modal"><div class="box"><button class="close" onclick="closeModal()">✕</button><div id="modalBody"></div></div></div>
 <div id="toast"></div>
 <script>
 const STAGES=["Lead","Site Visit","Estimate","Accepted","Invoiced","Deposit Receipt","Paperwork","Scheduled","Done","Follow-up","Paid"];
+/* Sleek port — stages grouped into 5 collapsible phases on the detail view */
+const PHASES=[
+ {nm:"Sales",ic:"🤝",steps:["Lead","Site Visit","Estimate","Accepted"]},
+ {nm:"Billing",ic:"🧾",steps:["Invoiced","Deposit Receipt"]},
+ {nm:"Paperwork",ic:"📑",steps:["Paperwork"]},
+ {nm:"Job",ic:"⚡",steps:["Scheduled","Done"]},
+ {nm:"Wrap-up",ic:"✅",steps:["Follow-up","Paid"]}
+];
+var OPENPH=null; /* index of the open phase on detail; null = auto (phase of current stage) */
+var Q=""; /* live search query (Jobs view) */
 const JOBS=[
  {id:"JP-001",customer:"Peretz Chein",title:"Main panel upgrade",amount:"$2,300",
   phone:"",email:"Peretzch@gmail.com",address:"1370 Carroll St, Brooklyn NY 11213",
@@ -205,7 +279,7 @@ const FOLLOWUP_TYPES=["Acceptance","Payment / collect","Schedule the job","Paper
 const DOB_STEPS=["Permit issued","Inspection requested","Inspection scheduled","Self certification","PAA complete"];
 const CONED_STEPS=["Application submitted","POE scheduled","Uploaded paperwork complete","New accounts activated","Interim checklist","Final checklist","Meter installation date"];
 const DATE_STEPS={"Inspection scheduled":"datetime","Meter installation date":"date"};
-function paper(id){const base=(JOBS.find(x=>x.id===id)||{}).paperwork||{};const o=(OV[id]&&OV[id].paperwork)||{};function mk(k){const b=base[k]||{},ov=o[k]||{};return {enabled:ov.enabled!==undefined?ov.enabled:!!b.enabled,steps:Object.assign({},b.steps||{},ov.steps||{}),dates:Object.assign({},b.dates||{},ov.dates||{})};}return {coned:mk('coned'),dob:mk('dob')};}
+function paper(id){const base=(JOBS.find(x=>x.id===id)||{}).paperwork||{};const o=(((typeof PENDING!=="undefined"&&PENDING[id])||OV[id]||{}).paperwork)||{};function mk(k){const b=base[k]||{},ov=o[k]||{};return {enabled:ov.enabled!==undefined?ov.enabled:!!b.enabled,steps:Object.assign({},b.steps||{},ov.steps||{}),dates:Object.assign({},b.dates||{},ov.dates||{})};}return {coned:mk('coned'),dob:mk('dob')};}
 function blankJob(id){return {id:id,customer:"",title:"",amount:"",phone:"",email:"",address:"",estimateNo:"",invoiceNo:"",paid:false,notes:"",attachments:[],invoiceHistory:[],followUp:null,calEventId:"",status:{"Lead":{s:"current"}},_new:true};}
 function job(id){const base=JOBS.find(x=>x.id===id);const o=(typeof PENDING!=="undefined"&&PENDING[id])||OV[id]||{};
   const m=base?JSON.parse(JSON.stringify(base)):JSON.parse(JSON.stringify(Object.assign(blankJob(id),o)));
@@ -256,24 +330,43 @@ function curStage(j){for(const s of STAGES){if(j.status[s]&&j.status[s].s==="cur
 function stagePill(j){const c=curStage(j);return j.paid?"Paid":(c==="Paid"?"Awaiting payment":c);}
 function nextText(j){const c=curStage(j);const map={"Lead":"Log the lead / send a price","Site Visit":"Book a site visit","Estimate":"Finalize & send the estimate","Accepted":"Follow up for acceptance","Invoiced":"Create & send the invoice","Scheduled":"Do the job on the scheduled date","Done":"Mark the job done","Follow-up":"Follow up for payment","Paid":"Closed — paid"};
   return (j.followUp&&(j.followUp.text||j.followUp.type))?(j.followUp.text||j.followUp.type):(map[c]||c);}
-function jobCard(j){return `<div class="card" onclick="openJob('${j.id}')"><div class="body">
-  <div class="title">${esc(j.customer)}</div>
-  <div class="meta">${esc(j.title)} · ${esc(j.amount)}</div>
-  <span class="pill">${esc(stagePill(j))}</span> ${j.invoiceNo?`<span class="pill ${j.paid?'paid':'unpaid'}">${j.paid?'Paid':'Unpaid'}</span>`:''}
-  <div class="next">→ ${esc(nextText(j))}${j.followUp&&j.followUp.date?` · <b>${relDate(j.followUp.date)}</b>`:''}</div>
-  </div><div class="chev">›</div></div>`;}
+function pct(j){var d=0;STAGES.forEach(function(s){var e=j.status&&j.status[s];if(e&&(e.s==="done"||e.s==="skipped"))d++});return Math.round(d/STAGES.length*100)}
+function nextHint(j){if(j.paid)return"Paid ✓";var t=new Date().toISOString().slice(0,10);
+ if(j.followUp&&j.followUp.date){if(j.followUp.date<t)return"Follow-up overdue";if(j.followUp.date===t)return"Follow-up due today"}
+ return"Next: "+curStage(j)}
+function jobCard(j,stackN){var tel=(j.phone||'').replace(/[^0-9+]/g,'');
+ return '<div class="jcard" onclick="openJob(\''+j.id+'\')">'
+ +(stackN?'<span class="stackN">'+stackN+' jobs</span>':'')
+ +'<div class="t"><span class="grow">'+esc(j.customer||'—')+'</span><span class="amt">'+esc(j.amount||'')+'</span></div>'
+ +'<div class="jsub">'+esc(j.title||'')+'</div>'
+ +'<div class="pbar"><i style="width:'+pct(j)+'%"></i></div>'
+ +'<div class="prow"><span class="pill stage">'+esc(stagePill(j))+'</span><span class="pill '+(j.paid?'paid':'unpaid')+'">'+(j.paid?'Paid':'Unpaid')+'</span><span class="grow"></span><span class="next">'+esc(nextHint(j))+'</span></div>'
+ +'<div class="qa" onclick="event.stopPropagation()">'
+ +(tel?'<button onclick="location.href=\'tel:'+tel+'\'">📞 Call</button>':'')
+ +(j.invoiceNo&&!j.paid?'<button onclick="sendInvoice(\''+j.id+'\')">📤 Invoice</button>':'')
+ +(!j.paid?'<button onclick="markPaidModal(\''+j.id+'\')">💵 Paid?</button>':'')
+ +'<button class="gray" onclick="openJob(\''+j.id+'\')">Open ›</button>'
+ +'</div></div>';}
 /* Task #23 — group multiple jobs under one client */
 function clientKeyOf(j){var o=OV[j.id];if(o&&o.clientGroup)return 'g:'+o.clientGroup;return 'c:'+((j.customer||'').trim().toLowerCase())}
-var CEXP={};
-function toggleClient(i){CEXP[i]=!CEXP[i];renderJobs()}
-function clientCard(i,g){var open=!!CEXP[i];var n=g.jobs.length;var tot=g.jobs.reduce(function(s,j){return s+(parseFloat((j.amount||'').replace(/[^0-9.]/g,''))||0)},0);var unpaid=g.jobs.filter(function(j){return j.invoiceNo&&!j.paid}).length;
- var head='<div class="card" onclick="toggleClient('+i+')"><div class="body"><div class="title">👥 '+esc(g.customer)+'</div><div class="meta">'+n+' jobs · $'+tot.toLocaleString()+' total'+(unpaid?' · '+unpaid+' unpaid':'')+'</div></div><div class="chev">'+(open?'▾':'›')+'</div></div>';
+var CEXP={},CEXP_T={};
+function clientTouch(i){clearTimeout(CEXP_T[i]);CEXP_T[i]=setTimeout(function(){if(CEXP[i]){delete CEXP[i];try{renderJobs()}catch(e){}}},8000)}
+function toggleClient(i){CEXP[i]=!CEXP[i];clearTimeout(CEXP_T[i]);if(CEXP[i])clientTouch(i);renderJobs()}
+function clientCard(i,g){var open=!!CEXP[i];var n=g.jobs.length;var tot=g.jobs.reduce(function(s,j){return s+(parseFloat((j.amount||'').replace(/[$,]/g,''))||0)},0);var unpaid=g.jobs.filter(function(j){return j.invoiceNo&&!j.paid}).length;
+ var head='<div class="jcard" onclick="toggleClient('+i+')"><span class="stackN">'+n+' jobs</span>'
+  +'<div class="t"><span class="grow">👥 '+esc(g.customer)+'</span><span class="amt">$'+tot.toLocaleString()+'</span></div>'
+  +'<div class="jsub">'+n+' jobs'+(unpaid?' · '+unpaid+' unpaid':'')+' · tap to '+(open?'collapse':'expand')+'</div></div>';
  if(!open)return head;
- var sub=g.jobs.map(function(j){return '<div class="card" style="margin-left:16px;border-left:3px solid var(--brand,#1d4ed8)" onclick="openJob(\''+j.id+'\')"><div class="body"><div class="title" style="font-size:14.5px">'+esc(j.title||'Job')+'</div><div class="meta">'+esc(j.amount||'')+' · '+esc(stagePill(j))+(j.invoiceNo?' · #'+esc(j.invoiceNo):'')+'</div></div><div class="chev">›</div></div>'}).join('');
- return head+sub;}
-function renderJobs(){var ids=allJobIds();var groups=[],idx={};ids.forEach(function(id){var j=job(id);var k=clientKeyOf(j);if(idx[k]===undefined){idx[k]=groups.length;groups.push({customer:j.customer,jobs:[]})}groups[idx[k]].jobs.push(j)});
- var head=`<div style="display:flex;justify-content:space-between;align-items:center;gap:8px"><span class="seclabel" style="margin:6px 2px 10px">${ids.length} Active Jobs &amp; Projects</span><div style="display:flex;gap:6px"><button class="mini jump" onclick="newJobModal()">＋ New Job</button><button class="mini" onclick="syncNow()">🔄 Sync${LAST_SYNC?' · '+new Date(LAST_SYNC).toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'}):''}</button></div></div>`;
- $("#view-jobs").innerHTML=head+groups.map(function(g,i){return g.jobs.length===1?jobCard(g.jobs[0]):clientCard(i,g)}).join("");}
+ return head+'<div class="cgroup" onclick="clientTouch('+i+')" ontouchstart="clientTouch('+i+')" oninput="clientTouch('+i+')">'+g.jobs.map(function(j){return jobCard(j)}).join('')+'</div>';}
+function renderJobs(){var ids=allJobIds();var q=(Q||'').toLowerCase();var shown=0;
+ var groups=[],idx={};ids.forEach(function(id){var j=job(id);
+  if(q&&JSON.stringify([j.customer,j.title,j.address,j.invoiceNo]).toLowerCase().indexOf(q)<0)return;shown++;
+  var k=clientKeyOf(j);if(idx[k]===undefined){idx[k]=groups.length;groups.push({customer:j.customer,jobs:[]})}groups[idx[k]].jobs.push(j)});
+ var h='<div id="searchRow"><input id="q" placeholder="🔍  Search customer, job, address…" value="'+esc(Q).replace(/"/g,'&quot;')+'" oninput="Q=this.value;renderJobs();var e=document.getElementById(\'q\');e.focus();e.setSelectionRange(e.value.length,e.value.length)"></div>';
+ h+='<div class="seclabel">'+shown+' Active Jobs &amp; Projects</div>';
+ h+=groups.map(function(g,i){return g.jobs.length===1?jobCard(g.jobs[0]):clientCard(i,g)}).join("");
+ if(!shown)h+='<div class="note" style="text-align:center;padding:30px 10px">No jobs match'+(q?' your search':'')+'. Hit ＋ to add a job.</div>';
+ $("#view-jobs").innerHTML=h;}
 /* ---- Task #16: New Job (manual OR from-calendar) + calendar link ---- */
 function newJobModal(){openModal('<h3>New job</h3><div class="note" style="margin-top:0">How do you want to start?</div>'
  +'<div class="actions" style="margin-top:12px">'
@@ -304,27 +397,36 @@ function createJob(){var cust=($("#njCust").value||'').trim();if(!cust){toast('C
  OV[id]=o;saveOv(OV);closeModal();renderJobs();toast('Job created');
  if(date){cmdEnqueue('calendar_upsert',id,{calEventId:o.calEventId,summary:cust+' — '+o.title,start:date,location:o.address,description:o.title},'judgment').then(function(){return cmdLoad()});}
  openJob(id)}
-function renderDetail(id){const j=job(id);
- const tl=STAGES.map((s,i)=>{const st=(j.status[s]||{s:"upcoming"});const cls=st.s;
-  const icon=cls==="done"?"✓":cls==="current"?"●":cls==="skipped"?"–":"";
-  let when="";if(st.d)when=relDate(st.d)+" · "+new Date(st.d+"T00:00:00").toLocaleDateString(undefined,{month:"short",day:"numeric"});
-   else if(cls==="current")when="In progress";else if(cls==="skipped")when="Not needed";
-  const exp=stepOpen(id,s);
-  let btns="";
-  if(exp){
-   if(cls==="done")btns=`<button class="mini undo" onclick="undoStep('${id}','${s}')">↩ Undo</button>`;
-   else btns=`<button class="mini go" onclick="doneStep('${id}','${s}')">✓ Complete</button><button class="mini" onclick="skipStep('${id}','${s}')">✕ Skip</button>`;
-  }
-  return `<li class="${exp?'exp':''}"><div class="dot ${cls}" onclick="toggleStep('${id}','${s}')"><i>${icon}</i></div><div class="lbl ${cls}"><div class="s" onclick="toggleStep('${id}','${s}')">${esc(s)} <span class="tap">${exp?'▾':'›'}</span></div><div class="d">${esc(when)}</div>${exp?`<div class="stepbtns">${btns}</div>`:''}${stepPaper(id,s)}</div></li>`;}).join("");
- const atts=j.attachments.length?j.attachments.map((a,i)=>`<div class="att"><span>📎</span><a href="${a.url||'#'}" target="_blank">${esc(a.name)}</a><button class="mini" onclick="rmAtt('${id}',${i})">✕</button></div>`).join(""):`<div class="note">No attachments yet.</div>`;
+function renderDetail(id){const j=job(id);const cur=curStage(j);
+ if(OPENPH===null){OPENPH=0;PHASES.forEach(function(p,pi){if(p.steps.indexOf(cur)>=0)OPENPH=pi})}
+ const tel=(j.phone||'').replace(/[^0-9+]/g,'');
+ const hasAddr=j.address&&j.address.indexOf('not on file')<0&&j.address!=='TBD';
+ const mapU=hasAddr?('https://maps.apple.com/?q='+encodeURIComponent(j.address).replace(/'/g,'%27')):'';
+ const phases=PHASES.map(function(p,pi){var done=p.steps.filter(function(s){var e=j.status[s];return e&&(e.s==='done'||e.s==='skipped')}).length;
+  return '<div class="phase'+(pi===OPENPH?' open':'')+'"><button class="hd" onclick="OPENPH=(OPENPH==='+pi+'?-1:'+pi+');SEXP=null;renderDetail(\''+id+'\')">'
+   +'<span>'+p.ic+'</span><span class="nm">'+p.nm+'</span><span class="cnt'+(done===p.steps.length?' all':'')+'">'+done+'/'+p.steps.length+'</span><span class="chev">›</span></button>'
+   +'<div class="steps">'+p.steps.map(function(s){return stepHtml(id,j,s,cur)}).join('')+'</div></div>'}).join('');
+ j.attachments=j.attachments||[];const atts=j.attachments.length?j.attachments.map((a,i)=>`<div class="att"><span>📎</span><a href="${a.url||'#'}" target="_blank">${esc(a.name)}</a><button class="mini" onclick="rmAtt('${id}',${i})">✕</button></div>`).join(""):`<div class="note">No attachments yet.</div>`;
  $("#view-detail").innerHTML=`
- <button class="back" onclick="navTo('jobs')">‹ Jobs</button>
+ <div style="display:flex;align-items:center;gap:8px;margin-bottom:12px"><button class="back" style="margin-bottom:0" onclick="navTo('jobs')">‹ Jobs</button><span class="grow"></span><button class="mini" onclick="jobMenu('${id}')">⋮ More</button></div>
  ${isDirty(id)?`<div class="savebar"><span>● Unsaved changes</span><div style="display:flex;gap:6px"><button class="mini" onclick="discardChanges('${id}')">Discard</button><button class="btn" style="padding:6px 12px" onclick="saveChanges('${id}')">💾 Save &amp; sync</button></div></div>`:''}
- <div class="dcard contact"><div style="display:flex;justify-content:space-between;align-items:flex-start;gap:8px"><h2 style="margin:0">${esc(j.customer)}</h2><div style="display:flex;gap:6px;flex-shrink:0"><button class="mini" onclick="editCustomer('${id}')">✏️ Edit</button><button class="mini" onclick="jobMenu('${id}')">⋮</button></div></div>
-   <div class="addr">📍 ${esc(j.address)} · ${esc(j.title)} · <b>${esc(j.amount)}</b></div>
-   <div class="row">
-     ${j.phone?`<a class="cbtn" href="tel:${esc(j.phone.replace(/[^0-9+]/g,''))}">📞 ${esc(j.phone)}</a>`:`<span class="cbtn muted">📞 Add phone</span>`}
-     ${j.email?`<a class="cbtn" href="mailto:${esc(j.email)}">✉️ ${esc(j.email)}</a>`:''}
+ <div class="dcard custCard">
+   <div style="display:flex;gap:10px;align-items:flex-start">
+     <div style="flex:1;min-width:0"><div class="name">${esc(j.customer)}</div><div class="note" style="margin-top:2px">${esc(j.title)}</div></div>
+     <div style="text-align:right;flex-shrink:0"><div style="font-size:20px;font-weight:800">${esc(j.amount)}</div><span class="pill ${j.paid?'paid':'unpaid'}">${j.paid?'Paid':'Unpaid'}</span></div>
+   </div>
+   <div class="act4">
+     <button onclick="${tel?`location.href='tel:${tel}'`:`toast('No phone on file')`}"><span class="ic">📞</span>Call</button>
+     <button onclick="${tel?`location.href='sms:${tel}'`:`toast('No phone on file')`}"><span class="ic">💬</span>Text</button>
+     <button onclick="${j.email?`location.href='mailto:${esc(j.email)}'`:`toast('No email on file')`}"><span class="ic">✉️</span>Email</button>
+     <button onclick="${mapU?`window.open('${mapU}','_blank','noopener')`:`toast('No address on file')`}"><span class="ic">📍</span>Map</button>
+   </div>
+   ${j.phone?`<div class="kv"><b>Phone</b> ${esc(j.phone)}</div>`:''}
+   ${j.email?`<div class="kv"><b>Email</b> ${esc(j.email)}</div>`:''}
+   ${j.address?`<div class="kv"><b>Address</b> ${esc(j.address)}</div>`:''}
+   <div style="display:flex;gap:8px;margin-top:12px">
+     <button class="btn sec" style="flex:1" onclick="editCustomer('${id}')">✏️ Edit info</button>
+     <button class="btn sec" style="flex:1" onclick="syncCustomer('${id}')">⇄ Sync to QuickBooks</button>
    </div></div>
  <div class="dcard"><div class="seclabel" style="margin:0 0 8px">Quick view</div><div style="display:flex;gap:6px;flex-wrap:wrap">
    <button class="mini${j.invoiceNo?' jump':''}" onclick="quickView('${id}','invoice')">📄 Invoice</button>
@@ -340,12 +442,13 @@ function renderDetail(id){const j=job(id);
    <button class="btn sec full" onclick="saveFollow('${id}')">Save follow-up</button></div>
  <div class="nextbox"><div class="lbl">Next Step</div><div class="txt">${esc(nextText(j))}</div>
    ${j.followUp&&j.followUp.date?`<div class="when">📅 ${relDate(j.followUp.date)} (${new Date(j.followUp.date+'T00:00:00').toLocaleDateString(undefined,{weekday:'short',month:'short',day:'numeric'})})</div>`:''}</div>
- <div class="dcard"><div class="seclabel" style="margin:0 0 6px">Status: ${esc(stagePill(j))}</div><ul class="tl">${tl}</ul></div>
+ <div class="dcard"><div class="seclabel" style="margin:0 0 6px">Progress — ${pct(j)}% · ${esc(stagePill(j))}</div>
+   <div class="pbar" style="margin:0 0 10px"><i style="width:${pct(j)}%"></i></div>
+   ${phases}</div>
  <div class="dcard"><div class="seclabel" style="margin:0 0 10px">Actions</div>
    <div class="actions">
      ${j.invoiceNo?`<button class="btn" onclick="sendInvoice('${id}')">📤 Send invoice</button>`:(j.estimateNo?`<button class="btn" onclick="sendEstimate('${id}')">📤 Send estimate</button>`:'')}
      <button class="btn warn" onclick="reminderModal('${id}')">🔔 Send reminder</button>
-     <button class="btn sec" onclick="syncCustomer('${id}')">⇄ Sync customer to QuickBooks</button>
    </div>
    <div style="margin-top:12px;display:flex;align-items:center;gap:10px;flex-wrap:wrap">
      <span class="pill ${j.paid?'paid':'unpaid'}">QuickBooks: ${j.paid?'PAID':'UNPAID'}</span>
@@ -360,6 +463,15 @@ function renderDetail(id){const j=job(id);
  <div class="dcard"><div class="seclabel" style="margin:0 0 8px">Special Notes</div>
    <textarea id="notesBox" placeholder="Anything special about this job…">${esc(j.notes)}</textarea>
    <button class="btn sec full" onclick="saveNotes('${id}')">Save notes</button></div>`;}
+/* Sleek port — one step row inside a phase; tap → Complete/Skip/Undo (reuses toggleStep 5s auto-collapse) */
+function stepHtml(id,j,s,cur){var e=j.status[s]||{};var cls=e.s==='done'?'done':e.s==='skipped'?'skipped':(s===cur?'current':'');
+ var open=stepOpen(id,s);var when=e.d?relDate(e.d):(cls==='current'?'In progress':cls==='skipped'?'Not needed':'');
+ var h='<div class="step '+cls+'" onclick="toggleStep(\''+id+'\',\''+s+'\')"><span class="sdot">'+(e.s==='done'?'✓':e.s==='skipped'?'–':'')+'</span><span class="slbl">'+esc(s)+'</span>'+(when?'<span class="dt">'+esc(when)+'</span>':'')+'</div>'
+ +'<div class="stepAct'+(open?' show':'')+'">'+(e.s==='done'||e.s==='skipped'
+  ?'<button class="mini undo" onclick="undoStep(\''+id+'\',\''+s+'\')">↩ Undo</button>'
+  :'<button class="mini go" onclick="doneStep(\''+id+'\',\''+s+'\')">✓ Complete</button><button class="mini" onclick="skipStep(\''+id+'\',\''+s+'\')">✕ Skip</button>')+'</div>';
+ h+=stepPaper(id,s);
+ return h}
 /* Task #11 — condensed, tap-to-expand progress steps (single open, 5s auto-collapse) */
 var SEXP=null,STEP_T=null;
 function stepOpen(id,s){return SEXP===id+'|'+s}
@@ -425,7 +537,7 @@ function sendReminder(id){logSend(id,"Reminder queued");closeModal();toast("Remi
 function historyModal(id){const j=job(id);const h=(j.invoiceHistory||[]);openModal(`<h3>Invoice / send history</h3>${h.length?h.map(x=>`<div class="hist"><b>${esc(x.kind||'Sent')}</b><br>${esc(relDate(x.date))} (${esc(x.date)}) → ${esc(x.to||'')}</div>`).join(""):'<div class="note">Nothing sent yet.</div>'}<div class="note">Sync source: QuickBooks (daily).</div>`)}
 function openModal(html){$("#modalBody").innerHTML=html;$("#modal").classList.add("open")}
 function closeModal(){$("#modal").classList.remove("open")}
-function renderEstimates(){const items=JOBS.map(x=>job(x.id)).filter(j=>{const c=curStage(j);return c==="Estimate"||c==="Accepted"});$("#view-estimates").innerHTML=`<div class="seclabel">Estimates — pending / in progress</div>`+(items.length?items.map(jobCard).join(""):`<div class="note">Nothing pending.</div>`)}
+function renderEstimates(){const items=JOBS.map(x=>job(x.id)).filter(j=>{const c=curStage(j);return c==="Estimate"||c==="Accepted"});$("#view-estimates").innerHTML=`<div class="seclabel">Estimates — pending / in progress</div>`+(items.length?items.map(function(x){return jobCard(x)}).join(""):`<div class="note">Nothing pending.</div>`)}
 function renderAppts(){const items=JOBS.map(x=>job(x.id)).filter(j=>j.status["Scheduled"]&&j.status["Scheduled"].d&&j.status["Scheduled"].s!=="upcoming");$("#view-appts").innerHTML=`<div class="seclabel">Scheduled Appointments</div>`+(items.length?items.map(j=>`<div class="card" onclick="openJob('${j.id}')"><div class="body"><div class="title">${esc(j.customer)}</div><div class="meta">${esc(relDate(j.status["Scheduled"].d))} · ${esc(j.address)}</div><div class="next">${esc(j.title)}</div></div><div class="chev">›</div></div>`).join(""):`<div class="note">No appointments scheduled.</div>`)}
 function renderTasks(){$("#view-tasks").innerHTML=`<div class="seclabel">Next Tasks — across all jobs</div>`+JOBS.map(x=>job(x.id)).map(j=>`<div class="taskrow" onclick="openJob('${j.id}')"><div class="who">${esc(j.customer)} · ${esc(stagePill(j))}${j.followUp&&j.followUp.date?' · '+relDate(j.followUp.date):''}</div><div class="what">→ ${esc(nextText(j))}</div></div>`).join("")}
 function renderProgress(){$("#view-progress").innerHTML=`<div class="seclabel" style="color:#7c3aed">⚡ LE Electric Progress — request an update</div>
@@ -437,15 +549,20 @@ function copyProg(){const t=$("#progMsg").value.trim();if(!t){toast("Type a requ
 function sendProg(){var t=$("#progMsg").value.trim();if(!t){toast("Type a request first");return}toast("Sending…");fetch('/.netlify/functions/iterate',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({message:t})}).then(function(r){return r.json()}).then(function(d){if(d&&d.ok){$("#progMsg").value='';toast("✅ Sent to Dispatch")}else{toast("Send failed — use Copy instead")}}).catch(function(){toast("Send failed — use Copy instead")})}
 /* Task #5 — floating chat bubble with auto page-context + animated mic */
 function currentView(){var v=document.querySelector('.view.active');return v?v.id.replace('view-',''):'jobs'}
-function toggleChat(){var p=document.getElementById('chatPanel'),f=document.getElementById('chatFab');var open=p.classList.toggle('open');f.style.display=open?'none':'flex';if(open){var c=document.getElementById('chatCtx');if(c)c.textContent=chatCtxLabel();renderChat();var t=document.getElementById('dispatchMsg');if(t)setTimeout(function(){t.focus()},50);var d=document.getElementById('chatDot');if(d)d.style.display='none'}}
+function toggleChat(){var p=document.getElementById('chatPanel'),f=document.getElementById('chatFab');var open=p.classList.toggle('open');f.style.display=open?'none':'flex';if(open){ctxOn=true;var c=document.getElementById('chatCtx');if(c)c.textContent=chatCtxLabel();renderChat();var t=document.getElementById('dispatchMsg');if(t)setTimeout(function(){t.focus()},50);var d=document.getElementById('chatDot');if(d)d.style.display='none'}updCtxChip()}
 function chatCtxLabel(){var vw=currentView();if(vw==='dev')return 'Developer — general commands';if(vw==='detail'&&CURID){return 'Regarding: '+job(CURID).customer}return 'Dispatch — '+({jobs:'Jobs',estimates:'Estimates',appts:'Schedule',progress:'Progress'}[vw]||vw)}
 function chatContext(){var vw=currentView();if(vw==='dev')return '';if(vw==='detail'&&CURID){var j=job(CURID);var bits=[];if(j.title)bits.push(j.title);if(j.invoiceNo)bits.push('invoice #'+j.invoiceNo);if(j.estimateNo)bits.push('estimate #'+j.estimateNo);if(j.amount)bits.push(j.amount);bits.push(j.paid?'PAID':'unpaid');if(j.phone)bits.push(j.phone);return 'Regarding Job: '+j.customer+' ['+bits.join(', ')+']: '}return 'On '+({jobs:'the Jobs dashboard',estimates:'Estimates',appts:'the Schedule',progress:'the Progress tab'}[vw]||vw)+': '}
+/* Sleek port — removable context chip: ✕ omits page context for the next message only */
+var ctxOn=true;
+function updCtxChip(){var el=document.getElementById('ctxChip');if(!el)return;var p=document.getElementById('chatPanel');var open=p&&p.classList.contains('open');var c=(open&&ctxOn)?chatContext():'';
+ if(c){el.style.display='flex';var tx=document.getElementById('ctxTxt');if(tx)tx.textContent='Context: '+c.replace(/[:\s]+$/,'')}else{el.style.display='none'}}
+function clearCtx(){ctxOn=false;updCtxChip();toast('Context off for this message')}
 var CHATLOG=[];
 function _convoId(){try{var k=(typeof LS!=='undefined'?LS:'le')+'_convo';var v=localStorage.getItem(k);if(!v){v='c'+Date.now().toString(36)+Math.random().toString(36).slice(2,6);localStorage.setItem(k,v)}return v}catch(e){return 'default'}}
 var CONVO=_convoId();
-function renderChat(){var b=document.getElementById('chatBody');if(!b)return;b.innerHTML=(CHATLOG.length?CHATLOG.map(function(m){return '<div style="margin:6px 0;text-align:'+(m.who==='you'?'right':'left')+'"><div style="display:inline-block;background:'+(m.who==='you'?'#dbeafe':'#e2e8f0')+';padding:6px 10px;border-radius:12px;max-width:85%;text-align:left">'+esc(m.text)+'</div>'+(m.status?'<div class="note" style="border:0;padding:0;font-size:10px;margin-top:2px">'+esc(m.status)+'</div>':'')+'</div>'}).join(''):'<div class="note" style="border:0;padding:0">Type or speak a note — I\'ll get it with this page\'s context.</div>');b.scrollTop=b.scrollHeight}
+function renderChat(){var b=document.getElementById('chatBody');if(!b)return;b.innerHTML=(CHATLOG.length?CHATLOG.map(function(m){var me=m.who==='you';return '<div class="msg '+(me?'me':'them')+'">'+esc(m.text)+'<span class="stt">'+(me?esc(m.status||'Sent'):'Dispatch')+'</span></div>'}).join(''):'<div class="note" style="border:0;padding:0">Type or speak a note — I\'ll get it with this page\'s context.</div>');b.scrollTop=b.scrollHeight;updCtxChip()}
 function _setStatus(mid,s){for(var i=0;i<CHATLOG.length;i++){if(CHATLOG[i].id===mid){CHATLOG[i].status=s;break}}renderChat()}
-function sendDispatch(){var el=document.getElementById('dispatchMsg');var t=(el.value||'').trim();if(!t){toast('Type a message');return}var mid='m'+Date.now();var full=chatContext()+t;CHATLOG.push({id:mid,who:'you',text:t,status:'Sending…',ts:Date.now()});renderChat();el.value='';
+function sendDispatch(){var el=document.getElementById('dispatchMsg');var t=(el.value||'').trim();if(!t){toast('Type a message');return}var mid='m'+Date.now();var full=(ctxOn?chatContext():'')+t;ctxOn=true;CHATLOG.push({id:mid,who:'you',text:t,status:'Sending…',ts:Date.now()});renderChat();el.value='';
  fetch('/.netlify/functions/chat',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({op:'msg',convo:CONVO,id:mid,text:full})}).catch(function(){});
  fetch('/.netlify/functions/iterate',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({message:full,source:'chat-bubble-beta',convo:CONVO,msgId:mid,view:currentView(),jobId:(currentView()==='detail'?CURID:null)})}).then(function(r){return r.json()}).then(function(d){_setStatus(mid,d&&d.ok?'Sent':'Send failed')}).catch(function(){_setStatus(mid,'Send failed')})}
 function pollChat(){fetch('/.netlify/functions/chat?convo='+encodeURIComponent(CONVO),{cache:'no-store'}).then(function(r){return r.json()}).then(function(d){var msgs=(d&&d.messages)||[];var changed=false,newReply=false;msgs.forEach(function(sm){if(sm.who==='you'){for(var i=0;i<CHATLOG.length;i++){if(CHATLOG[i].id===sm.id&&sm.status&&CHATLOG[i].status!==sm.status&&CHATLOG[i].status!=='Send failed'){CHATLOG[i].status=sm.status;changed=true}}}else if(sm.who==='claude'){if(!CHATLOG.some(function(m){return m.id===sm.id})){CHATLOG.push({id:sm.id,who:'claude',text:sm.text,status:'',ts:sm.ts});changed=true;newReply=true}}});if(changed)renderChat();if(newReply&&!document.getElementById('chatPanel').classList.contains('open')){var dot=document.getElementById('chatDot');if(dot){dot.style.display='flex';dot.textContent='•'}toast('💬 Dispatch replied')}}).catch(function(){})}
@@ -455,8 +572,8 @@ function chatMic(){var SR=window.SpeechRecognition||window.webkitSpeechRecogniti
  var base=document.getElementById('dispatchMsg').value;r.onresult=function(e){var txt='';for(var i=0;i<e.results.length;i++)txt+=e.results[i][0].transcript;document.getElementById('dispatchMsg').value=(base?base+' ':'')+txt};r.onerror=function(){stopChatMic()};r.onend=function(){stopChatMic()};r.start()}
 var _dmb=document.getElementById('dispatchMsg');if(_dmb)_dmb.addEventListener('keydown',function(e){if(e.key==='Enter'&&!e.shiftKey){e.preventDefault();sendDispatch()}});
 const TITLES={jobs:"Jobs & Projects",detail:"Job Detail",estimates:"Estimates",appts:"Appointments",tasks:"Next Tasks",progress:"LE Electric Progress",dev:"Development Tasks"};
-function go(tab){document.querySelectorAll(".view").forEach(v=>v.classList.remove("active"));$("#view-"+tab).classList.add("active");$("#subtitle").textContent=TITLES[tab]||"";document.querySelectorAll("nav.tabs button").forEach(b=>b.classList.toggle("on",b.dataset.tab===tab));window.scrollTo(0,0)}
-function _openJob(id){CURID=id;renderDetail(id);go("detail");document.querySelectorAll("nav.tabs button").forEach(b=>b.classList.remove("on"))}
+function go(tab){document.querySelectorAll(".view").forEach(v=>v.classList.remove("active"));$("#view-"+tab).classList.add("active");$("#subtitle").textContent=TITLES[tab]||"";document.querySelectorAll("nav.tabs button").forEach(b=>b.classList.toggle("on",b.dataset.tab===tab));var fb=document.getElementById('fabAdd');if(fb)fb.style.display=(tab==='jobs')?'':'none';try{updCtxChip()}catch(e){}window.scrollTo(0,0)}
+function _openJob(id){CURID=id;OPENPH=null;SEXP=null;renderDetail(id);go("detail");document.querySelectorAll("nav.tabs button").forEach(b=>b.classList.remove("on"))}
 function openJob(id){var act=function(){_openJob(id)};if(leaveGuard(act))act()}
 document.querySelectorAll("nav.tabs button").forEach(b=>b.addEventListener("click",()=>{var tab=b.dataset.tab;var act=function(){go(tab);if(tab==="progress")renderProgress();if(tab==="dev")devLoad()};if(leaveGuard(act))act()}));
 renderJobs();renderEstimates();renderAppts();renderTasks();syncLoad();cmdLoad().then(checkApprovals);setInterval(function(){cmdLoad().then(function(){checkApprovals();var dv=document.querySelector("#view-detail");if(!(CURID&&dv&&dv.classList.contains("active")))return;var ae=document.activeElement;if(ae&&dv.contains(ae))return;renderDetail(CURID)})},8000);
@@ -501,8 +618,19 @@ setInterval(function(){var v=document.getElementById('view-dev');if(!v||!v.class
 
 (function(){var ls=0;var hd=document.querySelector('header.app');window.addEventListener('scroll',function(){if(!hd)return;var y=window.scrollY||document.documentElement.scrollTop;if(y>ls&&y>48){hd.classList.add('hide')}else{hd.classList.remove('hide')}ls=y<=0?0:y},{passive:true})})();
 
-function syncLoad(){fetch('/.netlify/functions/jobsdata',{cache:'no-store'}).then(function(r){return r.json()}).then(function(d){if(d&&Array.isArray(d.jobs)&&d.jobs.length){JOBS.length=0;d.jobs.forEach(function(j){JOBS.push(j)})}if(d&&d.syncedAt)LAST_SYNC=d.syncedAt;try{renderJobs();renderEstimates();renderAppts();renderTasks()}catch(e){}}).catch(function(){})}
-function syncNow(){toast('Requesting sync…');fetch('/.netlify/functions/jobsdata',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({op:'request'})}).then(function(){return fetch('/.netlify/functions/jobsdata',{cache:'no-store'})}).then(function(r){return r.json()}).then(function(d){if(d&&Array.isArray(d.jobs)&&d.jobs.length){JOBS.length=0;d.jobs.forEach(function(j){JOBS.push(j)})}if(d&&d.syncedAt)LAST_SYNC=d.syncedAt;try{renderJobs()}catch(e){}toast(LAST_SYNC?('Synced '+new Date(LAST_SYNC).toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'})):'Sync requested — data will refresh shortly')}).catch(function(){toast('Sync failed')})}
+function agoTxt(ts){if(!ts)return'never';var m=Math.round((Date.now()-ts)/60000);if(m<1)return'just now';if(m<60)return m+'m ago';var h=Math.round(m/60);if(h<24)return h+'h ago';return Math.round(h/24)+'d ago'}
+function updSyncChip(){var t=document.getElementById('syncTxt');if(t)t.textContent=LAST_SYNC?('QBO '+agoTxt(LAST_SYNC)):'QBO — tap to sync'}
+setInterval(updSyncChip,60000);updSyncChip();
+function syncLoad(){fetch('/.netlify/functions/jobsdata',{cache:'no-store'}).then(function(r){return r.json()}).then(function(d){if(d&&Array.isArray(d.jobs)&&d.jobs.length){JOBS.length=0;d.jobs.forEach(function(j){JOBS.push(j)})}if(d&&d.syncedAt)LAST_SYNC=d.syncedAt;updSyncChip();try{renderJobs();renderEstimates();renderAppts();renderTasks()}catch(e){}}).catch(function(){})}
+function syncNow(){var chip=document.getElementById('syncChip');if(chip)chip.classList.add('busy');var tx=document.getElementById('syncTxt');if(tx)tx.textContent='Syncing…';
+ fetch('/.netlify/functions/jobsdata',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({op:'request'})}).catch(function(){})
+ .then(function(){return fetch('/.netlify/functions/jobsdata',{cache:'no-store'})})
+ .then(function(r){return r.json()})
+ .then(function(d){if(d&&Array.isArray(d.jobs)&&d.jobs.length){JOBS.length=0;d.jobs.forEach(function(j){JOBS.push(j)})}if(d&&d.syncedAt)LAST_SYNC=d.syncedAt;
+  try{_pullNow()}catch(e){}try{cmdLoad()}catch(e){}try{renderJobs()}catch(e){}
+  toast('Refreshed — fresh QuickBooks pull requested')})
+ .catch(function(){toast('Sync failed')})
+ .then(function(){if(chip)chip.classList.remove('busy');updSyncChip()})}
 
 (function(){var ptr=document.getElementById('ptr');if(!ptr)return;var ico=ptr.querySelector('b');var main=document.querySelector('main');var startY=0,pulling=false,dist=0,TH=70;function reset(){ptr.classList.remove('spin');ptr.style.transition='transform .2s';ptr.style.transform='translate(-50%,-44px)';ico.style.transform='';if(main){main.style.transition='transform .2s';main.style.transform=''}dist=0;}function refresh(){ptr.classList.add('spin');ptr.style.transition='transform .2s';ptr.style.transform='translate(-50%,16px)';if(main){main.style.transition='transform .2s';main.style.transform='translateY(46px)'}try{if(typeof _pullNow==='function')_pullNow()}catch(e){}try{if(typeof syncLoad==='function')syncLoad()}catch(e){}try{var dv=document.getElementById('view-dev');if(dv&&dv.classList.contains('active')&&typeof devLoad==='function')devLoad()}catch(e){}try{toast('Refreshing…')}catch(e){}setTimeout(reset,900);}window.addEventListener('touchstart',function(e){if((window.scrollY||document.documentElement.scrollTop)<=0){startY=e.touches[0].clientY;pulling=true;ptr.style.transition='none';if(main)main.style.transition='none'}else pulling=false},{passive:true});window.addEventListener('touchmove',function(e){if(!pulling)return;var dy=e.touches[0].clientY-startY;if(dy<=0){dist=0;return}if((window.scrollY||document.documentElement.scrollTop)<=0){e.preventDefault();dist=Math.min(dy*0.5,110);ptr.style.transform='translate(-50%,'+(Math.min(dist,60)-44)+'px)';ico.style.transform='rotate('+(dist*4)+'deg)';if(main)main.style.transform='translateY('+dist+'px)'}},{passive:false});window.addEventListener('touchend',function(){if(!pulling)return;pulling=false;if(dist>TH)refresh();else reset()},{passive:true});})();
 </script>
