@@ -1,6 +1,7 @@
 // Floating Dispatch chat — bubble on every view, gradient panel, removable
 // context chip, Web Speech mic with level animation, message statuses,
 // unread badge. Posts to the chat fn (op:msg) + iterate fn; polls ~5s.
+// Also sends presence heartbeats (op:presence) so Dispatch knows we're online.
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import { useLocation } from "react-router-dom";
 import { useStore } from "../state/store.jsx";
@@ -81,6 +82,33 @@ export default function ChatBubble() {
     const t = setInterval(poll, 5000);
     return () => clearInterval(t);
   }, [poll]);
+
+  // Presence heartbeat — fire-and-forget ping so Dispatch can see the app is
+  // open. Fires on: app load, tab becoming visible, chat panel open, and on an
+  // interval (45s while the tab is visible, 20s while the panel is open).
+  const viewRef = useRef(view);
+  viewRef.current = view;
+  const presencePing = useCallback(() => {
+    if (typeof document !== "undefined" && document.visibilityState === "hidden") return;
+    try {
+      api.presence(convo.current, viewRef.current).catch(() => {});
+    } catch {}
+  }, [api]);
+
+  useEffect(() => {
+    presencePing(); // app load
+    const onVis = () => {
+      if (document.visibilityState === "visible") presencePing();
+    };
+    document.addEventListener("visibilitychange", onVis);
+    return () => document.removeEventListener("visibilitychange", onVis);
+  }, [presencePing]);
+
+  useEffect(() => {
+    if (open) presencePing(); // panel open
+    const t = setInterval(presencePing, open ? 20000 : 45000);
+    return () => clearInterval(t);
+  }, [open, presencePing]);
 
   useEffect(() => {
     if (logRef.current) logRef.current.scrollTop = 99999;

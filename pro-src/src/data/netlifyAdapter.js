@@ -124,6 +124,11 @@ export function createNetlifyAdapter() {
       return http("chat", { op: "msg", convo, id, text });
     },
 
+    /** Fire-and-forget heartbeat so Dispatch can see the app is open. */
+    async presence(convo, view) {
+      return http("chat", { op: "presence", convo, view });
+    },
+
     async iterate(message, source) {
       return http("iterate", { message, source });
     },

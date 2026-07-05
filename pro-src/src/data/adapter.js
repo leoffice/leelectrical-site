@@ -10,6 +10,7 @@
 //   api.listEvents()                                -> CalendarEvent[]
 //   api.listDevTasks/addDevTask/patchDevTask        -> dev board
 //   api.chatList/chatSend/iterate                   -> Dispatch chat bubble
+//   api.presence(convo, view)                       -> heartbeat (fire-and-forget)
 //
 // Default: NetlifyStoreAdapter (live today). Set localStorage
 // lepro_adapter = "supabase" to switch once that backend ships — any method

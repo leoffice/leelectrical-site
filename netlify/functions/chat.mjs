@@ -6,6 +6,8 @@ import { getStore } from "@netlify/blobs";
 // POST { op:"msg",    convo, id, text }        (bubble records a sent message)
 // POST { op:"reply",  convo, text }            (Dispatch posts a reply)
 // POST { op:"status", convo, id, status }      (Dispatch updates a message's status)
+// POST { op:"presence", convo, view }           (LE Pro heartbeat -> "presence-v1" key)
+// GET  ?presence=1                             -> { lastSeen, view, convo } (or {})
 // Statuses used by the UI: Sent -> Received -> Read -> Working on it (then a reply).
 
 function json(o) {
@@ -34,6 +36,12 @@ export default async (req) => {
     let b = {};
     try { b = await req.json(); } catch (e) {}
     const convo = b.convo || "default";
+    if (b.op === "presence") {
+      // Single-slot heartbeat — last ping wins, overwrites the whole object.
+      const presence = { lastSeen: Date.now(), view: String(b.view || ""), convo };
+      await store.setJSON("presence-v1", presence);
+      return json({ ok: true, ts: presence.lastSeen });
+    }
     const doc = await load(store, convo);
     const now = Date.now();
     if (b.op === "msg" && b.text) {
@@ -52,6 +60,9 @@ export default async (req) => {
   }
 
   const url = new URL(req.url);
+  if (url.searchParams.get("presence")) {
+    return json((await store.get("presence-v1", { type: "json", consistency: "strong" })) || {});
+  }
   const convo = url.searchParams.get("convo") || "default";
   return json(await load(store, convo));
 };
