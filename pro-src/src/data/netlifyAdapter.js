@@ -141,6 +141,12 @@ export function createNetlifyAdapter() {
       return http("chat", { op: "presence", convo, view });
     },
 
+    /** Per-convo presence map { "<convo>": { lastSeen, view } } — includes
+     *  the responder's "dispatch-heartbeat" slot ("Dispatch • online" dot). */
+    async presenceMap() {
+      return http(`chat?presence=1&${cb()}`);
+    },
+
     async iterate(message, source) {
       return http("iterate", { message, source });
     },

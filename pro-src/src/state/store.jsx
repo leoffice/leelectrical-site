@@ -362,19 +362,31 @@ export function StoreProvider({ children }) {
   /* ---------- dev board ---------- */
   const addDevTask = useCallback(
     async (task) => {
-      await api.addDevTask(task);
+      try {
+        await api.addDevTask(task);
+      } catch {
+        showToast("Network error — request not sent, try again");
+        return false;
+      }
       refreshDev();
       showToast("Sent to Dispatch");
+      return true;
     },
     [refreshDev, showToast]
   );
 
   const patchDevTask = useCallback(
     async (id, patch) => {
-      await api.patchDevTask(id, patch);
+      try {
+        await api.patchDevTask(id, patch);
+      } catch {
+        showToast("Network error — change not saved");
+        return false;
+      }
       refreshDev();
+      return true;
     },
-    [refreshDev]
+    [refreshDev, showToast]
   );
 
   const devBadge = useMemo(

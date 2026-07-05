@@ -6,8 +6,12 @@ import { getStore } from "@netlify/blobs";
 // POST { op:"msg",    convo, id, text }        (bubble records a sent message)
 // POST { op:"reply",  convo, text }            (Dispatch posts a reply)
 // POST { op:"status", convo, id, status }      (Dispatch updates a message's status)
-// POST { op:"presence", convo, view }           (LE Pro heartbeat -> "presence-v1" key)
-// GET  ?presence=1                             -> { lastSeen, view, convo } (or {})
+// POST { op:"presence", convo, view }           (heartbeat -> "presence-v1" key)
+// GET  ?presence=1                             -> { "<convo>": { lastSeen, view }, ... } (or {})
+//   presence-v1 is a per-convo map. LE Pro pings with its own convo id; the
+//   Dispatch chat-responder cron pings convo "dispatch-heartbeat" so the app
+//   can show "Dispatch • online". Legacy single-slot { lastSeen, view, convo }
+//   values are migrated into the map on read and write.
 // Statuses used by the UI: Sent -> Received -> Read -> Working on it (then a reply).
 
 function json(o) {
@@ -24,6 +28,16 @@ function json(o) {
 
 const key = (convo) => "chat-" + String(convo || "default").replace(/[^a-zA-Z0-9_-]/g, "");
 
+/** presence-v1 as a per-convo map, migrating the legacy single-slot shape. */
+async function loadPresence(store) {
+  const raw = (await store.get("presence-v1", { type: "json", consistency: "strong" })) || {};
+  if (typeof raw.lastSeen === "number") {
+    // legacy { lastSeen, view, convo } -> { [convo]: { lastSeen, view } }
+    return { [raw.convo || "default"]: { lastSeen: raw.lastSeen, view: raw.view || "" } };
+  }
+  return raw;
+}
+
 async function load(store, convo) {
   return (await store.get(key(convo), { type: "json", consistency: "strong" })) || { messages: [], ts: 0 };
 }
@@ -37,10 +51,11 @@ export default async (req) => {
     try { b = await req.json(); } catch (e) {}
     const convo = b.convo || "default";
     if (b.op === "presence") {
-      // Single-slot heartbeat — last ping wins, overwrites the whole object.
-      const presence = { lastSeen: Date.now(), view: String(b.view || ""), convo };
-      await store.setJSON("presence-v1", presence);
-      return json({ ok: true, ts: presence.lastSeen });
+      // Per-convo heartbeat — each pinger owns its own slot in the map.
+      const map = await loadPresence(store);
+      map[convo] = { lastSeen: Date.now(), view: String(b.view || "") };
+      await store.setJSON("presence-v1", map);
+      return json({ ok: true, ts: map[convo].lastSeen });
     }
     const doc = await load(store, convo);
     const now = Date.now();
@@ -61,7 +76,7 @@ export default async (req) => {
 
   const url = new URL(req.url);
   if (url.searchParams.get("presence")) {
-    return json((await store.get("presence-v1", { type: "json", consistency: "strong" })) || {});
+    return json(await loadPresence(store));
   }
   const convo = url.searchParams.get("convo") || "default";
   return json(await load(store, convo));

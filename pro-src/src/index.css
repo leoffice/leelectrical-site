@@ -45,6 +45,12 @@ body {
   padding-bottom: env(safe-area-inset-bottom, 0px);
 }
 
+/* Safe-area padding for the iOS status bar — the header uses
+   black-translucent, so content flows under the clock/notch without this. */
+.pt-safe {
+  padding-top: env(safe-area-inset-top, 0px);
+}
+
 /* Bottom-sheet slide-up */
 @keyframes sheetup {
   from {

@@ -76,7 +76,7 @@ export default function Dev() {
   const submit = async () => {
     const d = desc.trim();
     if (!d && !images.length) return showToast("Describe it first");
-    await addDevTask({
+    const ok = await addDevTask({
       title: "",
       desc: d,
       images,
@@ -84,6 +84,7 @@ export default function Dev() {
       category: "build",
       target: { ...target },
     });
+    if (ok === false) return; // network error — keep the draft
     setDesc("");
     setImages([]);
   };
@@ -212,6 +213,15 @@ function TaskCard({ t, archived, patchDevTask, onEdit }) {
         </span>
       </div>
       {t.desc && <div className="text-xs text-slate-500 mt-1 whitespace-pre-wrap">{t.desc}</div>}
+      {(t.images || []).length > 0 && (
+        <div className="flex gap-2 flex-wrap mt-2">
+          {t.images.map((im, i) => (
+            <a key={i} href={im} target="_blank" rel="noreferrer">
+              <img src={im} alt={`attachment ${i + 1}`} className="h-[52px] rounded-lg border border-slate-200" />
+            </a>
+          ))}
+        </div>
+      )}
       {t.understanding && <DevBox label="My understanding">{t.understanding}</DevBox>}
       {t.question && <DevBox label="Question for you" tone="border-rose-200">{t.question}</DevBox>}
       {t.report && <DevBox label="Report" tone="border-emerald-200">{t.report}</DevBox>}

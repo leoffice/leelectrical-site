@@ -51,7 +51,7 @@ export function mockServer(opts = {}) {
     tasks: opts.tasks || [],
     messages: opts.messages || [],
     failChatPosts: opts.failChatPosts || 0, // fail the next N chat op:msg POSTs (retry tests)
-    presence: opts.presence || null, // last op:presence payload (heartbeat tests)
+    presence: opts.presence || {}, // per-convo map { convo: { lastSeen, view } } — mirrors presence-v1
     docs: opts.docs || {}, // key -> stored "pdf" (docs fn: PDF viewing)
   };
   const calls = [];
@@ -126,9 +126,11 @@ export function mockServer(opts = {}) {
           }
           if (body.op === "msg") state.messages.push({ id: body.id, who: "you", text: body.text, status: "Sent", ts: Date.now() });
           else if (body.op === "reply") state.messages.push({ id: "r" + seq++, who: "claude", text: body.text, status: "", ts: Date.now() });
-          else if (body.op === "presence") state.presence = { lastSeen: Date.now(), view: body.view || "", convo: body.convo };
+          else if (body.op === "presence")
+            state.presence[body.convo || "default"] = { lastSeen: Date.now(), view: body.view || "" };
           data = { ok: true };
-        } else data = { messages: state.messages };
+        } else if (String(url).includes("presence=1")) data = JSON.parse(JSON.stringify(state.presence));
+        else data = { messages: state.messages };
       } else if (path === "iterate") data = { ok: true };
       return { ok: true, status: 200, json: async () => data };
     })

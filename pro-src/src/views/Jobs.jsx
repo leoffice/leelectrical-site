@@ -131,7 +131,7 @@ export default function Jobs({ embedded }) {
                   onClick={() => toggleGroup(key)}
                 >
                   <span className="grid place-items-center w-9 h-9 rounded-xl bg-accent-soft text-accent font-bold text-sm shrink-0">
-                    {(list[0].customer || "?").trim().slice(0, 1).toUpperCase()}
+                    {(list[0].customer || "").trim().slice(0, 1).toUpperCase() || "?"}
                   </span>
                   <span className="min-w-0">
                     <span className="block font-bold text-slate-900 truncate">

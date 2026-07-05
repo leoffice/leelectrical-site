@@ -101,7 +101,7 @@ function LeaveSheet() {
 }
 
 export default function App() {
-  const { toast, error, setNewJob } = useStore();
+  const { toast, error, setNewJob, refresh, dirtyCount } = useStore();
   const loc = useLocation();
   const inDetail = loc.pathname.startsWith("/job/");
   const onJobs = loc.pathname === "/";
@@ -130,7 +130,7 @@ export default function App() {
 
       <div className="flex-1 min-w-0 flex flex-col">
         {/* Mobile header */}
-        <header className="lg:hidden sticky top-0 z-30 bg-gradient-to-r from-brand to-accent text-white shadow-sm">
+        <header className="lg:hidden sticky top-0 z-30 bg-gradient-to-r from-brand to-accent text-white shadow-sm pt-safe">
           <div className="flex items-center gap-2 px-4 py-2.5">
             <span className="text-lg">⚡</span>
             <span className="font-extrabold tracking-tight">LE Pro</span>
@@ -141,8 +141,11 @@ export default function App() {
         </header>
 
         {error && (
-          <div className="mx-4 mt-3 card border-red-200 bg-red-50 text-red-700 text-sm px-4 py-2.5">
-            Couldn’t reach the server — {error}
+          <div className="mx-4 mt-3 card border-red-200 bg-red-50 text-red-700 text-sm px-4 py-2.5 flex items-center gap-3">
+            <span className="flex-1 min-w-0">Couldn’t reach the server — {error}</span>
+            <button className="btn bg-red-100 text-red-700 !py-1.5 shrink-0" onClick={() => refresh()}>
+              ↻ Retry
+            </button>
           </div>
         )}
 
@@ -169,7 +172,9 @@ export default function App() {
             onClick={() => setNewJob({ step: "choose" })}
             aria-label="New job"
             data-testid="fab-add"
-            className="fixed z-40 right-4 bottom-[86px] lg:bottom-6 lg:right-24 w-[54px] h-[54px] rounded-2xl bg-slate-900 text-white text-2xl shadow-xl"
+            className={`fixed z-40 right-4 lg:right-24 w-[54px] h-[54px] rounded-2xl bg-slate-900 text-white text-2xl shadow-xl ${
+              dirtyCount ? "bottom-[150px] lg:bottom-24" : "bottom-[86px] lg:bottom-6" // clear the SaveBar
+            }`}
           >
             ＋
           </button>

@@ -1,13 +1,43 @@
 // Floating Dispatch chat — bubble on every view, gradient panel, removable
 // context chip, Web Speech mic with level animation, message statuses,
-// unread badge. Posts to the chat fn (op:msg) + iterate fn; polls ~5s.
-// Also sends presence heartbeats (op:presence) so Dispatch knows we're online.
+// unread badge. Posts to the chat fn (op:msg) + iterate fn; polls 5s closed,
+// 3s while the panel is open. Sends presence heartbeats (op:presence) and
+// reads the presence map back to show "Dispatch • online" (the responder cron
+// pings convo "dispatch-heartbeat"). Dispatch replies fire a browser
+// Notification when the tab is hidden (permission asked on first open).
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import { useLocation } from "react-router-dom";
 import { useStore } from "../state/store.jsx";
 import { fmt$ } from "../lib/format.js";
 
 const CONVO_KEY = "le_pro_convo";
+const ONLINE_MS = 4 * 60_000; // dispatch-heartbeat younger than this = online
+
+/** Ask for Notification permission once (no-op where unsupported/decided). */
+function askNotifyPermission() {
+  try {
+    if (typeof Notification === "undefined" || Notification.permission !== "default") return;
+    const p = Notification.requestPermission(() => {});
+    if (p && p.catch) p.catch(() => {});
+  } catch {}
+}
+
+/** Browser notification for a Dispatch reply that arrived while tab hidden. */
+function notifyReply(m) {
+  try {
+    if (typeof Notification === "undefined" || Notification.permission !== "granted") return;
+    const n = new Notification("Dispatch replied", {
+      body: String((m && m.text) || "New message").slice(0, 160),
+      tag: "le-pro-dispatch", // collapse repeats into one
+    });
+    n.onclick = () => {
+      try {
+        window.focus();
+        n.close();
+      } catch {}
+    };
+  } catch {}
+}
 
 /** The chat fn stores bubble messages as who:"you" and Dispatch replies as
  *  who:"claude" (op:reply) — some tools use "dispatch". Anything that isn't
@@ -27,7 +57,7 @@ function getConvo() {
 }
 
 export default function ChatBubble() {
-  const { api, effectiveJob, showToast } = useStore();
+  const { api, effectiveJob, showToast, dirtyCount } = useStore();
   const loc = useLocation();
   const [open, setOpen] = useState(false);
   const [msgs, setMsgs] = useState([]);
@@ -35,8 +65,10 @@ export default function ChatBubble() {
   const [text, setText] = useState("");
   const [ctxOn, setCtxOn] = useState(true);
   const [rec, setRec] = useState(false);
+  const [dispatchSeen, setDispatchSeen] = useState(0); // responder heartbeat ts
   const convo = useRef(getConvo());
   const lastN = useRef(0);
+  const lastDispatchN = useRef(null); // null = not baselined yet (first poll)
   const openRef = useRef(open);
   openRef.current = open;
   const logRef = useRef(null);
@@ -71,17 +103,48 @@ export default function ChatBubble() {
     try {
       const ms = await api.chatList(convo.current);
       localMsgs.current = localMsgs.current.filter((lm) => !ms.some((m) => m.id === lm.id));
-      if (ms.length > lastN.current && !openRef.current) setUnread((u) => u + ms.length - lastN.current);
+      // Unread + notifications track DISPATCH replies only (own sends don't
+      // count), and the very first poll just baselines old history.
+      const dispatch = ms.filter(isDispatchMsg);
+      // NB: capture the delta NOW — the setUnread updater runs after the ref
+      // is overwritten below (the old code read the ref inside the updater,
+      // which made the delta 0 and the badge never increment).
+      const fresh = lastDispatchN.current === null ? 0 : dispatch.length - lastDispatchN.current;
+      if (fresh > 0) {
+        if (!openRef.current) setUnread((u) => u + fresh);
+        if (typeof document !== "undefined" && document.visibilityState === "hidden")
+          notifyReply(dispatch[dispatch.length - 1]);
+      }
+      lastDispatchN.current = dispatch.length;
       lastN.current = ms.length;
       setMsgs(ms.concat(localMsgs.current));
     } catch {}
   }, [api]);
 
+  // 3s while the panel is open (live conversation), 5s in the background.
   useEffect(() => {
     poll();
-    const t = setInterval(poll, 5000);
+    const t = setInterval(poll, open ? 3000 : 5000);
     return () => clearInterval(t);
-  }, [poll]);
+  }, [poll, open]);
+
+  // Responder presence — is Dispatch's cron alive? Checked on open + every
+  // 15s while the panel stays open (the 3s message poll re-renders, so the
+  // <4 min freshness window re-evaluates without its own timer).
+  const pollPresence = useCallback(async () => {
+    try {
+      const map = (api.presenceMap && (await api.presenceMap())) || {};
+      const d = map["dispatch-heartbeat"];
+      setDispatchSeen((d && d.lastSeen) || 0);
+    } catch {}
+  }, [api]);
+
+  useEffect(() => {
+    if (!open) return;
+    pollPresence();
+    const t = setInterval(pollPresence, 15000);
+    return () => clearInterval(t);
+  }, [open, pollPresence]);
 
   // Presence heartbeat — fire-and-forget ping so Dispatch can see the app is
   // open. Fires on: app load, tab becoming visible, chat panel open, and on an
@@ -119,6 +182,7 @@ export default function ChatBubble() {
       if (!o) {
         setUnread(0);
         setCtxOn(true);
+        askNotifyPermission(); // once — no-op after granted/denied
         poll();
       }
       return !o;
@@ -216,6 +280,7 @@ export default function ChatBubble() {
 
   const ctx = chatCtx();
   const working = msgs.some((m) => m.status === "Working on it");
+  const online = dispatchSeen > 0 && Date.now() - dispatchSeen < ONLINE_MS;
 
   return (
     <>
@@ -223,7 +288,9 @@ export default function ChatBubble() {
         onClick={toggle}
         aria-label="Chat with Dispatch"
         data-testid="chat-fab"
-        className="fixed z-40 right-4 bottom-36 lg:bottom-6 lg:right-6 w-12 h-12 rounded-full bg-gradient-to-br from-accent to-brand text-white text-xl shadow-xl"
+        className={`fixed z-40 right-4 lg:right-6 w-12 h-12 rounded-full bg-gradient-to-br from-accent to-brand text-white text-xl shadow-xl ${
+          dirtyCount ? "bottom-[210px] lg:bottom-24" : "bottom-36 lg:bottom-6" // clear the SaveBar
+        }`}
       >
         💬
         {unread > 0 && (
@@ -238,9 +305,15 @@ export default function ChatBubble() {
           className="fixed z-50 inset-x-2.5 bottom-20 lg:inset-x-auto lg:right-6 lg:bottom-20 lg:w-[400px] max-w-[420px] ml-auto bg-white rounded-2xl shadow-2xl border border-slate-200 flex flex-col max-h-[64vh] overflow-hidden"
           data-testid="chat-panel"
         >
-          <div className="flex items-center gap-2 px-4 py-3 bg-gradient-to-r from-accent to-brand text-white">
-            <b className="text-sm flex-1">Dispatch</b>
-            {working && <span className="text-[11px] opacity-85">working…</span>}
+          <div className="flex items-center gap-2 px-4 py-2.5 bg-gradient-to-r from-accent to-brand text-white">
+            <div className="flex-1 min-w-0">
+              <b className="block text-sm leading-tight">Dispatch</b>
+              <span className="flex items-center gap-1.5 text-[11px] opacity-90 leading-tight" data-testid="presence-line">
+                <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${online ? "bg-emerald-300" : "bg-white/40"}`} />
+                {online ? "online" : "away — replies in a few minutes"}
+              </span>
+            </div>
+            {working && <span className="text-[11px] opacity-85 shrink-0">working…</span>}
             <button onClick={toggle} className="text-white" aria-label="Close chat">✕</button>
           </div>
           <div ref={logRef} className="flex-1 overflow-y-auto p-3 min-h-[120px]">
@@ -263,6 +336,15 @@ export default function ChatBubble() {
             ) : (
               <div className="text-sm text-slate-400 text-center py-5">
                 Say hi — I'm listening. Messages include page context automatically.
+              </div>
+            )}
+            {working && (
+              <div
+                className="max-w-[82%] rounded-2xl rounded-bl-md bg-slate-100 px-3 py-2 text-sm text-slate-500 mb-2 flex items-center gap-1.5"
+                data-testid="typing-line"
+              >
+                <span className="w-1.5 h-1.5 rounded-full bg-slate-400 animate-pulse" />
+                Dispatch is working on it…
               </div>
             )}
           </div>
