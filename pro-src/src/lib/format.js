@@ -13,13 +13,15 @@ export function fmt$(v) {
 }
 
 export function ago(ts) {
+  // floor, not round — 23.6h must show "23h ago", never jump to "1d ago";
+  // 90m is "1h ago", not "2h ago".
   if (!ts) return "never";
-  const m = Math.round((Date.now() - ts) / 60000);
+  const m = Math.floor((Date.now() - ts) / 60000);
   if (m < 1) return "just now";
   if (m < 60) return m + "m ago";
-  const h = Math.round(m / 60);
+  const h = Math.floor(m / 60);
   if (h < 24) return h + "h ago";
-  return Math.round(h / 24) + "d ago";
+  return Math.floor(h / 24) + "d ago";
 }
 
 export function todayStr() {

@@ -38,6 +38,7 @@ export default function Dev() {
   const [priority, setPriority] = useState(draft.priority);
   const [target, setTarget] = useState(draft.target);
   const [edit, setEdit] = useState(null); // task being edited
+  const [showArch, setShowArch] = useState(false); // archived section expanded
   const fileRef = useRef(null);
 
   useEffect(() => {
@@ -87,7 +88,7 @@ export default function Dev() {
     setImages([]);
   };
 
-  const ts = devTasks
+  const sorted = devTasks
     .slice()
     .sort(
       (a, b) =>
@@ -95,6 +96,8 @@ export default function Dev() {
         (b.priority === "High") - (a.priority === "High") ||
         (b.ts || 0) - (a.ts || 0)
     );
+  const ts = sorted.filter((t) => !t.archived);
+  const archived = sorted.filter((t) => t.archived);
 
   return (
     <div className="space-y-3">
@@ -166,45 +169,87 @@ export default function Dev() {
 
       {/* task cards */}
       {ts.map((t) => (
-        <div key={t.id} className="card px-4 py-3.5">
-          <div className="flex items-start gap-2 text-sm font-bold">
-            <span className="text-slate-400 font-extrabold">#{t.num}</span>
-            <span className="flex-1 min-w-0">{t.title || "(untitled — I'll name it when I pick it up)"}</span>
-            <span className={`pill uppercase !text-[10px] tracking-wide shrink-0 ${DV_TONES[t.status] || "bg-slate-100 text-slate-600"}`}>
-              {DVLBL[t.status] || t.status}
-            </span>
-          </div>
-          {t.desc && <div className="text-xs text-slate-500 mt-1 whitespace-pre-wrap">{t.desc}</div>}
-          {t.understanding && <DevBox label="My understanding">{t.understanding}</DevBox>}
-          {t.question && <DevBox label="Question for you" tone="border-rose-200">{t.question}</DevBox>}
-          {t.report && <DevBox label="Report" tone="border-emerald-200">{t.report}</DevBox>}
-          <div className="flex items-center gap-2 mt-2.5">
-            {t.status === "understood" && (
-              <button className="btn bg-emerald-100 text-emerald-700 !py-1.5" onClick={() => patchDevTask(t.id, { status: "approved" })}>
-                👍 Approve
-              </button>
-            )}
-            {t.status === "verify" && (
-              <button className="btn bg-emerald-100 text-emerald-700 !py-1.5" onClick={() => patchDevTask(t.id, { status: "done" })}>
-                ✓ Verified
-              </button>
-            )}
-            <button className="btn-ghost !py-1.5" onClick={() => setEdit(t)}>
-              ✏️ Edit
-            </button>
-            <span className="flex-1" />
-            {(t.target ? TARGETS.map(([k]) => k).filter((k) => t.target[k]) : []).map((k) => (
-              <span key={k} className="pill bg-slate-100 text-slate-500">{k}</span>
-            ))}
-            {t.priority === "High" && <span className="pill bg-red-100 text-red-700">High</span>}
-          </div>
-        </div>
+        <TaskCard key={t.id} t={t} patchDevTask={patchDevTask} onEdit={() => setEdit(t)} />
       ))}
       {!ts.length && (
         <div className="card px-4 py-8 text-center text-sm text-slate-400">No dev tasks yet.</div>
       )}
 
+      {/* archived — collapsed at the bottom, tap to expand */}
+      {archived.length > 0 && (
+        <div>
+          <button
+            className="w-full card px-4 py-3 flex items-center gap-2 text-sm font-bold text-slate-500"
+            onClick={() => setShowArch((v) => !v)}
+            aria-expanded={showArch}
+          >
+            <span className={`text-slate-400 transition-transform ${showArch ? "rotate-90" : ""}`}>›</span>
+            Archived ({archived.length})
+          </button>
+          {showArch && (
+            <div className="space-y-3 mt-3">
+              {archived.map((t) => (
+                <TaskCard key={t.id} t={t} archived patchDevTask={patchDevTask} onEdit={() => setEdit(t)} />
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
       {edit && <EditSheet task={edit} onClose={() => setEdit(null)} onSave={patchDevTask} />}
+    </div>
+  );
+}
+
+function TaskCard({ t, archived, patchDevTask, onEdit }) {
+  return (
+    <div className={`card px-4 py-3.5 ${archived ? "opacity-80" : ""}`}>
+      <div className="flex items-start gap-2 text-sm font-bold">
+        <span className="text-slate-400 font-extrabold">#{t.num}</span>
+        <span className="flex-1 min-w-0">{t.title || "(untitled — I'll name it when I pick it up)"}</span>
+        <span className={`pill uppercase !text-[10px] tracking-wide shrink-0 ${DV_TONES[t.status] || "bg-slate-100 text-slate-600"}`}>
+          {DVLBL[t.status] || t.status}
+        </span>
+      </div>
+      {t.desc && <div className="text-xs text-slate-500 mt-1 whitespace-pre-wrap">{t.desc}</div>}
+      {t.understanding && <DevBox label="My understanding">{t.understanding}</DevBox>}
+      {t.question && <DevBox label="Question for you" tone="border-rose-200">{t.question}</DevBox>}
+      {t.report && <DevBox label="Report" tone="border-emerald-200">{t.report}</DevBox>}
+      <div className="flex items-center gap-2 mt-2.5 flex-wrap">
+        {t.status === "understood" && (
+          <button className="btn bg-emerald-100 text-emerald-700 !py-1.5" onClick={() => patchDevTask(t.id, { status: "approved" })}>
+            👍 Approve
+          </button>
+        )}
+        {t.status === "verify" && (
+          <button className="btn bg-emerald-100 text-emerald-700 !py-1.5" onClick={() => patchDevTask(t.id, { status: "done" })}>
+            ✓ Verified
+          </button>
+        )}
+        <button className="btn-ghost !py-1.5" onClick={onEdit}>
+          ✏️ Edit
+        </button>
+        {archived ? (
+          <button
+            className="btn bg-slate-100 text-slate-600 !py-1.5"
+            onClick={() => patchDevTask(t.id, { archived: false })}
+          >
+            📤 Unarchive
+          </button>
+        ) : (
+          <button
+            className="btn bg-emerald-100 text-emerald-700 !py-1.5"
+            onClick={() => patchDevTask(t.id, { status: "done", archived: true })}
+          >
+            ✓ Mark complete
+          </button>
+        )}
+        <span className="flex-1" />
+        {(t.target ? TARGETS.map(([k]) => k).filter((k) => t.target[k]) : []).map((k) => (
+          <span key={k} className="pill bg-slate-100 text-slate-500">{k}</span>
+        ))}
+        {t.priority === "High" && <span className="pill bg-red-100 text-red-700">High</span>}
+      </div>
     </div>
   );
 }

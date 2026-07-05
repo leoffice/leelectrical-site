@@ -52,6 +52,7 @@ export function mockServer(opts = {}) {
     messages: opts.messages || [],
     failChatPosts: opts.failChatPosts || 0, // fail the next N chat op:msg POSTs (retry tests)
     presence: opts.presence || null, // last op:presence payload (heartbeat tests)
+    docs: opts.docs || {}, // key -> stored "pdf" (docs fn: PDF viewing)
   };
   const calls = [];
   let seq = 1;
@@ -63,6 +64,23 @@ export function mockServer(opts = {}) {
       const body = o.body ? JSON.parse(o.body) : null;
       calls.push({ path, method, body });
       let data = {};
+      if (path === "docs") {
+        // Binary-ish endpoint: 404 JSON when missing, PDF blob when stored.
+        if (method === "POST") {
+          if (body.op === "put" && body.key) state.docs[body.key] = body.b64 || "%PDF";
+          return { ok: true, status: 200, headers: { get: () => "application/json" }, json: async () => ({ ok: true }) };
+        }
+        const key = decodeURIComponent((String(url).match(/[?&]key=([^&]*)/) || [])[1] || "");
+        if (state.docs[key])
+          return {
+            ok: true,
+            status: 200,
+            headers: { get: (h) => (h === "content-type" ? "application/pdf" : "") },
+            blob: async () => new Blob([state.docs[key]], { type: "application/pdf" }),
+            json: async () => ({}),
+          };
+        return { ok: false, status: 404, headers: { get: () => "application/json" }, json: async () => ({ ok: false, error: "not found" }) };
+      }
       if (path === "jobsdata")
         data = method === "POST" ? { ok: true } : { jobs: state.jobs, syncedAt: state.syncedAt };
       else if (path === "state") {
@@ -96,7 +114,9 @@ export function mockServer(opts = {}) {
             if (t) Object.assign(t, body.patch);
           }
           data = { ok: true };
-        } else data = { tasks: state.tasks };
+          // fresh objects each GET, like a real HTTP round-trip (a same-reference
+          // array would make React bail out of re-rendering after refreshDev)
+        } else data = { tasks: JSON.parse(JSON.stringify(state.tasks)) };
       } else if (path === "chat") {
         // Mirrors the live chat fn: bubble msgs -> who:"you", replies -> who:"claude".
         if (method === "POST") {

@@ -13,7 +13,8 @@ import {
   sortJobs,
   stageOf,
 } from "../src/lib/stages.js";
-import { PAPER } from "../src/lib/paperwork.js";
+import { DATE_STEPS, PAPER, isDatedStep } from "../src/lib/paperwork.js";
+import { ago } from "../src/lib/format.js";
 import { countLeaves } from "../src/state/store.jsx";
 
 const done = (d) => ({ s: "done", d });
@@ -99,18 +100,42 @@ describe("grouping + sorting", () => {
   });
 });
 
-describe("paperwork branch definitions (exact sleek lists)", () => {
-  it("Con Edison has the 7 exact sub-steps", () => {
+describe("paperwork branch definitions (exact app/jobs.html lists — the authoritative old dashboard)", () => {
+  it("has exactly the two saved-data branch keys coned + dob", () => {
+    expect(Object.keys(PAPER)).toEqual(["coned", "dob"]);
+  });
+  it("Con Ed matches jobs.html CONED_STEPS (7 sub-steps, exact order)", () => {
     expect(PAPER.coned.steps).toEqual([
       "Application submitted", "POE scheduled", "Uploaded paperwork complete",
       "New accounts activated", "Interim checklist", "Final checklist", "Meter installation date",
     ]);
   });
-  it("DOB / City Permit has the 6 exact sub-steps", () => {
+  it("DOB / City permit matches jobs.html DOB_STEPS (5 sub-steps — no 'Application submitted')", () => {
     expect(PAPER.dob.steps).toEqual([
-      "Application submitted", "Permit issued", "Inspection requested",
+      "Permit issued", "Inspection requested",
       "Inspection scheduled", "Self certification", "PAA complete",
     ]);
+  });
+  it("date fields match jobs.html DATE_STEPS exactly (nothing else is dated)", () => {
+    expect(DATE_STEPS).toEqual({ "Inspection scheduled": "datetime", "Meter installation date": "date" });
+    expect(isDatedStep("Inspection scheduled")).toBe(true);
+    expect(isDatedStep("Meter installation date")).toBe(true);
+    expect(isDatedStep("POE scheduled")).toBe(false); // sleek's regex wrongly dated this
+    expect(isDatedStep("Application submitted")).toBe(false);
+  });
+});
+
+describe("ago() — sync chip rounding (floor, never an early '1d ago')", () => {
+  const at = (msAgo) => ago(Date.now() - msAgo);
+  it("minutes / hours / days floor correctly", () => {
+    expect(at(30 * 1000)).toBe("just now");
+    expect(at(5 * 60000)).toBe("5m ago");
+    expect(at(59 * 60000)).toBe("59m ago");
+    expect(at(90 * 60000)).toBe("1h ago"); // was "2h ago" with Math.round
+    expect(at(23.6 * 3600000)).toBe("23h ago"); // was "1d ago" with Math.round
+    expect(at(25 * 3600000)).toBe("1d ago");
+    expect(at(47 * 3600000)).toBe("1d ago");
+    expect(ago(0)).toBe("never");
   });
 });
 

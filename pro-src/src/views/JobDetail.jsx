@@ -349,7 +349,7 @@ export default function JobDetail() {
                                             <input
                                               type="date"
                                               className="input !w-[135px] !py-1 !px-1.5 !text-xs"
-                                              value={(br.dates && br.dates[ps]) || ""}
+                                              value={((br.dates && br.dates[ps]) || "").slice(0, 10)}
                                               onChange={(ev) =>
                                                 patchJob(id, { paperwork: { [k]: { dates: { [ps]: ev.target.value } } } })
                                               }

@@ -7,6 +7,7 @@
 //   api.listCommands(jobId?)                        -> Command[]
 //   api.enqueueCommand(type,jobId,payload,lane,idk) -> { command, deduped }
 //   api.updateCommand(id, patch, note)              -> retry / approvals
+//   api.getDoc(key)                                 -> PDF Blob | null (docs fn)
 //   api.listEvents()                                -> CalendarEvent[]
 //   api.listDevTasks/addDevTask/patchDevTask        -> dev board
 //   api.chatList/chatSend/iterate                   -> Dispatch chat bubble

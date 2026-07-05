@@ -1,6 +1,6 @@
 // All job-level sheets — behaviors, command payloads and idempotency keys
 // match app/sleek.html exactly.
-import React, { useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import Sheet, { Fld, Opt } from "./Sheet.jsx";
 import { useStore } from "../state/store.jsx";
@@ -68,6 +68,84 @@ export function MarkPaidSheet({ job, onClose }) {
   );
 }
 
+/* ---------- 2a-pdf. Live PDF viewer (docs store + fetch_pdf command) ---------- */
+/** "View PDF": GET docs?key=… first; on a miss enqueue a fetch_pdf command
+ *  (lane judgment, idempotencyKey pdf:<no>:<date>) and poll docs every 4s for
+ *  up to 90s, then render the PDF inline with a full-screen option. */
+export function PdfViewer({ job, kind, no }) {
+  const { api, enqueue } = useStore();
+  const [st, setSt] = useState({ phase: "idle" }); // idle|checking|fetching|ready|timeout
+  const timer = useRef(null);
+  const deadline = useRef(0);
+  const objUrl = useRef(null);
+  const docKey = (kind === "invoice" ? "inv-" : "est-") + no;
+
+  useEffect(
+    () => () => {
+      clearTimeout(timer.current);
+      if (objUrl.current && typeof URL !== "undefined" && URL.revokeObjectURL) URL.revokeObjectURL(objUrl.current);
+    },
+    []
+  );
+
+  const show = (blob) => {
+    const u = typeof URL !== "undefined" && URL.createObjectURL ? URL.createObjectURL(blob) : "";
+    objUrl.current = u;
+    setSt({ phase: "ready", url: u });
+  };
+
+  const check = async () => {
+    try {
+      return (api.getDoc && (await api.getDoc(docKey))) || null;
+    } catch {
+      return null;
+    }
+  };
+
+  const poll = async () => {
+    const blob = await check();
+    if (blob) return show(blob);
+    if (Date.now() >= deadline.current) return setSt({ phase: "timeout" });
+    timer.current = setTimeout(poll, 4000);
+  };
+
+  const view = async () => {
+    setSt({ phase: "checking" });
+    const blob = await check();
+    if (blob) return show(blob);
+    // Not stored yet — ask the host agent to pull it from QuickBooks.
+    enqueue("fetch_pdf", job.id, { kind, no, docKey }, "judgment", "pdf:" + no + ":" + todayStr());
+    deadline.current = Date.now() + 90_000;
+    setSt({ phase: "fetching" });
+    timer.current = setTimeout(poll, 4000);
+  };
+
+  if (st.phase === "ready")
+    return (
+      <div className="mb-2.5">
+        <iframe src={st.url} title={"PDF " + docKey} className="w-full h-[55vh] rounded-2xl border border-slate-200 bg-white" />
+        <button className="btn-ghost w-full mt-2 !py-2" onClick={() => window.open(st.url)}>
+          ⛶ Full screen
+        </button>
+      </div>
+    );
+  if (st.phase === "checking" || st.phase === "fetching")
+    return (
+      <div className="border border-slate-200 rounded-2xl px-4 py-3 mb-2.5 text-sm text-slate-500 flex items-center gap-2.5">
+        <span className="w-2 h-2 rounded-full bg-amber-400 animate-pulse shrink-0" />
+        {st.phase === "checking" ? "Checking for the PDF…" : "Fetching from QuickBooks — a few seconds…"}
+      </div>
+    );
+  if (st.phase === "timeout")
+    return (
+      <div className="border border-amber-200 bg-amber-50 rounded-2xl px-4 py-3 mb-2.5 text-sm text-amber-800">
+        Still not in yet — the Mac may be asleep. It'll appear under this button once fetched.
+        <button className="btn-ghost w-full mt-2 !py-1.5" onClick={view}>↻ Try again</button>
+      </div>
+    );
+  return <Opt icon="📄" title="View PDF" note="Live from QuickBooks" onClick={view} />;
+}
+
 /* ---------- 2a. Invoice / Estimate quick view ---------- */
 export function DocSheet({ job, kind, onClose }) {
   const doSend = useDoSend();
@@ -81,6 +159,7 @@ export function DocSheet({ job, kind, onClose }) {
           <div><b className="font-semibold">Status</b> <span className="text-slate-600">{job.paid ? "Paid" : "Open"}</span></div>
         )}
       </div>
+      {no && <PdfViewer job={job} kind={kind} no={no} />}
       <Opt
         icon="🔗"
         title="Open in QuickBooks"

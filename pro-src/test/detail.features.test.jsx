@@ -180,12 +180,17 @@ describe("6. progress — steps, paperwork branches, scheduled date", () => {
     const pane = await openDetail();
 
     await user.click(within(pane).getByRole("button", { name: /📑/ })); // Paperwork phase
-    await user.click(within(pane).getByRole("switch", { name: "Con Edison" }));
+    await user.click(within(pane).getByRole("switch", { name: "🔌 Con Ed paperwork" }));
     expect(within(pane).getByText("POE scheduled")).toBeInTheDocument();
     expect(within(pane).getByText("Meter installation date")).toBeInTheDocument();
+    // jobs.html DATE_STEPS: only these two sub-steps carry a date input
+    expect(screen.getByLabelText("Meter installation date date")).toBeInTheDocument();
+    expect(screen.queryByLabelText("POE scheduled date")).toBeNull();
 
-    await user.click(within(pane).getByRole("switch", { name: "DOB / City Permit" }));
+    await user.click(within(pane).getByRole("switch", { name: "🏙️ DOB / City permit" }));
     expect(within(pane).getByText("Permit issued")).toBeInTheDocument();
+    // DOB list matches jobs.html: no "Application submitted" in the DOB branch
+    expect(within(pane).getAllByText("Application submitted")).toHaveLength(1); // Con Ed only
     await user.click(within(pane).getByRole("switch", { name: "Inspection scheduled" }));
     // toggling on prompts for date+time
     const dtIn = await screen.findByLabelText("Inspection date and time");

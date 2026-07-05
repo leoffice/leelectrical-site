@@ -97,6 +97,18 @@ export function createNetlifyAdapter() {
       return http("command", { op: "update", id, patch, note });
     },
 
+    /** Fetch a stored PDF from the docs fn. Returns a Blob, or null while the
+     *  document isn't there yet (404 / JSON error body). */
+    async getDoc(key) {
+      const res = await fetch(`${base()}/docs?key=${encodeURIComponent(key)}&${cb()}`, {
+        cache: "no-store",
+      });
+      if (!res.ok) return null;
+      const ct = (res.headers && res.headers.get && res.headers.get("content-type")) || "";
+      if (ct.includes("application/json")) return null;
+      return res.blob();
+    },
+
     async listEvents() {
       const d = await http("calendar");
       return d.events || [];
