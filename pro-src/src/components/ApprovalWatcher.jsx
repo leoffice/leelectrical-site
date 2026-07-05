@@ -24,6 +24,14 @@ export default function ApprovalWatcher() {
   if (!cmd) return null;
   const r = cmd.result || {};
   const p = cmd.payload || {};
+  // The listener's customer-sync speaks two shapes: recommend_update carries
+  // { customer:{id,...}, diffs }, older results carry { recommend, matchId }.
+  const upd =
+    r.action === "recommend_update" && r.customer && r.customer.id
+      ? { id: r.customer.id, name: r.customer.name || "" }
+      : r.recommend === "update" && r.matchId
+        ? { id: r.matchId, name: "" }
+        : null;
   const close = () => setCmd(null);
   const resolve = (choice, matchId) => {
     close();
@@ -50,10 +58,20 @@ export default function ApprovalWatcher() {
       <p className="text-sm text-slate-500 mb-3">
         {r.message || `For ${p.name || "customer"}: ${r.reason || "choose how to sync."}`}
       </p>
-      {r.diff && (
+      {(r.diff || r.diffs) && (
         <div className="text-xs bg-slate-50 border border-slate-200 rounded-xl p-3 mb-3 whitespace-pre-wrap">
           <b className="block uppercase tracking-wide text-slate-400 text-[10px] mb-1">Proposed changes</b>
-          {typeof r.diff === "string" ? r.diff : JSON.stringify(r.diff, null, 1)}
+          {r.diffs
+            ? Object.entries(r.diffs).map(([k, v]) => (
+                <div key={k}>
+                  <b>{k}:</b>{" "}
+                  <span className="line-through text-slate-400">{(r.customer || {})[k] || "—"}</span>{" "}
+                  → <span className="font-semibold text-emerald-700">{String(v)}</span>
+                </div>
+              ))
+            : typeof r.diff === "string"
+              ? r.diff
+              : JSON.stringify(r.diff, null, 1)}
         </div>
       )}
       {(r.candidates || []).length > 0 && (
@@ -84,12 +102,12 @@ export default function ApprovalWatcher() {
           Search
         </button>
       </div>
-      {r.recommend === "update" && r.matchId && (
+      {upd && (
         <Opt
           icon="🔄"
-          title="Update existing customer"
+          title={"Update existing customer" + (upd.name ? " — " + upd.name : "")}
           note="Apply the new info in QuickBooks"
-          onClick={() => resolve("update", r.matchId)}
+          onClick={() => resolve("update", upd.id)}
         />
       )}
       <Opt icon="➕" title="Create new customer" note="Add to QuickBooks as new" onClick={() => resolve("create", "")} />

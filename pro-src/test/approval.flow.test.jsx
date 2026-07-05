@@ -87,6 +87,44 @@ describe("customer_sync approval resolution", () => {
     });
   });
 
+  it("recommend_update shape ({customer,diffs}): shows the update option + diffs, enqueues update_customer", async () => {
+    const srv = mockServer({
+      commands: [
+        syncCmd({
+          result: {
+            action: "recommend_update",
+            customer: { id: "1600", name: "TEST Guy", email: "", phone: "718-555-0142", addr: "" },
+            diffs: { phone: "718-555-0199", email: "test1@leelectrical.us" },
+            proposed: { name: "TEST Guy", email: "test1@leelectrical.us", phone: "718-555-0199", addr: "" },
+          },
+        }),
+      ],
+    });
+    const user = userEvent.setup();
+    renderApp("#/");
+
+    // diff box renders old -> new
+    expect(await screen.findByText("718-555-0199")).toBeInTheDocument();
+    expect(screen.getByText("718-555-0142")).toBeInTheDocument();
+
+    await user.click(screen.getByText(/Update existing customer/));
+    await waitFor(() => {
+      const updates = srv.posts("command", (b) => b.op === "update" && b.id === "c-sync-1");
+      expect(updates).toHaveLength(1);
+      expect(updates[0].body.patch.status).toBe("done");
+      expect(updates[0].body.note).toMatch(/user chose update/);
+    });
+    const upd = srv.enqueued("update_customer");
+    expect(upd).toHaveLength(1);
+    expect(upd[0].payload).toEqual({
+      id: "1600",
+      name: "TEST Guy",
+      email: "test1@leelectrical.us",
+      phone: "718-555-0199",
+      addr: "",
+    });
+  });
+
   it("Skip: closes the command out without enqueueing anything", async () => {
     const srv = mockServer({ commands: [syncCmd()] });
     const user = userEvent.setup();
