@@ -1,11 +1,10 @@
 import React from "react";
-import { Link } from "react-router-dom";
-import { currentStage, isPaid, nextAction, progressPct } from "../lib/stages.js";
+import { Link, useNavigate } from "react-router-dom";
+import { isPaid, nextAction, progressPct, stageOf } from "../lib/stages.js";
+import { fmt$ } from "../lib/format.js";
 
 export function StagePill({ job }) {
-  const cur = currentStage(job);
-  if (!cur)
-    return <span className="pill bg-emerald-100 text-emerald-700">Complete</span>;
+  const cur = stageOf(job);
   const tone =
     {
       Lead: "bg-sky-100 text-sky-700",
@@ -31,10 +30,15 @@ export function PaidPill({ job }) {
   );
 }
 
-export default function JobCard({ job, compact }) {
+export default function JobCard({ job, compact, stackN, onQuickSend, onMarkPaid }) {
   const pct = progressPct(job);
+  const nav = useNavigate();
+  const href = `/job/${encodeURIComponent(job.id)}`;
   return (
-    <Link to={`/job/${encodeURIComponent(job.id)}`} className="block card px-4 py-3.5 active:scale-[0.99] transition-transform">
+    <Link to={href} className="block card px-4 py-3.5 active:scale-[0.99] transition-transform relative">
+      {stackN ? (
+        <span className="absolute -top-2 right-3 pill bg-accent text-white shadow">{stackN} jobs</span>
+      ) : null}
       <div className="flex items-start gap-2">
         <div className="min-w-0">
           {!compact && (
@@ -45,7 +49,7 @@ export default function JobCard({ job, compact }) {
           </div>
         </div>
         <div className="ml-auto text-right shrink-0">
-          <div className="font-bold text-slate-900">{job.amount || "—"}</div>
+          <div className="font-bold text-slate-900">{fmt$(job.amount) || "—"}</div>
         </div>
       </div>
       <div className="mt-2.5 h-1.5 rounded-full bg-slate-100 overflow-hidden">
@@ -57,8 +61,36 @@ export default function JobCard({ job, compact }) {
       <div className="mt-2.5 flex items-center gap-1.5 flex-wrap">
         <StagePill job={job} />
         <PaidPill job={job} />
-        <span className="text-xs text-slate-500 truncate ml-auto max-w-[55%]">→ {nextAction(job)}</span>
+        <span className="text-xs text-slate-500 truncate ml-auto max-w-[55%]">{nextAction(job)}</span>
       </div>
+      {(onQuickSend || onMarkPaid) && (
+        <div
+          className="mt-2.5 flex gap-1.5"
+          onClick={(e) => {
+            e.preventDefault();
+            e.stopPropagation();
+          }}
+        >
+          {job.phone && (
+            <a href={`tel:${job.phone}`} className="flex-1 text-center text-xs font-bold text-brand bg-brand-soft rounded-lg py-1.5">
+              📞 Call
+            </a>
+          )}
+          {job.invoiceNo && !job.paid && onQuickSend && (
+            <button className="flex-1 text-xs font-bold text-brand bg-brand-soft rounded-lg py-1.5" onClick={() => onQuickSend(job)}>
+              📤 Invoice
+            </button>
+          )}
+          {!job.paid && onMarkPaid && (
+            <button className="flex-1 text-xs font-bold text-brand bg-brand-soft rounded-lg py-1.5" onClick={() => onMarkPaid(job)}>
+              💵 Paid?
+            </button>
+          )}
+          <button className="flex-1 text-xs font-bold text-slate-500 bg-slate-100 rounded-lg py-1.5" onClick={() => nav(href)}>
+            Open ›
+          </button>
+        </div>
+      )}
     </Link>
   );
 }

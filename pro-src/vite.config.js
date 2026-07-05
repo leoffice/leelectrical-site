@@ -13,6 +13,8 @@ export default defineConfig({
   },
   test: {
     environment: "node",
-    include: ["test/**/*.test.js"],
+    globals: true, // lets @testing-library/react auto-cleanup between tests
+    include: ["test/**/*.test.js", "test/**/*.test.jsx"],
+    // jsx integration suites declare `@vitest-environment jsdom` per-file
   },
 });

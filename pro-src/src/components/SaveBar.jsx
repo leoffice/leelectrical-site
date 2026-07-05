@@ -6,21 +6,26 @@ export default function SaveBar() {
   const { dirtyCount, saving, saveAll, discardAll } = useStore();
   if (!dirtyCount) return null;
   return (
-    <div className="fixed z-40 inset-x-0 bottom-16 lg:bottom-0 lg:left-60 pb-safe">
+    <div className="fixed z-40 inset-x-0 bottom-16 lg:bottom-4 lg:left-60 pb-safe" data-testid="savebar">
       <div className="max-w-3xl mx-auto px-4 pb-2">
-        <div className="card flex items-center gap-3 px-4 py-3 border-brand/30 shadow-lg">
-          <span className="pill bg-accent-soft text-accent">{dirtyCount}</span>
-          <span className="text-sm font-medium text-slate-700">
-            unsaved change{dirtyCount > 1 ? "s" : ""}
+        <div className="flex items-center gap-3 px-4 py-3 rounded-2xl bg-slate-900 text-white shadow-xl">
+          <span className="text-sm font-medium flex-1">
+            <b className="text-amber-400">{dirtyCount}</b> unsaved change{dirtyCount > 1 ? "s" : ""}
           </span>
-          <div className="ml-auto flex gap-2">
-            <button className="btn-ghost" onClick={discardAll} disabled={saving}>
-              Discard
-            </button>
-            <button className="btn-brand" onClick={saveAll} disabled={saving}>
-              {saving ? "Saving…" : "Save"}
-            </button>
-          </div>
+          <button
+            className="btn text-slate-300 border border-slate-600 !py-2"
+            onClick={discardAll}
+            disabled={saving}
+          >
+            Discard
+          </button>
+          <button
+            className="btn bg-emerald-500 text-white !py-2"
+            onClick={saveAll}
+            disabled={saving}
+          >
+            {saving ? "Saving…" : "Save & sync"}
+          </button>
         </div>
       </div>
     </div>

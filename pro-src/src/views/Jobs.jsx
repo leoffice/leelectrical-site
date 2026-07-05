@@ -1,23 +1,25 @@
-// Jobs view — search, filter chips, cards, and customer grouping:
-// jobs sharing a customer/clientGroup collapse into an expandable group row.
+// Jobs view — search, filter chips, amount-sorted cards, clientGroup
+// grouping, and per-card quick actions (Call / Invoice / Paid? / Open).
 import React, { useMemo, useState } from "react";
 import { useStore } from "../state/store.jsx";
 import JobCard from "../components/JobCard.jsx";
-import { FILTER_NAMES, clientKey, matchesFilter, matchesQuery } from "../lib/stages.js";
+import { MarkPaidSheet, QuickSendSheet } from "../components/JobSheets.jsx";
+import { FILTER_NAMES, clientKey, matchesFilter, matchesQuery, sortJobs } from "../lib/stages.js";
 
-export default function Jobs() {
-  const { jobs, loading } = useStore();
+export default function Jobs({ embedded }) {
+  const { jobs, loading, showToast } = useStore();
   const [q, setQ] = useState("");
   const [filter, setFilter] = useState("Active");
   const [open, setOpen] = useState({}); // groupKey -> expanded
+  const [sheet, setSheet] = useState(null); // {kind:"paid"|"send", job}
 
+  const active = useMemo(() => jobs.filter((j) => !j._archived && !j._deleted), [jobs]);
   const shown = useMemo(
-    () => jobs.filter((j) => matchesFilter(j, filter) && matchesQuery(j, q)),
-    [jobs, filter, q]
+    () => sortJobs(active.filter((j) => matchesFilter(j, filter) && matchesQuery(j, q))),
+    [active, filter, q]
   );
 
-  // Group consecutive-by-customer: single jobs render flat, multi-job
-  // customers render one expandable group row.
+  // clientGroup groups collapse into one expandable row (sleek shows a stack).
   const groups = useMemo(() => {
     const map = new Map();
     for (const j of shown) {
@@ -28,14 +30,20 @@ export default function Jobs() {
     return [...map.entries()];
   }, [shown]);
 
+  const quickSend = (job) => {
+    if (!job.email) return showToast("No email on file — add one first");
+    setSheet({ kind: "send", job });
+  };
+
   return (
     <div className="space-y-3">
       <input
         className="input"
         type="search"
-        placeholder="Search customer, job, invoice #…"
+        placeholder="🔍  Search customer, job, address…"
         value={q}
         onChange={(e) => setQ(e.target.value)}
+        aria-label="Search jobs"
       />
 
       <div className="flex gap-1.5 overflow-x-auto -mx-4 px-4 pb-1 [scrollbar-width:none]">
@@ -44,7 +52,7 @@ export default function Jobs() {
             key={f}
             onClick={() => setFilter(f)}
             className={`chip ${
-              filter === f ? "bg-brand text-white" : "bg-white text-slate-600 border border-slate-200"
+              filter === f ? "bg-slate-900 text-white" : "bg-white text-slate-600 border border-slate-200"
             }`}
           >
             {f}
@@ -56,13 +64,21 @@ export default function Jobs() {
         <div className="card px-4 py-8 text-center text-slate-400 text-sm">Loading jobs…</div>
       ) : !shown.length ? (
         <div className="card px-4 py-8 text-center text-slate-400 text-sm">
-          No {filter.toLowerCase()} jobs{q ? ` matching “${q}”` : ""}.
+          <span className="block text-3xl mb-2">🗂️</span>
+          No jobs match.
+          <br />
+          Try another filter, or hit ＋ to add a job.
         </div>
       ) : (
         <div className="space-y-2.5">
           {groups.map(([key, list]) =>
             list.length === 1 ? (
-              <JobCard key={list[0].id} job={list[0]} />
+              <JobCard
+                key={list[0].id}
+                job={list[0]}
+                onQuickSend={quickSend}
+                onMarkPaid={(j) => setSheet({ kind: "paid", job: j })}
+              />
             ) : (
               <div key={key} className="card overflow-hidden">
                 <button
@@ -76,7 +92,7 @@ export default function Jobs() {
                     <span className="block font-bold text-slate-900 truncate">
                       {list[0].customer || "(no customer)"}
                     </span>
-                    <span className="block text-xs text-slate-500">{list.length} jobs</span>
+                    <span className="block text-xs text-slate-500">{list.length} jobs · combined client</span>
                   </span>
                   <span className={`ml-auto text-slate-400 transition-transform ${open[key] ? "rotate-180" : ""}`}>
                     ▾
@@ -85,7 +101,13 @@ export default function Jobs() {
                 {open[key] && (
                   <div className="px-3 pb-3 space-y-2 bg-slate-50/60 border-t border-slate-100 pt-3">
                     {list.map((j) => (
-                      <JobCard key={j.id} job={j} compact />
+                      <JobCard
+                        key={j.id}
+                        job={j}
+                        compact
+                        onQuickSend={quickSend}
+                        onMarkPaid={(x) => setSheet({ kind: "paid", job: x })}
+                      />
                     ))}
                   </div>
                 )}
@@ -94,9 +116,14 @@ export default function Jobs() {
           )}
         </div>
       )}
-      <div className="text-center text-xs text-slate-400 pt-1">
-        {shown.length} of {jobs.length} jobs
-      </div>
+      {!embedded && (
+        <div className="text-center text-xs text-slate-400 pt-1">
+          {shown.length} of {active.length} jobs
+        </div>
+      )}
+
+      {sheet?.kind === "paid" && <MarkPaidSheet job={sheet.job} onClose={() => setSheet(null)} />}
+      {sheet?.kind === "send" && <QuickSendSheet job={sheet.job} onClose={() => setSheet(null)} />}
     </div>
   );
 }

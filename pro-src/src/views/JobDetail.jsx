@@ -1,37 +1,54 @@
-// Job detail — customer card (Call/Text/Email/Map), key-values, 5-phase
-// progress accordion (tap a step -> Complete / Skip / Undo), follow-up +
-// notes editors, and the activity feed from the command bus.
-// All edits are STAGED via store.patchJob and only persist on Save.
-import React, { useMemo, useState } from "react";
-import { Link, useParams } from "react-router-dom";
+// Job detail — customer card (Call/Text/Email/Map + edit + QBO sync), quick
+// views (invoice/estimate/calendar), mark-as-paid, 5-phase progress accordion
+// with paperwork branches + scheduled date, follow-up + reminder, notes,
+// attachments, send history and the live activity feed (retry on failed).
+// All edits are STAGED via store.patchJob and only persist on Save & sync.
+import React, { useEffect, useMemo, useRef, useState } from "react";
+import { Link, useNavigate, useParams } from "react-router-dom";
 import { useStore } from "../state/store.jsx";
-import { PHASES, currentStage, isPaid, phaseOfStage, progressPct, stepState, todayStr } from "../lib/stages.js";
+import {
+  FOLLOWUP_TYPES,
+  PHASES,
+  isCleared,
+  phaseOfStage,
+  progressPct,
+  stageOf,
+  stepState,
+  todayStr,
+} from "../lib/stages.js";
+import { PAPER, isDatedStep } from "../lib/paperwork.js";
+import { fmt$, ago } from "../lib/format.js";
 import { PaidPill, StagePill } from "../components/JobCard.jsx";
-
-const FOLLOWUP_TYPES = [
-  "Acceptance",
-  "Payment / collect",
-  "Schedule the job",
-  "Paperwork / permits",
-  "Con Edison case",
-  "Final inspection",
-  "Other",
-];
+import Toggle from "../components/Toggle.jsx";
+import Jobs from "./Jobs.jsx";
+import {
+  AttachSheet,
+  CalSheet,
+  CombineSheet,
+  CustEditSheet,
+  DocSheet,
+  InspectionSheet,
+  MarkPaidSheet,
+  MenuSheet,
+  ReminderSheet,
+} from "../components/JobSheets.jsx";
 
 const CMD_TONES = {
-  queued: "bg-amber-100 text-amber-700",
-  working: "bg-sky-100 text-sky-700",
+  queued: "bg-slate-100 text-slate-500",
+  working: "bg-amber-100 text-amber-800",
   done: "bg-emerald-100 text-emerald-700",
   failed: "bg-red-100 text-red-700",
   needs_approval: "bg-violet-100 text-violet-700",
 };
 
-function ActionButton({ href, icon, label, disabled }) {
+function ActionButton({ href, icon, label, disabled, newTab }) {
   return (
     <a
       href={disabled ? undefined : href}
+      target={newTab && !disabled ? "_blank" : undefined}
+      rel="noreferrer"
       className={`flex-1 flex flex-col items-center gap-1 rounded-xl py-2.5 text-xs font-semibold transition-colors ${
-        disabled ? "bg-slate-50 text-slate-300" : "bg-brand-soft text-brand hover:bg-brand hover:text-white"
+        disabled ? "bg-slate-50 text-slate-300" : "bg-brand-soft text-brand"
       }`}
       onClick={(e) => disabled && e.preventDefault()}
     >
@@ -41,62 +58,32 @@ function ActionButton({ href, icon, label, disabled }) {
   );
 }
 
-function Step({ job, stage, onSet }) {
-  const [open, setOpen] = useState(false);
-  const s = stepState(job, stage);
-  const d = (job.status || {})[stage]?.d;
-  const cur = currentStage(job) === stage;
-  const mark =
-    s === "done" ? ["✓", "bg-emerald-500 text-white"] :
-    s === "skipped" ? ["–", "bg-slate-300 text-white"] :
-    cur ? ["●", "bg-brand text-white"] : ["○", "bg-slate-100 text-slate-400"];
-
-  return (
-    <div className="border-t border-slate-100 first:border-t-0">
-      <button className="w-full flex items-center gap-3 px-4 py-3 text-left" onClick={() => setOpen(!open)}>
-        <span className={`grid place-items-center w-6 h-6 rounded-full text-xs font-bold shrink-0 ${mark[1]}`}>
-          {mark[0]}
-        </span>
-        <span
-          className={`text-sm ${
-            s === "done" ? "text-slate-700" : s === "skipped" ? "text-slate-400 line-through" : cur ? "font-semibold text-slate-900" : "text-slate-500"
-          }`}
-        >
-          {stage}
-        </span>
-        {d && <span className="ml-auto text-[11px] text-slate-400">{d}</span>}
-      </button>
-      {open && (
-        <div className="flex gap-2 px-4 pb-3">
-          <button
-            className="btn bg-emerald-500 text-white flex-1 !py-2"
-            onClick={() => { onSet(stage, { s: "done", d: todayStr() }); setOpen(false); }}
-          >
-            ✓ Complete
-          </button>
-          <button
-            className="btn bg-slate-200 text-slate-600 flex-1 !py-2"
-            onClick={() => { onSet(stage, { s: "skipped" }); setOpen(false); }}
-          >
-            Skip
-          </button>
-          <button
-            className="btn-ghost flex-1 !py-2"
-            onClick={() => { onSet(stage, { s: "" }); setOpen(false); }}
-          >
-            ↺ Undo
-          </button>
-        </div>
-      )}
-    </div>
-  );
-}
-
 export default function JobDetail() {
   const { id } = useParams();
-  const { effectiveJob, patchJob, commands, pending, loading } = useStore();
+  const nav = useNavigate();
+  const {
+    effectiveJob,
+    patchJob,
+    commands,
+    pending,
+    loading,
+    enqueue,
+    retryCommand,
+    guardNav,
+    showToast,
+  } = useStore();
   const job = effectiveJob(id);
-  const [openPhase, setOpenPhase] = useState(null); // null = auto (phase of current stage)
+  const [openPhase, setOpenPhase] = useState(null); // null = auto
+  const [openStep, setOpenStep] = useState(null);
+  const [sheet, setSheet] = useState(null); // {kind, ...}
+  const stepTimer = useRef(null);
+
+  // 5s auto-collapse of the step action row (sleek's stepTimer)
+  useEffect(() => {
+    clearTimeout(stepTimer.current);
+    if (openStep) stepTimer.current = setTimeout(() => setOpenStep(null), 5000);
+    return () => clearTimeout(stepTimer.current);
+  }, [openStep]);
 
   const myCommands = useMemo(
     () =>
@@ -116,100 +103,284 @@ export default function JobDetail() {
     );
   }
 
-  const setStep = (stage, st) => patchJob(id, { status: { [stage]: st } });
+  const cur = stageOf(job);
+  const setStep = (stage, val) => {
+    clearTimeout(stepTimer.current);
+    setOpenStep(null);
+    const p = { status: { [stage]: val ? { s: val, d: todayStr() } : { s: "" } } };
+    if (stage === "Paid") p.paid = val === "done";
+    patchJob(id, p);
+  };
   const fu = job.followUp || {};
-  const setFu = (patch) => patchJob(id, { followUp: { ...fu, ...patch } });
-  const autoPhase = phaseOfStage(currentStage(job) || "Paid");
-  const openIdx = openPhase !== null ? openPhase : PHASES.indexOf(autoPhase);
-  const dirty = !!pending[id];
-  const mapQ = encodeURIComponent(job.address || "");
+  const setFu = (patch) => patchJob(id, { followUp: patch });
+  const autoIdx = PHASES.indexOf(phaseOfStage(cur) || PHASES[4]);
+  const openIdx = openPhase !== null ? openPhase : autoIdx;
+  const hist = (job.invoiceHistory || []).slice().reverse();
+  const at = job.attachments || [];
 
-  return (
-    <div className="space-y-3.5">
-      <Link to="/" className="inline-flex items-center gap-1 text-sm font-semibold text-brand">
-        ← Jobs
-      </Link>
+  const custSync = () => {
+    enqueue(
+      "customer_sync",
+      id,
+      { name: job.customer || "", email: job.email || "", phone: job.phone || "", addr: job.address || "" },
+      "deterministic",
+      "custsync:" + id + ":" + Date.now()
+    );
+    showToast("Checking QuickBooks for matches…");
+  };
+
+  const schedDate = (d) => {
+    patchJob(id, { status: { Scheduled: { s: "done", d } } });
+    enqueue(
+      "calendar_upsert",
+      id,
+      {
+        calEventId: job.calEventId || "",
+        summary: (job.title || "Job") + " — " + (job.customer || ""),
+        start: d,
+        location: job.address || "",
+        description: "Scheduled from LE Pro",
+      },
+      "judgment",
+      "sched:" + id + ":" + d
+    );
+  };
+
+  const paperStep = (k, s, on) => {
+    patchJob(id, { paperwork: { [k]: { steps: { [s]: on } } } });
+    if (on && s === "Inspection scheduled") setSheet({ kind: "inspection", branch: k });
+  };
+
+  const rmAtt = (i) => {
+    const a = at.slice();
+    a.splice(i, 1);
+    patchJob(id, { attachments: a });
+  };
+
+  const detail = (
+    <div className="space-y-3.5 min-w-0" data-testid="detail-pane">
+      <div className="flex items-center">
+        <button
+          className="inline-flex items-center gap-1 text-sm font-semibold text-brand"
+          onClick={() => guardNav(() => nav("/"))}
+        >
+          ‹ Jobs
+        </button>
+        <button className="btn-ghost !py-1.5 ml-auto" onClick={() => setSheet({ kind: "menu" })} aria-label="More">
+          ⋮ More
+        </button>
+      </div>
 
       {/* Customer card */}
       <div className="card px-4 py-4">
         <div className="flex items-start gap-3">
-          <span className="grid place-items-center w-11 h-11 rounded-2xl bg-gradient-to-br from-brand to-accent text-white font-bold shrink-0">
-            {(job.customer || "?").trim().slice(0, 1).toUpperCase()}
-          </span>
           <div className="min-w-0">
-            <div className="font-extrabold text-slate-900 leading-tight">{job.customer || "(no customer)"}</div>
+            <div className="font-extrabold text-lg text-slate-900 leading-tight">{job.customer || "—"}</div>
             <div className="text-sm text-slate-500">{job.title}</div>
             <div className="mt-1.5 flex gap-1.5 flex-wrap">
               <StagePill job={job} />
               <PaidPill job={job} />
-              {dirty && <span className="pill bg-amber-100 text-amber-700">unsaved</span>}
+              {pending[id] && <span className="pill bg-amber-100 text-amber-700">unsaved</span>}
             </div>
           </div>
-          <div className="ml-auto text-right font-extrabold text-lg text-slate-900 shrink-0">{job.amount || "—"}</div>
+          <div className="ml-auto text-right font-extrabold text-lg text-slate-900 shrink-0">
+            {fmt$(job.amount) || "—"}
+          </div>
         </div>
         <div className="flex gap-2 mt-4">
           <ActionButton href={`tel:${job.phone}`} icon="📞" label="Call" disabled={!job.phone} />
           <ActionButton href={`sms:${job.phone}`} icon="💬" label="Text" disabled={!job.phone} />
           <ActionButton href={`mailto:${job.email}`} icon="✉️" label="Email" disabled={!job.email} />
           <ActionButton
-            href={`https://maps.google.com/?q=${mapQ}`}
+            href={`https://maps.apple.com/?q=${encodeURIComponent(job.address || "")}`}
             icon="📍"
             label="Map"
-            disabled={!job.address || /not on file|TBD/i.test(job.address)}
+            disabled={!job.address}
+            newTab
           />
         </div>
-        <dl className="mt-4 grid grid-cols-2 gap-x-4 gap-y-2 text-sm">
-          {[
-            ["Job ID", job.id],
-            ["Estimate #", job.estimateNo || "—"],
-            ["Invoice #", job.invoiceNo || "—"],
-            ["Phone", job.phone || "—"],
-            ["Email", job.email || "—", "col-span-2"],
-            ["Address", job.address || "—", "col-span-2"],
-          ].map(([k, v, span]) => (
-            <div key={k} className={span || ""}>
-              <dt className="text-[11px] uppercase tracking-wide text-slate-400 font-semibold">{k}</dt>
-              <dd className="text-slate-800 break-words">{v}</dd>
-            </div>
-          ))}
+        <dl className="mt-4 space-y-1 text-sm">
+          {[["Phone", job.phone], ["Email", job.email], ["Address", job.address], ["Estimate #", job.estimateNo], ["Invoice #", job.invoiceNo]]
+            .filter(([, v]) => v)
+            .map(([k, v]) => (
+              <div key={k} className="flex gap-2 items-baseline">
+                <dt className="font-semibold text-slate-800 shrink-0">{k}</dt>
+                <dd className="text-slate-500 break-words min-w-0">{v}</dd>
+              </div>
+            ))}
         </dl>
+        <div className="flex gap-2 mt-3">
+          <button className="btn bg-brand-soft text-brand flex-1 !py-2" onClick={() => setSheet({ kind: "cust" })}>
+            ✏️ Edit info
+          </button>
+          <button className="btn bg-brand-soft text-brand flex-1 !py-2" onClick={custSync}>
+            ⇄ Sync to QuickBooks
+          </button>
+        </div>
       </div>
 
-      {/* Progress — 5 phases */}
-      <div className="card overflow-hidden">
-        <div className="px-4 pt-4 pb-3 flex items-center gap-3">
-          <h2 className="font-bold text-slate-900">Progress</h2>
-          <div className="flex-1 h-1.5 rounded-full bg-slate-100 overflow-hidden">
-            <div
-              className="h-full bg-gradient-to-r from-brand to-accent"
-              style={{ width: `${progressPct(job)}%` }}
-            />
-          </div>
-          <span className="text-xs font-bold text-slate-500">{progressPct(job)}%</span>
+      {/* Quick views */}
+      <div className="flex gap-2">
+        {job.invoiceNo && (
+          <button className="btn-ghost flex-1 !py-2" onClick={() => setSheet({ kind: "doc", doc: "invoice" })}>
+            🧾 Invoice {job.invoiceNo}
+          </button>
+        )}
+        {job.estimateNo && (
+          <button className="btn-ghost flex-1 !py-2" onClick={() => setSheet({ kind: "doc", doc: "estimate" })}>
+            📝 Estimate {job.estimateNo}
+          </button>
+        )}
+        <button className="btn-ghost flex-1 !py-2" onClick={() => setSheet({ kind: "cal" })}>
+          📅 Calendar
+        </button>
+      </div>
+
+      {/* Money */}
+      {!job.paid ? (
+        <button className="btn bg-emerald-500 text-white w-full" onClick={() => setSheet({ kind: "paid" })}>
+          💵 Mark as paid…
+        </button>
+      ) : job.payment ? (
+        <div className="card !bg-emerald-50 !border-emerald-100 px-4 py-3 text-sm">
+          <b>Paid</b> {fmt$(job.payment.amount)} · {job.payment.method || ""}
+          {job.payment.ref ? " · ref " + job.payment.ref : ""}
+          {job.payment.date ? " · " + job.payment.date : ""}
         </div>
-        {PHASES.map((ph, i) => {
-          const clearCount = ph.steps.filter(
-            (s) => stepState(job, s) === "done" || stepState(job, s) === "skipped"
-          ).length;
-          const isOpen = openIdx === i;
+      ) : null}
+
+      {/* Progress */}
+      <div>
+        <div className="flex items-center gap-3 px-1 mb-2">
+          <h2 className="text-[11px] font-extrabold text-slate-500 uppercase tracking-wider">
+            Progress — {progressPct(job)}%
+          </h2>
+          <div className="flex-1 h-1.5 rounded-full bg-slate-200/70 overflow-hidden">
+            <div className="h-full bg-gradient-to-r from-brand to-accent" style={{ width: `${progressPct(job)}%` }} />
+          </div>
+        </div>
+        {PHASES.map((ph, pi) => {
+          const done = ph.steps.filter((s) => isCleared(job, s)).length;
+          const isOpen = openIdx === pi;
           return (
-            <div key={ph.nm} className="border-t border-slate-100">
+            <div key={ph.nm} className="card overflow-hidden mb-2">
               <button
-                className={`w-full flex items-center gap-2.5 px-4 py-3 text-left ${isOpen ? "bg-brand-soft/50" : ""}`}
-                onClick={() => setOpenPhase(isOpen ? -1 : i)}
+                className="w-full flex items-center gap-2.5 px-4 py-3 text-left"
+                onClick={() => {
+                  setOpenPhase(isOpen ? -1 : pi);
+                  setOpenStep(null);
+                }}
               >
                 <span>{ph.ic}</span>
-                <span className="font-semibold text-sm text-slate-800">{ph.nm}</span>
-                <span className="pill bg-slate-100 text-slate-500 ml-1">
-                  {clearCount}/{ph.steps.length}
+                <span className="font-bold text-sm text-slate-800 flex-1">{ph.nm}</span>
+                <span className={`pill ${done === ph.steps.length ? "bg-emerald-100 text-emerald-700" : "bg-slate-100 text-slate-500"}`}>
+                  {done}/{ph.steps.length}
                 </span>
-                <span className={`ml-auto text-slate-400 transition-transform ${isOpen ? "rotate-180" : ""}`}>▾</span>
+                <span className={`text-slate-400 transition-transform ${isOpen ? "rotate-90" : ""}`}>›</span>
               </button>
               {isOpen && (
-                <div className="bg-slate-50/50">
-                  {ph.steps.map((st) => (
-                    <Step key={st} job={job} stage={st} onSet={setStep} />
-                  ))}
+                <div className="px-2.5 pb-2.5">
+                  {ph.steps.map((s) => {
+                    const e = (job.status || {})[s] || {};
+                    const cls = e.s === "done" ? "done" : e.s === "skipped" ? "skipped" : s === cur ? "current" : "";
+                    return (
+                      <div key={s}>
+                        <button
+                          className={`w-full flex items-center gap-2.5 rounded-xl px-2.5 py-2 text-left ${
+                            cls === "skipped" ? "opacity-50" : ""
+                          } active:bg-slate-50`}
+                          onClick={() => setOpenStep(openStep === s ? null : s)}
+                        >
+                          <span
+                            className={`grid place-items-center w-5 h-5 rounded-full text-[11px] text-white shrink-0 ${
+                              cls === "done"
+                                ? "bg-emerald-500"
+                                : cls === "current"
+                                ? "bg-amber-500 ring-4 ring-amber-100"
+                                : "bg-slate-300"
+                            }`}
+                          >
+                            {cls === "done" ? "✓" : cls === "skipped" ? "–" : ""}
+                          </span>
+                          <span className={`text-sm font-semibold flex-1 ${cls === "done" ? "text-emerald-800" : "text-slate-700"}`}>
+                            {s}
+                          </span>
+                          {e.d && <span className="text-[11px] text-slate-400">{e.d}</span>}
+                        </button>
+                        {openStep === s && (
+                          <div className="flex gap-1.5 pl-10 pb-2">
+                            {e.s === "done" || e.s === "skipped" ? (
+                              <button className="btn-ghost !py-1.5" onClick={() => setStep(s, null)}>↩ Undo</button>
+                            ) : (
+                              <>
+                                <button className="btn bg-emerald-100 text-emerald-700 !py-1.5" onClick={() => setStep(s, "done")}>
+                                  ✓ Complete
+                                </button>
+                                <button className="btn-ghost !py-1.5" onClick={() => setStep(s, "skipped")}>Skip</button>
+                              </>
+                            )}
+                          </div>
+                        )}
+                        {/* Paperwork branches */}
+                        {s === "Paperwork" && e.s !== "skipped" && (
+                          <div className="ml-7">
+                            {Object.keys(PAPER).map((k) => {
+                              const br = (job.paperwork || {})[k] || { enabled: false, steps: {}, dates: {} };
+                              return (
+                                <div key={k} className="border-l-2 border-slate-200 pl-3 my-1.5">
+                                  <div className="flex items-center gap-2 py-1">
+                                    <span className="text-[13px] font-bold flex-1">{PAPER[k].nm}</span>
+                                    <Toggle
+                                      on={br.enabled}
+                                      label={PAPER[k].nm}
+                                      onChange={(on) => patchJob(id, { paperwork: { [k]: { enabled: on } } })}
+                                    />
+                                  </div>
+                                  {br.enabled &&
+                                    PAPER[k].steps.map((ps) => {
+                                      const on = br.steps && br.steps[ps];
+                                      return (
+                                        <div key={ps} className="flex items-center gap-2 py-1">
+                                          <span className={`text-[13px] flex-1 ${on ? "text-emerald-800 font-semibold" : "text-slate-600"}`}>
+                                            {on ? "✓ " : ""}
+                                            {ps}
+                                          </span>
+                                          {isDatedStep(ps) && (
+                                            <input
+                                              type="date"
+                                              className="input !w-[135px] !py-1 !px-1.5 !text-xs"
+                                              value={(br.dates && br.dates[ps]) || ""}
+                                              onChange={(ev) =>
+                                                patchJob(id, { paperwork: { [k]: { dates: { [ps]: ev.target.value } } } })
+                                              }
+                                              aria-label={ps + " date"}
+                                            />
+                                          )}
+                                          <Toggle small on={!!on} label={ps} onChange={(v) => paperStep(k, ps, v)} />
+                                        </div>
+                                      );
+                                    })}
+                                </div>
+                              );
+                            })}
+                          </div>
+                        )}
+                        {/* Scheduled job-date */}
+                        {s === "Scheduled" && (
+                          <div className="ml-7 border-l-2 border-slate-200 pl-3 my-1.5 flex items-center gap-2 py-1">
+                            <span className="text-[13px] text-slate-500 flex-1">Job date</span>
+                            <input
+                              type="date"
+                              className="input !w-[150px] !py-1 !px-1.5 !text-xs"
+                              value={e.d || ""}
+                              onChange={(ev) => schedDate(ev.target.value)}
+                              aria-label="Job date"
+                            />
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
                 </div>
               )}
             </div>
@@ -217,75 +388,166 @@ export default function JobDetail() {
         })}
       </div>
 
-      {/* Follow-up */}
+      {/* Follow-up & notes */}
+      <h2 className="text-[11px] font-extrabold text-slate-500 uppercase tracking-wider px-1 !mb-[-6px]">
+        Follow-up &amp; notes
+      </h2>
       <div className="card px-4 py-4 space-y-2.5">
-        <h2 className="font-bold text-slate-900">Follow-up</h2>
-        <select className="input" value={fu.type || ""} onChange={(e) => setFu({ type: e.target.value })}>
-          <option value="">(type…)</option>
-          {FOLLOWUP_TYPES.map((t) => (
-            <option key={t}>{t}</option>
-          ))}
-        </select>
-        <input
-          className="input"
-          placeholder="What needs to happen?"
-          value={fu.text || ""}
-          onChange={(e) => setFu({ text: e.target.value })}
-        />
-        <div className="flex items-center gap-3">
+        <div>
+          <label className="block text-xs font-bold text-slate-500 mb-1.5">Follow-up type</label>
+          <select className="input" value={fu.type || ""} onChange={(e) => setFu({ type: e.target.value })} aria-label="Follow-up type">
+            <option value="">— none —</option>
+            {FOLLOWUP_TYPES.map((t) => (
+              <option key={t}>{t}</option>
+            ))}
+          </select>
+        </div>
+        <div className="flex gap-2">
           <input
             className="input flex-1"
+            placeholder="Custom message (optional)"
+            value={fu.text || ""}
+            onChange={(e) => setFu({ text: e.target.value })}
+            aria-label="Follow-up text"
+          />
+          <input
+            className="input !w-[150px]"
             type="date"
             value={fu.date || ""}
             onChange={(e) => setFu({ date: e.target.value })}
+            aria-label="Follow-up date"
           />
-          <label className="flex items-center gap-2 text-sm text-slate-600 shrink-0">
-            <input
-              type="checkbox"
-              className="w-4 h-4 accent-[--brand]"
-              checked={!!fu.remind}
-              onChange={(e) => setFu({ remind: e.target.checked })}
-            />
-            Remind
-          </label>
+        </div>
+        <label className="flex items-center gap-2 text-sm text-slate-600 cursor-pointer">
+          <input
+            type="checkbox"
+            className="w-4 h-4"
+            checked={!!fu.remind}
+            onChange={(e) => {
+              setFu({ remind: e.target.checked });
+              showToast(e.target.checked ? "Office Manager will Telegram you on that date" : "Reminder off");
+            }}
+          />
+          🔔 Remind me on Telegram on this date (via Office Manager)
+        </label>
+        {!job.paid && job.invoiceNo && (
+          <button className="btn bg-red-100 text-red-600 w-full !py-2" onClick={() => setSheet({ kind: "reminder" })}>
+            🔔 Send customer a payment reminder…
+          </button>
+        )}
+        <div>
+          <label className="block text-xs font-bold text-slate-500 mb-1.5">Notes</label>
+          <textarea
+            className="input min-h-[74px]"
+            value={job.notes || ""}
+            onChange={(e) => patchJob(id, { notes: e.target.value })}
+            aria-label="Notes"
+          />
         </div>
       </div>
 
-      {/* Notes */}
+      {/* Attachments */}
+      <h2 className="text-[11px] font-extrabold text-slate-500 uppercase tracking-wider px-1 !mb-[-6px]">Attachments</h2>
       <div className="card px-4 py-4">
-        <h2 className="font-bold text-slate-900 mb-2">Notes</h2>
-        <textarea
-          className="input min-h-[96px]"
-          placeholder="Job notes…"
-          value={job.notes || ""}
-          onChange={(e) => patchJob(id, { notes: e.target.value })}
-        />
+        {at.length ? (
+          at.map((a, i) => (
+            <div key={i} className="flex items-center gap-2.5 py-1.5 border-b border-dashed border-slate-200 last:border-0 text-sm">
+              <span>📎</span>
+              <span className="flex-1 min-w-0 truncate">
+                {a.url ? (
+                  <a href={a.url} target="_blank" rel="noreferrer" className="text-brand font-semibold">
+                    {a.name || "file"}
+                  </a>
+                ) : (
+                  a.name || "file"
+                )}
+              </span>
+              <button className="btn-ghost !py-1 !px-2.5" onClick={() => rmAtt(i)} aria-label={`Remove ${a.name}`}>
+                ✕
+              </button>
+            </div>
+          ))
+        ) : (
+          <div className="text-sm text-slate-400 mb-2">No attachments yet.</div>
+        )}
+        <button className="btn bg-brand-soft text-brand w-full !py-2 mt-2" onClick={() => setSheet({ kind: "attach" })}>
+          ＋ Add attachment
+        </button>
       </div>
 
-      {/* Activity feed (command bus) */}
-      <div className="card px-4 py-4">
-        <h2 className="font-bold text-slate-900 mb-2">Activity</h2>
-        {!myCommands.length ? (
-          <div className="text-sm text-slate-400">No activity yet for this job.</div>
-        ) : (
-          <ul className="space-y-2.5">
-            {myCommands.map((c) => (
-              <li key={c.id} className="flex items-start gap-2.5 text-sm">
-                <span className={`pill shrink-0 ${CMD_TONES[c.status] || "bg-slate-100 text-slate-500"}`}>
-                  {(c.status || "?").replace("_", " ")}
+      {/* Send history */}
+      {hist.length > 0 && (
+        <>
+          <h2 className="text-[11px] font-extrabold text-slate-500 uppercase tracking-wider px-1 !mb-[-6px]">
+            Send history
+          </h2>
+          <div className="card px-4 py-3">
+            {hist.slice(0, 6).map((x, i) => (
+              <div key={i} className="flex items-center gap-2.5 py-1.5 border-b border-dashed border-slate-200 last:border-0 text-sm">
+                <span>📤</span>
+                <span className="flex-1 min-w-0 truncate">{x.kind || "Sent"}</span>
+                <span className="text-slate-400 text-xs shrink-0">
+                  {x.date || ""}
+                  {x.to ? " → " + x.to : ""}
                 </span>
-                <div className="min-w-0">
-                  <div className="font-medium text-slate-800">{(c.type || "").replace(/_/g, " ")}</div>
-                  <div className="text-[11px] text-slate-400">
-                    {c.createdAt ? new Date(c.createdAt).toLocaleString() : ""}
-                    {c.error ? ` · ${c.error}` : ""}
-                  </div>
-                </div>
-              </li>
+              </div>
             ))}
-          </ul>
+          </div>
+        </>
+      )}
+
+      {/* Activity */}
+      <h2 className="text-[11px] font-extrabold text-slate-500 uppercase tracking-wider px-1 !mb-[-6px]">Activity</h2>
+      <div className="card px-4 py-3">
+        {myCommands.length ? (
+          myCommands.slice(0, 8).map((c) => (
+            <div key={c.id} className="flex items-center gap-2.5 py-1.5 border-b border-dashed border-slate-200 last:border-0 text-sm">
+              <span className={`pill shrink-0 ${CMD_TONES[c.status] || "bg-slate-100 text-slate-500"}`}>
+                {c.status === "needs_approval" ? "needs OK" : c.status}
+              </span>
+              <span className="flex-1 min-w-0 truncate">
+                {c.type}
+                {c.error ? <span className="text-red-600"> — {String(c.error).slice(0, 80)}</span> : null}
+              </span>
+              {c.status === "failed" && (
+                <button className="btn bg-red-100 text-red-600 !py-1 !px-2.5 shrink-0" onClick={() => retryCommand(c.id)}>
+                  Retry
+                </button>
+              )}
+              <span className="text-slate-400 text-xs shrink-0">{ago(c.updatedAt || c.createdAt)}</span>
+            </div>
+          ))
+        ) : (
+          <div className="text-sm text-slate-400">
+            No actions yet. Sends, payments and syncs will show here with live status.
+          </div>
         )}
       </div>
+
+      {/* Sheets */}
+      {sheet?.kind === "menu" && (
+        <MenuSheet job={job} onClose={() => setSheet(null)} onCombine={() => setSheet({ kind: "combine" })} />
+      )}
+      {sheet?.kind === "combine" && <CombineSheet job={job} onClose={() => setSheet(null)} />}
+      {sheet?.kind === "paid" && <MarkPaidSheet job={job} onClose={() => setSheet(null)} />}
+      {sheet?.kind === "cust" && <CustEditSheet job={job} onClose={() => setSheet(null)} />}
+      {sheet?.kind === "doc" && <DocSheet job={job} kind={sheet.doc} onClose={() => setSheet(null)} />}
+      {sheet?.kind === "cal" && <CalSheet job={job} onClose={() => setSheet(null)} />}
+      {sheet?.kind === "reminder" && <ReminderSheet job={job} onClose={() => setSheet(null)} />}
+      {sheet?.kind === "attach" && <AttachSheet job={job} onClose={() => setSheet(null)} />}
+      {sheet?.kind === "inspection" && (
+        <InspectionSheet job={job} branch={sheet.branch} onClose={() => setSheet(null)} />
+      )}
+    </div>
+  );
+
+  // Desktop: two-pane (job list | detail); mobile: detail only.
+  return (
+    <div className="lg:grid lg:grid-cols-[minmax(300px,360px)_1fr] lg:gap-5 lg:items-start">
+      <div className="hidden lg:block sticky top-4 max-h-[calc(100vh-2rem)] overflow-y-auto pr-1" data-testid="list-pane">
+        <Jobs embedded />
+      </div>
+      {detail}
     </div>
   );
 }

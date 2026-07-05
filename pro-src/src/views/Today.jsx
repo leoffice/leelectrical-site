@@ -1,107 +1,93 @@
-// Today — appointments from the calendar store, follow-ups due, and totals.
+// Today — totals row, follow-ups due, upcoming appointments with "+ Job".
 import React, { useMemo } from "react";
 import { Link } from "react-router-dom";
 import { useStore } from "../state/store.jsx";
-import { currentStage, isInvoiced, isPaid, todayStr } from "../lib/stages.js";
-
-function timeOf(iso) {
-  try {
-    const d = new Date(iso);
-    if (isNaN(d)) return "";
-    return d.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
-  } catch {
-    return "";
-  }
-}
+import { prefillFromEvent } from "../components/NewJobFlow.jsx";
+import { evStart, fmt$, parseAmount, todayStr } from "../lib/format.js";
 
 export default function Today() {
-  const { jobs, events } = useStore();
-  const today = todayStr();
+  const { jobs, events, setNewJob } = useStore();
+  const t = todayStr();
+  const js = useMemo(() => jobs.filter((j) => !j._archived && !j._deleted), [jobs]);
 
-  const todaysEvents = useMemo(
+  const due = useMemo(
+    () => js.filter((j) => j.followUp && j.followUp.date && j.followUp.date <= t && !j.paid),
+    [js, t]
+  );
+  const appts = useMemo(
     () =>
       (events || [])
-        .filter((e) => {
-          const s = e.start && (e.start.dateTime || e.start.date || e.start);
-          return typeof s === "string" && s.slice(0, 10) === today;
-        })
-        .sort((a, b) => {
-          const sa = a.start?.dateTime || a.start?.date || a.start || "";
-          const sb = b.start?.dateTime || b.start?.date || b.start || "";
-          return String(sa).localeCompare(String(sb));
-        }),
-    [events, today]
+        .filter((e) => evStart(e).slice(0, 10) >= t)
+        .sort((a, b) => (evStart(a) < evStart(b) ? -1 : 1))
+        .slice(0, 8),
+    [events, t]
   );
-
-  const dueFollowUps = useMemo(
-    () =>
-      jobs.filter((j) => j.followUp && j.followUp.date && j.followUp.date <= today && !isPaid(j)),
-    [jobs, today]
-  );
-
-  const active = jobs.filter((j) => !isPaid(j) && currentStage(j) !== null);
-  const unpaid = jobs.filter((j) => isInvoiced(j) && !isPaid(j));
+  const unpaid = js.filter((j) => !j.paid && j.invoiceNo);
+  const owed = unpaid.reduce((s, j) => s + parseAmount(j.amount), 0);
 
   return (
     <div className="space-y-4">
-      <div className="grid grid-cols-3 gap-2.5">
+      <div className="card px-4 py-3.5 flex">
         {[
-          ["Active", active.length, "text-brand"],
-          ["Unpaid", unpaid.length, "text-orange-600"],
-          ["Due today", dueFollowUps.length, "text-accent"],
-        ].map(([label, n, tone]) => (
-          <div key={label} className="card px-3 py-3 text-center">
-            <div className={`text-2xl font-extrabold ${tone}`}>{n}</div>
-            <div className="text-[11px] font-medium text-slate-500">{label}</div>
+          ["Open jobs", js.filter((j) => !j.paid).length],
+          ["Unpaid invoices", unpaid.length],
+          ["Outstanding", fmt$(owed) || "$0"],
+        ].map(([label, n]) => (
+          <div key={label} className="flex-1">
+            <div className="text-xs text-slate-500">{label}</div>
+            <div className="text-[22px] font-extrabold text-slate-900">{n}</div>
           </div>
         ))}
       </div>
 
       <section>
-        <h2 className="text-sm font-bold text-slate-500 uppercase tracking-wide mb-2">Appointments</h2>
-        {!todaysEvents.length ? (
-          <div className="card px-4 py-5 text-sm text-slate-400 text-center">Nothing on the calendar today.</div>
+        <h2 className="text-[11px] font-extrabold text-slate-500 uppercase tracking-wider mb-2 px-1">
+          Follow-ups due
+        </h2>
+        {!due.length ? (
+          <div className="card px-4 py-5 text-sm text-slate-400 text-center">Nothing due. 🎉</div>
         ) : (
           <div className="space-y-2">
-            {todaysEvents.map((e, i) => (
-              <div key={e.id || i} className="card px-4 py-3 flex items-center gap-3">
-                <span className="pill bg-brand-soft text-brand shrink-0">
-                  {timeOf(e.start?.dateTime || e.start) || "All day"}
-                </span>
-                <div className="min-w-0">
-                  <div className="font-semibold text-slate-900 truncate">{e.summary || "(no title)"}</div>
-                  {e.location && <div className="text-xs text-slate-500 truncate">{e.location}</div>}
+            {due.map((j) => (
+              <Link key={j.id} to={`/job/${encodeURIComponent(j.id)}`} className="card block px-4 py-3">
+                <div className="flex items-center gap-2">
+                  <div className="font-bold text-slate-900 truncate">{j.customer}</div>
+                  <div className="ml-auto font-bold shrink-0">{fmt$(j.amount)}</div>
                 </div>
-              </div>
+                <div className="text-xs text-slate-500 mt-0.5">
+                  📌 {j.followUp.text || j.followUp.type || "Follow up"} —{" "}
+                  <b className="text-red-600">{j.followUp.date}</b>
+                </div>
+              </Link>
             ))}
           </div>
         )}
       </section>
 
       <section>
-        <h2 className="text-sm font-bold text-slate-500 uppercase tracking-wide mb-2">Follow-ups due</h2>
-        {!dueFollowUps.length ? (
-          <div className="card px-4 py-5 text-sm text-slate-400 text-center">You’re all caught up ⚡</div>
+        <h2 className="text-[11px] font-extrabold text-slate-500 uppercase tracking-wider mb-2 px-1">
+          Upcoming appointments
+        </h2>
+        {!appts.length ? (
+          <div className="card px-4 py-5 text-sm text-slate-400 text-center">No synced appointments.</div>
         ) : (
           <div className="space-y-2">
-            {dueFollowUps.map((j) => (
-              <Link key={j.id} to={`/job/${encodeURIComponent(j.id)}`} className="card block px-4 py-3">
-                <div className="flex items-center gap-2">
-                  <div className="min-w-0">
-                    <div className="font-semibold text-slate-900 truncate">{j.customer}</div>
-                    <div className="text-xs text-slate-500 truncate">
-                      {j.followUp.text || j.followUp.type || "Follow up"}
-                    </div>
+            {appts.map((e, i) => (
+              <div key={e.id || i} className="card px-4 py-3 flex items-center gap-3">
+                <div className="min-w-0 flex-1">
+                  <div className="font-semibold text-slate-900 truncate">{e.summary || "Appointment"}</div>
+                  <div className="text-xs text-slate-500 truncate">
+                    {evStart(e).replace("T", " ").slice(0, 16)}
+                    {e.location ? " · " + e.location : ""}
                   </div>
-                  <span
-                    className={`ml-auto pill shrink-0 ${
-                      j.followUp.date < today ? "bg-red-100 text-red-700" : "bg-amber-100 text-amber-700"
-                    }`}
-                  >
-                    {j.followUp.date < today ? `overdue · ${j.followUp.date}` : "today"}
-                  </span>
                 </div>
-              </Link>
+                <button
+                  className="btn bg-brand-soft text-brand !py-2 shrink-0"
+                  onClick={() => setNewJob({ step: "form", prefill: prefillFromEvent(e) })}
+                >
+                  + Job
+                </button>
+              </div>
             ))}
           </div>
         )}

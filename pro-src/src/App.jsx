@@ -1,52 +1,116 @@
 // Shell: bottom tab nav on mobile, left sidebar on desktop (>=1024px),
-// sticky SaveBar for the staged-changes model, toast, hash routing.
+// header sync chip, + FAB, chat bubble, approval watcher, leave-guard
+// sheet, sticky SaveBar and toast. Hash routing.
 import React from "react";
-import { NavLink, Route, Routes, useLocation } from "react-router-dom";
+import { NavLink, Route, Routes, useLocation, useNavigate } from "react-router-dom";
 import { useStore } from "./state/store.jsx";
 import Jobs from "./views/Jobs.jsx";
 import JobDetail from "./views/JobDetail.jsx";
 import Today from "./views/Today.jsx";
+import Dev from "./views/Dev.jsx";
+import Archive from "./views/Archive.jsx";
 import Placeholder from "./views/Placeholder.jsx";
 import SaveBar from "./components/SaveBar.jsx";
+import SyncChip from "./components/SyncChip.jsx";
+import ChatBubble from "./components/ChatBubble.jsx";
+import ApprovalWatcher from "./components/ApprovalWatcher.jsx";
+import NewJobFlow from "./components/NewJobFlow.jsx";
+import Sheet, { Opt } from "./components/Sheet.jsx";
 
 const TABS = [
   { to: "/", label: "Jobs", ic: "🗂️", end: true },
   { to: "/today", label: "Today", ic: "📅" },
-  { to: "/invoices", label: "Invoices", ic: "🧾" },
-  { to: "/chat", label: "Chat", ic: "💬" },
+  { to: "/dev", label: "Dev", ic: "🛠️" },
+  { to: "/archive", label: "Archive", ic: "📦" },
 ];
 
 function Tab({ t, sidebar }) {
+  const { devBadge, guardNav, dirtyJobs } = useStore();
+  const nav = useNavigate();
+  const loc = useLocation();
+  const badge = t.to === "/dev" && devBadge > 0 ? devBadge : 0;
   return (
     <NavLink
       to={t.to}
       end={t.end}
+      onClick={(e) => {
+        // Leave guard: unsaved edits + leaving a job detail page.
+        if (dirtyJobs > 0 && loc.pathname.startsWith("/job/")) {
+          e.preventDefault();
+          guardNav(() => nav(t.to));
+        }
+      }}
       className={({ isActive }) =>
         sidebar
-          ? `flex items-center gap-3 rounded-xl px-4 py-3 text-sm font-semibold transition-colors ${
+          ? `relative flex items-center gap-3 rounded-xl px-4 py-3 text-sm font-semibold transition-colors ${
               isActive ? "bg-brand text-white" : "text-slate-600 hover:bg-slate-100"
             }`
-          : `flex flex-col items-center gap-0.5 py-2 flex-1 text-[11px] font-medium ${
+          : `relative flex flex-col items-center gap-0.5 py-2 flex-1 text-[11px] font-medium ${
               isActive ? "text-brand" : "text-slate-500"
             }`
       }
     >
       <span className={sidebar ? "text-base" : "text-xl leading-none"}>{t.ic}</span>
       <span>{t.label}</span>
+      {badge > 0 && (
+        <span
+          className={`absolute bg-red-600 text-white text-[9px] font-extrabold rounded-full min-w-[15px] h-[15px] leading-[15px] text-center px-0.5 ${
+            sidebar ? "right-3 top-1/2 -translate-y-1/2" : "top-1 right-[22%]"
+          }`}
+        >
+          {badge}
+        </span>
+      )}
     </NavLink>
   );
 }
 
+function LeaveSheet() {
+  const { leaveReq, setLeaveReq, saveAll, discardAll, dirtyCount } = useStore();
+  if (!leaveReq) return null;
+  const close = () => setLeaveReq(null);
+  const go = leaveReq.cb;
+  return (
+    <Sheet title="Unsaved changes" onClose={close}>
+      <p className="text-sm text-slate-500 mb-3">
+        You have <b>{dirtyCount}</b> unsaved change{dirtyCount > 1 ? "s" : ""} on this job.
+      </p>
+      <Opt
+        icon="💾"
+        title="Save & continue"
+        note="Apply changes, sync, then leave"
+        onClick={async () => {
+          close();
+          await saveAll();
+          go && go();
+        }}
+      />
+      <Opt
+        icon="🗑️"
+        title="Discard"
+        note="Throw away the edits"
+        onClick={() => {
+          close();
+          discardAll();
+          go && go();
+        }}
+      />
+      <Opt icon="↩️" title="Stay here" onClick={close} />
+    </Sheet>
+  );
+}
+
 export default function App() {
-  const { toast, error, loading } = useStore();
+  const { toast, error, setNewJob } = useStore();
   const loc = useLocation();
   const inDetail = loc.pathname.startsWith("/job/");
+  const onJobs = loc.pathname === "/";
 
   return (
     <div className="min-h-screen lg:flex">
       {/* Desktop sidebar */}
-      <aside className="hidden lg:flex lg:flex-col w-60 shrink-0 border-r border-slate-200 bg-white min-h-screen sticky top-0 p-4 gap-1">
-        <div className="flex items-center gap-2.5 px-2 py-4 mb-2">
+      <aside className="hidden lg:flex lg:flex-col w-60 shrink-0 border-r border-slate-200 bg-white min-h-screen sticky top-0 p-4 gap-1" data-testid="sidebar">
+        <div className="flex items-center gap-2.5 px-2 py-4 mb-1">
           <span className="grid place-items-center w-9 h-9 rounded-xl bg-gradient-to-br from-brand to-accent text-white text-lg">
             ⚡
           </span>
@@ -55,19 +119,24 @@ export default function App() {
             <div className="text-[11px] text-slate-400">LE Electric · Brooklyn</div>
           </div>
         </div>
+        <div className="px-2 mb-3">
+          <SyncChip />
+        </div>
         {TABS.map((t) => (
           <Tab key={t.to} t={t} sidebar />
         ))}
-        <div className="mt-auto px-2 text-[11px] text-slate-400">Module 1 · Jobs</div>
+        <div className="mt-auto px-2 text-[11px] text-slate-400">LE Pro · full parity build</div>
       </aside>
 
       <div className="flex-1 min-w-0 flex flex-col">
         {/* Mobile header */}
         <header className="lg:hidden sticky top-0 z-30 bg-gradient-to-r from-brand to-accent text-white shadow-sm">
-          <div className="flex items-center gap-2 px-4 py-3">
+          <div className="flex items-center gap-2 px-4 py-2.5">
             <span className="text-lg">⚡</span>
             <span className="font-extrabold tracking-tight">LE Pro</span>
-            <span className="ml-auto text-xs opacity-80">{loading ? "syncing…" : "LE Electric"}</span>
+            <span className="ml-auto">
+              <SyncChip dark />
+            </span>
           </div>
         </header>
 
@@ -77,27 +146,42 @@ export default function App() {
           </div>
         )}
 
-        <main className={`flex-1 w-full max-w-3xl mx-auto px-4 pt-4 ${inDetail ? "pb-40" : "pb-36"} lg:pb-16`}>
+        <main
+          className={`flex-1 w-full mx-auto px-4 pt-4 pb-40 lg:pb-20 ${
+            inDetail ? "max-w-3xl lg:max-w-6xl" : "max-w-3xl"
+          }`}
+        >
           <Routes>
             <Route path="/" element={<Jobs />} />
             <Route path="/job/:id" element={<JobDetail />} />
             <Route path="/today" element={<Today />} />
-            <Route
-              path="/invoices"
-              element={<Placeholder icon="🧾" title="Invoices" note="Estimates, invoices and payment links land here in module 2." />}
-            />
-            <Route
-              path="/chat"
-              element={<Placeholder icon="💬" title="Chat" note="Dispatch chat + customer messages arrive in module 3." />}
-            />
+            <Route path="/dev" element={<Dev />} />
+            <Route path="/archive" element={<Archive />} />
             <Route path="*" element={<Placeholder icon="🤔" title="Not found" note="That page doesn’t exist." />} />
           </Routes>
         </main>
 
         <SaveBar />
 
+        {/* + FAB (jobs list only, like sleek) */}
+        {onJobs && (
+          <button
+            onClick={() => setNewJob({ step: "choose" })}
+            aria-label="New job"
+            data-testid="fab-add"
+            className="fixed z-40 right-4 bottom-[86px] lg:bottom-6 lg:right-24 w-[54px] h-[54px] rounded-2xl bg-slate-900 text-white text-2xl shadow-xl"
+          >
+            ＋
+          </button>
+        )}
+
+        <ChatBubble />
+        <NewJobFlow />
+        <ApprovalWatcher />
+        <LeaveSheet />
+
         {/* Mobile bottom tab nav */}
-        <nav className="lg:hidden fixed bottom-0 inset-x-0 z-30 bg-white/95 backdrop-blur border-t border-slate-200 pb-safe">
+        <nav className="lg:hidden fixed bottom-0 inset-x-0 z-30 bg-white/95 backdrop-blur border-t border-slate-200 pb-safe" data-testid="bottom-nav">
           <div className="flex max-w-3xl mx-auto">
             {TABS.map((t) => (
               <Tab key={t.to} t={t} />
@@ -106,7 +190,7 @@ export default function App() {
         </nav>
 
         {toast && (
-          <div className="fixed bottom-24 lg:bottom-8 left-1/2 -translate-x-1/2 z-50 bg-slate-900 text-white text-sm font-medium px-4 py-2.5 rounded-full shadow-lg">
+          <div className="fixed bottom-24 lg:bottom-8 left-1/2 -translate-x-1/2 z-[70] bg-slate-900 text-white text-sm font-medium px-4 py-2.5 rounded-full shadow-lg max-w-[86vw] text-center" data-testid="toast">
             {toast}
           </div>
         )}

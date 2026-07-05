@@ -1,5 +1,6 @@
 // Stage/phase model — names MUST match the existing dashboard exactly.
-// job.status = { "Lead": { s: "done"|"skipped"|"current"|"upcoming"|"", d?: "YYYY-MM-DD" }, ... }
+// job.status = { "Lead": { s: "done"|"skipped"|""|"current", d?: "YYYY-MM-DD" }, ... }
+import { parseAmount, todayStr } from "./format.js";
 
 export const STAGES = [
   "Lead",
@@ -23,6 +24,16 @@ export const PHASES = [
   { nm: "Wrap-up", ic: "✅", steps: ["Follow-up", "Paid"] },
 ];
 
+export const FOLLOWUP_TYPES = [
+  "Acceptance",
+  "Payment / collect",
+  "Schedule the job",
+  "Paperwork / permits",
+  "Con Edison case",
+  "Final inspection",
+  "Other",
+];
+
 export function stepState(job, stage) {
   const st = (job.status || {})[stage];
   return (st && st.s) || "";
@@ -33,10 +44,17 @@ export function isCleared(job, stage) {
   return s === "done" || s === "skipped";
 }
 
-/** First stage that isn't done/skipped — where the job currently stands. */
+/** First stage that isn't done/skipped. Matches sleek's stageOf() —
+ *  returns "Paid" when everything is cleared. */
+export function stageOf(job) {
+  for (const st of STAGES) if (!isCleared(job, st)) return st;
+  return "Paid";
+}
+
+/** Same walk but null when fully complete (handy for a couple of UI bits). */
 export function currentStage(job) {
   for (const st of STAGES) if (!isCleared(job, st)) return st;
-  return null; // everything cleared -> fully complete
+  return null;
 }
 
 export function progressPct(job) {
@@ -49,45 +67,33 @@ export function phaseOfStage(stage) {
 }
 
 export function isPaid(job) {
-  return !!job.paid || stepState(job, "Paid") === "done";
+  return !!job.paid;
 }
 
 export function isInvoiced(job) {
-  return stepState(job, "Invoiced") === "done" || !!job.invoiceNo;
+  return !!job.invoiceNo;
 }
 
-/** One-line "what's next" for the card. */
+/** One-line "what's next" — matches sleek's nextAction(). */
 export function nextAction(job) {
-  if (job.followUp && (job.followUp.text || job.followUp.date)) {
-    const d = job.followUp.date ? ` · ${job.followUp.date}` : "";
-    return `${job.followUp.text || job.followUp.type || "Follow up"}${d}`;
-  }
-  const cur = currentStage(job);
-  if (!cur) return "All wrapped up 🎉";
-  const hints = {
-    Lead: "Qualify the lead",
-    "Site Visit": "Schedule the site visit",
-    Estimate: "Send the estimate",
-    Accepted: "Get acceptance",
-    Invoiced: "Send the invoice",
-    "Deposit Receipt": "Collect the deposit",
-    Paperwork: "File permits / Con Edison",
-    Scheduled: "Schedule the job",
-    Done: "Do the work",
-    "Follow-up": "Follow up with the customer",
-    Paid: "Collect payment",
-  };
-  return hints[cur] || cur;
+  const st = stageOf(job);
+  const t = todayStr();
+  if (st === "Follow-up" && job.followUp && job.followUp.date && job.followUp.date <= t)
+    return "Follow-up due" + (job.followUp.date < t ? " (overdue)" : " today");
+  if (st === "Paid" && !job.paid) return "Collect payment";
+  return "Next: " + st;
 }
 
+/** Filter chips — logic copied from sleek's chipTest(). */
 const FILTERS = {
-  Active: (j) => !isPaid(j) && currentStage(j) !== null,
-  Leads: (j) => ["Lead", "Site Visit"].includes(currentStage(j)),
-  Estimates: (j) => ["Estimate", "Accepted"].includes(currentStage(j)),
+  Active: (j) => !j.paid,
+  Leads: (j) => ["Lead", "Site Visit"].includes(stageOf(j)),
+  Estimates: (j) => ["Estimate", "Accepted"].includes(stageOf(j)),
   Scheduled: (j) =>
-    currentStage(j) === "Scheduled" || stepState(j, "Scheduled") === "current",
-  Unpaid: (j) => isInvoiced(j) && !isPaid(j),
-  Paid: (j) => isPaid(j),
+    stageOf(j) === "Scheduled" ||
+    !!(j.status && j.status.Scheduled && j.status.Scheduled.s === "done" && stageOf(j) !== "Paid" && !j.paid),
+  Unpaid: (j) => !j.paid && !!j.invoiceNo,
+  Paid: (j) => !!j.paid,
   All: () => true,
 };
 
@@ -108,13 +114,16 @@ export function matchesQuery(job, q) {
     .every((w) => hay.includes(w));
 }
 
-/** Grouping key: explicit clientGroup wins, else normalized customer name. */
+/** Grouping key: explicit clientGroup groups jobs (matches sleek's groupsOf);
+ *  everything else stands alone. */
 export function clientKey(job) {
   if (job.clientGroup) return "g:" + job.clientGroup;
-  return "c:" + (job.customer || "").trim().toLowerCase();
+  return "j:" + job.id;
 }
 
-export function todayStr() {
-  const d = new Date();
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+/** Sort like sleek: biggest amount first. */
+export function sortJobs(list) {
+  return list.slice().sort((a, b) => parseAmount(b.amount) - parseAmount(a.amount));
 }
+
+export { todayStr };

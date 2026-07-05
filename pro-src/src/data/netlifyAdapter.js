@@ -1,10 +1,12 @@
 // NetlifyStoreAdapter — the DEFAULT, working-today backend.
-// Talks to the existing Netlify Functions used by the dashboard:
-//   jobsdata  base jobs synced from QuickBooks/Calendar
+// Talks to the existing Netlify Functions used by the dashboards:
+//   jobsdata  base jobs synced from QuickBooks/Calendar (POST op:request = fresh pull)
 //   state     user-edit overlay { ov: { [jobId]: patch } }
 //   command   durable command bus (queued/working/done/failed/needs_approval)
 //   calendar  upcoming Google Calendar events
-//   devtasks  shared development task list
+//   devtasks  shared development task list (op:add / op:patch)
+//   chat      floating-bubble conversations (op:msg)
+//   iterate   nudges Dispatch to look at the message
 import { deepMerge, mergeJobs } from "./merge.js";
 
 const REMOTE = "https://leelectrical.us/.netlify/functions";
@@ -29,19 +31,34 @@ async function http(path, body) {
   return res.json();
 }
 
+const cb = () => "cb=" + Date.now();
+
 export function createNetlifyAdapter() {
   return {
     name: "netlify",
 
-    /** Merged view: jobsdata.jobs + state.ov (overlay wins). */
+    /** Merged view + sync metadata: jobsdata.jobs + state.ov (overlay wins). */
+    async listJobsMeta() {
+      const [data, state] = await Promise.all([http(`jobsdata?${cb()}`), http("state")]);
+      return {
+        jobs: mergeJobs(data.jobs || [], (state && state.ov) || {}),
+        syncedAt: data.syncedAt || 0,
+        stateTs: (state && state.ts) || 0,
+      };
+    },
+
     async listJobs() {
-      const [data, state] = await Promise.all([http("jobsdata"), http("state")]);
-      return mergeJobs(data.jobs || [], (state && state.ov) || {});
+      return (await this.listJobsMeta()).jobs;
     },
 
     async getJob(id) {
       const jobs = await this.listJobs();
       return jobs.find((j) => String(j.id) === String(id)) || null;
+    },
+
+    /** Ask the pipeline for a fresh QuickBooks pull (sleek's syncNow). */
+    async requestSync() {
+      return http("jobsdata", { op: "request" });
     },
 
     /** Deep-merge `patch` into ov[id], then POST the full { ov } back.
@@ -56,22 +73,28 @@ export function createNetlifyAdapter() {
     },
 
     async listCommands(jobId) {
-      const d = await http("command");
+      const d = await http(`command?${cb()}`);
       const all = d.commands || [];
       return jobId == null ? all : all.filter((c) => String(c.jobId) === String(jobId));
     },
 
-    /** Durable command with idempotency — a retry can never double-send. */
+    /** Durable command with idempotency — a retry can never double-send.
+     *  Returns { command, deduped } (deduped = idempotency key already seen). */
     async enqueueCommand(type, jobId, payload, lane, idempotencyKey) {
       const command = {
         type,
         jobId,
         payload: payload || {},
         lane: lane || "judgment",
-        idempotencyKey: idempotencyKey || `${type}|${jobId}|${Date.now()}`,
+        idempotencyKey: idempotencyKey || `${type}:${jobId}:${new Date().toISOString().slice(0, 10)}`,
       };
       const d = await http("command", { op: "enqueue", command });
-      return d.command;
+      return { command: d.command, deduped: !!d.deduped };
+    },
+
+    /** Patch a command (retry, approval resolution). */
+    async updateCommand(id, patch, note) {
+      return http("command", { op: "update", id, patch, note });
     },
 
     async listEvents() {
@@ -80,8 +103,29 @@ export function createNetlifyAdapter() {
     },
 
     async listDevTasks() {
-      const d = await http("devtasks");
+      const d = await http(`devtasks?${cb()}`);
       return d.tasks || [];
+    },
+
+    async addDevTask(task) {
+      return http("devtasks", { op: "add", task });
+    },
+
+    async patchDevTask(id, patch) {
+      return http("devtasks", { op: "patch", id, patch });
+    },
+
+    async chatList(convo) {
+      const d = await http(`chat?convo=${encodeURIComponent(convo)}&${cb()}`);
+      return d.messages || [];
+    },
+
+    async chatSend(convo, id, text) {
+      return http("chat", { op: "msg", convo, id, text });
+    },
+
+    async iterate(message, source) {
+      return http("iterate", { message, source });
     },
   };
 }
