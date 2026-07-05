@@ -1,0 +1,46 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --brand: #4f46e5;
+  --accent: #7c3aed;
+}
+
+html {
+  -webkit-tap-highlight-color: transparent;
+}
+
+body {
+  @apply antialiased text-slate-800;
+  overscroll-behavior-y: none;
+}
+
+@layer components {
+  .card {
+    @apply bg-white rounded-2xl shadow-sm border border-slate-200/60;
+  }
+  .chip {
+    @apply px-3 py-1.5 rounded-full text-sm font-medium whitespace-nowrap transition-colors;
+  }
+  .btn {
+    @apply inline-flex items-center justify-center gap-1.5 rounded-xl px-4 py-2.5 text-sm font-semibold transition-colors disabled:opacity-50;
+  }
+  .btn-brand {
+    @apply btn bg-brand text-white hover:bg-brand-dark active:bg-brand-dark;
+  }
+  .btn-ghost {
+    @apply btn bg-white text-slate-700 border border-slate-200 hover:bg-slate-50;
+  }
+  .pill {
+    @apply inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-xs font-semibold;
+  }
+  .input {
+    @apply w-full rounded-xl border border-slate-200 bg-white px-3.5 py-2.5 text-sm outline-none focus:border-brand focus:ring-2 focus:ring-brand/20;
+  }
+}
+
+/* Safe-area padding for the iOS home indicator (standalone PWA). */
+.pb-safe {
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+}
