@@ -7,7 +7,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { act, fireEvent, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import "@testing-library/jest-dom/vitest";
-import { mockServer, renderApp } from "./helpers.jsx";
+import { groupSub, mockServer, renderApp } from "./helpers.jsx";
 
 afterEach(() => {
   vi.useRealTimers();
@@ -43,14 +43,14 @@ describe("bug 1 — duplicate customers collapse into ONE group row", () => {
     const rows = screen.getAllByTestId("client-group");
     expect(rows).toHaveLength(1);
     expect(within(rows[0]).getByText("Meir Kabakov")).toBeInTheDocument();
-    expect(within(rows[0]).getByText(/2 jobs · \$1,900 · 2 unpaid/)).toBeInTheDocument();
+    expect(within(rows[0]).getByText(groupSub("2 jobs · 2 unpaid · $1,900 due"))).toBeInTheDocument();
 
     // zero standalone Kabakov cards — the name renders exactly once (the row)
     expect(screen.getAllByText(/meir kabakov/i)).toHaveLength(1);
     expect(screen.queryByText("Panel swap")).not.toBeInTheDocument();
 
     // expanding shows both job cards, no third copy anywhere
-    await user.click(within(rows[0]).getByText(/2 jobs/));
+    await user.click(within(rows[0]).getByTestId("client-group-toggle"));
     expect(screen.getByText("Panel swap")).toBeInTheDocument();
     expect(screen.getByText("EV charger")).toBeInTheDocument();
   });
@@ -67,7 +67,7 @@ describe("bug 1 — duplicate customers collapse into ONE group row", () => {
     renderApp("#/");
     const row = await screen.findByTestId("client-group");
     expect(screen.getAllByTestId("client-group")).toHaveLength(1);
-    expect(within(row).getByText(/3 jobs · \$600 · 3 unpaid/)).toBeInTheDocument();
+    expect(within(row).getByText(groupSub("3 jobs · 3 unpaid · $600 due"))).toBeInTheDocument();
     // no job card escaped the group
     ["T1", "T2", "T3"].forEach((t) => expect(screen.queryByText(t)).not.toBeInTheDocument());
   });
@@ -79,7 +79,7 @@ describe("bug 1 — duplicate customers collapse into ONE group row", () => {
     renderApp("#/");
     const row = await screen.findByTestId("client-group"); // load with real timers
     vi.useFakeTimers();
-    fireEvent.click(within(row).getByText(/2 jobs/));
+    fireEvent.click(within(row).getByTestId("client-group-toggle"));
     expect(screen.getByText("Panel swap")).toBeInTheDocument();
     act(() => {
       vi.advanceTimersByTime(8500);
@@ -111,7 +111,7 @@ describe("bug 2 — near-duplicate combine prompt", () => {
     // prompt gone, list now shows one combined client row
     await waitFor(() => expect(screen.queryByTestId("merge-prompt")).not.toBeInTheDocument());
     expect(screen.getByTestId("client-group")).toBeInTheDocument();
-    expect(screen.getByText(/2 jobs · \$300 · 2 unpaid/)).toBeInTheDocument();
+    expect(screen.getByText(groupSub("2 jobs · 2 unpaid · $300 due"))).toBeInTheDocument();
   });
 
   it("'Not the same' dismisses permanently (lepro_nomerge) — never re-asks", async () => {

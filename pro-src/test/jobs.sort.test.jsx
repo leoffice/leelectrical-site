@@ -6,7 +6,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import "@testing-library/jest-dom/vitest";
-import { mockServer, renderApp } from "./helpers.jsx";
+import { groupSub, mockServer, renderApp } from "./helpers.jsx";
 
 afterEach(() => {
   vi.unstubAllGlobals();
@@ -42,7 +42,7 @@ describe("sort dropdown", () => {
       "Newest",
     ]);
     // Beta's group leads despite Alpha's bigger amount (B is overdue)
-    const betaRow = screen.getByText(/2 jobs · \$300 · 2 unpaid/);
+    const betaRow = screen.getByText(groupSub("2 jobs · 2 unpaid · $300 due"));
     expect(before(betaRow, screen.getByText("Alpha"))).toBe(true);
   });
 

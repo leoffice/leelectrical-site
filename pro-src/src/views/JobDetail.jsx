@@ -4,7 +4,7 @@
 // attachments, send history and the live activity feed (retry on failed).
 // All edits are STAGED via store.patchJob and only persist on Save & sync.
 import React, { useEffect, useMemo, useRef, useState } from "react";
-import { Link, useNavigate, useParams } from "react-router-dom";
+import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { useStore } from "../state/store.jsx";
 import {
   FOLLOWUP_TYPES,
@@ -30,6 +30,7 @@ import {
   InspectionSheet,
   MarkPaidSheet,
   MenuSheet,
+  PaymentLinkSheet,
   ReminderSheet,
 } from "../components/JobSheets.jsx";
 
@@ -61,6 +62,9 @@ function ActionButton({ href, icon, label, disabled, newTab }) {
 export default function JobDetail() {
   const { id } = useParams();
   const nav = useNavigate();
+  const [sp] = useSearchParams();
+  const fromCust = sp.get("from") || ""; // customer-group key when opened from CustomerView
+  const goBack = () => (fromCust ? nav("/customer/" + encodeURIComponent(fromCust)) : nav("/"));
   const {
     effectiveJob,
     patchJob,
@@ -179,10 +183,11 @@ export default function JobDetail() {
     <div className="space-y-3.5 min-w-0" data-testid="detail-pane">
       <div className="flex items-center">
         <button
-          className="inline-flex items-center gap-1 text-sm font-semibold text-brand"
-          onClick={() => guardNav(() => nav("/"))}
+          className="inline-flex items-center gap-1 text-sm font-semibold text-brand min-w-0 max-w-[70%] truncate"
+          onClick={() => guardNav(goBack)}
+          data-testid="detail-back"
         >
-          ‹ Jobs
+          {fromCust ? "‹ " + (job.customer || "Customer") : "‹ Jobs"}
         </button>
         <button className="btn-ghost !py-1.5 ml-auto" onClick={() => setSheet({ kind: "menu" })} aria-label="More">
           ⋮ More
@@ -266,6 +271,16 @@ export default function JobDetail() {
           {job.payment.date ? " · " + job.payment.date : ""}
         </div>
       ) : null}
+
+      {/* Biller Genie payment link — on jobs with an invoice # or amount */}
+      {(job.invoiceNo || job.amount) && !job.paid && (
+        <button
+          className="btn bg-brand-soft text-brand w-full !py-2"
+          onClick={() => setSheet({ kind: "paylink" })}
+        >
+          💳 Payment link
+        </button>
+      )}
 
       {/* Progress */}
       <div>
@@ -621,6 +636,7 @@ export default function JobDetail() {
       )}
       {sheet?.kind === "combine" && <CombineSheet job={job} onClose={() => setSheet(null)} />}
       {sheet?.kind === "paid" && <MarkPaidSheet job={job} onClose={() => setSheet(null)} />}
+      {sheet?.kind === "paylink" && <PaymentLinkSheet job={job} onClose={() => setSheet(null)} />}
       {sheet?.kind === "cust" && <CustEditSheet job={job} onClose={() => setSheet(null)} />}
       {sheet?.kind === "doc" && <DocSheet job={job} kind={sheet.doc} onClose={() => setSheet(null)} />}
       {sheet?.kind === "cal" && <CalSheet job={job} onClose={() => setSheet(null)} />}

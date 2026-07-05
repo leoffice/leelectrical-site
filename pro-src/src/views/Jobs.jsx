@@ -14,8 +14,9 @@ import {
   sortCmp,
   sortJobs,
 } from "../lib/stages.js";
-import { normalizeCustomer } from "../lib/customers.js";
+import { normalizeCustomer, totalBalanceDue } from "../lib/customers.js";
 import { fmt$, parseAmount } from "../lib/format.js";
+import { useNavigate } from "react-router-dom";
 
 const IDLE_COLLAPSE_MS = 8000; // expanded customer rows fold back after ~8s idle
 const SORT_LS_KEY = "lepro_jobs_sort_v1"; // persisted sort-by choice
@@ -31,6 +32,7 @@ const loadSort = () => {
 
 export default function Jobs({ embedded }) {
   const { jobs, loading, showToast } = useStore();
+  const nav = useNavigate();
   const [q, setQ] = useState("");
   const [filter, setFilter] = useState("Active");
   const [sort, setSort] = useState(loadSort);
@@ -168,26 +170,36 @@ export default function Jobs({ embedded }) {
               />
             ) : (
               <div key={key} className="card overflow-hidden" data-testid="client-group">
-                <button
-                  className="w-full flex items-center gap-3 px-4 py-3.5 text-left"
-                  onClick={() => toggleGroup(key)}
-                >
-                  <span className="grid place-items-center w-9 h-9 rounded-xl bg-accent-soft text-accent font-bold text-sm shrink-0">
-                    {(list[0].customer || "").trim().slice(0, 1).toUpperCase() || "?"}
-                  </span>
-                  <span className="min-w-0">
-                    <span className="block font-bold text-slate-900 truncate">
-                      {list[0].customer || "(no customer)"}
+                <div className="w-full flex items-center gap-3 px-4 py-3.5">
+                  {/* Tap the name header to open the Customer view */}
+                  <button
+                    className="flex items-center gap-3 text-left min-w-0 flex-1"
+                    data-testid="client-group-name"
+                    onClick={() => nav("/customer/" + encodeURIComponent(key))}
+                  >
+                    <span className="grid place-items-center w-9 h-9 rounded-xl bg-accent-soft text-accent font-bold text-sm shrink-0">
+                      {(list[0].customer || "").trim().slice(0, 1).toUpperCase() || "?"}
                     </span>
-                    <span className="block text-xs text-slate-500">
-                      {list.length} jobs · {fmt$(list.reduce((s, j) => s + parseAmount(j.amount), 0)) || "$0"} ·{" "}
-                      {list.filter((j) => !j.paid).length} unpaid
+                    <span className="min-w-0">
+                      <span className="block font-bold text-slate-900 truncate">
+                        {list[0].customer || "(no customer)"}
+                      </span>
+                      <span className="block text-xs text-slate-500">
+                        {list.length} jobs · {list.filter((j) => !j.paid).length} unpaid ·{" "}
+                        <b className="text-slate-700">{fmt$(totalBalanceDue(list)) || "$0"} due</b>
+                      </span>
                     </span>
-                  </span>
-                  <span className={`ml-auto text-slate-400 transition-transform ${open[key] ? "rotate-180" : ""}`}>
-                    ▾
-                  </span>
-                </button>
+                  </button>
+                  {/* Chevron toggles the inline expansion */}
+                  <button
+                    className="ml-auto p-1 -m-1 text-slate-400"
+                    aria-label={open[key] ? "Collapse" : "Expand"}
+                    data-testid="client-group-toggle"
+                    onClick={() => toggleGroup(key)}
+                  >
+                    <span className={`inline-block transition-transform ${open[key] ? "rotate-180" : ""}`}>▾</span>
+                  </button>
+                </div>
                 {open[key] && (
                   <div
                     className="px-3 pb-3 space-y-2 bg-slate-50/60 border-t border-slate-100 pt-3"

@@ -108,7 +108,7 @@ export function mockServer(opts = {}) {
             if (c) Object.assign(c, body.patch);
             data = { ok: true };
           }
-        } else data = { commands: state.commands };
+        } else data = { commands: JSON.parse(JSON.stringify(state.commands)) };
       } else if (path === "calendar") data = { events: state.events };
       else if (path === "devtasks") {
         if (method === "POST") {
@@ -153,6 +153,14 @@ export function mockServer(opts = {}) {
         .map((c) => c.body.command)
         .filter((c) => !type || c.type === type),
   };
+}
+
+/** Matcher for the customer-group subtitle, whose text is split across a <b>.
+ *  Returns a testing-library matcher that uniquely selects the subtitle span
+ *  by exact normalized textContent (e.g. groupSub("2 jobs · 2 unpaid · $300 due")). */
+export function groupSub(text) {
+  const want = text.replace(/\s+/g, " ").trim();
+  return (_, el) => !!el && (el.textContent || "").replace(/\s+/g, " ").trim() === want;
 }
 
 export function renderApp(hash = "#/") {

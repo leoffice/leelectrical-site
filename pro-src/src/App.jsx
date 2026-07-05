@@ -6,6 +6,7 @@ import { NavLink, Route, Routes, useLocation, useNavigate } from "react-router-d
 import { useStore } from "./state/store.jsx";
 import Jobs from "./views/Jobs.jsx";
 import JobDetail from "./views/JobDetail.jsx";
+import CustomerView from "./views/CustomerView.jsx";
 import Today from "./views/Today.jsx";
 import Calls from "./views/Calls.jsx";
 import Dev from "./views/Dev.jsx";
@@ -159,6 +160,7 @@ export default function App() {
           <Routes>
             <Route path="/" element={<Jobs />} />
             <Route path="/job/:id" element={<JobDetail />} />
+            <Route path="/customer/:key" element={<CustomerView />} />
             <Route path="/today" element={<Today />} />
             <Route path="/calls" element={<Calls />} />
             <Route path="/dev" element={<Dev />} />

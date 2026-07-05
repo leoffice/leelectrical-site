@@ -146,6 +146,159 @@ export function PdfViewer({ job, kind, no }) {
   return <Opt icon="📄" title="View PDF" note="Live from QuickBooks" onClick={view} />;
 }
 
+/* ---------- 2a-link. Biller Genie payment link ---------- */
+/** Parse the {url} the host listener stores on a payment_link command result.
+ *  Stored as a JSON string ({"url":...}); tolerate a bare URL too. */
+export function paylinkUrl(result) {
+  if (!result) return "";
+  if (typeof result === "object") return result.url || "";
+  const s = String(result);
+  try {
+    const o = JSON.parse(s);
+    if (o && o.url) return o.url;
+  } catch {}
+  return /^https?:\/\//.test(s.trim()) ? s.trim() : "";
+}
+
+/** "💳 Payment link": enqueue a payment_link command (lane deterministic,
+ *  idempotencyKey paylink:<invoiceNo>) and poll the command result for a URL.
+ *  On success shows the link with Copy + prefilled sms:/mailto: share. On
+ *  failure shows a graceful "setup incomplete" note. */
+export function PaymentLinkSheet({ job, onClose }) {
+  const { enqueue, commands, refreshCommands, showToast } = useStore();
+  const inv = job.invoiceNo || "";
+  const idk = "paylink:" + inv;
+  const [phase, setPhase] = useState("idle"); // idle|working|ready|failed
+  const [url, setUrl] = useState("");
+  const [err, setErr] = useState("");
+  const deadline = useRef(0);
+
+  // The matching command (by idempotencyKey) as the store re-polls it.
+  const cmd = (commands || []).find((c) => c.idempotencyKey === idk);
+  const cmdStatus = cmd && cmd.status;
+  const cmdResult = cmd && cmd.result;
+
+  // Resolve as it moves queued -> working -> done/failed. Depends on the
+  // status/result VALUES (not the object identity, which stays stable across
+  // in-place updates), so it re-runs whenever the command changes.
+  useEffect(() => {
+    if (phase !== "working") return;
+    const link = paylinkUrl(cmdResult);
+    if (cmdStatus === "done" && link) {
+      setUrl(link);
+      setPhase("ready");
+    } else if (cmdStatus === "failed") {
+      setErr(String((cmd && cmd.error) || "Biller Genie could not create the link"));
+      setPhase("failed");
+    }
+  }, [phase, cmdStatus, cmdResult]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Self-perpetuating poll while working (an interval, so it never stalls when
+  // a refresh returns no change), with a hard deadline.
+  useEffect(() => {
+    if (phase !== "working") return;
+    const iv = setInterval(() => {
+      if (Date.now() >= deadline.current) {
+        setErr("Timed out waiting for Biller Genie — Dispatch has been notified.");
+        setPhase("failed");
+        return;
+      }
+      refreshCommands();
+    }, 1500);
+    return () => clearInterval(iv);
+  }, [phase, refreshCommands]);
+
+  const start = () => {
+    if (!inv) return showToast("No invoice # on this job yet");
+    setPhase("working");
+    setErr("");
+    deadline.current = Date.now() + 60_000;
+    enqueue(
+      "payment_link",
+      job.id,
+      { invoiceNo: inv, amount: String(job.amount || "").replace(/[$,]/g, ""), customer: job.customer || "", email: job.email || "" },
+      "deterministic",
+      idk
+    );
+    refreshCommands();
+  };
+
+  const copy = async () => {
+    try {
+      await navigator.clipboard.writeText(url);
+      showToast("Payment link copied");
+    } catch {
+      showToast("Copy failed — long-press the link to copy");
+    }
+  };
+
+  const first = (job.customer || "").split(" ")[0];
+  const msg = `Hi ${first || "there"}, here's a secure link to pay ${
+    inv ? "invoice #" + inv : "your invoice"
+  }: ${url} — LE Electric`;
+
+  return (
+    <Sheet title={"Payment link" + (inv ? " — #" + inv : "")} onClose={onClose}>
+      <div className="text-sm space-y-1 mb-3">
+        <div><b className="font-semibold">Customer</b> <span className="text-slate-600">{job.customer || ""}</span></div>
+        <div><b className="font-semibold">Amount</b> <span className="text-slate-600">{fmt$(job.amount) || "—"}</span></div>
+      </div>
+
+      {phase === "idle" && (
+        <>
+          <p className="text-sm text-slate-500 mb-3">
+            Create a Biller Genie payment link for this invoice — then Copy it or text/email it to {job.customer || "the customer"}.
+          </p>
+          <button className="btn-brand w-full" onClick={start} disabled={!inv}>
+            💳 Create payment link
+          </button>
+          {!inv && <p className="text-[11px] text-slate-400 text-center mt-2">Add an invoice # first.</p>}
+        </>
+      )}
+
+      {phase === "working" && (
+        <div className="border border-slate-200 rounded-2xl px-4 py-3 text-sm text-slate-500 flex items-center gap-2.5">
+          <span className="w-2 h-2 rounded-full bg-amber-400 animate-pulse shrink-0" />
+          Creating the link in Biller Genie…
+        </div>
+      )}
+
+      {phase === "ready" && (
+        <>
+          <div className="card !bg-emerald-50 !border-emerald-100 px-3 py-2.5 mb-3">
+            <a href={url} target="_blank" rel="noreferrer" className="text-brand font-semibold text-sm break-all">
+              {url}
+            </a>
+          </div>
+          <button className="btn-brand w-full mb-2" onClick={copy}>📋 Copy link</button>
+          <div className="flex gap-2">
+            <a
+              className={`btn flex-1 !py-2 text-center ${job.phone ? "bg-brand-soft text-brand" : "bg-slate-50 text-slate-300 pointer-events-none"}`}
+              href={job.phone ? `sms:${job.phone}?&body=${encodeURIComponent(msg)}` : undefined}
+            >
+              💬 Text
+            </a>
+            <a
+              className={`btn flex-1 !py-2 text-center ${job.email ? "bg-brand-soft text-brand" : "bg-slate-50 text-slate-300 pointer-events-none"}`}
+              href={job.email ? `mailto:${job.email}?subject=${encodeURIComponent("Payment link — LE Electric")}&body=${encodeURIComponent(msg)}` : undefined}
+            >
+              ✉️ Email
+            </a>
+          </div>
+        </>
+      )}
+
+      {phase === "failed" && (
+        <div className="border border-amber-200 bg-amber-50 rounded-2xl px-4 py-3 text-sm text-amber-800">
+          <b>Biller Genie setup incomplete</b> — Dispatch notified.
+          <div className="text-[12px] text-amber-700/90 mt-1 break-words">{err}</div>
+          <button className="btn-ghost w-full mt-2 !py-1.5" onClick={start}>↻ Try again</button>
+        </div>
+      )}
+    </Sheet>
+  );
+}
+
 /* ---------- 2a. Invoice / Estimate quick view ---------- */
 export function DocSheet({ job, kind, onClose }) {
   const doSend = useDoSend();

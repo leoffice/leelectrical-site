@@ -6,7 +6,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { fireEvent, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import "@testing-library/jest-dom/vitest";
-import { EV, J1, J2, mockServer, renderApp } from "./helpers.jsx";
+import { EV, J1, J2, groupSub, mockServer, renderApp } from "./helpers.jsx";
 
 afterEach(() => {
   vi.unstubAllGlobals();
@@ -285,8 +285,8 @@ describe("12. sync chip + today view + jobs list", () => {
     const user = userEvent.setup();
     renderApp("#/");
     // grouped into one client row (count · total · unpaid)
-    expect(await screen.findByText(/2 jobs · \$2,800 · 2 unpaid/)).toBeInTheDocument();
-    await user.click(screen.getByText(/2 jobs · \$2,800 · 2 unpaid/));
+    expect(await screen.findByText(groupSub("2 jobs · 2 unpaid · $2,800 due"))).toBeInTheDocument();
+    await user.click(screen.getByTestId("client-group-toggle"));
     expect(screen.getByText("Panel upgrade")).toBeInTheDocument();
     expect(screen.getByText("Outlet swap")).toBeInTheDocument();
     // quick actions present on cards

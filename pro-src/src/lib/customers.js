@@ -8,6 +8,26 @@
 //   dismissPair / isDismissed -> permanent "Not the same" memory
 //     (localStorage lepro_nomerge, key = sorted normalized pair)
 
+import { parseAmount } from "./format.js";
+
+/** Open balance for a job = the amount still owed.
+ *  Priority: explicit job.openBalance -> a "balance: $X" / "owes $X" figure in
+ *  notes or the follow-up text -> the job.amount when unpaid. Paid jobs with no
+ *  explicit remainder are 0. Used for the customer-group "total balance due". */
+export function openBalance(job) {
+  if (!job) return 0;
+  if (job.openBalance != null && job.openBalance !== "") return parseAmount(job.openBalance);
+  const hay = [job.notes, job.followUp && job.followUp.text].filter(Boolean).join(" ");
+  const m = hay.match(/(?:open\s*balance|balance\s*due|balance|owes?|remaining|still\s*owes?)\D{0,8}\$?\s*([\d,]+(?:\.\d+)?)/i);
+  if (m) return parseAmount(m[1]);
+  return job.paid ? 0 : parseAmount(job.amount);
+}
+
+/** Sum of open balances across a customer's jobs. */
+export function totalBalanceDue(jobs) {
+  return (jobs || []).reduce((s, j) => s + openBalance(j), 0);
+}
+
 export function normalizeCustomer(name) {
   return String(name || "")
     .toLowerCase()
@@ -23,6 +43,48 @@ export function clientKey(job) {
   if (job.clientGroup) return "g:" + job.clientGroup;
   const n = normalizeCustomer(job.customer);
   return n ? "c:" + n : "j:" + job.id;
+}
+
+/** All active jobs belonging to one customer group, resolved the SAME way the
+ *  Jobs list groups them: primary key (clientGroup "g:" or normalized name
+ *  "c:"), plus any name-keyed jobs folded into a matching clientGroup. Returns
+ *  the jobs array (unsorted; caller can sort). */
+export function jobsForCustomerKey(jobs, key) {
+  const active = (jobs || []).filter((j) => j && !j._archived && !j._deleted);
+  if (!key) return [];
+  // Map clientGroup keys to the set of normalized names they contain, so a
+  // "c:<name>" key also collects jobs sitting under that group.
+  if (key.startsWith("g:")) {
+    const grp = key.slice(2);
+    const names = new Set();
+    for (const j of active) if (j.clientGroup === grp) names.add(normalizeCustomer(j.customer));
+    return active.filter(
+      (j) => j.clientGroup === grp || (!j.clientGroup && names.has(normalizeCustomer(j.customer)))
+    );
+  }
+  if (key.startsWith("c:")) {
+    const name = key.slice(2);
+    // A job with this name may have been folded into a clientGroup — find it.
+    const grp = active.find((j) => j.clientGroup && normalizeCustomer(j.customer) === name);
+    if (grp) return jobsForCustomerKey(active, "g:" + grp.clientGroup);
+    return active.filter((j) => !j.clientGroup && normalizeCustomer(j.customer) === name);
+  }
+  if (key.startsWith("j:")) {
+    const id = key.slice(2);
+    return active.filter((j) => String(j.id) === id);
+  }
+  return [];
+}
+
+/** First non-empty contact field across a customer's jobs. */
+export function customerContact(jobs) {
+  const pick = (k) => (jobs || []).map((j) => j && j[k]).find(Boolean) || "";
+  return {
+    name: pick("customer"),
+    phone: pick("phone"),
+    email: pick("email"),
+    address: pick("address"),
+  };
 }
 
 /** Plain Levenshtein distance (small strings — names). */
