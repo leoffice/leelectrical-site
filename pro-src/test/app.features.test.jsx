@@ -43,11 +43,19 @@ describe("3b. needs_approval sheets (customer_sync)", () => {
     expect(screen.getByText("Create new customer")).toBeInTheDocument();
     expect(screen.getByText("Skip for now")).toBeInTheDocument();
     await user.click(screen.getByText("Update existing customer"));
+    // customer_sync approvals resolve client-side: the sync command is closed
+    // out (done) and a concrete update_customer command is enqueued — requeueing
+    // with an approval patch would loop, the listener never reads that field.
     await waitFor(() =>
       expect(
-        srv.posts("command", (b) => b.op === "update" && b.id === "ap1" && b.patch.status === "queued" && b.patch.approval.choice === "update" && b.patch.approval.matchId === "qb7")
+        srv.posts("command", (b) => b.op === "update" && b.id === "ap1" && b.patch.status === "done" && b.patch.approval.choice === "update" && b.patch.approval.matchId === "qb7")
       ).toHaveLength(1)
     );
+    await waitFor(() => expect(srv.enqueued("update_customer")).toHaveLength(1));
+    const up = srv.enqueued("update_customer")[0];
+    expect(up.payload.id).toBe("qb7");
+    expect(up.payload.name).toBe("Peretz Chein");
+    expect(up.lane).toBe("deterministic");
   });
 
   it("refine-search skips then re-enqueues customer_sync with payload.search", async () => {

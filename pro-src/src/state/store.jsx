@@ -296,17 +296,54 @@ export function StoreProvider({ children }) {
 
   const resolveApproval = useCallback(
     async (id, choice, matchId) => {
-      await api
-        .updateCommand(
-          id,
-          { status: "queued", approval: { choice, matchId: matchId || "", by: "levi", ts: Date.now() } },
-          "approval: " + choice + " (pro)"
-        )
-        .catch(() => {});
+      const cmd = (commands || []).find((c) => String(c.id) === String(id));
+      const approval = { choice, matchId: matchId || "", by: "levi", ts: Date.now() };
+      if (cmd && cmd.type === "customer_sync") {
+        // The host listener re-runs the same fuzzy search whenever a
+        // customer_sync goes back to "queued" — it never reads `approval` —
+        // so requeueing loops back to needs_approval forever. Do what the
+        // classic dashboard does instead: close this command out and enqueue
+        // the concrete follow-up (create_customer / update_customer).
+        const prop = (cmd.result && cmd.result.proposed) || cmd.payload || {};
+        await api
+          .updateCommand(
+            id,
+            { status: "done", result: { action: "resolved", choice }, approval },
+            "user chose " + choice + " (pro)"
+          )
+          .catch(() => {});
+        const info = {
+          name: prop.name || "",
+          email: prop.email || "",
+          phone: prop.phone || "",
+          addr: prop.addr || "",
+        };
+        if (choice === "create") {
+          await enqueue(
+            "create_customer",
+            cmd.jobId,
+            info,
+            "deterministic",
+            "create_customer|" + cmd.jobId + "|" + Date.now()
+          );
+        } else if (choice === "update" && matchId) {
+          await enqueue(
+            "update_customer",
+            cmd.jobId,
+            { id: matchId, ...info },
+            "deterministic",
+            "update_customer|" + cmd.jobId + "|" + Date.now()
+          );
+        }
+      } else {
+        await api
+          .updateCommand(id, { status: "queued", approval }, "approval: " + choice + " (pro)")
+          .catch(() => {});
+      }
       refreshCommands();
       showToast(choice === "skip" ? "Skipped" : "Approved — running…");
     },
-    [refreshCommands, showToast]
+    [commands, enqueue, refreshCommands, showToast]
   );
 
   /** Append to the job's send history (staged like every other edit). */
