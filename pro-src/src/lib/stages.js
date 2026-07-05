@@ -118,9 +118,82 @@ export function matchesQuery(job, q) {
  *  Lives in customers.js; re-exported here for existing imports. */
 export { clientKey, normalizeCustomer } from "./customers.js";
 
-/** Sort like sleek: biggest amount first. */
-export function sortJobs(list) {
-  return list.slice().sort((a, b) => parseAmount(b.amount) - parseAmount(a.amount));
+/* ---------- Jobs sort-by ---------- */
+
+const byAmountDesc = (a, b) => parseAmount(b.amount) - parseAmount(a.amount);
+
+const followUpDate = (j) => (j.followUp && j.followUp.date) || "";
+const scheduledDate = (j) => (j.status && j.status.Scheduled && j.status.Scheduled.d) || "";
+const invoicedDate = (j) => (j.status && j.status.Invoiced && j.status.Invoiced.d) || "";
+
+/** Earliest of the Scheduled job-date and the follow-up date ("" if neither). */
+export function nextStepDate(j) {
+  const ds = [scheduledDate(j), followUpDate(j)].filter(Boolean);
+  return ds.length ? ds.sort()[0] : "";
+}
+
+/** Overdue = unpaid job whose follow-up date is in the past. */
+export function isOverdue(j, today) {
+  const d = followUpDate(j);
+  return !j.paid && !!d && d < (today || todayStr());
+}
+
+/** Best-effort "created" rank — createdAt, else local-<ts> id, else Lead date. */
+function newness(j) {
+  if (j.createdAt) return j.createdAt;
+  const m = /^local-(\d+)$/.exec(String(j.id || ""));
+  if (m) return Number(m[1]);
+  const lead = j.status && j.status.Lead && j.status.Lead.d;
+  const t = lead ? Date.parse(lead) : NaN;
+  return isNaN(t) ? 0 : t;
+}
+
+/** Dated first (ascending), undated last; amount desc breaks ties. */
+const dateAsc = (get) => (a, b) => {
+  const da = get(a);
+  const db = get(b);
+  if (da && db) return da < db ? -1 : da > db ? 1 : byAmountDesc(a, b);
+  if (da || db) return da ? -1 : 1;
+  return byAmountDesc(a, b);
+};
+
+const SORT_CMPS = {
+  smart: (a, b) =>
+    (isOverdue(b) ? 1 : 0) - (isOverdue(a) ? 1 : 0) || byAmountDesc(a, b),
+  amount: byAmountDesc,
+  next: dateAsc(nextStepDate),
+  priority: (a, b) => {
+    // Tier 0: unpaid invoices (oldest invoice = most overdue). Tier 1: other
+    // unpaid work. Tier 2: paid. Amount desc inside a tier.
+    const tier = (x) => (!x.paid && x.invoiceNo ? 0 : !x.paid ? 1 : 2);
+    const ta = tier(a);
+    const tb = tier(b);
+    if (ta !== tb) return ta - tb;
+    if (ta === 0) return dateAsc(invoicedDate)(a, b);
+    return byAmountDesc(a, b);
+  },
+  followup: dateAsc(followUpDate),
+  newest: (a, b) => newness(b) - newness(a) || byAmountDesc(a, b),
+};
+
+/** Dropdown options for the Jobs view (order = display order). */
+export const SORT_OPTIONS = [
+  { key: "smart", label: "Smart (overdue → amount)" },
+  { key: "amount", label: "Amount" },
+  { key: "next", label: "Next step date" },
+  { key: "priority", label: "Priority (overdue invoices)" },
+  { key: "followup", label: "Follow-up due" },
+  { key: "newest", label: "Newest" },
+];
+
+/** Comparator for a sort key (unknown keys fall back to amount = sleek's sort). */
+export function sortCmp(key) {
+  return SORT_CMPS[key] || SORT_CMPS.amount;
+}
+
+/** Sort like sleek by default (biggest amount first); pass a key for others. */
+export function sortJobs(list, key) {
+  return list.slice().sort(sortCmp(key));
 }
 
 export { todayStr };

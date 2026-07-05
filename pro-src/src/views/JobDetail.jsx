@@ -75,6 +75,7 @@ export default function JobDetail() {
   const job = effectiveJob(id);
   const [openPhase, setOpenPhase] = useState(null); // null = auto
   const [openStep, setOpenStep] = useState(null);
+  const [showRemoved, setShowRemoved] = useState({}); // paperwork branch -> expanded
   const [sheet, setSheet] = useState(null); // {kind, ...}
   const stepTimer = useRef(null);
 
@@ -146,10 +147,27 @@ export default function JobDetail() {
     );
   };
 
+  // Sub-item three-state model (all schema-additive, staged via patchJob):
+  //   paperwork[k].active[step]  = true  -> item enabled (Complete/Undo UX)
+  //   paperwork[k].steps[step]   = true  -> item completed (existing key)
+  //   paperwork[k].removed[step] = true  -> hidden into "Removed items"
+  // Completing implies enabling; a done item from old saved data renders as
+  // enabled+done, so existing data is unchanged. Keys are never deleted —
+  // restore just flips removed[step] back to false.
   const paperStep = (k, s, on) => {
-    patchJob(id, { paperwork: { [k]: { steps: { [s]: on } } } });
+    setOpenStep(null);
+    patchJob(id, { paperwork: { [k]: { steps: { [s]: on }, active: { [s]: true } } } });
     if (on && s === "Inspection scheduled") setSheet({ kind: "inspection", branch: k });
   };
+  const enablePaper = (k, s) => {
+    patchJob(id, { paperwork: { [k]: { active: { [s]: true } } } });
+    setOpenStep(null);
+  };
+  const removePaper = (k, s) => {
+    patchJob(id, { paperwork: { [k]: { removed: { [s]: true } } } });
+    setOpenStep(null);
+  };
+  const restorePaper = (k, s) => patchJob(id, { paperwork: { [k]: { removed: { [s]: false } } } });
 
   const rmAtt = (i) => {
     const a = at.slice();
@@ -337,29 +355,102 @@ export default function JobDetail() {
                                     />
                                   </div>
                                   {br.enabled &&
-                                    PAPER[k].steps.map((ps) => {
-                                      const on = br.steps && br.steps[ps];
+                                    PAPER[k].steps
+                                      .filter((ps) => !(br.removed && br.removed[ps]))
+                                      .map((ps) => {
+                                        const on = !!(br.steps && br.steps[ps]);
+                                        const enabledItem = on || !!(br.active && br.active[ps]);
+                                        const rowKey = "pp:" + k + ":" + ps;
+                                        return (
+                                          <div key={ps}>
+                                            <div className={`flex items-center gap-2 py-1 ${enabledItem ? "" : "opacity-50"}`}>
+                                              <button
+                                                type="button"
+                                                className={`text-left text-[13px] flex-1 min-w-0 ${
+                                                  on ? "text-emerald-800 font-semibold" : "text-slate-600"
+                                                }`}
+                                                onClick={() => setOpenStep(openStep === rowKey ? null : rowKey)}
+                                              >
+                                                {on ? "✓ " : ""}
+                                                {ps}
+                                              </button>
+                                              {isDatedStep(ps) && (
+                                                <input
+                                                  type="date"
+                                                  className="input !w-[135px] !py-1 !px-1.5 !text-xs"
+                                                  value={((br.dates && br.dates[ps]) || "").slice(0, 10)}
+                                                  onChange={(ev) =>
+                                                    patchJob(id, { paperwork: { [k]: { dates: { [ps]: ev.target.value } } } })
+                                                  }
+                                                  aria-label={ps + " date"}
+                                                />
+                                              )}
+                                              <Toggle small on={on} label={ps} onChange={(v) => paperStep(k, ps, v)} />
+                                              <button
+                                                type="button"
+                                                className="btn-ghost !py-0.5 !px-1.5 text-slate-400"
+                                                onClick={() => removePaper(k, ps)}
+                                                aria-label={`Remove ${ps} from list`}
+                                              >
+                                                ✕
+                                              </button>
+                                            </div>
+                                            {openStep === rowKey && (
+                                              <div className="flex gap-1.5 pl-4 pb-1.5">
+                                                {!enabledItem ? (
+                                                  <button
+                                                    className="btn bg-brand-soft text-brand !py-1.5"
+                                                    onClick={() => enablePaper(k, ps)}
+                                                  >
+                                                    Enable
+                                                  </button>
+                                                ) : on ? (
+                                                  <button className="btn-ghost !py-1.5" onClick={() => paperStep(k, ps, false)}>
+                                                    ↩ Undo
+                                                  </button>
+                                                ) : (
+                                                  <button
+                                                    className="btn bg-emerald-100 text-emerald-700 !py-1.5"
+                                                    onClick={() => paperStep(k, ps, true)}
+                                                  >
+                                                    ✓ Complete
+                                                  </button>
+                                                )}
+                                              </div>
+                                            )}
+                                          </div>
+                                        );
+                                      })}
+                                  {br.enabled &&
+                                    (() => {
+                                      const gone = PAPER[k].steps.filter((ps) => br.removed && br.removed[ps]);
+                                      if (!gone.length) return null;
                                       return (
-                                        <div key={ps} className="flex items-center gap-2 py-1">
-                                          <span className={`text-[13px] flex-1 ${on ? "text-emerald-800 font-semibold" : "text-slate-600"}`}>
-                                            {on ? "✓ " : ""}
-                                            {ps}
-                                          </span>
-                                          {isDatedStep(ps) && (
-                                            <input
-                                              type="date"
-                                              className="input !w-[135px] !py-1 !px-1.5 !text-xs"
-                                              value={((br.dates && br.dates[ps]) || "").slice(0, 10)}
-                                              onChange={(ev) =>
-                                                patchJob(id, { paperwork: { [k]: { dates: { [ps]: ev.target.value } } } })
-                                              }
-                                              aria-label={ps + " date"}
-                                            />
-                                          )}
-                                          <Toggle small on={!!on} label={ps} onChange={(v) => paperStep(k, ps, v)} />
+                                        <div className="mt-0.5">
+                                          <button
+                                            type="button"
+                                            className="flex items-center gap-1 py-1 text-[12px] font-semibold text-slate-400"
+                                            onClick={() => setShowRemoved((m) => ({ ...m, [k]: !m[k] }))}
+                                          >
+                                            <span className={`transition-transform ${showRemoved[k] ? "rotate-90" : ""}`}>›</span>
+                                            Removed items ({gone.length})
+                                          </button>
+                                          {showRemoved[k] &&
+                                            gone.map((ps) => (
+                                              <div key={ps} className="flex items-center gap-2 py-1">
+                                                <span className="text-[13px] flex-1 min-w-0 text-slate-400 line-through">{ps}</span>
+                                                <button
+                                                  type="button"
+                                                  className="btn-ghost !py-1 !px-2.5"
+                                                  onClick={() => restorePaper(k, ps)}
+                                                >
+                                                  Restore
+                                                </button>
+                                              </div>
+                                            ))}
                                         </div>
                                       );
-                                    })}
+                                    })()}
                                 </div>
                               );
                             })}

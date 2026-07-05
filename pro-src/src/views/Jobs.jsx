@@ -5,24 +5,50 @@ import { useStore } from "../state/store.jsx";
 import JobCard from "../components/JobCard.jsx";
 import MergePrompt from "../components/MergePrompt.jsx";
 import { MarkPaidSheet, QuickSendSheet } from "../components/JobSheets.jsx";
-import { FILTER_NAMES, clientKey, matchesFilter, matchesQuery, sortJobs } from "../lib/stages.js";
+import {
+  FILTER_NAMES,
+  SORT_OPTIONS,
+  clientKey,
+  matchesFilter,
+  matchesQuery,
+  sortCmp,
+  sortJobs,
+} from "../lib/stages.js";
 import { normalizeCustomer } from "../lib/customers.js";
 import { fmt$, parseAmount } from "../lib/format.js";
 
 const IDLE_COLLAPSE_MS = 8000; // expanded customer rows fold back after ~8s idle
+const SORT_LS_KEY = "lepro_jobs_sort_v1"; // persisted sort-by choice
+
+const loadSort = () => {
+  try {
+    const s = localStorage.getItem(SORT_LS_KEY);
+    return SORT_OPTIONS.some((o) => o.key === s) ? s : "smart";
+  } catch {
+    return "smart";
+  }
+};
 
 export default function Jobs({ embedded }) {
   const { jobs, loading, showToast } = useStore();
   const [q, setQ] = useState("");
   const [filter, setFilter] = useState("Active");
+  const [sort, setSort] = useState(loadSort);
   const [open, setOpen] = useState({}); // groupKey -> expanded
   const [sheet, setSheet] = useState(null); // {kind:"paid"|"send", job}
   const timers = useRef({}); // groupKey -> auto-collapse timer
 
+  const pickSort = (k) => {
+    setSort(k);
+    try {
+      localStorage.setItem(SORT_LS_KEY, k);
+    } catch {}
+  };
+
   const active = useMemo(() => jobs.filter((j) => !j._archived && !j._deleted), [jobs]);
   const shown = useMemo(
-    () => sortJobs(active.filter((j) => matchesFilter(j, filter) && matchesQuery(j, q))),
-    [active, filter, q]
+    () => sortJobs(active.filter((j) => matchesFilter(j, filter) && matchesQuery(j, q)), sort),
+    [active, filter, q, sort]
   );
 
   // Bug #1: key = clientGroup || normalized customer name. A second pass
@@ -47,12 +73,14 @@ export default function Jobs({ embedded }) {
       if (!k.startsWith("c:")) continue;
       const target = nameToGroup.get(k.slice(2));
       if (target) {
-        map.set(target, sortJobs(map.get(target).concat(list)));
+        map.set(target, sortJobs(map.get(target).concat(list), sort));
         map.delete(k);
       }
     }
-    return [...map.entries()];
-  }, [shown]);
+    // Groups take the rank of their best job (list[0] — each list is sorted).
+    const cmp = sortCmp(sort);
+    return [...map.entries()].sort((A, B) => cmp(A[1][0], B[1][0]));
+  }, [shown, sort]);
 
   /* auto-collapse an expanded row after ~8s without interaction */
   const armCollapse = (key) => {
@@ -91,18 +119,32 @@ export default function Jobs({ embedded }) {
         aria-label="Search jobs"
       />
 
-      <div className="flex gap-1.5 overflow-x-auto -mx-4 px-4 pb-1 [scrollbar-width:none]">
-        {FILTER_NAMES.map((f) => (
-          <button
-            key={f}
-            onClick={() => setFilter(f)}
-            className={`chip ${
-              filter === f ? "bg-slate-900 text-white" : "bg-white text-slate-600 border border-slate-200"
-            }`}
-          >
-            {f}
-          </button>
-        ))}
+      <div className="flex items-center gap-2 -mx-4 px-4">
+        <div className="flex gap-1.5 overflow-x-auto pb-1 [scrollbar-width:none] flex-1 min-w-0">
+          {FILTER_NAMES.map((f) => (
+            <button
+              key={f}
+              onClick={() => setFilter(f)}
+              className={`chip ${
+                filter === f ? "bg-slate-900 text-white" : "bg-white text-slate-600 border border-slate-200"
+              }`}
+            >
+              {f}
+            </button>
+          ))}
+        </div>
+        <select
+          className="input !w-auto max-w-[130px] !py-1.5 !px-2 !text-xs shrink-0 self-start"
+          aria-label="Sort jobs"
+          value={sort}
+          onChange={(e) => pickSort(e.target.value)}
+        >
+          {SORT_OPTIONS.map((o) => (
+            <option key={o.key} value={o.key}>
+              {o.label}
+            </option>
+          ))}
+        </select>
       </div>
 
       {loading && !jobs.length ? (
