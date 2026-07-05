@@ -90,11 +90,16 @@ export function StoreProvider({ children }) {
   }, []);
 
   /* ---------- pulls ---------- */
+  const lastSavedTs = useRef(0); // ts of our latest overlay save (see refreshJobs)
   const refreshJobs = useCallback(async (quiet) => {
     if (!quiet) setLoading(true);
     try {
       const meta = await api.listJobsMeta();
-      setJobs(meta.jobs);
+      // The overlay lives in eventually-consistent storage: a snapshot older
+      // than our last save would silently revert just-saved edits on screen.
+      // Keep the local (already saved) state and let the next poll catch up.
+      const stale = lastSavedTs.current && meta.stateTs && meta.stateTs < lastSavedTs.current;
+      if (!stale) setJobs(meta.jobs);
       setSyncedAt(meta.syncedAt || 0);
       setError("");
     } catch (e) {
@@ -211,7 +216,8 @@ export function StoreProvider({ children }) {
         .filter((j) => j && j.invoiceNo);
 
       for (const [id, patch] of entries) {
-        await api.saveJob(id, patch);
+        const r = await api.saveJob(id, patch);
+        if (r && r.ts) lastSavedTs.current = Math.max(lastSavedTs.current, r.ts);
         setJobs((js) => js.map((j) => (String(j.id) === String(id) ? applyOverlay(j, patch) : j)));
       }
       setPending({});
@@ -251,7 +257,8 @@ export function StoreProvider({ children }) {
     async (id, patch) => {
       setJobs((js) => js.map((j) => (String(j.id) === String(id) ? applyOverlay(j, patch) : j)));
       try {
-        await api.saveJob(id, patch);
+        const r = await api.saveJob(id, patch);
+        if (r && r.ts) lastSavedTs.current = Math.max(lastSavedTs.current, r.ts);
       } catch (e) {
         showToast("Sync failed — will retry on next save");
       }
@@ -388,7 +395,12 @@ export function StoreProvider({ children }) {
         calEventId: calEventId || "",
       };
       setJobs((js) => [...js, { id, ...JSON.parse(JSON.stringify(ov)) }]);
-      api.saveJob(id, ov).catch(() => showToast("Offline — job kept locally"));
+      api
+        .saveJob(id, ov)
+        .then((r) => {
+          if (r && r.ts) lastSavedTs.current = Math.max(lastSavedTs.current, r.ts);
+        })
+        .catch(() => showToast("Offline — job kept locally"));
       if (g.date) {
         enqueueRef.current(
           "calendar_upsert",

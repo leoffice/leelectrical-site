@@ -38,12 +38,23 @@ export function createNetlifyAdapter() {
   // clobber each other's keys (e.g. convert-to-job writes the new job and
   // the _sasTickets mark back-to-back). Serialize them per adapter.
   let saveQ = Promise.resolve();
+  // ts of our latest state POST. Netlify Blobs is eventually consistent, so a
+  // GET right after our own write can return the PREVIOUS snapshot — merging
+  // into that (saveJob) or rendering it (refresh) silently reverts edits.
+  let lastWriteTs = 0;
+  const freshState = async () => {
+    for (let i = 0; ; i++) {
+      const state = (await http(`state?${cb()}`)) || { ov: {}, ts: 0 };
+      if (!lastWriteTs || (state.ts || 0) >= lastWriteTs || i >= 3) return state;
+      await new Promise((r) => setTimeout(r, 350 * (i + 1))); // blob lag — retry
+    }
+  };
   return {
     name: "netlify",
 
     /** Merged view + sync metadata: jobsdata.jobs + state.ov (overlay wins). */
     async listJobsMeta() {
-      const [data, state] = await Promise.all([http(`jobsdata?${cb()}`), http("state")]);
+      const [data, state] = await Promise.all([http(`jobsdata?${cb()}`), http(`state?${cb()}`)]);
       return {
         jobs: mergeJobs(data.jobs || [], (state && state.ov) || {}),
         syncedAt: data.syncedAt || 0,
@@ -70,10 +81,11 @@ export function createNetlifyAdapter() {
      *  (the store itself is last-write-wins). */
     async saveJob(id, patch) {
       const run = async () => {
-        const state = await http("state");
+        const state = await freshState();
         const ov = (state && state.ov) || {};
         ov[id] = deepMerge(ov[id] || {}, patch || {});
         const res = await http("state", { ov });
+        if (res && res.ts) lastWriteTs = Math.max(lastWriteTs, res.ts);
         return { ok: true, ts: res && res.ts, ov: ov[id] };
       };
       const p = saveQ.then(run, run);
@@ -129,7 +141,7 @@ export function createNetlifyAdapter() {
      *  mergeJobs() skips "_"-prefixed overlay keys, so this never renders
      *  as a phantom job. */
     async getSasTickets() {
-      const state = await http("state");
+      const state = await http(`state?${cb()}`);
       const ov = (state && state.ov) || {};
       return isPlainObject(ov._sasTickets) ? ov._sasTickets : {};
     },

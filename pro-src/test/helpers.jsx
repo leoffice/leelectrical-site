@@ -45,6 +45,7 @@ export function mockServer(opts = {}) {
   const state = {
     jobs: opts.jobs || [JSON.parse(JSON.stringify(J1)), JSON.parse(JSON.stringify(J2))],
     ov: opts.ov || {},
+    stateTs: opts.stateTs ?? Date.now(), // ts of the ov snapshot (stale-read guard)
     syncedAt: opts.syncedAt ?? Date.now() - 5 * 60000,
     commands: opts.commands || [],
     events: opts.events || [EV],
@@ -85,10 +86,13 @@ export function mockServer(opts = {}) {
       if (path === "jobsdata")
         data = method === "POST" ? { ok: true } : { jobs: state.jobs, syncedAt: state.syncedAt };
       else if (path === "state") {
+        // Mirrors the live fn: POST stamps ts, GET returns { ov, ts } (the
+        // adapter/store use ts to detect stale eventually-consistent reads).
         if (method === "POST") {
           state.ov = body.ov;
-          data = { ok: true, ts: Date.now() };
-        } else data = { ov: state.ov, ts: 1 };
+          state.stateTs = Date.now();
+          data = { ok: true, ts: state.stateTs };
+        } else data = { ov: state.ov, ts: state.stateTs };
       } else if (path === "command") {
         if (method === "POST") {
           if (body.op === "enqueue") {
