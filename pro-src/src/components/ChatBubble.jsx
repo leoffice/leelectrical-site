@@ -7,6 +7,11 @@ import { useStore } from "../state/store.jsx";
 import { fmt$ } from "../lib/format.js";
 
 const CONVO_KEY = "le_pro_convo";
+
+/** The chat fn stores bubble messages as who:"you" and Dispatch replies as
+ *  who:"claude" (op:reply) — some tools use "dispatch". Anything that isn't
+ *  a reply renders as "me". */
+const isDispatchMsg = (m) => m.who === "dispatch" || m.who === "claude";
 function getConvo() {
   try {
     let c = localStorage.getItem(CONVO_KEY);
@@ -57,12 +62,17 @@ export default function ChatBubble() {
     return `[LE Pro / ${view} view] — `;
   }, [ctxOn, jobId, view, effectiveJob]);
 
+  // Optimistically-rendered messages the server hasn't echoed back yet —
+  // poll() keeps them visible instead of blinking them away.
+  const localMsgs = useRef([]);
+
   const poll = useCallback(async () => {
     try {
       const ms = await api.chatList(convo.current);
+      localMsgs.current = localMsgs.current.filter((lm) => !ms.some((m) => m.id === lm.id));
       if (ms.length > lastN.current && !openRef.current) setUnread((u) => u + ms.length - lastN.current);
       lastN.current = ms.length;
-      setMsgs(ms);
+      setMsgs(ms.concat(localMsgs.current));
     } catch {}
   }, [api]);
 
@@ -93,12 +103,32 @@ export default function ChatBubble() {
     setText("");
     const full = chatCtx() + t;
     setCtxOn(true);
+
+    // Optimistic render — shows immediately with status "Sent".
+    const msg = { id: "m" + Date.now(), who: "you", text: full, status: "Sent", _local: true };
+    localMsgs.current = [...localMsgs.current, msg];
+    setMsgs((ms) => [...ms, msg]);
+
+    let ok = false;
     try {
-      await api.chatSend(convo.current, "m" + Date.now(), full);
-      await api.iterate(full, "pro-bubble:" + convo.current);
+      await api.chatSend(convo.current, msg.id, full);
+      ok = true;
     } catch {
-      showToast("Send failed — will show as unsent");
+      try {
+        await api.chatSend(convo.current, msg.id, full); // retry once
+        ok = true;
+      } catch {}
     }
+    if (!ok) {
+      showToast("Send failed — check your connection and try again");
+      localMsgs.current = localMsgs.current.map((m) =>
+        m.id === msg.id ? { ...m, status: "Not sent" } : m
+      );
+      setMsgs((ms) => ms.map((m) => (m.id === msg.id ? { ...m, status: "Not sent" } : m)));
+      return;
+    }
+    // Nudge Dispatch — a failed nudge must not mark the message unsent.
+    api.iterate(full, "pro-bubble:" + convo.current).catch(() => {});
     poll();
   };
 
@@ -191,14 +221,14 @@ export default function ChatBubble() {
                 <div
                   key={m.id || i}
                   className={`max-w-[82%] rounded-2xl px-3 py-2 text-sm mb-2 ${
-                    m.who === "dispatch"
+                    isDispatchMsg(m)
                       ? "bg-slate-100 rounded-bl-md"
                       : "bg-brand text-white ml-auto rounded-br-md"
                   }`}
                 >
                   {m.text}
                   <span className="block text-[10px] opacity-70 mt-0.5 text-right">
-                    {m.who === "dispatch" ? "Dispatch" : m.status || "Sent"}
+                    {isDispatchMsg(m) ? "Dispatch" : m.status || "Sent"}
                   </span>
                 </div>
               ))
@@ -208,6 +238,11 @@ export default function ChatBubble() {
               </div>
             )}
           </div>
+          {!msgs.some(isDispatchMsg) && (
+            <div className="px-3 pb-1 text-[11px] text-slate-400 text-center" data-testid="chat-hint">
+              Dispatch usually replies within a couple of minutes
+            </div>
+          )}
           {ctx && (
             <div className="flex items-center gap-1.5 mx-3 mb-1 text-[11px] font-semibold text-accent bg-accent-soft rounded-lg px-2.5 py-1.5" data-testid="ctx-chip">
               <span className="truncate flex-1">Context: {ctx.replace(/ — $/, "")}</span>

@@ -276,9 +276,9 @@ describe("12. sync chip + today view + jobs list", () => {
     });
     const user = userEvent.setup();
     renderApp("#/");
-    // grouped into one client row
-    expect(await screen.findByText("2 jobs · combined client")).toBeInTheDocument();
-    await user.click(screen.getByText("2 jobs · combined client"));
+    // grouped into one client row (count · total · unpaid)
+    expect(await screen.findByText(/2 jobs · \$2,800 · 2 unpaid/)).toBeInTheDocument();
+    await user.click(screen.getByText(/2 jobs · \$2,800 · 2 unpaid/));
     expect(screen.getByText("Panel upgrade")).toBeInTheDocument();
     expect(screen.getByText("Outlet swap")).toBeInTheDocument();
     // quick actions present on cards

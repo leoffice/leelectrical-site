@@ -50,6 +50,7 @@ export function mockServer(opts = {}) {
     events: opts.events || [EV],
     tasks: opts.tasks || [],
     messages: opts.messages || [],
+    failChatPosts: opts.failChatPosts || 0, // fail the next N chat POSTs (retry tests)
   };
   const calls = [];
   let seq = 1;
@@ -96,8 +97,14 @@ export function mockServer(opts = {}) {
           data = { ok: true };
         } else data = { tasks: state.tasks };
       } else if (path === "chat") {
+        // Mirrors the live chat fn: bubble msgs -> who:"you", replies -> who:"claude".
         if (method === "POST") {
-          state.messages.push({ id: body.id, who: "me", text: body.text, status: "Sent" });
+          if (state.failChatPosts > 0) {
+            state.failChatPosts--;
+            return { ok: false, status: 500, json: async () => ({ ok: false }) };
+          }
+          if (body.op === "msg") state.messages.push({ id: body.id, who: "you", text: body.text, status: "Sent", ts: Date.now() });
+          else if (body.op === "reply") state.messages.push({ id: "r" + seq++, who: "claude", text: body.text, status: "", ts: Date.now() });
           data = { ok: true };
         } else data = { messages: state.messages };
       } else if (path === "iterate") data = { ok: true };

@@ -114,12 +114,9 @@ export function matchesQuery(job, q) {
     .every((w) => hay.includes(w));
 }
 
-/** Grouping key: explicit clientGroup groups jobs (matches sleek's groupsOf);
- *  everything else stands alone. */
-export function clientKey(job) {
-  if (job.clientGroup) return "g:" + job.clientGroup;
-  return "j:" + job.id;
-}
+/** Grouping key — clientGroup, else normalized customer name (bug #1 fix).
+ *  Lives in customers.js; re-exported here for existing imports. */
+export { clientKey, normalizeCustomer } from "./customers.js";
 
 /** Sort like sleek: biggest amount first. */
 export function sortJobs(list) {
