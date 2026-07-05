@@ -7,7 +7,7 @@
 //   devtasks  shared development task list (op:add / op:patch)
 //   chat      floating-bubble conversations (op:msg)
 //   iterate   nudges Dispatch to look at the message
-import { deepMerge, mergeJobs } from "./merge.js";
+import { deepMerge, isPlainObject, mergeJobs } from "./merge.js";
 
 const REMOTE = "https://leelectrical.us/.netlify/functions";
 
@@ -34,6 +34,10 @@ async function http(path, body) {
 const cb = () => "cb=" + Date.now();
 
 export function createNetlifyAdapter() {
+  // saveJob is fetch-latest -> merge -> post; two CONCURRENT saves could
+  // clobber each other's keys (e.g. convert-to-job writes the new job and
+  // the _sasTickets mark back-to-back). Serialize them per adapter.
+  let saveQ = Promise.resolve();
   return {
     name: "netlify",
 
@@ -65,11 +69,16 @@ export function createNetlifyAdapter() {
      *  Fetch-latest -> merge -> post keeps the clobber window minimal
      *  (the store itself is last-write-wins). */
     async saveJob(id, patch) {
-      const state = await http("state");
-      const ov = (state && state.ov) || {};
-      ov[id] = deepMerge(ov[id] || {}, patch || {});
-      const res = await http("state", { ov });
-      return { ok: true, ts: res && res.ts, ov: ov[id] };
+      const run = async () => {
+        const state = await http("state");
+        const ov = (state && state.ov) || {};
+        ov[id] = deepMerge(ov[id] || {}, patch || {});
+        const res = await http("state", { ov });
+        return { ok: true, ts: res && res.ts, ov: ov[id] };
+      };
+      const p = saveQ.then(run, run);
+      saveQ = p.catch(() => {}); // one failure must not wedge the queue
+      return p;
     },
 
     async listCommands(jobId) {
@@ -107,6 +116,27 @@ export function createNetlifyAdapter() {
       const ct = (res.headers && res.headers.get && res.headers.get("content-type")) || "";
       if (ct.includes("application/json")) return null;
       return res.blob();
+    },
+
+    /** SAS answering-service inbound call tickets (LEADS — never QBO). */
+    async listSasCalls() {
+      const d = await http(`sas-inbound?${cb()}`);
+      return d.calls || [];
+    },
+
+    /** Handled-state map for SAS tickets — lives in the ov overlay under the
+     *  RESERVED key ov._sasTickets = { [callId]: { handled, jobId?, ts } }.
+     *  mergeJobs() skips "_"-prefixed overlay keys, so this never renders
+     *  as a phantom job. */
+    async getSasTickets() {
+      const state = await http("state");
+      const ov = (state && state.ov) || {};
+      return isPlainObject(ov._sasTickets) ? ov._sasTickets : {};
+    },
+
+    /** Mark one ticket handled/dismissed (deep-merged, same path as saveJob). */
+    async markSasTicket(callId, patch) {
+      return this.saveJob("_sasTickets", { [callId]: patch || { handled: true } });
     },
 
     async listEvents() {

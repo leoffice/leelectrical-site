@@ -16,6 +16,7 @@ import api from "../data/adapter.js";
 import { applyOverlay, deepMerge, isPlainObject } from "../data/merge.js";
 import { STAGES } from "../lib/stages.js";
 import { fmt$, todayStr } from "../lib/format.js";
+import { unhandledCount } from "../lib/sas.js";
 
 const Ctx = createContext(null);
 const DRAFT_KEY = "lepro_draft_v1";
@@ -48,6 +49,8 @@ export function StoreProvider({ children }) {
   const [events, setEvents] = useState([]);
   const [commands, setCommands] = useState([]);
   const [devTasks, setDevTasks] = useState([]);
+  const [sasCalls, setSasCalls] = useState([]); // SAS inbound lead tickets
+  const [sasTickets, setSasTickets] = useState({}); // ov._sasTickets handled-state map
   const [pending, setPending] = useState(loadDraft); // jobId -> staged patch
   const [syncedAt, setSyncedAt] = useState(0);
   const [busy, setBusy] = useState(false); // sync chip pulse
@@ -119,11 +122,20 @@ export function StoreProvider({ children }) {
     } catch {}
   }, []);
 
+  /** SAS lead tickets + their handled-state (ov._sasTickets). */
+  const refreshSas = useCallback(async () => {
+    try {
+      const [calls, tickets] = await Promise.all([api.listSasCalls(), api.getSasTickets()]);
+      setSasCalls(Array.isArray(calls) ? calls : []);
+      setSasTickets(tickets || {});
+    } catch {}
+  }, []);
+
   const refresh = useCallback(
     async (quiet) => {
-      await Promise.all([refreshJobs(quiet), refreshEvents(), refreshCommands(), refreshDev()]);
+      await Promise.all([refreshJobs(quiet), refreshEvents(), refreshCommands(), refreshDev(), refreshSas()]);
     },
-    [refreshJobs, refreshEvents, refreshCommands, refreshDev]
+    [refreshJobs, refreshEvents, refreshCommands, refreshDev, refreshSas]
   );
 
   useEffect(() => {
@@ -132,18 +144,20 @@ export function StoreProvider({ children }) {
     const t2 = setInterval(refreshCommands, 8_000);
     const t3 = setInterval(refreshDev, 30_000);
     const t4 = setInterval(refreshEvents, 120_000);
+    const t5 = setInterval(refreshSas, 60_000);
     const vis = () => {
       if (!document.hidden) {
         refreshJobs(true);
         refreshCommands();
+        refreshSas();
       }
     };
     document.addEventListener("visibilitychange", vis);
     return () => {
-      [t1, t2, t3, t4].forEach(clearInterval);
+      [t1, t2, t3, t4, t5].forEach(clearInterval);
       document.removeEventListener("visibilitychange", vis);
     };
-  }, [refresh, refreshJobs, refreshCommands, refreshDev, refreshEvents]);
+  }, [refresh, refreshJobs, refreshCommands, refreshDev, refreshEvents, refreshSas]);
 
   /** Header chip: request a fresh QBO pull, then re-pull everything. */
   const syncNow = useCallback(async () => {
@@ -389,6 +403,23 @@ export function StoreProvider({ children }) {
     [refreshDev, showToast]
   );
 
+  /* ---------- SAS lead tickets (Calls tab) ---------- */
+  /** Mark a ticket handled (dismiss or converted-to-job). Optimistic local
+   *  update + persist under the reserved ov._sasTickets key. NO QBO commands
+   *  ever originate here — these are leads, not QuickBooks customers. */
+  const markSasHandled = useCallback(async (callId, info) => {
+    if (!callId) return;
+    const patch = { handled: true, ts: Date.now(), ...(info || {}) };
+    setSasTickets((t) => ({ ...t, [callId]: { ...(t[callId] || {}), ...patch } }));
+    try {
+      await api.markSasTicket(callId, patch);
+    } catch {
+      showToast("Offline — ticket state kept locally");
+    }
+  }, [showToast]);
+
+  const sasBadge = useMemo(() => unhandledCount(sasCalls, sasTickets), [sasCalls, sasTickets]);
+
   const devBadge = useMemo(
     () => devTasks.filter((t) => ["question", "verify"].includes(t.status)).length,
     [devTasks]
@@ -407,6 +438,11 @@ export function StoreProvider({ children }) {
     commands,
     devTasks,
     devBadge,
+    sasCalls,
+    sasTickets,
+    sasBadge,
+    refreshSas,
+    markSasHandled,
     pending,
     dirtyCount,
     dirtyJobs,

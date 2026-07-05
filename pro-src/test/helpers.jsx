@@ -53,6 +53,7 @@ export function mockServer(opts = {}) {
     failChatPosts: opts.failChatPosts || 0, // fail the next N chat op:msg POSTs (retry tests)
     presence: opts.presence || {}, // per-convo map { convo: { lastSeen, view } } — mirrors presence-v1
     docs: opts.docs || {}, // key -> stored "pdf" (docs fn: PDF viewing)
+    sasCalls: opts.sasCalls || [], // SAS inbound lead tickets (Calls tab)
   };
   const calls = [];
   let seq = 1;
@@ -131,7 +132,9 @@ export function mockServer(opts = {}) {
           data = { ok: true };
         } else if (String(url).includes("presence=1")) data = JSON.parse(JSON.stringify(state.presence));
         else data = { messages: state.messages };
-      } else if (path === "iterate") data = { ok: true };
+      } else if (path === "sas-inbound")
+        data = { calls: JSON.parse(JSON.stringify(state.sasCalls)), ts: Date.now() };
+      else if (path === "iterate") data = { ok: true };
       return { ok: true, status: 200, json: async () => data };
     })
   );

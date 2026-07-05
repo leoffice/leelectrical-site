@@ -79,6 +79,9 @@ export function mergeJobs(baseJobs, ov) {
     out.push(applyOverlay(b, overlay[b.id]));
   }
   for (const id of Object.keys(overlay)) {
+    // Reserved namespace: "_"-prefixed ov keys (e.g. _sasTickets) are app
+    // metadata, never jobs — skip them even if they carry _new-looking data.
+    if (String(id).charAt(0) === "_") continue;
     const o = overlay[id];
     if (!o || seen.has(id) || !o._new || deleted(id)) continue;
     const j = applyOverlay(blankJob(id), o);

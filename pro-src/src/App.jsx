@@ -7,6 +7,7 @@ import { useStore } from "./state/store.jsx";
 import Jobs from "./views/Jobs.jsx";
 import JobDetail from "./views/JobDetail.jsx";
 import Today from "./views/Today.jsx";
+import Calls from "./views/Calls.jsx";
 import Dev from "./views/Dev.jsx";
 import Archive from "./views/Archive.jsx";
 import Placeholder from "./views/Placeholder.jsx";
@@ -20,15 +21,16 @@ import Sheet, { Opt } from "./components/Sheet.jsx";
 const TABS = [
   { to: "/", label: "Jobs", ic: "🗂️", end: true },
   { to: "/today", label: "Today", ic: "📅" },
+  { to: "/calls", label: "Calls", ic: "📞" },
   { to: "/dev", label: "Dev", ic: "🛠️" },
   { to: "/archive", label: "Archive", ic: "📦" },
 ];
 
 function Tab({ t, sidebar }) {
-  const { devBadge, guardNav, dirtyJobs } = useStore();
+  const { devBadge, sasBadge, guardNav, dirtyJobs } = useStore();
   const nav = useNavigate();
   const loc = useLocation();
-  const badge = t.to === "/dev" && devBadge > 0 ? devBadge : 0;
+  const badge = t.to === "/dev" ? devBadge : t.to === "/calls" ? sasBadge : 0;
   return (
     <NavLink
       to={t.to}
@@ -158,6 +160,7 @@ export default function App() {
             <Route path="/" element={<Jobs />} />
             <Route path="/job/:id" element={<JobDetail />} />
             <Route path="/today" element={<Today />} />
+            <Route path="/calls" element={<Calls />} />
             <Route path="/dev" element={<Dev />} />
             <Route path="/archive" element={<Archive />} />
             <Route path="*" element={<Placeholder icon="🤔" title="Not found" note="That page doesn’t exist." />} />

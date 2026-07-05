@@ -37,7 +37,7 @@ const FIELDS = [
 ];
 
 export default function NewJobFlow() {
-  const { newJob, setNewJob, events } = useStore();
+  const { newJob, setNewJob, events, markSasHandled } = useStore();
   const nav = useNavigate();
   if (!newJob) return null;
   const close = () => setNewJob(null);
@@ -75,7 +75,17 @@ export default function NewJobFlow() {
     );
   }
 
-  return <NewJobForm prefill={newJob.prefill || {}} onClose={close} onCreated={(id) => nav("/job/" + encodeURIComponent(id))} />;
+  return (
+    <NewJobForm
+      prefill={newJob.prefill || {}}
+      onClose={close}
+      onCreated={(id) => {
+        // SAS lead ticket → job: mark the originating ticket handled + link it.
+        if (newJob.sasCallId) markSasHandled(newJob.sasCallId, { handled: true, jobId: id });
+        nav("/job/" + encodeURIComponent(id));
+      }}
+    />
+  );
 }
 
 function NewJobForm({ prefill, onClose, onCreated }) {
