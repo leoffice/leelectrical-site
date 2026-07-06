@@ -2,15 +2,19 @@ import React from "react";
 import { createRoot } from "react-dom/client";
 import { HashRouter } from "react-router-dom";
 import App from "./App.jsx";
+import LockGate from "./components/LockGate.jsx";
 import { StoreProvider } from "./state/store.jsx";
 import "./index.css";
 
 createRoot(document.getElementById("root")).render(
   <React.StrictMode>
     <HashRouter>
-      <StoreProvider>
-        <App />
-      </StoreProvider>
+      {/* Unlock gate — must clear before the app (and its data fetching) mounts. */}
+      <LockGate>
+        <StoreProvider>
+          <App />
+        </StoreProvider>
+      </LockGate>
     </HashRouter>
   </React.StrictMode>
 );
