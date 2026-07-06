@@ -14,13 +14,19 @@ export default function Today() {
     () => js.filter((j) => j.followUp && j.followUp.date && j.followUp.date <= t && !j.paid),
     [js, t]
   );
+  // Window Levi wants: 2 weeks back through 1 week ahead, excluding "inspection" events.
+  const fromStr = useMemo(() => { const d = new Date(); d.setDate(d.getDate() - 14); return d.toISOString().slice(0, 10); }, []);
+  const toStr = useMemo(() => { const d = new Date(); d.setDate(d.getDate() + 7); return d.toISOString().slice(0, 10); }, []);
   const appts = useMemo(
     () =>
       (events || [])
-        .filter((e) => evStart(e).slice(0, 10) >= t)
+        .filter((e) => {
+          const d = evStart(e).slice(0, 10);
+          return d >= fromStr && d <= toStr && !/inspection/i.test(e.summary || "");
+        })
         .sort((a, b) => (evStart(a) < evStart(b) ? -1 : 1))
-        .slice(0, 8),
-    [events, t]
+        .slice(0, 40),
+    [events, fromStr, toStr]
   );
   const unpaid = js.filter((j) => !j.paid && j.invoiceNo);
   const owed = unpaid.reduce((s, j) => s + parseAmount(j.amount), 0);

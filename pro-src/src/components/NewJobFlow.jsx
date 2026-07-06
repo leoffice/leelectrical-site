@@ -51,11 +51,18 @@ export default function NewJobFlow() {
     );
 
   if (newJob.step === "cal") {
-    const t = todayStr();
+    // Window: 2 weeks back through 1 week ahead, excluding "inspection" events.
+    const fromD = new Date(); fromD.setDate(fromD.getDate() - 14);
+    const toD = new Date(); toD.setDate(toD.getDate() + 7);
+    const fromStr = fromD.toISOString().slice(0, 10);
+    const toStr = toD.toISOString().slice(0, 10);
     const evs = (events || [])
-      .filter((e) => evStart(e).slice(0, 10) >= t)
-      .sort((a, b) => (evStart(a) < evStart(b) ? -1 : 1))
-      .slice(0, 15);
+      .filter((e) => {
+        const d = evStart(e).slice(0, 10);
+        return d >= fromStr && d <= toStr && !/inspection/i.test(e.summary || "");
+      })
+      .sort((a, b) => (evStart(a) > evStart(b) ? -1 : 1))
+      .slice(0, 30);
     return (
       <Sheet title="Pick an appointment" onClose={close}>
         {evs.length ? (

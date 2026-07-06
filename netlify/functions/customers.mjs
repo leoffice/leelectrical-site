@@ -1,0 +1,58 @@
+import { getStore } from "@netlify/blobs";
+
+// Customer name index for the Pro app New Job smart search (task #49).
+// A host push keeps the list of QuickBooks customer names fresh; the Pro app
+// GETs it and filters client-side for instant autocomplete.
+//   GET             -> { customers:[{name,id}], updated, ts }
+//   GET ?q=drizin   -> { customers:[...top 12 matches for q], ts }
+//   POST {op:"set", customers:[{name,id}], updated}   (host push)
+const KEY = "customers-v1";
+
+function json(o) {
+  return new Response(JSON.stringify(o), {
+    headers: {
+      "content-type": "application/json",
+      "cache-control": "no-store",
+      "access-control-allow-origin": "*",
+      "access-control-allow-methods": "GET,POST,OPTIONS",
+      "access-control-allow-headers": "content-type",
+    },
+  });
+}
+
+async function load(store) {
+  return (await store.get(KEY, { type: "json", consistency: "strong" })) ||
+    { customers: [], updated: "", ts: 0 };
+}
+
+export default async (req) => {
+  const store = getStore("customers");
+  if (req.method === "OPTIONS") return json({ ok: true });
+
+  if (req.method === "POST") {
+    let b = {};
+    try { b = await req.json(); } catch (e) {}
+    if (b.op === "set" && Array.isArray(b.customers)) {
+      await store.setJSON(KEY, { customers: b.customers, updated: b.updated || "", ts: Date.now() });
+      return json({ ok: true, count: b.customers.length });
+    }
+    return json({ ok: false, error: "unknown op" });
+  }
+
+  const doc = await load(store);
+  const url = new URL(req.url);
+  const q = (url.searchParams.get("q") || "").trim().toLowerCase();
+  if (q) {
+    const toks = q.split(/\s+/).filter(Boolean);
+    const scored = [];
+    for (const c of doc.customers) {
+      const n = String(c.name || "").toLowerCase();
+      let s = 0;
+      for (const t of toks) if (n.includes(t)) s += n.startsWith(t) ? 3 : 2;
+      if (s) scored.push({ ...c, _s: s });
+    }
+    scored.sort((a, b) => b._s - a._s || a.name.length - b.name.length);
+    return json({ customers: scored.slice(0, 12).map(({ _s, ...c }) => c), ts: doc.ts });
+  }
+  return json(doc);
+};
