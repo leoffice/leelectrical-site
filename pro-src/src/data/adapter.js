@@ -4,6 +4,7 @@
 //   api.listJobs() / api.getJob(id)                 -> Job[] / Job|null
 //   api.saveJob(id, patch)                          -> { ok, ts }
 //   api.requestSync()                               -> asks for a fresh QBO pull
+//   api.searchCustomers(q?)                          -> [{name,id}] QBO name index
 //   api.listCommands(jobId?)                        -> Command[]
 //   api.enqueueCommand(type,jobId,payload,lane,idk) -> { command, deduped }
 //   api.updateCommand(id, patch, note)              -> retry / approvals

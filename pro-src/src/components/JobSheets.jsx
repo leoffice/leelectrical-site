@@ -69,9 +69,32 @@ export function MarkPaidSheet({ job, onClose }) {
 }
 
 /* ---------- 2a-pdf. Live PDF viewer (docs store + fetch_pdf command) ---------- */
+// The document pipeline stages we surface as plain wording (#45). "Requesting"
+// covers the initial docs-store check + enqueue; "Fetching from QuickBooks" is
+// the host agent pulling the PDF; "Ready" means it's rendered full screen.
+export const PDF_STAGES = ["Requesting", "Fetching from QuickBooks", "Ready"];
+
+/** Horizontal stage indicator: Requesting → Fetching from QuickBooks → Ready. */
+export function PdfStages({ active }) {
+  return (
+    <div className="flex items-center flex-wrap gap-x-1.5 gap-y-1 text-[11px] font-semibold mb-2" aria-label="Document status">
+      {PDF_STAGES.map((s, i) => (
+        <React.Fragment key={s}>
+          {i > 0 && <span className={i <= active ? "text-brand" : "text-slate-300"}>→</span>}
+          <span className={i < active ? "text-emerald-600" : i === active ? "text-brand" : "text-slate-400"}>
+            {i < active ? "✓ " : ""}
+            {s}
+          </span>
+        </React.Fragment>
+      ))}
+    </div>
+  );
+}
+
 /** "View PDF": GET docs?key=… first; on a miss enqueue a fetch_pdf command
  *  (lane judgment, idempotencyKey pdf:<no>:<date>) and poll docs every 4s for
- *  up to 90s, then render the PDF inline with a full-screen option. */
+ *  up to 90s. Once the blob is in hand it renders full screen automatically —
+ *  no separate "go full screen" step (#44) — with plain stage wording (#45). */
 export function PdfViewer({ job, kind, no }) {
   const { api, enqueue } = useStore();
   const [st, setSt] = useState({ phase: "idle" }); // idle|checking|fetching|ready|timeout
@@ -120,20 +143,38 @@ export function PdfViewer({ job, kind, no }) {
     timer.current = setTimeout(poll, 4000);
   };
 
+  // Ready → auto full-screen inline viewer (fixed overlay above the sheet).
   if (st.phase === "ready")
     return (
-      <div className="mb-2.5">
-        <iframe src={st.url} title={"PDF " + docKey} className="w-full h-[55vh] rounded-2xl border border-slate-200 bg-white" />
-        <button className="btn-ghost w-full mt-2 !py-2" onClick={() => window.open(st.url)}>
-          ⛶ Full screen
-        </button>
+      <div className="fixed inset-0 z-[70] bg-slate-900 flex flex-col" data-fullscreen-pdf>
+        <div className="flex items-center gap-2 px-4 py-2.5 text-white shrink-0 pt-safe">
+          <span className="font-bold text-sm flex-1 truncate">
+            {(kind === "invoice" ? "Invoice " : "Estimate ") + no}
+          </span>
+          <button className="text-xs font-bold bg-white/15 rounded-lg px-3 py-1.5" onClick={() => window.open(st.url)}>
+            ⤢ Open in new tab
+          </button>
+          <button
+            aria-label="Close PDF"
+            className="w-8 h-8 rounded-full bg-white/15 text-white font-bold text-sm shrink-0"
+            onClick={() => setSt({ phase: "idle" })}
+          >
+            ✕
+          </button>
+        </div>
+        <iframe src={st.url} title={"PDF " + docKey} className="flex-1 w-full bg-white border-0" />
       </div>
     );
   if (st.phase === "checking" || st.phase === "fetching")
     return (
-      <div className="border border-slate-200 rounded-2xl px-4 py-3 mb-2.5 text-sm text-slate-500 flex items-center gap-2.5">
-        <span className="w-2 h-2 rounded-full bg-amber-400 animate-pulse shrink-0" />
-        {st.phase === "checking" ? "Checking for the PDF…" : "Fetching from QuickBooks — a few seconds…"}
+      <div className="border border-slate-200 rounded-2xl px-4 py-3 mb-2.5">
+        <PdfStages active={st.phase === "checking" ? 0 : 1} />
+        <div className="text-sm text-slate-500 flex items-center gap-2.5">
+          <span className="w-2 h-2 rounded-full bg-amber-400 animate-pulse shrink-0" />
+          {st.phase === "checking"
+            ? "Requesting the document…"
+            : "Fetching from QuickBooks — a few seconds…"}
+        </div>
       </div>
     );
   if (st.phase === "timeout")
@@ -143,7 +184,7 @@ export function PdfViewer({ job, kind, no }) {
         <button className="btn-ghost w-full mt-2 !py-1.5" onClick={view}>↻ Try again</button>
       </div>
     );
-  return <Opt icon="📄" title="View PDF" note="Live from QuickBooks" onClick={view} />;
+  return <Opt icon="📄" title="View PDF" note="Opens full screen · live from QuickBooks" onClick={view} />;
 }
 
 /* ---------- 2a-link. Biller Genie payment link ---------- */
@@ -332,34 +373,48 @@ export function DocSheet({ job, kind, onClose }) {
   );
 }
 
-/** Quick "send invoice" confirmation used from the jobs list. */
+/** Quick invoice actions from the jobs list — View (full-screen PDF) or Send. */
 export function QuickSendSheet({ job, onClose }) {
   const doSend = useDoSend();
   return (
-    <Sheet title={"Send invoice " + (job.invoiceNo || "")} onClose={onClose}>
-      <p className="text-sm text-slate-500 mb-3">
-        Send invoice <b>{job.invoiceNo}</b> to <b>{job.email}</b>?
-      </p>
-      <button
-        className="btn-brand w-full"
-        onClick={() => {
-          doSend(job, "invoice");
-          onClose();
-        }}
-      >
-        📤 Send now
-      </button>
+    <Sheet title={"Invoice " + (job.invoiceNo || "")} onClose={onClose}>
+      <div className="text-sm space-y-1 mb-3">
+        <div><b className="font-semibold">Customer</b> <span className="text-slate-600">{job.customer || ""}</span></div>
+        <div><b className="font-semibold">Amount</b> <span className="text-slate-600">{fmt$(job.amount)}</span></div>
+      </div>
+      {job.invoiceNo && <PdfViewer job={job} kind="invoice" no={job.invoiceNo} />}
+      {job.email ? (
+        <Opt
+          icon="📤"
+          title={"Send to " + job.email}
+          note="Emails the invoice via Dispatch"
+          onClick={() => {
+            doSend(job, "invoice");
+            onClose();
+          }}
+        />
+      ) : (
+        <p className="text-[11px] text-slate-400 text-center mt-2">Add an email to send this invoice.</p>
+      )}
     </Sheet>
   );
 }
 
 /* ---------- 2b. Calendar quick view ---------- */
+// The office account every LE calendar link must open under. Google keys the
+// account off the /u/<index> segment for the *current* sign-in order (which
+// varies per device) and off ?authuser=<email> as an explicit hint — so we set
+// both and let authuser win, landing reliably on office@leelectrical.us.
+export const CAL_ACCOUNT = "office@leelectrical.us";
 export function CalSheet({ job, onClose }) {
   const d =
     (job.status && job.status.Scheduled && job.status.Scheduled.d) ||
     (job.followUp && job.followUp.date) ||
     "";
-  const url = "https://calendar.google.com/calendar/u/0/r/day" + (d ? "/" + d.replace(/-/g, "/") : "");
+  const url =
+    "https://calendar.google.com/calendar/u/0/r/day" +
+    (d ? "/" + d.replace(/-/g, "/") : "") +
+    "?authuser=" + encodeURIComponent(CAL_ACCOUNT);
   return (
     <Sheet title="Calendar" onClose={onClose}>
       {d ? (

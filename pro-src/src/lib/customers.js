@@ -149,6 +149,50 @@ export function dismissPair(a, b) {
   }
 }
 
+/** Form patch to apply when an existing customer is picked in the New Job
+ *  smart search (#55). The /customers name index only carries {name,id}, so
+ *  contact fields (phone/email/service address) are pulled from that customer's
+ *  jobs already in the app. Any richer fields present directly on the match
+ *  object take precedence. A "_newCustomer" pick contributes only the typed
+ *  name (plus any direct fields). Returns a partial patch to merge into the
+ *  form — keys are omitted when there's no value, so existing input survives. */
+export function customerPickPatch(customer, jobs) {
+  const c = customer || {};
+  const patch = { customer: c.name || "" };
+  if (c._newCustomer) {
+    patch.qboCustomerId = "";
+  } else {
+    patch.qboCustomerId = c.id != null ? String(c.id) : "";
+    const key = normalizeCustomer(c.name);
+    const mine = (jobs || []).filter(
+      (j) => j && !j._archived && !j._deleted && normalizeCustomer(j.customer) === key
+    );
+    const contact = customerContact(mine);
+    if (contact.phone) patch.phone = contact.phone;
+    if (contact.email) patch.email = contact.email;
+    if (contact.address) patch.serviceAddress = contact.address;
+  }
+  if (c.phone) patch.phone = c.phone;
+  if (c.email) patch.email = c.email;
+  if (c.address) patch.serviceAddress = c.address;
+  if (c.apartment) patch.apartment = c.apartment;
+  if (c.billingAddress) patch.billingAddress = c.billingAddress;
+  return patch;
+}
+
+/** QBO customers from the name index that are NOT already present in the app as
+ *  an active job (matched by normalized name) — the "not here yet" set the
+ *  Jobs tab offers to import (#56). */
+export function unknownCustomers(list, jobs) {
+  const have = new Set(
+    (jobs || [])
+      .filter((j) => j && !j._archived && !j._deleted)
+      .map((j) => normalizeCustomer(j.customer))
+      .filter(Boolean)
+  );
+  return (Array.isArray(list) ? list : []).filter((c) => c && !have.has(normalizeCustomer(c.name)));
+}
+
 /** First (deterministic) pair of distinct client keys whose names look like
  *  the same customer and that Levi hasn't already said "Not the same" to.
  *  Returns { id, a:{name,jobs}, b:{name,jobs} } or null. */

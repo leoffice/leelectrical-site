@@ -55,6 +55,7 @@ export function mockServer(opts = {}) {
     presence: opts.presence || {}, // per-convo map { convo: { lastSeen, view } } — mirrors presence-v1
     docs: opts.docs || {}, // key -> stored "pdf" (docs fn: PDF viewing)
     sasCalls: opts.sasCalls || [], // SAS inbound lead tickets (Calls tab)
+    customers: opts.customers || [], // QBO customer-name index (/customers, #49/#56)
   };
   const calls = [];
   let seq = 1;
@@ -136,6 +137,16 @@ export function mockServer(opts = {}) {
           data = { ok: true };
         } else if (String(url).includes("presence=1")) data = JSON.parse(JSON.stringify(state.presence));
         else data = { messages: state.messages };
+      } else if (path === "customers") {
+        // Name index for New Job smart search + Jobs-tab QBO search. GET ?q=
+        // filters by substring (mirrors the live fn's ranked contains match).
+        const m = String(url).match(/[?&]q=([^&]*)/);
+        const query = m ? decodeURIComponent(m[1]).toLowerCase() : "";
+        const all = state.customers || [];
+        const list = query
+          ? all.filter((c) => String(c.name || "").toLowerCase().includes(query))
+          : all;
+        data = { customers: JSON.parse(JSON.stringify(list)), ts: Date.now() };
       } else if (path === "sas-inbound")
         data = { calls: JSON.parse(JSON.stringify(state.sasCalls)), ts: Date.now() };
       else if (path === "iterate") data = { ok: true };

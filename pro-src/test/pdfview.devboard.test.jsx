@@ -3,14 +3,15 @@
 // archived section / Mark complete / Unarchive controls.
 import React from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { screen, waitFor, within } from "@testing-library/react";
+import { cleanup, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import "@testing-library/jest-dom/vitest";
 import { mockServer, renderApp } from "./helpers.jsx";
 import { todayStr } from "../src/lib/format.js";
 
 afterEach(() => {
-  vi.unstubAllGlobals();
+  cleanup(); // unmount between tests — this harness runs without globals:true,
+  vi.unstubAllGlobals(); // so RTL's auto-cleanup isn't registered.
   localStorage.clear();
   window.location.hash = "#/";
 });
@@ -39,7 +40,10 @@ describe("invoice/estimate quick view — View PDF", () => {
     const frame = await screen.findByTitle("PDF inv-251841");
     expect(frame.tagName).toBe("IFRAME");
     expect(frame).toHaveAttribute("src", "blob:pdf-test");
-    expect(screen.getByText("⛶ Full screen")).toBeInTheDocument();
+    // #44: auto full-screen — the PDF lands in a full-screen overlay with no
+    // separate "go full screen" step, so that old button is gone.
+    expect(document.querySelector("[data-fullscreen-pdf]")).not.toBeNull();
+    expect(screen.queryByText("⛶ Full screen")).toBeNull();
     expect(srv.enqueued("fetch_pdf")).toHaveLength(0); // no command when already stored
   });
 

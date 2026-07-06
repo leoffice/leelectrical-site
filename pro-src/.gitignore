@@ -1,0 +1,6 @@
+# Vite writes a fresh ESM config loader next to vite.config.js on every build;
+# these are transient and should never be committed.
+vite.config.js.timestamp-*.mjs
+vite.config.ts.timestamp-*.mjs
+
+node_modules/

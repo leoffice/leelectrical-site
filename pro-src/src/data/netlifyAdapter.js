@@ -151,6 +151,21 @@ export function createNetlifyAdapter() {
       return this.saveJob("_sasTickets", { [callId]: patch || { handled: true } });
     },
 
+    /** Customer-name index for the New Job smart search (#49) + the Jobs-tab
+     *  QBO customer search (#56). GET /customers -> { customers:[{name,id}] };
+     *  GET /customers?q=<query> -> top ~12 ranked matches. Returns the array
+     *  (empty on any error — search must never break the form). */
+    async searchCustomers(q) {
+      try {
+        const query = String(q || "").trim();
+        const qs = query ? `q=${encodeURIComponent(query)}&${cb()}` : cb();
+        const d = await http(`customers?${qs}`);
+        return Array.isArray(d && d.customers) ? d.customers : [];
+      } catch {
+        return [];
+      }
+    },
+
     async listEvents() {
       const d = await http("calendar");
       return d.events || [];

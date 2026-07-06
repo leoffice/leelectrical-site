@@ -4,6 +4,7 @@ import React, { useEffect, useMemo, useRef, useState } from "react";
 import { useStore } from "../state/store.jsx";
 import JobCard from "../components/JobCard.jsx";
 import MergePrompt from "../components/MergePrompt.jsx";
+import Sheet, { Opt } from "../components/Sheet.jsx";
 import { MarkPaidSheet, QuickSendSheet } from "../components/JobSheets.jsx";
 import {
   FILTER_NAMES,
@@ -14,7 +15,7 @@ import {
   sortCmp,
   sortJobs,
 } from "../lib/stages.js";
-import { normalizeCustomer, totalBalanceDue } from "../lib/customers.js";
+import { normalizeCustomer, totalBalanceDue, unknownCustomers } from "../lib/customers.js";
 import { fmt$, parseAmount } from "../lib/format.js";
 import { useNavigate } from "react-router-dom";
 
@@ -31,14 +32,17 @@ const loadSort = () => {
 };
 
 export default function Jobs({ embedded }) {
-  const { jobs, loading, showToast } = useStore();
+  const { jobs, loading, showToast, api, enqueue } = useStore();
   const nav = useNavigate();
   const [q, setQ] = useState("");
   const [filter, setFilter] = useState("Active");
   const [sort, setSort] = useState(loadSort);
   const [open, setOpen] = useState({}); // groupKey -> expanded
   const [sheet, setSheet] = useState(null); // {kind:"paid"|"send", job}
+  const [custMatches, setCustMatches] = useState([]); // #56 QBO customers not yet in the app
+  const [importCust, setImportCust] = useState(null); // #56 confirm-import target
   const timers = useRef({}); // groupKey -> auto-collapse timer
+  const custTimer = useRef(null);
 
   const pickSort = (k) => {
     setSort(k);
@@ -108,6 +112,47 @@ export default function Jobs({ embedded }) {
   const quickSend = (job) => {
     if (!job.email) return showToast("No email on file — add one first");
     setSheet({ kind: "send", job });
+  };
+
+  // #56 — when the typed name doesn't already match the jobs on screen, also
+  // search the QBO customer index. We only surface customers NOT already
+  // present in the app (by normalized name), so the list stays "not here yet".
+  // jobs is read via a ref so a background jobs poll doesn't re-fire the search.
+  const jobsRef = useRef(jobs);
+  jobsRef.current = jobs;
+  useEffect(() => {
+    clearTimeout(custTimer.current);
+    const query = q.trim();
+    if (query.length < 2) {
+      setCustMatches([]);
+      return;
+    }
+    custTimer.current = setTimeout(async () => {
+      const list = await api.searchCustomers(query);
+      setCustMatches(unknownCustomers(list, jobsRef.current));
+    }, 250);
+    return () => clearTimeout(custTimer.current);
+  }, [q, api]);
+  useEffect(() => () => clearTimeout(custTimer.current), []);
+
+  // Confirm-import → enqueue an import_customer command. NOTE (stub): the host
+  // command handler that creates the customer + turns their open QBO invoices
+  // into jobs is NOT wired yet (qbo-exec only handles send_invoice/estimate).
+  // TODO(host): add an `import_customer` handler to qbo-exec.mjs that fetches
+  // the customer's open invoices and writes them into jobsdata as jobs.
+  const confirmImport = async () => {
+    const c = importCust;
+    if (!c) return;
+    setImportCust(null);
+    const key = c.id != null ? String(c.id) : c.name;
+    await enqueue(
+      "import_customer",
+      "import-" + key,
+      { name: c.name, qboId: c.id != null ? String(c.id) : "" },
+      "judgment",
+      "import_customer|" + key
+    );
+    showToast("Import requested — Dispatch will pull open invoices as jobs");
   };
 
   return (
@@ -221,6 +266,37 @@ export default function Jobs({ embedded }) {
           )}
         </div>
       )}
+      {/* #56 — existing QBO customers not yet in the app. Tapping one offers to
+          import the customer with all their open invoices as jobs. */}
+      {q.trim().length >= 2 && custMatches.length > 0 && (
+        <div className="pt-1" data-testid="qbo-customer-matches">
+          <div className="px-1 pb-1.5 text-xs font-bold text-slate-500">
+            Existing QuickBooks customers
+          </div>
+          <div className="card overflow-hidden divide-y divide-slate-100">
+            {custMatches.map((c) => (
+              <button
+                key={c.id ?? c.name}
+                type="button"
+                data-testid="qbo-customer-match"
+                className="w-full flex items-center gap-3 px-4 py-3 text-left active:bg-slate-50"
+                onClick={() => setImportCust(c)}
+              >
+                <span className="grid place-items-center w-9 h-9 rounded-xl bg-accent-soft text-accent font-bold text-sm shrink-0">
+                  {(c.name || "").trim().slice(0, 1).toUpperCase() || "?"}
+                </span>
+                <span className="min-w-0">
+                  <span className="block font-bold text-slate-900 truncate">{c.name}</span>
+                  <span className="block text-xs text-slate-500">
+                    In QuickBooks · tap to import their open invoices as jobs
+                  </span>
+                </span>
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+
       {!embedded && (
         <div className="text-center text-xs text-slate-400 pt-1">
           {shown.length} of {active.length} jobs
@@ -231,6 +307,22 @@ export default function Jobs({ embedded }) {
 
       {sheet?.kind === "paid" && <MarkPaidSheet job={sheet.job} onClose={() => setSheet(null)} />}
       {sheet?.kind === "send" && <QuickSendSheet job={sheet.job} onClose={() => setSheet(null)} />}
+
+      {importCust && (
+        <Sheet title="Import customer?" onClose={() => setImportCust(null)}>
+          <p className="text-sm text-slate-600 mb-4 px-0.5" data-testid="import-prompt">
+            Import <b className="text-slate-900">{importCust.name}</b> with all their open invoices as
+            jobs?
+          </p>
+          <Opt
+            icon="📥"
+            title="Yes, import customer + open invoices"
+            note="Creates the customer and a job per open invoice"
+            onClick={confirmImport}
+          />
+          <Opt icon="✕" title="Cancel" onClick={() => setImportCust(null)} />
+        </Sheet>
+      )}
     </div>
   );
 }
