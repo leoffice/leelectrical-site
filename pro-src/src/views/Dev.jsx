@@ -21,11 +21,19 @@ const DV_TONES = {
   done: "bg-emerald-100 text-emerald-800",
 };
 const ORDER = { question: 0, verify: 1, approved: 2, understood: 3, new: 4, done: 5 };
+// LE Pro is the ONLY active target (Levi 2026-07-06 — Command Center, Dashboard,
+// Beta, Sleek are officially PAUSED). The paused targets stay defined so existing
+// tasks still render, but are tucked under a collapsible "Development" section.
 const TARGETS = [
-  ["sleek", "Sleek"],
-  ["beta", "Beta"],
+  ["pro", "LE Pro"],
   ["dashboard", "Dashboard"],
-  ["pro", "Pro"],
+  ["beta", "Beta"],
+  ["sleek", "Sleek"],
+];
+const PAUSED_TARGETS = [
+  ["dashboard", "Dashboard"],
+  ["beta", "Beta"],
+  ["sleek", "Sleek"],
 ];
 
 // Draft survives tab switches / re-renders (sleek keeps DEVDRAFT globally).
@@ -37,6 +45,7 @@ export default function Dev() {
   const [images, setImages] = useState(draft.images);
   const [priority, setPriority] = useState(draft.priority);
   const [target, setTarget] = useState(draft.target);
+  const [devOpen, setDevOpen] = useState(false); // "Development" (paused targets) expander
   const [edit, setEdit] = useState(null); // task being edited
   const [showArch, setShowArch] = useState(false); // archived section expanded
   const fileRef = useRef(null);
@@ -131,16 +140,32 @@ export default function Dev() {
         )}
         <div className="flex items-center gap-2 flex-wrap mb-2.5 text-xs text-slate-500">
           Build for:
-          {TARGETS.map(([k, l]) => (
-            <label key={k} className="pill bg-slate-100 text-slate-600 cursor-pointer gap-1.5">
-              <input
-                type="checkbox"
-                checked={!!target[k]}
-                onChange={(e) => setTarget((t) => ({ ...t, [k]: e.target.checked }))}
-              />
-              {l}
-            </label>
-          ))}
+          <label className="pill bg-brand-soft text-brand cursor-pointer gap-1.5 font-semibold">
+            <input
+              type="checkbox"
+              checked={!!target.pro}
+              onChange={(e) => setTarget((t) => ({ ...t, pro: e.target.checked }))}
+            />
+            LE Pro
+          </label>
+          <button
+            type="button"
+            onClick={() => setDevOpen((v) => !v)}
+            className="pill bg-slate-100 text-slate-500 cursor-pointer"
+          >
+            {devOpen ? "▾" : "▸"} Development (paused)
+          </button>
+          {devOpen &&
+            PAUSED_TARGETS.map(([k, l]) => (
+              <label key={k} className="pill bg-slate-100 text-slate-400 cursor-pointer gap-1.5">
+                <input
+                  type="checkbox"
+                  checked={!!target[k]}
+                  onChange={(e) => setTarget((t) => ({ ...t, [k]: e.target.checked }))}
+                />
+                {l}
+              </label>
+            ))}
         </div>
         <div className="flex items-center gap-2">
           <label className="btn-ghost !py-2 cursor-pointer">
