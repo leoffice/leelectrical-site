@@ -8,7 +8,7 @@
 //   dismissPair / isDismissed -> permanent "Not the same" memory
 //     (localStorage lepro_nomerge, key = sorted normalized pair)
 
-import { parseAmount } from "./format.js";
+import { fmt$, parseAmount } from "./format.js";
 
 /** Open balance for a job = the amount still owed.
  *  Priority: explicit job.openBalance -> a "balance: $X" / "owes $X" figure in
@@ -26,6 +26,14 @@ export function openBalance(job) {
 /** Sum of open balances across a customer's jobs. */
 export function totalBalanceDue(jobs) {
   return (jobs || []).reduce((s, j) => s + openBalance(j), 0);
+}
+
+/** Formatted amount still owed on a job (never the invoice total). */
+export function fmtAmountDue(job) {
+  if (!job) return "";
+  if (job.paid) return "Paid";
+  const n = openBalance(job);
+  return n > 0 ? fmt$(n) : "";
 }
 
 export function normalizeCustomer(name) {

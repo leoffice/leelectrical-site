@@ -1,6 +1,7 @@
 // Stage/phase model — names MUST match the existing dashboard exactly.
 // job.status = { "Lead": { s: "done"|"skipped"|""|"current", d?: "YYYY-MM-DD" }, ... }
 import { parseAmount, todayStr } from "./format.js";
+import { openBalance } from "./customers.js";
 
 export const STAGES = [
   "Lead",
@@ -120,7 +121,7 @@ export { clientKey, normalizeCustomer } from "./customers.js";
 
 /* ---------- Jobs sort-by ---------- */
 
-const byAmountDesc = (a, b) => parseAmount(b.amount) - parseAmount(a.amount);
+const byAmountDesc = (a, b) => openBalance(b) - openBalance(a);
 
 const followUpDate = (j) => (j.followUp && j.followUp.date) || "";
 const scheduledDate = (j) => (j.status && j.status.Scheduled && j.status.Scheduled.d) || "";

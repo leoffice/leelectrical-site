@@ -18,6 +18,7 @@ import {
 } from "../lib/stages.js";
 import { PAPER, isDatedStep } from "../lib/paperwork.js";
 import { fmt$, ago } from "../lib/format.js";
+import { fmtAmountDue } from "../lib/customers.js";
 import {
   customerSyncPayload,
   customerDisplayName,
@@ -214,7 +215,7 @@ export default function JobDetail() {
             </div>
           </div>
           <div className="ml-auto text-right font-extrabold text-lg text-slate-900 shrink-0">
-            {fmt$(job.amount) || "—"}
+            {fmtAmountDue(job) || "—"}
           </div>
         </div>
         <div className="flex gap-2 mt-4">

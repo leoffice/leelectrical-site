@@ -107,7 +107,7 @@ export default function App() {
   const { toast, error, setNewJob, refresh, dirtyCount } = useStore();
   const loc = useLocation();
   const inDetail = loc.pathname.startsWith("/job/");
-  const onJobs = loc.pathname === "/";
+  const showFab = loc.pathname === "/" || loc.pathname === "/today" || inDetail;
 
   return (
     <div className="min-h-screen lg:flex">
@@ -171,8 +171,8 @@ export default function App() {
 
         <SaveBar />
 
-        {/* + FAB (jobs list only, like sleek) */}
-        {onJobs && (
+        {/* + FAB — Jobs, Today, and open job detail */}
+        {showFab && (
           <button
             onClick={() => setNewJob({ step: "choose" })}
             aria-label="New job"

@@ -12,8 +12,8 @@ import { fmt$ } from "../lib/format.js";
 import { sortJobs } from "../lib/stages.js";
 import {
   customerContact,
+  fmtAmountDue,
   jobsForCustomerKey,
-  openBalance,
   totalBalanceDue,
 } from "../lib/customers.js";
 
@@ -141,10 +141,7 @@ export default function CustomerView() {
               </div>
             </div>
             <div className="text-right shrink-0">
-              <div className="font-extrabold text-slate-900 text-sm">{fmt$(j.amount) || "—"}</div>
-              {!j.paid && openBalance(j) > 0 && (
-                <div className="text-[11px] text-slate-400">{fmt$(openBalance(j))} due</div>
-              )}
+              <div className="font-extrabold text-slate-900 text-sm">{fmtAmountDue(j) || "—"}</div>
             </div>
             <span className="text-slate-300 shrink-0">›</span>
           </button>

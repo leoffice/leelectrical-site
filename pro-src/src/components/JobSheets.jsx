@@ -1,8 +1,10 @@
 // All job-level sheets — behaviors, command payloads and idempotency keys
 // match app/sleek.html exactly.
-import React, { useEffect, useRef, useState } from "react";
+import React, { useCallback, useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import Sheet, { Fld, Opt } from "./Sheet.jsx";
+import CustomerSearch from "./CustomerSearch.jsx";
+import { enrichAndPatchCustomer } from "./NewJobFlow.jsx";
 import { useStore } from "../state/store.jsx";
 import { serviceAddressHint, serviceAddressLabel } from "../lib/customerSync.js";
 import { fmt$, todayStr } from "../lib/format.js";
@@ -430,7 +432,7 @@ export function CalSheet({ job, onClose }) {
 
 /* ---------- 3. Customer + job location edit ---------- */
 export function CustEditSheet({ job, onClose }) {
-  const { patchJob, showToast } = useStore();
+  const { patchJob, showToast, jobs, api } = useStore();
   const [f, setF] = useState({
     businessName: job.businessName || job.customer || "",
     personName: job.personName || "",
@@ -439,8 +441,34 @@ export function CustEditSheet({ job, onClose }) {
     billingAddress: job.billingAddress || "",
     serviceAddress: job.serviceAddress || job.address || "",
     apartment: job.apartment || "",
+    qboCustomerId: job.qboCustomerId || "",
   });
   const set = (k) => (e) => setF((o) => ({ ...o, [k]: e.target.value }));
+
+  const pickCustomer = useCallback(
+    async (customer) => {
+      if (customer && customer._newCustomer) {
+        setF((o) => ({
+          ...o,
+          businessName: customer.name || "",
+          qboCustomerId: "",
+        }));
+        return;
+      }
+      const patch = await enrichAndPatchCustomer(customer, jobs, api);
+      setF((o) => ({
+        ...o,
+        businessName: patch.businessName || patch.customer || o.businessName,
+        personName: patch.personName || o.personName || "",
+        phone: patch.phone || o.phone || "",
+        email: patch.email || o.email || "",
+        billingAddress: patch.billingAddress || o.billingAddress || "",
+        qboCustomerId: patch.qboCustomerId || o.qboCustomerId || "",
+      }));
+    },
+    [api, jobs]
+  );
+
   const apply = () => {
     const business = (f.businessName || "").trim();
     patchJob(job.id, {
@@ -453,6 +481,7 @@ export function CustEditSheet({ job, onClose }) {
       serviceAddress: f.serviceAddress || "",
       address: f.serviceAddress || "",
       apartment: f.apartment || "",
+      qboCustomerId: f.qboCustomerId || "",
     });
     showToast("Info staged");
     onClose();
@@ -460,7 +489,16 @@ export function CustEditSheet({ job, onClose }) {
   return (
     <Sheet title="Edit customer & service location" onClose={onClose}>
       <p className="text-[11px] font-bold uppercase tracking-wide text-slate-400 mb-2">Customer (QuickBooks)</p>
-      {[["businessName", "Business name"], ["personName", "Person name"], ["phone", "Phone"], ["email", "Email"], ["billingAddress", "Billing address"]].map(
+      <Fld label="Business name" hint="Search QuickBooks customers — phone, email & billing fill from QB">
+        <CustomerSearch
+          label="Business name"
+          testId="custedit-business-name"
+          value={f.businessName}
+          onChangeText={(v) => setF((o) => ({ ...o, businessName: v, qboCustomerId: "" }))}
+          onPick={pickCustomer}
+        />
+      </Fld>
+      {[["personName", "Person name"], ["phone", "Phone"], ["email", "Email"], ["billingAddress", "Billing address"]].map(
         ([k, l]) => (
           <Fld key={k} label={l}>
             <input className="input" value={f[k]} onChange={set(k)} aria-label={l} />

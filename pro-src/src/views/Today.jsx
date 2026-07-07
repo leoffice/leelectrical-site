@@ -1,12 +1,15 @@
-// Today — totals row, follow-ups due, upcoming appointments with "+ Job".
-import React, { useMemo } from "react";
+// Today — totals row, follow-ups due, calendar appointments (±2 weeks).
+import React, { useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { useStore } from "../state/store.jsx";
 import { prefillFromEvent } from "../components/NewJobFlow.jsx";
-import { evStart, fmt$, parseAmount, todayStr } from "../lib/format.js";
+import Sheet from "../components/Sheet.jsx";
+import { fmtAmountDue, openBalance, totalBalanceDue } from "../lib/customers.js";
+import { evStart, fmt$, todayStr } from "../lib/format.js";
 
 export default function Today() {
   const { jobs, events, setNewJob } = useStore();
+  const [picked, setPicked] = useState(null);
   const t = todayStr();
   const js = useMemo(() => jobs.filter((j) => !j._archived && !j._deleted), [jobs]);
 
@@ -14,9 +17,8 @@ export default function Today() {
     () => js.filter((j) => j.followUp && j.followUp.date && j.followUp.date <= t && !j.paid),
     [js, t]
   );
-  // Window Levi wants: 2 weeks back through 1 week ahead, excluding "inspection" events.
   const fromStr = useMemo(() => { const d = new Date(); d.setDate(d.getDate() - 14); return d.toISOString().slice(0, 10); }, []);
-  const toStr = useMemo(() => { const d = new Date(); d.setDate(d.getDate() + 7); return d.toISOString().slice(0, 10); }, []);
+  const toStr = useMemo(() => { const d = new Date(); d.setDate(d.getDate() + 14); return d.toISOString().slice(0, 10); }, []);
   const appts = useMemo(
     () =>
       (events || [])
@@ -28,8 +30,8 @@ export default function Today() {
         .slice(0, 40),
     [events, fromStr, toStr]
   );
-  const unpaid = js.filter((j) => !j.paid && j.invoiceNo);
-  const owed = unpaid.reduce((s, j) => s + parseAmount(j.amount), 0);
+  const unpaid = js.filter((j) => !j.paid && openBalance(j) > 0);
+  const owed = totalBalanceDue(unpaid);
 
   return (
     <div className="space-y-4">
@@ -58,7 +60,7 @@ export default function Today() {
               <Link key={j.id} to={`/job/${encodeURIComponent(j.id)}`} className="card block px-4 py-3">
                 <div className="flex items-center gap-2">
                   <div className="font-bold text-slate-900 truncate">{j.customer}</div>
-                  <div className="ml-auto font-bold shrink-0">{fmt$(j.amount)}</div>
+                  <div className="ml-auto font-bold shrink-0">{fmtAmountDue(j) || "—"}</div>
                 </div>
                 <div className="text-xs text-slate-500 mt-0.5">
                   📌 {j.followUp.text || j.followUp.type || "Follow up"} —{" "}
@@ -72,14 +74,19 @@ export default function Today() {
 
       <section>
         <h2 className="text-[11px] font-extrabold text-slate-500 uppercase tracking-wider mb-2 px-1">
-          Upcoming appointments
+          Calendar — 2 weeks back &amp; ahead
         </h2>
         {!appts.length ? (
           <div className="card px-4 py-5 text-sm text-slate-400 text-center">No synced appointments.</div>
         ) : (
           <div className="space-y-2">
             {appts.map((e, i) => (
-              <div key={e.id || i} className="card px-4 py-3 flex items-center gap-3">
+              <button
+                key={e.id || i}
+                type="button"
+                className="card w-full px-4 py-3 flex items-center gap-3 text-left active:bg-slate-50"
+                onClick={() => setPicked(e)}
+              >
                 <div className="min-w-0 flex-1">
                   <div className="font-semibold text-slate-900 truncate">{e.summary || "Appointment"}</div>
                   <div className="text-xs text-slate-500 truncate">
@@ -87,17 +94,43 @@ export default function Today() {
                     {e.location ? " · " + e.location : ""}
                   </div>
                 </div>
-                <button
-                  className="btn bg-brand-soft text-brand !py-2 shrink-0"
-                  onClick={() => setNewJob({ step: "form", prefill: prefillFromEvent(e) })}
-                >
-                  + Job
-                </button>
-              </div>
+                <span className="text-slate-300 shrink-0">›</span>
+              </button>
             ))}
           </div>
         )}
       </section>
+
+      {picked && (
+        <Sheet title={picked.summary || "Appointment"} onClose={() => setPicked(null)}>
+          <div className="text-sm space-y-2 mb-4">
+            <div>
+              <b className="font-semibold">When</b>{" "}
+              <span className="text-slate-600">{evStart(picked).replace("T", " ").slice(0, 16)}</span>
+            </div>
+            {picked.location ? (
+              <div>
+                <b className="font-semibold">Location</b> <span className="text-slate-600">{picked.location}</span>
+              </div>
+            ) : null}
+            {picked.description ? (
+              <div>
+                <b className="font-semibold">Notes</b>
+                <p className="text-slate-600 whitespace-pre-wrap mt-1">{picked.description}</p>
+              </div>
+            ) : null}
+          </div>
+          <button
+            className="btn-brand w-full"
+            onClick={() => {
+              setPicked(null);
+              setNewJob({ step: "form", prefill: prefillFromEvent(picked) });
+            }}
+          >
+            ＋ Create job from appointment
+          </button>
+        </Sheet>
+      )}
     </div>
   );
 }
