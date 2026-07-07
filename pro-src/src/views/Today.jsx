@@ -1,5 +1,5 @@
 // Today — totals row, follow-ups due, calendar appointments (±2 weeks).
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { useStore } from "../state/store.jsx";
 import AppointmentDetailSheet from "../components/AppointmentDetailSheet.jsx";
@@ -8,11 +8,7 @@ import { fmtAmountDue, openBalance, totalBalanceDue } from "../lib/customers.js"
 import { fmt$, todayStr } from "../lib/format.js";
 
 export default function Today() {
-  const { jobs, events, pullCalendarNow } = useStore();
-
-  useEffect(() => {
-    if (import.meta.env.MODE !== "test") pullCalendarNow();
-  }, [pullCalendarNow]);
+  const { jobs, events } = useStore();
   const [picked, setPicked] = useState(null);
   const t = todayStr();
   const js = useMemo(() => jobs.filter((j) => !j._archived && !j._deleted), [jobs]);

@@ -9,35 +9,46 @@ import { useStore } from "../state/store.jsx";
 import { evStart } from "../lib/format.js";
 import { displayEventNotes, linkedJobForEvent, unlinkAppointmentJob } from "../lib/calendarLink.js";
 
+function linkedCustomerName(job) {
+  return (job?.customer || job?.businessName || job?.title || "").trim() || "job";
+}
+
 export default function AppointmentDetailSheet({ event, onClose }) {
-  const { jobs, setNewJob, patchAndSave, patchLocalEvent, removeLocalEvent, enqueue, showToast } = useStore();
+  const { jobs, events, setNewJob, patchAndSave, patchLocalEvent, removeLocalEvent, enqueue, showToast } =
+    useStore();
   const nav = useNavigate();
   const [mode, setMode] = useState("view");
-  const linked = useMemo(() => linkedJobForEvent(event, jobs), [event, jobs]);
+  const liveEvent = useMemo(
+    () => (events || []).find((e) => String(e.id) === String(event?.id)) || event,
+    [events, event]
+  );
+  const linked = useMemo(() => linkedJobForEvent(liveEvent, jobs), [liveEvent, jobs]);
 
-  const unlink = async () => {
+  const confirmUnlink = async () => {
     if (!linked) return;
+    const name = linkedCustomerName(linked);
     await unlinkAppointmentJob({
-      event,
+      event: liveEvent,
       jobId: linked.id,
       patchAndSave,
       enqueue,
       patchLocalEvent,
     });
-    showToast("Unlinked from " + (linked.customer || "job"));
+    showToast("Unlinked from " + name);
+    setMode("view");
   };
 
   if (mode === "edit") {
     return (
       <EditAppointmentSheet
-        event={event}
+        event={liveEvent}
         linkedJobId={linked?.id}
         onClose={() => setMode("view")}
         onSaved={(ev) => patchLocalEvent(ev.id, ev)}
         onDeleted={async (eid) => {
           if (linked?.id) {
             await unlinkAppointmentJob({
-              event,
+              event: liveEvent,
               jobId: linked.id,
               patchAndSave,
               enqueue,
@@ -55,7 +66,7 @@ export default function AppointmentDetailSheet({ event, onClose }) {
   if (mode === "link") {
     return (
       <LinkJobSheet
-        event={event}
+        event={liveEvent}
         previousJobId={linked?.id}
         onClose={() => setMode("view")}
         onLinked={() => onClose()}
@@ -63,18 +74,36 @@ export default function AppointmentDetailSheet({ event, onClose }) {
     );
   }
 
-  const notes = displayEventNotes(event.description);
+  if (mode === "unlink") {
+    const name = linked ? linkedCustomerName(linked) : "this job";
+    return (
+      <Sheet title="Unlink appointment" onClose={() => setMode("view")}>
+        <p className="text-sm text-slate-500 mb-4">
+          Remove the link between this appointment and <b className="text-slate-800">{name}</b>? The appointment
+          stays on the calendar.
+        </p>
+        <button type="button" className="btn-brand w-full" onClick={confirmUnlink}>
+          Save &amp; sync
+        </button>
+        <button type="button" className="btn-ghost w-full mt-2" onClick={() => setMode("view")}>
+          Cancel
+        </button>
+      </Sheet>
+    );
+  }
+
+  const notes = displayEventNotes(liveEvent.description);
 
   return (
-    <Sheet title={event.summary || "Appointment"} onClose={onClose}>
+    <Sheet title={liveEvent.summary || "Appointment"} onClose={onClose}>
       <div className="text-sm space-y-2 mb-4">
         <div>
           <b className="font-semibold">When</b>{" "}
-          <span className="text-slate-600">{evStart(event).replace("T", " ").slice(0, 16)}</span>
+          <span className="text-slate-600">{evStart(liveEvent).replace("T", " ").slice(0, 16)}</span>
         </div>
-        {event.location ? (
+        {liveEvent.location ? (
           <div>
-            <b className="font-semibold">Location</b> <span className="text-slate-600">{event.location}</span>
+            <b className="font-semibold">Location</b> <span className="text-slate-600">{liveEvent.location}</span>
           </div>
         ) : null}
         {notes ? (
@@ -84,9 +113,7 @@ export default function AppointmentDetailSheet({ event, onClose }) {
           </div>
         ) : null}
         {linked ? (
-          <div className="text-xs font-semibold text-brand pt-1">
-            Linked job: {linked.customer || linked.title || linked.id}
-          </div>
+          <div className="text-xs font-semibold text-brand pt-1">Linked job: {linkedCustomerName(linked)}</div>
         ) : null}
       </div>
 
@@ -104,9 +131,9 @@ export default function AppointmentDetailSheet({ event, onClose }) {
               nav("/job/" + encodeURIComponent(linked.id));
             }}
           >
-            Open linked job
+            🔗 {linkedCustomerName(linked)}
           </button>
-          <button type="button" className="btn-ghost w-full mb-2 text-red-600" onClick={unlink}>
+          <button type="button" className="btn-ghost w-full mb-2 text-red-600" onClick={() => setMode("unlink")}>
             Unlink
           </button>
         </>
@@ -121,7 +148,7 @@ export default function AppointmentDetailSheet({ event, onClose }) {
         className="btn-brand w-full"
         onClick={() => {
           onClose();
-          setNewJob({ step: "form", prefill: prefillFromEvent(event) });
+          setNewJob({ step: "form", prefill: prefillFromEvent(liveEvent) });
         }}
       >
         ＋ Create job from appointment

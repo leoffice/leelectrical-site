@@ -11,8 +11,9 @@ export default function AppointmentLinkSheet({ job, onClose }) {
   const { events, patchAndSave, enqueue, patchLocalEvent, showToast } = useStore();
   const [mode, setMode] = useState("view");
   const event = useMemo(() => eventForJob(job, events), [job, events]);
+  const customerName = (job?.customer || job?.businessName || job?.title || "this job").trim();
 
-  const unlink = async () => {
+  const confirmUnlink = async () => {
     await unlinkAppointmentJob({
       event: event || { id: job.calEventId, description: "" },
       jobId: job.id,
@@ -39,6 +40,23 @@ export default function AppointmentLinkSheet({ job, onClose }) {
     );
   }
 
+  if (mode === "unlink") {
+    return (
+      <Sheet title="Unlink appointment" onClose={() => setMode("view")}>
+        <p className="text-sm text-slate-500 mb-4">
+          Remove the calendar link from <b className="text-slate-800">{customerName}</b>? The appointment stays on
+          the calendar.
+        </p>
+        <button type="button" className="btn-brand w-full" onClick={confirmUnlink}>
+          Save &amp; sync
+        </button>
+        <button type="button" className="btn-ghost w-full mt-2" onClick={() => setMode("view")}>
+          Cancel
+        </button>
+      </Sheet>
+    );
+  }
+
   return (
     <Sheet title="Calendar appointment" onClose={onClose}>
       {job.calEventId ? (
@@ -62,7 +80,7 @@ export default function AppointmentLinkSheet({ job, onClose }) {
               Linked to calendar event <b>{job.calEventId}</b>. Pull calendar sync to see details here.
             </p>
           )}
-          <button type="button" className="btn-ghost w-full mb-2 text-red-600" onClick={unlink}>
+          <button type="button" className="btn-ghost w-full mb-2 text-red-600" onClick={() => setMode("unlink")}>
             Unlink appointment
           </button>
           <button type="button" className="btn bg-brand-soft text-brand w-full" onClick={() => setMode("relink")}>

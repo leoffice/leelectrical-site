@@ -117,23 +117,26 @@ export function StoreProvider({ children }) {
     } catch {}
   }, []);
 
-  const refreshEvents = useCallback(async (pull = false) => {
+  const refreshEvents = useCallback(async ({ pull = false, awaitPull = true } = {}) => {
     try {
+      const meta = await api.listEventsMeta();
+      setEvents(meta.events || []);
+      setEventsSyncedAt(meta.syncedAt || 0);
       if (pull && api.pullCalendar) {
-        const evs = await api.pullCalendar();
-        setEvents(evs);
-        const meta = await api.listEventsMeta();
-        setEventsSyncedAt(meta.syncedAt || 0);
-      } else {
-        const meta = await api.listEventsMeta();
-        setEvents(meta.events || []);
-        setEventsSyncedAt(meta.syncedAt || 0);
+        const run = async () => {
+          const evs = await api.pullCalendar();
+          setEvents(evs);
+          const m = await api.listEventsMeta();
+          setEventsSyncedAt(m.syncedAt || 0);
+        };
+        if (awaitPull) await run();
+        else run().catch(() => {});
       }
     } catch {}
   }, []);
 
   const pullCalendarNow = useCallback(async () => {
-    await refreshEvents(true);
+    await refreshEvents({ pull: true, awaitPull: true });
   }, [refreshEvents]);
 
   const appendLocalEvent = useCallback((event) => {
@@ -170,10 +173,11 @@ export function StoreProvider({ children }) {
 
   const refresh = useCallback(
     async (quiet, opts = {}) => {
-      const pullCal = opts.pullCalendar ?? !quiet;
+      const pullCal = opts.pullCalendar === true;
+      const awaitPull = opts.awaitPull !== false;
       await Promise.all([
         refreshJobs(quiet),
-        refreshEvents(pullCal),
+        refreshEvents({ pull: pullCal, awaitPull }),
         refreshCommands(),
         refreshDev(),
         refreshSas(),
@@ -183,17 +187,19 @@ export function StoreProvider({ children }) {
   );
 
   useEffect(() => {
-    refresh(false, { pullCalendar: true });
+    refresh(false);
+    refreshEvents({ pull: true, awaitPull: false });
     const t1 = setInterval(() => refreshJobs(true), 60_000);
     const t2 = setInterval(refreshCommands, 8_000);
     const t3 = setInterval(refreshDev, 30_000);
-    const t4 = setInterval(() => refreshEvents(false), 30_000);
+    const t4 = setInterval(() => refreshEvents({ pull: false }), 30_000);
     const t5 = setInterval(refreshSas, 60_000);
-    const t6 = setInterval(() => refreshEvents(true), 180_000);
+    const t6 = setInterval(() => refreshEvents({ pull: true, awaitPull: false }), 180_000);
     const vis = () => {
       if (!document.hidden) {
         refreshJobs(true);
-        refreshEvents(true);
+        refreshEvents({ pull: false });
+        refreshEvents({ pull: true, awaitPull: false });
         refreshCommands();
         refreshSas();
       }
@@ -210,7 +216,7 @@ export function StoreProvider({ children }) {
     setBusy(true);
     try {
       await Promise.all([api.requestSync().catch(() => {}), api.requestCalendarSync?.().catch(() => {})]);
-      await refresh(true, { pullCalendar: true });
+      await refresh(true, { pullCalendar: true, awaitPull: true });
       showToast("Refreshed — jobs & calendar syncing");
     } finally {
       setBusy(false);
