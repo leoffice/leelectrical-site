@@ -401,7 +401,8 @@ describe("12. sync chip + today view + jobs list", () => {
     expect(await screen.findByTestId("week-calendar")).toBeInTheDocument();
     await user.click(screen.getByText("Estimate — Jane Doe"));
     expect(screen.getByText("✏️ Edit appointment")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /Linked job/ })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Open linked job/ })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Unlink/ })).toBeInTheDocument();
     await user.click(screen.getByText("✏️ Edit appointment"));
     expect(screen.getByText("Edit appointment")).toBeInTheDocument();
     fireEvent.change(screen.getByLabelText("Appointment date and time"), { target: { value: "2026-07-12T11:00" } });

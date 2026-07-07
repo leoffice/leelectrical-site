@@ -7,16 +7,24 @@ import LinkJobSheet from "./LinkJobSheet.jsx";
 import { prefillFromEvent } from "./NewJobFlow.jsx";
 import { useStore } from "../state/store.jsx";
 import { evStart } from "../lib/format.js";
-import { displayEventNotes, linkedJobForEvent } from "../lib/calendarLink.js";
+import { displayEventNotes, linkedJobForEvent, unlinkAppointmentJob } from "../lib/calendarLink.js";
 
 export default function AppointmentDetailSheet({ event, onClose }) {
-  const { jobs, setNewJob, patchAndSave, patchLocalEvent, removeLocalEvent } = useStore();
+  const { jobs, setNewJob, patchAndSave, patchLocalEvent, removeLocalEvent, enqueue, showToast } = useStore();
   const nav = useNavigate();
   const [mode, setMode] = useState("view");
   const linked = useMemo(() => linkedJobForEvent(event, jobs), [event, jobs]);
 
-  const clearJobLink = async (jobId) => {
-    if (jobId) await patchAndSave(jobId, { calEventId: "" });
+  const unlink = async () => {
+    if (!linked) return;
+    await unlinkAppointmentJob({
+      event,
+      jobId: linked.id,
+      patchAndSave,
+      enqueue,
+      patchLocalEvent,
+    });
+    showToast("Unlinked from " + (linked.customer || "job"));
   };
 
   if (mode === "edit") {
@@ -27,7 +35,15 @@ export default function AppointmentDetailSheet({ event, onClose }) {
         onClose={() => setMode("view")}
         onSaved={(ev) => patchLocalEvent(ev.id, ev)}
         onDeleted={async (eid) => {
-          if (linked?.id) await clearJobLink(linked.id);
+          if (linked?.id) {
+            await unlinkAppointmentJob({
+              event,
+              jobId: linked.id,
+              patchAndSave,
+              enqueue,
+              patchLocalEvent,
+            });
+          }
           removeLocalEvent(eid);
           onClose();
         }}
@@ -40,6 +56,7 @@ export default function AppointmentDetailSheet({ event, onClose }) {
     return (
       <LinkJobSheet
         event={event}
+        previousJobId={linked?.id}
         onClose={() => setMode("view")}
         onLinked={() => onClose()}
       />
@@ -78,16 +95,21 @@ export default function AppointmentDetailSheet({ event, onClose }) {
       </button>
 
       {linked ? (
-        <button
-          type="button"
-          className="btn bg-brand-soft text-brand w-full mb-2"
-          onClick={() => {
-            onClose();
-            nav("/job/" + encodeURIComponent(linked.id));
-          }}
-        >
-          🔗 Linked job — {linked.customer || linked.title || "Open"}
-        </button>
+        <>
+          <button
+            type="button"
+            className="btn bg-brand-soft text-brand w-full mb-2"
+            onClick={() => {
+              onClose();
+              nav("/job/" + encodeURIComponent(linked.id));
+            }}
+          >
+            Open linked job
+          </button>
+          <button type="button" className="btn-ghost w-full mb-2 text-red-600" onClick={unlink}>
+            Unlink
+          </button>
+        </>
       ) : (
         <button type="button" className="btn bg-brand-soft text-brand w-full mb-2" onClick={() => setMode("link")}>
           🔗 Link to existing job

@@ -28,6 +28,7 @@ import {
 import { PaidPill, StagePill } from "../components/JobCard.jsx";
 import Toggle from "../components/Toggle.jsx";
 import Jobs from "./Jobs.jsx";
+import AppointmentLinkSheet from "../components/AppointmentLinkSheet.jsx";
 import {
   AttachSheet,
   CalSheet,
@@ -273,6 +274,16 @@ export default function JobDetail() {
           📅 Calendar
         </button>
       </div>
+
+      {job.calEventId ? (
+        <button
+          type="button"
+          className="btn bg-brand-soft text-brand w-full !py-2.5"
+          onClick={() => setSheet({ kind: "apptLink" })}
+        >
+          🔗 Linked appointment — manage link
+        </button>
+      ) : null}
 
       {/* Money */}
       {!job.paid ? (
@@ -655,6 +666,7 @@ export default function JobDetail() {
       {sheet?.kind === "cust" && <CustEditSheet job={job} onClose={() => setSheet(null)} />}
       {sheet?.kind === "doc" && <DocSheet job={job} kind={sheet.doc} onClose={() => setSheet(null)} />}
       {sheet?.kind === "cal" && <CalSheet job={job} onClose={() => setSheet(null)} />}
+      {sheet?.kind === "apptLink" && <AppointmentLinkSheet job={job} onClose={() => setSheet(null)} />}
       {sheet?.kind === "reminder" && <ReminderSheet job={job} onClose={() => setSheet(null)} />}
       {sheet?.kind === "attach" && <AttachSheet job={job} onClose={() => setSheet(null)} />}
       {sheet?.kind === "inspection" && (

@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  customerJobGroups,
   displayEventNotes,
   jobIdFromEventDescription,
   linkedJobForEvent,
@@ -21,5 +22,15 @@ describe("calendarLink", () => {
     expect(linkedJobForEvent({ id: "ev-a", description: "" }, jobs)?.id).toBe("J-1");
     expect(linkedJobForEvent({ id: "ev-b", description: "leJobId:J-2" }, jobs)?.id).toBe("J-2");
     expect(linkedJobForEvent({ id: "ev-x" }, jobs)).toBeNull();
+  });
+
+  it("customerJobGroups folds jobs by customer", () => {
+    const groups = customerJobGroups([
+      { id: "1", customer: "Alpha Co", title: "A" },
+      { id: "2", customer: "Alpha Co", title: "B" },
+      { id: "3", customer: "Beta", title: "C" },
+    ]);
+    expect(groups).toHaveLength(2);
+    expect(groups.find(([k]) => k.startsWith("c:") || k.startsWith("g:"))[1]).toHaveLength(2);
   });
 });
