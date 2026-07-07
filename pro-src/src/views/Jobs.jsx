@@ -216,21 +216,21 @@ export default function Jobs({ embedded }) {
               />
             ) : (
               <div key={key} className="card overflow-hidden" data-testid="client-group">
-                <div className="w-full flex items-center gap-3 px-4 py-3.5">
+                <div className="w-full flex items-center gap-2 px-3 py-2.5 lg:gap-3 lg:px-4 lg:py-3.5">
                   {/* Tap the name header to open the Customer view */}
                   <button
                     className="flex items-center gap-3 text-left min-w-0 flex-1"
                     data-testid="client-group-name"
                     onClick={() => nav("/customer/" + encodeURIComponent(key))}
                   >
-                    <span className="grid place-items-center w-9 h-9 rounded-xl bg-accent-soft text-accent font-bold text-sm shrink-0">
+                    <span className="grid place-items-center w-7 h-7 rounded-lg bg-accent-soft text-accent font-semibold text-xs shrink-0 lg:w-9 lg:h-9 lg:rounded-xl lg:text-sm lg:font-bold">
                       {(list[0].customer || "").trim().slice(0, 1).toUpperCase() || "?"}
                     </span>
                     <span className="min-w-0">
-                      <span className="block font-bold text-slate-900 truncate">
+                      <span className="block text-sm font-semibold text-slate-900 leading-snug line-clamp-2 break-words lg:text-base lg:font-bold">
                         {list[0].customer || "(no customer)"}
                       </span>
-                      <span className="block text-xs text-slate-500">
+                      <span className="block text-[11px] text-slate-500 lg:text-xs">
                         {list.length} job{list.length === 1 ? "" : "s"}
                       </span>
                     </span>
@@ -239,7 +239,9 @@ export default function Jobs({ embedded }) {
                     const sum = customerAmountSummary(list);
                     return (
                       <div className="text-right shrink-0" data-testid="client-group-amount">
-                        <div className="font-bold text-slate-900">{fmt$(sum.due) || "$0"}</div>
+                        <div className="text-sm font-semibold text-slate-900 lg:font-bold lg:text-base">
+                          {fmt$(sum.due) || "$0"}
+                        </div>
                         <CustomerAmountSubline
                           invoiced={sum.invoiced}
                           paid={sum.paid}
@@ -296,12 +298,14 @@ export default function Jobs({ embedded }) {
                 className="w-full flex items-center gap-3 px-4 py-3 text-left active:bg-slate-50"
                 onClick={() => setImportCust(c)}
               >
-                <span className="grid place-items-center w-9 h-9 rounded-xl bg-accent-soft text-accent font-bold text-sm shrink-0">
+                <span className="grid place-items-center w-7 h-7 rounded-lg bg-accent-soft text-accent font-semibold text-xs shrink-0 lg:w-9 lg:h-9 lg:rounded-xl lg:text-sm lg:font-bold">
                   {(c.name || "").trim().slice(0, 1).toUpperCase() || "?"}
                 </span>
                 <span className="min-w-0">
-                  <span className="block font-bold text-slate-900 truncate">{c.name}</span>
-                  <span className="block text-xs text-slate-500">
+                  <span className="block text-sm font-semibold text-slate-900 leading-snug line-clamp-2 break-words lg:text-base lg:font-bold">
+                    {c.name}
+                  </span>
+                  <span className="block text-[11px] text-slate-500 lg:text-xs">
                     In QuickBooks · tap to import their open invoices as jobs
                   </span>
                 </span>

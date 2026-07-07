@@ -22,15 +22,15 @@ export default function Today() {
 
   return (
     <div className="space-y-4">
-      <div className="card px-4 py-3.5 flex">
+      <div className="card px-3 py-2.5 flex lg:px-4 lg:py-3.5">
         {[
           ["Open jobs", js.filter((j) => !j.paid).length],
           ["Unpaid invoices", unpaid.length],
           ["Outstanding", fmt$(owed) || "$0"],
         ].map(([label, n]) => (
-          <div key={label} className="flex-1">
-            <div className="text-xs text-slate-500">{label}</div>
-            <div className="text-[22px] font-extrabold text-slate-900">{n}</div>
+          <div key={label} className="flex-1 min-w-0">
+            <div className="text-[10px] text-slate-500 lg:text-xs">{label}</div>
+            <div className="text-base font-bold text-slate-900 truncate lg:text-[22px] lg:font-extrabold">{n}</div>
           </div>
         ))}
       </div>
@@ -44,12 +44,14 @@ export default function Today() {
         ) : (
           <div className="space-y-2">
             {due.map((j) => (
-              <Link key={j.id} to={`/job/${encodeURIComponent(j.id)}`} className="card block px-4 py-3">
-                <div className="flex items-center gap-2">
-                  <div className="font-bold text-slate-900 truncate">{j.customer}</div>
-                  <div className="ml-auto font-bold shrink-0">{fmtAmountDue(j) || "—"}</div>
+              <Link key={j.id} to={`/job/${encodeURIComponent(j.id)}`} className="card block px-3 py-2.5 lg:px-4 lg:py-3">
+                <div className="flex items-start gap-2">
+                  <div className="text-sm font-semibold text-slate-900 leading-snug line-clamp-2 break-words min-w-0 flex-1 lg:text-base lg:font-bold">
+                    {j.customer}
+                  </div>
+                  <div className="ml-auto text-sm font-semibold shrink-0 lg:font-bold">{fmtAmountDue(j) || "—"}</div>
                 </div>
-                <div className="text-xs text-slate-500 mt-0.5">
+                <div className="text-[11px] text-slate-500 mt-0.5 lg:text-xs">
                   📌 {j.followUp.text || j.followUp.type || "Follow up"} —{" "}
                   <b className="text-red-600">{j.followUp.date}</b>
                 </div>

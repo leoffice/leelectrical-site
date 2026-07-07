@@ -4,9 +4,9 @@ import { amountPaid, fmtAmountDue, invoiceTotal, paidPct } from "../lib/customer
 import { fmt$ } from "../lib/format.js";
 
 const SIZE = {
-  sm: { main: "font-bold text-sm", sub: "text-[9px]" },
-  md: { main: "font-bold text-slate-900", sub: "text-[10px]" },
-  lg: { main: "font-extrabold text-lg text-slate-900", sub: "text-[11px]" },
+  sm: { main: "font-semibold text-xs text-slate-900", sub: "text-[8px]" },
+  md: { main: "font-semibold text-sm text-slate-900", sub: "text-[9px]" },
+  lg: { main: "font-bold text-base text-slate-900 lg:text-lg", sub: "text-[9px] lg:text-[10px]" },
 };
 
 export function AmountSubline({ job, className = "" }) {

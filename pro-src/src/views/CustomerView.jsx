@@ -60,22 +60,22 @@ export default function CustomerView() {
       </button>
 
       {/* Header card: name, contact, total due, open count */}
-      <div className="card px-4 py-4">
-        <div className="flex items-start gap-3">
-          <span className="grid place-items-center w-11 h-11 rounded-2xl bg-accent-soft text-accent font-bold text-lg shrink-0">
+      <div className="card px-3 py-3 lg:px-4 lg:py-4">
+        <div className="flex items-start gap-2 lg:gap-3">
+          <span className="grid place-items-center w-8 h-8 rounded-xl bg-accent-soft text-accent font-semibold text-sm shrink-0 lg:w-10 lg:h-10 lg:rounded-2xl lg:text-base lg:font-bold">
             {(contact.name || "?").trim().slice(0, 1).toUpperCase()}
           </span>
           <div className="min-w-0 flex-1">
-            <div className="font-extrabold text-lg text-slate-900 leading-tight truncate">
+            <div className="text-base font-bold text-slate-900 leading-snug break-words lg:text-lg lg:font-extrabold">
               {displayName || "(no customer)"}
             </div>
-            <div className="text-xs text-slate-500 mt-0.5">
+            <div className="text-[11px] text-slate-500 mt-0.5 lg:text-xs">
               {list.length} job{list.length > 1 ? "s" : ""} · {openCount} open invoice{openCount === 1 ? "" : "s"}
             </div>
           </div>
           <div className="text-right shrink-0">
-            <div className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">Total due</div>
-            <div className="font-extrabold text-lg text-slate-900" data-testid="customer-total-due">
+            <div className="text-[10px] font-bold text-slate-400 uppercase tracking-wider lg:text-[11px]">Total due</div>
+            <div className="text-base font-bold text-slate-900 lg:text-lg lg:font-extrabold" data-testid="customer-total-due">
               {fmt$(summary.due) || "$0"}
             </div>
             <CustomerAmountSubline
@@ -88,10 +88,10 @@ export default function CustomerView() {
         </div>
 
         {contactRows.length > 0 && (
-          <dl className="mt-3.5 space-y-1 text-sm">
+          <dl className="mt-3 space-y-1 text-xs lg:mt-3.5 lg:text-sm">
             {contactRows.map(([k, v, href]) => (
               <div key={k} className="flex gap-2 items-baseline">
-                <dt className="font-semibold text-slate-800 shrink-0 w-16">{k}</dt>
+                <dt className="font-semibold text-slate-800 shrink-0 w-14 lg:w-16">{k}</dt>
                 <dd className="text-slate-500 break-words min-w-0">
                   {href ? (
                     <a href={href} className="text-brand font-semibold">{v}</a>

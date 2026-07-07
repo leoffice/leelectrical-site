@@ -61,7 +61,7 @@ function ActionButton({ href, icon, label, disabled, newTab }) {
       }`}
       onClick={(e) => disabled && e.preventDefault()}
     >
-      <span className="text-lg leading-none">{icon}</span>
+      <span className="text-base leading-none lg:text-lg">{icon}</span>
       {label}
     </a>
   );
@@ -203,12 +203,14 @@ export default function JobDetail() {
       </div>
 
       {/* Customer card */}
-      <div className="card px-4 py-4">
-        <div className="flex items-start gap-3">
-          <div className="min-w-0">
-            <div className="font-extrabold text-lg text-slate-900 leading-tight">{customerDisplayName(job) || "—"}</div>
-            {job.personName ? <div className="text-sm text-slate-500">{job.personName}</div> : null}
-            <div className="text-sm text-slate-500">{job.title}</div>
+      <div className="card px-3 py-3 lg:px-4 lg:py-4">
+        <div className="flex items-start gap-2 lg:gap-3">
+          <div className="min-w-0 flex-1">
+            <div className="text-base font-bold text-slate-900 leading-snug break-words lg:text-lg lg:font-extrabold">
+              {customerDisplayName(job) || "—"}
+            </div>
+            {job.personName ? <div className="text-xs text-slate-500 lg:text-sm">{job.personName}</div> : null}
+            <div className="text-xs text-slate-500 leading-snug break-words lg:text-sm">{job.title}</div>
             <div className="mt-1.5 flex gap-1.5 flex-wrap">
               <StagePill job={job} />
               <PaidPill job={job} />
@@ -229,7 +231,7 @@ export default function JobDetail() {
             newTab
           />
         </div>
-        <dl className="mt-4 space-y-1 text-sm">
+        <dl className="mt-3 space-y-1 text-xs lg:mt-4 lg:text-sm">
           {[
             ["Phone", job.phone],
             ["Email", job.email],
@@ -241,7 +243,7 @@ export default function JobDetail() {
             .filter(([, v]) => v)
             .map(([k, v]) => (
               <div key={k} className="flex gap-2 items-baseline">
-                <dt className="font-semibold text-slate-800 shrink-0">{k}</dt>
+                <dt className="font-semibold text-slate-800 shrink-0 w-[4.5rem] lg:w-auto">{k}</dt>
                 <dd className="text-slate-500 break-words min-w-0">{v}</dd>
               </div>
             ))}

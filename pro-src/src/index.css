@@ -21,7 +21,7 @@ body {
     @apply bg-white rounded-2xl shadow-sm border border-slate-200/60;
   }
   .chip {
-    @apply px-3 py-1.5 rounded-full text-sm font-medium whitespace-nowrap transition-colors;
+    @apply px-2.5 py-1 rounded-full text-xs font-medium whitespace-nowrap transition-colors lg:px-3 lg:py-1.5 lg:text-sm;
   }
   .btn {
     @apply inline-flex items-center justify-center gap-1.5 rounded-xl px-4 py-2.5 text-sm font-semibold transition-colors disabled:opacity-50;
@@ -33,7 +33,7 @@ body {
     @apply btn bg-white text-slate-700 border border-slate-200 hover:bg-slate-50;
   }
   .pill {
-    @apply inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-xs font-semibold;
+    @apply inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-semibold lg:px-2.5 lg:text-xs;
   }
   .input {
     @apply w-full rounded-xl border border-slate-200 bg-white px-3.5 py-2.5 text-sm outline-none focus:border-brand focus:ring-2 focus:ring-brand/20;

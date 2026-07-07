@@ -35,16 +35,22 @@ export default function JobCard({ job, compact, stackN, onQuickSend, onMarkPaid 
   const nav = useNavigate();
   const href = `/job/${encodeURIComponent(job.id)}`;
   return (
-    <Link to={href} className="block card px-4 py-3.5 active:scale-[0.99] transition-transform relative">
+    <Link to={href} className="block card px-3 py-2.5 lg:px-4 lg:py-3.5 active:scale-[0.99] transition-transform relative">
       {stackN ? (
         <span className="absolute -top-2 right-3 pill bg-accent text-white shadow">{stackN} jobs</span>
       ) : null}
       <div className="flex items-start gap-2">
         <div className="min-w-0">
           {!compact && (
-            <div className="font-bold text-slate-900 truncate">{job.customer || "(no customer)"}</div>
+            <div className="text-sm font-semibold text-slate-900 leading-snug line-clamp-2 break-words lg:text-base lg:font-bold">
+              {job.customer || "(no customer)"}
+            </div>
           )}
-          <div className={`truncate ${compact ? "font-semibold text-slate-900" : "text-sm text-slate-500"}`}>
+          <div
+            className={`leading-snug line-clamp-2 break-words ${
+              compact ? "text-xs font-medium text-slate-900" : "text-xs text-slate-500 lg:text-sm"
+            }`}
+          >
             {job.title || "(untitled job)"}
           </div>
         </div>

@@ -48,12 +48,12 @@ function Tab({ t, sidebar }) {
           ? `relative flex items-center gap-3 rounded-xl px-4 py-3 text-sm font-semibold transition-colors ${
               isActive ? "bg-brand text-white" : "text-slate-600 hover:bg-slate-100"
             }`
-          : `relative flex flex-col items-center gap-0.5 py-2 flex-1 text-[11px] font-medium ${
+          : `relative flex flex-col items-center gap-0.5 py-1.5 flex-1 text-[10px] font-medium ${
               isActive ? "text-brand" : "text-slate-500"
             }`
       }
     >
-      <span className={sidebar ? "text-base" : "text-xl leading-none"}>{t.ic}</span>
+      <span className={sidebar ? "text-base" : "text-lg leading-none"}>{t.ic}</span>
       <span>{t.label}</span>
       {badge > 0 && (
         <span
@@ -134,9 +134,9 @@ export default function App() {
       <div className="flex-1 min-w-0 flex flex-col">
         {/* Mobile header */}
         <header className="lg:hidden sticky top-0 z-30 bg-gradient-to-r from-brand to-accent text-white shadow-sm pt-safe">
-          <div className="flex items-center gap-2 px-4 py-2.5">
-            <span className="text-lg">⚡</span>
-            <span className="font-extrabold tracking-tight">LE Pro</span>
+          <div className="flex items-center gap-2 px-3 py-2">
+            <span className="text-base">⚡</span>
+            <span className="text-sm font-bold tracking-tight">LE Pro</span>
             <span className="ml-auto">
               <SyncChip dark />
             </span>
@@ -177,7 +177,7 @@ export default function App() {
             onClick={() => setNewJob({ step: "choose" })}
             aria-label="New job"
             data-testid="fab-add"
-            className={`fixed z-40 right-4 lg:right-24 w-[54px] h-[54px] rounded-2xl bg-slate-900 text-white text-2xl shadow-xl ${
+            className={`fixed z-40 right-4 lg:right-24 w-12 h-12 rounded-2xl bg-slate-900 text-white text-xl shadow-xl lg:w-[54px] lg:h-[54px] lg:text-2xl ${
               dirtyCount ? "bottom-[150px] lg:bottom-24" : "bottom-[86px] lg:bottom-6" // clear the SaveBar
             }`}
           >

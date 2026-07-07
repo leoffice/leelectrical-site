@@ -84,7 +84,7 @@ export default function LinkJobSheet({ event, previousJobId, onClose, onLinked }
                   onClick={() => toggle(key)}
                   data-testid="link-customer-toggle"
                 >
-                  <span className="grid place-items-center w-9 h-9 rounded-xl bg-accent-soft text-accent font-bold text-sm shrink-0">
+                  <span className="grid place-items-center w-7 h-7 rounded-lg bg-accent-soft text-accent font-semibold text-xs shrink-0 lg:w-9 lg:h-9 lg:rounded-xl lg:text-sm lg:font-bold">
                     {name.trim().slice(0, 1).toUpperCase() || "?"}
                   </span>
                   <span className="min-w-0 flex-1">
