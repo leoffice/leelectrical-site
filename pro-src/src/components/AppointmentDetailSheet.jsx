@@ -1,5 +1,5 @@
 // Appointment detail: view info, edit, job link, or create job.
-import React, { useMemo, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import Sheet from "./Sheet.jsx";
 import EditAppointmentSheet from "./EditAppointmentSheet.jsx";
@@ -18,24 +18,42 @@ export default function AppointmentDetailSheet({ event, onClose }) {
     useStore();
   const nav = useNavigate();
   const [mode, setMode] = useState("view");
+  const [unlinkDone, setUnlinkDone] = useState(false);
   const liveEvent = useMemo(
     () => (events || []).find((e) => String(e.id) === String(event?.id)) || event,
     [events, event]
   );
-  const linked = useMemo(() => linkedJobForEvent(liveEvent, jobs), [liveEvent, jobs]);
+  const linked = useMemo(() => {
+    if (unlinkDone) return null;
+    return linkedJobForEvent(liveEvent, jobs);
+  }, [liveEvent, jobs, unlinkDone]);
+
+  useEffect(() => {
+    setUnlinkDone(false);
+  }, [event?.id]);
 
   const confirmUnlink = async () => {
     if (!linked) return;
     const name = linkedCustomerName(linked);
-    await unlinkAppointmentJob({
-      event: liveEvent,
-      jobId: linked.id,
-      patchAndSave,
-      enqueue,
-      patchLocalEvent,
-    });
-    showToast("Unlinked from " + name);
+    const jobId = linked.id;
+    const eid = liveEvent?.id || "";
+    // Close confirm + drop linked buttons immediately; sync in background.
+    setUnlinkDone(true);
     setMode("view");
+    if (eid) patchLocalEvent(eid, { description: displayEventNotes(liveEvent.description) });
+    try {
+      await unlinkAppointmentJob({
+        event: liveEvent,
+        jobId,
+        patchAndSave,
+        enqueue,
+        patchLocalEvent,
+      });
+      showToast("Unlinked from " + name);
+    } catch {
+      setUnlinkDone(false);
+      showToast("Unlink failed — try again");
+    }
   };
 
   if (mode === "edit") {
@@ -111,9 +129,6 @@ export default function AppointmentDetailSheet({ event, onClose }) {
             <b className="font-semibold">Notes</b>
             <p className="text-slate-600 whitespace-pre-wrap mt-1">{notes}</p>
           </div>
-        ) : null}
-        {linked ? (
-          <div className="text-xs font-semibold text-brand pt-1">Linked job: {linkedCustomerName(linked)}</div>
         ) : null}
       </div>
 
