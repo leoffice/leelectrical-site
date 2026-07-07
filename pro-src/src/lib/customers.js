@@ -239,6 +239,7 @@ export function customerPickPatch(customer, jobs) {
   if (c.phone) patch.phone = c.phone;
   if (c.email) patch.email = c.email;
   if (c.billingAddress) patch.billingAddress = c.billingAddress;
+  else if (c.addr) patch.billingAddress = c.addr;
   // Only when the match object itself carries a site line (not from other jobs).
   if (c.address) patch.serviceAddress = c.address;
   if (c.apartment) patch.apartment = c.apartment;

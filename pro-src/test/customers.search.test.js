@@ -127,6 +127,15 @@ describe("customerPickPatch (#55 prefill on pick)", () => {
     expect(p.apartment).toBe("4B");
     expect(p.billingAddress).toBe("PO Box 1");
   });
+
+  it("maps legacy addr from QBO host rows to billingAddress", () => {
+    const p = customerPickPatch(
+      { name: "Beth Rivkah Crown Street", id: "341", phone: "347-386-9397", email: "ops@x.com", addr: "405 lefferts ave" },
+      jobs
+    );
+    expect(p.billingAddress).toBe("405 lefferts ave");
+    expect(p.phone).toBe("347-386-9397");
+  });
 });
 
 describe("openDocsForCustomer (job title picker)", () => {
