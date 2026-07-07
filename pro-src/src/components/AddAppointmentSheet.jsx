@@ -1,9 +1,11 @@
-// Queue a new Google Calendar appointment (calendar_upsert on the command bus).
+// Create a Google Calendar appointment — week view for availability, reminders, guest notify.
 import React, { useState } from "react";
 import Sheet, { Fld } from "./Sheet.jsx";
+import WeekCalendar from "./WeekCalendar.jsx";
 import { useStore } from "../state/store.jsx";
 import { effectiveServiceAddress } from "../lib/customerSync.js";
 import { withJobLink } from "../lib/calendarLink.js";
+import { todayStr } from "../lib/format.js";
 
 function jobDefaultSummary(job) {
   if (!job) return "";
@@ -22,17 +24,26 @@ function jobDefaultNotes(job) {
 }
 
 function jobDefaultDate(job, defaultDate) {
-  if (defaultDate) return defaultDate + "T09:00";
-  const d = job?.status?.Scheduled?.d || job?.followUp?.date || "";
+  if (defaultDate) return defaultDate.includes("T") ? defaultDate : defaultDate + "T09:00";
+  const d = job?.status?.Scheduled?.d || job?.followUp?.date || todayStr();
   return d ? d + "T09:00" : "";
 }
 
-export default function AddAppointmentSheet({ defaultDate, job, onClose }) {
-  const { enqueue, showToast, patchAndSave, appendLocalEvent, pullCalendarNow } = useStore();
+export default function AddAppointmentSheet({ defaultDate, job, onClose, showCalendar = true }) {
+  const { events, enqueue, showToast, patchAndSave, appendLocalEvent, pullCalendarNow } = useStore();
   const [summary, setSummary] = useState(() => jobDefaultSummary(job));
   const [dt, setDt] = useState(() => jobDefaultDate(job, defaultDate));
   const [location, setLocation] = useState(() => (job ? effectiveServiceAddress(job) : ""));
   const [notes, setNotes] = useState(() => jobDefaultNotes(job));
+  const [remind1h, setRemind1h] = useState(false);
+  const [remind1d, setRemind1d] = useState(false);
+  const [notifyCustomer, setNotifyCustomer] = useState(!!job?.email);
+  const [guestEmail, setGuestEmail] = useState(job?.email || "");
+
+  const pickDay = (dayKey) => {
+    const time = dt && dt.includes("T") ? dt.slice(11, 16) : "09:00";
+    setDt(dayKey + "T" + time);
+  };
 
   const save = async () => {
     const title = (summary || "").trim();
@@ -41,6 +52,11 @@ export default function AddAppointmentSheet({ defaultDate, job, onClose }) {
     const busId = job?.id || "today";
     const description = job ? withJobLink(notes || "Created in LE Pro", job.id) : notes || "Created in LE Pro";
     const key = (job ? "jobcal:" + job.id : "todaycal:") + ":" + dt + ":" + title.slice(0, 24);
+    const guests = notifyCustomer && guestEmail.trim() ? [guestEmail.trim()] : [];
+    const reminders = [];
+    if (remind1h) reminders.push({ label: "inspection_1h", minutes: 60 });
+    if (remind1d) reminders.push({ label: "inspection_1d", minutes: 1440 });
+
     await enqueue(
       "calendar_upsert",
       busId,
@@ -50,13 +66,18 @@ export default function AddAppointmentSheet({ defaultDate, job, onClose }) {
         start: dt,
         location: location || "",
         description,
+        guests,
+        attendees: guests,
+        reminders,
+        notifyCustomer: notifyCustomer && guests.length > 0,
       },
       "judgment",
       key
     );
-    if (job) {
+    if (job?.id && !job._customerContext) {
       const day = dt.slice(0, 10);
       await patchAndSave(job.id, {
+        calEventId: job.calEventId || "",
         status: { Scheduled: { s: "done", d: day } },
       });
     }
@@ -68,40 +89,85 @@ export default function AddAppointmentSheet({ defaultDate, job, onClose }) {
       description,
     });
     pullCalendarNow();
-    showToast(job ? "Appointment queued & linked to job" : "Appointment queued — syncs to Google Calendar");
+    showToast(job ? "Appointment queued for " + (job.customer || "job") : "Appointment queued — syncs to Google Calendar");
     onClose();
   };
 
   return (
-    <Sheet title={job ? "Create appointment for job" : "Add appointment"} onClose={onClose}>
+    <Sheet title={job ? "Add appointment — " + (job.customer || "job") : "Add appointment"} onClose={onClose} wide>
       {job ? (
-        <p className="text-[11px] text-slate-400 -mt-1 mb-3">
-          Writes to office@leelectrical.us and links to {job.customer || "this job"}.
+        <p className="text-[11px] text-slate-400 -mt-1 mb-2">
+          Pre-filled from {job._customerContext ? "customer" : "job"} info — writes to office@leelectrical.us
         </p>
       ) : null}
+
+      {showCalendar ? (
+        <div className="mb-4" data-testid="appt-week-calendar">
+          <p className="text-[11px] font-bold uppercase tracking-wide text-slate-400 mb-2">Calendar — see what&apos;s booked</p>
+          <WeekCalendar events={events} embedded onAddDay={pickDay} />
+        </div>
+      ) : null}
+
       <Fld label="Title" hint="What shows on the calendar">
         <input className="input" value={summary} onChange={(e) => setSummary(e.target.value)} aria-label="Appointment title" />
       </Fld>
-      <Fld label="Date & time">
+      <Fld label="Date & time" hint="Tap a day above or pick here">
         <input
           className="input"
           type="datetime-local"
           value={dt}
           onChange={(e) => setDt(e.target.value)}
           aria-label="Appointment date and time"
+          data-testid="appt-datetime"
         />
       </Fld>
-      <Fld label="Location" hint="Service address (optional)">
+      <Fld label="Location" hint="Service address">
         <input className="input" value={location} onChange={(e) => setLocation(e.target.value)} aria-label="Location" />
       </Fld>
-      <Fld label="Notes" hint="Phone, customer name, details (optional)">
+      <Fld label="Notes" hint="Phone, details (optional)">
         <textarea className="input min-h-[60px]" value={notes} onChange={(e) => setNotes(e.target.value)} aria-label="Notes" />
       </Fld>
-      <button className="btn-brand w-full" onClick={save}>
-        {job ? "Save & sync to calendar" : "Add to calendar"}
+
+      <p className="text-[11px] font-bold uppercase tracking-wide text-slate-400 mt-2 mb-2">Reminders</p>
+      <label className="flex items-center gap-2 text-sm text-slate-600 mb-2 cursor-pointer">
+        <input type="checkbox" className="w-4 h-4" checked={remind1h} onChange={(e) => setRemind1h(e.target.checked)} />
+        Inspection reminder — 1 hour earlier
+      </label>
+      <label className="flex items-center gap-2 text-sm text-slate-600 mb-3 cursor-pointer">
+        <input type="checkbox" className="w-4 h-4" checked={remind1d} onChange={(e) => setRemind1d(e.target.checked)} />
+        Inspection reminder — 1 day earlier
+      </label>
+
+      <p className="text-[11px] font-bold uppercase tracking-wide text-slate-400 mb-2">Notify customer</p>
+      <label className="flex items-center gap-2 text-sm text-slate-600 mb-2 cursor-pointer">
+        <input
+          type="checkbox"
+          className="w-4 h-4"
+          checked={notifyCustomer}
+          onChange={(e) => setNotifyCustomer(e.target.checked)}
+          data-testid="notify-customer-toggle"
+        />
+        Add customer as calendar guest (invite email)
+      </label>
+      {notifyCustomer ? (
+        <Fld label="Guest email" hint="Goes in Google Calendar Add guests field">
+          <input
+            className="input"
+            type="email"
+            value={guestEmail}
+            onChange={(e) => setGuestEmail(e.target.value)}
+            placeholder={job?.email || "customer@email.com"}
+            aria-label="Guest email"
+            data-testid="guest-email"
+          />
+        </Fld>
+      ) : null}
+
+      <button type="button" className="btn-brand w-full" onClick={save} data-testid="appt-save">
+        Save &amp; sync to calendar
       </button>
       <p className="text-[11px] text-slate-400 text-center mt-2">
-        Syncs to office@leelectrical.us — appears on Today after sync (auto-refreshes).
+        Syncs to office@leelectrical.us — appears on Today after sync.
       </p>
     </Sheet>
   );

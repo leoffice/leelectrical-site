@@ -204,7 +204,7 @@ describe("4. new job flow", () => {
     });
   });
 
-  it("new-lead + calendar prefills from appointment but skips QuickBooks auto-match", async () => {
+  it("calendar search pick still prefills new job form", async () => {
     const richEvent = {
       id: "ev-lead",
       summary: "Estimate — Prospect Co",
@@ -228,28 +228,26 @@ describe("4. new job flow", () => {
     renderApp("#/");
     await screen.findByText("Peretz Chein");
     await user.click(screen.getByTestId("fab-add"));
-    await user.click(screen.getByText("Add a new lead with calendar appointment"));
+    await user.click(screen.getByText("Choose from calendar"));
     await user.click(await screen.findByText("Estimate — Prospect Co"));
 
-    expect(screen.getByText("New lead — details")).toBeInTheDocument();
+    expect(screen.getByText("New job — details")).toBeInTheDocument();
     expect(screen.getByLabelText("Business name")).toHaveValue("Prospect Co");
-    expect(screen.getByLabelText("Phone")).toHaveValue("212-555-9999");
-    expect(screen.getByLabelText("Email")).toHaveValue("prospect@x.com");
+    await waitFor(() => {
+      expect(screen.getByLabelText("Phone")).toHaveValue("718-555-0000");
+      expect(screen.getByLabelText("Email")).toHaveValue("qb@prospect.com");
+    });
     expect(screen.getByLabelText("Service address")).toHaveValue("77 Oak Ave");
     expect(screen.getByLabelText("Scheduled date")).toHaveValue("2026-07-11");
-    await waitFor(() => {
-      expect(screen.getByLabelText("Phone")).toHaveValue("212-555-9999");
-      expect(screen.queryByDisplayValue("718-555-0000")).not.toBeInTheDocument();
-    });
 
     await user.click(screen.getByText("Create job"));
     await waitFor(() => {
       const key = Object.keys(srv.state.ov).find((k) => k.startsWith("local-"));
       const ov = srv.state.ov[key];
       expect(ov.customer).toBe("Prospect Co");
-      expect(ov.qboCustomerId || "").toBe("");
+      expect(ov.qboCustomerId).toBe("99");
       expect(ov.calEventId).toBe("ev-lead");
-      expect(ov.phone).toBe("212-555-9999");
+      expect(ov.phone).toBe("718-555-0000");
     });
   });
 });

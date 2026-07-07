@@ -1,20 +1,16 @@
-// + FAB flow: manual form OR pick a calendar appointment to prefill.
-// Creates an overlay job (_new, local- id) exactly like sleek's createJob.
+// + FAB flow: manual form, searchable calendar pick, or add appointment.
 import React, { useMemo, useState, useEffect, useRef, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
 import Sheet, { Fld, Opt } from "./Sheet.jsx";
 import CustomerSearch from "./CustomerSearch.jsx";
+import CalendarSearchSheet from "./CalendarSearchSheet.jsx";
+import AddAppointmentSheet from "./AddAppointmentSheet.jsx";
 import { useStore } from "../state/store.jsx";
 import { evStart, todayStr } from "../lib/format.js";
 import { customerPickPatch, namesNearDuplicate, openDocsForCustomer } from "../lib/customers.js";
 import { serviceAddressHint, serviceAddressLabel } from "../lib/customerSync.js";
 
-/** Prefill parser — enhanced for combined Calendar→Job autofill (#58):
- *  - title from appt summary
- *  - service address from event location
- *  - parse 'customer <name>' from desc to suggest/select QBO customer
- *  - parse apt/apartment/unit/# + num from desc → apartment; remaining text → description
- */
+/** Prefill parser — enhanced for combined Calendar→Job autofill (#58). */
 export function prefillFromEvent(e) {
   const desc = e.description || "";
   const pick = (re) => {
@@ -59,7 +55,6 @@ const CONTACT_FIELDS = [
   ["email", "Email"],
 ];
 
-/** Load full QB row by id, then build a form patch. */
 export async function enrichAndPatchCustomer(customer, jobs, api) {
   let c = customer || {};
   if (c.id != null && !c._newCustomer) {
@@ -90,61 +85,56 @@ export default function NewJobFlow() {
   const nav = useNavigate();
   if (!newJob) return null;
   const close = () => setNewJob(null);
+  const context = newJob.context || null;
 
   if (newJob.step === "choose")
     return (
-      <Sheet title="New job" onClose={close}>
-        <Opt icon="✍️" title="Enter manually" note="Type the customer & details" onClick={() => setNewJob({ step: "form", prefill: {} })} />
-        <Opt icon="📅" title="Choose from calendar" note="Prefill from an upcoming appointment" onClick={() => setNewJob({ step: "cal" })} />
+      <Sheet title="Add" onClose={close}>
+        <Opt icon="✍️" title="Enter manually" note="Type the customer & details" onClick={() => setNewJob({ step: "form", prefill: {}, context })} />
         <Opt
-          icon="🆕"
-          title="Add a new lead with calendar appointment"
-          note="Pick an appointment — new prospect, no QuickBooks match"
-          onClick={() => setNewJob({ step: "cal-lead" })}
+          icon="📅"
+          title="Choose from calendar"
+          note="Search appointments since Jan 1 — prefill a new job"
+          onClick={() => setNewJob({ step: "cal", context })}
+        />
+        <Opt
+          icon="🗓️"
+          title="Add an appointment"
+          note={
+            context
+              ? "Book on the calendar — pre-filled from " + (context._customerContext ? "customer" : "this job")
+              : "Book on the calendar — see what's already scheduled"
+          }
+          onClick={() => setNewJob({ step: "appt", context })}
         />
       </Sheet>
     );
 
-  if (newJob.step === "cal" || newJob.step === "cal-lead") {
-    const isLead = newJob.step === "cal-lead";
-    const fromD = new Date(); fromD.setDate(fromD.getDate() - 14);
-    const toD = new Date(); toD.setDate(toD.getDate() + 7);
-    const fromStr = fromD.toISOString().slice(0, 10);
-    const toStr = toD.toISOString().slice(0, 10);
-    const evs = (events || [])
-      .filter((e) => {
-        const d = evStart(e).slice(0, 10);
-        return d >= fromStr && d <= toStr && !/inspection/i.test(e.summary || "");
-      })
-      .sort((a, b) => (evStart(a) > evStart(b) ? -1 : 1))
-      .slice(0, 30);
+  if (newJob.step === "cal") {
     return (
-      <Sheet title={isLead ? "Pick appointment for new lead" : "Pick an appointment"} onClose={close}>
-        {evs.length ? (
-          evs.map((e, i) => (
-            <Opt
-              key={e.id || i}
-              icon="📅"
-              title={e.summary || "Appointment"}
-              note={evStart(e).replace("T", " ").slice(0, 16) + (e.location ? " · " + e.location : "")}
-              onClick={() =>
-                setNewJob({
-                  step: "form",
-                  prefill: isLead ? { ...prefillFromEvent(e), _newLead: true } : prefillFromEvent(e),
-                })
-              }
-            />
-          ))
-        ) : (
-          <div className="text-sm text-slate-400 text-center py-6">No synced appointments yet.</div>
-        )}
-      </Sheet>
+      <CalendarSearchSheet
+        events={events}
+        title="Choose from calendar"
+        hint="Search since Jan 1 — pick an appointment to start a new job from it."
+        onClose={close}
+        onPick={(e) =>
+          setNewJob({
+            step: "form",
+            prefill: prefillFromEvent(e),
+            context,
+          })
+        }
+      />
     );
+  }
+
+  if (newJob.step === "appt") {
+    return <AddAppointmentSheet job={context} onClose={close} />;
   }
 
   return (
     <NewJobForm
-      key={(newJob.prefill?.calEventId || "new") + ":" + (newJob.prefill?.customer || "manual") + (newJob.prefill?._newLead ? ":lead" : "")}
+      key={(newJob.prefill?.calEventId || "new") + ":" + (newJob.prefill?.customer || "manual")}
       prefill={newJob.prefill || {}}
       onClose={close}
       onCreated={(id) => {
@@ -157,7 +147,6 @@ export default function NewJobFlow() {
 
 function NewJobForm({ prefill, onClose, onCreated }) {
   const { createJob, jobs, api } = useStore();
-  const isNewLead = !!prefill._newLead;
   const [f, setF] = useState(() => {
     const o = { date: prefill.date || "", title: prefill.title || "", description: prefill.description || "" };
     CONTACT_FIELDS.forEach(([k]) => (o[k] = prefill[k] || ""));
@@ -195,7 +184,6 @@ function NewJobForm({ prefill, onClose, onCreated }) {
   );
 
   useEffect(() => {
-    if (isNewLead) return;
     const cust = prefill ? String(prefill.customer || "").trim() : "";
     const token = (prefill.calEventId || "manual") + ":" + cust;
     if (!cust || prefill.qboCustomerId || autoFilledRef.current === token) return;
@@ -220,7 +208,7 @@ function NewJobForm({ prefill, onClose, onCreated }) {
     return () => {
       cancelled = true;
     };
-  }, [prefill, api, jobs, isNewLead]);
+  }, [prefill, api, jobs]);
 
   const set = (k) => (e) => setF((o) => ({ ...o, [k]: e.target.value }));
 
@@ -283,16 +271,8 @@ function NewJobForm({ prefill, onClose, onCreated }) {
   };
 
   return (
-    <Sheet title={isNewLead ? "New lead — details" : "New job — details"} onClose={onClose}>
-      {isNewLead && (
-        <p className="text-sm text-slate-400 -mt-1 mb-3">
-          New prospect from calendar — details prefilled; link to QuickBooks later if they become a customer.
-        </p>
-      )}
-      <Fld
-        label="Business name"
-        hint={isNewLead ? "New lead name (not matched to QuickBooks)" : "Search existing QuickBooks customers, or add a new one"}
-      >
+    <Sheet title="New job — details" onClose={onClose}>
+      <Fld label="Business name" hint="Search existing QuickBooks customers, or add a new one">
         <CustomerSearch
           label="Business name"
           testId="newjob-business-name"

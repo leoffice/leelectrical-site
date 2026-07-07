@@ -4,9 +4,14 @@ import { eventsForWorkWeek, evTimeLabel, mondayOf, weekRangeLabel, ymd } from ".
 import { todayStr } from "../lib/format.js";
 import AddAppointmentSheet from "./AddAppointmentSheet.jsx";
 
-export default function WeekCalendar({ events, onPickEvent }) {
+export default function WeekCalendar({ events, onPickEvent, embedded, onAddDay }) {
   const [weekOffset, setWeekOffset] = useState(0);
   const [addDay, setAddDay] = useState(null);
+
+  const requestAdd = (dayKey) => {
+    if (onAddDay) onAddDay(dayKey);
+    else setAddDay(dayKey);
+  };
   const touchX = useRef(null);
 
   const weekStart = useMemo(() => {
@@ -109,7 +114,7 @@ export default function WeekCalendar({ events, onPickEvent }) {
                   type="button"
                   className="text-[10px] font-bold text-brand py-1.5 border-t border-slate-100 hover:bg-slate-50"
                   aria-label={`Add appointment on ${label}`}
-                  onClick={() => setAddDay(key)}
+                  onClick={() => requestAdd(key)}
                 >
                   ＋
                 </button>
@@ -119,15 +124,17 @@ export default function WeekCalendar({ events, onPickEvent }) {
         </div>
       </div>
 
-      <button
-        type="button"
-        className="btn bg-brand-soft text-brand w-full mt-3 !py-2.5"
-        onClick={() => setAddDay(today)}
-      >
-        ＋ Add appointment
-      </button>
+      {!embedded ? (
+        <button
+          type="button"
+          className="btn bg-brand-soft text-brand w-full mt-3 !py-2.5"
+          onClick={() => requestAdd(today)}
+        >
+          ＋ Add appointment
+        </button>
+      ) : null}
 
-      {addDay && <AddAppointmentSheet defaultDate={addDay} onClose={() => setAddDay(null)} />}
+      {addDay && !onAddDay ? <AddAppointmentSheet defaultDate={addDay} showCalendar={false} onClose={() => setAddDay(null)} /> : null}
     </div>
   );
 }

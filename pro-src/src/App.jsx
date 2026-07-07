@@ -18,6 +18,7 @@ import ChatBubble from "./components/ChatBubble.jsx";
 import ApprovalWatcher from "./components/ApprovalWatcher.jsx";
 import NewJobFlow from "./components/NewJobFlow.jsx";
 import Sheet, { Opt } from "./components/Sheet.jsx";
+import { appointmentContextFromRoute } from "./lib/appointmentContext.js";
 
 const TABS = [
   { to: "/", label: "Jobs", ic: "🗂️", end: true },
@@ -104,10 +105,12 @@ function LeaveSheet() {
 }
 
 export default function App() {
-  const { toast, error, setNewJob, refresh, dirtyCount } = useStore();
+  const { toast, error, setNewJob, refresh, dirtyCount, effectiveJob, jobs } = useStore();
   const loc = useLocation();
   const inDetail = loc.pathname.startsWith("/job/");
-  const showFab = loc.pathname === "/" || loc.pathname === "/today" || inDetail;
+  const inCustomer = loc.pathname.startsWith("/customer/");
+  const showFab = loc.pathname === "/" || loc.pathname === "/today" || inDetail || inCustomer;
+  const fabContext = appointmentContextFromRoute(loc.pathname, { effectiveJob, jobs });
 
   return (
     <div className="min-h-screen lg:flex">
@@ -174,7 +177,7 @@ export default function App() {
         {/* + FAB — Jobs, Today, and open job detail */}
         {showFab && (
           <button
-            onClick={() => setNewJob({ step: "choose" })}
+            onClick={() => setNewJob({ step: "choose", context: fabContext })}
             aria-label="New job"
             data-testid="fab-add"
             className={`fixed z-40 right-4 lg:right-24 w-12 h-12 rounded-2xl bg-slate-900 text-white text-xl shadow-xl lg:w-[54px] lg:h-[54px] lg:text-2xl ${
