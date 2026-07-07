@@ -203,6 +203,55 @@ describe("4. new job flow", () => {
       expect(ov.calEventId).toBe("ev-cal58");
     });
   });
+
+  it("new-lead + calendar prefills from appointment but skips QuickBooks auto-match", async () => {
+    const richEvent = {
+      id: "ev-lead",
+      summary: "Estimate — Prospect Co",
+      start: "2026-07-11T10:00",
+      location: "77 Oak Ave",
+      description: "customer Prospect Co phone: 212-555-9999 prospect@x.com",
+    };
+    const srv = mockServer({
+      customers: [
+        {
+          name: "Prospect Co",
+          id: "99",
+          phone: "718-555-0000",
+          email: "qb@prospect.com",
+          billingAddress: "1 QB Way",
+        },
+      ],
+      events: [richEvent],
+    });
+    const user = userEvent.setup();
+    renderApp("#/");
+    await screen.findByText("Peretz Chein");
+    await user.click(screen.getByTestId("fab-add"));
+    await user.click(screen.getByText("Add a new lead with calendar appointment"));
+    await user.click(await screen.findByText("Estimate — Prospect Co"));
+
+    expect(screen.getByText("New lead — details")).toBeInTheDocument();
+    expect(screen.getByLabelText("Business name")).toHaveValue("Prospect Co");
+    expect(screen.getByLabelText("Phone")).toHaveValue("212-555-9999");
+    expect(screen.getByLabelText("Email")).toHaveValue("prospect@x.com");
+    expect(screen.getByLabelText("Service address")).toHaveValue("77 Oak Ave");
+    expect(screen.getByLabelText("Scheduled date")).toHaveValue("2026-07-11");
+    await waitFor(() => {
+      expect(screen.getByLabelText("Phone")).toHaveValue("212-555-9999");
+      expect(screen.queryByDisplayValue("718-555-0000")).not.toBeInTheDocument();
+    });
+
+    await user.click(screen.getByText("Create job"));
+    await waitFor(() => {
+      const key = Object.keys(srv.state.ov).find((k) => k.startsWith("local-"));
+      const ov = srv.state.ov[key];
+      expect(ov.customer).toBe("Prospect Co");
+      expect(ov.qboCustomerId || "").toBe("");
+      expect(ov.calEventId).toBe("ev-lead");
+      expect(ov.phone).toBe("212-555-9999");
+    });
+  });
 });
 
 describe("10. chat bubble", () => {

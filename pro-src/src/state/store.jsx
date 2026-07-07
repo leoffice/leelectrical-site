@@ -59,7 +59,7 @@ export function StoreProvider({ children }) {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
   const [toast, setToastMsg] = useState("");
-  const [newJob, setNewJob] = useState(null); // {step:"choose"|"cal"|"form", prefill}
+  const [newJob, setNewJob] = useState(null); // {step:"choose"|"cal"|"cal-lead"|"form", prefill}
   const [leaveReq, setLeaveReq] = useState(null); // {cb}
   const toastT = useRef(null);
   const pendingRef = useRef(pending);

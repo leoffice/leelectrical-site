@@ -96,10 +96,17 @@ export default function NewJobFlow() {
       <Sheet title="New job" onClose={close}>
         <Opt icon="✍️" title="Enter manually" note="Type the customer & details" onClick={() => setNewJob({ step: "form", prefill: {} })} />
         <Opt icon="📅" title="Choose from calendar" note="Prefill from an upcoming appointment" onClick={() => setNewJob({ step: "cal" })} />
+        <Opt
+          icon="🆕"
+          title="Add a new lead with calendar appointment"
+          note="Pick an appointment — new prospect, no QuickBooks match"
+          onClick={() => setNewJob({ step: "cal-lead" })}
+        />
       </Sheet>
     );
 
-  if (newJob.step === "cal") {
+  if (newJob.step === "cal" || newJob.step === "cal-lead") {
+    const isLead = newJob.step === "cal-lead";
     const fromD = new Date(); fromD.setDate(fromD.getDate() - 14);
     const toD = new Date(); toD.setDate(toD.getDate() + 7);
     const fromStr = fromD.toISOString().slice(0, 10);
@@ -112,7 +119,7 @@ export default function NewJobFlow() {
       .sort((a, b) => (evStart(a) > evStart(b) ? -1 : 1))
       .slice(0, 30);
     return (
-      <Sheet title="Pick an appointment" onClose={close}>
+      <Sheet title={isLead ? "Pick appointment for new lead" : "Pick an appointment"} onClose={close}>
         {evs.length ? (
           evs.map((e, i) => (
             <Opt
@@ -120,7 +127,12 @@ export default function NewJobFlow() {
               icon="📅"
               title={e.summary || "Appointment"}
               note={evStart(e).replace("T", " ").slice(0, 16) + (e.location ? " · " + e.location : "")}
-              onClick={() => setNewJob({ step: "form", prefill: prefillFromEvent(e) })}
+              onClick={() =>
+                setNewJob({
+                  step: "form",
+                  prefill: isLead ? { ...prefillFromEvent(e), _newLead: true } : prefillFromEvent(e),
+                })
+              }
             />
           ))
         ) : (
@@ -132,7 +144,7 @@ export default function NewJobFlow() {
 
   return (
     <NewJobForm
-      key={(newJob.prefill?.calEventId || "new") + ":" + (newJob.prefill?.customer || "manual")}
+      key={(newJob.prefill?.calEventId || "new") + ":" + (newJob.prefill?.customer || "manual") + (newJob.prefill?._newLead ? ":lead" : "")}
       prefill={newJob.prefill || {}}
       onClose={close}
       onCreated={(id) => {
@@ -145,6 +157,7 @@ export default function NewJobFlow() {
 
 function NewJobForm({ prefill, onClose, onCreated }) {
   const { createJob, jobs, api } = useStore();
+  const isNewLead = !!prefill._newLead;
   const [f, setF] = useState(() => {
     const o = { date: prefill.date || "", title: prefill.title || "", description: prefill.description || "" };
     CONTACT_FIELDS.forEach(([k]) => (o[k] = prefill[k] || ""));
@@ -182,6 +195,7 @@ function NewJobForm({ prefill, onClose, onCreated }) {
   );
 
   useEffect(() => {
+    if (isNewLead) return;
     const cust = prefill ? String(prefill.customer || "").trim() : "";
     const token = (prefill.calEventId || "manual") + ":" + cust;
     if (!cust || prefill.qboCustomerId || autoFilledRef.current === token) return;
@@ -206,7 +220,7 @@ function NewJobForm({ prefill, onClose, onCreated }) {
     return () => {
       cancelled = true;
     };
-  }, [prefill, api, jobs]);
+  }, [prefill, api, jobs, isNewLead]);
 
   const set = (k) => (e) => setF((o) => ({ ...o, [k]: e.target.value }));
 
@@ -269,8 +283,16 @@ function NewJobForm({ prefill, onClose, onCreated }) {
   };
 
   return (
-    <Sheet title="New job — details" onClose={onClose}>
-      <Fld label="Business name" hint="Search existing QuickBooks customers, or add a new one">
+    <Sheet title={isNewLead ? "New lead — details" : "New job — details"} onClose={onClose}>
+      {isNewLead && (
+        <p className="text-sm text-slate-400 -mt-1 mb-3">
+          New prospect from calendar — details prefilled; link to QuickBooks later if they become a customer.
+        </p>
+      )}
+      <Fld
+        label="Business name"
+        hint={isNewLead ? "New lead name (not matched to QuickBooks)" : "Search existing QuickBooks customers, or add a new one"}
+      >
         <CustomerSearch
           label="Business name"
           testId="newjob-business-name"
