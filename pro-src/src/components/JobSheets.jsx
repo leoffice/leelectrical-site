@@ -3,6 +3,7 @@
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import Sheet, { Fld, Opt } from "./Sheet.jsx";
+import AddAppointmentSheet from "./AddAppointmentSheet.jsx";
 import CustomerSearch from "./CustomerSearch.jsx";
 import { enrichAndPatchCustomer } from "./NewJobFlow.jsx";
 import { useStore } from "../state/store.jsx";
@@ -410,6 +411,7 @@ export function QuickSendSheet({ job, onClose }) {
 // both and let authuser win, landing reliably on office@leelectrical.us.
 export const CAL_ACCOUNT = "office@leelectrical.us";
 export function CalSheet({ job, onClose }) {
+  const [adding, setAdding] = useState(false);
   const d =
     (job.status && job.status.Scheduled && job.status.Scheduled.d) ||
     (job.followUp && job.followUp.date) ||
@@ -418,13 +420,22 @@ export function CalSheet({ job, onClose }) {
     "https://calendar.google.com/calendar/u/0/r/day" +
     (d ? "/" + d.replace(/-/g, "/") : "") +
     "?authuser=" + encodeURIComponent(CAL_ACCOUNT);
+
+  if (adding) return <AddAppointmentSheet job={job} onClose={() => setAdding(false)} />;
+
   return (
     <Sheet title="Calendar" onClose={onClose}>
       {d ? (
         <div className="text-sm mb-3"><b className="font-semibold">Job date</b> <span className="text-slate-600">{d}</span></div>
       ) : (
-        <p className="text-sm text-slate-500 mb-3">No date set yet — set one under Progress → Job → Scheduled.</p>
+        <p className="text-sm text-slate-500 mb-3">No date set yet — create an appointment below or set one under Progress → Scheduled.</p>
       )}
+      <Opt
+        icon="＋"
+        title="Create appointment"
+        note="Manual entry — syncs to office@leelectrical.us & links to this job"
+        onClick={() => setAdding(true)}
+      />
       <Opt icon="📅" title="Open Google Calendar" note={d ? "Jumps to " + d : ""} onClick={() => window.open(url)} />
     </Sheet>
   );

@@ -90,7 +90,20 @@ describe("2. quick views — invoice/estimate/calendar sheets", () => {
 
     await user.click(within(pane).getByText("📅 Calendar"));
     expect(screen.getByText("Open Google Calendar")).toBeInTheDocument();
+    expect(screen.getByText("Create appointment")).toBeInTheDocument();
     expect(screen.getByText(/No date set yet/)).toBeInTheDocument(); // no Scheduled date on J-1
+
+    await user.click(screen.getByText("Create appointment"));
+    expect(screen.getByLabelText("Appointment title")).toHaveValue("Panel upgrade — Peretz Chein");
+    fireEvent.change(screen.getByLabelText("Appointment date and time"), { target: { value: "2026-08-15T14:00" } });
+    await user.click(screen.getByText("Save & sync to calendar"));
+    await waitFor(() => expect(srv.enqueued("calendar_upsert")).toHaveLength(1));
+    const cal = srv.enqueued("calendar_upsert")[0];
+    expect(cal.jobId).toBe("J-1");
+    expect(cal.payload.summary).toBe("Panel upgrade — Peretz Chein");
+    expect(cal.payload.start).toBe("2026-08-15T14:00");
+    expect(cal.payload.description).toContain("leJobId:J-1");
+    await waitFor(() => expect(srv.state.ov["J-1"]?.status?.Scheduled?.d).toBe("2026-08-15"));
   });
 });
 

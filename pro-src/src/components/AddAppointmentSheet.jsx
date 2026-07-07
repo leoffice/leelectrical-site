@@ -2,38 +2,75 @@
 import React, { useState } from "react";
 import Sheet, { Fld } from "./Sheet.jsx";
 import { useStore } from "../state/store.jsx";
+import { effectiveServiceAddress } from "../lib/customerSync.js";
+import { withJobLink } from "../lib/calendarLink.js";
 
-export default function AddAppointmentSheet({ defaultDate, onClose }) {
-  const { enqueue, showToast } = useStore();
-  const [summary, setSummary] = useState("");
-  const [dt, setDt] = useState(defaultDate ? defaultDate + "T09:00" : "");
-  const [location, setLocation] = useState("");
-  const [notes, setNotes] = useState("");
+function jobDefaultSummary(job) {
+  if (!job) return "";
+  const cust = job.customer || job.businessName || "";
+  const title = job.title || "Job";
+  return cust ? title + " — " + cust : title;
+}
+
+function jobDefaultNotes(job) {
+  if (!job) return "";
+  const parts = [];
+  if (job.phone) parts.push("phone: " + job.phone);
+  if (job.email) parts.push(job.email);
+  if (job.description) parts.push(job.description);
+  return parts.join("\n");
+}
+
+function jobDefaultDate(job, defaultDate) {
+  if (defaultDate) return defaultDate + "T09:00";
+  const d = job?.status?.Scheduled?.d || job?.followUp?.date || "";
+  return d ? d + "T09:00" : "";
+}
+
+export default function AddAppointmentSheet({ defaultDate, job, onClose }) {
+  const { enqueue, showToast, patchAndSave } = useStore();
+  const [summary, setSummary] = useState(() => jobDefaultSummary(job));
+  const [dt, setDt] = useState(() => jobDefaultDate(job, defaultDate));
+  const [location, setLocation] = useState(() => (job ? effectiveServiceAddress(job) : ""));
+  const [notes, setNotes] = useState(() => jobDefaultNotes(job));
 
   const save = async () => {
     const title = (summary || "").trim();
     if (!title) return showToast("Add a title for the appointment");
     if (!dt) return showToast("Pick date and time");
-    const key = "todaycal:" + dt + ":" + title.slice(0, 24);
+    const busId = job?.id || "today";
+    const description = job ? withJobLink(notes || "Created in LE Pro", job.id) : notes || "Created in LE Pro";
+    const key = (job ? "jobcal:" + job.id : "todaycal:") + ":" + dt + ":" + title.slice(0, 24);
     await enqueue(
       "calendar_upsert",
-      "today",
+      busId,
       {
-        calEventId: "",
+        calEventId: job?.calEventId || "",
         summary: title,
         start: dt,
         location: location || "",
-        description: notes || "Created in LE Pro",
+        description,
       },
       "judgment",
       key
     );
-    showToast("Appointment queued — syncs to Google Calendar");
+    if (job) {
+      const day = dt.slice(0, 10);
+      await patchAndSave(job.id, {
+        status: { Scheduled: { s: "done", d: day } },
+      });
+    }
+    showToast(job ? "Appointment queued & linked to job" : "Appointment queued — syncs to Google Calendar");
     onClose();
   };
 
   return (
-    <Sheet title="Add appointment" onClose={onClose}>
+    <Sheet title={job ? "Create appointment for job" : "Add appointment"} onClose={onClose}>
+      {job ? (
+        <p className="text-[11px] text-slate-400 -mt-1 mb-3">
+          Writes to office@leelectrical.us and links to {job.customer || "this job"}.
+        </p>
+      ) : null}
       <Fld label="Title" hint="What shows on the calendar">
         <input className="input" value={summary} onChange={(e) => setSummary(e.target.value)} aria-label="Appointment title" />
       </Fld>
@@ -53,10 +90,10 @@ export default function AddAppointmentSheet({ defaultDate, onClose }) {
         <textarea className="input min-h-[60px]" value={notes} onChange={(e) => setNotes(e.target.value)} aria-label="Notes" />
       </Fld>
       <button className="btn-brand w-full" onClick={save}>
-        Add to calendar
+        {job ? "Save & sync to calendar" : "Add to calendar"}
       </button>
       <p className="text-[11px] text-slate-400 text-center mt-2">
-        Writes to office@leelectrical.us via Sync. Pull calendar again to see it here.
+        Writes to office@leelectrical.us via Sync. Pull calendar again to see it on Today.
       </p>
     </Sheet>
   );

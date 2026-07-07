@@ -1,6 +1,7 @@
 // From a job: view/unlink/relink its calendar appointment.
 import React, { useMemo, useState } from "react";
 import Sheet from "./Sheet.jsx";
+import AddAppointmentSheet from "./AddAppointmentSheet.jsx";
 import LinkJobSheet from "./LinkJobSheet.jsx";
 import { useStore } from "../state/store.jsx";
 import { evStart } from "../lib/format.js";
@@ -22,6 +23,10 @@ export default function AppointmentLinkSheet({ job, onClose }) {
     showToast("Appointment unlinked");
     onClose();
   };
+
+  if (mode === "add") {
+    return <AddAppointmentSheet job={job} onClose={onClose} />;
+  }
 
   if (mode === "relink" && event) {
     return (
@@ -65,7 +70,12 @@ export default function AppointmentLinkSheet({ job, onClose }) {
           </button>
         </>
       ) : (
-        <p className="text-sm text-slate-500">No calendar appointment linked to this job yet.</p>
+        <>
+          <p className="text-sm text-slate-500 mb-4">No calendar appointment linked to this job yet.</p>
+          <button type="button" className="btn-brand w-full" onClick={() => setMode("add")}>
+            ＋ Create appointment
+          </button>
+        </>
       )}
     </Sheet>
   );
