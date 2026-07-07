@@ -8,7 +8,7 @@ import React, { useMemo } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { useStore } from "../state/store.jsx";
 import AmountDisplay from "../components/AmountDisplay.jsx";
-import { PaidPill, StagePill } from "../components/JobCard.jsx";
+import { CustomerAvatar, PaidPill, StagePill } from "../components/JobCard.jsx";
 import { fmt$ } from "../lib/format.js";
 import { sortJobs } from "../lib/stages.js";
 import {
@@ -62,9 +62,7 @@ export default function CustomerView() {
       {/* Header card: name, contact, total due, open count */}
       <div className="card px-3 py-3 lg:px-4 lg:py-4">
         <div className="flex items-start gap-2 lg:gap-3">
-          <span className="grid place-items-center w-8 h-8 rounded-xl bg-accent-soft text-accent font-semibold text-sm shrink-0 lg:w-10 lg:h-10 lg:rounded-2xl lg:text-base lg:font-bold">
-            {(contact.name || "?").trim().slice(0, 1).toUpperCase()}
-          </span>
+          <CustomerAvatar name={contact.name} className="lg:w-10 lg:h-10 lg:rounded-2xl lg:text-base" />
           <div className="min-w-0 flex-1">
             <div className="text-base font-bold text-slate-900 leading-snug break-words lg:text-lg lg:font-extrabold">
               {displayName || "(no customer)"}

@@ -5,6 +5,7 @@ import { prefillFromEvent } from "./NewJobFlow.jsx";
 import { useStore } from "../state/store.jsx";
 import { fmtAmountDue, totalBalanceDue } from "../lib/customers.js";
 import { applyAppointmentJobLink, customerJobGroups } from "../lib/calendarLink.js";
+import { CustomerAvatar } from "./JobCard.jsx";
 import { fmt$ } from "../lib/format.js";
 
 export default function LinkJobSheet({ event, previousJobId, onClose, onLinked }) {
@@ -84,9 +85,7 @@ export default function LinkJobSheet({ event, previousJobId, onClose, onLinked }
                   onClick={() => toggle(key)}
                   data-testid="link-customer-toggle"
                 >
-                  <span className="grid place-items-center w-7 h-7 rounded-lg bg-accent-soft text-accent font-semibold text-xs shrink-0 lg:w-9 lg:h-9 lg:rounded-xl lg:text-sm lg:font-bold">
-                    {name.trim().slice(0, 1).toUpperCase() || "?"}
-                  </span>
+                  <CustomerAvatar name={name} />
                   <span className="min-w-0 flex-1">
                     <span className="block font-bold text-slate-900 truncate">{name}</span>
                     <span className="block text-xs text-slate-500">

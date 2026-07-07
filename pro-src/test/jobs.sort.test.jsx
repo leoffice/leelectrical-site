@@ -42,9 +42,10 @@ describe("sort dropdown", () => {
       "Newest",
     ]);
     // Beta's group leads despite Alpha's bigger amount (B is overdue)
-    const betaRow = screen.getByTestId("client-group-amount");
+    const betaGroup = screen.getByTestId("client-group");
+    const betaRow = within(betaGroup).getByTestId("client-group-amount");
     expect(betaRow).toHaveTextContent("$300");
-    expect(before(betaRow, screen.getByText("Alpha"))).toBe(true);
+    expect(before(betaGroup, screen.getByTestId("client-single"))).toBe(true);
   });
 
   it("choice persists in localStorage and is restored on next mount", async () => {

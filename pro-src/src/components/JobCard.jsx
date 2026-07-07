@@ -30,6 +30,17 @@ export function PaidPill({ job }) {
   );
 }
 
+/** Customer initial badge — fixed square, never stretches with wrapped text. */
+export function CustomerAvatar({ name, className = "" }) {
+  return (
+    <span
+      className={`grid place-items-center w-7 h-7 rounded-lg bg-accent-soft text-accent font-semibold text-xs shrink-0 self-start lg:w-8 lg:h-8 lg:rounded-xl lg:text-sm ${className}`}
+    >
+      {(name || "").trim().slice(0, 1).toUpperCase() || "?"}
+    </span>
+  );
+}
+
 export default function JobCard({ job, compact, stackN, onQuickSend, onMarkPaid }) {
   const pct = progressPct(job);
   const nav = useNavigate();
@@ -40,7 +51,7 @@ export default function JobCard({ job, compact, stackN, onQuickSend, onMarkPaid 
         <span className="absolute -top-2 right-3 pill bg-accent text-white shadow">{stackN} jobs</span>
       ) : null}
       <div className="flex items-start gap-2">
-        <div className="min-w-0">
+        <div className="min-w-0 flex-1">
           {!compact && (
             <div className="text-sm font-semibold text-slate-900 leading-snug line-clamp-2 break-words lg:text-base lg:font-bold">
               {job.customer || "(no customer)"}
@@ -69,7 +80,7 @@ export default function JobCard({ job, compact, stackN, onQuickSend, onMarkPaid 
       </div>
       {(onQuickSend || onMarkPaid) && (
         <div
-          className="mt-2.5 flex gap-1.5"
+          className="mt-2.5 hidden lg:flex gap-1.5"
           onClick={(e) => {
             e.preventDefault();
             e.stopPropagation();

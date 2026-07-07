@@ -2,7 +2,10 @@
 // (clientGroup OR normalized name), and per-card quick actions.
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { useStore } from "../state/store.jsx";
-import JobCard from "../components/JobCard.jsx";
+import JobCard, { CustomerAvatar, PaidPill, StagePill } from "../components/JobCard.jsx";
+import AmountDisplay from "../components/AmountDisplay.jsx";
+import { Link } from "react-router-dom";
+import { progressPct } from "../lib/stages.js";
 import MergePrompt from "../components/MergePrompt.jsx";
 import Sheet, { Opt } from "../components/Sheet.jsx";
 import { MarkPaidSheet, QuickSendSheet } from "../components/JobSheets.jsx";
@@ -206,54 +209,85 @@ export default function Jobs({ embedded }) {
         </div>
       ) : (
         <div className="space-y-2.5">
-          {groups.map(([key, list]) =>
-            list.length === 1 ? (
-              <JobCard
-                key={list[0].id}
-                job={list[0]}
-                onQuickSend={quickSend}
-                onMarkPaid={(j) => setSheet({ kind: "paid", job: j })}
-              />
-            ) : (
+          {groups.map(([key, list]) => {
+            const job = list[0];
+            const customerName = job.customer || "(no customer)";
+            const sum = customerAmountSummary(list);
+
+            if (list.length === 1) {
+              const href = "/job/" + encodeURIComponent(job.id);
+              const pct = progressPct(job);
+              return (
+                <div key={key} className="card px-3 py-2.5 lg:px-4 lg:py-3" data-testid="client-single">
+                  <div className="flex items-start gap-2">
+                    <CustomerAvatar name={customerName} />
+                    <div className="min-w-0 flex-1">
+                      <button
+                        type="button"
+                        className="text-sm font-semibold text-slate-900 text-left leading-snug line-clamp-2 break-words w-full lg:text-base lg:font-bold"
+                        data-testid="client-group-name"
+                        onClick={() => nav("/customer/" + encodeURIComponent(key))}
+                      >
+                        {customerName}
+                      </button>
+                      <Link
+                        to={href}
+                        className="block text-xs text-slate-500 leading-snug line-clamp-2 break-words mt-0.5 hover:text-brand"
+                      >
+                        {job.title || "(untitled job)"}
+                      </Link>
+                      <div className="mt-1.5 flex items-center gap-1 flex-wrap">
+                        <StagePill job={job} />
+                        <PaidPill job={job} />
+                      </div>
+                      <div className="mt-1.5 h-1 rounded-full bg-slate-100 overflow-hidden">
+                        <div
+                          className="h-full rounded-full bg-gradient-to-r from-brand to-accent"
+                          style={{ width: `${pct}%` }}
+                        />
+                      </div>
+                    </div>
+                    <Link to={href} className="shrink-0 text-right" data-testid="client-group-amount">
+                      <AmountDisplay job={job} size="sm" />
+                    </Link>
+                  </div>
+                </div>
+              );
+            }
+
+            return (
               <div key={key} className="card overflow-hidden" data-testid="client-group">
-                <div className="w-full flex items-center gap-2 px-3 py-2.5 lg:gap-3 lg:px-4 lg:py-3.5">
-                  {/* Tap the name header to open the Customer view */}
+                <div className="w-full flex items-start gap-2 px-3 py-2.5 lg:gap-3 lg:px-4 lg:py-3.5">
                   <button
-                    className="flex items-center gap-3 text-left min-w-0 flex-1"
+                    type="button"
+                    className="flex items-start gap-2 text-left min-w-0 flex-1"
                     data-testid="client-group-name"
                     onClick={() => nav("/customer/" + encodeURIComponent(key))}
                   >
-                    <span className="grid place-items-center w-7 h-7 rounded-lg bg-accent-soft text-accent font-semibold text-xs shrink-0 lg:w-9 lg:h-9 lg:rounded-xl lg:text-sm lg:font-bold">
-                      {(list[0].customer || "").trim().slice(0, 1).toUpperCase() || "?"}
-                    </span>
-                    <span className="min-w-0">
+                    <CustomerAvatar name={customerName} />
+                    <span className="min-w-0 pt-0.5">
                       <span className="block text-sm font-semibold text-slate-900 leading-snug line-clamp-2 break-words lg:text-base lg:font-bold">
-                        {list[0].customer || "(no customer)"}
+                        {customerName}
                       </span>
                       <span className="block text-[11px] text-slate-500 lg:text-xs">
-                        {list.length} job{list.length === 1 ? "" : "s"}
+                        {list.length} jobs
                       </span>
                     </span>
                   </button>
-                  {(() => {
-                    const sum = customerAmountSummary(list);
-                    return (
-                      <div className="text-right shrink-0" data-testid="client-group-amount">
-                        <div className="text-sm font-semibold text-slate-900 lg:font-bold lg:text-base">
-                          {fmt$(sum.due) || "$0"}
-                        </div>
-                        <CustomerAmountSubline
-                          invoiced={sum.invoiced}
-                          paid={sum.paid}
-                          openInvoices={sum.openInvoices}
-                          className="text-[9px]"
-                        />
-                      </div>
-                    );
-                  })()}
-                  {/* Chevron toggles the inline expansion */}
+                  <div className="text-right shrink-0 pt-0.5" data-testid="client-group-amount">
+                    <div className="text-sm font-semibold text-slate-900 lg:font-bold lg:text-base">
+                      {fmt$(sum.due) || "$0"}
+                    </div>
+                    <CustomerAmountSubline
+                      invoiced={sum.invoiced}
+                      paid={sum.paid}
+                      openInvoices={sum.openInvoices}
+                      className="text-[9px]"
+                    />
+                  </div>
                   <button
-                    className="p-1 -m-1 text-slate-400 shrink-0"
+                    type="button"
+                    className="p-1 -m-1 text-slate-400 shrink-0 self-center"
                     aria-label={open[key] ? "Collapse" : "Expand"}
                     data-testid="client-group-toggle"
                     onClick={() => toggleGroup(key)}
@@ -278,8 +312,8 @@ export default function Jobs({ embedded }) {
                   </div>
                 )}
               </div>
-            )
-          )}
+            );
+          })}
         </div>
       )}
       {/* #56 — existing QBO customers not yet in the app. Tapping one offers to
@@ -298,9 +332,7 @@ export default function Jobs({ embedded }) {
                 className="w-full flex items-center gap-3 px-4 py-3 text-left active:bg-slate-50"
                 onClick={() => setImportCust(c)}
               >
-                <span className="grid place-items-center w-7 h-7 rounded-lg bg-accent-soft text-accent font-semibold text-xs shrink-0 lg:w-9 lg:h-9 lg:rounded-xl lg:text-sm lg:font-bold">
-                  {(c.name || "").trim().slice(0, 1).toUpperCase() || "?"}
-                </span>
+                <CustomerAvatar name={c.name} />
                 <span className="min-w-0">
                   <span className="block text-sm font-semibold text-slate-900 leading-snug line-clamp-2 break-words lg:text-base lg:font-bold">
                     {c.name}
