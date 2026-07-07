@@ -142,15 +142,20 @@ export function mockServer(opts = {}) {
         } else if (String(url).includes("presence=1")) data = JSON.parse(JSON.stringify(state.presence));
         else data = { messages: state.messages };
       } else if (path === "customers") {
-        // Name index for New Job smart search + Jobs-tab QBO search. GET ?q=
-        // filters by substring (mirrors the live fn's ranked contains match).
-        const m = String(url).match(/[?&]q=([^&]*)/);
-        const query = m ? decodeURIComponent(m[1]).toLowerCase() : "";
         const all = state.customers || [];
-        const list = query
-          ? all.filter((c) => String(c.name || "").toLowerCase().includes(query))
-          : all;
-        data = { customers: JSON.parse(JSON.stringify(list)), ts: Date.now() };
+        const idM = String(url).match(/[?&]id=([^&]*)/);
+        if (idM) {
+          const cid = decodeURIComponent(idM[1]);
+          const customer = all.find((c) => String(c.id) === cid) || null;
+          data = { customer: customer ? JSON.parse(JSON.stringify(customer)) : null, ts: Date.now() };
+        } else {
+          const m = String(url).match(/[?&]q=([^&]*)/);
+          const query = m ? decodeURIComponent(m[1]).toLowerCase() : "";
+          const list = query
+            ? all.filter((c) => String(c.name || "").toLowerCase().includes(query))
+            : all;
+          data = { customers: JSON.parse(JSON.stringify(list)), ts: Date.now() };
+        }
       } else if (path === "sas-inbound")
         data = { calls: JSON.parse(JSON.stringify(state.sasCalls)), ts: Date.now() };
       else if (path === "iterate") data = { ok: true };

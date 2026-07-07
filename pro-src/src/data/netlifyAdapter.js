@@ -166,6 +166,18 @@ export function createNetlifyAdapter() {
       }
     },
 
+    /** Full QuickBooks customer row by id — phone, email, billing address, etc. */
+    async getCustomer(id) {
+      try {
+        const sid = String(id || "").trim();
+        if (!sid) return null;
+        const d = await http(`customers?id=${encodeURIComponent(sid)}&${cb()}`);
+        return (d && d.customer) || null;
+      } catch {
+        return null;
+      }
+    },
+
     async listEvents() {
       const d = await http("calendar");
       return d.events || [];

@@ -1,12 +1,12 @@
 // + FAB flow: manual form OR pick a calendar appointment to prefill.
 // Creates an overlay job (_new, local- id) exactly like sleek's createJob.
-import React, { useState, useEffect, useRef } from "react";
+import React, { useMemo, useState, useEffect, useRef, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
 import Sheet, { Fld, Opt } from "./Sheet.jsx";
 import CustomerSearch from "./CustomerSearch.jsx";
 import { useStore } from "../state/store.jsx";
 import { evStart, todayStr } from "../lib/format.js";
-import { customerPickPatch, namesNearDuplicate } from "../lib/customers.js";
+import { customerPickPatch, namesNearDuplicate, openDocsForCustomer } from "../lib/customers.js";
 import { serviceAddressHint, serviceAddressLabel } from "../lib/customerSync.js";
 
 /** Prefill parser — enhanced for combined Calendar→Job autofill (#58):
@@ -54,12 +54,36 @@ export function prefillFromEvent(e) {
   };
 }
 
-const FIELDS = [
-  ["title", "Job title / scope"],
+const CONTACT_FIELDS = [
   ["phone", "Phone"],
   ["email", "Email"],
-  ["invoiceNo", "Invoice #"],
 ];
+
+/** Load full QB row by id, then build a form patch. */
+export async function enrichAndPatchCustomer(customer, jobs, api) {
+  let c = customer || {};
+  if (c.id != null && !c._newCustomer) {
+    const detail = await api.getCustomer(c.id);
+    if (detail) c = { ...c, ...detail };
+  }
+  return customerPickPatch(c, jobs);
+}
+
+function mergeCustomerPatch(o, patch, { keepServiceAddress } = {}) {
+  const biz = patch.businessName || patch.customer || "";
+  return {
+    ...o,
+    businessName: biz || o.businessName,
+    personName: patch.personName || o.personName || "",
+    customer: biz || o.customer,
+    qboCustomerId: patch.qboCustomerId || o.qboCustomerId || "",
+    phone: patch.phone || o.phone || "",
+    email: patch.email || o.email || "",
+    billingAddress: patch.billingAddress || o.billingAddress || "",
+    serviceAddress: keepServiceAddress ? o.serviceAddress || patch.serviceAddress || "" : o.serviceAddress || "",
+    apartment: o.apartment || patch.apartment || "",
+  };
+}
 
 export default function NewJobFlow() {
   const { newJob, setNewJob, events, markSasHandled } = useStore();
@@ -122,8 +146,8 @@ export default function NewJobFlow() {
 function NewJobForm({ prefill, onClose, onCreated }) {
   const { createJob, jobs, api } = useStore();
   const [f, setF] = useState(() => {
-    const o = { date: prefill.date || "" };
-    FIELDS.forEach(([k]) => (o[k] = prefill[k] || ""));
+    const o = { date: prefill.date || "", title: prefill.title || "", description: prefill.description || "" };
+    CONTACT_FIELDS.forEach(([k]) => (o[k] = prefill[k] || ""));
     o.businessName = prefill.businessName || prefill.customer || "";
     o.personName = prefill.personName || "";
     o.customer = o.businessName;
@@ -131,12 +155,32 @@ function NewJobForm({ prefill, onClose, onCreated }) {
     o.apartment = prefill.apartment || "";
     o.billingAddress = prefill.billingAddress || "";
     o.qboCustomerId = prefill.qboCustomerId || "";
-    o.description = prefill.description || "";
+    o.invoiceNo = "";
+    o.estimateNo = "";
     return o;
   });
+  const [titlePick, setTitlePick] = useState("new");
   const autoFilledRef = useRef("");
   const fRef = useRef(f);
   fRef.current = f;
+
+  const titleOptions = useMemo(
+    () =>
+      f.qboCustomerId || f.businessName
+        ? openDocsForCustomer({ id: f.qboCustomerId, name: f.businessName || f.customer }, jobs)
+        : [],
+    [f.qboCustomerId, f.businessName, f.customer, jobs]
+  );
+
+  const applyCustomer = useCallback(
+    async (customer, { keepServiceAddress = true } = {}) => {
+      const patch = await enrichAndPatchCustomer(customer, jobs, api);
+      setTitlePick("new");
+      setF((o) => mergeCustomerPatch(o, patch, { keepServiceAddress }));
+    },
+    [api, jobs]
+  );
+
   useEffect(() => {
     const cust = prefill ? String(prefill.customer || "").trim() : "";
     const token = (prefill.calEventId || "manual") + ":" + cust;
@@ -149,22 +193,12 @@ function NewJobForm({ prefill, onClose, onCreated }) {
         const exact = list.find((c) => String(c.name || "").toLowerCase() === cust.toLowerCase());
         const near = list.find((c) => namesNearDuplicate(c.name, cust));
         const match = exact || near || (list.length === 1 ? list[0] : null);
-        if (!match) return;
-        const patch = customerPickPatch(match, jobs);
-        if (cancelled) return;
+        if (!match || cancelled) return;
         autoFilledRef.current = token;
-        setF((o) => ({
-          ...o,
-          businessName: patch.businessName || patch.customer || o.businessName,
-          personName: o.personName || patch.personName || "",
-          customer: patch.businessName || patch.customer || o.customer,
-          qboCustomerId: patch.qboCustomerId || o.qboCustomerId || "",
-          phone: o.phone || patch.phone || "",
-          email: o.email || patch.email || "",
-          billingAddress: o.billingAddress || patch.billingAddress || "",
-          serviceAddress: o.serviceAddress || "",
-          apartment: o.apartment || patch.apartment || "",
-        }));
+        const patch = await enrichAndPatchCustomer(match, jobs, api);
+        if (cancelled) return;
+        setTitlePick("new");
+        setF((o) => mergeCustomerPatch(o, patch, { keepServiceAddress: true }));
       } catch {
         // keep prefilled values
       }
@@ -177,19 +211,34 @@ function NewJobForm({ prefill, onClose, onCreated }) {
   const set = (k) => (e) => setF((o) => ({ ...o, [k]: e.target.value }));
 
   const pickCustomer = (c) => {
-    const patch = customerPickPatch(c, jobs);
-    const biz = patch.businessName || patch.customer || "";
+    if (c && c._newCustomer) {
+      setTitlePick("new");
+      setF((o) => ({
+        ...o,
+        businessName: c.name || "",
+        customer: c.name || "",
+        qboCustomerId: "",
+      }));
+      return;
+    }
+    applyCustomer(c, { keepServiceAddress: true });
+  };
+
+  const onTitlePick = (e) => {
+    const v = e.target.value;
+    setTitlePick(v);
+    if (v === "new") {
+      setF((o) => ({ ...o, invoiceNo: "", estimateNo: "" }));
+      return;
+    }
+    const doc = titleOptions.find((d) => `${d.kind}:${d.no}` === v);
+    if (!doc) return;
     setF((o) => ({
       ...o,
-      businessName: biz,
-      personName: patch.personName || o.personName || "",
-      customer: biz,
-      qboCustomerId: patch.qboCustomerId || "",
-      phone: patch.phone || o.phone || "",
-      email: patch.email || o.email || "",
-      billingAddress: patch.billingAddress || o.billingAddress || "",
-      serviceAddress: o.serviceAddress || patch.serviceAddress || "",
-      apartment: o.apartment || patch.apartment || "",
+      title: doc.title || doc.label,
+      invoiceNo: doc.kind === "invoice" ? doc.no : "",
+      estimateNo: doc.kind === "estimate" ? doc.no : "",
+      serviceAddress: o.serviceAddress || doc.serviceAddress || "",
     }));
   };
 
@@ -206,7 +255,8 @@ function NewJobForm({ prefill, onClose, onCreated }) {
       serviceAddress: cur.serviceAddress,
       apartment: cur.apartment,
       billingAddress: cur.billingAddress || "",
-      invoiceNo: cur.invoiceNo,
+      invoiceNo: cur.invoiceNo || "",
+      estimateNo: cur.estimateNo || "",
       date: cur.date,
       qboCustomerId: cur.qboCustomerId,
       description: cur.description || "",
@@ -225,15 +275,41 @@ function NewJobForm({ prefill, onClose, onCreated }) {
           label="Business name"
           testId="newjob-business-name"
           value={f.businessName || f.customer}
-          onChangeText={(v) => setF((o) => ({ ...o, businessName: v, customer: v, qboCustomerId: "" }))}
+          onChangeText={(v) => {
+            setTitlePick("new");
+            setF((o) => ({ ...o, businessName: v, customer: v, qboCustomerId: "", invoiceNo: "", estimateNo: "" }));
+          }}
           onPick={pickCustomer}
         />
       </Fld>
-      <Fld label="Person name" hint="Contact person (optional)">
+      <Fld label="Person name" hint="Contact person from QuickBooks (optional)">
         <input className="input" value={f.personName} onChange={set("personName")} aria-label="Person name" />
       </Fld>
 
-      <Fld label="Job title / scope">
+      <Fld
+        label="Job title / scope"
+        hint={
+          titleOptions.length
+            ? "Pick an open invoice or estimate for this customer, or add a new scope"
+            : "What we're doing on this visit"
+        }
+      >
+        {titleOptions.length > 0 && (
+          <select
+            className="input mb-2"
+            value={titlePick}
+            onChange={onTitlePick}
+            aria-label="Job title — open invoices and estimates"
+            data-testid="newjob-title-picker"
+          >
+            <option value="new">＋ New scope (type below)</option>
+            {titleOptions.map((d) => (
+              <option key={d.kind + ":" + d.no} value={`${d.kind}:${d.no}`}>
+                {d.label}
+              </option>
+            ))}
+          </select>
+        )}
         <input className="input" value={f.title} onChange={set("title")} aria-label="Job title / scope" />
       </Fld>
       <Fld label="Description" hint="From calendar (apt/unit parsed out to Apartment # field)">
@@ -244,12 +320,11 @@ function NewJobForm({ prefill, onClose, onCreated }) {
           aria-label="Description"
         />
       </Fld>
-      <Fld label="Phone">
-        <input className="input" value={f.phone} onChange={set("phone")} aria-label="Phone" />
-      </Fld>
-      <Fld label="Email">
-        <input className="input" value={f.email} onChange={set("email")} aria-label="Email" />
-      </Fld>
+      {CONTACT_FIELDS.map(([k, l]) => (
+        <Fld key={k} label={l}>
+          <input className="input" value={f[k]} onChange={set(k)} aria-label={l} />
+        </Fld>
+      ))}
       <Fld label="Billing address" hint="QuickBooks billing address (customer)">
         <input className="input" value={f.billingAddress} onChange={set("billingAddress")} aria-label="Billing address" />
       </Fld>
@@ -264,10 +339,6 @@ function NewJobForm({ prefill, onClose, onCreated }) {
       </Fld>
       <Fld label="Apartment #" hint="Unit / apt at the service address (optional)">
         <input className="input" value={f.apartment} onChange={set("apartment")} aria-label="Apartment #" />
-      </Fld>
-
-      <Fld label="Invoice #">
-        <input className="input" value={f.invoiceNo} onChange={set("invoiceNo")} aria-label="Invoice #" />
       </Fld>
 
       <Fld label="Scheduled date">

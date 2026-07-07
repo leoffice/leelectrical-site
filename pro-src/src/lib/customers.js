@@ -152,6 +152,58 @@ export function dismissPair(a, b) {
   }
 }
 
+/** Active jobs belonging to one QBO customer (name or id match). */
+export function jobsMatchingCustomer(customer, jobs) {
+  const c = customer || {};
+  const idStr = c.id != null ? String(c.id) : "";
+  const key = normalizeCustomer(c.name || c.businessName || "");
+  if (!key && !idStr) return [];
+  return (jobs || []).filter(
+    (j) =>
+      j &&
+      !j._archived &&
+      !j._deleted &&
+      (normalizeCustomer(j.customer) === key ||
+        normalizeCustomer(j.businessName) === key ||
+        (idStr && String(j.qboCustomerId || "") === idStr))
+  );
+}
+
+/** Open invoices + estimates for a customer — options for the New Job title picker. */
+export function openDocsForCustomer(customer, jobs) {
+  const items = [];
+  const seen = new Set();
+  for (const j of jobsMatchingCustomer(customer, jobs)) {
+    if (j.invoiceNo && !j.paid) {
+      const k = "inv:" + j.invoiceNo;
+      if (!seen.has(k)) {
+        seen.add(k);
+        items.push({
+          kind: "invoice",
+          no: String(j.invoiceNo),
+          label: `Invoice #${j.invoiceNo}${j.title ? " — " + j.title : ""}`,
+          title: j.title || "",
+          serviceAddress: j.serviceAddress || j.address || "",
+        });
+      }
+    }
+    if (j.estimateNo && !j.invoiceNo) {
+      const k = "est:" + j.estimateNo;
+      if (!seen.has(k)) {
+        seen.add(k);
+        items.push({
+          kind: "estimate",
+          no: String(j.estimateNo),
+          label: `Estimate #${j.estimateNo}${j.title ? " — " + j.title : ""}`,
+          title: j.title || "",
+          serviceAddress: j.serviceAddress || j.address || "",
+        });
+      }
+    }
+  }
+  return items.sort((a, b) => a.kind.localeCompare(b.kind) || a.no.localeCompare(b.no));
+}
+
 /** Form patch to apply when an existing customer is picked in the New Job
  *  smart search (#55). The /customers name index only carries {name,id}, so
  *  billing/contact fields (phone/email/billing address) are pulled from that
@@ -170,15 +222,7 @@ export function customerPickPatch(customer, jobs) {
     const idStr = c.id != null ? String(c.id) : "";
     patch.qboCustomerId = idStr;
     const key = normalizeCustomer(c.name);
-    const mine = (jobs || []).filter(
-      (j) =>
-        j &&
-        !j._archived &&
-        !j._deleted &&
-        (normalizeCustomer(j.customer) === key ||
-          normalizeCustomer(j.businessName) === key ||
-          (idStr && String(j.qboCustomerId || "") === idStr))
-    );
+    const mine = jobsMatchingCustomer(c, jobs);
     const contact = customerContact(mine);
     // Jobs may carry a stale businessName (e.g. copied from another template row);
     // only fold it in when it matches the QBO customer we picked.

@@ -4,7 +4,7 @@
 // env), so this runs fast and independently of the jsdom UI suites.
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { createNetlifyAdapter } from "../src/data/netlifyAdapter.js";
-import { customerPickPatch, unknownCustomers } from "../src/lib/customers.js";
+import { customerPickPatch, openDocsForCustomer, unknownCustomers } from "../src/lib/customers.js";
 
 describe("adapter.searchCustomers", () => {
   afterEach(() => vi.unstubAllGlobals());
@@ -47,6 +47,29 @@ describe("adapter.searchCustomers", () => {
     }));
     const api = createNetlifyAdapter();
     expect(await api.searchCustomers("x")).toEqual([]);
+  });
+
+  it("getCustomer fetches the full row by id", async () => {
+    stub({
+      customers: (url) => {
+        if (String(url).includes("id=34"))
+          return {
+            customer: {
+              id: "34",
+              name: "Avraham Drizin",
+              phone: "718-555-0100",
+              email: "a@d.com",
+              billingAddress: "12 Bill St",
+            },
+            ts: 1,
+          };
+        return { customers: [], ts: 1 };
+      },
+    });
+    const api = createNetlifyAdapter();
+    const c = await api.getCustomer("34");
+    expect(c.phone).toBe("718-555-0100");
+    expect(c.billingAddress).toBe("12 Bill St");
   });
 
   it("returns [] when the payload has no customers array", async () => {
@@ -103,6 +126,23 @@ describe("customerPickPatch (#55 prefill on pick)", () => {
     expect(p.serviceAddress).toBe("Direct Addr");
     expect(p.apartment).toBe("4B");
     expect(p.billingAddress).toBe("PO Box 1");
+  });
+});
+
+describe("openDocsForCustomer (job title picker)", () => {
+  const jobs = [
+    { id: "j1", customer: "Meir Kabakov", invoiceNo: "251841", title: "Panel", paid: false },
+    { id: "j2", customer: "Meir Kabakov", estimateNo: "E-9", title: "Kitchen", paid: false },
+    { id: "j3", customer: "Meir Kabakov", invoiceNo: "999", paid: true },
+    { id: "j4", customer: "Other", invoiceNo: "1", paid: false },
+  ];
+
+  it("lists open unpaid invoices and open estimates for the customer", () => {
+    const out = openDocsForCustomer({ name: "Meir Kabakov", id: "9" }, jobs);
+    expect(out.map((d) => d.label)).toEqual([
+      "Estimate #E-9 — Kitchen",
+      "Invoice #251841 — Panel",
+    ]);
   });
 });
 

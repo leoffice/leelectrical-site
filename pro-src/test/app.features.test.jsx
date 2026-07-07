@@ -155,7 +155,16 @@ describe("4. new job flow", () => {
     };
     const srv = mockServer({
       jobs: [JSON.parse(JSON.stringify(J1)), JSON.parse(JSON.stringify(J2)), drizinJob],
-      customers: [{ name: "Avraham Drizin", id: "34" }],
+      customers: [
+        {
+          name: "Avraham Drizin",
+          id: "34",
+          businessName: "Avraham Drizin",
+          phone: "718-555-0100",
+          email: "az@drizin.com",
+          billingAddress: "12 Billing Ln",
+        },
+      ],
       events: [richEvent],
     });
     const user = userEvent.setup();
