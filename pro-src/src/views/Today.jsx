@@ -4,6 +4,7 @@ import { Link } from "react-router-dom";
 import { useStore } from "../state/store.jsx";
 import { prefillFromEvent } from "../components/NewJobFlow.jsx";
 import Sheet from "../components/Sheet.jsx";
+import WeekCalendar from "../components/WeekCalendar.jsx";
 import { fmtAmountDue, openBalance, totalBalanceDue } from "../lib/customers.js";
 import { evStart, fmt$, todayStr } from "../lib/format.js";
 
@@ -16,19 +17,6 @@ export default function Today() {
   const due = useMemo(
     () => js.filter((j) => j.followUp && j.followUp.date && j.followUp.date <= t && !j.paid),
     [js, t]
-  );
-  const fromStr = useMemo(() => { const d = new Date(); d.setDate(d.getDate() - 14); return d.toISOString().slice(0, 10); }, []);
-  const toStr = useMemo(() => { const d = new Date(); d.setDate(d.getDate() + 14); return d.toISOString().slice(0, 10); }, []);
-  const appts = useMemo(
-    () =>
-      (events || [])
-        .filter((e) => {
-          const d = evStart(e).slice(0, 10);
-          return d >= fromStr && d <= toStr && !/inspection/i.test(e.summary || "");
-        })
-        .sort((a, b) => (evStart(a) < evStart(b) ? -1 : 1))
-        .slice(0, 40),
-    [events, fromStr, toStr]
   );
   const unpaid = js.filter((j) => !j.paid && openBalance(j) > 0);
   const owed = totalBalanceDue(unpaid);
@@ -74,31 +62,11 @@ export default function Today() {
 
       <section>
         <h2 className="text-[11px] font-extrabold text-slate-500 uppercase tracking-wider mb-2 px-1">
-          Calendar — 2 weeks back &amp; ahead
+          Schedule — Mon through Fri
         </h2>
-        {!appts.length ? (
-          <div className="card px-4 py-5 text-sm text-slate-400 text-center">No synced appointments.</div>
-        ) : (
-          <div className="space-y-2">
-            {appts.map((e, i) => (
-              <button
-                key={e.id || i}
-                type="button"
-                className="card w-full px-4 py-3 flex items-center gap-3 text-left active:bg-slate-50"
-                onClick={() => setPicked(e)}
-              >
-                <div className="min-w-0 flex-1">
-                  <div className="font-semibold text-slate-900 truncate">{e.summary || "Appointment"}</div>
-                  <div className="text-xs text-slate-500 truncate">
-                    {evStart(e).replace("T", " ").slice(0, 16)}
-                    {e.location ? " · " + e.location : ""}
-                  </div>
-                </div>
-                <span className="text-slate-300 shrink-0">›</span>
-              </button>
-            ))}
-          </div>
-        )}
+        <div className="card px-3 py-3">
+          <WeekCalendar events={events} onPickEvent={setPicked} />
+        </div>
       </section>
 
       {picked && (

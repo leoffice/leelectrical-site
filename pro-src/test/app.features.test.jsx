@@ -346,7 +346,7 @@ describe("12. sync chip + today view + jobs list", () => {
     expect(screen.getByText("Outstanding")).toBeInTheDocument();
     expect(screen.getAllByText("$2,300").length).toBeGreaterThan(0); // outstanding = J-1 only
     expect(screen.getByText(/Collect balance/)).toBeInTheDocument(); // due follow-up
-    expect(screen.getByText("Estimate — Jane Doe")).toBeInTheDocument();
+    expect(await screen.findByTestId("week-calendar")).toBeInTheDocument();
     await user.click(screen.getByText("Estimate — Jane Doe"));
     await user.click(screen.getByText("＋ Create job from appointment"));
     expect(await screen.findByLabelText("Job title / scope")).toHaveValue("Estimate — Jane Doe");
