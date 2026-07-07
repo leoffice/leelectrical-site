@@ -15,7 +15,8 @@ import {
   sortCmp,
   sortJobs,
 } from "../lib/stages.js";
-import { normalizeCustomer, totalBalanceDue, unknownCustomers } from "../lib/customers.js";
+import { CustomerAmountSubline } from "../components/AmountDisplay.jsx";
+import { customerAmountSummary, normalizeCustomer, unknownCustomers } from "../lib/customers.js";
 import { fmt$, parseAmount } from "../lib/format.js";
 import { useNavigate } from "react-router-dom";
 
@@ -230,14 +231,27 @@ export default function Jobs({ embedded }) {
                         {list[0].customer || "(no customer)"}
                       </span>
                       <span className="block text-xs text-slate-500">
-                        {list.length} jobs · {list.filter((j) => !j.paid).length} unpaid ·{" "}
-                        <b className="text-slate-700">{fmt$(totalBalanceDue(list)) || "$0"} due</b>
+                        {list.length} job{list.length === 1 ? "" : "s"}
                       </span>
                     </span>
                   </button>
+                  {(() => {
+                    const sum = customerAmountSummary(list);
+                    return (
+                      <div className="text-right shrink-0" data-testid="client-group-amount">
+                        <div className="font-bold text-slate-900">{fmt$(sum.due) || "$0"}</div>
+                        <CustomerAmountSubline
+                          invoiced={sum.invoiced}
+                          paid={sum.paid}
+                          openInvoices={sum.openInvoices}
+                          className="text-[9px]"
+                        />
+                      </div>
+                    );
+                  })()}
                   {/* Chevron toggles the inline expansion */}
                   <button
-                    className="ml-auto p-1 -m-1 text-slate-400"
+                    className="p-1 -m-1 text-slate-400 shrink-0"
                     aria-label={open[key] ? "Collapse" : "Expand"}
                     data-testid="client-group-toggle"
                     onClick={() => toggleGroup(key)}

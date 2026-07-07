@@ -36,6 +36,40 @@ export function fmtAmountDue(job) {
   return n > 0 ? fmt$(n) : "";
 }
 
+/** Invoice total from job.amount (original invoiced). */
+export function invoiceTotal(job) {
+  return parseAmount(job?.amount);
+}
+
+/** Amount paid so far (invoice total minus open balance, or full amount when paid). */
+export function amountPaid(job) {
+  if (!job) return 0;
+  const total = invoiceTotal(job);
+  if (job.paid && (job.openBalance == null || job.openBalance === "" || parseAmount(job.openBalance) === 0)) {
+    return total || parseAmount(job.payment?.amount);
+  }
+  const due = openBalance(job);
+  if (total > 0 && due >= 0 && due <= total) return total - due;
+  return parseAmount(job.payment?.amount);
+}
+
+/** Percent of invoice paid (0–100). */
+export function paidPct(job) {
+  const total = invoiceTotal(job);
+  if (!total) return 0;
+  return Math.min(100, Math.round((amountPaid(job) / total) * 100));
+}
+
+/** Customer-group totals for the Jobs list header. */
+export function customerAmountSummary(jobs) {
+  const list = jobs || [];
+  const invoiced = list.reduce((s, j) => s + invoiceTotal(j), 0);
+  const paid = list.reduce((s, j) => s + amountPaid(j), 0);
+  const due = totalBalanceDue(list);
+  const openInvoices = list.filter((j) => !j.paid && openBalance(j) > 0).length;
+  return { due, invoiced, paid, openInvoices, jobCount: list.length };
+}
+
 export function normalizeCustomer(name) {
   return String(name || "")
     .toLowerCase()

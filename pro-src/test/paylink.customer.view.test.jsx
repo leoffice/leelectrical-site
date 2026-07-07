@@ -85,14 +85,16 @@ describe("Feature 2 — customer group total due + Customer view", () => {
 
   it("group row shows TOTAL BALANCE DUE (sum of unpaid open balances)", async () => {
     renderApp("#/");
-    // K-1 (1000) + K-2 (paid=0) + K-3 (300) = $1,300 due, 2 unpaid, 3 jobs
-    expect(await screen.findByText(groupSub("2 jobs · 2 unpaid · $1,300 due"))).toBeInTheDocument();
+    // K-1 (1000) + K-3 (300) = $1,300 due in Active filter (K-2 paid is hidden)
+    const grp = await screen.findByTestId("client-group");
+    expect(within(grp).getByText("2 jobs")).toBeInTheDocument();
+    expect(within(grp).getByTestId("client-group-amount")).toHaveTextContent("$1,300");
   });
 
   it("tapping the customer name opens the Customer view with contact + total due + rows", async () => {
     const user = userEvent.setup();
     renderApp("#/");
-    await screen.findByText(groupSub("2 jobs · 2 unpaid · $1,300 due"));
+    await screen.findByTestId("client-group-amount");
 
     await user.click(screen.getByTestId("client-group-name"));
 
@@ -108,7 +110,7 @@ describe("Feature 2 — customer group total due + Customer view", () => {
   it("tapping a job row opens JobDetail with a back-to-customer breadcrumb", async () => {
     const user = userEvent.setup();
     renderApp("#/");
-    await screen.findByText(groupSub("2 jobs · 2 unpaid · $1,300 due"));
+    await screen.findByTestId("client-group-amount");
     await user.click(screen.getByTestId("client-group-name"));
 
     const view = await screen.findByTestId("customer-view");

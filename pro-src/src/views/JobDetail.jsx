@@ -18,7 +18,7 @@ import {
 } from "../lib/stages.js";
 import { PAPER, isDatedStep } from "../lib/paperwork.js";
 import { fmt$, ago } from "../lib/format.js";
-import { fmtAmountDue } from "../lib/customers.js";
+import AmountDisplay from "../components/AmountDisplay.jsx";
 import {
   customerSyncPayload,
   customerDisplayName,
@@ -215,9 +215,7 @@ export default function JobDetail() {
               {pending[id] && <span className="pill bg-amber-100 text-amber-700">unsaved</span>}
             </div>
           </div>
-          <div className="ml-auto text-right font-extrabold text-lg text-slate-900 shrink-0">
-            {fmtAmountDue(job) || "—"}
-          </div>
+          <AmountDisplay job={job} size="lg" />
         </div>
         <div className="flex gap-2 mt-4">
           <ActionButton href={`tel:${job.phone}`} icon="📞" label="Call" disabled={!job.phone} />

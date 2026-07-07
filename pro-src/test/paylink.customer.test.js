@@ -2,9 +2,13 @@
 // job resolution, and the payment_link result URL parser.
 import { describe, expect, it } from "vitest";
 import {
+  amountPaid,
+  customerAmountSummary,
   customerContact,
+  invoiceTotal,
   jobsForCustomerKey,
   openBalance,
+  paidPct,
   totalBalanceDue,
 } from "../src/lib/customers.js";
 import { paylinkUrl } from "../src/components/JobSheets.jsx";
@@ -26,6 +30,31 @@ describe("openBalance", () => {
   it("is 0 for null / empty", () => {
     expect(openBalance(null)).toBe(0);
     expect(openBalance({})).toBe(0);
+  });
+});
+
+describe("amountPaid / invoiceTotal", () => {
+  it("unpaid full balance -> 0 paid; partial notes -> remainder paid", () => {
+    expect(amountPaid({ amount: "$2,300", paid: false })).toBe(0);
+    expect(amountPaid({ amount: "$900", paid: false, notes: "still owes 400" })).toBe(500);
+    expect(paidPct({ amount: "$900", paid: false, notes: "still owes 400" })).toBe(56);
+  });
+  it("paid job counts full invoice", () => {
+    expect(amountPaid({ amount: "$800", paid: true })).toBe(800);
+    expect(invoiceTotal({ amount: "$1,200" })).toBe(1200);
+  });
+});
+
+describe("customerAmountSummary", () => {
+  it("aggregates due, invoiced, paid across jobs", () => {
+    const s = customerAmountSummary([
+      { amount: "$1,000", paid: false },
+      { amount: "$500", paid: true },
+    ]);
+    expect(s.due).toBe(1000);
+    expect(s.invoiced).toBe(1500);
+    expect(s.paid).toBe(500);
+    expect(s.openInvoices).toBe(1);
   });
 });
 

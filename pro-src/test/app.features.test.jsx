@@ -6,7 +6,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { fireEvent, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import "@testing-library/jest-dom/vitest";
-import { EV, J1, J2, groupSub, mockServer, renderApp } from "./helpers.jsx";
+import { EV, J1, J2, mockServer, renderApp } from "./helpers.jsx";
 
 afterEach(() => {
   vi.unstubAllGlobals();
@@ -423,7 +423,9 @@ describe("12. sync chip + today view + jobs list", () => {
     const user = userEvent.setup();
     renderApp("#/");
     // grouped into one client row (count · total · unpaid)
-    expect(await screen.findByText(groupSub("2 jobs · 2 unpaid · $2,800 due"))).toBeInTheDocument();
+    const grp = await screen.findByTestId("client-group");
+    expect(within(grp).getByText("2 jobs")).toBeInTheDocument();
+    expect(within(grp).getByTestId("client-group-amount")).toHaveTextContent("$2,800");
     await user.click(screen.getByTestId("client-group-toggle"));
     expect(screen.getByText("Panel upgrade")).toBeInTheDocument();
     expect(screen.getByText("Outlet swap")).toBeInTheDocument();

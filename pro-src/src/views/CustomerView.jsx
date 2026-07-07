@@ -7,15 +7,16 @@
 import React, { useMemo } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { useStore } from "../state/store.jsx";
+import AmountDisplay from "../components/AmountDisplay.jsx";
 import { PaidPill, StagePill } from "../components/JobCard.jsx";
 import { fmt$ } from "../lib/format.js";
 import { sortJobs } from "../lib/stages.js";
 import {
+  customerAmountSummary,
   customerContact,
-  fmtAmountDue,
   jobsForCustomerKey,
-  totalBalanceDue,
 } from "../lib/customers.js";
+import { CustomerAmountSubline } from "../components/AmountDisplay.jsx";
 
 export default function CustomerView() {
   const { key: raw } = useParams();
@@ -25,8 +26,8 @@ export default function CustomerView() {
 
   const list = useMemo(() => sortJobs(jobsForCustomerKey(jobs, key)), [jobs, key]);
   const contact = useMemo(() => customerContact(list), [list]);
-  const due = useMemo(() => totalBalanceDue(list), [list]);
-  const openCount = useMemo(() => list.filter((j) => !j.paid).length, [list]);
+  const summary = useMemo(() => customerAmountSummary(list), [list]);
+  const openCount = summary.openInvoices || list.filter((j) => !j.paid).length;
 
   if (!list.length) {
     return (
@@ -75,8 +76,14 @@ export default function CustomerView() {
           <div className="text-right shrink-0">
             <div className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">Total due</div>
             <div className="font-extrabold text-lg text-slate-900" data-testid="customer-total-due">
-              {fmt$(due) || "$0"}
+              {fmt$(summary.due) || "$0"}
             </div>
+            <CustomerAmountSubline
+              invoiced={summary.invoiced}
+              paid={summary.paid}
+              openInvoices={summary.openInvoices}
+              className="text-[10px]"
+            />
           </div>
         </div>
 
@@ -140,9 +147,7 @@ export default function CustomerView() {
                 <PaidPill job={j} />
               </div>
             </div>
-            <div className="text-right shrink-0">
-              <div className="font-extrabold text-slate-900 text-sm">{fmtAmountDue(j) || "—"}</div>
-            </div>
+            <AmountDisplay job={j} size="sm" />
             <span className="text-slate-300 shrink-0">›</span>
           </button>
         ))}

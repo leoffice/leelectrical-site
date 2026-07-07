@@ -1,7 +1,7 @@
 import React from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { isPaid, nextAction, progressPct, stageOf } from "../lib/stages.js";
-import { fmtAmountDue } from "../lib/customers.js";
+import AmountDisplay from "./AmountDisplay.jsx";
 
 export function StagePill({ job }) {
   const cur = stageOf(job);
@@ -48,9 +48,7 @@ export default function JobCard({ job, compact, stackN, onQuickSend, onMarkPaid 
             {job.title || "(untitled job)"}
           </div>
         </div>
-        <div className="ml-auto text-right shrink-0">
-          <div className="font-bold text-slate-900">{fmtAmountDue(job) || "—"}</div>
-        </div>
+        <AmountDisplay job={job} size={compact ? "sm" : "md"} />
       </div>
       <div className="mt-2.5 h-1.5 rounded-full bg-slate-100 overflow-hidden">
         <div
