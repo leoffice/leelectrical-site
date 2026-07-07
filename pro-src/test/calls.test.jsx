@@ -126,7 +126,7 @@ describe("Calls tab", () => {
     await user.click(screen.getByRole("button", { name: /Convert to job/ }));
     // Existing NewJobFlow form, prefilled from the call
     expect(await screen.findByText("New job — details")).toBeInTheDocument();
-    expect(screen.getByLabelText("Customer name")).toHaveValue("Jane Lead");
+    expect(screen.getByLabelText("Business name")).toHaveValue("Jane Lead");
     expect(screen.getByLabelText("Phone")).toHaveValue("9175550001");
     expect(screen.getByLabelText("Email")).toHaveValue("jane@lead.com");
     expect(screen.getByLabelText("Service address")).toHaveValue("77 Ocean Pkwy, Brooklyn");

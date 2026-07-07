@@ -80,10 +80,13 @@ export function jobsForCustomerKey(jobs, key) {
 export function customerContact(jobs) {
   const pick = (k) => (jobs || []).map((j) => j && j[k]).find(Boolean) || "";
   return {
-    name: pick("customer"),
+    name: pick("businessName") || pick("customer"),
+    businessName: pick("businessName"),
+    personName: pick("personName"),
     phone: pick("phone"),
     email: pick("email"),
-    address: pick("address"),
+    billingAddress: pick("billingAddress"),
+    address: pick("serviceAddress") || pick("address"),
   };
 }
 
@@ -158,25 +161,42 @@ export function dismissPair(a, b) {
  *  form — keys are omitted when there's no value, so existing input survives. */
 export function customerPickPatch(customer, jobs) {
   const c = customer || {};
-  const patch = { customer: c.name || "" };
+  const patch = { customer: c.name || "", businessName: c.businessName || c.name || "" };
   if (c._newCustomer) {
     patch.qboCustomerId = "";
   } else {
-    patch.qboCustomerId = c.id != null ? String(c.id) : "";
+    const idStr = c.id != null ? String(c.id) : "";
+    patch.qboCustomerId = idStr;
     const key = normalizeCustomer(c.name);
     const mine = (jobs || []).filter(
-      (j) => j && !j._archived && !j._deleted && normalizeCustomer(j.customer) === key
+      (j) =>
+        j &&
+        !j._archived &&
+        !j._deleted &&
+        (normalizeCustomer(j.customer) === key ||
+          normalizeCustomer(j.businessName) === key ||
+          (idStr && String(j.qboCustomerId || "") === idStr))
     );
     const contact = customerContact(mine);
+    // Jobs may carry a stale businessName (e.g. copied from another template row);
+    // only fold it in when it matches the QBO customer we picked.
+    if (contact.businessName && normalizeCustomer(contact.businessName) === key) {
+      patch.businessName = contact.businessName;
+    }
+    if (contact.personName) patch.personName = contact.personName;
     if (contact.phone) patch.phone = contact.phone;
     if (contact.email) patch.email = contact.email;
-    if (contact.address) patch.serviceAddress = contact.address;
+    if (contact.billingAddress) patch.billingAddress = contact.billingAddress;
+    const svc = mine.map((j) => j.serviceAddress || j.address || "").find(Boolean);
+    if (svc) patch.serviceAddress = svc;
   }
+  if (c.businessName) patch.businessName = c.businessName;
+  if (c.personName) patch.personName = c.personName;
   if (c.phone) patch.phone = c.phone;
   if (c.email) patch.email = c.email;
+  if (c.billingAddress) patch.billingAddress = c.billingAddress;
   if (c.address) patch.serviceAddress = c.address;
   if (c.apartment) patch.apartment = c.apartment;
-  if (c.billingAddress) patch.billingAddress = c.billingAddress;
   return patch;
 }
 

@@ -427,37 +427,57 @@ export function CalSheet({ job, onClose }) {
   );
 }
 
-/* ---------- 3. Customer edit ---------- */
+/* ---------- 3. Customer + job location edit ---------- */
 export function CustEditSheet({ job, onClose }) {
   const { patchJob, showToast } = useStore();
   const [f, setF] = useState({
-    customer: job.customer || "",
+    businessName: job.businessName || job.customer || "",
+    personName: job.personName || "",
     phone: job.phone || "",
     email: job.email || "",
-    address: job.address || "",
+    billingAddress: job.billingAddress || "",
+    serviceAddress: job.serviceAddress || job.address || "",
+    apartment: job.apartment || "",
   });
   const set = (k) => (e) => setF((o) => ({ ...o, [k]: e.target.value }));
+  const apply = () => {
+    const business = (f.businessName || "").trim();
+    patchJob(job.id, {
+      businessName: business,
+      personName: f.personName || "",
+      customer: business,
+      phone: f.phone || "",
+      email: f.email || "",
+      billingAddress: f.billingAddress || "",
+      serviceAddress: f.serviceAddress || "",
+      address: f.serviceAddress || "",
+      apartment: f.apartment || "",
+    });
+    showToast("Info staged");
+    onClose();
+  };
   return (
-    <Sheet title="Edit customer" onClose={onClose}>
-      {[["customer", "Name"], ["phone", "Phone"], ["email", "Email"], ["address", "Billing address"]].map(
+    <Sheet title="Edit customer & service location" onClose={onClose}>
+      <p className="text-[11px] font-bold uppercase tracking-wide text-slate-400 mb-2">Customer (QuickBooks)</p>
+      {[["businessName", "Business name"], ["personName", "Person name"], ["phone", "Phone"], ["email", "Email"], ["billingAddress", "Billing address"]].map(
         ([k, l]) => (
           <Fld key={k} label={l}>
             <input className="input" value={f[k]} onChange={set(k)} aria-label={l} />
           </Fld>
         )
       )}
-      <button
-        className="btn-brand w-full"
-        onClick={() => {
-          patchJob(job.id, f);
-          showToast("Customer info staged");
-          onClose();
-        }}
-      >
+      <p className="text-[11px] font-bold uppercase tracking-wide text-slate-400 mt-3 mb-2">This job — service location</p>
+      <Fld label="Service address" hint="Where we are working on this job (not the QB billing address)">
+        <input className="input" value={f.serviceAddress} onChange={set("serviceAddress")} aria-label="Service address" />
+      </Fld>
+      <Fld label="Apartment #">
+        <input className="input" value={f.apartment} onChange={set("apartment")} aria-label="Apartment #" />
+      </Fld>
+      <button className="btn-brand w-full" onClick={apply}>
         Apply
       </button>
       <p className="text-[11px] text-slate-400 text-center mt-2">
-        Applies to this job now; pushes to QuickBooks only via ⇄ Sync (with your approval).
+        Customer fields sync to QuickBooks via ⇄ Sync. Service address stays on this job only.
       </p>
     </Sheet>
   );

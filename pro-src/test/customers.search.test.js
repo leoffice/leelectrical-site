@@ -75,13 +75,23 @@ describe("customerPickPatch (#55 prefill on pick)", () => {
 
   it("omits contact keys when the customer has no jobs yet (only name + id)", () => {
     const p = customerPickPatch({ name: "Brand New Guy", id: "500" }, jobs);
-    expect(p).toEqual({ customer: "Brand New Guy", qboCustomerId: "500" });
+    expect(p).toEqual({ customer: "Brand New Guy", businessName: "Brand New Guy", qboCustomerId: "500" });
     expect("phone" in p).toBe(false); // nothing to clobber existing input with
+  });
+
+  it("matches jobs by qboCustomerId when the display name differs", () => {
+    const byId = [
+      { id: "j9", customer: "A. Drizin", phone: "718-9", email: "a@d.com", address: "9 St", qboCustomerId: "34" },
+    ];
+    const p = customerPickPatch({ name: "Avraham Drizin", id: "34" }, byId);
+    expect(p.phone).toBe("718-9");
+    expect(p.email).toBe("a@d.com");
+    expect(p.serviceAddress).toBe("9 St");
   });
 
   it("_newCustomer pick contributes just the typed name, no id", () => {
     const p = customerPickPatch({ name: "Typed Name", _newCustomer: true }, jobs);
-    expect(p).toEqual({ customer: "Typed Name", qboCustomerId: "" });
+    expect(p).toEqual({ customer: "Typed Name", businessName: "Typed Name", qboCustomerId: "" });
   });
 
   it("direct fields on the match take precedence and map correctly", () => {

@@ -18,6 +18,7 @@ import {
 } from "../lib/stages.js";
 import { PAPER, isDatedStep } from "../lib/paperwork.js";
 import { fmt$, ago } from "../lib/format.js";
+import { customerSyncPayload, customerDisplayName, effectiveServiceAddress } from "../lib/customerSync.js";
 import { PaidPill, StagePill } from "../components/JobCard.jsx";
 import Toggle from "../components/Toggle.jsx";
 import Jobs from "./Jobs.jsx";
@@ -127,7 +128,7 @@ export default function JobDetail() {
     enqueue(
       "customer_sync",
       id,
-      { name: job.customer || "", email: job.email || "", phone: job.phone || "", addr: job.address || "" },
+      customerSyncPayload(job),
       "deterministic",
       "custsync:" + id + ":" + Date.now()
     );
@@ -143,7 +144,7 @@ export default function JobDetail() {
         calEventId: job.calEventId || "",
         summary: (job.title || "Job") + " — " + (job.customer || ""),
         start: d,
-        location: job.address || "",
+        location: effectiveServiceAddress(job),
         description: "Scheduled from LE Pro",
       },
       "judgment",
@@ -198,7 +199,8 @@ export default function JobDetail() {
       <div className="card px-4 py-4">
         <div className="flex items-start gap-3">
           <div className="min-w-0">
-            <div className="font-extrabold text-lg text-slate-900 leading-tight">{job.customer || "—"}</div>
+            <div className="font-extrabold text-lg text-slate-900 leading-tight">{customerDisplayName(job) || "—"}</div>
+            {job.personName ? <div className="text-sm text-slate-500">{job.personName}</div> : null}
             <div className="text-sm text-slate-500">{job.title}</div>
             <div className="mt-1.5 flex gap-1.5 flex-wrap">
               <StagePill job={job} />
@@ -215,15 +217,25 @@ export default function JobDetail() {
           <ActionButton href={`sms:${job.phone}`} icon="💬" label="Text" disabled={!job.phone} />
           <ActionButton href={`mailto:${job.email}`} icon="✉️" label="Email" disabled={!job.email} />
           <ActionButton
-            href={`https://maps.apple.com/?q=${encodeURIComponent(job.address || "")}`}
+            href={`https://maps.apple.com/?q=${encodeURIComponent(effectiveServiceAddress(job))}`}
             icon="📍"
             label="Map"
-            disabled={!job.address}
+            disabled={!effectiveServiceAddress(job)}
             newTab
           />
         </div>
         <dl className="mt-4 space-y-1 text-sm">
-          {[["Phone", job.phone], ["Email", job.email], ["Address", job.address], ["Estimate #", job.estimateNo], ["Invoice #", job.invoiceNo]]
+          {[
+            ["Phone", job.phone],
+            ["Email", job.email],
+            ["Billing address", job.billingAddress],
+            [
+              job.invoiceNo ? "Service address (invoice #" + job.invoiceNo + ")" : "Service address",
+              effectiveServiceAddress(job),
+            ],
+            ["Estimate #", job.estimateNo],
+            ["Invoice #", job.invoiceNo],
+          ]
             .filter(([, v]) => v)
             .map(([k, v]) => (
               <div key={k} className="flex gap-2 items-baseline">

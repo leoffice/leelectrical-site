@@ -72,7 +72,15 @@ describe("customerContact", () => {
       { customer: "Ann", phone: "", email: "" },
       { customer: "Ann", phone: "555-1", email: "a@x.com", address: "1 St" },
     ]);
-    expect(c).toEqual({ name: "Ann", phone: "555-1", email: "a@x.com", address: "1 St" });
+    expect(c).toEqual({
+      name: "Ann",
+      businessName: "",
+      personName: "",
+      phone: "555-1",
+      email: "a@x.com",
+      billingAddress: "",
+      address: "1 St",
+    });
   });
 });
 

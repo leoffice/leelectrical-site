@@ -4,6 +4,7 @@
 import React, { useEffect, useRef, useState } from "react";
 import Sheet, { Opt } from "./Sheet.jsx";
 import { useStore } from "../state/store.jsx";
+import { customerSyncPayload } from "../lib/customerSync.js";
 
 export default function ApprovalWatcher() {
   const { commands, resolveApproval, enqueue, effectiveJob, showToast } = useStore();
@@ -46,7 +47,7 @@ export default function ApprovalWatcher() {
     enqueue(
       "customer_sync",
       cmd.jobId,
-      { name: j.customer || "", email: j.email || "", phone: j.phone || "", addr: j.address || "", search: s },
+      { ...customerSyncPayload(j), search: s },
       "deterministic",
       "custsync:" + cmd.jobId + ":" + Date.now()
     );

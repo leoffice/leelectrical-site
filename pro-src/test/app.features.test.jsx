@@ -85,9 +85,8 @@ describe("4. new job flow", () => {
     await screen.findByText("Peretz Chein");
     await user.click(screen.getByTestId("fab-add"));
     await user.click(screen.getByText("Enter manually"));
-    await user.type(screen.getByLabelText("Customer name"), "Manual Man");
+    await user.type(screen.getByLabelText("Business name"), "Manual Man");
     await user.type(screen.getByLabelText("Job title / scope"), "Fan install");
-    await user.type(screen.getByLabelText("Amount ($)"), "450");
     fireEvent.change(screen.getByLabelText("Scheduled date"), { target: { value: "2099-08-01" } });
     await user.click(screen.getByText("Create job"));
 
@@ -97,7 +96,7 @@ describe("4. new job flow", () => {
       const ov = srv.state.ov[key];
       expect(ov._new).toBe(true);
       expect(ov.customer).toBe("Manual Man");
-      expect(ov.amount).toBe("$450");
+      expect(ov.amount || "").toBe("");
       expect(ov.paid).toBe(false);
       expect(ov.status.Lead.s).toBe("done");
       expect(ov.status.Scheduled).toEqual({ s: "done", d: "2099-08-01" });
@@ -124,7 +123,7 @@ describe("4. new job flow", () => {
     expect(screen.getByLabelText("Phone")).toHaveValue("917-555-2222");
     expect(screen.getByLabelText("Email")).toHaveValue("jane@x.com");
     expect(screen.getByLabelText("Service address")).toHaveValue("55 Elm St");
-    expect(screen.getByLabelText("Scheduled date")).toHaveValue("2099-07-08");
+    expect(screen.getByLabelText("Scheduled date")).toHaveValue("2026-07-10");
     await user.click(screen.getByText("Create job"));
     await waitFor(() => {
       const key = Object.keys(srv.state.ov).find((k) => k.startsWith("local-"));
@@ -132,6 +131,68 @@ describe("4. new job flow", () => {
     });
     const cmd = srv.enqueued("calendar_upsert")[0];
     expect(cmd.payload.calEventId).toBe("ev1");
+  });
+
+  it("calendar→job COMBINED autofill (#58): customer parse + apt + description + auto QBO match contact fill", async () => {
+    const drizinJob = {
+      ...JSON.parse(JSON.stringify(J1)),
+      id: "J-DZ",
+      customer: "Avraham Drizin",
+      businessName: "Avraham Drizin",
+      phone: "718-555-0100",
+      email: "az@drizin.com",
+      address: "9 Kingston Ave",
+      serviceAddress: "9 Kingston Ave",
+      billingAddress: "12 Billing Ln",
+      qboCustomerId: "34",
+    };
+    const richEvent = {
+      id: "ev-cal58",
+      summary: "Install — Broadway",
+      start: "2026-07-10T14:00",
+      location: "100 Broadway",
+      description: "customer Avraham Drizin apt 4B rear entrance, call on arrival",
+    };
+    const srv = mockServer({
+      jobs: [JSON.parse(JSON.stringify(J1)), JSON.parse(JSON.stringify(J2)), drizinJob],
+      customers: [{ name: "Avraham Drizin", id: "34" }],
+      events: [richEvent],
+    });
+    const user = userEvent.setup();
+    renderApp("#/");
+    await screen.findByText("Peretz Chein");
+    await user.click(screen.getByTestId("fab-add"));
+    await user.click(screen.getByText("Choose from calendar"));
+    await user.click(await screen.findByText("Install — Broadway"));
+
+    expect(screen.getByLabelText("Job title / scope")).toHaveValue("Install — Broadway");
+    expect(screen.getByLabelText("Service address")).toHaveValue("100 Broadway");
+    await waitFor(() => {
+      expect(screen.getByLabelText("Phone")).toHaveValue("718-555-0100");
+      expect(screen.getByLabelText("Email")).toHaveValue("az@drizin.com");
+    });
+    expect(screen.getByLabelText("Apartment #")).toHaveValue("4B");
+    expect(screen.getByLabelText("Description")).toHaveValue("customer Avraham Drizin rear entrance, call on arrival");
+    expect(screen.queryByLabelText("Amount ($)")).not.toBeInTheDocument();
+    expect(screen.queryByLabelText("Estimate #")).not.toBeInTheDocument();
+
+    await user.click(screen.getByText("Create job"));
+    await waitFor(() => {
+      const key = Object.keys(srv.state.ov).find((k) => k.startsWith("local-"));
+      expect(key).toBeTruthy();
+      const ov = srv.state.ov[key];
+      expect(ov.customer).toBe("Avraham Drizin");
+      expect(ov.businessName).toBe("Avraham Drizin");
+      expect(ov.qboCustomerId).toBe("34");
+      expect(ov.billingAddress).toBe("12 Billing Ln");
+      expect(ov.address).toBe("100 Broadway");
+      expect(ov.title).toBe("Install — Broadway");
+      expect(ov.address).toBe("100 Broadway");
+      expect(ov.apartment).toBe("4B");
+      expect(ov.phone).toBe("718-555-0100");
+      expect(ov.email).toBe("az@drizin.com");
+      expect(ov.calEventId).toBe("ev-cal58");
+    });
   });
 });
 
@@ -188,6 +249,7 @@ describe("11. dev board", () => {
     await screen.findByLabelText("Dev request description");
     await user.type(screen.getByLabelText("Dev request description"), "Add a dark mode");
     await user.selectOptions(screen.getByLabelText("Priority"), "High");
+    await user.click(screen.getByText(/Development \(paused\)/));
     await user.click(screen.getByRole("checkbox", { name: /Sleek/i }));
     await user.click(screen.getByRole("button", { name: "Submit" }));
     await waitFor(() => expect(srv.posts("devtasks", (b) => b.op === "add")).toHaveLength(1));
@@ -239,7 +301,9 @@ describe("11. dev board", () => {
     mockServer({ tasks: [] });
     const user = userEvent.setup();
     renderApp("#/dev");
-    await user.type(await screen.findByLabelText("Dev request description"), "half-written idea");
+    const desc = await screen.findByLabelText("Dev request description");
+    await user.clear(desc);
+    await user.type(desc, "half-written idea");
     await user.click(screen.getAllByText("Jobs")[0]); // away…
     await screen.findByLabelText("Search jobs");
     await user.click(screen.getAllByText("Dev")[0]); // …and back

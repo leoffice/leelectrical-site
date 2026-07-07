@@ -18,6 +18,7 @@ export default function CustomerSearch({
   onPick,
   label = "Customer name",
   placeholder = "Search existing customers…",
+  testId = "customer-search-input",
 }) {
   const { api } = useStore();
   const [results, setResults] = useState([]);
@@ -82,6 +83,7 @@ export default function CustomerSearch({
         onChange={handleType}
         onFocus={() => setOpen(true)}
         aria-label={label}
+        data-testid={testId}
         placeholder={placeholder}
         autoComplete="off"
       />

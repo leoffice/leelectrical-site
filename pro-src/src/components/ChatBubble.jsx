@@ -11,7 +11,25 @@ import { useStore } from "../state/store.jsx";
 import { fmt$ } from "../lib/format.js";
 
 const CONVO_KEY = "le_pro_convo";
-const ONLINE_MS = 4 * 60_000; // dispatch-heartbeat younger than this = online
+const ONLINE_MS = 4 * 60_000; // dispatch-heartbeat (or last reply) younger than this = online
+const STUCK_MS = 90_000; // a "Working on it" we've watched longer than this stops looking like a live spinner
+
+/** Own-message delivery status → user-facing label. Statuses arrive on the
+ *  message object from the chat fn (Sent -> Received -> Read -> Working on it). */
+function statusLabel(s) {
+  switch (s) {
+    case "Read":
+      return "Read ✓✓";
+    case "Received":
+      return "Delivered ✓";
+    case "Working on it":
+      return "Working on it…";
+    case "Not sent":
+      return "Not sent";
+    default:
+      return s || "Sent";
+  }
+}
 
 /** Ask for Notification permission once (no-op where unsupported/decided). */
 function askNotifyPermission() {
@@ -74,6 +92,7 @@ export default function ChatBubble() {
   const logRef = useRef(null);
   const recRef = useRef(null);
   const micBtn = useRef(null);
+  const workingSince = useRef({ id: null, t: 0 }); // when we first saw the current "Working on it"
 
   // Context string from the current view (sleek's chatCtx).
   const jobId = loc.pathname.startsWith("/job/") ? decodeURIComponent(loc.pathname.slice(5)) : null;
@@ -279,8 +298,29 @@ export default function ChatBubble() {
   };
 
   const ctx = chatCtx();
-  const working = msgs.some((m) => m.status === "Working on it");
-  const online = dispatchSeen > 0 && Date.now() - dispatchSeen < ONLINE_MS;
+  const now = Date.now();
+
+  // Liveness — a recent Dispatch REPLY is proof the responder is alive even when
+  // its presence heartbeat lags (the "dispatch-heartbeat" cron pings slowly, so
+  // relying on it alone left the header stuck on "away" while replies flowed in
+  // seconds). Online = fresh heartbeat OR a reply within the same window.
+  const lastReplyTs = msgs.reduce((mx, m) => (isDispatchMsg(m) && m.ts > mx ? m.ts : mx), 0);
+  const online =
+    (dispatchSeen > 0 && now - dispatchSeen < ONLINE_MS) ||
+    (lastReplyTs > 0 && now - lastReplyTs < ONLINE_MS);
+
+  // The message Dispatch is actively handling. We time staleness from when WE
+  // first observed it "Working on it" (not the message ts — resilient to clock
+  // skew), so a long-running reply softens the spinner copy instead of looking
+  // frozen forever.
+  const workingMsg = msgs.find((m) => m.status === "Working on it");
+  const working = !!workingMsg;
+  if (working) {
+    if (workingSince.current.id !== workingMsg.id) workingSince.current = { id: workingMsg.id, t: now };
+  } else if (workingSince.current.id) {
+    workingSince.current = { id: null, t: 0 };
+  }
+  const workingStale = working && now - workingSince.current.t > STUCK_MS;
 
   return (
     <>
@@ -294,8 +334,15 @@ export default function ChatBubble() {
       >
         💬
         {unread > 0 && (
-          <span className="absolute -top-1 -right-1 min-w-[18px] h-[18px] px-1 rounded-full bg-red-600 text-white text-[10px] font-extrabold leading-[18px]">
-            {unread}
+          <span
+            className="absolute -top-0.5 -right-0.5 flex items-center justify-center"
+            data-testid="chat-unread-dot"
+            aria-label={`${unread} new ${unread === 1 ? "reply" : "replies"} from Dispatch`}
+          >
+            <span className="absolute inline-flex w-full h-full rounded-full bg-red-500 opacity-75 animate-ping" />
+            <span className="relative inline-flex min-w-[16px] h-[16px] px-1 rounded-full bg-red-600 text-white text-[10px] font-extrabold leading-[16px] items-center justify-center">
+              {unread > 9 ? "9+" : unread}
+            </span>
           </span>
         )}
       </button>
@@ -328,8 +375,8 @@ export default function ChatBubble() {
                   }`}
                 >
                   {m.text}
-                  <span className="block text-[10px] opacity-70 mt-0.5 text-right">
-                    {isDispatchMsg(m) ? "Dispatch" : m.status || "Sent"}
+                  <span className="block text-[10px] opacity-70 mt-0.5 text-right" data-testid="msg-meta">
+                    {isDispatchMsg(m) ? "Dispatch" : statusLabel(m.status)}
                   </span>
                 </div>
               ))
@@ -343,8 +390,10 @@ export default function ChatBubble() {
                 className="max-w-[82%] rounded-2xl rounded-bl-md bg-slate-100 px-3 py-2 text-sm text-slate-500 mb-2 flex items-center gap-1.5"
                 data-testid="typing-line"
               >
-                <span className="w-1.5 h-1.5 rounded-full bg-slate-400 animate-pulse" />
-                Dispatch is working on it…
+                <span className={`w-1.5 h-1.5 rounded-full bg-slate-400 ${workingStale ? "" : "animate-pulse"}`} />
+                {workingStale
+                  ? "Dispatch is still on it — this one's taking a little longer."
+                  : "Dispatch is working on it…"}
               </div>
             )}
           </div>

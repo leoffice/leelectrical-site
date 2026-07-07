@@ -56,9 +56,12 @@ describe("customer_sync approval resolution", () => {
     expect(created[0].jobId).toBe("J-1");
     expect(created[0].payload).toEqual({
       name: "TEST Guy",
+      businessName: "TEST Guy",
+      personName: "",
       email: "t@x.com",
       phone: "718-555-0142",
-      addr: "",
+      billingAddr: "405 Lefferts Ave",
+      addr: "405 Lefferts Ave",
     });
     expect(created[0].lane).toBe("deterministic");
   });
@@ -81,9 +84,12 @@ describe("customer_sync approval resolution", () => {
     expect(upd[0].payload).toEqual({
       id: "678",
       name: "TEST Guy",
+      businessName: "TEST Guy",
+      personName: "",
       email: "t@x.com",
       phone: "718-555-0142",
-      addr: "",
+      billingAddr: "405 Lefferts Ave",
+      addr: "405 Lefferts Ave",
     });
   });
 
@@ -119,9 +125,12 @@ describe("customer_sync approval resolution", () => {
     expect(upd[0].payload).toEqual({
       id: "1600",
       name: "TEST Guy",
+      businessName: "TEST Guy",
+      personName: "",
       email: "test1@leelectrical.us",
       phone: "718-555-0199",
-      addr: "",
+      billingAddr: "405 Lefferts Ave",
+      addr: "405 Lefferts Ave",
     });
   });
 

@@ -4,7 +4,7 @@
 // picked existing customer's details into the form.
 import React from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { screen, waitFor } from "@testing-library/react";
+import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import "@testing-library/jest-dom/vitest";
 import { J1, J2, mockServer, renderApp } from "./helpers.jsx";
@@ -31,12 +31,9 @@ describe("#49 New Job form — split addresses + apartment", () => {
 
     expect(screen.getByLabelText("Service address")).toBeInTheDocument();
     expect(screen.getByLabelText("Apartment #")).toBeInTheDocument();
-    // Billing defaults to "same as service" -> the separate input is hidden…
-    expect(screen.getByLabelText("Billing same as service address")).toBeChecked();
-    expect(screen.queryByLabelText("Billing address")).not.toBeInTheDocument();
-    // …unchecking reveals a distinct Billing address field.
-    await user.click(screen.getByLabelText("Billing same as service address"));
     expect(screen.getByLabelText("Billing address")).toBeInTheDocument();
+    expect(screen.getByLabelText("Person name")).toBeInTheDocument();
+    expect(screen.getByLabelText("Business name")).toBeInTheDocument();
   });
 
   it("persists service address (as address), apartment, and billing on create", async () => {
@@ -46,8 +43,9 @@ describe("#49 New Job form — split addresses + apartment", () => {
     await screen.findByText("Peretz Chein");
     await openManual(user);
 
-    await user.type(screen.getByLabelText("Customer name"), "Fresh Client");
+    await user.type(screen.getByLabelText("Business name"), "Fresh Client");
     await user.type(screen.getByLabelText("Service address"), "12 Oak Ave");
+    await user.type(screen.getByLabelText("Billing address"), "99 Bill St");
     await user.type(screen.getByLabelText("Apartment #"), "3R");
     await user.click(screen.getByText("Create job"));
 
@@ -58,7 +56,7 @@ describe("#49 New Job form — split addresses + apartment", () => {
       expect(ov.customer).toBe("Fresh Client");
       expect(ov.address).toBe("12 Oak Ave"); // canonical service address
       expect(ov.apartment).toBe("3R");
-      expect(ov.billingAddress).toBe("12 Oak Ave"); // "same as service" default
+      expect(ov.billingAddress).toBe("99 Bill St");
     });
   });
 });
@@ -69,9 +67,11 @@ describe("#55 picking an existing customer prefills their details", () => {
       ...JSON.parse(JSON.stringify(J1)),
       id: "J-DZ",
       customer: "Avraham Drizin",
+      businessName: "Avraham Drizin",
       phone: "718-555-0100",
       email: "az@drizin.com",
       address: "9 Kingston Ave",
+      serviceAddress: "9 Kingston Ave",
       invoiceNo: "",
     };
     const srv = mockServer({
@@ -83,19 +83,21 @@ describe("#55 picking an existing customer prefills their details", () => {
     await screen.findByText("Peretz Chein");
     await openManual(user);
 
-    await user.type(screen.getByLabelText("Customer name"), "Drizin");
-    const match = await screen.findByTestId("customer-match");
+    const dialog = screen.getByRole("dialog");
+    await user.type(within(dialog).getByTestId("newjob-business-name"), "Drizin");
+    const match = await within(dialog).findByTestId("customer-match");
     expect(match).toHaveTextContent("Avraham Drizin");
     await user.click(match);
 
-    expect(screen.getByLabelText("Customer name")).toHaveValue("Avraham Drizin");
-    expect(screen.getByLabelText("Phone")).toHaveValue("718-555-0100");
-    expect(screen.getByLabelText("Email")).toHaveValue("az@drizin.com");
-    expect(screen.getByLabelText("Service address")).toHaveValue("9 Kingston Ave");
+    await waitFor(() => expect(within(dialog).getByLabelText("Phone")).toHaveValue("718-555-0100"));
+    expect(within(dialog).getByLabelText("Email")).toHaveValue("az@drizin.com");
+    expect(within(dialog).getByLabelText("Service address")).toHaveValue("9 Kingston Ave");
 
     await user.click(screen.getByText("Create job"));
     await waitFor(() => {
       const key = Object.keys(srv.state.ov).find((k) => k.startsWith("local-"));
+      expect(srv.state.ov[key].customer).toBe("Avraham Drizin");
+      expect(srv.state.ov[key].businessName).toBe("Avraham Drizin");
       expect(srv.state.ov[key].qboCustomerId).toBe("34");
       expect(srv.state.ov[key].phone).toBe("718-555-0100");
     });

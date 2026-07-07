@@ -10,6 +10,8 @@ import { StoreProvider } from "../src/state/store.jsx";
 export const J1 = {
   id: "J-1",
   customer: "Peretz Chein",
+  businessName: "Peretz Chein",
+  personName: "",
   title: "Panel upgrade",
   amount: "$2,300",
   invoiceNo: "251841",
@@ -17,6 +19,8 @@ export const J1 = {
   phone: "718-555-1111",
   email: "p@x.com",
   address: "123 Main St, Brooklyn",
+  serviceAddress: "123 Main St, Brooklyn",
+  billingAddress: "405 Lefferts Ave",
   paid: false,
   notes: "",
   attachments: [{ name: "Old photo", url: "https://x/1" }],
@@ -36,7 +40,7 @@ export const J2 = {
 export const EV = {
   id: "ev1",
   summary: "Estimate — Jane Doe",
-  start: "2099-07-08T10:00",
+  start: "2026-07-10T10:00",
   location: "55 Elm St",
   description: "phone: 917-555-2222 jane@x.com",
 };

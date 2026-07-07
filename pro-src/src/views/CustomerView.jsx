@@ -38,10 +38,15 @@ export default function CustomerView() {
     );
   }
 
+  const displayName = contact.businessName || contact.name;
   const contactRows = [
+    ...(contact.businessName && contact.businessName !== displayName
+      ? [["Business", contact.businessName, ""]]
+      : []),
+    ["Person", contact.personName, ""],
     ["Phone", contact.phone, contact.phone ? `tel:${contact.phone}` : ""],
     ["Email", contact.email, contact.email ? `mailto:${contact.email}` : ""],
-    ["Address", contact.address, ""],
+    ["Billing address", contact.billingAddress, ""],
   ].filter(([, v]) => v);
 
   return (
@@ -61,7 +66,7 @@ export default function CustomerView() {
           </span>
           <div className="min-w-0 flex-1">
             <div className="font-extrabold text-lg text-slate-900 leading-tight truncate">
-              {contact.name || "(no customer)"}
+              {displayName || "(no customer)"}
             </div>
             <div className="text-xs text-slate-500 mt-0.5">
               {list.length} job{list.length > 1 ? "s" : ""} · {openCount} open invoice{openCount === 1 ? "" : "s"}

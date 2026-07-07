@@ -1,11 +1,12 @@
 import { getStore } from "@netlify/blobs";
 
-// Customer name index for the Pro app New Job smart search (task #49).
-// A host push keeps the list of QuickBooks customer names fresh; the Pro app
-// GETs it and filters client-side for instant autocomplete.
-//   GET             -> { customers:[{name,id}], updated, ts }
-//   GET ?q=drizin   -> { customers:[...top 12 matches for q], ts }
-//   POST {op:"set", customers:[{name,id}], updated}   (host push)
+// Customer index for the Pro app New Job smart search (task #49) + QB contact
+// prefill (QuickBooks customer info). Host push may include optional fields:
+//   { name, id, businessName, personName, phone, email, billingAddress }
+//   GET             -> { customers:[...], updated, ts }
+//   GET ?q=drizin   -> { customers:[...top 12 matches], ts }
+//   GET ?id=34      -> { customer:{...}|null, ts }
+//   POST {op:"set", customers:[...], updated}   (host push)
 const KEY = "customers-v1";
 
 function json(o) {
@@ -41,6 +42,11 @@ export default async (req) => {
 
   const doc = await load(store);
   const url = new URL(req.url);
+  const id = (url.searchParams.get("id") || "").trim();
+  if (id) {
+    const customer = (doc.customers || []).find((c) => String(c.id) === id) || null;
+    return json({ customer, ts: doc.ts });
+  }
   const q = (url.searchParams.get("q") || "").trim().toLowerCase();
   if (q) {
     const toks = q.split(/\s+/).filter(Boolean);

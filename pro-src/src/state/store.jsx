@@ -17,6 +17,7 @@ import { applyOverlay, deepMerge, isPlainObject } from "../data/merge.js";
 import { STAGES } from "../lib/stages.js";
 import { fmt$, todayStr } from "../lib/format.js";
 import { unhandledCount } from "../lib/sas.js";
+import { customerSyncPayload } from "../lib/customerSync.js";
 
 const Ctx = createContext(null);
 const DRAFT_KEY = "lepro_draft_v1";
@@ -319,12 +320,15 @@ export function StoreProvider({ children }) {
             "user chose " + choice + " (pro)"
           )
           .catch(() => {});
-        const info = {
-          name: prop.name || "",
-          email: prop.email || "",
-          phone: prop.phone || "",
-          addr: prop.addr || "",
+        const j = effectiveJob(cmd.jobId) || {};
+        const merged = {
+          ...j,
+          ...prop,
+          businessName: prop.businessName || prop.name || j.businessName || j.customer || "",
+          billingAddress:
+            prop.billingAddr || prop.billingAddress || prop.addr || j.billingAddress || "",
         };
+        const info = customerSyncPayload(merged);
         if (choice === "create") {
           await enqueue(
             "create_customer",
@@ -350,7 +354,7 @@ export function StoreProvider({ children }) {
       refreshCommands();
       showToast(choice === "skip" ? "Skipped" : "Approved — running…");
     },
-    [commands, enqueue, refreshCommands, showToast]
+    [commands, effectiveJob, enqueue, refreshCommands, showToast]
   );
 
   /** Append to the job's send history (staged like every other edit). */
@@ -378,17 +382,22 @@ export function StoreProvider({ children }) {
       if (g.estimateNo) status.Estimate = { s: "done" };
       if (g.invoiceNo) status.Invoiced = { s: "done", d: todayStr() };
       if (g.date) status.Scheduled = { s: "done", d: g.date };
+      const serviceAddr = g.serviceAddress || g.address || "";
       const ov = {
         _new: true,
-        customer: g.customer || "",
+        customer: g.businessName || g.customer || "",
+        businessName: g.businessName || g.customer || "",
+        personName: g.personName || "",
         title: g.title || "",
         amount: g.amount ? fmt$(g.amount) : "",
         phone: g.phone || "",
         email: g.email || "",
-        address: g.address || "",
+        address: serviceAddr,
+        serviceAddress: serviceAddr,
         apartment: g.apartment || "",
         billingAddress: g.billingAddress || "",
         qboCustomerId: g.qboCustomerId || "",
+        description: g.description || "",
         estimateNo: g.estimateNo || "",
         invoiceNo: g.invoiceNo || "",
         paid: false,
@@ -412,7 +421,7 @@ export function StoreProvider({ children }) {
             calEventId: calEventId || "",
             summary: (g.title || "Job") + " — " + (g.customer || ""),
             start: g.date,
-            location: g.address || "",
+            location: serviceAddr,
             description: "Created in LE Pro",
           },
           "judgment",

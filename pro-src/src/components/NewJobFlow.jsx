@@ -1,40 +1,62 @@
 // + FAB flow: manual form OR pick a calendar appointment to prefill.
 // Creates an overlay job (_new, local- id) exactly like sleek's createJob.
-import React, { useState } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import { useNavigate } from "react-router-dom";
 import Sheet, { Fld, Opt } from "./Sheet.jsx";
 import CustomerSearch from "./CustomerSearch.jsx";
 import { useStore } from "../state/store.jsx";
 import { evStart, todayStr } from "../lib/format.js";
-import { customerPickPatch } from "../lib/customers.js";
+import { customerPickPatch, namesNearDuplicate } from "../lib/customers.js";
 
-/** Prefill parser — copied from sleek's prefillFromEvent. */
+/** Prefill parser — enhanced for combined Calendar→Job autofill (#58):
+ *  - title from appt summary
+ *  - service address from event location
+ *  - parse 'customer <name>' from desc to suggest/select QBO customer
+ *  - parse apt/apartment/unit/# + num from desc → apartment; remaining text → description
+ */
 export function prefillFromEvent(e) {
   const desc = e.description || "";
   const pick = (re) => {
     const m = desc.match(re);
     return m ? m[1].trim() : "";
   };
+
+  const aptMatch = desc.match(/\b(?:apt\.?|apartment|unit|suite|#)\s*#?\s*([A-Za-z0-9][A-Za-z0-9-]{0,8})\b/i);
+  const apartment = aptMatch ? aptMatch[1].trim() : "";
+
+  let description = desc;
+  if (apartment && aptMatch) {
+    description = desc.replace(aptMatch[0], "").replace(/\s{2,}/g, " ").trim();
+    description = description.replace(/^[,\-–—:\s]+/, "").trim();
+  }
+
+  let customer =
+    (e.summary || "").replace(/(service call|estimate|install.*?)[—\-:]/i, "").trim() || e.summary || "";
+  const custMatch = desc.match(/\bcustomer\s+([A-Za-z][A-Za-z .,'-]{1,30}?(?=\s+(?:apt|apartment|unit|suite|phone|tel|cell|email|rear|call|on|\d)|$|[,.]))/i);
+  if (custMatch) {
+    customer = custMatch[1].trim().replace(/[,.;]$/, "");
+  }
+
+  const title = e.summary || "";
+
   return {
-    customer:
-      (e.summary || "").replace(/(service call|estimate|install.*?)[—\-:]/i, "").trim() || e.summary || "",
-    title: e.summary || "",
+    customer,
+    businessName: customer,
+    title,
     address: e.location || "",
     phone: pick(/(?:phone|tel|cell)[:\s]+([\d\-\+\(\) ]{7,})/i),
     email: pick(/([\w.+-]+@[\w-]+\.[\w.]+)/),
     date: evStart(e).slice(0, 10),
     calEventId: e.id || "",
+    apartment,
+    description,
   };
 }
 
-// Non-customer text fields (customer name has its own smart-search field, and
-// the two addresses + apartment get bespoke layout — see NewJobForm).
 const FIELDS = [
   ["title", "Job title / scope"],
-  ["amount", "Amount ($)"],
   ["phone", "Phone"],
   ["email", "Email"],
-  ["estimateNo", "Estimate #"],
   ["invoiceNo", "Invoice #"],
 ];
 
@@ -53,7 +75,6 @@ export default function NewJobFlow() {
     );
 
   if (newJob.step === "cal") {
-    // Window: 2 weeks back through 1 week ahead, excluding "inspection" events.
     const fromD = new Date(); fromD.setDate(fromD.getDate() - 14);
     const toD = new Date(); toD.setDate(toD.getDate() + 7);
     const fromStr = fromD.toISOString().slice(0, 10);
@@ -86,10 +107,10 @@ export default function NewJobFlow() {
 
   return (
     <NewJobForm
+      key={(newJob.prefill?.calEventId || "new") + ":" + (newJob.prefill?.customer || "manual")}
       prefill={newJob.prefill || {}}
       onClose={close}
       onCreated={(id) => {
-        // SAS lead ticket → job: mark the originating ticket handled + link it.
         if (newJob.sasCallId) markSasHandled(newJob.sasCallId, { handled: true, jobId: id });
         nav("/job/" + encodeURIComponent(id));
       }}
@@ -98,44 +119,96 @@ export default function NewJobFlow() {
 }
 
 function NewJobForm({ prefill, onClose, onCreated }) {
-  const { createJob, jobs } = useStore();
+  const { createJob, jobs, api } = useStore();
   const [f, setF] = useState(() => {
     const o = { date: prefill.date || "" };
     FIELDS.forEach(([k]) => (o[k] = prefill[k] || ""));
-    // Service address keeps the canonical `serviceAddress`/legacy `address`
-    // prefill; billing + apartment start empty unless prefilled.
-    o.customer = prefill.customer || "";
+    o.businessName = prefill.businessName || prefill.customer || "";
+    o.personName = prefill.personName || "";
+    o.customer = o.businessName;
     o.serviceAddress = prefill.serviceAddress || prefill.address || "";
     o.apartment = prefill.apartment || "";
     o.billingAddress = prefill.billingAddress || "";
     o.qboCustomerId = prefill.qboCustomerId || "";
+    o.description = prefill.description || "";
     return o;
   });
-  // Billing defaults to "same as service" — only splits when Levi unchecks it.
-  const [billingSame, setBillingSame] = useState(!prefill.billingAddress);
+  const autoFilledRef = useRef("");
+  const fRef = useRef(f);
+  fRef.current = f;
+  useEffect(() => {
+    const cust = prefill ? String(prefill.customer || "").trim() : "";
+    const token = (prefill.calEventId || "manual") + ":" + cust;
+    if (!cust || prefill.qboCustomerId || autoFilledRef.current === token) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const list = await api.searchCustomers(cust);
+        if (!Array.isArray(list) || !list.length) return;
+        const exact = list.find((c) => String(c.name || "").toLowerCase() === cust.toLowerCase());
+        const near = list.find((c) => namesNearDuplicate(c.name, cust));
+        const match = exact || near || (list.length === 1 ? list[0] : null);
+        if (!match) return;
+        const patch = customerPickPatch(match, jobs);
+        if (cancelled) return;
+        autoFilledRef.current = token;
+        setF((o) => ({
+          ...o,
+          businessName: patch.businessName || patch.customer || o.businessName,
+          personName: o.personName || patch.personName || "",
+          customer: patch.businessName || patch.customer || o.customer,
+          qboCustomerId: patch.qboCustomerId || o.qboCustomerId || "",
+          phone: o.phone || patch.phone || "",
+          email: o.email || patch.email || "",
+          billingAddress: o.billingAddress || patch.billingAddress || "",
+          serviceAddress: o.serviceAddress || patch.serviceAddress || "",
+          apartment: o.apartment || patch.apartment || "",
+        }));
+      } catch {
+        // keep prefilled values
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [prefill, api, jobs]);
+
   const set = (k) => (e) => setF((o) => ({ ...o, [k]: e.target.value }));
 
-  // #55 — picking an existing customer prefills their details (name + linked
-  // QBO id + contact fields pulled from that customer's existing jobs). See
-  // customerPickPatch in lib/customers.js.
-  const pickCustomer = (c) => setF((o) => ({ ...o, ...customerPickPatch(c, jobs) }));
+  const pickCustomer = (c) => {
+    const patch = customerPickPatch(c, jobs);
+    const biz = patch.businessName || patch.customer || "";
+    setF((o) => ({
+      ...o,
+      businessName: biz,
+      personName: patch.personName || o.personName || "",
+      customer: biz,
+      qboCustomerId: patch.qboCustomerId || "",
+      phone: patch.phone || o.phone || "",
+      email: patch.email || o.email || "",
+      billingAddress: patch.billingAddress || o.billingAddress || "",
+      serviceAddress: patch.serviceAddress || o.serviceAddress || "",
+      apartment: o.apartment || patch.apartment || "",
+    }));
+  };
 
   const create = async () => {
+    const cur = fRef.current;
     const payload = {
-      customer: f.customer,
-      title: f.title,
-      amount: f.amount,
-      phone: f.phone,
-      email: f.email,
-      // `address` stays the canonical service address (grouping/detail read it).
-      address: f.serviceAddress,
-      serviceAddress: f.serviceAddress,
-      apartment: f.apartment,
-      billingAddress: billingSame ? f.serviceAddress : f.billingAddress,
-      estimateNo: f.estimateNo,
-      invoiceNo: f.invoiceNo,
-      date: f.date,
-      qboCustomerId: f.qboCustomerId,
+      businessName: cur.businessName || cur.customer,
+      personName: cur.personName || "",
+      customer: cur.businessName || cur.customer,
+      title: cur.title,
+      phone: cur.phone,
+      email: cur.email,
+      address: cur.serviceAddress,
+      serviceAddress: cur.serviceAddress,
+      apartment: cur.apartment,
+      billingAddress: cur.billingAddress || "",
+      invoiceNo: cur.invoiceNo,
+      date: cur.date,
+      qboCustomerId: cur.qboCustomerId,
+      description: cur.description || "",
     };
     const id = await createJob(payload, prefill.calEventId || "");
     if (id) {
@@ -146,19 +219,29 @@ function NewJobForm({ prefill, onClose, onCreated }) {
 
   return (
     <Sheet title="New job — details" onClose={onClose}>
-      <Fld label="Customer name" hint="Search existing QuickBooks customers, or add a new one">
+      <Fld label="Business name" hint="Search existing QuickBooks customers, or add a new one">
         <CustomerSearch
-          value={f.customer}
-          onChangeText={(v) => setF((o) => ({ ...o, customer: v, qboCustomerId: "" }))}
+          label="Business name"
+          testId="newjob-business-name"
+          value={f.businessName || f.customer}
+          onChangeText={(v) => setF((o) => ({ ...o, businessName: v, customer: v, qboCustomerId: "" }))}
           onPick={pickCustomer}
         />
+      </Fld>
+      <Fld label="Person name" hint="Contact person (optional)">
+        <input className="input" value={f.personName} onChange={set("personName")} aria-label="Person name" />
       </Fld>
 
       <Fld label="Job title / scope">
         <input className="input" value={f.title} onChange={set("title")} aria-label="Job title / scope" />
       </Fld>
-      <Fld label="Amount ($)">
-        <input className="input" value={f.amount} onChange={set("amount")} aria-label="Amount ($)" />
+      <Fld label="Description" hint="From calendar (apt/unit parsed out to Apartment # field)">
+        <textarea
+          className="input min-h-[60px]"
+          value={f.description}
+          onChange={set("description")}
+          aria-label="Description"
+        />
       </Fld>
       <Fld label="Phone">
         <input className="input" value={f.phone} onChange={set("phone")} aria-label="Phone" />
@@ -166,8 +249,11 @@ function NewJobForm({ prefill, onClose, onCreated }) {
       <Fld label="Email">
         <input className="input" value={f.email} onChange={set("email")} aria-label="Email" />
       </Fld>
+      <Fld label="Billing address" hint="QuickBooks billing address (customer)">
+        <input className="input" value={f.billingAddress} onChange={set("billingAddress")} aria-label="Billing address" />
+      </Fld>
 
-      <Fld label="Service address">
+      <Fld label="Service address" hint="Where this job is being done">
         <input
           className="input"
           value={f.serviceAddress}
@@ -179,29 +265,6 @@ function NewJobForm({ prefill, onClose, onCreated }) {
         <input className="input" value={f.apartment} onChange={set("apartment")} aria-label="Apartment #" />
       </Fld>
 
-      <Fld label="Billing address">
-        <label className="flex items-center gap-2 mb-1.5 text-xs font-semibold text-slate-500">
-          <input
-            type="checkbox"
-            checked={billingSame}
-            onChange={(e) => setBillingSame(e.target.checked)}
-            aria-label="Billing same as service address"
-          />
-          Same as service address
-        </label>
-        {!billingSame && (
-          <input
-            className="input"
-            value={f.billingAddress}
-            onChange={set("billingAddress")}
-            aria-label="Billing address"
-          />
-        )}
-      </Fld>
-
-      <Fld label="Estimate #">
-        <input className="input" value={f.estimateNo} onChange={set("estimateNo")} aria-label="Estimate #" />
-      </Fld>
       <Fld label="Invoice #">
         <input className="input" value={f.invoiceNo} onChange={set("invoiceNo")} aria-label="Invoice #" />
       </Fld>

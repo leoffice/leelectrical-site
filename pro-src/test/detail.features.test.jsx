@@ -101,7 +101,7 @@ describe("3. customer edit + sync to QuickBooks", () => {
     const pane = await openDetail();
 
     await user.click(within(pane).getByText("✏️ Edit info"));
-    const name = screen.getByLabelText("Name");
+    const name = screen.getByLabelText("Business name");
     await user.clear(name);
     await user.type(name, "Peretz B. Chein");
     await user.click(screen.getByText("Apply"));
@@ -115,9 +115,12 @@ describe("3. customer edit + sync to QuickBooks", () => {
     expect(cmd.idempotencyKey).toMatch(/^custsync:J-1:\d+$/);
     expect(cmd.payload).toEqual({
       name: "Peretz B. Chein",
+      businessName: "Peretz B. Chein",
+      personName: "",
       email: "p@x.com",
       phone: "718-555-1111",
-      addr: "123 Main St, Brooklyn",
+      billingAddr: "405 Lefferts Ave",
+      addr: "405 Lefferts Ave",
     });
   });
 });
