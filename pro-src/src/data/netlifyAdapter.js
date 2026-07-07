@@ -178,9 +178,36 @@ export function createNetlifyAdapter() {
       }
     },
 
+    async listEventsMeta() {
+      const d = await http(`calendar?${cb()}`);
+      return { events: d.events || [], syncedAt: d.syncedAt || 0, request: d.request || 0 };
+    },
+
     async listEvents() {
-      const d = await http("calendar");
-      return d.events || [];
+      return (await this.listEventsMeta()).events;
+    },
+
+    /** Ask the host calendar puller for a fresh Google Calendar read. */
+    async requestCalendarSync() {
+      return http("calendar", { op: "request" });
+    },
+
+    /** Request a pull, then poll until syncedAt advances or timeout. */
+    async pullCalendar(opts = {}) {
+      const testMode = typeof import.meta !== "undefined" && import.meta.env && import.meta.env.MODE === "test";
+      const maxWaitMs = opts.maxWaitMs ?? (testMode ? 80 : 28000);
+      const intervalMs = opts.intervalMs ?? (testMode ? 15 : 2000);
+      const before = await this.listEventsMeta();
+      await this.requestCalendarSync().catch(() => {});
+      const deadline = Date.now() + maxWaitMs;
+      let last = before;
+      while (Date.now() < deadline) {
+        await new Promise((r) => setTimeout(r, intervalMs));
+        last = await this.listEventsMeta();
+        if (last.syncedAt > before.syncedAt) return last.events;
+        if (last.events.length !== before.events.length) return last.events;
+      }
+      return last.events;
     },
 
     async listDevTasks() {

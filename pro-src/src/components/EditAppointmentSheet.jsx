@@ -13,7 +13,7 @@ function toLocalInput(start) {
 }
 
 export default function EditAppointmentSheet({ event, linkedJobId, onClose, onSaved, onDeleted, onDuplicated }) {
-  const { enqueue, showToast } = useStore();
+  const { enqueue, showToast, appendLocalEvent, pullCalendarNow } = useStore();
   const [duplicating, setDuplicating] = useState(false);
   const [confirmDel, setConfirmDel] = useState(false);
   const [summary, setSummary] = useState(event.summary || "");
@@ -50,11 +50,13 @@ export default function EditAppointmentSheet({ event, linkedJobId, onClose, onSa
       location: location || "",
       description,
     };
+    appendLocalEvent({ ...event, ...patch });
+    pullCalendarNow();
     if (duplicating) {
-      showToast("Duplicate queued — syncs to Google Calendar");
+      showToast("Duplicate queued — syncing to calendar");
       onDuplicated && onDuplicated(patch);
     } else {
-      showToast("Appointment updated — syncs to Google Calendar");
+      showToast("Appointment updated — syncing to calendar");
       onSaved && onSaved({ ...event, ...patch });
     }
     onClose();

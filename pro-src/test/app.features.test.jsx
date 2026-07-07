@@ -379,8 +379,12 @@ describe("12. sync chip + today view + jobs list", () => {
     await screen.findByText("Peretz Chein");
     const chips = screen.getAllByTestId("sync-chip");
     expect(chips[0]).toHaveTextContent(/QBO 5m ago/);
+    const calReqBefore = srv.posts("calendar", (b) => b.op === "request").length;
     await user.click(chips[0]);
     await waitFor(() => expect(srv.posts("jobsdata", (b) => b.op === "request")).toHaveLength(1));
+    await waitFor(() =>
+      expect(srv.posts("calendar", (b) => b.op === "request").length).toBeGreaterThan(calReqBefore)
+    );
   });
 
   it("today: totals row, follow-ups due, appointments with detail/edit/link/create", async () => {
@@ -399,7 +403,7 @@ describe("12. sync chip + today view + jobs list", () => {
     expect(screen.getAllByText("$2,300").length).toBeGreaterThan(0); // outstanding = J-1 only
     expect(screen.getByText(/Collect balance/)).toBeInTheDocument(); // due follow-up
     expect(await screen.findByTestId("week-calendar")).toBeInTheDocument();
-    await user.click(screen.getByText("Estimate — Jane Doe"));
+    await user.click(await screen.findByText("Estimate — Jane Doe"));
     expect(screen.getByText("✏️ Edit appointment")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /Open linked job/ })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /Unlink/ })).toBeInTheDocument();
@@ -411,7 +415,7 @@ describe("12. sync chip + today view + jobs list", () => {
     expect(srv.enqueued("calendar_upsert")[0].payload.calEventId).toBe("ev1");
     expect(srv.enqueued("calendar_upsert")[0].payload.start).toBe("2026-07-12T11:00");
 
-    await user.click(screen.getByText("Estimate — Jane Doe"));
+    await user.click(await screen.findByText("Estimate — Jane Doe"));
     await user.click(screen.getByText("＋ Create job from appointment"));
     expect(await screen.findByLabelText("Job title / scope")).toHaveValue("Estimate — Jane Doe");
   });

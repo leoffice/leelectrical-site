@@ -53,6 +53,8 @@ export function mockServer(opts = {}) {
     syncedAt: opts.syncedAt ?? Date.now() - 5 * 60000,
     commands: opts.commands || [],
     events: opts.events || [EV],
+    eventsSyncedAt: opts.eventsSyncedAt ?? Date.now() - 60000,
+    calendarRequested: false,
     tasks: opts.tasks || [],
     messages: opts.messages || [],
     failChatPosts: opts.failChatPosts || 0, // fail the next N chat op:msg POSTs (retry tests)
@@ -114,7 +116,18 @@ export function mockServer(opts = {}) {
             data = { ok: true };
           }
         } else data = { commands: JSON.parse(JSON.stringify(state.commands)) };
-      } else if (path === "calendar") data = { events: state.events };
+      } else if (path === "calendar") {
+        if (method === "POST" && body.op === "request") {
+          state.calendarRequested = true;
+          data = { events: state.events, syncedAt: state.eventsSyncedAt, request: Date.now() };
+        } else {
+          if (state.calendarRequested) {
+            state.eventsSyncedAt = Date.now();
+            state.calendarRequested = false;
+          }
+          data = { events: state.events, syncedAt: state.eventsSyncedAt, request: 0 };
+        }
+      }
       else if (path === "devtasks") {
         if (method === "POST") {
           if (body.op === "add")

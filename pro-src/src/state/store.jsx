@@ -48,6 +48,7 @@ export function countLeaves(pending) {
 export function StoreProvider({ children }) {
   const [jobs, setJobs] = useState([]); // merged base+overlay, incl. _archived
   const [events, setEvents] = useState([]);
+  const [eventsSyncedAt, setEventsSyncedAt] = useState(0);
   const [commands, setCommands] = useState([]);
   const [devTasks, setDevTasks] = useState([]);
   const [sasCalls, setSasCalls] = useState([]); // SAS inbound lead tickets
@@ -116,10 +117,32 @@ export function StoreProvider({ children }) {
     } catch {}
   }, []);
 
-  const refreshEvents = useCallback(async () => {
+  const refreshEvents = useCallback(async (pull = false) => {
     try {
-      setEvents(await api.listEvents());
+      if (pull && api.pullCalendar) {
+        const evs = await api.pullCalendar();
+        setEvents(evs);
+        const meta = await api.listEventsMeta();
+        setEventsSyncedAt(meta.syncedAt || 0);
+      } else {
+        const meta = await api.listEventsMeta();
+        setEvents(meta.events || []);
+        setEventsSyncedAt(meta.syncedAt || 0);
+      }
     } catch {}
+  }, []);
+
+  const pullCalendarNow = useCallback(async () => {
+    await refreshEvents(true);
+  }, [refreshEvents]);
+
+  const appendLocalEvent = useCallback((event) => {
+    if (!event) return;
+    setEvents((evs) => {
+      const id = event.id || "";
+      const next = id ? evs.filter((e) => String(e.id) !== String(id)) : evs.slice();
+      return next.concat([event]);
+    });
   }, []);
 
   const patchLocalEvent = useCallback((eventId, patch) => {
@@ -146,29 +169,38 @@ export function StoreProvider({ children }) {
   }, []);
 
   const refresh = useCallback(
-    async (quiet) => {
-      await Promise.all([refreshJobs(quiet), refreshEvents(), refreshCommands(), refreshDev(), refreshSas()]);
+    async (quiet, opts = {}) => {
+      const pullCal = opts.pullCalendar ?? !quiet;
+      await Promise.all([
+        refreshJobs(quiet),
+        refreshEvents(pullCal),
+        refreshCommands(),
+        refreshDev(),
+        refreshSas(),
+      ]);
     },
     [refreshJobs, refreshEvents, refreshCommands, refreshDev, refreshSas]
   );
 
   useEffect(() => {
-    refresh();
+    refresh(false, { pullCalendar: true });
     const t1 = setInterval(() => refreshJobs(true), 60_000);
     const t2 = setInterval(refreshCommands, 8_000);
     const t3 = setInterval(refreshDev, 30_000);
-    const t4 = setInterval(refreshEvents, 120_000);
+    const t4 = setInterval(() => refreshEvents(false), 30_000);
     const t5 = setInterval(refreshSas, 60_000);
+    const t6 = setInterval(() => refreshEvents(true), 180_000);
     const vis = () => {
       if (!document.hidden) {
         refreshJobs(true);
+        refreshEvents(true);
         refreshCommands();
         refreshSas();
       }
     };
     document.addEventListener("visibilitychange", vis);
     return () => {
-      [t1, t2, t3, t4, t5].forEach(clearInterval);
+      [t1, t2, t3, t4, t5, t6].forEach(clearInterval);
       document.removeEventListener("visibilitychange", vis);
     };
   }, [refresh, refreshJobs, refreshCommands, refreshDev, refreshEvents, refreshSas]);
@@ -177,9 +209,9 @@ export function StoreProvider({ children }) {
   const syncNow = useCallback(async () => {
     setBusy(true);
     try {
-      await api.requestSync().catch(() => {});
-      await refresh(true);
-      showToast("Refreshed. Fresh QBO pull requested.");
+      await Promise.all([api.requestSync().catch(() => {}), api.requestCalendarSync?.().catch(() => {})]);
+      await refresh(true, { pullCalendar: true });
+      showToast("Refreshed — jobs & calendar syncing");
     } finally {
       setBusy(false);
     }
@@ -504,6 +536,9 @@ export function StoreProvider({ children }) {
     jobs: effectiveJobs,
     rawJobs: jobs,
     events,
+    eventsSyncedAt,
+    pullCalendarNow,
+    appendLocalEvent,
     commands,
     devTasks,
     devBadge,

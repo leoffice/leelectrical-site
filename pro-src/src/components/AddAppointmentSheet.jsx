@@ -28,7 +28,7 @@ function jobDefaultDate(job, defaultDate) {
 }
 
 export default function AddAppointmentSheet({ defaultDate, job, onClose }) {
-  const { enqueue, showToast, patchAndSave } = useStore();
+  const { enqueue, showToast, patchAndSave, appendLocalEvent, pullCalendarNow } = useStore();
   const [summary, setSummary] = useState(() => jobDefaultSummary(job));
   const [dt, setDt] = useState(() => jobDefaultDate(job, defaultDate));
   const [location, setLocation] = useState(() => (job ? effectiveServiceAddress(job) : ""));
@@ -60,6 +60,14 @@ export default function AddAppointmentSheet({ defaultDate, job, onClose }) {
         status: { Scheduled: { s: "done", d: day } },
       });
     }
+    appendLocalEvent({
+      id: "pending-" + Date.now(),
+      summary: title,
+      start: dt,
+      location: location || "",
+      description,
+    });
+    pullCalendarNow();
     showToast(job ? "Appointment queued & linked to job" : "Appointment queued — syncs to Google Calendar");
     onClose();
   };
@@ -93,7 +101,7 @@ export default function AddAppointmentSheet({ defaultDate, job, onClose }) {
         {job ? "Save & sync to calendar" : "Add to calendar"}
       </button>
       <p className="text-[11px] text-slate-400 text-center mt-2">
-        Writes to office@leelectrical.us via Sync. Pull calendar again to see it on Today.
+        Syncs to office@leelectrical.us — appears on Today after sync (auto-refreshes).
       </p>
     </Sheet>
   );
