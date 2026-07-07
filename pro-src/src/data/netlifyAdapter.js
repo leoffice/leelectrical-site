@@ -178,6 +178,18 @@ export function createNetlifyAdapter() {
       }
     },
 
+    /** QuickBooks Products & Services for estimate/invoice line items. */
+    async searchItems(q) {
+      try {
+        const query = String(q || "").trim();
+        const qs = query ? `q=${encodeURIComponent(query)}&${cb()}` : cb();
+        const d = await http(`items?${qs}`);
+        return Array.isArray(d && d.items) ? d.items : [];
+      } catch {
+        return [];
+      }
+    },
+
     async listEventsMeta() {
       const d = await http(`calendar?${cb()}`);
       return { events: d.events || [], syncedAt: d.syncedAt || 0, request: d.request || 0 };

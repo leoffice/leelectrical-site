@@ -29,6 +29,8 @@ import { customerContact } from "../lib/customers.js";
 import Toggle from "../components/Toggle.jsx";
 import Jobs from "./Jobs.jsx";
 import AppointmentLinkSheet from "../components/AppointmentLinkSheet.jsx";
+import DocBuilderSheet from "../components/DocBuilderSheet.jsx";
+import InvoiceCreateSheet, { ProgressPctSheet } from "../components/InvoiceCreateSheet.jsx";
 import {
   AttachSheet,
   CalSheet,
@@ -292,6 +294,7 @@ export default function JobDetail() {
                             cls === "skipped" ? "opacity-50" : ""
                           } active:bg-slate-50`}
                           onClick={() => setOpenStep(openStep === s ? null : s)}
+                          data-testid={"progress-step-" + s}
                         >
                           <span
                             className={`grid place-items-center w-5 h-5 rounded-full text-[11px] text-white shrink-0 ${
@@ -310,8 +313,58 @@ export default function JobDetail() {
                           {e.d && <span className="text-[11px] text-slate-400">{e.d}</span>}
                         </button>
                         {openStep === s && (
-                          <div className="flex gap-1.5 pl-10 pb-2">
-                            {e.s === "done" || e.s === "skipped" ? (
+                          <div className="flex flex-wrap gap-1.5 pl-10 pb-2">
+                            {s === "Estimate" && (e.s === "done" || e.s === "skipped") ? (
+                              <>
+                                <button className="btn-ghost !py-1.5" onClick={() => setStep(s, null)}>↩ Undo</button>
+                                {(job.estimateNo || (job.estimateLines && job.estimateLines.length)) && !job.invoiceNo ? (
+                                  <button
+                                    className="btn bg-brand-soft text-brand !py-1.5"
+                                    onClick={() =>
+                                      setSheet({
+                                        kind: "progressPct",
+                                        title: "Turn estimate into invoice",
+                                        hint: "Bill what percentage of the estimate?",
+                                        next: { kind: "docBuild", docKind: "invoice", mode: "turn_from_estimate" },
+                                      })
+                                    }
+                                    data-testid="turn-to-invoice"
+                                  >
+                                    Turn to invoice
+                                  </button>
+                                ) : null}
+                              </>
+                            ) : s === "Estimate" && e.s !== "done" && e.s !== "skipped" ? (
+                              <>
+                                <button
+                                  className="btn bg-brand-soft text-brand !py-1.5"
+                                  onClick={() => setSheet({ kind: "docBuild", docKind: "estimate", mode: "create" })}
+                                  data-testid="generate-estimate"
+                                >
+                                  Generate
+                                </button>
+                                <button className="btn bg-emerald-100 text-emerald-700 !py-1.5" onClick={() => setStep(s, "done")}>
+                                  ✓ Complete
+                                </button>
+                                <button className="btn-ghost !py-1.5" onClick={() => setStep(s, "skipped")}>Skip</button>
+                              </>
+                            ) : s === "Invoiced" && (e.s === "done" || e.s === "skipped") ? (
+                              <button className="btn-ghost !py-1.5" onClick={() => setStep(s, null)}>↩ Undo</button>
+                            ) : s === "Invoiced" && e.s !== "done" && e.s !== "skipped" ? (
+                              <>
+                                <button
+                                  className="btn bg-brand-soft text-brand !py-1.5"
+                                  onClick={() => setSheet({ kind: "invoiceCreate" })}
+                                  data-testid="create-invoice"
+                                >
+                                  Create
+                                </button>
+                                <button className="btn bg-emerald-100 text-emerald-700 !py-1.5" onClick={() => setStep(s, "done")}>
+                                  ✓ Complete
+                                </button>
+                                <button className="btn-ghost !py-1.5" onClick={() => setStep(s, "skipped")}>Skip</button>
+                              </>
+                            ) : e.s === "done" || e.s === "skipped" ? (
                               <button className="btn-ghost !py-1.5" onClick={() => setStep(s, null)}>↩ Undo</button>
                             ) : (
                               <>
@@ -614,6 +667,47 @@ export default function JobDetail() {
       {sheet?.kind === "attach" && <AttachSheet job={job} onClose={() => setSheet(null)} />}
       {sheet?.kind === "inspection" && (
         <InspectionSheet job={job} branch={sheet.branch} onClose={() => setSheet(null)} />
+      )}
+      {sheet?.kind === "invoiceCreate" && (
+        <InvoiceCreateSheet
+          job={job}
+          onClose={() => setSheet(null)}
+          onPick={({ mode }) => {
+            if (mode === "from_estimate") {
+              setSheet({
+                kind: "progressPct",
+                title: "Invoice from estimate",
+                hint: "What percentage of the estimate should this invoice bill?",
+                next: { kind: "docBuild", docKind: "invoice", mode: "from_estimate" },
+              });
+            } else {
+              setSheet({ kind: "docBuild", docKind: "invoice", mode: "new" });
+            }
+          }}
+        />
+      )}
+      {sheet?.kind === "progressPct" && (
+        <ProgressPctSheet
+          title={sheet.title}
+          hint={sheet.hint}
+          onClose={() => setSheet(null)}
+          onConfirm={(pct) =>
+            setSheet({
+              ...sheet.next,
+              progressPct: pct,
+            })
+          }
+        />
+      )}
+      {sheet?.kind === "docBuild" && (
+        <DocBuilderSheet
+          job={job}
+          kind={sheet.docKind}
+          mode={sheet.mode || "create"}
+          progressPct={sheet.progressPct}
+          onClose={() => setSheet(null)}
+          onDone={() => setOpenStep(null)}
+        />
       )}
     </div>
   );

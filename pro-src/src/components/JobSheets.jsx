@@ -587,9 +587,18 @@ export function AttachSheet({ job, onClose }) {
         job.id,
         { invoiceNo: job.invoiceNo, name: n, url: u },
         "deterministic",
-        "att:" + job.id + ":" + n
+        "att:inv:" + job.id + ":" + n
       );
       showToast("Added — attaching to the QuickBooks invoice too");
+    } else if (u && job.estimateNo) {
+      enqueue(
+        "attach_to_estimate",
+        job.id,
+        { estimateNo: job.estimateNo, name: n, url: u },
+        "deterministic",
+        "att:est:" + job.id + ":" + n
+      );
+      showToast("Added — attaching to the QuickBooks estimate too");
     } else {
       showToast("Attachment staged" + (u ? "" : " (add a link to also attach it in QuickBooks)"));
     }
@@ -600,7 +609,7 @@ export function AttachSheet({ job, onClose }) {
       <Fld label="Name">
         <input className="input" placeholder="e.g. Panel photo, blueprint" value={name} onChange={(e) => setName(e.target.value)} aria-label="Attachment name" />
       </Fld>
-      <Fld label="Link" hint="With a link + invoice, it also attaches in QuickBooks">
+      <Fld label="Link" hint="With a link + invoice/estimate #, it also attaches in QuickBooks">
         <input className="input" placeholder="Optional — paste a Drive/photo link" value={url} onChange={(e) => setUrl(e.target.value)} aria-label="Attachment link" />
       </Fld>
       <button className="btn-brand w-full" onClick={add}>Add</button>

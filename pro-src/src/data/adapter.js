@@ -6,6 +6,7 @@
 //   api.requestSync()                               -> asks for a fresh QBO pull
 //   api.searchCustomers(q?)                          -> [{name,id,...}] QBO name index
 //   api.getCustomer(id)                              -> full QBO customer row | null
+//   api.searchItems(q?)                              -> [{name,type,price,description}] QBO catalog
 //   api.listCommands(jobId?)                        -> Command[]
 //   api.enqueueCommand(type,jobId,payload,lane,idk) -> { command, deduped }
 //   api.updateCommand(id, patch, note)              -> retry / approvals
