@@ -102,8 +102,9 @@ describe("Feature 2 — customer group total due + Customer view", () => {
     expect(within(view).getByText("Meir Kabakov")).toBeInTheDocument();
     expect(within(view).getByTestId("customer-total-due")).toHaveTextContent("$1,300");
     expect(within(view).getByText(/3 jobs · 2 open invoices/)).toBeInTheDocument();
-    // all three job rows present
-    expect(within(view).getAllByTestId("customer-job-row")).toHaveLength(3);
+    // customer card + three job info cards
+    expect(within(view).getByTestId("customer-card")).toBeInTheDocument();
+    expect(within(view).getAllByTestId("job-info-card")).toHaveLength(3);
     expect(within(view).getByText("Panel swap")).toBeInTheDocument();
   });
 
@@ -114,7 +115,8 @@ describe("Feature 2 — customer group total due + Customer view", () => {
     await user.click(screen.getByTestId("client-group-name"));
 
     const view = await screen.findByTestId("customer-view");
-    await user.click(within(view).getByText("Panel swap"));
+    const panelCard = within(view).getByText("Panel swap").closest("[data-testid='job-info-card']");
+    await user.click(within(panelCard).getByText("Open full job ›"));
 
     // JobDetail now shows the customer name as the back breadcrumb
     const back = await screen.findByTestId("detail-back");

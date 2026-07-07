@@ -78,6 +78,35 @@ export function eventForJob(job, events) {
   return (events || []).find((e) => String(e.id) === String(eid)) || null;
 }
 
+/** ISO date for Jan 1 of the current year (calendar link picker range). */
+export function yearStartIso(year = new Date().getFullYear()) {
+  return `${year}-01-01`;
+}
+
+/** Calendar events from the start of the year onward, newest first. */
+export function eventsSinceYearStart(events, year = new Date().getFullYear()) {
+  const cut = yearStartIso(year);
+  return (events || [])
+    .filter((e) => {
+      const s = evStart(e);
+      return s && s.slice(0, 10) >= cut;
+    })
+    .sort((a, b) => evStart(b).localeCompare(evStart(a)));
+}
+
+/** Search YTD calendar events by summary, location, notes, or date. */
+export function searchCalendarEvents(events, query, year = new Date().getFullYear()) {
+  const q = String(query || "")
+    .trim()
+    .toLowerCase();
+  const base = eventsSinceYearStart(events, year);
+  if (!q) return base;
+  return base.filter((e) => {
+    const hay = [e.summary, e.location, displayEventNotes(e.description), evStart(e)].filter(Boolean).join(" ").toLowerCase();
+    return hay.includes(q);
+  });
+}
+
 /** Link appointment ↔ job (clears any prior link on this event or previous job). */
 export async function applyAppointmentJobLink({
   event,

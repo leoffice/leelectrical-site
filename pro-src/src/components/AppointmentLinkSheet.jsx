@@ -3,6 +3,7 @@ import React, { useMemo, useState } from "react";
 import Sheet from "./Sheet.jsx";
 import AddAppointmentSheet from "./AddAppointmentSheet.jsx";
 import LinkJobSheet from "./LinkJobSheet.jsx";
+import PickAppointmentSheet from "./PickAppointmentSheet.jsx";
 import { useStore } from "../state/store.jsx";
 import { evStart } from "../lib/format.js";
 import { displayEventNotes, eventForJob, unlinkAppointmentJob } from "../lib/calendarLink.js";
@@ -27,6 +28,10 @@ export default function AppointmentLinkSheet({ job, onClose }) {
 
   if (mode === "add") {
     return <AddAppointmentSheet job={job} onClose={onClose} />;
+  }
+
+  if (mode === "pick") {
+    return <PickAppointmentSheet job={job} onClose={onClose} onLinked={onClose} />;
   }
 
   if (mode === "relink" && event) {
@@ -89,8 +94,14 @@ export default function AppointmentLinkSheet({ job, onClose }) {
         </>
       ) : (
         <>
-          <p className="text-sm text-slate-500 mb-4">No calendar appointment linked to this job yet.</p>
-          <button type="button" className="btn-brand w-full" onClick={() => setMode("add")}>
+          <p className="text-sm text-red-600 font-semibold mb-2">No linked appointment</p>
+          <p className="text-sm text-slate-500 mb-4">
+            Link an existing calendar appointment (searchable, since Jan 1) or create a new one.
+          </p>
+          <button type="button" className="btn-brand w-full mb-2" onClick={() => setMode("pick")}>
+            📅 Link from calendar
+          </button>
+          <button type="button" className="btn bg-brand-soft text-brand w-full" onClick={() => setMode("add")}>
             ＋ Create appointment
           </button>
         </>

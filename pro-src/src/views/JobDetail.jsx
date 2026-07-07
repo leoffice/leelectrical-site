@@ -18,14 +18,14 @@ import {
 } from "../lib/stages.js";
 import { PAPER, isDatedStep } from "../lib/paperwork.js";
 import { fmt$, ago } from "../lib/format.js";
-import AmountDisplay from "../components/AmountDisplay.jsx";
+import CustomerCard from "../components/CustomerCard.jsx";
+import JobInfoCard from "../components/JobInfoCard.jsx";
 import {
   customerSyncPayload,
   customerDisplayName,
   effectiveServiceAddress,
-  serviceAddressLabel,
 } from "../lib/customerSync.js";
-import { PaidPill, StagePill } from "../components/JobCard.jsx";
+import { customerContact } from "../lib/customers.js";
 import Toggle from "../components/Toggle.jsx";
 import Jobs from "./Jobs.jsx";
 import AppointmentLinkSheet from "../components/AppointmentLinkSheet.jsx";
@@ -50,23 +50,6 @@ const CMD_TONES = {
   needs_approval: "bg-violet-100 text-violet-700",
 };
 
-function ActionButton({ href, icon, label, disabled, newTab }) {
-  return (
-    <a
-      href={disabled ? undefined : href}
-      target={newTab && !disabled ? "_blank" : undefined}
-      rel="noreferrer"
-      className={`flex-1 flex flex-col items-center gap-1 rounded-xl py-2.5 text-xs font-semibold transition-colors ${
-        disabled ? "bg-slate-50 text-slate-300" : "bg-brand-soft text-brand"
-      }`}
-      onClick={(e) => disabled && e.preventDefault()}
-    >
-      <span className="text-base leading-none lg:text-lg">{icon}</span>
-      {label}
-    </a>
-  );
-}
-
 export default function JobDetail() {
   const { id } = useParams();
   const nav = useNavigate();
@@ -83,6 +66,7 @@ export default function JobDetail() {
     retryCommand,
     guardNav,
     showToast,
+    events,
   } = useStore();
   const job = effectiveJob(id);
   const [openPhase, setOpenPhase] = useState(null); // null = auto
@@ -202,61 +186,30 @@ export default function JobDetail() {
         </button>
       </div>
 
-      {/* Customer card */}
-      <div className="card px-3 py-3 lg:px-4 lg:py-4">
-        <div className="flex items-start gap-2 lg:gap-3">
-          <div className="min-w-0 flex-1">
-            <div className="text-base font-bold text-slate-900 leading-snug break-words lg:text-lg lg:font-extrabold">
-              {customerDisplayName(job) || "—"}
-            </div>
-            {job.personName ? <div className="text-xs text-slate-500 lg:text-sm">{job.personName}</div> : null}
-            <div className="text-xs text-slate-500 leading-snug break-words lg:text-sm">{job.title}</div>
-            <div className="mt-1.5 flex gap-1.5 flex-wrap">
-              <StagePill job={job} />
-              <PaidPill job={job} />
-              {pending[id] && <span className="pill bg-amber-100 text-amber-700">unsaved</span>}
-            </div>
-          </div>
-          <AmountDisplay job={job} size="lg" />
+      {/* Customer card — contact on top, compact actions, edit + sync */}
+      <CustomerCard
+        contact={{
+          ...customerContact([job]),
+          name: customerDisplayName(job) || job.customer,
+        }}
+        showSummary={false}
+        mapAddress={effectiveServiceAddress(job)}
+        primaryJob={job}
+        onEdit={() => setSheet({ kind: "cust" })}
+        onSync={custSync}
+      />
+      {pending[id] ? (
+        <div className="px-1 -mt-2">
+          <span className="pill bg-amber-100 text-amber-700 text-xs">unsaved changes</span>
         </div>
-        <div className="flex gap-2 mt-4">
-          <ActionButton href={`tel:${job.phone}`} icon="📞" label="Call" disabled={!job.phone} />
-          <ActionButton href={`sms:${job.phone}`} icon="💬" label="Text" disabled={!job.phone} />
-          <ActionButton href={`mailto:${job.email}`} icon="✉️" label="Email" disabled={!job.email} />
-          <ActionButton
-            href={`https://maps.apple.com/?q=${encodeURIComponent(effectiveServiceAddress(job))}`}
-            icon="📍"
-            label="Map"
-            disabled={!effectiveServiceAddress(job)}
-            newTab
-          />
-        </div>
-        <dl className="mt-3 space-y-1 text-xs lg:mt-4 lg:text-sm">
-          {[
-            ["Phone", job.phone],
-            ["Email", job.email],
-            ["Billing address", job.billingAddress],
-            [serviceAddressLabel(job), effectiveServiceAddress(job)],
-            ["Estimate #", job.estimateNo],
-            ["Invoice #", job.invoiceNo],
-          ]
-            .filter(([, v]) => v)
-            .map(([k, v]) => (
-              <div key={k} className="flex gap-2 items-baseline">
-                <dt className="font-semibold text-slate-800 shrink-0 w-[4.5rem] lg:w-auto">{k}</dt>
-                <dd className="text-slate-500 break-words min-w-0">{v}</dd>
-              </div>
-            ))}
-        </dl>
-        <div className="flex gap-2 mt-3">
-          <button className="btn bg-brand-soft text-brand flex-1 !py-2" onClick={() => setSheet({ kind: "cust" })}>
-            ✏️ Edit info
-          </button>
-          <button className="btn bg-brand-soft text-brand flex-1 !py-2" onClick={custSync}>
-            ⇄ Sync to QuickBooks
-          </button>
-        </div>
-      </div>
+      ) : null}
+
+      <JobInfoCard
+        job={job}
+        events={events}
+        showOpenLink={false}
+        onLinkAppt={() => setSheet({ kind: "apptLink" })}
+      />
 
       {/* Quick views */}
       <div className="flex gap-2">
@@ -274,16 +227,6 @@ export default function JobDetail() {
           📅 Calendar
         </button>
       </div>
-
-      {job.calEventId ? (
-        <button
-          type="button"
-          className="btn bg-brand-soft text-brand w-full !py-2.5"
-          onClick={() => setSheet({ kind: "apptLink" })}
-        >
-          🔗 Linked appointment — manage link
-        </button>
-      ) : null}
 
       {/* Money */}
       {!job.paid ? (
