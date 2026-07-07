@@ -7,6 +7,7 @@ import CustomerSearch from "./CustomerSearch.jsx";
 import { useStore } from "../state/store.jsx";
 import { evStart, todayStr } from "../lib/format.js";
 import { customerPickPatch, namesNearDuplicate } from "../lib/customers.js";
+import { serviceAddressHint, serviceAddressLabel } from "../lib/customerSync.js";
 
 /** Prefill parser — enhanced for combined Calendar→Job autofill (#58):
  *  - title from appt summary
@@ -161,7 +162,7 @@ function NewJobForm({ prefill, onClose, onCreated }) {
           phone: o.phone || patch.phone || "",
           email: o.email || patch.email || "",
           billingAddress: o.billingAddress || patch.billingAddress || "",
-          serviceAddress: o.serviceAddress || patch.serviceAddress || "",
+          serviceAddress: o.serviceAddress || "",
           apartment: o.apartment || patch.apartment || "",
         }));
       } catch {
@@ -187,7 +188,7 @@ function NewJobForm({ prefill, onClose, onCreated }) {
       phone: patch.phone || o.phone || "",
       email: patch.email || o.email || "",
       billingAddress: patch.billingAddress || o.billingAddress || "",
-      serviceAddress: patch.serviceAddress || o.serviceAddress || "",
+      serviceAddress: o.serviceAddress || patch.serviceAddress || "",
       apartment: o.apartment || patch.apartment || "",
     }));
   };
@@ -253,12 +254,12 @@ function NewJobForm({ prefill, onClose, onCreated }) {
         <input className="input" value={f.billingAddress} onChange={set("billingAddress")} aria-label="Billing address" />
       </Fld>
 
-      <Fld label="Service address" hint="Where this job is being done">
+      <Fld label={serviceAddressLabel(f)} hint={serviceAddressHint(f)}>
         <input
           className="input"
           value={f.serviceAddress}
           onChange={set("serviceAddress")}
-          aria-label="Service address"
+          aria-label={serviceAddressLabel(f)}
         />
       </Fld>
       <Fld label="Apartment #" hint="Unit / apt at the service address (optional)">

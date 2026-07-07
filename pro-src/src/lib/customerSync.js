@@ -1,11 +1,28 @@
 // QuickBooks customer sync payload — billing/contact fields only.
-// Service address is per job / invoice (ShipAddr on the invoice in QBO) and
+// Service address is per invoice/estimate (ShipAddr on that document in QBO) and
 // must NEVER be sent as the customer's BillAddr on customer_sync.
 
-/** Canonical service location for a job (invoice/site address). */
+/** Canonical service location for a job (ShipAddr on its invoice/estimate). */
 export function effectiveServiceAddress(job) {
   const j = job || {};
   return j.serviceAddress || j.address || "";
+}
+
+/** UI label — service address is tied to the invoice or estimate number. */
+export function serviceAddressLabel(job, fallback = "Service address") {
+  const j = job || {};
+  if (j.invoiceNo) return `Service address (invoice #${j.invoiceNo})`;
+  if (j.estimateNo) return `Service address (estimate #${j.estimateNo})`;
+  return fallback;
+}
+
+/** Short hint for service-address fields in forms. */
+export function serviceAddressHint(job) {
+  const j = job || {};
+  if (j.invoiceNo || j.estimateNo) {
+    return "Where we performed work for this invoice/estimate (QuickBooks ShipAddr).";
+  }
+  return "Where this job is being done — goes on the invoice or estimate when created.";
 }
 
 /** Display name for UI headers (business name preferred). */

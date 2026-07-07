@@ -154,11 +154,13 @@ export function dismissPair(a, b) {
 
 /** Form patch to apply when an existing customer is picked in the New Job
  *  smart search (#55). The /customers name index only carries {name,id}, so
- *  contact fields (phone/email/service address) are pulled from that customer's
- *  jobs already in the app. Any richer fields present directly on the match
- *  object take precedence. A "_newCustomer" pick contributes only the typed
- *  name (plus any direct fields). Returns a partial patch to merge into the
- *  form — keys are omitted when there's no value, so existing input survives. */
+ *  billing/contact fields (phone/email/billing address) are pulled from that
+ *  customer's jobs already in the app. Service address is NOT copied — it
+ *  belongs to each invoice/estimate, not the customer. Any richer fields
+ *  present directly on the match object take precedence. A "_newCustomer" pick
+ *  contributes only the typed name (plus any direct fields). Returns a partial
+ *  patch to merge into the form — keys are omitted when there's no value, so
+ *  existing input survives. */
 export function customerPickPatch(customer, jobs) {
   const c = customer || {};
   const patch = { customer: c.name || "", businessName: c.businessName || c.name || "" };
@@ -187,14 +189,13 @@ export function customerPickPatch(customer, jobs) {
     if (contact.phone) patch.phone = contact.phone;
     if (contact.email) patch.email = contact.email;
     if (contact.billingAddress) patch.billingAddress = contact.billingAddress;
-    const svc = mine.map((j) => j.serviceAddress || j.address || "").find(Boolean);
-    if (svc) patch.serviceAddress = svc;
   }
   if (c.businessName) patch.businessName = c.businessName;
   if (c.personName) patch.personName = c.personName;
   if (c.phone) patch.phone = c.phone;
   if (c.email) patch.email = c.email;
   if (c.billingAddress) patch.billingAddress = c.billingAddress;
+  // Only when the match object itself carries a site line (not from other jobs).
   if (c.address) patch.serviceAddress = c.address;
   if (c.apartment) patch.apartment = c.apartment;
   return patch;

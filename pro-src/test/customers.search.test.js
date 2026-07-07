@@ -70,7 +70,7 @@ describe("customerPickPatch (#55 prefill on pick)", () => {
     expect(p.qboCustomerId).toBe("246"); // coerced to string
     expect(p.phone).toBe("718-1"); // first non-empty across the customer's jobs
     expect(p.email).toBe("m@x.com");
-    expect(p.serviceAddress).toBe("10 Main St"); // maps into the service address field
+    expect("serviceAddress" in p).toBe(false); // per invoice/estimate — not copied from other jobs
   });
 
   it("omits contact keys when the customer has no jobs yet (only name + id)", () => {
@@ -86,7 +86,7 @@ describe("customerPickPatch (#55 prefill on pick)", () => {
     const p = customerPickPatch({ name: "Avraham Drizin", id: "34" }, byId);
     expect(p.phone).toBe("718-9");
     expect(p.email).toBe("a@d.com");
-    expect(p.serviceAddress).toBe("9 St");
+    expect("serviceAddress" in p).toBe(false);
   });
 
   it("_newCustomer pick contributes just the typed name, no id", () => {

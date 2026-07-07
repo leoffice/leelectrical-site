@@ -18,7 +18,12 @@ import {
 } from "../lib/stages.js";
 import { PAPER, isDatedStep } from "../lib/paperwork.js";
 import { fmt$, ago } from "../lib/format.js";
-import { customerSyncPayload, customerDisplayName, effectiveServiceAddress } from "../lib/customerSync.js";
+import {
+  customerSyncPayload,
+  customerDisplayName,
+  effectiveServiceAddress,
+  serviceAddressLabel,
+} from "../lib/customerSync.js";
 import { PaidPill, StagePill } from "../components/JobCard.jsx";
 import Toggle from "../components/Toggle.jsx";
 import Jobs from "./Jobs.jsx";
@@ -229,10 +234,7 @@ export default function JobDetail() {
             ["Phone", job.phone],
             ["Email", job.email],
             ["Billing address", job.billingAddress],
-            [
-              job.invoiceNo ? "Service address (invoice #" + job.invoiceNo + ")" : "Service address",
-              effectiveServiceAddress(job),
-            ],
+            [serviceAddressLabel(job), effectiveServiceAddress(job)],
             ["Estimate #", job.estimateNo],
             ["Invoice #", job.invoiceNo],
           ]

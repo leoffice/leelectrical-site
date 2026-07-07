@@ -91,7 +91,7 @@ describe("#55 picking an existing customer prefills their details", () => {
 
     await waitFor(() => expect(within(dialog).getByLabelText("Phone")).toHaveValue("718-555-0100"));
     expect(within(dialog).getByLabelText("Email")).toHaveValue("az@drizin.com");
-    expect(within(dialog).getByLabelText("Service address")).toHaveValue("9 Kingston Ave");
+    expect(within(dialog).getByLabelText("Service address")).toHaveValue("");
 
     await user.click(screen.getByText("Create job"));
     await waitFor(() => {

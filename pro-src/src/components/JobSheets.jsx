@@ -4,6 +4,7 @@ import React, { useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import Sheet, { Fld, Opt } from "./Sheet.jsx";
 import { useStore } from "../state/store.jsx";
+import { serviceAddressHint, serviceAddressLabel } from "../lib/customerSync.js";
 import { fmt$, todayStr } from "../lib/format.js";
 import { sortJobs } from "../lib/stages.js";
 
@@ -466,9 +467,11 @@ export function CustEditSheet({ job, onClose }) {
           </Fld>
         )
       )}
-      <p className="text-[11px] font-bold uppercase tracking-wide text-slate-400 mt-3 mb-2">This job — service location</p>
-      <Fld label="Service address" hint="Where we are working on this job (not the QB billing address)">
-        <input className="input" value={f.serviceAddress} onChange={set("serviceAddress")} aria-label="Service address" />
+      <p className="text-[11px] font-bold uppercase tracking-wide text-slate-400 mt-3 mb-2">
+        {job.invoiceNo || job.estimateNo ? "Invoice / estimate — service location" : "Service location (for next invoice/estimate)"}
+      </p>
+      <Fld label={serviceAddressLabel(job)} hint={serviceAddressHint(job)}>
+        <input className="input" value={f.serviceAddress} onChange={set("serviceAddress")} aria-label={serviceAddressLabel(job)} />
       </Fld>
       <Fld label="Apartment #">
         <input className="input" value={f.apartment} onChange={set("apartment")} aria-label="Apartment #" />
@@ -477,7 +480,7 @@ export function CustEditSheet({ job, onClose }) {
         Apply
       </button>
       <p className="text-[11px] text-slate-400 text-center mt-2">
-        Customer fields sync to QuickBooks via ⇄ Sync. Service address stays on this job only.
+        Customer fields sync to QuickBooks via ⇄ Sync. Service address stays on this invoice/estimate only.
       </p>
     </Sheet>
   );
