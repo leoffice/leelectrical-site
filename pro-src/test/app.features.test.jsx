@@ -383,9 +383,12 @@ describe("12. sync chip + today view + jobs list", () => {
     await waitFor(() => expect(srv.posts("jobsdata", (b) => b.op === "request")).toHaveLength(1));
   });
 
-  it("today: totals row, follow-ups due, appointments with + Job prefill", async () => {
-    mockServer({
-      jobs: [JSON.parse(JSON.stringify(J1)), JSON.parse(JSON.stringify(J2))],
+  it("today: totals row, follow-ups due, appointments with detail/edit/link/create", async () => {
+    const srv = mockServer({
+      jobs: [
+        { ...JSON.parse(JSON.stringify(J1)), calEventId: "ev1" },
+        JSON.parse(JSON.stringify(J2)),
+      ],
       ov: { "J-1": { followUp: { text: "Collect balance", date: "2020-01-01" } } },
     });
     const user = userEvent.setup();
@@ -396,6 +399,17 @@ describe("12. sync chip + today view + jobs list", () => {
     expect(screen.getAllByText("$2,300").length).toBeGreaterThan(0); // outstanding = J-1 only
     expect(screen.getByText(/Collect balance/)).toBeInTheDocument(); // due follow-up
     expect(await screen.findByTestId("week-calendar")).toBeInTheDocument();
+    await user.click(screen.getByText("Estimate — Jane Doe"));
+    expect(screen.getByText("✏️ Edit appointment")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Linked job/ })).toBeInTheDocument();
+    await user.click(screen.getByText("✏️ Edit appointment"));
+    expect(screen.getByText("Edit appointment")).toBeInTheDocument();
+    fireEvent.change(screen.getByLabelText("Appointment date and time"), { target: { value: "2026-07-12T11:00" } });
+    await user.click(screen.getByText("Save changes"));
+    await waitFor(() => expect(srv.enqueued("calendar_upsert")).toHaveLength(1));
+    expect(srv.enqueued("calendar_upsert")[0].payload.calEventId).toBe("ev1");
+    expect(srv.enqueued("calendar_upsert")[0].payload.start).toBe("2026-07-12T11:00");
+
     await user.click(screen.getByText("Estimate — Jane Doe"));
     await user.click(screen.getByText("＋ Create job from appointment"));
     expect(await screen.findByLabelText("Job title / scope")).toHaveValue("Estimate — Jane Doe");

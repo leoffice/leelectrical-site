@@ -122,6 +122,14 @@ export function StoreProvider({ children }) {
     } catch {}
   }, []);
 
+  const patchLocalEvent = useCallback((eventId, patch) => {
+    setEvents((evs) => evs.map((e) => (String(e.id) === String(eventId) ? { ...e, ...patch } : e)));
+  }, []);
+
+  const removeLocalEvent = useCallback((eventId) => {
+    setEvents((evs) => evs.filter((e) => String(e.id) !== String(eventId)));
+  }, []);
+
   const refreshDev = useCallback(async () => {
     try {
       setDevTasks(await api.listDevTasks());
@@ -524,6 +532,8 @@ export function StoreProvider({ children }) {
     syncNow,
     patchJob,
     patchAndSave,
+    patchLocalEvent,
+    removeLocalEvent,
     effectiveJob,
     saveAll,
     discardAll,

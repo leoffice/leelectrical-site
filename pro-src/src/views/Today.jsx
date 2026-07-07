@@ -2,14 +2,13 @@
 import React, { useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { useStore } from "../state/store.jsx";
-import { prefillFromEvent } from "../components/NewJobFlow.jsx";
-import Sheet from "../components/Sheet.jsx";
+import AppointmentDetailSheet from "../components/AppointmentDetailSheet.jsx";
 import WeekCalendar from "../components/WeekCalendar.jsx";
 import { fmtAmountDue, openBalance, totalBalanceDue } from "../lib/customers.js";
-import { evStart, fmt$, todayStr } from "../lib/format.js";
+import { fmt$, todayStr } from "../lib/format.js";
 
 export default function Today() {
-  const { jobs, events, setNewJob } = useStore();
+  const { jobs, events } = useStore();
   const [picked, setPicked] = useState(null);
   const t = todayStr();
   const js = useMemo(() => jobs.filter((j) => !j._archived && !j._deleted), [jobs]);
@@ -69,36 +68,7 @@ export default function Today() {
         </div>
       </section>
 
-      {picked && (
-        <Sheet title={picked.summary || "Appointment"} onClose={() => setPicked(null)}>
-          <div className="text-sm space-y-2 mb-4">
-            <div>
-              <b className="font-semibold">When</b>{" "}
-              <span className="text-slate-600">{evStart(picked).replace("T", " ").slice(0, 16)}</span>
-            </div>
-            {picked.location ? (
-              <div>
-                <b className="font-semibold">Location</b> <span className="text-slate-600">{picked.location}</span>
-              </div>
-            ) : null}
-            {picked.description ? (
-              <div>
-                <b className="font-semibold">Notes</b>
-                <p className="text-slate-600 whitespace-pre-wrap mt-1">{picked.description}</p>
-              </div>
-            ) : null}
-          </div>
-          <button
-            className="btn-brand w-full"
-            onClick={() => {
-              setPicked(null);
-              setNewJob({ step: "form", prefill: prefillFromEvent(picked) });
-            }}
-          >
-            ＋ Create job from appointment
-          </button>
-        </Sheet>
-      )}
+      {picked && <AppointmentDetailSheet event={picked} onClose={() => setPicked(null)} />}
     </div>
   );
 }
