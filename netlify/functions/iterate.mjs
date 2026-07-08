@@ -15,6 +15,8 @@ export default async (req) => {
   const store = getStore("iterations");
   const ts = new Date().toISOString();
   const key = Date.now().toString() + "-" + Math.random().toString(36).slice(2, 7);
-  await store.setJSON(key, { ts, message, source: (body && body.source) || "progress-tab" });
+  const entry = { ts, message, source: (body && body.source) || "progress-tab" };
+  if (body && body.context && typeof body.context === "object") entry.context = body.context;
+  await store.setJSON(key, entry);
   return new Response(JSON.stringify({ ok: true, ts }), { headers: { "content-type": "application/json" } });
 };

@@ -255,8 +255,10 @@ export function createNetlifyAdapter() {
       return http(`chat?presence=1&${cb()}`);
     },
 
-    async iterate(message, source) {
-      return http("iterate", { message, source });
+    async iterate(message, source, context) {
+      const body = { message, source };
+      if (context && typeof context === "object") body.context = context;
+      return http("iterate", body);
     },
   };
 }

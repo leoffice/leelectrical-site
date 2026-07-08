@@ -9,10 +9,14 @@ import React, { useCallback, useEffect, useRef, useState } from "react";
 import { useLocation } from "react-router-dom";
 import { useStore } from "../state/store.jsx";
 import { fmt$ } from "../lib/format.js";
+import { appointmentContextFromRoute } from "../lib/appointmentContext.js";
+import { CHAT_SLASH_HINT, jobPatchFromSlash, parseChatSlash } from "../lib/chatActions.js";
+import ChatJobUpdateSheet from "./ChatJobUpdateSheet.jsx";
 
 const CONVO_KEY = "le_pro_convo";
 const ONLINE_MS = 4 * 60_000; // dispatch-heartbeat (or last reply) younger than this = online
 const STUCK_MS = 90_000; // a "Working on it" we've watched longer than this stops looking like a live spinner
+const NEAR_BOTTOM_PX = 48; // within this distance of the bottom we auto-scroll on new messages
 
 /** Own-message delivery status → user-facing label. Statuses arrive on the
  *  message object from the chat fn (Sent -> Received -> Read -> Working on it). */
@@ -75,7 +79,7 @@ function getConvo() {
 }
 
 export default function ChatBubble() {
-  const { api, effectiveJob, showToast, dirtyCount } = useStore();
+  const { api, effectiveJob, showToast, dirtyCount, jobs, patchJob, addDevTask, setNewJob } = useStore();
   const loc = useLocation();
   const [open, setOpen] = useState(false);
   const [msgs, setMsgs] = useState([]);
@@ -84,12 +88,14 @@ export default function ChatBubble() {
   const [ctxOn, setCtxOn] = useState(true);
   const [rec, setRec] = useState(false);
   const [dispatchSeen, setDispatchSeen] = useState(0); // responder heartbeat ts
+  const [jobSheet, setJobSheet] = useState(false);
   const convo = useRef(getConvo());
   const lastN = useRef(0);
   const lastDispatchN = useRef(null); // null = not baselined yet (first poll)
   const openRef = useRef(open);
   openRef.current = open;
   const logRef = useRef(null);
+  const stickRef = useRef(true); // auto-scroll only while the user is near the bottom
   const recRef = useRef(null);
   const micBtn = useRef(null);
   const workingSince = useRef({ id: null, t: 0 }); // when we first saw the current "Working on it"
@@ -192,13 +198,86 @@ export default function ChatBubble() {
     return () => clearInterval(t);
   }, [open, presencePing]);
 
+  const scrollLogToBottom = useCallback(() => {
+    const el = logRef.current;
+    if (!el) return;
+    el.scrollTop = el.scrollHeight;
+  }, []);
+
+  const onLogScroll = useCallback(() => {
+    const el = logRef.current;
+    if (!el) return;
+    stickRef.current = el.scrollHeight - el.scrollTop - el.clientHeight <= NEAR_BOTTOM_PX;
+  }, []);
+
+  // Auto-scroll when the panel opens or when new messages arrive — but only if
+  // the user hasn't scrolled up to read history (poll every 3s was yanking them
+  // back to the bottom).
   useEffect(() => {
-    if (logRef.current) logRef.current.scrollTop = 99999;
-  }, [msgs, open]);
+    if (!open || !stickRef.current) return;
+    requestAnimationFrame(scrollLogToBottom);
+  }, [msgs, open, scrollLogToBottom]);
+
+  const apptCtx = appointmentContextFromRoute(loc.pathname, { effectiveJob, jobs });
+  const activeJob = jobId ? effectiveJob(jobId) : null;
+
+  const submitDevTask = useCallback(
+    async (desc) => {
+      const d = String(desc || "").trim();
+      if (!d) {
+        setText("/task ");
+        showToast("Describe the dev task");
+        return;
+      }
+      const ok = await addDevTask({
+        title: "",
+        desc: d,
+        images: [],
+        priority: "Normal",
+        category: "build",
+        target: { pro: true, sleek: false, beta: false, dashboard: false },
+      });
+      if (ok !== false) setText("");
+      return true;
+    },
+    [addDevTask, showToast]
+  );
+
+  const openAppointment = useCallback(() => {
+    setNewJob({ step: "appt", context: apptCtx || activeJob || null });
+    showToast("Add appointment");
+  }, [setNewJob, apptCtx, activeJob, showToast]);
+
+  const runSlash = useCallback(
+    async (slash) => {
+      if (slash.cmd === "task") return !!(await submitDevTask(slash.rest));
+      if (slash.cmd === "appt" || slash.cmd === "appointment") {
+        openAppointment();
+        return true;
+      }
+      if (slash.cmd === "job") {
+        if (!jobId) {
+          showToast("Open a job first — /job only works on job detail");
+          return true;
+        }
+        const patch = jobPatchFromSlash(slash.rest);
+        if (!patch) {
+          showToast("Try /job notes … · /job followup … · /job phone …");
+          return true;
+        }
+        patchJob(jobId, patch);
+        showToast("Job updated — tap Save when ready");
+        return true;
+      }
+      return false;
+    },
+    [submitDevTask, openAppointment, jobId, patchJob, showToast]
+  );
 
   const toggle = () => {
     setOpen((o) => {
       if (!o) {
+        stickRef.current = true;
         setUnread(0);
         setCtxOn(true);
         askNotifyPermission(); // once — no-op after granted/denied
@@ -211,7 +290,14 @@ export default function ChatBubble() {
   const send = async () => {
     const t = text.trim();
     if (!t) return;
+    const slash = parseChatSlash(t);
+    if (slash) {
+      setText("");
+      const handled = await runSlash(slash);
+      if (handled) return;
+    }
     setText("");
+    stickRef.current = true;
     const full = chatCtx() + t;
     setCtxOn(true);
 
@@ -239,7 +325,13 @@ export default function ChatBubble() {
       return;
     }
     // Nudge Dispatch — a failed nudge must not mark the message unsent.
-    api.iterate(full, "pro-bubble:" + convo.current).catch(() => {});
+    api
+      .iterate(full, "pro-bubble:" + convo.current, {
+        view,
+        jobId: jobId || "",
+        pathname: loc.pathname,
+      })
+      .catch(() => {});
     poll();
   };
 
@@ -363,7 +455,12 @@ export default function ChatBubble() {
             {working && <span className="text-[11px] opacity-85 shrink-0">working…</span>}
             <button onClick={toggle} className="text-white" aria-label="Close chat">✕</button>
           </div>
-          <div ref={logRef} className="flex-1 overflow-y-auto p-3 min-h-[120px]">
+          <div
+            ref={logRef}
+            data-testid="chat-log"
+            onScroll={onLogScroll}
+            className="flex-1 overflow-y-auto p-3 min-h-[120px]"
+          >
             {msgs.length ? (
               msgs.map((m, i) => (
                 <div
@@ -417,6 +514,39 @@ export default function ChatBubble() {
               </button>
             </div>
           )}
+          <div className="flex gap-1.5 px-3 pb-1 overflow-x-auto" data-testid="chat-actions">
+            <button
+              type="button"
+              className="shrink-0 text-[11px] font-semibold px-2.5 py-1 rounded-full bg-slate-100 text-slate-700"
+              onClick={() => submitDevTask(text)}
+              data-testid="chat-action-task"
+            >
+              Dev task
+            </button>
+            {activeJob && (
+              <button
+                type="button"
+                className="shrink-0 text-[11px] font-semibold px-2.5 py-1 rounded-full bg-slate-100 text-slate-700"
+                onClick={() => setJobSheet(true)}
+                data-testid="chat-action-job"
+              >
+                Update job
+              </button>
+            )}
+            {(apptCtx || activeJob) && (
+              <button
+                type="button"
+                className="shrink-0 text-[11px] font-semibold px-2.5 py-1 rounded-full bg-slate-100 text-slate-700"
+                onClick={openAppointment}
+                data-testid="chat-action-appt"
+              >
+                Appointment
+              </button>
+            )}
+          </div>
+          <div className="px-3 pb-1 text-[10px] text-slate-400" data-testid="chat-slash-hint">
+            {CHAT_SLASH_HINT}
+          </div>
           <div className="flex items-end gap-2 p-3 border-t border-slate-200">
             <textarea
               className="input flex-1 max-h-[90px] resize-none"
@@ -446,6 +576,7 @@ export default function ChatBubble() {
           </div>
         </div>
       )}
+      {jobSheet && activeJob && <ChatJobUpdateSheet job={activeJob} onClose={() => setJobSheet(false)} />}
     </>
   );
 }
