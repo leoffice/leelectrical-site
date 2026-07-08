@@ -37,9 +37,11 @@ export async function chargeCardInApp({
   job,
   principalAmount,
   includeFee = true,
+  saveOnFile = false,
   xCardNum,
   xCVV,
   xExp,
+  xToken,
 }) {
   const invoiceNo = String(job?.invoiceNo || "").trim();
   if (!invoiceNo) throw new Error("Invoice # required to charge a card");
@@ -55,9 +57,11 @@ export async function chargeCardInApp({
       jobId: job?.id || "",
       principalAmount: principal,
       includeFee,
-      xCardNum,
-      xCVV,
-      xExp: normalizeCardExp(xExp),
+      saveOnFile: Boolean(saveOnFile),
+      xCardNum: xToken ? "" : xCardNum,
+      xCVV: xToken ? "" : xCVV,
+      xExp: xToken ? "" : normalizeCardExp(xExp),
+      xToken: xToken || "",
       billing: billingFromJob(job),
     }),
   });

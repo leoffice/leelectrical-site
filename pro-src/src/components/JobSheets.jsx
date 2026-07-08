@@ -88,10 +88,17 @@ export function MarkPaidSheet({ job, onClose }) {
   const [ref, setRef] = useState("");
   const [dt, setDt] = useState(todayStr());
   const [includeFee, setIncludeFee] = useState(true);
+  const [saveOnFile, setSaveOnFile] = useState(true);
+  const [useSavedCard, setUseSavedCard] = useState(Boolean(job.solaCardToken));
   const [cardReady, setCardReady] = useState(false);
   const [payPhase, setPayPhase] = useState("idle"); // idle | tokenizing | charging
   const [payErr, setPayErr] = useState("");
+  const [achRouting, setAchRouting] = useState("");
+  const [achAccount, setAchAccount] = useState("");
+  const [achName, setAchName] = useState(job.customer || "");
   const isCard = mth === "Credit card";
+  const isCheck = mth === "Check";
+  const isAch = mth === "ACH";
   const inv = job.invoiceNo || "";
   const payAmt = parseFloat(String(amt).replace(/[$,]/g, "")) || 0;
   const chargeTotal = isCard ? totalWithFee(payAmt, includeFee) : payAmt;
@@ -111,7 +118,21 @@ export function MarkPaidSheet({ job, onClose }) {
       return;
     }
     const d = dt || todayStr();
-    const patch = appendPayment(job, { amount: payAmt, method: mth, ref, date: d });
+    let note = "";
+    if (isCheck && ref) note = "Check #" + ref;
+    if (isAch) {
+      const bits = [achName, achRouting ? "routing " + achRouting : "", achAccount ? "acct …" + achAccount.slice(-4) : ""]
+        .filter(Boolean)
+        .join(" · ");
+      if (bits) note = bits;
+    }
+    const patch = appendPayment(job, {
+      amount: payAmt,
+      method: mth,
+      ref,
+      date: d,
+      note: note || undefined,
+    });
     const remaining = parseFloat(String(patch.openBalance)) || 0;
     if (patch.paid) {
       showToast("Payment staged — Save & sync to record in QuickBooks");
@@ -136,19 +157,28 @@ export function MarkPaidSheet({ job, onClose }) {
       showToast("Amount exceeds open balance " + fmt$(due));
       return;
     }
-    if (!cardReady) {
+    if (!useSavedCard && !cardReady) {
       showToast("Card fields still loading — wait a moment");
+      return;
+    }
+    if (useSavedCard && !job.solaCardToken) {
+      showToast("No card on file — enter card details");
       return;
     }
     setPayErr("");
     setPayPhase("tokenizing");
     try {
-      const tokens = await tokenizeSolaCard();
+      let tokens = {};
+      if (!useSavedCard) {
+        tokens = await tokenizeSolaCard();
+      }
       setPayPhase("charging");
       const res = await chargeCardInApp({
         job,
         principalAmount: payAmt,
         includeFee,
+        saveOnFile: saveOnFile && !useSavedCard,
+        xToken: useSavedCard ? job.solaCardToken : "",
         ...tokens,
       });
       await refreshJobs(true);
@@ -166,7 +196,7 @@ export function MarkPaidSheet({ job, onClose }) {
     }
   };
   return (
-    <Sheet title={"Mark as paid — " + (job.customer || "")} onClose={onClose}>
+    <Sheet title={"Mark as paid — " + (job.customer || "")} onClose={onClose} tall={isCard}>
       {alreadyPaid ? (
         <div className="rounded-xl bg-amber-50 border border-amber-200 px-3 py-2.5 mb-3 text-[12px] text-amber-900">
           <p className="font-semibold">Already paid (balance {fmt$(due)})</p>
@@ -207,34 +237,95 @@ export function MarkPaidSheet({ job, onClose }) {
       {isCard ? (
         <>
           {!inv ? (
-            <p className="text-xs text-amber-800 bg-amber-50 border border-amber-200 rounded-xl px-3 py-2 mb-3">
+            <p className="text-xs text-amber-800 bg-amber-50 border border-amber-200 rounded-xl px-3 py-2 mb-2">
               This job needs an invoice # before you can charge a card in the app.
             </p>
           ) : null}
-          <label className="flex items-center gap-2 text-sm text-slate-600 mb-3">
-            <input
-              type="checkbox"
-              checked={includeFee}
-              onChange={(e) => setIncludeFee(e.target.checked)}
-              disabled={processing}
-            />
-            Add 3.5% processing fee to card charge
-          </label>
+          <div className="flex items-center justify-between gap-3 mb-2 py-1">
+            <span className="text-sm text-slate-600">Add 3.5% processing fee</span>
+            <Toggle small on={includeFee} onChange={setIncludeFee} label="Add processing fee" />
+          </div>
+          {job.solaCardToken ? (
+            <div className="flex items-center justify-between gap-3 mb-2 py-1">
+              <span className="text-sm text-slate-600">
+                Use card on file{job.solaCardMasked ? " (" + job.solaCardMasked + ")" : ""}
+              </span>
+              <Toggle small on={useSavedCard} onChange={setUseSavedCard} label="Use saved card" />
+            </div>
+          ) : null}
+          {!useSavedCard ? (
+            <div className="flex items-center justify-between gap-3 mb-2 py-1">
+              <span className="text-sm text-slate-600">Save card on file</span>
+              <Toggle small on={saveOnFile} onChange={setSaveOnFile} label="Save card on file" />
+            </div>
+          ) : null}
           {payAmt > 0 && includeFee ? (
-            <p className="text-xs text-slate-500 mb-3">
-              Charge card <b>{fmtMoneyPrecise(chargeTotal)}</b> · invoice credit <b>{fmt$(payAmt)}</b>
+            <p className="text-xs text-slate-500 mb-2">
+              Charge <b>{fmtMoneyPrecise(chargeTotal)}</b> · credit <b>{fmt$(payAmt)}</b>
             </p>
           ) : null}
-          <SolaCardForm disabled={processing || alreadyPaid || !inv} onReadyChange={setCardReady} />
+          {!useSavedCard ? (
+            <SolaCardForm compact disabled={processing || alreadyPaid || !inv} onReadyChange={setCardReady} />
+          ) : (
+            <p className="text-xs text-slate-500 mb-2">Saved card will be charged — toggle off to enter a new card.</p>
+          )}
           {payErr ? (
-            <p className="text-xs text-red-600 bg-red-50 border border-red-100 rounded-xl px-3 py-2 mt-3">{payErr}</p>
+            <p className="text-xs text-red-600 bg-red-50 border border-red-100 rounded-xl px-3 py-2 mt-2">{payErr}</p>
           ) : null}
+        </>
+      ) : isAch ? (
+        <>
+          <Fld label="Account holder name">
+            <input className="input" value={achName} onChange={(e) => setAchName(e.target.value)} disabled={processing} />
+          </Fld>
+          <Fld label="Routing number">
+            <input className="input" inputMode="numeric" value={achRouting} onChange={(e) => setAchRouting(e.target.value)} disabled={processing} />
+          </Fld>
+          <Fld label="Account number">
+            <input className="input" inputMode="numeric" value={achAccount} onChange={(e) => setAchAccount(e.target.value)} disabled={processing} />
+          </Fld>
+          <Fld label="Reference (optional)">
+            <input className="input" placeholder="Confirmation #" value={ref} onChange={(e) => setRef(e.target.value)} disabled={processing} />
+          </Fld>
+          <Fld label="Date">
+            <input className="input" type="date" value={dt} onChange={(e) => setDt(e.target.value)} disabled={processing} />
+          </Fld>
+          <p className="text-[11px] text-slate-400 -mt-1 mb-1">
+            ACH debit via Sola is coming soon — for now this records the bank details for QuickBooks sync.
+          </p>
         </>
       ) : (
         <>
-          <Fld label="Reference / check #">
-            <input className="input" placeholder="Optional" value={ref} onChange={(e) => setRef(e.target.value)} disabled={processing} />
+          <Fld label={isCheck ? "Check number" : "Reference / check #"} hint={isCheck ? "Required for check deposits" : "Optional"}>
+            <input
+              className="input"
+              placeholder={isCheck ? "Check #" : "Optional"}
+              value={ref}
+              onChange={(e) => setRef(e.target.value)}
+              disabled={processing}
+            />
           </Fld>
+          {isCheck && job.email ? (
+            <a
+              className="btn-ghost w-full !py-2 mb-2 text-sm text-brand"
+              href={
+                "mailto:" +
+                job.email +
+                "?subject=" +
+                encodeURIComponent("Check payment for invoice #" + (inv || "")) +
+                "&body=" +
+                encodeURIComponent(
+                  "Hi — please mail your check for " +
+                    (fmt$(payAmt) || "the balance") +
+                    " to LE Electric, or reply with a mobile deposit photo.\n\nInvoice #" +
+                    (inv || "") +
+                    "\nThank you!"
+                )
+              }
+            >
+              ✉️ Email check instructions
+            </a>
+          ) : null}
           <Fld label="Date">
             <input className="input" type="date" value={dt} onChange={(e) => setDt(e.target.value)} disabled={processing} />
           </Fld>
@@ -245,7 +336,7 @@ export function MarkPaidSheet({ job, onClose }) {
         <button
           className="btn bg-emerald-500 text-white w-full mt-3"
           onClick={processCard}
-          disabled={alreadyPaid || processing || !inv || !cardReady}
+          disabled={alreadyPaid || processing || !inv || (!useSavedCard && !cardReady) || (useSavedCard && !job.solaCardToken)}
           data-testid="process-card-payment"
         >
           {payPhase === "tokenizing"

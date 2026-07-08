@@ -10,6 +10,10 @@ import JobDocTabs from "./JobDocTabs.jsx";
 const BUBBLE_LAYOUT =
   "inline-flex items-center gap-1 rounded-2xl border px-2 py-1 text-[10px] leading-tight lg:rounded-full lg:px-2.5 lg:py-1 lg:text-xs";
 
+function stopBubble(e) {
+  e.stopPropagation();
+}
+
 function AwarenessBubble({ bubble, onClick }) {
   const pillClass = bubbleStyle(bubble.tone);
   const inner = (
@@ -31,7 +35,10 @@ function AwarenessBubble({ bubble, onClick }) {
       type="button"
       className={`${BUBBLE_LAYOUT} active:opacity-80 ${pillClass} max-w-full`}
       data-testid={"awareness-pill-" + bubble.key}
-      onClick={() => onClick(bubble)}
+      onClick={(e) => {
+        stopBubble(e);
+        onClick(bubble);
+      }}
     >
       {inner}
     </button>
@@ -49,6 +56,9 @@ export default function JobInfoCard({
   onCalendar,
   onBubbleTap,
   showOpenLink = true,
+  collapsible = false,
+  expanded = true,
+  onToggle,
 }) {
   const total = invoiceTotal(job);
   const paid = amountPaid(job);
@@ -56,6 +66,7 @@ export default function JobInfoCard({
   const pct = paidPct(job);
   const svc = effectiveServiceAddress(job);
   const bubbles = useMemo(() => jobAwarenessBubbles(job, events, commands), [job, events, commands]);
+  const showBody = !collapsible || expanded;
 
   const rows = [
     ["Service address", svc],
@@ -72,6 +83,7 @@ export default function JobInfoCard({
     <div
       className="mt-2 grid grid-cols-2 sm:grid-cols-3 gap-1.5 w-full auto-rows-fr"
       data-testid="awareness-bubbles"
+      onClick={stopBubble}
     >
       {bubbles.map((b) => (
         <AwarenessBubble key={b.key} bubble={b} onClick={onBubbleTap} />
@@ -80,7 +92,16 @@ export default function JobInfoCard({
   ) : null;
 
   return (
-    <div className="card px-3 py-3 lg:px-4 lg:py-4" data-testid="job-info-card">
+    <div
+      className={`card px-3 py-3 lg:px-4 lg:py-4 ${collapsible ? "cursor-pointer active:bg-slate-50/80" : ""} ${
+        collapsible && !expanded ? "ring-1 ring-transparent hover:ring-slate-200" : ""
+      }`}
+      data-testid="job-info-card"
+      data-expanded={collapsible ? (expanded ? "true" : "false") : undefined}
+      onClick={collapsible && onToggle ? onToggle : undefined}
+      role={collapsible ? "button" : undefined}
+      aria-expanded={collapsible ? expanded : undefined}
+    >
       <div className="flex items-start gap-2">
         <div className="min-w-0 flex-1">
           <h3 className="text-[11px] font-extrabold text-slate-500 uppercase tracking-wider mb-1">Job information</h3>
@@ -88,12 +109,18 @@ export default function JobInfoCard({
             {job.title || (job.invoiceNo ? "Invoice #" + job.invoiceNo : "Job")}
           </div>
         </div>
-        <AmountDisplay job={job} size="sm" highlightDue label="Total due" />
+        <div onClick={stopBubble}>
+          <AmountDisplay job={job} size="sm" highlightDue label="Total due" />
+        </div>
       </div>
 
       {bubbleStrip}
 
-      {rows.length > 0 && (
+      {collapsible && !expanded ? (
+        <p className="text-[10px] text-slate-400 mt-2 text-center">Tap card to expand billing &amp; actions</p>
+      ) : null}
+
+      {showBody && rows.length > 0 && (
         <dl className="mt-2 space-y-1 text-xs lg:text-sm min-w-0 w-full">
           {rows.map(([k, v]) => (
             <div key={k} className="flex gap-2 items-baseline">
@@ -104,23 +131,28 @@ export default function JobInfoCard({
         </dl>
       )}
 
-      {onEstimate && onInvoice && onCalendar ? (
-        <JobDocTabs
-          job={job}
-          events={events}
-          commands={commands}
-          onEstimate={onEstimate}
-          onInvoice={onInvoice}
-          onPayment={onPayment}
-          onCalendar={onCalendar}
-        />
+      {showBody && onEstimate && onInvoice && onCalendar ? (
+        <div onClick={stopBubble}>
+          <JobDocTabs
+            job={job}
+            events={events}
+            commands={commands}
+            onEstimate={onEstimate}
+            onInvoice={onInvoice}
+            onPayment={onPayment}
+            onCalendar={onCalendar}
+          />
+        </div>
       ) : null}
 
-      {showOpenLink && onOpen ? (
+      {showBody && showOpenLink && onOpen ? (
         <button
           type="button"
           className="w-full mt-2.5 text-sm font-semibold text-brand text-left"
-          onClick={onOpen}
+          onClick={(e) => {
+            stopBubble(e);
+            onOpen();
+          }}
           data-testid="customer-job-row"
         >
           Open full job ›

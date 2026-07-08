@@ -29,6 +29,7 @@ export default function CustomerView() {
   const { jobs, loading, events, commands, patchJob } = useStore();
   const key = raw ? decodeURIComponent(raw) : "";
   const [sheet, setSheet] = useState(null); // { kind, job? }
+  const [expandedJobs, setExpandedJobs] = useState({}); // job id -> expanded on customer view
 
   const list = useMemo(() => sortJobs(jobsForCustomerKey(jobs, key)), [jobs, key]);
   const contact = useMemo(() => customerContact(list), [list]);
@@ -82,6 +83,9 @@ export default function CustomerView() {
             job={j}
             events={events}
             commands={commands}
+            collapsible
+            expanded={!!expandedJobs[j.id]}
+            onToggle={() => setExpandedJobs((o) => ({ ...o, [j.id]: !o[j.id] }))}
             onOpen={() => nav("/job/" + j.id + "?from=" + encodeURIComponent(key))}
             onEstimate={() => openDocFor(j, "estimate")}
             onInvoice={() => openDocFor(j, "invoice")}

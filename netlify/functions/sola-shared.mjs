@@ -156,7 +156,7 @@ export async function patchJobPayment(jobId, amount, ref, method) {
   const fullPay = remaining <= 0.01;
   const latest = list.slice().sort((a, b) => String(a.date || "").localeCompare(String(b.date || ""))).pop();
 
-  ov[jobId] = {
+  const patch = {
     ...prev,
     payments: list,
     paymentBaseline: prev.paymentBaseline != null ? prev.paymentBaseline : owed,
@@ -167,13 +167,39 @@ export async function patchJobPayment(jobId, amount, ref, method) {
       ? { Paid: { s: "done", d: entry.date }, "Follow-up": { s: "done", d: entry.date } }
       : { Paid: { s: "" }, "Follow-up": { s: "" } },
   };
+  ov[jobId] = patch;
+  await stateStore.setJSON(STATE_KEY, { ov, ts: Date.now() });
+}
+
+async function patchJobCardOnFile(jobId, cardToken, cardMasked) {
+  if (!jobId || !cardToken) return;
+  const stateStore = getStore("jobstate");
+  const cur =
+    (await stateStore.get(STATE_KEY, { type: "json", consistency: "strong" })) ||
+    { ov: {}, ts: 0 };
+  const ov = cur.ov || {};
+  ov[jobId] = {
+    ...(ov[jobId] || {}),
+    solaCardToken: cardToken,
+    solaCardMasked: cardMasked || ov[jobId]?.solaCardMasked || "",
+  };
   await stateStore.setJSON(STATE_KEY, { ov, ts: Date.now() });
 }
 
 /** Apply an approved Sola payment to commands + job overlay. */
-export async function applyApprovedSolaPayment({ jobId, invoiceNo, amount, ref, method, note }) {
+export async function applyApprovedSolaPayment({
+  jobId,
+  invoiceNo,
+  amount,
+  ref,
+  method,
+  note,
+  cardToken,
+  cardMasked,
+}) {
   const jid = jobId || (await findJobId(invoiceNo, jobId));
   await enqueueRecordPayment({ jobId: jid, invoiceNo, amount, ref, method, note });
   await patchJobPayment(jid, amount, ref, method);
+  if (cardToken) await patchJobCardOnFile(jid, cardToken, cardMasked);
   return jid;
 }

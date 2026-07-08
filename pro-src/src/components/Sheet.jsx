@@ -1,7 +1,7 @@
 // Sheet — bottom sheet on mobile, centered modal on desktop (>=1024px).
 import React, { useEffect } from "react";
 
-export default function Sheet({ title, onClose, children, wide }) {
+export default function Sheet({ title, onClose, children, wide, tall }) {
   useEffect(() => {
     const h = (e) => e.key === "Escape" && onClose && onClose();
     window.addEventListener("keydown", h);
@@ -12,7 +12,9 @@ export default function Sheet({ title, onClose, children, wide }) {
     <div className="fixed inset-0 z-[60] flex items-end lg:items-center justify-center" role="dialog" aria-modal="true" data-sheet>
       <div className="absolute inset-0 bg-slate-900/45" onClick={onClose} data-sheet-dim />
       <div
-        className={`relative w-full ${wide ? "lg:max-w-2xl" : "lg:max-w-lg"} max-h-[88vh] lg:max-h-[80vh] bg-white rounded-t-3xl lg:rounded-2xl shadow-2xl flex flex-col animate-[sheetup_.22s_ease-out]`}
+        className={`relative w-full ${wide ? "lg:max-w-2xl" : "lg:max-w-lg"} ${
+          tall ? "max-h-[94vh] lg:max-h-[90vh]" : "max-h-[88vh] lg:max-h-[80vh]"
+        } bg-white rounded-t-3xl lg:rounded-2xl shadow-2xl flex flex-col animate-[sheetup_.22s_ease-out]`}
       >
         <div className="lg:hidden w-10 h-1 rounded-full bg-slate-300 mx-auto mt-2.5" />
         <div className="flex items-center gap-3 px-5 pt-3 pb-2.5">

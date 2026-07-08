@@ -36,6 +36,39 @@ function normExp(raw) {
   return "";
 }
 
+async function solaSave(body) {
+  const xKey = resolveXKey();
+  if (!xKey) return { ok: false, error: "SOLA_X_KEY not configured on Netlify" };
+  const payload = {
+    xKey,
+    xVersion: "5.0.0",
+    xSoftwareName: "LE Pro",
+    xSoftwareVersion: "1.0.0",
+    xCommand: "cc:save",
+    xCardNum: body.xCardNum,
+    xCVV: body.xCVV || "",
+    xExp: body.xExp,
+    xInvoice: body.xInvoice || "",
+  };
+  const bill = body.billing || {};
+  if (bill.name) payload.xBillLastName = bill.name;
+  if (bill.email) payload.xEmail = bill.email;
+  if (bill.street) payload.xBillStreet = bill.street;
+  if (bill.zip) payload.xBillZip = bill.zip;
+  const res = await fetch(GATEWAY, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+  let data = {};
+  try {
+    data = await res.json();
+  } catch {
+    return { ok: false, error: "Invalid save response from gateway" };
+  }
+  return { ok: true, data };
+}
+
 async function solaSale(body) {
   const xKey = resolveXKey();
   if (!xKey) {
@@ -48,13 +81,14 @@ async function solaSale(body) {
     xSoftwareVersion: "1.0.0",
     xCommand: "cc:sale",
     xAmount: body.xAmount,
-    xCardNum: body.xCardNum,
     xCVV: body.xCVV || "",
-    xExp: body.xExp,
+    xExp: body.xExp || "",
     xInvoice: body.xInvoice,
     xCustom01: body.xCustom01 || "",
     xCustom02: body.xCustom02 || "",
   };
+  if (body.xToken) payload.xToken = body.xToken;
+  else payload.xCardNum = body.xCardNum;
   const bill = body.billing || {};
   if (bill.name) payload.xBillLastName = bill.name;
   if (bill.email) payload.xEmail = bill.email;
@@ -95,20 +129,23 @@ export default async (req) => {
   const principal = parseMoney(body.principalAmount ?? body.amount);
   const includeFee = body.includeFee !== false && body.includeFee !== 0;
   const chargeAmount = chargeFromPrincipal(principal, includeFee);
+  const saveOnFile = Boolean(body.saveOnFile);
+  const xToken = String(body.xToken || "").trim();
   const xCardNum = String(body.xCardNum || "").trim();
   const xCVV = String(body.xCVV || "").trim();
   const xExp = normExp(body.xExp);
 
   if (!invoiceNo) return json({ ok: false, error: "invoiceNo required" }, 400);
   if (principal <= 0) return json({ ok: false, error: "Enter a payment amount" }, 400);
-  if (!xCardNum) return json({ ok: false, error: "Card number required" }, 400);
-  if (!xExp || xExp.length !== 4) return json({ ok: false, error: "Expiration must be MMYY" }, 400);
+  if (!xToken && !xCardNum) return json({ ok: false, error: "Card number required" }, 400);
+  if (!xToken && (!xExp || xExp.length !== 4)) return json({ ok: false, error: "Expiration must be MMYY" }, 400);
 
   const sale = await solaSale({
     xAmount: fmtAmt(chargeAmount),
-    xCardNum,
-    xCVV,
-    xExp,
+    xCardNum: xToken ? "" : xCardNum,
+    xCVV: xToken ? "" : xCVV,
+    xExp: xToken ? "" : xExp,
+    xToken,
     xInvoice: invoiceNo,
     xCustom01: fmtAmt(principal),
     xCustom02: jobId,
@@ -139,6 +176,25 @@ export default async (req) => {
 
   const ref = String(data.xRefNum || "").trim();
   const method = String(data.xCardType || data.xPaymentType || "Credit card").trim();
+  let cardToken = String(data.xToken || "").trim();
+  let cardMasked = String(data.xMaskedCardNumber || "").trim();
+
+  if (saveOnFile && !cardToken && xCardNum && xExp) {
+    const saved = await solaSave({
+      xCardNum,
+      xCVV,
+      xExp,
+      xInvoice: invoiceNo,
+      billing: body.billing || {},
+    });
+    if (saved.ok) {
+      const sd = saved.data || {};
+      if (String(sd.xResult || "").toUpperCase() === "A" || String(sd.xStatus || "").toLowerCase() === "approved") {
+        cardToken = String(sd.xToken || "").trim() || cardToken;
+        cardMasked = String(sd.xMaskedCardNumber || "").trim() || cardMasked;
+      }
+    }
+  }
 
   await applyApprovedSolaPayment({
     jobId,
@@ -147,6 +203,8 @@ export default async (req) => {
     ref,
     method,
     note: "LE Pro in-app card payment",
+    cardToken: saveOnFile ? cardToken : "",
+    cardMasked: saveOnFile ? cardMasked : "",
   });
 
   return json({
@@ -158,5 +216,7 @@ export default async (req) => {
     method: method || "Credit card",
     cardType: data.xCardType || "",
     authCode: data.xAuthCode || "",
+    cardToken: saveOnFile ? cardToken : "",
+    cardMasked: saveOnFile ? cardMasked : "",
   });
 };
