@@ -7,7 +7,21 @@ import CalendarSearchSheet from "./CalendarSearchSheet.jsx";
 import AddAppointmentSheet from "./AddAppointmentSheet.jsx";
 import { useStore } from "../state/store.jsx";
 import { evStart, todayStr } from "../lib/format.js";
-import { customerPickPatch, namesNearDuplicate, openDocsForCustomer } from "../lib/customers.js";
+import {
+  customerKeyForName,
+  customerPickPatch,
+  fmtAmountDue,
+  jobsForCustomerKey,
+  namesNearDuplicate,
+  openBalance,
+  openDocsForCustomer,
+  PENDING_IMPORT_LS,
+} from "../lib/customers.js";
+import { MarkPaidSheet } from "./JobSheets.jsx";
+import InvoiceCreateSheet, { ProgressPctSheet } from "./InvoiceCreateSheet.jsx";
+import DocBuilderSheet from "./DocBuilderSheet.jsx";
+import { fmt$ } from "../lib/format.js";
+import { sortJobs } from "../lib/stages.js";
 import { serviceAddressHint, serviceAddressLabel } from "../lib/customerSync.js";
 
 /** Prefill parser — enhanced for combined Calendar→Job autofill (#58). */
@@ -80,8 +94,76 @@ function mergeCustomerPatch(o, patch, { keepServiceAddress } = {}) {
   };
 }
 
+function PickCustomerJobsSheet({ title, hint, jobs, onClose, onPick, filterOpen }) {
+  const [q, setQ] = useState("");
+  const [cust, setCust] = useState(null);
+  const matches = useMemo(() => {
+    if (!cust) return [];
+    const key = customerKeyForName(cust.name);
+    let list = jobsForCustomerKey(jobs, key);
+    if (filterOpen) list = list.filter((j) => !j.paid && openBalance(j) > 0.01);
+    return sortJobs(list);
+  }, [cust, jobs, filterOpen]);
+  const filtered = useMemo(() => {
+    const needle = q.trim().toLowerCase();
+    if (!needle) return matches;
+    return matches.filter((j) =>
+      [j.customer, j.title, j.invoiceNo, j.estimateNo, j.address].some((x) =>
+        String(x || "")
+          .toLowerCase()
+          .includes(needle)
+      )
+    );
+  }, [matches, q]);
+
+  return (
+    <Sheet title={title} onClose={onClose}>
+      <p className="text-sm text-slate-500 mb-3">{hint}</p>
+      <CustomerSearch
+        label="Customer"
+        testId="addflow-customer-search"
+        value={cust?.name || ""}
+        onChangeText={() => setCust(null)}
+        onPick={(c) => setCust(c && !c._newCustomer ? c : null)}
+      />
+      {cust ? (
+        <>
+          <input
+            className="input mt-3"
+            type="search"
+            placeholder="🔍  Search invoices & jobs…"
+            value={q}
+            onChange={(e) => setQ(e.target.value)}
+            aria-label="Search jobs"
+          />
+          {filtered.length ? (
+            <div className="mt-3 space-y-2">
+              {filtered.map((j) => (
+                <Opt
+                  key={j.id}
+                  icon="🧾"
+                  title={j.title || j.customer || "Job"}
+                  note={
+                    (j.invoiceNo ? "Inv #" + j.invoiceNo + " · " : "") +
+                    (fmtAmountDue(j) || fmt$(openBalance(j)) || "No balance")
+                  }
+                  onClick={() => onPick(j)}
+                />
+              ))}
+            </div>
+          ) : (
+            <p className="text-sm text-slate-400 text-center py-6 mt-3">
+              {filterOpen ? "No open invoices for this customer." : "No jobs for this customer yet."}
+            </p>
+          )}
+        </>
+      ) : null}
+    </Sheet>
+  );
+}
+
 export default function NewJobFlow() {
-  const { newJob, setNewJob, events, markSasHandled } = useStore();
+  const { newJob, setNewJob, events, markSasHandled, jobs, enqueue, showToast, syncNow, refreshJobs, api } = useStore();
   const nav = useNavigate();
   if (!newJob) return null;
   const close = () => setNewJob(null);
@@ -90,7 +172,18 @@ export default function NewJobFlow() {
   if (newJob.step === "choose")
     return (
       <Sheet title="Add" onClose={close}>
-        <Opt icon="✍️" title="Enter manually" note="Type the customer & details" onClick={() => setNewJob({ step: "form", prefill: {}, context })} />
+        <Opt icon="🔧" title="Add a job" note="New scope for a customer — type details or pick from calendar" onClick={() => setNewJob({ step: "jobMenu", context })} />
+        <Opt icon="🏗️" title="Add a job with vendor" note="Track subcontractor / vendor on the job" onClick={() => setNewJob({ step: "form", prefill: {}, context, vendorMode: true })} />
+        <Opt icon="🧾" title="Add an invoice" note="Pick customer & job, then build the invoice" onClick={() => setNewJob({ step: "pickInvoice" })} />
+        <Opt icon="👤" title="Add a customer" note="Import from QuickBooks or create a new one" onClick={() => setNewJob({ step: "addCustomer" })} />
+        <Opt icon="💵" title="Add a payment" note="Find customer & invoice, then record or charge" onClick={() => setNewJob({ step: "pickPayment" })} />
+      </Sheet>
+    );
+
+  if (newJob.step === "jobMenu")
+    return (
+      <Sheet title="Add a job" onClose={close}>
+        <Opt icon="✍️" title="Enter manually" note="Type the customer & job details" onClick={() => setNewJob({ step: "form", prefill: {}, context })} />
         <Opt
           icon="📅"
           title="Choose from calendar"
@@ -108,6 +201,151 @@ export default function NewJobFlow() {
           onClick={() => setNewJob({ step: "appt", context })}
         />
       </Sheet>
+    );
+
+  if (newJob.step === "addCustomer")
+    return (
+      <Sheet title="Add a customer" onClose={close}>
+        <Opt
+          icon="📥"
+          title="Import from QuickBooks"
+          note="Pull open invoices & jobs for an existing QBO customer"
+          onClick={() => setNewJob({ step: "importCustomer" })}
+        />
+        <Opt
+          icon="✍️"
+          title="Create new customer"
+          note="Add to LE Pro — syncs to QuickBooks when you save"
+          onClick={() => setNewJob({ step: "newCustomer" })}
+        />
+      </Sheet>
+    );
+
+  if (newJob.step === "importCustomer")
+    return (
+      <Sheet title="Import from QuickBooks" onClose={close}>
+        <p className="text-sm text-slate-500 mb-3">Search QuickBooks customers not already in the app.</p>
+        <CustomerSearch
+          label="Customer name"
+          testId="import-customer-search"
+          value={newJob.importName || ""}
+          onChangeText={(v) => setNewJob({ ...newJob, importName: v })}
+          onPick={async (c) => {
+            if (!c || c._newCustomer) return;
+            const name = c.name || "";
+            const key = customerKeyForName(name);
+            close();
+            if (key) {
+              try {
+                sessionStorage.setItem(
+                  PENDING_IMPORT_LS,
+                  JSON.stringify({ key, name, qboId: c.id != null ? String(c.id) : "", started: Date.now() })
+                );
+              } catch {}
+              nav("/customer/" + encodeURIComponent(key));
+            }
+            showToast("Importing " + name + "…");
+            await enqueue(
+              "import_customer",
+              "import-" + (c.id != null ? c.id : name),
+              { name, qboId: c.id != null ? String(c.id) : "" },
+              "deterministic",
+              "import_customer|" + (c.id != null ? c.id : name)
+            );
+            try {
+              await api.pullJobs?.();
+            } catch {}
+            syncNow?.().catch(() => {});
+            refreshJobs?.(true);
+          }}
+        />
+      </Sheet>
+    );
+
+  if (newJob.step === "newCustomer")
+    return (
+      <NewCustomerForm
+        onClose={close}
+        onCreated={(id, name) => nav("/customer/" + encodeURIComponent(customerKeyForName(name) || id))}
+      />
+    );
+
+  if (newJob.step === "pickPayment" && newJob.job)
+    return <MarkPaidSheet job={newJob.job} onClose={close} />;
+
+  if (newJob.step === "pickPayment")
+    return (
+      <PickCustomerJobsSheet
+        title="Add a payment"
+        hint="Pick the customer, then choose the invoice to pay."
+        jobs={jobs}
+        filterOpen
+        onClose={close}
+        onPick={(job) => setNewJob({ ...newJob, step: "pickPayment", job })}
+      />
+    );
+
+  if (newJob.step === "pickInvoice" && newJob.docBuild)
+    return (
+      <DocBuilderSheet
+        job={newJob.job}
+        kind="invoice"
+        mode={newJob.docBuild.mode || "new"}
+        progressPct={newJob.docBuild.progressPct}
+        onClose={close}
+        onDone={() => {
+          close();
+          nav("/job/" + encodeURIComponent(newJob.job.id));
+        }}
+      />
+    );
+
+  if (newJob.step === "pickInvoice" && newJob.progressPct)
+    return (
+      <ProgressPctSheet
+        title={newJob.progressTitle}
+        hint={newJob.progressHint}
+        onClose={close}
+        onConfirm={(pct) =>
+          setNewJob({
+            ...newJob,
+            progressPct: null,
+            docBuild: { mode: newJob.invoiceMode, progressPct: pct },
+          })
+        }
+      />
+    );
+
+  if (newJob.step === "pickInvoice" && newJob.job)
+    return (
+      <InvoiceCreateSheet
+        job={newJob.job}
+        onClose={() => setNewJob({ step: "pickInvoice" })}
+        onPick={({ mode }) => {
+          if (mode === "from_estimate") {
+            setNewJob({
+              ...newJob,
+              progressPct: true,
+              progressTitle: "Invoice from estimate",
+              progressHint: "What percentage of the estimate should this invoice bill?",
+              invoiceMode: "from_estimate",
+            });
+          } else {
+            setNewJob({ ...newJob, docBuild: { mode: "new" } });
+          }
+        }}
+      />
+    );
+
+  if (newJob.step === "pickInvoice")
+    return (
+      <PickCustomerJobsSheet
+        title="Add an invoice"
+        hint="Pick the customer, then the job to invoice."
+        jobs={jobs}
+        onClose={close}
+        onPick={(job) => setNewJob({ ...newJob, step: "pickInvoice", job })}
+      />
     );
 
   if (newJob.step === "cal") {
@@ -136,6 +374,7 @@ export default function NewJobFlow() {
     <NewJobForm
       key={(newJob.prefill?.calEventId || "new") + ":" + (newJob.prefill?.customer || "manual")}
       prefill={newJob.prefill || {}}
+      vendorMode={Boolean(newJob.vendorMode)}
       onClose={close}
       onCreated={(id) => {
         if (newJob.sasCallId) markSasHandled(newJob.sasCallId, { handled: true, jobId: id });
@@ -145,7 +384,47 @@ export default function NewJobFlow() {
   );
 }
 
-function NewJobForm({ prefill, onClose, onCreated }) {
+function NewCustomerForm({ onClose, onCreated }) {
+  const { createJob } = useStore();
+  const [name, setName] = useState("");
+  const [phone, setPhone] = useState("");
+  const [email, setEmail] = useState("");
+
+  const save = async () => {
+    const biz = name.trim();
+    if (!biz) return;
+    const id = await createJob({
+      businessName: biz,
+      customer: biz,
+      title: "New customer",
+      phone,
+      email,
+    });
+    if (id) {
+      onClose();
+      onCreated?.(id, biz);
+    }
+  };
+
+  return (
+    <Sheet title="Create customer" onClose={onClose}>
+      <Fld label="Business name" hint="How it appears in QuickBooks">
+        <input className="input" value={name} onChange={(e) => setName(e.target.value)} aria-label="Business name" />
+      </Fld>
+      <Fld label="Phone">
+        <input className="input" value={phone} onChange={(e) => setPhone(e.target.value)} aria-label="Phone" />
+      </Fld>
+      <Fld label="Email">
+        <input className="input" value={email} onChange={(e) => setEmail(e.target.value)} aria-label="Email" />
+      </Fld>
+      <button className="btn-brand w-full" onClick={save}>
+        Create customer
+      </button>
+    </Sheet>
+  );
+}
+
+function NewJobForm({ prefill, onClose, onCreated, vendorMode = false }) {
   const { createJob, jobs, api } = useStore();
   const [f, setF] = useState(() => {
     const o = { date: prefill.date || "", title: prefill.title || "", description: prefill.description || "" };
@@ -159,6 +438,7 @@ function NewJobForm({ prefill, onClose, onCreated }) {
     o.qboCustomerId = prefill.qboCustomerId || "";
     o.invoiceNo = "";
     o.estimateNo = "";
+    o.vendor = prefill.vendor || "";
     return o;
   });
   const [titlePick, setTitlePick] = useState("new");
@@ -261,7 +541,7 @@ function NewJobForm({ prefill, onClose, onCreated }) {
       estimateNo: cur.estimateNo || "",
       date: cur.date,
       qboCustomerId: cur.qboCustomerId,
-      description: cur.description || "",
+      description: cur.description || (cur.vendor ? "Vendor: " + cur.vendor : ""),
     };
     const id = await createJob(payload, prefill.calEventId || "");
     if (id) {
@@ -271,7 +551,7 @@ function NewJobForm({ prefill, onClose, onCreated }) {
   };
 
   return (
-    <Sheet title="New job — details" onClose={onClose}>
+    <Sheet title={vendorMode ? "New job with vendor" : "New job — details"} onClose={onClose}>
       <Fld label="Business name" hint="Search existing QuickBooks customers, or add a new one">
         <CustomerSearch
           label="Business name"
@@ -314,6 +594,11 @@ function NewJobForm({ prefill, onClose, onCreated }) {
         )}
         <input className="input" value={f.title} onChange={set("title")} aria-label="Job title / scope" />
       </Fld>
+      {vendorMode ? (
+        <Fld label="Vendor / subcontractor" hint="Who you're working with on this job">
+          <input className="input" value={f.vendor} onChange={set("vendor")} aria-label="Vendor" />
+        </Fld>
+      ) : null}
       <Fld label="Description" hint="From calendar (apt/unit parsed out to Apartment # field)">
         <textarea
           className="input min-h-[60px]"

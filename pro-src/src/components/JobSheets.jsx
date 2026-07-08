@@ -13,7 +13,7 @@ import { enrichAndPatchCustomer } from "./NewJobFlow.jsx";
 import { useStore } from "../state/store.jsx";
 import { serviceAddressHint, serviceAddressLabel } from "../lib/customerSync.js";
 import { fmt$, todayStr } from "../lib/format.js";
-import { chargeCardInApp } from "../lib/solaCharge.js";
+import { chargeCardInApp, fetchSolaIfieldsConfig } from "../lib/solaCharge.js";
 import SolaCardForm, { tokenizeSolaCard } from "./SolaCardForm.jsx";
 import { fmtMoneyPrecise, totalWithFee } from "../lib/payFees.js";
 import { patchFromQboPaymentFetch } from "../lib/qboPayments.js";
@@ -96,9 +96,26 @@ export function MarkPaidSheet({ job, onClose }) {
   const [achRouting, setAchRouting] = useState("");
   const [achAccount, setAchAccount] = useState("");
   const [achName, setAchName] = useState(job.customer || "");
+  const [achEnabled, setAchEnabled] = useState(false);
+  const [zelleProof, setZelleProof] = useState("");
   const isCard = mth === "Credit card";
   const isCheck = mth === "Check";
   const isAch = mth === "ACH";
+  const isZelle = mth === "Zelle";
+
+  useEffect(() => {
+    let cancelled = false;
+    fetchSolaIfieldsConfig()
+      .then((cfg) => {
+        if (!cancelled) setAchEnabled(Boolean(cfg.achEnabled));
+      })
+      .catch(() => {
+        if (!cancelled) setAchEnabled(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
   const inv = job.invoiceNo || "";
   const payAmt = parseFloat(String(amt).replace(/[$,]/g, "")) || 0;
   const chargeTotal = isCard ? totalWithFee(payAmt, includeFee) : payAmt;
@@ -120,6 +137,10 @@ export function MarkPaidSheet({ job, onClose }) {
     const d = dt || todayStr();
     let note = "";
     if (isCheck && ref) note = "Check #" + ref;
+    if (isZelle) {
+      const bits = [ref ? "Zelle ref " + ref : "", zelleProof ? "proof: " + zelleProof : ""].filter(Boolean);
+      if (bits.length) note = bits.join(" · ");
+    }
     if (isAch) {
       const bits = [achName, achRouting ? "routing " + achRouting : "", achAccount ? "acct …" + achAccount.slice(-4) : ""]
         .filter(Boolean)
@@ -195,8 +216,15 @@ export function MarkPaidSheet({ job, onClose }) {
       setPayPhase("idle");
     }
   };
+  const onZelleProof = (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setZelleProof(file.name);
+    showToast("Screenshot saved with payment — auto-read from email coming soon");
+  };
+
   return (
-    <Sheet title={"Mark as paid — " + (job.customer || "")} onClose={onClose} tall={isCard}>
+    <Sheet title={"Mark as paid — " + (job.customer || "")} onClose={onClose}>
       {alreadyPaid ? (
         <div className="rounded-xl bg-amber-50 border border-amber-200 px-3 py-2.5 mb-3 text-[12px] text-amber-900">
           <p className="font-semibold">Already paid (balance {fmt$(due)})</p>
@@ -265,7 +293,7 @@ export function MarkPaidSheet({ job, onClose }) {
             </p>
           ) : null}
           {!useSavedCard ? (
-            <SolaCardForm compact disabled={processing || alreadyPaid || !inv} onReadyChange={setCardReady} />
+            <SolaCardForm disabled={processing || alreadyPaid || !inv} onReadyChange={setCardReady} />
           ) : (
             <p className="text-xs text-slate-500 mb-2">Saved card will be charged — toggle off to enter a new card.</p>
           )}
@@ -290,9 +318,30 @@ export function MarkPaidSheet({ job, onClose }) {
           <Fld label="Date">
             <input className="input" type="date" value={dt} onChange={(e) => setDt(e.target.value)} disabled={processing} />
           </Fld>
-          <p className="text-[11px] text-slate-400 -mt-1 mb-1">
-            ACH debit via Sola is coming soon — for now this records the bank details for QuickBooks sync.
-          </p>
+          {!achEnabled ? (
+            <p className="text-[11px] text-slate-400 -mt-1 mb-1">
+              ACH debit via Sola will show Process payment once enabled on your Sola account.
+            </p>
+          ) : null}
+        </>
+      ) : isZelle ? (
+        <>
+          <Fld label="Zelle reference #" hint="Confirmation or memo from the bank">
+            <input
+              className="input"
+              placeholder="Reference #"
+              value={ref}
+              onChange={(e) => setRef(e.target.value)}
+              disabled={processing}
+            />
+          </Fld>
+          <Fld label="Screenshot (optional)" hint="Email or bank app confirmation — auto-read coming soon">
+            <input className="input text-sm" type="file" accept="image/*" onChange={onZelleProof} disabled={processing} />
+            {zelleProof ? <p className="text-[11px] text-slate-500 mt-1">Attached: {zelleProof}</p> : null}
+          </Fld>
+          <Fld label="Date">
+            <input className="input" type="date" value={dt} onChange={(e) => setDt(e.target.value)} disabled={processing} />
+          </Fld>
         </>
       ) : (
         <>
@@ -305,27 +354,6 @@ export function MarkPaidSheet({ job, onClose }) {
               disabled={processing}
             />
           </Fld>
-          {isCheck && job.email ? (
-            <a
-              className="btn-ghost w-full !py-2 mb-2 text-sm text-brand"
-              href={
-                "mailto:" +
-                job.email +
-                "?subject=" +
-                encodeURIComponent("Check payment for invoice #" + (inv || "")) +
-                "&body=" +
-                encodeURIComponent(
-                  "Hi — please mail your check for " +
-                    (fmt$(payAmt) || "the balance") +
-                    " to LE Electric, or reply with a mobile deposit photo.\n\nInvoice #" +
-                    (inv || "") +
-                    "\nThank you!"
-                )
-              }
-            >
-              ✉️ Email check instructions
-            </a>
-          ) : null}
           <Fld label="Date">
             <input className="input" type="date" value={dt} onChange={(e) => setDt(e.target.value)} disabled={processing} />
           </Fld>
@@ -345,6 +373,15 @@ export function MarkPaidSheet({ job, onClose }) {
               ? "Processing payment…"
               : "💳 Process card payment"}
         </button>
+      ) : isAch && achEnabled ? (
+        <button
+          className="btn bg-emerald-500 text-white w-full"
+          onClick={saveManual}
+          disabled={alreadyPaid || processing || !achRouting || !achAccount}
+          data-testid="process-ach-payment"
+        >
+          🏦 Process ACH payment
+        </button>
       ) : (
         <button className="btn bg-emerald-500 text-white w-full" onClick={saveManual} disabled={alreadyPaid || processing}>
           ✓ Record payment
@@ -353,7 +390,9 @@ export function MarkPaidSheet({ job, onClose }) {
       <p className="text-[11px] text-slate-400 text-center mt-2">
         {isCard
           ? "Card is charged now via Sola. QuickBooks records automatically — no Save & sync needed."
-          : "Staged now — QuickBooks records it when you hit Save & sync."}
+          : isAch && achEnabled
+            ? "ACH will debit via Sola once processing is wired — staged for now."
+            : "Staged now — QuickBooks records it when you hit Save & sync."}
       </p>
     </Sheet>
   );

@@ -17,6 +17,7 @@ afterEach(() => {
 
 const openManual = async (user) => {
   await user.click(screen.getByTestId("fab-add"));
+  await user.click(screen.getByText("Add a job"));
   await user.click(screen.getByText("Enter manually"));
   await screen.findByText("New job — details");
 };

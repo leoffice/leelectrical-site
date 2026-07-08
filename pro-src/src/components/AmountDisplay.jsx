@@ -42,17 +42,37 @@ export default function AmountDisplay({ job, size = "md", showSub = true, highli
   const s = SIZE[size] || SIZE.md;
   const main = fmtAmountDue(job) || "—";
   const due = job ? openBalance(job) : 0;
-  const showDueRing = highlightDue && job && !job.paid && due > 0.01;
+  const showDueStack = highlightDue && label;
+  const showDueRing = showDueStack && job && !job.paid && due > 0.01;
+  const hideSub = showDueStack;
   return (
     <div
-      className={`text-right shrink-0 max-w-[46%] lg:max-w-none ${showDueRing ? "rounded-xl border border-slate-200 bg-slate-100/80 px-2.5 py-1.5" : ""}`}
+      className={`text-right shrink-0 ${showDueStack ? "max-w-[42%] sm:max-w-[38%] lg:max-w-none" : "max-w-[46%] lg:max-w-none"}`}
       data-testid="amount-display"
     >
-      {label ? (
-        <div className="text-[10px] font-bold text-slate-400 uppercase tracking-wider leading-none mb-0.5">{label}</div>
-      ) : null}
-      <div className={`${s.main} tabular-nums`}>{main}</div>
-      {showSub && job ? <AmountSubline job={job} className={`${s.sub} leading-snug`} /> : null}
+      {showDueStack ? (
+        <div className="flex flex-col items-end gap-0.5">
+          <div
+            className={`rounded-full border px-2 py-0.5 text-[9px] font-bold text-slate-500 uppercase tracking-wide leading-none whitespace-nowrap ${
+              showDueRing ? "border-slate-200 bg-slate-100/90" : "border-transparent"
+            }`}
+          >
+            {label}
+          </div>
+          <div className={`${s.main} tabular-nums leading-tight`}>{main}</div>
+          {showSub && !hideSub && job ? <AmountSubline job={job} className={`${s.sub} leading-snug`} /> : null}
+        </div>
+      ) : (
+        <>
+          {label ? (
+            <div className="text-[10px] font-bold text-slate-400 uppercase tracking-wider leading-none mb-0.5 whitespace-nowrap">
+              {label}
+            </div>
+          ) : null}
+          <div className={`${s.main} tabular-nums`}>{main}</div>
+          {showSub && job ? <AmountSubline job={job} className={`${s.sub} leading-snug`} /> : null}
+        </>
+      )}
     </div>
   );
 }

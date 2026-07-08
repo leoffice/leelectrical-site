@@ -13,7 +13,7 @@ afterEach(() => {
 });
 
 describe("Add flow — calendar search + add appointment", () => {
-  it("Choose from calendar uses searchable YTD list", async () => {
+  it("Choose from calendar uses searchable full calendar list", async () => {
     mockServer({
       events: [
         { id: "ev-old", summary: "Old job", start: "2025-06-01T10:00", location: "1 Main" },
@@ -24,13 +24,15 @@ describe("Add flow — calendar search + add appointment", () => {
     renderApp("#/");
     await screen.findByText("Peretz Chein");
     await user.click(screen.getByTestId("fab-add"));
+    await user.click(screen.getByText("Add a job"));
     await user.click(screen.getByText("Choose from calendar"));
 
     expect(screen.getByTestId("cal-search-input")).toBeInTheDocument();
-    expect(screen.queryByText("Old job")).not.toBeInTheDocument();
+    expect(screen.getByText("Old job")).toBeInTheDocument();
     expect(screen.getByText("Brooklyn panel")).toBeInTheDocument();
 
     await user.type(screen.getByTestId("cal-search-input"), "elm");
+    expect(screen.queryByText("Old job")).not.toBeInTheDocument();
     expect(screen.getByText("Brooklyn panel")).toBeInTheDocument();
   });
 
@@ -40,6 +42,7 @@ describe("Add flow — calendar search + add appointment", () => {
     renderApp("#/");
     await screen.findByText("Peretz Chein");
     await user.click(screen.getByTestId("fab-add"));
+    await user.click(screen.getByText("Add a job"));
     await user.click(screen.getByText("Add an appointment"));
 
     expect(screen.getByTestId("appt-week-calendar")).toBeInTheDocument();
@@ -54,6 +57,7 @@ describe("Add flow — calendar search + add appointment", () => {
     await screen.findByTestId("detail-pane");
 
     await user.click(screen.getByTestId("fab-add"));
+    await user.click(screen.getByText("Add a job"));
     await user.click(screen.getByText("Add an appointment"));
 
     expect(screen.getByText(/Add appointment — Peretz Chein/)).toBeInTheDocument();

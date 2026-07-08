@@ -34,6 +34,10 @@ export default async (req) => {
       { status: 503, headers: corsHeaders() }
     );
   }
+  const achEnabled =
+    String(process.env.SOLA_ACH_ENABLED || "").trim() === "1" ||
+    String(process.env.SOLA_ACH_ENABLED || "").trim().toLowerCase() === "true";
+
   return new Response(
     JSON.stringify({
       ok: true,
@@ -42,6 +46,7 @@ export default async (req) => {
       environment,
       softwareName: "LE Pro",
       softwareVersion: "1.0.0",
+      achEnabled,
     }),
     { headers: corsHeaders() }
   );

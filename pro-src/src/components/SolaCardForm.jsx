@@ -7,7 +7,7 @@ const IFIELD_STYLE = {
   "font-size": "16px",
   padding: "8px 10px",
   width: "100%",
-  height: "38px",
+  height: "44px",
   outline: "none",
 };
 
@@ -31,8 +31,10 @@ function loadScript(src) {
   });
 }
 
+const IFRAME_H = 44;
+
 /** PCI-safe card fields via Sola iFields (card number + CVV iframes). */
-export default function SolaCardForm({ disabled, onReadyChange, compact, savedMasked }) {
+export default function SolaCardForm({ disabled, onReadyChange, savedMasked }) {
   const [phase, setPhase] = useState("loading"); // loading | ready | error
   const [err, setErr] = useState("");
   const configRef = useRef(null);
@@ -76,10 +78,9 @@ export default function SolaCardForm({ disabled, onReadyChange, compact, savedMa
 
   const ver = configRef.current?.version || "2.15.2409.2601";
   const iframeSrc = `https://cdn.cardknox.com/ifields/${ver}/ifield.htm`;
-  const iframeH = compact ? 38 : 44;
 
   return (
-    <div className={compact ? "space-y-2" : "space-y-3"} data-testid="sola-card-form">
+    <div className="space-y-2.5" data-testid="sola-card-form">
       {savedMasked ? (
         <p className="text-xs text-emerald-800 bg-emerald-50 border border-emerald-100 rounded-xl px-3 py-2">
           Card on file: <b>{savedMasked}</b> — enter a new card below to replace it.
@@ -92,17 +93,19 @@ export default function SolaCardForm({ disabled, onReadyChange, compact, savedMa
         <p className="text-xs text-red-600 bg-red-50 border border-red-100 rounded-xl px-3 py-2">{err}</p>
       ) : null}
       {phase === "ready" ? (
-        <form ref={formRef} onSubmit={(e) => e.preventDefault()} className={compact ? "space-y-2" : "space-y-3"}>
+        <form ref={formRef} onSubmit={(e) => e.preventDefault()} className="space-y-2.5">
           <div>
             <label className="block text-xs font-bold text-slate-500 mb-1">Card number</label>
-            <iframe
-              title="Card number"
-              data-ifields-id="card-number"
-              data-ifields-placeholder="Card number"
-              src={iframeSrc}
-              className="w-full border-0 rounded-xl"
-              style={{ height: iframeH, minHeight: iframeH }}
-            />
+            <div className="overflow-hidden rounded-xl" style={{ height: IFRAME_H }}>
+              <iframe
+                title="Card number"
+                data-ifields-id="card-number"
+                data-ifields-placeholder="Card number"
+                src={iframeSrc}
+                className="w-full border-0 block"
+                style={{ height: IFRAME_H, minHeight: IFRAME_H }}
+              />
+            </div>
           </div>
           <div className="grid grid-cols-2 gap-2">
             <div>
@@ -111,7 +114,7 @@ export default function SolaCardForm({ disabled, onReadyChange, compact, savedMa
               </label>
               <input
                 id="card-exp"
-                className="input !py-2 !text-sm"
+                className="input"
                 inputMode="numeric"
                 placeholder="MM/YY"
                 maxLength={7}
@@ -121,14 +124,16 @@ export default function SolaCardForm({ disabled, onReadyChange, compact, savedMa
             </div>
             <div>
               <label className="block text-xs font-bold text-slate-500 mb-1">CVV</label>
-              <iframe
-                title="CVV"
-                data-ifields-id="cvv"
-                data-ifields-placeholder="CVV"
-                src={iframeSrc}
-                className="w-full border-0 rounded-xl"
-                style={{ height: iframeH, minHeight: iframeH }}
-              />
+              <div className="overflow-hidden rounded-xl" style={{ height: IFRAME_H }}>
+                <iframe
+                  title="CVV"
+                  data-ifields-id="cvv"
+                  data-ifields-placeholder="CVV"
+                  src={iframeSrc}
+                  className="w-full border-0 block"
+                  style={{ height: IFRAME_H, minHeight: IFRAME_H }}
+                />
+              </div>
             </div>
           </div>
           <input type="hidden" data-ifields-id="card-number-token" name="xCardNum" />

@@ -85,6 +85,7 @@ describe("4. new job flow", () => {
     renderApp("#/");
     await screen.findByText("Peretz Chein");
     await user.click(screen.getByTestId("fab-add"));
+    await user.click(screen.getByText("Add a job"));
     await user.click(screen.getByText("Enter manually"));
     await user.type(screen.getByLabelText("Business name"), "Manual Man");
     await user.type(screen.getByLabelText("Job title / scope"), "Fan install");
@@ -118,6 +119,7 @@ describe("4. new job flow", () => {
     renderApp("#/");
     await screen.findByText("Peretz Chein");
     await user.click(screen.getByTestId("fab-add"));
+    await user.click(screen.getByText("Add a job"));
     await user.click(screen.getByText("Choose from calendar"));
     await user.click(await screen.findByText("Estimate — Jane Doe"));
     expect(screen.getByLabelText("Job title / scope")).toHaveValue("Estimate — Jane Doe");
@@ -172,6 +174,7 @@ describe("4. new job flow", () => {
     renderApp("#/");
     await screen.findByText("Peretz Chein");
     await user.click(screen.getByTestId("fab-add"));
+    await user.click(screen.getByText("Add a job"));
     await user.click(screen.getByText("Choose from calendar"));
     await user.click(await screen.findByText("Install — Broadway"));
 
@@ -229,6 +232,7 @@ describe("4. new job flow", () => {
     renderApp("#/");
     await screen.findByText("Peretz Chein");
     await user.click(screen.getByTestId("fab-add"));
+    await user.click(screen.getByText("Add a job"));
     await user.click(screen.getByText("Choose from calendar"));
     await user.click(await screen.findByText("Estimate — Prospect Co"));
 

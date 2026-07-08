@@ -30,7 +30,6 @@ export default function CustomerView() {
   const { jobs, loading, events, commands, patchJob, syncNow, refreshJobs } = useStore();
   const key = raw ? decodeURIComponent(raw) : "";
   const [sheet, setSheet] = useState(null); // { kind, job? }
-  const [expandedJobs, setExpandedJobs] = useState({}); // job id -> expanded on customer view
   const [importing, setImporting] = useState(false);
   const importPoll = useRef(null);
 
@@ -73,7 +72,6 @@ export default function CustomerView() {
     if (!pending || pending.key !== key) return;
     sessionStorage.removeItem(PENDING_IMPORT_LS);
     setImporting(false);
-    setExpandedJobs((o) => ({ ...o, [list[0].id]: true }));
   }, [list, key]);
 
   if (!list.length) {
@@ -130,9 +128,6 @@ export default function CustomerView() {
             job={j}
             events={events}
             commands={commands}
-            collapsible
-            expanded={!!expandedJobs[j.id]}
-            onToggle={() => setExpandedJobs((o) => ({ ...o, [j.id]: !o[j.id] }))}
             onOpen={() => nav("/job/" + j.id + "?from=" + encodeURIComponent(key))}
             onEstimate={() => openDocFor(j, "estimate")}
             onInvoice={() => openDocFor(j, "invoice")}
