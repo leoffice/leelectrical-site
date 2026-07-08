@@ -38,18 +38,21 @@ export function CustomerAmountSubline({ invoiced, paid, openInvoices, className 
   );
 }
 
-export default function AmountDisplay({ job, size = "md", showSub = true, highlightDue = false }) {
+export default function AmountDisplay({ job, size = "md", showSub = true, highlightDue = false, label = "" }) {
   const s = SIZE[size] || SIZE.md;
   const main = fmtAmountDue(job) || "—";
   const due = job ? openBalance(job) : 0;
   const showDueRing = highlightDue && job && !job.paid && due > 0.01;
   return (
     <div
-      className={`text-right shrink-0 ${showDueRing ? "rounded-xl border border-slate-200 bg-slate-100/80 px-2.5 py-1.5" : ""}`}
+      className={`text-right shrink-0 max-w-[46%] lg:max-w-none ${showDueRing ? "rounded-xl border border-slate-200 bg-slate-100/80 px-2.5 py-1.5" : ""}`}
       data-testid="amount-display"
     >
-      <div className={s.main}>{main}</div>
-      {showSub && job ? <AmountSubline job={job} className={s.sub} /> : null}
+      {label ? (
+        <div className="text-[10px] font-bold text-slate-400 uppercase tracking-wider leading-none mb-0.5">{label}</div>
+      ) : null}
+      <div className={`${s.main} tabular-nums`}>{main}</div>
+      {showSub && job ? <AmountSubline job={job} className={`${s.sub} leading-snug`} /> : null}
     </div>
   );
 }

@@ -12,6 +12,7 @@ import {
   normalizeCustomer,
   pairId,
 } from "../src/lib/customers.js";
+import { customerProfileComplete, customerSyncCardClass } from "../src/lib/customerSync.js";
 
 beforeEach(() => localStorage.clear());
 
@@ -118,5 +119,28 @@ describe("findMergeSuggestion", () => {
         { id: "2", customer: "Arthur Koptive", clientGroup: "g1" },
       ])
     ).toBeNull();
+  });
+});
+
+describe("customerProfileComplete", () => {
+  it("requires name, phone, email, and billing address", () => {
+    expect(
+      customerProfileComplete({
+        name: "Acme",
+        phone: "718-555-1111",
+        email: "a@acme.com",
+        billingAddress: "1 Main St",
+      })
+    ).toBe(true);
+    expect(customerProfileComplete({ name: "Acme", email: "a@acme.com" })).toBe(false);
+    expect(customerSyncCardClass({ name: "Acme", email: "a@acme.com" })).toContain("orange");
+    expect(
+      customerSyncCardClass({
+        name: "Acme",
+        phone: "718",
+        email: "a@acme.com",
+        billingAddress: "1 Main",
+      })
+    ).toContain("emerald");
   });
 });

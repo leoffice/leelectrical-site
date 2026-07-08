@@ -31,6 +31,26 @@ export function customerDisplayName(job) {
   return j.businessName || j.customer || "";
 }
 
+/** True when name, phone, email, and billing address are all on file (QBO-complete profile). */
+export function customerProfileComplete(contact) {
+  const c = contact || {};
+  const name = String(c.businessName || c.name || "").trim();
+  const phone = String(c.phone || "").trim();
+  const email = String(c.email || "").trim();
+  const billing = String(c.billingAddress || "").trim();
+  return !!(name && phone && email && billing);
+}
+
+/** Jobs list card tint — green when profile is complete, light orange when partial. */
+export function customerSyncCardClass(contact) {
+  const c = contact || {};
+  const name = String(c.businessName || c.name || "").trim();
+  if (!name) return "";
+  return customerProfileComplete(c)
+    ? "bg-emerald-50/95 border-emerald-300/90"
+    : "bg-orange-50/95 border-orange-200/90";
+}
+
 /** Payload for customer_sync / create_customer / update_customer commands. */
 export function customerSyncPayload(job) {
   const j = job || {};

@@ -86,33 +86,42 @@ export default function CustomerCard({
       <div className="flex items-start gap-2 lg:gap-3 pr-14">
         <CustomerAvatar name={contact.name} className="lg:w-10 lg:h-10 lg:rounded-2xl lg:text-base" />
         <div className="min-w-0 flex-1">
-          <div
-            className="text-base font-bold text-slate-900 leading-snug truncate lg:text-lg lg:font-extrabold"
-            title={displayName || "(no customer)"}
-          >
-            {displayName || "(no customer)"}
-          </div>
-          {summary ? (
-            <div className="text-[11px] text-slate-500 mt-0.5 lg:text-xs">
-              {summary.jobCount} job{summary.jobCount === 1 ? "" : "s"} · {summary.openInvoices} open invoice
-              {summary.openInvoices === 1 ? "" : "s"}
+          <div className="flex items-start gap-2 min-w-0">
+            <div className="min-w-0 flex-1">
+              <div
+                className={`text-base font-bold text-slate-900 leading-snug break-words lg:text-lg lg:font-extrabold ${
+                  showSummary ? "line-clamp-3 max-lg:line-clamp-4 lg:truncate" : ""
+                }`}
+                title={displayName || "(no customer)"}
+              >
+                {displayName || "(no customer)"}
+              </div>
+              {summary ? (
+                <div className="text-[11px] text-slate-500 mt-0.5 lg:text-xs">
+                  {summary.jobCount} job{summary.jobCount === 1 ? "" : "s"} · {summary.openInvoices} open invoice
+                  {summary.openInvoices === 1 ? "" : "s"}
+                </div>
+              ) : null}
             </div>
-          ) : null}
+            {showSummary && summary ? (
+              <div className="text-right shrink-0 pl-1 max-w-[46%] lg:max-w-none">
+                <div className="text-[10px] font-bold text-slate-400 uppercase tracking-wider lg:text-[11px]">Total due</div>
+                <div
+                  className="text-base font-bold text-slate-900 tabular-nums lg:text-lg lg:font-extrabold"
+                  data-testid="customer-total-due"
+                >
+                  {fmt$(summary.due) || "$0"}
+                </div>
+                <CustomerAmountSubline
+                  invoiced={summary.invoiced}
+                  paid={summary.paid}
+                  openInvoices={0}
+                  className="text-[9px] leading-snug mt-0.5"
+                />
+              </div>
+            ) : null}
+          </div>
         </div>
-        {showSummary && summary ? (
-          <div className="text-right shrink-0">
-            <div className="text-[10px] font-bold text-slate-400 uppercase tracking-wider lg:text-[11px]">Total due</div>
-            <div className="text-base font-bold text-slate-900 lg:text-lg lg:font-extrabold" data-testid="customer-total-due">
-              {fmt$(summary.due) || "$0"}
-            </div>
-            <CustomerAmountSubline
-              invoiced={summary.invoiced}
-              paid={summary.paid}
-              openInvoices={summary.openInvoices}
-              className="text-[10px]"
-            />
-          </div>
-        ) : null}
       </div>
 
       {contactRows.length > 0 && (

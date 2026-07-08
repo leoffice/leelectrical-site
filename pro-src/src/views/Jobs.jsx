@@ -20,12 +20,14 @@ import {
 } from "../lib/stages.js";
 import {
   customerAmountSummary,
+  customerContact,
   customerNameMatches,
   fmtAmountDue,
   normalizeCustomer,
   openBalance,
   unknownCustomers,
 } from "../lib/customers.js";
+import { customerSyncCardClass } from "../lib/customerSync.js";
 import { fmt$, parseAmount } from "../lib/format.js";
 import { useNavigate } from "react-router-dom";
 
@@ -79,7 +81,7 @@ function ClientListHeader({ name, amount, meta, hint, hintHref, amountHref, onNa
         <div className="flex items-center gap-2 min-w-0">
           <button
             type="button"
-            className="flex-1 min-w-0 text-left text-sm font-semibold text-slate-900 truncate lg:text-base lg:font-bold"
+            className="flex-1 min-w-0 text-left text-sm font-semibold text-slate-900 break-words line-clamp-2 leading-snug max-lg:line-clamp-3 lg:text-base lg:font-bold lg:truncate"
             title={name}
             data-testid="client-group-name"
             onClick={onNameClick}
@@ -341,6 +343,7 @@ export default function Jobs({ embedded }) {
             const chipHits = list.filter(matchesChip);
             const displayList = showFullGroup ? list : chipHits.length ? chipHits : list;
             const sum = customerAmountSummary(showFullGroup ? list : displayList);
+            const syncCardClass = customerSyncCardClass(customerContact(list));
 
             if (list.length === 1) {
               const href = "/job/" + encodeURIComponent(job.id);
@@ -350,7 +353,7 @@ export default function Jobs({ embedded }) {
               return (
                 <div
                   key={key}
-                  className={`card ${embedded ? "px-2.5 py-2" : "px-3 py-2.5 lg:px-4 lg:py-3"}`}
+                  className={`card ${syncCardClass} ${embedded ? "px-2.5 py-2" : "px-3 py-2.5 lg:px-4 lg:py-3"}`}
                   data-testid="client-single"
                 >
                   <ClientListHeader
@@ -382,7 +385,7 @@ export default function Jobs({ embedded }) {
             }
 
             return (
-              <div key={key} className="card overflow-hidden" data-testid="client-group">
+              <div key={key} className={`card overflow-hidden ${syncCardClass}`} data-testid="client-group">
                 <div className={`w-full px-3 py-2.5 ${embedded ? "" : "lg:px-4 lg:py-3"}`}>
                   <ClientListHeader
                     name={customerName}

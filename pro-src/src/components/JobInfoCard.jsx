@@ -44,52 +44,49 @@ export default function JobInfoCard({
       <div className="flex items-start gap-2">
         <div className="min-w-0 flex-1">
           <h3 className="text-[11px] font-extrabold text-slate-500 uppercase tracking-wider mb-1">Job information</h3>
-          <div className="font-semibold text-sm text-slate-800 break-words lg:text-base">
+          <div className="font-semibold text-sm text-slate-800 break-words leading-snug lg:text-base">
             {job.title || (job.invoiceNo ? "Invoice #" + job.invoiceNo : "Job")}
           </div>
-          <div className="mt-1.5 flex gap-1.5 flex-wrap items-center justify-start">
-            {showPaper ? (
-              paperLines.map((line) => {
-                const { branchKey, branchLabel, upNext, timing, tone, isSchedulable } = line;
-                const pillClass = PAPERWORK_PILL_STYLES[tone] || PAPERWORK_PILL_STYLES.slate;
-                const inner = (
-                  <>
-                    <span className="font-extrabold text-[10px] uppercase tracking-wider shrink-0 opacity-90">
-                      {branchLabel}
-                    </span>
-                    <span className="text-[10px] font-bold uppercase tracking-wider shrink-0 opacity-70">{timing}</span>
-                    <span className="leading-snug truncate opacity-90">{upNext}</span>
-                  </>
-                );
-                if (isSchedulable && onPaperworkSchedule) {
-                  return (
-                    <button
-                      key={branchKey}
-                      type="button"
-                      className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs max-w-full text-left active:opacity-80 ${pillClass}`}
-                      data-testid={"paper-pill-" + branchKey}
-                      onClick={() => onPaperworkSchedule(line)}
-                    >
-                      {inner}
-                    </button>
-                  );
-                }
-                return (
-                  <div
-                    key={branchKey}
-                    className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs max-w-full ${pillClass}`}
-                    data-testid={"paper-pill-" + branchKey}
-                  >
-                    {inner}
-                  </div>
-                );
-              })
-            ) : (
-              <StagePill job={job} />
-            )}
-          </div>
         </div>
-        <AmountDisplay job={job} size="sm" highlightDue />
+        <AmountDisplay job={job} size="sm" highlightDue label="Total due" />
+      </div>
+
+      <div className="mt-1.5 flex flex-col gap-1.5 w-full lg:flex-row lg:flex-wrap lg:items-center lg:justify-start">
+        {showPaper ? (
+          paperLines.map((line) => {
+            const { branchKey, branchLabel, upNext, timing, tone, isSchedulable } = line;
+            const pillClass = PAPERWORK_PILL_STYLES[tone] || PAPERWORK_PILL_STYLES.slate;
+            const inner = (
+              <>
+                <span className="font-extrabold text-[10px] uppercase tracking-wider shrink-0 opacity-90">{branchLabel}</span>
+                <span className="text-[10px] font-bold uppercase tracking-wider shrink-0 opacity-70">{timing}</span>
+                <span className="flex-1 min-w-0 leading-snug break-words opacity-90">{upNext}</span>
+              </>
+            );
+            const pillLayout =
+              "w-full flex flex-wrap items-center gap-x-1.5 gap-y-0.5 rounded-2xl border px-2.5 py-1.5 text-xs text-left lg:w-auto lg:inline-flex lg:rounded-full lg:py-1";
+            if (isSchedulable && onPaperworkSchedule) {
+              return (
+                <button
+                  key={branchKey}
+                  type="button"
+                  className={`${pillLayout} active:opacity-80 ${pillClass}`}
+                  data-testid={"paper-pill-" + branchKey}
+                  onClick={() => onPaperworkSchedule(line)}
+                >
+                  {inner}
+                </button>
+              );
+            }
+            return (
+              <div key={branchKey} className={`${pillLayout} ${pillClass}`} data-testid={"paper-pill-" + branchKey}>
+                {inner}
+              </div>
+            );
+          })
+        ) : (
+          <StagePill job={job} />
+        )}
       </div>
 
       {rows.length > 0 && (
