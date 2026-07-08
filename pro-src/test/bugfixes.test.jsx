@@ -43,7 +43,7 @@ describe("bug 1 — duplicate customers collapse into ONE group row", () => {
     const rows = screen.getAllByTestId("client-group");
     expect(rows).toHaveLength(1);
     expect(within(rows[0]).getByText("Meir Kabakov")).toBeInTheDocument();
-    expect(within(rows[0]).getByText("2 jobs")).toBeInTheDocument();
+    expect(within(rows[0]).getByTestId("client-group-meta")).toHaveTextContent(/2 jobs/);
     expect(within(rows[0]).getByTestId("client-group-amount")).toHaveTextContent("$1,900");
 
     // zero standalone Kabakov cards — the name renders exactly once (the row)
@@ -68,7 +68,7 @@ describe("bug 1 — duplicate customers collapse into ONE group row", () => {
     renderApp("#/");
     const row = await screen.findByTestId("client-group");
     expect(screen.getAllByTestId("client-group")).toHaveLength(1);
-    expect(within(row).getByText("3 jobs")).toBeInTheDocument();
+    expect(within(row).getByTestId("client-group-meta")).toHaveTextContent(/3 jobs/);
     expect(within(row).getByTestId("client-group-amount")).toHaveTextContent("$600");
     // no job card escaped the group
     ["T1", "T2", "T3"].forEach((t) => expect(screen.queryByText(t)).not.toBeInTheDocument());
@@ -114,7 +114,7 @@ describe("bug 2 — near-duplicate combine prompt", () => {
     await waitFor(() => expect(screen.queryByTestId("merge-prompt")).not.toBeInTheDocument());
     expect(screen.getByTestId("client-group")).toBeInTheDocument();
     const grp = screen.getByTestId("client-group");
-    expect(within(grp).getByText("2 jobs")).toBeInTheDocument();
+    expect(within(grp).getByTestId("client-group-meta")).toHaveTextContent(/2 jobs/);
     expect(within(grp).getByTestId("client-group-amount")).toHaveTextContent("$300");
   });
 

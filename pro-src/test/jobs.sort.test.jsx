@@ -76,7 +76,7 @@ describe("sort dropdown", () => {
     // Beta group's best job (C, dated) outranks undated Alpha
     expect(before(screen.getByText(/2 jobs/), screen.getByText("Alpha"))).toBe(true);
     // inside the group the dated job leads too
-    await user.click(screen.getByText(/2 jobs/));
+    await user.click(screen.getByTestId("client-group-toggle"));
     expect(before(screen.getByText("Small two"), screen.getByText("Small one"))).toBe(true);
   });
 

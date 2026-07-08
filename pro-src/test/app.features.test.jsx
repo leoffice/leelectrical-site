@@ -425,14 +425,12 @@ describe("12. sync chip + today view + jobs list", () => {
     renderApp("#/");
     // grouped into one client row (count · total · unpaid)
     const grp = await screen.findByTestId("client-group");
-    expect(within(grp).getByText("2 jobs")).toBeInTheDocument();
+    expect(within(grp).getByTestId("client-group-meta")).toHaveTextContent(/2 jobs/);
     expect(within(grp).getByTestId("client-group-amount")).toHaveTextContent("$2,800");
     await user.click(screen.getByTestId("client-group-toggle"));
     expect(screen.getByText("Panel upgrade")).toBeInTheDocument();
     expect(screen.getByText("Outlet swap")).toBeInTheDocument();
-    // quick actions present on cards
-    expect(screen.getAllByText("💵 Paid?").length).toBeGreaterThan(0);
-    expect(screen.getByText("📤 Invoice")).toBeInTheDocument(); // only J-1 has invoice
+    // expanded rows are compact (title + balance); quick actions live on job detail
     // chips filter
     await user.click(screen.getByRole("button", { name: "Unpaid" }));
     expect(screen.getByText("Panel upgrade")).toBeInTheDocument();

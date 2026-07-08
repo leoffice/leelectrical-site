@@ -3,7 +3,6 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { useStore } from "../state/store.jsx";
 import { CustomerAvatar, GroupJobRow, PaidPill, StagePill } from "../components/JobCard.jsx";
-import AmountDisplay from "../components/AmountDisplay.jsx";
 import { Link } from "react-router-dom";
 import { progressPct } from "../lib/stages.js";
 import MergePrompt from "../components/MergePrompt.jsx";
@@ -18,10 +17,106 @@ import {
   sortCmp,
   sortJobs,
 } from "../lib/stages.js";
-import { CustomerAmountSubline } from "../components/AmountDisplay.jsx";
-import { customerAmountSummary, customerNameMatches, normalizeCustomer, unknownCustomers } from "../lib/customers.js";
+import {
+  customerAmountSummary,
+  customerNameMatches,
+  fmtAmountDue,
+  normalizeCustomer,
+  openBalance,
+  unknownCustomers,
+} from "../lib/customers.js";
 import { fmt$, parseAmount } from "../lib/format.js";
 import { useNavigate } from "react-router-dom";
+
+/** Gray subline under customer name — jobs / open invoices / invoiced / paid. */
+function customerMetaLine(sum) {
+  const parts = [`${sum.jobCount} job${sum.jobCount === 1 ? "" : "s"}`];
+  if (sum.openInvoices > 0) {
+    parts.push(sum.openInvoices === 1 ? "1 open invoice" : `${sum.openInvoices} open invoices`);
+  }
+  if (sum.invoiced > 0) parts.push(`${fmt$(sum.invoiced)} invoiced`);
+  if (sum.paid > 0) {
+    const pct = sum.invoiced > 0 ? Math.min(100, Math.round((sum.paid / sum.invoiced) * 100)) : 0;
+    parts.push(`${fmt$(sum.paid)} paid${pct ? ` (${pct}%)` : ""}`);
+  }
+  return parts.join(" · ");
+}
+
+function singleJobMetaLine(job) {
+  const total = parseAmount(job.amount);
+  if (!total) return "";
+  if (job.paid) return `${fmt$(total)} invoiced`;
+  const due = openBalance(job);
+  const paid = total - due;
+  if (paid > 0.01) {
+    const pct = Math.min(100, Math.round((paid / total) * 100));
+    return `${fmt$(total)} invoiced · ${fmt$(paid)} paid (${pct}%)`;
+  }
+  return `${fmt$(total)} invoiced`;
+}
+
+/** Short job description line — titles or invoice numbers. */
+function jobTitlesHint(list, max = 3) {
+  const bits = list
+    .map((j) => j.title || (j.invoiceNo ? `Inv #${j.invoiceNo}` : ""))
+    .filter(Boolean);
+  if (!bits.length) return "";
+  if (bits.length <= max) return bits.join(" · ");
+  return bits.slice(0, max).join(" · ") + ` · +${bits.length - max}`;
+}
+
+/** Customer row: name + balance on one line; meta + job hint stacked below. */
+function ClientListHeader({ name, amount, meta, hint, hintHref, amountHref, onNameClick, trailing, avatar }) {
+  const AmountTag = amountHref ? Link : "div";
+  const amountProps = amountHref
+    ? { to: amountHref, className: "shrink-0 text-sm font-semibold text-slate-900 tabular-nums lg:font-bold lg:text-base hover:text-brand" }
+    : { className: "shrink-0 text-sm font-semibold text-slate-900 tabular-nums lg:font-bold lg:text-base" };
+  return (
+    <div className="flex items-start gap-2 min-w-0">
+      {avatar}
+      <div className="min-w-0 flex-1">
+        <div className="flex items-center gap-2 min-w-0">
+          <button
+            type="button"
+            className="flex-1 min-w-0 text-left text-sm font-semibold text-slate-900 truncate lg:text-base lg:font-bold"
+            title={name}
+            data-testid="client-group-name"
+            onClick={onNameClick}
+          >
+            {name}
+          </button>
+          <AmountTag {...amountProps} data-testid="client-group-amount">
+            {amount}
+          </AmountTag>
+          {trailing}
+        </div>
+        {meta ? (
+          <div
+            className="text-[10px] text-slate-400 leading-snug truncate mt-0.5 lg:text-[11px]"
+            data-testid="client-group-meta"
+          >
+            {meta}
+          </div>
+        ) : null}
+        {hint ? (
+          hintHref ? (
+            <Link
+              to={hintHref}
+              className="block text-[11px] text-slate-500 leading-snug truncate mt-0.5 hover:text-brand"
+              title={hint}
+            >
+              {hint}
+            </Link>
+          ) : (
+            <div className="text-[11px] text-slate-500 leading-snug truncate mt-0.5" title={hint}>
+              {hint}
+            </div>
+          )
+        ) : null}
+      </div>
+    </div>
+  );
+}
 
 const IDLE_COLLAPSE_MS = 8000; // expanded customer rows fold back after ~8s idle
 const SORT_LS_KEY = "lepro_jobs_sort_v1"; // persisted sort-by choice
@@ -226,121 +321,64 @@ export default function Jobs({ embedded }) {
             if (list.length === 1) {
               const href = "/job/" + encodeURIComponent(job.id);
               const pct = progressPct(job);
+              const due = fmtAmountDue(job) || fmt$(openBalance(job)) || "—";
+              const title = job.title || "(untitled job)";
               return (
                 <div
                   key={key}
                   className={`card ${embedded ? "px-2.5 py-2" : "px-3 py-2.5 lg:px-4 lg:py-3"}`}
                   data-testid="client-single"
                 >
-                  <div className={embedded ? "space-y-1.5" : "flex items-start gap-2"}>
-                    <div className="flex items-start gap-2 min-w-0">
-                      <CustomerAvatar name={customerName} />
-                      <div className="min-w-0 flex-1">
-                        <button
-                          type="button"
-                          className="text-sm font-semibold text-slate-900 text-left leading-snug truncate w-full lg:text-base lg:font-bold"
-                          title={customerName}
-                          data-testid="client-group-name"
-                          onClick={() => nav("/customer/" + encodeURIComponent(key))}
-                        >
-                          {customerName}
-                        </button>
-                        <Link
-                          to={href}
-                          className="block text-xs text-slate-500 leading-snug truncate mt-0.5 hover:text-brand"
-                          title={job.title || "(untitled job)"}
-                        >
-                          {job.title || "(untitled job)"}
-                        </Link>
-                        {!embedded && (
-                          <>
-                            <div className="mt-1.5 flex items-center gap-1 flex-wrap">
-                              <StagePill job={job} />
-                              <PaidPill job={job} />
-                            </div>
-                            <div className="mt-1.5 h-1 rounded-full bg-slate-100 overflow-hidden">
-                              <div
-                                className="h-full rounded-full bg-gradient-to-r from-brand to-accent"
-                                style={{ width: `${pct}%` }}
-                              />
-                            </div>
-                          </>
-                        )}
+                  <ClientListHeader
+                    name={customerName}
+                    amount={due}
+                    meta={singleJobMetaLine(job)}
+                    hint={title}
+                    hintHref={href}
+                    amountHref={href}
+                    onNameClick={() => nav("/customer/" + encodeURIComponent(key))}
+                    avatar={<CustomerAvatar name={customerName} />}
+                  />
+                  {!embedded && (
+                    <>
+                      <div className="mt-1.5 flex items-center gap-1 flex-wrap pl-9">
+                        <StagePill job={job} />
+                        <PaidPill job={job} />
                       </div>
-                      {!embedded && (
-                        <Link to={href} className="shrink-0 text-right" data-testid="client-group-amount">
-                          <AmountDisplay job={job} size="sm" />
-                        </Link>
-                      )}
-                    </div>
-                    {embedded && (
-                      <div className="flex items-center justify-between pl-9">
-                        <Link to={href} data-testid="client-group-amount">
-                          <AmountDisplay job={job} size="sm" showSub={false} />
-                        </Link>
+                      <div className="mt-1.5 h-1 rounded-full bg-slate-100 overflow-hidden ml-9">
+                        <div
+                          className="h-full rounded-full bg-gradient-to-r from-brand to-accent"
+                          style={{ width: `${pct}%` }}
+                        />
                       </div>
-                    )}
-                  </div>
+                    </>
+                  )}
                 </div>
               );
             }
 
             return (
               <div key={key} className="card overflow-hidden" data-testid="client-group">
-                <div
-                  className={`w-full px-3 py-2.5 ${embedded ? "space-y-1.5" : "flex items-start gap-2 lg:gap-3 lg:px-4 lg:py-3.5"}`}
-                >
-                  <div className={`flex items-center gap-2 min-w-0 ${embedded ? "w-full" : "flex-1"}`}>
-                    <button
-                      type="button"
-                      className="flex items-center gap-2 text-left min-w-0 flex-1"
-                      data-testid="client-group-name"
-                      onClick={() => nav("/customer/" + encodeURIComponent(key))}
-                    >
-                      <CustomerAvatar name={customerName} />
-                      <span className="min-w-0 flex-1">
-                        <span
-                          className="block text-sm font-semibold text-slate-900 leading-snug truncate lg:text-base lg:font-bold"
-                          title={customerName}
-                        >
-                          {customerName}
-                        </span>
-                        <span className="block text-[11px] text-slate-500 lg:text-xs">
-                          {list.length} jobs
-                        </span>
-                      </span>
-                    </button>
-                    {!embedded && (
-                      <div className="text-right shrink-0" data-testid="client-group-amount">
-                        <div className="text-sm font-semibold text-slate-900 lg:font-bold lg:text-base">
-                          {fmt$(sum.due) || "$0"}
-                        </div>
-                        <CustomerAmountSubline
-                          invoiced={sum.invoiced}
-                          paid={sum.paid}
-                          openInvoices={sum.openInvoices}
-                          className="text-[9px]"
-                        />
-                      </div>
-                    )}
-                    <button
-                      type="button"
-                      className="p-1 -m-1 text-slate-400 shrink-0"
-                      aria-label={open[key] ? "Collapse" : "Expand"}
-                      data-testid="client-group-toggle"
-                      onClick={() => toggleGroup(key)}
-                    >
-                      <span className={`inline-block transition-transform ${open[key] ? "rotate-180" : ""}`}>▾</span>
-                    </button>
-                  </div>
-                  {embedded && (
-                    <div className="flex items-center justify-between pl-9 pr-7" data-testid="client-group-amount">
-                      <div className="text-sm font-semibold text-slate-900">{fmt$(sum.due) || "$0"}</div>
-                      <span className="text-[10px] text-slate-400">
-                        {sum.openInvoices} open · {fmt$(sum.invoiced)} inv
-                      </span>
-                    </div>
-                  )}
+                <div className={`w-full px-3 py-2.5 ${embedded ? "" : "lg:px-4 lg:py-3"}`}>
+                  <ClientListHeader
+                    name={customerName}
+                    amount={fmt$(sum.due) || "$0"}
+                    meta={customerMetaLine(sum)}
+                    hint={jobTitlesHint(list)}
+                    onNameClick={() => nav("/customer/" + encodeURIComponent(key))}
+                    avatar={<CustomerAvatar name={customerName} />}
+                    trailing={
+                      <button
+                        type="button"
+                        className="p-1 -m-1 text-slate-400 shrink-0"
+                        aria-label={open[key] ? "Collapse" : "Expand"}
+                        data-testid="client-group-toggle"
+                        onClick={() => toggleGroup(key)}
+                      >
+                        <span className={`inline-block transition-transform ${open[key] ? "rotate-180" : ""}`}>▾</span>
+                      </button>
+                    }
+                  />
                 </div>
                 {open[key] && (
                   <div
