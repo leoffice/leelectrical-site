@@ -24,13 +24,33 @@ export const PAY_METHODS = ["Cash", "Wells Fargo", "Martin Dorkin", "Zelle", "Ba
 /** Shared "send invoice/estimate" action (sleek's doSend). */
 export function useDoSend() {
   const { enqueue, logSend, showToast } = useStore();
-  return (job, kind) => {
+  return (job, kind, opts = {}) => {
     const no = kind === "invoice" ? job.invoiceNo : job.estimateNo;
     const payload =
-      kind === "invoice" ? { email: job.email, invoiceNo: no } : { email: job.email, estimateNo: no };
-    enqueue("send_" + kind, job.id, payload, "deterministic", "send_" + kind + ":" + no);
-    logSend(job.id, (kind === "invoice" ? "Invoice" : "Estimate") + " #" + no + " send queued", job.email);
-    showToast("Queued — status in Activity");
+      kind === "invoice"
+        ? {
+            email: job.email,
+            invoiceNo: no,
+            customer: job.customer || "",
+            amount: String(openBalance(job) || "").replace(/[$,]/g, ""),
+            includePaymentLink: Boolean(opts.includePaymentLink && openBalance(job) > 0.01),
+          }
+        : { email: job.email, estimateNo: no };
+    const idk =
+      kind === "invoice" && payload.includePaymentLink
+        ? "send_invoice_pay:" + no
+        : "send_" + kind + ":" + no;
+    enqueue("send_" + kind, job.id, payload, "deterministic", idk);
+    logSend(
+      job.id,
+      (kind === "invoice" ? "Invoice" : "Estimate") +
+        " #" +
+        no +
+        (payload.includePaymentLink ? " + payment link" : "") +
+        " send queued",
+      job.email
+    );
+    showToast(payload.includePaymentLink ? "Queued with payment link — Activity" : "Queued — status in Activity");
   };
 }
 
@@ -566,10 +586,21 @@ export function DocSheet({ job, kind, onClose }) {
         title="Open in QuickBooks"
         onClick={() => window.open("https://qbo.intuit.com/app/" + (kind === "invoice" ? "invoices" : "estimates"))}
       />
+      {job.email && kind === "invoice" && openBalance(job) > 0.01 && (
+        <Opt
+          icon="💳"
+          title={"Send to " + job.email + " + payment link"}
+          note="Adds Sola pay link to email and invoice memo"
+          onClick={() => {
+            doSend(job, kind, { includePaymentLink: true });
+            onClose();
+          }}
+        />
+      )}
       {job.email && (
         <Opt
           icon="📤"
-          title={"Send to " + job.email}
+          title={kind === "invoice" && openBalance(job) > 0.01 ? "Send invoice only (no pay link)" : "Send to " + job.email}
           onClick={() => {
             doSend(job, kind);
             onClose();
@@ -583,23 +614,37 @@ export function DocSheet({ job, kind, onClose }) {
 /** Quick invoice actions from the jobs list — View (full-screen PDF) or Send. */
 export function QuickSendSheet({ job, onClose }) {
   const doSend = useDoSend();
+  const due = openBalance(job);
   return (
     <Sheet title={"Invoice " + (job.invoiceNo || "")} onClose={onClose}>
       <div className="text-sm space-y-1 mb-3">
         <div><b className="font-semibold">Customer</b> <span className="text-slate-600">{job.customer || ""}</span></div>
-        <div><b className="font-semibold">Amount</b> <span className="text-slate-600">{fmt$(job.amount)}</span></div>
+        <div><b className="font-semibold">Amount due</b> <span className="text-slate-600">{fmtAmountDue(job) || fmt$(due) || "—"}</span></div>
       </div>
       {job.invoiceNo && <PdfViewer job={job} kind="invoice" no={job.invoiceNo} />}
       {job.email ? (
-        <Opt
-          icon="📤"
-          title={"Send to " + job.email}
-          note="Emails the invoice via Dispatch"
-          onClick={() => {
-            doSend(job, "invoice");
-            onClose();
-          }}
-        />
+        <>
+          {due > 0.01 && (
+            <Opt
+              icon="💳"
+              title={"Send to " + job.email + " + payment link"}
+              note="Sola link in email body and on the QBO invoice"
+              onClick={() => {
+                doSend(job, "invoice", { includePaymentLink: true });
+                onClose();
+              }}
+            />
+          )}
+          <Opt
+            icon="📤"
+            title={due > 0.01 ? "Send invoice only" : "Send to " + job.email}
+            note="Emails via QuickBooks"
+            onClick={() => {
+              doSend(job, "invoice");
+              onClose();
+            }}
+          />
+        </>
       ) : (
         <p className="text-[11px] text-slate-400 text-center mt-2">Add an email to send this invoice.</p>
       )}

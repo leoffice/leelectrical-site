@@ -1,12 +1,17 @@
 // When create_estimate / create_invoice completes, patch job + show 5s confirmation.
 import { useEffect, useRef } from "react";
 import { useStore } from "../state/store.jsx";
-import { docConfirmMessage, parseDocCommandResult } from "../lib/docConfirm.js";
+import {
+  loadDocConfirmSeen,
+  parseDocCommandResult,
+  persistDocConfirmSeen,
+  shouldShowDocConfirm,
+} from "../lib/docConfirm.js";
 import { todayStr } from "../lib/format.js";
 
 export default function DocConfirmWatcher() {
   const { commands, patchAndSave, effectiveJob, showDocConfirm, refreshCommands } = useStore();
-  const seen = useRef(new Set());
+  const seen = useRef(loadDocConfirmSeen());
 
   useEffect(() => {
     const iv = setInterval(() => refreshCommands(), 3000);
@@ -15,17 +20,24 @@ export default function DocConfirmWatcher() {
 
   useEffect(() => {
     for (const c of commands || []) {
-      if (!c?.id || seen.current.has(c.id)) continue;
+      if (!c?.id) continue;
       if (c.type !== "create_estimate" && c.type !== "create_invoice") continue;
       if (c.status !== "done") continue;
 
-      seen.current.add(c.id);
       const kind = c.type === "create_estimate" ? "estimate" : "invoice";
       const parsed = parseDocCommandResult(c.result, kind);
       const no = parsed.estimateNo || parsed.invoiceNo;
       if (!no || !c.jobId) continue;
 
       const job = effectiveJob(c.jobId) || {};
+      if (!shouldShowDocConfirm({ commandId: c.id, kind, no, job }, seen.current)) {
+        seen.current.add(c.id);
+        persistDocConfirmSeen(seen.current);
+        continue;
+      }
+
+      seen.current.add(c.id);
+      persistDocConfirmSeen(seen.current);
       const patch = {
         amount: parsed.amount || job.amount,
         status:
