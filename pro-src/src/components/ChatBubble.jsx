@@ -78,12 +78,28 @@ function getConvo() {
   }
 }
 
+/** Unread badge for chat triggers in the nav bar or desktop FAB. */
+export function ChatUnreadBadge({ unread }) {
+  if (!unread) return null;
+  return (
+    <span
+      className="absolute -top-0.5 -right-0.5 flex items-center justify-center"
+      data-testid="chat-unread-dot"
+      aria-label={`${unread} new ${unread === 1 ? "reply" : "replies"} from Dispatch`}
+    >
+      <span className="absolute inline-flex w-full h-full rounded-full bg-red-500 opacity-75 animate-ping" />
+      <span className="relative inline-flex min-w-[16px] h-[16px] px-1 rounded-full bg-red-600 text-white text-[10px] font-extrabold leading-[16px] items-center justify-center">
+        {unread > 9 ? "9+" : unread}
+      </span>
+    </span>
+  );
+}
+
 export default function ChatBubble() {
-  const { api, effectiveJob, showToast, dirtyCount, jobs, patchJob, addDevTask, setNewJob } = useStore();
+  const { api, effectiveJob, showToast, jobs, patchJob, addDevTask, setNewJob, chatOpen, setChatOpen, chatUnread, setChatUnread } =
+    useStore();
   const loc = useLocation();
-  const [open, setOpen] = useState(false);
   const [msgs, setMsgs] = useState([]);
-  const [unread, setUnread] = useState(0);
   const [text, setText] = useState("");
   const [ctxOn, setCtxOn] = useState(true);
   const [rec, setRec] = useState(false);
@@ -92,8 +108,8 @@ export default function ChatBubble() {
   const convo = useRef(getConvo());
   const lastN = useRef(0);
   const lastDispatchN = useRef(null); // null = not baselined yet (first poll)
-  const openRef = useRef(open);
-  openRef.current = open;
+  const openRef = useRef(chatOpen);
+  openRef.current = chatOpen;
   const logRef = useRef(null);
   const stickRef = useRef(true); // auto-scroll only while the user is near the bottom
   const recRef = useRef(null);
@@ -136,7 +152,7 @@ export default function ChatBubble() {
       // which made the delta 0 and the badge never increment).
       const fresh = lastDispatchN.current === null ? 0 : dispatch.length - lastDispatchN.current;
       if (fresh > 0) {
-        if (!openRef.current) setUnread((u) => u + fresh);
+        if (!openRef.current) setChatUnread((u) => u + fresh);
         if (typeof document !== "undefined" && document.visibilityState === "hidden")
           notifyReply(dispatch[dispatch.length - 1]);
       }
@@ -149,9 +165,9 @@ export default function ChatBubble() {
   // 3s while the panel is open (live conversation), 5s in the background.
   useEffect(() => {
     poll();
-    const t = setInterval(poll, open ? 3000 : 5000);
+    const t = setInterval(poll, chatOpen ? 3000 : 5000);
     return () => clearInterval(t);
-  }, [poll, open]);
+  }, [poll, chatOpen]);
 
   // Responder presence — is Dispatch's cron alive? Checked on open + every
   // 15s while the panel stays open (the 3s message poll re-renders, so the
@@ -165,11 +181,11 @@ export default function ChatBubble() {
   }, [api]);
 
   useEffect(() => {
-    if (!open) return;
+    if (!chatOpen) return;
     pollPresence();
     const t = setInterval(pollPresence, 15000);
     return () => clearInterval(t);
-  }, [open, pollPresence]);
+  }, [chatOpen, pollPresence]);
 
   // Presence heartbeat — fire-and-forget ping so Dispatch can see the app is
   // open. Fires on: app load, tab becoming visible, chat panel open, and on an
@@ -193,10 +209,10 @@ export default function ChatBubble() {
   }, [presencePing]);
 
   useEffect(() => {
-    if (open) presencePing(); // panel open
-    const t = setInterval(presencePing, open ? 20000 : 45000);
+    if (chatOpen) presencePing(); // panel open
+    const t = setInterval(presencePing, chatOpen ? 20000 : 45000);
     return () => clearInterval(t);
-  }, [open, presencePing]);
+  }, [chatOpen, presencePing]);
 
   const scrollLogToBottom = useCallback(() => {
     const el = logRef.current;
@@ -214,9 +230,9 @@ export default function ChatBubble() {
   // the user hasn't scrolled up to read history (poll every 3s was yanking them
   // back to the bottom).
   useEffect(() => {
-    if (!open || !stickRef.current) return;
+    if (!chatOpen || !stickRef.current) return;
     requestAnimationFrame(scrollLogToBottom);
-  }, [msgs, open, scrollLogToBottom]);
+  }, [msgs, chatOpen, scrollLogToBottom]);
 
   const apptCtx = appointmentContextFromRoute(loc.pathname, { effectiveJob, jobs });
   const activeJob = jobId ? effectiveJob(jobId) : null;
@@ -274,18 +290,14 @@ export default function ChatBubble() {
     [submitDevTask, openAppointment, jobId, patchJob, showToast]
   );
 
-  const toggle = () => {
-    setOpen((o) => {
-      if (!o) {
-        stickRef.current = true;
-        setUnread(0);
-        setCtxOn(true);
-        askNotifyPermission(); // once — no-op after granted/denied
-        poll();
-      }
-      return !o;
-    });
-  };
+  useEffect(() => {
+    if (!chatOpen) return;
+    stickRef.current = true;
+    setChatUnread(0);
+    setCtxOn(true);
+    askNotifyPermission();
+    poll();
+  }, [chatOpen, poll]);
 
   const send = async () => {
     const t = text.trim();
@@ -414,34 +426,12 @@ export default function ChatBubble() {
   }
   const workingStale = working && now - workingSince.current.t > STUCK_MS;
 
+  if (!chatOpen) return null;
+
   return (
     <>
-      <button
-        onClick={toggle}
-        aria-label="Chat with Dispatch"
-        data-testid="chat-fab"
-        className={`fixed z-40 right-4 lg:right-6 w-12 h-12 rounded-full bg-brand text-white text-xl shadow-xl ${
-          dirtyCount ? "bottom-[210px] lg:bottom-24" : "bottom-36 lg:bottom-6" // clear the SaveBar
-        }`}
-      >
-        💬
-        {unread > 0 && (
-          <span
-            className="absolute -top-0.5 -right-0.5 flex items-center justify-center"
-            data-testid="chat-unread-dot"
-            aria-label={`${unread} new ${unread === 1 ? "reply" : "replies"} from Dispatch`}
-          >
-            <span className="absolute inline-flex w-full h-full rounded-full bg-red-500 opacity-75 animate-ping" />
-            <span className="relative inline-flex min-w-[16px] h-[16px] px-1 rounded-full bg-red-600 text-white text-[10px] font-extrabold leading-[16px] items-center justify-center">
-              {unread > 9 ? "9+" : unread}
-            </span>
-          </span>
-        )}
-      </button>
-
-      {open && (
         <div
-          className="fixed z-50 inset-x-2.5 bottom-20 lg:inset-x-auto lg:right-6 lg:bottom-20 lg:w-[400px] max-w-[420px] ml-auto bg-white rounded-2xl shadow-2xl border border-slate-200 flex flex-col max-h-[64vh] overflow-hidden"
+          className="fixed z-50 inset-x-2.5 bottom-[4.75rem] lg:inset-x-auto lg:right-6 lg:bottom-20 lg:w-[400px] max-w-[420px] ml-auto bg-white rounded-2xl shadow-2xl border border-slate-200 flex flex-col max-h-[64vh] overflow-hidden"
           data-testid="chat-panel"
         >
           <div className="flex items-center gap-2 px-4 py-2.5 bg-brand text-white">
@@ -453,7 +443,7 @@ export default function ChatBubble() {
               </span>
             </div>
             {working && <span className="text-[11px] opacity-85 shrink-0">working…</span>}
-            <button onClick={toggle} className="text-white" aria-label="Close chat">✕</button>
+            <button onClick={() => setChatOpen(false)} className="text-white" aria-label="Close chat">✕</button>
           </div>
           <div
             ref={logRef}
@@ -575,7 +565,6 @@ export default function ChatBubble() {
             </button>
           </div>
         </div>
-      )}
       {jobSheet && activeJob && <ChatJobUpdateSheet job={activeJob} onClose={() => setJobSheet(false)} />}
     </>
   );

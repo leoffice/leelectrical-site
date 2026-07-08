@@ -480,8 +480,8 @@ describe("responsive layout — 390px and 1280px", () => {
     const sidebar = screen.getByTestId("sidebar");
     expect(sidebar.className).toContain("hidden"); // hidden on phone…
     expect(sidebar.className).toContain("lg:flex"); // …sidebar on desktop
-    // all four tabs present in the bottom nav
-    ["Jobs", "Calendar", "Dev", "Archive"].forEach((t) => expect(within(nav).getByText(t)).toBeInTheDocument());
+    expect(within(nav).getByTestId("nav-actions")).toBeInTheDocument();
+    ["Jobs", "Calendar", "Archive", "Dev"].forEach((t) => expect(within(nav).getByText(t)).toBeInTheDocument());
   });
 
   it("1280px (desktop): sidebar nav with sync chip; detail becomes two-pane", async () => {

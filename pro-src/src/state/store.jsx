@@ -73,6 +73,8 @@ export function StoreProvider({ children }) {
   const [docConfirm, setDocConfirm] = useState(null); // {kind,no,amount,customer}
   const [newJob, setNewJob] = useState(null); // {step:"choose"|"cal"|"cal-lead"|"form", prefill}
   const [leaveReq, setLeaveReq] = useState(null); // {cb}
+  const [chatOpen, setChatOpen] = useState(false);
+  const [chatUnread, setChatUnread] = useState(0);
   const toastT = useRef(null);
   const docConfirmT = useRef(null);
   const pendingRef = useRef(pending);
@@ -732,6 +734,8 @@ export function StoreProvider({ children }) {
     setLeaveReq({ cb });
   }, []);
 
+  const toggleChat = useCallback(() => setChatOpen((o) => !o), []);
+
   const value = {
     jobs: effectiveJobs,
     rawJobs: jobs,
@@ -763,6 +767,11 @@ export function StoreProvider({ children }) {
     setNewJob,
     leaveReq,
     setLeaveReq,
+    chatOpen,
+    setChatOpen,
+    chatUnread,
+    setChatUnread,
+    toggleChat,
     guardNav,
     refresh,
     refreshCommands,

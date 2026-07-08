@@ -1,7 +1,7 @@
 // Shell: bottom tab nav on mobile, left sidebar on desktop (>=1024px),
 // header sync chip, + FAB, chat bubble, approval watcher, leave-guard
 // sheet, sticky SaveBar and toast. Hash routing.
-import React from "react";
+import React, { useEffect, useState } from "react";
 import { NavLink, Route, Routes, useLocation, useNavigate } from "react-router-dom";
 import { useStore } from "./state/store.jsx";
 import Jobs from "./views/Jobs.jsx";
@@ -14,7 +14,7 @@ import Archive from "./views/Archive.jsx";
 import Placeholder from "./views/Placeholder.jsx";
 import SaveBar from "./components/SaveBar.jsx";
 import SyncChip from "./components/SyncChip.jsx";
-import ChatBubble from "./components/ChatBubble.jsx";
+import ChatBubble, { ChatUnreadBadge } from "./components/ChatBubble.jsx";
 import ApprovalWatcher from "./components/ApprovalWatcher.jsx";
 import DocConfirmWatcher from "./components/DocConfirmWatcher.jsx";
 import { docConfirmMessage } from "./lib/docConfirm.js";
@@ -29,6 +29,15 @@ const TABS = [
   { to: "/dev", label: "Dev", ic: "🛠️" },
   { to: "/archive", label: "Archive", ic: "📦" },
 ];
+
+/** Mobile bottom bar — Archive, then + / chat, then Dev. */
+const MOBILE_NAV_BEFORE = [
+  { to: "/", label: "Jobs", ic: "🗂️", end: true },
+  { to: "/today", label: "Calendar", ic: "📅" },
+  { to: "/calls", label: "Calls", ic: "📞" },
+  { to: "/archive", label: "Archive", ic: "📦" },
+];
+const MOBILE_NAV_AFTER = { to: "/dev", label: "Dev", ic: "🛠️" };
 
 function Tab({ t, sidebar }) {
   const { devBadge, sasBadge, guardNav, dirtyJobs } = useStore();
@@ -106,8 +115,23 @@ function LeaveSheet() {
   );
 }
 
+function useIsDesktop() {
+  const [desktop, setDesktop] = useState(() =>
+    typeof window !== "undefined" && window.matchMedia ? window.matchMedia("(min-width: 1024px)").matches : false
+  );
+  useEffect(() => {
+    if (!window.matchMedia) return;
+    const mq = window.matchMedia("(min-width: 1024px)");
+    const onMq = () => setDesktop(mq.matches);
+    mq.addEventListener("change", onMq);
+    return () => mq.removeEventListener("change", onMq);
+  }, []);
+  return desktop;
+}
+
 export default function App() {
-  const { toast, docConfirm, error, setNewJob, refresh, dirtyCount, effectiveJob, jobs } = useStore();
+  const { toast, docConfirm, error, setNewJob, refresh, dirtyCount, effectiveJob, jobs, toggleChat, chatUnread } = useStore();
+  const isDesktop = useIsDesktop();
   const loc = useLocation();
   const inDetail = loc.pathname.startsWith("/job/");
   const inCustomer = loc.pathname.startsWith("/customer/");
@@ -168,7 +192,7 @@ export default function App() {
         )}
 
         <main
-          className={`flex-1 w-full mx-auto px-4 pt-4 pb-40 lg:pb-20 ${
+          className={`flex-1 w-full mx-auto px-4 pt-4 pb-24 lg:pb-20 ${
             inDetail || inCustomer ? "max-w-3xl lg:max-w-6xl" : "max-w-3xl"
           }`}
         >
@@ -186,19 +210,33 @@ export default function App() {
 
         <SaveBar />
 
-        {/* + FAB — Jobs, Today, and open job detail */}
-        {showFab && (
+        {/* Desktop — floating + and chat */}
+        {isDesktop && showFab ? (
           <button
             onClick={() => setNewJob({ step: "choose", context: fabContext })}
-            aria-label="New job"
+            aria-label="Add a job"
             data-testid="fab-add"
-            className={`fixed z-40 right-4 lg:right-24 w-12 h-12 rounded-2xl bg-slate-900 text-white text-xl shadow-xl lg:w-[54px] lg:h-[54px] lg:text-2xl ${
-              dirtyCount ? "bottom-[150px] lg:bottom-24" : "bottom-[86px] lg:bottom-6" // clear the SaveBar
+            className={`fixed z-40 right-24 w-[54px] h-[54px] rounded-2xl bg-slate-900 text-white text-2xl shadow-xl flex items-center justify-center ${
+              dirtyCount ? "bottom-24" : "bottom-6"
             }`}
           >
             ＋
           </button>
-        )}
+        ) : null}
+        {isDesktop ? (
+          <button
+            type="button"
+            onClick={toggleChat}
+            aria-label="Chat with Dispatch"
+            data-testid="chat-fab"
+            className={`fixed z-40 right-6 w-12 h-12 rounded-full bg-brand text-white text-xl shadow-xl flex items-center justify-center ${
+              dirtyCount ? "bottom-24" : "bottom-6"
+            }`}
+          >
+            💬
+            <ChatUnreadBadge unread={chatUnread} />
+          </button>
+        ) : null}
 
         <ChatBubble />
         <NewJobFlow />
@@ -206,12 +244,45 @@ export default function App() {
         <DocConfirmWatcher />
         <LeaveSheet />
 
-        {/* Mobile bottom tab nav */}
+        {/* Mobile bottom tab nav — Archive | ＋ 💬 | Dev */}
         <nav className="lg:hidden fixed bottom-0 inset-x-0 z-30 bg-white/95 backdrop-blur border-t border-slate-200 pb-safe" data-testid="bottom-nav">
-          <div className="flex max-w-3xl mx-auto">
-            {TABS.map((t) => (
+          <div className="flex max-w-3xl mx-auto items-stretch">
+            {MOBILE_NAV_BEFORE.map((t) => (
               <Tab key={t.to} t={t} />
             ))}
+            <div
+              className="flex items-center justify-center gap-1 px-1 shrink-0 border-x border-slate-100"
+              data-testid="nav-actions"
+            >
+              {!isDesktop && showFab ? (
+                <button
+                  type="button"
+                  onClick={() => setNewJob({ step: "choose", context: fabContext })}
+                  aria-label="Add a job"
+                  data-testid="fab-add"
+                  className="flex flex-col items-center justify-center min-w-[2.5rem] py-1 active:opacity-70"
+                >
+                  <span className="flex items-center justify-center w-8 h-8 rounded-xl bg-slate-900 text-white text-lg leading-none shadow-sm">
+                    ＋
+                  </span>
+                </button>
+              ) : null}
+              {!isDesktop ? (
+                <button
+                  type="button"
+                  onClick={toggleChat}
+                  aria-label="Chat with Dispatch"
+                  data-testid="chat-fab"
+                  className="relative flex flex-col items-center justify-center min-w-[2.5rem] py-1 active:opacity-70"
+                >
+                  <span className="flex items-center justify-center w-8 h-8 rounded-full bg-brand text-white text-base leading-none shadow-sm">
+                    💬
+                  </span>
+                  <ChatUnreadBadge unread={chatUnread} />
+                </button>
+              ) : null}
+            </div>
+            <Tab t={MOBILE_NAV_AFTER} />
           </div>
         </nav>
 
@@ -224,7 +295,7 @@ export default function App() {
           </div>
         )}
         {toast && (
-          <div className="fixed bottom-24 lg:bottom-8 left-1/2 -translate-x-1/2 z-[70] bg-slate-900 text-white text-sm font-medium px-4 py-2.5 rounded-full shadow-lg max-w-[86vw] text-center" data-testid="toast">
+          <div className="fixed bottom-20 lg:bottom-8 left-1/2 -translate-x-1/2 z-[70] bg-slate-900 text-white text-sm font-medium px-4 py-2.5 rounded-full shadow-lg max-w-[86vw] text-center" data-testid="toast">
             {toast}
           </div>
         )}
