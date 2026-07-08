@@ -2,7 +2,7 @@
 // the Jobs list (route /customer/:key). Customer card on top; each job shows
 // job information + linked appointment inline.
 import React, { useEffect, useMemo, useRef, useState } from "react";
-import { Link, useNavigate, useParams } from "react-router-dom";
+import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { useStore } from "../state/store.jsx";
 import Jobs from "./Jobs.jsx";
 import CustomerCard from "../components/CustomerCard.jsx";
@@ -26,12 +26,15 @@ import {
 
 export default function CustomerView() {
   const { key: raw } = useParams();
+  const [sp] = useSearchParams();
   const nav = useNavigate();
+  const jobAnchor = sp.get("job") || "";
   const { jobs, loading, events, commands, patchJob, syncNow, refreshJobs } = useStore();
   const key = raw ? decodeURIComponent(raw) : "";
   const [sheet, setSheet] = useState(null); // { kind, job? }
   const [importing, setImporting] = useState(false);
   const importPoll = useRef(null);
+  const jobsSectionRef = useRef(null);
 
   const list = useMemo(() => sortJobs(jobsForCustomerKey(jobs, key)), [jobs, key]);
   const contact = useMemo(() => customerContact(list), [list]);
@@ -62,6 +65,19 @@ export default function CustomerView() {
     tick();
     return () => clearTimeout(importPoll.current);
   }, [key, syncNow, refreshJobs]);
+
+  useEffect(() => {
+    if (!list.length) return;
+    const run = () => {
+      const el = jobAnchor
+        ? document.getElementById("job-card-" + jobAnchor)
+        : jobsSectionRef.current;
+      if (!el) return;
+      const top = el.getBoundingClientRect().top + window.scrollY - 72;
+      window.scrollTo({ top: Math.max(0, top), behavior: "instant" });
+    };
+    requestAnimationFrame(run);
+  }, [key, jobAnchor, list.length]);
 
   useEffect(() => {
     if (!list.length) return;
@@ -118,13 +134,17 @@ export default function CustomerView() {
         onEdit={() => setSheet({ kind: "cust", job: primaryJob })}
       />
 
-      <h2 className="text-[11px] font-extrabold text-slate-500 uppercase tracking-wider px-1 !mb-[-6px]">
+      <h2
+        ref={jobsSectionRef}
+        className="text-[11px] font-extrabold text-slate-500 uppercase tracking-wider px-1 !mb-[-6px] scroll-mt-20"
+        data-testid="customer-jobs-section"
+      >
         Jobs ({list.length})
       </h2>
       <div className="space-y-3">
         {list.map((j) => (
+          <div key={j.id} id={"job-card-" + j.id} className="scroll-mt-20">
           <JobInfoCard
-            key={j.id}
             job={j}
             events={events}
             commands={commands}
@@ -137,6 +157,7 @@ export default function CustomerView() {
               tapAwarenessBubble(j, bubble, (s) => setSheet({ ...s, job: j }), openDocForBubble)
             }
           />
+          </div>
         ))}
       </div>
 

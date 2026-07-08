@@ -71,7 +71,10 @@ export default function JobDetail() {
   const nav = useNavigate();
   const [sp] = useSearchParams();
   const fromCust = sp.get("from") || ""; // customer-group key when opened from CustomerView
-  const goBack = () => (fromCust ? nav("/customer/" + encodeURIComponent(fromCust)) : nav("/"));
+  const goBack = () =>
+    fromCust
+      ? nav("/customer/" + encodeURIComponent(fromCust) + "?job=" + encodeURIComponent(id))
+      : nav("/");
   const {
     effectiveJob,
     patchJob,
@@ -90,7 +93,12 @@ export default function JobDetail() {
   const [openStep, setOpenStep] = useState(null);
   const [showRemoved, setShowRemoved] = useState({}); // paperwork branch -> expanded
   const [sheet, setSheet] = useState(null); // {kind, ...}
+  const [jobInfoExpanded, setJobInfoExpanded] = useState(true);
   const stepTimer = useRef(null);
+
+  useEffect(() => {
+    setJobInfoExpanded(true);
+  }, [id]);
 
   useEffect(() => {
     if (openPay && job) setSheet({ kind: "paymenu" });
@@ -220,6 +228,9 @@ export default function JobDetail() {
         events={events}
         commands={commands}
         showOpenLink={false}
+        collapsible
+        expanded={jobInfoExpanded}
+        onToggle={() => setJobInfoExpanded((v) => !v)}
         onEstimate={() => openDocTab(job, "estimate", setSheet)}
         onInvoice={() => openDocTab(job, "invoice", setSheet)}
         onPayment={() => setSheet({ kind: "paymenu" })}

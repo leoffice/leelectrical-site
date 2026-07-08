@@ -56,6 +56,9 @@ export default function JobInfoCard({
   onCalendar,
   onBubbleTap,
   showOpenLink = false,
+  collapsible = false,
+  expanded = true,
+  onToggle,
 }) {
   const total = invoiceTotal(job);
   const paid = amountPaid(job);
@@ -63,6 +66,7 @@ export default function JobInfoCard({
   const pct = paidPct(job);
   const svc = effectiveServiceAddress(job);
   const bubbles = useMemo(() => jobAwarenessBubbles(job, events, commands), [job, events, commands]);
+  const showBody = !collapsible || expanded;
 
   const rows = [
     ["Service address", svc],
@@ -88,19 +92,29 @@ export default function JobInfoCard({
     </div>
   ) : null;
 
-  const openJob = onOpen
-    ? (e) => {
-        if (e.target.closest("[data-no-card-open]")) return;
-        onOpen();
-      }
-    : undefined;
+  const handleCardClick =
+    collapsible && onToggle
+      ? (e) => {
+          if (e.target.closest("[data-no-card-open]")) return;
+          onToggle();
+        }
+      : onOpen
+        ? (e) => {
+            if (e.target.closest("[data-no-card-open]")) return;
+            onOpen();
+          }
+        : undefined;
 
   return (
     <div
-      className={`card px-3 py-3 lg:px-4 lg:py-4 ${onOpen ? "cursor-pointer active:bg-slate-50/80" : ""}`}
+      className={`card px-3 py-3 lg:px-4 lg:py-4 ${handleCardClick ? "cursor-pointer active:bg-slate-50/80" : ""} ${
+        collapsible && !expanded ? "ring-1 ring-slate-100" : ""
+      }`}
       data-testid="job-info-card"
-      onClick={openJob}
-      role={onOpen ? "button" : undefined}
+      data-expanded={collapsible ? (expanded ? "true" : "false") : undefined}
+      onClick={handleCardClick}
+      role={handleCardClick ? "button" : undefined}
+      aria-expanded={collapsible ? expanded : undefined}
     >
       <div className="flex items-start gap-2">
         <div className="min-w-0 flex-1">
@@ -114,9 +128,13 @@ export default function JobInfoCard({
         </div>
       </div>
 
-      {bubbleStrip}
+      {showBody ? bubbleStrip : null}
 
-      {rows.length > 0 && (
+      {collapsible && !expanded ? (
+        <p className="text-[10px] text-slate-400 mt-2 text-center">Tap to expand job details</p>
+      ) : null}
+
+      {showBody && rows.length > 0 && (
         <dl className="mt-2 space-y-1 text-xs lg:text-sm min-w-0 w-full">
           {rows.map(([k, v]) => (
             <div key={k} className="flex gap-2 items-baseline">
@@ -127,7 +145,7 @@ export default function JobInfoCard({
         </dl>
       )}
 
-      {onEstimate && onInvoice && onCalendar ? (
+      {showBody && onEstimate && onInvoice && onCalendar ? (
         <div data-no-card-open onClick={stopBubble}>
           <JobDocTabs
             job={job}

@@ -162,8 +162,10 @@ describe("Feature 2 — customer group total due + Customer view", () => {
     const back = await screen.findByTestId("detail-back");
     expect(back).toHaveTextContent("Meir Kabakov");
 
-    // and clicking it returns to the customer view
+    // and clicking it returns to the customer view (anchored on jobs)
     await user.click(back);
-    expect(await screen.findByTestId("customer-view")).toBeInTheDocument();
+    const view2 = await screen.findByTestId("customer-view");
+    expect(view2).toBeInTheDocument();
+    expect(within(view2).getByTestId("customer-jobs-section")).toBeInTheDocument();
   });
 });

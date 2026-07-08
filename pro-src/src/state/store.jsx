@@ -65,6 +65,7 @@ export function StoreProvider({ children }) {
   const [pending, setPending] = useState(loadDraft); // jobId -> staged patch
   const [syncedAt, setSyncedAt] = useState(0);
   const [busy, setBusy] = useState(false); // sync chip pulse
+  const [syncProgress, setSyncProgress] = useState(null); // { steps: [{id,label,done,active}], pct }
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
@@ -231,25 +232,67 @@ export function StoreProvider({ children }) {
     };
   }, [refresh, refreshJobs, refreshCommands, refreshDev, refreshEvents, refreshSas]);
 
-  /** Header chip: request a fresh QBO pull, then re-pull everything. */
+  const SYNC_STEPS = useMemo(
+    () => [
+      { id: "calendar", label: "Calendar" },
+      { id: "qbo", label: "QuickBooks" },
+      { id: "refresh", label: "Jobs & events" },
+      { id: "commands", label: "Activity" },
+    ],
+    []
+  );
+
+  const setSyncStep = useCallback(
+    (index, total) => {
+      const steps = SYNC_STEPS.map((s, i) => ({
+        ...s,
+        done: i < index,
+        active: i === index,
+      }));
+      const pct = total ? Math.round((index / total) * 100) : 0;
+      setSyncProgress({ steps, pct, index, total });
+    },
+    [SYNC_STEPS]
+  );
+
+  /** Header chip: full sync — calendar, QBO pull, jobs, commands, dev. */
   const syncNow = useCallback(async () => {
     setBusy(true);
     const before = syncedAt;
+    const total = SYNC_STEPS.length;
     try {
+      setSyncStep(0, total);
       await api.requestCalendarSync?.().catch(() => {});
-      const [meta] = await Promise.all([
-        api.pullJobs?.().catch(() => null),
-        refresh(true, { pullCalendar: true, awaitPull: true }),
-      ]);
+
+      setSyncStep(1, total);
+      const meta = await api.pullJobs?.().catch(() => null);
+
+      setSyncStep(2, total);
+      await refresh(true, { pullCalendar: true, awaitPull: true });
       const ts = (meta && meta.syncedAt) || 0;
       if (ts) setSyncedAt(ts);
       await refreshJobs(true);
+
+      setSyncStep(3, total);
+      await refreshCommands();
+
+      setSyncProgress((p) =>
+        p
+          ? {
+              ...p,
+              pct: 100,
+              steps: p.steps.map((s) => ({ ...s, done: true, active: false })),
+            }
+          : p
+      );
+
       if (ts > before) showToast("Refreshed — QuickBooks & calendar synced");
       else showToast("Sync requested — still waiting on QuickBooks (retry in a moment)");
     } finally {
       setBusy(false);
+      setTimeout(() => setSyncProgress(null), 900);
     }
-  }, [refresh, refreshJobs, showToast, syncedAt]);
+  }, [refresh, refreshJobs, refreshCommands, showToast, syncedAt, setSyncStep, SYNC_STEPS]);
 
   /* ---------- staged edits ---------- */
   const patchJob = useCallback((id, patch) => {
@@ -693,6 +736,7 @@ export function StoreProvider({ children }) {
     dirtyJobs,
     syncedAt,
     busy,
+    syncProgress,
     loading,
     saving,
     error,

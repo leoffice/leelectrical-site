@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   eventForJob,
+  googleCalendarOpenUrl,
   isCalendarUnlinkCommand,
   jobCalendarLinkState,
   parseCalendarUpsertResult,
@@ -114,5 +115,14 @@ describe("calendar link state", () => {
       events
     );
     expect(hits.map((e) => e.id)).toEqual(["e1"]);
+  });
+
+  it("googleCalendarOpenUrl uses day view without event, event link when id present", () => {
+    const day = googleCalendarOpenUrl({ dateYmd: "2026-07-10" });
+    expect(day).toContain("2026/07/10");
+    expect(day).toContain("office%40leelectrical.us");
+    const ev = googleCalendarOpenUrl({ event: { id: "abc123", start: "2026-07-10T09:00" } });
+    expect(ev).toContain("calendar/event");
+    expect(ev).toContain("eid=");
   });
 });

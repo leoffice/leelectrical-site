@@ -311,6 +311,26 @@ export async function applyAppointmentJobLink({
   if (patchLocalEvent && eid) patchLocalEvent(eid, { description: desc });
 }
 
+/** Google Calendar day or event deep-link for office@leelectrical.us. */
+export function googleCalendarOpenUrl({ event, dateYmd, account = "office@leelectrical.us" }) {
+  const auth = "?authuser=" + encodeURIComponent(account);
+  const d =
+    dateYmd ||
+    (event ? evStart(event).slice(0, 10) : "") ||
+    "";
+  const dayPath = d ? "/" + d.replace(/-/g, "/") : "";
+  const dayUrl = "https://calendar.google.com/calendar/u/0/r/day" + dayPath + auth;
+  const eid = event?.id;
+  if (!eid) return dayUrl;
+  try {
+    const raw = String(eid).includes("@") ? String(eid) : String(eid) + "@google.com";
+    const b64 = btoa(unescape(encodeURIComponent(raw))).replace(/=+$/, "");
+    return "https://calendar.google.com/calendar/event?eid=" + encodeURIComponent(b64) + auth;
+  } catch {
+    return dayUrl;
+  }
+}
+
 /** Remove job ↔ appointment link (keeps the calendar event). */
 export async function unlinkAppointmentJob({
   event,

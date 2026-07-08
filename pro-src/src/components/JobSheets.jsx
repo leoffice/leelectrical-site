@@ -6,7 +6,14 @@ import Sheet, { Fld, Opt } from "./Sheet.jsx";
 import AddAppointmentSheet from "./AddAppointmentSheet.jsx";
 import PickAppointmentSheet from "./PickAppointmentSheet.jsx";
 import { customerSyncPayload } from "../lib/customerSync.js";
-import { displayEventNotes, eventForJob, jobCalendarLinkState, unlinkAppointmentJob } from "../lib/calendarLink.js";
+import {
+  displayEventNotes,
+  eventForJob,
+  googleCalendarOpenUrl,
+  jobCalendarLinkState,
+  unlinkAppointmentJob,
+} from "../lib/calendarLink.js";
+import AppointmentDetailSheet from "./AppointmentDetailSheet.jsx";
 import { evStart } from "../lib/format.js";
 import CustomerSearch from "./CustomerSearch.jsx";
 import { enrichAndPatchCustomer } from "./NewJobFlow.jsx";
@@ -1219,7 +1226,7 @@ export function QuickSendSheet({ job, onClose }) {
 export const CAL_ACCOUNT = "office@leelectrical.us";
 export function CalSheet({ job, onClose }) {
   const { events, commands, patchJob, patchAndSave, enqueue, patchLocalEvent, showToast, effectiveJob } = useStore();
-  const [mode, setMode] = useState("menu"); // menu | add | pick | unlink
+  const [mode, setMode] = useState("menu"); // menu | add | pick | unlink | view
   const [unlinking, setUnlinking] = useState(false);
   const liveJob = effectiveJob(job.id) || job;
   const event = useMemo(() => eventForJob(liveJob, events), [liveJob, events]);
@@ -1229,10 +1236,15 @@ export function CalSheet({ job, onClose }) {
     (liveJob.status && liveJob.status.Scheduled && liveJob.status.Scheduled.d) ||
     (liveJob.followUp && liveJob.followUp.date) ||
     (event ? evStart(event).slice(0, 10) : "");
-  const url =
-    "https://calendar.google.com/calendar/u/0/r/day" +
-    (d ? "/" + d.replace(/-/g, "/") : "") +
-    "?authuser=" + encodeURIComponent(CAL_ACCOUNT);
+  const gcalUrl = googleCalendarOpenUrl({
+    event: linked && event ? event : null,
+    dateYmd: d,
+    account: CAL_ACCOUNT,
+  });
+
+  if (mode === "view" && event) {
+    return <AppointmentDetailSheet event={event} onClose={() => setMode("menu")} />;
+  }
 
   if (mode === "add") return <AddAppointmentSheet job={liveJob} onClose={() => setMode("menu")} />;
   if (mode === "pick") return <PickAppointmentSheet job={liveJob} onClose={() => setMode("menu")} onLinked={onClose} />;
@@ -1312,16 +1324,32 @@ export function CalSheet({ job, onClose }) {
         note="Syncs to office@leelectrical.us & links to this job"
         onClick={() => setMode("add")}
       />
-      <Opt
-        icon="🔗"
-        title="Link existing appointment"
-        note="Search this year's calendar"
-        onClick={() => setMode("pick")}
-      />
+      {linked ? (
+        <Opt
+          icon="👁️"
+          title="View linked appointment"
+          note={event ? (event.summary || "Open full details") : "Pull calendar sync to load details"}
+          onClick={() => (event ? setMode("view") : showToast("Pull calendar sync first"))}
+          data-testid="view-linked-appointment"
+        />
+      ) : (
+        <Opt
+          icon="🔗"
+          title="Link existing appointment"
+          note="Search calendar appointments"
+          onClick={() => setMode("pick")}
+        />
+      )}
       {linked ? (
         <Opt icon="⛓️‍💥" title="Unlink appointment" note="Keeps the event on Google Calendar" onClick={() => setMode("unlink")} />
       ) : null}
-      <Opt icon="📅" title="Open Google Calendar" note={d ? "Jumps to " + d : ""} onClick={() => window.open(url)} />
+      <Opt
+        icon="📅"
+        title={linked ? "Open linked appointment in Google Calendar" : "Open Google Calendar"}
+        note={d ? (linked ? "Opens this appointment · " + d : "Jumps to " + d) : linked ? "Opens linked appointment" : ""}
+        onClick={() => window.open(gcalUrl)}
+        data-testid="open-gcal"
+      />
     </Sheet>
   );
 }
