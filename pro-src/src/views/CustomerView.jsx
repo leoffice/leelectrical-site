@@ -4,6 +4,7 @@
 import React, { useMemo, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { useStore } from "../state/store.jsx";
+import Jobs from "./Jobs.jsx";
 import CustomerCard from "../components/CustomerCard.jsx";
 import JobInfoCard from "../components/JobInfoCard.jsx";
 import AppointmentLinkSheet from "../components/AppointmentLinkSheet.jsx";
@@ -62,8 +63,8 @@ export default function CustomerView() {
     showToast("Checking QuickBooks for matches…");
   };
 
-  return (
-    <div className="space-y-3.5" data-testid="customer-view">
+  const panel = (
+    <div className="space-y-3.5 min-w-0" data-testid="customer-view">
       <button className="inline-flex items-center gap-1 text-sm font-semibold text-brand" onClick={() => nav("/")}>
         ‹ Jobs
       </button>
@@ -107,6 +108,16 @@ export default function CustomerView() {
         job={sheet?.job}
         onDocDone={() => setSheet(null)}
       />
+    </div>
+  );
+
+  // Desktop: jobs list | customer detail (same split as job detail).
+  return (
+    <div className="lg:grid lg:grid-cols-[minmax(320px,400px)_minmax(0,1fr)] lg:gap-5 lg:items-start">
+      <div className="hidden lg:block sticky top-4 max-h-[calc(100vh-2rem)] overflow-y-auto overflow-x-hidden pr-1" data-testid="list-pane">
+        <Jobs embedded />
+      </div>
+      {panel}
     </div>
   );
 }

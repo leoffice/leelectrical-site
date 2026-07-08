@@ -41,6 +41,25 @@ export function CustomerAvatar({ name, className = "" }) {
   );
 }
 
+/** One job inside an expanded customer group — short row, no progress bar. */
+export function GroupJobRow({ job }) {
+  const href = `/job/${encodeURIComponent(job.id)}`;
+  const cur = stageOf(job);
+  return (
+    <Link
+      to={href}
+      className="flex items-center gap-2 rounded-xl bg-white border border-slate-100 px-2.5 py-2 active:bg-slate-50"
+      data-testid="group-job-row"
+    >
+      <div className="min-w-0 flex-1">
+        <div className="text-xs font-semibold text-slate-900 truncate">{job.title || "(untitled job)"}</div>
+        <div className="text-[10px] text-slate-500 truncate mt-0.5">{cur}</div>
+      </div>
+      <AmountDisplay job={job} size="sm" showSub={false} />
+    </Link>
+  );
+}
+
 export default function JobCard({ job, compact, stackN, onQuickSend, onMarkPaid }) {
   const pct = progressPct(job);
   const nav = useNavigate();

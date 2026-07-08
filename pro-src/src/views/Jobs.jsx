@@ -2,7 +2,7 @@
 // (clientGroup OR normalized name), and per-card quick actions.
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { useStore } from "../state/store.jsx";
-import JobCard, { CustomerAvatar, PaidPill, StagePill } from "../components/JobCard.jsx";
+import { CustomerAvatar, GroupJobRow, PaidPill, StagePill } from "../components/JobCard.jsx";
 import AmountDisplay from "../components/AmountDisplay.jsx";
 import { Link } from "react-router-dom";
 import { progressPct } from "../lib/stages.js";
@@ -218,38 +218,59 @@ export default function Jobs({ embedded }) {
               const href = "/job/" + encodeURIComponent(job.id);
               const pct = progressPct(job);
               return (
-                <div key={key} className="card px-3 py-2.5 lg:px-4 lg:py-3" data-testid="client-single">
-                  <div className="flex items-start gap-2">
-                    <CustomerAvatar name={customerName} />
-                    <div className="min-w-0 flex-1">
-                      <button
-                        type="button"
-                        className="text-sm font-semibold text-slate-900 text-left leading-snug line-clamp-2 break-words w-full lg:text-base lg:font-bold"
-                        data-testid="client-group-name"
-                        onClick={() => nav("/customer/" + encodeURIComponent(key))}
-                      >
-                        {customerName}
-                      </button>
-                      <Link
-                        to={href}
-                        className="block text-xs text-slate-500 leading-snug line-clamp-2 break-words mt-0.5 hover:text-brand"
-                      >
-                        {job.title || "(untitled job)"}
-                      </Link>
-                      <div className="mt-1.5 flex items-center gap-1 flex-wrap">
-                        <StagePill job={job} />
-                        <PaidPill job={job} />
+                <div
+                  key={key}
+                  className={`card ${embedded ? "px-2.5 py-2" : "px-3 py-2.5 lg:px-4 lg:py-3"}`}
+                  data-testid="client-single"
+                >
+                  <div className={embedded ? "space-y-1.5" : "flex items-start gap-2"}>
+                    <div className="flex items-start gap-2 min-w-0">
+                      <CustomerAvatar name={customerName} />
+                      <div className="min-w-0 flex-1">
+                        <button
+                          type="button"
+                          className="text-sm font-semibold text-slate-900 text-left leading-snug truncate w-full lg:text-base lg:font-bold"
+                          title={customerName}
+                          data-testid="client-group-name"
+                          onClick={() => nav("/customer/" + encodeURIComponent(key))}
+                        >
+                          {customerName}
+                        </button>
+                        <Link
+                          to={href}
+                          className="block text-xs text-slate-500 leading-snug truncate mt-0.5 hover:text-brand"
+                          title={job.title || "(untitled job)"}
+                        >
+                          {job.title || "(untitled job)"}
+                        </Link>
+                        {!embedded && (
+                          <>
+                            <div className="mt-1.5 flex items-center gap-1 flex-wrap">
+                              <StagePill job={job} />
+                              <PaidPill job={job} />
+                            </div>
+                            <div className="mt-1.5 h-1 rounded-full bg-slate-100 overflow-hidden">
+                              <div
+                                className="h-full rounded-full bg-gradient-to-r from-brand to-accent"
+                                style={{ width: `${pct}%` }}
+                              />
+                            </div>
+                          </>
+                        )}
                       </div>
-                      <div className="mt-1.5 h-1 rounded-full bg-slate-100 overflow-hidden">
-                        <div
-                          className="h-full rounded-full bg-gradient-to-r from-brand to-accent"
-                          style={{ width: `${pct}%` }}
-                        />
-                      </div>
+                      {!embedded && (
+                        <Link to={href} className="shrink-0 text-right" data-testid="client-group-amount">
+                          <AmountDisplay job={job} size="sm" />
+                        </Link>
+                      )}
                     </div>
-                    <Link to={href} className="shrink-0 text-right" data-testid="client-group-amount">
-                      <AmountDisplay job={job} size="sm" />
-                    </Link>
+                    {embedded && (
+                      <div className="flex items-center justify-between pl-9">
+                        <Link to={href} data-testid="client-group-amount">
+                          <AmountDisplay job={job} size="sm" showSub={false} />
+                        </Link>
+                      </div>
+                    )}
                   </div>
                 </div>
               );
@@ -257,57 +278,68 @@ export default function Jobs({ embedded }) {
 
             return (
               <div key={key} className="card overflow-hidden" data-testid="client-group">
-                <div className="w-full flex items-start gap-2 px-3 py-2.5 lg:gap-3 lg:px-4 lg:py-3.5">
-                  <button
-                    type="button"
-                    className="flex items-start gap-2 text-left min-w-0 flex-1"
-                    data-testid="client-group-name"
-                    onClick={() => nav("/customer/" + encodeURIComponent(key))}
-                  >
-                    <CustomerAvatar name={customerName} />
-                    <span className="min-w-0 pt-0.5">
-                      <span className="block text-sm font-semibold text-slate-900 leading-snug line-clamp-2 break-words lg:text-base lg:font-bold">
-                        {customerName}
+                <div
+                  className={`w-full px-3 py-2.5 ${embedded ? "space-y-1.5" : "flex items-start gap-2 lg:gap-3 lg:px-4 lg:py-3.5"}`}
+                >
+                  <div className={`flex items-center gap-2 min-w-0 ${embedded ? "w-full" : "flex-1"}`}>
+                    <button
+                      type="button"
+                      className="flex items-center gap-2 text-left min-w-0 flex-1"
+                      data-testid="client-group-name"
+                      onClick={() => nav("/customer/" + encodeURIComponent(key))}
+                    >
+                      <CustomerAvatar name={customerName} />
+                      <span className="min-w-0 flex-1">
+                        <span
+                          className="block text-sm font-semibold text-slate-900 leading-snug truncate lg:text-base lg:font-bold"
+                          title={customerName}
+                        >
+                          {customerName}
+                        </span>
+                        <span className="block text-[11px] text-slate-500 lg:text-xs">
+                          {list.length} jobs
+                        </span>
                       </span>
-                      <span className="block text-[11px] text-slate-500 lg:text-xs">
-                        {list.length} jobs
-                      </span>
-                    </span>
-                  </button>
-                  <div className="text-right shrink-0 pt-0.5" data-testid="client-group-amount">
-                    <div className="text-sm font-semibold text-slate-900 lg:font-bold lg:text-base">
-                      {fmt$(sum.due) || "$0"}
-                    </div>
-                    <CustomerAmountSubline
-                      invoiced={sum.invoiced}
-                      paid={sum.paid}
-                      openInvoices={sum.openInvoices}
-                      className="text-[9px]"
-                    />
+                    </button>
+                    {!embedded && (
+                      <div className="text-right shrink-0" data-testid="client-group-amount">
+                        <div className="text-sm font-semibold text-slate-900 lg:font-bold lg:text-base">
+                          {fmt$(sum.due) || "$0"}
+                        </div>
+                        <CustomerAmountSubline
+                          invoiced={sum.invoiced}
+                          paid={sum.paid}
+                          openInvoices={sum.openInvoices}
+                          className="text-[9px]"
+                        />
+                      </div>
+                    )}
+                    <button
+                      type="button"
+                      className="p-1 -m-1 text-slate-400 shrink-0"
+                      aria-label={open[key] ? "Collapse" : "Expand"}
+                      data-testid="client-group-toggle"
+                      onClick={() => toggleGroup(key)}
+                    >
+                      <span className={`inline-block transition-transform ${open[key] ? "rotate-180" : ""}`}>▾</span>
+                    </button>
                   </div>
-                  <button
-                    type="button"
-                    className="p-1 -m-1 text-slate-400 shrink-0 self-center"
-                    aria-label={open[key] ? "Collapse" : "Expand"}
-                    data-testid="client-group-toggle"
-                    onClick={() => toggleGroup(key)}
-                  >
-                    <span className={`inline-block transition-transform ${open[key] ? "rotate-180" : ""}`}>▾</span>
-                  </button>
+                  {embedded && (
+                    <div className="flex items-center justify-between pl-9 pr-7" data-testid="client-group-amount">
+                      <div className="text-sm font-semibold text-slate-900">{fmt$(sum.due) || "$0"}</div>
+                      <span className="text-[10px] text-slate-400">
+                        {sum.openInvoices} open · {fmt$(sum.invoiced)} inv
+                      </span>
+                    </div>
+                  )}
                 </div>
                 {open[key] && (
                   <div
-                    className="px-3 pb-3 space-y-2 bg-slate-50/60 border-t border-slate-100 pt-3"
+                    className="px-2.5 pb-2.5 space-y-1.5 bg-slate-50/60 border-t border-slate-100 pt-2"
                     onPointerDown={() => armCollapse(key)}
                   >
                     {list.map((j) => (
-                      <JobCard
-                        key={j.id}
-                        job={j}
-                        compact
-                        onQuickSend={quickSend}
-                        onMarkPaid={(x) => setSheet({ kind: "paid", job: x })}
-                      />
+                      <GroupJobRow key={j.id} job={j} />
                     ))}
                   </div>
                 )}

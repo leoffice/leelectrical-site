@@ -53,7 +53,10 @@ export default function CustomerCard({
       <div className="flex items-start gap-2 lg:gap-3">
         <CustomerAvatar name={contact.name} className="lg:w-10 lg:h-10 lg:rounded-2xl lg:text-base" />
         <div className="min-w-0 flex-1">
-          <div className="text-base font-bold text-slate-900 leading-snug break-words lg:text-lg lg:font-extrabold">
+          <div
+            className="text-base font-bold text-slate-900 leading-snug truncate lg:text-lg lg:font-extrabold"
+            title={displayName || "(no customer)"}
+          >
             {displayName || "(no customer)"}
           </div>
           {summary ? (

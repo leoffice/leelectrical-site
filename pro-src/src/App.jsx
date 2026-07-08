@@ -159,7 +159,7 @@ export default function App() {
 
         <main
           className={`flex-1 w-full mx-auto px-4 pt-4 pb-40 lg:pb-20 ${
-            inDetail ? "max-w-3xl lg:max-w-6xl" : "max-w-3xl"
+            inDetail || inCustomer ? "max-w-3xl lg:max-w-6xl" : "max-w-3xl"
           }`}
         >
           <Routes>
