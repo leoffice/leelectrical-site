@@ -90,6 +90,25 @@ export function mockServer(opts = {}) {
           };
         return { ok: false, status: 404, headers: { get: () => "application/json" }, json: async () => ({ ok: false, error: "not found" }) };
       }
+      if (path === "docs-fetch") {
+        if (method === "POST" && body?.invoiceNo) {
+          const no = String(body.invoiceNo);
+          const idk = "pdf:pay:" + no + ":" + new Date().toISOString().slice(0, 10);
+          const dup = state.commands.find((c) => c.idempotencyKey === idk);
+          if (!dup) {
+            state.commands.push({
+              type: "fetch_pdf",
+              jobId: body.jobId || "",
+              lane: "judgment",
+              idempotencyKey: idk,
+              payload: { kind: "invoice", no, docKey: "inv-" + no },
+              status: "queued",
+            });
+          }
+          return { ok: true, status: 200, json: async () => ({ ok: true, queued: true }) };
+        }
+        return { ok: false, status: 400, json: async () => ({ ok: false }) };
+      }
       if (path === "jobsdata")
         data = method === "POST" ? { ok: true } : { jobs: state.jobs, syncedAt: state.syncedAt };
       else if (path === "state") {

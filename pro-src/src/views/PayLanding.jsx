@@ -2,7 +2,11 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { Link, useParams, useSearchParams } from "react-router-dom";
 import { decodePayLanding, invoicePdfUrl } from "../lib/payLanding.js";
-import { invoicePdfAvailable, waitForInvoicePdf } from "../lib/payInvoicePdf.js";
+import {
+  PDF_RETRIEVE_STAGES,
+  invoicePdfAvailable,
+  retrieveInvoicePdf,
+} from "../lib/payInvoicePdf.js";
 import {
   fmtMoneyPrecise,
   parseMoney,
@@ -45,6 +49,62 @@ function InfoLine({ label, value }) {
   );
 }
 
+function PdfRetrieveOverlay({ phase, invoiceNo, onClose }) {
+  const active =
+    phase === "checking" || phase === "requesting"
+      ? 0
+      : phase === "fetching"
+      ? 1
+      : phase === "ready"
+      ? 2
+      : 0;
+  return (
+    <div
+      className="fixed inset-0 z-50 bg-[#0f172a]/55 flex items-center justify-center p-6"
+      role="dialog"
+      aria-modal="true"
+      aria-label="Retrieving invoice"
+      data-testid="pdf-retrieve-overlay"
+    >
+      <div className="card max-w-sm w-full p-6 text-center shadow-xl">
+        <div className="text-4xl mb-3" aria-hidden>
+          📄
+        </div>
+        <h2 className="text-lg font-extrabold text-[#0f172a] mb-1">Retrieving your invoice</h2>
+        <p className="text-sm text-[#64748b] mb-4">
+          Pulling invoice #{invoiceNo} from QuickBooks. This usually takes under a minute.
+        </p>
+        <div className="flex items-center justify-center flex-wrap gap-x-1.5 gap-y-1 text-[11px] font-semibold mb-4">
+          {PDF_RETRIEVE_STAGES.map((s, i) => (
+            <React.Fragment key={s}>
+              {i > 0 && <span className={i <= active ? "text-brand" : "text-[#cbd5e1]"}>→</span>}
+              <span
+                className={
+                  i < active ? "text-emerald-600" : i === active ? "text-brand" : "text-[#94a3b8]"
+                }
+              >
+                {i < active ? "✓ " : ""}
+                {s}
+              </span>
+            </React.Fragment>
+          ))}
+        </div>
+        <div className="h-1.5 rounded-full bg-[#e5e9f2] overflow-hidden">
+          <div
+            className="h-full bg-gradient-to-r from-brand to-accent transition-all duration-500"
+            style={{ width: phase === "ready" ? "100%" : phase === "fetching" ? "66%" : "33%" }}
+          />
+        </div>
+        {onClose ? (
+          <button type="button" className="btn-ghost w-full mt-4 text-sm" onClick={onClose}>
+            Cancel
+          </button>
+        ) : null}
+      </div>
+    </div>
+  );
+}
+
 function usePayToken() {
   const { token: pathToken } = useParams();
   const [search] = useSearchParams();
@@ -59,6 +119,7 @@ export default function PayLanding() {
   const [draft, setDraft] = useState("");
   const [pdfReady, setPdfReady] = useState(false);
   const [pdfBusy, setPdfBusy] = useState(false);
+  const [pdfPhase, setPdfPhase] = useState("idle");
   const [pdfErr, setPdfErr] = useState("");
 
   useEffect(() => {
@@ -123,26 +184,40 @@ export default function PayLanding() {
 
   const openInvoicePdf = async (e) => {
     e?.preventDefault?.();
-    if (!pdfSrc) return;
+    if (!pdfSrc || !data?.i) return;
     setPdfErr("");
-    if (await invoicePdfAvailable(pdfSrc)) {
-      setPdfReady(true);
-      launchPdf(pdfSrc);
-      return;
-    }
     setPdfBusy(true);
-    const ok = await waitForInvoicePdf(pdfSrc);
+    setPdfPhase("checking");
+    const ok = await retrieveInvoicePdf({
+      url: pdfSrc,
+      invoiceNo: data.i,
+      jobId: data.j || "",
+      onPhase: setPdfPhase,
+    });
     setPdfBusy(false);
+    setPdfPhase("idle");
     if (ok) {
       setPdfReady(true);
       launchPdf(pdfSrc);
     } else {
-      setPdfErr("Invoice PDF is still loading from QuickBooks — try again in a minute.");
+      setPdfErr(
+        "We couldn't load the invoice PDF yet. Make sure our office computer is online, then tap View invoice again."
+      );
     }
   };
 
   return (
     <div className="min-h-screen bg-[#f4f6fb]">
+      {pdfBusy && pdfPhase !== "idle" ? (
+        <PdfRetrieveOverlay
+          phase={pdfPhase}
+          invoiceNo={data.i}
+          onClose={() => {
+            setPdfBusy(false);
+            setPdfPhase("idle");
+          }}
+        />
+      ) : null}
       <header className="bg-gradient-to-r from-brand to-accent text-white px-4 py-4 pt-safe shadow-sm">
         <div className="max-w-lg mx-auto flex items-center gap-3">
           <img
@@ -173,7 +248,7 @@ export default function PayLanding() {
               data-testid="view-invoice"
               onClick={openInvoicePdf}
             >
-              {pdfBusy ? "Loading…" : "View invoice"}
+              {pdfBusy ? "Retrieving…" : "View invoice"}
             </a>
           </div>
           <h1 className="text-2xl font-extrabold text-[#0f172a] mb-3">#{data.i}</h1>

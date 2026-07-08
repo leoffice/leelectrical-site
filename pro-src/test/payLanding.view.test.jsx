@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import React from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { render, screen } from "@testing-library/react";
+import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
 import "@testing-library/jest-dom/vitest";
@@ -97,5 +97,56 @@ describe("PayLanding view", () => {
   it("shows invalid state for bad token", () => {
     renderPay("bad-token");
     expect(screen.getByText("Link not valid")).toBeInTheDocument();
+  });
+
+  it("View invoice triggers QBO fetch overlay when PDF is missing", async () => {
+    let docsHits = 0;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url) => {
+        await new Promise((r) => setTimeout(r, 60));
+        if (String(url).includes("docs-fetch")) {
+          return { ok: true, json: async () => ({ ok: true, queued: true }) };
+        }
+        docsHits += 1;
+        if (docsHits >= 4) {
+          return {
+            ok: true,
+            headers: { get: (h) => (h === "content-type" ? "application/pdf" : "") },
+          };
+        }
+        return {
+          ok: false,
+          headers: { get: () => "application/json" },
+        };
+      })
+    );
+    const user = userEvent.setup();
+    const token = encodePayLanding(
+      buildPayLandingPayload({
+        job: {
+          id: "J-99",
+          customer: "Ann",
+          amount: "$500",
+          invoiceNo: "888",
+          billingAddress: "1 St, Brooklyn, NY 11201",
+          serviceAddress: "1 St, Brooklyn, NY 11201",
+        },
+        cardknoxUrl: "https://secure.cardknox.com/lepaymentsdev?xAmount=500&xinvoice=888",
+        linkAmount: "500",
+        inv: "888",
+        siteSlug: "lepaymentsdev",
+      })
+    );
+    renderPay(token);
+    await user.click(screen.getByTestId("view-invoice"));
+    await waitFor(() => expect(screen.getByTestId("pdf-retrieve-overlay")).toBeInTheDocument());
+    expect(screen.getByText(/Retrieving your invoice/)).toBeInTheDocument();
+    expect(screen.getByText(/Fetching from QuickBooks/)).toBeInTheDocument();
+    await waitFor(() =>
+      expect(vi.mocked(fetch).mock.calls.some((c) => String(c[0]).includes("docs-fetch"))).toBe(
+        true
+      )
+    );
   });
 });
