@@ -914,6 +914,66 @@ export function CalSheet({ job, onClose }) {
   );
 }
 
+/* ---------- 2c. Paperwork inspection — create or link appointment ---------- */
+export function PaperworkApptSheet({ job, branch, step, initialDt = "", onClose }) {
+  const { patchJob } = useStore();
+  const [mode, setMode] = useState("menu"); // menu | add | pick
+  const br = (job.paperwork || {})[branch] || {};
+  const savedDt = (br.dates && br.dates[step]) || "";
+  const defaultDt = initialDt || savedDt || "";
+
+  if (mode === "add") {
+    return (
+      <AddAppointmentSheet
+        job={job}
+        defaultDate={defaultDt}
+        inspectionPreset={{ branch, step, date: defaultDt }}
+        onClose={() => setMode("menu")}
+        onSaved={onClose}
+      />
+    );
+  }
+  if (mode === "pick") {
+    return (
+      <PickAppointmentSheet
+        job={job}
+        onClose={() => setMode("menu")}
+        onLinked={() => {
+          if (defaultDt) {
+            const kind = DATE_STEPS[step] || "date";
+            const dateVal = kind === "datetime" ? defaultDt : defaultDt.slice(0, 10);
+            patchJob(job.id, { paperwork: { [branch]: { dates: { [step]: dateVal } } } });
+          }
+          onClose();
+        }}
+      />
+    );
+  }
+
+  return (
+    <Sheet title="Schedule appointment" onClose={onClose}>
+      <p className="text-sm text-slate-500 mb-3">
+        Create a new calendar event or link one already on Google Calendar. Inspection appointments sync as{" "}
+        <span className="text-red-600 font-semibold">red</span> with customer guest + reminders.
+      </p>
+      <Opt
+        icon="＋"
+        title="Create appointment"
+        note="Pre-filled title, guest email, 1h & 1 day reminders"
+        onClick={() => setMode("add")}
+        data-testid="paper-appt-create"
+      />
+      <Opt
+        icon="🔗"
+        title="Link existing appointment"
+        note="Search this year's calendar"
+        onClick={() => setMode("pick")}
+        data-testid="paper-appt-link"
+      />
+    </Sheet>
+  );
+}
+
 /* ---------- 3. Customer + job location edit ---------- */
 export function CustEditSheet({ job, onClose }) {
   const { patchAndSave, enqueue, showToast, jobs, api } = useStore();
@@ -1217,71 +1277,6 @@ export function CombineSheet({ job, onClose }) {
 }
 
 /* ---------- 6. Inspection scheduled / appointment (paperwork) ---------- */
-export function InspectionSheet({ job, branch, step = "Inspection scheduled", initialDt = "", onClose }) {
-  const { patchJob, enqueue, logSend, showToast } = useStore();
-  const [dt, setDt] = useState(initialDt || "");
-  const isConEd = step === "Inspection appointment";
-  const title = step;
-  const confirm = (withCalendar) => {
-    if (!dt) return showToast("Pick a date and time");
-    const dateVal = DATE_STEPS[step] === "datetime" ? dt : dt.slice(0, 10);
-    patchJob(job.id, { paperwork: { [branch]: { dates: { [step]: dateVal } } } });
-    if (withCalendar) {
-      enqueue(
-        "calendar_upsert",
-        job.id,
-        {
-          calEventId: job.calEventId || "",
-          summary: (isConEd ? "Con Ed inspection" : "Inspection") + " — " + (job.customer || ""),
-          start: dt,
-          location: job.address || "",
-          description: step + " from LE Pro",
-        },
-        "judgment",
-        "insp:" + job.id + ":" + dt
-      );
-      showToast("Inspection queued to calendar");
-    }
-    const email = (job.email || "").trim();
-    if (email) {
-      const when = dt.replace("T", " at ").slice(0, 16);
-      const msg = `Hi ${(job.customer || "").split(" ")[0] || "there"}, your ${
-        isConEd ? "Con Edison" : "city"
-      } inspection is scheduled for ${when}. Please reply if you have any questions. — BLZ Electric`;
-      enqueue(
-        "send_reminder",
-        job.id,
-        { email, invoiceNo: job.invoiceNo || "", message: msg },
-        "judgment",
-        "insp-mail:" + job.id + ":" + dt
-      );
-      logSend(job.id, "Inspection notice queued");
-      showToast(withCalendar ? "Calendar + customer email queued" : "Customer email queued");
-    } else if (!withCalendar) {
-      showToast("Date saved — add customer email to notify them");
-    }
-    onClose();
-  };
-  return (
-    <Sheet title={title} onClose={onClose}>
-      <Fld label="Date & time">
-        <input
-          className="input"
-          type="datetime-local"
-          value={dt}
-          onChange={(e) => setDt(e.target.value)}
-          aria-label="Inspection date and time"
-        />
-      </Fld>
-      <button className="btn-brand w-full" onClick={() => confirm(true)}>
-        Add to calendar &amp; email customer
-      </button>
-      <button className="btn-ghost w-full mt-2" onClick={() => confirm(false)}>
-        Email customer only
-      </button>
-      <button className="btn-ghost w-full mt-2" onClick={onClose}>
-        Cancel
-      </button>
-    </Sheet>
-  );
+export function InspectionSheet(props) {
+  return <PaperworkApptSheet {...props} />;
 }

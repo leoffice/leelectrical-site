@@ -5,7 +5,11 @@ import WeekCalendar from "./WeekCalendar.jsx";
 import { useStore } from "../state/store.jsx";
 import { effectiveServiceAddress } from "../lib/customerSync.js";
 import { withJobLink } from "../lib/calendarLink.js";
+import { DATE_STEPS, inspectionAppointmentTitle } from "../lib/paperwork.js";
 import { todayStr } from "../lib/format.js";
+
+/** Google Calendar colorId 11 = red (Tomato). */
+export const GCAL_RED_COLOR_ID = "11";
 
 function jobDefaultSummary(job) {
   if (!job) return "";
@@ -29,14 +33,28 @@ function jobDefaultDate(job, defaultDate) {
   return d ? d + "T09:00" : "";
 }
 
-export default function AddAppointmentSheet({ defaultDate, job, onClose, showCalendar = true }) {
-  const { events, enqueue, showToast, patchAndSave, appendLocalEvent, pullCalendarNow } = useStore();
-  const [summary, setSummary] = useState(() => jobDefaultSummary(job));
-  const [dt, setDt] = useState(() => jobDefaultDate(job, defaultDate));
+export default function AddAppointmentSheet({
+  defaultDate,
+  defaultSummary,
+  inspectionPreset,
+  job,
+  onClose,
+  onSaved,
+  showCalendar = true,
+}) {
+  const { events, enqueue, showToast, patchAndSave, patchJob, appendLocalEvent, pullCalendarNow } = useStore();
+  const fromInspection = !!inspectionPreset?.step;
+  const presetDt = defaultDate || (fromInspection ? inspectionPreset?.date : "");
+  const [summary, setSummary] = useState(() => {
+    if (defaultSummary) return defaultSummary;
+    if (fromInspection) return inspectionAppointmentTitle(inspectionPreset.step, presetDt);
+    return jobDefaultSummary(job);
+  });
+  const [dt, setDt] = useState(() => jobDefaultDate(job, presetDt));
   const [location, setLocation] = useState(() => (job ? effectiveServiceAddress(job) : ""));
   const [notes, setNotes] = useState(() => jobDefaultNotes(job));
-  const [remind1h, setRemind1h] = useState(false);
-  const [remind1d, setRemind1d] = useState(false);
+  const [remind1h, setRemind1h] = useState(fromInspection);
+  const [remind1d, setRemind1d] = useState(fromInspection);
   const [notifyCustomer, setNotifyCustomer] = useState(!!job?.email);
   const [guestEmail, setGuestEmail] = useState(job?.email || "");
 
@@ -57,23 +75,28 @@ export default function AddAppointmentSheet({ defaultDate, job, onClose, showCal
     if (remind1h) reminders.push({ label: "1h", minutes: 60 });
     if (remind1d) reminders.push({ label: "1d", minutes: 1440 });
 
-    await enqueue(
-      "calendar_upsert",
-      busId,
-      {
-        calEventId: job?.calEventId || "",
-        summary: title,
-        start: dt,
-        location: location || "",
-        description,
-        guests,
-        attendees: guests,
-        reminders,
-        notifyCustomer: notifyCustomer && guests.length > 0,
-      },
-      "judgment",
-      key
-    );
+    const payload = {
+      calEventId: job?.calEventId || "",
+      summary: title,
+      start: dt,
+      location: location || "",
+      description,
+      guests,
+      attendees: guests,
+      reminders,
+      notifyCustomer: notifyCustomer && guests.length > 0,
+    };
+    if (fromInspection) payload.colorId = GCAL_RED_COLOR_ID;
+
+    await enqueue("calendar_upsert", busId, payload, "judgment", key);
+
+    if (fromInspection && job?.id && inspectionPreset?.branch && inspectionPreset?.step) {
+      const kind = DATE_STEPS[inspectionPreset.step] || "date";
+      const dateVal = kind === "datetime" ? dt : dt.slice(0, 10);
+      patchJob(job.id, {
+        paperwork: { [inspectionPreset.branch]: { dates: { [inspectionPreset.step]: dateVal } } },
+      });
+    }
     if (job?.id && !job._customerContext) {
       const day = dt.slice(0, 10);
       await patchAndSave(job.id, {
@@ -90,6 +113,7 @@ export default function AddAppointmentSheet({ defaultDate, job, onClose, showCal
     });
     pullCalendarNow();
     showToast(job ? "Appointment queued for " + (job.customer || "job") : "Appointment queued — syncs to Google Calendar");
+    onSaved?.();
     onClose();
   };
 

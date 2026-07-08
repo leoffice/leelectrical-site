@@ -5,7 +5,7 @@ import { StagePill } from "./JobCard.jsx";
 import { amountPaid, invoiceTotal, openBalance, paidPct } from "../lib/customers.js";
 import { effectiveServiceAddress } from "../lib/customerSync.js";
 import { fmt$ } from "../lib/format.js";
-import { hasActivePaperwork, paperworkAwarenessLines } from "../lib/paperwork.js";
+import { PAPERWORK_PILL_STYLES, hasActivePaperwork, paperworkAwarenessLines } from "../lib/paperwork.js";
 import JobDocTabs from "./JobDocTabs.jsx";
 
 export default function JobInfoCard({
@@ -17,6 +17,7 @@ export default function JobInfoCard({
   onInvoice,
   onPayment,
   onCalendar,
+  onPaperworkSchedule,
   showOpenLink = true,
 }) {
   const total = invoiceTotal(job);
@@ -24,7 +25,7 @@ export default function JobInfoCard({
   const balance = openBalance(job);
   const pct = paidPct(job);
   const svc = effectiveServiceAddress(job);
-  const paperLines = useMemo(() => paperworkAwarenessLines(job), [job]);
+  const paperLines = useMemo(() => paperworkAwarenessLines(job, events), [job, events]);
   const showPaper = hasActivePaperwork(job);
 
   const rows = [
@@ -48,19 +49,41 @@ export default function JobInfoCard({
           </div>
           <div className="mt-1.5 flex gap-1.5 flex-wrap items-center justify-start">
             {showPaper ? (
-              paperLines.map(({ branchKey, branchLabel, upNext, timing }) => (
-                <div
-                  key={branchKey}
-                  className="inline-flex items-center gap-1.5 rounded-full border border-slate-200 bg-slate-50 px-2.5 py-1 text-xs max-w-full"
-                  data-testid={"paper-pill-" + branchKey}
-                >
-                  <span className="font-extrabold text-[10px] uppercase tracking-wider text-slate-700 shrink-0">
-                    {branchLabel}
-                  </span>
-                  <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 shrink-0">{timing}</span>
-                  <span className="text-slate-600 leading-snug truncate">{upNext}</span>
-                </div>
-              ))
+              paperLines.map((line) => {
+                const { branchKey, branchLabel, upNext, timing, tone, isSchedulable } = line;
+                const pillClass = PAPERWORK_PILL_STYLES[tone] || PAPERWORK_PILL_STYLES.slate;
+                const inner = (
+                  <>
+                    <span className="font-extrabold text-[10px] uppercase tracking-wider shrink-0 opacity-90">
+                      {branchLabel}
+                    </span>
+                    <span className="text-[10px] font-bold uppercase tracking-wider shrink-0 opacity-70">{timing}</span>
+                    <span className="leading-snug truncate opacity-90">{upNext}</span>
+                  </>
+                );
+                if (isSchedulable && onPaperworkSchedule) {
+                  return (
+                    <button
+                      key={branchKey}
+                      type="button"
+                      className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs max-w-full text-left active:opacity-80 ${pillClass}`}
+                      data-testid={"paper-pill-" + branchKey}
+                      onClick={() => onPaperworkSchedule(line)}
+                    >
+                      {inner}
+                    </button>
+                  );
+                }
+                return (
+                  <div
+                    key={branchKey}
+                    className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs max-w-full ${pillClass}`}
+                    data-testid={"paper-pill-" + branchKey}
+                  >
+                    {inner}
+                  </div>
+                );
+              })
             ) : (
               <StagePill job={job} />
             )}

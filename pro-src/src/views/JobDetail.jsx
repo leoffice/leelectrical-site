@@ -41,6 +41,7 @@ import {
   CombineSheet,
   CustEditSheet,
   InspectionSheet,
+  PaperworkApptSheet,
   MarkPaidSheet,
   MenuSheet,
   PaymentHistorySheet,
@@ -215,6 +216,9 @@ export default function JobDetail() {
         onInvoice={() => openDocTab(job, "invoice", setSheet)}
         onPayment={() => setSheet({ kind: "paymenu" })}
         onCalendar={() => openDocTab(job, "calendar", setSheet)}
+        onPaperworkSchedule={(line) =>
+          setSheet({ kind: "paperAppt", branch: line.branchKey, step: line.step, initialDt: line.date })
+        }
       />
 
       {/* Money */}
@@ -260,11 +264,6 @@ export default function JobDetail() {
                 </div>
               </button>
             )}
-            {due > 0.01 ? (
-              <button className="btn bg-emerald-500 text-white w-full" onClick={() => setSheet({ kind: "paid" })}>
-                💵 Record payment…
-              </button>
-            ) : null}
           </div>
         );
       })()}
@@ -743,6 +742,15 @@ export default function JobDetail() {
       {sheet?.kind === "attach" && <AttachSheet job={job} onClose={() => setSheet(null)} />}
       {sheet?.kind === "inspection" && (
         <InspectionSheet
+          job={job}
+          branch={sheet.branch}
+          step={sheet.step}
+          initialDt={sheet.initialDt}
+          onClose={() => setSheet(null)}
+        />
+      )}
+      {sheet?.kind === "paperAppt" && (
+        <PaperworkApptSheet
           job={job}
           branch={sheet.branch}
           step={sheet.step}

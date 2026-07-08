@@ -25,7 +25,7 @@ const openInvoiceSheet = async (user) => {
   renderApp("#/job/J-1");
   const pane = await screen.findByTestId("detail-pane");
   await within(pane).findByText("Peretz Chein");
-  await user.click(within(pane).getByText("🧾 Invoice 251841"));
+  await user.click(within(pane).getByTestId("tab-invoice"));
   return screen.getByRole("dialog");
 };
 

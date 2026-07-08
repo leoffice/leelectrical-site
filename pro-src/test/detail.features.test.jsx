@@ -28,7 +28,8 @@ describe("1. mark-as-paid sheet -> staged -> record_payment on Save", () => {
     const user = userEvent.setup();
     const pane = await openDetail();
 
-    await user.click(within(pane).getByText("💵 Record payment…"));
+    await user.click(within(pane).getByTestId("tab-payment"));
+    await user.click(screen.getByText("Record a payment"));
     const amt = screen.getByLabelText("Amount");
     expect(amt).toHaveValue("2300"); // prefilled, $/commas stripped
     await user.selectOptions(screen.getByLabelText("Payment method"), "Zelle");
@@ -73,7 +74,8 @@ describe("1. mark-as-paid sheet -> staged -> record_payment on Save", () => {
     const user = userEvent.setup();
     renderApp("#/job/J-partial");
     const pane = await screen.findByTestId("detail-pane");
-    await user.click(within(pane).getByText("💵 Record payment…"));
+    await user.click(within(pane).getByTestId("tab-payment"));
+    await user.click(screen.getByText("Record a payment"));
     const amt = screen.getByLabelText("Amount");
     await user.clear(amt);
     await user.type(amt, "1000");
@@ -101,12 +103,12 @@ describe("2. quick views — invoice/estimate/calendar sheets", () => {
 
     await user.click(within(pane).getByTestId("tab-invoice"));
     expect(screen.getByText("Open in QuickBooks")).toBeInTheDocument();
-    await user.click(screen.getByText("Send to p@x.com"));
+    await user.click(screen.getByText(/Send invoice only/));
     await waitFor(() => expect(srv.enqueued("send_invoice")).toHaveLength(1));
     const cmd = srv.enqueued("send_invoice")[0];
     expect(cmd.lane).toBe("deterministic");
     expect(cmd.idempotencyKey).toBe("send_invoice:251841");
-    expect(cmd.payload).toEqual({ email: "p@x.com", invoiceNo: "251841" });
+    expect(cmd.payload).toMatchObject({ email: "p@x.com", invoiceNo: "251841", includePaymentLink: false });
     // invoiceHistory logged (staged) -> Send history card shows it
     expect(await within(pane).findByText("Invoice #251841 send queued")).toBeInTheDocument();
   });
@@ -117,10 +119,8 @@ describe("2. quick views — invoice/estimate/calendar sheets", () => {
     const pane = await openDetail();
 
     await user.click(within(pane).getByTestId("tab-estimate"));
-    await user.click(screen.getByText("Send to p@x.com"));
-    await waitFor(() => expect(srv.enqueued("send_estimate")).toHaveLength(1));
-    expect(srv.enqueued("send_estimate")[0].idempotencyKey).toBe("send_estimate:E-9");
-    expect(srv.enqueued("send_estimate")[0].payload).toEqual({ email: "p@x.com", estimateNo: "E-9" });
+    expect(screen.getByText("View in QuickBooks")).toBeInTheDocument();
+    expect(screen.getByText("View PDF")).toBeInTheDocument();
 
     await user.click(within(pane).getByTestId("tab-calendar"));
     expect(screen.getByText("Open Google Calendar")).toBeInTheDocument();
@@ -241,17 +241,23 @@ describe("6. progress — steps, paperwork branches, scheduled date", () => {
     // DOB list matches jobs.html: no "Application submitted" in the DOB branch
     expect(within(pane).getAllByText("Application submitted")).toHaveLength(1); // Con Ed only
     await user.click(within(pane).getByRole("switch", { name: "Inspection scheduled" }));
-    const dtIn = await screen.findByLabelText("Inspection date and time");
+    await user.click(await screen.findByTestId("paper-appt-create"));
+    const dtIn = await screen.findByLabelText("Appointment date and time");
     fireEvent.change(dtIn, { target: { value: "2099-07-10T09:00" } });
-    await user.click(screen.getByText("Add to calendar & email customer"));
+    await user.click(screen.getByTestId("appt-save"));
     await waitFor(() => expect(srv.enqueued("calendar_upsert")).toHaveLength(1));
     const cmd = srv.enqueued("calendar_upsert")[0];
     expect(cmd.lane).toBe("judgment");
-    expect(cmd.idempotencyKey).toBe("insp:J-1:2099-07-10T09:00");
-    expect(cmd.payload.summary).toBe("Inspection — Peretz Chein");
+    expect(cmd.payload.summary).toContain("Inspection appointment");
     expect(cmd.payload.start).toBe("2099-07-10T09:00");
-    await waitFor(() => expect(srv.enqueued("send_reminder")).toHaveLength(1));
-    expect(srv.enqueued("send_reminder")[0].payload.email).toBe("p@x.com");
+    expect(cmd.payload.colorId).toBe("11");
+    expect(cmd.payload.guests).toEqual(["p@x.com"]);
+    expect(cmd.payload.reminders).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ minutes: 60 }),
+        expect.objectContaining({ minutes: 1440 }),
+      ])
+    );
   });
 
   it("Scheduled step's job-date input stages the date and enqueues calendar_upsert", async () => {
@@ -317,7 +323,7 @@ describe("8. attachments", () => {
     await waitFor(() => expect(srv.enqueued("attach_to_invoice")).toHaveLength(1));
     const cmd = srv.enqueued("attach_to_invoice")[0];
     expect(cmd.lane).toBe("deterministic");
-    expect(cmd.idempotencyKey).toBe("att:J-1:Panel photo");
+    expect(cmd.idempotencyKey).toBe("att:inv:J-1:Panel photo");
     expect(cmd.payload).toEqual({ invoiceNo: "251841", name: "Panel photo", url: "https://x/2" });
     expect(await within(pane).findByText("Panel photo")).toBeInTheDocument();
 

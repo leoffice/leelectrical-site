@@ -43,7 +43,7 @@ describe("paperworkUpNext", () => {
       },
     });
     expect(lines).toHaveLength(2);
-    expect(lines[0].branchLabel).toBe("Con Ed filing");
+    expect(lines[0].branchLabel).toBe("ConEd");
     expect(lines[1].branchLabel).toBe("DOB");
     expect(lines[1].upNext).toBe("Request inspection");
   });

@@ -65,7 +65,7 @@ describe("#44 jobs-list Invoice offers View as well as Send", () => {
     renderNode(<QuickSendSheet job={JOB} onClose={() => {}} />);
 
     expect(await screen.findByText("View PDF")).toBeInTheDocument(); // NEW: view path
-    expect(screen.getByText("Send to p@x.com")).toBeInTheDocument(); // existing: send path
+    expect(screen.getByText(/Send to p@x.com/)).toBeInTheDocument(); // existing: send path
   });
 });
 

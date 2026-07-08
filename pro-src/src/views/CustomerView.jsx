@@ -8,7 +8,7 @@ import Jobs from "./Jobs.jsx";
 import CustomerCard from "../components/CustomerCard.jsx";
 import JobInfoCard from "../components/JobInfoCard.jsx";
 import JobDocSheets, { openDocTab } from "../components/JobDocSheets.jsx";
-import { CustEditSheet } from "../components/JobSheets.jsx";
+import { CustEditSheet, PaperworkApptSheet } from "../components/JobSheets.jsx";
 import { sortJobs } from "../lib/stages.js";
 import {
   customerAmountSummary,
@@ -77,12 +77,24 @@ export default function CustomerView() {
             onInvoice={() => openDocFor(j, "invoice")}
             onPayment={() => nav("/job/" + j.id + "?from=" + encodeURIComponent(key) + "&pay=1")}
             onCalendar={() => openDocFor(j, "calendar")}
+            onPaperworkSchedule={(line) =>
+              setSheet({ kind: "paperAppt", job: j, branch: line.branchKey, step: line.step, initialDt: line.date })
+            }
           />
         ))}
       </div>
 
       {sheet?.kind === "cust" && sheet.job ? (
         <CustEditSheet job={sheet.job} onClose={() => setSheet(null)} />
+      ) : null}
+      {sheet?.kind === "paperAppt" && sheet.job ? (
+        <PaperworkApptSheet
+          job={sheet.job}
+          branch={sheet.branch}
+          step={sheet.step}
+          initialDt={sheet.initialDt}
+          onClose={() => setSheet(null)}
+        />
       ) : null}
       <JobDocSheets
         sheet={sheet?.job ? sheet : null}

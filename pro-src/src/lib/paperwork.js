@@ -1,3 +1,5 @@
+import { eventForJob } from "./calendarLink.js";
+
 // Paperwork branches — sub-step lists copied EXACTLY from app/jobs.html
 // (the authoritative old dashboard; app/jobs-beta.html is identical).
 // NOTE: sleek.html's DOB list wrongly added "Application submitted" — the old
@@ -8,7 +10,7 @@
 export const PAPER = {
   coned: {
     nm: "🔌 Con Ed paperwork",
-    short: "Con Ed filing",
+    short: "ConEd",
     steps: [
       "Application submitted",
       "POE scheduled",
@@ -123,19 +125,55 @@ export function paperworkTiming(next) {
   return d <= today ? "Current" : "Up next";
 }
 
+/** Default calendar title when creating an inspection appointment from paperwork. */
+export function inspectionAppointmentTitle(step, dateRaw = "") {
+  const base = step === "Inspection appointment" ? "Con Edison appointment" : "Inspection appointment";
+  if (!dateRaw) return base;
+  const when = formatPaperDate(dateRaw, DATE_STEPS[step] || "datetime");
+  return when ? `${base} — ${when}` : base;
+}
+
+/** Pill color: green = scheduled + linked; red = scheduled inspection, not linked; purple = up next. */
+export function paperworkPillTone({ step, hasDate, isInspection, calendarLinked }) {
+  if (!step) return "slate";
+  if (hasDate && isInspection) return calendarLinked ? "green" : "red";
+  if (hasDate && calendarLinked) return "green";
+  return "purple";
+}
+
+export const PAPERWORK_PILL_STYLES = {
+  green: "border-emerald-200 bg-emerald-50 text-emerald-900",
+  red: "border-red-200 bg-red-50 text-red-900",
+  purple: "border-violet-200 bg-violet-50 text-violet-900",
+  slate: "border-slate-200 bg-slate-50 text-slate-700",
+};
+
 /** Job-info awareness lines — one per enabled branch. */
-export function paperworkAwarenessLines(job) {
+export function paperworkAwarenessLines(job, events) {
   const pw = job?.paperwork || {};
+  const calendarLinked = !!(job?.calEventId && eventForJob(job, events));
   const lines = [];
   for (const k of Object.keys(PAPER)) {
     const br = pw[k];
     if (!br?.enabled) continue;
     const next = paperworkUpNext(k, br);
+    const step = next?.step || null;
+    const hasDate = !!next?.date;
+    const isInspection = step ? INSPECTION_STEPS.has(step) : false;
+    const isSchedulable = isInspection;
+    const tone = paperworkPillTone({ step, hasDate, isInspection, calendarLinked });
     lines.push({
       branchKey: k,
       branchLabel: PAPER[k].short || PAPER[k].nm,
       upNext: next?.label || "—",
       timing: paperworkTiming(next),
+      step,
+      hasDate,
+      isInspection,
+      isSchedulable,
+      calendarLinked,
+      tone,
+      date: next?.date || "",
     });
   }
   return lines;
