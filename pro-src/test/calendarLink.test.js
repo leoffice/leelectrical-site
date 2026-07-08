@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
+  eventForJob,
+  isCalendarUnlinkCommand,
   jobCalendarLinkState,
   parseCalendarUpsertResult,
   withJobLink,
@@ -55,5 +57,24 @@ describe("calendar link state", () => {
     expect(st.confirmed).toBe(false);
     expect(st.pending).toBe(false);
     expect(paperworkPillTone({ step: "Inspection appointment", hasDate: true, isInspection: true, calendarConfirmed: st.confirmed, calendarPending: st.pending })).toBe("red");
+  });
+
+  it("stays unlinked after explicit unlink — ignores leJobId tag on other events", () => {
+    const ev = {
+      id: "ev-other",
+      summary: "Service call",
+      start: "2026-08-01T10:00",
+      description: withJobLink("Other visit", "J-1"),
+    };
+    const unlinked = { ...job, _calUnlinked: true, calDismissedEventIds: ["ev-other"] };
+    expect(eventForJob(unlinked, [ev])).toBe(null);
+    const st = jobCalendarLinkState(unlinked, [ev], []);
+    expect(st.confirmed).toBe(false);
+    expect(st.pending).toBe(false);
+  });
+
+  it("detects calendar unlink commands", () => {
+    expect(isCalendarUnlinkCommand({ idempotencyKey: "calunlink:abc" })).toBe(true);
+    expect(isCalendarUnlinkCommand({ idempotencyKey: "callink:abc:J-1" })).toBe(false);
   });
 });

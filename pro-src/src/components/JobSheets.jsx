@@ -6,7 +6,7 @@ import Sheet, { Fld, Opt } from "./Sheet.jsx";
 import AddAppointmentSheet from "./AddAppointmentSheet.jsx";
 import PickAppointmentSheet from "./PickAppointmentSheet.jsx";
 import { customerSyncPayload } from "../lib/customerSync.js";
-import { displayEventNotes, eventForJob, unlinkAppointmentJob } from "../lib/calendarLink.js";
+import { displayEventNotes, eventForJob, jobCalendarLinkState, unlinkAppointmentJob } from "../lib/calendarLink.js";
 import { evStart } from "../lib/format.js";
 import CustomerSearch from "./CustomerSearch.jsx";
 import { enrichAndPatchCustomer } from "./NewJobFlow.jsx";
@@ -838,9 +838,12 @@ export function QuickSendSheet({ job, onClose }) {
 // both and let authuser win, landing reliably on office@leelectrical.us.
 export const CAL_ACCOUNT = "office@leelectrical.us";
 export function CalSheet({ job, onClose }) {
-  const { events, patchAndSave, enqueue, patchLocalEvent, showToast } = useStore();
+  const { events, commands, patchJob, patchAndSave, enqueue, patchLocalEvent, showToast } = useStore();
   const [mode, setMode] = useState("menu"); // menu | add | pick | unlink
+  const [unlinking, setUnlinking] = useState(false);
   const event = useMemo(() => eventForJob(job, events), [job, events]);
+  const cal = useMemo(() => jobCalendarLinkState(job, events, commands), [job, events, commands]);
+  const linked = cal.confirmed || cal.pending;
   const d =
     (job.status && job.status.Scheduled && job.status.Scheduled.d) ||
     (job.followUp && job.followUp.date) ||
@@ -862,19 +865,27 @@ export function CalSheet({ job, onClose }) {
         <button
           type="button"
           className="btn-brand w-full"
+          disabled={unlinking}
           onClick={async () => {
-            await unlinkAppointmentJob({
-              event: event || { id: job.calEventId, description: "" },
-              jobId: job.id,
-              patchAndSave,
-              enqueue,
-              patchLocalEvent,
-            });
-            showToast("Appointment unlinked");
-            onClose();
+            setUnlinking(true);
+            try {
+              await unlinkAppointmentJob({
+                event: event || { id: job.calEventId, description: "" },
+                job,
+                jobId: job.id,
+                patchJob,
+                patchAndSave,
+                enqueue,
+                patchLocalEvent,
+              });
+              showToast("Appointment unlinked");
+              onClose();
+            } finally {
+              setUnlinking(false);
+            }
           }}
         >
-          Save &amp; sync
+          {unlinking ? "Unlinking…" : "Unlink now"}
         </button>
       </Sheet>
     );
@@ -882,9 +893,23 @@ export function CalSheet({ job, onClose }) {
 
   return (
     <Sheet title="Calendar" onClose={onClose}>
-      {job.calEventId ? (
-        <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2.5 mb-3 text-sm">
-          <div className="font-semibold text-emerald-900 mb-1">Linked appointment</div>
+      {linked ? (
+        <div
+          className={`rounded-xl border px-3 py-2.5 mb-3 text-sm ${
+            cal.confirmed
+              ? "border-emerald-200 bg-emerald-50"
+              : cal.pending
+              ? "border-orange-200 bg-orange-50"
+              : "border-red-200 bg-red-50"
+          }`}
+        >
+          <div
+            className={`font-semibold mb-1 ${
+              cal.confirmed ? "text-emerald-900" : cal.pending ? "text-orange-900" : "text-red-800"
+            }`}
+          >
+            {cal.confirmed ? "Linked appointment" : cal.pending ? "Linking appointment…" : "Linked appointment"}
+          </div>
           {event ? (
             <>
               <div className="text-slate-700">{event.summary || "—"}</div>
@@ -912,7 +937,7 @@ export function CalSheet({ job, onClose }) {
         note="Search this year's calendar"
         onClick={() => setMode("pick")}
       />
-      {job.calEventId ? (
+      {linked ? (
         <Opt icon="⛓️‍💥" title="Unlink appointment" note="Keeps the event on Google Calendar" onClick={() => setMode("unlink")} />
       ) : null}
       <Opt icon="📅" title="Open Google Calendar" note={d ? "Jumps to " + d : ""} onClick={() => window.open(url)} />

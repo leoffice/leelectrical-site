@@ -14,7 +14,7 @@ function linkedCustomerName(job) {
 }
 
 export default function AppointmentDetailSheet({ event, onClose }) {
-  const { jobs, events, setNewJob, patchAndSave, patchLocalEvent, removeLocalEvent, enqueue, showToast } =
+  const { jobs, events, setNewJob, patchJob, patchAndSave, patchLocalEvent, removeLocalEvent, enqueue, showToast } =
     useStore();
   const nav = useNavigate();
   const [mode, setMode] = useState("view");
@@ -44,7 +44,9 @@ export default function AppointmentDetailSheet({ event, onClose }) {
     try {
       await unlinkAppointmentJob({
         event: liveEvent,
+        job: linked,
         jobId,
+        patchJob,
         patchAndSave,
         enqueue,
         patchLocalEvent,
@@ -67,7 +69,9 @@ export default function AppointmentDetailSheet({ event, onClose }) {
           if (linked?.id) {
             await unlinkAppointmentJob({
               event: liveEvent,
+              job: linked,
               jobId: linked.id,
+              patchJob,
               patchAndSave,
               enqueue,
               patchLocalEvent,

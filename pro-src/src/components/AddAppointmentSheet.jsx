@@ -3,6 +3,7 @@ import React, { useState } from "react";
 import Sheet, { Fld } from "./Sheet.jsx";
 import WeekCalendar from "./WeekCalendar.jsx";
 import { useStore } from "../state/store.jsx";
+import LocationSuggestField from "./LocationSuggestField.jsx";
 import { calendarServiceLocation } from "../lib/customerSync.js";
 import { withJobLink } from "../lib/calendarLink.js";
 import { DATE_STEPS, inspectionAppointmentTitle } from "../lib/paperwork.js";
@@ -43,7 +44,7 @@ export default function AddAppointmentSheet({
   onSaved,
   showCalendar = true,
 }) {
-  const { events, enqueue, showToast, patchAndSave, patchJob, appendLocalEvent, pullCalendarNow } = useStore();
+  const { events, jobs, enqueue, showToast, patchAndSave, patchJob, appendLocalEvent, pullCalendarNow } = useStore();
   const fromInspection = !!inspectionPreset?.step;
   const presetDt = defaultDate || (fromInspection ? inspectionPreset?.date : "");
   const [summary, setSummary] = useState(() => {
@@ -158,9 +159,14 @@ export default function AddAppointmentSheet({
           data-testid="appt-datetime"
         />
       </Fld>
-      <Fld label="Location" hint="Service address">
-        <input className="input" value={location} onChange={(e) => setLocation(e.target.value)} aria-label="Location" />
-      </Fld>
+      <LocationSuggestField
+        job={job}
+        jobs={jobs}
+        events={events}
+        value={location}
+        onChange={setLocation}
+        hint="Tap a suggested address to confirm, or type your own"
+      />
       <Fld label="Notes" hint="Phone, details (optional)">
         <textarea className="input min-h-[60px]" value={notes} onChange={(e) => setNotes(e.target.value)} aria-label="Notes" />
       </Fld>

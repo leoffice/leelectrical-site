@@ -9,7 +9,7 @@ import { evStart } from "../lib/format.js";
 import { displayEventNotes, eventForJob, unlinkAppointmentJob } from "../lib/calendarLink.js";
 
 export default function AppointmentLinkSheet({ job, onClose }) {
-  const { events, patchAndSave, enqueue, patchLocalEvent, showToast } = useStore();
+  const { events, patchJob, patchAndSave, enqueue, patchLocalEvent, showToast } = useStore();
   const [mode, setMode] = useState("view");
   const event = useMemo(() => eventForJob(job, events), [job, events]);
   const customerName = (job?.customer || job?.businessName || job?.title || "this job").trim();
@@ -17,7 +17,9 @@ export default function AppointmentLinkSheet({ job, onClose }) {
   const confirmUnlink = async () => {
     await unlinkAppointmentJob({
       event: event || { id: job.calEventId, description: "" },
+      job,
       jobId: job.id,
+      patchJob,
       patchAndSave,
       enqueue,
       patchLocalEvent,

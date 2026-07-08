@@ -88,15 +88,36 @@ export function parseCalendarUpsertResult(result) {
   }
 }
 
+function dismissedEventIds(job) {
+  return new Set((job?.calDismissedEventIds || []).map((id) => String(id)));
+}
+
 export function eventForJob(job, events) {
+  const dismissed = dismissedEventIds(job);
   const eid = job?.calEventId || "";
-  if (eid) {
+  if (eid && !dismissed.has(String(eid))) {
     const hit = (events || []).find((e) => String(e.id) === String(eid));
     if (hit) return hit;
   }
+  if (job?._calUnlinked) return null;
   const jid = String(job?.id || "");
   if (!jid) return null;
-  return (events || []).find((e) => jobIdFromEventDescription(e.description) === jid) || null;
+  return (
+    (events || []).find((e) => {
+      if (dismissed.has(String(e.id))) return false;
+      return jobIdFromEventDescription(e.description) === jid;
+    }) || null
+  );
+}
+
+export function isCalendarUnlinkCommand(cmd) {
+  return String(cmd?.idempotencyKey || "").startsWith("calunlink:");
+}
+
+export function calendarUpsertLinksJob(cmd, jobId) {
+  if (isCalendarUnlinkCommand(cmd)) return false;
+  const desc = cmd?.payload?.description || "";
+  return jobIdFromEventDescription(desc) === String(jobId || "");
 }
 
 function pendingCalendarUpsert(commands, jobId) {
@@ -138,7 +159,12 @@ export function jobCalendarLinkState(job, events, commands) {
     pending = true;
   } else if (eid && event && !pendingId) {
     confirmed = true;
-  } else if (event && job?.id && jobIdFromEventDescription(event.description) === String(job.id)) {
+  } else if (
+    !job?._calUnlinked &&
+    event &&
+    job?.id &&
+    jobIdFromEventDescription(event.description) === String(job.id)
+  ) {
     pending = true;
   }
 
@@ -192,9 +218,19 @@ export async function applyAppointmentJobLink({
   const eid = event?.id || "";
   const desc = withJobLink(displayEventNotes(event?.description), job.id);
   const prior = linkedJobForEvent(event, jobs);
-  if (prior && prior.id !== job.id) await patchAndSave(prior.id, { calEventId: "" });
-  if (previousJobId && previousJobId !== job.id) await patchAndSave(previousJobId, { calEventId: "" });
-  await patchAndSave(job.id, { calEventId: eid });
+  if (prior && prior.id !== job.id) {
+    const d = [...(prior.calDismissedEventIds || [])];
+    if (eid && !d.includes(eid)) d.push(eid);
+    await patchAndSave(prior.id, { calEventId: "", _calUnlinked: true, calDismissedEventIds: d });
+  }
+  if (previousJobId && previousJobId !== job.id) {
+    await patchAndSave(previousJobId, { calEventId: "", _calUnlinked: true });
+  }
+  await patchAndSave(job.id, {
+    calEventId: eid,
+    _calUnlinked: false,
+    calDismissedEventIds: (job.calDismissedEventIds || []).filter((id) => String(id) !== String(eid)),
+  });
   if (eid) {
     await enqueue(
       "calendar_upsert",
@@ -214,11 +250,24 @@ export async function applyAppointmentJobLink({
 }
 
 /** Remove job ↔ appointment link (keeps the calendar event). */
-export async function unlinkAppointmentJob({ event, jobId, patchAndSave, enqueue, patchLocalEvent }) {
-  if (jobId) await patchAndSave(jobId, { calEventId: "" });
+export async function unlinkAppointmentJob({
+  event,
+  job,
+  jobId,
+  patchJob,
+  patchAndSave,
+  enqueue,
+  patchLocalEvent,
+}) {
   const eid = event?.id || "";
+  const dismissed = [...(job?.calDismissedEventIds || [])];
+  if (eid && !dismissed.includes(eid)) dismissed.push(eid);
+  const clearPatch = { calEventId: "", _calUnlinked: true, calDismissedEventIds: dismissed };
+  if (jobId && patchJob) patchJob(jobId, clearPatch);
+  if (jobId) await patchAndSave(jobId, clearPatch);
   const desc = displayEventNotes(event?.description);
   if (eid) {
+    if (patchLocalEvent) patchLocalEvent(eid, { description: desc });
     await enqueue(
       "calendar_upsert",
       jobId || "today",
@@ -232,6 +281,5 @@ export async function unlinkAppointmentJob({ event, jobId, patchAndSave, enqueue
       "judgment",
       "calunlink:" + eid
     );
-    if (patchLocalEvent) patchLocalEvent(eid, { description: desc });
   }
 }

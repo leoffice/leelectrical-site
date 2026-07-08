@@ -21,6 +21,8 @@ import { normalizePayments } from "../lib/payments.js";
 import { unhandledCount } from "../lib/sas.js";
 import { customerSyncPayload } from "../lib/customerSync.js";
 import {
+  calendarUpsertLinksJob,
+  isCalendarUnlinkCommand,
   isPendingCalEventId,
   jobIdFromEventDescription,
   parseCalendarUpsertResult,
@@ -368,13 +370,22 @@ export function StoreProvider({ children }) {
 
       const job = jobs.find((j) => String(j.id) === String(cmd.jobId));
       if (!job) continue;
+
+      if (isCalendarUnlinkCommand(cmd) || !calendarUpsertLinksJob(cmd, cmd.jobId)) {
+        appliedCalUpserts.current.add(mark);
+        if (String(job.calEventId) === String(eventId) || isPendingCalEventId(job.calEventId)) {
+          patchAndSave(cmd.jobId, { calEventId: "", _calUnlinked: true });
+        }
+        continue;
+      }
+
       if (String(job.calEventId) === String(eventId) && !isPendingCalEventId(job.calEventId)) {
         appliedCalUpserts.current.add(mark);
         continue;
       }
 
       appliedCalUpserts.current.add(mark);
-      patchAndSave(cmd.jobId, { calEventId: eventId });
+      patchAndSave(cmd.jobId, { calEventId: eventId, _calUnlinked: false });
       setEvents((evs) => {
         const jid = String(cmd.jobId);
         const pending = evs.find(
