@@ -119,9 +119,11 @@ export default function App() {
       {/* Desktop sidebar */}
       <aside className="hidden lg:flex lg:flex-col w-60 shrink-0 border-r border-slate-200 bg-white min-h-screen sticky top-0 p-4 gap-1" data-testid="sidebar">
         <div className="flex items-center gap-2.5 px-2 py-4 mb-1">
-          <span className="grid place-items-center w-9 h-9 rounded-xl bg-gradient-to-br from-brand to-accent text-white text-lg">
-            ⚡
-          </span>
+          <img
+            src={import.meta.env.BASE_URL + "blz-logo.png"}
+            alt="LE Electric"
+            className="w-9 h-9 rounded-xl object-contain bg-white border border-slate-200/80 p-0.5 shrink-0"
+          />
           <div>
             <div className="font-extrabold tracking-tight text-slate-900 leading-none">LE Pro</div>
             <div className="text-[11px] text-slate-400">LE Electric · Brooklyn</div>
@@ -140,7 +142,11 @@ export default function App() {
         {/* Mobile header */}
         <header className="lg:hidden sticky top-0 z-30 bg-gradient-to-r from-brand to-accent text-white shadow-sm pt-safe">
           <div className="flex items-center gap-2 px-3 py-2">
-            <span className="text-base">⚡</span>
+            <img
+              src={import.meta.env.BASE_URL + "blz-logo.png"}
+              alt=""
+              className="w-7 h-7 rounded-lg object-contain bg-white/15 p-0.5"
+            />
             <span className="text-sm font-bold tracking-tight">LE Pro</span>
             <span className="ml-auto">
               <SyncChip dark />

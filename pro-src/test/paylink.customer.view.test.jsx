@@ -47,7 +47,10 @@ describe("Feature 1 — payment link", () => {
     // simulate the host listener completing it with a link, then the sheet polls
     const c = srv.state.commands.find((x) => x.type === "payment_link");
     c.status = "done";
-    c.result = JSON.stringify({ url: "https://secure.cardknox.com/lepaymentsdev?xamount=652&xinvoice=251839" });
+    c.result = JSON.stringify({
+      url: "https://secure.cardknox.com/lepaymentsdev?xAmount=652&xinvoice=251839",
+      siteSlug: "lepaymentsdev",
+    });
 
     expect(
       await screen.findByText(/\/app\/pro\/#\/pay\//, {}, { timeout: 6000 })

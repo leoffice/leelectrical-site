@@ -439,7 +439,12 @@ export function PaymentLinkSheet({ job, onClose }) {
     if (phase !== "working") return;
     const link = paylinkUrl(cmdResult);
     if (cmdStatus === "done" && link) {
-      const landing = buildPayLandingUrl({ job, cardknoxUrl: link, linkAmount, inv });
+      let siteSlug = "blzelectric";
+      try {
+        const parsed = typeof cmdResult === "string" ? JSON.parse(cmdResult) : cmdResult;
+        if (parsed?.siteSlug) siteSlug = parsed.siteSlug;
+      } catch {}
+      const landing = buildPayLandingUrl({ job, cardknoxUrl: link, linkAmount, inv, siteSlug });
       setUrl(landing);
       const draft = buildPaymentLinkEmail({ job, url: landing, linkAmount, inv });
       setEmailSubject(draft.subject);
@@ -481,7 +486,15 @@ export function PaymentLinkSheet({ job, onClose }) {
     enqueue(
       "payment_link",
       job.id,
-      { invoiceNo: inv, amount: amt, customer: job.customer || "", email: job.email || "" },
+      {
+        invoiceNo: inv,
+        amount: amt,
+        customer: job.customer || "",
+        email: job.email || "",
+        phone: job.phone || "",
+        address: job.address || job.serviceAddress || "",
+        billingAddress: job.billingAddress || job.address || "",
+      },
       "deterministic",
       key
     );
@@ -526,7 +539,9 @@ export function PaymentLinkSheet({ job, onClose }) {
       {phase === "idle" && (
         <>
           <p className="text-sm text-slate-500 mb-3">
-            Creates a <b>View &amp; Pay</b> page (invoice summary + secure payment). Link pre-fills <b>amount due</b> ({dueLabel || "—"}). Change it below for a partial or custom charge.
+            Creates a <b>View &amp; Pay</b> page with the invoice PDF, fee breakdown, and secure payment. Customer
+            edits the amount on that page (✏️) before Pay — the Cardknox page is card entry only. Default:{" "}
+            <b>amount due</b> ({dueLabel || "—"}); override below for a partial charge.
           </p>
           <label className="block text-sm mb-3">
             <span className="font-semibold text-slate-700">Link amount ($)</span>

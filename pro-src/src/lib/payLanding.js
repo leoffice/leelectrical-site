@@ -5,12 +5,19 @@ const SITE_ORIGIN =
   (typeof window !== "undefined" && window.location?.origin) || "https://leelectrical.us";
 
 /** Compact payload embedded in the public View & Pay URL. */
-export function buildPayLandingPayload({ job, cardknoxUrl, linkAmount, inv }) {
+export function buildPayLandingPayload({
+  job,
+  cardknoxUrl,
+  linkAmount,
+  inv,
+  siteSlug = "blzelectric",
+}) {
   const invoiceNo = inv || job?.invoiceNo || "";
   const total = invoiceTotal(job);
   const due = openBalance(job);
   const paid = amountPaid(job);
   const linkAmt = parseFloat(String(linkAmount).replace(/[$,]/g, "")) || due;
+  const addr = job?.billingAddress || job?.address || job?.serviceAddress || "";
   return {
     i: invoiceNo,
     a: linkAmt,
@@ -19,7 +26,12 @@ export function buildPayLandingPayload({ job, cardknoxUrl, linkAmount, inv }) {
     t: total > 0 ? fmt$(total) : job?.amount || "",
     d: due > 0 ? fmt$(due) : "",
     p: paid > 0 ? fmt$(paid) : "",
-    pay: cardknoxUrl,
+    e: (job?.email || "").trim(),
+    ph: (job?.phone || "").trim(),
+    sa: (job?.serviceAddress || job?.address || "").trim(),
+    ba: (job?.billingAddress || addr).trim(),
+    sl: siteSlug,
+    pay: cardknoxUrl || "",
     as: todayStr(),
   };
 }
@@ -36,7 +48,7 @@ function b64urlEncode(obj) {
 function b64urlDecode(token) {
   if (!token) return null;
   try {
-    let b64 = token.replace(/-/g, "+").replace(/_/g, "/");
+    let b64 = String(token).trim().replace(/-/g, "+").replace(/_/g, "/");
     while (b64.length % 4) b64 += "=";
     const raw =
       typeof atob !== "undefined"
@@ -54,12 +66,21 @@ export function encodePayLanding(payload) {
 
 export function decodePayLanding(token) {
   const o = b64urlDecode(token);
-  if (!o || !o.pay || !o.i) return null;
+  if (!o || !o.i) return null;
+  if (!o.sl && !o.pay) return null;
   return o;
 }
 
 /** Customer-facing URL — landing page before the Sola PaymentSITE form. */
-export function buildPayLandingUrl({ job, cardknoxUrl, linkAmount, inv }) {
-  const token = encodePayLanding(buildPayLandingPayload({ job, cardknoxUrl, linkAmount, inv }));
+export function buildPayLandingUrl({ job, cardknoxUrl, linkAmount, inv, siteSlug }) {
+  const token = encodePayLanding(
+    buildPayLandingPayload({ job, cardknoxUrl, linkAmount, inv, siteSlug })
+  );
   return `${SITE_ORIGIN}/app/pro/#/pay/${token}`;
+}
+
+export function invoicePdfUrl(invoiceNo) {
+  const no = String(invoiceNo || "").trim();
+  if (!no) return "";
+  return `${SITE_ORIGIN}/.netlify/functions/docs?key=inv-${encodeURIComponent(no)}`;
 }

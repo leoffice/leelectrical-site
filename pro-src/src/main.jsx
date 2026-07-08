@@ -14,6 +14,7 @@ function PayOrApp() {
     return (
       <Routes>
         <Route path="/pay/:token" element={<PayLanding />} />
+        <Route path="/pay" element={<PayLanding />} />
       </Routes>
     );
   }

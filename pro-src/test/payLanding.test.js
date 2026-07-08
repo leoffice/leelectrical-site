@@ -12,18 +12,30 @@ const job = {
   amount: "$41,000",
   openBalance: 10000,
   invoiceNo: "231315",
+  email: "golan@x.com",
+  phone: "718-555-1",
+  address: "405 Lefferts Ave, Brooklyn, NY 11225",
+  billingAddress: "405 Lefferts Ave, Brooklyn, NY 11225",
 };
 
-const cardknox = "https://secure.cardknox.com/lepaymentsdev?xamount=10000&xinvoice=231315";
+const cardknox = "https://secure.cardknox.com/blzelectric?xAmount=10000&xinvoice=231315";
 
 describe("payLanding", () => {
-  it("round-trips encode/decode", () => {
-    const payload = buildPayLandingPayload({ job, cardknoxUrl: cardknox, linkAmount: "10000", inv: "231315" });
+  it("round-trips encode/decode with billing fields", () => {
+    const payload = buildPayLandingPayload({
+      job,
+      cardknoxUrl: cardknox,
+      linkAmount: "10000",
+      inv: "231315",
+      siteSlug: "blzelectric",
+    });
     const token = encodePayLanding(payload);
     const decoded = decodePayLanding(token);
     expect(decoded.i).toBe("231315");
     expect(decoded.c).toBe("Golan Chakov");
-    expect(decoded.pay).toBe(cardknox);
+    expect(decoded.sl).toBe("blzelectric");
+    expect(decoded.e).toBe("golan@x.com");
+    expect(decoded.ba).toContain("Brooklyn");
     expect(decoded.a).toBe(10000);
   });
 
@@ -31,6 +43,15 @@ describe("payLanding", () => {
     const url = buildPayLandingUrl({ job, cardknoxUrl: cardknox, linkAmount: "10000", inv: "231315" });
     expect(url).toMatch(/\/app\/pro\/#\/pay\//);
     const token = url.split("/pay/")[1];
+    expect(decodePayLanding(token).sl).toBe("blzelectric");
+  });
+
+  it("accepts legacy tokens that only carry pay URL", () => {
+    const token = encodePayLanding({
+      i: "231315",
+      a: 10000,
+      pay: cardknox,
+    });
     expect(decodePayLanding(token).pay).toBe(cardknox);
   });
 

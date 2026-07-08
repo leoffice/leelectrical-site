@@ -5,13 +5,13 @@ export default {
     extend: {
       colors: {
         brand: {
-          DEFAULT: "#4f46e5", // indigo-600 — --brand
-          dark: "#4338ca",
-          soft: "#eef2ff",
+          DEFAULT: "#1a365d", // BLZ navy — --brand
+          dark: "#153050",
+          soft: "#ebf4ff",
         },
         accent: {
-          DEFAULT: "#7c3aed", // violet-600 — --accent
-          soft: "#f5f3ff",
+          DEFAULT: "#2c5282", // BLZ blue — --accent
+          soft: "#e6f0fa",
         },
       },
       boxShadow: {

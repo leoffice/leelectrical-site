@@ -3,8 +3,8 @@
 @tailwind utilities;
 
 :root {
-  --brand: #4f46e5;
-  --accent: #7c3aed;
+  --brand: #1a365d;
+  --accent: #2c5282;
 }
 
 html {
