@@ -1,62 +1,56 @@
-// Header sync chip — tap = full sync; expands with step list + charge bar while busy.
+// Header sync chip — widens while syncing; current phase + progress bar inline (no popup).
 import React from "react";
 import { useStore } from "../state/store.jsx";
 import { ago } from "../lib/format.js";
 
 export default function SyncChip({ dark }) {
   const { syncedAt, busy, syncNow, syncProgress } = useStore();
-  const pct = syncProgress?.pct ?? (busy ? 8 : 0);
-  const steps = syncProgress?.steps || [];
+  const pct = syncProgress?.pct ?? 0;
+  const phase = syncProgress?.label || "Syncing";
 
   return (
-    <div className="relative" data-testid="sync-chip-wrap">
-      <button
-        onClick={syncNow}
-        disabled={busy}
-        data-testid="sync-chip"
-        className={`flex items-center gap-1.5 text-xs font-semibold rounded-full px-3 py-1.5 border min-w-[5.5rem] ${
-          dark
-            ? "bg-white/15 border-white/25 text-white"
-            : busy
-              ? "bg-amber-50 border-amber-200 text-amber-900"
-              : "bg-white border-slate-200 text-slate-500"
-        }`}
-      >
-        <span className="relative flex h-2.5 w-4 shrink-0 rounded-sm border border-slate-300 bg-slate-100 overflow-hidden">
-          <span
-            className={`absolute inset-y-0 left-0 transition-all duration-300 ${
-              busy ? "bg-amber-400" : "bg-emerald-500"
-            }`}
-            style={{ width: (busy ? Math.max(12, pct) : 100) + "%" }}
-            data-testid="sync-battery-fill"
-          />
-        </span>
-        {busy ? "Syncing…" : syncedAt ? `QBO ${ago(syncedAt)}` : "local"}
-      </button>
-
-      {busy && steps.length ? (
-        <div
-          className={`absolute top-full right-0 mt-1.5 z-50 w-44 rounded-xl border shadow-lg px-3 py-2.5 ${
-            dark ? "bg-slate-900 border-slate-700 text-white" : "bg-white border-slate-200 text-slate-700"
-          }`}
-          data-testid="sync-progress-panel"
-        >
-          {steps.map((s) => (
-            <div key={s.id} className="flex items-center gap-2 text-[11px] py-0.5">
-              <span className="w-3 text-center shrink-0">
-                {s.done ? "✓" : s.active ? "●" : "○"}
-              </span>
-              <span className={s.active ? "font-bold" : s.done ? "opacity-70" : "opacity-50"}>{s.label}</span>
-            </div>
-          ))}
-          <div className={`mt-2 h-1.5 rounded-full overflow-hidden ${dark ? "bg-slate-700" : "bg-slate-100"}`}>
+    <button
+      onClick={syncNow}
+      data-testid="sync-chip"
+      title={busy ? "Tap to skip to next step" : "Sync calendar, QuickBooks, and jobs"}
+      className={`flex flex-col rounded-2xl border text-left transition-all duration-200 ${
+        busy ? "min-w-[8.75rem] max-w-[10.5rem] px-2.5 py-1.5 gap-1" : "min-w-[5.25rem] px-3 py-1.5"
+      } ${
+        dark
+          ? "bg-white/15 border-white/25 text-white"
+          : busy
+            ? "bg-amber-50 border-amber-200 text-amber-950"
+            : "bg-white border-slate-200 text-slate-500"
+      }`}
+    >
+      {busy ? (
+        <>
+          <div className="flex items-center justify-between gap-2 w-full">
+            <span
+              className="text-[10px] font-extrabold uppercase tracking-wide animate-pulse"
+              data-testid="sync-phase-label"
+            >
+              {phase}
+            </span>
+            <span className="text-[9px] font-semibold tabular-nums opacity-70 shrink-0">{pct}%</span>
+          </div>
+          <div
+            className={`h-1 w-full rounded-full overflow-hidden ${dark ? "bg-white/20" : "bg-amber-200/70"}`}
+            data-testid="sync-progress-bar"
+          >
             <div
-              className="h-full bg-amber-400 transition-all duration-300"
-              style={{ width: pct + "%" }}
+              className={`h-full rounded-full transition-all duration-300 ${dark ? "bg-white" : "bg-amber-500"}`}
+              style={{ width: Math.max(8, pct) + "%" }}
+              data-testid="sync-battery-fill"
             />
           </div>
-        </div>
-      ) : null}
-    </div>
+        </>
+      ) : (
+        <span className="flex items-center gap-1.5 text-xs font-semibold whitespace-nowrap">
+          <span className="w-2 h-2 rounded-full bg-emerald-500 shrink-0" />
+          {syncedAt ? `QBO ${ago(syncedAt)}` : "local"}
+        </span>
+      )}
+    </button>
   );
 }

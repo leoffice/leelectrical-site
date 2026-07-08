@@ -77,6 +77,7 @@ export function StoreProvider({ children }) {
   const docConfirmT = useRef(null);
   const pendingRef = useRef(pending);
   pendingRef.current = pending;
+  const syncSkipRef = useRef(false);
 
   const showToast = useCallback((msg) => {
     setToastMsg(msg);
@@ -232,67 +233,82 @@ export function StoreProvider({ children }) {
     };
   }, [refresh, refreshJobs, refreshCommands, refreshDev, refreshEvents, refreshSas]);
 
-  const SYNC_STEPS = useMemo(
+  const SYNC_PHASES = useMemo(
     () => [
       { id: "calendar", label: "Calendar" },
       { id: "qbo", label: "QuickBooks" },
-      { id: "refresh", label: "Jobs & events" },
-      { id: "commands", label: "Activity" },
+      { id: "refresh", label: "Refreshing" },
     ],
     []
   );
 
-  const setSyncStep = useCallback(
-    (index, total) => {
-      const steps = SYNC_STEPS.map((s, i) => ({
-        ...s,
-        done: i < index,
-        active: i === index,
-      }));
-      const pct = total ? Math.round((index / total) * 100) : 0;
-      setSyncProgress({ steps, pct, index, total });
+  const setSyncPhase = useCallback(
+    (index) => {
+      const phase = SYNC_PHASES[index] || SYNC_PHASES[SYNC_PHASES.length - 1];
+      const pct = Math.min(100, Math.round((index / SYNC_PHASES.length) * 100));
+      setSyncProgress({ label: phase.label, pct, index });
     },
-    [SYNC_STEPS]
+    [SYNC_PHASES]
   );
 
-  /** Header chip: full sync — calendar, QBO pull, jobs, commands, dev. */
+  const raceSkip = useCallback((promise) => {
+    if (syncSkipRef.current) {
+      syncSkipRef.current = false;
+      return Promise.resolve();
+    }
+    return new Promise((resolve) => {
+      let settled = false;
+      const finish = () => {
+        if (settled) return;
+        settled = true;
+        clearInterval(iv);
+        resolve();
+      };
+      const iv = setInterval(() => {
+        if (syncSkipRef.current) {
+          syncSkipRef.current = false;
+          finish();
+        }
+      }, 80);
+      Promise.resolve(promise).then(finish, finish);
+    });
+  }, []);
+
+  /** Header chip: calendar request → QBO pull (short wait) → refresh all data. Tap while busy skips the current phase. */
   const syncNow = useCallback(async () => {
+    if (busy) {
+      syncSkipRef.current = true;
+      return;
+    }
+    syncSkipRef.current = false;
     setBusy(true);
     const before = syncedAt;
-    const total = SYNC_STEPS.length;
+    let meta = null;
     try {
-      setSyncStep(0, total);
-      await api.requestCalendarSync?.().catch(() => {});
+      setSyncPhase(0);
+      await raceSkip(api.requestCalendarSync?.().catch(() => {}));
 
-      setSyncStep(1, total);
-      const meta = await api.pullJobs?.().catch(() => null);
-
-      setSyncStep(2, total);
-      await refresh(true, { pullCalendar: true, awaitPull: true });
-      const ts = (meta && meta.syncedAt) || 0;
-      if (ts) setSyncedAt(ts);
-      await refreshJobs(true);
-
-      setSyncStep(3, total);
-      await refreshCommands();
-
-      setSyncProgress((p) =>
-        p
-          ? {
-              ...p,
-              pct: 100,
-              steps: p.steps.map((s) => ({ ...s, done: true, active: false })),
-            }
-          : p
+      setSyncPhase(1);
+      meta = await raceSkip(
+        api.pullJobs?.({ maxWaitMs: 20000 }).catch(() => null)
       );
 
+      setSyncPhase(2);
+      await raceSkip(refresh(true, { pullCalendar: true, awaitPull: false }));
+      const ts = (meta && meta.syncedAt) || 0;
+      if (ts) setSyncedAt(ts);
+      await raceSkip(refreshJobs(true));
+      await raceSkip(refreshCommands());
+
+      setSyncProgress({ label: "Done", pct: 100, index: SYNC_PHASES.length });
+
       if (ts > before) showToast("Refreshed — QuickBooks & calendar synced");
-      else showToast("Sync requested — still waiting on QuickBooks (retry in a moment)");
+      else showToast("Sync requested — QuickBooks may still be pulling in the background");
     } finally {
       setBusy(false);
-      setTimeout(() => setSyncProgress(null), 900);
+      setTimeout(() => setSyncProgress(null), 700);
     }
-  }, [refresh, refreshJobs, refreshCommands, showToast, syncedAt, setSyncStep, SYNC_STEPS]);
+  }, [busy, refresh, refreshJobs, refreshCommands, showToast, syncedAt, setSyncPhase, raceSkip, SYNC_PHASES.length]);
 
   /* ---------- staged edits ---------- */
   const patchJob = useCallback((id, patch) => {
