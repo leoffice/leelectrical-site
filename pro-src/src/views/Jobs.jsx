@@ -1,6 +1,6 @@
 // Jobs view — search, filter chips, amount-sorted cards, customer grouping
 // (clientGroup OR normalized name), and per-card quick actions.
-import React, { useEffect, useMemo, useRef, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useStore } from "../state/store.jsx";
 import { CustomerAvatar, GroupJobRow, PaidPill, StagePill } from "../components/JobCard.jsx";
 import { Link } from "react-router-dom";
@@ -151,17 +151,18 @@ export default function Jobs({ embedded }) {
   };
 
   const active = useMemo(() => jobs.filter((j) => !j._archived && !j._deleted), [jobs]);
-  const shown = useMemo(
-    () => sortJobs(active.filter((j) => matchesFilter(j, filter) && matchesQuery(j, q)), sort),
-    [active, filter, q, sort]
+  const matchesChip = useCallback(
+    (j) => matchesFilter(j, filter) && matchesQuery(j, q),
+    [filter, q]
   );
+  const shown = useMemo(() => sortJobs(active.filter(matchesChip), sort), [active, matchesChip, sort]);
 
-  // Bug #1: key = clientGroup || normalized customer name. A second pass
-  // folds name-keyed jobs into an existing clientGroup row for the same
-  // customer, so a customer can never show as a group AND loose cards.
+  // Bug #1: group ALL jobs for a customer together (paid + unpaid). The filter
+  // chip only controls which *groups* appear, not whether paid siblings vanish
+  // from a multi-invoice customer (e.g. izzy: $650 paid + $870 open).
   const groups = useMemo(() => {
     const map = new Map();
-    for (const j of shown) {
+    for (const j of active) {
       const k = clientKey(j);
       if (!map.has(k)) map.set(k, []);
       map.get(k).push(j);
@@ -191,10 +192,25 @@ export default function Jobs({ embedded }) {
         map.delete(k);
       }
     }
-    // Groups take the rank of their best job (list[0] — each list is sorted).
     const cmp = sortCmp(sort);
-    return [...map.entries()].sort((A, B) => cmp(A[1][0], B[1][0]));
-  }, [shown, sort]);
+    const rank = (list) => {
+      const hit = list.filter(matchesChip);
+      return sortJobs(hit.length ? hit : list, sort)[0];
+    };
+    return [...map.entries()]
+      .filter(([, list]) => list.some(matchesChip))
+      .map(([k, list]) => [k, sortJobs(list, sort)])
+      .sort((A, B) => cmp(rank(A[1]), rank(B[1])));
+  }, [active, matchesChip, sort]);
+
+  /** Jobs shown inside an expanded group — full customer when Active/All + no search. */
+  const expandJobs = useCallback(
+    (list) => {
+      const showAll = (filter === "Active" || filter === "All") && !q.trim();
+      return showAll ? list : list.filter(matchesChip);
+    },
+    [filter, q, matchesChip]
+  );
 
   /* auto-collapse an expanded row after ~8s without interaction */
   const armCollapse = (key) => {
@@ -316,7 +332,10 @@ export default function Jobs({ embedded }) {
           {groups.map(([key, list]) => {
             const job = list[0];
             const customerName = job.customer || "(no customer)";
-            const sum = customerAmountSummary(list);
+            const showFullGroup = (filter === "Active" || filter === "All") && !q.trim();
+            const chipHits = list.filter(matchesChip);
+            const displayList = showFullGroup ? list : chipHits.length ? chipHits : list;
+            const sum = customerAmountSummary(showFullGroup ? list : displayList);
 
             if (list.length === 1) {
               const href = "/job/" + encodeURIComponent(job.id);
@@ -364,7 +383,7 @@ export default function Jobs({ embedded }) {
                     name={customerName}
                     amount={fmt$(sum.due) || "$0"}
                     meta={customerMetaLine(sum)}
-                    hint={jobTitlesHint(list)}
+                    hint={open[key] ? "" : jobTitlesHint(displayList)}
                     onNameClick={() => nav("/customer/" + encodeURIComponent(key))}
                     avatar={<CustomerAvatar name={customerName} />}
                     trailing={
@@ -385,7 +404,7 @@ export default function Jobs({ embedded }) {
                     className="px-2.5 pb-2.5 space-y-1.5 bg-slate-50/60 border-t border-slate-100 pt-2"
                     onPointerDown={() => armCollapse(key)}
                   >
-                    {list.map((j) => (
+                    {expandJobs(list).map((j) => (
                       <GroupJobRow key={j.id} job={j} />
                     ))}
                   </div>

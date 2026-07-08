@@ -85,9 +85,9 @@ describe("Feature 2 — customer group total due + Customer view", () => {
 
   it("group row shows TOTAL BALANCE DUE (sum of unpaid open balances)", async () => {
     renderApp("#/");
-    // K-1 (1000) + K-3 (300) = $1,300 due in Active filter (K-2 paid is hidden)
+    // K-1 (1000) + K-3 (300) = $1,300 due; group still lists all 3 jobs (incl. paid K-2)
     const grp = await screen.findByTestId("client-group");
-    expect(within(grp).getByText("2 jobs")).toBeInTheDocument();
+    expect(within(grp).getByTestId("client-group-meta")).toHaveTextContent(/3 jobs/);
     expect(within(grp).getByTestId("client-group-amount")).toHaveTextContent("$1,300");
   });
 
