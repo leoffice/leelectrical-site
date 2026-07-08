@@ -1,9 +1,10 @@
 // LockGate (task #39) — full-screen unlock shown on every fresh app open,
 // BEFORE the app content mounts. Primary: device biometric (Face ID /
-// fingerprint) via the WebAuthn platform authenticator. Fallback: Supabase
-// email + password. A short in-session grace keeps a mid-session reload from
-// re-prompting; a fresh launch re-locks.
-import React, { useCallback, useEffect, useState } from "react";
+// fingerprint) via the WebAuthn platform authenticator — prompted immediately
+// on open (no tap-to-unlock). Fallback: Supabase email + password. A short
+// in-session grace keeps a mid-session reload from re-prompting; a fresh
+// launch re-locks.
+import React, { useCallback, useEffect, useRef, useState } from "react";
 import {
   biometricSupported,
   biometricUnlock,
@@ -23,6 +24,7 @@ export default function LockGate({ children }) {
   const [password, setPassword] = useState("");
 
   const enrolled = hasEnrolledCredential();
+  const autoBioRan = useRef(false);
 
   const succeed = useCallback(() => {
     markUnlocked();
@@ -62,6 +64,20 @@ export default function LockGate({ children }) {
     }
   }, [succeed]);
 
+  // Open → fingerprint/Face ID right away (no tap-to-unlock step).
+  useEffect(() => {
+    if (unlocked || !bioAvail || mode !== "biometric" || busy || autoBioRan.current) return;
+    autoBioRan.current = true;
+    runBiometric();
+  }, [unlocked, bioAvail, mode, busy, runBiometric]);
+
+  const retryBiometric = useCallback(() => {
+    setErr("");
+    setMode("biometric");
+    autoBioRan.current = true;
+    runBiometric();
+  }, [runBiometric]);
+
   const runPassword = useCallback(
     async (e) => {
       e?.preventDefault?.();
@@ -92,22 +108,31 @@ export default function LockGate({ children }) {
       <div className="w-full max-w-sm flex flex-col items-center">
         <span className="grid place-items-center w-16 h-16 rounded-2xl bg-white/15 text-4xl mb-4">⚡</span>
         <h1 className="text-2xl font-extrabold tracking-tight">LE Pro</h1>
-        <p className="text-sm text-white/70 mb-8">Locked · unlock to continue</p>
+        <p className="text-sm text-white/70 mb-8">
+          {mode === "biometric" && bioAvail && busy
+            ? enrolled
+              ? "Confirm Face ID / fingerprint…"
+              : "Set up Face ID / fingerprint…"
+            : "Locked · unlock to continue"}
+        </p>
 
         {mode === "biometric" && bioAvail && (
           <div className="w-full flex flex-col items-center">
-            <button
-              type="button"
-              onClick={runBiometric}
-              disabled={busy}
+            <div
+              className={`w-24 h-24 rounded-full bg-white/15 grid place-items-center text-5xl mb-4 shadow-lg ${
+                busy ? "animate-pulse" : ""
+              }`}
               data-testid="lock-biometric"
-              className="w-24 h-24 rounded-full bg-white/15 active:bg-white/25 grid place-items-center text-5xl mb-4 disabled:opacity-50 shadow-lg"
-              aria-label={enrolled ? "Unlock with biometrics" : "Set up biometric unlock"}
+              aria-hidden
             >
               {busy ? "…" : "👆"}
-            </button>
-            <div className="text-base font-semibold">
-              {busy ? "Verifying…" : enrolled ? "Tap to unlock" : "Tap to set up Face ID / fingerprint"}
+            </div>
+            <div className="text-base font-semibold text-center">
+              {busy
+                ? "Waiting for device…"
+                : enrolled
+                  ? "Face ID / fingerprint"
+                  : "Face ID / fingerprint setup"}
             </div>
             <button
               type="button"
@@ -157,10 +182,7 @@ export default function LockGate({ children }) {
             {bioAvail && (
               <button
                 type="button"
-                onClick={() => {
-                  setErr("");
-                  setMode("biometric");
-                }}
+                onClick={retryBiometric}
                 className="text-sm text-white/80 underline underline-offset-2 mt-1"
                 data-testid="lock-use-biometric"
               >

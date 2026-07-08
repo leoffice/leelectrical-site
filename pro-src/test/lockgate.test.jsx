@@ -86,18 +86,28 @@ describe("LockGate", () => {
     expect(lock.markUnlocked).not.toHaveBeenCalled();
   });
 
-  it("uses the biometric button when a platform authenticator is available", async () => {
+  it("auto-triggers biometric when a platform authenticator is available", async () => {
     lock.biometricSupported.mockResolvedValue(true);
-    const user = userEvent.setup();
     render(
       <LockGate>
         <div data-testid="app">SECRET APP</div>
       </LockGate>
     );
-    await waitFor(() => expect(screen.getByTestId("lock-biometric")).toBeInTheDocument());
-    await user.click(screen.getByTestId("lock-biometric"));
+    await waitFor(() => expect(lock.biometricUnlock).toHaveBeenCalled());
     await waitFor(() => expect(screen.getByTestId("app")).toBeInTheDocument());
-    expect(lock.biometricUnlock).toHaveBeenCalled();
     expect(lock.markUnlocked).toHaveBeenCalled();
+  });
+
+  it("falls back to password after biometric cancel without requiring a tap first", async () => {
+    lock.biometricSupported.mockResolvedValue(true);
+    lock.biometricUnlock.mockRejectedValueOnce({ name: "NotAllowedError" });
+    render(
+      <LockGate>
+        <div data-testid="app">SECRET APP</div>
+      </LockGate>
+    );
+    await waitFor(() => expect(lock.biometricUnlock).toHaveBeenCalled());
+    await waitFor(() => expect(screen.getByTestId("lock-password-form")).toBeInTheDocument());
+    expect(screen.queryByTestId("app")).not.toBeInTheDocument();
   });
 });
