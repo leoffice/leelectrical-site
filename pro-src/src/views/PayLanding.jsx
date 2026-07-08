@@ -11,7 +11,7 @@ import {
 } from "../lib/payFees.js";
 import { solaPayUrlFromLanding } from "../lib/solaPayUrl.js";
 
-const LOGO = import.meta.env.BASE_URL + "le-logo.png";
+const LOGO = import.meta.env.BASE_URL + "le-logo.png?v=2";
 
 function Row({ label, value, bold, children }) {
   if (children) {
