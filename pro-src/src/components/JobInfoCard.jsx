@@ -1,12 +1,42 @@
-// Per-job summary — service address, amounts, doc tabs.
+// Per-job summary — service address, amounts, doc tabs, right-aligned awareness bubbles.
 import React, { useMemo } from "react";
 import AmountDisplay from "./AmountDisplay.jsx";
-import { StagePill } from "./JobCard.jsx";
 import { amountPaid, invoiceTotal, openBalance, paidPct } from "../lib/customers.js";
 import { effectiveServiceAddress } from "../lib/customerSync.js";
 import { fmt$ } from "../lib/format.js";
-import { PAPERWORK_PILL_STYLES, hasActivePaperwork, paperworkAwarenessLines } from "../lib/paperwork.js";
+import { bubbleStyle, jobAwarenessBubbles } from "../lib/jobAwareness.js";
 import JobDocTabs from "./JobDocTabs.jsx";
+
+const BUBBLE_LAYOUT =
+  "inline-flex flex-wrap items-center justify-end gap-x-1.5 gap-y-1 max-w-full text-left rounded-2xl border px-2.5 py-1.5 text-xs lg:rounded-full lg:py-1";
+
+function AwarenessBubble({ bubble, onClick }) {
+  const pillClass = bubbleStyle(bubble.tone);
+  const inner = (
+    <>
+      <span className="font-extrabold text-[10px] uppercase tracking-wider shrink-0 opacity-90">{bubble.branchLabel}</span>
+      <span className="text-[10px] font-bold uppercase tracking-wider shrink-0 opacity-70">{bubble.timing}</span>
+      <span className="leading-snug break-words text-right max-w-[14rem] lg:max-w-[11rem] opacity-90">{bubble.upNext}</span>
+    </>
+  );
+  if (!onClick) {
+    return (
+      <div className={`${BUBBLE_LAYOUT} ${pillClass}`} data-testid={"awareness-pill-" + bubble.key}>
+        {inner}
+      </div>
+    );
+  }
+  return (
+    <button
+      type="button"
+      className={`${BUBBLE_LAYOUT} active:opacity-80 ${pillClass}`}
+      data-testid={"awareness-pill-" + bubble.key}
+      onClick={() => onClick(bubble)}
+    >
+      {inner}
+    </button>
+  );
+}
 
 export default function JobInfoCard({
   job,
@@ -17,7 +47,7 @@ export default function JobInfoCard({
   onInvoice,
   onPayment,
   onCalendar,
-  onPaperworkSchedule,
+  onBubbleTap,
   showOpenLink = true,
 }) {
   const total = invoiceTotal(job);
@@ -25,8 +55,7 @@ export default function JobInfoCard({
   const balance = openBalance(job);
   const pct = paidPct(job);
   const svc = effectiveServiceAddress(job);
-  const paperLines = useMemo(() => paperworkAwarenessLines(job, events, commands), [job, events, commands]);
-  const showPaper = hasActivePaperwork(job);
+  const bubbles = useMemo(() => jobAwarenessBubbles(job, events, commands), [job, events, commands]);
 
   const rows = [
     ["Service address", svc],
@@ -38,6 +67,16 @@ export default function JobInfoCard({
     total > 0 && !job.paid ? ["% paid", pct + "%"] : null,
     job.paid ? ["Status", "Paid in full"] : null,
   ].filter(Boolean);
+
+  const bubbleStrip = bubbles.length ? (
+    <div className="flex flex-wrap justify-end gap-1.5 content-start max-h-[3.25rem] overflow-hidden lg:max-h-[2.75rem]" data-testid="awareness-bubbles">
+      {bubbles.map((b) => (
+        <AwarenessBubble key={b.key} bubble={b} onClick={onBubbleTap} />
+      ))}
+    </div>
+  ) : null;
+
+  const bubbleOverflow = bubbles.length > 2;
 
   return (
     <div className="card px-3 py-3 lg:px-4 lg:py-4" data-testid="job-info-card">
@@ -51,54 +90,21 @@ export default function JobInfoCard({
         <AmountDisplay job={job} size="sm" highlightDue label="Total due" />
       </div>
 
-      <div className="mt-1.5 flex flex-col gap-1.5 w-full lg:flex-row lg:flex-wrap lg:items-center lg:justify-start">
-        {showPaper ? (
-          paperLines.map((line) => {
-            const { branchKey, branchLabel, upNext, timing, tone, isSchedulable } = line;
-            const pillClass = PAPERWORK_PILL_STYLES[tone] || PAPERWORK_PILL_STYLES.slate;
-            const inner = (
-              <>
-                <span className="font-extrabold text-[10px] uppercase tracking-wider shrink-0 opacity-90">{branchLabel}</span>
-                <span className="text-[10px] font-bold uppercase tracking-wider shrink-0 opacity-70">{timing}</span>
-                <span className="flex-1 min-w-0 leading-snug break-words opacity-90">{upNext}</span>
-              </>
-            );
-            const pillLayout =
-              "w-full flex flex-wrap items-center gap-x-1.5 gap-y-0.5 rounded-2xl border px-2.5 py-1.5 text-xs text-left lg:w-auto lg:inline-flex lg:rounded-full lg:py-1";
-            if (isSchedulable && onPaperworkSchedule) {
-              return (
-                <button
-                  key={branchKey}
-                  type="button"
-                  className={`${pillLayout} active:opacity-80 ${pillClass}`}
-                  data-testid={"paper-pill-" + branchKey}
-                  onClick={() => onPaperworkSchedule(line)}
-                >
-                  {inner}
-                </button>
-              );
-            }
-            return (
-              <div key={branchKey} className={`${pillLayout} ${pillClass}`} data-testid={"paper-pill-" + branchKey}>
-                {inner}
-              </div>
-            );
-          })
-        ) : (
-          <StagePill job={job} />
-        )}
-      </div>
+      {bubbleStrip && !bubbleOverflow ? <div className="mt-1.5 flex justify-end w-full">{bubbleStrip}</div> : null}
 
-      {rows.length > 0 && (
-        <dl className="mt-3 space-y-1 text-xs lg:text-sm">
-          {rows.map(([k, v]) => (
-            <div key={k} className="flex gap-2 items-baseline">
-              <dt className="font-semibold text-slate-800 shrink-0 w-[5.5rem] lg:w-32">{k}</dt>
-              <dd className="text-slate-500 break-words min-w-0">{v}</dd>
-            </div>
-          ))}
-        </dl>
-      )}
+      <div className={`mt-2 flex flex-col gap-2 min-w-0 ${bubbleOverflow ? "lg:flex-row lg:items-start lg:gap-3" : ""}`}>
+        {rows.length > 0 && (
+          <dl className={`space-y-1 text-xs lg:text-sm min-w-0 ${bubbleOverflow ? "flex-1" : "w-full"}`}>
+            {rows.map(([k, v]) => (
+              <div key={k} className="flex gap-2 items-baseline">
+                <dt className="font-semibold text-slate-800 shrink-0 w-[5.5rem] lg:w-32">{k}</dt>
+                <dd className="text-slate-500 break-words min-w-0">{v}</dd>
+              </div>
+            ))}
+          </dl>
+        )}
+        {bubbleOverflow ? <div className="flex justify-end shrink-0 lg:max-w-[48%]">{bubbleStrip}</div> : null}
+      </div>
 
       {onEstimate && onInvoice && onCalendar ? (
         <JobDocTabs

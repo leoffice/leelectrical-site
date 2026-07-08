@@ -36,6 +36,8 @@ import { normalizePayments } from "../lib/payments.js";
 import Toggle from "../components/Toggle.jsx";
 import Jobs from "./Jobs.jsx";
 import JobDocSheets, { openDocTab } from "../components/JobDocSheets.jsx";
+import StepBubbleSheet from "../components/StepBubbleSheet.jsx";
+import { completeAwarenessBubble, skipAwarenessBubble, tapAwarenessBubble } from "../lib/bubbleHandlers.js";
 import {
   AttachSheet,
   CombineSheet,
@@ -216,9 +218,7 @@ export default function JobDetail() {
         onInvoice={() => openDocTab(job, "invoice", setSheet)}
         onPayment={() => setSheet({ kind: "paymenu" })}
         onCalendar={() => openDocTab(job, "calendar", setSheet)}
-        onPaperworkSchedule={(line) =>
-          setSheet({ kind: "paperAppt", branch: line.branchKey, step: line.step, initialDt: line.date })
-        }
+        onBubbleTap={(bubble) => tapAwarenessBubble(job, bubble, setSheet, openDocTab)}
       />
 
       {/* Money */}
@@ -758,6 +758,23 @@ export default function JobDetail() {
           onClose={() => setSheet(null)}
         />
       )}
+      {sheet?.kind === "bubble" && sheet.bubble ? (
+        <StepBubbleSheet
+          bubble={sheet.bubble}
+          onClose={() => setSheet(null)}
+          onComplete={(b) => completeAwarenessBubble(id, job, b, patchJob)}
+          onSkip={(b) => skipAwarenessBubble(id, b, patchJob)}
+          onOpen={(b) => tapAwarenessBubble(job, b, setSheet, openDocTab)}
+          onCalendar={(b) =>
+            setSheet({
+              kind: "paperAppt",
+              branch: b.branchKey,
+              step: b.step,
+              initialDt: b.date,
+            })
+          }
+        />
+      ) : null}
       <JobDocSheets sheet={sheet} setSheet={setSheet} job={job} onDocDone={() => setOpenStep(null)} />
     </div>
   );

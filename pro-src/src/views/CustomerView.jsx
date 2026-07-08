@@ -8,6 +8,8 @@ import Jobs from "./Jobs.jsx";
 import CustomerCard from "../components/CustomerCard.jsx";
 import JobInfoCard from "../components/JobInfoCard.jsx";
 import JobDocSheets, { openDocTab } from "../components/JobDocSheets.jsx";
+import StepBubbleSheet from "../components/StepBubbleSheet.jsx";
+import { completeAwarenessBubble, skipAwarenessBubble, tapAwarenessBubble } from "../lib/bubbleHandlers.js";
 import { CustEditSheet, PaperworkApptSheet } from "../components/JobSheets.jsx";
 import { sortJobs } from "../lib/stages.js";
 import {
@@ -19,7 +21,7 @@ import {
 export default function CustomerView() {
   const { key: raw } = useParams();
   const nav = useNavigate();
-  const { jobs, loading, events, commands } = useStore();
+  const { jobs, loading, events, commands, patchJob } = useStore();
   const key = raw ? decodeURIComponent(raw) : "";
   const [sheet, setSheet] = useState(null); // { kind, job? }
 
@@ -47,6 +49,9 @@ export default function CustomerView() {
 
   const openDocFor = (j, kind) => {
     openDocTab(j, kind, (s) => setSheet({ ...s, job: j }));
+  };
+  const openDocForBubble = (j, kind, setSheetFn) => {
+    openDocTab(j, kind, (s) => setSheetFn({ ...s, job: j }));
   };
 
   const panel = (
@@ -77,8 +82,8 @@ export default function CustomerView() {
             onInvoice={() => openDocFor(j, "invoice")}
             onPayment={() => nav("/job/" + j.id + "?from=" + encodeURIComponent(key) + "&pay=1")}
             onCalendar={() => openDocFor(j, "calendar")}
-            onPaperworkSchedule={(line) =>
-              setSheet({ kind: "paperAppt", job: j, branch: line.branchKey, step: line.step, initialDt: line.date })
+            onBubbleTap={(bubble) =>
+              tapAwarenessBubble(j, bubble, (s) => setSheet({ ...s, job: j }), openDocForBubble)
             }
           />
         ))}
@@ -94,6 +99,26 @@ export default function CustomerView() {
           step={sheet.step}
           initialDt={sheet.initialDt}
           onClose={() => setSheet(null)}
+        />
+      ) : null}
+      {sheet?.kind === "bubble" && sheet.job && sheet.bubble ? (
+        <StepBubbleSheet
+          bubble={sheet.bubble}
+          onClose={() => setSheet(null)}
+          onComplete={(b) => completeAwarenessBubble(sheet.job.id, sheet.job, b, patchJob)}
+          onSkip={(b) => skipAwarenessBubble(sheet.job.id, b, patchJob)}
+          onOpen={(b) =>
+            tapAwarenessBubble(sheet.job, b, (s) => setSheet({ ...s, job: sheet.job }), openDocForBubble)
+          }
+          onCalendar={(b) =>
+            setSheet({
+              kind: "paperAppt",
+              job: sheet.job,
+              branch: b.branchKey,
+              step: b.step,
+              initialDt: b.date,
+            })
+          }
         />
       ) : null}
       <JobDocSheets

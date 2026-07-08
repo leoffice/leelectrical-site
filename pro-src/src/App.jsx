@@ -123,7 +123,7 @@ export default function App() {
       >
         <div className="flex flex-col items-center px-2 py-4 mb-2">
           <img
-            src={import.meta.env.BASE_URL + "le-logo.png?v=4"}
+            src={import.meta.env.BASE_URL + "le-logo.png?v=5"}
             alt="LE Electric"
             className="h-32 w-auto max-w-[280px] object-contain shrink-0"
             data-testid="app-logo"
@@ -147,7 +147,7 @@ export default function App() {
         <header className="lg:hidden sticky top-0 z-30 bg-white border-b border-slate-200 shadow-sm pt-safe">
           <div className="flex items-center gap-3 px-3 py-2.5">
             <img
-              src={import.meta.env.BASE_URL + "le-logo.png?v=4"}
+              src={import.meta.env.BASE_URL + "le-logo.png?v=5"}
               alt=""
               className="h-16 w-auto max-w-[160px] object-contain"
             />

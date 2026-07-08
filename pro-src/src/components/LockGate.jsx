@@ -107,7 +107,7 @@ export default function LockGate({ children }) {
     >
       <div className="w-full max-w-sm flex flex-col items-center">
         <img
-          src={import.meta.env.BASE_URL + "le-logo.png?v=4"}
+          src={import.meta.env.BASE_URL + "le-logo.png?v=5"}
           alt="LE Electric"
           className="h-36 w-auto max-w-[320px] object-contain mb-4"
         />

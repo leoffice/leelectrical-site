@@ -3,6 +3,7 @@
 import { parseAmount, todayStr } from "./format.js";
 import { openBalance } from "./customers.js";
 import { isToDoJob, isUpcomingJob } from "./calendarDue.js";
+import { needsAttentionJob } from "./jobAwareness.js";
 
 export const STAGES = [
   "Lead",
@@ -89,6 +90,7 @@ export function nextAction(job) {
 /** Filter chips — logic copied from sleek's chipTest(). */
 const FILTERS = {
   Active: (j) => !j.paid,
+  "Needs attention": (j) => needsAttentionJob(j),
   "To Do": (j) => isToDoJob(j),
   Upcoming: (j) => isUpcomingJob(j),
   Leads: (j) => ["Lead", "Site Visit"].includes(stageOf(j)),
@@ -103,6 +105,7 @@ const FILTERS = {
 
 export const FILTER_NAMES = [
   "Active",
+  "Needs attention",
   "To Do",
   "Upcoming",
   "Leads",

@@ -28,6 +28,7 @@ import {
   unknownCustomers,
 } from "../lib/customers.js";
 import { customerSyncCardClass } from "../lib/customerSync.js";
+import { needsAttentionJob } from "../lib/jobAwareness.js";
 import { fmt$, parseAmount } from "../lib/format.js";
 import { useNavigate } from "react-router-dom";
 
@@ -56,6 +57,18 @@ function singleJobMetaLine(job) {
     return `${fmt$(total)} invoiced · ${fmt$(paid)} paid (${pct}%)`;
   }
   return `${fmt$(total)} invoiced`;
+}
+
+/** Right-edge tint when any job in the group needs follow-up. */
+function AttentionGradient({ show }) {
+  if (!show) return null;
+  return (
+    <div
+      className="pointer-events-none absolute inset-y-0 right-0 w-1/4 min-w-[4.5rem] bg-gradient-to-l from-red-200/75 via-red-100/35 to-transparent rounded-r-[inherit]"
+      data-testid="needs-attention-gradient"
+      aria-hidden
+    />
+  );
 }
 
 /** Short job description line — titles or invoice numbers. */
@@ -344,6 +357,7 @@ export default function Jobs({ embedded }) {
             const displayList = showFullGroup ? list : chipHits.length ? chipHits : list;
             const sum = customerAmountSummary(showFullGroup ? list : displayList);
             const syncCardClass = customerSyncCardClass(customerContact(list));
+            const needsAttention = list.some(needsAttentionJob);
 
             if (list.length === 1) {
               const href = "/job/" + encodeURIComponent(job.id);
@@ -353,9 +367,10 @@ export default function Jobs({ embedded }) {
               return (
                 <div
                   key={key}
-                  className={`card ${syncCardClass} ${embedded ? "px-2.5 py-2" : "px-3 py-2.5 lg:px-4 lg:py-3"}`}
+                  className={`card relative overflow-hidden ${syncCardClass} ${embedded ? "px-2.5 py-2" : "px-3 py-2.5 lg:px-4 lg:py-3"}`}
                   data-testid="client-single"
                 >
+                  <AttentionGradient show={needsAttention} />
                   <ClientListHeader
                     name={customerName}
                     amount={due}
@@ -385,7 +400,8 @@ export default function Jobs({ embedded }) {
             }
 
             return (
-              <div key={key} className={`card overflow-hidden ${syncCardClass}`} data-testid="client-group">
+              <div key={key} className={`card relative overflow-hidden ${syncCardClass}`} data-testid="client-group">
+                <AttentionGradient show={needsAttention} />
                 <div className={`w-full px-3 py-2.5 ${embedded ? "" : "lg:px-4 lg:py-3"}`}>
                   <ClientListHeader
                     name={customerName}

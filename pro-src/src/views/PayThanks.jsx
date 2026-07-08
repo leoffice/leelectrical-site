@@ -3,7 +3,7 @@ import React from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import { fmtMoneyPrecise } from "../lib/payFees.js";
 
-const LOGO = import.meta.env.BASE_URL + "le-logo.png?v=4";
+const LOGO = import.meta.env.BASE_URL + "le-logo.png?v=5";
 
 export default function PayThanks() {
   const [params] = useSearchParams();
