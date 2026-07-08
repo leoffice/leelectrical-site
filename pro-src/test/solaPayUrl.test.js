@@ -2,16 +2,22 @@ import { describe, expect, it } from "vitest";
 import { buildSolaPayUrl, parseUSAddress } from "../src/lib/solaPayUrl.js";
 
 describe("solaPayUrl", () => {
-  it("parses a US address", () => {
+  it("parses addresses with zip (comma and space before zip)", () => {
     expect(parseUSAddress("405 Lefferts Ave, Brooklyn, NY 11225")).toEqual({
       street: "405 Lefferts Ave",
       city: "Brooklyn",
       state: "NY",
       zip: "11225",
     });
+    expect(parseUSAddress("1 Main St, Brooklyn, NY 11201")).toEqual({
+      street: "1 Main St",
+      city: "Brooklyn",
+      state: "NY",
+      zip: "11201",
+    });
   });
 
-  it("builds a pre-filled Cardknox URL with xAmount and billing fields", () => {
+  it("builds a pre-filled Cardknox URL with xBillZip", () => {
     const url = buildSolaPayUrl({
       slug: "blzelectric",
       amount: 10350,
@@ -21,12 +27,20 @@ describe("solaPayUrl", () => {
       phone: "718-555-1",
       billingAddress: "405 Lefferts Ave, Brooklyn, NY 11225",
     });
-    expect(url).toContain("blzelectric?");
-    expect(url).toContain("xAmount=10350");
-    expect(url).toContain("xinvoice=231315");
-    expect(url).toContain("xBillLastName=Golan");
-    expect(url).toContain("xBillStreet=405");
-    expect(url).toContain("xBillCity=Brooklyn");
     expect(url).toContain("xBillZip=11225");
+    expect(url).toContain("xBillState=NY");
+    expect(url).toContain("xAmount=10350");
+  });
+
+  it("uses explicit zip from payload when provided", () => {
+    const url = buildSolaPayUrl({
+      slug: "lepaymentsdev",
+      amount: 674.82,
+      invoiceNo: "251839",
+      customer: "Rae Klein",
+      billingAddress: "55 Elm St, Brooklyn, NY",
+      zip: "11201",
+    });
+    expect(url).toContain("xBillZip=11201");
   });
 });

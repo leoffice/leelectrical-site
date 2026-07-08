@@ -36,6 +36,7 @@ describe("payLanding", () => {
     expect(decoded.sl).toBe("blzelectric");
     expect(decoded.e).toBe("golan@x.com");
     expect(decoded.ba).toContain("Brooklyn");
+    expect(decoded.z).toBe("11225");
     expect(decoded.a).toBe(10000);
   });
 

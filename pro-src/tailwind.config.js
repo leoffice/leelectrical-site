@@ -5,13 +5,13 @@ export default {
     extend: {
       colors: {
         brand: {
-          DEFAULT: "#1a365d", // BLZ navy — --brand
-          dark: "#153050",
-          soft: "#ebf4ff",
+          DEFAULT: "#1e4a8c", // LE logo blue — --brand
+          dark: "#163a6e",
+          soft: "#e8f0fa",
         },
         accent: {
-          DEFAULT: "#2c5282", // BLZ blue — --accent
-          soft: "#e6f0fa",
+          DEFAULT: "#c8102e", // LE logo red accent — --accent
+          soft: "#fde8ec",
         },
       },
       boxShadow: {

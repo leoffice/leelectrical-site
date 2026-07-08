@@ -1,5 +1,6 @@
 import { fmt$, todayStr } from "./format.js";
 import { amountPaid, invoiceTotal, openBalance } from "./customers.js";
+import { parseUSAddress } from "./solaPayUrl.js";
 
 const SITE_ORIGIN =
   (typeof window !== "undefined" && window.location?.origin) || "https://leelectrical.us";
@@ -17,7 +18,12 @@ export function buildPayLandingPayload({
   const due = openBalance(job);
   const paid = amountPaid(job);
   const linkAmt = parseFloat(String(linkAmount).replace(/[$,]/g, "")) || due;
-  const addr = job?.billingAddress || job?.address || job?.serviceAddress || "";
+  const serviceAddr = (job?.serviceAddress || job?.address || "").trim();
+  const billAddr = (job?.billingAddress || job?.address || serviceAddr).trim();
+  const zip =
+    parseUSAddress(billAddr).zip ||
+    parseUSAddress(serviceAddr).zip ||
+    "";
   return {
     i: invoiceNo,
     a: linkAmt,
@@ -28,8 +34,9 @@ export function buildPayLandingPayload({
     p: paid > 0 ? fmt$(paid) : "",
     e: (job?.email || "").trim(),
     ph: (job?.phone || "").trim(),
-    sa: (job?.serviceAddress || job?.address || "").trim(),
-    ba: (job?.billingAddress || addr).trim(),
+    sa: serviceAddr,
+    ba: billAddr,
+    z: zip,
     sl: siteSlug,
     pay: cardknoxUrl || "",
     as: todayStr(),

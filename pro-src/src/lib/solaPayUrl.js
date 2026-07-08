@@ -4,19 +4,33 @@ const DEFAULT_BASE = "https://secure.cardknox.com";
 const DEFAULT_REDIRECT = "https://leelectrical.us/app/pro/";
 const DEFAULT_SLUG = "blzelectric";
 
-/** Parse "123 Main, Brooklyn, NY 11225" into billing fields. */
+/** Parse US-style addresses into Cardknox billing fields (incl. zip). */
 export function parseUSAddress(raw) {
-  const s = String(raw || "").trim();
+  const s = String(raw || "")
+    .trim()
+    .replace(/\s+/g, " ");
   if (!s) return { street: "", city: "", state: "", zip: "" };
-  const m = s.match(/^(.+?),\s*([^,]+),\s*([A-Za-z]{2})\s*(\d{5}(?:-\d{4})?)?/);
+
+  let m = s.match(/^(.+?),\s*([^,]+),\s*([A-Za-z]{2})\s+(\d{5}(?:-\d{4})?)\s*$/);
   if (m) {
-    return {
-      street: m[1].trim(),
-      city: m[2].trim(),
-      state: m[3].toUpperCase(),
-      zip: (m[4] || "").trim(),
-    };
+    return { street: m[1].trim(), city: m[2].trim(), state: m[3].toUpperCase(), zip: m[4] };
   }
+
+  m = s.match(/^(.+?),\s*([^,]+),\s*([A-Za-z]{2}),?\s*(\d{5}(?:-\d{4})?)\s*$/);
+  if (m) {
+    return { street: m[1].trim(), city: m[2].trim(), state: m[3].toUpperCase(), zip: m[4] };
+  }
+
+  m = s.match(/^(.+?)\s+([A-Za-z][A-Za-z\s.'-]+)\s+([A-Za-z]{2})\s+(\d{5}(?:-\d{4})?)\s*$/);
+  if (m) {
+    return { street: m[1].trim(), city: m[2].trim(), state: m[3].toUpperCase(), zip: m[4] };
+  }
+
+  m = s.match(/^(.+?),\s*([^,]+),\s*([A-Za-z]{2})\s*$/);
+  if (m) {
+    return { street: m[1].trim(), city: m[2].trim(), state: m[3].toUpperCase(), zip: "" };
+  }
+
   return { street: s, city: "", state: "", zip: "" };
 }
 
@@ -41,6 +55,7 @@ export function buildSolaPayUrl({
   phone = "",
   address = "",
   billingAddress = "",
+  zip = "",
   redirectUrl = DEFAULT_REDIRECT,
 }) {
   const amt = solaAmount(amount);
@@ -48,6 +63,7 @@ export function buildSolaPayUrl({
   if (!slug || !amt || !inv) return "";
 
   const bill = parseUSAddress(billingAddress || address);
+  const zipCode = String(zip || bill.zip || "").trim();
   const params = {
     xAmount: amt,
     xinvoice: inv,
@@ -60,7 +76,7 @@ export function buildSolaPayUrl({
   if (bill.street) params.xBillStreet = bill.street;
   if (bill.city) params.xBillCity = bill.city;
   if (bill.state) params.xBillState = bill.state;
-  if (bill.zip) params.xBillZip = bill.zip;
+  if (zipCode) params.xBillZip = zipCode;
 
   const qs = new URLSearchParams(params).toString();
   return `${String(baseUrl).replace(/\/$/, "")}/${slug}?${qs}`;
@@ -79,5 +95,6 @@ export function solaPayUrlFromLanding(data, payAmount) {
     phone: data.ph,
     address: data.sa,
     billingAddress: data.ba || data.sa,
+    zip: data.z,
   });
 }
