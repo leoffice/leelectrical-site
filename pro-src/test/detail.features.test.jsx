@@ -36,7 +36,18 @@ describe("1. mark-as-paid sheet -> staged -> record_payment on Save", () => {
     // method dropdown carries the exact list
     expect(
       within(screen.getByLabelText("Payment method")).getAllByRole("option").map((o) => o.textContent)
-    ).toEqual(["— choose —", "Cash", "Wells Fargo", "Martin Dorkin", "Zelle", "Barder", "Other"]);
+    ).toEqual([
+      "— choose —",
+      "Credit card",
+      "Check",
+      "Cash",
+      "Zelle",
+      "Wells Fargo",
+      "Martin Dorkin",
+      "Barder",
+      "ACH",
+      "Other",
+    ]);
     await user.click(screen.getByText("✓ Record payment"));
 
     // staged, not sent: savebar appears, no command yet

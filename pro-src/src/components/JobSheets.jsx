@@ -13,6 +13,9 @@ import { enrichAndPatchCustomer } from "./NewJobFlow.jsx";
 import { useStore } from "../state/store.jsx";
 import { serviceAddressHint, serviceAddressLabel } from "../lib/customerSync.js";
 import { fmt$, todayStr } from "../lib/format.js";
+import { chargeCardInApp } from "../lib/solaCharge.js";
+import SolaCardForm, { tokenizeSolaCard } from "./SolaCardForm.jsx";
+import { fmtMoneyPrecise, totalWithFee } from "../lib/payFees.js";
 import { patchFromQboPaymentFetch } from "../lib/qboPayments.js";
 import { clientKey, fmtAmountDue, invoiceTotal, jobsForCustomerKey, openBalance, amountPaid, paidPct } from "../lib/customers.js";
 import { buildPaymentLinkEmail } from "../lib/paymentLinkEmail.js";
@@ -77,19 +80,28 @@ export function useDoSend() {
 
 /* ---------- 1. Mark as paid ---------- */
 export function MarkPaidSheet({ job, onClose }) {
-  const { patchJob, showToast, syncNow } = useStore();
+  const { patchJob, showToast, syncNow, refreshJobs } = useStore();
   const due = openBalance(job);
   const alreadyPaid = due <= 0.01;
   const [amt, setAmt] = useState(due > 0 ? String(due) : String(job.amount || "").replace(/[$,]/g, ""));
   const [mth, setMth] = useState("");
   const [ref, setRef] = useState("");
   const [dt, setDt] = useState(todayStr());
-  const save = () => {
+  const [includeFee, setIncludeFee] = useState(true);
+  const [cardReady, setCardReady] = useState(false);
+  const [payPhase, setPayPhase] = useState("idle"); // idle | tokenizing | charging
+  const [payErr, setPayErr] = useState("");
+  const isCard = mth === "Credit card";
+  const inv = job.invoiceNo || "";
+  const payAmt = parseFloat(String(amt).replace(/[$,]/g, "")) || 0;
+  const chargeTotal = isCard ? totalWithFee(payAmt, includeFee) : payAmt;
+  const processing = payPhase !== "idle";
+
+  const saveManual = () => {
     if (alreadyPaid) {
       showToast("Invoice already paid in LE Pro — sync from QuickBooks first");
       return;
     }
-    const payAmt = parseFloat(String(amt).replace(/[$,]/g, "")) || 0;
     if (payAmt <= 0) {
       showToast("Enter a payment amount");
       return;
@@ -108,6 +120,50 @@ export function MarkPaidSheet({ job, onClose }) {
     }
     patchJob(job.id, patch);
     onClose();
+  };
+
+  const processCard = async () => {
+    if (alreadyPaid) return;
+    if (!inv) {
+      showToast("Invoice # required to charge a card");
+      return;
+    }
+    if (payAmt <= 0) {
+      showToast("Enter a payment amount");
+      return;
+    }
+    if (payAmt > due + 0.01) {
+      showToast("Amount exceeds open balance " + fmt$(due));
+      return;
+    }
+    if (!cardReady) {
+      showToast("Card fields still loading — wait a moment");
+      return;
+    }
+    setPayErr("");
+    setPayPhase("tokenizing");
+    try {
+      const tokens = await tokenizeSolaCard();
+      setPayPhase("charging");
+      const res = await chargeCardInApp({
+        job,
+        principalAmount: payAmt,
+        includeFee,
+        ...tokens,
+      });
+      await refreshJobs(true);
+      showToast(
+        res.ref
+          ? `Card approved — ${fmt$(res.amount)} recorded (ref ${res.ref})`
+          : `Card approved — ${fmt$(res.amount)} recorded`
+      );
+      onClose();
+    } catch (e) {
+      setPayErr(String((e && e.message) || "Payment failed"));
+      showToast(String((e && e.message) || "Payment failed"));
+    } finally {
+      setPayPhase("idle");
+    }
   };
   return (
     <Sheet title={"Mark as paid — " + (job.customer || "")} onClose={onClose}>
@@ -131,24 +187,82 @@ export function MarkPaidSheet({ job, onClose }) {
         <input className="input" inputMode="decimal" value={amt} onChange={(e) => setAmt(e.target.value)} aria-label="Amount" disabled={alreadyPaid} />
       </Fld>
       <Fld label="Payment method" hint="Recommended">
-        <select className="input" value={mth} onChange={(e) => setMth(e.target.value)} aria-label="Payment method">
+        <select
+          className="input"
+          value={mth}
+          onChange={(e) => {
+            setMth(e.target.value);
+            setPayErr("");
+          }}
+          aria-label="Payment method"
+          disabled={processing}
+        >
           <option value="">— choose —</option>
           {PAY_METHODS.map((m) => (
             <option key={m}>{m}</option>
           ))}
         </select>
       </Fld>
-      <Fld label="Reference / check #">
-        <input className="input" placeholder="Optional" value={ref} onChange={(e) => setRef(e.target.value)} />
-      </Fld>
-      <Fld label="Date">
-        <input className="input" type="date" value={dt} onChange={(e) => setDt(e.target.value)} />
-      </Fld>
-      <button className="btn bg-emerald-500 text-white w-full" onClick={save} disabled={alreadyPaid}>
-        ✓ Record payment
-      </button>
+
+      {isCard ? (
+        <>
+          {!inv ? (
+            <p className="text-xs text-amber-800 bg-amber-50 border border-amber-200 rounded-xl px-3 py-2 mb-3">
+              This job needs an invoice # before you can charge a card in the app.
+            </p>
+          ) : null}
+          <label className="flex items-center gap-2 text-sm text-slate-600 mb-3">
+            <input
+              type="checkbox"
+              checked={includeFee}
+              onChange={(e) => setIncludeFee(e.target.checked)}
+              disabled={processing}
+            />
+            Add 3.5% processing fee to card charge
+          </label>
+          {payAmt > 0 && includeFee ? (
+            <p className="text-xs text-slate-500 mb-3">
+              Charge card <b>{fmtMoneyPrecise(chargeTotal)}</b> · invoice credit <b>{fmt$(payAmt)}</b>
+            </p>
+          ) : null}
+          <SolaCardForm disabled={processing || alreadyPaid || !inv} onReadyChange={setCardReady} />
+          {payErr ? (
+            <p className="text-xs text-red-600 bg-red-50 border border-red-100 rounded-xl px-3 py-2 mt-3">{payErr}</p>
+          ) : null}
+        </>
+      ) : (
+        <>
+          <Fld label="Reference / check #">
+            <input className="input" placeholder="Optional" value={ref} onChange={(e) => setRef(e.target.value)} disabled={processing} />
+          </Fld>
+          <Fld label="Date">
+            <input className="input" type="date" value={dt} onChange={(e) => setDt(e.target.value)} disabled={processing} />
+          </Fld>
+        </>
+      )}
+
+      {isCard ? (
+        <button
+          className="btn bg-emerald-500 text-white w-full mt-3"
+          onClick={processCard}
+          disabled={alreadyPaid || processing || !inv || !cardReady}
+          data-testid="process-card-payment"
+        >
+          {payPhase === "tokenizing"
+            ? "Reading card…"
+            : payPhase === "charging"
+              ? "Processing payment…"
+              : "💳 Process card payment"}
+        </button>
+      ) : (
+        <button className="btn bg-emerald-500 text-white w-full" onClick={saveManual} disabled={alreadyPaid || processing}>
+          ✓ Record payment
+        </button>
+      )}
       <p className="text-[11px] text-slate-400 text-center mt-2">
-        Staged now — QuickBooks records it when you hit Save &amp; sync.
+        {isCard
+          ? "Card is charged now via Sola. QuickBooks records automatically — no Save & sync needed."
+          : "Staged now — QuickBooks records it when you hit Save & sync."}
       </p>
     </Sheet>
   );
@@ -542,7 +656,7 @@ export function PdfViewer({ job, kind, no }) {
 export function PaymentMenuSheet({ job, onClose, onRecord, onLink }) {
   return (
     <Sheet title={"Payment — " + (job.customer || "")} onClose={onClose}>
-      <Opt icon="💵" title="Record a payment" note="Cash, check, Zelle, etc." onClick={onRecord} />
+      <Opt icon="💵" title="Record a payment" note="Cash, check, Zelle, or charge card in the app" onClick={onRecord} />
       <Opt
         icon="💳"
         title="Payment link"
