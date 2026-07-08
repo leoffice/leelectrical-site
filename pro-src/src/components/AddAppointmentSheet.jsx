@@ -54,8 +54,8 @@ export default function AddAppointmentSheet({ defaultDate, job, onClose, showCal
     const key = (job ? "jobcal:" + job.id : "todaycal:") + ":" + dt + ":" + title.slice(0, 24);
     const guests = notifyCustomer && guestEmail.trim() ? [guestEmail.trim()] : [];
     const reminders = [];
-    if (remind1h) reminders.push({ label: "inspection_1h", minutes: 60 });
-    if (remind1d) reminders.push({ label: "inspection_1d", minutes: 1440 });
+    if (remind1h) reminders.push({ label: "1h", minutes: 60 });
+    if (remind1d) reminders.push({ label: "1d", minutes: 1440 });
 
     await enqueue(
       "calendar_upsert",
@@ -131,11 +131,11 @@ export default function AddAppointmentSheet({ defaultDate, job, onClose, showCal
       <p className="text-[11px] font-bold uppercase tracking-wide text-slate-400 mt-2 mb-2">Reminders</p>
       <label className="flex items-center gap-2 text-sm text-slate-600 mb-2 cursor-pointer">
         <input type="checkbox" className="w-4 h-4" checked={remind1h} onChange={(e) => setRemind1h(e.target.checked)} />
-        Inspection reminder — 1 hour earlier
+        1 hour reminder
       </label>
       <label className="flex items-center gap-2 text-sm text-slate-600 mb-3 cursor-pointer">
         <input type="checkbox" className="w-4 h-4" checked={remind1d} onChange={(e) => setRemind1d(e.target.checked)} />
-        Inspection reminder — 1 day earlier
+        1 day reminder
       </label>
 
       <p className="text-[11px] font-bold uppercase tracking-wide text-slate-400 mb-2">Notify customer</p>
