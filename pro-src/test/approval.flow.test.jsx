@@ -38,7 +38,7 @@ describe("customer_sync approval resolution", () => {
     const user = userEvent.setup();
     renderApp("#/");
 
-    await user.click(await screen.findByText("Create new customer"));
+    await user.click(await screen.findByText(/Create new customer in QuickBooks/));
 
     await waitFor(() => {
       const updates = srv.posts("command", (b) => b.op === "update" && b.id === "c-sync-1");
@@ -113,7 +113,7 @@ describe("customer_sync approval resolution", () => {
     expect(await screen.findByText("718-555-0199")).toBeInTheDocument();
     expect(screen.getByText("718-555-0142")).toBeInTheDocument();
 
-    await user.click(screen.getByText(/Update existing customer/));
+    await user.click(screen.getByText(/LE Pro is correct/));
     await waitFor(() => {
       const updates = srv.posts("command", (b) => b.op === "update" && b.id === "c-sync-1");
       expect(updates).toHaveLength(1);
@@ -132,6 +132,38 @@ describe("customer_sync approval resolution", () => {
       billingAddr: "405 Lefferts Ave",
       addr: "405 Lefferts Ave",
     });
+  });
+
+  it("QuickBooks is correct: pulls QBO customer into the job overlay", async () => {
+    const srv = mockServer({
+      commands: [
+        syncCmd({
+          result: {
+            action: "recommend_update",
+            customer: {
+              id: "1600",
+              name: "TEST Guy",
+              email: "qb@leelectrical.us",
+              phone: "718-555-0142",
+              addr: "100 QB Street",
+            },
+            diffs: { email: "test1@leelectrical.us" },
+            proposed: { name: "TEST Guy", email: "test1@leelectrical.us", phone: "718-555-0142", addr: "" },
+          },
+        }),
+      ],
+    });
+    const user = userEvent.setup();
+    renderApp("#/");
+
+    await user.click(await screen.findByText(/QuickBooks is correct/));
+    await waitFor(() => {
+      const saves = srv.posts("state", (b) => b.ov && b.ov["J-1"]);
+      expect(saves.length).toBeGreaterThan(0);
+      expect(saves[saves.length - 1].body.ov["J-1"].email).toBe("qb@leelectrical.us");
+      expect(saves[saves.length - 1].body.ov["J-1"].billingAddress).toBe("100 QB Street");
+    });
+    expect(srv.enqueued("update_customer")).toHaveLength(0);
   });
 
   it("Skip: closes the command out without enqueueing anything", async () => {

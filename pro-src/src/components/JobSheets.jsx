@@ -937,23 +937,24 @@ export function QuickSendSheet({ job, onClose }) {
 // both and let authuser win, landing reliably on office@leelectrical.us.
 export const CAL_ACCOUNT = "office@leelectrical.us";
 export function CalSheet({ job, onClose }) {
-  const { events, commands, patchJob, patchAndSave, enqueue, patchLocalEvent, showToast } = useStore();
+  const { events, commands, patchJob, patchAndSave, enqueue, patchLocalEvent, showToast, effectiveJob } = useStore();
   const [mode, setMode] = useState("menu"); // menu | add | pick | unlink
   const [unlinking, setUnlinking] = useState(false);
-  const event = useMemo(() => eventForJob(job, events), [job, events]);
-  const cal = useMemo(() => jobCalendarLinkState(job, events, commands), [job, events, commands]);
+  const liveJob = effectiveJob(job.id) || job;
+  const event = useMemo(() => eventForJob(liveJob, events), [liveJob, events]);
+  const cal = useMemo(() => jobCalendarLinkState(liveJob, events, commands), [liveJob, events, commands]);
   const linked = cal.confirmed || cal.pending;
   const d =
-    (job.status && job.status.Scheduled && job.status.Scheduled.d) ||
-    (job.followUp && job.followUp.date) ||
+    (liveJob.status && liveJob.status.Scheduled && liveJob.status.Scheduled.d) ||
+    (liveJob.followUp && liveJob.followUp.date) ||
     (event ? evStart(event).slice(0, 10) : "");
   const url =
     "https://calendar.google.com/calendar/u/0/r/day" +
     (d ? "/" + d.replace(/-/g, "/") : "") +
     "?authuser=" + encodeURIComponent(CAL_ACCOUNT);
 
-  if (mode === "add") return <AddAppointmentSheet job={job} onClose={() => setMode("menu")} />;
-  if (mode === "pick") return <PickAppointmentSheet job={job} onClose={() => setMode("menu")} onLinked={onClose} />;
+  if (mode === "add") return <AddAppointmentSheet job={liveJob} onClose={() => setMode("menu")} />;
+  if (mode === "pick") return <PickAppointmentSheet job={liveJob} onClose={() => setMode("menu")} onLinked={onClose} />;
 
   if (mode === "unlink") {
     return (
@@ -969,9 +970,9 @@ export function CalSheet({ job, onClose }) {
             setUnlinking(true);
             try {
               await unlinkAppointmentJob({
-                event: event || { id: job.calEventId, description: "" },
-                job,
-                jobId: job.id,
+                event: event || { id: liveJob.calEventId, description: "" },
+                job: liveJob,
+                jobId: liveJob.id,
                 patchJob,
                 patchAndSave,
                 enqueue,

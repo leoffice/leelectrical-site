@@ -77,4 +77,19 @@ describe("calendar link state", () => {
     expect(isCalendarUnlinkCommand({ idempotencyKey: "calunlink:abc" })).toBe(true);
     expect(isCalendarUnlinkCommand({ idempotencyKey: "callink:abc:J-1" })).toBe(false);
   });
+
+  it("ignores stale link commands after explicit unlink", () => {
+    const unlinked = { ...job, _calUnlinked: true, calEventId: "" };
+    const st = jobCalendarLinkState(unlinked, [], [
+      {
+        type: "calendar_upsert",
+        jobId: "J-1",
+        status: "done",
+        result: JSON.stringify({ eventId: "google-ev-1" }),
+        idempotencyKey: "callink:google-ev-1:J-1",
+      },
+    ]);
+    expect(st.confirmed).toBe(false);
+    expect(st.pending).toBe(false);
+  });
 });

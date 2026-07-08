@@ -19,7 +19,7 @@ import { calendarServiceLocation } from "../lib/customerSync.js";
 import { fmt$, parseAmount, todayStr } from "../lib/format.js";
 import { normalizePayments } from "../lib/payments.js";
 import { unhandledCount } from "../lib/sas.js";
-import { customerSyncPayload } from "../lib/customerSync.js";
+import { customerSyncPayload, qboCustomerToJobPatch } from "../lib/customerSync.js";
 import {
   calendarUpsertLinksJob,
   isCalendarUnlinkCommand,
@@ -379,6 +379,17 @@ export function StoreProvider({ children }) {
         continue;
       }
 
+      if (job._calUnlinked) {
+        appliedCalUpserts.current.add(mark);
+        continue;
+      }
+
+      const dismissed = new Set((job.calDismissedEventIds || []).map((id) => String(id)));
+      if (eventId && dismissed.has(String(eventId))) {
+        appliedCalUpserts.current.add(mark);
+        continue;
+      }
+
       if (String(job.calEventId) === String(eventId) && !isPendingCalEventId(job.calEventId)) {
         appliedCalUpserts.current.add(mark);
         continue;
@@ -463,31 +474,42 @@ export function StoreProvider({ children }) {
             "user chose " + choice + " (pro)"
           )
           .catch(() => {});
-        const j = effectiveJob(cmd.jobId) || {};
-        const merged = {
-          ...j,
-          ...prop,
-          businessName: prop.businessName || prop.name || j.businessName || j.customer || "",
-          billingAddress:
-            prop.billingAddr || prop.billingAddress || prop.addr || j.billingAddress || "",
-        };
-        const info = customerSyncPayload(merged);
-        if (choice === "create") {
-          await enqueue(
-            "create_customer",
-            cmd.jobId,
-            info,
-            "deterministic",
-            "create_customer|" + cmd.jobId + "|" + Date.now()
-          );
-        } else if (choice === "update" && matchId) {
-          await enqueue(
-            "update_customer",
-            cmd.jobId,
-            { id: matchId, ...info },
-            "deterministic",
-            "update_customer|" + cmd.jobId + "|" + Date.now()
-          );
+        if (choice === "pull_qbo") {
+          const qb = (cmd.result && cmd.result.customer) || {};
+          const patch = qboCustomerToJobPatch(qb);
+          setPending((prev) => {
+            const next = { ...prev };
+            delete next[cmd.jobId];
+            return next;
+          });
+          await patchAndSave(cmd.jobId, patch);
+        } else {
+          const j = effectiveJob(cmd.jobId) || {};
+          const merged = {
+            ...j,
+            ...prop,
+            businessName: prop.businessName || prop.name || j.businessName || j.customer || "",
+            billingAddress:
+              prop.billingAddr || prop.billingAddress || prop.addr || j.billingAddress || "",
+          };
+          const info = customerSyncPayload(merged);
+          if (choice === "create") {
+            await enqueue(
+              "create_customer",
+              cmd.jobId,
+              info,
+              "deterministic",
+              "create_customer|" + cmd.jobId + "|" + Date.now()
+            );
+          } else if (choice === "update" && matchId) {
+            await enqueue(
+              "update_customer",
+              cmd.jobId,
+              { id: matchId, ...info },
+              "deterministic",
+              "update_customer|" + cmd.jobId + "|" + Date.now()
+            );
+          }
         }
       } else {
         await api
@@ -495,9 +517,11 @@ export function StoreProvider({ children }) {
           .catch(() => {});
       }
       refreshCommands();
-      showToast(choice === "skip" ? "Skipped" : "Approved — running…");
+      if (choice === "skip") showToast("Skipped");
+      else if (choice === "pull_qbo") showToast("Updated LE Pro from QuickBooks");
+      else showToast("Approved — running…");
     },
-    [commands, effectiveJob, enqueue, refreshCommands, showToast]
+    [commands, effectiveJob, enqueue, patchAndSave, refreshCommands, showToast]
   );
 
   /** Append to the job's send history (staged like every other edit). */

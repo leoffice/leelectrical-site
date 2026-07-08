@@ -144,6 +144,9 @@ function latestDoneCalendarUpsert(commands, jobId) {
 
 /** Calendar link state for UI coloring — red / orange (pending) / green (confirmed on Google). */
 export function jobCalendarLinkState(job, events, commands) {
+  if (job?._calUnlinked) {
+    return { confirmed: false, pending: false, event: null, eventId: "" };
+  }
   const eid = job?.calEventId || "";
   const event = eventForJob(job, events);
   const pendingCmd = pendingCalendarUpsert(commands, job?.id);
@@ -279,7 +282,7 @@ export async function unlinkAppointmentJob({
         description: desc || "Unlinked in LE Pro",
       },
       "judgment",
-      "calunlink:" + eid
+      "calunlink:" + eid + ":" + Date.now()
     );
   }
 }

@@ -91,6 +91,21 @@ export function customerSyncCardClass(contact) {
     : "bg-orange-50/95 border-orange-200/90";
 }
 
+/** Map a QuickBooks customer record onto LE Pro job fields. */
+export function qboCustomerToJobPatch(customer) {
+  const c = customer || {};
+  const name = c.businessName || c.name || "";
+  return {
+    businessName: name,
+    customer: name,
+    personName: c.personName || "",
+    phone: c.phone || "",
+    email: c.email || "",
+    billingAddress: c.billingAddress || c.addr || "",
+    qboCustomerId: c.id || "",
+  };
+}
+
 /** Payload for customer_sync / create_customer / update_customer commands. */
 export function customerSyncPayload(job) {
   const j = job || {};

@@ -22,11 +22,12 @@ describe("3b. needs_approval sheets (customer_sync)", () => {
     status: "needs_approval",
     payload: { name: "Peretz Chein" },
     result: {
+      action: "recommend_update",
       message: "Found a close match in QuickBooks.",
+      customer: { id: "qb7", name: "Peretz Chein", email: "p@x.com", phone: "718", addr: "123 Main" },
       candidates: [{ id: "qb9", name: "P. Chein", email: "p@x.com", phone: "718", addr: "123 Main" }],
-      recommend: "update",
-      matchId: "qb7",
-      diff: "phone: 718 -> 917",
+      diffs: { phone: "917" },
+      proposed: { name: "Peretz Chein", phone: "917" },
     },
     createdAt: 1,
     idempotencyKey: "k-ap1",
@@ -37,12 +38,12 @@ describe("3b. needs_approval sheets (customer_sync)", () => {
     const user = userEvent.setup();
     renderApp("#/");
     expect(await screen.findByText("QuickBooks needs your OK")).toBeInTheDocument();
-    expect(screen.getByText(/Found a close match/)).toBeInTheDocument();
-    expect(screen.getByText(/phone: 718 -> 917/)).toBeInTheDocument(); // diff box
+    expect(screen.getByText(/LE Pro and QuickBooks disagree/)).toBeInTheDocument();
+    expect(screen.getByText("917")).toBeInTheDocument(); // LE Pro value in comparison
     expect(screen.getByText("P. Chein")).toBeInTheDocument(); // candidate
-    expect(screen.getByText("Create new customer")).toBeInTheDocument();
+    expect(screen.getByText(/Create new customer in QuickBooks/)).toBeInTheDocument();
     expect(screen.getByText("Skip for now")).toBeInTheDocument();
-    await user.click(screen.getByText("Update existing customer"));
+    await user.click(screen.getByText(/LE Pro is correct/));
     // customer_sync approvals resolve client-side: the sync command is closed
     // out (done) and a concrete update_customer command is enqueued — requeueing
     // with an approval patch would loop, the listener never reads that field.
@@ -492,7 +493,7 @@ describe("responsive layout — 390px and 1280px", () => {
     expect(within(listPane).getByLabelText("Search jobs")).toBeInTheDocument();
     // sheets center on desktop
     const user = userEvent.setup();
-    await user.click(within(screen.getByTestId("detail-pane")).getByText("💵 Mark as paid…"));
+    await user.click(within(screen.getByTestId("detail-pane")).getByText("💳 Payment history"));
     const dlg = screen.getByRole("dialog");
     expect(dlg.className).toContain("lg:items-center");
   });
