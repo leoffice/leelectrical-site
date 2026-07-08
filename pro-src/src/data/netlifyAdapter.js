@@ -76,6 +76,23 @@ export function createNetlifyAdapter() {
       return http("jobsdata", { op: "request" });
     },
 
+    /** Request a QBO jobs pull, then poll until syncedAt advances. */
+    async pullJobs(opts = {}) {
+      const testMode = typeof import.meta !== "undefined" && import.meta.env && import.meta.env.MODE === "test";
+      const maxWaitMs = opts.maxWaitMs ?? (testMode ? 80 : 45000);
+      const intervalMs = opts.intervalMs ?? (testMode ? 15 : 2000);
+      const before = await this.listJobsMeta();
+      await this.requestSync().catch(() => {});
+      const deadline = Date.now() + maxWaitMs;
+      let last = before;
+      while (Date.now() < deadline) {
+        await new Promise((r) => setTimeout(r, intervalMs));
+        last = await this.listJobsMeta();
+        if (last.syncedAt > before.syncedAt) return last;
+      }
+      return last;
+    },
+
     /** Deep-merge `patch` into ov[id], then POST the full { ov } back.
      *  Fetch-latest -> merge -> post keeps the clobber window minimal
      *  (the store itself is last-write-wins). */

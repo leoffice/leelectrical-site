@@ -223,9 +223,13 @@ export function StoreProvider({ children }) {
   const syncNow = useCallback(async () => {
     setBusy(true);
     try {
-      await Promise.all([api.requestSync().catch(() => {}), api.requestCalendarSync?.().catch(() => {})]);
-      await refresh(true, { pullCalendar: true, awaitPull: true });
-      showToast("Refreshed — jobs & calendar syncing");
+      await api.requestCalendarSync?.().catch(() => {});
+      const [meta] = await Promise.all([
+        api.pullJobs?.().catch(() => null),
+        refresh(true, { pullCalendar: true, awaitPull: true }),
+      ]);
+      if (meta && meta.syncedAt) setSyncedAt(meta.syncedAt);
+      showToast("Refreshed — QuickBooks & calendar synced");
     } finally {
       setBusy(false);
     }
