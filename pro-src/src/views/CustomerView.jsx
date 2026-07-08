@@ -29,17 +29,20 @@ export default function CustomerView() {
   const [sp] = useSearchParams();
   const nav = useNavigate();
   const jobAnchor = sp.get("job") || "";
-  const { jobs, loading, events, commands, patchJob, syncNow, refreshJobs } = useStore();
+  const { jobs, loading, events, commands, patchJob, refreshJobs } = useStore();
   const key = raw ? decodeURIComponent(raw) : "";
   const [sheet, setSheet] = useState(null); // { kind, job? }
   const [importing, setImporting] = useState(false);
   const importPoll = useRef(null);
   const jobsSectionRef = useRef(null);
+  const lastListRef = useRef([]);
 
   const list = useMemo(() => sortJobs(jobsForCustomerKey(jobs, key)), [jobs, key]);
-  const contact = useMemo(() => customerContact(list), [list]);
-  const summary = useMemo(() => customerAmountSummary(list), [list]);
-  const primaryJob = list[0];
+  if (list.length) lastListRef.current = list;
+  const displayJobs = list.length ? list : lastListRef.current;
+  const contact = useMemo(() => customerContact(displayJobs), [displayJobs]);
+  const summary = useMemo(() => customerAmountSummary(displayJobs), [displayJobs]);
+  const primaryJob = displayJobs[0];
 
   useEffect(() => {
     let pending = null;
@@ -54,20 +57,21 @@ export default function CustomerView() {
     let n = 0;
     const tick = async () => {
       n += 1;
-      await syncNow?.().catch(() => {});
-      await refreshJobs?.(true);
-      if (n < 20) importPoll.current = setTimeout(tick, 2000);
-      else {
+      const meta = await refreshJobs?.(true);
+      const hasJobs = jobsForCustomerKey(meta?.jobs || [], key).length > 0;
+      if (hasJobs || n >= 30) {
         setImporting(false);
         sessionStorage.removeItem(PENDING_IMPORT_LS);
+        return;
       }
+      importPoll.current = setTimeout(tick, 3000);
     };
     tick();
     return () => clearTimeout(importPoll.current);
-  }, [key, syncNow, refreshJobs]);
+  }, [key, refreshJobs]);
 
   useEffect(() => {
-    if (!list.length) return;
+    if (!displayJobs.length) return;
     const run = () => {
       const el = jobAnchor
         ? document.getElementById("job-card-" + jobAnchor)
@@ -77,10 +81,10 @@ export default function CustomerView() {
       window.scrollTo({ top: Math.max(0, top), behavior: "instant" });
     };
     requestAnimationFrame(run);
-  }, [key, jobAnchor, list.length]);
+  }, [key, jobAnchor, displayJobs.length]);
 
   useEffect(() => {
-    if (!list.length) return;
+    if (!displayJobs.length) return;
     let pending = null;
     try {
       pending = JSON.parse(sessionStorage.getItem(PENDING_IMPORT_LS) || "null");
@@ -88,12 +92,12 @@ export default function CustomerView() {
     if (!pending || pending.key !== key) return;
     sessionStorage.removeItem(PENDING_IMPORT_LS);
     setImporting(false);
-  }, [list, key]);
+  }, [displayJobs, key]);
 
-  if (!list.length) {
+  if (!displayJobs.length) {
     return (
       <div className="card px-6 py-12 text-center text-slate-400 text-sm" data-testid="customer-view-empty">
-        {loading || importing ? (
+        {importing || (loading && !lastListRef.current.length) ? (
           <div>
             <p className="font-semibold text-slate-600 mb-1">
               {importing ? "Pulling from QuickBooks…" : "Loading…"}
@@ -139,10 +143,10 @@ export default function CustomerView() {
         className="text-[11px] font-extrabold text-slate-500 uppercase tracking-wider px-1 !mb-[-6px] scroll-mt-20"
         data-testid="customer-jobs-section"
       >
-        Jobs ({list.length})
+        Jobs ({displayJobs.length})
       </h2>
       <div className="space-y-3">
-        {list.map((j) => (
+        {displayJobs.map((j) => (
           <div key={j.id} id={"job-card-" + j.id} className="scroll-mt-20">
           <JobInfoCard
             job={j}
@@ -230,7 +234,7 @@ export default function CustomerView() {
   return (
     <div className="lg:grid lg:grid-cols-[minmax(320px,400px)_minmax(0,1fr)] lg:gap-5 lg:items-start">
       <div className="hidden lg:block sticky top-4 max-h-[calc(100vh-2rem)] overflow-y-auto overflow-x-hidden pr-1" data-testid="list-pane">
-        <Jobs embedded />
+        <Jobs embedded collapseGroups />
       </div>
       {panel}
     </div>

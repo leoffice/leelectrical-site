@@ -149,7 +149,7 @@ const loadSort = () => {
   }
 };
 
-export default function Jobs({ embedded }) {
+export default function Jobs({ embedded, collapseGroups = false, activeJobId = "" }) {
   const { jobs, loading, showToast, api, enqueue, syncNow, refreshJobs } = useStore();
   const nav = useNavigate();
   const [q, setQ] = useState("");
@@ -262,6 +262,7 @@ export default function Jobs({ embedded }) {
     );
   };
   const toggleGroup = (key) => {
+    if (collapseGroups) return;
     setOpen((o) => {
       const now = !o[key];
       if (now) armCollapse(key);
@@ -269,6 +270,7 @@ export default function Jobs({ embedded }) {
       return { ...o, [key]: now };
     });
   };
+  const groupExpanded = (key) => !collapseGroups && open[key];
   useEffect(() => {
     const t = timers.current;
     return () => Object.values(t).forEach(clearTimeout);
@@ -444,23 +446,25 @@ export default function Jobs({ embedded }) {
                     name={customerName}
                     amount={fmt$(sum.due) || "$0"}
                     meta={customerMetaLine(sum)}
-                    hint={open[key] ? "" : jobTitlesHint(displayList)}
+                    hint={groupExpanded(key) ? "" : jobTitlesHint(displayList)}
                     onNameClick={() => nav("/customer/" + encodeURIComponent(key))}
                     avatar={<CustomerAvatar name={customerName} />}
                     trailing={
-                      <button
-                        type="button"
-                        className="p-1 -m-1 text-slate-400 shrink-0"
-                        aria-label={open[key] ? "Collapse" : "Expand"}
-                        data-testid="client-group-toggle"
-                        onClick={() => toggleGroup(key)}
-                      >
-                        <span className={`inline-block transition-transform ${open[key] ? "rotate-180" : ""}`}>▾</span>
-                      </button>
+                      collapseGroups ? null : (
+                        <button
+                          type="button"
+                          className="p-1 -m-1 text-slate-400 shrink-0"
+                          aria-label={groupExpanded(key) ? "Collapse" : "Expand"}
+                          data-testid="client-group-toggle"
+                          onClick={() => toggleGroup(key)}
+                        >
+                          <span className={`inline-block transition-transform ${groupExpanded(key) ? "rotate-180" : ""}`}>▾</span>
+                        </button>
+                      )
                     }
                   />
                 </div>
-                {open[key] && (
+                {groupExpanded(key) && (
                   <div
                     className="px-2.5 pb-2.5 space-y-1.5 bg-slate-50/60 border-t border-slate-100 pt-2"
                     onPointerDown={() => armCollapse(key)}

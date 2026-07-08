@@ -79,7 +79,10 @@ export function StoreProvider({ children }) {
   const docConfirmT = useRef(null);
   const pendingRef = useRef(pending);
   pendingRef.current = pending;
-  const syncSkipRef = useRef(false);
+  const syncInFlightRef = useRef(false);
+  const jobsCountRef = useRef(0);
+  jobsCountRef.current = jobs.length;
+  const syncAnimRef = useRef({ iv: null, resolve: null });
 
   const showToast = useCallback((msg) => {
     setToastMsg(msg);
@@ -122,11 +125,15 @@ export function StoreProvider({ children }) {
       // than our last save would silently revert just-saved edits on screen.
       // Keep the local (already saved) state and let the next poll catch up.
       const stale = lastSavedTs.current && meta.stateTs && meta.stateTs < lastSavedTs.current;
-      if (!stale) setJobs(meta.jobs);
+      const incoming = meta.jobs || [];
+      // Never wipe the list when the server returns empty during a sync blip.
+      if (!stale && (incoming.length || !jobsCountRef.current)) setJobs(incoming);
       setSyncedAt(meta.syncedAt || 0);
       setError("");
+      return meta;
     } catch (e) {
       setError(String((e && e.message) || e));
+      return null;
     } finally {
       setLoading(false);
     }
@@ -244,73 +251,87 @@ export function StoreProvider({ children }) {
     []
   );
 
+  const stopSyncAnim = useCallback(() => {
+    clearInterval(syncAnimRef.current.iv);
+    syncAnimRef.current.iv = null;
+    if (syncAnimRef.current.resolve) {
+      const done = syncAnimRef.current.resolve;
+      syncAnimRef.current.resolve = null;
+      done();
+    }
+  }, []);
+
+  const animateSyncPct = useCallback(
+    (label, from, to, ms) => {
+      stopSyncAnim();
+      const start = Date.now();
+      setSyncProgress({ label, pct: from });
+      return new Promise((resolve) => {
+        syncAnimRef.current.resolve = resolve;
+        syncAnimRef.current.iv = setInterval(() => {
+          const t = Math.min(1, (Date.now() - start) / ms);
+          const pct = Math.round(from + (to - from) * t);
+          setSyncProgress({ label, pct });
+          if (t >= 1) stopSyncAnim();
+        }, 120);
+      });
+    },
+    [stopSyncAnim]
+  );
+
   const setSyncPhase = useCallback(
-    (index) => {
+    (index, pct) => {
       const phase = SYNC_PHASES[index] || SYNC_PHASES[SYNC_PHASES.length - 1];
-      const pct = Math.min(100, Math.round((index / SYNC_PHASES.length) * 100));
-      setSyncProgress({ label: phase.label, pct, index });
+      setSyncProgress({ label: phase.label, pct: pct ?? Math.min(100, Math.round((index / SYNC_PHASES.length) * 100)), index });
     },
     [SYNC_PHASES]
   );
 
-  const raceSkip = useCallback((promise) => {
-    if (syncSkipRef.current) {
-      syncSkipRef.current = false;
-      return Promise.resolve();
-    }
-    return new Promise((resolve) => {
-      let settled = false;
-      const finish = () => {
-        if (settled) return;
-        settled = true;
-        clearInterval(iv);
-        resolve();
-      };
-      const iv = setInterval(() => {
-        if (syncSkipRef.current) {
-          syncSkipRef.current = false;
-          finish();
-        }
-      }, 80);
-      Promise.resolve(promise).then(finish, finish);
-    });
-  }, []);
-
-  /** Header chip: calendar request → QBO pull (short wait) → refresh all data. Tap while busy skips the current phase. */
+  /** Header chip: calendar request → QBO pull → refresh all data. Ignores taps while busy. */
   const syncNow = useCallback(async () => {
-    if (busy) {
-      syncSkipRef.current = true;
-      return;
-    }
-    syncSkipRef.current = false;
+    if (busy || syncInFlightRef.current) return;
+    syncInFlightRef.current = true;
     setBusy(true);
     const before = syncedAt;
+    const isTest = typeof import.meta !== "undefined" && import.meta.env && import.meta.env.MODE === "test";
+    const calendarAnimMs = isTest ? 40 : 1800;
     let meta = null;
     try {
-      setSyncPhase(0);
-      await raceSkip(api.requestCalendarSync?.().catch(() => {}));
+      setSyncPhase(0, 8);
+      await Promise.all([
+        api.requestCalendarSync?.().catch(() => {}),
+        animateSyncPct("Calendar", 8, 28, calendarAnimMs),
+      ]);
 
-      setSyncPhase(1);
-      meta = await raceSkip(
-        api.pullJobs?.({ maxWaitMs: 20000 }).catch(() => null)
-      );
+      setSyncPhase(1, 30);
+      const pullMaxMs = isTest ? 80 : 90000;
+      const pullAnim = animateSyncPct("QuickBooks", 30, 82, pullMaxMs);
+      meta = await api.pullJobs?.({ maxWaitMs: pullMaxMs }).catch(() => null);
+      stopSyncAnim();
+      await pullAnim;
+      setSyncPhase(1, meta?.syncedAt > before ? 85 : 78);
 
-      setSyncPhase(2);
-      await raceSkip(refresh(true, { pullCalendar: true, awaitPull: false }));
+      setSyncPhase(2, 88);
+      await Promise.all([
+        refresh(true, { pullCalendar: true, awaitPull: false }),
+        animateSyncPct("Refreshing", 88, 96, isTest ? 40 : 1400),
+      ]);
       const ts = (meta && meta.syncedAt) || 0;
       if (ts) setSyncedAt(ts);
-      await raceSkip(refreshJobs(true));
-      await raceSkip(refreshCommands());
+      await refreshJobs(true);
+      await refreshCommands();
 
       setSyncProgress({ label: "Done", pct: 100, index: SYNC_PHASES.length });
 
       if (ts > before) showToast("Refreshed — QuickBooks & calendar synced");
       else showToast("Sync requested — QuickBooks may still be pulling in the background");
     } finally {
+      stopSyncAnim();
+      syncInFlightRef.current = false;
       setBusy(false);
       setTimeout(() => setSyncProgress(null), 700);
     }
-  }, [busy, refresh, refreshJobs, refreshCommands, showToast, syncedAt, setSyncPhase, raceSkip, SYNC_PHASES.length]);
+  }, [busy, refresh, refreshJobs, refreshCommands, showToast, syncedAt, setSyncPhase, animateSyncPct, stopSyncAnim]);
 
   /* ---------- staged edits ---------- */
   const patchJob = useCallback((id, patch) => {

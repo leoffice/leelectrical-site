@@ -3,7 +3,7 @@
 // with paperwork branches + scheduled date, follow-up + reminder, notes,
 // attachments, send history and the live activity feed (retry on failed).
 // All edits are STAGED via store.patchJob and only persist on Save & sync.
-import React, { useEffect, useMemo, useRef, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { useStore } from "../state/store.jsx";
 import {
@@ -95,10 +95,27 @@ export default function JobDetail() {
   const [sheet, setSheet] = useState(null); // {kind, ...}
   const [detailSectionsExpanded, setDetailSectionsExpanded] = useState(true);
   const stepTimer = useRef(null);
+  const jobInfoRef = useRef(null);
+
+  const scrollToJobInfo = useCallback(() => {
+    const el = jobInfoRef.current;
+    if (!el) return;
+    const top = el.getBoundingClientRect().top + window.scrollY - 72;
+    window.scrollTo({ top: Math.max(0, top), behavior: "instant" });
+  }, []);
 
   useEffect(() => {
     setDetailSectionsExpanded(true);
   }, [id]);
+
+  useEffect(() => {
+    requestAnimationFrame(scrollToJobInfo);
+  }, [id, scrollToJobInfo]);
+
+  const toggleDetailSections = () => {
+    setDetailSectionsExpanded((v) => !v);
+    requestAnimationFrame(scrollToJobInfo);
+  };
 
   useEffect(() => {
     if (openPay && job) setSheet({ kind: "paymenu" });
@@ -223,19 +240,21 @@ export default function JobDetail() {
         </div>
       ) : null}
 
+      <div ref={jobInfoRef} className="scroll-mt-20" data-testid="job-info-anchor">
       <JobInfoCard
         job={job}
         events={events}
         commands={commands}
         showOpenLink={false}
         sectionsCollapsed={!detailSectionsExpanded}
-        onCardTap={() => setDetailSectionsExpanded((v) => !v)}
+        onCardTap={toggleDetailSections}
         onEstimate={() => openDocTab(job, "estimate", setSheet)}
         onInvoice={() => openDocTab(job, "invoice", setSheet)}
         onPayment={() => setSheet({ kind: "paymenu" })}
         onCalendar={() => openDocTab(job, "calendar", setSheet)}
         onBubbleTap={(bubble) => tapAwarenessBubble(job, bubble, setSheet, openDocTab)}
       />
+      </div>
 
       {detailSectionsExpanded ? (
       <>
@@ -822,7 +841,7 @@ export default function JobDetail() {
   return (
     <div className="lg:grid lg:grid-cols-[minmax(320px,400px)_minmax(0,1fr)] lg:gap-5 lg:items-start">
       <div className="hidden lg:block sticky top-4 max-h-[calc(100vh-2rem)] overflow-y-auto overflow-x-hidden pr-1" data-testid="list-pane">
-        <Jobs embedded />
+        <Jobs embedded collapseGroups activeJobId={id} />
       </div>
       {detail}
     </div>

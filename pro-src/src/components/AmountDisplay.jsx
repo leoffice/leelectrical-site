@@ -4,7 +4,7 @@ import { amountPaid, fmtAmountDue, invoiceTotal, openBalance, paidPct } from "..
 import { fmt$ } from "../lib/format.js";
 
 const SIZE = {
-  sm: { main: "font-semibold text-xs text-slate-900", sub: "text-[8px]" },
+  sm: { main: "font-bold text-sm text-slate-900 lg:text-base", sub: "text-[8px]" },
   md: { main: "font-semibold text-sm text-slate-900", sub: "text-[9px]" },
   lg: { main: "font-bold text-base text-slate-900 lg:text-lg", sub: "text-[9px] lg:text-[10px]" },
 };
@@ -51,15 +51,13 @@ export default function AmountDisplay({ job, size = "md", showSub = true, highli
       data-testid="amount-display"
     >
       {showDueStack ? (
-        <div className="flex flex-col items-end gap-0.5">
-          <div
-            className={`rounded-full border px-2 py-0.5 text-[9px] font-bold text-slate-500 uppercase tracking-wide leading-none whitespace-nowrap ${
-              showDueRing ? "border-slate-200 bg-slate-100/90" : "border-transparent"
-            }`}
-          >
-            {label}
-          </div>
-          <div className={`${s.main} tabular-nums leading-tight`}>{main}</div>
+        <div
+          className={`inline-flex flex-col items-end rounded-2xl border px-2.5 py-1.5 leading-tight ${
+            showDueRing ? "border-slate-200 bg-slate-100/90" : "border-slate-200 bg-slate-50"
+          }`}
+        >
+          <div className="text-[9px] font-bold text-slate-500 uppercase tracking-wide whitespace-nowrap">{label}</div>
+          <div className={`${s.main} tabular-nums mt-0.5`}>{main}</div>
           {showSub && !hideSub && job ? <AmountSubline job={job} className={`${s.sub} leading-snug`} /> : null}
         </div>
       ) : (

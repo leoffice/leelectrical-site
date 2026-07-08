@@ -11,36 +11,36 @@ export default function SyncChip({ dark }) {
   return (
     <button
       onClick={syncNow}
+      disabled={busy}
       data-testid="sync-chip"
-      title={busy ? "Tap to skip to next step" : "Sync calendar, QuickBooks, and jobs"}
-      className={`flex flex-col rounded-2xl border text-left transition-all duration-200 ${
-        busy ? "min-w-[8.75rem] max-w-[10.5rem] px-2.5 py-1.5 gap-1" : "min-w-[5.25rem] px-3 py-1.5"
+      title={busy ? "Syncing…" : "Sync calendar, QuickBooks, and jobs"}
+      className={`flex flex-col rounded-2xl border text-left transition-all duration-300 ${
+        busy ? "min-w-[8.75rem] max-w-[10.5rem] px-2.5 py-1.5 gap-1 cursor-wait" : "min-w-[5.25rem] px-3 py-1.5"
       } ${
         dark
           ? "bg-white/15 border-white/25 text-white"
           : busy
-            ? "bg-amber-50 border-amber-200 text-amber-950"
+            ? "bg-white border-slate-200 text-slate-700"
             : "bg-white border-slate-200 text-slate-500"
       }`}
     >
       {busy ? (
         <>
           <div className="flex items-center justify-between gap-2 w-full">
-            <span
-              className="text-[10px] font-extrabold uppercase tracking-wide animate-pulse"
-              data-testid="sync-phase-label"
-            >
+            <span className="text-[10px] font-extrabold uppercase tracking-wide" data-testid="sync-phase-label">
               {phase}
             </span>
             <span className="text-[9px] font-semibold tabular-nums opacity-70 shrink-0">{pct}%</span>
           </div>
           <div
-            className={`h-1 w-full rounded-full overflow-hidden ${dark ? "bg-white/20" : "bg-amber-200/70"}`}
+            className={`h-1.5 w-full rounded-full overflow-hidden ${dark ? "bg-white/20" : "bg-slate-200/80"}`}
             data-testid="sync-progress-bar"
           >
             <div
-              className={`h-full rounded-full transition-all duration-300 ${dark ? "bg-white" : "bg-amber-500"}`}
-              style={{ width: Math.max(8, pct) + "%" }}
+              className={`h-full rounded-full transition-[width] duration-500 ease-out ${
+                dark ? "bg-gradient-to-r from-red-400 via-amber-300 to-emerald-400" : "bg-gradient-to-r from-red-500 via-amber-400 to-emerald-500"
+              }`}
+              style={{ width: Math.max(6, pct) + "%" }}
               data-testid="sync-battery-fill"
             />
           </div>
