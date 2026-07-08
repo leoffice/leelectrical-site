@@ -429,10 +429,11 @@ export function StoreProvider({ children }) {
       const mark = String(cmd.idempotencyKey || cmd.id || "");
       if (!mark || appliedImportCustomer.current.has(mark)) continue;
       appliedImportCustomer.current.add(mark);
+      syncNow().catch(() => {});
       refreshJobs(true);
       showToast("Imported — open invoices added as jobs");
     }
-  }, [commands, refreshJobs, showToast]);
+  }, [commands, refreshJobs, showToast, syncNow]);
 
   /* ---------- command bus ---------- */
   const enqueue = useCallback(

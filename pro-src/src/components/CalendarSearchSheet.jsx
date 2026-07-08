@@ -1,4 +1,4 @@
-// Searchable YTD calendar picker — shared by new-job flow and appointment linking.
+// Searchable calendar picker — shared by new-job flow and appointment linking.
 import React, { useMemo, useState } from "react";
 import Sheet, { Opt } from "./Sheet.jsx";
 import { evStart } from "../lib/format.js";
@@ -15,7 +15,7 @@ export default function CalendarSearchSheet({ events, title, hint, onPick, onClo
   return (
     <Sheet title={title || "Choose from calendar"} onClose={onClose} wide>
       <p className="text-sm text-slate-500 mb-3">
-        {hint || "Appointments since Jan 1 — search by address, customer, or notes."}
+        {hint || "All synced appointments — search by address, customer, notes, or date."}
       </p>
       <input
         className="input mb-3"
@@ -49,7 +49,7 @@ export default function CalendarSearchSheet({ events, title, hint, onPick, onClo
         </div>
       ) : (
         <div className="text-sm text-slate-400 text-center py-8" data-testid="cal-search-empty">
-          {query ? "No appointments match your search." : "No appointments this year yet — sync calendar first."}
+          {query ? "No appointments match your search." : "No calendar events yet — sync calendar first."}
         </div>
       )}
     </Sheet>

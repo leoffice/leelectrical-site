@@ -4,6 +4,7 @@ import {
   isCalendarUnlinkCommand,
   jobCalendarLinkState,
   parseCalendarUpsertResult,
+  searchCalendarEvents,
   suggestAppointmentsForJob,
   withJobLink,
 } from "../src/lib/calendarLink.js";
@@ -92,6 +93,15 @@ describe("calendar link state", () => {
     ]);
     expect(st.confirmed).toBe(false);
     expect(st.pending).toBe(false);
+  });
+
+  it("searchCalendarEvents includes appointments older than this year", () => {
+    const events = [
+      { id: "old", summary: "Arthur Koptiv visit", start: "2024-03-15T10:00", location: "9 Oak" },
+      { id: "new", summary: "Arthur Koptiv return", start: "2026-03-15T10:00", location: "9 Oak" },
+    ];
+    const hits = searchCalendarEvents(events, "arthur");
+    expect(hits.map((e) => e.id)).toEqual(["new", "old"]);
   });
 
   it("suggests appointments matching customer or address", () => {

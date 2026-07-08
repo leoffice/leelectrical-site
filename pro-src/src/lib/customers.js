@@ -95,6 +95,14 @@ export function customerNameMatches(job, nameKey) {
 /** Grouping key: explicit clientGroup first, then the normalized customer
  *  name (so "Meir Kabakov" and "meir kabakov " share a row), and only
  *  jobs with no customer at all stand alone. */
+export const PENDING_IMPORT_LS = "lepro_pending_import";
+
+/** Route key for a customer name before jobs exist (import flow). */
+export function customerKeyForName(name) {
+  const n = normalizeCustomer(name);
+  return n ? "c:" + n : "";
+}
+
 export function clientKey(job) {
   if (job.clientGroup) return "g:" + job.clientGroup;
   const n = normalizeCustomer(job.customer);

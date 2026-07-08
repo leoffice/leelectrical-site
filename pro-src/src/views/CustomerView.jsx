@@ -1,7 +1,7 @@
 // Customer detail view — opened by tapping a customer group's name header in
 // the Jobs list (route /customer/:key). Customer card on top; each job shows
 // job information + linked appointment inline.
-import React, { useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { useStore } from "../state/store.jsx";
 import Jobs from "./Jobs.jsx";
@@ -21,26 +21,73 @@ import {
   customerAmountSummary,
   customerContact,
   jobsForCustomerKey,
+  PENDING_IMPORT_LS,
 } from "../lib/customers.js";
 
 export default function CustomerView() {
   const { key: raw } = useParams();
   const nav = useNavigate();
-  const { jobs, loading, events, commands, patchJob } = useStore();
+  const { jobs, loading, events, commands, patchJob, syncNow, refreshJobs } = useStore();
   const key = raw ? decodeURIComponent(raw) : "";
   const [sheet, setSheet] = useState(null); // { kind, job? }
   const [expandedJobs, setExpandedJobs] = useState({}); // job id -> expanded on customer view
+  const [importing, setImporting] = useState(false);
+  const importPoll = useRef(null);
 
   const list = useMemo(() => sortJobs(jobsForCustomerKey(jobs, key)), [jobs, key]);
   const contact = useMemo(() => customerContact(list), [list]);
   const summary = useMemo(() => customerAmountSummary(list), [list]);
   const primaryJob = list[0];
 
+  useEffect(() => {
+    let pending = null;
+    try {
+      pending = JSON.parse(sessionStorage.getItem(PENDING_IMPORT_LS) || "null");
+    } catch {}
+    if (!pending || pending.key !== key) {
+      setImporting(false);
+      return;
+    }
+    setImporting(true);
+    let n = 0;
+    const tick = async () => {
+      n += 1;
+      await syncNow?.().catch(() => {});
+      await refreshJobs?.(true);
+      if (n < 20) importPoll.current = setTimeout(tick, 2000);
+      else {
+        setImporting(false);
+        sessionStorage.removeItem(PENDING_IMPORT_LS);
+      }
+    };
+    tick();
+    return () => clearTimeout(importPoll.current);
+  }, [key, syncNow, refreshJobs]);
+
+  useEffect(() => {
+    if (!list.length) return;
+    let pending = null;
+    try {
+      pending = JSON.parse(sessionStorage.getItem(PENDING_IMPORT_LS) || "null");
+    } catch {}
+    if (!pending || pending.key !== key) return;
+    sessionStorage.removeItem(PENDING_IMPORT_LS);
+    setImporting(false);
+    setExpandedJobs((o) => ({ ...o, [list[0].id]: true }));
+  }, [list, key]);
+
   if (!list.length) {
     return (
-      <div className="card px-6 py-12 text-center text-slate-400 text-sm">
-        {loading ? (
-          "Loading…"
+      <div className="card px-6 py-12 text-center text-slate-400 text-sm" data-testid="customer-view-empty">
+        {loading || importing ? (
+          <div>
+            <p className="font-semibold text-slate-600 mb-1">
+              {importing ? "Pulling from QuickBooks…" : "Loading…"}
+            </p>
+            {importing ? (
+              <p className="text-xs text-slate-400">Open invoices will appear here in a few seconds.</p>
+            ) : null}
+          </div>
         ) : (
           <>
             No jobs for this customer.{" "}

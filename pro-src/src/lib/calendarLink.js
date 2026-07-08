@@ -195,6 +195,22 @@ export function eventsSinceYearStart(events, year = new Date().getFullYear()) {
     .sort((a, b) => evStart(b).localeCompare(evStart(a)));
 }
 
+/** All synced calendar events (no date filter), newest first. */
+export function allCalendarEvents(events) {
+  return (events || [])
+    .filter((e) => evStart(e))
+    .sort((a, b) => evStart(b).localeCompare(evStart(a)));
+}
+
+/** Best initial search for linking — street line, then customer name. */
+export function appointmentSearchSeed(job) {
+  const street = String(job?.serviceAddress || job?.address || "")
+    .split(",")[0]
+    .trim();
+  if (street.length >= 5) return street;
+  return String(job?.customer || job?.businessName || "").trim();
+}
+
 function normToken(s) {
   return String(s || "")
     .trim()
@@ -214,12 +230,12 @@ function tokenHits(hay, token) {
 }
 
 /** Suggested appointments matching customer name, company, or service address. */
-export function suggestAppointmentsForJob(job, events, year = new Date().getFullYear(), limit = 8) {
+export function suggestAppointmentsForJob(job, events, _year, limit = 8) {
   const customer = job?.customer || "";
   const company = job?.businessName || "";
   const address = job?.serviceAddress || job?.address || "";
   const street = address.split(",")[0].trim();
-  const base = eventsSinceYearStart(events, year);
+  const base = allCalendarEvents(events);
   const scored = [];
   for (const e of base) {
     const hay = [e.summary, e.location, displayEventNotes(e.description)].filter(Boolean).join(" ");
@@ -238,12 +254,12 @@ export function suggestAppointmentsForJob(job, events, year = new Date().getFull
     .map((s) => s.event);
 }
 
-/** Search YTD calendar events by summary, location, notes, or date. */
-export function searchCalendarEvents(events, query, year = new Date().getFullYear()) {
+/** Search all calendar events by summary, location, notes, or date. */
+export function searchCalendarEvents(events, query) {
   const q = String(query || "")
     .trim()
     .toLowerCase();
-  const base = eventsSinceYearStart(events, year);
+  const base = allCalendarEvents(events);
   if (!q) return base;
   return base.filter((e) => {
     const hay = [e.summary, e.location, displayEventNotes(e.description), evStart(e)].filter(Boolean).join(" ").toLowerCase();

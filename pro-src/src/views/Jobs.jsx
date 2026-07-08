@@ -26,6 +26,8 @@ import {
   normalizeCustomer,
   openBalance,
   unknownCustomers,
+  customerKeyForName,
+  PENDING_IMPORT_LS,
 } from "../lib/customers.js";
 import { customerSyncCardClass } from "../lib/customerSync.js";
 import { needsAttentionJob } from "../lib/jobAwareness.js";
@@ -298,20 +300,25 @@ export default function Jobs({ embedded }) {
   }, [q, api]);
   useEffect(() => () => clearTimeout(custTimer.current), []);
 
-  // Confirm-import → enqueue an import_customer command. NOTE (stub): the host
-  // command handler that creates the customer + turns their open QBO invoices
-  // into jobs is NOT wired yet (qbo-exec only handles send_invoice/estimate).
-  // TODO(host): add an `import_customer` handler to qbo-exec.mjs that fetches
-  // the customer's open invoices and writes them into jobsdata as jobs.
   const confirmImport = async () => {
     const c = importCust;
     if (!c) return;
     const key = c.id != null ? String(c.id) : c.name;
     const name = c.name || "";
+    const custKey = customerKeyForName(name);
     setImportCust(null);
     setQ("");
     setCustMatches([]);
     setOpen({});
+    if (custKey) {
+      try {
+        sessionStorage.setItem(
+          PENDING_IMPORT_LS,
+          JSON.stringify({ key: custKey, name, qboId: c.id != null ? String(c.id) : "", started: Date.now() })
+        );
+      } catch {}
+      nav("/customer/" + encodeURIComponent(custKey));
+    }
     showToast("Importing " + name + "…");
     await enqueue(
       "import_customer",
