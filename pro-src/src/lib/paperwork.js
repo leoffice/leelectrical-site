@@ -35,6 +35,28 @@ export const PAPER = {
   },
 };
 
+/** Past-tense label for the bubble "mark done" action. */
+export const STEP_DONE_LABEL = {
+  "Application submitted": "Application submitted",
+  "POE scheduled": "POE scheduled",
+  "Uploaded paperwork complete": "Paperwork uploaded",
+  "New accounts activated": "Accounts activated",
+  "Interim checklist": "Interim checklist complete",
+  "Final checklist": "Final checklist complete",
+  "Inspection appointment": "Inspection scheduled",
+  "Meter installation date": "Meter date set",
+  "Permit issued": "Permit issued",
+  "Inspection requested": "Inspection requested",
+  "Inspection scheduled": "Inspection scheduled",
+  "Self certification": "Self certification complete",
+  "PAA complete": "PAA complete",
+};
+
+export function stepDoneLabel(step, fallback = "Mark step done") {
+  if (!step) return fallback;
+  return STEP_DONE_LABEL[step] || fallback;
+}
+
 /** Shorter labels for the job-info "Up next" line. */
 export const STEP_SHORT = {
   "Application submitted": "Submit application",

@@ -9,7 +9,12 @@ import CustomerCard from "../components/CustomerCard.jsx";
 import JobInfoCard from "../components/JobInfoCard.jsx";
 import JobDocSheets, { openDocTab } from "../components/JobDocSheets.jsx";
 import StepBubbleSheet from "../components/StepBubbleSheet.jsx";
-import { completeAwarenessBubble, skipAwarenessBubble, tapAwarenessBubble } from "../lib/bubbleHandlers.js";
+import {
+  completeAwarenessBubble,
+  revertAwarenessBubble,
+  skipAwarenessBubble,
+  tapAwarenessBubble,
+} from "../lib/bubbleHandlers.js";
 import { CustEditSheet, PaperworkApptSheet } from "../components/JobSheets.jsx";
 import { sortJobs } from "../lib/stages.js";
 import {
@@ -105,11 +110,35 @@ export default function CustomerView() {
         <StepBubbleSheet
           bubble={sheet.bubble}
           onClose={() => setSheet(null)}
-          onComplete={(b) => completeAwarenessBubble(sheet.job.id, sheet.job, b, patchJob)}
-          onSkip={(b) => skipAwarenessBubble(sheet.job.id, b, patchJob)}
-          onOpen={(b) =>
-            tapAwarenessBubble(sheet.job, b, (s) => setSheet({ ...s, job: sheet.job }), openDocForBubble)
-          }
+          onComplete={(b) => {
+            const prompt = completeAwarenessBubble(sheet.job.id, sheet.job, b, patchJob);
+            if (prompt) {
+              setSheet({
+                kind: "paperAppt",
+                job: sheet.job,
+                branch: prompt.branchKey,
+                step: prompt.step,
+                initialDt: prompt.initialDt,
+              });
+            } else {
+              setSheet(null);
+            }
+          }}
+          onSkip={(b) => {
+            skipAwarenessBubble(sheet.job.id, b, patchJob);
+            setSheet(null);
+          }}
+          onRevert={(b) => {
+            revertAwarenessBubble(sheet.job.id, sheet.job, b, patchJob);
+            setSheet(null);
+          }}
+          onOpen={(b) => {
+            if (b.action === "record-deposit") {
+              setSheet({ kind: "paymenu", job: sheet.job });
+              return;
+            }
+            tapAwarenessBubble(sheet.job, b, (s) => setSheet({ ...s, job: sheet.job }), openDocForBubble);
+          }}
           onCalendar={(b) =>
             setSheet({
               kind: "paperAppt",

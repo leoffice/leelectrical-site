@@ -13,6 +13,7 @@ import { enrichAndPatchCustomer } from "./NewJobFlow.jsx";
 import { useStore } from "../state/store.jsx";
 import { serviceAddressHint, serviceAddressLabel } from "../lib/customerSync.js";
 import { fmt$, todayStr } from "../lib/format.js";
+import { patchFromQboPaymentFetch } from "../lib/qboPayments.js";
 import { clientKey, fmtAmountDue, invoiceTotal, jobsForCustomerKey, openBalance, amountPaid, paidPct } from "../lib/customers.js";
 import { buildPaymentLinkEmail } from "../lib/paymentLinkEmail.js";
 import { buildPayLandingUrl } from "../lib/payLanding.js";
@@ -189,7 +190,7 @@ function PaymentEditForm({ payment, onSave, onDelete, onCancel }) {
 }
 
 export function PaymentHistorySheet({ job, onClose, onAddPayment }) {
-  const { patchJob, showToast, enqueue, commands, refreshCommands, refreshJobs } = useStore();
+  const { patchJob, patchAndSave, showToast, enqueue, commands, refreshCommands, refreshJobs } = useStore();
   const [editId, setEditId] = useState(null);
   const [fetchPhase, setFetchPhase] = useState("idle"); // idle | working | done | failed
   const [fetchErr, setFetchErr] = useState("");
@@ -207,13 +208,18 @@ export function PaymentHistorySheet({ job, onClose, onAddPayment }) {
     if (fetchPhase !== "working") return;
     if (fetchStatus === "done") {
       setFetchPhase("done");
-      refreshJobs(true);
+      const patch = patchFromQboPaymentFetch(job, fetchCmd?.result);
+      if (patch) {
+        patchAndSave(job.id, patch);
+      } else {
+        refreshJobs(true);
+      }
       showToast("Payment history updated from QuickBooks");
     } else if (fetchStatus === "failed") {
       setFetchErr(String(fetchCmd?.error || "Could not pull payments from QuickBooks"));
       setFetchPhase("failed");
     }
-  }, [fetchPhase, fetchStatus, fetchCmd?.error]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [fetchPhase, fetchStatus, fetchCmd?.error, fetchCmd?.result]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     if (fetchPhase !== "working") return;

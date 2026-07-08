@@ -25,7 +25,7 @@ describe("stage model", () => {
       "Lead", "Site Visit", "Estimate", "Accepted", "Invoiced", "Deposit Receipt",
       "Paperwork", "Scheduled", "Done", "Follow-up", "Paid",
     ]);
-    expect(PHASES.map((p) => p.nm)).toEqual(["Sales", "Billing", "Paperwork", "Job", "Wrap-up"]);
+    expect(PHASES.map((p) => p.nm)).toEqual(["Sales", "Billing", "Paperwork", "Job", "Final payment"]);
     expect(PHASES.flatMap((p) => p.steps)).toEqual(STAGES);
   });
 

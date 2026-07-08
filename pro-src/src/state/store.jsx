@@ -133,6 +133,7 @@ export function StoreProvider({ children }) {
   }, []);
 
   const appliedCalUpserts = useRef(new Set());
+  const appliedFetchPayments = useRef(new Set());
 
   const refreshEvents = useCallback(async ({ pull = false, awaitPull = true } = {}) => {
     try {
@@ -387,6 +388,16 @@ export function StoreProvider({ children }) {
       });
     }
   }, [commands, jobs, patchAndSave]);
+
+  useEffect(() => {
+    for (const cmd of commands || []) {
+      if (cmd.type !== "fetch_payments" || cmd.status !== "done") continue;
+      const mark = String(cmd.idempotencyKey || cmd.id || "");
+      if (!mark || appliedFetchPayments.current.has(mark)) continue;
+      appliedFetchPayments.current.add(mark);
+      refreshJobs(true);
+    }
+  }, [commands, refreshJobs]);
 
   /* ---------- command bus ---------- */
   const enqueue = useCallback(

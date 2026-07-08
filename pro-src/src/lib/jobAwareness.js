@@ -49,7 +49,7 @@ function paperworkBubbleTone(job, line, cal, today = todayStr()) {
   if (job._freshBubble === line.branchKey) return "green";
   if (paperworkNudgeOverdue(job, today)) return "red";
   const { step, hasDate, isInspection } = line;
-  if (hasDate && isInspection) {
+  if (isInspection || line.isSchedulable) {
     if (cal.confirmed) return "green";
     if (cal.pending) return "orange";
     return "red";
@@ -112,7 +112,7 @@ export function jobAwarenessBubbles(job, events, commands) {
       timing: "Up next",
       tone: stageBubbleTone(job, "Deposit Receipt"),
       isSchedulable: false,
-      action: "complete-stage",
+      action: "record-deposit",
     });
   }
 

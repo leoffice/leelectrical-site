@@ -117,30 +117,81 @@ async function enqueueRecordPayment({ jobId, invoiceNo, amount, ref, method }) {
   return { deduped: false, command };
 }
 
-async function patchJobPaid(jobId, amount, ref, method) {
+function parseMoney(raw) {
+  const n = parseFloat(String(raw || "").replace(/[$,]/g, ""));
+  return Number.isFinite(n) ? n : 0;
+}
+
+function fmtMoney(n) {
+  return n % 1 ? "$" + n.toFixed(2) : "$" + Math.round(n);
+}
+
+function normalizePayments(job) {
+  const list = Array.isArray(job?.payments) ? job.payments.map((p) => ({ ...p })) : [];
+  const legacy = job?.payment;
+  if (legacy && (legacy.amount || legacy.method || legacy.ref)) {
+    const lid = legacy.id || "legacy-" + (legacy.date || legacy.ref || "0");
+    if (!list.some((p) => p.id === lid)) list.push({ ...legacy, id: lid });
+  }
+  return list.filter((p) => parseMoney(p.amount) > 0 || p.method || p.ref);
+}
+
+function owedAtStart(job, payments) {
+  if (job?.paymentBaseline != null && job.paymentBaseline !== "") return parseMoney(job.paymentBaseline);
+  const paidSum = payments.reduce((s, p) => s + parseMoney(p.amount), 0);
+  const curOpen = job?.openBalance != null && job.openBalance !== "" ? parseMoney(job.openBalance) : null;
+  if (curOpen != null && paidSum > 0) return curOpen + paidSum;
+  const hay = [job?.notes, job?.followUp?.text].filter(Boolean).join(" ");
+  const m = hay.match(/(?:open\s*balance|balance\s*due|balance|owes?|remaining)\D{0,8}\$?\s*([\d,]+(?:\.\d+)?)/i);
+  if (m) return parseMoney(m[1]);
+  return parseMoney(job?.amount) || parseMoney(job?.openBalance);
+}
+
+async function patchJobPayment(jobId, amount, ref, method) {
   if (!jobId) return;
-  const store = getStore("jobstate");
+  const jobsStore = getStore("jobsdata");
+  const stateStore = getStore("jobstate");
+  const jobsDoc =
+    (await jobsStore.get(JOBS_KEY, { type: "json", consistency: "strong" })) || { jobs: [] };
+  const baseJob = (jobsDoc.jobs || []).find((j) => String(j.id) === String(jobId)) || {};
   const cur =
-    (await store.get(STATE_KEY, { type: "json", consistency: "strong" })) ||
+    (await stateStore.get(STATE_KEY, { type: "json", consistency: "strong" })) ||
     { ov: {}, ts: 0 };
   const ov = cur.ov || {};
   const prev = ov[jobId] || {};
-  const n = Number(amount);
-  const payAmt =
-    "$" +
-    (n % 1 ? n.toFixed(2) : String(Math.round(n)));
-  ov[jobId] = Object.assign({}, prev, {
-    paid: true,
-    payment: Object.assign({}, prev.payment || {}, {
-      amount: payAmt,
-      method: method || "Card",
-      ref: ref || "",
-      date: todayISO(),
-      recorded: false,
-      source: "sola",
-    }),
-  });
-  await store.setJSON(STATE_KEY, { ov, ts: Date.now() });
+  const merged = { ...baseJob, ...prev };
+  const payId = ref ? "sola-" + ref : "sola-" + Date.now();
+  const existing = normalizePayments(merged);
+  if (existing.some((p) => p.id === payId)) return;
+
+  const entry = {
+    id: payId,
+    amount: fmtMoney(amount),
+    method: method || "Card",
+    ref: ref || "",
+    date: todayISO(),
+    recorded: false,
+    source: "sola",
+  };
+  const list = [...existing, entry];
+  const owed = owedAtStart(merged, list);
+  const paidSum = list.reduce((s, p) => s + parseMoney(p.amount), 0);
+  const remaining = Math.max(0, owed - paidSum);
+  const fullPay = remaining <= 0.01;
+  const latest = list.slice().sort((a, b) => String(a.date || "").localeCompare(String(b.date || ""))).pop();
+
+  ov[jobId] = {
+    ...prev,
+    payments: list,
+    paymentBaseline: prev.paymentBaseline != null ? prev.paymentBaseline : owed,
+    openBalance: fullPay ? 0 : remaining,
+    paid: fullPay,
+    payment: latest || null,
+    status: fullPay
+      ? { Paid: { s: "done", d: entry.date }, "Follow-up": { s: "done", d: entry.date } }
+      : { Paid: { s: "" }, "Follow-up": { s: "" } },
+  };
+  await stateStore.setJSON(STATE_KEY, { ov, ts: Date.now() });
 }
 
 function thanksRedirect(params) {
@@ -178,7 +229,7 @@ export default async (req) => {
 
   const jobId = await findJobId(invoiceNo, p.xCustom02 || p.xcustom02);
   await enqueueRecordPayment({ jobId, invoiceNo, amount, ref, method });
-  await patchJobPaid(jobId, amount, ref, method);
+  await patchJobPayment(jobId, amount, ref, method);
 
   if (isWebhook) return new Response("OK", { status: 200 });
   return thanksRedirect({

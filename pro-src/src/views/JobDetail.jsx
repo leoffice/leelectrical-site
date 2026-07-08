@@ -38,7 +38,12 @@ import Toggle from "../components/Toggle.jsx";
 import Jobs from "./Jobs.jsx";
 import JobDocSheets, { openDocTab } from "../components/JobDocSheets.jsx";
 import StepBubbleSheet from "../components/StepBubbleSheet.jsx";
-import { completeAwarenessBubble, skipAwarenessBubble, tapAwarenessBubble } from "../lib/bubbleHandlers.js";
+import {
+  completeAwarenessBubble,
+  revertAwarenessBubble,
+  skipAwarenessBubble,
+  tapAwarenessBubble,
+} from "../lib/bubbleHandlers.js";
 import {
   AttachSheet,
   CombineSheet,
@@ -763,8 +768,27 @@ export default function JobDetail() {
         <StepBubbleSheet
           bubble={sheet.bubble}
           onClose={() => setSheet(null)}
-          onComplete={(b) => completeAwarenessBubble(id, job, b, patchJob)}
-          onSkip={(b) => skipAwarenessBubble(id, b, patchJob)}
+          onComplete={(b) => {
+            const prompt = completeAwarenessBubble(id, job, b, patchJob);
+            if (prompt) {
+              setSheet({
+                kind: "paperAppt",
+                branch: prompt.branchKey,
+                step: prompt.step,
+                initialDt: prompt.initialDt,
+              });
+            } else {
+              setSheet(null);
+            }
+          }}
+          onSkip={(b) => {
+            skipAwarenessBubble(id, b, patchJob);
+            setSheet(null);
+          }}
+          onRevert={(b) => {
+            revertAwarenessBubble(id, job, b, patchJob);
+            setSheet(null);
+          }}
           onOpen={(b) => tapAwarenessBubble(job, b, setSheet, openDocTab)}
           onCalendar={(b) =>
             setSheet({

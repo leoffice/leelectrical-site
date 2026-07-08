@@ -24,7 +24,7 @@ export const PHASES = [
   { nm: "Billing", ic: "🧾", steps: ["Invoiced", "Deposit Receipt"] },
   { nm: "Paperwork", ic: "📑", steps: ["Paperwork"] },
   { nm: "Job", ic: "⚡", steps: ["Scheduled", "Done"] },
-  { nm: "Wrap-up", ic: "✅", steps: ["Follow-up", "Paid"] },
+  { nm: "Final payment", ic: "✅", steps: ["Follow-up", "Paid"] },
 ];
 
 export const FOLLOWUP_TYPES = [
