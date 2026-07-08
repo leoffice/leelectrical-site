@@ -10,13 +10,23 @@ export default function JobDocSheets({ sheet, setSheet, job, onDocDone }) {
 
   if (sheet.kind === "cal") return <CalSheet job={job} onClose={() => setSheet(null)} />;
 
-  if (sheet.kind === "doc") return <DocSheet job={job} kind={sheet.doc} onClose={() => setSheet(null)} />;
+  if (sheet.kind === "doc") {
+    return (
+      <DocSheet
+        job={job}
+        kind={sheet.doc}
+        onClose={() => setSheet(null)}
+        onEdit={() => setSheet({ kind: "docBuild", docKind: sheet.doc, mode: "edit" })}
+      />
+    );
+  }
 
   if (sheet.kind === "estimateDoc") {
     return (
       <EstimateDocSheet
         job={job}
         onClose={() => setSheet(null)}
+        onEdit={() => setSheet({ kind: "docBuild", docKind: "estimate", mode: "edit" })}
         onConvert={() =>
           setSheet({
             kind: "progressPct",

@@ -411,6 +411,8 @@ export function StoreProvider({ children }) {
     }
   }, [commands, jobs, patchAndSave]);
 
+  const appliedImportCustomer = useRef(new Set());
+
   useEffect(() => {
     for (const cmd of commands || []) {
       if (cmd.type !== "fetch_payments" || cmd.status !== "done") continue;
@@ -420,6 +422,17 @@ export function StoreProvider({ children }) {
       refreshJobs(true);
     }
   }, [commands, refreshJobs]);
+
+  useEffect(() => {
+    for (const cmd of commands || []) {
+      if (cmd.type !== "import_customer" || cmd.status !== "done") continue;
+      const mark = String(cmd.idempotencyKey || cmd.id || "");
+      if (!mark || appliedImportCustomer.current.has(mark)) continue;
+      appliedImportCustomer.current.add(mark);
+      refreshJobs(true);
+      showToast("Imported — open invoices added as jobs");
+    }
+  }, [commands, refreshJobs, showToast]);
 
   /* ---------- command bus ---------- */
   const enqueue = useCallback(

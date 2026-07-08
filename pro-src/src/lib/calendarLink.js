@@ -195,6 +195,49 @@ export function eventsSinceYearStart(events, year = new Date().getFullYear()) {
     .sort((a, b) => evStart(b).localeCompare(evStart(a)));
 }
 
+function normToken(s) {
+  return String(s || "")
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9\s]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function tokenHits(hay, token) {
+  const t = normToken(token);
+  if (!t || t.length < 3) return false;
+  const h = normToken(hay);
+  if (h.includes(t)) return true;
+  const words = t.split(" ").filter((w) => w.length >= 3);
+  return words.length > 0 && words.every((w) => h.includes(w));
+}
+
+/** Suggested appointments matching customer name, company, or service address. */
+export function suggestAppointmentsForJob(job, events, year = new Date().getFullYear(), limit = 8) {
+  const customer = job?.customer || "";
+  const company = job?.businessName || "";
+  const address = job?.serviceAddress || job?.address || "";
+  const street = address.split(",")[0].trim();
+  const base = eventsSinceYearStart(events, year);
+  const scored = [];
+  for (const e of base) {
+    const hay = [e.summary, e.location, displayEventNotes(e.description)].filter(Boolean).join(" ");
+    let score = 0;
+    if (tokenHits(hay, customer)) score += 4;
+    if (company && normToken(company) !== normToken(customer) && tokenHits(hay, company)) score += 3;
+    if (street.length >= 5) {
+      if (tokenHits(e.location || hay, street)) score += 5;
+      else if (tokenHits(hay, address)) score += 4;
+    }
+    if (score > 0) scored.push({ event: e, score });
+  }
+  return scored
+    .sort((a, b) => b.score - a.score || evStart(b.event).localeCompare(evStart(a.event)))
+    .slice(0, limit)
+    .map((s) => s.event);
+}
+
 /** Search YTD calendar events by summary, location, notes, or date. */
 export function searchCalendarEvents(events, query, year = new Date().getFullYear()) {
   const q = String(query || "")

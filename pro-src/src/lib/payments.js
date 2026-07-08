@@ -130,11 +130,28 @@ export function canVoidInQbo(p) {
   );
 }
 
+const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+
+/** Friendly payment date — e.g. Mar/06/26 */
+export function fmtPaymentDate(raw) {
+  const s = String(raw || "").trim();
+  if (!s) return "";
+  const m = s.match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if (m) {
+    const mo = parseInt(m[2], 10);
+    const day = m[3];
+    const yr = m[1].slice(-2);
+    if (mo >= 1 && mo <= 12) return MONTHS[mo - 1] + "/" + day + "/" + yr;
+  }
+  return s;
+}
+
 export function fmtPaymentLine(p) {
   const bits = [fmt$(parseAmount(p.amount))];
   const method = normalizePaymentMethod(p.method, { note: p.note, ref: p.ref });
   if (method) bits.push(method);
-  if (p.date) bits.push(p.date);
-  if (p.ref) bits.push(p.ref);
+  const date = fmtPaymentDate(p.date);
+  if (date) bits.push(date);
+  if (p.ref) bits.push("#" + String(p.ref).replace(/^#/, ""));
   return bits.join(" · ");
 }

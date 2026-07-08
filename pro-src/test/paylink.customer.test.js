@@ -108,6 +108,7 @@ describe("customerContact", () => {
       phone: "555-1",
       email: "a@x.com",
       billingAddress: "",
+      apartment: "",
       address: "1 St",
     });
   });

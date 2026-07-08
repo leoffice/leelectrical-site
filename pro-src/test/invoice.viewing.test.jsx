@@ -23,7 +23,7 @@ afterEach(() => {
 });
 
 const JOB = {
-  id: "J-1",
+  id: "J-cal-test",
   customer: "Peretz Chein",
   amount: "$2,300",
   invoiceNo: "251841",

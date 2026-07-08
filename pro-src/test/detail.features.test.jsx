@@ -130,7 +130,7 @@ describe("2. quick views — invoice/estimate/calendar sheets", () => {
     const pane = await openDetail();
 
     await user.click(within(pane).getByTestId("tab-estimate"));
-    expect(screen.getByText("View in QuickBooks")).toBeInTheDocument();
+    expect(screen.getByText("Open in QuickBooks")).toBeInTheDocument();
     expect(screen.getByText("View PDF")).toBeInTheDocument();
 
     await user.click(within(pane).getByTestId("tab-calendar"));

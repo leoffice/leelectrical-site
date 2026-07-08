@@ -8,6 +8,7 @@ import {
   displayEventNotes,
   linkedJobForEvent,
   searchCalendarEvents,
+  suggestAppointmentsForJob,
 } from "../lib/calendarLink.js";
 
 function formatWhen(event) {
@@ -20,7 +21,28 @@ export default function PickAppointmentSheet({ job, onClose, onLinked }) {
   const [query, setQuery] = useState("");
   const [picked, setPicked] = useState(null);
 
+  const suggestions = useMemo(() => suggestAppointmentsForJob(job, events), [job, events]);
   const matches = useMemo(() => searchCalendarEvents(events, query), [events, query]);
+
+  const renderEvent = (e) => {
+    const linked = linkedJobForEvent(e, jobs);
+    const note = [
+      formatWhen(e),
+      e.location || "",
+      linked && linked.id !== job.id ? "Linked to " + (linked.customer || linked.title) : "",
+    ]
+      .filter(Boolean)
+      .join(" · ");
+    return (
+      <Opt
+        key={e.id || evStart(e) + e.summary}
+        icon="📅"
+        title={e.summary || "Appointment"}
+        note={note}
+        onClick={() => setPicked(e)}
+      />
+    );
+  };
 
   const confirmLink = async () => {
     if (!picked) return;
@@ -77,33 +99,27 @@ export default function PickAppointmentSheet({ job, onClose, onLinked }) {
         data-testid="pick-appt-search"
         autoFocus
       />
-      {matches.length ? (
-        <div className="space-y-0">
-          {matches.map((e) => {
-            const linked = linkedJobForEvent(e, jobs);
-            const note = [
-              formatWhen(e),
-              e.location || "",
-              linked && linked.id !== job.id ? "Linked to " + (linked.customer || linked.title) : "",
-            ]
-              .filter(Boolean)
-              .join(" · ");
-            return (
-              <Opt
-                key={e.id || evStart(e) + e.summary}
-                icon="📅"
-                title={e.summary || "Appointment"}
-                note={note}
-                onClick={() => setPicked(e)}
-              />
-            );
-          })}
-        </div>
-      ) : (
-        <div className="text-sm text-slate-400 text-center py-8">
-          {query ? "No appointments match your search." : "No appointments this year yet — sync calendar first."}
+      {!query.trim() && suggestions.length > 0 && (
+        <div className="mb-4" data-testid="suggested-appointments">
+          <div className="text-xs font-bold text-slate-500 mb-1.5 px-0.5">Suggested appointments</div>
+          <div className="space-y-0">{suggestions.map(renderEvent)}</div>
         </div>
       )}
+
+      {matches.length ? (
+        <div className="space-y-0">
+          {query.trim() ? (
+            <div className="text-xs font-bold text-slate-500 mb-1.5 px-0.5">Search results</div>
+          ) : null}
+          {matches.map(renderEvent)}
+        </div>
+      ) : query.trim() ? (
+        <div className="text-sm text-slate-400 text-center py-8">No appointments match your search.</div>
+      ) : !suggestions.length ? (
+        <div className="text-sm text-slate-400 text-center py-8">
+          No matching appointments this year — try searching by address or name.
+        </div>
+      ) : null}
     </Sheet>
   );
 }

@@ -134,7 +134,8 @@ function ClientListHeader({ name, amount, meta, hint, hintHref, amountHref, onNa
   );
 }
 
-const IDLE_COLLAPSE_MS = 8000; // expanded customer rows fold back after ~8s idle
+const IDLE_COLLAPSE_MS = 10_000; // expanded customer rows fold back after ~10s idle
+const SEARCH_IDLE_MS = 10_000; // clear search + collapse after ~10s without interaction
 const SORT_LS_KEY = "lepro_jobs_sort_v1"; // persisted sort-by choice
 
 const loadSort = () => {
@@ -147,7 +148,7 @@ const loadSort = () => {
 };
 
 export default function Jobs({ embedded }) {
-  const { jobs, loading, showToast, api, enqueue } = useStore();
+  const { jobs, loading, showToast, api, enqueue, syncNow, refreshJobs } = useStore();
   const nav = useNavigate();
   const [q, setQ] = useState("");
   const [filter, setFilter] = useState("Active");
@@ -158,6 +159,7 @@ export default function Jobs({ embedded }) {
   const [importCust, setImportCust] = useState(null); // #56 confirm-import target
   const timers = useRef({}); // groupKey -> auto-collapse timer
   const custTimer = useRef(null);
+  const searchIdleTimer = useRef(null);
 
   const pickSort = (k) => {
     setSort(k);
@@ -232,7 +234,24 @@ export default function Jobs({ embedded }) {
     [filter, q, matchesChip]
   );
 
-  /* auto-collapse an expanded row after ~8s without interaction */
+  /** After ~10s idle with text in the search bar, clear search and collapse groups. */
+  const armSearchIdle = useCallback(() => {
+    clearTimeout(searchIdleTimer.current);
+    if (!q.trim()) return;
+    searchIdleTimer.current = setTimeout(() => {
+      setQ("");
+      setCustMatches([]);
+      setOpen({});
+      Object.values(timers.current).forEach(clearTimeout);
+    }, SEARCH_IDLE_MS);
+  }, [q]);
+
+  useEffect(() => {
+    armSearchIdle();
+    return () => clearTimeout(searchIdleTimer.current);
+  }, [armSearchIdle]);
+
+  /* auto-collapse an expanded row after ~10s without interaction */
   const armCollapse = (key) => {
     clearTimeout(timers.current[key]);
     timers.current[key] = setTimeout(
@@ -287,16 +306,25 @@ export default function Jobs({ embedded }) {
   const confirmImport = async () => {
     const c = importCust;
     if (!c) return;
-    setImportCust(null);
     const key = c.id != null ? String(c.id) : c.name;
+    const name = c.name || "";
+    setImportCust(null);
+    setQ("");
+    setCustMatches([]);
+    setOpen({});
+    showToast("Importing " + name + "…");
     await enqueue(
       "import_customer",
       "import-" + key,
-      { name: c.name, qboId: c.id != null ? String(c.id) : "" },
-      "judgment",
+      { name, qboId: c.id != null ? String(c.id) : "" },
+      "deterministic",
       "import_customer|" + key
     );
-    showToast("Import requested — Dispatch will pull open invoices as jobs");
+    try {
+      await api.pullJobs?.();
+    } catch {}
+    syncNow?.().catch(() => {});
+    refreshJobs?.(true);
   };
 
   return (
@@ -307,6 +335,8 @@ export default function Jobs({ embedded }) {
         placeholder="🔍  Search customer, job, address…"
         value={q}
         onChange={(e) => setQ(e.target.value)}
+        onFocus={armSearchIdle}
+        onBlur={armSearchIdle}
         aria-label="Search jobs"
       />
 

@@ -138,7 +138,9 @@ export default function DocBuilderSheet({
 
   const total = useMemo(() => linesTotal(lines), [lines]);
   const title =
-    kind === "estimate"
+    mode === "edit"
+      ? "Edit " + (kind === "estimate" ? "estimate" : "invoice")
+      : kind === "estimate"
       ? "Generate estimate"
       : mode === "from_estimate" || mode === "turn_from_estimate"
       ? "Invoice from estimate" + (progressPct != null ? " (" + progressPct + "%)" : "")
@@ -176,8 +178,15 @@ export default function DocBuilderSheet({
       });
       payload.attachments = attachments;
 
-      const cmdType = kind === "estimate" ? "create_estimate" : "create_invoice";
-      const idk = docIdempotencyKey(kind, job.id, valid);
+      const cmdType =
+        mode === "edit"
+          ? kind === "estimate"
+            ? "update_estimate"
+            : "update_invoice"
+          : kind === "estimate"
+          ? "create_estimate"
+          : "create_invoice";
+      const idk = docIdempotencyKey(kind, job.id, valid, mode);
       const jobPatch = {
         serviceAddress,
         apartment,
@@ -231,7 +240,7 @@ export default function DocBuilderSheet({
 
       showToast(
         send
-          ? "Queued — creating in QuickBooks & sending to " + job.email
+          ? "Queued — " + (mode === "edit" ? "updating" : "creating") + " in QuickBooks & sending to " + job.email
           : "Queued — Save & sync to QuickBooks"
       );
       onDone && onDone();

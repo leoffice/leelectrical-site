@@ -74,7 +74,7 @@ describe("bug 1 — duplicate customers collapse into ONE group row", () => {
     ["T1", "T2", "T3"].forEach((t) => expect(screen.queryByText(t)).not.toBeInTheDocument());
   });
 
-  it("expanded group auto-collapses after ~8s idle", async () => {
+  it("expanded group auto-collapses after ~10s idle", async () => {
     mockServer({
       jobs: [job("K-1", "Meir Kabakov", "Panel swap", "$1,000"), job("K-2", "meir kabakov", "EV charger", "$900")],
     });
@@ -84,7 +84,7 @@ describe("bug 1 — duplicate customers collapse into ONE group row", () => {
     fireEvent.click(within(row).getByTestId("client-group-toggle"));
     expect(screen.getByText("Panel swap")).toBeInTheDocument();
     act(() => {
-      vi.advanceTimersByTime(8500);
+      vi.advanceTimersByTime(10_500);
     });
     expect(screen.queryByText("Panel swap")).not.toBeInTheDocument();
     vi.useRealTimers();

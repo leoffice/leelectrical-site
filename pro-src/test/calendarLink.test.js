@@ -4,6 +4,7 @@ import {
   isCalendarUnlinkCommand,
   jobCalendarLinkState,
   parseCalendarUpsertResult,
+  suggestAppointmentsForJob,
   withJobLink,
 } from "../src/lib/calendarLink.js";
 import { paperworkPillTone } from "../src/lib/paperwork.js";
@@ -91,5 +92,17 @@ describe("calendar link state", () => {
     ]);
     expect(st.confirmed).toBe(false);
     expect(st.pending).toBe(false);
+  });
+
+  it("suggests appointments matching customer or address", () => {
+    const events = [
+      { id: "e1", summary: "Peretz Chein — panel", location: "12 Main St", start: "2026-03-01T10:00" },
+      { id: "e2", summary: "Other client", location: "99 Oak Ave", start: "2026-03-02T10:00" },
+    ];
+    const hits = suggestAppointmentsForJob(
+      { customer: "Peretz Chein", address: "12 Main St, Brooklyn" },
+      events
+    );
+    expect(hits.map((e) => e.id)).toEqual(["e1"]);
   });
 });

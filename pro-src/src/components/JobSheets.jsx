@@ -560,7 +560,7 @@ export function PdfStages({ active }) {
  *  (lane judgment, idempotencyKey pdf:<no>:<date>) and poll docs every 4s for
  *  up to 90s. Once the blob is in hand it renders full screen automatically —
  *  no separate "go full screen" step (#44) — with plain stage wording (#45). */
-export function PdfViewer({ job, kind, no }) {
+export function PdfViewer({ job, kind, no, compact, children }) {
   const { api, enqueue } = useStore();
   const [st, setSt] = useState({ phase: "idle" }); // idle|checking|fetching|ready|timeout
   const timer = useRef(null);
@@ -649,6 +649,16 @@ export function PdfViewer({ job, kind, no }) {
         <button className="btn-ghost w-full mt-2 !py-1.5" onClick={view}>↻ Try again</button>
       </div>
     );
+  if (compact) {
+    return (
+      <div className="flex gap-2 mb-2 w-full" data-testid="doc-view-row">
+        <button type="button" className="btn flex-1 !py-2.5 bg-brand-soft text-brand font-semibold" onClick={view}>
+          View PDF
+        </button>
+        {children}
+      </div>
+    );
+  }
   return <Opt icon="📄" title="View PDF" note="Opens full screen · live from QuickBooks" onClick={view} />;
 }
 
@@ -960,9 +970,12 @@ export function PaymentLinkSheet({ job, onClose }) {
 }
 
 /* ---------- 2a. Invoice / Estimate quick view ---------- */
-export function DocSheet({ job, kind, onClose }) {
+export function DocSheet({ job, kind, onClose, onEdit, onConvert }) {
   const doSend = useDoSend();
   const no = kind === "invoice" ? job.invoiceNo : job.estimateNo;
+  const qboPath = kind === "invoice" ? "invoices" : "estimates";
+  const due = openBalance(job);
+  const label = kind === "invoice" ? "invoice" : "estimate";
   return (
     <Sheet title={(kind === "invoice" ? "Invoice " : "Estimate ") + (no || "")} onClose={onClose}>
       <div className="text-sm space-y-1 mb-3">
@@ -972,33 +985,57 @@ export function DocSheet({ job, kind, onClose }) {
           <div><b className="font-semibold">Status</b> <span className="text-slate-600">{job.paid ? "Paid" : "Open"}</span></div>
         )}
       </div>
-      {no && <PdfViewer job={job} kind={kind} no={no} />}
-      <Opt
-        icon="🔗"
-        title="Open in QuickBooks"
-        onClick={() => window.open("https://qbo.intuit.com/app/" + (kind === "invoice" ? "invoices" : "estimates"))}
-      />
-      {job.email && kind === "invoice" && openBalance(job) > 0.01 && (
-        <Opt
-          icon="💳"
-          title={"Send to " + job.email + " + payment link"}
-          note="Adds Sola pay link to email and invoice memo"
-          onClick={() => {
-            doSend(job, kind, { includePaymentLink: true });
-            onClose();
-          }}
-        />
+
+      {no ? (
+        <PdfViewer job={job} kind={kind} no={no} compact>
+          <button
+            type="button"
+            className="btn flex-1 !py-2.5 bg-slate-100 text-slate-800 font-semibold"
+            onClick={() => window.open("https://qbo.intuit.com/app/" + qboPath)}
+          >
+            Open in QuickBooks
+          </button>
+        </PdfViewer>
+      ) : null}
+
+      {job.email ? (
+        <div className="flex gap-2 mb-2" data-testid="doc-send-row">
+          {kind === "invoice" && due > 0.01 ? (
+            <button
+              type="button"
+              className="btn flex-1 !py-2.5 bg-brand text-white font-semibold"
+              onClick={() => {
+                doSend(job, kind, { includePaymentLink: true });
+                onClose();
+              }}
+            >
+              Send with payment link
+            </button>
+          ) : null}
+          <button
+            type="button"
+            className="btn flex-1 !py-2.5 bg-brand-soft text-brand font-semibold"
+            onClick={() => {
+              doSend(job, kind);
+              onClose();
+            }}
+          >
+            {kind === "invoice" && due > 0.01 ? "Send invoice only" : "Send " + label}
+          </button>
+        </div>
+      ) : (
+        <p className="text-[11px] text-slate-400 text-center mb-2">Add an email on the customer card to send.</p>
       )}
-      {job.email && (
-        <Opt
-          icon="📤"
-          title={kind === "invoice" && openBalance(job) > 0.01 ? "Send invoice only (no pay link)" : "Send to " + job.email}
-          onClick={() => {
-            doSend(job, kind);
-            onClose();
-          }}
-        />
-      )}
+
+      {onEdit ? (
+        <button type="button" className="btn-ghost w-full !py-2.5 mb-1 font-semibold" onClick={onEdit} data-testid="doc-edit">
+          Edit {label}
+        </button>
+      ) : null}
+
+      {kind === "estimate" && !job.invoiceNo && onConvert ? (
+        <Opt icon="🧾" title="Convert to invoice" note="Bill all or part of this estimate" onClick={onConvert} />
+      ) : null}
     </Sheet>
   );
 }

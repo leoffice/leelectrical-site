@@ -91,10 +91,18 @@ export function buildDocCommandPayload(job, { kind, lines, serviceAddress, apart
   return base;
 }
 
-export function docIdempotencyKey(kind, jobId, lines) {
+export function docIdempotencyKey(kind, jobId, lines, mode) {
   const sig = (lines || [])
     .map((ln) => [ln.itemName, ln.qty, ln.unitPrice].join(":"))
     .join("|")
     .slice(0, 80);
-  return (kind === "estimate" ? "create_estimate:" : "create_invoice:") + jobId + ":" + sig;
+  const prefix =
+    mode === "edit"
+      ? kind === "estimate"
+        ? "update_estimate:"
+        : "update_invoice:"
+      : kind === "estimate"
+      ? "create_estimate:"
+      : "create_invoice:";
+  return prefix + jobId + ":" + sig;
 }

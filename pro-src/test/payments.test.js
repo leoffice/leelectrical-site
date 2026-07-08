@@ -46,7 +46,7 @@ describe("payments ledger", () => {
       date: "2026-07-08",
       ref: "JPM99cnf72cg",
     });
-    expect(line).toBe("$1,000 · Zelle · 2026-07-08 · JPM99cnf72cg");
+    expect(line).toBe("$1,000 · Zelle · Jul/08/26 · #JPM99cnf72cg");
   });
 
   it("normalizePaymentMethod maps QBO and card types", () => {
