@@ -27,16 +27,17 @@ export function useDoSend() {
   const { enqueue, logSend, showToast } = useStore();
   return (job, kind, opts = {}) => {
     const no = kind === "invoice" ? job.invoiceNo : job.estimateNo;
+    const email = (opts.email || job.email || "").trim();
     const payload =
       kind === "invoice"
         ? {
-            email: job.email,
+            email,
             invoiceNo: no,
             customer: job.customer || "",
             amount: String(openBalance(job) || "").replace(/[$,]/g, ""),
             includePaymentLink: Boolean(opts.includePaymentLink && openBalance(job) > 0.01),
           }
-        : { email: job.email, estimateNo: no };
+        : { email, estimateNo: no };
     const idk =
       kind === "invoice" && payload.includePaymentLink
         ? "send_invoice_pay:" + no
@@ -409,6 +410,7 @@ export function PaymentLinkSheet({ job, onClose }) {
   const [url, setUrl] = useState("");
   const [err, setErr] = useState("");
   const [emailOpen, setEmailOpen] = useState(false);
+  const [emailTo, setEmailTo] = useState(job.email || "");
   const [emailSubject, setEmailSubject] = useState("");
   const [emailBody, setEmailBody] = useState("");
   const deadline = useRef(0);
@@ -416,11 +418,13 @@ export function PaymentLinkSheet({ job, onClose }) {
 
   useEffect(() => {
     setLinkAmount(paylinkAmountRaw(openBalance(job)) || "");
+    setEmailTo(job.email || "");
     setPhase("idle");
     setUrl("");
     setErr("");
     setIdk("");
-  }, [job.id, job.invoiceNo, job.openBalance, job.paid, job.amount]); // eslint-disable-line react-hooks/exhaustive-deps
+    setEmailOpen(false);
+  }, [job.id, job.invoiceNo, job.openBalance, job.paid, job.amount, job.email]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // The matching command (by idempotencyKey) as the store re-polls it.
   const cmd = (commands || []).find((c) => c.idempotencyKey === idk);
@@ -496,14 +500,16 @@ export function PaymentLinkSheet({ job, onClose }) {
     : `Hi, pay invoice #${inv}: ${url} — LE Electric`;
 
   const openMailApp = () => {
-    if (!job.email) return showToast("Add customer email on the job first");
-    const href = `mailto:${job.email}?subject=${encodeURIComponent(emailSubject)}&body=${encodeURIComponent(emailBody)}`;
+    const to = (emailTo || "").trim();
+    if (!to) return showToast("Enter an email address");
+    const href = `mailto:${to}?subject=${encodeURIComponent(emailSubject)}&body=${encodeURIComponent(emailBody)}`;
     window.location.href = href;
   };
 
   const sendViaQbo = () => {
-    if (!job.email) return showToast("Add customer email first");
-    doSend(job, "invoice", { includePaymentLink: true });
+    const to = (emailTo || "").trim();
+    if (!to) return showToast("Enter an email address");
+    doSend(job, "invoice", { includePaymentLink: true, email: to });
     showToast("Sending invoice + payment link via QuickBooks…");
     onClose();
   };
@@ -568,16 +574,30 @@ export function PaymentLinkSheet({ job, onClose }) {
             </a>
             <button
               type="button"
-              className={`btn flex-1 !py-2 ${job.email ? "bg-brand-soft text-brand" : "bg-slate-50 text-slate-300"}`}
-              disabled={!job.email}
+              className="btn flex-1 !py-2 bg-brand-soft text-brand"
               onClick={() => setEmailOpen((v) => !v)}
             >
               ✉️ Email
             </button>
           </div>
-          {emailOpen && job.email && (
+          {emailOpen && (
             <div className="border border-slate-200 rounded-2xl p-3 mb-2 space-y-2 text-sm">
-              <div className="text-slate-500">To: <span className="text-slate-800">{job.email}</span></div>
+              <label className="block">
+                <span className="font-semibold text-slate-700">To</span>
+                <input
+                  type="email"
+                  className="input mt-1 w-full"
+                  aria-label="Payment link email recipient"
+                  value={emailTo}
+                  onChange={(e) => setEmailTo(e.target.value)}
+                  placeholder={job.email || "customer@email.com"}
+                />
+              </label>
+              {job.email && emailTo !== job.email && (
+                <button type="button" className="btn-ghost w-full !py-1 text-xs" onClick={() => setEmailTo(job.email)}>
+                  ↺ Reset to customer email ({job.email})
+                </button>
+              )}
               <label className="block">
                 <span className="font-semibold text-slate-700">Subject</span>
                 <input className="input mt-1 w-full" value={emailSubject} onChange={(e) => setEmailSubject(e.target.value)} />
