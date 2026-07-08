@@ -8,3 +8,6 @@
 
 [functions]
   directory = "netlify/functions"
+
+[functions."docs-cleanup"]
+  schedule = "@daily"

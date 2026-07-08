@@ -50,13 +50,21 @@ describe("PayLanding view", () => {
     renderPay(token);
     expect(screen.getByText("BLZ Electric")).toBeInTheDocument();
     expect(screen.getByText("#251839")).toBeInTheDocument();
+    expect(screen.getByText("Billing address")).toBeInTheDocument();
     expect(screen.getByText("Service address")).toBeInTheDocument();
+    const billing = screen.getByText("Billing address");
+    const service = screen.getByText("Service address");
+    expect(
+      billing.compareDocumentPosition(service) & Node.DOCUMENT_POSITION_FOLLOWING
+    ).toBeTruthy();
     expect(screen.getByText("Panel upgrade")).toBeInTheDocument();
     expect(screen.getByTestId("view-invoice")).toHaveTextContent("View invoice");
     expect(screen.getByText("Rae Klein")).toBeInTheDocument();
     const cta = screen.getByTestId("pay-cta");
     expect(cta).toHaveTextContent("Pay $674.82");
     expect(cta.getAttribute("href")).toContain("xBillZip=11201");
+    expect(cta.getAttribute("href")).toContain("xCustom01=652");
+    expect(cta.getAttribute("href")).toContain("sola-payment");
   });
 
   it("lets the customer edit paying-today amount", async () => {

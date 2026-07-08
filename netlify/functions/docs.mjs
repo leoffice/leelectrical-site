@@ -1,6 +1,8 @@
 import { getStore } from "@netlify/blobs";
+import { DOCS_TTL_MS } from "./docs-cleanup.mjs";
 
 // docs — small PDF document store for live invoice/estimate viewing (LE Pro).
+// Blobs expire after 30 days (see docs-cleanup scheduled function).
 // The host agent downloads the PDF from QuickBooks and uploads it here; the
 // app then serves it inline.
 //   POST { op:"put", key:"inv-<no>"|"est-<no>", b64:"<base64>", mime:"application/pdf" }
@@ -51,6 +53,11 @@ export default async (req) => {
   if (!KEY_RE.test(key)) return json({ ok: false, error: "bad key" }, 400);
   const rec = await store.getWithMetadata(key, { type: "arrayBuffer", consistency: "strong" });
   if (!rec || !rec.data) return json({ ok: false, error: "not found" }, 404);
+  const ts = Number(rec.metadata?.ts || 0);
+  if (ts > 0 && Date.now() - ts > DOCS_TTL_MS) {
+    await store.delete(key);
+    return json({ ok: false, error: "expired" }, 404);
+  }
   const mime = (rec.metadata && rec.metadata.mime) || "application/pdf";
   return new Response(rec.data, {
     headers: {

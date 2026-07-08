@@ -25,6 +25,7 @@ export function buildPayLandingPayload({
     parseUSAddress(serviceAddr).zip ||
     "";
   return {
+    j: (job?.id || "").trim(),
     i: invoiceNo,
     a: linkAmt,
     c: (job?.customer || "").trim(),

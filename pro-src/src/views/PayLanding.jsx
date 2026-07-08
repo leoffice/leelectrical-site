@@ -100,12 +100,8 @@ export default function PayLanding() {
 
   const fee = processingFee(payAmount);
   const chargeTotal = totalWithFee(payAmount);
-  const payUrl = solaPayUrlFromLanding(data, chargeTotal);
+  const payUrl = solaPayUrlFromLanding(data, chargeTotal, payAmount);
   const asOf = data.as || "today";
-  const billDiffers =
-    data.ba &&
-    data.sa &&
-    data.ba.trim().toLowerCase() !== data.sa.trim().toLowerCase();
 
   const saveAmount = () => {
     const n = parseMoney(draft);
@@ -187,9 +183,8 @@ export default function PayLanding() {
           ) : null}
 
           <div className="text-sm">
+            <InfoLine label="Billing address" value={data.ba} />
             <InfoLine label="Service address" value={data.sa} />
-            {billDiffers ? <InfoLine label="Billing address" value={data.ba} /> : null}
-            {!data.sa && data.ba ? <InfoLine label="Address" value={data.ba} /> : null}
             <InfoLine label="Work" value={data.w} />
           </div>
 

@@ -32,6 +32,20 @@ describe("solaPayUrl", () => {
     expect(url).toContain("xAmount=10350");
   });
 
+  it("includes payment confirmation redirect, webhook, and principal amount", () => {
+    const url = buildSolaPayUrl({
+      slug: "blzelectric",
+      amount: 674.82,
+      principalAmount: 652,
+      jobId: "J-42",
+      invoiceNo: "251839",
+    });
+    expect(url).toContain("sola-payment");
+    expect(url).toContain("xPostURL=");
+    expect(url).toContain("xCustom01=652");
+    expect(url).toContain("xCustom02=J-42");
+  });
+
   it("uses explicit zip from payload when provided", () => {
     const url = buildSolaPayUrl({
       slug: "lepaymentsdev",

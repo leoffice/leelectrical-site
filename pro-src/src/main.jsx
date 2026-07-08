@@ -4,6 +4,7 @@ import { HashRouter, Route, Routes, useLocation } from "react-router-dom";
 import App from "./App.jsx";
 import LockGate from "./components/LockGate.jsx";
 import PayLanding from "./views/PayLanding.jsx";
+import PayThanks from "./views/PayThanks.jsx";
 import { StoreProvider } from "./state/store.jsx";
 import "./index.css";
 
@@ -13,6 +14,7 @@ function PayOrApp() {
   if (pathname.startsWith("/pay")) {
     return (
       <Routes>
+        <Route path="/pay/thanks" element={<PayThanks />} />
         <Route path="/pay/:token" element={<PayLanding />} />
         <Route path="/pay" element={<PayLanding />} />
       </Routes>

@@ -1,7 +1,8 @@
 import { solaAmount } from "./payFees.js";
 
 const DEFAULT_BASE = "https://secure.cardknox.com";
-const DEFAULT_REDIRECT = "https://leelectrical.us/app/pro/";
+const DEFAULT_REDIRECT = "https://leelectrical.us/.netlify/functions/sola-payment";
+const DEFAULT_POST_URL = DEFAULT_REDIRECT;
 const DEFAULT_SLUG = "blzelectric";
 
 /** Parse US-style addresses into Cardknox billing fields (incl. zip). */
@@ -57,6 +58,9 @@ export function buildSolaPayUrl({
   billingAddress = "",
   zip = "",
   redirectUrl = DEFAULT_REDIRECT,
+  postUrl = DEFAULT_POST_URL,
+  principalAmount = "",
+  jobId = "",
 }) {
   const amt = solaAmount(amount);
   const inv = String(invoiceNo || "").trim();
@@ -68,7 +72,12 @@ export function buildSolaPayUrl({
     xAmount: amt,
     xinvoice: inv,
     xRedirectURL: redirectUrl,
+    xPostURL: postUrl,
   };
+  const principal = solaAmount(principalAmount);
+  if (principal) params.xCustom01 = principal;
+  const jid = String(jobId || "").trim();
+  if (jid) params.xCustom02 = jid;
   const name = String(customer || "").trim();
   if (name) params.xBillLastName = name;
   if (email) params.xEmail = String(email).trim();
@@ -83,12 +92,15 @@ export function buildSolaPayUrl({
 }
 
 /** Resolve pay-site settings from a landing payload (new + legacy links). */
-export function solaPayUrlFromLanding(data, payAmount) {
+export function solaPayUrlFromLanding(data, chargeTotal, principalAmount) {
   if (!data) return "";
   const slug = data.sl || (data.pay ? siteSlugFromPayUrl(data.pay) : DEFAULT_SLUG);
+  const principal = principalAmount ?? data.a;
   return buildSolaPayUrl({
     slug,
-    amount: payAmount,
+    amount: chargeTotal,
+    principalAmount: principal,
+    jobId: data.j,
     invoiceNo: data.i,
     customer: data.c,
     email: data.e,
