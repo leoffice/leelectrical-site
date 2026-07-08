@@ -3,8 +3,8 @@
 @tailwind utilities;
 
 :root {
-  --brand: #1e4a8c;
-  --accent: #c8102e;
+  --brand: #4f46e5;
+  --accent: #7c3aed;
 }
 
 html {
@@ -12,7 +12,8 @@ html {
 }
 
 body {
-  @apply antialiased text-slate-800;
+  @apply antialiased text-[#0f172a];
+  background-color: #f4f6fb;
   overscroll-behavior-y: none;
 }
 

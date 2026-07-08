@@ -52,7 +52,8 @@ describe("PayLanding view", () => {
     expect(screen.getByText("#251839")).toBeInTheDocument();
     expect(screen.getByText("Service address")).toBeInTheDocument();
     expect(screen.getByText("Panel upgrade")).toBeInTheDocument();
-    expect(screen.getByTestId("view-invoice")).toBeInTheDocument();
+    expect(screen.getByTestId("view-invoice")).toHaveTextContent("View invoice");
+    expect(screen.getByText("Rae Klein")).toBeInTheDocument();
     const cta = screen.getByTestId("pay-cta");
     expect(cta).toHaveTextContent("Pay $674.82");
     expect(cta.getAttribute("href")).toContain("xBillZip=11201");

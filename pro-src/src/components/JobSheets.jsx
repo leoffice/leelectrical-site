@@ -498,6 +498,14 @@ export function PaymentLinkSheet({ job, onClose }) {
       "deterministic",
       key
     );
+    // Pre-fetch invoice PDF so customer "View invoice" works on the pay page.
+    enqueue(
+      "fetch_pdf",
+      job.id,
+      { kind: "invoice", no: inv, docKey: "inv-" + inv },
+      "judgment",
+      "pdf:" + inv + ":" + todayStr()
+    );
     refreshCommands();
   };
 

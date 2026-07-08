@@ -5,13 +5,13 @@ export default {
     extend: {
       colors: {
         brand: {
-          DEFAULT: "#1e4a8c", // LE logo blue — --brand
-          dark: "#163a6e",
-          soft: "#e8f0fa",
+          DEFAULT: "#4f46e5", // Sleek indigo — --brand
+          dark: "#4338ca",
+          soft: "#eef2ff",
         },
         accent: {
-          DEFAULT: "#c8102e", // LE logo red accent — --accent
-          soft: "#fde8ec",
+          DEFAULT: "#7c3aed", // Sleek violet — --accent
+          soft: "#f5f3ff",
         },
       },
       boxShadow: {
