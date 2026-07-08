@@ -93,11 +93,11 @@ export default function JobDetail() {
   const [openStep, setOpenStep] = useState(null);
   const [showRemoved, setShowRemoved] = useState({}); // paperwork branch -> expanded
   const [sheet, setSheet] = useState(null); // {kind, ...}
-  const [jobInfoExpanded, setJobInfoExpanded] = useState(true);
+  const [detailSectionsExpanded, setDetailSectionsExpanded] = useState(true);
   const stepTimer = useRef(null);
 
   useEffect(() => {
-    setJobInfoExpanded(true);
+    setDetailSectionsExpanded(true);
   }, [id]);
 
   useEffect(() => {
@@ -228,9 +228,8 @@ export default function JobDetail() {
         events={events}
         commands={commands}
         showOpenLink={false}
-        collapsible
-        expanded={jobInfoExpanded}
-        onToggle={() => setJobInfoExpanded((v) => !v)}
+        sectionsCollapsed={!detailSectionsExpanded}
+        onCardTap={() => setDetailSectionsExpanded((v) => !v)}
         onEstimate={() => openDocTab(job, "estimate", setSheet)}
         onInvoice={() => openDocTab(job, "invoice", setSheet)}
         onPayment={() => setSheet({ kind: "paymenu" })}
@@ -238,6 +237,8 @@ export default function JobDetail() {
         onBubbleTap={(bubble) => tapAwarenessBubble(job, bubble, setSheet, openDocTab)}
       />
 
+      {detailSectionsExpanded ? (
+      <>
       {/* Money */}
       {(() => {
         const due = openBalance(job);
@@ -730,6 +731,8 @@ export default function JobDetail() {
           </div>
         )}
       </div>
+      </>
+      ) : null}
 
       {/* Sheets */}
       {sheet?.kind === "menu" && (
