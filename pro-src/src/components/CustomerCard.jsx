@@ -1,9 +1,10 @@
-// Customer header card — contact info on top, compact actions, edit + sync.
+// Customer header card — contact info on top, compact actions, edit in corner.
 import React from "react";
 import { CustomerAvatar } from "./JobCard.jsx";
 import { CustomerAmountSubline } from "./AmountDisplay.jsx";
 import { fmt$ } from "../lib/format.js";
 import { effectiveServiceAddress } from "../lib/customerSync.js";
+const OFFICE_EMAIL = "office@leelectrical.us";
 
 export function CustomerActionButton({ href, icon, label, disabled, newTab }) {
   return (
@@ -22,35 +23,67 @@ export function CustomerActionButton({ href, icon, label, disabled, newTab }) {
   );
 }
 
+function isDesktop() {
+  if (typeof window === "undefined") return false;
+  if (typeof window.matchMedia !== "function") return false;
+  return window.matchMedia("(min-width: 1024px)").matches;
+}
+
+function googleMapsHref(address) {
+  if (!address) return "";
+  return `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(address)}`;
+}
+
+function emailHref(email) {
+  if (!email) return "";
+  if (isDesktop()) {
+    return (
+      "https://mail.google.com/mail/?view=cm&fs=1&to=" +
+      encodeURIComponent(email) +
+      "&authuser=" +
+      encodeURIComponent(OFFICE_EMAIL)
+    );
+  }
+  return `mailto:${email}`;
+}
+
 export default function CustomerCard({
   contact,
   summary,
   mapAddress,
   onEdit,
-  onSync,
   primaryJob,
   showSummary = true,
 }) {
   const displayName = contact.businessName || contact.name;
+  const addr = mapAddress || (primaryJob ? effectiveServiceAddress(primaryJob) : "");
+  const mapHref = googleMapsHref(addr);
+
   const contactRows = [
     ...(contact.businessName && contact.businessName !== displayName
       ? [["Business", contact.businessName, ""]]
       : []),
     ["Person", contact.personName, ""],
     ["Phone", contact.phone, contact.phone ? `tel:${contact.phone}` : ""],
-    ["Email", contact.email, contact.email ? `mailto:${contact.email}` : ""],
+    ["Email", contact.email, contact.email ? emailHref(contact.email) : ""],
     ["Billing address", contact.billingAddress, ""],
   ].filter(([, v]) => v);
 
-  const mapHref = mapAddress
-    ? `https://maps.apple.com/?q=${encodeURIComponent(mapAddress)}`
-    : primaryJob
-    ? `https://maps.apple.com/?q=${encodeURIComponent(effectiveServiceAddress(primaryJob))}`
-    : "";
-
   return (
-    <div className="card px-3 py-3 lg:px-4 lg:py-4" data-testid="customer-card">
-      <div className="flex items-start gap-2 lg:gap-3">
+    <div className="card relative px-3 py-3 lg:px-4 lg:py-4" data-testid="customer-card">
+      {onEdit ? (
+        <button
+          type="button"
+          className="absolute top-2 right-2 z-10 text-[10px] font-semibold text-slate-500 hover:text-brand px-2 py-1 rounded-lg border border-slate-200 bg-white shadow-sm"
+          onClick={onEdit}
+          aria-label="Edit customer info"
+          data-testid="customer-edit-btn"
+        >
+          ✏️ Edit
+        </button>
+      ) : null}
+
+      <div className="flex items-start gap-2 lg:gap-3 pr-14">
         <CustomerAvatar name={contact.name} className="lg:w-10 lg:h-10 lg:rounded-2xl lg:text-base" />
         <div className="min-w-0 flex-1">
           <div
@@ -89,7 +122,7 @@ export default function CustomerCard({
               <dt className="font-semibold text-slate-800 shrink-0 w-14 lg:w-24">{k}</dt>
               <dd className="text-slate-500 break-words min-w-0">
                 {href ? (
-                  <a href={href} className="text-brand font-semibold">
+                  <a href={href} className="text-brand font-semibold" target={k === "Email" && isDesktop() ? "_blank" : undefined} rel="noreferrer">
                     {v}
                   </a>
                 ) : (
@@ -104,24 +137,9 @@ export default function CustomerCard({
       <div className="flex gap-1.5 mt-3 lg:gap-2 lg:mt-3.5">
         <CustomerActionButton href={contact.phone ? `tel:${contact.phone}` : undefined} icon="📞" label="Call" disabled={!contact.phone} />
         <CustomerActionButton href={contact.phone ? `sms:${contact.phone}` : undefined} icon="💬" label="Text" disabled={!contact.phone} />
-        <CustomerActionButton href={contact.email ? `mailto:${contact.email}` : undefined} icon="✉️" label="Email" disabled={!contact.email} />
+        <CustomerActionButton href={contact.email ? emailHref(contact.email) : undefined} icon="✉️" label="Email" disabled={!contact.email} newTab={isDesktop()} />
         <CustomerActionButton href={mapHref || undefined} icon="📍" label="Map" disabled={!mapHref} newTab />
       </div>
-
-      {(onEdit || onSync) && (
-        <div className="flex gap-2 mt-2.5 lg:mt-3">
-          {onEdit ? (
-            <button type="button" className="btn bg-brand-soft text-brand flex-1 !py-1.5 !text-xs lg:!py-2 lg:!text-sm" onClick={onEdit}>
-              ✏️ Edit
-            </button>
-          ) : null}
-          {onSync ? (
-            <button type="button" className="btn bg-brand-soft text-brand flex-1 !py-1.5 !text-xs lg:!py-2 lg:!text-sm" onClick={onSync}>
-              ⇄ Sync
-            </button>
-          ) : null}
-        </div>
-      )}
     </div>
   );
 }

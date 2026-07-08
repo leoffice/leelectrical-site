@@ -114,6 +114,15 @@ export function paperworkUpNext(branchKey, br = {}) {
   return { step: null, label: "All steps complete", date: "" };
 }
 
+/** "Up next" vs "Current" for paperwork bubble labels. */
+export function paperworkTiming(next) {
+  if (!next?.step) return "Current";
+  const d = next.date ? String(next.date).slice(0, 10) : "";
+  if (!d) return "Up next";
+  const today = new Date().toISOString().slice(0, 10);
+  return d <= today ? "Current" : "Up next";
+}
+
 /** Job-info awareness lines — one per enabled branch. */
 export function paperworkAwarenessLines(job) {
   const pw = job?.paperwork || {};
@@ -126,6 +135,7 @@ export function paperworkAwarenessLines(job) {
       branchKey: k,
       branchLabel: PAPER[k].short || PAPER[k].nm,
       upNext: next?.label || "—",
+      timing: paperworkTiming(next),
     });
   }
   return lines;

@@ -24,13 +24,12 @@ describe("stale overlay snapshots never clobber saved edits", () => {
     renderApp("#/job/J-1");
     await screen.findByText("718-555-1111"); // J1's phone renders
 
-    // Edit info -> new phone -> Apply -> Save & sync
-    await user.click(screen.getByText("✏️ Edit info"));
+    // Edit -> new phone -> Save & sync in sheet
+    await user.click(screen.getByTestId("customer-edit-btn"));
     const phone = await screen.findByLabelText("Phone");
     await user.clear(phone);
     await user.type(phone, "718-555-0199");
-    await user.click(screen.getByText("Apply"));
-    await user.click(await screen.findByText("Save & sync"));
+    await user.click(screen.getByTestId("cust-save-sync"));
     await waitFor(() =>
       expect(srv.posts("state", (b) => !!b.ov)).toHaveLength(1)
     );

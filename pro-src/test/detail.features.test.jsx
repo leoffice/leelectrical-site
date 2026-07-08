@@ -99,7 +99,7 @@ describe("2. quick views — invoice/estimate/calendar sheets", () => {
     vi.stubGlobal("open", openSpy);
     const pane = await openDetail();
 
-    await user.click(within(pane).getByText(/Invoice 251841/));
+    await user.click(within(pane).getByTestId("tab-invoice"));
     expect(screen.getByText("Open in QuickBooks")).toBeInTheDocument();
     await user.click(screen.getByText("Send to p@x.com"));
     await waitFor(() => expect(srv.enqueued("send_invoice")).toHaveLength(1));
@@ -116,16 +116,17 @@ describe("2. quick views — invoice/estimate/calendar sheets", () => {
     const user = userEvent.setup();
     const pane = await openDetail();
 
-    await user.click(within(pane).getByText(/Estimate E-9/));
+    await user.click(within(pane).getByTestId("tab-estimate"));
     await user.click(screen.getByText("Send to p@x.com"));
     await waitFor(() => expect(srv.enqueued("send_estimate")).toHaveLength(1));
     expect(srv.enqueued("send_estimate")[0].idempotencyKey).toBe("send_estimate:E-9");
     expect(srv.enqueued("send_estimate")[0].payload).toEqual({ email: "p@x.com", estimateNo: "E-9" });
 
-    await user.click(within(pane).getByText("📅 Calendar"));
+    await user.click(within(pane).getByTestId("tab-calendar"));
     expect(screen.getByText("Open Google Calendar")).toBeInTheDocument();
     expect(screen.getByText("Create appointment")).toBeInTheDocument();
-    expect(screen.getByText(/No date set yet/)).toBeInTheDocument(); // no Scheduled date on J-1
+    expect(screen.getByText("Link existing appointment")).toBeInTheDocument();
+    expect(screen.getByText(/No linked appointment/)).toBeInTheDocument();
 
     await user.click(screen.getByText("Create appointment"));
     expect(screen.getByLabelText("Appointment title")).toHaveValue("Panel upgrade — Peretz Chein");
@@ -147,16 +148,13 @@ describe("3. customer edit + sync to QuickBooks", () => {
     const user = userEvent.setup();
     const pane = await openDetail();
 
-    await user.click(within(pane).getByText("✏️ Edit info"));
+    await user.click(within(pane).getByTestId("customer-edit-btn"));
     const name = screen.getByLabelText("Business name");
     await user.clear(name);
     await user.type(name, "Peretz B. Chein");
-    await user.click(screen.getByText("Apply"));
-    expect(await within(pane).findByText("Peretz B. Chein")).toBeInTheDocument();
-    expect(screen.getByTestId("savebar")).toBeInTheDocument(); // staged only
-
-    await user.click(within(pane).getByText("⇄ Sync to QuickBooks"));
+    await user.click(screen.getByTestId("cust-save-sync"));
     await waitFor(() => expect(srv.enqueued("customer_sync")).toHaveLength(1));
+    expect(await within(pane).findByText("Peretz B. Chein")).toBeInTheDocument();
     const cmd = srv.enqueued("customer_sync")[0];
     expect(cmd.lane).toBe("deterministic");
     expect(cmd.idempotencyKey).toMatch(/^custsync:J-1:\d+$/);

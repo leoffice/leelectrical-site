@@ -1,6 +1,6 @@
 // Balance due (prominent) + invoiced / paid sub-line (small gray).
 import React from "react";
-import { amountPaid, fmtAmountDue, invoiceTotal, paidPct } from "../lib/customers.js";
+import { amountPaid, fmtAmountDue, invoiceTotal, openBalance, paidPct } from "../lib/customers.js";
 import { fmt$ } from "../lib/format.js";
 
 const SIZE = {
@@ -38,11 +38,16 @@ export function CustomerAmountSubline({ invoiced, paid, openInvoices, className 
   );
 }
 
-export default function AmountDisplay({ job, size = "md", showSub = true }) {
+export default function AmountDisplay({ job, size = "md", showSub = true, highlightDue = false }) {
   const s = SIZE[size] || SIZE.md;
   const main = fmtAmountDue(job) || "—";
+  const due = job ? openBalance(job) : 0;
+  const showDueRing = highlightDue && job && !job.paid && due > 0.01;
   return (
-    <div className="text-right shrink-0" data-testid="amount-display">
+    <div
+      className={`text-right shrink-0 ${showDueRing ? "rounded-xl border border-slate-200 bg-slate-100/80 px-2.5 py-1.5" : ""}`}
+      data-testid="amount-display"
+    >
       <div className={s.main}>{main}</div>
       {showSub && job ? <AmountSubline job={job} className={s.sub} /> : null}
     </div>

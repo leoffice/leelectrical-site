@@ -29,6 +29,10 @@ export default function JobDocTabs({
 
   const estLabel = hasEst ? "Est " + job.estimateNo : pending.estimate ? "Est…" : "Estimate";
   const invLabel = hasInv ? "Inv " + job.invoiceNo : pending.invoice ? "Inv…" : "Invoice";
+  const hasAppt = !!job.calEventId;
+  const calTone = hasAppt
+    ? "bg-emerald-50 text-emerald-800 border-emerald-200"
+    : "bg-red-50 text-red-700 border-red-200";
 
   return (
     <div className="grid grid-cols-4 gap-1.5 mt-3" data-testid="job-doc-tabs">
@@ -61,7 +65,7 @@ export default function JobDocTabs({
       </button>
       <button
         type="button"
-        className="rounded-xl border px-1.5 py-2 text-center text-[10px] font-bold leading-tight bg-slate-50 text-slate-600 border-slate-200"
+        className={`rounded-xl border px-1.5 py-2 text-center text-[10px] font-bold leading-tight ${calTone}`}
         onClick={onCalendar}
         data-testid="tab-calendar"
       >

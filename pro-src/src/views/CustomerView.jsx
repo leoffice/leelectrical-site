@@ -7,10 +7,8 @@ import { useStore } from "../state/store.jsx";
 import Jobs from "./Jobs.jsx";
 import CustomerCard from "../components/CustomerCard.jsx";
 import JobInfoCard from "../components/JobInfoCard.jsx";
-import AppointmentLinkSheet from "../components/AppointmentLinkSheet.jsx";
 import JobDocSheets, { openDocTab } from "../components/JobDocSheets.jsx";
 import { CustEditSheet } from "../components/JobSheets.jsx";
-import { customerSyncPayload } from "../lib/customerSync.js";
 import { sortJobs } from "../lib/stages.js";
 import {
   customerAmountSummary,
@@ -21,7 +19,7 @@ import {
 export default function CustomerView() {
   const { key: raw } = useParams();
   const nav = useNavigate();
-  const { jobs, loading, events, commands, enqueue, showToast } = useStore();
+  const { jobs, loading, events, commands } = useStore();
   const key = raw ? decodeURIComponent(raw) : "";
   const [sheet, setSheet] = useState(null); // { kind, job? }
 
@@ -51,18 +49,6 @@ export default function CustomerView() {
     openDocTab(j, kind, (s) => setSheet({ ...s, job: j }));
   };
 
-  const custSync = () => {
-    if (!primaryJob) return;
-    enqueue(
-      "customer_sync",
-      primaryJob.id,
-      customerSyncPayload(primaryJob),
-      "deterministic",
-      "custsync:" + primaryJob.id + ":" + Date.now()
-    );
-    showToast("Checking QuickBooks for matches…");
-  };
-
   const panel = (
     <div className="space-y-3.5 min-w-0" data-testid="customer-view">
       <button className="inline-flex items-center gap-1 text-sm font-semibold text-brand" onClick={() => nav("/")}>
@@ -74,7 +60,6 @@ export default function CustomerView() {
         summary={summary}
         primaryJob={primaryJob}
         onEdit={() => setSheet({ kind: "cust", job: primaryJob })}
-        onSync={custSync}
       />
 
       <h2 className="text-[11px] font-extrabold text-slate-500 uppercase tracking-wider px-1 !mb-[-6px]">
@@ -88,7 +73,6 @@ export default function CustomerView() {
             events={events}
             commands={commands}
             onOpen={() => nav("/job/" + j.id + "?from=" + encodeURIComponent(key))}
-            onLinkAppt={() => setSheet({ kind: "apptLink", job: j })}
             onEstimate={() => openDocFor(j, "estimate")}
             onInvoice={() => openDocFor(j, "invoice")}
             onPayment={() => nav("/job/" + j.id + "?from=" + encodeURIComponent(key) + "&pay=1")}
@@ -99,9 +83,6 @@ export default function CustomerView() {
 
       {sheet?.kind === "cust" && sheet.job ? (
         <CustEditSheet job={sheet.job} onClose={() => setSheet(null)} />
-      ) : null}
-      {sheet?.kind === "apptLink" && sheet.job ? (
-        <AppointmentLinkSheet job={sheet.job} onClose={() => setSheet(null)} />
       ) : null}
       <JobDocSheets
         sheet={sheet?.job ? sheet : null}

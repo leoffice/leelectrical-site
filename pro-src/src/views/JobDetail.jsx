@@ -28,7 +28,6 @@ import { fmt$, ago } from "../lib/format.js";
 import CustomerCard from "../components/CustomerCard.jsx";
 import JobInfoCard from "../components/JobInfoCard.jsx";
 import {
-  customerSyncPayload,
   customerDisplayName,
   effectiveServiceAddress,
 } from "../lib/customerSync.js";
@@ -36,7 +35,6 @@ import { amountPaid, customerContact, openBalance, paidPct } from "../lib/custom
 import { normalizePayments } from "../lib/payments.js";
 import Toggle from "../components/Toggle.jsx";
 import Jobs from "./Jobs.jsx";
-import AppointmentLinkSheet from "../components/AppointmentLinkSheet.jsx";
 import JobDocSheets, { openDocTab } from "../components/JobDocSheets.jsx";
 import {
   AttachSheet,
@@ -129,17 +127,6 @@ export default function JobDetail() {
   const hist = (job.invoiceHistory || []).slice().reverse();
   const at = job.attachments || [];
 
-  const custSync = () => {
-    enqueue(
-      "customer_sync",
-      id,
-      customerSyncPayload(job),
-      "deterministic",
-      "custsync:" + id + ":" + Date.now()
-    );
-    showToast("Checking QuickBooks for matches…");
-  };
-
   const schedDate = (d) => {
     patchJob(id, { status: { Scheduled: { s: "done", d } } });
     enqueue(
@@ -212,7 +199,6 @@ export default function JobDetail() {
         mapAddress={effectiveServiceAddress(job)}
         primaryJob={job}
         onEdit={() => setSheet({ kind: "cust" })}
-        onSync={custSync}
       />
       {pending[id] ? (
         <div className="px-1 -mt-2">
@@ -225,7 +211,6 @@ export default function JobDetail() {
         events={events}
         commands={commands}
         showOpenLink={false}
-        onLinkAppt={() => setSheet({ kind: "apptLink" })}
         onEstimate={() => openDocTab(job, "estimate", setSheet)}
         onInvoice={() => openDocTab(job, "invoice", setSheet)}
         onPayment={() => setSheet({ kind: "paymenu" })}
@@ -754,7 +739,6 @@ export default function JobDetail() {
       {sheet?.kind === "paylink" && <PaymentLinkSheet job={job} onClose={() => setSheet(null)} />}
       {sheet?.kind === "cust" && <CustEditSheet job={job} onClose={() => setSheet(null)} />}
 
-      {sheet?.kind === "apptLink" && <AppointmentLinkSheet job={job} onClose={() => setSheet(null)} />}
       {sheet?.kind === "reminder" && <ReminderSheet job={job} onClose={() => setSheet(null)} />}
       {sheet?.kind === "attach" && <AttachSheet job={job} onClose={() => setSheet(null)} />}
       {sheet?.kind === "inspection" && (

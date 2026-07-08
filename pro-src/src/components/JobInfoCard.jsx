@@ -1,65 +1,24 @@
-// Per-job summary — service address, amounts, linked appointment.
+// Per-job summary — service address, amounts, doc tabs.
 import React, { useMemo } from "react";
 import AmountDisplay from "./AmountDisplay.jsx";
-import { PaidPill, StagePill } from "./JobCard.jsx";
+import { StagePill } from "./JobCard.jsx";
 import { amountPaid, invoiceTotal, openBalance, paidPct } from "../lib/customers.js";
 import { effectiveServiceAddress } from "../lib/customerSync.js";
-import { eventForJob } from "../lib/calendarLink.js";
-import { evStart, fmt$ } from "../lib/format.js";
+import { fmt$ } from "../lib/format.js";
 import { hasActivePaperwork, paperworkAwarenessLines } from "../lib/paperwork.js";
 import JobDocTabs from "./JobDocTabs.jsx";
-
-function LinkedAppointmentButton({ job, event, onLink }) {
-  if (job.calEventId && event) {
-    const when = evStart(event).replace("T", " ").slice(0, 16);
-    return (
-      <button
-        type="button"
-        className="btn bg-brand-soft text-brand w-full !py-2 !text-xs lg:!text-sm"
-        onClick={onLink}
-        data-testid="linked-appt-btn"
-      >
-        🔗 Linked: {event.summary || when}
-      </button>
-    );
-  }
-  if (job.calEventId) {
-    return (
-      <button
-        type="button"
-        className="btn bg-brand-soft text-brand w-full !py-2 !text-xs lg:!text-sm"
-        onClick={onLink}
-        data-testid="linked-appt-btn"
-      >
-        🔗 Linked appointment — tap to manage
-      </button>
-    );
-  }
-  return (
-    <button
-      type="button"
-      className="btn bg-red-50 text-red-600 border border-red-200 w-full !py-2 !text-xs lg:!text-sm"
-      onClick={onLink}
-      data-testid="linked-appt-btn"
-    >
-      🔗 No linked appointment — tap to link
-    </button>
-  );
-}
 
 export default function JobInfoCard({
   job,
   events,
   commands,
   onOpen,
-  onLinkAppt,
   onEstimate,
   onInvoice,
   onPayment,
   onCalendar,
   showOpenLink = true,
 }) {
-  const event = useMemo(() => eventForJob(job, events), [job, events]);
   const total = invoiceTotal(job);
   const paid = amountPaid(job);
   const balance = openBalance(job);
@@ -87,37 +46,27 @@ export default function JobInfoCard({
           <div className="font-semibold text-sm text-slate-800 break-words lg:text-base">
             {job.title || (job.invoiceNo ? "Invoice #" + job.invoiceNo : "Job")}
           </div>
-          <div className="mt-1.5 flex gap-1.5 flex-wrap items-center">
+          <div className="mt-1.5 flex gap-1.5 flex-wrap items-center justify-start">
             {showPaper ? (
-              paperLines.map(({ branchLabel, branchKey }) => (
-                <span
+              paperLines.map(({ branchKey, branchLabel, upNext, timing }) => (
+                <div
                   key={branchKey}
-                  className="pill bg-slate-200 text-slate-700"
+                  className="inline-flex items-center gap-1.5 rounded-full border border-slate-200 bg-slate-50 px-2.5 py-1 text-xs max-w-full"
                   data-testid={"paper-pill-" + branchKey}
                 >
-                  {branchLabel}
-                </span>
+                  <span className="font-extrabold text-[10px] uppercase tracking-wider text-slate-700 shrink-0">
+                    {branchLabel}
+                  </span>
+                  <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 shrink-0">{timing}</span>
+                  <span className="text-slate-600 leading-snug truncate">{upNext}</span>
+                </div>
               ))
             ) : (
               <StagePill job={job} />
             )}
-            <PaidPill job={job} />
           </div>
-          {showPaper ? (
-            <div className="mt-2 space-y-1" data-testid="paper-up-next">
-              {paperLines.map(({ branchKey, branchLabel, upNext }) => (
-                <div key={branchKey} className="text-xs text-slate-600 leading-snug">
-                  <span className="font-extrabold text-[10px] uppercase tracking-wider text-slate-500">
-                    Up next
-                  </span>
-                  <span className="text-slate-400"> · </span>
-                  <span className="font-semibold text-slate-700">{branchLabel}:</span> {upNext}
-                </div>
-              ))}
-            </div>
-          ) : null}
         </div>
-        <AmountDisplay job={job} size="sm" />
+        <AmountDisplay job={job} size="sm" highlightDue />
       </div>
 
       {rows.length > 0 && (
@@ -131,14 +80,10 @@ export default function JobInfoCard({
         </dl>
       )}
 
-      <div className="mt-3 space-y-2">
-        <div className="text-[11px] font-extrabold text-slate-500 uppercase tracking-wider px-0.5">Linked appointment</div>
-        <LinkedAppointmentButton job={job} event={event} onLink={onLinkAppt} />
-      </div>
-
       {onEstimate && onInvoice && onCalendar ? (
         <JobDocTabs
           job={job}
+          events={events}
           commands={commands}
           onEstimate={onEstimate}
           onInvoice={onInvoice}

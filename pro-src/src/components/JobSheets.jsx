@@ -4,6 +4,10 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { useNavigate } from "react-router-dom";
 import Sheet, { Fld, Opt } from "./Sheet.jsx";
 import AddAppointmentSheet from "./AddAppointmentSheet.jsx";
+import PickAppointmentSheet from "./PickAppointmentSheet.jsx";
+import { customerSyncPayload } from "../lib/customerSync.js";
+import { displayEventNotes, eventForJob, unlinkAppointmentJob } from "../lib/calendarLink.js";
+import { evStart } from "../lib/format.js";
 import CustomerSearch from "./CustomerSearch.jsx";
 import { enrichAndPatchCustomer } from "./NewJobFlow.jsx";
 import { useStore } from "../state/store.jsx";
@@ -185,12 +189,52 @@ function PaymentEditForm({ payment, onSave, onDelete, onCancel }) {
 }
 
 export function PaymentHistorySheet({ job, onClose, onAddPayment }) {
-  const { patchJob, showToast } = useStore();
+  const { patchJob, showToast, enqueue, commands, refreshCommands, refreshJobs } = useStore();
   const [editId, setEditId] = useState(null);
+  const [fetchPhase, setFetchPhase] = useState("idle"); // idle | working | done | failed
+  const [fetchErr, setFetchErr] = useState("");
+  const inv = job.invoiceNo || "";
+  const fetchKey = inv ? "fetch_payments:" + inv : "";
   const pays = normalizePayments(job);
   const due = openBalance(job);
   const paid = amountPaid(job);
   const pct = paidPct(job);
+
+  const fetchCmd = (commands || []).find((c) => c.idempotencyKey === fetchKey);
+  const fetchStatus = fetchCmd?.status;
+
+  useEffect(() => {
+    if (fetchPhase !== "working") return;
+    if (fetchStatus === "done") {
+      setFetchPhase("done");
+      refreshJobs(true);
+      showToast("Payment history updated from QuickBooks");
+    } else if (fetchStatus === "failed") {
+      setFetchErr(String(fetchCmd?.error || "Could not pull payments from QuickBooks"));
+      setFetchPhase("failed");
+    }
+  }, [fetchPhase, fetchStatus, fetchCmd?.error]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(() => {
+    if (fetchPhase !== "working") return;
+    const iv = setInterval(() => refreshCommands(), 1500);
+    return () => clearInterval(iv);
+  }, [fetchPhase, refreshCommands]);
+
+  const pullFromQbo = () => {
+    if (!inv) return showToast("No invoice # on this job");
+    setFetchErr("");
+    setFetchPhase("working");
+    enqueue(
+      "fetch_payments",
+      job.id,
+      { invoiceNo: inv },
+      "deterministic",
+      fetchKey
+    );
+    refreshCommands();
+    showToast("Pulling payment history from QuickBooks…");
+  };
 
   const saveEdit = (entry) => {
     const payAmt = parseFloat(String(entry.amount).replace(/[$,]/g, "")) || 0;
@@ -223,6 +267,19 @@ export function PaymentHistorySheet({ job, onClose, onAddPayment }) {
         </div>
         {job.invoiceNo ? <div className="text-slate-500 mt-1">Invoice #{job.invoiceNo}</div> : null}
       </div>
+
+      <button
+        type="button"
+        className="btn-ghost w-full !py-2 mb-3 text-sm"
+        onClick={pullFromQbo}
+        disabled={!inv || fetchPhase === "working"}
+        data-testid="refresh-payment-history"
+      >
+        {fetchPhase === "working" ? "↻ Updating from QuickBooks…" : "↻ Update payment history"}
+      </button>
+      {fetchErr ? (
+        <p className="text-xs text-red-600 bg-red-50 border border-red-100 rounded-xl px-3 py-2 mb-3">{fetchErr}</p>
+      ) : null}
 
       {!pays.length ? (
         <p className="text-sm text-slate-400 text-center py-4">No payments recorded yet.</p>
@@ -775,31 +832,83 @@ export function QuickSendSheet({ job, onClose }) {
 // both and let authuser win, landing reliably on office@leelectrical.us.
 export const CAL_ACCOUNT = "office@leelectrical.us";
 export function CalSheet({ job, onClose }) {
-  const [adding, setAdding] = useState(false);
+  const { events, patchAndSave, enqueue, patchLocalEvent, showToast } = useStore();
+  const [mode, setMode] = useState("menu"); // menu | add | pick | unlink
+  const event = useMemo(() => eventForJob(job, events), [job, events]);
   const d =
     (job.status && job.status.Scheduled && job.status.Scheduled.d) ||
     (job.followUp && job.followUp.date) ||
-    "";
+    (event ? evStart(event).slice(0, 10) : "");
   const url =
     "https://calendar.google.com/calendar/u/0/r/day" +
     (d ? "/" + d.replace(/-/g, "/") : "") +
     "?authuser=" + encodeURIComponent(CAL_ACCOUNT);
 
-  if (adding) return <AddAppointmentSheet job={job} onClose={() => setAdding(false)} />;
+  if (mode === "add") return <AddAppointmentSheet job={job} onClose={() => setMode("menu")} />;
+  if (mode === "pick") return <PickAppointmentSheet job={job} onClose={() => setMode("menu")} onLinked={onClose} />;
+
+  if (mode === "unlink") {
+    return (
+      <Sheet title="Unlink appointment" onClose={() => setMode("menu")}>
+        <p className="text-sm text-slate-500 mb-4">
+          Remove the calendar link from this job? The appointment stays on Google Calendar.
+        </p>
+        <button
+          type="button"
+          className="btn-brand w-full"
+          onClick={async () => {
+            await unlinkAppointmentJob({
+              event: event || { id: job.calEventId, description: "" },
+              jobId: job.id,
+              patchAndSave,
+              enqueue,
+              patchLocalEvent,
+            });
+            showToast("Appointment unlinked");
+            onClose();
+          }}
+        >
+          Save &amp; sync
+        </button>
+      </Sheet>
+    );
+  }
 
   return (
     <Sheet title="Calendar" onClose={onClose}>
-      {d ? (
-        <div className="text-sm mb-3"><b className="font-semibold">Job date</b> <span className="text-slate-600">{d}</span></div>
+      {job.calEventId ? (
+        <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2.5 mb-3 text-sm">
+          <div className="font-semibold text-emerald-900 mb-1">Linked appointment</div>
+          {event ? (
+            <>
+              <div className="text-slate-700">{event.summary || "—"}</div>
+              <div className="text-slate-500 text-xs mt-0.5">{evStart(event).replace("T", " ").slice(0, 16)}</div>
+              {displayEventNotes(event.description) ? (
+                <p className="text-slate-600 text-xs mt-1 whitespace-pre-wrap">{displayEventNotes(event.description)}</p>
+              ) : null}
+            </>
+          ) : (
+            <div className="text-slate-500 text-xs">Pull calendar sync to see details.</div>
+          )}
+        </div>
       ) : (
-        <p className="text-sm text-slate-500 mb-3">No date set yet — create an appointment below or set one under Progress → Scheduled.</p>
+        <p className="text-sm text-red-600 font-semibold mb-3">No linked appointment</p>
       )}
       <Opt
         icon="＋"
         title="Create appointment"
-        note="Manual entry — syncs to office@leelectrical.us & links to this job"
-        onClick={() => setAdding(true)}
+        note="Syncs to office@leelectrical.us & links to this job"
+        onClick={() => setMode("add")}
       />
+      <Opt
+        icon="🔗"
+        title="Link existing appointment"
+        note="Search this year's calendar"
+        onClick={() => setMode("pick")}
+      />
+      {job.calEventId ? (
+        <Opt icon="⛓️‍💥" title="Unlink appointment" note="Keeps the event on Google Calendar" onClick={() => setMode("unlink")} />
+      ) : null}
       <Opt icon="📅" title="Open Google Calendar" note={d ? "Jumps to " + d : ""} onClick={() => window.open(url)} />
     </Sheet>
   );
@@ -807,7 +916,7 @@ export function CalSheet({ job, onClose }) {
 
 /* ---------- 3. Customer + job location edit ---------- */
 export function CustEditSheet({ job, onClose }) {
-  const { patchJob, showToast, jobs, api } = useStore();
+  const { patchAndSave, enqueue, showToast, jobs, api } = useStore();
   const [f, setF] = useState({
     businessName: job.businessName || job.customer || "",
     personName: job.personName || "",
@@ -844,9 +953,9 @@ export function CustEditSheet({ job, onClose }) {
     [api, jobs]
   );
 
-  const apply = () => {
+  const buildPatch = () => {
     const business = (f.businessName || "").trim();
-    patchJob(job.id, {
+    return {
       businessName: business,
       personName: f.personName || "",
       customer: business,
@@ -857,10 +966,28 @@ export function CustEditSheet({ job, onClose }) {
       address: f.serviceAddress || "",
       apartment: f.apartment || "",
       qboCustomerId: f.qboCustomerId || "",
-    });
-    showToast("Info staged");
-    onClose();
+    };
   };
+
+  const saveAndSync = async () => {
+    const patch = buildPatch();
+    try {
+      await patchAndSave(job.id, patch);
+      const updated = { ...job, ...patch };
+      enqueue(
+        "customer_sync",
+        job.id,
+        customerSyncPayload(updated),
+        "deterministic",
+        "custsync:" + job.id + ":" + Date.now()
+      );
+      showToast("Saved & syncing to QuickBooks…");
+      onClose();
+    } catch (e) {
+      showToast("Save failed — " + ((e && e.message) || "try again"));
+    }
+  };
+
   return (
     <Sheet title="Edit customer & service location" onClose={onClose}>
       <p className="text-[11px] font-bold uppercase tracking-wide text-slate-400 mb-2">Customer (QuickBooks)</p>
@@ -889,11 +1016,11 @@ export function CustEditSheet({ job, onClose }) {
       <Fld label="Apartment #">
         <input className="input" value={f.apartment} onChange={set("apartment")} aria-label="Apartment #" />
       </Fld>
-      <button className="btn-brand w-full" onClick={apply}>
-        Apply
+      <button className="btn-brand w-full" onClick={saveAndSync} data-testid="cust-save-sync">
+        Save &amp; sync
       </button>
       <p className="text-[11px] text-slate-400 text-center mt-2">
-        Customer fields sync to QuickBooks via ⇄ Sync. Service address stays on this invoice/estimate only.
+        Saves customer info and syncs to QuickBooks. Service address stays on this invoice/estimate only.
       </p>
     </Sheet>
   );
