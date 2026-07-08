@@ -9,7 +9,8 @@ import { enrichAndPatchCustomer } from "./NewJobFlow.jsx";
 import { useStore } from "../state/store.jsx";
 import { serviceAddressHint, serviceAddressLabel } from "../lib/customerSync.js";
 import { fmt$, todayStr } from "../lib/format.js";
-import { clientKey, fmtAmountDue, jobsForCustomerKey, openBalance, amountPaid, paidPct } from "../lib/customers.js";
+import { clientKey, fmtAmountDue, invoiceTotal, jobsForCustomerKey, openBalance, amountPaid, paidPct } from "../lib/customers.js";
+import { buildPaymentLinkEmail } from "../lib/paymentLinkEmail.js";
 import {
   appendPayment,
   fmtPaymentLine,
@@ -407,7 +408,11 @@ export function PaymentLinkSheet({ job, onClose }) {
   const [phase, setPhase] = useState("idle"); // idle|working|ready|failed
   const [url, setUrl] = useState("");
   const [err, setErr] = useState("");
+  const [emailOpen, setEmailOpen] = useState(false);
+  const [emailSubject, setEmailSubject] = useState("");
+  const [emailBody, setEmailBody] = useState("");
   const deadline = useRef(0);
+  const doSend = useDoSend();
 
   useEffect(() => {
     setLinkAmount(paylinkAmountRaw(openBalance(job)) || "");
@@ -430,6 +435,9 @@ export function PaymentLinkSheet({ job, onClose }) {
     const link = paylinkUrl(cmdResult);
     if (cmdStatus === "done" && link) {
       setUrl(link);
+      const draft = buildPaymentLinkEmail({ job, url: link, linkAmount, inv });
+      setEmailSubject(draft.subject);
+      setEmailBody(draft.body);
       setPhase("ready");
     } else if (cmdStatus === "failed") {
       setErr(String((cmd && cmd.error) || "Sola could not create the payment link"));
@@ -483,10 +491,22 @@ export function PaymentLinkSheet({ job, onClose }) {
     }
   };
 
-  const first = (job.customer || "").split(" ")[0];
-  const msg = `Hi ${first || "there"}, here's a secure link to pay ${
-    inv ? "invoice #" + inv : "your invoice"
-  }: ${url} — LE Electric`;
+  const smsMsg = emailBody
+    ? emailBody.split("\n").slice(0, 6).join(" ") + (url ? " " + url : "")
+    : `Hi, pay invoice #${inv}: ${url} — LE Electric`;
+
+  const openMailApp = () => {
+    if (!job.email) return showToast("Add customer email on the job first");
+    const href = `mailto:${job.email}?subject=${encodeURIComponent(emailSubject)}&body=${encodeURIComponent(emailBody)}`;
+    window.location.href = href;
+  };
+
+  const sendViaQbo = () => {
+    if (!job.email) return showToast("Add customer email first");
+    doSend(job, "invoice", { includePaymentLink: true });
+    showToast("Sending invoice + payment link via QuickBooks…");
+    onClose();
+  };
 
   return (
     <Sheet title={"Payment link" + (inv ? " — #" + inv : "")} onClose={onClose}>
@@ -539,20 +559,47 @@ export function PaymentLinkSheet({ job, onClose }) {
             </a>
           </div>
           <button className="btn-brand w-full mb-2" onClick={copy}>📋 Copy link</button>
-          <div className="flex gap-2">
+          <div className="flex gap-2 mb-2">
             <a
               className={`btn flex-1 !py-2 text-center ${job.phone ? "bg-brand-soft text-brand" : "bg-slate-50 text-slate-300 pointer-events-none"}`}
-              href={job.phone ? `sms:${job.phone}?&body=${encodeURIComponent(msg)}` : undefined}
+              href={job.phone ? `sms:${job.phone}?&body=${encodeURIComponent(smsMsg)}` : undefined}
             >
               💬 Text
             </a>
-            <a
-              className={`btn flex-1 !py-2 text-center ${job.email ? "bg-brand-soft text-brand" : "bg-slate-50 text-slate-300 pointer-events-none"}`}
-              href={job.email ? `mailto:${job.email}?subject=${encodeURIComponent("Payment link — LE Electric")}&body=${encodeURIComponent(msg)}` : undefined}
+            <button
+              type="button"
+              className={`btn flex-1 !py-2 ${job.email ? "bg-brand-soft text-brand" : "bg-slate-50 text-slate-300"}`}
+              disabled={!job.email}
+              onClick={() => setEmailOpen((v) => !v)}
             >
               ✉️ Email
-            </a>
+            </button>
           </div>
+          {emailOpen && job.email && (
+            <div className="border border-slate-200 rounded-2xl p-3 mb-2 space-y-2 text-sm">
+              <div className="text-slate-500">To: <span className="text-slate-800">{job.email}</span></div>
+              <label className="block">
+                <span className="font-semibold text-slate-700">Subject</span>
+                <input className="input mt-1 w-full" value={emailSubject} onChange={(e) => setEmailSubject(e.target.value)} />
+              </label>
+              <label className="block">
+                <span className="font-semibold text-slate-700">Message</span>
+                <textarea className="input mt-1 w-full min-h-[140px]" value={emailBody} onChange={(e) => setEmailBody(e.target.value)} />
+              </label>
+              <p className="text-[11px] text-slate-400">
+                Invoice total {fmt$(invoiceTotal(job)) || "—"} · balance due {fmtAmountDue(job) || fmt$(openBalance(job)) || "—"} · link amount {fmt$(parseFloat(linkAmount) || openBalance(job))}
+              </p>
+              <button type="button" className="btn-brand w-full !py-2" onClick={openMailApp}>
+                Open in Mail (review &amp; send)
+              </button>
+              <button type="button" className="btn w-full !py-2 bg-slate-100 text-slate-800" onClick={sendViaQbo}>
+                Send via QuickBooks (invoice PDF + payment link)
+              </button>
+              <p className="text-[11px] text-slate-400 text-center">
+                QuickBooks emails the official invoice PDF with the pay link in the message. Mail app cannot attach the PDF automatically.
+              </p>
+            </div>
+          )}
         </>
       )}
 
