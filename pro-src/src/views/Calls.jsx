@@ -14,6 +14,7 @@ import {
   callName,
   callPhone,
   callType,
+  callRecording,
   callWhen,
   isHandled,
   prefillFromCall,
@@ -27,6 +28,7 @@ function CallCard({ call, ticket, onConvert, onDismiss }) {
   const type = callType(call);
   const when = callWhen(call);
   const appt = callAppointment(call);
+  const recording = callRecording(call);
   return (
     <div className={`card px-4 py-3.5 ${handled ? "opacity-60" : ""}`} data-testid="call-card">
       <div className="flex items-start gap-2">
@@ -51,6 +53,18 @@ function CallCard({ call, ticket, onConvert, onDismiss }) {
       </div>
 
       {msg && <p className="mt-2 text-sm text-slate-600 whitespace-pre-wrap">{msg}</p>}
+
+      {recording ? (
+        <a
+          href={recording}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="mt-2 inline-flex items-center gap-1.5 text-sm font-semibold text-brand bg-brand-soft rounded-lg px-3 py-2"
+          data-testid="call-recording-link"
+        >
+          ▶ Play call recording
+        </a>
+      ) : null}
 
       <div className="mt-2.5 flex items-center gap-1.5 flex-wrap">
         {type && <span className="pill bg-sky-100 text-sky-700">{type}</span>}

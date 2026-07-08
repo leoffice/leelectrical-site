@@ -9,7 +9,14 @@ import { enrichAndPatchCustomer } from "./NewJobFlow.jsx";
 import { useStore } from "../state/store.jsx";
 import { serviceAddressHint, serviceAddressLabel } from "../lib/customerSync.js";
 import { fmt$, todayStr } from "../lib/format.js";
-import { clientKey, fmtAmountDue, jobsForCustomerKey, openBalance } from "../lib/customers.js";
+import { clientKey, fmtAmountDue, jobsForCustomerKey, openBalance, amountPaid, paidPct } from "../lib/customers.js";
+import {
+  appendPayment,
+  fmtPaymentLine,
+  normalizePayments,
+  removePayment,
+  updatePayment,
+} from "../lib/payments.js";
 import { sortJobs } from "../lib/stages.js";
 
 export const PAY_METHODS = ["Cash", "Wells Fargo", "Martin Dorkin", "Zelle", "Barder", "Other"];
@@ -31,7 +38,7 @@ export function useDoSend() {
 export function MarkPaidSheet({ job, onClose }) {
   const { patchJob, showToast, syncNow } = useStore();
   const due = openBalance(job);
-  const alreadyPaid = job.paid || due <= 0.01;
+  const alreadyPaid = due <= 0.01;
   const [amt, setAmt] = useState(due > 0 ? String(due) : String(job.amount || "").replace(/[$,]/g, ""));
   const [mth, setMth] = useState("");
   const [ref, setRef] = useState("");
@@ -51,13 +58,14 @@ export function MarkPaidSheet({ job, onClose }) {
       return;
     }
     const d = dt || todayStr();
-    patchJob(job.id, {
-      paid: true,
-      openBalance: 0,
-      payment: { amount: amt, method: mth, ref, date: dt },
-      status: { Paid: { s: "done", d }, "Follow-up": { s: "done", d } },
-    });
-    showToast("Payment staged — Save & sync to record in QuickBooks");
+    const patch = appendPayment(job, { amount: payAmt, method: mth, ref, date: d });
+    const remaining = parseFloat(String(patch.openBalance)) || 0;
+    if (patch.paid) {
+      showToast("Payment staged — Save & sync to record in QuickBooks");
+    } else {
+      showToast("Partial payment staged — " + fmt$(remaining) + " remaining. Save & sync for QuickBooks.");
+    }
+    patchJob(job.id, patch);
     onClose();
   };
   return (
@@ -101,6 +109,125 @@ export function MarkPaidSheet({ job, onClose }) {
       <p className="text-[11px] text-slate-400 text-center mt-2">
         Staged now — QuickBooks records it when you hit Save &amp; sync.
       </p>
+    </Sheet>
+  );
+}
+
+/* ---------- 1b. Payment history ---------- */
+function PaymentEditForm({ payment, onSave, onDelete, onCancel }) {
+  const [amt, setAmt] = useState(String(payment.amount || "").replace(/[$,]/g, ""));
+  const [mth, setMth] = useState(payment.method || "");
+  const [ref, setRef] = useState(payment.ref || "");
+  const [dt, setDt] = useState(payment.date || todayStr());
+  return (
+    <div className="space-y-3 border-t border-slate-100 pt-3 mt-2">
+      <Fld label="Amount">
+        <input className="input" inputMode="decimal" value={amt} onChange={(e) => setAmt(e.target.value)} aria-label="Edit amount" />
+      </Fld>
+      <Fld label="Payment method">
+        <select className="input" value={mth} onChange={(e) => setMth(e.target.value)} aria-label="Edit method">
+          <option value="">— choose —</option>
+          {PAY_METHODS.map((m) => (
+            <option key={m}>{m}</option>
+          ))}
+        </select>
+      </Fld>
+      <Fld label="Reference / check #">
+        <input className="input" value={ref} onChange={(e) => setRef(e.target.value)} />
+      </Fld>
+      <Fld label="Date">
+        <input className="input" type="date" value={dt} onChange={(e) => setDt(e.target.value)} />
+      </Fld>
+      <div className="flex gap-2">
+        <button
+          className="btn bg-brand text-white flex-1"
+          onClick={() => onSave({ amount: amt, method: mth, ref, date: dt })}
+        >
+          Save edit
+        </button>
+        <button className="btn bg-slate-100 text-slate-700" onClick={onCancel}>
+          Cancel
+        </button>
+      </div>
+      <button className="btn bg-red-50 text-red-700 w-full" onClick={onDelete}>
+        Remove this payment
+      </button>
+      <p className="text-[10px] text-slate-400 text-center">
+        If this payment already synced to QuickBooks, fix QBO separately or ask Dispatch.
+      </p>
+    </div>
+  );
+}
+
+export function PaymentHistorySheet({ job, onClose, onAddPayment }) {
+  const { patchJob, showToast } = useStore();
+  const [editId, setEditId] = useState(null);
+  const pays = normalizePayments(job);
+  const due = openBalance(job);
+  const paid = amountPaid(job);
+  const pct = paidPct(job);
+
+  const saveEdit = (entry) => {
+    const payAmt = parseFloat(String(entry.amount).replace(/[$,]/g, "")) || 0;
+    if (payAmt <= 0) {
+      showToast("Enter a payment amount");
+      return;
+    }
+    patchJob(job.id, updatePayment(job, editId, entry));
+    showToast("Payment updated — Save & sync");
+    setEditId(null);
+  };
+
+  const deletePay = (id) => {
+    patchJob(job.id, removePayment(job, id));
+    showToast("Payment removed — Save & sync");
+    setEditId(null);
+  };
+
+  return (
+    <Sheet title={"Payment history — " + (job.customer || "")} onClose={onClose}>
+      <div className="rounded-xl bg-slate-50 border border-slate-200 px-3 py-2.5 mb-3 text-[12px] text-slate-700">
+        <div className="flex justify-between gap-2">
+          <span>
+            Paid so far: <b>{fmt$(paid) || "$0"}</b>
+            {pct ? <span className="text-slate-500"> ({pct}%)</span> : null}
+          </span>
+          <span>
+            Open: <b>{due > 0 ? fmt$(due) : "Paid"}</b>
+          </span>
+        </div>
+        {job.invoiceNo ? <div className="text-slate-500 mt-1">Invoice #{job.invoiceNo}</div> : null}
+      </div>
+
+      {!pays.length ? (
+        <p className="text-sm text-slate-400 text-center py-4">No payments recorded yet.</p>
+      ) : (
+        <div className="space-y-2" data-testid="payment-history-list">
+          {pays.map((p) => (
+            <div key={p.id} className="card px-3 py-2.5">
+              {editId === p.id ? (
+                <PaymentEditForm
+                  payment={p}
+                  onSave={saveEdit}
+                  onDelete={() => deletePay(p.id)}
+                  onCancel={() => setEditId(null)}
+                />
+              ) : (
+                <button type="button" className="w-full text-left" onClick={() => setEditId(p.id)}>
+                  <div className="text-sm font-semibold text-slate-900">{fmtPaymentLine(p)}</div>
+                  <div className="text-[11px] text-slate-400 mt-0.5">Tap to edit or remove</div>
+                </button>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+
+      {due > 0.01 ? (
+        <button className="btn bg-emerald-500 text-white w-full mt-3" onClick={onAddPayment}>
+          ＋ Record another payment
+        </button>
+      ) : null}
     </Sheet>
   );
 }
@@ -224,7 +351,7 @@ export function PdfViewer({ job, kind, no }) {
   return <Opt icon="📄" title="View PDF" note="Opens full screen · live from QuickBooks" onClick={view} />;
 }
 
-/* ---------- 2a-link. Biller Genie payment link ---------- */
+/* ---------- 2a-link. Sola PaymentSITE payment link ---------- */
 /** Parse the {url} the host listener stores on a payment_link command result.
  *  Stored as a JSON string ({"url":...}); tolerate a bare URL too. */
 export function paylinkUrl(result) {
@@ -238,18 +365,37 @@ export function paylinkUrl(result) {
   return /^https?:\/\//.test(s.trim()) ? s.trim() : "";
 }
 
+/** Normalize dollars for the payment_link payload / idempotency key. */
+function paylinkAmountRaw(raw) {
+  const s = String(raw ?? "").trim().replace(/[$,]/g, "");
+  const n = parseFloat(s);
+  if (!s || Number.isNaN(n) || n <= 0) return "";
+  return n % 1 === 0 ? String(Math.round(n)) : n.toFixed(2);
+}
+
 /** "💳 Payment link": enqueue a payment_link command (lane deterministic,
- *  idempotencyKey paylink:<invoiceNo>) and poll the command result for a URL.
- *  On success shows the link with Copy + prefilled sms:/mailto: share. On
- *  failure shows a graceful "setup incomplete" note. */
+ *  idempotencyKey paylink:<invoiceNo>:<amount>) and poll for a URL.
+ *  Defaults to amount due; Levi can override before generating. Customer may
+ *  also edit xamount on Sola PaymentSITE if that field is enabled in portal. */
 export function PaymentLinkSheet({ job, onClose }) {
   const { enqueue, commands, refreshCommands, showToast } = useStore();
   const inv = job.invoiceNo || "";
-  const idk = "paylink:" + inv;
+  const dueAmt = openBalance(job);
+  const dueLabel = fmtAmountDue(job) || fmt$(dueAmt) || "";
+  const [linkAmount, setLinkAmount] = useState(() => paylinkAmountRaw(dueAmt) || "");
+  const [idk, setIdk] = useState("");
   const [phase, setPhase] = useState("idle"); // idle|working|ready|failed
   const [url, setUrl] = useState("");
   const [err, setErr] = useState("");
   const deadline = useRef(0);
+
+  useEffect(() => {
+    setLinkAmount(paylinkAmountRaw(openBalance(job)) || "");
+    setPhase("idle");
+    setUrl("");
+    setErr("");
+    setIdk("");
+  }, [job.id, job.invoiceNo, job.openBalance, job.paid, job.amount]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // The matching command (by idempotencyKey) as the store re-polls it.
   const cmd = (commands || []).find((c) => c.idempotencyKey === idk);
@@ -266,7 +412,7 @@ export function PaymentLinkSheet({ job, onClose }) {
       setUrl(link);
       setPhase("ready");
     } else if (cmdStatus === "failed") {
-      setErr(String((cmd && cmd.error) || "Biller Genie could not create the link"));
+      setErr(String((cmd && cmd.error) || "Sola could not create the payment link"));
       setPhase("failed");
     }
   }, [phase, cmdStatus, cmdResult]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -277,7 +423,7 @@ export function PaymentLinkSheet({ job, onClose }) {
     if (phase !== "working") return;
     const iv = setInterval(() => {
       if (Date.now() >= deadline.current) {
-        setErr("Timed out waiting for Biller Genie — Dispatch has been notified.");
+        setErr("Timed out waiting for Sola — Dispatch has been notified.");
         setPhase("failed");
         return;
       }
@@ -286,17 +432,24 @@ export function PaymentLinkSheet({ job, onClose }) {
     return () => clearInterval(iv);
   }, [phase, refreshCommands]);
 
+  const resetToDue = () => setLinkAmount(paylinkAmountRaw(dueAmt) || "");
+
   const start = () => {
     if (!inv) return showToast("No invoice # on this job yet");
+    const amt = paylinkAmountRaw(linkAmount);
+    if (!amt) return showToast("Enter a valid payment amount");
+    const key = "paylink:" + inv + ":" + amt;
+    setIdk(key);
     setPhase("working");
     setErr("");
+    setUrl("");
     deadline.current = Date.now() + 60_000;
     enqueue(
       "payment_link",
       job.id,
-      { invoiceNo: inv, amount: String(job.amount || "").replace(/[$,]/g, ""), customer: job.customer || "", email: job.email || "" },
+      { invoiceNo: inv, amount: amt, customer: job.customer || "", email: job.email || "" },
       "deterministic",
-      idk
+      key
     );
     refreshCommands();
   };
@@ -319,15 +472,32 @@ export function PaymentLinkSheet({ job, onClose }) {
     <Sheet title={"Payment link" + (inv ? " — #" + inv : "")} onClose={onClose}>
       <div className="text-sm space-y-1 mb-3">
         <div><b className="font-semibold">Customer</b> <span className="text-slate-600">{job.customer || ""}</span></div>
-        <div><b className="font-semibold">Amount</b> <span className="text-slate-600">{fmt$(job.amount) || "—"}</span></div>
+        <div><b className="font-semibold">Amount due</b> <span className="text-slate-600">{fmtAmountDue(job) || fmt$(openBalance(job)) || "—"}</span></div>
       </div>
 
       {phase === "idle" && (
         <>
           <p className="text-sm text-slate-500 mb-3">
-            Create a Biller Genie payment link for this invoice — then Copy it or text/email it to {job.customer || "the customer"}.
+            Link pre-fills <b>amount due</b> ({dueLabel || "—"}). Change it below for a partial or custom charge. On the Sola page the customer can also adjust the amount before paying.
           </p>
-          <button className="btn-brand w-full" onClick={start} disabled={!inv}>
+          <label className="block text-sm mb-3">
+            <span className="font-semibold text-slate-700">Link amount ($)</span>
+            <input
+              type="text"
+              inputMode="decimal"
+              className="input mt-1 w-full"
+              aria-label="Payment link amount"
+              value={linkAmount}
+              onChange={(e) => setLinkAmount(e.target.value)}
+              placeholder={dueLabel ? dueLabel.replace(/^\$/, "") : "0.00"}
+            />
+          </label>
+          {dueAmt > 0 && linkAmount !== paylinkAmountRaw(dueAmt) && (
+            <button type="button" className="btn-ghost w-full !py-1.5 mb-2 text-sm" onClick={resetToDue}>
+              ↺ Reset to amount due ({dueLabel})
+            </button>
+          )}
+          <button className="btn-brand w-full" onClick={start} disabled={!inv || !paylinkAmountRaw(linkAmount)}>
             💳 Create payment link
           </button>
           {!inv && <p className="text-[11px] text-slate-400 text-center mt-2">Add an invoice # first.</p>}
@@ -337,7 +507,7 @@ export function PaymentLinkSheet({ job, onClose }) {
       {phase === "working" && (
         <div className="border border-slate-200 rounded-2xl px-4 py-3 text-sm text-slate-500 flex items-center gap-2.5">
           <span className="w-2 h-2 rounded-full bg-amber-400 animate-pulse shrink-0" />
-          Creating the link in Biller Genie…
+          Creating the Sola payment link…
         </div>
       )}
 
@@ -368,7 +538,7 @@ export function PaymentLinkSheet({ job, onClose }) {
 
       {phase === "failed" && (
         <div className="border border-amber-200 bg-amber-50 rounded-2xl px-4 py-3 text-sm text-amber-800">
-          <b>Biller Genie setup incomplete</b> — Dispatch notified.
+          <b>Sola payment link unavailable</b> — Dispatch notified.
           <div className="text-[12px] text-amber-700/90 mt-1 break-words">{err}</div>
           <button className="btn-ghost w-full mt-2 !py-1.5" onClick={start}>↻ Try again</button>
         </div>

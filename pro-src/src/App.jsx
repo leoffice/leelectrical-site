@@ -24,7 +24,7 @@ import { appointmentContextFromRoute } from "./lib/appointmentContext.js";
 
 const TABS = [
   { to: "/", label: "Jobs", ic: "🗂️", end: true },
-  { to: "/today", label: "Today", ic: "📅" },
+  { to: "/today", label: "Calendar", ic: "📅" },
   { to: "/calls", label: "Calls", ic: "📞" },
   { to: "/dev", label: "Dev", ic: "🛠️" },
   { to: "/archive", label: "Archive", ic: "📦" },

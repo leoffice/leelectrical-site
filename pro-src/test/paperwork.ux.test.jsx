@@ -141,3 +141,27 @@ describe("sub-item remove / restore", () => {
     expect(within(pane).getByText("Final checklist")).toBeInTheDocument(); // Con Ed intact
   });
 });
+
+describe("auto follow-up on paperwork check", () => {
+  it("completing Application submitted sets a 1-week reminder", async () => {
+    const srv = mockServer();
+    const user = userEvent.setup();
+    const pane = await openDetail();
+    await openConEd(user, pane);
+
+    const label = () => within(pane).getByRole("button", { name: /^(✓ )?Application submitted$/ });
+    await user.click(label());
+    await user.click(within(pane).getByText("Enable"));
+    await user.click(label());
+    await user.click(within(pane).getByText("✓ Complete"));
+
+    await user.click(screen.getByText("Save & sync"));
+    await waitFor(() => {
+      const fu = srv.state.ov["J-1"].followUp;
+      expect(fu.text).toMatch(/Application submitted/);
+      expect(fu.type).toBe("Paperwork / permits");
+      expect(fu.date).toBeTruthy();
+      expect(fu.remind).toBe(true);
+    });
+  });
+});

@@ -15,8 +15,8 @@ import React, {
 import api from "../data/adapter.js";
 import { applyOverlay, deepMerge, isPlainObject } from "../data/merge.js";
 import { STAGES } from "../lib/stages.js";
-import { fmt$, todayStr } from "../lib/format.js";
-import { openBalance } from "../lib/customers.js";
+import { fmt$, parseAmount, todayStr } from "../lib/format.js";
+import { normalizePayments } from "../lib/payments.js";
 import { unhandledCount } from "../lib/sas.js";
 import { customerSyncPayload } from "../lib/customerSync.js";
 
@@ -268,16 +268,19 @@ export function StoreProvider({ children }) {
     if (!entries.length || saving) return;
     setSaving(true);
     try {
-      // Which jobs are flipping to paid with this save? (record_payment after)
-      const payFlips = entries
-        .filter(([id, p]) => p && p.paid === true)
-        .map(([id]) => id)
-        .filter((id) => {
-          const base = jobs.find((j) => String(j.id) === String(id));
-          return !(base && base.paid === true);
-        })
-        .map((id) => effectiveJob(id))
-        .filter((j) => j && j.invoiceNo);
+      const newPaymentsToSync = [];
+      for (const [id, patch] of entries) {
+        if (!patch?.payments && !patch?.payment) continue;
+        const base = jobs.find((j) => String(j.id) === String(id));
+        if (!base) continue;
+        const after = effectiveJob(id);
+        const beforeIds = new Set(normalizePayments(base).map((p) => p.id));
+        for (const p of normalizePayments(after)) {
+          if (!beforeIds.has(p.id) && parseAmount(p.amount) > 0) {
+            newPaymentsToSync.push({ job: after, payment: p });
+          }
+        }
+      }
 
       for (const [id, patch] of entries) {
         const r = await api.saveJob(id, patch);
@@ -287,25 +290,34 @@ export function StoreProvider({ children }) {
       setPending({});
       showToast("Saved ✓ synced to all devices");
 
-      for (const j of payFlips) {
-        const due = openBalance(j);
-        if (due <= 0.01) {
-          showToast("Skipped QuickBooks payment — invoice already paid (sync first)");
+      for (const { job: j, payment: pay } of newPaymentsToSync) {
+        if (!j.invoiceNo) continue;
+        const payAmt = parseAmount(pay.amount);
+        if (payAmt <= 0) {
+          showToast("Skipped QuickBooks payment — no amount on " + (j.invoiceNo || j.id));
           continue;
         }
-        const pay = j.payment || {};
+        const idem = [
+          "record_payment",
+          j.id,
+          j.invoiceNo || "",
+          pay.id || "",
+          pay.amount,
+          pay.date || "",
+          pay.ref || "",
+        ].join(":");
         await enqueueRef.current(
           "record_payment",
           j.id,
           {
             invoiceNo: j.invoiceNo,
-            amount: pay.amount || due || j.amount,
+            amount: pay.amount,
             method: pay.method || "",
             ref: pay.ref || "",
             date: pay.date || todayStr(),
           },
           "deterministic",
-          "record_payment:" + j.id + ":" + (j.invoiceNo || "")
+          idem
         );
       }
       refreshJobs(true);

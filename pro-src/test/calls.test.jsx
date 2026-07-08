@@ -14,6 +14,7 @@ import {
   callMessage,
   callName,
   callPhone,
+  callRecording,
   isoDate,
   prefillFromCall,
   unhandledCount,
@@ -57,6 +58,10 @@ describe("sas helpers (pure)", () => {
     expect(callMessage(CALL2)).toBe("Panel buzzing"); // ticket_message wins
     expect(isoDate("07/06/2026")).toBe("2026-07-06");
     expect(isoDate("garbage")).toBe("");
+    expect(callRecording({ data: { recording_url: "https://sas.example/rec/1.mp3" } })).toBe(
+      "https://sas.example/rec/1.mp3"
+    );
+    expect(callRecording({ data: { message: "hi" } })).toBe("");
     const p = prefillFromCall(CALL);
     expect(p).toMatchObject({
       customer: "Jane Lead",
@@ -101,6 +106,20 @@ describe("Calls tab", () => {
     expect(screen.getByText("Message taken")).toBeInTheDocument(); // call type badge
     expect(screen.getByTestId("call-new")).toBeInTheDocument();
     expect(screen.getByText(/Lead · not in QuickBooks/)).toBeInTheDocument();
+  });
+
+  it("shows play-recording link when SAS sends recording_url", async () => {
+    mockServer({
+      sasCalls: [
+        {
+          ...CALL,
+          data: { ...CALL.data, recording_url: "https://recordings.example/call-abc.mp3" },
+        },
+      ],
+    });
+    renderApp("#/calls");
+    const link = await screen.findByTestId("call-recording-link");
+    expect(link).toHaveAttribute("href", "https://recordings.example/call-abc.mp3");
   });
 
   it("Dismiss marks the ticket handled under ov._sasTickets (reserved key) — no QBO commands", async () => {

@@ -2,6 +2,7 @@
 // job.status = { "Lead": { s: "done"|"skipped"|""|"current", d?: "YYYY-MM-DD" }, ... }
 import { parseAmount, todayStr } from "./format.js";
 import { openBalance } from "./customers.js";
+import { isToDoJob, isUpcomingJob } from "./calendarDue.js";
 
 export const STAGES = [
   "Lead",
@@ -88,6 +89,8 @@ export function nextAction(job) {
 /** Filter chips — logic copied from sleek's chipTest(). */
 const FILTERS = {
   Active: (j) => !j.paid,
+  "To Do": (j) => isToDoJob(j),
+  Upcoming: (j) => isUpcomingJob(j),
   Leads: (j) => ["Lead", "Site Visit"].includes(stageOf(j)),
   Estimates: (j) => ["Estimate", "Accepted"].includes(stageOf(j)),
   Scheduled: (j) =>
@@ -98,7 +101,17 @@ const FILTERS = {
   All: () => true,
 };
 
-export const FILTER_NAMES = Object.keys(FILTERS);
+export const FILTER_NAMES = [
+  "Active",
+  "To Do",
+  "Upcoming",
+  "Leads",
+  "Estimates",
+  "Scheduled",
+  "Unpaid",
+  "Paid",
+  "All",
+];
 
 export function matchesFilter(job, name) {
   return (FILTERS[name] || FILTERS.All)(job);
@@ -195,6 +208,11 @@ export function sortCmp(key) {
 /** Sort like sleek by default (biggest amount first); pass a key for others. */
 export function sortJobs(list, key) {
   return list.slice().sort(sortCmp(key));
+}
+
+/** To Do / Upcoming tabs — earliest next action first (overdue → soonest). */
+export function sortByNextAction(list) {
+  return list.slice().sort(dateAsc(nextStepDate));
 }
 
 export { todayStr };

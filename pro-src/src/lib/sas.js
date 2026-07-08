@@ -68,6 +68,31 @@ export function callAppointment(call) {
   return [s(o.appointment_date), s(o.appointment_time)].filter(Boolean).join(" ");
 }
 
+/** Direct recording URL when SAS Custom Action includes it (merge field). */
+export function callRecording(call) {
+  const o = d(call);
+  const raw = s(
+    o.recording_url ||
+      o.recording_link ||
+      o.call_recording ||
+      o.call_recording_url ||
+      o.audio_url ||
+      o.recording ||
+      o.mp3_url ||
+      o.playback_url
+  );
+  if (!raw) return "";
+  if (/^https?:\/\//i.test(raw)) return raw;
+  return "";
+}
+
+/** SAS Flex portal call-log hint when we have a session id but no direct URL. */
+export function callLogHint(call) {
+  const o = d(call);
+  const sid = s(o.session_id || o.session_start || o.call_id || o.ticket_id);
+  return sid || "";
+}
+
 /** "07/06/2026" (SAS style) -> "2026-07-06" for <input type=date>. */
 export function isoDate(us) {
   const m = s(us).match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);

@@ -64,7 +64,9 @@ describe("stage model", () => {
 describe("filter chips (sleek chipTest)", () => {
   const inv = { status: {}, paid: false, invoiceNo: "1" };
   it("has the exact chip set", () => {
-    expect(FILTER_NAMES).toEqual(["Active", "Leads", "Estimates", "Scheduled", "Unpaid", "Paid", "All"]);
+    expect(FILTER_NAMES).toEqual([
+      "Active", "To Do", "Upcoming", "Leads", "Estimates", "Scheduled", "Unpaid", "Paid", "All",
+    ]);
   });
   it("Active = unpaid, Paid = paid, Unpaid needs an invoice", () => {
     expect(matchesFilter({ paid: false, status: {} }, "Active")).toBe(true);

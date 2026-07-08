@@ -14,6 +14,7 @@ import {
   clientKey,
   matchesFilter,
   matchesQuery,
+  sortByNextAction,
   sortCmp,
   sortJobs,
 } from "../lib/stages.js";
@@ -155,7 +156,11 @@ export default function Jobs({ embedded }) {
     (j) => matchesFilter(j, filter) && matchesQuery(j, q),
     [filter, q]
   );
-  const shown = useMemo(() => sortJobs(active.filter(matchesChip), sort), [active, matchesChip, sort]);
+  const shown = useMemo(() => {
+    const list = active.filter(matchesChip);
+    if (filter === "To Do" || filter === "Upcoming") return sortByNextAction(list);
+    return sortJobs(list, sort);
+  }, [active, matchesChip, sort, filter]);
 
   // Bug #1: group ALL jobs for a customer together (paid + unpaid). The filter
   // chip only controls which *groups* appear, not whether paid siblings vanish

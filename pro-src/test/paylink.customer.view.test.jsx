@@ -38,7 +38,8 @@ describe("Feature 1 — payment link", () => {
     await waitFor(() => {
       const cmd = srv.enqueued("payment_link")[0];
       expect(cmd).toBeTruthy();
-      expect(cmd.idempotencyKey).toBe("paylink:251839");
+      expect(cmd.idempotencyKey).toBe("paylink:251839:652");
+      expect(cmd.payload.amount).toBe("652");
       expect(cmd.lane).toBe("deterministic");
       expect(cmd.payload.invoiceNo).toBe("251839");
     });
@@ -46,12 +47,34 @@ describe("Feature 1 — payment link", () => {
     // simulate the host listener completing it with a link, then the sheet polls
     const c = srv.state.commands.find((x) => x.type === "payment_link");
     c.status = "done";
-    c.result = JSON.stringify({ url: "https://customer.billergenie.com/pay/abc123" });
+    c.result = JSON.stringify({ url: "https://secure.cardknox.com/lepaymendev?xamount=652&xinvoice=251839" });
 
     expect(
-      await screen.findByText("https://customer.billergenie.com/pay/abc123", {}, { timeout: 6000 })
+      await screen.findByText("https://secure.cardknox.com/lepaymendev?xamount=652&xinvoice=251839", {}, { timeout: 6000 })
     ).toBeInTheDocument();
     expect(screen.getByText("📋 Copy link")).toBeInTheDocument();
+  });
+
+  it("lets Levi override the link amount before generating", { timeout: 10000 }, async () => {
+    const srv = mockServer({
+      jobs: [job("P-3", "Pat Lee", "Service", "$1,000", { invoiceNo: "251900", openBalance: 400 })],
+    });
+    const user = userEvent.setup();
+    renderApp("#/job/P-3");
+
+    const pane = await screen.findByTestId("detail-pane");
+    await user.click(within(pane).getByText("💳 Payment link"));
+    const amt = await screen.findByLabelText("Payment link amount");
+    expect(amt).toHaveValue("400");
+    await user.clear(amt);
+    await user.type(amt, "250");
+    await user.click(await screen.findByText("💳 Create payment link"));
+
+    await waitFor(() => {
+      const cmd = srv.enqueued("payment_link")[0];
+      expect(cmd.idempotencyKey).toBe("paylink:251900:250");
+      expect(cmd.payload.amount).toBe("250");
+    });
   });
 
   it("shows a graceful 'setup incomplete' state when the command fails", { timeout: 10000 }, async () => {
@@ -66,10 +89,10 @@ describe("Feature 1 — payment link", () => {
     await waitFor(() => expect(srv.enqueued("payment_link")[0]).toBeTruthy());
     const c = srv.state.commands.find((x) => x.type === "payment_link");
     c.status = "failed";
-    c.error = "Biller Genie public API key not configured";
+    c.error = "siteSlug not set in sola_payments.json";
 
     expect(
-      await screen.findByText("Biller Genie setup incomplete", { exact: false }, { timeout: 6000 })
+      await screen.findByText("Sola payment link unavailable", { exact: false }, { timeout: 6000 })
     ).toBeInTheDocument();
   });
 });

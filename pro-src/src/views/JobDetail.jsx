@@ -17,6 +17,7 @@ import {
   todayStr,
 } from "../lib/stages.js";
 import { PAPER, isDatedStep } from "../lib/paperwork.js";
+import { followUpFromPaperworkStep } from "../lib/calendarDue.js";
 import { fmt$, ago } from "../lib/format.js";
 import CustomerCard from "../components/CustomerCard.jsx";
 import JobInfoCard from "../components/JobInfoCard.jsx";
@@ -25,7 +26,8 @@ import {
   customerDisplayName,
   effectiveServiceAddress,
 } from "../lib/customerSync.js";
-import { customerContact } from "../lib/customers.js";
+import { amountPaid, customerContact, openBalance, paidPct } from "../lib/customers.js";
+import { normalizePayments } from "../lib/payments.js";
 import Toggle from "../components/Toggle.jsx";
 import Jobs from "./Jobs.jsx";
 import AppointmentLinkSheet from "../components/AppointmentLinkSheet.jsx";
@@ -37,6 +39,7 @@ import {
   InspectionSheet,
   MarkPaidSheet,
   MenuSheet,
+  PaymentHistorySheet,
   PaymentLinkSheet,
   ReminderSheet,
 } from "../components/JobSheets.jsx";
@@ -151,7 +154,9 @@ export default function JobDetail() {
   // restore just flips removed[step] back to false.
   const paperStep = (k, s, on) => {
     setOpenStep(null);
-    patchJob(id, { paperwork: { [k]: { steps: { [s]: on }, active: { [s]: true } } } });
+    const patch = { paperwork: { [k]: { steps: { [s]: on }, active: { [s]: true } } } };
+    if (on) patch.followUp = followUpFromPaperworkStep(k, s);
+    patchJob(id, patch);
     if (on && s === "Inspection scheduled") setSheet({ kind: "inspection", branch: k });
   };
   const enablePaper = (k, s) => {
@@ -215,20 +220,59 @@ export default function JobDetail() {
       />
 
       {/* Money */}
-      {!job.paid ? (
-        <button className="btn bg-emerald-500 text-white w-full" onClick={() => setSheet({ kind: "paid" })}>
-          💵 Mark as paid…
-        </button>
-      ) : job.payment ? (
-        <div className="card !bg-emerald-50 !border-emerald-100 px-4 py-3 text-sm">
-          <b>Paid</b> {fmt$(job.payment.amount)} · {job.payment.method || ""}
-          {job.payment.ref ? " · ref " + job.payment.ref : ""}
-          {job.payment.date ? " · " + job.payment.date : ""}
-        </div>
-      ) : null}
+      {(() => {
+        const due = openBalance(job);
+        const paid = amountPaid(job);
+        const pays = normalizePayments(job);
+        const pct = paidPct(job);
+        return (
+          <div className="space-y-2">
+            {(pays.length || due > 0.01) && (
+              <button
+                type="button"
+                className="card w-full px-4 py-3 text-left"
+                onClick={() => setSheet({ kind: "payhist" })}
+                data-testid="payment-history-btn"
+              >
+                <div className="flex items-center justify-between gap-2">
+                  <span className="text-sm font-semibold text-slate-900">💳 Payment history</span>
+                  <span className="text-xs text-slate-500">{pays.length} payment{pays.length === 1 ? "" : "s"}</span>
+                </div>
+                <div className="text-[12px] text-slate-600 mt-1">
+                  {paid > 0 ? (
+                    <>
+                      Paid <b>{fmt$(paid)}</b>
+                      {pct ? <span className="text-slate-400"> ({pct}%)</span> : null}
+                      {due > 0.01 ? (
+                        <>
+                          {" "}
+                          · <span className="text-amber-800">{fmt$(due)} open</span>
+                        </>
+                      ) : (
+                        <span className="text-emerald-700"> · Paid in full</span>
+                      )}
+                    </>
+                  ) : due > 0.01 ? (
+                    <>
+                      Open balance <b>{fmt$(due)}</b>
+                    </>
+                  ) : (
+                    <span className="text-slate-400">Tap to view or edit payments</span>
+                  )}
+                </div>
+              </button>
+            )}
+            {due > 0.01 ? (
+              <button className="btn bg-emerald-500 text-white w-full" onClick={() => setSheet({ kind: "paid" })}>
+                💵 Record payment…
+              </button>
+            ) : null}
+          </div>
+        );
+      })()}
 
-      {/* Biller Genie payment link — on jobs with an invoice # or amount */}
-      {(job.invoiceNo || job.amount) && !job.paid && (
+      {/* Sola PaymentSITE link — on jobs with an invoice # and balance due */}
+      {(job.invoiceNo || job.amount) && openBalance(job) > 0.01 && (
         <button
           className="btn bg-brand-soft text-brand w-full !py-2"
           onClick={() => setSheet({ kind: "paylink" })}
@@ -642,6 +686,13 @@ export default function JobDetail() {
       )}
       {sheet?.kind === "combine" && <CombineSheet job={job} onClose={() => setSheet(null)} />}
       {sheet?.kind === "paid" && <MarkPaidSheet job={job} onClose={() => setSheet(null)} />}
+      {sheet?.kind === "payhist" && (
+        <PaymentHistorySheet
+          job={job}
+          onClose={() => setSheet(null)}
+          onAddPayment={() => setSheet({ kind: "paid" })}
+        />
+      )}
       {sheet?.kind === "paylink" && <PaymentLinkSheet job={job} onClose={() => setSheet(null)} />}
       {sheet?.kind === "cust" && <CustEditSheet job={job} onClose={() => setSheet(null)} />}
 

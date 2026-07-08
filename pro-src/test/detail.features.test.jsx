@@ -28,7 +28,7 @@ describe("1. mark-as-paid sheet -> staged -> record_payment on Save", () => {
     const user = userEvent.setup();
     const pane = await openDetail();
 
-    await user.click(within(pane).getByText("💵 Mark as paid…"));
+    await user.click(within(pane).getByText("💵 Record payment…"));
     const amt = screen.getByLabelText("Amount");
     expect(amt).toHaveValue("2300"); // prefilled, $/commas stripped
     await user.selectOptions(screen.getByLabelText("Payment method"), "Zelle");
@@ -46,7 +46,7 @@ describe("1. mark-as-paid sheet -> staged -> record_payment on Save", () => {
     await waitFor(() => expect(srv.enqueued("record_payment")).toHaveLength(1));
     const cmd = srv.enqueued("record_payment")[0];
     expect(cmd.lane).toBe("deterministic");
-    expect(cmd.idempotencyKey).toBe("record_payment:J-1:251841");
+    expect(cmd.idempotencyKey).toMatch(/^record_payment:J-1:251841:/);
     expect(cmd.payload).toMatchObject({ invoiceNo: "251841", amount: "2300", method: "Zelle" });
     // overlay got paid + payment + Paid/Follow-up statuses
     const ov = srv.state.ov["J-1"];
@@ -54,6 +54,40 @@ describe("1. mark-as-paid sheet -> staged -> record_payment on Save", () => {
     expect(ov.payment.method).toBe("Zelle");
     expect(ov.status.Paid.s).toBe("done");
     expect(ov.status["Follow-up"].s).toBe("done");
+    expect(ov.payments).toHaveLength(1);
+  });
+
+  it("partial payment keeps open balance and does not mark Paid done", async () => {
+    const srv = mockServer({
+      jobs: [
+        {
+          id: "J-partial",
+          customer: "Golan Chakov",
+          amount: "$11,000",
+          invoiceNo: "231315",
+          paid: false,
+          notes: "Open balance $11,000.00",
+        },
+      ],
+    });
+    const user = userEvent.setup();
+    renderApp("#/job/J-partial");
+    const pane = await screen.findByTestId("detail-pane");
+    await user.click(within(pane).getByText("💵 Record payment…"));
+    const amt = screen.getByLabelText("Amount");
+    await user.clear(amt);
+    await user.type(amt, "1000");
+    await user.selectOptions(screen.getByLabelText("Payment method"), "Zelle");
+    await user.click(screen.getByText("✓ Record payment"));
+    await user.click(await screen.findByText("Save & sync"));
+    await waitFor(() => expect(screen.queryByTestId("savebar")).not.toBeInTheDocument());
+    const ov = srv.state.ov["J-partial"];
+    expect(ov.paid).toBe(false);
+    expect(ov.openBalance).toBe(10000);
+    expect(ov.payments).toHaveLength(1);
+    expect(ov.payments[0].amount).toBe("1000");
+    expect(ov.status.Paid.s).toBe("");
+    expect(srv.enqueued("record_payment")[0].payload.amount).toBe("1000");
   });
 });
 

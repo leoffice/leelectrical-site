@@ -9,6 +9,7 @@
 //     (localStorage lepro_nomerge, key = sorted normalized pair)
 
 import { fmt$, parseAmount } from "./format.js";
+import { normalizePayments, remainingBalance, totalPaid, amountOwedAtStart } from "./payments.js";
 
 /** Open balance for a job = the amount still owed.
  *  Priority: explicit job.openBalance -> a "balance: $X" / "owes $X" figure in
@@ -16,6 +17,8 @@ import { fmt$, parseAmount } from "./format.js";
  *  explicit remainder are 0. Used for the customer-group "total balance due". */
 export function openBalance(job) {
   if (!job) return 0;
+  const pays = normalizePayments(job);
+  if (pays.length) return remainingBalance(job, pays);
   if (job.openBalance != null && job.openBalance !== "") return parseAmount(job.openBalance);
   const hay = [job.notes, job.followUp && job.followUp.text].filter(Boolean).join(" ");
   const m = hay.match(/(?:open\s*balance|balance\s*due|balance|owes?|remaining|still\s*owes?)\D{0,8}\$?\s*([\d,]+(?:\.\d+)?)/i);
@@ -44,6 +47,8 @@ export function invoiceTotal(job) {
 /** Amount paid so far (invoice total minus open balance, or full amount when paid). */
 export function amountPaid(job) {
   if (!job) return 0;
+  const pays = normalizePayments(job);
+  if (pays.length) return totalPaid(pays);
   const total = invoiceTotal(job);
   if (job.paid && (job.openBalance == null || job.openBalance === "" || parseAmount(job.openBalance) === 0)) {
     return total || parseAmount(job.payment?.amount);
