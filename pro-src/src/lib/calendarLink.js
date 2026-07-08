@@ -72,10 +72,82 @@ export function customerJobGroups(jobs, sortKey = "customer") {
     .sort((a, b) => (a[1][0].customer || "").localeCompare(b[1][0].customer || ""));
 }
 
+export function isPendingCalEventId(id) {
+  return String(id || "").startsWith("pending-");
+}
+
+/** Parse calendar_upsert command result for the Google event id. */
+export function parseCalendarUpsertResult(result) {
+  if (!result) return null;
+  if (typeof result === "object") return result.eventId ? result : null;
+  try {
+    const o = JSON.parse(String(result));
+    return o?.eventId ? o : null;
+  } catch {
+    return null;
+  }
+}
+
 export function eventForJob(job, events) {
   const eid = job?.calEventId || "";
-  if (!eid) return null;
-  return (events || []).find((e) => String(e.id) === String(eid)) || null;
+  if (eid) {
+    const hit = (events || []).find((e) => String(e.id) === String(eid));
+    if (hit) return hit;
+  }
+  const jid = String(job?.id || "");
+  if (!jid) return null;
+  return (events || []).find((e) => jobIdFromEventDescription(e.description) === jid) || null;
+}
+
+function pendingCalendarUpsert(commands, jobId) {
+  return (
+    (commands || []).find(
+      (c) =>
+        c.type === "calendar_upsert" &&
+        String(c.jobId) === String(jobId) &&
+        (c.status === "queued" || c.status === "working")
+    ) || null
+  );
+}
+
+function latestDoneCalendarUpsert(commands, jobId) {
+  const done = (commands || [])
+    .filter((c) => c.type === "calendar_upsert" && String(c.jobId) === String(jobId) && c.status === "done")
+    .sort((a, b) => (b.updatedAt || b.createdAt || 0) - (a.updatedAt || a.createdAt || 0));
+  for (const c of done) {
+    const parsed = parseCalendarUpsertResult(c.result);
+    if (parsed?.eventId) return { cmd: c, eventId: parsed.eventId };
+  }
+  return null;
+}
+
+/** Calendar link state for UI coloring — red / orange (pending) / green (confirmed on Google). */
+export function jobCalendarLinkState(job, events, commands) {
+  const eid = job?.calEventId || "";
+  const event = eventForJob(job, events);
+  const pendingCmd = pendingCalendarUpsert(commands, job?.id);
+  const doneUpsert = latestDoneCalendarUpsert(commands, job?.id);
+  const pendingId = isPendingCalEventId(eid);
+
+  let confirmed = false;
+  let pending = false;
+
+  if (doneUpsert?.eventId) {
+    confirmed = true;
+  } else if (pendingCmd || pendingId) {
+    pending = true;
+  } else if (eid && event && !pendingId) {
+    confirmed = true;
+  } else if (event && job?.id && jobIdFromEventDescription(event.description) === String(job.id)) {
+    pending = true;
+  }
+
+  return {
+    confirmed,
+    pending,
+    event,
+    eventId: doneUpsert?.eventId || (pendingId ? "" : eid),
+  };
 }
 
 /** ISO date for Jan 1 of the current year (calendar link picker range). */

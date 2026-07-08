@@ -1,5 +1,6 @@
 // Estimate / Invoice / Payment / Calendar tabs below job info.
 import React, { useMemo } from "react";
+import { jobCalendarLinkState } from "../lib/calendarLink.js";
 
 function tabTone(active, pending) {
   if (pending) return "bg-amber-50 text-amber-800 border-amber-200";
@@ -9,6 +10,7 @@ function tabTone(active, pending) {
 
 export default function JobDocTabs({
   job,
+  events,
   commands,
   onEstimate,
   onInvoice,
@@ -29,9 +31,11 @@ export default function JobDocTabs({
 
   const estLabel = hasEst ? "Est " + job.estimateNo : pending.estimate ? "Est…" : "Estimate";
   const invLabel = hasInv ? "Inv " + job.invoiceNo : pending.invoice ? "Inv…" : "Invoice";
-  const hasAppt = !!job.calEventId;
-  const calTone = hasAppt
+  const cal = useMemo(() => jobCalendarLinkState(job, events, commands), [job, events, commands]);
+  const calTone = cal.confirmed
     ? "bg-emerald-50 text-emerald-800 border-emerald-200"
+    : cal.pending
+    ? "bg-orange-50 text-orange-800 border-orange-200"
     : "bg-red-50 text-red-700 border-red-200";
 
   return (

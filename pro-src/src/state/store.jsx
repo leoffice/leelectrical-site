@@ -19,6 +19,11 @@ import { fmt$, parseAmount, todayStr } from "../lib/format.js";
 import { normalizePayments } from "../lib/payments.js";
 import { unhandledCount } from "../lib/sas.js";
 import { customerSyncPayload } from "../lib/customerSync.js";
+import {
+  isPendingCalEventId,
+  jobIdFromEventDescription,
+  parseCalendarUpsertResult,
+} from "../lib/calendarLink.js";
 
 const Ctx = createContext(null);
 const DRAFT_KEY = "lepro_draft_v1";
@@ -125,6 +130,8 @@ export function StoreProvider({ children }) {
       setCommands(await api.listCommands());
     } catch {}
   }, []);
+
+  const appliedCalUpserts = useRef(new Set());
 
   const refreshEvents = useCallback(async ({ pull = false, awaitPull = true } = {}) => {
     try {
@@ -346,6 +353,39 @@ export function StoreProvider({ children }) {
     },
     [showToast]
   );
+
+  // When calendar_upsert finishes on the Mac, store the real Google event id on the job.
+  useEffect(() => {
+    for (const cmd of commands || []) {
+      if (cmd.type !== "calendar_upsert" || cmd.status !== "done") continue;
+      const mark = String(cmd.id || cmd.idempotencyKey || "");
+      if (!mark || appliedCalUpserts.current.has(mark)) continue;
+
+      const eventId = parseCalendarUpsertResult(cmd.result)?.eventId;
+      if (!eventId || !cmd.jobId) continue;
+
+      const job = jobs.find((j) => String(j.id) === String(cmd.jobId));
+      if (!job) continue;
+      if (String(job.calEventId) === String(eventId) && !isPendingCalEventId(job.calEventId)) {
+        appliedCalUpserts.current.add(mark);
+        continue;
+      }
+
+      appliedCalUpserts.current.add(mark);
+      patchAndSave(cmd.jobId, { calEventId: eventId });
+      setEvents((evs) => {
+        const jid = String(cmd.jobId);
+        const pending = evs.find(
+          (e) => isPendingCalEventId(e.id) && jobIdFromEventDescription(e.description) === jid
+        );
+        const rest = evs.filter(
+          (e) => !(isPendingCalEventId(e.id) && jobIdFromEventDescription(e.description) === jid)
+        );
+        if (rest.some((e) => String(e.id) === String(eventId))) return rest;
+        return pending ? rest.concat([{ ...pending, id: eventId }]) : rest;
+      });
+    }
+  }, [commands, jobs, patchAndSave]);
 
   /* ---------- command bus ---------- */
   const enqueue = useCallback(

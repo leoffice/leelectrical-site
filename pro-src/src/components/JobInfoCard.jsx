@@ -25,7 +25,7 @@ export default function JobInfoCard({
   const balance = openBalance(job);
   const pct = paidPct(job);
   const svc = effectiveServiceAddress(job);
-  const paperLines = useMemo(() => paperworkAwarenessLines(job, events), [job, events]);
+  const paperLines = useMemo(() => paperworkAwarenessLines(job, events, commands), [job, events, commands]);
   const showPaper = hasActivePaperwork(job);
 
   const rows = [

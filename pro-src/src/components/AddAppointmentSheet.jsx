@@ -90,22 +90,34 @@ export default function AddAppointmentSheet({
 
     await enqueue("calendar_upsert", busId, payload, "judgment", key);
 
-    if (fromInspection && job?.id && inspectionPreset?.branch && inspectionPreset?.step) {
-      const kind = DATE_STEPS[inspectionPreset.step] || "date";
-      const dateVal = kind === "datetime" ? dt : dt.slice(0, 10);
-      patchJob(job.id, {
-        paperwork: { [inspectionPreset.branch]: { dates: { [inspectionPreset.step]: dateVal } } },
-      });
-    }
+    const pendingId = "pending-" + Date.now();
+    const paperworkPatch =
+      fromInspection && job?.id && inspectionPreset?.branch && inspectionPreset?.step
+        ? {
+            paperwork: {
+              [inspectionPreset.branch]: {
+                dates: {
+                  [inspectionPreset.step]:
+                    (DATE_STEPS[inspectionPreset.step] || "date") === "datetime" ? dt : dt.slice(0, 10),
+                },
+              },
+            },
+          }
+        : {};
+
     if (job?.id && !job._customerContext) {
       const day = dt.slice(0, 10);
       await patchAndSave(job.id, {
-        calEventId: job.calEventId || "",
+        calEventId: pendingId,
         status: { Scheduled: { s: "done", d: day } },
+        ...paperworkPatch,
       });
+    } else if (job?.id) {
+      patchJob(job.id, { calEventId: pendingId, ...paperworkPatch });
     }
+
     appendLocalEvent({
-      id: "pending-" + Date.now(),
+      id: pendingId,
       summary: title,
       start: dt,
       location: location || "",
