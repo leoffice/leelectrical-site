@@ -15,6 +15,7 @@ import React, {
 import api from "../data/adapter.js";
 import { applyOverlay, deepMerge, isPlainObject } from "../data/merge.js";
 import { STAGES } from "../lib/stages.js";
+import { calendarServiceLocation } from "../lib/customerSync.js";
 import { fmt$, parseAmount, todayStr } from "../lib/format.js";
 import { normalizePayments } from "../lib/payments.js";
 import { unhandledCount } from "../lib/sas.js";
@@ -541,7 +542,7 @@ export function StoreProvider({ children }) {
             calEventId: calEventId || "",
             summary: (g.title || "Job") + " — " + (g.customer || ""),
             start: g.date,
-            location: serviceAddr,
+            location: calendarServiceLocation({ serviceAddress: serviceAddr, apartment: g.apartment, billingAddress: g.billingAddress }),
             description: "Created in LE Pro",
           },
           "judgment",

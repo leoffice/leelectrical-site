@@ -25,6 +25,7 @@ export function appointmentContextFromRoute(pathname, { effectiveJob, jobs }) {
       phone: contact.phone || primary.phone,
       email: contact.email || primary.email,
       billingAddress: contact.billingAddress || primary.billingAddress,
+      apartment: contact.apartment || primary.apartment || "",
       serviceAddress: contact.address || effectiveServiceAddress(primary),
       address: contact.address || effectiveServiceAddress(primary),
       title: primary.title || "",

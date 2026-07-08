@@ -59,12 +59,12 @@ function singleJobMetaLine(job) {
   return `${fmt$(total)} invoiced`;
 }
 
-/** Right-edge tint when any job in the group needs follow-up. */
+/** Bottom-edge tint when any job in the group needs follow-up. */
 function AttentionGradient({ show }) {
   if (!show) return null;
   return (
     <div
-      className="pointer-events-none absolute inset-y-0 right-0 w-1/4 min-w-[4.5rem] bg-gradient-to-l from-red-200/75 via-red-100/35 to-transparent rounded-r-[inherit]"
+      className="pointer-events-none absolute inset-x-0 bottom-0 h-[10%] min-h-[0.4rem] bg-gradient-to-t from-red-200/80 via-red-100/45 to-transparent rounded-b-[inherit]"
       data-testid="needs-attention-gradient"
       aria-hidden
     />

@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  calendarServiceLocation,
   customerSyncPayload,
   effectiveServiceAddress,
   serviceAddressHint,
@@ -29,6 +30,22 @@ describe("customerSyncPayload (billing vs service)", () => {
   it("effectiveServiceAddress prefers serviceAddress over legacy address", () => {
     expect(effectiveServiceAddress({ serviceAddress: "479 A East New York", address: "405 Lefferts" })).toBe(
       "479 A East New York"
+    );
+  });
+
+  it("calendarServiceLocation expands short service address with apt and billing city/state/zip", () => {
+    expect(
+      calendarServiceLocation({
+        serviceAddress: "479 A East New York",
+        apartment: "4B",
+        billingAddress: "405 Lefferts Ave, Brooklyn, NY 11225",
+      })
+    ).toBe("479 A East New York, Apt 4B, Brooklyn, NY 11225");
+  });
+
+  it("calendarServiceLocation keeps an already-complete service address", () => {
+    expect(calendarServiceLocation({ serviceAddress: "123 Main St, Brooklyn, NY 11201" })).toBe(
+      "123 Main St, Brooklyn, NY 11201"
     );
   });
 

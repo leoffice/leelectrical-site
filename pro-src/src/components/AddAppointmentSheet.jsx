@@ -3,7 +3,7 @@ import React, { useState } from "react";
 import Sheet, { Fld } from "./Sheet.jsx";
 import WeekCalendar from "./WeekCalendar.jsx";
 import { useStore } from "../state/store.jsx";
-import { effectiveServiceAddress } from "../lib/customerSync.js";
+import { calendarServiceLocation } from "../lib/customerSync.js";
 import { withJobLink } from "../lib/calendarLink.js";
 import { DATE_STEPS, inspectionAppointmentTitle } from "../lib/paperwork.js";
 import { todayStr } from "../lib/format.js";
@@ -13,7 +13,7 @@ export const GCAL_RED_COLOR_ID = "11";
 
 function jobDefaultSummary(job) {
   if (!job) return "";
-  const cust = job.customer || job.businessName || "";
+  const cust = job.businessName || job.customer || "";
   const title = job.title || "Job";
   return cust ? title + " — " + cust : title;
 }
@@ -21,6 +21,7 @@ function jobDefaultSummary(job) {
 function jobDefaultNotes(job) {
   if (!job) return "";
   const parts = [];
+  if (job.personName) parts.push(job.personName);
   if (job.phone) parts.push("phone: " + job.phone);
   if (job.email) parts.push(job.email);
   if (job.description) parts.push(job.description);
@@ -51,7 +52,7 @@ export default function AddAppointmentSheet({
     return jobDefaultSummary(job);
   });
   const [dt, setDt] = useState(() => jobDefaultDate(job, presetDt));
-  const [location, setLocation] = useState(() => (job ? effectiveServiceAddress(job) : ""));
+  const [location, setLocation] = useState(() => (job ? calendarServiceLocation(job) : ""));
   const [notes, setNotes] = useState(() => jobDefaultNotes(job));
   const [remind1h, setRemind1h] = useState(fromInspection);
   const [remind1d, setRemind1d] = useState(fromInspection);

@@ -144,6 +144,7 @@ export function customerContact(jobs) {
     phone: pick("phone"),
     email: pick("email"),
     billingAddress: pick("billingAddress"),
+    apartment: pick("apartment"),
     address: pick("serviceAddress") || pick("address"),
   };
 }

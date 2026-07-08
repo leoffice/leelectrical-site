@@ -1,4 +1,4 @@
-// Per-job summary — service address, amounts, doc tabs, right-aligned awareness bubbles.
+// Per-job summary — awareness bubbles under title, then service address + doc tabs.
 import React, { useMemo } from "react";
 import AmountDisplay from "./AmountDisplay.jsx";
 import { amountPaid, invoiceTotal, openBalance, paidPct } from "../lib/customers.js";
@@ -8,20 +8,20 @@ import { bubbleStyle, jobAwarenessBubbles } from "../lib/jobAwareness.js";
 import JobDocTabs from "./JobDocTabs.jsx";
 
 const BUBBLE_LAYOUT =
-  "inline-flex flex-wrap items-center justify-end gap-x-1.5 gap-y-1 max-w-full text-left rounded-2xl border px-2.5 py-1.5 text-xs lg:rounded-full lg:py-1";
+  "inline-flex items-center gap-1 rounded-2xl border px-2 py-1 text-[10px] leading-tight lg:rounded-full lg:px-2.5 lg:py-1 lg:text-xs";
 
 function AwarenessBubble({ bubble, onClick }) {
   const pillClass = bubbleStyle(bubble.tone);
   const inner = (
     <>
-      <span className="font-extrabold text-[10px] uppercase tracking-wider shrink-0 opacity-90">{bubble.branchLabel}</span>
-      <span className="text-[10px] font-bold uppercase tracking-wider shrink-0 opacity-70">{bubble.timing}</span>
-      <span className="leading-snug break-words text-right max-w-[14rem] lg:max-w-[11rem] opacity-90">{bubble.upNext}</span>
+      <span className="font-extrabold uppercase tracking-wide shrink-0 opacity-90">{bubble.branchLabel}</span>
+      <span className="font-bold uppercase tracking-wide shrink-0 opacity-60">{bubble.timing}</span>
+      <span className="font-semibold truncate min-w-0 opacity-90">{bubble.upNext}</span>
     </>
   );
   if (!onClick) {
     return (
-      <div className={`${BUBBLE_LAYOUT} ${pillClass}`} data-testid={"awareness-pill-" + bubble.key}>
+      <div className={`${BUBBLE_LAYOUT} ${pillClass} max-w-full`} data-testid={"awareness-pill-" + bubble.key}>
         {inner}
       </div>
     );
@@ -29,7 +29,7 @@ function AwarenessBubble({ bubble, onClick }) {
   return (
     <button
       type="button"
-      className={`${BUBBLE_LAYOUT} active:opacity-80 ${pillClass}`}
+      className={`${BUBBLE_LAYOUT} active:opacity-80 ${pillClass} max-w-full`}
       data-testid={"awareness-pill-" + bubble.key}
       onClick={() => onClick(bubble)}
     >
@@ -69,14 +69,15 @@ export default function JobInfoCard({
   ].filter(Boolean);
 
   const bubbleStrip = bubbles.length ? (
-    <div className="flex flex-wrap justify-end gap-1.5 content-start max-h-[3.25rem] overflow-hidden lg:max-h-[2.75rem]" data-testid="awareness-bubbles">
+    <div
+      className="mt-2 grid grid-cols-2 sm:grid-cols-3 gap-1.5 w-full auto-rows-fr"
+      data-testid="awareness-bubbles"
+    >
       {bubbles.map((b) => (
         <AwarenessBubble key={b.key} bubble={b} onClick={onBubbleTap} />
       ))}
     </div>
   ) : null;
-
-  const bubbleOverflow = bubbles.length > 2;
 
   return (
     <div className="card px-3 py-3 lg:px-4 lg:py-4" data-testid="job-info-card">
@@ -90,21 +91,18 @@ export default function JobInfoCard({
         <AmountDisplay job={job} size="sm" highlightDue label="Total due" />
       </div>
 
-      {bubbleStrip && !bubbleOverflow ? <div className="mt-1.5 flex justify-end w-full">{bubbleStrip}</div> : null}
+      {bubbleStrip}
 
-      <div className={`mt-2 flex flex-col gap-2 min-w-0 ${bubbleOverflow ? "lg:flex-row lg:items-start lg:gap-3" : ""}`}>
-        {rows.length > 0 && (
-          <dl className={`space-y-1 text-xs lg:text-sm min-w-0 ${bubbleOverflow ? "flex-1" : "w-full"}`}>
-            {rows.map(([k, v]) => (
-              <div key={k} className="flex gap-2 items-baseline">
-                <dt className="font-semibold text-slate-800 shrink-0 w-[5.5rem] lg:w-32">{k}</dt>
-                <dd className="text-slate-500 break-words min-w-0">{v}</dd>
-              </div>
-            ))}
-          </dl>
-        )}
-        {bubbleOverflow ? <div className="flex justify-end shrink-0 lg:max-w-[48%]">{bubbleStrip}</div> : null}
-      </div>
+      {rows.length > 0 && (
+        <dl className="mt-2 space-y-1 text-xs lg:text-sm min-w-0 w-full">
+          {rows.map(([k, v]) => (
+            <div key={k} className="flex gap-2 items-baseline">
+              <dt className="font-semibold text-slate-800 shrink-0 w-[5.5rem] lg:w-32">{k}</dt>
+              <dd className="text-slate-500 break-words min-w-0">{v}</dd>
+            </div>
+          ))}
+        </dl>
+      )}
 
       {onEstimate && onInvoice && onCalendar ? (
         <JobDocTabs

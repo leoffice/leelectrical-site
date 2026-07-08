@@ -1,11 +1,51 @@
 // QuickBooks customer sync payload — billing/contact fields only.
 // Service address is per invoice/estimate (ShipAddr on that document in QBO) and
 // must NEVER be sent as the customer's BillAddr on customer_sync.
+import { parseUSAddress } from "./solaPayUrl.js";
 
 /** Canonical service location for a job (ShipAddr on its invoice/estimate). */
 export function effectiveServiceAddress(job) {
   const j = job || {};
   return j.serviceAddress || j.address || "";
+}
+
+function addressLooksComplete(raw) {
+  const s = String(raw || "").trim();
+  if (!s) return false;
+  if (/\d{5}(?:-\d{4})?\s*$/.test(s)) return true;
+  return /,\s*[^,]+,\s*[A-Za-z]{2}(\s+\d{5}(?:-\d{4})?)?\s*$/.test(s);
+}
+
+function withApartment(street, apt) {
+  const line = String(street || "").trim();
+  const unit = String(apt || "").trim();
+  if (!line) return "";
+  if (!unit) return line;
+  const low = line.toLowerCase();
+  if (low.includes(unit.toLowerCase()) || /\b(apt|apartment|unit|suite|#)\b/i.test(line)) return line;
+  return `${line}, Apt ${unit}`;
+}
+
+/** Full service location for Google Calendar (street + apt + city/state/zip). */
+export function calendarServiceLocation(job) {
+  const j = job || {};
+  const street = String(j.serviceAddress || j.address || "").trim();
+  if (!street) return "";
+
+  const apt = String(j.apartment || "").trim();
+  let line1 = withApartment(street, apt);
+  if (addressLooksComplete(line1)) return line1;
+
+  const svc = parseUSAddress(street);
+  const bill = parseUSAddress(j.billingAddress || "");
+  line1 = withApartment(svc.street || street, apt);
+
+  const city = svc.city || bill.city || "";
+  const state = svc.state || bill.state || "";
+  const zip = svc.zip || bill.zip || String(j.zip || "").trim() || "";
+  const tail = [city, state].filter(Boolean).join(", ");
+  const suffix = zip ? (tail ? `${tail} ${zip}` : zip) : tail;
+  return suffix ? `${line1}, ${suffix}` : line1;
 }
 
 /** UI label — service address is tied to the invoice or estimate number. */

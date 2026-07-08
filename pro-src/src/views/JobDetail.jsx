@@ -29,6 +29,7 @@ import CustomerCard from "../components/CustomerCard.jsx";
 import JobInfoCard from "../components/JobInfoCard.jsx";
 import {
   customerDisplayName,
+  calendarServiceLocation,
   effectiveServiceAddress,
 } from "../lib/customerSync.js";
 import { amountPaid, customerContact, openBalance, paidPct } from "../lib/customers.js";
@@ -139,7 +140,7 @@ export default function JobDetail() {
         calEventId: job.calEventId || "",
         summary: (job.title || "Job") + " — " + (job.customer || ""),
         start: d,
-        location: effectiveServiceAddress(job),
+        location: calendarServiceLocation(job),
         description: "Scheduled from LE Pro",
       },
       "judgment",
