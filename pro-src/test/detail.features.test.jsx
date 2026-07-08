@@ -154,7 +154,7 @@ describe("5. job menu — archive / combine / delete", () => {
     const user = userEvent.setup();
     const pane = await openDetail();
     await user.click(within(pane).getByLabelText("More"));
-    await user.click(screen.getByText("Combine with another job"));
+    await user.click(screen.getByText("Combine with another customer"));
     const dlg = await screen.findByRole("dialog");
     await user.click(within(dlg).getByText("Second Guy"));
     await waitFor(() => {

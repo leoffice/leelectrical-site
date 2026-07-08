@@ -1,6 +1,6 @@
 // All job-level sheets — behaviors, command payloads and idempotency keys
 // match app/sleek.html exactly.
-import React, { useCallback, useEffect, useRef, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import Sheet, { Fld, Opt } from "./Sheet.jsx";
 import AddAppointmentSheet from "./AddAppointmentSheet.jsx";
@@ -9,7 +9,7 @@ import { enrichAndPatchCustomer } from "./NewJobFlow.jsx";
 import { useStore } from "../state/store.jsx";
 import { serviceAddressHint, serviceAddressLabel } from "../lib/customerSync.js";
 import { fmt$, todayStr } from "../lib/format.js";
-import { openBalance } from "../lib/customers.js";
+import { clientKey, fmtAmountDue, jobsForCustomerKey, openBalance } from "../lib/customers.js";
 import { sortJobs } from "../lib/stages.js";
 
 export const PAY_METHODS = ["Cash", "Wells Fargo", "Martin Dorkin", "Zelle", "Barder", "Other"];
@@ -688,7 +688,7 @@ export function MenuSheet({ job, onClose, onCombine }) {
           nav("/");
         }}
       />
-      <Opt icon="🔗" title="Combine with another job" note="Group multiple jobs under one client" onClick={onCombine} />
+      <Opt icon="🔗" title="Combine with another customer" note="Merge all jobs and open invoices from both customers" onClick={onCombine} />
       <Opt icon="🗑️" danger title="Delete from dashboard" note="Never touches QuickBooks" onClick={() => setConfirmDel(true)} />
     </Sheet>
   );
@@ -696,29 +696,63 @@ export function MenuSheet({ job, onClose, onCombine }) {
 
 export function CombineSheet({ job, onClose }) {
   const { jobs, patchAndSave, showToast } = useStore();
-  const others = sortJobs(jobs.filter((x) => x.id !== job.id && !x._archived && !x._deleted));
-  const combine = async (other) => {
-    const grp = job.clientGroup || other.clientGroup || "grp" + Date.now();
+  const myKey = clientKey(job);
+  const myJobs = jobsForCustomerKey(jobs, myKey);
+
+  const groups = useMemo(() => {
+    const map = new Map();
+    for (const x of jobs) {
+      if (!x || x._archived || x._deleted) continue;
+      const k = clientKey(x);
+      if (k === myKey) continue;
+      if (!map.has(k)) map.set(k, []);
+      map.get(k).push(x);
+    }
+    return [...map.entries()]
+      .map(([key, list]) => ({ key, list: sortJobs(list), name: list[0]?.customer || "—" }))
+      .sort((a, b) => (a.name || "").localeCompare(b.name || ""));
+  }, [jobs, myKey]);
+
+  const invoiceNote = (list) =>
+    list
+      .map((j) => {
+        if (j.invoiceNo) {
+          const due = j.paid ? "paid" : fmtAmountDue(j) || fmt$(openBalance(j));
+          return `Inv #${j.invoiceNo}${due ? " · " + due : ""}`;
+        }
+        return j.title || "Job";
+      })
+      .join(" · ");
+
+  const combine = async (targetKey) => {
+    const theirs = jobsForCustomerKey(jobs, targetKey);
+    const all = [...myJobs, ...theirs];
+    const byId = new Map(all.map((j) => [j.id, j]));
+    const grp =
+      myJobs.find((j) => j.clientGroup)?.clientGroup ||
+      theirs.find((j) => j.clientGroup)?.clientGroup ||
+      "grp" + Date.now();
     onClose();
-    // sequential — both writes post the full ov, so they must not race
-    await patchAndSave(job.id, { clientGroup: grp });
-    await patchAndSave(other.id, { clientGroup: grp });
-    showToast("Jobs grouped under one client");
+    for (const j of byId.values()) {
+      await patchAndSave(j.id, { clientGroup: grp });
+    }
+    showToast(`Grouped ${byId.size} job${byId.size === 1 ? "" : "s"} under one client`);
   };
+
   return (
-    <Sheet title="Combine — pick the other job" onClose={onClose}>
-      {others.length ? (
-        others.map((x) => (
+    <Sheet title="Combine — pick a customer" onClose={onClose}>
+      {groups.length ? (
+        groups.map(({ key, list, name }) => (
           <Opt
-            key={x.id}
+            key={key}
             icon="🗂️"
-            title={x.customer || "—"}
-            note={`${x.title || ""} · ${fmt$(x.amount)}`}
-            onClick={() => combine(x)}
+            title={name}
+            note={invoiceNote(list)}
+            onClick={() => combine(key)}
           />
         ))
       ) : (
-        <div className="text-sm text-slate-400 text-center py-6">No other jobs.</div>
+        <div className="text-sm text-slate-400 text-center py-6">No other customers to combine with.</div>
       )}
     </Sheet>
   );

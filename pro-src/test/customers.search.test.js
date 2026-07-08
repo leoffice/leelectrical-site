@@ -4,7 +4,13 @@
 // env), so this runs fast and independently of the jsdom UI suites.
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { createNetlifyAdapter } from "../src/data/netlifyAdapter.js";
-import { customerPickPatch, openDocsForCustomer, unknownCustomers } from "../src/lib/customers.js";
+import {
+  customerNameMatches,
+  customerPickPatch,
+  jobsForCustomerKey,
+  openDocsForCustomer,
+  unknownCustomers,
+} from "../src/lib/customers.js";
 
 describe("adapter.searchCustomers", () => {
   afterEach(() => vi.unstubAllGlobals());
@@ -152,6 +158,19 @@ describe("openDocsForCustomer (job title picker)", () => {
       "Estimate #E-9 — Kitchen",
       "Invoice #251841 — Panel",
     ]);
+  });
+});
+
+describe("customerNameMatches + jobsForCustomerKey", () => {
+  const jobs = [
+    { id: "a", customer: "izzy Ben shimon", invoiceNo: "251842", clientGroup: "grp1", paid: true },
+    { id: "b", customer: "izzy Ben shimon", invoiceNo: "251787", clientGroup: "grp1", paid: false },
+  ];
+
+  it("izzy matches izzy ben shimon for loose customer URLs", () => {
+    expect(customerNameMatches({ customer: "izzy Ben shimon" }, "izzy")).toBe(true);
+    expect(jobsForCustomerKey(jobs, "c:izzy").map((j) => j.id).sort()).toEqual(["a", "b"]);
+    expect(jobsForCustomerKey(jobs, "g:grp1").map((j) => j.id).sort()).toEqual(["a", "b"]);
   });
 });
 

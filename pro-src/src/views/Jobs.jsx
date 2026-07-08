@@ -19,7 +19,7 @@ import {
   sortJobs,
 } from "../lib/stages.js";
 import { CustomerAmountSubline } from "../components/AmountDisplay.jsx";
-import { customerAmountSummary, normalizeCustomer, unknownCustomers } from "../lib/customers.js";
+import { customerAmountSummary, customerNameMatches, normalizeCustomer, unknownCustomers } from "../lib/customers.js";
 import { fmt$, parseAmount } from "../lib/format.js";
 import { useNavigate } from "react-router-dom";
 
@@ -81,7 +81,16 @@ export default function Jobs({ embedded }) {
     }
     for (const [k, list] of [...map]) {
       if (!k.startsWith("c:")) continue;
-      const target = nameToGroup.get(k.slice(2));
+      const name = k.slice(2);
+      let target = nameToGroup.get(name);
+      if (!target) {
+        for (const [nn, gk] of nameToGroup) {
+          if (customerNameMatches({ customer: nn }, name)) {
+            target = gk;
+            break;
+          }
+        }
+      }
       if (target) {
         map.set(target, sortJobs(map.get(target).concat(list), sort));
         map.delete(k);

@@ -3,7 +3,7 @@ import React, { useMemo } from "react";
 import AmountDisplay from "./AmountDisplay.jsx";
 import { PaidPill, StagePill } from "./JobCard.jsx";
 import { amountPaid, invoiceTotal, openBalance, paidPct } from "../lib/customers.js";
-import { effectiveServiceAddress, serviceAddressLabel } from "../lib/customerSync.js";
+import { effectiveServiceAddress } from "../lib/customerSync.js";
 import { eventForJob } from "../lib/calendarLink.js";
 import { evStart, fmt$ } from "../lib/format.js";
 import JobDocTabs from "./JobDocTabs.jsx";
@@ -65,8 +65,9 @@ export default function JobInfoCard({
   const svc = effectiveServiceAddress(job);
 
   const rows = [
-    [serviceAddressLabel(job), svc],
-    job.estimateNo ? ["Estimate #", job.estimateNo] : null,
+    ["Service address", svc],
+    job.invoiceNo ? ["Invoice", job.invoiceNo] : null,
+    job.estimateNo ? ["Estimate", job.estimateNo] : null,
     total > 0 ? ["Invoice amount", fmt$(total)] : null,
     paid > 0 ? ["Paid", fmt$(paid)] : null,
     !job.paid && balance > 0 ? ["Balance due", fmt$(balance)] : null,

@@ -78,6 +78,15 @@ export function normalizeCustomer(name) {
     .replace(/[\s.,;:!?]+$/, "");
 }
 
+/** Loose name match — "izzy" matches "izzy ben shimon" (old customer URLs). */
+export function customerNameMatches(job, nameKey) {
+  const n = normalizeCustomer(job?.customer);
+  const key = normalizeCustomer(nameKey);
+  if (!n || !key) return false;
+  if (n === key) return true;
+  return n.startsWith(key + " ") || key.startsWith(n + " ");
+}
+
 /** Grouping key: explicit clientGroup first, then the normalized customer
  *  name (so "Meir Kabakov" and "meir kabakov " share a row), and only
  *  jobs with no customer at all stand alone. */
@@ -101,15 +110,17 @@ export function jobsForCustomerKey(jobs, key) {
     const names = new Set();
     for (const j of active) if (j.clientGroup === grp) names.add(normalizeCustomer(j.customer));
     return active.filter(
-      (j) => j.clientGroup === grp || (!j.clientGroup && names.has(normalizeCustomer(j.customer)))
+      (j) =>
+        j.clientGroup === grp ||
+        (!j.clientGroup && [...names].some((n) => customerNameMatches({ customer: n }, j.customer)))
     );
   }
   if (key.startsWith("c:")) {
     const name = key.slice(2);
     // A job with this name may have been folded into a clientGroup — find it.
-    const grp = active.find((j) => j.clientGroup && normalizeCustomer(j.customer) === name);
+    const grp = active.find((j) => j.clientGroup && customerNameMatches(j, name));
     if (grp) return jobsForCustomerKey(active, "g:" + grp.clientGroup);
-    return active.filter((j) => !j.clientGroup && normalizeCustomer(j.customer) === name);
+    return active.filter((j) => !j.clientGroup && customerNameMatches(j, name));
   }
   if (key.startsWith("j:")) {
     const id = key.slice(2);
