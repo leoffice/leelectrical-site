@@ -97,7 +97,7 @@ async function enqueueRecordPayment({ jobId, invoiceNo, amount, ref, method }) {
     payload: {
       invoiceNo: String(invoiceNo),
       amount: fmtAmt(amount),
-      method: method || "Card",
+      method: normalizeCardMethod(method),
       ref: ref || "",
       date: todayISO(),
       note: "Sola online payment",
@@ -124,6 +124,13 @@ function parseMoney(raw) {
 
 function fmtMoney(n) {
   return n % 1 ? "$" + n.toFixed(2) : "$" + Math.round(n);
+}
+
+function normalizeCardMethod(raw) {
+  const s = String(raw || "").trim();
+  if (!s || /^card$/i.test(s)) return "Credit card";
+  if (/^visa$|^mastercard$|^mc$|^amex$|^discover$/i.test(s)) return "Credit card";
+  return s;
 }
 
 function normalizePayments(job) {
@@ -167,7 +174,7 @@ async function patchJobPayment(jobId, amount, ref, method) {
   const entry = {
     id: payId,
     amount: fmtMoney(amount),
-    method: method || "Card",
+    method: normalizeCardMethod(method),
     ref: ref || "",
     date: todayISO(),
     recorded: false,

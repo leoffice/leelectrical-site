@@ -19,6 +19,7 @@ import { buildPaymentLinkEmail } from "../lib/paymentLinkEmail.js";
 import { buildPayLandingUrl } from "../lib/payLanding.js";
 import {
   appendPayment,
+  canVoidInQbo,
   fmtPaymentLine,
   normalizePayments,
   removePayment,
@@ -28,7 +29,17 @@ import { sortJobs } from "../lib/stages.js";
 import { DATE_STEPS } from "../lib/paperwork.js";
 import Toggle from "./Toggle.jsx";
 
-export const PAY_METHODS = ["Cash", "Wells Fargo", "Martin Dorkin", "Zelle", "Barder", "Other"];
+export const PAY_METHODS = [
+  "Credit card",
+  "Check",
+  "Cash",
+  "Zelle",
+  "Wells Fargo",
+  "Martin Dorkin",
+  "Barder",
+  "ACH",
+  "Other",
+];
 
 /** Shared "send invoice/estimate" action (sleek's doSend). */
 export function useDoSend() {
@@ -144,11 +155,12 @@ export function MarkPaidSheet({ job, onClose }) {
 }
 
 /* ---------- 1b. Payment history ---------- */
-function PaymentEditForm({ payment, onSave, onDelete, onCancel }) {
+function PaymentEditForm({ payment, onSave, onDelete, onVoid, onCancel }) {
   const [amt, setAmt] = useState(String(payment.amount || "").replace(/[$,]/g, ""));
   const [mth, setMth] = useState(payment.method || "");
   const [ref, setRef] = useState(payment.ref || "");
   const [dt, setDt] = useState(payment.date || todayStr());
+  const voidable = canVoidInQbo(payment);
   return (
     <div className="space-y-3 border-t border-slate-100 pt-3 mt-2">
       <Fld label="Amount">
@@ -179,67 +191,153 @@ function PaymentEditForm({ payment, onSave, onDelete, onCancel }) {
           Cancel
         </button>
       </div>
+      {voidable ? (
+        <button className="btn bg-amber-50 text-amber-900 w-full border border-amber-200" onClick={onVoid}>
+          Reverse in QuickBooks
+        </button>
+      ) : null}
       <button className="btn bg-red-50 text-red-700 w-full" onClick={onDelete}>
-        Remove this payment
+        Remove from LE Pro only
       </button>
       <p className="text-[10px] text-slate-400 text-center">
-        If this payment already synced to QuickBooks, fix QBO separately or ask Dispatch.
+        {voidable
+          ? "Reverse removes it in QuickBooks. Remove only clears it here."
+          : "If this payment already synced to QuickBooks, fix QBO separately or ask Dispatch."}
       </p>
     </div>
   );
 }
 
 export function PaymentHistorySheet({ job, onClose, onAddPayment }) {
-  const { patchJob, patchAndSave, showToast, enqueue, commands, refreshCommands, refreshJobs } = useStore();
+  const { patchJob, patchAndSave, showToast, enqueue, commands, refreshCommands, refreshJobs, effectiveJob } =
+    useStore();
   const [editId, setEditId] = useState(null);
   const [fetchPhase, setFetchPhase] = useState("idle"); // idle | working | done | failed
   const [fetchErr, setFetchErr] = useState("");
-  const inv = job.invoiceNo || "";
-  const fetchKey = inv ? "fetch_payments:" + inv : "";
-  const pays = normalizePayments(job);
-  const due = openBalance(job);
-  const paid = amountPaid(job);
-  const pct = paidPct(job);
+  const [activeFetchKey, setActiveFetchKey] = useState("");
+  const [voidPhase, setVoidPhase] = useState("idle");
+  const [voidKey, setVoidKey] = useState("");
+  const liveJob = effectiveJob(job.id) || job;
+  const inv = liveJob.invoiceNo || "";
+  const pays = normalizePayments(liveJob);
+  const due = openBalance(liveJob);
+  const paid = amountPaid(liveJob);
+  const pct = paidPct(liveJob);
 
-  const fetchCmd = (commands || []).find((c) => c.idempotencyKey === fetchKey);
+  const fetchCmd = useMemo(() => {
+    if (!activeFetchKey) return null;
+    return (commands || []).find((c) => c.idempotencyKey === activeFetchKey) || null;
+  }, [commands, activeFetchKey]);
   const fetchStatus = fetchCmd?.status;
 
+  const applyFetchResult = useCallback(
+    (raw) => {
+      const cur = effectiveJob(job.id) || job;
+      const patch = patchFromQboPaymentFetch(cur, raw);
+      if (patch) patchAndSave(job.id, patch);
+      else refreshJobs(true);
+    },
+    [effectiveJob, job, patchAndSave, refreshJobs]
+  );
+
   useEffect(() => {
-    if (fetchPhase !== "working") return;
+    if (fetchPhase !== "working" || !activeFetchKey) return;
     if (fetchStatus === "done") {
       setFetchPhase("done");
-      const patch = patchFromQboPaymentFetch(job, fetchCmd?.result);
-      if (patch) {
-        patchAndSave(job.id, patch);
-      } else {
-        refreshJobs(true);
-      }
+      applyFetchResult(fetchCmd?.result);
       showToast("Payment history updated from QuickBooks");
     } else if (fetchStatus === "failed") {
       setFetchErr(String(fetchCmd?.error || "Could not pull payments from QuickBooks"));
       setFetchPhase("failed");
     }
-  }, [fetchPhase, fetchStatus, fetchCmd?.error, fetchCmd?.result]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [fetchPhase, fetchStatus, fetchCmd?.error, fetchCmd?.result, activeFetchKey, applyFetchResult, showToast]);
 
   useEffect(() => {
     if (fetchPhase !== "working") return;
     const iv = setInterval(() => refreshCommands(), 1500);
-    return () => clearInterval(iv);
+    const timeout = setTimeout(() => {
+      setFetchPhase((ph) => {
+        if (ph === "working") {
+          setFetchErr("Timed out waiting for QuickBooks. Try again or check Activity.");
+          return "failed";
+        }
+        return ph;
+      });
+    }, 90000);
+    return () => {
+      clearInterval(iv);
+      clearTimeout(timeout);
+    };
   }, [fetchPhase, refreshCommands]);
 
-  const pullFromQbo = () => {
+  const voidCmd = useMemo(() => {
+    if (!voidKey) return null;
+    return (commands || []).find((c) => c.idempotencyKey === voidKey) || null;
+  }, [commands, voidKey]);
+
+  useEffect(() => {
+    if (voidPhase !== "working" || !voidKey) return;
+    if (voidCmd?.status === "done") {
+      setVoidPhase("idle");
+      setVoidKey("");
+      setEditId(null);
+      showToast("Payment reversed in QuickBooks — refreshing history");
+      pullFromQboRef.current?.();
+    } else if (voidCmd?.status === "failed") {
+      setVoidPhase("idle");
+      showToast(String(voidCmd?.error || "Could not reverse payment in QuickBooks"));
+    }
+  }, [voidPhase, voidKey, voidCmd?.status, voidCmd?.error, showToast]);
+
+  useEffect(() => {
+    if (voidPhase !== "working") return;
+    const iv = setInterval(() => refreshCommands(), 1500);
+    return () => clearInterval(iv);
+  }, [voidPhase, refreshCommands]);
+
+  const pullFromQboRef = useRef(null);
+  const pullFromQbo = useCallback(async () => {
     if (!inv) return showToast("No invoice # on this job");
     setFetchErr("");
+    const key = "fetch_payments:" + inv + ":" + Date.now();
+    setActiveFetchKey(key);
     setFetchPhase("working");
-    enqueue(
-      "fetch_payments",
-      job.id,
-      { invoiceNo: inv },
-      "deterministic",
-      fetchKey
-    );
+    const cmd = await enqueue("fetch_payments", job.id, { invoiceNo: inv }, "deterministic", key);
+    if (!cmd) {
+      setFetchPhase("failed");
+      setFetchErr("Could not queue payment fetch");
+      return;
+    }
+    if (cmd.status === "done" && cmd.result) {
+      applyFetchResult(cmd.result);
+      setFetchPhase("done");
+      showToast("Payment history updated from QuickBooks");
+      return;
+    }
     refreshCommands();
     showToast("Pulling payment history from QuickBooks…");
+  }, [inv, enqueue, job.id, applyFetchResult, refreshCommands, showToast]);
+  pullFromQboRef.current = pullFromQbo;
+
+  const voidInQbo = (payment) => {
+    if (!canVoidInQbo(payment)) return;
+    if (!window.confirm("Reverse this payment in QuickBooks? The invoice balance will increase.")) return;
+    const key = "void_payment:" + payment.qboPaymentId;
+    setVoidKey(key);
+    setVoidPhase("working");
+    enqueue(
+      "void_payment",
+      job.id,
+      {
+        qboPaymentId: payment.qboPaymentId,
+        syncToken: payment.syncToken,
+        invoiceNo: inv,
+      },
+      "deterministic",
+      key
+    );
+    refreshCommands();
+    showToast("Reversing payment in QuickBooks…");
   };
 
   const saveEdit = (entry) => {
@@ -248,13 +346,13 @@ export function PaymentHistorySheet({ job, onClose, onAddPayment }) {
       showToast("Enter a payment amount");
       return;
     }
-    patchJob(job.id, updatePayment(job, editId, entry));
+    patchJob(job.id, updatePayment(liveJob, editId, entry));
     showToast("Payment updated — Save & sync");
     setEditId(null);
   };
 
   const deletePay = (id) => {
-    patchJob(job.id, removePayment(job, id));
+    patchJob(job.id, removePayment(liveJob, id));
     showToast("Payment removed — Save & sync");
     setEditId(null);
   };
@@ -271,7 +369,7 @@ export function PaymentHistorySheet({ job, onClose, onAddPayment }) {
             Open: <b>{due > 0 ? fmt$(due) : "Paid"}</b>
           </span>
         </div>
-        {job.invoiceNo ? <div className="text-slate-500 mt-1">Invoice #{job.invoiceNo}</div> : null}
+        {liveJob.invoiceNo ? <div className="text-slate-500 mt-1">Invoice #{liveJob.invoiceNo}</div> : null}
       </div>
 
       <button
@@ -298,6 +396,7 @@ export function PaymentHistorySheet({ job, onClose, onAddPayment }) {
                   payment={p}
                   onSave={saveEdit}
                   onDelete={() => deletePay(p.id)}
+                  onVoid={() => voidInQbo(p)}
                   onCancel={() => setEditId(null)}
                 />
               ) : (

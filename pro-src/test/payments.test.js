@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vitest";
 import {
   appendPayment,
+  canVoidInQbo,
+  fmtPaymentLine,
+  normalizePaymentMethod,
   normalizePayments,
   removePayment,
   remainingBalance,
@@ -34,6 +37,27 @@ describe("payments ledger", () => {
     expect(normalizePayments(legacy)).toHaveLength(1);
     expect(openBalance(legacy)).toBe(10500);
     expect(amountPaid(legacy)).toBe(500);
+  });
+
+  it("fmtPaymentLine shows amount, method, date, ref", () => {
+    const line = fmtPaymentLine({
+      amount: "$1,000",
+      method: "Zelle",
+      date: "2026-07-08",
+      ref: "JPM99cnf72cg",
+    });
+    expect(line).toBe("$1,000 · Zelle · 2026-07-08 · JPM99cnf72cg");
+  });
+
+  it("normalizePaymentMethod maps QBO and card types", () => {
+    expect(normalizePaymentMethod("QBO", { ref: "JPM99cnf72cg" })).toBe("Zelle");
+    expect(normalizePaymentMethod("Visa")).toBe("Credit card");
+    expect(normalizePaymentMethod("", { note: "Credit card — ref 1 — 2026-07-08" })).toBe("Credit card");
+  });
+
+  it("canVoidInQbo requires qbo metadata", () => {
+    expect(canVoidInQbo({ source: "qbo", qboPaymentId: "1", syncToken: "0" })).toBe(true);
+    expect(canVoidInQbo({ source: "sola", ref: "x" })).toBe(false);
   });
 
   it("edit and remove payments recalc balance", () => {

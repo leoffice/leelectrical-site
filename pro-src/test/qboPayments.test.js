@@ -9,21 +9,43 @@ describe("qboPayments", () => {
     expect(patch.openBalance).toBe(9998);
     expect(patch.payments).toHaveLength(1);
     expect(patch.payments[0].amount).toBe("$1");
+    expect(patch.payments[0].method).toBe("Credit card");
+    expect(patch.payments[0].ref).toBe("10964146594");
   });
 
-  it("builds overlay from fetch_payments JSON", () => {
+  it("builds overlay from fetch_payments JSON with readable methods", () => {
     const job = { amount: "$25,000", invoiceNo: "251808" };
     const fetch = {
       invoiceNo: "251808",
       invoiceTotal: 25000,
       openBalance: 9999,
       payments: [
-        { id: "qbo-19960", amount: 1, method: "QBO", ref: "19960", date: "2026-07-08" },
-        { id: "qbo-19938", amount: 5000, method: "QBO", ref: "x", date: "2026-06-29" },
+        {
+          id: "qbo-19960",
+          qboPaymentId: "19960",
+          syncToken: "0",
+          amount: 1,
+          method: "Credit card",
+          ref: "10964146594",
+          date: "2026-07-08",
+          note: "Credit card — ref 10964146594 — 2026-07-08",
+        },
+        {
+          id: "qbo-19938",
+          qboPaymentId: "19938",
+          syncToken: "1",
+          amount: 5000,
+          method: "Zelle",
+          ref: "JPM99cnf72cg",
+          date: "2026-06-29",
+        },
       ],
     };
     const patch = patchFromQboPaymentFetch(job, fetch);
     expect(patch.payments).toHaveLength(2);
+    expect(patch.payments[0].method).toBe("Credit card");
+    expect(patch.payments[1].method).toBe("Zelle");
+    expect(patch.payments[0].qboPaymentId).toBe("19960");
     expect(patch.openBalance).toBe(9999);
     expect(patch.paid).toBe(false);
   });

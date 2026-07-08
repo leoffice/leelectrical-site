@@ -95,10 +95,46 @@ export function removePayment(job, payId) {
   return applyPaymentsPatch(job, list);
 }
 
+/** User-facing payment method (never raw "QBO"). */
+export function normalizePaymentMethod(raw, opts = {}) {
+  const note = String(opts.note || "").trim();
+  const ref = String(opts.ref || "").trim();
+  let s = String(raw || "").trim();
+  if (note.includes(" — ")) {
+    const first = note.split(" — ")[0].trim();
+    if (first && first.toLowerCase() !== "sola online payment" && first.toLowerCase() !== "recorded from le pro") {
+      s = first;
+    }
+  }
+  const lower = s.toLowerCase();
+  if (!s || lower === "qbo") {
+    const hay = (note + " " + ref).toLowerCase();
+    if (/^jpm/i.test(ref) || /zelle/.test(hay)) return "Zelle";
+    if (/visa|mastercard|amex|american express|discover|sola|cardknox|credit/.test(hay)) return "Credit card";
+    if (/^chk|check|cheque/i.test(ref) || /\bcheck\b/.test(hay)) return "Check";
+    if (/\bcash\b/.test(hay)) return "Cash";
+    if (/wells/.test(hay)) return "Wells Fargo";
+    return "Other";
+  }
+  if (/^visa$|^mastercard$|^mc$|^amex$|^discover$/i.test(s)) return "Credit card";
+  if (lower === "card") return "Credit card";
+  return s;
+}
+
+export function canVoidInQbo(p) {
+  return (
+    p?.source === "qbo" &&
+    Boolean(p?.qboPaymentId) &&
+    p?.syncToken != null &&
+    String(p.syncToken) !== ""
+  );
+}
+
 export function fmtPaymentLine(p) {
   const bits = [fmt$(parseAmount(p.amount))];
-  if (p.method) bits.push(p.method);
-  if (p.ref) bits.push("ref " + p.ref);
+  const method = normalizePaymentMethod(p.method, { note: p.note, ref: p.ref });
+  if (method) bits.push(method);
   if (p.date) bits.push(p.date);
+  if (p.ref) bits.push(p.ref);
   return bits.join(" · ");
 }

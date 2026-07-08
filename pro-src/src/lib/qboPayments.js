@@ -3,10 +3,35 @@ import { parseAmount, todayStr } from "./format.js";
 import {
   amountOwedAtStart,
   applyPaymentsPatch,
+  normalizePaymentMethod,
   normalizePayments,
   parseBalanceFromNotes,
   totalPaid,
 } from "./payments.js";
+
+function refFromNote(note, fallback) {
+  const m = String(note || "").match(/\bref\s+([A-Za-z0-9_-]+)/i);
+  return m ? m[1] : fallback || "";
+}
+
+function mapFetchedPayment(p) {
+  const amt = parseAmount(p.amount);
+  if (amt <= 0) return null;
+  const whole = amt % 1 === 0;
+  const note = p.note || p.privateNote || "";
+  const ref = refFromNote(note, p.ref) || p.ref || "";
+  return {
+    id: p.id || "qbo-" + (p.qboPaymentId || ref || amt),
+    amount: whole ? "$" + Math.round(amt) : "$" + amt.toFixed(2),
+    method: normalizePaymentMethod(p.method, { note, ref }),
+    ref,
+    date: p.date || todayStr(),
+    source: p.source || "qbo",
+    qboPaymentId: p.qboPaymentId || (String(p.id || "").startsWith("qbo-") ? String(p.id).slice(4) : ""),
+    syncToken: p.syncToken != null ? String(p.syncToken) : "",
+    note,
+  };
+}
 
 function parseFetchResult(raw) {
   if (!raw) return null;
@@ -23,21 +48,7 @@ export function patchFromQboPaymentFetch(job, fetchRaw) {
   const fetch = parseFetchResult(fetchRaw);
   if (!fetch?.payments) return null;
 
-  const payments = fetch.payments
-    .map((p) => {
-      const amt = parseAmount(p.amount);
-      if (amt <= 0) return null;
-      const whole = amt % 1 === 0;
-      return {
-        id: p.id || "qbo-" + (p.ref || amt),
-        amount: whole ? "$" + Math.round(amt) : "$" + amt.toFixed(2),
-        method: p.method || "QBO",
-        ref: p.ref || "",
-        date: p.date || todayStr(),
-        source: p.source || "qbo",
-      };
-    })
-    .filter(Boolean);
+  const payments = fetch.payments.map(mapFetchedPayment).filter(Boolean);
 
   const baseline =
     parseAmount(job?.amount) ||
@@ -73,7 +84,7 @@ export function patchFromSolaPayment(job, { amount, ref, method, date }) {
   const entry = {
     id: payId,
     amount: payAmt % 1 ? "$" + payAmt.toFixed(2) : "$" + Math.round(payAmt),
-    method: method || "Card",
+    method: normalizePaymentMethod(method, { ref }),
     ref: ref || "",
     date: date || todayStr(),
     source: "sola",
