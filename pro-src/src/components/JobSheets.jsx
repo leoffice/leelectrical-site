@@ -9,6 +9,7 @@ import { enrichAndPatchCustomer } from "./NewJobFlow.jsx";
 import { useStore } from "../state/store.jsx";
 import { serviceAddressHint, serviceAddressLabel } from "../lib/customerSync.js";
 import { fmt$, todayStr } from "../lib/format.js";
+import { openBalance } from "../lib/customers.js";
 import { sortJobs } from "../lib/stages.js";
 
 export const PAY_METHODS = ["Cash", "Wells Fargo", "Martin Dorkin", "Zelle", "Barder", "Other"];
@@ -28,15 +29,31 @@ export function useDoSend() {
 
 /* ---------- 1. Mark as paid ---------- */
 export function MarkPaidSheet({ job, onClose }) {
-  const { patchJob, showToast } = useStore();
-  const [amt, setAmt] = useState(String(job.amount || "").replace(/[$,]/g, ""));
+  const { patchJob, showToast, syncNow } = useStore();
+  const due = openBalance(job);
+  const alreadyPaid = job.paid || due <= 0.01;
+  const [amt, setAmt] = useState(due > 0 ? String(due) : String(job.amount || "").replace(/[$,]/g, ""));
   const [mth, setMth] = useState("");
   const [ref, setRef] = useState("");
   const [dt, setDt] = useState(todayStr());
   const save = () => {
+    if (alreadyPaid) {
+      showToast("Invoice already paid in LE Pro — sync from QuickBooks first");
+      return;
+    }
+    const payAmt = parseFloat(String(amt).replace(/[$,]/g, "")) || 0;
+    if (payAmt <= 0) {
+      showToast("Enter a payment amount");
+      return;
+    }
+    if (payAmt > due + 0.01) {
+      showToast("Amount exceeds open balance " + fmt$(due));
+      return;
+    }
     const d = dt || todayStr();
     patchJob(job.id, {
       paid: true,
+      openBalance: 0,
       payment: { amount: amt, method: mth, ref, date: dt },
       status: { Paid: { s: "done", d }, "Follow-up": { s: "done", d } },
     });
@@ -45,8 +62,24 @@ export function MarkPaidSheet({ job, onClose }) {
   };
   return (
     <Sheet title={"Mark as paid — " + (job.customer || "")} onClose={onClose}>
+      {alreadyPaid ? (
+        <div className="rounded-xl bg-amber-50 border border-amber-200 px-3 py-2.5 mb-3 text-[12px] text-amber-900">
+          <p className="font-semibold">Already paid (balance {fmt$(due)})</p>
+          <p className="mt-1 text-amber-800">
+            QuickBooks may already show this invoice as paid. Sync first so LE Pro matches QBO before recording another payment.
+          </p>
+          <button className="btn bg-brand text-white w-full mt-2" onClick={() => syncNow().then(onClose)}>
+            Sync from QuickBooks
+          </button>
+        </div>
+      ) : (
+        <p className="text-[12px] text-slate-500 mb-2">
+          Open balance: <span className="font-semibold text-slate-700">{fmt$(due)}</span>
+          {job.invoiceNo ? <span> · Invoice #{job.invoiceNo}</span> : null}
+        </p>
+      )}
       <Fld label="Amount" hint="Recommended">
-        <input className="input" inputMode="decimal" value={amt} onChange={(e) => setAmt(e.target.value)} aria-label="Amount" />
+        <input className="input" inputMode="decimal" value={amt} onChange={(e) => setAmt(e.target.value)} aria-label="Amount" disabled={alreadyPaid} />
       </Fld>
       <Fld label="Payment method" hint="Recommended">
         <select className="input" value={mth} onChange={(e) => setMth(e.target.value)} aria-label="Payment method">
@@ -62,7 +95,7 @@ export function MarkPaidSheet({ job, onClose }) {
       <Fld label="Date">
         <input className="input" type="date" value={dt} onChange={(e) => setDt(e.target.value)} />
       </Fld>
-      <button className="btn bg-emerald-500 text-white w-full" onClick={save}>
+      <button className="btn bg-emerald-500 text-white w-full" onClick={save} disabled={alreadyPaid}>
         ✓ Record payment
       </button>
       <p className="text-[11px] text-slate-400 text-center mt-2">

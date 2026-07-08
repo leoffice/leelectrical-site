@@ -16,6 +16,7 @@ import api from "../data/adapter.js";
 import { applyOverlay, deepMerge, isPlainObject } from "../data/merge.js";
 import { STAGES } from "../lib/stages.js";
 import { fmt$, todayStr } from "../lib/format.js";
+import { openBalance } from "../lib/customers.js";
 import { unhandledCount } from "../lib/sas.js";
 import { customerSyncPayload } from "../lib/customerSync.js";
 
@@ -222,18 +223,22 @@ export function StoreProvider({ children }) {
   /** Header chip: request a fresh QBO pull, then re-pull everything. */
   const syncNow = useCallback(async () => {
     setBusy(true);
+    const before = syncedAt;
     try {
       await api.requestCalendarSync?.().catch(() => {});
       const [meta] = await Promise.all([
         api.pullJobs?.().catch(() => null),
         refresh(true, { pullCalendar: true, awaitPull: true }),
       ]);
-      if (meta && meta.syncedAt) setSyncedAt(meta.syncedAt);
-      showToast("Refreshed — QuickBooks & calendar synced");
+      const ts = (meta && meta.syncedAt) || 0;
+      if (ts) setSyncedAt(ts);
+      await refreshJobs(true);
+      if (ts > before) showToast("Refreshed — QuickBooks & calendar synced");
+      else showToast("Sync requested — still waiting on QuickBooks (retry in a moment)");
     } finally {
       setBusy(false);
     }
-  }, [refresh, showToast]);
+  }, [refresh, refreshJobs, showToast, syncedAt]);
 
   /* ---------- staged edits ---------- */
   const patchJob = useCallback((id, patch) => {
@@ -283,13 +288,18 @@ export function StoreProvider({ children }) {
       showToast("Saved ✓ synced to all devices");
 
       for (const j of payFlips) {
+        const due = openBalance(j);
+        if (due <= 0.01) {
+          showToast("Skipped QuickBooks payment — invoice already paid (sync first)");
+          continue;
+        }
         const pay = j.payment || {};
         await enqueueRef.current(
           "record_payment",
           j.id,
           {
             invoiceNo: j.invoiceNo,
-            amount: pay.amount || j.amount,
+            amount: pay.amount || due || j.amount,
             method: pay.method || "",
             ref: pay.ref || "",
             date: pay.date || todayStr(),

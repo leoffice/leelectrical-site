@@ -79,8 +79,9 @@ export function createNetlifyAdapter() {
     /** Request a QBO jobs pull, then poll until syncedAt advances. */
     async pullJobs(opts = {}) {
       const testMode = typeof import.meta !== "undefined" && import.meta.env && import.meta.env.MODE === "test";
-      const maxWaitMs = opts.maxWaitMs ?? (testMode ? 80 : 45000);
-      const intervalMs = opts.intervalMs ?? (testMode ? 15 : 2000);
+      // QBO pull can take ~60–90s (open invoices + paid-status checks).
+      const maxWaitMs = opts.maxWaitMs ?? (testMode ? 80 : 120000);
+      const intervalMs = opts.intervalMs ?? (testMode ? 15 : 2500);
       const before = await this.listJobsMeta();
       await this.requestSync().catch(() => {});
       const deadline = Date.now() + maxWaitMs;
