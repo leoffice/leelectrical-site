@@ -47,6 +47,7 @@ import {
   MenuSheet,
   PaymentHistorySheet,
   PaymentLinkSheet,
+  PaymentMenuSheet,
   ReminderSheet,
 } from "../components/JobSheets.jsx";
 
@@ -77,11 +78,16 @@ export default function JobDetail() {
     events,
   } = useStore();
   const job = effectiveJob(id);
+  const openPay = sp.get("pay") === "1";
   const [openPhase, setOpenPhase] = useState(null); // null = auto
   const [openStep, setOpenStep] = useState(null);
   const [showRemoved, setShowRemoved] = useState({}); // paperwork branch -> expanded
   const [sheet, setSheet] = useState(null); // {kind, ...}
   const stepTimer = useRef(null);
+
+  useEffect(() => {
+    if (openPay && job) setSheet({ kind: "paymenu" });
+  }, [openPay, job?.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // 5s auto-collapse of the step action row (sleek's stepTimer)
   useEffect(() => {
@@ -222,6 +228,7 @@ export default function JobDetail() {
         onLinkAppt={() => setSheet({ kind: "apptLink" })}
         onEstimate={() => openDocTab(job, "estimate", setSheet)}
         onInvoice={() => openDocTab(job, "invoice", setSheet)}
+        onPayment={() => setSheet({ kind: "paymenu" })}
         onCalendar={() => openDocTab(job, "calendar", setSheet)}
       />
 
@@ -276,16 +283,6 @@ export default function JobDetail() {
           </div>
         );
       })()}
-
-      {/* Sola PaymentSITE link — on jobs with an invoice # and balance due */}
-      {(job.invoiceNo || job.amount) && openBalance(job) > 0.01 && (
-        <button
-          className="btn bg-brand-soft text-brand w-full !py-2"
-          onClick={() => setSheet({ kind: "paylink" })}
-        >
-          💳 Payment link
-        </button>
-      )}
 
       {/* Progress */}
       <div>
@@ -744,6 +741,14 @@ export default function JobDetail() {
           job={job}
           onClose={() => setSheet(null)}
           onAddPayment={() => setSheet({ kind: "paid" })}
+        />
+      )}
+      {sheet?.kind === "paymenu" && (
+        <PaymentMenuSheet
+          job={job}
+          onClose={() => setSheet(null)}
+          onRecord={() => setSheet({ kind: "paid" })}
+          onLink={() => setSheet({ kind: "paylink" })}
         />
       )}
       {sheet?.kind === "paylink" && <PaymentLinkSheet job={job} onClose={() => setSheet(null)} />}

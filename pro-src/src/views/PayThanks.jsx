@@ -3,7 +3,7 @@ import React from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import { fmtMoneyPrecise } from "../lib/payFees.js";
 
-const LOGO = import.meta.env.BASE_URL + "le-logo.png?v=2";
+const LOGO = import.meta.env.BASE_URL + "le-logo.png?v=4";
 
 export default function PayThanks() {
   const [params] = useSearchParams();
@@ -14,16 +14,16 @@ export default function PayThanks() {
 
   return (
     <div className="min-h-screen bg-[#f4f6fb]">
-      <header className="bg-gradient-to-r from-brand to-accent text-white px-4 py-4 pt-safe shadow-sm">
-        <div className="max-w-lg mx-auto flex items-center gap-3">
+      <header className="bg-white border-b border-slate-200 px-4 py-5 pt-safe shadow-sm">
+        <div className="max-w-lg mx-auto flex flex-col items-center gap-2">
           <img
             src={LOGO}
             alt="BLZ Electric"
-            className="h-14 w-auto max-w-[130px] object-contain shrink-0 drop-shadow-sm"
+            className="h-36 w-auto max-w-[360px] object-contain"
           />
           <div className="min-w-0">
-            <div className="font-extrabold text-lg tracking-tight leading-tight">BLZ Electric</div>
-            <div className="text-white/80 text-sm">Brooklyn, NY · Licensed &amp; insured</div>
+            <div className="font-extrabold text-lg tracking-tight leading-tight text-slate-900">BLZ Electric</div>
+            <div className="text-slate-500 text-sm">Brooklyn, NY · Licensed &amp; insured</div>
           </div>
         </div>
       </header>

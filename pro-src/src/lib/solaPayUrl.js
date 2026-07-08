@@ -5,6 +5,14 @@ const DEFAULT_REDIRECT = "https://leelectrical.us/.netlify/functions/sola-paymen
 const DEFAULT_POST_URL = DEFAULT_REDIRECT;
 const DEFAULT_SLUG = "blzelectric";
 
+/** Pull a US zip from anywhere in an address string. */
+export function extractZip(raw) {
+  const s = String(raw || "").trim();
+  if (!s) return "";
+  const m = s.match(/(\d{5}(?:-\d{4})?)\s*$/);
+  return m ? m[1] : "";
+}
+
 /** Parse US-style addresses into Cardknox billing fields (incl. zip). */
 export function parseUSAddress(raw) {
   const s = String(raw || "")
@@ -61,6 +69,7 @@ export function buildSolaPayUrl({
   postUrl = DEFAULT_POST_URL,
   principalAmount = "",
   jobId = "",
+  savePayment = true,
 }) {
   const amt = solaAmount(amount);
   const inv = String(invoiceNo || "").trim();
@@ -85,20 +94,27 @@ export function buildSolaPayUrl({
   if (bill.street) params.xBillStreet = bill.street;
   if (bill.city) params.xBillCity = bill.city;
   if (bill.state) params.xBillState = bill.state;
-  if (zipCode) params.xBillZip = zipCode;
+  if (zipCode) {
+    params.xBillZip = zipCode;
+    params.xZip = zipCode;
+  }
+  if (email) params.xCustReceipt = "1";
+  if (savePayment && email) params.xAllowDuplicate = "1";
 
   const qs = new URLSearchParams(params).toString();
   return `${String(baseUrl).replace(/\/$/, "")}/${slug}?${qs}`;
 }
 
 /** Resolve pay-site settings from a landing payload (new + legacy links). */
-export function solaPayUrlFromLanding(data, chargeTotal, principalAmount) {
+export function solaPayUrlFromLanding(data, chargeTotal, principalAmount, includeFee = true) {
   if (!data) return "";
   const slug = data.sl || (data.pay ? siteSlugFromPayUrl(data.pay) : DEFAULT_SLUG);
   const principal = principalAmount ?? data.a;
+  const feeOn = includeFee && data.fe !== 0 && data.fe !== false;
+  const charge = feeOn ? chargeTotal : principal;
   return buildSolaPayUrl({
     slug,
-    amount: chargeTotal,
+    amount: charge,
     principalAmount: principal,
     jobId: data.j,
     invoiceNo: data.i,
@@ -108,5 +124,6 @@ export function solaPayUrlFromLanding(data, chargeTotal, principalAmount) {
     address: data.sa,
     billingAddress: data.ba || data.sa,
     zip: data.z,
+    savePayment: true,
   });
 }

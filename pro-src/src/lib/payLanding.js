@@ -1,6 +1,8 @@
 import { fmt$, todayStr } from "./format.js";
 import { amountPaid, invoiceTotal, openBalance } from "./customers.js";
-import { parseUSAddress } from "./solaPayUrl.js";
+import { normalizePayments } from "./payments.js";
+import { parseAmount } from "./format.js";
+import { parseUSAddress, extractZip } from "./solaPayUrl.js";
 
 const SITE_ORIGIN =
   (typeof window !== "undefined" && window.location?.origin) || "https://leelectrical.us";
@@ -12,15 +14,20 @@ export function buildPayLandingPayload({
   linkAmount,
   inv,
   siteSlug = "blzelectric",
+  includeFee = true,
 }) {
   const invoiceNo = inv || job?.invoiceNo || "";
   const total = invoiceTotal(job);
   const due = openBalance(job);
+  const pays = normalizePayments(job);
   const paid = amountPaid(job);
   const linkAmt = parseFloat(String(linkAmount).replace(/[$,]/g, "")) || due;
   const serviceAddr = (job?.serviceAddress || job?.address || "").trim();
   const billAddr = (job?.billingAddress || job?.address || serviceAddr).trim();
   const zip =
+    String(job?.zip || "").trim() ||
+    extractZip(billAddr) ||
+    extractZip(serviceAddr) ||
     parseUSAddress(billAddr).zip ||
     parseUSAddress(serviceAddr).zip ||
     "";
@@ -28,11 +35,18 @@ export function buildPayLandingPayload({
     j: (job?.id || "").trim(),
     i: invoiceNo,
     a: linkAmt,
+    fe: includeFee ? 1 : 0,
     c: (job?.customer || "").trim(),
     w: (job?.title || job?.serviceType || "Electrical services").trim(),
     t: total > 0 ? fmt$(total) : job?.amount || "",
     d: due > 0 ? fmt$(due) : "",
     p: paid > 0 ? fmt$(paid) : "",
+    ps: pays.map((pay) => ({
+      a: fmt$(parseAmount(pay.amount)),
+      m: (pay.method || "").trim(),
+      d: (pay.date || "").trim(),
+      r: (pay.ref || "").trim(),
+    })),
     e: (job?.email || "").trim(),
     ph: (job?.phone || "").trim(),
     sa: serviceAddr,
@@ -80,9 +94,9 @@ export function decodePayLanding(token) {
 }
 
 /** Customer-facing URL — landing page before the Sola PaymentSITE form. */
-export function buildPayLandingUrl({ job, cardknoxUrl, linkAmount, inv, siteSlug }) {
+export function buildPayLandingUrl({ job, cardknoxUrl, linkAmount, inv, siteSlug, includeFee = true }) {
   const token = encodePayLanding(
-    buildPayLandingPayload({ job, cardknoxUrl, linkAmount, inv, siteSlug })
+    buildPayLandingPayload({ job, cardknoxUrl, linkAmount, inv, siteSlug, includeFee })
   );
   return `${SITE_ORIGIN}/app/pro/#/pay/${token}`;
 }
@@ -91,4 +105,10 @@ export function invoicePdfUrl(invoiceNo) {
   const no = String(invoiceNo || "").trim();
   if (!no) return "";
   return `${SITE_ORIGIN}/.netlify/functions/docs?key=inv-${encodeURIComponent(no)}`;
+}
+
+export function addressesDiffer(ba, sa) {
+  const b = String(ba || "").trim().toLowerCase();
+  const s = String(sa || "").trim().toLowerCase();
+  return !!(b && s && b !== s);
 }

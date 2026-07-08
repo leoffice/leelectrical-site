@@ -56,6 +56,24 @@ describe("payLanding", () => {
     expect(decodePayLanding(token).pay).toBe(cardknox);
   });
 
+  it("embeds payment history and true paid-to-date total", () => {
+    const payload = buildPayLandingPayload({
+      job: {
+        ...job,
+        payments: [
+          { amount: "1000", method: "Check", date: "2026-01-10" },
+          { amount: "30000", method: "Wire", date: "2026-02-01" },
+        ],
+      },
+      cardknoxUrl: cardknox,
+      linkAmount: "10000",
+      inv: "231315",
+    });
+    expect(payload.p).toBe("$31,000");
+    expect(payload.ps).toHaveLength(2);
+    expect(payload.ps.map((p) => p.m).sort()).toEqual(["Check", "Wire"]);
+  });
+
   it("rejects invalid tokens", () => {
     expect(decodePayLanding("")).toBeNull();
     expect(decodePayLanding("not-valid-base64!!!")).toBeNull();

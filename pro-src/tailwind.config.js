@@ -5,13 +5,13 @@ export default {
     extend: {
       colors: {
         brand: {
-          DEFAULT: "#4f46e5", // Sleek indigo — --brand
-          dark: "#4338ca",
-          soft: "#eef2ff",
+          DEFAULT: "#0c4a6e", // Sky navy — no purple
+          dark: "#082f49",
+          soft: "#e0f2fe",
         },
         accent: {
-          DEFAULT: "#7c3aed", // Sleek violet — --accent
-          soft: "#f5f3ff",
+          DEFAULT: "#d97706", // Warm amber accent
+          soft: "#fffbeb",
         },
       },
       boxShadow: {

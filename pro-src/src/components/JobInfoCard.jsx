@@ -55,6 +55,7 @@ export default function JobInfoCard({
   onLinkAppt,
   onEstimate,
   onInvoice,
+  onPayment,
   onCalendar,
   showOpenLink = true,
 }) {
@@ -141,6 +142,7 @@ export default function JobInfoCard({
           commands={commands}
           onEstimate={onEstimate}
           onInvoice={onInvoice}
+          onPayment={onPayment}
           onCalendar={onCalendar}
         />
       ) : null}

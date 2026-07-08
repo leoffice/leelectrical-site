@@ -25,13 +25,14 @@ const job = (id, customer, title, amount, extra = {}) => ({
 });
 
 describe("Feature 1 — payment link", () => {
-  it("💳 Payment link button enqueues a payment_link command and shows the link + Copy on success", { timeout: 10000 }, async () => {
+  it("Payment tab → link enqueues payment_link and shows Copy on success", { timeout: 10000 }, async () => {
     const srv = mockServer({ jobs: [job("P-1", "Rae Klein", "Panel", "$652", { invoiceNo: "251839", email: "rae@x.com", phone: "555-9" })] });
     const user = userEvent.setup();
     renderApp("#/job/P-1");
 
     const pane = await screen.findByTestId("detail-pane");
-    await user.click(within(pane).getByText("💳 Payment link"));
+    await user.click(within(pane).getByTestId("tab-payment"));
+    await user.click(await screen.findByText("Payment link"));
     await user.click(await screen.findByText("💳 Create payment link"));
 
     // it enqueued a deterministic payment_link command keyed paylink:<inv>
@@ -66,7 +67,8 @@ describe("Feature 1 — payment link", () => {
     renderApp("#/job/P-3");
 
     const pane = await screen.findByTestId("detail-pane");
-    await user.click(within(pane).getByText("💳 Payment link"));
+    await user.click(within(pane).getByTestId("tab-payment"));
+    await user.click(await screen.findByText("Payment link"));
     const amt = await screen.findByLabelText("Payment link amount");
     expect(amt).toHaveValue("400");
     await user.clear(amt);
@@ -86,7 +88,8 @@ describe("Feature 1 — payment link", () => {
     renderApp("#/job/P-2");
 
     const pane = await screen.findByTestId("detail-pane");
-    await user.click(within(pane).getByText("💳 Payment link"));
+    await user.click(within(pane).getByTestId("tab-payment"));
+    await user.click(await screen.findByText("Payment link"));
     await user.click(await screen.findByText("💳 Create payment link"));
 
     await waitFor(() => expect(srv.enqueued("payment_link")[0]).toBeTruthy());

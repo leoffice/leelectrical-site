@@ -21,6 +21,7 @@ import {
 } from "../lib/payments.js";
 import { sortJobs } from "../lib/stages.js";
 import { DATE_STEPS } from "../lib/paperwork.js";
+import Toggle from "./Toggle.jsx";
 
 export const PAY_METHODS = ["Cash", "Wells Fargo", "Martin Dorkin", "Zelle", "Barder", "Other"];
 
@@ -375,6 +376,21 @@ export function PdfViewer({ job, kind, no }) {
   return <Opt icon="📄" title="View PDF" note="Opens full screen · live from QuickBooks" onClick={view} />;
 }
 
+/* ---------- 2a-pay. Payment menu (record vs link) ---------- */
+export function PaymentMenuSheet({ job, onClose, onRecord, onLink }) {
+  return (
+    <Sheet title={"Payment — " + (job.customer || "")} onClose={onClose}>
+      <Opt icon="💵" title="Record a payment" note="Cash, check, Zelle, etc." onClick={onRecord} />
+      <Opt
+        icon="💳"
+        title="Payment link"
+        note="Customer View & Pay page with invoice PDF"
+        onClick={onLink}
+      />
+    </Sheet>
+  );
+}
+
 /* ---------- 2a-link. Sola PaymentSITE payment link ---------- */
 /** Parse the {url} the host listener stores on a payment_link command result.
  *  Stored as a JSON string ({"url":...}); tolerate a bare URL too. */
@@ -412,6 +428,7 @@ export function PaymentLinkSheet({ job, onClose }) {
   const [url, setUrl] = useState("");
   const [err, setErr] = useState("");
   const [emailOpen, setEmailOpen] = useState(false);
+  const [includeFee, setIncludeFee] = useState(true);
   const [emailTo, setEmailTo] = useState(job.email || "");
   const [emailSubject, setEmailSubject] = useState("");
   const [emailBody, setEmailBody] = useState("");
@@ -445,7 +462,7 @@ export function PaymentLinkSheet({ job, onClose }) {
         const parsed = typeof cmdResult === "string" ? JSON.parse(cmdResult) : cmdResult;
         if (parsed?.siteSlug) siteSlug = parsed.siteSlug;
       } catch {}
-      const landing = buildPayLandingUrl({ job, cardknoxUrl: link, linkAmount, inv, siteSlug });
+      const landing = buildPayLandingUrl({ job, cardknoxUrl: link, linkAmount, inv, siteSlug, includeFee });
       setUrl(landing);
       const draft = buildPaymentLinkEmail({ job, url: landing, linkAmount, inv });
       setEmailSubject(draft.subject);
@@ -548,10 +565,16 @@ export function PaymentLinkSheet({ job, onClose }) {
       {phase === "idle" && (
         <>
           <p className="text-sm text-slate-500 mb-3">
-            Creates a <b>View &amp; Pay</b> page with the invoice PDF, fee breakdown, and secure payment. Customer
-            edits the amount on that page (✏️) before Pay — the Cardknox page is card entry only. Default:{" "}
-            <b>amount due</b> ({dueLabel || "—"}); override below for a partial charge.
+            Creates a <b>View &amp; Pay</b> page with invoice PDF and secure payment. Customer edits amount on
+            that page (✏️) before Pay. Default: <b>amount due</b> ({dueLabel || "—"}).
           </p>
+          <div className="flex items-center justify-between gap-3 mb-3 py-2 border-y border-slate-100">
+            <div>
+              <div className="text-sm font-semibold text-slate-800">Add 3.5% processing fee</div>
+              <div className="text-[11px] text-slate-500">Fee on top of payment (usually on)</div>
+            </div>
+            <Toggle on={includeFee} label="Processing fee" onChange={setIncludeFee} />
+          </div>
           <label className="block text-sm mb-3">
             <span className="font-semibold text-slate-700">Link amount ($)</span>
             <input

@@ -420,7 +420,7 @@ export default function ChatBubble() {
         onClick={toggle}
         aria-label="Chat with Dispatch"
         data-testid="chat-fab"
-        className={`fixed z-40 right-4 lg:right-6 w-12 h-12 rounded-full bg-gradient-to-br from-accent to-brand text-white text-xl shadow-xl ${
+        className={`fixed z-40 right-4 lg:right-6 w-12 h-12 rounded-full bg-brand text-white text-xl shadow-xl ${
           dirtyCount ? "bottom-[210px] lg:bottom-24" : "bottom-36 lg:bottom-6" // clear the SaveBar
         }`}
       >
@@ -444,7 +444,7 @@ export default function ChatBubble() {
           className="fixed z-50 inset-x-2.5 bottom-20 lg:inset-x-auto lg:right-6 lg:bottom-20 lg:w-[400px] max-w-[420px] ml-auto bg-white rounded-2xl shadow-2xl border border-slate-200 flex flex-col max-h-[64vh] overflow-hidden"
           data-testid="chat-panel"
         >
-          <div className="flex items-center gap-2 px-4 py-2.5 bg-gradient-to-r from-accent to-brand text-white">
+          <div className="flex items-center gap-2 px-4 py-2.5 bg-brand text-white">
             <div className="flex-1 min-w-0">
               <b className="block text-sm leading-tight">Dispatch</b>
               <span className="flex items-center gap-1.5 text-[11px] opacity-90 leading-tight" data-testid="presence-line">

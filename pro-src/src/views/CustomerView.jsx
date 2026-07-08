@@ -91,6 +91,7 @@ export default function CustomerView() {
             onLinkAppt={() => setSheet({ kind: "apptLink", job: j })}
             onEstimate={() => openDocFor(j, "estimate")}
             onInvoice={() => openDocFor(j, "invoice")}
+            onPayment={() => nav("/job/" + j.id + "?from=" + encodeURIComponent(key) + "&pay=1")}
             onCalendar={() => openDocFor(j, "calendar")}
           />
         ))}

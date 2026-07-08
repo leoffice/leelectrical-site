@@ -49,22 +49,48 @@ describe("PayLanding view", () => {
     );
     renderPay(token);
     expect(screen.getByText("BLZ Electric")).toBeInTheDocument();
-    expect(screen.getByText("#251839")).toBeInTheDocument();
+    expect(screen.getByRole("heading", { level: 1, name: /Invoice.*251839/ })).toBeInTheDocument();
     expect(screen.getByText("Billing address")).toBeInTheDocument();
-    expect(screen.getByText("Service address")).toBeInTheDocument();
-    const billing = screen.getByText("Billing address");
-    const service = screen.getByText("Service address");
-    expect(
-      billing.compareDocumentPosition(service) & Node.DOCUMENT_POSITION_FOLLOWING
-    ).toBeTruthy();
+    expect(screen.queryByText("Service address")).toBeNull();
     expect(screen.getByText("Panel upgrade")).toBeInTheDocument();
     expect(screen.getByTestId("view-invoice")).toHaveTextContent("View invoice");
     expect(screen.getByText("Rae Klein")).toBeInTheDocument();
     const cta = screen.getByTestId("pay-cta");
     expect(cta).toHaveTextContent("Pay $674.82");
     expect(cta.getAttribute("href")).toContain("xBillZip=11201");
+    expect(cta.getAttribute("href")).toContain("xZip=11201");
     expect(cta.getAttribute("href")).toContain("xCustom01=652");
     expect(cta.getAttribute("href")).toContain("sola-payment");
+  });
+
+  it("expands paid-to-date to show payment history from the token", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => ({ ok: true })));
+    const user = userEvent.setup();
+    const token = encodePayLanding(
+      buildPayLandingPayload({
+        job: {
+          customer: "Golan Chakov",
+          amount: "$41,000",
+          openBalance: 10000,
+          invoiceNo: "231315",
+          billingAddress: "405 Lefferts Ave, Brooklyn, NY 11225",
+          serviceAddress: "405 Lefferts Ave, Brooklyn, NY 11225",
+          payments: [
+            { amount: "1000", method: "Check", date: "2026-01-10", ref: "1042" },
+            { amount: "30000", method: "Wire", date: "2026-02-01", ref: "W-9" },
+          ],
+        },
+        cardknoxUrl: "https://secure.cardknox.com/blzelectric?xAmount=10000&xinvoice=231315",
+        linkAmount: "10000",
+        inv: "231315",
+        siteSlug: "blzelectric",
+      })
+    );
+    renderPay(token);
+    const paidBtn = screen.getByRole("button", { name: /Paid to date.*31,000/ });
+    await user.click(paidBtn);
+    expect(screen.getByText(/Check/)).toBeInTheDocument();
+    expect(screen.getByText(/Wire/)).toBeInTheDocument();
   });
 
   it("lets the customer edit paying-today amount", async () => {

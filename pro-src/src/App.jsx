@@ -116,17 +116,21 @@ export default function App() {
 
   return (
     <div className="min-h-screen lg:flex">
-      {/* Desktop sidebar */}
-      <aside className="hidden lg:flex lg:flex-col w-60 shrink-0 border-r border-slate-200 bg-white min-h-screen sticky top-0 p-4 gap-1" data-testid="sidebar">
-        <div className="flex items-center gap-2.5 px-2 py-4 mb-1">
+      {/* Desktop sidebar — fixed so it never scrolls away */}
+      <aside
+        className="hidden lg:fixed lg:inset-y-0 lg:left-0 lg:z-40 lg:flex lg:w-64 lg:flex-col border-r border-slate-200 bg-white p-4 gap-1 overflow-y-auto"
+        data-testid="sidebar"
+      >
+        <div className="flex flex-col items-center px-2 py-4 mb-2">
           <img
-            src={import.meta.env.BASE_URL + "le-logo.png?v=2"}
+            src={import.meta.env.BASE_URL + "le-logo.png?v=4"}
             alt="LE Electric"
-            className="w-9 h-9 rounded-xl object-contain bg-white border border-slate-200/80 p-0.5 shrink-0"
+            className="h-32 w-auto max-w-[280px] object-contain shrink-0"
+            data-testid="app-logo"
           />
-          <div>
-            <div className="font-extrabold tracking-tight text-slate-900 leading-none">LE Pro</div>
-            <div className="text-[11px] text-slate-400">LE Electric · Brooklyn</div>
+          <div className="mt-2 text-center">
+            <div className="font-extrabold tracking-tight text-slate-900 leading-none text-lg">LE Pro</div>
+            <div className="text-[11px] text-slate-400 mt-0.5">LE Electric · Brooklyn</div>
           </div>
         </div>
         <div className="px-2 mb-3">
@@ -138,18 +142,18 @@ export default function App() {
         <div className="mt-auto px-2 text-[11px] text-slate-400">LE Pro · full parity build</div>
       </aside>
 
-      <div className="flex-1 min-w-0 flex flex-col">
+      <div className="flex-1 min-w-0 flex flex-col lg:pl-64">
         {/* Mobile header */}
-        <header className="lg:hidden sticky top-0 z-30 bg-gradient-to-r from-brand to-accent text-white shadow-sm pt-safe">
-          <div className="flex items-center gap-2 px-3 py-2">
+        <header className="lg:hidden sticky top-0 z-30 bg-white border-b border-slate-200 shadow-sm pt-safe">
+          <div className="flex items-center gap-3 px-3 py-2.5">
             <img
-              src={import.meta.env.BASE_URL + "le-logo.png?v=2"}
+              src={import.meta.env.BASE_URL + "le-logo.png?v=4"}
               alt=""
-              className="w-7 h-7 rounded-lg object-contain bg-white/15 p-0.5"
+              className="h-16 w-auto max-w-[160px] object-contain"
             />
-            <span className="text-sm font-bold tracking-tight">LE Pro</span>
+            <span className="text-sm font-bold tracking-tight text-slate-900">LE Pro</span>
             <span className="ml-auto">
-              <SyncChip dark />
+              <SyncChip />
             </span>
           </div>
         </header>

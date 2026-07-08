@@ -6,16 +6,18 @@ export function parseMoney(raw) {
   return Number.isFinite(n) && n > 0 ? n : 0;
 }
 
-export function processingFee(base) {
+export function processingFee(base, includeFee = true) {
+  if (!includeFee) return 0;
   const n = parseMoney(base);
   if (!n) return 0;
   return Math.round(n * PROCESSING_FEE_RATE * 100) / 100;
 }
 
-export function totalWithFee(base) {
+export function totalWithFee(base, includeFee = true) {
   const n = parseMoney(base);
   if (!n) return 0;
-  return Math.round((n + processingFee(n)) * 100) / 100;
+  if (!includeFee) return n;
+  return Math.round((n + processingFee(n, true)) * 100) / 100;
 }
 
 /** Sola / Cardknox amount string (up to 2 decimals). */
@@ -36,4 +38,8 @@ export function fmtMoneyPrecise(v) {
       maximumFractionDigits: 2,
     })
   );
+}
+
+export function feeEnabledInPayload(data) {
+  return data?.fe !== 0 && data?.fe !== false;
 }

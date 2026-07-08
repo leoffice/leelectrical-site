@@ -99,14 +99,18 @@ export default function LockGate({ children }) {
 
   return (
     <div
-      className="fixed inset-0 z-[100] flex flex-col items-center justify-center px-6 bg-gradient-to-br from-brand to-accent text-white pt-safe pb-safe"
+      className="fixed inset-0 z-[100] flex flex-col items-center justify-center px-6 bg-slate-900 text-white pt-safe pb-safe"
       data-testid="lock-gate"
       role="dialog"
       aria-modal="true"
       aria-label="Unlock LE Pro"
     >
       <div className="w-full max-w-sm flex flex-col items-center">
-        <span className="grid place-items-center w-16 h-16 rounded-2xl bg-white/15 text-4xl mb-4">⚡</span>
+        <img
+          src={import.meta.env.BASE_URL + "le-logo.png?v=4"}
+          alt="LE Electric"
+          className="h-36 w-auto max-w-[320px] object-contain mb-4"
+        />
         <h1 className="text-2xl font-extrabold tracking-tight">LE Pro</h1>
         <p className="text-sm text-white/70 mb-8">
           {mode === "biometric" && bioAvail && busy
