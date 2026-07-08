@@ -11,14 +11,15 @@ describe("buildPaymentLinkEmail", () => {
         openBalance: 10000,
         invoiceNo: "231315",
       },
-      url: "https://secure.cardknox.com/demo?xamount=10000",
+      url: "https://leelectrical.us/app/pro/#/pay/demo-token",
       linkAmount: "10000",
       inv: "231315",
     });
     expect(subject).toContain("231315");
     expect(body).toContain("Invoice total");
     expect(body).toContain("Balance due");
-    expect(body).toContain("https://secure.cardknox.com/demo");
+    expect(body).toContain("https://leelectrical.us/app/pro/#/pay/demo-token");
+    expect(body).toContain("View your invoice");
     expect(body).toContain("Golan");
   });
 });

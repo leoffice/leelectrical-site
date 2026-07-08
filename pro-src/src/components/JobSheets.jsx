@@ -11,6 +11,7 @@ import { serviceAddressHint, serviceAddressLabel } from "../lib/customerSync.js"
 import { fmt$, todayStr } from "../lib/format.js";
 import { clientKey, fmtAmountDue, invoiceTotal, jobsForCustomerKey, openBalance, amountPaid, paidPct } from "../lib/customers.js";
 import { buildPaymentLinkEmail } from "../lib/paymentLinkEmail.js";
+import { buildPayLandingUrl } from "../lib/payLanding.js";
 import {
   appendPayment,
   fmtPaymentLine,
@@ -438,8 +439,9 @@ export function PaymentLinkSheet({ job, onClose }) {
     if (phase !== "working") return;
     const link = paylinkUrl(cmdResult);
     if (cmdStatus === "done" && link) {
-      setUrl(link);
-      const draft = buildPaymentLinkEmail({ job, url: link, linkAmount, inv });
+      const landing = buildPayLandingUrl({ job, cardknoxUrl: link, linkAmount, inv });
+      setUrl(landing);
+      const draft = buildPaymentLinkEmail({ job, url: landing, linkAmount, inv });
       setEmailSubject(draft.subject);
       setEmailBody(draft.body);
       setPhase("ready");
@@ -524,7 +526,7 @@ export function PaymentLinkSheet({ job, onClose }) {
       {phase === "idle" && (
         <>
           <p className="text-sm text-slate-500 mb-3">
-            Link pre-fills <b>amount due</b> ({dueLabel || "—"}). Change it below for a partial or custom charge. On the Sola page the customer can also adjust the amount before paying.
+            Creates a <b>View &amp; Pay</b> page (invoice summary + secure payment). Link pre-fills <b>amount due</b> ({dueLabel || "—"}). Change it below for a partial or custom charge.
           </p>
           <label className="block text-sm mb-3">
             <span className="font-semibold text-slate-700">Link amount ($)</span>

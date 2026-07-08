@@ -1,20 +1,35 @@
 import React from "react";
 import { createRoot } from "react-dom/client";
-import { HashRouter } from "react-router-dom";
+import { HashRouter, Route, Routes, useLocation } from "react-router-dom";
 import App from "./App.jsx";
 import LockGate from "./components/LockGate.jsx";
+import PayLanding from "./views/PayLanding.jsx";
 import { StoreProvider } from "./state/store.jsx";
 import "./index.css";
+
+/** Public customer pay page — no biometric/password gate. */
+function PayOrApp() {
+  const { pathname } = useLocation();
+  if (pathname.startsWith("/pay")) {
+    return (
+      <Routes>
+        <Route path="/pay/:token" element={<PayLanding />} />
+      </Routes>
+    );
+  }
+  return (
+    <LockGate>
+      <StoreProvider>
+        <App />
+      </StoreProvider>
+    </LockGate>
+  );
+}
 
 createRoot(document.getElementById("root")).render(
   <React.StrictMode>
     <HashRouter>
-      {/* Unlock gate — must clear before the app (and its data fetching) mounts. */}
-      <LockGate>
-        <StoreProvider>
-          <App />
-        </StoreProvider>
-      </LockGate>
+      <PayOrApp />
     </HashRouter>
   </React.StrictMode>
 );

@@ -20,7 +20,7 @@ export function buildPaymentLinkEmail({ job, url, linkAmount, inv }) {
     `Invoice #${inv} for ${work}.`,
     `Invoice total: ${totalStr}. Balance due: ${dueStr}.`,
     "",
-    `Pay securely online (${linkStr} pre-filled on the link; you can change the amount on the payment page if needed):`,
+    `View your invoice and pay securely online (${linkStr} pre-filled; you can change the amount on the payment page if needed):`,
     url,
     "",
     "Thank you,",
