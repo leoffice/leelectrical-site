@@ -67,7 +67,6 @@ export default function JobInfoCard({
   const rows = [
     [serviceAddressLabel(job), svc],
     job.estimateNo ? ["Estimate #", job.estimateNo] : null,
-    job.invoiceNo ? ["Invoice #", job.invoiceNo] : null,
     total > 0 ? ["Invoice amount", fmt$(total)] : null,
     paid > 0 ? ["Paid", fmt$(paid)] : null,
     !job.paid && balance > 0 ? ["Balance due", fmt$(balance)] : null,
