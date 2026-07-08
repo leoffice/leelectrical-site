@@ -30,39 +30,34 @@ const openDetail = async () => {
 };
 
 describe("sub-item enable flow", () => {
-  it("defaults greyed out; tap offers Enable (not Undo); enabled items get Complete then Undo", async () => {
+  it("enabling Con Ed auto-activates first step; tap greyed step enables immediately", async () => {
     const srv = mockServer();
     const user = userEvent.setup();
     const pane = await openDetail();
     await openConEd(user, pane);
 
-    const label = () => within(pane).getByRole("button", { name: /^(✓ )?Application submitted$/ });
-    // greyed by default
-    expect(label().closest("div").className).toContain("opacity-50");
+    const first = () => within(pane).getByRole("button", { name: /^(✓ )?Application submitted$/ });
+    const second = () => within(pane).getByRole("button", { name: /^POE scheduled$/ });
 
-    // tap -> Enable action, never Undo
-    await user.click(label());
-    expect(within(pane).getByText("Enable")).toBeInTheDocument();
-    expect(within(pane).queryByText("↩ Undo")).toBeNull();
-    await user.click(within(pane).getByText("Enable"));
+    // first step auto-enabled when branch turns on
+    expect(first().closest("div").className).not.toContain("opacity-50");
+    expect(second().closest("div").className).toContain("opacity-50");
 
-    // enabled: no longer greyed, tap -> Complete
-    expect(label().closest("div").className).not.toContain("opacity-50");
-    await user.click(label());
+    // tap greyed step -> enables immediately (no Enable button)
+    await user.click(second());
+    expect(within(pane).queryByText("Enable")).toBeNull();
+    expect(second().closest("div").className).not.toContain("opacity-50");
+
+    await user.click(second());
     await user.click(within(pane).getByText("✓ Complete"));
-    expect(within(pane).getByText(/✓ Application submitted/)).toBeInTheDocument();
+    expect(within(pane).getByText(/✓ POE scheduled/)).toBeInTheDocument();
 
-    // done: tap -> Undo; undoing keeps the item enabled (not back to greyed)
-    await user.click(label());
-    await user.click(within(pane).getByText("↩ Undo"));
-    expect(label().closest("div").className).not.toContain("opacity-50");
-
-    // everything was staged, schema-additive
     await user.click(screen.getByText("Save & sync"));
     await waitFor(() => {
       const br = srv.state.ov["J-1"].paperwork.coned;
       expect(br.active["Application submitted"]).toBe(true);
-      expect(br.steps["Application submitted"]).toBe(false); // undone, key kept
+      expect(br.active["POE scheduled"]).toBe(true);
+      expect(br.steps["POE scheduled"]).toBe(true);
     });
   });
 
@@ -97,7 +92,7 @@ describe("sub-item remove / restore", () => {
     await openConEd(user, pane);
 
     // every sub-item has its own ✕
-    expect(within(pane).getAllByLabelText(/from list$/).length).toBe(7); // Con Ed has 7 steps
+    expect(within(pane).getAllByLabelText(/from list$/).length).toBe(8); // Con Ed has 8 steps
     await user.click(within(pane).getByLabelText("Remove Interim checklist from list"));
 
     // gone from the list, collapsed removed-row appears
@@ -150,8 +145,6 @@ describe("auto follow-up on paperwork check", () => {
     await openConEd(user, pane);
 
     const label = () => within(pane).getByRole("button", { name: /^(✓ )?Application submitted$/ });
-    await user.click(label());
-    await user.click(within(pane).getByText("Enable"));
     await user.click(label());
     await user.click(within(pane).getByText("✓ Complete"));
 

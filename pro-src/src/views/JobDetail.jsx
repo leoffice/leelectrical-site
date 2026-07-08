@@ -16,7 +16,13 @@ import {
   stepState,
   todayStr,
 } from "../lib/stages.js";
-import { PAPER, isDatedStep } from "../lib/paperwork.js";
+import {
+  DATE_STEPS,
+  INSPECTION_STEPS,
+  PAPER,
+  firstVisiblePaperStep,
+  isDatedStep,
+} from "../lib/paperwork.js";
 import { followUpFromPaperworkStep } from "../lib/calendarDue.js";
 import { fmt$, ago } from "../lib/format.js";
 import CustomerCard from "../components/CustomerCard.jsx";
@@ -157,7 +163,7 @@ export default function JobDetail() {
     const patch = { paperwork: { [k]: { steps: { [s]: on }, active: { [s]: true } } } };
     if (on) patch.followUp = followUpFromPaperworkStep(k, s);
     patchJob(id, patch);
-    if (on && s === "Inspection scheduled") setSheet({ kind: "inspection", branch: k });
+    if (on && INSPECTION_STEPS.has(s)) setSheet({ kind: "inspection", branch: k, step: s });
   };
   const enablePaper = (k, s) => {
     patchJob(id, { paperwork: { [k]: { active: { [s]: true } } } });
@@ -416,7 +422,16 @@ export default function JobDetail() {
                                     <Toggle
                                       on={br.enabled}
                                       label={PAPER[k].nm}
-                                      onChange={(on) => patchJob(id, { paperwork: { [k]: { enabled: on } } })}
+                                      onChange={(on) => {
+                                        const patch = { paperwork: { [k]: { enabled: on } } };
+                                        if (on) {
+                                          const first = firstVisiblePaperStep(k, br);
+                                          if (first) {
+                                            patch.paperwork[k].active = { [first]: true };
+                                          }
+                                        }
+                                        patchJob(id, patch);
+                                      }}
                                     />
                                   </div>
                                   {br.enabled &&
@@ -434,23 +449,61 @@ export default function JobDetail() {
                                                 className={`text-left text-[13px] flex-1 min-w-0 ${
                                                   on ? "text-emerald-800 font-semibold" : "text-slate-600"
                                                 }`}
-                                                onClick={() => setOpenStep(openStep === rowKey ? null : rowKey)}
+                                                onClick={() => {
+                                                  if (!enabledItem) {
+                                                    enablePaper(k, ps);
+                                                    return;
+                                                  }
+                                                  setOpenStep(openStep === rowKey ? null : rowKey);
+                                                }}
                                               >
                                                 {on ? "✓ " : ""}
                                                 {ps}
                                               </button>
                                               {isDatedStep(ps) && (
                                                 <input
-                                                  type="date"
-                                                  className="input !w-[135px] !py-1 !px-1.5 !text-xs"
-                                                  value={((br.dates && br.dates[ps]) || "").slice(0, 10)}
-                                                  onChange={(ev) =>
-                                                    patchJob(id, { paperwork: { [k]: { dates: { [ps]: ev.target.value } } } })
+                                                  type={DATE_STEPS[ps] === "datetime" ? "datetime-local" : "date"}
+                                                  className={`input !py-1 !px-1.5 !text-xs ${
+                                                    DATE_STEPS[ps] === "datetime" ? "!w-[165px]" : "!w-[135px]"
+                                                  }`}
+                                                  value={
+                                                    DATE_STEPS[ps] === "datetime"
+                                                      ? (br.dates && br.dates[ps]) || ""
+                                                      : ((br.dates && br.dates[ps]) || "").slice(0, 10)
                                                   }
+                                                  onChange={(ev) => {
+                                                    const val = ev.target.value;
+                                                    if (INSPECTION_STEPS.has(ps) && val) {
+                                                      setSheet({
+                                                        kind: "inspection",
+                                                        branch: k,
+                                                        step: ps,
+                                                        initialDt: val,
+                                                      });
+                                                      return;
+                                                    }
+                                                    patchJob(id, {
+                                                      paperwork: { [k]: { dates: { [ps]: val } } },
+                                                    });
+                                                  }}
                                                   aria-label={ps + " date"}
                                                 />
                                               )}
-                                              <Toggle small on={on} label={ps} onChange={(v) => paperStep(k, ps, v)} />
+                                              <Toggle
+                                                small
+                                                on={on}
+                                                label={ps}
+                                                onChange={(v) => {
+                                                  if (v && !enabledItem) {
+                                                    enablePaper(k, ps);
+                                                    if (INSPECTION_STEPS.has(ps)) {
+                                                      setSheet({ kind: "inspection", branch: k, step: ps });
+                                                    }
+                                                  } else {
+                                                    paperStep(k, ps, v);
+                                                  }
+                                                }}
+                                              />
                                               <button
                                                 type="button"
                                                 className="btn-ghost !py-0.5 !px-1.5 text-slate-400"
@@ -700,7 +753,13 @@ export default function JobDetail() {
       {sheet?.kind === "reminder" && <ReminderSheet job={job} onClose={() => setSheet(null)} />}
       {sheet?.kind === "attach" && <AttachSheet job={job} onClose={() => setSheet(null)} />}
       {sheet?.kind === "inspection" && (
-        <InspectionSheet job={job} branch={sheet.branch} onClose={() => setSheet(null)} />
+        <InspectionSheet
+          job={job}
+          branch={sheet.branch}
+          step={sheet.step}
+          initialDt={sheet.initialDt}
+          onClose={() => setSheet(null)}
+        />
       )}
       <JobDocSheets sheet={sheet} setSheet={setSheet} job={job} onDocDone={() => setOpenStep(null)} />
     </div>

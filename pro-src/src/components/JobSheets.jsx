@@ -20,6 +20,7 @@ import {
   updatePayment,
 } from "../lib/payments.js";
 import { sortJobs } from "../lib/stages.js";
+import { DATE_STEPS } from "../lib/paperwork.js";
 
 export const PAY_METHODS = ["Cash", "Wells Fargo", "Martin Dorkin", "Zelle", "Barder", "Other"];
 
@@ -1065,36 +1066,72 @@ export function CombineSheet({ job, onClose }) {
   );
 }
 
-/* ---------- 6. Inspection scheduled (paperwork) ---------- */
-export function InspectionSheet({ job, branch, onClose }) {
-  const { patchJob, enqueue, showToast } = useStore();
-  const [dt, setDt] = useState("");
-  const confirm = () => {
+/* ---------- 6. Inspection scheduled / appointment (paperwork) ---------- */
+export function InspectionSheet({ job, branch, step = "Inspection scheduled", initialDt = "", onClose }) {
+  const { patchJob, enqueue, logSend, showToast } = useStore();
+  const [dt, setDt] = useState(initialDt || "");
+  const isConEd = step === "Inspection appointment";
+  const title = step;
+  const confirm = (withCalendar) => {
+    if (!dt) return showToast("Pick a date and time");
+    const dateVal = DATE_STEPS[step] === "datetime" ? dt : dt.slice(0, 10);
+    patchJob(job.id, { paperwork: { [branch]: { dates: { [step]: dateVal } } } });
+    if (withCalendar) {
+      enqueue(
+        "calendar_upsert",
+        job.id,
+        {
+          calEventId: job.calEventId || "",
+          summary: (isConEd ? "Con Ed inspection" : "Inspection") + " — " + (job.customer || ""),
+          start: dt,
+          location: job.address || "",
+          description: step + " from LE Pro",
+        },
+        "judgment",
+        "insp:" + job.id + ":" + dt
+      );
+      showToast("Inspection queued to calendar");
+    }
+    const email = (job.email || "").trim();
+    if (email) {
+      const when = dt.replace("T", " at ").slice(0, 16);
+      const msg = `Hi ${(job.customer || "").split(" ")[0] || "there"}, your ${
+        isConEd ? "Con Edison" : "city"
+      } inspection is scheduled for ${when}. Please reply if you have any questions. — BLZ Electric`;
+      enqueue(
+        "send_reminder",
+        job.id,
+        { email, invoiceNo: job.invoiceNo || "", message: msg },
+        "judgment",
+        "insp-mail:" + job.id + ":" + dt
+      );
+      logSend(job.id, "Inspection notice queued");
+      showToast(withCalendar ? "Calendar + customer email queued" : "Customer email queued");
+    } else if (!withCalendar) {
+      showToast("Date saved — add customer email to notify them");
+    }
     onClose();
-    if (!dt) return showToast("No date picked");
-    patchJob(job.id, { paperwork: { [branch]: { dates: { "Inspection scheduled": dt.slice(0, 10) } } } });
-    enqueue(
-      "calendar_upsert",
-      job.id,
-      {
-        calEventId: job.calEventId || "",
-        summary: "Inspection — " + (job.customer || ""),
-        start: dt,
-        location: job.address || "",
-        description: "Scheduled from LE Pro",
-      },
-      "judgment",
-      "insp:" + job.id + ":" + dt
-    );
-    showToast("Inspection queued to calendar");
   };
   return (
-    <Sheet title="Inspection scheduled" onClose={onClose}>
+    <Sheet title={title} onClose={onClose}>
       <Fld label="Date & time">
-        <input className="input" type="datetime-local" value={dt} onChange={(e) => setDt(e.target.value)} aria-label="Inspection date and time" />
+        <input
+          className="input"
+          type="datetime-local"
+          value={dt}
+          onChange={(e) => setDt(e.target.value)}
+          aria-label="Inspection date and time"
+        />
       </Fld>
-      <button className="btn-brand w-full" onClick={confirm}>Add to customer's calendar</button>
-      <button className="btn-ghost w-full mt-2" onClick={onClose}>Just record it</button>
+      <button className="btn-brand w-full" onClick={() => confirm(true)}>
+        Add to calendar &amp; email customer
+      </button>
+      <button className="btn-ghost w-full mt-2" onClick={() => confirm(false)}>
+        Email customer only
+      </button>
+      <button className="btn-ghost w-full mt-2" onClick={onClose}>
+        Cancel
+      </button>
     </Sheet>
   );
 }

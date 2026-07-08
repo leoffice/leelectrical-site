@@ -235,6 +235,7 @@ describe("6. progress — steps, paperwork branches, scheduled date", () => {
     expect(within(pane).getByText("Meter installation date")).toBeInTheDocument();
     // jobs.html DATE_STEPS: only these two sub-steps carry a date input
     expect(screen.getByLabelText("Meter installation date date")).toBeInTheDocument();
+    expect(screen.getByLabelText("Inspection appointment date")).toBeInTheDocument();
     expect(screen.queryByLabelText("POE scheduled date")).toBeNull();
 
     await user.click(within(pane).getByRole("switch", { name: "🏙️ DOB / City permit" }));
@@ -242,16 +243,17 @@ describe("6. progress — steps, paperwork branches, scheduled date", () => {
     // DOB list matches jobs.html: no "Application submitted" in the DOB branch
     expect(within(pane).getAllByText("Application submitted")).toHaveLength(1); // Con Ed only
     await user.click(within(pane).getByRole("switch", { name: "Inspection scheduled" }));
-    // toggling on prompts for date+time
     const dtIn = await screen.findByLabelText("Inspection date and time");
     fireEvent.change(dtIn, { target: { value: "2099-07-10T09:00" } });
-    await user.click(screen.getByText("Add to customer's calendar"));
+    await user.click(screen.getByText("Add to calendar & email customer"));
     await waitFor(() => expect(srv.enqueued("calendar_upsert")).toHaveLength(1));
     const cmd = srv.enqueued("calendar_upsert")[0];
     expect(cmd.lane).toBe("judgment");
     expect(cmd.idempotencyKey).toBe("insp:J-1:2099-07-10T09:00");
     expect(cmd.payload.summary).toBe("Inspection — Peretz Chein");
     expect(cmd.payload.start).toBe("2099-07-10T09:00");
+    await waitFor(() => expect(srv.enqueued("send_reminder")).toHaveLength(1));
+    expect(srv.enqueued("send_reminder")[0].payload.email).toBe("p@x.com");
   });
 
   it("Scheduled step's job-date input stages the date and enqueues calendar_upsert", async () => {

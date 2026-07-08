@@ -6,6 +6,7 @@ import { amountPaid, invoiceTotal, openBalance, paidPct } from "../lib/customers
 import { effectiveServiceAddress } from "../lib/customerSync.js";
 import { eventForJob } from "../lib/calendarLink.js";
 import { evStart, fmt$ } from "../lib/format.js";
+import { hasActivePaperwork, paperworkAwarenessLines } from "../lib/paperwork.js";
 import JobDocTabs from "./JobDocTabs.jsx";
 
 function LinkedAppointmentButton({ job, event, onLink }) {
@@ -63,6 +64,8 @@ export default function JobInfoCard({
   const balance = openBalance(job);
   const pct = paidPct(job);
   const svc = effectiveServiceAddress(job);
+  const paperLines = useMemo(() => paperworkAwarenessLines(job), [job]);
+  const showPaper = hasActivePaperwork(job);
 
   const rows = [
     ["Service address", svc],
@@ -83,10 +86,35 @@ export default function JobInfoCard({
           <div className="font-semibold text-sm text-slate-800 break-words lg:text-base">
             {job.title || (job.invoiceNo ? "Invoice #" + job.invoiceNo : "Job")}
           </div>
-          <div className="mt-1.5 flex gap-1.5 flex-wrap">
-            <StagePill job={job} />
+          <div className="mt-1.5 flex gap-1.5 flex-wrap items-center">
+            {showPaper ? (
+              paperLines.map(({ branchLabel, branchKey }) => (
+                <span
+                  key={branchKey}
+                  className="pill bg-slate-200 text-slate-700"
+                  data-testid={"paper-pill-" + branchKey}
+                >
+                  {branchLabel}
+                </span>
+              ))
+            ) : (
+              <StagePill job={job} />
+            )}
             <PaidPill job={job} />
           </div>
+          {showPaper ? (
+            <div className="mt-2 space-y-1" data-testid="paper-up-next">
+              {paperLines.map(({ branchKey, branchLabel, upNext }) => (
+                <div key={branchKey} className="text-xs text-slate-600 leading-snug">
+                  <span className="font-extrabold text-[10px] uppercase tracking-wider text-slate-500">
+                    Up next
+                  </span>
+                  <span className="text-slate-400"> · </span>
+                  <span className="font-semibold text-slate-700">{branchLabel}:</span> {upNext}
+                </div>
+              ))}
+            </div>
+          ) : null}
         </div>
         <AmountDisplay job={job} size="sm" />
       </div>

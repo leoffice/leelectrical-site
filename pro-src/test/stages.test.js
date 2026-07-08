@@ -106,10 +106,11 @@ describe("paperwork branch definitions (exact app/jobs.html lists — the author
   it("has exactly the two saved-data branch keys coned + dob", () => {
     expect(Object.keys(PAPER)).toEqual(["coned", "dob"]);
   });
-  it("Con Ed matches jobs.html CONED_STEPS (7 sub-steps, exact order)", () => {
+  it("Con Ed includes Inspection appointment after Final checklist", () => {
     expect(PAPER.coned.steps).toEqual([
       "Application submitted", "POE scheduled", "Uploaded paperwork complete",
-      "New accounts activated", "Interim checklist", "Final checklist", "Meter installation date",
+      "New accounts activated", "Interim checklist", "Final checklist",
+      "Inspection appointment", "Meter installation date",
     ]);
   });
   it("DOB / City permit matches jobs.html DOB_STEPS (5 sub-steps — no 'Application submitted')", () => {
@@ -119,7 +120,11 @@ describe("paperwork branch definitions (exact app/jobs.html lists — the author
     ]);
   });
   it("date fields match jobs.html DATE_STEPS exactly (nothing else is dated)", () => {
-    expect(DATE_STEPS).toEqual({ "Inspection scheduled": "datetime", "Meter installation date": "date" });
+    expect(DATE_STEPS).toEqual({
+      "Inspection scheduled": "datetime",
+      "Inspection appointment": "datetime",
+      "Meter installation date": "date",
+    });
     expect(isDatedStep("Inspection scheduled")).toBe(true);
     expect(isDatedStep("Meter installation date")).toBe(true);
     expect(isDatedStep("POE scheduled")).toBe(false); // sleek's regex wrongly dated this
