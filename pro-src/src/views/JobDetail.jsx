@@ -29,14 +29,11 @@ import { customerContact } from "../lib/customers.js";
 import Toggle from "../components/Toggle.jsx";
 import Jobs from "./Jobs.jsx";
 import AppointmentLinkSheet from "../components/AppointmentLinkSheet.jsx";
-import DocBuilderSheet from "../components/DocBuilderSheet.jsx";
-import InvoiceCreateSheet, { ProgressPctSheet } from "../components/InvoiceCreateSheet.jsx";
+import JobDocSheets, { openDocTab } from "../components/JobDocSheets.jsx";
 import {
   AttachSheet,
-  CalSheet,
   CombineSheet,
   CustEditSheet,
-  DocSheet,
   InspectionSheet,
   MarkPaidSheet,
   MenuSheet,
@@ -209,26 +206,13 @@ export default function JobDetail() {
       <JobInfoCard
         job={job}
         events={events}
+        commands={commands}
         showOpenLink={false}
         onLinkAppt={() => setSheet({ kind: "apptLink" })}
+        onEstimate={() => openDocTab(job, "estimate", setSheet)}
+        onInvoice={() => openDocTab(job, "invoice", setSheet)}
+        onCalendar={() => openDocTab(job, "calendar", setSheet)}
       />
-
-      {/* Quick views */}
-      <div className="flex gap-2">
-        {job.invoiceNo && (
-          <button className="btn-ghost flex-1 !py-2" onClick={() => setSheet({ kind: "doc", doc: "invoice" })}>
-            🧾 Invoice {job.invoiceNo}
-          </button>
-        )}
-        {job.estimateNo && (
-          <button className="btn-ghost flex-1 !py-2" onClick={() => setSheet({ kind: "doc", doc: "estimate" })}>
-            📝 Estimate {job.estimateNo}
-          </button>
-        )}
-        <button className="btn-ghost flex-1 !py-2" onClick={() => setSheet({ kind: "cal" })}>
-          📅 Calendar
-        </button>
-      </div>
 
       {/* Money */}
       {!job.paid ? (
@@ -660,55 +644,14 @@ export default function JobDetail() {
       {sheet?.kind === "paid" && <MarkPaidSheet job={job} onClose={() => setSheet(null)} />}
       {sheet?.kind === "paylink" && <PaymentLinkSheet job={job} onClose={() => setSheet(null)} />}
       {sheet?.kind === "cust" && <CustEditSheet job={job} onClose={() => setSheet(null)} />}
-      {sheet?.kind === "doc" && <DocSheet job={job} kind={sheet.doc} onClose={() => setSheet(null)} />}
-      {sheet?.kind === "cal" && <CalSheet job={job} onClose={() => setSheet(null)} />}
+
       {sheet?.kind === "apptLink" && <AppointmentLinkSheet job={job} onClose={() => setSheet(null)} />}
       {sheet?.kind === "reminder" && <ReminderSheet job={job} onClose={() => setSheet(null)} />}
       {sheet?.kind === "attach" && <AttachSheet job={job} onClose={() => setSheet(null)} />}
       {sheet?.kind === "inspection" && (
         <InspectionSheet job={job} branch={sheet.branch} onClose={() => setSheet(null)} />
       )}
-      {sheet?.kind === "invoiceCreate" && (
-        <InvoiceCreateSheet
-          job={job}
-          onClose={() => setSheet(null)}
-          onPick={({ mode }) => {
-            if (mode === "from_estimate") {
-              setSheet({
-                kind: "progressPct",
-                title: "Invoice from estimate",
-                hint: "What percentage of the estimate should this invoice bill?",
-                next: { kind: "docBuild", docKind: "invoice", mode: "from_estimate" },
-              });
-            } else {
-              setSheet({ kind: "docBuild", docKind: "invoice", mode: "new" });
-            }
-          }}
-        />
-      )}
-      {sheet?.kind === "progressPct" && (
-        <ProgressPctSheet
-          title={sheet.title}
-          hint={sheet.hint}
-          onClose={() => setSheet(null)}
-          onConfirm={(pct) =>
-            setSheet({
-              ...sheet.next,
-              progressPct: pct,
-            })
-          }
-        />
-      )}
-      {sheet?.kind === "docBuild" && (
-        <DocBuilderSheet
-          job={job}
-          kind={sheet.docKind}
-          mode={sheet.mode || "create"}
-          progressPct={sheet.progressPct}
-          onClose={() => setSheet(null)}
-          onDone={() => setOpenStep(null)}
-        />
-      )}
+      <JobDocSheets sheet={sheet} setSheet={setSheet} job={job} onDocDone={() => setOpenStep(null)} />
     </div>
   );
 

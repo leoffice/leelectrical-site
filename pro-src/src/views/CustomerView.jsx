@@ -7,6 +7,7 @@ import { useStore } from "../state/store.jsx";
 import CustomerCard from "../components/CustomerCard.jsx";
 import JobInfoCard from "../components/JobInfoCard.jsx";
 import AppointmentLinkSheet from "../components/AppointmentLinkSheet.jsx";
+import JobDocSheets, { openDocTab } from "../components/JobDocSheets.jsx";
 import { CustEditSheet } from "../components/JobSheets.jsx";
 import { customerSyncPayload } from "../lib/customerSync.js";
 import { sortJobs } from "../lib/stages.js";
@@ -19,7 +20,7 @@ import {
 export default function CustomerView() {
   const { key: raw } = useParams();
   const nav = useNavigate();
-  const { jobs, loading, events, enqueue, showToast } = useStore();
+  const { jobs, loading, events, commands, enqueue, showToast } = useStore();
   const key = raw ? decodeURIComponent(raw) : "";
   const [sheet, setSheet] = useState(null); // { kind, job? }
 
@@ -44,6 +45,10 @@ export default function CustomerView() {
       </div>
     );
   }
+
+  const openDocFor = (j, kind) => {
+    openDocTab(j, kind, (s) => setSheet({ ...s, job: j }));
+  };
 
   const custSync = () => {
     if (!primaryJob) return;
@@ -80,8 +85,12 @@ export default function CustomerView() {
             key={j.id}
             job={j}
             events={events}
+            commands={commands}
             onOpen={() => nav("/job/" + j.id + "?from=" + encodeURIComponent(key))}
             onLinkAppt={() => setSheet({ kind: "apptLink", job: j })}
+            onEstimate={() => openDocFor(j, "estimate")}
+            onInvoice={() => openDocFor(j, "invoice")}
+            onCalendar={() => openDocFor(j, "calendar")}
           />
         ))}
       </div>
@@ -92,6 +101,12 @@ export default function CustomerView() {
       {sheet?.kind === "apptLink" && sheet.job ? (
         <AppointmentLinkSheet job={sheet.job} onClose={() => setSheet(null)} />
       ) : null}
+      <JobDocSheets
+        sheet={sheet?.job ? sheet : null}
+        setSheet={setSheet}
+        job={sheet?.job}
+        onDocDone={() => setSheet(null)}
+      />
     </div>
   );
 }

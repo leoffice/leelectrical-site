@@ -60,9 +60,11 @@ export function StoreProvider({ children }) {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
   const [toast, setToastMsg] = useState("");
+  const [docConfirm, setDocConfirm] = useState(null); // {kind,no,amount,customer}
   const [newJob, setNewJob] = useState(null); // {step:"choose"|"cal"|"cal-lead"|"form", prefill}
   const [leaveReq, setLeaveReq] = useState(null); // {cb}
   const toastT = useRef(null);
+  const docConfirmT = useRef(null);
   const pendingRef = useRef(pending);
   pendingRef.current = pending;
 
@@ -70,6 +72,12 @@ export function StoreProvider({ children }) {
     setToastMsg(msg);
     clearTimeout(toastT.current);
     toastT.current = setTimeout(() => setToastMsg(""), 2600);
+  }, []);
+
+  const showDocConfirm = useCallback((info) => {
+    setDocConfirm(info);
+    clearTimeout(docConfirmT.current);
+    docConfirmT.current = setTimeout(() => setDocConfirm(null), 5000);
   }, []);
 
   /* ---------- crash-safe draft + beforeunload guard ---------- */
@@ -562,6 +570,8 @@ export function StoreProvider({ children }) {
     saving,
     error,
     toast,
+    docConfirm,
+    showDocConfirm,
     newJob,
     setNewJob,
     leaveReq,

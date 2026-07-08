@@ -16,6 +16,8 @@ import SaveBar from "./components/SaveBar.jsx";
 import SyncChip from "./components/SyncChip.jsx";
 import ChatBubble from "./components/ChatBubble.jsx";
 import ApprovalWatcher from "./components/ApprovalWatcher.jsx";
+import DocConfirmWatcher from "./components/DocConfirmWatcher.jsx";
+import { docConfirmMessage } from "./lib/docConfirm.js";
 import NewJobFlow from "./components/NewJobFlow.jsx";
 import Sheet, { Opt } from "./components/Sheet.jsx";
 import { appointmentContextFromRoute } from "./lib/appointmentContext.js";
@@ -105,7 +107,7 @@ function LeaveSheet() {
 }
 
 export default function App() {
-  const { toast, error, setNewJob, refresh, dirtyCount, effectiveJob, jobs } = useStore();
+  const { toast, docConfirm, error, setNewJob, refresh, dirtyCount, effectiveJob, jobs } = useStore();
   const loc = useLocation();
   const inDetail = loc.pathname.startsWith("/job/");
   const inCustomer = loc.pathname.startsWith("/customer/");
@@ -191,6 +193,7 @@ export default function App() {
         <ChatBubble />
         <NewJobFlow />
         <ApprovalWatcher />
+        <DocConfirmWatcher />
         <LeaveSheet />
 
         {/* Mobile bottom tab nav */}
@@ -202,6 +205,14 @@ export default function App() {
           </div>
         </nav>
 
+        {docConfirm && (
+          <div
+            className="fixed top-16 lg:top-4 left-1/2 -translate-x-1/2 z-[70] bg-emerald-600 text-white text-sm font-semibold px-5 py-3 rounded-2xl shadow-xl max-w-[92vw] text-center"
+            data-testid="doc-confirm-banner"
+          >
+            ✓ {docConfirmMessage(docConfirm)}
+          </div>
+        )}
         {toast && (
           <div className="fixed bottom-24 lg:bottom-8 left-1/2 -translate-x-1/2 z-[70] bg-slate-900 text-white text-sm font-medium px-4 py-2.5 rounded-full shadow-lg max-w-[86vw] text-center" data-testid="toast">
             {toast}

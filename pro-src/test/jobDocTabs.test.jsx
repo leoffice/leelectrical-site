@@ -1,0 +1,52 @@
+// @vitest-environment jsdom
+import React from "react";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { screen, within } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
+import "@testing-library/jest-dom/vitest";
+import { J1, mockServer, renderApp } from "./helpers.jsx";
+import { docConfirmMessage, parseDocCommandResult } from "../src/lib/docConfirm.js";
+
+afterEach(() => {
+  vi.unstubAllGlobals();
+  localStorage.clear();
+  window.location.hash = "#/";
+});
+
+describe("Task 63 — invoice/estimate tabs", () => {
+  it("gray estimate tab opens create; colored invoice opens doc sheet", async () => {
+    mockServer({ jobs: [{ ...JSON.parse(JSON.stringify(J1)), estimateNo: "", invoiceNo: "251841" }] });
+    const user = userEvent.setup();
+    renderApp("#/job/J-1");
+    const pane = await screen.findByTestId("detail-pane");
+    const tabs = within(pane).getByTestId("job-doc-tabs");
+
+    await user.click(within(tabs).getByTestId("tab-estimate"));
+    expect(await screen.findByText(/Generate estimate/)).toBeInTheDocument();
+    await user.click(screen.getByLabelText("Close"));
+
+    await user.click(within(tabs).getByTestId("tab-invoice"));
+    expect(await screen.findByText("Invoice 251841")).toBeInTheDocument();
+  });
+
+  it("existing estimate tab offers convert to invoice", async () => {
+    mockServer({
+      jobs: [{ ...JSON.parse(JSON.stringify(J1)), estimateNo: "E-99", invoiceNo: "" }],
+    });
+    const user = userEvent.setup();
+    renderApp("#/job/J-1");
+    const pane = await screen.findByTestId("detail-pane");
+    await user.click(within(pane).getByTestId("tab-estimate"));
+    expect(await screen.findByText("Convert to invoice")).toBeInTheDocument();
+  });
+});
+
+describe("docConfirm", () => {
+  it("parses QBO result and builds message", () => {
+    const p = parseDocCommandResult(JSON.stringify({ invoiceNo: "251900", total: 2300 }), "invoice");
+    expect(p.invoiceNo).toBe("251900");
+    expect(docConfirmMessage({ kind: "invoice", no: "251900", amount: "$2,300", customer: "Peretz" })).toContain(
+      "Invoice #251900"
+    );
+  });
+});

@@ -5,8 +5,8 @@ import { PaidPill, StagePill } from "./JobCard.jsx";
 import { amountPaid, invoiceTotal, openBalance, paidPct } from "../lib/customers.js";
 import { effectiveServiceAddress, serviceAddressLabel } from "../lib/customerSync.js";
 import { eventForJob } from "../lib/calendarLink.js";
-import { evStart } from "../lib/format.js";
-import { fmt$ } from "../lib/format.js";
+import { evStart, fmt$ } from "../lib/format.js";
+import JobDocTabs from "./JobDocTabs.jsx";
 
 function LinkedAppointmentButton({ job, event, onLink }) {
   if (job.calEventId && event) {
@@ -46,7 +46,17 @@ function LinkedAppointmentButton({ job, event, onLink }) {
   );
 }
 
-export default function JobInfoCard({ job, events, onOpen, onLinkAppt, showOpenLink = true }) {
+export default function JobInfoCard({
+  job,
+  events,
+  commands,
+  onOpen,
+  onLinkAppt,
+  onEstimate,
+  onInvoice,
+  onCalendar,
+  showOpenLink = true,
+}) {
   const event = useMemo(() => eventForJob(job, events), [job, events]);
   const total = invoiceTotal(job);
   const paid = amountPaid(job);
@@ -96,6 +106,16 @@ export default function JobInfoCard({ job, events, onOpen, onLinkAppt, showOpenL
         <div className="text-[11px] font-extrabold text-slate-500 uppercase tracking-wider px-0.5">Linked appointment</div>
         <LinkedAppointmentButton job={job} event={event} onLink={onLinkAppt} />
       </div>
+
+      {onEstimate && onInvoice && onCalendar ? (
+        <JobDocTabs
+          job={job}
+          commands={commands}
+          onEstimate={onEstimate}
+          onInvoice={onInvoice}
+          onCalendar={onCalendar}
+        />
+      ) : null}
 
       {showOpenLink && onOpen ? (
         <button
