@@ -103,9 +103,11 @@ describe("bug 2 — near-duplicate combine prompt", () => {
     renderApp("#/");
     const prompt = await screen.findByTestId("merge-prompt");
     expect(prompt).toHaveTextContent("Same customer?");
-    expect(prompt).toHaveTextContent(/Combine “Arthur koptiv” and “Arthur Koptive” — their jobs will group together/);
+    expect(prompt).toHaveTextContent(/look like the same person/);
+    expect(within(prompt).getByTestId("merge-compare-btn")).toBeInTheDocument();
+    expect(within(prompt).getByTestId("merge-different-btn")).toBeInTheDocument();
 
-    await user.click(within(prompt).getByText("Combine"));
+    await user.click(within(prompt).getByTestId("merge-combine-btn"));
     await waitFor(() => {
       expect(srv.state.ov["AK-1"]?.clientGroup).toBeTruthy();
       expect(srv.state.ov["AK-2"]?.clientGroup).toBe(srv.state.ov["AK-1"].clientGroup);
@@ -118,12 +120,12 @@ describe("bug 2 — near-duplicate combine prompt", () => {
     expect(within(grp).getByTestId("client-group-amount")).toHaveTextContent("$300");
   });
 
-  it("'Not the same' dismisses permanently (lepro_nomerge) — never re-asks", async () => {
+  it("'Different customers' dismisses permanently (lepro_nomerge) — never re-asks", async () => {
     mockServer({ jobs: koptivs() });
     const user = userEvent.setup();
     const first = renderApp("#/");
     const prompt = await screen.findByTestId("merge-prompt");
-    await user.click(within(prompt).getByText("Not the same"));
+    await user.click(within(prompt).getByTestId("merge-different-btn"));
     expect(screen.queryByTestId("merge-prompt")).not.toBeInTheDocument();
     expect(JSON.parse(localStorage.getItem("lepro_nomerge"))).toEqual(["arthur koptiv|arthur koptive"]);
 
@@ -139,6 +141,40 @@ describe("bug 2 — near-duplicate combine prompt", () => {
     renderApp("#/");
     await screen.findByText("Peretz Chein");
     expect(screen.queryByTestId("merge-prompt")).not.toBeInTheDocument();
+  });
+
+  it("Compare opens side-by-side profiles with contact info and jobs", async () => {
+    mockServer({
+      jobs: [
+        job("AK-1", "Arthur koptiv", "Meter bank", "$100", {
+          phone: "718-111-2222",
+          email: "a@koptiv.com",
+          billingAddress: "10 Main St",
+          serviceAddress: "20 Oak Ave",
+        }),
+        job("AK-2", "Arthur Koptive", "Riser repair", "$200", {
+          phone: "718-999-8888",
+          email: "arthur@other.com",
+          billingAddress: "99 Pine Rd",
+          serviceAddress: "55 Elm St",
+        }),
+      ],
+    });
+    const user = userEvent.setup();
+    renderApp("#/");
+    const prompt = await screen.findByTestId("merge-prompt");
+    await user.click(within(prompt).getByTestId("merge-compare-btn"));
+
+    const compare = await screen.findByTestId("merge-compare");
+    expect(compare).toBeInTheDocument();
+    const cols = within(compare).getAllByTestId("merge-compare-col");
+    expect(cols).toHaveLength(2);
+    expect(within(cols[0]).getAllByText("Arthur koptiv").length).toBeGreaterThan(0);
+    expect(within(cols[0]).getByText(/718-111-2222/)).toBeInTheDocument();
+    expect(within(cols[0]).getByText(/Meter bank/)).toBeInTheDocument();
+    expect(within(cols[1]).getAllByText("Arthur Koptive").length).toBeGreaterThan(0);
+    expect(within(cols[1]).getByText(/55 Elm St/)).toBeInTheDocument();
+    expect(screen.getByTestId("merge-compare-different")).toBeInTheDocument();
   });
 });
 

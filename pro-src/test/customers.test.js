@@ -4,6 +4,7 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import {
   clientKey,
+  customerProfileFromJobs,
   dismissPair,
   findMergeSuggestion,
   isDismissed,
@@ -75,6 +76,43 @@ describe("dismissal memory (lepro_nomerge)", () => {
     expect(JSON.parse(localStorage.getItem("lepro_nomerge"))).toEqual(["arthur koptiv|arthur koptive"]);
     dismissPair("Arthur Koptive", "Arthur koptiv"); // no dupes
     expect(JSON.parse(localStorage.getItem("lepro_nomerge"))).toHaveLength(1);
+  });
+});
+
+describe("customerProfileFromJobs", () => {
+  it("aggregates contact fields and job lines from a customer's jobs", () => {
+    const p = customerProfileFromJobs(
+      [
+        {
+          id: "1",
+          customer: "Arthur koptiv",
+          businessName: "Arthur koptiv",
+          personName: "Art",
+          phone: "718-111-2222",
+          email: "a@k.com",
+          billingAddress: "10 Main",
+          serviceAddress: "20 Oak",
+          title: "Meter bank",
+          amount: "$100",
+        },
+        {
+          id: "2",
+          customer: "Arthur koptiv",
+          title: "Riser",
+          invoiceNo: "251900",
+          amount: "$200",
+          serviceAddress: "30 Pine",
+        },
+      ],
+      "Arthur koptiv"
+    );
+    expect(p.name).toBe("Arthur koptiv");
+    expect(p.personName).toBe("Art");
+    expect(p.phone).toBe("718-111-2222");
+    expect(p.jobCount).toBe(2);
+    expect(p.jobLines).toHaveLength(2);
+    expect(p.jobLines[1]).toContain("251900");
+    expect(p.serviceAddresses).toEqual(["20 Oak", "30 Pine"]);
   });
 });
 

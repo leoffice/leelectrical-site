@@ -383,6 +383,41 @@ export function unknownCustomers(list, jobs) {
   });
 }
 
+/** Aggregate contact + job summary from a customer's job list (merge compare). */
+export function customerProfileFromJobs(jobs, displayName) {
+  const list = (jobs || []).filter((j) => j && !j._archived && !j._deleted);
+  const pick = (field) => {
+    const vals = list.map((j) => String(j[field] || "").trim()).filter(Boolean);
+    return vals[0] || "";
+  };
+  const serviceAddresses = [
+    ...new Set(list.map((j) => String(j.serviceAddress || j.address || "").trim()).filter(Boolean)),
+  ];
+  const jobLines = list.map((j) => {
+    const parts = [];
+    if (j.invoiceNo) parts.push("Inv #" + j.invoiceNo);
+    else if (j.estimateNo) parts.push("Est #" + j.estimateNo);
+    if (j.title) parts.push(j.title);
+    const due = fmtAmountDue(j);
+    if (due && due !== "Paid") parts.push(due);
+    else if (j.amount) parts.push(String(j.amount));
+    return parts.join(" · ") || j.id;
+  });
+  return {
+    name: displayName || pick("businessName") || pick("customer") || "(no name)",
+    businessName: pick("businessName") || pick("customer"),
+    personName: pick("personName"),
+    phone: pick("phone"),
+    email: pick("email"),
+    billingAddress: pick("billingAddress"),
+    qboCustomerId: pick("qboCustomerId"),
+    serviceAddresses,
+    jobLines,
+    jobCount: list.length,
+    totalDue: totalBalanceDue(list),
+  };
+}
+
 /** Jobs list label — business name with person name when they differ (QBO profiles). */
 export function boardCustomerLabel(job, jobs) {
   const j = job || {};

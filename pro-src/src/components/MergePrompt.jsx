@@ -1,15 +1,86 @@
 // "Same customer?" bottom sheet (bug #2). After jobs load, offers to combine
-// near-duplicate customer names — one prompt at a time. Combine sets a shared
-// clientGroup on all their jobs (stage + save via the adapter, like sleek's
-// doCombine); "Not the same" is remembered permanently in lepro_nomerge.
+// near-duplicate customer names — one prompt at a time. Compare shows full
+// profiles side by side; Combine sets a shared clientGroup; "Different customers"
+// is remembered permanently in lepro_nomerge.
 import React, { useMemo, useState } from "react";
 import { useStore } from "../state/store.jsx";
-import { dismissPair, findMergeSuggestion } from "../lib/customers.js";
+import Sheet, { Opt } from "./Sheet.jsx";
+import { customerProfileFromJobs, dismissPair, findMergeSuggestion } from "../lib/customers.js";
+import { fmt$ } from "../lib/format.js";
+
+function ProfileColumn({ profile }) {
+  const rows = [
+    ["Business name", profile.businessName],
+    profile.personName ? ["Contact person", profile.personName] : null,
+    ["Phone", profile.phone],
+    ["Email", profile.email],
+    ["Billing address", profile.billingAddress],
+    profile.qboCustomerId ? ["QuickBooks ID", profile.qboCustomerId] : null,
+    profile.serviceAddresses.length
+      ? ["Service address" + (profile.serviceAddresses.length > 1 ? "es" : ""), profile.serviceAddresses.join("\n")]
+      : null,
+    [profile.jobCount === 1 ? "Job" : "Jobs (" + profile.jobCount + ")", profile.jobLines.join("\n")],
+    profile.totalDue > 0 ? ["Balance due", fmt$(profile.totalDue)] : null,
+  ].filter(Boolean);
+
+  return (
+    <div className="min-w-0 flex-1 border border-slate-200 rounded-2xl bg-slate-50/80 overflow-hidden" data-testid="merge-compare-col">
+      <div className="px-3 py-2.5 bg-white border-b border-slate-200">
+        <div className="font-bold text-sm text-slate-900 break-words">{profile.name}</div>
+        <div className="text-[11px] text-slate-500 mt-0.5">
+          {profile.jobCount} job{profile.jobCount === 1 ? "" : "s"}
+          {profile.totalDue > 0 ? " · " + fmt$(profile.totalDue) + " due" : ""}
+        </div>
+      </div>
+      <dl className="px-3 py-2.5 space-y-2.5 text-xs">
+        {rows.map(([label, value]) => (
+          <div key={label}>
+            <dt className="font-bold text-slate-500 uppercase tracking-wide text-[10px]">{label}</dt>
+            <dd className="text-slate-800 mt-0.5 whitespace-pre-wrap break-words">{value || "—"}</dd>
+          </div>
+        ))}
+      </dl>
+    </div>
+  );
+}
+
+function CompareSheet({ sug, busy, onClose, onCombine, onDifferent }) {
+  const left = useMemo(() => customerProfileFromJobs(sug.a.jobs, sug.a.name), [sug]);
+  const right = useMemo(() => customerProfileFromJobs(sug.b.jobs, sug.b.name), [sug]);
+
+  return (
+    <Sheet title="Compare customers" onClose={onClose} wide tall>
+      <p className="text-sm text-slate-600 mb-3">
+        Review contact info, addresses, and jobs for both names before you decide.
+      </p>
+      <div className="flex flex-col sm:flex-row gap-3 mb-4" data-testid="merge-compare">
+        <ProfileColumn profile={left} />
+        <ProfileColumn profile={right} />
+      </div>
+      <Opt
+        icon="🔗"
+        title="Combine — same customer"
+        note={"Group all " + (sug.a.jobs.length + sug.b.jobs.length) + " jobs under one row on the Jobs list"}
+        onClick={onCombine}
+        disabled={busy}
+        data-testid="merge-compare-combine"
+      />
+      <Opt
+        icon="✋"
+        title="Different customers"
+        note="Keep them separate — won't ask about this pair again"
+        onClick={onDifferent}
+        data-testid="merge-compare-different"
+      />
+    </Sheet>
+  );
+}
 
 export default function MergePrompt() {
   const { jobs, loading, patchAndSave, showToast } = useStore();
-  const [tick, setTick] = useState(0); // re-check after a dismissal
+  const [tick, setTick] = useState(0);
   const [busy, setBusy] = useState(false);
+  const [mode, setMode] = useState("prompt");
 
   const sug = useMemo(
     () => (loading ? null : findMergeSuggestion(jobs)),
@@ -24,14 +95,28 @@ export default function MergePrompt() {
     const grp = all.map((j) => j.clientGroup).find(Boolean) || "grp" + Date.now();
     for (const j of all) await patchAndSave(j.id, { clientGroup: grp });
     setBusy(false);
+    setMode("prompt");
     showToast("Jobs grouped under one client");
   };
 
-  const notSame = () => {
+  const different = () => {
     dismissPair(sug.a.name, sug.b.name);
+    setMode("prompt");
     setTick((t) => t + 1);
-    showToast("Got it — won't ask about these two again");
+    showToast("Got it — keeping them as different customers");
   };
+
+  if (mode === "compare") {
+    return (
+      <CompareSheet
+        sug={sug}
+        busy={busy}
+        onClose={() => setMode("prompt")}
+        onCombine={combine}
+        onDifferent={different}
+      />
+    );
+  }
 
   return (
     <div
@@ -42,21 +127,42 @@ export default function MergePrompt() {
     >
       <div className="font-bold text-slate-900 text-sm">Same customer?</div>
       <p className="text-sm text-slate-600 mt-1">
-        Combine “{sug.a.name}” and “{sug.b.name}” — their jobs will group together.
+        “{sug.a.name}” and “{sug.b.name}” look like the same person — pick what fits.
       </p>
-      <div className="mt-2.5 flex gap-2">
+      <div className="mt-2.5 space-y-2">
         <button
-          className="flex-1 text-sm font-bold text-white bg-brand rounded-xl py-2 disabled:opacity-60"
-          onClick={combine}
-          disabled={busy}
+          type="button"
+          className="w-full text-left border border-slate-200 bg-white rounded-xl px-3 py-2.5 active:bg-slate-50"
+          onClick={() => setMode("compare")}
+          data-testid="merge-compare-btn"
         >
-          Combine
+          <span className="block text-sm font-bold text-slate-900">Compare side by side</span>
+          <span className="block text-xs text-slate-500 mt-0.5">
+            Full contact info, addresses, and jobs for both names
+          </span>
         </button>
         <button
-          className="flex-1 text-sm font-bold text-slate-600 bg-white border border-slate-200 rounded-xl py-2"
-          onClick={notSame}
+          type="button"
+          className="w-full text-left border border-brand/30 bg-brand rounded-xl px-3 py-2.5 text-white disabled:opacity-60 active:opacity-90"
+          onClick={combine}
+          disabled={busy}
+          data-testid="merge-combine-btn"
         >
-          Not the same
+          <span className="block text-sm font-bold">Combine — same customer</span>
+          <span className="block text-xs text-white/85 mt-0.5">
+            Group all jobs under one row on the Jobs list
+          </span>
+        </button>
+        <button
+          type="button"
+          className="w-full text-left border border-slate-200 bg-white rounded-xl px-3 py-2.5 active:bg-slate-50"
+          onClick={different}
+          data-testid="merge-different-btn"
+        >
+          <span className="block text-sm font-bold text-slate-900">Different customers</span>
+          <span className="block text-xs text-slate-500 mt-0.5">
+            Keep separate — won't ask about this pair again
+          </span>
         </button>
       </div>
     </div>
