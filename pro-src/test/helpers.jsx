@@ -213,6 +213,12 @@ export function mockServer(opts = {}) {
             model: "mock",
           };
         }
+      } else if (path === "address-suggest") {
+        const m = String(url).match(/[?&]q=([^&]*)/);
+        const query = m ? decodeURIComponent(m[1]).toLowerCase() : "";
+        const map = opts.addressSuggestions || {};
+        const hit = Object.entries(map).find(([k]) => query.includes(k));
+        data = { suggestions: hit ? hit[1] : [], source: hit ? "places" : "none" };
       } else if (path === "iterate") data = { ok: true };
       return { ok: true, status: 200, json: async () => data };
     })

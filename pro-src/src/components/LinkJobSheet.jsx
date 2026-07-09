@@ -1,7 +1,7 @@
 // Pick customer → job (or create new) → confirm → save & sync link.
 import React, { useMemo, useState } from "react";
 import Sheet, { Opt } from "./Sheet.jsx";
-import { prefillFromEvent } from "./NewJobFlow.jsx";
+import { prefillFromEvent } from "../lib/prefillFromEvent.js";
 import { useStore } from "../state/store.jsx";
 import { fmtAmountDue, totalBalanceDue } from "../lib/customers.js";
 import { applyAppointmentJobLink, customerJobGroups } from "../lib/calendarLink.js";

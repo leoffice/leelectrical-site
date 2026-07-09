@@ -219,6 +219,18 @@ export function createNetlifyAdapter() {
       }
     },
 
+    /** Google Places-style address completions (needs GOOGLE_PLACES_API_KEY on Netlify). */
+    async suggestAddresses(q) {
+      try {
+        const query = String(q || "").trim();
+        if (query.length < 3) return [];
+        const d = await http(`address-suggest?q=${encodeURIComponent(query)}&${cb()}`);
+        return Array.isArray(d && d.suggestions) ? d.suggestions : [];
+      } catch {
+        return [];
+      }
+    },
+
     async listEventsMeta() {
       const d = await http(`calendar?${cb()}`);
       return { events: d.events || [], syncedAt: d.syncedAt || 0, request: d.request || 0 };

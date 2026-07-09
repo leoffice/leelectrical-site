@@ -4,7 +4,7 @@ import { useNavigate } from "react-router-dom";
 import Sheet from "./Sheet.jsx";
 import EditAppointmentSheet from "./EditAppointmentSheet.jsx";
 import LinkJobSheet from "./LinkJobSheet.jsx";
-import { prefillFromEvent } from "./NewJobFlow.jsx";
+import { prefillFromEvent } from "../lib/prefillFromEvent.js";
 import { useStore } from "../state/store.jsx";
 import { evStart } from "../lib/format.js";
 import { displayEventNotes, linkedJobForEvent, unlinkAppointmentJob } from "../lib/calendarLink.js";
@@ -164,13 +164,23 @@ export default function AppointmentDetailSheet({ event, onClose }) {
 
       <button
         type="button"
-        className="btn-brand w-full"
+        className="btn-brand w-full mb-2"
         onClick={() => {
           onClose();
           setNewJob({ step: "form", prefill: prefillFromEvent(liveEvent) });
         }}
       >
         ＋ Create job from appointment
+      </button>
+      <button
+        type="button"
+        className="btn bg-slate-100 text-slate-800 w-full"
+        onClick={() => {
+          onClose();
+          setNewJob({ step: "newCustomer", prefill: prefillFromEvent(liveEvent) });
+        }}
+      >
+        ＋ Create customer from appointment
       </button>
     </Sheet>
   );

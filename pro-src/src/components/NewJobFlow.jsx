@@ -31,46 +31,10 @@ import {
   resolveAddCustomerAction,
   snapshotCustomerForm,
 } from "../lib/addCustomerFlow.js";
+import { prefillFromEvent } from "../lib/prefillFromEvent.js";
+import AddressAutocompleteField, { AddressSuggestionList } from "./AddressAutocompleteField.jsx";
 
-/** Prefill parser — enhanced for combined Calendar→Job autofill (#58). */
-export function prefillFromEvent(e) {
-  const desc = e.description || "";
-  const pick = (re) => {
-    const m = desc.match(re);
-    return m ? m[1].trim() : "";
-  };
-
-  const aptMatch = desc.match(/\b(?:apt\.?|apartment|unit|suite|#)\s*#?\s*([A-Za-z0-9][A-Za-z0-9-]{0,8})\b/i);
-  const apartment = aptMatch ? aptMatch[1].trim() : "";
-
-  let description = desc;
-  if (apartment && aptMatch) {
-    description = desc.replace(aptMatch[0], "").replace(/\s{2,}/g, " ").trim();
-    description = description.replace(/^[,\-–—:\s]+/, "").trim();
-  }
-
-  let customer =
-    (e.summary || "").replace(/(service call|estimate|install.*?)[—\-:]/i, "").trim() || e.summary || "";
-  const custMatch = desc.match(/\bcustomer\s+([A-Za-z][A-Za-z .,'-]{1,30}?(?=\s+(?:apt|apartment|unit|suite|phone|tel|cell|email|rear|call|on|\d)|$|[,.]))/i);
-  if (custMatch) {
-    customer = custMatch[1].trim().replace(/[,.;]$/, "");
-  }
-
-  const title = e.summary || "";
-
-  return {
-    customer,
-    businessName: customer,
-    title,
-    address: e.location || "",
-    phone: pick(/(?:phone|tel|cell)[:\s]+([\d\-\+\(\) ]{7,})/i),
-    email: pick(/([\w.+-]+@[\w-]+\.[\w.]+)/),
-    date: evStart(e).slice(0, 10),
-    calEventId: e.id || "",
-    apartment,
-    description,
-  };
-}
+export { prefillFromEvent };
 
 const CONTACT_FIELDS = [
   ["phone", "Phone"],
@@ -214,6 +178,7 @@ export default function NewJobFlow() {
   if (newJob.step === "newCustomer")
     return (
       <NewCustomerForm
+        prefill={newJob.prefill || {}}
         onClose={close}
         onCreated={(id, name) => nav("/customer/" + encodeURIComponent(customerKeyForName(name) || id))}
       />
@@ -333,18 +298,42 @@ export default function NewJobFlow() {
   );
 }
 
-function NewCustomerForm({ onClose, onCreated }) {
-  const { createJob, jobs, api, enqueue, showToast, refreshJobs } = useStore();
-  const [f, setF] = useState({
-    businessName: "",
-    personName: "",
-    phone: "",
-    email: "",
-    billingAddress: "",
-    serviceAddress: "",
-    apartment: "",
-    qboCustomerId: "",
-  });
+function NewCustomerBillingField({ value, onChange, onPick, jobs, events, suggestAddresses }) {
+  const showSuggest = String(value || "").trim().length >= 2;
+  return (
+    <Fld label="Billing address" hint="Live QuickBooks match · type for address suggestions">
+      <CustomerLiveMatch
+        label="Billing address"
+        testId="newcustomer-billing"
+        value={value}
+        onChange={onChange}
+        onPick={onPick}
+      />
+      <AddressSuggestionList
+        value={value}
+        onPick={onChange}
+        open={showSuggest}
+        jobs={jobs}
+        events={events}
+        suggestAddresses={suggestAddresses}
+        testId="newcustomer-billing-ac"
+      />
+    </Fld>
+  );
+}
+
+function NewCustomerForm({ prefill = {}, onClose, onCreated }) {
+  const { createJob, jobs, events, api, enqueue, showToast, refreshJobs } = useStore();
+  const [f, setF] = useState(() => ({
+    businessName: prefill.businessName || prefill.customer || "",
+    personName: prefill.personName || "",
+    phone: prefill.phone || "",
+    email: prefill.email || "",
+    billingAddress: prefill.billingAddress || "",
+    serviceAddress: prefill.serviceAddress || prefill.address || "",
+    apartment: prefill.apartment || "",
+    qboCustomerId: prefill.qboCustomerId || "",
+  }));
   const [baseline, setBaseline] = useState(null);
   const [syncAction, setSyncAction] = useState("update");
   const [qboIndex, setQboIndex] = useState([]);
@@ -513,17 +502,25 @@ function NewCustomerForm({ onClose, onCreated }) {
           )}
         </Fld>
       ))}
-      <Fld label="Billing address" hint="Live QuickBooks match">
-        <CustomerLiveMatch
-          label="Billing address"
-          testId="newcustomer-billing"
-          value={f.billingAddress}
-          onChange={(v) => setF((o) => ({ ...o, billingAddress: v }))}
-          onPick={applyPick}
+      <NewCustomerBillingField
+        value={f.billingAddress}
+        onChange={(v) => setF((o) => ({ ...o, billingAddress: v }))}
+        onPick={applyPick}
+        jobs={jobs}
+        events={events}
+        suggestAddresses={api.suggestAddresses?.bind(api)}
+      />
+      <Fld label="Service address" hint="Default site for future jobs — partial address OK">
+        <AddressAutocompleteField
+          label="Service address"
+          value={f.serviceAddress}
+          onChange={(v) => setF((o) => ({ ...o, serviceAddress: v }))}
+          jobs={jobs}
+          events={events}
+          suggestAddresses={api.suggestAddresses?.bind(api)}
+          testId="newcustomer-service"
+          ariaLabel="Service address"
         />
-      </Fld>
-      <Fld label="Service address" hint="Default site for future jobs (optional)">
-        <input className="input" value={f.serviceAddress} onChange={set("serviceAddress")} aria-label="Service address" />
       </Fld>
       <Fld label="Apartment #">
         <input className="input" value={f.apartment} onChange={set("apartment")} aria-label="Apartment #" />
@@ -571,7 +568,7 @@ function NewCustomerForm({ onClose, onCreated }) {
 }
 
 function NewJobForm({ prefill, onClose, onCreated, vendorMode = false }) {
-  const { createJob, jobs, api } = useStore();
+  const { createJob, jobs, events, api } = useStore();
   const [f, setF] = useState(() => {
     const o = { date: prefill.date || "", title: prefill.title || "", description: prefill.description || "" };
     CONTACT_FIELDS.forEach(([k]) => (o[k] = prefill[k] || ""));
@@ -758,16 +755,29 @@ function NewJobForm({ prefill, onClose, onCreated, vendorMode = false }) {
           <input className="input" value={f[k]} onChange={set(k)} aria-label={l} />
         </Fld>
       ))}
-      <Fld label="Billing address" hint="QuickBooks billing address (customer)">
-        <input className="input" value={f.billingAddress} onChange={set("billingAddress")} aria-label="Billing address" />
+      <Fld label="Billing address" hint="Partial address OK — tap a suggestion to complete">
+        <AddressAutocompleteField
+          label="Billing address"
+          value={f.billingAddress}
+          onChange={(v) => setF((o) => ({ ...o, billingAddress: v }))}
+          jobs={jobs}
+          events={events}
+          suggestAddresses={api.suggestAddresses?.bind(api)}
+          testId="newjob-billing"
+          ariaLabel="Billing address"
+        />
       </Fld>
 
-      <Fld label={serviceAddressLabel(f)} hint={serviceAddressHint(f)}>
-        <input
-          className="input"
+      <Fld label={serviceAddressLabel(f)} hint={serviceAddressHint(f) + " — partial address OK"}>
+        <AddressAutocompleteField
+          label={serviceAddressLabel(f)}
           value={f.serviceAddress}
-          onChange={set("serviceAddress")}
-          aria-label={serviceAddressLabel(f)}
+          onChange={(v) => setF((o) => ({ ...o, serviceAddress: v }))}
+          jobs={jobs}
+          events={events}
+          suggestAddresses={api.suggestAddresses?.bind(api)}
+          testId="newjob-service"
+          ariaLabel={serviceAddressLabel(f)}
         />
       </Fld>
       <Fld label="Apartment #" hint="Unit / apt at the service address (optional)">
