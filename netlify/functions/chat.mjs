@@ -3,10 +3,11 @@ import { getStore } from "@netlify/blobs";
 // Task #6 — return channel for the floating chat bubble. Messages from the bubble
 // and Dispatch's replies live here per conversation id, with per-message status.
 // GET  ?convo=ID                              -> { messages:[{id,who,text,status,ts}], ts }
-// POST { op:"msg",    convo, id, text }        (bubble records a sent message)
-// POST { op:"reply",  convo, text }            (Dispatch posts a reply)
-// POST { op:"status", convo, id, status }      (Dispatch updates a message's status)
-// POST { op:"presence", convo, view }           (heartbeat -> "presence-v1" key)
+// POST { op:"msg",      convo, id, text }        (bubble records a sent message)
+// POST { op:"reply",    convo, text }            (Dispatch posts a reply)
+// POST { op:"status",   convo, id, status }      (Dispatch updates a message's status)
+// POST { op:"migrate",  from, to }               (merge legacy per-device thread into shared)
+// POST { op:"presence", convo, view }             (heartbeat -> "presence-v1" key)
 // GET  ?presence=1                             -> { "<convo>": { lastSeen, view }, ... } (or {})
 //   presence-v1 is a per-convo map. LE Pro pings with its own convo id; the
 //   Dispatch chat-responder cron pings convo "dispatch-heartbeat" so the app
@@ -42,6 +43,27 @@ async function load(store, convo) {
   return (await store.get(key(convo), { type: "json", consistency: "strong" })) || { messages: [], ts: 0 };
 }
 
+/** Merge messages from a legacy per-device convo into the shared thread (dedupe by id). */
+async function migrate(store, from, to) {
+  const src = String(from || "").trim();
+  const dst = String(to || "").trim();
+  if (!src || !dst || src === dst) return { merged: 0, ts: 0 };
+  const [oldDoc, newDoc] = await Promise.all([load(store, src), load(store, dst)]);
+  const seen = new Set((newDoc.messages || []).map((m) => m.id));
+  let merged = 0;
+  for (const m of oldDoc.messages || []) {
+    if (!m || !m.id || seen.has(m.id)) continue;
+    newDoc.messages.push(m);
+    seen.add(m.id);
+    merged++;
+  }
+  if (merged) newDoc.messages.sort((a, b) => (a.ts || 0) - (b.ts || 0));
+  const now = Date.now();
+  newDoc.ts = merged ? now : newDoc.ts || 0;
+  if (merged) await store.setJSON(key(dst), newDoc);
+  return { merged, ts: newDoc.ts };
+}
+
 export default async (req) => {
   const store = getStore("chat");
   if (req.method === "OPTIONS") return json({ ok: true });
@@ -56,6 +78,10 @@ export default async (req) => {
       map[convo] = { lastSeen: Date.now(), view: String(b.view || "") };
       await store.setJSON("presence-v1", map);
       return json({ ok: true, ts: map[convo].lastSeen });
+    }
+    if (b.op === "migrate") {
+      const r = await migrate(store, b.from, b.to);
+      return json({ ok: true, ...r });
     }
     const doc = await load(store, convo);
     const now = Date.now();

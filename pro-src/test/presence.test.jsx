@@ -20,7 +20,7 @@ describe("presence heartbeat", () => {
     await waitFor(() => expect(srv.posts("chat", (b) => b.op === "presence").length).toBe(1));
     const ping = srv.posts("chat", (b) => b.op === "presence")[0].body;
     expect(ping.view).toBe("jobs");
-    expect(String(ping.convo)).toMatch(/^pro-/); // same convo id the bubble uses
+    expect(String(ping.convo)).toBe("pro-levi"); // shared cross-device convo id
   });
 
   it("pings again when the chat panel is opened", async () => {

@@ -273,7 +273,7 @@ describe("10. chat bubble", () => {
     await waitFor(() => expect(srv.posts("chat", (b) => b.op === "msg")).toHaveLength(1));
     const post = srv.posts("chat", (b) => b.op === "msg")[0].body;
     expect(post.text).toBe("[LE Pro / jobs view] — where is the check");
-    expect(post.convo).toMatch(/^pro-/);
+    expect(post.convo).toBe("pro-levi");
     expect(post.id).toMatch(/^m\d+$/);
     const it2 = srv.posts("iterate")[0].body;
     expect(it2.message).toBe(post.text);

@@ -57,6 +57,7 @@ export function mockServer(opts = {}) {
     calendarRequested: false,
     tasks: opts.tasks || [],
     messages: opts.messages || [],
+    legacyMessages: opts.legacyMessages || {},
     failChatPosts: opts.failChatPosts || 0, // fail the next N chat op:msg POSTs (retry tests)
     presence: opts.presence || {}, // per-convo map { convo: { lastSeen, view } } — mirrors presence-v1
     docs: opts.docs || {}, // key -> stored "pdf" (docs fn: PDF viewing)
@@ -168,7 +169,16 @@ export function mockServer(opts = {}) {
           }
           if (body.op === "msg") state.messages.push({ id: body.id, who: "you", text: body.text, status: "Sent", ts: Date.now() });
           else if (body.op === "reply") state.messages.push({ id: "r" + seq++, who: "claude", text: body.text, status: "", ts: Date.now() });
-          else if (body.op === "presence")
+          else if (body.op === "migrate" && body.from && body.to) {
+            const legacy = state.legacyMessages[body.from] || [];
+            const seen = new Set(state.messages.map((m) => m.id));
+            for (const m of legacy) {
+              if (!m?.id || seen.has(m.id)) continue;
+              state.messages.push(m);
+              seen.add(m.id);
+            }
+            state.messages.sort((a, b) => (a.ts || 0) - (b.ts || 0));
+          } else if (body.op === "presence")
             state.presence[body.convo || "default"] = { lastSeen: Date.now(), view: body.view || "" };
           data = { ok: true };
         } else if (String(url).includes("presence=1")) data = JSON.parse(JSON.stringify(state.presence));

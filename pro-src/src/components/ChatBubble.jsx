@@ -12,8 +12,7 @@ import { fmt$ } from "../lib/format.js";
 import { appointmentContextFromRoute } from "../lib/appointmentContext.js";
 import { CHAT_SLASH_HINT, jobPatchFromSlash, parseChatSlash } from "../lib/chatActions.js";
 import ChatJobUpdateSheet from "./ChatJobUpdateSheet.jsx";
-
-const CONVO_KEY = "le_pro_convo";
+import { LE_PRO_CONVO, clearLegacyDeviceConvo, legacyDeviceConvo } from "../lib/chatConvo.js";
 const ONLINE_MS = 4 * 60_000; // israel-heartbeat (or last reply) younger than this = online
 const STUCK_MS = 90_000; // a "Working on it" we've watched longer than this stops looking like a live spinner
 const NEAR_BOTTOM_PX = 48; // within this distance of the bottom we auto-scroll on new messages
@@ -64,18 +63,7 @@ function notifyReply(m) {
 /** Bubble messages are who:"you"; Israel replies who:"israel" (legacy: claude/dispatch). */
 const isAgentMsg = (m) =>
   m.who === "israel" || m.who === "dispatch" || m.who === "claude";
-function getConvo() {
-  try {
-    let c = localStorage.getItem(CONVO_KEY);
-    if (!c) {
-      c = "pro-" + Date.now();
-      localStorage.setItem(CONVO_KEY, c);
-    }
-    return c;
-  } catch {
-    return "pro-anon";
-  }
-}
+
 
 /** Unread badge for chat triggers in the nav bar or desktop FAB. */
 export function ChatUnreadBadge({ unread }) {
@@ -104,7 +92,8 @@ export default function ChatBubble() {
   const [rec, setRec] = useState(false);
   const [dispatchSeen, setDispatchSeen] = useState(0); // responder heartbeat ts
   const [jobSheet, setJobSheet] = useState(false);
-  const convo = useRef(getConvo());
+  const convo = useRef(LE_PRO_CONVO);
+  const migrated = useRef(false);
   const lastN = useRef(0);
   const lastDispatchN = useRef(null); // null = not baselined yet (first poll)
   const openRef = useRef(chatOpen);
@@ -163,6 +152,21 @@ export default function ChatBubble() {
       setMsgs(ms.concat(localMsgs.current));
     } catch {}
   }, [api]);
+
+  // One-time merge of a legacy per-device thread into the shared server-side convo.
+  useEffect(() => {
+    if (migrated.current) return;
+    const old = legacyDeviceConvo();
+    if (!old) return;
+    migrated.current = true;
+    (async () => {
+      try {
+        if (api.chatMigrate) await api.chatMigrate(old, LE_PRO_CONVO);
+        clearLegacyDeviceConvo();
+        poll();
+      } catch {}
+    })();
+  }, [api, poll]);
 
   // 3s while the panel is open (live conversation), 5s in the background.
   useEffect(() => {

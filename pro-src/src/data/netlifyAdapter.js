@@ -262,6 +262,11 @@ export function createNetlifyAdapter() {
       return http("chat", { op: "msg", convo, id, text });
     },
 
+    /** Merge a legacy per-device thread into the shared cross-device convo. */
+    async chatMigrate(from, to) {
+      return http("chat", { op: "migrate", from, to });
+    },
+
     /** Fire-and-forget heartbeat so Dispatch can see the app is open. */
     async presence(convo, view) {
       return http("chat", { op: "presence", convo, view });
