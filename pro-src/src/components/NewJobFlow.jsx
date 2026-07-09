@@ -3,6 +3,7 @@ import React, { useMemo, useState, useEffect, useRef, useCallback } from "react"
 import { useNavigate } from "react-router-dom";
 import Sheet, { Fld, Opt } from "./Sheet.jsx";
 import CustomerSearch from "./CustomerSearch.jsx";
+import CustomerLiveMatch from "./CustomerLiveMatch.jsx";
 import CalendarSearchSheet from "./CalendarSearchSheet.jsx";
 import AddAppointmentSheet from "./AddAppointmentSheet.jsx";
 import { useStore } from "../state/store.jsx";
@@ -23,7 +24,13 @@ import InvoiceCreateSheet, { ProgressPctSheet } from "./InvoiceCreateSheet.jsx";
 import DocBuilderSheet from "./DocBuilderSheet.jsx";
 import { fmt$ } from "../lib/format.js";
 import { sortJobs } from "../lib/stages.js";
-import { serviceAddressHint, serviceAddressLabel } from "../lib/customerSync.js";
+import { serviceAddressHint, serviceAddressLabel, customerSyncPayload } from "../lib/customerSync.js";
+import {
+  createNewCustomerDisabled,
+  customerFormDiffersFromBaseline,
+  resolveAddCustomerAction,
+  snapshotCustomerForm,
+} from "../lib/addCustomerFlow.js";
 
 /** Prefill parser — enhanced for combined Calendar→Job autofill (#58). */
 export function prefillFromEvent(e) {
@@ -176,7 +183,7 @@ export default function NewJobFlow() {
         <Opt icon="🔧" title="Add a job" note="New scope for a customer — type details or pick from calendar" onClick={() => setNewJob({ step: "jobMenu", context })} />
         <Opt icon="🏗️" title="Add a job with vendor" note="Track subcontractor / vendor on the job" onClick={() => setNewJob({ step: "form", prefill: {}, context, vendorMode: true })} />
         <Opt icon="🧾" title="Add an invoice" note="Pick customer & job, then build the invoice" onClick={() => setNewJob({ step: "pickInvoice" })} />
-        <Opt icon="👤" title="Add a customer" note="Import from QuickBooks or create a new one" onClick={() => setNewJob({ step: "addCustomer" })} />
+        <Opt icon="👤" title="Add a customer" note="One form — live QuickBooks match as you type" onClick={() => setNewJob({ step: "newCustomer" })} />
         <Opt icon="💵" title="Add a payment" note="Find customer & invoice, then record or charge" onClick={() => setNewJob({ step: "pickPayment" })} />
       </Sheet>
     );
@@ -200,61 +207,6 @@ export default function NewJobFlow() {
               : "Book on the calendar — see what's already scheduled"
           }
           onClick={() => setNewJob({ step: "appt", context })}
-        />
-      </Sheet>
-    );
-
-  if (newJob.step === "addCustomer")
-    return (
-      <Sheet title="Add a customer" onClose={close}>
-        <Opt
-          icon="📥"
-          title="Import from QuickBooks"
-          note="Pull open invoices & jobs for an existing QBO customer"
-          onClick={() => setNewJob({ step: "importCustomer" })}
-        />
-        <Opt
-          icon="✍️"
-          title="Create new customer"
-          note="Add to LE Pro — syncs to QuickBooks when you save"
-          onClick={() => setNewJob({ step: "newCustomer" })}
-        />
-      </Sheet>
-    );
-
-  if (newJob.step === "importCustomer")
-    return (
-      <Sheet title="Import from QuickBooks" onClose={close}>
-        <p className="text-sm text-slate-500 mb-3">Search QuickBooks customers not already in the app.</p>
-        <CustomerSearch
-          label="Customer name"
-          testId="import-customer-search"
-          value={newJob.importName || ""}
-          onChangeText={(v) => setNewJob({ ...newJob, importName: v })}
-          onPick={async (c) => {
-            if (!c || c._newCustomer) return;
-            const name = c.name || "";
-            const key = customerKeyForImport(c);
-            close();
-            if (key) {
-              try {
-                sessionStorage.setItem(
-                  PENDING_IMPORT_LS,
-                  JSON.stringify({ key, name, qboId: c.id != null ? String(c.id) : "", started: Date.now() })
-                );
-              } catch {}
-              nav("/customer/" + encodeURIComponent(key));
-            }
-            showToast("Importing " + name + "…");
-            await enqueue(
-              "import_customer",
-              "import-" + (c.id != null ? c.id : name),
-              { name, qboId: c.id != null ? String(c.id) : "" },
-              "deterministic",
-              "import_customer|" + (c.id != null ? c.id : name)
-            );
-            refreshJobs?.(true);
-          }}
         />
       </Sheet>
     );
@@ -382,54 +334,237 @@ export default function NewJobFlow() {
 }
 
 function NewCustomerForm({ onClose, onCreated }) {
-  const { createJob, jobs, api } = useStore();
-  const [name, setName] = useState("");
-  const [phone, setPhone] = useState("");
-  const [email, setEmail] = useState("");
+  const { createJob, jobs, api, enqueue, showToast, refreshJobs } = useStore();
+  const [f, setF] = useState({
+    businessName: "",
+    personName: "",
+    phone: "",
+    email: "",
+    billingAddress: "",
+    serviceAddress: "",
+    apartment: "",
+    qboCustomerId: "",
+  });
+  const [baseline, setBaseline] = useState(null);
+  const [syncAction, setSyncAction] = useState("update");
+  const [qboIndex, setQboIndex] = useState([]);
 
-  const pickExisting = async (c) => {
-    if (!c || c._newCustomer) return;
-    const patch = await enrichAndPatchCustomer(c, jobs, api);
-    setName(patch.businessName || patch.customer || c.name || "");
-    setPhone(patch.phone || "");
-    setEmail(patch.email || "");
-  };
+  const set = (k) => (e) => setF((o) => ({ ...o, [k]: e.target.value }));
+
+  const applyPick = useCallback(
+    async (c) => {
+      if (!c) return;
+      if (c._newCustomer) {
+        setBaseline(null);
+        setF((o) => ({
+          ...o,
+          businessName: c.name || "",
+          qboCustomerId: "",
+        }));
+        return;
+      }
+      const patch = await enrichAndPatchCustomer(c, jobs, api);
+      const next = {
+        businessName: patch.businessName || patch.customer || "",
+        personName: patch.personName || "",
+        phone: patch.phone || "",
+        email: patch.email || "",
+        billingAddress: patch.billingAddress || "",
+        serviceAddress: patch.serviceAddress || "",
+        apartment: patch.apartment || "",
+        qboCustomerId: patch.qboCustomerId || "",
+      };
+      setF(next);
+      setBaseline(snapshotCustomerForm(next));
+      setSyncAction("update");
+    },
+    [api, jobs]
+  );
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const list = await api.searchCustomers();
+        if (!cancelled) setQboIndex(Array.isArray(list) ? list : []);
+      } catch {
+        if (!cancelled) setQboIndex([]);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [api]);
+
+  const formChanged = customerFormDiffersFromBaseline(f, baseline);
+  const createDisabled = formChanged && createNewCustomerDisabled(f.businessName, qboIndex);
 
   const save = async () => {
-    const biz = name.trim();
-    if (!biz) return;
+    const biz = (f.businessName || "").trim();
+    if (!biz) {
+      showToast("Business name is required");
+      return;
+    }
+    const action = resolveAddCustomerAction({
+      baseline,
+      matchedQboId: f.qboCustomerId,
+      formChanged,
+      syncAction,
+    });
+    if (action === "create" && createDisabled) {
+      showToast("That business name already exists in QuickBooks");
+      return;
+    }
+
     const id = await createJob({
       businessName: biz,
+      personName: f.personName || "",
       customer: biz,
       title: "New customer",
-      phone,
-      email,
+      phone: f.phone || "",
+      email: f.email || "",
+      billingAddress: f.billingAddress || "",
+      serviceAddress: f.serviceAddress || "",
+      address: f.serviceAddress || "",
+      apartment: f.apartment || "",
+      qboCustomerId: action === "create" ? "" : f.qboCustomerId || "",
     });
-    if (id) {
-      onClose();
-      onCreated?.(id, biz);
+    if (!id) return;
+
+    const payload = customerSyncPayload({ ...f, businessName: biz, customer: biz });
+    if (action === "link" && f.qboCustomerId) {
+      const name = biz;
+      try {
+        sessionStorage.setItem(
+          PENDING_IMPORT_LS,
+          JSON.stringify({
+            key: customerKeyForImport({ id: f.qboCustomerId, name }),
+            name,
+            qboId: f.qboCustomerId,
+            started: Date.now(),
+          })
+        );
+      } catch {}
+      await enqueue(
+        "import_customer",
+        "import-" + f.qboCustomerId,
+        { name, qboId: f.qboCustomerId },
+        "deterministic",
+        "import_customer|" + f.qboCustomerId
+      );
+      refreshJobs?.(true);
+      showToast("Linked to QuickBooks — importing jobs…");
+    } else if (action === "update" && f.qboCustomerId) {
+      await enqueue(
+        "update_customer",
+        id,
+        { id: f.qboCustomerId, ...payload },
+        "deterministic",
+        "update_customer|" + id + "|" + Date.now()
+      );
+      showToast("Saved & syncing update to QuickBooks…");
+    } else if (action === "create") {
+      await enqueue(
+        "create_customer",
+        id,
+        payload,
+        "deterministic",
+        "create_customer|" + id + "|" + Date.now()
+      );
+      showToast("Saved & creating in QuickBooks…");
     }
+
+    onClose();
+    onCreated?.(id, biz);
   };
 
   return (
-    <Sheet title="Create customer" onClose={onClose}>
-      <Fld label="Business name" hint="Search by name, phone, or email — or add new">
+    <Sheet title="Add customer" onClose={onClose}>
+      <Fld label="Business name" hint="Live match on name, phone, email, or billing address">
         <CustomerSearch
           label="Business name"
           testId="newcustomer-search"
-          value={name}
-          onChangeText={setName}
-          onPick={pickExisting}
+          value={f.businessName}
+          onChangeText={(v) => setF((o) => ({ ...o, businessName: v }))}
+          onPick={applyPick}
         />
       </Fld>
-      <Fld label="Phone">
-        <input className="input" value={phone} onChange={(e) => setPhone(e.target.value)} aria-label="Phone" />
+      <Fld label="Person name" hint="Contact person — live QuickBooks match">
+        <CustomerLiveMatch
+          label="Person name"
+          testId="newcustomer-person"
+          value={f.personName}
+          onChange={(v) => setF((o) => ({ ...o, personName: v }))}
+          onPick={applyPick}
+        />
       </Fld>
-      <Fld label="Email">
-        <input className="input" value={email} onChange={(e) => setEmail(e.target.value)} aria-label="Email" />
+      {CONTACT_FIELDS.map(([k, l]) => (
+        <Fld key={k} label={l} hint={k === "phone" ? "Live QuickBooks match" : undefined}>
+          {k === "phone" ? (
+            <CustomerLiveMatch
+              label={l}
+              testId="newcustomer-phone"
+              value={f.phone}
+              onChange={(v) => setF((o) => ({ ...o, phone: v }))}
+              onPick={applyPick}
+            />
+          ) : (
+            <input className="input" value={f[k]} onChange={set(k)} aria-label={l} />
+          )}
+        </Fld>
+      ))}
+      <Fld label="Billing address" hint="Live QuickBooks match">
+        <CustomerLiveMatch
+          label="Billing address"
+          testId="newcustomer-billing"
+          value={f.billingAddress}
+          onChange={(v) => setF((o) => ({ ...o, billingAddress: v }))}
+          onPick={applyPick}
+        />
       </Fld>
-      <button className="btn-brand w-full" onClick={save}>
-        Create customer
+      <Fld label="Service address" hint="Default site for future jobs (optional)">
+        <input className="input" value={f.serviceAddress} onChange={set("serviceAddress")} aria-label="Service address" />
+      </Fld>
+      <Fld label="Apartment #">
+        <input className="input" value={f.apartment} onChange={set("apartment")} aria-label="Apartment #" />
+      </Fld>
+
+      {formChanged ? (
+        <div className="rounded-xl border border-amber-200 bg-amber-50 p-3 space-y-2 mb-3" data-testid="addcustomer-sync-choice">
+          <p className="text-sm text-amber-900">
+            Matches an existing QuickBooks customer — you changed a field. Choose what happens on Save &amp; sync:
+          </p>
+          <label className="flex items-center gap-2 text-sm cursor-pointer">
+            <input
+              type="radio"
+              name="addcust-sync"
+              checked={syncAction === "update"}
+              onChange={() => setSyncAction("update")}
+              data-testid="addcustomer-action-update"
+            />
+            Update in QuickBooks
+          </label>
+          <label
+            className={"flex items-center gap-2 text-sm " + (createDisabled ? "opacity-40 cursor-not-allowed" : "cursor-pointer")}
+          >
+            <input
+              type="radio"
+              name="addcust-sync"
+              checked={syncAction === "create"}
+              disabled={createDisabled}
+              onChange={() => !createDisabled && setSyncAction("create")}
+              data-testid="addcustomer-action-create"
+            />
+            Create new customer
+            {createDisabled ? (
+              <span className="text-xs text-slate-500">(business name already in QuickBooks)</span>
+            ) : null}
+          </label>
+        </div>
+      ) : null}
+
+      <button className="btn-brand w-full" onClick={save} data-testid="addcustomer-save-sync">
+        Save &amp; sync
       </button>
     </Sheet>
   );

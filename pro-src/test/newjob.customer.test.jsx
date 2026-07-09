@@ -173,7 +173,6 @@ describe("#49 four-field customer search — business, person, phone, email", ()
   const openNewCustomer = async (user) => {
     await user.click(screen.getByTestId("fab-add"));
     await user.click(screen.getByText("Add a customer"));
-    await user.click(screen.getByText("Create new customer"));
     await screen.findByTestId("newcustomer-search");
   };
 

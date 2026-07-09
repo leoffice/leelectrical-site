@@ -13,6 +13,7 @@ const SAMPLE = [
     personName: "Avraham",
     phone: "718-555-0100",
     email: "az@drizin.com",
+    billingAddress: "500 Lefferts Ave",
   },
   {
     id: "49",
@@ -21,6 +22,7 @@ const SAMPLE = [
     personName: "",
     phone: "3474448520",
     email: "hanan770@gmail.com",
+    billingAddress: "499 schenectedy ave",
   },
   {
     id: "900",
@@ -57,5 +59,12 @@ describe("customerSearch.mjs", () => {
 
   it("digitsOnly strips formatting", () => {
     expect(digitsOnly("(917) 755-4762")).toBe("9177554762");
+  });
+
+  it("matches billing address tokens", () => {
+    const out = searchCustomerIndex(SAMPLE, "schenectedy");
+    expect(out[0].id).toBe("49");
+    const leff = searchCustomerIndex(SAMPLE, "500 Lefferts");
+    expect(leff[0].id).toBe("34");
   });
 });
