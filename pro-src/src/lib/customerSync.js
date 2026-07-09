@@ -81,12 +81,13 @@ export function customerProfileComplete(contact) {
   return !!(name && phone && email && billing);
 }
 
-/** Jobs list card tint — green when profile is complete, light orange when partial. */
+/** Jobs list card tint — green when linked to QuickBooks and profile is complete; orange otherwise. */
 export function customerSyncCardClass(contact) {
   const c = contact || {};
   const name = String(c.businessName || c.name || "").trim();
   if (!name) return "";
-  return customerProfileComplete(c)
+  const linked = String(c.qboCustomerId || "").trim();
+  return customerProfileComplete(c) && linked
     ? "bg-emerald-50/95 border-emerald-300/90"
     : "bg-orange-50/95 border-orange-200/90";
 }

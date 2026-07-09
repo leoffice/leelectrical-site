@@ -110,6 +110,7 @@ describe("customerContact", () => {
       billingAddress: "",
       apartment: "",
       address: "1 St",
+      qboCustomerId: "",
     });
   });
 });

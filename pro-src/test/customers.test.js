@@ -202,6 +202,15 @@ describe("customerProfileComplete", () => {
         email: "a@acme.com",
         billingAddress: "1 Main",
       })
+    ).toContain("orange");
+    expect(
+      customerSyncCardClass({
+        name: "Acme",
+        phone: "718",
+        email: "a@acme.com",
+        billingAddress: "1 Main",
+        qboCustomerId: "42",
+      })
     ).toContain("emerald");
   });
 });

@@ -206,6 +206,7 @@ export function customerContact(jobs) {
     billingAddress: pick("billingAddress"),
     apartment: pick("apartment"),
     address: pick("serviceAddress") || pick("address"),
+    qboCustomerId: pick("qboCustomerId"),
   };
 }
 
