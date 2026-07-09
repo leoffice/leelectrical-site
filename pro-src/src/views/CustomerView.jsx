@@ -122,7 +122,7 @@ export default function CustomerView() {
           <>
             No jobs for this customer.{" "}
             <Link className="text-brand font-semibold" to="/">
-              Back to jobs
+              Back to customers
             </Link>
           </>
         )}
@@ -140,7 +140,7 @@ export default function CustomerView() {
   const panel = (
     <div className="space-y-3.5 min-w-0" data-testid="customer-view">
       <button className="inline-flex items-center gap-1 text-sm font-semibold text-brand" onClick={() => nav("/")}>
-        ‹ Jobs
+        ‹ Customers
       </button>
 
       <CustomerCard

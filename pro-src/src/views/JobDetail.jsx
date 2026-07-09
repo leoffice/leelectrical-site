@@ -28,6 +28,8 @@ import { followUpFromPaperworkStep } from "../lib/calendarDue.js";
 import { fmt$, ago } from "../lib/format.js";
 import CustomerCard from "../components/CustomerCard.jsx";
 import JobInfoCard from "../components/JobInfoCard.jsx";
+import JobAddressCarousel from "../components/JobAddressCarousel.jsx";
+import { cloneJobAtAddressPatch, jobsAtSameAddress } from "../lib/customerHierarchy.js";
 import {
   customerDisplayName,
   calendarServiceLocation,
@@ -87,6 +89,7 @@ export default function JobDetail() {
   const {
     effectiveJob,
     patchJob,
+    createJob,
     commands,
     pending,
     loading,
@@ -103,6 +106,20 @@ export default function JobDetail() {
     if (!job || !custKey) return [];
     return sortJobs(jobsForCustomerKey(jobs, custKey)).filter((j) => j.id !== job.id);
   }, [job, jobs, custKey]);
+  const addressJobs = useMemo(() => {
+    if (!job) return [];
+    return sortJobs(jobsAtSameAddress(jobs, job));
+  }, [job, jobs]);
+
+  const addInvoiceAtAddress = async () => {
+    if (!job) return;
+    const patch = cloneJobAtAddressPatch(job);
+    const newId = await createJob(patch);
+    if (newId) {
+      showToast("New job at this address — add invoice when ready");
+      nav("/job/" + newId + (fromCust ? "?from=" + encodeURIComponent(fromCust) : ""));
+    }
+  };
   const openPay = sp.get("pay") === "1";
   const [openPhase, setOpenPhase] = useState(null); // null = auto
   const [openStep, setOpenStep] = useState(null);
@@ -231,7 +248,7 @@ export default function JobDetail() {
           onClick={() => guardNav(goBack)}
           data-testid="detail-back"
         >
-          {fromCust ? "‹ " + (job.customer || "Customer") : "‹ Jobs"}
+          {fromCust ? "‹ " + (job.customer || "Customer") : "‹ Customers"}
         </button>
         <button className="btn-ghost !py-1.5 ml-auto" onClick={() => setSheet({ kind: "menu" })} aria-label="More">
           ⋮ More
@@ -256,18 +273,45 @@ export default function JobDetail() {
       ) : null}
 
       <div ref={jobInfoRef} className="scroll-mt-20" data-testid="job-info-anchor">
-      <JobInfoCard
-        job={job}
-        events={events}
-        commands={commands}
-        showOpenLink={false}
-        onCardTap={toggleDetailSections}
-        onEstimate={() => openDocTab(job, "estimate", setSheet)}
-        onInvoice={() => openDocTab(job, "invoice", setSheet)}
-        onPayment={() => setSheet({ kind: "paymenu" })}
-        onCalendar={() => openDocTab(job, "calendar", setSheet)}
-        onBubbleTap={(bubble) => tapAwarenessBubble(job, bubble, setSheet, openDocTab)}
-      />
+        {addressJobs.length > 1 ? (
+          <JobAddressCarousel
+            jobs={addressJobs}
+            activeId={id}
+            events={events}
+            commands={commands}
+            onSelectJob={(j) => nav("/job/" + j.id + (fromCust ? "?from=" + encodeURIComponent(fromCust) : ""))}
+            onNewInvoice={addInvoiceAtAddress}
+            onEstimate={(j) => openDocTab(j, "estimate", setSheet)}
+            onInvoice={(j) => openDocTab(j, "invoice", setSheet)}
+            onPayment={() => setSheet({ kind: "paymenu" })}
+            onCalendar={(j) => openDocTab(j, "calendar", setSheet)}
+            onBubbleTap={(j, bubble) => tapAwarenessBubble(j, bubble, setSheet, openDocTab)}
+            onCardTap={toggleDetailSections}
+          />
+        ) : (
+          <JobInfoCard
+            job={job}
+            events={events}
+            commands={commands}
+            showOpenLink={false}
+            onCardTap={toggleDetailSections}
+            onEstimate={() => openDocTab(job, "estimate", setSheet)}
+            onInvoice={() => openDocTab(job, "invoice", setSheet)}
+            onPayment={() => setSheet({ kind: "paymenu" })}
+            onCalendar={() => openDocTab(job, "calendar", setSheet)}
+            onBubbleTap={(bubble) => tapAwarenessBubble(job, bubble, setSheet, openDocTab)}
+          />
+        )}
+        {addressJobs.length === 1 ? (
+          <button
+            type="button"
+            className="w-full text-center text-xs font-semibold text-brand py-1 mt-1"
+            data-testid="add-invoice-same-address"
+            onClick={addInvoiceAtAddress}
+          >
+            ＋ New invoice at this address
+          </button>
+        ) : null}
       </div>
 
       {!detailSectionsExpanded && siblingJobs.length > 0 ? (

@@ -24,7 +24,7 @@ import Sheet, { Opt } from "./components/Sheet.jsx";
 import { appointmentContextFromRoute } from "./lib/appointmentContext.js";
 
 const TABS = [
-  { to: "/", label: "Jobs", ic: "🗂️", end: true },
+  { to: "/", label: "Customers", ic: "🗂️", end: true },
   { to: "/today", label: "Calendar", ic: "📅" },
   { to: "/calls", label: "Calls", ic: "📞" },
   { to: "/dev", label: "Dev", ic: "🛠️" },
@@ -33,7 +33,7 @@ const TABS = [
 
 /** Mobile bottom bar — Archive, then + / chat, then Dev. */
 const MOBILE_NAV_BEFORE = [
-  { to: "/", label: "Jobs", ic: "🗂️", end: true },
+  { to: "/", label: "Customers", ic: "🗂️", end: true },
   { to: "/today", label: "Calendar", ic: "📅" },
   { to: "/calls", label: "Calls", ic: "📞" },
   { to: "/archive", label: "Archive", ic: "📦" },

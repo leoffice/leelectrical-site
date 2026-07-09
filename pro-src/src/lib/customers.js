@@ -133,6 +133,15 @@ export function clientKey(job) {
 export function jobsForCustomerKey(jobs, key, hints) {
   const active = (jobs || []).filter((j) => j && !j._archived && !j._deleted);
   if (!key) return [];
+  // Parent company view — all sub-entity jobs under one management company.
+  if (key.startsWith("p:q:")) {
+    const pqid = key.slice(4);
+    return active.filter((j) => String(j.parentQboCustomerId || "").trim() === pqid);
+  }
+  if (key.startsWith("p:c:")) {
+    const pname = key.slice(4);
+    return active.filter((j) => normalizeCustomer(j.parentCustomerName) === pname);
+  }
   // Map clientGroup keys to the set of normalized names they contain, so a
   // "c:<name>" key also collects jobs sitting under that group.
   if (key.startsWith("g:")) {
@@ -374,6 +383,10 @@ export function customerPickPatch(customer, jobs) {
   // Only when the match object itself carries a site line (not from other jobs).
   if (c.address) patch.serviceAddress = c.address;
   if (c.apartment) patch.apartment = c.apartment;
+  if (c.parentId) {
+    patch.parentQboCustomerId = String(c.parentId);
+    if (c.parentName) patch.parentCustomerName = c.parentName;
+  }
   return patch;
 }
 

@@ -19,6 +19,11 @@ import {
   openDocsForCustomer,
   PENDING_IMPORT_LS,
 } from "../lib/customers.js";
+import {
+  parentCustomerPatch,
+  serviceAddressesForJobs,
+  subsForParentQboId,
+} from "../lib/customerHierarchy.js";
 import { MarkPaidSheet } from "./JobSheets.jsx";
 import InvoiceCreateSheet, { ProgressPctSheet } from "./InvoiceCreateSheet.jsx";
 import DocBuilderSheet from "./DocBuilderSheet.jsx";
@@ -64,6 +69,8 @@ function mergeCustomerPatch(o, patch, { keepServiceAddress } = {}) {
     billingAddress: patch.billingAddress || o.billingAddress || "",
     serviceAddress: keepServiceAddress ? o.serviceAddress || patch.serviceAddress || "" : o.serviceAddress || "",
     apartment: o.apartment || patch.apartment || "",
+    parentCustomerName: patch.parentCustomerName || o.parentCustomerName || "",
+    parentQboCustomerId: patch.parentQboCustomerId || o.parentQboCustomerId || "",
   };
 }
 
@@ -334,6 +341,8 @@ function NewCustomerForm({ prefill = {}, onClose, onCreated }) {
     serviceAddress: prefill.serviceAddress || prefill.address || "",
     apartment: prefill.apartment || "",
     qboCustomerId: prefill.qboCustomerId || "",
+    parentCustomerName: prefill.parentCustomerName || "",
+    parentQboCustomerId: prefill.parentQboCustomerId || "",
   }));
   const [baseline, setBaseline] = useState(null);
   const [syncAction, setSyncAction] = useState("update");
@@ -418,6 +427,8 @@ function NewCustomerForm({ prefill = {}, onClose, onCreated }) {
       address: f.serviceAddress || "",
       apartment: f.apartment || "",
       qboCustomerId: action === "create" ? "" : f.qboCustomerId || "",
+      parentCustomerName: f.parentCustomerName || "",
+      parentQboCustomerId: f.parentQboCustomerId || "",
     });
     if (!id) return;
 
@@ -468,9 +479,32 @@ function NewCustomerForm({ prefill = {}, onClose, onCreated }) {
     onCreated?.(id, biz);
   };
 
+  const pickParentCo = useCallback(
+    async (c) => {
+      if (!c) return;
+      if (c._newCustomer) {
+        setF((o) => ({ ...o, parentCustomerName: c.name || "", parentQboCustomerId: "" }));
+        return;
+      }
+      const patch = await enrichAndPatchCustomer(c, jobs, api);
+      setF((o) => ({ ...o, ...parentCustomerPatch({ ...c, ...patch, id: patch.qboCustomerId || c.id }) }));
+    },
+    [api, jobs]
+  );
+
   return (
     <Sheet title="Add customer" onClose={onClose}>
-      <Fld label="Business name" hint="Live match on name, phone, email, or billing address">
+      <Fld label="Parent company" hint="Optional — for LLC / sub-entity under a management company">
+        <CustomerSearch
+          label="Parent company"
+          testId="newcustomer-parent"
+          value={f.parentCustomerName}
+          onChangeText={(v) => setF((o) => ({ ...o, parentCustomerName: v, parentQboCustomerId: "" }))}
+          onPick={pickParentCo}
+          placeholder="Search parent company…"
+        />
+      </Fld>
+      <Fld label="Business name" hint="Billing entity — live match on name, phone, email, or billing address">
         <CustomerSearch
           label="Business name"
           testId="newcustomer-search"
@@ -580,12 +614,16 @@ function NewJobForm({ prefill, onClose, onCreated, vendorMode = false }) {
     o.apartment = prefill.apartment || "";
     o.billingAddress = prefill.billingAddress || "";
     o.qboCustomerId = prefill.qboCustomerId || "";
+    o.parentCustomerName = prefill.parentCustomerName || "";
+    o.parentQboCustomerId = prefill.parentQboCustomerId || "";
     o.invoiceNo = "";
     o.estimateNo = "";
     o.vendor = prefill.vendor || "";
     return o;
   });
   const [titlePick, setTitlePick] = useState("new");
+  const [subPick, setSubPick] = useState("");
+  const [addrPick, setAddrPick] = useState("");
   const autoFilledRef = useRef("");
   const fRef = useRef(f);
   fRef.current = f;
@@ -597,6 +635,20 @@ function NewJobForm({ prefill, onClose, onCreated, vendorMode = false }) {
         : [],
     [f.qboCustomerId, f.businessName, f.customer, jobs]
   );
+
+  const parentSubs = useMemo(() => {
+    const qid = String(f.qboCustomerId || "").trim();
+    if (!qid) return [];
+    return subsForParentQboId(jobs, qid);
+  }, [f.qboCustomerId, jobs]);
+
+  const addressChoices = useMemo(() => {
+    const ck =
+      (f.qboCustomerId && "q:" + f.qboCustomerId) ||
+      customerKeyForName(f.businessName || f.customer);
+    if (!ck) return [];
+    return serviceAddressesForJobs(jobsForCustomerKey(jobs, ck));
+  }, [f.qboCustomerId, f.businessName, f.customer, jobs]);
 
   const applyCustomer = useCallback(
     async (customer, { keepServiceAddress = true } = {}) => {
@@ -636,7 +688,26 @@ function NewJobForm({ prefill, onClose, onCreated, vendorMode = false }) {
 
   const set = (k) => (e) => setF((o) => ({ ...o, [k]: e.target.value }));
 
+  const applySub = (sub) => {
+    const j = sub.jobs[0];
+    if (!j) return;
+    setSubPick(sub.key);
+    setF((o) => ({
+      ...o,
+      businessName: j.businessName || j.customer || "",
+      customer: j.businessName || j.customer || "",
+      personName: j.personName || "",
+      phone: j.phone || "",
+      email: j.email || "",
+      billingAddress: j.billingAddress || "",
+      qboCustomerId: j.qboCustomerId || "",
+      parentCustomerName: j.parentCustomerName || o.parentCustomerName || "",
+      parentQboCustomerId: j.parentQboCustomerId || o.parentQboCustomerId || "",
+    }));
+  };
+
   const pickCustomer = (c) => {
+    setSubPick("");
     if (c && c._newCustomer) {
       setTitlePick("new");
       setF((o) => ({
@@ -644,8 +715,16 @@ function NewJobForm({ prefill, onClose, onCreated, vendorMode = false }) {
         businessName: c.name || "",
         customer: c.name || "",
         qboCustomerId: "",
+        parentCustomerName: "",
+        parentQboCustomerId: "",
       }));
       return;
+    }
+    if (c.parentId) {
+      setF((o) => ({
+        ...o,
+        ...parentCustomerPatch({ id: c.parentId, name: c.parentName || "" }),
+      }));
     }
     applyCustomer(c, { keepServiceAddress: true });
   };
@@ -685,6 +764,8 @@ function NewJobForm({ prefill, onClose, onCreated, vendorMode = false }) {
       estimateNo: cur.estimateNo || "",
       date: cur.date,
       qboCustomerId: cur.qboCustomerId,
+      parentCustomerName: cur.parentCustomerName || "",
+      parentQboCustomerId: cur.parentQboCustomerId || "",
       description: cur.description || (cur.vendor ? "Vendor: " + cur.vendor : ""),
     };
     const id = await createJob(payload, prefill.calEventId || "");
@@ -714,6 +795,30 @@ function NewJobForm({ prefill, onClose, onCreated, vendorMode = false }) {
       <Fld label="Person name" hint="Contact person from QuickBooks (optional)">
         <input className="input" value={f.personName} onChange={set("personName")} aria-label="Person name" />
       </Fld>
+
+      {parentSubs.length > 1 ? (
+        <Fld label="Bill to which company?" hint="This management company has multiple billing entities">
+          <select
+            className="input"
+            value={subPick}
+            onChange={(e) => {
+              const sk = e.target.value;
+              setSubPick(sk);
+              const sub = parentSubs.find((s) => s.key === sk);
+              if (sub) applySub(sub);
+            }}
+            aria-label="Sub-company"
+            data-testid="newjob-sub-picker"
+          >
+            <option value="">Choose billing entity…</option>
+            {parentSubs.map((s) => (
+              <option key={s.key} value={s.key}>
+                {s.name}
+              </option>
+            ))}
+          </select>
+        </Fld>
+      ) : null}
 
       <Fld
         label="Job title / scope"
@@ -772,11 +877,39 @@ function NewJobForm({ prefill, onClose, onCreated, vendorMode = false }) {
         />
       </Fld>
 
+      {addressChoices.length > 1 ? (
+        <Fld label="Service address" hint="Pick an existing site or type a new one below">
+          <select
+            className="input mb-2"
+            value={addrPick}
+            onChange={(e) => {
+              const v = e.target.value;
+              setAddrPick(v);
+              if (v === "new") return;
+              const hit = addressChoices.find((a) => a.key === v);
+              if (hit) setF((o) => ({ ...o, serviceAddress: hit.label }));
+            }}
+            aria-label="Service address picker"
+            data-testid="newjob-address-picker"
+          >
+            <option value="">Choose address…</option>
+            {addressChoices.map((a) => (
+              <option key={a.key} value={a.key}>
+                {a.label}
+              </option>
+            ))}
+            <option value="new">＋ New address</option>
+          </select>
+        </Fld>
+      ) : null}
       <Fld label={serviceAddressLabel(f)} hint={serviceAddressHint(f) + " — partial address OK"}>
         <AddressAutocompleteField
           label={serviceAddressLabel(f)}
           value={f.serviceAddress}
-          onChange={(v) => setF((o) => ({ ...o, serviceAddress: v }))}
+          onChange={(v) => {
+            setAddrPick("");
+            setF((o) => ({ ...o, serviceAddress: v }));
+          }}
           jobs={jobs}
           events={events}
           suggestAddresses={api.suggestAddresses?.bind(api)}

@@ -381,11 +381,11 @@ describe("13. savebar + leave guard + crash-safe draft", () => {
     expect(ev.defaultPrevented).toBe(true);
 
     // leave sheet: Stay keeps us here, Discard leaves + clears
-    await user.click(within(pane).getByText("‹ Jobs"));
+    await user.click(within(pane).getByText("‹ Customers"));
     expect(await screen.findByText("Unsaved changes")).toBeInTheDocument();
     await user.click(screen.getByText("Stay here"));
     expect(screen.getByTestId("detail-pane")).toBeInTheDocument();
-    await user.click(within(pane).getByText("‹ Jobs"));
+    await user.click(within(pane).getByText("‹ Customers"));
     const dlg = await screen.findByRole("dialog");
     await user.click(within(dlg).getByText("Discard"));
     await screen.findByLabelText("Search jobs");
@@ -398,7 +398,7 @@ describe("13. savebar + leave guard + crash-safe draft", () => {
     const user = userEvent.setup();
     const pane = await openDetail();
     await user.type(within(pane).getByLabelText("Notes"), "keep me");
-    await user.click(within(pane).getByText("‹ Jobs"));
+    await user.click(within(pane).getByText("‹ Customers"));
     await user.click(await screen.findByText("Save & continue"));
     await waitFor(() => expect(srv.state.ov["J-1"].notes).toContain("keep me"));
     await screen.findByLabelText("Search jobs");

@@ -367,7 +367,7 @@ describe("11. dev board", () => {
     const desc = await screen.findByLabelText("Dev request description");
     await user.clear(desc);
     await user.type(desc, "half-written idea");
-    await user.click(screen.getAllByText("Jobs")[0]); // away…
+    await user.click(screen.getAllByText("Customers")[0]); // away…
     await screen.findByLabelText("Search jobs");
     await user.click(screen.getAllByText("Dev")[0]); // …and back
     expect(await screen.findByLabelText("Dev request description")).toHaveValue("half-written idea");
@@ -483,7 +483,7 @@ describe("responsive layout — 390px and 1280px", () => {
     expect(sidebar.className).toContain("hidden"); // hidden on phone…
     expect(sidebar.className).toContain("lg:flex"); // …sidebar on desktop
     expect(within(nav).getByTestId("nav-actions")).toBeInTheDocument();
-    ["Jobs", "Calendar", "Archive", "Dev"].forEach((t) => expect(within(nav).getByText(t)).toBeInTheDocument());
+    ["Customers", "Calendar", "Archive", "Dev"].forEach((t) => expect(within(nav).getByText(t)).toBeInTheDocument());
   });
 
   it("1280px (desktop): sidebar nav with sync chip; detail becomes two-pane", async () => {
@@ -492,7 +492,7 @@ describe("responsive layout — 390px and 1280px", () => {
     renderApp("#/job/J-1");
     await screen.findByTestId("detail-pane");
     const sidebar = screen.getByTestId("sidebar");
-    ["Jobs", "Calendar", "Dev", "Archive"].forEach((t) => expect(within(sidebar).getByText(t)).toBeInTheDocument());
+    ["Customers", "Calendar", "Dev", "Archive"].forEach((t) => expect(within(sidebar).getByText(t)).toBeInTheDocument());
     expect(within(sidebar).getByTestId("sync-chip")).toBeInTheDocument();
     const listPane = screen.getByTestId("list-pane");
     expect(listPane.className).toContain("lg:block"); // job list beside detail

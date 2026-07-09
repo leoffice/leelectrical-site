@@ -111,7 +111,7 @@ export function customerSyncPayload(job) {
   const j = job || {};
   const billing = j.billingAddress || j.billingAddr || "";
   const name = j.businessName || j.customer || j.name || "";
-  return {
+  const payload = {
     name,
     businessName: j.businessName || j.customer || j.name || "",
     personName: j.personName || "",
@@ -121,4 +121,7 @@ export function customerSyncPayload(job) {
     // Legacy key — host listener maps this to QuickBooks BillAddr, not ShipAddr.
     addr: billing,
   };
+  const parentId = String(j.parentQboCustomerId || "").trim();
+  if (parentId) payload.parentId = parentId;
+  return payload;
 }

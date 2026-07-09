@@ -25,6 +25,7 @@ import SolaCardForm, { tokenizeSolaCard } from "./SolaCardForm.jsx";
 import { fmtMoneyPrecise, totalWithFee } from "../lib/payFees.js";
 import { patchFromQboPaymentFetch } from "../lib/qboPayments.js";
 import { clientKey, fmtAmountDue, invoiceTotal, jobsForCustomerKey, openBalance, amountPaid, paidPct } from "../lib/customers.js";
+import { parentCustomerPatch } from "../lib/customerHierarchy.js";
 import { buildPaymentLinkEmail } from "../lib/paymentLinkEmail.js";
 import { buildPayLandingUrl } from "../lib/payLanding.js";
 import {
@@ -1600,6 +1601,8 @@ export function CustEditSheet({ job, onClose }) {
     serviceAddress: job.serviceAddress || job.address || "",
     apartment: job.apartment || "",
     qboCustomerId: job.qboCustomerId || "",
+    parentCustomerName: job.parentCustomerName || "",
+    parentQboCustomerId: job.parentQboCustomerId || "",
   });
   const set = (k) => (e) => setF((o) => ({ ...o, [k]: e.target.value }));
 
@@ -1640,8 +1643,26 @@ export function CustEditSheet({ job, onClose }) {
       address: f.serviceAddress || "",
       apartment: f.apartment || "",
       qboCustomerId: f.qboCustomerId || "",
+      parentCustomerName: f.parentCustomerName || "",
+      parentQboCustomerId: f.parentQboCustomerId || "",
     };
   };
+
+  const pickParent = useCallback(
+    async (customer) => {
+      if (customer && customer._newCustomer) {
+        setF((o) => ({
+          ...o,
+          parentCustomerName: customer.name || "",
+          parentQboCustomerId: "",
+        }));
+        return;
+      }
+      const patch = await enrichAndPatchCustomer(customer, jobs, api);
+      setF((o) => ({ ...o, ...parentCustomerPatch({ ...customer, ...patch, id: patch.qboCustomerId || customer.id }) }));
+    },
+    [api, jobs]
+  );
 
   const saveAndSync = async () => {
     const patch = buildPatch();
@@ -1677,7 +1698,17 @@ export function CustEditSheet({ job, onClose }) {
   return (
     <Sheet title="Edit customer & service location" onClose={onClose}>
       <p className="text-[11px] font-bold uppercase tracking-wide text-slate-400 mb-2">Customer (QuickBooks)</p>
-      <Fld label="Business name" hint="Search QuickBooks customers — phone, email & billing fill from QB">
+      <Fld label="Parent company" hint="Optional — management company when this is a sub-entity (LLC)">
+        <CustomerSearch
+          label="Parent company"
+          testId="custedit-parent"
+          value={f.parentCustomerName}
+          onChangeText={(v) => setF((o) => ({ ...o, parentCustomerName: v, parentQboCustomerId: "" }))}
+          onPick={pickParent}
+          placeholder="Search parent company…"
+        />
+      </Fld>
+      <Fld label="Business name" hint="Billing entity — search QuickBooks; phone, email & billing fill from QB">
         <CustomerSearch
           label="Business name"
           testId="custedit-business-name"

@@ -34,6 +34,7 @@ import { customerSyncCardClass } from "../lib/customerSync.js";
 import { needsAttentionJob } from "../lib/jobAwareness.js";
 import { fmt$, parseAmount } from "../lib/format.js";
 import { useNavigate } from "react-router-dom";
+import { buildCustomerBoardGroups, hasParentCustomer, parentBoardKey, subsUnderParent } from "../lib/customerHierarchy.js";
 
 /** Gray subline under customer name — jobs / open invoices / invoiced / paid. */
 function customerMetaLine(sum) {
@@ -251,6 +252,23 @@ export default function Jobs({ embedded, collapseGroups = false, activeJobId = "
       .sort((A, B) => cmp(rank(A[1]), rank(B[1])));
   }, [active, matchesChip, sort]);
 
+  /** Parent companies with sub-entities — separate from flat customer groups. */
+  const { parentRows, flatGroups } = useMemo(() => {
+    const board = buildCustomerBoardGroups(active, (list) => sortJobs(list, sort));
+    const parentJobIds = new Set();
+    const parents = board
+      .filter((r) => r.kind === "parent")
+      .filter((r) => r.jobs.some(matchesChip))
+      .map((r) => {
+        r.jobs.forEach((j) => parentJobIds.add(j.id));
+        return { ...r, subs: subsUnderParent(active, r.key).map((s) => ({ ...s, jobs: sortJobs(s.jobs, sort) })) };
+      });
+    const flat = groups
+      .map(([k, list]) => [k, list.filter((j) => !parentJobIds.has(j.id) && !hasParentCustomer(j))])
+      .filter(([, list]) => list.length && list.some(matchesChip));
+    return { parentRows: parents, flatGroups: flat };
+  }, [active, groups, matchesChip, sort]);
+
   /** Jobs shown inside an expanded group — full customer when Active/All + no search. */
   const expandJobs = useCallback(
     (list) => {
@@ -364,7 +382,7 @@ export default function Jobs({ embedded, collapseGroups = false, activeJobId = "
       <input
         className="input"
         type="search"
-        placeholder="🔍  Search customer, job, address…"
+        placeholder="🔍  Search customers, jobs, addresses…"
         value={q}
         onChange={(e) => setQ(e.target.value)}
         onFocus={armSearchIdle}
@@ -411,7 +429,64 @@ export default function Jobs({ embedded, collapseGroups = false, activeJobId = "
         </div>
       ) : (
         <div className="space-y-2.5">
-          {groups.map(([key, list]) => {
+          {parentRows.map((row) => {
+            const multiSub = row.subs.length > 1;
+            const expanded = groupExpanded(row.key);
+            const needsAttention = row.jobs.some(needsAttentionJob);
+            const syncCardClass = customerSyncCardClass(customerContact(row.jobs));
+            return (
+              <div key={row.key} className={`card relative overflow-hidden ${syncCardClass}`} data-testid="parent-customer-group">
+                <AttentionGradient show={needsAttention} />
+                <div className="w-full px-3 py-2.5 lg:px-4 lg:py-3">
+                  <ClientListHeader
+                    name={row.name}
+                    amount={fmt$(row.summary.due) || "$0"}
+                    meta={customerMetaLine(row.summary) + (multiSub ? ` · ${row.subs.length} companies` : "")}
+                    hint={expanded ? "" : jobTitlesHint(row.jobs)}
+                    onCardClick={() => nav("/customer/" + encodeURIComponent(row.key))}
+                    avatar={<CustomerAvatar name={row.name} />}
+                    trailing={
+                      collapseGroups || !multiSub ? null : (
+                        <button
+                          type="button"
+                          className="p-1 -m-1 text-slate-400 shrink-0"
+                          aria-label={expanded ? "Collapse" : "Expand"}
+                          data-testid="parent-group-toggle"
+                          onClick={() => toggleGroup(row.key)}
+                        >
+                          <span className={`inline-block transition-transform ${expanded ? "rotate-180" : ""}`}>▾</span>
+                        </button>
+                      )
+                    }
+                  />
+                </div>
+                {multiSub && expanded && (
+                  <div
+                    className="px-2.5 pb-2.5 space-y-1.5 bg-slate-50/60 border-t border-slate-100 pt-2"
+                    onPointerDown={() => armCollapse(row.key)}
+                    data-testid="parent-sub-list"
+                  >
+                    {row.subs.map((sub) => (
+                      <button
+                        key={sub.key}
+                        type="button"
+                        className="w-full text-left rounded-lg bg-white border border-slate-100 px-3 py-2 active:bg-slate-50"
+                        data-testid="sub-customer-row"
+                        onClick={() => nav("/customer/" + encodeURIComponent(sub.key))}
+                      >
+                        <div className="flex items-center justify-between gap-2">
+                          <span className="text-sm font-semibold text-slate-800 truncate">{sub.name}</span>
+                          <span className="text-sm font-semibold tabular-nums shrink-0">{fmt$(sub.summary.due) || "$0"}</span>
+                        </div>
+                        <div className="text-[10px] text-slate-400 mt-0.5">{customerMetaLine(sub.summary)}</div>
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+            );
+          })}
+          {flatGroups.map(([key, list]) => {
             const job = list[0];
             const customerName = boardCustomerLabel(job, list);
             const showFullGroup = (filter === "Active" || filter === "All") && !q.trim();
