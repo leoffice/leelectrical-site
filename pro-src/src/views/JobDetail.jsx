@@ -12,6 +12,7 @@ import {
   isCleared,
   phaseOfStage,
   progressPct,
+  sortJobs,
   stageOf,
   stepState,
   todayStr,
@@ -32,7 +33,15 @@ import {
   calendarServiceLocation,
   effectiveServiceAddress,
 } from "../lib/customerSync.js";
-import { amountPaid, customerContact, openBalance, paidPct } from "../lib/customers.js";
+import {
+  amountPaid,
+  clientKey,
+  customerContact,
+  jobsForCustomerKey,
+  openBalance,
+  paidPct,
+} from "../lib/customers.js";
+import { GroupJobRow } from "../components/JobCard.jsx";
 import { normalizePayments } from "../lib/payments.js";
 import Toggle from "../components/Toggle.jsx";
 import Jobs from "./Jobs.jsx";
@@ -86,8 +95,14 @@ export default function JobDetail() {
     guardNav,
     showToast,
     events,
+    jobs,
   } = useStore();
   const job = effectiveJob(id);
+  const custKey = job ? (fromCust || clientKey(job)) : "";
+  const siblingJobs = useMemo(() => {
+    if (!job || !custKey) return [];
+    return sortJobs(jobsForCustomerKey(jobs, custKey)).filter((j) => j.id !== job.id);
+  }, [job, jobs, custKey]);
   const openPay = sp.get("pay") === "1";
   const [openPhase, setOpenPhase] = useState(null); // null = auto
   const [openStep, setOpenStep] = useState(null);
@@ -255,6 +270,19 @@ export default function JobDetail() {
         onBubbleTap={(bubble) => tapAwarenessBubble(job, bubble, setSheet, openDocTab)}
       />
       </div>
+
+      {!detailSectionsExpanded && siblingJobs.length > 0 ? (
+        <div className="space-y-2" data-testid="customer-sibling-jobs">
+          <h2 className="text-[11px] font-extrabold text-slate-500 uppercase tracking-wider px-1">
+            Other jobs ({siblingJobs.length})
+          </h2>
+          <div className="space-y-1.5">
+            {siblingJobs.map((j) => (
+              <GroupJobRow key={j.id} job={j} />
+            ))}
+          </div>
+        </div>
+      ) : null}
 
       {detailSectionsExpanded ? (
       <>

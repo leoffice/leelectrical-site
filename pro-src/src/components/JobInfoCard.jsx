@@ -127,32 +127,34 @@ export default function JobInfoCard({
 
       {sectionsCollapsed ? (
         <p className="text-[10px] text-slate-400 mt-2 text-center">Tap to show progress &amp; billing</p>
-      ) : null}
+      ) : (
+        <>
+          {rows.length > 0 && (
+            <dl className="mt-2 space-y-1 text-xs lg:text-sm min-w-0 w-full">
+              {rows.map(([k, v]) => (
+                <div key={k} className="flex gap-2 items-baseline">
+                  <dt className="font-semibold text-slate-800 shrink-0 w-[5.5rem] lg:w-32">{k}</dt>
+                  <dd className="text-slate-500 break-words min-w-0">{v}</dd>
+                </div>
+              ))}
+            </dl>
+          )}
 
-      {rows.length > 0 && (
-        <dl className="mt-2 space-y-1 text-xs lg:text-sm min-w-0 w-full">
-          {rows.map(([k, v]) => (
-            <div key={k} className="flex gap-2 items-baseline">
-              <dt className="font-semibold text-slate-800 shrink-0 w-[5.5rem] lg:w-32">{k}</dt>
-              <dd className="text-slate-500 break-words min-w-0">{v}</dd>
+          {onEstimate && onInvoice && onCalendar ? (
+            <div data-no-card-open onClick={stopBubble}>
+              <JobDocTabs
+                job={job}
+                events={events}
+                commands={commands}
+                onEstimate={onEstimate}
+                onInvoice={onInvoice}
+                onPayment={onPayment}
+                onCalendar={onCalendar}
+              />
             </div>
-          ))}
-        </dl>
+          ) : null}
+        </>
       )}
-
-      {onEstimate && onInvoice && onCalendar ? (
-        <div data-no-card-open onClick={stopBubble}>
-          <JobDocTabs
-            job={job}
-            events={events}
-            commands={commands}
-            onEstimate={onEstimate}
-            onInvoice={onInvoice}
-            onPayment={onPayment}
-            onCalendar={onCalendar}
-          />
-        </div>
-      ) : null}
 
       {showOpenLink && onOpen ? (
         <button
