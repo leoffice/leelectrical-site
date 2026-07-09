@@ -168,14 +168,62 @@ describe("bug 2 — near-duplicate combine prompt", () => {
 
     const compare = await screen.findByTestId("merge-compare");
     expect(compare).toBeInTheDocument();
-    const cols = within(compare).getAllByTestId("merge-compare-col");
-    expect(cols).toHaveLength(2);
-    expect(within(cols[0]).getAllByText("Arthur koptiv").length).toBeGreaterThan(0);
-    expect(within(cols[0]).getByText(/718-111-2222/)).toBeInTheDocument();
-    expect(within(cols[0]).getByText(/Meter bank/)).toBeInTheDocument();
-    expect(within(cols[1]).getAllByText("Arthur Koptive").length).toBeGreaterThan(0);
-    expect(within(cols[1]).getByText(/55 Elm St/)).toBeInTheDocument();
+    const left = within(compare).getByTestId("merge-compare-col-left");
+    const right = within(compare).getByTestId("merge-compare-col-right");
+    expect(within(left).getAllByText("Arthur koptiv").length).toBeGreaterThan(0);
+    expect(within(left).getByText(/718-111-2222/)).toBeInTheDocument();
+    expect(within(left).getByText(/Meter bank/)).toBeInTheDocument();
+    expect(within(right).getAllByText("Arthur Koptive").length).toBeGreaterThan(0);
+    expect(within(right).getByText(/55 Elm St/)).toBeInTheDocument();
     expect(screen.getByTestId("merge-compare-separate")).toBeInTheDocument();
+  });
+
+  it("Sub company tab links sub jobs to parent and queues QuickBooks sync", async () => {
+    const srv = mockServer({
+      jobs: [
+        job("AK-1", "Mgmt Holdings", "Corp job", "$100", {
+          qboCustomerId: "100",
+          phone: "718-111-2222",
+        }),
+        job("AK-2", "Mgmt Holdngs", "LLC job", "$200", {
+          qboCustomerId: "201",
+          phone: "718-111-2222",
+        }),
+      ],
+    });
+    const user = userEvent.setup();
+    renderApp("#/");
+    const prompt = await screen.findByTestId("merge-prompt");
+    await user.click(within(prompt).getByTestId("merge-tab-sub"));
+    expect(within(prompt).getByTestId("merge-contact-compare-col-left")).toHaveTextContent(/Parent company/);
+
+    await user.click(within(prompt).getByTestId("merge-contact-compare-col-right"));
+    expect(within(prompt).getByTestId("merge-contact-compare-col-right")).toHaveTextContent(/Parent company/);
+    expect(within(prompt).getByTestId("merge-contact-compare-col-left")).toHaveTextContent(/Sub company/);
+
+    await user.click(within(prompt).getByTestId("merge-sub-save-btn"));
+    await waitFor(() => {
+      expect(srv.state.ov["AK-2"]?.parentQboCustomerId).toBeFalsy();
+      expect(srv.state.ov["AK-1"]?.parentQboCustomerId).toBe("201");
+      expect(srv.state.ov["AK-1"]?.parentCustomerName).toMatch(/Mgmt Holdngs/i);
+    });
+    await waitFor(() => expect(screen.queryByTestId("merge-prompt")).not.toBeInTheDocument());
+    expect(srv.enqueued("update_customer").some((c) => c.jobId === "AK-1")).toBe(true);
+  });
+
+  it("tapping parent column again swaps parent/sub roles", async () => {
+    mockServer({ jobs: koptivs() });
+    const user = userEvent.setup();
+    renderApp("#/");
+    const prompt = await screen.findByTestId("merge-prompt");
+    await user.click(within(prompt).getByTestId("merge-tab-sub"));
+
+    const left = within(prompt).getByTestId("merge-contact-compare-col-left");
+    expect(left).toHaveTextContent(/Parent company/);
+    await user.click(left);
+    expect(left).toHaveTextContent(/Sub company/);
+    await user.click(left);
+    expect(left).toHaveTextContent(/Parent company/);
   });
 });
 
