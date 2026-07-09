@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { docSyncFailedForJob, docSyncPendingForJob, planDocSaveSync } from "../src/lib/docSync.js";
+import { docSyncFailedForJob, docSyncPendingForJob, planDocSaveLocal, planDocSaveSync } from "../src/lib/docSync.js";
 
 const job = {
   id: "J-SYNC",
@@ -46,6 +46,21 @@ describe("docSync", () => {
     expect(
       docSyncPendingForJob([{ jobId: "J-SYNC", type: "update_invoice", status: "done" }], "J-SYNC")
     ).toBe(false);
+  });
+
+  it("planDocSaveLocal saves job patch without QuickBooks commands", () => {
+    const lines = [{ itemName: "Labor", qty: 1, unitPrice: 600, description: "Work" }];
+    const plan = planDocSaveLocal(job, {
+      kind: "estimate",
+      mode: "create",
+      lines,
+      serviceAddress: "12 Pine St",
+      apartment: "4B",
+    });
+    expect(plan.commands).toBeUndefined();
+    expect(plan.jobPatch.serviceAddress).toBe("12 Pine St");
+    expect(plan.jobPatch.estimateLines[0].unitPrice).toBe(600);
+    expect(plan.jobPatch.status.Estimate.s).toBe("done");
   });
 
   it("planDocSaveSync on invoice edit enqueues linked estimate address update", () => {

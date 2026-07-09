@@ -5,7 +5,7 @@ import { useStore } from "../state/store.jsx";
 import { DEFAULT_QBO_ITEMS, filterQboItems } from "../data/qboItems.js";
 import { serviceAddressHint, serviceAddressLabel } from "../lib/customerSync.js";
 import { emptyLine, initialLines, lineAmount, linesTotal } from "../lib/qboDoc.js";
-import { planDocSaveSync } from "../lib/docSync.js";
+import { planDocSaveLocal, planDocSaveSync } from "../lib/docSync.js";
 import { fmt$ } from "../lib/format.js";
 
 function LineRow({ line, index, items, onChange, onRemove, canRemove }) {
@@ -153,17 +153,59 @@ export default function DocBuilderSheet({
     setAttUrl("");
   };
 
-  const submit = async (send) => {
+  const validate = (send) => {
     const valid = lines.filter((ln) => (ln.itemName || "").trim());
-    if (!valid.length) return showToast("Add at least one product/service line");
-    if (!serviceAddress.trim()) return showToast("Service address is required");
+    if (!valid.length) {
+      showToast("Add at least one product/service line");
+      return null;
+    }
+    if (!serviceAddress.trim()) {
+      showToast("Service address is required");
+      return null;
+    }
     if (mode === "edit" && kind === "invoice" && !job.invoiceNo) {
-      return showToast("No invoice number on this job yet — create the invoice first");
+      showToast("No invoice number on this job yet — create the invoice first");
+      return null;
     }
     if (mode === "edit" && kind === "estimate" && !job.estimateNo) {
-      return showToast("No estimate number on this job yet — create the estimate first");
+      showToast("No estimate number on this job yet — create the estimate first");
+      return null;
     }
-    if (send && !job.email) return showToast("Add customer email to send");
+    if (send && !job.email) {
+      showToast("Add customer email to send");
+      return null;
+    }
+    return valid;
+  };
+
+  const submitLocal = async () => {
+    const valid = validate(false);
+    if (!valid) return;
+
+    setSaving(true);
+    try {
+      const { jobPatch } = planDocSaveLocal(job, {
+        kind,
+        mode,
+        lines: valid,
+        serviceAddress,
+        apartment,
+      });
+      if (attachments.length) {
+        jobPatch.attachments = (job.attachments || []).concat(attachments);
+      }
+      await patchAndSave(job.id, jobPatch);
+      showToast("Saved on this job — use Save & sync when ready for QuickBooks");
+      onDone && onDone();
+      onClose();
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const submitSync = async (send) => {
+    const valid = validate(send);
+    if (!valid) return;
 
     setSaving(true);
     try {
@@ -186,7 +228,6 @@ export default function DocBuilderSheet({
 
       for (const att of attachments) {
         const attachType = kind === "estimate" ? "attach_to_estimate" : "attach_to_invoice";
-        const docNo = kind === "estimate" ? job.estimateNo : job.invoiceNo;
         await enqueue(
           attachType,
           job.id,
@@ -219,7 +260,7 @@ export default function DocBuilderSheet({
 
       showToast(
         send
-          ? "Queued — " + (mode === "edit" ? "updating" : "creating") + " in QuickBooks & sending to " + job.email
+          ? "Queued — syncing to QuickBooks & sending to " + job.email
           : "Queued — Save & sync to QuickBooks"
       );
       onDone && onDone();
@@ -288,19 +329,22 @@ export default function DocBuilderSheet({
         ＋ Add attachment
       </button>
 
-      <button type="button" className="btn-brand w-full mb-2" disabled={saving} onClick={() => submit(false)} data-testid="doc-save-sync">
+      <button type="button" className="btn-ghost w-full mb-2" disabled={saving} onClick={submitLocal} data-testid="doc-save-close">
+        Save &amp; close
+      </button>
+      <button type="button" className="btn-brand w-full mb-2" disabled={saving} onClick={() => submitSync(false)} data-testid="doc-save-sync">
         Save &amp; sync
       </button>
       <button
         type="button"
         className="btn bg-brand-soft text-brand w-full"
         disabled={saving || !job.email}
-        onClick={() => submit(true)}
-        data-testid="doc-save-send"
+        onClick={() => submitSync(true)}
+        data-testid="doc-save-sync-send"
       >
-        Save &amp; send{job.email ? " to " + job.email : ""}
+        Save &amp; sync &amp; send{job.email ? " to " + job.email : ""}
       </button>
-      {!job.email ? <p className="text-[11px] text-slate-400 text-center mt-2">Add email on the customer card to enable Send.</p> : null}
+      {!job.email ? <p className="text-[11px] text-slate-400 text-center mt-2">Add email on the customer card to enable send.</p> : null}
     </Sheet>
   );
 }

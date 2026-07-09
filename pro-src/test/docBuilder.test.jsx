@@ -50,6 +50,62 @@ describe("Estimate / invoice builder", () => {
     expect(srv.state.ov["J-EST"].status.Estimate.s).toBe("done");
   });
 
+  it("Save & close saves locally without enqueueing QuickBooks commands", async () => {
+    const srv = mockServer({
+      jobs: [
+        {
+          id: "J-LOCAL",
+          customer: "Draft Co",
+          title: "Rough-in",
+          email: "d@x.com",
+          serviceAddress: "22 Court",
+          amount: "$800",
+          paid: false,
+          status: { Lead: { s: "done" }, "Site Visit": { s: "done" } },
+        },
+      ],
+    });
+    const user = userEvent.setup();
+    renderApp("#/job/J-LOCAL");
+    const pane = await screen.findByTestId("detail-pane");
+
+    await user.click(within(pane).getByTestId("progress-step-Estimate"));
+    await user.click(within(pane).getByTestId("generate-estimate"));
+    await user.click(await screen.findByTestId("doc-save-close"));
+
+    await waitFor(() => expect(srv.state.ov["J-LOCAL"].status.Estimate.s).toBe("done"));
+    expect(srv.enqueued("create_estimate")).toHaveLength(0);
+    expect(srv.state.ov["J-LOCAL"].estimateLines?.length).toBeGreaterThan(0);
+  });
+
+  it("Save & sync & send flags create_estimate to email the customer", async () => {
+    const srv = mockServer({
+      jobs: [
+        {
+          id: "J-SEND",
+          customer: "Send Co",
+          title: "Panel",
+          email: "send@x.com",
+          serviceAddress: "9 Park",
+          amount: "$1200",
+          paid: false,
+          status: { Lead: { s: "done" }, "Site Visit": { s: "done" } },
+        },
+      ],
+    });
+    const user = userEvent.setup();
+    renderApp("#/job/J-SEND");
+    const pane = await screen.findByTestId("detail-pane");
+
+    await user.click(within(pane).getByTestId("progress-step-Estimate"));
+    await user.click(within(pane).getByTestId("generate-estimate"));
+    await user.click(screen.getByTestId("doc-save-sync-send"));
+
+    await waitFor(() => expect(srv.enqueued("create_estimate")).toHaveLength(1));
+    expect(srv.enqueued("create_estimate")[0].payload.send).toBe(true);
+    expect(srv.enqueued("create_estimate")[0].payload.email).toBe("send@x.com");
+  });
+
   it("Invoiced Create → from estimate prompts progress % then create_invoice", async () => {
     const srv = mockServer({
       jobs: [
