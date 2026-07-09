@@ -6,6 +6,7 @@ import { CustomerAvatar, GroupJobRow, PaidPill, StagePill } from "../components/
 import { Link } from "react-router-dom";
 import { progressPct } from "../lib/stages.js";
 import MergePrompt from "../components/MergePrompt.jsx";
+import InvoiceDedupPrompt from "../components/InvoiceDedupPrompt.jsx";
 import Sheet, { Opt } from "../components/Sheet.jsx";
 import { MarkPaidSheet, QuickSendSheet } from "../components/JobSheets.jsx";
 import {
@@ -540,6 +541,7 @@ export default function Jobs({ embedded, collapseGroups = false, activeJobId = "
       )}
 
       {!embedded && <MergePrompt />}
+      {!embedded && <InvoiceDedupPrompt />}
 
       {sheet?.kind === "paid" && <MarkPaidSheet job={sheet.job} onClose={() => setSheet(null)} />}
       {sheet?.kind === "send" && <QuickSendSheet job={sheet.job} onClose={() => setSheet(null)} />}

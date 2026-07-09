@@ -178,6 +178,27 @@ describe("bug 2 — near-duplicate combine prompt", () => {
   });
 });
 
+describe("invoice dedupe prompt", () => {
+  it("Remove duplicate deletes the weaker job row", async () => {
+    const srv = mockServer({
+      jobs: [
+        job("J-1", "Arthur koptiv", "Meter bank", "$100", { invoiceNo: "251808" }),
+        job("J-2", "Arthur koptiv", "Meter bank copy", "$100", {
+          invoiceNo: "251808",
+          qboCustomerId: "99",
+        }),
+      ],
+    });
+    const user = userEvent.setup();
+    renderApp("#/");
+    const prompt = await screen.findByTestId("invoice-dedup-prompt");
+    expect(prompt).toHaveTextContent("Duplicate invoice #251808");
+    await user.click(within(prompt).getByTestId("invoice-dedup-merge"));
+    await waitFor(() => expect(srv.state.ov["J-1"]?._deleted).toBe(true));
+    await waitFor(() => expect(screen.queryByTestId("invoice-dedup-prompt")).not.toBeInTheDocument());
+  });
+});
+
 describe("bug 3 — Dispatch chat panel", () => {
   it("replies (who:'claude') render as Dispatch bubbles, own as 'me'; hint hides once Dispatch spoke", async () => {
     mockServer({

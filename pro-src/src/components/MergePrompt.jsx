@@ -127,7 +127,9 @@ export default function MergePrompt() {
     >
       <div className="font-bold text-slate-900 text-sm">Same customer?</div>
       <p className="text-sm text-slate-600 mt-1">
-        “{sug.a.name}” and “{sug.b.name}” look like the same person — pick what fits.
+        {sug.reason === "contact"
+          ? `“${sug.a.name}” and “${sug.b.name}” share the same phone or email — pick what fits.`
+          : `“${sug.a.name}” and “${sug.b.name}” look like the same person — pick what fits.`}
       </p>
       <div className="mt-2.5 space-y-2">
         <button

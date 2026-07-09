@@ -159,6 +159,15 @@ describe("findMergeSuggestion", () => {
       ])
     ).toBeNull();
   });
+
+  it("expanded scan: same phone across different names triggers contact match", () => {
+    const s = findMergeSuggestion([
+      { id: "1", customer: "Joe Smith", phone: "(718) 555-1234" },
+      { id: "2", customer: "Joseph S", phone: "718-555-1234" },
+    ]);
+    expect(s).toBeTruthy();
+    expect(s.reason).toBe("contact");
+  });
 });
 
 describe("customerProfileComplete", () => {

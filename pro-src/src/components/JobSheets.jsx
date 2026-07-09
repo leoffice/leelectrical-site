@@ -1406,7 +1406,7 @@ export function PaperworkApptSheet({ job, branch, step, initialDt = "", onClose 
       <Opt
         icon="🔗"
         title="Link existing appointment"
-        note="Search this year's calendar"
+        note="Search appointments back one year+"
         onClick={() => setMode("pick")}
         data-testid="paper-appt-link"
       />

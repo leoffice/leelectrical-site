@@ -98,7 +98,7 @@ export default function PickAppointmentSheet({ job, onClose, onLinked }) {
   return (
     <Sheet title="Link from calendar" onClose={onClose} wide>
       <p className="text-sm text-slate-500 mb-3">
-        All synced appointments — search by address, customer, calendar notes, or date.
+        Appointments from the past year onward — search by address, customer, calendar notes, or date.
       </p>
       <input
         className="input mb-3"

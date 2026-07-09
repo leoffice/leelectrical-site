@@ -218,6 +218,27 @@ export function levenshtein(a, b) {
   return prev[b.length];
 }
 
+/** Digits-only phone for loose matching (718-555-1234 == 7185551234). */
+export function normalizePhone(phone) {
+  const d = String(phone || "").replace(/\D/g, "");
+  return d.length >= 10 ? d.slice(-10) : d.length >= 7 ? d : "";
+}
+
+/** Lowercase email for contact matching. */
+export function normalizeEmail(email) {
+  return String(email || "").trim().toLowerCase();
+}
+
+/** Same phone (10-digit) or email across two jobs — expanded duplicate scan. */
+export function contactInfoMatches(a, b) {
+  const pa = normalizePhone(a && a.phone);
+  const pb = normalizePhone(b && b.phone);
+  if (pa && pb && pa === pb) return true;
+  const ea = normalizeEmail(a && a.email);
+  const eb = normalizeEmail(b && b.email);
+  return !!(ea && eb && ea === eb);
+}
+
 /** Near-identical customer names: case-insensitive Levenshtein <= 2 on
  *  strings longer than 4 chars, or one contains the other with a
  *  >= 5-char overlap. Identical names are NOT a "pair" (same key already). */
@@ -441,13 +462,18 @@ export function findMergeSuggestion(jobs) {
   }
   const entries = [...map.entries()];
   for (let i = 0; i < entries.length; i++) {
-    const na = entries[i][1][0].customer;
+    const ja = entries[i][1][0];
+    const na = ja.customer;
     for (let k = i + 1; k < entries.length; k++) {
-      const nb = entries[k][1][0].customer;
-      if (!namesNearDuplicate(na, nb)) continue;
+      const jb = entries[k][1][0];
+      const nb = jb.customer;
+      const nameMatch = namesNearDuplicate(na, nb);
+      const contactMatch = !nameMatch && contactInfoMatches(ja, jb);
+      if (!nameMatch && !contactMatch) continue;
       if (isDismissed(na, nb)) continue;
       return {
         id: pairId(na, nb),
+        reason: contactMatch ? "contact" : "name",
         a: { name: na, jobs: entries[i][1] },
         b: { name: nb, jobs: entries[k][1] },
       };
