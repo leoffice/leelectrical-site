@@ -155,7 +155,7 @@ function owedAtStart(job, payments) {
 }
 
 async function patchJobPayment(jobId, amount, ref, method) {
-  if (!jobId) return;
+  if (!jobId) return null;
   const jobsStore = getStore("jobsdata");
   const stateStore = getStore("jobstate");
   const jobsDoc =
@@ -169,7 +169,11 @@ async function patchJobPayment(jobId, amount, ref, method) {
   const merged = { ...baseJob, ...prev };
   const payId = ref ? "sola-" + ref : "sola-" + Date.now();
   const existing = normalizePayments(merged);
-  if (existing.some((p) => p.id === payId)) return;
+  if (existing.some((p) => p.id === payId)) {
+    const owed = owedAtStart(merged, existing);
+    const paidSum = existing.reduce((s, p) => s + parseMoney(p.amount), 0);
+    return Math.max(0, owed - paidSum);
+  }
 
   const entry = {
     id: payId,
@@ -199,6 +203,7 @@ async function patchJobPayment(jobId, amount, ref, method) {
       : { Paid: { s: "" }, "Follow-up": { s: "" } },
   };
   await stateStore.setJSON(STATE_KEY, { ov, ts: Date.now() });
+  return fullPay ? 0 : remaining;
 }
 
 function thanksRedirect(params) {
@@ -236,13 +241,15 @@ export default async (req) => {
 
   const jobId = await findJobId(invoiceNo, p.xCustom02 || p.xcustom02);
   await enqueueRecordPayment({ jobId, invoiceNo, amount, ref, method });
-  await patchJobPayment(jobId, amount, ref, method);
+  const balance = await patchJobPayment(jobId, amount, ref, method);
 
   if (isWebhook) return new Response("OK", { status: 200 });
-  return thanksRedirect({
+  const thanks = {
     ok: "1",
     inv: invoiceNo,
     amt: fmtAmt(amount),
     ref,
-  });
+  };
+  if (balance != null) thanks.bal = fmtAmt(balance);
+  return thanksRedirect(thanks);
 };
