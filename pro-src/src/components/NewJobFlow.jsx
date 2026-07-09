@@ -25,6 +25,7 @@ import DocBuilderSheet from "./DocBuilderSheet.jsx";
 import { fmt$ } from "../lib/format.js";
 import { sortJobs } from "../lib/stages.js";
 import { serviceAddressHint, serviceAddressLabel, customerSyncPayload } from "../lib/customerSync.js";
+import { enqueueCustomerQboSync } from "../lib/customerQboEnqueue.js";
 import {
   createNewCustomerDisabled,
   customerFormDiffersFromBaseline,
@@ -568,7 +569,7 @@ function NewCustomerForm({ prefill = {}, onClose, onCreated }) {
 }
 
 function NewJobForm({ prefill, onClose, onCreated, vendorMode = false }) {
-  const { createJob, jobs, events, api } = useStore();
+  const { createJob, jobs, events, api, enqueue } = useStore();
   const [f, setF] = useState(() => {
     const o = { date: prefill.date || "", title: prefill.title || "", description: prefill.description || "" };
     CONTACT_FIELDS.forEach(([k]) => (o[k] = prefill[k] || ""));
@@ -688,6 +689,9 @@ function NewJobForm({ prefill, onClose, onCreated, vendorMode = false }) {
     };
     const id = await createJob(payload, prefill.calEventId || "");
     if (id) {
+      if (!cur.qboCustomerId && (cur.businessName || cur.customer)) {
+        enqueueCustomerQboSync(enqueue, id, payload, "");
+      }
       onClose();
       onCreated && onCreated(id);
     }

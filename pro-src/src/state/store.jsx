@@ -20,6 +20,7 @@ import { fmt$, parseAmount, todayStr } from "../lib/format.js";
 import { normalizePayments } from "../lib/payments.js";
 import { unhandledCount } from "../lib/sas.js";
 import { customerSyncPayload, qboCustomerToJobPatch } from "../lib/customerSync.js";
+import { customerQboJobPatch } from "../lib/customerQboLink.js";
 import { runDailyDedupeScan } from "../lib/dedupeScan.js";
 import {
   calendarUpsertLinksJob,
@@ -521,6 +522,27 @@ export function StoreProvider({ children }) {
       showToast(imported ? "Imported — open invoices added as jobs" : "Customer linked — refresh if jobs are missing");
     }
   }, [commands, refreshJobs, showToast]);
+
+  const appliedCustomerQbo = useRef(new Set());
+
+  useEffect(() => {
+    for (const cmd of commands || []) {
+      if (cmd.type !== "create_customer" && cmd.type !== "update_customer") continue;
+      if (cmd.status !== "done") continue;
+      const mark = String(cmd.idempotencyKey || cmd.id || "");
+      if (!mark || appliedCustomerQbo.current.has(mark)) continue;
+      const patch = customerQboJobPatch(cmd.result);
+      if (!patch || !cmd.jobId) continue;
+      const job = effectiveJob(cmd.jobId);
+      if (job && String(job.qboCustomerId || "") === patch.qboCustomerId) {
+        appliedCustomerQbo.current.add(mark);
+        continue;
+      }
+      appliedCustomerQbo.current.add(mark);
+      patchAndSave(cmd.jobId, patch).catch(() => {});
+      showToast("Customer linked to QuickBooks");
+    }
+  }, [commands, effectiveJob, patchAndSave, showToast]);
 
   /* ---------- command bus ---------- */
   const enqueue = useCallback(

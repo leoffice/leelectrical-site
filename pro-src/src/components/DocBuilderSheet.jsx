@@ -157,6 +157,12 @@ export default function DocBuilderSheet({
     const valid = lines.filter((ln) => (ln.itemName || "").trim());
     if (!valid.length) return showToast("Add at least one product/service line");
     if (!serviceAddress.trim()) return showToast("Service address is required");
+    if (mode === "edit" && kind === "invoice" && !job.invoiceNo) {
+      return showToast("No invoice number on this job yet — create the invoice first");
+    }
+    if (mode === "edit" && kind === "estimate" && !job.estimateNo) {
+      return showToast("No estimate number on this job yet — create the estimate first");
+    }
     if (send && !job.email) return showToast("Add customer email to send");
 
     setSaving(true);

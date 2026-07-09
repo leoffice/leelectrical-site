@@ -396,6 +396,15 @@ export default function JobDetail() {
                             {s === "Estimate" && (e.s === "done" || e.s === "skipped") ? (
                               <>
                                 <button className="btn-ghost !py-1.5" onClick={() => setStep(s, null)}>↩ Undo</button>
+                                {job.estimateNo ? (
+                                  <button
+                                    className="btn bg-brand-soft text-brand !py-1.5"
+                                    onClick={() => setSheet({ kind: "docBuild", docKind: "estimate", mode: "edit" })}
+                                    data-testid="edit-estimate-paperwork"
+                                  >
+                                    Edit estimate
+                                  </button>
+                                ) : null}
                                 {(job.estimateNo || (job.estimateLines && job.estimateLines.length)) && !job.invoiceNo ? (
                                   <button
                                     className="btn bg-brand-soft text-brand !py-1.5"
@@ -428,7 +437,18 @@ export default function JobDetail() {
                                 <button className="btn-ghost !py-1.5" onClick={() => setStep(s, "skipped")}>Skip</button>
                               </>
                             ) : s === "Invoiced" && (e.s === "done" || e.s === "skipped") ? (
-                              <button className="btn-ghost !py-1.5" onClick={() => setStep(s, null)}>↩ Undo</button>
+                              <>
+                                <button className="btn-ghost !py-1.5" onClick={() => setStep(s, null)}>↩ Undo</button>
+                                {job.invoiceNo ? (
+                                  <button
+                                    className="btn bg-brand-soft text-brand !py-1.5"
+                                    onClick={() => setSheet({ kind: "docBuild", docKind: "invoice", mode: "edit" })}
+                                    data-testid="edit-invoice-paperwork"
+                                  >
+                                    Edit invoice
+                                  </button>
+                                ) : null}
+                              </>
                             ) : s === "Invoiced" && e.s !== "done" && e.s !== "skipped" ? (
                               <>
                                 <button

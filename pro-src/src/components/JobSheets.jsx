@@ -1339,7 +1339,7 @@ export function DocSheet({ job, kind, onClose, onEdit, onConvert }) {
 }
 
 /** Quick invoice actions from the jobs list — View (full-screen PDF) or Send. */
-export function QuickSendSheet({ job, onClose }) {
+export function QuickSendSheet({ job, onClose, onEdit }) {
   const doSend = useDoSend();
   const due = openBalance(job);
   return (
@@ -1375,6 +1375,19 @@ export function QuickSendSheet({ job, onClose }) {
       ) : (
         <p className="text-[11px] text-slate-400 text-center mt-2">Add an email to send this invoice.</p>
       )}
+      {onEdit && job.invoiceNo ? (
+        <button
+          type="button"
+          className="btn-ghost w-full !py-2.5 mt-2 font-semibold"
+          onClick={() => {
+            onEdit();
+            onClose();
+          }}
+          data-testid="quick-send-edit-invoice"
+        >
+          Edit invoice
+        </button>
+      ) : null}
     </Sheet>
   );
 }
@@ -1635,14 +1648,26 @@ export function CustEditSheet({ job, onClose }) {
     try {
       await patchAndSave(job.id, patch);
       const updated = { ...job, ...patch };
-      enqueue(
-        "customer_sync",
-        job.id,
-        customerSyncPayload(updated),
-        "deterministic",
-        "custsync:" + job.id + ":" + Date.now()
-      );
-      showToast("Saved & syncing to QuickBooks…");
+      const qid = String(patch.qboCustomerId || "").trim();
+      if (qid) {
+        enqueue(
+          "update_customer",
+          job.id,
+          { id: qid, ...customerSyncPayload(updated) },
+          "deterministic",
+          "update_customer|" + job.id + "|" + Date.now()
+        );
+        showToast("Saved & syncing update to QuickBooks…");
+      } else {
+        enqueue(
+          "create_customer",
+          job.id,
+          customerSyncPayload(updated),
+          "deterministic",
+          "create_customer|" + job.id + "|" + Date.now()
+        );
+        showToast("Saved & creating in QuickBooks…");
+      }
       onClose();
     } catch (e) {
       showToast("Save failed — " + ((e && e.message) || "try again"));

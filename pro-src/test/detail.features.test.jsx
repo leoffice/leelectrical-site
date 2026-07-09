@@ -154,7 +154,7 @@ describe("2. quick views — invoice/estimate/calendar sheets", () => {
 });
 
 describe("3. customer edit + sync to QuickBooks", () => {
-  it("stages name/phone/email/address edits; ⇄ Sync enqueues customer_sync deterministic", async () => {
+  it("stages edits; save enqueues create_customer when not linked to QB yet", async () => {
     const srv = mockServer();
     const user = userEvent.setup();
     const pane = await openDetail();
@@ -164,11 +164,11 @@ describe("3. customer edit + sync to QuickBooks", () => {
     await user.clear(name);
     await user.type(name, "Peretz B. Chein");
     await user.click(screen.getByTestId("cust-save-sync"));
-    await waitFor(() => expect(srv.enqueued("customer_sync")).toHaveLength(1));
+    await waitFor(() => expect(srv.enqueued("create_customer")).toHaveLength(1));
     expect(await within(pane).findByText("Peretz B. Chein")).toBeInTheDocument();
-    const cmd = srv.enqueued("customer_sync")[0];
+    const cmd = srv.enqueued("create_customer")[0];
     expect(cmd.lane).toBe("deterministic");
-    expect(cmd.idempotencyKey).toMatch(/^custsync:J-1:\d+$/);
+    expect(cmd.idempotencyKey).toMatch(/^create_customer\|J-1\|\d+$/);
     expect(cmd.payload).toEqual({
       name: "Peretz B. Chein",
       businessName: "Peretz B. Chein",

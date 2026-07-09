@@ -6,6 +6,7 @@ import { CustomerAvatar, GroupJobRow, PaidPill, StagePill } from "../components/
 import { progressPct } from "../lib/stages.js";
 
 import Sheet, { Opt } from "../components/Sheet.jsx";
+import DocBuilderSheet from "../components/DocBuilderSheet.jsx";
 import { MarkPaidSheet, QuickSendSheet } from "../components/JobSheets.jsx";
 import {
   FILTER_NAMES,
@@ -539,7 +540,23 @@ export default function Jobs({ embedded, collapseGroups = false, activeJobId = "
       )}
 
       {sheet?.kind === "paid" && <MarkPaidSheet job={sheet.job} onClose={() => setSheet(null)} />}
-      {sheet?.kind === "send" && <QuickSendSheet job={sheet.job} onClose={() => setSheet(null)} />}
+      {sheet?.kind === "send" && (
+        <QuickSendSheet
+          job={sheet.job}
+          onClose={() => setSheet(null)}
+          onEdit={() =>
+            setSheet({ kind: "docBuild", docKind: "invoice", mode: "edit", job: sheet.job })
+          }
+        />
+      )}
+      {sheet?.kind === "docBuild" && sheet.job ? (
+        <DocBuilderSheet
+          job={sheet.job}
+          kind={sheet.docKind}
+          mode={sheet.mode || "edit"}
+          onClose={() => setSheet(null)}
+        />
+      ) : null}
 
       {importCust && (
         <Sheet title="Import customer?" onClose={() => setImportCust(null)}>
