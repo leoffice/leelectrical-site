@@ -137,18 +137,24 @@ describe("Feature 2 — customer group total due + Customer view", () => {
     expect(within(view).getByText("Panel swap")).toBeInTheDocument();
   });
 
-  it("job cards stay expanded with billing tabs visible", async () => {
+  it("job cards start compact; tap expands one job and hides siblings", async () => {
+    const user = userEvent.setup();
     renderApp("#/");
     await screen.findByTestId("client-group-amount");
-    await userEvent.setup().click(screen.getByTestId("client-group-name"));
+    await user.click(screen.getByTestId("client-group-name"));
 
     const view = await screen.findByTestId("customer-view");
-    const card = within(view).getByText("Panel swap").closest("[data-testid='job-info-card']");
-    expect(within(card).getByTestId("job-doc-tabs")).toBeInTheDocument();
-    expect(within(card).queryByText("Open full job ›")).not.toBeInTheDocument();
+    expect(within(view).getAllByTestId("job-info-card")).toHaveLength(3);
+    const panelCard = within(view).getByText("Panel swap").closest("[data-testid='job-info-card']");
+    expect(within(panelCard).queryByTestId("job-doc-tabs")).not.toBeInTheDocument();
+
+    await user.click(panelCard);
+    expect(within(view).getAllByTestId("job-info-card")).toHaveLength(1);
+    expect(within(panelCard).getByTestId("job-doc-tabs")).toBeInTheDocument();
+    expect(within(panelCard).getByText("Open full job ›")).toBeInTheDocument();
   });
 
-  it("tapping a job card opens JobDetail with a back-to-customer breadcrumb", async () => {
+  it("tapping a focused job card again restores all sibling jobs", async () => {
     const user = userEvent.setup();
     renderApp("#/");
     await screen.findByTestId("client-group-amount");
@@ -157,12 +163,27 @@ describe("Feature 2 — customer group total due + Customer view", () => {
     const view = await screen.findByTestId("customer-view");
     const panelCard = within(view).getByText("Panel swap").closest("[data-testid='job-info-card']");
     await user.click(panelCard);
+    expect(within(view).getAllByTestId("job-info-card")).toHaveLength(1);
 
-    // JobDetail now shows the customer name as the back breadcrumb
+    await user.click(panelCard);
+    expect(within(view).getAllByTestId("job-info-card")).toHaveLength(3);
+    expect(within(view).getByText("EV charger")).toBeInTheDocument();
+  });
+
+  it("Open full job link opens JobDetail with a back-to-customer breadcrumb", async () => {
+    const user = userEvent.setup();
+    renderApp("#/");
+    await screen.findByTestId("client-group-amount");
+    await user.click(screen.getByTestId("client-group-name"));
+
+    const view = await screen.findByTestId("customer-view");
+    const panelCard = within(view).getByText("Panel swap").closest("[data-testid='job-info-card']");
+    await user.click(panelCard);
+    await user.click(within(panelCard).getByText("Open full job ›"));
+
     const back = await screen.findByTestId("detail-back");
     expect(back).toHaveTextContent("Meir Kabakov");
 
-    // and clicking it returns to the customer view (anchored on jobs)
     await user.click(back);
     const view2 = await screen.findByTestId("customer-view");
     expect(view2).toBeInTheDocument();

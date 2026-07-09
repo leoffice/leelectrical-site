@@ -1,4 +1,5 @@
 import { getStore } from "@netlify/blobs";
+import { rotateJsonBackup } from "./blob-backup.mjs";
 
 // Cross-device sync for the dashboard's user edits (follow-ups, completed steps,
 // notes, paid flags, paperwork). GET returns the shared state; POST saves it.
@@ -25,7 +26,7 @@ export default async (req) => {
     try { body = await req.json(); } catch (e) {}
     const ov = body.ov || {};
     const ts = Date.now();
-    await store.setJSON(KEY, { ov, ts });
+    await rotateJsonBackup(store, KEY, { ov, ts });
     return json({ ok: true, ts });
   }
   const cur = (await store.get(KEY, { type: "json" })) || { ov: {}, ts: 0 };

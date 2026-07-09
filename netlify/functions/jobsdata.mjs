@@ -1,4 +1,5 @@
 import { getStore } from "@netlify/blobs";
+import { rotateJsonBackup } from "./blob-backup.mjs";
 
 // Live jobs dataset synced from QuickBooks + Google Calendar by a scheduled
 // Dispatch job (overnight + midday) and on demand. The dashboard GETs this to
@@ -53,7 +54,7 @@ export default async (req) => {
       doc.request = Date.now();
     }
     doc.ts = Date.now();
-    await store.setJSON(KEY, doc);
+    await rotateJsonBackup(store, KEY, doc);
     return json(doc);
   }
   return json(await load(store));

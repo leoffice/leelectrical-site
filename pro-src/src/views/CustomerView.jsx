@@ -32,6 +32,7 @@ export default function CustomerView() {
   const { jobs, loading, events, commands, patchJob, refreshJobs } = useStore();
   const key = raw ? decodeURIComponent(raw) : "";
   const [sheet, setSheet] = useState(null); // { kind, job? }
+  const [focusedJobId, setFocusedJobId] = useState(() => jobAnchor || "");
   const [importing, setImporting] = useState(false);
   const importPoll = useRef(null);
   const jobsSectionRef = useRef(null);
@@ -69,6 +70,14 @@ export default function CustomerView() {
     tick();
     return () => clearTimeout(importPoll.current);
   }, [key, refreshJobs]);
+
+  useEffect(() => {
+    setFocusedJobId(jobAnchor || "");
+  }, [key, jobAnchor]);
+
+  const toggleJobFocus = (jobId) => {
+    setFocusedJobId((cur) => (cur === jobId ? "" : jobId));
+  };
 
   useEffect(() => {
     if (!displayJobs.length) return;
@@ -146,23 +155,30 @@ export default function CustomerView() {
         Jobs ({displayJobs.length})
       </h2>
       <div className="space-y-3">
-        {displayJobs.map((j) => (
-          <div key={j.id} id={"job-card-" + j.id} className="scroll-mt-20">
-          <JobInfoCard
-            job={j}
-            events={events}
-            commands={commands}
-            onOpen={() => nav("/job/" + j.id + "?from=" + encodeURIComponent(key))}
-            onEstimate={() => openDocFor(j, "estimate")}
-            onInvoice={() => openDocFor(j, "invoice")}
-            onPayment={() => nav("/job/" + j.id + "?from=" + encodeURIComponent(key) + "&pay=1")}
-            onCalendar={() => openDocFor(j, "calendar")}
-            onBubbleTap={(bubble) =>
-              tapAwarenessBubble(j, bubble, (s) => setSheet({ ...s, job: j }), openDocForBubble)
-            }
-          />
-          </div>
-        ))}
+        {displayJobs.map((j) => {
+          if (focusedJobId && focusedJobId !== j.id) return null;
+          const isFocused = focusedJobId === j.id;
+          return (
+            <div key={j.id} id={"job-card-" + j.id} className="scroll-mt-20">
+              <JobInfoCard
+                job={j}
+                events={events}
+                commands={commands}
+                sectionsCollapsed={!isFocused}
+                onCardTap={() => toggleJobFocus(j.id)}
+                onOpen={() => nav("/job/" + j.id + "?from=" + encodeURIComponent(key))}
+                showOpenLink={isFocused}
+                onEstimate={() => openDocFor(j, "estimate")}
+                onInvoice={() => openDocFor(j, "invoice")}
+                onPayment={() => nav("/job/" + j.id + "?from=" + encodeURIComponent(key) + "&pay=1")}
+                onCalendar={() => openDocFor(j, "calendar")}
+                onBubbleTap={(bubble) =>
+                  tapAwarenessBubble(j, bubble, (s) => setSheet({ ...s, job: j }), openDocForBubble)
+                }
+              />
+            </div>
+          );
+        })}
       </div>
 
       {sheet?.kind === "cust" && sheet.job ? (
