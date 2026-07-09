@@ -21,14 +21,14 @@ const job = (id, customer, title, amount, extra = {}) => ({
   ...extra,
 });
 
-describe("JobDetail — sibling jobs on Job Info collapse", () => {
+describe("JobDetail — sibling jobs when detail sections collapse", () => {
   const jobs = () => [
     job("K-1", "Meir Kabakov", "Panel swap", "$1,000", { invoiceNo: "1001" }),
     job("K-2", "Meir Kabakov", "EV charger", "$900"),
     job("K-3", "Meir Kabakov", "Service", "$300"),
   ];
 
-  it("shows other customer jobs when Job Info is collapsed, hides them when expanded", async () => {
+  it("keeps Job Info visible; collapse shows sibling jobs below, expand hides them", async () => {
     mockServer({ jobs: jobs() });
     const user = userEvent.setup();
     renderApp("#/job/K-1?from=c%3Ameir%20kabakov");
@@ -36,11 +36,13 @@ describe("JobDetail — sibling jobs on Job Info collapse", () => {
     const pane = await screen.findByTestId("detail-pane");
     const card = within(pane).getByTestId("job-info-card");
 
-    // expanded by default — siblings hidden
+    // expanded by default — siblings hidden, job info always full
     expect(screen.queryByTestId("customer-sibling-jobs")).not.toBeInTheDocument();
+    expect(within(card).getByText("Service address")).toBeInTheDocument();
 
-    // collapse → siblings appear
+    // collapse detail sections → siblings appear, job info still full
     await user.click(card);
+    expect(within(card).getByText("Service address")).toBeInTheDocument();
     const siblings = await screen.findByTestId("customer-sibling-jobs");
     expect(within(siblings).getByText("EV charger")).toBeInTheDocument();
     expect(within(siblings).getByText("Service")).toBeInTheDocument();

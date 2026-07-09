@@ -261,7 +261,6 @@ export default function JobDetail() {
         events={events}
         commands={commands}
         showOpenLink={false}
-        sectionsCollapsed={!detailSectionsExpanded}
         onCardTap={toggleDetailSections}
         onEstimate={() => openDocTab(job, "estimate", setSheet)}
         onInvoice={() => openDocTab(job, "invoice", setSheet)}

@@ -57,7 +57,6 @@ export default function JobInfoCard({
   onBubbleTap,
   showOpenLink = false,
   onCardTap,
-  sectionsCollapsed = false,
 }) {
   const total = invoiceTotal(job);
   const paid = amountPaid(job);
@@ -106,10 +105,8 @@ export default function JobInfoCard({
     <div
       className={`card px-3 py-3 lg:px-4 lg:py-4 ${handleCardClick ? "cursor-pointer active:bg-slate-50/80" : ""}`}
       data-testid="job-info-card"
-      data-sections-expanded={onCardTap ? (sectionsCollapsed ? "false" : "true") : undefined}
       onClick={handleCardClick}
       role={handleCardClick ? "button" : undefined}
-      aria-expanded={onCardTap ? !sectionsCollapsed : undefined}
     >
       <div className="flex items-start gap-2">
         <div className="min-w-0 flex-1">
@@ -125,36 +122,30 @@ export default function JobInfoCard({
 
       {bubbleStrip}
 
-      {sectionsCollapsed ? (
-        <p className="text-[10px] text-slate-400 mt-2 text-center">Tap to show progress &amp; billing</p>
-      ) : (
-        <>
-          {rows.length > 0 && (
-            <dl className="mt-2 space-y-1 text-xs lg:text-sm min-w-0 w-full">
-              {rows.map(([k, v]) => (
-                <div key={k} className="flex gap-2 items-baseline">
-                  <dt className="font-semibold text-slate-800 shrink-0 w-[5.5rem] lg:w-32">{k}</dt>
-                  <dd className="text-slate-500 break-words min-w-0">{v}</dd>
-                </div>
-              ))}
-            </dl>
-          )}
-
-          {onEstimate && onInvoice && onCalendar ? (
-            <div data-no-card-open onClick={stopBubble}>
-              <JobDocTabs
-                job={job}
-                events={events}
-                commands={commands}
-                onEstimate={onEstimate}
-                onInvoice={onInvoice}
-                onPayment={onPayment}
-                onCalendar={onCalendar}
-              />
+      {rows.length > 0 && (
+        <dl className="mt-2 space-y-1 text-xs lg:text-sm min-w-0 w-full">
+          {rows.map(([k, v]) => (
+            <div key={k} className="flex gap-2 items-baseline">
+              <dt className="font-semibold text-slate-800 shrink-0 w-[5.5rem] lg:w-32">{k}</dt>
+              <dd className="text-slate-500 break-words min-w-0">{v}</dd>
             </div>
-          ) : null}
-        </>
+          ))}
+        </dl>
       )}
+
+      {onEstimate && onInvoice && onCalendar ? (
+        <div data-no-card-open onClick={stopBubble}>
+          <JobDocTabs
+            job={job}
+            events={events}
+            commands={commands}
+            onEstimate={onEstimate}
+            onInvoice={onInvoice}
+            onPayment={onPayment}
+            onCalendar={onCalendar}
+          />
+        </div>
+      ) : null}
 
       {showOpenLink && onOpen ? (
         <button
