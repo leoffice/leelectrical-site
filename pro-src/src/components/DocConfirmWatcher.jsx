@@ -1,4 +1,4 @@
-// When create_estimate / create_invoice completes, patch job + show 5s confirmation.
+// When create_estimate / create_invoice completes or fails, patch job + notify.
 import { useEffect, useRef } from "react";
 import { useStore } from "../state/store.jsx";
 import {
@@ -7,11 +7,41 @@ import {
   persistDocConfirmSeen,
   shouldShowDocConfirm,
 } from "../lib/docConfirm.js";
+import { DOC_SYNC_COMMAND_TYPES } from "../lib/docSync.js";
 import { todayStr } from "../lib/format.js";
 
+const DOC_FAIL_SEEN_KEY = "le-pro-doc-fail-seen";
+
+function loadDocFailSeen() {
+  try {
+    return new Set(JSON.parse(localStorage.getItem(DOC_FAIL_SEEN_KEY) || "[]"));
+  } catch {
+    return new Set();
+  }
+}
+
+function persistDocFailSeen(seen) {
+  try {
+    localStorage.setItem(DOC_FAIL_SEEN_KEY, JSON.stringify([...seen].slice(-300)));
+  } catch {}
+}
+
+function docFailToastMessage(c) {
+  const label =
+    c.type === "create_estimate" || c.type === "update_estimate"
+      ? "Estimate"
+      : c.type === "create_invoice" || c.type === "update_invoice"
+      ? "Invoice"
+      : "Document";
+  const err = String(c.error || "");
+  if (err.includes("no_customer")) return label + " sync failed — link this customer to QuickBooks first";
+  return label + " sync failed — check Activity on the job and tap Retry";
+}
+
 export default function DocConfirmWatcher() {
-  const { commands, patchAndSave, effectiveJob, showDocConfirm, refreshCommands } = useStore();
+  const { commands, patchAndSave, effectiveJob, showDocConfirm, showToast, refreshCommands } = useStore();
   const seen = useRef(loadDocConfirmSeen());
+  const failSeen = useRef(loadDocFailSeen());
 
   useEffect(() => {
     const iv = setInterval(() => refreshCommands(), 3000);
@@ -61,7 +91,15 @@ export default function DocConfirmWatcher() {
         customer: job.customer || job.businessName || "",
       });
     }
-  }, [commands, effectiveJob, patchAndSave, showDocConfirm]);
+
+    for (const c of commands || []) {
+      if (!c?.id || failSeen.current.has(c.id)) continue;
+      if (!DOC_SYNC_COMMAND_TYPES.includes(c.type) || c.status !== "failed") continue;
+      failSeen.current.add(c.id);
+      persistDocFailSeen(failSeen.current);
+      showToast(docFailToastMessage(c));
+    }
+  }, [commands, effectiveJob, patchAndSave, showDocConfirm, showToast]);
 
   return null;
 }

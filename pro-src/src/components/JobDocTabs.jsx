@@ -1,11 +1,12 @@
 // Estimate / Invoice / Payment / Calendar tabs below job info.
 import React, { useMemo } from "react";
 import { jobCalendarLinkState } from "../lib/calendarLink.js";
-import { docSyncPendingForJob } from "../lib/docSync.js";
+import { docSyncFailedForJob, docSyncPendingForJob } from "../lib/docSync.js";
 import { hasPendingInvoiceReview } from "../lib/invoiceAgentDraft.js";
 
-function tabTone(active, pending) {
+function tabTone(active, pending, failed) {
   if (pending) return "bg-amber-50 text-amber-800 border-amber-200";
+  if (failed) return "bg-red-50 text-red-700 border-red-200";
   if (active) return "bg-brand-soft text-brand border-brand/30";
   return "bg-slate-50 text-slate-500 border-slate-200";
 }
@@ -29,8 +30,28 @@ export default function JobDocTabs({
     return { estimate: syncing, invoice: syncing };
   }, [commands, job.id]);
 
-  const estLabel = hasEst ? "Est " + job.estimateNo : pending.estimate ? "Est…" : "Estimate";
-  const invLabel = hasInv ? "Inv " + job.invoiceNo : pending.invoice ? "Inv…" : "Invoice";
+  const failed = useMemo(
+    () => ({
+      estimate: docSyncFailedForJob(commands, job.id, "estimate", job),
+      invoice: docSyncFailedForJob(commands, job.id, "invoice", job),
+    }),
+    [commands, job, job.id]
+  );
+
+  const estLabel = hasEst
+    ? "Est " + job.estimateNo
+    : pending.estimate
+    ? "Est…"
+    : failed.estimate
+    ? "Est!"
+    : "Estimate";
+  const invLabel = hasInv
+    ? "Inv " + job.invoiceNo
+    : pending.invoice
+    ? "Inv…"
+    : failed.invoice
+    ? "Inv!"
+    : "Invoice";
   const cal = useMemo(() => jobCalendarLinkState(job, events, commands), [job, events, commands]);
   const calTone = cal.confirmed
     ? "bg-emerald-50 text-emerald-800 border-emerald-200"
@@ -42,7 +63,7 @@ export default function JobDocTabs({
     <div className="grid grid-cols-4 gap-1.5 mt-3" data-testid="job-doc-tabs">
       <button
         type="button"
-        className={`rounded-xl border px-1.5 py-2 text-center text-[10px] font-bold leading-tight ${tabTone(hasEst, pending.estimate)}`}
+        className={`rounded-xl border px-1.5 py-2 text-center text-[10px] font-bold leading-tight ${tabTone(hasEst, pending.estimate, failed.estimate)}`}
         onClick={onEstimate}
         data-testid="tab-estimate"
       >
@@ -53,7 +74,7 @@ export default function JobDocTabs({
         className={`rounded-xl border px-1.5 py-2 text-center text-[10px] font-bold leading-tight ${
           agentReview
             ? "bg-red-50 text-red-600 border-red-300 animate-pulse"
-            : tabTone(hasInv, pending.invoice)
+            : tabTone(hasInv, pending.invoice, failed.invoice)
         }`}
         onClick={onInvoice}
         data-testid="tab-invoice"

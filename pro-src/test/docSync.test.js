@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { docSyncPendingForJob, planDocSaveSync } from "../src/lib/docSync.js";
+import { docSyncFailedForJob, docSyncPendingForJob, planDocSaveSync } from "../src/lib/docSync.js";
 
 const job = {
   id: "J-SYNC",
@@ -14,6 +14,25 @@ const job = {
 };
 
 describe("docSync", () => {
+  it("docSyncFailedForJob detects failed create when job has no doc number", () => {
+    const bare = { id: "J-SYNC", customer: "Acme LLC" };
+    expect(
+      docSyncFailedForJob(
+        [{ jobId: "J-SYNC", type: "create_estimate", status: "failed", error: "no_customer" }],
+        "J-SYNC",
+        "estimate",
+        bare
+      )
+    ).toBe(true);
+    expect(docSyncFailedForJob([], "J-SYNC", "estimate", job)).toBe(false);
+    expect(docSyncFailedForJob(
+      [{ jobId: "J-SYNC", type: "create_estimate", status: "failed" }],
+      "J-SYNC",
+      "estimate",
+      job
+    )).toBe(false);
+  });
+
   it("docSyncPendingForJob detects queued update commands", () => {
     expect(
       docSyncPendingForJob(

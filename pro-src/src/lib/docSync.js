@@ -24,6 +24,25 @@ export function docSyncPendingForJob(commands, jobId) {
   );
 }
 
+const ESTIMATE_DOC_TYPES = ["create_estimate", "update_estimate"];
+const INVOICE_DOC_TYPES = ["create_invoice", "update_invoice"];
+
+/** True when a recent doc sync failed and the job still has no confirmed doc number. */
+export function docSyncFailedForJob(commands, jobId, kind, job) {
+  const types = kind === "estimate" ? ESTIMATE_DOC_TYPES : INVOICE_DOC_TYPES;
+  const hasDoc =
+    kind === "estimate"
+      ? !!(job?.estimateNo || job?._estimateConfirmed)
+      : !!(job?.invoiceNo || job?._invoiceConfirmed);
+  if (hasDoc) return false;
+  return (commands || []).some(
+    (c) =>
+      String(c.jobId) === String(jobId) &&
+      types.includes(c.type) &&
+      c.status === "failed"
+  );
+}
+
 export function sharedAddressFields(serviceAddress, apartment) {
   return {
     serviceAddress,
