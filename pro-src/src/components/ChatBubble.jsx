@@ -1,11 +1,11 @@
-// Floating Dispatch chat — bubble on every view, gradient panel, removable
+// Floating Israel chat — bubble on every view, gradient panel, removable
 // context chip, Web Speech mic with level animation, message statuses,
 // unread badge. Posts to the chat fn (op:msg) + iterate fn; polls 5s closed,
 // 3s while the panel is open. Sends presence heartbeats (op:presence) and
-// reads the presence map back to show "Dispatch • online" (the responder cron
-// pings convo "dispatch-heartbeat"). Dispatch replies fire a browser
-// Notification when the tab is hidden (permission asked on first open).
-import React, { useCallback, useEffect, useRef, useState } from "react";
+// reads the presence map back to show "Israel • online" (chat_responder pings
+// convo "israel-heartbeat"). Israel replies fire a browser Notification when
+// the tab is hidden (permission asked on first open).
+import React, { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { useLocation } from "react-router-dom";
 import { useStore } from "../state/store.jsx";
 import { fmt$ } from "../lib/format.js";
@@ -14,7 +14,7 @@ import { CHAT_SLASH_HINT, jobPatchFromSlash, parseChatSlash } from "../lib/chatA
 import ChatJobUpdateSheet from "./ChatJobUpdateSheet.jsx";
 
 const CONVO_KEY = "le_pro_convo";
-const ONLINE_MS = 4 * 60_000; // dispatch-heartbeat (or last reply) younger than this = online
+const ONLINE_MS = 4 * 60_000; // israel-heartbeat (or last reply) younger than this = online
 const STUCK_MS = 90_000; // a "Working on it" we've watched longer than this stops looking like a live spinner
 const NEAR_BOTTOM_PX = 48; // within this distance of the bottom we auto-scroll on new messages
 
@@ -44,13 +44,13 @@ function askNotifyPermission() {
   } catch {}
 }
 
-/** Browser notification for a Dispatch reply that arrived while tab hidden. */
+/** Browser notification for an Israel reply that arrived while tab hidden. */
 function notifyReply(m) {
   try {
     if (typeof Notification === "undefined" || Notification.permission !== "granted") return;
-    const n = new Notification("Dispatch replied", {
+    const n = new Notification("Israel replied", {
       body: String((m && m.text) || "New message").slice(0, 160),
-      tag: "le-pro-dispatch", // collapse repeats into one
+      tag: "le-pro-israel", // collapse repeats into one
     });
     n.onclick = () => {
       try {
@@ -61,10 +61,9 @@ function notifyReply(m) {
   } catch {}
 }
 
-/** The chat fn stores bubble messages as who:"you" and Dispatch replies as
- *  who:"claude" (op:reply) — some tools use "dispatch". Anything that isn't
- *  a reply renders as "me". */
-const isDispatchMsg = (m) => m.who === "dispatch" || m.who === "claude";
+/** Bubble messages are who:"you"; Israel replies who:"israel" (legacy: claude/dispatch). */
+const isAgentMsg = (m) =>
+  m.who === "israel" || m.who === "dispatch" || m.who === "claude";
 function getConvo() {
   try {
     let c = localStorage.getItem(CONVO_KEY);
@@ -85,7 +84,7 @@ export function ChatUnreadBadge({ unread }) {
     <span
       className="absolute -top-0.5 -right-0.5 flex items-center justify-center"
       data-testid="chat-unread-dot"
-      aria-label={`${unread} new ${unread === 1 ? "reply" : "replies"} from Dispatch`}
+      aria-label={`${unread} new ${unread === 1 ? "reply" : "replies"} from Israel`}
     >
       <span className="absolute inline-flex w-full h-full rounded-full bg-red-500 opacity-75 animate-ping" />
       <span className="relative inline-flex min-w-[16px] h-[16px] px-1 rounded-full bg-red-600 text-white text-[10px] font-extrabold leading-[16px] items-center justify-center">
@@ -111,7 +110,10 @@ export default function ChatBubble() {
   const openRef = useRef(chatOpen);
   openRef.current = chatOpen;
   const logRef = useRef(null);
-  const stickRef = useRef(true); // auto-scroll only while the user is near the bottom
+  const inputRef = useRef(null);
+  const stickRef = useRef(true);
+  const scrollMemRef = useRef({ top: 0, max: 0, pinned: false });
+  const msgsSigRef = useRef(""); // skip scroll work when poll returns the same thread
   const recRef = useRef(null);
   const micBtn = useRef(null);
   const workingSince = useRef({ id: null, t: 0 }); // when we first saw the current "Working on it"
@@ -146,7 +148,7 @@ export default function ChatBubble() {
       localMsgs.current = localMsgs.current.filter((lm) => !ms.some((m) => m.id === lm.id));
       // Unread + notifications track DISPATCH replies only (own sends don't
       // count), and the very first poll just baselines old history.
-      const dispatch = ms.filter(isDispatchMsg);
+      const dispatch = ms.filter(isAgentMsg);
       // NB: capture the delta NOW — the setUnread updater runs after the ref
       // is overwritten below (the old code read the ref inside the updater,
       // which made the delta 0 and the badge never increment).
@@ -169,13 +171,11 @@ export default function ChatBubble() {
     return () => clearInterval(t);
   }, [poll, chatOpen]);
 
-  // Responder presence — is Dispatch's cron alive? Checked on open + every
-  // 15s while the panel stays open (the 3s message poll re-renders, so the
-  // <4 min freshness window re-evaluates without its own timer).
+  // Responder presence — is Israel's chat_responder alive?
   const pollPresence = useCallback(async () => {
     try {
       const map = (api.presenceMap && (await api.presenceMap())) || {};
-      const d = map["dispatch-heartbeat"];
+      const d = map["israel-heartbeat"] || map["dispatch-heartbeat"];
       setDispatchSeen((d && d.lastSeen) || 0);
     } catch {}
   }, [api]);
@@ -214,25 +214,68 @@ export default function ChatBubble() {
     return () => clearInterval(t);
   }, [chatOpen, presencePing]);
 
-  const scrollLogToBottom = useCallback(() => {
-    const el = logRef.current;
+  const isNearBottom = useCallback((el) => {
+    if (!el) return true;
+    return el.scrollHeight - el.scrollTop - el.clientHeight <= NEAR_BOTTOM_PX;
+  }, []);
+
+  const rememberScroll = useCallback((el) => {
     if (!el) return;
-    el.scrollTop = el.scrollHeight;
+    const max = Math.max(0, el.scrollHeight - el.clientHeight);
+    const pinned = max - el.scrollTop > NEAR_BOTTOM_PX;
+    scrollMemRef.current = { top: el.scrollTop, max, pinned };
+    stickRef.current = !pinned;
   }, []);
 
   const onLogScroll = useCallback(() => {
-    const el = logRef.current;
-    if (!el) return;
-    stickRef.current = el.scrollHeight - el.scrollTop - el.clientHeight <= NEAR_BOTTOM_PX;
+    rememberScroll(logRef.current);
+  }, [rememberScroll]);
+
+  const msgsSignature = useCallback((list, workingOn) => {
+    const tail = list[list.length - 1];
+    const w = workingOn ? workingOn.id + ":" + (workingOn.status || "") : "";
+    return `${list.length}|${tail?.id || ""}|${tail?.text?.length || 0}|${tail?.status || ""}|${w}`;
   }, []);
 
-  // Auto-scroll when the panel opens or when new messages arrive — but only if
-  // the user hasn't scrolled up to read history (poll every 3s was yanking them
-  // back to the bottom).
+  // When the thread changes: stick to bottom if already there; otherwise restore
+  // the last remembered scrollTop so poll() every 3s doesn't yank readers down.
+  useLayoutEffect(() => {
+    if (!chatOpen) return;
+    const sig = msgsSignature(msgs, msgs.find((m) => m.status === "Working on it"));
+    if (sig === msgsSigRef.current) return;
+
+    const node = logRef.current;
+    if (!node) return;
+
+    const savedTop = scrollMemRef.current.pinned
+      ? scrollMemRef.current.top
+      : node.scrollTop;
+    const readingHistory =
+      scrollMemRef.current.pinned ||
+      node.scrollHeight - node.clientHeight - node.scrollTop > NEAR_BOTTOM_PX;
+
+    msgsSigRef.current = sig;
+
+    if (readingHistory) {
+      node.scrollTop = savedTop;
+      rememberScroll(node);
+      return;
+    }
+    node.scrollTop = node.scrollHeight;
+    rememberScroll(node);
+  }, [msgs, chatOpen, msgsSignature, rememberScroll]);
+
+  const resizeInput = useCallback(() => {
+    const el = inputRef.current;
+    if (!el) return;
+    el.style.height = "0px";
+    const max = Math.min(160, Math.floor(window.innerHeight * 0.28));
+    el.style.height = `${Math.min(el.scrollHeight, max)}px`;
+  }, []);
+
   useEffect(() => {
-    if (!chatOpen || !stickRef.current) return;
-    requestAnimationFrame(scrollLogToBottom);
-  }, [msgs, chatOpen, scrollLogToBottom]);
+    resizeInput();
+  }, [text, chatOpen, resizeInput]);
 
   const apptCtx = appointmentContextFromRoute(loc.pathname, { effectiveJob, jobs });
   const activeJob = jobId ? effectiveJob(jobId) : null;
@@ -292,12 +335,19 @@ export default function ChatBubble() {
 
   useEffect(() => {
     if (!chatOpen) return;
-    stickRef.current = true;
     setChatUnread(0);
     setCtxOn(true);
     askNotifyPermission();
     poll();
   }, [chatOpen, poll]);
+
+  // Scroll to latest once when the panel opens; do not reset stick on every poll.
+  useEffect(() => {
+    if (!chatOpen) return;
+    stickRef.current = true;
+    scrollMemRef.current = { top: 0, max: 0, pinned: false };
+    msgsSigRef.current = ""; // next layout pass scrolls to bottom once
+  }, [chatOpen]);
 
   const send = async () => {
     const t = text.trim();
@@ -309,6 +359,7 @@ export default function ChatBubble() {
       if (handled) return;
     }
     setText("");
+    requestAnimationFrame(resizeInput);
     stickRef.current = true;
     const full = chatCtx() + t;
     setCtxOn(true);
@@ -404,11 +455,11 @@ export default function ChatBubble() {
   const ctx = chatCtx();
   const now = Date.now();
 
-  // Liveness — a recent Dispatch REPLY is proof the responder is alive even when
-  // its presence heartbeat lags (the "dispatch-heartbeat" cron pings slowly, so
+  // Liveness — a recent Israel REPLY is proof the responder is alive even when
+  // its presence heartbeat lags (israel-heartbeat pings every ~2s when active, so
   // relying on it alone left the header stuck on "away" while replies flowed in
   // seconds). Online = fresh heartbeat OR a reply within the same window.
-  const lastReplyTs = msgs.reduce((mx, m) => (isDispatchMsg(m) && m.ts > mx ? m.ts : mx), 0);
+  const lastReplyTs = msgs.reduce((mx, m) => (isAgentMsg(m) && m.ts > mx ? m.ts : mx), 0);
   const online =
     (dispatchSeen > 0 && now - dispatchSeen < ONLINE_MS) ||
     (lastReplyTs > 0 && now - lastReplyTs < ONLINE_MS);
@@ -436,10 +487,10 @@ export default function ChatBubble() {
         >
           <div className="flex items-center gap-2 px-4 py-2.5 bg-brand text-white">
             <div className="flex-1 min-w-0">
-              <b className="block text-sm leading-tight">Dispatch</b>
+              <b className="block text-sm leading-tight">Israel</b>
               <span className="flex items-center gap-1.5 text-[11px] opacity-90 leading-tight" data-testid="presence-line">
                 <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${online ? "bg-emerald-300" : "bg-white/40"}`} />
-                {online ? "online" : "away — replies in a few minutes"}
+                {online ? "online" : "away — may take a few minutes for big tasks"}
               </span>
             </div>
             {working && <span className="text-[11px] opacity-85 shrink-0">working…</span>}
@@ -456,14 +507,14 @@ export default function ChatBubble() {
                 <div
                   key={m.id || i}
                   className={`max-w-[82%] rounded-2xl px-3 py-2 text-sm mb-2 ${
-                    isDispatchMsg(m)
+                    isAgentMsg(m)
                       ? "bg-slate-100 rounded-bl-md"
                       : "bg-brand text-white ml-auto rounded-br-md"
                   }`}
                 >
                   {m.text}
                   <span className="block text-[10px] opacity-70 mt-0.5 text-right" data-testid="msg-meta">
-                    {isDispatchMsg(m) ? "Dispatch" : statusLabel(m.status)}
+                    {isAgentMsg(m) ? "Israel" : statusLabel(m.status)}
                   </span>
                 </div>
               ))
@@ -479,14 +530,14 @@ export default function ChatBubble() {
               >
                 <span className={`w-1.5 h-1.5 rounded-full bg-slate-400 ${workingStale ? "" : "animate-pulse"}`} />
                 {workingStale
-                  ? "Dispatch is still on it — this one's taking a little longer."
-                  : "Dispatch is working on it…"}
+                  ? "Israel is still on it — this one's taking a little longer."
+                  : "Israel is working on it…"}
               </div>
             )}
           </div>
-          {!msgs.some(isDispatchMsg) && (
+          {!msgs.some(isAgentMsg) && (
             <div className="px-3 pb-1 text-[11px] text-slate-400 text-center" data-testid="chat-hint">
-              Dispatch usually replies within a couple of minutes
+              Israel shares the same brain as @LE_Israel_bot — smart tasks welcome
             </div>
           )}
           {ctx && (
@@ -539,9 +590,10 @@ export default function ChatBubble() {
           </div>
           <div className="flex items-end gap-2 p-3 border-t border-slate-200">
             <textarea
-              className="input flex-1 max-h-[90px] resize-none"
+              ref={inputRef}
+              className="input flex-1 min-h-[2.5rem] resize-none overflow-y-auto leading-snug py-2"
               rows={1}
-              placeholder="Message Dispatch…"
+              placeholder="Message Israel…"
               value={text}
               onChange={(e) => setText(e.target.value)}
               onKeyDown={(e) => {

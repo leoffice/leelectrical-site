@@ -31,7 +31,7 @@ describe("Phase 2 — inline Dispatch replies", () => {
     await waitFor(() => expect(screen.getByText("On it — sending the estimate now")).toBeInTheDocument());
     // The reply carries the "Dispatch" meta label, not a delivery status.
     const meta = screen.getAllByTestId("msg-meta").map((n) => n.textContent);
-    expect(meta).toContain("Dispatch");
+    expect(meta).toContain("Israel");
   });
 });
 

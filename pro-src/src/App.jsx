@@ -17,6 +17,7 @@ import SyncChip from "./components/SyncChip.jsx";
 import ChatBubble, { ChatUnreadBadge } from "./components/ChatBubble.jsx";
 import ApprovalWatcher from "./components/ApprovalWatcher.jsx";
 import DocConfirmWatcher from "./components/DocConfirmWatcher.jsx";
+import DedupePrompts from "./components/DedupePrompts.jsx";
 import { docConfirmMessage } from "./lib/docConfirm.js";
 import NewJobFlow from "./components/NewJobFlow.jsx";
 import Sheet, { Opt } from "./components/Sheet.jsx";
@@ -242,6 +243,7 @@ export default function App() {
         <NewJobFlow />
         <ApprovalWatcher />
         <DocConfirmWatcher />
+        <DedupePrompts />
         <LeaveSheet />
 
         {/* Mobile bottom tab nav — Archive | ＋ 💬 | Dev */}

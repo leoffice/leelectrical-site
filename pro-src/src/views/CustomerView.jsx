@@ -1,5 +1,5 @@
-// Customer detail view — opened by tapping a customer group's name header in
-// the Jobs list (route /customer/:key). Customer card on top; each job shows
+// Customer detail view — opened by tapping anywhere on a customer card in the
+// Jobs list (route /customer/:key). Customer card on top; each job shows
 // job information + linked appointment inline.
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";

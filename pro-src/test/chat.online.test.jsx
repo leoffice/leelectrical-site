@@ -54,7 +54,7 @@ describe("dispatch presence in the chat header", () => {
     fireEvent.click(screen.getByTestId("chat-fab"));
     // presence GET resolves async — status must settle on "away", not flip to online
     await waitFor(() =>
-      expect(screen.getByTestId("presence-line")).toHaveTextContent("away — replies in a few minutes")
+      expect(screen.getByTestId("presence-line")).toHaveTextContent("away — may take a few minutes")
     );
   });
 
@@ -73,7 +73,7 @@ describe("typing / working status line", () => {
     });
     renderApp("#/");
     fireEvent.click(screen.getByTestId("chat-fab"));
-    await waitFor(() => expect(screen.getByTestId("typing-line")).toHaveTextContent("Dispatch is working on it"));
+    await waitFor(() => expect(screen.getByTestId("typing-line")).toHaveTextContent("Israel is working on it"));
   });
 
   it("no typing line for plain Sent messages", async () => {

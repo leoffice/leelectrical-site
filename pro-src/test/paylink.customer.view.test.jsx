@@ -120,12 +120,13 @@ describe("Feature 2 — customer group total due + Customer view", () => {
     expect(within(grp).getByTestId("client-group-amount")).toHaveTextContent("$1,300");
   });
 
-  it("tapping the customer name opens the Customer view with contact + total due + rows", async () => {
+  it("tapping anywhere on the customer card opens the Customer view with contact + total due + rows", async () => {
     const user = userEvent.setup();
     renderApp("#/");
+    const grp = await screen.findByTestId("client-group");
     await screen.findByTestId("client-group-amount");
 
-    await user.click(screen.getByTestId("client-group-name"));
+    await user.click(within(grp).getByTestId("client-group-meta"));
 
     const view = await screen.findByTestId("customer-view");
     expect(within(view).getByText("Meir Kabakov")).toBeInTheDocument();
@@ -141,7 +142,7 @@ describe("Feature 2 — customer group total due + Customer view", () => {
     const user = userEvent.setup();
     renderApp("#/");
     await screen.findByTestId("client-group-amount");
-    await user.click(screen.getByTestId("client-group-name"));
+    await user.click(screen.getByTestId("client-group-card"));
 
     const view = await screen.findByTestId("customer-view");
     const cards = within(view).getAllByTestId("job-info-card");
@@ -157,7 +158,7 @@ describe("Feature 2 — customer group total due + Customer view", () => {
     const user = userEvent.setup();
     renderApp("#/");
     await screen.findByTestId("client-group-amount");
-    await user.click(screen.getByTestId("client-group-name"));
+    await user.click(screen.getByTestId("client-group-amount"));
 
     const view = await screen.findByTestId("customer-view");
     const panelCard = within(view).getByText("Panel swap").closest("[data-testid='job-info-card']");

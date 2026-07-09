@@ -62,7 +62,8 @@ export default async (req) => {
     if (b.op === "msg" && b.text) {
       doc.messages.push({ id: b.id || "m" + now, who: "you", text: String(b.text), status: "Sent", ts: now });
     } else if (b.op === "reply" && b.text) {
-      doc.messages.push({ id: "r" + now, who: "claude", text: String(b.text), status: "", ts: now });
+      const who = String(b.who || "israel");
+      doc.messages.push({ id: "r" + now, who, text: String(b.text), status: "", ts: now });
     } else if (b.op === "status" && b.id) {
       const m = doc.messages.find((x) => x.id === b.id);
       if (m) m.status = b.status || m.status;

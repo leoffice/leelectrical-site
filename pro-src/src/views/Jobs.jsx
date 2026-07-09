@@ -3,10 +3,8 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useStore } from "../state/store.jsx";
 import { CustomerAvatar, GroupJobRow, PaidPill, StagePill } from "../components/JobCard.jsx";
-import { Link } from "react-router-dom";
 import { progressPct } from "../lib/stages.js";
-import MergePrompt from "../components/MergePrompt.jsx";
-import InvoiceDedupPrompt from "../components/InvoiceDedupPrompt.jsx";
+
 import Sheet, { Opt } from "../components/Sheet.jsx";
 import { MarkPaidSheet, QuickSendSheet } from "../components/JobSheets.jsx";
 import {
@@ -85,30 +83,26 @@ function jobTitlesHint(list, max = 3) {
   return bits.slice(0, max).join(" · ") + ` · +${bits.length - max}`;
 }
 
-/** Customer row: name + balance on one line; meta + job hint stacked below. */
-function ClientListHeader({ name, amount, meta, hint, hintHref, amountHref, onNameClick, trailing, avatar }) {
-  const AmountTag = amountHref ? Link : "div";
-  const amountProps = amountHref
-    ? { to: amountHref, className: "shrink-0 text-sm font-semibold text-slate-900 tabular-nums lg:font-bold lg:text-base hover:text-brand" }
-    : { className: "shrink-0 text-sm font-semibold text-slate-900 tabular-nums lg:font-bold lg:text-base" };
-  return (
+/** Customer row: entire header is one tap target; optional chevron toggles inline jobs. */
+function ClientListHeader({ name, amount, meta, hint, onCardClick, trailing, avatar, headless = false }) {
+  const body = (
     <div className="flex items-start gap-2 min-w-0">
       {avatar}
       <div className="min-w-0 flex-1">
         <div className="flex items-center gap-2 min-w-0">
-          <button
-            type="button"
-            className="flex-1 min-w-0 text-left text-sm font-semibold text-slate-900 break-words line-clamp-2 leading-snug max-lg:line-clamp-3 lg:text-base lg:font-bold lg:truncate"
+          <div
+            className="flex-1 min-w-0 text-sm font-semibold text-slate-900 break-words line-clamp-2 leading-snug max-lg:line-clamp-3 lg:text-base lg:font-bold lg:truncate"
             title={name}
             data-testid="client-group-name"
-            onClick={onNameClick}
           >
             {name}
-          </button>
-          <AmountTag {...amountProps} data-testid="client-group-amount">
+          </div>
+          <div
+            className="shrink-0 text-sm font-semibold text-slate-900 tabular-nums lg:font-bold lg:text-base"
+            data-testid="client-group-amount"
+          >
             {amount}
-          </AmountTag>
-          {trailing}
+          </div>
         </div>
         {meta ? (
           <div
@@ -119,21 +113,25 @@ function ClientListHeader({ name, amount, meta, hint, hintHref, amountHref, onNa
           </div>
         ) : null}
         {hint ? (
-          hintHref ? (
-            <Link
-              to={hintHref}
-              className="block text-[11px] text-slate-500 leading-snug truncate mt-0.5 hover:text-brand"
-              title={hint}
-            >
-              {hint}
-            </Link>
-          ) : (
-            <div className="text-[11px] text-slate-500 leading-snug truncate mt-0.5" title={hint}>
-              {hint}
-            </div>
-          )
+          <div className="text-[11px] text-slate-500 leading-snug truncate mt-0.5" title={hint}>
+            {hint}
+          </div>
         ) : null}
       </div>
+    </div>
+  );
+  if (headless) return body;
+  return (
+    <div className="flex items-start gap-1 min-w-0">
+      <button
+        type="button"
+        className="flex-1 min-w-0 text-left active:opacity-90"
+        onClick={onCardClick}
+        data-testid="client-group-card"
+      >
+        {body}
+      </button>
+      {trailing}
     </div>
   );
 }
@@ -423,34 +421,34 @@ export default function Jobs({ embedded, collapseGroups = false, activeJobId = "
             const needsAttention = list.some(needsAttentionJob);
 
             if (list.length === 1) {
-              const href = "/job/" + encodeURIComponent(job.id);
               const pct = progressPct(job);
               const due = fmtAmountDue(job) || fmt$(openBalance(job)) || "—";
               const title = job.title || "(untitled job)";
+              const openCustomer = () => nav("/customer/" + encodeURIComponent(key));
               return (
-                <div
+                <button
                   key={key}
-                  className={`card relative overflow-hidden ${syncCardClass} ${embedded ? "px-2.5 py-2" : "px-3 py-2.5 lg:px-4 lg:py-3"}`}
+                  type="button"
+                  className={`card relative overflow-hidden w-full text-left active:opacity-90 ${syncCardClass} ${embedded ? "px-2.5 py-2" : "px-3 py-2.5 lg:px-4 lg:py-3"}`}
                   data-testid="client-single"
+                  onClick={openCustomer}
                 >
                   <AttentionGradient show={needsAttention} />
                   <ClientListHeader
+                    headless
                     name={customerName}
                     amount={due}
                     meta={singleJobMetaLine(job)}
                     hint={title}
-                    hintHref={href}
-                    amountHref={href}
-                    onNameClick={() => nav("/customer/" + encodeURIComponent(key))}
                     avatar={<CustomerAvatar name={customerName} />}
                   />
                   {!embedded && (
                     <>
-                      <div className="mt-1.5 flex items-center gap-1 flex-wrap pl-9">
+                      <div className="mt-1.5 flex items-center gap-1 flex-wrap pl-9 pointer-events-none">
                         <StagePill job={job} />
                         <PaidPill job={job} />
                       </div>
-                      <div className="mt-1.5 h-1 rounded-full bg-slate-100 overflow-hidden ml-9">
+                      <div className="mt-1.5 h-1 rounded-full bg-slate-100 overflow-hidden ml-9 pointer-events-none">
                         <div
                           className="h-full rounded-full bg-gradient-to-r from-brand to-accent"
                           style={{ width: `${pct}%` }}
@@ -458,7 +456,7 @@ export default function Jobs({ embedded, collapseGroups = false, activeJobId = "
                       </div>
                     </>
                   )}
-                </div>
+                </button>
               );
             }
 
@@ -471,7 +469,7 @@ export default function Jobs({ embedded, collapseGroups = false, activeJobId = "
                     amount={fmt$(sum.due) || "$0"}
                     meta={customerMetaLine(sum)}
                     hint={groupExpanded(key) ? "" : jobTitlesHint(displayList)}
-                    onNameClick={() => nav("/customer/" + encodeURIComponent(key))}
+                    onCardClick={() => nav("/customer/" + encodeURIComponent(key))}
                     avatar={<CustomerAvatar name={customerName} />}
                     trailing={
                       collapseGroups ? null : (
@@ -539,9 +537,6 @@ export default function Jobs({ embedded, collapseGroups = false, activeJobId = "
           {shown.length} of {active.length} jobs
         </div>
       )}
-
-      {!embedded && <MergePrompt />}
-      {!embedded && <InvoiceDedupPrompt />}
 
       {sheet?.kind === "paid" && <MarkPaidSheet job={sheet.job} onClose={() => setSheet(null)} />}
       {sheet?.kind === "send" && <QuickSendSheet job={sheet.job} onClose={() => setSheet(null)} />}

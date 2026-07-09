@@ -216,7 +216,7 @@ describe("bug 3 — Dispatch chat panel", () => {
     await user.click(screen.getByTestId("chat-fab"));
 
     const reply = await screen.findByText("On it — checking now");
-    expect(reply).toHaveTextContent("Dispatch"); // labeled as the other side
+    expect(reply).toHaveTextContent("Israel"); // labeled as the other side
     expect(reply.className).toContain("bg-slate-100"); // left/them styling
     expect(reply.className).not.toContain("ml-auto");
 
@@ -235,7 +235,7 @@ describe("bug 3 — Dispatch chat panel", () => {
     await user.click(screen.getByTestId("chat-fab"));
     await screen.findByText("anyone home?");
     expect(screen.getByTestId("chat-hint")).toHaveTextContent(
-      "Dispatch usually replies within a couple of minutes"
+      "Israel shares the same brain as @LE_Israel_bot"
     );
   });
 

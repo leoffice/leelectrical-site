@@ -20,6 +20,7 @@ import { fmt$, parseAmount, todayStr } from "../lib/format.js";
 import { normalizePayments } from "../lib/payments.js";
 import { unhandledCount } from "../lib/sas.js";
 import { customerSyncPayload, qboCustomerToJobPatch } from "../lib/customerSync.js";
+import { runDailyDedupeScan } from "../lib/dedupeScan.js";
 import {
   calendarUpsertLinksJob,
   isCalendarUnlinkCommand,
@@ -66,6 +67,7 @@ export function StoreProvider({ children }) {
   const [syncedAt, setSyncedAt] = useState(0);
   const [busy, setBusy] = useState(false); // sync chip pulse
   const [syncProgress, setSyncProgress] = useState(null); // { steps: [{id,label,done,active}], pct }
+  const [dedupeScan, setDedupeScan] = useState(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
@@ -241,6 +243,19 @@ export function StoreProvider({ children }) {
       document.removeEventListener("visibilitychange", vis);
     };
   }, [refresh, refreshJobs, refreshCommands, refreshDev, refreshEvents, refreshSas]);
+
+  /** Once-daily customer + invoice dedupe scan after jobs load. */
+  useEffect(() => {
+    if (loading) return;
+    const scan = runDailyDedupeScan(jobs);
+    setDedupeScan(scan);
+    if (scan.ran && (scan.customerCount > 0 || scan.invoiceCount > 0)) {
+      const parts = [];
+      if (scan.customerCount) parts.push(scan.customerCount + " customer pair" + (scan.customerCount === 1 ? "" : "s"));
+      if (scan.invoiceCount) parts.push(scan.invoiceCount + " invoice dupe" + (scan.invoiceCount === 1 ? "" : "s"));
+      showToast("Daily dedupe scan — " + parts.join(", "));
+    }
+  }, [jobs, loading]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const SYNC_PHASES = useMemo(
     () => [
@@ -768,6 +783,7 @@ export function StoreProvider({ children }) {
     syncedAt,
     busy,
     syncProgress,
+    dedupeScan,
     loading,
     saving,
     error,
