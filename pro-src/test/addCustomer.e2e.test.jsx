@@ -99,7 +99,7 @@ describe("Add customer — unified flow", () => {
     expect(srv.state.ov[key].qboCustomerId).toBe("34");
   });
 
-  it("matched + edited -> Update in QuickBooks enqueues update_customer", async () => {
+  it("matched + edited -> Update in QB enqueues update_customer", async () => {
     const srv = mockServer({ customers });
     const user = userEvent.setup();
     renderApp("#/");
@@ -163,7 +163,7 @@ describe("Add customer — unified flow", () => {
 
     const createRadio = within(dialog).getByTestId("addcustomer-action-create");
     expect(createRadio).toBeDisabled();
-    expect(within(dialog).getByText(/business name already in QuickBooks/i)).toBeInTheDocument();
+    expect(within(dialog).getByText(/business name already in QB/i)).toBeInTheDocument();
   });
 
   it("billing address live match finds QBO customer", async () => {

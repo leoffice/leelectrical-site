@@ -542,7 +542,7 @@ function NewCustomerForm({ onClose, onCreated }) {
               onChange={() => setSyncAction("update")}
               data-testid="addcustomer-action-update"
             />
-            Update in QuickBooks
+            Update in QB
           </label>
           <label
             className={"flex items-center gap-2 text-sm " + (createDisabled ? "opacity-40 cursor-not-allowed" : "cursor-pointer")}
@@ -557,7 +557,7 @@ function NewCustomerForm({ onClose, onCreated }) {
             />
             Create new customer
             {createDisabled ? (
-              <span className="text-xs text-slate-500">(business name already in QuickBooks)</span>
+              <span className="text-xs text-slate-500">(business name already in QB)</span>
             ) : null}
           </label>
         </div>
