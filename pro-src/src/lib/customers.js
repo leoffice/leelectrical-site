@@ -404,6 +404,18 @@ export function unknownCustomers(list, jobs) {
   });
 }
 
+/** Contact fields for side-by-side customer duplicate comparison. */
+export function customerContactCompareRows(profileA, profileB) {
+  const svc = (p) => (p.serviceAddresses || []).join("\n");
+  return [
+    { label: "Customer", left: profileA.name, right: profileB.name },
+    { label: "Phone", left: profileA.phone, right: profileB.phone },
+    { label: "Email", left: profileA.email, right: profileB.email },
+    { label: "Billing", left: profileA.billingAddress, right: profileB.billingAddress },
+    { label: "Service", left: svc(profileA), right: svc(profileB) },
+  ];
+}
+
 /** Aggregate contact + job summary from a customer's job list (merge compare). */
 export function customerProfileFromJobs(jobs, displayName) {
   const list = (jobs || []).filter((j) => j && !j._archived && !j._deleted);

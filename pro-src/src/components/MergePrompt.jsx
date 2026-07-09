@@ -1,11 +1,15 @@
 // "Same customer?" bottom sheet (bug #2). After jobs load, offers to combine
-// near-duplicate customer names — one prompt at a time. Compare shows full
-// profiles side by side; Combine sets a shared clientGroup; "Different customers"
-// is remembered permanently in lepro_nomerge.
+// near-duplicate customer names — contact info compared immediately side by side.
 import React, { useMemo, useState } from "react";
 import { useStore } from "../state/store.jsx";
 import Sheet, { Opt } from "./Sheet.jsx";
-import { customerProfileFromJobs, dismissPair, findMergeSuggestion } from "../lib/customers.js";
+import SideBySideCompare from "./SideBySideCompare.jsx";
+import {
+  customerContactCompareRows,
+  customerProfileFromJobs,
+  dismissPair,
+  findMergeSuggestion,
+} from "../lib/customers.js";
 import { fmt$ } from "../lib/format.js";
 
 function ProfileColumn({ profile }) {
@@ -44,14 +48,14 @@ function ProfileColumn({ profile }) {
   );
 }
 
-function CompareSheet({ sug, busy, onClose, onCombine, onDifferent }) {
+function CompareSheet({ sug, busy, onClose, onCombine, onSeparate }) {
   const left = useMemo(() => customerProfileFromJobs(sug.a.jobs, sug.a.name), [sug]);
   const right = useMemo(() => customerProfileFromJobs(sug.b.jobs, sug.b.name), [sug]);
 
   return (
-    <Sheet title="Compare customers" onClose={onClose} wide tall>
+    <Sheet title="Full customer profiles" onClose={onClose} wide tall>
       <p className="text-sm text-slate-600 mb-3">
-        Review contact info, addresses, and jobs for both names before you decide.
+        Jobs, balances, and all contact details for both names.
       </p>
       <div className="flex flex-col sm:flex-row gap-3 mb-4" data-testid="merge-compare">
         <ProfileColumn profile={left} />
@@ -67,10 +71,10 @@ function CompareSheet({ sug, busy, onClose, onCombine, onDifferent }) {
       />
       <Opt
         icon="✋"
-        title="Different customers"
+        title="Separate customers"
         note="Keep them separate — won't ask about this pair again"
-        onClick={onDifferent}
-        data-testid="merge-compare-different"
+        onClick={onSeparate}
+        data-testid="merge-compare-separate"
       />
     </Sheet>
   );
@@ -86,6 +90,14 @@ export default function MergePrompt() {
     () => (loading ? null : findMergeSuggestion(jobs)),
     [jobs, loading, tick] // eslint-disable-line react-hooks/exhaustive-deps
   );
+
+  const contactRows = useMemo(() => {
+    if (!sug) return [];
+    const left = customerProfileFromJobs(sug.a.jobs, sug.a.name);
+    const right = customerProfileFromJobs(sug.b.jobs, sug.b.name);
+    return customerContactCompareRows(left, right);
+  }, [sug]);
+
   if (!sug) return null;
 
   const combine = async () => {
@@ -99,11 +111,11 @@ export default function MergePrompt() {
     showToast("Jobs grouped under one client");
   };
 
-  const different = () => {
+  const separate = () => {
     dismissPair(sug.a.name, sug.b.name);
     setMode("prompt");
     setTick((t) => t + 1);
-    showToast("Got it — keeping them as different customers");
+    showToast("Got it — separate customers");
   };
 
   if (mode === "compare") {
@@ -113,14 +125,14 @@ export default function MergePrompt() {
         busy={busy}
         onClose={() => setMode("prompt")}
         onCombine={combine}
-        onDifferent={different}
+        onSeparate={separate}
       />
     );
   }
 
   return (
     <div
-      className="fixed z-40 inset-x-3 bottom-20 lg:inset-x-auto lg:right-6 lg:bottom-6 lg:w-[400px] card border-amber-200 bg-amber-50 shadow-2xl px-4 py-3.5"
+      className="fixed z-40 inset-x-3 bottom-20 lg:inset-x-auto lg:right-6 lg:bottom-6 lg:w-[440px] card border-amber-200 bg-amber-50 shadow-2xl px-4 py-3.5"
       data-testid="merge-prompt"
       role="dialog"
       aria-label="Same customer?"
@@ -128,9 +140,17 @@ export default function MergePrompt() {
       <div className="font-bold text-slate-900 text-sm">Same customer?</div>
       <p className="text-sm text-slate-600 mt-1">
         {sug.reason === "contact"
-          ? `“${sug.a.name}” and “${sug.b.name}” share the same phone or email — pick what fits.`
-          : `“${sug.a.name}” and “${sug.b.name}” look like the same person — pick what fits.`}
+          ? `“${sug.a.name}” and “${sug.b.name}” share the same phone or email — compare contact info below.`
+          : `“${sug.a.name}” and “${sug.b.name}” look like the same person — compare contact info below.`}
       </p>
+      <div className="mt-2">
+        <SideBySideCompare
+          leftTitle={sug.a.name}
+          rightTitle={sug.b.name}
+          rows={contactRows}
+          testId="merge-contact-compare"
+        />
+      </div>
       <div className="mt-2.5 space-y-2">
         <button
           type="button"
@@ -138,10 +158,8 @@ export default function MergePrompt() {
           onClick={() => setMode("compare")}
           data-testid="merge-compare-btn"
         >
-          <span className="block text-sm font-bold text-slate-900">Compare side by side</span>
-          <span className="block text-xs text-slate-500 mt-0.5">
-            Full contact info, addresses, and jobs for both names
-          </span>
+          <span className="block text-sm font-bold text-slate-900">View full profiles</span>
+          <span className="block text-xs text-slate-500 mt-0.5">Jobs, balances, and all addresses</span>
         </button>
         <button
           type="button"
@@ -158,10 +176,10 @@ export default function MergePrompt() {
         <button
           type="button"
           className="w-full text-left border border-slate-200 bg-white rounded-xl px-3 py-2.5 active:bg-slate-50"
-          onClick={different}
-          data-testid="merge-different-btn"
+          onClick={separate}
+          data-testid="merge-separate-btn"
         >
-          <span className="block text-sm font-bold text-slate-900">Different customers</span>
+          <span className="block text-sm font-bold text-slate-900">Separate customers</span>
           <span className="block text-xs text-slate-500 mt-0.5">
             Keep separate — won't ask about this pair again
           </span>

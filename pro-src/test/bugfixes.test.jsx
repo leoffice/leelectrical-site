@@ -105,7 +105,8 @@ describe("bug 2 — near-duplicate combine prompt", () => {
     expect(prompt).toHaveTextContent("Same customer?");
     expect(prompt).toHaveTextContent(/look like the same person/);
     expect(within(prompt).getByTestId("merge-compare-btn")).toBeInTheDocument();
-    expect(within(prompt).getByTestId("merge-different-btn")).toBeInTheDocument();
+    expect(within(prompt).getByTestId("merge-separate-btn")).toBeInTheDocument();
+    expect(within(prompt).getByTestId("merge-contact-compare")).toBeInTheDocument();
 
     await user.click(within(prompt).getByTestId("merge-combine-btn"));
     await waitFor(() => {
@@ -120,12 +121,12 @@ describe("bug 2 — near-duplicate combine prompt", () => {
     expect(within(grp).getByTestId("client-group-amount")).toHaveTextContent("$300");
   });
 
-  it("'Different customers' dismisses permanently (lepro_nomerge) — never re-asks", async () => {
+  it("'Separate customers' dismisses permanently (lepro_nomerge) — never re-asks", async () => {
     mockServer({ jobs: koptivs() });
     const user = userEvent.setup();
     const first = renderApp("#/");
     const prompt = await screen.findByTestId("merge-prompt");
-    await user.click(within(prompt).getByTestId("merge-different-btn"));
+    await user.click(within(prompt).getByTestId("merge-separate-btn"));
     expect(screen.queryByTestId("merge-prompt")).not.toBeInTheDocument();
     expect(JSON.parse(localStorage.getItem("lepro_nomerge"))).toEqual(["arthur koptiv|arthur koptive"]);
 
@@ -174,7 +175,7 @@ describe("bug 2 — near-duplicate combine prompt", () => {
     expect(within(cols[0]).getByText(/Meter bank/)).toBeInTheDocument();
     expect(within(cols[1]).getAllByText("Arthur Koptive").length).toBeGreaterThan(0);
     expect(within(cols[1]).getByText(/55 Elm St/)).toBeInTheDocument();
-    expect(screen.getByTestId("merge-compare-different")).toBeInTheDocument();
+    expect(screen.getByTestId("merge-compare-separate")).toBeInTheDocument();
   });
 });
 
@@ -193,6 +194,8 @@ describe("invoice dedupe prompt", () => {
     renderApp("#/");
     const prompt = await screen.findByTestId("invoice-dedup-prompt");
     expect(prompt).toHaveTextContent("Duplicate invoice #251808");
+    expect(within(prompt).getByTestId("invoice-dedup-compare")).toBeInTheDocument();
+    expect(within(prompt).getByTestId("invoice-dedup-separate")).toBeInTheDocument();
     await user.click(within(prompt).getByTestId("invoice-dedup-merge"));
     await waitFor(() => expect(srv.state.ov["J-1"]?._deleted).toBe(true));
     await waitFor(() => expect(screen.queryByTestId("invoice-dedup-prompt")).not.toBeInTheDocument());

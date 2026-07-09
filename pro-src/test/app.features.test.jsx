@@ -148,6 +148,8 @@ describe("4. new job flow", () => {
       serviceAddress: "9 Kingston Ave",
       billingAddress: "12 Billing Ln",
       qboCustomerId: "34",
+      invoiceNo: "",
+      estimateNo: "",
     };
     const richEvent = {
       id: "ev-cal58",

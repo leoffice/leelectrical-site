@@ -4,6 +4,7 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import {
   clientKey,
+  customerContactCompareRows,
   customerProfileFromJobs,
   dismissPair,
   findMergeSuggestion,
@@ -76,6 +77,18 @@ describe("dismissal memory (lepro_nomerge)", () => {
     expect(JSON.parse(localStorage.getItem("lepro_nomerge"))).toEqual(["arthur koptiv|arthur koptive"]);
     dismissPair("Arthur Koptive", "Arthur koptiv"); // no dupes
     expect(JSON.parse(localStorage.getItem("lepro_nomerge"))).toHaveLength(1);
+  });
+});
+
+describe("customerContactCompareRows", () => {
+  it("builds side-by-side contact rows from two profiles", () => {
+    const rows = customerContactCompareRows(
+      { name: "Arthur koptiv", phone: "718-111", email: "a@k.com", billingAddress: "10 Main", serviceAddresses: ["20 Oak"] },
+      { name: "Arthur Koptive", phone: "718-999", email: "b@k.com", billingAddress: "99 Pine", serviceAddresses: ["55 Elm"] }
+    );
+    expect(rows.map((r) => r.label)).toEqual(["Customer", "Phone", "Email", "Billing", "Service"]);
+    expect(rows[0].left).toBe("Arthur koptiv");
+    expect(rows[4].right).toBe("55 Elm");
   });
 });
 

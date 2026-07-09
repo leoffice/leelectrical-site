@@ -61,6 +61,29 @@ function jobSummary(job, jobs) {
   return parts.join(" · ") || job.id;
 }
 
+/** Core fields shown side by side in the duplicate-invoice prompt. */
+export function jobCompareFields(job, jobs) {
+  const j = job || {};
+  return {
+    name: boardCustomerLabel(j, jobs) || "",
+    serviceAddress: String(j.serviceAddress || j.address || "").trim(),
+    amount: fmtAmountDue(j) || String(j.amount || "").trim(),
+    invoiceNo: String(j.invoiceNo || "").trim(),
+    title: String(j.title || "").trim(),
+  };
+}
+
+export function invoiceCompareRows(jobA, jobB, jobs) {
+  const a = jobCompareFields(jobA, jobs);
+  const b = jobCompareFields(jobB, jobs);
+  return [
+    { label: "Customer", left: a.name, right: b.name },
+    { label: "Service", left: a.serviceAddress, right: b.serviceAddress },
+    { label: "Amount", left: a.amount, right: b.amount },
+    { label: "Invoice #", left: a.invoiceNo, right: b.invoiceNo },
+  ];
+}
+
 /** First pair of active jobs that share an invoice number. */
 export function findDuplicateInvoiceSuggestion(jobs) {
   const byInv = new Map();

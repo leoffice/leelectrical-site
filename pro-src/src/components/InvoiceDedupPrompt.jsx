@@ -1,9 +1,11 @@
-// Duplicate invoice # prompt — offers to delete the extra job row.
+// Duplicate invoice # prompt — side-by-side compare, then remove or keep separate.
 import React, { useMemo, useState } from "react";
 import { useStore } from "../state/store.jsx";
+import SideBySideCompare from "./SideBySideCompare.jsx";
 import {
   dismissInvoicePair,
   findDuplicateInvoiceSuggestion,
+  invoiceCompareRows,
   pickKeeperJob,
 } from "../lib/invoiceDedup.js";
 
@@ -16,12 +18,18 @@ export default function InvoiceDedupPrompt() {
     () => (loading ? null : findDuplicateInvoiceSuggestion(jobs)),
     [jobs, loading, tick] // eslint-disable-line react-hooks/exhaustive-deps
   );
+
+  const rows = useMemo(
+    () => (sug ? invoiceCompareRows(sug.a.job, sug.b.job, jobs) : []),
+    [sug, jobs]
+  );
+
   if (!sug) return null;
 
-  const keepBoth = () => {
+  const keepSeparate = () => {
     dismissInvoicePair(sug.invoiceNo, sug.a.job.id, sug.b.job.id);
     setTick((t) => t + 1);
-    showToast("Got it — keeping both jobs");
+    showToast("Got it — separate invoices");
   };
 
   const merge = async () => {
@@ -38,24 +46,26 @@ export default function InvoiceDedupPrompt() {
 
   return (
     <div
-      className="fixed z-40 inset-x-3 bottom-20 lg:inset-x-auto lg:right-6 lg:bottom-6 lg:w-[400px] card border-rose-200 bg-rose-50 shadow-2xl px-4 py-3.5"
+      className="fixed z-40 inset-x-3 bottom-20 lg:inset-x-auto lg:right-6 lg:bottom-6 lg:w-[440px] card border-rose-200 bg-rose-50 shadow-2xl px-4 py-3.5"
       data-testid="invoice-dedup-prompt"
       role="dialog"
       aria-label="Duplicate invoice?"
     >
       <div className="font-bold text-slate-900 text-sm">Duplicate invoice #{sug.invoiceNo}?</div>
       <p className="text-sm text-slate-600 mt-1">
-        Two jobs share this invoice number. Remove the extra row or keep both if they are legitimately separate.
+        Compare both jobs side by side — remove the extra row or keep them as separate invoices.
       </p>
-      <div className="mt-2 text-xs text-slate-600 space-y-1.5 bg-white/70 rounded-xl px-3 py-2 border border-rose-100">
-        <div>
-          <span className="font-bold text-slate-700">A:</span> {sug.a.summary}
-        </div>
-        <div>
-          <span className="font-bold text-slate-700">B:</span> {sug.b.summary}
-        </div>
+      <div className="mt-2">
+        <SideBySideCompare
+          leftTitle="Job A"
+          rightTitle="Job B"
+          rows={rows}
+          testId="invoice-dedup-compare"
+        />
         {sug.extra > 0 ? (
-          <div className="text-slate-500">+{sug.extra} more job{sug.extra === 1 ? "" : "s"} with this invoice #</div>
+          <div className="text-[11px] text-slate-500 mt-1.5">
+            +{sug.extra} more job{sug.extra === 1 ? "" : "s"} with this invoice #
+          </div>
         ) : null}
       </div>
       <div className="mt-2.5 space-y-2">
@@ -72,11 +82,11 @@ export default function InvoiceDedupPrompt() {
         <button
           type="button"
           className="w-full text-left border border-slate-200 bg-white rounded-xl px-3 py-2.5 active:bg-slate-50"
-          onClick={keepBoth}
-          data-testid="invoice-dedup-keep"
+          onClick={keepSeparate}
+          data-testid="invoice-dedup-separate"
         >
-          <span className="block text-sm font-bold text-slate-900">Keep both</span>
-          <span className="block text-xs text-slate-500 mt-0.5">Won't ask about this pair again</span>
+          <span className="block text-sm font-bold text-slate-900">Separate invoices</span>
+          <span className="block text-xs text-slate-500 mt-0.5">Keep both — won't ask about this pair again</span>
         </button>
       </div>
     </div>
