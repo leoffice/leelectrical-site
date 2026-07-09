@@ -27,8 +27,10 @@ import {
 import { followUpFromPaperworkStep } from "../lib/calendarDue.js";
 import { fmt$, ago } from "../lib/format.js";
 import CustomerCard from "../components/CustomerCard.jsx";
+import CustomerDocTabs from "../components/CustomerDocTabs.jsx";
 import JobInfoCard from "../components/JobInfoCard.jsx";
 import JobAddressCarousel from "../components/JobAddressCarousel.jsx";
+import JobEditSheet from "../components/JobEditSheet.jsx";
 import { cloneJobAtAddressPatch, jobsAtSameAddress } from "../lib/customerHierarchy.js";
 import {
   customerDisplayName,
@@ -102,10 +104,11 @@ export default function JobDetail() {
   } = useStore();
   const job = effectiveJob(id);
   const custKey = job ? (fromCust || clientKey(job)) : "";
-  const siblingJobs = useMemo(() => {
-    if (!job || !custKey) return [];
-    return sortJobs(jobsForCustomerKey(jobs, custKey)).filter((j) => j.id !== job.id);
+  const customerJobs = useMemo(() => {
+    if (!job || !custKey) return job ? [job] : [];
+    return sortJobs(jobsForCustomerKey(jobs, custKey));
   }, [job, jobs, custKey]);
+  const siblingJobs = useMemo(() => customerJobs.filter((j) => j.id !== job?.id), [customerJobs, job?.id]);
   const addressJobs = useMemo(() => {
     if (!job) return [];
     return sortJobs(jobsAtSameAddress(jobs, job));
@@ -126,6 +129,7 @@ export default function JobDetail() {
   const [showRemoved, setShowRemoved] = useState({}); // paperwork branch -> expanded
   const [sheet, setSheet] = useState(null); // {kind, ...}
   const [detailSectionsExpanded, setDetailSectionsExpanded] = useState(true);
+  const [docTabOpenOnly, setDocTabOpenOnly] = useState(false);
   const stepTimer = useRef(null);
   const jobInfoRef = useRef(null);
 
@@ -258,14 +262,24 @@ export default function JobDetail() {
       {/* Customer card — contact on top, compact actions, edit + sync */}
       <CustomerCard
         contact={{
-          ...customerContact([job]),
+          ...customerContact(customerJobs),
           name: customerDisplayName(job) || job.customer,
         }}
         showSummary={false}
         mapAddress={effectiveServiceAddress(job)}
         primaryJob={job}
+        customerJobs={customerJobs}
         onEdit={() => setSheet({ kind: "cust" })}
       />
+
+      <CustomerDocTabs
+        jobs={customerJobs}
+        activeJobId={id}
+        fromCust={fromCust}
+        openOnly={docTabOpenOnly}
+        onOpenOnlyChange={setDocTabOpenOnly}
+      />
+
       {pending[id] ? (
         <div className="px-1 -mt-2">
           <span className="pill bg-amber-100 text-amber-700 text-xs">unsaved changes</span>
@@ -279,8 +293,10 @@ export default function JobDetail() {
             activeId={id}
             events={events}
             commands={commands}
+            customerJobs={customerJobs}
             onSelectJob={(j) => nav("/job/" + j.id + (fromCust ? "?from=" + encodeURIComponent(fromCust) : ""))}
             onNewInvoice={addInvoiceAtAddress}
+            onEditJob={() => setSheet({ kind: "jobedit" })}
             onEstimate={(j) => openDocTab(j, "estimate", setSheet)}
             onInvoice={(j) => openDocTab(j, "invoice", setSheet)}
             onPayment={() => setSheet({ kind: "paymenu" })}
@@ -293,8 +309,10 @@ export default function JobDetail() {
             job={job}
             events={events}
             commands={commands}
+            customerJobs={customerJobs}
             showOpenLink={false}
             onCardTap={toggleDetailSections}
+            onEditJob={() => setSheet({ kind: "jobedit" })}
             onEstimate={() => openDocTab(job, "estimate", setSheet)}
             onInvoice={() => openDocTab(job, "invoice", setSheet)}
             onPayment={() => setSheet({ kind: "paymenu" })}
@@ -867,6 +885,9 @@ export default function JobDetail() {
       )}
       {sheet?.kind === "paylink" && <PaymentLinkSheet job={job} onClose={() => setSheet(null)} />}
       {sheet?.kind === "cust" && <CustEditSheet job={job} onClose={() => setSheet(null)} />}
+      {sheet?.kind === "jobedit" && (
+        <JobEditSheet job={job} fromCust={fromCust} onClose={() => setSheet(null)} />
+      )}
 
       {sheet?.kind === "reminder" && <ReminderSheet job={job} onClose={() => setSheet(null)} />}
       {sheet?.kind === "attach" && <AttachSheet job={job} onClose={() => setSheet(null)} />}

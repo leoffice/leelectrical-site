@@ -6,6 +6,7 @@ import { effectiveServiceAddress } from "../lib/customerSync.js";
 import { fmt$ } from "../lib/format.js";
 import { bubbleStyle, jobAwarenessBubbles } from "../lib/jobAwareness.js";
 import JobDocTabs from "./JobDocTabs.jsx";
+import QboSyncButton from "./QboSyncButton.jsx";
 
 const BUBBLE_LAYOUT =
   "inline-flex items-center gap-1 rounded-2xl border px-2 py-1 text-[10px] leading-tight lg:rounded-full lg:px-2.5 lg:py-1 lg:text-xs";
@@ -57,6 +58,8 @@ export default function JobInfoCard({
   onBubbleTap,
   showOpenLink = false,
   onCardTap,
+  onEditJob,
+  customerJobs,
 }) {
   const total = invoiceTotal(job);
   const paid = amountPaid(job);
@@ -110,12 +113,28 @@ export default function JobInfoCard({
     >
       <div className="flex items-start gap-2">
         <div className="min-w-0 flex-1">
-          <h3 className="text-[11px] font-extrabold text-slate-500 uppercase tracking-wider mb-1">Job information</h3>
+          <div className="flex items-center gap-2 mb-1">
+            <h3 className="text-[11px] font-extrabold text-slate-500 uppercase tracking-wider">Job information</h3>
+            {onEditJob ? (
+              <button
+                type="button"
+                className="text-[10px] font-semibold text-slate-500 hover:text-brand px-1.5 py-0.5 rounded border border-slate-200 bg-white"
+                onClick={(e) => {
+                  stopBubble(e);
+                  onEditJob();
+                }}
+                data-testid="job-edit-btn"
+              >
+                ✏️ Edit
+              </button>
+            ) : null}
+          </div>
           <div className="font-semibold text-sm text-slate-800 break-words leading-snug lg:text-base">
             {job.title || (job.invoiceNo ? "Invoice #" + job.invoiceNo : "Job")}
           </div>
         </div>
-        <div data-no-card-open onClick={stopBubble}>
+        <div className="flex flex-col items-end gap-1 shrink-0" data-no-card-open onClick={stopBubble}>
+          <QboSyncButton job={job} customerJobs={customerJobs} compact />
           <AmountDisplay job={job} size="sm" highlightDue label="Total due" />
         </div>
       </div>

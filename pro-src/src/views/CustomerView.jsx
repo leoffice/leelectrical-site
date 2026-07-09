@@ -6,6 +6,7 @@ import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom"
 import { useStore } from "../state/store.jsx";
 import Jobs from "./Jobs.jsx";
 import CustomerCard from "../components/CustomerCard.jsx";
+import CustomerDocTabs from "../components/CustomerDocTabs.jsx";
 import JobInfoCard from "../components/JobInfoCard.jsx";
 import JobDocSheets, { openDocTab } from "../components/JobDocSheets.jsx";
 import StepBubbleSheet from "../components/StepBubbleSheet.jsx";
@@ -32,6 +33,7 @@ export default function CustomerView() {
   const { jobs, loading, events, commands, patchJob, refreshJobs } = useStore();
   const key = raw ? decodeURIComponent(raw) : "";
   const [sheet, setSheet] = useState(null); // { kind, job? }
+  const [docTabOpenOnly, setDocTabOpenOnly] = useState(false);
   const [importing, setImporting] = useState(false);
   const importPoll = useRef(null);
   const jobsSectionRef = useRef(null);
@@ -147,7 +149,15 @@ export default function CustomerView() {
         contact={contact}
         summary={summary}
         primaryJob={primaryJob}
+        customerJobs={displayJobs}
         onEdit={() => setSheet({ kind: "cust", job: primaryJob })}
+      />
+
+      <CustomerDocTabs
+        jobs={displayJobs}
+        fromCust={key}
+        openOnly={docTabOpenOnly}
+        onOpenOnlyChange={setDocTabOpenOnly}
       />
 
       <h2
@@ -164,6 +174,7 @@ export default function CustomerView() {
               job={j}
               events={events}
               commands={commands}
+              customerJobs={displayJobs}
               onOpen={() => nav("/job/" + j.id + "?from=" + encodeURIComponent(key))}
               onEstimate={() => openDocFor(j, "estimate")}
               onInvoice={() => openDocFor(j, "invoice")}
