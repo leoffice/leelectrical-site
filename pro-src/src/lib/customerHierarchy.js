@@ -93,6 +93,24 @@ export function subsForParentQboId(jobs, parentQboId) {
   return subsUnderParent(jobs, "p:q:" + qid);
 }
 
+/** Jobs billed directly to the parent company (not sub-entities). */
+export function directJobsForParent(activeJobs, parentKey) {
+  const list = (activeJobs || []).filter((j) => j && !j._archived && !j._deleted && !hasParentCustomer(j));
+  if (parentKey.startsWith("p:q:")) {
+    const pqid = parentKey.slice(4);
+    return list.filter((j) => String(j.qboCustomerId || "").trim() === pqid);
+  }
+  if (parentKey.startsWith("p:c:")) {
+    const pname = parentKey.slice(4);
+    return list.filter((j) => {
+      const n = normalizeCustomer(j.customer);
+      const b = normalizeCustomer(j.businessName);
+      return n === pname || b === pname;
+    });
+  }
+  return [];
+}
+
 /** Sub-entities under one parent (unique client keys). */
 export function subsUnderParent(jobs, parentKey) {
   const list = (jobs || []).filter((j) => j && !j._archived && !j._deleted && parentBoardKey(j) === parentKey);
@@ -133,6 +151,19 @@ export function buildCustomerBoardGroups(activeJobs, sortJobsFn) {
   }
 
   const rows = [];
+
+  const absorbedIds = new Set();
+  for (const pk of parentMap.keys()) {
+    const direct = directJobsForParent(active, pk);
+    if (!direct.length) continue;
+    parentMap.set(pk, parentMap.get(pk).concat(direct));
+    direct.forEach((j) => absorbedIds.add(j.id));
+  }
+  for (const [sk, slist] of [...standaloneMap]) {
+    const remaining = slist.filter((j) => !absorbedIds.has(j.id));
+    if (remaining.length) standaloneMap.set(sk, remaining);
+    else standaloneMap.delete(sk);
+  }
 
   for (const [pk, allJobs] of parentMap) {
     const sorted = sort(allJobs);

@@ -450,11 +450,14 @@ export default function Jobs({ embedded, collapseGroups = false, activeJobId = "
                   className="w-full px-3 py-2.5 lg:px-4 lg:py-3 text-left active:opacity-90"
                   data-testid={multiSub ? "parent-group-card" : "client-group-card"}
                   aria-expanded={multiSub ? expanded : undefined}
-                  onClick={() =>
-                    multiSub && !collapseGroups
-                      ? toggleGroup(row.key, PARENT_SUB_COLLAPSE_MS)
-                      : nav("/customer/" + encodeURIComponent(row.key))
-                  }
+                  onClick={() => {
+                    if (collapseGroups || !multiSub) {
+                      nav("/customer/" + encodeURIComponent(row.key));
+                      return;
+                    }
+                    if (expanded) nav("/customer/" + encodeURIComponent(row.key));
+                    else toggleGroup(row.key, PARENT_SUB_COLLAPSE_MS);
+                  }}
                 >
                   <ClientListHeader
                     headless

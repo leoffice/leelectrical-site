@@ -135,14 +135,24 @@ export function clientKey(job) {
 export function jobsForCustomerKey(jobs, key, hints) {
   const active = (jobs || []).filter((j) => j && !j._archived && !j._deleted);
   if (!key) return [];
-  // Parent company view — all sub-entity jobs under one management company.
+  // Parent company view — sub-entity jobs + any billed directly to the parent.
   if (key.startsWith("p:q:")) {
     const pqid = key.slice(4);
-    return active.filter((j) => String(j.parentQboCustomerId || "").trim() === pqid);
+    return active.filter((j) => {
+      if (String(j.parentQboCustomerId || "").trim() === pqid) return true;
+      const qid = String(j.qboCustomerId || "").trim();
+      return qid === pqid && !String(j.parentQboCustomerId || "").trim() && !normalizeCustomer(j.parentCustomerName);
+    });
   }
   if (key.startsWith("p:c:")) {
     const pname = key.slice(4);
-    return active.filter((j) => normalizeCustomer(j.parentCustomerName) === pname);
+    return active.filter((j) => {
+      if (normalizeCustomer(j.parentCustomerName) === pname) return true;
+      if (String(j.parentQboCustomerId || "").trim() || normalizeCustomer(j.parentCustomerName)) return false;
+      const n = normalizeCustomer(j.customer);
+      const b = normalizeCustomer(j.businessName);
+      return n === pname || b === pname;
+    });
   }
   // Map clientGroup keys to the set of normalized names they contain, so a
   // "c:<name>" key also collects jobs sitting under that group.

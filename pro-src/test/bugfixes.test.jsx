@@ -135,6 +135,34 @@ describe("parent customer cards — tap anywhere to show subs", () => {
     expect(screen.queryByTestId("parent-sub-list")).not.toBeInTheDocument();
     vi.useRealTimers();
   });
+
+  it("second tap on expanded parent opens parent customer view with all sub jobs", async () => {
+    mockServer({ jobs: parentJobs() });
+    const user = userEvent.setup();
+    renderApp("#/");
+    const card = await screen.findByTestId("parent-group-card");
+    await user.click(card);
+    expect(screen.getByTestId("parent-sub-list")).toBeInTheDocument();
+    await user.click(card);
+    expect(await screen.findByTestId("customer-view")).toBeInTheDocument();
+    expect(screen.getByTestId("customer-jobs-section")).toHaveTextContent("Jobs (2)");
+  });
+
+  it("parent with direct jobs does not appear twice on the customer list", async () => {
+    mockServer({
+      jobs: [
+        ...parentJobs(),
+        job("P-3", "Mgmt Holdings", "Direct parent job", "$250", {
+          qboCustomerId: "100",
+          businessName: "Mgmt Holdings",
+        }),
+      ],
+    });
+    renderApp("#/");
+    await screen.findByTestId("parent-group-card");
+    const names = screen.getAllByTestId("client-group-name").map((el) => el.textContent);
+    expect(names.filter((n) => n === "Mgmt Holdings")).toHaveLength(1);
+  });
 });
 
 describe("bug 2 — near-duplicate combine prompt", () => {

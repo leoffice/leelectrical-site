@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   buildCustomerBoardGroups,
   cloneJobAtAddressPatch,
+  directJobsForParent,
   hasParentCustomer,
   jobsAtSameAddress,
   parentBoardKey,
@@ -78,6 +79,25 @@ describe("jobsForCustomerKey parent routes", () => {
   it("p:q collects all subs", () => {
     const jobs = [parentJob("1", "LLC A"), parentJob("2", "LLC B")];
     expect(jobsForCustomerKey(jobs, "p:q:100")).toHaveLength(2);
+  });
+
+  it("p:q includes jobs billed directly to the parent", () => {
+    const jobs = [
+      parentJob("1", "LLC A"),
+      { id: "9", customer: "Mgmt Co", businessName: "Mgmt Co", qboCustomerId: "100", amount: "300" },
+    ];
+    expect(jobsForCustomerKey(jobs, "p:q:100")).toHaveLength(2);
+  });
+});
+
+describe("directJobsForParent", () => {
+  it("finds standalone jobs for the parent qbo id", () => {
+    const jobs = [
+      parentJob("1", "LLC A"),
+      { id: "9", customer: "Mgmt Co", qboCustomerId: "100", amount: "100" },
+      { id: "10", customer: "Other", qboCustomerId: "50", amount: "50" },
+    ];
+    expect(directJobsForParent(jobs, "p:q:100").map((j) => j.id)).toEqual(["9"]);
   });
 });
 
