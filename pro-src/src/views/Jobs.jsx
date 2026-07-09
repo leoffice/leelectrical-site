@@ -122,7 +122,14 @@ function ClientListHeader({ name, amount, meta, hint, onCardClick, trailing, ava
       </div>
     </div>
   );
-  if (headless) return body;
+  if (headless) {
+    return (
+      <div className="flex items-start gap-1 min-w-0">
+        <div className="flex-1 min-w-0">{body}</div>
+        {trailing}
+      </div>
+    );
+  }
   return (
     <div className="flex items-start gap-1 min-w-0">
       <button
@@ -139,6 +146,7 @@ function ClientListHeader({ name, amount, meta, hint, onCardClick, trailing, ava
 }
 
 const IDLE_COLLAPSE_MS = 10_000; // expanded customer rows fold back after ~10s idle
+const PARENT_SUB_COLLAPSE_MS = 30_000; // parent + sub-company rows stay open ~30s
 const SEARCH_IDLE_MS = 10_000; // clear search + collapse after ~10s without interaction
 const SORT_LS_KEY = "lepro_jobs_sort_v1"; // persisted sort-by choice
 
@@ -295,19 +303,19 @@ export default function Jobs({ embedded, collapseGroups = false, activeJobId = "
     return () => clearTimeout(searchIdleTimer.current);
   }, [armSearchIdle]);
 
-  /* auto-collapse an expanded row after ~10s without interaction */
-  const armCollapse = (key) => {
+  /* auto-collapse an expanded row after idle (default ~10s; parent subs ~30s) */
+  const armCollapse = (key, idleMs = IDLE_COLLAPSE_MS) => {
     clearTimeout(timers.current[key]);
     timers.current[key] = setTimeout(
       () => setOpen((o) => (o[key] ? { ...o, [key]: false } : o)),
-      IDLE_COLLAPSE_MS
+      idleMs
     );
   };
-  const toggleGroup = (key) => {
+  const toggleGroup = (key, idleMs = IDLE_COLLAPSE_MS) => {
     if (collapseGroups) return;
     setOpen((o) => {
       const now = !o[key];
-      if (now) armCollapse(key);
+      if (now) armCollapse(key, idleMs);
       else clearTimeout(timers.current[key]);
       return { ...o, [key]: now };
     });
@@ -437,33 +445,41 @@ export default function Jobs({ embedded, collapseGroups = false, activeJobId = "
             return (
               <div key={row.key} className={`card relative overflow-hidden ${syncCardClass}`} data-testid="parent-customer-group">
                 <AttentionGradient show={needsAttention} />
-                <div className="w-full px-3 py-2.5 lg:px-4 lg:py-3">
+                <button
+                  type="button"
+                  className="w-full px-3 py-2.5 lg:px-4 lg:py-3 text-left active:opacity-90"
+                  data-testid={multiSub ? "parent-group-card" : "client-group-card"}
+                  aria-expanded={multiSub ? expanded : undefined}
+                  onClick={() =>
+                    multiSub && !collapseGroups
+                      ? toggleGroup(row.key, PARENT_SUB_COLLAPSE_MS)
+                      : nav("/customer/" + encodeURIComponent(row.key))
+                  }
+                >
                   <ClientListHeader
+                    headless
                     name={row.name}
                     amount={fmt$(row.summary.due) || "$0"}
                     meta={customerMetaLine(row.summary) + (multiSub ? ` · ${row.subs.length} companies` : "")}
                     hint={expanded ? "" : jobTitlesHint(row.jobs)}
-                    onCardClick={() => nav("/customer/" + encodeURIComponent(row.key))}
                     avatar={<CustomerAvatar name={row.name} />}
                     trailing={
                       collapseGroups || !multiSub ? null : (
-                        <button
-                          type="button"
-                          className="p-1 -m-1 text-slate-400 shrink-0"
-                          aria-label={expanded ? "Collapse" : "Expand"}
-                          data-testid="parent-group-toggle"
-                          onClick={() => toggleGroup(row.key)}
+                        <span
+                          className="p-1 -m-1 text-slate-400 shrink-0 pointer-events-none"
+                          aria-hidden
+                          data-testid="parent-group-chevron"
                         >
                           <span className={`inline-block transition-transform ${expanded ? "rotate-180" : ""}`}>▾</span>
-                        </button>
+                        </span>
                       )
                     }
                   />
-                </div>
+                </button>
                 {multiSub && expanded && (
                   <div
                     className="px-2.5 pb-2.5 space-y-1.5 bg-slate-50/60 border-t border-slate-100 pt-2"
-                    onPointerDown={() => armCollapse(row.key)}
+                    onPointerDown={() => armCollapse(row.key, PARENT_SUB_COLLAPSE_MS)}
                     data-testid="parent-sub-list"
                   >
                     {row.subs.map((sub) => (

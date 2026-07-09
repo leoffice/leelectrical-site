@@ -91,6 +91,52 @@ describe("bug 1 — duplicate customers collapse into ONE group row", () => {
   });
 });
 
+describe("parent customer cards — tap anywhere to show subs", () => {
+  const parentJobs = () => [
+    job("P-1", "LLC Alpha", "Job A", "$400", {
+      parentQboCustomerId: "100",
+      parentCustomerName: "Mgmt Holdings",
+      qboCustomerId: "201",
+    }),
+    job("P-2", "LLC Beta", "Job B", "$600", {
+      parentQboCustomerId: "100",
+      parentCustomerName: "Mgmt Holdings",
+      qboCustomerId: "202",
+    }),
+  ];
+
+  it("tapping anywhere on the parent card expands sub-companies", async () => {
+    mockServer({ jobs: parentJobs() });
+    const user = userEvent.setup();
+    renderApp("#/");
+    const card = await screen.findByTestId("parent-group-card");
+    expect(screen.queryByTestId("parent-sub-list")).not.toBeInTheDocument();
+
+    await user.click(card);
+    const subs = screen.getByTestId("parent-sub-list");
+    expect(within(subs).getByText("LLC Alpha")).toBeInTheDocument();
+    expect(within(subs).getByText("LLC Beta")).toBeInTheDocument();
+  });
+
+  it("expanded parent subs auto-collapse after ~30s idle", async () => {
+    mockServer({ jobs: parentJobs() });
+    renderApp("#/");
+    const card = await screen.findByTestId("parent-group-card");
+    vi.useFakeTimers();
+    fireEvent.click(card);
+    expect(screen.getByText("LLC Alpha")).toBeInTheDocument();
+    act(() => {
+      vi.advanceTimersByTime(29_500);
+    });
+    expect(screen.getByText("LLC Alpha")).toBeInTheDocument();
+    act(() => {
+      vi.advanceTimersByTime(1_500);
+    });
+    expect(screen.queryByTestId("parent-sub-list")).not.toBeInTheDocument();
+    vi.useRealTimers();
+  });
+});
+
 describe("bug 2 — near-duplicate combine prompt", () => {
   const koptivs = () => [
     job("AK-1", "Arthur koptiv", "Meter bank", "$100"),
