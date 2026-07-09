@@ -22,6 +22,7 @@ const customers = [
     phone: "718-555-0100",
     email: "az@drizin.com",
     billingAddress: "500 Lefferts Ave",
+    serviceAddress: "502 Lefferts Ave, Brooklyn, NY",
   },
   {
     name: "Chanan Sheleg",
@@ -31,6 +32,7 @@ const customers = [
     phone: "3474448520",
     email: "hanan770@gmail.com",
     billingAddress: "499 schenectedy ave",
+    serviceAddress: "499 Schenectady Ave, Brooklyn, NY",
   },
 ];
 
@@ -164,6 +166,28 @@ describe("Add customer — unified flow", () => {
     const createRadio = within(dialog).getByTestId("addcustomer-action-create");
     expect(createRadio).toBeDisabled();
     expect(within(dialog).getByText(/business name already in QB/i)).toBeInTheDocument();
+  });
+
+  it("match popup shows search + new-customer on top and full customer details per row", async () => {
+    mockServer({ customers });
+    const user = userEvent.setup();
+    renderApp("#/");
+    await screen.findByText("Peretz Chein");
+    await openAddCustomer(user);
+    const dialog = screen.getByRole("dialog");
+
+    await user.type(within(dialog).getByTestId("newcustomer-search"), "Drizin");
+    const results = await within(dialog).findByTestId("customer-search-results");
+    expect(within(results).getByTestId("customer-match-search")).toBeInTheDocument();
+    expect(within(results).getByTestId("customer-add-new")).toHaveTextContent(/this is a new customer/i);
+
+    const match = await within(results).findByTestId("customer-match");
+    expect(within(match).getByTestId("customer-match-business")).toHaveTextContent("Drizin Properties");
+    expect(within(match).getByTestId("customer-match-person")).toHaveTextContent("Avraham Drizin");
+    expect(within(match).getByTestId("customer-match-phone")).toHaveTextContent("718-555-0100");
+    expect(within(match).getByTestId("customer-match-email")).toHaveTextContent("az@drizin.com");
+    expect(within(match).getByTestId("customer-match-billing")).toHaveTextContent("500 Lefferts Ave");
+    expect(within(match).getByTestId("customer-match-service")).toHaveTextContent("502 Lefferts Ave");
   });
 
   it("billing address live match finds QBO customer", async () => {

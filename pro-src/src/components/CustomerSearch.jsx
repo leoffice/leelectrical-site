@@ -11,6 +11,7 @@
 //   label / placeholder optional
 import React, { useEffect, useRef, useState } from "react";
 import { useStore } from "../state/store.jsx";
+import { CustomerMatchResults } from "./CustomerMatchPanel.jsx";
 
 export default function CustomerSearch({
   value,
@@ -73,19 +74,10 @@ export default function CustomerSearch({
     onPick && onPick(c);
   };
 
-  const norm = (s) => String(s || "").trim().toLowerCase();
-  const digits = (s) => String(s || "").replace(/\D/g, "");
-  const exact = results.some((c) => {
-    const nq = norm(q);
-    if ([c.name, c.businessName, c.personName].some((x) => norm(x) === nq)) return true;
-    if (c.email && norm(c.email) === nq) return true;
-    const qd = digits(q);
-    return qd.length >= 7 && digits(c.phone) === qd;
-  });
-
-  const resultNote = (c) => {
-    const bits = [c.personName, c.phone, c.email].map((x) => String(x || "").trim()).filter(Boolean);
-    return bits.length ? bits.join(" · ") : "Existing QuickBooks customer";
+  const handleSearchChange = (text) => {
+    setPicked(false);
+    setOpen(true);
+    onChangeText(text);
   };
 
   return (
@@ -101,37 +93,17 @@ export default function CustomerSearch({
         autoComplete="off"
       />
       {open && q.length >= 2 && (
-        <div
-          className="mt-1 border border-slate-200 rounded-xl overflow-hidden bg-white shadow-sm max-h-56 overflow-y-auto"
-          data-testid="customer-search-results"
-        >
-          {loading && <div className="px-3 py-2 text-xs text-slate-400">Searching…</div>}
-          {results.map((c) => (
-            <button
-              key={c.id ?? c.name}
-              type="button"
-              data-testid="customer-match"
-              className="w-full text-left px-3 py-2 text-sm hover:bg-slate-50 active:bg-slate-100 border-b border-slate-100 last:border-b-0"
-              onClick={() => choose(c)}
-            >
-              <span className="block font-semibold text-slate-800 truncate">{c.businessName || c.name}</span>
-              {c.businessName && c.name && norm(c.businessName) !== norm(c.name) ? (
-                <span className="block text-[11px] text-slate-500 truncate">{c.name}</span>
-              ) : null}
-              <span className="block text-[11px] text-slate-400 truncate">{resultNote(c)}</span>
-            </button>
-          ))}
-          {!loading && !exact && (
-            <button
-              type="button"
-              data-testid="customer-add-new"
-              className="w-full text-left px-3 py-2 text-sm text-accent font-semibold hover:bg-slate-50 active:bg-slate-100"
-              onClick={() => choose({ name: value, _newCustomer: true })}
-            >
-              ➕ Add “{value}” as a new customer
-            </button>
-          )}
-        </div>
+        <CustomerMatchResults
+          searchValue={value}
+          onSearchChange={handleSearchChange}
+          searchLabel={label}
+          onNewCustomer={() => choose({ name: value, _newCustomer: true })}
+          newCustomerLabel="This is a new customer"
+          results={results}
+          loading={loading}
+          onPick={choose}
+          testId="customer-search-results"
+        />
       )}
     </div>
   );
