@@ -81,6 +81,9 @@ describe("desktop scrollbar cleanup — 1280px", () => {
     const method = screen.getByLabelText("Payment method");
     [amount, exp, method].forEach((el) => expect(el.className).toMatch(/\binput\b/));
 
+    await user.type(exp, "1228");
+    expect(exp).toHaveValue("12/28");
+
     const cardWrap = screen.getByTestId("sola-ifield-card-number");
     const cvvWrap = screen.getByTestId("sola-ifield-cvv");
     expect(cardWrap.className).toContain("overflow-hidden");

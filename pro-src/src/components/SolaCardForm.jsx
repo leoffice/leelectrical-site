@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from "react";
-import { fetchSolaIfieldsConfig } from "../lib/solaCharge.js";
+import { fetchSolaIfieldsConfig, formatCardExpInput } from "../lib/solaCharge.js";
 
 const IFIELD_STYLE = {
   border: "1px solid #cbd5e1",
@@ -37,6 +37,7 @@ const IFRAME_H = 44;
 export default function SolaCardForm({ disabled, onReadyChange, savedMasked }) {
   const [phase, setPhase] = useState("loading"); // loading | ready | error
   const [err, setErr] = useState("");
+  const [exp, setExp] = useState("");
   const configRef = useRef(null);
   const formRef = useRef(null);
 
@@ -93,6 +94,7 @@ export default function SolaCardForm({ disabled, onReadyChange, savedMasked }) {
         <p className="text-xs text-red-600 bg-red-50 border border-red-100 rounded-xl px-3 py-2">{err}</p>
       ) : null}
       {phase === "ready" ? (
+        <div className={disabled ? "pointer-events-none opacity-60" : undefined} aria-disabled={disabled || undefined}>
         <form ref={formRef} onSubmit={(e) => e.preventDefault()} className="space-y-2.5">
           <div>
             <label className="block text-xs font-bold text-slate-500 mb-1">Card number</label>
@@ -121,9 +123,11 @@ export default function SolaCardForm({ disabled, onReadyChange, savedMasked }) {
                 id="card-exp"
                 className="input"
                 inputMode="numeric"
+                autoComplete="cc-exp"
                 placeholder="MM/YY"
-                maxLength={7}
-                disabled={disabled}
+                maxLength={5}
+                value={exp}
+                onChange={(e) => setExp(formatCardExpInput(e.target.value))}
                 aria-label="Expiration MM/YY"
               />
             </div>
@@ -150,6 +154,7 @@ export default function SolaCardForm({ disabled, onReadyChange, savedMasked }) {
           <input type="hidden" data-ifields-id="cvv-token" name="xCVV" />
           <label data-ifields-id="card-data-error" className="block text-xs text-red-600 min-h-[0.75rem]" />
         </form>
+        </div>
       ) : null}
     </div>
   );

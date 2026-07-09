@@ -37,14 +37,8 @@ body {
     @apply inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-semibold lg:px-2.5 lg:text-xs;
   }
   .input {
-    @apply w-full rounded-xl border border-slate-200 bg-white px-3.5 py-2.5 text-sm outline-none focus:border-brand focus:ring-2 focus:ring-brand/20 overflow-hidden;
+    @apply w-full rounded-xl border border-slate-200 bg-white px-3.5 py-2.5 text-sm outline-none focus:border-brand focus:ring-2 focus:ring-brand/20;
   }
-}
-
-input.input,
-select.input,
-textarea.input {
-  overflow: hidden;
 }
 
 /* Desktop: keep scroll wheel/trackpad but hide decorative scrollbar sliders. */

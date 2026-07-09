@@ -1,7 +1,16 @@
 import { describe, expect, it } from "vitest";
-import { chargePreview, normalizeCardExp } from "../src/lib/solaCharge.js";
+import { chargePreview, formatCardExpInput, normalizeCardExp } from "../src/lib/solaCharge.js";
 
 describe("solaCharge", () => {
+  it("formatCardExpInput formats digits as MM/YY while typing", () => {
+    expect(formatCardExpInput("")).toBe("");
+    expect(formatCardExpInput("1")).toBe("1");
+    expect(formatCardExpInput("12")).toBe("12");
+    expect(formatCardExpInput("123")).toBe("12/3");
+    expect(formatCardExpInput("12/28")).toBe("12/28");
+    expect(formatCardExpInput("122820")).toBe("12/28");
+  });
+
   it("normalizeCardExp accepts MM/YY and MMYY", () => {
     expect(normalizeCardExp("12/28")).toBe("1228");
     expect(normalizeCardExp("1228")).toBe("1228");

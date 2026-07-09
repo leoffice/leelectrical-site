@@ -12,6 +12,13 @@ export async function fetchSolaIfieldsConfig() {
   return data;
 }
 
+/** Live MM/YY formatting for the expiration text field (digits only, auto slash). */
+export function formatCardExpInput(raw) {
+  const digits = String(raw || "").replace(/\D/g, "").slice(0, 4);
+  if (digits.length <= 2) return digits;
+  return digits.slice(0, 2) + "/" + digits.slice(2);
+}
+
 /** MM/YY or MMYY → MMYY for Sola gateway. */
 export function normalizeCardExp(raw) {
   const digits = String(raw || "").replace(/\D/g, "");
