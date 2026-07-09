@@ -27,7 +27,7 @@ export default function Sheet({ title, onClose, children, wide, tall }) {
             ✕
           </button>
         </div>
-        <div className="overflow-y-auto px-5 pb-6 lg:pb-5 pb-safe">{children}</div>
+        <div className="overflow-y-auto lg-scroll-hidden px-5 pb-6 lg:pb-5 pb-safe" data-testid="sheet-body">{children}</div>
       </div>
     </div>
   );

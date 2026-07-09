@@ -96,14 +96,19 @@ export default function SolaCardForm({ disabled, onReadyChange, savedMasked }) {
         <form ref={formRef} onSubmit={(e) => e.preventDefault()} className="space-y-2.5">
           <div>
             <label className="block text-xs font-bold text-slate-500 mb-1">Card number</label>
-            <div className="overflow-hidden rounded-xl" style={{ height: IFRAME_H }}>
+            <div
+              className="overflow-hidden rounded-xl"
+              style={{ height: IFRAME_H }}
+              data-testid="sola-ifield-card-number"
+            >
               <iframe
                 title="Card number"
                 data-ifields-id="card-number"
                 data-ifields-placeholder="Card number"
                 src={iframeSrc}
-                className="w-full border-0 block"
-                style={{ height: IFRAME_H, minHeight: IFRAME_H }}
+                scrolling="no"
+                className="w-full border-0 block overflow-hidden"
+                style={{ height: IFRAME_H, minHeight: IFRAME_H, overflow: "hidden" }}
               />
             </div>
           </div>
@@ -124,14 +129,19 @@ export default function SolaCardForm({ disabled, onReadyChange, savedMasked }) {
             </div>
             <div>
               <label className="block text-xs font-bold text-slate-500 mb-1">CVV</label>
-              <div className="overflow-hidden rounded-xl" style={{ height: IFRAME_H }}>
+              <div
+                className="overflow-hidden rounded-xl"
+                style={{ height: IFRAME_H }}
+                data-testid="sola-ifield-cvv"
+              >
                 <iframe
                   title="CVV"
                   data-ifields-id="cvv"
                   data-ifields-placeholder="CVV"
                   src={iframeSrc}
-                  className="w-full border-0 block"
-                  style={{ height: IFRAME_H, minHeight: IFRAME_H }}
+                  scrolling="no"
+                  className="w-full border-0 block overflow-hidden"
+                  style={{ height: IFRAME_H, minHeight: IFRAME_H, overflow: "hidden" }}
                 />
               </div>
             </div>

@@ -64,7 +64,7 @@ export function CustomerMatchResults({
 }) {
   return (
     <div
-      className="mt-1 border border-slate-200 rounded-xl overflow-hidden bg-white shadow-sm max-h-72 overflow-y-auto z-10"
+      className="mt-1 border border-slate-200 rounded-xl overflow-hidden bg-white shadow-sm max-h-72 overflow-y-auto lg-scroll-hidden z-10"
       data-testid={testId}
     >
       <div className="sticky top-0 z-10 bg-white border-b border-slate-100 p-2 space-y-2">

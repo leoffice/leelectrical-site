@@ -67,7 +67,7 @@ export default function FloatingPanel({ title, onClose, children, testId }) {
             ✕
           </button>
         </div>
-        <div className="overflow-y-auto px-4 py-3 pb-4">{children}</div>
+        <div className="overflow-y-auto lg-scroll-hidden px-4 py-3 pb-4">{children}</div>
       </div>
     </div>
   );

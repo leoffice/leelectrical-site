@@ -143,7 +143,7 @@ export default function App() {
     <div className="min-h-screen lg:flex">
       {/* Desktop sidebar — fixed so it never scrolls away */}
       <aside
-        className="hidden lg:fixed lg:inset-y-0 lg:left-0 lg:z-40 lg:flex lg:w-64 lg:flex-col border-r border-slate-200 bg-white p-4 gap-1 overflow-y-auto"
+        className="hidden lg:fixed lg:inset-y-0 lg:left-0 lg:z-40 lg:flex lg:w-64 lg:flex-col border-r border-slate-200 bg-white p-4 gap-1 overflow-y-auto lg-scroll-hidden"
         data-testid="sidebar"
       >
         <div className="flex flex-col items-center px-2 py-4 mb-2">

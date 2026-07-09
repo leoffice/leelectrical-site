@@ -551,7 +551,7 @@ export default function ChatBubble() {
             ref={logRef}
             data-testid="chat-log"
             onScroll={onLogScroll}
-            className="flex-1 overflow-y-auto p-3 min-h-[120px]"
+            className="flex-1 overflow-y-auto lg-scroll-hidden p-3 min-h-[120px]"
           >
             {msgs.length ? (
               msgs.map((m, i) => (
@@ -642,7 +642,7 @@ export default function ChatBubble() {
           <div className="flex items-end gap-2 p-3 border-t border-slate-200">
             <textarea
               ref={inputRef}
-              className="input flex-1 min-h-[2.5rem] resize-none overflow-y-auto leading-snug py-2"
+              className="input flex-1 min-h-[2.5rem] resize-none overflow-y-auto lg-scroll-hidden leading-snug py-2"
               rows={1}
               placeholder="Message Israel…"
               value={text}

@@ -219,6 +219,15 @@ export function mockServer(opts = {}) {
         const map = opts.addressSuggestions || {};
         const hit = Object.entries(map).find(([k]) => query.includes(k));
         data = { suggestions: hit ? hit[1] : [], source: hit ? "places" : "none" };
+      } else if (path === "sola-ifields-config") {
+        data = {
+          ok: true,
+          ifieldsKey: "test-ifields-key",
+          softwareName: "LE Pro",
+          softwareVersion: "1.0.0",
+          version: "2.15.2409.2601",
+          achEnabled: false,
+        };
       } else if (path === "iterate") data = { ok: true };
       return { ok: true, status: 200, json: async () => data };
     })
