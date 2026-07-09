@@ -320,100 +320,96 @@ export default function MergePrompt() {
   }
 
   return (
-    <div
-      className="fixed z-40 inset-x-3 bottom-20 lg:inset-x-auto lg:right-6 lg:bottom-6 lg:w-[440px] card border-amber-200 bg-amber-50 shadow-2xl px-4 py-3.5"
-      data-testid="merge-prompt"
-      role="dialog"
-      aria-label="Same customer?"
-    >
-      <div className="font-bold text-slate-900 text-sm">Same customer?</div>
-      <p className="text-sm text-slate-600 mt-1">
-        {sug.reason === "contact"
-          ? `“${sug.a.name}” and “${sug.b.name}” share the same phone or email — compare contact info below.`
-          : `“${sug.a.name}” and “${sug.b.name}” look like the same person — compare contact info below.`}
-      </p>
-      <div className="mt-2">
-        <SideBySideCompare
-          leftTitle={sug.a.name}
-          rightTitle={sug.b.name}
-          rows={contactRows}
-          testId="merge-contact-compare"
-          interactive={linkMode === "sub"}
-          leftRole={leftRole}
-          rightRole={rightRole}
-          onTapLeft={tapLeft}
-          onTapRight={tapRight}
-        />
-      </div>
-      <div className="mt-2.5 space-y-2">
-        <button
-          type="button"
-          className="w-full text-left border border-slate-200 bg-white rounded-xl px-3 py-2.5 active:bg-slate-50"
-          onClick={() => setMode("compare")}
-          data-testid="merge-compare-btn"
-        >
-          <span className="block text-sm font-bold text-slate-900">View full profiles</span>
-          <span className="block text-xs text-slate-500 mt-0.5">Jobs, balances, and all addresses</span>
-        </button>
-        <LinkModeTabs mode={linkMode} onChange={setLinkMode} />
-        {linkMode === "sub" ? (
-          <p className="text-[11px] text-slate-500 px-0.5">
-            Tap a name above — green is parent, brown is sub. Tap parent again to swap. Save when ready.
-          </p>
-        ) : null}
-        {linkMode === "combined" ? (
+    <Sheet title="Same customer?" onClose={askLater} wide tall>
+      <div data-testid="merge-prompt">
+        <p className="text-sm text-slate-600 mb-3">
+          {sug.reason === "contact"
+            ? `“${sug.a.name}” and “${sug.b.name}” share the same phone or email — compare contact info below.`
+            : `“${sug.a.name}” and “${sug.b.name}” look like the same person — compare contact info below.`}
+        </p>
+        <div className="mb-3">
+          <SideBySideCompare
+            leftTitle={sug.a.name}
+            rightTitle={sug.b.name}
+            rows={contactRows}
+            testId="merge-contact-compare"
+            interactive={linkMode === "sub"}
+            leftRole={leftRole}
+            rightRole={rightRole}
+            onTapLeft={tapLeft}
+            onTapRight={tapRight}
+          />
+        </div>
+        <div className="space-y-2">
           <button
             type="button"
-            className="w-full text-left border border-brand/30 bg-brand rounded-xl px-3 py-2.5 text-white disabled:opacity-60 active:opacity-90"
-            onClick={combine}
-            disabled={busy}
-            data-testid="merge-combine-btn"
+            className="w-full text-left border border-slate-200 bg-white rounded-xl px-3 py-2.5 active:bg-slate-50"
+            onClick={() => setMode("compare")}
+            data-testid="merge-compare-btn"
           >
-            <span className="block text-sm font-bold">Combine — same customer</span>
-            <span className="block text-xs text-white/85 mt-0.5">
-              Group all jobs under one row on the Jobs list
-            </span>
+            <span className="block text-sm font-bold text-slate-900">View full profiles</span>
+            <span className="block text-xs text-slate-500 mt-0.5">Jobs, balances, and all addresses</span>
           </button>
-        ) : (
+          <LinkModeTabs mode={linkMode} onChange={setLinkMode} />
+          {linkMode === "sub" ? (
+            <p className="text-[11px] text-slate-500 px-0.5">
+              Tap a name above — green is parent, brown is sub. Tap parent again to swap. Save when ready.
+            </p>
+          ) : null}
+          {linkMode === "combined" ? (
+            <button
+              type="button"
+              className="w-full text-left border border-brand/30 bg-brand rounded-xl px-3 py-2.5 text-white disabled:opacity-60 active:opacity-90"
+              onClick={combine}
+              disabled={busy}
+              data-testid="merge-combine-btn"
+            >
+              <span className="block text-sm font-bold">Combine — same customer</span>
+              <span className="block text-xs text-white/85 mt-0.5">
+                Group all jobs under one row on the Jobs list
+              </span>
+            </button>
+          ) : (
+            <button
+              type="button"
+              className="w-full text-left border border-brand/30 bg-brand rounded-xl px-3 py-2.5 text-white disabled:opacity-60 active:opacity-90"
+              onClick={linkSubCompany}
+              disabled={busy}
+              data-testid="merge-sub-save-btn"
+            >
+              <span className="block text-sm font-bold">Save & sync — sub company</span>
+              <span className="block text-xs text-white/85 mt-0.5">
+                {(parentSide === "left" ? sug.a.name : sug.b.name) +
+                  " parent · " +
+                  (parentSide === "left" ? sug.b.name : sug.a.name) +
+                  " sub"}
+              </span>
+            </button>
+          )}
           <button
             type="button"
-            className="w-full text-left border border-brand/30 bg-brand rounded-xl px-3 py-2.5 text-white disabled:opacity-60 active:opacity-90"
-            onClick={linkSubCompany}
-            disabled={busy}
-            data-testid="merge-sub-save-btn"
+            className="w-full text-left border border-slate-200 bg-white rounded-xl px-3 py-2.5 active:bg-slate-50"
+            onClick={askLater}
+            data-testid="merge-ask-later-btn"
           >
-            <span className="block text-sm font-bold">Save & sync — sub company</span>
-            <span className="block text-xs text-white/85 mt-0.5">
-              {(parentSide === "left" ? sug.a.name : sug.b.name) +
-                " parent · " +
-                (parentSide === "left" ? sug.b.name : sug.a.name) +
-                " sub"}
+            <span className="block text-sm font-bold text-slate-900">Ask me later</span>
+            <span className="block text-xs text-slate-500 mt-0.5">
+              Hide for now — will ask again next time you open the app
             </span>
           </button>
-        )}
-        <button
-          type="button"
-          className="w-full text-left border border-slate-200 bg-white rounded-xl px-3 py-2.5 active:bg-slate-50"
-          onClick={askLater}
-          data-testid="merge-ask-later-btn"
-        >
-          <span className="block text-sm font-bold text-slate-900">Ask me later</span>
-          <span className="block text-xs text-slate-500 mt-0.5">
-            Hide for now — will ask again next time you open the app
-          </span>
-        </button>
-        <button
-          type="button"
-          className="w-full text-left border border-slate-200 bg-white rounded-xl px-3 py-2.5 active:bg-slate-50"
-          onClick={separate}
-          data-testid="merge-separate-btn"
-        >
-          <span className="block text-sm font-bold text-slate-900">Separate customers</span>
-          <span className="block text-xs text-slate-500 mt-0.5">
-            Keep separate — won't ask about this pair again
-          </span>
-        </button>
+          <button
+            type="button"
+            className="w-full text-left border border-slate-200 bg-white rounded-xl px-3 py-2.5 active:bg-slate-50"
+            onClick={separate}
+            data-testid="merge-separate-btn"
+          >
+            <span className="block text-sm font-bold text-slate-900">Separate customers</span>
+            <span className="block text-xs text-slate-500 mt-0.5">
+              Keep separate — won't ask about this pair again
+            </span>
+          </button>
+        </div>
       </div>
-    </div>
+    </Sheet>
   );
 }

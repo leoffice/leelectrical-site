@@ -102,7 +102,7 @@ describe("bug 2 — near-duplicate combine prompt", () => {
     const user = userEvent.setup();
     renderApp("#/");
     const prompt = await screen.findByTestId("merge-prompt");
-    expect(prompt).toHaveTextContent("Same customer?");
+    expect(screen.getByText("Same customer?")).toBeInTheDocument();
     expect(prompt).toHaveTextContent(/look like the same person/);
     expect(within(prompt).getByTestId("merge-compare-btn")).toBeInTheDocument();
     expect(within(prompt).getByTestId("merge-separate-btn")).toBeInTheDocument();
