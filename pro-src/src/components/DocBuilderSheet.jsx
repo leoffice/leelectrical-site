@@ -4,15 +4,9 @@ import Sheet, { Fld } from "./Sheet.jsx";
 import { useStore } from "../state/store.jsx";
 import { DEFAULT_QBO_ITEMS, filterQboItems } from "../data/qboItems.js";
 import { serviceAddressHint, serviceAddressLabel } from "../lib/customerSync.js";
-import {
-  buildDocCommandPayload,
-  docIdempotencyKey,
-  emptyLine,
-  initialLines,
-  lineAmount,
-  linesTotal,
-} from "../lib/qboDoc.js";
-import { fmt$, todayStr } from "../lib/format.js";
+import { emptyLine, initialLines, lineAmount, linesTotal } from "../lib/qboDoc.js";
+import { planDocSaveSync } from "../lib/docSync.js";
+import { fmt$ } from "../lib/format.js";
 
 function LineRow({ line, index, items, onChange, onRemove, canRemove }) {
   const [itemQ, setItemQ] = useState(line.itemName || "");
@@ -167,43 +161,22 @@ export default function DocBuilderSheet({
 
     setSaving(true);
     try {
-      const payload = buildDocCommandPayload(job, {
+      const { jobPatch, commands } = planDocSaveSync(job, {
         kind,
+        mode,
         lines: valid,
         serviceAddress,
         apartment,
-        mode,
         progressPct,
         send,
       });
-      payload.attachments = attachments;
-
-      const cmdType =
-        mode === "edit"
-          ? kind === "estimate"
-            ? "update_estimate"
-            : "update_invoice"
-          : kind === "estimate"
-          ? "create_estimate"
-          : "create_invoice";
-      const idk = docIdempotencyKey(kind, job.id, valid, mode);
-      const jobPatch = {
-        serviceAddress,
-        apartment,
-        address: serviceAddress,
-        amount: fmt$(total),
-        [kind === "estimate" ? "estimateLines" : "invoiceLines"]: valid,
-        status:
-          kind === "estimate"
-            ? { Estimate: { s: "done", d: todayStr() } }
-            : { Invoiced: { s: "done", d: todayStr() } },
-      };
-      if (kind === "invoice" && mode === "turn_from_estimate") {
-        jobPatch.status = { ...jobPatch.status, Accepted: { s: "done", d: todayStr() } };
-      }
 
       await patchAndSave(job.id, jobPatch);
-      await enqueue(cmdType, job.id, payload, "judgment", idk);
+      for (let i = 0; i < commands.length; i++) {
+        const cmd = commands[i];
+        const payload = { ...cmd.payload, attachments: i === 0 ? attachments : [] };
+        await enqueue(cmd.type, job.id, payload, "judgment", cmd.idk);
+      }
 
       for (const att of attachments) {
         const attachType = kind === "estimate" ? "attach_to_estimate" : "attach_to_invoice";

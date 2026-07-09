@@ -3,6 +3,7 @@ import React from "react";
 import DocBuilderSheet from "./DocBuilderSheet.jsx";
 import InvoiceCreateSheet, { ProgressPctSheet } from "./InvoiceCreateSheet.jsx";
 import EstimateDocSheet from "./EstimateDocSheet.jsx";
+import InvoiceDocSheet from "./InvoiceDocSheet.jsx";
 import InvoiceReviewSheet from "./InvoiceReviewSheet.jsx";
 import { hasPendingInvoiceReview } from "../lib/invoiceAgentDraft.js";
 import { CalSheet, DocSheet } from "./JobSheets.jsx";
@@ -37,6 +38,16 @@ export default function JobDocSheets({ sheet, setSheet, job, onDocDone }) {
             next: { kind: "docBuild", docKind: "invoice", mode: "turn_from_estimate" },
           })
         }
+      />
+    );
+  }
+
+  if (sheet.kind === "invoiceDoc") {
+    return (
+      <InvoiceDocSheet
+        job={job}
+        onClose={() => setSheet(null)}
+        onEdit={() => setSheet({ kind: "docBuild", docKind: "invoice", mode: "edit" })}
       />
     );
   }
@@ -104,7 +115,7 @@ export function openDocTab(job, kind, setSheet) {
       setSheet({ kind: "invoiceReview" });
       return;
     }
-    if (job.invoiceNo || job._invoiceConfirmed) setSheet({ kind: "doc", doc: "invoice" });
+    if (job.invoiceNo || job._invoiceConfirmed) setSheet({ kind: "invoiceDoc" });
     else setSheet({ kind: "invoiceCreate" });
     return;
   }

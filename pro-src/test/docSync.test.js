@@ -1,0 +1,69 @@
+import { describe, expect, it } from "vitest";
+import { docSyncPendingForJob, planDocSaveSync } from "../src/lib/docSync.js";
+
+const job = {
+  id: "J-SYNC",
+  customer: "Acme LLC",
+  email: "a@acme.com",
+  estimateNo: "E-100",
+  invoiceNo: "251900",
+  serviceAddress: "10 Broadway",
+  apartment: "2A",
+  estimateLines: [{ itemName: "Labor", qty: 1, unitPrice: 500, description: "Work" }],
+  invoiceLines: [{ itemName: "Labor", qty: 1, unitPrice: 500, description: "Work" }],
+};
+
+describe("docSync", () => {
+  it("docSyncPendingForJob detects queued update commands", () => {
+    expect(
+      docSyncPendingForJob(
+        [
+          { jobId: "J-SYNC", type: "update_invoice", status: "queued" },
+          { jobId: "J-2", type: "update_estimate", status: "queued" },
+        ],
+        "J-SYNC"
+      )
+    ).toBe(true);
+    expect(
+      docSyncPendingForJob([{ jobId: "J-SYNC", type: "update_invoice", status: "done" }], "J-SYNC")
+    ).toBe(false);
+  });
+
+  it("planDocSaveSync on invoice edit enqueues linked estimate address update", () => {
+    const lines = [{ itemName: "Labor", qty: 1, unitPrice: 550, description: "Work" }];
+    const plan = planDocSaveSync(job, {
+      kind: "invoice",
+      mode: "edit",
+      lines,
+      serviceAddress: "99 Oak Ave",
+      apartment: "3C",
+      send: false,
+    });
+    expect(plan.jobPatch.serviceAddress).toBe("99 Oak Ave");
+    expect(plan.jobPatch.invoiceLines[0].unitPrice).toBe(550);
+    expect(plan.commands).toHaveLength(2);
+    expect(plan.commands[0].type).toBe("update_invoice");
+    expect(plan.commands[0].payload.invoiceNo).toBe("251900");
+    expect(plan.commands[0].payload.serviceAddress).toBe("99 Oak Ave");
+    expect(plan.commands[1].type).toBe("update_estimate");
+    expect(plan.commands[1].payload.estimateNo).toBe("E-100");
+    expect(plan.commands[1].payload.serviceAddress).toBe("99 Oak Ave");
+    expect(plan.commands[1].payload.shipAddr).toEqual({ Line1: "99 Oak Ave", Line2: "3C" });
+  });
+
+  it("planDocSaveSync on estimate edit enqueues linked invoice address update", () => {
+    const plan = planDocSaveSync(job, {
+      kind: "estimate",
+      mode: "edit",
+      lines: job.estimateLines,
+      serviceAddress: "200 Park Ave",
+      apartment: "",
+      send: false,
+    });
+    expect(plan.commands).toHaveLength(2);
+    expect(plan.commands[0].type).toBe("update_estimate");
+    expect(plan.commands[1].type).toBe("update_invoice");
+    expect(plan.commands[1].payload.invoiceNo).toBe("251900");
+    expect(plan.commands[1].payload.serviceAddress).toBe("200 Park Ave");
+  });
+});

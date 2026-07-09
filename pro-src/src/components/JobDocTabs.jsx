@@ -1,6 +1,7 @@
 // Estimate / Invoice / Payment / Calendar tabs below job info.
 import React, { useMemo } from "react";
 import { jobCalendarLinkState } from "../lib/calendarLink.js";
+import { docSyncPendingForJob } from "../lib/docSync.js";
 import { hasPendingInvoiceReview } from "../lib/invoiceAgentDraft.js";
 
 function tabTone(active, pending) {
@@ -24,11 +25,8 @@ export default function JobDocTabs({
   const canPay = !!(job.invoiceNo || job.amount) && !job.paid;
 
   const pending = useMemo(() => {
-    const mine = (commands || []).filter((c) => String(c.jobId) === String(job.id));
-    return {
-      estimate: mine.some((c) => c.type === "create_estimate" && (c.status === "queued" || c.status === "working")),
-      invoice: mine.some((c) => c.type === "create_invoice" && (c.status === "queued" || c.status === "working")),
-    };
+    const syncing = docSyncPendingForJob(commands, job.id);
+    return { estimate: syncing, invoice: syncing };
   }, [commands, job.id]);
 
   const estLabel = hasEst ? "Est " + job.estimateNo : pending.estimate ? "Est…" : "Estimate";

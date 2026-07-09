@@ -81,6 +81,7 @@ export function buildDocCommandPayload(job, { kind, lines, serviceAddress, apart
     send: !!send,
   };
   if (kind === "invoice") {
+    base.invoiceNo = job.invoiceNo || "";
     base.source = mode === "from_estimate" || mode === "turn_from_estimate" ? "estimate" : "new";
     base.estimateNo = job.estimateNo || "";
     base.progressPct = progressPct != null ? parseAmount(progressPct) : 100;

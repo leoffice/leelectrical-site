@@ -18,6 +18,7 @@ describe("qboDoc", () => {
     apartment: "4B",
     estimateLines: [{ itemName: "Service call:Service call", qty: 1, unitPrice: 120, description: "Visit" }],
     estimateNo: "E-100",
+    invoiceNo: "251800",
   };
 
   it("lineAmount and linesTotal", () => {
@@ -52,6 +53,7 @@ describe("qboDoc", () => {
     expect(payload.source).toBe("estimate");
     expect(payload.progressPct).toBe(50);
     expect(payload.send).toBe(true);
+    expect(payload.invoiceNo).toBe("251800");
     expect(shipAddrPayload("99 Oak", "")).toEqual({ Line1: "99 Oak" });
   });
 });
