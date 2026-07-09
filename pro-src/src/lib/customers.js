@@ -7,6 +7,8 @@
 //   findMergeSuggestion(jobs) -> first non-dismissed near-duplicate pair
 //   dismissPair / isDismissed -> permanent "Not the same" memory
 //     (localStorage lepro_nomerge, key = sorted normalized pair)
+//   snoozePair / isSnoozed -> "Ask me later" until next login
+//     (sessionStorage lepro_merge_snooze — cleared on fresh app open)
 
 import { fmt$, parseAmount } from "./format.js";
 import { normalizePayments, remainingBalance, totalPaid, amountOwedAtStart } from "./payments.js";
@@ -293,6 +295,45 @@ export function dismissPair(a, b) {
   }
 }
 
+const MERGE_SNOOZE_KEY = "lepro_merge_snooze";
+
+function sessionStore() {
+  try {
+    return globalThis.sessionStorage || null;
+  } catch {
+    return null;
+  }
+}
+
+export function loadSnoozed() {
+  const s = sessionStore();
+  if (!s) return [];
+  try {
+    const v = JSON.parse(s.getItem(MERGE_SNOOZE_KEY) || "[]");
+    return Array.isArray(v) ? v : [];
+  } catch {
+    return [];
+  }
+}
+
+export function isSnoozed(a, b) {
+  return loadSnoozed().includes(pairId(a, b));
+}
+
+/** Hide this pair until the next app login (fresh browsing session). */
+export function snoozePair(a, b) {
+  const list = loadSnoozed();
+  const id = pairId(a, b);
+  if (list.includes(id)) return;
+  list.push(id);
+  const s = sessionStore();
+  if (s) {
+    try {
+      s.setItem(MERGE_SNOOZE_KEY, JSON.stringify(list));
+    } catch {}
+  }
+}
+
 /** Active jobs belonging to one QBO customer (name or id match). */
 export function jobsMatchingCustomer(customer, jobs) {
   const c = customer || {};
@@ -497,6 +538,7 @@ export function findMergeSuggestion(jobs) {
       const contactMatch = !nameMatch && contactInfoMatches(ja, jb);
       if (!nameMatch && !contactMatch) continue;
       if (isDismissed(na, nb)) continue;
+      if (isSnoozed(na, nb)) continue;
       return {
         id: pairId(na, nb),
         reason: contactMatch ? "contact" : "name",

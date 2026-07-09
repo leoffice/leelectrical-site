@@ -9,6 +9,7 @@ import {
   customerProfileFromJobs,
   dismissPair,
   findMergeSuggestion,
+  snoozePair,
 } from "../lib/customers.js";
 import { parentCustomerPatch } from "../lib/customerHierarchy.js";
 import { enqueueCustomerQboSync } from "../lib/customerQboEnqueue.js";
@@ -136,6 +137,7 @@ function CompareSheet({
   onClose,
   onCombine,
   onLinkSub,
+  onAskLater,
   onSeparate,
 }) {
   const left = useMemo(() => customerProfileFromJobs(sug.a.jobs, sug.a.name), [sug]);
@@ -196,6 +198,13 @@ function CompareSheet({
           data-testid="merge-compare-sub-save"
         />
       )}
+      <Opt
+        icon="⏳"
+        title="Ask me later"
+        note="Hide for now — will ask again next time you open the app"
+        onClick={onAskLater}
+        data-testid="merge-compare-ask-later"
+      />
       <Opt
         icon="✋"
         title="Separate customers"
@@ -277,6 +286,13 @@ export default function MergePrompt() {
     showToast("Sub company linked — syncing to QuickBooks…");
   };
 
+  const askLater = () => {
+    snoozePair(sug.a.name, sug.b.name);
+    setMode("prompt");
+    setTick((t) => t + 1);
+    showToast("OK — will ask again next login");
+  };
+
   const separate = () => {
     dismissPair(sug.a.name, sug.b.name);
     setMode("prompt");
@@ -297,6 +313,7 @@ export default function MergePrompt() {
         onClose={() => setMode("prompt")}
         onCombine={combine}
         onLinkSub={linkSubCompany}
+        onAskLater={askLater}
         onSeparate={separate}
       />
     );
@@ -374,6 +391,17 @@ export default function MergePrompt() {
             </span>
           </button>
         )}
+        <button
+          type="button"
+          className="w-full text-left border border-slate-200 bg-white rounded-xl px-3 py-2.5 active:bg-slate-50"
+          onClick={askLater}
+          data-testid="merge-ask-later-btn"
+        >
+          <span className="block text-sm font-bold text-slate-900">Ask me later</span>
+          <span className="block text-xs text-slate-500 mt-0.5">
+            Hide for now — will ask again next time you open the app
+          </span>
+        </button>
         <button
           type="button"
           className="w-full text-left border border-slate-200 bg-white rounded-xl px-3 py-2.5 active:bg-slate-50"

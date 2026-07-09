@@ -121,6 +121,28 @@ describe("bug 2 — near-duplicate combine prompt", () => {
     expect(within(grp).getByTestId("client-group-amount")).toHaveTextContent("$300");
   });
 
+  it("'Ask me later' hides until next login (session snooze), then re-asks", async () => {
+    mockServer({ jobs: koptivs() });
+    const user = userEvent.setup();
+    const first = renderApp("#/");
+    const prompt = await screen.findByTestId("merge-prompt");
+    await user.click(within(prompt).getByTestId("merge-ask-later-btn"));
+    expect(screen.queryByTestId("merge-prompt")).not.toBeInTheDocument();
+    expect(JSON.parse(sessionStorage.getItem("lepro_merge_snooze"))).toEqual(["arthur koptiv|arthur koptive"]);
+    expect(localStorage.getItem("lepro_nomerge")).toBeNull();
+
+    // same session remount — still snoozed
+    first.unmount();
+    renderApp("#/");
+    await screen.findByText("Meter bank");
+    expect(screen.queryByTestId("merge-prompt")).not.toBeInTheDocument();
+
+    // fresh login (session cleared) — prompt returns
+    sessionStorage.clear();
+    renderApp("#/");
+    expect(await screen.findByTestId("merge-prompt")).toBeInTheDocument();
+  });
+
   it("'Separate customers' dismisses permanently (lepro_nomerge) — never re-asks", async () => {
     mockServer({ jobs: koptivs() });
     const user = userEvent.setup();

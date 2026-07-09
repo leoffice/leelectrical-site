@@ -9,14 +9,19 @@ import {
   dismissPair,
   findMergeSuggestion,
   isDismissed,
+  isSnoozed,
   levenshtein,
   namesNearDuplicate,
   normalizeCustomer,
   pairId,
+  snoozePair,
 } from "../src/lib/customers.js";
 import { customerProfileComplete, customerSyncCardClass } from "../src/lib/customerSync.js";
 
-beforeEach(() => localStorage.clear());
+beforeEach(() => {
+  localStorage.clear();
+  sessionStorage.clear();
+});
 
 describe("normalizeCustomer", () => {
   it("lowercases, trims, collapses spaces, strips trailing punctuation", () => {
@@ -64,6 +69,17 @@ describe("namesNearDuplicate", () => {
     expect(namesNearDuplicate("Al", "Albert")).toBe(false); // overlap <5
     expect(namesNearDuplicate("Arthur koptiv", "Miriam Stern")).toBe(false);
     expect(namesNearDuplicate("", "Someone")).toBe(false);
+  });
+});
+
+describe("snooze memory (lepro_merge_snooze)", () => {
+  it("snoozePair hides pair for the session but not permanently", () => {
+    expect(pairId("Arthur Koptive", "Arthur koptiv")).toBe("arthur koptiv|arthur koptive");
+    expect(isSnoozed("Arthur koptiv", "Arthur Koptive")).toBe(false);
+    snoozePair("Arthur koptiv", "Arthur Koptive");
+    expect(isSnoozed("Arthur koptiv", "Arthur Koptive")).toBe(true);
+    expect(JSON.parse(sessionStorage.getItem("lepro_merge_snooze"))).toEqual(["arthur koptiv|arthur koptive"]);
+    expect(isDismissed("Arthur koptiv", "Arthur Koptive")).toBe(false);
   });
 });
 
@@ -162,6 +178,13 @@ describe("findMergeSuggestion", () => {
   it("dismissed pairs are never suggested again", () => {
     dismissPair("Arthur koptiv", "Arthur Koptive");
     expect(findMergeSuggestion(jobs())).toBeNull();
+  });
+
+  it("snoozed pairs are skipped until the next login clears session storage", () => {
+    snoozePair("Arthur koptiv", "Arthur Koptive");
+    expect(findMergeSuggestion(jobs())).toBeNull();
+    sessionStorage.clear();
+    expect(findMergeSuggestion(jobs())).toBeTruthy();
   });
 
   it("jobs already sharing a clientGroup are one key — no prompt", () => {
