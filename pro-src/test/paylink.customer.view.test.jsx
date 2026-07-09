@@ -132,37 +132,37 @@ describe("Feature 2 — customer group total due + Customer view", () => {
     expect(within(view).getByText("Meir Kabakov")).toBeInTheDocument();
     expect(within(view).getByTestId("customer-total-due")).toHaveTextContent("$1,300");
     expect(within(view).getByText(/3 jobs · 2 open invoices/)).toBeInTheDocument();
-    // customer card + three job info cards
     expect(within(view).getByTestId("customer-card")).toBeInTheDocument();
-    expect(within(view).getAllByTestId("job-info-card")).toHaveLength(3);
-    expect(within(view).getByText("Panel swap")).toBeInTheDocument();
+    expect(within(view).getByTestId("customer-doc-tabs")).toBeInTheDocument();
+    expect(within(view).queryByTestId("customer-jobs-section")).not.toBeInTheDocument();
   });
 
-  it("all job cards stay open with full info and doc tabs", async () => {
+  it("invoices tab lists jobs and opens job detail on tap", async () => {
     const user = userEvent.setup();
     renderApp("#/");
     await screen.findByTestId("client-group-amount");
     await user.click(screen.getByTestId("client-group-card"));
 
     const view = await screen.findByTestId("customer-view");
-    const cards = within(view).getAllByTestId("job-info-card");
-    expect(cards).toHaveLength(3);
-    for (const card of cards) {
-      expect(within(card).getByTestId("job-doc-tabs")).toBeInTheDocument();
-    }
-    expect(within(view).getByText("EV charger")).toBeInTheDocument();
-    expect(within(view).getByText("Service")).toBeInTheDocument();
+    await user.click(within(view).getByTestId("cust-tab-invoices"));
+    const panel = await within(view).findByTestId("cust-tab-panel-invoices");
+    await user.click(within(panel).getByText("Invoice #1001"));
+
+    const back = await screen.findByTestId("detail-back");
+    expect(back).toHaveTextContent("Meir Kabakov");
+    expect(screen.getByTestId("job-info-card")).toBeInTheDocument();
   });
 
-  it("tapping a job card opens JobDetail with a back-to-customer breadcrumb", async () => {
+  it("tapping an invoice opens JobDetail with a back-to-customer breadcrumb", async () => {
     const user = userEvent.setup();
     renderApp("#/");
     await screen.findByTestId("client-group-amount");
     await user.click(screen.getByTestId("client-group-amount"));
 
     const view = await screen.findByTestId("customer-view");
-    const panelCard = within(view).getByText("Panel swap").closest("[data-testid='job-info-card']");
-    await user.click(panelCard);
+    await user.click(within(view).getByTestId("cust-tab-invoices"));
+    const panel = await within(view).findByTestId("cust-tab-panel-invoices");
+    await user.click(within(panel).getByText("Invoice #1001"));
 
     const back = await screen.findByTestId("detail-back");
     expect(back).toHaveTextContent("Meir Kabakov");
@@ -170,6 +170,6 @@ describe("Feature 2 — customer group total due + Customer view", () => {
     await user.click(back);
     const view2 = await screen.findByTestId("customer-view");
     expect(view2).toBeInTheDocument();
-    expect(within(view2).getByTestId("customer-jobs-section")).toBeInTheDocument();
+    expect(within(view2).getByTestId("customer-doc-tabs")).toBeInTheDocument();
   });
 });

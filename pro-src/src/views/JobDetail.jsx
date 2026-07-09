@@ -27,9 +27,9 @@ import {
 import { followUpFromPaperworkStep } from "../lib/calendarDue.js";
 import { fmt$, ago } from "../lib/format.js";
 import CustomerCard from "../components/CustomerCard.jsx";
-import CustomerDocTabs from "../components/CustomerDocTabs.jsx";
 import JobInfoCard from "../components/JobInfoCard.jsx";
 import JobAddressCarousel from "../components/JobAddressCarousel.jsx";
+import AddressOpenInvoices from "../components/AddressOpenInvoices.jsx";
 import JobEditSheet from "../components/JobEditSheet.jsx";
 import { cloneJobAtAddressPatch, jobsAtSameAddress } from "../lib/customerHierarchy.js";
 import {
@@ -129,7 +129,6 @@ export default function JobDetail() {
   const [showRemoved, setShowRemoved] = useState({}); // paperwork branch -> expanded
   const [sheet, setSheet] = useState(null); // {kind, ...}
   const [detailSectionsExpanded, setDetailSectionsExpanded] = useState(true);
-  const [docTabOpenOnly, setDocTabOpenOnly] = useState(false);
   const stepTimer = useRef(null);
   const jobInfoRef = useRef(null);
 
@@ -271,14 +270,6 @@ export default function JobDetail() {
         onEdit={() => setSheet({ kind: "cust" })}
       />
 
-      <CustomerDocTabs
-        jobs={customerJobs}
-        activeJobId={id}
-        fromCust={fromCust}
-        openOnly={docTabOpenOnly}
-        onOpenOnlyChange={setDocTabOpenOnly}
-      />
-
       {pending[id] ? (
         <div className="px-1 -mt-2">
           <span className="pill bg-amber-100 text-amber-700 text-xs">unsaved changes</span>
@@ -328,6 +319,8 @@ export default function JobDetail() {
           </button>
         ) : null}
       </div>
+
+      <AddressOpenInvoices jobs={addressJobs} activeJobId={id} fromCust={fromCust} />
 
       {!detailSectionsExpanded && siblingJobs.length > 0 ? (
         <div className="space-y-2" data-testid="customer-sibling-jobs">

@@ -89,19 +89,50 @@ describe("QB sync menu on header chip", () => {
     expect(cmd.payload.scope).toBe("open");
   });
 
-  it("customer doc tabs list invoices green/red and navigate on tap", async () => {
+  it("customer doc tabs list open/closed invoices and navigate on tap", async () => {
     mockServer({ jobs: [J_OPEN, J_PAID, J_EST] });
     const user = userEvent.setup();
-    renderApp("#/job/J-open");
-    const pane = await screen.findByTestId("detail-pane");
+    renderApp("#/customer/c:test%20co");
+    const view = await screen.findByTestId("customer-view");
 
-    await user.click(within(pane).getByTestId("cust-tab-invoices"));
-    const panel = await within(pane).findByTestId("cust-tab-panel-invoices");
+    await user.click(within(view).getByTestId("cust-tab-invoices"));
+    const panel = await within(view).findByTestId("cust-tab-panel-invoices");
+    expect(within(panel).getByText("Open invoices")).toBeInTheDocument();
+    expect(within(panel).getByText("Closed invoices")).toBeInTheDocument();
     expect(within(panel).getByText("Invoice #251900")).toBeInTheDocument();
     expect(within(panel).getByText("Invoice #251901")).toBeInTheDocument();
 
     await user.click(within(panel).getByText("Invoice #251901"));
     await waitFor(() => expect(window.location.hash).toContain("#/job/J-paid"));
+  });
+
+  it("job detail shows expandable open invoices at same address", async () => {
+    mockServer({
+      jobs: [
+        { ...J_OPEN, serviceAddress: "10 Oak St", title: "Panel A" },
+        {
+          id: "J-open2",
+          customer: "Test Co",
+          invoiceNo: "251902",
+          amount: "$200",
+          paid: false,
+          openBalance: 200,
+          serviceAddress: "10 Oak St",
+          title: "Panel B",
+        },
+        J_PAID,
+      ],
+    });
+    const user = userEvent.setup();
+    renderApp("#/job/J-open");
+    const pane = await screen.findByTestId("detail-pane");
+    const block = within(pane).getByTestId("address-open-invoices");
+    expect(within(block).getByText(/Open invoices at this address/)).toBeInTheDocument();
+    expect(within(block).getByTestId("addr-open-inv-251900")).toBeInTheDocument();
+    expect(within(block).getByTestId("addr-open-inv-251902")).toBeInTheDocument();
+
+    await user.click(within(block).getByTestId("addr-open-inv-251902"));
+    await waitFor(() => expect(window.location.hash).toContain("#/job/J-open2"));
   });
 
   it("job edit sheet shows same-address invoices and saves title", async () => {
@@ -142,14 +173,14 @@ describe("QB sync menu on header chip", () => {
 });
 
 describe("QB sync on customer view", () => {
-  it("gray invoice tab opens builder and stays open on customer page", async () => {
+  it("gray invoice tab opens builder from job detail after leaving customer view", async () => {
     mockServer({
       jobs: [{ ...J_OPEN, customer: "View Co", invoiceNo: "", estimateNo: "" }],
     });
     const user = userEvent.setup();
-    renderApp("#/customer/c:view%20co");
-    const view = await screen.findByTestId("customer-view");
-    const tabs = within(view).getAllByTestId("job-doc-tabs")[0];
+    renderApp("#/job/J-open?from=c:view%20co");
+    const pane = await screen.findByTestId("detail-pane");
+    const tabs = within(pane).getByTestId("job-doc-tabs");
 
     await user.click(within(tabs).getByTestId("tab-invoice"));
     expect(await screen.findByText(/Create invoice — View Co/)).toBeInTheDocument();

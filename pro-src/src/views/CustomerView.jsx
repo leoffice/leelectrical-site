@@ -1,14 +1,15 @@
 // Customer detail view — opened by tapping anywhere on a customer card in the
-// Jobs list (route /customer/:key). Customer card on top; each job shows
-// job information + linked appointment inline.
+// Jobs list (route /customer/:key). Customer card on top; sub-companies when
+// parent; invoices/estimates tabs — jobs open from those lists or job detail.
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
+import { Link, useNavigate, useParams } from "react-router-dom";
 import { useStore } from "../state/store.jsx";
 import Jobs from "./Jobs.jsx";
 import CustomerCard from "../components/CustomerCard.jsx";
 import CustomerDocTabs from "../components/CustomerDocTabs.jsx";
-import JobInfoCard from "../components/JobInfoCard.jsx";
 import JobDocSheets, { openDocTab } from "../components/JobDocSheets.jsx";
+import { subsUnderParent } from "../lib/customerHierarchy.js";
+import { fmt$ } from "../lib/format.js";
 import StepBubbleSheet from "../components/StepBubbleSheet.jsx";
 import {
   completeAwarenessBubble,
@@ -27,9 +28,7 @@ import {
 
 export default function CustomerView() {
   const { key: raw } = useParams();
-  const [sp] = useSearchParams();
   const nav = useNavigate();
-  const jobAnchor = sp.get("job") || "";
   const { jobs, loading, events, commands, patchJob, refreshJobs } = useStore();
   const key = raw ? decodeURIComponent(raw) : "";
   const [sheet, setSheet] = useState(null); // { kind, job? }
@@ -42,10 +41,8 @@ export default function CustomerView() {
       return job ? { ...patch, job } : patch;
     });
   }, []);
-  const [docTabOpenOnly, setDocTabOpenOnly] = useState(false);
   const [importing, setImporting] = useState(false);
   const importPoll = useRef(null);
-  const jobsSectionRef = useRef(null);
   const lastListRef = useRef([]);
 
   const importHints = useMemo(() => {
@@ -66,6 +63,10 @@ export default function CustomerView() {
   const contact = useMemo(() => customerContact(displayJobs), [displayJobs]);
   const summary = useMemo(() => customerAmountSummary(displayJobs), [displayJobs]);
   const primaryJob = displayJobs[0];
+  const subs = useMemo(() => {
+    if (!key.startsWith("p:")) return [];
+    return subsUnderParent(jobs, key);
+  }, [jobs, key]);
 
   useEffect(() => {
     let pending = null;
@@ -92,19 +93,6 @@ export default function CustomerView() {
     tick();
     return () => clearTimeout(importPoll.current);
   }, [key, refreshJobs]);
-
-  useEffect(() => {
-    if (!displayJobs.length) return;
-    const run = () => {
-      const el = jobAnchor
-        ? document.getElementById("job-card-" + jobAnchor)
-        : jobsSectionRef.current;
-      if (!el) return;
-      const top = el.getBoundingClientRect().top + window.scrollY - 72;
-      window.scrollTo({ top: Math.max(0, top), behavior: "instant" });
-    };
-    requestAnimationFrame(run);
-  }, [key, jobAnchor, displayJobs.length]);
 
   useEffect(() => {
     if (!displayJobs.length) return;
@@ -161,39 +149,29 @@ export default function CustomerView() {
         onEdit={() => setSheet({ kind: "cust", job: primaryJob })}
       />
 
-      <CustomerDocTabs
-        jobs={displayJobs}
-        fromCust={key}
-        openOnly={docTabOpenOnly}
-        onOpenOnlyChange={setDocTabOpenOnly}
-      />
+      {subs.length > 0 ? (
+        <div className="card px-3 py-2.5 space-y-1.5" data-testid="customer-sub-companies">
+          <h2 className="text-[11px] font-extrabold text-slate-500 uppercase tracking-wider px-0.5">
+            Sub companies ({subs.length})
+          </h2>
+          {subs.map((sub) => (
+            <button
+              key={sub.key}
+              type="button"
+              className="w-full text-left rounded-lg bg-slate-50 border border-slate-100 px-3 py-2 active:bg-slate-100"
+              data-testid="customer-sub-row"
+              onClick={() => nav("/customer/" + encodeURIComponent(sub.key))}
+            >
+              <div className="flex items-center justify-between gap-2">
+                <span className="text-sm font-semibold text-slate-800 truncate">{sub.name}</span>
+                <span className="text-sm font-semibold tabular-nums shrink-0">{fmt$(sub.summary.due) || "$0"}</span>
+              </div>
+            </button>
+          ))}
+        </div>
+      ) : null}
 
-      <h2
-        ref={jobsSectionRef}
-        className="text-[11px] font-extrabold text-slate-500 uppercase tracking-wider px-1 !mb-[-6px] scroll-mt-20"
-        data-testid="customer-jobs-section"
-      >
-        Jobs ({displayJobs.length})
-      </h2>
-      <div className="space-y-3">
-        {displayJobs.map((j) => (
-          <div key={j.id} id={"job-card-" + j.id} className="scroll-mt-20">
-            <JobInfoCard
-              job={j}
-              events={events}
-              commands={commands}
-              onOpen={() => nav("/job/" + j.id + "?from=" + encodeURIComponent(key))}
-              onEstimate={() => openDocFor(j, "estimate")}
-              onInvoice={() => openDocFor(j, "invoice")}
-              onPayment={() => nav("/job/" + j.id + "?from=" + encodeURIComponent(key) + "&pay=1")}
-              onCalendar={() => openDocFor(j, "calendar")}
-              onBubbleTap={(bubble) =>
-                tapAwarenessBubble(j, bubble, (s) => setSheet({ ...s, job: j }), openDocForBubble)
-              }
-            />
-          </div>
-        ))}
-      </div>
+      <CustomerDocTabs jobs={displayJobs} fromCust={key} />
 
       {sheet?.kind === "cust" && sheet.job ? (
         <CustEditSheet job={sheet.job} onClose={() => setSheet(null)} />

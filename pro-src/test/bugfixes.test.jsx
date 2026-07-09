@@ -136,7 +136,7 @@ describe("parent customer cards — tap anywhere to show subs", () => {
     vi.useRealTimers();
   });
 
-  it("second tap on expanded parent opens parent customer view with all sub jobs", async () => {
+  it("second tap on expanded parent opens parent customer view with sub companies", async () => {
     mockServer({ jobs: parentJobs() });
     const user = userEvent.setup();
     renderApp("#/");
@@ -144,8 +144,12 @@ describe("parent customer cards — tap anywhere to show subs", () => {
     await user.click(card);
     expect(screen.getByTestId("parent-sub-list")).toBeInTheDocument();
     await user.click(card);
-    expect(await screen.findByTestId("customer-view")).toBeInTheDocument();
-    expect(screen.getByTestId("customer-jobs-section")).toHaveTextContent("Jobs (2)");
+    const view = await screen.findByTestId("customer-view");
+    expect(view).toBeInTheDocument();
+    const subs = within(view).getByTestId("customer-sub-companies");
+    expect(within(subs).getByText("LLC Alpha")).toBeInTheDocument();
+    expect(within(subs).getByText("LLC Beta")).toBeInTheDocument();
+    expect(within(view).queryByTestId("customer-jobs-section")).not.toBeInTheDocument();
   });
 
   it("parent with direct jobs does not appear twice on the customer list", async () => {
