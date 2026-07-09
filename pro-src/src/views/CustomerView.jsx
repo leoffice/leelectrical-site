@@ -158,7 +158,6 @@ export default function CustomerView() {
         contact={contact}
         summary={summary}
         primaryJob={primaryJob}
-        customerJobs={displayJobs}
         onEdit={() => setSheet({ kind: "cust", job: primaryJob })}
       />
 
@@ -183,7 +182,6 @@ export default function CustomerView() {
               job={j}
               events={events}
               commands={commands}
-              customerJobs={displayJobs}
               onOpen={() => nav("/job/" + j.id + "?from=" + encodeURIComponent(key))}
               onEstimate={() => openDocFor(j, "estimate")}
               onInvoice={() => openDocFor(j, "invoice")}

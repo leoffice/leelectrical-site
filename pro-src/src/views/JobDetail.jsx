@@ -268,7 +268,6 @@ export default function JobDetail() {
         showSummary={false}
         mapAddress={effectiveServiceAddress(job)}
         primaryJob={job}
-        customerJobs={customerJobs}
         onEdit={() => setSheet({ kind: "cust" })}
       />
 
@@ -293,7 +292,6 @@ export default function JobDetail() {
             activeId={id}
             events={events}
             commands={commands}
-            customerJobs={customerJobs}
             onSelectJob={(j) => nav("/job/" + j.id + (fromCust ? "?from=" + encodeURIComponent(fromCust) : ""))}
             onNewInvoice={addInvoiceAtAddress}
             onEditJob={() => setSheet({ kind: "jobedit" })}
@@ -309,7 +307,6 @@ export default function JobDetail() {
             job={job}
             events={events}
             commands={commands}
-            customerJobs={customerJobs}
             showOpenLink={false}
             onCardTap={toggleDetailSections}
             onEditJob={() => setSheet({ kind: "jobedit" })}

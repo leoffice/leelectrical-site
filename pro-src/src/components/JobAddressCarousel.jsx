@@ -16,7 +16,6 @@ export default function JobAddressCarousel({
   onBubbleTap,
   onCardTap,
   onEditJob,
-  customerJobs,
 }) {
   const list = jobs || [];
   const scrollRef = useRef(null);
@@ -104,7 +103,6 @@ export default function JobAddressCarousel({
               job={j}
               events={events}
               commands={commands}
-              customerJobs={customerJobs}
               showOpenLink={false}
               onCardTap={j.id === activeId ? onCardTap : () => onSelectJob?.(j)}
               onEditJob={j.id === activeId ? onEditJob : undefined}

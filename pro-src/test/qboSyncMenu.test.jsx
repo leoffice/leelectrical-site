@@ -55,8 +55,8 @@ describe("customerDocLists helpers", () => {
   });
 });
 
-describe("QB sync button + menu on job detail", () => {
-  it("shows sync on customer card and job card; open invoices enqueues import_customer", async () => {
+describe("QB sync menu on header chip", () => {
+  it("opens scoped menu from sync chip on job detail; confirm enqueues import_customer", async () => {
     const srv = mockServer({
       jobs: [
         {
@@ -75,13 +75,13 @@ describe("QB sync button + menu on job detail", () => {
     });
     const user = userEvent.setup();
     renderApp("#/job/J-open");
-    const pane = await screen.findByTestId("detail-pane");
+    await screen.findByTestId("detail-pane");
 
-    expect(within(pane).getAllByTestId("qbo-sync-btn").length).toBeGreaterThanOrEqual(2);
-
-    await user.click(within(pane).getAllByTestId("qbo-sync-btn")[0]);
-    await user.click(await screen.findByTestId("qbo-sync-invoices"));
+    await user.click(screen.getAllByTestId("sync-chip")[0]);
+    expect(await screen.findByTestId("qbo-sync-context")).toHaveTextContent("Test Co");
+    await user.click(screen.getByTestId("qbo-sync-invoices"));
     await user.click(screen.getByText("Open only"));
+    await user.click(screen.getByTestId("qbo-sync-confirm"));
 
     await waitFor(() => expect(srv.enqueued("import_customer")).toHaveLength(1));
     const cmd = srv.enqueued("import_customer")[0];
@@ -156,16 +156,18 @@ describe("QB sync on customer view", () => {
     expect(screen.getByTestId("doc-save-sync")).toBeInTheDocument();
   });
 
-  it("shows doc tabs and sync button on customer page", async () => {
+  it("shows doc tabs on customer page; sync chip has customer context", async () => {
     mockServer({
       jobs: [
         { ...J_OPEN, customer: "View Co", qboCustomerId: "12" },
         { ...J_EST, customer: "View Co" },
       ],
     });
+    const user = userEvent.setup();
     renderApp("#/customer/c:view%20co");
     const view = await screen.findByTestId("customer-view");
-    expect(within(view).getAllByTestId("qbo-sync-btn").length).toBeGreaterThan(0);
     expect(within(view).getByTestId("customer-doc-tabs")).toBeInTheDocument();
+    await user.click(screen.getAllByTestId("sync-chip")[0]);
+    expect(await screen.findByTestId("qbo-sync-context")).toHaveTextContent("View Co");
   });
 });

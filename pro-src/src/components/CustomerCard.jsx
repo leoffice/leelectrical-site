@@ -4,7 +4,6 @@ import { CustomerAvatar } from "./JobCard.jsx";
 import { CustomerAmountSubline } from "./AmountDisplay.jsx";
 import { fmt$ } from "../lib/format.js";
 import { effectiveServiceAddress } from "../lib/customerSync.js";
-import QboSyncButton from "./QboSyncButton.jsx";
 const OFFICE_EMAIL = "office@leelectrical.us";
 
 export function CustomerActionButton({ href, icon, label, disabled, newTab }) {
@@ -54,7 +53,6 @@ export default function CustomerCard({
   mapAddress,
   onEdit,
   primaryJob,
-  customerJobs,
   showSummary = true,
 }) {
   const displayName = contact.businessName || contact.name;
@@ -73,22 +71,17 @@ export default function CustomerCard({
 
   return (
     <div className="card relative px-3 py-3 lg:px-4 lg:py-4" data-testid="customer-card">
-      <div className="absolute top-2 right-2 z-10 flex items-center gap-1">
-        {primaryJob ? (
-          <QboSyncButton job={primaryJob} customerJobs={customerJobs} compact />
-        ) : null}
-        {onEdit ? (
-          <button
-            type="button"
-            className="text-[10px] font-semibold text-slate-500 hover:text-brand px-2 py-1 rounded-lg border border-slate-200 bg-white shadow-sm"
-            onClick={onEdit}
-            aria-label="Edit customer info"
-            data-testid="customer-edit-btn"
-          >
-            ✏️ Edit
-          </button>
-        ) : null}
-      </div>
+      {onEdit ? (
+        <button
+          type="button"
+          className="absolute top-2 right-2 z-10 text-[10px] font-semibold text-slate-500 hover:text-brand px-2 py-1 rounded-lg border border-slate-200 bg-white shadow-sm"
+          onClick={onEdit}
+          aria-label="Edit customer info"
+          data-testid="customer-edit-btn"
+        >
+          ✏️ Edit
+        </button>
+      ) : null}
 
       <div className="flex items-start gap-2 lg:gap-3 pr-14">
         <CustomerAvatar name={contact.name} className="lg:w-10 lg:h-10 lg:rounded-2xl lg:text-base" />

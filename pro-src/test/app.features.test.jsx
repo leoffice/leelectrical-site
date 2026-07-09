@@ -386,6 +386,8 @@ describe("12. sync chip + today view + jobs list", () => {
     expect(chips[0]).toHaveTextContent(/QBO 5m ago/);
     const calReqBefore = srv.posts("calendar", (b) => b.op === "request").length;
     await user.click(chips[0]);
+    await user.click(await screen.findByTestId("qbo-sync-refresh"));
+    await user.click(screen.getByTestId("qbo-sync-confirm"));
     await waitFor(() =>
       expect(srv.posts("calendar", (b) => b.op === "request").length).toBeGreaterThan(calReqBefore)
     );

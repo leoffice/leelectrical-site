@@ -6,7 +6,7 @@ import { effectiveServiceAddress } from "../lib/customerSync.js";
 import { fmt$ } from "../lib/format.js";
 import { bubbleStyle, jobAwarenessBubbles } from "../lib/jobAwareness.js";
 import JobDocTabs from "./JobDocTabs.jsx";
-import QboSyncButton from "./QboSyncButton.jsx";
+
 
 const BUBBLE_LAYOUT =
   "inline-flex items-center gap-1 rounded-2xl border px-2 py-1 text-[10px] leading-tight lg:rounded-full lg:px-2.5 lg:py-1 lg:text-xs";
@@ -59,7 +59,6 @@ export default function JobInfoCard({
   showOpenLink = false,
   onCardTap,
   onEditJob,
-  customerJobs,
 }) {
   const total = invoiceTotal(job);
   const paid = amountPaid(job);
@@ -133,8 +132,7 @@ export default function JobInfoCard({
             {job.title || (job.invoiceNo ? "Invoice #" + job.invoiceNo : "Job")}
           </div>
         </div>
-        <div className="flex flex-col items-end gap-1 shrink-0" data-no-card-open onClick={stopBubble}>
-          <QboSyncButton job={job} customerJobs={customerJobs} compact />
+        <div data-no-card-open onClick={stopBubble}>
           <AmountDisplay job={job} size="sm" highlightDue label="Total due" />
         </div>
       </div>
