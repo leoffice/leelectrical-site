@@ -3,7 +3,9 @@ import {
   chargeFromPrincipal,
   fmtAmt,
   parseMoney,
+  todayISO,
 } from "./sola-shared.mjs";
+import { sendPaymentConfirmEmail } from "./payment-confirm-email.mjs";
 
 const GATEWAY = "https://x1.cardknox.com/gatewayjson";
 
@@ -196,7 +198,7 @@ export default async (req) => {
     }
   }
 
-  await applyApprovedSolaPayment({
+  const appliedJobId = await applyApprovedSolaPayment({
     jobId,
     invoiceNo,
     amount: principal,
@@ -205,6 +207,14 @@ export default async (req) => {
     note: "LE Pro in-app card payment",
     cardToken: saveOnFile ? cardToken : "",
     cardMasked: saveOnFile ? cardMasked : "",
+  });
+
+  await sendPaymentConfirmEmail({
+    jobId: appliedJobId || jobId,
+    invoiceNo,
+    amount: principal,
+    ref,
+    payDate: todayISO(),
   });
 
   return json({

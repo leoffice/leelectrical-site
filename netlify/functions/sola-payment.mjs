@@ -1,4 +1,5 @@
 import { getStore } from "@netlify/blobs";
+import { sendPaymentConfirmEmail } from "./payment-confirm-email.mjs";
 
 // Cardknox / Sola PaymentSITE return handler.
 //   GET  — customer redirect after pay (xRedirectURL)
@@ -242,6 +243,14 @@ export default async (req) => {
   const jobId = await findJobId(invoiceNo, p.xCustom02 || p.xcustom02);
   await enqueueRecordPayment({ jobId, invoiceNo, amount, ref, method });
   const balance = await patchJobPayment(jobId, amount, ref, method);
+  await sendPaymentConfirmEmail({
+    jobId,
+    invoiceNo,
+    amount,
+    balance,
+    ref,
+    payDate: todayISO(),
+  });
 
   if (isWebhook) return new Response("OK", { status: 200 });
   const thanks = {
