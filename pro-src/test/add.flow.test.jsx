@@ -16,7 +16,7 @@ describe("Add flow — calendar search + add appointment", () => {
   it("Choose from calendar uses searchable full calendar list", async () => {
     mockServer({
       events: [
-        { id: "ev-old", summary: "Old job", start: "2025-06-01T10:00", location: "1 Main" },
+        { id: "ev-old", summary: "Old job", start: "2026-01-15T10:00", location: "1 Main" },
         { id: "ev-new", summary: "Brooklyn panel", start: "2026-08-01T10:00", location: "55 Elm St" },
       ],
     });

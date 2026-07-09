@@ -202,6 +202,24 @@ export function allCalendarEvents(events) {
     .sort((a, b) => evStart(b).localeCompare(evStart(a)));
 }
 
+/** ISO date for the rolling 365-day window (calendar link/search range). */
+export function rollingYearCutIso(now = new Date()) {
+  const d = new Date(now);
+  d.setDate(d.getDate() - 365);
+  return d.toISOString().slice(0, 10);
+}
+
+/** Calendar events from the past year onward, newest first. */
+export function eventsWithinPastYear(events, now = new Date()) {
+  const cut = rollingYearCutIso(now);
+  return (events || [])
+    .filter((e) => {
+      const s = evStart(e);
+      return s && s.slice(0, 10) >= cut;
+    })
+    .sort((a, b) => evStart(b).localeCompare(evStart(a)));
+}
+
 /** Best initial search for linking — street line, then customer name. */
 export function appointmentSearchSeed(job) {
   const street = String(job?.serviceAddress || job?.address || "")
@@ -235,7 +253,7 @@ export function suggestAppointmentsForJob(job, events, _year, limit = 8) {
   const company = job?.businessName || "";
   const address = job?.serviceAddress || job?.address || "";
   const street = address.split(",")[0].trim();
-  const base = allCalendarEvents(events);
+  const base = eventsWithinPastYear(events);
   const scored = [];
   for (const e of base) {
     const hay = [e.summary, e.location, displayEventNotes(e.description)].filter(Boolean).join(" ");
@@ -254,12 +272,12 @@ export function suggestAppointmentsForJob(job, events, _year, limit = 8) {
     .map((s) => s.event);
 }
 
-/** Search all calendar events by summary, location, notes, or date. */
-export function searchCalendarEvents(events, query) {
+/** Search calendar events (past year) by summary, location, notes, or date. */
+export function searchCalendarEvents(events, query, now = new Date()) {
   const q = String(query || "")
     .trim()
     .toLowerCase();
-  const base = allCalendarEvents(events);
+  const base = eventsWithinPastYear(events, now);
   if (!q) return base;
   return base.filter((e) => {
     const hay = [e.summary, e.location, displayEventNotes(e.description), evStart(e)].filter(Boolean).join(" ").toLowerCase();
