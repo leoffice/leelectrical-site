@@ -26,7 +26,8 @@ import {
   normalizeCustomer,
   openBalance,
   unknownCustomers,
-  customerKeyForName,
+  customerKeyForImport,
+  boardCustomerLabel,
   PENDING_IMPORT_LS,
 } from "../lib/customers.js";
 import { customerSyncCardClass } from "../lib/customerSync.js";
@@ -150,7 +151,7 @@ const loadSort = () => {
 };
 
 export default function Jobs({ embedded, collapseGroups = false, activeJobId = "" }) {
-  const { jobs, loading, showToast, api, enqueue, syncNow, refreshJobs } = useStore();
+  const { jobs, loading, showToast, api, enqueue, refreshJobs } = useStore();
   const nav = useNavigate();
   const [q, setQ] = useState("");
   const [filter, setFilter] = useState("Active");
@@ -192,11 +193,16 @@ export default function Jobs({ embedded, collapseGroups = false, activeJobId = "
       map.get(k).push(j);
     }
     const nameToGroup = new Map(); // normalized name -> first "g:" key containing it
+    const qboToGroup = new Map(); // qboCustomerId -> "q:" group key
     for (const [k, list] of map) {
-      if (!k.startsWith("g:")) continue;
-      for (const j of list) {
-        const n = normalizeCustomer(j.customer);
-        if (n && !nameToGroup.has(n)) nameToGroup.set(n, k);
+      if (k.startsWith("g:")) {
+        for (const j of list) {
+          const n = normalizeCustomer(j.customer);
+          if (n && !nameToGroup.has(n)) nameToGroup.set(n, k);
+        }
+      }
+      if (k.startsWith("q:")) {
+        qboToGroup.set(k.slice(2), k);
       }
     }
     for (const [k, list] of [...map]) {
@@ -207,6 +213,24 @@ export default function Jobs({ embedded, collapseGroups = false, activeJobId = "
         for (const [nn, gk] of nameToGroup) {
           if (customerNameMatches({ customer: nn }, name)) {
             target = gk;
+            break;
+          }
+        }
+      }
+      if (!target) {
+        for (const j of list) {
+          const qid = String(j.qboCustomerId || "").trim();
+          if (qid && qboToGroup.has(qid)) {
+            target = qboToGroup.get(qid);
+            break;
+          }
+        }
+      }
+      if (!target) {
+        for (const [qk, qgk] of qboToGroup) {
+          const qlist = map.get(qgk) || [];
+          if (qlist.some((j) => customerNameMatches(j, name) || customerNameMatches({ customer: j.personName }, name))) {
+            target = qgk;
             break;
           }
         }
@@ -307,7 +331,7 @@ export default function Jobs({ embedded, collapseGroups = false, activeJobId = "
     if (!c) return;
     const key = c.id != null ? String(c.id) : c.name;
     const name = c.name || "";
-    const custKey = customerKeyForName(name);
+    const custKey = customerKeyForImport(c);
     setImportCust(null);
     setQ("");
     setCustMatches([]);
@@ -332,7 +356,6 @@ export default function Jobs({ embedded, collapseGroups = false, activeJobId = "
     try {
       await api.pullJobs?.();
     } catch {}
-    syncNow?.().catch(() => {});
     refreshJobs?.(true);
   };
 
@@ -390,7 +413,7 @@ export default function Jobs({ embedded, collapseGroups = false, activeJobId = "
         <div className="space-y-2.5">
           {groups.map(([key, list]) => {
             const job = list[0];
-            const customerName = job.customer || "(no customer)";
+            const customerName = boardCustomerLabel(job, list);
             const showFullGroup = (filter === "Active" || filter === "All") && !q.trim();
             const chipHits = list.filter(matchesChip);
             const displayList = showFullGroup ? list : chipHits.length ? chipHits : list;

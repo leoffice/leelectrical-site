@@ -37,7 +37,19 @@ export default function CustomerView() {
   const jobsSectionRef = useRef(null);
   const lastListRef = useRef([]);
 
-  const list = useMemo(() => sortJobs(jobsForCustomerKey(jobs, key)), [jobs, key]);
+  const importHints = useMemo(() => {
+    try {
+      const pending = JSON.parse(sessionStorage.getItem(PENDING_IMPORT_LS) || "null");
+      if (!pending || pending.key !== key) return null;
+      return { name: pending.name || "", qboId: pending.qboId || "" };
+    } catch {
+      return null;
+    }
+  }, [key]);
+  const list = useMemo(
+    () => sortJobs(jobsForCustomerKey(jobs, key, importHints || undefined)),
+    [jobs, key, importHints]
+  );
   if (list.length) lastListRef.current = list;
   const displayJobs = list.length ? list : lastListRef.current;
   const contact = useMemo(() => customerContact(displayJobs), [displayJobs]);

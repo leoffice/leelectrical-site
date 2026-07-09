@@ -181,14 +181,37 @@ describe("unknownCustomers (#56 not-in-app filter)", () => {
     { id: "j3", customer: "Gone", _deleted: true },
   ];
 
-  it("keeps only customers not already present as an active job (by normalized name)", () => {
+  it("hides only when qboCustomerId is already linked — name-only jobs still offer import", () => {
     const list = [
-      { name: "Peretz Chein", id: "1" }, // already in app -> dropped
-      { name: "SECOND GUY", id: "2" }, // normalized match -> dropped
-      { name: "Avraham Drizin", id: "34" }, // new -> kept
+      { name: "Peretz Chein", id: "1" },
+      { name: "SECOND GUY", id: "2" },
+      { name: "Avraham Drizin", id: "34" },
     ];
-    const out = unknownCustomers(list, jobs);
-    expect(out.map((c) => c.name)).toEqual(["Avraham Drizin"]);
+    expect(unknownCustomers(list, jobs).map((c) => c.name)).toEqual(["Peretz Chein", "SECOND GUY", "Avraham Drizin"]);
+    const linked = [
+      { id: "j1", customer: "Peretz Chein", qboCustomerId: "1" },
+      { id: "j2", customer: "second guy ", qboCustomerId: "2" },
+    ];
+    expect(unknownCustomers(list, linked).map((c) => c.name)).toEqual(["Avraham Drizin"]);
+  });
+
+  it("drops QBO customers already linked by qboCustomerId even when display name differs", () => {
+    const linked = [
+      { id: "j1", customer: "Gabriel development.", personName: "Arthur koptiv", qboCustomerId: "1432" },
+    ];
+    const list = [{ name: "Arthur koptiv", id: "1432" }];
+    expect(unknownCustomers(list, linked)).toEqual([]);
+  });
+
+  it("keeps QBO customers when jobs match by name but lack qboCustomerId (re-link)", () => {
+    const orphan = [{ id: "j1", customer: "Arthur koptiv" }];
+    const list = [{ name: "Arthur koptiv", id: "1432", businessName: "Gabriel development." }];
+    expect(unknownCustomers(list, orphan)).toEqual(list);
+  });
+
+  it("jobsForCustomerKey q: falls back to import hints when qboCustomerId missing on jobs", () => {
+    const jobs = [{ id: "qbo-1", customer: "Arthur koptiv", invoiceNo: "231596" }];
+    expect(jobsForCustomerKey(jobs, "q:1432", { name: "Arthur koptiv" }).map((j) => j.id)).toEqual(["qbo-1"]);
   });
 
   it("handles empty / non-array input", () => {

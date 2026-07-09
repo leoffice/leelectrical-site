@@ -122,7 +122,18 @@ export function matchesFilter(job, name) {
 
 export function matchesQuery(job, q) {
   if (!q) return true;
-  const hay = [job.customer, job.title, job.address, job.invoiceNo, job.estimateNo, job.notes, job.id]
+  const hay = [
+    job.customer,
+    job.businessName,
+    job.personName,
+    job.title,
+    job.address,
+    job.invoiceNo,
+    job.estimateNo,
+    job.notes,
+    job.id,
+    job.qboCustomerId,
+  ]
     .join(" ")
     .toLowerCase();
   return q

@@ -45,6 +45,9 @@ export default async (req) => {
       if (t) Object.assign(t, b.patch);
     } else if (b.op === "remove" && b.id) {
       doc.tasks = doc.tasks.filter((x) => x.id !== b.id);
+    } else if (b.op === "replace" && Array.isArray(b.tasks)) {
+      doc.tasks = b.tasks;
+      doc.seq = b.seq || doc.seq || 0;
     }
     doc.ts = Date.now();
     await store.setJSON(KEY, doc);

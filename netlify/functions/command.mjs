@@ -82,6 +82,14 @@ export default async (req) => {
       return json({ ok: true });
     }
 
+    if (b.op === "replace" && Array.isArray(b.commands)) {
+      doc.commands = b.commands;
+      doc.seq = b.seq || doc.seq || 0;
+      doc.ts = Date.now();
+      await store.setJSON(KEY, doc);
+      return json({ ok: true, count: doc.commands.length });
+    }
+
     return json({ ok: false, error: "unknown op" });
   }
 

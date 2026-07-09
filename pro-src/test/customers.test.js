@@ -28,8 +28,9 @@ describe("normalizeCustomer", () => {
 });
 
 describe("clientKey", () => {
-  it("clientGroup wins, then normalized name, then job id", () => {
+  it("clientGroup wins, then qbo id, then normalized name, then job id", () => {
     expect(clientKey({ id: "a", clientGroup: "grp1", customer: "X Y" })).toBe("g:grp1");
+    expect(clientKey({ id: "a", customer: "Meir Kabakov", qboCustomerId: "246" })).toBe("q:246");
     expect(clientKey({ id: "a", customer: "Meir Kabakov" })).toBe("c:meir kabakov");
     expect(clientKey({ id: "a", customer: "meir kabakov " })).toBe("c:meir kabakov");
     expect(clientKey({ id: "a" })).toBe("j:a");

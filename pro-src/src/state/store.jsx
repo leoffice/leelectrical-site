@@ -245,7 +245,6 @@ export function StoreProvider({ children }) {
   const SYNC_PHASES = useMemo(
     () => [
       { id: "calendar", label: "Calendar" },
-      { id: "qbo", label: "QuickBooks" },
       { id: "refresh", label: "Refreshing" },
     ],
     []
@@ -287,51 +286,38 @@ export function StoreProvider({ children }) {
     [SYNC_PHASES]
   );
 
-  /** Header chip: calendar request → QBO pull → refresh all data. Ignores taps while busy. */
+  /** Header chip: calendar request → refresh local data. QBO pulls run per-action
+   *  (import customer, save/sync, fetch payments) — not on every chip tap. */
   const syncNow = useCallback(async () => {
     if (busy || syncInFlightRef.current) return;
     syncInFlightRef.current = true;
     setBusy(true);
-    const before = syncedAt;
     const isTest = typeof import.meta !== "undefined" && import.meta.env && import.meta.env.MODE === "test";
     const calendarAnimMs = isTest ? 40 : 1800;
-    let meta = null;
     try {
-      setSyncPhase(0, 8);
+      setSyncPhase(0, 10);
       await Promise.all([
         api.requestCalendarSync?.().catch(() => {}),
-        animateSyncPct("Calendar", 8, 28, calendarAnimMs),
+        animateSyncPct("Calendar", 10, 45, calendarAnimMs),
       ]);
 
-      setSyncPhase(1, 30);
-      const pullMaxMs = isTest ? 80 : 90000;
-      const pullAnim = animateSyncPct("QuickBooks", 30, 82, pullMaxMs);
-      meta = await api.pullJobs?.({ maxWaitMs: pullMaxMs }).catch(() => null);
-      stopSyncAnim();
-      await pullAnim;
-      setSyncPhase(1, meta?.syncedAt > before ? 85 : 78);
-
-      setSyncPhase(2, 88);
+      setSyncPhase(1, 50);
       await Promise.all([
         refresh(true, { pullCalendar: true, awaitPull: false }),
-        animateSyncPct("Refreshing", 88, 96, isTest ? 40 : 1400),
+        animateSyncPct("Refreshing", 50, 95, isTest ? 40 : 1200),
       ]);
-      const ts = (meta && meta.syncedAt) || 0;
-      if (ts) setSyncedAt(ts);
       await refreshJobs(true);
       await refreshCommands();
 
       setSyncProgress({ label: "Done", pct: 100, index: SYNC_PHASES.length });
-
-      if (ts > before) showToast("Refreshed — QuickBooks & calendar synced");
-      else showToast("Sync requested — QuickBooks may still be pulling in the background");
+      showToast("Refreshed — calendar & jobs updated");
     } finally {
       stopSyncAnim();
       syncInFlightRef.current = false;
       setBusy(false);
       setTimeout(() => setSyncProgress(null), 700);
     }
-  }, [busy, refresh, refreshJobs, refreshCommands, showToast, syncedAt, setSyncPhase, animateSyncPct, stopSyncAnim]);
+  }, [busy, refresh, refreshJobs, refreshCommands, showToast, setSyncPhase, animateSyncPct, stopSyncAnim, SYNC_PHASES.length]);
 
   /* ---------- staged edits ---------- */
   const patchJob = useCallback((id, patch) => {
@@ -511,11 +497,15 @@ export function StoreProvider({ children }) {
       const mark = String(cmd.idempotencyKey || cmd.id || "");
       if (!mark || appliedImportCustomer.current.has(mark)) continue;
       appliedImportCustomer.current.add(mark);
-      syncNow().catch(() => {});
       refreshJobs(true);
-      showToast("Imported — open invoices added as jobs");
+      let imported = 0;
+      try {
+        const res = typeof cmd.result === "string" ? JSON.parse(cmd.result) : cmd.result || {};
+        imported = Number(res.imported) || 0;
+      } catch {}
+      showToast(imported ? "Imported — open invoices added as jobs" : "Customer linked — refresh if jobs are missing");
     }
-  }, [commands, refreshJobs, showToast, syncNow]);
+  }, [commands, refreshJobs, showToast]);
 
   /* ---------- command bus ---------- */
   const enqueue = useCallback(

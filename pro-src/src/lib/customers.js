@@ -103,8 +103,23 @@ export function customerKeyForName(name) {
   return n ? "c:" + n : "";
 }
 
+/** Route key when we know the QuickBooks customer id (stable across renames). */
+export function customerKeyForQboId(id) {
+  const qid = String(id || "").trim();
+  return qid ? "q:" + qid : "";
+}
+
+/** Best route key for an import pick — QBO id wins over display name. */
+export function customerKeyForImport(c) {
+  const qk = customerKeyForQboId(c && c.id);
+  if (qk) return qk;
+  return customerKeyForName((c && c.name) || "");
+}
+
 export function clientKey(job) {
   if (job.clientGroup) return "g:" + job.clientGroup;
+  const qid = String(job.qboCustomerId || "").trim();
+  if (qid) return "q:" + qid;
   const n = normalizeCustomer(job.customer);
   return n ? "c:" + n : "j:" + job.id;
 }
@@ -112,8 +127,10 @@ export function clientKey(job) {
 /** All active jobs belonging to one customer group, resolved the SAME way the
  *  Jobs list groups them: primary key (clientGroup "g:" or normalized name
  *  "c:"), plus any name-keyed jobs folded into a matching clientGroup. Returns
- *  the jobs array (unsorted; caller can sort). */
-export function jobsForCustomerKey(jobs, key) {
+ *  the jobs array (unsorted; caller can sort).
+ *  hints — optional {name, businessName, personName} for q: keys when board
+ *  jobs predate qboCustomerId (import flow / Arthur-style orphan rows). */
+export function jobsForCustomerKey(jobs, key, hints) {
   const active = (jobs || []).filter((j) => j && !j._archived && !j._deleted);
   if (!key) return [];
   // Map clientGroup keys to the set of normalized names they contain, so a
@@ -128,11 +145,37 @@ export function jobsForCustomerKey(jobs, key) {
         (!j.clientGroup && [...names].some((n) => customerNameMatches({ customer: n }, j.customer)))
     );
   }
+  if (key.startsWith("q:")) {
+    const qid = key.slice(2);
+    const byId = active.filter((j) => String(j.qboCustomerId || "").trim() === qid);
+    if (byId.length) return byId;
+    const h = hints || {};
+    const names = [h.name, h.businessName, h.personName].filter(Boolean);
+    for (const nm of names) {
+      const hit = active.filter(
+        (j) =>
+          !j.clientGroup &&
+          (customerNameMatches(j, nm) ||
+            customerNameMatches({ customer: j.personName }, nm) ||
+            customerNameMatches({ customer: j.businessName }, nm))
+      );
+      if (hit.length) return hit;
+    }
+    return [];
+  }
   if (key.startsWith("c:")) {
     const name = key.slice(2);
     // A job with this name may have been folded into a clientGroup — find it.
     const grp = active.find((j) => j.clientGroup && customerNameMatches(j, name));
     if (grp) return jobsForCustomerKey(active, "g:" + grp.clientGroup);
+    const byQbo = active.filter(
+      (j) =>
+        !j.clientGroup &&
+        (customerNameMatches(j, name) ||
+          customerNameMatches({ customer: j.personName }, name) ||
+          customerNameMatches({ customer: j.businessName }, name))
+    );
+    if (byQbo.length) return byQbo;
     return active.filter((j) => !j.clientGroup && customerNameMatches(j, name));
   }
   if (key.startsWith("j:")) {
@@ -317,13 +360,37 @@ export function customerPickPatch(customer, jobs) {
  *  an active job (matched by normalized name) — the "not here yet" set the
  *  Jobs tab offers to import (#56). */
 export function unknownCustomers(list, jobs) {
-  const have = new Set(
-    (jobs || [])
-      .filter((j) => j && !j._archived && !j._deleted)
-      .map((j) => normalizeCustomer(j.customer))
-      .filter(Boolean)
-  );
-  return (Array.isArray(list) ? list : []).filter((c) => c && !have.has(normalizeCustomer(c.name)));
+  const active = (jobs || []).filter((j) => j && !j._archived && !j._deleted);
+  const haveIds = new Set(active.map((j) => String(j.qboCustomerId || "").trim()).filter(Boolean));
+  const nameLinked = (nm) =>
+    nm &&
+    active.some(
+      (j) =>
+        String(j.qboCustomerId || "").trim() &&
+        (normalizeCustomer(j.customer) === nm ||
+          normalizeCustomer(j.personName) === nm ||
+          normalizeCustomer(j.businessName) === nm)
+    );
+  return (Array.isArray(list) ? list : []).filter((c) => {
+    if (!c) return false;
+    const id = c.id != null ? String(c.id).trim() : "";
+    if (id && haveIds.has(id)) return false;
+    const n = normalizeCustomer(c.name);
+    const pn = normalizeCustomer(c.personName);
+    const bn = normalizeCustomer(c.businessName);
+    if (nameLinked(n) || nameLinked(pn) || nameLinked(bn)) return false;
+    return true;
+  });
+}
+
+/** Jobs list label — business name with person name when they differ (QBO profiles). */
+export function boardCustomerLabel(job, jobs) {
+  const j = job || {};
+  const list = jobs && jobs.length ? jobs : j.id ? [j] : [];
+  const display = String(j.businessName || j.customer || "").trim() || "(no customer)";
+  const person = list.map((x) => String(x.personName || "").trim()).find(Boolean) || "";
+  if (person && normalizeCustomer(person) !== normalizeCustomer(display)) return display + " · " + person;
+  return display;
 }
 
 /** First (deterministic) pair of distinct client keys whose names look like

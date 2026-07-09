@@ -9,6 +9,7 @@ import { useStore } from "../state/store.jsx";
 import { evStart, todayStr } from "../lib/format.js";
 import {
   customerKeyForName,
+  customerKeyForImport,
   customerPickPatch,
   fmtAmountDue,
   jobsForCustomerKey,
@@ -233,7 +234,7 @@ export default function NewJobFlow() {
           onPick={async (c) => {
             if (!c || c._newCustomer) return;
             const name = c.name || "";
-            const key = customerKeyForName(name);
+            const key = customerKeyForImport(c);
             close();
             if (key) {
               try {
@@ -252,10 +253,6 @@ export default function NewJobFlow() {
               "deterministic",
               "import_customer|" + (c.id != null ? c.id : name)
             );
-            try {
-              await api.pullJobs?.();
-            } catch {}
-            syncNow?.().catch(() => {});
             refreshJobs?.(true);
           }}
         />

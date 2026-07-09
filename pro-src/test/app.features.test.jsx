@@ -375,7 +375,7 @@ describe("11. dev board", () => {
 });
 
 describe("12. sync chip + today view + jobs list", () => {
-  it("sync chip shows QBO age and tap requests a fresh pull", async () => {
+  it("sync chip shows QBO age and tap refreshes calendar + jobs (no full QBO pull)", async () => {
     const srv = mockServer();
     const user = userEvent.setup();
     renderApp("#/");
@@ -384,10 +384,10 @@ describe("12. sync chip + today view + jobs list", () => {
     expect(chips[0]).toHaveTextContent(/QBO 5m ago/);
     const calReqBefore = srv.posts("calendar", (b) => b.op === "request").length;
     await user.click(chips[0]);
-    await waitFor(() => expect(srv.posts("jobsdata", (b) => b.op === "request")).toHaveLength(1));
     await waitFor(() =>
       expect(srv.posts("calendar", (b) => b.op === "request").length).toBeGreaterThan(calReqBefore)
     );
+    expect(srv.posts("jobsdata", (b) => b.op === "request")).toHaveLength(0);
   });
 
   it("today: totals row, follow-ups due, appointments with detail/edit/link/create", async () => {
