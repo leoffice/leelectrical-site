@@ -1,6 +1,7 @@
 // Estimate / Invoice / Payment / Calendar tabs below job info.
 import React, { useMemo } from "react";
 import { jobCalendarLinkState } from "../lib/calendarLink.js";
+import { hasPendingInvoiceReview } from "../lib/invoiceAgentDraft.js";
 
 function tabTone(active, pending) {
   if (pending) return "bg-amber-50 text-amber-800 border-amber-200";
@@ -19,6 +20,7 @@ export default function JobDocTabs({
 }) {
   const hasEst = !!(job.estimateNo || job._estimateConfirmed);
   const hasInv = !!(job.invoiceNo || job._invoiceConfirmed);
+  const agentReview = hasPendingInvoiceReview(job);
   const canPay = !!(job.invoiceNo || job.amount) && !job.paid;
 
   const pending = useMemo(() => {
@@ -50,11 +52,16 @@ export default function JobDocTabs({
       </button>
       <button
         type="button"
-        className={`rounded-xl border px-1.5 py-2 text-center text-[10px] font-bold leading-tight ${tabTone(hasInv, pending.invoice)}`}
+        className={`rounded-xl border px-1.5 py-2 text-center text-[10px] font-bold leading-tight ${
+          agentReview
+            ? "bg-red-50 text-red-600 border-red-300 animate-pulse"
+            : tabTone(hasInv, pending.invoice)
+        }`}
         onClick={onInvoice}
         data-testid="tab-invoice"
+        aria-label={agentReview ? "Invoice — agent edits awaiting review" : "Invoice"}
       >
-        🧾 {invLabel}
+        🧾 {agentReview ? "Review" : invLabel}
       </button>
       <button
         type="button"

@@ -1,4 +1,5 @@
 // Job-info awareness bubbles — sell, billing, paperwork (hide when complete).
+import { hasPendingInvoiceReview } from "./invoiceAgentDraft.js";
 import { jobCalendarLinkState } from "./calendarLink.js";
 import { followUpDate, PAPERWORK_REMINDER_DAYS } from "./calendarDue.js";
 import { todayStr } from "./format.js";
@@ -91,16 +92,17 @@ export function jobAwarenessBubbles(job, events, commands) {
 
   if (!isCleared(job, "Invoiced")) {
     const hasInv = !!(job.invoiceNo || job._invoiceConfirmed);
+    const review = hasPendingInvoiceReview(job);
     bubbles.push({
       key: "stage-invoiced",
       kind: "stage",
       stage: "Invoiced",
       branchLabel: "Billing",
-      upNext: hasInv ? `Invoice #${job.invoiceNo}` : "Create invoice",
-      timing: "Up next",
-      tone: stageBubbleTone(job, "Invoiced"),
+      upNext: review ? "Review agent edits" : hasInv ? `Invoice #${job.invoiceNo}` : "Create invoice",
+      timing: review ? "Review" : "Up next",
+      tone: review ? "agentReview" : stageBubbleTone(job, "Invoiced"),
       isSchedulable: false,
-      action: hasInv ? "open-invoice" : "create-invoice",
+      action: hasInv || review ? "open-invoice" : "create-invoice",
     });
   } else if (!isCleared(job, "Deposit Receipt") && stepState(job, "Invoiced") === "done") {
     bubbles.push({
@@ -145,6 +147,7 @@ export function jobAwarenessBubbles(job, events, commands) {
 }
 
 export function bubbleStyle(tone) {
+  if (tone === "agentReview") return "bg-red-50 text-red-700 border-red-300 animate-pulse";
   return PAPERWORK_PILL_STYLES[tone] || PAPERWORK_PILL_STYLES.slate;
 }
 

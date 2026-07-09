@@ -11,6 +11,8 @@ import { useStore } from "../state/store.jsx";
 import { fmt$ } from "../lib/format.js";
 import { appointmentContextFromRoute } from "../lib/appointmentContext.js";
 import { CHAT_SLASH_HINT, jobPatchFromSlash, parseChatSlash } from "../lib/chatActions.js";
+import { buildAgentDraftPatch } from "../lib/invoiceAgentDraft.js";
+import { parseInvoiceEditIntent } from "../lib/invoiceEditIntent.js";
 import ChatJobUpdateSheet from "./ChatJobUpdateSheet.jsx";
 import { LE_PRO_CONVO, clearLegacyDeviceConvo, legacyDeviceConvo } from "../lib/chatConvo.js";
 const ONLINE_MS = 4 * 60_000; // israel-heartbeat (or last reply) younger than this = online
@@ -83,8 +85,20 @@ export function ChatUnreadBadge({ unread }) {
 }
 
 export default function ChatBubble() {
-  const { api, effectiveJob, showToast, jobs, patchJob, addDevTask, setNewJob, chatOpen, setChatOpen, chatUnread, setChatUnread } =
-    useStore();
+  const {
+    api,
+    effectiveJob,
+    showToast,
+    jobs,
+    patchJob,
+    patchAndSave,
+    addDevTask,
+    setNewJob,
+    chatOpen,
+    setChatOpen,
+    chatUnread,
+    setChatUnread,
+  } = useStore();
   const loc = useLocation();
   const [msgs, setMsgs] = useState([]);
   const [text, setText] = useState("");
@@ -353,6 +367,33 @@ export default function ChatBubble() {
     msgsSigRef.current = ""; // next layout pass scrolls to bottom once
   }, [chatOpen]);
 
+  const tryInvoiceEditFromBubble = useCallback(
+    async (t) => {
+      if (!jobId || !activeJob) return false;
+      const intent = parseInvoiceEditIntent(t);
+      if (!intent) return false;
+      const patch = buildAgentDraftPatch(activeJob, intent, t);
+      if (!patch) return false;
+      await patchAndSave(jobId, patch);
+      showToast("Invoice draft saved — tap Invoice to review");
+      const note = {
+        id: "m-inv-" + Date.now(),
+        who: "israel",
+        text:
+          "Applied invoice edits: " +
+          (intent.summary || t) +
+          ". Invoice tab is pulsing — open it to review and approve before QuickBooks sync.",
+        status: "",
+        ts: Date.now(),
+        _local: true,
+      };
+      localMsgs.current = [...localMsgs.current, note];
+      setMsgs((ms) => [...ms, note]);
+      return true;
+    },
+    [jobId, activeJob, patchAndSave, showToast]
+  );
+
   const send = async () => {
     const t = text.trim();
     if (!t) return;
@@ -361,6 +402,18 @@ export default function ChatBubble() {
       setText("");
       const handled = await runSlash(slash);
       if (handled) return;
+    }
+    if (await tryInvoiceEditFromBubble(t)) {
+      setText("");
+      requestAnimationFrame(resizeInput);
+      const full = chatCtx() + t;
+      const msg = { id: "m" + Date.now(), who: "you", text: full, status: "Sent", _local: true };
+      localMsgs.current = [...localMsgs.current, msg];
+      setMsgs((ms) => [...ms, msg]);
+      try {
+        await api.chatSend(convo.current, msg.id, full);
+      } catch {}
+      return;
     }
     setText("");
     requestAnimationFrame(resizeInput);

@@ -762,6 +762,16 @@ export function StoreProvider({ children }) {
 
   const toggleChat = useCallback(() => setChatOpen((o) => !o), []);
 
+  const appendInvoiceEditFeedback = useCallback(
+    async (entry) => {
+      if (!api.appendInvoiceEditFeedback) return;
+      try {
+        await api.appendInvoiceEditFeedback(entry);
+      } catch {}
+    },
+    [api]
+  );
+
   const value = {
     jobs: effectiveJobs,
     rawJobs: jobs,
@@ -806,6 +816,7 @@ export function StoreProvider({ children }) {
     syncNow,
     patchJob,
     patchAndSave,
+    appendInvoiceEditFeedback,
     patchLocalEvent,
     removeLocalEvent,
     effectiveJob,
