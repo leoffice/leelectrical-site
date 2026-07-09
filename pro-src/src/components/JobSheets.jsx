@@ -42,6 +42,7 @@ import ZelleReconcileSheet from "./ZelleReconcileSheet.jsx";
 import { sortJobs } from "../lib/stages.js";
 import { DATE_STEPS } from "../lib/paperwork.js";
 import Toggle from "./Toggle.jsx";
+import SubCompanySection from "./SubCompanySection.jsx";
 
 export const PAY_METHODS = [
   "Credit card",
@@ -1604,6 +1605,9 @@ export function CustEditSheet({ job, onClose }) {
     parentCustomerName: job.parentCustomerName || "",
     parentQboCustomerId: job.parentQboCustomerId || "",
   });
+  const [isSubCompany, setIsSubCompany] = useState(
+    () => !!(String(job.parentCustomerName || "").trim() || String(job.parentQboCustomerId || "").trim())
+  );
   const set = (k) => (e) => setF((o) => ({ ...o, [k]: e.target.value }));
 
   const pickCustomer = useCallback(
@@ -1695,28 +1699,31 @@ export function CustEditSheet({ job, onClose }) {
     }
   };
 
+  const toggleSubCompany = (next) => {
+    setIsSubCompany(next);
+    if (!next) setF((o) => ({ ...o, parentCustomerName: "", parentQboCustomerId: "" }));
+  };
+
   return (
     <Sheet title="Edit customer & service location" onClose={onClose}>
       <p className="text-[11px] font-bold uppercase tracking-wide text-slate-400 mb-2">Customer (QuickBooks)</p>
-      <Fld label="Parent company" hint="Optional — management company when this is a sub-entity (LLC)">
+      <Fld label="Customer name" hint="Billing entity — search QuickBooks; phone, email & billing fill from QB">
         <CustomerSearch
-          label="Parent company"
-          testId="custedit-parent"
-          value={f.parentCustomerName}
-          onChangeText={(v) => setF((o) => ({ ...o, parentCustomerName: v, parentQboCustomerId: "" }))}
-          onPick={pickParent}
-          placeholder="Search parent company…"
-        />
-      </Fld>
-      <Fld label="Business name" hint="Billing entity — search QuickBooks; phone, email & billing fill from QB">
-        <CustomerSearch
-          label="Business name"
+          label="Customer name"
           testId="custedit-business-name"
           value={f.businessName}
           onChangeText={(v) => setF((o) => ({ ...o, businessName: v, qboCustomerId: "" }))}
           onPick={pickCustomer}
         />
       </Fld>
+      <SubCompanySection
+        testId="custedit"
+        on={isSubCompany}
+        onToggle={toggleSubCompany}
+        parentName={f.parentCustomerName}
+        onParentNameChange={(v) => setF((o) => ({ ...o, parentCustomerName: v, parentQboCustomerId: "" }))}
+        onParentPick={pickParent}
+      />
       {[["personName", "Person name"], ["phone", "Phone"], ["email", "Email"], ["billingAddress", "Billing address"]].map(
         ([k, l]) => (
           <Fld key={k} label={l}>

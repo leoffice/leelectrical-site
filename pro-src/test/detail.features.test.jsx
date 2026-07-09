@@ -160,7 +160,7 @@ describe("3. customer edit + sync to QuickBooks", () => {
     const pane = await openDetail();
 
     await user.click(within(pane).getByTestId("customer-edit-btn"));
-    const name = screen.getByLabelText("Business name");
+    const name = screen.getByLabelText("Customer name");
     await user.clear(name);
     await user.type(name, "Peretz B. Chein");
     await user.click(screen.getByTestId("cust-save-sync"));

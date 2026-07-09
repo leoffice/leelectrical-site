@@ -136,10 +136,10 @@ describe("Add customer — unified flow", () => {
 
     await user.type(within(dialog).getByTestId("newcustomer-search"), "Drizin");
     await user.click(await within(dialog).findByTestId("customer-match"));
-    await waitFor(() => expect(within(dialog).getByLabelText("Business name")).toHaveValue("Drizin Properties"));
+    await waitFor(() => expect(within(dialog).getByLabelText("Customer name")).toHaveValue("Drizin Properties"));
 
-    await user.clear(within(dialog).getByLabelText("Business name"));
-    await user.type(within(dialog).getByLabelText("Business name"), "New Corp Holdings");
+    await user.clear(within(dialog).getByLabelText("Customer name"));
+    await user.type(within(dialog).getByLabelText("Customer name"), "New Corp Holdings");
     await user.click(within(dialog).getByTestId("addcustomer-action-create"));
     await user.click(within(dialog).getByTestId("addcustomer-save-sync"));
 
@@ -202,6 +202,21 @@ describe("Add customer — unified flow", () => {
     const match = await within(dialog).findByTestId("customer-match");
     expect(match).toHaveTextContent("Chanan Sheleg");
     await user.click(match);
-    await waitFor(() => expect(within(dialog).getByLabelText("Business name")).toHaveValue("Chanan Sheleg"));
+    await waitFor(() => expect(within(dialog).getByLabelText("Customer name")).toHaveValue("Chanan Sheleg"));
+  });
+
+  it("sub company toggle reveals parent company picker", async () => {
+    mockServer({ customers });
+    const user = userEvent.setup();
+    renderApp("#/");
+    await screen.findByText("Peretz Chein");
+    await openAddCustomer(user);
+    const dialog = screen.getByRole("dialog");
+
+    expect(within(dialog).queryByTestId("newcustomer-parent")).not.toBeInTheDocument();
+    await user.click(within(dialog).getByRole("switch", { name: "Sub company" }));
+    expect(within(dialog).getByTestId("newcustomer-parent")).toBeInTheDocument();
+    await user.click(within(dialog).getByRole("switch", { name: "Sub company" }));
+    expect(within(dialog).queryByTestId("newcustomer-parent")).not.toBeInTheDocument();
   });
 });

@@ -81,7 +81,7 @@ describe("appointment autofill e2e", () => {
     await user.click(screen.getByText("＋ Create customer from appointment"));
 
     await screen.findByTestId("newcustomer-search");
-    expect(screen.getByLabelText("Business name")).toHaveValue("Metro Electric LLC");
+    expect(screen.getByLabelText("Customer name")).toHaveValue("Metro Electric LLC");
     expect(screen.getByLabelText("Person name")).toHaveValue("Jane Smith");
     expect(screen.getByLabelText("Phone")).toHaveValue("718-555-9999");
     expect(screen.getByLabelText("Email")).toHaveValue("jane@metro.com");

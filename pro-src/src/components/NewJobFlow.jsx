@@ -4,6 +4,7 @@ import { useNavigate } from "react-router-dom";
 import Sheet, { Fld, Opt } from "./Sheet.jsx";
 import CustomerSearch from "./CustomerSearch.jsx";
 import CustomerLiveMatch from "./CustomerLiveMatch.jsx";
+import SubCompanySection from "./SubCompanySection.jsx";
 import CalendarSearchSheet from "./CalendarSearchSheet.jsx";
 import AddAppointmentSheet from "./AddAppointmentSheet.jsx";
 import { useStore } from "../state/store.jsx";
@@ -347,6 +348,9 @@ function NewCustomerForm({ prefill = {}, onClose, onCreated }) {
   const [baseline, setBaseline] = useState(null);
   const [syncAction, setSyncAction] = useState("update");
   const [qboIndex, setQboIndex] = useState([]);
+  const [isSubCompany, setIsSubCompany] = useState(
+    () => !!(String(prefill.parentCustomerName || "").trim() || String(prefill.parentQboCustomerId || "").trim())
+  );
 
   const set = (k) => (e) => setF((o) => ({ ...o, [k]: e.target.value }));
 
@@ -401,7 +405,7 @@ function NewCustomerForm({ prefill = {}, onClose, onCreated }) {
   const save = async () => {
     const biz = (f.businessName || "").trim();
     if (!biz) {
-      showToast("Business name is required");
+      showToast("Customer name is required");
       return;
     }
     const action = resolveAddCustomerAction({
@@ -492,27 +496,30 @@ function NewCustomerForm({ prefill = {}, onClose, onCreated }) {
     [api, jobs]
   );
 
+  const toggleSubCompany = (next) => {
+    setIsSubCompany(next);
+    if (!next) setF((o) => ({ ...o, parentCustomerName: "", parentQboCustomerId: "" }));
+  };
+
   return (
     <Sheet title="Add customer" onClose={onClose}>
-      <Fld label="Parent company" hint="Optional — for LLC / sub-entity under a management company">
+      <Fld label="Customer name" hint="Billing entity — live match on name, phone, email, or billing address">
         <CustomerSearch
-          label="Parent company"
-          testId="newcustomer-parent"
-          value={f.parentCustomerName}
-          onChangeText={(v) => setF((o) => ({ ...o, parentCustomerName: v, parentQboCustomerId: "" }))}
-          onPick={pickParentCo}
-          placeholder="Search parent company…"
-        />
-      </Fld>
-      <Fld label="Business name" hint="Billing entity — live match on name, phone, email, or billing address">
-        <CustomerSearch
-          label="Business name"
+          label="Customer name"
           testId="newcustomer-search"
           value={f.businessName}
           onChangeText={(v) => setF((o) => ({ ...o, businessName: v }))}
           onPick={applyPick}
         />
       </Fld>
+      <SubCompanySection
+        testId="newcustomer"
+        on={isSubCompany}
+        onToggle={toggleSubCompany}
+        parentName={f.parentCustomerName}
+        onParentNameChange={(v) => setF((o) => ({ ...o, parentCustomerName: v, parentQboCustomerId: "" }))}
+        onParentPick={pickParentCo}
+      />
       <Fld label="Person name" hint="Contact person — live QuickBooks match">
         <CustomerLiveMatch
           label="Person name"
