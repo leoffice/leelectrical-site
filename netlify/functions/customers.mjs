@@ -1,4 +1,5 @@
 import { getStore } from "@netlify/blobs";
+import { searchCustomerIndex } from "./lib/customerSearch.mjs";
 
 // Customer index for the Pro app New Job smart search (task #49) + QB contact
 // prefill (QuickBooks customer info). Host push may include optional fields:
@@ -47,18 +48,10 @@ export default async (req) => {
     const customer = (doc.customers || []).find((c) => String(c.id) === id) || null;
     return json({ customer, ts: doc.ts });
   }
-  const q = (url.searchParams.get("q") || "").trim().toLowerCase();
+  const q = (url.searchParams.get("q") || "").trim();
   if (q) {
-    const toks = q.split(/\s+/).filter(Boolean);
-    const scored = [];
-    for (const c of doc.customers) {
-      const n = String(c.name || "").toLowerCase();
-      let s = 0;
-      for (const t of toks) if (n.includes(t)) s += n.startsWith(t) ? 3 : 2;
-      if (s) scored.push({ ...c, _s: s });
-    }
-    scored.sort((a, b) => b._s - a._s || a.name.length - b.name.length);
-    return json({ customers: scored.slice(0, 12).map(({ _s, ...c }) => c), ts: doc.ts });
+    const customers = searchCustomerIndex(doc.customers, q, 12);
+    return json({ customers, ts: doc.ts });
   }
   return json(doc);
 };

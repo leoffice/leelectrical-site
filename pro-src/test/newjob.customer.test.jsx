@@ -147,3 +147,53 @@ describe("#55 picking an existing customer prefills their details", () => {
     });
   });
 });
+
+describe("#49 four-field customer search — business, person, phone, email", () => {
+  const customers = [
+    {
+      name: "Drizin Properties",
+      id: "34",
+      businessName: "Drizin Properties",
+      personName: "Avraham Drizin",
+      phone: "718-555-0100",
+      email: "az@drizin.com",
+      billingAddress: "500 Lefferts Ave",
+    },
+    {
+      name: "Chanan Sheleg",
+      id: "49",
+      businessName: "Chanan Sheleg",
+      personName: "",
+      phone: "3474448520",
+      email: "hanan770@gmail.com",
+      billingAddress: "499 schenectedy ave",
+    },
+  ];
+
+  const openNewCustomer = async (user) => {
+    await user.click(screen.getByTestId("fab-add"));
+    await user.click(screen.getByText("Add a customer"));
+    await user.click(screen.getByText("Create new customer"));
+    await screen.findByTestId("newcustomer-search");
+  };
+
+  it.each([
+    ["business name", "Drizin", "Drizin Properties", "718-555-0100", "az@drizin.com"],
+    ["person name", "Avraham", "Drizin Properties", "718-555-0100", "az@drizin.com"],
+    ["phone", "3474448520", "Chanan Sheleg", "3474448520", "hanan770@gmail.com"],
+    ["email", "hanan770", "Chanan Sheleg", "3474448520", "hanan770@gmail.com"],
+  ])("search by %s yields results and sub-populates on pick", async (_label, query, expectBiz, expectPhone, expectEmail) => {
+    mockServer({ customers });
+    const user = userEvent.setup();
+    renderApp("#/");
+    await screen.findByText("Peretz Chein");
+    await openNewCustomer(user);
+    const dialog = screen.getByRole("dialog");
+    await user.type(within(dialog).getByTestId("newcustomer-search"), query);
+    const match = await within(dialog).findByTestId("customer-match");
+    expect(match).toHaveTextContent(expectBiz);
+    await user.click(match);
+    await waitFor(() => expect(within(dialog).getByLabelText("Phone")).toHaveValue(expectPhone));
+    expect(within(dialog).getByLabelText("Email")).toHaveValue(expectEmail);
+  });
+});

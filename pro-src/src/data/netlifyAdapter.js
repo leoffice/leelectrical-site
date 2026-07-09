@@ -169,9 +169,9 @@ export function createNetlifyAdapter() {
       return this.saveJob("_sasTickets", { [callId]: patch || { handled: true } });
     },
 
-    /** Customer-name index for the New Job smart search (#49) + the Jobs-tab
-     *  QBO customer search (#56). GET /customers -> { customers:[{name,id}] };
-     *  GET /customers?q=<query> -> top ~12 ranked matches. Returns the array
+    /** Customer index for the New Job smart search (#49) + the Jobs-tab
+     *  QBO customer search (#56). GET /customers -> { customers:[{name,id,...}] };
+     *  GET /customers?q=<query> -> top ~12 matches (name, person, phone, email)
      *  (empty on any error — search must never break the form). */
     async searchCustomers(q) {
       try {

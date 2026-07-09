@@ -382,10 +382,18 @@ export default function NewJobFlow() {
 }
 
 function NewCustomerForm({ onClose, onCreated }) {
-  const { createJob } = useStore();
+  const { createJob, jobs, api } = useStore();
   const [name, setName] = useState("");
   const [phone, setPhone] = useState("");
   const [email, setEmail] = useState("");
+
+  const pickExisting = async (c) => {
+    if (!c || c._newCustomer) return;
+    const patch = await enrichAndPatchCustomer(c, jobs, api);
+    setName(patch.businessName || patch.customer || c.name || "");
+    setPhone(patch.phone || "");
+    setEmail(patch.email || "");
+  };
 
   const save = async () => {
     const biz = name.trim();
@@ -405,8 +413,14 @@ function NewCustomerForm({ onClose, onCreated }) {
 
   return (
     <Sheet title="Create customer" onClose={onClose}>
-      <Fld label="Business name" hint="How it appears in QuickBooks">
-        <input className="input" value={name} onChange={(e) => setName(e.target.value)} aria-label="Business name" />
+      <Fld label="Business name" hint="Search by name, phone, or email — or add new">
+        <CustomerSearch
+          label="Business name"
+          testId="newcustomer-search"
+          value={name}
+          onChangeText={setName}
+          onPick={pickExisting}
+        />
       </Fld>
       <Fld label="Phone">
         <input className="input" value={phone} onChange={(e) => setPhone(e.target.value)} aria-label="Phone" />

@@ -1,7 +1,7 @@
 // Smart customer field (#49) — a text input backed by a live search against
-// the QBO customer-name index (/customers). As you type, matching existing
-// customers appear; pick one to link + prefill (see NewJobFlow #55), or take
-// the "add as a new customer" row to keep the typed name as-is.
+// the QBO customer index (/customers). Matches business name, person name,
+// phone, or email as you type; pick one to link + prefill (see NewJobFlow
+// #55), or take the "add as a new customer" row to keep the typed name as-is.
 //
 // Props:
 //   value        current text (controlled by the parent form)
@@ -73,7 +73,20 @@ export default function CustomerSearch({
     onPick && onPick(c);
   };
 
-  const exact = results.some((c) => String(c.name || "").toLowerCase() === q.toLowerCase());
+  const norm = (s) => String(s || "").trim().toLowerCase();
+  const digits = (s) => String(s || "").replace(/\D/g, "");
+  const exact = results.some((c) => {
+    const nq = norm(q);
+    if ([c.name, c.businessName, c.personName].some((x) => norm(x) === nq)) return true;
+    if (c.email && norm(c.email) === nq) return true;
+    const qd = digits(q);
+    return qd.length >= 7 && digits(c.phone) === qd;
+  });
+
+  const resultNote = (c) => {
+    const bits = [c.personName, c.phone, c.email].map((x) => String(x || "").trim()).filter(Boolean);
+    return bits.length ? bits.join(" · ") : "Existing QuickBooks customer";
+  };
 
   return (
     <div className="relative">
@@ -101,8 +114,11 @@ export default function CustomerSearch({
               className="w-full text-left px-3 py-2 text-sm hover:bg-slate-50 active:bg-slate-100 border-b border-slate-100 last:border-b-0"
               onClick={() => choose(c)}
             >
-              <span className="block font-semibold text-slate-800 truncate">{c.name}</span>
-              <span className="block text-[11px] text-slate-400">Existing QuickBooks customer</span>
+              <span className="block font-semibold text-slate-800 truncate">{c.businessName || c.name}</span>
+              {c.businessName && c.name && norm(c.businessName) !== norm(c.name) ? (
+                <span className="block text-[11px] text-slate-500 truncate">{c.name}</span>
+              ) : null}
+              <span className="block text-[11px] text-slate-400 truncate">{resultNote(c)}</span>
             </button>
           ))}
           {!loading && !exact && (

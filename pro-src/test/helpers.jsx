@@ -6,6 +6,7 @@ import { HashRouter } from "react-router-dom";
 import { vi } from "vitest";
 import App from "../src/App.jsx";
 import { StoreProvider } from "../src/state/store.jsx";
+import { searchCustomerIndex } from "../../netlify/functions/lib/customerSearch.mjs";
 
 export const J1 = {
   id: "J-1",
@@ -192,10 +193,8 @@ export function mockServer(opts = {}) {
           data = { customer: customer ? JSON.parse(JSON.stringify(customer)) : null, ts: Date.now() };
         } else {
           const m = String(url).match(/[?&]q=([^&]*)/);
-          const query = m ? decodeURIComponent(m[1]).toLowerCase() : "";
-          const list = query
-            ? all.filter((c) => String(c.name || "").toLowerCase().includes(query))
-            : all;
+          const query = m ? decodeURIComponent(m[1]) : "";
+          const list = query ? searchCustomerIndex(all, query, 12) : all;
           data = { customers: JSON.parse(JSON.stringify(list)), ts: Date.now() };
         }
       } else if (path === "sas-inbound")
