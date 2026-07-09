@@ -11,25 +11,71 @@ afterEach(() => {
   vi.unstubAllGlobals();
   localStorage.clear();
   window.location.hash = "#/";
+  Object.defineProperty(window, "innerWidth", { configurable: true, value: 1024 });
+});
+
+const manyChatMsgs = () =>
+  Array.from({ length: 24 }, (_, i) => ({
+    id: "m" + i,
+    who: i % 2 ? "claude" : "you",
+    text: "line " + i,
+    status: i % 2 ? "" : "Read",
+    ts: i,
+  }));
+
+const mockLogScrollBox = (log, { scrollHeight = 2400, clientHeight = 200 } = {}) => {
+  Object.defineProperty(log, "scrollHeight", { value: scrollHeight, configurable: true });
+  Object.defineProperty(log, "clientHeight", { value: clientHeight, configurable: true });
+};
+
+/** Open chat, mock a tall scroll box, reopen (resets pinned), then nudge thread so layout scrolls. */
+const openChatAtBottom = async (srv) => {
+  fireEvent.click(screen.getByTestId("chat-fab"));
+  await waitFor(() => expect(screen.getByText("line 23")).toBeInTheDocument());
+  fireEvent.click(screen.getByLabelText("Close chat"));
+  fireEvent.click(screen.getByTestId("chat-fab"));
+  await waitFor(() => expect(screen.getByTestId("chat-log")).toBeInTheDocument());
+  const log = screen.getByTestId("chat-log");
+  mockLogScrollBox(log);
+  srv.state.messages.push({ id: "scroll-pin", who: "claude", text: "scroll pin", status: "", ts: 100 });
+  await waitFor(() => expect(screen.getByText("scroll pin")).toBeInTheDocument(), { timeout: 8000 });
+  return log;
+};
+
+describe("chat scroll — open at bottom", () => {
+  it("opens scrolled to the newest message on web", async () => {
+    const srv = mockServer({ messages: manyChatMsgs() });
+    renderApp("#/");
+    const log = await openChatAtBottom(srv);
+    expect(log.scrollTop).toBe(2400);
+  }, 15000);
+
+  it("opens scrolled to the newest message on mobile (390px)", async () => {
+    Object.defineProperty(window, "innerWidth", { configurable: true, value: 390 });
+    const srv = mockServer({ messages: manyChatMsgs() });
+    renderApp("#/");
+    const log = await openChatAtBottom(srv);
+    expect(log.scrollTop).toBe(2400);
+  }, 15000);
+
+  it("stays pinned to bottom when a new reply arrives while at bottom", async () => {
+    const srv = mockServer({ messages: manyChatMsgs() });
+    renderApp("#/");
+    const log = await openChatAtBottom(srv);
+    expect(log.scrollTop).toBe(2400);
+
+    srv.state.messages.push({ id: "r-new", who: "claude", text: "fresh reply", status: "", ts: 99 });
+    await waitFor(() => expect(screen.getByText("fresh reply")).toBeInTheDocument(), { timeout: 8000 });
+    expect(log.scrollTop).toBe(2400);
+  }, 15000);
 });
 
 describe("chat scroll — history stays put while polling", () => {
   it("does not jump to bottom when scrolled up and a new reply arrives", async () => {
-    const many = Array.from({ length: 24 }, (_, i) => ({
-      id: "m" + i,
-      who: i % 2 ? "claude" : "you",
-      text: "line " + i,
-      status: i % 2 ? "" : "Read",
-      ts: i,
-    }));
-    const srv = mockServer({ messages: many });
+    const srv = mockServer({ messages: manyChatMsgs() });
     renderApp("#/");
-    fireEvent.click(screen.getByTestId("chat-fab"));
-    await waitFor(() => expect(screen.getByText("line 0")).toBeInTheDocument());
+    const log = await openChatAtBottom(srv);
 
-    const log = screen.getByTestId("chat-log");
-    Object.defineProperty(log, "scrollHeight", { value: 2400, configurable: true });
-    Object.defineProperty(log, "clientHeight", { value: 200, configurable: true });
     log.scrollTop = 0;
     fireEvent.scroll(log);
     const before = log.scrollTop;

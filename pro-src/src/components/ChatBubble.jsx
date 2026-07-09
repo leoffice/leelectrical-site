@@ -255,8 +255,9 @@ export default function ChatBubble() {
     return `${list.length}|${tail?.id || ""}|${tail?.text?.length || 0}|${tail?.status || ""}|${w}`;
   }, []);
 
-  // When the thread changes: stick to bottom if already there; otherwise restore
-  // the last remembered scrollTop so poll() every 3s doesn't yank readers down.
+  // When the thread changes: scroll to bottom unless the user explicitly scrolled
+  // up (pinned). On open pinned is false so we always land on the newest message;
+  // poll() every 3s won't yank readers who scrolled up to read history.
   useLayoutEffect(() => {
     if (!chatOpen) return;
     const sig = msgsSignature(msgs, msgs.find((m) => m.status === "Working on it"));
@@ -265,17 +266,10 @@ export default function ChatBubble() {
     const node = logRef.current;
     if (!node) return;
 
-    const savedTop = scrollMemRef.current.pinned
-      ? scrollMemRef.current.top
-      : node.scrollTop;
-    const readingHistory =
-      scrollMemRef.current.pinned ||
-      node.scrollHeight - node.clientHeight - node.scrollTop > NEAR_BOTTOM_PX;
-
     msgsSigRef.current = sig;
 
-    if (readingHistory) {
-      node.scrollTop = savedTop;
+    if (scrollMemRef.current.pinned) {
+      node.scrollTop = scrollMemRef.current.top;
       rememberScroll(node);
       return;
     }
