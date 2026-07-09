@@ -116,7 +116,7 @@ export function openDocTab(job, kind, setSheet) {
       return;
     }
     if (job.invoiceNo || job._invoiceConfirmed) setSheet({ kind: "invoiceDoc" });
-    else setSheet({ kind: "invoiceCreate" });
+    else setSheet({ kind: "docBuild", docKind: "invoice", mode: "create" });
     return;
   }
   if (kind === "calendar") setSheet({ kind: "cal" });

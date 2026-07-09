@@ -109,7 +109,7 @@ export function tapAwarenessBubble(job, bubble, setSheet, openDocTabFn) {
     return;
   }
   if (bubble.action === "create-invoice") {
-    setSheet({ kind: "invoiceCreate" });
+    setSheet({ kind: "docBuild", docKind: "invoice", mode: "create" });
     return;
   }
   if (bubble.action === "open-estimate") {

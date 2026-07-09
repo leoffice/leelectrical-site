@@ -142,6 +142,20 @@ describe("QB sync button + menu on job detail", () => {
 });
 
 describe("QB sync on customer view", () => {
+  it("gray invoice tab opens builder and stays open on customer page", async () => {
+    mockServer({
+      jobs: [{ ...J_OPEN, customer: "View Co", invoiceNo: "", estimateNo: "" }],
+    });
+    const user = userEvent.setup();
+    renderApp("#/customer/c:view%20co");
+    const view = await screen.findByTestId("customer-view");
+    const tabs = within(view).getAllByTestId("job-doc-tabs")[0];
+
+    await user.click(within(tabs).getByTestId("tab-invoice"));
+    expect(await screen.findByText(/Create invoice — View Co/)).toBeInTheDocument();
+    expect(screen.getByTestId("doc-save-sync")).toBeInTheDocument();
+  });
+
   it("shows doc tabs and sync button on customer page", async () => {
     mockServer({
       jobs: [

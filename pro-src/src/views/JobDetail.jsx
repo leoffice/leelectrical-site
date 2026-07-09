@@ -515,7 +515,13 @@ export default function JobDetail() {
                               <>
                                 <button
                                   className="btn bg-brand-soft text-brand !py-1.5"
-                                  onClick={() => setSheet({ kind: "invoiceCreate" })}
+                                  onClick={() =>
+                                    setSheet(
+                                      job.estimateNo || (job.estimateLines && job.estimateLines.length)
+                                        ? { kind: "invoiceCreate" }
+                                        : { kind: "docBuild", docKind: "invoice", mode: "create" }
+                                    )
+                                  }
                                   data-testid="create-invoice"
                                 >
                                   Create

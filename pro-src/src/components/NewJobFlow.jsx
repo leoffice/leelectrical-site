@@ -26,7 +26,6 @@ import {
   subsForParentQboId,
 } from "../lib/customerHierarchy.js";
 import { MarkPaidSheet } from "./JobSheets.jsx";
-import InvoiceCreateSheet, { ProgressPctSheet } from "./InvoiceCreateSheet.jsx";
 import DocBuilderSheet from "./DocBuilderSheet.jsx";
 import { fmt$ } from "../lib/format.js";
 import { sortJobs } from "../lib/stages.js";
@@ -155,7 +154,7 @@ export default function NewJobFlow() {
       <Sheet title="Add" onClose={close}>
         <Opt icon="🔧" title="Add a job" note="New scope for a customer — type details or pick from calendar" onClick={() => setNewJob({ step: "jobMenu", context })} />
         <Opt icon="🏗️" title="Add a job with vendor" note="Track subcontractor / vendor on the job" onClick={() => setNewJob({ step: "form", prefill: {}, context, vendorMode: true })} />
-        <Opt icon="🧾" title="Add an invoice" note="Pick customer & job, then build the invoice" onClick={() => setNewJob({ step: "pickInvoice" })} />
+        <Opt icon="🧾" title="Add an invoice" note="Pick customer & job — full invoice builder opens" onClick={() => setNewJob({ step: "pickInvoice" })} />
         <Opt icon="👤" title="Add a customer" note="One form — live QuickBooks match as you type" onClick={() => setNewJob({ step: "newCustomer" })} />
         <Opt icon="💵" title="Add a payment" note="Find customer & invoice, then record or charge" onClick={() => setNewJob({ step: "pickPayment" })} />
       </Sheet>
@@ -208,54 +207,16 @@ export default function NewJobFlow() {
       />
     );
 
-  if (newJob.step === "pickInvoice" && newJob.docBuild)
+  if (newJob.step === "pickInvoice" && newJob.job)
     return (
       <DocBuilderSheet
         job={newJob.job}
         kind="invoice"
-        mode={newJob.docBuild.mode || "new"}
-        progressPct={newJob.docBuild.progressPct}
+        mode="create"
         onClose={close}
         onDone={() => {
           close();
           nav("/job/" + encodeURIComponent(newJob.job.id));
-        }}
-      />
-    );
-
-  if (newJob.step === "pickInvoice" && newJob.progressPct)
-    return (
-      <ProgressPctSheet
-        title={newJob.progressTitle}
-        hint={newJob.progressHint}
-        onClose={close}
-        onConfirm={(pct) =>
-          setNewJob({
-            ...newJob,
-            progressPct: null,
-            docBuild: { mode: newJob.invoiceMode, progressPct: pct },
-          })
-        }
-      />
-    );
-
-  if (newJob.step === "pickInvoice" && newJob.job)
-    return (
-      <InvoiceCreateSheet
-        job={newJob.job}
-        onClose={() => setNewJob({ step: "pickInvoice" })}
-        onPick={({ mode }) => {
-          if (mode === "from_estimate") {
-            setNewJob({
-              ...newJob,
-              progressPct: true,
-              progressTitle: "Invoice from estimate",
-              progressHint: "What percentage of the estimate should this invoice bill?",
-              invoiceMode: "from_estimate",
-            });
-          } else {
-            setNewJob({ ...newJob, docBuild: { mode: "new" } });
-          }
         }}
       />
     );

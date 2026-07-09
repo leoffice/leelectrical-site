@@ -14,6 +14,18 @@ afterEach(() => {
 });
 
 describe("Task 63 — invoice/estimate tabs", () => {
+  it("gray invoice tab opens create builder like estimate", async () => {
+    mockServer({ jobs: [{ ...JSON.parse(JSON.stringify(J1)), estimateNo: "", invoiceNo: "" }] });
+    const user = userEvent.setup();
+    renderApp("#/job/J-1");
+    const pane = await screen.findByTestId("detail-pane");
+    const tabs = within(pane).getByTestId("job-doc-tabs");
+
+    await user.click(within(tabs).getByTestId("tab-invoice"));
+    expect(await screen.findByText(/Create invoice — Peretz Chein/)).toBeInTheDocument();
+    expect(screen.getByTestId("doc-save-sync")).toBeInTheDocument();
+  });
+
   it("gray estimate tab opens create; colored invoice opens doc sheet", async () => {
     mockServer({ jobs: [{ ...JSON.parse(JSON.stringify(J1)), estimateNo: "", invoiceNo: "251841" }] });
     const user = userEvent.setup();

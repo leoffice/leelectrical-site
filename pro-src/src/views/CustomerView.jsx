@@ -1,7 +1,7 @@
 // Customer detail view — opened by tapping anywhere on a customer card in the
 // Jobs list (route /customer/:key). Customer card on top; each job shows
 // job information + linked appointment inline.
-import React, { useEffect, useMemo, useRef, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { useStore } from "../state/store.jsx";
 import Jobs from "./Jobs.jsx";
@@ -33,6 +33,15 @@ export default function CustomerView() {
   const { jobs, loading, events, commands, patchJob, refreshJobs } = useStore();
   const key = raw ? decodeURIComponent(raw) : "";
   const [sheet, setSheet] = useState(null); // { kind, job? }
+  const setDocSheet = useCallback((next) => {
+    setSheet((prev) => {
+      const patch = typeof next === "function" ? next(prev) : next;
+      if (!patch) return patch;
+      if (patch.job) return patch;
+      const job = prev?.job;
+      return job ? { ...patch, job } : patch;
+    });
+  }, []);
   const [docTabOpenOnly, setDocTabOpenOnly] = useState(false);
   const [importing, setImporting] = useState(false);
   const importPoll = useRef(null);
@@ -133,7 +142,7 @@ export default function CustomerView() {
   }
 
   const openDocFor = (j, kind) => {
-    openDocTab(j, kind, (s) => setSheet({ ...s, job: j }));
+    openDocTab(j, kind, (s) => setDocSheet({ ...s, job: j }));
   };
   const openDocForBubble = (j, kind, setSheetFn) => {
     openDocTab(j, kind, (s) => setSheetFn({ ...s, job: j }));
@@ -246,9 +255,9 @@ export default function CustomerView() {
       ) : null}
       <JobDocSheets
         sheet={sheet?.job ? sheet : null}
-        setSheet={setSheet}
+        setSheet={setDocSheet}
         job={sheet?.job}
-        onDocDone={() => setSheet(null)}
+        onDocDone={() => setDocSheet(null)}
       />
     </div>
   );
