@@ -200,7 +200,21 @@ export function mockServer(opts = {}) {
         }
       } else if (path === "sas-inbound")
         data = { calls: JSON.parse(JSON.stringify(state.sasCalls)), ts: Date.now() };
-      else if (path === "iterate") data = { ok: true };
+      else if (path === "zelle-vision") {
+        if (method === "POST") {
+          data = {
+            ok: true,
+            extracted: opts.zelleExtracted || {
+              amount: 2300,
+              confirmationNumber: "JPM99cnf72cg",
+              date: "2026-07-09",
+              memo: "#251841",
+              confidence: "high",
+            },
+            model: "mock",
+          };
+        }
+      } else if (path === "iterate") data = { ok: true };
       return { ok: true, status: 200, json: async () => data };
     })
   );

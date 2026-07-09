@@ -35,6 +35,9 @@ import {
   removePayment,
   updatePayment,
 } from "../lib/payments.js";
+import { reconcileZellePayment } from "../lib/zelleReconcile.js";
+import { analyzeZelleScreenshot, fileToBase64 } from "../lib/zelleVision.js";
+import ZelleReconcileSheet from "./ZelleReconcileSheet.jsx";
 import { sortJobs } from "../lib/stages.js";
 import { DATE_STEPS } from "../lib/paperwork.js";
 import Toggle from "./Toggle.jsx";
@@ -87,7 +90,7 @@ export function useDoSend() {
 
 /* ---------- 1. Mark as paid ---------- */
 export function MarkPaidSheet({ job, onClose }) {
-  const { patchJob, showToast, syncNow, refreshJobs } = useStore();
+  const { patchJob, showToast, syncNow, refreshJobs, jobs } = useStore();
   const due = openBalance(job);
   const alreadyPaid = due <= 0.01;
   const [amt, setAmt] = useState(due > 0 ? String(due) : String(job.amount || "").replace(/[$,]/g, ""));
@@ -104,7 +107,12 @@ export function MarkPaidSheet({ job, onClose }) {
   const [achAccount, setAchAccount] = useState("");
   const [achName, setAchName] = useState(job.customer || "");
   const [achEnabled, setAchEnabled] = useState(false);
-  const [zelleProof, setZelleProof] = useState("");
+  const [zelleFile, setZelleFile] = useState(null);
+  const [zelleB64, setZelleB64] = useState("");
+  const [zelleAnalyzing, setZelleAnalyzing] = useState(false);
+  const [zelleVerified, setZelleVerified] = useState(false);
+  const [zelleReconcile, setZelleReconcile] = useState(null);
+  const zelleInputRef = useRef(null);
   const isCard = mth === "Credit card";
   const isCheck = mth === "Check";
   const isAch = mth === "ACH";
@@ -126,49 +134,163 @@ export function MarkPaidSheet({ job, onClose }) {
   const inv = job.invoiceNo || "";
   const payAmt = parseFloat(String(amt).replace(/[$,]/g, "")) || 0;
   const chargeTotal = isCard ? totalWithFee(payAmt, includeFee) : payAmt;
-  const processing = payPhase !== "idle";
+  const processing = payPhase !== "idle" || zelleAnalyzing;
 
-  const saveManual = () => {
+  const validateManual = () => {
     if (alreadyPaid) {
       showToast("Invoice already paid in LE Pro — sync from QuickBooks first");
-      return;
+      return false;
     }
     if (payAmt <= 0) {
       showToast("Enter a payment amount");
-      return;
+      return false;
     }
     if (payAmt > due + 0.01) {
       showToast("Amount exceeds open balance " + fmt$(due));
-      return;
+      return false;
     }
-    const d = dt || todayStr();
-    let note = "";
-    if (isCheck && ref) note = "Check #" + ref;
+    return true;
+  };
+
+  const buildPaymentNote = (payRef, proofName) => {
+    if (isCheck && payRef) return "Check #" + payRef;
     if (isZelle) {
-      const bits = [ref ? "Zelle ref " + ref : "", zelleProof ? "proof: " + zelleProof : ""].filter(Boolean);
-      if (bits.length) note = bits.join(" · ");
+      const bits = [payRef ? "Zelle ref " + payRef : "", proofName ? "proof: " + proofName : ""].filter(Boolean);
+      return bits.length ? bits.join(" · ") : "";
     }
     if (isAch) {
       const bits = [achName, achRouting ? "routing " + achRouting : "", achAccount ? "acct …" + achAccount.slice(-4) : ""]
         .filter(Boolean)
         .join(" · ");
-      if (bits) note = bits;
+      return bits;
     }
-    const patch = appendPayment(job, {
-      amount: payAmt,
-      method: mth,
-      ref,
-      date: d,
-      note: note || undefined,
-    });
+    return "";
+  };
+
+  const stagePaymentOnJob = (targetJob, entry) => {
+    const patch = appendPayment(targetJob, entry);
     const remaining = parseFloat(String(patch.openBalance)) || 0;
     if (patch.paid) {
       showToast("Payment staged — Save & sync to record in QuickBooks");
     } else {
       showToast("Partial payment staged — " + fmt$(remaining) + " remaining. Save & sync for QuickBooks.");
     }
-    patchJob(job.id, patch);
+    patchJob(targetJob.id, patch);
     onClose();
+  };
+
+  const commitZellePayment = (targetJob, { amount: useAmt, ref: useRef, zelleVerified: verified }) => {
+    const d = dt || todayStr();
+    const proofName = zelleFile?.name || "";
+    const payRef = useRef || ref;
+    const note = buildPaymentNote(payRef, proofName);
+    stagePaymentOnJob(targetJob, {
+      amount: useAmt ?? payAmt,
+      method: mth,
+      ref: payRef,
+      date: d,
+      note: note || undefined,
+      zelleVerified: Boolean(verified),
+      zelleProofName: proofName,
+    });
+  };
+
+  const saveManual = () => {
+    if (!validateManual()) return;
+    const d = dt || todayStr();
+    const note = buildPaymentNote(ref, zelleFile?.name || "");
+    stagePaymentOnJob(job, {
+      amount: payAmt,
+      method: mth,
+      ref,
+      date: d,
+      note: note || undefined,
+      zelleVerified: zelleVerified,
+      zelleProofName: zelleFile?.name || "",
+    });
+  };
+
+  const recordZelleWithScreenshot = async () => {
+    if (!validateManual()) return;
+    setZelleAnalyzing(true);
+    try {
+      const extracted = await analyzeZelleScreenshot(zelleB64, zelleFile?.type || "image/jpeg");
+      const result = reconcileZellePayment({
+        extracted,
+        entered: { amount: payAmt, ref, date: dt, invoiceNo: inv },
+        job,
+        jobs,
+      });
+      if (result.status === "full_match") {
+        setZelleVerified(true);
+        setRef(result.confirmationRef || ref);
+        commitZellePayment(job, {
+          ref: result.confirmationRef,
+          zelleVerified: true,
+        });
+        return;
+      }
+      setZelleReconcile(result);
+    } catch (e) {
+      showToast("Screenshot read failed — " + String((e && e.message) || "enter reference manually"));
+    } finally {
+      setZelleAnalyzing(false);
+    }
+  };
+
+  const onRecordPayment = () => {
+    if (isZelle && zelleB64) {
+      recordZelleWithScreenshot();
+      return;
+    }
+    saveManual();
+  };
+
+  const onZelleReconcileAction = (action) => {
+    if (action === "cancel") {
+      setZelleReconcile(null);
+      return;
+    }
+    if (action === "replace_photo") {
+      setZelleReconcile(null);
+      setZelleFile(null);
+      setZelleB64("");
+      setZelleVerified(false);
+      if (zelleInputRef.current) zelleInputRef.current.value = "";
+      zelleInputRef.current?.click();
+      return;
+    }
+    if (action === "manual") {
+      setZelleReconcile(null);
+      saveManual();
+      return;
+    }
+    const ex = zelleReconcile?.extracted || {};
+    const target = zelleReconcile?.targetJob || job;
+    const confRef = String(ex.confirmationNumber || ref || "").trim();
+    if (action === "use_screenshot_amount") {
+      setAmt(String(ex.amount));
+      commitZellePayment(job, { amount: ex.amount, ref: confRef, zelleVerified: true });
+    } else if (action === "keep_amount") {
+      commitZellePayment(job, { ref: confRef, zelleVerified: Boolean(confRef) });
+    } else if (action === "move_invoice") {
+      if (!target?.id || String(target.invoiceNo) !== String(zelleReconcile?.fields?.invoice?.extracted)) {
+        showToast("No matching invoice for #" + (zelleReconcile?.fields?.invoice?.extracted || ""));
+        return;
+      }
+      commitZellePayment(target, { ref: confRef, zelleVerified: true });
+    } else if (action === "keep_invoice") {
+      commitZellePayment(job, { ref: confRef, zelleVerified: Boolean(confRef) });
+    } else if (action === "move_address") {
+      if (!target?.id) {
+        showToast("No matching job for memo address");
+        return;
+      }
+      commitZellePayment(target, { ref: confRef, zelleVerified: true });
+    } else if (action === "keep_here") {
+      commitZellePayment(job, { ref: confRef, zelleVerified: Boolean(confRef) });
+    }
+    setZelleReconcile(null);
   };
 
   const processCard = async () => {
@@ -223,14 +345,24 @@ export function MarkPaidSheet({ job, onClose }) {
       setPayPhase("idle");
     }
   };
-  const onZelleProof = (e) => {
+  const onZelleProof = async (e) => {
     const file = e.target.files?.[0];
     if (!file) return;
-    setZelleProof(file.name);
-    showToast("Screenshot saved with payment — auto-read from email coming soon");
+    setZelleFile(file);
+    setZelleVerified(false);
+    try {
+      const b64 = await fileToBase64(file);
+      setZelleB64(b64);
+      showToast("Screenshot attached — will verify on Record");
+    } catch {
+      showToast("Could not read image file");
+      setZelleFile(null);
+      setZelleB64("");
+    }
   };
 
   return (
+    <>
     <Sheet title={"Mark as paid — " + (job.customer || "")} onClose={onClose}>
       {alreadyPaid ? (
         <div className="rounded-xl bg-amber-50 border border-amber-200 px-3 py-2.5 mb-3 text-[12px] text-amber-900">
@@ -338,13 +470,29 @@ export function MarkPaidSheet({ job, onClose }) {
               className="input"
               placeholder="Reference #"
               value={ref}
-              onChange={(e) => setRef(e.target.value)}
+              onChange={(e) => {
+                setRef(e.target.value);
+                setZelleVerified(false);
+              }}
               disabled={processing}
             />
+            {zelleVerified ? (
+              <p className="text-[11px] text-emerald-600 mt-1 font-medium" data-testid="zelle-verified">
+                ✓ Verified from screenshot
+              </p>
+            ) : null}
           </Fld>
-          <Fld label="Screenshot (optional)" hint="Email or bank app confirmation — auto-read coming soon">
-            <input className="input text-sm" type="file" accept="image/*" onChange={onZelleProof} disabled={processing} />
-            {zelleProof ? <p className="text-[11px] text-slate-500 mt-1">Attached: {zelleProof}</p> : null}
+          <Fld label="Screenshot (optional)" hint="Zelle email or bank app — auto-reads amount, confirmation #, memo">
+            <input
+              ref={zelleInputRef}
+              className="input text-sm"
+              type="file"
+              accept="image/*"
+              onChange={onZelleProof}
+              disabled={processing}
+              data-testid="zelle-screenshot-input"
+            />
+            {zelleFile ? <p className="text-[11px] text-slate-500 mt-1">Attached: {zelleFile.name}</p> : null}
           </Fld>
           <Fld label="Date">
             <input className="input" type="date" value={dt} onChange={(e) => setDt(e.target.value)} disabled={processing} />
@@ -383,15 +531,20 @@ export function MarkPaidSheet({ job, onClose }) {
       ) : isAch && achEnabled ? (
         <button
           className="btn bg-emerald-500 text-white w-full"
-          onClick={saveManual}
+          onClick={onRecordPayment}
           disabled={alreadyPaid || processing || !achRouting || !achAccount}
           data-testid="process-ach-payment"
         >
           🏦 Process ACH payment
         </button>
       ) : (
-        <button className="btn bg-emerald-500 text-white w-full" onClick={saveManual} disabled={alreadyPaid || processing}>
-          ✓ Record payment
+        <button
+          className="btn bg-emerald-500 text-white w-full"
+          onClick={onRecordPayment}
+          disabled={alreadyPaid || processing}
+          data-testid="record-payment"
+        >
+          {zelleAnalyzing ? "Reading screenshot…" : "✓ Record payment"}
         </button>
       )}
       <p className="text-[11px] text-slate-400 text-center mt-2">
@@ -402,6 +555,14 @@ export function MarkPaidSheet({ job, onClose }) {
             : "Staged now — QuickBooks records it when you hit Save & sync."}
       </p>
     </Sheet>
+    {zelleReconcile ? (
+      <ZelleReconcileSheet
+        reconcile={zelleReconcile}
+        onAction={onZelleReconcileAction}
+        onClose={() => setZelleReconcile(null)}
+      />
+    ) : null}
+    </>
   );
 }
 
