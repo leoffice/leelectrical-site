@@ -7,16 +7,16 @@ import {
 
 describe("sola-keys", () => {
   it("infers merchant slug from Cardknox key prefixes", () => {
-    expect(merchantSlugFromKey("ifields_blzelectricf19091a9a53f435699d914e935")).toBe("blzelectric");
-    expect(merchantSlugFromKey("blzelectric808608311bba436fb8cbfdd0e5f80f06")).toBe("blzelectric");
-    expect(merchantSlugFromKey("blzelectrice69a2427f74f4ec99c32f856d6bf3565")).toBe("blzelectric");
+    expect(merchantSlugFromKey("ifields_blzelectric_mock_test_key")).toBe("blzelectric");
+    expect(merchantSlugFromKey("blzelectric_mock_gateway_key")).toBe("blzelectric");
+    expect(merchantSlugFromKey("blzelectrice_mock_ifields_key")).toBe("blzelectric");
   });
 
   it("flags SUT errors with a helpful hint when keys look mismatched", () => {
     const prevIf = process.env.SOLA_IFIELDS_KEY;
     const prevX = process.env.SOLA_X_KEY;
-    process.env.SOLA_IFIELDS_KEY = "blzelectrice69a2427f74f4ec99c32f856d6bf3565";
-    process.env.SOLA_X_KEY = "lepaymendev7753e14df74c47f29422a22746a13139";
+    process.env.SOLA_IFIELDS_KEY = "blzelectric_mock_ifields_key_for_pair_test";
+    process.env.SOLA_X_KEY = "test_lepaymendev_x_key_placeholder";
     expect(keysLookPaired()).toBe(false);
     const hint = sutMismatchHint("Unauthorized Token (S) (SUT)");
     expect(hint).toContain("mismatched");
