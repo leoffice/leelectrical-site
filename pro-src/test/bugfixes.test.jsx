@@ -168,6 +168,57 @@ describe("parent customer cards — tap anywhere to show subs", () => {
     expect(within(subs).getByText("LLC Beta")).toBeInTheDocument();
   });
 
+  it("sub-companies from QuickBooks parentId nest under parent, not as separate cards", async () => {
+    mockServer({
+      customers: [
+        { id: "1595", name: "Shaina Levin", businessName: "Shaina Levin" },
+        { id: "1601", name: "419 Kingston realty Llc", businessName: "419 Kingston realty Llc", parentId: "1595" },
+        { id: "1596", name: "315 Albany Realty LLC", businessName: "315 Albany Realty LLC", parentId: "1595" },
+      ],
+      jobs: [
+        job("K-1", "419 Kingston realty Llc", "Profile A", "$0", {
+          businessName: "419 Kingston realty Llc",
+          qboCustomerId: "1601",
+        }),
+        job("K-2", "315 Albany Realty LLC", "Profile B", "$0", {
+          businessName: "315 Albany Realty LLC",
+          qboCustomerId: "1596",
+        }),
+      ],
+    });
+    renderApp("#/");
+    const card = await screen.findByTestId("parent-group-card");
+    const names = screen.getAllByTestId("client-group-name").map((el) => el.textContent);
+    expect(names).not.toContain("419 Kingston realty Llc");
+    expect(names).not.toContain("315 Albany Realty LLC");
+    expect(within(card).getByText("Shaina Levin")).toBeInTheDocument();
+    const user = userEvent.setup();
+    await user.click(card);
+    const subs = screen.getByTestId("parent-sub-list");
+    expect(within(subs).getByText("419 Kingston realty Llc")).toBeInTheDocument();
+    expect(within(subs).getByText("315 Albany Realty LLC")).toBeInTheDocument();
+  });
+
+  it("searching a sub-company name expands the parent and shows the matching sub", async () => {
+    mockServer({
+      customers: [
+        { id: "1595", name: "Shaina Levin", businessName: "Shaina Levin" },
+        { id: "1601", name: "419 Kingston realty Llc", businessName: "419 Kingston realty Llc", parentId: "1595" },
+        { id: "1596", name: "315 Albany Realty LLC", businessName: "315 Albany Realty LLC", parentId: "1595" },
+      ],
+      jobs: [
+        job("K-1", "419 Kingston realty Llc", "Profile A", "$0", { businessName: "419 Kingston realty Llc", qboCustomerId: "1601" }),
+        job("K-2", "315 Albany Realty LLC", "Profile B", "$0", { businessName: "315 Albany Realty LLC", qboCustomerId: "1596" }),
+      ],
+    });
+    const user = userEvent.setup();
+    renderApp("#/");
+    await user.type(screen.getByLabelText("Search jobs"), "419 kingston");
+    const subs = await screen.findByTestId("parent-sub-list");
+    expect(within(subs).getByText("419 Kingston realty Llc")).toBeInTheDocument();
+    expect(within(subs).queryByText("315 Albany Realty LLC")).not.toBeInTheDocument();
+  });
+
   it("parent with direct jobs does not appear twice on the customer list", async () => {
     mockServer({
       jobs: [

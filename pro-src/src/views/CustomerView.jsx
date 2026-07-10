@@ -8,7 +8,7 @@ import Jobs from "./Jobs.jsx";
 import CustomerCard from "../components/CustomerCard.jsx";
 import CustomerDocTabs from "../components/CustomerDocTabs.jsx";
 import JobDocSheets, { openDocTab } from "../components/JobDocSheets.jsx";
-import { subsUnderParent } from "../lib/customerHierarchy.js";
+import { buildQboHierarchyCtx, subsUnderParent } from "../lib/customerHierarchy.js";
 import { fmt$ } from "../lib/format.js";
 import StepBubbleSheet from "../components/StepBubbleSheet.jsx";
 import {
@@ -29,7 +29,21 @@ import {
 export default function CustomerView() {
   const { key: raw } = useParams();
   const nav = useNavigate();
-  const { jobs, loading, events, commands, patchJob, refreshJobs } = useStore();
+  const { jobs, loading, events, commands, patchJob, refreshJobs, api } = useStore();
+  const [qboIndex, setQboIndex] = useState([]);
+
+  useEffect(() => {
+    let cancelled = false;
+    api
+      .searchCustomers("")
+      .then((list) => {
+        if (!cancelled) setQboIndex(Array.isArray(list) ? list : []);
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [api]);
   const key = raw ? decodeURIComponent(raw) : "";
   const [sheet, setSheet] = useState(null); // { kind, job? }
   const setDocSheet = useCallback((next) => {
@@ -55,18 +69,19 @@ export default function CustomerView() {
     }
   }, [key]);
   const list = useMemo(
-    () => sortJobs(jobsForCustomerKey(jobs, key, importHints || undefined)),
-    [jobs, key, importHints]
+    () => sortJobs(jobsForCustomerKey(jobs, key, importHints || undefined, qboIndex)),
+    [jobs, key, importHints, qboIndex]
   );
   if (list.length) lastListRef.current = list;
   const displayJobs = list.length ? list : lastListRef.current;
   const contact = useMemo(() => customerContact(displayJobs), [displayJobs]);
   const summary = useMemo(() => customerAmountSummary(displayJobs), [displayJobs]);
   const primaryJob = displayJobs[0];
+  const qboHierarchy = useMemo(() => buildQboHierarchyCtx(qboIndex), [qboIndex]);
   const subs = useMemo(() => {
     if (!key.startsWith("p:")) return [];
-    return subsUnderParent(jobs, key);
-  }, [jobs, key]);
+    return subsUnderParent(jobs, key, qboHierarchy);
+  }, [jobs, key, qboHierarchy]);
 
   useEffect(() => {
     let pending = null;

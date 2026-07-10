@@ -9,6 +9,39 @@ export function hasParentCustomer(job) {
   return !!(String(j.parentQboCustomerId || "").trim() || normalizeCustomer(j.parentCustomerName));
 }
 
+/** Build lookup from the QuickBooks customer index (parentId on sub-customers). */
+export function buildQboHierarchyCtx(qboIndex) {
+  const byId = new Map();
+  const childToParent = new Map();
+  for (const c of qboIndex || []) {
+    const id = String(c?.id || "").trim();
+    if (id) byId.set(id, c);
+  }
+  for (const c of qboIndex || []) {
+    const id = String(c?.id || "").trim();
+    const pid = String(c?.parentId || "").trim();
+    if (!id || !pid) continue;
+    const parent = byId.get(pid) || {};
+    childToParent.set(id, {
+      parentId: pid,
+      parentName: String(c?.parentName || parent.businessName || parent.name || "").trim(),
+    });
+  }
+  return { byId, childToParent };
+}
+
+function qboParentLink(job, ctx) {
+  if (!ctx) return null;
+  const qid = String(job?.qboCustomerId || "").trim();
+  return qid ? ctx.childToParent.get(qid) || null : null;
+}
+
+/** True when the job or its QBO customer row is a sub-company. */
+export function effectiveHasParentCustomer(job, ctx) {
+  if (hasParentCustomer(job)) return true;
+  return !!qboParentLink(job, ctx);
+}
+
 /** Stable board key for a parent company. */
 export function parentBoardKey(job) {
   const j = job || {};
@@ -18,16 +51,30 @@ export function parentBoardKey(job) {
   return pn ? "p:c:" + pn : "";
 }
 
+/** Parent board key from job fields or QBO parentId on the customer row. */
+export function effectiveParentBoardKey(job, ctx) {
+  const explicit = parentBoardKey(job);
+  if (explicit) return explicit;
+  const link = qboParentLink(job, ctx);
+  return link?.parentId ? "p:q:" + link.parentId : "";
+}
+
 /** Display label for the parent company on a job. */
-export function parentDisplayName(job, jobs) {
+export function parentDisplayName(job, jobs, ctx) {
   const j = job || {};
   const pqid = String(j.parentQboCustomerId || "").trim();
   if (j.parentCustomerName) return String(j.parentCustomerName).trim();
+  const link = qboParentLink(j, ctx);
+  if (link?.parentName) return link.parentName;
+  if (link?.parentId && ctx?.byId) {
+    const parent = ctx.byId.get(link.parentId);
+    if (parent) return parent.businessName || parent.name || "";
+  }
   if (pqid && jobs) {
     const hit = (jobs || []).find(
       (x) =>
         x &&
-        !hasParentCustomer(x) &&
+        !effectiveHasParentCustomer(x, ctx) &&
         String(x.qboCustomerId || "").trim() === pqid &&
         (x.businessName || x.customer)
     );
@@ -94,8 +141,10 @@ export function subsForParentQboId(jobs, parentQboId) {
 }
 
 /** Jobs billed directly to the parent company (not sub-entities). */
-export function directJobsForParent(activeJobs, parentKey) {
-  const list = (activeJobs || []).filter((j) => j && !j._archived && !j._deleted && !hasParentCustomer(j));
+export function directJobsForParent(activeJobs, parentKey, ctx) {
+  const list = (activeJobs || []).filter(
+    (j) => j && !j._archived && !j._deleted && !effectiveHasParentCustomer(j, ctx)
+  );
   if (parentKey.startsWith("p:q:")) {
     const pqid = parentKey.slice(4);
     return list.filter((j) => String(j.qboCustomerId || "").trim() === pqid);
@@ -112,8 +161,10 @@ export function directJobsForParent(activeJobs, parentKey) {
 }
 
 /** Sub-entities under one parent (unique client keys). */
-export function subsUnderParent(jobs, parentKey) {
-  const list = (jobs || []).filter((j) => j && !j._archived && !j._deleted && parentBoardKey(j) === parentKey);
+export function subsUnderParent(jobs, parentKey, ctx) {
+  const list = (jobs || []).filter(
+    (j) => j && !j._archived && !j._deleted && effectiveParentBoardKey(j, ctx) === parentKey
+  );
   const map = new Map();
   for (const j of list) {
     const sk = clientKey(j);
@@ -132,14 +183,15 @@ export function subsUnderParent(jobs, parentKey) {
  * Board rows for the Customers tab.
  * Returns [{ kind:'standalone'|'parent', key, name, jobs, subs?, summary }]
  */
-export function buildCustomerBoardGroups(activeJobs, sortJobsFn) {
+export function buildCustomerBoardGroups(activeJobs, sortJobsFn, qboIndex) {
   const active = (activeJobs || []).filter((j) => j && !j._archived && !j._deleted);
   const sort = sortJobsFn || ((x) => x);
+  const ctx = buildQboHierarchyCtx(qboIndex);
   const parentMap = new Map(); // parentKey -> all jobs under parent
   const standaloneMap = new Map(); // clientKey -> jobs (no parent)
 
   for (const j of active) {
-    const pk = parentBoardKey(j);
+    const pk = effectiveParentBoardKey(j, ctx);
     if (pk) {
       if (!parentMap.has(pk)) parentMap.set(pk, []);
       parentMap.get(pk).push(j);
@@ -154,7 +206,7 @@ export function buildCustomerBoardGroups(activeJobs, sortJobsFn) {
 
   const absorbedIds = new Set();
   for (const pk of parentMap.keys()) {
-    const direct = directJobsForParent(active, pk);
+    const direct = directJobsForParent(active, pk, ctx);
     if (!direct.length) continue;
     parentMap.set(pk, parentMap.get(pk).concat(direct));
     direct.forEach((j) => absorbedIds.add(j.id));
@@ -168,12 +220,12 @@ export function buildCustomerBoardGroups(activeJobs, sortJobsFn) {
   for (const [pk, allJobs] of parentMap) {
     const sorted = sort(allJobs);
     const name =
-      parentDisplayName(sorted[0], active) ||
+      parentDisplayName(sorted[0], active, ctx) ||
       sorted[0]?.parentCustomerName ||
       sorted[0]?.businessName ||
       sorted[0]?.customer ||
       "(parent)";
-    const subs = subsUnderParent(active, pk).map((s) => ({ ...s, jobs: sort(s.jobs) }));
+    const subs = subsUnderParent(active, pk, ctx).map((s) => ({ ...s, jobs: sort(s.jobs) }));
     rows.push({
       kind: "parent",
       key: pk,
@@ -203,8 +255,9 @@ export function buildCustomerBoardGroups(activeJobs, sortJobsFn) {
 }
 
 /** Route key for parent customer view (all subs). */
-export function customerKeyForParent(job) {
-  return parentBoardKey(job) || "";
+export function customerKeyForParent(job, qboIndex) {
+  const ctx = buildQboHierarchyCtx(qboIndex);
+  return effectiveParentBoardKey(job, ctx) || "";
 }
 
 /** Patch fields when linking a job to a parent company. */

@@ -2,8 +2,11 @@
 import { describe, expect, it } from "vitest";
 import {
   buildCustomerBoardGroups,
+  buildQboHierarchyCtx,
   cloneJobAtAddressPatch,
   directJobsForParent,
+  effectiveHasParentCustomer,
+  effectiveParentBoardKey,
   hasParentCustomer,
   jobsAtSameAddress,
   parentBoardKey,
@@ -72,6 +75,36 @@ describe("buildCustomerBoardGroups", () => {
     expect(parent.summary.jobCount).toBe(2);
     expect(solo).toBeTruthy();
     expect(solo.name).toBe("Solo");
+  });
+
+  it("infers sub-companies from QuickBooks parentId when job lacks parent fields", () => {
+    const qboIndex = [
+      { id: "1595", name: "Shaina Levin", businessName: "Shaina Levin" },
+      { id: "1601", name: "419 Kingston realty Llc", businessName: "419 Kingston realty Llc", parentId: "1595" },
+    ];
+    const jobs = [
+      {
+        id: "qbo-cust-1601",
+        customer: "419 Kingston realty Llc",
+        businessName: "419 Kingston realty Llc",
+        qboCustomerId: "1601",
+        amount: "0",
+      },
+    ];
+    const board = buildCustomerBoardGroups(jobs, undefined, qboIndex);
+    expect(board.find((r) => r.kind === "standalone" && r.name.includes("419"))).toBeFalsy();
+    const parent = board.find((r) => r.kind === "parent");
+    expect(parent?.key).toBe("p:q:1595");
+    expect(parent?.name).toBe("Shaina Levin");
+    expect(parent?.subs.map((s) => s.name)).toEqual(["419 Kingston realty Llc"]);
+  });
+});
+
+describe("effectiveParentBoardKey", () => {
+  it("uses QBO parentId when job has no parent fields", () => {
+    const ctx = buildQboHierarchyCtx([{ id: "1601", parentId: "1595", name: "Sub LLC" }]);
+    expect(effectiveParentBoardKey({ qboCustomerId: "1601" }, ctx)).toBe("p:q:1595");
+    expect(effectiveHasParentCustomer({ qboCustomerId: "1601" }, ctx)).toBe(true);
   });
 });
 

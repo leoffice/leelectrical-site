@@ -34,7 +34,12 @@ import { customerSyncCardClass } from "../lib/customerSync.js";
 import { needsAttentionJob } from "../lib/jobAwareness.js";
 import { fmt$, parseAmount } from "../lib/format.js";
 import { useNavigate } from "react-router-dom";
-import { buildCustomerBoardGroups, hasParentCustomer, parentBoardKey, subsUnderParent } from "../lib/customerHierarchy.js";
+import {
+  buildCustomerBoardGroups,
+  buildQboHierarchyCtx,
+  effectiveHasParentCustomer,
+  subsUnderParent,
+} from "../lib/customerHierarchy.js";
 
 /** Gray subline under customer name — jobs / open invoices / invoiced / paid. */
 function customerMetaLine(sum) {
@@ -276,22 +281,24 @@ export default function Jobs({ embedded, collapseGroups = false, activeJobId = "
       .sort((A, B) => cmp(rank(A[1]), rank(B[1])));
   }, [active, matchesChip, sort]);
 
+  const qboHierarchy = useMemo(() => buildQboHierarchyCtx(qboIndex), [qboIndex]);
+
   /** Parent companies with sub-entities — separate from flat customer groups. */
   const { parentRows, flatGroups } = useMemo(() => {
-    const board = buildCustomerBoardGroups(active, (list) => sortJobs(list, sort));
+    const board = buildCustomerBoardGroups(active, (list) => sortJobs(list, sort), qboIndex);
     const parentJobIds = new Set();
     const parents = board
       .filter((r) => r.kind === "parent")
       .filter((r) => r.jobs.some(matchesChip))
       .map((r) => {
         r.jobs.forEach((j) => parentJobIds.add(j.id));
-        return { ...r, subs: subsUnderParent(active, r.key).map((s) => ({ ...s, jobs: sortJobs(s.jobs, sort) })) };
+        return { ...r, subs: subsUnderParent(active, r.key, qboHierarchy).map((s) => ({ ...s, jobs: sortJobs(s.jobs, sort) })) };
       });
     const flat = groups
-      .map(([k, list]) => [k, list.filter((j) => !parentJobIds.has(j.id) && !hasParentCustomer(j))])
+      .map(([k, list]) => [k, list.filter((j) => !parentJobIds.has(j.id) && !effectiveHasParentCustomer(j, qboHierarchy))])
       .filter(([, list]) => list.length && list.some(matchesChip));
     return { parentRows: parents, flatGroups: flat };
-  }, [active, groups, matchesChip, sort]);
+  }, [active, groups, matchesChip, sort, qboIndex, qboHierarchy]);
 
   /** Jobs shown inside an expanded group — full customer when Active/All + no search. */
   const expandJobs = useCallback(
@@ -336,6 +343,21 @@ export default function Jobs({ embedded, collapseGroups = false, activeJobId = "
       return { ...o, [key]: now };
     });
   };
+
+  /** Searching a sub-company name expands its parent and shows matching subs only. */
+  useEffect(() => {
+    const query = q.trim();
+    if (!query) return;
+    for (const row of parentRows) {
+      if (row.subs.length < 2) continue;
+      const subHit = row.subs.some((sub) => sub.jobs.some(matchesChip));
+      if (subHit) {
+        setOpen((o) => (o[row.key] ? o : { ...o, [row.key]: true }));
+        armCollapse(row.key, PARENT_SUB_COLLAPSE_MS);
+      }
+    }
+  }, [q, parentRows, matchesChip]);
+
   const groupExpanded = (key) => (isParentBoardKey(key) || !collapseGroups) && open[key];
   useEffect(() => {
     const t = timers.current;
@@ -454,7 +476,9 @@ export default function Jobs({ embedded, collapseGroups = false, activeJobId = "
       ) : (
         <div className="space-y-2.5">
           {parentRows.map((row) => {
-            const multiSub = row.subs.length > 1;
+            const searchOn = !!q.trim();
+            const visibleSubs = searchOn ? row.subs.filter((sub) => sub.jobs.some(matchesChip)) : row.subs;
+            const multiSub = visibleSubs.length > 1 || (searchOn && visibleSubs.length > 0 && row.subs.length > 1);
             const expanded = groupExpanded(row.key);
             const needsAttention = row.jobs.some(needsAttentionJob);
             const syncCardClass = customerSyncCardClass(customerContact(row.jobs), { qboIndex });
@@ -479,7 +503,7 @@ export default function Jobs({ embedded, collapseGroups = false, activeJobId = "
                     headless
                     name={row.name}
                     amount={fmt$(row.summary.due) || "$0"}
-                    meta={customerMetaLine(row.summary) + (multiSub ? ` · ${row.subs.length} companies` : "")}
+                    meta={customerMetaLine(row.summary) + (multiSub ? ` · ${row.subs.length} companies` : visibleSubs.length === 1 && searchOn ? ` · ${visibleSubs[0].name}` : "")}
                     hint={expanded ? "" : jobTitlesHint(row.jobs)}
                     avatar={<CustomerAvatar name={row.name} />}
                     trailing={
@@ -501,7 +525,7 @@ export default function Jobs({ embedded, collapseGroups = false, activeJobId = "
                     onPointerDown={() => armCollapse(row.key, PARENT_SUB_COLLAPSE_MS)}
                     data-testid="parent-sub-list"
                   >
-                    {row.subs.map((sub) => (
+                    {visibleSubs.map((sub) => (
                       <button
                         key={sub.key}
                         type="button"

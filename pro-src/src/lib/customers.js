@@ -132,16 +132,29 @@ export function clientKey(job) {
  *  the jobs array (unsorted; caller can sort).
  *  hints — optional {name, businessName, personName} for q: keys when board
  *  jobs predate qboCustomerId (import flow / Arthur-style orphan rows). */
-export function jobsForCustomerKey(jobs, key, hints) {
+export function jobsForCustomerKey(jobs, key, hints, qboIndex) {
   const active = (jobs || []).filter((j) => j && !j._archived && !j._deleted);
   if (!key) return [];
   // Parent company view — sub-entity jobs + any billed directly to the parent.
   if (key.startsWith("p:q:")) {
     const pqid = key.slice(4);
+    const childToParent = new Map();
+    for (const c of qboIndex || []) {
+      const id = String(c?.id || "").trim();
+      const pid = String(c?.parentId || "").trim();
+      if (id && pid) childToParent.set(id, pid);
+    }
+    const isSub = (j) => {
+      if (String(j.parentQboCustomerId || "").trim()) return true;
+      if (normalizeCustomer(j.parentCustomerName)) return true;
+      const qid = String(j.qboCustomerId || "").trim();
+      return !!(qid && childToParent.has(qid));
+    };
     return active.filter((j) => {
       if (String(j.parentQboCustomerId || "").trim() === pqid) return true;
+      if (childToParent.get(String(j.qboCustomerId || "").trim()) === pqid) return true;
       const qid = String(j.qboCustomerId || "").trim();
-      return qid === pqid && !String(j.parentQboCustomerId || "").trim() && !normalizeCustomer(j.parentCustomerName);
+      return qid === pqid && !isSub(j);
     });
   }
   if (key.startsWith("p:c:")) {
