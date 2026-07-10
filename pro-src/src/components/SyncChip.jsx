@@ -6,7 +6,7 @@ import { ago } from "../lib/format.js";
 import { syncContextFromRoute } from "../lib/syncContext.js";
 import QboSyncSheet from "./QboSyncSheet.jsx";
 
-export default function SyncChip({ dark }) {
+export default function SyncChip({ dark, compact }) {
   const { syncedAt, busy, syncProgress, effectiveJob, jobs } = useStore();
   const loc = useLocation();
   const [open, setOpen] = useState(false);
@@ -18,6 +18,52 @@ export default function SyncChip({ dark }) {
     if (busy) return;
     setOpen(true);
   };
+
+  const idleLabel = syncedAt ? "QBO " + ago(syncedAt) : "Sync QB";
+
+  if (compact) {
+    return (
+      <>
+        <button
+          onClick={handleClick}
+          disabled={busy}
+          data-testid="sync-chip"
+          title={busy ? "Syncing…" : "QuickBooks sync — choose what to pull"}
+          className={`inline-flex items-center gap-1.5 rounded-full border text-[11px] font-semibold transition-all ${
+            dark
+              ? "border-white/30 bg-white/10 text-white px-2.5 py-1"
+              : busy
+                ? "border-slate-200 bg-white text-slate-700 px-2 py-1 min-w-[5.5rem]"
+                : "border-slate-200 bg-slate-50 text-slate-600 px-2.5 py-1 hover:bg-white hover:border-slate-300"
+          }`}
+        >
+          {busy ? (
+            <>
+              <span className="text-[10px] font-bold uppercase tracking-wide truncate max-w-[4.5rem]" data-testid="sync-phase-label">
+                {phase}
+              </span>
+              <span className="text-[9px] tabular-nums opacity-70">{pct}%</span>
+            </>
+          ) : (
+            <>
+              <span className="text-[10px] leading-none opacity-80" aria-hidden>
+                ↻
+              </span>
+              <span className="whitespace-nowrap">{idleLabel}</span>
+            </>
+          )}
+        </button>
+        {open ? (
+          <QboSyncSheet
+            job={ctx.job}
+            customerJobs={ctx.customerJobs}
+            contextLabel={ctx.label}
+            onClose={() => setOpen(false)}
+          />
+        ) : null}
+      </>
+    );
+  }
 
   return (
     <>
@@ -33,7 +79,7 @@ export default function SyncChip({ dark }) {
             ? "bg-white/15 border-white/25 text-white"
             : busy
               ? "bg-white border-slate-200 text-slate-700"
-              : "bg-white border-slate-200 text-slate-500"
+              : "bg-white border-slate-200 text-slate-500 hover:border-slate-300"
         }`}
       >
         {busy ? (
@@ -60,7 +106,7 @@ export default function SyncChip({ dark }) {
         ) : (
           <span className="flex items-center gap-1.5 text-xs font-semibold whitespace-nowrap">
             <span className="w-2 h-2 rounded-full bg-emerald-500 shrink-0" />
-            {syncedAt ? `QBO ${ago(syncedAt)}` : "local"}
+            {idleLabel}
           </span>
         )}
       </button>

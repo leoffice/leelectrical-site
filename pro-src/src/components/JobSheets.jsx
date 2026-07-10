@@ -1947,7 +1947,81 @@ export function CombineSheet({ job, onClose }) {
   );
 }
 
-/* ---------- 6. Inspection scheduled / appointment (paperwork) ---------- */
+/* ---------- 6. Delete confirm (job / invoice / estimate / customer) ---------- */
+export function DeleteConfirmSheet({ title, note, confirmLabel, onConfirm, onClose }) {
+  return (
+    <Sheet title={title || "Remove from app?"} onClose={onClose}>
+      <p className="text-sm text-slate-500 mb-3">
+        {note || "Removes from your dashboard only — QuickBooks is never touched."}
+      </p>
+      <button
+        type="button"
+        className="btn bg-red-100 text-red-600 w-full"
+        data-testid="delete-confirm-btn"
+        onClick={() => {
+          onConfirm?.();
+          onClose?.();
+        }}
+      >
+        {confirmLabel || "Remove"}
+      </button>
+      <button type="button" className="btn-ghost w-full mt-2" onClick={onClose}>
+        Cancel
+      </button>
+    </Sheet>
+  );
+}
+
+export function CustomerMenuSheet({ customerKey, customerName, jobCount, onClose }) {
+  const { jobs, patchAndSave, showToast } = useStore();
+  const nav = useNavigate();
+  const [confirm, setConfirm] = useState(false);
+
+  if (confirm) {
+    return (
+      <DeleteConfirmSheet
+        title={"Remove " + (customerName || "customer") + "?"}
+        note={
+          "Hides " +
+          (jobCount || 0) +
+          " job" +
+          (jobCount === 1 ? "" : "s") +
+          " from your dashboard. QuickBooks stays unchanged."
+        }
+        confirmLabel="Remove customer"
+        onClose={onClose}
+        onConfirm={async () => {
+          const ids = jobsForCustomerKey(jobs, customerKey).map((j) => j.id);
+          for (const id of ids) {
+            await patchAndSave(id, { _deleted: true });
+          }
+          showToast("Customer removed from app");
+          nav("/");
+        }}
+      />
+    );
+  }
+
+  return (
+    <Sheet title={customerName || "Customer"} onClose={onClose}>
+      <Opt
+        icon="🗑️"
+        danger
+        title="Remove customer from app"
+        note={
+          (jobCount || 0) +
+          " job" +
+          (jobCount === 1 ? "" : "s") +
+          " hidden — QuickBooks untouched"
+        }
+        onClick={() => setConfirm(true)}
+        data-testid="customer-delete-opt"
+      />
+    </Sheet>
+  );
+}
+
+/* ---------- 7. Inspection scheduled / appointment (paperwork) ---------- */
 export function InspectionSheet(props) {
   return <PaperworkApptSheet {...props} />;
 }

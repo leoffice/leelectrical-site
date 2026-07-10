@@ -169,17 +169,20 @@ export default function App() {
       </aside>
 
       <div className="flex-1 min-w-0 flex flex-col lg:pl-64">
-        {/* Mobile header — compact bar so more list/detail fits on screen */}
-        <header className="lg:hidden sticky top-0 z-30 bg-white border-b border-slate-200 shadow-sm pt-safe">
-          <div className="flex items-center gap-2 px-3 py-1.5">
+        {/* Mobile header — logo fills ~95% of bar height; sync chip on the right */}
+        <header
+          className="lg:hidden sticky top-0 z-30 bg-white border-b border-slate-200 shadow-sm pt-safe"
+          data-testid="mobile-header"
+        >
+          <div className="flex items-center h-11 px-2 gap-2">
             <img
               src={import.meta.env.BASE_URL + "le-logo.png?v=5"}
-              alt=""
-              className="h-10 w-auto max-w-[120px] object-contain"
+              alt="LE Electrical"
+              className="h-[95%] w-auto max-w-[min(72vw,220px)] object-contain object-left"
+              data-testid="mobile-header-logo"
             />
-            <span className="text-xs font-bold tracking-tight text-slate-900">LE Pro</span>
-            <span className="ml-auto">
-              <SyncChip />
+            <span className="ml-auto shrink-0">
+              <SyncChip compact />
             </span>
           </div>
         </header>

@@ -9,6 +9,7 @@ export default function JobAddressCarousel({
   commands,
   onSelectJob,
   onNewInvoice,
+  onNewEstimate,
   onEstimate,
   onInvoice,
   onPayment,
@@ -127,26 +128,29 @@ export default function JobAddressCarousel({
         ) : null}
       </div>
 
-      {!multi && onNewInvoice ? (
-        <button
-          type="button"
-          className="w-full text-center text-xs font-semibold text-brand py-1"
-          data-testid="add-invoice-same-address"
-          onClick={onNewInvoice}
-        >
-          ＋ New invoice at this address
-        </button>
-      ) : null}
-
-      {multi && job ? (
-        <button
-          type="button"
-          className="w-full text-center text-xs font-semibold text-brand py-0.5"
-          data-testid="add-invoice-same-address"
-          onClick={onNewInvoice}
-        >
-          ＋ New invoice at this address
-        </button>
+      {onNewInvoice || onNewEstimate ? (
+        <div className="flex gap-2" data-testid="change-order-actions">
+          {onNewInvoice ? (
+            <button
+              type="button"
+              className="flex-1 text-center text-xs font-semibold text-brand py-1"
+              data-testid="add-change-order-invoice"
+              onClick={onNewInvoice}
+            >
+              ＋ Change order invoice
+            </button>
+          ) : null}
+          {onNewEstimate ? (
+            <button
+              type="button"
+              className="flex-1 text-center text-xs font-semibold text-brand py-1"
+              data-testid="add-change-order-estimate"
+              onClick={onNewEstimate}
+            >
+              ＋ Change order estimate
+            </button>
+          ) : null}
+        </div>
       ) : null}
     </div>
   );

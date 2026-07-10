@@ -17,7 +17,7 @@ import {
   skipAwarenessBubble,
   tapAwarenessBubble,
 } from "../lib/bubbleHandlers.js";
-import { CustEditSheet, PaperworkApptSheet } from "../components/JobSheets.jsx";
+import { CustEditSheet, PaperworkApptSheet, CustomerMenuSheet } from "../components/JobSheets.jsx";
 import { sortJobs } from "../lib/stages.js";
 import {
   customerAmountSummary,
@@ -138,9 +138,20 @@ export default function CustomerView() {
 
   const panel = (
     <div className="space-y-3.5 min-w-0" data-testid="customer-view">
-      <button className="inline-flex items-center gap-1 text-sm font-semibold text-brand" onClick={() => nav("/")}>
-        ‹ Customers
-      </button>
+      <div className="flex items-center gap-2">
+        <button className="inline-flex items-center gap-1 text-sm font-semibold text-brand min-w-0" onClick={() => nav("/")}>
+          ‹ Customers
+        </button>
+        <button
+          type="button"
+          className="btn-ghost !py-1 !px-2 ml-auto shrink-0"
+          aria-label="Customer options"
+          data-testid="customer-menu-btn"
+          onClick={() => setSheet({ kind: "custMenu" })}
+        >
+          ⋮
+        </button>
+      </div>
 
       <CustomerCard
         contact={contact}
@@ -177,6 +188,14 @@ export default function CustomerView() {
 
       {sheet?.kind === "cust" && sheet.job ? (
         <CustEditSheet job={sheet.job} onClose={() => setSheet(null)} />
+      ) : null}
+      {sheet?.kind === "custMenu" ? (
+        <CustomerMenuSheet
+          customerKey={key}
+          customerName={contact.name}
+          jobCount={displayJobs.length}
+          onClose={() => setSheet(null)}
+        />
       ) : null}
       {sheet?.kind === "paperAppt" && sheet.job ? (
         <PaperworkApptSheet

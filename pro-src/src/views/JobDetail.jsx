@@ -31,7 +31,8 @@ import JobInfoCard from "../components/JobInfoCard.jsx";
 import JobAddressCarousel from "../components/JobAddressCarousel.jsx";
 
 import JobEditSheet from "../components/JobEditSheet.jsx";
-import { cloneJobAtAddressPatch, jobsAtSameAddress } from "../lib/customerHierarchy.js";
+import { jobsAtSameAddress } from "../lib/customerHierarchy.js";
+import { changeOrderJobPatch } from "../lib/changeOrder.js";
 import {
   customerDisplayName,
   calendarServiceLocation,
@@ -116,12 +117,13 @@ export default function JobDetail() {
     return sortJobs(jobsAtSameAddress(jobs, job));
   }, [job, jobs]);
 
-  const addInvoiceAtAddress = async () => {
+  const addChangeOrder = async (kind) => {
     if (!job) return;
-    const patch = cloneJobAtAddressPatch(job);
+    const patch = changeOrderJobPatch(job, kind);
     const newId = await createJob(patch);
     if (newId) {
-      showToast("New job at this address — add invoice when ready");
+      const label = kind === "estimate" ? "Change order estimate" : "Change order invoice";
+      showToast(label + " added — open the " + (kind === "estimate" ? "estimate" : "invoice") + " tab when ready");
       nav("/job/" + newId + (fromCust ? "?from=" + encodeURIComponent(fromCust) : ""));
     }
   };
@@ -286,7 +288,8 @@ export default function JobDetail() {
             events={events}
             commands={commands}
             onSelectJob={(j) => nav("/job/" + j.id + (fromCust ? "?from=" + encodeURIComponent(fromCust) : ""))}
-            onNewInvoice={addInvoiceAtAddress}
+            onNewInvoice={() => addChangeOrder("invoice")}
+            onNewEstimate={() => addChangeOrder("estimate")}
             onEditJob={() => setSheet({ kind: "jobedit" })}
             onEstimate={(j) => openDocTab(j, "estimate", setSheet)}
             onInvoice={(j) => openDocTab(j, "invoice", setSheet)}
@@ -311,14 +314,24 @@ export default function JobDetail() {
           />
         )}
         {addressJobs.length === 1 ? (
-          <button
-            type="button"
-            className="w-full text-center text-xs font-semibold text-brand py-1 mt-1"
-            data-testid="add-invoice-same-address"
-            onClick={addInvoiceAtAddress}
-          >
-            ＋ New invoice at this address
-          </button>
+          <div className="flex gap-2 mt-1" data-testid="change-order-actions">
+            <button
+              type="button"
+              className="flex-1 text-center text-xs font-semibold text-brand py-1"
+              data-testid="add-change-order-invoice"
+              onClick={() => addChangeOrder("invoice")}
+            >
+              ＋ Change order invoice
+            </button>
+            <button
+              type="button"
+              className="flex-1 text-center text-xs font-semibold text-brand py-1"
+              data-testid="add-change-order-estimate"
+              onClick={() => addChangeOrder("estimate")}
+            >
+              ＋ Change order estimate
+            </button>
+          </div>
         ) : null}
       </div>
 

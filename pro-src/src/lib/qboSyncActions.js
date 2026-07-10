@@ -88,7 +88,11 @@ export async function runQboSync({
   }
 
   if (kind === "invoices") {
-    showToast(scope === "open" ? "Pulling open invoices…" : "Pulling all invoices…");
+    showToast(
+      scope === "open"
+        ? "Pulling open invoices — each becomes its own job…"
+        : "Pulling all invoices — each becomes its own job…"
+    );
     await pullOpenInvoices();
     if (scope === "all") {
       const n = await pullPaymentsFor(invoiceJobs(jobs));

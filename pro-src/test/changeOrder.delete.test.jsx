@@ -1,0 +1,85 @@
+// @vitest-environment jsdom
+import React from "react";
+import { afterEach, describe, expect, it } from "vitest";
+import { cleanup, screen, waitFor, within } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
+import "@testing-library/jest-dom/vitest";
+import { mockServer, renderApp } from "./helpers.jsx";
+import { changeOrderJobPatch } from "../src/lib/changeOrder.js";
+
+afterEach(() => {
+  cleanup();
+  localStorage.clear();
+  window.location.hash = "#/";
+});
+
+const BASE = {
+  id: "J-1",
+  customer: "Acme LLC",
+  qboCustomerId: "55",
+  serviceAddress: "10 Oak St",
+  apartment: "2A",
+  invoiceNo: "251100",
+  title: "Panel upgrade",
+};
+
+describe("changeOrderJobPatch", () => {
+  it("clones address + customer and tags change order kind", () => {
+    const inv = changeOrderJobPatch(BASE, "invoice");
+    expect(inv.changeOrder).toBe(true);
+    expect(inv.changeOrderKind).toBe("invoice");
+    expect(inv.invoiceNo).toBe("");
+    expect(inv.estimateNo).toBe("");
+    expect(inv.serviceAddress).toBe("10 Oak St");
+    expect(inv.title).toContain("Change order");
+
+    const est = changeOrderJobPatch(BASE, "estimate");
+    expect(est.changeOrderKind).toBe("estimate");
+    expect(est.estimateNo).toBe("");
+  });
+});
+
+describe("change order + delete UX", () => {
+  it("job detail shows change order invoice and estimate buttons", async () => {
+    mockServer({ jobs: [BASE] });
+    renderApp("#/job/J-1");
+    await screen.findByTestId("detail-pane");
+    expect(screen.getByTestId("add-change-order-invoice")).toBeInTheDocument();
+    expect(screen.getByTestId("add-change-order-estimate")).toBeInTheDocument();
+  });
+
+  it("customer view menu removes customer from app", async () => {
+    const srv = mockServer({
+      jobs: [
+        BASE,
+        { id: "J-2", customer: "Acme LLC", qboCustomerId: "55", estimateNo: "E-9", title: "Rough-in" },
+      ],
+    });
+    const user = userEvent.setup();
+    renderApp("#/customer/q:55");
+    await screen.findByTestId("customer-view");
+    await user.click(screen.getByTestId("customer-menu-btn"));
+    await user.click(screen.getByTestId("customer-delete-opt"));
+    await user.click(screen.getByTestId("delete-confirm-btn"));
+    await waitFor(() => {
+      const ov = srv.state.ov || {};
+      expect(Object.values(ov).filter((p) => p._deleted).length).toBeGreaterThan(0);
+    });
+  });
+
+  it("invoice tab trash removes one invoice job", async () => {
+    const srv = mockServer({
+      jobs: [
+        BASE,
+        { id: "J-2", customer: "Acme LLC", qboCustomerId: "55", invoiceNo: "251101", paid: true, title: "Extra" },
+      ],
+    });
+    const user = userEvent.setup();
+    renderApp("#/customer/q:55");
+    const view = await screen.findByTestId("customer-view");
+    await user.click(within(view).getByTestId("cust-tab-invoices"));
+    await user.click(screen.getByTestId("cust-inv-del-251100"));
+    await user.click(screen.getByTestId("delete-confirm-btn"));
+    await waitFor(() => expect(srv.state.ov["J-1"]?._deleted).toBe(true));
+  });
+});
