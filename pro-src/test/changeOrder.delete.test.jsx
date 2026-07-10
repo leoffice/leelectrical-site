@@ -71,7 +71,7 @@ describe("change order + delete UX", () => {
     });
   });
 
-  it("invoice tab trash removes one invoice job", async () => {
+  it("job edit delete removes one invoice job", async () => {
     const srv = mockServer({
       jobs: [
         BASE,
@@ -79,10 +79,10 @@ describe("change order + delete UX", () => {
       ],
     });
     const user = userEvent.setup();
-    renderApp("#/customer/q:55");
-    const view = await screen.findByTestId("customer-view");
-    await user.click(within(view).getByTestId("cust-tab-invoices"));
-    await user.click(screen.getByTestId("cust-inv-del-251100"));
+    renderApp("#/job/J-1");
+    await screen.findByTestId("detail-pane");
+    await user.click(screen.getByTestId("job-edit-btn"));
+    await user.click(screen.getByTestId("job-edit-delete"));
     await user.click(screen.getByTestId("delete-confirm-btn"));
     await waitFor(() => expect(srv.state.ov["J-1"]?._deleted).toBe(true));
   });

@@ -7,9 +7,6 @@ import {
   estimateButtonLabel,
   invoiceRowDetail,
 } from "../lib/customerDocLists.js";
-import { DeleteConfirmSheet } from "./JobSheets.jsx";
-import { deleteDocLabel } from "../lib/deleteDoc.js";
-import { useStore } from "../state/store.jsx";
 import { useLongPress } from "../lib/useLongPress.js";
 import ConnectDocSheet from "./ConnectDocSheet.jsx";
 
@@ -49,85 +46,59 @@ function DocRowButton({ className, onOpen, onLongPress, testId, children }) {
   );
 }
 
-function InvoiceRows({ list, activeJobId, fromCust, onOpen, onDeleteRequest, onConnectRequest }) {
+function InvoiceRows({ list, activeJobId, fromCust, onOpen, onConnectRequest }) {
   if (!list.length) return null;
   return list.map((j) => {
     const { no, address, amountLine, tone } = invoiceRowDetail(j);
     const active = j.id === activeJobId;
     return (
-      <div key={j.id} className="flex items-stretch gap-1 mb-1.5">
-        <DocRowButton
-          className={`${DOC_BTN} !mb-0 flex-1 min-w-0 ${toneClass(tone)} ${active ? "ring-2 ring-brand/40" : ""}`}
-          onOpen={() => onOpen(j)}
-          onLongPress={() => onConnectRequest?.(j, "invoice")}
-          testId={"cust-inv-" + no}
-        >
-          <span className="min-w-0 flex-1">
-            <span className="block">Invoice #{no}</span>
-            {address ? (
-              <span className="block text-[11px] font-normal opacity-85 truncate mt-0.5">{address}</span>
-            ) : null}
-          </span>
-          <span className="text-xs tabular-nums shrink-0 text-right leading-snug">{amountLine}</span>
-        </DocRowButton>
-        {onDeleteRequest ? (
-          <button
-            type="button"
-            className="shrink-0 w-9 rounded-xl border border-slate-200 bg-white text-slate-400 text-sm active:bg-red-50 active:text-red-600 active:border-red-200"
-            aria-label={"Remove invoice #" + no}
-            data-testid={"cust-inv-del-" + no}
-            onClick={() => onDeleteRequest(j)}
-          >
-            🗑
-          </button>
-        ) : null}
-      </div>
+      <DocRowButton
+        key={j.id}
+        className={`${DOC_BTN} ${toneClass(tone)} ${active ? "ring-2 ring-brand/40" : ""}`}
+        onOpen={() => onOpen(j)}
+        onLongPress={() => onConnectRequest?.(j, "invoice")}
+        testId={"cust-inv-" + no}
+      >
+        <span className="min-w-0 flex-1">
+          <span className="block">Invoice #{no}</span>
+          {address ? (
+            <span className="block text-[11px] font-normal opacity-85 truncate mt-0.5">{address}</span>
+          ) : null}
+        </span>
+        <span className="text-xs tabular-nums shrink-0 text-right leading-snug">{amountLine}</span>
+      </DocRowButton>
     );
   });
 }
 
-function EstimateRows({ list, activeJobId, onOpen, onDeleteRequest, onConnectRequest }) {
+function EstimateRows({ list, activeJobId, onOpen, onConnectRequest }) {
   if (!list.length) return null;
   return list.map((j) => {
     const { no, linked } = estimateButtonLabel(j);
     const active = j.id === activeJobId;
     const open = isOpenEstimate(j);
     return (
-      <div key={j.id} className="flex items-stretch gap-1 mb-1.5">
-        <DocRowButton
-          className={`${DOC_BTN} !mb-0 flex-1 min-w-0 ${
-            open ? "bg-slate-50 text-slate-700 border-slate-200" : "bg-emerald-50 text-emerald-800 border-emerald-200"
-          } ${active ? "ring-2 ring-brand/40" : ""}`}
-          onOpen={() => onOpen(j)}
-          onLongPress={() => onConnectRequest?.(j, "estimate")}
-          testId={"cust-est-" + no}
-        >
-          <span>
-            Estimate #{no}
-            {linked ? <span className="text-xs text-slate-400 font-normal">{linked}</span> : null}
-          </span>
-        </DocRowButton>
-        {onDeleteRequest ? (
-          <button
-            type="button"
-            className="shrink-0 w-9 rounded-xl border border-slate-200 bg-white text-slate-400 text-sm active:bg-red-50 active:text-red-600 active:border-red-200"
-            aria-label={"Remove estimate #" + no}
-            data-testid={"cust-est-del-" + no}
-            onClick={() => onDeleteRequest(j)}
-          >
-            🗑
-          </button>
-        ) : null}
-      </div>
+      <DocRowButton
+        key={j.id}
+        className={`${DOC_BTN} ${
+          open ? "bg-slate-50 text-slate-700 border-slate-200" : "bg-emerald-50 text-emerald-800 border-emerald-200"
+        } ${active ? "ring-2 ring-brand/40" : ""}`}
+        onOpen={() => onOpen(j)}
+        onLongPress={() => onConnectRequest?.(j, "estimate")}
+        testId={"cust-est-" + no}
+      >
+        <span>
+          Estimate #{no}
+          {linked ? <span className="text-xs text-slate-400 font-normal">{linked}</span> : null}
+        </span>
+      </DocRowButton>
     );
   });
 }
 
 export default function CustomerDocTabs({ jobs, activeJobId, fromCust = "" }) {
   const nav = useNavigate();
-  const { patchAndSave, showToast } = useStore();
   const [tab, setTab] = useState(null); // null = collapsed, or 'invoices'|'estimates'
-  const [deleteJob, setDeleteJob] = useState(null);
   const [connect, setConnect] = useState(null); // { job, kind }
 
   const allInv = invoiceJobs(jobs);
@@ -149,14 +120,6 @@ export default function CustomerDocTabs({ jobs, activeJobId, fromCust = "" }) {
   };
 
   const toggle = (t) => setTab((cur) => (cur === t ? null : t));
-
-  const requestDelete = (j) => setDeleteJob(j);
-  const confirmDelete = async () => {
-    if (!deleteJob) return;
-    await patchAndSave(deleteJob.id, { _deleted: true });
-    showToast("Removed from app");
-    setDeleteJob(null);
-  };
 
   return (
     <div className="space-y-2" data-testid="customer-doc-tabs">
@@ -188,7 +151,6 @@ export default function CustomerDocTabs({ jobs, activeJobId, fromCust = "" }) {
               activeJobId={activeJobId}
               fromCust={fromCust}
               onOpen={openJob}
-              onDeleteRequest={requestDelete}
               onConnectRequest={(j, kind) => setConnect({ job: j, kind })}
             />
           </DocSection>
@@ -198,7 +160,6 @@ export default function CustomerDocTabs({ jobs, activeJobId, fromCust = "" }) {
               activeJobId={activeJobId}
               fromCust={fromCust}
               onOpen={openJob}
-              onDeleteRequest={requestDelete}
               onConnectRequest={(j, kind) => setConnect({ job: j, kind })}
             />
           </DocSection>
@@ -212,7 +173,6 @@ export default function CustomerDocTabs({ jobs, activeJobId, fromCust = "" }) {
               list={openEst}
               activeJobId={activeJobId}
               onOpen={openJob}
-              onDeleteRequest={requestDelete}
               onConnectRequest={(j, kind) => setConnect({ job: j, kind })}
             />
           </DocSection>
@@ -221,7 +181,6 @@ export default function CustomerDocTabs({ jobs, activeJobId, fromCust = "" }) {
               list={closedEst}
               activeJobId={activeJobId}
               onOpen={openJob}
-              onDeleteRequest={requestDelete}
               onConnectRequest={(j, kind) => setConnect({ job: j, kind })}
             />
           </DocSection>
@@ -230,16 +189,6 @@ export default function CustomerDocTabs({ jobs, activeJobId, fromCust = "" }) {
 
       {connect ? (
         <ConnectDocSheet job={connect.job} pressedKind={connect.kind} onClose={() => setConnect(null)} />
-      ) : null}
-
-      {deleteJob ? (
-        <DeleteConfirmSheet
-          title={"Remove " + deleteDocLabel(deleteJob) + "?"}
-          note="Hides this job from your dashboard. QuickBooks stays unchanged."
-          confirmLabel="Remove"
-          onClose={() => setDeleteJob(null)}
-          onConfirm={confirmDelete}
-        />
       ) : null}
     </div>
   );
