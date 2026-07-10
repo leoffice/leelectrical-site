@@ -16,6 +16,8 @@ import { parseInvoiceEditIntent } from "../lib/invoiceEditIntent.js";
 import ChatImageActionSheet from "./ChatImageActionSheet.jsx";
 import ChatJobUpdateSheet from "./ChatJobUpdateSheet.jsx";
 import ChatPaymentConfirmSheet from "./ChatPaymentConfirmSheet.jsx";
+import ChatReplyButtons from "./ChatReplyButtons.jsx";
+import { parseReplyButtons } from "../lib/chatReplyButtons.js";
 import { LE_PRO_CONVO, clearLegacyDeviceConvo, legacyDeviceConvo } from "../lib/chatConvo.js";
 import { appendPayment } from "../lib/payments.js";
 import { paymentAutofillPatch } from "../lib/paymentAutofill.js";
@@ -585,6 +587,70 @@ export default function ChatBubble() {
     [jobId, activeJob, patchAndSave, showToast]
   );
 
+  const postChatText = useCallback(
+    async (t, { skipSlash = false, skipInvoiceEdit = false } = {}) => {
+      const trimmed = String(t || "").trim();
+      if (!trimmed) return;
+      if (!skipSlash) {
+        const slash = parseChatSlash(trimmed);
+        if (slash) {
+          const handled = await runSlash(slash);
+          if (handled) return;
+        }
+      }
+      if (!skipInvoiceEdit && (await tryInvoiceEditFromBubble(trimmed))) {
+        const full = chatCtx() + trimmed;
+        const msg = { id: "m" + Date.now(), who: "you", text: full, status: "Sent", _local: true };
+        localMsgs.current = [...localMsgs.current, msg];
+        setMsgs((ms) => [...ms, msg]);
+        try {
+          await api.chatSend(convo.current, msg.id, full);
+        } catch {}
+        return;
+      }
+      stickRef.current = true;
+      const full = chatCtx() + trimmed;
+      setCtxOn(true);
+      const msg = { id: "m" + Date.now(), who: "you", text: full, status: "Sent", _local: true };
+      localMsgs.current = [...localMsgs.current, msg];
+      setMsgs((ms) => [...ms, msg]);
+      let ok = false;
+      try {
+        await api.chatSend(convo.current, msg.id, full);
+        ok = true;
+      } catch {
+        try {
+          await api.chatSend(convo.current, msg.id, full);
+          ok = true;
+        } catch {}
+      }
+      if (!ok) {
+        showToast("Send failed — check your connection and try again");
+        localMsgs.current = localMsgs.current.map((m) =>
+          m.id === msg.id ? { ...m, status: "Not sent" } : m
+        );
+        setMsgs((ms) => ms.map((m) => (m.id === msg.id ? { ...m, status: "Not sent" } : m)));
+        return;
+      }
+      api
+        .iterate(full, "pro-bubble:" + convo.current, {
+          view,
+          jobId: jobId || "",
+          pathname: loc.pathname,
+        })
+        .catch(() => {});
+      poll();
+    },
+    [api, chatCtx, jobId, loc.pathname, poll, runSlash, showToast, tryInvoiceEditFromBubble, view]
+  );
+
+  const pickReplyButton = useCallback(
+    (button) => {
+      postChatText(button.replyText || button.label || "A", { skipSlash: true, skipInvoiceEdit: true });
+    },
+    [postChatText]
+  );
+
   const send = async () => {
     const t = text.trim();
     if (!t) return;
@@ -594,56 +660,9 @@ export default function ChatBubble() {
       const handled = await runSlash(slash);
       if (handled) return;
     }
-    if (await tryInvoiceEditFromBubble(t)) {
-      setText("");
-      requestAnimationFrame(resizeInput);
-      const full = chatCtx() + t;
-      const msg = { id: "m" + Date.now(), who: "you", text: full, status: "Sent", _local: true };
-      localMsgs.current = [...localMsgs.current, msg];
-      setMsgs((ms) => [...ms, msg]);
-      try {
-        await api.chatSend(convo.current, msg.id, full);
-      } catch {}
-      return;
-    }
     setText("");
     requestAnimationFrame(resizeInput);
-    stickRef.current = true;
-    const full = chatCtx() + t;
-    setCtxOn(true);
-
-    // Optimistic render — shows immediately with status "Sent".
-    const msg = { id: "m" + Date.now(), who: "you", text: full, status: "Sent", _local: true };
-    localMsgs.current = [...localMsgs.current, msg];
-    setMsgs((ms) => [...ms, msg]);
-
-    let ok = false;
-    try {
-      await api.chatSend(convo.current, msg.id, full);
-      ok = true;
-    } catch {
-      try {
-        await api.chatSend(convo.current, msg.id, full); // retry once
-        ok = true;
-      } catch {}
-    }
-    if (!ok) {
-      showToast("Send failed — check your connection and try again");
-      localMsgs.current = localMsgs.current.map((m) =>
-        m.id === msg.id ? { ...m, status: "Not sent" } : m
-      );
-      setMsgs((ms) => ms.map((m) => (m.id === msg.id ? { ...m, status: "Not sent" } : m)));
-      return;
-    }
-    // Nudge Dispatch — a failed nudge must not mark the message unsent.
-    api
-      .iterate(full, "pro-bubble:" + convo.current, {
-        view,
-        jobId: jobId || "",
-        pathname: loc.pathname,
-      })
-      .catch(() => {});
-    poll();
+    await postChatText(t);
   };
 
   /* mic with level animation (Web Speech API + analyser) */
@@ -751,24 +770,34 @@ export default function ChatBubble() {
             className="flex-1 overflow-y-auto lg-scroll-hidden p-3 min-h-[120px]"
           >
             {msgs.length ? (
-              msgs.map((m, i) => (
-                <div
-                  key={m.id || i}
-                  className={`max-w-[82%] rounded-2xl px-3 py-2 text-sm mb-2 ${
-                    isAgentMsg(m)
-                      ? "bg-slate-100 rounded-bl-md"
-                      : "bg-brand text-white ml-auto rounded-br-md"
-                  }`}
-                >
-                  {m.imageUrl ? (
-                    <img src={m.imageUrl} alt="" className="rounded-lg max-h-28 mb-1 object-contain bg-white/10" />
-                  ) : null}
-                  {m.text}
-                  <span className="block text-[10px] opacity-70 mt-0.5 text-right" data-testid="msg-meta">
-                    {isAgentMsg(m) ? "Israel" : statusLabel(m.status)}
-                  </span>
-                </div>
-              ))
+              msgs.map((m, i) => {
+                const parsed = isAgentMsg(m) ? parseReplyButtons(m.text) : { body: m.text, buttons: [] };
+                return (
+                  <div
+                    key={m.id || i}
+                    className={`max-w-[82%] min-w-0 rounded-2xl px-3 py-2 text-sm mb-2 ${
+                      isAgentMsg(m)
+                        ? "bg-slate-100 rounded-bl-md"
+                        : "bg-brand text-white ml-auto rounded-br-md"
+                    }`}
+                  >
+                    {m.imageUrl ? (
+                      <img src={m.imageUrl} alt="" className="rounded-lg max-h-28 mb-1 object-contain bg-white/10" />
+                    ) : null}
+                    {parsed.body}
+                    {parsed.buttons.length ? (
+                      <ChatReplyButtons
+                        buttons={parsed.buttons}
+                        onPick={pickReplyButton}
+                        showLetters={!!parsed.buttons[0]?.letter}
+                      />
+                    ) : null}
+                    <span className="block text-[10px] opacity-70 mt-0.5 text-right" data-testid="msg-meta">
+                      {isAgentMsg(m) ? "Israel" : statusLabel(m.status)}
+                    </span>
+                  </div>
+                );
+              })
             ) : (
               <div className="text-sm text-slate-400 text-center py-5">
                 Say hi — I'm listening. Messages include page context automatically.

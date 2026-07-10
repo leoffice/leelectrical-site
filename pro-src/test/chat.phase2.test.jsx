@@ -18,6 +18,28 @@ afterEach(() => {
   window.location.hash = "#/";
 });
 
+describe("Phase 2 — inline reply buttons", () => {
+  it("renders parallel tap buttons on Israel replies with ---BUTTONS---", async () => {
+    mockServer({
+      messages: [
+        {
+          id: "r1",
+          who: "israel",
+          text: "Pick one:\n\n---BUTTONS---\nRecord payment | pay\nOpen job | open\nCancel | cancel",
+          status: "",
+          ts: 2,
+        },
+      ],
+    });
+    renderApp("#/");
+    fireEvent.click(screen.getByTestId("chat-fab"));
+    await waitFor(() => expect(screen.getByTestId("chat-reply-buttons")).toBeInTheDocument());
+    expect(screen.getByTestId("chat-reply-btn-0")).toHaveTextContent("Record payment");
+    expect(screen.getByTestId("chat-reply-btn-1")).toHaveTextContent("Open job");
+    expect(screen.queryByText(/---BUTTONS---/)).not.toBeInTheDocument();
+  });
+});
+
 describe("Phase 2 — inline Dispatch replies", () => {
   it("renders a claude/dispatch reply inline in the thread", async () => {
     mockServer({

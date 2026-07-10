@@ -1,6 +1,7 @@
 // Tap-to-confirm actions after reading an image (same skill as Telegram buttons / A B C).
 import React from "react";
 import Sheet from "./Sheet.jsx";
+import ChatReplyButtons from "./ChatReplyButtons.jsx";
 
 export default function ChatImageActionSheet({ draft, onPick, onCancel }) {
   if (!draft) return null;
@@ -17,18 +18,19 @@ export default function ChatImageActionSheet({ draft, onPick, onCancel }) {
           className="rounded-xl border border-slate-200 max-h-32 object-contain mb-3 w-full bg-slate-50"
         />
       ) : null}
-      <div className="space-y-2 mb-2">
-        {(actions || []).map((a, i) => (
-          <button
-            key={a.id || i}
-            type="button"
-            className="btn bg-brand text-white w-full text-left"
-            onClick={() => onPick(a)}
-            data-testid={"chat-image-action-" + (a.id || i)}
-          >
-            {String.fromCharCode(65 + i)} — {a.label}
-          </button>
-        ))}
+      <div className="mb-2">
+        <ChatReplyButtons
+          buttons={(actions || []).map((a, i) => ({
+            ...a,
+            label: a.label,
+            id: a.id || String(i),
+            letter: String.fromCharCode(65 + i),
+            replyText: String.fromCharCode(65 + i),
+          }))}
+          onPick={(b) => onPick(b)}
+          testIdPrefix="chat-image-action"
+          showLetters
+        />
       </div>
       <button
         type="button"
