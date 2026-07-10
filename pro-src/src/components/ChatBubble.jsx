@@ -35,6 +35,13 @@ import {
   parsePaymentMethodHint,
 } from "../lib/chatPayment.js";
 import { findJobByInvoice } from "../lib/zelleReconcile.js";
+import {
+  buildChatFileLine,
+  isImageFile,
+  isTextFile,
+  readTextExcerpt,
+  uploadChatAttachment,
+} from "../lib/chatAttach.js";
 const ONLINE_MS = 4 * 60_000; // israel-heartbeat (or last reply) younger than this = online
 const STUCK_MS = 90_000; // a "Working on it" we've watched longer than this stops looking like a live spinner
 const NEAR_BOTTOM_PX = 48; // within this distance of the bottom we auto-scroll on new messages
@@ -362,11 +369,60 @@ export default function ChatBubble() {
     showToast("Type a name and number — contact picker needs Chrome on Android");
   }, [showToast]);
 
-  const onChatImage = useCallback(
+  const sendChatFile = useCallback(
+    async (file) => {
+      setImageBusy(true);
+      try {
+        const excerpt = await readTextExcerpt(file);
+        let fileUrl = "";
+        if (!excerpt || !isTextFile(file)) {
+          fileUrl = await uploadChatAttachment(file);
+        }
+        const line = buildChatFileLine(file, { fileUrl, excerpt });
+        const full = chatCtx() + line;
+        const msg = {
+          id: "m-file-" + Date.now(),
+          who: "you",
+          text: full,
+          status: "Sent",
+          _local: true,
+          fileName: file.name,
+          fileUrl: fileUrl || undefined,
+        };
+        localMsgs.current = [...localMsgs.current, msg];
+        setMsgs((ms) => [...ms, msg]);
+        await api.chatSend(convo.current, msg.id, full);
+        api
+          .iterate(full, "pro-bubble:" + convo.current, {
+            view,
+            jobId: jobId || "",
+            pathname: loc.pathname,
+            hasFile: true,
+            fileName: file.name,
+            fileType: file.type || "",
+            fileUrl,
+          })
+          .catch(() => {});
+        showToast("File attached — sent to Israel");
+        poll();
+      } catch {
+        showToast("Could not attach that file");
+      } finally {
+        setImageBusy(false);
+      }
+    },
+    [api, chatCtx, jobId, loc.pathname, poll, showToast, view]
+  );
+
+  const onChatAttach = useCallback(
     async (e) => {
       const file = e.target.files?.[0];
       if (imageInputRef.current) imageInputRef.current.value = "";
       if (!file) return;
+      if (!isImageFile(file)) {
+        await sendChatFile(file);
+        return;
+      }
       setImageBusy(true);
       try {
         const b64 = await fileToBase64(file);
@@ -430,7 +486,7 @@ export default function ChatBubble() {
         setImageBusy(false);
       }
     },
-    [activeJob, chatCtx, jobs, showToast, text]
+    [activeJob, jobs, sendChatFile, showToast, text]
   );
 
   const confirmImageAction = useCallback(
@@ -836,6 +892,19 @@ export default function ChatBubble() {
                   >
                     {m.imageUrl ? (
                       <img src={m.imageUrl} alt="" className="rounded-lg max-h-28 mb-1 object-contain bg-white/10" />
+                    ) : m.fileName ? (
+                      m.fileUrl ? (
+                        <a
+                          href={m.fileUrl}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="block text-[11px] font-semibold underline mb-1 opacity-90"
+                        >
+                          📎 {m.fileName}
+                        </a>
+                      ) : (
+                        <span className="block text-[11px] font-semibold mb-1 opacity-90">📎 {m.fileName}</span>
+                      )
                     ) : null}
                     {parsed.body}
                     {parsed.buttons.length ? (
@@ -932,24 +1001,23 @@ export default function ChatBubble() {
           <input
             ref={imageInputRef}
             type="file"
-            accept="image/*"
             className="hidden"
-            onChange={onChatImage}
-            data-testid="chat-image-input"
+            onChange={onChatAttach}
+            data-testid="chat-file-input"
           />
           <div className="flex items-end gap-2 p-3 border-t border-slate-200">
             <button
               type="button"
               onClick={() => imageInputRef.current?.click()}
               disabled={imageBusy}
-              aria-label="Attach image"
+              aria-label="Attach file"
               className="w-9 h-9 rounded-full bg-slate-100 shrink-0 text-base"
-              data-testid="chat-attach-image"
+              data-testid="chat-attach-file"
             >
               {imageBusy ? (
                 <span className="inline-block w-4 h-4 border-2 border-slate-300 border-t-brand rounded-full animate-spin" />
               ) : (
-                "📷"
+                "📎"
               )}
             </button>
             <textarea
