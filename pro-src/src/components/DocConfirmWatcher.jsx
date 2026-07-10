@@ -7,7 +7,7 @@ import {
   persistDocConfirmSeen,
   shouldShowDocConfirm,
 } from "../lib/docConfirm.js";
-import { DOC_SYNC_COMMAND_TYPES } from "../lib/docSync.js";
+import { DOC_SYNC_COMMAND_TYPES, docSyncFailurePatch } from "../lib/docSync.js";
 import { todayStr } from "../lib/format.js";
 
 const DOC_FAIL_SEEN_KEY = "le-pro-doc-fail-seen";
@@ -97,6 +97,15 @@ export default function DocConfirmWatcher() {
       if (!DOC_SYNC_COMMAND_TYPES.includes(c.type) || c.status !== "failed") continue;
       failSeen.current.add(c.id);
       persistDocFailSeen(failSeen.current);
+      if (c.jobId) {
+        const kind = c.type.includes("estimate") ? "estimate" : "invoice";
+        const job = effectiveJob(c.jobId) || {};
+        const hasDoc =
+          kind === "estimate"
+            ? !!(job.estimateNo || job._estimateConfirmed)
+            : !!(job.invoiceNo || job._invoiceConfirmed);
+        if (!hasDoc) patchAndSave(c.jobId, docSyncFailurePatch(c.type)).catch(() => {});
+      }
       showToast(docFailToastMessage(c));
     }
   }, [commands, effectiveJob, patchAndSave, showDocConfirm, showToast]);

@@ -1,5 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { docSyncFailedForJob, docSyncPendingForJob, planDocSaveLocal, planDocSaveSync } from "../src/lib/docSync.js";
+import {
+  docSyncFailedForJob,
+  docSyncFailurePatch,
+  docSyncPendingForJob,
+  planDocSaveLocal,
+  planDocSaveSync,
+} from "../src/lib/docSync.js";
 
 const job = {
   id: "J-SYNC",
@@ -61,6 +67,26 @@ describe("docSync", () => {
     expect(plan.jobPatch.serviceAddress).toBe("12 Pine St");
     expect(plan.jobPatch.estimateLines[0].unitPrice).toBe(600);
     expect(plan.jobPatch.status.Estimate.s).toBe("done");
+  });
+
+  it("docSyncFailurePatch clears pipeline step on failed sync", () => {
+    expect(docSyncFailurePatch("create_estimate")).toEqual({ status: { Estimate: { s: "", d: "" } } });
+    expect(docSyncFailurePatch("create_invoice")).toEqual({ status: { Invoiced: { s: "", d: "" } } });
+  });
+
+  it("planDocSaveSync does not mark pipeline done until QuickBooks confirms", () => {
+    const lines = [{ itemName: "Labor", qty: 1, unitPrice: 600, description: "Work" }];
+    const plan = planDocSaveSync(job, {
+      kind: "estimate",
+      mode: "create",
+      lines,
+      serviceAddress: "12 Pine St",
+      apartment: "4B",
+      send: false,
+    });
+    expect(plan.jobPatch.status).toBeUndefined();
+    expect(plan.jobPatch.estimateLines[0].unitPrice).toBe(600);
+    expect(plan.commands[0].type).toBe("create_estimate");
   });
 
   it("planDocSaveSync on invoice edit enqueues linked estimate address update", () => {

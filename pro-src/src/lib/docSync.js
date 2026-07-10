@@ -61,18 +61,28 @@ function statusPatch(kind) {
     : { Invoiced: { s: "done", d: todayStr() } };
 }
 
-function buildDocJobPatch(job, { kind, mode, lines, serviceAddress, apartment }) {
+/** Revert optimistic pipeline step when a QuickBooks doc sync fails. */
+export function docSyncFailurePatch(commandType) {
+  const t = String(commandType || "");
+  return t.includes("estimate")
+    ? { status: { Estimate: { s: "", d: "" } } }
+    : { status: { Invoiced: { s: "", d: "" } } };
+}
+
+function buildDocJobPatch(job, { kind, mode, lines, serviceAddress, apartment, markDone }) {
   const valid = lines || [];
   const total = linesTotal(valid);
   const jobPatch = {
     ...sharedAddressFields(serviceAddress, apartment),
     amount: fmt$(total),
     [kind === "estimate" ? "estimateLines" : "invoiceLines"]: valid,
-    status: statusPatch(kind),
   };
 
-  if (kind === "invoice" && mode === "turn_from_estimate") {
-    jobPatch.status = { ...jobPatch.status, Accepted: { s: "done", d: todayStr() } };
+  if (markDone) {
+    jobPatch.status = statusPatch(kind);
+    if (kind === "invoice" && mode === "turn_from_estimate") {
+      jobPatch.status = { ...jobPatch.status, Accepted: { s: "done", d: todayStr() } };
+    }
   }
 
   return { valid, total, jobPatch };
@@ -80,13 +90,13 @@ function buildDocJobPatch(job, { kind, mode, lines, serviceAddress, apartment })
 
 /** Plan local job patch only — Save & close (no QuickBooks commands). */
 export function planDocSaveLocal(job, { kind, mode, lines, serviceAddress, apartment }) {
-  const { jobPatch } = buildDocJobPatch(job, { kind, mode, lines, serviceAddress, apartment });
+  const { jobPatch } = buildDocJobPatch(job, { kind, mode, lines, serviceAddress, apartment, markDone: true });
   return { jobPatch };
 }
 
 /** Plan local job patch + command bus enqueue for Save & sync (incl. linked doc address sync). */
 export function planDocSaveSync(job, { kind, mode, lines, serviceAddress, apartment, progressPct, send }) {
-  const { valid, jobPatch } = buildDocJobPatch(job, { kind, mode, lines, serviceAddress, apartment });
+  const { valid, jobPatch } = buildDocJobPatch(job, { kind, mode, lines, serviceAddress, apartment, markDone: false });
   const primaryPayload = buildDocCommandPayload(job, {
     kind,
     lines: valid,

@@ -6,6 +6,7 @@ import { DEFAULT_QBO_ITEMS, filterQboItems } from "../data/qboItems.js";
 import { serviceAddressHint, serviceAddressLabel } from "../lib/customerSync.js";
 import { emptyLine, initialLines, lineAmount, linesTotal } from "../lib/qboDoc.js";
 import { planDocSaveLocal, planDocSaveSync } from "../lib/docSync.js";
+import { enqueueCustomerQboSync } from "../lib/customerQboEnqueue.js";
 import { fmt$ } from "../lib/format.js";
 
 function LineRow({ line, index, items, onChange, onRemove, canRemove }) {
@@ -220,6 +221,13 @@ export default function DocBuilderSheet({
       });
 
       await patchAndSave(job.id, jobPatch);
+
+      const needsCustomer =
+        mode !== "edit" && !String(job.qboCustomerId || "").trim();
+      if (needsCustomer) {
+        enqueueCustomerQboSync(enqueue, job.id, job, "");
+      }
+
       for (let i = 0; i < commands.length; i++) {
         const cmd = commands[i];
         const payload = { ...cmd.payload, attachments: i === 0 ? attachments : [] };
@@ -260,8 +268,10 @@ export default function DocBuilderSheet({
 
       showToast(
         send
-          ? "Queued — syncing to QuickBooks & sending to " + job.email
-          : "Queued — Save & sync to QuickBooks"
+          ? "Sending to QuickBooks and emailing " + job.email + "…"
+          : needsCustomer
+          ? "Creating customer in QuickBooks, then sending your " + (kind === "estimate" ? "estimate" : "invoice") + "…"
+          : "Sending " + (kind === "estimate" ? "estimate" : "invoice") + " to QuickBooks…"
       );
       onDone && onDone();
       onClose();

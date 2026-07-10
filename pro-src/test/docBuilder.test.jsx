@@ -47,7 +47,8 @@ describe("Estimate / invoice builder", () => {
     expect(cmd.payload.serviceAddress).toBe("10 Broadway");
     expect(cmd.payload.shipAddr.Line2).toBe("2A");
     expect(cmd.payload.lines.length).toBeGreaterThan(0);
-    expect(srv.state.ov["J-EST"].status.Estimate.s).toBe("done");
+    expect(srv.state.ov["J-EST"].status?.Estimate?.s).not.toBe("done");
+    expect(srv.state.ov["J-EST"].estimateLines?.length).toBeGreaterThan(0);
   });
 
   it("Save & close saves locally without enqueueing QuickBooks commands", async () => {
@@ -76,6 +77,33 @@ describe("Estimate / invoice builder", () => {
     await waitFor(() => expect(srv.state.ov["J-LOCAL"].status.Estimate.s).toBe("done"));
     expect(srv.enqueued("create_estimate")).toHaveLength(0);
     expect(srv.state.ov["J-LOCAL"].estimateLines?.length).toBeGreaterThan(0);
+  });
+
+  it("Save & sync enqueues create_customer when job has no QuickBooks link", async () => {
+    const srv = mockServer({
+      jobs: [
+        {
+          id: "J-NOQBO",
+          customer: "Fresh Client",
+          title: "Panel",
+          email: "fresh@x.com",
+          serviceAddress: "1 Main",
+          amount: "$900",
+          paid: false,
+          status: { Lead: { s: "done" }, "Site Visit": { s: "done" } },
+        },
+      ],
+    });
+    const user = userEvent.setup();
+    renderApp("#/job/J-NOQBO");
+    const pane = await screen.findByTestId("detail-pane");
+
+    await user.click(within(pane).getByTestId("progress-step-Estimate"));
+    await user.click(within(pane).getByTestId("generate-estimate"));
+    await user.click(screen.getByTestId("doc-save-sync"));
+
+    await waitFor(() => expect(srv.enqueued("create_customer")).toHaveLength(1));
+    expect(srv.enqueued("create_estimate")).toHaveLength(1);
   });
 
   it("Save & sync & send flags create_estimate to email the customer", async () => {
