@@ -8,8 +8,8 @@ export default function JobAddressCarousel({
   events,
   commands,
   onSelectJob,
-  onNewInvoice,
-  onNewEstimate,
+  onAddChangeOrder,
+  canAddChangeOrder = true,
   onEstimate,
   onInvoice,
   onPayment,
@@ -56,7 +56,7 @@ export default function JobAddressCarousel({
 
   if (!list.length) return null;
   const multi = list.length > 1;
-  const job = list[index] || list[0];
+  const showAddPeek = canAddChangeOrder && onAddChangeOrder;
 
   return (
     <div className="space-y-2" data-testid="job-address-carousel">
@@ -75,13 +75,15 @@ export default function JobAddressCarousel({
                 onClick={() => scrollToIndex(i)}
               />
             ))}
-            <button
-              type="button"
-              className="w-2 h-2 rounded-sm border border-dashed border-slate-300 bg-slate-50"
-              aria-label="Add job at this address"
-              data-testid="carousel-add-slot"
-              onClick={onNewInvoice}
-            />
+            {showAddPeek ? (
+              <button
+                type="button"
+                className="w-2 h-2 rounded-sm border border-dashed border-slate-300 bg-slate-50"
+                aria-label="Add change order at this address"
+                data-testid="carousel-add-slot"
+                onClick={onAddChangeOrder}
+              />
+            ) : null}
           </div>
         </div>
       ) : null}
@@ -94,7 +96,7 @@ export default function JobAddressCarousel({
         onScroll={multi ? onScroll : undefined}
         data-testid="job-address-scroll"
       >
-        {list.map((j, i) => (
+        {list.map((j) => (
           <div
             key={j.id}
             className={`snap-start shrink-0 ${multi ? "w-[88%] max-w-[88%]" : "w-full"}`}
@@ -115,43 +117,18 @@ export default function JobAddressCarousel({
             />
           </div>
         ))}
-        {multi ? (
+        {multi && showAddPeek ? (
           <button
             type="button"
             className="snap-start shrink-0 w-[10%] min-w-[2.5rem] rounded-xl border-2 border-dashed border-slate-200 bg-slate-50/80 flex items-center justify-center text-slate-400 text-lg active:bg-slate-100"
-            aria-label="New invoice at this address"
+            aria-label="Add change order at this address"
             data-testid="carousel-add-peek"
-            onClick={onNewInvoice}
+            onClick={onAddChangeOrder}
           >
             +
           </button>
         ) : null}
       </div>
-
-      {onNewInvoice || onNewEstimate ? (
-        <div className="flex gap-2" data-testid="change-order-actions">
-          {onNewInvoice ? (
-            <button
-              type="button"
-              className="flex-1 text-center text-xs font-semibold text-brand py-1"
-              data-testid="add-change-order-invoice"
-              onClick={onNewInvoice}
-            >
-              ＋ Change order invoice
-            </button>
-          ) : null}
-          {onNewEstimate ? (
-            <button
-              type="button"
-              className="flex-1 text-center text-xs font-semibold text-brand py-1"
-              data-testid="add-change-order-estimate"
-              onClick={onNewEstimate}
-            >
-              ＋ Change order estimate
-            </button>
-          ) : null}
-        </div>
-      ) : null}
     </div>
   );
 }

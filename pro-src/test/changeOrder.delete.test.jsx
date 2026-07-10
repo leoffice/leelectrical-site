@@ -25,27 +25,31 @@ const BASE = {
 
 describe("changeOrderJobPatch", () => {
   it("clones address + customer and tags change order kind", () => {
-    const inv = changeOrderJobPatch(BASE, "invoice");
+    const inv = changeOrderJobPatch(BASE, "invoice", [BASE]);
     expect(inv.changeOrder).toBe(true);
     expect(inv.changeOrderKind).toBe("invoice");
+    expect(inv.changeOrderLabel).toBe("251100-CO-1");
     expect(inv.invoiceNo).toBe("");
     expect(inv.estimateNo).toBe("");
     expect(inv.serviceAddress).toBe("10 Oak St");
     expect(inv.title).toContain("Change order");
 
-    const est = changeOrderJobPatch(BASE, "estimate");
+    const est = changeOrderJobPatch(BASE, "estimate", [BASE]);
     expect(est.changeOrderKind).toBe("estimate");
+    expect(est.changeOrderLabel).toBe("251100-CO-1");
     expect(est.estimateNo).toBe("");
   });
 });
 
 describe("change order + delete UX", () => {
-  it("job detail shows change order invoice and estimate buttons", async () => {
+  it("job detail shows single add change order button + picker", async () => {
     mockServer({ jobs: [BASE] });
+    const user = userEvent.setup();
     renderApp("#/job/J-1");
     await screen.findByTestId("detail-pane");
-    expect(screen.getByTestId("add-change-order-invoice")).toBeInTheDocument();
-    expect(screen.getByTestId("add-change-order-estimate")).toBeInTheDocument();
+    await user.click(screen.getByTestId("add-change-order-btn"));
+    expect(await screen.findByTestId("co-pick-invoice")).toBeInTheDocument();
+    expect(screen.getByTestId("co-pick-estimate")).toBeInTheDocument();
   });
 
   it("customer view menu removes customer from app", async () => {

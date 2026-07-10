@@ -1,12 +1,14 @@
-// Edit job title + service address; shows other invoices at the same address.
+// Edit job title + service address; archive / delete with confirm.
 import React, { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useStore } from "../state/store.jsx";
-import Sheet, { Fld } from "./Sheet.jsx";
+import Sheet, { Fld, Opt } from "./Sheet.jsx";
+import { DeleteConfirmSheet } from "./JobSheets.jsx";
 import { jobsAtSameAddress } from "../lib/customerHierarchy.js";
 import { sortJobs } from "../lib/stages.js";
 import { fmtAmountDue, openBalance } from "../lib/customers.js";
 import { fmt$ } from "../lib/format.js";
+import { deleteDocLabel } from "../lib/deleteDoc.js";
 
 export default function JobEditSheet({ job, fromCust = "", onClose }) {
   const { jobs, patchAndSave, showToast } = useStore();
@@ -14,6 +16,7 @@ export default function JobEditSheet({ job, fromCust = "", onClose }) {
   const [title, setTitle] = useState(job.title || "");
   const [serviceAddress, setServiceAddress] = useState(job.serviceAddress || job.address || "");
   const [apartment, setApartment] = useState(job.apartment || "");
+  const [confirm, setConfirm] = useState(null); // 'archive' | 'delete'
 
   const sameAddr = sortJobs(jobsAtSameAddress(jobs, job).filter((j) => j.id !== job.id));
 
@@ -28,11 +31,54 @@ export default function JobEditSheet({ job, fromCust = "", onClose }) {
     onClose();
   };
 
+  const goBack = () => {
+    if (fromCust) nav("/customer/" + encodeURIComponent(fromCust));
+    else nav("/");
+  };
+
+  const archive = async () => {
+    await patchAndSave(job.id, { _archived: true });
+    showToast("Archived");
+    onClose();
+    goBack();
+  };
+
+  const remove = async () => {
+    await patchAndSave(job.id, { _deleted: true });
+    showToast("Removed from app");
+    onClose();
+    goBack();
+  };
+
   const openJob = (j) => {
     onClose();
     const q = fromCust ? "?from=" + encodeURIComponent(fromCust) : "";
     nav("/job/" + j.id + q);
   };
+
+  if (confirm === "archive") {
+    return (
+      <DeleteConfirmSheet
+        title="Archive this job?"
+        note="Moves to the Archive tab — restore anytime. QuickBooks stays unchanged."
+        confirmLabel="Archive"
+        onClose={() => setConfirm(null)}
+        onConfirm={archive}
+      />
+    );
+  }
+
+  if (confirm === "delete") {
+    return (
+      <DeleteConfirmSheet
+        title={"Remove " + deleteDocLabel(job) + "?"}
+        note="Hides from your dashboard. QuickBooks stays unchanged."
+        confirmLabel="Remove"
+        onClose={() => setConfirm(null)}
+        onConfirm={remove}
+      />
+    );
+  }
 
   return (
     <Sheet title="Edit job information" onClose={onClose}>
@@ -75,9 +121,12 @@ export default function JobEditSheet({ job, fromCust = "", onClose }) {
         </div>
       ) : null}
 
-      <button type="button" className="btn-brand w-full" onClick={save} data-testid="job-edit-save">
+      <button type="button" className="btn-brand w-full mb-3" onClick={save} data-testid="job-edit-save">
         Save
       </button>
+
+      <Opt icon="📦" title="Archive job" note="Moves to Archive tab; restore anytime" onClick={() => setConfirm("archive")} data-testid="job-edit-archive" />
+      <Opt icon="🗑️" danger title="Remove from dashboard" note="Never touches QuickBooks" onClick={() => setConfirm("delete")} data-testid="job-edit-delete" />
     </Sheet>
   );
 }

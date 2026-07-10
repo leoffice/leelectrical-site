@@ -31,8 +31,13 @@ import JobInfoCard from "../components/JobInfoCard.jsx";
 import JobAddressCarousel from "../components/JobAddressCarousel.jsx";
 
 import JobEditSheet from "../components/JobEditSheet.jsx";
-import { jobsAtSameAddress } from "../lib/customerHierarchy.js";
-import { changeOrderJobPatch } from "../lib/changeOrder.js";
+
+import {
+  canAddChangeOrder,
+  carouselVisibleJobs,
+  changeOrderJobPatch,
+} from "../lib/changeOrder.js";
+import ChangeOrderSheet from "../components/ChangeOrderSheet.jsx";
 import {
   customerDisplayName,
   calendarServiceLocation,
@@ -114,17 +119,24 @@ export default function JobDetail() {
   const siblingJobs = useMemo(() => customerJobs.filter((j) => j.id !== job?.id), [customerJobs, job?.id]);
   const addressJobs = useMemo(() => {
     if (!job) return [];
-    return sortJobs(jobsAtSameAddress(jobs, job));
+    return sortJobs(carouselVisibleJobs(jobs, job));
   }, [job, jobs]);
 
-  const addChangeOrder = async (kind) => {
+  const startChangeOrder = async (kind) => {
     if (!job) return;
-    const patch = changeOrderJobPatch(job, kind);
+    if (!canAddChangeOrder(jobs, job)) {
+      showToast("Finish the open change order first — save, email, and confirm in QuickBooks");
+      return;
+    }
+    setSheet(null);
+    const patch = changeOrderJobPatch(job, kind, jobs);
     const newId = await createJob(patch);
     if (newId) {
       const label = kind === "estimate" ? "Change order estimate" : "Change order invoice";
-      showToast(label + " added — open the " + (kind === "estimate" ? "estimate" : "invoice") + " tab when ready");
-      nav("/job/" + newId + (fromCust ? "?from=" + encodeURIComponent(fromCust) : ""));
+      showToast(label + " started — fill in the description and send when ready");
+      const q = fromCust ? "?from=" + encodeURIComponent(fromCust) : "";
+      nav("/job/" + newId + q);
+      setSheet({ kind: "docBuild", docKind: kind, mode: "create" });
     }
   };
   const openPay = sp.get("pay") === "1";
@@ -288,8 +300,8 @@ export default function JobDetail() {
             events={events}
             commands={commands}
             onSelectJob={(j) => nav("/job/" + j.id + (fromCust ? "?from=" + encodeURIComponent(fromCust) : ""))}
-            onNewInvoice={() => addChangeOrder("invoice")}
-            onNewEstimate={() => addChangeOrder("estimate")}
+            onAddChangeOrder={() => setSheet({ kind: "changeOrder" })}
+            canAddChangeOrder={canAddChangeOrder(jobs, job)}
             onEditJob={() => setSheet({ kind: "jobedit" })}
             onEstimate={(j) => openDocTab(j, "estimate", setSheet)}
             onInvoice={(j) => openDocTab(j, "invoice", setSheet)}
@@ -313,26 +325,15 @@ export default function JobDetail() {
             onBubbleTap={(bubble) => tapAwarenessBubble(job, bubble, setSheet, openDocTab)}
           />
         )}
-        {addressJobs.length === 1 ? (
-          <div className="flex gap-2 mt-1" data-testid="change-order-actions">
-            <button
-              type="button"
-              className="flex-1 text-center text-xs font-semibold text-brand py-1"
-              data-testid="add-change-order-invoice"
-              onClick={() => addChangeOrder("invoice")}
-            >
-              ＋ Change order invoice
-            </button>
-            <button
-              type="button"
-              className="flex-1 text-center text-xs font-semibold text-brand py-1"
-              data-testid="add-change-order-estimate"
-              onClick={() => addChangeOrder("estimate")}
-            >
-              ＋ Change order estimate
-            </button>
-          </div>
-        ) : null}
+        <button
+          type="button"
+          className="w-full text-center text-xs font-semibold text-brand py-1.5 mt-1 disabled:opacity-40"
+          data-testid="add-change-order-btn"
+          disabled={!canAddChangeOrder(jobs, job)}
+          onClick={() => setSheet({ kind: "changeOrder" })}
+        >
+          ＋ Add change order
+        </button>
       </div>
 
       {!detailSectionsExpanded && siblingJobs.length > 0 ? (
@@ -952,6 +953,19 @@ export default function JobDetail() {
               initialDt: b.date,
             })
           }
+        />
+      ) : null}
+      {sheet?.kind === "changeOrder" ? (
+        <ChangeOrderSheet
+          sourceLabel={
+            job.invoiceNo
+              ? "invoice #" + job.invoiceNo
+              : job.estimateNo
+              ? "estimate #" + job.estimateNo
+              : job.title || "this job"
+          }
+          onPick={startChangeOrder}
+          onClose={() => setSheet(null)}
         />
       ) : null}
       <JobDocSheets sheet={sheet} setSheet={setSheet} job={job} onDocDone={() => setOpenStep(null)} />

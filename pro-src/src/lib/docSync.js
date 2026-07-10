@@ -7,6 +7,7 @@ import {
   linesTotal,
 } from "./qboDoc.js";
 import { isProgressBillingContext, progressBillingJobPatch } from "./progressBilling.js";
+import { briefTitlePatch } from "./changeOrder.js";
 
 export const DOC_SYNC_COMMAND_TYPES = [
   "create_estimate",
@@ -88,6 +89,10 @@ function buildDocJobPatch(job, { kind, mode, lines, serviceAddress, apartment, m
     if (kind === "invoice" && mode === "turn_from_estimate") {
       jobPatch.status = { ...jobPatch.status, Accepted: { s: "done", d: todayStr() } };
     }
+  }
+
+  if (valid.some((ln) => ln.description?.trim() || ln.itemName?.trim())) {
+    Object.assign(jobPatch, briefTitlePatch({ ...job, ...jobPatch }, kind));
   }
 
   return { valid, total, jobPatch };

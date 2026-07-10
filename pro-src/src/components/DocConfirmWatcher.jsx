@@ -8,6 +8,7 @@ import {
   shouldShowDocConfirm,
 } from "../lib/docConfirm.js";
 import { DOC_SYNC_COMMAND_TYPES, docSyncFailurePatch } from "../lib/docSync.js";
+import { briefTitlePatch } from "../lib/changeOrder.js";
 import { todayStr } from "../lib/format.js";
 
 const DOC_FAIL_SEEN_KEY = "le-pro-doc-fail-seen";
@@ -82,6 +83,7 @@ export default function DocConfirmWatcher() {
         patch.invoiceNo = no;
         patch._invoiceConfirmed = true;
       }
+      Object.assign(patch, briefTitlePatch({ ...job, ...patch }, kind));
       patchAndSave(c.jobId, patch).catch(() => {});
 
       showDocConfirm({
