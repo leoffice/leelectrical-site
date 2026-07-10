@@ -3,6 +3,8 @@ import { describe, expect, it, beforeEach } from "vitest";
 import {
   STATE_KEY,
   buildPromptQueue,
+  dismissEventReminders,
+  generateReminderNudge,
   inspectionCandidates,
   isInspectionEvent,
   isServiceCallEvent,
@@ -12,6 +14,11 @@ import {
   validateRemindDatetime,
   suggestJobsForEvent,
 } from "../src/lib/followUpReminders.js";
+import {
+  isDaySelectable,
+  monthGrid,
+  workHourSlots,
+} from "../src/lib/reminderPicker.js";
 
 const today = "2026-07-10";
 
@@ -82,6 +89,33 @@ describe("followUpReminders", () => {
     expect(q[0].kind).toBe("must_today_nudge");
     expect(q.some((x) => x.kind === "inspection")).toBe(true);
     expect(q.some((x) => x.kind === "service_call")).toBe(true);
+  });
+
+  it("generateReminderNudge uses note and job context", () => {
+    const event = { id: "e1", summary: "Service call — Bob", start: "2026-07-03T10:00" };
+    const job = { id: "J-1", customer: "Bob Smith", estimateNo: "251900" };
+    const withNote = generateReminderNudge({ event, job, userNote: "waiting on approval", today });
+    expect(withNote).toContain("waiting on approval");
+    const noNote = generateReminderNudge({ event, job, userNote: "", today });
+    expect(noNote).toContain("Bob");
+    expect(noNote).toMatch(/estimate|met/i);
+  });
+
+  it("dismissEventReminders marks noReminders handled", () => {
+    dismissEventReminders("ev9", { noReminders: true });
+    const raw = JSON.parse(localStorage.getItem(STATE_KEY));
+    expect(raw.ev9.noReminders).toBe(true);
+    expect(raw.ev9.handledAt).toBeTruthy();
+  });
+
+  it("reminderPicker grays out weekends and limits work hours", () => {
+    expect(isDaySelectable("2026-07-11", today)).toBe(false);
+    expect(isDaySelectable("2026-07-10", today)).toBe(true);
+    const grid = monthGrid(2026, 6);
+    const sat = grid.find((c) => c.inMonth && c.key === "2026-07-11");
+    expect(sat.weekend).toBe(true);
+    expect(workHourSlots().length).toBeGreaterThan(8);
+    expect(workHourSlots()[0].hour).toBe(9);
   });
 
   it("suggestJobsForEvent matches customer and address", () => {

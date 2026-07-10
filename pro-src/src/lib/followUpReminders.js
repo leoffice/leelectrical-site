@@ -127,7 +127,7 @@ function daysAgoYmd(days, today) {
 
 export function isEventHandled(state, eventId) {
   const st = eventState(state, eventId);
-  return !!(st.handledAt || st.inspectionAcked);
+  return !!(st.handledAt || st.inspectionAcked || st.noReminders);
 }
 
 /** Service calls from the past week that may need a follow-up popup. */
@@ -246,6 +246,66 @@ export function buildPromptQueue(events, jobs, today, now = new Date()) {
     });
   }
   return queue;
+}
+
+/** Days between two YYYY-MM-DD strings (floor). */
+export function daysBetween(earlier, later) {
+  const a = new Date(String(earlier) + "T12:00:00").getTime();
+  const b = new Date(String(later) + "T12:00:00").getTime();
+  return Math.max(0, Math.floor((b - a) / 86400000));
+}
+
+function firstName(customer) {
+  return (customer || "").trim().split(/\s+/)[0] || "the customer";
+}
+
+function timeAgoPhrase(days) {
+  if (days <= 1) return "yesterday";
+  if (days < 7) return `${days} days ago`;
+  if (days < 14) return "about a week ago";
+  const weeks = Math.round(days / 7);
+  if (weeks < 5) return `about ${weeks} weeks ago`;
+  return "a while back";
+}
+
+/** Friendly nudge Levi sees when a reminder fires — uses appointment + job context. */
+export function generateReminderNudge({ event, job, userNote, today }) {
+  const note = (userNote || "").trim();
+  const evYmd = eventYmd(event);
+  const days = evYmd && today ? daysBetween(evYmd, today) : 0;
+  const when = timeAgoPhrase(days);
+  const name = firstName(job?.customer || event?.summary?.split(/[—–-]/)[0]?.trim());
+  const hasEst = !!(job?.estimateNo || job?._estimateConfirmed || job?.estimateLines?.length);
+  const hasInv = !!(job?.invoiceNo || job?._invoiceConfirmed);
+
+  if (note) {
+    const lead = when === "yesterday" ? "Yesterday" : `About ${when.replace("about ", "")}`;
+    return `${lead} you noted: “${note}.” ${name} is still on your list — friendly follow-up when you're ready.`;
+  }
+  if (hasEst && !hasInv) {
+    return `You met with ${name} ${when} — the estimate is still waiting on them. It's okay to check in with a friendly nudge.`;
+  }
+  if (hasEst && hasInv) {
+    return `You sent paperwork to ${name} ${when}. A quick friendly check-in on the estimate or invoice never hurts.`;
+  }
+  if (hasInv) {
+    return `Invoice is out for ${name} from ${when}. A polite payment reminder could move things along.`;
+  }
+  if (job) {
+    return `You saw ${name} ${when} for this job — worth a quick follow-up when you have a minute.`;
+  }
+  const appt = (event?.summary || "this appointment").trim();
+  return `It's been ${when} since ${appt}. Tap through when you're ready to follow up.`;
+}
+
+/** Mark appointment as handled — no more follow-up popups. */
+export function dismissEventReminders(eventId, { noReminders = false } = {}) {
+  return patchEventState(eventId, {
+    handledAt: Date.now(),
+    noReminders: !!noReminders,
+    remindAt: "",
+    nextNudgeAt: "",
+  });
 }
 
 export { suggestJobsForEvent };

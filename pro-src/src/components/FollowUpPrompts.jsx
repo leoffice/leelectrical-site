@@ -1,30 +1,25 @@
 // Login follow-up popups — service calls, must-today loop, inspections.
 import React, { useCallback, useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import Sheet, { Fld, Opt } from "./Sheet.jsx";
+import Sheet, { Fld } from "./Sheet.jsx";
 import CreateJobFromEventSheet from "./CreateJobFromEventSheet.jsx";
 import { useStore } from "../state/store.jsx";
 import { evStart } from "../lib/format.js";
 import { todayStr } from "../lib/format.js";
-import { linkedJobForEvent } from "../lib/calendarLink.js";
-import { displayEventNotes } from "../lib/calendarLink.js";
+import { linkedJobForEvent, displayEventNotes } from "../lib/calendarLink.js";
 import {
   REMINDER_PRIORITIES,
   buildPromptQueue,
   defaultRemindDatetime,
+  dismissEventReminders,
+  generateReminderNudge,
   patchEventState,
   pickFirmerNudge,
   scheduleNextBusinessDayReminder,
   scheduleSameDayPushOff,
   validateRemindDatetime,
 } from "../lib/followUpReminders.js";
-import {
-  classifyAppointment,
-  emailKindForAction,
-  followUpActions,
-  followUpCopy,
-} from "../lib/appointmentActions.js";
-import AppointmentEmailSheet from "./AppointmentEmailSheet.jsx";
+import ReminderDateTimePicker from "./ReminderDateTimePicker.jsx";
 
 const SESSION_KEY = "lepro_followup_session";
 const IS_TEST = import.meta.env.MODE === "test" || !!import.meta.env.VITEST;
@@ -47,9 +42,12 @@ function sessionAlreadyPrompted() {
 
 function RemindMeSheet({ event, job, onClose, onSaved }) {
   const { patchAndSave, showToast } = useStore();
+  const today = todayStr();
   const [dt, setDt] = useState(() => defaultRemindDatetime());
   const [note, setNote] = useState("");
   const [priority, setPriority] = useState("medium");
+
+  const preview = generateReminderNudge({ event, job, userNote: note, today });
 
   const save = async () => {
     const err = validateRemindDatetime(dt);
@@ -57,9 +55,11 @@ function RemindMeSheet({ event, job, onClose, onSaved }) {
       showToast(err);
       return;
     }
+    const nudge = generateReminderNudge({ event, job, userNote: note, today });
     patchEventState(event.id, {
       remindAt: dt,
       note,
+      nudge,
       priority,
       pushOffCount: 0,
       nextNudgeAt: "",
@@ -68,7 +68,7 @@ function RemindMeSheet({ event, job, onClose, onSaved }) {
       await patchAndSave(job.id, {
         followUp: {
           type: "Follow-up",
-          text: note || event.summary || "Follow up",
+          text: note || nudge || event.summary || "Follow up",
           date: dt.slice(0, 10),
           remind: true,
           priority,
@@ -84,31 +84,35 @@ function RemindMeSheet({ event, job, onClose, onSaved }) {
     onClose();
   };
 
+  const skipReminders = () => {
+    dismissEventReminders(event.id, { noReminders: true });
+    showToast("OK — no reminders for this appointment");
+    onSaved && onSaved();
+    onClose();
+  };
+
   return (
     <Sheet title="Remind me" onClose={onClose}>
-      <p className="text-sm text-slate-500 mb-3">
-        Weekdays · 9 AM – 5 PM · {event?.summary || "Appointment"}
-      </p>
-      <Fld label="When">
-        <input
-          className="input"
-          type="datetime-local"
-          value={dt}
-          min={defaultRemindDatetime().slice(0, 10) + "T09:00"}
-          max="2099-12-31T16:59"
-          onChange={(e) => setDt(e.target.value)}
-          aria-label="Reminder date and time"
-        />
+      <p className="text-sm text-slate-500 mb-3">{event?.summary || "Appointment"}</p>
+      <Fld label="When" hint="Pick a weekday, then choose a work-hour slot">
+        <ReminderDateTimePicker value={dt} onChange={setDt} minDate={today} />
       </Fld>
-      <Fld label="Note (optional)">
+      <Fld label="What's the reminder about? (optional)" hint="I'll turn this into a friendly nudge using your job history">
         <textarea
           className="input min-h-[72px]"
           value={note}
           onChange={(e) => setNote(e.target.value)}
-          placeholder="Call back, send estimate, check permit status…"
+          placeholder="Still waiting on estimate approval, call back about panel quote…"
           aria-label="Reminder note"
+          data-testid="reminder-note"
         />
       </Fld>
+      {preview ? (
+        <div className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 mb-3 text-sm text-slate-600" data-testid="reminder-nudge-preview">
+          <div className="text-[10px] font-bold uppercase tracking-wide text-slate-400 mb-1">I'll say something like</div>
+          {preview}
+        </div>
+      ) : null}
       <Fld label="Priority">
         <select className="input" value={priority} onChange={(e) => setPriority(e.target.value)} aria-label="Priority">
           {REMINDER_PRIORITIES.map((p) => (
@@ -118,8 +122,11 @@ function RemindMeSheet({ event, job, onClose, onSaved }) {
           ))}
         </select>
       </Fld>
-      <button type="button" className="btn-brand w-full" onClick={save}>
-        Set reminder
+      <button type="button" className="btn-brand w-full mb-2" onClick={save} data-testid="reminder-save">
+        Remind me
+      </button>
+      <button type="button" className="btn-ghost w-full text-slate-500" onClick={skipReminders} data-testid="reminder-no-thanks">
+        No reminders for this appointment
       </button>
     </Sheet>
   );
@@ -131,7 +138,7 @@ function MustTodayNudgeSheet({ event, state: st, job, onClose, onDone }) {
   const isFirmer = (st.pushOffCount || 0) > 0;
   const message = isFirmer
     ? pickFirmerNudge(st.pushOffCount, event?.id || "")
-    : "Still on your list for today — want to knock it out now or push it off a couple hours?";
+    : st.nudge || "Still on your list for today — want to knock it out now or push it off a couple hours?";
 
   const openJob = () => {
     patchEventState(event.id, { handledAt: Date.now() });
@@ -211,51 +218,36 @@ function InspectionReminderSheet({ event, when, job, onClose, onDone }) {
   );
 }
 
-function ServiceCallSheet({ event, job, suggestions, onClose, onDone, onCreateJob, onRemind, onEmail, onDoc }) {
+function ServiceCallSheet({ event, job, onClose, onDone, onCreateJob, onRemind }) {
   const nav = useNavigate();
+  const { showToast } = useStore();
   const notes = displayEventNotes(event?.description);
-  const scenario = classifyAppointment(job);
-  const copy = followUpCopy(scenario);
-  const actions = followUpActions(scenario);
+  const today = todayStr();
+  const lead = generateReminderNudge({ event, job, userNote: "", today });
 
   const openJob = () => {
-    if (!job?.id) return onCreateJob();
     patchEventState(event.id, { handledAt: Date.now(), linkedJobId: job.id });
     onDone();
     onClose();
     nav("/job/" + encodeURIComponent(job.id));
   };
 
-  const runAction = (action) => {
-    if (action.key === "create_job") return onCreateJob();
-    if (action.key === "remind") return onRemind();
-    if (action.key === "open_job") return openJob();
-    if (action.key === "create_estimate") {
-      patchEventState(event.id, { handledAt: Date.now(), linkedJobId: job?.id });
-      onDone();
-      onClose();
-      return onDoc("estimate");
-    }
-    if (action.key === "create_invoice") {
-      patchEventState(event.id, { handledAt: Date.now(), linkedJobId: job?.id });
-      onDone();
-      onClose();
-      return onDoc("invoice");
-    }
-    if (action.key === "email_followup" || action.key === "email_invoice") {
-      return onEmail(emailKindForAction(action.key, scenario));
-    }
-  };
-
-  const dismiss = () => {
+  const skip = () => {
     patchEventState(event.id, { handledAt: Date.now() });
     onDone();
     onClose();
   };
 
+  const noReminders = () => {
+    dismissEventReminders(event.id, { noReminders: true });
+    showToast("OK — won't ask about this one again");
+    onDone();
+    onClose();
+  };
+
   return (
-    <Sheet title={copy.title} onClose={dismiss}>
-      <p className="text-sm text-slate-600 mb-3">{copy.lead}</p>
+    <Sheet title="Follow up?" onClose={skip}>
+      <p className="text-sm text-slate-600 mb-3">{lead}</p>
       <div className="text-sm space-y-2 mb-4 card px-3 py-2.5">
         <div>
           <b className="font-semibold">Appointment</b>{" "}
@@ -283,29 +275,23 @@ function ServiceCallSheet({ event, job, suggestions, onClose, onDone, onCreateJo
           </div>
         ) : null}
       </div>
-      {actions.map((action) =>
-        action.key === "remind" ? (
-          <Opt
-            key={action.key}
-            icon={action.icon}
-            title={action.label}
-            note="Pick a weekday, time, and priority"
-            onClick={() => runAction(action)}
-          />
-        ) : (
-          <button
-            key={action.key}
-            type="button"
-            className={(action.primary ? "btn-brand" : "btn bg-slate-100 text-slate-800") + " w-full mb-2"}
-            onClick={() => runAction(action)}
-            data-testid={"followup-" + action.key}
-          >
-            {action.icon} {action.label}
-          </button>
-        )
+      <button type="button" className="btn-brand w-full mb-2" onClick={onRemind} data-testid="followup-remind">
+        🔔 Remind me
+      </button>
+      <button type="button" className="btn bg-slate-100 text-slate-800 w-full mb-2" onClick={noReminders} data-testid="followup-no-remind">
+        Don't remind me
+      </button>
+      {job?.id ? (
+        <button type="button" className="btn bg-slate-100 text-slate-800 w-full mb-2" onClick={openJob} data-testid="followup-open-job">
+          📂 Open job
+        </button>
+      ) : (
+        <button type="button" className="btn bg-slate-100 text-slate-800 w-full mb-2" onClick={onCreateJob} data-testid="followup-create-job">
+          ＋ Create a job
+        </button>
       )}
-      <button type="button" className="btn-ghost w-full mt-1" onClick={dismiss}>
-        Skip for now
+      <button type="button" className="btn-ghost w-full mt-1" onClick={skip} data-testid="followup-skip">
+        Skip
       </button>
     </Sheet>
   );
@@ -315,8 +301,7 @@ export default function FollowUpPrompts() {
   const { events, jobs, loading } = useStore();
   const [queue, setQueue] = useState([]);
   const [current, setCurrent] = useState(null);
-  const [subSheet, setSubSheet] = useState(null); // remind | createJob | email
-  const nav = useNavigate();
+  const [subSheet, setSubSheet] = useState(null); // remind | createJob
 
   const today = todayStr();
   const refreshQueue = useCallback(() => {
@@ -334,15 +319,8 @@ export default function FollowUpPrompts() {
     }
     const q = buildPromptQueue(events, jobs, today);
     if (q.length) {
-      const first = q[0];
-      if (first.kind === "service_call" && !linkedJobForEvent(first.event, jobs)) {
-        setSubSheet({ kind: "createJob", event: first.event, suggestions: first.suggestions });
-        setQueue(q.slice(1));
-        setCurrent(q[1] || null);
-      } else {
-        setQueue(q);
-        setCurrent(first);
-      }
+      setQueue(q);
+      setCurrent(q[0]);
       markSessionPrompted();
     }
   }, [loading, events, jobs, today, refreshQueue]);
@@ -399,17 +377,6 @@ export default function FollowUpPrompts() {
     );
   }
 
-  if (subSheet?.kind === "email") {
-    return (
-      <AppointmentEmailSheet
-        job={subSheet.job}
-        emailKind={subSheet.emailKind}
-        title={subSheet.title}
-        onClose={() => setSubSheet(null)}
-      />
-    );
-  }
-
   if (!current) return null;
 
   if (current.kind === "must_today_nudge") {
@@ -459,18 +426,6 @@ export default function FollowUpPrompts() {
             job: linked,
           })
         }
-        onEmail={(emailKind) =>
-          setSubSheet({
-            kind: "email",
-            job: linked,
-            emailKind,
-            title: emailKind === "invoice" ? "Payment reminder email" : "Estimate follow-up email",
-          })
-        }
-        onDoc={(docKind) => {
-          if (!linked?.id) return;
-          nav("/job/" + encodeURIComponent(linked.id) + "?doc=" + docKind + "&create=1");
-        }}
       />
     );
   }
