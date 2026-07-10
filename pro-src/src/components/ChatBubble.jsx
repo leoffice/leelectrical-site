@@ -13,12 +13,19 @@ import { appointmentContextFromRoute } from "../lib/appointmentContext.js";
 import { CHAT_SLASH_HINT, jobPatchFromSlash, parseChatSlash } from "../lib/chatActions.js";
 import { buildAgentDraftPatch } from "../lib/invoiceAgentDraft.js";
 import { parseInvoiceEditIntent } from "../lib/invoiceEditIntent.js";
+import ChatImageActionSheet from "./ChatImageActionSheet.jsx";
 import ChatJobUpdateSheet from "./ChatJobUpdateSheet.jsx";
 import ChatPaymentConfirmSheet from "./ChatPaymentConfirmSheet.jsx";
 import { LE_PRO_CONVO, clearLegacyDeviceConvo, legacyDeviceConvo } from "../lib/chatConvo.js";
 import { appendPayment } from "../lib/payments.js";
 import { paymentAutofillPatch } from "../lib/paymentAutofill.js";
-import { analyzePaymentScreenshot, detectPaymentKind, fileToBase64 } from "../lib/paymentVision.js";
+import {
+  analyzeImageIntent,
+  analyzePaymentScreenshot,
+  detectPaymentKind,
+  fileToBase64,
+} from "../lib/paymentVision.js";
+import { formatImageIntentSummary, suggestActionsFromImage } from "../lib/imageIntent.js";
 const ONLINE_MS = 4 * 60_000; // israel-heartbeat (or last reply) younger than this = online
 const STUCK_MS = 90_000; // a "Working on it" we've watched longer than this stops looking like a live spinner
 const NEAR_BOTTOM_PX = 48; // within this distance of the bottom we auto-scroll on new messages
@@ -111,6 +118,7 @@ export default function ChatBubble() {
   const [dispatchSeen, setDispatchSeen] = useState(0); // responder heartbeat ts
   const [jobSheet, setJobSheet] = useState(false);
   const [paymentDraft, setPaymentDraft] = useState(null);
+  const [imageActionDraft, setImageActionDraft] = useState(null);
   const [imageBusy, setImageBusy] = useState(false);
   const imageInputRef = useRef(null);
   const convo = useRef(LE_PRO_CONVO);
@@ -380,20 +388,89 @@ export default function ChatBubble() {
           });
           return;
         }
-        const msg = { id: "m-img-" + Date.now(), who: "you", text: "[Image attached: " + file.name + "]", status: "Sent", _local: true, imageUrl: previewUrl };
-        localMsgs.current = [...localMsgs.current, msg];
-        setMsgs((ms) => [...ms, msg]);
-        const full = chatCtx() + "Shared image: " + file.name;
-        await api.chatSend(convo.current, msg.id, full);
-        api.iterate(full, "pro-bubble:" + convo.current, { view, jobId: jobId || "", pathname: loc.pathname, hasImage: true }).catch(() => {});
-        showToast("Image noted — Israel can see the filename in context");
+        let intent = null;
+        try {
+          intent = await analyzeImageIntent(b64, file.type || "image/jpeg");
+        } catch {
+          intent = null;
+        }
+        const actions = suggestActionsFromImage({
+          extracted: intent || {},
+          jobs,
+          activeJob,
+        });
+        const summary = formatImageIntentSummary(intent || {}, actions);
+        setImageActionDraft({
+          previewUrl,
+          file,
+          extracted: intent,
+          actions,
+          summary,
+          proofName: file.name,
+        });
+        showToast("Pick what you want to do with this photo");
       } catch {
         showToast("Could not read that image");
       } finally {
         setImageBusy(false);
       }
     },
-    [api, chatCtx, jobId, loc.pathname, showToast, view]
+    [activeJob, chatCtx, jobs, showToast]
+  );
+
+  const confirmImageAction = useCallback(
+    async (action) => {
+      const draft = imageActionDraft;
+      setImageActionDraft(null);
+      if (!draft) return;
+      if (action.kind === "record_payment" && action.job) {
+        const patch = paymentAutofillPatch(draft.extracted || {});
+        setPaymentDraft({
+          kind: draft.extracted?.paymentMethod === "check" ? "Check" : "Zelle",
+          amount: action.amount || patch.amt || "",
+          ref: patch.ref || "",
+          memo: patch.memo || "",
+          date: patch.dt || "",
+          extracted: draft.extracted,
+          proofName: draft.proofName,
+          previewUrl: draft.previewUrl,
+          file: draft.file,
+        });
+        return;
+      }
+      const line =
+        action.kind === "open_job"
+          ? "Open job " + (action.job?.customer || "") + " #" + (action.invoiceNo || action.job?.invoiceNo || "")
+          : "Help me with this image: " + (draft.summary || draft.proofName);
+      const msg = {
+        id: "m-img-" + Date.now(),
+        who: "you",
+        text: line,
+        status: "Sent",
+        _local: true,
+        imageUrl: draft.previewUrl,
+      };
+      localMsgs.current = [...localMsgs.current, msg];
+      setMsgs((ms) => [...ms, msg]);
+      const full = chatCtx() + line + (draft.summary ? " — " + draft.summary : "");
+      try {
+        await api.chatSend(convo.current, msg.id, full);
+      } catch {}
+      api
+        .iterate(full, "pro-bubble:" + convo.current, {
+          view,
+          jobId: action.job?.id || jobId || "",
+          pathname: loc.pathname,
+          hasImage: true,
+          imageIntent: draft.summary,
+        })
+        .catch(() => {});
+      if (action.kind === "open_job" && action.job?.id) {
+        window.location.hash = "#/job/" + action.job.id;
+        showToast("Opened " + (action.job.customer || "job"));
+      }
+    },
+    [api, chatCtx, imageActionDraft, jobId, loc.pathname, showToast, view]
   );
 
   const confirmChatPayment = useCallback(
@@ -822,6 +899,16 @@ export default function ChatBubble() {
           </div>
         </div>
       {jobSheet && activeJob && <ChatJobUpdateSheet job={activeJob} onClose={() => setJobSheet(false)} />}
+      {imageActionDraft ? (
+        <ChatImageActionSheet
+          draft={imageActionDraft}
+          onPick={confirmImageAction}
+          onCancel={() => {
+            if (imageActionDraft?.previewUrl) URL.revokeObjectURL(imageActionDraft.previewUrl);
+            setImageActionDraft(null);
+          }}
+        />
+      ) : null}
       {paymentDraft ? (
         <ChatPaymentConfirmSheet
           draft={paymentDraft}

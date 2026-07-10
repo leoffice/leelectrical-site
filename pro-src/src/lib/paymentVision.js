@@ -48,6 +48,11 @@ export async function analyzeZelleScreenshot(imageBase64, mime = "image/jpeg") {
   return analyzePaymentScreenshot(imageBase64, mime, "zelle");
 }
 
+/** General image intent — invoice #, address, document type (shared Telegram + bubble). */
+export async function analyzeImageIntent(imageBase64, mime = "image/jpeg") {
+  return analyzePaymentScreenshot(imageBase64, mime, "intent");
+}
+
 /** Guess payment kind from vision output or filename hint. */
 export function detectPaymentKind(extracted, fileName = "") {
   if (extracted?.kind === "check" || extracted?.checkNumber) return "check";

@@ -29,9 +29,23 @@ Extract these fields and return ONLY valid JSON (no markdown):
 }
 If a field is missing or unreadable use null. checkNumber and amount are critical.`;
 
+export const IMAGE_INTENT_PROMPT = `You are reading a photo Levi sent LE Electrical (payment proof, invoice, estimate, job site, document, or screenshot).
+Extract visible clues and return ONLY valid JSON (no markdown):
+{
+  "documentType": <"payment"|"invoice"|"estimate"|"job_site"|"other">,
+  "invoiceNumbers": [<5-6 digit invoice/job numbers visible, as strings>],
+  "addresses": [<street addresses visible, as strings>],
+  "amount": <USD number if a payment amount is visible, else null>,
+  "paymentMethod": <"zelle"|"check"|"card"|null>,
+  "memo": <memo/note text exactly as shown, or null>,
+  "confidence": <"high"|"low">
+}
+If a field is missing use null or []. invoiceNumbers and addresses are critical for job lookup.`;
+
 const PROMPTS = {
   zelle: ZELLE_VISION_PROMPT,
   check: CHECK_VISION_PROMPT,
+  intent: IMAGE_INTENT_PROMPT,
 };
 
 /** Normalize vision model output to app shape (Zelle + check). */
@@ -57,6 +71,30 @@ export function normalizePaymentExtracted(raw, kind = "zelle") {
     payee: raw.payee ? String(raw.payee).trim() : "",
     confidence: conf,
     kind,
+  };
+}
+
+/** Normalize general image-intent vision output. */
+export function normalizeIntentExtracted(raw) {
+  if (!raw || typeof raw !== "object") return null;
+  const invs = Array.isArray(raw.invoiceNumbers)
+    ? raw.invoiceNumbers.map((n) => String(n).replace(/\D/g, "")).filter((n) => n.length >= 5)
+    : [];
+  const addrs = Array.isArray(raw.addresses)
+    ? raw.addresses.map((a) => String(a).trim()).filter(Boolean)
+    : [];
+  const amt = raw.amount != null ? parseFloat(String(raw.amount).replace(/[$,]/g, "")) : null;
+  const doc = String(raw.documentType || "other").toLowerCase();
+  const pm = raw.paymentMethod ? String(raw.paymentMethod).toLowerCase() : null;
+  return {
+    documentType: ["payment", "invoice", "estimate", "job_site"].includes(doc) ? doc : "other",
+    invoiceNumbers: [...new Set(invs)],
+    addresses: [...new Set(addrs)],
+    amount: Number.isFinite(amt) && amt > 0 ? amt : null,
+    paymentMethod: pm === "zelle" || pm === "check" || pm === "card" ? pm : null,
+    memo: raw.memo ? String(raw.memo).trim() : "",
+    confidence: String(raw.confidence || "").toLowerCase() === "low" ? "low" : "high",
+    kind: "intent",
   };
 }
 
@@ -139,11 +177,12 @@ export async function extractPaymentFromImage({ imageBase64, mime = "image/jpeg"
     return { dryRun: true, extracted: null, error: "XAI_API_KEY not set" };
   }
   const model = process.env.XAI_VISION_MODEL || "grok-4.5";
-  const k = kind === "check" ? "check" : "zelle";
+  const k = kind === "check" ? "check" : kind === "intent" ? "intent" : "zelle";
   const prompt = PROMPTS[k];
   const text = await callVision({ imageBase64, mime, prompt, model, apiKey });
   const parsed = parseVisionJson(text);
-  const extracted = normalizePaymentExtracted(parsed, k);
+  const extracted =
+    k === "intent" ? normalizeIntentExtracted(parsed) : normalizePaymentExtracted(parsed, k);
   if (!extracted) throw new Error("Could not parse vision response");
   return { dryRun: false, extracted, model, kind: k };
 }

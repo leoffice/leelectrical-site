@@ -1,6 +1,10 @@
 import { describe, expect, it } from "vitest";
 import { parseVisionJson } from "../../netlify/functions/lib/zelleVision.mjs";
-import { normalizeExtracted, normalizePaymentExtracted } from "../../netlify/functions/lib/paymentVision.mjs";
+import {
+  normalizeExtracted,
+  normalizeIntentExtracted,
+  normalizePaymentExtracted,
+} from "../../netlify/functions/lib/paymentVision.mjs";
 
 describe("parseVisionJson", () => {
   it("parses raw JSON", () => {
@@ -26,6 +30,22 @@ describe("normalizeExtracted", () => {
     expect(n.confirmationNumber).toBe("JPM99");
     expect(n.date).toBe("2026-07-09");
     expect(n.confidence).toBe("high");
+  });
+
+  it("normalizes image intent fields", () => {
+    const n = normalizeIntentExtracted({
+      documentType: "payment",
+      invoiceNumbers: ["251808", "x"],
+      addresses: ["55 Elm St"],
+      amount: 1200,
+      paymentMethod: "zelle",
+      memo: "thanks",
+      confidence: "high",
+    });
+    expect(n.invoiceNumbers).toEqual(["251808"]);
+    expect(n.addresses).toEqual(["55 Elm St"]);
+    expect(n.amount).toBe(1200);
+    expect(n.documentType).toBe("payment");
   });
 
   it("normalizes check fields", () => {

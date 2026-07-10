@@ -29,7 +29,8 @@ export default async (req) => {
 
   const image = String(body.image || "").trim();
   const mime = String(body.mime || "image/jpeg").trim();
-  const kind = String(body.kind || "zelle").trim().toLowerCase() === "check" ? "check" : "zelle";
+  const rawKind = String(body.kind || "zelle").trim().toLowerCase();
+  const kind = rawKind === "check" ? "check" : rawKind === "intent" ? "intent" : "zelle";
   if (!image) return json({ ok: false, error: "image required" }, 400);
   if (image.length > 28_000_000) return json({ ok: false, error: "image too large" }, 413);
 
