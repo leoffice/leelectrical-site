@@ -152,6 +152,22 @@ describe("parent customer cards — tap anywhere to show subs", () => {
     expect(within(view).queryByTestId("customer-jobs-section")).not.toBeInTheDocument();
   });
 
+  it("desktop sidebar list expands parent sub-companies like mobile", async () => {
+    mockServer({ jobs: parentJobs() });
+    Object.defineProperty(window, "innerWidth", { configurable: true, value: 1280 });
+    window.dispatchEvent(new Event("resize"));
+    const user = userEvent.setup();
+    renderApp("#/job/P-1");
+    const listPane = await screen.findByTestId("list-pane");
+    const card = within(listPane).getByTestId("parent-group-card");
+    expect(within(listPane).queryByTestId("parent-sub-list")).not.toBeInTheDocument();
+
+    await user.click(card);
+    const subs = within(listPane).getByTestId("parent-sub-list");
+    expect(within(subs).getByText("LLC Alpha")).toBeInTheDocument();
+    expect(within(subs).getByText("LLC Beta")).toBeInTheDocument();
+  });
+
   it("parent with direct jobs does not appear twice on the customer list", async () => {
     mockServer({
       jobs: [

@@ -148,6 +148,8 @@ function ClientListHeader({ name, amount, meta, hint, onCardClick, trailing, ava
 const IDLE_COLLAPSE_MS = 10_000; // expanded customer rows fold back after ~10s idle
 const PARENT_SUB_COLLAPSE_MS = 30_000; // parent + sub-company rows stay open ~30s
 const SEARCH_IDLE_MS = 10_000; // clear search + collapse after ~10s without interaction
+
+const isParentBoardKey = (key) => String(key || "").startsWith("p:");
 const SORT_LS_KEY = "lepro_jobs_sort_v1"; // persisted sort-by choice
 
 const loadSort = () => {
@@ -312,7 +314,7 @@ export default function Jobs({ embedded, collapseGroups = false, activeJobId = "
     );
   };
   const toggleGroup = (key, idleMs = IDLE_COLLAPSE_MS) => {
-    if (collapseGroups) return;
+    if (collapseGroups && !isParentBoardKey(key)) return;
     setOpen((o) => {
       const now = !o[key];
       if (now) armCollapse(key, idleMs);
@@ -320,7 +322,7 @@ export default function Jobs({ embedded, collapseGroups = false, activeJobId = "
       return { ...o, [key]: now };
     });
   };
-  const groupExpanded = (key) => !collapseGroups && open[key];
+  const groupExpanded = (key) => (isParentBoardKey(key) || !collapseGroups) && open[key];
   useEffect(() => {
     const t = timers.current;
     return () => Object.values(t).forEach(clearTimeout);
@@ -451,7 +453,7 @@ export default function Jobs({ embedded, collapseGroups = false, activeJobId = "
                   data-testid={multiSub ? "parent-group-card" : "client-group-card"}
                   aria-expanded={multiSub ? expanded : undefined}
                   onClick={() => {
-                    if (collapseGroups || !multiSub) {
+                    if (!multiSub) {
                       nav("/customer/" + encodeURIComponent(row.key));
                       return;
                     }
@@ -467,7 +469,7 @@ export default function Jobs({ embedded, collapseGroups = false, activeJobId = "
                     hint={expanded ? "" : jobTitlesHint(row.jobs)}
                     avatar={<CustomerAvatar name={row.name} />}
                     trailing={
-                      collapseGroups || !multiSub ? null : (
+                      !multiSub ? null : (
                         <span
                           className="p-1 -m-1 text-slate-400 shrink-0 pointer-events-none"
                           aria-hidden
