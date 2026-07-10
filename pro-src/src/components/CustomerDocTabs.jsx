@@ -1,18 +1,17 @@
-// Invoices / Estimates tabs — open + closed sections between customer and job info.
+// Invoices / Estimates tabs — open + closed sections; tap invoice → job info (folded).
 import React, { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import {
   invoiceJobs,
   estimateJobs,
-  invoiceButtonLabel,
   estimateButtonLabel,
-  invoiceButtonTone,
+  invoiceRowDetail,
 } from "../lib/customerDocLists.js";
 
 const TAB_BTN =
   "flex-1 rounded-xl border px-2 py-2 text-center text-[10px] font-bold leading-tight transition-colors";
 const DOC_BTN =
-  "w-full flex items-center justify-between gap-2 rounded-xl border px-3 py-2.5 text-left text-sm font-semibold mb-1.5 active:opacity-80";
+  "w-full flex items-start justify-between gap-2 rounded-xl border px-3 py-2.5 text-left text-sm font-semibold mb-1.5 active:opacity-80";
 const SECTION_HDR =
   "text-[10px] font-extrabold text-slate-400 uppercase tracking-wider px-0.5 mb-1.5 mt-2 first:mt-0";
 
@@ -36,10 +35,10 @@ function DocSection({ title, empty, children }) {
   );
 }
 
-function InvoiceRows({ list, activeJobId, onOpen }) {
+function InvoiceRows({ list, activeJobId, fromCust, onOpen }) {
   if (!list.length) return null;
   return list.map((j) => {
-    const { no, amt, tone } = invoiceButtonLabel(j);
+    const { no, address, amountLine, tone } = invoiceRowDetail(j);
     const active = j.id === activeJobId;
     return (
       <button
@@ -49,8 +48,13 @@ function InvoiceRows({ list, activeJobId, onOpen }) {
         onClick={() => onOpen(j)}
         data-testid={"cust-inv-" + no}
       >
-        <span>Invoice #{no}</span>
-        <span className="text-xs tabular-nums shrink-0">{amt}</span>
+        <span className="min-w-0 flex-1">
+          <span className="block">Invoice #{no}</span>
+          {address ? (
+            <span className="block text-[11px] font-normal opacity-85 truncate mt-0.5">{address}</span>
+          ) : null}
+        </span>
+        <span className="text-xs tabular-nums shrink-0 text-right leading-snug">{amountLine}</span>
       </button>
     );
   });
@@ -86,8 +90,8 @@ export default function CustomerDocTabs({ jobs, activeJobId, fromCust = "" }) {
   const [tab, setTab] = useState(null); // null = collapsed, or 'invoices'|'estimates'
 
   const allInv = invoiceJobs(jobs);
-  const openInv = allInv.filter((j) => invoiceButtonTone(j) === "open");
-  const closedInv = allInv.filter((j) => invoiceButtonTone(j) === "paid");
+  const openInv = allInv.filter((j) => invoiceRowDetail(j).tone === "open");
+  const closedInv = allInv.filter((j) => invoiceRowDetail(j).tone === "paid");
 
   const allEst = estimateJobs(jobs);
   const openEst = allEst.filter(isOpenEstimate);
@@ -96,7 +100,10 @@ export default function CustomerDocTabs({ jobs, activeJobId, fromCust = "" }) {
   const counts = { invoices: allInv.length, estimates: allEst.length };
 
   const openJob = (j) => {
-    const q = fromCust ? "?from=" + encodeURIComponent(fromCust) : "";
+    const parts = [];
+    if (fromCust) parts.push("from=" + encodeURIComponent(fromCust));
+    parts.push("fold=1");
+    const q = parts.length ? "?" + parts.join("&") : "";
     nav("/job/" + j.id + q);
   };
 
@@ -127,10 +134,10 @@ export default function CustomerDocTabs({ jobs, activeJobId, fromCust = "" }) {
       {tab === "invoices" ? (
         <div className="card px-3 py-2" data-testid="cust-tab-panel-invoices">
           <DocSection title="Open invoices" empty={!openInv.length}>
-            <InvoiceRows list={openInv} activeJobId={activeJobId} onOpen={openJob} />
+            <InvoiceRows list={openInv} activeJobId={activeJobId} fromCust={fromCust} onOpen={openJob} />
           </DocSection>
           <DocSection title="Closed invoices" empty={!closedInv.length}>
-            <InvoiceRows list={closedInv} activeJobId={activeJobId} onOpen={openJob} />
+            <InvoiceRows list={closedInv} activeJobId={activeJobId} fromCust={fromCust} onOpen={openJob} />
           </DocSection>
         </div>
       ) : null}

@@ -3,6 +3,7 @@ import { sortJobs } from "./stages.js";
 import { openBalance, invoiceTotal, amountPaid } from "./customers.js";
 import { normalizePayments } from "./payments.js";
 import { fmt$ } from "./format.js";
+import { serviceAddressDisplay } from "./customerSync.js";
 
 /** Jobs with an invoice number, newest first. */
 export function invoiceJobs(jobs, { openOnly = false } = {}) {
@@ -50,6 +51,25 @@ export function invoiceButtonLabel(job) {
   const tone = invoiceButtonTone(job);
   const amt = tone === "paid" ? fmt$(amountPaid(job) || invoiceTotal(job)) : fmt$(due);
   return { no, amt, tone };
+}
+
+/** Rich invoice row — address, paid-of-total, open/closed tone. */
+export function invoiceRowDetail(job) {
+  const no = job.invoiceNo || "—";
+  const total = invoiceTotal(job);
+  const paid = amountPaid(job);
+  const due = openBalance(job);
+  const tone = invoiceButtonTone(job);
+  const address = serviceAddressDisplay(job);
+  let amountLine;
+  if (tone === "paid") {
+    amountLine = total > 0 ? `${fmt$(paid || total)} of ${fmt$(total)}` : fmt$(paid || total);
+  } else if (paid > 0.01 && total > 0) {
+    amountLine = `${fmt$(paid)} of ${fmt$(total)}`;
+  } else {
+    amountLine = total > 0 ? `${fmt$(due || total)} of ${fmt$(total)}` : fmt$(due);
+  }
+  return { no, address, amountLine, tone };
 }
 
 export function estimateButtonLabel(job) {

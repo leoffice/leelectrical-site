@@ -171,7 +171,9 @@ export default function CustomerView() {
         </div>
       ) : null}
 
-      <CustomerDocTabs jobs={displayJobs} fromCust={key} />
+      {!(key.startsWith("p:") && subs.length > 0) ? (
+        <CustomerDocTabs jobs={displayJobs} fromCust={key} />
+      ) : null}
 
       {sheet?.kind === "cust" && sheet.job ? (
         <CustEditSheet job={sheet.job} onClose={() => setSheet(null)} />

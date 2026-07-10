@@ -9,6 +9,11 @@ export function effectiveServiceAddress(job) {
   return j.serviceAddress || j.address || "";
 }
 
+/** Service address with apartment/unit for list rows. */
+export function serviceAddressDisplay(job) {
+  return withApartment(effectiveServiceAddress(job), job?.apartment);
+}
+
 function addressLooksComplete(raw) {
   const s = String(raw || "").trim();
   if (!s) return false;

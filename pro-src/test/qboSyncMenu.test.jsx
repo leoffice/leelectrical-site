@@ -10,6 +10,7 @@ import {
   estimateJobs,
   paymentRows,
   invoiceButtonTone,
+  invoiceRowDetail,
 } from "../src/lib/customerDocLists.js";
 
 afterEach(() => {
@@ -52,6 +53,24 @@ describe("customerDocLists helpers", () => {
     expect(invoiceButtonTone(J_OPEN)).toBe("open");
     expect(estimateJobs(jobs)).toHaveLength(1);
     expect(paymentRows(jobs).length).toBeGreaterThan(0);
+  });
+
+  it("invoiceRowDetail shows address, paid-of-total, and tone", () => {
+    const open = invoiceRowDetail({
+      ...J_OPEN,
+      serviceAddress: "10 Oak St",
+      apartment: "4B",
+      amount: "$1,000",
+      openBalance: 600,
+    });
+    expect(open.tone).toBe("open");
+    expect(open.address).toContain("10 Oak St");
+    expect(open.address).toContain("4B");
+    expect(open.amountLine).toContain("of $1,000");
+
+    const paid = invoiceRowDetail({ ...J_PAID, serviceAddress: "22 Elm" });
+    expect(paid.tone).toBe("paid");
+    expect(paid.amountLine).toContain("of $300");
   });
 });
 
@@ -102,37 +121,25 @@ describe("QB sync menu on header chip", () => {
     expect(within(panel).getByText("Invoice #251900")).toBeInTheDocument();
     expect(within(panel).getByText("Invoice #251901")).toBeInTheDocument();
 
-    await user.click(within(panel).getByText("Invoice #251901"));
-    await waitFor(() => expect(window.location.hash).toContain("#/job/J-paid"));
+    await user.click(within(panel).getByTestId("cust-inv-251901"));
+    await waitFor(() => expect(window.location.hash).toMatch(/#\/job\/J-paid.*fold=1/));
   });
 
-  it("job detail shows expandable open invoices at same address", async () => {
-    mockServer({
-      jobs: [
-        { ...J_OPEN, serviceAddress: "10 Oak St", title: "Panel A" },
-        {
-          id: "J-open2",
-          customer: "Test Co",
-          invoiceNo: "251902",
-          amount: "$200",
-          paid: false,
-          openBalance: 200,
-          serviceAddress: "10 Oak St",
-          title: "Panel B",
-        },
-        J_PAID,
-      ],
-    });
+  it("invoice tap opens job with info visible and sections folded until card tap", async () => {
+    mockServer({ jobs: [J_OPEN, J_PAID] });
     const user = userEvent.setup();
-    renderApp("#/job/J-open");
-    const pane = await screen.findByTestId("detail-pane");
-    const block = within(pane).getByTestId("address-open-invoices");
-    expect(within(block).getByText(/Open invoices at this address/)).toBeInTheDocument();
-    expect(within(block).getByTestId("addr-open-inv-251900")).toBeInTheDocument();
-    expect(within(block).getByTestId("addr-open-inv-251902")).toBeInTheDocument();
+    renderApp("#/customer/c:test%20co");
+    const view = await screen.findByTestId("customer-view");
+    await user.click(within(view).getByTestId("cust-tab-invoices"));
+    const panel = await within(view).findByTestId("cust-tab-panel-invoices");
+    await user.click(within(panel).getByTestId("cust-inv-251900"));
 
-    await user.click(within(block).getByTestId("addr-open-inv-251902"));
-    await waitFor(() => expect(window.location.hash).toContain("#/job/J-open2"));
+    const pane = await screen.findByTestId("detail-pane");
+    expect(within(pane).getByTestId("job-info-card")).toBeInTheDocument();
+    expect(within(pane).queryByTestId("payment-history-btn")).not.toBeInTheDocument();
+
+    await user.click(within(pane).getByTestId("job-info-card"));
+    expect(await within(pane).findByTestId("payment-history-btn")).toBeInTheDocument();
   });
 
   it("job edit sheet shows same-address invoices and saves title", async () => {

@@ -29,7 +29,7 @@ import { fmt$, ago } from "../lib/format.js";
 import CustomerCard from "../components/CustomerCard.jsx";
 import JobInfoCard from "../components/JobInfoCard.jsx";
 import JobAddressCarousel from "../components/JobAddressCarousel.jsx";
-import AddressOpenInvoices from "../components/AddressOpenInvoices.jsx";
+
 import JobEditSheet from "../components/JobEditSheet.jsx";
 import { cloneJobAtAddressPatch, jobsAtSameAddress } from "../lib/customerHierarchy.js";
 import {
@@ -84,6 +84,8 @@ export default function JobDetail() {
   const nav = useNavigate();
   const [sp] = useSearchParams();
   const fromCust = sp.get("from") || ""; // customer-group key when opened from CustomerView
+  const foldParam = sp.get("fold");
+  const foldOnOpen = foldParam === "1"; // job info only until card tap (from customer invoice)
   const goBack = () =>
     fromCust
       ? nav("/customer/" + encodeURIComponent(fromCust) + "?job=" + encodeURIComponent(id))
@@ -128,7 +130,7 @@ export default function JobDetail() {
   const [openStep, setOpenStep] = useState(null);
   const [showRemoved, setShowRemoved] = useState({}); // paperwork branch -> expanded
   const [sheet, setSheet] = useState(null); // {kind, ...}
-  const [detailSectionsExpanded, setDetailSectionsExpanded] = useState(true);
+  const [detailSectionsExpanded, setDetailSectionsExpanded] = useState(!foldOnOpen);
   const stepTimer = useRef(null);
   const jobInfoRef = useRef(null);
 
@@ -140,8 +142,8 @@ export default function JobDetail() {
   }, []);
 
   useEffect(() => {
-    setDetailSectionsExpanded(true);
-  }, [id]);
+    setDetailSectionsExpanded(foldParam !== "1");
+  }, [id, foldParam]);
 
   useEffect(() => {
     requestAnimationFrame(scrollToJobInfo);
@@ -319,8 +321,6 @@ export default function JobDetail() {
           </button>
         ) : null}
       </div>
-
-      <AddressOpenInvoices jobs={addressJobs} activeJobId={id} fromCust={fromCust} />
 
       {!detailSectionsExpanded && siblingJobs.length > 0 ? (
         <div className="space-y-2" data-testid="customer-sibling-jobs">
