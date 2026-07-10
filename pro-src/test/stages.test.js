@@ -68,9 +68,9 @@ describe("filter chips (sleek chipTest)", () => {
       "Active", "Needs attention", "To Do", "Upcoming", "Leads", "Estimates", "Scheduled", "Unpaid", "Paid", "All",
     ]);
   });
-  it("Active = unpaid, Paid = paid, Unpaid needs an invoice", () => {
+  it("Active = all jobs (recent sort in Jobs view), Paid = paid, Unpaid needs an invoice", () => {
     expect(matchesFilter({ paid: false, status: {} }, "Active")).toBe(true);
-    expect(matchesFilter({ paid: true, status: {} }, "Active")).toBe(false);
+    expect(matchesFilter({ paid: true, status: {} }, "Active")).toBe(true);
     expect(matchesFilter(inv, "Unpaid")).toBe(true);
     expect(matchesFilter({ paid: false, status: {} }, "Unpaid")).toBe(false);
     expect(matchesFilter({ paid: true, status: {} }, "Paid")).toBe(true);

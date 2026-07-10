@@ -25,6 +25,7 @@ import {
   jobsForCustomerKey,
   PENDING_IMPORT_LS,
 } from "../lib/customers.js";
+import { touchCustomer } from "../lib/customerRecency.js";
 
 export default function CustomerView() {
   const { key: raw } = useParams();
@@ -45,6 +46,9 @@ export default function CustomerView() {
     };
   }, [api]);
   const key = raw ? decodeURIComponent(raw) : "";
+  useEffect(() => {
+    if (key) touchCustomer(key);
+  }, [key]);
   const [sheet, setSheet] = useState(null); // { kind, job? }
   const setDocSheet = useCallback((next) => {
     setSheet((prev) => {

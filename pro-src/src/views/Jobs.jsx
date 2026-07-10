@@ -40,6 +40,7 @@ import {
   effectiveHasParentCustomer,
   subsUnderParent,
 } from "../lib/customerHierarchy.js";
+import { compareCustomerRecency, touchCustomer } from "../lib/customerRecency.js";
 
 /** Gray subline under customer name — jobs / open invoices / invoiced / paid. */
 function customerMetaLine(sum) {
@@ -275,11 +276,14 @@ export default function Jobs({ embedded, collapseGroups = false, activeJobId = "
       const hit = list.filter(matchesChip);
       return sortJobs(hit.length ? hit : list, sort)[0];
     };
-    return [...map.entries()]
+    const entries = [...map.entries()]
       .filter(([, list]) => list.some(matchesChip))
-      .map(([k, list]) => [k, sortJobs(list, sort)])
-      .sort((A, B) => cmp(rank(A[1]), rank(B[1])));
-  }, [active, matchesChip, sort]);
+      .map(([k, list]) => [k, sortJobs(list, sort)]);
+    if (filter === "Active") {
+      return entries.sort((A, B) => compareCustomerRecency(A[0], A[1], B[0], B[1]));
+    }
+    return entries.sort((A, B) => cmp(rank(A[1]), rank(B[1])));
+  }, [active, matchesChip, sort, filter]);
 
   const qboHierarchy = useMemo(() => buildQboHierarchyCtx(qboIndex), [qboIndex]);
 
@@ -287,18 +291,22 @@ export default function Jobs({ embedded, collapseGroups = false, activeJobId = "
   const { parentRows, flatGroups } = useMemo(() => {
     const board = buildCustomerBoardGroups(active, (list) => sortJobs(list, sort), qboIndex);
     const parentJobIds = new Set();
-    const parents = board
+    let parents = board
       .filter((r) => r.kind === "parent")
       .filter((r) => r.jobs.some(matchesChip))
       .map((r) => {
         r.jobs.forEach((j) => parentJobIds.add(j.id));
         return { ...r, subs: subsUnderParent(active, r.key, qboHierarchy).map((s) => ({ ...s, jobs: sortJobs(s.jobs, sort) })) };
       });
-    const flat = groups
+    let flat = groups
       .map(([k, list]) => [k, list.filter((j) => !parentJobIds.has(j.id) && !effectiveHasParentCustomer(j, qboHierarchy))])
       .filter(([, list]) => list.length && list.some(matchesChip));
+    if (filter === "Active") {
+      parents = parents.slice().sort((a, b) => compareCustomerRecency(a.key, a.jobs, b.key, b.jobs));
+      flat = flat.slice().sort((A, B) => compareCustomerRecency(A[0], A[1], B[0], B[1]));
+    }
     return { parentRows: parents, flatGroups: flat };
-  }, [active, groups, matchesChip, sort, qboIndex, qboHierarchy]);
+  }, [active, groups, matchesChip, sort, qboIndex, qboHierarchy, filter]);
 
   /** Jobs shown inside an expanded group — full customer when Active/All + no search. */
   const expandJobs = useCallback(
@@ -390,6 +398,11 @@ export default function Jobs({ embedded, collapseGroups = false, activeJobId = "
   }, [q, api]);
   useEffect(() => () => clearTimeout(custTimer.current), []);
 
+  const openCustomer = (key) => {
+    touchCustomer(key);
+    nav("/customer/" + encodeURIComponent(key));
+  };
+
   const confirmImport = async () => {
     const c = importCust;
     if (!c) return;
@@ -407,7 +420,7 @@ export default function Jobs({ embedded, collapseGroups = false, activeJobId = "
           JSON.stringify({ key: custKey, name, qboId: c.id != null ? String(c.id) : "", started: Date.now() })
         );
       } catch {}
-      nav("/customer/" + encodeURIComponent(custKey));
+      openCustomer(custKey);
     }
     showToast("Importing " + name + "…");
     await enqueue(
@@ -492,10 +505,10 @@ export default function Jobs({ embedded, collapseGroups = false, activeJobId = "
                   aria-expanded={multiSub ? expanded : undefined}
                   onClick={() => {
                     if (!multiSub) {
-                      nav("/customer/" + encodeURIComponent(row.key));
+                      openCustomer(row.key);
                       return;
                     }
-                    if (expanded) nav("/customer/" + encodeURIComponent(row.key));
+                    if (expanded) openCustomer(row.key);
                     else toggleGroup(row.key, PARENT_SUB_COLLAPSE_MS);
                   }}
                 >
@@ -531,7 +544,7 @@ export default function Jobs({ embedded, collapseGroups = false, activeJobId = "
                         type="button"
                         className="w-full text-left rounded-lg bg-white border border-slate-100 px-3 py-2 active:bg-slate-50"
                         data-testid="sub-customer-row"
-                        onClick={() => nav("/customer/" + encodeURIComponent(sub.key))}
+                        onClick={() => openCustomer(sub.key)}
                       >
                         <div className="flex items-center justify-between gap-2">
                           <span className="text-sm font-semibold text-slate-800 truncate">{sub.name}</span>
@@ -559,14 +572,14 @@ export default function Jobs({ embedded, collapseGroups = false, activeJobId = "
               const pct = progressPct(job);
               const due = fmtAmountDue(job) || fmt$(openBalance(job)) || "—";
               const title = job.title || "(untitled job)";
-              const openCustomer = () => nav("/customer/" + encodeURIComponent(key));
+              const goCustomer = () => openCustomer(key);
               return (
                 <button
                   key={key}
                   type="button"
                   className={`card relative overflow-hidden w-full text-left active:opacity-90 ${syncCardClass} ${embedded ? "px-2.5 py-2" : "px-3 py-2.5 lg:px-4 lg:py-3"}`}
                   data-testid="client-single"
-                  onClick={openCustomer}
+                  onClick={goCustomer}
                 >
                   <AttentionGradient show={needsAttention} />
                   <ClientListHeader
@@ -604,7 +617,7 @@ export default function Jobs({ embedded, collapseGroups = false, activeJobId = "
                     amount={fmt$(sum.due) || "$0"}
                     meta={customerMetaLine(sum)}
                     hint={groupExpanded(key) ? "" : jobTitlesHint(displayList)}
-                    onCardClick={() => nav("/customer/" + encodeURIComponent(key))}
+                    onCardClick={() => openCustomer(key)}
                     avatar={<CustomerAvatar name={customerName} />}
                     trailing={
                       collapseGroups ? null : (

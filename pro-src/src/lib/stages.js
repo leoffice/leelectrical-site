@@ -89,7 +89,8 @@ export function nextAction(job) {
 
 /** Filter chips — logic copied from sleek's chipTest(). */
 const FILTERS = {
-  Active: (j) => !j.paid,
+  /** Recent working set — all customers, sorted by last opened (see Jobs.jsx). */
+  Active: () => true,
   "Needs attention": (j) => needsAttentionJob(j),
   "To Do": (j) => isToDoJob(j),
   Upcoming: (j) => isUpcomingJob(j),

@@ -24,13 +24,20 @@ const jobs = () => [
 const before = (a, b) =>
   !!(a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING);
 
+/** Active tab sorts by recency — use All when testing the sort dropdown. */
+async function useAllFilter(user) {
+  await user.click(screen.getByRole("button", { name: "All" }));
+}
+
 describe("sort dropdown", () => {
   it("renders next to the chips with the exact six options, Smart default; overdue jumps first", async () => {
     mockServer({
       jobs: jobs(),
       ov: { B: { followUp: { date: "2020-01-01" } } }, // tiny job, overdue
     });
+    const user = userEvent.setup();
     renderApp("#/");
+    await useAllFilter(user);
     const sel = await screen.findByLabelText("Sort jobs");
     expect(sel).toHaveValue("smart");
     expect(within(sel).getAllByRole("option").map((o) => o.textContent)).toEqual([
@@ -52,6 +59,7 @@ describe("sort dropdown", () => {
     mockServer({ jobs: jobs() });
     const user = userEvent.setup();
     const first = renderApp("#/");
+    await useAllFilter(user);
     await user.selectOptions(await screen.findByLabelText("Sort jobs"), "newest");
     expect(localStorage.getItem("lepro_jobs_sort_v1")).toBe("newest");
     first.unmount();
@@ -70,6 +78,7 @@ describe("sort dropdown", () => {
     const user = userEvent.setup();
     renderApp("#/");
     await screen.findByText("Alpha");
+    await useAllFilter(user);
     // default smart: nothing overdue -> amount -> Alpha first
     expect(before(screen.getByText("Alpha"), screen.getByText(/2 jobs/))).toBe(true);
     await user.selectOptions(screen.getByLabelText("Sort jobs"), "next");
@@ -88,6 +97,7 @@ describe("sort dropdown", () => {
     const user = userEvent.setup();
     renderApp("#/");
     await screen.findByText("Alpha");
+    await useAllFilter(user);
     await user.selectOptions(screen.getByLabelText("Sort jobs"), "amount");
     expect(before(screen.getByText("Alpha"), screen.getByText(/2 jobs/))).toBe(true);
   });
