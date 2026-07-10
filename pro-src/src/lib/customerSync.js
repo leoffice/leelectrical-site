@@ -87,11 +87,16 @@ export function customerProfileComplete(contact) {
 }
 
 /** Jobs list card tint — green when linked to QuickBooks and profile is complete; orange otherwise. */
-export function customerSyncCardClass(contact) {
+export function customerSyncCardClass(contact, opts = {}) {
   const c = contact || {};
   const name = String(c.businessName || c.name || "").trim();
   if (!name) return "";
-  const linked = String(c.qboCustomerId || "").trim();
+  const qboIndex = opts.qboIndex;
+  let linked = String(c.qboCustomerId || "").trim();
+  if (linked && Array.isArray(qboIndex) && qboIndex.length) {
+    const ok = qboIndex.some((row) => String(row?.id || "") === linked);
+    if (!ok) linked = "";
+  }
   return customerProfileComplete(c) && linked
     ? "bg-emerald-50/95 border-emerald-300/90"
     : "bg-orange-50/95 border-orange-200/90";

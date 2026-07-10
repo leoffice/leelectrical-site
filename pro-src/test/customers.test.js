@@ -235,5 +235,17 @@ describe("customerProfileComplete", () => {
         qboCustomerId: "42",
       })
     ).toContain("emerald");
+    expect(
+      customerSyncCardClass(
+        {
+          name: "levi tester",
+          phone: "718",
+          email: "a@test.com",
+          billingAddress: "1 Main",
+          qboCustomerId: "1602",
+        },
+        { qboIndex: [{ id: "1", name: "Other" }] }
+      )
+    ).toContain("orange");
   });
 });

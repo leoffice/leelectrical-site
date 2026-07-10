@@ -79,7 +79,7 @@ describe("logOff", () => {
     vi.stubGlobal("location", { reload });
     const cacheDel = vi.fn(async () => true);
     vi.stubGlobal("caches", {
-      keys: async () => ["le-pro-v67", "other"],
+      keys: async () => ["le-pro-v68", "other"],
       delete: cacheDel,
     });
     const unregister = vi.fn(async () => true);
@@ -91,7 +91,7 @@ describe("logOff", () => {
 
     expect(isSessionUnlocked()).toBe(false);
     expect(globalThis.sessionStorage.getItem("scratch")).toBe(null);
-    expect(cacheDel).toHaveBeenCalledWith("le-pro-v67");
+    expect(cacheDel).toHaveBeenCalledWith("le-pro-v68");
     expect(cacheDel).not.toHaveBeenCalledWith("other");
     expect(unregister).toHaveBeenCalled();
     expect(reload).toHaveBeenCalled();

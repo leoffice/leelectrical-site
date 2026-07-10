@@ -9,9 +9,13 @@
 //   onPick(customer)    a row was chosen. customer = {name,id} for an existing
 //                       QBO match, or {name, _newCustomer:true} for "add new".
 //   label / placeholder optional
-import React, { useEffect, useRef, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import { useStore } from "../state/store.jsx";
 import { CustomerMatchResults } from "./CustomerMatchPanel.jsx";
+import {
+  buildAppCustomerIndex,
+  mergeCustomerSearchResults,
+} from "../lib/appCustomerIndex.js";
 
 export default function CustomerSearch({
   value,
@@ -20,18 +24,41 @@ export default function CustomerSearch({
   label = "Customer name",
   placeholder = "Search existing customers…",
   testId = "customer-search-input",
+  jobs: jobsProp,
 }) {
-  const { api } = useStore();
+  const { api, jobs: storeJobs } = useStore();
+  const jobs = jobsProp || storeJobs;
+  const appIndex = useMemo(() => buildAppCustomerIndex(jobs), [jobs]);
+  const appIndexRef = useRef(appIndex);
+  const qboIndexRef = useRef([]);
   const [results, setResults] = useState([]);
   const [loading, setLoading] = useState(false);
   const [open, setOpen] = useState(false);
   const [picked, setPicked] = useState(false); // suppress dropdown right after a pick
   const timer = useRef(null);
   const alive = useRef(true);
+
+  useEffect(() => {
+    appIndexRef.current = appIndex;
+  }, [appIndex]);
+
   useEffect(() => () => {
     alive.current = false;
     clearTimeout(timer.current);
   }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    api
+      .searchCustomers("")
+      .then((list) => {
+        if (!cancelled && Array.isArray(list)) qboIndexRef.current = list;
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [api]);
 
   const q = (value || "").trim();
 
@@ -49,12 +76,21 @@ export default function CustomerSearch({
       try {
         const list = await api.searchCustomers(q);
         if (alive.current) {
-          setResults(Array.isArray(list) ? list : []);
+          const qbo = Array.isArray(list) ? list : [];
+          const merged = mergeCustomerSearchResults(
+            qbo,
+            appIndexRef.current,
+            q,
+            qboIndexRef.current
+          );
+          setResults(merged.length ? merged : qbo);
           setLoading(false);
         }
       } catch {
         if (alive.current) {
-          setResults([]);
+          setResults(
+            mergeCustomerSearchResults([], appIndexRef.current, q, qboIndexRef.current)
+          );
           setLoading(false);
         }
       }

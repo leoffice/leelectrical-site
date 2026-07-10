@@ -154,7 +154,7 @@ export default function NewJobFlow() {
       <Sheet title="Add" onClose={close}>
         <Opt icon="🔧" title="Add a job" note="New scope for a customer — type details or pick from calendar" onClick={() => setNewJob({ step: "jobMenu", context })} />
         <Opt icon="🏗️" title="Add a job with vendor" note="Track subcontractor / vendor on the job" onClick={() => setNewJob({ step: "form", prefill: {}, context, vendorMode: true })} />
-        <Opt icon="🧾" title="Add an invoice" note="Pick customer & job — full invoice builder opens" onClick={() => setNewJob({ step: "pickInvoice" })} />
+        <Opt icon="🧾" title="Add an invoice" note="Full invoice builder — customer on top, pick address & lines" onClick={() => setNewJob({ step: "pickInvoice", draftJob: {} })} />
         <Opt icon="👤" title="Add a customer" note="One form — live QuickBooks match as you type" onClick={() => setNewJob({ step: "newCustomer" })} />
         <Opt icon="💵" title="Add a payment" note="Find customer & invoice, then record or charge" onClick={() => setNewJob({ step: "pickPayment" })} />
       </Sheet>
@@ -207,28 +207,35 @@ export default function NewJobFlow() {
       />
     );
 
-  if (newJob.step === "pickInvoice" && newJob.job)
-    return (
-      <DocBuilderSheet
-        job={newJob.job}
-        kind="invoice"
-        mode="create"
-        onClose={close}
-        onDone={() => {
-          close();
-          nav("/job/" + encodeURIComponent(newJob.job.id));
-        }}
-      />
-    );
-
   if (newJob.step === "pickInvoice")
     return (
-      <PickCustomerJobsSheet
-        title="Add an invoice"
-        hint="Pick the customer, then the job to invoice."
-        jobs={jobs}
+      <DocBuilderSheet
+        job={
+          newJob.job ||
+          newJob.draftJob || {
+            customer: "",
+            businessName: "",
+            personName: "",
+            phone: "",
+            email: "",
+            billingAddress: "",
+            title: "",
+            serviceAddress: "",
+            address: "",
+          }
+        }
+        kind="invoice"
+        mode="create"
+        editableCustomer
+        draftMode={!newJob.job?.id}
+        allJobs={jobs}
+        onCustomerPatch={(draftJob) => setNewJob((o) => ({ ...o, draftJob }))}
         onClose={close}
-        onPick={(job) => setNewJob({ ...newJob, step: "pickInvoice", job })}
+        onDone={(saved) => {
+          const j = saved || newJob.job || newJob.draftJob;
+          close();
+          if (j?.id) nav("/job/" + encodeURIComponent(j.id));
+        }}
       />
     );
 

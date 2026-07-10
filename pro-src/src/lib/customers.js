@@ -411,9 +411,9 @@ export function customerPickPatch(customer, jobs) {
   if (c._newCustomer) {
     patch.qboCustomerId = "";
   } else {
-    const idStr = c.id != null ? String(c.id) : "";
+    const idStr = c._pendingQbo ? "" : String(c.qboCustomerId || c.id || "").trim();
     patch.qboCustomerId = idStr;
-    const key = normalizeCustomer(c.name);
+    const key = normalizeCustomer(c.businessName || c.name);
     const mine = jobsMatchingCustomer(c, jobs);
     const contact = customerContact(mine);
     // Jobs may carry a stale businessName (e.g. copied from another template row);

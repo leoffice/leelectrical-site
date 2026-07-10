@@ -171,6 +171,7 @@ export default function Jobs({ embedded, collapseGroups = false, activeJobId = "
   const [sheet, setSheet] = useState(null); // {kind:"paid"|"send", job}
   const [custMatches, setCustMatches] = useState([]); // #56 QBO customers not yet in the app
   const [importCust, setImportCust] = useState(null); // #56 confirm-import target
+  const [qboIndex, setQboIndex] = useState([]);
   const timers = useRef({}); // groupKey -> auto-collapse timer
   const custTimer = useRef(null);
   const searchIdleTimer = useRef(null);
@@ -181,6 +182,19 @@ export default function Jobs({ embedded, collapseGroups = false, activeJobId = "
       localStorage.setItem(SORT_LS_KEY, k);
     } catch {}
   };
+
+  useEffect(() => {
+    let cancelled = false;
+    api
+      .searchCustomers("")
+      .then((list) => {
+        if (!cancelled) setQboIndex(Array.isArray(list) ? list : []);
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [api]);
 
   const active = useMemo(() => jobs.filter((j) => !j._archived && !j._deleted), [jobs]);
   const matchesChip = useCallback(
@@ -443,7 +457,7 @@ export default function Jobs({ embedded, collapseGroups = false, activeJobId = "
             const multiSub = row.subs.length > 1;
             const expanded = groupExpanded(row.key);
             const needsAttention = row.jobs.some(needsAttentionJob);
-            const syncCardClass = customerSyncCardClass(customerContact(row.jobs));
+            const syncCardClass = customerSyncCardClass(customerContact(row.jobs), { qboIndex });
             return (
               <div key={row.key} className={`card relative overflow-hidden ${syncCardClass}`} data-testid="parent-customer-group">
                 <AttentionGradient show={needsAttention} />

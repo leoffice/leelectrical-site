@@ -1,6 +1,7 @@
 // Build a QuickBooks estimate or invoice — line items, service address, attachments.
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import Sheet, { Fld } from "./Sheet.jsx";
+import CustomerSearch from "./CustomerSearch.jsx";
 import { useStore } from "../state/store.jsx";
 import { DEFAULT_QBO_ITEMS, filterQboItems } from "../data/qboItems.js";
 import { serviceAddressHint, serviceAddressLabel } from "../lib/customerSync.js";
@@ -9,6 +10,9 @@ import { planDocSaveLocal, planDocSaveSync } from "../lib/docSync.js";
 import { enqueueCustomerQboSync } from "../lib/customerQboEnqueue.js";
 import { stashPendingDocSync } from "../lib/docSyncChain.js";
 import { fmt$, parseAmount } from "../lib/format.js";
+import { customerKeyForName, jobsForCustomerKey } from "../lib/customers.js";
+import { serviceAddressesForJobs } from "../lib/customerHierarchy.js";
+import { enrichAndPatchCustomer } from "./NewJobFlow.jsx";
 import {
   applyDueAmountToLines,
   applyProgressPctToLines,
@@ -212,17 +216,134 @@ function LineRow({ line, index, items, onChange, onRemove, canRemove, progressMo
   );
 }
 
+function CustomerHeaderPanel({ job, allJobs, api, onPatch }) {
+  const [addrPick, setAddrPick] = useState("");
+  const addressChoices = useMemo(() => {
+    const ck =
+      (job.qboCustomerId && "q:" + job.qboCustomerId) ||
+      customerKeyForName(job.businessName || job.customer);
+    if (!ck) return [];
+    return serviceAddressesForJobs(jobsForCustomerKey(allJobs, ck));
+  }, [allJobs, job.businessName, job.customer, job.qboCustomerId]);
+
+  const applyCustomer = async (c) => {
+    if (!c) return;
+    if (c._newCustomer) {
+      onPatch({
+        businessName: c.name || "",
+        customer: c.name || "",
+        qboCustomerId: "",
+      });
+      return;
+    }
+    const patch = await enrichAndPatchCustomer(c, allJobs, api);
+    onPatch({
+      businessName: patch.businessName || patch.customer || "",
+      customer: patch.businessName || patch.customer || "",
+      personName: patch.personName || "",
+      phone: patch.phone || "",
+      email: patch.email || "",
+      billingAddress: patch.billingAddress || "",
+      qboCustomerId: patch.qboCustomerId || "",
+      parentCustomerName: patch.parentCustomerName || "",
+      parentQboCustomerId: patch.parentQboCustomerId || "",
+    });
+  };
+
+  const set = (k) => (e) => onPatch({ [k]: e.target.value });
+
+  return (
+    <div className="mb-4 pb-3 border-b border-slate-200" data-testid="doc-customer-header">
+      <p className="text-[11px] font-bold uppercase tracking-wide text-slate-400 mb-2">Customer</p>
+      <Fld label="Customer name" hint="Search app + QuickBooks — orange = not in QuickBooks yet">
+        <CustomerSearch
+          label="Customer name"
+          testId="doc-customer-search"
+          value={job.businessName || job.customer || ""}
+          onChangeText={(v) => onPatch({ businessName: v, customer: v, qboCustomerId: "" })}
+          onPick={applyCustomer}
+          jobs={allJobs}
+        />
+      </Fld>
+      <Fld label="Person name">
+        <input className="input" value={job.personName || ""} onChange={set("personName")} aria-label="Person name" />
+      </Fld>
+      <Fld label="Phone">
+        <input className="input" value={job.phone || ""} onChange={set("phone")} aria-label="Phone" />
+      </Fld>
+      <Fld label="Email">
+        <input className="input" value={job.email || ""} onChange={set("email")} aria-label="Email" />
+      </Fld>
+      <Fld label="Billing address">
+        <input className="input" value={job.billingAddress || ""} onChange={set("billingAddress")} aria-label="Billing address" />
+      </Fld>
+      <Fld label="Job title / scope" hint="What this invoice is for">
+        <input className="input" value={job.title || ""} onChange={set("title")} aria-label="Job title" />
+      </Fld>
+      {addressChoices.length > 1 ? (
+        <Fld label="Service address" hint="Pick an existing site for this customer or type below">
+          <select
+            className="input mb-2"
+            value={addrPick}
+            onChange={(e) => {
+              const v = e.target.value;
+              setAddrPick(v);
+              if (v === "new") return;
+              const hit = addressChoices.find((a) => a.key === v);
+              if (hit) onPatch({ serviceAddress: hit.label, address: hit.label });
+            }}
+            aria-label="Service address picker"
+            data-testid="doc-address-picker"
+          >
+            <option value="">Choose address…</option>
+            {addressChoices.map((a) => (
+              <option key={a.key} value={a.key}>
+                {a.label}
+              </option>
+            ))}
+            <option value="new">＋ New address</option>
+          </select>
+        </Fld>
+      ) : null}
+    </div>
+  );
+}
+
 export default function DocBuilderSheet({
-  job,
+  job: jobProp,
   kind,
   mode = "create",
   progressPct,
   onClose,
   onDone,
+  editableCustomer = false,
+  draftMode = false,
+  allJobs,
+  onCustomerPatch,
 }) {
-  const { patchAndSave, enqueue, logSend, showToast, api } = useStore();
+  const { patchAndSave, enqueue, logSend, showToast, api, createJob, jobs: storeJobs } = useStore();
+  const boardJobs = allJobs || storeJobs;
+  const [job, setJob] = useState(() => jobProp || {});
+  useEffect(() => {
+    setJob(jobProp || {});
+  }, [jobProp]);
+
+  const patchJobState = useCallback(
+    (patch) => {
+      setJob((o) => {
+        const next = { ...o, ...patch };
+        onCustomerPatch && onCustomerPatch(next);
+        return next;
+      });
+    },
+    [onCustomerPatch]
+  );
   const [serviceAddress, setServiceAddress] = useState(job.serviceAddress || job.address || "");
   const [apartment, setApartment] = useState(job.apartment || "");
+  useEffect(() => {
+    const addr = job.serviceAddress || job.address || "";
+    if (addr) setServiceAddress(addr);
+  }, [job.serviceAddress, job.address]);
   const progressMode = kind === "invoice" && isProgressBillingContext(job, { kind, mode });
   const [lines, setLines] = useState(() => initialLines(job, { kind, mode, progressPct }));
   const [attachments, setAttachments] = useState([]);
@@ -320,7 +441,38 @@ export default function DocBuilderSheet({
     setAttUrl("");
   };
 
+  const ensureJobId = async () => {
+    if (job.id) return job.id;
+    if (!draftMode) return null;
+    const biz = (job.businessName || job.customer || "").trim();
+    if (!biz) {
+      showToast("Pick a customer first");
+      return null;
+    }
+    const id = await createJob({
+      businessName: biz,
+      customer: biz,
+      personName: job.personName || "",
+      title: job.title || "Invoice",
+      phone: job.phone || "",
+      email: job.email || "",
+      billingAddress: job.billingAddress || "",
+      serviceAddress: serviceAddress.trim(),
+      address: serviceAddress.trim(),
+      apartment: apartment.trim(),
+      qboCustomerId: job.qboCustomerId || "",
+      parentCustomerName: job.parentCustomerName || "",
+      parentQboCustomerId: job.parentQboCustomerId || "",
+    });
+    if (id) setJob((o) => ({ ...o, id }));
+    return id;
+  };
+
   const validate = (send) => {
+    if (editableCustomer && !(job.businessName || job.customer || "").trim()) {
+      showToast("Pick a customer first");
+      return null;
+    }
     const valid = lines.filter((ln) => (ln.itemName || "").trim());
     if (!valid.length) {
       showToast("Add at least one product/service line");
@@ -351,7 +503,13 @@ export default function DocBuilderSheet({
 
     setSaving(true);
     try {
-      const { jobPatch } = planDocSaveLocal(job, {
+      const jobId = await ensureJobId();
+      if (!jobId) {
+        setSaving(false);
+        return;
+      }
+      const activeJob = { ...job, id: jobId };
+      const { jobPatch } = planDocSaveLocal(activeJob, {
         kind,
         mode,
         lines: valid,
@@ -363,9 +521,9 @@ export default function DocBuilderSheet({
       if (attachments.length) {
         jobPatch.attachments = (job.attachments || []).concat(attachments);
       }
-      await patchAndSave(job.id, jobPatch);
+      await patchAndSave(jobId, jobPatch);
       showToast("Saved on this job — use Save & sync when ready for QuickBooks");
-      onDone && onDone();
+      onDone && onDone(activeJob);
       onClose();
     } finally {
       setSaving(false);
@@ -378,7 +536,13 @@ export default function DocBuilderSheet({
 
     setSaving(true);
     try {
-      const { jobPatch, commands } = planDocSaveSync(job, {
+      const jobId = await ensureJobId();
+      if (!jobId) {
+        setSaving(false);
+        return;
+      }
+      const activeJob = { ...job, id: jobId };
+      const { jobPatch, commands } = planDocSaveSync(activeJob, {
         kind,
         mode,
         lines: valid,
@@ -390,20 +554,20 @@ export default function DocBuilderSheet({
         recurringState: showRecurring && recurring.enabled ? recurring : null,
       });
 
-      await patchAndSave(job.id, jobPatch);
+      await patchAndSave(jobId, jobPatch);
 
       const needsCustomer =
-        mode !== "edit" && !String(job.qboCustomerId || "").trim();
+        mode !== "edit" && !String(activeJob.qboCustomerId || "").trim();
 
       if (needsCustomer) {
-        stashPendingDocSync(job.id, { commands, attachments, send, kind });
-        enqueueCustomerQboSync(enqueue, job.id, job, "");
+        stashPendingDocSync(jobId, { commands, attachments, send, kind });
+        enqueueCustomerQboSync(enqueue, jobId, activeJob, "");
         showToast(
           send
             ? "Setting up customer in QuickBooks first — then your " +
               (kind === "estimate" ? "estimate" : "invoice") +
               " will go out to " +
-              job.email
+              activeJob.email
             : "Setting up customer in QuickBooks first — then your " +
               (kind === "estimate" ? "estimate" : "invoice") +
               " will sync"
@@ -412,38 +576,38 @@ export default function DocBuilderSheet({
         for (let i = 0; i < commands.length; i++) {
           const cmd = commands[i];
           const payload = { ...cmd.payload, attachments: i === 0 ? attachments : [] };
-          await enqueue(cmd.type, job.id, payload, "judgment", cmd.idk);
+          await enqueue(cmd.type, jobId, payload, "judgment", cmd.idk);
         }
 
         for (const att of attachments) {
           const attachType = kind === "estimate" ? "attach_to_estimate" : "attach_to_invoice";
           await enqueue(
             attachType,
-            job.id,
+            jobId,
             {
-              estimateNo: job.estimateNo || "",
-              invoiceNo: job.invoiceNo || "",
+              estimateNo: activeJob.estimateNo || "",
+              invoiceNo: activeJob.invoiceNo || "",
               name: att.name,
               url: att.url || "",
               pendingDoc: true,
             },
             "deterministic",
-            "att:" + kind + ":" + job.id + ":" + att.name
+            "att:" + kind + ":" + jobId + ":" + att.name
           );
         }
 
-        if (send && job.email) {
+        if (send && activeJob.email) {
           const noKey = kind === "estimate" ? "estimateNo" : "invoiceNo";
-          const no = job[noKey];
+          const no = activeJob[noKey];
           if (no) {
             await enqueue(
               "send_" + kind,
-              job.id,
-              { email: job.email, [noKey]: no },
+              jobId,
+              { email: activeJob.email, [noKey]: no },
               "deterministic",
               "send_" + kind + ":" + no
             );
-            logSend(job.id, (kind === "estimate" ? "Estimate" : "Invoice") + " send queued after create", job.email);
+            logSend(jobId, (kind === "estimate" ? "Estimate" : "Invoice") + " send queued after create", activeJob.email);
           }
         }
 
@@ -451,11 +615,11 @@ export default function DocBuilderSheet({
           showRecurring && recurring.enabled ? " + recurring schedule in QuickBooks" : "";
         showToast(
           send
-            ? "Sending to QuickBooks and emailing " + job.email + recurNote + "…"
+            ? "Sending to QuickBooks and emailing " + activeJob.email + recurNote + "…"
             : "Sending " + (kind === "estimate" ? "estimate" : "invoice") + " to QuickBooks" + recurNote + "…"
         );
       }
-      onDone && onDone();
+      onDone && onDone(activeJob);
       onClose();
     } finally {
       setSaving(false);
@@ -463,10 +627,14 @@ export default function DocBuilderSheet({
   };
 
   return (
-    <Sheet title={title + " — " + (job.customer || "")} onClose={onClose} wide>
-      <p className="text-[11px] text-slate-400 -mt-1 mb-3">
-        Pre-filled from job info. Line items use exact QuickBooks Products &amp; Services names.
-      </p>
+    <Sheet title={title + (job.customer ? " — " + job.customer : "")} onClose={onClose} wide>
+      {editableCustomer ? (
+        <CustomerHeaderPanel job={job} allJobs={boardJobs} api={api} onPatch={patchJobState} />
+      ) : (
+        <p className="text-[11px] text-slate-400 -mt-1 mb-3">
+          Pre-filled from job info. Line items use exact QuickBooks Products &amp; Services names.
+        </p>
+      )}
 
       <Fld label={serviceAddressLabel(job)} hint={serviceAddressHint(job)}>
         <input

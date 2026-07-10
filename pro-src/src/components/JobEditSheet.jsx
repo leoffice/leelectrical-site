@@ -2,7 +2,7 @@
 import React, { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useStore } from "../state/store.jsx";
-import Sheet, { Fld, Opt } from "./Sheet.jsx";
+import Sheet, { Fld } from "./Sheet.jsx";
 import { DeleteConfirmSheet } from "./JobSheets.jsx";
 import { jobsAtSameAddress } from "../lib/customerHierarchy.js";
 import { sortJobs } from "../lib/stages.js";
@@ -121,12 +121,27 @@ export default function JobEditSheet({ job, fromCust = "", onClose }) {
         </div>
       ) : null}
 
-      <button type="button" className="btn-brand w-full mb-3" onClick={save} data-testid="job-edit-save">
-        Save
-      </button>
-
-      <Opt icon="📦" title="Archive job" note="Moves to Archive tab; restore anytime" onClick={() => setConfirm("archive")} data-testid="job-edit-archive" />
-      <Opt icon="🗑️" danger title="Remove from dashboard" note="Never touches QuickBooks" onClick={() => setConfirm("delete")} data-testid="job-edit-delete" />
+      <div className="flex gap-2 mt-2" data-testid="job-edit-actions">
+        <button type="button" className="btn-brand flex-1 min-h-[44px] text-sm" onClick={save} data-testid="job-edit-save">
+          Save
+        </button>
+        <button
+          type="button"
+          className="btn-ghost flex-1 min-h-[44px] text-sm border border-slate-200"
+          onClick={() => setConfirm("archive")}
+          data-testid="job-edit-archive"
+        >
+          Archive
+        </button>
+        <button
+          type="button"
+          className="btn-ghost flex-1 min-h-[44px] text-sm border border-red-200 text-red-700"
+          onClick={() => setConfirm("delete")}
+          data-testid="job-edit-delete"
+        >
+          Delete
+        </button>
+      </div>
     </Sheet>
   );
 }
