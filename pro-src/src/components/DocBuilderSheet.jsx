@@ -7,6 +7,7 @@ import { serviceAddressHint, serviceAddressLabel } from "../lib/customerSync.js"
 import { emptyLine, initialLines, lineAmount, linesTotal } from "../lib/qboDoc.js";
 import { planDocSaveLocal, planDocSaveSync } from "../lib/docSync.js";
 import { enqueueCustomerQboSync } from "../lib/customerQboEnqueue.js";
+import { stashPendingDocSync } from "../lib/docSyncChain.js";
 import { fmt$ } from "../lib/format.js";
 
 function LineRow({ line, index, items, onChange, onRemove, canRemove }) {
@@ -224,55 +225,65 @@ export default function DocBuilderSheet({
 
       const needsCustomer =
         mode !== "edit" && !String(job.qboCustomerId || "").trim();
+
       if (needsCustomer) {
+        stashPendingDocSync(job.id, { commands, attachments, send, kind });
         enqueueCustomerQboSync(enqueue, job.id, job, "");
-      }
+        showToast(
+          send
+            ? "Setting up customer in QuickBooks first — then your " +
+              (kind === "estimate" ? "estimate" : "invoice") +
+              " will go out to " +
+              job.email
+            : "Setting up customer in QuickBooks first — then your " +
+              (kind === "estimate" ? "estimate" : "invoice") +
+              " will sync"
+        );
+      } else {
+        for (let i = 0; i < commands.length; i++) {
+          const cmd = commands[i];
+          const payload = { ...cmd.payload, attachments: i === 0 ? attachments : [] };
+          await enqueue(cmd.type, job.id, payload, "judgment", cmd.idk);
+        }
 
-      for (let i = 0; i < commands.length; i++) {
-        const cmd = commands[i];
-        const payload = { ...cmd.payload, attachments: i === 0 ? attachments : [] };
-        await enqueue(cmd.type, job.id, payload, "judgment", cmd.idk);
-      }
+        for (const att of attachments) {
+          const attachType = kind === "estimate" ? "attach_to_estimate" : "attach_to_invoice";
+          await enqueue(
+            attachType,
+            job.id,
+            {
+              estimateNo: job.estimateNo || "",
+              invoiceNo: job.invoiceNo || "",
+              name: att.name,
+              url: att.url || "",
+              pendingDoc: true,
+            },
+            "deterministic",
+            "att:" + kind + ":" + job.id + ":" + att.name
+          );
+        }
 
-      for (const att of attachments) {
-        const attachType = kind === "estimate" ? "attach_to_estimate" : "attach_to_invoice";
-        await enqueue(
-          attachType,
-          job.id,
-          {
-            estimateNo: job.estimateNo || "",
-            invoiceNo: job.invoiceNo || "",
-            name: att.name,
-            url: att.url || "",
-            pendingDoc: true,
-          },
-          "deterministic",
-          "att:" + kind + ":" + job.id + ":" + att.name
+        if (send && job.email) {
+          const noKey = kind === "estimate" ? "estimateNo" : "invoiceNo";
+          const no = job[noKey];
+          if (no) {
+            await enqueue(
+              "send_" + kind,
+              job.id,
+              { email: job.email, [noKey]: no },
+              "deterministic",
+              "send_" + kind + ":" + no
+            );
+            logSend(job.id, (kind === "estimate" ? "Estimate" : "Invoice") + " send queued after create", job.email);
+          }
+        }
+
+        showToast(
+          send
+            ? "Sending to QuickBooks and emailing " + job.email + "…"
+            : "Sending " + (kind === "estimate" ? "estimate" : "invoice") + " to QuickBooks…"
         );
       }
-
-      if (send && job.email) {
-        const noKey = kind === "estimate" ? "estimateNo" : "invoiceNo";
-        const no = job[noKey];
-        if (no) {
-          await enqueue(
-            "send_" + kind,
-            job.id,
-            { email: job.email, [noKey]: no },
-            "deterministic",
-            "send_" + kind + ":" + no
-          );
-          logSend(job.id, (kind === "estimate" ? "Estimate" : "Invoice") + " send queued after create", job.email);
-        }
-      }
-
-      showToast(
-        send
-          ? "Sending to QuickBooks and emailing " + job.email + "…"
-          : needsCustomer
-          ? "Creating customer in QuickBooks, then sending your " + (kind === "estimate" ? "estimate" : "invoice") + "…"
-          : "Sending " + (kind === "estimate" ? "estimate" : "invoice") + " to QuickBooks…"
-      );
       onDone && onDone();
       onClose();
     } finally {

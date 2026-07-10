@@ -21,6 +21,7 @@ describe("Estimate / invoice builder", () => {
           customer: "Mental Dressing",
           title: "Rewire",
           email: "m@x.com",
+          qboCustomerId: "1601",
           serviceAddress: "10 Broadway",
           apartment: "2A",
           amount: "$500",
@@ -103,7 +104,9 @@ describe("Estimate / invoice builder", () => {
     await user.click(screen.getByTestId("doc-save-sync"));
 
     await waitFor(() => expect(srv.enqueued("create_customer")).toHaveLength(1));
-    expect(srv.enqueued("create_estimate")).toHaveLength(1);
+    expect(srv.enqueued("create_estimate")).toHaveLength(0);
+    const stash = JSON.parse(localStorage.getItem("le-pro-pending-doc-sync") || "{}");
+    expect(stash["J-NOQBO"]?.commands?.[0]?.type).toBe("create_estimate");
   });
 
   it("Save & sync & send flags create_estimate to email the customer", async () => {
@@ -114,6 +117,7 @@ describe("Estimate / invoice builder", () => {
           customer: "Send Co",
           title: "Panel",
           email: "send@x.com",
+          qboCustomerId: "1602",
           serviceAddress: "9 Park",
           amount: "$1200",
           paid: false,
@@ -142,6 +146,7 @@ describe("Estimate / invoice builder", () => {
           customer: "AC Client",
           title: "Service upgrade",
           email: "a@x.com",
+          qboCustomerId: "1603",
           serviceAddress: "55 Elm",
           estimateNo: "E-55",
           estimateLines: [{ itemName: "Service Upgrade:1 Meter", qty: 1, unitPrice: 2500, description: "Panel" }],

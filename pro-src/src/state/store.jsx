@@ -21,6 +21,7 @@ import { normalizePayments } from "../lib/payments.js";
 import { unhandledCount } from "../lib/sas.js";
 import { customerSyncPayload, qboCustomerToJobPatch } from "../lib/customerSync.js";
 import { customerQboJobPatch } from "../lib/customerQboLink.js";
+import { flushPendingDocSync, hasPendingDocSync, takePendingDocSync } from "../lib/docSyncChain.js";
 import { runDailyDedupeScan } from "../lib/dedupeScan.js";
 import {
   calendarUpsertLinksJob,
@@ -523,27 +524,6 @@ export function StoreProvider({ children }) {
     }
   }, [commands, refreshJobs, showToast]);
 
-  const appliedCustomerQbo = useRef(new Set());
-
-  useEffect(() => {
-    for (const cmd of commands || []) {
-      if (cmd.type !== "create_customer" && cmd.type !== "update_customer") continue;
-      if (cmd.status !== "done") continue;
-      const mark = String(cmd.idempotencyKey || cmd.id || "");
-      if (!mark || appliedCustomerQbo.current.has(mark)) continue;
-      const patch = customerQboJobPatch(cmd.result);
-      if (!patch || !cmd.jobId) continue;
-      const job = effectiveJob(cmd.jobId);
-      if (job && String(job.qboCustomerId || "") === patch.qboCustomerId) {
-        appliedCustomerQbo.current.add(mark);
-        continue;
-      }
-      appliedCustomerQbo.current.add(mark);
-      patchAndSave(cmd.jobId, patch).catch(() => {});
-      showToast("Customer linked to QuickBooks");
-    }
-  }, [commands, effectiveJob, patchAndSave, showToast]);
-
   /* ---------- command bus ---------- */
   const enqueue = useCallback(
     async (type, jobId, payload, lane, idempotencyKey) => {
@@ -656,6 +636,49 @@ export function StoreProvider({ children }) {
     },
     [effectiveJob, patchJob]
   );
+
+  const appliedCustomerQbo = useRef(new Set());
+
+  useEffect(() => {
+    for (const cmd of commands || []) {
+      if (cmd.type !== "create_customer" && cmd.type !== "update_customer") continue;
+      if (cmd.status !== "done") continue;
+      const mark = String(cmd.idempotencyKey || cmd.id || "");
+      if (!mark || appliedCustomerQbo.current.has(mark)) continue;
+      const patch = customerQboJobPatch(cmd.result);
+      if (!patch || !cmd.jobId) continue;
+      const job = effectiveJob(cmd.jobId);
+      if (job && String(job.qboCustomerId || "") === patch.qboCustomerId) {
+        appliedCustomerQbo.current.add(mark);
+        continue;
+      }
+      appliedCustomerQbo.current.add(mark);
+      const pendingDoc = hasPendingDocSync(cmd.jobId);
+      patchAndSave(cmd.jobId, patch)
+        .then(async () => {
+          const pending = takePendingDocSync(cmd.jobId);
+          if (!pending) return;
+          const linkedJob = { ...(effectiveJob(cmd.jobId) || {}), ...patch };
+          const queued = await flushPendingDocSync({
+            enqueue: enqueueRef.current,
+            logSend,
+            jobId: cmd.jobId,
+            job: linkedJob,
+            bundle: pending,
+          });
+          if (queued) {
+            const label = pending.kind === "estimate" ? "estimate" : "invoice";
+            showToast(
+              pending.send
+                ? "Customer ready — sending your " + label + " to QuickBooks now"
+                : "Customer ready — syncing your " + label + " to QuickBooks now"
+            );
+          }
+        })
+        .catch(() => {});
+      if (!pendingDoc) showToast("Customer linked to QuickBooks");
+    }
+  }, [commands, effectiveJob, logSend, patchAndSave, showToast]);
 
   /* ---------- new job (overlay job, saved immediately like sleek) ---------- */
   const createJob = useCallback(
