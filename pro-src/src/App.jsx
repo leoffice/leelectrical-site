@@ -17,6 +17,7 @@ import SyncChip from "./components/SyncChip.jsx";
 import ChatBubble, { ChatUnreadBadge } from "./components/ChatBubble.jsx";
 import ApprovalWatcher from "./components/ApprovalWatcher.jsx";
 import DocConfirmWatcher from "./components/DocConfirmWatcher.jsx";
+import SendInvoiceWatcher from "./components/SendInvoiceWatcher.jsx";
 import DedupePrompts from "./components/DedupePrompts.jsx";
 import { docConfirmMessage } from "./lib/docConfirm.js";
 import NewJobFlow from "./components/NewJobFlow.jsx";
@@ -243,6 +244,7 @@ export default function App() {
         <NewJobFlow />
         <ApprovalWatcher />
         <DocConfirmWatcher />
+        <SendInvoiceWatcher />
         <DedupePrompts />
         <LeaveSheet />
 
