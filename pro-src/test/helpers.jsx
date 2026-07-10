@@ -64,6 +64,27 @@ export function mockServer(opts = {}) {
     docs: opts.docs || {}, // key -> stored "pdf" (docs fn: PDF viewing)
     sasCalls: opts.sasCalls || [], // SAS inbound lead tickets (Calls tab)
     customers: opts.customers || [], // QBO customer-name index (/customers, #49/#56)
+    progress: opts.progress || {
+      headline: "Your app is moving fast",
+      tagline: "Israel builds while you run the business",
+      updatedAt: Date.now(),
+      metrics: {
+        tasksShipped: 12,
+        testsPassing: 483,
+        avgTurnaroundHours: 2.4,
+        traditionalDays: 5,
+        speedMultiplier: 4.2,
+        moneySaved: 3200,
+        fleetSpendToday: 4,
+        fleetBudget: 10,
+        agentCompare: [
+          { name: "Israel (Grok)", hours: 2.4, tone: "brand" },
+          { name: "Cursor / manual", hours: 18, tone: "slate" },
+        ],
+      },
+      highlights: [{ id: "h1", date: "2026-07-10", title: "Test win", blurb: "Details here.", category: "ai", version: 67 }],
+      releases: [{ version: 67, date: "2026-07-10", title: "Test release", items: ["One thing"] }],
+    },
   };
   const calls = [];
   let seq = 1;
@@ -237,6 +258,11 @@ export function mockServer(opts = {}) {
           version: "2.15.2409.2601",
           achEnabled: false,
         };
+      } else if (path === "progress") {
+        if (method === "POST") {
+          state.progress = { ...state.progress, updatedAt: Date.now() };
+        }
+        data = JSON.parse(JSON.stringify(state.progress));
       } else if (path === "iterate") data = { ok: true };
       return { ok: true, status: 200, json: async () => data };
     })
