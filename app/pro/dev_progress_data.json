@@ -7,24 +7,24 @@
     "time_method": "Active build time estimated by sessionizing commit timestamps: consecutive commits within 30 min count as continuous work; gaps >30 min end a session. Sum of session spans.",
     "human_rate_usd_per_hour": 150.0,
     "ai_cost_note": "Grok flat subscription \u2014 marginal cost per build ~ $0.",
-    "generated_at": "2026-07-10 18:24:09Z"
+    "generated_at": "2026-07-10 18:27:00Z"
   },
   "totals": {
     "updates": 9,
-    "commits": 209,
-    "lines_written": 61687,
-    "lines_implemented": 46531,
-    "deletions": 15156,
-    "files_changed": 1845,
+    "commits": 210,
+    "lines_written": 68948,
+    "lines_implemented": 53340,
+    "deletions": 15608,
+    "files_changed": 1871,
     "active_days": 9,
     "first_commit": "2026-07-01 19:12:33",
-    "last_commit": "2026-07-10 13:30:27",
+    "last_commit": "2026-07-10 14:26:48",
     "active_seconds": 72586,
     "active_time_hms": "20:09:46",
     "active_hours": 20.16,
-    "deploys": 137,
-    "speed_lines_written_per_hour": 3059,
-    "speed_lines_landed_per_hour": 2308,
+    "deploys": 138,
+    "speed_lines_written_per_hour": 3420,
+    "speed_lines_landed_per_hour": 2645,
     "speed_commits_per_hour": 10.4,
     "human_cost_usd": 3024.42,
     "ai_cost_usd": 0.0,
@@ -1562,12 +1562,12 @@
     {
       "id": 9,
       "date": "2026-07-10",
-      "title": "Follow-up login prompts: service calls, must-today loop, inspections",
-      "commits": 30,
-      "insertions": 9201,
-      "deletions": 1940,
-      "net": 7261,
-      "files": 234,
+      "title": "Add Company and Build dashboard tabs (approved mockups)",
+      "commits": 31,
+      "insertions": 16462,
+      "deletions": 2392,
+      "net": 14070,
+      "files": 260,
       "iterations": [
         {
           "hash": "3c97261",
@@ -1808,6 +1808,14 @@
           "insertions": 716,
           "deletions": 59,
           "files": 11
+        },
+        {
+          "hash": "18a2ded",
+          "time": "14:26",
+          "subject": "Add Company and Build dashboard tabs (approved mockups)",
+          "insertions": 7261,
+          "deletions": 452,
+          "files": 26
         }
       ]
     }
