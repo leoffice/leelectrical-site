@@ -6,6 +6,7 @@ import {
   emptyLine,
   linesTotal,
 } from "./qboDoc.js";
+import { isProgressBillingContext, progressBillingJobPatch } from "./progressBilling.js";
 
 export const DOC_SYNC_COMMAND_TYPES = [
   "create_estimate",
@@ -69,7 +70,7 @@ export function docSyncFailurePatch(commandType) {
     : { status: { Invoiced: { s: "", d: "" } } };
 }
 
-function buildDocJobPatch(job, { kind, mode, lines, serviceAddress, apartment, markDone }) {
+function buildDocJobPatch(job, { kind, mode, lines, serviceAddress, apartment, markDone, progressPct, contractAmount }) {
   const valid = lines || [];
   const total = linesTotal(valid);
   const jobPatch = {
@@ -77,6 +78,10 @@ function buildDocJobPatch(job, { kind, mode, lines, serviceAddress, apartment, m
     amount: fmt$(total),
     [kind === "estimate" ? "estimateLines" : "invoiceLines"]: valid,
   };
+
+  if (kind === "invoice" && isProgressBillingContext(job, { kind, mode })) {
+    Object.assign(jobPatch, progressBillingJobPatch(valid, job, { progressPct, contractAmount }));
+  }
 
   if (markDone) {
     jobPatch.status = statusPatch(kind);
@@ -89,14 +94,32 @@ function buildDocJobPatch(job, { kind, mode, lines, serviceAddress, apartment, m
 }
 
 /** Plan local job patch only — Save & close (no QuickBooks commands). */
-export function planDocSaveLocal(job, { kind, mode, lines, serviceAddress, apartment }) {
-  const { jobPatch } = buildDocJobPatch(job, { kind, mode, lines, serviceAddress, apartment, markDone: true });
+export function planDocSaveLocal(job, { kind, mode, lines, serviceAddress, apartment, progressPct, contractAmount }) {
+  const { jobPatch } = buildDocJobPatch(job, {
+    kind,
+    mode,
+    lines,
+    serviceAddress,
+    apartment,
+    markDone: true,
+    progressPct,
+    contractAmount,
+  });
   return { jobPatch };
 }
 
 /** Plan local job patch + command bus enqueue for Save & sync (incl. linked doc address sync). */
-export function planDocSaveSync(job, { kind, mode, lines, serviceAddress, apartment, progressPct, send }) {
-  const { valid, jobPatch } = buildDocJobPatch(job, { kind, mode, lines, serviceAddress, apartment, markDone: false });
+export function planDocSaveSync(job, { kind, mode, lines, serviceAddress, apartment, progressPct, send, contractAmount }) {
+  const { valid, jobPatch } = buildDocJobPatch(job, {
+    kind,
+    mode,
+    lines,
+    serviceAddress,
+    apartment,
+    markDone: false,
+    progressPct,
+    contractAmount,
+  });
   const primaryPayload = buildDocCommandPayload(job, {
     kind,
     lines: valid,

@@ -1,6 +1,13 @@
 // QuickBooks estimate/invoice payloads — line items, ShipAddr, progress billing.
 import { parseAmount, fmt$ } from "./format.js";
 import { effectiveServiceAddress } from "./customerSync.js";
+import {
+  inferProgressInvoiceLines,
+  isProgressBillingContext,
+  progressBillLines,
+  progressPctFromLines,
+  contractTotalForJob,
+} from "./progressBilling.js";
 
 export function emptyLine() {
   return { itemName: "", itemId: "", description: "", qty: 1, unitPrice: 0 };
@@ -32,12 +39,15 @@ export function initialLines(job, { kind, mode, progressPct } = {}) {
   const saved = kind === "estimate" ? job.estimateLines : job.invoiceLines;
   if (saved && saved.length) {
     if (kind === "invoice" && mode === "from_estimate" && job.estimateLines) {
-      return scaleLines(job.estimateLines, progressPct ?? 100);
+      return progressBillLines(job.estimateLines, progressPct ?? 100);
     }
     return saved.map((ln) => ({ ...emptyLine(), ...ln }));
   }
+  if (kind === "invoice" && mode === "edit" && isProgressBillingContext(job, { kind, mode })) {
+    return inferProgressInvoiceLines(job);
+  }
   if (kind === "invoice" && mode === "from_estimate" && job.estimateLines && job.estimateLines.length) {
-    return scaleLines(job.estimateLines, progressPct ?? 50);
+    return progressBillLines(job.estimateLines, progressPct ?? 50);
   }
   const amt = parseAmount(job.amount);
   if (amt > 0) {
@@ -84,7 +94,14 @@ export function buildDocCommandPayload(job, { kind, lines, serviceAddress, apart
     base.invoiceNo = job.invoiceNo || "";
     base.source = mode === "from_estimate" || mode === "turn_from_estimate" ? "estimate" : "new";
     base.estimateNo = job.estimateNo || "";
-    base.progressPct = progressPct != null ? parseAmount(progressPct) : 100;
+    const contract = contractTotalForJob(job);
+    base.progressPct =
+      progressPct != null
+        ? parseAmount(progressPct)
+        : contract > 0
+        ? progressPctFromLines(lines, contract)
+        : 100;
+    base.progressBilling = base.progressPct < 99.99;
   }
   if (kind === "estimate") {
     base.estimateNo = job.estimateNo || "";

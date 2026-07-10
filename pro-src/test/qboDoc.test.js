@@ -32,9 +32,10 @@ describe("qboDoc", () => {
     expect(scaled[0].description).toContain("50%");
   });
 
-  it("initialLines from estimate for invoice at progress", () => {
+  it("initialLines from estimate for invoice at progress uses QBO qty style", () => {
     const lines = initialLines(job, { kind: "invoice", mode: "from_estimate", progressPct: 25 });
-    expect(lines[0].unitPrice).toBe(30);
+    expect(lines[0].unitPrice).toBe(120);
+    expect(lines[0].qty).toBe(0.25);
   });
 
   it("buildDocCommandPayload includes ShipAddr and QBO line shape", () => {

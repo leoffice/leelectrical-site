@@ -176,6 +176,7 @@ describe("Estimate / invoice builder", () => {
     const cmd = srv.enqueued("create_invoice")[0];
     expect(cmd.payload.source).toBe("estimate");
     expect(cmd.payload.progressPct).toBe(50);
-    expect(cmd.payload.lines[0].unitPrice).toBe(1250);
+    expect(cmd.payload.lines[0].unitPrice).toBe(2500);
+    expect(cmd.payload.lines[0].qty).toBe(0.5);
   });
 });

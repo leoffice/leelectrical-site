@@ -8,9 +8,111 @@ import { emptyLine, initialLines, lineAmount, linesTotal } from "../lib/qboDoc.j
 import { planDocSaveLocal, planDocSaveSync } from "../lib/docSync.js";
 import { enqueueCustomerQboSync } from "../lib/customerQboEnqueue.js";
 import { stashPendingDocSync } from "../lib/docSyncChain.js";
-import { fmt$ } from "../lib/format.js";
+import { fmt$, parseAmount } from "../lib/format.js";
+import {
+  applyDueAmountToLines,
+  applyProgressPctToLines,
+  contractTotalForJob,
+  contractTotalFromEstimate,
+  dueFromContract,
+  isProgressBillingContext,
+  progressPctFromLines,
+} from "../lib/progressBilling.js";
 
-function LineRow({ line, index, items, onChange, onRemove, canRemove }) {
+function ProgressBillingPanel({ job, lines, contractAmount, adjustMode, progressPct, amountDue, onContractChange, onModeChange, onPctChange, onDueChange }) {
+  const contract = parseAmount(contractAmount) || contractTotalForJob(job) || linesTotal(job.estimateLines) || 0;
+  const billed = linesTotal(lines);
+  const pct = progressPctFromLines(lines, contract) || parseAmount(progressPct);
+
+  return (
+    <div className="card px-3 py-3 mb-3 border-amber-200 bg-amber-50/60" data-testid="progress-billing-panel">
+      <p className="text-[11px] font-bold uppercase tracking-wide text-amber-700 mb-1">Progress invoice</p>
+      <p className="text-xs text-slate-600 mb-3">
+        {job.estimateNo
+          ? "Linked to estimate #" + job.estimateNo + ". "
+          : "Partial billing on a project — matches QuickBooks quantity × rate. "}
+        {contract > 0 && billed < contract
+          ? "Billing " + fmt$(billed) + " of " + fmt$(contract) + " (" + pct + "%)."
+          : contract > 0
+          ? "Full contract " + fmt$(contract) + "."
+          : "Enter the full contract amount below."}
+      </p>
+
+      <Fld label="Full contract amount" hint="Total estimate / project value in QuickBooks">
+        <input
+          className="input"
+          inputMode="decimal"
+          value={contractAmount}
+          onChange={(e) => onContractChange(e.target.value)}
+          placeholder={contract > 0 ? String(contract) : "e.g. 46000"}
+          aria-label="Full contract amount"
+          data-testid="progress-contract-amount"
+          disabled={!!job.estimateLines?.length && !job.contractAmount}
+        />
+      </Fld>
+
+      <div className="flex gap-2 mt-3 mb-2">
+        <button
+          type="button"
+          className={"flex-1 py-2 rounded-xl text-xs font-bold " + (adjustMode === "pct" ? "bg-brand text-white" : "bg-white border border-slate-200 text-slate-600")}
+          onClick={() => onModeChange("pct")}
+          data-testid="progress-mode-pct"
+        >
+          % of contract
+        </button>
+        <button
+          type="button"
+          className={"flex-1 py-2 rounded-xl text-xs font-bold " + (adjustMode === "amount" ? "bg-brand text-white" : "bg-white border border-slate-200 text-slate-600")}
+          onClick={() => onModeChange("amount")}
+          data-testid="progress-mode-amount"
+        >
+          Dollar amount
+        </button>
+      </div>
+
+      {adjustMode === "pct" ? (
+        <div className="space-y-2">
+          <Fld label="Progress percent">
+            <div className="flex items-center gap-2">
+              <input
+                className="input flex-1"
+                inputMode="decimal"
+                value={progressPct}
+                onChange={(e) => onPctChange(e.target.value)}
+                aria-label="Progress percent"
+                data-testid="progress-pct-edit"
+              />
+              <span className="text-sm font-bold text-slate-600">%</span>
+            </div>
+          </Fld>
+          <input
+            type="range"
+            min={1}
+            max={100}
+            value={Math.min(100, Math.max(1, parseAmount(progressPct) || pct || 50))}
+            onChange={(e) => onPctChange(e.target.value)}
+            className="w-full"
+            aria-label="Progress percent slider"
+          />
+          <p className="text-xs text-slate-500">Due on this invoice: {fmt$(dueFromContract(contract, progressPct || pct))}</p>
+        </div>
+      ) : (
+        <Fld label="Amount due on this invoice" hint="What this progress invoice bills">
+          <input
+            className="input"
+            inputMode="decimal"
+            value={amountDue}
+            onChange={(e) => onDueChange(e.target.value)}
+            aria-label="Amount due on invoice"
+            data-testid="progress-amount-due"
+          />
+        </Fld>
+      )}
+    </div>
+  );
+}
+
+function LineRow({ line, index, items, onChange, onRemove, canRemove, progressMode }) {
   const [itemQ, setItemQ] = useState(line.itemName || "");
   const [open, setOpen] = useState(false);
   const picks = useMemo(() => filterQboItems(items, itemQ), [items, itemQ]);
@@ -71,7 +173,16 @@ function LineRow({ line, index, items, onChange, onRemove, canRemove }) {
           aria-label={"Description line " + (index + 1)}
         />
       </Fld>
-      <div className="flex gap-2">
+      <div className={"flex gap-2 " + (progressMode ? "flex-wrap" : "")}>
+        <Fld label={progressMode ? "Rate (full)" : "Rate"}>
+          <input
+            className="input"
+            inputMode="decimal"
+            value={line.unitPrice}
+            onChange={(e) => onChange(index, { unitPrice: e.target.value })}
+            aria-label={"Rate line " + (index + 1)}
+          />
+        </Fld>
         <Fld label="Qty">
           <input
             className="input"
@@ -81,16 +192,15 @@ function LineRow({ line, index, items, onChange, onRemove, canRemove }) {
             aria-label={"Quantity line " + (index + 1)}
           />
         </Fld>
-        <Fld label="Rate">
-          <input
-            className="input"
-            inputMode="decimal"
-            value={line.unitPrice}
-            onChange={(e) => onChange(index, { unitPrice: e.target.value })}
-            aria-label={"Rate line " + (index + 1)}
-          />
-        </Fld>
-        <div className="shrink-0 pt-6 text-sm font-bold text-slate-700 w-20 text-right">{fmt$(lineAmount(line))}</div>
+        {progressMode ? (
+          <Fld label="Due">
+            <div className="input bg-slate-50 text-slate-700 font-semibold" aria-label={"Due line " + (index + 1)}>
+              {fmt$(lineAmount(line))}
+            </div>
+          </Fld>
+        ) : (
+          <div className="shrink-0 pt-6 text-sm font-bold text-slate-700 w-20 text-right">{fmt$(lineAmount(line))}</div>
+        )}
       </div>
       {canRemove ? (
         <button type="button" className="text-xs font-semibold text-red-500" onClick={() => onRemove(index)}>
@@ -112,12 +222,25 @@ export default function DocBuilderSheet({
   const { patchAndSave, enqueue, logSend, showToast, api } = useStore();
   const [serviceAddress, setServiceAddress] = useState(job.serviceAddress || job.address || "");
   const [apartment, setApartment] = useState(job.apartment || "");
+  const progressMode = kind === "invoice" && isProgressBillingContext(job, { kind, mode });
   const [lines, setLines] = useState(() => initialLines(job, { kind, mode, progressPct }));
   const [attachments, setAttachments] = useState([]);
   const [attName, setAttName] = useState("");
   const [attUrl, setAttUrl] = useState("");
   const [items, setItems] = useState(DEFAULT_QBO_ITEMS);
   const [saving, setSaving] = useState(false);
+  const initialContract = contractTotalForJob(job) || contractTotalFromEstimate(job.estimateLines) || 0;
+  const [contractAmount, setContractAmount] = useState(initialContract ? String(initialContract) : "");
+  const [adjustMode, setAdjustMode] = useState("amount");
+  const [progressPctEdit, setProgressPctEdit] = useState(() => {
+    if (progressPct != null) return String(progressPct);
+    const init = initialLines(job, { kind, mode, progressPct });
+    return String(initialContract ? progressPctFromLines(init, initialContract) : 100);
+  });
+  const [amountDueEdit, setAmountDueEdit] = useState(() => {
+    const init = initialLines(job, { kind, mode, progressPct });
+    return String(parseAmount(job.amount) || linesTotal(init) || "");
+  });
 
   useEffect(() => {
     let cancelled = false;
@@ -142,9 +265,48 @@ export default function DocBuilderSheet({
       ? "Invoice from estimate" + (progressPct != null ? " (" + progressPct + "%)" : "")
       : "Create invoice";
 
+  const contractLines = job.estimateLines?.length
+    ? job.estimateLines
+    : lines.map((ln) => ({ ...ln, unitPrice: parseAmount(contractAmount) || ln.unitPrice, qty: 1 }));
+
   const changeLine = useCallback((i, patch) => {
     setLines((rows) => rows.map((ln, idx) => (idx === i ? { ...ln, ...patch } : ln)));
   }, []);
+
+  const applyProgressPct = useCallback(
+    (pctVal) => {
+      const pct = parseAmount(pctVal);
+      setProgressPctEdit(String(pct));
+      setAmountDueEdit(String(dueFromContract(parseAmount(contractAmount) || contractTotalForJob(job), pct)));
+      setLines((rows) => applyProgressPctToLines(rows, contractLines, pct));
+    },
+    [contractAmount, contractLines, job]
+  );
+
+  const applyDueAmount = useCallback(
+    (amtVal) => {
+      const due = parseAmount(amtVal);
+      setAmountDueEdit(String(amtVal));
+      const contract = parseAmount(contractAmount) || contractTotalForJob(job);
+      if (contract > 0) setProgressPctEdit(String(progressPctFromLines([{ qty: 1, unitPrice: due }], contract)));
+      setLines((rows) => applyDueAmountToLines(rows, contractLines, due, contract));
+    },
+    [contractAmount, contractLines, job]
+  );
+
+  const onContractChange = useCallback(
+    (val) => {
+      setContractAmount(val);
+      const contract = parseAmount(val);
+      if (!contract) return;
+      if (adjustMode === "pct") {
+        applyProgressPct(progressPctEdit);
+      } else {
+        applyDueAmount(amountDueEdit);
+      }
+    },
+    [adjustMode, amountDueEdit, applyDueAmount, applyProgressPct, progressPctEdit]
+  );
 
   const addAtt = () => {
     const n = attName.trim();
@@ -192,6 +354,8 @@ export default function DocBuilderSheet({
         lines: valid,
         serviceAddress,
         apartment,
+        progressPct: progressPctEdit,
+        contractAmount,
       });
       if (attachments.length) {
         jobPatch.attachments = (job.attachments || []).concat(attachments);
@@ -217,7 +381,8 @@ export default function DocBuilderSheet({
         lines: valid,
         serviceAddress,
         apartment,
-        progressPct,
+        progressPct: progressPctEdit || progressPct,
+        contractAmount,
         send,
       });
 
@@ -310,6 +475,21 @@ export default function DocBuilderSheet({
         <input className="input" value={apartment} onChange={(e) => setApartment(e.target.value)} aria-label="Apartment" />
       </Fld>
 
+      {progressMode ? (
+        <ProgressBillingPanel
+          job={job}
+          lines={lines}
+          contractAmount={contractAmount}
+          adjustMode={adjustMode}
+          progressPct={progressPctEdit}
+          amountDue={amountDueEdit}
+          onContractChange={onContractChange}
+          onModeChange={setAdjustMode}
+          onPctChange={(v) => applyProgressPct(v)}
+          onDueChange={(v) => applyDueAmount(v)}
+        />
+      ) : null}
+
       <p className="text-[11px] font-bold uppercase tracking-wide text-slate-400 mt-2 mb-2">Line items</p>
       {lines.map((ln, i) => (
         <LineRow
@@ -320,6 +500,7 @@ export default function DocBuilderSheet({
           onChange={changeLine}
           onRemove={(idx) => setLines((rows) => rows.filter((_, j) => j !== idx))}
           canRemove={lines.length > 1}
+          progressMode={progressMode}
         />
       ))}
       <button type="button" className="btn-ghost w-full !py-2 mb-3" onClick={() => setLines((rows) => rows.concat([emptyLine()]))}>
