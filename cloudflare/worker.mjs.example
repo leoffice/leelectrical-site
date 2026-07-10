@@ -1,0 +1,29 @@
+/**
+ * Cloudflare Worker entry — cutover phase only.
+ * Routes /.netlify/functions/* paths to ported handlers.
+ */
+import { bindStorageEnv } from "../netlify/functions/lib/storage/index.mjs";
+
+const HANDLERS = {
+  jobsdata: () => import("../netlify/functions/jobsdata.mjs"),
+  devtasks: () => import("../netlify/functions/devtasks.mjs"),
+  command: () => import("../netlify/functions/command.mjs"),
+  state: () => import("../netlify/functions/state.mjs"),
+  chat: () => import("../netlify/functions/chat.mjs"),
+  calendar: () => import("../netlify/functions/calendar.mjs"),
+  progress: () => import("../netlify/functions/progress.mjs"),
+  docs: () => import("../netlify/functions/docs.mjs"),
+};
+
+export default {
+  async fetch(request, env, ctx) {
+    bindStorageEnv(env);
+    const url = new URL(request.url);
+    const match = url.pathname.match(/\/(?:\.netlify\/functions|api)\/([^/]+)/);
+    const name = match?.[1];
+    const loader = HANDLERS[name];
+    if (!loader) return new Response("not found", { status: 404 });
+    const mod = await loader();
+    return mod.default(request, env, ctx);
+  },
+};

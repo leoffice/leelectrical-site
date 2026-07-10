@@ -1,4 +1,4 @@
-import { getStore } from "@netlify/blobs";
+import { getStore } from "./lib/storage/index.mjs";
 
 // Command bus (#17). Every dashboard action becomes a durable command with a
 // live status and an audit trail. Two lanes are decided by command.lane:

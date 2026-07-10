@@ -1,4 +1,4 @@
-import { getStore } from "@netlify/blobs";
+import { getStore } from "./lib/storage/index.mjs";
 import { sendPaymentConfirmEmail } from "./payment-confirm-email.mjs";
 
 // Cardknox / Sola PaymentSITE return handler.

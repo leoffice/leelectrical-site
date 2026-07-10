@@ -1,4 +1,4 @@
-import { getStore } from "@netlify/blobs";
+import { getStore } from "./lib/storage/index.mjs";
 
 // Task #6 — return channel for the floating chat bubble. Messages from the bubble
 // and Dispatch's replies live here per conversation id, with per-message status.

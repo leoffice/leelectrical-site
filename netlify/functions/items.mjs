@@ -1,4 +1,4 @@
-import { getStore } from "@netlify/blobs";
+import { getStore } from "./lib/storage/index.mjs";
 
 // QuickBooks Products & Services index for estimate/invoice line items.
 //   GET         -> { items:[{name,type,price,description,id?}], updated, ts }

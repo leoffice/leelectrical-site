@@ -1,4 +1,4 @@
-import { getStore } from "@netlify/blobs";
+import { getStore } from "./lib/storage/index.mjs";
 import { searchCustomerIndex } from "./lib/customerSearch.mjs";
 
 // Customer index for the Pro app New Job smart search (task #49) + QB contact

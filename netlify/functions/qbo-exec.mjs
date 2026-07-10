@@ -1,4 +1,5 @@
-import { getStore } from "@netlify/blobs";
+import { getStore } from "./lib/storage/index.mjs";
+import { basicAuthBase64 } from "./lib/base64.mjs";
 
 // Task #19 (item 3) — ALWAYS-ON CLOUD send executor for the deterministic lane.
 // Purpose: send invoices/estimates from Netlify's cloud so critical sends don't
@@ -35,7 +36,7 @@ async function getAuth(store) {
 
 async function refresh(store, refreshToken) {
   const id = process.env.QBO_CLIENT_ID, secret = process.env.QBO_CLIENT_SECRET;
-  const basic = Buffer.from(`${id}:${secret}`).toString("base64");
+  const basic = basicAuthBase64(id, secret);
   const body = new URLSearchParams({ grant_type: "refresh_token", refresh_token: refreshToken });
   const r = await fetch(TOKEN_URL, {
     method: "POST",

@@ -1,4 +1,4 @@
-import { getStore } from "@netlify/blobs";
+import { getStore } from "./lib/storage/index.mjs";
 
 // Calendar events feed for task #16 (New Job "Choose from calendar" + two-way
 // job<->calendar linking). A host/agent sync writes upcoming Google Calendar

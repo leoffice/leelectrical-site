@@ -1,4 +1,4 @@
-import { getStore } from "@netlify/blobs";
+import { getStore } from "./lib/storage/index.mjs";
 
 const SITE = "https://leelectrical.us";
 const TTL_MS = 90 * 24 * 60 * 60 * 1000; // 90 days

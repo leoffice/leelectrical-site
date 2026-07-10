@@ -1,4 +1,4 @@
-import { getStore } from "@netlify/blobs";
+import { getStore } from "./lib/storage/index.mjs";
 
 // Receives an iteration request from the LE Electric Progress tab and stores it
 // so Dispatch (Claude) can read it from the /inbox endpoint. No secrets, same-origin POST.

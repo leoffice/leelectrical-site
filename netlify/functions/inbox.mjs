@@ -1,4 +1,4 @@
-import { getStore } from "@netlify/blobs";
+import { getStore } from "./lib/storage/index.mjs";
 
 // Dispatch (Claude) polls this to read iteration requests submitted from the Progress tab.
 export default async (req) => {

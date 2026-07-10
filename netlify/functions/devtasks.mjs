@@ -1,4 +1,4 @@
-import { getStore } from "@netlify/blobs";
+import { getStore } from "./lib/storage/index.mjs";
 
 // Development Task List store — ONE shared list shown on both Dashboard and Beta.
 // Each task has target:{beta,dashboard}. Dashboard implies Beta (dashboard build

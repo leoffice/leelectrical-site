@@ -1,4 +1,4 @@
-import { getStore } from "@netlify/blobs";
+import { getStore } from "./lib/storage/index.mjs";
 
 // Public pay page — request a missing invoice PDF from QuickBooks.
 // Enqueues fetch_pdf for command_listener (same pipeline as LE Pro View PDF).

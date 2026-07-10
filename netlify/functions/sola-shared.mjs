@@ -1,4 +1,4 @@
-import { getStore } from "@netlify/blobs";
+import { getStore } from "./lib/storage/index.mjs";
 
 export const COMMANDS_KEY = "commands-v1";
 export const JOBS_KEY = "jobsdata-v1";

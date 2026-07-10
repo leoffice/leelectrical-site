@@ -1,4 +1,4 @@
-import { getStore } from "@netlify/blobs";
+import { getStore } from "./lib/storage/index.mjs";
 
 // Nightly purge of invoice/estimate PDFs older than 30 days (docs blob store).
 export const DOCS_TTL_MS = 30 * 24 * 60 * 60 * 1000;

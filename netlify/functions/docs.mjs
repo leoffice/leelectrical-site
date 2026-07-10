@@ -1,4 +1,5 @@
-import { getStore } from "@netlify/blobs";
+import { getStore } from "./lib/storage/index.mjs";
+import { bytesFromBase64 } from "./lib/base64.mjs";
 import { DOCS_TTL_MS } from "./docs-cleanup.mjs";
 
 // docs — small PDF document store for live invoice/estimate viewing (LE Pro).
@@ -36,7 +37,7 @@ export default async (req) => {
     if (!b.b64) return json({ ok: false, error: "missing b64" }, 400);
     let buf;
     try {
-      buf = Buffer.from(String(b.b64), "base64");
+      buf = bytesFromBase64(String(b.b64));
     } catch (e) {
       return json({ ok: false, error: "bad base64" }, 400);
     }

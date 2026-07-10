@@ -1,4 +1,4 @@
-import { getStore } from "@netlify/blobs";
+import { getStore } from "./lib/storage/index.mjs";
 
 // SAS Flex "Custom Action" webhook receiver — answering-service calls/messages land here.
 // Accepts JSON or form-encoded POSTs. Shared-secret: header x-le-key or ?k= must equal LE_SAS_KEY.

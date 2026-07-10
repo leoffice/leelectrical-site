@@ -1,15 +1,11 @@
-import { getStore } from "@netlify/blobs";
-import { readFileSync } from "fs";
-import { fileURLToPath } from "url";
-import { dirname, join } from "path";
+import { getStore } from "./lib/storage/index.mjs";
+import defaultSnapshot from "./dev_progress_snapshot.json" with { type: "json" };
 
 // Dev Progress dashboard — serves dev_progress_data.json shape.
 // GET returns blob snapshot (daily refresh via host script POST op:replace).
 // POST op:refresh re-reads bundled snapshot; op:replace stores fresh data from cron.
 const KEY = "dev-progress-v1";
 const DAY = 24 * 60 * 60 * 1000;
-
-const __dir = dirname(fileURLToPath(import.meta.url));
 
 function json(o) {
   return new Response(JSON.stringify(o), {
@@ -24,16 +20,12 @@ function json(o) {
 }
 
 function loadSnapshot() {
-  try {
-    const raw = readFileSync(join(__dir, "dev_progress_snapshot.json"), "utf8");
-    return JSON.parse(raw);
-  } catch {
-    return {
-      meta: { agent: "Israel (Grok Build)", project: "LE Pro", generated_at: new Date().toISOString() },
-      totals: { updates: 0, commits: 0, lines_written: 0, lines_implemented: 0, active_time_hms: "0:00:00", deploys: 0, money_saved_usd: 0 },
-      updates: [],
-    };
-  }
+  if (defaultSnapshot && typeof defaultSnapshot === "object") return defaultSnapshot;
+  return {
+    meta: { agent: "Israel (Grok Build)", project: "LE Pro", generated_at: new Date().toISOString() },
+    totals: { updates: 0, commits: 0, lines_written: 0, lines_implemented: 0, active_time_hms: "0:00:00", deploys: 0, money_saved_usd: 0 },
+    updates: [],
+  };
 }
 
 async function loadProgress(store) {

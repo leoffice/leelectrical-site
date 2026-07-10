@@ -1,4 +1,4 @@
-import { getStore } from "@netlify/blobs";
+import { getStore } from "./lib/storage/index.mjs";
 import {
   PAYMENT_CONFIRM_COMPANY,
   buildPaymentConfirmEmail,
