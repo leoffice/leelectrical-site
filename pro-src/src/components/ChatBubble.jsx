@@ -20,7 +20,7 @@ import ChatReplyButtons from "./ChatReplyButtons.jsx";
 import { parseReplyButtons } from "../lib/chatReplyButtons.js";
 import { LE_PRO_CONVO, clearLegacyDeviceConvo, legacyDeviceConvo } from "../lib/chatConvo.js";
 import { appendPayment } from "../lib/payments.js";
-import { paymentAutofillPatch } from "../lib/paymentAutofill.js";
+
 import {
   analyzeImageIntent,
   analyzePaymentScreenshot,
@@ -28,6 +28,13 @@ import {
   fileToBase64,
 } from "../lib/paymentVision.js";
 import { formatImageIntentSummary, suggestActionsFromImage } from "../lib/imageIntent.js";
+import {
+  buildChatPaymentDraft,
+  isPaymentMethodOnly,
+  looksLikePaymentImage,
+  parsePaymentMethodHint,
+} from "../lib/chatPayment.js";
+import { findJobByInvoice } from "../lib/zelleReconcile.js";
 const ONLINE_MS = 4 * 60_000; // israel-heartbeat (or last reply) younger than this = online
 const STUCK_MS = 90_000; // a "Working on it" we've watched longer than this stops looking like a live spinner
 const NEAR_BOTTOM_PX = 48; // within this distance of the bottom we auto-scroll on new messages
@@ -120,6 +127,7 @@ export default function ChatBubble() {
   const [dispatchSeen, setDispatchSeen] = useState(0); // responder heartbeat ts
   const [jobSheet, setJobSheet] = useState(false);
   const [paymentDraft, setPaymentDraft] = useState(null);
+  const [pendingPaymentImage, setPendingPaymentImage] = useState(null);
   const [imageActionDraft, setImageActionDraft] = useState(null);
   const [imageBusy, setImageBusy] = useState(false);
   const imageInputRef = useRef(null);
@@ -374,20 +382,25 @@ export default function ChatBubble() {
             extracted = null;
           }
         }
-        const patch = paymentAutofillPatch(extracted || {});
-        const payKind = kind === "check" ? "Check" : "Zelle";
-        if (extracted?.amount > 0 || patch.ref) {
-          setPaymentDraft({
-            kind: payKind,
-            amount: patch.amt || "",
-            ref: patch.ref || "",
-            memo: patch.memo || "",
-            date: patch.dt || "",
-            extracted,
-            proofName: file.name,
-            previewUrl,
-            file,
-          });
+        const methodHint = parsePaymentMethodHint(text);
+        if (looksLikePaymentImage(extracted)) {
+          if (methodHint || activeJob?.invoiceNo) {
+            setPendingPaymentImage(null);
+            setPaymentDraft(
+              buildChatPaymentDraft({
+                extracted,
+                visionKind: kind,
+                file,
+                previewUrl,
+                textHint: text,
+                jobInvoiceNo: activeJob?.invoiceNo || "",
+              })
+            );
+            setText("");
+            return;
+          }
+          setPendingPaymentImage({ extracted, visionKind: kind, file, previewUrl, proofName: file.name });
+          showToast("Got the photo — type check or zelle, then send");
           return;
         }
         let intent = null;
@@ -417,7 +430,7 @@ export default function ChatBubble() {
         setImageBusy(false);
       }
     },
-    [activeJob, chatCtx, jobs, showToast]
+    [activeJob, chatCtx, jobs, showToast, text]
   );
 
   const confirmImageAction = useCallback(
@@ -426,18 +439,16 @@ export default function ChatBubble() {
       setImageActionDraft(null);
       if (!draft) return;
       if (action.kind === "record_payment" && action.job) {
-        const patch = paymentAutofillPatch(draft.extracted || {});
-        setPaymentDraft({
-          kind: draft.extracted?.paymentMethod === "check" ? "Check" : "Zelle",
-          amount: action.amount || patch.amt || "",
-          ref: patch.ref || "",
-          memo: patch.memo || "",
-          date: patch.dt || "",
-          extracted: draft.extracted,
-          proofName: draft.proofName,
-          previewUrl: draft.previewUrl,
-          file: draft.file,
-        });
+        setPaymentDraft(
+          buildChatPaymentDraft({
+            extracted: draft.extracted,
+            visionKind: draft.extracted?.paymentMethod === "check" ? "check" : "zelle",
+            file: draft.file,
+            previewUrl: draft.previewUrl,
+            textHint: text,
+            jobInvoiceNo: action.job?.invoiceNo || action.invoiceNo || "",
+          })
+        );
         return;
       }
       const line =
@@ -475,19 +486,45 @@ export default function ChatBubble() {
     [api, chatCtx, imageActionDraft, jobId, loc.pathname, showToast, view]
   );
 
+  const openPaymentDraft = useCallback(
+    (pending, hintText) => {
+      setPendingPaymentImage(null);
+      setPaymentDraft(
+        buildChatPaymentDraft({
+          extracted: pending.extracted,
+          visionKind: pending.visionKind,
+          file: pending.file,
+          previewUrl: pending.previewUrl,
+          textHint: hintText,
+          jobInvoiceNo: activeJob?.invoiceNo || "",
+        })
+      );
+    },
+    [activeJob]
+  );
+
   const confirmChatPayment = useCallback(
     async (confirmed) => {
       setPaymentDraft(null);
-      if (!activeJob?.id) {
-        showToast("Open the invoice job first to stage a payment");
+      const target =
+        activeJob?.id && (!confirmed.invoiceNo || String(activeJob.invoiceNo) === String(confirmed.invoiceNo))
+          ? activeJob
+          : findJobByInvoice(jobs, confirmed.invoiceNo) || activeJob;
+      if (!target?.id) {
+        showToast(
+          confirmed.invoiceNo
+            ? "No job found for invoice #" + confirmed.invoiceNo + " — open that job first"
+            : "Open the invoice job first to stage a payment"
+        );
         return;
       }
       const noteBits = [];
       if (confirmed.kind === "Check" && confirmed.ref) noteBits.push("Check #" + confirmed.ref);
       else if (confirmed.ref) noteBits.push("Zelle ref " + confirmed.ref);
+      if (confirmed.deposit) noteBits.push("Deposit: " + confirmed.deposit);
       if (confirmed.memo) noteBits.push(confirmed.memo);
       if (confirmed.proofName) noteBits.push("proof: " + confirmed.proofName);
-      const patch = appendPayment(activeJob, {
+      const patch = appendPayment(target, {
         amount: confirmed.amount,
         method: confirmed.kind,
         ref: confirmed.ref,
@@ -497,14 +534,16 @@ export default function ChatBubble() {
         paymentAutofilled: true,
         zelleProofName: confirmed.kind === "Zelle" ? confirmed.proofName : undefined,
         paymentProofName: confirmed.proofName,
+        depositTo: confirmed.deposit || undefined,
       });
-      patchJob(activeJob.id, patch);
+      patchJob(target.id, patch);
       showToast("Payment staged — tap Save & sync on the job");
       const summary =
         confirmed.kind +
         " $" +
         confirmed.amount +
         (confirmed.ref ? " #" + confirmed.ref : "") +
+        (confirmed.invoiceNo ? " inv #" + confirmed.invoiceNo : "") +
         (confirmed.memo ? " — " + confirmed.memo : "");
       const full = chatCtx() + "Payment from image: " + summary;
       const msg = { id: "m-pay-" + Date.now(), who: "you", text: full, status: "Sent", _local: true };
@@ -513,9 +552,19 @@ export default function ChatBubble() {
       try {
         await api.chatSend(convo.current, msg.id, full);
       } catch {}
-      api.iterate(full, "pro-bubble:" + convo.current, { view, jobId: jobId || "", pathname: loc.pathname, paymentImage: true }).catch(() => {});
+      api
+        .iterate(full, "pro-bubble:" + convo.current, {
+          view,
+          jobId: target.id || jobId || "",
+          pathname: loc.pathname,
+          paymentImage: true,
+        })
+        .catch(() => {});
+      if (target.id !== jobId) {
+        window.location.hash = "#/job/" + target.id;
+      }
     },
-    [activeJob, api, chatCtx, jobId, loc.pathname, patchJob, showToast, view]
+    [activeJob, api, chatCtx, jobId, jobs, loc.pathname, patchJob, showToast, view]
   );
 
   const runSlash = useCallback(
@@ -591,6 +640,10 @@ export default function ChatBubble() {
     async (t, { skipSlash = false, skipInvoiceEdit = false } = {}) => {
       const trimmed = String(t || "").trim();
       if (!trimmed) return;
+      if (pendingPaymentImage && (isPaymentMethodOnly(trimmed) || parsePaymentMethodHint(trimmed))) {
+        openPaymentDraft(pendingPaymentImage, trimmed);
+        return;
+      }
       if (!skipSlash) {
         const slash = parseChatSlash(trimmed);
         if (slash) {
@@ -641,7 +694,7 @@ export default function ChatBubble() {
         .catch(() => {});
       poll();
     },
-    [api, chatCtx, jobId, loc.pathname, poll, runSlash, showToast, tryInvoiceEditFromBubble, view]
+    [api, chatCtx, jobId, loc.pathname, openPaymentDraft, pendingPaymentImage, poll, runSlash, showToast, tryInvoiceEditFromBubble, view]
   );
 
   const pickReplyButton = useCallback(
@@ -946,6 +999,7 @@ export default function ChatBubble() {
           onCancel={() => {
             if (paymentDraft?.previewUrl) URL.revokeObjectURL(paymentDraft.previewUrl);
             setPaymentDraft(null);
+            setPendingPaymentImage(null);
           }}
         />
       ) : null}

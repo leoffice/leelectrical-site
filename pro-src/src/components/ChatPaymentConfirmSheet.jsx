@@ -1,7 +1,9 @@
 // Confirm / edit payment fields read from a chat image before staging or sending.
 import React, { useState } from "react";
 import Sheet, { Fld } from "./Sheet.jsx";
+import PaymentImageZoom from "./PaymentImageZoom.jsx";
 import { fmt$, todayStr } from "../lib/format.js";
+import { DEPOSIT_BANKS } from "../lib/chatPayment.js";
 
 export default function ChatPaymentConfirmSheet({ draft, job, onConfirm, onCancel }) {
   if (!draft) return null;
@@ -10,26 +12,44 @@ export default function ChatPaymentConfirmSheet({ draft, job, onConfirm, onCance
   const [ref, setRef] = useState(draft.ref || "");
   const [memo, setMemo] = useState(draft.memo || "");
   const [dt, setDt] = useState(draft.date || todayStr());
+  const [invoiceNo, setInvoiceNo] = useState(draft.invoiceNo || job?.invoiceNo || "");
+  const [deposit, setDeposit] = useState(draft.deposit || DEPOSIT_BANKS[0]);
+  const [depositOther, setDepositOther] = useState("");
+  const locked = Boolean(draft.methodLocked);
+  const depositVal = deposit === "Other" ? depositOther.trim() : deposit;
 
   return (
     <Sheet title="Payment from image" onClose={onCancel} wide>
       <p className="text-sm text-slate-700 mb-3">
-        {job?.invoiceNo
-          ? `Looks like a payment for invoice #${job.invoiceNo}. Edit if needed, then confirm or cancel.`
-          : "Looks like a payment image. Edit if needed, then confirm or cancel."}
+        {invoiceNo || job?.invoiceNo
+          ? `Payment for invoice #${invoiceNo || job.invoiceNo}. Edit if needed, then confirm or cancel.`
+          : "Payment from your photo. Edit if needed, then confirm or cancel."}
       </p>
-      {draft.previewUrl ? (
-        <img
-          src={draft.previewUrl}
-          alt="Payment attachment"
-          className="rounded-xl border border-slate-200 max-h-32 object-contain mb-3 w-full bg-slate-50"
+      {draft.previewUrl ? <PaymentImageZoom src={draft.previewUrl} /> : null}
+      {locked ? (
+        <Fld label="Payment type">
+          <p className="input bg-slate-50 text-slate-800 font-medium" data-testid="payment-kind-locked">
+            {kind}
+          </p>
+        </Fld>
+      ) : (
+        <Fld label="Payment type">
+          <select className="input" value={kind} onChange={(e) => setKind(e.target.value)} aria-label="Payment type">
+            <option>Zelle</option>
+            <option>Check</option>
+          </select>
+        </Fld>
+      )}
+      <Fld label="Invoice #">
+        <input
+          className="input"
+          inputMode="numeric"
+          value={invoiceNo}
+          onChange={(e) => setInvoiceNo(e.target.value)}
+          placeholder="From memo if found"
+          aria-label="Invoice number"
+          data-testid="chat-payment-invoice"
         />
-      ) : null}
-      <Fld label="Payment type">
-        <select className="input" value={kind} onChange={(e) => setKind(e.target.value)} aria-label="Payment type">
-          <option>Zelle</option>
-          <option>Check</option>
-        </select>
       </Fld>
       <Fld label="Amount">
         <input className="input" inputMode="decimal" value={amt} onChange={(e) => setAmt(e.target.value)} aria-label="Amount" />
@@ -39,6 +59,29 @@ export default function ChatPaymentConfirmSheet({ draft, job, onConfirm, onCance
       </Fld>
       <Fld label="Memo">
         <input className="input" value={memo} onChange={(e) => setMemo(e.target.value)} />
+      </Fld>
+      <Fld label="Deposit to">
+        <select
+          className="input"
+          value={deposit}
+          onChange={(e) => setDeposit(e.target.value)}
+          aria-label="Deposit to"
+          data-testid="chat-payment-deposit"
+        >
+          {DEPOSIT_BANKS.map((b) => (
+            <option key={b}>{b}</option>
+          ))}
+          <option>Other</option>
+        </select>
+        {deposit === "Other" ? (
+          <input
+            className="input mt-2"
+            value={depositOther}
+            onChange={(e) => setDepositOther(e.target.value)}
+            placeholder="Bank name"
+            aria-label="Other bank"
+          />
+        ) : null}
       </Fld>
       <Fld label="Date">
         <input className="input" type="date" value={dt} onChange={(e) => setDt(e.target.value)} />
@@ -57,6 +100,8 @@ export default function ChatPaymentConfirmSheet({ draft, job, onConfirm, onCance
             ref,
             memo,
             date: dt,
+            invoiceNo: String(invoiceNo || "").replace(/^#/, "").trim(),
+            deposit: depositVal,
             extracted: draft.extracted,
             proofName: draft.proofName,
           })
