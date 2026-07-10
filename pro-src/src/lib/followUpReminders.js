@@ -218,6 +218,23 @@ export function scheduleNextBusinessDayReminder(eventId, note, today) {
   });
 }
 
+/** Reschedule a reminder to a specific weekday + work-hour slot. */
+export function rescheduleEventReminder(eventId, remindAt, { note, priority } = {}) {
+  const st = eventState(loadState(), eventId);
+  const patch = {
+    remindAt,
+    pushOffCount: 0,
+    nextNudgeAt: "",
+    handledAt: "",
+  };
+  if (note !== undefined) patch.note = note;
+  if (priority !== undefined) patch.priority = priority;
+  else if (st.priority === "must_today" && remindAt.slice(0, 10) !== (st.remindAt || "").slice(0, 10)) {
+    patch.priority = "medium";
+  }
+  return patchEventState(eventId, patch);
+}
+
 function stNote(eventId) {
   return eventState(loadState(), eventId).note || "";
 }

@@ -1,9 +1,10 @@
 // Calendar — totals, to-do / upcoming follow-ups, week schedule.
-import React, { useMemo, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { useStore } from "../state/store.jsx";
 import AppointmentDetailSheet from "../components/AppointmentDetailSheet.jsx";
 import WeekCalendar from "../components/WeekCalendar.jsx";
+import { consumeCalendarPick } from "../lib/calendarNavigate.js";
 import { fmtAmountDue, openBalance, totalBalanceDue } from "../lib/customers.js";
 import { bucketFollowUps, dueDateTone, followUpDate, followUpLabel } from "../lib/calendarDue.js";
 import { fmt$, todayStr } from "../lib/format.js";
@@ -55,6 +56,13 @@ export default function Today() {
   const { jobs, events } = useStore();
   const [picked, setPicked] = useState(null);
   const t = todayStr();
+
+  useEffect(() => {
+    const pickId = consumeCalendarPick();
+    if (!pickId || !events?.length) return;
+    const ev = events.find((e) => String(e.id) === String(pickId));
+    if (ev) setPicked(ev);
+  }, [events]);
   const js = useMemo(() => jobs.filter((j) => !j._archived && !j._deleted), [jobs]);
   const buckets = useMemo(() => bucketFollowUps(js, t), [js, t]);
   const todo = useMemo(() => [...buckets.overdue, ...buckets.todayDue], [buckets]);

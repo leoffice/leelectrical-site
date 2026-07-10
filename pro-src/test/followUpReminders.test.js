@@ -9,11 +9,13 @@ import {
   isInspectionEvent,
   isServiceCallEvent,
   pickFirmerNudge,
+  rescheduleEventReminder,
   scheduleSameDayPushOff,
   serviceCallCandidates,
   validateRemindDatetime,
   suggestJobsForEvent,
 } from "../src/lib/followUpReminders.js";
+import { consumeCalendarPick, stashCalendarPick } from "../src/lib/calendarNavigate.js";
 import {
   isDaySelectable,
   monthGrid,
@@ -116,6 +118,33 @@ describe("followUpReminders", () => {
     expect(sat.weekend).toBe(true);
     expect(workHourSlots().length).toBeGreaterThan(8);
     expect(workHourSlots()[0].hour).toBe(9);
+  });
+
+  it("rescheduleEventReminder moves remindAt and clears push-off loop", () => {
+    localStorage.setItem(
+      STATE_KEY,
+      JSON.stringify({
+        ev1: {
+          priority: "must_today",
+          remindAt: "2026-07-10T09:00",
+          note: "call back",
+          pushOffCount: 2,
+          nextNudgeAt: "2026-07-10T12:00",
+        },
+      })
+    );
+    const st = rescheduleEventReminder("ev1", "2026-07-14T11:00");
+    expect(st.remindAt).toBe("2026-07-14T11:00");
+    expect(st.pushOffCount).toBe(0);
+    expect(st.nextNudgeAt).toBe("");
+    expect(st.priority).toBe("medium");
+    expect(st.note).toBe("call back");
+  });
+
+  it("calendarNavigate stashes and consumes a pick id once", () => {
+    stashCalendarPick("evt-99");
+    expect(consumeCalendarPick()).toBe("evt-99");
+    expect(consumeCalendarPick()).toBe("");
   });
 
   it("suggestJobsForEvent matches customer and address", () => {

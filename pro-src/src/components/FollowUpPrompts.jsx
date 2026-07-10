@@ -15,10 +15,12 @@ import {
   generateReminderNudge,
   patchEventState,
   pickFirmerNudge,
+  rescheduleEventReminder,
   scheduleNextBusinessDayReminder,
   scheduleSameDayPushOff,
   validateRemindDatetime,
 } from "../lib/followUpReminders.js";
+import { stashCalendarPick } from "../lib/calendarNavigate.js";
 import ReminderDateTimePicker from "./ReminderDateTimePicker.jsx";
 
 const SESSION_KEY = "lepro_followup_session";
@@ -132,7 +134,51 @@ function RemindMeSheet({ event, job, onClose, onSaved }) {
   );
 }
 
-function MustTodayNudgeSheet({ event, state: st, job, onClose, onDone }) {
+function RescheduleReminderSheet({ event, state: st, job, onClose, onSaved }) {
+  const { patchAndSave, showToast } = useStore();
+  const today = todayStr();
+  const [dt, setDt] = useState(() => defaultRemindDatetime());
+
+  const save = async () => {
+    const err = validateRemindDatetime(dt);
+    if (err) {
+      showToast(err);
+      return;
+    }
+    rescheduleEventReminder(event.id, dt, { note: st.note, priority: st.priority });
+    if (job?.id) {
+      await patchAndSave(job.id, {
+        followUp: {
+          type: "Follow-up",
+          text: st.note || st.nudge || event.summary || "Follow up",
+          date: dt.slice(0, 10),
+          remind: true,
+          priority: st.priority === "must_today" && dt.slice(0, 10) !== today ? "medium" : st.priority,
+        },
+      });
+    }
+    showToast("Reminder moved to " + dt.replace("T", " ").slice(0, 16));
+    onSaved && onSaved();
+    onClose();
+  };
+
+  return (
+    <Sheet title="Move reminder" onClose={onClose}>
+      <p className="text-sm text-slate-500 mb-3">{event?.summary || "Appointment"}</p>
+      <Fld label="New day & time" hint="Weekdays during work hours">
+        <ReminderDateTimePicker value={dt} onChange={setDt} minDate={today} />
+      </Fld>
+      <button type="button" className="btn-brand w-full mb-2" onClick={save} data-testid="reminder-reschedule-save">
+        Save new reminder time
+      </button>
+      <button type="button" className="btn-ghost w-full text-slate-500" onClick={onClose}>
+        Cancel
+      </button>
+    </Sheet>
+  );
+}
+
+function MustTodayNudgeSheet({ event, state: st, job, onClose, onDone, onReschedule }) {
   const nav = useNavigate();
   const { showToast } = useStore();
   const isFirmer = (st.pushOffCount || 0) > 0;
@@ -146,6 +192,13 @@ function MustTodayNudgeSheet({ event, state: st, job, onClose, onDone }) {
     onClose();
     if (job?.id) nav("/job/" + encodeURIComponent(job.id));
     else nav("/today");
+  };
+
+  const openInCalendar = () => {
+    stashCalendarPick(event.id);
+    onDone();
+    onClose();
+    nav("/today");
   };
 
   const pushTwoHours = () => {
@@ -172,8 +225,14 @@ function MustTodayNudgeSheet({ event, state: st, job, onClose, onDone }) {
       <button type="button" className="btn-brand w-full mb-2" onClick={openJob}>
         Open &amp; handle it
       </button>
+      <button type="button" className="btn bg-slate-100 text-slate-800 w-full mb-2" onClick={openInCalendar} data-testid="reminder-open-calendar">
+        📅 Open in calendar
+      </button>
       <button type="button" className="btn bg-amber-100 text-amber-900 w-full mb-2" onClick={pushTwoHours}>
         Push off — remind me in 2 hours
+      </button>
+      <button type="button" className="btn bg-slate-100 text-slate-800 w-full mb-2" onClick={onReschedule} data-testid="reminder-move-day">
+        Move to a different day
       </button>
       <button type="button" className="btn-ghost w-full text-slate-600" onClick={pushTomorrow}>
         Next business day only
@@ -232,6 +291,13 @@ function ServiceCallSheet({ event, job, onClose, onDone, onCreateJob, onRemind }
     nav("/job/" + encodeURIComponent(job.id));
   };
 
+  const openInCalendar = () => {
+    stashCalendarPick(event.id);
+    onDone();
+    onClose();
+    nav("/today");
+  };
+
   const skip = () => {
     patchEventState(event.id, { handledAt: Date.now() });
     onDone();
@@ -277,6 +343,9 @@ function ServiceCallSheet({ event, job, onClose, onDone, onCreateJob, onRemind }
       </div>
       <button type="button" className="btn-brand w-full mb-2" onClick={onRemind} data-testid="followup-remind">
         🔔 Remind me
+      </button>
+      <button type="button" className="btn bg-slate-100 text-slate-800 w-full mb-2" onClick={openInCalendar} data-testid="followup-open-calendar">
+        📅 Open in calendar
       </button>
       <button type="button" className="btn bg-slate-100 text-slate-800 w-full mb-2" onClick={noReminders} data-testid="followup-no-remind">
         Don't remind me
@@ -377,6 +446,18 @@ export default function FollowUpPrompts() {
     );
   }
 
+  if (subSheet?.kind === "reschedule") {
+    return (
+      <RescheduleReminderSheet
+        event={subSheet.event}
+        state={subSheet.state}
+        job={subSheet.job}
+        onClose={() => setSubSheet(null)}
+        onSaved={advance}
+      />
+    );
+  }
+
   if (!current) return null;
 
   if (current.kind === "must_today_nudge") {
@@ -387,6 +468,14 @@ export default function FollowUpPrompts() {
         job={current.job}
         onClose={advance}
         onDone={advance}
+        onReschedule={() =>
+          setSubSheet({
+            kind: "reschedule",
+            event: current.event,
+            state: current.state,
+            job: current.job,
+          })
+        }
       />
     );
   }
