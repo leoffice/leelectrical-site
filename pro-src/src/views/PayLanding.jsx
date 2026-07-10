@@ -1,6 +1,7 @@
-// Public View & Pay — invoice details, View invoice PDF, Pay → Sola.
+// Public View & Pay — invoice details, View invoice PDF, in-page card payment.
 import React, { useEffect, useState } from "react";
-import { Link, useParams, useSearchParams } from "react-router-dom";
+import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
+import SolaCardForm, { tokenizeSolaCard } from "../components/SolaCardForm.jsx";
 import { addressesDiffer, invoicePdfUrl, resolvePayLandingToken } from "../lib/payLanding.js";
 import {
   PDF_RETRIEVE_STAGES,
@@ -14,7 +15,7 @@ import {
   processingFee,
   totalWithFee,
 } from "../lib/payFees.js";
-import { solaPayUrlFromLanding } from "../lib/solaPayUrl.js";
+import { chargeCardFromLanding } from "../lib/solaCharge.js";
 
 const LOGO = import.meta.env.BASE_URL + "le-logo.png?v=5";
 
@@ -112,6 +113,7 @@ function usePayToken() {
 }
 
 export default function PayLanding() {
+  const navigate = useNavigate();
   const token = usePayToken();
   const [data, setData] = useState(null);
   const [resolving, setResolving] = useState(Boolean(token));
@@ -123,6 +125,9 @@ export default function PayLanding() {
   const [pdfPhase, setPdfPhase] = useState("idle");
   const [pdfErr, setPdfErr] = useState("");
   const [showPaidHist, setShowPaidHist] = useState(false);
+  const [cardReady, setCardReady] = useState(false);
+  const [payBusy, setPayBusy] = useState(false);
+  const [payErr, setPayErr] = useState("");
 
   const includeFee = feeEnabledInPayload(data);
 
@@ -195,8 +200,8 @@ export default function PayLanding() {
 
   const fee = processingFee(payAmount, includeFee);
   const chargeTotal = totalWithFee(payAmount, includeFee);
-  const payUrl = solaPayUrlFromLanding(data, chargeTotal, payAmount, includeFee);
   const asOf = data.as || "today";
+  const balanceDue = parseMoney(data.d) || parseMoney(data.a);
   const showService = addressesDiffer(data.ba, data.sa);
   const paidLines = Array.isArray(data.ps) ? data.ps.filter((p) => p?.a) : [];
 
@@ -216,6 +221,37 @@ export default function PayLanding() {
     document.body.appendChild(a);
     a.click();
     a.remove();
+  };
+
+  const submitPayment = async () => {
+    if (payBusy || payAmount <= 0) return;
+    if (!cardReady) {
+      setPayErr("Card fields still loading — wait a moment");
+      return;
+    }
+    setPayErr("");
+    setPayBusy(true);
+    try {
+      const tokens = await tokenizeSolaCard();
+      const res = await chargeCardFromLanding({
+        data,
+        principalAmount: payAmount,
+        includeFee,
+        ...tokens,
+      });
+      const newBal = Math.max(0, balanceDue - payAmount);
+      const qs = new URLSearchParams({
+        ok: "1",
+        inv: String(data.i || ""),
+        amt: String(res.amount ?? payAmount),
+        bal: String(newBal),
+      });
+      navigate(`/pay/thanks?${qs.toString()}`);
+    } catch (e) {
+      setPayErr(String((e && e.message) || "Payment could not be completed"));
+    } finally {
+      setPayBusy(false);
+    }
   };
 
   const openInvoicePdf = async (e) => {
@@ -405,21 +441,36 @@ export default function PayLanding() {
 
         {includeFee ? (
           <p className="text-[11px] text-slate-500 mb-4 px-1 leading-relaxed">
-            Tap ✏️ to change the amount before Pay. A 3.5% processing fee is added on top.
+            Tap ✏️ to change the amount before paying. A 3.5% processing fee is added on top.
           </p>
         ) : null}
 
-        <a
-          href={payUrl || "#"}
+        <div className="card p-5 mb-4">
+          <h2 className="font-bold text-slate-900 mb-1">Pay by card</h2>
+          <p className="text-[11px] text-slate-500 mb-4">
+            Secure payment — your card details stay on our encrypted form, not a third-party page.
+          </p>
+          <SolaCardForm disabled={payBusy} onReadyChange={setCardReady} />
+          {payErr ? (
+            <p className="text-xs text-red-600 bg-red-50 border border-red-100 rounded-xl px-3 py-2 mt-3">
+              {payErr}
+            </p>
+          ) : null}
+        </div>
+
+        <button
+          type="button"
           className={`btn-brand w-full !py-4 text-base shadow-md mb-2 ${
-            payUrl ? "" : "opacity-50 pointer-events-none"
+            payBusy || !cardReady ? "opacity-70" : ""
           }`}
           data-testid="pay-cta"
+          disabled={payBusy || !cardReady || payAmount <= 0}
+          onClick={submitPayment}
         >
-          Pay {fmtMoneyPrecise(includeFee ? chargeTotal : payAmount)}
-        </a>
+          {payBusy ? "Processing…" : `Pay ${fmtMoneyPrecise(includeFee ? chargeTotal : payAmount)}`}
+        </button>
         <p className="text-center text-[11px] text-slate-500 px-2 mb-1">
-          Secure payment on the next page. You may save your card there if your bank allows it.
+          You&apos;ll get a confirmation on this page right after payment.
         </p>
       </main>
 

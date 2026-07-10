@@ -40,6 +40,20 @@ export function billingFromJob(job) {
   };
 }
 
+/** Billing fields from a public pay-landing payload (customer link). */
+export function billingFromLanding(data) {
+  const bill = parseUSAddress(data?.ba || data?.sa || "");
+  return {
+    name: data?.c || "",
+    email: data?.e || "",
+    phone: data?.ph || "",
+    street: bill.street || "",
+    city: bill.city || "",
+    state: bill.state || "",
+    zip: bill.zip || data?.z || "",
+  };
+}
+
 export async function chargeCardInApp({
   job,
   principalAmount,
@@ -77,6 +91,42 @@ export async function chargeCardInApp({
     throw new Error(data.error || "Payment could not be processed");
   }
   return data;
+}
+
+/** Charge a card from the customer View & Pay page (no staff job object). */
+export async function chargeCardFromLanding({
+  data,
+  principalAmount,
+  includeFee = true,
+  xCardNum,
+  xCVV,
+  xExp,
+}) {
+  const invoiceNo = String(data?.i || "").trim();
+  if (!invoiceNo) throw new Error("Invoice # required to pay");
+
+  const principal = parseFloat(String(principalAmount).replace(/[$,]/g, "")) || 0;
+  if (principal <= 0) throw new Error("Enter a payment amount");
+
+  const res = await fetch(FN + "/sola-charge", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      invoiceNo,
+      jobId: data?.j || "",
+      principalAmount: principal,
+      includeFee,
+      xCardNum,
+      xCVV,
+      xExp: normalizeCardExp(xExp),
+      billing: billingFromLanding(data),
+    }),
+  });
+  const out = await res.json().catch(() => ({}));
+  if (!res.ok || !out.ok) {
+    throw new Error(out.error || "Payment could not be processed");
+  }
+  return out;
 }
 
 export function chargePreview(principal, includeFee = true) {

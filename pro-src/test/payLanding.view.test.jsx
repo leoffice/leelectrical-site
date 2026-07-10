@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import React from "react";
+import React, { useEffect } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
@@ -7,6 +7,16 @@ import { MemoryRouter, Route, Routes } from "react-router-dom";
 import "@testing-library/jest-dom/vitest";
 import PayLanding from "../src/views/PayLanding.jsx";
 import { buildPayLandingPayload, encodePayLanding } from "../src/lib/payLanding.js";
+
+vi.mock("../src/components/SolaCardForm.jsx", () => ({
+  default: function MockSolaCardForm({ onReadyChange }) {
+    useEffect(() => {
+      onReadyChange?.(true);
+    }, [onReadyChange]);
+    return <div data-testid="sola-card-form">Card form</div>;
+  },
+  tokenizeSolaCard: vi.fn(async () => ({ xCardNum: "tok", xCVV: "cvv", xExp: "12/28" })),
+}));
 
 afterEach(() => {
   vi.unstubAllGlobals();
@@ -30,10 +40,8 @@ async function waitForPayLoaded() {
 }
 
 describe("PayLanding view", () => {
-  it("shows invoice details, View invoice button, and Pay CTA with zip in Sola URL", async () => {
+  it("shows invoice details, in-page card form, and Pay button", async () => {
     vi.stubGlobal("fetch", vi.fn(async () => ({ ok: true })));
-    const open = vi.fn();
-    vi.stubGlobal("open", open);
 
     const token = encodePayLanding(
       buildPayLandingPayload({
@@ -62,12 +70,11 @@ describe("PayLanding view", () => {
     expect(screen.getByText("Panel upgrade")).toBeInTheDocument();
     expect(screen.getByTestId("view-invoice")).toHaveTextContent("View invoice");
     expect(screen.getByText("Rae Klein")).toBeInTheDocument();
+    expect(screen.getByTestId("sola-card-form")).toBeInTheDocument();
+    expect(screen.getByText("Pay by card")).toBeInTheDocument();
     const cta = screen.getByTestId("pay-cta");
     expect(cta).toHaveTextContent("Pay $674.82");
-    expect(cta.getAttribute("href")).toContain("xBillZip=11201");
-    expect(cta.getAttribute("href")).toContain("xZip=11201");
-    expect(cta.getAttribute("href")).toContain("xCustom01=652");
-    expect(cta.getAttribute("href")).toContain("sola-payment");
+    expect(cta.tagName).toBe("BUTTON");
   });
 
   it("expands paid-to-date to show payment history from the token", async () => {

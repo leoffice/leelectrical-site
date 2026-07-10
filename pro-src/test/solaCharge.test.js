@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { chargePreview, formatCardExpInput, normalizeCardExp } from "../src/lib/solaCharge.js";
+import {
+  billingFromLanding,
+  chargePreview,
+  formatCardExpInput,
+  normalizeCardExp,
+} from "../src/lib/solaCharge.js";
 
 describe("solaCharge", () => {
   it("formatCardExpInput formats digits as MM/YY while typing", () => {
@@ -15,6 +20,20 @@ describe("solaCharge", () => {
     expect(normalizeCardExp("12/28")).toBe("1228");
     expect(normalizeCardExp("1228")).toBe("1228");
     expect(normalizeCardExp("")).toBe("");
+  });
+
+  it("billingFromLanding parses customer pay payload", () => {
+    const bill = billingFromLanding({
+      c: "Rae Klein",
+      e: "rae@x.com",
+      ph: "555-9",
+      ba: "55 Elm St, Brooklyn, NY 11201",
+      z: "11201",
+    });
+    expect(bill.name).toBe("Rae Klein");
+    expect(bill.email).toBe("rae@x.com");
+    expect(bill.zip).toBe("11201");
+    expect(bill.street).toContain("Elm");
   });
 
   it("chargePreview adds 3.5% fee when enabled", () => {
