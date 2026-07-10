@@ -62,3 +62,51 @@ export function detectPaymentKind(extracted, fileName = "") {
   if (extracted?.confirmationNumber) return "zelle";
   return null;
 }
+
+function paymentExtractScore(extracted) {
+  if (!extracted) return 0;
+  let s = 0;
+  if (extracted.amount > 0) s += 2;
+  if (extracted.checkNumber) s += 4;
+  if (extracted.confirmationNumber) s += 3;
+  if (extracted.memo) s += 1;
+  return s;
+}
+
+/** Pick the best check vs zelle vision result using text hint and extracted fields. */
+export function pickPaymentAnalysis({ checkResult, zelleResult, textHint = "", fileName = "" }) {
+  const hint = String(textHint || "")
+    .trim()
+    .toLowerCase();
+  const wantsCheck = /\b(?:check|cheque|deposit)\b/.test(hint);
+  const wantsZelle = /\b(?:zelle?|zell)\b/.test(hint);
+
+  if (wantsCheck && checkResult) return { extracted: checkResult, kind: "check" };
+  if (wantsZelle && zelleResult) return { extracted: zelleResult, kind: "zelle" };
+
+  const checkKind = detectPaymentKind(checkResult, fileName);
+  const zelleKind = detectPaymentKind(zelleResult, fileName);
+  if (checkKind === "check" && checkResult?.checkNumber) return { extracted: checkResult, kind: "check" };
+  if (zelleKind === "zelle" && zelleResult?.confirmationNumber) return { extracted: zelleResult, kind: "zelle" };
+
+  const checkScore = paymentExtractScore(checkResult);
+  const zelleScore = paymentExtractScore(zelleResult);
+  if (checkScore >= zelleScore && checkResult) {
+    const merged =
+      checkResult.checkNumber || !zelleResult
+        ? checkResult
+        : { ...zelleResult, checkNumber: checkResult.checkNumber, kind: "check" };
+    return { extracted: merged, kind: detectPaymentKind(merged, fileName) || "check" };
+  }
+  if (zelleResult) return { extracted: zelleResult, kind: "zelle" };
+  return { extracted: checkResult || zelleResult, kind: checkKind || zelleKind || "check" };
+}
+
+/** Run check + zelle vision and pick the best result for the text hint / image. */
+export async function analyzePaymentImage(imageBase64, mime = "image/jpeg", textHint = "", fileName = "") {
+  const [checkResult, zelleResult] = await Promise.all([
+    analyzePaymentScreenshot(imageBase64, mime, "check").catch(() => null),
+    analyzePaymentScreenshot(imageBase64, mime, "zelle").catch(() => null),
+  ]);
+  return pickPaymentAnalysis({ checkResult, zelleResult, textHint, fileName });
+}

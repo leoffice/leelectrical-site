@@ -17,17 +17,17 @@ Extract these fields and return ONLY valid JSON (no markdown):
 }
 If a field is missing or unreadable use null. confirmationNumber is critical.`;
 
-export const CHECK_VISION_PROMPT = `You are reading a paper check or mobile check-deposit image.
+export const CHECK_VISION_PROMPT = `You are reading a paper check or mobile check-deposit photo.
 Extract these fields and return ONLY valid JSON (no markdown):
 {
   "amount": <number USD, no $ sign>,
-  "checkNumber": <check number printed on the check>,
+  "checkNumber": <check number as digits only — look in the upper-right corner of the check AND on the MICR line at the bottom (between routing and account numbers)>,
   "date": <YYYY-MM-DD date on the check>,
   "memo": <memo line text exactly as written>,
   "payee": <pay to the order of name>,
   "confidence": <"high" or "low">
 }
-If a field is missing or unreadable use null. checkNumber and amount are critical.`;
+If a field is missing or unreadable use null. checkNumber and amount are critical — always try both the printed check number and the MICR check number field.`;
 
 export const IMAGE_INTENT_PROMPT = `You are reading a photo Levi sent LE Electrical (payment proof, invoice, estimate, job site, document, or screenshot).
 Extract visible clues and return ONLY valid JSON (no markdown):

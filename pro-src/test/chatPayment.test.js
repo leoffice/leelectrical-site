@@ -6,6 +6,7 @@ import {
   looksLikePaymentImage,
   parsePaymentMethodHint,
   resolvePaymentKind,
+  shouldAutoOpenPaymentDraft,
 } from "../src/lib/chatPayment.js";
 
 describe("chatPayment", () => {
@@ -14,7 +15,14 @@ describe("chatPayment", () => {
     expect(parsePaymentMethodHint("Zelle")).toBe("Zelle");
     expect(parsePaymentMethodHint("zell")).toBe("Zelle");
     expect(parsePaymentMethodHint("record this zelle payment")).toBe("Zelle");
+    expect(parsePaymentMethodHint("this is a check deposit")).toBe("Check");
     expect(parsePaymentMethodHint("hello")).toBeNull();
+  });
+
+  it("shouldAutoOpenPaymentDraft when text names the payment type", () => {
+    expect(shouldAutoOpenPaymentDraft("this is a check deposit")).toBe(true);
+    expect(shouldAutoOpenPaymentDraft("zelle")).toBe(true);
+    expect(shouldAutoOpenPaymentDraft("hello")).toBe(false);
   });
 
   it("isPaymentMethodOnly matches single-word hints", () => {

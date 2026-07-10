@@ -23,8 +23,7 @@ import { appendPayment } from "../lib/payments.js";
 
 import {
   analyzeImageIntent,
-  analyzePaymentScreenshot,
-  detectPaymentKind,
+  analyzePaymentImage,
   fileToBase64,
 } from "../lib/paymentVision.js";
 import { formatImageIntentSummary, suggestActionsFromImage } from "../lib/imageIntent.js";
@@ -33,6 +32,7 @@ import {
   isPaymentMethodOnly,
   looksLikePaymentImage,
   parsePaymentMethodHint,
+  shouldAutoOpenPaymentDraft,
 } from "../lib/chatPayment.js";
 import { findJobByInvoice } from "../lib/zelleReconcile.js";
 import {
@@ -427,17 +427,12 @@ export default function ChatBubble() {
       try {
         const b64 = await fileToBase64(file);
         const previewUrl = URL.createObjectURL(file);
-        let extracted = null;
-        let kind = null;
-        for (const k of ["zelle", "check"]) {
-          try {
-            extracted = await analyzePaymentScreenshot(b64, file.type || "image/jpeg", k);
-            kind = detectPaymentKind(extracted, file.name) || k;
-            if (extracted?.amount > 0 || extracted?.confirmationNumber || extracted?.checkNumber) break;
-          } catch {
-            extracted = null;
-          }
-        }
+        const { extracted, kind } = await analyzePaymentImage(
+          b64,
+          file.type || "image/jpeg",
+          text,
+          file.name
+        );
         const methodHint = parsePaymentMethodHint(text);
         if (looksLikePaymentImage(extracted)) {
           if (methodHint || activeJob?.invoiceNo) {
@@ -456,7 +451,7 @@ export default function ChatBubble() {
             return;
           }
           setPendingPaymentImage({ extracted, visionKind: kind, file, previewUrl, proofName: file.name });
-          showToast("Got the photo — type check or zelle, then send");
+          showToast("Got the photo — type check or zelle when you're ready");
           return;
         }
         let intent = null;
@@ -656,6 +651,18 @@ export default function ChatBubble() {
     askNotifyPermission();
     poll();
   }, [chatOpen, poll]);
+
+  // Pending payment photo + typed context opens the confirm sheet without tapping send.
+  useEffect(() => {
+    if (!pendingPaymentImage || !shouldAutoOpenPaymentDraft(text)) return;
+    const pending = pendingPaymentImage;
+    const hint = text;
+    const timer = setTimeout(() => {
+      openPaymentDraft(pending, hint);
+      setText("");
+    }, 500);
+    return () => clearTimeout(timer);
+  }, [text, pendingPaymentImage, openPaymentDraft]);
 
   // Scroll to latest once when the panel opens; do not reset stick on every poll.
   useEffect(() => {

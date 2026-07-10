@@ -22,6 +22,11 @@ export function isPaymentMethodOnly(text) {
   return /^(?:check|cheque|zelle?|zell)$/.test(t);
 }
 
+/** True when typed text is enough to open a pending payment photo (no send tap). */
+export function shouldAutoOpenPaymentDraft(text) {
+  return Boolean(parsePaymentMethodHint(text));
+}
+
 /** Resolve payment kind from chat text, vision kind, or extracted fields. */
 export function resolvePaymentKind({ textHint, visionKind, extracted }) {
   const fromText = parsePaymentMethodHint(textHint);
