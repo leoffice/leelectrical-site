@@ -717,29 +717,36 @@ function PaymentEditForm({ payment, onSave, onDelete, onVoid, onCancel }) {
       <Fld label="Date">
         <input className="input" type="date" value={dt} onChange={(e) => setDt(e.target.value)} />
       </Fld>
-      <div className="flex gap-2">
+      <div className="flex flex-nowrap gap-1.5">
         <button
-          className="btn bg-brand text-white flex-1"
+          className="btn bg-brand text-white flex-1 !px-2 !py-2 text-xs"
           onClick={() => onSave({ amount: amt, method: mth, ref, date: dt })}
         >
-          Save edit
+          Save
         </button>
-        <button className="btn bg-slate-100 text-slate-700" onClick={onCancel}>
+        <button className="btn bg-slate-100 text-slate-700 flex-1 !px-2 !py-2 text-xs" onClick={onCancel}>
           Cancel
         </button>
-      </div>
-      {voidable ? (
-        <button className="btn bg-amber-50 text-amber-900 w-full border border-amber-200" onClick={onVoid}>
-          Reverse in QuickBooks
+        {voidable ? (
+          <button
+            className="btn bg-amber-50 text-amber-900 flex-1 !px-2 !py-2 text-xs border border-amber-200"
+            onClick={onVoid}
+          >
+            Reverse
+          </button>
+        ) : null}
+        <button
+          className="btn bg-red-50 text-red-700 flex-1 !px-2 !py-2 text-xs"
+          onClick={onDelete}
+          data-testid="payment-delete-btn"
+        >
+          Delete
         </button>
-      ) : null}
-      <button className="btn bg-red-50 text-red-700 w-full" onClick={onDelete}>
-        Remove from LE Pro only
-      </button>
+      </div>
       <p className="text-[10px] text-slate-400 text-center">
         {voidable
-          ? "Reverse removes it in QuickBooks. Remove only clears it here."
-          : "If this payment already synced to QuickBooks, fix QBO separately or ask Dispatch."}
+          ? "Reverse removes it in QuickBooks. Delete only clears it here."
+          : "Delete only clears it here — fix QuickBooks separately if it already synced."}
       </p>
     </div>
   );
