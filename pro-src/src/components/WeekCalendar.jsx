@@ -1,12 +1,33 @@
 // Mon–Fri work-week grid with swipe (or arrows) to change weeks.
-import React, { useMemo, useRef, useState } from "react";
+import React, { useCallback, useMemo, useRef, useState } from "react";
 import { eventsForWorkWeek, evTimeLabel, mondayOf, weekRangeLabel, ymd } from "../lib/calendarWeek.js";
 import { todayStr } from "../lib/format.js";
 import AddAppointmentSheet from "./AddAppointmentSheet.jsx";
 
+const CAL_HEIGHT_KEY = "lepro_calendar_height_v1";
+const DEFAULT_LIST_HEIGHT = 200;
+const MIN_LIST_HEIGHT = 100;
+const MAX_LIST_HEIGHT = 520;
+
+const loadListHeight = () => {
+  try {
+    const n = parseInt(localStorage.getItem(CAL_HEIGHT_KEY), 10);
+    if (n >= MIN_LIST_HEIGHT && n <= MAX_LIST_HEIGHT) return n;
+  } catch {}
+  return DEFAULT_LIST_HEIGHT;
+};
+
+const saveListHeight = (h) => {
+  try {
+    localStorage.setItem(CAL_HEIGHT_KEY, String(h));
+  } catch {}
+};
+
 export default function WeekCalendar({ events, onPickEvent, embedded, onAddDay }) {
   const [weekOffset, setWeekOffset] = useState(0);
   const [addDay, setAddDay] = useState(null);
+  const [listHeight, setListHeight] = useState(() => (embedded ? DEFAULT_LIST_HEIGHT : loadListHeight()));
+  const resizeRef = useRef(null);
 
   const requestAdd = (dayKey) => {
     if (onAddDay) onAddDay(dayKey);
@@ -36,6 +57,50 @@ export default function WeekCalendar({ events, onPickEvent, embedded, onAddDay }
     if (dx > 55) shift(-1);
     else if (dx < -55) shift(1);
   };
+
+  const clampHeight = (h) => Math.min(MAX_LIST_HEIGHT, Math.max(MIN_LIST_HEIGHT, Math.round(h)));
+
+  const onResizeStart = useCallback(
+    (e) => {
+      if (embedded) return;
+      e.preventDefault();
+      const startY = e.clientY;
+      const startH = listHeight;
+      resizeRef.current = { startY, startH };
+
+      const onMove = (ev) => {
+        if (!resizeRef.current) return;
+        const dy = ev.clientY - resizeRef.current.startY;
+        setListHeight(clampHeight(resizeRef.current.startH + dy));
+      };
+
+      const onUp = () => {
+        if (!resizeRef.current) return;
+        resizeRef.current = null;
+        setListHeight((h) => {
+          const next = clampHeight(h);
+          saveListHeight(next);
+          return next;
+        });
+        window.removeEventListener("pointermove", onMove);
+        window.removeEventListener("pointerup", onUp);
+        window.removeEventListener("pointercancel", onUp);
+      };
+
+      window.addEventListener("pointermove", onMove);
+      window.addEventListener("pointerup", onUp);
+      window.addEventListener("pointercancel", onUp);
+    },
+    [embedded, listHeight]
+  );
+
+  const resetHeight = useCallback(() => {
+    setListHeight(DEFAULT_LIST_HEIGHT);
+    saveListHeight(DEFAULT_LIST_HEIGHT);
+  }, []);
+
+  const columnMinHeight = listHeight + 56;
+  const activeListHeight = embedded ? DEFAULT_LIST_HEIGHT : listHeight;
 
   return (
     <div data-testid="week-calendar">
@@ -82,16 +147,21 @@ export default function WeekCalendar({ events, onPickEvent, embedded, onAddDay }
             return (
               <div
                 key={key}
-                className={`rounded-xl border flex flex-col min-h-[140px] ${
+                className={`rounded-xl border flex flex-col ${
                   isToday ? "border-brand bg-brand-soft/30" : "border-slate-200 bg-white"
                 }`}
+                style={{ minHeight: columnMinHeight }}
                 data-testid={`week-day-${key}`}
               >
                 <div className={`text-center py-1.5 border-b text-[11px] font-bold ${isToday ? "border-brand/30 text-brand" : "border-slate-100 text-slate-600"}`}>
                   <div>{label}</div>
                   <div className="text-[10px] font-semibold opacity-80">{date.getDate()}</div>
                 </div>
-                <div className="flex-1 p-1 space-y-1 overflow-y-auto max-h-[200px]">
+                <div
+                  className="flex-1 p-1 space-y-1 overflow-y-auto"
+                  style={{ maxHeight: activeListHeight }}
+                  data-testid={key === today ? "week-day-events" : undefined}
+                >
                   {list.length ? (
                     list.map((e, i) => (
                       <button
@@ -123,6 +193,26 @@ export default function WeekCalendar({ events, onPickEvent, embedded, onAddDay }
           })}
         </div>
       </div>
+
+      {!embedded ? (
+        <div className="mt-1 px-1">
+          <div
+            role="separator"
+            aria-label="Drag to resize calendar height"
+            aria-orientation="horizontal"
+            aria-valuemin={MIN_LIST_HEIGHT}
+            aria-valuemax={MAX_LIST_HEIGHT}
+            aria-valuenow={listHeight}
+            data-testid="calendar-resize-handle"
+            className="flex items-center justify-center py-2 cursor-ns-resize touch-none select-none"
+            onPointerDown={onResizeStart}
+            onDoubleClick={resetHeight}
+          >
+            <div className="w-12 h-1 rounded-full bg-slate-200" />
+          </div>
+          <p className="text-[9px] text-slate-400 text-center -mt-1 mb-1">Drag to resize · double-tap to reset</p>
+        </div>
+      ) : null}
 
       {!embedded ? (
         <button
