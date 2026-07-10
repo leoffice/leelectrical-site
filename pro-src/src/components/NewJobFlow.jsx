@@ -25,7 +25,7 @@ import {
   serviceAddressesForJobs,
   subsForParentQboId,
 } from "../lib/customerHierarchy.js";
-import { MarkPaidSheet } from "./JobSheets.jsx";
+import { MarkPaidSheet, PaymentIntroSheet } from "./JobSheets.jsx";
 import DocBuilderSheet from "./DocBuilderSheet.jsx";
 import { fmt$ } from "../lib/format.js";
 import { sortJobs } from "../lib/stages.js";
@@ -175,19 +175,12 @@ export default function NewJobFlow() {
           note={context ? "Pre-filled from this page — attach a picture or pick type" : "Attach a picture or pick payment type"}
           onClick={() => {
             const next = paymentFabStep(context, jobs);
-            if (next.step === "pickPayment" && next.job) {
-              setNewJob({ step: "pickPayment", job: next.job, context });
-              return;
-            }
-            if (next.step === "pickPayment" && next.customerKey) {
-              setNewJob({
-                step: "pickPayment",
-                context,
-                paymentPrefill: { customerName: next.customerName || "" },
-              });
-              return;
-            }
-            setNewJob({ step: "paymentIntro", context });
+            setNewJob({
+              step: "paymentIntro",
+              context,
+              jobHint: next.job || null,
+              paymentPrefill: next.customerName ? { customerName: next.customerName } : undefined,
+            });
           }}
         />
       </Sheet>
@@ -225,66 +218,45 @@ export default function NewJobFlow() {
       />
     );
 
+  const resolvePaymentJob = (flow) => {
+    if (flow.jobHint) return flow.jobHint;
+    const ctx = flow.context;
+    if (ctx?.id && !ctx?._customerContext && ctx?.invoiceNo) return ctx;
+    return flow.job || null;
+  };
+
   if (newJob.step === "paymentIntro")
     return (
-      <Sheet title="Add a payment" onClose={close}>
-        <p className="text-sm text-slate-500 mb-3">Attach a payment picture or choose how they paid — then fill in the details.</p>
-        <Opt
-          icon="📷"
-          title="Attach a picture"
-          note="Check or Zelle screenshot — autofill amount & details"
-          onClick={() =>
-            setNewJob({
-              ...newJob,
-              step: "pickPayment",
-              openProofPicker: true,
-              initialMethod: "Check",
-            })
-          }
-        />
-        {["Check", "Zelle", "Credit card", "Cash", "ACH"].map((method) => (
-          <Opt
-            key={method}
-            icon={method === "Credit card" ? "💳" : method === "Cash" ? "💵" : "🧾"}
-            title={method}
-            note="Opens the full payment form"
-            onClick={() => setNewJob({ ...newJob, step: "pickPayment", initialMethod: method })}
-          />
-        ))}
-      </Sheet>
-    );
-
-  if (newJob.step === "pickPayment" && newJob.job)
-    return (
-      <MarkPaidSheet
-        job={newJob.job}
+      <PaymentIntroSheet
         onClose={close}
-        initialMethod={newJob.initialMethod || ""}
-        openProofPicker={Boolean(newJob.openProofPicker)}
+        onAttachPicture={() =>
+          setNewJob({
+            ...newJob,
+            step: "pickPayment",
+            job: resolvePaymentJob(newJob),
+            openProofPicker: true,
+            initialMethod: "Check",
+          })
+        }
+        onPickMethod={(method) =>
+          setNewJob({
+            ...newJob,
+            step: "pickPayment",
+            job: resolvePaymentJob(newJob),
+            initialMethod: method,
+          })
+        }
       />
     );
 
   if (newJob.step === "pickPayment")
     return (
-      <PickCustomerJobsSheet
-        title="Add a payment"
-        hint={
-          newJob.paymentPrefill?.customerName
-            ? "Customer pre-filled — pick the invoice to pay."
-            : "Pick the customer, then choose the invoice to pay."
-        }
-        jobs={jobs}
-        filterOpen
+      <MarkPaidSheet
+        job={newJob.job || null}
         initialCustomerName={newJob.paymentPrefill?.customerName || ""}
+        initialMethod={newJob.initialMethod || ""}
+        openProofPicker={Boolean(newJob.openProofPicker)}
         onClose={close}
-        onPick={(job) =>
-          setNewJob({
-            ...newJob,
-            step: "pickPayment",
-            job,
-            paymentPrefill: undefined,
-          })
-        }
       />
     );
 

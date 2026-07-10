@@ -72,6 +72,7 @@ import {
   MarkPaidSheet,
   MenuSheet,
   PaymentHistorySheet,
+  PaymentIntroSheet,
   PaymentLinkSheet,
   PaymentMenuSheet,
   ReminderSheet,
@@ -882,7 +883,21 @@ export default function JobDetail() {
         <MenuSheet job={job} onClose={() => setSheet(null)} onCombine={() => setSheet({ kind: "combine" })} />
       )}
       {sheet?.kind === "combine" && <CombineSheet job={job} onClose={() => setSheet(null)} />}
-      {sheet?.kind === "paid" && <MarkPaidSheet job={job} onClose={() => setSheet(null)} />}
+      {sheet?.kind === "payintro" && (
+        <PaymentIntroSheet
+          onClose={() => setSheet(null)}
+          onAttachPicture={() => setSheet({ kind: "paid", initialMethod: "Check", openProofPicker: true })}
+          onPickMethod={(method) => setSheet({ kind: "paid", initialMethod: method })}
+        />
+      )}
+      {sheet?.kind === "paid" && (
+        <MarkPaidSheet
+          job={job}
+          onClose={() => setSheet(null)}
+          initialMethod={sheet.initialMethod || ""}
+          openProofPicker={Boolean(sheet.openProofPicker)}
+        />
+      )}
       {sheet?.kind === "payhist" && (
         <PaymentHistorySheet
           job={job}
@@ -894,7 +909,7 @@ export default function JobDetail() {
         <PaymentMenuSheet
           job={job}
           onClose={() => setSheet(null)}
-          onRecord={() => setSheet({ kind: "paid" })}
+          onRecord={() => setSheet({ kind: "payintro" })}
           onLink={() => setSheet({ kind: "paylink" })}
         />
       )}

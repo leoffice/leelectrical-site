@@ -69,7 +69,7 @@ describe("desktop scrollbar cleanup — 1280px", () => {
     const pane = await screen.findByTestId("detail-pane");
     await user.click(within(pane).getByTestId("tab-payment"));
     await user.click(screen.getByText("Record a payment"));
-    await user.selectOptions(screen.getByLabelText("Payment method"), "Credit card");
+    await user.click(screen.getByText("Credit card"));
 
     await waitFor(() => expect(screen.getByTestId("sola-card-form")).toBeInTheDocument());
 

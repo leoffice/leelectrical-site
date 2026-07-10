@@ -37,7 +37,7 @@ async function openZellePayment(user) {
   const pane = await screen.findByTestId("detail-pane");
   await user.click(within(pane).getByTestId("tab-payment"));
   await user.click(screen.getByText("Record a payment"));
-  await user.selectOptions(screen.getByLabelText("Payment method"), "Zelle");
+  await user.click(screen.getByText("Zelle"));
   return pane;
 }
 
@@ -201,7 +201,7 @@ describe("Zelle screenshot reconciliation flow", () => {
     const pane = await screen.findByTestId("detail-pane");
     await user.click(within(pane).getByTestId("tab-payment"));
     await user.click(screen.getByText("Record a payment"));
-    await user.selectOptions(screen.getByLabelText("Payment method"), "Check");
+    await user.click(screen.getByText("Check"));
     const input = screen.getByTestId("check-screenshot-input");
     await user.upload(input, new File(["x"], "check.jpg", { type: "image/jpeg" }));
     await user.click(screen.getByTestId("payment-autofill"));

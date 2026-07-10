@@ -30,9 +30,10 @@ describe("1. mark-as-paid sheet -> staged -> record_payment on Save", () => {
 
     await user.click(within(pane).getByTestId("tab-payment"));
     await user.click(screen.getByText("Record a payment"));
+    await user.click(screen.getByText("Zelle"));
     const amt = screen.getByLabelText("Amount");
     expect(amt).toHaveValue("2300"); // prefilled, $/commas stripped
-    await user.selectOptions(screen.getByLabelText("Payment method"), "Zelle");
+    expect(screen.getByLabelText("Payment method")).toHaveValue("Zelle");
     // method dropdown carries the exact list
     expect(
       within(screen.getByLabelText("Payment method")).getAllByRole("option").map((o) => o.textContent)
@@ -92,10 +93,10 @@ describe("1. mark-as-paid sheet -> staged -> record_payment on Save", () => {
     const pane = await screen.findByTestId("detail-pane");
     await user.click(within(pane).getByTestId("tab-payment"));
     await user.click(screen.getByText("Record a payment"));
+    await user.click(screen.getByText("Zelle"));
     const amt = screen.getByLabelText("Amount");
     await user.clear(amt);
     await user.type(amt, "1000");
-    await user.selectOptions(screen.getByLabelText("Payment method"), "Zelle");
     await user.click(screen.getByText("✓ Record payment"));
     await user.click(await screen.findByText("Save & sync"));
     await waitFor(() => expect(screen.queryByTestId("savebar")).not.toBeInTheDocument());

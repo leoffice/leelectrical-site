@@ -24,7 +24,16 @@ import { chargeCardInApp, fetchSolaIfieldsConfig } from "../lib/solaCharge.js";
 import SolaCardForm, { tokenizeSolaCard } from "./SolaCardForm.jsx";
 import { fmtMoneyPrecise, totalWithFee } from "../lib/payFees.js";
 import { patchFromQboPaymentFetch } from "../lib/qboPayments.js";
-import { clientKey, fmtAmountDue, invoiceTotal, jobsForCustomerKey, openBalance, amountPaid, paidPct } from "../lib/customers.js";
+import {
+  clientKey,
+  customerKeyForName,
+  fmtAmountDue,
+  invoiceTotal,
+  jobsForCustomerKey,
+  openBalance,
+  amountPaid,
+  paidPct,
+} from "../lib/customers.js";
 import { parentCustomerPatch } from "../lib/customerHierarchy.js";
 import { buildPaymentLinkEmail } from "../lib/paymentLinkEmail.js";
 import { buildShortPayLandingUrl } from "../lib/payLanding.js";
@@ -92,24 +101,66 @@ export function useDoSend() {
   };
 }
 
+/* ---------- 1a. Payment type intro (picture or method) ---------- */
+export function PaymentIntroSheet({ onClose, onAttachPicture, onPickMethod }) {
+  return (
+    <Sheet title="Add a payment" onClose={onClose}>
+      <p className="text-sm text-slate-500 mb-3">Attach a payment picture or choose how they paid — then fill in the details.</p>
+      <Opt
+        icon="📷"
+        title="Attach a picture"
+        note="Check or Zelle screenshot — autofill amount & details"
+        onClick={onAttachPicture}
+      />
+      {["Check", "Zelle", "Credit card", "Cash", "ACH"].map((method) => (
+        <Opt
+          key={method}
+          icon={method === "Credit card" ? "💳" : method === "Cash" ? "💵" : "🧾"}
+          title={method}
+          note="Opens the full payment form"
+          onClick={() => onPickMethod(method)}
+        />
+      ))}
+    </Sheet>
+  );
+}
+
 /* ---------- 1. Mark as paid ---------- */
-export function MarkPaidSheet({ job, onClose, initialMethod = "", openProofPicker = false }) {
+export function MarkPaidSheet({
+  job: jobProp,
+  onClose,
+  initialMethod = "",
+  openProofPicker = false,
+  initialCustomerName = "",
+}) {
   const { patchJob, showToast, syncNow, refreshJobs, jobs } = useStore();
-  const due = openBalance(job);
-  const alreadyPaid = due <= 0.01;
-  const [amt, setAmt] = useState(due > 0 ? String(due) : String(job.amount || "").replace(/[$,]/g, ""));
+  const needsPick = !jobProp;
+  const [activeJob, setActiveJob] = useState(jobProp || null);
+  const [pickCust, setPickCust] = useState(() => {
+    if (initialCustomerName) return { name: initialCustomerName };
+    if (jobProp?.customer) return { name: jobProp.customer };
+    return null;
+  });
+  const job = activeJob;
+  const due = job ? openBalance(job) : 0;
+  const alreadyPaid = job ? due <= 0.01 : false;
+  const [amt, setAmt] = useState(() => {
+    if (!jobProp) return "";
+    const d = openBalance(jobProp);
+    return d > 0 ? String(d) : String(jobProp.amount || "").replace(/[$,]/g, "");
+  });
   const [mth, setMth] = useState(initialMethod || "");
   const [ref, setRef] = useState("");
   const [dt, setDt] = useState(todayStr());
   const [includeFee, setIncludeFee] = useState(true);
   const [saveOnFile, setSaveOnFile] = useState(true);
-  const [useSavedCard, setUseSavedCard] = useState(Boolean(job.solaCardToken));
+  const [useSavedCard, setUseSavedCard] = useState(Boolean(jobProp?.solaCardToken));
   const [cardReady, setCardReady] = useState(false);
   const [payPhase, setPayPhase] = useState("idle"); // idle | tokenizing | charging
   const [payErr, setPayErr] = useState("");
   const [achRouting, setAchRouting] = useState("");
   const [achAccount, setAchAccount] = useState("");
-  const [achName, setAchName] = useState(job.customer || "");
+  const [achName, setAchName] = useState(jobProp?.customer || "");
   const [achEnabled, setAchEnabled] = useState(false);
   const [proofFile, setProofFile] = useState(null);
   const [proofB64, setProofB64] = useState("");
@@ -126,6 +177,27 @@ export function MarkPaidSheet({ job, onClose, initialMethod = "", openProofPicke
     const t = setTimeout(() => proofInputRef.current?.click(), 120);
     return () => clearTimeout(t);
   }, [openProofPicker]);
+
+  const openInvoices = useMemo(() => {
+    if (!needsPick || !pickCust) return [];
+    const key = customerKeyForName(pickCust.name);
+    return sortJobs(jobsForCustomerKey(jobs, key).filter((j) => !j.paid && openBalance(j) > 0.01));
+  }, [needsPick, pickCust, jobs]);
+
+  useEffect(() => {
+    if (!needsPick) return;
+    if (openInvoices.length === 1) setActiveJob(openInvoices[0]);
+    else if (!openInvoices.some((j) => j.id === activeJob?.id)) setActiveJob(null);
+  }, [needsPick, openInvoices, activeJob?.id]);
+
+  useEffect(() => {
+    if (!activeJob) return;
+    const d = openBalance(activeJob);
+    setAmt(d > 0 ? String(d) : String(activeJob.amount || "").replace(/[$,]/g, ""));
+    setAchName(activeJob.customer || "");
+    setUseSavedCard(Boolean(activeJob.solaCardToken));
+  }, [activeJob?.id]); // eslint-disable-line react-hooks/exhaustive-deps
+
   const isCard = mth === "Credit card";
   const isCheck = mth === "Check";
   const isAch = mth === "ACH";
@@ -144,7 +216,7 @@ export function MarkPaidSheet({ job, onClose, initialMethod = "", openProofPicke
       cancelled = true;
     };
   }, []);
-  const inv = job.invoiceNo || "";
+  const inv = job?.invoiceNo || "";
   const payAmt = parseFloat(String(amt).replace(/[$,]/g, "")) || 0;
   const chargeTotal = isCard ? totalWithFee(payAmt, includeFee) : payAmt;
   const hasProof = isCheck || isZelle;
@@ -152,6 +224,10 @@ export function MarkPaidSheet({ job, onClose, initialMethod = "", openProofPicke
   const processing = payPhase !== "idle" || visionAnalyzing || autofillBusy;
 
   const validateManual = () => {
+    if (!job) {
+      showToast("Pick a customer and invoice first");
+      return false;
+    }
     if (alreadyPaid) {
       showToast("Invoice already paid in LE Pro — sync from QuickBooks first");
       return false;
@@ -352,6 +428,10 @@ export function MarkPaidSheet({ job, onClose, initialMethod = "", openProofPicke
   };
 
   const processCard = async () => {
+    if (!job) {
+      showToast("Pick a customer and invoice first");
+      return;
+    }
     if (alreadyPaid) return;
     if (!inv) {
       showToast("Invoice # required to charge a card");
@@ -430,10 +510,62 @@ export function MarkPaidSheet({ job, onClose, initialMethod = "", openProofPicke
     }
   };
 
+  const sheetTitle = needsPick ? "Add a payment" : "Mark as paid — " + (job?.customer || "");
+
   return (
     <>
-    <Sheet title={"Mark as paid — " + (job.customer || "")} onClose={onClose}>
-      {alreadyPaid ? (
+    <Sheet title={sheetTitle} onClose={onClose}>
+      {needsPick ? (
+        <>
+          <CustomerSearch
+            label="Customer"
+            testId="payment-customer-search"
+            value={pickCust?.name || ""}
+            onChangeText={() => {
+              setPickCust(null);
+              setActiveJob(null);
+            }}
+            onPick={(c) => setPickCust(c && !c._newCustomer ? c : null)}
+          />
+          {pickCust && openInvoices.length > 1 ? (
+            <Fld label="Invoice" hint="Which invoice to apply this payment to">
+              <select
+                className="input"
+                value={activeJob?.id || ""}
+                onChange={(e) => {
+                  const picked = openInvoices.find((j) => j.id === e.target.value) || null;
+                  setActiveJob(picked);
+                }}
+                aria-label="Invoice"
+              >
+                <option value="">— choose invoice —</option>
+                {openInvoices.map((j) => (
+                  <option key={j.id} value={j.id}>
+                    {(j.invoiceNo ? "Inv #" + j.invoiceNo + " · " : "") +
+                      (j.title || j.customer || "Job") +
+                      " · " +
+                      (fmtAmountDue(j) || fmt$(openBalance(j)))}
+                  </option>
+                ))}
+              </select>
+            </Fld>
+          ) : null}
+          {pickCust && openInvoices.length === 1 && activeJob ? (
+            <p className="text-[12px] text-slate-500 mb-2">
+              Invoice #{activeJob.invoiceNo || "—"} · Open{" "}
+              <span className="font-semibold text-slate-700">{fmt$(due)}</span>
+            </p>
+          ) : null}
+          {pickCust && !openInvoices.length ? (
+            <p className="text-sm text-slate-400 text-center py-4">No open invoices for this customer.</p>
+          ) : null}
+        </>
+      ) : (
+        <Fld label="Customer">
+          <p className="input bg-slate-50 text-slate-800 font-medium">{job.customer || ""}</p>
+        </Fld>
+      )}
+      {job && alreadyPaid ? (
         <div className="rounded-xl bg-amber-50 border border-amber-200 px-3 py-2.5 mb-3 text-[12px] text-amber-900">
           <p className="font-semibold">Already paid (balance {fmt$(due)})</p>
           <p className="mt-1 text-amber-800">
@@ -443,14 +575,21 @@ export function MarkPaidSheet({ job, onClose, initialMethod = "", openProofPicke
             Sync from QuickBooks
           </button>
         </div>
-      ) : (
+      ) : job ? (
         <p className="text-[12px] text-slate-500 mb-2">
           Open balance: <span className="font-semibold text-slate-700">{fmt$(due)}</span>
           {job.invoiceNo ? <span> · Invoice #{job.invoiceNo}</span> : null}
         </p>
-      )}
+      ) : null}
       <Fld label="Amount" hint="Recommended">
-        <input className="input" inputMode="decimal" value={amt} onChange={(e) => setAmt(e.target.value)} aria-label="Amount" disabled={alreadyPaid} />
+        <input
+          className="input"
+          inputMode="decimal"
+          value={amt}
+          onChange={(e) => setAmt(e.target.value)}
+          aria-label="Amount"
+          disabled={alreadyPaid || !job}
+        />
       </Fld>
       <Fld label="Payment method" hint="Recommended">
         <select
@@ -487,7 +626,7 @@ export function MarkPaidSheet({ job, onClose, initialMethod = "", openProofPicke
             <span className="text-sm text-slate-600">Add 3.5% processing fee</span>
             <Toggle small on={includeFee} onChange={setIncludeFee} label="Add processing fee" />
           </div>
-          {job.solaCardToken ? (
+          {job?.solaCardToken ? (
             <div className="flex items-center justify-between gap-3 mb-2 py-1">
               <span className="text-sm text-slate-600">
                 Use card on file{job.solaCardMasked ? " (" + job.solaCardMasked + ")" : ""}
@@ -649,7 +788,14 @@ export function MarkPaidSheet({ job, onClose, initialMethod = "", openProofPicke
         <button
           className="btn bg-emerald-500 text-white w-full mt-3"
           onClick={processCard}
-          disabled={alreadyPaid || processing || !inv || (!useSavedCard && !cardReady) || (useSavedCard && !job.solaCardToken)}
+          disabled={
+            alreadyPaid ||
+            processing ||
+            !job ||
+            !inv ||
+            (!useSavedCard && !cardReady) ||
+            (useSavedCard && !job?.solaCardToken)
+          }
           data-testid="process-card-payment"
         >
           {payPhase === "tokenizing"
@@ -671,7 +817,7 @@ export function MarkPaidSheet({ job, onClose, initialMethod = "", openProofPicke
         <button
           className="btn bg-emerald-500 text-white w-full"
           onClick={onRecordPayment}
-          disabled={alreadyPaid || processing}
+          disabled={alreadyPaid || processing || !job}
           data-testid="record-payment"
         >
           {visionAnalyzing ? "Reading screenshot…" : "✓ Record payment"}
