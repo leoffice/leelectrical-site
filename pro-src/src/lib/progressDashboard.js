@@ -1,4 +1,4 @@
-// Progress dashboard API — momentum, speed compare, money saved, release log.
+// Dev Progress dashboard API — serves dev_progress_data.json shape from /.netlify/functions/progress.
 
 function base() {
   if (typeof location !== "undefined" && /(^|\.)leelectrical\.us$/.test(location.hostname)) {
@@ -18,7 +18,9 @@ export async function fetchProgress({ refresh = false } = {}) {
     body: refresh ? JSON.stringify({ op: "refresh" }) : undefined,
   });
   if (!res.ok) throw new Error("progress: HTTP " + res.status);
-  return res.json();
+  const doc = await res.json();
+  if (doc.meta && doc.totals) return doc;
+  throw new Error("progress: unexpected shape");
 }
 
 export function fmtMoney(n) {
@@ -29,18 +31,12 @@ export function fmtMoney(n) {
 export function fmtUpdated(ts) {
   if (!ts) return "not yet";
   const d = new Date(ts);
+  if (Number.isNaN(d.getTime())) return String(ts);
   const now = new Date();
   const sameDay =
     d.getFullYear() === now.getFullYear() && d.getMonth() === now.getMonth() && d.getDate() === now.getDate();
   if (sameDay) {
-    return (
-      "Today " +
-      d.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })
-    );
+    return "Today " + d.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
   }
   return d.toLocaleDateString([], { month: "short", day: "numeric" });
-}
-
-export function maxAgentHours(agentCompare) {
-  return Math.max(1, ...(agentCompare || []).map((a) => a.hours || 1));
 }

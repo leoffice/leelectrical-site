@@ -486,7 +486,7 @@ describe("responsive layout — 390px and 1280px", () => {
     expect(sidebar.className).toContain("hidden"); // hidden on phone…
     expect(sidebar.className).toContain("lg:flex"); // …sidebar on desktop
     expect(within(nav).getByTestId("nav-actions")).toBeInTheDocument();
-    ["Customers", "Calendar", "Calls", "Progress", "Archive", "Dev"].forEach((t) =>
+    ["Customers", "Calendar", "Calls", "Company", "Build", "Dev"].forEach((t) =>
       expect(within(nav).getByText(t)).toBeInTheDocument()
     );
   });

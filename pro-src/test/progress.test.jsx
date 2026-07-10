@@ -4,7 +4,6 @@ import { screen, within, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import "@testing-library/jest-dom/vitest";
 import { mockServer, renderApp } from "./helpers.jsx";
-import { fmtMoney } from "../src/lib/progressDashboard.js";
 
 afterEach(() => {
   vi.unstubAllGlobals();
@@ -12,20 +11,20 @@ afterEach(() => {
   window.location.hash = "#/";
 });
 
-describe("Progress dashboard", () => {
-  it("loads metrics and expands a highlight", async () => {
+describe("Dev Progress dashboard", () => {
+  it("loads build stats and expands an update", async () => {
     mockServer();
     renderApp("#/progress");
     const user = userEvent.setup();
     expect(await screen.findByTestId("progress-dashboard")).toBeInTheDocument();
-    expect(screen.getByText("Your app is moving fast")).toBeInTheDocument();
-    expect(screen.getByText("4.2×")).toBeInTheDocument();
-    expect(screen.getByText(fmtMoney(3200))).toBeInTheDocument();
-    await user.click(screen.getByText("Test win"));
-    expect(await screen.findByText("Details here.")).toBeInTheDocument();
+    expect(screen.getByText(/Development Progress/)).toBeInTheDocument();
+    expect(screen.getByText("42")).toBeInTheDocument();
+    const row = screen.getByTestId("dev-update-1");
+    await user.click(within(row).getByRole("button"));
+    expect(await within(row).findByText("abc1234")).toBeInTheDocument();
   });
 
-  it("shows refresh button on Progress route", async () => {
+  it("shows refresh button on Build route", async () => {
     mockServer();
     renderApp("#/progress");
     await screen.findByTestId("progress-dashboard");
@@ -41,10 +40,10 @@ describe("Progress dashboard", () => {
     await waitFor(() => expect(srv.posts("progress").length).toBeGreaterThan(0));
   });
 
-  it("Progress tab appears in bottom nav", async () => {
+  it("Build tab appears in bottom nav", async () => {
     mockServer();
     renderApp("#/");
     const nav = screen.getByTestId("bottom-nav");
-    expect(within(nav).getByText("Progress")).toBeInTheDocument();
+    expect(within(nav).getByText("Build")).toBeInTheDocument();
   });
 });

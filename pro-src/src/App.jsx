@@ -10,6 +10,7 @@ import CustomerView from "./views/CustomerView.jsx";
 import Today from "./views/Today.jsx";
 import Calls from "./views/Calls.jsx";
 import Dev from "./views/Dev.jsx";
+import Company from "./views/Company.jsx";
 import Progress, { ProgressRefreshButton } from "./views/Progress.jsx";
 import Archive from "./views/Archive.jsx";
 import Placeholder from "./views/Placeholder.jsx";
@@ -31,7 +32,8 @@ const TABS = [
   { to: "/", label: "Customers", ic: "🗂️", end: true },
   { to: "/today", label: "Calendar", ic: "📅" },
   { to: "/calls", label: "Calls", ic: "📞" },
-  { to: "/progress", label: "Progress", ic: "⚡" },
+  { to: "/company", label: "Company", ic: "📊" },
+  { to: "/progress", label: "Build", ic: "⚡" },
   { to: "/dev", label: "Dev", ic: "🛠️" },
   { to: "/archive", label: "Archive", ic: "📦" },
 ];
@@ -41,8 +43,8 @@ const MOBILE_NAV_BEFORE = [
   { to: "/", label: "Customers", ic: "🗂️", end: true },
   { to: "/today", label: "Calendar", ic: "📅" },
   { to: "/calls", label: "Calls", ic: "📞" },
-  { to: "/progress", label: "Progress", ic: "⚡" },
-  { to: "/archive", label: "Archive", ic: "📦" },
+  { to: "/company", label: "Company", ic: "📊" },
+  { to: "/progress", label: "Build", ic: "⚡" },
 ];
 const MOBILE_NAV_AFTER = { to: "/dev", label: "Dev", ic: "🛠️" };
 
@@ -230,6 +232,7 @@ export default function App() {
             <Route path="/customer/:key" element={<CustomerView />} />
             <Route path="/today" element={<Today />} />
             <Route path="/calls" element={<Calls />} />
+            <Route path="/company" element={<Company />} />
             <Route path="/progress" element={<Progress />} />
             <Route path="/dev" element={<Dev />} />
             <Route path="/archive" element={<Archive />} />

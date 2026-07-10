@@ -65,25 +65,40 @@ export function mockServer(opts = {}) {
     sasCalls: opts.sasCalls || [], // SAS inbound lead tickets (Calls tab)
     customers: opts.customers || [], // QBO customer-name index (/customers, #49/#56)
     progress: opts.progress || {
-      headline: "Your app is moving fast",
-      tagline: "Israel builds while you run the business",
-      updatedAt: Date.now(),
-      metrics: {
-        tasksShipped: 12,
-        testsPassing: 483,
-        avgTurnaroundHours: 2.4,
-        traditionalDays: 5,
-        speedMultiplier: 4.2,
-        moneySaved: 3200,
-        fleetSpendToday: 4,
-        fleetBudget: 10,
-        agentCompare: [
-          { name: "Israel (Grok)", hours: 2.4, tone: "brand" },
-          { name: "Cursor / manual", hours: 18, tone: "slate" },
-        ],
+      meta: {
+        agent: "Israel (Grok Build)",
+        project: "LE Pro",
+        generated_at: "2026-07-10 12:00:00Z",
+        human_rate_usd_per_hour: 150,
+        ai_cost_note: "Grok flat subscription",
       },
-      highlights: [{ id: "h1", date: "2026-07-10", title: "Test win", blurb: "Details here.", category: "ai", version: 67 }],
-      releases: [{ version: 67, date: "2026-07-10", title: "Test release", items: ["One thing"] }],
+      totals: {
+        updates: 3,
+        commits: 42,
+        lines_written: 12000,
+        lines_implemented: 9000,
+        deletions: 3000,
+        deploys: 12,
+        active_days: 3,
+        first_commit: "2026-07-08 10:00:00",
+        last_commit: "2026-07-10 12:00:00",
+        active_time_hms: "4:30:00",
+        active_hours: 4.5,
+        speed_lines_landed_per_hour: 2000,
+        money_saved_usd: 675,
+      },
+      updates: [
+        {
+          id: 1,
+          date: "2026-07-10",
+          title: "Test win — dashboard polish",
+          commits: 2,
+          insertions: 400,
+          deletions: 50,
+          iterations: [{ hash: "abc1234", time: "12:00", subject: "Test win", insertions: 400, deletions: 50 }],
+        },
+      ],
+      updatedAt: Date.now(),
     },
   };
   const calls = [];

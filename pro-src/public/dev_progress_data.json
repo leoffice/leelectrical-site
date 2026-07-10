@@ -1,0 +1,1815 @@
+{
+  "meta": {
+    "agent": "Israel (Grok Build)",
+    "project": "LE Pro",
+    "repo": "leelectrical-repo",
+    "update_definition": "An update = one active build day's batch of shipped work. Each update expands to the individual commits (iterations) that made it up.",
+    "time_method": "Active build time estimated by sessionizing commit timestamps: consecutive commits within 30 min count as continuous work; gaps >30 min end a session. Sum of session spans.",
+    "human_rate_usd_per_hour": 150.0,
+    "ai_cost_note": "Grok flat subscription \u2014 marginal cost per build ~ $0.",
+    "generated_at": "2026-07-10 18:24:09Z"
+  },
+  "totals": {
+    "updates": 9,
+    "commits": 209,
+    "lines_written": 61687,
+    "lines_implemented": 46531,
+    "deletions": 15156,
+    "files_changed": 1845,
+    "active_days": 9,
+    "first_commit": "2026-07-01 19:12:33",
+    "last_commit": "2026-07-10 13:30:27",
+    "active_seconds": 72586,
+    "active_time_hms": "20:09:46",
+    "active_hours": 20.16,
+    "deploys": 137,
+    "speed_lines_written_per_hour": 3059,
+    "speed_lines_landed_per_hour": 2308,
+    "speed_commits_per_hour": 10.4,
+    "human_cost_usd": 3024.42,
+    "ai_cost_usd": 0.0,
+    "money_saved_usd": 3024.42
+  },
+  "updates": [
+    {
+      "id": 1,
+      "date": "2026-07-01",
+      "title": "Initial import: leelectrical.us site with Jobs in Progress dashboard tab",
+      "commits": 8,
+      "insertions": 1965,
+      "deletions": 214,
+      "net": 1751,
+      "files": 24,
+      "iterations": [
+        {
+          "hash": "50ae39e",
+          "time": "19:12",
+          "subject": "Initial import: leelectrical.us site with Jobs in Progress dashboard tab",
+          "insertions": 1425,
+          "deletions": 0,
+          "files": 10
+        },
+        {
+          "hash": "0aeef5e",
+          "time": "19:20",
+          "subject": "Add Early Access (Beta) tab to live landing -> app/jobs-beta.html (enhanced layout, sample data); real jobs.html untouched",
+          "insertions": 258,
+          "deletions": 0,
+          "files": 1
+        },
+        {
+          "hash": "3cf49d6",
+          "time": "19:38",
+          "subject": "Fix: add Early Access (Beta) tile to live landing",
+          "insertions": 3,
+          "deletions": 1,
+          "files": 1
+        },
+        {
+          "hash": "96526aa",
+          "time": "19:44",
+          "subject": "Live Progress to Dispatch pipe: Netlify functions (iterate/inbox) + Send button",
+          "insertions": 50,
+          "deletions": 2,
+          "files": 5
+        },
+        {
+          "hash": "b522191",
+          "time": "20:22",
+          "subject": "Promote approved beta features to real Jobs tab + Dispatch messaging bar (excludes dropdown follow-up, paperwork, progress tab)",
+          "insertions": 196,
+          "deletions": 198,
+          "files": 1
+        },
+        {
+          "hash": "f214156",
+          "time": "21:08",
+          "subject": "Rename tabs: LE Electric Dashboard (real) + Beta Development (beta)",
+          "insertions": 4,
+          "deletions": 4,
+          "files": 3
+        },
+        {
+          "hash": "83015a2",
+          "time": "21:58",
+          "subject": "Add Juan Cadaveira (Inv 231608, 50 balance) to LE Electric Dashboard + Beta Development",
+          "insertions": 14,
+          "deletions": 2,
+          "files": 2
+        },
+        {
+          "hash": "64fe93d",
+          "time": "23:49",
+          "subject": "Beta: expandable Con Ed / City Permit sub-menus inline on timeline steps",
+          "insertions": 15,
+          "deletions": 7,
+          "files": 1
+        }
+      ]
+    },
+    {
+      "id": 2,
+      "date": "2026-07-02",
+      "title": "Task #16: New Job (manual OR from-calendar prefill) + calendar store + calEventId link + calendar_upsert write",
+      "commits": 20,
+      "insertions": 697,
+      "deletions": 117,
+      "net": 580,
+      "files": 43,
+      "iterations": [
+        {
+          "hash": "6ce4428",
+          "time": "00:21",
+          "subject": "Cross-device sync (shared Netlify Blobs store) for both dashboards + place both paperwork menus on Scheduled step",
+          "insertions": 52,
+          "deletions": 5,
+          "files": 3
+        },
+        {
+          "hash": "20cf0bd",
+          "time": "04:29",
+          "subject": "Promote Con Ed + City Permit paperwork menus to the real LE Electric Dashboard",
+          "insertions": 20,
+          "deletions": 1,
+          "files": 1
+        },
+        {
+          "hash": "6d5c863",
+          "time": "05:11",
+          "subject": "Add Development Task List tab (numbered tasks, go-ahead gate, collapsible completed, speech-to-text, photo attach/paste) to Dashboard + Beta + devtasks store",
+          "insertions": 108,
+          "deletions": 4,
+          "files": 3
+        },
+        {
+          "hash": "9a907d0",
+          "time": "05:14",
+          "subject": "Dev tasks: global unique numbering across beta+dashboard + Needs-your-answer question state",
+          "insertions": 7,
+          "deletions": 5,
+          "files": 3
+        },
+        {
+          "hash": "e678171",
+          "time": "05:22",
+          "subject": "Dev tasks: Review-it-again button (edit/expand desc + dictate, send back for re-review) on understood + question cards",
+          "insertions": 14,
+          "deletions": 4,
+          "files": 2
+        },
+        {
+          "hash": "ffb7d57",
+          "time": "05:50",
+          "subject": "Dev tasks: single shared list across Dashboard+Beta with per-task Beta/Dashboard target checkboxes (Dashboard ticks both)",
+          "insertions": 31,
+          "deletions": 34,
+          "files": 3
+        },
+        {
+          "hash": "d95c6f3",
+          "time": "07:51",
+          "subject": "devtasks: strong-consistency reads to prevent lost-update clobber",
+          "insertions": 2,
+          "deletions": 1,
+          "files": 1
+        },
+        {
+          "hash": "f7606a1",
+          "time": "07:56",
+          "subject": "Dev tasks: taller auto-expanding review-edit box",
+          "insertions": 4,
+          "deletions": 4,
+          "files": 2
+        },
+        {
+          "hash": "4511e35",
+          "time": "08:02",
+          "subject": "Dev tasks: fix typing-wipe (poll no longer clobbers input) + auto-grow/collapse description; mobile: condensed header that hides on scroll",
+          "insertions": 22,
+          "deletions": 14,
+          "files": 2
+        },
+        {
+          "hash": "be592f8",
+          "time": "09:02",
+          "subject": "Task #2: live jobs sync \u2014 jobsdata store + dashboard Sync-now button + live-data loading",
+          "insertions": 59,
+          "deletions": 4,
+          "files": 3
+        },
+        {
+          "hash": "3723aa3",
+          "time": "10:23",
+          "subject": "Dev tasks: add Verify-it-works status (executed, awaiting your verification) between running and done",
+          "insertions": 6,
+          "deletions": 4,
+          "files": 2
+        },
+        {
+          "hash": "9815c52",
+          "time": "10:26",
+          "subject": "Mobile: pull-to-refresh (stretch + spinning arrow) triggers data refresh",
+          "insertions": 18,
+          "deletions": 0,
+          "files": 2
+        },
+        {
+          "hash": "3a81ad4",
+          "time": "11:41",
+          "subject": "Add Golan Chakov job (Inv 231315, $11k balance) to dashboards",
+          "insertions": 14,
+          "deletions": 2,
+          "files": 2
+        },
+        {
+          "hash": "504f070",
+          "time": "13:07",
+          "subject": "Dev board: Build/General split (no priority on General) + sorted sections (High -> Awaiting your go -> In progress -> Not yet reviewed)",
+          "insertions": 12,
+          "deletions": 4,
+          "files": 2
+        },
+        {
+          "hash": "541c080",
+          "time": "17:18",
+          "subject": "#17 command bus: durable command queue function (idempotency + audit trail + statuses)",
+          "insertions": 93,
+          "deletions": 0,
+          "files": 1
+        },
+        {
+          "hash": "286e653",
+          "time": "18:20",
+          "subject": "#17: wire Send-invoice to command bus + live status/Retry badge on job cards (Phase 1: routes to Dispatch, no auto-send)",
+          "insertions": 20,
+          "deletions": 6,
+          "files": 2
+        },
+        {
+          "hash": "eb69713",
+          "time": "18:52",
+          "subject": "Fix: Send button reads Send estimate when only an estimate exists, Send invoice when an invoice exists",
+          "insertions": 4,
+          "deletions": 2,
+          "files": 2
+        },
+        {
+          "hash": "7b6047b",
+          "time": "20:36",
+          "subject": "Task #20: customer sync \u2014 exact-match dedup + approve-before-create pop-up (dashboard+beta), qbo_app.py customer-sync/create-customer, listener handlers",
+          "insertions": 34,
+          "deletions": 2,
+          "files": 2
+        },
+        {
+          "hash": "5a46058",
+          "time": "20:55",
+          "subject": "Task #16: New Job (manual OR from-calendar prefill) + calendar store + calEventId link + calendar_upsert write",
+          "insertions": 126,
+          "deletions": 8,
+          "files": 3
+        },
+        {
+          "hash": "28194bc",
+          "time": "21:01",
+          "subject": "Task #1: pending-changes Save model \u2014 edits held until Save & sync, unsaved-changes guard on nav/back/close, save animation, sync trigger (dashboard+beta)",
+          "insertions": 51,
+          "deletions": 13,
+          "files": 2
+        }
+      ]
+    },
+    {
+      "id": 3,
+      "date": "2026-07-03",
+      "title": "Sleek Beta (new page app/sleek.html): redesigned dashboard \u2014 phase-grouped progress, Today agenda, archive tab, grouped clients, safer sync UX; jobsdata op:merge (non-destructive sync); launcher card in app/index.html; includes prior session WIP (chat.mjs return channel + bubble wiring)",
+      "commits": 12,
+      "insertions": 1519,
+      "deletions": 157,
+      "net": 1362,
+      "files": 22,
+      "iterations": [
+        {
+          "hash": "14b454d",
+          "time": "01:11",
+          "subject": "Task #20 expanded: recommend-update / candidates+refine / create-vs-update, edit-customer card, job menu (archive/combine/delete), qbo search+update",
+          "insertions": 60,
+          "deletions": 34,
+          "files": 2
+        },
+        {
+          "hash": "16db101",
+          "time": "01:17",
+          "subject": "Tasks #4 (Mark-as-Paid form + record_payment on save) and #7 (per-job quick-view: Invoice/Estimate/Paperwork/Calendar)",
+          "insertions": 40,
+          "deletions": 6,
+          "files": 2
+        },
+        {
+          "hash": "e83eda0",
+          "time": "01:23",
+          "subject": "Tasks #11-15: condensed tap-to-expand progress steps (Complete/Skip/Undo + auto-collapse), Deposit Receipt + Paperwork stages, Con Ed / DOB branch with standardized sub-steps + date prompts (inspection->calendar, meter install date)",
+          "insertions": 62,
+          "deletions": 30,
+          "files": 2
+        },
+        {
+          "hash": "a73104f",
+          "time": "01:30",
+          "subject": "Task #5: floating chat bubble (replaces bottom bar) \u2014 auto page-context, animated volume mic, Developer tab stays context-free; posts to Dispatch via iterate",
+          "insertions": 66,
+          "deletions": 6,
+          "files": 2
+        },
+        {
+          "hash": "83e7778",
+          "time": "01:32",
+          "subject": "Task #19 item 3: dormant cloud send executor (qbo-exec.mjs) \u2014 no-ops until QBO env vars are set; go-live is a deliberate morning step",
+          "insertions": 141,
+          "deletions": 0,
+          "files": 1
+        },
+        {
+          "hash": "4fc8727",
+          "time": "01:36",
+          "subject": "Task #6: chat bubble Phase 2 \u2014 in-bubble Dispatch replies + per-message statuses + collapsed-bubble notification (chat.mjs return channel)",
+          "insertions": 75,
+          "deletions": 8,
+          "files": 3
+        },
+        {
+          "hash": "8dcc812",
+          "time": "01:39",
+          "subject": "Task #8: auto-attach job attachments to the QuickBooks invoice (qbo_app.py attach-file + listener attach_to_invoice + addAtt enqueue)",
+          "insertions": 2,
+          "deletions": 2,
+          "files": 2
+        },
+        {
+          "hash": "fa8085b",
+          "time": "01:51",
+          "subject": "Sleek Beta (new page app/sleek.html): redesigned dashboard \u2014 phase-grouped progress, Today agenda, archive tab, grouped clients, safer sync UX; jobsdata op:merge (non-destructive sync); launcher card in app/index.html; includes prior session WIP (chat.mjs return channel + bubble wiring)",
+          "insertions": 787,
+          "deletions": 0,
+          "files": 3
+        },
+        {
+          "hash": "b2ccfbe",
+          "time": "13:28",
+          "subject": "Task #23: multi-job-per-client \u2014 jobs group under one client card (expand to see each job); single-job customers unchanged",
+          "insertions": 24,
+          "deletions": 2,
+          "files": 2
+        },
+        {
+          "hash": "82a5af1",
+          "time": "15:01",
+          "subject": "Beta upgraded with Sleek design system: search bar, jcard job cards, expandable customer groups w/ auto-collapse, Sleek chat bubble + context chip, + FAB, QBO sync chip, Sleek job detail (customer card + 5-phase progress). Dashboard untouched.",
+          "insertions": 181,
+          "deletions": 53,
+          "files": 1
+        },
+        {
+          "hash": "0c492ad",
+          "time": "16:29",
+          "subject": "Sleek gap-close: attachments card (+QBO attach cmd), send history, follow-up types + Telegram remind, payment reminder via bus, dev-tab photo attach + paste, refine-search in customer approvals",
+          "insertions": 75,
+          "deletions": 14,
+          "files": 1
+        },
+        {
+          "hash": "5684636",
+          "time": "16:40",
+          "subject": "Sleek dev tab: build-target picker (Sleek/Beta/Dashboard, multi) + target pills on task cards",
+          "insertions": 6,
+          "deletions": 2,
+          "files": 1
+        }
+      ]
+    },
+    {
+      "id": 4,
+      "date": "2026-07-05",
+      "title": "LE Pro module 1: standalone React PWA at /app/pro (Vite+Tailwind, installable, offline shell) \u2014 Jobs/Detail/Today on live data via Netlify-store adapter; Supabase schema ready; SAS webhook research",
+      "commits": 13,
+      "insertions": 13920,
+      "deletions": 1458,
+      "net": 12462,
+      "files": 194,
+      "iterations": [
+        {
+          "hash": "039fecf",
+          "time": "00:55",
+          "subject": "LE Pro module 1: standalone React PWA at /app/pro (Vite+Tailwind, installable, offline shell) \u2014 Jobs/Detail/Today on live data via Netlify-store adapter; Supabase schema ready; SAS webhook research",
+          "insertions": 5390,
+          "deletions": 0,
+          "files": 38
+        },
+        {
+          "hash": "5324326",
+          "time": "01:25",
+          "subject": "LE Pro: full feature parity with Sleek+Dashboard (mark-paid, quick views, customer sync approvals+refine, new job, archive/combine/delete, phase progress + ConEd/DOB branches, follow-up+reminders, attachments, activity+retry, chat bubble, dev board w/ Pro target, sync chip, savebar/guards) \u2014 58/58 tests, responsive",
+          "insertions": 4382,
+          "deletions": 597,
+          "files": 40
+        },
+        {
+          "hash": "99041fc",
+          "time": "02:04",
+          "subject": "LE Pro fixes: customer dedupe grouping (no double rows), same-customer combine popup w/ remembered dismissals, chat repaired (reply rendering, optimistic send, retry, hint) - 78 tests",
+          "insertions": 696,
+          "deletions": 94,
+          "files": 14
+        },
+        {
+          "hash": "af55a4f",
+          "time": "02:20",
+          "subject": "sas-inbound webhook receiver (SAS Flex Custom Action -> calls store, shared-secret)",
+          "insertions": 33,
+          "deletions": 0,
+          "files": 1
+        },
+        {
+          "hash": "e94bd8d",
+          "time": "09:21",
+          "subject": "Presence pings (LE Pro + chat fn op:presence) for presence-aware Dispatch chat; 80 tests",
+          "insertions": 150,
+          "deletions": 70,
+          "files": 9
+        },
+        {
+          "hash": "f7361a1",
+          "time": "12:49",
+          "subject": "LE Pro: dev-board archive+edit+mark-complete, paperwork lists exact parity w/ dashboard, live PDF viewing path (docs.mjs + fetch_pdf handler), sync-chip time fix - 87 tests",
+          "insertions": 499,
+          "deletions": 123,
+          "files": 17
+        },
+        {
+          "hash": "9605e2c",
+          "time": "13:23",
+          "subject": "Chat online mode (dispatch heartbeat, online dot, 3s polls, typing line, notifications, unread fix) + QA fixes (savebar overlap, dev-board error handling, iOS safe-area, SW v2) - 96 tests",
+          "insertions": 375,
+          "deletions": 102,
+          "files": 17
+        },
+        {
+          "hash": "54a93d7",
+          "time": "13:35",
+          "subject": "Levi chat requests: paperwork enable/greyed default + removable items w/ restore; jobs sort-by menu (smart/amount/next-step/overdue/follow-up/newest) - 113 tests",
+          "insertions": 661,
+          "deletions": 112,
+          "files": 11
+        },
+        {
+          "hash": "6b3b14b",
+          "time": "14:47",
+          "subject": "LE Pro Calls tab: SAS lead tickets (convert-to-job/dismiss, unhandled badge, no QBO) - 119 tests",
+          "insertions": 547,
+          "deletions": 85,
+          "files": 13
+        },
+        {
+          "hash": "5fe5bcd",
+          "time": "15:28",
+          "subject": "LE Pro fix: customer_sync approval resolved client-side (done + create/update_customer cmd) - listener ignored approval field, sheet looped; tests green",
+          "insertions": 227,
+          "deletions": 77,
+          "files": 6
+        },
+        {
+          "hash": "2a765d0",
+          "time": "15:46",
+          "subject": "LE Pro fix: stale eventually-consistent state reads reverted saved edits - cb on state GETs, retry-after-write in saveJob, stale-snapshot guard in refreshJobs; tests+build green",
+          "insertions": 161,
+          "deletions": 77,
+          "files": 7
+        },
+        {
+          "hash": "f25c6cf",
+          "time": "15:53",
+          "subject": "LE Pro fix: approval sheet now renders recommend_update shape (customer+diffs) with Update-existing option and old->new diff box; tests+build green",
+          "insertions": 72,
+          "deletions": 16,
+          "files": 4
+        },
+        {
+          "hash": "d6fdc8a",
+          "time": "18:26",
+          "subject": "LE Pro: Biller Genie payment-link pipeline + customer window (total balance due + Customer detail view); 145 tests green",
+          "insertions": 727,
+          "deletions": 105,
+          "files": 17
+        }
+      ]
+    },
+    {
+      "id": 5,
+      "date": "2026-07-06",
+      "title": "#39: biometric (WebAuthn) + password lock on LE Pro app open",
+      "commits": 6,
+      "insertions": 2220,
+      "deletions": 680,
+      "net": 1540,
+      "files": 76,
+      "iterations": [
+        {
+          "hash": "ae6b792",
+          "time": "12:52",
+          "subject": "Pro app: FIX calendar range - rebuild with 2wk-back window + inspection exclude (was overwritten by a stale build)",
+          "insertions": 155,
+          "deletions": 18,
+          "files": 8
+        },
+        {
+          "hash": "4f91ca9",
+          "time": "14:11",
+          "subject": "LE Pro: consolidate build targets - LE Pro only + Development (paused) expander (pause Command Center/Dashboard/Beta/Sleek per Levi)",
+          "insertions": 127,
+          "deletions": 80,
+          "files": 5
+        },
+        {
+          "hash": "7b44b78",
+          "time": "14:19",
+          "subject": "Login landing: LE Pro is the one option; Command Center/Dashboard/Beta/Sleek moved under a collapsed Development (paused) section",
+          "insertions": 10,
+          "deletions": 4,
+          "files": 1
+        },
+        {
+          "hash": "f449ebd",
+          "time": "15:01",
+          "subject": "#39: biometric (WebAuthn) + password lock on LE Pro app open",
+          "insertions": 1006,
+          "deletions": 73,
+          "files": 24
+        },
+        {
+          "hash": "ec3012d",
+          "time": "15:34",
+          "subject": "redeploy: netlify credits restored 153441",
+          "insertions": 0,
+          "deletions": 0,
+          "files": 0
+        },
+        {
+          "hash": "6b367e6",
+          "time": "16:14",
+          "subject": "Pro: job-detail #54/#44/#45 + new-job/customer #49/#55/#56 + ycx7/c58e",
+          "insertions": 922,
+          "deletions": 505,
+          "files": 38
+        }
+      ]
+    },
+    {
+      "id": 6,
+      "date": "2026-07-07",
+      "title": "Deploy 2026-07-07_19:45:28",
+      "commits": 32,
+      "insertions": 7668,
+      "deletions": 2999,
+      "net": 4669,
+      "files": 335,
+      "iterations": [
+        {
+          "hash": "70ec3cd",
+          "time": "13:57",
+          "subject": "QuickBooks customer info: billing vs service address split + QB sync fields",
+          "insertions": 887,
+          "deletions": 239,
+          "files": 35
+        },
+        {
+          "hash": "a9f1333",
+          "time": "14:00",
+          "subject": "Service address tied to invoice/estimate # \u2014 not copied from customer",
+          "insertions": 135,
+          "deletions": 94,
+          "files": 11
+        },
+        {
+          "hash": "3da437d",
+          "time": "14:56",
+          "subject": "New job: QB customer autofill + title picker for open invoices/estimates",
+          "insertions": 362,
+          "deletions": 137,
+          "files": 11
+        },
+        {
+          "hash": "ccc4efa",
+          "time": "15:27",
+          "subject": "QuickBooks customer info: full contact fields in customer index",
+          "insertions": 10,
+          "deletions": 0,
+          "files": 2
+        },
+        {
+          "hash": "70cb0fc",
+          "time": "15:47",
+          "subject": "Edit customer QB autofill, amount due display, FAB on Today+job detail, calendar tap on Today",
+          "insertions": 181,
+          "deletions": 102,
+          "files": 12
+        },
+        {
+          "hash": "6465990",
+          "time": "15:52",
+          "subject": "Today: Mon-Fri week calendar with swipe, tap events, add appointment",
+          "insertions": 366,
+          "deletions": 108,
+          "files": 11
+        },
+        {
+          "hash": "76057bd",
+          "time": "15:57",
+          "subject": "New job FAB: add lead with calendar appointment option",
+          "insertions": 79,
+          "deletions": 8,
+          "files": 3
+        },
+        {
+          "hash": "74fa222",
+          "time": "16:05",
+          "subject": "Today calendar: edit/delete/duplicate appointments, link to jobs",
+          "insertions": 398,
+          "deletions": 37,
+          "files": 8
+        },
+        {
+          "hash": "1d28e79",
+          "time": "16:08",
+          "subject": "Rebuild Pro bundle: lead option + appointment edit/link",
+          "insertions": 75,
+          "deletions": 70,
+          "files": 5
+        },
+        {
+          "hash": "16b471c",
+          "time": "16:08",
+          "subject": "PWA cache v3 \u2014 force refresh after Pro rebuild",
+          "insertions": 2,
+          "deletions": 2,
+          "files": 2
+        },
+        {
+          "hash": "829d95b",
+          "time": "16:25",
+          "subject": "Appointment link: customer picker, confirm save, unlink/relink from job",
+          "insertions": 418,
+          "deletions": 131,
+          "files": 12
+        },
+        {
+          "hash": "e0685b7",
+          "time": "16:25",
+          "subject": "PWA cache v4 \u2014 appointment link picker",
+          "insertions": 2,
+          "deletions": 2,
+          "files": 2
+        },
+        {
+          "hash": "49b5c42",
+          "time": "16:29",
+          "subject": "Dev #wtel: create appointment from job window (Calendar sheet)",
+          "insertions": 161,
+          "deletions": 89,
+          "files": 7
+        },
+        {
+          "hash": "8930ddb",
+          "time": "16:34",
+          "subject": "Balance due prominent: invoiced + paid sub-lines on jobs/customer views",
+          "insertions": 241,
+          "deletions": 104,
+          "files": 14
+        },
+        {
+          "hash": "fcdadca",
+          "time": "16:48",
+          "subject": "Calendar: pull on load/refresh/sync + optimistic appointments",
+          "insertions": 191,
+          "deletions": 98,
+          "files": 12
+        },
+        {
+          "hash": "4981d91",
+          "time": "17:01",
+          "subject": "Calendar cache-first load; linked job shows customer; unlink confirm Save & sync",
+          "insertions": 170,
+          "deletions": 124,
+          "files": 10
+        },
+        {
+          "hash": "901445d",
+          "time": "18:59",
+          "subject": "Compact mobile typography: smaller job/customer text and logos",
+          "insertions": 71,
+          "deletions": 57,
+          "files": 15
+        },
+        {
+          "hash": "8c30f19",
+          "time": "19:14",
+          "subject": "Fix single-job mobile row: compact customer card, fixed avatar square",
+          "insertions": 172,
+          "deletions": 131,
+          "files": 12
+        },
+        {
+          "hash": "c95ba6a",
+          "time": "19:35",
+          "subject": "Appointment unlink UX fix; remove redundant linked label",
+          "insertions": 46,
+          "deletions": 31,
+          "files": 5
+        },
+        {
+          "hash": "37ac339",
+          "time": "19:37",
+          "subject": "Deploy 2026-07-07_19:37:02",
+          "insertions": 565,
+          "deletions": 280,
+          "files": 16
+        },
+        {
+          "hash": "a3963fc",
+          "time": "19:45",
+          "subject": "Deploy 2026-07-07_19:45:28",
+          "insertions": 949,
+          "deletions": 82,
+          "files": 18
+        },
+        {
+          "hash": "977ae76",
+          "time": "19:52",
+          "subject": "Deploy 2026-07-07_19:52:24",
+          "insertions": 395,
+          "deletions": 179,
+          "files": 13
+        },
+        {
+          "hash": "3c1b578",
+          "time": "20:23",
+          "subject": "Deploy 2026-07-07_20:23:06",
+          "insertions": 8,
+          "deletions": 8,
+          "files": 5
+        },
+        {
+          "hash": "1f3754a",
+          "time": "20:25",
+          "subject": "Deploy 2026-07-07_20:25:13",
+          "insertions": 472,
+          "deletions": 147,
+          "files": 19
+        },
+        {
+          "hash": "e3b73b6",
+          "time": "21:12",
+          "subject": "Task #64: fix chat scroll twitch; bubble actions for dev task, job update, appointment",
+          "insertions": 401,
+          "deletions": 86,
+          "files": 13
+        },
+        {
+          "hash": "af92b97",
+          "time": "22:12",
+          "subject": "Fix QBO sync chip + paid invoice safeguards (pullJobs, openBalance sync)",
+          "insertions": 38,
+          "deletions": 17,
+          "files": 6
+        },
+        {
+          "hash": "d8b508d",
+          "time": "22:17",
+          "subject": "Fix QBO sync chip + mark-paid safeguards (reject unapplied, block -- balance)",
+          "insertions": 132,
+          "deletions": 88,
+          "files": 9
+        },
+        {
+          "hash": "007ef0b",
+          "time": "22:18",
+          "subject": "Remove duplicate Invoice # row from job information card",
+          "insertions": 4,
+          "deletions": 5,
+          "files": 5
+        },
+        {
+          "hash": "216049e",
+          "time": "22:21",
+          "subject": "Fix squished customer names in jobs list + compact expanded rows",
+          "insertions": 222,
+          "deletions": 157,
+          "files": 13
+        },
+        {
+          "hash": "5bb07cb",
+          "time": "22:36",
+          "subject": "Fix combine-by-customer + restore job info Invoice row layout",
+          "insertions": 178,
+          "deletions": 104,
+          "files": 11
+        },
+        {
+          "hash": "125d48a",
+          "time": "22:39",
+          "subject": "Mobile customer cards: name+balance on top, meta and job hint below",
+          "insertions": 226,
+          "deletions": 190,
+          "files": 11
+        },
+        {
+          "hash": "17c0b29",
+          "time": "23:27",
+          "subject": "Fix mobile: show all customer jobs in group (paid+siblings under Active)",
+          "insertions": 111,
+          "deletions": 92,
+          "files": 7
+        }
+      ]
+    },
+    {
+      "id": 7,
+      "date": "2026-07-08",
+      "title": "LE Pro: Sola pay links, custom amount, calendar, payment history (le-pro-v27)",
+      "commits": 43,
+      "insertions": 12749,
+      "deletions": 5026,
+      "net": 7723,
+      "files": 534,
+      "iterations": [
+        {
+          "hash": "7af5b3f",
+          "time": "08:25",
+          "subject": "LE Pro: Sola pay links, custom amount, calendar, payment history (le-pro-v27)",
+          "insertions": 922,
+          "deletions": 182,
+          "files": 26
+        },
+        {
+          "hash": "aef9637",
+          "time": "08:39",
+          "subject": "LE Pro: fix doc confirm popup, invoice send + payment link (le-pro-v28)",
+          "insertions": 198,
+          "deletions": 97,
+          "files": 9
+        },
+        {
+          "hash": "6f06bd4",
+          "time": "08:41",
+          "subject": "LE Pro: pay link validation, email compose, le-pro-v29",
+          "insertions": 192,
+          "deletions": 87,
+          "files": 8
+        },
+        {
+          "hash": "89ceea3",
+          "time": "09:37",
+          "subject": "LE Pro: editable payment-link email To field + CODE auto-exec (le-pro-v30)",
+          "insertions": 48,
+          "deletions": 28,
+          "files": 5
+        },
+        {
+          "hash": "658389a",
+          "time": "13:00",
+          "subject": "le-pro-v31: View & Pay landing page + Sola env switching (sandbox/production)",
+          "insertions": 377,
+          "deletions": 93,
+          "files": 14
+        },
+        {
+          "hash": "6d799d5",
+          "time": "13:01",
+          "subject": "le-pro: auto-trigger Face ID/fingerprint on app open (no tap to unlock)",
+          "insertions": 59,
+          "deletions": 27,
+          "files": 5
+        },
+        {
+          "hash": "bd3b3a0",
+          "time": "13:23",
+          "subject": "le-pro-v32: BLZ pay page (PDF, fee, prefill), logo theme, amount edit on landing",
+          "insertions": 543,
+          "deletions": 153,
+          "files": 21
+        },
+        {
+          "hash": "d8fa923",
+          "time": "13:32",
+          "subject": "le-pro-v33: LE logo, pay page layout, zip prefill fix",
+          "insertions": 171,
+          "deletions": 100,
+          "files": 13
+        },
+        {
+          "hash": "2795c00",
+          "time": "13:37",
+          "subject": "reupload logo: LE No background + cache bust v2",
+          "insertions": 5,
+          "deletions": 5,
+          "files": 4
+        },
+        {
+          "hash": "adf7225",
+          "time": "13:40",
+          "subject": "le-pro-v34: Sleek theme, fix View invoice PDF, pay page layout",
+          "insertions": 200,
+          "deletions": 109,
+          "files": 11
+        },
+        {
+          "hash": "ee99e91",
+          "time": "13:52",
+          "subject": "Pay: 30d PDF cleanup, layout order, Sola payment\u2192QBO pipeline",
+          "insertions": 429,
+          "deletions": 86,
+          "files": 14
+        },
+        {
+          "hash": "bbe984a",
+          "time": "13:56",
+          "subject": "Paperwork: Con Ed inspection step, auto-enable, Up next in job info",
+          "insertions": 420,
+          "deletions": 146,
+          "files": 13
+        },
+        {
+          "hash": "538c925",
+          "time": "14:06",
+          "subject": "Pay: View invoice triggers QBO fetch + retrieving overlay",
+          "insertions": 383,
+          "deletions": 46,
+          "files": 9
+        },
+        {
+          "hash": "b92b7fe",
+          "time": "14:18",
+          "subject": "UI: navy theme, bigger LE logo, Payment tab, pay page layout, paid history, fee toggle",
+          "insertions": 436,
+          "deletions": 234,
+          "files": 23
+        },
+        {
+          "hash": "cbdfe43",
+          "time": "14:29",
+          "subject": "Customer card edit corner, job info bubbles, calendar tab colors, payment history pull",
+          "insertions": 319,
+          "deletions": 248,
+          "files": 15
+        },
+        {
+          "hash": "22450ef",
+          "time": "15:09",
+          "subject": "Paperwork ConEd colors, schedule appointment flow, remove record payment btn",
+          "insertions": 317,
+          "deletions": 210,
+          "files": 15
+        },
+        {
+          "hash": "378f510",
+          "time": "15:13",
+          "subject": "Mobile layout: customer name flow, full-width up-next pills, QBO sync card colors",
+          "insertions": 209,
+          "deletions": 153,
+          "files": 11
+        },
+        {
+          "hash": "b37328a",
+          "time": "15:18",
+          "subject": "Auto-link calendar appointments: orange pending, green on sync confirm",
+          "insertions": 288,
+          "deletions": 137,
+          "files": 12
+        },
+        {
+          "hash": "66fdf13",
+          "time": "15:29",
+          "subject": "Awareness bubbles: sell/billing/paperwork, Needs attention filter, job card gradient",
+          "insertions": 539,
+          "deletions": 143,
+          "files": 19
+        },
+        {
+          "hash": "0c0745b",
+          "time": "15:36",
+          "subject": "Calendar full address prefill; bottom attention gradient; bubble grid layout",
+          "insertions": 169,
+          "deletions": 109,
+          "files": 14
+        },
+        {
+          "hash": "fd75954",
+          "time": "15:52",
+          "subject": "Fix partial Sola payments, fetch_payments from QBO, bubble UX (revert, labels, calendar prompt), Final payment phase",
+          "insertions": 493,
+          "deletions": 120,
+          "files": 16
+        },
+        {
+          "hash": "29c94b2",
+          "time": "15:54",
+          "subject": "Fix calendar unlink auto-relink; address confirm suggestions; red tab when unlinked",
+          "insertions": 349,
+          "deletions": 114,
+          "files": 15
+        },
+        {
+          "hash": "7d07565",
+          "time": "16:07",
+          "subject": "Payment history: method labels, refresh fix, QBO void",
+          "insertions": 328,
+          "deletions": 129,
+          "files": 9
+        },
+        {
+          "hash": "d7f7ac6",
+          "time": "16:14",
+          "subject": "Draggable customer sync OK + calendar unlink fix",
+          "insertions": 383,
+          "deletions": 152,
+          "files": 14
+        },
+        {
+          "hash": "bb80ee3",
+          "time": "16:20",
+          "subject": "In-app credit card: Sola iFields + charge in LE Pro",
+          "insertions": 865,
+          "deletions": 94,
+          "files": 13
+        },
+        {
+          "hash": "6f7ba98",
+          "time": "16:30",
+          "subject": "UX: doc buttons, search idle, appt suggestions, payment dates, import_customer",
+          "insertions": 348,
+          "deletions": 174,
+          "files": 19
+        },
+        {
+          "hash": "a0eb0f2",
+          "time": "16:38",
+          "subject": "Customer card expand/collapse; compact card pay + save on file; Check/ACH fields",
+          "insertions": 394,
+          "deletions": 146,
+          "files": 14
+        },
+        {
+          "hash": "4bfc407",
+          "time": "16:47",
+          "subject": "Import opens customer immediately; calendar shows all appointments",
+          "insertions": 229,
+          "deletions": 124,
+          "files": 12
+        },
+        {
+          "hash": "6fcc8cf",
+          "time": "17:03",
+          "subject": "Job cards tap-to-open, FAB menu, payment UX, listener TLS fix",
+          "insertions": 528,
+          "deletions": 185,
+          "files": 16
+        },
+        {
+          "hash": "ed1ecc9",
+          "time": "17:19",
+          "subject": "Calendar linked UX, job card collapse, customer scroll anchor, sync progress",
+          "insertions": 324,
+          "deletions": 132,
+          "files": 14
+        },
+        {
+          "hash": "ffac43f",
+          "time": "17:23",
+          "subject": "Sync chip inline progress, shorter QBO wait, tap to skip",
+          "insertions": 115,
+          "deletions": 105,
+          "files": 6
+        },
+        {
+          "hash": "6b45c3f",
+          "time": "17:27",
+          "subject": "Move + and chat into bottom nav between Archive and Dev",
+          "insertions": 217,
+          "deletions": 148,
+          "files": 9
+        },
+        {
+          "hash": "df3b485",
+          "time": "17:29",
+          "subject": "Job detail: collapse only sections below job info card",
+          "insertions": 39,
+          "deletions": 41,
+          "files": 7
+        },
+        {
+          "hash": "d94ec36",
+          "time": "17:41",
+          "subject": "Fix QBO sync stability, gradient chip, job info scroll, amount bubble",
+          "insertions": 225,
+          "deletions": 179,
+          "files": 13
+        },
+        {
+          "hash": "49efb91",
+          "time": "20:22",
+          "subject": "Job detail collapse: sibling jobs list when Job Info collapsed",
+          "insertions": 132,
+          "deletions": 102,
+          "files": 7
+        },
+        {
+          "hash": "d45fc9f",
+          "time": "21:28",
+          "subject": "Customer view job expand/collapse fix + 3-version backup (le-pro-v34)",
+          "insertions": 209,
+          "deletions": 105,
+          "files": 11
+        },
+        {
+          "hash": "4b3bc32",
+          "time": "21:34",
+          "subject": "Job info always visible; only detail sections below collapse; customer view keeps all jobs open",
+          "insertions": 131,
+          "deletions": 173,
+          "files": 10
+        },
+        {
+          "hash": "bb19b01",
+          "time": "22:08",
+          "subject": "QBO import fix: Arthur re-link, per-prompt sync chip, q: customer keys (le-pro-v37)",
+          "insertions": 272,
+          "deletions": 137,
+          "files": 16
+        },
+        {
+          "hash": "508822c",
+          "time": "22:48",
+          "subject": "Merge prompt: side-by-side compare before combine",
+          "insertions": 316,
+          "deletions": 99,
+          "files": 10
+        },
+        {
+          "hash": "6024b46",
+          "time": "22:53",
+          "subject": "le-pro-v39: invoice dedupe prompt, expanded customer scan (phone/email), calendar search copy",
+          "insertions": 368,
+          "deletions": 89,
+          "files": 18
+        },
+        {
+          "hash": "9a6884d",
+          "time": "23:06",
+          "subject": "le-pro-v40: calendar search rolling 1-year filter (real, not copy-only)",
+          "insertions": 35,
+          "deletions": 16,
+          "files": 7
+        },
+        {
+          "hash": "552cdea",
+          "time": "23:20",
+          "subject": "le-pro-v41: Levi deploy-approve \u2014 skip Cursor gate, SW cache bump",
+          "insertions": 2,
+          "deletions": 2,
+          "files": 2
+        },
+        {
+          "hash": "f289ec3",
+          "time": "23:25",
+          "subject": "Duplicate prompts: side-by-side compare (customer contact + invoice fields), Separate customers/invoices options",
+          "insertions": 223,
+          "deletions": 67,
+          "files": 15
+        }
+      ]
+    },
+    {
+      "id": 8,
+      "date": "2026-07-09",
+      "title": "Zelle screenshot vision + payment reconciliation (le-pro-v49)",
+      "commits": 45,
+      "insertions": 11748,
+      "deletions": 2565,
+      "net": 9183,
+      "files": 383,
+      "iterations": [
+        {
+          "hash": "0392f0a",
+          "time": "00:10",
+          "subject": "le-pro-v44: Israel chat bubble UI \u2014 auto-grow input, scroll history fix",
+          "insertions": 972,
+          "deletions": 184,
+          "files": 25
+        },
+        {
+          "hash": "239b3b3",
+          "time": "10:36",
+          "subject": "le-pro-v45: retry deploy \u2014 dedupeScan test jsdom fix (307 pass)",
+          "insertions": 3,
+          "deletions": 2,
+          "files": 3
+        },
+        {
+          "hash": "2e5873c",
+          "time": "11:33",
+          "subject": "Post-payment confirmation: centered logo/name + receipt balance now (le-pro-v46)",
+          "insertions": 218,
+          "deletions": 38,
+          "files": 11
+        },
+        {
+          "hash": "62fef6d",
+          "time": "11:39",
+          "subject": "LE Pro v47: cross-device chat bubble sync (stable pro-levi convo id)",
+          "insertions": 178,
+          "deletions": 44,
+          "files": 12
+        },
+        {
+          "hash": "124cf3a",
+          "time": "11:44",
+          "subject": "v48: automatic payment-confirmation email (Resend, test-mode-first)",
+          "insertions": 411,
+          "deletions": 3,
+          "files": 8
+        },
+        {
+          "hash": "54eee43",
+          "time": "11:51",
+          "subject": "Zelle screenshot vision + payment reconciliation (le-pro-v49)",
+          "insertions": 1239,
+          "deletions": 115,
+          "files": 17
+        },
+        {
+          "hash": "33a286f",
+          "time": "11:58",
+          "subject": "4-field customer search: business/person/phone/email live match + prefill (le-pro-v50)",
+          "insertions": 260,
+          "deletions": 48,
+          "files": 12
+        },
+        {
+          "hash": "5cae760",
+          "time": "12:01",
+          "subject": "Bubble-driven invoice editing: NL parse, agent draft, review gate, learning loop (le-pro-v51)",
+          "insertions": 767,
+          "deletions": 91,
+          "files": 19
+        },
+        {
+          "hash": "ec6ee2e",
+          "time": "12:07",
+          "subject": "Add customer flow redesign \u2014 single form, live QBO match, Save & sync actions",
+          "insertions": 746,
+          "deletions": 171,
+          "files": 14
+        },
+        {
+          "hash": "12b5dd7",
+          "time": "12:10",
+          "subject": "Add customer: QB button labels (Update in QB, business name already in QB)",
+          "insertions": 8,
+          "deletions": 8,
+          "files": 6
+        },
+        {
+          "hash": "4c33dce",
+          "time": "12:13",
+          "subject": "Chat bubble: scroll to bottom on open + stay pinned unless scrolled up (le-pro-v54)",
+          "insertions": 83,
+          "deletions": 43,
+          "files": 6
+        },
+        {
+          "hash": "78c0650",
+          "time": "12:26",
+          "subject": "Appointment autofill: parse calendar description for name/phone/email/billing vs service + address autocomplete",
+          "insertions": 780,
+          "deletions": 154,
+          "files": 17
+        },
+        {
+          "hash": "d3a6f3a",
+          "time": "12:29",
+          "subject": "Add customer QB match popup: search + new-customer on top, full details per match (le-pro-v56)",
+          "insertions": 188,
+          "deletions": 93,
+          "files": 10
+        },
+        {
+          "hash": "620367c",
+          "time": "12:46",
+          "subject": "Desktop scrollbar cleanup \u2014 hide decorative sliders on lg layout + credit card fields",
+          "insertions": 157,
+          "deletions": 24,
+          "files": 17
+        },
+        {
+          "hash": "dea6e7f",
+          "time": "13:28",
+          "subject": "Invoice edit + bi-directional estimate/invoice address sync",
+          "insertions": 341,
+          "deletions": 61,
+          "files": 11
+        },
+        {
+          "hash": "7a17ff9",
+          "time": "15:03",
+          "subject": "Deploy invoice edit + bi-directional address sync (le-pro-v58)",
+          "insertions": 134,
+          "deletions": 2,
+          "files": 3
+        },
+        {
+          "hash": "82ef622",
+          "time": "15:11",
+          "subject": "fix(pro): show red tab + toast when estimate/invoice QB sync fails",
+          "insertions": 107,
+          "deletions": 10,
+          "files": 4
+        },
+        {
+          "hash": "3a71079",
+          "time": "15:18",
+          "subject": "Fix card expiration field \u2014 remove input overflow clip, MM/YY auto-format",
+          "insertions": 110,
+          "deletions": 92,
+          "files": 10
+        },
+        {
+          "hash": "2f60144",
+          "time": "15:23",
+          "subject": "Fix new customer QuickBooks sync + invoice edit access",
+          "insertions": 287,
+          "deletions": 16,
+          "files": 12
+        },
+        {
+          "hash": "37f52c3",
+          "time": "16:27",
+          "subject": "Customers tab: parent/sub companies, multi-job per address",
+          "insertions": 889,
+          "deletions": 110,
+          "files": 18
+        },
+        {
+          "hash": "3d807b0",
+          "time": "16:28",
+          "subject": "Deploy batch: Customers tab, QB sync fixes, card expiry, failed-sync alerts (le-pro-v59)",
+          "insertions": 2,
+          "deletions": 2,
+          "files": 2
+        },
+        {
+          "hash": "0072e13",
+          "time": "16:36",
+          "subject": "Fix customer card green: require QuickBooks link, not just full contact info",
+          "insertions": 14,
+          "deletions": 2,
+          "files": 4
+        },
+        {
+          "hash": "d8eb67e",
+          "time": "17:01",
+          "subject": "Same-customer prompt: Combined vs Sub company tabs with parent/sub toggle",
+          "insertions": 413,
+          "deletions": 80,
+          "files": 7
+        },
+        {
+          "hash": "91a7d37",
+          "time": "17:07",
+          "subject": "Same-customer prompt: add Ask me later (snooze until next login)",
+          "insertions": 116,
+          "deletions": 1,
+          "files": 4
+        },
+        {
+          "hash": "7a9306a",
+          "time": "17:09",
+          "subject": "Estimate/invoice builder: Save & close, Save & sync, Save & sync & send",
+          "insertions": 154,
+          "deletions": 28,
+          "files": 4
+        },
+        {
+          "hash": "5a889c4",
+          "time": "17:10",
+          "subject": "Deploy batch: customer green fix, same-customer prompt, estimate/invoice save options (le-pro-v60)",
+          "insertions": 81,
+          "deletions": 81,
+          "files": 5
+        },
+        {
+          "hash": "995410b",
+          "time": "17:17",
+          "subject": "fix: same-customer prompt uses scrollable sheet on mobile and desktop",
+          "insertions": 89,
+          "deletions": 93,
+          "files": 6
+        },
+        {
+          "hash": "57e6e51",
+          "time": "18:21",
+          "subject": "Parent customer cards: tap anywhere to expand subs, 30s auto-close",
+          "insertions": 79,
+          "deletions": 17,
+          "files": 2
+        },
+        {
+          "hash": "01f0b2a",
+          "time": "18:23",
+          "subject": "Customer forms: Customer name first + sub-company toggle",
+          "insertions": 177,
+          "deletions": 110,
+          "files": 9
+        },
+        {
+          "hash": "6219f13",
+          "time": "18:29",
+          "subject": "Parent company: second tap opens rollup view; no duplicate list rows",
+          "insertions": 100,
+          "deletions": 8,
+          "files": 5
+        },
+        {
+          "hash": "9da1a8f",
+          "time": "18:43",
+          "subject": "Per-customer QB sync menu + invoice/estimate/payment tabs",
+          "insertions": 783,
+          "deletions": 17,
+          "files": 12
+        },
+        {
+          "hash": "9488f3c",
+          "time": "18:46",
+          "subject": "Fix invoice create UX: full builder opens, no collapse on customer view",
+          "insertions": 51,
+          "deletions": 49,
+          "files": 7
+        },
+        {
+          "hash": "4574d7c",
+          "time": "18:55",
+          "subject": "Bump SW cache le-pro-v62 for batch deploy",
+          "insertions": 1,
+          "deletions": 1,
+          "files": 1
+        },
+        {
+          "hash": "516be87",
+          "time": "18:55",
+          "subject": "Deploy batch: parent company UX, customer forms, QB sync tabs, invoice builder fix (le-pro-v62)",
+          "insertions": 82,
+          "deletions": 82,
+          "files": 6
+        },
+        {
+          "hash": "442571f",
+          "time": "19:13",
+          "subject": "QB sync menu on header chip; restore amount layout",
+          "insertions": 212,
+          "deletions": 170,
+          "files": 16
+        },
+        {
+          "hash": "4e739e1",
+          "time": "19:19",
+          "subject": "Customer view: hide jobs list, show invoices/estimates tabs with open+closed sections",
+          "insertions": 254,
+          "deletions": 205,
+          "files": 7
+        },
+        {
+          "hash": "9fed925",
+          "time": "20:21",
+          "subject": "Fix estimate sync false-success UX and auto-create QBO customer first",
+          "insertions": 94,
+          "deletions": 11,
+          "files": 5
+        },
+        {
+          "hash": "93e6ff7",
+          "time": "20:26",
+          "subject": "Customer invoice UX correction \u2014 rich rows, fold job detail, drop address block",
+          "insertions": 87,
+          "deletions": 106,
+          "files": 7
+        },
+        {
+          "hash": "1c72ff8",
+          "time": "21:59",
+          "subject": "Deploy batch: QB sync menu, honest estimate sync, customer invoice UX (le-pro-v63)",
+          "insertions": 83,
+          "deletions": 83,
+          "files": 6
+        },
+        {
+          "hash": "d0954d0",
+          "time": "22:55",
+          "subject": "Fix mobile sheet gap above bottom tab bar",
+          "insertions": 4,
+          "deletions": 1,
+          "files": 2
+        },
+        {
+          "hash": "dc20c52",
+          "time": "22:57",
+          "subject": "Shorter mobile top banner \u2014 compact logo and padding",
+          "insertions": 5,
+          "deletions": 5,
+          "files": 1
+        },
+        {
+          "hash": "6e556fb",
+          "time": "23:03",
+          "subject": "Fix invoice send feedback \u2014 toast when QuickBooks send succeeds or fails",
+          "insertions": 63,
+          "deletions": 0,
+          "files": 2
+        },
+        {
+          "hash": "70bcf79",
+          "time": "23:09",
+          "subject": "Short pay links + friendly payment emails; Sola card key diagnostics",
+          "insertions": 365,
+          "deletions": 62,
+          "files": 19
+        },
+        {
+          "hash": "fcab273",
+          "time": "23:11",
+          "subject": "Pay page: branded in-app card form; QB email link only at bottom",
+          "insertions": 167,
+          "deletions": 40,
+          "files": 6
+        },
+        {
+          "hash": "2063bed",
+          "time": "23:41",
+          "subject": "Deploy batch: mobile fixes, invoice send feedback, short pay links, branded pay page (le-pro-v64)",
+          "insertions": 394,
+          "deletions": 2,
+          "files": 3
+        }
+      ]
+    },
+    {
+      "id": 9,
+      "date": "2026-07-10",
+      "title": "Follow-up login prompts: service calls, must-today loop, inspections",
+      "commits": 30,
+      "insertions": 9201,
+      "deletions": 1940,
+      "net": 7261,
+      "files": 234,
+      "iterations": [
+        {
+          "hash": "3c97261",
+          "time": "00:06",
+          "subject": "Trigger Netlify deploy: batch mobile fixes, invoice feedback, pay links, branded pay page",
+          "insertions": 0,
+          "deletions": 0,
+          "files": 0
+        },
+        {
+          "hash": "9cbb1ae",
+          "time": "00:22",
+          "subject": "Trigger Netlify deploy: batch v64 retry (webhook unblocked)",
+          "insertions": 0,
+          "deletions": 0,
+          "files": 0
+        },
+        {
+          "hash": "9eaa12c",
+          "time": "00:30",
+          "subject": "Fix deploy: remove hardcoded SOLA_X_KEY from tests (secret scan blocker)",
+          "insertions": 7,
+          "deletions": 7,
+          "files": 3
+        },
+        {
+          "hash": "fe5c32d",
+          "time": "00:49",
+          "subject": "UX: mobile logo banner, neater QB sync chip, delete docs, change orders, invoice sync scope",
+          "insertions": 443,
+          "deletions": 106,
+          "files": 15
+        },
+        {
+          "hash": "cf77f73",
+          "time": "00:54",
+          "subject": "Fix QuickBooks doc sync race when customer is not linked yet",
+          "insertions": 263,
+          "deletions": 61,
+          "files": 5
+        },
+        {
+          "hash": "d938375",
+          "time": "09:08",
+          "subject": "Zelle screenshot vision: grok-4.5 model fix + batch QB/sync UX",
+          "insertions": 23,
+          "deletions": 23,
+          "files": 5
+        },
+        {
+          "hash": "38c1391",
+          "time": "09:52",
+          "subject": "Fix desktop customer list: parent companies expand sub-companies in sidebar",
+          "insertions": 22,
+          "deletions": 4,
+          "files": 2
+        },
+        {
+          "hash": "ac40066",
+          "time": "10:01",
+          "subject": "Progress invoice editor \u2014 QBO-style qty \u00d7 rate with % / amount toggle",
+          "insertions": 613,
+          "deletions": 105,
+          "files": 12
+        },
+        {
+          "hash": "e5406ad",
+          "time": "10:14",
+          "subject": "Change orders: single add button, CO numbering, connect docs, edit archive/delete",
+          "insertions": 628,
+          "deletions": 99,
+          "files": 13
+        },
+        {
+          "hash": "8a177d3",
+          "time": "10:20",
+          "subject": "Payment image autofill: check + Zelle, memo fields, chat bubble attach",
+          "insertions": 948,
+          "deletions": 197,
+          "files": 19
+        },
+        {
+          "hash": "aa6b203",
+          "time": "10:23",
+          "subject": "Unified image upload skill \u2014 Telegram + bubble buttons, invoice/address lookup",
+          "insertions": 492,
+          "deletions": 93,
+          "files": 11
+        },
+        {
+          "hash": "535c1fe",
+          "time": "10:30",
+          "subject": "Fix manual card charge crash after approval (refreshJobs missing from store)",
+          "insertions": 53,
+          "deletions": 14,
+          "files": 5
+        },
+        {
+          "hash": "6598f9f",
+          "time": "10:34",
+          "subject": "Deploy batch: card charge fix, payment autofill, change orders, progress invoices, customer sidebar (le-pro-v67)",
+          "insertions": 2,
+          "deletions": 2,
+          "files": 2
+        },
+        {
+          "hash": "14c8d93",
+          "time": "10:40",
+          "subject": "Add Log off \u2014 clears session lock and busts stale app cache",
+          "insertions": 113,
+          "deletions": 24,
+          "files": 8
+        },
+        {
+          "hash": "17801f2",
+          "time": "10:54",
+          "subject": "Payment edit: single-row actions with Delete label",
+          "insertions": 21,
+          "deletions": 14,
+          "files": 1
+        },
+        {
+          "hash": "63493ad",
+          "time": "11:04",
+          "subject": "Follow-up login prompts: service calls, must-today loop, inspections",
+          "insertions": 994,
+          "deletions": 103,
+          "files": 14
+        },
+        {
+          "hash": "dc841b7",
+          "time": "11:40",
+          "subject": "Payment receipt via QuickBooks + recurring invoice toggle",
+          "insertions": 355,
+          "deletions": 85,
+          "files": 12
+        },
+        {
+          "hash": "94eb6c3",
+          "time": "11:55",
+          "subject": "Chat bubble: parallel equal-size reply buttons (Levi UX)",
+          "insertions": 249,
+          "deletions": 78,
+          "files": 6
+        },
+        {
+          "hash": "7896921",
+          "time": "12:07",
+          "subject": "App customer index + full invoice builder + deploy batch v68",
+          "insertions": 629,
+          "deletions": 147,
+          "files": 18
+        },
+        {
+          "hash": "9a6cc7d",
+          "time": "12:07",
+          "subject": "Deploy v68: log off, follow-ups, payment receipt, recurring invoice, customer index, full invoice builder",
+          "insertions": 20,
+          "deletions": 20,
+          "files": 5
+        },
+        {
+          "hash": "0f3968f",
+          "time": "12:12",
+          "subject": "Calendar: drag-to-resize week schedule height (Levi)",
+          "insertions": 158,
+          "deletions": 27,
+          "files": 6
+        },
+        {
+          "hash": "95294b7",
+          "time": "12:23",
+          "subject": "Smart appointment follow-ups with mood-based customer emails",
+          "insertions": 577,
+          "deletions": 102,
+          "files": 11
+        },
+        {
+          "hash": "8c06279",
+          "time": "12:28",
+          "subject": "Remind-me: weekday calendar, work-hour picker, friendly nudges",
+          "insertions": 435,
+          "deletions": 139,
+          "files": 9
+        },
+        {
+          "hash": "fbea560",
+          "time": "12:32",
+          "subject": "Add open-in-calendar and reschedule options to reminder popups",
+          "insertions": 167,
+          "deletions": 2,
+          "files": 5
+        },
+        {
+          "hash": "d889454",
+          "time": "12:38",
+          "subject": "Nest sub-companies under parent from QuickBooks parentId",
+          "insertions": 351,
+          "deletions": 162,
+          "files": 9
+        },
+        {
+          "hash": "2075d64",
+          "time": "12:39",
+          "subject": "Remove invoice delete from customer doc list; keep in job edit only",
+          "insertions": 36,
+          "deletions": 87,
+          "files": 2
+        },
+        {
+          "hash": "c64f0da",
+          "time": "12:58",
+          "subject": "Active tab: sort customers by last opened (Levi)",
+          "insertions": 292,
+          "deletions": 152,
+          "files": 12
+        },
+        {
+          "hash": "8414662",
+          "time": "13:01",
+          "subject": "Deploy v69: calendar resize, smart follow-ups, remind-me redesign, sub-companies, invoice delete UX, recent customers",
+          "insertions": 2,
+          "deletions": 2,
+          "files": 2
+        },
+        {
+          "hash": "3695786",
+          "time": "13:08",
+          "subject": "Add Progress tab with momentum dashboard and progress API",
+          "insertions": 592,
+          "deletions": 26,
+          "files": 11
+        },
+        {
+          "hash": "0bcfa63",
+          "time": "13:30",
+          "subject": "Add customer UX, parent picker, FAB invoice/payment prefill",
+          "insertions": 716,
+          "deletions": 59,
+          "files": 11
+        }
+      ]
+    }
+  ]
+}

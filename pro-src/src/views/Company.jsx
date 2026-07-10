@@ -1,0 +1,597 @@
+// Company dashboard — business KPIs from QuickBooks-synced jobs + Google Calendar.
+import React, { useEffect, useMemo, useState } from "react";
+import { useStore } from "../state/store.jsx";
+import DashboardWidget, { DeltaBadge, DetailTable } from "../components/DashboardWidget.jsx";
+import { CO, Donut, Funnel, Gauge, HBar, HBarRow, StackBar, Trend, VBars } from "../lib/dashboard/charts.jsx";
+import { buildCompanyMetrics, fmtMoney, fmtMoneyK } from "../lib/companyMetrics.js";
+import { COMPANY_SECTIONS, widgetsForSection } from "../lib/companyDashboardConfig.js";
+
+function odPill(od) {
+  if (!od) return '<span class="inline-block text-[10px] font-extrabold px-1.5 py-0.5 rounded bg-emerald-50 text-emerald-700">current</span>';
+  const cls = od > 60 ? "red" : od > 30 ? "amber" : "grey";
+  const colors = { red: "bg-red-50 text-red-700", amber: "bg-amber-50 text-amber-700", grey: "bg-slate-100 text-slate-600" };
+  return `<span class="inline-block text-[10px] font-extrabold px-1.5 py-0.5 rounded ${colors[cls]}">${od}d</span>`;
+}
+
+function metricHead(kick, val, sub) {
+  return (
+    <>
+      <div className="text-[12.5px] text-slate-500 font-bold">{kick}</div>
+      <div className="text-[28px] font-extrabold tracking-tight leading-none mt-1">{val}</div>
+      {sub ? <div className="text-xs text-slate-500 font-semibold mt-1">{sub}</div> : null}
+    </>
+  );
+}
+
+function useCalendarEvents() {
+  const [events, setEvents] = useState([]);
+  useEffect(() => {
+    const base =
+      typeof location !== "undefined" && /(^|\.)leelectrical\.us$/.test(location.hostname)
+        ? "/.netlify/functions"
+        : "https://leelectrical.us/.netlify/functions";
+    fetch(`${base}/calendar?cb=${Date.now()}`, { cache: "no-store" })
+      .then((r) => (r.ok ? r.json() : { events: [] }))
+      .then((d) => setEvents(d.events || []))
+      .catch(() => setEvents([]));
+  }, []);
+  return events;
+}
+
+function buildWidgets(data) {
+  const w = data.week;
+  const m = data.month;
+  const ar = data.ar;
+  const perf = data.performance;
+  const ex = data.extras;
+
+  const builders = {
+    "estimates-week": () => (
+      <DashboardWidget
+        id="estimates-week"
+        accent="green"
+        layout="arow"
+        head={
+          <>
+            {metricHead("Estimates submitted", w.estimates.count, <>last wk {w.estimates.prev} <DeltaBadge val={w.estimates.count} prev={w.estimates.prev} /></>)}
+            <VBars last={w.estimates.prev} now={w.estimates.count} color={CO.green} />
+          </>
+        }
+        detail={
+          <DetailTable
+            title="Estimates submitted this week"
+            cols={["Customer", "Est #", "Scope", "Amount"]}
+            align={["", "", "", "r"]}
+            rows={w.estimates.rows.map((e) => [e.cust, e.n, e.scope, fmtMoney(e.amt)])}
+            total={["Total quoted", fmtMoney(w.estimates.amt)]}
+            foot="Source: QuickBooks estimates (job sync)."
+          />
+        }
+      />
+    ),
+    "invoices-week": () => (
+      <DashboardWidget
+        id="invoices-week"
+        accent="amber"
+        layout="arow"
+        head={
+          <>
+            {metricHead("Invoices generated", w.invoices.count, <>last wk {w.invoices.prev} <DeltaBadge val={w.invoices.count} prev={w.invoices.prev} /></>)}
+            <VBars last={w.invoices.prev} now={w.invoices.count} color={CO.amber} />
+          </>
+        }
+        detail={
+          <DetailTable
+            title="Invoices generated this week"
+            cols={["Customer", "Invoice #", "From est.", "Amount"]}
+            align={["", "", "", "r"]}
+            rows={w.invoices.rows.map((e) => [e.cust, e.n, e.from, fmtMoney(e.amt)])}
+            total={["Total invoiced", fmtMoney(w.invoices.amt)]}
+            foot="Source: QuickBooks invoices (job sync)."
+          />
+        }
+      />
+    ),
+    "appointments-week": () => (
+      <DashboardWidget
+        id="appointments-week"
+        accent="blue"
+        layout="arow"
+        head={
+          <>
+            {metricHead("Appointments made", w.appointments.count, <>last wk {w.appointments.prev} <DeltaBadge val={w.appointments.count} prev={w.appointments.prev} /></>)}
+            <VBars last={w.appointments.prev} now={w.appointments.count} color={CO.blue} />
+          </>
+        }
+        detail={
+          <DetailTable
+            title="Appointments booked this week"
+            cols={["Type", "Customer", "Scheduled for", "Booked"]}
+            rows={w.appointments.rows.map((e) => [e.type, e.cust, e.when, e.booked])}
+            foot="Source: Google Calendar sync."
+          />
+        }
+      />
+    ),
+    "collected-week": () => (
+      <DashboardWidget
+        id="collected-week"
+        accent="green"
+        layout="arow"
+        head={
+          <>
+            {metricHead("Money collected", fmtMoneyK(w.collected.total), <>last wk {fmtMoneyK(w.collected.prev)} <DeltaBadge val={w.collected.total} prev={w.collected.prev} /></>)}
+            <VBars last={w.collected.prev} now={w.collected.total} color={CO.green} />
+          </>
+        }
+        detail={
+          <DetailTable
+            title="Payments received this week"
+            cols={["Customer", "Invoice #", "Method", "Amount"]}
+            align={["", "", "", "r"]}
+            rows={w.collected.rows.map((e) => [e.cust, e.inv, e.method, fmtMoney(e.amt)])}
+            total={["Total collected", fmtMoney(w.collected.total)]}
+            foot="Source: QuickBooks payments recorded on jobs."
+          />
+        }
+      />
+    ),
+    "collected-month": () => (
+      <DashboardWidget
+        id="collected-month"
+        accent="green"
+        layout="brow"
+        head={
+          <>
+            <div className="binfo">
+              {metricHead("Money collected — month to date", fmtMoney(m.collected.total), <>vs last month {fmtMoney(m.collected.prev)} <DeltaBadge val={m.collected.total} prev={m.collected.prev} /></>)}
+            </div>
+            <VBars last={m.collected.prev} now={m.collected.total} color={CO.green} l1="Prev" l2="MTD" />
+            <div className="flex-1 min-w-[160px] text-xs text-slate-500">Month still in progress — pace comparison, not a full-month result.</div>
+          </>
+        }
+        detail={
+          <DetailTable
+            title="Payments received this month"
+            cols={["Customer", "Invoice #", "Date", "Amount"]}
+            align={["", "", "", "r"]}
+            rows={m.collected.rows.map((e) => [e.cust, e.inv, e.date, fmtMoney(e.amt)])}
+            total={["Month to date", fmtMoney(m.collected.total)]}
+          />
+        }
+      />
+    ),
+    "ar-panel": () => {
+      const segs = [
+        { value: ar.buckets.current.reduce((s, x) => s + x.amt, 0), color: CO.grey },
+        { value: ar.buckets.b1.reduce((s, x) => s + x.amt, 0), color: CO.blue },
+        { value: ar.buckets.b2.reduce((s, x) => s + x.amt, 0), color: CO.amber },
+        { value: ar.buckets.b3.reduce((s, x) => s + x.amt, 0), color: CO.orange },
+        { value: ar.buckets.b4.reduce((s, x) => s + x.amt, 0), color: CO.red },
+      ];
+      const bucketList = [
+        ["Current (not due)", CO.grey, "not yet due", ar.buckets.current],
+        ["1–30 days", CO.blue, "1–30 days", ar.buckets.b1],
+        ["31–60 days", CO.amber, "31–60 days", ar.buckets.b2],
+        ["61–90 days", CO.orange, "61–90 days", ar.buckets.b3],
+        ["90+ days", CO.red, "90+ days", ar.buckets.b4],
+      ];
+      return (
+        <div className="bg-white border border-slate-200 rounded-[14px] shadow-sm border-t-[3px] border-t-red-500 p-3" data-testid="widget-ar-panel">
+          <div className="flex flex-col sm:flex-row gap-4 items-center">
+            <Donut segs={segs} topT={fmtMoneyK(ar.openTotal)} botT="open A/R" />
+            <div className="flex-1 grid grid-cols-1 sm:grid-cols-2 gap-2.5 w-full">
+              <DashboardWidget
+                id="open-count"
+                accent="amber"
+                head={metricHead("Open invoices to collect", ar.open.length, fmtMoney(ar.openTotal) + " outstanding")}
+                detail={
+                  <DetailTable
+                    title="All open invoices"
+                    cols={["Customer", "Invoice #", "Status", "Amount"]}
+                    align={["", "", "", "r"]}
+                    rows={ar.open.map((x) => [x.cust, x.inv, odPill(x.od), fmtMoney(x.amt)])}
+                    total={["Total open A/R", fmtMoney(ar.openTotal)]}
+                  />
+                }
+              />
+              <DashboardWidget
+                id="overdue-total"
+                accent="red"
+                head={metricHead("Overdue invoices", fmtMoneyK(ar.overdueTotal), ar.overdueCount + " past due")}
+                detail={
+                  <DetailTable
+                    title="Overdue invoices"
+                    cols={["Customer", "Invoice #", "Overdue", "Amount"]}
+                    align={["", "", "", "r"]}
+                    rows={ar.open.filter((x) => x.od > 0).map((x) => [x.cust, x.inv, odPill(x.od), fmtMoney(x.amt)])}
+                    total={["Total overdue", fmtMoney(ar.overdueTotal)]}
+                  />
+                }
+              />
+            </div>
+          </div>
+          <div className="mt-3 border-t border-slate-100 pt-2 space-y-1">
+            {bucketList.map(([name, color, range, list]) => {
+              const t = list.reduce((s, x) => s + x.amt, 0);
+              const maxV = ar.buckets.current.reduce((s, x) => s + x.amt, 0) || 1;
+              return (
+                <DashboardWidget
+                  key={name}
+                  id={"bucket-" + name}
+                  accent="grey"
+                  head={
+                    <div className="flex items-center gap-2">
+                      <span className="w-2.5 h-2.5 rounded-sm shrink-0" style={{ background: color }} />
+                      <span className="font-bold text-sm flex-[0_0_128px]">{name}</span>
+                      <span className="flex-1 min-w-[40px]">
+                        <HBar frac={t / maxV} color={color} />
+                      </span>
+                      <span className="text-sm font-extrabold tabular-nums">
+                        {list.length} inv · {fmtMoney(t)}
+                      </span>
+                    </div>
+                  }
+                  detail={
+                    <DetailTable
+                      title={`${name} (${range})`}
+                      cols={["Customer", "Invoice #", "Overdue", "Amount"]}
+                      align={["", "", "", "r"]}
+                      rows={list.map((x) => [x.cust, x.inv, odPill(x.od), fmtMoney(x.amt)])}
+                      total={["Bucket total", fmtMoney(t)]}
+                    />
+                  }
+                />
+              );
+            })}
+          </div>
+        </div>
+      );
+    },
+    conversion: () => {
+      const rate = perf.conversion.sent ? (perf.conversion.won / perf.conversion.sent) * 100 : 0;
+      return (
+        <DashboardWidget
+          id="conversion"
+          accent="green"
+          head={
+            <>
+              {metricHead("Estimate → invoice conversion", rate.toFixed(0) + "%", `${perf.conversion.won} of ${perf.conversion.sent} estimates (90d)`)}
+              <Funnel
+                stages={[
+                  { label: "Sent", value: perf.conversion.sent, color: CO.grey },
+                  { label: "Invoiced", value: perf.conversion.won, color: CO.green },
+                ]}
+              />
+            </>
+          }
+          detail={
+            <DetailTable
+              title="Estimate outcomes — trailing 90 days"
+              cols={["Outcome", "Count", "Share"]}
+              align={["", "r", "r"]}
+              rows={[
+                [`<span class="inline-block text-[10px] font-extrabold px-1.5 py-0.5 rounded bg-emerald-50 text-emerald-700">Invoiced</span>`, String(perf.conversion.won), perf.conversion.sent ? ((perf.conversion.won / perf.conversion.sent) * 100).toFixed(0) + "%" : "—"],
+                [`<span class="inline-block text-[10px] font-extrabold px-1.5 py-0.5 rounded bg-red-50 text-red-700">Declined</span>`, String(perf.conversion.declined), perf.conversion.sent ? ((perf.conversion.declined / perf.conversion.sent) * 100).toFixed(0) + "%" : "—"],
+                [`<span class="inline-block text-[10px] font-extrabold px-1.5 py-0.5 rounded bg-amber-50 text-amber-700">Still pending</span>`, String(perf.conversion.pending), perf.conversion.sent ? ((perf.conversion.pending / perf.conversion.sent) * 100).toFixed(0) + "%" : "—"],
+              ]}
+              total={["Estimates sent", String(perf.conversion.sent)]}
+            />
+          }
+        />
+      );
+    },
+    "avg-pay": () => (
+      <DashboardWidget
+        id="avg-pay"
+        accent="blue"
+        head={
+          <>
+            {metricHead("Avg invoice → payment time", perf.avgPayDays.toFixed(1), `across ${perf.paidRows.length} paid invoices`)}
+            <Gauge value={perf.avgPayDays} max={35} target={15} color={CO.blue} />
+            <div className="text-[11px] text-slate-500 mt-1">┆ dashed marker = 15-day target</div>
+          </>
+        }
+        detail={
+          <DetailTable
+            title="Days from invoice to payment"
+            cols={["Customer", "Invoice #", "Days to pay"]}
+            align={["", "", "r"]}
+            rows={perf.paidRows.map((x) => [
+              x.cust,
+              x.inv,
+              `<span class="inline-block text-[10px] font-extrabold px-1.5 py-0.5 rounded ${x.days > 21 ? "bg-amber-50 text-amber-700" : "bg-emerald-50 text-emerald-700"}">${x.days}d</span>`,
+            ])}
+            total={["Average", perf.avgPayDays.toFixed(1) + " days"]}
+          />
+        }
+      />
+    ),
+    "fast-payers": () => {
+      const maxF = perf.fast[0]?.days || 1;
+      return (
+        <DashboardWidget
+          id="fast-payers"
+          accent="green"
+          head={
+            <>
+              {metricHead("Fastest-paying customers", (perf.fast[0]?.days || 0).toFixed(1), perf.fast[0]?.cust || "—")}
+              <div className="mt-2">
+                {perf.fast.slice(0, 5).map((x) => (
+                  <HBarRow key={x.cust} name={x.cust} frac={x.days / maxF} color={CO.green} val={x.days.toFixed(1) + "d"} />
+                ))}
+              </div>
+            </>
+          }
+          detail={
+            <DetailTable
+              title="Top fastest-paying customers"
+              cols={["#", "Customer", "Paid jobs", "Avg days"]}
+              align={["", "", "r", "r"]}
+              rows={perf.fast.map((x, i) => [
+                String(i + 1),
+                x.cust,
+                String(x.jobs),
+                `<span class="inline-block text-[10px] font-extrabold px-1.5 py-0.5 rounded bg-emerald-50 text-emerald-700">${x.days.toFixed(1)}d</span>`,
+              ])}
+            />
+          }
+        />
+      );
+    },
+    "top-customers": () => {
+      const maxY = ex.topCust[0]?.ytd || 1;
+      return (
+        <DashboardWidget
+          id="top-customers"
+          accent="purple"
+          head={
+            <>
+              <div className="text-[12.5px] text-slate-500 font-bold">Top customers by revenue (YTD)</div>
+              <div className="mt-2">
+                {ex.topCust.slice(0, 5).map((x) => (
+                  <HBarRow key={x.cust} name={x.cust} frac={x.ytd / maxY} color={CO.purple} val={fmtMoneyK(x.ytd)} />
+                ))}
+              </div>
+            </>
+          }
+          detail={
+            <DetailTable
+              title="Top customers — MTD + YTD"
+              cols={["Customer", "This month", "YTD"]}
+              align={["", "r", "r"]}
+              rows={ex.topCust.map((x) => [x.cust, x.mtd > 0 ? fmtMoney(x.mtd) : "—", fmtMoney(x.ytd)])}
+            />
+          }
+        />
+      );
+    },
+    "win-trend": () => {
+      const last = ex.winTrend[ex.winTrend.length - 1] || { won: 0, sent: 1 };
+      const prev = ex.winTrend[ex.winTrend.length - 2] || { won: 0, sent: 1 };
+      const wr = (last.won / last.sent) * 100;
+      const wrp = (prev.won / prev.sent) * 100;
+      return (
+        <DashboardWidget
+          id="win-trend"
+          accent="purple"
+          head={
+            <>
+              {metricHead("Estimate win rate", wr.toFixed(0) + "%", <DeltaBadge val={wr} prev={wrp} />)}
+              <Trend vals={ex.winTrend.map((x) => (x.won / x.sent) * 100)} labels={ex.winTrend.map((x) => x.mo)} color={CO.purple} />
+            </>
+          }
+          detail={
+            <DetailTable
+              title="Win rate by month"
+              cols={["Month", "Accepted", "Sent", "Win rate"]}
+              align={["", "r", "r", "r"]}
+              rows={ex.winTrend.map((x) => [x.mo, String(x.won), String(x.sent), ((x.won / x.sent) * 100).toFixed(0) + "%"])}
+            />
+          }
+        />
+      );
+    },
+    "avg-deal": () => (
+      <DashboardWidget
+        id="avg-deal"
+        accent="purple"
+        head={
+          <div className="flex gap-3.5">
+            <div className="flex-1">
+              <div className="text-[11px] text-slate-500 font-bold">Avg estimate (90d)</div>
+              <div className="text-2xl font-extrabold">{fmtMoney(ex.avgEst90)}</div>
+            </div>
+            <div className="flex-1">
+              <div className="text-[11px] text-slate-500 font-bold">Avg paid job</div>
+              <div className="text-2xl font-extrabold">{fmtMoney(ex.avgPaid90)}</div>
+            </div>
+          </div>
+        }
+        detail={
+          <DetailTable
+            title="Average deal size"
+            cols={["Metric", "Basis", "Value"]}
+            align={["", "", "r"]}
+            rows={[
+              ["Avg estimate value", "Trailing 90 days", fmtMoney(ex.avgEst90)],
+              ["Avg paid job value", "From payment history", fmtMoney(ex.avgPaid90)],
+            ]}
+          />
+        }
+      />
+    ),
+    "chase-list": () => {
+      const maxC = ex.chase[0]?.amt || 1;
+      return (
+        <DashboardWidget
+          id="chase-list"
+          accent="red"
+          head={
+            <>
+              <div className="text-[12.5px] text-slate-500 font-bold">Chase list — who owes the most</div>
+              <div className="mt-2">
+                {ex.chase.slice(0, 5).map((x) => {
+                  const c = x.oldest > 60 ? CO.red : x.oldest > 30 ? CO.amber : CO.grey;
+                  return <HBarRow key={x.cust} name={x.cust} frac={x.amt / maxC} color={c} val={fmtMoneyK(x.amt)} />;
+                })}
+              </div>
+            </>
+          }
+          detail={
+            <DetailTable
+              title="Outstanding by customer"
+              cols={["Customer", "Inv", "Oldest overdue", "Outstanding"]}
+              align={["", "r", "r", "r"]}
+              rows={ex.chase.map((x) => [x.cust, String(x.invs), odPill(x.oldest), fmtMoney(x.amt)])}
+              total={["Total on chase list", fmtMoney(ex.chase.reduce((s, x) => s + x.amt, 0))]}
+            />
+          }
+        />
+      );
+    },
+    forecast: () => {
+      const total = ex.forecast.reduce((s, x) => s + x.amt, 0);
+      return (
+        <DashboardWidget
+          id="forecast"
+          accent="blue"
+          head={
+            <>
+              {metricHead("Expected collections — next 30 days", fmtMoney(total), "")}
+              <StackBar segs={ex.forecast.map((x) => ({ value: x.amt, color: x.color }))} />
+            </>
+          }
+          detail={
+            <DetailTable
+              title="Where the next 30 days of cash comes from"
+              cols={["Source", "Note", "Amount"]}
+              align={["", "", "r"]}
+              rows={ex.forecast.map((x) => [x.label, x.note, fmtMoney(x.amt)])}
+              total={["Forecast collections", fmtMoney(total)]}
+              foot="Forecast, not a guarantee."
+            />
+          }
+        />
+      );
+    },
+    "leads-week": () => {
+      const n = ex.leadsWeek.length;
+      const conv = ex.leadsWeek.filter((l) => l.est === "Yes").length;
+      return (
+        <DashboardWidget
+          id="leads-week"
+          accent="green"
+          head={
+            <>
+              {metricHead("New leads this week", n, <>vs {ex.leadsPrev} last week · lead → estimate {n ? ((conv / n) * 100).toFixed(0) : 0}%</>)}
+              <Funnel
+                stages={[
+                  { label: "Leads", value: n || 1, color: CO.green },
+                  { label: "Estimates", value: conv, color: CO.gd },
+                ]}
+              />
+            </>
+          }
+          detail={
+            <DetailTable
+              title="New leads this week"
+              cols={["Customer", "Source", "Estimate sent?"]}
+              rows={ex.leadsWeek.map((x) => [
+                x.cust,
+                x.src,
+                x.est === "Yes"
+                  ? '<span class="inline-block text-[10px] font-extrabold px-1.5 py-0.5 rounded bg-emerald-50 text-emerald-700">Yes</span>'
+                  : '<span class="inline-block text-[10px] font-extrabold px-1.5 py-0.5 rounded bg-slate-100 text-slate-600">Not yet</span>',
+              ])}
+              total={["Lead → estimate", conv + " of " + n]}
+            />
+          }
+        />
+      );
+    },
+    "revenue-mix": () => null,
+  };
+
+  return builders;
+}
+
+export default function Company() {
+  const { jobs } = useStore();
+  const events = useCalendarEvents();
+  const data = useMemo(() => buildCompanyMetrics(jobs, events), [jobs, events]);
+  const builders = useMemo(() => buildWidgets(data), [data]);
+
+  const renderSection = (sectionKey, title, subtitle, extra) => {
+    const ids = widgetsForSection(sectionKey);
+    return (
+      <>
+        <div className="flex items-baseline gap-2 mt-4 mb-2 px-0.5">
+          <h2 className="text-[13.5px] uppercase tracking-wide text-slate-500 font-extrabold m-0">{title}</h2>
+          {subtitle ? <span className="text-[11.5px] text-slate-400 font-semibold">{subtitle}</span> : null}
+          {extra}
+        </div>
+        <div className={COMPANY_SECTIONS[sectionKey]}>
+          {ids.map((cfg) => (
+            <div key={cfg.id}>{builders[cfg.id]?.()}</div>
+          ))}
+        </div>
+      </>
+    );
+  };
+
+  return (
+    <div className="space-y-1 pb-4" data-testid="company-dashboard">
+      <div className="sticky top-0 z-10 -mx-4 px-4 py-3 bg-[#f4f6f8]/90 backdrop-blur border-b border-slate-200/80 mb-2">
+        <div className="flex items-center gap-2.5">
+          <div className="w-9 h-9 rounded-lg bg-gradient-to-br from-brand to-emerald-700 text-white font-extrabold flex items-center justify-center text-sm shadow-sm">
+            LE
+          </div>
+          <div className="flex-1 min-w-0">
+            <h1 className="text-lg font-extrabold tracking-tight m-0">Company Dashboard</h1>
+            <div className="text-xs text-slate-500">LE Pro · Business overview</div>
+          </div>
+          <div className="text-xs font-extrabold text-amber-700 bg-amber-50 px-2.5 py-1 rounded-full shrink-0">
+            {fmtMoneyK(data.ar.openTotal)} open A/R
+          </div>
+        </div>
+        <div className="flex gap-2 items-start bg-white border border-slate-200 rounded-[11px] px-3 py-2 mt-2 text-xs text-slate-500 shadow-sm">
+          <span className="text-base">🔄</span>
+          <span>
+            Live from <b className="text-slate-800">QuickBooks</b> (jobs sync) + <b className="text-slate-800">Google Calendar</b>. Tap any card for detail.{" "}
+            {data.sources.jobs} jobs · {data.sources.events} calendar events.
+          </span>
+        </div>
+      </div>
+
+      {renderSection("week", "This week vs last week", data.weekLabel)}
+      {renderSection("month", "This month", "month-to-date vs last month")}
+      {renderSection("ar", "Collections & accounts receivable", "tap rows to expand")}
+      {renderSection("performance", "Performance analytics")}
+      {renderSection(
+        "extras",
+        "More insights",
+        null,
+        <span className="text-[10.5px] font-extrabold text-purple-700 bg-purple-50 px-2 py-0.5 rounded-full">Suggested extras</span>
+      )}
+
+      <div className="mt-4 px-0.5">
+        <h2 className="text-[13.5px] uppercase tracking-wide text-slate-500 font-extrabold mb-2">Where the data comes from</h2>
+        <div className="bg-white border border-slate-200 rounded-xl p-3 text-xs text-slate-500 shadow-sm space-y-2">
+          <div className="flex gap-2">
+            <span className="text-[10px] font-extrabold px-1.5 py-0.5 rounded bg-emerald-50 text-emerald-700 shrink-0">QBO</span>
+            <span>QuickBooks — estimates, invoices, payments and A/R aging from your synced jobs.</span>
+          </div>
+          <div className="flex gap-2">
+            <span className="text-[10px] font-extrabold px-1.5 py-0.5 rounded bg-blue-50 text-blue-700 shrink-0">CAL</span>
+            <span>Google Calendar — appointments booked (site visits, installs, service calls).</span>
+          </div>
+          <div className="flex gap-2">
+            <span className="text-[10px] font-extrabold px-1.5 py-0.5 rounded bg-purple-50 text-purple-700 shrink-0">DISP</span>
+            <span>LE Pro computes conversion, forecasts and insights on top.</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
