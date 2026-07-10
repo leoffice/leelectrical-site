@@ -98,6 +98,9 @@ describe("QB sync menu on header chip", () => {
 
     await user.click(screen.getAllByTestId("sync-chip")[0]);
     expect(await screen.findByTestId("qbo-sync-context")).toHaveTextContent("Test Co");
+    const panel = screen.getByTestId("sheet-body").parentElement;
+    expect(panel.className).toContain("mb-16");
+    expect(screen.getByTestId("qbo-sync-confirm")).toBeInTheDocument();
     await user.click(screen.getByTestId("qbo-sync-invoices"));
     await user.click(screen.getByText("Open only"));
     await user.click(screen.getByTestId("qbo-sync-confirm"));

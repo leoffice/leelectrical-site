@@ -12,7 +12,7 @@ export default function Sheet({ title, onClose, children, wide, tall }) {
     <div className="fixed inset-0 z-[60] flex items-end lg:items-center justify-center" role="dialog" aria-modal="true" data-sheet>
       <div className="absolute inset-0 bg-slate-900/45" onClick={onClose} data-sheet-dim />
       <div
-        className={`relative w-full ${wide ? "lg:max-w-2xl" : "lg:max-w-lg"} ${
+        className={`relative w-full mb-16 lg:mb-0 ${wide ? "lg:max-w-2xl" : "lg:max-w-lg"} ${
           tall ? "max-h-[94vh] lg:max-h-[90vh]" : "max-h-[88vh] lg:max-h-[80vh]"
         } bg-white rounded-t-3xl lg:rounded-2xl shadow-2xl flex flex-col animate-[sheetup_.22s_ease-out]`}
       >
