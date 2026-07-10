@@ -76,6 +76,21 @@ export async function findJobId(invoiceNo, jobHint) {
   return job?.id || "";
 }
 
+async function loadJobEmail(jobId, invoiceNo) {
+  const jobsStore = getStore("jobsdata");
+  const stateStore = getStore("jobstate");
+  const jobsDoc =
+    (await jobsStore.get(JOBS_KEY, { type: "json", consistency: "strong" })) || { jobs: [] };
+  let job =
+    (jobsDoc.jobs || []).find((j) => String(j.id) === String(jobId)) ||
+    (jobsDoc.jobs || []).find((j) => String(j.invoiceNo || "").trim() === String(invoiceNo || "").trim()) ||
+    {};
+  const cur =
+    (await stateStore.get(STATE_KEY, { type: "json", consistency: "strong" })) || { ov: {} };
+  const ov = (cur.ov || {})[job.id] || {};
+  return String(ov.email || job.email || "").trim();
+}
+
 export async function enqueueRecordPayment({ jobId, invoiceNo, amount, ref, method, note }) {
   const store = getStore("commands");
   const doc =
@@ -89,6 +104,7 @@ export async function enqueueRecordPayment({ jobId, invoiceNo, amount, ref, meth
   );
   if (existing) return { deduped: true, command: existing };
 
+  const email = await loadJobEmail(jobId, invoiceNo);
   const now = Date.now();
   doc.seq = (doc.seq || 0) + 1;
   const command = {
@@ -107,6 +123,8 @@ export async function enqueueRecordPayment({ jobId, invoiceNo, amount, ref, meth
       ref: ref || "",
       date: todayISO(),
       note: note || "Sola card payment",
+      email,
+      sendReceipt: true,
     },
     idempotencyKey: idk,
     createdAt: now,

@@ -18,6 +18,7 @@ import {
   isProgressBillingContext,
   progressPctFromLines,
 } from "../lib/progressBilling.js";
+import { RECUR_INTERVALS, defaultRecurringState } from "../lib/recurringBilling.js";
 
 function ProgressBillingPanel({ job, lines, contractAmount, adjustMode, progressPct, amountDue, onContractChange, onModeChange, onPctChange, onDueChange }) {
   const contract = parseAmount(contractAmount) || contractTotalForJob(job) || linesTotal(job.estimateLines) || 0;
@@ -241,6 +242,8 @@ export default function DocBuilderSheet({
     const init = initialLines(job, { kind, mode, progressPct });
     return String(parseAmount(job.amount) || linesTotal(init) || "");
   });
+  const showRecurring = kind === "invoice" && mode !== "edit";
+  const [recurring, setRecurring] = useState(() => defaultRecurringState(job));
 
   useEffect(() => {
     let cancelled = false;
@@ -384,6 +387,7 @@ export default function DocBuilderSheet({
         progressPct: progressPctEdit || progressPct,
         contractAmount,
         send,
+        recurringState: showRecurring && recurring.enabled ? recurring : null,
       });
 
       await patchAndSave(job.id, jobPatch);
@@ -443,10 +447,12 @@ export default function DocBuilderSheet({
           }
         }
 
+        const recurNote =
+          showRecurring && recurring.enabled ? " + recurring schedule in QuickBooks" : "";
         showToast(
           send
-            ? "Sending to QuickBooks and emailing " + job.email + "…"
-            : "Sending " + (kind === "estimate" ? "estimate" : "invoice") + " to QuickBooks…"
+            ? "Sending to QuickBooks and emailing " + job.email + recurNote + "…"
+            : "Sending " + (kind === "estimate" ? "estimate" : "invoice") + " to QuickBooks" + recurNote + "…"
         );
       }
       onDone && onDone();
@@ -530,6 +536,88 @@ export default function DocBuilderSheet({
       <button type="button" className="btn-ghost w-full !py-1.5 mb-4" onClick={addAtt}>
         ＋ Add attachment
       </button>
+
+      {showRecurring ? (
+        <div className="card px-3 py-3 mb-3 border-slate-200 bg-slate-50/80" data-testid="recurring-billing-panel">
+          <label className="flex items-center gap-2 cursor-pointer">
+            <input
+              type="checkbox"
+              checked={recurring.enabled}
+              onChange={(e) => setRecurring((r) => ({ ...r, enabled: e.target.checked }))}
+              data-testid="recurring-toggle"
+            />
+            <span className="text-sm font-bold text-slate-800">Repeat this invoice</span>
+          </label>
+          <p className="text-[11px] text-slate-500 mt-1 mb-2">
+            Sets up automated recurring billing in QuickBooks on the schedule below.
+          </p>
+          {recurring.enabled ? (
+            <div className="space-y-2 mt-2">
+              <Fld label="How often">
+                <select
+                  className="input"
+                  value={recurring.interval}
+                  onChange={(e) => setRecurring((r) => ({ ...r, interval: e.target.value }))}
+                  aria-label="Recurring interval"
+                  data-testid="recurring-interval"
+                >
+                  {RECUR_INTERVALS.map((opt) => (
+                    <option key={opt.id} value={opt.id}>
+                      {opt.label}
+                    </option>
+                  ))}
+                </select>
+              </Fld>
+              <Fld label="Start date">
+                <input
+                  type="date"
+                  className="input"
+                  value={recurring.startDate}
+                  onChange={(e) => setRecurring((r) => ({ ...r, startDate: e.target.value }))}
+                  aria-label="Recurring start date"
+                  data-testid="recurring-start"
+                />
+              </Fld>
+              {recurring.interval === "Monthly" ? (
+                <Fld label="Day of month" hint="1–28 recommended">
+                  <input
+                    className="input"
+                    inputMode="numeric"
+                    min={1}
+                    max={31}
+                    value={recurring.dayOfMonth}
+                    onChange={(e) => setRecurring((r) => ({ ...r, dayOfMonth: e.target.value }))}
+                    aria-label="Day of month"
+                    data-testid="recurring-day-month"
+                  />
+                </Fld>
+              ) : (
+                <Fld label="Day of week" hint="1 = Monday … 7 = Sunday">
+                  <input
+                    className="input"
+                    inputMode="numeric"
+                    min={1}
+                    max={7}
+                    value={recurring.dayOfWeek}
+                    onChange={(e) => setRecurring((r) => ({ ...r, dayOfWeek: e.target.value }))}
+                    aria-label="Day of week"
+                    data-testid="recurring-day-week"
+                  />
+                </Fld>
+              )}
+              <Fld label="Schedule name in QuickBooks" hint="Shows in Recurring Transactions">
+                <input
+                  className="input"
+                  value={recurring.name}
+                  onChange={(e) => setRecurring((r) => ({ ...r, name: e.target.value }))}
+                  aria-label="Recurring name"
+                  data-testid="recurring-name"
+                />
+              </Fld>
+            </div>
+          ) : null}
+        </div>
+      ) : null}
 
       <button type="button" className="btn-ghost w-full mb-2" disabled={saving} onClick={submitLocal} data-testid="doc-save-close">
         Save &amp; close

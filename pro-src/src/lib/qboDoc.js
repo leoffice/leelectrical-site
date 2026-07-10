@@ -65,7 +65,7 @@ export function shipAddrPayload(serviceAddress, apartment) {
 }
 
 /** Command payload for create_estimate / create_invoice (host → QBO API). */
-export function buildDocCommandPayload(job, { kind, lines, serviceAddress, apartment, mode, progressPct, send }) {
+export function buildDocCommandPayload(job, { kind, lines, serviceAddress, apartment, mode, progressPct, send, recurring }) {
   const total = linesTotal(lines);
   const base = {
     customer: job.customer || job.businessName || "",
@@ -102,6 +102,7 @@ export function buildDocCommandPayload(job, { kind, lines, serviceAddress, apart
         ? progressPctFromLines(lines, contract)
         : 100;
     base.progressBilling = base.progressPct < 99.99;
+    if (recurring) base.recurring = recurring;
   }
   if (kind === "estimate") {
     base.estimateNo = job.estimateNo || "";

@@ -59,7 +59,12 @@ describe("1. mark-as-paid sheet -> staged -> record_payment on Save", () => {
     const cmd = srv.enqueued("record_payment")[0];
     expect(cmd.lane).toBe("deterministic");
     expect(cmd.idempotencyKey).toMatch(/^record_payment:J-1:251841:/);
-    expect(cmd.payload).toMatchObject({ invoiceNo: "251841", amount: "2300", method: "Zelle" });
+    expect(cmd.payload).toMatchObject({
+      invoiceNo: "251841",
+      amount: "2300",
+      method: "Zelle",
+      sendReceipt: true,
+    });
     // overlay got paid + payment + Paid/Follow-up statuses
     const ov = srv.state.ov["J-1"];
     expect(ov.paid).toBe(true);

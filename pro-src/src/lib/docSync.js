@@ -6,12 +6,14 @@ import {
   emptyLine,
   linesTotal,
 } from "./qboDoc.js";
+import { buildRecurringPayload, recurringIdempotencyKey } from "./recurringBilling.js";
 import { isProgressBillingContext, progressBillingJobPatch } from "./progressBilling.js";
 import { briefTitlePatch } from "./changeOrder.js";
 
 export const DOC_SYNC_COMMAND_TYPES = [
   "create_estimate",
   "create_invoice",
+  "create_recurring_invoice",
   "update_estimate",
   "update_invoice",
 ];
@@ -114,7 +116,7 @@ export function planDocSaveLocal(job, { kind, mode, lines, serviceAddress, apart
 }
 
 /** Plan local job patch + command bus enqueue for Save & sync (incl. linked doc address sync). */
-export function planDocSaveSync(job, { kind, mode, lines, serviceAddress, apartment, progressPct, send, contractAmount }) {
+export function planDocSaveSync(job, { kind, mode, lines, serviceAddress, apartment, progressPct, send, contractAmount, recurringState }) {
   const { valid, jobPatch } = buildDocJobPatch(job, {
     kind,
     mode,
@@ -125,6 +127,7 @@ export function planDocSaveSync(job, { kind, mode, lines, serviceAddress, apartm
     progressPct,
     contractAmount,
   });
+  const recurring = kind === "invoice" ? buildRecurringPayload(recurringState, { send }) : null;
   const primaryPayload = buildDocCommandPayload(job, {
     kind,
     lines: valid,
@@ -133,6 +136,7 @@ export function planDocSaveSync(job, { kind, mode, lines, serviceAddress, apartm
     mode,
     progressPct,
     send,
+    recurring,
   });
 
   const primaryType =
@@ -151,6 +155,14 @@ export function planDocSaveSync(job, { kind, mode, lines, serviceAddress, apartm
       idk: docIdempotencyKey(kind, job.id, valid, mode),
     },
   ];
+
+  if (recurring && mode !== "edit") {
+    commands.push({
+      type: "create_recurring_invoice",
+      payload: { ...primaryPayload, recurring },
+      idk: recurringIdempotencyKey(job.id, valid, recurringState),
+    });
+  }
 
   if (mode === "edit" && job.estimateNo && job.invoiceNo) {
     const otherKind = kind === "estimate" ? "invoice" : "estimate";

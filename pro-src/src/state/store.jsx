@@ -411,6 +411,8 @@ export function StoreProvider({ children }) {
             method: pay.method || "",
             ref: pay.ref || "",
             date: pay.date || todayStr(),
+            email: j.email || "",
+            sendReceipt: true,
           },
           "deterministic",
           idem
