@@ -856,6 +856,7 @@ export function StoreProvider({ children }) {
     toggleChat,
     guardNav,
     refresh,
+    refreshJobs,
     refreshCommands,
     refreshDev,
     syncNow,

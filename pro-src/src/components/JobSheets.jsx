@@ -384,7 +384,11 @@ export function MarkPaidSheet({ job, onClose }) {
         xToken: useSavedCard ? job.solaCardToken : "",
         ...tokens,
       });
-      await refreshJobs(true);
+      try {
+        await refreshJobs?.(true);
+      } catch {
+        showToast("Payment went through — pull to refresh if the balance looks stale");
+      }
       showToast(
         res.ref
           ? `Card approved — ${fmt$(res.amount)} recorded (ref ${res.ref})`
@@ -392,8 +396,13 @@ export function MarkPaidSheet({ job, onClose }) {
       );
       onClose();
     } catch (e) {
-      setPayErr(String((e && e.message) || "Payment failed"));
-      showToast(String((e && e.message) || "Payment failed"));
+      const msg = String((e && e.message) || "Payment failed");
+      const friendly =
+        /is not a function/i.test(msg)
+          ? "Card charge hit an app glitch after approval — check Activity and refresh the job"
+          : msg;
+      setPayErr(friendly);
+      showToast(friendly);
     } finally {
       setPayPhase("idle");
     }
@@ -763,7 +772,7 @@ export function PaymentHistorySheet({ job, onClose, onAddPayment }) {
       const cur = effectiveJob(job.id) || job;
       const patch = patchFromQboPaymentFetch(cur, raw);
       if (patch) patchAndSave(job.id, patch);
-      else refreshJobs(true);
+      else refreshJobs?.(true);
     },
     [effectiveJob, job, patchAndSave, refreshJobs]
   );
