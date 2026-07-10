@@ -19,6 +19,7 @@ import ApprovalWatcher from "./components/ApprovalWatcher.jsx";
 import DocConfirmWatcher from "./components/DocConfirmWatcher.jsx";
 import SendInvoiceWatcher from "./components/SendInvoiceWatcher.jsx";
 import DedupePrompts from "./components/DedupePrompts.jsx";
+import FollowUpPrompts from "./components/FollowUpPrompts.jsx";
 import { docConfirmMessage } from "./lib/docConfirm.js";
 import NewJobFlow from "./components/NewJobFlow.jsx";
 import Sheet, { Opt } from "./components/Sheet.jsx";
@@ -260,6 +261,7 @@ export default function App() {
         <DocConfirmWatcher />
         <SendInvoiceWatcher />
         <DedupePrompts />
+        <FollowUpPrompts />
         <LeaveSheet />
 
         {/* Mobile bottom tab nav — Archive | ＋ 💬 | Dev */}

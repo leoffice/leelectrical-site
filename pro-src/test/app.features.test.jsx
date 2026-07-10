@@ -414,7 +414,7 @@ describe("12. sync chip + today view + jobs list", () => {
     expect(await screen.findByTestId("week-calendar")).toBeInTheDocument();
     await user.click(await screen.findByText("Estimate — Jane Doe"));
     expect(screen.getByText("✏️ Edit appointment")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /🔗 Peretz Chein/ })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Open the job — Peretz Chein/ })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /Unlink/ })).toBeInTheDocument();
     await user.click(screen.getByText("✏️ Edit appointment"));
     expect(screen.getByText("Edit appointment")).toBeInTheDocument();
@@ -424,7 +424,7 @@ describe("12. sync chip + today view + jobs list", () => {
     expect(srv.enqueued("calendar_upsert")[0].payload.calEventId).toBe("ev1");
     expect(srv.enqueued("calendar_upsert")[0].payload.start).toBe("2026-07-09T11:00");
 
-    await user.click(screen.getByText("＋ Create job from appointment"));
+    await user.click(screen.getByText("＋ Create job from appointment (skip suggestions)"));
     expect(await screen.findByLabelText("Job title / scope")).toHaveValue("Estimate — Jane Doe");
   });
 

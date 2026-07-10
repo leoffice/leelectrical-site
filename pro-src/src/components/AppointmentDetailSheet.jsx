@@ -7,7 +7,8 @@ import LinkJobSheet from "./LinkJobSheet.jsx";
 import { prefillFromEvent } from "../lib/prefillFromEvent.js";
 import { useStore } from "../state/store.jsx";
 import { evStart } from "../lib/format.js";
-import { displayEventNotes, linkedJobForEvent, unlinkAppointmentJob } from "../lib/calendarLink.js";
+import { displayEventNotes, linkedJobForEvent, suggestJobsForEvent, unlinkAppointmentJob } from "../lib/calendarLink.js";
+import CreateJobFromEventSheet from "./CreateJobFromEventSheet.jsx";
 
 function linkedCustomerName(job) {
   return (job?.customer || job?.businessName || job?.title || "").trim() || "job";
@@ -17,7 +18,7 @@ export default function AppointmentDetailSheet({ event, onClose }) {
   const { jobs, events, setNewJob, patchJob, patchAndSave, patchLocalEvent, removeLocalEvent, enqueue, showToast } =
     useStore();
   const nav = useNavigate();
-  const [mode, setMode] = useState("view");
+  const [mode, setMode] = useState("view"); // view | edit | link | unlink | createJob
   const [unlinkDone, setUnlinkDone] = useState(false);
   const liveEvent = useMemo(
     () => (events || []).find((e) => String(e.id) === String(event?.id)) || event,
@@ -85,6 +86,17 @@ export default function AppointmentDetailSheet({ event, onClose }) {
     );
   }
 
+  if (mode === "createJob") {
+    return (
+      <CreateJobFromEventSheet
+        event={liveEvent}
+        suggestions={suggestJobsForEvent(liveEvent, jobs)}
+        onClose={() => setMode("view")}
+        onLinked={() => onClose()}
+      />
+    );
+  }
+
   if (mode === "link") {
     return (
       <LinkJobSheet
@@ -140,22 +152,26 @@ export default function AppointmentDetailSheet({ event, onClose }) {
         ✏️ Edit appointment
       </button>
 
+      <button
+        type="button"
+        className="btn-brand w-full mb-2"
+        onClick={() => {
+          if (linked) {
+            onClose();
+            nav("/job/" + encodeURIComponent(linked.id));
+          } else {
+            setMode("createJob");
+          }
+        }}
+        data-testid="appt-open-job"
+      >
+        {linked ? "Open the job — " + linkedCustomerName(linked) : "Create a job"}
+      </button>
+
       {linked ? (
-        <>
-          <button
-            type="button"
-            className="btn bg-brand-soft text-brand w-full mb-2"
-            onClick={() => {
-              onClose();
-              nav("/job/" + encodeURIComponent(linked.id));
-            }}
-          >
-            🔗 {linkedCustomerName(linked)}
-          </button>
-          <button type="button" className="btn-ghost w-full mb-2 text-red-600" onClick={() => setMode("unlink")}>
-            Unlink
-          </button>
-        </>
+        <button type="button" className="btn-ghost w-full mb-2 text-red-600" onClick={() => setMode("unlink")}>
+          Unlink
+        </button>
       ) : (
         <button type="button" className="btn bg-brand-soft text-brand w-full mb-2" onClick={() => setMode("link")}>
           🔗 Link to existing job
@@ -164,13 +180,13 @@ export default function AppointmentDetailSheet({ event, onClose }) {
 
       <button
         type="button"
-        className="btn-brand w-full mb-2"
+        className="btn bg-slate-100 text-slate-800 w-full mb-2"
         onClick={() => {
           onClose();
           setNewJob({ step: "form", prefill: prefillFromEvent(liveEvent) });
         }}
       >
-        ＋ Create job from appointment
+        ＋ Create job from appointment (skip suggestions)
       </button>
       <button
         type="button"

@@ -7,6 +7,7 @@ import {
   parseCalendarUpsertResult,
   searchCalendarEvents,
   suggestAppointmentsForJob,
+  suggestJobsForEvent,
   withJobLink,
 } from "../src/lib/calendarLink.js";
 import { paperworkPillTone } from "../src/lib/paperwork.js";
@@ -104,6 +105,17 @@ describe("calendar link state", () => {
     ];
     const hits = searchCalendarEvents(events, "arthur", now);
     expect(hits.map((e) => e.id)).toEqual(["new"]);
+  });
+
+  it("suggests jobs matching calendar event", () => {
+    const events = [
+      { id: "e1", summary: "Peretz Chein — panel", location: "12 Main St", start: "2026-03-01T10:00" },
+    ];
+    const jobs = [
+      { id: "J-1", customer: "Peretz Chein", address: "12 Main St, Brooklyn" },
+      { id: "J-2", customer: "Other", address: "99 Oak" },
+    ];
+    expect(suggestJobsForEvent(events[0], jobs).map((j) => j.id)).toEqual(["J-1"]);
   });
 
   it("suggests appointments matching customer or address", () => {

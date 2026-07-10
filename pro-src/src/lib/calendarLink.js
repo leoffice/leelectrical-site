@@ -247,6 +247,33 @@ function tokenHits(hay, token) {
   return words.length > 0 && words.every((w) => h.includes(w));
 }
 
+/** Suggested jobs matching a calendar event (reverse of suggestAppointmentsForJob). */
+export function suggestJobsForEvent(event, jobs, limit = 5) {
+  const hay = [event?.summary, event?.location, displayEventNotes(event?.description)].filter(Boolean).join(" ");
+  const active = (jobs || []).filter((j) => !j._archived && !j._deleted);
+  const scored = [];
+  for (const j of active) {
+    const customer = j.customer || "";
+    const company = j.businessName || "";
+    const address = j.serviceAddress || j.address || "";
+    const street = address.split(",")[0].trim();
+    let score = 0;
+    if (tokenHits(hay, customer)) score += 4;
+    if (company && normToken(company) !== normToken(customer) && tokenHits(hay, company)) score += 3;
+    if (street.length >= 5) {
+      if (tokenHits(event?.location || hay, street)) score += 5;
+      else if (tokenHits(hay, address)) score += 4;
+    }
+    if (j.title && tokenHits(hay, j.title)) score += 2;
+    if (j.invoiceNo && hay.includes(String(j.invoiceNo))) score += 3;
+    if (score > 0) scored.push({ job: j, score });
+  }
+  return scored
+    .sort((a, b) => b.score - a.score || (b.job.customer || "").localeCompare(a.job.customer || ""))
+    .slice(0, limit)
+    .map((s) => s.job);
+}
+
 /** Suggested appointments matching customer name, company, or service address. */
 export function suggestAppointmentsForJob(job, events, _year, limit = 8) {
   const customer = job?.customer || "";
