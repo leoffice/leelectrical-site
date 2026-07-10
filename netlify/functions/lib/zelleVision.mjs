@@ -89,7 +89,7 @@ export async function extractZelleFromImage({ imageBase64, mime = "image/jpeg" }
   if (!apiKey) {
     return { dryRun: true, extracted: null, error: "XAI_API_KEY not set" };
   }
-  const model = process.env.XAI_VISION_MODEL || "grok-2-vision-1212";
+  const model = process.env.XAI_VISION_MODEL || "grok-4.5";
   const dataUrl = `data:${mime};base64,${imageBase64}`;
 
   let body = null;
