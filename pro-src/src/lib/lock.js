@@ -65,6 +65,33 @@ export function clearUnlocked() {
   if (s) s.removeItem(GRACE_KEY);
 }
 
+/** End the session — re-lock on next load and bust cached app shell. */
+export async function logOff() {
+  clearUnlocked();
+  try {
+    sessionStore()?.clear();
+  } catch {
+    /* storage unavailable */
+  }
+  try {
+    if (globalThis.caches) {
+      const keys = await globalThis.caches.keys();
+      await Promise.all(keys.filter((k) => k.startsWith("le-pro-")).map((k) => globalThis.caches.delete(k)));
+    }
+  } catch {
+    /* cache API unavailable */
+  }
+  try {
+    if (globalThis.navigator?.serviceWorker) {
+      const regs = await globalThis.navigator.serviceWorker.getRegistrations();
+      await Promise.all(regs.map((r) => r.unregister()));
+    }
+  } catch {
+    /* SW unavailable */
+  }
+  globalThis.location?.reload();
+}
+
 // ---- stored credential id ---------------------------------------------------
 export function getCredentialId() {
   const s = localStore();

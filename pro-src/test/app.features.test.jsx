@@ -7,6 +7,7 @@ import { fireEvent, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import "@testing-library/jest-dom/vitest";
 import { EV, J1, J2, mockServer, renderApp } from "./helpers.jsx";
+import * as lock from "../src/lib/lock.js";
 
 afterEach(() => {
   vi.unstubAllGlobals();
@@ -486,6 +487,18 @@ describe("responsive layout — 390px and 1280px", () => {
     expect(sidebar.className).toContain("lg:flex"); // …sidebar on desktop
     expect(within(nav).getByTestId("nav-actions")).toBeInTheDocument();
     ["Customers", "Calendar", "Archive", "Dev"].forEach((t) => expect(within(nav).getByText(t)).toBeInTheDocument());
+  });
+
+  it("desktop sidebar Log off ends the session", async () => {
+    const spy = vi.spyOn(lock, "logOff").mockResolvedValue(undefined);
+    mockServer();
+    setWidth(1280);
+    renderApp("#/");
+    await screen.findByText("Peretz Chein");
+    const user = userEvent.setup();
+    await user.click(screen.getByTestId("log-off-btn"));
+    expect(spy).toHaveBeenCalled();
+    spy.mockRestore();
   });
 
   it("1280px (desktop): sidebar nav with sync chip; detail becomes two-pane", async () => {

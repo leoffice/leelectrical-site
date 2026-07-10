@@ -11,6 +11,7 @@ import {
   hasEnrolledCredential,
   isSessionUnlocked,
   isWithinGrace,
+  logOff,
   markUnlocked,
   passwordUnlock,
   setCredentialId,
@@ -67,6 +68,33 @@ describe("in-session grace window", () => {
     // Simulate relaunch: brand-new sessionStorage with no grace key.
     globalThis.sessionStorage = memStorage();
     expect(isSessionUnlocked()).toBe(false);
+  });
+});
+
+describe("logOff", () => {
+  it("clears unlock grace, session storage, app caches, and reloads", async () => {
+    markUnlocked(Date.now());
+    globalThis.sessionStorage.setItem("scratch", "x");
+    const reload = vi.fn();
+    vi.stubGlobal("location", { reload });
+    const cacheDel = vi.fn(async () => true);
+    vi.stubGlobal("caches", {
+      keys: async () => ["le-pro-v67", "other"],
+      delete: cacheDel,
+    });
+    const unregister = vi.fn(async () => true);
+    vi.stubGlobal("navigator", {
+      serviceWorker: { getRegistrations: async () => [{ unregister }] },
+    });
+
+    await logOff();
+
+    expect(isSessionUnlocked()).toBe(false);
+    expect(globalThis.sessionStorage.getItem("scratch")).toBe(null);
+    expect(cacheDel).toHaveBeenCalledWith("le-pro-v67");
+    expect(cacheDel).not.toHaveBeenCalledWith("other");
+    expect(unregister).toHaveBeenCalled();
+    expect(reload).toHaveBeenCalled();
   });
 });
 

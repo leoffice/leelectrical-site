@@ -23,6 +23,7 @@ import { docConfirmMessage } from "./lib/docConfirm.js";
 import NewJobFlow from "./components/NewJobFlow.jsx";
 import Sheet, { Opt } from "./components/Sheet.jsx";
 import { appointmentContextFromRoute } from "./lib/appointmentContext.js";
+import { logOff } from "./lib/lock.js";
 
 const TABS = [
   { to: "/", label: "Customers", ic: "🗂️", end: true },
@@ -165,7 +166,17 @@ export default function App() {
         {TABS.map((t) => (
           <Tab key={t.to} t={t} sidebar />
         ))}
-        <div className="mt-auto px-2 text-[11px] text-slate-400">LE Pro · full parity build</div>
+        <div className="mt-auto px-2 pt-3 border-t border-slate-100">
+          <button
+            type="button"
+            onClick={() => logOff()}
+            className="w-full text-left text-sm font-semibold text-slate-500 hover:text-slate-800 py-2"
+            data-testid="log-off-btn"
+          >
+            Log off
+          </button>
+          <div className="text-[11px] text-slate-400">LE Pro · full parity build</div>
+        </div>
       </aside>
 
       <div className="flex-1 min-w-0 flex flex-col lg:pl-64">

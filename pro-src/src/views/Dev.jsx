@@ -3,6 +3,7 @@
 import React, { useEffect, useRef, useState } from "react";
 import { useStore } from "../state/store.jsx";
 import Sheet, { Fld } from "../components/Sheet.jsx";
+import { logOff } from "../lib/lock.js";
 
 export const DVLBL = {
   new: "New",
@@ -223,6 +224,15 @@ export default function Dev() {
       )}
 
       {edit && <EditSheet task={edit} onClose={() => setEdit(null)} onSave={patchDevTask} />}
+
+      <button
+        type="button"
+        onClick={() => logOff()}
+        className="w-full text-center text-sm font-semibold text-slate-500 py-4 lg:hidden"
+        data-testid="log-off-btn-mobile"
+      >
+        Log off
+      </button>
     </div>
   );
 }
