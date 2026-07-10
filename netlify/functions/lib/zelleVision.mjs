@@ -53,7 +53,7 @@ export function normalizeExtracted(raw) {
   };
 }
 
-function textFromResponsesBody(body) {
+export function textFromResponsesBody(body) {
   if (!body || typeof body !== "object") return "";
   if (typeof body.output_text === "string") return body.output_text;
   const out = body.output;

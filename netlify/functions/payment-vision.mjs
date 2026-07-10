@@ -29,11 +29,12 @@ export default async (req) => {
 
   const image = String(body.image || "").trim();
   const mime = String(body.mime || "image/jpeg").trim();
+  const kind = String(body.kind || "zelle").trim().toLowerCase() === "check" ? "check" : "zelle";
   if (!image) return json({ ok: false, error: "image required" }, 400);
   if (image.length > 28_000_000) return json({ ok: false, error: "image too large" }, 413);
 
   try {
-    const result = await extractPaymentFromImage({ imageBase64: image, mime, kind: "zelle" });
+    const result = await extractPaymentFromImage({ imageBase64: image, mime, kind });
     if (result.dryRun) {
       return json({
         ok: false,
@@ -41,7 +42,7 @@ export default async (req) => {
         error: result.error || "Vision API not configured — set XAI_API_KEY on Netlify",
       });
     }
-    return json({ ok: true, extracted: result.extracted, model: result.model });
+    return json({ ok: true, extracted: result.extracted, model: result.model, kind: result.kind });
   } catch (e) {
     return json({ ok: false, error: String(e.message || e).slice(0, 300) }, 502);
   }

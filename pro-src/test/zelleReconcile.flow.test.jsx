@@ -13,13 +13,13 @@ afterEach(() => {
   window.location.hash = "#/";
 });
 
-function mockZelleVision(srv, extracted) {
+function mockPaymentVision(srv, extracted) {
   const origFetch = global.fetch;
   vi.stubGlobal(
     "fetch",
     vi.fn(async (url, o = {}) => {
       const path = String(url).split("/functions/")[1]?.split("?")[0];
-      if (path === "zelle-vision" && o.method === "POST") {
+      if ((path === "payment-vision" || path === "zelle-vision") && o.method === "POST") {
         srv.calls.push({ path, method: "POST", body: JSON.parse(o.body) });
         return {
           ok: true,
@@ -50,7 +50,7 @@ async function attachScreenshot(user) {
 describe("Zelle screenshot reconciliation flow", () => {
   it("full match auto-fills ref and shows verified badge", async () => {
     const srv = mockServer();
-    mockZelleVision(srv, {
+    mockPaymentVision(srv, {
       amount: 2300,
       confirmationNumber: "JPM99cnf72cg",
       date: "2026-07-09",
@@ -79,7 +79,7 @@ describe("Zelle screenshot reconciliation flow", () => {
 
   it("amount mismatch modal → use screenshot amount", async () => {
     const srv = mockServer();
-    mockZelleVision(srv, {
+    mockPaymentVision(srv, {
       amount: 2200,
       confirmationNumber: "JPMdiff",
       memo: "#251841",
@@ -120,7 +120,7 @@ describe("Zelle screenshot reconciliation flow", () => {
         },
       ],
     });
-    mockZelleVision(srv, {
+    mockPaymentVision(srv, {
       amount: 1000,
       confirmationNumber: "JPMmove",
       memo: "#231315",
@@ -147,7 +147,7 @@ describe("Zelle screenshot reconciliation flow", () => {
 
   it("unreadable screenshot → enter manually", async () => {
     const srv = mockServer();
-    mockZelleVision(srv, {
+    mockPaymentVision(srv, {
       amount: null,
       confirmationNumber: "",
       memo: "",
@@ -165,5 +165,58 @@ describe("Zelle screenshot reconciliation flow", () => {
     await user.click(await screen.findByText("Save & sync"));
     await waitFor(() => expect(srv.enqueued("record_payment")).toHaveLength(1));
     expect(srv.enqueued("record_payment")[0].payload.ref).toBe("MANUAL1");
+  });
+
+  it("check autofill button fills fields and record skips second vision call", async () => {
+    const srv = mockServer();
+    const fetchMock = global.fetch;
+    let visionCalls = 0;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url, o = {}) => {
+        const path = String(url).split("/functions/")[1]?.split("?")[0];
+        if (path === "payment-vision" && o.method === "POST") {
+          visionCalls++;
+          return {
+            ok: true,
+            status: 200,
+            json: async () => ({
+              ok: true,
+              extracted: {
+                amount: 800,
+                checkNumber: "5521",
+                date: "2026-07-10",
+                memo: "panel upgrade",
+                confidence: "high",
+                kind: "check",
+              },
+            }),
+          };
+        }
+        return fetchMock(url, o);
+      })
+    );
+    const user = userEvent.setup();
+    renderApp("#/job/J-1");
+    const pane = await screen.findByTestId("detail-pane");
+    await user.click(within(pane).getByTestId("tab-payment"));
+    await user.click(screen.getByText("Record a payment"));
+    await user.selectOptions(screen.getByLabelText("Payment method"), "Check");
+    const input = screen.getByTestId("check-screenshot-input");
+    await user.upload(input, new File(["x"], "check.jpg", { type: "image/jpeg" }));
+    await user.click(screen.getByTestId("payment-autofill"));
+    await waitFor(() => expect(screen.getByDisplayValue("5521")).toBeInTheDocument());
+    expect(screen.getByDisplayValue("panel upgrade")).toBeInTheDocument();
+    expect(visionCalls).toBe(1);
+    await user.click(screen.getByTestId("record-payment"));
+    await waitFor(() => expect(screen.getByTestId("savebar")).toBeInTheDocument());
+    expect(visionCalls).toBe(1);
+    await user.click(screen.getByText("Save & sync"));
+    await waitFor(() => expect(srv.enqueued("record_payment")).toHaveLength(1));
+    expect(srv.enqueued("record_payment")[0].payload).toMatchObject({
+      amount: "800",
+      method: "Check",
+      ref: "5521",
+    });
   });
 });
