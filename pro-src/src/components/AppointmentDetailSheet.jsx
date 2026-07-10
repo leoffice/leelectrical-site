@@ -9,6 +9,13 @@ import { useStore } from "../state/store.jsx";
 import { evStart } from "../lib/format.js";
 import { displayEventNotes, linkedJobForEvent, suggestJobsForEvent, unlinkAppointmentJob } from "../lib/calendarLink.js";
 import CreateJobFromEventSheet from "./CreateJobFromEventSheet.jsx";
+import AppointmentEmailSheet from "./AppointmentEmailSheet.jsx";
+import {
+  classifyAppointment,
+  emailKindForAction,
+  followUpActions,
+  followUpCopy,
+} from "../lib/appointmentActions.js";
 
 function linkedCustomerName(job) {
   return (job?.customer || job?.businessName || job?.title || "").trim() || "job";
@@ -18,7 +25,8 @@ export default function AppointmentDetailSheet({ event, onClose }) {
   const { jobs, events, setNewJob, patchJob, patchAndSave, patchLocalEvent, removeLocalEvent, enqueue, showToast } =
     useStore();
   const nav = useNavigate();
-  const [mode, setMode] = useState("view"); // view | edit | link | unlink | createJob
+  const [mode, setMode] = useState("view"); // view | edit | link | unlink | createJob | email
+  const [emailKind, setEmailKind] = useState("estimate");
   const [unlinkDone, setUnlinkDone] = useState(false);
   const liveEvent = useMemo(
     () => (events || []).find((e) => String(e.id) === String(event?.id)) || event,
@@ -86,6 +94,17 @@ export default function AppointmentDetailSheet({ event, onClose }) {
     );
   }
 
+  if (mode === "email" && linked) {
+    return (
+      <AppointmentEmailSheet
+        job={linked}
+        emailKind={emailKind}
+        title={emailKind === "invoice" ? "Payment reminder email" : "Estimate follow-up email"}
+        onClose={() => setMode("view")}
+      />
+    );
+  }
+
   if (mode === "createJob") {
     return (
       <CreateJobFromEventSheet
@@ -127,6 +146,29 @@ export default function AppointmentDetailSheet({ event, onClose }) {
   }
 
   const notes = displayEventNotes(liveEvent.description);
+  const scenario = classifyAppointment(linked);
+  const nextCopy = followUpCopy(scenario);
+  const nextActions = followUpActions(scenario).filter((a) => a.key !== "remind");
+
+  const runNextAction = (action) => {
+    if (action.key === "create_job") return setMode("createJob");
+    if (action.key === "open_job" && linked) {
+      onClose();
+      return nav("/job/" + encodeURIComponent(linked.id));
+    }
+    if (action.key === "create_estimate" && linked) {
+      onClose();
+      return nav("/job/" + encodeURIComponent(linked.id) + "?doc=estimate&create=1");
+    }
+    if (action.key === "create_invoice" && linked) {
+      onClose();
+      return nav("/job/" + encodeURIComponent(linked.id) + "?doc=invoice&create=1");
+    }
+    if (action.key === "email_followup" || action.key === "email_invoice") {
+      setEmailKind(emailKindForAction(action.key, scenario));
+      return setMode("email");
+    }
+  };
 
   return (
     <Sheet title={liveEvent.summary || "Appointment"} onClose={onClose}>
@@ -147,6 +189,25 @@ export default function AppointmentDetailSheet({ event, onClose }) {
           </div>
         ) : null}
       </div>
+
+      {nextActions.length ? (
+        <div className="rounded-xl border border-brand/20 bg-brand-soft/40 px-3 py-3 mb-4">
+          <div className="text-xs font-bold text-brand uppercase tracking-wide mb-1">{nextCopy.title}</div>
+          <p className="text-sm text-slate-600 mb-2">{nextCopy.lead}</p>
+          <div className="space-y-2">
+            {nextActions.map((action) => (
+              <button
+                key={action.key}
+                type="button"
+                className={(action.primary ? "btn-brand" : "btn bg-white text-slate-800") + " w-full !py-2 text-sm"}
+                onClick={() => runNextAction(action)}
+              >
+                {action.icon} {action.label}
+              </button>
+            ))}
+          </div>
+        </div>
+      ) : null}
 
       <button type="button" className="btn bg-slate-100 text-slate-800 w-full mb-2" onClick={() => setMode("edit")}>
         ✏️ Edit appointment

@@ -18,6 +18,13 @@ import {
   scheduleSameDayPushOff,
   validateRemindDatetime,
 } from "../lib/followUpReminders.js";
+import {
+  classifyAppointment,
+  emailKindForAction,
+  followUpActions,
+  followUpCopy,
+} from "../lib/appointmentActions.js";
+import AppointmentEmailSheet from "./AppointmentEmailSheet.jsx";
 
 const SESSION_KEY = "lepro_followup_session";
 const IS_TEST = import.meta.env.MODE === "test" || !!import.meta.env.VITEST;
@@ -204,18 +211,39 @@ function InspectionReminderSheet({ event, when, job, onClose, onDone }) {
   );
 }
 
-function ServiceCallSheet({ event, job, suggestions, onClose, onDone, onCreateJob, onRemind }) {
+function ServiceCallSheet({ event, job, suggestions, onClose, onDone, onCreateJob, onRemind, onEmail, onDoc }) {
   const nav = useNavigate();
   const notes = displayEventNotes(event?.description);
+  const scenario = classifyAppointment(job);
+  const copy = followUpCopy(scenario);
+  const actions = followUpActions(scenario);
 
   const openJob = () => {
-    if (job?.id) {
-      patchEventState(event.id, { handledAt: Date.now(), linkedJobId: job.id });
+    if (!job?.id) return onCreateJob();
+    patchEventState(event.id, { handledAt: Date.now(), linkedJobId: job.id });
+    onDone();
+    onClose();
+    nav("/job/" + encodeURIComponent(job.id));
+  };
+
+  const runAction = (action) => {
+    if (action.key === "create_job") return onCreateJob();
+    if (action.key === "remind") return onRemind();
+    if (action.key === "open_job") return openJob();
+    if (action.key === "create_estimate") {
+      patchEventState(event.id, { handledAt: Date.now(), linkedJobId: job?.id });
       onDone();
       onClose();
-      nav("/job/" + encodeURIComponent(job.id));
-    } else {
-      onCreateJob();
+      return onDoc("estimate");
+    }
+    if (action.key === "create_invoice") {
+      patchEventState(event.id, { handledAt: Date.now(), linkedJobId: job?.id });
+      onDone();
+      onClose();
+      return onDoc("invoice");
+    }
+    if (action.key === "email_followup" || action.key === "email_invoice") {
+      return onEmail(emailKindForAction(action.key, scenario));
     }
   };
 
@@ -226,8 +254,9 @@ function ServiceCallSheet({ event, job, suggestions, onClose, onDone, onCreateJo
   };
 
   return (
-    <Sheet title="Follow up?" onClose={dismiss}>
-      <div className="text-sm space-y-2 mb-4">
+    <Sheet title={copy.title} onClose={dismiss}>
+      <p className="text-sm text-slate-600 mb-3">{copy.lead}</p>
+      <div className="text-sm space-y-2 mb-4 card px-3 py-2.5">
         <div>
           <b className="font-semibold">Appointment</b>{" "}
           <span className="text-slate-600">{event?.summary || "—"}</span>
@@ -241,6 +270,12 @@ function ServiceCallSheet({ event, job, suggestions, onClose, onDone, onCreateJo
             <b className="font-semibold">Location</b> <span className="text-slate-600">{event.location}</span>
           </div>
         ) : null}
+        {job ? (
+          <div>
+            <b className="font-semibold">Job</b>{" "}
+            <span className="text-slate-600">{job.customer || "linked"}</span>
+          </div>
+        ) : null}
         {notes ? (
           <div>
             <b className="font-semibold">Notes</b>
@@ -248,10 +283,27 @@ function ServiceCallSheet({ event, job, suggestions, onClose, onDone, onCreateJo
           </div>
         ) : null}
       </div>
-      <button type="button" className="btn-brand w-full mb-2" onClick={openJob} data-testid="followup-open-job">
-        {job ? "Open the job" : "Create a job"}
-      </button>
-      <Opt icon="🔔" title="Remind me" note="Pick a weekday, time, and priority" onClick={onRemind} />
+      {actions.map((action) =>
+        action.key === "remind" ? (
+          <Opt
+            key={action.key}
+            icon={action.icon}
+            title={action.label}
+            note="Pick a weekday, time, and priority"
+            onClick={() => runAction(action)}
+          />
+        ) : (
+          <button
+            key={action.key}
+            type="button"
+            className={(action.primary ? "btn-brand" : "btn bg-slate-100 text-slate-800") + " w-full mb-2"}
+            onClick={() => runAction(action)}
+            data-testid={"followup-" + action.key}
+          >
+            {action.icon} {action.label}
+          </button>
+        )
+      )}
       <button type="button" className="btn-ghost w-full mt-1" onClick={dismiss}>
         Skip for now
       </button>
@@ -263,7 +315,8 @@ export default function FollowUpPrompts() {
   const { events, jobs, loading } = useStore();
   const [queue, setQueue] = useState([]);
   const [current, setCurrent] = useState(null);
-  const [subSheet, setSubSheet] = useState(null); // remind | createJob
+  const [subSheet, setSubSheet] = useState(null); // remind | createJob | email
+  const nav = useNavigate();
 
   const today = todayStr();
   const refreshQueue = useCallback(() => {
@@ -281,8 +334,15 @@ export default function FollowUpPrompts() {
     }
     const q = buildPromptQueue(events, jobs, today);
     if (q.length) {
-      setQueue(q);
-      setCurrent(q[0]);
+      const first = q[0];
+      if (first.kind === "service_call" && !linkedJobForEvent(first.event, jobs)) {
+        setSubSheet({ kind: "createJob", event: first.event, suggestions: first.suggestions });
+        setQueue(q.slice(1));
+        setCurrent(q[1] || null);
+      } else {
+        setQueue(q);
+        setCurrent(first);
+      }
       markSessionPrompted();
     }
   }, [loading, events, jobs, today, refreshQueue]);
@@ -339,6 +399,17 @@ export default function FollowUpPrompts() {
     );
   }
 
+  if (subSheet?.kind === "email") {
+    return (
+      <AppointmentEmailSheet
+        job={subSheet.job}
+        emailKind={subSheet.emailKind}
+        title={subSheet.title}
+        onClose={() => setSubSheet(null)}
+      />
+    );
+  }
+
   if (!current) return null;
 
   if (current.kind === "must_today_nudge") {
@@ -366,10 +437,11 @@ export default function FollowUpPrompts() {
   }
 
   if (current.kind === "service_call") {
+    const linked = current.job || linkedJobForEvent(current.event, jobs);
     return (
       <ServiceCallSheet
         event={current.event}
-        job={current.job || linkedJobForEvent(current.event, jobs)}
+        job={linked}
         suggestions={current.suggestions}
         onClose={advance}
         onDone={advance}
@@ -384,9 +456,21 @@ export default function FollowUpPrompts() {
           setSubSheet({
             kind: "remind",
             event: current.event,
-            job: current.job || linkedJobForEvent(current.event, jobs),
+            job: linked,
           })
         }
+        onEmail={(emailKind) =>
+          setSubSheet({
+            kind: "email",
+            job: linked,
+            emailKind,
+            title: emailKind === "invoice" ? "Payment reminder email" : "Estimate follow-up email",
+          })
+        }
+        onDoc={(docKind) => {
+          if (!linked?.id) return;
+          nav("/job/" + encodeURIComponent(linked.id) + "?doc=" + docKind + "&create=1");
+        }}
       />
     );
   }

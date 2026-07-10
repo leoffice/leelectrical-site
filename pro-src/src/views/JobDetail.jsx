@@ -140,6 +140,8 @@ export default function JobDetail() {
     }
   };
   const openPay = sp.get("pay") === "1";
+  const openDoc = sp.get("doc"); // estimate | invoice
+  const openDocCreate = sp.get("create") === "1";
   const [openPhase, setOpenPhase] = useState(null); // null = auto
   const [openStep, setOpenStep] = useState(null);
   const [showRemoved, setShowRemoved] = useState({}); // paperwork branch -> expanded
@@ -170,7 +172,10 @@ export default function JobDetail() {
 
   useEffect(() => {
     if (openPay && job) setSheet({ kind: "paymenu" });
-  }, [openPay, job?.id]); // eslint-disable-line react-hooks/exhaustive-deps
+    if (openDocCreate && job && (openDoc === "estimate" || openDoc === "invoice")) {
+      setSheet({ kind: "docBuild", docKind: openDoc, mode: "create" });
+    }
+  }, [openPay, openDoc, openDocCreate, job?.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // 5s auto-collapse of the step action row (sleek's stepTimer)
   useEffect(() => {
