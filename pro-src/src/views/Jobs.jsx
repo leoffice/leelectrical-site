@@ -491,7 +491,7 @@ export default function Jobs({ embedded, collapseGroups = false, activeJobId = "
           {parentRows.map((row) => {
             const searchOn = !!q.trim();
             const visibleSubs = searchOn ? row.subs.filter((sub) => sub.jobs.some(matchesChip)) : row.subs;
-            const multiSub = visibleSubs.length > 1 || (searchOn && visibleSubs.length > 0 && row.subs.length > 1);
+            const multiSub = visibleSubs.length > 0;
             const expanded = groupExpanded(row.key);
             const needsAttention = row.jobs.some(needsAttentionJob);
             const syncCardClass = customerSyncCardClass(customerContact(row.jobs), { qboIndex });

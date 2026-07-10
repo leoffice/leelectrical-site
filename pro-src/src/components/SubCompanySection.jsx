@@ -1,7 +1,7 @@
 // Sub-company toggle — expands parent-company picker for LLCs under a management company.
 import React from "react";
 import Toggle from "./Toggle.jsx";
-import CustomerSearch from "./CustomerSearch.jsx";
+import ParentCompanyPicker from "./ParentCompanyPicker.jsx";
 import { Fld } from "./Sheet.jsx";
 
 export default function SubCompanySection({
@@ -23,7 +23,7 @@ export default function SubCompanySection({
       </div>
       {on ? (
         <Fld label="Parent company" hint="Management company this entity bills under">
-          <CustomerSearch
+          <ParentCompanyPicker
             label="Parent company"
             testId={`${testId}-parent`}
             value={parentName}

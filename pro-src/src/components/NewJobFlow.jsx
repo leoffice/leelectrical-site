@@ -38,7 +38,8 @@ import {
   snapshotCustomerForm,
 } from "../lib/addCustomerFlow.js";
 import { prefillFromEvent } from "../lib/prefillFromEvent.js";
-import AddressAutocompleteField, { AddressSuggestionList } from "./AddressAutocompleteField.jsx";
+import AddressAutocompleteField from "./AddressAutocompleteField.jsx";
+import { draftJobFromFabContext, paymentFabStep } from "../lib/fabPrefill.js";
 
 export { prefillFromEvent };
 
@@ -74,9 +75,9 @@ function mergeCustomerPatch(o, patch, { keepServiceAddress } = {}) {
   };
 }
 
-function PickCustomerJobsSheet({ title, hint, jobs, onClose, onPick, filterOpen }) {
+function PickCustomerJobsSheet({ title, hint, jobs, onClose, onPick, filterOpen, initialCustomerName = "" }) {
   const [q, setQ] = useState("");
-  const [cust, setCust] = useState(null);
+  const [cust, setCust] = useState(initialCustomerName ? { name: initialCustomerName } : null);
   const matches = useMemo(() => {
     if (!cust) return [];
     const key = customerKeyForName(cust.name);
@@ -154,9 +155,41 @@ export default function NewJobFlow() {
       <Sheet title="Add" onClose={close}>
         <Opt icon="🔧" title="Add a job" note="New scope for a customer — type details or pick from calendar" onClick={() => setNewJob({ step: "jobMenu", context })} />
         <Opt icon="🏗️" title="Add a job with vendor" note="Track subcontractor / vendor on the job" onClick={() => setNewJob({ step: "form", prefill: {}, context, vendorMode: true })} />
-        <Opt icon="🧾" title="Add an invoice" note="Full invoice builder — customer on top, pick address & lines" onClick={() => setNewJob({ step: "pickInvoice", draftJob: {} })} />
+        <Opt
+          icon="🧾"
+          title="Add an invoice"
+          note={context ? "Pre-filled from this page — edit anything" : "Full invoice builder — customer on top, pick address & lines"}
+          onClick={() =>
+            setNewJob({
+              step: "pickInvoice",
+              draftJob: draftJobFromFabContext(context),
+              job: context?.id && !context?._customerContext ? context : null,
+              context,
+            })
+          }
+        />
         <Opt icon="👤" title="Add a customer" note="One form — live QuickBooks match as you type" onClick={() => setNewJob({ step: "newCustomer" })} />
-        <Opt icon="💵" title="Add a payment" note="Find customer & invoice, then record or charge" onClick={() => setNewJob({ step: "pickPayment" })} />
+        <Opt
+          icon="💵"
+          title="Add a payment"
+          note={context ? "Pre-filled from this page — attach a picture or pick type" : "Attach a picture or pick payment type"}
+          onClick={() => {
+            const next = paymentFabStep(context, jobs);
+            if (next.step === "pickPayment" && next.job) {
+              setNewJob({ step: "pickPayment", job: next.job, context });
+              return;
+            }
+            if (next.step === "pickPayment" && next.customerKey) {
+              setNewJob({
+                step: "pickPayment",
+                context,
+                paymentPrefill: { customerName: next.customerName || "" },
+              });
+              return;
+            }
+            setNewJob({ step: "paymentIntro", context });
+          }}
+        />
       </Sheet>
     );
 
@@ -192,18 +225,66 @@ export default function NewJobFlow() {
       />
     );
 
+  if (newJob.step === "paymentIntro")
+    return (
+      <Sheet title="Add a payment" onClose={close}>
+        <p className="text-sm text-slate-500 mb-3">Attach a payment picture or choose how they paid — then fill in the details.</p>
+        <Opt
+          icon="📷"
+          title="Attach a picture"
+          note="Check or Zelle screenshot — autofill amount & details"
+          onClick={() =>
+            setNewJob({
+              ...newJob,
+              step: "pickPayment",
+              openProofPicker: true,
+              initialMethod: "Check",
+            })
+          }
+        />
+        {["Check", "Zelle", "Credit card", "Cash", "ACH"].map((method) => (
+          <Opt
+            key={method}
+            icon={method === "Credit card" ? "💳" : method === "Cash" ? "💵" : "🧾"}
+            title={method}
+            note="Opens the full payment form"
+            onClick={() => setNewJob({ ...newJob, step: "pickPayment", initialMethod: method })}
+          />
+        ))}
+      </Sheet>
+    );
+
   if (newJob.step === "pickPayment" && newJob.job)
-    return <MarkPaidSheet job={newJob.job} onClose={close} />;
+    return (
+      <MarkPaidSheet
+        job={newJob.job}
+        onClose={close}
+        initialMethod={newJob.initialMethod || ""}
+        openProofPicker={Boolean(newJob.openProofPicker)}
+      />
+    );
 
   if (newJob.step === "pickPayment")
     return (
       <PickCustomerJobsSheet
         title="Add a payment"
-        hint="Pick the customer, then choose the invoice to pay."
+        hint={
+          newJob.paymentPrefill?.customerName
+            ? "Customer pre-filled — pick the invoice to pay."
+            : "Pick the customer, then choose the invoice to pay."
+        }
         jobs={jobs}
         filterOpen
+        initialCustomerName={newJob.paymentPrefill?.customerName || ""}
         onClose={close}
-        onPick={(job) => setNewJob({ ...newJob, step: "pickPayment", job })}
+        onPick={(job) =>
+          setNewJob({
+            ...newJob,
+            step: "pickPayment",
+            job,
+            paymentPrefill: undefined,
+          })
+        }
       />
     );
 
@@ -272,30 +353,6 @@ export default function NewJobFlow() {
         nav("/job/" + encodeURIComponent(id));
       }}
     />
-  );
-}
-
-function NewCustomerBillingField({ value, onChange, onPick, jobs, events, suggestAddresses }) {
-  const showSuggest = String(value || "").trim().length >= 2;
-  return (
-    <Fld label="Billing address" hint="Live QuickBooks match · type for address suggestions">
-      <CustomerLiveMatch
-        label="Billing address"
-        testId="newcustomer-billing"
-        value={value}
-        onChange={onChange}
-        onPick={onPick}
-      />
-      <AddressSuggestionList
-        value={value}
-        onPick={onChange}
-        open={showSuggest}
-        jobs={jobs}
-        events={events}
-        suggestAddresses={suggestAddresses}
-        testId="newcustomer-billing-ac"
-      />
-    </Fld>
   );
 }
 
@@ -495,6 +552,7 @@ function NewCustomerForm({ prefill = {}, onClose, onCreated }) {
           value={f.personName}
           onChange={(v) => setF((o) => ({ ...o, personName: v }))}
           onPick={applyPick}
+          showNewCustomer={false}
         />
       </Fld>
       {CONTACT_FIELDS.map(([k, l]) => (
@@ -506,20 +564,25 @@ function NewCustomerForm({ prefill = {}, onClose, onCreated }) {
               value={f.phone}
               onChange={(v) => setF((o) => ({ ...o, phone: v }))}
               onPick={applyPick}
+              showNewCustomer={false}
             />
           ) : (
             <input className="input" value={f[k]} onChange={set(k)} aria-label={l} />
           )}
         </Fld>
       ))}
-      <NewCustomerBillingField
-        value={f.billingAddress}
-        onChange={(v) => setF((o) => ({ ...o, billingAddress: v }))}
-        onPick={applyPick}
-        jobs={jobs}
-        events={events}
-        suggestAddresses={api.suggestAddresses?.bind(api)}
-      />
+      <Fld label="Billing address" hint="Search real addresses as you type — tap one to fill">
+        <AddressAutocompleteField
+          label="Billing address"
+          value={f.billingAddress}
+          onChange={(v) => setF((o) => ({ ...o, billingAddress: v }))}
+          jobs={jobs}
+          events={events}
+          suggestAddresses={api.suggestAddresses?.bind(api)}
+          testId="newcustomer-billing"
+          ariaLabel="Billing address"
+        />
+      </Fld>
       <Fld label="Service address" hint="Default site for future jobs — partial address OK">
         <AddressAutocompleteField
           label="Service address"

@@ -190,7 +190,7 @@ describe("Add customer — unified flow", () => {
     expect(within(match).getByTestId("customer-match-service")).toHaveTextContent("502 Lefferts Ave");
   });
 
-  it("billing address live match finds QBO customer", async () => {
+  it("person and phone fields do not repeat the new-customer choice", async () => {
     mockServer({ customers });
     const user = userEvent.setup();
     renderApp("#/");
@@ -198,11 +198,9 @@ describe("Add customer — unified flow", () => {
     await openAddCustomer(user);
     const dialog = screen.getByRole("dialog");
 
-    await user.type(within(dialog).getByTestId("newcustomer-billing"), "499 schenect");
-    const match = await within(dialog).findByTestId("customer-match");
-    expect(match).toHaveTextContent("Chanan Sheleg");
-    await user.click(match);
-    await waitFor(() => expect(within(dialog).getByLabelText("Customer name")).toHaveValue("Chanan Sheleg"));
+    await user.type(within(dialog).getByTestId("newcustomer-phone"), "718");
+    const phoneResults = await within(dialog).findByTestId("newcustomer-phone-results");
+    expect(within(phoneResults).queryByTestId("customer-add-new")).not.toBeInTheDocument();
   });
 
   it("sub company toggle reveals parent company picker", async () => {

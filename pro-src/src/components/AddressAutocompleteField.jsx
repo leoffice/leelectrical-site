@@ -2,6 +2,8 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { collectAddressSeeds, filterLocalAddressSuggestions } from "../lib/addressComplete.js";
 
+const ADDRESS_DISMISS_MS = 4000;
+
 function useAddressSuggestions(value, { jobs, events, suggestAddresses }) {
   const [remote, setRemote] = useState([]);
   const [loading, setLoading] = useState(false);
@@ -99,16 +101,58 @@ export default function AddressAutocompleteField({
   suggestAddresses,
   testId,
   ariaLabel,
+  dismissMs = ADDRESS_DISMISS_MS,
 }) {
   const [open, setOpen] = useState(false);
+  const [picked, setPicked] = useState(false);
+  const dismissTimer = useRef(null);
+
+  const clearDismiss = () => {
+    clearTimeout(dismissTimer.current);
+    dismissTimer.current = null;
+  };
+
+  const armDismiss = () => {
+    clearDismiss();
+    dismissTimer.current = setTimeout(() => setOpen(false), dismissMs);
+  };
+
+  useEffect(() => () => clearDismiss(), []);
+
+  useEffect(() => {
+    if (!open) {
+      clearDismiss();
+      return;
+    }
+    armDismiss();
+    return clearDismiss;
+  }, [open, value, dismissMs]);
+
+  const handleChange = (text) => {
+    setPicked(false);
+    setOpen(true);
+    onChange(text);
+  };
+
+  const handlePick = (addr) => {
+    setPicked(true);
+    setOpen(false);
+    onChange(addr);
+  };
 
   return (
     <>
       <input
         className="input"
         value={value}
-        onChange={(e) => onChange(e.target.value)}
-        onFocus={() => setOpen(true)}
+        onChange={(e) => handleChange(e.target.value)}
+        onFocus={() => {
+          if (picked && String(value || "").trim()) {
+            setOpen(false);
+            return;
+          }
+          setOpen(true);
+        }}
         onBlur={() => setTimeout(() => setOpen(false), 150)}
         aria-label={ariaLabel || label}
         data-testid={testId}
@@ -116,11 +160,8 @@ export default function AddressAutocompleteField({
       />
       <AddressSuggestionList
         value={value}
-        onPick={(addr) => {
-          onChange(addr);
-          setOpen(false);
-        }}
-        open={open}
+        onPick={handlePick}
+        open={open && !picked}
         jobs={jobs}
         events={events}
         suggestAddresses={suggestAddresses}

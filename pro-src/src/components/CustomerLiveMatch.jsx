@@ -3,6 +3,8 @@ import React, { useEffect, useRef, useState } from "react";
 import { useStore } from "../state/store.jsx";
 import { CustomerMatchResults } from "./CustomerMatchPanel.jsx";
 
+const MATCH_DISMISS_MS = 4000;
+
 export default function CustomerLiveMatch({
   value,
   onChange,
@@ -10,6 +12,8 @@ export default function CustomerLiveMatch({
   label,
   testId,
   placeholder,
+  showNewCustomer = true,
+  dismissMs = MATCH_DISMISS_MS,
 }) {
   const { api } = useStore();
   const [results, setResults] = useState([]);
@@ -54,6 +58,15 @@ export default function CustomerLiveMatch({
     return () => clearTimeout(timer.current);
   }, [q, open, picked, api]);
 
+  useEffect(() => {
+    if (!open || picked || !results.length) return;
+    const t = setTimeout(() => {
+      setOpen(false);
+      setResults([]);
+    }, dismissMs);
+    return () => clearTimeout(t);
+  }, [open, picked, results, dismissMs]);
+
   const choose = (c) => {
     setPicked(true);
     setOpen(false);
@@ -83,7 +96,13 @@ export default function CustomerLiveMatch({
           setOpen(true);
           onChange(e.target.value);
         }}
-        onFocus={() => setOpen(true)}
+        onFocus={() => {
+          if (picked) {
+            setOpen(false);
+            return;
+          }
+          setOpen(true);
+        }}
         aria-label={label}
         data-testid={testId}
         placeholder={placeholder}
@@ -95,6 +114,7 @@ export default function CustomerLiveMatch({
           onSearchChange={handleSearchChange}
           searchLabel={label}
           onNewCustomer={dismissAsNew}
+          showNewCustomer={showNewCustomer}
           newCustomerLabel="This is a new customer"
           results={results}
           loading={loading}

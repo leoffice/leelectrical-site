@@ -93,12 +93,12 @@ export function useDoSend() {
 }
 
 /* ---------- 1. Mark as paid ---------- */
-export function MarkPaidSheet({ job, onClose }) {
+export function MarkPaidSheet({ job, onClose, initialMethod = "", openProofPicker = false }) {
   const { patchJob, showToast, syncNow, refreshJobs, jobs } = useStore();
   const due = openBalance(job);
   const alreadyPaid = due <= 0.01;
   const [amt, setAmt] = useState(due > 0 ? String(due) : String(job.amount || "").replace(/[$,]/g, ""));
-  const [mth, setMth] = useState("");
+  const [mth, setMth] = useState(initialMethod || "");
   const [ref, setRef] = useState("");
   const [dt, setDt] = useState(todayStr());
   const [includeFee, setIncludeFee] = useState(true);
@@ -121,6 +121,11 @@ export function MarkPaidSheet({ job, onClose }) {
   const [paymentVerified, setPaymentVerified] = useState(false);
   const [zelleReconcile, setZelleReconcile] = useState(null);
   const proofInputRef = useRef(null);
+  useEffect(() => {
+    if (!openProofPicker || !proofInputRef.current) return;
+    const t = setTimeout(() => proofInputRef.current?.click(), 120);
+    return () => clearTimeout(t);
+  }, [openProofPicker]);
   const isCard = mth === "Credit card";
   const isCheck = mth === "Check";
   const isAch = mth === "ACH";
