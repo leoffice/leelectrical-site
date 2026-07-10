@@ -11,3 +11,11 @@
 
 [functions."docs-cleanup"]
   schedule = "@daily"
+
+# Short customer pay links — /pay/251825-x7k2 → pay-link resolver → LE Pro pay page
+[[redirects]]
+  from = "/pay/:code"
+  to = "/.netlify/functions/pay-link"
+  status = 200
+  query = { code = ":code" }
+  force = true

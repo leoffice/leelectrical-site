@@ -1,4 +1,6 @@
 // Public iFields key for in-app card entry (safe to expose to LE Pro staff UI).
+import { resolveIfieldsKey, solaEnvironment } from "./sola-keys.mjs";
+
 const IFIELDS_VERSION = "2.15.2409.2601";
 
 function corsHeaders() {
@@ -12,12 +14,8 @@ function corsHeaders() {
 }
 
 function resolveKeys() {
-  const env = String(process.env.SOLA_ENV || "production").trim().toLowerCase();
-  const isDev = env === "dev" || env === "sandbox" || env === "test";
-  const ifieldsKey = isDev
-    ? process.env.SOLA_IFIELDS_KEY_DEV || process.env.SOLA_IFIELDS_KEY
-    : process.env.SOLA_IFIELDS_KEY || "ifields_blzelectricf19091a9a53f435699d914e935";
-  return { ifieldsKey, environment: isDev ? "dev" : "production" };
+  const ifieldsKey = resolveIfieldsKey();
+  return { ifieldsKey, environment: solaEnvironment() === "dev" ? "dev" : "production" };
 }
 
 export default async (req) => {

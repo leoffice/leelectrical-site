@@ -6,6 +6,7 @@ import {
   todayISO,
 } from "./sola-shared.mjs";
 import { sendPaymentConfirmEmail } from "./payment-confirm-email.mjs";
+import { resolveXKey, sutMismatchHint } from "./sola-keys.mjs";
 
 const GATEWAY = "https://x1.cardknox.com/gatewayjson";
 
@@ -21,14 +22,6 @@ function corsHeaders() {
 
 function json(body, status = 200) {
   return new Response(JSON.stringify(body), { status, headers: corsHeaders() });
-}
-
-function resolveXKey() {
-  const env = String(process.env.SOLA_ENV || "production").trim().toLowerCase();
-  const isDev = env === "dev" || env === "sandbox" || env === "test";
-  return isDev
-    ? process.env.SOLA_X_KEY_DEV || process.env.SOLA_X_KEY
-    : process.env.SOLA_X_KEY;
 }
 
 function normExp(raw) {
@@ -169,9 +162,11 @@ export default async (req) => {
   }
 
   if (result !== "A" && result !== "APPROVED") {
+    const base = String(data.xError || data.xStatus || "Payment declined").slice(0, 200);
+    const hint = sutMismatchHint(base);
     return json({
       ok: false,
-      error: String(data.xError || data.xStatus || "Payment declined").slice(0, 200),
+      error: (base + hint).slice(0, 280),
       gateway: data,
     }, 402);
   }

@@ -23,6 +23,12 @@ function renderPay(token) {
   );
 }
 
+async function waitForPayLoaded() {
+  await waitFor(() => {
+    expect(screen.queryByText("Loading your invoice…")).not.toBeInTheDocument();
+  });
+}
+
 describe("PayLanding view", () => {
   it("shows invoice details, View invoice button, and Pay CTA with zip in Sola URL", async () => {
     vi.stubGlobal("fetch", vi.fn(async () => ({ ok: true })));
@@ -48,6 +54,7 @@ describe("PayLanding view", () => {
       })
     );
     renderPay(token);
+    await waitForPayLoaded();
     expect(screen.getByText("BLZ Electric")).toBeInTheDocument();
     expect(screen.getByRole("heading", { level: 1, name: /Invoice.*251839/ })).toBeInTheDocument();
     expect(screen.getByText("Billing address")).toBeInTheDocument();
@@ -87,6 +94,7 @@ describe("PayLanding view", () => {
       })
     );
     renderPay(token);
+    await waitForPayLoaded();
     const paidBtn = screen.getByRole("button", { name: /Paid to date.*31,000/ });
     await user.click(paidBtn);
     expect(screen.getByText(/Check/)).toBeInTheDocument();
@@ -112,6 +120,7 @@ describe("PayLanding view", () => {
       })
     );
     renderPay(token);
+    await waitForPayLoaded();
     await user.click(screen.getByTestId("edit-amount"));
     const input = screen.getByLabelText("Payment amount");
     await user.clear(input);
@@ -120,9 +129,10 @@ describe("PayLanding view", () => {
     expect(screen.getByTestId("pay-cta")).toHaveTextContent("Pay $258.75");
   });
 
-  it("shows invalid state for bad token", () => {
+  it("shows invalid state for bad token", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => ({ ok: false, json: async () => ({ ok: false }) })));
     renderPay("bad-token");
-    expect(screen.getByText("Link not valid")).toBeInTheDocument();
+    await waitFor(() => expect(screen.getByText("Link not valid")).toBeInTheDocument());
   });
 
   it("View invoice triggers QBO fetch overlay when PDF is missing", async () => {
@@ -165,6 +175,7 @@ describe("PayLanding view", () => {
       })
     );
     renderPay(token);
+    await waitForPayLoaded();
     await user.click(screen.getByTestId("view-invoice"));
     await waitFor(() => expect(screen.getByTestId("pdf-retrieve-overlay")).toBeInTheDocument());
     expect(screen.getByText(/Retrieving your invoice/)).toBeInTheDocument();

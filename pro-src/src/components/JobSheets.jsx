@@ -27,7 +27,7 @@ import { patchFromQboPaymentFetch } from "../lib/qboPayments.js";
 import { clientKey, fmtAmountDue, invoiceTotal, jobsForCustomerKey, openBalance, amountPaid, paidPct } from "../lib/customers.js";
 import { parentCustomerPatch } from "../lib/customerHierarchy.js";
 import { buildPaymentLinkEmail } from "../lib/paymentLinkEmail.js";
-import { buildPayLandingUrl } from "../lib/payLanding.js";
+import { buildShortPayLandingUrl } from "../lib/payLanding.js";
 import {
   appendPayment,
   canVoidInQbo,
@@ -1048,12 +1048,19 @@ export function PaymentLinkSheet({ job, onClose }) {
         const parsed = typeof cmdResult === "string" ? JSON.parse(cmdResult) : cmdResult;
         if (parsed?.siteSlug) siteSlug = parsed.siteSlug;
       } catch {}
-      const landing = buildPayLandingUrl({ job, cardknoxUrl: link, linkAmount, inv, siteSlug, includeFee });
-      setUrl(landing);
-      const draft = buildPaymentLinkEmail({ job, url: landing, linkAmount, inv });
-      setEmailSubject(draft.subject);
-      setEmailBody(draft.body);
-      setPhase("ready");
+      buildShortPayLandingUrl({ job, cardknoxUrl: link, linkAmount, inv, siteSlug, includeFee })
+        .then((landing) => {
+          setUrl(landing);
+          const draft = buildPaymentLinkEmail({ job, url: landing, linkAmount, inv });
+          setEmailSubject(draft.subject);
+          setEmailBody(draft.body);
+          setPhase("ready");
+        })
+        .catch((ex) => {
+          setErr(String((ex && ex.message) || "Could not create payment link"));
+          setPhase("failed");
+        });
+      return;
     } else if (cmdStatus === "failed") {
       setErr(String((cmd && cmd.error) || "Sola could not create the payment link"));
       setPhase("failed");

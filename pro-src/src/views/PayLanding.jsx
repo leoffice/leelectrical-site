@@ -1,7 +1,7 @@
 // Public View & Pay — invoice details, View invoice PDF, Pay → Sola.
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useState } from "react";
 import { Link, useParams, useSearchParams } from "react-router-dom";
-import { addressesDiffer, decodePayLanding, invoicePdfUrl } from "../lib/payLanding.js";
+import { addressesDiffer, invoicePdfUrl, resolvePayLandingToken } from "../lib/payLanding.js";
 import {
   PDF_RETRIEVE_STAGES,
   invoicePdfAvailable,
@@ -113,7 +113,8 @@ function usePayToken() {
 
 export default function PayLanding() {
   const token = usePayToken();
-  const data = useMemo(() => decodePayLanding(token), [token]);
+  const [data, setData] = useState(null);
+  const [resolving, setResolving] = useState(Boolean(token));
   const [payAmount, setPayAmount] = useState(0);
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState("");
@@ -124,6 +125,26 @@ export default function PayLanding() {
   const [showPaidHist, setShowPaidHist] = useState(false);
 
   const includeFee = feeEnabledInPayload(data);
+
+  useEffect(() => {
+    if (!token) {
+      setData(null);
+      setResolving(false);
+      return;
+    }
+    let alive = true;
+    setResolving(true);
+    resolvePayLandingToken(token)
+      .then((resolved) => {
+        if (alive) setData(resolved);
+      })
+      .finally(() => {
+        if (alive) setResolving(false);
+      });
+    return () => {
+      alive = false;
+    };
+  }, [token]);
 
   useEffect(() => {
     if (data?.a) {
@@ -144,6 +165,16 @@ export default function PayLanding() {
       alive = false;
     };
   }, [pdfSrc]);
+
+  if (resolving) {
+    return (
+      <div className="min-h-screen bg-slate-50 flex items-center justify-center p-6">
+        <div className="card max-w-md w-full p-6 text-center">
+          <p className="text-sm text-slate-500">Loading your invoice…</p>
+        </div>
+      </div>
+    );
+  }
 
   if (!data) {
     return (

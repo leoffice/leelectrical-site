@@ -7,6 +7,13 @@ import { parseUSAddress, extractZip } from "./solaPayUrl.js";
 const SITE_ORIGIN =
   (typeof window !== "undefined" && window.location?.origin) || "https://leelectrical.us";
 
+const SHORT_CODE_RE = /^[0-9]{5,8}-[a-z0-9]{4}$/i;
+
+/** Short customer link code (stored server-side) vs long embedded token. */
+export function isShortPayCode(token) {
+  return SHORT_CODE_RE.test(String(token || "").trim());
+}
+
 /** Compact payload embedded in the public View & Pay URL. */
 export function buildPayLandingPayload({
   job,
@@ -93,12 +100,50 @@ export function decodePayLanding(token) {
   return o;
 }
 
-/** Customer-facing URL — landing page before the Sola PaymentSITE form. */
+/** Long URL with embedded token (legacy / fallback). */
 export function buildPayLandingUrl({ job, cardknoxUrl, linkAmount, inv, siteSlug, includeFee = true }) {
   const token = encodePayLanding(
     buildPayLandingPayload({ job, cardknoxUrl, linkAmount, inv, siteSlug, includeFee })
   );
   return `${SITE_ORIGIN}/app/pro/#/pay/${token}`;
+}
+
+/** Register payload server-side and return a short link like /pay/251825-x7k2. */
+export async function registerShortPayLink(payload) {
+  const res = await fetch("/.netlify/functions/pay-link", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ payload }),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok || !data.ok || !data.url) {
+    throw new Error(data.error || "Could not create short payment link");
+  }
+  return data.url;
+}
+
+/** Preferred customer URL — short /pay/ link (falls back to long URL if register fails). */
+export async function buildShortPayLandingUrl(opts) {
+  const payload = buildPayLandingPayload(opts);
+  try {
+    return await registerShortPayLink(payload);
+  } catch {
+    return buildPayLandingUrl(opts);
+  }
+}
+
+/** Resolve token from URL — decodes embedded token or fetches short code from server. */
+export async function resolvePayLandingToken(token) {
+  const t = String(token || "").trim();
+  const decoded = decodePayLanding(t);
+  if (decoded) return decoded;
+  if (!isShortPayCode(t)) return null;
+  const res = await fetch(`/.netlify/functions/pay-link?code=${encodeURIComponent(t)}`, {
+    cache: "no-store",
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok || !data.ok || !data.payload) return null;
+  return data.payload;
 }
 
 export function invoicePdfUrl(invoiceNo) {

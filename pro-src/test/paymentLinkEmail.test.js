@@ -16,11 +16,11 @@ describe("buildPaymentLinkEmail", () => {
       inv: "231315",
     });
     expect(subject).toContain("231315");
-    expect(subject).toContain("View & Pay");
+    expect(subject).toContain("pay online");
     expect(body).toContain("Invoice total");
     expect(body).toContain("Balance due");
     expect(body).toContain("https://leelectrical.us/app/pro/#/pay/demo-token");
-    expect(body).toContain("VIEW & PAY INVOICE");
+    expect(body).toContain("Pay securely online:");
     expect(body).toContain("3.5%");
     expect(body).toContain("Golan");
   });

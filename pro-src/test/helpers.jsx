@@ -111,6 +111,15 @@ export function mockServer(opts = {}) {
         }
         return { ok: false, status: 400, json: async () => ({ ok: false }) };
       }
+      if (path === "pay-link") {
+        if (method === "POST" && body?.payload?.i) {
+          const code = String(body.payload.i) + "-test";
+          data = { ok: true, code, url: "https://leelectrical.us/pay/" + code };
+        } else if (method === "GET") {
+          const code = decodeURIComponent((String(url).match(/[?&]code=([^&]*)/) || [])[1] || "");
+          data = code ? { ok: true, code, payload: { i: code.split("-")[0], sl: "blzelectric", pay: "https://pay.test" } } : { ok: false };
+        } else data = { ok: false };
+      }
       if (path === "jobsdata")
         data = method === "POST" ? { ok: true } : { jobs: state.jobs, syncedAt: state.syncedAt };
       else if (path === "state") {

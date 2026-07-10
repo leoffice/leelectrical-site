@@ -54,7 +54,7 @@ describe("Feature 1 — payment link", () => {
     });
 
     expect(
-      await screen.findByText(/\/app\/pro\/#\/pay\//, {}, { timeout: 6000 })
+      await screen.findByText(/leelectrical\.us\/pay\/251839-/i, {}, { timeout: 6000 })
     ).toBeInTheDocument();
     expect(screen.getByText("📋 Copy link")).toBeInTheDocument();
   });
