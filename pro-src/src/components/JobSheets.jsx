@@ -47,7 +47,8 @@ import {
 } from "../lib/payments.js";
 import { reconcileZellePayment } from "../lib/zelleReconcile.js";
 import { paymentAutofillPatch, paymentMemoNote } from "../lib/paymentAutofill.js";
-import { analyzePaymentScreenshot, fileToBase64 } from "../lib/paymentVision.js";
+import { DEPOSIT_BANKS } from "../lib/chatPayment.js";
+import { analyzePaymentImage, analyzePaymentScreenshot, fileToBase64 } from "../lib/paymentVision.js";
 import ZelleReconcileSheet from "./ZelleReconcileSheet.jsx";
 import PaymentProofFld from "./PaymentProofFld.jsx";
 import { sortJobs } from "../lib/stages.js";
@@ -171,7 +172,10 @@ export function MarkPaidSheet({
   const [autofillExtracted, setAutofillExtracted] = useState(null);
   const [paymentVerified, setPaymentVerified] = useState(false);
   const [zelleReconcile, setZelleReconcile] = useState(null);
+  const [deposit, setDeposit] = useState(DEPOSIT_BANKS[0]);
+  const [depositOther, setDepositOther] = useState("");
   const proofInputRef = useRef(null);
+  const depositVal = deposit === "Other" ? depositOther.trim() : deposit;
   useEffect(() => {
     if (!openProofPicker || !proofInputRef.current) return;
     const t = setTimeout(() => proofInputRef.current?.click(), 120);
@@ -245,7 +249,13 @@ export function MarkPaidSheet({
 
   const buildPaymentNote = (payRef, proofName, memoText = memo) => {
     if (isCheck || isZelle) {
-      const note = paymentMemoNote({ method: mth, ref: payRef, memo: memoText, proofName });
+      const note = paymentMemoNote({
+        method: mth,
+        ref: payRef,
+        memo: memoText,
+        proofName,
+        deposit: depositVal || undefined,
+      });
       return note || "";
     }
     if (isAch) {
@@ -280,6 +290,7 @@ export function MarkPaidSheet({
       ref: payRef,
       date: d,
       note: note || undefined,
+      depositTo: depositVal || undefined,
       zelleVerified: isZelle ? Boolean(verified) : undefined,
       zelleProofName: isZelle ? proofName : undefined,
       paymentProofName: proofName || undefined,
@@ -297,6 +308,7 @@ export function MarkPaidSheet({
       ref,
       date: d,
       note: note || undefined,
+      depositTo: depositVal || undefined,
       zelleVerified: isZelle ? paymentVerified : undefined,
       zelleProofName: isZelle ? proofFile?.name || "" : undefined,
       paymentProofName: proofFile?.name || undefined,
@@ -319,7 +331,12 @@ export function MarkPaidSheet({
     if (!proofB64) return;
     setAutofillBusy(true);
     try {
-      const extracted = await analyzePaymentScreenshot(proofB64, proofFile?.type || "image/jpeg", proofKind);
+      const { extracted } = await analyzePaymentImage(
+        proofB64,
+        proofFile?.type || "image/jpeg",
+        isCheck ? "check" : isZelle ? "zelle" : "",
+        proofFile?.name || ""
+      );
       applyAutofill(extracted);
       showToast("Fields filled from image — review and tap Record");
     } catch (e) {
@@ -718,6 +735,31 @@ export function MarkPaidSheet({
             disabled={processing}
             testId="zelle-screenshot-input"
           />
+          <Fld label="Deposit to">
+            <select
+              className="input"
+              value={deposit}
+              onChange={(e) => setDeposit(e.target.value)}
+              aria-label="Deposit to"
+              data-testid="payment-deposit"
+              disabled={processing}
+            >
+              {DEPOSIT_BANKS.map((b) => (
+                <option key={b}>{b}</option>
+              ))}
+              <option>Other</option>
+            </select>
+            {deposit === "Other" ? (
+              <input
+                className="input mt-2"
+                value={depositOther}
+                onChange={(e) => setDepositOther(e.target.value)}
+                placeholder="Bank name"
+                aria-label="Other bank"
+                disabled={processing}
+              />
+            ) : null}
+          </Fld>
           <Fld label="Date">
             <input className="input" type="date" value={dt} onChange={(e) => setDt(e.target.value)} disabled={processing} />
           </Fld>
@@ -763,6 +805,31 @@ export function MarkPaidSheet({
             disabled={processing}
             testId="check-screenshot-input"
           />
+          <Fld label="Deposit to">
+            <select
+              className="input"
+              value={deposit}
+              onChange={(e) => setDeposit(e.target.value)}
+              aria-label="Deposit to"
+              data-testid="payment-deposit"
+              disabled={processing}
+            >
+              {DEPOSIT_BANKS.map((b) => (
+                <option key={b}>{b}</option>
+              ))}
+              <option>Other</option>
+            </select>
+            {deposit === "Other" ? (
+              <input
+                className="input mt-2"
+                value={depositOther}
+                onChange={(e) => setDepositOther(e.target.value)}
+                placeholder="Bank name"
+                aria-label="Other bank"
+                disabled={processing}
+              />
+            ) : null}
+          </Fld>
           <Fld label="Date">
             <input className="input" type="date" value={dt} onChange={(e) => setDt(e.target.value)} disabled={processing} />
           </Fld>
