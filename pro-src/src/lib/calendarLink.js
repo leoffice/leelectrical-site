@@ -202,10 +202,17 @@ export function allCalendarEvents(events) {
     .sort((a, b) => evStart(b).localeCompare(evStart(a)));
 }
 
-/** ISO date for the rolling 365-day window (calendar link/search range). */
+/** ISO date for the rolling 365-day window (legacy picker range). */
 export function rollingYearCutIso(now = new Date()) {
   const d = new Date(now);
   d.setDate(d.getDate() - 365);
+  return d.toISOString().slice(0, 10);
+}
+
+/** ISO date one year ahead (calendar search upper bound). */
+export function forwardYearCutIso(now = new Date()) {
+  const d = new Date(now);
+  d.setDate(d.getDate() + 365);
   return d.toISOString().slice(0, 10);
 }
 
@@ -216,6 +223,19 @@ export function eventsWithinPastYear(events, now = new Date()) {
     .filter((e) => {
       const s = evStart(e);
       return s && s.slice(0, 10) >= cut;
+    })
+    .sort((a, b) => evStart(b).localeCompare(evStart(a)));
+}
+
+/** Calendar search window — Jan 1 this year through one year ahead. */
+export function eventsWithinCalendarSearch(events, now = new Date()) {
+  const start = yearStartIso(now.getFullYear());
+  const end = forwardYearCutIso(now);
+  return (events || [])
+    .filter((e) => {
+      const s = evStart(e);
+      const day = s ? s.slice(0, 10) : "";
+      return day && day >= start && day <= end;
     })
     .sort((a, b) => evStart(b).localeCompare(evStart(a)));
 }
@@ -280,7 +300,7 @@ export function suggestAppointmentsForJob(job, events, _year, limit = 8) {
   const company = job?.businessName || "";
   const address = job?.serviceAddress || job?.address || "";
   const street = address.split(",")[0].trim();
-  const base = eventsWithinPastYear(events);
+  const base = eventsWithinCalendarSearch(events);
   const scored = [];
   for (const e of base) {
     const hay = [e.summary, e.location, displayEventNotes(e.description)].filter(Boolean).join(" ");
@@ -299,12 +319,12 @@ export function suggestAppointmentsForJob(job, events, _year, limit = 8) {
     .map((s) => s.event);
 }
 
-/** Search calendar events (past year) by summary, location, notes, or date. */
+/** Search calendar events (this year + one year ahead) by summary, location, notes, or date. */
 export function searchCalendarEvents(events, query, now = new Date()) {
   const q = String(query || "")
     .trim()
     .toLowerCase();
-  const base = eventsWithinPastYear(events, now);
+  const base = eventsWithinCalendarSearch(events, now);
   if (!q) return base;
   return base.filter((e) => {
     const hay = [e.summary, e.location, displayEventNotes(e.description), evStart(e)].filter(Boolean).join(" ").toLowerCase();

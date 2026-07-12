@@ -97,11 +97,12 @@ describe("calendar link state", () => {
     expect(st.pending).toBe(false);
   });
 
-  it("searchCalendarEvents keeps appointments within the past year only", () => {
+  it("searchCalendarEvents keeps appointments within this year through one year ahead", () => {
     const now = new Date("2026-07-09T12:00:00Z");
     const events = [
-      { id: "old", summary: "Arthur Koptiv visit", start: "2024-03-15T10:00", location: "9 Oak" },
+      { id: "old", summary: "Arthur Koptiv visit", start: "2025-12-15T10:00", location: "9 Oak" },
       { id: "new", summary: "Arthur Koptiv return", start: "2026-03-15T10:00", location: "9 Oak" },
+      { id: "far", summary: "Arthur Koptiv future", start: "2028-03-15T10:00", location: "9 Oak" },
     ];
     const hits = searchCalendarEvents(events, "arthur", now);
     expect(hits.map((e) => e.id)).toEqual(["new"]);

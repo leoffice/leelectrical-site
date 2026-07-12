@@ -428,6 +428,48 @@ describe("12. sync chip + today view + jobs list", () => {
     expect(await screen.findByLabelText("Job title / scope")).toHaveValue("Estimate — Jane Doe");
   });
 
+  it("today: calendar search finds appointments and opens detail", async () => {
+    mockServer({
+      jobs: [{ ...JSON.parse(JSON.stringify(J1)), calEventId: "ev1" }],
+      events: [
+        { id: "ev1", summary: "Estimate — Jane Doe", start: "2026-07-09T10:00", location: "55 Elm St" },
+        { id: "ev2", summary: "Panel upgrade — Other", start: "2026-08-01T10:00", location: "99 Oak" },
+      ],
+    });
+    const user = userEvent.setup();
+    renderApp("#/today");
+    await screen.findByTestId("cal-tab-search");
+    await user.type(screen.getByTestId("cal-tab-search"), "elm");
+    const results = screen.getByTestId("cal-tab-search-results");
+    expect(results).toBeInTheDocument();
+    expect(within(results).getByText("Estimate — Jane Doe")).toBeInTheDocument();
+    expect(screen.queryByText("Panel upgrade — Other")).not.toBeInTheDocument();
+    await user.click(within(results).getByText("Estimate — Jane Doe"));
+    expect(screen.getByText("✏️ Edit appointment")).toBeInTheDocument();
+  });
+
+  it("duplicate appointment opens full booking sheet and creates a new event", async () => {
+    const srv = mockServer({
+      jobs: [{ ...JSON.parse(JSON.stringify(J1)), calEventId: "ev1" }],
+      events: [{ id: "ev1", summary: "Estimate — Jane Doe", start: "2026-07-09T10:00", location: "123 Main St" }],
+    });
+    const user = userEvent.setup();
+    renderApp("#/today");
+    await user.click(await screen.findByText("Estimate — Jane Doe"));
+    await user.click(screen.getByText("✏️ Edit appointment"));
+    await user.click(screen.getByText("Duplicate (same job link)"));
+    expect(screen.getByText("Duplicate appointment")).toBeInTheDocument();
+    expect(screen.getByTestId("appt-week-calendar")).toBeInTheDocument();
+    expect(screen.getByTestId("notify-customer-toggle")).toBeInTheDocument();
+    fireEvent.change(screen.getByTestId("appt-datetime"), { target: { value: "2026-07-15T14:00" } });
+    await user.click(screen.getByTestId("appt-save"));
+    await waitFor(() => expect(srv.enqueued("calendar_upsert")).toHaveLength(1));
+    const cmd = srv.enqueued("calendar_upsert")[0];
+    expect(cmd.payload.calEventId).toBe("");
+    expect(cmd.payload.start).toBe("2026-07-15T14:00");
+    expect(cmd.payload.description).toContain("leJobId:J-1");
+  });
+
   it("jobs list: search, chips, grouping, quick actions", async () => {
     mockServer({
       ov: { "J-1": { clientGroup: "grpX" }, "J-2": { clientGroup: "grpX" } },

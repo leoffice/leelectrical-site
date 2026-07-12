@@ -2,6 +2,7 @@
 import React, { useState } from "react";
 import Sheet, { Fld } from "./Sheet.jsx";
 import LocationSuggestField from "./LocationSuggestField.jsx";
+import AddAppointmentSheet from "./AddAppointmentSheet.jsx";
 import { useStore } from "../state/store.jsx";
 import { evStart } from "../lib/format.js";
 import { displayEventNotes, withJobLink } from "../lib/calendarLink.js";
@@ -23,15 +24,15 @@ export default function EditAppointmentSheet({ event, linkedJobId, onClose, onSa
   const [location, setLocation] = useState(event.location || "");
   const [notes, setNotes] = useState(displayEventNotes(event.description) || "");
 
-  const eventId = duplicating ? "" : event.id || "";
   const busJobId = linkedJobId || "today";
 
   const save = async () => {
     const title = (summary || "").trim();
     if (!title) return showToast("Add a title for the appointment");
     if (!dt) return showToast("Pick date and time");
+    const eventId = event.id || "";
     const description = linkedJobId ? withJobLink(notes, linkedJobId) : notes;
-    const key = (duplicating ? "caldup:" : "caledit:") + (eventId || dt) + ":" + title.slice(0, 24);
+    const key = "caledit:" + (eventId || dt) + ":" + title.slice(0, 24);
     await enqueue(
       "calendar_upsert",
       busJobId,
@@ -54,13 +55,8 @@ export default function EditAppointmentSheet({ event, linkedJobId, onClose, onSa
     };
     appendLocalEvent({ ...event, ...patch });
     pullCalendarNow();
-    if (duplicating) {
-      showToast("Duplicate queued — syncing to calendar");
-      onDuplicated && onDuplicated(patch);
-    } else {
-      showToast("Appointment updated — syncing to calendar");
-      onSaved && onSaved({ ...event, ...patch });
-    }
+    showToast("Appointment updated — syncing to calendar");
+    onSaved && onSaved({ ...event, ...patch });
     onClose();
   };
 
@@ -77,6 +73,24 @@ export default function EditAppointmentSheet({ event, linkedJobId, onClose, onSa
     onDeleted && onDeleted(event.id);
     onClose();
   };
+
+  if (duplicating) {
+    return (
+      <AddAppointmentSheet
+        job={linkedJob}
+        duplicateFrom={event}
+        defaultDate={dt}
+        defaultSummary={summary}
+        defaultLocation={location}
+        defaultNotes={notes}
+        onClose={() => setDuplicating(false)}
+        onSaved={() => {
+          onDuplicated && onDuplicated();
+          onClose();
+        }}
+      />
+    );
+  }
 
   if (confirmDel) {
     return (
@@ -95,11 +109,9 @@ export default function EditAppointmentSheet({ event, linkedJobId, onClose, onSa
   }
 
   return (
-    <Sheet title={duplicating ? "Duplicate appointment" : "Edit appointment"} onClose={onClose}>
+    <Sheet title="Edit appointment" onClose={onClose}>
       {linkedJobId && (
-        <p className="text-[11px] text-slate-400 -mt-1 mb-3">
-          {duplicating ? "New copy will stay linked to the same job." : "Linked to job " + linkedJobId + "."}
-        </p>
+        <p className="text-[11px] text-slate-400 -mt-1 mb-3">Linked to job {linkedJobId}.</p>
       )}
       <Fld label="Title">
         <input className="input" value={summary} onChange={(e) => setSummary(e.target.value)} aria-label="Appointment title" />
@@ -130,15 +142,15 @@ export default function EditAppointmentSheet({ event, linkedJobId, onClose, onSa
         <textarea className="input min-h-[60px]" value={notes} onChange={(e) => setNotes(e.target.value)} aria-label="Notes" />
       </Fld>
       <button className="btn-brand w-full" onClick={save}>
-        {duplicating ? "Create duplicate" : "Save changes"}
+        Save changes
       </button>
-      {!duplicating && event.id ? (
+      {event.id ? (
         <>
           <button
             className="btn bg-brand-soft text-brand w-full mt-2"
             onClick={() => {
               setDuplicating(true);
-              showToast("Adjust date/time, then save to create the copy");
+              showToast("Pick a new date/time, set reminders or invite, then save");
             }}
           >
             Duplicate (same job link)
