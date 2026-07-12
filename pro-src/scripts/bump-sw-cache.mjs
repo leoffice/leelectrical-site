@@ -25,6 +25,6 @@ const newLabel = `le-pro-v${newNum}`;
 const next = src.replace(`const CACHE = "${oldLabel}"`, `const CACHE = "${newLabel}"`);
 
 console.log(`sw cache ${oldLabel} → ${newLabel}`);
-if (dryRun) return;
-
-writeFileSync(SW_PATH, next);
+if (!dryRun) {
+  writeFileSync(SW_PATH, next);
+}
