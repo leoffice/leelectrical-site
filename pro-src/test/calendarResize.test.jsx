@@ -1,18 +1,24 @@
 // @vitest-environment jsdom
-import { describe, expect, it, beforeEach } from "vitest";
+import { describe, expect, it, beforeEach, afterEach, vi } from "vitest";
 import { fireEvent, screen } from "@testing-library/react";
 import "@testing-library/jest-dom/vitest";
-import { mockServer, renderApp } from "./helpers.jsx";
+import { mockServer, renderApp, EV } from "./helpers.jsx";
 
 const CAL_HEIGHT_KEY = "lepro_calendar_height_v1";
+const WEEKDAY = "2026-07-10"; // Friday — week grid includes this day
 
 describe("calendar resize", () => {
   beforeEach(() => {
+    vi.setSystemTime(new Date(WEEKDAY + "T12:00:00"));
     localStorage.removeItem(CAL_HEIGHT_KEY);
   });
 
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
   it("loads saved calendar height on the Today view", async () => {
-    mockServer();
+    mockServer({ events: [{ ...EV, start: WEEKDAY + "T10:00" }] });
     localStorage.setItem(CAL_HEIGHT_KEY, "320");
     renderApp("#/today");
     await screen.findByTestId("week-calendar");
@@ -21,7 +27,7 @@ describe("calendar resize", () => {
   });
 
   it("resizes when dragging the handle and persists the choice", async () => {
-    mockServer();
+    mockServer({ events: [{ ...EV, start: WEEKDAY + "T10:00" }] });
     renderApp("#/today");
     await screen.findByTestId("week-calendar");
     const handle = screen.getByTestId("calendar-resize-handle");

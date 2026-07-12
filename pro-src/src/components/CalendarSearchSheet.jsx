@@ -15,7 +15,7 @@ export default function CalendarSearchSheet({ events, title, hint, onPick, onClo
   return (
     <Sheet title={title || "Choose from calendar"} onClose={onClose} wide>
       <p className="text-sm text-slate-500 mb-3">
-        {hint || "Appointments from the past year onward — search by address, customer, notes, or date."}
+        {hint || "Appointments this year through next year — search by address, customer, notes, or date."}
       </p>
       <input
         className="input mb-3"

@@ -38,6 +38,9 @@ function jobDefaultDate(job, defaultDate) {
 export default function AddAppointmentSheet({
   defaultDate,
   defaultSummary,
+  defaultLocation,
+  defaultNotes,
+  duplicateFrom,
   inspectionPreset,
   job,
   onClose,
@@ -46,6 +49,7 @@ export default function AddAppointmentSheet({
 }) {
   const { events, jobs, enqueue, showToast, patchAndSave, patchJob, appendLocalEvent, pullCalendarNow } = useStore();
   const fromInspection = !!inspectionPreset?.step;
+  const isDuplicate = !!duplicateFrom;
   const presetDt = defaultDate || (fromInspection ? inspectionPreset?.date : "");
   const [summary, setSummary] = useState(() => {
     if (defaultSummary) return defaultSummary;
@@ -53,8 +57,8 @@ export default function AddAppointmentSheet({
     return jobDefaultSummary(job);
   });
   const [dt, setDt] = useState(() => jobDefaultDate(job, presetDt));
-  const [location, setLocation] = useState(() => (job ? calendarServiceLocation(job) : ""));
-  const [notes, setNotes] = useState(() => jobDefaultNotes(job));
+  const [location, setLocation] = useState(() => defaultLocation ?? (job ? calendarServiceLocation(job) : ""));
+  const [notes, setNotes] = useState(() => defaultNotes ?? jobDefaultNotes(job));
   const [remind1h, setRemind1h] = useState(fromInspection);
   const [remind1d, setRemind1d] = useState(fromInspection);
   const [notifyCustomer, setNotifyCustomer] = useState(!!job?.email);
@@ -71,14 +75,15 @@ export default function AddAppointmentSheet({
     if (!dt) return showToast("Pick date and time");
     const busId = job?.id || "today";
     const description = job ? withJobLink(notes || "Created in LE Pro", job.id) : notes || "Created in LE Pro";
-    const key = (job ? "jobcal:" + job.id : "todaycal:") + ":" + dt + ":" + title.slice(0, 24);
+    const key =
+      (isDuplicate ? "caldup:" : job ? "jobcal:" + job.id : "todaycal:") + ":" + dt + ":" + title.slice(0, 24);
     const guests = notifyCustomer && guestEmail.trim() ? [guestEmail.trim()] : [];
     const reminders = [];
     if (remind1h) reminders.push({ label: "1h", minutes: 60 });
     if (remind1d) reminders.push({ label: "1d", minutes: 1440 });
 
     const payload = {
-      calEventId: job?.calEventId || "",
+      calEventId: isDuplicate ? "" : job?.calEventId || "",
       summary: title,
       start: dt,
       location: location || "",
@@ -107,14 +112,14 @@ export default function AddAppointmentSheet({
           }
         : {};
 
-    if (job?.id && !job._customerContext) {
+    if (job?.id && !isDuplicate && !job._customerContext) {
       const day = dt.slice(0, 10);
       await patchAndSave(job.id, {
         calEventId: pendingId,
         status: { Scheduled: { s: "done", d: day } },
         ...paperworkPatch,
       });
-    } else if (job?.id) {
+    } else if (job?.id && !isDuplicate) {
       patchJob(job.id, { calEventId: pendingId, ...paperworkPatch });
     }
 
@@ -126,14 +131,28 @@ export default function AddAppointmentSheet({
       description,
     });
     pullCalendarNow();
-    showToast(job ? "Appointment queued for " + (job.customer || "job") : "Appointment queued — syncs to Google Calendar");
+    showToast(
+      isDuplicate
+        ? "Duplicate queued — syncing to calendar"
+        : job
+          ? "Appointment queued for " + (job.customer || "job")
+          : "Appointment queued — syncs to Google Calendar"
+    );
     onSaved?.();
     onClose();
   };
 
   return (
-    <Sheet title={job ? "Add appointment — " + (job.customer || "job") : "Add appointment"} onClose={onClose} wide>
-      {job ? (
+    <Sheet
+      title={
+        isDuplicate ? "Duplicate appointment" : job ? "Add appointment — " + (job.customer || "job") : "Add appointment"
+      }
+      onClose={onClose}
+      wide
+    >
+      {isDuplicate && job ? (
+        <p className="text-[11px] text-slate-400 -mt-1 mb-2">New copy stays linked to the same job — saves as a fresh calendar event.</p>
+      ) : job ? (
         <p className="text-[11px] text-slate-400 -mt-1 mb-2">
           Pre-filled from {job._customerContext ? "customer" : "job"} info — writes to office@leelectrical.us
         </p>
