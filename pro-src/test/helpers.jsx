@@ -64,6 +64,12 @@ export function mockServer(opts = {}) {
     docs: opts.docs || {}, // key -> stored "pdf" (docs fn: PDF viewing)
     sasCalls: opts.sasCalls || [], // SAS inbound lead tickets (Calls tab)
     customers: opts.customers || [], // QBO customer-name index (/customers, #49/#56)
+    timetrack: opts.timetrack || {
+      employees: [{ id: "emp-levi", name: "Levi", color: "#2563eb", active: true }],
+      active: {},
+      entries: [],
+      ts: Date.now(),
+    },
     progress: opts.progress || {
       meta: {
         agent: "Israel (Grok Build)",
@@ -278,6 +284,68 @@ export function mockServer(opts = {}) {
           state.progress = { ...state.progress, updatedAt: Date.now() };
         }
         data = JSON.parse(JSON.stringify(state.progress));
+      } else if (path === "timetrack") {
+        if (method === "POST" && body?.op) {
+          const doc = state.timetrack;
+          const now = Date.now();
+          if (body.op === "clock_in") {
+            const employeeId = String(body.employeeId || "").trim();
+            if (doc.active[employeeId]) {
+              const sess = doc.active[employeeId];
+              doc.entries.unshift({
+                id: "ent-mock",
+                employeeId,
+                employeeName: (doc.employees.find((e) => e.id === employeeId) || {}).name || "Unknown",
+                kind: sess.kind || "shift",
+                jobId: sess.jobId || null,
+                jobLabel: sess.jobLabel || "",
+                startedAt: sess.startedAt,
+                endedAt: now,
+                durationMs: now - (sess.startedAt || now),
+                note: "",
+              });
+              delete doc.active[employeeId];
+            }
+            doc.active[employeeId] = {
+              id: "sess-" + now,
+              kind: body.kind === "job" ? "job" : "shift",
+              jobId: body.jobId || null,
+              jobLabel: body.jobLabel || "",
+              startedAt: now,
+              note: "",
+              lastSeen: now,
+            };
+          } else if (body.op === "clock_out") {
+            const employeeId = String(body.employeeId || "").trim();
+            const sess = doc.active[employeeId];
+            if (sess) {
+              doc.entries.unshift({
+                id: "ent-" + now,
+                employeeId,
+                employeeName: (doc.employees.find((e) => e.id === employeeId) || {}).name || "Unknown",
+                kind: sess.kind || "shift",
+                jobId: sess.jobId || null,
+                jobLabel: sess.jobLabel || "",
+                startedAt: sess.startedAt,
+                endedAt: now,
+                durationMs: now - (sess.startedAt || now),
+                note: "",
+              });
+              delete doc.active[employeeId];
+            }
+          } else if (body.op === "add_employee" && body.name) {
+            doc.employees.push({
+              id: "emp-" + now,
+              name: String(body.name),
+              color: "#059669",
+              active: true,
+            });
+          } else if (body.op === "heartbeat" && body.employeeId && doc.active[body.employeeId]) {
+            doc.active[body.employeeId].lastSeen = now;
+          }
+          doc.ts = now;
+          data = { ok: true, ...JSON.parse(JSON.stringify(doc)) };
+        } else data = JSON.parse(JSON.stringify(state.timetrack));
       } else if (path === "iterate") data = { ok: true };
       return { ok: true, status: 200, json: async () => data };
     })

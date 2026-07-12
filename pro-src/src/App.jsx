@@ -9,6 +9,7 @@ import JobDetail from "./views/JobDetail.jsx";
 import CustomerView from "./views/CustomerView.jsx";
 import Today from "./views/Today.jsx";
 import Calls from "./views/Calls.jsx";
+import Time from "./views/Time.jsx";
 import Dev from "./views/Dev.jsx";
 import Company from "./views/Company.jsx";
 import Progress, { ProgressRefreshButton } from "./views/Progress.jsx";
@@ -32,6 +33,7 @@ const TABS = [
   { to: "/", label: "Customers", ic: "🗂️", end: true },
   { to: "/today", label: "Calendar", ic: "📅" },
   { to: "/calls", label: "Calls", ic: "📞" },
+  { to: "/time", label: "Time", ic: "⏱️" },
   { to: "/company", label: "Company", ic: "📊" },
   { to: "/progress", label: "Build", ic: "⚡" },
   { to: "/dev", label: "Dev", ic: "🛠️" },
@@ -43,6 +45,7 @@ const MOBILE_NAV_BEFORE = [
   { to: "/", label: "Customers", ic: "🗂️", end: true },
   { to: "/today", label: "Calendar", ic: "📅" },
   { to: "/calls", label: "Calls", ic: "📞" },
+  { to: "/time", label: "Time", ic: "⏱️" },
   { to: "/company", label: "Company", ic: "📊" },
   { to: "/progress", label: "Build", ic: "⚡" },
 ];
@@ -232,6 +235,7 @@ export default function App() {
             <Route path="/customer/:key" element={<CustomerView />} />
             <Route path="/today" element={<Today />} />
             <Route path="/calls" element={<Calls />} />
+            <Route path="/time" element={<Time />} />
             <Route path="/company" element={<Company />} />
             <Route path="/progress" element={<Progress />} />
             <Route path="/dev" element={<Dev />} />

@@ -306,5 +306,14 @@ export function createNetlifyAdapter() {
       if (context && typeof context === "object") body.context = context;
       return http("iterate", body);
     },
+
+    /** Employee time tracking — clock in/out, job time, live board. */
+    async timeTrackGet() {
+      return http(`timetrack?${cb()}`);
+    },
+
+    async timeTrackOp(body) {
+      return http("timetrack", body);
+    },
   };
 }
