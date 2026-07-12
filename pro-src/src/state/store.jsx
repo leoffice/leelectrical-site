@@ -411,6 +411,8 @@ export function StoreProvider({ children }) {
             method: pay.method || "",
             ref: pay.ref || "",
             date: pay.date || todayStr(),
+            note: pay.note || "",
+            depositTo: pay.depositTo || "",
             email: j.email || "",
             sendReceipt: true,
           },

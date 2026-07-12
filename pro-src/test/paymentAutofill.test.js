@@ -17,10 +17,10 @@ describe("paymentAutofill", () => {
     });
   });
 
-  it("builds check memo note with ref and memo", () => {
-    expect(paymentMemoNote({ method: "Check", ref: "1042", memo: "251841 work" })).toBe(
-      "Check #1042 · 251841 work"
-    );
+  it("builds check memo note with ref, deposit, and memo", () => {
+    expect(
+      paymentMemoNote({ method: "Check", ref: "1042", deposit: "Martin Dorkin", memo: "251841 work" })
+    ).toBe("Check #1042 · Deposit: Martin Dorkin · 251841 work");
   });
 
   it("builds Zelle memo note", () => {
