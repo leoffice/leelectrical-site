@@ -7,9 +7,9 @@ account_id = "10814e112c804139472eef626faf73e5"
 STORAGE_BACKEND = "cloudflare"
 
 [[kv_namespaces]]
-binding = "le_office_kv"
+binding = "LE_KV"
 id = "81063e3fc8504dd998a644add2ac9935"
 
 [[r2_buckets]]
-binding = "leoffice_r2"
+binding = "LE_R2"
 bucket_name = "leoffice-r2"
