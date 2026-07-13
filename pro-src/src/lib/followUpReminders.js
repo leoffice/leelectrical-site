@@ -9,6 +9,18 @@ export const WORK_START = 9;
 export const WORK_END = 17;
 export const SAME_DAY_NUDGE_HOURS = 2;
 
+/** Quick snooze presets Levi asked for. */
+export const SNOOZE_PRESETS = [
+  { minutes: 10, label: "10 min" },
+  { minutes: 30, label: "30 min" },
+  { minutes: 60, label: "1 hour" },
+  { minutes: 120, label: "2 hours" },
+];
+
+export const SNOOZE_SLIDER_MIN = 30;
+export const SNOOZE_SLIDER_MAX = 300;
+export const SNOOZE_SLIDER_STEP = 30;
+
 export const REMINDER_PRIORITIES = [
   { key: "low", label: "Low" },
   { key: "medium", label: "Medium" },
@@ -82,6 +94,36 @@ export function isWorkHour(hour) {
   return hour >= WORK_START && hour < WORK_END;
 }
 
+/** Human label for snooze minutes — slider uses half-hour steps up to 5h. */
+export function formatSnoozeDuration(minutes) {
+  const m = Math.max(0, Math.round(Number(minutes) || 0));
+  if (m < 60) return `${m} min`;
+  const h = Math.floor(m / 60);
+  const r = m % 60;
+  if (!r) return h === 1 ? "1 hour" : `${h} hours`;
+  const half = r === 30 ? "½" : `:${String(r).padStart(2, "0")}`;
+  return h ? `${h}${half} hours` : `${r} min`;
+}
+
+function isSnoozed(st, now) {
+  if (!st?.snoozeUntil) return false;
+  return new Date(st.snoozeUntil) > now;
+}
+
+function remindAtDue(st, now) {
+  if (!st?.remindAt) return false;
+  return new Date(st.remindAt) <= now;
+}
+
+function localDatetime(d) {
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  const h = String(d.getHours()).padStart(2, "0");
+  const min = String(d.getMinutes()).padStart(2, "0");
+  return `${y}-${m}-${day}T${h}:${min}`;
+}
+
 /** Default reminder slot: next weekday at 10:00 within work hours. */
 export function defaultRemindDatetime(now = new Date()) {
   let d = new Date(now);
@@ -141,6 +183,7 @@ export function serviceCallCandidates(events, jobs, today, now = new Date()) {
       if (!isServiceCallEvent(e)) return false;
       if (isEventHandled(state, e.id)) return false;
       const st = eventState(state, e.id);
+      if (isSnoozed(st, now)) return false;
       if (st.remindAt && new Date(st.remindAt) > now) return false;
       return true;
     })
@@ -170,6 +213,7 @@ export function dueMustTodayNudges(events, jobs, today, now = new Date()) {
     const st = eventState(state, e.id);
     if (st.priority !== "must_today") continue;
     if (isEventHandled(state, e.id)) continue;
+    if (isSnoozed(st, now)) continue;
     const remindYmd = (st.remindAt || "").slice(0, 10);
     if (remindYmd !== today) continue;
     const nextNudge = st.nextNudgeAt ? new Date(st.nextNudgeAt) : null;
@@ -194,16 +238,56 @@ export function pickFirmerNudge(pushOffCount = 0, seed = "") {
   return pool[idx];
 }
 
-export function scheduleSameDayPushOff(eventId, now = new Date()) {
+export function scheduleSameDayPushOff(eventId, now = new Date(), minutes = SAME_DAY_NUDGE_HOURS * 60) {
+  patchEventState(eventId, { priority: "must_today" });
+  return scheduleReminderSnooze(eventId, minutes, now);
+}
+
+/** Snooze one reminder — presets or slider minutes (max 5h). */
+export function scheduleReminderSnooze(eventId, minutes, now = new Date()) {
   const st = eventState(loadState(), eventId);
-  const pushOffCount = (st.pushOffCount || 0) + 1;
+  const mins = Math.min(SNOOZE_SLIDER_MAX, Math.max(1, Math.round(Number(minutes) || 0)));
   const next = new Date(now);
-  next.setHours(next.getHours() + SAME_DAY_NUDGE_HOURS);
-  return patchEventState(eventId, {
-    pushOffCount,
-    nextNudgeAt: next.toISOString(),
-    priority: "must_today",
-  });
+  next.setMinutes(next.getMinutes() + mins);
+  const iso = next.toISOString();
+  const patch = {
+    snoozeUntil: iso,
+    nextNudgeAt: iso,
+  };
+  if (st.priority === "must_today") {
+    patch.pushOffCount = (st.pushOffCount || 0) + 1;
+    patch.priority = "must_today";
+  } else {
+    patch.remindAt = localDatetime(next);
+    patch.pushOffCount = 0;
+  }
+  return patchEventState(eventId, patch);
+}
+
+/** Snooze every reminder in the list by the same amount. */
+export function batchSnoozeReminders(eventIds, minutes, now = new Date()) {
+  const ids = [...new Set((eventIds || []).map((id) => String(id || "")).filter(Boolean))];
+  return ids.map((id) => scheduleReminderSnooze(id, minutes, now));
+}
+
+/** Scheduled reminders whose remindAt has passed (any appointment age). */
+export function dueScheduledReminders(events, jobs, today, now = new Date()) {
+  const state = loadState();
+  const out = [];
+  for (const e of events || []) {
+    const st = eventState(state, e.id);
+    if (!st.remindAt || isEventHandled(state, e.id)) continue;
+    if (isSnoozed(st, now)) continue;
+    if (st.priority === "must_today" && st.remindAt.slice(0, 10) === today) continue;
+    if (!remindAtDue(st, now)) continue;
+    out.push({ event: e, state: st, job: linkedJobForEvent(e, jobs) });
+  }
+  return out;
+}
+
+/** Event ids in the queue that Levi can snooze together. */
+export function snoozableQueueItems(queue) {
+  return (queue || []).filter((x) => x.kind === "must_today_nudge" || x.kind === "scheduled_reminder");
 }
 
 export function scheduleNextBusinessDayReminder(eventId, note, today) {
@@ -244,6 +328,9 @@ export function buildPromptQueue(events, jobs, today, now = new Date()) {
   const queue = [];
   for (const item of dueMustTodayNudges(events, jobs, today, now)) {
     queue.push({ kind: "must_today_nudge", ...item });
+  }
+  for (const item of dueScheduledReminders(events, jobs, today, now)) {
+    queue.push({ kind: "scheduled_reminder", ...item });
   }
   for (const event of inspectionCandidates(events, today)) {
     const ymd = eventYmd(event);
@@ -322,6 +409,7 @@ export function dismissEventReminders(eventId, { noReminders = false } = {}) {
     noReminders: !!noReminders,
     remindAt: "",
     nextNudgeAt: "",
+    snoozeUntil: "",
   });
 }
 

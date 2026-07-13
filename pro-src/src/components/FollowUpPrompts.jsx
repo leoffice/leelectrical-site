@@ -1,5 +1,5 @@
 // Login follow-up popups — service calls, must-today loop, inspections.
-import React, { useCallback, useEffect, useState } from "react";
+import React, { useCallback, useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import Sheet, { Fld } from "./Sheet.jsx";
 import CreateJobFromEventSheet from "./CreateJobFromEventSheet.jsx";
@@ -9,19 +9,24 @@ import { todayStr } from "../lib/format.js";
 import { linkedJobForEvent, displayEventNotes } from "../lib/calendarLink.js";
 import {
   REMINDER_PRIORITIES,
+  batchSnoozeReminders,
   buildPromptQueue,
   defaultRemindDatetime,
   dismissEventReminders,
+  formatSnoozeDuration,
   generateReminderNudge,
   patchEventState,
   pickFirmerNudge,
   rescheduleEventReminder,
   scheduleNextBusinessDayReminder,
-  scheduleSameDayPushOff,
+  scheduleReminderSnooze,
+  snoozableQueueItems,
   validateRemindDatetime,
 } from "../lib/followUpReminders.js";
 import { stashCalendarPick } from "../lib/calendarNavigate.js";
+import { askReminderNotifyPermission, notifyReminderDue } from "../lib/reminderNotify.js";
 import ReminderDateTimePicker from "./ReminderDateTimePicker.jsx";
+import SnoozePicker from "./SnoozePicker.jsx";
 
 const SESSION_KEY = "lepro_followup_session";
 const IS_TEST = import.meta.env.MODE === "test" || !!import.meta.env.VITEST;
@@ -178,13 +183,33 @@ function RescheduleReminderSheet({ event, state: st, job, onClose, onSaved }) {
   );
 }
 
-function MustTodayNudgeSheet({ event, state: st, job, onClose, onDone, onReschedule }) {
+function BatchSnoozeBar({ queue, onBatchSnooze }) {
+  const snoozable = snoozableQueueItems(queue);
+  if (snoozable.length < 2) return null;
+
+  const handleSnooze = (minutes) => {
+    const ids = snoozable.map((x) => x.event.id);
+    onBatchSnooze(ids, minutes);
+  };
+
+  return (
+    <div className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-3 mb-4" data-testid="batch-snooze-bar">
+      <SnoozePicker
+        label={`Snooze all ${snoozable.length} reminders`}
+        onSnooze={handleSnooze}
+        compact
+      />
+    </div>
+  );
+}
+
+function MustTodayNudgeSheet({ event, state: st, job, queue, onClose, onDone, onReschedule, onSnooze, onBatchSnooze }) {
   const nav = useNavigate();
   const { showToast } = useStore();
   const isFirmer = (st.pushOffCount || 0) > 0;
   const message = isFirmer
     ? pickFirmerNudge(st.pushOffCount, event?.id || "")
-    : st.nudge || "Still on your list for today — want to knock it out now or push it off a couple hours?";
+    : st.nudge || "Still on your list for today — want to knock it out now or snooze it?";
 
   const openJob = () => {
     patchEventState(event.id, { handledAt: Date.now() });
@@ -201,9 +226,10 @@ function MustTodayNudgeSheet({ event, state: st, job, onClose, onDone, onResched
     nav("/today");
   };
 
-  const pushTwoHours = () => {
-    scheduleSameDayPushOff(event.id);
-    showToast("OK — I'll ping you again in 2 hours");
+  const snooze = (minutes) => {
+    scheduleReminderSnooze(event.id, minutes);
+    showToast("OK — I'll ping you again in " + formatSnoozeDuration(minutes));
+    onSnooze && onSnooze();
     onDone();
     onClose();
   };
@@ -217,6 +243,7 @@ function MustTodayNudgeSheet({ event, state: st, job, onClose, onDone, onResched
 
   return (
     <Sheet title={isFirmer ? "⏰ Take care of it today!" : "Reminder — today"} onClose={onClose}>
+      <BatchSnoozeBar queue={queue} onBatchSnooze={onBatchSnooze} />
       <p className={`text-sm mb-4 ${isFirmer ? "text-red-700 font-medium" : "text-slate-600"}`}>{message}</p>
       <div className="text-sm space-y-1 mb-4 card px-3 py-2.5">
         <div className="font-semibold text-slate-900">{event?.summary || "Follow-up"}</div>
@@ -228,14 +255,76 @@ function MustTodayNudgeSheet({ event, state: st, job, onClose, onDone, onResched
       <button type="button" className="btn bg-slate-100 text-slate-800 w-full mb-2" onClick={openInCalendar} data-testid="reminder-open-calendar">
         📅 Open in calendar
       </button>
-      <button type="button" className="btn bg-amber-100 text-amber-900 w-full mb-2" onClick={pushTwoHours}>
-        Push off — remind me in 2 hours
-      </button>
+      <div className="mb-3">
+        <SnoozePicker onSnooze={snooze} />
+      </div>
       <button type="button" className="btn bg-slate-100 text-slate-800 w-full mb-2" onClick={onReschedule} data-testid="reminder-move-day">
         Move to a different day
       </button>
       <button type="button" className="btn-ghost w-full text-slate-600" onClick={pushTomorrow}>
         Next business day only
+      </button>
+    </Sheet>
+  );
+}
+
+function ScheduledReminderSheet({ event, state: st, job, queue, onClose, onDone, onReschedule, onSnooze, onBatchSnooze }) {
+  const nav = useNavigate();
+  const { showToast } = useStore();
+  const today = todayStr();
+  const message = st.nudge || generateReminderNudge({ event, job, userNote: st.note, today });
+
+  const openJob = () => {
+    patchEventState(event.id, { handledAt: Date.now() });
+    onDone();
+    onClose();
+    if (job?.id) nav("/job/" + encodeURIComponent(job.id));
+    else nav("/today");
+  };
+
+  const openInCalendar = () => {
+    stashCalendarPick(event.id);
+    onDone();
+    onClose();
+    nav("/today");
+  };
+
+  const snooze = (minutes) => {
+    scheduleReminderSnooze(event.id, minutes);
+    showToast("Snoozed for " + formatSnoozeDuration(minutes));
+    onSnooze && onSnooze();
+    onDone();
+    onClose();
+  };
+
+  const dismiss = () => {
+    dismissEventReminders(event.id);
+    onDone();
+    onClose();
+  };
+
+  return (
+    <Sheet title="🔔 Reminder" onClose={onClose}>
+      <BatchSnoozeBar queue={queue} onBatchSnooze={onBatchSnooze} />
+      <p className="text-sm text-slate-600 mb-4">{message}</p>
+      <div className="text-sm space-y-1 mb-4 card px-3 py-2.5">
+        <div className="font-semibold text-slate-900">{event?.summary || "Follow-up"}</div>
+        {st.note ? <div className="text-slate-500">{st.note}</div> : null}
+      </div>
+      <button type="button" className="btn-brand w-full mb-2" onClick={openJob}>
+        Open &amp; handle it
+      </button>
+      <button type="button" className="btn bg-slate-100 text-slate-800 w-full mb-2" onClick={openInCalendar}>
+        📅 Open in calendar
+      </button>
+      <div className="mb-3">
+        <SnoozePicker onSnooze={snooze} />
+      </div>
+      <button type="button" className="btn bg-slate-100 text-slate-800 w-full mb-2" onClick={onReschedule} data-testid="scheduled-reminder-move">
+        Move to a different day
+      </button>
+      <button type="button" className="btn-ghost w-full text-slate-600" onClick={dismiss}>
+        Got it — dismiss
       </button>
     </Sheet>
   );
@@ -367,12 +456,40 @@ function ServiceCallSheet({ event, job, onClose, onDone, onCreateJob, onRemind }
 }
 
 export default function FollowUpPrompts() {
-  const { events, jobs, loading } = useStore();
+  const { events, jobs, loading, showToast } = useStore();
   const [queue, setQueue] = useState([]);
   const [current, setCurrent] = useState(null);
   const [subSheet, setSubSheet] = useState(null); // remind | createJob
+  const notifiedRef = useRef(new Set());
 
   const today = todayStr();
+
+  const clearNotified = useCallback((eventIds) => {
+    for (const id of eventIds || []) notifiedRef.current.delete(id);
+  }, []);
+
+  const notifyDueItem = useCallback(
+    (item) => {
+      if (!item?.event?.id || notifiedRef.current.has(item.event.id)) return;
+      const title =
+        item.kind === "must_today_nudge"
+          ? "Must-do today"
+          : item.kind === "scheduled_reminder"
+            ? "Reminder"
+            : item.kind === "inspection"
+              ? "Inspection"
+              : "Follow-up";
+      const body =
+        item.state?.nudge ||
+        item.state?.note ||
+        item.event?.summary ||
+        generateReminderNudge({ event: item.event, job: item.job, userNote: item.state?.note, today });
+      notifyReminderDue({ title, body, eventId: item.event.id });
+      notifiedRef.current.add(item.event.id);
+    },
+    [today]
+  );
+
   const refreshQueue = useCallback(() => {
     if (loading || !events?.length) return;
     const q = buildPromptQueue(events, jobs, today);
@@ -382,6 +499,7 @@ export default function FollowUpPrompts() {
 
   useEffect(() => {
     if (loading || IS_TEST) return;
+    askReminderNotifyPermission();
     if (sessionAlreadyPrompted()) {
       refreshQueue();
       return;
@@ -396,15 +514,37 @@ export default function FollowUpPrompts() {
 
   useEffect(() => {
     if (IS_TEST) return;
-    const iv = setInterval(() => {
-      const nudges = buildPromptQueue(events, jobs, today).filter((x) => x.kind === "must_today_nudge");
-      if (nudges.length && !current) {
-        setCurrent(nudges[0]);
-        setQueue((q) => [...nudges, ...q.filter((x) => x.kind !== "must_today_nudge")]);
+    const tick = () => {
+      const q = buildPromptQueue(events, jobs, today);
+      const dueNow = q.filter((x) => x.kind === "must_today_nudge" || x.kind === "scheduled_reminder");
+      if (!dueNow.length) return;
+      dueNow.forEach(notifyDueItem);
+      if (!current) {
+        setCurrent(dueNow[0]);
+        setQueue((prev) => {
+          const rest = prev.filter((x) => x.kind !== "must_today_nudge" && x.kind !== "scheduled_reminder");
+          return [...dueNow, ...rest];
+        });
       }
-    }, 60_000);
+    };
+    tick();
+    const iv = setInterval(tick, 30_000);
     return () => clearInterval(iv);
-  }, [events, jobs, today, current]);
+  }, [events, jobs, today, current, notifyDueItem]);
+
+  const handleBatchSnooze = useCallback(
+    (eventIds, minutes) => {
+      batchSnoozeReminders(eventIds, minutes);
+      clearNotified(eventIds);
+      showToast("Snoozed " + eventIds.length + " reminders for " + formatSnoozeDuration(minutes));
+      setQueue((q) => {
+        const rest = q.filter((x) => !eventIds.includes(x.event?.id));
+        setCurrent((c) => (c && eventIds.includes(c.event?.id) ? rest[0] || null : c));
+        return rest;
+      });
+    },
+    [clearNotified, showToast]
+  );
 
   const advance = useCallback(() => {
     setSubSheet(null);
@@ -466,8 +606,34 @@ export default function FollowUpPrompts() {
         event={current.event}
         state={current.state}
         job={current.job}
+        queue={queue}
         onClose={advance}
         onDone={advance}
+        onSnooze={() => clearNotified([current.event.id])}
+        onBatchSnooze={handleBatchSnooze}
+        onReschedule={() =>
+          setSubSheet({
+            kind: "reschedule",
+            event: current.event,
+            state: current.state,
+            job: current.job,
+          })
+        }
+      />
+    );
+  }
+
+  if (current.kind === "scheduled_reminder") {
+    return (
+      <ScheduledReminderSheet
+        event={current.event}
+        state={current.state}
+        job={current.job}
+        queue={queue}
+        onClose={advance}
+        onDone={advance}
+        onSnooze={() => clearNotified([current.event.id])}
+        onBatchSnooze={handleBatchSnooze}
         onReschedule={() =>
           setSubSheet({
             kind: "reschedule",

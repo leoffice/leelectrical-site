@@ -2,16 +2,21 @@
 import { describe, expect, it, beforeEach } from "vitest";
 import {
   STATE_KEY,
+  batchSnoozeReminders,
   buildPromptQueue,
   dismissEventReminders,
+  dueScheduledReminders,
+  formatSnoozeDuration,
   generateReminderNudge,
   inspectionCandidates,
   isInspectionEvent,
   isServiceCallEvent,
   pickFirmerNudge,
   rescheduleEventReminder,
+  scheduleReminderSnooze,
   scheduleSameDayPushOff,
   serviceCallCandidates,
+  snoozableQueueItems,
   validateRemindDatetime,
   suggestJobsForEvent,
 } from "../src/lib/followUpReminders.js";
@@ -154,5 +159,79 @@ describe("followUpReminders", () => {
       { id: "J-2", customer: "Other", address: "99 Oak" },
     ];
     expect(suggestJobsForEvent(event, jobs).map((j) => j.id)).toEqual(["J-1"]);
+  });
+
+  it("formatSnoozeDuration labels presets and slider values", () => {
+    expect(formatSnoozeDuration(10)).toBe("10 min");
+    expect(formatSnoozeDuration(60)).toBe("1 hour");
+    expect(formatSnoozeDuration(90)).toBe("1½ hours");
+    expect(formatSnoozeDuration(300)).toBe("5 hours");
+  });
+
+  it("scheduleReminderSnooze delays remindAt and respects snooze window", () => {
+    const now = new Date("2026-07-13T09:00:00");
+    const st = scheduleReminderSnooze("ev1", 30, now);
+    expect(st.snoozeUntil).toBe(new Date("2026-07-13T09:30:00").toISOString());
+    expect(st.remindAt).toBe("2026-07-13T09:30");
+    localStorage.setItem(STATE_KEY, JSON.stringify({ ev1: st }));
+    expect(
+      dueScheduledReminders([{ id: "ev1", summary: "Follow up", start: "2026-06-01T10:00" }], [], "2026-07-13", now)
+    ).toHaveLength(0);
+    const later = new Date("2026-07-13T09:31:00");
+    expect(
+      dueScheduledReminders([{ id: "ev1", summary: "Follow up", start: "2026-06-01T10:00" }], [], "2026-07-13", later)
+    ).toHaveLength(1);
+  });
+
+  it("dueScheduledReminders catches old appointments outside the service-call lookback", () => {
+    localStorage.setItem(
+      STATE_KEY,
+      JSON.stringify({
+        old: { remindAt: "2026-07-13T08:00", note: "call back", priority: "medium" },
+      })
+    );
+    const now = new Date("2026-07-13T09:00:00");
+    const hits = dueScheduledReminders(
+      [{ id: "old", summary: "Service call — Jane", start: "2026-05-01T10:00" }],
+      [],
+      "2026-07-13",
+      now
+    );
+    expect(hits).toHaveLength(1);
+    expect(hits[0].event.id).toBe("old");
+  });
+
+  it("batchSnoozeReminders snoozes every id in the list", () => {
+    const now = new Date("2026-07-13T10:00:00");
+    batchSnoozeReminders(["a", "b"], 10, now);
+    const raw = JSON.parse(localStorage.getItem(STATE_KEY));
+    expect(raw.a.snoozeUntil).toBe(new Date("2026-07-13T10:10:00").toISOString());
+    expect(raw.b.snoozeUntil).toBe(new Date("2026-07-13T10:10:00").toISOString());
+  });
+
+  it("buildPromptQueue includes scheduled reminders when remindAt is due", () => {
+    localStorage.setItem(
+      STATE_KEY,
+      JSON.stringify({
+        due: { remindAt: "2026-07-13T08:00", priority: "high", nudge: "Ping Bob" },
+      })
+    );
+    const now = new Date("2026-07-13T09:00:00");
+    const q = buildPromptQueue(
+      [{ id: "due", summary: "Estimate follow-up", start: "2026-04-01T10:00" }],
+      [],
+      "2026-07-13",
+      now
+    );
+    expect(q.some((x) => x.kind === "scheduled_reminder")).toBe(true);
+  });
+
+  it("snoozableQueueItems filters reminder kinds for batch snooze", () => {
+    const q = [
+      { kind: "must_today_nudge", event: { id: "a" } },
+      { kind: "scheduled_reminder", event: { id: "b" } },
+      { kind: "inspection", event: { id: "c" } },
+    ];
+    expect(snoozableQueueItems(q).map((x) => x.event.id)).toEqual(["a", "b"]);
   });
 });
