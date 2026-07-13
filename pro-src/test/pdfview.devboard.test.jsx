@@ -38,22 +38,40 @@ describe("invoice/estimate quick view — View PDF", () => {
     expect(srv.enqueued("fetch_pdf")).toHaveLength(0); // no command when already stored
   });
 
-  it("on a miss: enqueues fetch_pdf (judgment, pdf:<no>:<date>), shows fetching, then opens after a poll", async () => {
+  it("on a miss with invoice data: opens local PDF immediately and still enqueues fetch_pdf", async () => {
     const click = stubPdfOpen();
     const srv = mockServer(); // docs empty -> 404
     const user = userEvent.setup();
     const sheet = await openInvoiceSheet(user);
 
     await user.click(within(sheet).getByText("View PDF"));
-    await screen.findByText("Fetching from QuickBooks — a few seconds…");
+    await waitFor(() => expect(click).toHaveBeenCalledTimes(1));
+    expect(screen.queryByText("Fetching from QuickBooks — a few seconds…")).toBeNull();
     await waitFor(() => expect(srv.enqueued("fetch_pdf")).toHaveLength(1));
     const cmd = srv.enqueued("fetch_pdf")[0];
     expect(cmd.lane).toBe("judgment");
     expect(cmd.idempotencyKey).toBe("pdf:251841:" + todayStr());
     expect(cmd.payload).toEqual({ kind: "invoice", no: "251841", docKey: "inv-251841" });
+  });
 
-    // Host uploads it -> the 4s poll picks it up and opens natively.
-    srv.state.docs["inv-251841"] = "%PDF-1.4 fetched";
+  it("on a miss without local data: enqueues fetch_pdf and polls until stored", async () => {
+    const click = stubPdfOpen();
+    const bare = {
+      id: "J-BARE",
+      customer: "No Lines",
+      invoiceNo: "999001",
+      amount: "",
+      invoiceLines: [],
+    };
+    const srv = mockServer({ jobs: [bare] });
+    const user = userEvent.setup();
+    renderApp("#/job/J-BARE");
+    const pane = await screen.findByTestId("detail-pane");
+    await user.click(within(pane).getByTestId("tab-invoice"));
+    const sheet = screen.getByRole("dialog");
+    await user.click(within(sheet).getByText("View PDF"));
+    await screen.findByText("Fetching from QuickBooks — a few seconds…");
+    srv.state.docs["inv-999001"] = "%PDF-1.4 fetched";
     await waitFor(() => expect(click).toHaveBeenCalledTimes(1), { timeout: 7000 });
   }, 12000);
 });

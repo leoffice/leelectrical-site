@@ -434,6 +434,13 @@ export function stubPdfOpen() {
     }
     return orig(tag);
   });
+  if (!URL.createObjectURL) {
+    URL.createObjectURL = vi.fn(() => "blob:mock-pdf");
+    URL.revokeObjectURL = vi.fn();
+  } else {
+    vi.spyOn(URL, "createObjectURL").mockReturnValue("blob:mock-pdf");
+    vi.spyOn(URL, "revokeObjectURL").mockImplementation(() => {});
+  }
   return click;
 }
 

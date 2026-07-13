@@ -21,7 +21,8 @@ import { enrichAndPatchCustomer } from "./NewJobFlow.jsx";
 import { useStore } from "../state/store.jsx";
 import { serviceAddressHint, serviceAddressLabel } from "../lib/customerSync.js";
 import { fmt$, parseAmount, todayStr } from "../lib/format.js";
-import { docStorePdfUrl, openPdfUrl } from "../lib/pdfOpen.js";
+import { docStorePdfUrl, openPdfBlob, openPdfUrl } from "../lib/pdfOpen.js";
+import { buildInvoicePdfFromJob, canGenerateLocalInvoice } from "../lib/invoicePdf.js";
 import { chargeCardInApp, fetchSolaIfieldsConfig } from "../lib/solaCharge.js";
 import SolaCardForm, { tokenizeSolaCard } from "./SolaCardForm.jsx";
 import { fmtMoneyPrecise, totalWithFee } from "../lib/payFees.js";
@@ -1244,6 +1245,13 @@ export function PdfViewer({ job, kind, no, compact, children }) {
     setSt({ phase: "checking" });
     const blob = await check();
     if (blob) return openStored();
+    // Invoice with line data — open a local PDF immediately (QBO layout clone).
+    if (kind === "invoice" && canGenerateLocalInvoice(job)) {
+      openPdfBlob(buildInvoicePdfFromJob(job));
+      setSt({ phase: "idle" });
+      enqueue("fetch_pdf", job.id, { kind, no, docKey }, "judgment", "pdf:" + no + ":" + todayStr());
+      return;
+    }
     // Not stored yet — ask the host agent to pull it from QuickBooks.
     enqueue("fetch_pdf", job.id, { kind, no, docKey }, "judgment", "pdf:" + no + ":" + todayStr());
     deadline.current = Date.now() + 90_000;
@@ -1279,7 +1287,7 @@ export function PdfViewer({ job, kind, no, compact, children }) {
       </div>
     );
   }
-  return <Opt icon="📄" title="View PDF" note="Opens full screen · live from QuickBooks" onClick={view} />;
+  return <Opt icon="📄" title="View PDF" note="Opens full screen · in-app or QuickBooks" onClick={view} />;
 }
 
 /* ---------- 2a-pay. Payment menu (record vs link) ---------- */

@@ -69,27 +69,36 @@ describe("#44 jobs-list Invoice offers View as well as Send", () => {
   });
 });
 
-describe("#44/#45 PDF viewing: stage wording + native open", () => {
-  it("surfaces the Requesting -> Fetching from QuickBooks -> Ready stages, then opens the PDF natively", async () => {
+describe("#44/#45 PDF viewing: local open + background QBO fetch", () => {
+  it("opens a local invoice PDF immediately when job has invoice data", async () => {
     const click = stubPdfOpen();
-    const srv = mockServer(); // docs empty -> a miss, so it enqueues + polls
+    const srv = mockServer(); // docs empty -> local gen path
     const user = userEvent.setup();
 
     renderNode(<QuickSendSheet job={JOB} onClose={() => {}} />);
     await user.click(await screen.findByText("View PDF"));
 
-    // #45 — plain-wording status line + the three-stage indicator.
+    await waitFor(() => expect(click).toHaveBeenCalledTimes(1));
+    expect(screen.queryByText("Fetching from QuickBooks — a few seconds…")).toBeNull();
+    await waitFor(() => expect(srv.enqueued("fetch_pdf")).toHaveLength(1));
+    expect(document.querySelector("[data-fullscreen-pdf]")).toBeNull();
+  });
+
+  it("falls back to QBO fetch stages when job has no billable lines", async () => {
+    const click = stubPdfOpen();
+    const bare = { ...JOB, amount: "", invoiceLines: [] };
+    const srv = mockServer();
+    const user = userEvent.setup();
+
+    renderNode(<QuickSendSheet job={bare} onClose={() => {}} />);
+    await user.click(await screen.findByText("View PDF"));
+
     expect(await screen.findByText("Fetching from QuickBooks — a few seconds…")).toBeInTheDocument();
     const bar = document.querySelector('[aria-label="Document status"]');
     expect(bar).not.toBeNull();
     PDF_STAGES.forEach((s) => expect(bar.textContent).toContain(s));
 
-    // #44 — no manual "go full screen" step exists anymore.
-    expect(screen.queryByText("⛶ Full screen")).toBeNull();
-
-    // Host uploads the PDF -> the poll picks it up and opens natively.
     srv.state.docs["inv-251841"] = "%PDF-1.4 fetched";
     await waitFor(() => expect(click).toHaveBeenCalledTimes(1), { timeout: 7000 });
-    expect(document.querySelector("[data-fullscreen-pdf]")).toBeNull();
   }, 12000);
 });
