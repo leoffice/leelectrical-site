@@ -23,6 +23,8 @@ import DocConfirmWatcher from "./components/DocConfirmWatcher.jsx";
 import SendInvoiceWatcher from "./components/SendInvoiceWatcher.jsx";
 import DedupePrompts from "./components/DedupePrompts.jsx";
 import FollowUpPrompts from "./components/FollowUpPrompts.jsx";
+import { LiveEditProvider } from "./components/LiveEditProvider.jsx";
+import LiveEditBar from "./components/LiveEditBar.jsx";
 import { docConfirmMessage } from "./lib/docConfirm.js";
 import NewJobFlow from "./components/NewJobFlow.jsx";
 import Sheet, { Opt } from "./components/Sheet.jsx";
@@ -152,6 +154,7 @@ export default function App() {
   const fabContext = appointmentContextFromRoute(loc.pathname, { effectiveJob, jobs });
 
   return (
+    <LiveEditProvider>
     <div className="min-h-screen lg:flex">
       {/* Desktop sidebar — fixed so it never scrolls away */}
       <aside
@@ -281,6 +284,7 @@ export default function App() {
         <SendInvoiceWatcher />
         <DedupePrompts />
         <FollowUpPrompts />
+        <LiveEditBar />
         <LeaveSheet />
 
         {/* Mobile bottom tab nav — Archive | ＋ 💬 | Dev */}
@@ -340,5 +344,6 @@ export default function App() {
         )}
       </div>
     </div>
+    </LiveEditProvider>
   );
 }

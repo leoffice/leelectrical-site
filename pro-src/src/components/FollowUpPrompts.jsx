@@ -48,6 +48,9 @@ import {
 import { askReminderNotifyPermission, notifyReminderDue } from "../lib/reminderNotify.js";
 import ReminderDateTimePicker from "./ReminderDateTimePicker.jsx";
 import SnoozePicker from "./SnoozePicker.jsx";
+import IntelligentSuggestionBlock from "./IntelligentSuggestionBlock.jsx";
+import LiveEditActionButton from "./LiveEditActionButton.jsx";
+import { makeEditKey } from "../lib/liveEdit.js";
 
 function openCalendarKeepingReminder({ event, kind, state, dismissForWork, nav }) {
   stashReminderReturn({
@@ -430,23 +433,21 @@ function ScheduledReminderSheet({
         {st.note ? <div className="text-slate-500">{st.note}</div> : null}
       </div>
       {nextActions.length ? (
-        <div className="rounded-xl border border-brand/20 bg-brand-soft/40 px-3 py-3 mb-3">
-          <div className="text-xs font-bold text-brand uppercase tracking-wide mb-1">{nextCopy.title}</div>
-          <p className="text-sm text-slate-600 mb-2">{nextCopy.lead}</p>
+        <IntelligentSuggestionBlock scope="followup:scheduled_reminder" title={nextCopy.title} lead={nextCopy.lead}>
           <div className="space-y-2">
             {nextActions.slice(0, 3).map((action) => (
-              <button
+              <LiveEditActionButton
                 key={action.key}
-                type="button"
-                className={action.primary ? "btn-brand w-full" : "btn bg-slate-100 text-slate-800 w-full"}
+                editKey={makeEditKey("followup:scheduled_reminder", "action:" + action.key)}
+                label={action.label}
+                icon={action.icon}
+                primary={action.primary}
                 onClick={() => runScenarioAction(action)}
-                data-testid={"scheduled-followup-action-" + action.key}
-              >
-                {action.icon} {action.label}
-              </button>
+                testId={"scheduled-followup-action-" + action.key}
+              />
             ))}
           </div>
-        </div>
+        </IntelligentSuggestionBlock>
       ) : null}
       {noteIntent && intentOpensDocBuilder(noteIntent) ? (
         <button type="button" className="btn-brand w-full mb-2" onClick={runNoteIntent} data-testid="scheduled-reminder-do-now">
@@ -596,23 +597,21 @@ function ServiceCallSheet({ event, job, onClose, onDone, onCreateJob, onRemind, 
         ) : null}
       </div>
       {nextActions.length ? (
-        <div className="rounded-xl border border-brand/20 bg-brand-soft/40 px-3 py-3 mb-3">
-          <div className="text-xs font-bold text-brand uppercase tracking-wide mb-1">{nextCopy.title}</div>
-          <p className="text-sm text-slate-600 mb-2">{nextCopy.lead}</p>
+        <IntelligentSuggestionBlock scope="followup:service_call" title={nextCopy.title} lead={nextCopy.lead}>
           <div className="space-y-2">
             {nextActions.slice(0, 3).map((action) => (
-              <button
+              <LiveEditActionButton
                 key={action.key}
-                type="button"
-                className={action.primary ? "btn-brand w-full" : "btn bg-slate-100 text-slate-800 w-full"}
+                editKey={makeEditKey("followup:service_call", "action:" + action.key)}
+                label={action.label}
+                icon={action.icon}
+                primary={action.primary}
                 onClick={() => runScenarioAction(action)}
-                data-testid={"followup-action-" + action.key}
-              >
-                {action.icon} {action.label}
-              </button>
+                testId={"followup-action-" + action.key}
+              />
             ))}
           </div>
-        </div>
+        </IntelligentSuggestionBlock>
       ) : null}
       <button type="button" className="btn-brand w-full mb-2" onClick={onRemind} data-testid="followup-remind">
         🔔 Remind me
