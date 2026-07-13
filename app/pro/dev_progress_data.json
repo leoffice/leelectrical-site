@@ -7,7 +7,7 @@
     "time_method": "Active build time estimated by sessionizing commit timestamps: consecutive commits within 30 min count as continuous work; gaps >30 min end a session. Sum of session spans.",
     "human_rate_usd_per_hour": 150.0,
     "ai_cost_note": "Grok flat subscription \u2014 marginal cost per build ~ $0.",
-    "generated_at": "2026-07-13 21:07:46Z"
+    "generated_at": "2026-07-13 21:08:31Z"
   },
   "totals": {
     "updates": 12,
