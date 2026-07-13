@@ -1,76 +1,63 @@
-// No job on calendar event — suggest a match or create fresh from appointment.
+// No job on calendar event — pick service address for customer, then create from appointment.
 import React, { useMemo } from "react";
 import Sheet, { Opt } from "./Sheet.jsx";
 import { useStore } from "../state/store.jsx";
-import { prefillFromEvent } from "../lib/prefillFromEvent.js";
-import { applyAppointmentJobLink } from "../lib/calendarLink.js";
+import { prefillFromEvent, prefillAtServiceAddress } from "../lib/prefillFromEvent.js";
 import { suggestJobsForEvent } from "../lib/calendarLink.js";
-import { fmtAmountDue } from "../lib/customers.js";
+import { serviceAddressesForJobs, serviceAddressKey } from "../lib/customerHierarchy.js";
+import { clientKey, customerKeyForName, jobsForCustomerKey } from "../lib/customers.js";
 import { evStart } from "../lib/format.js";
 
-export default function CreateJobFromEventSheet({ event, suggestions: propSuggestions, onClose, onLinked, onCreateNew }) {
-  const { jobs, setNewJob, patchAndSave, enqueue, patchLocalEvent, showToast } = useStore();
-  const suggestions = useMemo(
-    () => propSuggestions || suggestJobsForEvent(event, jobs),
-    [propSuggestions, event, jobs]
+export default function CreateJobFromEventSheet({ event, suggestions: propSuggestions, onClose, onCreateNew }) {
+  const { jobs, setNewJob } = useStore();
+
+  const prefill = useMemo(() => prefillFromEvent(event), [event]);
+
+  const customerJobs = useMemo(() => {
+    const matched = propSuggestions || suggestJobsForEvent(event, jobs);
+    const anchor = matched[0];
+    if (anchor) return jobsForCustomerKey(jobs, clientKey(anchor));
+    const ck = customerKeyForName(prefill.businessName || prefill.customer);
+    if (ck) return jobsForCustomerKey(jobs, ck);
+    return [];
+  }, [propSuggestions, event, jobs, prefill]);
+
+  const customerName = useMemo(() => {
+    if (customerJobs.length) return customerJobs[0].businessName || customerJobs[0].customer || "";
+    return prefill.businessName || prefill.customer || "";
+  }, [customerJobs, prefill]);
+
+  const addressChoices = useMemo(() => serviceAddressesForJobs(customerJobs), [customerJobs]);
+
+  const calendarKey = useMemo(
+    () => serviceAddressKey({ serviceAddress: prefill.serviceAddress, apartment: prefill.apartment }),
+    [prefill]
   );
-  const top = suggestions[0];
 
-  const linkTo = async (job) => {
-    await applyAppointmentJobLink({
-      event,
-      job,
-      jobs,
-      patchAndSave,
-      enqueue,
-      patchLocalEvent,
-    });
-    showToast("Linked to " + (job.customer || "job"));
-    onLinked && onLinked(job);
+  const calendarInList = addressChoices.some((a) => a.key === calendarKey);
+
+  const openForm = (atAddressKey = "") => {
+    const merged = prefillAtServiceAddress(event, customerJobs, atAddressKey);
     onClose();
+    setNewJob({ step: "form", prefill: merged });
+    onCreateNew?.();
   };
 
-  const createNew = () => {
-    onClose();
-    if (onCreateNew) {
-      onCreateNew();
-      return;
-    }
-    setNewJob({ step: "form", prefill: prefillFromEvent(event) });
-  };
+  const calendarLabel =
+    prefill.serviceAddress + (prefill.apartment && !calendarInList ? ", Apt " + prefill.apartment : "");
 
-  if (top) {
+  if (!customerName && !addressChoices.length && !prefill.serviceAddress) {
     return (
       <Sheet title="Create a job?" onClose={onClose}>
         <p className="text-sm text-slate-500 mb-3">
-          No job is linked to this appointment yet. This looks like it might already be on:
+          No job is linked to <b className="text-slate-800">{event?.summary || "this appointment"}</b> (
+          {evStart(event).replace("T", " ").slice(0, 16)}). Create one with the calendar details filled in?
         </p>
-        <div className="card px-4 py-3 mb-4 border-brand/30 bg-brand-soft/20">
-          <div className="font-bold text-slate-900">{top.customer || top.businessName}</div>
-          <div className="text-sm text-slate-500 mt-0.5">{top.title || "Untitled job"}</div>
-          {fmtAmountDue(top) ? (
-            <div className="text-sm font-semibold text-slate-700 mt-1">{fmtAmountDue(top)}</div>
-          ) : null}
-        </div>
-        <button type="button" className="btn-brand w-full mb-2" onClick={() => linkTo(top)} data-testid="confirm-link-job">
-          Yes — link to this job
+        <button type="button" className="btn-brand w-full mb-2" onClick={() => openForm("")} data-testid="create-job-from-event">
+          ＋ Create job from appointment
         </button>
-        {suggestions.length > 1 ? (
-          <div className="mb-3 space-y-1">
-            <p className="text-[11px] font-bold uppercase tracking-wide text-slate-400">Other matches</p>
-            {suggestions.slice(1).map((j) => (
-              <Opt
-                key={j.id}
-                icon="🗂️"
-                title={j.customer || j.title}
-                note={j.title && j.customer ? j.title : fmtAmountDue(j) || j.id}
-                onClick={() => linkTo(j)}
-              />
-            ))}
-          </div>
-        ) : null}
-        <button type="button" className="btn-ghost w-full" onClick={createNew} data-testid="create-new-job-instead">
-          Something else — create new job from calendar
+        <button type="button" className="btn-ghost w-full" onClick={onClose}>
+          Not now
         </button>
       </Sheet>
     );
@@ -79,13 +66,53 @@ export default function CreateJobFromEventSheet({ event, suggestions: propSugges
   return (
     <Sheet title="Create a job?" onClose={onClose}>
       <p className="text-sm text-slate-500 mb-3">
-        No job is linked to <b className="text-slate-800">{event?.summary || "this appointment"}</b> (
-        {evStart(event).replace("T", " ").slice(0, 16)}). Create one with the calendar details filled in?
+        {customerName ? (
+          <>
+            Pick a service address for <b className="text-slate-800">{customerName}</b>.
+          </>
+        ) : (
+          <>
+            No job is linked to <b className="text-slate-800">{event?.summary || "this appointment"}</b> (
+            {evStart(event).replace("T", " ").slice(0, 16)}).
+          </>
+        )}
       </p>
-      <button type="button" className="btn-brand w-full mb-2" onClick={createNew} data-testid="create-job-from-event">
-        ＋ Create job from appointment
-      </button>
-      <button type="button" className="btn-ghost w-full" onClick={onClose}>
+
+      {addressChoices.length > 0 ? (
+        <div className="mb-3 space-y-1">
+          <p className="text-[11px] font-bold uppercase tracking-wide text-slate-400">Service addresses</p>
+          {addressChoices.map((a) => (
+            <Opt
+              key={a.key}
+              icon="📍"
+              title={a.label}
+              note={a.key === calendarKey ? "Matches this appointment" : undefined}
+              onClick={() => openForm(a.key)}
+              data-testid={"pick-addr-" + a.key}
+            />
+          ))}
+        </div>
+      ) : null}
+
+      {prefill.serviceAddress && !calendarInList ? (
+        <Opt
+          icon="📅"
+          title={calendarLabel}
+          note="From this appointment"
+          onClick={() => openForm("")}
+          data-testid="pick-calendar-addr"
+        />
+      ) : null}
+
+      <Opt
+        icon="＋"
+        title="New address"
+        note="Type a different service address"
+        onClick={() => openForm("")}
+        data-testid="create-new-job-instead"
+      />
+
+      <button type="button" className="btn-ghost w-full mt-1" onClick={onClose}>
         Not now
       </button>
     </Sheet>

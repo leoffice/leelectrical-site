@@ -1,4 +1,6 @@
 // Parse calendar appointment description + location into job/customer prefill.
+import { cloneJobAtAddressPatch } from "./customerHierarchy.js";
+import { serviceAddressKey } from "./customerHierarchy.js";
 import { evStart } from "./format.js";
 
 const EMAIL_RE = /[\w.+-]+@[\w-]+\.[\w.]+/i;
@@ -189,5 +191,27 @@ export function prefillFromEvent(e) {
     calEventId: e?.id || "",
     apartment,
     description: description || desc,
+  };
+}
+
+/** Merge calendar prefill with an existing customer's service address (new job at that site). */
+export function prefillAtServiceAddress(event, customerJobs, atAddressKey) {
+  const cal = prefillFromEvent(event);
+  if (!atAddressKey || !customerJobs?.length) return cal;
+  const anchor = customerJobs.find((j) => serviceAddressKey(j) === atAddressKey);
+  if (!anchor) return cal;
+  const base = cloneJobAtAddressPatch(anchor);
+  return {
+    ...cal,
+    ...base,
+    title: cal.title,
+    date: cal.date,
+    description: cal.description,
+    calEventId: cal.calEventId,
+    phone: cal.phone || base.phone,
+    email: cal.email || base.email,
+    apartment: base.apartment || cal.apartment,
+    invoiceNo: "",
+    estimateNo: "",
   };
 }
