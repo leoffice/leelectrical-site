@@ -1,6 +1,7 @@
 // Build a QuickBooks estimate or invoice — line items, service address, attachments.
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import Sheet, { Fld } from "./Sheet.jsx";
+import DescriptionField from "./DescriptionField.jsx";
 import CustomerSearch from "./CustomerSearch.jsx";
 import { useStore } from "../state/store.jsx";
 import { DEFAULT_QBO_ITEMS, filterQboItems } from "../data/qboItems.js";
@@ -169,15 +170,12 @@ function LineRow({ line, index, items, onChange, onRemove, canRemove, progressMo
           )}
         </div>
       </Fld>
-      <Fld label="Description">
-        <input
-          className="input"
-          value={line.description || ""}
-          onChange={(e) => onChange(index, { description: e.target.value })}
-          placeholder="Work performed, scope notes…"
-          aria-label={"Description line " + (index + 1)}
-        />
-      </Fld>
+      <DescriptionField
+        value={line.description || ""}
+        onChange={(v) => onChange(index, { description: v })}
+        testId={"doc-line-desc-" + (index + 1)}
+        ariaLabel={"Description line " + (index + 1)}
+      />
       <div className={"flex gap-2 " + (progressMode ? "flex-wrap" : "")}>
         <Fld label={progressMode ? "Rate (full)" : "Rate"}>
           <input

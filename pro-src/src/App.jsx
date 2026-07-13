@@ -12,7 +12,7 @@ import Calls from "./views/Calls.jsx";
 import Time from "./views/Time.jsx";
 import Dev from "./views/Dev.jsx";
 import Company from "./views/Company.jsx";
-import Progress, { ProgressRefreshButton } from "./views/Progress.jsx";
+import Progress from "./views/Progress.jsx";
 import Archive from "./views/Archive.jsx";
 import Placeholder from "./views/Placeholder.jsx";
 import SaveBar from "./components/SaveBar.jsx";
@@ -149,7 +149,7 @@ export default function App() {
   const loc = useLocation();
   const inDetail = loc.pathname.startsWith("/job/");
   const inCustomer = loc.pathname.startsWith("/customer/");
-  const onProgress = loc.pathname === "/progress";
+
   const showFab = loc.pathname === "/" || loc.pathname === "/today" || inDetail || inCustomer;
   const fabContext = appointmentContextFromRoute(loc.pathname, { effectiveJob, jobs });
 
@@ -206,7 +206,6 @@ export default function App() {
               data-testid="mobile-header-logo"
             />
             <span className="ml-auto shrink-0 flex items-center gap-1.5">
-              {onProgress ? <ProgressRefreshButton /> : null}
               <SyncChip compact />
             </span>
           </div>
@@ -220,12 +219,6 @@ export default function App() {
             </button>
           </div>
         )}
-
-        {onProgress && isDesktop ? (
-          <div className="hidden lg:flex justify-end px-4 pt-3 max-w-3xl mx-auto w-full" data-testid="progress-desktop-refresh">
-            <ProgressRefreshButton />
-          </div>
-        ) : null}
 
         <main
           className={`flex-1 w-full mx-auto px-4 pt-4 pb-24 lg:pb-20 ${

@@ -51,6 +51,7 @@ import SnoozePicker from "./SnoozePicker.jsx";
 import IntelligentSuggestionBlock from "./IntelligentSuggestionBlock.jsx";
 import LiveEditActionButton from "./LiveEditActionButton.jsx";
 import { makeEditKey } from "../lib/liveEdit.js";
+import { hideSuggestedAction, intentDuplicatesSuggestion, suggestedActionKeys } from "../lib/followUpDedupe.js";
 
 function openCalendarKeepingReminder({ event, kind, state, dismissForWork, nav }) {
   stashReminderReturn({
@@ -449,7 +450,7 @@ function ScheduledReminderSheet({
           </div>
         </IntelligentSuggestionBlock>
       ) : null}
-      {noteIntent && intentOpensDocBuilder(noteIntent) ? (
+      {noteIntent && intentOpensDocBuilder(noteIntent) && !intentDuplicatesSuggestion(noteIntent, nextActions) ? (
         <button type="button" className="btn-brand w-full mb-2" onClick={runNoteIntent} data-testid="scheduled-reminder-do-now">
           ⚡ {noteIntent.label}
         </button>
@@ -518,6 +519,7 @@ function ServiceCallSheet({ event, job, onClose, onDone, onCreateJob, onRemind, 
   const scenario = classifyAppointment(job);
   const nextCopy = followUpCopy(scenario);
   const nextActions = followUpActions(scenario).filter((a) => a.key !== "remind");
+  const suggested = suggestedActionKeys(nextActions);
 
   const openJob = () => {
     allocateNextStep(event.id, "open_job");
@@ -622,15 +624,15 @@ function ServiceCallSheet({ event, job, onClose, onDone, onCreateJob, onRemind, 
       <button type="button" className="btn bg-slate-100 text-slate-800 w-full mb-2" onClick={noReminders} data-testid="followup-no-remind">
         Don't remind me
       </button>
-      {job?.id ? (
+      {job?.id && !hideSuggestedAction(suggested, "open_job") ? (
         <button type="button" className="btn bg-slate-100 text-slate-800 w-full mb-2" onClick={openJob} data-testid="followup-open-job">
           📂 Open job
         </button>
-      ) : (
+      ) : !job?.id && !hideSuggestedAction(suggested, "create_job") ? (
         <button type="button" className="btn bg-slate-100 text-slate-800 w-full mb-2" onClick={onCreateJob} data-testid="followup-create-job">
           ＋ Create a job
         </button>
-      )}
+      ) : null}
       <button type="button" className="btn-ghost w-full mt-1" onClick={skip} data-testid="followup-skip">
         Skip
       </button>

@@ -7,28 +7,28 @@
     "time_method": "Active build time estimated by sessionizing commit timestamps: consecutive commits within 30 min count as continuous work; gaps >30 min end a session. Sum of session spans.",
     "human_rate_usd_per_hour": 150.0,
     "ai_cost_note": "Grok flat subscription \u2014 marginal cost per build ~ $0.",
-    "generated_at": "2026-07-10 18:27:00Z"
+    "generated_at": "2026-07-13 21:07:46Z"
   },
   "totals": {
-    "updates": 9,
-    "commits": 210,
-    "lines_written": 68948,
-    "lines_implemented": 53340,
-    "deletions": 15608,
-    "files_changed": 1871,
-    "active_days": 9,
+    "updates": 12,
+    "commits": 248,
+    "lines_written": 78525,
+    "lines_implemented": 60497,
+    "deletions": 18028,
+    "files_changed": 2179,
+    "active_days": 12,
     "first_commit": "2026-07-01 19:12:33",
-    "last_commit": "2026-07-10 14:26:48",
-    "active_seconds": 72586,
-    "active_time_hms": "20:09:46",
-    "active_hours": 20.16,
-    "deploys": 138,
-    "speed_lines_written_per_hour": 3420,
-    "speed_lines_landed_per_hour": 2645,
-    "speed_commits_per_hour": 10.4,
-    "human_cost_usd": 3024.42,
+    "last_commit": "2026-07-13 16:33:28",
+    "active_seconds": 87359,
+    "active_time_hms": "24:15:59",
+    "active_hours": 24.27,
+    "deploys": 161,
+    "speed_lines_written_per_hour": 3236,
+    "speed_lines_landed_per_hour": 2493,
+    "speed_commits_per_hour": 10.2,
+    "human_cost_usd": 3639.96,
     "ai_cost_usd": 0.0,
-    "money_saved_usd": 3024.42
+    "money_saved_usd": 3639.96
   },
   "updates": [
     {
@@ -1563,11 +1563,11 @@
       "id": 9,
       "date": "2026-07-10",
       "title": "Add Company and Build dashboard tabs (approved mockups)",
-      "commits": 31,
-      "insertions": 16462,
-      "deletions": 2392,
-      "net": 14070,
-      "files": 260,
+      "commits": 37,
+      "insertions": 19080,
+      "deletions": 2954,
+      "net": 16126,
+      "files": 308,
       "iterations": [
         {
           "hash": "3c97261",
@@ -1816,6 +1816,346 @@
           "insertions": 7261,
           "deletions": 452,
           "files": 26
+        },
+        {
+          "hash": "94d2021",
+          "time": "14:31",
+          "subject": "Chat payment from image: check/zelle hint, zoom, invoice #, deposit",
+          "insertions": 411,
+          "deletions": 50,
+          "files": 6
+        },
+        {
+          "hash": "ee8223c",
+          "time": "14:31",
+          "subject": "Chat payment from image: check/zelle hint, zoom, invoice #, deposit (le-pro-v71)",
+          "insertions": 208,
+          "deletions": 184,
+          "files": 8
+        },
+        {
+          "hash": "46b615e",
+          "time": "16:04",
+          "subject": "Chat bubble: attach any file type, not just photos",
+          "insertions": 307,
+          "deletions": 44,
+          "files": 6
+        },
+        {
+          "hash": "f10d81f",
+          "time": "16:07",
+          "subject": "Payment flow: full form after choosing check/Zelle/etc",
+          "insertions": 356,
+          "deletions": 222,
+          "files": 9
+        },
+        {
+          "hash": "cff156d",
+          "time": "16:13",
+          "subject": "Chat check deposit: auto-open on typed context, better check # read, pan/zoom fix",
+          "insertions": 194,
+          "deletions": 60,
+          "files": 8
+        },
+        {
+          "hash": "2bb5ecc",
+          "time": "17:26",
+          "subject": "Safe-autonomy deploy pipeline (#64): reversible deploys with auto-rollback",
+          "insertions": 1142,
+          "deletions": 2,
+          "files": 11
+        }
+      ]
+    },
+    {
+      "id": 10,
+      "date": "2026-07-11",
+      "title": "Payment form: deposit-to bank picker on check/Zelle (job + QB sync)",
+      "commits": 4,
+      "insertions": 478,
+      "deletions": 196,
+      "net": 282,
+      "files": 43,
+      "iterations": [
+        {
+          "hash": "6d78943",
+          "time": "22:54",
+          "subject": "Calendar: duplicate full booking sheet, tab search, year+forward range",
+          "insertions": 189,
+          "deletions": 41,
+          "files": 10
+        },
+        {
+          "hash": "32a1d9d",
+          "time": "23:04",
+          "subject": "Allow mobile screen rotation in LE Pro",
+          "insertions": 2,
+          "deletions": 2,
+          "files": 2
+        },
+        {
+          "hash": "71a832e",
+          "time": "23:26",
+          "subject": "Payment form: deposit-to bank picker on check/Zelle (job + QB sync)",
+          "insertions": 248,
+          "deletions": 153,
+          "files": 12
+        },
+        {
+          "hash": "5c712dc",
+          "time": "23:55",
+          "subject": "Deploy Ohr Gematria Hebrew preview at /app/gematria",
+          "insertions": 39,
+          "deletions": 0,
+          "files": 19
+        }
+      ]
+    },
+    {
+      "id": 11,
+      "date": "2026-07-12",
+      "title": "Add multi-user time tracking \u2014 Time tab, clock in/out, job timers",
+      "commits": 10,
+      "insertions": 986,
+      "deletions": 140,
+      "net": 846,
+      "files": 83,
+      "iterations": [
+        {
+          "hash": "4c97944",
+          "time": "00:19",
+          "subject": "Stage \u05d2\u05d9\u05de\u05d8\u05e8\u05d9\u05d4 \u05d7\u05e1\u05d9\u05d3\u05d9\u05ea v0.2 preview at /app/gematria",
+          "insertions": 11,
+          "deletions": 11,
+          "files": 10
+        },
+        {
+          "hash": "d0a1a40",
+          "time": "01:29",
+          "subject": "Deploy LE Pro + Gematria v0.2: deposit picker, rotation, calendar duplicate/search, payment flows, chat attachments",
+          "insertions": 11,
+          "deletions": 11,
+          "files": 5
+        },
+        {
+          "hash": "9462f9c",
+          "time": "01:33",
+          "subject": "Fix bump-sw-cache ESM syntax; sync version stamps after deploy",
+          "insertions": 6,
+          "deletions": 6,
+          "files": 2
+        },
+        {
+          "hash": "394cdd5",
+          "time": "02:01",
+          "subject": "Deploy: pipeline fix + SW cache bump",
+          "insertions": 8,
+          "deletions": 8,
+          "files": 4
+        },
+        {
+          "hash": "d6d7ce9",
+          "time": "02:12",
+          "subject": "Deploy: Levi requested push live",
+          "insertions": 8,
+          "deletions": 8,
+          "files": 4
+        },
+        {
+          "hash": "bd7a7a7",
+          "time": "02:16",
+          "subject": "Deploy Ohr Gematria: tabs, files, chat, approved, history, installable app",
+          "insertions": 94,
+          "deletions": 32,
+          "files": 18
+        },
+        {
+          "hash": "3c4b95f",
+          "time": "02:24",
+          "subject": "Deploy Ohr \u05e9\u05d9\u05d7\u05d4: conversational mode understands context, offers solutions",
+          "insertions": 17,
+          "deletions": 17,
+          "files": 14
+        },
+        {
+          "hash": "bdb3cc2",
+          "time": "02:26",
+          "subject": "Sync version stamps after Ohr \u05e9\u05d9\u05d7\u05d4 deploy",
+          "insertions": 6,
+          "deletions": 6,
+          "files": 2
+        },
+        {
+          "hash": "0deea7e",
+          "time": "02:48",
+          "subject": "Add multi-user time tracking \u2014 Time tab, clock in/out, job timers",
+          "insertions": 815,
+          "deletions": 31,
+          "files": 15
+        },
+        {
+          "hash": "cdf0b19",
+          "time": "10:41",
+          "subject": "Abba app: \u05d2\u05d9\u05de\u05d8\u05e8\u05d9\u05d4 \u05d7\u05e1\u05d9\u05d3\u05d9\u05ea rename \u2014 title, header, PWA (ohr-v3)",
+          "insertions": 10,
+          "deletions": 10,
+          "files": 9
+        }
+      ]
+    },
+    {
+      "id": 12,
+      "date": "2026-07-13",
+      "title": "Deploy: customer tappable fields, smart suggestions, reminder dismiss, calendar address picker, customer email compose",
+      "commits": 18,
+      "insertions": 5495,
+      "deletions": 1522,
+      "net": 3973,
+      "files": 134,
+      "iterations": [
+        {
+          "hash": "8766d5c",
+          "time": "01:15",
+          "subject": "Fix calendar week tests: pin fake date so events stay visible",
+          "insertions": 21,
+          "deletions": 6,
+          "files": 3
+        },
+        {
+          "hash": "12f2481",
+          "time": "01:15",
+          "subject": "Deploy all apps: Time tab + Abba rename (Levi batch)",
+          "insertions": 8,
+          "deletions": 8,
+          "files": 4
+        },
+        {
+          "hash": "6a814ec",
+          "time": "09:51",
+          "subject": "Fix calendar duplicate not appearing in app or Google Calendar",
+          "insertions": 236,
+          "deletions": 168,
+          "files": 9
+        },
+        {
+          "hash": "3b7c60c",
+          "time": "09:54",
+          "subject": "Fix reminder notifications and add flexible batch snooze",
+          "insertions": 461,
+          "deletions": 26,
+          "files": 5
+        },
+        {
+          "hash": "7d081d1",
+          "time": "13:35",
+          "subject": "Reminder live actions, calendar back-nav, broader last-week follow-ups",
+          "insertions": 406,
+          "deletions": 35,
+          "files": 7
+        },
+        {
+          "hash": "ba03d11",
+          "time": "13:40",
+          "subject": "Fix customer import and QB sync pull direction",
+          "insertions": 467,
+          "deletions": 72,
+          "files": 14
+        },
+        {
+          "hash": "854e4da",
+          "time": "13:43",
+          "subject": "Reminder allocation: next-step + follow-up time tracking",
+          "insertions": 196,
+          "deletions": 181,
+          "files": 6
+        },
+        {
+          "hash": "df1dcb0",
+          "time": "13:55",
+          "subject": "LE Pro: edit/view appointment gets full create parity \u2014 reminders, guest invite, week calendar",
+          "insertions": 179,
+          "deletions": 133,
+          "files": 2
+        },
+        {
+          "hash": "d32f4e6",
+          "time": "14:13",
+          "subject": "Fix estimate/invoice drafts not visible after saving on job",
+          "insertions": 315,
+          "deletions": 165,
+          "files": 13
+        },
+        {
+          "hash": "6242b9a",
+          "time": "16:05",
+          "subject": "Time tracking Round 1 + staged LE Pro batch",
+          "insertions": 799,
+          "deletions": 203,
+          "files": 17
+        },
+        {
+          "hash": "efc4420",
+          "time": "16:08",
+          "subject": "Time tracking Round 1 + staged LE Pro batch",
+          "insertions": 8,
+          "deletions": 8,
+          "files": 4
+        },
+        {
+          "hash": "873f7c8",
+          "time": "16:11",
+          "subject": "Customer service addresses tab + job header add/change-order buttons",
+          "insertions": 291,
+          "deletions": 17,
+          "files": 5
+        },
+        {
+          "hash": "559555b",
+          "time": "16:12",
+          "subject": "Customer service addresses + job add/change-order header buttons",
+          "insertions": 143,
+          "deletions": 143,
+          "files": 7
+        },
+        {
+          "hash": "76601e7",
+          "time": "16:16",
+          "subject": "Calendar create-job: pick service address instead of linking open jobs",
+          "insertions": 248,
+          "deletions": 63,
+          "files": 4
+        },
+        {
+          "hash": "d3af0ef",
+          "time": "16:19",
+          "subject": "Fix reminder popups staying up after Levi picks an action",
+          "insertions": 172,
+          "deletions": 30,
+          "files": 3
+        },
+        {
+          "hash": "f0fb9d0",
+          "time": "16:23",
+          "subject": "Add smart suggestion badge and live UI edit mode for popups",
+          "insertions": 601,
+          "deletions": 22,
+          "files": 11
+        },
+        {
+          "hash": "30f2b95",
+          "time": "16:31",
+          "subject": "Customer card: tappable contact fields replace action buttons",
+          "insertions": 58,
+          "deletions": 34,
+          "files": 1
+        },
+        {
+          "hash": "b83706c",
+          "time": "16:33",
+          "subject": "Deploy: customer tappable fields, smart suggestions, reminder dismiss, calendar address picker, customer email compose",
+          "insertions": 886,
+          "deletions": 208,
+          "files": 19
         }
       ]
     }

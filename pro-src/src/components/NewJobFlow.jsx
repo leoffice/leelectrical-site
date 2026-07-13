@@ -5,6 +5,7 @@ import Sheet, { Fld, Opt } from "./Sheet.jsx";
 import CustomerSearch from "./CustomerSearch.jsx";
 import CustomerLiveMatch from "./CustomerLiveMatch.jsx";
 import SubCompanySection from "./SubCompanySection.jsx";
+import DescriptionField from "./DescriptionField.jsx";
 import CalendarSearchSheet from "./CalendarSearchSheet.jsx";
 import AddAppointmentSheet from "./AddAppointmentSheet.jsx";
 import { useStore } from "../state/store.jsx";
@@ -861,14 +862,16 @@ function NewJobForm({ prefill, onClose, onCreated, vendorMode = false }) {
           <input className="input" value={f.vendor} onChange={set("vendor")} aria-label="Vendor" />
         </Fld>
       ) : null}
-      <Fld label="Description" hint="From calendar (apt/unit parsed out to Apartment # field)">
-        <textarea
-          className="input min-h-[60px]"
-          value={f.description}
-          onChange={set("description")}
-          aria-label="Description"
-        />
-      </Fld>
+      <DescriptionField
+        label="Description"
+        hint="From calendar (apt/unit parsed out to Apartment # field)"
+        multiline
+        value={f.description}
+        onChange={(v) => setF((o) => ({ ...o, description: v }))}
+        context={{ jobTitle: f.title, address: f.serviceAddress || f.address }}
+        testId="newjob-description"
+        ariaLabel="Description"
+      />
       {CONTACT_FIELDS.map(([k, l]) => (
         <Fld key={k} label={l}>
           <input className="input" value={f[k]} onChange={set(k)} aria-label={l} />
