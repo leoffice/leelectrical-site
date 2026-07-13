@@ -372,6 +372,27 @@ export function mockServer(opts = {}) {
             });
           } else if (body.op === "heartbeat" && body.employeeId && doc.active[body.employeeId]) {
             doc.active[body.employeeId].lastSeen = now;
+          } else if (body.op === "patch_entry" && body.id) {
+            const ent = doc.entries.find((x) => x.id === body.id);
+            if (ent && body.patch) {
+              Object.assign(ent, body.patch);
+              if (ent.startedAt && ent.endedAt) ent.durationMs = ent.endedAt - ent.startedAt;
+            }
+          } else if (body.op === "add_entry") {
+            doc.entries.unshift({
+              id: "ent-" + now,
+              employeeId: body.employeeId,
+              employeeName: (doc.employees.find((e) => e.id === body.employeeId) || {}).name || "Unknown",
+              kind: body.kind === "job" ? "job" : "shift",
+              jobId: body.jobId || null,
+              jobLabel: body.jobLabel || "",
+              startedAt: body.startedAt,
+              endedAt: body.endedAt,
+              durationMs: body.endedAt - body.startedAt,
+              note: body.note || "",
+            });
+          } else if (body.op === "delete_entry" && body.id) {
+            doc.entries = doc.entries.filter((x) => x.id !== body.id);
           }
           doc.ts = now;
           data = { ok: true, ...JSON.parse(JSON.stringify(doc)) };

@@ -49,6 +49,15 @@ describe("Time tab", () => {
     expect(localStorage.getItem("lepro_employee_id")).toBe("emp-levi");
   });
 
+  it("shows weekly timesheet grid", async () => {
+    mockServer();
+    const user = userEvent.setup();
+    renderApp("#/time");
+    await screen.findByTestId("time-view");
+    await user.click(screen.getByTestId("view-week"));
+    expect(await screen.findByTestId("week-grid")).toBeInTheDocument();
+  });
+
   it("adds a new employee", async () => {
     mockServer();
     const user = userEvent.setup();

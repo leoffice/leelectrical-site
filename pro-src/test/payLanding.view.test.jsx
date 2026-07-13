@@ -72,8 +72,11 @@ describe("PayLanding view", () => {
     expect(screen.getByText("Rae Klein")).toBeInTheDocument();
     expect(screen.getByTestId("sola-card-form")).toBeInTheDocument();
     expect(screen.getByText("Pay by card")).toBeInTheDocument();
-    const cta = screen.getByTestId("pay-cta");
-    expect(cta).toHaveTextContent("Pay $674.82");
+    const cta = await waitFor(() => {
+      const el = screen.getByTestId("pay-cta");
+      expect(el).toHaveTextContent("Pay $674.82");
+      return el;
+    });
     expect(cta.tagName).toBe("BUTTON");
   });
 

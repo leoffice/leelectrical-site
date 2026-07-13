@@ -29,6 +29,7 @@ import { fmt$, ago } from "../lib/format.js";
 import CustomerCard from "../components/CustomerCard.jsx";
 import JobInfoCard from "../components/JobInfoCard.jsx";
 import JobAddressCarousel from "../components/JobAddressCarousel.jsx";
+import JobTimeCard from "../components/JobTimeCard.jsx";
 
 import JobEditSheet from "../components/JobEditSheet.jsx";
 
@@ -357,6 +358,8 @@ export default function JobDetail() {
 
       {detailSectionsExpanded ? (
       <>
+      <JobTimeCard job={job} showToast={showToast} />
+
       {/* Money */}
       {(() => {
         const due = openBalance(job);

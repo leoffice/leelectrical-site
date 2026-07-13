@@ -1,10 +1,14 @@
 import { describe, expect, it, vi } from "vitest";
 import {
+  buildWeekGrid,
   elapsedMs,
+  filterEntries,
   fmtDuration,
   groupEntriesByDay,
   jobTimeLabel,
   liveEmployees,
+  startOfWeek,
+  sumMsForJob,
 } from "../src/lib/timeTrack.js";
 
 describe("timeTrack helpers", () => {
@@ -33,6 +37,31 @@ describe("timeTrack helpers", () => {
     ]);
     expect(groups).toHaveLength(2);
     expect(groups[0][1]).toHaveLength(1);
+  });
+
+  it("sums job hours", () => {
+    expect(sumMsForJob([{ jobId: "j1", durationMs: 3600000 }, { jobId: "j2", durationMs: 1000 }], "j1")).toBe(3600000);
+  });
+
+  it("filters entries by job and employee", () => {
+    const rows = filterEntries(
+      [
+        { employeeId: "e1", jobId: "j1", endedAt: 100 },
+        { employeeId: "e2", jobId: "j1", endedAt: 200 },
+      ],
+      { employeeId: "e1", jobId: "j1" }
+    );
+    expect(rows).toHaveLength(1);
+  });
+
+  it("builds week grid with day totals", () => {
+    const ws = startOfWeek();
+    const grid = buildWeekGrid(
+      [{ employeeId: "e1", startedAt: ws + 3600000, durationMs: 7200000, endedAt: ws + 10800000 }],
+      [{ id: "e1", name: "Mike" }],
+      ws
+    );
+    expect(grid.rows[0].weekMs).toBe(7200000);
   });
 
   it("liveEmployees flags recent heartbeat", () => {

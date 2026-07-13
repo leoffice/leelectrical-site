@@ -7,7 +7,9 @@ import { getStore } from "@netlify/blobs";
 //   clock_out  { employeeId }
 //   add_employee { name }
 //   remove_employee { id }
-//   patch_entry { id, patch:{ note? } }
+//   patch_entry { id, patch:{ note?, startedAt?, endedAt?, jobId?, jobLabel?, kind? } }
+//   add_entry    { employeeId, kind, jobId?, jobLabel?, startedAt, endedAt, note? }
+//   delete_entry { id }
 const KEY = "timetrack-v1";
 
 const COLORS = ["#2563eb", "#059669", "#d97706", "#7c3aed", "#db2777", "#0891b2", "#4f46e5"];
@@ -116,8 +118,42 @@ export default async (req) => {
     } else if (b.op === "patch_entry") {
       const ent = doc.entries.find((x) => x.id === b.id);
       if (ent && b.patch) {
-        if ("note" in b.patch) ent.note = String(b.patch.note || "");
+        const p = b.patch;
+        if ("note" in p) ent.note = String(p.note || "");
+        if ("kind" in p) ent.kind = p.kind === "job" ? "job" : "shift";
+        if ("jobId" in p) ent.jobId = String(p.jobId || "").trim() || null;
+        if ("jobLabel" in p) ent.jobLabel = String(p.jobLabel || "");
+        if ("startedAt" in p) ent.startedAt = Number(p.startedAt) || ent.startedAt;
+        if ("endedAt" in p) ent.endedAt = Number(p.endedAt) || ent.endedAt;
+        if (ent.startedAt && ent.endedAt) {
+          ent.durationMs = Math.max(0, ent.endedAt - ent.startedAt);
+        }
       }
+    } else if (b.op === "add_entry") {
+      const employeeId = String(b.employeeId || "").trim();
+      const startedAt = Number(b.startedAt);
+      const endedAt = Number(b.endedAt);
+      if (!employeeId || !startedAt || !endedAt || endedAt <= startedAt) {
+        return json({ ok: false, error: "invalid entry" });
+      }
+      const kind = b.kind === "job" ? "job" : "shift";
+      doc.entries.unshift({
+        id: "ent-" + now + "-" + Math.random().toString(36).slice(2, 6),
+        employeeId,
+        employeeName: empName(doc, employeeId),
+        kind,
+        jobId: kind === "job" ? String(b.jobId || "").trim() || null : null,
+        jobLabel: kind === "job" ? String(b.jobLabel || "").trim() : "",
+        startedAt,
+        endedAt,
+        durationMs: endedAt - startedAt,
+        note: String(b.note || "").trim(),
+      });
+      if (doc.entries.length > 500) doc.entries.length = 500;
+    } else if (b.op === "delete_entry") {
+      const rid = String(b.id || "").trim();
+      if (!rid) return json({ ok: false, error: "id required" });
+      doc.entries = doc.entries.filter((x) => x.id !== rid);
     } else if (b.op === "heartbeat") {
       const employeeId = String(b.employeeId || "").trim();
       if (doc.active[employeeId]) doc.active[employeeId].lastSeen = now;

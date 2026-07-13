@@ -80,6 +80,73 @@ export function groupEntriesByDay(entries) {
   return [...map.entries()];
 }
 
+/** Sunday 00:00 local for the week containing ts. */
+export function startOfWeek(ts = Date.now()) {
+  const d = new Date(ts);
+  d.setHours(0, 0, 0, 0);
+  d.setDate(d.getDate() - d.getDay());
+  return d.getTime();
+}
+
+export function endOfWeek(weekStart) {
+  return weekStart + 7 * 86400000 - 1;
+}
+
+const DAY_LABELS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+
+/** Filter entries by employee, job, and time range. */
+export function filterEntries(entries, { employeeId, jobId, fromMs, toMs } = {}) {
+  return (entries || []).filter((e) => {
+    if (employeeId && e.employeeId !== employeeId) return false;
+    if (jobId && e.jobId !== jobId) return false;
+    const end = e.endedAt || e.startedAt || 0;
+    if (fromMs && end < fromMs) return false;
+    if (toMs && (e.startedAt || 0) > toMs) return false;
+    return true;
+  });
+}
+
+/** Total logged ms for a job. */
+export function sumMsForJob(entries, jobId) {
+  if (!jobId) return 0;
+  return filterEntries(entries, { jobId }).reduce((n, e) => n + (e.durationMs || 0), 0);
+}
+
+/** Per-employee day totals for a pay week (Sun–Sat). */
+export function buildWeekGrid(entries, employees, weekStart) {
+  const end = weekStart + 7 * 86400000;
+  const rows = (employees || []).map((emp) => {
+    const days = Array(7).fill(0);
+    let weekMs = 0;
+    for (const e of entries || []) {
+      if (e.employeeId !== emp.id) continue;
+      const t = e.startedAt || e.endedAt || 0;
+      if (t < weekStart || t >= end) continue;
+      const di = new Date(t).getDay();
+      const ms = e.durationMs || 0;
+      days[di] += ms;
+      weekMs += ms;
+    }
+    return { employee: emp, days, weekMs };
+  });
+  return { labels: DAY_LABELS, rows };
+}
+
+/** datetime-local value for an input from epoch ms. */
+export function toLocalInput(ts) {
+  if (!ts) return "";
+  const d = new Date(ts);
+  const pad = (n) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+
+/** Parse datetime-local back to epoch ms. */
+export function fromLocalInput(v) {
+  if (!v) return 0;
+  const t = new Date(v).getTime();
+  return Number.isFinite(t) ? t : 0;
+}
+
 /** Who is live (active session with heartbeat in last 2 min). */
 export function liveEmployees(active, employees, now = Date.now()) {
   const out = [];
