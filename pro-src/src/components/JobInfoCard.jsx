@@ -10,6 +10,8 @@ import JobDocTabs from "./JobDocTabs.jsx";
 
 const BUBBLE_LAYOUT =
   "inline-flex items-center gap-1 rounded-2xl border px-2 py-1 text-[10px] leading-tight lg:rounded-full lg:px-2.5 lg:py-1 lg:text-xs";
+const HEADER_BTN =
+  "text-[10px] font-semibold text-slate-500 hover:text-brand px-1.5 py-0.5 rounded border border-slate-200 bg-white shrink-0";
 
 function stopBubble(e) {
   e.stopPropagation();
@@ -59,6 +61,9 @@ export default function JobInfoCard({
   showOpenLink = false,
   onCardTap,
   onEditJob,
+  onAddJob,
+  onAddChangeOrder,
+  canAddChangeOrder = true,
 }) {
   const total = invoiceTotal(job);
   const paid = amountPaid(job);
@@ -112,12 +117,14 @@ export default function JobInfoCard({
     >
       <div className="flex items-start gap-2">
         <div className="min-w-0 flex-1">
-          <div className="flex items-center gap-2 mb-1">
-            <h3 className="text-[11px] font-extrabold text-slate-500 uppercase tracking-wider">Job information</h3>
+          <div className="flex items-center gap-1.5 mb-1 flex-wrap">
+            <h3 className="text-[11px] font-extrabold text-slate-500 uppercase tracking-wider shrink-0">
+              Job information
+            </h3>
             {onEditJob ? (
               <button
                 type="button"
-                className="text-[10px] font-semibold text-slate-500 hover:text-brand px-1.5 py-0.5 rounded border border-slate-200 bg-white"
+                className={HEADER_BTN}
                 onClick={(e) => {
                   stopBubble(e);
                   onEditJob();
@@ -125,6 +132,33 @@ export default function JobInfoCard({
                 data-testid="job-edit-btn"
               >
                 ✏️ Edit
+              </button>
+            ) : null}
+            {onAddJob ? (
+              <button
+                type="button"
+                className={HEADER_BTN}
+                onClick={(e) => {
+                  stopBubble(e);
+                  onAddJob();
+                }}
+                data-testid="job-add-btn"
+              >
+                ＋ Add job
+              </button>
+            ) : null}
+            {onAddChangeOrder ? (
+              <button
+                type="button"
+                className={`${HEADER_BTN} disabled:opacity-40`}
+                disabled={!canAddChangeOrder}
+                onClick={(e) => {
+                  stopBubble(e);
+                  onAddChangeOrder();
+                }}
+                data-testid="add-change-order-btn"
+              >
+                ＋ Change order
               </button>
             ) : null}
           </div>

@@ -1,5 +1,5 @@
-// Invoices / Estimates tabs — open + closed sections; tap invoice → job info (folded).
-import React, { useState } from "react";
+// Invoices / Estimates / Service addresses — create docs, open + closed sections.
+import React, { useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import {
   invoiceJobs,
@@ -7,6 +7,13 @@ import {
   estimateButtonLabel,
   invoiceRowDetail,
 } from "../lib/customerDocLists.js";
+import {
+  cloneJobAtAddressPatch,
+  jobsAtSameAddress,
+  serviceAddressesForJobs,
+  serviceAddressKey,
+} from "../lib/customerHierarchy.js";
+import { useStore } from "../state/store.jsx";
 import { useLongPress } from "../lib/useLongPress.js";
 import ConnectDocSheet from "./ConnectDocSheet.jsx";
 
@@ -16,6 +23,8 @@ const DOC_BTN =
   "w-full flex items-start justify-between gap-2 rounded-xl border px-3 py-2.5 text-left text-sm font-semibold mb-1.5 active:opacity-80";
 const SECTION_HDR =
   "text-[10px] font-extrabold text-slate-400 uppercase tracking-wider px-0.5 mb-1.5 mt-2 first:mt-0";
+const CREATE_BTN =
+  "w-full rounded-xl border border-dashed border-brand/40 bg-brand-soft/50 px-3 py-2.5 text-sm font-semibold text-brand mb-2 active:opacity-80";
 
 function toneClass(tone) {
   if (tone === "paid") return "bg-emerald-50 text-emerald-800 border-emerald-200";
@@ -96,10 +105,41 @@ function EstimateRows({ list, activeJobId, onOpen, onConnectRequest }) {
   });
 }
 
+function AddressJobRows({ list, activeJobId, onOpen }) {
+  if (!list.length) return null;
+  return list.map((j) => {
+    const active = j.id === activeJobId;
+    const title = j.title || (j.invoiceNo ? "Invoice #" + j.invoiceNo : j.estimateNo ? "Estimate #" + j.estimateNo : "Job");
+    return (
+      <button
+        key={j.id}
+        type="button"
+        className={`${DOC_BTN} bg-slate-50 text-slate-700 border-slate-200 ${active ? "ring-2 ring-brand/40" : ""}`}
+        data-testid={"cust-addr-job-" + j.id}
+        onClick={() => onOpen(j)}
+      >
+        <span className="min-w-0 flex-1 truncate">{title}</span>
+        {j.invoiceNo ? <span className="text-xs shrink-0">Inv {j.invoiceNo}</span> : null}
+        {j.estimateNo && !j.invoiceNo ? <span className="text-xs shrink-0">Est {j.estimateNo}</span> : null}
+      </button>
+    );
+  });
+}
+
 export default function CustomerDocTabs({ jobs, activeJobId, fromCust = "" }) {
   const nav = useNavigate();
-  const [tab, setTab] = useState(null); // null = collapsed, or 'invoices'|'estimates'
+  const { createJob, showToast } = useStore();
+  const [tab, setTab] = useState(null); // null | invoices | estimates | addresses
+  const [addrKey, setAddrKey] = useState(""); // selected service-address key
   const [connect, setConnect] = useState(null); // { job, kind }
+
+  const templateJob = jobs[0] || null;
+  const addresses = useMemo(() => serviceAddressesForJobs(jobs), [jobs]);
+  const addrJobs = useMemo(() => {
+    if (!addrKey || !templateJob) return [];
+    const anchor = jobs.find((j) => serviceAddressKey(j) === addrKey) || templateJob;
+    return jobsAtSameAddress(jobs, anchor);
+  }, [jobs, addrKey, templateJob]);
 
   const allInv = invoiceJobs(jobs);
   const openInv = allInv.filter((j) => invoiceRowDetail(j).tone === "open");
@@ -109,7 +149,7 @@ export default function CustomerDocTabs({ jobs, activeJobId, fromCust = "" }) {
   const openEst = allEst.filter(isOpenEstimate);
   const closedEst = allEst.filter((j) => !isOpenEstimate(j));
 
-  const counts = { invoices: allInv.length, estimates: allEst.length };
+  const counts = { invoices: allInv.length, estimates: allEst.length, addresses: addresses.length };
 
   const openJob = (j) => {
     const parts = [];
@@ -119,7 +159,45 @@ export default function CustomerDocTabs({ jobs, activeJobId, fromCust = "" }) {
     nav("/job/" + j.id + q);
   };
 
-  const toggle = (t) => setTab((cur) => (cur === t ? null : t));
+  const navNewDoc = (newId, kind) => {
+    const parts = [];
+    if (fromCust) parts.push("from=" + encodeURIComponent(fromCust));
+    parts.push("doc=" + kind);
+    parts.push("create=1");
+    nav("/job/" + newId + "?" + parts.join("&"));
+  };
+
+  const jobPatchFor = (atAddressKey = "") => {
+    if (!templateJob) return null;
+    if (!atAddressKey) return cloneJobAtAddressPatch(templateJob);
+    const anchor = jobs.find((j) => serviceAddressKey(j) === atAddressKey);
+    return cloneJobAtAddressPatch(anchor || templateJob);
+  };
+
+  const startNewJob = async ({ atAddressKey = "" } = {}) => {
+    const patch = jobPatchFor(atAddressKey);
+    if (!patch) return showToast("No customer info yet");
+    const newId = await createJob(patch);
+    if (!newId) return;
+    const parts = [];
+    if (fromCust) parts.push("from=" + encodeURIComponent(fromCust));
+    nav("/job/" + newId + (parts.length ? "?" + parts.join("&") : ""));
+  };
+
+  const startNewDoc = async (kind, { atAddressKey = "" } = {}) => {
+    const patch = jobPatchFor(atAddressKey);
+    if (!patch) return showToast("No customer info yet");
+    const newId = await createJob(patch);
+    if (newId) navNewDoc(newId, kind);
+  };
+
+  const toggle = (t) => {
+    setTab((cur) => {
+      const next = cur === t ? null : t;
+      if (next !== "addresses") setAddrKey("");
+      return next;
+    });
+  };
 
   return (
     <div className="space-y-2" data-testid="customer-doc-tabs">
@@ -127,6 +205,7 @@ export default function CustomerDocTabs({ jobs, activeJobId, fromCust = "" }) {
         {[
           ["invoices", "🧾 Invoices", counts.invoices],
           ["estimates", "📝 Estimates", counts.estimates],
+          ["addresses", "📍 Service addresses", counts.addresses],
         ].map(([id, label, n]) => (
           <button
             key={id}
@@ -145,6 +224,14 @@ export default function CustomerDocTabs({ jobs, activeJobId, fromCust = "" }) {
 
       {tab === "invoices" ? (
         <div className="card px-3 py-2" data-testid="cust-tab-panel-invoices">
+          <button
+            type="button"
+            className={CREATE_BTN}
+            data-testid="cust-create-invoice"
+            onClick={() => startNewDoc("invoice")}
+          >
+            ＋ Create invoice
+          </button>
           <DocSection title="Open invoices" empty={!openInv.length}>
             <InvoiceRows
               list={openInv}
@@ -168,6 +255,14 @@ export default function CustomerDocTabs({ jobs, activeJobId, fromCust = "" }) {
 
       {tab === "estimates" ? (
         <div className="card px-3 py-2" data-testid="cust-tab-panel-estimates">
+          <button
+            type="button"
+            className={CREATE_BTN}
+            data-testid="cust-create-estimate"
+            onClick={() => startNewDoc("estimate")}
+          >
+            ＋ Create estimate
+          </button>
           <DocSection title="Open estimates" empty={!openEst.length}>
             <EstimateRows
               list={openEst}
@@ -184,6 +279,58 @@ export default function CustomerDocTabs({ jobs, activeJobId, fromCust = "" }) {
               onConnectRequest={(j, kind) => setConnect({ job: j, kind })}
             />
           </DocSection>
+        </div>
+      ) : null}
+
+      {tab === "addresses" ? (
+        <div className="card px-3 py-2" data-testid="cust-tab-panel-addresses">
+          {!addrKey ? (
+            <>
+              <DocSection title="Service addresses" empty={!addresses.length}>
+                {addresses.map(({ key, label }) => {
+                  const n = jobs.filter((j) => serviceAddressKey(j) === key).length;
+                  return (
+                    <button
+                      key={key}
+                      type="button"
+                      className={`${DOC_BTN} bg-slate-50 text-slate-700 border-slate-200`}
+                      data-testid={"cust-addr-" + key.slice(0, 12)}
+                      onClick={() => setAddrKey(key)}
+                    >
+                      <span className="min-w-0 flex-1 truncate">{label}</span>
+                      <span className="text-xs text-slate-400 shrink-0">
+                        {n} job{n === 1 ? "" : "s"}
+                      </span>
+                    </button>
+                  );
+                })}
+              </DocSection>
+            </>
+          ) : (
+            <>
+              <button
+                type="button"
+                className="text-xs font-semibold text-brand mb-2"
+                data-testid="cust-addr-back"
+                onClick={() => setAddrKey("")}
+              >
+                ‹ All addresses
+              </button>
+              <p className="text-[10px] font-extrabold text-slate-400 uppercase tracking-wider px-0.5 mb-1.5">
+                Jobs at this address
+              </p>
+              <button
+                type="button"
+                className={CREATE_BTN}
+                data-testid="cust-addr-add-job"
+                onClick={() => startNewJob({ atAddressKey: addrKey })}
+              >
+                ＋ Add job at this address
+              </button>
+              <AddressJobRows list={addrJobs} activeJobId={activeJobId} onOpen={openJob} />
+              {!addrJobs.length ? <p className="text-xs text-slate-400 text-center py-2">No jobs yet.</p> : null}
+            </>
+          )}
         </div>
       ) : null}
 

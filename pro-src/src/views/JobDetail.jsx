@@ -38,6 +38,7 @@ import {
   carouselVisibleJobs,
   changeOrderJobPatch,
 } from "../lib/changeOrder.js";
+import { cloneJobAtAddressPatch } from "../lib/customerHierarchy.js";
 import ChangeOrderSheet from "../components/ChangeOrderSheet.jsx";
 import {
   customerDisplayName,
@@ -123,6 +124,17 @@ export default function JobDetail() {
     if (!job) return [];
     return sortJobs(carouselVisibleJobs(jobs, job));
   }, [job, jobs]);
+
+  const addJobAtAddress = async () => {
+    if (!job) return;
+    const patch = cloneJobAtAddressPatch(job);
+    const newId = await createJob(patch);
+    if (newId) {
+      showToast("New job at this address — add details when ready");
+      const q = fromCust ? "?from=" + encodeURIComponent(fromCust) : "";
+      nav("/job/" + newId + q);
+    }
+  };
 
   const startChangeOrder = async (kind) => {
     if (!job) return;
@@ -309,6 +321,7 @@ export default function JobDetail() {
             onSelectJob={(j) => nav("/job/" + j.id + (fromCust ? "?from=" + encodeURIComponent(fromCust) : ""))}
             onAddChangeOrder={() => setSheet({ kind: "changeOrder" })}
             canAddChangeOrder={canAddChangeOrder(jobs, job)}
+            onAddJob={addJobAtAddress}
             onEditJob={() => setSheet({ kind: "jobedit" })}
             onEstimate={(j) => openDocTab(j, "estimate", setSheet)}
             onInvoice={(j) => openDocTab(j, "invoice", setSheet)}
@@ -325,6 +338,9 @@ export default function JobDetail() {
             showOpenLink={false}
             onCardTap={toggleDetailSections}
             onEditJob={() => setSheet({ kind: "jobedit" })}
+            onAddJob={addJobAtAddress}
+            onAddChangeOrder={() => setSheet({ kind: "changeOrder" })}
+            canAddChangeOrder={canAddChangeOrder(jobs, job)}
             onEstimate={() => openDocTab(job, "estimate", setSheet)}
             onInvoice={() => openDocTab(job, "invoice", setSheet)}
             onPayment={() => setSheet({ kind: "paymenu" })}
@@ -332,15 +348,6 @@ export default function JobDetail() {
             onBubbleTap={(bubble) => tapAwarenessBubble(job, bubble, setSheet, openDocTab)}
           />
         )}
-        <button
-          type="button"
-          className="w-full text-center text-xs font-semibold text-brand py-1.5 mt-1 disabled:opacity-40"
-          data-testid="add-change-order-btn"
-          disabled={!canAddChangeOrder(jobs, job)}
-          onClick={() => setSheet({ kind: "changeOrder" })}
-        >
-          ＋ Add change order
-        </button>
       </div>
 
       {!detailSectionsExpanded && siblingJobs.length > 0 ? (
