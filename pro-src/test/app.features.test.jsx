@@ -469,7 +469,7 @@ describe("12. sync chip + today view + jobs list", () => {
     await user.click(screen.getByTestId("appt-save"));
     await waitFor(() => expect(srv.enqueued("calendar_upsert")).toHaveLength(1));
     const cmd = srv.enqueued("calendar_upsert")[0];
-    expect(cmd.payload.calEventId).toBe("");
+    expect(cmd.payload.calEventId || "").toBe("");
     expect(cmd.payload.start).toBe("2026-07-15T14:00");
     expect(cmd.payload.description).toContain("leJobId:J-1");
   });

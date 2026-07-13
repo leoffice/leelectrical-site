@@ -22,7 +22,7 @@ function linkedCustomerName(job) {
 }
 
 export default function AppointmentDetailSheet({ event, onClose }) {
-  const { jobs, events, setNewJob, patchJob, patchAndSave, patchLocalEvent, removeLocalEvent, enqueue, showToast } =
+  const { jobs, events, setNewJob, patchJob, patchAndSave, patchLocalEvent, removeLocalEvent, enqueue, showToast, pullCalendarNow } =
     useStore();
   const nav = useNavigate();
   const [mode, setMode] = useState("view"); // view | edit | link | unlink | createJob | email
@@ -89,7 +89,7 @@ export default function AppointmentDetailSheet({ event, onClose }) {
           removeLocalEvent(eid);
           onClose();
         }}
-        onDuplicated={() => {}}
+        onDuplicated={() => pullCalendarNow()}
       />
     );
   }

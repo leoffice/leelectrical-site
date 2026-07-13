@@ -16,7 +16,7 @@ import api from "../data/adapter.js";
 import { applyOverlay, deepMerge, isPlainObject } from "../data/merge.js";
 import { STAGES } from "../lib/stages.js";
 import { calendarServiceLocation } from "../lib/customerSync.js";
-import { fmt$, parseAmount, todayStr } from "../lib/format.js";
+import { evStart, fmt$, parseAmount, todayStr } from "../lib/format.js";
 import { normalizePayments } from "../lib/payments.js";
 import { unhandledCount } from "../lib/sas.js";
 import { customerSyncPayload, qboCustomerToJobPatch } from "../lib/customerSync.js";
@@ -152,15 +152,24 @@ export function StoreProvider({ children }) {
   const appliedCalUpserts = useRef(new Set());
   const appliedFetchPayments = useRef(new Set());
 
+  const mergePendingEvents = useCallback((prev, pulled) => {
+    const pending = (prev || []).filter((e) => isPendingCalEventId(e.id));
+    const merged = [...(pulled || [])];
+    for (const p of pending) {
+      if (!merged.some((e) => String(e.id) === String(p.id))) merged.push(p);
+    }
+    return merged;
+  }, []);
+
   const refreshEvents = useCallback(async ({ pull = false, awaitPull = true } = {}) => {
     try {
       const meta = await api.listEventsMeta();
-      setEvents(meta.events || []);
+      setEvents((prev) => mergePendingEvents(prev, meta.events || []));
       setEventsSyncedAt(meta.syncedAt || 0);
       if (pull && api.pullCalendar) {
         const run = async () => {
           const evs = await api.pullCalendar();
-          setEvents(evs);
+          setEvents((prev) => mergePendingEvents(prev, evs));
           const m = await api.listEventsMeta();
           setEventsSyncedAt(m.syncedAt || 0);
         };
@@ -168,7 +177,7 @@ export function StoreProvider({ children }) {
         else run().catch(() => {});
       }
     } catch {}
-  }, []);
+  }, [mergePendingEvents]);
 
   const pullCalendarNow = useCallback(async () => {
     await refreshEvents({ pull: true, awaitPull: true });
@@ -447,6 +456,27 @@ export function StoreProvider({ children }) {
     [showToast]
   );
 
+  const promotePendingCalendarEvent = useCallback((evs, eventId, pl, match) => {
+    const pending = evs.find(
+      (e) =>
+        isPendingCalEventId(e.id) &&
+        (match(e) ||
+          (e.summary === pl.summary && String(evStart(e)).slice(0, 16) === String(pl.start || "").slice(0, 16)))
+    );
+    const rest = evs.filter((e) => !(pending && isPendingCalEventId(e.id) && e.id === pending.id));
+    if (rest.some((e) => String(e.id) === String(eventId))) return rest;
+    const next = pending
+      ? { ...pending, id: eventId }
+      : {
+          id: eventId,
+          summary: pl.summary,
+          start: pl.start,
+          location: pl.location || "",
+          description: pl.description || "",
+        };
+    return rest.concat([next]);
+  }, []);
+
   // When calendar_upsert finishes on the Mac, store the real Google event id on the job.
   useEffect(() => {
     for (const cmd of commands || []) {
@@ -456,6 +486,23 @@ export function StoreProvider({ children }) {
 
       const eventId = parseCalendarUpsertResult(cmd.result)?.eventId;
       if (!eventId || !cmd.jobId) continue;
+
+      const idk = String(cmd.idempotencyKey || "");
+      const pl = cmd.payload || {};
+      const isDuplicate = idk.startsWith("caldup:");
+      const isUnlinkedBus = String(cmd.jobId) === "today" || idk.startsWith("todaycal:");
+
+      if (isDuplicate || isUnlinkedBus) {
+        appliedCalUpserts.current.add(mark);
+        setEvents((evs) =>
+          promotePendingCalendarEvent(evs, eventId, pl, (e) =>
+            isDuplicate && jobIdFromEventDescription(e.description)
+              ? jobIdFromEventDescription(e.description) === String(cmd.jobId)
+              : false
+          )
+        );
+        if (isDuplicate) continue;
+      }
 
       const job = jobs.find((j) => String(j.id) === String(cmd.jobId));
       if (!job) continue;
@@ -486,19 +533,11 @@ export function StoreProvider({ children }) {
 
       appliedCalUpserts.current.add(mark);
       patchAndSave(cmd.jobId, { calEventId: eventId, _calUnlinked: false });
-      setEvents((evs) => {
-        const jid = String(cmd.jobId);
-        const pending = evs.find(
-          (e) => isPendingCalEventId(e.id) && jobIdFromEventDescription(e.description) === jid
-        );
-        const rest = evs.filter(
-          (e) => !(isPendingCalEventId(e.id) && jobIdFromEventDescription(e.description) === jid)
-        );
-        if (rest.some((e) => String(e.id) === String(eventId))) return rest;
-        return pending ? rest.concat([{ ...pending, id: eventId }]) : rest;
-      });
+      setEvents((evs) =>
+        promotePendingCalendarEvent(evs, eventId, pl, (e) => jobIdFromEventDescription(e.description) === String(cmd.jobId))
+      );
     }
-  }, [commands, jobs, patchAndSave]);
+  }, [commands, jobs, patchAndSave, promotePendingCalendarEvent]);
 
   const appliedImportCustomer = useRef(new Set());
 

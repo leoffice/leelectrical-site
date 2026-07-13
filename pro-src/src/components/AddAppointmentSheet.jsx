@@ -8,6 +8,7 @@ import { calendarServiceLocation } from "../lib/customerSync.js";
 import { withJobLink } from "../lib/calendarLink.js";
 import { DATE_STEPS, inspectionAppointmentTitle } from "../lib/paperwork.js";
 import { todayStr } from "../lib/format.js";
+import { stashCalendarPick } from "../lib/calendarNavigate.js";
 
 /** Google Calendar colorId 11 = red (Tomato). */
 export const GCAL_RED_COLOR_ID = "11";
@@ -35,6 +36,25 @@ function jobDefaultDate(job, defaultDate) {
   return d ? d + "T09:00" : "";
 }
 
+/** Duplicate lands one week out so the copy is obvious on the calendar grid. */
+function duplicateDefaultDate(fromDt) {
+  if (!fromDt) return "";
+  const base = fromDt.includes("T") ? fromDt : fromDt + "T09:00";
+  try {
+    const d = new Date(base);
+    d.setDate(d.getDate() + 7);
+    const pad = (n) => String(n).padStart(2, "0");
+    return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${base.slice(11, 16) || "09:00"}`;
+  } catch {
+    return base;
+  }
+}
+
+function formatApptWhen(dt) {
+  if (!dt) return "";
+  return dt.replace("T", " ").slice(0, 16);
+}
+
 export default function AddAppointmentSheet({
   defaultDate,
   defaultSummary,
@@ -56,7 +76,10 @@ export default function AddAppointmentSheet({
     if (fromInspection) return inspectionAppointmentTitle(inspectionPreset.step, presetDt);
     return jobDefaultSummary(job);
   });
-  const [dt, setDt] = useState(() => jobDefaultDate(job, presetDt));
+  const [dt, setDt] = useState(() => {
+    const raw = jobDefaultDate(job, presetDt);
+    return isDuplicate ? duplicateDefaultDate(raw) : raw;
+  });
   const [location, setLocation] = useState(() => defaultLocation ?? (job ? calendarServiceLocation(job) : ""));
   const [notes, setNotes] = useState(() => defaultNotes ?? jobDefaultNotes(job));
   const [remind1h, setRemind1h] = useState(fromInspection);
@@ -75,15 +98,15 @@ export default function AddAppointmentSheet({
     if (!dt) return showToast("Pick date and time");
     const busId = job?.id || "today";
     const description = job ? withJobLink(notes || "Created in LE Pro", job.id) : notes || "Created in LE Pro";
-    const key =
-      (isDuplicate ? "caldup:" : job ? "jobcal:" + job.id : "todaycal:") + ":" + dt + ":" + title.slice(0, 24);
+    const key = isDuplicate
+      ? "caldup:" + Date.now() + ":" + dt + ":" + title.slice(0, 24)
+      : (job ? "jobcal:" + job.id : "todaycal:") + ":" + dt + ":" + title.slice(0, 24);
     const guests = notifyCustomer && guestEmail.trim() ? [guestEmail.trim()] : [];
     const reminders = [];
     if (remind1h) reminders.push({ label: "1h", minutes: 60 });
     if (remind1d) reminders.push({ label: "1d", minutes: 1440 });
 
     const payload = {
-      calEventId: isDuplicate ? "" : job?.calEventId || "",
       summary: title,
       start: dt,
       location: location || "",
@@ -93,6 +116,7 @@ export default function AddAppointmentSheet({
       reminders,
       notifyCustomer: notifyCustomer && guests.length > 0,
     };
+    if (!isDuplicate && job?.calEventId) payload.calEventId = job.calEventId;
     if (fromInspection) payload.colorId = GCAL_RED_COLOR_ID;
 
     await enqueue("calendar_upsert", busId, payload, "judgment", key);
@@ -130,15 +154,16 @@ export default function AddAppointmentSheet({
       location: location || "",
       description,
     });
+    stashCalendarPick(pendingId);
     pullCalendarNow();
     showToast(
       isDuplicate
-        ? "Duplicate queued — syncing to calendar"
+        ? "Duplicate saved for " + formatApptWhen(dt) + " — syncing to Google Calendar"
         : job
           ? "Appointment queued for " + (job.customer || "job")
           : "Appointment queued — syncs to Google Calendar"
     );
-    onSaved?.();
+    onSaved?.({ id: pendingId, summary: title, start: dt, location: location || "", description });
     onClose();
   };
 
@@ -150,8 +175,12 @@ export default function AddAppointmentSheet({
       onClose={onClose}
       wide
     >
-      {isDuplicate && job ? (
-        <p className="text-[11px] text-slate-400 -mt-1 mb-2">New copy stays linked to the same job — saves as a fresh calendar event.</p>
+      {isDuplicate ? (
+        <p className="text-[11px] text-slate-400 -mt-1 mb-2">
+          {job
+            ? "New copy stays linked to the same job — date bumped one week out; change it below if you want."
+            : "Fresh copy — date bumped one week out; change it below if you want."}
+        </p>
       ) : job ? (
         <p className="text-[11px] text-slate-400 -mt-1 mb-2">
           Pre-filled from {job._customerContext ? "customer" : "job"} info — writes to office@leelectrical.us
