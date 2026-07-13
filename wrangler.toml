@@ -1,7 +1,7 @@
 name = "leelectrical-cf"
+pages_build_output_dir = "."
 compatibility_date = "2024-10-01"
 compatibility_flags = ["nodejs_compat"]
-account_id = "10814e112c804139472eef626faf73e5"
 
 [vars]
 STORAGE_BACKEND = "cloudflare"
