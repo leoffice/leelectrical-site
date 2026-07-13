@@ -5,6 +5,7 @@ import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import "@testing-library/jest-dom/vitest";
 import DescriptionField from "../src/components/DescriptionField.jsx";
 import { buildDescriptionPdf } from "../src/lib/descriptionPdf.js";
+import { stubPdfOpen } from "./helpers.jsx";
 
 afterEach(() => {
   cleanup();
@@ -20,9 +21,10 @@ describe("DescriptionField", () => {
     expect(Number.parseInt(ta.style.minHeight, 10)).toBeGreaterThanOrEqual(96);
   });
 
-  it("opens a full-screen PDF preview from description text", () => {
+  it("opens description text as a native PDF from the view button", () => {
     URL.createObjectURL = vi.fn(() => "blob:desc-pdf");
     URL.revokeObjectURL = vi.fn();
+    const click = stubPdfOpen();
     render(
       <DescriptionField
         value={"Panel upgrade\nNew circuits"}
@@ -32,9 +34,8 @@ describe("DescriptionField", () => {
       />
     );
     fireEvent.click(screen.getByTestId("scope-desc-view-pdf-btn"));
-    expect(screen.getByTestId("scope-desc-pdf-overlay")).toBeInTheDocument();
-    expect(screen.getByTestId("scope-desc-pdf-frame")).toHaveAttribute("src", "blob:desc-pdf");
-    fireEvent.click(screen.getByTestId("scope-desc-pdf-close"));
+    expect(URL.createObjectURL).toHaveBeenCalled();
+    expect(click).toHaveBeenCalledTimes(1);
     expect(screen.queryByTestId("scope-desc-pdf-overlay")).toBeNull();
   });
 });

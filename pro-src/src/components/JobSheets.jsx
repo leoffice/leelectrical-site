@@ -21,6 +21,7 @@ import { enrichAndPatchCustomer } from "./NewJobFlow.jsx";
 import { useStore } from "../state/store.jsx";
 import { serviceAddressHint, serviceAddressLabel } from "../lib/customerSync.js";
 import { fmt$, parseAmount, todayStr } from "../lib/format.js";
+import { docStorePdfUrl, openPdfUrl } from "../lib/pdfOpen.js";
 import { chargeCardInApp, fetchSolaIfieldsConfig } from "../lib/solaCharge.js";
 import SolaCardForm, { tokenizeSolaCard } from "./SolaCardForm.jsx";
 import { fmtMoneyPrecise, totalWithFee } from "../lib/payFees.js";
@@ -1207,28 +1208,21 @@ export function PdfStages({ active }) {
 
 /** "View PDF": GET docs?key=… first; on a miss enqueue a fetch_pdf command
  *  (lane judgment, idempotencyKey pdf:<no>:<date>) and poll docs every 4s for
- *  up to 90s. Once the blob is in hand it renders full screen automatically —
- *  no separate "go full screen" step (#44) — with plain stage wording (#45). */
+ *  up to 90s. Once stored, opens in the device PDF viewer (not an iframe —
+ *  blob/iframes show raw PDF source on iOS/Android). */
 export function PdfViewer({ job, kind, no, compact, children }) {
   const { api, enqueue } = useStore();
-  const [st, setSt] = useState({ phase: "idle" }); // idle|checking|fetching|ready|timeout
+  const [st, setSt] = useState({ phase: "idle" }); // idle|checking|fetching|timeout
   const timer = useRef(null);
   const deadline = useRef(0);
-  const objUrl = useRef(null);
   const docKey = (kind === "invoice" ? "inv-" : "est-") + no;
+  const docUrl = docStorePdfUrl(docKey);
 
-  useEffect(
-    () => () => {
-      clearTimeout(timer.current);
-      if (objUrl.current && typeof URL !== "undefined" && URL.revokeObjectURL) URL.revokeObjectURL(objUrl.current);
-    },
-    []
-  );
+  useEffect(() => () => clearTimeout(timer.current), []);
 
-  const show = (blob) => {
-    const u = typeof URL !== "undefined" && URL.createObjectURL ? URL.createObjectURL(blob) : "";
-    objUrl.current = u;
-    setSt({ phase: "ready", url: u });
+  const openStored = () => {
+    openPdfUrl(docUrl);
+    setSt({ phase: "idle" });
   };
 
   const check = async () => {
@@ -1241,7 +1235,7 @@ export function PdfViewer({ job, kind, no, compact, children }) {
 
   const poll = async () => {
     const blob = await check();
-    if (blob) return show(blob);
+    if (blob) return openStored();
     if (Date.now() >= deadline.current) return setSt({ phase: "timeout" });
     timer.current = setTimeout(poll, 4000);
   };
@@ -1249,36 +1243,13 @@ export function PdfViewer({ job, kind, no, compact, children }) {
   const view = async () => {
     setSt({ phase: "checking" });
     const blob = await check();
-    if (blob) return show(blob);
+    if (blob) return openStored();
     // Not stored yet — ask the host agent to pull it from QuickBooks.
     enqueue("fetch_pdf", job.id, { kind, no, docKey }, "judgment", "pdf:" + no + ":" + todayStr());
     deadline.current = Date.now() + 90_000;
     setSt({ phase: "fetching" });
     timer.current = setTimeout(poll, 4000);
   };
-
-  // Ready → auto full-screen inline viewer (fixed overlay above the sheet).
-  if (st.phase === "ready")
-    return (
-      <div className="fixed inset-0 z-[70] bg-slate-900 flex flex-col" data-fullscreen-pdf>
-        <div className="flex items-center gap-2 px-4 py-2.5 text-white shrink-0 pt-safe">
-          <span className="font-bold text-sm flex-1 truncate">
-            {(kind === "invoice" ? "Invoice " : "Estimate ") + no}
-          </span>
-          <button className="text-xs font-bold bg-white/15 rounded-lg px-3 py-1.5" onClick={() => window.open(st.url)}>
-            ⤢ Open in new tab
-          </button>
-          <button
-            aria-label="Close PDF"
-            className="w-8 h-8 rounded-full bg-white/15 text-white font-bold text-sm shrink-0"
-            onClick={() => setSt({ phase: "idle" })}
-          >
-            ✕
-          </button>
-        </div>
-        <iframe src={st.url} title={"PDF " + docKey} className="flex-1 w-full bg-white border-0" />
-      </div>
-    );
   if (st.phase === "checking" || st.phase === "fetching")
     return (
       <div className="border border-slate-200 rounded-2xl px-4 py-3 mb-2.5">

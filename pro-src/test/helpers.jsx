@@ -422,6 +422,21 @@ export function groupSub(text) {
   return (_, el) => !!el && (el.textContent || "").replace(/\s+/g, " ").trim() === want;
 }
 
+/** Stub anchor-based PDF open (openPdfUrl / openPdfBlob) without recursive createElement. */
+export function stubPdfOpen() {
+  const click = vi.fn();
+  const orig = document.createElement.bind(document);
+  vi.spyOn(document, "createElement").mockImplementation((tag) => {
+    if (tag === "a") {
+      const a = orig("a");
+      a.click = click;
+      return a;
+    }
+    return orig(tag);
+  });
+  return click;
+}
+
 export function renderApp(hash = "#/") {
   window.location.hash = hash;
   return render(

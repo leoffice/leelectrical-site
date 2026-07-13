@@ -3,6 +3,7 @@ import React, { useEffect, useState } from "react";
 import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import SolaCardForm, { tokenizeSolaCard } from "../components/SolaCardForm.jsx";
 import { addressesDiffer, invoicePdfUrl, resolvePayLandingToken } from "../lib/payLanding.js";
+import { openPdfUrl } from "../lib/pdfOpen.js";
 import {
   PDF_RETRIEVE_STAGES,
   invoicePdfAvailable,
@@ -213,15 +214,7 @@ export default function PayLanding() {
     }
   };
 
-  const launchPdf = (url) => {
-    const a = document.createElement("a");
-    a.href = url;
-    a.target = "_blank";
-    a.rel = "noopener noreferrer";
-    document.body.appendChild(a);
-    a.click();
-    a.remove();
-  };
+
 
   const submitPayment = async () => {
     if (payBusy || payAmount <= 0) return;
@@ -270,7 +263,7 @@ export default function PayLanding() {
     setPdfPhase("idle");
     if (ok) {
       setPdfReady(true);
-      launchPdf(pdfSrc);
+      openPdfUrl(pdfSrc);
     } else {
       setPdfErr(
         "We couldn't load the invoice PDF yet. Make sure our office computer is online, then tap View invoice again."

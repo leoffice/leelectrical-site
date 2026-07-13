@@ -6,7 +6,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { cleanup, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import "@testing-library/jest-dom/vitest";
-import { mockServer, renderApp } from "./helpers.jsx";
+import { mockServer, renderApp, stubPdfOpen } from "./helpers.jsx";
 import { todayStr } from "../src/lib/format.js";
 
 afterEach(() => {
@@ -15,11 +15,6 @@ afterEach(() => {
   localStorage.clear();
   window.location.hash = "#/";
 });
-
-const stubObjectUrl = () => {
-  URL.createObjectURL = vi.fn(() => "blob:pdf-test");
-  URL.revokeObjectURL = vi.fn();
-};
 
 const openInvoiceSheet = async (user) => {
   renderApp("#/job/J-1");
@@ -30,25 +25,21 @@ const openInvoiceSheet = async (user) => {
 };
 
 describe("invoice/estimate quick view — View PDF", () => {
-  it("renders the stored PDF inline immediately when docs already has it", async () => {
-    stubObjectUrl();
+  it("opens the stored PDF in the native viewer immediately when docs already has it", async () => {
+    const click = stubPdfOpen();
     const srv = mockServer({ docs: { "inv-251841": "%PDF-1.4 stored" } });
     const user = userEvent.setup();
     const sheet = await openInvoiceSheet(user);
 
     await user.click(within(sheet).getByText("View PDF"));
-    const frame = await screen.findByTitle("PDF inv-251841");
-    expect(frame.tagName).toBe("IFRAME");
-    expect(frame).toHaveAttribute("src", "blob:pdf-test");
-    // #44: auto full-screen — the PDF lands in a full-screen overlay with no
-    // separate "go full screen" step, so that old button is gone.
-    expect(document.querySelector("[data-fullscreen-pdf]")).not.toBeNull();
+    await waitFor(() => expect(click).toHaveBeenCalledTimes(1));
+    expect(document.querySelector("[data-fullscreen-pdf]")).toBeNull();
     expect(screen.queryByText("⛶ Full screen")).toBeNull();
     expect(srv.enqueued("fetch_pdf")).toHaveLength(0); // no command when already stored
   });
 
-  it("on a miss: enqueues fetch_pdf (judgment, pdf:<no>:<date>), shows fetching, then renders after a poll", async () => {
-    stubObjectUrl();
+  it("on a miss: enqueues fetch_pdf (judgment, pdf:<no>:<date>), shows fetching, then opens after a poll", async () => {
+    const click = stubPdfOpen();
     const srv = mockServer(); // docs empty -> 404
     const user = userEvent.setup();
     const sheet = await openInvoiceSheet(user);
@@ -61,10 +52,9 @@ describe("invoice/estimate quick view — View PDF", () => {
     expect(cmd.idempotencyKey).toBe("pdf:251841:" + todayStr());
     expect(cmd.payload).toEqual({ kind: "invoice", no: "251841", docKey: "inv-251841" });
 
-    // Host uploads it -> the 4s poll picks it up and renders inline.
+    // Host uploads it -> the 4s poll picks it up and opens natively.
     srv.state.docs["inv-251841"] = "%PDF-1.4 fetched";
-    const frame = await screen.findByTitle("PDF inv-251841", {}, { timeout: 7000 });
-    expect(frame.tagName).toBe("IFRAME");
+    await waitFor(() => expect(click).toHaveBeenCalledTimes(1), { timeout: 7000 });
   }, 12000);
 });
 

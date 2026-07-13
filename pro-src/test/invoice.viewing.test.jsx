@@ -5,13 +5,13 @@
 //   #45 document-fetch stage wording (Requesting -> Fetching from QuickBooks -> Ready)
 import React from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { cleanup, render, screen } from "@testing-library/react";
+import { cleanup, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import "@testing-library/jest-dom/vitest";
 import { HashRouter } from "react-router-dom";
 import { StoreProvider } from "../src/state/store.jsx";
 import { CalSheet, QuickSendSheet, PDF_STAGES, CAL_ACCOUNT } from "../src/components/JobSheets.jsx";
-import { mockServer } from "./helpers.jsx";
+import { mockServer, stubPdfOpen } from "./helpers.jsx";
 
 // This harness runs without vitest globals:true, so RTL's afterEach auto-cleanup
 // isn't registered — unmount explicitly to avoid DOM leaking between tests.
@@ -69,10 +69,9 @@ describe("#44 jobs-list Invoice offers View as well as Send", () => {
   });
 });
 
-describe("#44/#45 PDF viewing: stage wording + auto full screen", () => {
-  it("surfaces the Requesting -> Fetching from QuickBooks -> Ready stages, then auto-opens full screen (no separate Full screen button)", async () => {
-    URL.createObjectURL = vi.fn(() => "blob:pdf");
-    URL.revokeObjectURL = vi.fn();
+describe("#44/#45 PDF viewing: stage wording + native open", () => {
+  it("surfaces the Requesting -> Fetching from QuickBooks -> Ready stages, then opens the PDF natively", async () => {
+    const click = stubPdfOpen();
     const srv = mockServer(); // docs empty -> a miss, so it enqueues + polls
     const user = userEvent.setup();
 
@@ -88,10 +87,9 @@ describe("#44/#45 PDF viewing: stage wording + auto full screen", () => {
     // #44 — no manual "go full screen" step exists anymore.
     expect(screen.queryByText("⛶ Full screen")).toBeNull();
 
-    // Host uploads the PDF -> the poll picks it up and auto-renders full screen.
+    // Host uploads the PDF -> the poll picks it up and opens natively.
     srv.state.docs["inv-251841"] = "%PDF-1.4 fetched";
-    const frame = await screen.findByTitle("PDF inv-251841", {}, { timeout: 7000 });
-    expect(frame.tagName).toBe("IFRAME");
-    expect(document.querySelector("[data-fullscreen-pdf]")).not.toBeNull();
+    await waitFor(() => expect(click).toHaveBeenCalledTimes(1), { timeout: 7000 });
+    expect(document.querySelector("[data-fullscreen-pdf]")).toBeNull();
   }, 12000);
 });

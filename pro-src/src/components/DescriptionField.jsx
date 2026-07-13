@@ -4,6 +4,7 @@ import { Fld } from "./Sheet.jsx";
 import { WORK_DESCRIPTION_STYLES, polishWorkDescription } from "../lib/workDescriptionPolish.js";
 import { buildDescriptionPdf } from "../lib/descriptionPdf.js";
 import { todayStr } from "../lib/format.js";
+import { openPdfBlob } from "../lib/pdfOpen.js";
 
 const MIN_TEXTAREA_PX = 96;
 const MAX_TEXTAREA_PX = 320;
@@ -22,9 +23,7 @@ export default function DescriptionField({
 }) {
   const [open, setOpen] = useState(false);
   const [lastStyle, setLastStyle] = useState(null);
-  const [pdfUrl, setPdfUrl] = useState("");
   const taRef = useRef(null);
-  const pdfUrlRef = useRef("");
 
   const resize = useCallback(() => {
     const el = taRef.current;
@@ -38,13 +37,6 @@ export default function DescriptionField({
     resize();
   }, [value, resize]);
 
-  useEffect(
-    () => () => {
-      if (pdfUrlRef.current && URL.revokeObjectURL) URL.revokeObjectURL(pdfUrlRef.current);
-    },
-    []
-  );
-
   const apply = (key) => {
     setLastStyle(key);
     onChange(polishWorkDescription(value, key, context));
@@ -54,22 +46,13 @@ export default function DescriptionField({
   const viewPdf = () => {
     const text = String(value || "").trim();
     if (!text) return;
-    if (pdfUrlRef.current && URL.revokeObjectURL) URL.revokeObjectURL(pdfUrlRef.current);
     const blob = buildDescriptionPdf({
       title: "LE Electrical",
       subtitle: [context.jobTitle, context.address].filter(Boolean).join(" · ") || label,
       body: text,
       footer: "Generated " + todayStr() + " · LE Pro",
     });
-    const url = URL.createObjectURL(blob);
-    pdfUrlRef.current = url;
-    setPdfUrl(url);
-  };
-
-  const closePdf = () => {
-    if (pdfUrlRef.current && URL.revokeObjectURL) URL.revokeObjectURL(pdfUrlRef.current);
-    pdfUrlRef.current = "";
-    setPdfUrl("");
+    openPdfBlob(blob);
   };
 
   const styleLabel = WORK_DESCRIPTION_STYLES.find((s) => s.key === lastStyle)?.label || "";
@@ -136,31 +119,6 @@ export default function DescriptionField({
           📄 View in PDF
         </button>
       </div>
-
-      {pdfUrl ? (
-        <div className="fixed inset-0 z-[70] bg-slate-900 flex flex-col" data-fullscreen-pdf data-testid={testId + "-pdf-overlay"}>
-          <div className="flex items-center gap-2 px-4 py-2.5 text-white shrink-0 pt-safe">
-            <span className="font-bold text-sm flex-1 truncate">{label} preview</span>
-            <button
-              type="button"
-              className="text-xs font-bold bg-white/15 rounded-lg px-3 py-1.5"
-              onClick={() => window.open(pdfUrl)}
-            >
-              ⤢ Open in new tab
-            </button>
-            <button
-              type="button"
-              aria-label="Close PDF"
-              className="w-8 h-8 rounded-full bg-white/15 text-white font-bold text-sm shrink-0"
-              onClick={closePdf}
-              data-testid={testId + "-pdf-close"}
-            >
-              ✕
-            </button>
-          </div>
-          <iframe src={pdfUrl} title={label + " PDF"} className="flex-1 w-full bg-white border-0" data-testid={testId + "-pdf-frame"} />
-        </div>
-      ) : null}
     </Fld>
   );
 }
