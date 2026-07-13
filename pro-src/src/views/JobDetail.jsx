@@ -79,6 +79,7 @@ import {
   PaymentMenuSheet,
   ReminderSheet,
 } from "../components/JobSheets.jsx";
+import CustomerComposeSheet from "../components/CustomerComposeSheet.jsx";
 
 const CMD_TONES = {
   queued: "bg-slate-100 text-slate-500",
@@ -303,6 +304,8 @@ export default function JobDetail() {
         mapAddress={effectiveServiceAddress(job)}
         primaryJob={job}
         onEdit={() => setSheet({ kind: "cust" })}
+        onText={() => setSheet({ kind: "compose", channel: "sms" })}
+        onEmail={() => setSheet({ kind: "compose", channel: "email" })}
       />
 
       {pending[id] ? (
@@ -930,6 +933,21 @@ export default function JobDetail() {
       )}
 
       {sheet?.kind === "reminder" && <ReminderSheet job={job} onClose={() => setSheet(null)} />}
+      {sheet?.kind === "compose" && (
+        <CustomerComposeSheet
+          job={job}
+          channel={sheet.channel || "email"}
+          context={sheet.context || "general"}
+          title={sheet.title}
+          initialTo={sheet.initialTo}
+          initialPhone={sheet.initialPhone}
+          initialSubject={sheet.initialSubject}
+          initialMessage={sheet.initialMessage}
+          paymentUrl={sheet.paymentUrl}
+          extraActions={sheet.extraActions}
+          onClose={() => setSheet(null)}
+        />
+      )}
       {sheet?.kind === "attach" && <AttachSheet job={job} onClose={() => setSheet(null)} />}
       {sheet?.kind === "inspection" && (
         <InspectionSheet

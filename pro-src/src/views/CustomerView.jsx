@@ -18,6 +18,7 @@ import {
   tapAwarenessBubble,
 } from "../lib/bubbleHandlers.js";
 import { CustEditSheet, PaperworkApptSheet, CustomerMenuSheet } from "../components/JobSheets.jsx";
+import CustomerComposeSheet from "../components/CustomerComposeSheet.jsx";
 import { sortJobs } from "../lib/stages.js";
 import {
   customerAmountSummary,
@@ -266,6 +267,30 @@ export default function CustomerView() {
         summary={summary}
         primaryJob={primaryJob}
         onEdit={() => setSheet({ kind: "cust", job: primaryJob })}
+        onText={() =>
+          setSheet({
+            kind: "compose",
+            channel: "sms",
+            job: primaryJob || {
+              id: "customer:" + key,
+              customer: contact.name,
+              phone: contact.phone,
+              email: contact.email,
+            },
+          })
+        }
+        onEmail={() =>
+          setSheet({
+            kind: "compose",
+            channel: "email",
+            job: primaryJob || {
+              id: "customer:" + key,
+              customer: contact.name,
+              phone: contact.phone,
+              email: contact.email,
+            },
+          })
+        }
       />
 
       {subs.length > 0 ? (
@@ -356,6 +381,21 @@ export default function CustomerView() {
               initialDt: b.date,
             })
           }
+        />
+      ) : null}
+      {sheet?.kind === "compose" && sheet.job ? (
+        <CustomerComposeSheet
+          job={sheet.job}
+          channel={sheet.channel || "email"}
+          context={sheet.context || "general"}
+          title={sheet.title}
+          initialTo={sheet.initialTo}
+          initialPhone={sheet.initialPhone}
+          initialSubject={sheet.initialSubject}
+          initialMessage={sheet.initialMessage}
+          paymentUrl={sheet.paymentUrl}
+          extraActions={sheet.extraActions}
+          onClose={() => setSheet(null)}
         />
       ) : null}
       <JobDocSheets

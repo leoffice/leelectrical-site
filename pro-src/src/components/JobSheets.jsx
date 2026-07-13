@@ -14,6 +14,7 @@ import {
   unlinkAppointmentJob,
 } from "../lib/calendarLink.js";
 import AppointmentDetailSheet from "./AppointmentDetailSheet.jsx";
+import CustomerComposeSheet from "./CustomerComposeSheet.jsx";
 import { evStart } from "../lib/format.js";
 import CustomerSearch from "./CustomerSearch.jsx";
 import { enrichAndPatchCustomer } from "./NewJobFlow.jsx";
@@ -1361,9 +1362,8 @@ export function PaymentLinkSheet({ job, onClose }) {
   const [phase, setPhase] = useState("idle"); // idle|working|ready|failed
   const [url, setUrl] = useState("");
   const [err, setErr] = useState("");
-  const [emailOpen, setEmailOpen] = useState(false);
+  const [composeChannel, setComposeChannel] = useState(null);
   const [includeFee, setIncludeFee] = useState(true);
-  const [emailTo, setEmailTo] = useState(job.email || "");
   const [emailSubject, setEmailSubject] = useState("");
   const [emailBody, setEmailBody] = useState("");
   const deadline = useRef(0);
@@ -1371,12 +1371,11 @@ export function PaymentLinkSheet({ job, onClose }) {
 
   useEffect(() => {
     setLinkAmount(paylinkAmountRaw(openBalance(job)) || "");
-    setEmailTo(job.email || "");
     setPhase("idle");
     setUrl("");
     setErr("");
     setIdk("");
-    setEmailOpen(false);
+    setComposeChannel(null);
   }, [job.id, job.invoiceNo, job.openBalance, job.paid, job.amount, job.email]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // The matching command (by idempotencyKey) as the store re-polls it.
@@ -1477,24 +1476,37 @@ export function PaymentLinkSheet({ job, onClose }) {
     }
   };
 
-  const smsMsg = emailBody
-    ? emailBody.split("\n").slice(0, 6).join(" ") + (url ? " " + url : "")
-    : `Hi, pay invoice #${inv}: ${url} — LE Electric`;
-
-  const openMailApp = () => {
-    const to = (emailTo || "").trim();
-    if (!to) return showToast("Enter an email address");
-    const href = `mailto:${to}?subject=${encodeURIComponent(emailSubject)}&body=${encodeURIComponent(emailBody)}`;
-    window.location.href = href;
-  };
-
   const sendViaQbo = () => {
-    const to = (emailTo || "").trim();
-    if (!to) return showToast("Enter an email address");
+    const to = (job.email || "").trim();
+    if (!to) return showToast("Add customer email first");
     doSend(job, "invoice", { includePaymentLink: true, email: to });
     showToast("Sending invoice + payment link via QuickBooks…");
     onClose();
   };
+
+  if (composeChannel) {
+    return (
+      <CustomerComposeSheet
+        job={job}
+        channel={composeChannel}
+        context="payment"
+        title={composeChannel === "email" ? "Email payment link" : "Text payment link"}
+        initialTo={job.email || ""}
+        initialPhone={job.phone || ""}
+        initialSubject={emailSubject}
+        initialMessage={emailBody}
+        paymentUrl={url}
+        onClose={() => setComposeChannel(null)}
+        extraActions={
+          composeChannel === "email" ? (
+            <button type="button" className="btn w-full !py-2 bg-slate-100 text-slate-800" onClick={sendViaQbo}>
+              Send via QuickBooks (invoice PDF + payment link)
+            </button>
+          ) : null
+        }
+      />
+    );
+  }
 
   return (
     <Sheet title={"Payment link" + (inv ? " — #" + inv : "")} onClose={onClose}>
@@ -1556,60 +1568,26 @@ export function PaymentLinkSheet({ job, onClose }) {
           </div>
           <button className="btn-brand w-full mb-2" onClick={copy}>📋 Copy link</button>
           <div className="flex gap-2 mb-2">
-            <a
-              className={`btn flex-1 !py-2 text-center ${job.phone ? "bg-brand-soft text-brand" : "bg-slate-50 text-slate-300 pointer-events-none"}`}
-              href={job.phone ? `sms:${job.phone}?&body=${encodeURIComponent(smsMsg)}` : undefined}
-            >
-              💬 Text
-            </a>
             <button
               type="button"
-              className="btn flex-1 !py-2 bg-brand-soft text-brand"
-              onClick={() => setEmailOpen((v) => !v)}
+              className={`btn flex-1 !py-2 ${job.phone ? "bg-brand-soft text-brand" : "bg-slate-50 text-slate-300"}`}
+              disabled={!job.phone}
+              onClick={() => setComposeChannel("sms")}
+            >
+              💬 Text
+            </button>
+            <button
+              type="button"
+              className={`btn flex-1 !py-2 ${job.email ? "bg-brand-soft text-brand" : "bg-slate-50 text-slate-300"}`}
+              disabled={!job.email}
+              onClick={() => setComposeChannel("email")}
             >
               ✉️ Email
             </button>
           </div>
-          {emailOpen && (
-            <div className="border border-slate-200 rounded-2xl p-3 mb-2 space-y-2 text-sm">
-              <label className="block">
-                <span className="font-semibold text-slate-700">To</span>
-                <input
-                  type="email"
-                  className="input mt-1 w-full"
-                  aria-label="Payment link email recipient"
-                  value={emailTo}
-                  onChange={(e) => setEmailTo(e.target.value)}
-                  placeholder={job.email || "customer@email.com"}
-                />
-              </label>
-              {job.email && emailTo !== job.email && (
-                <button type="button" className="btn-ghost w-full !py-1 text-xs" onClick={() => setEmailTo(job.email)}>
-                  ↺ Reset to customer email ({job.email})
-                </button>
-              )}
-              <label className="block">
-                <span className="font-semibold text-slate-700">Subject</span>
-                <input className="input mt-1 w-full" value={emailSubject} onChange={(e) => setEmailSubject(e.target.value)} />
-              </label>
-              <label className="block">
-                <span className="font-semibold text-slate-700">Message</span>
-                <textarea className="input mt-1 w-full min-h-[140px]" value={emailBody} onChange={(e) => setEmailBody(e.target.value)} />
-              </label>
-              <p className="text-[11px] text-slate-400">
-                Invoice total {fmt$(invoiceTotal(job)) || "—"} · balance due {fmtAmountDue(job) || fmt$(openBalance(job)) || "—"} · link amount {fmt$(parseFloat(linkAmount) || openBalance(job))}
-              </p>
-              <button type="button" className="btn-brand w-full !py-2" onClick={openMailApp}>
-                Open in Mail (review &amp; send)
-              </button>
-              <button type="button" className="btn w-full !py-2 bg-slate-100 text-slate-800" onClick={sendViaQbo}>
-                Send via QuickBooks (invoice PDF + payment link)
-              </button>
-              <p className="text-[11px] text-slate-400 text-center">
-                QuickBooks emails the official invoice PDF with the pay link in the message. Mail app cannot attach the PDF automatically.
-              </p>
-            </div>
-          )}
+          <p className="text-[11px] text-slate-400 text-center">
+            Invoice total {fmt$(invoiceTotal(job)) || "—"} · balance due {fmtAmountDue(job) || fmt$(openBalance(job)) || "—"} · link amount {fmt$(parseFloat(linkAmount) || openBalance(job))}
+          </p>
         </>
       )}
 
