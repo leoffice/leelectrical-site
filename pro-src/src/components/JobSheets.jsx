@@ -19,7 +19,7 @@ import CustomerSearch from "./CustomerSearch.jsx";
 import { enrichAndPatchCustomer } from "./NewJobFlow.jsx";
 import { useStore } from "../state/store.jsx";
 import { serviceAddressHint, serviceAddressLabel } from "../lib/customerSync.js";
-import { fmt$, todayStr } from "../lib/format.js";
+import { fmt$, parseAmount, todayStr } from "../lib/format.js";
 import { chargeCardInApp, fetchSolaIfieldsConfig } from "../lib/solaCharge.js";
 import SolaCardForm, { tokenizeSolaCard } from "./SolaCardForm.jsx";
 import { fmtMoneyPrecise, totalWithFee } from "../lib/payFees.js";
@@ -1625,21 +1625,52 @@ export function PaymentLinkSheet({ job, onClose }) {
 }
 
 /* ---------- 2a. Invoice / Estimate quick view ---------- */
-export function DocSheet({ job, kind, onClose, onEdit, onConvert }) {
+export function DocSheet({ job, kind, onClose, onEdit, onConvert, onSync }) {
   const doSend = useDoSend();
   const no = kind === "invoice" ? job.invoiceNo : job.estimateNo;
   const qboPath = kind === "invoice" ? "invoices" : "estimates";
   const due = openBalance(job);
   const label = kind === "invoice" ? "invoice" : "estimate";
+  const lines = kind === "invoice" ? job.invoiceLines : job.estimateLines;
+  const isDraft = !no && (lines || []).some((ln) => String(ln?.itemName || "").trim());
+  const title = no
+    ? (kind === "invoice" ? "Invoice " : "Estimate ") + no
+    : isDraft
+    ? (kind === "invoice" ? "Invoice saved on job" : "Estimate saved on job")
+    : kind === "invoice"
+    ? "Invoice"
+    : "Estimate";
+
   return (
-    <Sheet title={(kind === "invoice" ? "Invoice " : "Estimate ") + (no || "")} onClose={onClose}>
+    <Sheet title={title} onClose={onClose}>
+      {isDraft ? (
+        <p className="text-xs text-amber-800 bg-amber-50 border border-amber-200 rounded-xl px-3 py-2 mb-3" data-testid="doc-draft-banner">
+          Saved on this job — not in QuickBooks yet. Tap sync when you are ready.
+        </p>
+      ) : null}
+
       <div className="text-sm space-y-1 mb-3">
         <div><b className="font-semibold">Customer</b> <span className="text-slate-600">{job.customer || ""}</span></div>
         <div><b className="font-semibold">Amount</b> <span className="text-slate-600">{fmt$(job.amount)}</span></div>
-        {kind === "invoice" && (
+        {kind === "invoice" && no ? (
           <div><b className="font-semibold">Status</b> <span className="text-slate-600">{job.paid ? "Paid" : "Open"}</span></div>
-        )}
+        ) : null}
+        {(job.serviceAddress || job.address) ? (
+          <div><b className="font-semibold">Service address</b> <span className="text-slate-600">{job.serviceAddress || job.address}</span></div>
+        ) : null}
       </div>
+
+      {isDraft && lines?.length ? (
+        <div className="card px-3 py-2 mb-3" data-testid="doc-draft-lines">
+          <p className="text-[11px] font-bold uppercase tracking-wide text-slate-400 mb-2">Line items</p>
+          {lines.filter((ln) => String(ln?.itemName || "").trim()).map((ln, i) => (
+            <div key={i} className="flex justify-between gap-2 text-sm py-1 border-b border-dashed border-slate-100 last:border-0">
+              <span className="min-w-0 truncate text-slate-700">{ln.itemName}</span>
+              <span className="shrink-0 font-semibold text-slate-800">{fmt$(parseAmount(ln.qty) * parseAmount(ln.unitPrice))}</span>
+            </div>
+          ))}
+        </div>
+      ) : null}
 
       {no ? (
         <PdfViewer job={job} kind={kind} no={no} compact>
@@ -1653,7 +1684,13 @@ export function DocSheet({ job, kind, onClose, onEdit, onConvert }) {
         </PdfViewer>
       ) : null}
 
-      {job.email ? (
+      {isDraft && onSync ? (
+        <button type="button" className="btn-brand w-full mb-2" onClick={onSync} data-testid="doc-sync-qbo">
+          Sync to QuickBooks
+        </button>
+      ) : null}
+
+      {!isDraft && no && job.email ? (
         <div className="flex gap-2 mb-2" data-testid="doc-send-row">
           {kind === "invoice" && due > 0.01 ? (
             <button
@@ -1678,9 +1715,9 @@ export function DocSheet({ job, kind, onClose, onEdit, onConvert }) {
             {kind === "invoice" && due > 0.01 ? "Send invoice only" : "Send " + label}
           </button>
         </div>
-      ) : (
+      ) : !isDraft && no ? (
         <p className="text-[11px] text-slate-400 text-center mb-2">Add an email on the customer card to send.</p>
-      )}
+      ) : null}
 
       {onEdit ? (
         <button type="button" className="btn-ghost w-full !py-2.5 mb-1 font-semibold" onClick={onEdit} data-testid="doc-edit">
@@ -1688,7 +1725,7 @@ export function DocSheet({ job, kind, onClose, onEdit, onConvert }) {
         </button>
       ) : null}
 
-      {kind === "estimate" && !job.invoiceNo && onConvert ? (
+      {kind === "estimate" && !job.invoiceNo && onConvert && (no || isDraft) ? (
         <Opt icon="🧾" title="Convert to invoice" note="Bill all or part of this estimate" onClick={onConvert} />
       ) : null}
     </Sheet>

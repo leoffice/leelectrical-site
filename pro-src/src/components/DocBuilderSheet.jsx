@@ -522,7 +522,7 @@ export default function DocBuilderSheet({
         jobPatch.attachments = (job.attachments || []).concat(attachments);
       }
       await patchAndSave(jobId, jobPatch);
-      showToast("Saved on this job — use Save & sync when ready for QuickBooks");
+      showToast("Saved on this job — tap the Estimate or Invoice tab to review, then sync to QuickBooks when ready");
       onDone && onDone(activeJob);
       onClose();
     } finally {
@@ -787,11 +787,11 @@ export default function DocBuilderSheet({
         </div>
       ) : null}
 
-      <button type="button" className="btn-ghost w-full mb-2" disabled={saving} onClick={submitLocal} data-testid="doc-save-close">
-        Save &amp; close
+      <button type="button" className="btn-brand w-full mb-2" disabled={saving} onClick={submitLocal} data-testid="doc-save-close">
+        Save on job
       </button>
-      <button type="button" className="btn-brand w-full mb-2" disabled={saving} onClick={() => submitSync(false)} data-testid="doc-save-sync">
-        Save &amp; sync
+      <button type="button" className="btn bg-brand-soft text-brand w-full mb-2" disabled={saving} onClick={() => submitSync(false)} data-testid="doc-save-sync">
+        Save &amp; sync to QuickBooks
       </button>
       <button
         type="button"
