@@ -5,14 +5,13 @@ import DescriptionField from "./DescriptionField.jsx";
 import CustomerSearch from "./CustomerSearch.jsx";
 import { useStore } from "../state/store.jsx";
 import { DEFAULT_QBO_ITEMS, filterQboItems } from "../data/qboItems.js";
-import { serviceAddressHint, serviceAddressLabel } from "../lib/customerSync.js";
+import ServiceAddressField from "./ServiceAddressField.jsx";
 import { emptyLine, initialLines, lineAmount, linesTotal } from "../lib/qboDoc.js";
 import { planDocSaveLocal, planDocSaveSync } from "../lib/docSync.js";
 import { enqueueCustomerQboSync } from "../lib/customerQboEnqueue.js";
 import { stashPendingDocSync } from "../lib/docSyncChain.js";
 import { fmt$, parseAmount } from "../lib/format.js";
-import { customerKeyForName, jobsForCustomerKey } from "../lib/customers.js";
-import { serviceAddressesForJobs } from "../lib/customerHierarchy.js";
+
 import { enrichAndPatchCustomer } from "./NewJobFlow.jsx";
 import {
   applyDueAmountToLines,
@@ -216,15 +215,6 @@ function LineRow({ line, index, items, onChange, onRemove, canRemove, progressMo
 }
 
 function CustomerHeaderPanel({ job, allJobs, api, onPatch }) {
-  const [addrPick, setAddrPick] = useState("");
-  const addressChoices = useMemo(() => {
-    const ck =
-      (job.qboCustomerId && "q:" + job.qboCustomerId) ||
-      customerKeyForName(job.businessName || job.customer);
-    if (!ck) return [];
-    return serviceAddressesForJobs(jobsForCustomerKey(allJobs, ck));
-  }, [allJobs, job.businessName, job.customer, job.qboCustomerId]);
-
   const applyCustomer = async (c) => {
     if (!c) return;
     if (c._newCustomer) {
@@ -279,31 +269,6 @@ function CustomerHeaderPanel({ job, allJobs, api, onPatch }) {
       <Fld label="Job title / scope" hint="What this invoice is for">
         <input className="input" value={job.title || ""} onChange={set("title")} aria-label="Job title" />
       </Fld>
-      {addressChoices.length > 1 ? (
-        <Fld label="Service address" hint="Pick an existing site for this customer or type below">
-          <select
-            className="input mb-2"
-            value={addrPick}
-            onChange={(e) => {
-              const v = e.target.value;
-              setAddrPick(v);
-              if (v === "new") return;
-              const hit = addressChoices.find((a) => a.key === v);
-              if (hit) onPatch({ serviceAddress: hit.label, address: hit.label });
-            }}
-            aria-label="Service address picker"
-            data-testid="doc-address-picker"
-          >
-            <option value="">Choose address…</option>
-            {addressChoices.map((a) => (
-              <option key={a.key} value={a.key}>
-                {a.label}
-              </option>
-            ))}
-            <option value="new">＋ New address</option>
-          </select>
-        </Fld>
-      ) : null}
     </div>
   );
 }
@@ -637,15 +602,17 @@ export default function DocBuilderSheet({
         </p>
       )}
 
-      <Fld label={serviceAddressLabel(job)} hint={serviceAddressHint(job)}>
-        <input
-          className="input"
-          value={serviceAddress}
-          onChange={(e) => setServiceAddress(e.target.value)}
-          aria-label="Service address"
-          data-testid="doc-service-address"
-        />
-      </Fld>
+      <ServiceAddressField
+        job={job}
+        jobs={boardJobs}
+        events={[]}
+        value={serviceAddress}
+        onChange={setServiceAddress}
+        onApartmentChange={setApartment}
+        suggestAddresses={api.suggestAddresses?.bind(api)}
+        testId="doc-service-address"
+        partialOk={false}
+      />
       <Fld label="Apartment / unit" hint="Optional — appended to ShipAddr in QuickBooks">
         <input className="input" value={apartment} onChange={(e) => setApartment(e.target.value)} aria-label="Apartment" />
       </Fld>

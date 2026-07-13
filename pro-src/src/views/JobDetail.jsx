@@ -43,7 +43,6 @@ import ChangeOrderSheet from "../components/ChangeOrderSheet.jsx";
 import {
   customerDisplayName,
   calendarServiceLocation,
-  effectiveServiceAddress,
 } from "../lib/customerSync.js";
 import {
   amountPaid,
@@ -301,7 +300,6 @@ export default function JobDetail() {
           name: customerDisplayName(job) || job.customer,
         }}
         showSummary={false}
-        mapAddress={effectiveServiceAddress(job)}
         primaryJob={job}
         onEdit={() => setSheet({ kind: "cust" })}
         onText={() => setSheet({ kind: "compose", channel: "sms" })}

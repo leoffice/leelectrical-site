@@ -30,7 +30,8 @@ import { MarkPaidSheet, PaymentIntroSheet } from "./JobSheets.jsx";
 import DocBuilderSheet from "./DocBuilderSheet.jsx";
 import { fmt$ } from "../lib/format.js";
 import { sortJobs } from "../lib/stages.js";
-import { serviceAddressHint, serviceAddressLabel, customerSyncPayload } from "../lib/customerSync.js";
+import { customerSyncPayload } from "../lib/customerSync.js";
+import ServiceAddressField from "./ServiceAddressField.jsx";
 import { enqueueCustomerQboSync } from "../lib/customerQboEnqueue.js";
 import {
   createNewCustomerDisabled,
@@ -641,7 +642,7 @@ function NewJobForm({ prefill, onClose, onCreated, vendorMode = false }) {
   });
   const [titlePick, setTitlePick] = useState("new");
   const [subPick, setSubPick] = useState("");
-  const [addrPick, setAddrPick] = useState("");
+
   const autoFilledRef = useRef("");
   const fRef = useRef(f);
   fRef.current = f;
@@ -897,46 +898,17 @@ function NewJobForm({ prefill, onClose, onCreated, vendorMode = false }) {
         />
       </Fld>
 
-      {addressChoices.length > 1 ? (
-        <Fld label="Service address" hint="Pick an existing site or type a new one below">
-          <select
-            className="input mb-2"
-            value={addrPick}
-            onChange={(e) => {
-              const v = e.target.value;
-              setAddrPick(v);
-              if (v === "new") return;
-              const hit = addressChoices.find((a) => a.key === v);
-              if (hit) setF((o) => ({ ...o, serviceAddress: hit.label }));
-            }}
-            aria-label="Service address picker"
-            data-testid="newjob-address-picker"
-          >
-            <option value="">Choose address…</option>
-            {addressChoices.map((a) => (
-              <option key={a.key} value={a.key}>
-                {a.label}
-              </option>
-            ))}
-            <option value="new">＋ New address</option>
-          </select>
-        </Fld>
-      ) : null}
-      <Fld label={serviceAddressLabel(f)} hint={serviceAddressHint(f) + " — partial address OK"}>
-        <AddressAutocompleteField
-          label={serviceAddressLabel(f)}
-          value={f.serviceAddress}
-          onChange={(v) => {
-            setAddrPick("");
-            setF((o) => ({ ...o, serviceAddress: v }));
-          }}
-          jobs={jobs}
-          events={events}
-          suggestAddresses={api.suggestAddresses?.bind(api)}
-          testId="newjob-service"
-          ariaLabel={serviceAddressLabel(f)}
-        />
-      </Fld>
+      <ServiceAddressField
+        job={f}
+        jobs={jobs}
+        events={events}
+        value={f.serviceAddress}
+        onChange={(v) => setF((o) => ({ ...o, serviceAddress: v }))}
+        onApartmentChange={(v) => setF((o) => ({ ...o, apartment: v }))}
+        suggestAddresses={api.suggestAddresses?.bind(api)}
+        testId="newjob-service"
+        addressChoices={addressChoices}
+      />
       <Fld label="Apartment #" hint="Unit / apt at the service address (optional)">
         <input className="input" value={f.apartment} onChange={set("apartment")} aria-label="Apartment #" />
       </Fld>

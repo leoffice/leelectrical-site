@@ -19,7 +19,7 @@ import { evStart } from "../lib/format.js";
 import CustomerSearch from "./CustomerSearch.jsx";
 import { enrichAndPatchCustomer } from "./NewJobFlow.jsx";
 import { useStore } from "../state/store.jsx";
-import { serviceAddressHint, serviceAddressLabel } from "../lib/customerSync.js";
+
 import { fmt$, parseAmount, todayStr } from "../lib/format.js";
 import { docStorePdfUrl, openPdfBlob, openPdfUrl } from "../lib/pdfOpen.js";
 import { buildInvoicePdfFromJob, canGenerateLocalInvoice } from "../lib/invoicePdf.js";
@@ -1948,8 +1948,7 @@ export function CustEditSheet({ job, onClose }) {
     phone: job.phone || "",
     email: job.email || "",
     billingAddress: job.billingAddress || "",
-    serviceAddress: job.serviceAddress || job.address || "",
-    apartment: job.apartment || "",
+
     qboCustomerId: job.qboCustomerId || "",
     parentCustomerName: job.parentCustomerName || "",
     parentQboCustomerId: job.parentQboCustomerId || "",
@@ -1992,9 +1991,7 @@ export function CustEditSheet({ job, onClose }) {
       phone: f.phone || "",
       email: f.email || "",
       billingAddress: f.billingAddress || "",
-      serviceAddress: f.serviceAddress || "",
-      address: f.serviceAddress || "",
-      apartment: f.apartment || "",
+
       qboCustomerId: f.qboCustomerId || "",
       parentCustomerName: f.parentCustomerName || "",
       parentQboCustomerId: f.parentQboCustomerId || "",
@@ -2054,7 +2051,7 @@ export function CustEditSheet({ job, onClose }) {
   };
 
   return (
-    <Sheet title="Edit customer & service location" onClose={onClose}>
+    <Sheet title="Edit customer" onClose={onClose}>
       <p className="text-[11px] font-bold uppercase tracking-wide text-slate-400 mb-2">Customer (QuickBooks)</p>
       <Fld label="Customer name" hint="Billing entity — search QuickBooks; phone, email & billing fill from QB">
         <CustomerSearch
@@ -2080,20 +2077,11 @@ export function CustEditSheet({ job, onClose }) {
           </Fld>
         )
       )}
-      <p className="text-[11px] font-bold uppercase tracking-wide text-slate-400 mt-3 mb-2">
-        {job.invoiceNo || job.estimateNo ? "Invoice / estimate — service location" : "Service location (for next invoice/estimate)"}
-      </p>
-      <Fld label={serviceAddressLabel(job)} hint={serviceAddressHint(job)}>
-        <input className="input" value={f.serviceAddress} onChange={set("serviceAddress")} aria-label={serviceAddressLabel(job)} />
-      </Fld>
-      <Fld label="Apartment #">
-        <input className="input" value={f.apartment} onChange={set("apartment")} aria-label="Apartment #" />
-      </Fld>
-      <button className="btn-brand w-full" onClick={saveAndSync} data-testid="cust-save-sync">
+      <button className="btn-brand w-full mt-3" onClick={saveAndSync} data-testid="cust-save-sync">
         Save &amp; sync
       </button>
       <p className="text-[11px] text-slate-400 text-center mt-2">
-        Saves customer info and syncs to QuickBooks. Service address stays on this invoice/estimate only.
+        Saves customer info and syncs to QuickBooks. Use Edit job for service address on this invoice/estimate.
       </p>
     </Sheet>
   );
