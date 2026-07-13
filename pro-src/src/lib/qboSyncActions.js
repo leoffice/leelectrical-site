@@ -1,6 +1,54 @@
 // Per-scope QuickBooks sync — maps menu picks to command bus actions.
-import { customerSyncPayload } from "./customerSync.js";
+import { customerSyncPayload, qboCustomerToJobPatch } from "./customerSync.js";
 import { invoiceJobs } from "./customerDocLists.js";
+import { waitForCommandDone } from "./commandWait.js";
+
+/** Pull name/phone/email/billing from QuickBooks onto every job for this customer. */
+export async function pullCustomerFromQbo({ qboId, name, jobs, jobId, api, patchAndSave, enqueue, showToast }) {
+  const targets = (jobs || []).filter(Boolean);
+  const primary = targets[0];
+  const id = String(qboId || primary?.qboCustomerId || "").trim();
+  const label = (name || primary?.businessName || primary?.customer || "").trim();
+
+  if (!id && !label) {
+    showToast("Link this customer to QuickBooks first");
+    return false;
+  }
+
+  if (id && api?.getCustomer && patchAndSave) {
+    showToast("Pulling customer info from QuickBooks…");
+    const qb = await api.getCustomer(id);
+    if (!qb) {
+      showToast("Could not load customer from QuickBooks");
+      return false;
+    }
+    const patch = { ...qboCustomerToJobPatch(qb), qboCustomerId: id };
+    if (!targets.length) {
+      showToast("Customer loaded from QuickBooks");
+      return true;
+    }
+    for (const j of targets) {
+      await patchAndSave(j.id, patch);
+    }
+    showToast("Customer info updated from QuickBooks");
+    return true;
+  }
+
+  if (!id && primary && enqueue) {
+    enqueue(
+      "customer_sync",
+      jobId || primary.id,
+      customerSyncPayload(primary),
+      "judgment",
+      "customer_sync|" + (jobId || primary.id) + "|" + Date.now()
+    );
+    showToast("Checking QuickBooks for this customer…");
+    return true;
+  }
+
+  showToast("Link this customer to QuickBooks first");
+  return false;
+}
 
 /**
  * Run a scoped QB sync for a customer context.
@@ -16,6 +64,7 @@ export async function runQboSync({
   showToast,
   refreshJobs,
   api,
+  patchAndSave,
 }) {
   const jobs = customerJobs || (job ? [job] : []);
   const primary = job || jobs[0];
@@ -27,24 +76,26 @@ export async function runQboSync({
   const name = (primary.businessName || primary.customer || "").trim();
   const jobId = primary.id;
 
-  const pullOpenInvoices = async () => {
+  const pullOpenInvoices = async (invoiceKind = "invoices") => {
     if (!name && !qboId) {
       showToast("Link this customer to QuickBooks first");
       return false;
     }
     const key = qboId || name;
+    const idk = "import_customer|" + key + "|" + invoiceKind + "|" + scope + "|" + Date.now();
     await enqueue(
       "import_customer",
       "import-" + key,
-      { name, qboId, scope, kind },
+      { name, qboId, scope, kind: invoiceKind },
       "deterministic",
-      "import_customer|" + key + "|" + kind + "|" + scope + "|" + Date.now()
+      idk
     );
-    try {
-      await api.pullJobs?.({ maxWaitMs: 90000 });
-    } catch {}
+    const testMode = typeof import.meta !== "undefined" && import.meta.env && import.meta.env.MODE === "test";
+    const wait = await waitForCommandDone(api, idk, { maxMs: testMode ? 80 : 120000, intervalMs: testMode ? 15 : 2000 });
+    if (wait.timeout) showToast("Still pulling from QuickBooks — check back in a moment");
+    else if (!wait.ok) showToast(String(wait.cmd?.error || "Import from QuickBooks failed"));
     await refreshJobs?.(true);
-    return true;
+    return wait.ok;
   };
 
   const pullPaymentsFor = async (list) => {
@@ -65,25 +116,16 @@ export async function runQboSync({
   };
 
   if (kind === "customer") {
-    if (qboId) {
-      enqueue(
-        "update_customer",
-        jobId,
-        { id: qboId, ...customerSyncPayload(primary) },
-        "deterministic",
-        "update_customer|" + jobId + "|" + Date.now()
-      );
-      showToast("Syncing customer info to QuickBooks…");
-    } else {
-      enqueue(
-        "customer_sync",
-        jobId,
-        customerSyncPayload(primary),
-        "judgment",
-        "customer_sync|" + jobId + "|" + Date.now()
-      );
-      showToast("Checking QuickBooks for this customer…");
-    }
+    await pullCustomerFromQbo({
+      qboId,
+      name,
+      jobs,
+      jobId,
+      api,
+      patchAndSave,
+      enqueue,
+      showToast,
+    });
     return;
   }
 
@@ -93,7 +135,7 @@ export async function runQboSync({
         ? "Pulling open invoices — each becomes its own job…"
         : "Pulling all invoices — each becomes its own job…"
     );
-    await pullOpenInvoices();
+    await pullOpenInvoices("invoices");
     if (scope === "all") {
       const n = await pullPaymentsFor(invoiceJobs(jobs));
       if (n) showToast("Refreshing payment status on " + n + " invoice" + (n === 1 ? "" : "s") + "…");
@@ -103,7 +145,7 @@ export async function runQboSync({
 
   if (kind === "estimates") {
     showToast(scope === "open" ? "Refreshing open estimates…" : "Refreshing estimate history…");
-    if (qboId || name) await pullOpenInvoices();
+    if (qboId || name) await pullOpenInvoices("estimates");
     else await refreshJobs?.(true);
     showToast("Estimates on file updated — create new ones in the estimate tab");
     return;
@@ -118,17 +160,18 @@ export async function runQboSync({
 
   if (kind === "history") {
     showToast("Pulling full customer history…");
-    await pullOpenInvoices();
+    await pullOpenInvoices("history");
+    await pullCustomerFromQbo({
+      qboId,
+      name,
+      jobs,
+      jobId,
+      api,
+      patchAndSave,
+      enqueue,
+      showToast,
+    });
     const n = await pullPaymentsFor(invoiceJobs(jobs));
-    if (qboId) {
-      enqueue(
-        "update_customer",
-        jobId,
-        { id: qboId, ...customerSyncPayload(primary) },
-        "deterministic",
-        "update_customer|" + jobId + "|hist|" + Date.now()
-      );
-    }
     if (n) showToast("History sync queued — " + n + " invoice" + (n === 1 ? "" : "s") + " updating");
     return;
   }

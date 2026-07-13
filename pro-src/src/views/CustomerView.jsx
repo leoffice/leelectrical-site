@@ -26,11 +26,12 @@ import {
   PENDING_IMPORT_LS,
 } from "../lib/customers.js";
 import { touchCustomer } from "../lib/customerRecency.js";
+import { waitForCommandDone } from "../lib/commandWait.js";
 
 export default function CustomerView() {
   const { key: raw } = useParams();
   const nav = useNavigate();
-  const { jobs, loading, events, commands, patchJob, refreshJobs, api } = useStore();
+  const { jobs, loading, events, commands, patchJob, refreshJobs, api, enqueue, showToast } = useStore();
   const [qboIndex, setQboIndex] = useState([]);
 
   useEffect(() => {
@@ -60,7 +61,7 @@ export default function CustomerView() {
     });
   }, []);
   const [importing, setImporting] = useState(false);
-  const importPoll = useRef(null);
+  const [importTimedOut, setImportTimedOut] = useState(false);
   const lastListRef = useRef([]);
 
   const importHints = useMemo(() => {
@@ -94,24 +95,64 @@ export default function CustomerView() {
     } catch {}
     if (!pending || pending.key !== key) {
       setImporting(false);
+      setImportTimedOut(false);
       return;
     }
     setImporting(true);
-    let n = 0;
-    const tick = async () => {
-      n += 1;
+    setImportTimedOut(false);
+    let cancelled = false;
+    const hints = { name: pending.name || "", qboId: pending.qboId || "" };
+    const testMode = typeof import.meta !== "undefined" && import.meta.env && import.meta.env.MODE === "test";
+
+    const customerHasJobs = async () => {
       const meta = await refreshJobs?.(true);
-      const hasJobs = jobsForCustomerKey(meta?.jobs || [], key).length > 0;
-      if (hasJobs || n >= 30) {
+      if (cancelled) return true;
+      return jobsForCustomerKey(meta?.jobs || [], key, hints, qboIndex).length > 0;
+    };
+
+    (async () => {
+      if (await customerHasJobs()) {
         setImporting(false);
         sessionStorage.removeItem(PENDING_IMPORT_LS);
         return;
       }
-      importPoll.current = setTimeout(tick, 3000);
+      if (pending.idempotencyKey) {
+        const wait = await waitForCommandDone(api, pending.idempotencyKey, {
+          maxMs: testMode ? 80 : 120000,
+          intervalMs: testMode ? 15 : 2000,
+        });
+        if (cancelled) return;
+        if (await customerHasJobs()) {
+          setImporting(false);
+          sessionStorage.removeItem(PENDING_IMPORT_LS);
+          return;
+        }
+        if (!wait.ok && !wait.timeout) {
+          setImporting(false);
+          setImportTimedOut(true);
+          showToast?.(String(wait.cmd?.error || "Import from QuickBooks failed"));
+          return;
+        }
+      }
+      for (let n = 0; n < 30 && !cancelled; n++) {
+        await new Promise((r) => setTimeout(r, testMode ? 15 : 3000));
+        if (await customerHasJobs()) {
+          setImporting(false);
+          sessionStorage.removeItem(PENDING_IMPORT_LS);
+          return;
+        }
+      }
+      if (!cancelled) {
+        setImporting(false);
+        setImportTimedOut(true);
+        sessionStorage.removeItem(PENDING_IMPORT_LS);
+      }
+    })();
+
+    return () => {
+      cancelled = true;
     };
-    tick();
-    return () => clearTimeout(importPoll.current);
-  }, [key, refreshJobs]);
+  }, [key, refreshJobs, api, qboIndex, showToast]);
 
   useEffect(() => {
     if (!displayJobs.length) return;
@@ -124,6 +165,42 @@ export default function CustomerView() {
     setImporting(false);
   }, [displayJobs, key]);
 
+  const retryImport = async () => {
+    let pending = null;
+    try {
+      pending = JSON.parse(sessionStorage.getItem(PENDING_IMPORT_LS) || "null");
+    } catch {}
+    const hints = importHints || pending || {};
+    const qboId = String(hints.qboId || "").trim();
+    const name = String(hints.name || "").trim();
+    if (!qboId && !name) return showToast("Nothing to import — search for this customer again");
+    const importKey = qboId || name;
+    const idk = "import_customer|" + importKey + "|retry|" + Date.now();
+    try {
+      sessionStorage.setItem(
+        PENDING_IMPORT_LS,
+        JSON.stringify({ key, name, qboId, started: Date.now(), idempotencyKey: idk })
+      );
+    } catch {}
+    setImportTimedOut(false);
+    setImporting(true);
+    await enqueue(
+      "import_customer",
+      "import-" + importKey,
+      { name, qboId },
+      "deterministic",
+      idk
+    );
+    const testMode = typeof import.meta !== "undefined" && import.meta.env && import.meta.env.MODE === "test";
+    const wait = await waitForCommandDone(api, idk, { maxMs: testMode ? 80 : 120000, intervalMs: testMode ? 15 : 2000 });
+    await refreshJobs?.(true);
+    if (wait.ok) showToast("Import finished — refreshing customer");
+    else if (wait.timeout) showToast("Still pulling — give it another moment");
+    else showToast(String(wait.cmd?.error || "Import failed"));
+    setImporting(false);
+    if (!wait.ok && !wait.timeout) setImportTimedOut(true);
+  };
+
   if (!displayJobs.length) {
     return (
       <div className="card px-6 py-12 text-center text-slate-400 text-sm" data-testid="customer-view-empty">
@@ -133,8 +210,20 @@ export default function CustomerView() {
               {importing ? "Pulling from QuickBooks…" : "Loading…"}
             </p>
             {importing ? (
-              <p className="text-xs text-slate-400">Open invoices will appear here in a few seconds.</p>
+              <p className="text-xs text-slate-400">Customer info and invoices usually show up within a minute.</p>
             ) : null}
+          </div>
+        ) : importTimedOut ? (
+          <div className="space-y-3">
+            <p className="text-slate-600">QuickBooks didn&apos;t finish loading this customer yet.</p>
+            <button type="button" className="btn bg-brand text-white" data-testid="customer-import-retry" onClick={retryImport}>
+              Try import again
+            </button>
+            <p className="text-xs">
+              <Link className="text-brand font-semibold" to="/">
+                Back to customers
+              </Link>
+            </p>
           </div>
         ) : (
           <>

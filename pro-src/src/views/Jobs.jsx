@@ -41,6 +41,7 @@ import {
   subsUnderParent,
 } from "../lib/customerHierarchy.js";
 import { compareCustomerRecency, touchCustomer } from "../lib/customerRecency.js";
+import { waitForCommandDone } from "../lib/commandWait.js";
 
 /** Gray subline under customer name — jobs / open invoices / invoiced / paid. */
 function customerMetaLine(sum) {
@@ -408,7 +409,9 @@ export default function Jobs({ embedded, collapseGroups = false, activeJobId = "
     if (!c) return;
     const key = c.id != null ? String(c.id) : c.name;
     const name = c.name || "";
+    const qboId = c.id != null ? String(c.id) : "";
     const custKey = customerKeyForImport(c);
+    const idk = "import_customer|" + key + "|" + Date.now();
     setImportCust(null);
     setQ("");
     setCustMatches([]);
@@ -417,7 +420,7 @@ export default function Jobs({ embedded, collapseGroups = false, activeJobId = "
       try {
         sessionStorage.setItem(
           PENDING_IMPORT_LS,
-          JSON.stringify({ key: custKey, name, qboId: c.id != null ? String(c.id) : "", started: Date.now() })
+          JSON.stringify({ key: custKey, name, qboId, started: Date.now(), idempotencyKey: idk })
         );
       } catch {}
       openCustomer(custKey);
@@ -426,14 +429,14 @@ export default function Jobs({ embedded, collapseGroups = false, activeJobId = "
     await enqueue(
       "import_customer",
       "import-" + key,
-      { name, qboId: c.id != null ? String(c.id) : "" },
+      { name, qboId },
       "deterministic",
-      "import_customer|" + key
+      idk
     );
-    try {
-      await api.pullJobs?.();
-    } catch {}
-    refreshJobs?.(true);
+    const testMode = typeof import.meta !== "undefined" && import.meta.env && import.meta.env.MODE === "test";
+    const wait = await waitForCommandDone(api, idk, { maxMs: testMode ? 80 : 120000, intervalMs: testMode ? 15 : 2000 });
+    await refreshJobs?.(true);
+    if (!wait.ok && !wait.timeout) showToast(String(wait.cmd?.error || "Import from QuickBooks failed"));
   };
 
   return (

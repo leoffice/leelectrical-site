@@ -187,6 +187,29 @@ export function mockServer(opts = {}) {
             else {
               const c = { ...body.command, id: "c" + seq++, status: "queued", createdAt: Date.now() };
               state.commands.push(c);
+              if (c.type === "import_customer") {
+                const pl = c.payload || {};
+                const qboId = String(pl.qboId || "").trim();
+                const name = String(pl.name || "Imported Customer").trim();
+                const invNo = "99" + String(seq).padStart(3, "0");
+                if (!state.jobs.some((j) => String(j.qboCustomerId || "") === qboId && qboId)) {
+                  state.jobs.push({
+                    id: "qbo-" + invNo,
+                    customer: name,
+                    businessName: name,
+                    qboCustomerId: qboId,
+                    invoiceNo: invNo,
+                    amount: "$100",
+                    paid: false,
+                    openBalance: 100,
+                    title: "Imported work",
+                    status: { Invoiced: { s: "done" } },
+                  });
+                  state.syncedAt = Date.now();
+                }
+                c.status = "done";
+                c.result = JSON.stringify({ imported: 1, customerId: qboId, customerName: name });
+              }
               data = { ok: true, command: c };
             }
           } else {
