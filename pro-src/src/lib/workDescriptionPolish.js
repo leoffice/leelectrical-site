@@ -20,12 +20,23 @@ function clean(raw) {
     .trim();
 }
 
-function sentences(parts) {
+function punctuate(part) {
+  const p = clean(part);
+  if (!p) return "";
+  return p.endsWith(".") ? p : p + ".";
+}
+
+/** Join scope parts on separate lines — never one long dotted sentence. */
+function lines(parts) {
   return parts
-    .map((p) => clean(p))
+    .map((p) => {
+      const chunk = String(p || "").trim();
+      if (!chunk) return "";
+      if (chunk.includes("\n")) return chunk;
+      return punctuate(chunk);
+    })
     .filter(Boolean)
-    .map((p) => (p.endsWith(".") ? p : p + "."))
-    .join(" ");
+    .join("\n");
 }
 
 function bulletize(raw) {
@@ -34,7 +45,16 @@ function bulletize(raw) {
     .map((c) => clean(c))
     .filter((c) => c.length > 2);
   if (chunks.length < 2) return null;
-  return chunks.map((c) => "• " + (c.endsWith(".") ? c : c + ".")).join("\n");
+  return chunks.map((c) => "• " + punctuate(c)).join("\n");
+}
+
+/** Core work notes — bullets when splittable, otherwise one line. */
+function workBody(raw) {
+  const bullets = bulletize(raw);
+  if (bullets) return bullets;
+  const t = clean(raw);
+  if (!t) return "";
+  return punctuate(t);
 }
 
 /** True when a service/billing address is in New Jersey. */
@@ -87,55 +107,58 @@ export function polishWorkDescription(raw, styleKey = "professional", ctx = {}) 
   const addr = ctx.address || "";
   const lead = job ? `Electrical work at ${job}` : addr ? `Electrical services at ${addr}` : "Electrical services";
 
+  const body = workBody(text);
+
   switch (styleKey) {
     case "commercial":
-      return sentences([
+      return lines([
         lead,
-        text,
+        body,
         codeComplianceLine(addr),
         "Pricing subject to site conditions and permit requirements",
       ]);
-    case "breakdown": {
-      const bullets = bulletize(text);
-      if (bullets) return `Scope of work:\n${bullets}`;
-      return `Scope of work:\n• ${text}.`;
+    case "breakdown":
+      return lines(["Scope of work:", body.startsWith("•") ? body : "• " + body]);
+    case "brief": {
+      const summary =
+        text.length > 120 ? text.slice(0, 117).replace(/\s+\S*$/, "") + "…" : body;
+      return lines(["Summary:", summary]);
     }
-    case "brief":
-      return text.length > 120 ? text.slice(0, 117).replace(/\s+\S*$/, "") + "…" : sentences([text]);
     case "detailed":
-      return sentences([
+      return lines([
         lead,
-        text,
+        body,
         "Work performed in accordance with applicable NEC and local code",
         "Includes standard cleanup and owner walkthrough upon completion",
       ]);
     case "permit":
-      return sentences([
-        text,
+      return lines([
+        body,
         permitLine(addr),
         "Includes filing coordination and inspection scheduling where applicable",
       ]);
     case "customer":
-      return sentences([
-        `Hi — here's what we're doing: ${text}`,
+      return lines([
+        `Hi — here's what we're doing:`,
+        body,
         "We'll keep you posted and leave the area clean when we're done",
       ]);
     case "insurance":
-      return sentences([
+      return lines([
         "Inspection / report scope:",
-        text,
+        body,
         "Findings documented per insurer requirements; corrective recommendations provided as applicable",
       ]);
     case "estimate":
-      return sentences([
+      return lines([
         "Proposed scope of work:",
-        text,
+        body,
         "Estimate valid 30 days; final price may adjust after on-site verification",
       ]);
     case "invoice":
-      return sentences(["Work completed per agreement:", text, "Thank you for your business"]);
+      return lines(["Work completed per agreement:", body, "Thank you for your business"]);
     case "professional":
     default:
-      return sentences([lead + ":", text, "All work performed to code with LE Electrical standard of care"]);
+      return lines([lead + ":", body, "All work performed to code with LE Electrical standard of care"]);
   }
 }

@@ -22,6 +22,14 @@ describe("workDescriptionPolish", () => {
     expect(out).toContain("replace ballast");
   });
 
+  it("every polish style returns multiple lines, not one dotted sentence", () => {
+    for (const s of WORK_DESCRIPTION_STYLES) {
+      const out = polishWorkDescription("panel upgrade; new circuits", s.key, { jobTitle: "Rewire" });
+      expect(out.split("\n").length).toBeGreaterThanOrEqual(2);
+      expect(out).not.toMatch(/^[^.\n]+\.[^.\n]+\.[^.\n]+$/);
+    }
+  });
+
   it("detects New Jersey addresses", () => {
     expect(addressInNewJersey("50 Billing Blvd, Newark, NJ 07102")).toBe(true);
     expect(addressInNewJersey("200 Service Ave, Brooklyn, NY 11201")).toBe(false);
