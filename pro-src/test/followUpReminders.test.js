@@ -2,6 +2,8 @@
 import { describe, expect, it, beforeEach } from "vitest";
 import {
   STATE_KEY,
+  allocateNextStep,
+  allocateReminderTime,
   batchSnoozeReminders,
   buildPromptQueue,
   dismissEventReminders,
@@ -9,6 +11,7 @@ import {
   formatSnoozeDuration,
   generateReminderNudge,
   inspectionCandidates,
+  isEventAllocated,
   isInspectionEvent,
   isPastWeekFollowUpEvent,
   isServiceCallEvent,
@@ -121,13 +124,19 @@ describe("followUpReminders", () => {
 
   it("buildPromptQueue orders nudges, inspections, then service calls", () => {
     const events = [
-      { id: "svc", summary: "Service call — Bob", start: "2026-07-09T10:00" },
+      { id: "nudge-ev", summary: "Service call — Bob", start: "2026-07-09T10:00" },
+      { id: "svc", summary: "Service call — Jane", start: "2026-07-09T11:00" },
       { id: "insp", summary: "Inspection — site", start: "2026-07-10T09:00" },
     ];
     localStorage.setItem(
       STATE_KEY,
       JSON.stringify({
-        svc: { priority: "must_today", remindAt: "2026-07-10T09:00", pushOffCount: 1, nextNudgeAt: "2026-07-10T08:00" },
+        "nudge-ev": {
+          priority: "must_today",
+          remindAt: "2026-07-10T09:00",
+          pushOffCount: 1,
+          nextNudgeAt: "2026-07-10T08:00",
+        },
       })
     );
     const now = new Date("2026-07-10T10:00:00");
@@ -286,4 +295,44 @@ describe("followUpReminders", () => {
     ];
     expect(snoozableQueueItems(q).map((x) => x.event.id)).toEqual(["a", "b"]);
   });
+
+  it("isEventAllocated blocks past-week popup when next step or reminder is set", () => {
+    const now = new Date("2026-07-13T09:00:00");
+    allocateNextStep("ev-step", "create_estimate");
+    expect(isEventAllocated(loadState(), "ev-step", now)).toBe(true);
+    allocateReminderTime("ev-time", "2026-07-15T10:00", { note: "follow up" });
+    expect(isEventAllocated(loadState(), "ev-time", now)).toBe(true);
+    expect(serviceCallCandidates([{ id: "ev-time", summary: "Service call — Bob", start: "2026-07-08T10:00" }], [], "2026-07-13", now)).toHaveLength(0);
+  });
+
+  it("allocateReminderTime clears next step and fires when due", () => {
+    allocateNextStep("ev1", "create_estimate");
+    allocateReminderTime("ev1", "2026-07-13T08:00", { nudge: "Ping Bob", priority: "high" });
+    const raw = JSON.parse(localStorage.getItem(STATE_KEY));
+    expect(raw.ev1.nextStepAt).toBeFalsy();
+    expect(raw.ev1.remindAt).toBe("2026-07-13T08:00");
+    const now = new Date("2026-07-13T09:00:00");
+    const hits = dueScheduledReminders([{ id: "ev1", summary: "Bob", start: "2026-07-01T10:00" }], [], "2026-07-13", now);
+    expect(hits).toHaveLength(1);
+    expect(serviceCallCandidates([{ id: "ev1", summary: "Service call — Bob", start: "2026-07-01T10:00" }], [], "2026-07-13", now)).toHaveLength(0);
+  });
+
+  it("allocateNextStep clears future reminder and blocks service-call queue", () => {
+    allocateReminderTime("ev2", "2026-07-20T10:00");
+    allocateNextStep("ev2", "create_job");
+    const raw = JSON.parse(localStorage.getItem(STATE_KEY));
+    expect(raw.ev2.remindAt).toBeFalsy();
+    expect(raw.ev2.nextStepKey).toBe("create_job");
+    const now = new Date("2026-07-13T09:00:00");
+    expect(serviceCallCandidates([{ id: "ev2", summary: "Service call — Jane", start: "2026-07-10T10:00" }], [], "2026-07-13", now)).toHaveLength(0);
+  });
 });
+
+function loadState() {
+  try {
+    const raw = localStorage.getItem(STATE_KEY);
+    return raw ? JSON.parse(raw) : {};
+  } catch {
+    return {};
+  }
+}

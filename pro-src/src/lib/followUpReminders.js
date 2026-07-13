@@ -184,6 +184,45 @@ export function isEventHandled(state, eventId) {
   return !!(st.handledAt || st.inspectionAcked || st.noReminders);
 }
 
+/** True when Levi picked a next step or set a future reminder — skip the past-week popup. */
+export function isEventAllocated(state, eventId, now = new Date()) {
+  const st = eventState(state, eventId);
+  if (st.noReminders) return true;
+  if (st.nextStepAt) return true;
+  if (st.remindAt) {
+    if (new Date(st.remindAt) > now) return true;
+    return true;
+  }
+  return false;
+}
+
+/** Levi chose an action (create job, estimate, email…) — don't re-prompt until reminder fires. */
+export function allocateNextStep(eventId, stepKey, now = Date.now()) {
+  return patchEventState(eventId, {
+    nextStepAt: now,
+    nextStepKey: String(stepKey || ""),
+    remindAt: "",
+    reminderAllocatedAt: "",
+    pushOffCount: 0,
+    nextNudgeAt: "",
+    handledAt: "",
+  });
+}
+
+/** Levi set a remind-me time — fires via scheduled_reminder when due. */
+export function allocateReminderTime(eventId, remindAt, extras = {}) {
+  return patchEventState(eventId, {
+    remindAt,
+    reminderAllocatedAt: Date.now(),
+    nextStepAt: "",
+    nextStepKey: "",
+    pushOffCount: 0,
+    nextNudgeAt: "",
+    handledAt: "",
+    ...extras,
+  });
+}
+
 /** Service calls from the past week that may need a follow-up popup. */
 export function serviceCallCandidates(events, jobs, today, now = new Date()) {
   const state = loadState();
@@ -194,9 +233,9 @@ export function serviceCallCandidates(events, jobs, today, now = new Date()) {
       if (!ymd || ymd < cut || ymd > today) return false;
       if (!isPastWeekFollowUpEvent(e, jobs)) return false;
       if (isEventHandled(state, e.id)) return false;
+      if (isEventAllocated(state, e.id, now)) return false;
       const st = eventState(state, e.id);
       if (isSnoozed(st, now)) return false;
-      if (st.remindAt && new Date(st.remindAt) > now) return false;
       return true;
     })
     .sort((a, b) => evStart(b).localeCompare(evStart(a)));
