@@ -1,5 +1,9 @@
 import { describe, it, expect } from "vitest";
-import { WORK_DESCRIPTION_STYLES, polishWorkDescription } from "../src/lib/workDescriptionPolish.js";
+import {
+  WORK_DESCRIPTION_STYLES,
+  addressInNewJersey,
+  polishWorkDescription,
+} from "../src/lib/workDescriptionPolish.js";
 
 describe("workDescriptionPolish", () => {
   it("exposes 10 work-description polish styles", () => {
@@ -16,5 +20,27 @@ describe("workDescriptionPolish", () => {
     const out = polishWorkDescription("replace ballast in hallway", "professional", { jobTitle: "Ballast swap" });
     expect(out).toContain("Ballast swap");
     expect(out).toContain("replace ballast");
+  });
+
+  it("detects New Jersey addresses", () => {
+    expect(addressInNewJersey("50 Billing Blvd, Newark, NJ 07102")).toBe(true);
+    expect(addressInNewJersey("200 Service Ave, Brooklyn, NY 11201")).toBe(false);
+  });
+
+  it("commercial polish mentions NYC for Brooklyn jobs, not NJ", () => {
+    const out = polishWorkDescription("panel upgrade", "commercial", {
+      address: "200 Service Ave, Brooklyn, NY 11201",
+    });
+    expect(out).toContain("NYC");
+    expect(out).not.toMatch(/\bNJ\b/);
+    expect(out).not.toContain("New Jersey");
+  });
+
+  it("commercial polish mentions NJ only for New Jersey jobs", () => {
+    const out = polishWorkDescription("panel upgrade", "commercial", {
+      address: "50 Billing Blvd, Newark, NJ 07102",
+    });
+    expect(out).toContain("NJ");
+    expect(out).not.toContain("NYC/NJ");
   });
 });

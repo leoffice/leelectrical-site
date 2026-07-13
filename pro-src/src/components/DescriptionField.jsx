@@ -89,7 +89,7 @@ export default function DescriptionField({
           </button>
           {open ? (
             <div
-              className="absolute left-0 right-0 top-full mt-1 z-20 grid grid-cols-2 gap-1.5 p-2 bg-white border border-purple-200 rounded-2xl shadow-lg max-h-52 overflow-y-auto"
+              className="absolute left-0 right-0 top-full mt-1 z-20 flex flex-col gap-1 p-2 bg-white border border-purple-200 rounded-2xl shadow-lg max-h-64 overflow-y-auto"
               data-testid={testId + "-polish-menu"}
             >
               {WORK_DESCRIPTION_STYLES.map((s) => (
@@ -97,13 +97,14 @@ export default function DescriptionField({
                   key={s.key}
                   type="button"
                   className={
-                    "btn text-left !py-2 !px-2.5 text-xs " +
+                    "btn w-full text-left !py-2.5 !px-3 text-sm leading-snug " +
                     (lastStyle === s.key ? "bg-purple-100 text-purple-900 ring-2 ring-purple-300" : "bg-slate-50 text-slate-800")
                   }
                   onClick={() => apply(s.key)}
                   data-testid={testId + "-polish-" + s.key}
                 >
-                  <span className="mr-0.5">{s.emoji}</span> {s.label}
+                  <span className="mr-1">{s.emoji}</span>
+                  {s.label}
                 </button>
               ))}
             </div>

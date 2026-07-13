@@ -168,7 +168,7 @@ export default function CustomerComposeSheet({
         </button>
         {moodOpen ? (
           <div
-            className="absolute left-0 right-0 top-full mt-1 z-10 grid grid-cols-2 gap-1.5 p-2 bg-white border border-slate-200 rounded-2xl shadow-lg"
+            className="absolute left-0 right-0 top-full mt-1 z-10 flex flex-col gap-1 p-2 bg-white border border-slate-200 rounded-2xl shadow-lg max-h-64 overflow-y-auto"
             data-testid="compose-mood-menu"
           >
             {EMAIL_MOODS.map((m) => (
@@ -176,13 +176,14 @@ export default function CustomerComposeSheet({
                 key={m.key}
                 type="button"
                 className={
-                  "btn text-left !py-2 !px-2.5 text-xs " +
+                  "btn w-full text-left !py-2.5 !px-3 text-sm leading-snug " +
                   (lastMood === m.key ? "bg-brand-soft text-brand ring-2 ring-brand/30" : "bg-slate-50 text-slate-800")
                 }
                 onClick={() => polish(m.key)}
                 data-testid={"compose-mood-" + m.key}
               >
-                <span className="mr-0.5">{m.emoji}</span> {m.label}
+                <span className="mr-1">{m.emoji}</span>
+                {m.label}
               </button>
             ))}
           </div>

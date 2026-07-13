@@ -37,6 +37,48 @@ function bulletize(raw) {
   return chunks.map((c) => "• " + (c.endsWith(".") ? c : c + ".")).join("\n");
 }
 
+/** True when a service/billing address is in New Jersey. */
+export function addressInNewJersey(addr) {
+  const s = String(addr || "").trim();
+  if (!s) return false;
+  return (
+    /\bnew\s+jersey\b/i.test(s) ||
+    /,\s*NJ\b(?:\s+\d{5}(?:-\d{4})?)?/i.test(s) ||
+    /\bNJ\s+\d{5}(?:-\d{4})?\b/i.test(s)
+  );
+}
+
+function addressInNewYork(addr) {
+  const s = String(addr || "").trim();
+  if (!s) return false;
+  return (
+    /\bnew\s+york\b/i.test(s) ||
+    /,\s*NY\b(?:\s+\d{5}(?:-\d{4})?)?/i.test(s) ||
+    /\bNY\s+\d{5}(?:-\d{4})?\b/i.test(s) ||
+    /\b(brooklyn|queens|manhattan|bronx|staten\s+island)\b/i.test(s)
+  );
+}
+
+function codeComplianceLine(addr) {
+  if (addressInNewJersey(addr)) {
+    return "Scope includes labor, materials coordination, and code-compliant installation per NJ requirements";
+  }
+  if (addressInNewYork(addr)) {
+    return "Scope includes labor, materials coordination, and code-compliant installation per NYC requirements";
+  }
+  return "Scope includes labor, materials coordination, and code-compliant installation per applicable local code";
+}
+
+function permitLine(addr) {
+  if (addressInNewJersey(addr)) {
+    return "Work to be performed under applicable NJ / local permits as required";
+  }
+  if (addressInNewYork(addr)) {
+    return "Work to be performed under applicable NYC DOB / local permits as required";
+  }
+  return "Work to be performed under applicable local permits as required";
+}
+
 /** Rewrite draft text for a work-description field. */
 export function polishWorkDescription(raw, styleKey = "professional", ctx = {}) {
   const text = clean(raw);
@@ -50,7 +92,7 @@ export function polishWorkDescription(raw, styleKey = "professional", ctx = {}) 
       return sentences([
         lead,
         text,
-        "Scope includes labor, materials coordination, and code-compliant installation per NYC/NJ requirements",
+        codeComplianceLine(addr),
         "Pricing subject to site conditions and permit requirements",
       ]);
     case "breakdown": {
@@ -70,7 +112,7 @@ export function polishWorkDescription(raw, styleKey = "professional", ctx = {}) 
     case "permit":
       return sentences([
         text,
-        "Work to be performed under applicable NYC DOB / local permits as required",
+        permitLine(addr),
         "Includes filing coordination and inspection scheduling where applicable",
       ]);
     case "customer":

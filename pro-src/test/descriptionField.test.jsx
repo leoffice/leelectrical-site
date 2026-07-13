@@ -21,6 +21,15 @@ describe("DescriptionField", () => {
     expect(Number.parseInt(ta.style.minHeight, 10)).toBeGreaterThanOrEqual(96);
   });
 
+  it("lists each polish style on its own line", () => {
+    render(<DescriptionField value="panel swap" onChange={() => {}} />);
+    fireEvent.click(screen.getByTestId("description-field-polish-btn"));
+    const menu = screen.getByTestId("description-field-polish-menu");
+    expect(menu.className).toContain("flex-col");
+    expect(screen.getByTestId("description-field-polish-professional")).toBeInTheDocument();
+    expect(screen.getByTestId("description-field-polish-invoice")).toBeInTheDocument();
+  });
+
   it("opens description text as a native PDF from the view button", () => {
     URL.createObjectURL = vi.fn(() => "blob:desc-pdf");
     URL.revokeObjectURL = vi.fn();
