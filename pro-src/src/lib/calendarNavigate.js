@@ -1,6 +1,9 @@
 // Deep-link into the in-app Calendar tab with an appointment pre-selected.
+import { clearPromptWorkPause } from "./followUpReminders.js";
+
 export const CALENDAR_PICK_KEY = "lepro_calendar_pick";
 export const REMINDER_RETURN_KEY = "lepro_reminder_return";
+export const PENDING_DOC_AFTER_JOB_KEY = "lepro_pending_doc_after_job";
 export const RESTORE_REMINDER_EVENT = "lepro-restore-reminder";
 
 export function stashCalendarPick(eventId) {
@@ -66,4 +69,31 @@ export function signalRestoreReminder() {
   } catch {
     /* ignore */
   }
+}
+
+/** After job create from a reminder, open estimate or invoice builder next. */
+export function stashPendingDocAfterJob(docKind) {
+  const kind = docKind === "invoice" ? "invoice" : docKind === "estimate" ? "estimate" : "";
+  if (!kind) return;
+  try {
+    sessionStorage.setItem(PENDING_DOC_AFTER_JOB_KEY, kind);
+  } catch {
+    /* ignore */
+  }
+}
+
+export function consumePendingDocAfterJob() {
+  try {
+    const v = sessionStorage.getItem(PENDING_DOC_AFTER_JOB_KEY) || "";
+    if (v) sessionStorage.removeItem(PENDING_DOC_AFTER_JOB_KEY);
+    return v === "invoice" || v === "estimate" ? v : "";
+  } catch {
+    return "";
+  }
+}
+
+/** Levi finished a save — show the next reminder if one is waiting. */
+export function resumeFollowUpPrompts() {
+  clearPromptWorkPause();
+  signalRestoreReminder();
 }

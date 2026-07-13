@@ -39,6 +39,7 @@ import {
   snapshotCustomerForm,
 } from "../lib/addCustomerFlow.js";
 import { prefillFromEvent } from "../lib/prefillFromEvent.js";
+import { consumePendingDocAfterJob, resumeFollowUpPrompts } from "../lib/calendarNavigate.js";
 import AddressAutocompleteField from "./AddressAutocompleteField.jsx";
 import { draftJobFromFabContext, paymentFabStep } from "../lib/fabPrefill.js";
 
@@ -323,7 +324,13 @@ export default function NewJobFlow() {
       onClose={close}
       onCreated={(id) => {
         if (newJob.sasCallId) markSasHandled(newJob.sasCallId, { handled: true, jobId: id });
-        nav("/job/" + encodeURIComponent(id));
+        const pendingDoc = consumePendingDocAfterJob();
+        if (pendingDoc) {
+          nav("/job/" + encodeURIComponent(id) + "?doc=" + pendingDoc + "&create=1");
+        } else {
+          resumeFollowUpPrompts();
+          nav("/job/" + encodeURIComponent(id));
+        }
       }}
     />
   );

@@ -24,6 +24,7 @@ import {
   progressPctFromLines,
 } from "../lib/progressBilling.js";
 import { RECUR_INTERVALS, defaultRecurringState } from "../lib/recurringBilling.js";
+import { resumeFollowUpPrompts } from "../lib/calendarNavigate.js";
 
 function ProgressBillingPanel({ job, lines, contractAmount, adjustMode, progressPct, amountDue, onContractChange, onModeChange, onPctChange, onDueChange }) {
   const contract = parseAmount(contractAmount) || contractTotalForJob(job) || linesTotal(job.estimateLines) || 0;
@@ -521,6 +522,7 @@ export default function DocBuilderSheet({
       }
       await patchAndSave(jobId, jobPatch);
       showToast("Saved on this job — tap the Estimate or Invoice tab to review, then sync to QuickBooks when ready");
+      resumeFollowUpPrompts();
       onDone && onDone(activeJob);
       onClose();
     } finally {
@@ -617,6 +619,7 @@ export default function DocBuilderSheet({
             : "Sending " + (kind === "estimate" ? "estimate" : "invoice") + " to QuickBooks" + recurNote + "…"
         );
       }
+      resumeFollowUpPrompts();
       onDone && onDone(activeJob);
       onClose();
     } finally {
