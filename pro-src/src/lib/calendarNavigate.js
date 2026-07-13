@@ -1,5 +1,7 @@
 // Deep-link into the in-app Calendar tab with an appointment pre-selected.
 export const CALENDAR_PICK_KEY = "lepro_calendar_pick";
+export const REMINDER_RETURN_KEY = "lepro_reminder_return";
+export const RESTORE_REMINDER_EVENT = "lepro-restore-reminder";
 
 export function stashCalendarPick(eventId) {
   const id = String(eventId || "").trim();
@@ -18,5 +20,50 @@ export function consumeCalendarPick() {
     return id;
   } catch {
     return "";
+  }
+}
+
+/** Remember which reminder popup to restore after calendar → appointment → back. */
+export function stashReminderReturn(payload) {
+  if (!payload?.eventId) return;
+  try {
+    sessionStorage.setItem(REMINDER_RETURN_KEY, JSON.stringify(payload));
+  } catch {
+    /* ignore */
+  }
+}
+
+export function peekReminderReturn() {
+  try {
+    const raw = sessionStorage.getItem(REMINDER_RETURN_KEY);
+    return raw ? JSON.parse(raw) : null;
+  } catch {
+    return null;
+  }
+}
+
+export function consumeReminderReturn() {
+  try {
+    const raw = sessionStorage.getItem(REMINDER_RETURN_KEY);
+    if (raw) sessionStorage.removeItem(REMINDER_RETURN_KEY);
+    return raw ? JSON.parse(raw) : null;
+  } catch {
+    return null;
+  }
+}
+
+export function clearReminderReturn() {
+  try {
+    sessionStorage.removeItem(REMINDER_RETURN_KEY);
+  } catch {
+    /* ignore */
+  }
+}
+
+export function signalRestoreReminder() {
+  try {
+    window.dispatchEvent(new CustomEvent(RESTORE_REMINDER_EVENT));
+  } catch {
+    /* ignore */
   }
 }

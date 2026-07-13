@@ -10,6 +10,7 @@ import {
   generateReminderNudge,
   inspectionCandidates,
   isInspectionEvent,
+  isPastWeekFollowUpEvent,
   isServiceCallEvent,
   pickFirmerNudge,
   rescheduleEventReminder,
@@ -20,7 +21,13 @@ import {
   validateRemindDatetime,
   suggestJobsForEvent,
 } from "../src/lib/followUpReminders.js";
-import { consumeCalendarPick, stashCalendarPick } from "../src/lib/calendarNavigate.js";
+import {
+  consumeCalendarPick,
+  peekReminderReturn,
+  signalRestoreReminder,
+  stashCalendarPick,
+  stashReminderReturn,
+} from "../src/lib/calendarNavigate.js";
 import {
   isDaySelectable,
   monthGrid,
@@ -48,6 +55,38 @@ describe("followUpReminders", () => {
     ];
     const hits = serviceCallCandidates(events, [], today);
     expect(hits.map((e) => e.id)).toEqual(["e1"]);
+  });
+
+  it("isPastWeekFollowUpEvent includes linked jobs and customer appointments", () => {
+    const jobs = [{ id: "J-1", customer: "Michelle", calendarEventId: "ev-m" }];
+    expect(isPastWeekFollowUpEvent({ id: "ev-m", summary: "Michelle — panel", start: "2026-07-08T10:00" }, jobs)).toBe(
+      true
+    );
+    expect(isPastWeekFollowUpEvent({ id: "ev-x", summary: "Site visit — Bob", start: "2026-07-08T10:00" }, [])).toBe(
+      true
+    );
+    expect(isPastWeekFollowUpEvent({ id: "ev-i", summary: "Inspection", start: "2026-07-08T10:00" }, [])).toBe(false);
+  });
+
+  it("serviceCallCandidates picks up linked customer appointments without service-call keyword", () => {
+    const jobs = [{ id: "J-2", customer: "Michelle", calendarEventId: "michelle" }];
+    const events = [{ id: "michelle", summary: "Michelle — follow up", start: "2026-07-07T14:00" }];
+    const hits = serviceCallCandidates(events, jobs, "2026-07-10");
+    expect(hits.map((e) => e.id)).toEqual(["michelle"]);
+  });
+
+  it("generateReminderNudge asks about next step when estimate exists", () => {
+    const event = { id: "e1", summary: "Michelle", start: "2026-07-07T10:00" };
+    const job = { id: "J-1", customer: "Michelle", estimateNo: "251900" };
+    const msg = generateReminderNudge({ event, job, userNote: "", today: "2026-07-10" });
+    expect(msg).toMatch(/next step|approval|invoice/i);
+  });
+
+  it("generateReminderNudge prompts estimate when job has no docs", () => {
+    const event = { id: "e1", summary: "Bob visit", start: "2026-07-07T10:00" };
+    const job = { id: "J-1", customer: "Bob" };
+    const msg = generateReminderNudge({ event, job, userNote: "", today: "2026-07-10" });
+    expect(msg).toMatch(/no estimate|estimate yet/i);
   });
 
   it("inspectionCandidates includes today and tomorrow only", () => {
@@ -150,6 +189,19 @@ describe("followUpReminders", () => {
     stashCalendarPick("evt-99");
     expect(consumeCalendarPick()).toBe("evt-99");
     expect(consumeCalendarPick()).toBe("");
+  });
+
+  it("reminder return stack stashes and restores", () => {
+    stashReminderReturn({ eventId: "ev-1", kind: "service_call" });
+    expect(peekReminderReturn()?.eventId).toBe("ev-1");
+    let fired = false;
+    const h = () => {
+      fired = true;
+    };
+    window.addEventListener("lepro-restore-reminder", h);
+    signalRestoreReminder();
+    window.removeEventListener("lepro-restore-reminder", h);
+    expect(fired).toBe(true);
   });
 
   it("suggestJobsForEvent matches customer and address", () => {

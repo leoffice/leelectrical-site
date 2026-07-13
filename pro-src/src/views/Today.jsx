@@ -4,7 +4,12 @@ import { Link } from "react-router-dom";
 import { useStore } from "../state/store.jsx";
 import AppointmentDetailSheet from "../components/AppointmentDetailSheet.jsx";
 import WeekCalendar from "../components/WeekCalendar.jsx";
-import { consumeCalendarPick } from "../lib/calendarNavigate.js";
+import {
+  consumeCalendarPick,
+  peekReminderReturn,
+  signalRestoreReminder,
+  stashReminderReturn,
+} from "../lib/calendarNavigate.js";
 import { fmtAmountDue, openBalance, totalBalanceDue } from "../lib/customers.js";
 import { bucketFollowUps, dueDateTone, followUpDate, followUpLabel } from "../lib/calendarDue.js";
 import { evStart, fmt$, todayStr } from "../lib/format.js";
@@ -61,8 +66,25 @@ export default function Today() {
   const { jobs, events } = useStore();
   const [picked, setPicked] = useState(null);
   const [calQuery, setCalQuery] = useState("");
+  const [reminderReturn, setReminderReturn] = useState(() => peekReminderReturn());
   const t = todayStr();
   const calMatches = useMemo(() => searchCalendarEvents(events, calQuery), [events, calQuery]);
+
+  const refreshReminderReturn = () => setReminderReturn(peekReminderReturn());
+
+  const closeAppointment = () => {
+    const ret = peekReminderReturn();
+    if (ret?.eventId && picked && String(ret.eventId) === String(picked.id)) {
+      stashReminderReturn({ ...ret, apptClosed: true });
+      refreshReminderReturn();
+    }
+    setPicked(null);
+  };
+
+  const backToReminder = () => {
+    signalRestoreReminder();
+    setReminderReturn(null);
+  };
 
   useEffect(() => {
     const pickId = consumeCalendarPick();
@@ -76,8 +98,21 @@ export default function Today() {
   const unpaid = js.filter((j) => !j.paid && openBalance(j) > 0);
   const owed = totalBalanceDue(unpaid);
 
+  const showReminderBack = reminderReturn && (!picked || reminderReturn.apptClosed);
+
   return (
     <div className="space-y-4" data-testid="calendar-view">
+      {showReminderBack ? (
+        <button
+          type="button"
+          className="card w-full text-left px-3 py-2.5 flex items-center gap-2 text-sm font-semibold text-brand active:opacity-90"
+          onClick={backToReminder}
+          data-testid="back-to-reminder"
+        >
+          <span>←</span>
+          <span>Back to reminder</span>
+        </button>
+      ) : null}
       <div className="card px-3 py-2.5 flex lg:px-4 lg:py-3.5">
         {[
           ["Open jobs", js.filter((j) => !j.paid).length],
@@ -155,7 +190,7 @@ export default function Today() {
         </div>
       </section>
 
-      {picked && <AppointmentDetailSheet event={picked} onClose={() => setPicked(null)} />}
+      {picked && <AppointmentDetailSheet event={picked} onClose={closeAppointment} />}
     </div>
   );
 }

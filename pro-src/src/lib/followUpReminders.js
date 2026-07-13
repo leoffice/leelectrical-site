@@ -159,6 +159,18 @@ export function isServiceCallEvent(event) {
   return SERVICE_RE.test(hay) || /\b(estimate|service)\b/i.test(event.summary || "");
 }
 
+/** Past-week appointments worth a follow-up — service calls, linked jobs, customer visits. */
+export function isPastWeekFollowUpEvent(event, jobs) {
+  if (!event || isInspectionEvent(event)) return false;
+  if (isServiceCallEvent(event)) return true;
+  if (linkedJobForEvent(event, jobs)) return true;
+  const summary = (event.summary || "").trim();
+  const hay = [summary, event.description, event.location].filter(Boolean).join(" ");
+  if (summary && /[—–-]/.test(summary) && /^[A-Za-z\u0590-\u05FF]/.test(summary)) return true;
+  if (/\b(visit|appointment|on\s*site|walk[\s-]?through|consult|site\s*visit|meeting)\b/i.test(hay)) return true;
+  return false;
+}
+
 function eventYmd(event) {
   return evStart(event).slice(0, 10);
 }
@@ -180,7 +192,7 @@ export function serviceCallCandidates(events, jobs, today, now = new Date()) {
     .filter((e) => {
       const ymd = eventYmd(e);
       if (!ymd || ymd < cut || ymd > today) return false;
-      if (!isServiceCallEvent(e)) return false;
+      if (!isPastWeekFollowUpEvent(e, jobs)) return false;
       if (isEventHandled(state, e.id)) return false;
       const st = eventState(state, e.id);
       if (isSnoozed(st, now)) return false;
@@ -386,8 +398,11 @@ export function generateReminderNudge({ event, job, userNote, today }) {
     const lead = when === "yesterday" ? "Yesterday" : `About ${when.replace("about ", "")}`;
     return `${lead} you noted: “${note}.” ${name} is still on your list — friendly follow-up when you're ready.`;
   }
+  if (!hasEst && job) {
+    return `You saw ${name} ${when} — no estimate yet. Worth putting one together or logging what you discussed.`;
+  }
   if (hasEst && !hasInv) {
-    return `You met with ${name} ${when} — the estimate is still waiting on them. It's okay to check in with a friendly nudge.`;
+    return `You met with ${name} ${when} — estimate's out. What's the next step — approval, changes, or ready to invoice?`;
   }
   if (hasEst && hasInv) {
     return `You sent paperwork to ${name} ${when}. A quick friendly check-in on the estimate or invoice never hurts.`;
