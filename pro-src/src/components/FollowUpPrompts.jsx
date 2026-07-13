@@ -12,6 +12,7 @@ import {
   allocateNextStep,
   allocateReminderTime,
   batchSnoozeReminders,
+  beginPromptWorkPause,
   buildPromptQueue,
   defaultRemindDatetime,
   dismissEventReminders,
@@ -22,12 +23,15 @@ import {
   rescheduleEventReminder,
   scheduleNextBusinessDayReminder,
   scheduleReminderSnooze,
+  shouldSuppressPrompts,
   snoozableQueueItems,
   suggestJobsForEvent,
+  touchPromptActivity,
   validateRemindDatetime,
 } from "../lib/followUpReminders.js";
 import {
   RESTORE_REMINDER_EVENT,
+  clearReminderReturn,
   stashCalendarPick,
   stashReminderReturn,
 } from "../lib/calendarNavigate.js";
@@ -45,14 +49,14 @@ import { askReminderNotifyPermission, notifyReminderDue } from "../lib/reminderN
 import ReminderDateTimePicker from "./ReminderDateTimePicker.jsx";
 import SnoozePicker from "./SnoozePicker.jsx";
 
-function openCalendarKeepingReminder({ event, kind, state, hideForNav, nav }) {
+function openCalendarKeepingReminder({ event, kind, state, dismissForWork, nav }) {
   stashReminderReturn({
     eventId: event.id,
     kind: kind || "followup",
     state: state || null,
   });
   stashCalendarPick(event.id);
-  hideForNav();
+  dismissForWork({ keepReminderReturn: true });
   nav("/today");
 }
 
@@ -75,7 +79,7 @@ function sessionAlreadyPrompted() {
   }
 }
 
-function RemindMeSheet({ event, job, onClose, onSaved, hideForNav }) {
+function RemindMeSheet({ event, job, onClose, onSaved, dismissForWork }) {
   const nav = useNavigate();
   const { patchAndSave, showToast } = useStore();
   const today = todayStr();
@@ -95,7 +99,7 @@ function RemindMeSheet({ event, job, onClose, onSaved, hideForNav }) {
     allocateNextStep(event.id, intent.kind || "note_intent");
     stashReminderReturn({ eventId: event.id, kind: "remind", note, priority });
     stashCalendarPick(event.id);
-    hideForNav();
+    dismissForWork({ keepReminderReturn: true });
     const docPath = reminderIntentJobPath(intent, job?.id);
     if (docPath) {
       nav(docPath);
@@ -256,7 +260,7 @@ function BatchSnoozeBar({ queue, onBatchSnooze }) {
   );
 }
 
-function MustTodayNudgeSheet({ event, state: st, job, queue, onClose, onDone, onReschedule, onSnooze, onBatchSnooze, hideForNav }) {
+function MustTodayNudgeSheet({ event, state: st, job, queue, onClose, onDone, onReschedule, onSnooze, onBatchSnooze, dismissForWork }) {
   const nav = useNavigate();
   const { showToast } = useStore();
   const isFirmer = (st.pushOffCount || 0) > 0;
@@ -266,8 +270,7 @@ function MustTodayNudgeSheet({ event, state: st, job, queue, onClose, onDone, on
 
   const openJob = () => {
     patchEventState(event.id, { handledAt: Date.now() });
-    onDone();
-    onClose();
+    dismissForWork();
     if (job?.id) nav("/job/" + encodeURIComponent(job.id));
     else nav("/today");
   };
@@ -277,7 +280,7 @@ function MustTodayNudgeSheet({ event, state: st, job, queue, onClose, onDone, on
       event,
       kind: "must_today_nudge",
       state: st,
-      hideForNav,
+      dismissForWork,
       nav,
     });
   };
@@ -335,7 +338,7 @@ function ScheduledReminderSheet({
   onSnooze,
   onBatchSnooze,
   onCreateJob,
-  hideForNav,
+  dismissForWork,
 }) {
   const nav = useNavigate();
   const { showToast } = useStore();
@@ -348,8 +351,7 @@ function ScheduledReminderSheet({
 
   const openJob = () => {
     allocateNextStep(event.id, "open_job");
-    onDone();
-    onClose();
+    dismissForWork();
     if (job?.id) nav("/job/" + encodeURIComponent(job.id));
     else nav("/today");
   };
@@ -359,7 +361,7 @@ function ScheduledReminderSheet({
       event,
       kind: "scheduled_reminder",
       state: st,
-      hideForNav,
+      dismissForWork,
       nav,
     });
   };
@@ -373,7 +375,7 @@ function ScheduledReminderSheet({
     allocateNextStep(event.id, noteIntent.kind || "note_intent");
     stashReminderReturn({ eventId: event.id, kind: "scheduled_reminder", state: st });
     stashCalendarPick(event.id);
-    hideForNav();
+    dismissForWork({ keepReminderReturn: true });
     const docPath = reminderIntentJobPath(noteIntent, job?.id);
     if (docPath) {
       nav(docPath);
@@ -391,7 +393,7 @@ function ScheduledReminderSheet({
       const doc = action.key === "create_estimate" ? "estimate" : "invoice";
       stashReminderReturn({ eventId: event.id, kind: "scheduled_reminder", state: st });
       stashCalendarPick(event.id);
-      hideForNav();
+      dismissForWork({ keepReminderReturn: true });
       nav("/job/" + encodeURIComponent(job.id) + "?doc=" + doc + "&create=1");
       showToast(action.label + " — approve when ready");
       return;
@@ -471,7 +473,7 @@ function ScheduledReminderSheet({
   );
 }
 
-function InspectionReminderSheet({ event, when, job, onClose, onDone }) {
+function InspectionReminderSheet({ event, when, job, onClose, onDone, dismissForWork }) {
   const nav = useNavigate();
   const label = when === "today" ? "Today" : "Tomorrow";
 
@@ -483,8 +485,7 @@ function InspectionReminderSheet({ event, when, job, onClose, onDone }) {
 
   const openJob = () => {
     patchEventState(event.id, { inspectionAcked: true, handledAt: Date.now() });
-    onDone();
-    onClose();
+    dismissForWork();
     if (job?.id) nav("/job/" + encodeURIComponent(job.id));
   };
 
@@ -507,7 +508,7 @@ function InspectionReminderSheet({ event, when, job, onClose, onDone }) {
   );
 }
 
-function ServiceCallSheet({ event, job, onClose, onDone, onCreateJob, onRemind, hideForNav }) {
+function ServiceCallSheet({ event, job, onClose, onDone, onCreateJob, onRemind, dismissForWork }) {
   const nav = useNavigate();
   const { showToast } = useStore();
   const notes = displayEventNotes(event?.description);
@@ -520,8 +521,7 @@ function ServiceCallSheet({ event, job, onClose, onDone, onCreateJob, onRemind, 
   const openJob = () => {
     allocateNextStep(event.id, "open_job");
     patchEventState(event.id, { linkedJobId: job.id });
-    onDone();
-    onClose();
+    dismissForWork();
     nav("/job/" + encodeURIComponent(job.id));
   };
 
@@ -529,7 +529,7 @@ function ServiceCallSheet({ event, job, onClose, onDone, onCreateJob, onRemind, 
     openCalendarKeepingReminder({
       event,
       kind: "service_call",
-      hideForNav,
+      dismissForWork,
       nav,
     });
   };
@@ -542,7 +542,7 @@ function ServiceCallSheet({ event, job, onClose, onDone, onCreateJob, onRemind, 
       const doc = action.key === "create_estimate" ? "estimate" : "invoice";
       stashReminderReturn({ eventId: event.id, kind: "service_call" });
       stashCalendarPick(event.id);
-      hideForNav();
+      dismissForWork({ keepReminderReturn: true });
       nav("/job/" + encodeURIComponent(job.id) + "?doc=" + doc + "&create=1");
       showToast(action.label + " — approve when ready");
       return;
@@ -645,16 +645,54 @@ export default function FollowUpPrompts() {
   const [current, setCurrent] = useState(null);
   const [subSheet, setSubSheet] = useState(null); // remind | createJob
   const [hiddenForNav, setHiddenForNav] = useState(false);
+  const [pauseTick, setPauseTick] = useState(0);
   const notifiedRef = useRef(new Set());
 
   const today = todayStr();
-  const hideForNav = useCallback(() => setHiddenForNav(true), []);
+
+  const dismissForWork = useCallback(({ keepReminderReturn = false } = {}) => {
+    beginPromptWorkPause();
+    if (!keepReminderReturn) clearReminderReturn();
+    setHiddenForNav(true);
+    setSubSheet(null);
+    setQueue((q) => {
+      const rest = q.slice(1);
+      setCurrent(rest[0] || null);
+      return rest;
+    });
+  }, []);
 
   useEffect(() => {
-    const restore = () => setHiddenForNav(false);
+    if (IS_TEST) return;
+    const touch = () => touchPromptActivity();
+    const kinds = ["pointerdown", "keydown", "scroll", "touchstart"];
+    kinds.forEach((k) => window.addEventListener(k, touch, { passive: true }));
+    return () => kinds.forEach((k) => window.removeEventListener(k, touch));
+  }, []);
+
+  useEffect(() => {
+    if (IS_TEST) return;
+    const iv = setInterval(() => setPauseTick((t) => t + 1), 5000);
+    return () => clearInterval(iv);
+  }, []);
+
+  useEffect(() => {
+    const restore = () => {
+      if (shouldSuppressPrompts()) return;
+      setHiddenForNav(false);
+    };
     window.addEventListener(RESTORE_REMINDER_EVENT, restore);
     return () => window.removeEventListener(RESTORE_REMINDER_EVENT, restore);
   }, []);
+
+  useEffect(() => {
+    if (IS_TEST || shouldSuppressPrompts()) return;
+    if (!hiddenForNav) return;
+    setHiddenForNav(false);
+    const q = buildPromptQueue(events, jobs, today);
+    setQueue(q);
+    setCurrent((c) => c || q[0] || null);
+  }, [pauseTick, hiddenForNav, events, jobs, today]);
 
   const clearNotified = useCallback((eventIds) => {
     for (const id of eventIds || []) notifiedRef.current.delete(id);
@@ -701,6 +739,7 @@ export default function FollowUpPrompts() {
   useEffect(() => {
     if (IS_TEST) return;
     const tick = () => {
+      if (shouldSuppressPrompts()) return;
       const q = buildPromptQueue(events, jobs, today);
       const dueNow = q.filter((x) => x.kind === "must_today_nudge" || x.kind === "scheduled_reminder");
       if (!dueNow.length) return;
@@ -716,7 +755,7 @@ export default function FollowUpPrompts() {
     tick();
     const iv = setInterval(tick, 30_000);
     return () => clearInterval(iv);
-  }, [events, jobs, today, current, notifyDueItem]);
+  }, [events, jobs, today, current, notifyDueItem, pauseTick]);
 
   const handleBatchSnooze = useCallback(
     (eventIds, minutes) => {
@@ -741,7 +780,7 @@ export default function FollowUpPrompts() {
     });
   }, []);
 
-  if (hiddenForNav) return null;
+  if (hiddenForNav || shouldSuppressPrompts()) return null;
 
   if (!current && !subSheet) return null;
 
@@ -770,7 +809,7 @@ export default function FollowUpPrompts() {
         job={subSheet.job}
         onClose={() => setSubSheet(null)}
         onSaved={advance}
-        hideForNav={hideForNav}
+        dismissForWork={dismissForWork}
       />
     );
   }
@@ -800,7 +839,7 @@ export default function FollowUpPrompts() {
         onDone={advance}
         onSnooze={() => clearNotified([current.event.id])}
         onBatchSnooze={handleBatchSnooze}
-        hideForNav={hideForNav}
+        dismissForWork={dismissForWork}
         onReschedule={() =>
           setSubSheet({
             kind: "reschedule",
@@ -824,7 +863,7 @@ export default function FollowUpPrompts() {
         onDone={advance}
         onSnooze={() => clearNotified([current.event.id])}
         onBatchSnooze={handleBatchSnooze}
-        hideForNav={hideForNav}
+        dismissForWork={dismissForWork}
         onCreateJob={() =>
           setSubSheet({
             kind: "createJob",
@@ -851,6 +890,7 @@ export default function FollowUpPrompts() {
         job={current.job}
         onClose={advance}
         onDone={advance}
+        dismissForWork={dismissForWork}
       />
     );
   }
@@ -864,7 +904,7 @@ export default function FollowUpPrompts() {
         suggestions={current.suggestions}
         onClose={advance}
         onDone={advance}
-        hideForNav={hideForNav}
+        dismissForWork={dismissForWork}
         onCreateJob={() =>
           setSubSheet({
             kind: "createJob",

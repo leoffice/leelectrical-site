@@ -9,6 +9,11 @@ export const WORK_START = 9;
 export const WORK_END = 17;
 export const SAME_DAY_NUDGE_HOURS = 2;
 
+/** After Levi picks an action, hide popups while he's active — max 5 min, or sooner when idle. */
+export const PROMPT_WORK_PAUSE_MS = 5 * 60 * 1000;
+export const PROMPT_IDLE_MS = 45 * 1000;
+const PROMPT_WORK_PAUSE_KEY = "lepro_prompt_work_pause";
+
 /** Quick snooze presets Levi asked for. */
 export const SNOOZE_PRESETS = [
   { minutes: 10, label: "10 min" },
@@ -454,6 +459,76 @@ export function generateReminderNudge({ event, job, userNote, today }) {
   }
   const appt = (event?.summary || "this appointment").trim();
   return `It's been ${when} since ${appt}. Tap through when you're ready to follow up.`;
+}
+
+function readWorkPause() {
+  try {
+    const raw = sessionStorage.getItem(PROMPT_WORK_PAUSE_KEY);
+    if (!raw) return null;
+    const o = JSON.parse(raw);
+    if (!o?.startedAt) return null;
+    return {
+      startedAt: Number(o.startedAt) || 0,
+      lastActivityAt: Number(o.lastActivityAt) || Number(o.startedAt) || 0,
+    };
+  } catch {
+    return null;
+  }
+}
+
+/** Levi chose an action — hide reminder popups while he works. */
+export function beginPromptWorkPause(now = Date.now()) {
+  try {
+    sessionStorage.setItem(
+      PROMPT_WORK_PAUSE_KEY,
+      JSON.stringify({ startedAt: now, lastActivityAt: now })
+    );
+  } catch {
+    /* ignore */
+  }
+}
+
+/** Keep the work pause alive while Levi is clicking around the app. */
+export function touchPromptActivity(now = Date.now()) {
+  const st = readWorkPause();
+  if (!st) return;
+  try {
+    sessionStorage.setItem(
+      PROMPT_WORK_PAUSE_KEY,
+      JSON.stringify({ ...st, lastActivityAt: now })
+    );
+  } catch {
+    /* ignore */
+  }
+}
+
+export function clearPromptWorkPause() {
+  try {
+    sessionStorage.removeItem(PROMPT_WORK_PAUSE_KEY);
+  } catch {
+    /* ignore */
+  }
+}
+
+/** True while Levi is mid-task — suppress login reminder popups. */
+export function shouldSuppressPrompts(now = Date.now()) {
+  const st = readWorkPause();
+  if (!st) return false;
+  const idleFor = now - st.lastActivityAt;
+  const pausedFor = now - st.startedAt;
+  if (idleFor >= PROMPT_IDLE_MS) return false;
+  if (pausedFor >= PROMPT_WORK_PAUSE_MS) return false;
+  return true;
+}
+
+export function promptWorkPauseStatus(now = Date.now()) {
+  const st = readWorkPause();
+  if (!st) return { active: false };
+  const idleFor = now - st.lastActivityAt;
+  const pausedFor = now - st.startedAt;
+  if (idleFor >= PROMPT_IDLE_MS) return { active: false, reason: "idle", idleFor, pausedFor };
+  if (pausedFor >= PROMPT_WORK_PAUSE_MS) return { active: false, reason: "max", idleFor, pausedFor };
+  return { active: true, idleFor, pausedFor };
 }
 
 /** Mark appointment as handled — no more follow-up popups. */

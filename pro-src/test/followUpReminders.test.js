@@ -23,6 +23,12 @@ import {
   snoozableQueueItems,
   validateRemindDatetime,
   suggestJobsForEvent,
+  beginPromptWorkPause,
+  shouldSuppressPrompts,
+  touchPromptActivity,
+  clearPromptWorkPause,
+  PROMPT_IDLE_MS,
+  PROMPT_WORK_PAUSE_MS,
 } from "../src/lib/followUpReminders.js";
 import {
   consumeCalendarPick,
@@ -41,6 +47,7 @@ const today = "2026-07-10";
 
 beforeEach(() => {
   localStorage.removeItem(STATE_KEY);
+  sessionStorage.clear();
 });
 
 describe("followUpReminders", () => {
@@ -315,6 +322,26 @@ describe("followUpReminders", () => {
     const hits = dueScheduledReminders([{ id: "ev1", summary: "Bob", start: "2026-07-01T10:00" }], [], "2026-07-13", now);
     expect(hits).toHaveLength(1);
     expect(serviceCallCandidates([{ id: "ev1", summary: "Service call — Bob", start: "2026-07-01T10:00" }], [], "2026-07-13", now)).toHaveLength(0);
+  });
+
+  it("prompt work pause suppresses while active and clears after idle or max", () => {
+    const start = new Date("2026-07-13T10:00:00").getTime();
+    beginPromptWorkPause(start);
+    expect(shouldSuppressPrompts(start + 1000)).toBe(true);
+    expect(shouldSuppressPrompts(start + PROMPT_IDLE_MS - 1000)).toBe(true);
+    expect(shouldSuppressPrompts(start + PROMPT_IDLE_MS + 1000)).toBe(false);
+
+    beginPromptWorkPause(start);
+    touchPromptActivity(start + 120_000);
+    expect(shouldSuppressPrompts(start + 150_000)).toBe(true);
+    expect(shouldSuppressPrompts(start + 190_000)).toBe(false);
+
+    beginPromptWorkPause(start);
+    touchPromptActivity(start + PROMPT_WORK_PAUSE_MS - 2000);
+    expect(shouldSuppressPrompts(start + PROMPT_WORK_PAUSE_MS - 1000)).toBe(true);
+    expect(shouldSuppressPrompts(start + PROMPT_WORK_PAUSE_MS + 1000)).toBe(false);
+    clearPromptWorkPause();
+    expect(shouldSuppressPrompts()).toBe(false);
   });
 
   it("allocateNextStep clears future reminder and blocks service-call queue", () => {
