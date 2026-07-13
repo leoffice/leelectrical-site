@@ -52,6 +52,7 @@ import {
   openBalance,
   paidPct,
 } from "../lib/customers.js";
+import { touchCustomer } from "../lib/customerRecency.js";
 import { GroupJobRow } from "../components/JobCard.jsx";
 import { normalizePayments } from "../lib/payments.js";
 import Toggle from "../components/Toggle.jsx";
@@ -119,6 +120,10 @@ export default function JobDetail() {
     if (!job || !custKey) return job ? [job] : [];
     return sortJobs(jobsForCustomerKey(jobs, custKey));
   }, [job, jobs, custKey]);
+  useEffect(() => {
+    if (!job) return;
+    touchCustomer(custKey, customerJobs.length ? customerJobs : [job]);
+  }, [id, custKey, job?.id, customerJobs]);
   const siblingJobs = useMemo(() => customerJobs.filter((j) => j.id !== job?.id), [customerJobs, job?.id]);
   const addressJobs = useMemo(() => {
     if (!job) return [];

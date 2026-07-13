@@ -1,8 +1,30 @@
-// Tracks when Levi last opened a customer — drives the Active tab sort order.
-import { clientKey } from "./customers.js";
+// Tracks when Levi last opened or edited a customer — drives the Active tab sort.
+import { clientKey, normalizeCustomer } from "./customers.js";
 
 export const RECENCY_KEY = "lepro_customer_recency_v1";
 const MAX_ENTRIES = 400;
+
+const recencyListeners = new Set();
+let recencyRevision = 0;
+
+/** Bump when recency changes so the customer list can re-sort without remounting. */
+export function getRecencyRevision() {
+  return recencyRevision;
+}
+
+export function subscribeRecency(listener) {
+  recencyListeners.add(listener);
+  return () => recencyListeners.delete(listener);
+}
+
+function notifyRecency() {
+  recencyRevision += 1;
+  for (const fn of recencyListeners) {
+    try {
+      fn(recencyRevision);
+    } catch {}
+  }
+}
 
 function loadMap() {
   try {
@@ -27,19 +49,45 @@ function saveMap(map) {
   } catch {}
 }
 
-/** Record that a customer board key was opened just now. */
-export function touchCustomer(key) {
+/** All board keys that refer to the same customer (q:/c:/g: aliases). */
+export function recencyAliasKeys(key, jobs = []) {
+  const keys = new Set();
   const k = String(key || "").trim();
-  if (!k) return;
+  if (k) keys.add(k);
+  for (const j of jobs || []) {
+    if (!j) continue;
+    keys.add(clientKey(j));
+    const n = normalizeCustomer(j.customer || j.businessName);
+    if (n) keys.add("c:" + n);
+    const qid = String(j.qboCustomerId || "").trim();
+    if (qid) keys.add("q:" + qid);
+    if (j.clientGroup) keys.add("g:" + j.clientGroup);
+  }
+  return [...keys];
+}
+
+/** Record that a customer board key was opened or edited just now. */
+export function touchCustomer(key, jobs = []) {
+  const aliases = recencyAliasKeys(key, jobs);
+  if (!aliases.length) return;
   const map = loadMap();
-  map[k] = Date.now();
+  const now = Date.now();
+  let changed = false;
+  for (const k of aliases) {
+    if (map[k] !== now) {
+      map[k] = now;
+      changed = true;
+    }
+  }
+  if (!changed) return;
   saveMap(map);
+  notifyRecency();
 }
 
 /** Record recency for a job's customer group. */
 export function touchCustomerJob(job) {
   if (!job) return;
-  touchCustomer(clientKey(job));
+  touchCustomer(clientKey(job), [job]);
 }
 
 function jobActivityTs(job) {
@@ -54,12 +102,13 @@ function jobActivityTs(job) {
   return 0;
 }
 
-/** Best recency timestamp for a board key — explicit touch, else latest job activity. */
+/** Best recency timestamp — max of explicit touches (incl. aliases) and job activity. */
 export function customerRecencyTs(key, jobs = []) {
-  const k = String(key || "").trim();
-  const touched = loadMap()[k];
-  if (touched) return touched;
+  const map = loadMap();
   let best = 0;
+  for (const k of recencyAliasKeys(key, jobs)) {
+    if (map[k]) best = Math.max(best, map[k]);
+  }
   for (const j of jobs || []) {
     best = Math.max(best, jobActivityTs(j));
   }

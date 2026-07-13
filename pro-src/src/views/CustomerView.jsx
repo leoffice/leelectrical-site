@@ -48,9 +48,6 @@ export default function CustomerView() {
     };
   }, [api]);
   const key = raw ? decodeURIComponent(raw) : "";
-  useEffect(() => {
-    if (key) touchCustomer(key);
-  }, [key]);
   const [sheet, setSheet] = useState(null); // { kind, job? }
   const setDocSheet = useCallback((next) => {
     setSheet((prev) => {
@@ -80,6 +77,9 @@ export default function CustomerView() {
   );
   if (list.length) lastListRef.current = list;
   const displayJobs = list.length ? list : lastListRef.current;
+  useEffect(() => {
+    if (key) touchCustomer(key, displayJobs);
+  }, [key, displayJobs]);
   const contact = useMemo(() => customerContact(displayJobs), [displayJobs]);
   const summary = useMemo(() => customerAmountSummary(displayJobs), [displayJobs]);
   const primaryJob = displayJobs[0];

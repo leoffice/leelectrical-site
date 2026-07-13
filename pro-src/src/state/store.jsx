@@ -23,6 +23,7 @@ import { customerSyncPayload, qboCustomerToJobPatch } from "../lib/customerSync.
 import { customerQboJobPatch } from "../lib/customerQboLink.js";
 import { flushPendingDocSync, hasPendingDocSync, takePendingDocSync } from "../lib/docSyncChain.js";
 import { runDailyDedupeScan } from "../lib/dedupeScan.js";
+import { touchCustomerJob } from "../lib/customerRecency.js";
 import {
   calendarUpsertLinksJob,
   isCalendarUnlinkCommand,
@@ -387,11 +388,20 @@ export function StoreProvider({ children }) {
         }
       }
 
+      const touched = [];
       for (const [id, patch] of entries) {
         const r = await api.saveJob(id, patch);
         if (r && r.ts) lastSavedTs.current = Math.max(lastSavedTs.current, r.ts);
-        setJobs((js) => js.map((j) => (String(j.id) === String(id) ? applyOverlay(j, patch) : j)));
+        setJobs((js) =>
+          js.map((j) => {
+            if (String(j.id) !== String(id)) return j;
+            const merged = applyOverlay(j, patch);
+            touched.push(merged);
+            return merged;
+          })
+        );
       }
+      touched.forEach((j) => touchCustomerJob(j));
       setPending({});
       showToast("Saved ✓ synced to all devices");
 
@@ -445,7 +455,15 @@ export function StoreProvider({ children }) {
   /** Patch + save immediately (archive / restore / delete / combine). */
   const patchAndSave = useCallback(
     async (id, patch) => {
-      setJobs((js) => js.map((j) => (String(j.id) === String(id) ? applyOverlay(j, patch) : j)));
+      let merged = null;
+      setJobs((js) =>
+        js.map((j) => {
+          if (String(j.id) !== String(id)) return j;
+          merged = applyOverlay(j, patch);
+          return merged;
+        })
+      );
+      if (merged) touchCustomerJob(merged);
       try {
         const r = await api.saveJob(id, patch);
         if (r && r.ts) lastSavedTs.current = Math.max(lastSavedTs.current, r.ts);
