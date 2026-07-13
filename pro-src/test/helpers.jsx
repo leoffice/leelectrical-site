@@ -38,10 +38,17 @@ export const J2 = {
   status: {},
 };
 
+/** Pin fake "today" so week-calendar tests stay in the same work week as EV. */
+export const CAL_WEEK_ANCHOR = "2026-07-10";
+
+export function pinCalWeek() {
+  vi.setSystemTime(new Date(`${CAL_WEEK_ANCHOR}T12:00:00`));
+}
+
 export const EV = {
   id: "ev1",
   summary: "Estimate — Jane Doe",
-  start: "2026-07-10T10:00",
+  start: `${CAL_WEEK_ANCHOR}T10:00`,
   location: "55 Elm St",
   description: "phone: 917-555-2222 jane@x.com",
 };

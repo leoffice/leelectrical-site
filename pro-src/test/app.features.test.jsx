@@ -2,11 +2,11 @@
 // Integration — global features (checklist 3-approvals, 4, 10, 11, 12) plus
 // responsive layout checks at 390px and 1280px.
 import React from "react";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { fireEvent, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import "@testing-library/jest-dom/vitest";
-import { EV, J1, J2, mockServer, renderApp } from "./helpers.jsx";
+import { EV, J1, J2, mockServer, pinCalWeek, renderApp } from "./helpers.jsx";
 import * as lock from "../src/lib/lock.js";
 
 afterEach(() => {
@@ -395,6 +395,10 @@ describe("12. sync chip + today view + jobs list", () => {
     expect(srv.posts("jobsdata", (b) => b.op === "request")).toHaveLength(0);
   });
 
+  describe("calendar week (pinned date)", () => {
+    beforeEach(() => pinCalWeek());
+    afterEach(() => vi.useRealTimers());
+
   it("today: totals row, follow-ups due, appointments with detail/edit/link/create", async () => {
     const srv = mockServer({
       jobs: [
@@ -468,6 +472,7 @@ describe("12. sync chip + today view + jobs list", () => {
     expect(cmd.payload.calEventId).toBe("");
     expect(cmd.payload.start).toBe("2026-07-15T14:00");
     expect(cmd.payload.description).toContain("leJobId:J-1");
+  });
   });
 
   it("jobs list: search, chips, grouping, quick actions", async () => {
