@@ -4,7 +4,7 @@ export function roundMoney(n) {
   return Math.round((Number(n) || 0) * 100) / 100;
 }
 
-/** Change-order SOV lines (CO - 01, etc.) — billed separately from base contract. */
+/** Change-order SOV lines (CO - 01, etc.) — tracked separately, not on progress requisitions. */
 export function isChangeOrderItem(it) {
   return /^co\s*-/i.test(String(it?.description || "").trim());
 }
@@ -15,6 +15,11 @@ export function baseContractItems(items) {
 
 export function changeOrderItems(items) {
   return (items || []).filter((it) => isChangeOrderItem(it));
+}
+
+/** SOV lines that belong on a progress requisition (excludes change-order lines). */
+export function requisitionItems(items) {
+  return baseContractItems(items);
 }
 
 export function sumItemValues(items) {
@@ -68,11 +73,12 @@ export function buildG703Rows(items, prevItemsById = {}) {
  */
 export function buildG702(project, opts = {}) {
   const contractSum = roundMoney(project.contractSum || 0);
-  const changeOrders = roundMoney(project.changeOrders || 0);
+  const changeOrders = opts.includeChangeOrders ? roundMoney(project.changeOrders || 0) : 0;
   const contractToDate = roundMoney(contractSum + changeOrders);
   const retainagePct = Number(project.retainagePct) || 10;
 
-  const g703 = buildG703Rows(project.items || [], opts.prevItemsById || {});
+  const scopeItems = opts.includeChangeOrders ? project.items || [] : requisitionItems(project.items);
+  const g703 = buildG703Rows(scopeItems, opts.prevItemsById || {});
   const totalCompletedRaw = roundMoney(g703.reduce((s, r) => s + r.totalCompleted, 0));
   const totalCompleted = roundMoney(Math.min(totalCompletedRaw, contractToDate));
   const retainage = roundMoney((totalCompleted * retainagePct) / 100);

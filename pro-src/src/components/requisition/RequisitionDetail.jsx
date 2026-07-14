@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useMemo, useState } from "react";
 import Sheet, { Fld } from "../Sheet.jsx";
 import { fmtUsd } from "../../lib/requisitionData.js";
 import {
@@ -157,9 +157,147 @@ function FilesTab({ req, onUpdate, busy }) {
   );
 }
 
-<<<<<<< HEAD
-export default function RequisitionDetail({ project, requisition, contact, onUpdate, onClose, busy, showToast }) {
-=======
+function SubmitReviewSheet({ project, req, contact, onClose, onUpdate, busy, showToast }) {
+  const baseEmail = useMemo(() => buildRequisitionEmail({ project, requisition: req, contact }), [project, req, contact]);
+  const [includePdf, setIncludePdf] = useState(true);
+  const [emailTo, setEmailTo] = useState(() => baseEmail.to);
+  const [emailSubject, setEmailSubject] = useState(() => baseEmail.subject);
+  const [draftOpened, setDraftOpened] = useState(false);
+
+  const selectedAttachments = useMemo(
+    () => (req.attachments || []).filter((a) => a.attachToEmail),
+    [req.attachments]
+  );
+
+  const attachList = useMemo(() => {
+    const list = [];
+    if (includePdf) {
+      list.push({ id: "g702-pdf", name: `${req.applicationNumber || "requisition"}.pdf` });
+    }
+    for (const a of selectedAttachments) list.push(a);
+    return list;
+  }, [includePdf, req.applicationNumber, selectedAttachments]);
+
+  const email = useMemo(
+    () =>
+      buildRequisitionEmail({
+        project,
+        requisition: req,
+        contact,
+        to: emailTo,
+        subject: emailSubject,
+        attachments: attachList.filter((a) => a.id !== "g702-pdf"),
+      }),
+    [project, req, contact, emailTo, emailSubject, attachList]
+  );
+
+  const openDraft = () => {
+    if (includePdf) downloadRequisitionPdf(project, req);
+    const url = mailtoRequisitionUrl(email);
+    window.open(url, "_blank");
+    setDraftOpened(true);
+    showToast?.("Email draft opened — nothing sends until you press Send in your mail app");
+  };
+
+  const markSubmitted = async () => {
+    if (!window.confirm("Mark this requisition submitted? Only do this after you've reviewed the numbers and sent the email.")) return;
+    await onUpdate({
+      ...req,
+      status: "submitted",
+      submittedAt: Date.now(),
+      emailSentAt: Date.now(),
+      emailTo: email.to,
+      emailSubject: email.subject,
+    });
+    showToast?.("Requisition marked submitted");
+    onClose();
+  };
+
+  return (
+    <Sheet title="Review before sending" onClose={onClose} tall>
+      <p className="text-sm text-amber-800 bg-amber-50 border border-amber-200 rounded px-3 py-2 mb-3" data-testid="submit-safety-note">
+        Nothing goes to the customer until you press Send in your email app. Review everything here first.
+      </p>
+
+      <Fld label="To">
+        <input
+          className="w-full border rounded px-3 py-2 text-sm"
+          value={emailTo}
+          onChange={(e) => setEmailTo(e.target.value)}
+          placeholder="gc@example.com"
+          data-testid="submit-email-to"
+        />
+      </Fld>
+      <Fld label="Subject">
+        <input
+          className="w-full border rounded px-3 py-2 text-sm"
+          value={emailSubject}
+          onChange={(e) => setEmailSubject(e.target.value)}
+          data-testid="submit-email-subject"
+        />
+      </Fld>
+
+      <div className="mt-3 space-y-2" data-testid="submit-attachments">
+        <div className="text-xs font-bold text-slate-600 uppercase tracking-wide">Attach to email</div>
+        <label className="card px-3 py-2 flex items-center gap-2 text-sm cursor-pointer">
+          <input type="checkbox" checked={includePdf} onChange={() => setIncludePdf((v) => !v)} />
+          <span className="flex-1">G702 / G703 PDF — {req.applicationNumber || "requisition"}.pdf</span>
+        </label>
+        {selectedAttachments.map((a) => (
+          <div key={a.id} className="card px-3 py-2 text-sm text-slate-600">
+            📎 {a.name} <span className="text-xs text-slate-400">(from Files tab)</span>
+          </div>
+        ))}
+        {!includePdf && !selectedAttachments.length ? (
+          <p className="text-xs text-red-600">Pick at least the G702 PDF or a file to attach.</p>
+        ) : null}
+        <p className="text-xs text-slate-400">Download opens the PDF — drag it into your email along with any extra files.</p>
+      </div>
+
+      <div className="mt-3">
+        <div className="text-xs font-bold text-slate-600 uppercase tracking-wide mb-1">Email body</div>
+        <pre className="text-xs bg-slate-50 p-3 rounded max-h-32 overflow-auto whitespace-pre-wrap" data-testid="submit-email-body">
+          {email.body.replace(email.signature, "").trim()}
+        </pre>
+        <div className="text-xs font-bold text-slate-600 uppercase tracking-wide mt-2 mb-1">Your signature</div>
+        <pre className="text-xs bg-slate-100 border border-slate-200 p-3 rounded whitespace-pre-wrap" data-testid="submit-email-signature">
+          {email.signature}
+        </pre>
+      </div>
+
+      <div className="flex flex-col gap-2 mt-4">
+        <button
+          type="button"
+          className="btn w-full"
+          onClick={() => downloadRequisitionPdf(project, req)}
+          disabled={busy || !includePdf}
+          data-testid="submit-download-pdf"
+        >
+          Download PDF only
+        </button>
+        <button
+          type="button"
+          className="btn w-full bg-brand text-white"
+          onClick={openDraft}
+          disabled={busy || (!includePdf && !selectedAttachments.length)}
+          data-testid="submit-open-draft"
+        >
+          Open email draft
+        </button>
+        <button
+          type="button"
+          className="btn w-full border-emerald-300 text-emerald-800"
+          onClick={markSubmitted}
+          disabled={busy}
+          data-testid="submit-mark-submitted"
+        >
+          {draftOpened ? "Mark submitted (after you sent it)" : "Mark submitted"}
+        </button>
+      </div>
+    </Sheet>
+  );
+}
+
 export default function RequisitionDetail({
   project,
   requisition,
@@ -172,7 +310,6 @@ export default function RequisitionDetail({
   busy,
   showToast,
 }) {
->>>>>>> main
   const [tab, setTab] = useState("app");
   const [showEmail, setShowEmail] = useState(false);
   const req = requisition;
@@ -184,21 +321,6 @@ export default function RequisitionDetail({
     { id: "pay", label: "Payments" },
     { id: "files", label: "Files" },
   ];
-
-  const submit = async () => {
-    downloadRequisitionPdf(project, req);
-    const email = buildRequisitionEmail({ project, requisition: req, contact });
-    const url = mailtoRequisitionUrl(email);
-    window.open(url, "_blank");
-    await onUpdate({
-      ...req,
-      status: "submitted",
-      submittedAt: Date.now(),
-      emailSentAt: Date.now(),
-    });
-    showToast?.("Requisition submitted — PDF downloaded, email opened");
-    setShowEmail(false);
-  };
 
   return (
     <div className="space-y-4" data-testid="requisition-detail">
@@ -241,8 +363,6 @@ export default function RequisitionDetail({
         <button type="button" className="btn flex-1 bg-brand text-white" onClick={() => setShowEmail(true)} data-testid="submit-requisition">
           Submit requisition
         </button>
-<<<<<<< HEAD
-=======
         {onDelete ? (
           <button
             type="button"
@@ -254,21 +374,18 @@ export default function RequisitionDetail({
             {canDelete ? "Delete requisition" : deleteBlocked ? "Void requisition" : "Remove requisition"}
           </button>
         ) : null}
->>>>>>> main
       </div>
 
       {showEmail ? (
-        <Sheet title="Submit requisition" onClose={() => setShowEmail(false)} testId="submit-req-sheet">
-          <p className="text-sm text-slate-500 mb-3">
-            Downloads the G702/G703 PDF and opens your email with a summary. Attach the PDF plus any checked files from the Files tab.
-          </p>
-          <pre className="text-xs bg-slate-50 p-3 rounded max-h-40 overflow-auto whitespace-pre-wrap">
-            {buildRequisitionEmail({ project, requisition: req, contact }).body}
-          </pre>
-          <button type="button" className="btn w-full mt-3 bg-brand text-white" onClick={submit} disabled={busy}>
-            Send email & mark submitted
-          </button>
-        </Sheet>
+        <SubmitReviewSheet
+          project={project}
+          req={req}
+          contact={contact}
+          onClose={() => setShowEmail(false)}
+          onUpdate={onUpdate}
+          busy={busy}
+          showToast={showToast}
+        />
       ) : null}
     </div>
   );

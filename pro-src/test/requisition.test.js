@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { parseSovCsv } from "../src/lib/sovParser.js";
-import { buildG702, isChangeOrderItem, itemEarned, overallPct } from "../src/lib/requisitionCalc.js";
+import { buildG702, isChangeOrderItem, itemEarned, overallPct, requisitionItems } from "../src/lib/requisitionCalc.js";
 import { seedBaezProject } from "../src/lib/requisitionData.js";
 import {
   applyCarriedPercentages,
@@ -83,6 +83,24 @@ describe("requisitionCalc", () => {
   it("detects change-order SOV lines", () => {
     expect(isChangeOrderItem({ description: "CO - 01" })).toBe(true);
     expect(isChangeOrderItem({ description: "Roughing" })).toBe(false);
+  });
+
+  it("excludes change-order lines from requisition G703 by default", () => {
+    const project = {
+      contractSum: 1000,
+      changeOrders: 200,
+      retainagePct: 10,
+      items: [
+        { id: "a", description: "Roughing", value: 1000, completedPct: 50 },
+        { id: "b", description: "CO - 02", value: 200, completedPct: 100 },
+      ],
+      requisitions: [],
+    };
+    const g702 = buildG702(project);
+    expect(g702.g703).toHaveLength(1);
+    expect(g702.g703[0].description).toContain("Roughing");
+    expect(g702.contractSumToDate).toBe(1000);
+    expect(requisitionItems(project.items)).toHaveLength(1);
   });
 
   it("overallPct rolls up line items", () => {
@@ -204,13 +222,20 @@ describe("requisitionHelpers", () => {
     expect(next.requisitions).toHaveLength(1);
   });
 
-  it("buildRequisitionEmail includes key amounts", () => {
+  it("buildRequisitionEmail includes key amounts, subject, and signature", () => {
     const project = seedBaezProject();
     const req = { applicationNumber: "REQ-12", currentPaymentDue: 108000, previousCertificates: 1470000, totalCompleted: 1600000, periodTo: "2026-07-01" };
-    const email = buildRequisitionEmail({ project, requisition: req, contact: { email: "gc@test.com" } });
+    const email = buildRequisitionEmail({
+      project,
+      requisition: req,
+      contact: { email: "gc@test.com" },
+      attachments: [{ name: "invoice.pdf" }],
+    });
     expect(email.subject).toContain("REQ-12");
     expect(email.body).toContain("108,000");
+    expect(email.body).toContain("invoice.pdf");
     expect(email.to).toBe("gc@test.com");
+    expect(email.signature).toContain("Office@LeElectrical.us");
   });
 });
 
