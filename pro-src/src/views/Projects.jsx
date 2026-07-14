@@ -2,10 +2,13 @@
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import api from "../data/adapter.js";
-import Sheet, { Fld, Opt } from "../components/Sheet.jsx";
+import Sheet, { Fld } from "../components/Sheet.jsx";
 import CustomerCard from "../components/CustomerCard.jsx";
+import RequisitionsCard from "../components/requisition/RequisitionsCard.jsx";
+import RequisitionDetail from "../components/requisition/RequisitionDetail.jsx";
+import ChangeOrdersPanel from "../components/requisition/ChangeOrdersPanel.jsx";
 import { useStore } from "../state/store.jsx";
-import { buildG702, overallPct } from "../lib/requisitionCalc.js";
+import { itemEarned, overallPct } from "../lib/requisitionCalc.js";
 import {
   BAEZ_PROJECT_ID,
   ensureProjectDefaults,
@@ -19,17 +22,29 @@ import {
   seedBaezProject,
   upsertProject,
 } from "../lib/requisitionData.js";
+import {
+  buildDraftG702,
+  createRequisitionRecord,
+  pctChangeStatus,
+  previousItemSnapshot,
+} from "../lib/requisitionHelpers.js";
 import { customerAmountSummary } from "../lib/customers.js";
 import { parseSovCsv } from "../lib/sovParser.js";
 
-function pctInput(val, onChange) {
+function pctInput(val, onChange, status) {
+  const cls =
+    status === "changed"
+      ? "bg-emerald-100 text-emerald-800 border-emerald-300"
+      : status === "unchanged"
+      ? "bg-red-50 text-red-700 border-red-200"
+      : "bg-red-50/60 text-red-600 border-red-100";
   return (
     <input
       type="number"
       min={0}
       max={100}
       step={1}
-      className="w-16 text-right border rounded px-1 py-0.5 text-sm"
+      className={`w-16 text-right border rounded px-1 py-0.5 text-sm ${cls}`}
       value={val}
       onChange={(e) => onChange(Math.min(100, Math.max(0, Number(e.target.value) || 0)))}
       data-testid="sov-pct-input"
@@ -88,7 +103,7 @@ function DriveAttachSheet({ project, onSave, onClose }) {
   return (
     <Sheet title="Attach Google Drive" onClose={onClose} testId="drive-attach-sheet">
       <p className="text-sm text-slate-500 mb-3">
-        Paste a Google Drive folder or file link — SOV spreadsheets and requisition docs pull from here.
+        Paste a Google Drive folder or file link — bookmarks your SOV and requisition docs. Use Upload SOV for CSV import.
       </p>
       <Fld label="Label (optional)" value={label} onChange={setLabel} placeholder="SOV, Req 12, etc." />
       <Fld label="Google Drive link" value={url} onChange={setUrl} placeholder="https://drive.google.com/..." />
@@ -114,8 +129,9 @@ function DriveAttachSheet({ project, onSave, onClose }) {
   );
 }
 
-function SovUpload({ onParsed }) {
+function SovUpload({ onParsed, onReplace, projectName }) {
   const [err, setErr] = useState("");
+  const [mode, setMode] = useState("replace");
   const onFile = (e) => {
     setErr("");
     const file = e.target.files?.[0];
@@ -125,7 +141,8 @@ function SovUpload({ onParsed }) {
       try {
         const parsed = parseSovCsv(reader.result);
         if (!parsed.items.length) throw new Error("No line items found");
-        onParsed(parsed);
+        if (mode === "replace") onReplace?.(parsed);
+        else onParsed(parsed);
       } catch (ex) {
         setErr(ex.message || "Could not read file");
       }
@@ -133,23 +150,66 @@ function SovUpload({ onParsed }) {
     reader.readAsText(file);
   };
   return (
-    <div className="card px-4 py-3 space-y-2" data-testid="sov-upload">
-      <div className="text-sm font-bold text-slate-700">Upload SOV (CSV)</div>
+    <div className="space-y-3" data-testid="sov-upload">
+      <p className="text-sm text-slate-500">
+        Schedule SOV CSV — line items, values, and sections. This is the working import path (Drive auto-pull coming next).
+      </p>
+      <div className="flex gap-2">
+        <button
+          type="button"
+          className={`btn btn-sm flex-1 ${mode === "replace" ? "bg-brand text-white" : ""}`}
+          onClick={() => setMode("replace")}
+        >
+          Update {projectName || "project"}
+        </button>
+        <button
+          type="button"
+          className={`btn btn-sm flex-1 ${mode === "new" ? "bg-brand text-white" : ""}`}
+          onClick={() => setMode("new")}
+        >
+          New project
+        </button>
+      </div>
       <input type="file" accept=".csv,.txt" onChange={onFile} className="text-sm" />
       {err ? <p className="text-xs text-red-600">{err}</p> : null}
     </div>
   );
 }
 
-function RequisitionPanel({ project, onSave, busy }) {
+function RequisitionHistoryList({ project, onSelect }) {
+  const reqs = [...(project?.requisitions || [])].sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
+  if (!reqs.length) {
+    return <p className="text-sm text-slate-400 text-center py-8" data-testid="req-history-empty">No requisition history yet.</p>;
+  }
+  return (
+    <div className="space-y-2" data-testid="requisition-history">
+      {reqs.map((r) => (
+        <button
+          key={r.id}
+          type="button"
+          className="card w-full px-4 py-3 text-left text-sm hover:bg-slate-50"
+          onClick={() => onSelect(r.id)}
+        >
+          <div className="font-bold">{r.applicationNumber}</div>
+          <div className="text-xs text-slate-500">{r.periodTo} · {fmtUsd(r.currentPaymentDue)} due</div>
+        </button>
+      ))}
+    </div>
+  );
+}
+
+function RequisitionWorkbench({ project, onSave, busy }) {
   const [draft, setDraft] = useState(project);
-  const [preview, setPreview] = useState(null);
   const [periodTo, setPeriodTo] = useState(new Date().toISOString().slice(0, 10));
+  const [reqNum, setReqNum] = useState(String((project.requisitions?.length || 0) + 1));
+  const [appNum, setAppNum] = useState(`REQ-${(project.requisitions?.length || 0) + 1}`);
   const dirty = JSON.stringify(draft.items) !== JSON.stringify(project.items);
 
   useEffect(() => setDraft(project), [project]);
 
-  const g702 = useMemo(() => buildG702(draft, { periodTo }), [draft, periodTo]);
+  const prevSnap = useMemo(() => previousItemSnapshot(project), [project]);
+  const hasPrev = Object.keys(prevSnap).length > 0;
+  const g702 = useMemo(() => buildDraftG702(draft, { periodTo }), [draft, periodTo]);
 
   const setItemPct = (id, completedPct) => {
     setDraft((d) => ({
@@ -163,20 +223,14 @@ function RequisitionPanel({ project, onSave, busy }) {
   };
 
   const generateReq = async () => {
-    const snap = draft.items.map((it) => ({ id: it.id, completedPct: it.completedPct }));
-    const req = {
-      num: (draft.requisitions?.length || 0) + 1,
+    const num = parseInt(reqNum, 10) || (draft.requisitions?.length || 0) + 1;
+    const req = createRequisitionRecord(project, draft, {
       periodTo,
-      amountCertified: g702.currentPaymentDue,
-      currentPaymentDue: g702.currentPaymentDue,
-      previousCertificates: g702.previousCertificates,
-      totalCompleted: g702.totalCompleted,
-      itemsSnapshot: snap,
-      createdAt: Date.now(),
-    };
+      num,
+      applicationNumber: appNum.trim() || `REQ-${num}`,
+    });
     const next = { ...draft, requisitions: [...(draft.requisitions || []), req] };
     await onSave(next);
-    setPreview(g702);
   };
 
   const sections = useMemo(() => {
@@ -196,11 +250,18 @@ function RequisitionPanel({ project, onSave, busy }) {
   return (
     <div className="space-y-4" data-testid="requisition-panel">
       <div className="flex items-center justify-between gap-2">
-        <h2 className="text-sm font-extrabold text-slate-700 uppercase tracking-wide">Requisition</h2>
+        <h2 className="text-sm font-extrabold text-slate-700 uppercase tracking-wide">New Requisition</h2>
         <span className="text-xs text-slate-500">
           {fmtUsd(draft.contractSum)} · {overallPct(draft.items)}% · {draft.retainagePct}% retainage
         </span>
       </div>
+
+      <p className="text-xs text-slate-500">
+        <span className="inline-block w-3 h-3 bg-red-100 border border-red-200 rounded mr-1 align-middle" />
+        Red = same as last submitted ·
+        <span className="inline-block w-3 h-3 bg-emerald-100 border border-emerald-300 rounded mx-1 align-middle" />
+        Green = you changed it
+      </p>
 
       {dirty ? (
         <button type="button" className="btn w-full" onClick={saveProgress} disabled={busy}>
@@ -208,38 +269,49 @@ function RequisitionPanel({ project, onSave, busy }) {
         </button>
       ) : null}
 
+      <div className="card px-4 py-3 space-y-2 text-sm" data-testid="requisition-preview-live">
+        <div className="grid grid-cols-2 gap-x-4 gap-y-1">
+          <span className="text-slate-500">Total completed</span>
+          <span className="text-right font-semibold">{fmtUsd(g702.totalCompleted)}</span>
+          <span className="text-slate-500 font-bold">Current payment due</span>
+          <span className="text-right font-extrabold text-brand">{fmtUsd(g702.currentPaymentDue)}</span>
+          <span className="text-slate-500">Previously paid</span>
+          <span className="text-right">{fmtUsd(g702.previousCertificates)}</span>
+        </div>
+      </div>
+
       <div className="flex gap-2 items-end flex-wrap">
         <label className="text-sm">
           Period to
+          <input type="date" className="block border rounded px-2 py-1 mt-1" value={periodTo} onChange={(e) => setPeriodTo(e.target.value)} />
+        </label>
+        <label className="text-sm">
+          Req #
           <input
-            type="date"
-            className="block border rounded px-2 py-1 mt-1"
-            value={periodTo}
-            onChange={(e) => setPeriodTo(e.target.value)}
+            type="number"
+            className="block border rounded px-2 py-1 mt-1 w-16"
+            value={reqNum}
+            onChange={(e) => {
+              setReqNum(e.target.value);
+              if (!appNum.startsWith("REQ-") || appNum === `REQ-${reqNum}`) setAppNum(`REQ-${e.target.value}`);
+            }}
+            data-testid="req-num-input"
           />
         </label>
-        <button type="button" className="btn flex-1" onClick={generateReq} disabled={busy} data-testid="generate-requisition">
-          Generate requisition
-        </button>
+        <label className="text-sm flex-1 min-w-[120px]">
+          Application #
+          <input
+            className="block border rounded px-2 py-1 mt-1 w-full"
+            value={appNum}
+            onChange={(e) => setAppNum(e.target.value)}
+            data-testid="app-num-input"
+          />
+        </label>
       </div>
 
-      {preview ? (
-        <div className="card px-4 py-4 space-y-2 text-sm" data-testid="requisition-preview">
-          <div className="font-bold text-base">{preview.applicationNumber}</div>
-          <div className="grid grid-cols-2 gap-x-4 gap-y-1">
-            <span className="text-slate-500">Total completed</span>
-            <span className="text-right font-semibold">{fmtUsd(preview.totalCompleted)}</span>
-            <span className="text-slate-500">Retainage ({preview.retainagePct}%)</span>
-            <span className="text-right">{fmtUsd(preview.totalRetainage)}</span>
-            <span className="text-slate-500">Previously paid</span>
-            <span className="text-right">{fmtUsd(preview.previousCertificates)}</span>
-            <span className="text-slate-500 font-bold">Current payment due</span>
-            <span className="text-right font-extrabold text-brand">{fmtUsd(preview.currentPaymentDue)}</span>
-            <span className="text-slate-500">Balance to finish</span>
-            <span className="text-right">{fmtUsd(preview.balanceToFinish)}</span>
-          </div>
-        </div>
-      ) : null}
+      <button type="button" className="btn w-full bg-brand text-white" onClick={generateReq} disabled={busy} data-testid="generate-requisition">
+        Generate requisition
+      </button>
 
       <div className="space-y-3">
         {sections.map((sec) => (
@@ -255,16 +327,19 @@ function RequisitionPanel({ project, onSave, busy }) {
                 </tr>
               </thead>
               <tbody>
-                {sec.items.map((it) => (
-                  <tr key={it.id} className="border-b border-slate-100 last:border-0">
-                    <td className="px-3 py-2">{it.description}</td>
-                    <td className="text-right px-2 py-2 tabular-nums">{fmtUsd(it.value)}</td>
-                    <td className="text-right px-2 py-2">{pctInput(it.completedPct, (v) => setItemPct(it.id, v))}</td>
-                    <td className="text-right px-3 py-2 tabular-nums">
-                      {fmtUsd((it.value * (it.completedPct || 0)) / 100)}
-                    </td>
-                  </tr>
-                ))}
+                {sec.items.map((it) => {
+                  const status = pctChangeStatus(it.completedPct, prevSnap[it.id], hasPrev);
+                  return (
+                    <tr key={it.id} className="border-b border-slate-100 last:border-0">
+                      <td className="px-3 py-2">{it.description}</td>
+                      <td className="text-right px-2 py-2 tabular-nums">{fmtUsd(it.value)}</td>
+                      <td className="text-right px-2 py-2">
+                        {pctInput(it.completedPct, (v) => setItemPct(it.id, v), status)}
+                      </td>
+                      <td className="text-right px-3 py-2 tabular-nums">{fmtUsd(itemEarned(it))}</td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           </div>
@@ -282,6 +357,8 @@ export default function Projects() {
   const [busy, setBusy] = useState(false);
   const [sheet, setSheet] = useState(null);
   const [booted, setBooted] = useState(false);
+  const [hubTab, setHubTab] = useState("work");
+  const [selectedReqId, setSelectedReqId] = useState(null);
 
   const load = useCallback(async () => {
     const raw = await api.getProjects?.().catch(() => ({ list: [] }));
@@ -303,7 +380,6 @@ export default function Projects() {
     }
   };
 
-  // Auto-seed Baez Place pilot on first visit.
   useEffect(() => {
     if (booted) return;
     const list = projects?.list || [];
@@ -318,7 +394,6 @@ export default function Projects() {
       return;
     }
     setBooted(true);
-    const target = projectId || BAEZ_PROJECT_ID;
     if (!projectId && findProject(projects, BAEZ_PROJECT_ID)) {
       navigate("/projects/" + BAEZ_PROJECT_ID, { replace: true });
     } else if (projectId && !findProject(projects, projectId) && findProject(projects, BAEZ_PROJECT_ID)) {
@@ -334,13 +409,15 @@ export default function Projects() {
     return findBaezJob(jobs);
   }, [project, jobs]);
 
-  const contact = useMemo(
-    () => (project ? projectCustomerContact(project, linkedJob) : null),
-    [project, linkedJob]
-  );
+  const contact = useMemo(() => (project ? projectCustomerContact(project, linkedJob) : null), [project, linkedJob]);
   const summary = useMemo(
     () => (linkedJob ? customerAmountSummary([linkedJob]) : { due: 0, invoiced: 0, paid: 0, openInvoices: 0, jobCount: 0 }),
     [linkedJob]
+  );
+
+  const selectedReq = useMemo(
+    () => (project?.requisitions || []).find((r) => r.id === selectedReqId) || null,
+    [project, selectedReqId]
   );
 
   const onEnableRequisitions = async () => {
@@ -369,6 +446,12 @@ export default function Projects() {
     await persist(next);
   };
 
+  const onUpdateRequisition = async (updatedReq) => {
+    if (!project) return;
+    const requisitions = (project.requisitions || []).map((r) => (r.id === updatedReq.id ? updatedReq : r));
+    await onSaveProject({ ...project, requisitions });
+  };
+
   const onNewFromSov = async (parsed) => {
     const id = "proj-" + Date.now();
     const fresh = ensureProjectDefaults({
@@ -381,6 +464,7 @@ export default function Projects() {
       contractSum: parsed.contractSum,
       retainagePct: 10,
       changeOrders: 0,
+      changeOrderList: [],
       items: parsed.items,
       requisitions: [],
       requisitionEnabled: true,
@@ -393,6 +477,23 @@ export default function Projects() {
     await persist(next);
     setSheet(null);
     navigate("/projects/" + id);
+  };
+
+  const onReplaceSov = async (parsed) => {
+    if (!project) return;
+    const next = {
+      ...project,
+      contractSum: parsed.contractSum,
+      items: parsed.items.map((it, i) => ({
+        ...it,
+        completedPct: project.items?.find((x) => x.description === it.description)?.completedPct ?? it.completedPct ?? 0,
+        id: project.items?.[i]?.id || it.id,
+      })),
+      updatedAt: Date.now(),
+    };
+    await onSaveProject(next);
+    setSheet(null);
+    showToast?.("SOV updated from CSV");
   };
 
   if (!project) {
@@ -410,22 +511,12 @@ export default function Projects() {
     <div className="space-y-4 pb-8" data-testid="joy-requisition-hub">
       <div className="flex items-center justify-between gap-2">
         <h1 className="text-xl font-extrabold text-slate-900">{JOY_CONSTRUCTION_NAME}</h1>
-        <Link
-          to={"/customer/" + encodeURIComponent(custKey)}
-          className="text-sm font-semibold text-brand shrink-0"
-          data-testid="joy-customer-link"
-        >
+        <Link to={"/customer/" + encodeURIComponent(custKey)} className="text-sm font-semibold text-brand shrink-0" data-testid="joy-customer-link">
           Customer →
         </Link>
       </div>
 
-      <CustomerCard
-        contact={contact}
-        summary={summary}
-        mapAddress={project.address}
-        primaryJob={linkedJob}
-        showSummary={!!linkedJob}
-      />
+      <CustomerCard contact={contact} summary={summary} mapAddress={project.address} primaryJob={linkedJob} showSummary={!!linkedJob} />
 
       {projectList.length > 1 ? (
         <div className="flex gap-2 overflow-x-auto pb-1" data-testid="joy-project-tabs">
@@ -443,6 +534,8 @@ export default function Projects() {
         </div>
       ) : null}
 
+      <RequisitionsCard project={project} onSelect={(id) => { setSelectedReqId(id); setHubTab("history"); }} selectedId={selectedReqId} />
+
       <JobInfoCard job={linkedJob} project={project} onAddJob={onAddJob} />
 
       <div className="flex flex-wrap gap-2">
@@ -450,13 +543,7 @@ export default function Projects() {
           Add a job
         </button>
         {!project.requisitionEnabled ? (
-          <button
-            type="button"
-            className="btn btn-sm bg-brand text-white"
-            onClick={onEnableRequisitions}
-            disabled={busy}
-            data-testid="enable-requisition"
-          >
+          <button type="button" className="btn btn-sm bg-brand text-white" onClick={onEnableRequisitions} disabled={busy} data-testid="enable-requisition">
             Enable requisitions
           </button>
         ) : (
@@ -464,15 +551,10 @@ export default function Projects() {
             Requisitions on
           </span>
         )}
-        <button
-          type="button"
-          className="btn btn-sm"
-          onClick={() => setSheet({ kind: "drive" })}
-          data-testid="attach-drive"
-        >
+        <button type="button" className="btn btn-sm" onClick={() => setSheet({ kind: "drive" })} data-testid="attach-drive">
           Attach Google Drive
         </button>
-        <button type="button" className="btn btn-sm" onClick={() => setSheet({ kind: "sov" })}>
+        <button type="button" className="btn btn-sm" onClick={() => setSheet({ kind: "sov" })} data-testid="upload-sov">
           Upload SOV
         </button>
       </div>
@@ -480,13 +562,7 @@ export default function Projects() {
       {(project.driveLinks || []).length ? (
         <div className="flex flex-wrap gap-2" data-testid="drive-links-chips">
           {(project.driveLinks || []).map((l, i) => (
-            <a
-              key={l.url + i}
-              href={l.url}
-              target="_blank"
-              rel="noreferrer"
-              className="text-xs font-semibold text-brand bg-slate-50 border border-slate-200 rounded-full px-3 py-1"
-            >
+            <a key={l.url + i} href={l.url} target="_blank" rel="noreferrer" className="text-xs font-semibold text-brand bg-slate-50 border border-slate-200 rounded-full px-3 py-1">
               📎 {l.label}
             </a>
           ))}
@@ -494,19 +570,54 @@ export default function Projects() {
       ) : null}
 
       {project.requisitionEnabled ? (
-        <RequisitionPanel project={project} onSave={onSaveProject} busy={busy} />
+        selectedReq ? (
+          <RequisitionDetail
+            project={project}
+            requisition={selectedReq}
+            contact={contact}
+            onUpdate={onUpdateRequisition}
+            onClose={() => setSelectedReqId(null)}
+            busy={busy}
+            showToast={showToast}
+          />
+        ) : (
+          <>
+            <div className="flex gap-1 overflow-x-auto pb-1" data-testid="hub-tabs">
+              {[
+                { id: "work", label: "New Requisition" },
+                { id: "history", label: "Requisition History" },
+                { id: "changes", label: "Change Orders" },
+              ].map((t) => (
+                <button
+                  key={t.id}
+                  type="button"
+                  className={`shrink-0 px-3 py-1.5 rounded-full text-sm font-semibold border ${
+                    hubTab === t.id ? "bg-brand text-white border-brand" : "bg-white text-slate-600 border-slate-200"
+                  }`}
+                  onClick={() => setHubTab(t.id)}
+                  data-testid={`hub-tab-${t.id}`}
+                >
+                  {t.label}
+                </button>
+              ))}
+            </div>
+            {hubTab === "work" ? <RequisitionWorkbench project={project} onSave={onSaveProject} busy={busy} /> : null}
+            {hubTab === "history" ? (
+              <RequisitionHistoryList project={project} onSelect={setSelectedReqId} />
+            ) : null}
+            {hubTab === "changes" ? <ChangeOrdersPanel project={project} onSave={onSaveProject} busy={busy} /> : null}
+          </>
+        )
       ) : (
         <div className="card px-4 py-6 text-center text-sm text-slate-500" data-testid="requisition-disabled">
           Tap Enable requisitions to unlock SOV progress billing for this project.
         </div>
       )}
 
-      {sheet?.kind === "drive" ? (
-        <DriveAttachSheet project={project} onSave={onSaveProject} onClose={() => setSheet(null)} />
-      ) : null}
+      {sheet?.kind === "drive" ? <DriveAttachSheet project={project} onSave={onSaveProject} onClose={() => setSheet(null)} /> : null}
       {sheet?.kind === "sov" ? (
-        <Sheet title="New project from SOV" onClose={() => setSheet(null)}>
-          <SovUpload onParsed={onNewFromSov} />
+        <Sheet title="Upload SOV (CSV)" onClose={() => setSheet(null)}>
+          <SovUpload onParsed={onNewFromSov} onReplace={onReplaceSov} projectName={project.name} />
         </Sheet>
       ) : null}
     </div>

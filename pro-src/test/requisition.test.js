@@ -2,6 +2,15 @@ import { describe, expect, it } from "vitest";
 import { parseSovCsv } from "../src/lib/sovParser.js";
 import { buildG702, itemEarned, overallPct } from "../src/lib/requisitionCalc.js";
 import { seedBaezProject } from "../src/lib/requisitionData.js";
+import {
+  buildRequisitionEmail,
+  createRequisitionRecord,
+  pctChangeStatus,
+  paymentNeedsInfo,
+  previousItemSnapshot,
+  requisitionBalance,
+} from "../src/lib/requisitionHelpers.js";
+import { buildRequisitionPdf } from "../src/lib/requisitionPdf.js";
 
 describe("sovParser", () => {
   it("parses Baez SOV CSV with sections and line items", () => {
@@ -42,5 +51,64 @@ describe("requisitionCalc", () => {
       { value: 100, completedPct: 0 },
     ];
     expect(overallPct(items)).toBe(50);
+  });
+});
+
+describe("requisitionHelpers", () => {
+  it("pctChangeStatus flags unchanged vs changed", () => {
+    expect(pctChangeStatus(50, 50, true)).toBe("unchanged");
+    expect(pctChangeStatus(60, 50, true)).toBe("changed");
+    expect(pctChangeStatus(50, 0, false)).toBe("new");
+  });
+
+  it("previousItemSnapshot reads last submitted requisition", () => {
+    const project = seedBaezProject();
+    project.requisitions = [
+      { id: "r1", status: "submitted", itemsSnapshot: [{ id: "item-1", completedPct: 40 }] },
+    ];
+    const snap = previousItemSnapshot(project);
+    expect(snap["item-1"]).toBe(40);
+  });
+
+  it("createRequisitionRecord captures G702 fields", () => {
+    const project = seedBaezProject();
+    const draft = { ...project, items: project.items.slice(0, 2).map((it) => ({ ...it, completedPct: 50 })) };
+    const req = createRequisitionRecord(project, draft, { periodTo: "2026-07-14", num: 13 });
+    expect(req.num).toBe(13);
+    expect(req.applicationNumber).toBe("REQ-13");
+    expect(req.g703.length).toBe(2);
+    expect(req.currentPaymentDue).toBeGreaterThan(0);
+  });
+
+  it("requisitionBalance subtracts payments", () => {
+    const req = { currentPaymentDue: 100000, payments: [{ amount: 40000 }, { amount: 60000 }] };
+    expect(requisitionBalance(req)).toBe(0);
+  });
+
+  it("paymentNeedsInfo flags missing date or check", () => {
+    expect(paymentNeedsInfo({ amount: 100, date: "", checkNumber: "" })).toBe(true);
+    expect(paymentNeedsInfo({ amount: 100, date: "2026-01-01", checkNumber: "123" })).toBe(false);
+  });
+
+  it("buildRequisitionEmail includes key amounts", () => {
+    const project = seedBaezProject();
+    const req = { applicationNumber: "REQ-12", currentPaymentDue: 108000, previousCertificates: 1470000, totalCompleted: 1600000, periodTo: "2026-07-01" };
+    const email = buildRequisitionEmail({ project, requisition: req, contact: { email: "gc@test.com" } });
+    expect(email.subject).toContain("REQ-12");
+    expect(email.body).toContain("108,000");
+    expect(email.to).toBe("gc@test.com");
+  });
+});
+
+describe("requisitionPdf", () => {
+  it("builds a PDF blob for G702/G703", () => {
+    const project = seedBaezProject();
+    const req = createRequisitionRecord(project, {
+      ...project,
+      items: project.items.slice(0, 3).map((it) => ({ ...it, completedPct: 25 })),
+    });
+    const blob = buildRequisitionPdf(project, req);
+    expect(blob.type).toBe("application/pdf");
+    expect(blob.size).toBeGreaterThan(500);
   });
 });
