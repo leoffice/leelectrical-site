@@ -67,6 +67,8 @@ describe("customer doc tabs — create + service addresses", () => {
     await user.click(within(panel).getByText("55 Elm St"));
     expect(within(panel).getByText("Panel A")).toBeInTheDocument();
     expect(within(panel).getByText("Panel B")).toBeInTheDocument();
+    expect(within(panel).getByText("Invoice #100")).toBeInTheDocument();
+    expect(within(panel).getByText("Pay")).toBeInTheDocument();
   });
 
   it("job detail shows add job and change order next to edit", async () => {

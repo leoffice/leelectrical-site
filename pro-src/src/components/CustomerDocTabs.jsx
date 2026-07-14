@@ -6,6 +6,8 @@ import {
   estimateJobs,
   estimateButtonLabel,
   invoiceRowDetail,
+  addressJobRowDetail,
+  addressJobToneClass,
 } from "../lib/customerDocLists.js";
 import {
   cloneJobAtAddressPatch,
@@ -109,18 +111,34 @@ function AddressJobRows({ list, activeJobId, onOpen }) {
   if (!list.length) return null;
   return list.map((j) => {
     const active = j.id === activeJobId;
-    const title = j.title || (j.invoiceNo ? "Invoice #" + j.invoiceNo : j.estimateNo ? "Estimate #" + j.estimateNo : "Job");
+    const { quickDesc, invoiceNo, estimateNo, amountLine, actionLabel, tone, address } = addressJobRowDetail(j);
     return (
       <button
         key={j.id}
         type="button"
-        className={`${DOC_BTN} bg-slate-50 text-slate-700 border-slate-200 ${active ? "ring-2 ring-brand/40" : ""}`}
+        className={`${DOC_BTN} ${addressJobToneClass(tone)} ${active ? "ring-2 ring-brand/40" : ""}`}
         data-testid={"cust-addr-job-" + j.id}
         onClick={() => onOpen(j)}
       >
-        <span className="min-w-0 flex-1 truncate">{title}</span>
-        {j.invoiceNo ? <span className="text-xs shrink-0">Inv {j.invoiceNo}</span> : null}
-        {j.estimateNo && !j.invoiceNo ? <span className="text-xs shrink-0">Est {j.estimateNo}</span> : null}
+        <span className="min-w-0 flex-1">
+          <span className="block truncate">{quickDesc}</span>
+          {address ? (
+            <span className="block text-[11px] font-normal opacity-85 truncate mt-0.5">{address}</span>
+          ) : null}
+          {invoiceNo ? (
+            <span className="block text-[11px] font-normal opacity-85 mt-0.5">Invoice #{invoiceNo}</span>
+          ) : estimateNo ? (
+            <span className="block text-[11px] font-normal opacity-85 mt-0.5">Estimate #{estimateNo}</span>
+          ) : null}
+        </span>
+        <span className="text-xs tabular-nums shrink-0 text-right leading-snug">
+          {amountLine ? <span className="block font-bold">{amountLine}</span> : null}
+          {actionLabel ? (
+            <span className="block text-[10px] font-extrabold uppercase tracking-wide mt-0.5 opacity-90">
+              {actionLabel}
+            </span>
+          ) : null}
+        </span>
       </button>
     );
   });

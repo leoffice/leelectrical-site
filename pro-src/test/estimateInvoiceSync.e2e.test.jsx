@@ -110,12 +110,9 @@ describe("estimate ↔ invoice sync — e2e", () => {
     renderApp("#/job/J-LINK");
     const pane = await screen.findByTestId("detail-pane");
 
-    const billingPhase = within(pane)
-      .getAllByRole("button")
-      .find((b) => /Billing/.test(b.textContent || "") && /\d+\/\d+/.test(b.textContent || ""));
-    expect(billingPhase).toBeTruthy();
-    await user.click(billingPhase);
-    await user.click(within(pane).getByTestId("progress-step-Invoiced"));
+    await user.click(within(pane).getByRole("button", { name: /🧾\s*Billing/i }));
+    const invStep = await within(pane).findByTestId("progress-step-Invoiced");
+    await user.click(invStep);
     const editBtn = await within(pane).findByTestId("edit-invoice-paperwork");
     await user.click(editBtn);
     expect(await screen.findByTestId("doc-save-sync")).toBeInTheDocument();

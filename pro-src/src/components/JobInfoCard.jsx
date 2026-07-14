@@ -2,7 +2,8 @@
 import React, { useMemo } from "react";
 import AmountDisplay from "./AmountDisplay.jsx";
 import { amountPaid, invoiceTotal, openBalance, paidPct } from "../lib/customers.js";
-import { effectiveServiceAddress } from "../lib/customerSync.js";
+import { serviceAddressDisplay } from "../lib/customerSync.js";
+import { jobInvoiceDateDisplay, jobServiceDateDisplay } from "../lib/customerDocLists.js";
 import { fmt$ } from "../lib/format.js";
 import { bubbleStyle, jobAwarenessBubbles } from "../lib/jobAwareness.js";
 import JobDocTabs from "./JobDocTabs.jsx";
@@ -69,11 +70,15 @@ export default function JobInfoCard({
   const paid = amountPaid(job);
   const balance = openBalance(job);
   const pct = paidPct(job);
-  const svc = effectiveServiceAddress(job);
+  const svc = serviceAddressDisplay(job);
+  const serviceDate = jobServiceDateDisplay(job);
+  const invoiceDate = jobInvoiceDateDisplay(job);
   const bubbles = useMemo(() => jobAwarenessBubbles(job, events, commands), [job, events, commands]);
 
   const rows = [
-    ["Service address", svc],
+    svc ? ["Service address", svc] : null,
+    serviceDate ? ["Service date", serviceDate] : null,
+    invoiceDate ? ["Invoice date", invoiceDate] : null,
     job.invoiceNo ? ["Invoice", job.invoiceNo] : null,
     job.estimateNo ? ["Estimate", job.estimateNo] : null,
     total > 0 ? ["Invoice amount", fmt$(total)] : null,

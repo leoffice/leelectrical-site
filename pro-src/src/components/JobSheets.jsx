@@ -1261,6 +1261,14 @@ function useDocPdfView(job, kind, no) {
     timer.current = setTimeout(poll, 4000);
   };
 
+  const waitForStored = async (tries = 6, gapMs = 400) => {
+    for (let i = 0; i < tries; i++) {
+      if (await check()) return true;
+      if (i < tries - 1) await new Promise((r) => setTimeout(r, gapMs));
+    }
+    return false;
+  };
+
   const viewLocal = async () => {
     setSt({ phase: "checking", source: DOC_SOURCE_LOCAL });
     if (!canGenerateLocalDoc(job, kind)) {
@@ -1270,7 +1278,15 @@ function useDocPdfView(job, kind, no) {
     }
     setSt({ phase: "fetching", source: DOC_SOURCE_LOCAL });
     const gen = api.generateLocalDoc ? await api.generateLocalDoc(job, kind) : { ok: false };
-    if (gen.ok && (await check())) return openStored();
+    if (gen.ok) {
+      if (await waitForStored()) return openStored();
+      const key = String(gen.key || docKey || "").trim();
+      if (key) {
+        openPdfUrl(docStorePdfUrl(key));
+        setSt({ phase: "idle", source: null });
+        return;
+      }
+    }
     setSt({ phase: "error", source: DOC_SOURCE_LOCAL });
     showToast("Could not build the local PDF — try again or use View QuickBooks");
   };
