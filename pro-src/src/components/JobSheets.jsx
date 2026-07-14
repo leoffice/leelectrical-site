@@ -22,7 +22,8 @@ import { useStore } from "../state/store.jsx";
 
 import { fmt$, parseAmount, todayStr } from "../lib/format.js";
 import { docStorePdfUrl, openPdfBlob, openPdfUrl } from "../lib/pdfOpen.js";
-import { buildInvoicePdfFromJob, canGenerateLocalInvoice } from "../lib/invoicePdf.js";
+import { buildInvoicePdfFromJob } from "../lib/invoicePdf.js";
+import { canGenerateLocalDoc } from "../lib/jobToQbDoc.js";
 import { chargeCardInApp, fetchSolaIfieldsConfig } from "../lib/solaCharge.js";
 import SolaCardForm, { tokenizeSolaCard } from "./SolaCardForm.jsx";
 import { fmtMoneyPrecise, totalWithFee } from "../lib/payFees.js";
@@ -77,31 +78,35 @@ export function useDoSend() {
   return (job, kind, opts = {}) => {
     const no = kind === "invoice" ? job.invoiceNo : job.estimateNo;
     const email = (opts.email || job.email || "").trim();
+    const due = openBalance(job);
+    const withPay =
+      kind === "invoice" &&
+      due > 0.01 &&
+      opts.includePaymentLink !== false;
     const payload =
       kind === "invoice"
         ? {
             email,
             invoiceNo: no,
             customer: job.customer || "",
-            amount: String(openBalance(job) || "").replace(/[$,]/g, ""),
-            includePaymentLink: Boolean(opts.includePaymentLink && openBalance(job) > 0.01),
+            amount: String(due || "").replace(/[$,]/g, ""),
+            includePaymentLink: withPay,
+            job,
           }
-        : { email, estimateNo: no };
+        : { email, estimateNo: no, job };
     const idk =
-      kind === "invoice" && payload.includePaymentLink
-        ? "send_invoice_pay:" + no
-        : "send_" + kind + ":" + no;
+      kind === "invoice" && withPay ? "send_invoice_pay:" + no : "send_" + kind + ":" + no;
     enqueue("send_" + kind, job.id, payload, "deterministic", idk);
     logSend(
       job.id,
       (kind === "invoice" ? "Invoice" : "Estimate") +
         " #" +
         no +
-        (payload.includePaymentLink ? " + payment link" : "") +
+        (withPay ? " + payment link" : "") +
         " send queued",
       job.email
     );
-    showToast(payload.includePaymentLink ? "Queued with payment link — Activity" : "Queued — status in Activity");
+    showToast(withPay ? "Queued with payment link — Activity" : "Queued — status in Activity");
   };
 }
 
@@ -1188,9 +1193,9 @@ export function PaymentHistorySheet({ job, onClose, onAddPayment }) {
 // The document pipeline stages we surface as plain wording (#45). "Requesting"
 // covers the initial docs-store check + enqueue; "Fetching from QuickBooks" is
 // the host agent pulling the PDF; "Ready" means it's rendered full screen.
-export const PDF_STAGES = ["Requesting", "Fetching from QuickBooks", "Ready"];
+export const PDF_STAGES = ["Checking", "Generating PDF", "Ready"];
 
-/** Horizontal stage indicator: Requesting → Fetching from QuickBooks → Ready. */
+/** Horizontal stage indicator: Checking → Generating PDF → Ready. */
 export function PdfStages({ active }) {
   return (
     <div className="flex items-center flex-wrap gap-x-1.5 gap-y-1 text-[11px] font-semibold mb-2" aria-label="Document status">
@@ -1245,14 +1250,16 @@ export function PdfViewer({ job, kind, no, compact, children }) {
     setSt({ phase: "checking" });
     const blob = await check();
     if (blob) return openStored();
-    // Invoice with line data — open a local PDF immediately (QBO layout clone).
-    if (kind === "invoice" && canGenerateLocalInvoice(job)) {
-      openPdfBlob(buildInvoicePdfFromJob(job));
-      setSt({ phase: "idle" });
-      enqueue("fetch_pdf", job.id, { kind, no, docKey }, "judgment", "pdf:" + no + ":" + todayStr());
-      return;
+    if (canGenerateLocalDoc(job, kind)) {
+      setSt({ phase: "fetching" });
+      const gen = api.generateLocalDoc ? await api.generateLocalDoc(job, kind) : { ok: false };
+      const stored = gen.ok ? await check() : null;
+      if (stored) return openStored();
+      if (gen.ok) {
+        setSt({ phase: "idle" });
+        return;
+      }
     }
-    // Not stored yet — ask the host agent to pull it from QuickBooks.
     enqueue("fetch_pdf", job.id, { kind, no, docKey }, "judgment", "pdf:" + no + ":" + todayStr());
     deadline.current = Date.now() + 90_000;
     setSt({ phase: "fetching" });
@@ -1265,8 +1272,8 @@ export function PdfViewer({ job, kind, no, compact, children }) {
         <div className="text-sm text-slate-500 flex items-center gap-2.5">
           <span className="w-2 h-2 rounded-full bg-amber-400 animate-pulse shrink-0" />
           {st.phase === "checking"
-            ? "Requesting the document…"
-            : "Fetching from QuickBooks — a few seconds…"}
+            ? "Checking for your document…"
+            : "Generating your PDF — a few seconds…"}
         </div>
       </div>
     );
@@ -1665,7 +1672,7 @@ export function DocSheet({ job, kind, onClose, onEdit, onConvert, onSync }) {
             type="button"
             className="btn flex-1 !py-2.5 bg-brand-soft text-brand font-semibold"
             onClick={() => {
-              doSend(job, kind);
+              doSend(job, kind, kind === "invoice" && due > 0.01 ? { includePaymentLink: false } : {});
               onClose();
             }}
           >

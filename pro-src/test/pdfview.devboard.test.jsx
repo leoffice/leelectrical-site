@@ -38,7 +38,7 @@ describe("invoice/estimate quick view — View PDF", () => {
     expect(srv.enqueued("fetch_pdf")).toHaveLength(0); // no command when already stored
   });
 
-  it("on a miss with invoice data: opens local PDF immediately and still enqueues fetch_pdf", async () => {
+  it("on a miss with invoice data: opens local preview and generates PDF on server", async () => {
     const click = stubPdfOpen();
     const srv = mockServer(); // docs empty -> 404
     const user = userEvent.setup();
@@ -46,12 +46,9 @@ describe("invoice/estimate quick view — View PDF", () => {
 
     await user.click(within(sheet).getByText("View PDF"));
     await waitFor(() => expect(click).toHaveBeenCalledTimes(1));
-    expect(screen.queryByText("Fetching from QuickBooks — a few seconds…")).toBeNull();
-    await waitFor(() => expect(srv.enqueued("fetch_pdf")).toHaveLength(1));
-    const cmd = srv.enqueued("fetch_pdf")[0];
-    expect(cmd.lane).toBe("judgment");
-    expect(cmd.idempotencyKey).toBe("pdf:251841:" + todayStr());
-    expect(cmd.payload).toEqual({ kind: "invoice", no: "251841", docKey: "inv-251841" });
+    expect(screen.queryByText("Generating your PDF — a few seconds…")).toBeNull();
+    await waitFor(() => expect(srv.calls.some((c) => c.path === "generate-doc")).toBe(true));
+    expect(srv.enqueued("fetch_pdf")).toHaveLength(0);
   });
 
   it("on a miss without local data: enqueues fetch_pdf and polls until stored", async () => {
@@ -70,7 +67,7 @@ describe("invoice/estimate quick view — View PDF", () => {
     await user.click(within(pane).getByTestId("tab-invoice"));
     const sheet = screen.getByRole("dialog");
     await user.click(within(sheet).getByText("View PDF"));
-    await screen.findByText("Fetching from QuickBooks — a few seconds…");
+    await screen.findByText("Generating your PDF — a few seconds…");
     srv.state.docs["inv-999001"] = "%PDF-1.4 fetched";
     await waitFor(() => expect(click).toHaveBeenCalledTimes(1), { timeout: 7000 });
   }, 12000);

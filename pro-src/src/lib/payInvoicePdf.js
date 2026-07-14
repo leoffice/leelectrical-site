@@ -3,7 +3,7 @@
 const SITE_ORIGIN =
   (typeof window !== "undefined" && window.location?.origin) || "https://leelectrical.us";
 
-export const PDF_RETRIEVE_STAGES = ["Requesting", "Fetching from QuickBooks", "Ready"];
+export const PDF_RETRIEVE_STAGES = ["Checking", "Generating PDF", "Ready"];
 
 export function docsFetchUrl() {
   return `${SITE_ORIGIN}/.netlify/functions/docs-fetch`;

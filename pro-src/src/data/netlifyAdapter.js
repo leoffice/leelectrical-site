@@ -136,6 +136,22 @@ export function createNetlifyAdapter() {
       return http("command", { op: "update", id, patch, note });
     },
 
+    /** Generate invoice/estimate PDF locally (le-invoice-suite) and store in docs. */
+    async generateLocalDoc(job, kind = "invoice") {
+      const res = await fetch(`${base()}/generate-doc`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ kind, job }),
+      });
+      let data = {};
+      try {
+        data = await res.json();
+      } catch {
+        /* ignore */
+      }
+      return { ok: !!(res.ok && data.ok), ...data };
+    },
+
     /** Fetch a stored PDF from the docs fn. Returns a Blob, or null while the
      *  document isn't there yet (404 / JSON error body). */
     async getDoc(key) {

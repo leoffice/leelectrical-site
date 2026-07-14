@@ -141,6 +141,16 @@ export function mockServer(opts = {}) {
           };
         return { ok: false, status: 404, headers: { get: () => "application/json" }, json: async () => ({ ok: false, error: "not found" }) };
       }
+      if (path === "generate-doc") {
+        if (method === "POST" && body?.job) {
+          const kind = body.kind || "invoice";
+          const no = kind === "invoice" ? body.job.invoiceNo : body.job.estimateNo;
+          const key = (kind === "invoice" ? "inv-" : "est-") + no;
+          state.docs[key] = "%PDF-1.4 local-generated";
+          return { ok: true, status: 200, json: async () => ({ ok: true, key, url: "/docs?key=" + key }) };
+        }
+        return { ok: false, status: 400, json: async () => ({ ok: false }) };
+      }
       if (path === "docs-fetch") {
         if (method === "POST" && body?.invoiceNo) {
           const no = String(body.invoiceNo);

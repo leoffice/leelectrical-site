@@ -188,8 +188,8 @@ describe("PayLanding view", () => {
     await waitForPayLoaded();
     await user.click(screen.getByTestId("view-invoice"));
     await waitFor(() => expect(screen.getByTestId("pdf-retrieve-overlay")).toBeInTheDocument());
-    expect(screen.getByText(/Retrieving your invoice/)).toBeInTheDocument();
-    expect(screen.getByText(/Fetching from QuickBooks/)).toBeInTheDocument();
+    expect(screen.getByText(/Loading your invoice/)).toBeInTheDocument();
+    expect(screen.getByText(/Generating PDF/)).toBeInTheDocument();
     await waitFor(() =>
       expect(vi.mocked(fetch).mock.calls.some((c) => String(c[0]).includes("docs-fetch"))).toBe(
         true
