@@ -157,7 +157,11 @@ export default function App() {
   const inDetail = loc.pathname.startsWith("/job/");
   const inCustomer = loc.pathname.startsWith("/customer/");
 
+<<<<<<< HEAD
   const showFab = loc.pathname === "/" || loc.pathname === "/today" || inDetail || inCustomer;
+=======
+  const showFab = !loc.pathname.startsWith("/archive");
+>>>>>>> main
   const fabContext = appointmentContextFromRoute(loc.pathname, { effectiveJob, jobs });
 
   return (

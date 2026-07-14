@@ -1,0 +1,25 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <title>LE Voice Flow Options</title>
+    <style>
+      body { font-family: system-ui, sans-serif; max-width: 480px; margin: 2rem auto; padding: 0 1rem; }
+      label { display: block; margin: 1rem 0 0.25rem; font-weight: 600; }
+      input { width: 100%; padding: 0.5rem; }
+      button { margin-top: 1rem; padding: 0.5rem 1rem; }
+      p.hint { color: #64748b; font-size: 0.875rem; }
+    </style>
+  </head>
+  <body>
+    <h1>LE Voice Flow</h1>
+    <p class="hint">Optional AI polish via xAI Grok. Key stays in this browser only — never synced to LE servers.</p>
+    <label for="apiKey">xAI API key (optional)</label>
+    <input id="apiKey" type="password" autocomplete="off" placeholder="xai-…" />
+    <label for="model">Model</label>
+    <input id="model" type="text" value="grok-3-mini" />
+    <button id="save">Save</button>
+    <p id="status"></p>
+    <script src="options.js"></script>
+  </body>
+</html>

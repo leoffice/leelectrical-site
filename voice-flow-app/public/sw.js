@@ -1,4 +1,4 @@
-const CACHE = "le-voice-flow-v1";
+const CACHE = "le-voice-flow-v3";
 const CORE = ["/app/voice-flow/", "/app/voice-flow/index.html", "/app/voice-flow/manifest.json"];
 
 self.addEventListener("install", (e) => {

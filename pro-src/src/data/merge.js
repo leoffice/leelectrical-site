@@ -95,3 +95,16 @@ export function mergeJobs(baseJobs, ov) {
   }
   return out;
 }
+
+/** When state.ov is stale (blob lag), keep local jobs with saved edits but still admit new QBO jobs. */
+export function mergeJobsStaleGuard(prevJobs, incomingJobs) {
+  const prev = prevJobs || [];
+  const incoming = incomingJobs || [];
+  const prevById = Object.fromEntries(prev.map((j) => [j.id, j]));
+  const incomingIds = new Set(incoming.map((j) => j && j.id).filter(Boolean));
+  const merged = incoming.map((j) => (j && prevById[j.id]) || j);
+  for (const j of prev) {
+    if (j && j.id && !incomingIds.has(j.id) && j._new) merged.push(j);
+  }
+  return merged;
+}

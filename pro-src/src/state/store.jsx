@@ -13,7 +13,7 @@ import React, {
   useState,
 } from "react";
 import api from "../data/adapter.js";
-import { applyOverlay, deepMerge, isPlainObject } from "../data/merge.js";
+import { applyOverlay, deepMerge, isPlainObject, mergeJobsStaleGuard } from "../data/merge.js";
 import { STAGES } from "../lib/stages.js";
 import { calendarServiceLocation } from "../lib/customerSync.js";
 import { evStart, fmt$, parseAmount, todayStr } from "../lib/format.js";
@@ -134,7 +134,12 @@ export function StoreProvider({ children }) {
       const stale = lastSavedTs.current && meta.stateTs && meta.stateTs < lastSavedTs.current;
       const incoming = meta.jobs || [];
       // Never wipe the list when the server returns empty during a sync blip.
-      if (!stale && (incoming.length || !jobsCountRef.current)) setJobs(incoming);
+      if (stale) {
+        // Blob lag — keep saved edits, but still show brand-new QBO jobs.
+        setJobs((prev) => mergeJobsStaleGuard(prev, incoming));
+      } else if (incoming.length || !jobsCountRef.current) {
+        setJobs(incoming);
+      }
       setSyncedAt(meta.syncedAt || 0);
       setError("");
       return meta;

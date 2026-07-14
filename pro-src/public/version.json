@@ -1,9 +1,16 @@
 {
   "schema": "le-pro-version/v1",
+<<<<<<< HEAD
   "gitSha": "8560bc5e4017eaf13986a0135c85f1b70255345c",
   "gitShaShort": "8560bc5",
   "netlifyDeployId": null,
   "builtAt": "2026-07-14T20:13:10.862Z",
+=======
+  "gitSha": "face3c70923e31a0143c7bd085ad8eddb6105383",
+  "gitShaShort": "face3c7",
+  "netlifyDeployId": null,
+  "builtAt": "2026-07-14T20:59:00.382Z",
+>>>>>>> main
   "task": "",
   "rollbackAvailable": true
 }

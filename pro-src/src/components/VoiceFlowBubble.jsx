@@ -2,9 +2,10 @@
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import { useStore } from "../state/store.jsx";
 import {
+  createSilentRecognizer,
   getLastTextTarget,
   insertTextAtFocus,
-  polishVoiceText,
+  polishVoiceTextSmart,
   setLastTextTarget,
   speechRecognitionSupported,
   trackVoiceFocus,
@@ -12,15 +13,25 @@ import {
 
 const LOGO = import.meta.env.BASE_URL + "le-logo.png?v=5";
 
+const REVIEW_STYLE = {
+  unicodeBidi: "plaintext",
+  maxHeight: "min(40vh, 200px)",
+  overflowY: "auto",
+  WebkitOverflowScrolling: "touch",
+};
+
+function holdFocus(e) {
+  e.preventDefault();
+}
+
 export default function VoiceFlowBubble() {
   const { showToast } = useStore();
-  const [phase, setPhase] = useState("idle"); // idle | listening | review | processing
+  const [phase, setPhase] = useState("idle");
   const [level, setLevel] = useState(0);
-  const [rawTranscript, setRawTranscript] = useState("");
   const [preview, setPreview] = useState("");
-  const recRef = useRef(null);
   const streamRef = useRef(null);
   const animRef = useRef(null);
+  const recognizerRef = useRef(null);
   const insertTargetRef = useRef(null);
 
   useEffect(() => trackVoiceFocus(), []);
@@ -36,36 +47,26 @@ export default function VoiceFlowBubble() {
   }, []);
 
   const stopListening = useCallback(() => {
-    if (recRef.current) {
-      try {
-        recRef.current.stop();
-      } catch {}
-      recRef.current = null;
+    if (recognizerRef.current) {
+      recognizerRef.current.stop();
+      recognizerRef.current = null;
     }
     cleanupAudio();
   }, [cleanupAudio]);
 
   const startListening = useCallback(
     (e) => {
-      e?.preventDefault?.();
+      holdFocus(e);
       insertTargetRef.current = getLastTextTarget();
-      const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
-      if (!SR) {
+      if (!speechRecognitionSupported()) {
         showToast?.("Voice input needs Chrome on Android");
         return;
       }
-      if (recRef.current) {
+      if (recognizerRef.current) {
         stopListening();
         setPhase("idle");
-        setRawTranscript("");
         return;
       }
-      const r = new SR();
-      recRef.current = r;
-      r.lang = "en-US";
-      r.interimResults = true;
-      r.continuous = true;
-      setRawTranscript("");
       setPreview("");
       setPhase("listening");
 
@@ -82,88 +83,101 @@ export default function VoiceFlowBubble() {
             const buf = new Uint8Array(an.frequencyBinCount);
             const loop = () => {
               an.getByteFrequencyData(buf);
-              const v = buf.reduce((a, b) => a + b, 0) / buf.length / 255;
-              setLevel(v);
+              setLevel(buf.reduce((a, b) => a + b, 0) / buf.length / 255);
               animRef.current = requestAnimationFrame(loop);
             };
             loop();
-            r._audioCtx = ctx;
           })
           .catch(() => {});
       }
 
-      r.onresult = (ev) => {
-        let s = "";
-        for (const res of ev.results) s += res[0].transcript;
-        setRawTranscript(s);
-      };
-      r.onerror = () => {
-        stopListening();
-        setPhase("idle");
-      };
-      r.onend = () => {
-        cleanupAudio();
-        if (r._audioCtx) r._audioCtx.close();
-        recRef.current = null;
-      };
-      try {
-        r.start();
-      } catch {
-        stopListening();
-        setPhase("idle");
-        showToast?.("Could not start microphone");
-      }
+      recognizerRef.current = createSilentRecognizer({
+        lang: "en-US",
+        onError: () => {
+          stopListening();
+          setPhase("idle");
+          showToast?.("Microphone error — try again");
+        },
+        onEnd: () => {
+          cleanupAudio();
+        },
+      });
     },
     [cleanupAudio, showToast, stopListening]
   );
 
   const finishListening = useCallback(
-    (e) => {
-      e?.preventDefault?.();
-      stopListening();
-      const raw = rawTranscript.trim();
-      if (!raw) {
+    async (e) => {
+      holdFocus(e);
+      const raw = recognizerRef.current?.stop() || "";
+      recognizerRef.current = null;
+      cleanupAudio();
+      if (!raw.trim()) {
         setPhase("idle");
         showToast?.("Didn't catch that — try again");
         return;
       }
-      setPreview(polishVoiceText(raw));
-      setPhase("review");
+      setPhase("processing");
+      try {
+        const polished = await polishVoiceTextSmart(raw);
+        setPreview(polished);
+        setPhase("review");
+      } catch {
+        setPhase("idle");
+        showToast?.("Polish failed — try again");
+      }
     },
-    [rawTranscript, stopListening, showToast]
+    [cleanupAudio, showToast]
   );
 
   const cancelAll = useCallback(
     (e) => {
-      e?.preventDefault?.();
+      holdFocus(e);
       stopListening();
       setPhase("idle");
-      setRawTranscript("");
       setPreview("");
     },
     [stopListening]
   );
 
+  const copyPreview = useCallback(
+    async (e) => {
+      holdFocus(e);
+      const text = preview.trim();
+      if (!text) return;
+      try {
+        await navigator.clipboard.writeText(text);
+        showToast?.("Copied");
+      } catch {
+        showToast?.("Select text and copy manually");
+      }
+    },
+    [preview, showToast]
+  );
+
   const confirmInsert = useCallback(
     async (e) => {
-      e?.preventDefault?.();
+      holdFocus(e);
       const text = preview.trim();
       if (!text) {
         cancelAll();
         return;
       }
       setPhase("processing");
-      await new Promise((r) => setTimeout(r, 80));
+      await new Promise((r) => setTimeout(r, 60));
       const target = insertTargetRef.current || getLastTextTarget();
       if (target) setLastTextTarget(target);
       const ok = insertTextAtFocus(text, target);
       setPhase("idle");
-      setRawTranscript("");
       setPreview("");
       if (ok) showToast?.("Voice text added");
       else {
-        await navigator.clipboard?.writeText(text).catch(() => {});
-        showToast?.("Copied — paste into your field");
+        try {
+          await navigator.clipboard.writeText(text);
+          showToast?.("Copied — tap your field and paste");
+        } catch {
+          showToast?.("Couldn't insert — copy from the box");
+        }
       }
     },
     [preview, cancelAll, showToast]
@@ -185,7 +199,7 @@ export default function VoiceFlowBubble() {
         <div
           className="pointer-events-auto flex flex-col gap-2 bg-slate-900/95 backdrop-blur-md border border-slate-600 rounded-2xl shadow-2xl px-3 py-2.5 max-w-[min(84vw,320px)] text-white"
           data-testid="voice-flow-expanded"
-          onMouseDown={(e) => e.preventDefault()}
+          onPointerDown={holdFocus}
         >
           {phase === "listening" ? (
             <>
@@ -204,7 +218,8 @@ export default function VoiceFlowBubble() {
 
           {phase === "review" ? (
             <textarea
-              className="w-full min-h-[88px] max-h-40 text-sm bg-slate-800 text-white border border-slate-600 rounded-xl px-2.5 py-2 resize-y focus:outline-none focus:ring-2 focus:ring-emerald-400"
+              className="w-full min-h-[72px] text-sm bg-slate-800 text-white border border-slate-600 rounded-xl px-2.5 py-2 resize-none focus:outline-none focus:ring-2 focus:ring-emerald-400"
+              style={REVIEW_STYLE}
               value={preview}
               onChange={(e) => setPreview(e.target.value)}
               aria-label="Polished voice text"
@@ -213,31 +228,45 @@ export default function VoiceFlowBubble() {
           ) : null}
 
           {phase === "processing" ? (
-            <p className="text-xs text-emerald-300">Polishing…</p>
+            <p className="text-xs text-emerald-300" data-testid="voice-flow-polishing">
+              {preview ? "Adding…" : "Polishing…"}
+            </p>
           ) : null}
 
-          <div className="flex gap-2 justify-end">
+          <div className="flex gap-2 justify-end flex-wrap">
             <button
               type="button"
               aria-label="Cancel voice"
               className="px-3 h-8 rounded-full bg-slate-700 text-slate-200 text-xs font-semibold"
-              onMouseDown={(e) => e.preventDefault()}
+              onPointerDown={holdFocus}
               onClick={cancelAll}
               data-testid="voice-flow-cancel"
             >
               Cancel
             </button>
             {phase === "review" ? (
-              <button
-                type="button"
-                aria-label="Insert voice text"
-                className="px-3 h-8 rounded-full bg-emerald-500 text-slate-900 text-xs font-bold"
-                onMouseDown={(e) => e.preventDefault()}
-                onClick={confirmInsert}
-                data-testid="voice-flow-insert"
-              >
-                Insert
-              </button>
+              <>
+                <button
+                  type="button"
+                  aria-label="Copy voice text"
+                  className="px-3 h-8 rounded-full bg-slate-600 text-slate-100 text-xs font-semibold"
+                  onPointerDown={holdFocus}
+                  onClick={copyPreview}
+                  data-testid="voice-flow-copy"
+                >
+                  Copy
+                </button>
+                <button
+                  type="button"
+                  aria-label="Insert voice text"
+                  className="px-3 h-8 rounded-full bg-emerald-500 text-slate-900 text-xs font-bold"
+                  onPointerDown={holdFocus}
+                  onClick={confirmInsert}
+                  data-testid="voice-flow-insert"
+                >
+                  Insert
+                </button>
+              </>
             ) : null}
           </div>
         </div>
@@ -251,7 +280,7 @@ export default function VoiceFlowBubble() {
           transform: phase === "listening" ? `scale(${scale})` : undefined,
           background: phase === "idle" ? "rgba(15,23,42,0.95)" : "#059669",
         }}
-        onMouseDown={(e) => e.preventDefault()}
+        onPointerDown={holdFocus}
         onClick={phase === "listening" ? finishListening : phase === "idle" ? startListening : undefined}
         disabled={phase === "processing" || phase === "review"}
         data-testid="voice-flow-main"
