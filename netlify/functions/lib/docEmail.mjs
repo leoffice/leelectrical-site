@@ -8,7 +8,7 @@ import {
   resolveRecipient,
 } from "./paymentConfirmEnv.mjs";
 import { generateAndStoreDoc } from "./docGenerate.mjs";
-import { mapJobToQbDocData } from "./jobToQbDoc.mjs";
+import { docPdfFilename, mapJobToQbDocData } from "./jobToQbDoc.mjs";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const require = createRequire(import.meta.url);
@@ -83,7 +83,7 @@ export async function sendDocEmail({ job, kind = "invoice", to, includePaymentLi
 
   const logoBuf = readFileSync(path.join(SUITE_DIR, "assets", "logo.png"));
   const pdfB64 = gen.pdfBuffer.toString("base64");
-  const filename = `${docWord}_${docData.docNumber}_from_BLZ_Electric.pdf`;
+  const filename = docPdfFilename(kind, job, docData.docNumber);
 
   const text =
     `${docWord} ${docData.docNumber} from ${docData.company.name}\n` +

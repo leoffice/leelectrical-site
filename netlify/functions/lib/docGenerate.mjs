@@ -2,7 +2,7 @@ import { createRequire } from "module";
 import { getStore } from "@netlify/blobs";
 import { fileURLToPath } from "url";
 import path from "path";
-import { canGenerateLocalDoc, docStoreKey, mapJobToQbDocData } from "./jobToQbDoc.mjs";
+import { canGenerateLocalDoc, docPdfFilename, docStoreKey, mapJobToQbDocData } from "./jobToQbDoc.mjs";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const require = createRequire(import.meta.url);
@@ -42,9 +42,10 @@ export async function generateAndStoreDoc({ job, kind = "invoice" }) {
   data.logoPath = path.join(SUITE_DIR, "assets", "logo.png");
   const buf = await generateDocument(data);
   const key = docStoreKey(kind, data.docNumber);
+  const filename = docPdfFilename(kind, job, data.docNumber);
   const store = getStore("docs");
   await store.set(key, buf, {
-    metadata: { mime: "application/pdf", bytes: buf.length, ts: Date.now(), source: "local" },
+    metadata: { mime: "application/pdf", bytes: buf.length, ts: Date.now(), source: "local", filename },
   });
   return { ok: true, key, bytes: buf.length, docNumber: data.docNumber, pdfBuffer: buf };
 }

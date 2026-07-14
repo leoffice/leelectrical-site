@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { canGenerateLocalDoc, mapJobToQbDocData, QB_COMPANY } from "../src/lib/jobToQbDoc.js";
+import {
+  canGenerateLocalDoc,
+  docPdfFilename,
+  mapJobToQbDocData,
+  QB_COMPANY,
+} from "../src/lib/jobToQbDoc.js";
 
 const job = {
   id: "J-1",
@@ -39,6 +44,24 @@ describe("jobToQbDoc", () => {
     expect(d.lines).toHaveLength(1);
     expect(d.lines[0].amount).toBe(2300);
     expect(d.amountDue).toBe(0);
+  });
+
+  it("docPdfFilename uses invoice number and customer", () => {
+    expect(docPdfFilename("invoice", job)).toBe("Invoice_251841_Peretz_Chein.pdf");
+    expect(docPdfFilename("estimate", { ...job, estimateNo: "25484", invoiceNo: "" })).toBe(
+      "Estimate_25484_Peretz_Chein.pdf"
+    );
+  });
+
+  it("docPdfFilename adds service address slug when different from billing", () => {
+    const j = {
+      ...job,
+      billingAddress: "1 Billing St, Brooklyn, NY",
+      serviceAddress: "1150 Eastern Parkway, Brooklyn, NY",
+    };
+    expect(docPdfFilename("invoice", j)).toBe(
+      "Invoice_251841_Peretz_Chein_1150_Eastern_Parkway.pdf"
+    );
   });
 
   it("mapJobToQbDocData maps estimate variant", () => {

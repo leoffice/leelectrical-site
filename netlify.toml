@@ -8,6 +8,13 @@
 
 [functions]
   directory = "netlify/functions"
+  # pdfkit must stay external — bundling breaks AFM font data paths (502 on generate-doc).
+  external_node_modules = ["pdfkit"]
+  included_files = [
+    "netlify/functions/lib/le-invoice-suite/fonts/**",
+    "netlify/functions/lib/le-invoice-suite/assets/**",
+    "node_modules/pdfkit/js/data/**",
+  ]
 
 [functions."docs-cleanup"]
   schedule = "@daily"

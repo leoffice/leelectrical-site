@@ -59,6 +59,36 @@ export function docStoreKey(kind, no) {
   return (kind === "invoice" ? "inv-" : "est-") + String(no || "").trim();
 }
 
+/** Safe fragment for download filenames (customer or street). */
+export function docPdfSlug(text, max = 40) {
+  const s = String(text || "")
+    .trim()
+    .replace(/[^\w\s.-]/g, "")
+    .replace(/\s+/g, "_")
+    .replace(/_+/g, "_")
+    .replace(/^_|_$/g, "");
+  return s.slice(0, max) || "";
+}
+
+/**
+ * Customer-facing PDF filename — Invoice_251846_Customer_Name.pdf
+ * Adds a short service-address slug when it differs from billing.
+ */
+export function docPdfFilename(kind, job = {}, docNumber = "") {
+  const isInvoice = kind === "invoice";
+  const word = isInvoice ? "Invoice" : "Estimate";
+  const no = String(docNumber || (isInvoice ? job.invoiceNo : job.estimateNo) || "").trim();
+  const customer = docPdfSlug(job.customer || job.businessName || job.personName || "");
+  const svc = String(job.serviceAddress || job.address || "").trim();
+  const bill = String(job.billingAddress || job.address || "").trim();
+  const addrSlug =
+    svc && bill && svc.toLowerCase() !== bill.toLowerCase()
+      ? docPdfSlug(svc.split("\n")[0].split(",")[0], 28)
+      : "";
+  const parts = [word, no, customer || "Customer", addrSlug].filter(Boolean);
+  return parts.join("_") + ".pdf";
+}
+
 /** True when the job has enough data to generate a local PDF. */
 export function canGenerateLocalDoc(job, kind = "invoice") {
   const no = kind === "invoice" ? job?.invoiceNo : job?.estimateNo;
