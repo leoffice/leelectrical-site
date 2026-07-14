@@ -19,6 +19,7 @@ import Placeholder from "./views/Placeholder.jsx";
 import SaveBar from "./components/SaveBar.jsx";
 import SyncChip from "./components/SyncChip.jsx";
 import ChatBubble, { ChatUnreadBadge } from "./components/ChatBubble.jsx";
+import VoiceFlowBubble from "./components/VoiceFlowBubble.jsx";
 import ApprovalWatcher from "./components/ApprovalWatcher.jsx";
 import DocConfirmWatcher from "./components/DocConfirmWatcher.jsx";
 import SendInvoiceWatcher from "./components/SendInvoiceWatcher.jsx";
@@ -277,6 +278,7 @@ export default function App() {
         ) : null}
 
         <ChatBubble />
+        <VoiceFlowBubble />
         <NewJobFlow />
         <ApprovalWatcher />
         <DocConfirmWatcher />

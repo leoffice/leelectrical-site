@@ -1,6 +1,67 @@
 // Project requisition seed data + helpers.
 
+import { customerKeyForName, customerContact, normalizeCustomer } from "./customers.js";
 import { parseSovCsv } from "./sovParser.js";
+
+export const JOY_CONSTRUCTION_NAME = "Joy Construction";
+export const JOY_GC_LABEL = "JOY CONSTRUCTION CORP.";
+export const BAEZ_PROJECT_ID = "proj-baez-place";
+export const BAEZ_ADDRESS = "334 East 176th Street, Bronx NY";
+
+/** Route key for the Joy Construction customer hub. */
+export function joyCustomerKey() {
+  return customerKeyForName(JOY_CONSTRUCTION_NAME);
+}
+
+/** Match the Baez Place job from the jobs list (address, title, or GC name). */
+export function findBaezJob(jobs) {
+  const active = (jobs || []).filter((j) => j && !j._archived && !j._deleted);
+  const addrNeedle = "176";
+  for (const j of active) {
+    const hay = [j.title, j.customer, j.businessName, j.serviceAddress, j.address]
+      .filter(Boolean)
+      .join(" ")
+      .toLowerCase();
+    if (hay.includes("bae") || hay.includes(addrNeedle)) return j;
+  }
+  for (const j of active) {
+    const gc = normalizeCustomer(j.gc || j.generalContractor || "");
+    if (gc.includes("joy")) return j;
+  }
+  return null;
+}
+
+/** Contact card fields for Joy — prefer linked job, else project seed. */
+export function projectCustomerContact(project, linkedJob) {
+  if (linkedJob) return customerContact([linkedJob]);
+  return {
+    name: JOY_CONSTRUCTION_NAME,
+    businessName: project?.gc || JOY_GC_LABEL,
+    personName: "",
+    phone: "",
+    email: "",
+    billingAddress: "",
+    apartment: "",
+    address: project?.address || BAEZ_ADDRESS,
+    qboCustomerId: "",
+  };
+}
+
+/** Ensure pilot project has requisition + drive fields. */
+export function ensureProjectDefaults(project) {
+  if (!project) return project;
+  const enabled =
+    project.requisitionEnabled ??
+    (project.id === BAEZ_PROJECT_ID && (project.items?.length > 0));
+  return {
+    driveLinks: [],
+    jobId: "",
+    customerKey: joyCustomerKey(),
+    ...project,
+    requisitionEnabled: !!enabled,
+    driveLinks: project.driveLinks || [],
+  };
+}
 
 const BAEZ_SOV_CSV = `Martin Dorkin - Baez Place SOV,"$1,700,000.00",,,
 ,,,,
@@ -102,20 +163,24 @@ Roof Floor,,,
 
 export function seedBaezProject() {
   const parsed = parseSovCsv(BAEZ_SOV_CSV, { name: "Baez Place" });
-  return {
-    id: "proj-baez-place",
+  return ensureProjectDefaults({
+    id: BAEZ_PROJECT_ID,
     name: "Baez Place",
-    address: "334 East 176th Street, Bronx NY",
+    address: BAEZ_ADDRESS,
     contractor: "Martin Dorkin",
-    gc: "JOY CONSTRUCTION CORP.",
+    gc: JOY_GC_LABEL,
+    customerKey: joyCustomerKey(),
     contractSum: parsed.contractSum,
     retainagePct: 10,
     changeOrders: 0,
     items: parsed.items,
     requisitions: [],
+    requisitionEnabled: true,
+    driveLinks: [],
+    jobId: "",
     createdAt: Date.now(),
     updatedAt: Date.now(),
-  };
+  });
 }
 
 export function normalizeProjects(raw) {
