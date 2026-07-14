@@ -5,7 +5,7 @@ import {
   createSilentRecognizer,
   getLastTextTarget,
   insertTextAtFocus,
-  polishVoiceText,
+  polishVoiceTextSmart,
   setLastTextTarget,
   speechRecognitionSupported,
   trackVoiceFocus,
@@ -107,7 +107,7 @@ export default function VoiceFlowBubble() {
   );
 
   const finishListening = useCallback(
-    (e) => {
+    async (e) => {
       holdFocus(e);
       const raw = recognizerRef.current?.stop() || "";
       recognizerRef.current = null;
@@ -117,8 +117,15 @@ export default function VoiceFlowBubble() {
         showToast?.("Didn't catch that — try again");
         return;
       }
-      setPreview(polishVoiceText(raw));
-      setPhase("review");
+      setPhase("processing");
+      try {
+        const polished = await polishVoiceTextSmart(raw);
+        setPreview(polished);
+        setPhase("review");
+      } catch {
+        setPhase("idle");
+        showToast?.("Polish failed — try again");
+      }
     },
     [cleanupAudio, showToast]
   );
@@ -221,7 +228,9 @@ export default function VoiceFlowBubble() {
           ) : null}
 
           {phase === "processing" ? (
-            <p className="text-xs text-emerald-300">Adding…</p>
+            <p className="text-xs text-emerald-300" data-testid="voice-flow-polishing">
+              {preview ? "Adding…" : "Polishing…"}
+            </p>
           ) : null}
 
           <div className="flex gap-2 justify-end flex-wrap">

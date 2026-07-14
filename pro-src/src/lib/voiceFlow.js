@@ -124,6 +124,61 @@ function splitListItems(t, raw) {
   return parts.length > 1 ? parts : [t];
 }
 
+/** Detect rambling/repetitive dictation that needs semantic rewrite (Wispr-style). */
+export function needsSmartPolish(raw) {
+  const t = String(raw || "").trim();
+  if (t.length < 60) return false;
+  const lower = t.toLowerCase();
+  const words = lower.split(/\s+/).filter(Boolean);
+  if (words.length < 12) return false;
+
+  for (let win = Math.min(10, Math.floor(words.length / 3)); win >= 5; win--) {
+    for (let i = 0; i <= words.length - win * 2; i++) {
+      const slice = words.slice(i, i + win).join(" ");
+      const rest = words.slice(i + win).join(" ");
+      if (slice.length > 18 && rest.includes(slice)) return true;
+    }
+  }
+
+  if (/\b[1-6]\.\s/.test(t) && t.length > 120) return true;
+  return t.length > 240;
+}
+
+/** Offline dedupe when AI polish is unavailable. */
+export function consolidateRepetition(text) {
+  let t = String(text || "").trim();
+  if (!t) return "";
+
+  const numbered = t.split(/\n+/).map((p) => p.trim()).filter(Boolean);
+  if (numbered.length > 1 && /^\d+\.\s/.test(numbered[0])) {
+    const seen = [];
+    const unique = [];
+    for (const p of numbered) {
+      const body = p.replace(/^\d+\.\s*/, "").trim();
+      const norm = body.toLowerCase().replace(/\s+/g, " ");
+      if (seen.some((s) => s === norm || (s.length > 24 && norm.includes(s)) || (norm.length > 24 && s.includes(norm)))) continue;
+      seen.push(norm);
+      unique.push(body);
+    }
+    if (unique.length < numbered.length) {
+      return unique.map((p, i) => `${i + 1}. ${p}`).join("\n");
+    }
+  }
+
+  const sentences = t.split(/(?<=[.!?])\s+/).map((s) => s.trim()).filter((s) => s.length > 20);
+  if (sentences.length < 2) return t;
+  const kept = [];
+  for (const s of sentences) {
+    const norm = s.toLowerCase().replace(/\s+/g, " ");
+    const dup = kept.some((k) => {
+      const kn = k.toLowerCase().replace(/\s+/g, " ");
+      return kn === norm || (kn.length > 30 && norm.includes(kn.slice(0, 30))) || (norm.length > 30 && kn.includes(norm.slice(0, 30)));
+    });
+    if (!dup) kept.push(s);
+  }
+  return kept.length < sentences.length ? kept.join(" ") : t;
+}
+
 /** Wispr-style cleanup — punctuation, lists, spacing; bilingual EN+HE. */
 export function polishVoiceText(raw) {
   let t = spokenPunctuation(raw);
@@ -148,6 +203,37 @@ export function polishVoiceText(raw) {
   t = t.replace(/([,;:])(?=\S)/g, "$1 ");
   t = capitalizeSentences(punctuateSentence(t, rtl), rtl);
   return t;
+}
+
+/**
+ * Rule polish + optional Grok semantic rewrite (competition / Wispr-style).
+ * Falls back to local dedupe if the API is down.
+ */
+export async function polishVoiceTextSmart(raw, { apiBase } = {}) {
+  const base = polishVoiceText(raw);
+  if (!base) return "";
+  if (!needsSmartPolish(raw)) return base;
+
+  const local = consolidateRepetition(base);
+  const baseUrl =
+    apiBase ||
+    (typeof location !== "undefined" && /leelectrical\.us$/.test(location.hostname)
+      ? "/.netlify/functions"
+      : "https://leelectrical.us/.netlify/functions");
+
+  try {
+    const r = await fetch(`${baseUrl}/voice-polish`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ raw, prePolished: base }),
+    });
+    const data = await r.json();
+    if (data?.ok && data.text) return String(data.text).trim();
+    if (data?.fallback) return consolidateRepetition(String(data.fallback));
+  } catch {
+    /* offline */
+  }
+  return local !== base ? local : base;
 }
 
 function setNativeValue(el, value) {

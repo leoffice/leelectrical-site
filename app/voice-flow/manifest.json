@@ -1,7 +1,7 @@
 {
-  "name": "LE Voice Flow",
-  "short_name": "Voice Flow",
-  "description": "Wispr-style voice dictation — listen, polish, paste anywhere.",
+  "name": "LE Flow",
+  "short_name": "LE Flow",
+  "description": "Wispr-style voice dictation — listen, rewrite, paste anywhere.",
   "id": "/app/voice-flow/",
   "start_url": "/app/voice-flow/",
   "scope": "/app/voice-flow/",

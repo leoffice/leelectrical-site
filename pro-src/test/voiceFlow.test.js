@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { polishVoiceText } from "../src/lib/voiceFlow.js";
+import {
+  consolidateRepetition,
+  needsSmartPolish,
+  polishVoiceText,
+} from "../src/lib/voiceFlow.js";
 import { findBaezJob, joyCustomerKey, seedBaezProject } from "../src/lib/requisitionData.js";
 
 describe("voiceFlow — English (17)", () => {
@@ -110,6 +114,26 @@ describe("voiceFlow — Hebrew (5)", () => {
 
   it("handles mixed Hebrew punctuation commands", () => {
     expect(polishVoiceText("בוקר טוב נקודה איך הולך סימן שאלה")).toBe("בוקר טוב. איך הולך?");
+  });
+});
+
+describe("voiceFlow — smart polish helpers", () => {
+  it("flags repetitive ramble for smart polish", () => {
+    const ramble =
+      "first test wispr flow then compare apples to apples then compare apples to apples then organize so everything is clear";
+    expect(needsSmartPolish(ramble)).toBe(true);
+  });
+
+  it("skips smart polish for short clean phrases", () => {
+    expect(needsSmartPolish("check the panel")).toBe(false);
+  });
+
+  it("consolidates duplicate numbered lines offline", () => {
+    const dup = "1. Wire the panel\n2. Wire the panel\n3. Test circuits";
+    const out = consolidateRepetition(dup);
+    expect(out).toContain("1.");
+    expect(out).toContain("2.");
+    expect(out.split("\n").length).toBe(2);
   });
 });
 

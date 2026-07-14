@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import {
   createSilentRecognizer,
-  polishVoiceText,
+  polishVoiceTextSmart,
   speechRecognitionSupported,
   trackVoiceFocus,
   insertTextAtFocus,
@@ -99,7 +99,7 @@ export default function App() {
   );
 
   const finish = useCallback(
-    (e) => {
+    async (e) => {
       holdFocus(e);
       const text = recognizerRef.current?.stop() || "";
       recognizerRef.current = null;
@@ -108,8 +108,15 @@ export default function App() {
         setPhase("idle");
         return ping("Try again — nothing heard");
       }
-      setPreview(polishVoiceText(text));
-      setPhase("review");
+      setPhase("processing");
+      try {
+        const polished = await polishVoiceTextSmart(text);
+        setPreview(polished);
+        setPhase("review");
+      } catch {
+        setPhase("idle");
+        ping("Polish failed — try again");
+      }
     },
     [cleanupAudio]
   );
@@ -156,9 +163,9 @@ export default function App() {
 
   return (
     <div style={{ minHeight: "100dvh", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: 24, gap: 16 }}>
-      <h1 style={{ margin: 0, fontSize: 22, fontWeight: 800, color: "#34d399" }}>LE Voice Flow</h1>
+      <h1 style={{ margin: 0, fontSize: 22, fontWeight: 800, color: "#34d399" }}>LE Flow</h1>
       <p style={{ margin: 0, textAlign: "center", color: "#94a3b8", fontSize: 14, maxWidth: 320 }}>
-        Tap the bubble, talk naturally, tap ✓ when done. I polish it — then insert or copy.
+        Tap the bubble, talk naturally, tap ✓ when done. I rewrite it clean — then insert or copy.
       </p>
 
       {!supported ? <p style={{ color: "#f87171" }}>Voice needs Chrome on Android.</p> : null}
@@ -204,6 +211,8 @@ export default function App() {
           }}
           aria-label="Polished text"
         />
+      ) : phase === "processing" ? (
+        <p style={{ color: "#34d399", fontSize: 14 }}>Polishing…</p>
       ) : phase === "listening" ? (
         <div style={{ display: "flex", gap: 4, height: 40, alignItems: "flex-end" }}>
           {[0, 1, 2, 3, 4, 5].map((i) => (
@@ -242,7 +251,7 @@ export default function App() {
         aria-label="Voice bubble"
         onPointerDown={holdFocus}
         onClick={phase === "listening" ? finish : phase === "idle" ? start : undefined}
-        disabled={!supported || phase === "review"}
+        disabled={!supported || phase === "review" || phase === "processing"}
         style={{
           width: 88,
           height: 88,
