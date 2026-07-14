@@ -11,17 +11,18 @@ afterEach(() => {
 });
 
 describe("payInvoicePdf", () => {
-  it("requestInvoicePdfFetch enqueues via docs-fetch", async () => {
+  it("requestInvoicePdfFetch calls docs-fetch for local generation", async () => {
     const calls = [];
     vi.stubGlobal(
       "fetch",
       vi.fn(async (url, opts = {}) => {
         calls.push({ url, opts });
-        return { ok: true, json: async () => ({ ok: true, queued: true }) };
+        return { ok: true, json: async () => ({ ok: true, generated: true, local: true }) };
       })
     );
-    const ok = await requestInvoicePdfFetch("251839", "J-9");
-    expect(ok).toBe(true);
+    const result = await requestInvoicePdfFetch("251839", "J-9");
+    expect(result.ok).toBe(true);
+    expect(result.generated).toBe(true);
     expect(calls[0].url).toContain("docs-fetch");
     expect(JSON.parse(calls[0].opts.body)).toEqual({ invoiceNo: "251839", jobId: "J-9" });
   });

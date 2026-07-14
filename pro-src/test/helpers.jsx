@@ -154,6 +154,22 @@ export function mockServer(opts = {}) {
       if (path === "docs-fetch") {
         if (method === "POST" && body?.invoiceNo) {
           const no = String(body.invoiceNo);
+          const key = "inv-" + no;
+          const job =
+            state.jobs.find((j) => String(j.id) === String(body.jobId || "")) ||
+            state.jobs.find((j) => String(j.invoiceNo || "").trim() === no);
+          const canLocal =
+            job &&
+            job.invoiceNo &&
+            ((job.invoiceLines || []).length > 0 || parseFloat(String(job.amount || "").replace(/[$,]/g, "")) > 0);
+          if (canLocal) {
+            state.docs[key] = "%PDF-1.4 local-generated";
+            return {
+              ok: true,
+              status: 200,
+              json: async () => ({ ok: true, generated: true, local: true, key }),
+            };
+          }
           const idk = "pdf:pay:" + no + ":" + new Date().toISOString().slice(0, 10);
           const dup = state.commands.find((c) => c.idempotencyKey === idk);
           if (!dup) {
@@ -162,7 +178,7 @@ export function mockServer(opts = {}) {
               jobId: body.jobId || "",
               lane: "judgment",
               idempotencyKey: idk,
-              payload: { kind: "invoice", no, docKey: "inv-" + no },
+              payload: { kind: "invoice", no, docKey: key },
               status: "queued",
             });
           }

@@ -20,7 +20,7 @@ export async function invoicePdfAvailable(url) {
   }
 }
 
-/** Ask Netlify to enqueue fetch_pdf (Mac command_listener pulls from QBO). */
+/** Ask Netlify to generate locally or enqueue fetch_pdf (QBO fallback). */
 export async function requestInvoicePdfFetch(invoiceNo, jobId = "") {
   const res = await fetch(docsFetchUrl(), {
     method: "POST",
@@ -33,7 +33,7 @@ export async function requestInvoicePdfFetch(invoiceNo, jobId = "") {
   } catch {
     /* ignore */
   }
-  return !!(res.ok && data.ok);
+  return { ok: !!(res.ok && data.ok), ...data };
 }
 
 const defaultPollMs =
@@ -53,23 +53,27 @@ export async function waitForInvoicePdf(
 }
 
 /**
- * Full customer flow: check docs → enqueue QBO fetch if missing → poll → ready.
+ * Full customer flow: generate local QBO-clone PDF when possible, else QBO fetch.
  * onPhase: idle | checking | requesting | fetching | ready | timeout
  */
 export async function retrieveInvoicePdf({ url, invoiceNo, jobId = "", onPhase }) {
   onPhase?.("checking");
+  onPhase?.("requesting");
+  const result = await requestInvoicePdfFetch(invoiceNo, jobId);
+  if (!result.ok) {
+    onPhase?.("timeout");
+    return false;
+  }
   if (await invoicePdfAvailable(url)) {
     onPhase?.("ready");
     return true;
   }
-  onPhase?.("requesting");
-  const queued = await requestInvoicePdfFetch(invoiceNo, jobId);
-  if (!queued) {
-    onPhase?.("timeout");
-    return false;
+  if (result.queued) {
+    onPhase?.("fetching");
+    const ok = await waitForInvoicePdf(url);
+    onPhase?.(ok ? "ready" : "timeout");
+    return ok;
   }
-  onPhase?.("fetching");
-  const ok = await waitForInvoicePdf(url);
-  onPhase?.(ok ? "ready" : "timeout");
-  return ok;
+  onPhase?.("timeout");
+  return false;
 }

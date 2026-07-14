@@ -25,7 +25,7 @@ const openInvoiceSheet = async (user) => {
 };
 
 describe("invoice/estimate quick view — View PDF", () => {
-  it("opens the stored PDF in the native viewer immediately when docs already has it", async () => {
+  it("regenerates the local QBO-clone PDF even when a cached copy exists", async () => {
     const click = stubPdfOpen();
     const srv = mockServer({ docs: { "inv-251841": "%PDF-1.4 stored" } });
     const user = userEvent.setup();
@@ -33,9 +33,8 @@ describe("invoice/estimate quick view — View PDF", () => {
 
     await user.click(within(sheet).getByText("View PDF"));
     await waitFor(() => expect(click).toHaveBeenCalledTimes(1));
-    expect(document.querySelector("[data-fullscreen-pdf]")).toBeNull();
-    expect(screen.queryByText("⛶ Full screen")).toBeNull();
-    expect(srv.enqueued("fetch_pdf")).toHaveLength(0); // no command when already stored
+    await waitFor(() => expect(srv.calls.some((c) => c.path === "generate-doc")).toBe(true));
+    expect(srv.enqueued("fetch_pdf")).toHaveLength(0);
   });
 
   it("on a miss with invoice data: opens local preview and generates PDF on server", async () => {

@@ -22,7 +22,6 @@ import { useStore } from "../state/store.jsx";
 
 import { fmt$, parseAmount, todayStr } from "../lib/format.js";
 import { docStorePdfUrl, openPdfBlob, openPdfUrl } from "../lib/pdfOpen.js";
-import { buildInvoicePdfFromJob } from "../lib/invoicePdf.js";
 import { canGenerateLocalDoc } from "../lib/jobToQbDoc.js";
 import { chargeCardInApp, fetchSolaIfieldsConfig } from "../lib/solaCharge.js";
 import SolaCardForm, { tokenizeSolaCard } from "./SolaCardForm.jsx";
@@ -1248,18 +1247,14 @@ export function PdfViewer({ job, kind, no, compact, children }) {
 
   const view = async () => {
     setSt({ phase: "checking" });
-    const blob = await check();
-    if (blob) return openStored();
     if (canGenerateLocalDoc(job, kind)) {
       setSt({ phase: "fetching" });
       const gen = api.generateLocalDoc ? await api.generateLocalDoc(job, kind) : { ok: false };
       const stored = gen.ok ? await check() : null;
       if (stored) return openStored();
-      if (gen.ok) {
-        setSt({ phase: "idle" });
-        return;
-      }
     }
+    const blob = await check();
+    if (blob) return openStored();
     enqueue("fetch_pdf", job.id, { kind, no, docKey }, "judgment", "pdf:" + no + ":" + todayStr());
     deadline.current = Date.now() + 90_000;
     setSt({ phase: "fetching" });
@@ -1339,7 +1334,7 @@ function paylinkAmountRaw(raw) {
  *  Defaults to amount due; Levi can override before generating. Customer may
  *  also edit xamount on Sola PaymentSITE if that field is enabled in portal. */
 export function PaymentLinkSheet({ job, onClose }) {
-  const { enqueue, commands, refreshCommands, showToast } = useStore();
+  const { api, enqueue, commands, refreshCommands, showToast } = useStore();
   const inv = job.invoiceNo || "";
   const dueAmt = openBalance(job);
   const dueLabel = fmtAmountDue(job) || fmt$(dueAmt) || "";
@@ -1442,14 +1437,18 @@ export function PaymentLinkSheet({ job, onClose }) {
       "deterministic",
       key
     );
-    // Pre-fetch invoice PDF so customer "View invoice" works on the pay page.
-    enqueue(
-      "fetch_pdf",
-      job.id,
-      { kind: "invoice", no: inv, docKey: "inv-" + inv },
-      "judgment",
-      "pdf:" + inv + ":" + todayStr()
-    );
+    // Pre-generate invoice PDF locally so customer View invoice matches QBO clone.
+    if (canGenerateLocalDoc(job, "invoice") && api.generateLocalDoc) {
+      api.generateLocalDoc(job, "invoice").catch(() => {});
+    } else {
+      enqueue(
+        "fetch_pdf",
+        job.id,
+        { kind: "invoice", no: inv, docKey: "inv-" + inv },
+        "judgment",
+        "pdf:" + inv + ":" + todayStr()
+      );
+    }
     refreshCommands();
   };
 
