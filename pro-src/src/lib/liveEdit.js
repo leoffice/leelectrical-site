@@ -123,6 +123,9 @@ export function buildStyleRules(edits) {
       if (s.fontSize) decl.push(`font-size: ${s.fontSize}`);
       if (s.color) decl.push(`color: ${s.color}`);
       if (s.backgroundColor) decl.push(`background-color: ${s.backgroundColor}`);
+      if (s.width) decl.push(`width: ${s.width}`);
+      if (s.height) decl.push(`height: ${s.height}`);
+      if (s.minHeight) decl.push(`min-height: ${s.minHeight}`);
       if (!decl.length) return "";
       const escaped = key.replace(/\\/g, "\\\\").replace(/"/g, '\\"');
       return `[data-live-edit-key="${escaped}"] { ${decl.join("; ")} }`;

@@ -52,9 +52,11 @@ describe("liveEdit", () => {
 
   it("buildStyleRules emits CSS", () => {
     const css = buildStyleRules({
-      "a::b": { style: { fontSize: "18px", color: "#059669" } },
+      "a::b": { style: { fontSize: "18px", color: "#059669", width: "120px", height: "48px" } },
     });
     expect(css).toContain("font-size: 18px");
+    expect(css).toContain("width: 120px");
+    expect(css).toContain("height: 48px");
     expect(css).toContain('data-live-edit-key="a::b"');
   });
 

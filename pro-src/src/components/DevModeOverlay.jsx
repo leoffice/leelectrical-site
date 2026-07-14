@@ -1,13 +1,15 @@
-// Developer mode overlay — global long-press edit + drag-to-highlight areas.
+// Developer mode overlay — tap Open/Edit + drag-to-highlight + live style resize.
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import { useLocation } from "react-router-dom";
 import { useLiveEdit } from "./LiveEditProvider.jsx";
 import LiveEditActionMenu from "./LiveEditActionMenu.jsx";
+import LiveEditChooser from "./LiveEditChooser.jsx";
 import LiveEditStylePanel from "./LiveEditStylePanel.jsx";
+import StyleResizeHandles from "./StyleResizeHandles.jsx";
 import { autoEditKey, buildStyleRules } from "../lib/liveEdit.js";
 
 const IGNORE_SEL =
-  "input, textarea, select, [contenteditable], [data-sheet], [data-floating-panel], [data-dev-overlay-ignore], [data-testid='live-edit-bar'], [data-testid='suggest-changes'], [data-testid='live-edit-style']";
+  "input, textarea, select, [contenteditable], [data-sheet], [data-floating-panel], [data-dev-overlay-ignore], [data-testid='live-edit-bar'], [data-testid='suggest-changes'], [data-testid='live-edit-style'], [data-testid='live-edit-chooser'], [data-testid='style-resize-handles']";
 
 function findEditable(target) {
   let el = target;
@@ -35,12 +37,14 @@ export default function DevModeOverlay() {
     merged,
     menu,
     setMenu,
+    chooser,
+    setChooser,
     styleTarget,
     setStyleTarget,
     hideElement,
     relabelElement,
     openSuggest,
-    patchStyle,
+    previewStyle,
     addAreaHighlight,
     sessionHighlights,
     labelFor,
@@ -49,6 +53,8 @@ export default function DevModeOverlay() {
 
   const [drag, setDrag] = useState(null);
   const dragRef = useRef(null);
+  const bypassRef = useRef(false);
+  const tapRef = useRef(null);
   dragRef.current = drag;
 
   // Inject saved element styles.
@@ -85,52 +91,64 @@ export default function DevModeOverlay() {
     [isHidden, labelFor, loc.pathname, setMenu]
   );
 
-  // Live edit — long-press any button.
+  const openChooserFor = useCallback(
+    (el, e) => {
+      const key = autoEditKey(el, loc.pathname);
+      el.dataset.liveEditKey = key;
+      if (isHidden(key)) return;
+      const rect = el.getBoundingClientRect();
+      const label = labelFromEl(el, labelFor, key);
+      setChooser({
+        key,
+        label,
+        anchor: { x: rect.left, y: rect.bottom + 6 },
+        element: el,
+      });
+      e?.preventDefault?.();
+      e?.stopPropagation?.();
+    },
+    [isHidden, labelFor, loc.pathname, setChooser]
+  );
+
+  // Live edit — tap any button: Open or Edit.
   useEffect(() => {
     if (devMode !== "live") return undefined;
 
-    let timer = null;
-    let target = null;
-    let fired = false;
-
-    const clear = () => {
-      if (timer) clearTimeout(timer);
-      timer = null;
-    };
-
     const onDown = (e) => {
+      if (bypassRef.current) return;
       if (e.target.closest?.("[data-dev-overlay]")) return;
       const el = findEditable(e.target);
       if (!el) return;
-      target = el;
-      fired = false;
-      clear();
-      timer = setTimeout(() => {
-        fired = true;
-        openMenuFor(el, e);
-      }, 700);
+      tapRef.current = { el, x0: e.clientX, y0: e.clientY };
     };
 
     const onUp = (e) => {
-      clear();
-      if (fired) {
-        e.preventDefault();
-        e.stopPropagation();
+      if (bypassRef.current) {
+        bypassRef.current = false;
+        tapRef.current = null;
+        return;
       }
-      target = null;
-      fired = false;
+      const tap = tapRef.current;
+      tapRef.current = null;
+      if (!tap?.el) return;
+      const dx = Math.abs(e.clientX - tap.x0);
+      const dy = Math.abs(e.clientY - tap.y0);
+      if (dx > 12 || dy > 12) return;
+      e.preventDefault();
+      e.stopPropagation();
+      openChooserFor(tap.el, e);
     };
 
     document.addEventListener("pointerdown", onDown, true);
     document.addEventListener("pointerup", onUp, true);
     document.addEventListener("pointercancel", onUp, true);
     return () => {
-      clear();
+      tapRef.current = null;
       document.removeEventListener("pointerdown", onDown, true);
       document.removeEventListener("pointerup", onUp, true);
       document.removeEventListener("pointercancel", onUp, true);
     };
-  }, [devMode, openMenuFor]);
+  }, [devMode, openChooserFor]);
 
   // Highlight area — drag rectangle.
   const onHighlightDown = (e) => {
@@ -166,12 +184,13 @@ export default function DevModeOverlay() {
   if (!devMode) return null;
 
   const pageAreas = sessionHighlights.filter((h) => h.rect && h.scope === loc.pathname);
+  const activeStyle = styleTarget ? merged[styleTarget.key]?.style || {} : {};
 
   return (
     <div data-dev-overlay className="fixed inset-0 z-[75] pointer-events-none" aria-hidden={devMode === "live"}>
       {devMode === "live" ? (
         <div className="fixed top-0 inset-x-0 z-[76] bg-purple-900/90 text-white text-center text-xs font-semibold py-2 px-4 pointer-events-none">
-          Developer mode — press &amp; hold any button to edit, hide, or suggest
+          Developer mode — tap any button: Open or Edit
         </div>
       ) : null}
 
@@ -214,13 +233,35 @@ export default function DevModeOverlay() {
         />
       ))}
 
+      {chooser ? (
+        <div className="pointer-events-auto">
+          <LiveEditChooser
+            anchor={chooser.anchor}
+            label={chooser.label}
+            onOpen={() => {
+              const el = chooser.element;
+              setChooser(null);
+              if (!el) return;
+              bypassRef.current = true;
+              el.click();
+            }}
+            onEdit={() => {
+              const el = chooser.element;
+              setChooser(null);
+              if (el) openMenuFor(el);
+            }}
+            onClose={() => setChooser(null)}
+          />
+        </div>
+      ) : null}
+
       {menu ? (
         <div className="pointer-events-auto">
           <LiveEditActionMenu
             anchor={menu.anchor}
             label={menu.label}
             onEdit={() => relabelElement(menu.key, menu.label)}
-            onStyle={() => setStyleTarget({ key: menu.key, label: menu.label })}
+            onStyle={() => setStyleTarget({ key: menu.key, label: menu.label, element: menu.element })}
             onDelete={() => {
               if (window.confirm(`Hide "${menu.label}"? You can revert from the bar below.`)) {
                 hideElement(menu.key);
@@ -232,10 +273,20 @@ export default function DevModeOverlay() {
         </div>
       ) : null}
 
+      {styleTarget?.element ? (
+        <StyleResizeHandles
+          element={styleTarget.element}
+          style={activeStyle}
+          onResize={(dims) => {
+            previewStyle(styleTarget.key, { ...activeStyle, ...dims });
+          }}
+        />
+      ) : null}
+
       <LiveEditStylePanel
         target={styleTarget}
-        currentStyle={styleTarget ? merged[styleTarget.key]?.style : {}}
-        onSave={(style) => patchStyle(styleTarget.key, style)}
+        currentStyle={activeStyle}
+        onChange={(style) => previewStyle(styleTarget?.key, style)}
         onClose={() => setStyleTarget(null)}
       />
     </div>

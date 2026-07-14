@@ -29,6 +29,7 @@ export function LiveEditProvider({ children }) {
   const [devMode, setDevMode] = useState(null);
   const [highlightMode, setHighlightMode] = useState(false);
   const [menu, setMenu] = useState(null);
+  const [chooser, setChooser] = useState(null);
   const [suggestTarget, setSuggestTarget] = useState(null);
   const [styleTarget, setStyleTarget] = useState(null);
 
@@ -48,7 +49,7 @@ export function LiveEditProvider({ children }) {
     (mode) => {
       setDevMode(mode);
       if (mode === "highlight") setHighlightMode(true);
-      showToast(mode === "live" ? "Live edit on — press & hold any button" : "Drag to highlight an area");
+      showToast(mode === "live" ? "Live edit on — tap any button: Open or Edit" : "Drag to highlight an area");
     },
     [showToast]
   );
@@ -57,6 +58,7 @@ export function LiveEditProvider({ children }) {
     setDevMode(null);
     setHighlightMode(false);
     setMenu(null);
+    setChooser(null);
     setSuggestTarget(null);
     setStyleTarget(null);
     showToast("Developer mode off");
@@ -84,15 +86,23 @@ export function LiveEditProvider({ children }) {
     [patchPending, showToast]
   );
 
-  const patchStyle = useCallback(
+  const previewStyle = useCallback(
     (key, style) => {
       if (!key) return;
       patchPending(key, { style: style || {} });
+    },
+    [patchPending]
+  );
+
+  const patchStyle = useCallback(
+    (key, style) => {
+      if (!key) return;
+      previewStyle(key, style);
       setStyleTarget(null);
       setMenu(null);
       showToast("Style updated — Revert or Keep at the bottom");
     },
-    [patchPending, showToast]
+    [previewStyle, showToast]
   );
 
   const openSuggest = useCallback((target) => {
@@ -139,6 +149,7 @@ export function LiveEditProvider({ children }) {
     setSessionHighlights([]);
     setHighlightMode(false);
     setMenu(null);
+    setChooser(null);
     setSuggestTarget(null);
     setStyleTarget(null);
     showToast("Changes reverted");
@@ -170,6 +181,7 @@ export function LiveEditProvider({ children }) {
     setHighlightMode(false);
     setDevMode(null);
     setMenu(null);
+    setChooser(null);
     setSuggestTarget(null);
     setStyleTarget(null);
     showToast("Changes kept — synced to build board");
@@ -186,6 +198,8 @@ export function LiveEditProvider({ children }) {
       setHighlightMode,
       menu,
       setMenu,
+      chooser,
+      setChooser,
       suggestTarget,
       setSuggestTarget,
       styleTarget,
@@ -194,6 +208,7 @@ export function LiveEditProvider({ children }) {
       hideElement,
       relabelElement,
       patchStyle,
+      previewStyle,
       openSuggest,
       submitSuggestion,
       addHighlight,
@@ -212,10 +227,12 @@ export function LiveEditProvider({ children }) {
       hideElement,
       highlightMode,
       keepChanges,
+      chooser,
       menu,
       merged,
       openSuggest,
       patchStyle,
+      previewStyle,
       relabelElement,
       revertPending,
       sessionHighlights,

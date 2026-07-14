@@ -49,6 +49,25 @@ describe("Developer mode", () => {
     expect(task.desc).toContain("Job detail");
   });
 
+  it("live edit tap shows Open or Edit chooser", async () => {
+    mockServer();
+    const user = userEvent.setup();
+    renderApp("#/");
+    await screen.findByText("Peretz Chein");
+
+    await user.click(screen.getByTestId("fab-add"));
+    await user.click(screen.getByTestId("dev-mode-entry"));
+    await user.click(screen.getByTestId("dev-mode-live-edit"));
+
+    const target = screen.getAllByTestId("sync-chip")[0];
+    target.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true, clientX: 10, clientY: 10 }));
+    target.dispatchEvent(new PointerEvent("pointerup", { bubbles: true, clientX: 10, clientY: 10 }));
+
+    expect(await screen.findByTestId("live-edit-chooser")).toBeInTheDocument();
+    expect(screen.getByTestId("live-edit-open")).toBeInTheDocument();
+    expect(screen.getByTestId("live-edit-edit-choice")).toBeInTheDocument();
+  });
+
   it("live edit mode shows overlay bar", async () => {
     mockServer();
     const user = userEvent.setup();

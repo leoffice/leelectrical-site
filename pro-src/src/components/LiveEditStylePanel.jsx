@@ -1,5 +1,5 @@
-// Adjust font size and colors for a live-edited element.
-import React, { useState } from "react";
+// Adjust font size, colors, and size — live preview as you change.
+import React, { useEffect, useMemo, useState } from "react";
 import FloatingPanel from "./FloatingPanel.jsx";
 
 const SIZES = ["12px", "14px", "16px", "18px", "20px", "24px"];
@@ -12,25 +12,44 @@ const COLORS = [
   { label: "White", value: "#ffffff" },
 ];
 
-export default function LiveEditStylePanel({ target, currentStyle = {}, onSave, onClose }) {
+function buildStyle(fontSize, color, backgroundColor, extra = {}) {
+  const style = { ...extra };
+  if (fontSize) style.fontSize = fontSize;
+  if (color) style.color = color;
+  if (backgroundColor) style.backgroundColor = backgroundColor;
+  return style;
+}
+
+export default function LiveEditStylePanel({ target, currentStyle = {}, onChange, onClose }) {
   const [fontSize, setFontSize] = useState(currentStyle.fontSize || "");
   const [color, setColor] = useState(currentStyle.color || "");
   const [backgroundColor, setBackgroundColor] = useState(currentStyle.backgroundColor || "");
 
-  if (!target) return null;
+  useEffect(() => {
+    setFontSize(currentStyle.fontSize || "");
+    setColor(currentStyle.color || "");
+    setBackgroundColor(currentStyle.backgroundColor || "");
+  }, [target?.key, currentStyle.fontSize, currentStyle.color, currentStyle.backgroundColor]);
 
-  const save = () => {
-    const style = {};
-    if (fontSize) style.fontSize = fontSize;
-    if (color) style.color = color;
-    if (backgroundColor) style.backgroundColor = backgroundColor;
-    onSave(style);
+  const sizeStyle = useMemo(
+    () => ({
+      width: currentStyle.width,
+      height: currentStyle.height,
+      minHeight: currentStyle.minHeight,
+    }),
+    [currentStyle.height, currentStyle.minHeight, currentStyle.width]
+  );
+
+  const emit = (nextFont, nextColor, nextBg, extra = sizeStyle) => {
+    onChange?.(buildStyle(nextFont, nextColor, nextBg, extra));
   };
+
+  if (!target) return null;
 
   return (
     <FloatingPanel title="Adjust style" onClose={onClose} testId="live-edit-style">
       <p className="text-xs text-slate-500 mb-3">
-        Styling <b className="text-slate-700">{target.label}</b>
+        Styling <b className="text-slate-700">{target.label}</b> — changes show live. Drag corners to resize.
       </p>
       <div className="mb-3">
         <div className="text-xs font-bold text-slate-500 mb-1.5">Text size</div>
@@ -40,7 +59,11 @@ export default function LiveEditStylePanel({ target, currentStyle = {}, onSave, 
               key={s}
               type="button"
               className={`btn text-xs !py-1.5 !px-2.5 ${fontSize === s ? "bg-brand text-white" : "bg-slate-100 text-slate-700"}`}
-              onClick={() => setFontSize(fontSize === s ? "" : s)}
+              onClick={() => {
+                const next = fontSize === s ? "" : s;
+                setFontSize(next);
+                emit(next, color, backgroundColor);
+              }}
               data-testid={`style-size-${s}`}
             >
               {s}
@@ -57,7 +80,11 @@ export default function LiveEditStylePanel({ target, currentStyle = {}, onSave, 
               type="button"
               className={`btn text-xs !py-1.5 !px-2.5 ${color === c.value ? "ring-2 ring-brand" : ""}`}
               style={c.value ? { backgroundColor: c.value, color: c.value === "#ffffff" ? "#333" : "#fff" } : undefined}
-              onClick={() => setColor(color === c.value ? "" : c.value)}
+              onClick={() => {
+                const next = color === c.value ? "" : c.value;
+                setColor(next);
+                emit(fontSize, next, backgroundColor);
+              }}
             >
               {c.label}
             </button>
@@ -73,15 +100,19 @@ export default function LiveEditStylePanel({ target, currentStyle = {}, onSave, 
               type="button"
               className={`btn text-xs !py-1.5 !px-2.5 ${backgroundColor === c.value ? "ring-2 ring-brand" : ""}`}
               style={c.value ? { backgroundColor: c.value, color: "#fff" } : undefined}
-              onClick={() => setBackgroundColor(backgroundColor === c.value ? "" : c.value)}
+              onClick={() => {
+                const next = backgroundColor === c.value ? "" : c.value;
+                setBackgroundColor(next);
+                emit(fontSize, color, next);
+              }}
             >
               {c.label}
             </button>
           ))}
         </div>
       </div>
-      <button type="button" className="btn-brand w-full" onClick={save} data-testid="live-edit-style-save">
-        Apply style
+      <button type="button" className="btn-brand w-full" onClick={onClose} data-testid="live-edit-style-done">
+        Done
       </button>
     </FloatingPanel>
   );

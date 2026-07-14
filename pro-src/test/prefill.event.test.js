@@ -35,6 +35,20 @@ describe("prefillFromEvent", () => {
     expect(p.billingAddress).toBe("50 Billing Blvd, Newark, NJ 07102");
   });
 
+  it("parses apartment from 'says B7' in calendar description", () => {
+    const p = prefillFromEvent({
+      id: "ev-b7",
+      summary: "Service call — Kingston",
+      start: "2026-07-14T10:00",
+      location: "481 Kingston Avenue, Crown Street",
+      description:
+        "481 Kingston Avenue, Crown Street. There is a service called thing. It says B7.",
+    });
+    expect(p.apartment).toBe("B7");
+    expect(p.serviceAddress).toBe("481 Kingston Avenue, Crown Street");
+    expect(p.description).not.toContain("B7");
+  });
+
   it("uses location as service when description address matches", () => {
     const p = prefillFromEvent({
       id: "ev-same",
