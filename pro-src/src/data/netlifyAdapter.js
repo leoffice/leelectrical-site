@@ -200,6 +200,17 @@ export function createNetlifyAdapter() {
       return this.saveJob("_sasTickets", { [callId]: patch || { handled: true } });
     },
 
+    /** Big-project requisitions — ov._projects (reserved key). */
+    async getProjects() {
+      const state = await http(`state?${cb()}`);
+      const ov = (state && state.ov) || {};
+      return isPlainObject(ov._projects) ? ov._projects : { list: [] };
+    },
+
+    async saveProjects(projects) {
+      return this.saveJob("_projects", projects || { list: [] });
+    },
+
     /** Agent invoice-edit learning loop — ov._invoiceEditLearning (reserved key). */
     async appendInvoiceEditFeedback(entry) {
       const state = await freshState();
