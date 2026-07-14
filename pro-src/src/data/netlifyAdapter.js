@@ -136,6 +136,22 @@ export function createNetlifyAdapter() {
       return http("command", { op: "update", id, patch, note });
     },
 
+    /** Generate invoice/estimate PDF locally (le-invoice-suite) and store in docs. */
+    async generateLocalDoc(job, kind = "invoice") {
+      const res = await fetch(`${base()}/generate-doc`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ kind, job }),
+      });
+      let data = {};
+      try {
+        data = await res.json();
+      } catch {
+        /* ignore */
+      }
+      return { ok: !!(res.ok && data.ok), ...data };
+    },
+
     /** Fetch a stored PDF from the docs fn. Returns a Blob, or null while the
      *  document isn't there yet (404 / JSON error body). */
     async getDoc(key) {
@@ -154,6 +170,21 @@ export function createNetlifyAdapter() {
       return d.calls || [];
     },
 
+    /** Pending email insights (Energy Services / Con Edison). */
+    async listEmailInsights({ pendingOnly = false } = {}) {
+      const qs = pendingOnly ? "pending=1&" + cb() : cb();
+      const d = await http(`email-insights?${qs}`);
+      return d.insights || [];
+    },
+
+    async patchEmailInsight(id, patch) {
+      return http("email-insights", { op: "patch", id, patch: patch || {} });
+    },
+
+    async ingestEmailInsight(email, jobs) {
+      return http("email-insights", { op: "ingest_raw", email: email || {}, jobs: jobs || [] });
+    },
+
     /** Handled-state map for SAS tickets — lives in the ov overlay under the
      *  RESERVED key ov._sasTickets = { [callId]: { handled, jobId?, ts } }.
      *  mergeJobs() skips "_"-prefixed overlay keys, so this never renders
@@ -167,6 +198,30 @@ export function createNetlifyAdapter() {
     /** Mark one ticket handled/dismissed (deep-merged, same path as saveJob). */
     async markSasTicket(callId, patch) {
       return this.saveJob("_sasTickets", { [callId]: patch || { handled: true } });
+    },
+
+    /** Big-project requisitions — ov._projects (reserved key). */
+    async getProjects() {
+      const state = await http(`state?${cb()}`);
+      const ov = (state && state.ov) || {};
+      return isPlainObject(ov._projects) ? ov._projects : { list: [] };
+    },
+
+    async saveProjects(projects) {
+      return this.saveJob("_projects", projects || { list: [] });
+    },
+
+    /** "Separate customers" / parent-sub decisions — ov._nomerge (reserved key). */
+    async getNomergePairs() {
+      const state = await http(`state?${cb()}`);
+      const ov = (state && state.ov) || {};
+      const v = ov._nomerge;
+      return Array.isArray(v) ? v.filter(Boolean) : [];
+    },
+
+    async saveNomergePairs(pairs) {
+      const list = Array.isArray(pairs) ? [...new Set(pairs.filter(Boolean))] : [];
+      return this.saveJob("_nomerge", list);
     },
 
     /** Agent invoice-edit learning loop — ov._invoiceEditLearning (reserved key). */
@@ -305,6 +360,15 @@ export function createNetlifyAdapter() {
       const body = { message, source };
       if (context && typeof context === "object") body.context = context;
       return http("iterate", body);
+    },
+
+    /** Employee time tracking — clock in/out, job time, live board. */
+    async timeTrackGet() {
+      return http(`timetrack?${cb()}`);
+    },
+
+    async timeTrackOp(body) {
+      return http("timetrack", body);
     },
   };
 }

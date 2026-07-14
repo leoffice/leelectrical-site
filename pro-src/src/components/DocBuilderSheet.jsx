@@ -1,17 +1,17 @@
 // Build a QuickBooks estimate or invoice — line items, service address, attachments.
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import Sheet, { Fld } from "./Sheet.jsx";
+import DescriptionField from "./DescriptionField.jsx";
 import CustomerSearch from "./CustomerSearch.jsx";
 import { useStore } from "../state/store.jsx";
 import { DEFAULT_QBO_ITEMS, filterQboItems } from "../data/qboItems.js";
-import { serviceAddressHint, serviceAddressLabel } from "../lib/customerSync.js";
+import ServiceAddressField from "./ServiceAddressField.jsx";
 import { emptyLine, initialLines, lineAmount, linesTotal } from "../lib/qboDoc.js";
 import { planDocSaveLocal, planDocSaveSync } from "../lib/docSync.js";
 import { enqueueCustomerQboSync } from "../lib/customerQboEnqueue.js";
 import { stashPendingDocSync } from "../lib/docSyncChain.js";
 import { fmt$, parseAmount } from "../lib/format.js";
-import { customerKeyForName, jobsForCustomerKey } from "../lib/customers.js";
-import { serviceAddressesForJobs } from "../lib/customerHierarchy.js";
+
 import { enrichAndPatchCustomer } from "./NewJobFlow.jsx";
 import {
   applyDueAmountToLines,
@@ -23,6 +23,7 @@ import {
   progressPctFromLines,
 } from "../lib/progressBilling.js";
 import { RECUR_INTERVALS, defaultRecurringState } from "../lib/recurringBilling.js";
+import { resumeFollowUpPrompts } from "../lib/calendarNavigate.js";
 
 function ProgressBillingPanel({ job, lines, contractAmount, adjustMode, progressPct, amountDue, onContractChange, onModeChange, onPctChange, onDueChange }) {
   const contract = parseAmount(contractAmount) || contractTotalForJob(job) || linesTotal(job.estimateLines) || 0;
@@ -169,15 +170,12 @@ function LineRow({ line, index, items, onChange, onRemove, canRemove, progressMo
           )}
         </div>
       </Fld>
-      <Fld label="Description">
-        <input
-          className="input"
-          value={line.description || ""}
-          onChange={(e) => onChange(index, { description: e.target.value })}
-          placeholder="Work performed, scope notes…"
-          aria-label={"Description line " + (index + 1)}
-        />
-      </Fld>
+      <DescriptionField
+        value={line.description || ""}
+        onChange={(v) => onChange(index, { description: v })}
+        testId={"doc-line-desc-" + (index + 1)}
+        ariaLabel={"Description line " + (index + 1)}
+      />
       <div className={"flex gap-2 " + (progressMode ? "flex-wrap" : "")}>
         <Fld label={progressMode ? "Rate (full)" : "Rate"}>
           <input
@@ -217,15 +215,6 @@ function LineRow({ line, index, items, onChange, onRemove, canRemove, progressMo
 }
 
 function CustomerHeaderPanel({ job, allJobs, api, onPatch }) {
-  const [addrPick, setAddrPick] = useState("");
-  const addressChoices = useMemo(() => {
-    const ck =
-      (job.qboCustomerId && "q:" + job.qboCustomerId) ||
-      customerKeyForName(job.businessName || job.customer);
-    if (!ck) return [];
-    return serviceAddressesForJobs(jobsForCustomerKey(allJobs, ck));
-  }, [allJobs, job.businessName, job.customer, job.qboCustomerId]);
-
   const applyCustomer = async (c) => {
     if (!c) return;
     if (c._newCustomer) {
@@ -280,31 +269,6 @@ function CustomerHeaderPanel({ job, allJobs, api, onPatch }) {
       <Fld label="Job title / scope" hint="What this invoice is for">
         <input className="input" value={job.title || ""} onChange={set("title")} aria-label="Job title" />
       </Fld>
-      {addressChoices.length > 1 ? (
-        <Fld label="Service address" hint="Pick an existing site for this customer or type below">
-          <select
-            className="input mb-2"
-            value={addrPick}
-            onChange={(e) => {
-              const v = e.target.value;
-              setAddrPick(v);
-              if (v === "new") return;
-              const hit = addressChoices.find((a) => a.key === v);
-              if (hit) onPatch({ serviceAddress: hit.label, address: hit.label });
-            }}
-            aria-label="Service address picker"
-            data-testid="doc-address-picker"
-          >
-            <option value="">Choose address…</option>
-            {addressChoices.map((a) => (
-              <option key={a.key} value={a.key}>
-                {a.label}
-              </option>
-            ))}
-            <option value="new">＋ New address</option>
-          </select>
-        </Fld>
-      ) : null}
     </div>
   );
 }
@@ -522,7 +486,8 @@ export default function DocBuilderSheet({
         jobPatch.attachments = (job.attachments || []).concat(attachments);
       }
       await patchAndSave(jobId, jobPatch);
-      showToast("Saved on this job — use Save & sync when ready for QuickBooks");
+      showToast("Saved on this job — tap the Estimate or Invoice tab to review, then sync to QuickBooks when ready");
+      resumeFollowUpPrompts();
       onDone && onDone(activeJob);
       onClose();
     } finally {
@@ -619,6 +584,7 @@ export default function DocBuilderSheet({
             : "Sending " + (kind === "estimate" ? "estimate" : "invoice") + " to QuickBooks" + recurNote + "…"
         );
       }
+      resumeFollowUpPrompts();
       onDone && onDone(activeJob);
       onClose();
     } finally {
@@ -636,15 +602,17 @@ export default function DocBuilderSheet({
         </p>
       )}
 
-      <Fld label={serviceAddressLabel(job)} hint={serviceAddressHint(job)}>
-        <input
-          className="input"
-          value={serviceAddress}
-          onChange={(e) => setServiceAddress(e.target.value)}
-          aria-label="Service address"
-          data-testid="doc-service-address"
-        />
-      </Fld>
+      <ServiceAddressField
+        job={job}
+        jobs={boardJobs}
+        events={[]}
+        value={serviceAddress}
+        onChange={setServiceAddress}
+        onApartmentChange={setApartment}
+        suggestAddresses={api.suggestAddresses?.bind(api)}
+        testId="doc-service-address"
+        partialOk={false}
+      />
       <Fld label="Apartment / unit" hint="Optional — appended to ShipAddr in QuickBooks">
         <input className="input" value={apartment} onChange={(e) => setApartment(e.target.value)} aria-label="Apartment" />
       </Fld>
@@ -787,11 +755,11 @@ export default function DocBuilderSheet({
         </div>
       ) : null}
 
-      <button type="button" className="btn-ghost w-full mb-2" disabled={saving} onClick={submitLocal} data-testid="doc-save-close">
-        Save &amp; close
+      <button type="button" className="btn-brand w-full mb-2" disabled={saving} onClick={submitLocal} data-testid="doc-save-close">
+        Save on job
       </button>
-      <button type="button" className="btn-brand w-full mb-2" disabled={saving} onClick={() => submitSync(false)} data-testid="doc-save-sync">
-        Save &amp; sync
+      <button type="button" className="btn bg-brand-soft text-brand w-full mb-2" disabled={saving} onClick={() => submitSync(false)} data-testid="doc-save-sync">
+        Save &amp; sync to QuickBooks
       </button>
       <button
         type="button"

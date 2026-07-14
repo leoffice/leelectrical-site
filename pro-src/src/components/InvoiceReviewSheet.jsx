@@ -1,6 +1,7 @@
 // Review agent-applied invoice edits — diff highlight + approve gate.
 import React, { useCallback, useMemo, useState } from "react";
 import Sheet, { Fld } from "./Sheet.jsx";
+import DescriptionField from "./DescriptionField.jsx";
 import { useStore } from "../state/store.jsx";
 import { fmt$ } from "../lib/format.js";
 import { approveAgentDraftPatch, invoiceLineDiff } from "../lib/invoiceAgentDraft.js";
@@ -31,14 +32,12 @@ function DiffLineRow({ line, index, marks, onChange, onRemove, canRemove }) {
           aria-label={"Product service line " + (index + 1)}
         />
       </Fld>
-      <Fld label="Description">
-        <input
-          className={`input ${fieldClass("description")}`}
-          value={line.description || ""}
-          onChange={(e) => onChange(index, { description: e.target.value })}
-          aria-label={"Description line " + (index + 1)}
-        />
-      </Fld>
+      <DescriptionField
+        value={line.description || ""}
+        onChange={(v) => onChange(index, { description: v })}
+        testId={"review-line-desc-" + (index + 1)}
+        ariaLabel={"Description line " + (index + 1)}
+      />
       <div className="flex gap-2">
         <Fld label="Qty">
           <input

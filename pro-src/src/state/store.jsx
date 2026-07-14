@@ -16,13 +16,15 @@ import api from "../data/adapter.js";
 import { applyOverlay, deepMerge, isPlainObject } from "../data/merge.js";
 import { STAGES } from "../lib/stages.js";
 import { calendarServiceLocation } from "../lib/customerSync.js";
-import { fmt$, parseAmount, todayStr } from "../lib/format.js";
+import { evStart, fmt$, parseAmount, todayStr } from "../lib/format.js";
 import { normalizePayments } from "../lib/payments.js";
 import { unhandledCount } from "../lib/sas.js";
 import { customerSyncPayload, qboCustomerToJobPatch } from "../lib/customerSync.js";
 import { customerQboJobPatch } from "../lib/customerQboLink.js";
 import { flushPendingDocSync, hasPendingDocSync, takePendingDocSync } from "../lib/docSyncChain.js";
 import { runDailyDedupeScan } from "../lib/dedupeScan.js";
+import { touchCustomerJob } from "../lib/customerRecency.js";
+import { hydrateDismissed } from "../lib/customers.js";
 import {
   calendarUpsertLinksJob,
   isCalendarUnlinkCommand,
@@ -65,6 +67,7 @@ export function StoreProvider({ children }) {
   const [devTasks, setDevTasks] = useState([]);
   const [sasCalls, setSasCalls] = useState([]); // SAS inbound lead tickets
   const [sasTickets, setSasTickets] = useState({}); // ov._sasTickets handled-state map
+  const [emailInsights, setEmailInsights] = useState([]); // Energy Services email insights
   const [pending, setPending] = useState(loadDraft); // jobId -> staged patch
   const [syncedAt, setSyncedAt] = useState(0);
   const [busy, setBusy] = useState(false); // sync chip pulse
@@ -152,15 +155,24 @@ export function StoreProvider({ children }) {
   const appliedCalUpserts = useRef(new Set());
   const appliedFetchPayments = useRef(new Set());
 
+  const mergePendingEvents = useCallback((prev, pulled) => {
+    const pending = (prev || []).filter((e) => isPendingCalEventId(e.id));
+    const merged = [...(pulled || [])];
+    for (const p of pending) {
+      if (!merged.some((e) => String(e.id) === String(p.id))) merged.push(p);
+    }
+    return merged;
+  }, []);
+
   const refreshEvents = useCallback(async ({ pull = false, awaitPull = true } = {}) => {
     try {
       const meta = await api.listEventsMeta();
-      setEvents(meta.events || []);
+      setEvents((prev) => mergePendingEvents(prev, meta.events || []));
       setEventsSyncedAt(meta.syncedAt || 0);
       if (pull && api.pullCalendar) {
         const run = async () => {
           const evs = await api.pullCalendar();
-          setEvents(evs);
+          setEvents((prev) => mergePendingEvents(prev, evs));
           const m = await api.listEventsMeta();
           setEventsSyncedAt(m.syncedAt || 0);
         };
@@ -168,7 +180,7 @@ export function StoreProvider({ children }) {
         else run().catch(() => {});
       }
     } catch {}
-  }, []);
+  }, [mergePendingEvents]);
 
   const pullCalendarNow = useCallback(async () => {
     await refreshEvents({ pull: true, awaitPull: true });
@@ -206,6 +218,35 @@ export function StoreProvider({ children }) {
     } catch {}
   }, []);
 
+  const refreshEmailInsights = useCallback(async () => {
+    if (!api.listEmailInsights) return;
+    try {
+      setEmailInsights(await api.listEmailInsights());
+    } catch {}
+  }, []);
+
+  const patchEmailInsight = useCallback(
+    async (id, patch) => {
+      if (!api.patchEmailInsight) return;
+      try {
+        await api.patchEmailInsight(id, patch);
+        setEmailInsights((prev) =>
+          (prev || []).map((x) => (String(x.id) === String(id) ? { ...x, ...patch } : x))
+        );
+      } catch (e) {
+        throw e;
+      }
+    },
+    []
+  );
+
+  const refreshNomerge = useCallback(async () => {
+    try {
+      const pairs = await api.getNomergePairs?.();
+      if (pairs?.length) hydrateDismissed(pairs);
+    } catch {}
+  }, []);
+
   const refresh = useCallback(
     async (quiet, opts = {}) => {
       const pullCal = opts.pullCalendar === true;
@@ -216,9 +257,11 @@ export function StoreProvider({ children }) {
         refreshCommands(),
         refreshDev(),
         refreshSas(),
+        refreshEmailInsights(),
+        refreshNomerge(),
       ]);
     },
-    [refreshJobs, refreshEvents, refreshCommands, refreshDev, refreshSas]
+    [refreshJobs, refreshEvents, refreshCommands, refreshDev, refreshSas, refreshEmailInsights, refreshNomerge]
   );
 
   useEffect(() => {
@@ -230,6 +273,7 @@ export function StoreProvider({ children }) {
     const t4 = setInterval(() => refreshEvents({ pull: false }), 30_000);
     const t5 = setInterval(refreshSas, 60_000);
     const t6 = setInterval(() => refreshEvents({ pull: true, awaitPull: false }), 180_000);
+    const t7 = setInterval(refreshEmailInsights, 60_000);
     const vis = () => {
       if (!document.hidden) {
         refreshJobs(true);
@@ -237,14 +281,15 @@ export function StoreProvider({ children }) {
         refreshEvents({ pull: true, awaitPull: false });
         refreshCommands();
         refreshSas();
+        refreshEmailInsights();
       }
     };
     document.addEventListener("visibilitychange", vis);
     return () => {
-      [t1, t2, t3, t4, t5, t6].forEach(clearInterval);
+      [t1, t2, t3, t4, t5, t6, t7].forEach(clearInterval);
       document.removeEventListener("visibilitychange", vis);
     };
-  }, [refresh, refreshJobs, refreshCommands, refreshDev, refreshEvents, refreshSas]);
+  }, [refresh, refreshJobs, refreshCommands, refreshDev, refreshEvents, refreshSas, refreshEmailInsights]);
 
   /** Once-daily customer + invoice dedupe scan after jobs load. */
   useEffect(() => {
@@ -378,11 +423,20 @@ export function StoreProvider({ children }) {
         }
       }
 
+      const touched = [];
       for (const [id, patch] of entries) {
         const r = await api.saveJob(id, patch);
         if (r && r.ts) lastSavedTs.current = Math.max(lastSavedTs.current, r.ts);
-        setJobs((js) => js.map((j) => (String(j.id) === String(id) ? applyOverlay(j, patch) : j)));
+        setJobs((js) =>
+          js.map((j) => {
+            if (String(j.id) !== String(id)) return j;
+            const merged = applyOverlay(j, patch);
+            touched.push(merged);
+            return merged;
+          })
+        );
       }
+      touched.forEach((j) => touchCustomerJob(j));
       setPending({});
       showToast("Saved ✓ synced to all devices");
 
@@ -436,7 +490,15 @@ export function StoreProvider({ children }) {
   /** Patch + save immediately (archive / restore / delete / combine). */
   const patchAndSave = useCallback(
     async (id, patch) => {
-      setJobs((js) => js.map((j) => (String(j.id) === String(id) ? applyOverlay(j, patch) : j)));
+      let merged = null;
+      setJobs((js) =>
+        js.map((j) => {
+          if (String(j.id) !== String(id)) return j;
+          merged = applyOverlay(j, patch);
+          return merged;
+        })
+      );
+      if (merged) touchCustomerJob(merged);
       try {
         const r = await api.saveJob(id, patch);
         if (r && r.ts) lastSavedTs.current = Math.max(lastSavedTs.current, r.ts);
@@ -447,6 +509,27 @@ export function StoreProvider({ children }) {
     [showToast]
   );
 
+  const promotePendingCalendarEvent = useCallback((evs, eventId, pl, match) => {
+    const pending = evs.find(
+      (e) =>
+        isPendingCalEventId(e.id) &&
+        (match(e) ||
+          (e.summary === pl.summary && String(evStart(e)).slice(0, 16) === String(pl.start || "").slice(0, 16)))
+    );
+    const rest = evs.filter((e) => !(pending && isPendingCalEventId(e.id) && e.id === pending.id));
+    if (rest.some((e) => String(e.id) === String(eventId))) return rest;
+    const next = pending
+      ? { ...pending, id: eventId }
+      : {
+          id: eventId,
+          summary: pl.summary,
+          start: pl.start,
+          location: pl.location || "",
+          description: pl.description || "",
+        };
+    return rest.concat([next]);
+  }, []);
+
   // When calendar_upsert finishes on the Mac, store the real Google event id on the job.
   useEffect(() => {
     for (const cmd of commands || []) {
@@ -456,6 +539,23 @@ export function StoreProvider({ children }) {
 
       const eventId = parseCalendarUpsertResult(cmd.result)?.eventId;
       if (!eventId || !cmd.jobId) continue;
+
+      const idk = String(cmd.idempotencyKey || "");
+      const pl = cmd.payload || {};
+      const isDuplicate = idk.startsWith("caldup:");
+      const isUnlinkedBus = String(cmd.jobId) === "today" || idk.startsWith("todaycal:");
+
+      if (isDuplicate || isUnlinkedBus) {
+        appliedCalUpserts.current.add(mark);
+        setEvents((evs) =>
+          promotePendingCalendarEvent(evs, eventId, pl, (e) =>
+            isDuplicate && jobIdFromEventDescription(e.description)
+              ? jobIdFromEventDescription(e.description) === String(cmd.jobId)
+              : false
+          )
+        );
+        if (isDuplicate) continue;
+      }
 
       const job = jobs.find((j) => String(j.id) === String(cmd.jobId));
       if (!job) continue;
@@ -486,19 +586,11 @@ export function StoreProvider({ children }) {
 
       appliedCalUpserts.current.add(mark);
       patchAndSave(cmd.jobId, { calEventId: eventId, _calUnlinked: false });
-      setEvents((evs) => {
-        const jid = String(cmd.jobId);
-        const pending = evs.find(
-          (e) => isPendingCalEventId(e.id) && jobIdFromEventDescription(e.description) === jid
-        );
-        const rest = evs.filter(
-          (e) => !(isPendingCalEventId(e.id) && jobIdFromEventDescription(e.description) === jid)
-        );
-        if (rest.some((e) => String(e.id) === String(eventId))) return rest;
-        return pending ? rest.concat([{ ...pending, id: eventId }]) : rest;
-      });
+      setEvents((evs) =>
+        promotePendingCalendarEvent(evs, eventId, pl, (e) => jobIdFromEventDescription(e.description) === String(cmd.jobId))
+      );
     }
-  }, [commands, jobs, patchAndSave]);
+  }, [commands, jobs, patchAndSave, promotePendingCalendarEvent]);
 
   const appliedImportCustomer = useRef(new Set());
 
@@ -836,6 +928,9 @@ export function StoreProvider({ children }) {
     sasBadge,
     refreshSas,
     markSasHandled,
+    emailInsights,
+    refreshEmailInsights,
+    patchEmailInsight,
     pending,
     dirtyCount,
     dirtyJobs,

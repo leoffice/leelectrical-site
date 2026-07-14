@@ -9,19 +9,26 @@ import JobDetail from "./views/JobDetail.jsx";
 import CustomerView from "./views/CustomerView.jsx";
 import Today from "./views/Today.jsx";
 import Calls from "./views/Calls.jsx";
+import Time from "./views/Time.jsx";
+import Projects from "./views/Projects.jsx";
 import Dev from "./views/Dev.jsx";
 import Company from "./views/Company.jsx";
-import Progress, { ProgressRefreshButton } from "./views/Progress.jsx";
+import Progress from "./views/Progress.jsx";
 import Archive from "./views/Archive.jsx";
 import Placeholder from "./views/Placeholder.jsx";
 import SaveBar from "./components/SaveBar.jsx";
 import SyncChip from "./components/SyncChip.jsx";
 import ChatBubble, { ChatUnreadBadge } from "./components/ChatBubble.jsx";
+import VoiceFlowBubble from "./components/VoiceFlowBubble.jsx";
 import ApprovalWatcher from "./components/ApprovalWatcher.jsx";
 import DocConfirmWatcher from "./components/DocConfirmWatcher.jsx";
 import SendInvoiceWatcher from "./components/SendInvoiceWatcher.jsx";
 import DedupePrompts from "./components/DedupePrompts.jsx";
 import FollowUpPrompts from "./components/FollowUpPrompts.jsx";
+import EmailInsightPrompts from "./components/EmailInsightPrompts.jsx";
+import { LiveEditProvider } from "./components/LiveEditProvider.jsx";
+import LiveEditBar from "./components/LiveEditBar.jsx";
+import DevModeOverlay from "./components/DevModeOverlay.jsx";
 import { docConfirmMessage } from "./lib/docConfirm.js";
 import NewJobFlow from "./components/NewJobFlow.jsx";
 import Sheet, { Opt } from "./components/Sheet.jsx";
@@ -32,6 +39,8 @@ const TABS = [
   { to: "/", label: "Customers", ic: "🗂️", end: true },
   { to: "/today", label: "Calendar", ic: "📅" },
   { to: "/calls", label: "Calls", ic: "📞" },
+  { to: "/time", label: "Time", ic: "⏱️" },
+  { to: "/projects", label: "Requisition", ic: "📋" },
   { to: "/company", label: "Company", ic: "📊" },
   { to: "/progress", label: "Build", ic: "⚡" },
   { to: "/dev", label: "Dev", ic: "🛠️" },
@@ -43,6 +52,8 @@ const MOBILE_NAV_BEFORE = [
   { to: "/", label: "Customers", ic: "🗂️", end: true },
   { to: "/today", label: "Calendar", ic: "📅" },
   { to: "/calls", label: "Calls", ic: "📞" },
+  { to: "/time", label: "Time", ic: "⏱️" },
+  { to: "/projects", label: "Requisition", ic: "📋" },
   { to: "/company", label: "Company", ic: "📊" },
   { to: "/progress", label: "Build", ic: "⚡" },
 ];
@@ -144,11 +155,12 @@ export default function App() {
   const loc = useLocation();
   const inDetail = loc.pathname.startsWith("/job/");
   const inCustomer = loc.pathname.startsWith("/customer/");
-  const onProgress = loc.pathname === "/progress";
+
   const showFab = loc.pathname === "/" || loc.pathname === "/today" || inDetail || inCustomer;
   const fabContext = appointmentContextFromRoute(loc.pathname, { effectiveJob, jobs });
 
   return (
+    <LiveEditProvider>
     <div className="min-h-screen lg:flex">
       {/* Desktop sidebar — fixed so it never scrolls away */}
       <aside
@@ -187,24 +199,15 @@ export default function App() {
       </aside>
 
       <div className="flex-1 min-w-0 flex flex-col lg:pl-64">
-        {/* Mobile header — logo fills ~95% of bar height; sync chip on the right */}
-        <header
-          className="lg:hidden sticky top-0 z-30 bg-white border-b border-slate-200 shadow-sm pt-safe"
-          data-testid="mobile-header"
+        {/* Mobile — floating sync chip only (no top logo bar) */}
+        <div
+          className="lg:hidden fixed top-0 right-0 z-30 pt-safe pr-2 flex items-center h-11 pointer-events-none"
+          data-testid="mobile-sync-float"
         >
-          <div className="flex items-center h-11 px-2 gap-2">
-            <img
-              src={import.meta.env.BASE_URL + "le-logo.png?v=5"}
-              alt="LE Electrical"
-              className="h-[95%] w-auto max-w-[min(72vw,220px)] object-contain object-left"
-              data-testid="mobile-header-logo"
-            />
-            <span className="ml-auto shrink-0 flex items-center gap-1.5">
-              {onProgress ? <ProgressRefreshButton /> : null}
-              <SyncChip compact />
-            </span>
-          </div>
-        </header>
+          <span className="pointer-events-auto">
+            <SyncChip compact />
+          </span>
+        </div>
 
         {error && (
           <div className="mx-4 mt-3 card border-red-200 bg-red-50 text-red-700 text-sm px-4 py-2.5 flex items-center gap-3">
@@ -214,12 +217,6 @@ export default function App() {
             </button>
           </div>
         )}
-
-        {onProgress && isDesktop ? (
-          <div className="hidden lg:flex justify-end px-4 pt-3 max-w-3xl mx-auto w-full" data-testid="progress-desktop-refresh">
-            <ProgressRefreshButton />
-          </div>
-        ) : null}
 
         <main
           className={`flex-1 w-full mx-auto px-4 pt-4 pb-24 lg:pb-20 ${
@@ -232,6 +229,9 @@ export default function App() {
             <Route path="/customer/:key" element={<CustomerView />} />
             <Route path="/today" element={<Today />} />
             <Route path="/calls" element={<Calls />} />
+            <Route path="/time" element={<Time />} />
+            <Route path="/projects" element={<Projects />} />
+            <Route path="/projects/:projectId" element={<Projects />} />
             <Route path="/company" element={<Company />} />
             <Route path="/progress" element={<Progress />} />
             <Route path="/dev" element={<Dev />} />
@@ -271,12 +271,16 @@ export default function App() {
         ) : null}
 
         <ChatBubble />
+        <VoiceFlowBubble />
         <NewJobFlow />
         <ApprovalWatcher />
         <DocConfirmWatcher />
         <SendInvoiceWatcher />
         <DedupePrompts />
         <FollowUpPrompts />
+        <EmailInsightPrompts />
+        <DevModeOverlay />
+        <LiveEditBar />
         <LeaveSheet />
 
         {/* Mobile bottom tab nav — Archive | ＋ 💬 | Dev */}
@@ -323,7 +327,7 @@ export default function App() {
 
         {docConfirm && (
           <div
-            className="fixed top-12 lg:top-4 left-1/2 -translate-x-1/2 z-[70] bg-emerald-600 text-white text-sm font-semibold px-5 py-3 rounded-2xl shadow-xl max-w-[92vw] text-center"
+            className="fixed top-4 left-1/2 -translate-x-1/2 z-[70] bg-emerald-600 text-white text-sm font-semibold px-5 py-3 rounded-2xl shadow-xl max-w-[92vw] text-center"
             data-testid="doc-confirm-banner"
           >
             ✓ {docConfirmMessage(docConfirm)}
@@ -336,5 +340,6 @@ export default function App() {
         )}
       </div>
     </div>
+    </LiveEditProvider>
   );
 }

@@ -14,12 +14,15 @@ import {
   unlinkAppointmentJob,
 } from "../lib/calendarLink.js";
 import AppointmentDetailSheet from "./AppointmentDetailSheet.jsx";
+import CustomerComposeSheet from "./CustomerComposeSheet.jsx";
 import { evStart } from "../lib/format.js";
 import CustomerSearch from "./CustomerSearch.jsx";
 import { enrichAndPatchCustomer } from "./NewJobFlow.jsx";
 import { useStore } from "../state/store.jsx";
-import { serviceAddressHint, serviceAddressLabel } from "../lib/customerSync.js";
-import { fmt$, todayStr } from "../lib/format.js";
+
+import { fmt$, parseAmount, todayStr } from "../lib/format.js";
+import { docStorePdfUrl, openPdfBlob, openPdfUrl } from "../lib/pdfOpen.js";
+import { canGenerateLocalDoc } from "../lib/jobToQbDoc.js";
 import { chargeCardInApp, fetchSolaIfieldsConfig } from "../lib/solaCharge.js";
 import SolaCardForm, { tokenizeSolaCard } from "./SolaCardForm.jsx";
 import { fmtMoneyPrecise, totalWithFee } from "../lib/payFees.js";
@@ -55,6 +58,14 @@ import { sortJobs } from "../lib/stages.js";
 import { DATE_STEPS } from "../lib/paperwork.js";
 import Toggle from "./Toggle.jsx";
 import SubCompanySection from "./SubCompanySection.jsx";
+import DocSourcePicker from "./DocSourcePicker.jsx";
+import {
+  DOC_SOURCE_LOCAL,
+  DOC_SOURCE_QBO,
+  docKindLabel,
+  viewLocalLabel,
+  viewQboLabel,
+} from "../lib/docSource.js";
 
 export const PAY_METHODS = [
   "Credit card",
@@ -74,31 +85,46 @@ export function useDoSend() {
   return (job, kind, opts = {}) => {
     const no = kind === "invoice" ? job.invoiceNo : job.estimateNo;
     const email = (opts.email || job.email || "").trim();
+    const due = openBalance(job);
+    const withPay =
+      kind === "invoice" &&
+      due > 0.01 &&
+      opts.includePaymentLink !== false;
+    const docSource = opts.docSource === DOC_SOURCE_QBO ? DOC_SOURCE_QBO : DOC_SOURCE_LOCAL;
     const payload =
       kind === "invoice"
         ? {
             email,
             invoiceNo: no,
             customer: job.customer || "",
-            amount: String(openBalance(job) || "").replace(/[$,]/g, ""),
-            includePaymentLink: Boolean(opts.includePaymentLink && openBalance(job) > 0.01),
+            amount: String(due || "").replace(/[$,]/g, ""),
+            includePaymentLink: withPay,
+            docSource,
+            job,
           }
-        : { email, estimateNo: no };
+        : { email, estimateNo: no, docSource, job };
     const idk =
-      kind === "invoice" && payload.includePaymentLink
-        ? "send_invoice_pay:" + no
-        : "send_" + kind + ":" + no;
+      kind === "invoice" && withPay
+        ? "send_invoice_pay:" + docSource + ":" + no
+        : "send_" + kind + ":" + docSource + ":" + no;
     enqueue("send_" + kind, job.id, payload, "deterministic", idk);
+    const via = docSource === DOC_SOURCE_QBO ? "QuickBooks" : "local PDF";
     logSend(
       job.id,
       (kind === "invoice" ? "Invoice" : "Estimate") +
         " #" +
         no +
-        (payload.includePaymentLink ? " + payment link" : "") +
-        " send queued",
+        (withPay ? " + payment link" : "") +
+        " send queued (" +
+        via +
+        ")",
       job.email
     );
-    showToast(payload.includePaymentLink ? "Queued with payment link — Activity" : "Queued — status in Activity");
+    showToast(
+      withPay
+        ? "Queued " + via + " send with payment link — Activity"
+        : "Queued " + via + " send — Activity"
+    );
   };
 }
 
@@ -1185,9 +1211,9 @@ export function PaymentHistorySheet({ job, onClose, onAddPayment }) {
 // The document pipeline stages we surface as plain wording (#45). "Requesting"
 // covers the initial docs-store check + enqueue; "Fetching from QuickBooks" is
 // the host agent pulling the PDF; "Ready" means it's rendered full screen.
-export const PDF_STAGES = ["Requesting", "Fetching from QuickBooks", "Ready"];
+export const PDF_STAGES = ["Checking", "Generating PDF", "Ready"];
 
-/** Horizontal stage indicator: Requesting → Fetching from QuickBooks → Ready. */
+/** Horizontal stage indicator: Checking → Generating PDF → Ready. */
 export function PdfStages({ active }) {
   return (
     <div className="flex items-center flex-wrap gap-x-1.5 gap-y-1 text-[11px] font-semibold mb-2" aria-label="Document status">
@@ -1204,30 +1230,20 @@ export function PdfStages({ active }) {
   );
 }
 
-/** "View PDF": GET docs?key=… first; on a miss enqueue a fetch_pdf command
- *  (lane judgment, idempotencyKey pdf:<no>:<date>) and poll docs every 4s for
- *  up to 90s. Once the blob is in hand it renders full screen automatically —
- *  no separate "go full screen" step (#44) — with plain stage wording (#45). */
-export function PdfViewer({ job, kind, no, compact, children }) {
-  const { api, enqueue } = useStore();
-  const [st, setSt] = useState({ phase: "idle" }); // idle|checking|fetching|ready|timeout
+/** Open a stored PDF or poll until QuickBooks fetch lands. */
+function useDocPdfView(job, kind, no) {
+  const { api, enqueue, showToast } = useStore();
+  const [st, setSt] = useState({ phase: "idle", source: null }); // idle|checking|fetching|timeout|error
   const timer = useRef(null);
   const deadline = useRef(0);
-  const objUrl = useRef(null);
   const docKey = (kind === "invoice" ? "inv-" : "est-") + no;
+  const docUrl = docStorePdfUrl(docKey);
 
-  useEffect(
-    () => () => {
-      clearTimeout(timer.current);
-      if (objUrl.current && typeof URL !== "undefined" && URL.revokeObjectURL) URL.revokeObjectURL(objUrl.current);
-    },
-    []
-  );
+  useEffect(() => () => clearTimeout(timer.current), []);
 
-  const show = (blob) => {
-    const u = typeof URL !== "undefined" && URL.createObjectURL ? URL.createObjectURL(blob) : "";
-    objUrl.current = u;
-    setSt({ phase: "ready", url: u });
+  const openStored = () => {
+    openPdfUrl(docUrl);
+    setSt({ phase: "idle", source: null });
   };
 
   const check = async () => {
@@ -1240,74 +1256,180 @@ export function PdfViewer({ job, kind, no, compact, children }) {
 
   const poll = async () => {
     const blob = await check();
-    if (blob) return show(blob);
-    if (Date.now() >= deadline.current) return setSt({ phase: "timeout" });
+    if (blob) return openStored();
+    if (Date.now() >= deadline.current) return setSt((o) => ({ ...o, phase: "timeout" }));
     timer.current = setTimeout(poll, 4000);
   };
 
-  const view = async () => {
-    setSt({ phase: "checking" });
+  const waitForStored = async (tries = 6, gapMs = 400) => {
+    for (let i = 0; i < tries; i++) {
+      if (await check()) return true;
+      if (i < tries - 1) await new Promise((r) => setTimeout(r, gapMs));
+    }
+    return false;
+  };
+
+  const viewLocal = async () => {
+    setSt({ phase: "checking", source: DOC_SOURCE_LOCAL });
+    if (!canGenerateLocalDoc(job, kind)) {
+      setSt({ phase: "error", source: DOC_SOURCE_LOCAL });
+      showToast("Add line items on this job to build a local PDF — or use View QuickBooks");
+      return;
+    }
+    setSt({ phase: "fetching", source: DOC_SOURCE_LOCAL });
+    const gen = api.generateLocalDoc ? await api.generateLocalDoc(job, kind) : { ok: false };
+    if (gen.ok) {
+      if (await waitForStored()) return openStored();
+      const key = String(gen.key || docKey || "").trim();
+      if (key) {
+        openPdfUrl(docStorePdfUrl(key));
+        setSt({ phase: "idle", source: null });
+        return;
+      }
+    }
+    setSt({ phase: "error", source: DOC_SOURCE_LOCAL });
+    showToast("Could not build the local PDF — try again or use View QuickBooks");
+  };
+
+  const viewQbo = async () => {
+    setSt({ phase: "checking", source: DOC_SOURCE_QBO });
     const blob = await check();
-    if (blob) return show(blob);
-    // Not stored yet — ask the host agent to pull it from QuickBooks.
-    enqueue("fetch_pdf", job.id, { kind, no, docKey }, "judgment", "pdf:" + no + ":" + todayStr());
+    if (blob) return openStored();
+    enqueue(
+      "fetch_pdf",
+      job.id,
+      { kind, no, docKey, docSource: DOC_SOURCE_QBO },
+      "judgment",
+      "pdf:qbo:" + no + ":" + todayStr()
+    );
     deadline.current = Date.now() + 90_000;
-    setSt({ phase: "fetching" });
+    setSt({ phase: "fetching", source: DOC_SOURCE_QBO });
     timer.current = setTimeout(poll, 4000);
   };
 
-  // Ready → auto full-screen inline viewer (fixed overlay above the sheet).
-  if (st.phase === "ready")
-    return (
-      <div className="fixed inset-0 z-[70] bg-slate-900 flex flex-col" data-fullscreen-pdf>
-        <div className="flex items-center gap-2 px-4 py-2.5 text-white shrink-0 pt-safe">
-          <span className="font-bold text-sm flex-1 truncate">
-            {(kind === "invoice" ? "Invoice " : "Estimate ") + no}
-          </span>
-          <button className="text-xs font-bold bg-white/15 rounded-lg px-3 py-1.5" onClick={() => window.open(st.url)}>
-            ⤢ Open in new tab
-          </button>
-          <button
-            aria-label="Close PDF"
-            className="w-8 h-8 rounded-full bg-white/15 text-white font-bold text-sm shrink-0"
-            onClick={() => setSt({ phase: "idle" })}
-          >
-            ✕
-          </button>
-        </div>
-        <iframe src={st.url} title={"PDF " + docKey} className="flex-1 w-full bg-white border-0" />
-      </div>
-    );
-  if (st.phase === "checking" || st.phase === "fetching")
+  return { st, viewLocal, viewQbo, docKey };
+}
+
+function DocPdfStatus({ st, onRetry }) {
+  if (st.phase === "checking" || st.phase === "fetching") {
+    const qbo = st.source === DOC_SOURCE_QBO;
     return (
       <div className="border border-slate-200 rounded-2xl px-4 py-3 mb-2.5">
         <PdfStages active={st.phase === "checking" ? 0 : 1} />
         <div className="text-sm text-slate-500 flex items-center gap-2.5">
           <span className="w-2 h-2 rounded-full bg-amber-400 animate-pulse shrink-0" />
           {st.phase === "checking"
-            ? "Requesting the document…"
-            : "Fetching from QuickBooks — a few seconds…"}
+            ? "Checking for your document…"
+            : qbo
+            ? "Fetching from QuickBooks — a few seconds…"
+            : "Generating your PDF — a few seconds…"}
         </div>
       </div>
     );
-  if (st.phase === "timeout")
+  }
+  if (st.phase === "timeout") {
     return (
       <div className="border border-amber-200 bg-amber-50 rounded-2xl px-4 py-3 mb-2.5 text-sm text-amber-800">
-        Still not in yet — the Mac may be asleep. It'll appear under this button once fetched.
-        <button className="btn-ghost w-full mt-2 !py-1.5" onClick={view}>↻ Try again</button>
-      </div>
-    );
-  if (compact) {
-    return (
-      <div className="flex gap-2 mb-2 w-full" data-testid="doc-view-row">
-        <button type="button" className="btn flex-1 !py-2.5 bg-brand-soft text-brand font-semibold" onClick={view}>
-          View PDF
+        Still not in yet — the Mac may be asleep. It'll appear once fetched.
+        <button className="btn-ghost w-full mt-2 !py-1.5" onClick={onRetry}>
+          ↻ Try again
         </button>
-        {children}
       </div>
     );
   }
-  return <Opt icon="📄" title="View PDF" note="Opens full screen · live from QuickBooks" onClick={view} />;
+  return null;
+}
+
+/** Local vs QuickBooks view buttons — explicit source, no auto-mixing. */
+export function DocPdfViewButtons({ job, kind, no, compact }) {
+  const { st, viewLocal, viewQbo } = useDocPdfView(job, kind, no);
+  const retry = () => (st.source === DOC_SOURCE_QBO ? viewQbo() : viewLocal());
+
+  if (st.phase === "checking" || st.phase === "fetching" || st.phase === "timeout") {
+    return <DocPdfStatus st={st} onRetry={retry} />;
+  }
+
+  if (compact) {
+    return (
+      <div className="flex gap-2 mb-2 w-full" data-testid="doc-view-row">
+        <button
+          type="button"
+          className="btn flex-1 !py-2.5 bg-brand-soft text-brand font-semibold"
+          onClick={viewLocal}
+          data-testid="view-local-doc"
+        >
+          {viewLocalLabel(kind)}
+        </button>
+        <button
+          type="button"
+          className="btn flex-1 !py-2.5 bg-slate-100 text-slate-800 font-semibold"
+          onClick={viewQbo}
+          data-testid="view-qbo-doc"
+        >
+          {viewQboLabel(kind)}
+        </button>
+      </div>
+    );
+  }
+
+  return (
+    <>
+      <Opt
+        icon="📄"
+        title={viewLocalLabel(kind)}
+        note="LE Pro PDF from this job's line items"
+        onClick={viewLocal}
+        data-testid="view-local-doc"
+      />
+      <Opt
+        icon="📗"
+        title={viewQboLabel(kind)}
+        note="Pulls the PDF from QuickBooks Online"
+        onClick={viewQbo}
+        data-testid="view-qbo-doc"
+      />
+    </>
+  );
+}
+
+/** Back-compat alias — defaults to local+QuickBooks row when compact. */
+export function PdfViewer(props) {
+  return <DocPdfViewButtons {...props} />;
+}
+
+/** Send invoice/estimate buttons — parent sheet shows DocSourcePicker submenu. */
+export function DocSendButtons({ job, kind, onPickSend }) {
+  const due = openBalance(job);
+  const label = docKindLabel(kind);
+  const withPay = kind === "invoice" && due > 0.01;
+
+  return (
+    <div data-testid="doc-send-row">
+      {withPay ? (
+        <Opt
+          icon="💳"
+          title="Send invoice with payment link"
+          note="Choose local file or QuickBooks file"
+          onClick={() =>
+            onPickSend({ withPay: true, title: "Send invoice with payment link" })
+          }
+          data-testid="send-with-pay"
+        />
+      ) : null}
+      <Opt
+        icon="📤"
+        title={withPay ? "Send invoice only" : "Send " + label}
+        note="Choose local file or QuickBooks file"
+        onClick={() =>
+          onPickSend({
+            withPay: false,
+            title: withPay ? "Send invoice only" : "Send " + label,
+          })
+        }
+        data-testid="send-doc-only"
+      />
+    </div>
+  );
 }
 
 /* ---------- 2a-pay. Payment menu (record vs link) ---------- */
@@ -1352,7 +1474,7 @@ function paylinkAmountRaw(raw) {
  *  Defaults to amount due; Levi can override before generating. Customer may
  *  also edit xamount on Sola PaymentSITE if that field is enabled in portal. */
 export function PaymentLinkSheet({ job, onClose }) {
-  const { enqueue, commands, refreshCommands, showToast } = useStore();
+  const { api, enqueue, commands, refreshCommands, showToast } = useStore();
   const inv = job.invoiceNo || "";
   const dueAmt = openBalance(job);
   const dueLabel = fmtAmountDue(job) || fmt$(dueAmt) || "";
@@ -1361,9 +1483,8 @@ export function PaymentLinkSheet({ job, onClose }) {
   const [phase, setPhase] = useState("idle"); // idle|working|ready|failed
   const [url, setUrl] = useState("");
   const [err, setErr] = useState("");
-  const [emailOpen, setEmailOpen] = useState(false);
+  const [composeChannel, setComposeChannel] = useState(null);
   const [includeFee, setIncludeFee] = useState(true);
-  const [emailTo, setEmailTo] = useState(job.email || "");
   const [emailSubject, setEmailSubject] = useState("");
   const [emailBody, setEmailBody] = useState("");
   const deadline = useRef(0);
@@ -1371,12 +1492,11 @@ export function PaymentLinkSheet({ job, onClose }) {
 
   useEffect(() => {
     setLinkAmount(paylinkAmountRaw(openBalance(job)) || "");
-    setEmailTo(job.email || "");
     setPhase("idle");
     setUrl("");
     setErr("");
     setIdk("");
-    setEmailOpen(false);
+    setComposeChannel(null);
   }, [job.id, job.invoiceNo, job.openBalance, job.paid, job.amount, job.email]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // The matching command (by idempotencyKey) as the store re-polls it.
@@ -1457,14 +1577,18 @@ export function PaymentLinkSheet({ job, onClose }) {
       "deterministic",
       key
     );
-    // Pre-fetch invoice PDF so customer "View invoice" works on the pay page.
-    enqueue(
-      "fetch_pdf",
-      job.id,
-      { kind: "invoice", no: inv, docKey: "inv-" + inv },
-      "judgment",
-      "pdf:" + inv + ":" + todayStr()
-    );
+    // Pre-generate invoice PDF locally so customer View invoice matches QBO clone.
+    if (canGenerateLocalDoc(job, "invoice") && api.generateLocalDoc) {
+      api.generateLocalDoc(job, "invoice").catch(() => {});
+    } else {
+      enqueue(
+        "fetch_pdf",
+        job.id,
+        { kind: "invoice", no: inv, docKey: "inv-" + inv },
+        "judgment",
+        "pdf:" + inv + ":" + todayStr()
+      );
+    }
     refreshCommands();
   };
 
@@ -1477,24 +1601,49 @@ export function PaymentLinkSheet({ job, onClose }) {
     }
   };
 
-  const smsMsg = emailBody
-    ? emailBody.split("\n").slice(0, 6).join(" ") + (url ? " " + url : "")
-    : `Hi, pay invoice #${inv}: ${url} — LE Electric`;
-
-  const openMailApp = () => {
-    const to = (emailTo || "").trim();
-    if (!to) return showToast("Enter an email address");
-    const href = `mailto:${to}?subject=${encodeURIComponent(emailSubject)}&body=${encodeURIComponent(emailBody)}`;
-    window.location.href = href;
-  };
-
-  const sendViaQbo = () => {
-    const to = (emailTo || "").trim();
-    if (!to) return showToast("Enter an email address");
-    doSend(job, "invoice", { includePaymentLink: true, email: to });
-    showToast("Sending invoice + payment link via QuickBooks…");
+  const sendWithPayLink = (docSource) => {
+    const to = (job.email || "").trim();
+    if (!to) return showToast("Add customer email first");
+    doSend(job, "invoice", { includePaymentLink: true, email: to, docSource });
     onClose();
   };
+
+  if (composeChannel) {
+    return (
+      <CustomerComposeSheet
+        job={job}
+        channel={composeChannel}
+        context="payment"
+        title={composeChannel === "email" ? "Email payment link" : "Text payment link"}
+        initialTo={job.email || ""}
+        initialPhone={job.phone || ""}
+        initialSubject={emailSubject}
+        initialMessage={emailBody}
+        paymentUrl={url}
+        onClose={() => setComposeChannel(null)}
+        extraActions={
+          composeChannel === "email" ? (
+            <>
+              <button
+                type="button"
+                className="btn w-full !py-2 bg-brand text-white mb-2"
+                onClick={() => sendWithPayLink(DOC_SOURCE_LOCAL)}
+              >
+                Send Local Invoice with Payment Link
+              </button>
+              <button
+                type="button"
+                className="btn w-full !py-2 bg-slate-100 text-slate-800"
+                onClick={() => sendWithPayLink(DOC_SOURCE_QBO)}
+              >
+                Send QuickBooks Invoice with Payment Link
+              </button>
+            </>
+          ) : null
+        }
+      />
+    );
+  }
 
   return (
     <Sheet title={"Payment link" + (inv ? " — #" + inv : "")} onClose={onClose}>
@@ -1556,60 +1705,26 @@ export function PaymentLinkSheet({ job, onClose }) {
           </div>
           <button className="btn-brand w-full mb-2" onClick={copy}>📋 Copy link</button>
           <div className="flex gap-2 mb-2">
-            <a
-              className={`btn flex-1 !py-2 text-center ${job.phone ? "bg-brand-soft text-brand" : "bg-slate-50 text-slate-300 pointer-events-none"}`}
-              href={job.phone ? `sms:${job.phone}?&body=${encodeURIComponent(smsMsg)}` : undefined}
-            >
-              💬 Text
-            </a>
             <button
               type="button"
-              className="btn flex-1 !py-2 bg-brand-soft text-brand"
-              onClick={() => setEmailOpen((v) => !v)}
+              className={`btn flex-1 !py-2 ${job.phone ? "bg-brand-soft text-brand" : "bg-slate-50 text-slate-300"}`}
+              disabled={!job.phone}
+              onClick={() => setComposeChannel("sms")}
+            >
+              💬 Text
+            </button>
+            <button
+              type="button"
+              className={`btn flex-1 !py-2 ${job.email ? "bg-brand-soft text-brand" : "bg-slate-50 text-slate-300"}`}
+              disabled={!job.email}
+              onClick={() => setComposeChannel("email")}
             >
               ✉️ Email
             </button>
           </div>
-          {emailOpen && (
-            <div className="border border-slate-200 rounded-2xl p-3 mb-2 space-y-2 text-sm">
-              <label className="block">
-                <span className="font-semibold text-slate-700">To</span>
-                <input
-                  type="email"
-                  className="input mt-1 w-full"
-                  aria-label="Payment link email recipient"
-                  value={emailTo}
-                  onChange={(e) => setEmailTo(e.target.value)}
-                  placeholder={job.email || "customer@email.com"}
-                />
-              </label>
-              {job.email && emailTo !== job.email && (
-                <button type="button" className="btn-ghost w-full !py-1 text-xs" onClick={() => setEmailTo(job.email)}>
-                  ↺ Reset to customer email ({job.email})
-                </button>
-              )}
-              <label className="block">
-                <span className="font-semibold text-slate-700">Subject</span>
-                <input className="input mt-1 w-full" value={emailSubject} onChange={(e) => setEmailSubject(e.target.value)} />
-              </label>
-              <label className="block">
-                <span className="font-semibold text-slate-700">Message</span>
-                <textarea className="input mt-1 w-full min-h-[140px]" value={emailBody} onChange={(e) => setEmailBody(e.target.value)} />
-              </label>
-              <p className="text-[11px] text-slate-400">
-                Invoice total {fmt$(invoiceTotal(job)) || "—"} · balance due {fmtAmountDue(job) || fmt$(openBalance(job)) || "—"} · link amount {fmt$(parseFloat(linkAmount) || openBalance(job))}
-              </p>
-              <button type="button" className="btn-brand w-full !py-2" onClick={openMailApp}>
-                Open in Mail (review &amp; send)
-              </button>
-              <button type="button" className="btn w-full !py-2 bg-slate-100 text-slate-800" onClick={sendViaQbo}>
-                Send via QuickBooks (invoice PDF + payment link)
-              </button>
-              <p className="text-[11px] text-slate-400 text-center">
-                QuickBooks emails the official invoice PDF with the pay link in the message. Mail app cannot attach the PDF automatically.
-              </p>
-            </div>
-          )}
+          <p className="text-[11px] text-slate-400 text-center">
+            Invoice total {fmt$(invoiceTotal(job)) || "—"} · balance due {fmtAmountDue(job) || fmt$(openBalance(job)) || "—"} · link amount {fmt$(parseFloat(linkAmount) || openBalance(job))}
+          </p>
         </>
       )}
 
@@ -1625,62 +1740,79 @@ export function PaymentLinkSheet({ job, onClose }) {
 }
 
 /* ---------- 2a. Invoice / Estimate quick view ---------- */
-export function DocSheet({ job, kind, onClose, onEdit, onConvert }) {
+export function DocSheet({ job, kind, onClose, onEdit, onConvert, onSync }) {
   const doSend = useDoSend();
+  const [sendPick, setSendPick] = useState(null);
   const no = kind === "invoice" ? job.invoiceNo : job.estimateNo;
-  const qboPath = kind === "invoice" ? "invoices" : "estimates";
-  const due = openBalance(job);
   const label = kind === "invoice" ? "invoice" : "estimate";
+
+  if (sendPick) {
+    return (
+      <DocSourcePicker
+        title={sendPick.title}
+        kind={kind}
+        onBack={() => setSendPick(null)}
+        onPick={(src) => {
+          doSend(job, kind, { docSource: src, includePaymentLink: sendPick.withPay });
+          onClose();
+        }}
+      />
+    );
+  }
+  const lines = kind === "invoice" ? job.invoiceLines : job.estimateLines;
+  const isDraft = !no && (lines || []).some((ln) => String(ln?.itemName || "").trim());
+  const title = no
+    ? (kind === "invoice" ? "Invoice " : "Estimate ") + no
+    : isDraft
+    ? (kind === "invoice" ? "Invoice saved on job" : "Estimate saved on job")
+    : kind === "invoice"
+    ? "Invoice"
+    : "Estimate";
+
   return (
-    <Sheet title={(kind === "invoice" ? "Invoice " : "Estimate ") + (no || "")} onClose={onClose}>
+    <Sheet title={title} onClose={onClose}>
+      {isDraft ? (
+        <p className="text-xs text-amber-800 bg-amber-50 border border-amber-200 rounded-xl px-3 py-2 mb-3" data-testid="doc-draft-banner">
+          Saved on this job — not in QuickBooks yet. Tap sync when you are ready.
+        </p>
+      ) : null}
+
       <div className="text-sm space-y-1 mb-3">
         <div><b className="font-semibold">Customer</b> <span className="text-slate-600">{job.customer || ""}</span></div>
         <div><b className="font-semibold">Amount</b> <span className="text-slate-600">{fmt$(job.amount)}</span></div>
-        {kind === "invoice" && (
+        {kind === "invoice" && no ? (
           <div><b className="font-semibold">Status</b> <span className="text-slate-600">{job.paid ? "Paid" : "Open"}</span></div>
-        )}
+        ) : null}
+        {(job.serviceAddress || job.address) ? (
+          <div><b className="font-semibold">Service address</b> <span className="text-slate-600">{job.serviceAddress || job.address}</span></div>
+        ) : null}
       </div>
 
-      {no ? (
-        <PdfViewer job={job} kind={kind} no={no} compact>
-          <button
-            type="button"
-            className="btn flex-1 !py-2.5 bg-slate-100 text-slate-800 font-semibold"
-            onClick={() => window.open("https://qbo.intuit.com/app/" + qboPath)}
-          >
-            Open in QuickBooks
-          </button>
-        </PdfViewer>
+      {isDraft && lines?.length ? (
+        <div className="card px-3 py-2 mb-3" data-testid="doc-draft-lines">
+          <p className="text-[11px] font-bold uppercase tracking-wide text-slate-400 mb-2">Line items</p>
+          {lines.filter((ln) => String(ln?.itemName || "").trim()).map((ln, i) => (
+            <div key={i} className="flex justify-between gap-2 text-sm py-1 border-b border-dashed border-slate-100 last:border-0">
+              <span className="min-w-0 truncate text-slate-700">{ln.itemName}</span>
+              <span className="shrink-0 font-semibold text-slate-800">{fmt$(parseAmount(ln.qty) * parseAmount(ln.unitPrice))}</span>
+            </div>
+          ))}
+        </div>
       ) : null}
 
-      {job.email ? (
-        <div className="flex gap-2 mb-2" data-testid="doc-send-row">
-          {kind === "invoice" && due > 0.01 ? (
-            <button
-              type="button"
-              className="btn flex-1 !py-2.5 bg-brand text-white font-semibold"
-              onClick={() => {
-                doSend(job, kind, { includePaymentLink: true });
-                onClose();
-              }}
-            >
-              Send with payment link
-            </button>
-          ) : null}
-          <button
-            type="button"
-            className="btn flex-1 !py-2.5 bg-brand-soft text-brand font-semibold"
-            onClick={() => {
-              doSend(job, kind);
-              onClose();
-            }}
-          >
-            {kind === "invoice" && due > 0.01 ? "Send invoice only" : "Send " + label}
-          </button>
-        </div>
-      ) : (
+      {no ? <DocPdfViewButtons job={job} kind={kind} no={no} compact /> : null}
+
+      {isDraft && onSync ? (
+        <button type="button" className="btn-brand w-full mb-2" onClick={onSync} data-testid="doc-sync-qbo">
+          Sync to QuickBooks
+        </button>
+      ) : null}
+
+      {!isDraft && no && job.email ? (
+        <DocSendButtons job={job} kind={kind} onPickSend={setSendPick} />
+      ) : !isDraft && no ? (
         <p className="text-[11px] text-slate-400 text-center mb-2">Add an email on the customer card to send.</p>
-      )}
+      ) : null}
 
       {onEdit ? (
         <button type="button" className="btn-ghost w-full !py-2.5 mb-1 font-semibold" onClick={onEdit} data-testid="doc-edit">
@@ -1688,7 +1820,7 @@ export function DocSheet({ job, kind, onClose, onEdit, onConvert }) {
         </button>
       ) : null}
 
-      {kind === "estimate" && !job.invoiceNo && onConvert ? (
+      {kind === "estimate" && !job.invoiceNo && onConvert && (no || isDraft) ? (
         <Opt icon="🧾" title="Convert to invoice" note="Bill all or part of this estimate" onClick={onConvert} />
       ) : null}
     </Sheet>
@@ -1698,37 +1830,32 @@ export function DocSheet({ job, kind, onClose, onEdit, onConvert }) {
 /** Quick invoice actions from the jobs list — View (full-screen PDF) or Send. */
 export function QuickSendSheet({ job, onClose, onEdit }) {
   const doSend = useDoSend();
+  const [sendPick, setSendPick] = useState(null);
   const due = openBalance(job);
+
+  if (sendPick) {
+    return (
+      <DocSourcePicker
+        title={sendPick.title}
+        kind="invoice"
+        onBack={() => setSendPick(null)}
+        onPick={(src) => {
+          doSend(job, "invoice", { docSource: src, includePaymentLink: sendPick.withPay });
+          onClose();
+        }}
+      />
+    );
+  }
+
   return (
     <Sheet title={"Invoice " + (job.invoiceNo || "")} onClose={onClose}>
       <div className="text-sm space-y-1 mb-3">
         <div><b className="font-semibold">Customer</b> <span className="text-slate-600">{job.customer || ""}</span></div>
         <div><b className="font-semibold">Amount due</b> <span className="text-slate-600">{fmtAmountDue(job) || fmt$(due) || "—"}</span></div>
       </div>
-      {job.invoiceNo && <PdfViewer job={job} kind="invoice" no={job.invoiceNo} />}
+      {job.invoiceNo && <DocPdfViewButtons job={job} kind="invoice" no={job.invoiceNo} />}
       {job.email ? (
-        <>
-          {due > 0.01 && (
-            <Opt
-              icon="💳"
-              title={"Send to " + job.email + " + payment link"}
-              note="Sola link in email body and on the QBO invoice"
-              onClick={() => {
-                doSend(job, "invoice", { includePaymentLink: true });
-                onClose();
-              }}
-            />
-          )}
-          <Opt
-            icon="📤"
-            title={due > 0.01 ? "Send invoice only" : "Send to " + job.email}
-            note="Emails via QuickBooks"
-            onClick={() => {
-              doSend(job, "invoice");
-              onClose();
-            }}
-          />
-        </>
+        <DocSendButtons job={job} kind="invoice" onPickSend={setSendPick} />
       ) : (
         <p className="text-[11px] text-slate-400 text-center mt-2">Add an email to send this invoice.</p>
       )}
@@ -1954,8 +2081,7 @@ export function CustEditSheet({ job, onClose }) {
     phone: job.phone || "",
     email: job.email || "",
     billingAddress: job.billingAddress || "",
-    serviceAddress: job.serviceAddress || job.address || "",
-    apartment: job.apartment || "",
+
     qboCustomerId: job.qboCustomerId || "",
     parentCustomerName: job.parentCustomerName || "",
     parentQboCustomerId: job.parentQboCustomerId || "",
@@ -1998,9 +2124,7 @@ export function CustEditSheet({ job, onClose }) {
       phone: f.phone || "",
       email: f.email || "",
       billingAddress: f.billingAddress || "",
-      serviceAddress: f.serviceAddress || "",
-      address: f.serviceAddress || "",
-      apartment: f.apartment || "",
+
       qboCustomerId: f.qboCustomerId || "",
       parentCustomerName: f.parentCustomerName || "",
       parentQboCustomerId: f.parentQboCustomerId || "",
@@ -2060,7 +2184,7 @@ export function CustEditSheet({ job, onClose }) {
   };
 
   return (
-    <Sheet title="Edit customer & service location" onClose={onClose}>
+    <Sheet title="Edit customer" onClose={onClose}>
       <p className="text-[11px] font-bold uppercase tracking-wide text-slate-400 mb-2">Customer (QuickBooks)</p>
       <Fld label="Customer name" hint="Billing entity — search QuickBooks; phone, email & billing fill from QB">
         <CustomerSearch
@@ -2086,20 +2210,11 @@ export function CustEditSheet({ job, onClose }) {
           </Fld>
         )
       )}
-      <p className="text-[11px] font-bold uppercase tracking-wide text-slate-400 mt-3 mb-2">
-        {job.invoiceNo || job.estimateNo ? "Invoice / estimate — service location" : "Service location (for next invoice/estimate)"}
-      </p>
-      <Fld label={serviceAddressLabel(job)} hint={serviceAddressHint(job)}>
-        <input className="input" value={f.serviceAddress} onChange={set("serviceAddress")} aria-label={serviceAddressLabel(job)} />
-      </Fld>
-      <Fld label="Apartment #">
-        <input className="input" value={f.apartment} onChange={set("apartment")} aria-label="Apartment #" />
-      </Fld>
-      <button className="btn-brand w-full" onClick={saveAndSync} data-testid="cust-save-sync">
+      <button className="btn-brand w-full mt-3" onClick={saveAndSync} data-testid="cust-save-sync">
         Save &amp; sync
       </button>
       <p className="text-[11px] text-slate-400 text-center mt-2">
-        Saves customer info and syncs to QuickBooks. Service address stays on this invoice/estimate only.
+        Saves customer info and syncs to QuickBooks. Use Edit job for service address on this invoice/estimate.
       </p>
     </Sheet>
   );

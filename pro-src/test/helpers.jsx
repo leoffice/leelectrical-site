@@ -38,10 +38,17 @@ export const J2 = {
   status: {},
 };
 
+/** Pin fake "today" so week-calendar tests stay in the same work week as EV. */
+export const CAL_WEEK_ANCHOR = "2026-07-10";
+
+export function pinCalWeek() {
+  vi.setSystemTime(new Date(`${CAL_WEEK_ANCHOR}T12:00:00`));
+}
+
 export const EV = {
   id: "ev1",
   summary: "Estimate — Jane Doe",
-  start: "2026-07-10T10:00",
+  start: `${CAL_WEEK_ANCHOR}T10:00`,
   location: "55 Elm St",
   description: "phone: 917-555-2222 jane@x.com",
 };
@@ -63,7 +70,14 @@ export function mockServer(opts = {}) {
     presence: opts.presence || {}, // per-convo map { convo: { lastSeen, view } } — mirrors presence-v1
     docs: opts.docs || {}, // key -> stored "pdf" (docs fn: PDF viewing)
     sasCalls: opts.sasCalls || [], // SAS inbound lead tickets (Calls tab)
+    emailInsights: opts.emailInsights || [], // Energy Services email insights
     customers: opts.customers || [], // QBO customer-name index (/customers, #49/#56)
+    timetrack: opts.timetrack || {
+      employees: [{ id: "emp-levi", name: "Levi", color: "#2563eb", active: true }],
+      active: {},
+      entries: [],
+      ts: Date.now(),
+    },
     progress: opts.progress || {
       meta: {
         agent: "Israel (Grok Build)",
@@ -128,9 +142,35 @@ export function mockServer(opts = {}) {
           };
         return { ok: false, status: 404, headers: { get: () => "application/json" }, json: async () => ({ ok: false, error: "not found" }) };
       }
+      if (path === "generate-doc") {
+        if (method === "POST" && body?.job) {
+          const kind = body.kind || "invoice";
+          const no = kind === "invoice" ? body.job.invoiceNo : body.job.estimateNo;
+          const key = (kind === "invoice" ? "inv-" : "est-") + no;
+          state.docs[key] = "%PDF-1.4 local-generated";
+          return { ok: true, status: 200, json: async () => ({ ok: true, key, url: "/docs?key=" + key }) };
+        }
+        return { ok: false, status: 400, json: async () => ({ ok: false }) };
+      }
       if (path === "docs-fetch") {
         if (method === "POST" && body?.invoiceNo) {
           const no = String(body.invoiceNo);
+          const key = "inv-" + no;
+          const job =
+            state.jobs.find((j) => String(j.id) === String(body.jobId || "")) ||
+            state.jobs.find((j) => String(j.invoiceNo || "").trim() === no);
+          const canLocal =
+            job &&
+            job.invoiceNo &&
+            ((job.invoiceLines || []).length > 0 || parseFloat(String(job.amount || "").replace(/[$,]/g, "")) > 0);
+          if (canLocal) {
+            state.docs[key] = "%PDF-1.4 local-generated";
+            return {
+              ok: true,
+              status: 200,
+              json: async () => ({ ok: true, generated: true, local: true, key }),
+            };
+          }
           const idk = "pdf:pay:" + no + ":" + new Date().toISOString().slice(0, 10);
           const dup = state.commands.find((c) => c.idempotencyKey === idk);
           if (!dup) {
@@ -139,7 +179,7 @@ export function mockServer(opts = {}) {
               jobId: body.jobId || "",
               lane: "judgment",
               idempotencyKey: idk,
-              payload: { kind: "invoice", no, docKey: "inv-" + no },
+              payload: { kind: "invoice", no, docKey: key },
               status: "queued",
             });
           }
@@ -174,6 +214,29 @@ export function mockServer(opts = {}) {
             else {
               const c = { ...body.command, id: "c" + seq++, status: "queued", createdAt: Date.now() };
               state.commands.push(c);
+              if (c.type === "import_customer") {
+                const pl = c.payload || {};
+                const qboId = String(pl.qboId || "").trim();
+                const name = String(pl.name || "Imported Customer").trim();
+                const invNo = "99" + String(seq).padStart(3, "0");
+                if (!state.jobs.some((j) => String(j.qboCustomerId || "") === qboId && qboId)) {
+                  state.jobs.push({
+                    id: "qbo-" + invNo,
+                    customer: name,
+                    businessName: name,
+                    qboCustomerId: qboId,
+                    invoiceNo: invNo,
+                    amount: "$100",
+                    paid: false,
+                    openBalance: 100,
+                    title: "Imported work",
+                    status: { Invoiced: { s: "done" } },
+                  });
+                  state.syncedAt = Date.now();
+                }
+                c.status = "done";
+                c.result = JSON.stringify({ imported: 1, customerId: qboId, customerName: name });
+              }
               data = { ok: true, command: c };
             }
           } else {
@@ -244,6 +307,24 @@ export function mockServer(opts = {}) {
         }
       } else if (path === "sas-inbound")
         data = { calls: JSON.parse(JSON.stringify(state.sasCalls)), ts: Date.now() };
+      else if (path === "email-insights") {
+        if (method === "POST") {
+          if (body.op === "patch") {
+            const hit = state.emailInsights.find((x) => String(x.id) === String(body.id));
+            if (hit) Object.assign(hit, body.patch || {});
+            data = { ok: true, insight: hit };
+          } else if (body.op === "ingest" || body.op === "ingest_raw") {
+            const ins = body.insight || { id: "ei-test-" + seq++, status: "pending", ...(body.email || {}) };
+            if (!state.emailInsights.some((x) => x.id === ins.id)) state.emailInsights.unshift(ins);
+            data = { ok: true, insight: ins };
+          } else data = { ok: false };
+        } else {
+          const pendingOnly = String(url).includes("pending=1");
+          let list = JSON.parse(JSON.stringify(state.emailInsights));
+          if (pendingOnly) list = list.filter((x) => x.status === "pending");
+          data = { insights: list, ts: Date.now() };
+        }
+      }
       else if (path === "zelle-vision") {
         if (method === "POST") {
           data = {
@@ -278,6 +359,89 @@ export function mockServer(opts = {}) {
           state.progress = { ...state.progress, updatedAt: Date.now() };
         }
         data = JSON.parse(JSON.stringify(state.progress));
+      } else if (path === "timetrack") {
+        if (method === "POST" && body?.op) {
+          const doc = state.timetrack;
+          const now = Date.now();
+          if (body.op === "clock_in") {
+            const employeeId = String(body.employeeId || "").trim();
+            if (doc.active[employeeId]) {
+              const sess = doc.active[employeeId];
+              doc.entries.unshift({
+                id: "ent-mock",
+                employeeId,
+                employeeName: (doc.employees.find((e) => e.id === employeeId) || {}).name || "Unknown",
+                kind: sess.kind || "shift",
+                jobId: sess.jobId || null,
+                jobLabel: sess.jobLabel || "",
+                startedAt: sess.startedAt,
+                endedAt: now,
+                durationMs: now - (sess.startedAt || now),
+                note: "",
+              });
+              delete doc.active[employeeId];
+            }
+            doc.active[employeeId] = {
+              id: "sess-" + now,
+              kind: body.kind === "job" ? "job" : "shift",
+              jobId: body.jobId || null,
+              jobLabel: body.jobLabel || "",
+              startedAt: now,
+              note: "",
+              lastSeen: now,
+            };
+          } else if (body.op === "clock_out") {
+            const employeeId = String(body.employeeId || "").trim();
+            const sess = doc.active[employeeId];
+            if (sess) {
+              doc.entries.unshift({
+                id: "ent-" + now,
+                employeeId,
+                employeeName: (doc.employees.find((e) => e.id === employeeId) || {}).name || "Unknown",
+                kind: sess.kind || "shift",
+                jobId: sess.jobId || null,
+                jobLabel: sess.jobLabel || "",
+                startedAt: sess.startedAt,
+                endedAt: now,
+                durationMs: now - (sess.startedAt || now),
+                note: "",
+              });
+              delete doc.active[employeeId];
+            }
+          } else if (body.op === "add_employee" && body.name) {
+            doc.employees.push({
+              id: "emp-" + now,
+              name: String(body.name),
+              color: "#059669",
+              active: true,
+            });
+          } else if (body.op === "heartbeat" && body.employeeId && doc.active[body.employeeId]) {
+            doc.active[body.employeeId].lastSeen = now;
+          } else if (body.op === "patch_entry" && body.id) {
+            const ent = doc.entries.find((x) => x.id === body.id);
+            if (ent && body.patch) {
+              Object.assign(ent, body.patch);
+              if (ent.startedAt && ent.endedAt) ent.durationMs = ent.endedAt - ent.startedAt;
+            }
+          } else if (body.op === "add_entry") {
+            doc.entries.unshift({
+              id: "ent-" + now,
+              employeeId: body.employeeId,
+              employeeName: (doc.employees.find((e) => e.id === body.employeeId) || {}).name || "Unknown",
+              kind: body.kind === "job" ? "job" : "shift",
+              jobId: body.jobId || null,
+              jobLabel: body.jobLabel || "",
+              startedAt: body.startedAt,
+              endedAt: body.endedAt,
+              durationMs: body.endedAt - body.startedAt,
+              note: body.note || "",
+            });
+          } else if (body.op === "delete_entry" && body.id) {
+            doc.entries = doc.entries.filter((x) => x.id !== body.id);
+          }
+          doc.ts = now;
+          data = { ok: true, ...JSON.parse(JSON.stringify(doc)) };
+        } else data = JSON.parse(JSON.stringify(state.timetrack));
       } else if (path === "iterate") data = { ok: true };
       return { ok: true, status: 200, json: async () => data };
     })
@@ -301,6 +465,28 @@ export function mockServer(opts = {}) {
 export function groupSub(text) {
   const want = text.replace(/\s+/g, " ").trim();
   return (_, el) => !!el && (el.textContent || "").replace(/\s+/g, " ").trim() === want;
+}
+
+/** Stub anchor-based PDF open (openPdfUrl / openPdfBlob) without recursive createElement. */
+export function stubPdfOpen() {
+  const click = vi.fn();
+  const orig = document.createElement.bind(document);
+  vi.spyOn(document, "createElement").mockImplementation((tag) => {
+    if (tag === "a") {
+      const a = orig("a");
+      a.click = click;
+      return a;
+    }
+    return orig(tag);
+  });
+  if (!URL.createObjectURL) {
+    URL.createObjectURL = vi.fn(() => "blob:mock-pdf");
+    URL.revokeObjectURL = vi.fn();
+  } else {
+    vi.spyOn(URL, "createObjectURL").mockReturnValue("blob:mock-pdf");
+    vi.spyOn(URL, "revokeObjectURL").mockImplementation(() => {});
+  }
+  return click;
 }
 
 export function renderApp(hash = "#/") {

@@ -29,6 +29,7 @@ import { fmt$, ago } from "../lib/format.js";
 import CustomerCard from "../components/CustomerCard.jsx";
 import JobInfoCard from "../components/JobInfoCard.jsx";
 import JobAddressCarousel from "../components/JobAddressCarousel.jsx";
+import JobTimeCard from "../components/JobTimeCard.jsx";
 
 import JobEditSheet from "../components/JobEditSheet.jsx";
 
@@ -37,11 +38,11 @@ import {
   carouselVisibleJobs,
   changeOrderJobPatch,
 } from "../lib/changeOrder.js";
+import { cloneJobAtAddressPatch } from "../lib/customerHierarchy.js";
 import ChangeOrderSheet from "../components/ChangeOrderSheet.jsx";
 import {
   customerDisplayName,
   calendarServiceLocation,
-  effectiveServiceAddress,
 } from "../lib/customerSync.js";
 import {
   amountPaid,
@@ -51,6 +52,7 @@ import {
   openBalance,
   paidPct,
 } from "../lib/customers.js";
+import { touchCustomer } from "../lib/customerRecency.js";
 import { GroupJobRow } from "../components/JobCard.jsx";
 import { normalizePayments } from "../lib/payments.js";
 import Toggle from "../components/Toggle.jsx";
@@ -77,6 +79,7 @@ import {
   PaymentMenuSheet,
   ReminderSheet,
 } from "../components/JobSheets.jsx";
+import CustomerComposeSheet from "../components/CustomerComposeSheet.jsx";
 
 const CMD_TONES = {
   queued: "bg-slate-100 text-slate-500",
@@ -117,11 +120,26 @@ export default function JobDetail() {
     if (!job || !custKey) return job ? [job] : [];
     return sortJobs(jobsForCustomerKey(jobs, custKey));
   }, [job, jobs, custKey]);
+  useEffect(() => {
+    if (!job) return;
+    touchCustomer(custKey, customerJobs.length ? customerJobs : [job]);
+  }, [id, custKey, job?.id, customerJobs]);
   const siblingJobs = useMemo(() => customerJobs.filter((j) => j.id !== job?.id), [customerJobs, job?.id]);
   const addressJobs = useMemo(() => {
     if (!job) return [];
     return sortJobs(carouselVisibleJobs(jobs, job));
   }, [job, jobs]);
+
+  const addJobAtAddress = async () => {
+    if (!job) return;
+    const patch = cloneJobAtAddressPatch(job);
+    const newId = await createJob(patch);
+    if (newId) {
+      showToast("New job at this address — add details when ready");
+      const q = fromCust ? "?from=" + encodeURIComponent(fromCust) : "";
+      nav("/job/" + newId + q);
+    }
+  };
 
   const startChangeOrder = async (kind) => {
     if (!job) return;
@@ -287,9 +305,10 @@ export default function JobDetail() {
           name: customerDisplayName(job) || job.customer,
         }}
         showSummary={false}
-        mapAddress={effectiveServiceAddress(job)}
         primaryJob={job}
         onEdit={() => setSheet({ kind: "cust" })}
+        onText={() => setSheet({ kind: "compose", channel: "sms" })}
+        onEmail={() => setSheet({ kind: "compose", channel: "email" })}
       />
 
       {pending[id] ? (
@@ -308,6 +327,7 @@ export default function JobDetail() {
             onSelectJob={(j) => nav("/job/" + j.id + (fromCust ? "?from=" + encodeURIComponent(fromCust) : ""))}
             onAddChangeOrder={() => setSheet({ kind: "changeOrder" })}
             canAddChangeOrder={canAddChangeOrder(jobs, job)}
+            onAddJob={addJobAtAddress}
             onEditJob={() => setSheet({ kind: "jobedit" })}
             onEstimate={(j) => openDocTab(j, "estimate", setSheet)}
             onInvoice={(j) => openDocTab(j, "invoice", setSheet)}
@@ -324,6 +344,9 @@ export default function JobDetail() {
             showOpenLink={false}
             onCardTap={toggleDetailSections}
             onEditJob={() => setSheet({ kind: "jobedit" })}
+            onAddJob={addJobAtAddress}
+            onAddChangeOrder={() => setSheet({ kind: "changeOrder" })}
+            canAddChangeOrder={canAddChangeOrder(jobs, job)}
             onEstimate={() => openDocTab(job, "estimate", setSheet)}
             onInvoice={() => openDocTab(job, "invoice", setSheet)}
             onPayment={() => setSheet({ kind: "paymenu" })}
@@ -331,15 +354,6 @@ export default function JobDetail() {
             onBubbleTap={(bubble) => tapAwarenessBubble(job, bubble, setSheet, openDocTab)}
           />
         )}
-        <button
-          type="button"
-          className="w-full text-center text-xs font-semibold text-brand py-1.5 mt-1 disabled:opacity-40"
-          data-testid="add-change-order-btn"
-          disabled={!canAddChangeOrder(jobs, job)}
-          onClick={() => setSheet({ kind: "changeOrder" })}
-        >
-          ＋ Add change order
-        </button>
       </div>
 
       {!detailSectionsExpanded && siblingJobs.length > 0 ? (
@@ -357,6 +371,8 @@ export default function JobDetail() {
 
       {detailSectionsExpanded ? (
       <>
+      <JobTimeCard job={job} showToast={showToast} />
+
       {/* Money */}
       {(() => {
         const due = openBalance(job);
@@ -920,6 +936,21 @@ export default function JobDetail() {
       )}
 
       {sheet?.kind === "reminder" && <ReminderSheet job={job} onClose={() => setSheet(null)} />}
+      {sheet?.kind === "compose" && (
+        <CustomerComposeSheet
+          job={job}
+          channel={sheet.channel || "email"}
+          context={sheet.context || "general"}
+          title={sheet.title}
+          initialTo={sheet.initialTo}
+          initialPhone={sheet.initialPhone}
+          initialSubject={sheet.initialSubject}
+          initialMessage={sheet.initialMessage}
+          paymentUrl={sheet.paymentUrl}
+          extraActions={sheet.extraActions}
+          onClose={() => setSheet(null)}
+        />
+      )}
       {sheet?.kind === "attach" && <AttachSheet job={job} onClose={() => setSheet(null)} />}
       {sheet?.kind === "inspection" && (
         <InspectionSheet

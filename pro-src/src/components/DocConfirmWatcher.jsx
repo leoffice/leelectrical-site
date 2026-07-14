@@ -10,6 +10,7 @@ import {
 import { DOC_SYNC_COMMAND_TYPES, docSyncFailurePatch } from "../lib/docSync.js";
 import { briefTitlePatch } from "../lib/changeOrder.js";
 import { todayStr } from "../lib/format.js";
+import { qboStubJobIds } from "../lib/invoiceDedup.js";
 
 const DOC_FAIL_SEEN_KEY = "le-pro-doc-fail-seen";
 
@@ -40,7 +41,7 @@ function docFailToastMessage(c) {
 }
 
 export default function DocConfirmWatcher() {
-  const { commands, patchAndSave, effectiveJob, showDocConfirm, showToast, refreshCommands } = useStore();
+  const { commands, jobs, patchAndSave, effectiveJob, showDocConfirm, showToast, refreshCommands } = useStore();
   const seen = useRef(loadDocConfirmSeen());
   const failSeen = useRef(loadDocFailSeen());
 
@@ -85,6 +86,12 @@ export default function DocConfirmWatcher() {
       }
       Object.assign(patch, briefTitlePatch({ ...job, ...patch }, kind));
       patchAndSave(c.jobId, patch).catch(() => {});
+
+      if (kind === "invoice") {
+        for (const stubId of qboStubJobIds(jobs, no, c.jobId)) {
+          patchAndSave(stubId, { _deleted: true }).catch(() => {});
+        }
+      }
 
       showDocConfirm({
         kind,

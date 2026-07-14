@@ -111,6 +111,21 @@ describe("docSync", () => {
     expect(plan.commands[1].payload.shipAddr).toEqual({ Line1: "99 Oak Ave", Line2: "3C" });
   });
 
+  it("planDocSaveSync upgrades create to update when invoice already exists", () => {
+    const lines = [{ itemName: "Labor", qty: 1, unitPrice: 550, description: "Work" }];
+    const plan = planDocSaveSync(job, {
+      kind: "invoice",
+      mode: "create",
+      lines,
+      serviceAddress: "10 Broadway",
+      apartment: "2A",
+      send: false,
+    });
+    expect(plan.commands).toHaveLength(2);
+    expect(plan.commands[0].type).toBe("update_invoice");
+    expect(plan.commands[0].payload.invoiceNo).toBe("251900");
+  });
+
   it("planDocSaveSync on estimate edit enqueues linked invoice address update", () => {
     const plan = planDocSaveSync(job, {
       kind: "estimate",

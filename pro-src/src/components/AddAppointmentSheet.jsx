@@ -1,13 +1,14 @@
-// Create a Google Calendar appointment — week view for availability, reminders, guest notify.
+// Create or edit a Google Calendar appointment — week view, reminders, guest notify.
 import React, { useState } from "react";
 import Sheet, { Fld } from "./Sheet.jsx";
 import WeekCalendar from "./WeekCalendar.jsx";
 import { useStore } from "../state/store.jsx";
 import LocationSuggestField from "./LocationSuggestField.jsx";
 import { calendarServiceLocation } from "../lib/customerSync.js";
-import { withJobLink } from "../lib/calendarLink.js";
+import { displayEventNotes, withJobLink } from "../lib/calendarLink.js";
 import { DATE_STEPS, inspectionAppointmentTitle } from "../lib/paperwork.js";
-import { todayStr } from "../lib/format.js";
+import { evStart, todayStr } from "../lib/format.js";
+import { stashCalendarPick } from "../lib/calendarNavigate.js";
 
 /** Google Calendar colorId 11 = red (Tomato). */
 export const GCAL_RED_COLOR_ID = "11";
@@ -35,64 +36,187 @@ function jobDefaultDate(job, defaultDate) {
   return d ? d + "T09:00" : "";
 }
 
+function toLocalInput(start) {
+  const s = (start || "").replace(" ", "T");
+  if (!s) return "";
+  if (s.length === 10) return s + "T09:00";
+  return s.slice(0, 16);
+}
+
+/** Duplicate lands one week out so the copy is obvious on the calendar grid. */
+function duplicateDefaultDate(fromDt) {
+  if (!fromDt) return "";
+  const base = fromDt.includes("T") ? fromDt : fromDt + "T09:00";
+  try {
+    const d = new Date(base);
+    d.setDate(d.getDate() + 7);
+    const pad = (n) => String(n).padStart(2, "0");
+    return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${base.slice(11, 16) || "09:00"}`;
+  } catch {
+    return base;
+  }
+}
+
+function formatApptWhen(dt) {
+  if (!dt) return "";
+  return dt.replace("T", " ").slice(0, 16);
+}
+
+export function isInspectionEvent(ev) {
+  if (!ev) return false;
+  if (String(ev.colorId) === GCAL_RED_COLOR_ID) return true;
+  const s = (ev.summary || "").toLowerCase();
+  return /inspection|con edison appointment/.test(s);
+}
+
+function initialReminders(ev) {
+  const r = ev?.reminders;
+  if (!Array.isArray(r) || !r.length) return null;
+  return {
+    h1: r.some((x) => x.minutes === 60),
+    d1: r.some((x) => x.minutes === 1440),
+  };
+}
+
+function initialGuest(ev, job) {
+  const guests = ev?.guests || ev?.attendees || [];
+  const email = Array.isArray(guests) ? String(guests[0] || "").trim() : "";
+  return {
+    notify: !!email || !!job?.email,
+    email: email || job?.email || "",
+  };
+}
+
 export default function AddAppointmentSheet({
   defaultDate,
   defaultSummary,
   defaultLocation,
   defaultNotes,
   duplicateFrom,
+  editEvent,
   inspectionPreset,
   job,
   onClose,
   onSaved,
+  onDelete,
+  onDuplicate,
   showCalendar = true,
 }) {
   const { events, jobs, enqueue, showToast, patchAndSave, patchJob, appendLocalEvent, pullCalendarNow } = useStore();
-  const fromInspection = !!inspectionPreset?.step;
   const isDuplicate = !!duplicateFrom;
-  const presetDt = defaultDate || (fromInspection ? inspectionPreset?.date : "");
+  const isEdit = !!editEvent && !isDuplicate;
+  const fromInspection = !!inspectionPreset?.step || (isEdit && isInspectionEvent(editEvent));
+  const presetDt = defaultDate || (fromInspection && inspectionPreset ? inspectionPreset?.date : "");
+  const presetReminders = isEdit ? initialReminders(editEvent) : null;
+  const presetGuest = isEdit ? initialGuest(editEvent, job) : null;
+
   const [summary, setSummary] = useState(() => {
+    if (isEdit) return editEvent.summary || "";
     if (defaultSummary) return defaultSummary;
-    if (fromInspection) return inspectionAppointmentTitle(inspectionPreset.step, presetDt);
+    if (inspectionPreset?.step) return inspectionAppointmentTitle(inspectionPreset.step, presetDt);
     return jobDefaultSummary(job);
   });
-  const [dt, setDt] = useState(() => jobDefaultDate(job, presetDt));
-  const [location, setLocation] = useState(() => defaultLocation ?? (job ? calendarServiceLocation(job) : ""));
-  const [notes, setNotes] = useState(() => defaultNotes ?? jobDefaultNotes(job));
-  const [remind1h, setRemind1h] = useState(fromInspection);
-  const [remind1d, setRemind1d] = useState(fromInspection);
-  const [notifyCustomer, setNotifyCustomer] = useState(!!job?.email);
-  const [guestEmail, setGuestEmail] = useState(job?.email || "");
+  const [dt, setDt] = useState(() => {
+    if (isEdit) return toLocalInput(evStart(editEvent));
+    const raw = jobDefaultDate(job, presetDt);
+    return isDuplicate ? duplicateDefaultDate(raw) : raw;
+  });
+  const [location, setLocation] = useState(() => {
+    if (isEdit) return editEvent.location || "";
+    return defaultLocation ?? (job ? calendarServiceLocation(job) : "");
+  });
+  const [notes, setNotes] = useState(() => {
+    if (isEdit) return displayEventNotes(editEvent.description) || "";
+    return defaultNotes ?? jobDefaultNotes(job);
+  });
+  const [remind1h, setRemind1h] = useState(() =>
+    presetReminders ? presetReminders.h1 : fromInspection
+  );
+  const [remind1d, setRemind1d] = useState(() =>
+    presetReminders ? presetReminders.d1 : fromInspection
+  );
+  const [notifyCustomer, setNotifyCustomer] = useState(() =>
+    presetGuest ? presetGuest.notify : !!job?.email
+  );
+  const [guestEmail, setGuestEmail] = useState(() =>
+    presetGuest ? presetGuest.email : job?.email || ""
+  );
 
   const pickDay = (dayKey) => {
     const time = dt && dt.includes("T") ? dt.slice(11, 16) : "09:00";
     setDt(dayKey + "T" + time);
   };
 
-  const save = async () => {
-    const title = (summary || "").trim();
-    if (!title) return showToast("Add a title for the appointment");
-    if (!dt) return showToast("Pick date and time");
-    const busId = job?.id || "today";
-    const description = job ? withJobLink(notes || "Created in LE Pro", job.id) : notes || "Created in LE Pro";
-    const key =
-      (isDuplicate ? "caldup:" : job ? "jobcal:" + job.id : "todaycal:") + ":" + dt + ":" + title.slice(0, 24);
+  const buildNotifyPayload = () => {
     const guests = notifyCustomer && guestEmail.trim() ? [guestEmail.trim()] : [];
     const reminders = [];
     if (remind1h) reminders.push({ label: "1h", minutes: 60 });
     if (remind1d) reminders.push({ label: "1d", minutes: 1440 });
-
-    const payload = {
-      calEventId: isDuplicate ? "" : job?.calEventId || "",
-      summary: title,
-      start: dt,
-      location: location || "",
-      description,
+    return {
       guests,
       attendees: guests,
       reminders,
       notifyCustomer: notifyCustomer && guests.length > 0,
     };
+  };
+
+  const save = async () => {
+    const title = (summary || "").trim();
+    if (!title) return showToast("Add a title for the appointment");
+    if (!dt) return showToast("Pick date and time");
+    const notify = buildNotifyPayload();
+
+    if (isEdit) {
+      const eventId = editEvent.id || "";
+      const busId = job?.id || "today";
+      const description = job?.id ? withJobLink(notes, job.id) : notes || "Updated in LE Pro";
+      const payload = {
+        calEventId: eventId,
+        summary: title,
+        start: dt,
+        location: location || "",
+        description,
+        ...notify,
+      };
+      if (fromInspection) payload.colorId = GCAL_RED_COLOR_ID;
+      else if (editEvent.colorId) payload.colorId = editEvent.colorId;
+
+      await enqueue(
+        "calendar_upsert",
+        busId,
+        payload,
+        "judgment",
+        "caledit:" + (eventId || dt) + ":" + title.slice(0, 24)
+      );
+      const patch = {
+        id: eventId || "pending-" + Date.now(),
+        summary: title,
+        start: dt,
+        location: location || "",
+        description,
+      };
+      appendLocalEvent({ ...editEvent, ...patch });
+      pullCalendarNow();
+      showToast("Appointment updated — syncing to calendar");
+      onSaved?.({ ...editEvent, ...patch });
+      onClose();
+      return;
+    }
+
+    const busId = job?.id || "today";
+    const description = job ? withJobLink(notes || "Created in LE Pro", job.id) : notes || "Created in LE Pro";
+    const key = isDuplicate
+      ? "caldup:" + Date.now() + ":" + dt + ":" + title.slice(0, 24)
+      : (job ? "jobcal:" + job.id : "todaycal:") + ":" + dt + ":" + title.slice(0, 24);
+
+    const payload = {
+      summary: title,
+      start: dt,
+      location: location || "",
+      description,
+      ...notify,
+    };
+    if (!isDuplicate && job?.calEventId) payload.calEventId = job.calEventId;
     if (fromInspection) payload.colorId = GCAL_RED_COLOR_ID;
 
     await enqueue("calendar_upsert", busId, payload, "judgment", key);
@@ -130,29 +254,43 @@ export default function AddAppointmentSheet({
       location: location || "",
       description,
     });
+    stashCalendarPick(pendingId);
     pullCalendarNow();
     showToast(
       isDuplicate
-        ? "Duplicate queued — syncing to calendar"
+        ? "Duplicate saved for " + formatApptWhen(dt) + " — syncing to Google Calendar"
         : job
           ? "Appointment queued for " + (job.customer || "job")
           : "Appointment queued — syncs to Google Calendar"
     );
-    onSaved?.();
+    onSaved?.({ id: pendingId, summary: title, start: dt, location: location || "", description });
     onClose();
   };
 
+  const sheetTitle = isEdit
+    ? "Edit appointment"
+    : isDuplicate
+      ? "Duplicate appointment"
+      : job
+        ? "Add appointment — " + (job.customer || "job")
+        : "Add appointment";
+
   return (
-    <Sheet
-      title={
-        isDuplicate ? "Duplicate appointment" : job ? "Add appointment — " + (job.customer || "job") : "Add appointment"
-      }
-      onClose={onClose}
-      wide
-    >
-      {isDuplicate && job ? (
-        <p className="text-[11px] text-slate-400 -mt-1 mb-2">New copy stays linked to the same job — saves as a fresh calendar event.</p>
-      ) : job ? (
+    <Sheet title={sheetTitle} onClose={onClose} wide>
+      {isEdit && job?.id ? (
+        <p className="text-[11px] text-slate-400 -mt-1 mb-2">Linked to job {job.id}.</p>
+      ) : null}
+      {isDuplicate ? (
+        <p className="text-[11px] text-slate-400 -mt-1 mb-2">
+          {job
+            ? "New copy stays linked to the same job — date bumped one week out; change it below if you want."
+            : "Fresh copy — date bumped one week out; change it below if you want."}
+        </p>
+      ) : fromInspection ? (
+        <p className="text-[11px] text-slate-400 -mt-1 mb-2">
+          Inspection — syncs as <span className="text-red-600 font-semibold">red</span> with guest + reminders.
+        </p>
+      ) : !isEdit && job ? (
         <p className="text-[11px] text-slate-400 -mt-1 mb-2">
           Pre-filled from {job._customerContext ? "customer" : "job"} info — writes to office@leelectrical.us
         </p>
@@ -226,8 +364,18 @@ export default function AddAppointmentSheet({
       ) : null}
 
       <button type="button" className="btn-brand w-full" onClick={save} data-testid="appt-save">
-        Save &amp; sync to calendar
+        {isEdit ? "Save changes" : "Save & sync to calendar"}
       </button>
+      {onDuplicate ? (
+        <button type="button" className="btn bg-brand-soft text-brand w-full mt-2" onClick={onDuplicate}>
+          Duplicate (same job link)
+        </button>
+      ) : null}
+      {onDelete ? (
+        <button type="button" className="btn-ghost w-full mt-2 text-red-600" onClick={onDelete}>
+          Delete appointment
+        </button>
+      ) : null}
       <p className="text-[11px] text-slate-400 text-center mt-2">
         Syncs to office@leelectrical.us — appears on Today after sync.
       </p>
