@@ -7,7 +7,7 @@ import CustomerCard from "../components/CustomerCard.jsx";
 import RequisitionDetail from "../components/requisition/RequisitionDetail.jsx";
 import ChangeOrdersPanel from "../components/requisition/ChangeOrdersPanel.jsx";
 import { useStore } from "../state/store.jsx";
-import { itemEarned, overallPct } from "../lib/requisitionCalc.js";
+import { isChangeOrderItem, itemEarned, overallPct, requisitionItems } from "../lib/requisitionCalc.js";
 import {
   BAEZ_PROJECT_ID,
   ensureProjectDefaults,
@@ -340,6 +340,7 @@ function RequisitionWorkbench({ project, onSave, busy, showToast, onSaved }) {
     const groups = [];
     let cur = { name: "General", items: [] };
     for (const it of draft.items || []) {
+      if (isChangeOrderItem(it)) continue;
       if (it.section && it.section !== cur.name) {
         if (cur.items.length) groups.push(cur);
         cur = { name: it.section, items: [] };
@@ -355,7 +356,7 @@ function RequisitionWorkbench({ project, onSave, busy, showToast, onSaved }) {
       <div className="flex items-center justify-between gap-2">
         <h2 className="text-sm font-extrabold text-slate-700 uppercase tracking-wide">New Requisition</h2>
         <span className="text-xs text-slate-500">
-          {fmtUsd(draft.contractSum)} · {overallPct(draft.items)}% · {draft.retainagePct}% retainage
+          {fmtUsd(draft.contractSum)} · {overallPct(requisitionItems(draft.items))}% · {draft.retainagePct}% retainage
         </span>
       </div>
 
@@ -376,12 +377,7 @@ function RequisitionWorkbench({ project, onSave, busy, showToast, onSaved }) {
         <div className="grid grid-cols-2 gap-x-4 gap-y-1">
           <span className="text-slate-500">Original contract done</span>
           <span className="text-right font-semibold">{fmtUsd(completion.baseCompleted)}</span>
-          {completion.coScheduled > 0 ? (
-            <>
-              <span className="text-slate-500">Change orders done</span>
-              <span className="text-right">{fmtUsd(completion.coCompleted)}</span>
-            </>
-          ) : null}
+
           <span className="text-slate-500">Total completed</span>
           <span className="text-right font-semibold">{fmtUsd(previewG702.totalCompleted)}</span>
           <span className="text-slate-500 font-bold">Current payment due</span>

@@ -4,10 +4,17 @@ import {
   baseContractItems,
   buildG702,
   changeOrderItems,
+  requisitionItems,
   roundMoney,
   sumItemValues,
 } from "./requisitionCalc.js";
 import { fmtUsd } from "./requisitionData.js";
+
+export const REQUISITION_EMAIL_SIGNATURE = [
+  "Thank you,",
+  "Martin Dorkin / LE Electrical",
+  "Office@LeElectrical.us",
+].join("\n");
 
 const ACTIVE_REQ_STATUSES = new Set(["submitted", "generated"]);
 
@@ -109,7 +116,7 @@ export function reconcileRequisitionFinancials(project) {
     const snapMap = Object.fromEntries(
       (r.itemsSnapshot || []).map((s) => [s.key || sovItemKey(s), s.completedPct])
     );
-    const draftItems = items.map((it) => ({
+    const draftItems = requisitionItems(items).map((it) => ({
       ...it,
       completedPct: snapMap[sovItemKey(it)] ?? carriedPctForItem(it, previousItemSnapshot({ requisitions: rebuilt })) ?? 0,
     }));
@@ -226,7 +233,7 @@ export function previousPctByItemId(project, beforeReqId) {
 function prevItemsByIdForG702(project, beforeReqId) {
   const snap = previousItemSnapshot(project, beforeReqId);
   const out = {};
-  for (const it of project?.items || []) {
+  for (const it of requisitionItems(project?.items)) {
     const pct = carriedPctForItem(it, snap);
     if (pct != null) out[it.id] = { completedPct: pct };
   }
@@ -269,17 +276,23 @@ export function changeOrdersTotal(project) {
   return Number(project?.changeOrders) || 0;
 }
 
-/** Build G702 for a draft using prior requisition snapshot. */
+/** Build G702 for a draft using prior requisition snapshot (base contract only — no CO lines). */
 export function buildDraftG702(project, opts = {}) {
   const prevItemsById = prevItemsByIdForG702(project);
-  const withCo = { ...project, changeOrders: changeOrdersTotal(project) };
-  return buildG702(withCo, { ...opts, prevItemsById });
+  const scoped = { ...project, items: requisitionItems(project.items) };
+  return buildG702(scoped, { ...opts, prevItemsById, includeChangeOrders: false });
 }
 
 /** Create a requisition record from current draft. */
 export function createRequisitionRecord(project, draft, opts = {}) {
   const g702 = buildDraftG702(draft, { periodTo: opts.periodTo });
-  const snap = (draft.items || []).map((it) => ({ id: it.id, completedPct: it.completedPct }));
+  const snap = requisitionItems(draft.items).map((it) => ({
+    id: it.id,
+    key: sovItemKey(it),
+    section: it.section,
+    description: it.description,
+    completedPct: it.completedPct,
+  }));
   const num = opts.num ?? nextRequisitionNum(project);
   const applicationNumber = opts.applicationNumber || `REQ-${num}`;
   return {
@@ -308,7 +321,7 @@ export function createRequisitionRecord(project, draft, opts = {}) {
 }
 
 /** Email summary for GC — mirrors prior requisition email style. */
-export function buildRequisitionEmail({ project, requisition, contact }) {
+export function buildRequisitionEmail({ project, requisition, contact, to: toOverride, subject: subjectOverride, attachments = [] }) {
   const req = requisition;
   const gc = project?.gc || "General Contractor";
   const proj = project?.name || "Project";
@@ -320,7 +333,13 @@ export function buildRequisitionEmail({ project, requisition, contact }) {
   const total = fmtUsd(req.totalCompleted);
   const bal = fmtUsd(requisitionBalance(req));
 
-  const subject = `${app} — ${proj} — Progress Payment Application`;
+  const subject = subjectOverride?.trim() || `${app} — ${proj} — Progress Payment Application`;
+
+  const attachLines = [
+    "• G702 Application and Certificate for Payment (PDF)",
+    "• G703 Continuation Sheet (PDF)",
+    ...attachments.map((a) => `• ${a.name}`),
+  ];
 
   const body = [
     `Please find attached the progress payment application for ${proj}.`,
@@ -336,21 +355,16 @@ export function buildRequisitionEmail({ project, requisition, contact }) {
     `Current payment due: ${due}`,
     `Balance remaining on this application: ${bal}`,
     "",
-    "Attached:",
-    "• G702 Application and Certificate for Payment",
-    "• G703 Continuation Sheet",
+    "Attach to your email:",
+    ...attachLines,
     "",
-    "Supporting invoices and photos are included as noted.",
-    "",
-    "Thank you,",
-    "Martin Dorkin / LE Electrical",
-    "Office@LeElectrical.us",
+    REQUISITION_EMAIL_SIGNATURE,
   ]
     .filter(Boolean)
     .join("\n");
 
-  const to = (contact?.email || "").trim();
-  return { subject, body, to };
+  const to = (toOverride ?? contact?.email ?? "").trim();
+  return { subject, body, to, signature: REQUISITION_EMAIL_SIGNATURE };
 }
 
 export function mailtoRequisitionUrl(email) {
