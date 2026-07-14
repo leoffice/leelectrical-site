@@ -3,6 +3,7 @@ import { parseSovCsv } from "../src/lib/sovParser.js";
 import { buildG702, itemEarned, overallPct } from "../src/lib/requisitionCalc.js";
 import { seedBaezProject } from "../src/lib/requisitionData.js";
 import {
+  applyCarriedPercentages,
   buildRequisitionEmail,
   createRequisitionRecord,
   pctChangeStatus,
@@ -68,6 +69,17 @@ describe("requisitionHelpers", () => {
     ];
     const snap = previousItemSnapshot(project);
     expect(snap["item-1"]).toBe(40);
+  });
+
+  it("applyCarriedPercentages seeds new req from last submitted snapshot", () => {
+    const project = seedBaezProject();
+    project.items = project.items.slice(0, 2).map((it) => ({ ...it, completedPct: 0 }));
+    project.requisitions = [
+      { id: "r1", status: "submitted", itemsSnapshot: [{ id: "item-1", completedPct: 55 }, { id: "item-2", completedPct: 30 }] },
+    ];
+    const next = applyCarriedPercentages(project);
+    expect(next.items[0].completedPct).toBe(55);
+    expect(next.items[1].completedPct).toBe(30);
   });
 
   it("createRequisitionRecord captures G702 fields", () => {

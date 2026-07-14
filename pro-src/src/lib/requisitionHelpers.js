@@ -3,6 +3,21 @@
 import { buildG702 } from "./requisitionCalc.js";
 import { fmtUsd } from "./requisitionData.js";
 
+/** Seed SOV line % from the last saved requisition (new req starts where the last one left off). */
+export function applyCarriedPercentages(project) {
+  if (!project) return project;
+  const prev = previousItemSnapshot(project);
+  const hasPrev = Object.keys(prev).length > 0;
+  if (!hasPrev) return project;
+  return {
+    ...project,
+    items: (project.items || []).map((it) => ({
+      ...it,
+      completedPct: prev[it.id] ?? it.completedPct ?? 0,
+    })),
+  };
+}
+
 /** Map of item id → completedPct from the last submitted requisition. */
 export function previousItemSnapshot(project, beforeReqId) {
   const reqs = (project?.requisitions || []).filter((r) => r.status !== "draft");

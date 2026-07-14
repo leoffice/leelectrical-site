@@ -23,6 +23,7 @@ import {
   upsertProject,
 } from "../lib/requisitionData.js";
 import {
+  applyCarriedPercentages,
   buildDraftG702,
   createRequisitionRecord,
   pctChangeStatus,
@@ -39,6 +40,7 @@ function pctInput(val, onChange, status) {
       : status === "unchanged"
       ? "bg-red-50 text-red-700 border-red-200"
       : "bg-red-50/60 text-red-600 border-red-100";
+  const display = Number.isFinite(Number(val)) ? Number(val) : 0;
   return (
     <input
       type="number"
@@ -46,7 +48,9 @@ function pctInput(val, onChange, status) {
       max={100}
       step={1}
       className={`w-16 text-right border rounded px-1 py-0.5 text-sm ${cls}`}
-      value={val}
+      value={display}
+      onFocus={(e) => e.target.select()}
+      onClick={(e) => e.target.select()}
       onChange={(e) => onChange(Math.min(100, Math.max(0, Number(e.target.value) || 0)))}
       data-testid="sov-pct-input"
     />
@@ -200,14 +204,14 @@ function RequisitionHistoryList({ project, onSelect }) {
 }
 
 function RequisitionWorkbench({ project, onSave, busy, showToast, onSaved }) {
-  const [draft, setDraft] = useState(project);
+  const [draft, setDraft] = useState(() => applyCarriedPercentages(project));
   const [periodTo, setPeriodTo] = useState(new Date().toISOString().slice(0, 10));
   const [reqNum, setReqNum] = useState(String((project.requisitions?.length || 0) + 1));
   const [appNum, setAppNum] = useState(`REQ-${(project.requisitions?.length || 0) + 1}`);
   const [pendingReq, setPendingReq] = useState(null);
   const dirty = JSON.stringify(draft.items) !== JSON.stringify(project.items);
 
-  useEffect(() => setDraft(project), [project]);
+  useEffect(() => setDraft(applyCarriedPercentages(project)), [project]);
 
   useEffect(() => {
     if (dirty) setPendingReq(null);
@@ -258,7 +262,10 @@ function RequisitionWorkbench({ project, onSave, busy, showToast, onSaved }) {
 
   const savePending = async () => {
     if (!pendingReq) return;
-    const next = { ...draft, requisitions: [...(draft.requisitions || []), pendingReq] };
+    const next = applyCarriedPercentages({
+      ...draft,
+      requisitions: [...(draft.requisitions || []), pendingReq],
+    });
     await onSave(next);
     setPendingReq(null);
     showToast?.("Requisition saved — open it from the card above for files and email");
