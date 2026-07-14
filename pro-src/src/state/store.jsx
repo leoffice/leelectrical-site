@@ -24,6 +24,7 @@ import { customerQboJobPatch } from "../lib/customerQboLink.js";
 import { flushPendingDocSync, hasPendingDocSync, takePendingDocSync } from "../lib/docSyncChain.js";
 import { runDailyDedupeScan } from "../lib/dedupeScan.js";
 import { touchCustomerJob } from "../lib/customerRecency.js";
+import { hydrateDismissed } from "../lib/customers.js";
 import {
   calendarUpsertLinksJob,
   isCalendarUnlinkCommand,
@@ -239,6 +240,13 @@ export function StoreProvider({ children }) {
     []
   );
 
+  const refreshNomerge = useCallback(async () => {
+    try {
+      const pairs = await api.getNomergePairs?.();
+      if (pairs?.length) hydrateDismissed(pairs);
+    } catch {}
+  }, []);
+
   const refresh = useCallback(
     async (quiet, opts = {}) => {
       const pullCal = opts.pullCalendar === true;
@@ -250,9 +258,10 @@ export function StoreProvider({ children }) {
         refreshDev(),
         refreshSas(),
         refreshEmailInsights(),
+        refreshNomerge(),
       ]);
     },
-    [refreshJobs, refreshEvents, refreshCommands, refreshDev, refreshSas, refreshEmailInsights]
+    [refreshJobs, refreshEvents, refreshCommands, refreshDev, refreshSas, refreshEmailInsights, refreshNomerge]
   );
 
   useEffect(() => {

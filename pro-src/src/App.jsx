@@ -199,23 +199,15 @@ export default function App() {
       </aside>
 
       <div className="flex-1 min-w-0 flex flex-col lg:pl-64">
-        {/* Mobile header — logo fills ~95% of bar height; sync chip on the right */}
-        <header
-          className="lg:hidden sticky top-0 z-30 bg-white border-b border-slate-200 shadow-sm pt-safe"
-          data-testid="mobile-header"
+        {/* Mobile — floating sync chip only (no top logo bar) */}
+        <div
+          className="lg:hidden fixed top-0 right-0 z-30 pt-safe pr-2 flex items-center h-11 pointer-events-none"
+          data-testid="mobile-sync-float"
         >
-          <div className="flex items-center h-11 px-2 gap-2">
-            <img
-              src={import.meta.env.BASE_URL + "le-logo.png?v=5"}
-              alt="LE Electrical"
-              className="h-[95%] w-auto max-w-[min(72vw,220px)] object-contain object-left"
-              data-testid="mobile-header-logo"
-            />
-            <span className="ml-auto shrink-0 flex items-center gap-1.5">
-              <SyncChip compact />
-            </span>
-          </div>
-        </header>
+          <span className="pointer-events-auto">
+            <SyncChip compact />
+          </span>
+        </div>
 
         {error && (
           <div className="mx-4 mt-3 card border-red-200 bg-red-50 text-red-700 text-sm px-4 py-2.5 flex items-center gap-3">
@@ -335,7 +327,7 @@ export default function App() {
 
         {docConfirm && (
           <div
-            className="fixed top-12 lg:top-4 left-1/2 -translate-x-1/2 z-[70] bg-emerald-600 text-white text-sm font-semibold px-5 py-3 rounded-2xl shadow-xl max-w-[92vw] text-center"
+            className="fixed top-4 left-1/2 -translate-x-1/2 z-[70] bg-emerald-600 text-white text-sm font-semibold px-5 py-3 rounded-2xl shadow-xl max-w-[92vw] text-center"
             data-testid="doc-confirm-banner"
           >
             ✓ {docConfirmMessage(docConfirm)}

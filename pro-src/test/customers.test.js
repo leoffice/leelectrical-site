@@ -8,7 +8,9 @@ import {
   customerProfileFromJobs,
   dismissPair,
   findMergeSuggestion,
+  hydrateDismissed,
   isDismissed,
+  mergePairAlreadyResolved,
   isSnoozed,
   levenshtein,
   namesNearDuplicate,
@@ -84,6 +86,15 @@ describe("snooze memory (lepro_merge_snooze)", () => {
 });
 
 describe("dismissal memory (lepro_nomerge)", () => {
+  it("hydrateDismissed merges server pairs into local storage", () => {
+    dismissPair("Alpha Co", "Beta Co");
+    hydrateDismissed(["gamma co|delta co", "arthur koptiv|arthur koptive"]);
+    const stored = JSON.parse(localStorage.getItem("lepro_nomerge"));
+    expect(stored).toContain("alpha co|beta co");
+    expect(stored).toContain("gamma co|delta co");
+    expect(stored).toContain("arthur koptiv|arthur koptive");
+  });
+
   it("pairId is order-independent and persisted dismissals stick", () => {
     expect(pairId("Arthur Koptive", "Arthur koptiv")).toBe("arthur koptiv|arthur koptive");
     expect(isDismissed("Arthur koptiv", "Arthur Koptive")).toBe(false);
@@ -194,6 +205,13 @@ describe("findMergeSuggestion", () => {
         { id: "2", customer: "Arthur Koptive", clientGroup: "g1" },
       ])
     ).toBeNull();
+  });
+
+  it("parent/sub-linked jobs are not re-prompted", () => {
+    const parent = { id: "1", customer: "Mgmt Holdings", qboCustomerId: "100" };
+    const sub = { id: "2", customer: "Mgmt LLC", parentCustomerName: "Mgmt Holdings" };
+    expect(mergePairAlreadyResolved(parent, sub)).toBe(true);
+    expect(findMergeSuggestion([parent, sub])).toBeNull();
   });
 
   it("expanded scan: same phone across different names triggers contact match", () => {

@@ -4,11 +4,13 @@ import React, { useCallback, useMemo, useState } from "react";
 import { useStore } from "../state/store.jsx";
 import Sheet, { Opt } from "./Sheet.jsx";
 import SideBySideCompare from "./SideBySideCompare.jsx";
+import api from "../data/adapter.js";
 import {
   customerContactCompareRows,
   customerProfileFromJobs,
   dismissPair,
   findMergeSuggestion,
+  persistDismissed,
   snoozePair,
 } from "../lib/customers.js";
 import { parentCustomerPatch } from "../lib/customerHierarchy.js";
@@ -255,8 +257,11 @@ export default function MergePrompt() {
     const all = [...sug.a.jobs, ...sug.b.jobs];
     const grp = all.map((j) => j.clientGroup).find(Boolean) || "grp" + Date.now();
     for (const j of all) await patchAndSave(j.id, { clientGroup: grp });
+    dismissPair(sug.a.name, sug.b.name);
+    persistDismissed(api);
     setBusy(false);
     setMode("prompt");
+    setTick((t) => t + 1);
     showToast("Jobs grouped under one client");
   };
 
@@ -280,6 +285,7 @@ export default function MergePrompt() {
     }
 
     dismissPair(sug.a.name, sug.b.name);
+    persistDismissed(api);
     setBusy(false);
     setMode("prompt");
     setTick((t) => t + 1);
@@ -295,6 +301,7 @@ export default function MergePrompt() {
 
   const separate = () => {
     dismissPair(sug.a.name, sug.b.name);
+    persistDismissed(api);
     setMode("prompt");
     setTick((t) => t + 1);
     showToast("Got it — separate customers");

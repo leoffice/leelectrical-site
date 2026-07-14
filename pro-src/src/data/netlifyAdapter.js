@@ -211,6 +211,19 @@ export function createNetlifyAdapter() {
       return this.saveJob("_projects", projects || { list: [] });
     },
 
+    /** "Separate customers" / parent-sub decisions — ov._nomerge (reserved key). */
+    async getNomergePairs() {
+      const state = await http(`state?${cb()}`);
+      const ov = (state && state.ov) || {};
+      const v = ov._nomerge;
+      return Array.isArray(v) ? v.filter(Boolean) : [];
+    },
+
+    async saveNomergePairs(pairs) {
+      const list = Array.isArray(pairs) ? [...new Set(pairs.filter(Boolean))] : [];
+      return this.saveJob("_nomerge", list);
+    },
+
     /** Agent invoice-edit learning loop — ov._invoiceEditLearning (reserved key). */
     async appendInvoiceEditFeedback(entry) {
       const state = await freshState();

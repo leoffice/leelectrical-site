@@ -6,7 +6,7 @@
 //   namesNearDuplicate("Arthur koptiv","Arthur Koptive") -> true
 //   findMergeSuggestion(jobs) -> first non-dismissed near-duplicate pair
 //   dismissPair / isDismissed -> permanent "Not the same" memory
-//     (localStorage lepro_nomerge, key = sorted normalized pair)
+//     (localStorage lepro_nomerge + server ov._nomerge — synced on dismiss)
 //   snoozePair / isSnoozed -> "Ask me later" until next login
 //     (sessionStorage lepro_merge_snooze — cleared on fresh app open)
 
@@ -303,6 +303,20 @@ export function loadDismissed() {
   }
 }
 
+/** Merge server-stored dismissals into local memory (device sync). */
+export function hydrateDismissed(serverList) {
+  const remote = Array.isArray(serverList) ? serverList.filter(Boolean) : [];
+  if (!remote.length) return loadDismissed();
+  const local = loadDismissed();
+  const merged = [...new Set([...local, ...remote])];
+  if (merged.length !== local.length) {
+    try {
+      localStorage.setItem(NOMERGE_KEY, JSON.stringify(merged));
+    } catch {}
+  }
+  return merged;
+}
+
 export function isDismissed(a, b) {
   return loadDismissed().includes(pairId(a, b));
 }
@@ -315,6 +329,16 @@ export function dismissPair(a, b) {
     try {
       localStorage.setItem(NOMERGE_KEY, JSON.stringify(list));
     } catch {}
+  }
+}
+
+/** Push the full dismissal list to the server overlay (fire-and-forget). */
+export async function persistDismissed(api) {
+  if (!api?.saveNomergePairs) return;
+  try {
+    await api.saveNomergePairs(loadDismissed());
+  } catch {
+    /* offline — local copy still works */
   }
 }
 
@@ -539,6 +563,25 @@ export function boardCustomerLabel(job, jobs) {
   return display;
 }
 
+/** True when Levi already linked, combined, or parent/sub-resolved this pair. */
+export function mergePairAlreadyResolved(ja, jb) {
+  if (!ja || !jb) return false;
+  if (ja.clientGroup && jb.clientGroup && ja.clientGroup === jb.clientGroup) return true;
+  const na = normalizeCustomer(ja.customer);
+  const nb = normalizeCustomer(jb.customer);
+  const pa = normalizeCustomer(ja.parentCustomerName);
+  const pb = normalizeCustomer(jb.parentCustomerName);
+  if (pa && pa === nb) return true;
+  if (pb && pb === na) return true;
+  const qida = String(ja.qboCustomerId || "").trim();
+  const qidb = String(jb.qboCustomerId || "").trim();
+  const pqida = String(ja.parentQboCustomerId || "").trim();
+  const pqidb = String(jb.parentQboCustomerId || "").trim();
+  if (pqida && qidb && pqida === qidb) return true;
+  if (pqidb && qida && pqidb === qida) return true;
+  return false;
+}
+
 /** First (deterministic) pair of distinct client keys whose names look like
  *  the same customer and that Levi hasn't already said "Not the same" to.
  *  Returns { id, a:{name,jobs}, b:{name,jobs} } or null. */
@@ -557,6 +600,7 @@ export function findMergeSuggestion(jobs) {
     for (let k = i + 1; k < entries.length; k++) {
       const jb = entries[k][1][0];
       const nb = jb.customer;
+      if (mergePairAlreadyResolved(ja, jb)) continue;
       const nameMatch = namesNearDuplicate(na, nb);
       const contactMatch = !nameMatch && contactInfoMatches(ja, jb);
       if (!nameMatch && !contactMatch) continue;
