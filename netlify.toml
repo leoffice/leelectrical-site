@@ -19,14 +19,6 @@
 [functions."docs-cleanup"]
   schedule = "@daily"
 
-# Apex → www (cutover: www on Cloudflare, apex still on Netlify)
-[[redirects]]
-  from = "/*"
-  to = "https://www.leelectrical.us/:splat"
-  status = 301
-  force = true
-  conditions = {Host = ["leelectrical.us"]}
-
 # Short customer pay links — /pay/251825-x7k2 → pay-link resolver → LE Pro pay page
 [[redirects]]
   from = "/pay/:code"
