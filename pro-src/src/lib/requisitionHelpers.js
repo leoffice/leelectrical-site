@@ -3,34 +3,100 @@
 import { buildG702 } from "./requisitionCalc.js";
 import { fmtUsd } from "./requisitionData.js";
 
-/** Seed SOV line % from the last saved requisition (new req starts where the last one left off). */
-export function applyCarriedPercentages(project) {
-  if (!project) return project;
-  const prev = previousItemSnapshot(project);
-  const hasPrev = Object.keys(prev).length > 0;
-  if (!hasPrev) return project;
-  return {
-    ...project,
-    items: (project.items || []).map((it) => ({
-      ...it,
-      completedPct: prev[it.id] ?? it.completedPct ?? 0,
-    })),
-  };
+/** Stable key for matching SOV lines across imports / CSV re-uploads. */
+export function sovItemKey(it) {
+  const sec = String(it?.section || "")
+    .trim()
+    .toLowerCase()
+    .replace(/\s+/g, " ");
+  const desc = String(it?.description || "")
+    .trim()
+    .toLowerCase()
+    .replace(/\s+/g, " ");
+  return `${sec}|${desc}`;
 }
 
-/** Map of item id → completedPct from the last submitted requisition. */
-export function previousItemSnapshot(project, beforeReqId) {
+/** Next requisition sequence number (max existing + 1, not array length). */
+export function nextRequisitionNum(project) {
+  const nums = (project?.requisitions || []).map((r) => Number(r.num) || 0);
+  const max = nums.length ? Math.max(...nums) : 0;
+  return max + 1;
+}
+
+function lastRequisition(project, beforeReqId) {
   const reqs = (project?.requisitions || []).filter((r) => r.status !== "draft");
-  const sorted = [...reqs].sort((a, b) => (a.createdAt || 0) - (b.createdAt || 0));
+  const sorted = [...reqs].sort(
+    (a, b) => (a.num || 0) - (b.num || 0) || (a.createdAt || 0) - (b.createdAt || 0)
+  );
   let prev = null;
   for (const r of sorted) {
     if (beforeReqId && r.id === beforeReqId) break;
     prev = r;
   }
+  return prev;
+}
+
+/** % for one SOV line from a snapshot (id first, then section|description). */
+export function carriedPctForItem(it, snap) {
+  if (!it || !snap) return null;
+  if (snap.byId[it.id] != null) return snap.byId[it.id];
+  const key = sovItemKey(it);
+  if (snap.byKey[key] != null) return snap.byKey[key];
+  return null;
+}
+
+/** Seed SOV line % from the last saved requisition (new req starts where the last one left off). */
+export function applyCarriedPercentages(project) {
+  if (!project) return project;
+  const snap = previousItemSnapshot(project);
+  const hasSnap = Object.keys(snap.byId).length > 0 || Object.keys(snap.byKey).length > 0;
+  if (!hasSnap) return project;
+  return {
+    ...project,
+    items: (project.items || []).map((it) => ({
+      ...it,
+      completedPct: carriedPctForItem(it, snap) ?? it.completedPct ?? 0,
+    })),
+  };
+}
+
+/**
+ * Snapshot from the last submitted requisition.
+ * Returns { byId, byKey } maps for matching current SOV lines.
+ */
+export function previousItemSnapshot(project, beforeReqId) {
+  const prev = lastRequisition(project, beforeReqId);
   const snap = prev?.itemsSnapshot || [];
-  const map = {};
-  for (const it of snap) map[it.id] = it.completedPct ?? 0;
-  return map;
+  const byId = {};
+  const byKey = {};
+  for (const it of snap) {
+    const pct = it.completedPct ?? 0;
+    if (it.id) byId[it.id] = pct;
+    const key = it.key || sovItemKey(it);
+    if (key) byKey[key] = pct;
+  }
+  return { byId, byKey };
+}
+
+/** Flat id → pct map (for red/green UI). */
+export function previousPctByItemId(project, beforeReqId) {
+  const snap = previousItemSnapshot(project, beforeReqId);
+  const out = { ...snap.byId };
+  for (const it of project?.items || []) {
+    const pct = carriedPctForItem(it, snap);
+    if (pct != null) out[it.id] = pct;
+  }
+  return out;
+}
+
+function prevItemsByIdForG702(project, beforeReqId) {
+  const snap = previousItemSnapshot(project, beforeReqId);
+  const out = {};
+  for (const it of project?.items || []) {
+    const pct = carriedPctForItem(it, snap);
+    if (pct != null) out[it.id] = { completedPct: pct };
+  }
+  return out;
 }
 
 /** 'unchanged' = matches last submitted %, 'changed' = user edited, 'new' = no prior. */
@@ -71,7 +137,7 @@ export function changeOrdersTotal(project) {
 
 /** Build G702 for a draft using prior requisition snapshot. */
 export function buildDraftG702(project, opts = {}) {
-  const prevItemsById = previousItemSnapshot(project);
+  const prevItemsById = prevItemsByIdForG702(project);
   const withCo = { ...project, changeOrders: changeOrdersTotal(project) };
   return buildG702(withCo, { ...opts, prevItemsById });
 }
@@ -80,7 +146,7 @@ export function buildDraftG702(project, opts = {}) {
 export function createRequisitionRecord(project, draft, opts = {}) {
   const g702 = buildDraftG702(draft, { periodTo: opts.periodTo });
   const snap = (draft.items || []).map((it) => ({ id: it.id, completedPct: it.completedPct }));
-  const num = opts.num ?? (project.requisitions?.length || 0) + 1;
+  const num = opts.num ?? nextRequisitionNum(project);
   const applicationNumber = opts.applicationNumber || `REQ-${num}`;
   return {
     id: `req-${Date.now()}`,

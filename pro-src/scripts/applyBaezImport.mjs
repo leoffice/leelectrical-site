@@ -67,7 +67,7 @@ function buildReqRecord(project, draft, meta, createdAt) {
     totalRetainage: g702.totalRetainage,
     retainagePct: g702.retainagePct,
     contractSumToDate: g702.contractSumToDate,
-    itemsSnapshot: snap.map(({ id, completedPct }) => ({ id, completedPct })),
+    itemsSnapshot: snap.map(({ id, key, completedPct }) => ({ id, key, completedPct })),
     g703: g702.g703,
     payments: [],
     attachments,

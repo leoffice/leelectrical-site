@@ -5,11 +5,15 @@ import { seedBaezProject } from "../src/lib/requisitionData.js";
 import {
   applyCarriedPercentages,
   buildRequisitionEmail,
+  carriedPctForItem,
   createRequisitionRecord,
+  nextRequisitionNum,
   pctChangeStatus,
   paymentNeedsInfo,
   previousItemSnapshot,
+  previousPctByItemId,
   requisitionBalance,
+  sovItemKey,
 } from "../src/lib/requisitionHelpers.js";
 import { buildRequisitionPdf } from "../src/lib/requisitionPdf.js";
 
@@ -65,10 +69,39 @@ describe("requisitionHelpers", () => {
   it("previousItemSnapshot reads last submitted requisition", () => {
     const project = seedBaezProject();
     project.requisitions = [
-      { id: "r1", status: "submitted", itemsSnapshot: [{ id: "item-1", completedPct: 40 }] },
+      { id: "r1", num: 1, status: "submitted", itemsSnapshot: [{ id: "item-1", completedPct: 40 }] },
     ];
     const snap = previousItemSnapshot(project);
-    expect(snap["item-1"]).toBe(40);
+    expect(snap.byId["item-1"]).toBe(40);
+    expect(previousPctByItemId(project)["item-1"]).toBe(40);
+  });
+
+  it("carriedPctForItem matches by section|description when ids differ", () => {
+    const snap = previousItemSnapshot({
+      requisitions: [
+        {
+          id: "r1",
+          num: 1,
+          status: "submitted",
+          itemsSnapshot: [
+            {
+              id: "old-1",
+              section: "Subcellar Floor",
+              description: "Roughing Lighting",
+              completedPct: 72,
+            },
+          ],
+        },
+      ],
+    });
+    const it = { id: "item-99", section: "Subcellar Floor", description: "Roughing Lighting" };
+    expect(carriedPctForItem(it, snap)).toBe(72);
+    expect(sovItemKey(it)).toBe("subcellar floor|roughing lighting");
+  });
+
+  it("nextRequisitionNum uses max num not array length", () => {
+    const project = { requisitions: [{ num: 12 }, { num: 5 }] };
+    expect(nextRequisitionNum(project)).toBe(13);
   });
 
   it("applyCarriedPercentages seeds new req from last submitted snapshot", () => {

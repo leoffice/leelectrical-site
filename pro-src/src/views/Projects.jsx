@@ -26,9 +26,11 @@ import {
   applyCarriedPercentages,
   buildDraftG702,
   createRequisitionRecord,
+  nextRequisitionNum,
   pctChangeStatus,
-  previousItemSnapshot,
+  previousPctByItemId,
   requisitionBalance,
+  sovItemKey,
 } from "../lib/requisitionHelpers.js";
 import { downloadRequisitionPdf } from "../lib/requisitionPdf.js";
 import { customerAmountSummary } from "../lib/customers.js";
@@ -214,15 +216,40 @@ function RequisitionHistoryList({ project, onSelect }) {
   );
 }
 
+function requisitionRichness(arr) {
+  return (arr || []).reduce((s, r) => s + (r.itemsSnapshot?.length || 0) + (r.num ? 1 : 0), 0);
+}
+
+function mergeProjectItems(localItems, serverItems) {
+  const pick = (localItems?.length || 0) >= (serverItems?.length || 0) ? localItems : serverItems;
+  const other = pick === localItems ? serverItems : localItems;
+  const otherByKey = Object.fromEntries((other || []).map((it) => [sovItemKey(it), it]));
+  return (pick || []).map((it) => {
+    const alt = otherByKey[sovItemKey(it)];
+    const pct = Math.max(Number(it.completedPct) || 0, Number(alt?.completedPct) || 0);
+    return pct > (Number(it.completedPct) || 0) ? { ...it, completedPct: pct } : it;
+  });
+}
+
 function RequisitionWorkbench({ project, onSave, busy, showToast, onSaved }) {
+  const carrySeed = useMemo(
+    () => `${project?.id}:${project?.requisitions?.length}:${project?.requisitions?.at(-1)?.id || ""}`,
+    [project?.id, project?.requisitions]
+  );
   const [draft, setDraft] = useState(() => applyCarriedPercentages(project));
   const [periodTo, setPeriodTo] = useState(new Date().toISOString().slice(0, 10));
-  const [reqNum, setReqNum] = useState(String((project.requisitions?.length || 0) + 1));
-  const [appNum, setAppNum] = useState(`REQ-${(project.requisitions?.length || 0) + 1}`);
+  const [reqNum, setReqNum] = useState(String(nextRequisitionNum(project)));
+  const [appNum, setAppNum] = useState(`REQ-${nextRequisitionNum(project)}`);
   const [pendingReq, setPendingReq] = useState(null);
   const dirty = JSON.stringify(draft.items) !== JSON.stringify(project.items);
 
-  useEffect(() => setDraft(applyCarriedPercentages(project)), [project]);
+  useEffect(() => setDraft(applyCarriedPercentages(project)), [carrySeed]);
+
+  useEffect(() => {
+    const n = nextRequisitionNum(project);
+    setReqNum(String(n));
+    setAppNum(`REQ-${n}`);
+  }, [carrySeed]);
 
   useEffect(() => {
     if (dirty) setPendingReq(null);
@@ -232,7 +259,7 @@ function RequisitionWorkbench({ project, onSave, busy, showToast, onSaved }) {
     setPendingReq(null);
   }, [periodTo, reqNum, appNum]);
 
-  const prevSnap = useMemo(() => previousItemSnapshot(project), [project]);
+  const prevSnap = useMemo(() => previousPctByItemId(project), [project]);
   const hasPrev = Object.keys(prevSnap).length > 0;
   const g702 = useMemo(() => buildDraftG702(draft, { periodTo }), [draft, periodTo]);
   const previewG702 = pendingReq || g702;
@@ -464,9 +491,15 @@ export default function Projects() {
       if (!localP) return serverP;
       const localReqs = localP.requisitions || [];
       const serverReqs = serverP.requisitions || [];
-      const requisitions = localReqs.length >= serverReqs.length ? localReqs : serverReqs;
-      const items =
-        (localP.items?.length || 0) >= (serverP.items?.length || 0) ? localP.items : serverP.items;
+      const requisitions =
+        requisitionRichness(serverReqs) > requisitionRichness(localReqs)
+          ? serverReqs
+          : requisitionRichness(localReqs) > requisitionRichness(serverReqs)
+          ? localReqs
+          : serverReqs.length >= localReqs.length
+          ? serverReqs
+          : localReqs;
+      const items = mergeProjectItems(localP.items, serverP.items);
       return { ...serverP, ...localP, items, requisitions };
     });
     for (const localP of localList) {
