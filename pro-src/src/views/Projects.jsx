@@ -28,6 +28,7 @@ import {
   pctChangeStatus,
   previousItemSnapshot,
 } from "../lib/requisitionHelpers.js";
+import { downloadRequisitionPdf } from "../lib/requisitionPdf.js";
 import { customerAmountSummary } from "../lib/customers.js";
 import { parseSovCsv } from "../lib/sovParser.js";
 
@@ -198,18 +199,28 @@ function RequisitionHistoryList({ project, onSelect }) {
   );
 }
 
-function RequisitionWorkbench({ project, onSave, busy }) {
+function RequisitionWorkbench({ project, onSave, busy, showToast, onSaved }) {
   const [draft, setDraft] = useState(project);
   const [periodTo, setPeriodTo] = useState(new Date().toISOString().slice(0, 10));
   const [reqNum, setReqNum] = useState(String((project.requisitions?.length || 0) + 1));
   const [appNum, setAppNum] = useState(`REQ-${(project.requisitions?.length || 0) + 1}`);
+  const [pendingReq, setPendingReq] = useState(null);
   const dirty = JSON.stringify(draft.items) !== JSON.stringify(project.items);
 
   useEffect(() => setDraft(project), [project]);
 
+  useEffect(() => {
+    if (dirty) setPendingReq(null);
+  }, [dirty]);
+
+  useEffect(() => {
+    setPendingReq(null);
+  }, [periodTo, reqNum, appNum]);
+
   const prevSnap = useMemo(() => previousItemSnapshot(project), [project]);
   const hasPrev = Object.keys(prevSnap).length > 0;
   const g702 = useMemo(() => buildDraftG702(draft, { periodTo }), [draft, periodTo]);
+  const previewG702 = pendingReq || g702;
 
   const setItemPct = (id, completedPct) => {
     setDraft((d) => ({
@@ -222,15 +233,36 @@ function RequisitionWorkbench({ project, onSave, busy }) {
     await onSave({ ...draft, updatedAt: Date.now() });
   };
 
-  const generateReq = async () => {
+  const buildPendingRecord = () => {
     const num = parseInt(reqNum, 10) || (draft.requisitions?.length || 0) + 1;
-    const req = createRequisitionRecord(project, draft, {
+    return createRequisitionRecord(project, draft, {
       periodTo,
       num,
       applicationNumber: appNum.trim() || `REQ-${num}`,
     });
-    const next = { ...draft, requisitions: [...(draft.requisitions || []), req] };
+  };
+
+  const generatePreview = () => {
+    const req = buildPendingRecord();
+    setPendingReq(req);
+    downloadRequisitionPdf(project, req);
+    showToast?.("Requisition generated — review the PDF, then save or regenerate");
+  };
+
+  const regeneratePreview = () => {
+    const req = buildPendingRecord();
+    setPendingReq(req);
+    downloadRequisitionPdf(project, req);
+    showToast?.("Requisition regenerated");
+  };
+
+  const savePending = async () => {
+    if (!pendingReq) return;
+    const next = { ...draft, requisitions: [...(draft.requisitions || []), pendingReq] };
     await onSave(next);
+    setPendingReq(null);
+    showToast?.("Requisition saved — open it from the card above for files and email");
+    onSaved?.(pendingReq.id);
   };
 
   const sections = useMemo(() => {
@@ -272,11 +304,11 @@ function RequisitionWorkbench({ project, onSave, busy }) {
       <div className="card px-4 py-3 space-y-2 text-sm" data-testid="requisition-preview-live">
         <div className="grid grid-cols-2 gap-x-4 gap-y-1">
           <span className="text-slate-500">Total completed</span>
-          <span className="text-right font-semibold">{fmtUsd(g702.totalCompleted)}</span>
+          <span className="text-right font-semibold">{fmtUsd(previewG702.totalCompleted)}</span>
           <span className="text-slate-500 font-bold">Current payment due</span>
-          <span className="text-right font-extrabold text-brand">{fmtUsd(g702.currentPaymentDue)}</span>
+          <span className="text-right font-extrabold text-brand">{fmtUsd(previewG702.currentPaymentDue)}</span>
           <span className="text-slate-500">Previously paid</span>
-          <span className="text-right">{fmtUsd(g702.previousCertificates)}</span>
+          <span className="text-right">{fmtUsd(previewG702.previousCertificates)}</span>
         </div>
       </div>
 
@@ -309,9 +341,43 @@ function RequisitionWorkbench({ project, onSave, busy }) {
         </label>
       </div>
 
-      <button type="button" className="btn w-full bg-brand text-white" onClick={generateReq} disabled={busy} data-testid="generate-requisition">
-        Generate requisition
-      </button>
+      {pendingReq ? (
+        <div className="space-y-2" data-testid="requisition-approval">
+          <p className="text-xs text-emerald-700 font-semibold text-center">
+            {pendingReq.applicationNumber} ready — review the PDF, then save or regenerate
+          </p>
+          <div className="flex gap-2">
+            <button
+              type="button"
+              className="btn flex-1 bg-brand text-white"
+              onClick={savePending}
+              disabled={busy}
+              data-testid="save-requisition"
+            >
+              Save requisition
+            </button>
+            <button
+              type="button"
+              className="btn flex-1"
+              onClick={regeneratePreview}
+              disabled={busy}
+              data-testid="regenerate-requisition"
+            >
+              Regenerate requisition
+            </button>
+          </div>
+        </div>
+      ) : (
+        <button
+          type="button"
+          className="btn w-full bg-brand text-white"
+          onClick={generatePreview}
+          disabled={busy}
+          data-testid="generate-requisition"
+        >
+          Generate requisition
+        </button>
+      )}
 
       <div className="space-y-3">
         {sections.map((sec) => (
@@ -601,7 +667,15 @@ export default function Projects() {
                 </button>
               ))}
             </div>
-            {hubTab === "work" ? <RequisitionWorkbench project={project} onSave={onSaveProject} busy={busy} /> : null}
+            {hubTab === "work" ? (
+              <RequisitionWorkbench
+                project={project}
+                onSave={onSaveProject}
+                busy={busy}
+                showToast={showToast}
+                onSaved={(id) => setSelectedReqId(id)}
+              />
+            ) : null}
             {hubTab === "history" ? (
               <RequisitionHistoryList project={project} onSelect={setSelectedReqId} />
             ) : null}
