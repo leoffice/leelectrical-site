@@ -38,7 +38,7 @@ const TABS = [
   { to: "/today", label: "Calendar", ic: "📅" },
   { to: "/calls", label: "Calls", ic: "📞" },
   { to: "/time", label: "Time", ic: "⏱️" },
-  { to: "/projects", label: "Projects", ic: "🏗️" },
+  { to: "/projects", label: "Requisition", ic: "📋" },
   { to: "/company", label: "Company", ic: "📊" },
   { to: "/progress", label: "Build", ic: "⚡" },
   { to: "/dev", label: "Dev", ic: "🛠️" },
@@ -51,7 +51,7 @@ const MOBILE_NAV_BEFORE = [
   { to: "/today", label: "Calendar", ic: "📅" },
   { to: "/calls", label: "Calls", ic: "📞" },
   { to: "/time", label: "Time", ic: "⏱️" },
-  { to: "/projects", label: "Projects", ic: "🏗️" },
+  { to: "/projects", label: "Requisition", ic: "📋" },
   { to: "/company", label: "Company", ic: "📊" },
   { to: "/progress", label: "Build", ic: "⚡" },
 ];

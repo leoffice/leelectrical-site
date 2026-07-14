@@ -33,7 +33,7 @@ function ProjectList({ projects, onSeed, busy }) {
   return (
     <div className="space-y-3" data-testid="projects-list">
       <div className="flex items-center justify-between gap-2">
-        <h1 className="text-xl font-extrabold text-slate-900">Projects</h1>
+        <h1 className="text-xl font-extrabold text-slate-900">Requisition</h1>
         <button type="button" className="btn btn-sm" onClick={onSeed} disabled={busy}>
           + Add Baez Place
         </button>
@@ -153,7 +153,7 @@ function ProjectDetail({ project, onSave, busy }) {
     <div className="space-y-4 pb-8" data-testid="project-detail">
       <div>
         <Link to="/projects" className="text-sm text-brand font-semibold">
-          ← Projects
+          ← Requisition
         </Link>
         <h1 className="text-xl font-extrabold mt-1">{draft.name}</h1>
         <p className="text-sm text-slate-500">{draft.address}</p>
