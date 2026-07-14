@@ -28,6 +28,7 @@ import {
   createRequisitionRecord,
   pctChangeStatus,
   previousItemSnapshot,
+  requisitionBalance,
 } from "../lib/requisitionHelpers.js";
 import { downloadRequisitionPdf } from "../lib/requisitionPdf.js";
 import { customerAmountSummary } from "../lib/customers.js";
@@ -182,21 +183,31 @@ function SovUpload({ onParsed, onReplace, projectName }) {
 }
 
 function RequisitionHistoryList({ project, onSelect }) {
-  const reqs = [...(project?.requisitions || [])].sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
+  const reqs = [...(project?.requisitions || [])].sort((a, b) => (a.num || 0) - (b.num || 0));
   if (!reqs.length) {
     return <p className="text-sm text-slate-400 text-center py-8" data-testid="req-history-empty">No requisition history yet.</p>;
   }
   return (
     <div className="space-y-2" data-testid="requisition-history">
+      <p className="text-xs text-slate-500 text-center">{reqs.length} requisitions from project history</p>
       {reqs.map((r) => (
         <button
           key={r.id}
           type="button"
           className="card w-full px-4 py-3 text-left text-sm hover:bg-slate-50"
           onClick={() => onSelect(r.id)}
+          data-testid={`req-history-${r.num}`}
         >
-          <div className="font-bold">{r.applicationNumber}</div>
-          <div className="text-xs text-slate-500">{r.periodTo} · {fmtUsd(r.currentPaymentDue)} due</div>
+          <div className="flex justify-between items-start gap-2">
+            <span className="font-bold text-slate-900">
+              Requisition {r.num}
+              {r.applicationNumber && r.applicationNumber !== `REQ-${r.num}` ? ` · ${r.applicationNumber}` : ""}
+            </span>
+            <span className="text-xs font-semibold text-emerald-700 shrink-0">Submitted</span>
+          </div>
+          <div className="text-xs text-slate-500 mt-1">
+            {r.periodTo || "—"} · {fmtUsd(r.currentPaymentDue)} due · {fmtUsd(requisitionBalance(r))} balance
+          </div>
         </button>
       ))}
     </div>
@@ -442,12 +453,32 @@ export default function Projects() {
     load();
   }, [load]);
 
+  const mergeWithServerProjects = (local, serverRaw) => {
+    const server = normalizeProjects(serverRaw);
+    const localList = local?.list || [];
+    const serverList = server?.list || [];
+    const merged = serverList.map((serverP) => {
+      const localP = localList.find((p) => p.id === serverP.id);
+      if (!localP) return serverP;
+      const localReqs = localP.requisitions || [];
+      const serverReqs = serverP.requisitions || [];
+      const requisitions = localReqs.length >= serverReqs.length ? localReqs : serverReqs;
+      return { ...serverP, ...localP, requisitions };
+    });
+    for (const localP of localList) {
+      if (!merged.find((p) => p.id === localP.id)) merged.push(localP);
+    }
+    return { list: merged };
+  };
+
   const persist = async (next) => {
     setBusy(true);
     try {
       const normalized = normalizeProjects(next);
-      await api.saveProjects?.(normalized);
-      setProjects(normalized);
+      const latest = await api.getProjects?.().catch(() => ({ list: [] }));
+      const merged = mergeWithServerProjects(normalized, latest);
+      await api.saveProjects?.(merged);
+      setProjects(merged);
     } finally {
       setBusy(false);
     }
@@ -667,7 +698,10 @@ export default function Projects() {
                   className={`shrink-0 px-3 py-1.5 rounded-full text-sm font-semibold border ${
                     hubTab === t.id ? "bg-brand text-white border-brand" : "bg-white text-slate-600 border-slate-200"
                   }`}
-                  onClick={() => setHubTab(t.id)}
+                  onClick={() => {
+                    if (t.id === "history") load();
+                    setHubTab(t.id);
+                  }}
                   data-testid={`hub-tab-${t.id}`}
                 >
                   {t.label}
