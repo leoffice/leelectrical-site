@@ -100,7 +100,7 @@ function buildPages(title, subtitle, body, footer) {
 }
 
 /** @returns {Blob} application/pdf */
-export function buildDescriptionPdf({ title = "LE Electrical", subtitle = "", body = "", footer = "" } = {}) {
+export function buildDescriptionPdf({ title = "BLZ Electric", subtitle = "", body = "", footer = "" } = {}) {
   const pageBodies = buildPages(title, subtitle, body, footer);
   const objs = [];
   const kids = [];

@@ -22,6 +22,17 @@ describe("workDescriptionPolish", () => {
     expect(out).toContain("replace ballast");
   });
 
+  it("professional style cites NEC code, not company name", () => {
+    const out = polishWorkDescription("panel upgrade", "professional", {
+      jobTitle: "Rewire",
+      address: "200 Service Ave, Brooklyn, NY 11201",
+    });
+    expect(out).toContain("NEC");
+    expect(out).toContain("NYC");
+    expect(out).not.toContain("LE Electrical");
+    expect(out).not.toContain("BLZ");
+  });
+
   it("every polish style returns multiple lines, not one dotted sentence", () => {
     for (const s of WORK_DESCRIPTION_STYLES) {
       const out = polishWorkDescription("panel upgrade; new circuits", s.key, { jobTitle: "Rewire" });

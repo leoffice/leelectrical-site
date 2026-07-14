@@ -62,7 +62,7 @@ export default function DescriptionField({
     const text = String(value || "").trim();
     if (!text) return;
     const blob = buildDescriptionPdf({
-      title: "LE Electrical",
+      title: "BLZ Electric",
       subtitle: [context.jobTitle, context.address].filter(Boolean).join(" · ") || label,
       body: text,
       footer: "Generated " + todayStr() + " · LE Pro",

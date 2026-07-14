@@ -99,6 +99,17 @@ function permitLine(addr) {
   return "Work to be performed under applicable local permits as required";
 }
 
+/** NEC + local code affirmation — customer-facing, no company name. */
+function necComplianceLine(addr) {
+  if (addressInNewJersey(addr)) {
+    return "Work performed in accordance with NEC and applicable NJ / local code requirements";
+  }
+  if (addressInNewYork(addr)) {
+    return "Work performed in accordance with NEC and applicable NYC / local code requirements";
+  }
+  return "Work performed in accordance with NEC and applicable local code requirements";
+}
+
 /** Rewrite draft text for a work-description field. */
 export function polishWorkDescription(raw, styleKey = "professional", ctx = {}) {
   const text = clean(raw);
@@ -159,6 +170,6 @@ export function polishWorkDescription(raw, styleKey = "professional", ctx = {}) 
       return lines(["Work completed per agreement:", body, "Thank you for your business"]);
     case "professional":
     default:
-      return lines([lead + ":", body, "All work performed to code with LE Electrical standard of care"]);
+      return lines([lead + ":", body, necComplianceLine(addr)]);
   }
 }

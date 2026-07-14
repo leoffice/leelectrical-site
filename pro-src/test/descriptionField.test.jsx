@@ -81,7 +81,7 @@ describe("DescriptionField", () => {
 describe("descriptionPdf", () => {
   it("builds a valid PDF blob with scope text", async () => {
     const blob = buildDescriptionPdf({
-      title: "LE Electrical",
+      title: "BLZ Electric",
       subtitle: "Rewire · 10 Broadway",
       body: "Panel upgrade and new circuits.",
     });
