@@ -153,11 +153,36 @@ function applyImport() {
   return ensureProjectDefaults(project);
 }
 
+function requisitionRichness(arr) {
+  return (arr || []).reduce((s, r) => s + (r.itemsSnapshot?.length || 0) + (r.num ? 1 : 0), 0);
+}
+
+function mergeProject(localP, serverP) {
+  if (!serverP) return localP;
+  if (!localP) return serverP;
+  const localReqs = localP.requisitions || [];
+  const serverReqs = serverP.requisitions || [];
+  const requisitions =
+    requisitionRichness(serverReqs) > requisitionRichness(localReqs)
+      ? serverReqs
+      : requisitionRichness(localReqs) > requisitionRichness(serverReqs)
+        ? localReqs
+        : serverReqs.length >= localReqs.length
+          ? serverReqs
+          : localReqs;
+  return { ...serverP, ...localP, requisitions, items: localP.items?.length ? localP.items : serverP.items };
+}
+
 async function push(project) {
   const cb = Date.now();
   const stateRes = await fetch(`https://leelectrical.us/.netlify/functions/state?cb=${cb}`);
   const state = await stateRes.json();
-  const ov = { ...(state.ov || {}), _projects: { list: [project] } };
+  const existing = state.ov?._projects?.list || [];
+  const merged = mergeProject(project, existing.find((p) => p.id === project.id));
+  const list = existing.some((p) => p.id === project.id)
+    ? existing.map((p) => (p.id === project.id ? merged : p))
+    : [...existing, merged];
+  const ov = { ...(state.ov || {}), _projects: { list } };
   const saveRes = await fetch(`https://leelectrical.us/.netlify/functions/state?cb=${cb}`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },

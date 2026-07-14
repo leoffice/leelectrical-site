@@ -8,6 +8,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { act, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import "@testing-library/jest-dom/vitest";
+import { mergeJobsStaleGuard } from "../src/data/merge.js";
 import { mockServer, renderApp } from "./helpers.jsx";
 
 afterEach(() => {
@@ -51,5 +52,20 @@ describe("stale overlay snapshots never clobber saved edits", () => {
     // the stale snapshot must NOT revert the phone
     await waitFor(() => expect(screen.getByText("718-555-0199")).toBeInTheDocument());
     expect(screen.queryByText("718-555-1111")).not.toBeInTheDocument();
+  });
+
+  it("mergeJobsStaleGuard keeps saved edits and admits new QBO jobs", () => {
+    const prev = [
+      { id: "J-1", customer: "Jane", phone: "718-555-0199" },
+      { id: "local-1", customer: "Draft", _new: true },
+    ];
+    const incoming = [
+      { id: "J-1", customer: "Jane", phone: "718-555-1111" },
+      { id: "qbo-999999", customer: "Fresh Invoice Customer", invoiceNo: "251999" },
+    ];
+    const merged = mergeJobsStaleGuard(prev, incoming);
+    expect(merged.find((j) => j.id === "J-1").phone).toBe("718-555-0199");
+    expect(merged.find((j) => j.id === "qbo-999999").customer).toBe("Fresh Invoice Customer");
+    expect(merged.find((j) => j.id === "local-1").customer).toBe("Draft");
   });
 });

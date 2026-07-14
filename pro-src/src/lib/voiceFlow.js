@@ -150,6 +150,13 @@ export function polishVoiceText(raw) {
   return t;
 }
 
+function setNativeValue(el, value) {
+  const proto = Object.getPrototypeOf(el);
+  const descriptor = Object.getOwnPropertyDescriptor(proto, "value");
+  if (descriptor?.set) descriptor.set.call(el, value);
+  else el.value = value;
+}
+
 function setFieldValue(el, text) {
   if (!el || !text) return false;
   try {
@@ -157,15 +164,16 @@ function setFieldValue(el, text) {
       const start = el.selectionStart ?? el.value.length;
       const end = el.selectionEnd ?? start;
       const val = el.value || "";
+      const next = val.slice(0, start) + text + val.slice(end);
       if (typeof el.setRangeText === "function") {
         el.setRangeText(text, start, end, "end");
       } else {
-        el.value = val.slice(0, start) + text + val.slice(end);
+        setNativeValue(el, next);
         const pos = start + text.length;
         el.selectionStart = pos;
         el.selectionEnd = pos;
       }
-      el.dispatchEvent(new Event("input", { bubbles: true }));
+      el.dispatchEvent(new InputEvent("input", { bubbles: true, inputType: "insertText", data: text }));
       el.dispatchEvent(new Event("change", { bubbles: true }));
       el.focus({ preventScroll: true });
       return true;
