@@ -5,6 +5,7 @@ import InvoiceCreateSheet, { ProgressPctSheet } from "./InvoiceCreateSheet.jsx";
 import EstimateDocSheet from "./EstimateDocSheet.jsx";
 import InvoiceDocSheet from "./InvoiceDocSheet.jsx";
 import InvoiceReviewSheet from "./InvoiceReviewSheet.jsx";
+import { hasEstimateOnJob, hasInvoiceOnJob } from "../lib/docDraft.js";
 import { hasPendingInvoiceReview } from "../lib/invoiceAgentDraft.js";
 import { CalSheet, DocSheet } from "./JobSheets.jsx";
 
@@ -25,11 +26,13 @@ export default function JobDocSheets({ sheet, setSheet, job, onDocDone }) {
   }
 
   if (sheet.kind === "estimateDoc") {
+    const estMode = job.estimateNo ? "edit" : "create";
     return (
       <EstimateDocSheet
         job={job}
         onClose={() => setSheet(null)}
-        onEdit={() => setSheet({ kind: "docBuild", docKind: "estimate", mode: "edit" })}
+        onEdit={() => setSheet({ kind: "docBuild", docKind: "estimate", mode: estMode })}
+        onSync={() => setSheet({ kind: "docBuild", docKind: "estimate", mode: estMode })}
         onConvert={() =>
           setSheet({
             kind: "progressPct",
@@ -43,11 +46,13 @@ export default function JobDocSheets({ sheet, setSheet, job, onDocDone }) {
   }
 
   if (sheet.kind === "invoiceDoc") {
+    const invMode = job.invoiceNo ? "edit" : "create";
     return (
       <InvoiceDocSheet
         job={job}
         onClose={() => setSheet(null)}
-        onEdit={() => setSheet({ kind: "docBuild", docKind: "invoice", mode: "edit" })}
+        onEdit={() => setSheet({ kind: "docBuild", docKind: "invoice", mode: invMode })}
+        onSync={() => setSheet({ kind: "docBuild", docKind: "invoice", mode: invMode })}
       />
     );
   }
@@ -106,7 +111,7 @@ export default function JobDocSheets({ sheet, setSheet, job, onDocDone }) {
 
 export function openDocTab(job, kind, setSheet) {
   if (kind === "estimate") {
-    if (job.estimateNo || job._estimateConfirmed) setSheet({ kind: "estimateDoc" });
+    if (hasEstimateOnJob(job)) setSheet({ kind: "estimateDoc" });
     else setSheet({ kind: "docBuild", docKind: "estimate", mode: "create" });
     return;
   }
@@ -115,7 +120,7 @@ export function openDocTab(job, kind, setSheet) {
       setSheet({ kind: "invoiceReview" });
       return;
     }
-    if (job.invoiceNo || job._invoiceConfirmed) setSheet({ kind: "invoiceDoc" });
+    if (hasInvoiceOnJob(job)) setSheet({ kind: "invoiceDoc" });
     else setSheet({ kind: "docBuild", docKind: "invoice", mode: "create" });
     return;
   }

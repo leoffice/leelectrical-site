@@ -14,13 +14,14 @@ export function paymentAutofillPatch(extracted) {
 }
 
 /** Build memo note segment for payment ledger entry. */
-export function paymentMemoNote({ method, ref, memo, proofName }) {
+export function paymentMemoNote({ method, ref, memo, proofName, deposit }) {
   const bits = [];
   if (method === "Check" && ref) bits.push("Check #" + ref);
   else if (method === "Zelle") {
     if (ref) bits.push("Zelle ref " + ref);
     if (proofName) bits.push("proof: " + proofName);
   }
+  if (deposit) bits.push("Deposit: " + deposit);
   if (memo) bits.push(memo);
   return bits.join(" · ");
 }

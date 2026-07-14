@@ -72,8 +72,11 @@ describe("PayLanding view", () => {
     expect(screen.getByText("Rae Klein")).toBeInTheDocument();
     expect(screen.getByTestId("sola-card-form")).toBeInTheDocument();
     expect(screen.getByText("Pay by card")).toBeInTheDocument();
-    const cta = screen.getByTestId("pay-cta");
-    expect(cta).toHaveTextContent("Pay $674.82");
+    const cta = await waitFor(() => {
+      const el = screen.getByTestId("pay-cta");
+      expect(el).toHaveTextContent("Pay $674.82");
+      return el;
+    });
     expect(cta.tagName).toBe("BUTTON");
   });
 
@@ -185,8 +188,8 @@ describe("PayLanding view", () => {
     await waitForPayLoaded();
     await user.click(screen.getByTestId("view-invoice"));
     await waitFor(() => expect(screen.getByTestId("pdf-retrieve-overlay")).toBeInTheDocument());
-    expect(screen.getByText(/Retrieving your invoice/)).toBeInTheDocument();
-    expect(screen.getByText(/Fetching from QuickBooks/)).toBeInTheDocument();
+    expect(screen.getByText(/Loading your invoice/)).toBeInTheDocument();
+    expect(screen.getByText(/Generating PDF/)).toBeInTheDocument();
     await waitFor(() =>
       expect(vi.mocked(fetch).mock.calls.some((c) => String(c[0]).includes("docs-fetch"))).toBe(
         true

@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { afterEach, describe, it, expect, vi } from "vitest";
-import { screen, within, waitFor } from "@testing-library/react";
+import { screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import "@testing-library/jest-dom/vitest";
 import { mockServer, renderApp } from "./helpers.jsx";
@@ -24,20 +24,12 @@ describe("Dev Progress dashboard", () => {
     expect(await within(row).findByText("abc1234")).toBeInTheDocument();
   });
 
-  it("shows refresh button on Build route", async () => {
+  it("shows nightly refresh note instead of manual refresh button", async () => {
     mockServer();
     renderApp("#/progress");
     await screen.findByTestId("progress-dashboard");
-    expect(screen.getAllByTestId("progress-refresh-btn").length).toBeGreaterThan(0);
-  });
-
-  it("refresh posts to progress API", async () => {
-    const srv = mockServer();
-    renderApp("#/progress");
-    const user = userEvent.setup();
-    await screen.findByTestId("progress-dashboard");
-    await user.click(screen.getAllByTestId("progress-refresh-btn")[0]);
-    await waitFor(() => expect(srv.posts("progress").length).toBeGreaterThan(0));
+    expect(screen.getByText(/Refreshes nightly/i)).toBeInTheDocument();
+    expect(screen.queryByTestId("progress-refresh-btn")).not.toBeInTheDocument();
   });
 
   it("Build tab appears in bottom nav", async () => {

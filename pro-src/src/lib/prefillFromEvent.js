@@ -1,4 +1,6 @@
 // Parse calendar appointment description + location into job/customer prefill.
+import { cloneJobAtAddressPatch } from "./customerHierarchy.js";
+import { serviceAddressKey } from "./customerHierarchy.js";
 import { evStart } from "./format.js";
 
 const EMAIL_RE = /[\w.+-]+@[\w-]+\.[\w.]+/i;
@@ -12,6 +14,60 @@ const CONTACT_RE =
 const BILL_TO_RE =
   /\bbill(?:ing)?\s*(?:to|at)?\s*:?\s*([^\n]+)/i;
 const APT_RE = /\b(?:apt\.?|apartment|unit|suite|#)\s*#?\s*([A-Za-z0-9][A-Za-z0-9-]{0,8})\b/i;
+const SAYS_APT_RE = /\b(?:it\s+)?says?\s+([A-Za-z]?\d+[A-Za-z]?)\b/i;
+const APT_IS_RE = /\b(?:apt|apartment|unit)\s+is\s+([A-Za-z0-9][A-Za-z0-9-]{0,8})\b/i;
+const LINE_UNIT_RE = /^([A-Za-z]?\d{1,3}[A-Za-z]?)$/;
+
+function looksLikeUnit(token) {
+  const t = String(token || "").trim();
+  if (!t || t.length > 6) return false;
+  if (/^\d{4,}$/.test(t)) return false;
+  return /^[A-Za-z]?\d{1,3}[A-Za-z]?$/.test(t);
+}
+
+function extractApartment(desc, location) {
+  const text = String(desc || "");
+  const labeled = text.match(APT_RE);
+  if (labeled) return labeled[1].trim();
+
+  const says = text.match(SAYS_APT_RE);
+  if (says && looksLikeUnit(says[1])) return says[1].trim();
+
+  const aptIs = text.match(APT_IS_RE);
+  if (aptIs) return aptIs[1].trim();
+
+  for (const line of text.split(/\n+/)) {
+    const t = line.trim().replace(/[,.;]+$/, "");
+    if (LINE_UNIT_RE.test(t) && looksLikeUnit(t)) return t;
+    const unitLine = t.match(/\bunit\s*:?\s*([A-Za-z0-9][A-Za-z0-9-]{0,8})\b/i);
+    if (unitLine) return unitLine[1].trim();
+  }
+
+  const loc = String(location || "");
+  const locApt = loc.match(APT_RE);
+  if (locApt) return locApt[1].trim();
+  const locSays = loc.match(SAYS_APT_RE);
+  if (locSays && looksLikeUnit(locSays[1])) return locSays[1].trim();
+
+  return "";
+}
+
+function escapeRegex(s) {
+  return String(s).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function stripApartmentFromDesc(desc, apartment) {
+  if (!apartment) return desc;
+  const u = escapeRegex(apartment);
+  let out = String(desc || "");
+  out = out.replace(new RegExp(`\\b(?:apt\\.?|apartment|unit|suite|#)\\s*#?\\s*${u}\\b`, "gi"), "");
+  out = out.replace(new RegExp(`\\b(?:it\\s+)?says?\\s+${u}\\b`, "gi"), "");
+  out = out.replace(new RegExp(`\\b(?:apt|apartment|unit)\\s+is\\s+${u}\\b`, "gi"), "");
+  out = out.replace(new RegExp(`^\\s*${u}\\s*$`, "gim"), "");
+  out = out.replace(/\s{2,}/g, " ").replace(/^[,\-–—:\s]+/, "").trim();
+  return out || desc;
+}
+
 const STREET_RE =
   /\b(\d{1,6}\s+(?:[NSEW]\.?\s+)?[A-Za-z0-9][\w\s.'-]{1,50}?\s*(?:St\.?|Street|Ave\.?|Avenue|Rd\.?|Road|Blvd\.?|Boulevard|Dr\.?|Drive|Ln\.?|Lane|Ct\.?|Court|Pl\.?|Place|Way|Pkwy|Parkway)(?:\s*,?\s*[A-Za-z][\w\s-]{0,40})?(?:\s*,?\s*[A-Z]{2})?(?:\s+\d{5}(?:-\d{4})?)?)/gi;
 
@@ -140,8 +196,7 @@ export function prefillFromEvent(e) {
   const desc = String(e?.description || "");
   const location = String(e?.location || "").trim();
 
-  const aptMatch = desc.match(APT_RE);
-  const apartment = aptMatch ? aptMatch[1].trim() : "";
+  const apartment = extractApartment(desc, location);
 
   const email = extractEmail(desc);
   const phone = extractPhone(desc);
@@ -169,11 +224,7 @@ export function prefillFromEvent(e) {
 
   let customer = businessName || personName || summaryCustomer(e?.summary);
 
-  let description = desc;
-  if (apartment && aptMatch) {
-    description = desc.replace(aptMatch[0], "").replace(/\s{2,}/g, " ").trim();
-    description = description.replace(/^[,\-–—:\s]+/, "").trim();
-  }
+  const description = stripApartmentFromDesc(desc, apartment);
 
   return {
     customer,
@@ -189,5 +240,27 @@ export function prefillFromEvent(e) {
     calEventId: e?.id || "",
     apartment,
     description: description || desc,
+  };
+}
+
+/** Merge calendar prefill with an existing customer's service address (new job at that site). */
+export function prefillAtServiceAddress(event, customerJobs, atAddressKey) {
+  const cal = prefillFromEvent(event);
+  if (!atAddressKey || !customerJobs?.length) return cal;
+  const anchor = customerJobs.find((j) => serviceAddressKey(j) === atAddressKey);
+  if (!anchor) return cal;
+  const base = cloneJobAtAddressPatch(anchor);
+  return {
+    ...cal,
+    ...base,
+    title: cal.title,
+    date: cal.date,
+    description: cal.description,
+    calEventId: cal.calEventId,
+    phone: cal.phone || base.phone,
+    email: cal.email || base.email,
+    apartment: base.apartment || cal.apartment,
+    invoiceNo: "",
+    estimateNo: "",
   };
 }

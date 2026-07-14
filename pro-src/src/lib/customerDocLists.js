@@ -4,6 +4,8 @@ import { openBalance, invoiceTotal, amountPaid } from "./customers.js";
 import { normalizePayments } from "./payments.js";
 import { fmt$ } from "./format.js";
 import { serviceAddressDisplay } from "./customerSync.js";
+import { fmtInvoiceDate } from "./invoicePdf.js";
+import { PAPER, paperworkUpNext } from "./paperwork.js";
 
 /** Jobs with an invoice number, newest first. */
 export function invoiceJobs(jobs, { openOnly = false } = {}) {
@@ -87,4 +89,97 @@ export function paymentButtonLabel(row) {
     date: p.date || "",
     inv,
   };
+}
+
+/** Short label for service-address job cards — not full pasted descriptions. */
+export function jobQuickDescription(job) {
+  const raw = String(job?.serviceType || job?.title || "").trim();
+  if (raw && raw.length <= 48 && !raw.includes("\n")) return raw;
+  if (job?.invoiceNo) return "Invoice #" + job.invoiceNo;
+  if (job?.estimateNo) return "Estimate #" + job.estimateNo;
+  if (raw) {
+    const first = raw.split(/[.;,\n]/)[0].trim();
+    return first.length <= 48 ? first : first.slice(0, 45) + "…";
+  }
+  return "Job";
+}
+
+function jobNeedsPay(job) {
+  return !job?.paid && openBalance(job) > 0.01;
+}
+
+function jobHasOpenTasks(job) {
+  if (!job) return false;
+  const pw = job.paperwork || {};
+  for (const k of Object.keys(PAPER)) {
+    const br = pw[k];
+    if (br?.enabled && paperworkUpNext(k, br)?.step) return true;
+  }
+  return false;
+}
+
+/** Service-address job row — invoice #, amount, Do/Pay action, color tone. */
+export function addressJobRowDetail(job) {
+  const pay = jobNeedsPay(job);
+  const task = jobHasOpenTasks(job);
+  let actionLabel = "";
+  let tone = "neutral";
+
+  if (pay && task) {
+    actionLabel = "Do · Pay";
+    tone = "both";
+  } else if (pay) {
+    actionLabel = "Pay";
+    tone = "pay";
+  } else if (task) {
+    actionLabel = "Do";
+    tone = "task";
+  } else if (job?.paid || job?.invoiceNo) {
+    tone = "paid";
+  }
+
+  const total = invoiceTotal(job);
+  const due = openBalance(job);
+  let amountLine = "";
+  if (job?.invoiceNo) {
+    amountLine = pay ? fmt$(due || total) : total > 0 ? fmt$(total) : "";
+  } else if (total > 0) {
+    amountLine = fmt$(total);
+  }
+
+  return {
+    quickDesc: jobQuickDescription(job),
+    invoiceNo: job?.invoiceNo || "",
+    estimateNo: job?.estimateNo || "",
+    amountLine,
+    actionLabel,
+    tone,
+    address: serviceAddressDisplay(job),
+  };
+}
+
+export function addressJobToneClass(tone) {
+  if (tone === "pay") return "bg-red-50 text-red-800 border-red-200";
+  if (tone === "task") return "bg-amber-50 text-amber-900 border-amber-200";
+  if (tone === "both") return "bg-orange-50 text-orange-900 border-orange-200";
+  if (tone === "paid") return "bg-emerald-50 text-emerald-800 border-emerald-200";
+  return "bg-slate-50 text-slate-700 border-slate-200";
+}
+
+export function jobInvoiceDateDisplay(job) {
+  const raw =
+    job?.invoiceDate ||
+    job?.estimateDate ||
+    job?.status?.Invoiced?.d ||
+    job?.status?.Invoice?.d ||
+    job?.status?.Estimate?.d ||
+    "";
+  return raw ? fmtInvoiceDate(raw) : "";
+}
+
+export function jobServiceDateDisplay(job) {
+  const lines = [...(job?.invoiceLines || []), ...(job?.estimateLines || [])];
+  const hit = lines.find((ln) => ln && (ln.serviceDate || ln.date));
+  const raw = (hit && (hit.serviceDate || hit.date)) || job?.serviceDate || job?.status?.Scheduled?.d || "";
+  return raw ? fmtInvoiceDate(raw) : "";
 }

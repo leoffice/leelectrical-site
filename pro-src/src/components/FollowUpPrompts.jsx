@@ -1,5 +1,5 @@
 // Login follow-up popups — service calls, must-today loop, inspections.
-import React, { useCallback, useEffect, useState } from "react";
+import React, { useCallback, useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import Sheet, { Fld } from "./Sheet.jsx";
 import CreateJobFromEventSheet from "./CreateJobFromEventSheet.jsx";
@@ -9,19 +9,96 @@ import { todayStr } from "../lib/format.js";
 import { linkedJobForEvent, displayEventNotes } from "../lib/calendarLink.js";
 import {
   REMINDER_PRIORITIES,
+  allocateNextStep,
+  allocateReminderTime,
+  batchSnoozeReminders,
+  beginPromptWorkPause,
   buildPromptQueue,
   defaultRemindDatetime,
   dismissEventReminders,
+  formatSnoozeDuration,
   generateReminderNudge,
   patchEventState,
   pickFirmerNudge,
   rescheduleEventReminder,
   scheduleNextBusinessDayReminder,
-  scheduleSameDayPushOff,
+  scheduleReminderSnooze,
+  shouldSuppressPrompts,
+  snoozableQueueItems,
+  suggestJobsForEvent,
+  touchPromptActivity,
   validateRemindDatetime,
 } from "../lib/followUpReminders.js";
-import { stashCalendarPick } from "../lib/calendarNavigate.js";
+import {
+  RESTORE_REMINDER_EVENT,
+  clearReminderReturn,
+  stashCalendarPick,
+  stashPendingDocAfterJob,
+  stashReminderReturn,
+} from "../lib/calendarNavigate.js";
+import {
+  intentOpensDocBuilder,
+  parseReminderNote,
+  reminderIntentJobPath,
+} from "../lib/reminderNoteIntent.js";
+import { reminderQuickActions } from "../lib/appointmentActions.js";
+import { askReminderNotifyPermission, notifyReminderDue } from "../lib/reminderNotify.js";
 import ReminderDateTimePicker from "./ReminderDateTimePicker.jsx";
+import SnoozePicker from "./SnoozePicker.jsx";
+import { intentDuplicatesSuggestion } from "../lib/followUpDedupe.js";
+
+function ReminderQuickActionsRow({ event, job, scope, state, onCreateJob, dismissForWork }) {
+  const nav = useNavigate();
+  const { showToast } = useStore();
+
+  const run = (actionKey) => {
+    allocateNextStep(event.id, actionKey);
+    if (actionKey === "create_job") {
+      onCreateJob();
+      return;
+    }
+    const doc = actionKey === "create_estimate" ? "estimate" : "invoice";
+    const label = actionKey === "create_estimate" ? "Create an estimate" : "Create an invoice";
+    if (!job?.id) {
+      stashPendingDocAfterJob(doc);
+      onCreateJob();
+      return;
+    }
+    stashReminderReturn({ eventId: event.id, kind: scope, state: state || null });
+    stashCalendarPick(event.id);
+    dismissForWork({ keepReminderReturn: true });
+    nav("/job/" + encodeURIComponent(job.id) + "?doc=" + doc + "&create=1");
+    showToast(label + " — approve when ready");
+  };
+
+  return (
+    <div className="grid grid-cols-3 gap-2 mb-4" data-testid="reminder-quick-actions">
+      {reminderQuickActions().map((action) => (
+        <button
+          key={action.key}
+          type="button"
+          className="btn bg-brand-soft text-brand !py-3 px-1 text-center text-[11px] font-semibold leading-tight min-h-[4.5rem] flex flex-col items-center justify-center"
+          onClick={() => run(action.key)}
+          data-testid={"reminder-quick-" + action.key}
+        >
+          <span className="text-base mb-0.5">{action.icon}</span>
+          <span>{action.label}</span>
+        </button>
+      ))}
+    </div>
+  );
+}
+
+function openCalendarKeepingReminder({ event, kind, state, dismissForWork, nav }) {
+  stashReminderReturn({
+    eventId: event.id,
+    kind: kind || "followup",
+    state: state || null,
+  });
+  stashCalendarPick(event.id);
+  dismissForWork({ keepReminderReturn: true });
+  nav("/today");
+}
 
 const SESSION_KEY = "lepro_followup_session";
 const IS_TEST = import.meta.env.MODE === "test" || !!import.meta.env.VITEST;
@@ -42,14 +119,36 @@ function sessionAlreadyPrompted() {
   }
 }
 
-function RemindMeSheet({ event, job, onClose, onSaved }) {
+function RemindMeSheet({ event, job, onClose, onSaved, dismissForWork }) {
+  const nav = useNavigate();
   const { patchAndSave, showToast } = useStore();
   const today = todayStr();
   const [dt, setDt] = useState(() => defaultRemindDatetime());
   const [note, setNote] = useState("");
   const [priority, setPriority] = useState("medium");
 
+  const intent = parseReminderNote(note, job);
   const preview = generateReminderNudge({ event, job, userNote: note, today });
+
+  const runIntentNow = () => {
+    if (!intent) return;
+    if (intent.needsJob && !job?.id) {
+      showToast("Link or create a job first");
+      return;
+    }
+    allocateNextStep(event.id, intent.kind || "note_intent");
+    stashReminderReturn({ eventId: event.id, kind: "remind", note, priority });
+    stashCalendarPick(event.id);
+    dismissForWork({ keepReminderReturn: true });
+    const docPath = reminderIntentJobPath(intent, job?.id);
+    if (docPath) {
+      nav(docPath);
+      showToast(intent.label + " — approve when ready");
+    } else {
+      nav("/today");
+      showToast("Opened in calendar");
+    }
+  };
 
   const save = async () => {
     const err = validateRemindDatetime(dt);
@@ -58,14 +157,7 @@ function RemindMeSheet({ event, job, onClose, onSaved }) {
       return;
     }
     const nudge = generateReminderNudge({ event, job, userNote: note, today });
-    patchEventState(event.id, {
-      remindAt: dt,
-      note,
-      nudge,
-      priority,
-      pushOffCount: 0,
-      nextNudgeAt: "",
-    });
+    allocateReminderTime(event.id, dt, { note, nudge, priority });
     if (job?.id) {
       await patchAndSave(job.id, {
         followUp: {
@@ -114,6 +206,16 @@ function RemindMeSheet({ event, job, onClose, onSaved }) {
           <div className="text-[10px] font-bold uppercase tracking-wide text-slate-400 mb-1">I'll say something like</div>
           {preview}
         </div>
+      ) : null}
+      {intent ? (
+        <button
+          type="button"
+          className="btn bg-brand-soft text-brand w-full mb-3 font-semibold"
+          onClick={runIntentNow}
+          data-testid="reminder-do-now"
+        >
+          ⚡ {intent.label}
+        </button>
       ) : null}
       <Fld label="Priority">
         <select className="input" value={priority} onChange={(e) => setPriority(e.target.value)} aria-label="Priority">
@@ -178,32 +280,55 @@ function RescheduleReminderSheet({ event, state: st, job, onClose, onSaved }) {
   );
 }
 
-function MustTodayNudgeSheet({ event, state: st, job, onClose, onDone, onReschedule }) {
+function BatchSnoozeBar({ queue, onBatchSnooze }) {
+  const snoozable = snoozableQueueItems(queue);
+  if (snoozable.length < 2) return null;
+
+  const handleSnooze = (minutes) => {
+    const ids = snoozable.map((x) => x.event.id);
+    onBatchSnooze(ids, minutes);
+  };
+
+  return (
+    <div className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-3 mb-4" data-testid="batch-snooze-bar">
+      <SnoozePicker
+        label={`Snooze all ${snoozable.length} reminders`}
+        onSnooze={handleSnooze}
+        compact
+      />
+    </div>
+  );
+}
+
+function MustTodayNudgeSheet({ event, state: st, job, queue, onClose, onDone, onReschedule, onSnooze, onBatchSnooze, dismissForWork }) {
   const nav = useNavigate();
   const { showToast } = useStore();
   const isFirmer = (st.pushOffCount || 0) > 0;
   const message = isFirmer
     ? pickFirmerNudge(st.pushOffCount, event?.id || "")
-    : st.nudge || "Still on your list for today — want to knock it out now or push it off a couple hours?";
+    : st.nudge || "Still on your list for today — want to knock it out now or snooze it?";
 
   const openJob = () => {
     patchEventState(event.id, { handledAt: Date.now() });
-    onDone();
-    onClose();
+    dismissForWork();
     if (job?.id) nav("/job/" + encodeURIComponent(job.id));
     else nav("/today");
   };
 
   const openInCalendar = () => {
-    stashCalendarPick(event.id);
-    onDone();
-    onClose();
-    nav("/today");
+    openCalendarKeepingReminder({
+      event,
+      kind: "must_today_nudge",
+      state: st,
+      dismissForWork,
+      nav,
+    });
   };
 
-  const pushTwoHours = () => {
-    scheduleSameDayPushOff(event.id);
-    showToast("OK — I'll ping you again in 2 hours");
+  const snooze = (minutes) => {
+    scheduleReminderSnooze(event.id, minutes);
+    showToast("OK — I'll ping you again in " + formatSnoozeDuration(minutes));
+    onSnooze && onSnooze();
     onDone();
     onClose();
   };
@@ -217,6 +342,7 @@ function MustTodayNudgeSheet({ event, state: st, job, onClose, onDone, onResched
 
   return (
     <Sheet title={isFirmer ? "⏰ Take care of it today!" : "Reminder — today"} onClose={onClose}>
+      <BatchSnoozeBar queue={queue} onBatchSnooze={onBatchSnooze} />
       <p className={`text-sm mb-4 ${isFirmer ? "text-red-700 font-medium" : "text-slate-600"}`}>{message}</p>
       <div className="text-sm space-y-1 mb-4 card px-3 py-2.5">
         <div className="font-semibold text-slate-900">{event?.summary || "Follow-up"}</div>
@@ -228,9 +354,9 @@ function MustTodayNudgeSheet({ event, state: st, job, onClose, onDone, onResched
       <button type="button" className="btn bg-slate-100 text-slate-800 w-full mb-2" onClick={openInCalendar} data-testid="reminder-open-calendar">
         📅 Open in calendar
       </button>
-      <button type="button" className="btn bg-amber-100 text-amber-900 w-full mb-2" onClick={pushTwoHours}>
-        Push off — remind me in 2 hours
-      </button>
+      <div className="mb-3">
+        <SnoozePicker onSnooze={snooze} />
+      </div>
       <button type="button" className="btn bg-slate-100 text-slate-800 w-full mb-2" onClick={onReschedule} data-testid="reminder-move-day">
         Move to a different day
       </button>
@@ -241,7 +367,122 @@ function MustTodayNudgeSheet({ event, state: st, job, onClose, onDone, onResched
   );
 }
 
-function InspectionReminderSheet({ event, when, job, onClose, onDone }) {
+function ScheduledReminderSheet({
+  event,
+  state: st,
+  job,
+  queue,
+  onClose,
+  onDone,
+  onReschedule,
+  onSnooze,
+  onBatchSnooze,
+  onCreateJob,
+  dismissForWork,
+}) {
+  const nav = useNavigate();
+  const { showToast } = useStore();
+  const today = todayStr();
+  const message = st.nudge || generateReminderNudge({ event, job, userNote: st.note, today });
+  const noteIntent = parseReminderNote(st.note, job);
+
+  const openJob = () => {
+    allocateNextStep(event.id, "open_job");
+    dismissForWork();
+    if (job?.id) nav("/job/" + encodeURIComponent(job.id));
+    else nav("/today");
+  };
+
+  const openInCalendar = () => {
+    openCalendarKeepingReminder({
+      event,
+      kind: "scheduled_reminder",
+      state: st,
+      dismissForWork,
+      nav,
+    });
+  };
+
+  const runNoteIntent = () => {
+    if (!noteIntent) return;
+    if (noteIntent.needsJob && !job?.id) {
+      showToast("Link or create a job first");
+      return;
+    }
+    allocateNextStep(event.id, noteIntent.kind || "note_intent");
+    stashReminderReturn({ eventId: event.id, kind: "scheduled_reminder", state: st });
+    stashCalendarPick(event.id);
+    dismissForWork({ keepReminderReturn: true });
+    const docPath = reminderIntentJobPath(noteIntent, job?.id);
+    if (docPath) {
+      nav(docPath);
+      showToast(noteIntent.label + " — approve when ready");
+    } else {
+      nav("/today");
+    }
+  };
+
+  const snooze = (minutes) => {
+    scheduleReminderSnooze(event.id, minutes);
+    showToast("Snoozed for " + formatSnoozeDuration(minutes));
+    onSnooze && onSnooze();
+    onDone();
+    onClose();
+  };
+
+  const dismiss = () => {
+    dismissEventReminders(event.id);
+    onDone();
+    onClose();
+  };
+
+  const setNewReminder = () => {
+    onReschedule();
+  };
+
+  return (
+    <Sheet title="🔔 Reminder" onClose={onClose}>
+      <BatchSnoozeBar queue={queue} onBatchSnooze={onBatchSnooze} />
+      <p className="text-sm text-slate-600 mb-4">{message}</p>
+      <div className="text-sm space-y-1 mb-4 card px-3 py-2.5">
+        <div className="font-semibold text-slate-900">{event?.summary || "Follow-up"}</div>
+        {st.note ? <div className="text-slate-500">{st.note}</div> : null}
+      </div>
+      <ReminderQuickActionsRow
+        event={event}
+        job={job}
+        scope="scheduled_reminder"
+        state={st}
+        onCreateJob={onCreateJob}
+        dismissForWork={dismissForWork}
+      />
+      {noteIntent && intentOpensDocBuilder(noteIntent) && !intentDuplicatesSuggestion(noteIntent, reminderQuickActions()) ? (
+        <button type="button" className="btn bg-slate-100 text-slate-800 w-full mb-2" onClick={runNoteIntent} data-testid="scheduled-reminder-do-now">
+          ⚡ {noteIntent.label}
+        </button>
+      ) : null}
+      {job?.id ? (
+        <button type="button" className="btn bg-slate-100 text-slate-800 w-full mb-2" onClick={openJob}>
+          📂 Open job
+        </button>
+      ) : null}
+      <button type="button" className="btn bg-slate-100 text-slate-800 w-full mb-2" onClick={openInCalendar} data-testid="scheduled-reminder-open-calendar">
+        📅 Open in calendar
+      </button>
+      <div className="mb-3">
+        <SnoozePicker onSnooze={snooze} />
+      </div>
+      <button type="button" className="btn bg-slate-100 text-slate-800 w-full mb-2" onClick={setNewReminder} data-testid="scheduled-reminder-move">
+        Set next follow-up time
+      </button>
+      <button type="button" className="btn-ghost w-full text-slate-600" onClick={dismiss}>
+        Got it — dismiss
+      </button>
+    </Sheet>
+  );
+}
+
+function InspectionReminderSheet({ event, when, job, onClose, onDone, dismissForWork }) {
   const nav = useNavigate();
   const label = when === "today" ? "Today" : "Tomorrow";
 
@@ -253,8 +494,7 @@ function InspectionReminderSheet({ event, when, job, onClose, onDone }) {
 
   const openJob = () => {
     patchEventState(event.id, { inspectionAcked: true, handledAt: Date.now() });
-    onDone();
-    onClose();
+    dismissForWork();
     if (job?.id) nav("/job/" + encodeURIComponent(job.id));
   };
 
@@ -277,7 +517,7 @@ function InspectionReminderSheet({ event, when, job, onClose, onDone }) {
   );
 }
 
-function ServiceCallSheet({ event, job, onClose, onDone, onCreateJob, onRemind }) {
+function ServiceCallSheet({ event, job, onClose, onDone, onCreateJob, onRemind, dismissForWork }) {
   const nav = useNavigate();
   const { showToast } = useStore();
   const notes = displayEventNotes(event?.description);
@@ -285,17 +525,19 @@ function ServiceCallSheet({ event, job, onClose, onDone, onCreateJob, onRemind }
   const lead = generateReminderNudge({ event, job, userNote: "", today });
 
   const openJob = () => {
-    patchEventState(event.id, { handledAt: Date.now(), linkedJobId: job.id });
-    onDone();
-    onClose();
+    allocateNextStep(event.id, "open_job");
+    patchEventState(event.id, { linkedJobId: job.id });
+    dismissForWork();
     nav("/job/" + encodeURIComponent(job.id));
   };
 
   const openInCalendar = () => {
-    stashCalendarPick(event.id);
-    onDone();
-    onClose();
-    nav("/today");
+    openCalendarKeepingReminder({
+      event,
+      kind: "service_call",
+      dismissForWork,
+      nav,
+    });
   };
 
   const skip = () => {
@@ -341,6 +583,13 @@ function ServiceCallSheet({ event, job, onClose, onDone, onCreateJob, onRemind }
           </div>
         ) : null}
       </div>
+      <ReminderQuickActionsRow
+        event={event}
+        job={job}
+        scope="service_call"
+        onCreateJob={onCreateJob}
+        dismissForWork={dismissForWork}
+      />
       <button type="button" className="btn-brand w-full mb-2" onClick={onRemind} data-testid="followup-remind">
         🔔 Remind me
       </button>
@@ -354,11 +603,7 @@ function ServiceCallSheet({ event, job, onClose, onDone, onCreateJob, onRemind }
         <button type="button" className="btn bg-slate-100 text-slate-800 w-full mb-2" onClick={openJob} data-testid="followup-open-job">
           📂 Open job
         </button>
-      ) : (
-        <button type="button" className="btn bg-slate-100 text-slate-800 w-full mb-2" onClick={onCreateJob} data-testid="followup-create-job">
-          ＋ Create a job
-        </button>
-      )}
+      ) : null}
       <button type="button" className="btn-ghost w-full mt-1" onClick={skip} data-testid="followup-skip">
         Skip
       </button>
@@ -367,12 +612,118 @@ function ServiceCallSheet({ event, job, onClose, onDone, onCreateJob, onRemind }
 }
 
 export default function FollowUpPrompts() {
-  const { events, jobs, loading } = useStore();
+  const { events, jobs, loading, showToast } = useStore();
   const [queue, setQueue] = useState([]);
   const [current, setCurrent] = useState(null);
   const [subSheet, setSubSheet] = useState(null); // remind | createJob
+  const [hiddenForNav, setHiddenForNav] = useState(false);
+  const [pauseTick, setPauseTick] = useState(0);
+  const notifiedRef = useRef(new Set());
 
   const today = todayStr();
+
+  const dismissForWork = useCallback(({ keepReminderReturn = false } = {}) => {
+    beginPromptWorkPause();
+    if (!keepReminderReturn) clearReminderReturn();
+    setHiddenForNav(true);
+    setSubSheet(null);
+    setQueue((q) => {
+      const rest = q.slice(1);
+      setCurrent(rest[0] || null);
+      return rest;
+    });
+  }, []);
+
+  const dismissReminderPopup = useCallback(
+    ({ keepReminderReturn = false, openSubSheet = null } = {}) => {
+      beginPromptWorkPause();
+      if (!keepReminderReturn) clearReminderReturn();
+      setQueue((q) => {
+        const rest = q.slice(1);
+        setCurrent(null);
+        return rest;
+      });
+      if (openSubSheet) {
+        setSubSheet(openSubSheet);
+      } else {
+        setSubSheet(null);
+        setHiddenForNav(true);
+      }
+    },
+    []
+  );
+
+  const openCreateJobFromReminder = useCallback(
+    (event, suggestions) => {
+      dismissReminderPopup({
+        openSubSheet: {
+          kind: "createJob",
+          event,
+          suggestions,
+        },
+      });
+    },
+    [dismissReminderPopup]
+  );
+
+  useEffect(() => {
+    if (IS_TEST) return;
+    const touch = () => touchPromptActivity();
+    const kinds = ["pointerdown", "keydown", "scroll", "touchstart"];
+    kinds.forEach((k) => window.addEventListener(k, touch, { passive: true }));
+    return () => kinds.forEach((k) => window.removeEventListener(k, touch));
+  }, []);
+
+  useEffect(() => {
+    if (IS_TEST) return;
+    const iv = setInterval(() => setPauseTick((t) => t + 1), 5000);
+    return () => clearInterval(iv);
+  }, []);
+
+  useEffect(() => {
+    const restore = () => {
+      if (shouldSuppressPrompts()) return;
+      setHiddenForNav(false);
+    };
+    window.addEventListener(RESTORE_REMINDER_EVENT, restore);
+    return () => window.removeEventListener(RESTORE_REMINDER_EVENT, restore);
+  }, []);
+
+  useEffect(() => {
+    if (IS_TEST || shouldSuppressPrompts()) return;
+    if (!hiddenForNav) return;
+    setHiddenForNav(false);
+    const q = buildPromptQueue(events, jobs, today);
+    setQueue(q);
+    setCurrent((c) => c || q[0] || null);
+  }, [pauseTick, hiddenForNav, events, jobs, today]);
+
+  const clearNotified = useCallback((eventIds) => {
+    for (const id of eventIds || []) notifiedRef.current.delete(id);
+  }, []);
+
+  const notifyDueItem = useCallback(
+    (item) => {
+      if (!item?.event?.id || notifiedRef.current.has(item.event.id)) return;
+      const title =
+        item.kind === "must_today_nudge"
+          ? "Must-do today"
+          : item.kind === "scheduled_reminder"
+            ? "Reminder"
+            : item.kind === "inspection"
+              ? "Inspection"
+              : "Follow-up";
+      const body =
+        item.state?.nudge ||
+        item.state?.note ||
+        item.event?.summary ||
+        generateReminderNudge({ event: item.event, job: item.job, userNote: item.state?.note, today });
+      notifyReminderDue({ title, body, eventId: item.event.id });
+      notifiedRef.current.add(item.event.id);
+    },
+    [today]
+  );
+
   const refreshQueue = useCallback(() => {
     if (loading || !events?.length) return;
     const q = buildPromptQueue(events, jobs, today);
@@ -382,29 +733,47 @@ export default function FollowUpPrompts() {
 
   useEffect(() => {
     if (loading || IS_TEST) return;
-    if (sessionAlreadyPrompted()) {
-      refreshQueue();
-      return;
-    }
+    askReminderNotifyPermission();
     const q = buildPromptQueue(events, jobs, today);
-    if (q.length) {
-      setQueue(q);
-      setCurrent(q[0]);
-      markSessionPrompted();
-    }
-  }, [loading, events, jobs, today, refreshQueue]);
+    setQueue(q);
+    setCurrent((c) => c || q[0] || null);
+    if (q.length && !sessionAlreadyPrompted()) markSessionPrompted();
+  }, [loading, events, jobs, today]);
 
   useEffect(() => {
     if (IS_TEST) return;
-    const iv = setInterval(() => {
-      const nudges = buildPromptQueue(events, jobs, today).filter((x) => x.kind === "must_today_nudge");
-      if (nudges.length && !current) {
-        setCurrent(nudges[0]);
-        setQueue((q) => [...nudges, ...q.filter((x) => x.kind !== "must_today_nudge")]);
+    const tick = () => {
+      if (shouldSuppressPrompts()) return;
+      const q = buildPromptQueue(events, jobs, today);
+      const dueNow = q.filter((x) => x.kind === "must_today_nudge" || x.kind === "scheduled_reminder");
+      if (!dueNow.length) return;
+      dueNow.forEach(notifyDueItem);
+      if (!current) {
+        setCurrent(dueNow[0]);
+        setQueue((prev) => {
+          const rest = prev.filter((x) => x.kind !== "must_today_nudge" && x.kind !== "scheduled_reminder");
+          return [...dueNow, ...rest];
+        });
       }
-    }, 60_000);
+    };
+    tick();
+    const iv = setInterval(tick, 30_000);
     return () => clearInterval(iv);
-  }, [events, jobs, today, current]);
+  }, [events, jobs, today, current, notifyDueItem, pauseTick]);
+
+  const handleBatchSnooze = useCallback(
+    (eventIds, minutes) => {
+      batchSnoozeReminders(eventIds, minutes);
+      clearNotified(eventIds);
+      showToast("Snoozed " + eventIds.length + " reminders for " + formatSnoozeDuration(minutes));
+      setQueue((q) => {
+        const rest = q.filter((x) => !eventIds.includes(x.event?.id));
+        setCurrent((c) => (c && eventIds.includes(c.event?.id) ? rest[0] || null : c));
+        return rest;
+      });
+    },
+    [clearNotified, showToast]
+  );
 
   const advance = useCallback(() => {
     setSubSheet(null);
@@ -415,6 +784,8 @@ export default function FollowUpPrompts() {
     });
   }, []);
 
+  if ((hiddenForNav || shouldSuppressPrompts()) && !subSheet) return null;
+
   if (!current && !subSheet) return null;
 
   if (subSheet?.kind === "createJob") {
@@ -424,12 +795,10 @@ export default function FollowUpPrompts() {
         suggestions={subSheet.suggestions}
         onClose={() => setSubSheet(null)}
         onLinked={() => {
-          patchEventState(subSheet.event.id, { handledAt: Date.now() });
-          advance();
+          allocateNextStep(subSheet.event.id, "create_job_linked");
         }}
         onCreateNew={() => {
-          patchEventState(subSheet.event.id, { handledAt: Date.now() });
-          advance();
+          allocateNextStep(subSheet.event.id, "create_job_new");
         }}
       />
     );
@@ -442,6 +811,7 @@ export default function FollowUpPrompts() {
         job={subSheet.job}
         onClose={() => setSubSheet(null)}
         onSaved={advance}
+        dismissForWork={dismissForWork}
       />
     );
   }
@@ -466,13 +836,43 @@ export default function FollowUpPrompts() {
         event={current.event}
         state={current.state}
         job={current.job}
+        queue={queue}
         onClose={advance}
         onDone={advance}
+        onSnooze={() => clearNotified([current.event.id])}
+        onBatchSnooze={handleBatchSnooze}
+        dismissForWork={dismissForWork}
         onReschedule={() =>
           setSubSheet({
             kind: "reschedule",
             event: current.event,
             state: current.state,
+            job: current.job,
+          })
+        }
+      />
+    );
+  }
+
+  if (current.kind === "scheduled_reminder") {
+    return (
+      <ScheduledReminderSheet
+        event={current.event}
+        state={current.state}
+        job={current.job}
+        queue={queue}
+        onClose={advance}
+        onDone={advance}
+        onSnooze={() => clearNotified([current.event.id])}
+        onBatchSnooze={handleBatchSnooze}
+        dismissForWork={dismissForWork}
+        onCreateJob={() =>
+          openCreateJobFromReminder(current.event, suggestJobsForEvent(current.event, jobs))
+        }
+        onReschedule={() =>
+          setSubSheet({
+            kind: "remind",
+            event: current.event,
             job: current.job,
           })
         }
@@ -488,6 +888,7 @@ export default function FollowUpPrompts() {
         job={current.job}
         onClose={advance}
         onDone={advance}
+        dismissForWork={dismissForWork}
       />
     );
   }
@@ -501,13 +902,8 @@ export default function FollowUpPrompts() {
         suggestions={current.suggestions}
         onClose={advance}
         onDone={advance}
-        onCreateJob={() =>
-          setSubSheet({
-            kind: "createJob",
-            event: current.event,
-            suggestions: current.suggestions,
-          })
-        }
+        dismissForWork={dismissForWork}
+        onCreateJob={() => openCreateJobFromReminder(current.event, current.suggestions)}
         onRemind={() =>
           setSubSheet({
             kind: "remind",

@@ -3,6 +3,7 @@ import React, { useEffect, useState } from "react";
 import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import SolaCardForm, { tokenizeSolaCard } from "../components/SolaCardForm.jsx";
 import { addressesDiffer, invoicePdfUrl, resolvePayLandingToken } from "../lib/payLanding.js";
+import { openPdfUrl } from "../lib/pdfOpen.js";
 import {
   PDF_RETRIEVE_STAGES,
   invoicePdfAvailable,
@@ -77,9 +78,9 @@ function PdfRetrieveOverlay({ phase, invoiceNo, onClose }) {
         <div className="text-4xl mb-3" aria-hidden>
           📄
         </div>
-        <h2 className="text-lg font-extrabold text-slate-900 mb-1">Retrieving your invoice</h2>
+        <h2 className="text-lg font-extrabold text-slate-900 mb-1">Loading your invoice</h2>
         <p className="text-sm text-slate-500 mb-4">
-          Pulling invoice #{invoiceNo} from QuickBooks. This usually takes under a minute.
+          Generating invoice #{invoiceNo} for you. This usually takes just a few seconds.
         </p>
         <div className="flex items-center justify-center flex-wrap gap-x-1.5 gap-y-1 text-[11px] font-semibold mb-4">
           {PDF_RETRIEVE_STAGES.map((s, i) => (
@@ -213,15 +214,7 @@ export default function PayLanding() {
     }
   };
 
-  const launchPdf = (url) => {
-    const a = document.createElement("a");
-    a.href = url;
-    a.target = "_blank";
-    a.rel = "noopener noreferrer";
-    document.body.appendChild(a);
-    a.click();
-    a.remove();
-  };
+
 
   const submitPayment = async () => {
     if (payBusy || payAmount <= 0) return;
@@ -270,7 +263,7 @@ export default function PayLanding() {
     setPdfPhase("idle");
     if (ok) {
       setPdfReady(true);
-      launchPdf(pdfSrc);
+      openPdfUrl(pdfSrc);
     } else {
       setPdfErr(
         "We couldn't load the invoice PDF yet. Make sure our office computer is online, then tap View invoice again."

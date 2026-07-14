@@ -2,6 +2,7 @@
 import React, { useMemo } from "react";
 import { jobCalendarLinkState } from "../lib/calendarLink.js";
 import { docSyncFailedForJob, docSyncPendingForJob } from "../lib/docSync.js";
+import { hasEstimateDraft, hasEstimateOnJob, hasInvoiceDraft, hasInvoiceOnJob } from "../lib/docDraft.js";
 import { hasPendingInvoiceReview } from "../lib/invoiceAgentDraft.js";
 
 function tabTone(active, pending, failed) {
@@ -20,8 +21,10 @@ export default function JobDocTabs({
   onPayment,
   onCalendar,
 }) {
-  const hasEst = !!(job.estimateNo || job._estimateConfirmed);
-  const hasInv = !!(job.invoiceNo || job._invoiceConfirmed);
+  const hasEst = hasEstimateOnJob(job);
+  const hasInv = hasInvoiceOnJob(job);
+  const estDraft = hasEstimateDraft(job);
+  const invDraft = hasInvoiceDraft(job);
   const agentReview = hasPendingInvoiceReview(job);
   const canPay = !!(job.invoiceNo || job.amount) && !job.paid;
 
@@ -38,15 +41,19 @@ export default function JobDocTabs({
     [commands, job, job.id]
   );
 
-  const estLabel = hasEst
+  const estLabel = job.estimateNo
     ? "Est " + job.estimateNo
+    : estDraft
+    ? "Est draft"
     : pending.estimate
     ? "Est…"
     : failed.estimate
     ? "Est!"
     : "Estimate";
-  const invLabel = hasInv
+  const invLabel = job.invoiceNo
     ? "Inv " + job.invoiceNo
+    : invDraft
+    ? "Inv draft"
     : pending.invoice
     ? "Inv…"
     : failed.invoice

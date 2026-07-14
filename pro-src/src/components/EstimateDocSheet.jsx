@@ -2,6 +2,6 @@
 import React from "react";
 import { DocSheet } from "./JobSheets.jsx";
 
-export default function EstimateDocSheet({ job, onClose, onConvert, onEdit }) {
-  return <DocSheet job={job} kind="estimate" onClose={onClose} onConvert={onConvert} onEdit={onEdit} />;
+export default function EstimateDocSheet({ job, onClose, onConvert, onEdit, onSync }) {
+  return <DocSheet job={job} kind="estimate" onClose={onClose} onConvert={onConvert} onEdit={onEdit} onSync={onSync} />;
 }

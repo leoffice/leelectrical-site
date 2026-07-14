@@ -44,7 +44,10 @@ export default async (req) => {
     if (!buf.length) return json({ ok: false, error: "empty document" }, 400);
     if (buf.length > 9_000_000) return json({ ok: false, error: "too large" }, 413);
     const mime = String(b.mime || "application/pdf");
-    await store.set(key, buf, { metadata: { mime, bytes: buf.length, ts: Date.now() } });
+    const filename = String(b.filename || "").trim();
+    const meta = { mime, bytes: buf.length, ts: Date.now() };
+    if (filename) meta.filename = filename.replace(/[^\w .-]/g, "_");
+    await store.set(key, buf, { metadata: meta });
     return json({ ok: true, key, bytes: buf.length });
   }
 
@@ -60,10 +63,18 @@ export default async (req) => {
     return json({ ok: false, error: "expired" }, 404);
   }
   const mime = (rec.metadata && rec.metadata.mime) || "application/pdf";
+  const storedName = String(rec.metadata?.filename || "").trim();
+  const fallback = key.startsWith("est-")
+    ? `Estimate_${key.slice(4)}.pdf`
+    : key.startsWith("inv-")
+    ? `Invoice_${key.slice(4)}.pdf`
+    : `${key}.pdf`;
+  const filename = storedName || fallback;
+  const safe = filename.replace(/[^\w .-]/g, "_");
   return new Response(rec.data, {
     headers: {
       "content-type": mime,
-      "content-disposition": `inline; filename="${key}.pdf"`,
+      "content-disposition": `inline; filename="${safe}"`,
       "cache-control": "public, max-age=3600",
       "access-control-allow-origin": "*",
     },

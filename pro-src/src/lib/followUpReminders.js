@@ -9,6 +9,23 @@ export const WORK_START = 9;
 export const WORK_END = 17;
 export const SAME_DAY_NUDGE_HOURS = 2;
 
+/** After Levi picks an action, hide popups while he's active — max 5 min, or sooner when idle. */
+export const PROMPT_WORK_PAUSE_MS = 5 * 60 * 1000;
+export const PROMPT_IDLE_MS = 45 * 1000;
+const PROMPT_WORK_PAUSE_KEY = "lepro_prompt_work_pause";
+
+/** Quick snooze presets Levi asked for. */
+export const SNOOZE_PRESETS = [
+  { minutes: 10, label: "10 min" },
+  { minutes: 30, label: "30 min" },
+  { minutes: 60, label: "1 hour" },
+  { minutes: 120, label: "2 hours" },
+];
+
+export const SNOOZE_SLIDER_MIN = 30;
+export const SNOOZE_SLIDER_MAX = 300;
+export const SNOOZE_SLIDER_STEP = 30;
+
 export const REMINDER_PRIORITIES = [
   { key: "low", label: "Low" },
   { key: "medium", label: "Medium" },
@@ -82,6 +99,36 @@ export function isWorkHour(hour) {
   return hour >= WORK_START && hour < WORK_END;
 }
 
+/** Human label for snooze minutes — slider uses half-hour steps up to 5h. */
+export function formatSnoozeDuration(minutes) {
+  const m = Math.max(0, Math.round(Number(minutes) || 0));
+  if (m < 60) return `${m} min`;
+  const h = Math.floor(m / 60);
+  const r = m % 60;
+  if (!r) return h === 1 ? "1 hour" : `${h} hours`;
+  const half = r === 30 ? "½" : `:${String(r).padStart(2, "0")}`;
+  return h ? `${h}${half} hours` : `${r} min`;
+}
+
+function isSnoozed(st, now) {
+  if (!st?.snoozeUntil) return false;
+  return new Date(st.snoozeUntil) > now;
+}
+
+function remindAtDue(st, now) {
+  if (!st?.remindAt) return false;
+  return new Date(st.remindAt) <= now;
+}
+
+function localDatetime(d) {
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  const h = String(d.getHours()).padStart(2, "0");
+  const min = String(d.getMinutes()).padStart(2, "0");
+  return `${y}-${m}-${day}T${h}:${min}`;
+}
+
 /** Default reminder slot: next weekday at 10:00 within work hours. */
 export function defaultRemindDatetime(now = new Date()) {
   let d = new Date(now);
@@ -117,6 +164,18 @@ export function isServiceCallEvent(event) {
   return SERVICE_RE.test(hay) || /\b(estimate|service)\b/i.test(event.summary || "");
 }
 
+/** Past-week appointments worth a follow-up — service calls, linked jobs, customer visits. */
+export function isPastWeekFollowUpEvent(event, jobs) {
+  if (!event || isInspectionEvent(event)) return false;
+  if (isServiceCallEvent(event)) return true;
+  if (linkedJobForEvent(event, jobs)) return true;
+  const summary = (event.summary || "").trim();
+  const hay = [summary, event.description, event.location].filter(Boolean).join(" ");
+  if (summary && /[—–-]/.test(summary) && /^[A-Za-z\u0590-\u05FF]/.test(summary)) return true;
+  if (/\b(visit|appointment|on\s*site|walk[\s-]?through|consult|site\s*visit|meeting)\b/i.test(hay)) return true;
+  return false;
+}
+
 function eventYmd(event) {
   return evStart(event).slice(0, 10);
 }
@@ -130,6 +189,45 @@ export function isEventHandled(state, eventId) {
   return !!(st.handledAt || st.inspectionAcked || st.noReminders);
 }
 
+/** True when Levi picked a next step or set a future reminder — skip the past-week popup. */
+export function isEventAllocated(state, eventId, now = new Date()) {
+  const st = eventState(state, eventId);
+  if (st.noReminders) return true;
+  if (st.nextStepAt) return true;
+  if (st.remindAt) {
+    if (new Date(st.remindAt) > now) return true;
+    return true;
+  }
+  return false;
+}
+
+/** Levi chose an action (create job, estimate, email…) — don't re-prompt until reminder fires. */
+export function allocateNextStep(eventId, stepKey, now = Date.now()) {
+  return patchEventState(eventId, {
+    nextStepAt: now,
+    nextStepKey: String(stepKey || ""),
+    remindAt: "",
+    reminderAllocatedAt: "",
+    pushOffCount: 0,
+    nextNudgeAt: "",
+    handledAt: "",
+  });
+}
+
+/** Levi set a remind-me time — fires via scheduled_reminder when due. */
+export function allocateReminderTime(eventId, remindAt, extras = {}) {
+  return patchEventState(eventId, {
+    remindAt,
+    reminderAllocatedAt: Date.now(),
+    nextStepAt: "",
+    nextStepKey: "",
+    pushOffCount: 0,
+    nextNudgeAt: "",
+    handledAt: "",
+    ...extras,
+  });
+}
+
 /** Service calls from the past week that may need a follow-up popup. */
 export function serviceCallCandidates(events, jobs, today, now = new Date()) {
   const state = loadState();
@@ -138,10 +236,11 @@ export function serviceCallCandidates(events, jobs, today, now = new Date()) {
     .filter((e) => {
       const ymd = eventYmd(e);
       if (!ymd || ymd < cut || ymd > today) return false;
-      if (!isServiceCallEvent(e)) return false;
+      if (!isPastWeekFollowUpEvent(e, jobs)) return false;
       if (isEventHandled(state, e.id)) return false;
+      if (isEventAllocated(state, e.id, now)) return false;
       const st = eventState(state, e.id);
-      if (st.remindAt && new Date(st.remindAt) > now) return false;
+      if (isSnoozed(st, now)) return false;
       return true;
     })
     .sort((a, b) => evStart(b).localeCompare(evStart(a)));
@@ -170,6 +269,7 @@ export function dueMustTodayNudges(events, jobs, today, now = new Date()) {
     const st = eventState(state, e.id);
     if (st.priority !== "must_today") continue;
     if (isEventHandled(state, e.id)) continue;
+    if (isSnoozed(st, now)) continue;
     const remindYmd = (st.remindAt || "").slice(0, 10);
     if (remindYmd !== today) continue;
     const nextNudge = st.nextNudgeAt ? new Date(st.nextNudgeAt) : null;
@@ -194,16 +294,56 @@ export function pickFirmerNudge(pushOffCount = 0, seed = "") {
   return pool[idx];
 }
 
-export function scheduleSameDayPushOff(eventId, now = new Date()) {
+export function scheduleSameDayPushOff(eventId, now = new Date(), minutes = SAME_DAY_NUDGE_HOURS * 60) {
+  patchEventState(eventId, { priority: "must_today" });
+  return scheduleReminderSnooze(eventId, minutes, now);
+}
+
+/** Snooze one reminder — presets or slider minutes (max 5h). */
+export function scheduleReminderSnooze(eventId, minutes, now = new Date()) {
   const st = eventState(loadState(), eventId);
-  const pushOffCount = (st.pushOffCount || 0) + 1;
+  const mins = Math.min(SNOOZE_SLIDER_MAX, Math.max(1, Math.round(Number(minutes) || 0)));
   const next = new Date(now);
-  next.setHours(next.getHours() + SAME_DAY_NUDGE_HOURS);
-  return patchEventState(eventId, {
-    pushOffCount,
-    nextNudgeAt: next.toISOString(),
-    priority: "must_today",
-  });
+  next.setMinutes(next.getMinutes() + mins);
+  const iso = next.toISOString();
+  const patch = {
+    snoozeUntil: iso,
+    nextNudgeAt: iso,
+  };
+  if (st.priority === "must_today") {
+    patch.pushOffCount = (st.pushOffCount || 0) + 1;
+    patch.priority = "must_today";
+  } else {
+    patch.remindAt = localDatetime(next);
+    patch.pushOffCount = 0;
+  }
+  return patchEventState(eventId, patch);
+}
+
+/** Snooze every reminder in the list by the same amount. */
+export function batchSnoozeReminders(eventIds, minutes, now = new Date()) {
+  const ids = [...new Set((eventIds || []).map((id) => String(id || "")).filter(Boolean))];
+  return ids.map((id) => scheduleReminderSnooze(id, minutes, now));
+}
+
+/** Scheduled reminders whose remindAt has passed (any appointment age). */
+export function dueScheduledReminders(events, jobs, today, now = new Date()) {
+  const state = loadState();
+  const out = [];
+  for (const e of events || []) {
+    const st = eventState(state, e.id);
+    if (!st.remindAt || isEventHandled(state, e.id)) continue;
+    if (isSnoozed(st, now)) continue;
+    if (st.priority === "must_today" && st.remindAt.slice(0, 10) === today) continue;
+    if (!remindAtDue(st, now)) continue;
+    out.push({ event: e, state: st, job: linkedJobForEvent(e, jobs) });
+  }
+  return out;
+}
+
+/** Event ids in the queue that Levi can snooze together. */
+export function snoozableQueueItems(queue) {
+  return (queue || []).filter((x) => x.kind === "must_today_nudge" || x.kind === "scheduled_reminder");
 }
 
 export function scheduleNextBusinessDayReminder(eventId, note, today) {
@@ -244,6 +384,9 @@ export function buildPromptQueue(events, jobs, today, now = new Date()) {
   const queue = [];
   for (const item of dueMustTodayNudges(events, jobs, today, now)) {
     queue.push({ kind: "must_today_nudge", ...item });
+  }
+  for (const item of dueScheduledReminders(events, jobs, today, now)) {
+    queue.push({ kind: "scheduled_reminder", ...item });
   }
   for (const event of inspectionCandidates(events, today)) {
     const ymd = eventYmd(event);
@@ -299,8 +442,11 @@ export function generateReminderNudge({ event, job, userNote, today }) {
     const lead = when === "yesterday" ? "Yesterday" : `About ${when.replace("about ", "")}`;
     return `${lead} you noted: “${note}.” ${name} is still on your list — friendly follow-up when you're ready.`;
   }
+  if (!hasEst && job) {
+    return `You saw ${name} ${when} — no estimate yet. Worth putting one together or logging what you discussed.`;
+  }
   if (hasEst && !hasInv) {
-    return `You met with ${name} ${when} — the estimate is still waiting on them. It's okay to check in with a friendly nudge.`;
+    return `You met with ${name} ${when} — estimate's out. What's the next step — approval, changes, or ready to invoice?`;
   }
   if (hasEst && hasInv) {
     return `You sent paperwork to ${name} ${when}. A quick friendly check-in on the estimate or invoice never hurts.`;
@@ -315,6 +461,76 @@ export function generateReminderNudge({ event, job, userNote, today }) {
   return `It's been ${when} since ${appt}. Tap through when you're ready to follow up.`;
 }
 
+function readWorkPause() {
+  try {
+    const raw = sessionStorage.getItem(PROMPT_WORK_PAUSE_KEY);
+    if (!raw) return null;
+    const o = JSON.parse(raw);
+    if (!o?.startedAt) return null;
+    return {
+      startedAt: Number(o.startedAt) || 0,
+      lastActivityAt: Number(o.lastActivityAt) || Number(o.startedAt) || 0,
+    };
+  } catch {
+    return null;
+  }
+}
+
+/** Levi chose an action — hide reminder popups while he works. */
+export function beginPromptWorkPause(now = Date.now()) {
+  try {
+    sessionStorage.setItem(
+      PROMPT_WORK_PAUSE_KEY,
+      JSON.stringify({ startedAt: now, lastActivityAt: now })
+    );
+  } catch {
+    /* ignore */
+  }
+}
+
+/** Keep the work pause alive while Levi is clicking around the app. */
+export function touchPromptActivity(now = Date.now()) {
+  const st = readWorkPause();
+  if (!st) return;
+  try {
+    sessionStorage.setItem(
+      PROMPT_WORK_PAUSE_KEY,
+      JSON.stringify({ ...st, lastActivityAt: now })
+    );
+  } catch {
+    /* ignore */
+  }
+}
+
+export function clearPromptWorkPause() {
+  try {
+    sessionStorage.removeItem(PROMPT_WORK_PAUSE_KEY);
+  } catch {
+    /* ignore */
+  }
+}
+
+/** True while Levi is mid-task — suppress login reminder popups. */
+export function shouldSuppressPrompts(now = Date.now()) {
+  const st = readWorkPause();
+  if (!st) return false;
+  const idleFor = now - st.lastActivityAt;
+  const pausedFor = now - st.startedAt;
+  if (idleFor >= PROMPT_IDLE_MS) return false;
+  if (pausedFor >= PROMPT_WORK_PAUSE_MS) return false;
+  return true;
+}
+
+export function promptWorkPauseStatus(now = Date.now()) {
+  const st = readWorkPause();
+  if (!st) return { active: false };
+  const idleFor = now - st.lastActivityAt;
+  const pausedFor = now - st.startedAt;
+  if (idleFor >= PROMPT_IDLE_MS) return { active: false, reason: "idle", idleFor, pausedFor };
+  if (pausedFor >= PROMPT_WORK_PAUSE_MS) return { active: false, reason: "max", idleFor, pausedFor };
+  return { active: true, idleFor, pausedFor };
+}
+
 /** Mark appointment as handled — no more follow-up popups. */
 export function dismissEventReminders(eventId, { noReminders = false } = {}) {
   return patchEventState(eventId, {
@@ -322,6 +538,7 @@ export function dismissEventReminders(eventId, { noReminders = false } = {}) {
     noReminders: !!noReminders,
     remindAt: "",
     nextNudgeAt: "",
+    snoozeUntil: "",
   });
 }
 

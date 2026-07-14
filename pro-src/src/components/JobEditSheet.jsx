@@ -3,6 +3,7 @@ import React, { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useStore } from "../state/store.jsx";
 import Sheet, { Fld } from "./Sheet.jsx";
+import ServiceAddressField from "./ServiceAddressField.jsx";
 import { DeleteConfirmSheet } from "./JobSheets.jsx";
 import { jobsAtSameAddress } from "../lib/customerHierarchy.js";
 import { sortJobs } from "../lib/stages.js";
@@ -11,7 +12,7 @@ import { fmt$ } from "../lib/format.js";
 import { deleteDocLabel } from "../lib/deleteDoc.js";
 
 export default function JobEditSheet({ job, fromCust = "", onClose }) {
-  const { jobs, patchAndSave, showToast } = useStore();
+  const { jobs, events, api, patchAndSave, showToast } = useStore();
   const nav = useNavigate();
   const [title, setTitle] = useState(job.title || "");
   const [serviceAddress, setServiceAddress] = useState(job.serviceAddress || job.address || "");
@@ -85,9 +86,17 @@ export default function JobEditSheet({ job, fromCust = "", onClose }) {
       <Fld label="Job title">
         <input className="input" aria-label="Job title" value={title} onChange={(e) => setTitle(e.target.value)} />
       </Fld>
-      <Fld label="Service address" hint="Stays on this invoice/estimate only — not the customer billing address">
-        <input className="input" aria-label="Service address" value={serviceAddress} onChange={(e) => setServiceAddress(e.target.value)} />
-      </Fld>
+      <ServiceAddressField
+        job={job}
+        jobs={jobs}
+        events={events}
+        value={serviceAddress}
+        onChange={setServiceAddress}
+        onApartmentChange={setApartment}
+        suggestAddresses={api.suggestAddresses?.bind(api)}
+        testId="job-edit-service"
+        hint="Stays on this invoice/estimate only — not the customer billing address"
+      />
       <Fld label="Apartment / unit">
         <input className="input" aria-label="Apartment / unit" value={apartment} onChange={(e) => setApartment(e.target.value)} placeholder="Optional" />
       </Fld>

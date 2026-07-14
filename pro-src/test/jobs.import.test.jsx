@@ -35,12 +35,11 @@ describe("#56 Jobs search — QBO customer matches + import prompt", () => {
 
     await user.click(screen.getByText("Yes, import customer + open invoices"));
     await waitFor(() => expect(srv.enqueued("import_customer")).toHaveLength(1));
-    await waitFor(() => expect(window.location.hash).toMatch(/#\/customer\//));
-    const pending = JSON.parse(sessionStorage.getItem(PENDING_IMPORT_LS) || "{}");
-    expect(pending.name).toBe("Avraham Drizin");
     const cmd = srv.enqueued("import_customer")[0];
     expect(cmd.payload).toEqual({ name: "Avraham Drizin", qboId: "34" });
-    expect(cmd.idempotencyKey).toBe("import_customer|34");
+    expect(cmd.idempotencyKey).toMatch(/^import_customer\|34\|\d+$/);
+    await waitFor(() => expect(window.location.hash).toMatch(/#\/customer\//));
+    await waitFor(() => expect(screen.queryByTestId("customer-view-empty")).not.toBeInTheDocument());
   });
 
   it("does not surface a customer that already exists as a job", async () => {

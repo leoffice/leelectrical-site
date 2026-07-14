@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { addressesDiffer, prefillFromEvent } from "../src/lib/prefillFromEvent.js";
+import { addressesDiffer, prefillAtServiceAddress, prefillFromEvent } from "../src/lib/prefillFromEvent.js";
 
 describe("prefillFromEvent", () => {
   it("parses customer <name> from calendar description (#58)", () => {
@@ -35,6 +35,20 @@ describe("prefillFromEvent", () => {
     expect(p.billingAddress).toBe("50 Billing Blvd, Newark, NJ 07102");
   });
 
+  it("parses apartment from 'says B7' in calendar description", () => {
+    const p = prefillFromEvent({
+      id: "ev-b7",
+      summary: "Service call — Kingston",
+      start: "2026-07-14T10:00",
+      location: "481 Kingston Avenue, Crown Street",
+      description:
+        "481 Kingston Avenue, Crown Street. There is a service called thing. It says B7.",
+    });
+    expect(p.apartment).toBe("B7");
+    expect(p.serviceAddress).toBe("481 Kingston Avenue, Crown Street");
+    expect(p.description).not.toContain("B7");
+  });
+
   it("uses location as service when description address matches", () => {
     const p = prefillFromEvent({
       id: "ev-same",
@@ -47,6 +61,55 @@ describe("prefillFromEvent", () => {
     expect(p.email).toBe("jane@x.com");
     expect(p.serviceAddress).toBe("55 Elm St, Brooklyn, NY");
     expect(p.billingAddress).toBe("");
+  });
+});
+
+describe("prefillAtServiceAddress", () => {
+  const event = {
+    id: "ev-addr",
+    summary: "Service call — Oak",
+    start: "2026-07-10T14:00",
+    location: "99 Oak Ave, Brooklyn, NY",
+    description: "customer Bob Builder phone: 718-555-0000",
+  };
+
+  const customerJobs = [
+    {
+      id: "J-old",
+      customer: "Bob Builder",
+      qboCustomerId: "42",
+      serviceAddress: "10 Main St",
+      billingAddress: "50 Bill Blvd",
+      phone: "718-555-1111",
+      invoiceNo: "251100",
+    },
+    {
+      id: "J-site2",
+      customer: "Bob Builder",
+      qboCustomerId: "42",
+      serviceAddress: "20 Pine Rd",
+      apartment: "2B",
+      billingAddress: "50 Bill Blvd",
+    },
+  ];
+
+  it("keeps calendar fields but clones customer + picked address", () => {
+    const p = prefillAtServiceAddress(event, customerJobs, "10 main st");
+    expect(p.customer).toBe("Bob Builder");
+    expect(p.qboCustomerId).toBe("42");
+    expect(p.serviceAddress).toBe("10 Main St");
+    expect(p.billingAddress).toBe("50 Bill Blvd");
+    expect(p.title).toBe("Service call — Oak");
+    expect(p.phone).toBe("718-555-0000");
+    expect(p.invoiceNo).toBe("");
+    expect(p.estimateNo).toBe("");
+    expect(p.calEventId).toBe("ev-addr");
+  });
+
+  it("returns calendar-only prefill when no address key", () => {
+    const p = prefillAtServiceAddress(event, customerJobs, "");
+    expect(p.serviceAddress).toBe("99 Oak Ave, Brooklyn, NY");
+    expect(p.qboCustomerId).toBeUndefined();
   });
 });
 

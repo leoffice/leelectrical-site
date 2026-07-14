@@ -5,6 +5,8 @@ import {
   touchCustomer,
   customerRecencyTs,
   compareCustomerRecency,
+  getRecencyRevision,
+  subscribeRecency,
 } from "../src/lib/customerRecency.js";
 
 describe("customerRecency", () => {
@@ -37,5 +39,26 @@ describe("customerRecency", () => {
     expect(compareCustomerRecency("c:old", [], "c:new", [])).toBeGreaterThan(0);
     expect(compareCustomerRecency("c:new", [], "c:old", [])).toBeLessThan(0);
     vi.useRealTimers();
+  });
+
+  it("uses max of touch and job activity", () => {
+    touchCustomer("c:acme");
+    const touched = customerRecencyTs("c:acme", []);
+    const jobs = [{ id: "j1", customer: "Acme", updatedAt: touched + 5000 }];
+    expect(customerRecencyTs("c:acme", jobs)).toBe(touched + 5000);
+  });
+
+  it("aliases q: and c: keys so touch on one applies to both", () => {
+    touchCustomer("q:99", [{ id: "j1", customer: "Acme Co", qboCustomerId: "99" }]);
+    expect(customerRecencyTs("c:acme co", [{ id: "j1", customer: "Acme Co", qboCustomerId: "99" }])).toBeGreaterThan(0);
+  });
+
+  it("notifies subscribers when recency changes", () => {
+    const seen = [];
+    const unsub = subscribeRecency((n) => seen.push(n));
+    touchCustomer("c:one");
+    unsub();
+    expect(seen.length).toBe(1);
+    expect(getRecencyRevision()).toBeGreaterThan(0);
   });
 });

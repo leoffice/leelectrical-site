@@ -1,0 +1,5309 @@
+{
+  "masterItems": [
+    {
+      "id": "item-1",
+      "section": "",
+      "description": "Electric Service Equipment",
+      "value": 459000.0,
+      "contractPct": 0,
+      "completedPct": 100.0
+    },
+    {
+      "id": "item-2",
+      "section": "",
+      "description": "Electric Service Installation",
+      "value": 239700.0,
+      "contractPct": 0,
+      "completedPct": 100.0
+    },
+    {
+      "id": "item-3",
+      "section": "",
+      "description": "Temp Electric & Lighting",
+      "value": 51000.0,
+      "contractPct": 0,
+      "completedPct": 100.0
+    },
+    {
+      "id": "item-4",
+      "section": "Subcellar Floor",
+      "description": "Feeders & Subfeeders",
+      "value": 12240.0,
+      "contractPct": 0,
+      "completedPct": 100.0
+    },
+    {
+      "id": "item-5",
+      "section": "Subcellar Floor",
+      "description": "Roughing",
+      "value": 12750.0,
+      "contractPct": 0,
+      "completedPct": 100.0
+    },
+    {
+      "id": "item-6",
+      "section": "Subcellar Floor",
+      "description": "Low Voltage/ Data Wiring/ Intercom",
+      "value": 2550.0,
+      "contractPct": 0,
+      "completedPct": 100.0
+    },
+    {
+      "id": "item-7",
+      "section": "Subcellar Floor",
+      "description": "Finish & Lighting",
+      "value": 3400.0,
+      "contractPct": 0,
+      "completedPct": 100.0
+    },
+    {
+      "id": "item-8",
+      "section": "Subcellar Floor",
+      "description": "Lighting Contorls",
+      "value": 850.0,
+      "contractPct": 0,
+      "completedPct": 100.0
+    },
+    {
+      "id": "item-9",
+      "section": "Subcellar Floor",
+      "description": "Testing & Inspections",
+      "value": 850.0,
+      "contractPct": 0,
+      "completedPct": 100.0
+    },
+    {
+      "id": "item-10",
+      "section": "Cellar Floor",
+      "description": "Feeders & Subfeeders",
+      "value": 12410.0,
+      "contractPct": 0,
+      "completedPct": 100.0
+    },
+    {
+      "id": "item-11",
+      "section": "Cellar Floor",
+      "description": "Roughing",
+      "value": 14620.0,
+      "contractPct": 0,
+      "completedPct": 100.0
+    },
+    {
+      "id": "item-12",
+      "section": "Cellar Floor",
+      "description": "Low Voltage/ Data Wiring/ Intercom",
+      "value": 7650.0,
+      "contractPct": 0,
+      "completedPct": 100.0
+    },
+    {
+      "id": "item-13",
+      "section": "Cellar Floor",
+      "description": "Finish & Lighting",
+      "value": 3060.0,
+      "contractPct": 0,
+      "completedPct": 100.0
+    },
+    {
+      "id": "item-14",
+      "section": "Cellar Floor",
+      "description": "Lighting controls",
+      "value": 850.0,
+      "contractPct": 0,
+      "completedPct": 100.0
+    },
+    {
+      "id": "item-15",
+      "section": "Cellar Floor",
+      "description": "Testing & Inspections",
+      "value": 850.0,
+      "contractPct": 0,
+      "completedPct": 100.0
+    },
+    {
+      "id": "item-16",
+      "section": "Basement Floor",
+      "description": "Feeders & Subfeeders",
+      "value": 14110.0,
+      "contractPct": 0,
+      "completedPct": 100.0
+    },
+    {
+      "id": "item-17",
+      "section": "Basement Floor",
+      "description": "Roughing",
+      "value": 16830.0,
+      "contractPct": 0,
+      "completedPct": 100.0
+    },
+    {
+      "id": "item-18",
+      "section": "Basement Floor",
+      "description": "Low Voltage/ Data Wiring/ Intercom",
+      "value": 8840.0,
+      "contractPct": 0,
+      "completedPct": 100.0
+    },
+    {
+      "id": "item-19",
+      "section": "Basement Floor",
+      "description": "Finish & Lighting",
+      "value": 3570.0,
+      "contractPct": 0,
+      "completedPct": 100.0
+    },
+    {
+      "id": "item-20",
+      "section": "Basement Floor",
+      "description": "Lighting controls",
+      "value": 850.0,
+      "contractPct": 0,
+      "completedPct": 100.0
+    },
+    {
+      "id": "item-21",
+      "section": "Basement Floor",
+      "description": "Testing & Inspections",
+      "value": 850.0,
+      "contractPct": 0,
+      "completedPct": 100.0
+    },
+    {
+      "id": "item-22",
+      "section": "Exterior",
+      "description": "Feeders & Subfeeders",
+      "value": 5100.0,
+      "contractPct": 0,
+      "completedPct": 100.0
+    },
+    {
+      "id": "item-23",
+      "section": "Exterior",
+      "description": "Roughing",
+      "value": 5100.0,
+      "contractPct": 0,
+      "completedPct": 100.0
+    },
+    {
+      "id": "item-24",
+      "section": "Exterior",
+      "description": "Finish & Lighting",
+      "value": 2550.0,
+      "contractPct": 0,
+      "completedPct": 100.0
+    },
+    {
+      "id": "item-25",
+      "section": "Exterior",
+      "description": "Lighting controls",
+      "value": 850.0,
+      "contractPct": 0,
+      "completedPct": 100.0
+    },
+    {
+      "id": "item-26",
+      "section": "Exterior",
+      "description": "Testing & Inspections",
+      "value": 850.0,
+      "contractPct": 0,
+      "completedPct": 100.0
+    },
+    {
+      "id": "item-27",
+      "section": "1st Floor",
+      "description": "Feeders & Subfeeders",
+      "value": 21250.0,
+      "contractPct": 0,
+      "completedPct": 100.0
+    },
+    {
+      "id": "item-28",
+      "section": "1st Floor",
+      "description": "Roughing",
+      "value": 25160.0,
+      "contractPct": 0,
+      "completedPct": 100.0
+    },
+    {
+      "id": "item-29",
+      "section": "1st Floor",
+      "description": "Low Voltage/ Data Wiring/ Intercom",
+      "value": 13260.0,
+      "contractPct": 0,
+      "completedPct": 100.0
+    },
+    {
+      "id": "item-30",
+      "section": "1st Floor",
+      "description": "Finish & Lighting",
+      "value": 5270.0,
+      "contractPct": 0,
+      "completedPct": 100.0
+    },
+    {
+      "id": "item-31",
+      "section": "1st Floor",
+      "description": "Lighting controls",
+      "value": 1360.0,
+      "contractPct": 0,
+      "completedPct": 100.0
+    },
+    {
+      "id": "item-32",
+      "section": "1st Floor",
+      "description": "Testing & Inspections",
+      "value": 1360.0,
+      "contractPct": 0,
+      "completedPct": 100.0
+    },
+    {
+      "id": "item-33",
+      "section": "2nd Floor",
+      "description": "Feeders & Subfeeders",
+      "value": 35360.0,
+      "contractPct": 0,
+      "completedPct": 100.0
+    },
+    {
+      "id": "item-34",
+      "section": "2nd Floor",
+      "description": "Roughing",
+      "value": 41990.0,
+      "contractPct": 0,
+      "completedPct": 100.0
+    },
+    {
+      "id": "item-35",
+      "section": "2nd Floor",
+      "description": "Low Voltage/ Data Wiring/ Intercom",
+      "value": 22100.0,
+      "contractPct": 0,
+      "completedPct": 100.0
+    },
+    {
+      "id": "item-36",
+      "section": "2nd Floor",
+      "description": "Finish & Lighting",
+      "value": 8840.0,
+      "contractPct": 0,
+      "completedPct": 100.0
+    },
+    {
+      "id": "item-37",
+      "section": "2nd Floor",
+      "description": "Lighting controls",
+      "value": 2210.0,
+      "contractPct": 0,
+      "completedPct": 100.0
+    },
+    {
+      "id": "item-38",
+      "section": "2nd Floor",
+      "description": "Testing & Inspections",
+      "value": 2210.0,
+      "contractPct": 0,
+      "completedPct": 100.0
+    },
+    {
+      "id": "item-39",
+      "section": "3rd Floor",
+      "description": "Feeders & Subfeeders",
+      "value": 35360.0,
+      "contractPct": 0,
+      "completedPct": 100.0
+    },
+    {
+      "id": "item-40",
+      "section": "3rd Floor",
+      "description": "Roughing",
+      "value": 41990.0,
+      "contractPct": 0,
+      "completedPct": 100.0
+    },
+    {
+      "id": "item-41",
+      "section": "3rd Floor",
+      "description": "Low Voltage/ Data Wiring/ Intercom",
+      "value": 22100.0,
+      "contractPct": 0,
+      "completedPct": 100.0
+    },
+    {
+      "id": "item-42",
+      "section": "3rd Floor",
+      "description": "Finish & Lighting",
+      "value": 8840.0,
+      "contractPct": 0,
+      "completedPct": 100.0
+    },
+    {
+      "id": "item-43",
+      "section": "3rd Floor",
+      "description": "Lighting controls",
+      "value": 2210.0,
+      "contractPct": 0,
+      "completedPct": 100.0
+    },
+    {
+      "id": "item-44",
+      "section": "3rd Floor",
+      "description": "Testing & Inspections",
+      "value": 2210.0,
+      "contractPct": 0,
+      "completedPct": 100.0
+    },
+    {
+      "id": "item-45",
+      "section": "4th Floor",
+      "description": "Feeders & Subfeeders",
+      "value": 35360.0,
+      "contractPct": 0,
+      "completedPct": 100.0
+    },
+    {
+      "id": "item-46",
+      "section": "4th Floor",
+      "description": "Roughing",
+      "value": 41990.0,
+      "contractPct": 0,
+      "completedPct": 100.0
+    },
+    {
+      "id": "item-47",
+      "section": "4th Floor",
+      "description": "Low Voltage/ Data Wiring/ Intercom",
+      "value": 22100.0,
+      "contractPct": 0,
+      "completedPct": 100.0
+    },
+    {
+      "id": "item-48",
+      "section": "4th Floor",
+      "description": "Finish & Lighting",
+      "value": 8840.0,
+      "contractPct": 0,
+      "completedPct": 100.0
+    },
+    {
+      "id": "item-49",
+      "section": "4th Floor",
+      "description": "Lighting controls",
+      "value": 2210.0,
+      "contractPct": 0,
+      "completedPct": 100.0
+    },
+    {
+      "id": "item-50",
+      "section": "4th Floor",
+      "description": "Testing & Inspections",
+      "value": 2210.0,
+      "contractPct": 0,
+      "completedPct": 100.0
+    },
+    {
+      "id": "item-51",
+      "section": "5th Floor",
+      "description": "Feeders & Subfeeders",
+      "value": 33490.0,
+      "contractPct": 0,
+      "completedPct": 100.0
+    },
+    {
+      "id": "item-52",
+      "section": "5th Floor",
+      "description": "Roughing",
+      "value": 39780.0,
+      "contractPct": 0,
+      "completedPct": 100.0
+    },
+    {
+      "id": "item-53",
+      "section": "5th Floor",
+      "description": "Low Voltage/ Data Wiring/ Intercom",
+      "value": 20910.0,
+      "contractPct": 0,
+      "completedPct": 100.0
+    },
+    {
+      "id": "item-54",
+      "section": "5th Floor",
+      "description": "Finish & Lighting",
+      "value": 8330.0,
+      "contractPct": 0,
+      "completedPct": 100.0
+    },
+    {
+      "id": "item-55",
+      "section": "5th Floor",
+      "description": "Lighting controls",
+      "value": 2040.0,
+      "contractPct": 0,
+      "completedPct": 100.0
+    },
+    {
+      "id": "item-56",
+      "section": "5th Floor",
+      "description": "Testing & Inspections",
+      "value": 2040.0,
+      "contractPct": 0,
+      "completedPct": 100.0
+    },
+    {
+      "id": "item-57",
+      "section": "6th Floor",
+      "description": "Feeders & Subfeeders",
+      "value": 33490.0,
+      "contractPct": 0,
+      "completedPct": 100.0
+    },
+    {
+      "id": "item-58",
+      "section": "6th Floor",
+      "description": "Roughing",
+      "value": 39780.0,
+      "contractPct": 0,
+      "completedPct": 100.0
+    },
+    {
+      "id": "item-59",
+      "section": "6th Floor",
+      "description": "Low Voltage/ Data Wiring/ Intercom",
+      "value": 20910.0,
+      "contractPct": 0,
+      "completedPct": 100.0
+    },
+    {
+      "id": "item-60",
+      "section": "6th Floor",
+      "description": "Finish & Lighting",
+      "value": 8330.0,
+      "contractPct": 0,
+      "completedPct": 100.0
+    },
+    {
+      "id": "item-61",
+      "section": "6th Floor",
+      "description": "Lighting controls",
+      "value": 2040.0,
+      "contractPct": 0,
+      "completedPct": 100.0
+    },
+    {
+      "id": "item-62",
+      "section": "6th Floor",
+      "description": "Testing & Inspections",
+      "value": 2040.0,
+      "contractPct": 0,
+      "completedPct": 100.0
+    },
+    {
+      "id": "item-63",
+      "section": "7th Floor",
+      "description": "Feeders & Subfeeders",
+      "value": 24650.0,
+      "contractPct": 0,
+      "completedPct": 100.0
+    },
+    {
+      "id": "item-64",
+      "section": "7th Floor",
+      "description": "Roughing",
+      "value": 29410.0,
+      "contractPct": 0,
+      "completedPct": 100.0
+    },
+    {
+      "id": "item-65",
+      "section": "7th Floor",
+      "description": "Low Voltage/ Data Wiring/ Intercom",
+      "value": 15470.0,
+      "contractPct": 0,
+      "completedPct": 100.0
+    },
+    {
+      "id": "item-66",
+      "section": "7th Floor",
+      "description": "Finish & Lighting",
+      "value": 6120.0,
+      "contractPct": 0,
+      "completedPct": 100.0
+    },
+    {
+      "id": "item-67",
+      "section": "7th Floor",
+      "description": "Lighting controls",
+      "value": 1530.0,
+      "contractPct": 0,
+      "completedPct": 100.0
+    },
+    {
+      "id": "item-68",
+      "section": "7th Floor",
+      "description": "Testing & Inspections",
+      "value": 1530.0,
+      "contractPct": 0,
+      "completedPct": 100.0
+    },
+    {
+      "id": "item-69",
+      "section": "8th Floor",
+      "description": "Feeders & Subfeeders",
+      "value": 26520.0,
+      "contractPct": 0,
+      "completedPct": 100.0
+    },
+    {
+      "id": "item-70",
+      "section": "8th Floor",
+      "description": "Roughing",
+      "value": 31450.0,
+      "contractPct": 0,
+      "completedPct": 100.0
+    },
+    {
+      "id": "item-71",
+      "section": "8th Floor",
+      "description": "Low Voltage/ Data Wiring/ Intercom",
+      "value": 16490.0,
+      "contractPct": 0,
+      "completedPct": 100.0
+    },
+    {
+      "id": "item-72",
+      "section": "8th Floor",
+      "description": "Finish & Lighting",
+      "value": 6630.0,
+      "contractPct": 0,
+      "completedPct": 100.0
+    },
+    {
+      "id": "item-73",
+      "section": "8th Floor",
+      "description": "Lighting controls",
+      "value": 1700.0,
+      "contractPct": 0,
+      "completedPct": 100.0
+    },
+    {
+      "id": "item-74",
+      "section": "8th Floor",
+      "description": "Testing & Inspections",
+      "value": 1700.0,
+      "contractPct": 0,
+      "completedPct": 100.0
+    },
+    {
+      "id": "item-75",
+      "section": "Roof Floor",
+      "description": "Feeders & Subfeeders",
+      "value": 11900.0,
+      "contractPct": 0,
+      "completedPct": 100.0
+    },
+    {
+      "id": "item-76",
+      "section": "Roof Floor",
+      "description": "Roughing",
+      "value": 11050.0,
+      "contractPct": 0,
+      "completedPct": 100.0
+    },
+    {
+      "id": "item-77",
+      "section": "Roof Floor",
+      "description": "Low Voltage/ Data Wiring/ Intercom",
+      "value": 3400.0,
+      "contractPct": 0,
+      "completedPct": 100.0
+    },
+    {
+      "id": "item-78",
+      "section": "Roof Floor",
+      "description": "Finish & Lighting",
+      "value": 3400.0,
+      "contractPct": 0,
+      "completedPct": 100.0
+    },
+    {
+      "id": "item-79",
+      "section": "Roof Floor",
+      "description": "Lighting Install",
+      "value": 3400.0,
+      "contractPct": 0,
+      "completedPct": 100.0
+    },
+    {
+      "id": "item-80",
+      "section": "Roof Floor",
+      "description": "Lighting controls",
+      "value": 1700.0,
+      "contractPct": 0,
+      "completedPct": 100.0
+    },
+    {
+      "id": "item-81",
+      "section": "Roof Floor",
+      "description": "Testing & Inspections",
+      "value": 1700.0,
+      "contractPct": 0,
+      "completedPct": 100.0
+    },
+    {
+      "id": "item-82",
+      "section": "Roof Floor",
+      "description": "CO - 01",
+      "value": 2600.0,
+      "contractPct": 0,
+      "completedPct": 100.0
+    },
+    {
+      "id": "item-83",
+      "section": "Roof Floor",
+      "description": "CO - 02",
+      "value": 3400.0,
+      "contractPct": 0,
+      "completedPct": 100.0
+    },
+    {
+      "id": "item-84",
+      "section": "Roof Floor",
+      "description": "CO - 03",
+      "value": 3400.0,
+      "contractPct": 0,
+      "completedPct": 100.0
+    },
+    {
+      "id": "item-85",
+      "section": "Roof Floor",
+      "description": "CO - 04",
+      "value": 5000.0,
+      "contractPct": 0,
+      "completedPct": 100.0
+    },
+    {
+      "id": "item-86",
+      "section": "Roof Floor",
+      "description": "CO - 05",
+      "value": 3700.0,
+      "contractPct": 0,
+      "completedPct": 100.0
+    },
+    {
+      "id": "item-87",
+      "section": "Roof Floor",
+      "description": "CO - 06",
+      "value": 1650.0,
+      "contractPct": 0,
+      "completedPct": 100.0
+    },
+    {
+      "id": "item-88",
+      "section": "Roof Floor",
+      "description": "CO - 07",
+      "value": 5850.0,
+      "contractPct": 0,
+      "completedPct": 100.0
+    },
+    {
+      "id": "item-89",
+      "section": "Roof Floor",
+      "description": "CO - 08",
+      "value": 4500.0,
+      "contractPct": 0,
+      "completedPct": 100.0
+    }
+  ],
+  "contractSum": 1730100.0,
+  "requisitions": [
+    {
+      "num": 1,
+      "applicationNumber": "REQ-1",
+      "periodTo": "2016-02-25",
+      "g702": {
+        "periodTo": "2016-02-25",
+        "totalCompleted": 89158.8,
+        "currentPaymentDue": 80242.92
+      },
+      "itemsSnapshot": [
+        {
+          "key": "|electric service equipment",
+          "completedPct": 19.1
+        },
+        {
+          "key": "|electric service installation",
+          "completedPct": 0.0
+        },
+        {
+          "key": "|temp electric & lighting",
+          "completedPct": 0.0
+        },
+        {
+          "key": "subcellar floor|feeders & subfeeders",
+          "completedPct": 0.0
+        },
+        {
+          "key": "subcellar floor|roughing",
+          "completedPct": 0.0
+        },
+        {
+          "key": "subcellar floor|low voltage/ data wiring/ intercom",
+          "completedPct": 0.0
+        },
+        {
+          "key": "subcellar floor|finish & lighting",
+          "completedPct": 0.0
+        },
+        {
+          "key": "subcellar floor|lighting contorls",
+          "completedPct": 0.0
+        },
+        {
+          "key": "subcellar floor|testing & inspections",
+          "completedPct": 0.0
+        },
+        {
+          "key": "cellar floor|feeders & subfeeders",
+          "completedPct": 0.0
+        },
+        {
+          "key": "cellar floor|roughing",
+          "completedPct": 0.0
+        },
+        {
+          "key": "cellar floor|low voltage/ data wiring/ intercom",
+          "completedPct": 0.0
+        },
+        {
+          "key": "cellar floor|finish & lighting",
+          "completedPct": 0.0
+        },
+        {
+          "key": "cellar floor|lighting controls",
+          "completedPct": 0.0
+        },
+        {
+          "key": "cellar floor|testing & inspections",
+          "completedPct": 0.0
+        },
+        {
+          "key": "basement floor|feeders & subfeeders",
+          "completedPct": 0.0
+        },
+        {
+          "key": "basement floor|roughing",
+          "completedPct": 0.0
+        },
+        {
+          "key": "basement floor|low voltage/ data wiring/ intercom",
+          "completedPct": 0.0
+        },
+        {
+          "key": "basement floor|finish & lighting",
+          "completedPct": 0.0
+        },
+        {
+          "key": "basement floor|lighting controls",
+          "completedPct": 0.0
+        },
+        {
+          "key": "basement floor|testing & inspections",
+          "completedPct": 0.0
+        },
+        {
+          "key": "exterior|feeders & subfeeders",
+          "completedPct": 0.0
+        },
+        {
+          "key": "exterior|roughing",
+          "completedPct": 0.0
+        },
+        {
+          "key": "exterior|finish & lighting",
+          "completedPct": 0.0
+        },
+        {
+          "key": "exterior|lighting controls",
+          "completedPct": 0.0
+        },
+        {
+          "key": "exterior|testing & inspections",
+          "completedPct": 0.0
+        },
+        {
+          "key": "1st floor|feeders & subfeeders",
+          "completedPct": 0.0
+        },
+        {
+          "key": "1st floor|roughing",
+          "completedPct": 0.0
+        },
+        {
+          "key": "1st floor|low voltage/ data wiring/ intercom",
+          "completedPct": 0.0
+        },
+        {
+          "key": "1st floor|finish & lighting",
+          "completedPct": 0.0
+        },
+        {
+          "key": "1st floor|lighting controls",
+          "completedPct": 0.0
+        },
+        {
+          "key": "1st floor|testing & inspections",
+          "completedPct": 0.0
+        },
+        {
+          "key": "2nd floor|feeders & subfeeders",
+          "completedPct": 0.0
+        },
+        {
+          "key": "2nd floor|roughing",
+          "completedPct": 0.0
+        },
+        {
+          "key": "2nd floor|low voltage/ data wiring/ intercom",
+          "completedPct": 0.0
+        },
+        {
+          "key": "2nd floor|finish & lighting",
+          "completedPct": 0.0
+        },
+        {
+          "key": "2nd floor|lighting controls",
+          "completedPct": 0.0
+        },
+        {
+          "key": "2nd floor|testing & inspections",
+          "completedPct": 0.0
+        },
+        {
+          "key": "3rd floor|feeders & subfeeders",
+          "completedPct": 0.0
+        },
+        {
+          "key": "3rd floor|roughing",
+          "completedPct": 0.0
+        },
+        {
+          "key": "3rd floor|low voltage/ data wiring/ intercom",
+          "completedPct": 0.0
+        },
+        {
+          "key": "3rd floor|finish & lighting",
+          "completedPct": 0.0
+        },
+        {
+          "key": "3rd floor|lighting controls",
+          "completedPct": 0.0
+        },
+        {
+          "key": "3rd floor|testing & inspections",
+          "completedPct": 0.0
+        },
+        {
+          "key": "4th floor|feeders & subfeeders",
+          "completedPct": 0.0
+        },
+        {
+          "key": "4th floor|roughing",
+          "completedPct": 0.0
+        },
+        {
+          "key": "4th floor|low voltage/ data wiring/ intercom",
+          "completedPct": 0.0
+        },
+        {
+          "key": "4th floor|finish & lighting",
+          "completedPct": 0.0
+        },
+        {
+          "key": "4th floor|lighting controls",
+          "completedPct": 0.0
+        },
+        {
+          "key": "4th floor|testing & inspections",
+          "completedPct": 0.0
+        },
+        {
+          "key": "5th floor|feeders & subfeeders",
+          "completedPct": 0.0
+        },
+        {
+          "key": "5th floor|roughing",
+          "completedPct": 0.0
+        },
+        {
+          "key": "5th floor|low voltage/ data wiring/ intercom",
+          "completedPct": 0.0
+        },
+        {
+          "key": "5th floor|finish & lighting",
+          "completedPct": 0.0
+        },
+        {
+          "key": "5th floor|lighting controls",
+          "completedPct": 0.0
+        },
+        {
+          "key": "5th floor|testing & inspections",
+          "completedPct": 0.0
+        },
+        {
+          "key": "6th floor|feeders & subfeeders",
+          "completedPct": 0.0
+        },
+        {
+          "key": "6th floor|roughing",
+          "completedPct": 0.0
+        },
+        {
+          "key": "6th floor|low voltage/ data wiring/ intercom",
+          "completedPct": 0.0
+        },
+        {
+          "key": "6th floor|finish & lighting",
+          "completedPct": 0.0
+        },
+        {
+          "key": "6th floor|lighting controls",
+          "completedPct": 0.0
+        },
+        {
+          "key": "6th floor|testing & inspections",
+          "completedPct": 0.0
+        },
+        {
+          "key": "7th floor|feeders & subfeeders",
+          "completedPct": 0.0
+        },
+        {
+          "key": "7th floor|roughing",
+          "completedPct": 0.0
+        },
+        {
+          "key": "7th floor|low voltage/ data wiring/ intercom",
+          "completedPct": 0.0
+        },
+        {
+          "key": "7th floor|finish & lighting",
+          "completedPct": 0.0
+        },
+        {
+          "key": "7th floor|lighting controls",
+          "completedPct": 0.0
+        },
+        {
+          "key": "7th floor|testing & inspections",
+          "completedPct": 0.0
+        },
+        {
+          "key": "8th floor|feeders & subfeeders",
+          "completedPct": 0.0
+        },
+        {
+          "key": "8th floor|roughing",
+          "completedPct": 0.0
+        },
+        {
+          "key": "8th floor|low voltage/ data wiring/ intercom",
+          "completedPct": 0.0
+        },
+        {
+          "key": "8th floor|finish & lighting",
+          "completedPct": 0.0
+        },
+        {
+          "key": "8th floor|lighting controls",
+          "completedPct": 0.0
+        },
+        {
+          "key": "8th floor|testing & inspections",
+          "completedPct": 0.0
+        },
+        {
+          "key": "roof floor|feeders & subfeeders",
+          "completedPct": 0.0
+        },
+        {
+          "key": "roof floor|roughing",
+          "completedPct": 0.0
+        },
+        {
+          "key": "roof floor|low voltage/ data wiring/ intercom",
+          "completedPct": 0.0
+        },
+        {
+          "key": "roof floor|finish & lighting",
+          "completedPct": 0.0
+        },
+        {
+          "key": "roof floor|lighting install",
+          "completedPct": 0.0
+        },
+        {
+          "key": "roof floor|lighting controls",
+          "completedPct": 0.0
+        },
+        {
+          "key": "roof floor|testing & inspections",
+          "completedPct": 0.0
+        },
+        {
+          "key": "roof floor|co - 01",
+          "completedPct": 100.0
+        },
+        {
+          "key": "roof floor|co - 02",
+          "completedPct": 100.0
+        },
+        {
+          "key": "roof floor|co - 03",
+          "completedPct": 100.0
+        },
+        {
+          "key": "roof floor|co - 04",
+          "completedPct": 100.0
+        },
+        {
+          "key": "roof floor|co - 05",
+          "completedPct": 100.0
+        },
+        {
+          "key": "roof floor|co - 06",
+          "completedPct": 100.0
+        },
+        {
+          "key": "roof floor|co - 07",
+          "completedPct": 100.0
+        },
+        {
+          "key": "roof floor|co - 08",
+          "completedPct": 100.0
+        }
+      ],
+      "attachments": [
+        {
+          "name": "Req 1 .pdf",
+          "webViewLink": "https://drive.google.com/file/d/1DpP_q87JeZOTfQe77YvG19RU22fT8U6C/view?usp=drivesdk"
+        },
+        {
+          "name": "ACS Inv 31224.pdf",
+          "localPath": "/Users/levik/My Drive/1 Martin Dorkin/Projects/334 E 176/Requisition/Requisition 1/ACS Inv 31224.pdf"
+        }
+      ]
+    },
+    {
+      "num": 2,
+      "applicationNumber": "REQ-2",
+      "periodTo": "2024-02-27",
+      "g702": {
+        "periodTo": "2024-02-27",
+        "totalCompleted": 337112.52,
+        "currentPaymentDue": 245450.164
+      },
+      "itemsSnapshot": [
+        {
+          "key": "|electric service equipment",
+          "completedPct": 66.14
+        },
+        {
+          "key": "|electric service installation",
+          "completedPct": 6.33
+        },
+        {
+          "key": "|temp electric & lighting",
+          "completedPct": 26.16
+        },
+        {
+          "key": "subcellar floor|feeders & subfeeders",
+          "completedPct": 0.0
+        },
+        {
+          "key": "subcellar floor|roughing",
+          "completedPct": 0.0
+        },
+        {
+          "key": "subcellar floor|low voltage/ data wiring/ intercom",
+          "completedPct": 0.0
+        },
+        {
+          "key": "subcellar floor|finish & lighting",
+          "completedPct": 0.0
+        },
+        {
+          "key": "subcellar floor|lighting contorls",
+          "completedPct": 0.0
+        },
+        {
+          "key": "subcellar floor|testing & inspections",
+          "completedPct": 0.0
+        },
+        {
+          "key": "cellar floor|feeders & subfeeders",
+          "completedPct": 0.0
+        },
+        {
+          "key": "cellar floor|roughing",
+          "completedPct": 0.0
+        },
+        {
+          "key": "cellar floor|low voltage/ data wiring/ intercom",
+          "completedPct": 0.0
+        },
+        {
+          "key": "cellar floor|finish & lighting",
+          "completedPct": 0.0
+        },
+        {
+          "key": "cellar floor|lighting controls",
+          "completedPct": 0.0
+        },
+        {
+          "key": "cellar floor|testing & inspections",
+          "completedPct": 0.0
+        },
+        {
+          "key": "basement floor|feeders & subfeeders",
+          "completedPct": 0.0
+        },
+        {
+          "key": "basement floor|roughing",
+          "completedPct": 0.0
+        },
+        {
+          "key": "basement floor|low voltage/ data wiring/ intercom",
+          "completedPct": 0.0
+        },
+        {
+          "key": "basement floor|finish & lighting",
+          "completedPct": 0.0
+        },
+        {
+          "key": "basement floor|lighting controls",
+          "completedPct": 0.0
+        },
+        {
+          "key": "basement floor|testing & inspections",
+          "completedPct": 0.0
+        },
+        {
+          "key": "exterior|feeders & subfeeders",
+          "completedPct": 0.0
+        },
+        {
+          "key": "exterior|roughing",
+          "completedPct": 0.0
+        },
+        {
+          "key": "exterior|finish & lighting",
+          "completedPct": 0.0
+        },
+        {
+          "key": "exterior|lighting controls",
+          "completedPct": 0.0
+        },
+        {
+          "key": "exterior|testing & inspections",
+          "completedPct": 0.0
+        },
+        {
+          "key": "1st floor|feeders & subfeeders",
+          "completedPct": 0.0
+        },
+        {
+          "key": "1st floor|roughing",
+          "completedPct": 0.0
+        },
+        {
+          "key": "1st floor|low voltage/ data wiring/ intercom",
+          "completedPct": 0.0
+        },
+        {
+          "key": "1st floor|finish & lighting",
+          "completedPct": 0.0
+        },
+        {
+          "key": "1st floor|lighting controls",
+          "completedPct": 0.0
+        },
+        {
+          "key": "1st floor|testing & inspections",
+          "completedPct": 0.0
+        },
+        {
+          "key": "2nd floor|feeders & subfeeders",
+          "completedPct": 0.0
+        },
+        {
+          "key": "2nd floor|roughing",
+          "completedPct": 0.0
+        },
+        {
+          "key": "2nd floor|low voltage/ data wiring/ intercom",
+          "completedPct": 0.0
+        },
+        {
+          "key": "2nd floor|finish & lighting",
+          "completedPct": 0.0
+        },
+        {
+          "key": "2nd floor|lighting controls",
+          "completedPct": 0.0
+        },
+        {
+          "key": "2nd floor|testing & inspections",
+          "completedPct": 0.0
+        },
+        {
+          "key": "3rd floor|feeders & subfeeders",
+          "completedPct": 0.0
+        },
+        {
+          "key": "3rd floor|roughing",
+          "completedPct": 0.0
+        },
+        {
+          "key": "3rd floor|low voltage/ data wiring/ intercom",
+          "completedPct": 0.0
+        },
+        {
+          "key": "3rd floor|finish & lighting",
+          "completedPct": 0.0
+        },
+        {
+          "key": "3rd floor|lighting controls",
+          "completedPct": 0.0
+        },
+        {
+          "key": "3rd floor|testing & inspections",
+          "completedPct": 0.0
+        },
+        {
+          "key": "4th floor|feeders & subfeeders",
+          "completedPct": 0.0
+        },
+        {
+          "key": "4th floor|roughing",
+          "completedPct": 0.0
+        },
+        {
+          "key": "4th floor|low voltage/ data wiring/ intercom",
+          "completedPct": 0.0
+        },
+        {
+          "key": "4th floor|finish & lighting",
+          "completedPct": 0.0
+        },
+        {
+          "key": "4th floor|lighting controls",
+          "completedPct": 0.0
+        },
+        {
+          "key": "4th floor|testing & inspections",
+          "completedPct": 0.0
+        },
+        {
+          "key": "5th floor|feeders & subfeeders",
+          "completedPct": 0.0
+        },
+        {
+          "key": "5th floor|roughing",
+          "completedPct": 0.0
+        },
+        {
+          "key": "5th floor|low voltage/ data wiring/ intercom",
+          "completedPct": 0.0
+        },
+        {
+          "key": "5th floor|finish & lighting",
+          "completedPct": 0.0
+        },
+        {
+          "key": "5th floor|lighting controls",
+          "completedPct": 0.0
+        },
+        {
+          "key": "5th floor|testing & inspections",
+          "completedPct": 0.0
+        },
+        {
+          "key": "6th floor|feeders & subfeeders",
+          "completedPct": 0.0
+        },
+        {
+          "key": "6th floor|roughing",
+          "completedPct": 0.0
+        },
+        {
+          "key": "6th floor|low voltage/ data wiring/ intercom",
+          "completedPct": 0.0
+        },
+        {
+          "key": "6th floor|finish & lighting",
+          "completedPct": 0.0
+        },
+        {
+          "key": "6th floor|lighting controls",
+          "completedPct": 0.0
+        },
+        {
+          "key": "6th floor|testing & inspections",
+          "completedPct": 0.0
+        },
+        {
+          "key": "7th floor|feeders & subfeeders",
+          "completedPct": 0.0
+        },
+        {
+          "key": "7th floor|roughing",
+          "completedPct": 0.0
+        },
+        {
+          "key": "7th floor|low voltage/ data wiring/ intercom",
+          "completedPct": 0.0
+        },
+        {
+          "key": "7th floor|finish & lighting",
+          "completedPct": 0.0
+        },
+        {
+          "key": "7th floor|lighting controls",
+          "completedPct": 0.0
+        },
+        {
+          "key": "7th floor|testing & inspections",
+          "completedPct": 0.0
+        },
+        {
+          "key": "8th floor|feeders & subfeeders",
+          "completedPct": 0.0
+        },
+        {
+          "key": "8th floor|roughing",
+          "completedPct": 0.0
+        },
+        {
+          "key": "8th floor|low voltage/ data wiring/ intercom",
+          "completedPct": 0.0
+        },
+        {
+          "key": "8th floor|finish & lighting",
+          "completedPct": 0.0
+        },
+        {
+          "key": "8th floor|lighting controls",
+          "completedPct": 0.0
+        },
+        {
+          "key": "8th floor|testing & inspections",
+          "completedPct": 0.0
+        },
+        {
+          "key": "roof floor|feeders & subfeeders",
+          "completedPct": 0.0
+        },
+        {
+          "key": "roof floor|roughing",
+          "completedPct": 0.0
+        },
+        {
+          "key": "roof floor|low voltage/ data wiring/ intercom",
+          "completedPct": 0.0
+        },
+        {
+          "key": "roof floor|finish & lighting",
+          "completedPct": 0.0
+        },
+        {
+          "key": "roof floor|lighting install",
+          "completedPct": 0.0
+        },
+        {
+          "key": "roof floor|lighting controls",
+          "completedPct": 0.0
+        },
+        {
+          "key": "roof floor|testing & inspections",
+          "completedPct": 0.0
+        },
+        {
+          "key": "roof floor|co - 01",
+          "completedPct": 100.0
+        },
+        {
+          "key": "roof floor|co - 02",
+          "completedPct": 100.0
+        },
+        {
+          "key": "roof floor|co - 03",
+          "completedPct": 100.0
+        },
+        {
+          "key": "roof floor|co - 04",
+          "completedPct": 100.0
+        },
+        {
+          "key": "roof floor|co - 05",
+          "completedPct": 100.0
+        },
+        {
+          "key": "roof floor|co - 06",
+          "completedPct": 100.0
+        },
+        {
+          "key": "roof floor|co - 07",
+          "completedPct": 100.0
+        },
+        {
+          "key": "roof floor|co - 08",
+          "completedPct": 100.0
+        }
+      ],
+      "attachments": [
+        {
+          "name": "Req 2.pdf",
+          "webViewLink": "https://drive.google.com/file/d/1QlhmW1b8Cv-FylfWRmiV_K-xNIepqIdc/view?usp=drivesdk"
+        },
+        {
+          "name": "445 E 176TH ST.pdf",
+          "localPath": "/Users/levik/My Drive/1 Martin Dorkin/Projects/334 E 176/Requisition/Requisition 2/445 E 176TH ST.pdf"
+        },
+        {
+          "name": "ACS Inv 31224.pdf",
+          "localPath": "/Users/levik/My Drive/1 Martin Dorkin/Projects/334 E 176/Requisition/Requisition 2/ACS Inv 31224.pdf"
+        },
+        {
+          "name": "Inv_2220743_from_JRS_Electrical__Consulting_Inc_31568.pdf",
+          "localPath": "/Users/levik/My Drive/1 Martin Dorkin/Projects/334 E 176/Requisition/Requisition 2/Inv_2220743_from_JRS_Electrical__Consulting_Inc_31568.pdf"
+        },
+        {
+          "name": "Inv_2321945_from_JRS_Electrical__Consulting_Inc_31568.pdf",
+          "localPath": "/Users/levik/My Drive/1 Martin Dorkin/Projects/334 E 176/Requisition/Requisition 2/Inv_2321945_from_JRS_Electrical__Consulting_Inc_31568.pdf"
+        },
+        {
+          "name": "Inv_35234A_from_Imperial_Electric_Supplies_Inc._65488.pdf",
+          "localPath": "/Users/levik/My Drive/1 Martin Dorkin/Projects/334 E 176/Requisition/Requisition 2/Inv_35234A_from_Imperial_Electric_Supplies_Inc._65488.pdf"
+        },
+        {
+          "name": "Inv_35234C_from_Imperial_Electric_Supplies_Inc._65488.pdf",
+          "localPath": "/Users/levik/My Drive/1 Martin Dorkin/Projects/334 E 176/Requisition/Requisition 2/Inv_35234C_from_Imperial_Electric_Supplies_Inc._65488.pdf"
+        },
+        {
+          "name": "Inv_35234D_from_Imperial_Electric_Supplies_Inc._65488.pdf",
+          "localPath": "/Users/levik/My Drive/1 Martin Dorkin/Projects/334 E 176/Requisition/Requisition 2/Inv_35234D_from_Imperial_Electric_Supplies_Inc._65488.pdf"
+        },
+        {
+          "name": "Inv_35234E_from_Imperial_Electric_Supplies_Inc._65488.pdf",
+          "localPath": "/Users/levik/My Drive/1 Martin Dorkin/Projects/334 E 176/Requisition/Requisition 2/Inv_35234E_from_Imperial_Electric_Supplies_Inc._65488.pdf"
+        },
+        {
+          "name": "Inv_35234F_from_Imperial_Electric_Supplies_Inc._65488.pdf",
+          "localPath": "/Users/levik/My Drive/1 Martin Dorkin/Projects/334 E 176/Requisition/Requisition 2/Inv_35234F_from_Imperial_Electric_Supplies_Inc._65488.pdf"
+        },
+        {
+          "name": "Inv_35234J_from_Imperial_Electric_Supplies_Inc._18644.pdf",
+          "localPath": "/Users/levik/My Drive/1 Martin Dorkin/Projects/334 E 176/Requisition/Requisition 2/Inv_35234J_from_Imperial_Electric_Supplies_Inc._18644.pdf"
+        },
+        {
+          "name": "Inv_35234_from_Imperial_Electric_Supplies_Inc._45384.pdf",
+          "localPath": "/Users/levik/My Drive/1 Martin Dorkin/Projects/334 E 176/Requisition/Requisition 2/Inv_35234_from_Imperial_Electric_Supplies_Inc._45384.pdf"
+        },
+        {
+          "name": "Inv_36444_from_Imperial_Electric_Supplies_Inc._19892.pdf",
+          "localPath": "/Users/levik/My Drive/1 Martin Dorkin/Projects/334 E 176/Requisition/Requisition 2/Inv_36444_from_Imperial_Electric_Supplies_Inc._19892.pdf"
+        },
+        {
+          "name": "March statement imperial electrical.pdf",
+          "localPath": "/Users/levik/My Drive/1 Martin Dorkin/Projects/334 E 176/Requisition/Requisition 2/March statement imperial electrical.pdf"
+        }
+      ]
+    },
+    {
+      "num": 3,
+      "applicationNumber": "REQ-3",
+      "periodTo": "2024-05-27",
+      "g702": {
+        "periodTo": "2024-05-27",
+        "totalCompleted": 645995.5,
+        "currentPaymentDue": 285863.97
+      },
+      "itemsSnapshot": [
+        {
+          "key": "|electric service equipment",
+          "completedPct": 83.0
+        },
+        {
+          "key": "|electric service installation",
+          "completedPct": 20.0
+        },
+        {
+          "key": "|temp electric & lighting",
+          "completedPct": 60.0
+        },
+        {
+          "key": "subcellar floor|feeders & subfeeders",
+          "completedPct": 15.0
+        },
+        {
+          "key": "subcellar floor|roughing",
+          "completedPct": 25.0
+        },
+        {
+          "key": "subcellar floor|low voltage/ data wiring/ intercom",
+          "completedPct": 25.0
+        },
+        {
+          "key": "subcellar floor|finish & lighting",
+          "completedPct": 0.0
+        },
+        {
+          "key": "subcellar floor|lighting contorls",
+          "completedPct": 0.0
+        },
+        {
+          "key": "subcellar floor|testing & inspections",
+          "completedPct": 0.0
+        },
+        {
+          "key": "cellar floor|feeders & subfeeders",
+          "completedPct": 100.0
+        },
+        {
+          "key": "cellar floor|roughing",
+          "completedPct": 15.0
+        },
+        {
+          "key": "cellar floor|low voltage/ data wiring/ intercom",
+          "completedPct": 0.0
+        },
+        {
+          "key": "cellar floor|finish & lighting",
+          "completedPct": 0.0
+        },
+        {
+          "key": "cellar floor|lighting controls",
+          "completedPct": 0.0
+        },
+        {
+          "key": "cellar floor|testing & inspections",
+          "completedPct": 0.0
+        },
+        {
+          "key": "basement floor|feeders & subfeeders",
+          "completedPct": 100.0
+        },
+        {
+          "key": "basement floor|roughing",
+          "completedPct": 15.0
+        },
+        {
+          "key": "basement floor|low voltage/ data wiring/ intercom",
+          "completedPct": 0.0
+        },
+        {
+          "key": "basement floor|finish & lighting",
+          "completedPct": 0.0
+        },
+        {
+          "key": "basement floor|lighting controls",
+          "completedPct": 0.0
+        },
+        {
+          "key": "basement floor|testing & inspections",
+          "completedPct": 0.0
+        },
+        {
+          "key": "exterior|feeders & subfeeders",
+          "completedPct": 20.0
+        },
+        {
+          "key": "exterior|roughing",
+          "completedPct": 10.0
+        },
+        {
+          "key": "exterior|finish & lighting",
+          "completedPct": 0.0
+        },
+        {
+          "key": "exterior|lighting controls",
+          "completedPct": 0.0
+        },
+        {
+          "key": "exterior|testing & inspections",
+          "completedPct": 0.0
+        },
+        {
+          "key": "1st floor|feeders & subfeeders",
+          "completedPct": 100.0
+        },
+        {
+          "key": "1st floor|roughing",
+          "completedPct": 10.0
+        },
+        {
+          "key": "1st floor|low voltage/ data wiring/ intercom",
+          "completedPct": 0.0
+        },
+        {
+          "key": "1st floor|finish & lighting",
+          "completedPct": 0.0
+        },
+        {
+          "key": "1st floor|lighting controls",
+          "completedPct": 0.0
+        },
+        {
+          "key": "1st floor|testing & inspections",
+          "completedPct": 0.0
+        },
+        {
+          "key": "2nd floor|feeders & subfeeders",
+          "completedPct": 100.0
+        },
+        {
+          "key": "2nd floor|roughing",
+          "completedPct": 10.0
+        },
+        {
+          "key": "2nd floor|low voltage/ data wiring/ intercom",
+          "completedPct": 0.0
+        },
+        {
+          "key": "2nd floor|finish & lighting",
+          "completedPct": 0.0
+        },
+        {
+          "key": "2nd floor|lighting controls",
+          "completedPct": 0.0
+        },
+        {
+          "key": "2nd floor|testing & inspections",
+          "completedPct": 0.0
+        },
+        {
+          "key": "3rd floor|feeders & subfeeders",
+          "completedPct": 100.0
+        },
+        {
+          "key": "3rd floor|roughing",
+          "completedPct": 10.0
+        },
+        {
+          "key": "3rd floor|low voltage/ data wiring/ intercom",
+          "completedPct": 0.0
+        },
+        {
+          "key": "3rd floor|finish & lighting",
+          "completedPct": 0.0
+        },
+        {
+          "key": "3rd floor|lighting controls",
+          "completedPct": 0.0
+        },
+        {
+          "key": "3rd floor|testing & inspections",
+          "completedPct": 0.0
+        },
+        {
+          "key": "4th floor|feeders & subfeeders",
+          "completedPct": 100.0
+        },
+        {
+          "key": "4th floor|roughing",
+          "completedPct": 10.0
+        },
+        {
+          "key": "4th floor|low voltage/ data wiring/ intercom",
+          "completedPct": 0.0
+        },
+        {
+          "key": "4th floor|finish & lighting",
+          "completedPct": 0.0
+        },
+        {
+          "key": "4th floor|lighting controls",
+          "completedPct": 0.0
+        },
+        {
+          "key": "4th floor|testing & inspections",
+          "completedPct": 0.0
+        },
+        {
+          "key": "5th floor|feeders & subfeeders",
+          "completedPct": 0.0
+        },
+        {
+          "key": "5th floor|roughing",
+          "completedPct": 0.0
+        },
+        {
+          "key": "5th floor|low voltage/ data wiring/ intercom",
+          "completedPct": 0.0
+        },
+        {
+          "key": "5th floor|finish & lighting",
+          "completedPct": 0.0
+        },
+        {
+          "key": "5th floor|lighting controls",
+          "completedPct": 0.0
+        },
+        {
+          "key": "5th floor|testing & inspections",
+          "completedPct": 0.0
+        },
+        {
+          "key": "6th floor|feeders & subfeeders",
+          "completedPct": 0.0
+        },
+        {
+          "key": "6th floor|roughing",
+          "completedPct": 0.0
+        },
+        {
+          "key": "6th floor|low voltage/ data wiring/ intercom",
+          "completedPct": 0.0
+        },
+        {
+          "key": "6th floor|finish & lighting",
+          "completedPct": 0.0
+        },
+        {
+          "key": "6th floor|lighting controls",
+          "completedPct": 0.0
+        },
+        {
+          "key": "6th floor|testing & inspections",
+          "completedPct": 0.0
+        },
+        {
+          "key": "7th floor|feeders & subfeeders",
+          "completedPct": 0.0
+        },
+        {
+          "key": "7th floor|roughing",
+          "completedPct": 0.0
+        },
+        {
+          "key": "7th floor|low voltage/ data wiring/ intercom",
+          "completedPct": 0.0
+        },
+        {
+          "key": "7th floor|finish & lighting",
+          "completedPct": 0.0
+        },
+        {
+          "key": "7th floor|lighting controls",
+          "completedPct": 0.0
+        },
+        {
+          "key": "7th floor|testing & inspections",
+          "completedPct": 0.0
+        },
+        {
+          "key": "8th floor|feeders & subfeeders",
+          "completedPct": 0.0
+        },
+        {
+          "key": "8th floor|roughing",
+          "completedPct": 0.0
+        },
+        {
+          "key": "8th floor|low voltage/ data wiring/ intercom",
+          "completedPct": 0.0
+        },
+        {
+          "key": "8th floor|finish & lighting",
+          "completedPct": 0.0
+        },
+        {
+          "key": "8th floor|lighting controls",
+          "completedPct": 0.0
+        },
+        {
+          "key": "8th floor|testing & inspections",
+          "completedPct": 0.0
+        },
+        {
+          "key": "roof floor|feeders & subfeeders",
+          "completedPct": 0.0
+        },
+        {
+          "key": "roof floor|roughing",
+          "completedPct": 0.0
+        },
+        {
+          "key": "roof floor|low voltage/ data wiring/ intercom",
+          "completedPct": 0.0
+        },
+        {
+          "key": "roof floor|finish & lighting",
+          "completedPct": 0.0
+        },
+        {
+          "key": "roof floor|lighting install",
+          "completedPct": 0.0
+        },
+        {
+          "key": "roof floor|lighting controls",
+          "completedPct": 0.0
+        },
+        {
+          "key": "roof floor|testing & inspections",
+          "completedPct": 0.0
+        },
+        {
+          "key": "roof floor|co - 01",
+          "completedPct": 100.0
+        },
+        {
+          "key": "roof floor|co - 02",
+          "completedPct": 100.0
+        },
+        {
+          "key": "roof floor|co - 03",
+          "completedPct": 100.0
+        },
+        {
+          "key": "roof floor|co - 04",
+          "completedPct": 100.0
+        },
+        {
+          "key": "roof floor|co - 05",
+          "completedPct": 100.0
+        },
+        {
+          "key": "roof floor|co - 06",
+          "completedPct": 100.0
+        },
+        {
+          "key": "roof floor|co - 07",
+          "completedPct": 100.0
+        },
+        {
+          "key": "roof floor|co - 08",
+          "completedPct": 100.0
+        }
+      ],
+      "attachments": [
+        {
+          "name": "Requisition 3.pdf",
+          "webViewLink": "https://drive.google.com/file/d/1UQw-43ViWE8DVX54pMMYuOZKWSlVUXCH/view?usp=drivesdk"
+        },
+        {
+          "name": "Inv_35234L_from_Imperial_Electric_Supplies_Inc._15444.pdf",
+          "localPath": "/Users/levik/My Drive/1 Martin Dorkin/Projects/334 E 176/Requisition/Requisition 3/Inv_35234L_from_Imperial_Electric_Supplies_Inc._15444.pdf"
+        },
+        {
+          "name": "Req 3.pdf",
+          "localPath": "/Users/levik/My Drive/1 Martin Dorkin/Projects/334 E 176/Requisition/Requisition 3/Req 3.pdf"
+        },
+        {
+          "name": "YB Lighting 345451-02.pdf",
+          "localPath": "/Users/levik/My Drive/1 Martin Dorkin/Projects/334 E 176/Requisition/Requisition 3/YB Lighting 345451-02.pdf"
+        },
+        {
+          "name": "YB Lighting 347962-01.pdf",
+          "localPath": "/Users/levik/My Drive/1 Martin Dorkin/Projects/334 E 176/Requisition/Requisition 3/YB Lighting 347962-01.pdf"
+        },
+        {
+          "name": "YB Lighting 347962.pdf",
+          "localPath": "/Users/levik/My Drive/1 Martin Dorkin/Projects/334 E 176/Requisition/Requisition 3/YB Lighting 347962.pdf"
+        },
+        {
+          "name": "YB MEter banks 345451..pdf",
+          "localPath": "/Users/levik/My Drive/1 Martin Dorkin/Projects/334 E 176/Requisition/Requisition 3/YB MEter banks 345451..pdf"
+        },
+        {
+          "name": "YB invoice 349354.pdf",
+          "localPath": "/Users/levik/My Drive/1 Martin Dorkin/Projects/334 E 176/Requisition/Requisition 3/YB invoice 349354.pdf"
+        },
+        {
+          "name": "lane waiver YB lighting 6-26-2024 12.06.pdf",
+          "localPath": "/Users/levik/My Drive/1 Martin Dorkin/Projects/334 E 176/Requisition/Requisition 3/lane waiver YB lighting 6-26-2024 12.06.pdf"
+        }
+      ]
+    },
+    {
+      "num": 4,
+      "applicationNumber": "REQ-4",
+      "periodTo": "2024-07-15",
+      "g702": {
+        "periodTo": "2024-07-15",
+        "note": "interpolated \u2014 amra Drive sheet not on leelectrical token"
+      },
+      "itemsSnapshot": [
+        {
+          "key": "|electric service equipment",
+          "completedPct": 88.61
+        },
+        {
+          "key": "|electric service installation",
+          "completedPct": 39.8
+        },
+        {
+          "key": "|temp electric & lighting",
+          "completedPct": 63.3
+        },
+        {
+          "key": "subcellar floor|feeders & subfeeders",
+          "completedPct": 21.28
+        },
+        {
+          "key": "subcellar floor|roughing",
+          "completedPct": 25.0
+        },
+        {
+          "key": "subcellar floor|low voltage/ data wiring/ intercom",
+          "completedPct": 25.0
+        },
+        {
+          "key": "subcellar floor|finish & lighting",
+          "completedPct": 0.0
+        },
+        {
+          "key": "subcellar floor|lighting contorls",
+          "completedPct": 0.0
+        },
+        {
+          "key": "subcellar floor|testing & inspections",
+          "completedPct": 0.0
+        },
+        {
+          "key": "cellar floor|feeders & subfeeders",
+          "completedPct": 100.0
+        },
+        {
+          "key": "cellar floor|roughing",
+          "completedPct": 15.0
+        },
+        {
+          "key": "cellar floor|low voltage/ data wiring/ intercom",
+          "completedPct": 0.0
+        },
+        {
+          "key": "cellar floor|finish & lighting",
+          "completedPct": 0.0
+        },
+        {
+          "key": "cellar floor|lighting controls",
+          "completedPct": 0.0
+        },
+        {
+          "key": "cellar floor|testing & inspections",
+          "completedPct": 0.0
+        },
+        {
+          "key": "basement floor|feeders & subfeeders",
+          "completedPct": 100.0
+        },
+        {
+          "key": "basement floor|roughing",
+          "completedPct": 15.0
+        },
+        {
+          "key": "basement floor|low voltage/ data wiring/ intercom",
+          "completedPct": 0.0
+        },
+        {
+          "key": "basement floor|finish & lighting",
+          "completedPct": 0.0
+        },
+        {
+          "key": "basement floor|lighting controls",
+          "completedPct": 0.0
+        },
+        {
+          "key": "basement floor|testing & inspections",
+          "completedPct": 0.0
+        },
+        {
+          "key": "exterior|feeders & subfeeders",
+          "completedPct": 20.0
+        },
+        {
+          "key": "exterior|roughing",
+          "completedPct": 10.0
+        },
+        {
+          "key": "exterior|finish & lighting",
+          "completedPct": 0.0
+        },
+        {
+          "key": "exterior|lighting controls",
+          "completedPct": 0.0
+        },
+        {
+          "key": "exterior|testing & inspections",
+          "completedPct": 0.0
+        },
+        {
+          "key": "1st floor|feeders & subfeeders",
+          "completedPct": 100.0
+        },
+        {
+          "key": "1st floor|roughing",
+          "completedPct": 10.0
+        },
+        {
+          "key": "1st floor|low voltage/ data wiring/ intercom",
+          "completedPct": 0.0
+        },
+        {
+          "key": "1st floor|finish & lighting",
+          "completedPct": 0.0
+        },
+        {
+          "key": "1st floor|lighting controls",
+          "completedPct": 0.0
+        },
+        {
+          "key": "1st floor|testing & inspections",
+          "completedPct": 0.0
+        },
+        {
+          "key": "2nd floor|feeders & subfeeders",
+          "completedPct": 100.0
+        },
+        {
+          "key": "2nd floor|roughing",
+          "completedPct": 10.0
+        },
+        {
+          "key": "2nd floor|low voltage/ data wiring/ intercom",
+          "completedPct": 0.0
+        },
+        {
+          "key": "2nd floor|finish & lighting",
+          "completedPct": 0.0
+        },
+        {
+          "key": "2nd floor|lighting controls",
+          "completedPct": 0.0
+        },
+        {
+          "key": "2nd floor|testing & inspections",
+          "completedPct": 0.0
+        },
+        {
+          "key": "3rd floor|feeders & subfeeders",
+          "completedPct": 96.7
+        },
+        {
+          "key": "3rd floor|roughing",
+          "completedPct": 6.7
+        },
+        {
+          "key": "3rd floor|low voltage/ data wiring/ intercom",
+          "completedPct": 0.0
+        },
+        {
+          "key": "3rd floor|finish & lighting",
+          "completedPct": 0.0
+        },
+        {
+          "key": "3rd floor|lighting controls",
+          "completedPct": 0.0
+        },
+        {
+          "key": "3rd floor|testing & inspections",
+          "completedPct": 0.0
+        },
+        {
+          "key": "4th floor|feeders & subfeeders",
+          "completedPct": 96.7
+        },
+        {
+          "key": "4th floor|roughing",
+          "completedPct": 6.7
+        },
+        {
+          "key": "4th floor|low voltage/ data wiring/ intercom",
+          "completedPct": 0.0
+        },
+        {
+          "key": "4th floor|finish & lighting",
+          "completedPct": 0.0
+        },
+        {
+          "key": "4th floor|lighting controls",
+          "completedPct": 0.0
+        },
+        {
+          "key": "4th floor|testing & inspections",
+          "completedPct": 0.0
+        },
+        {
+          "key": "5th floor|feeders & subfeeders",
+          "completedPct": 29.7
+        },
+        {
+          "key": "5th floor|roughing",
+          "completedPct": 0.0
+        },
+        {
+          "key": "5th floor|low voltage/ data wiring/ intercom",
+          "completedPct": 0.0
+        },
+        {
+          "key": "5th floor|finish & lighting",
+          "completedPct": 0.0
+        },
+        {
+          "key": "5th floor|lighting controls",
+          "completedPct": 0.0
+        },
+        {
+          "key": "5th floor|testing & inspections",
+          "completedPct": 0.0
+        },
+        {
+          "key": "6th floor|feeders & subfeeders",
+          "completedPct": 0.0
+        },
+        {
+          "key": "6th floor|roughing",
+          "completedPct": 0.0
+        },
+        {
+          "key": "6th floor|low voltage/ data wiring/ intercom",
+          "completedPct": 0.0
+        },
+        {
+          "key": "6th floor|finish & lighting",
+          "completedPct": 0.0
+        },
+        {
+          "key": "6th floor|lighting controls",
+          "completedPct": 0.0
+        },
+        {
+          "key": "6th floor|testing & inspections",
+          "completedPct": 0.0
+        },
+        {
+          "key": "7th floor|feeders & subfeeders",
+          "completedPct": 0.0
+        },
+        {
+          "key": "7th floor|roughing",
+          "completedPct": 0.0
+        },
+        {
+          "key": "7th floor|low voltage/ data wiring/ intercom",
+          "completedPct": 0.0
+        },
+        {
+          "key": "7th floor|finish & lighting",
+          "completedPct": 0.0
+        },
+        {
+          "key": "7th floor|lighting controls",
+          "completedPct": 0.0
+        },
+        {
+          "key": "7th floor|testing & inspections",
+          "completedPct": 0.0
+        },
+        {
+          "key": "8th floor|feeders & subfeeders",
+          "completedPct": 0.0
+        },
+        {
+          "key": "8th floor|roughing",
+          "completedPct": 0.0
+        },
+        {
+          "key": "8th floor|low voltage/ data wiring/ intercom",
+          "completedPct": 0.0
+        },
+        {
+          "key": "8th floor|finish & lighting",
+          "completedPct": 0.0
+        },
+        {
+          "key": "8th floor|lighting controls",
+          "completedPct": 0.0
+        },
+        {
+          "key": "8th floor|testing & inspections",
+          "completedPct": 0.0
+        },
+        {
+          "key": "roof floor|feeders & subfeeders",
+          "completedPct": 0.0
+        },
+        {
+          "key": "roof floor|roughing",
+          "completedPct": 0.0
+        },
+        {
+          "key": "roof floor|low voltage/ data wiring/ intercom",
+          "completedPct": 0.0
+        },
+        {
+          "key": "roof floor|finish & lighting",
+          "completedPct": 0.0
+        },
+        {
+          "key": "roof floor|lighting install",
+          "completedPct": 0.0
+        },
+        {
+          "key": "roof floor|lighting controls",
+          "completedPct": 0.0
+        },
+        {
+          "key": "roof floor|testing & inspections",
+          "completedPct": 0.0
+        },
+        {
+          "key": "roof floor|co - 01",
+          "completedPct": 100.0
+        },
+        {
+          "key": "roof floor|co - 02",
+          "completedPct": 100.0
+        },
+        {
+          "key": "roof floor|co - 03",
+          "completedPct": 100.0
+        },
+        {
+          "key": "roof floor|co - 04",
+          "completedPct": 100.0
+        },
+        {
+          "key": "roof floor|co - 05",
+          "completedPct": 100.0
+        },
+        {
+          "key": "roof floor|co - 06",
+          "completedPct": 100.0
+        },
+        {
+          "key": "roof floor|co - 07",
+          "completedPct": 100.0
+        },
+        {
+          "key": "roof floor|co - 08",
+          "completedPct": 100.0
+        }
+      ],
+      "attachments": [
+        {
+          "name": "Requisition 4.pdf",
+          "webViewLink": "https://drive.google.com/file/d/1GRMW6ygBu_9VLfbSwxWDGPKZp9p4mXIc/view?usp=drivesdk"
+        },
+        {
+          "name": "Requestion 4 New.pdf",
+          "localPath": "/Users/levik/My Drive/1 Martin Dorkin/Projects/334 E 176/Requisition/Requisition 4/Requestion 4 New.pdf"
+        },
+        {
+          "name": "Requisition 4 Old.pdf",
+          "localPath": "/Users/levik/My Drive/1 Martin Dorkin/Projects/334 E 176/Requisition/Requisition 4/Requisition 4 Old.pdf"
+        },
+        {
+          "name": "YB Lighting_070824_85881295.PDF.pdf",
+          "localPath": "/Users/levik/My Drive/1 Martin Dorkin/Projects/334 E 176/Requisition/Requisition 4/YB Lighting_070824_85881295.PDF.pdf"
+        },
+        {
+          "name": "YB Lioghting.PDF",
+          "localPath": "/Users/levik/My Drive/1 Martin Dorkin/Projects/334 E 176/Requisition/Requisition 4/YB Lioghting.PDF"
+        }
+      ]
+    },
+    {
+      "num": 5,
+      "applicationNumber": "REQ-5",
+      "periodTo": "2024-08-01",
+      "g702": {
+        "periodTo": "2024-08-01",
+        "note": "interpolated \u2014 amra Drive sheet not on leelectrical token"
+      },
+      "itemsSnapshot": [
+        {
+          "key": "|electric service equipment",
+          "completedPct": 94.22
+        },
+        {
+          "key": "|electric service installation",
+          "completedPct": 59.6
+        },
+        {
+          "key": "|temp electric & lighting",
+          "completedPct": 66.6
+        },
+        {
+          "key": "subcellar floor|feeders & subfeeders",
+          "completedPct": 27.57
+        },
+        {
+          "key": "subcellar floor|roughing",
+          "completedPct": 25.0
+        },
+        {
+          "key": "subcellar floor|low voltage/ data wiring/ intercom",
+          "completedPct": 25.0
+        },
+        {
+          "key": "subcellar floor|finish & lighting",
+          "completedPct": 0.0
+        },
+        {
+          "key": "subcellar floor|lighting contorls",
+          "completedPct": 0.0
+        },
+        {
+          "key": "subcellar floor|testing & inspections",
+          "completedPct": 0.0
+        },
+        {
+          "key": "cellar floor|feeders & subfeeders",
+          "completedPct": 100.0
+        },
+        {
+          "key": "cellar floor|roughing",
+          "completedPct": 15.0
+        },
+        {
+          "key": "cellar floor|low voltage/ data wiring/ intercom",
+          "completedPct": 0.0
+        },
+        {
+          "key": "cellar floor|finish & lighting",
+          "completedPct": 0.0
+        },
+        {
+          "key": "cellar floor|lighting controls",
+          "completedPct": 0.0
+        },
+        {
+          "key": "cellar floor|testing & inspections",
+          "completedPct": 0.0
+        },
+        {
+          "key": "basement floor|feeders & subfeeders",
+          "completedPct": 100.0
+        },
+        {
+          "key": "basement floor|roughing",
+          "completedPct": 15.0
+        },
+        {
+          "key": "basement floor|low voltage/ data wiring/ intercom",
+          "completedPct": 0.0
+        },
+        {
+          "key": "basement floor|finish & lighting",
+          "completedPct": 0.0
+        },
+        {
+          "key": "basement floor|lighting controls",
+          "completedPct": 0.0
+        },
+        {
+          "key": "basement floor|testing & inspections",
+          "completedPct": 0.0
+        },
+        {
+          "key": "exterior|feeders & subfeeders",
+          "completedPct": 20.0
+        },
+        {
+          "key": "exterior|roughing",
+          "completedPct": 10.0
+        },
+        {
+          "key": "exterior|finish & lighting",
+          "completedPct": 0.0
+        },
+        {
+          "key": "exterior|lighting controls",
+          "completedPct": 0.0
+        },
+        {
+          "key": "exterior|testing & inspections",
+          "completedPct": 0.0
+        },
+        {
+          "key": "1st floor|feeders & subfeeders",
+          "completedPct": 100.0
+        },
+        {
+          "key": "1st floor|roughing",
+          "completedPct": 10.0
+        },
+        {
+          "key": "1st floor|low voltage/ data wiring/ intercom",
+          "completedPct": 0.0
+        },
+        {
+          "key": "1st floor|finish & lighting",
+          "completedPct": 0.0
+        },
+        {
+          "key": "1st floor|lighting controls",
+          "completedPct": 0.0
+        },
+        {
+          "key": "1st floor|testing & inspections",
+          "completedPct": 0.0
+        },
+        {
+          "key": "2nd floor|feeders & subfeeders",
+          "completedPct": 100.0
+        },
+        {
+          "key": "2nd floor|roughing",
+          "completedPct": 10.0
+        },
+        {
+          "key": "2nd floor|low voltage/ data wiring/ intercom",
+          "completedPct": 0.0
+        },
+        {
+          "key": "2nd floor|finish & lighting",
+          "completedPct": 0.0
+        },
+        {
+          "key": "2nd floor|lighting controls",
+          "completedPct": 0.0
+        },
+        {
+          "key": "2nd floor|testing & inspections",
+          "completedPct": 0.0
+        },
+        {
+          "key": "3rd floor|feeders & subfeeders",
+          "completedPct": 93.4
+        },
+        {
+          "key": "3rd floor|roughing",
+          "completedPct": 3.4
+        },
+        {
+          "key": "3rd floor|low voltage/ data wiring/ intercom",
+          "completedPct": 0.0
+        },
+        {
+          "key": "3rd floor|finish & lighting",
+          "completedPct": 0.0
+        },
+        {
+          "key": "3rd floor|lighting controls",
+          "completedPct": 0.0
+        },
+        {
+          "key": "3rd floor|testing & inspections",
+          "completedPct": 0.0
+        },
+        {
+          "key": "4th floor|feeders & subfeeders",
+          "completedPct": 93.4
+        },
+        {
+          "key": "4th floor|roughing",
+          "completedPct": 3.4
+        },
+        {
+          "key": "4th floor|low voltage/ data wiring/ intercom",
+          "completedPct": 0.0
+        },
+        {
+          "key": "4th floor|finish & lighting",
+          "completedPct": 0.0
+        },
+        {
+          "key": "4th floor|lighting controls",
+          "completedPct": 0.0
+        },
+        {
+          "key": "4th floor|testing & inspections",
+          "completedPct": 0.0
+        },
+        {
+          "key": "5th floor|feeders & subfeeders",
+          "completedPct": 59.4
+        },
+        {
+          "key": "5th floor|roughing",
+          "completedPct": 0.0
+        },
+        {
+          "key": "5th floor|low voltage/ data wiring/ intercom",
+          "completedPct": 0.0
+        },
+        {
+          "key": "5th floor|finish & lighting",
+          "completedPct": 0.0
+        },
+        {
+          "key": "5th floor|lighting controls",
+          "completedPct": 0.0
+        },
+        {
+          "key": "5th floor|testing & inspections",
+          "completedPct": 0.0
+        },
+        {
+          "key": "6th floor|feeders & subfeeders",
+          "completedPct": 0.0
+        },
+        {
+          "key": "6th floor|roughing",
+          "completedPct": 0.0
+        },
+        {
+          "key": "6th floor|low voltage/ data wiring/ intercom",
+          "completedPct": 0.0
+        },
+        {
+          "key": "6th floor|finish & lighting",
+          "completedPct": 0.0
+        },
+        {
+          "key": "6th floor|lighting controls",
+          "completedPct": 0.0
+        },
+        {
+          "key": "6th floor|testing & inspections",
+          "completedPct": 0.0
+        },
+        {
+          "key": "7th floor|feeders & subfeeders",
+          "completedPct": 0.0
+        },
+        {
+          "key": "7th floor|roughing",
+          "completedPct": 0.0
+        },
+        {
+          "key": "7th floor|low voltage/ data wiring/ intercom",
+          "completedPct": 0.0
+        },
+        {
+          "key": "7th floor|finish & lighting",
+          "completedPct": 0.0
+        },
+        {
+          "key": "7th floor|lighting controls",
+          "completedPct": 0.0
+        },
+        {
+          "key": "7th floor|testing & inspections",
+          "completedPct": 0.0
+        },
+        {
+          "key": "8th floor|feeders & subfeeders",
+          "completedPct": 0.0
+        },
+        {
+          "key": "8th floor|roughing",
+          "completedPct": 0.0
+        },
+        {
+          "key": "8th floor|low voltage/ data wiring/ intercom",
+          "completedPct": 0.0
+        },
+        {
+          "key": "8th floor|finish & lighting",
+          "completedPct": 0.0
+        },
+        {
+          "key": "8th floor|lighting controls",
+          "completedPct": 0.0
+        },
+        {
+          "key": "8th floor|testing & inspections",
+          "completedPct": 0.0
+        },
+        {
+          "key": "roof floor|feeders & subfeeders",
+          "completedPct": 0.0
+        },
+        {
+          "key": "roof floor|roughing",
+          "completedPct": 0.0
+        },
+        {
+          "key": "roof floor|low voltage/ data wiring/ intercom",
+          "completedPct": 0.0
+        },
+        {
+          "key": "roof floor|finish & lighting",
+          "completedPct": 0.0
+        },
+        {
+          "key": "roof floor|lighting install",
+          "completedPct": 0.0
+        },
+        {
+          "key": "roof floor|lighting controls",
+          "completedPct": 0.0
+        },
+        {
+          "key": "roof floor|testing & inspections",
+          "completedPct": 0.0
+        },
+        {
+          "key": "roof floor|co - 01",
+          "completedPct": 100.0
+        },
+        {
+          "key": "roof floor|co - 02",
+          "completedPct": 100.0
+        },
+        {
+          "key": "roof floor|co - 03",
+          "completedPct": 100.0
+        },
+        {
+          "key": "roof floor|co - 04",
+          "completedPct": 100.0
+        },
+        {
+          "key": "roof floor|co - 05",
+          "completedPct": 100.0
+        },
+        {
+          "key": "roof floor|co - 06",
+          "completedPct": 100.0
+        },
+        {
+          "key": "roof floor|co - 07",
+          "completedPct": 100.0
+        },
+        {
+          "key": "roof floor|co - 08",
+          "completedPct": 100.0
+        }
+      ],
+      "attachments": []
+    },
+    {
+      "num": 6,
+      "applicationNumber": "REQ-6",
+      "periodTo": "2024-08-29",
+      "g702": {
+        "periodTo": "2024-08-29",
+        "totalCompleted": 884332.996,
+        "currentPaymentDue": 153764.9964
+      },
+      "itemsSnapshot": [
+        {
+          "key": "|electric service equipment",
+          "completedPct": 100.0
+        },
+        {
+          "key": "|electric service installation",
+          "completedPct": 80.0
+        },
+        {
+          "key": "|temp electric & lighting",
+          "completedPct": 70.0
+        },
+        {
+          "key": "subcellar floor|feeders & subfeeders",
+          "completedPct": 34.04
+        },
+        {
+          "key": "subcellar floor|roughing",
+          "completedPct": 25.0
+        },
+        {
+          "key": "subcellar floor|low voltage/ data wiring/ intercom",
+          "completedPct": 25.0
+        },
+        {
+          "key": "subcellar floor|finish & lighting",
+          "completedPct": 0.0
+        },
+        {
+          "key": "subcellar floor|lighting contorls",
+          "completedPct": 0.0
+        },
+        {
+          "key": "subcellar floor|testing & inspections",
+          "completedPct": 0.0
+        },
+        {
+          "key": "cellar floor|feeders & subfeeders",
+          "completedPct": 100.0
+        },
+        {
+          "key": "cellar floor|roughing",
+          "completedPct": 15.0
+        },
+        {
+          "key": "cellar floor|low voltage/ data wiring/ intercom",
+          "completedPct": 0.0
+        },
+        {
+          "key": "cellar floor|finish & lighting",
+          "completedPct": 0.0
+        },
+        {
+          "key": "cellar floor|lighting controls",
+          "completedPct": 0.0
+        },
+        {
+          "key": "cellar floor|testing & inspections",
+          "completedPct": 0.0
+        },
+        {
+          "key": "basement floor|feeders & subfeeders",
+          "completedPct": 100.0
+        },
+        {
+          "key": "basement floor|roughing",
+          "completedPct": 15.0
+        },
+        {
+          "key": "basement floor|low voltage/ data wiring/ intercom",
+          "completedPct": 0.0
+        },
+        {
+          "key": "basement floor|finish & lighting",
+          "completedPct": 0.0
+        },
+        {
+          "key": "basement floor|lighting controls",
+          "completedPct": 0.0
+        },
+        {
+          "key": "basement floor|testing & inspections",
+          "completedPct": 0.0
+        },
+        {
+          "key": "exterior|feeders & subfeeders",
+          "completedPct": 20.0
+        },
+        {
+          "key": "exterior|roughing",
+          "completedPct": 10.0
+        },
+        {
+          "key": "exterior|finish & lighting",
+          "completedPct": 0.0
+        },
+        {
+          "key": "exterior|lighting controls",
+          "completedPct": 0.0
+        },
+        {
+          "key": "exterior|testing & inspections",
+          "completedPct": 0.0
+        },
+        {
+          "key": "1st floor|feeders & subfeeders",
+          "completedPct": 100.0
+        },
+        {
+          "key": "1st floor|roughing",
+          "completedPct": 10.0
+        },
+        {
+          "key": "1st floor|low voltage/ data wiring/ intercom",
+          "completedPct": 0.0
+        },
+        {
+          "key": "1st floor|finish & lighting",
+          "completedPct": 0.0
+        },
+        {
+          "key": "1st floor|lighting controls",
+          "completedPct": 0.0
+        },
+        {
+          "key": "1st floor|testing & inspections",
+          "completedPct": 0.0
+        },
+        {
+          "key": "2nd floor|feeders & subfeeders",
+          "completedPct": 100.0
+        },
+        {
+          "key": "2nd floor|roughing",
+          "completedPct": 10.0
+        },
+        {
+          "key": "2nd floor|low voltage/ data wiring/ intercom",
+          "completedPct": 0.0
+        },
+        {
+          "key": "2nd floor|finish & lighting",
+          "completedPct": 0.0
+        },
+        {
+          "key": "2nd floor|lighting controls",
+          "completedPct": 0.0
+        },
+        {
+          "key": "2nd floor|testing & inspections",
+          "completedPct": 0.0
+        },
+        {
+          "key": "3rd floor|feeders & subfeeders",
+          "completedPct": 90.0
+        },
+        {
+          "key": "3rd floor|roughing",
+          "completedPct": 0.0
+        },
+        {
+          "key": "3rd floor|low voltage/ data wiring/ intercom",
+          "completedPct": 0.0
+        },
+        {
+          "key": "3rd floor|finish & lighting",
+          "completedPct": 0.0
+        },
+        {
+          "key": "3rd floor|lighting controls",
+          "completedPct": 0.0
+        },
+        {
+          "key": "3rd floor|testing & inspections",
+          "completedPct": 0.0
+        },
+        {
+          "key": "4th floor|feeders & subfeeders",
+          "completedPct": 90.0
+        },
+        {
+          "key": "4th floor|roughing",
+          "completedPct": 0.0
+        },
+        {
+          "key": "4th floor|low voltage/ data wiring/ intercom",
+          "completedPct": 0.0
+        },
+        {
+          "key": "4th floor|finish & lighting",
+          "completedPct": 0.0
+        },
+        {
+          "key": "4th floor|lighting controls",
+          "completedPct": 0.0
+        },
+        {
+          "key": "4th floor|testing & inspections",
+          "completedPct": 0.0
+        },
+        {
+          "key": "5th floor|feeders & subfeeders",
+          "completedPct": 90.0
+        },
+        {
+          "key": "5th floor|roughing",
+          "completedPct": 0.0
+        },
+        {
+          "key": "5th floor|low voltage/ data wiring/ intercom",
+          "completedPct": 0.0
+        },
+        {
+          "key": "5th floor|finish & lighting",
+          "completedPct": 0.0
+        },
+        {
+          "key": "5th floor|lighting controls",
+          "completedPct": 0.0
+        },
+        {
+          "key": "5th floor|testing & inspections",
+          "completedPct": 0.0
+        },
+        {
+          "key": "6th floor|feeders & subfeeders",
+          "completedPct": 0.0
+        },
+        {
+          "key": "6th floor|roughing",
+          "completedPct": 0.0
+        },
+        {
+          "key": "6th floor|low voltage/ data wiring/ intercom",
+          "completedPct": 0.0
+        },
+        {
+          "key": "6th floor|finish & lighting",
+          "completedPct": 0.0
+        },
+        {
+          "key": "6th floor|lighting controls",
+          "completedPct": 0.0
+        },
+        {
+          "key": "6th floor|testing & inspections",
+          "completedPct": 0.0
+        },
+        {
+          "key": "7th floor|feeders & subfeeders",
+          "completedPct": 0.0
+        },
+        {
+          "key": "7th floor|roughing",
+          "completedPct": 0.0
+        },
+        {
+          "key": "7th floor|low voltage/ data wiring/ intercom",
+          "completedPct": 0.0
+        },
+        {
+          "key": "7th floor|finish & lighting",
+          "completedPct": 0.0
+        },
+        {
+          "key": "7th floor|lighting controls",
+          "completedPct": 0.0
+        },
+        {
+          "key": "7th floor|testing & inspections",
+          "completedPct": 0.0
+        },
+        {
+          "key": "8th floor|feeders & subfeeders",
+          "completedPct": 0.0
+        },
+        {
+          "key": "8th floor|roughing",
+          "completedPct": 0.0
+        },
+        {
+          "key": "8th floor|low voltage/ data wiring/ intercom",
+          "completedPct": 0.0
+        },
+        {
+          "key": "8th floor|finish & lighting",
+          "completedPct": 0.0
+        },
+        {
+          "key": "8th floor|lighting controls",
+          "completedPct": 0.0
+        },
+        {
+          "key": "8th floor|testing & inspections",
+          "completedPct": 0.0
+        },
+        {
+          "key": "roof floor|feeders & subfeeders",
+          "completedPct": 0.0
+        },
+        {
+          "key": "roof floor|roughing",
+          "completedPct": 0.0
+        },
+        {
+          "key": "roof floor|low voltage/ data wiring/ intercom",
+          "completedPct": 0.0
+        },
+        {
+          "key": "roof floor|finish & lighting",
+          "completedPct": 0.0
+        },
+        {
+          "key": "roof floor|lighting install",
+          "completedPct": 0.0
+        },
+        {
+          "key": "roof floor|lighting controls",
+          "completedPct": 0.0
+        },
+        {
+          "key": "roof floor|testing & inspections",
+          "completedPct": 0.0
+        },
+        {
+          "key": "roof floor|co - 01",
+          "completedPct": 100.0
+        },
+        {
+          "key": "roof floor|co - 02",
+          "completedPct": 100.0
+        },
+        {
+          "key": "roof floor|co - 03",
+          "completedPct": 100.0
+        },
+        {
+          "key": "roof floor|co - 04",
+          "completedPct": 100.0
+        },
+        {
+          "key": "roof floor|co - 05",
+          "completedPct": 100.0
+        },
+        {
+          "key": "roof floor|co - 06",
+          "completedPct": 100.0
+        },
+        {
+          "key": "roof floor|co - 07",
+          "completedPct": 100.0
+        },
+        {
+          "key": "roof floor|co - 08",
+          "completedPct": 100.0
+        }
+      ],
+      "attachments": [
+        {
+          "name": "Requisition 6.pdf",
+          "webViewLink": "https://drive.google.com/file/d/1dyHdyKCtToZ4dYA-Jy-HHwtXsqxID0MP/view?usp=drivesdk"
+        },
+        {
+          "name": "PH_14_082724_85936549.PDF",
+          "localPath": "/Users/levik/My Drive/1 Martin Dorkin/Projects/334 E 176/Requisition/Requisition 6/PH_14_082724_85936549.PDF"
+        }
+      ]
+    },
+    {
+      "num": 7,
+      "applicationNumber": "REQ-7",
+      "periodTo": "2024-09-13",
+      "g702": {
+        "periodTo": "2024-09-13",
+        "totalCompleted": 1060018.0,
+        "currentPaymentDue": 158116.5
+      },
+      "itemsSnapshot": [
+        {
+          "key": "|electric service equipment",
+          "completedPct": 100.0
+        },
+        {
+          "key": "|electric service installation",
+          "completedPct": 80.0
+        },
+        {
+          "key": "|temp electric & lighting",
+          "completedPct": 100.0
+        },
+        {
+          "key": "subcellar floor|feeders & subfeeders",
+          "completedPct": 50.0
+        },
+        {
+          "key": "subcellar floor|roughing",
+          "completedPct": 50.0
+        },
+        {
+          "key": "subcellar floor|low voltage/ data wiring/ intercom",
+          "completedPct": 50.0
+        },
+        {
+          "key": "subcellar floor|finish & lighting",
+          "completedPct": 0.0
+        },
+        {
+          "key": "subcellar floor|lighting contorls",
+          "completedPct": 0.0
+        },
+        {
+          "key": "subcellar floor|testing & inspections",
+          "completedPct": 0.0
+        },
+        {
+          "key": "cellar floor|feeders & subfeeders",
+          "completedPct": 100.0
+        },
+        {
+          "key": "cellar floor|roughing",
+          "completedPct": 70.0
+        },
+        {
+          "key": "cellar floor|low voltage/ data wiring/ intercom",
+          "completedPct": 0.0
+        },
+        {
+          "key": "cellar floor|finish & lighting",
+          "completedPct": 0.0
+        },
+        {
+          "key": "cellar floor|lighting controls",
+          "completedPct": 0.0
+        },
+        {
+          "key": "cellar floor|testing & inspections",
+          "completedPct": 0.0
+        },
+        {
+          "key": "basement floor|feeders & subfeeders",
+          "completedPct": 100.0
+        },
+        {
+          "key": "basement floor|roughing",
+          "completedPct": 70.0
+        },
+        {
+          "key": "basement floor|low voltage/ data wiring/ intercom",
+          "completedPct": 0.0
+        },
+        {
+          "key": "basement floor|finish & lighting",
+          "completedPct": 0.0
+        },
+        {
+          "key": "basement floor|lighting controls",
+          "completedPct": 0.0
+        },
+        {
+          "key": "basement floor|testing & inspections",
+          "completedPct": 0.0
+        },
+        {
+          "key": "exterior|feeders & subfeeders",
+          "completedPct": 60.0
+        },
+        {
+          "key": "exterior|roughing",
+          "completedPct": 40.0
+        },
+        {
+          "key": "exterior|finish & lighting",
+          "completedPct": 0.0
+        },
+        {
+          "key": "exterior|lighting controls",
+          "completedPct": 0.0
+        },
+        {
+          "key": "exterior|testing & inspections",
+          "completedPct": 0.0
+        },
+        {
+          "key": "1st floor|feeders & subfeeders",
+          "completedPct": 100.0
+        },
+        {
+          "key": "1st floor|roughing",
+          "completedPct": 50.0
+        },
+        {
+          "key": "1st floor|low voltage/ data wiring/ intercom",
+          "completedPct": 0.0
+        },
+        {
+          "key": "1st floor|finish & lighting",
+          "completedPct": 0.0
+        },
+        {
+          "key": "1st floor|lighting controls",
+          "completedPct": 0.0
+        },
+        {
+          "key": "1st floor|testing & inspections",
+          "completedPct": 0.0
+        },
+        {
+          "key": "2nd floor|feeders & subfeeders",
+          "completedPct": 100.0
+        },
+        {
+          "key": "2nd floor|roughing",
+          "completedPct": 60.0
+        },
+        {
+          "key": "2nd floor|low voltage/ data wiring/ intercom",
+          "completedPct": 0.0
+        },
+        {
+          "key": "2nd floor|finish & lighting",
+          "completedPct": 0.0
+        },
+        {
+          "key": "2nd floor|lighting controls",
+          "completedPct": 0.0
+        },
+        {
+          "key": "2nd floor|testing & inspections",
+          "completedPct": 0.0
+        },
+        {
+          "key": "3rd floor|feeders & subfeeders",
+          "completedPct": 100.0
+        },
+        {
+          "key": "3rd floor|roughing",
+          "completedPct": 60.0
+        },
+        {
+          "key": "3rd floor|low voltage/ data wiring/ intercom",
+          "completedPct": 0.0
+        },
+        {
+          "key": "3rd floor|finish & lighting",
+          "completedPct": 0.0
+        },
+        {
+          "key": "3rd floor|lighting controls",
+          "completedPct": 0.0
+        },
+        {
+          "key": "3rd floor|testing & inspections",
+          "completedPct": 0.0
+        },
+        {
+          "key": "4th floor|feeders & subfeeders",
+          "completedPct": 100.0
+        },
+        {
+          "key": "4th floor|roughing",
+          "completedPct": 60.0
+        },
+        {
+          "key": "4th floor|low voltage/ data wiring/ intercom",
+          "completedPct": 0.0
+        },
+        {
+          "key": "4th floor|finish & lighting",
+          "completedPct": 0.0
+        },
+        {
+          "key": "4th floor|lighting controls",
+          "completedPct": 0.0
+        },
+        {
+          "key": "4th floor|testing & inspections",
+          "completedPct": 0.0
+        },
+        {
+          "key": "5th floor|feeders & subfeeders",
+          "completedPct": 100.0
+        },
+        {
+          "key": "5th floor|roughing",
+          "completedPct": 60.0
+        },
+        {
+          "key": "5th floor|low voltage/ data wiring/ intercom",
+          "completedPct": 0.0
+        },
+        {
+          "key": "5th floor|finish & lighting",
+          "completedPct": 0.0
+        },
+        {
+          "key": "5th floor|lighting controls",
+          "completedPct": 0.0
+        },
+        {
+          "key": "5th floor|testing & inspections",
+          "completedPct": 0.0
+        },
+        {
+          "key": "6th floor|feeders & subfeeders",
+          "completedPct": 30.0
+        },
+        {
+          "key": "6th floor|roughing",
+          "completedPct": 20.0
+        },
+        {
+          "key": "6th floor|low voltage/ data wiring/ intercom",
+          "completedPct": 0.0
+        },
+        {
+          "key": "6th floor|finish & lighting",
+          "completedPct": 0.0
+        },
+        {
+          "key": "6th floor|lighting controls",
+          "completedPct": 0.0
+        },
+        {
+          "key": "6th floor|testing & inspections",
+          "completedPct": 0.0
+        },
+        {
+          "key": "7th floor|feeders & subfeeders",
+          "completedPct": 0.0
+        },
+        {
+          "key": "7th floor|roughing",
+          "completedPct": 0.0
+        },
+        {
+          "key": "7th floor|low voltage/ data wiring/ intercom",
+          "completedPct": 0.0
+        },
+        {
+          "key": "7th floor|finish & lighting",
+          "completedPct": 0.0
+        },
+        {
+          "key": "7th floor|lighting controls",
+          "completedPct": 0.0
+        },
+        {
+          "key": "7th floor|testing & inspections",
+          "completedPct": 0.0
+        },
+        {
+          "key": "8th floor|feeders & subfeeders",
+          "completedPct": 0.0
+        },
+        {
+          "key": "8th floor|roughing",
+          "completedPct": 0.0
+        },
+        {
+          "key": "8th floor|low voltage/ data wiring/ intercom",
+          "completedPct": 0.0
+        },
+        {
+          "key": "8th floor|finish & lighting",
+          "completedPct": 0.0
+        },
+        {
+          "key": "8th floor|lighting controls",
+          "completedPct": 0.0
+        },
+        {
+          "key": "8th floor|testing & inspections",
+          "completedPct": 0.0
+        },
+        {
+          "key": "roof floor|feeders & subfeeders",
+          "completedPct": 0.0
+        },
+        {
+          "key": "roof floor|roughing",
+          "completedPct": 0.0
+        },
+        {
+          "key": "roof floor|low voltage/ data wiring/ intercom",
+          "completedPct": 0.0
+        },
+        {
+          "key": "roof floor|finish & lighting",
+          "completedPct": 0.0
+        },
+        {
+          "key": "roof floor|lighting install",
+          "completedPct": 0.0
+        },
+        {
+          "key": "roof floor|lighting controls",
+          "completedPct": 0.0
+        },
+        {
+          "key": "roof floor|testing & inspections",
+          "completedPct": 0.0
+        },
+        {
+          "key": "roof floor|co - 01",
+          "completedPct": 100.0
+        },
+        {
+          "key": "roof floor|co - 02",
+          "completedPct": 100.0
+        },
+        {
+          "key": "roof floor|co - 03",
+          "completedPct": 100.0
+        },
+        {
+          "key": "roof floor|co - 04",
+          "completedPct": 100.0
+        },
+        {
+          "key": "roof floor|co - 05",
+          "completedPct": 100.0
+        },
+        {
+          "key": "roof floor|co - 06",
+          "completedPct": 100.0
+        },
+        {
+          "key": "roof floor|co - 07",
+          "completedPct": 100.0
+        },
+        {
+          "key": "roof floor|co - 08",
+          "completedPct": 100.0
+        }
+      ],
+      "attachments": [
+        {
+          "name": "Requisition 7.pdf",
+          "webViewLink": "https://drive.google.com/file/d/1YcK0oMnbmRGs5rSFDm0BfbImkzV_hsPv/view?usp=drivesdk"
+        }
+      ]
+    },
+    {
+      "num": 8,
+      "applicationNumber": "REQ-8",
+      "periodTo": "2024-11-18",
+      "g702": {
+        "periodTo": "2024-11-18",
+        "totalCompleted": 1290844.0,
+        "currentPaymentDue": 207743.4
+      },
+      "itemsSnapshot": [
+        {
+          "key": "|electric service equipment",
+          "completedPct": 100.0
+        },
+        {
+          "key": "|electric service installation",
+          "completedPct": 80.0
+        },
+        {
+          "key": "|temp electric & lighting",
+          "completedPct": 100.0
+        },
+        {
+          "key": "subcellar floor|feeders & subfeeders",
+          "completedPct": 70.0
+        },
+        {
+          "key": "subcellar floor|roughing",
+          "completedPct": 70.0
+        },
+        {
+          "key": "subcellar floor|low voltage/ data wiring/ intercom",
+          "completedPct": 70.0
+        },
+        {
+          "key": "subcellar floor|finish & lighting",
+          "completedPct": 0.0
+        },
+        {
+          "key": "subcellar floor|lighting contorls",
+          "completedPct": 0.0
+        },
+        {
+          "key": "subcellar floor|testing & inspections",
+          "completedPct": 0.0
+        },
+        {
+          "key": "cellar floor|feeders & subfeeders",
+          "completedPct": 100.0
+        },
+        {
+          "key": "cellar floor|roughing",
+          "completedPct": 100.0
+        },
+        {
+          "key": "cellar floor|low voltage/ data wiring/ intercom",
+          "completedPct": 50.0
+        },
+        {
+          "key": "cellar floor|finish & lighting",
+          "completedPct": 0.0
+        },
+        {
+          "key": "cellar floor|lighting controls",
+          "completedPct": 0.0
+        },
+        {
+          "key": "cellar floor|testing & inspections",
+          "completedPct": 0.0
+        },
+        {
+          "key": "basement floor|feeders & subfeeders",
+          "completedPct": 100.0
+        },
+        {
+          "key": "basement floor|roughing",
+          "completedPct": 90.0
+        },
+        {
+          "key": "basement floor|low voltage/ data wiring/ intercom",
+          "completedPct": 50.0
+        },
+        {
+          "key": "basement floor|finish & lighting",
+          "completedPct": 0.0
+        },
+        {
+          "key": "basement floor|lighting controls",
+          "completedPct": 0.0
+        },
+        {
+          "key": "basement floor|testing & inspections",
+          "completedPct": 0.0
+        },
+        {
+          "key": "exterior|feeders & subfeeders",
+          "completedPct": 80.0
+        },
+        {
+          "key": "exterior|roughing",
+          "completedPct": 70.0
+        },
+        {
+          "key": "exterior|finish & lighting",
+          "completedPct": 0.0
+        },
+        {
+          "key": "exterior|lighting controls",
+          "completedPct": 0.0
+        },
+        {
+          "key": "exterior|testing & inspections",
+          "completedPct": 0.0
+        },
+        {
+          "key": "1st floor|feeders & subfeeders",
+          "completedPct": 100.0
+        },
+        {
+          "key": "1st floor|roughing",
+          "completedPct": 70.0
+        },
+        {
+          "key": "1st floor|low voltage/ data wiring/ intercom",
+          "completedPct": 50.0
+        },
+        {
+          "key": "1st floor|finish & lighting",
+          "completedPct": 0.0
+        },
+        {
+          "key": "1st floor|lighting controls",
+          "completedPct": 0.0
+        },
+        {
+          "key": "1st floor|testing & inspections",
+          "completedPct": 0.0
+        },
+        {
+          "key": "2nd floor|feeders & subfeeders",
+          "completedPct": 100.0
+        },
+        {
+          "key": "2nd floor|roughing",
+          "completedPct": 80.0
+        },
+        {
+          "key": "2nd floor|low voltage/ data wiring/ intercom",
+          "completedPct": 50.0
+        },
+        {
+          "key": "2nd floor|finish & lighting",
+          "completedPct": 0.0
+        },
+        {
+          "key": "2nd floor|lighting controls",
+          "completedPct": 0.0
+        },
+        {
+          "key": "2nd floor|testing & inspections",
+          "completedPct": 0.0
+        },
+        {
+          "key": "3rd floor|feeders & subfeeders",
+          "completedPct": 100.0
+        },
+        {
+          "key": "3rd floor|roughing",
+          "completedPct": 80.0
+        },
+        {
+          "key": "3rd floor|low voltage/ data wiring/ intercom",
+          "completedPct": 50.0
+        },
+        {
+          "key": "3rd floor|finish & lighting",
+          "completedPct": 0.0
+        },
+        {
+          "key": "3rd floor|lighting controls",
+          "completedPct": 0.0
+        },
+        {
+          "key": "3rd floor|testing & inspections",
+          "completedPct": 0.0
+        },
+        {
+          "key": "4th floor|feeders & subfeeders",
+          "completedPct": 100.0
+        },
+        {
+          "key": "4th floor|roughing",
+          "completedPct": 80.0
+        },
+        {
+          "key": "4th floor|low voltage/ data wiring/ intercom",
+          "completedPct": 50.0
+        },
+        {
+          "key": "4th floor|finish & lighting",
+          "completedPct": 0.0
+        },
+        {
+          "key": "4th floor|lighting controls",
+          "completedPct": 0.0
+        },
+        {
+          "key": "4th floor|testing & inspections",
+          "completedPct": 0.0
+        },
+        {
+          "key": "5th floor|feeders & subfeeders",
+          "completedPct": 100.0
+        },
+        {
+          "key": "5th floor|roughing",
+          "completedPct": 80.0
+        },
+        {
+          "key": "5th floor|low voltage/ data wiring/ intercom",
+          "completedPct": 50.0
+        },
+        {
+          "key": "5th floor|finish & lighting",
+          "completedPct": 0.0
+        },
+        {
+          "key": "5th floor|lighting controls",
+          "completedPct": 0.0
+        },
+        {
+          "key": "5th floor|testing & inspections",
+          "completedPct": 0.0
+        },
+        {
+          "key": "6th floor|feeders & subfeeders",
+          "completedPct": 80.0
+        },
+        {
+          "key": "6th floor|roughing",
+          "completedPct": 50.0
+        },
+        {
+          "key": "6th floor|low voltage/ data wiring/ intercom",
+          "completedPct": 50.0
+        },
+        {
+          "key": "6th floor|finish & lighting",
+          "completedPct": 0.0
+        },
+        {
+          "key": "6th floor|lighting controls",
+          "completedPct": 0.0
+        },
+        {
+          "key": "6th floor|testing & inspections",
+          "completedPct": 0.0
+        },
+        {
+          "key": "7th floor|feeders & subfeeders",
+          "completedPct": 50.0
+        },
+        {
+          "key": "7th floor|roughing",
+          "completedPct": 50.0
+        },
+        {
+          "key": "7th floor|low voltage/ data wiring/ intercom",
+          "completedPct": 50.0
+        },
+        {
+          "key": "7th floor|finish & lighting",
+          "completedPct": 0.0
+        },
+        {
+          "key": "7th floor|lighting controls",
+          "completedPct": 0.0
+        },
+        {
+          "key": "7th floor|testing & inspections",
+          "completedPct": 0.0
+        },
+        {
+          "key": "8th floor|feeders & subfeeders",
+          "completedPct": 50.0
+        },
+        {
+          "key": "8th floor|roughing",
+          "completedPct": 50.0
+        },
+        {
+          "key": "8th floor|low voltage/ data wiring/ intercom",
+          "completedPct": 50.0
+        },
+        {
+          "key": "8th floor|finish & lighting",
+          "completedPct": 0.0
+        },
+        {
+          "key": "8th floor|lighting controls",
+          "completedPct": 0.0
+        },
+        {
+          "key": "8th floor|testing & inspections",
+          "completedPct": 0.0
+        },
+        {
+          "key": "roof floor|feeders & subfeeders",
+          "completedPct": 0.0
+        },
+        {
+          "key": "roof floor|roughing",
+          "completedPct": 50.0
+        },
+        {
+          "key": "roof floor|low voltage/ data wiring/ intercom",
+          "completedPct": 50.0
+        },
+        {
+          "key": "roof floor|finish & lighting",
+          "completedPct": 0.0
+        },
+        {
+          "key": "roof floor|lighting install",
+          "completedPct": 0.0
+        },
+        {
+          "key": "roof floor|lighting controls",
+          "completedPct": 0.0
+        },
+        {
+          "key": "roof floor|testing & inspections",
+          "completedPct": 0.0
+        },
+        {
+          "key": "roof floor|co - 01",
+          "completedPct": 100.0
+        },
+        {
+          "key": "roof floor|co - 02",
+          "completedPct": 100.0
+        },
+        {
+          "key": "roof floor|co - 03",
+          "completedPct": 100.0
+        },
+        {
+          "key": "roof floor|co - 04",
+          "completedPct": 100.0
+        },
+        {
+          "key": "roof floor|co - 05",
+          "completedPct": 100.0
+        },
+        {
+          "key": "roof floor|co - 06",
+          "completedPct": 100.0
+        },
+        {
+          "key": "roof floor|co - 07",
+          "completedPct": 100.0
+        },
+        {
+          "key": "roof floor|co - 08",
+          "completedPct": 100.0
+        }
+      ],
+      "attachments": [
+        {
+          "name": "Requisition 8.pdf",
+          "webViewLink": "https://drive.google.com/file/d/1yfjS8AcG68qugiYer7wRxWQbZp2bt3Ut/view?usp=drivesdk"
+        }
+      ]
+    },
+    {
+      "num": 9,
+      "applicationNumber": "REQ-9",
+      "periodTo": "2025-01-10",
+      "g702": {
+        "periodTo": "2025-01-10",
+        "totalCompleted": 1408416.0,
+        "currentPaymentDue": 105814.8
+      },
+      "itemsSnapshot": [
+        {
+          "key": "|electric service equipment",
+          "completedPct": 100.0
+        },
+        {
+          "key": "|electric service installation",
+          "completedPct": 80.0
+        },
+        {
+          "key": "|temp electric & lighting",
+          "completedPct": 100.0
+        },
+        {
+          "key": "subcellar floor|feeders & subfeeders",
+          "completedPct": 80.0
+        },
+        {
+          "key": "subcellar floor|roughing",
+          "completedPct": 80.0
+        },
+        {
+          "key": "subcellar floor|low voltage/ data wiring/ intercom",
+          "completedPct": 80.0
+        },
+        {
+          "key": "subcellar floor|finish & lighting",
+          "completedPct": 0.0
+        },
+        {
+          "key": "subcellar floor|lighting contorls",
+          "completedPct": 0.0
+        },
+        {
+          "key": "subcellar floor|testing & inspections",
+          "completedPct": 0.0
+        },
+        {
+          "key": "cellar floor|feeders & subfeeders",
+          "completedPct": 100.0
+        },
+        {
+          "key": "cellar floor|roughing",
+          "completedPct": 100.0
+        },
+        {
+          "key": "cellar floor|low voltage/ data wiring/ intercom",
+          "completedPct": 80.0
+        },
+        {
+          "key": "cellar floor|finish & lighting",
+          "completedPct": 0.0
+        },
+        {
+          "key": "cellar floor|lighting controls",
+          "completedPct": 0.0
+        },
+        {
+          "key": "cellar floor|testing & inspections",
+          "completedPct": 0.0
+        },
+        {
+          "key": "basement floor|feeders & subfeeders",
+          "completedPct": 100.0
+        },
+        {
+          "key": "basement floor|roughing",
+          "completedPct": 90.0
+        },
+        {
+          "key": "basement floor|low voltage/ data wiring/ intercom",
+          "completedPct": 80.0
+        },
+        {
+          "key": "basement floor|finish & lighting",
+          "completedPct": 0.0
+        },
+        {
+          "key": "basement floor|lighting controls",
+          "completedPct": 0.0
+        },
+        {
+          "key": "basement floor|testing & inspections",
+          "completedPct": 0.0
+        },
+        {
+          "key": "exterior|feeders & subfeeders",
+          "completedPct": 90.0
+        },
+        {
+          "key": "exterior|roughing",
+          "completedPct": 80.0
+        },
+        {
+          "key": "exterior|finish & lighting",
+          "completedPct": 0.0
+        },
+        {
+          "key": "exterior|lighting controls",
+          "completedPct": 0.0
+        },
+        {
+          "key": "exterior|testing & inspections",
+          "completedPct": 0.0
+        },
+        {
+          "key": "1st floor|feeders & subfeeders",
+          "completedPct": 100.0
+        },
+        {
+          "key": "1st floor|roughing",
+          "completedPct": 70.0
+        },
+        {
+          "key": "1st floor|low voltage/ data wiring/ intercom",
+          "completedPct": 70.0
+        },
+        {
+          "key": "1st floor|finish & lighting",
+          "completedPct": 0.0
+        },
+        {
+          "key": "1st floor|lighting controls",
+          "completedPct": 0.0
+        },
+        {
+          "key": "1st floor|testing & inspections",
+          "completedPct": 0.0
+        },
+        {
+          "key": "2nd floor|feeders & subfeeders",
+          "completedPct": 100.0
+        },
+        {
+          "key": "2nd floor|roughing",
+          "completedPct": 80.0
+        },
+        {
+          "key": "2nd floor|low voltage/ data wiring/ intercom",
+          "completedPct": 80.0
+        },
+        {
+          "key": "2nd floor|finish & lighting",
+          "completedPct": 0.0
+        },
+        {
+          "key": "2nd floor|lighting controls",
+          "completedPct": 0.0
+        },
+        {
+          "key": "2nd floor|testing & inspections",
+          "completedPct": 0.0
+        },
+        {
+          "key": "3rd floor|feeders & subfeeders",
+          "completedPct": 100.0
+        },
+        {
+          "key": "3rd floor|roughing",
+          "completedPct": 80.0
+        },
+        {
+          "key": "3rd floor|low voltage/ data wiring/ intercom",
+          "completedPct": 80.0
+        },
+        {
+          "key": "3rd floor|finish & lighting",
+          "completedPct": 0.0
+        },
+        {
+          "key": "3rd floor|lighting controls",
+          "completedPct": 0.0
+        },
+        {
+          "key": "3rd floor|testing & inspections",
+          "completedPct": 0.0
+        },
+        {
+          "key": "4th floor|feeders & subfeeders",
+          "completedPct": 100.0
+        },
+        {
+          "key": "4th floor|roughing",
+          "completedPct": 80.0
+        },
+        {
+          "key": "4th floor|low voltage/ data wiring/ intercom",
+          "completedPct": 80.0
+        },
+        {
+          "key": "4th floor|finish & lighting",
+          "completedPct": 0.0
+        },
+        {
+          "key": "4th floor|lighting controls",
+          "completedPct": 0.0
+        },
+        {
+          "key": "4th floor|testing & inspections",
+          "completedPct": 0.0
+        },
+        {
+          "key": "5th floor|feeders & subfeeders",
+          "completedPct": 100.0
+        },
+        {
+          "key": "5th floor|roughing",
+          "completedPct": 80.0
+        },
+        {
+          "key": "5th floor|low voltage/ data wiring/ intercom",
+          "completedPct": 80.0
+        },
+        {
+          "key": "5th floor|finish & lighting",
+          "completedPct": 0.0
+        },
+        {
+          "key": "5th floor|lighting controls",
+          "completedPct": 0.0
+        },
+        {
+          "key": "5th floor|testing & inspections",
+          "completedPct": 0.0
+        },
+        {
+          "key": "6th floor|feeders & subfeeders",
+          "completedPct": 80.0
+        },
+        {
+          "key": "6th floor|roughing",
+          "completedPct": 80.0
+        },
+        {
+          "key": "6th floor|low voltage/ data wiring/ intercom",
+          "completedPct": 80.0
+        },
+        {
+          "key": "6th floor|finish & lighting",
+          "completedPct": 0.0
+        },
+        {
+          "key": "6th floor|lighting controls",
+          "completedPct": 0.0
+        },
+        {
+          "key": "6th floor|testing & inspections",
+          "completedPct": 0.0
+        },
+        {
+          "key": "7th floor|feeders & subfeeders",
+          "completedPct": 90.0
+        },
+        {
+          "key": "7th floor|roughing",
+          "completedPct": 80.0
+        },
+        {
+          "key": "7th floor|low voltage/ data wiring/ intercom",
+          "completedPct": 80.0
+        },
+        {
+          "key": "7th floor|finish & lighting",
+          "completedPct": 0.0
+        },
+        {
+          "key": "7th floor|lighting controls",
+          "completedPct": 0.0
+        },
+        {
+          "key": "7th floor|testing & inspections",
+          "completedPct": 0.0
+        },
+        {
+          "key": "8th floor|feeders & subfeeders",
+          "completedPct": 90.0
+        },
+        {
+          "key": "8th floor|roughing",
+          "completedPct": 80.0
+        },
+        {
+          "key": "8th floor|low voltage/ data wiring/ intercom",
+          "completedPct": 80.0
+        },
+        {
+          "key": "8th floor|finish & lighting",
+          "completedPct": 0.0
+        },
+        {
+          "key": "8th floor|lighting controls",
+          "completedPct": 0.0
+        },
+        {
+          "key": "8th floor|testing & inspections",
+          "completedPct": 0.0
+        },
+        {
+          "key": "roof floor|feeders & subfeeders",
+          "completedPct": 80.0
+        },
+        {
+          "key": "roof floor|roughing",
+          "completedPct": 80.0
+        },
+        {
+          "key": "roof floor|low voltage/ data wiring/ intercom",
+          "completedPct": 70.0
+        },
+        {
+          "key": "roof floor|finish & lighting",
+          "completedPct": 0.0
+        },
+        {
+          "key": "roof floor|lighting install",
+          "completedPct": 0.0
+        },
+        {
+          "key": "roof floor|lighting controls",
+          "completedPct": 0.0
+        },
+        {
+          "key": "roof floor|testing & inspections",
+          "completedPct": 0.0
+        },
+        {
+          "key": "roof floor|co - 01",
+          "completedPct": 100.0
+        },
+        {
+          "key": "roof floor|co - 02",
+          "completedPct": 100.0
+        },
+        {
+          "key": "roof floor|co - 03",
+          "completedPct": 100.0
+        },
+        {
+          "key": "roof floor|co - 04",
+          "completedPct": 100.0
+        },
+        {
+          "key": "roof floor|co - 05",
+          "completedPct": 100.0
+        },
+        {
+          "key": "roof floor|co - 06",
+          "completedPct": 100.0
+        },
+        {
+          "key": "roof floor|co - 07",
+          "completedPct": 100.0
+        },
+        {
+          "key": "roof floor|co - 08",
+          "completedPct": 100.0
+        }
+      ],
+      "attachments": [
+        {
+          "name": "Requisition 9.pdf",
+          "webViewLink": "https://drive.google.com/file/d/1O5MdFUVdL3cehfI_3ta4qAhtYw6cFvsV/view?usp=drivesdk"
+        }
+      ]
+    },
+    {
+      "num": 10,
+      "applicationNumber": "REQ-10",
+      "periodTo": "2025-03-04",
+      "g702": {
+        "periodTo": "2025-03-04",
+        "totalCompleted": 1520973.0,
+        "currentPaymentDue": 101301.3
+      },
+      "itemsSnapshot": [
+        {
+          "key": "|electric service equipment",
+          "completedPct": 100.0
+        },
+        {
+          "key": "|electric service installation",
+          "completedPct": 90.0
+        },
+        {
+          "key": "|temp electric & lighting",
+          "completedPct": 100.0
+        },
+        {
+          "key": "subcellar floor|feeders & subfeeders",
+          "completedPct": 80.0
+        },
+        {
+          "key": "subcellar floor|roughing",
+          "completedPct": 80.0
+        },
+        {
+          "key": "subcellar floor|low voltage/ data wiring/ intercom",
+          "completedPct": 80.0
+        },
+        {
+          "key": "subcellar floor|finish & lighting",
+          "completedPct": 0.0
+        },
+        {
+          "key": "subcellar floor|lighting contorls",
+          "completedPct": 0.0
+        },
+        {
+          "key": "subcellar floor|testing & inspections",
+          "completedPct": 0.0
+        },
+        {
+          "key": "cellar floor|feeders & subfeeders",
+          "completedPct": 100.0
+        },
+        {
+          "key": "cellar floor|roughing",
+          "completedPct": 100.0
+        },
+        {
+          "key": "cellar floor|low voltage/ data wiring/ intercom",
+          "completedPct": 100.0
+        },
+        {
+          "key": "cellar floor|finish & lighting",
+          "completedPct": 20.0
+        },
+        {
+          "key": "cellar floor|lighting controls",
+          "completedPct": 20.0
+        },
+        {
+          "key": "cellar floor|testing & inspections",
+          "completedPct": 20.0
+        },
+        {
+          "key": "basement floor|feeders & subfeeders",
+          "completedPct": 100.0
+        },
+        {
+          "key": "basement floor|roughing",
+          "completedPct": 90.0
+        },
+        {
+          "key": "basement floor|low voltage/ data wiring/ intercom",
+          "completedPct": 100.0
+        },
+        {
+          "key": "basement floor|finish & lighting",
+          "completedPct": 20.0
+        },
+        {
+          "key": "basement floor|lighting controls",
+          "completedPct": 20.0
+        },
+        {
+          "key": "basement floor|testing & inspections",
+          "completedPct": 20.0
+        },
+        {
+          "key": "exterior|feeders & subfeeders",
+          "completedPct": 90.0
+        },
+        {
+          "key": "exterior|roughing",
+          "completedPct": 90.0
+        },
+        {
+          "key": "exterior|finish & lighting",
+          "completedPct": 20.0
+        },
+        {
+          "key": "exterior|lighting controls",
+          "completedPct": 20.0
+        },
+        {
+          "key": "exterior|testing & inspections",
+          "completedPct": 20.0
+        },
+        {
+          "key": "1st floor|feeders & subfeeders",
+          "completedPct": 100.0
+        },
+        {
+          "key": "1st floor|roughing",
+          "completedPct": 90.0
+        },
+        {
+          "key": "1st floor|low voltage/ data wiring/ intercom",
+          "completedPct": 80.0
+        },
+        {
+          "key": "1st floor|finish & lighting",
+          "completedPct": 20.0
+        },
+        {
+          "key": "1st floor|lighting controls",
+          "completedPct": 20.0
+        },
+        {
+          "key": "1st floor|testing & inspections",
+          "completedPct": 0.0
+        },
+        {
+          "key": "2nd floor|feeders & subfeeders",
+          "completedPct": 100.0
+        },
+        {
+          "key": "2nd floor|roughing",
+          "completedPct": 90.0
+        },
+        {
+          "key": "2nd floor|low voltage/ data wiring/ intercom",
+          "completedPct": 90.0
+        },
+        {
+          "key": "2nd floor|finish & lighting",
+          "completedPct": 20.0
+        },
+        {
+          "key": "2nd floor|lighting controls",
+          "completedPct": 20.0
+        },
+        {
+          "key": "2nd floor|testing & inspections",
+          "completedPct": 20.0
+        },
+        {
+          "key": "3rd floor|feeders & subfeeders",
+          "completedPct": 100.0
+        },
+        {
+          "key": "3rd floor|roughing",
+          "completedPct": 90.0
+        },
+        {
+          "key": "3rd floor|low voltage/ data wiring/ intercom",
+          "completedPct": 90.0
+        },
+        {
+          "key": "3rd floor|finish & lighting",
+          "completedPct": 20.0
+        },
+        {
+          "key": "3rd floor|lighting controls",
+          "completedPct": 20.0
+        },
+        {
+          "key": "3rd floor|testing & inspections",
+          "completedPct": 20.0
+        },
+        {
+          "key": "4th floor|feeders & subfeeders",
+          "completedPct": 100.0
+        },
+        {
+          "key": "4th floor|roughing",
+          "completedPct": 90.0
+        },
+        {
+          "key": "4th floor|low voltage/ data wiring/ intercom",
+          "completedPct": 90.0
+        },
+        {
+          "key": "4th floor|finish & lighting",
+          "completedPct": 20.0
+        },
+        {
+          "key": "4th floor|lighting controls",
+          "completedPct": 20.0
+        },
+        {
+          "key": "4th floor|testing & inspections",
+          "completedPct": 20.0
+        },
+        {
+          "key": "5th floor|feeders & subfeeders",
+          "completedPct": 100.0
+        },
+        {
+          "key": "5th floor|roughing",
+          "completedPct": 90.0
+        },
+        {
+          "key": "5th floor|low voltage/ data wiring/ intercom",
+          "completedPct": 90.0
+        },
+        {
+          "key": "5th floor|finish & lighting",
+          "completedPct": 20.0
+        },
+        {
+          "key": "5th floor|lighting controls",
+          "completedPct": 20.0
+        },
+        {
+          "key": "5th floor|testing & inspections",
+          "completedPct": 20.0
+        },
+        {
+          "key": "6th floor|feeders & subfeeders",
+          "completedPct": 100.0
+        },
+        {
+          "key": "6th floor|roughing",
+          "completedPct": 90.0
+        },
+        {
+          "key": "6th floor|low voltage/ data wiring/ intercom",
+          "completedPct": 90.0
+        },
+        {
+          "key": "6th floor|finish & lighting",
+          "completedPct": 20.0
+        },
+        {
+          "key": "6th floor|lighting controls",
+          "completedPct": 20.0
+        },
+        {
+          "key": "6th floor|testing & inspections",
+          "completedPct": 20.0
+        },
+        {
+          "key": "7th floor|feeders & subfeeders",
+          "completedPct": 100.0
+        },
+        {
+          "key": "7th floor|roughing",
+          "completedPct": 90.0
+        },
+        {
+          "key": "7th floor|low voltage/ data wiring/ intercom",
+          "completedPct": 90.0
+        },
+        {
+          "key": "7th floor|finish & lighting",
+          "completedPct": 20.0
+        },
+        {
+          "key": "7th floor|lighting controls",
+          "completedPct": 20.0
+        },
+        {
+          "key": "7th floor|testing & inspections",
+          "completedPct": 20.0
+        },
+        {
+          "key": "8th floor|feeders & subfeeders",
+          "completedPct": 100.0
+        },
+        {
+          "key": "8th floor|roughing",
+          "completedPct": 90.0
+        },
+        {
+          "key": "8th floor|low voltage/ data wiring/ intercom",
+          "completedPct": 90.0
+        },
+        {
+          "key": "8th floor|finish & lighting",
+          "completedPct": 20.0
+        },
+        {
+          "key": "8th floor|lighting controls",
+          "completedPct": 20.0
+        },
+        {
+          "key": "8th floor|testing & inspections",
+          "completedPct": 20.0
+        },
+        {
+          "key": "roof floor|feeders & subfeeders",
+          "completedPct": 90.0
+        },
+        {
+          "key": "roof floor|roughing",
+          "completedPct": 90.0
+        },
+        {
+          "key": "roof floor|low voltage/ data wiring/ intercom",
+          "completedPct": 90.0
+        },
+        {
+          "key": "roof floor|finish & lighting",
+          "completedPct": 20.0
+        },
+        {
+          "key": "roof floor|lighting install",
+          "completedPct": 20.0
+        },
+        {
+          "key": "roof floor|lighting controls",
+          "completedPct": 20.0
+        },
+        {
+          "key": "roof floor|testing & inspections",
+          "completedPct": 20.0
+        },
+        {
+          "key": "roof floor|co - 01",
+          "completedPct": 100.0
+        },
+        {
+          "key": "roof floor|co - 02",
+          "completedPct": 100.0
+        },
+        {
+          "key": "roof floor|co - 03",
+          "completedPct": 100.0
+        },
+        {
+          "key": "roof floor|co - 04",
+          "completedPct": 100.0
+        },
+        {
+          "key": "roof floor|co - 05",
+          "completedPct": 100.0
+        },
+        {
+          "key": "roof floor|co - 06",
+          "completedPct": 100.0
+        },
+        {
+          "key": "roof floor|co - 07",
+          "completedPct": 100.0
+        },
+        {
+          "key": "roof floor|co - 08",
+          "completedPct": 100.0
+        }
+      ],
+      "attachments": [
+        {
+          "name": "Requisition 11.pdf",
+          "localPath": "/Users/levik/My Drive/1 Martin Dorkin/Projects/334 E 176/Requisition/Requisition 10/Requisition 11.pdf"
+        }
+      ]
+    },
+    {
+      "num": 11,
+      "applicationNumber": "REQ-11",
+      "periodTo": "2025-04-25",
+      "g702": {
+        "periodTo": "2025-04-25",
+        "totalCompleted": 1579691.0,
+        "currentPaymentDue": 52846.2
+      },
+      "itemsSnapshot": [
+        {
+          "key": "|electric service equipment",
+          "completedPct": 100.0
+        },
+        {
+          "key": "|electric service installation",
+          "completedPct": 98.0
+        },
+        {
+          "key": "|temp electric & lighting",
+          "completedPct": 100.0
+        },
+        {
+          "key": "subcellar floor|feeders & subfeeders",
+          "completedPct": 100.0
+        },
+        {
+          "key": "subcellar floor|roughing",
+          "completedPct": 90.0
+        },
+        {
+          "key": "subcellar floor|low voltage/ data wiring/ intercom",
+          "completedPct": 90.0
+        },
+        {
+          "key": "subcellar floor|finish & lighting",
+          "completedPct": 0.0
+        },
+        {
+          "key": "subcellar floor|lighting contorls",
+          "completedPct": 0.0
+        },
+        {
+          "key": "subcellar floor|testing & inspections",
+          "completedPct": 0.0
+        },
+        {
+          "key": "cellar floor|feeders & subfeeders",
+          "completedPct": 100.0
+        },
+        {
+          "key": "cellar floor|roughing",
+          "completedPct": 100.0
+        },
+        {
+          "key": "cellar floor|low voltage/ data wiring/ intercom",
+          "completedPct": 100.0
+        },
+        {
+          "key": "cellar floor|finish & lighting",
+          "completedPct": 20.0
+        },
+        {
+          "key": "cellar floor|lighting controls",
+          "completedPct": 20.0
+        },
+        {
+          "key": "cellar floor|testing & inspections",
+          "completedPct": 20.0
+        },
+        {
+          "key": "basement floor|feeders & subfeeders",
+          "completedPct": 100.0
+        },
+        {
+          "key": "basement floor|roughing",
+          "completedPct": 100.0
+        },
+        {
+          "key": "basement floor|low voltage/ data wiring/ intercom",
+          "completedPct": 100.0
+        },
+        {
+          "key": "basement floor|finish & lighting",
+          "completedPct": 20.0
+        },
+        {
+          "key": "basement floor|lighting controls",
+          "completedPct": 20.0
+        },
+        {
+          "key": "basement floor|testing & inspections",
+          "completedPct": 20.0
+        },
+        {
+          "key": "exterior|feeders & subfeeders",
+          "completedPct": 90.0
+        },
+        {
+          "key": "exterior|roughing",
+          "completedPct": 90.0
+        },
+        {
+          "key": "exterior|finish & lighting",
+          "completedPct": 20.0
+        },
+        {
+          "key": "exterior|lighting controls",
+          "completedPct": 20.0
+        },
+        {
+          "key": "exterior|testing & inspections",
+          "completedPct": 20.0
+        },
+        {
+          "key": "1st floor|feeders & subfeeders",
+          "completedPct": 100.0
+        },
+        {
+          "key": "1st floor|roughing",
+          "completedPct": 100.0
+        },
+        {
+          "key": "1st floor|low voltage/ data wiring/ intercom",
+          "completedPct": 90.0
+        },
+        {
+          "key": "1st floor|finish & lighting",
+          "completedPct": 20.0
+        },
+        {
+          "key": "1st floor|lighting controls",
+          "completedPct": 20.0
+        },
+        {
+          "key": "1st floor|testing & inspections",
+          "completedPct": 0.0
+        },
+        {
+          "key": "2nd floor|feeders & subfeeders",
+          "completedPct": 100.0
+        },
+        {
+          "key": "2nd floor|roughing",
+          "completedPct": 100.0
+        },
+        {
+          "key": "2nd floor|low voltage/ data wiring/ intercom",
+          "completedPct": 100.0
+        },
+        {
+          "key": "2nd floor|finish & lighting",
+          "completedPct": 20.0
+        },
+        {
+          "key": "2nd floor|lighting controls",
+          "completedPct": 20.0
+        },
+        {
+          "key": "2nd floor|testing & inspections",
+          "completedPct": 20.0
+        },
+        {
+          "key": "3rd floor|feeders & subfeeders",
+          "completedPct": 100.0
+        },
+        {
+          "key": "3rd floor|roughing",
+          "completedPct": 100.0
+        },
+        {
+          "key": "3rd floor|low voltage/ data wiring/ intercom",
+          "completedPct": 90.0
+        },
+        {
+          "key": "3rd floor|finish & lighting",
+          "completedPct": 20.0
+        },
+        {
+          "key": "3rd floor|lighting controls",
+          "completedPct": 20.0
+        },
+        {
+          "key": "3rd floor|testing & inspections",
+          "completedPct": 20.0
+        },
+        {
+          "key": "4th floor|feeders & subfeeders",
+          "completedPct": 100.0
+        },
+        {
+          "key": "4th floor|roughing",
+          "completedPct": 100.0
+        },
+        {
+          "key": "4th floor|low voltage/ data wiring/ intercom",
+          "completedPct": 90.0
+        },
+        {
+          "key": "4th floor|finish & lighting",
+          "completedPct": 20.0
+        },
+        {
+          "key": "4th floor|lighting controls",
+          "completedPct": 20.0
+        },
+        {
+          "key": "4th floor|testing & inspections",
+          "completedPct": 20.0
+        },
+        {
+          "key": "5th floor|feeders & subfeeders",
+          "completedPct": 100.0
+        },
+        {
+          "key": "5th floor|roughing",
+          "completedPct": 100.0
+        },
+        {
+          "key": "5th floor|low voltage/ data wiring/ intercom",
+          "completedPct": 90.0
+        },
+        {
+          "key": "5th floor|finish & lighting",
+          "completedPct": 20.0
+        },
+        {
+          "key": "5th floor|lighting controls",
+          "completedPct": 20.0
+        },
+        {
+          "key": "5th floor|testing & inspections",
+          "completedPct": 20.0
+        },
+        {
+          "key": "6th floor|feeders & subfeeders",
+          "completedPct": 100.0
+        },
+        {
+          "key": "6th floor|roughing",
+          "completedPct": 100.0
+        },
+        {
+          "key": "6th floor|low voltage/ data wiring/ intercom",
+          "completedPct": 90.0
+        },
+        {
+          "key": "6th floor|finish & lighting",
+          "completedPct": 20.0
+        },
+        {
+          "key": "6th floor|lighting controls",
+          "completedPct": 20.0
+        },
+        {
+          "key": "6th floor|testing & inspections",
+          "completedPct": 20.0
+        },
+        {
+          "key": "7th floor|feeders & subfeeders",
+          "completedPct": 100.0
+        },
+        {
+          "key": "7th floor|roughing",
+          "completedPct": 100.0
+        },
+        {
+          "key": "7th floor|low voltage/ data wiring/ intercom",
+          "completedPct": 90.0
+        },
+        {
+          "key": "7th floor|finish & lighting",
+          "completedPct": 20.0
+        },
+        {
+          "key": "7th floor|lighting controls",
+          "completedPct": 20.0
+        },
+        {
+          "key": "7th floor|testing & inspections",
+          "completedPct": 20.0
+        },
+        {
+          "key": "8th floor|feeders & subfeeders",
+          "completedPct": 100.0
+        },
+        {
+          "key": "8th floor|roughing",
+          "completedPct": 100.0
+        },
+        {
+          "key": "8th floor|low voltage/ data wiring/ intercom",
+          "completedPct": 90.0
+        },
+        {
+          "key": "8th floor|finish & lighting",
+          "completedPct": 20.0
+        },
+        {
+          "key": "8th floor|lighting controls",
+          "completedPct": 20.0
+        },
+        {
+          "key": "8th floor|testing & inspections",
+          "completedPct": 20.0
+        },
+        {
+          "key": "roof floor|feeders & subfeeders",
+          "completedPct": 100.0
+        },
+        {
+          "key": "roof floor|roughing",
+          "completedPct": 90.0
+        },
+        {
+          "key": "roof floor|low voltage/ data wiring/ intercom",
+          "completedPct": 90.0
+        },
+        {
+          "key": "roof floor|finish & lighting",
+          "completedPct": 20.0
+        },
+        {
+          "key": "roof floor|lighting install",
+          "completedPct": 20.0
+        },
+        {
+          "key": "roof floor|lighting controls",
+          "completedPct": 20.0
+        },
+        {
+          "key": "roof floor|testing & inspections",
+          "completedPct": 20.0
+        },
+        {
+          "key": "roof floor|co - 01",
+          "completedPct": 100.0
+        },
+        {
+          "key": "roof floor|co - 02",
+          "completedPct": 100.0
+        },
+        {
+          "key": "roof floor|co - 03",
+          "completedPct": 100.0
+        },
+        {
+          "key": "roof floor|co - 04",
+          "completedPct": 100.0
+        },
+        {
+          "key": "roof floor|co - 05",
+          "completedPct": 100.0
+        },
+        {
+          "key": "roof floor|co - 06",
+          "completedPct": 100.0
+        },
+        {
+          "key": "roof floor|co - 07",
+          "completedPct": 100.0
+        },
+        {
+          "key": "roof floor|co - 08",
+          "completedPct": 100.0
+        }
+      ],
+      "attachments": [
+        {
+          "name": "Requisition 11.pdf",
+          "webViewLink": "https://drive.google.com/file/d/1OTOTVxZiJGqtxzz2nzmPiim6MDvUhIqt/view?usp=drivesdk"
+        }
+      ]
+    },
+    {
+      "num": 12,
+      "applicationNumber": "REQ-12",
+      "periodTo": "2025-07-20",
+      "g702": {
+        "periodTo": "2025-07-20",
+        "totalCompleted": 1700000.0,
+        "currentPaymentDue": 108278.1
+      },
+      "itemsSnapshot": [
+        {
+          "key": "|electric service equipment",
+          "completedPct": 100.0
+        },
+        {
+          "key": "|electric service installation",
+          "completedPct": 100.0
+        },
+        {
+          "key": "|temp electric & lighting",
+          "completedPct": 100.0
+        },
+        {
+          "key": "subcellar floor|feeders & subfeeders",
+          "completedPct": 100.0
+        },
+        {
+          "key": "subcellar floor|roughing",
+          "completedPct": 100.0
+        },
+        {
+          "key": "subcellar floor|low voltage/ data wiring/ intercom",
+          "completedPct": 100.0
+        },
+        {
+          "key": "subcellar floor|finish & lighting",
+          "completedPct": 100.0
+        },
+        {
+          "key": "subcellar floor|lighting contorls",
+          "completedPct": 100.0
+        },
+        {
+          "key": "subcellar floor|testing & inspections",
+          "completedPct": 100.0
+        },
+        {
+          "key": "cellar floor|feeders & subfeeders",
+          "completedPct": 100.0
+        },
+        {
+          "key": "cellar floor|roughing",
+          "completedPct": 100.0
+        },
+        {
+          "key": "cellar floor|low voltage/ data wiring/ intercom",
+          "completedPct": 100.0
+        },
+        {
+          "key": "cellar floor|finish & lighting",
+          "completedPct": 100.0
+        },
+        {
+          "key": "cellar floor|lighting controls",
+          "completedPct": 100.0
+        },
+        {
+          "key": "cellar floor|testing & inspections",
+          "completedPct": 100.0
+        },
+        {
+          "key": "basement floor|feeders & subfeeders",
+          "completedPct": 100.0
+        },
+        {
+          "key": "basement floor|roughing",
+          "completedPct": 100.0
+        },
+        {
+          "key": "basement floor|low voltage/ data wiring/ intercom",
+          "completedPct": 100.0
+        },
+        {
+          "key": "basement floor|finish & lighting",
+          "completedPct": 100.0
+        },
+        {
+          "key": "basement floor|lighting controls",
+          "completedPct": 100.0
+        },
+        {
+          "key": "basement floor|testing & inspections",
+          "completedPct": 100.0
+        },
+        {
+          "key": "exterior|feeders & subfeeders",
+          "completedPct": 100.0
+        },
+        {
+          "key": "exterior|roughing",
+          "completedPct": 100.0
+        },
+        {
+          "key": "exterior|finish & lighting",
+          "completedPct": 100.0
+        },
+        {
+          "key": "exterior|lighting controls",
+          "completedPct": 100.0
+        },
+        {
+          "key": "exterior|testing & inspections",
+          "completedPct": 100.0
+        },
+        {
+          "key": "1st floor|feeders & subfeeders",
+          "completedPct": 100.0
+        },
+        {
+          "key": "1st floor|roughing",
+          "completedPct": 100.0
+        },
+        {
+          "key": "1st floor|low voltage/ data wiring/ intercom",
+          "completedPct": 100.0
+        },
+        {
+          "key": "1st floor|finish & lighting",
+          "completedPct": 100.0
+        },
+        {
+          "key": "1st floor|lighting controls",
+          "completedPct": 100.0
+        },
+        {
+          "key": "1st floor|testing & inspections",
+          "completedPct": 100.0
+        },
+        {
+          "key": "2nd floor|feeders & subfeeders",
+          "completedPct": 100.0
+        },
+        {
+          "key": "2nd floor|roughing",
+          "completedPct": 100.0
+        },
+        {
+          "key": "2nd floor|low voltage/ data wiring/ intercom",
+          "completedPct": 100.0
+        },
+        {
+          "key": "2nd floor|finish & lighting",
+          "completedPct": 100.0
+        },
+        {
+          "key": "2nd floor|lighting controls",
+          "completedPct": 100.0
+        },
+        {
+          "key": "2nd floor|testing & inspections",
+          "completedPct": 100.0
+        },
+        {
+          "key": "3rd floor|feeders & subfeeders",
+          "completedPct": 100.0
+        },
+        {
+          "key": "3rd floor|roughing",
+          "completedPct": 100.0
+        },
+        {
+          "key": "3rd floor|low voltage/ data wiring/ intercom",
+          "completedPct": 100.0
+        },
+        {
+          "key": "3rd floor|finish & lighting",
+          "completedPct": 100.0
+        },
+        {
+          "key": "3rd floor|lighting controls",
+          "completedPct": 100.0
+        },
+        {
+          "key": "3rd floor|testing & inspections",
+          "completedPct": 100.0
+        },
+        {
+          "key": "4th floor|feeders & subfeeders",
+          "completedPct": 100.0
+        },
+        {
+          "key": "4th floor|roughing",
+          "completedPct": 100.0
+        },
+        {
+          "key": "4th floor|low voltage/ data wiring/ intercom",
+          "completedPct": 100.0
+        },
+        {
+          "key": "4th floor|finish & lighting",
+          "completedPct": 100.0
+        },
+        {
+          "key": "4th floor|lighting controls",
+          "completedPct": 100.0
+        },
+        {
+          "key": "4th floor|testing & inspections",
+          "completedPct": 100.0
+        },
+        {
+          "key": "5th floor|feeders & subfeeders",
+          "completedPct": 100.0
+        },
+        {
+          "key": "5th floor|roughing",
+          "completedPct": 100.0
+        },
+        {
+          "key": "5th floor|low voltage/ data wiring/ intercom",
+          "completedPct": 100.0
+        },
+        {
+          "key": "5th floor|finish & lighting",
+          "completedPct": 100.0
+        },
+        {
+          "key": "5th floor|lighting controls",
+          "completedPct": 100.0
+        },
+        {
+          "key": "5th floor|testing & inspections",
+          "completedPct": 100.0
+        },
+        {
+          "key": "6th floor|feeders & subfeeders",
+          "completedPct": 100.0
+        },
+        {
+          "key": "6th floor|roughing",
+          "completedPct": 100.0
+        },
+        {
+          "key": "6th floor|low voltage/ data wiring/ intercom",
+          "completedPct": 100.0
+        },
+        {
+          "key": "6th floor|finish & lighting",
+          "completedPct": 100.0
+        },
+        {
+          "key": "6th floor|lighting controls",
+          "completedPct": 100.0
+        },
+        {
+          "key": "6th floor|testing & inspections",
+          "completedPct": 100.0
+        },
+        {
+          "key": "7th floor|feeders & subfeeders",
+          "completedPct": 100.0
+        },
+        {
+          "key": "7th floor|roughing",
+          "completedPct": 100.0
+        },
+        {
+          "key": "7th floor|low voltage/ data wiring/ intercom",
+          "completedPct": 100.0
+        },
+        {
+          "key": "7th floor|finish & lighting",
+          "completedPct": 100.0
+        },
+        {
+          "key": "7th floor|lighting controls",
+          "completedPct": 100.0
+        },
+        {
+          "key": "7th floor|testing & inspections",
+          "completedPct": 100.0
+        },
+        {
+          "key": "8th floor|feeders & subfeeders",
+          "completedPct": 100.0
+        },
+        {
+          "key": "8th floor|roughing",
+          "completedPct": 100.0
+        },
+        {
+          "key": "8th floor|low voltage/ data wiring/ intercom",
+          "completedPct": 100.0
+        },
+        {
+          "key": "8th floor|finish & lighting",
+          "completedPct": 100.0
+        },
+        {
+          "key": "8th floor|lighting controls",
+          "completedPct": 100.0
+        },
+        {
+          "key": "8th floor|testing & inspections",
+          "completedPct": 100.0
+        },
+        {
+          "key": "roof floor|feeders & subfeeders",
+          "completedPct": 100.0
+        },
+        {
+          "key": "roof floor|roughing",
+          "completedPct": 100.0
+        },
+        {
+          "key": "roof floor|low voltage/ data wiring/ intercom",
+          "completedPct": 100.0
+        },
+        {
+          "key": "roof floor|finish & lighting",
+          "completedPct": 100.0
+        },
+        {
+          "key": "roof floor|lighting install",
+          "completedPct": 100.0
+        },
+        {
+          "key": "roof floor|lighting controls",
+          "completedPct": 100.0
+        },
+        {
+          "key": "roof floor|testing & inspections",
+          "completedPct": 100.0
+        },
+        {
+          "key": "roof floor|co - 01",
+          "completedPct": 100.0
+        },
+        {
+          "key": "roof floor|co - 02",
+          "completedPct": 100.0
+        },
+        {
+          "key": "roof floor|co - 03",
+          "completedPct": 100.0
+        },
+        {
+          "key": "roof floor|co - 04",
+          "completedPct": 100.0
+        },
+        {
+          "key": "roof floor|co - 05",
+          "completedPct": 100.0
+        },
+        {
+          "key": "roof floor|co - 06",
+          "completedPct": 100.0
+        },
+        {
+          "key": "roof floor|co - 07",
+          "completedPct": 100.0
+        },
+        {
+          "key": "roof floor|co - 08",
+          "completedPct": 100.0
+        }
+      ],
+      "attachments": [
+        {
+          "name": "Requisition 12.pdf",
+          "webViewLink": "https://drive.google.com/file/d/160Wq7-mhwBT4LIwN7tzsoPDYDv-V08ET/view?usp=drivesdk"
+        }
+      ]
+    }
+  ],
+  "driveFolder": "/Users/levik/My Drive/1 Martin Dorkin/Projects/334 E 176/Requisition"
+}

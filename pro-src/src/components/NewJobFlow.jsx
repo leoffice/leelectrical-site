@@ -5,6 +5,7 @@ import Sheet, { Fld, Opt } from "./Sheet.jsx";
 import CustomerSearch from "./CustomerSearch.jsx";
 import CustomerLiveMatch from "./CustomerLiveMatch.jsx";
 import SubCompanySection from "./SubCompanySection.jsx";
+import DescriptionField from "./DescriptionField.jsx";
 import CalendarSearchSheet from "./CalendarSearchSheet.jsx";
 import AddAppointmentSheet from "./AddAppointmentSheet.jsx";
 import { useStore } from "../state/store.jsx";
@@ -29,7 +30,8 @@ import { MarkPaidSheet, PaymentIntroSheet } from "./JobSheets.jsx";
 import DocBuilderSheet from "./DocBuilderSheet.jsx";
 import { fmt$ } from "../lib/format.js";
 import { sortJobs } from "../lib/stages.js";
-import { serviceAddressHint, serviceAddressLabel, customerSyncPayload } from "../lib/customerSync.js";
+import { customerSyncPayload } from "../lib/customerSync.js";
+import ServiceAddressField from "./ServiceAddressField.jsx";
 import { enqueueCustomerQboSync } from "../lib/customerQboEnqueue.js";
 import {
   createNewCustomerDisabled,
@@ -38,8 +40,11 @@ import {
   snapshotCustomerForm,
 } from "../lib/addCustomerFlow.js";
 import { prefillFromEvent } from "../lib/prefillFromEvent.js";
+import { consumePendingDocAfterJob, resumeFollowUpPrompts } from "../lib/calendarNavigate.js";
 import AddressAutocompleteField from "./AddressAutocompleteField.jsx";
 import { draftJobFromFabContext, paymentFabStep } from "../lib/fabPrefill.js";
+import PageNoteSheet from "./PageNoteSheet.jsx";
+import { useLiveEdit } from "./LiveEditProvider.jsx";
 
 export { prefillFromEvent };
 
@@ -145,10 +150,46 @@ function PickCustomerJobsSheet({ title, hint, jobs, onClose, onPick, filterOpen,
 
 export default function NewJobFlow() {
   const { newJob, setNewJob, events, markSasHandled, jobs, enqueue, showToast, syncNow, refreshJobs, api } = useStore();
+  const { startDevMode } = useLiveEdit();
   const nav = useNavigate();
   if (!newJob) return null;
   const close = () => setNewJob(null);
   const context = newJob.context || null;
+
+  if (newJob.step === "devPageNote") return <PageNoteSheet onClose={close} />;
+
+  if (newJob.step === "devMode")
+    return (
+      <Sheet title="Developer mode" onClose={close}>
+        <Opt
+          icon="📝"
+          title="Send a page note"
+          note="Describe a change — I'll know which page you're on"
+          onClick={() => setNewJob({ step: "devPageNote", context })}
+          data-testid="dev-mode-page-note"
+        />
+        <Opt
+          icon="✏️"
+          title="Live edit"
+          note="Press & hold any button to change words, style, or hide it"
+          onClick={() => {
+            close();
+            startDevMode("live");
+          }}
+          data-testid="dev-mode-live-edit"
+        />
+        <Opt
+          icon="🖍️"
+          title="Highlight area"
+          note="Drag a box around any part of the screen and add your request"
+          onClick={() => {
+            close();
+            startDevMode("highlight");
+          }}
+          data-testid="dev-mode-highlight"
+        />
+      </Sheet>
+    );
 
   if (newJob.step === "choose")
     return (
@@ -182,6 +223,13 @@ export default function NewJobFlow() {
               paymentPrefill: next.customerName ? { customerName: next.customerName } : undefined,
             });
           }}
+        />
+        <Opt
+          icon="🛠️"
+          title="Developer mode"
+          note="Page notes, live edits, highlight areas for changes"
+          onClick={() => setNewJob({ step: "devMode", context })}
+          data-testid="dev-mode-entry"
         />
       </Sheet>
     );
@@ -322,7 +370,13 @@ export default function NewJobFlow() {
       onClose={close}
       onCreated={(id) => {
         if (newJob.sasCallId) markSasHandled(newJob.sasCallId, { handled: true, jobId: id });
-        nav("/job/" + encodeURIComponent(id));
+        const pendingDoc = consumePendingDocAfterJob();
+        if (pendingDoc) {
+          nav("/job/" + encodeURIComponent(id) + "?doc=" + pendingDoc + "&create=1");
+        } else {
+          resumeFollowUpPrompts();
+          nav("/job/" + encodeURIComponent(id));
+        }
       }}
     />
   );
@@ -633,7 +687,7 @@ function NewJobForm({ prefill, onClose, onCreated, vendorMode = false }) {
   });
   const [titlePick, setTitlePick] = useState("new");
   const [subPick, setSubPick] = useState("");
-  const [addrPick, setAddrPick] = useState("");
+
   const autoFilledRef = useRef("");
   const fRef = useRef(f);
   fRef.current = f;
@@ -861,14 +915,16 @@ function NewJobForm({ prefill, onClose, onCreated, vendorMode = false }) {
           <input className="input" value={f.vendor} onChange={set("vendor")} aria-label="Vendor" />
         </Fld>
       ) : null}
-      <Fld label="Description" hint="From calendar (apt/unit parsed out to Apartment # field)">
-        <textarea
-          className="input min-h-[60px]"
-          value={f.description}
-          onChange={set("description")}
-          aria-label="Description"
-        />
-      </Fld>
+      <DescriptionField
+        label="Description"
+        hint="From calendar (apt/unit parsed out to Apartment # field)"
+        multiline
+        value={f.description}
+        onChange={(v) => setF((o) => ({ ...o, description: v }))}
+        context={{ jobTitle: f.title, address: f.serviceAddress || f.address }}
+        testId="newjob-description"
+        ariaLabel="Description"
+      />
       {CONTACT_FIELDS.map(([k, l]) => (
         <Fld key={k} label={l}>
           <input className="input" value={f[k]} onChange={set(k)} aria-label={l} />
@@ -887,46 +943,17 @@ function NewJobForm({ prefill, onClose, onCreated, vendorMode = false }) {
         />
       </Fld>
 
-      {addressChoices.length > 1 ? (
-        <Fld label="Service address" hint="Pick an existing site or type a new one below">
-          <select
-            className="input mb-2"
-            value={addrPick}
-            onChange={(e) => {
-              const v = e.target.value;
-              setAddrPick(v);
-              if (v === "new") return;
-              const hit = addressChoices.find((a) => a.key === v);
-              if (hit) setF((o) => ({ ...o, serviceAddress: hit.label }));
-            }}
-            aria-label="Service address picker"
-            data-testid="newjob-address-picker"
-          >
-            <option value="">Choose address…</option>
-            {addressChoices.map((a) => (
-              <option key={a.key} value={a.key}>
-                {a.label}
-              </option>
-            ))}
-            <option value="new">＋ New address</option>
-          </select>
-        </Fld>
-      ) : null}
-      <Fld label={serviceAddressLabel(f)} hint={serviceAddressHint(f) + " — partial address OK"}>
-        <AddressAutocompleteField
-          label={serviceAddressLabel(f)}
-          value={f.serviceAddress}
-          onChange={(v) => {
-            setAddrPick("");
-            setF((o) => ({ ...o, serviceAddress: v }));
-          }}
-          jobs={jobs}
-          events={events}
-          suggestAddresses={api.suggestAddresses?.bind(api)}
-          testId="newjob-service"
-          ariaLabel={serviceAddressLabel(f)}
-        />
-      </Fld>
+      <ServiceAddressField
+        job={f}
+        jobs={jobs}
+        events={events}
+        value={f.serviceAddress}
+        onChange={(v) => setF((o) => ({ ...o, serviceAddress: v }))}
+        onApartmentChange={(v) => setF((o) => ({ ...o, apartment: v }))}
+        suggestAddresses={api.suggestAddresses?.bind(api)}
+        testId="newjob-service"
+        addressChoices={addressChoices}
+      />
       <Fld label="Apartment #" hint="Unit / apt at the service address (optional)">
         <input className="input" value={f.apartment} onChange={set("apartment")} aria-label="Apartment #" />
       </Fld>

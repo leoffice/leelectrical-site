@@ -117,9 +117,12 @@ export function planDocSaveLocal(job, { kind, mode, lines, serviceAddress, apart
 
 /** Plan local job patch + command bus enqueue for Save & sync (incl. linked doc address sync). */
 export function planDocSaveSync(job, { kind, mode, lines, serviceAddress, apartment, progressPct, send, contractAmount, recurringState }) {
+  const hasInvoice = !!(job?.invoiceNo || job?._invoiceConfirmed);
+  const syncMode = kind === "invoice" && mode !== "edit" && hasInvoice ? "edit" : mode;
+
   const { valid, jobPatch } = buildDocJobPatch(job, {
     kind,
-    mode,
+    mode: syncMode,
     lines,
     serviceAddress,
     apartment,
@@ -133,14 +136,14 @@ export function planDocSaveSync(job, { kind, mode, lines, serviceAddress, apartm
     lines: valid,
     serviceAddress,
     apartment,
-    mode,
+    mode: syncMode,
     progressPct,
     send,
     recurring,
   });
 
   const primaryType =
-    mode === "edit"
+    syncMode === "edit"
       ? kind === "estimate"
         ? "update_estimate"
         : "update_invoice"
@@ -152,11 +155,11 @@ export function planDocSaveSync(job, { kind, mode, lines, serviceAddress, apartm
     {
       type: primaryType,
       payload: primaryPayload,
-      idk: docIdempotencyKey(kind, job.id, valid, mode),
+      idk: docIdempotencyKey(kind, job.id, valid, syncMode),
     },
   ];
 
-  if (recurring && mode !== "edit") {
+  if (recurring && syncMode !== "edit") {
     commands.push({
       type: "create_recurring_invoice",
       payload: { ...primaryPayload, recurring },
@@ -164,7 +167,7 @@ export function planDocSaveSync(job, { kind, mode, lines, serviceAddress, apartm
     });
   }
 
-  if (mode === "edit" && job.estimateNo && job.invoiceNo) {
+  if (syncMode === "edit" && job.estimateNo && job.invoiceNo) {
     const otherKind = kind === "estimate" ? "invoice" : "estimate";
     const otherLines =
       otherKind === "estimate"

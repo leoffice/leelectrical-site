@@ -43,7 +43,8 @@ export default function SendInvoiceWatcher() {
       persistSeen(seen.current);
       if (c.status === "done") {
         const pay = c.payload?.includePaymentLink ? " with payment link" : "";
-        showToast(label(c) + " sent via QuickBooks" + pay);
+        const via = c.payload?.docSource === "qbo" ? " via QuickBooks" : "";
+        showToast(label(c) + " emailed to customer" + pay + via);
         if (c.jobId) patchAndSave(c.jobId, { _docEmailed: true }).catch(() => {});
       } else {
         const err = String(c.error || "");

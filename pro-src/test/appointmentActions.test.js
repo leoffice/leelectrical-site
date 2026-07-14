@@ -5,6 +5,7 @@ import {
   followUpActions,
   followUpCopy,
   generateFollowUpEmail,
+  reminderQuickActions,
 } from "../src/lib/appointmentActions.js";
 
 describe("appointmentActions", () => {
@@ -42,5 +43,13 @@ describe("appointmentActions", () => {
   it("followUpCopy returns titles for each scenario", () => {
     expect(followUpCopy("no_job").title).toMatch(/job/i);
     expect(followUpCopy("job_estimate_pending").title).toMatch(/estimate/i);
+  });
+
+  it("reminderQuickActions always offers job, estimate, and invoice", () => {
+    expect(reminderQuickActions().map((a) => a.key)).toEqual([
+      "create_job",
+      "create_estimate",
+      "create_invoice",
+    ]);
   });
 });

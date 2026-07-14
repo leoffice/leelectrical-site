@@ -4,10 +4,16 @@ import { Link } from "react-router-dom";
 import { useStore } from "../state/store.jsx";
 import AppointmentDetailSheet from "../components/AppointmentDetailSheet.jsx";
 import WeekCalendar from "../components/WeekCalendar.jsx";
-import { consumeCalendarPick } from "../lib/calendarNavigate.js";
+import {
+  consumeCalendarPick,
+  peekReminderReturn,
+  signalRestoreReminder,
+  stashReminderReturn,
+} from "../lib/calendarNavigate.js";
 import { fmtAmountDue, openBalance, totalBalanceDue } from "../lib/customers.js";
 import { bucketFollowUps, dueDateTone, followUpDate, followUpLabel } from "../lib/calendarDue.js";
-import { fmt$, todayStr } from "../lib/format.js";
+import { evStart, fmt$, todayStr } from "../lib/format.js";
+import { displayEventNotes, searchCalendarEvents } from "../lib/calendarLink.js";
 
 function FollowUpRow({ job, dateTone }) {
   const d = followUpDate(job);
@@ -52,10 +58,33 @@ function FollowUpSection({ title, jobs, empty, defaultOpen = true }) {
   );
 }
 
+function formatWhen(event) {
+  return evStart(event).replace("T", " ").slice(0, 16) || "—";
+}
+
 export default function Today() {
   const { jobs, events } = useStore();
   const [picked, setPicked] = useState(null);
+  const [calQuery, setCalQuery] = useState("");
+  const [reminderReturn, setReminderReturn] = useState(() => peekReminderReturn());
   const t = todayStr();
+  const calMatches = useMemo(() => searchCalendarEvents(events, calQuery), [events, calQuery]);
+
+  const refreshReminderReturn = () => setReminderReturn(peekReminderReturn());
+
+  const closeAppointment = () => {
+    const ret = peekReminderReturn();
+    if (ret?.eventId && picked && String(ret.eventId) === String(picked.id)) {
+      stashReminderReturn({ ...ret, apptClosed: true });
+      refreshReminderReturn();
+    }
+    setPicked(null);
+  };
+
+  const backToReminder = () => {
+    signalRestoreReminder();
+    setReminderReturn(null);
+  };
 
   useEffect(() => {
     const pickId = consumeCalendarPick();
@@ -69,8 +98,21 @@ export default function Today() {
   const unpaid = js.filter((j) => !j.paid && openBalance(j) > 0);
   const owed = totalBalanceDue(unpaid);
 
+  const showReminderBack = reminderReturn && (!picked || reminderReturn.apptClosed);
+
   return (
     <div className="space-y-4" data-testid="calendar-view">
+      {showReminderBack ? (
+        <button
+          type="button"
+          className="card w-full text-left px-3 py-2.5 flex items-center gap-2 text-sm font-semibold text-brand active:opacity-90"
+          onClick={backToReminder}
+          data-testid="back-to-reminder"
+        >
+          <span>←</span>
+          <span>Back to reminder</span>
+        </button>
+      ) : null}
       <div className="card px-3 py-2.5 flex lg:px-4 lg:py-3.5">
         {[
           ["Open jobs", js.filter((j) => !j.paid).length],
@@ -102,12 +144,53 @@ export default function Today() {
         <h2 className="text-[11px] font-extrabold text-slate-500 uppercase tracking-wider mb-2 px-1">
           Schedule — Mon through Fri
         </h2>
+        <input
+          className="input mb-2"
+          placeholder="Search appointments — name, address, date…"
+          value={calQuery}
+          onChange={(e) => setCalQuery(e.target.value)}
+          aria-label="Search calendar appointments"
+          data-testid="cal-tab-search"
+        />
+        {calQuery ? (
+          calMatches.length ? (
+            <div className="space-y-2 mb-3" data-testid="cal-tab-search-results">
+              {calMatches.slice(0, 12).map((e) => {
+                const note = [
+                  formatWhen(e),
+                  e.location || "",
+                  displayEventNotes(e.description).slice(0, 60),
+                ]
+                  .filter(Boolean)
+                  .join(" · ");
+                return (
+                  <button
+                    key={e.id || evStart(e) + e.summary}
+                    type="button"
+                    className="card block w-full text-left px-3 py-2.5 active:opacity-90"
+                    onClick={() => {
+                      setPicked(e);
+                      setCalQuery("");
+                    }}
+                  >
+                    <div className="text-sm font-semibold text-slate-900 line-clamp-2">{e.summary || "Appointment"}</div>
+                    {note ? <div className="text-[11px] text-slate-500 mt-0.5 line-clamp-2">{note}</div> : null}
+                  </button>
+                );
+              })}
+            </div>
+          ) : (
+            <p className="text-sm text-slate-400 text-center py-3 mb-2" data-testid="cal-tab-search-empty">
+              No appointments match your search.
+            </p>
+          )
+        ) : null}
         <div className="card px-3 py-3">
           <WeekCalendar events={events} onPickEvent={setPicked} />
         </div>
       </section>
 
-      {picked && <AppointmentDetailSheet event={picked} onClose={() => setPicked(null)} />}
+      {picked && <AppointmentDetailSheet event={picked} onClose={closeAppointment} />}
     </div>
   );
 }

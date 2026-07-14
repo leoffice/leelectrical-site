@@ -1,7 +1,9 @@
 // Company dashboard — business KPIs from QuickBooks-synced jobs + Google Calendar.
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useMemo, useState } from "react";
 import { useStore } from "../state/store.jsx";
 import DashboardWidget, { DeltaBadge, DetailTable } from "../components/DashboardWidget.jsx";
+import CompanyLinkedTable from "../components/CompanyLinkedTable.jsx";
+import { ago } from "../lib/format.js";
 import { CO, Donut, Funnel, Gauge, HBar, HBarRow, StackBar, Trend, VBars } from "../lib/dashboard/charts.jsx";
 import { buildCompanyMetrics, fmtMoney, fmtMoneyK } from "../lib/companyMetrics.js";
 import { COMPANY_SECTIONS, widgetsForSection } from "../lib/companyDashboardConfig.js";
@@ -23,19 +25,15 @@ function metricHead(kick, val, sub) {
   );
 }
 
-function useCalendarEvents() {
-  const [events, setEvents] = useState([]);
-  useEffect(() => {
-    const base =
-      typeof location !== "undefined" && /(^|\.)leelectrical\.us$/.test(location.hostname)
-        ? "/.netlify/functions"
-        : "https://leelectrical.us/.netlify/functions";
-    fetch(`${base}/calendar?cb=${Date.now()}`, { cache: "no-store" })
-      .then((r) => (r.ok ? r.json() : { events: [] }))
-      .then((d) => setEvents(d.events || []))
-      .catch(() => setEvents([]));
-  }, []);
-  return events;
+function linkMeta(rows, doc = "invoice") {
+  return (rows || []).map((r) => (r.jobId ? { jobId: r.jobId, doc: r.doc || doc } : null));
+}
+
+function LinkedOrPlain({ dataRows, doc = "invoice", title, cols, rows, align, total, foot }) {
+  const hasLinks = (dataRows || []).some((r) => r.jobId);
+  const props = { title, cols, rows, align, total, foot };
+  if (!hasLinks) return <DetailTable {...props} />;
+  return <CompanyLinkedTable {...props} linkMeta={linkMeta(dataRows, doc)} />;
 }
 
 function buildWidgets(data) {
@@ -58,7 +56,9 @@ function buildWidgets(data) {
           </>
         }
         detail={
-          <DetailTable
+          <LinkedOrPlain
+            dataRows={w.estimates.rows}
+            doc="estimate"
             title="Estimates submitted this week"
             cols={["Customer", "Est #", "Scope", "Amount"]}
             align={["", "", "", "r"]}
@@ -81,7 +81,8 @@ function buildWidgets(data) {
           </>
         }
         detail={
-          <DetailTable
+          <LinkedOrPlain
+            dataRows={w.invoices.rows}
             title="Invoices generated this week"
             cols={["Customer", "Invoice #", "From est.", "Amount"]}
             align={["", "", "", "r"]}
@@ -125,7 +126,8 @@ function buildWidgets(data) {
           </>
         }
         detail={
-          <DetailTable
+          <LinkedOrPlain
+            dataRows={w.collected.rows}
             title="Payments received this week"
             cols={["Customer", "Invoice #", "Method", "Amount"]}
             align={["", "", "", "r"]}
@@ -151,7 +153,8 @@ function buildWidgets(data) {
           </>
         }
         detail={
-          <DetailTable
+          <LinkedOrPlain
+            dataRows={m.collected.rows}
             title="Payments received this month"
             cols={["Customer", "Invoice #", "Date", "Amount"]}
             align={["", "", "", "r"]}
@@ -186,7 +189,8 @@ function buildWidgets(data) {
                 accent="amber"
                 head={metricHead("Open invoices to collect", ar.open.length, fmtMoney(ar.openTotal) + " outstanding")}
                 detail={
-                  <DetailTable
+                  <LinkedOrPlain
+                    dataRows={ar.open}
                     title="All open invoices"
                     cols={["Customer", "Invoice #", "Status", "Amount"]}
                     align={["", "", "", "r"]}
@@ -200,7 +204,8 @@ function buildWidgets(data) {
                 accent="red"
                 head={metricHead("Overdue invoices", fmtMoneyK(ar.overdueTotal), ar.overdueCount + " past due")}
                 detail={
-                  <DetailTable
+                  <LinkedOrPlain
+                    dataRows={ar.open.filter((x) => x.od > 0)}
                     title="Overdue invoices"
                     cols={["Customer", "Invoice #", "Overdue", "Amount"]}
                     align={["", "", "", "r"]}
@@ -233,7 +238,8 @@ function buildWidgets(data) {
                     </div>
                   }
                   detail={
-                    <DetailTable
+                    <LinkedOrPlain
+                      dataRows={list}
                       title={`${name} (${range})`}
                       cols={["Customer", "Invoice #", "Overdue", "Amount"]}
                       align={["", "", "", "r"]}
@@ -293,7 +299,8 @@ function buildWidgets(data) {
           </>
         }
         detail={
-          <DetailTable
+          <LinkedOrPlain
+            dataRows={perf.paidRows}
             title="Days from invoice to payment"
             cols={["Customer", "Invoice #", "Days to pay"]}
             align={["", "", "r"]}
@@ -517,9 +524,26 @@ function buildWidgets(data) {
 }
 
 export default function Company() {
-  const { jobs } = useStore();
-  const events = useCalendarEvents();
+  const { jobs, events, syncedAt, eventsSyncedAt, syncNow, pullCalendarNow, busy, showToast } = useStore();
+  const [calBusy, setCalBusy] = useState(false);
   const data = useMemo(() => buildCompanyMetrics(jobs, events), [jobs, events]);
+
+  const refreshQbo = async () => {
+    showToast("Refreshing QuickBooks…");
+    await syncNow();
+    showToast("QuickBooks data updated");
+  };
+
+  const refreshCal = async () => {
+    setCalBusy(true);
+    showToast("Refreshing calendar…");
+    try {
+      await pullCalendarNow();
+      showToast("Calendar updated");
+    } finally {
+      setCalBusy(false);
+    }
+  };
   const builders = useMemo(() => buildWidgets(data), [data]);
 
   const renderSection = (sectionKey, title, subtitle, extra) => {
@@ -555,12 +579,34 @@ export default function Company() {
             {fmtMoneyK(data.ar.openTotal)} open A/R
           </div>
         </div>
-        <div className="flex gap-2 items-start bg-white border border-slate-200 rounded-[11px] px-3 py-2 mt-2 text-xs text-slate-500 shadow-sm">
-          <span className="text-base">🔄</span>
-          <span>
-            Live from <b className="text-slate-800">QuickBooks</b> (jobs sync) + <b className="text-slate-800">Google Calendar</b>. Tap any card for detail.{" "}
-            {data.sources.jobs} jobs · {data.sources.events} calendar events.
-          </span>
+        <div className="bg-white border border-slate-200 rounded-[11px] px-3 py-2.5 mt-2 text-xs text-slate-500 shadow-sm space-y-2">
+          <div className="flex gap-2 items-start">
+            <span className="text-base">🔄</span>
+            <span>
+              Live from <b className="text-slate-800">QuickBooks</b> + <b className="text-slate-800">Google Calendar</b>. Tap any card for detail — invoice rows open the doc, double-tap opens job info.{" "}
+              {data.sources.jobs} jobs · {data.sources.events} calendar events.
+            </span>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            <button
+              type="button"
+              className="btn !py-1.5 !px-2.5 text-[11px] bg-emerald-50 text-emerald-800 border border-emerald-200"
+              onClick={refreshQbo}
+              disabled={busy}
+              data-testid="company-refresh-qbo"
+            >
+              ↻ QuickBooks{syncedAt ? " · " + ago(syncedAt) : ""}
+            </button>
+            <button
+              type="button"
+              className="btn !py-1.5 !px-2.5 text-[11px] bg-blue-50 text-blue-800 border border-blue-200"
+              onClick={refreshCal}
+              disabled={calBusy || busy}
+              data-testid="company-refresh-cal"
+            >
+              ↻ Calendar{eventsSyncedAt ? " · " + ago(eventsSyncedAt) : ""}
+            </button>
+          </div>
         </div>
       </div>
 

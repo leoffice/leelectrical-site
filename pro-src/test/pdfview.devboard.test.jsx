@@ -6,7 +6,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { cleanup, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import "@testing-library/jest-dom/vitest";
-import { mockServer, renderApp } from "./helpers.jsx";
+import { mockServer, renderApp, stubPdfOpen } from "./helpers.jsx";
 import { todayStr } from "../src/lib/format.js";
 
 afterEach(() => {
@@ -15,11 +15,6 @@ afterEach(() => {
   localStorage.clear();
   window.location.hash = "#/";
 });
-
-const stubObjectUrl = () => {
-  URL.createObjectURL = vi.fn(() => "blob:pdf-test");
-  URL.revokeObjectURL = vi.fn();
-};
 
 const openInvoiceSheet = async (user) => {
   renderApp("#/job/J-1");
@@ -30,41 +25,50 @@ const openInvoiceSheet = async (user) => {
 };
 
 describe("invoice/estimate quick view — View PDF", () => {
-  it("renders the stored PDF inline immediately when docs already has it", async () => {
-    stubObjectUrl();
+  it("regenerates the local QBO-clone PDF even when a cached copy exists", async () => {
+    const click = stubPdfOpen();
     const srv = mockServer({ docs: { "inv-251841": "%PDF-1.4 stored" } });
     const user = userEvent.setup();
     const sheet = await openInvoiceSheet(user);
 
-    await user.click(within(sheet).getByText("View PDF"));
-    const frame = await screen.findByTitle("PDF inv-251841");
-    expect(frame.tagName).toBe("IFRAME");
-    expect(frame).toHaveAttribute("src", "blob:pdf-test");
-    // #44: auto full-screen — the PDF lands in a full-screen overlay with no
-    // separate "go full screen" step, so that old button is gone.
-    expect(document.querySelector("[data-fullscreen-pdf]")).not.toBeNull();
-    expect(screen.queryByText("⛶ Full screen")).toBeNull();
-    expect(srv.enqueued("fetch_pdf")).toHaveLength(0); // no command when already stored
+    await user.click(within(sheet).getByText("View Local Invoice"));
+    await waitFor(() => expect(click).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(srv.calls.some((c) => c.path === "generate-doc")).toBe(true));
+    expect(srv.enqueued("fetch_pdf")).toHaveLength(0);
   });
 
-  it("on a miss: enqueues fetch_pdf (judgment, pdf:<no>:<date>), shows fetching, then renders after a poll", async () => {
-    stubObjectUrl();
+  it("on a miss with invoice data: opens local preview and generates PDF on server", async () => {
+    const click = stubPdfOpen();
     const srv = mockServer(); // docs empty -> 404
     const user = userEvent.setup();
     const sheet = await openInvoiceSheet(user);
 
-    await user.click(within(sheet).getByText("View PDF"));
-    await screen.findByText("Fetching from QuickBooks — a few seconds…");
-    await waitFor(() => expect(srv.enqueued("fetch_pdf")).toHaveLength(1));
-    const cmd = srv.enqueued("fetch_pdf")[0];
-    expect(cmd.lane).toBe("judgment");
-    expect(cmd.idempotencyKey).toBe("pdf:251841:" + todayStr());
-    expect(cmd.payload).toEqual({ kind: "invoice", no: "251841", docKey: "inv-251841" });
+    await user.click(within(sheet).getByText("View Local Invoice"));
+    await waitFor(() => expect(click).toHaveBeenCalledTimes(1));
+    expect(screen.queryByText("Generating your PDF — a few seconds…")).toBeNull();
+    await waitFor(() => expect(srv.calls.some((c) => c.path === "generate-doc")).toBe(true));
+    expect(srv.enqueued("fetch_pdf")).toHaveLength(0);
+  });
 
-    // Host uploads it -> the 4s poll picks it up and renders inline.
-    srv.state.docs["inv-251841"] = "%PDF-1.4 fetched";
-    const frame = await screen.findByTitle("PDF inv-251841", {}, { timeout: 7000 });
-    expect(frame.tagName).toBe("IFRAME");
+  it("on a miss without local data: enqueues fetch_pdf and polls until stored", async () => {
+    const click = stubPdfOpen();
+    const bare = {
+      id: "J-BARE",
+      customer: "No Lines",
+      invoiceNo: "999001",
+      amount: "",
+      invoiceLines: [],
+    };
+    const srv = mockServer({ jobs: [bare] });
+    const user = userEvent.setup();
+    renderApp("#/job/J-BARE");
+    const pane = await screen.findByTestId("detail-pane");
+    await user.click(within(pane).getByTestId("tab-invoice"));
+    const sheet = screen.getByRole("dialog");
+    await user.click(within(sheet).getByText("View QuickBooks Invoice"));
+    await screen.findByText("Fetching from QuickBooks — a few seconds…");
+    srv.state.docs["inv-999001"] = "%PDF-1.4 fetched";
+    await waitFor(() => expect(click).toHaveBeenCalledTimes(1), { timeout: 7000 });
   }, 12000);
 });
 

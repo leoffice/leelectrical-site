@@ -56,6 +56,15 @@ export function followUpCopy(scenario) {
   return COPY[scenario] || COPY.job_no_docs;
 }
 
+/** Three side-by-side actions on reminder popups — job, estimate, invoice. */
+export function reminderQuickActions() {
+  return [
+    { key: "create_job", label: "Create a job", icon: "＋" },
+    { key: "create_estimate", label: "Create an estimate", icon: "📝" },
+    { key: "create_invoice", label: "Create an invoice", icon: "🧾" },
+  ];
+}
+
 /** Action keys the UI can render as buttons. */
 export function followUpActions(scenario) {
   const actions = [];

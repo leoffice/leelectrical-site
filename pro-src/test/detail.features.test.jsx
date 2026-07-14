@@ -111,23 +111,27 @@ describe("1. mark-as-paid sheet -> staged -> record_payment on Save", () => {
 });
 
 describe("2. quick views — invoice/estimate/calendar sheets", () => {
-  it("invoice sheet: open-in-QuickBooks + send -> send_invoice deterministic + history log", async () => {
+  it("invoice sheet: local/QB view + send submenu -> send_invoice deterministic + history log", async () => {
     const srv = mockServer();
     const user = userEvent.setup();
-    const openSpy = vi.fn();
-    vi.stubGlobal("open", openSpy);
     const pane = await openDetail();
 
     await user.click(within(pane).getByTestId("tab-invoice"));
-    expect(screen.getByText("Open in QuickBooks")).toBeInTheDocument();
+    expect(screen.getByText("View Local Invoice")).toBeInTheDocument();
+    expect(screen.getByText("View QuickBooks Invoice")).toBeInTheDocument();
     await user.click(screen.getByText(/Send invoice only/));
+    await user.click(await screen.findByTestId("doc-source-local"));
     await waitFor(() => expect(srv.enqueued("send_invoice")).toHaveLength(1));
     const cmd = srv.enqueued("send_invoice")[0];
     expect(cmd.lane).toBe("deterministic");
-    expect(cmd.idempotencyKey).toBe("send_invoice:251841");
-    expect(cmd.payload).toMatchObject({ email: "p@x.com", invoiceNo: "251841", includePaymentLink: false });
-    // invoiceHistory logged (staged) -> Send history card shows it
-    expect(await within(pane).findByText("Invoice #251841 send queued")).toBeInTheDocument();
+    expect(cmd.idempotencyKey).toBe("send_invoice:local:251841");
+    expect(cmd.payload).toMatchObject({
+      email: "p@x.com",
+      invoiceNo: "251841",
+      includePaymentLink: false,
+      docSource: "local",
+    });
+    expect(await within(pane).findByText(/Invoice #251841 send queued/)).toBeInTheDocument();
   });
 
   it("estimate sheet enqueues send_estimate; calendar sheet links Google Calendar", async () => {
@@ -136,8 +140,8 @@ describe("2. quick views — invoice/estimate/calendar sheets", () => {
     const pane = await openDetail();
 
     await user.click(within(pane).getByTestId("tab-estimate"));
-    expect(screen.getByText("Open in QuickBooks")).toBeInTheDocument();
-    expect(screen.getByText("View PDF")).toBeInTheDocument();
+    expect(screen.getByText("View Local Estimate")).toBeInTheDocument();
+    expect(screen.getByText("View QuickBooks Estimate")).toBeInTheDocument();
 
     await user.click(within(pane).getByTestId("tab-calendar"));
     expect(screen.getByText("Open Google Calendar")).toBeInTheDocument();

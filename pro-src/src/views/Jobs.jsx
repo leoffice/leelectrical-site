@@ -40,7 +40,8 @@ import {
   effectiveHasParentCustomer,
   subsUnderParent,
 } from "../lib/customerHierarchy.js";
-import { compareCustomerRecency, touchCustomer } from "../lib/customerRecency.js";
+import { compareCustomerRecency, subscribeRecency, touchCustomer } from "../lib/customerRecency.js";
+import { waitForCommandDone } from "../lib/commandWait.js";
 
 /** Gray subline under customer name — jobs / open invoices / invoiced / paid. */
 function customerMetaLine(sum) {
@@ -178,6 +179,7 @@ export default function Jobs({ embedded, collapseGroups = false, activeJobId = "
   const [custMatches, setCustMatches] = useState([]); // #56 QBO customers not yet in the app
   const [importCust, setImportCust] = useState(null); // #56 confirm-import target
   const [qboIndex, setQboIndex] = useState([]);
+  const [recencyTick, setRecencyTick] = useState(0);
   const timers = useRef({}); // groupKey -> auto-collapse timer
   const custTimer = useRef(null);
   const searchIdleTimer = useRef(null);
@@ -201,6 +203,8 @@ export default function Jobs({ embedded, collapseGroups = false, activeJobId = "
       cancelled = true;
     };
   }, [api]);
+
+  useEffect(() => subscribeRecency(() => setRecencyTick((n) => n + 1)), []);
 
   const active = useMemo(() => jobs.filter((j) => !j._archived && !j._deleted), [jobs]);
   const matchesChip = useCallback(
@@ -283,7 +287,7 @@ export default function Jobs({ embedded, collapseGroups = false, activeJobId = "
       return entries.sort((A, B) => compareCustomerRecency(A[0], A[1], B[0], B[1]));
     }
     return entries.sort((A, B) => cmp(rank(A[1]), rank(B[1])));
-  }, [active, matchesChip, sort, filter]);
+  }, [active, matchesChip, sort, filter, recencyTick]);
 
   const qboHierarchy = useMemo(() => buildQboHierarchyCtx(qboIndex), [qboIndex]);
 
@@ -302,11 +306,14 @@ export default function Jobs({ embedded, collapseGroups = false, activeJobId = "
       .map(([k, list]) => [k, list.filter((j) => !parentJobIds.has(j.id) && !effectiveHasParentCustomer(j, qboHierarchy))])
       .filter(([, list]) => list.length && list.some(matchesChip));
     if (filter === "Active") {
-      parents = parents.slice().sort((a, b) => compareCustomerRecency(a.key, a.jobs, b.key, b.jobs));
+      const parentJobs = (row) => row.jobs.concat((row.subs || []).flatMap((s) => s.jobs));
+      parents = parents
+        .slice()
+        .sort((a, b) => compareCustomerRecency(a.key, parentJobs(a), b.key, parentJobs(b)));
       flat = flat.slice().sort((A, B) => compareCustomerRecency(A[0], A[1], B[0], B[1]));
     }
     return { parentRows: parents, flatGroups: flat };
-  }, [active, groups, matchesChip, sort, qboIndex, qboHierarchy, filter]);
+  }, [active, groups, matchesChip, sort, qboIndex, qboHierarchy, filter, recencyTick]);
 
   /** Jobs shown inside an expanded group — full customer when Active/All + no search. */
   const expandJobs = useCallback(
@@ -398,8 +405,8 @@ export default function Jobs({ embedded, collapseGroups = false, activeJobId = "
   }, [q, api]);
   useEffect(() => () => clearTimeout(custTimer.current), []);
 
-  const openCustomer = (key) => {
-    touchCustomer(key);
+  const openCustomer = (key, jobs = []) => {
+    touchCustomer(key, jobs);
     nav("/customer/" + encodeURIComponent(key));
   };
 
@@ -408,7 +415,9 @@ export default function Jobs({ embedded, collapseGroups = false, activeJobId = "
     if (!c) return;
     const key = c.id != null ? String(c.id) : c.name;
     const name = c.name || "";
+    const qboId = c.id != null ? String(c.id) : "";
     const custKey = customerKeyForImport(c);
+    const idk = "import_customer|" + key + "|" + Date.now();
     setImportCust(null);
     setQ("");
     setCustMatches([]);
@@ -417,7 +426,7 @@ export default function Jobs({ embedded, collapseGroups = false, activeJobId = "
       try {
         sessionStorage.setItem(
           PENDING_IMPORT_LS,
-          JSON.stringify({ key: custKey, name, qboId: c.id != null ? String(c.id) : "", started: Date.now() })
+          JSON.stringify({ key: custKey, name, qboId, started: Date.now(), idempotencyKey: idk })
         );
       } catch {}
       openCustomer(custKey);
@@ -426,14 +435,14 @@ export default function Jobs({ embedded, collapseGroups = false, activeJobId = "
     await enqueue(
       "import_customer",
       "import-" + key,
-      { name, qboId: c.id != null ? String(c.id) : "" },
+      { name, qboId },
       "deterministic",
-      "import_customer|" + key
+      idk
     );
-    try {
-      await api.pullJobs?.();
-    } catch {}
-    refreshJobs?.(true);
+    const testMode = typeof import.meta !== "undefined" && import.meta.env && import.meta.env.MODE === "test";
+    const wait = await waitForCommandDone(api, idk, { maxMs: testMode ? 80 : 120000, intervalMs: testMode ? 15 : 2000 });
+    await refreshJobs?.(true);
+    if (!wait.ok && !wait.timeout) showToast(String(wait.cmd?.error || "Import from QuickBooks failed"));
   };
 
   return (
@@ -505,10 +514,10 @@ export default function Jobs({ embedded, collapseGroups = false, activeJobId = "
                   aria-expanded={multiSub ? expanded : undefined}
                   onClick={() => {
                     if (!multiSub) {
-                      openCustomer(row.key);
+                      openCustomer(row.key, row.jobs);
                       return;
                     }
-                    if (expanded) openCustomer(row.key);
+                    if (expanded) openCustomer(row.key, row.jobs);
                     else toggleGroup(row.key, PARENT_SUB_COLLAPSE_MS);
                   }}
                 >
@@ -544,7 +553,7 @@ export default function Jobs({ embedded, collapseGroups = false, activeJobId = "
                         type="button"
                         className="w-full text-left rounded-lg bg-white border border-slate-100 px-3 py-2 active:bg-slate-50"
                         data-testid="sub-customer-row"
-                        onClick={() => openCustomer(sub.key)}
+                        onClick={() => openCustomer(sub.key, sub.jobs)}
                       >
                         <div className="flex items-center justify-between gap-2">
                           <span className="text-sm font-semibold text-slate-800 truncate">{sub.name}</span>
@@ -572,7 +581,7 @@ export default function Jobs({ embedded, collapseGroups = false, activeJobId = "
               const pct = progressPct(job);
               const due = fmtAmountDue(job) || fmt$(openBalance(job)) || "—";
               const title = job.title || "(untitled job)";
-              const goCustomer = () => openCustomer(key);
+              const goCustomer = () => openCustomer(key, list);
               return (
                 <button
                   key={key}
@@ -617,7 +626,7 @@ export default function Jobs({ embedded, collapseGroups = false, activeJobId = "
                     amount={fmt$(sum.due) || "$0"}
                     meta={customerMetaLine(sum)}
                     hint={groupExpanded(key) ? "" : jobTitlesHint(displayList)}
-                    onCardClick={() => openCustomer(key)}
+                    onCardClick={() => openCustomer(key, list)}
                     avatar={<CustomerAvatar name={customerName} />}
                     trailing={
                       collapseGroups ? null : (

@@ -87,6 +87,8 @@ function estimateRows(jobs, start, end) {
       amt: jobAmt(j),
       date: stageDate(j, "Estimate") || stageDate(j, "Site Visit"),
       scope: j.title || "—",
+      jobId: j.id,
+      doc: "estimate",
     }));
 }
 
@@ -99,6 +101,8 @@ function invoiceRows(jobs, start, end) {
       amt: jobAmt(j),
       date: stageDate(j, "Invoiced") || stageDate(j, "Accepted"),
       from: j.estimateNo ? "EST-" + j.estimateNo : "—",
+      jobId: j.id,
+      doc: "invoice",
     }));
 }
 
@@ -205,7 +209,7 @@ export function buildCompanyMetrics(jobs, events, now = new Date()) {
     if (!lastPay?.date || !invD) continue;
     const days = daysBetween(invD, lastPay.date);
     if (days == null || days < 0) continue;
-    paidRows.push({ inv: "INV-" + j.invoiceNo, cust: j.customer || "—", days });
+    paidRows.push({ inv: "INV-" + j.invoiceNo, cust: j.customer || "—", days, jobId: j.id, doc: "invoice" });
   }
   paidRows.sort((a, b) => a.days - b.days);
   const avgPay = paidRows.length ? paidRows.reduce((s, x) => s + x.days, 0) / paidRows.length : 0;

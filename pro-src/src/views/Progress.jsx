@@ -1,6 +1,6 @@
 // Dev Progress — infographic dashboard (approved mockup). Data from /.netlify/functions/progress.
 import React, { useCallback, useEffect, useState } from "react";
-import { useStore } from "../state/store.jsx";
+
 import { fetchProgress, fmtUpdated } from "../lib/progressDashboard.js";
 import { commas, kfmt, md, money, shortTitle, DEV_PROGRESS_CONFIG } from "../lib/devProgressFormat.js";
 import { MomentumLine, SpeedBars } from "../lib/dashboard/charts.jsx";
@@ -48,45 +48,44 @@ function UpdateRow({ item, open, onToggle }) {
   );
 }
 
+function yesterdayLabel(ts) {
+  if (!ts) return "yesterday";
+  const d = new Date(ts);
+  if (Number.isNaN(d.getTime())) return "yesterday";
+  const y = new Date();
+  y.setDate(y.getDate() - 1);
+  if (d.toDateString() === y.toDateString()) return "yesterday";
+  return d.toLocaleDateString([], { weekday: "short", month: "short", day: "numeric" });
+}
+
 export default function Progress() {
-  const { showToast } = useStore();
   const [data, setData] = useState(null);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState("");
   const [openUpdate, setOpenUpdate] = useState(null);
 
-  const load = useCallback(
-    async (refresh) => {
-      setBusy(true);
-      setErr("");
-      try {
-        const doc = await fetchProgress({ refresh });
-        setData(doc);
-        if (refresh) showToast("Build stats updated");
-      } catch (e) {
-        setErr("Couldn't load build progress");
-      } finally {
-        setBusy(false);
-      }
-    },
-    [showToast]
-  );
+  const load = useCallback(async () => {
+    setBusy(true);
+    setErr("");
+    try {
+      const doc = await fetchProgress({ refresh: false });
+      setData(doc);
+    } catch (e) {
+      setErr("Couldn't load build progress");
+    } finally {
+      setBusy(false);
+    }
+  }, []);
 
   useEffect(() => {
-    load(false);
-  }, [load]);
-
-  useEffect(() => {
-    const onRefresh = () => load(true);
-    window.addEventListener("le-progress-refresh", onRefresh);
-    return () => window.removeEventListener("le-progress-refresh", onRefresh);
+    load();
   }, [load]);
 
   if (err && !data) {
     return (
       <div className="card px-4 py-8 text-center" data-testid="progress-error">
         <p className="text-sm text-slate-600 mb-3">{err}</p>
-        <button type="button" className="btn btn-brand" onClick={() => load(false)}>
+        <button type="button" className="btn btn-brand" onClick={() => load()}>
           Try again
         </button>
       </div>
@@ -145,10 +144,11 @@ export default function Progress() {
             🤖 {m.agent}
           </span>
         </div>
-        <div className="text-right">
-          <p className="text-[10px] text-[#7f8fb8] mt-1" data-testid="progress-updated">
-            {busy ? "Refreshing…" : "Updated " + fmtUpdated(data.updatedAt || data.meta?.generated_at)}
+        <div className="text-right max-w-[11rem]">
+          <p className="text-[10px] text-[#9fd0ff] font-semibold mt-1" data-testid="progress-updated">
+            {busy ? "Loading…" : "Through " + yesterdayLabel(data.updatedAt || data.meta?.generated_at)}
           </p>
+          <p className="text-[9px] text-[#6f7fa8] mt-0.5">Refreshes nightly — no button needed</p>
         </div>
       </div>
 
@@ -220,18 +220,3 @@ export default function Progress() {
   );
 }
 
-export function ProgressRefreshButton({ busy }) {
-  return (
-    <button
-      type="button"
-      aria-label="Update build progress"
-      data-testid="progress-refresh-btn"
-      disabled={busy}
-      onClick={() => window.dispatchEvent(new CustomEvent("le-progress-refresh"))}
-      className="w-8 h-8 rounded-full border border-slate-200 bg-white shadow-sm flex items-center justify-center text-brand text-sm font-bold active:scale-95 disabled:opacity-50 shrink-0"
-      title="Update progress"
-    >
-      ↻
-    </button>
-  );
-}

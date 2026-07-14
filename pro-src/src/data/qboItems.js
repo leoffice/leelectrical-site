@@ -2,7 +2,7 @@
 // Host can push a fresher list via POST items { op:"set" }. Use exact names.
 
 export const DEFAULT_QBO_ITEMS = [
-  { name: "Service call:Service call", type: "Service", price: 120, description: "Service call" },
+  { name: "Service call:Service call", type: "Service", price: 180, description: "Service call" },
   { name: "Service call:Emergency call", type: "Service", price: 225, description: "Emergency service call" },
   { name: "Service call:Emergency after hours call", type: "Service", price: 260, description: "Emergency after hours" },
   { name: "Installation:Ballast Replacement", type: "Service", price: 110, description: "Ballast Replacement" },

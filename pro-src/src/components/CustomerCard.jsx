@@ -1,4 +1,4 @@
-// Customer header card — contact info on top, compact actions, edit in corner.
+// Customer header card — contact info on top, tappable fields, edit in corner.
 import React from "react";
 import { CustomerAvatar } from "./JobCard.jsx";
 import { CustomerAmountSubline } from "./AmountDisplay.jsx";
@@ -6,22 +6,7 @@ import { fmt$ } from "../lib/format.js";
 import { effectiveServiceAddress } from "../lib/customerSync.js";
 const OFFICE_EMAIL = "office@leelectrical.us";
 
-export function CustomerActionButton({ href, icon, label, disabled, newTab }) {
-  return (
-    <a
-      href={disabled ? undefined : href}
-      target={newTab && !disabled ? "_blank" : undefined}
-      rel="noreferrer"
-      className={`flex-1 flex flex-col items-center gap-0.5 rounded-lg py-1.5 text-[10px] font-semibold transition-colors lg:rounded-xl lg:py-2 lg:text-[11px] ${
-        disabled ? "bg-slate-50 text-slate-300" : "bg-brand-soft text-brand"
-      }`}
-      onClick={(e) => disabled && e.preventDefault()}
-    >
-      <span className="text-sm leading-none lg:text-base">{icon}</span>
-      {label}
-    </a>
-  );
-}
+const FIELD_LINK = "text-brand font-semibold active:opacity-80";
 
 function isDesktop() {
   if (typeof window === "undefined") return false;
@@ -47,11 +32,31 @@ function emailHref(email) {
   return `mailto:${email}`;
 }
 
+function ContactValue({ value, onClick, href, newTab }) {
+  if (onClick) {
+    return (
+      <button type="button" className={`${FIELD_LINK} text-left`} onClick={onClick}>
+        {value}
+      </button>
+    );
+  }
+  if (href) {
+    return (
+      <a href={href} className={FIELD_LINK} target={newTab ? "_blank" : undefined} rel="noreferrer">
+        {value}
+      </a>
+    );
+  }
+  return value;
+}
+
 export default function CustomerCard({
   contact,
   summary,
   mapAddress,
   onEdit,
+  onText,
+  onEmail,
   primaryJob,
   showSummary = true,
 }) {
@@ -59,14 +64,37 @@ export default function CustomerCard({
   const addr = mapAddress || (primaryJob ? effectiveServiceAddress(primaryJob) : "");
   const mapHref = googleMapsHref(addr);
 
+  const billing = String(contact.billingAddress || "").trim();
+  const service = String(addr || "").trim();
+  const showServiceRow = service && (mapAddress || service !== billing);
+
   const contactRows = [
     ...(contact.businessName && contact.businessName !== displayName
-      ? [["Business", contact.businessName, ""]]
+      ? [["Business", contact.businessName, null]]
       : []),
-    ["Person", contact.personName, ""],
-    ["Phone", contact.phone, contact.phone ? `tel:${contact.phone}` : ""],
-    ["Email", contact.email, contact.email ? emailHref(contact.email) : ""],
-    ["Billing address", contact.billingAddress, ""],
+    ["Person", contact.personName, null],
+    [
+      "Phone",
+      contact.phone,
+      contact.phone ? { href: `tel:${contact.phone}` } : null,
+    ],
+    [
+      "Email",
+      contact.email,
+      contact.email
+        ? {
+            onClick: onEmail ? () => onEmail(contact) : undefined,
+            href: !onEmail ? emailHref(contact.email) : undefined,
+            newTab: !onEmail && isDesktop(),
+          }
+        : null,
+    ],
+    [
+      "Billing address",
+      contact.billingAddress,
+      contact.billingAddress ? { href: googleMapsHref(contact.billingAddress), newTab: true } : null,
+    ],
+    ...(showServiceRow ? [["Service address", service, { href: mapHref, newTab: true }]] : []),
   ].filter(([, v]) => v);
 
   return (
@@ -126,14 +154,17 @@ export default function CustomerCard({
 
       {contactRows.length > 0 && (
         <dl className="mt-3 space-y-1 text-xs lg:mt-3.5 lg:text-sm">
-          {contactRows.map(([k, v, href]) => (
+          {contactRows.map(([k, v, action]) => (
             <div key={k} className="flex gap-2 items-baseline">
               <dt className="font-semibold text-slate-800 shrink-0 w-14 lg:w-24">{k}</dt>
               <dd className="text-slate-500 break-words min-w-0">
-                {href ? (
-                  <a href={href} className="text-brand font-semibold" target={k === "Email" && isDesktop() ? "_blank" : undefined} rel="noreferrer">
-                    {v}
-                  </a>
+                {action ? (
+                  <ContactValue
+                    value={v}
+                    onClick={action.onClick}
+                    href={action.href}
+                    newTab={action.newTab}
+                  />
                 ) : (
                   v
                 )}
@@ -142,13 +173,6 @@ export default function CustomerCard({
           ))}
         </dl>
       )}
-
-      <div className="flex gap-1.5 mt-3 lg:gap-2 lg:mt-3.5">
-        <CustomerActionButton href={contact.phone ? `tel:${contact.phone}` : undefined} icon="📞" label="Call" disabled={!contact.phone} />
-        <CustomerActionButton href={contact.phone ? `sms:${contact.phone}` : undefined} icon="💬" label="Text" disabled={!contact.phone} />
-        <CustomerActionButton href={contact.email ? emailHref(contact.email) : undefined} icon="✉️" label="Email" disabled={!contact.email} newTab={isDesktop()} />
-        <CustomerActionButton href={mapHref || undefined} icon="📍" label="Map" disabled={!mapHref} newTab />
-      </div>
     </div>
   );
 }

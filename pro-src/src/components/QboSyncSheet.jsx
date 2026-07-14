@@ -6,7 +6,7 @@ import { runQboSync } from "../lib/qboSyncActions.js";
 
 const KINDS = [
   { id: "refresh", icon: "📅", title: "Refresh calendar & jobs", note: "Update calendar and local data", global: true },
-  { id: "customer", icon: "👤", title: "Customer info", note: "Name, phone, email, billing address" },
+  { id: "customer", icon: "👤", title: "Customer info", note: "Pull name, phone, email & billing from QuickBooks" },
   { id: "invoices", icon: "🧾", title: "Invoices", note: "Pull invoice jobs from QuickBooks", sub: true },
   { id: "estimates", icon: "📝", title: "Estimates", note: "Refresh estimate jobs on file", sub: true },
   { id: "payments", icon: "💳", title: "Payments", note: "Pull payment history per invoice", sub: true },
@@ -14,7 +14,7 @@ const KINDS = [
 ];
 
 export default function QboSyncSheet({ job, customerJobs, contextLabel, onClose }) {
-  const { enqueue, showToast, refreshJobs, api, syncNow } = useStore();
+  const { enqueue, showToast, refreshJobs, api, syncNow, patchAndSave } = useStore();
   const [kind, setKind] = useState(null);
   const [scope, setScope] = useState("open");
   const hasContext = Boolean(job);
@@ -39,6 +39,7 @@ export default function QboSyncSheet({ job, customerJobs, contextLabel, onClose 
       showToast,
       refreshJobs,
       api,
+      patchAndSave,
     });
   };
 

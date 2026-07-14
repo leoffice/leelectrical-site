@@ -23,9 +23,9 @@ const job = (id, customer, title, amount, extra = {}) => ({
 
 describe("JobDetail — sibling jobs when detail sections collapse", () => {
   const jobs = () => [
-    job("K-1", "Meir Kabakov", "Panel swap", "$1,000", { invoiceNo: "1001" }),
-    job("K-2", "Meir Kabakov", "EV charger", "$900"),
-    job("K-3", "Meir Kabakov", "Service", "$300"),
+    job("K-1", "Meir Kabakov", "Panel swap", "$1,000", { invoiceNo: "1001", serviceAddress: "10 Oak St" }),
+    job("K-2", "Meir Kabakov", "EV charger", "$900", { serviceAddress: "20 Pine St" }),
+    job("K-3", "Meir Kabakov", "Service", "$300", { serviceAddress: "30 Elm St" }),
   ];
 
   it("keeps Job Info visible; collapse shows sibling jobs below, expand hides them", async () => {

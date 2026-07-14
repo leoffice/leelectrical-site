@@ -207,16 +207,41 @@ describe("Zelle screenshot reconciliation flow", () => {
     await user.click(screen.getByTestId("payment-autofill"));
     await waitFor(() => expect(screen.getByDisplayValue("5521")).toBeInTheDocument());
     expect(screen.getByDisplayValue("panel upgrade")).toBeInTheDocument();
-    expect(visionCalls).toBe(1);
+    expect(visionCalls).toBe(2);
     await user.click(screen.getByTestId("record-payment"));
     await waitFor(() => expect(screen.getByTestId("savebar")).toBeInTheDocument());
-    expect(visionCalls).toBe(1);
+    expect(visionCalls).toBe(2);
     await user.click(screen.getByText("Save & sync"));
     await waitFor(() => expect(srv.enqueued("record_payment")).toHaveLength(1));
     expect(srv.enqueued("record_payment")[0].payload).toMatchObject({
       amount: "800",
       method: "Check",
       ref: "5521",
+      note: "Check #5521 · Deposit: Martin Dorkin · panel upgrade",
+      depositTo: "Martin Dorkin",
+    });
+  });
+
+  it("check payment form shows deposit-to picker", async () => {
+    const srv = mockServer();
+    const user = userEvent.setup();
+    renderApp("#/job/J-1");
+    const pane = await screen.findByTestId("detail-pane");
+    await user.click(within(pane).getByTestId("tab-payment"));
+    await user.click(screen.getByText("Record a payment"));
+    await user.click(screen.getByText("Check"));
+    expect(screen.getByTestId("payment-deposit")).toBeInTheDocument();
+    await user.selectOptions(screen.getByTestId("payment-deposit"), "Wells Fargo");
+    await user.type(screen.getByPlaceholderText("Check #"), "4412");
+    await user.click(screen.getByTestId("record-payment"));
+    await waitFor(() => expect(screen.getByTestId("savebar")).toBeInTheDocument());
+    await user.click(screen.getByText("Save & sync"));
+    await waitFor(() => expect(srv.enqueued("record_payment")).toHaveLength(1));
+    expect(srv.enqueued("record_payment")[0].payload).toMatchObject({
+      method: "Check",
+      ref: "4412",
+      depositTo: "Wells Fargo",
+      note: "Check #4412 · Deposit: Wells Fargo",
     });
   });
 });

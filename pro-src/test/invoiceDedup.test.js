@@ -7,6 +7,7 @@ import {
   invoicePairId,
   isInvoiceDismissed,
   pickKeeperJob,
+  qboStubJobIds,
 } from "../src/lib/invoiceDedup.js";
 
 const job = (id, invoiceNo, extra = {}) => ({
@@ -43,6 +44,16 @@ describe("findDuplicateInvoiceSuggestion", () => {
     const a = job("J-1", "1");
     const b = job("J-2", "1", { qboCustomerId: "42", payments: [{ amount: 50 }] });
     expect(pickKeeperJob(a, b).id).toBe("J-2");
+  });
+
+  it("qboStubJobIds finds auto-imported rows for the same invoice number", () => {
+    const jobs = [
+      job("local-1", "251900"),
+      job("qbo-251900", "251900"),
+      job("qbo-251901", "251901"),
+    ];
+    expect(qboStubJobIds(jobs, "251900", "local-1")).toEqual(["qbo-251900"]);
+    expect(qboStubJobIds(jobs, "251900", "qbo-251900")).toEqual([]);
   });
 
   it("invoiceCompareRows lines up customer, service, amount, and invoice #", () => {

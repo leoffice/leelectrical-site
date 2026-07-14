@@ -1,11 +1,11 @@
 // @vitest-environment jsdom
 // Calendar appointment → job/customer autofill + address suggestions + partial save.
 import React from "react";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import "@testing-library/jest-dom/vitest";
-import { J1, mockServer, renderApp } from "./helpers.jsx";
+import { CAL_WEEK_ANCHOR, J1, mockServer, pinCalWeek, renderApp } from "./helpers.jsx";
 
 afterEach(() => {
   vi.unstubAllGlobals();
@@ -16,13 +16,16 @@ afterEach(() => {
 const richEvent = {
   id: "ev-autofill",
   summary: "Service call — Brooklyn",
-  start: "2026-07-10T14:00",
+  start: `${CAL_WEEK_ANCHOR}T14:00`,
   location: "200 Service Ave, Brooklyn, NY 11201",
   description:
     "Metro Electric LLC\ncontact: Jane Smith\n718-555-9999\njane@metro.com\nBill to: 50 Billing Blvd, Newark, NJ 07102",
 };
 
 describe("appointment autofill e2e", () => {
+  beforeEach(() => pinCalWeek());
+  afterEach(() => vi.useRealTimers());
+
   it("calendar job picks up name, phone, email, and billing vs service split", async () => {
     const srv = mockServer({
       jobs: [JSON.parse(JSON.stringify(J1))],

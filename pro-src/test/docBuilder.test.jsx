@@ -52,7 +52,40 @@ describe("Estimate / invoice builder", () => {
     expect(srv.state.ov["J-EST"].estimateLines?.length).toBeGreaterThan(0);
   });
 
-  it("Save & close saves locally without enqueueing QuickBooks commands", async () => {
+  it("Save on job shows draft on estimate tab and opens saved view", async () => {
+    const srv = mockServer({
+      jobs: [
+        {
+          id: "J-DRAFT",
+          customer: "Draft Co",
+          title: "Rough-in",
+          email: "d@x.com",
+          serviceAddress: "22 Court",
+          amount: "$800",
+          paid: false,
+          status: { Lead: { s: "done" }, "Site Visit": { s: "done" } },
+        },
+      ],
+    });
+    const user = userEvent.setup();
+    renderApp("#/job/J-DRAFT");
+    const pane = await screen.findByTestId("detail-pane");
+
+    await user.click(within(pane).getByTestId("progress-step-Estimate"));
+    await user.click(within(pane).getByTestId("generate-estimate"));
+    await user.click(await screen.findByTestId("doc-save-close"));
+
+    await waitFor(() => expect(srv.state.ov["J-DRAFT"].estimateLines?.length).toBeGreaterThan(0));
+    const tabs = within(pane).getByTestId("job-doc-tabs");
+    expect(within(tabs).getByTestId("tab-estimate")).toHaveTextContent(/Est draft/);
+
+    await user.click(within(tabs).getByTestId("tab-estimate"));
+    expect(await screen.findByTestId("doc-draft-banner")).toBeInTheDocument();
+    expect(screen.getByTestId("doc-draft-lines")).toBeInTheDocument();
+    expect(screen.getByTestId("doc-sync-qbo")).toBeInTheDocument();
+  });
+
+  it("Save on job saves locally without enqueueing QuickBooks commands", async () => {
     const srv = mockServer({
       jobs: [
         {
