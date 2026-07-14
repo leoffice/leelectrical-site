@@ -215,11 +215,14 @@ export async function polishVoiceTextSmart(raw, { apiBase } = {}) {
   if (!needsSmartPolish(raw)) return base;
 
   const local = consolidateRepetition(base);
-  const baseUrl =
-    apiBase ||
-    (typeof location !== "undefined" && /leelectrical\.us$/.test(location.hostname)
-      ? "/.netlify/functions"
-      : "https://leelectrical.us/.netlify/functions");
+  let baseUrl = apiBase;
+  if (!baseUrl && typeof location !== "undefined") {
+    baseUrl =
+      location.hostname === "leelectrical.us"
+        ? "/.netlify/functions"
+        : "https://leelectrical.us/.netlify/functions";
+  }
+  if (!baseUrl) baseUrl = "https://leelectrical.us/.netlify/functions";
 
   try {
     const r = await fetch(`${baseUrl}/voice-polish`, {
