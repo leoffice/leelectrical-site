@@ -31,7 +31,7 @@ describe("invoice/estimate quick view — View PDF", () => {
     const user = userEvent.setup();
     const sheet = await openInvoiceSheet(user);
 
-    await user.click(within(sheet).getByText("View PDF"));
+    await user.click(within(sheet).getByText("View Local Invoice"));
     await waitFor(() => expect(click).toHaveBeenCalledTimes(1));
     await waitFor(() => expect(srv.calls.some((c) => c.path === "generate-doc")).toBe(true));
     expect(srv.enqueued("fetch_pdf")).toHaveLength(0);
@@ -43,7 +43,7 @@ describe("invoice/estimate quick view — View PDF", () => {
     const user = userEvent.setup();
     const sheet = await openInvoiceSheet(user);
 
-    await user.click(within(sheet).getByText("View PDF"));
+    await user.click(within(sheet).getByText("View Local Invoice"));
     await waitFor(() => expect(click).toHaveBeenCalledTimes(1));
     expect(screen.queryByText("Generating your PDF — a few seconds…")).toBeNull();
     await waitFor(() => expect(srv.calls.some((c) => c.path === "generate-doc")).toBe(true));
@@ -65,8 +65,8 @@ describe("invoice/estimate quick view — View PDF", () => {
     const pane = await screen.findByTestId("detail-pane");
     await user.click(within(pane).getByTestId("tab-invoice"));
     const sheet = screen.getByRole("dialog");
-    await user.click(within(sheet).getByText("View PDF"));
-    await screen.findByText("Generating your PDF — a few seconds…");
+    await user.click(within(sheet).getByText("View QuickBooks Invoice"));
+    await screen.findByText("Fetching from QuickBooks — a few seconds…");
     srv.state.docs["inv-999001"] = "%PDF-1.4 fetched";
     await waitFor(() => expect(click).toHaveBeenCalledTimes(1), { timeout: 7000 });
   }, 12000);

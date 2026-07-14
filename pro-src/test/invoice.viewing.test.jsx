@@ -64,8 +64,9 @@ describe("#44 jobs-list Invoice offers View as well as Send", () => {
     mockServer();
     renderNode(<QuickSendSheet job={JOB} onClose={() => {}} />);
 
-    expect(await screen.findByText("View PDF")).toBeInTheDocument(); // NEW: view path
-    expect(screen.getByText(/Send to p@x.com/)).toBeInTheDocument(); // existing: send path
+    expect(await screen.findByText("View Local Invoice")).toBeInTheDocument();
+    expect(screen.getByText("View QuickBooks Invoice")).toBeInTheDocument();
+    expect(screen.getByText(/Send invoice with payment link/)).toBeInTheDocument();
   });
 });
 
@@ -76,7 +77,7 @@ describe("#44/#45 PDF viewing: local open + background QBO fetch", () => {
     const user = userEvent.setup();
 
     renderNode(<QuickSendSheet job={JOB} onClose={() => {}} />);
-    await user.click(await screen.findByText("View PDF"));
+    await user.click(await screen.findByText("View Local Invoice"));
 
     await waitFor(() => expect(click).toHaveBeenCalledTimes(1));
     expect(screen.queryByText("Generating your PDF — a few seconds…")).toBeNull();
@@ -91,9 +92,9 @@ describe("#44/#45 PDF viewing: local open + background QBO fetch", () => {
     const user = userEvent.setup();
 
     renderNode(<QuickSendSheet job={bare} onClose={() => {}} />);
-    await user.click(await screen.findByText("View PDF"));
+    await user.click(await screen.findByText("View QuickBooks Invoice"));
 
-    expect(await screen.findByText("Generating your PDF — a few seconds…")).toBeInTheDocument();
+    expect(await screen.findByText("Fetching from QuickBooks — a few seconds…")).toBeInTheDocument();
     const bar = document.querySelector('[aria-label="Document status"]');
     expect(bar).not.toBeNull();
     PDF_STAGES.forEach((s) => expect(bar.textContent).toContain(s));
