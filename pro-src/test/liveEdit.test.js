@@ -1,11 +1,13 @@
 import { describe, expect, it } from "vitest";
 import {
+  buildStyleRules,
   effectiveLabel,
   formatSyncDescription,
   hasPendingWork,
   isHidden,
   makeEditKey,
   mergeEdits,
+  scopeFromPath,
 } from "../src/lib/liveEdit.js";
 
 describe("liveEdit", () => {
@@ -41,5 +43,27 @@ describe("liveEdit", () => {
     expect(hasPendingWork({}, [])).toBe(false);
     expect(hasPendingWork({ k: { hidden: true } }, [])).toBe(true);
     expect(hasPendingWork({}, [{ excerpt: "x" }])).toBe(true);
+  });
+
+  it("scopeFromPath normalizes routes", () => {
+    expect(scopeFromPath("/job/J-1")).toBe("job:J-1");
+    expect(scopeFromPath("/")).toBe("root");
+  });
+
+  it("buildStyleRules emits CSS", () => {
+    const css = buildStyleRules({
+      "a::b": { style: { fontSize: "18px", color: "#059669" } },
+    });
+    expect(css).toContain("font-size: 18px");
+    expect(css).toContain('data-live-edit-key="a::b"');
+  });
+
+  it("formatSyncDescription includes area and style", () => {
+    const desc = formatSyncDescription(
+      { "x::y": { style: { fontSize: "20px" } } },
+      [{ scope: "/today", rect: { width: 100, height: 50 }, text: "bigger calendar cells" }]
+    );
+    expect(desc).toContain("Style (x::y)");
+    expect(desc).toContain("Area (/today)");
   });
 });

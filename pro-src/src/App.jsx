@@ -28,6 +28,7 @@ import FollowUpPrompts from "./components/FollowUpPrompts.jsx";
 import EmailInsightPrompts from "./components/EmailInsightPrompts.jsx";
 import { LiveEditProvider } from "./components/LiveEditProvider.jsx";
 import LiveEditBar from "./components/LiveEditBar.jsx";
+import DevModeOverlay from "./components/DevModeOverlay.jsx";
 import { docConfirmMessage } from "./lib/docConfirm.js";
 import NewJobFlow from "./components/NewJobFlow.jsx";
 import Sheet, { Opt } from "./components/Sheet.jsx";
@@ -286,6 +287,7 @@ export default function App() {
         <DedupePrompts />
         <FollowUpPrompts />
         <EmailInsightPrompts />
+        <DevModeOverlay />
         <LiveEditBar />
         <LeaveSheet />
 

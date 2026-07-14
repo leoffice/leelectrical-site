@@ -1,7 +1,7 @@
 // Long-press menu — edit label, hide, suggest changes.
 import React, { useEffect, useRef } from "react";
 
-export default function LiveEditActionMenu({ anchor, label, onEdit, onDelete, onSuggest, onClose }) {
+export default function LiveEditActionMenu({ anchor, label, onEdit, onStyle, onDelete, onSuggest, onClose }) {
   const ref = useRef(null);
 
   useEffect(() => {
@@ -37,6 +37,11 @@ export default function LiveEditActionMenu({ anchor, label, onEdit, onDelete, on
       <button type="button" className="w-full text-left px-3 py-2.5 text-sm hover:bg-slate-50" onClick={onEdit} data-testid="live-edit-edit">
         ✏️ Edit words
       </button>
+      {onStyle ? (
+        <button type="button" className="w-full text-left px-3 py-2.5 text-sm hover:bg-slate-50" onClick={onStyle} data-testid="live-edit-style-btn">
+          🎨 Adjust style
+        </button>
+      ) : null}
       <button type="button" className="w-full text-left px-3 py-2.5 text-sm hover:bg-slate-50" onClick={onSuggest} data-testid="live-edit-suggest">
         💬 Suggest changes
       </button>

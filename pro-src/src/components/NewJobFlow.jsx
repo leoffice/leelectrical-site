@@ -43,6 +43,8 @@ import { prefillFromEvent } from "../lib/prefillFromEvent.js";
 import { consumePendingDocAfterJob, resumeFollowUpPrompts } from "../lib/calendarNavigate.js";
 import AddressAutocompleteField from "./AddressAutocompleteField.jsx";
 import { draftJobFromFabContext, paymentFabStep } from "../lib/fabPrefill.js";
+import PageNoteSheet from "./PageNoteSheet.jsx";
+import { useLiveEdit } from "./LiveEditProvider.jsx";
 
 export { prefillFromEvent };
 
@@ -148,10 +150,46 @@ function PickCustomerJobsSheet({ title, hint, jobs, onClose, onPick, filterOpen,
 
 export default function NewJobFlow() {
   const { newJob, setNewJob, events, markSasHandled, jobs, enqueue, showToast, syncNow, refreshJobs, api } = useStore();
+  const { startDevMode } = useLiveEdit();
   const nav = useNavigate();
   if (!newJob) return null;
   const close = () => setNewJob(null);
   const context = newJob.context || null;
+
+  if (newJob.step === "devPageNote") return <PageNoteSheet onClose={close} />;
+
+  if (newJob.step === "devMode")
+    return (
+      <Sheet title="Developer mode" onClose={close}>
+        <Opt
+          icon="📝"
+          title="Send a page note"
+          note="Describe a change — I'll know which page you're on"
+          onClick={() => setNewJob({ step: "devPageNote", context })}
+          data-testid="dev-mode-page-note"
+        />
+        <Opt
+          icon="✏️"
+          title="Live edit"
+          note="Press & hold any button to change words, style, or hide it"
+          onClick={() => {
+            close();
+            startDevMode("live");
+          }}
+          data-testid="dev-mode-live-edit"
+        />
+        <Opt
+          icon="🖍️"
+          title="Highlight area"
+          note="Drag a box around any part of the screen and add your request"
+          onClick={() => {
+            close();
+            startDevMode("highlight");
+          }}
+          data-testid="dev-mode-highlight"
+        />
+      </Sheet>
+    );
 
   if (newJob.step === "choose")
     return (
@@ -185,6 +223,13 @@ export default function NewJobFlow() {
               paymentPrefill: next.customerName ? { customerName: next.customerName } : undefined,
             });
           }}
+        />
+        <Opt
+          icon="🛠️"
+          title="Developer mode"
+          note="Page notes, live edits, highlight areas for changes"
+          onClick={() => setNewJob({ step: "devMode", context })}
+          data-testid="dev-mode-entry"
         />
       </Sheet>
     );

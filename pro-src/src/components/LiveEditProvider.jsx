@@ -26,9 +26,11 @@ export function LiveEditProvider({ children }) {
   const [savedEdits, setSavedEdits] = useState(() => loadSavedEdits());
   const [pendingEdits, setPendingEdits] = useState({});
   const [sessionHighlights, setSessionHighlights] = useState([]);
+  const [devMode, setDevMode] = useState(null);
   const [highlightMode, setHighlightMode] = useState(false);
   const [menu, setMenu] = useState(null);
   const [suggestTarget, setSuggestTarget] = useState(null);
+  const [styleTarget, setStyleTarget] = useState(null);
 
   const merged = useMemo(() => mergeEdits(savedEdits, pendingEdits), [savedEdits, pendingEdits]);
   const dirty = useMemo(() => hasPendingWork(pendingEdits, sessionHighlights), [pendingEdits, sessionHighlights]);
@@ -42,6 +44,24 @@ export function LiveEditProvider({ children }) {
     });
   }, []);
 
+  const startDevMode = useCallback(
+    (mode) => {
+      setDevMode(mode);
+      if (mode === "highlight") setHighlightMode(true);
+      showToast(mode === "live" ? "Live edit on — press & hold any button" : "Drag to highlight an area");
+    },
+    [showToast]
+  );
+
+  const exitDevMode = useCallback(() => {
+    setDevMode(null);
+    setHighlightMode(false);
+    setMenu(null);
+    setSuggestTarget(null);
+    setStyleTarget(null);
+    showToast("Developer mode off");
+  }, [showToast]);
+
   const hideElement = useCallback(
     (key) => {
       patchPending(key, { hidden: true });
@@ -53,13 +73,24 @@ export function LiveEditProvider({ children }) {
 
   const relabelElement = useCallback(
     (key, currentLabel) => {
-      const next = window.prompt("New button label:", currentLabel || "");
+      const next = window.prompt("New label:", currentLabel || "");
       if (next == null) return;
       const trimmed = next.trim();
       if (!trimmed) return;
       patchPending(key, { label: trimmed });
       setMenu(null);
       showToast("Label updated — Revert or Keep at the bottom");
+    },
+    [patchPending, showToast]
+  );
+
+  const patchStyle = useCallback(
+    (key, style) => {
+      if (!key) return;
+      patchPending(key, { style: style || {} });
+      setStyleTarget(null);
+      setMenu(null);
+      showToast("Style updated — Revert or Keep at the bottom");
     },
     [patchPending, showToast]
   );
@@ -91,12 +122,25 @@ export function LiveEditProvider({ children }) {
     [showToast]
   );
 
+  const addAreaHighlight = useCallback(
+    ({ scope, rect, text }) => {
+      if (!rect || !text?.trim()) return;
+      setSessionHighlights((h) => [
+        ...h,
+        { scope, rect, text: text.trim(), ts: Date.now() },
+      ]);
+      showToast("Area highlighted — Revert or Keep at the bottom");
+    },
+    [showToast]
+  );
+
   const revertPending = useCallback(() => {
     setPendingEdits({});
     setSessionHighlights([]);
     setHighlightMode(false);
     setMenu(null);
     setSuggestTarget(null);
+    setStyleTarget(null);
     showToast("Changes reverted");
   }, [showToast]);
 
@@ -124,8 +168,10 @@ export function LiveEditProvider({ children }) {
     setPendingEdits({});
     setSessionHighlights([]);
     setHighlightMode(false);
+    setDevMode(null);
     setMenu(null);
     setSuggestTarget(null);
+    setStyleTarget(null);
     showToast("Changes kept — synced to build board");
   }, [addDevTask, pendingEdits, savedEdits, sessionHighlights, showToast]);
 
@@ -133,33 +179,48 @@ export function LiveEditProvider({ children }) {
     () => ({
       merged,
       dirty,
+      devMode,
+      startDevMode,
+      exitDevMode,
       highlightMode,
       setHighlightMode,
       menu,
       setMenu,
       suggestTarget,
       setSuggestTarget,
+      styleTarget,
+      setStyleTarget,
+      sessionHighlights,
       hideElement,
       relabelElement,
+      patchStyle,
       openSuggest,
       submitSuggestion,
       addHighlight,
+      addAreaHighlight,
       revertPending,
       keepChanges,
       isHidden: (key) => isHidden(merged, key),
       labelFor: (key, fallback) => effectiveLabel(merged, key, fallback),
     }),
     [
+      addAreaHighlight,
       addHighlight,
       dirty,
+      devMode,
+      exitDevMode,
       hideElement,
       highlightMode,
       keepChanges,
       menu,
       merged,
       openSuggest,
+      patchStyle,
       relabelElement,
       revertPending,
+      sessionHighlights,
+      startDevMode,
+      styleTarget,
       submitSuggestion,
       suggestTarget,
     ]

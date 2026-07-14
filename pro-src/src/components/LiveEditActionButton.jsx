@@ -14,7 +14,7 @@ export default function LiveEditActionButton({
   testId,
   ...rest
 }) {
-  const { isHidden, labelFor, menu, setMenu, hideElement, relabelElement, openSuggest } = useLiveEdit();
+  const { isHidden, labelFor, menu, setMenu, setStyleTarget, hideElement, relabelElement, openSuggest } = useLiveEdit();
 
   if (isHidden(editKey)) return null;
 
@@ -55,6 +55,7 @@ export default function LiveEditActionButton({
           anchor={menu.anchor}
           label={displayLabel}
           onEdit={() => relabelElement(editKey, displayLabel)}
+          onStyle={() => setStyleTarget({ key: editKey, label: displayLabel })}
           onDelete={() => {
             if (window.confirm(`Hide "${displayLabel}"? You can revert from the bar below.`)) {
               hideElement(editKey);

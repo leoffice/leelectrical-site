@@ -74,11 +74,61 @@ export function formatSyncDescription(pending, highlights = []) {
     if (patch.hidden) lines.push(`Hide: ${key}`);
     if (patch.label) lines.push(`Rename ${key} → "${patch.label}"`);
     if (patch.suggestion) lines.push(`Suggest (${key}): ${patch.suggestion}`);
+    if (patch.style) {
+      const bits = Object.entries(patch.style)
+        .filter(([, v]) => v)
+        .map(([k, v]) => `${k}=${v}`);
+      if (bits.length) lines.push(`Style (${key}): ${bits.join(", ")}`);
+    }
   }
   for (const h of highlights) {
-    if (h.text) lines.push(`Highlight (${h.scope}): "${h.excerpt}" — ${h.text}`);
+    if (h.rect && h.text) {
+      const r = h.rect;
+      lines.push(`Area (${h.scope}): ${h.text} [${Math.round(r.width)}×${Math.round(r.height)}px]`);
+    } else if (h.text) {
+      lines.push(`Highlight (${h.scope}): "${h.excerpt || "area"}" — ${h.text}`);
+    }
   }
   return lines.join("\n");
+}
+
+/** Scope string from a pathname for edit keys. */
+export function scopeFromPath(pathname) {
+  return (pathname || "/").replace(/\//g, ":").replace(/^:/, "") || "root";
+}
+
+/** Auto key for an element without data-live-edit-key. */
+export function autoEditKey(el, pathname) {
+  if (!el) return "";
+  const existing = el.dataset?.liveEditKey;
+  if (existing) return existing;
+  const scope = scopeFromPath(pathname);
+  const testId = el.dataset?.testid;
+  if (testId) return makeEditKey(scope, testId);
+  const label = String(el.textContent || "")
+    .trim()
+    .slice(0, 48)
+    .replace(/\s+/g, "-")
+    .toLowerCase();
+  return makeEditKey(scope, label || "element");
+}
+
+/** CSS rules for saved element styles. */
+export function buildStyleRules(edits) {
+  return Object.entries(edits || {})
+    .filter(([, v]) => v?.style && Object.keys(v.style).length)
+    .map(([key, v]) => {
+      const decl = [];
+      const s = v.style;
+      if (s.fontSize) decl.push(`font-size: ${s.fontSize}`);
+      if (s.color) decl.push(`color: ${s.color}`);
+      if (s.backgroundColor) decl.push(`background-color: ${s.backgroundColor}`);
+      if (!decl.length) return "";
+      const escaped = key.replace(/\\/g, "\\\\").replace(/"/g, '\\"');
+      return `[data-live-edit-key="${escaped}"] { ${decl.join("; ")} }`;
+    })
+    .filter(Boolean)
+    .join("\n");
 }
 
 export function hasPendingWork(pending, sessionHighlights = []) {
