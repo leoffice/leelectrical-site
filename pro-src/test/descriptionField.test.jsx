@@ -30,6 +30,35 @@ describe("DescriptionField", () => {
     expect(screen.getByTestId("description-field-polish-invoice")).toBeInTheDocument();
   });
 
+  it("shows revert after polish and restores the previous text", () => {
+    let text = "panel swap and new circuits";
+    const onChange = vi.fn((next) => {
+      text = next;
+    });
+    const { rerender } = render(<DescriptionField value={text} onChange={onChange} />);
+    fireEvent.click(screen.getByTestId("description-field-polish-btn"));
+    fireEvent.click(screen.getByTestId("description-field-polish-commercial"));
+    expect(onChange).toHaveBeenCalled();
+    expect(screen.getByTestId("description-field-polish-revert-btn")).toBeInTheDocument();
+    fireEvent.click(screen.getByTestId("description-field-polish-revert-btn"));
+    expect(onChange).toHaveBeenLastCalledWith("panel swap and new circuits");
+    rerender(<DescriptionField value={text} onChange={onChange} />);
+    expect(screen.queryByTestId("description-field-polish-revert-btn")).toBeNull();
+  });
+
+  it("lists revert at the top of the polish menu after a style is applied", () => {
+    let text = "rough notes";
+    const onChange = vi.fn((next) => {
+      text = next;
+    });
+    const { rerender } = render(<DescriptionField value={text} onChange={onChange} />);
+    fireEvent.click(screen.getByTestId("description-field-polish-btn"));
+    fireEvent.click(screen.getByTestId("description-field-polish-commercial"));
+    rerender(<DescriptionField value={text} onChange={onChange} />);
+    fireEvent.click(screen.getByTestId("description-field-polish-btn"));
+    expect(screen.getByTestId("description-field-polish-revert")).toBeInTheDocument();
+  });
+
   it("opens description text as a native PDF from the view button", () => {
     URL.createObjectURL = vi.fn(() => "blob:desc-pdf");
     URL.revokeObjectURL = vi.fn();

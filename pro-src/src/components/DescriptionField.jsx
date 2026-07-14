@@ -23,6 +23,7 @@ export default function DescriptionField({
 }) {
   const [open, setOpen] = useState(false);
   const [lastStyle, setLastStyle] = useState(null);
+  const [prePolish, setPrePolish] = useState(null);
   const taRef = useRef(null);
 
   const resize = useCallback(() => {
@@ -38,9 +39,23 @@ export default function DescriptionField({
   }, [value, resize]);
 
   const apply = (key) => {
+    setPrePolish(value ?? "");
     setLastStyle(key);
     onChange(polishWorkDescription(value, key, context));
     setOpen(false);
+  };
+
+  const revert = () => {
+    if (prePolish == null) return;
+    onChange(prePolish);
+    setPrePolish(null);
+    setLastStyle(null);
+    setOpen(false);
+  };
+
+  const edit = (next) => {
+    if (prePolish != null) setPrePolish(null);
+    onChange(next);
   };
 
   const viewPdf = () => {
@@ -60,7 +75,7 @@ export default function DescriptionField({
   const inputProps = {
     className: multiline ? "input resize-y leading-relaxed" : "input",
     value: value || "",
-    onChange: (e) => onChange(e.target.value),
+    onChange: (e) => edit(e.target.value),
     placeholder,
     "aria-label": ariaLabel,
     "data-testid": testId,
@@ -92,6 +107,16 @@ export default function DescriptionField({
               className="absolute left-0 right-0 top-full mt-1 z-20 flex flex-col gap-1 p-2 bg-white border border-purple-200 rounded-2xl shadow-lg max-h-64 overflow-y-auto"
               data-testid={testId + "-polish-menu"}
             >
+              {prePolish != null ? (
+                <button
+                  type="button"
+                  className="btn w-full text-left !py-2.5 !px-3 text-sm leading-snug bg-amber-50 text-amber-950 border border-amber-200"
+                  onClick={revert}
+                  data-testid={testId + "-polish-revert"}
+                >
+                  ↩ Revert to previous
+                </button>
+              ) : null}
               {WORK_DESCRIPTION_STYLES.map((s) => (
                 <button
                   key={s.key}
@@ -108,6 +133,16 @@ export default function DescriptionField({
                 </button>
               ))}
             </div>
+          ) : null}
+          {prePolish != null && !open ? (
+            <button
+              type="button"
+              className="btn w-full !py-1.5 mt-1 text-sm bg-amber-50 text-amber-950 border border-amber-200"
+              onClick={revert}
+              data-testid={testId + "-polish-revert-btn"}
+            >
+              ↩ Revert to previous
+            </button>
           ) : null}
         </div>
         <button
