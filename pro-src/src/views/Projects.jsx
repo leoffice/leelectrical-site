@@ -441,12 +441,14 @@ export default function Projects() {
   const [busy, setBusy] = useState(false);
   const [sheet, setSheet] = useState(null);
   const [booted, setBooted] = useState(false);
+  const [loaded, setLoaded] = useState(false);
   const [hubTab, setHubTab] = useState("work");
   const [selectedReqId, setSelectedReqId] = useState(null);
 
   const load = useCallback(async () => {
     const raw = await api.getProjects?.().catch(() => ({ list: [] }));
     setProjects(normalizeProjects(raw));
+    setLoaded(true);
   }, []);
 
   useEffect(() => {
@@ -463,7 +465,9 @@ export default function Projects() {
       const localReqs = localP.requisitions || [];
       const serverReqs = serverP.requisitions || [];
       const requisitions = localReqs.length >= serverReqs.length ? localReqs : serverReqs;
-      return { ...serverP, ...localP, requisitions };
+      const items =
+        (localP.items?.length || 0) >= (serverP.items?.length || 0) ? localP.items : serverP.items;
+      return { ...serverP, ...localP, items, requisitions };
     });
     for (const localP of localList) {
       if (!merged.find((p) => p.id === localP.id)) merged.push(localP);
@@ -485,7 +489,7 @@ export default function Projects() {
   };
 
   useEffect(() => {
-    if (booted) return;
+    if (!loaded || booted) return;
     const list = projects?.list || [];
     if (!list.length) {
       (async () => {
@@ -503,7 +507,7 @@ export default function Projects() {
     } else if (projectId && !findProject(projects, projectId) && findProject(projects, BAEZ_PROJECT_ID)) {
       navigate("/projects/" + BAEZ_PROJECT_ID, { replace: true });
     }
-  }, [projects, booted, projectId, navigate]);
+  }, [projects, booted, loaded, projectId, navigate]);
 
   const rawProject = findProject(projects, projectId || BAEZ_PROJECT_ID);
   const project = rawProject ? ensureProjectDefaults(rawProject) : null;

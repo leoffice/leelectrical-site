@@ -7,6 +7,17 @@ describe("voiceFlow", () => {
     expect(polishVoiceText("hello world")).toBe("Hello world.");
     expect(polishVoiceText("Done!")).toBe("Done!");
   });
+
+  it("formats spoken list cues into numbered lines", () => {
+    const out = polishVoiceText("first check the panel then run the conduit finally test everything");
+    expect(out).toContain("1.");
+    expect(out).toContain("2.");
+    expect(out).toContain("3.");
+  });
+
+  it("expands spoken punctuation commands", () => {
+    expect(polishVoiceText("wait comma hold on")).toBe("Wait, hold on.");
+  });
 });
 
 describe("requisition hub helpers", () => {
