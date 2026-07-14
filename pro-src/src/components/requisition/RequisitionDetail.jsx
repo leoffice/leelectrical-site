@@ -157,7 +157,18 @@ function FilesTab({ req, onUpdate, busy }) {
   );
 }
 
-export default function RequisitionDetail({ project, requisition, contact, onUpdate, onClose, busy, showToast }) {
+export default function RequisitionDetail({
+  project,
+  requisition,
+  contact,
+  onUpdate,
+  onDelete,
+  canDelete,
+  deleteBlocked,
+  onClose,
+  busy,
+  showToast,
+}) {
   const [tab, setTab] = useState("app");
   const [showEmail, setShowEmail] = useState(false);
   const req = requisition;
@@ -226,6 +237,17 @@ export default function RequisitionDetail({ project, requisition, contact, onUpd
         <button type="button" className="btn flex-1 bg-brand text-white" onClick={() => setShowEmail(true)} data-testid="submit-requisition">
           Submit requisition
         </button>
+        {onDelete ? (
+          <button
+            type="button"
+            className="btn w-full text-red-700 border-red-200"
+            onClick={onDelete}
+            disabled={busy}
+            data-testid="delete-requisition"
+          >
+            {canDelete ? "Delete requisition" : deleteBlocked ? "Void requisition" : "Remove requisition"}
+          </button>
+        ) : null}
       </div>
 
       {showEmail ? (

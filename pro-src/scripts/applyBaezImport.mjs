@@ -7,7 +7,7 @@
 import { readFileSync } from "fs";
 import { dirname, join } from "path";
 import { fileURLToPath } from "url";
-import { buildG702, overallPct } from "../src/lib/requisitionCalc.js";
+import { buildG702, changeOrderItems, overallPct, sumItemValues } from "../src/lib/requisitionCalc.js";
 import {
   BAEZ_PROJECT_ID,
   BAEZ_ADDRESS,
@@ -15,6 +15,7 @@ import {
   joyCustomerKey,
   ensureProjectDefaults,
 } from "../src/lib/requisitionData.js";
+import { reconcileRequisitionFinancials } from "../src/lib/requisitionHelpers.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const dryRun = process.argv.includes("--dry-run");
@@ -86,6 +87,8 @@ function itemKey(it) {
 
 function applyImport() {
   const items = data.masterItems.map((it) => ({ ...it }));
+  const coTotal = sumItemValues(changeOrderItems(items));
+  const baseContract = sumItemValues(items) - coTotal;
   const project = {
     id: BAEZ_PROJECT_ID,
     name: "Baez Place",
@@ -93,9 +96,9 @@ function applyImport() {
     contractor: "Martin Dorkin",
     gc: JOY_GC_LABEL,
     customerKey: joyCustomerKey(),
-    contractSum: data.contractSum,
+    contractSum: baseContract,
     retainagePct: 10,
-    changeOrders: 0,
+    changeOrders: coTotal,
     changeOrderList: [],
     items,
     requisitions: [],
@@ -148,9 +151,9 @@ function applyImport() {
     project.requisitions.push(req);
     project.items = draftItems;
   }
-  project._importSteps = steps;
-
-  return ensureProjectDefaults(project);
+  const reconciled = ensureProjectDefaults(reconcileRequisitionFinancials(project));
+  reconciled._importSteps = steps;
+  return reconciled;
 }
 
 function requisitionRichness(arr) {
@@ -200,20 +203,25 @@ for (const s of project._importSteps || []) {
     `Req ${s.num}: ${s.linesWithPct} lines · ${s.pctDone}% done · due $${Math.round(s.currentDue).toLocaleString()} · balance $${Math.round(s.balance).toLocaleString()} · ${flag}`
   );
 }
-delete project._importSteps;
+const lastReq = project.requisitions.at(-1);
 console.log(
   JSON.stringify(
     {
       items: project.items.length,
       requisitions: project.requisitions.length,
-      lastReq: project.requisitions.at(-1)?.applicationNumber,
-      lastDue: project.requisitions.at(-1)?.currentPaymentDue,
+      contractSum: project.contractSum,
+      changeOrders: project.changeOrders,
+      lastReq: lastReq?.applicationNumber,
+      lastDue: lastReq?.currentPaymentDue,
+      lastPrev: lastReq?.previousCertificates,
+      lastTotal: lastReq?.totalCompleted,
       overallPct: overallPct(project.items),
     },
     null,
     2
   )
 );
+delete project._importSteps;
 
 if (dryRun) {
   console.log("dry-run — not pushing");

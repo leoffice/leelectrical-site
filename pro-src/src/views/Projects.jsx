@@ -4,7 +4,6 @@ import { Link, useNavigate, useParams } from "react-router-dom";
 import api from "../data/adapter.js";
 import Sheet, { Fld } from "../components/Sheet.jsx";
 import CustomerCard from "../components/CustomerCard.jsx";
-import RequisitionsCard from "../components/requisition/RequisitionsCard.jsx";
 import RequisitionDetail from "../components/requisition/RequisitionDetail.jsx";
 import ChangeOrdersPanel from "../components/requisition/ChangeOrdersPanel.jsx";
 import { useStore } from "../state/store.jsx";
@@ -23,13 +22,18 @@ import {
   upsertProject,
 } from "../lib/requisitionData.js";
 import {
+  activeRequisitions,
   applyCarriedPercentages,
   buildDraftG702,
+  canHardDeleteRequisition,
+  completionBreakdown,
   createRequisitionRecord,
   nextRequisitionNum,
   pctChangeStatus,
   previousPctByItemId,
+  removeRequisition,
   requisitionBalance,
+  requisitionDeleteMode,
   sovItemKey,
 } from "../lib/requisitionHelpers.js";
 import { downloadRequisitionPdf } from "../lib/requisitionPdf.js";
@@ -184,34 +188,55 @@ function SovUpload({ onParsed, onReplace, projectName }) {
   );
 }
 
-function RequisitionHistoryList({ project, onSelect }) {
+function RequisitionHistoryList({ project, onSelect, onDelete, busy }) {
   const reqs = [...(project?.requisitions || [])].sort((a, b) => (a.num || 0) - (b.num || 0));
-  if (!reqs.length) {
+  const visible = reqs.filter((r) => r.status !== "void");
+  if (!visible.length) {
     return <p className="text-sm text-slate-400 text-center py-8" data-testid="req-history-empty">No requisition history yet.</p>;
   }
   return (
     <div className="space-y-2" data-testid="requisition-history">
-      <p className="text-xs text-slate-500 text-center">{reqs.length} requisitions from project history</p>
-      {reqs.map((r) => (
-        <button
-          key={r.id}
-          type="button"
-          className="card w-full px-4 py-3 text-left text-sm hover:bg-slate-50"
-          onClick={() => onSelect(r.id)}
-          data-testid={`req-history-${r.num}`}
-        >
-          <div className="flex justify-between items-start gap-2">
-            <span className="font-bold text-slate-900">
-              Requisition {r.num}
-              {r.applicationNumber && r.applicationNumber !== `REQ-${r.num}` ? ` · ${r.applicationNumber}` : ""}
-            </span>
-            <span className="text-xs font-semibold text-emerald-700 shrink-0">Submitted</span>
+      <p className="text-xs text-slate-500 text-center">{visible.length} requisitions in project history</p>
+      {reqs.map((r) => {
+        if (r.status === "void") return null;
+        const delMode = requisitionDeleteMode(project, r);
+        const statusLabel =
+          r.status === "submitted" ? "Submitted" : r.status === "generated" ? "Generated" : r.status || "Saved";
+        return (
+          <div key={r.id} className="card px-4 py-3 text-sm" data-testid={`req-history-${r.num}`}>
+            <div className="flex justify-between items-start gap-2">
+              <button type="button" className="text-left flex-1 hover:opacity-80" onClick={() => onSelect(r.id)}>
+                <span className="font-bold text-slate-900 block">
+                  {r.applicationNumber || `REQ-${r.num}`}
+                </span>
+                <span className="text-xs text-slate-500 mt-1 block">
+                  {r.periodTo || "—"} · {fmtUsd(r.currentPaymentDue)} due · {fmtUsd(requisitionBalance(r))} balance
+                </span>
+              </button>
+              <div className="flex flex-col items-end gap-2 shrink-0">
+                <span
+                  className={`text-xs font-semibold px-2 py-0.5 rounded-full ${
+                    r.status === "submitted" ? "bg-emerald-100 text-emerald-800" : "bg-slate-100 text-slate-600"
+                  }`}
+                >
+                  {statusLabel}
+                </span>
+                {delMode !== "none" ? (
+                  <button
+                    type="button"
+                    className="text-xs font-semibold text-red-600"
+                    disabled={busy}
+                    onClick={() => onDelete?.(r)}
+                    data-testid={`req-delete-${r.num}`}
+                  >
+                    {delMode === "delete" ? "Delete" : "Void"}
+                  </button>
+                ) : null}
+              </div>
+            </div>
           </div>
-          <div className="text-xs text-slate-500 mt-1">
-            {r.periodTo || "—"} · {fmtUsd(r.currentPaymentDue)} due · {fmtUsd(requisitionBalance(r))} balance
-          </div>
-        </button>
-      ))}
+        );
+      })}
     </div>
   );
 }
@@ -263,6 +288,7 @@ function RequisitionWorkbench({ project, onSave, busy, showToast, onSaved }) {
   const hasPrev = Object.keys(prevSnap).length > 0;
   const g702 = useMemo(() => buildDraftG702(draft, { periodTo }), [draft, periodTo]);
   const previewG702 = pendingReq || g702;
+  const completion = useMemo(() => completionBreakdown(draft.items), [draft.items]);
 
   const setItemPct = (id, completedPct) => {
     setDraft((d) => ({
@@ -348,6 +374,14 @@ function RequisitionWorkbench({ project, onSave, busy, showToast, onSaved }) {
 
       <div className="card px-4 py-3 space-y-2 text-sm" data-testid="requisition-preview-live">
         <div className="grid grid-cols-2 gap-x-4 gap-y-1">
+          <span className="text-slate-500">Original contract done</span>
+          <span className="text-right font-semibold">{fmtUsd(completion.baseCompleted)}</span>
+          {completion.coScheduled > 0 ? (
+            <>
+              <span className="text-slate-500">Change orders done</span>
+              <span className="text-right">{fmtUsd(completion.coCompleted)}</span>
+            </>
+          ) : null}
           <span className="text-slate-500">Total completed</span>
           <span className="text-right font-semibold">{fmtUsd(previewG702.totalCompleted)}</span>
           <span className="text-slate-500 font-bold">Current payment due</span>
@@ -469,7 +503,7 @@ export default function Projects() {
   const [sheet, setSheet] = useState(null);
   const [booted, setBooted] = useState(false);
   const [loaded, setLoaded] = useState(false);
-  const [hubTab, setHubTab] = useState("work");
+  const [hubTab, setHubTab] = useState("history");
   const [selectedReqId, setSelectedReqId] = useState(null);
 
   const load = useCallback(async () => {
@@ -593,6 +627,21 @@ export default function Projects() {
     await onSaveProject({ ...project, requisitions });
   };
 
+  const onDeleteRequisition = async (req) => {
+    if (!project || !req) return;
+    const mode = requisitionDeleteMode(project, req);
+    const label = mode === "delete" ? "Delete" : "Void";
+    const extra =
+      mode === "blocked"
+        ? "Later requisitions depend on this one — it will be voided, not removed."
+        : "";
+    if (!window.confirm(`${label} ${req.applicationNumber || `REQ-${req.num}`}? ${extra}`.trim())) return;
+    const next = removeRequisition(project, req.id, { forceVoid: mode === "blocked" });
+    await onSaveProject(next);
+    if (selectedReqId === req.id) setSelectedReqId(null);
+    showToast?.(mode === "delete" ? "Requisition deleted" : "Requisition voided");
+  };
+
   const onNewFromSov = async (parsed) => {
     const id = "proj-" + Date.now();
     const fresh = ensureProjectDefaults({
@@ -675,8 +724,6 @@ export default function Projects() {
         </div>
       ) : null}
 
-      <RequisitionsCard project={project} onSelect={(id) => { setSelectedReqId(id); setHubTab("history"); }} selectedId={selectedReqId} />
-
       <JobInfoCard job={linkedJob} project={project} onAddJob={onAddJob} />
 
       <div className="flex flex-wrap gap-2">
@@ -717,6 +764,9 @@ export default function Projects() {
             requisition={selectedReq}
             contact={contact}
             onUpdate={onUpdateRequisition}
+            onDelete={() => onDeleteRequisition(selectedReq)}
+            canDelete={canHardDeleteRequisition(project, selectedReq)}
+            deleteBlocked={requisitionDeleteMode(project, selectedReq) === "blocked"}
             onClose={() => setSelectedReqId(null)}
             busy={busy}
             showToast={showToast}
@@ -725,8 +775,8 @@ export default function Projects() {
           <>
             <div className="flex gap-1 overflow-x-auto pb-1" data-testid="hub-tabs">
               {[
-                { id: "work", label: "New Requisition" },
                 { id: "history", label: "Requisition History" },
+                { id: "work", label: "New Requisition" },
                 { id: "changes", label: "Change Orders" },
               ].map((t) => (
                 <button
@@ -755,7 +805,12 @@ export default function Projects() {
               />
             ) : null}
             {hubTab === "history" ? (
-              <RequisitionHistoryList project={project} onSelect={setSelectedReqId} />
+              <RequisitionHistoryList
+                project={project}
+                onSelect={setSelectedReqId}
+                onDelete={onDeleteRequisition}
+                busy={busy}
+              />
             ) : null}
             {hubTab === "changes" ? <ChangeOrdersPanel project={project} onSave={onSaveProject} busy={busy} /> : null}
           </>

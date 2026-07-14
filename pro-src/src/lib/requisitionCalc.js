@@ -4,6 +4,23 @@ export function roundMoney(n) {
   return Math.round((Number(n) || 0) * 100) / 100;
 }
 
+/** Change-order SOV lines (CO - 01, etc.) — billed separately from base contract. */
+export function isChangeOrderItem(it) {
+  return /^co\s*-/i.test(String(it?.description || "").trim());
+}
+
+export function baseContractItems(items) {
+  return (items || []).filter((it) => !isChangeOrderItem(it));
+}
+
+export function changeOrderItems(items) {
+  return (items || []).filter((it) => isChangeOrderItem(it));
+}
+
+export function sumItemValues(items) {
+  return roundMoney((items || []).reduce((s, it) => s + (Number(it.value) || 0), 0));
+}
+
 export function itemEarned(item) {
   const pct = Math.min(100, Math.max(0, Number(item.completedPct) || 0));
   return roundMoney((item.value * pct) / 100);
@@ -56,15 +73,19 @@ export function buildG702(project, opts = {}) {
   const retainagePct = Number(project.retainagePct) || 10;
 
   const g703 = buildG703Rows(project.items || [], opts.prevItemsById || {});
-  const totalCompleted = roundMoney(g703.reduce((s, r) => s + r.totalCompleted, 0));
+  const totalCompletedRaw = roundMoney(g703.reduce((s, r) => s + r.totalCompleted, 0));
+  const totalCompleted = roundMoney(Math.min(totalCompletedRaw, contractToDate));
   const retainage = roundMoney((totalCompleted * retainagePct) / 100);
   const earnedLessRetainage = roundMoney(totalCompleted - retainage);
 
-  const prevCerts = roundMoney(
-    (project.requisitions || []).reduce((s, r) => s + (r.amountCertified || r.currentPaymentDue || 0), 0)
+  const prevCertsRaw = roundMoney(
+    (project.requisitions || [])
+      .filter((r) => r.status !== "void" && r.status !== "draft")
+      .reduce((s, r) => s + (Number(r.amountCertified) || Number(r.currentPaymentDue) || 0), 0)
   );
-  const currentDue = roundMoney(Math.max(0, earnedLessRetainage - prevCerts));
-  const balanceToFinish = roundMoney(contractToDate - earnedLessRetainage);
+  const currentDue = roundMoney(Math.max(0, earnedLessRetainage - prevCertsRaw));
+  const prevCerts = roundMoney(earnedLessRetainage - currentDue);
+  const balanceToFinish = roundMoney(Math.max(0, contractToDate - totalCompleted));
 
   const reqNum = (project.requisitions?.length || 0) + 1;
 

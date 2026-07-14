@@ -1,7 +1,141 @@
 // Requisition history, payments, email, and SOV snapshot helpers.
 
-import { buildG702 } from "./requisitionCalc.js";
+import {
+  baseContractItems,
+  buildG702,
+  changeOrderItems,
+  roundMoney,
+  sumItemValues,
+} from "./requisitionCalc.js";
 import { fmtUsd } from "./requisitionData.js";
+
+const ACTIVE_REQ_STATUSES = new Set(["submitted", "generated"]);
+
+/** Requisitions that count toward billing history (newest first). */
+export function activeRequisitions(project) {
+  return [...(project?.requisitions || [])]
+    .filter((r) => r.status !== "void" && r.status !== "draft")
+    .sort((a, b) => (b.num || 0) - (a.num || 0) || (b.createdAt || 0) - (a.createdAt || 0));
+}
+
+/** Sum certified / due amounts from requisitions before a given number. */
+export function sumPriorPayments(requisitions, beforeNum) {
+  return roundMoney(
+    (requisitions || [])
+      .filter(
+        (r) =>
+          r.status !== "void" &&
+          r.status !== "draft" &&
+          (!beforeNum || (Number(r.num) || 0) < beforeNum)
+      )
+      .reduce((s, r) => s + (Number(r.amountCertified) || Number(r.currentPaymentDue) || 0), 0)
+  );
+}
+
+/** Cash received — payments recorded, else certified amounts on closed reqs. */
+export function totalPaidToDate(project) {
+  const reqs = project?.requisitions || [];
+  const fromPayments = roundMoney(
+    reqs.reduce(
+      (s, r) => s + (r.payments || []).reduce((ps, p) => ps + (Number(p.amount) || 0), 0),
+      0
+    )
+  );
+  if (fromPayments > 0) return fromPayments;
+  return sumPriorPayments(reqs);
+}
+
+/** G702 completion breakdown for preview (base contract vs change orders). */
+export function completionBreakdown(items) {
+  const base = baseContractItems(items);
+  const cos = changeOrderItems(items);
+  const baseCompleted = roundMoney(base.reduce((s, it) => s + (it.value * (it.completedPct || 0)) / 100, 0));
+  const coCompleted = roundMoney(cos.reduce((s, it) => s + (it.value * (it.completedPct || 0)) / 100, 0));
+  return {
+    baseScheduled: sumItemValues(base),
+    coScheduled: sumItemValues(cos),
+    baseCompleted,
+    coCompleted,
+    totalCompleted: roundMoney(baseCompleted + coCompleted),
+  };
+}
+
+/** Whether a requisition can be removed (only last in sequence, or void if later exist). */
+export function requisitionDeleteMode(project, req) {
+  if (!req || req.status === "void") return "none";
+  const active = activeRequisitions(project).filter((r) => ACTIVE_REQ_STATUSES.has(r.status));
+  const latest = active[0];
+  if (latest?.id === req.id) return "delete";
+  return "blocked";
+}
+
+export function canHardDeleteRequisition(project, req) {
+  return requisitionDeleteMode(project, req) === "delete";
+}
+
+/** Remove or void a requisition; hard-delete only when it is the latest. */
+export function removeRequisition(project, reqId, { forceVoid = false } = {}) {
+  const reqs = project?.requisitions || [];
+  const target = reqs.find((r) => r.id === reqId);
+  if (!target) return project;
+  const mode = requisitionDeleteMode(project, target);
+  if (mode === "delete") {
+    return { ...project, requisitions: reqs.filter((r) => r.id !== reqId) };
+  }
+  if (mode === "blocked" || forceVoid) {
+    return {
+      ...project,
+      requisitions: reqs.map((r) =>
+        r.id === reqId ? { ...r, status: "void", voidedAt: Date.now() } : r
+      ),
+    };
+  }
+  return project;
+}
+
+/** Recalculate stored G702 fields from itemsSnapshot chain (fixes prev-cert drift). */
+export function reconcileRequisitionFinancials(project) {
+  if (!project) return project;
+  const items = project.items || [];
+  const sorted = [...(project.requisitions || [])].sort(
+    (a, b) => (a.num || 0) - (b.num || 0) || (a.createdAt || 0) - (b.createdAt || 0)
+  );
+  const rebuilt = [];
+  for (const r of sorted) {
+    if (r.status === "void") {
+      rebuilt.push(r);
+      continue;
+    }
+    const snapMap = Object.fromEntries(
+      (r.itemsSnapshot || []).map((s) => [s.key || sovItemKey(s), s.completedPct])
+    );
+    const draftItems = items.map((it) => ({
+      ...it,
+      completedPct: snapMap[sovItemKey(it)] ?? carriedPctForItem(it, previousItemSnapshot({ requisitions: rebuilt })) ?? 0,
+    }));
+    const prevItemsById = prevItemsByIdForG702({ ...project, requisitions: rebuilt });
+    const g702 = buildG702(
+      { ...project, items: draftItems, requisitions: rebuilt.filter((x) => x.status !== "void") },
+      { periodTo: r.periodTo, prevItemsById }
+    );
+    const prevCerts = sumPriorPayments(rebuilt.filter((x) => x.status !== "void"), r.num);
+    const storedDue = roundMoney(Number(r.currentPaymentDue) || Number(r.amountCertified) || 0);
+    const due = storedDue > 0 ? storedDue : g702.currentPaymentDue;
+    rebuilt.push({
+      ...r,
+      previousCertificates: prevCerts,
+      totalCompleted: g702.totalCompleted,
+      currentPaymentDue: due,
+      amountCertified: due,
+      earnedLessRetainage: g702.earnedLessRetainage,
+      totalRetainage: g702.totalRetainage,
+      balanceToFinish: g702.balanceToFinish,
+      contractSumToDate: g702.contractSumToDate,
+      g703: g702.g703,
+    });
+  }
+  return { ...project, requisitions: rebuilt };
+}
 
 /** Stable key for matching SOV lines across imports / CSV re-uploads. */
 export function sovItemKey(it) {

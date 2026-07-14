@@ -1,18 +1,23 @@
 import { describe, expect, it } from "vitest";
 import { parseSovCsv } from "../src/lib/sovParser.js";
-import { buildG702, itemEarned, overallPct } from "../src/lib/requisitionCalc.js";
+import { buildG702, isChangeOrderItem, itemEarned, overallPct } from "../src/lib/requisitionCalc.js";
 import { seedBaezProject } from "../src/lib/requisitionData.js";
 import {
   applyCarriedPercentages,
   buildRequisitionEmail,
+  canHardDeleteRequisition,
   carriedPctForItem,
+  completionBreakdown,
   createRequisitionRecord,
   nextRequisitionNum,
   pctChangeStatus,
   paymentNeedsInfo,
   previousItemSnapshot,
   previousPctByItemId,
+  removeRequisition,
   requisitionBalance,
+  requisitionDeleteMode,
+  sumPriorPayments,
   sovItemKey,
 } from "../src/lib/requisitionHelpers.js";
 import { buildRequisitionPdf } from "../src/lib/requisitionPdf.js";
@@ -41,13 +46,43 @@ describe("requisitionCalc", () => {
   it("builds G702 with retainage and previous certs", () => {
     const project = seedBaezProject();
     project.items = project.items.slice(0, 2).map((it) => ({ ...it, completedPct: 100 }));
-    project.requisitions = [{ currentPaymentDue: 50000 }];
+    project.requisitions = [{ currentPaymentDue: 50000, status: "submitted" }];
     const g702 = buildG702(project);
     expect(g702.originalContractSum).toBe(1700000);
     expect(g702.retainagePct).toBe(10);
     expect(g702.previousCertificates).toBe(50000);
     expect(g702.currentPaymentDue).toBeGreaterThan(0);
     expect(g702.g703.length).toBe(2);
+  });
+
+  it("keeps previous certs + current due aligned with earned less retainage", () => {
+    const project = seedBaezProject();
+    project.items = project.items.slice(0, 2).map((it) => ({ ...it, completedPct: 100 }));
+    project.requisitions = [
+      { currentPaymentDue: 900000, status: "submitted" },
+      { currentPaymentDue: 900000, status: "submitted" },
+    ];
+    const g702 = buildG702(project);
+    const earned = g702.totalCompleted - g702.totalRetainage;
+    expect(g702.previousCertificates + g702.currentPaymentDue).toBe(earned);
+    expect(g702.currentPaymentDue).toBe(0);
+  });
+
+  it("caps total completed at contract sum to date", () => {
+    const project = {
+      contractSum: 100,
+      changeOrders: 0,
+      retainagePct: 10,
+      items: [{ id: "a", value: 100, completedPct: 150 }],
+      requisitions: [],
+    };
+    const g702 = buildG702(project);
+    expect(g702.totalCompleted).toBe(100);
+  });
+
+  it("detects change-order SOV lines", () => {
+    expect(isChangeOrderItem({ description: "CO - 01" })).toBe(true);
+    expect(isChangeOrderItem({ description: "Roughing" })).toBe(false);
   });
 
   it("overallPct rolls up line items", () => {
@@ -133,6 +168,40 @@ describe("requisitionHelpers", () => {
   it("paymentNeedsInfo flags missing date or check", () => {
     expect(paymentNeedsInfo({ amount: 100, date: "", checkNumber: "" })).toBe(true);
     expect(paymentNeedsInfo({ amount: 100, date: "2026-01-01", checkNumber: "123" })).toBe(false);
+  });
+
+  it("sumPriorPayments skips void requisitions", () => {
+    const reqs = [
+      { num: 1, currentPaymentDue: 100, status: "submitted" },
+      { num: 2, currentPaymentDue: 200, status: "void" },
+      { num: 3, currentPaymentDue: 50, status: "submitted" },
+    ];
+    expect(sumPriorPayments(reqs, 3)).toBe(100);
+    expect(sumPriorPayments(reqs)).toBe(150);
+  });
+
+  it("completionBreakdown splits base contract and change orders", () => {
+    const items = [
+      { description: "Roughing", value: 1000, completedPct: 50 },
+      { description: "CO - 01", value: 100, completedPct: 100 },
+    ];
+    const b = completionBreakdown(items);
+    expect(b.baseCompleted).toBe(500);
+    expect(b.coCompleted).toBe(100);
+    expect(b.totalCompleted).toBe(600);
+  });
+
+  it("only the latest requisition can be hard-deleted", () => {
+    const project = {
+      requisitions: [
+        { id: "r1", num: 1, status: "submitted" },
+        { id: "r2", num: 2, status: "submitted" },
+      ],
+    };
+    expect(requisitionDeleteMode(project, project.requisitions[0])).toBe("blocked");
+    expect(canHardDeleteRequisition(project, project.requisitions[1])).toBe(true);
+    const next = removeRequisition(project, "r2");
+    expect(next.requisitions).toHaveLength(1);
   });
 
   it("buildRequisitionEmail includes key amounts", () => {
