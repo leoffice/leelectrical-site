@@ -84,6 +84,21 @@ export function invoiceCompareRows(jobA, jobB, jobs) {
   ];
 }
 
+/** Auto-imported qbo-* rows that duplicate an invoice already on another job. */
+export function qboStubJobIds(jobs, invoiceNo, keepJobId) {
+  const no = String(invoiceNo || "").trim();
+  if (!no) return [];
+  const keep = String(keepJobId || "");
+  return (jobs || [])
+    .filter((j) => {
+      if (!j || j._archived || j._deleted) return false;
+      if (String(j.id) === keep) return false;
+      if (String(j.invoiceNo || "").trim() !== no) return false;
+      return String(j.id || "").startsWith("qbo-");
+    })
+    .map((j) => j.id);
+}
+
 /** First pair of active jobs that share an invoice number. */
 export function findDuplicateInvoiceSuggestion(jobs) {
   const byInv = new Map();
