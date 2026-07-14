@@ -66,6 +66,7 @@ import {
   viewLocalLabel,
   viewQboLabel,
 } from "../lib/docSource.js";
+import { docSendStatusLine } from "../lib/docSendStatus.js";
 
 export const PAY_METHODS = [
   "Credit card",
@@ -1742,6 +1743,7 @@ export function PaymentLinkSheet({ job, onClose }) {
 /* ---------- 2a. Invoice / Estimate quick view ---------- */
 export function DocSheet({ job, kind, onClose, onEdit, onConvert, onSync }) {
   const doSend = useDoSend();
+  const { commands } = useStore();
   const [sendPick, setSendPick] = useState(null);
   const no = kind === "invoice" ? job.invoiceNo : job.estimateNo;
   const label = kind === "invoice" ? "invoice" : "estimate";
@@ -1822,6 +1824,15 @@ export function DocSheet({ job, kind, onClose, onEdit, onConvert, onSync }) {
 
       {kind === "estimate" && !job.invoiceNo && onConvert && (no || isDraft) ? (
         <Opt icon="🧾" title="Convert to invoice" note="Bill all or part of this estimate" onClick={onConvert} />
+      ) : null}
+
+      {!isDraft && no ? (
+        <p
+          className="text-center text-[11px] text-slate-400 mt-3 mb-1"
+          data-testid={"doc-send-status-" + kind}
+        >
+          {docSendStatusLine(job, kind, commands).text}
+        </p>
       ) : null}
     </Sheet>
   );

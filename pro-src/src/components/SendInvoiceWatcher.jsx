@@ -25,7 +25,7 @@ function label(c) {
 }
 
 export default function SendInvoiceWatcher() {
-  const { commands, showToast, refreshCommands, patchAndSave } = useStore();
+  const { commands, showToast, refreshCommands, patchAndSave, logSend } = useStore();
   const seen = useRef(loadSeen());
 
   useEffect(() => {
@@ -45,7 +45,12 @@ export default function SendInvoiceWatcher() {
         const pay = c.payload?.includePaymentLink ? " with payment link" : "";
         const via = c.payload?.docSource === "qbo" ? " via QuickBooks" : "";
         showToast(label(c) + " emailed to customer" + pay + via);
-        if (c.jobId) patchAndSave(c.jobId, { _docEmailed: true }).catch(() => {});
+        if (c.jobId) {
+          const no = c.payload?.invoiceNo || c.payload?.estimateNo || "";
+          const kind = c.type === "send_estimate" ? "Estimate" : "Invoice";
+          logSend(c.jobId, (no ? kind + " #" + no : kind) + " emailed", c.payload?.email);
+          patchAndSave(c.jobId, { _docEmailed: true }).catch(() => {});
+        }
       } else {
         const err = String(c.error || "");
         if (err.includes("PaymentSITE")) {

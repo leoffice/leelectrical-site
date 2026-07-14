@@ -7,6 +7,7 @@ import { jobInvoiceDateDisplay, jobServiceDateDisplay } from "../lib/customerDoc
 import { fmt$ } from "../lib/format.js";
 import { bubbleStyle, jobAwarenessBubbles } from "../lib/jobAwareness.js";
 import JobDocTabs from "./JobDocTabs.jsx";
+import SasRecordingLink from "./SasRecordingLink.jsx";
 
 
 const BUBBLE_LAYOUT =
@@ -53,6 +54,7 @@ export default function JobInfoCard({
   job,
   events,
   commands,
+  sasCalls,
   onOpen,
   onEstimate,
   onInvoice,
@@ -177,6 +179,8 @@ export default function JobInfoCard({
       </div>
 
       {bubbleStrip}
+
+      <SasRecordingLink job={job} sasCalls={sasCalls} />
 
       {rows.length > 0 && (
         <dl className="mt-2 space-y-1 text-xs lg:text-sm min-w-0 w-full">
