@@ -508,8 +508,9 @@ def main() -> None:
 
         snapshot = []
         for i, key in enumerate(master_keys):
-            it = by_key.get(key) or prev_by_key.get(key) or master[i]
-            pct = it.get("completedPct", 0)
+            # Never inherit final SOV % from master — CO lines added later must start at 0.
+            src = by_key.get(key) or prev_by_key.get(key)
+            pct = src.get("completedPct", 0) if src else 0
             snapshot.append({"key": key, "completedPct": pct})
 
         prev_by_key = {s["key"]: {"completedPct": s["completedPct"]} for s in snapshot}

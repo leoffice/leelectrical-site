@@ -7,7 +7,7 @@
 import { readFileSync } from "fs";
 import { dirname, join } from "path";
 import { fileURLToPath } from "url";
-import { buildG702 } from "../src/lib/requisitionCalc.js";
+import { buildG702, overallPct } from "../src/lib/requisitionCalc.js";
 import {
   BAEZ_PROJECT_ID,
   BAEZ_ADDRESS,
@@ -26,8 +26,9 @@ function buildReqRecord(project, draft, meta, createdAt) {
   if (prevReqs.length) {
     const last = prevReqs[prevReqs.length - 1];
     for (const it of last.itemsSnapshot || []) {
-      const id = draft.items.find((x) => itemKey(x) === it.key)?.id;
-      if (id) prevItemsById[id] = { completedPct: it.completedPct };
+      if (it.id) {
+        prevItemsById[it.id] = { completedPct: it.completedPct };
+      }
     }
   }
 
@@ -111,20 +112,43 @@ function applyImport() {
     updatedAt: Date.now(),
   };
 
+  const steps = [];
   let base = Date.parse("2016-02-25T12:00:00Z");
   for (const meta of data.requisitions) {
     const snapMap = Object.fromEntries((meta.itemsSnapshot || []).map((s) => [s.key, s.completedPct]));
     const draftItems = items.map((it) => ({
       ...it,
-      completedPct: snapMap[itemKey(it)] ?? it.completedPct ?? 0,
+      completedPct: snapMap[itemKey(it)] ?? 0,
     }));
     const draft = { ...project, items: draftItems };
     const createdAt = base;
     base += 86400000 * 60;
     const req = buildReqRecord(project, draft, meta, createdAt);
+    const genDue = buildG702(
+      { ...draft, requisitions: project.requisitions || [] },
+      {
+        periodTo: meta.periodTo,
+        prevItemsById: Object.fromEntries(
+          (project.requisitions.at(-1)?.itemsSnapshot || []).map((s) => [s.id, { completedPct: s.completedPct }])
+        ),
+      }
+    ).currentPaymentDue;
+    const histDue = meta.g702?.currentPaymentDue ?? genDue;
+    const dueDiff = Math.abs((genDue || 0) - (histDue || 0));
+    steps.push({
+      num: meta.num,
+      applicationNumber: meta.applicationNumber,
+      linesWithPct: draftItems.filter((i) => (i.completedPct || 0) > 0).length,
+      pctDone: overallPct(draftItems),
+      currentDue: req.currentPaymentDue,
+      balance: req.balanceToFinish,
+      matchesHistory: dueDiff < 5,
+      generatedDue: genDue,
+    });
     project.requisitions.push(req);
     project.items = draftItems;
   }
+  project._importSteps = steps;
 
   return ensureProjectDefaults(project);
 }
@@ -145,6 +169,13 @@ async function push(project) {
 }
 
 const project = applyImport();
+for (const s of project._importSteps || []) {
+  const flag = s.matchesHistory ? "OK" : "stored from Drive";
+  console.log(
+    `Req ${s.num}: ${s.linesWithPct} lines · ${s.pctDone}% done · due $${Math.round(s.currentDue).toLocaleString()} · balance $${Math.round(s.balance).toLocaleString()} · ${flag}`
+  );
+}
+delete project._importSteps;
 console.log(
   JSON.stringify(
     {
@@ -152,7 +183,7 @@ console.log(
       requisitions: project.requisitions.length,
       lastReq: project.requisitions.at(-1)?.applicationNumber,
       lastDue: project.requisitions.at(-1)?.currentPaymentDue,
-      overallPct: project.items.filter((i) => i.completedPct >= 100).length,
+      overallPct: overallPct(project.items),
     },
     null,
     2
