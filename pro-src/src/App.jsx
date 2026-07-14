@@ -23,6 +23,7 @@ import DocConfirmWatcher from "./components/DocConfirmWatcher.jsx";
 import SendInvoiceWatcher from "./components/SendInvoiceWatcher.jsx";
 import DedupePrompts from "./components/DedupePrompts.jsx";
 import FollowUpPrompts from "./components/FollowUpPrompts.jsx";
+import EmailInsightPrompts from "./components/EmailInsightPrompts.jsx";
 import { LiveEditProvider } from "./components/LiveEditProvider.jsx";
 import LiveEditBar from "./components/LiveEditBar.jsx";
 import { docConfirmMessage } from "./lib/docConfirm.js";
@@ -277,6 +278,7 @@ export default function App() {
         <SendInvoiceWatcher />
         <DedupePrompts />
         <FollowUpPrompts />
+        <EmailInsightPrompts />
         <LiveEditBar />
         <LeaveSheet />
 

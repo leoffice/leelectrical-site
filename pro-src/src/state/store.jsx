@@ -66,6 +66,7 @@ export function StoreProvider({ children }) {
   const [devTasks, setDevTasks] = useState([]);
   const [sasCalls, setSasCalls] = useState([]); // SAS inbound lead tickets
   const [sasTickets, setSasTickets] = useState({}); // ov._sasTickets handled-state map
+  const [emailInsights, setEmailInsights] = useState([]); // Energy Services email insights
   const [pending, setPending] = useState(loadDraft); // jobId -> staged patch
   const [syncedAt, setSyncedAt] = useState(0);
   const [busy, setBusy] = useState(false); // sync chip pulse
@@ -216,6 +217,28 @@ export function StoreProvider({ children }) {
     } catch {}
   }, []);
 
+  const refreshEmailInsights = useCallback(async () => {
+    if (!api.listEmailInsights) return;
+    try {
+      setEmailInsights(await api.listEmailInsights());
+    } catch {}
+  }, []);
+
+  const patchEmailInsight = useCallback(
+    async (id, patch) => {
+      if (!api.patchEmailInsight) return;
+      try {
+        await api.patchEmailInsight(id, patch);
+        setEmailInsights((prev) =>
+          (prev || []).map((x) => (String(x.id) === String(id) ? { ...x, ...patch } : x))
+        );
+      } catch (e) {
+        throw e;
+      }
+    },
+    []
+  );
+
   const refresh = useCallback(
     async (quiet, opts = {}) => {
       const pullCal = opts.pullCalendar === true;
@@ -226,9 +249,10 @@ export function StoreProvider({ children }) {
         refreshCommands(),
         refreshDev(),
         refreshSas(),
+        refreshEmailInsights(),
       ]);
     },
-    [refreshJobs, refreshEvents, refreshCommands, refreshDev, refreshSas]
+    [refreshJobs, refreshEvents, refreshCommands, refreshDev, refreshSas, refreshEmailInsights]
   );
 
   useEffect(() => {
@@ -240,6 +264,7 @@ export function StoreProvider({ children }) {
     const t4 = setInterval(() => refreshEvents({ pull: false }), 30_000);
     const t5 = setInterval(refreshSas, 60_000);
     const t6 = setInterval(() => refreshEvents({ pull: true, awaitPull: false }), 180_000);
+    const t7 = setInterval(refreshEmailInsights, 60_000);
     const vis = () => {
       if (!document.hidden) {
         refreshJobs(true);
@@ -247,14 +272,15 @@ export function StoreProvider({ children }) {
         refreshEvents({ pull: true, awaitPull: false });
         refreshCommands();
         refreshSas();
+        refreshEmailInsights();
       }
     };
     document.addEventListener("visibilitychange", vis);
     return () => {
-      [t1, t2, t3, t4, t5, t6].forEach(clearInterval);
+      [t1, t2, t3, t4, t5, t6, t7].forEach(clearInterval);
       document.removeEventListener("visibilitychange", vis);
     };
-  }, [refresh, refreshJobs, refreshCommands, refreshDev, refreshEvents, refreshSas]);
+  }, [refresh, refreshJobs, refreshCommands, refreshDev, refreshEvents, refreshSas, refreshEmailInsights]);
 
   /** Once-daily customer + invoice dedupe scan after jobs load. */
   useEffect(() => {
@@ -893,6 +919,9 @@ export function StoreProvider({ children }) {
     sasBadge,
     refreshSas,
     markSasHandled,
+    emailInsights,
+    refreshEmailInsights,
+    patchEmailInsight,
     pending,
     dirtyCount,
     dirtyJobs,

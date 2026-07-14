@@ -70,6 +70,7 @@ export function mockServer(opts = {}) {
     presence: opts.presence || {}, // per-convo map { convo: { lastSeen, view } } — mirrors presence-v1
     docs: opts.docs || {}, // key -> stored "pdf" (docs fn: PDF viewing)
     sasCalls: opts.sasCalls || [], // SAS inbound lead tickets (Calls tab)
+    emailInsights: opts.emailInsights || [], // Energy Services email insights
     customers: opts.customers || [], // QBO customer-name index (/customers, #49/#56)
     timetrack: opts.timetrack || {
       employees: [{ id: "emp-levi", name: "Levi", color: "#2563eb", active: true }],
@@ -306,6 +307,24 @@ export function mockServer(opts = {}) {
         }
       } else if (path === "sas-inbound")
         data = { calls: JSON.parse(JSON.stringify(state.sasCalls)), ts: Date.now() };
+      else if (path === "email-insights") {
+        if (method === "POST") {
+          if (body.op === "patch") {
+            const hit = state.emailInsights.find((x) => String(x.id) === String(body.id));
+            if (hit) Object.assign(hit, body.patch || {});
+            data = { ok: true, insight: hit };
+          } else if (body.op === "ingest" || body.op === "ingest_raw") {
+            const ins = body.insight || { id: "ei-test-" + seq++, status: "pending", ...(body.email || {}) };
+            if (!state.emailInsights.some((x) => x.id === ins.id)) state.emailInsights.unshift(ins);
+            data = { ok: true, insight: ins };
+          } else data = { ok: false };
+        } else {
+          const pendingOnly = String(url).includes("pending=1");
+          let list = JSON.parse(JSON.stringify(state.emailInsights));
+          if (pendingOnly) list = list.filter((x) => x.status === "pending");
+          data = { insights: list, ts: Date.now() };
+        }
+      }
       else if (path === "zelle-vision") {
         if (method === "POST") {
           data = {

@@ -170,6 +170,21 @@ export function createNetlifyAdapter() {
       return d.calls || [];
     },
 
+    /** Pending email insights (Energy Services / Con Edison). */
+    async listEmailInsights({ pendingOnly = false } = {}) {
+      const qs = pendingOnly ? "pending=1&" + cb() : cb();
+      const d = await http(`email-insights?${qs}`);
+      return d.insights || [];
+    },
+
+    async patchEmailInsight(id, patch) {
+      return http("email-insights", { op: "patch", id, patch: patch || {} });
+    },
+
+    async ingestEmailInsight(email, jobs) {
+      return http("email-insights", { op: "ingest_raw", email: email || {}, jobs: jobs || [] });
+    },
+
     /** Handled-state map for SAS tickets — lives in the ov overlay under the
      *  RESERVED key ov._sasTickets = { [callId]: { handled, jobId?, ts } }.
      *  mergeJobs() skips "_"-prefixed overlay keys, so this never renders
