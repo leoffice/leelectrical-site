@@ -1,16 +1,7 @@
 // Local invoice/estimate PDF — generate on server, store in docs (no QBO pull).
 import { canGenerateLocalDoc, docStoreKey } from "./jobToQbDoc.js";
 import { docStorePdfUrl } from "./pdfOpen.js";
-
-const SITE_ORIGIN =
-  (typeof window !== "undefined" && window.location?.origin) || "https://leelectrical.us";
-
-function functionsBase() {
-  if (typeof location !== "undefined" && /(^|\.)leelectrical\.us$/.test(location.hostname)) {
-    return "/.netlify/functions";
-  }
-  return `${SITE_ORIGIN}/.netlify/functions`;
-}
+import { functionsBase } from "./functionsBase.js";
 
 export const PDF_GENERATE_STAGES = ["Checking", "Generating PDF", "Ready"];
 

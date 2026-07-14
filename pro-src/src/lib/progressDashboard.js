@@ -1,11 +1,5 @@
 // Dev Progress dashboard API — serves dev_progress_data.json shape from /.netlify/functions/progress.
-
-function base() {
-  if (typeof location !== "undefined" && /(^|\.)leelectrical\.us$/.test(location.hostname)) {
-    return "/.netlify/functions";
-  }
-  return "https://leelectrical.us/.netlify/functions";
-}
+import { functionsBase as base } from "./functionsBase.js";
 
 const cb = () => "cb=" + Date.now();
 

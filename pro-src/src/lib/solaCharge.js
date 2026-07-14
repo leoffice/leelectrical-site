@@ -1,10 +1,9 @@
 import { parseUSAddress } from "./solaPayUrl.js";
 import { totalWithFee } from "./payFees.js";
-
-const FN = "/.netlify/functions";
+import { functionsBase } from "./functionsBase.js";
 
 export async function fetchSolaIfieldsConfig() {
-  const res = await fetch(FN + "/sola-ifields-config", { cache: "no-store" });
+  const res = await fetch(`${functionsBase()}/sola-ifields-config`, { cache: "no-store" });
   const data = await res.json().catch(() => ({}));
   if (!res.ok || !data.ok) {
     throw new Error(data.error || "Could not load card processing config");
@@ -70,7 +69,7 @@ export async function chargeCardInApp({
   const principal = parseFloat(String(principalAmount).replace(/[$,]/g, "")) || 0;
   if (principal <= 0) throw new Error("Enter a payment amount");
 
-  const res = await fetch(FN + "/sola-charge", {
+  const res = await fetch(`${functionsBase()}/sola-charge`, {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify({
@@ -108,7 +107,7 @@ export async function chargeCardFromLanding({
   const principal = parseFloat(String(principalAmount).replace(/[$,]/g, "")) || 0;
   if (principal <= 0) throw new Error("Enter a payment amount");
 
-  const res = await fetch(FN + "/sola-charge", {
+  const res = await fetch(`${functionsBase()}/sola-charge`, {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify({

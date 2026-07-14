@@ -1,12 +1,5 @@
 // Client — POST payment screenshot (Zelle or check) to Netlify vision function.
-const REMOTE = "https://leelectrical.us/.netlify/functions";
-
-function base() {
-  if (typeof location !== "undefined" && /(^|\.)leelectrical\.us$/.test(location.hostname)) {
-    return "/.netlify/functions";
-  }
-  return REMOTE;
-}
+import { functionsBase as base } from "./functionsBase.js";
 
 /** Read a File as base64 (no data: prefix). */
 export function fileToBase64(file) {
