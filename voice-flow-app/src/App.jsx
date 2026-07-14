@@ -1,17 +1,39 @@
 import React, { useCallback, useEffect, useRef, useState } from "react";
-import { polishVoiceText, speechRecognitionSupported } from "@voice";
+import {
+  createSilentRecognizer,
+  polishVoiceText,
+  speechRecognitionSupported,
+  trackVoiceFocus,
+  insertTextAtFocus,
+  getLastTextTarget,
+  setLastTextTarget,
+} from "@voice";
 
 const LOGO = import.meta.env.BASE_URL + "le-logo.png";
+
+const REVIEW_STYLE = {
+  unicodeBidi: "plaintext",
+  maxHeight: "min(45vh, 220px)",
+  overflowY: "auto",
+  WebkitOverflowScrolling: "touch",
+};
+
+function holdFocus(e) {
+  e.preventDefault();
+}
 
 export default function App() {
   const [phase, setPhase] = useState("idle");
   const [level, setLevel] = useState(0);
-  const [raw, setRaw] = useState("");
   const [preview, setPreview] = useState("");
   const [toast, setToast] = useState("");
-  const recRef = useRef(null);
+  const [demoText, setDemoText] = useState("");
   const streamRef = useRef(null);
   const animRef = useRef(null);
+  const recognizerRef = useRef(null);
+  const insertTargetRef = useRef(null);
+
+  useEffect(() => trackVoiceFocus(), []);
 
   const ping = (msg) => {
     setToast(msg);
@@ -28,88 +50,104 @@ export default function App() {
   }, []);
 
   const stopRec = useCallback(() => {
-    if (recRef.current) {
-      try {
-        recRef.current.stop();
-      } catch {}
-      recRef.current = null;
+    if (recognizerRef.current) {
+      recognizerRef.current.stop();
+      recognizerRef.current = null;
     }
     cleanupAudio();
   }, [cleanupAudio]);
 
-  const start = useCallback(() => {
-    const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
-    if (!SR) return ping("Use Chrome on Android for voice");
-    stopRec();
-    const r = new SR();
-    recRef.current = r;
-    r.lang = "en-US";
-    r.interimResults = true;
-    r.continuous = true;
-    setRaw("");
-    setPreview("");
-    setPhase("listening");
+  const start = useCallback(
+    (e) => {
+      holdFocus(e);
+      insertTargetRef.current = getLastTextTarget();
+      if (!speechRecognitionSupported()) return ping("Use Chrome on Android for voice");
+      if (recognizerRef.current) {
+        stopRec();
+        setPhase("idle");
+        return;
+      }
+      setPreview("");
+      setPhase("listening");
 
-    navigator.mediaDevices?.getUserMedia?.({ audio: true }).then((stream) => {
-      streamRef.current = stream;
-      const ctx = new AudioContext();
-      const an = ctx.createAnalyser();
-      an.fftSize = 256;
-      ctx.createMediaStreamSource(stream).connect(an);
-      const buf = new Uint8Array(an.frequencyBinCount);
-      const loop = () => {
-        an.getByteFrequencyData(buf);
-        setLevel(buf.reduce((a, b) => a + b, 0) / buf.length / 255);
-        animRef.current = requestAnimationFrame(loop);
-      };
-      loop();
-      r._audioCtx = ctx;
-    }).catch(() => {});
+      navigator.mediaDevices?.getUserMedia?.({ audio: true }).then((stream) => {
+        streamRef.current = stream;
+        const ctx = new AudioContext();
+        const an = ctx.createAnalyser();
+        an.fftSize = 256;
+        ctx.createMediaStreamSource(stream).connect(an);
+        const buf = new Uint8Array(an.frequencyBinCount);
+        const loop = () => {
+          an.getByteFrequencyData(buf);
+          setLevel(buf.reduce((a, b) => a + b, 0) / buf.length / 255);
+          animRef.current = requestAnimationFrame(loop);
+        };
+        loop();
+      }).catch(() => {});
 
-    r.onresult = (e) => {
-      let s = "";
-      for (const res of e.results) s += res[0].transcript;
-      setRaw(s);
-    };
-    r.onerror = () => {
-      stopRec();
-      setPhase("idle");
-    };
-    r.onend = () => {
+      recognizerRef.current = createSilentRecognizer({
+        lang: "en-US",
+        onError: () => {
+          stopRec();
+          setPhase("idle");
+          ping("Microphone error");
+        },
+        onEnd: () => cleanupAudio(),
+      });
+    },
+    [cleanupAudio, stopRec]
+  );
+
+  const finish = useCallback(
+    (e) => {
+      holdFocus(e);
+      const text = recognizerRef.current?.stop() || "";
+      recognizerRef.current = null;
       cleanupAudio();
-      if (r._audioCtx) r._audioCtx.close();
-      recRef.current = null;
-    };
-    try {
-      r.start();
-    } catch {
-      stopRec();
-      setPhase("idle");
-      ping("Microphone blocked");
-    }
-  }, [cleanupAudio, stopRec]);
+      if (!text.trim()) {
+        setPhase("idle");
+        return ping("Try again — nothing heard");
+      }
+      setPreview(polishVoiceText(text));
+      setPhase("review");
+    },
+    [cleanupAudio]
+  );
 
-  const finish = useCallback(() => {
-    stopRec();
-    const text = raw.trim();
-    if (!text) {
-      setPhase("idle");
-      return ping("Try again — nothing heard");
-    }
-    setPreview(polishVoiceText(text));
-    setPhase("review");
-  }, [raw, stopRec]);
+  const copyText = useCallback(
+    async (e) => {
+      holdFocus(e);
+      const text = preview.trim();
+      if (!text) return;
+      try {
+        await navigator.clipboard.writeText(text);
+        ping("Copied — paste anywhere");
+      } catch {
+        ping("Select and copy manually");
+      }
+    },
+    [preview]
+  );
 
-  const copyText = useCallback(async () => {
-    const text = preview.trim();
-    if (!text) return;
-    try {
-      await navigator.clipboard.writeText(text);
-      ping("Copied — paste anywhere");
-    } catch {
-      ping("Copy failed — select and copy manually");
-    }
-  }, [preview]);
+  const insertText = useCallback(
+    (e) => {
+      holdFocus(e);
+      const text = preview.trim();
+      if (!text) return;
+      const target = insertTargetRef.current || getLastTextTarget();
+      if (target) setLastTextTarget(target);
+      const ok = insertTextAtFocus(text, target);
+      if (ok) {
+        setDemoText((prev) => prev + (prev ? "\n" : "") + text);
+        ping("Inserted into your field");
+        setPhase("idle");
+        setPreview("");
+      } else {
+        copyText(e);
+      }
+    },
+    [preview, copyText]
+  );
 
   useEffect(() => () => stopRec(), [stopRec]);
 
@@ -117,15 +155,35 @@ export default function App() {
   const scale = 1 + level * 0.4;
 
   return (
-    <div style={{ minHeight: "100dvh", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: 24, gap: 20 }}>
+    <div style={{ minHeight: "100dvh", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: 24, gap: 16 }}>
       <h1 style={{ margin: 0, fontSize: 22, fontWeight: 800, color: "#34d399" }}>LE Voice Flow</h1>
       <p style={{ margin: 0, textAlign: "center", color: "#94a3b8", fontSize: 14, maxWidth: 320 }}>
-        Tap the bubble, talk naturally, tap ✓ when done. I polish it — then copy or paste into any app.
+        Tap the bubble, talk naturally, tap ✓ when done. I polish it — then insert or copy.
       </p>
 
-      {!supported ? (
-        <p style={{ color: "#f87171" }}>Voice needs Chrome on Android.</p>
-      ) : null}
+      {!supported ? <p style={{ color: "#f87171" }}>Voice needs Chrome on Android.</p> : null}
+
+      <textarea
+        placeholder="Tap here first, then dictate — insert lands here"
+        value={demoText}
+        onChange={(e) => setDemoText(e.target.value)}
+        onFocus={() => setLastTextTarget(document.activeElement)}
+        style={{
+          width: "min(100%, 360px)",
+          minHeight: 72,
+          maxHeight: 120,
+          background: "#1e293b",
+          color: "#f8fafc",
+          border: "1px solid #475569",
+          borderRadius: 12,
+          padding: 12,
+          fontSize: 15,
+          lineHeight: 1.45,
+          resize: "vertical",
+          unicodeBidi: "plaintext",
+        }}
+        aria-label="Target field for voice insert"
+      />
 
       {phase === "review" ? (
         <textarea
@@ -133,7 +191,7 @@ export default function App() {
           onChange={(e) => setPreview(e.target.value)}
           style={{
             width: "min(100%, 360px)",
-            minHeight: 140,
+            minHeight: 100,
             background: "#1e293b",
             color: "#f8fafc",
             border: "2px solid #34d399",
@@ -141,7 +199,8 @@ export default function App() {
             padding: 12,
             fontSize: 15,
             lineHeight: 1.45,
-            resize: "vertical",
+            resize: "none",
+            ...REVIEW_STYLE,
           }}
           aria-label="Polished text"
         />
@@ -165,11 +224,14 @@ export default function App() {
       <div style={{ display: "flex", gap: 12, flexWrap: "wrap", justifyContent: "center" }}>
         {phase === "review" ? (
           <>
-            <button type="button" onClick={() => { setPhase("idle"); setRaw(""); setPreview(""); }} style={btn("#475569")}>
+            <button type="button" onPointerDown={holdFocus} onClick={() => { setPhase("idle"); setPreview(""); }} style={btn("#475569")}>
               Cancel
             </button>
-            <button type="button" onClick={copyText} style={btn("#059669")}>
-              Copy text
+            <button type="button" onPointerDown={holdFocus} onClick={copyText} style={btn("#475569")}>
+              Copy
+            </button>
+            <button type="button" onPointerDown={holdFocus} onClick={insertText} style={btn("#059669")}>
+              Insert
             </button>
           </>
         ) : null}
@@ -178,6 +240,7 @@ export default function App() {
       <button
         type="button"
         aria-label="Voice bubble"
+        onPointerDown={holdFocus}
         onClick={phase === "listening" ? finish : phase === "idle" ? start : undefined}
         disabled={!supported || phase === "review"}
         style={{
@@ -207,7 +270,7 @@ export default function App() {
         </p>
       ) : null}
 
-      <p style={{ marginTop: 24, fontSize: 12, color: "#64748b", textAlign: "center" }}>
+      <p style={{ marginTop: 8, fontSize: 12, color: "#64748b", textAlign: "center" }}>
         Install from browser menu → Add to Home Screen
       </p>
     </div>

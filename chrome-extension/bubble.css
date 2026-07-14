@@ -1,0 +1,42 @@
+#le-voice-flow-root {
+  position: fixed;
+  z-index: 2147483646;
+  left: 16px;
+  bottom: 80px;
+  font-family: system-ui, sans-serif;
+}
+
+#le-voice-flow-root .le-vf-btn {
+  width: 56px;
+  height: 56px;
+  border-radius: 50%;
+  border: 2px solid #34d399;
+  background: #0f172a;
+  cursor: pointer;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
+}
+
+#le-voice-flow-root .le-vf-panel {
+  background: rgba(15, 23, 42, 0.95);
+  color: #f8fafc;
+  border: 1px solid #475569;
+  border-radius: 16px;
+  padding: 10px;
+  margin-bottom: 8px;
+  max-width: 300px;
+}
+
+#le-voice-flow-root textarea {
+  width: 100%;
+  min-height: 72px;
+  max-height: 200px;
+  overflow-y: auto;
+  background: #1e293b;
+  color: #f8fafc;
+  border: 1px solid #475569;
+  border-radius: 12px;
+  padding: 8px;
+  font-size: 14px;
+  unicode-bidi: plaintext;
+  resize: none;
+}

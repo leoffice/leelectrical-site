@@ -1,0 +1,27 @@
+{
+  "manifest_version": 3,
+  "name": "LE Voice Flow",
+  "version": "1.0.0",
+  "description": "Wispr-style dictation bubble for any text field in Chrome.",
+  "permissions": ["storage", "activeTab"],
+  "host_permissions": ["<all_urls>"],
+  "action": {
+    "default_title": "LE Voice Flow",
+    "default_icon": {
+      "48": "icons/le-logo.png"
+    }
+  },
+  "options_page": "options.html",
+  "content_scripts": [
+    {
+      "matches": ["<all_urls>"],
+      "js": ["voiceFlow.js", "content.js"],
+      "css": ["bubble.css"],
+      "run_at": "document_idle"
+    }
+  ],
+  "icons": {
+    "48": "icons/le-logo.png",
+    "128": "icons/le-logo.png"
+  }
+}

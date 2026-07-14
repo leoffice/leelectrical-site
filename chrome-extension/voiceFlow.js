@@ -19,7 +19,7 @@ function isTextField(el) {
 }
 
 /** Track focus globally — call once at app startup. */
-export function trackVoiceFocus() {
+function trackVoiceFocus() {
   if (typeof document === "undefined") return () => {};
   const onFocus = (e) => {
     if (isTextField(e.target)) lastTextTarget = e.target;
@@ -28,11 +28,11 @@ export function trackVoiceFocus() {
   return () => document.removeEventListener("focusin", onFocus, true);
 }
 
-export function getLastTextTarget() {
+function getLastTextTarget() {
   return lastTextTarget;
 }
 
-export function setLastTextTarget(el) {
+function setLastTextTarget(el) {
   if (isTextField(el)) lastTextTarget = el;
 }
 
@@ -125,7 +125,7 @@ function splitListItems(t, raw) {
 }
 
 /** Wispr-style cleanup — punctuation, lists, spacing; bilingual EN+HE. */
-export function polishVoiceText(raw) {
+function polishVoiceText(raw) {
   let t = spokenPunctuation(raw);
   t = removeFillers(t);
   t = dedupeWords(t);
@@ -194,7 +194,7 @@ function setFieldValue(el, text) {
 }
 
 /** Insert text at the cursor in the active or last-focused field. */
-export function insertTextAtFocus(text, target) {
+function insertTextAtFocus(text, target) {
   if (!text) return false;
   const active = document.activeElement;
   const el =
@@ -206,13 +206,13 @@ export function insertTextAtFocus(text, target) {
 }
 
 /** Whether Web Speech API is available. */
-export function speechRecognitionSupported() {
+function speechRecognitionSupported() {
   if (typeof window === "undefined") return false;
   return !!(window.SpeechRecognition || window.webkitSpeechRecognition);
 }
 
 /** Create a speech recognizer with silent listen + Android silence-timeout restart. */
-export function createSilentRecognizer({ lang = "en-US", onFinal, onError, onEnd } = {}) {
+function createSilentRecognizer({ lang = "en-US", onFinal, onError, onEnd } = {}) {
   const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
   if (!SR) return null;
 
@@ -301,4 +301,16 @@ export function createSilentRecognizer({ lang = "en-US", onFinal, onError, onEnd
       return finals;
     },
   };
+}
+const VoiceFlow = {
+  trackVoiceFocus,
+  getLastTextTarget,
+  setLastTextTarget,
+  polishVoiceText,
+  insertTextAtFocus,
+  speechRecognitionSupported,
+};
+if (typeof globalThis !== "undefined") {
+  globalThis.VoiceFlow = VoiceFlow;
+  globalThis.createSilentRecognizer = createSilentRecognizer;
 }
