@@ -10,13 +10,13 @@ import {
 import { generateAndStoreDoc } from "./docGenerate.mjs";
 import { docPdfFilename, mapJobToQbDocData } from "./jobToQbDoc.mjs";
 
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const moduleDir = path.dirname(fileURLToPath(import.meta.url));
 const require = createRequire(import.meta.url);
 const { buildEmailHTML, buildPayLink } = require("./le-invoice-suite/email-template.js");
 
 const RESEND_URL = "https://api.resend.com/emails";
 const SITE = "https://leelectrical.us";
-const SUITE_DIR = path.join(__dirname, "le-invoice-suite");
+const SUITE_DIR = path.join(moduleDir, "le-invoice-suite");
 
 function docsUrl(key) {
   return `${SITE}/.netlify/functions/docs?key=${encodeURIComponent(key)}`;

@@ -4,11 +4,11 @@ import { fileURLToPath } from "url";
 import path from "path";
 import { canGenerateLocalDoc, docPdfFilename, docStoreKey, mapJobToQbDocData } from "./jobToQbDoc.mjs";
 
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const moduleDir = path.dirname(fileURLToPath(import.meta.url));
 const require = createRequire(import.meta.url);
 const { generateDocument } = require("./le-invoice-suite/qb-pdf.js");
 
-const SUITE_DIR = path.join(__dirname, "le-invoice-suite");
+const SUITE_DIR = path.join(moduleDir, "le-invoice-suite");
 const JOBS_KEY = "jobsdata-v1";
 const STATE_KEY = "ov-v1";
 

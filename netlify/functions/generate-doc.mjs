@@ -1,4 +1,4 @@
-import { generateAndStoreDoc } from "./lib/docGenerate.mjs";
+import { generateAndStoreDoc, loadJobForInvoice } from "./lib/docGenerate.mjs";
 import { canGenerateLocalDoc } from "./lib/jobToQbDoc.mjs";
 
 function json(o, status = 200) {
@@ -31,7 +31,11 @@ export default async (req) => {
     return json({ ok: false, error: "bad kind" }, 400);
   }
 
-  const job = body.job || body;
+  let job = body.job || body;
+  const docNo = kind === "invoice" ? job?.invoiceNo : job?.estimateNo;
+  const stored = await loadJobForInvoice(docNo, job?.id || body.jobId || "");
+  if (stored?.id) job = { ...stored, ...job };
+
   if (!canGenerateLocalDoc(job, kind)) {
     return json({ ok: false, error: "insufficient_data" }, 400);
   }
