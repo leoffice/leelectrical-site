@@ -8,17 +8,9 @@
 //   chat      floating-bubble conversations (op:msg)
 //   iterate   nudges Dispatch to look at the message
 import { deepMerge, isPlainObject, mergeJobs } from "./merge.js";
+import { functionsBase } from "../lib/functionsBase.js";
 
-const REMOTE = "https://leelectrical.us/.netlify/functions";
-
-function base() {
-  // Same-origin in production (leelectrical.us); absolute URL for local dev
-  // (the functions send access-control-allow-origin: *).
-  if (typeof location !== "undefined" && /(^|\.)leelectrical\.us$/.test(location.hostname)) {
-    return "/.netlify/functions";
-  }
-  return REMOTE;
-}
+const base = functionsBase;
 
 async function http(path, body) {
   const res = await fetch(`${base()}/${path}`, {

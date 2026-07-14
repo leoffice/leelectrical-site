@@ -3,9 +3,7 @@ import { amountPaid, invoiceTotal, openBalance } from "./customers.js";
 import { normalizePayments } from "./payments.js";
 import { parseAmount } from "./format.js";
 import { parseUSAddress, extractZip } from "./solaPayUrl.js";
-
-const SITE_ORIGIN =
-  (typeof window !== "undefined" && window.location?.origin) || "https://leelectrical.us";
+import { functionsBase, siteOrigin } from "./functionsBase.js";
 
 const SHORT_CODE_RE = /^[0-9]{5,8}-[a-z0-9]{4}$/i;
 
@@ -105,12 +103,12 @@ export function buildPayLandingUrl({ job, cardknoxUrl, linkAmount, inv, siteSlug
   const token = encodePayLanding(
     buildPayLandingPayload({ job, cardknoxUrl, linkAmount, inv, siteSlug, includeFee })
   );
-  return `${SITE_ORIGIN}/app/pro/#/pay/${token}`;
+  return `${siteOrigin()}/app/pro/#/pay/${token}`;
 }
 
 /** Register payload server-side and return a short link like /pay/251825-x7k2. */
 export async function registerShortPayLink(payload) {
-  const res = await fetch("/.netlify/functions/pay-link", {
+  const res = await fetch(`${functionsBase()}/pay-link`, {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify({ payload }),
@@ -138,7 +136,7 @@ export async function resolvePayLandingToken(token) {
   const decoded = decodePayLanding(t);
   if (decoded) return decoded;
   if (!isShortPayCode(t)) return null;
-  const res = await fetch(`/.netlify/functions/pay-link?code=${encodeURIComponent(t)}`, {
+  const res = await fetch(`${functionsBase()}/pay-link?code=${encodeURIComponent(t)}`, {
     cache: "no-store",
   });
   const data = await res.json().catch(() => ({}));
@@ -149,7 +147,7 @@ export async function resolvePayLandingToken(token) {
 export function invoicePdfUrl(invoiceNo) {
   const no = String(invoiceNo || "").trim();
   if (!no) return "";
-  return `${SITE_ORIGIN}/.netlify/functions/docs?key=inv-${encodeURIComponent(no)}`;
+  return `${functionsBase()}/docs?key=inv-${encodeURIComponent(no)}`;
 }
 
 export function addressesDiffer(ba, sa) {

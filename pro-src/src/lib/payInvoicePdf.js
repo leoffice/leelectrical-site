@@ -1,12 +1,10 @@
 /** Public pay page — check / poll / request invoice PDFs from the docs store. */
-
-const SITE_ORIGIN =
-  (typeof window !== "undefined" && window.location?.origin) || "https://leelectrical.us";
+import { functionsBase } from "./functionsBase.js";
 
 export const PDF_RETRIEVE_STAGES = ["Checking", "Generating PDF", "Ready"];
 
 export function docsFetchUrl() {
-  return `${SITE_ORIGIN}/.netlify/functions/docs-fetch`;
+  return `${functionsBase()}/docs-fetch`;
 }
 
 export async function invoicePdfAvailable(url) {

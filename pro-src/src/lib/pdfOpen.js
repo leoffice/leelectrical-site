@@ -1,20 +1,11 @@
 /** Open PDFs in the device native viewer — blob iframes show raw PDF source on iOS/Android. */
-
-const SITE_ORIGIN =
-  (typeof window !== "undefined" && window.location?.origin) || "https://leelectrical.us";
-
-function docsBase() {
-  if (typeof location !== "undefined" && /(^|\.)leelectrical\.us$/.test(location.hostname)) {
-    return "/.netlify/functions";
-  }
-  return `${SITE_ORIGIN}/.netlify/functions`;
-}
+import { functionsBase } from "./functionsBase.js";
 
 /** Public URL for a stored invoice/estimate PDF (docs blob store). */
 export function docStorePdfUrl(key) {
   const k = String(key || "").trim();
   if (!k) return "";
-  return `${docsBase()}/docs?key=${encodeURIComponent(k)}`;
+  return `${functionsBase()}/docs?key=${encodeURIComponent(k)}`;
 }
 
 /** Open a PDF URL in a new tab so the browser/OS renders it natively. */

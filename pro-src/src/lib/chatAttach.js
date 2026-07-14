@@ -1,17 +1,10 @@
 // Chat bubble file helpers — any file type, not just images.
 import { fileToBase64 } from "./paymentVision.js";
+import { functionsBase as base } from "./functionsBase.js";
 
-const REMOTE = "https://leelectrical.us/.netlify/functions";
 const TEXT_EXCERPT_MAX = 8000;
 const TEXT_INLINE_MAX = 32_000;
 const UPLOAD_MAX = 9_000_000;
-
-function base() {
-  if (typeof location !== "undefined" && /(^|\.)leelectrical\.us$/.test(location.hostname)) {
-    return "/.netlify/functions";
-  }
-  return REMOTE;
-}
 
 export function isImageFile(file) {
   if (!file) return false;
