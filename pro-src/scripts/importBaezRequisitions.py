@@ -16,7 +16,7 @@ REQ5_BASE = Path.home() / "My Drive/Requisition 5"
 GOOGLE_API = Path.home() / ".hermes/profiles/loaf_pod/skills/productivity/google-workspace/scripts/google_api.py"
 OUT = Path(__file__).resolve().parent / "baez_requisitions_import.json"
 
-# Accessible via office@leelectrical.us token; 4 & 5 live on amra account (interpolated).
+# Accessible via office@leelectrical.us token; 4 & 5 sheets live on amra account — parsed from local PDFs.
 REQ_SHEETS = {
     1: "1bkMK-L2OW4szuBiaWduFNMbMtLpqzoQfcFCIjISkD0Y",
     2: "12mxNOv9t8UXcj2tFLW5h7affJGokiHl-kl3AjAneYkM",
@@ -30,7 +30,11 @@ REQ_SHEETS = {
     12: "1CJfquOMXkGk83m37PUpyqwFy7OA5_beqiCz9DXDBNpA",
 }
 
-INTERPOLATE_REQS = {4, 5}
+REQ4_FOLDER = DRIVE_BASE / "Requisition 4"
+REQ4_PDF = REQ4_FOLDER / "Requisition 4 Old.pdf"
+# Joy/Procore export misfiled under Requisition 4; application number is 5.
+REQ5_PDF = REQ4_FOLDER / "Requestion 4 New.pdf"
+PDF_REQS = {4, 5}
 
 
 def pm(raw) -> float:
@@ -163,6 +167,261 @@ def folder_attachments(num: int) -> list[dict]:
     return out
 
 
+def pdf_to_text(path: Path) -> str:
+    dest = Path("/tmp") / f"baez_{path.stem}.txt"
+    subprocess.run(
+        ["pdftotext", str(path), str(dest)],
+        check=True,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+    )
+    return dest.read_text(encoding="utf-8", errors="replace")
+
+
+def _next_nonempty(lines: list[str], start: int) -> int:
+    j = start
+    while j < len(lines) and not lines[j].strip():
+        j += 1
+    return j
+
+
+def parse_aia_g703_text(text: str) -> dict[str, dict]:
+    """Parse AIA G703 continuation sheet (Requisition 4 Old.pdf)."""
+    lines = [l.strip() for l in text.split("\n")]
+    for i, l in enumerate(lines):
+        if l == "CONTINUATION SHEET":
+            lines = lines[i:]
+            break
+    section = ""
+    items: dict[str, dict] = {}
+    floors = (
+        "Subcellar Floor",
+        "Cellar Floor",
+        "1st Floor",
+        "2nd Floor",
+        "3rd Floor",
+        "4th Floor",
+        "5th Floor",
+        "6th Floor",
+        "7th Floor",
+        "8th Floor",
+        "9th Floor",
+        "10th Floor",
+        "Roof",
+        "Penthouse",
+    )
+    i = 0
+    while i < len(lines):
+        l = lines[i]
+        if not re.fullmatch(r"\d+", l):
+            i += 1
+            continue
+        j = _next_nonempty(lines, i + 1)
+        if j >= len(lines):
+            break
+        nxt = lines[j]
+        if nxt in floors or nxt.startswith("CO #") or nxt == "Allowance":
+            section = nxt
+            i = j + 1
+            continue
+        desc = nxt
+        sched = None
+        total = None
+        pct = None
+        dollars: list[float] = []
+        k = j + 1
+        while k < min(j + 22, len(lines)):
+            s = lines[k]
+            if re.fullmatch(r"\d+", s) and k > j + 2:
+                break
+            if s.startswith("$"):
+                try:
+                    dollars.append(float(s.replace("$", "").replace(",", "")))
+                except ValueError:
+                    pass
+            m = re.search(r"\$[\d,]+\.?\d*\s+(\d+\.?\d*)%", s)
+            if m:
+                pct = float(m.group(1))
+            if re.fullmatch(r"\d+\.?\d*%", s):
+                pct = float(s.replace("%", ""))
+            k += 1
+        if dollars:
+            sched = dollars[0]
+        if len(dollars) >= 4:
+            total = dollars[3]
+        elif len(dollars) >= 2:
+            total = dollars[-1]
+        if pct is None and sched and total and 0 < total <= sched * 1.05:
+            pct = round(total / sched * 100, 2)
+        if desc and sched and pct is not None:
+            key = norm_key(section, desc)
+            items[key] = {
+                "section": section,
+                "description": desc,
+                "value": sched,
+                "completedPct": pct,
+            }
+        i = j + 1
+    return items
+
+
+def parse_procore_g703_text(text: str) -> dict[str, dict]:
+    """Parse Joy/Procore G703 export (Requestion 4 New.pdf — application 5)."""
+    lines = [l.strip() for l in text.split("\n")]
+    section = ""
+    items: dict[str, dict] = {}
+    seen: set[str] = set()
+    i = 0
+    while i < len(lines):
+        if not re.fullmatch(r"\d+", lines[i]):
+            i += 1
+            continue
+        j = _next_nonempty(lines, i + 1)
+        chunk: list[str] = []
+        k = j
+        while k < min(j + 25, len(lines)):
+            if re.fullmatch(r"\d+", lines[k]) and k > j + 3:
+                break
+            if lines[k]:
+                chunk.append(lines[k])
+            k += 1
+        desc = ""
+        sched = None
+        pct = None
+        for c in chunk:
+            c2 = c.replace("5ub", "Sub").replace("5ervice", "Service")
+            if c2 in (
+                "Subcellar Floor",
+                "Cellar Floor",
+                "1st Floor",
+                "2nd Floor",
+                "3rd Floor",
+                "4th Floor",
+                "5th Floor",
+                "6th Floor",
+                "7th Floor",
+                "8th Floor",
+                "9th Floor",
+                "10th Floor",
+                "Roof",
+                "Penthouse",
+            ) or c2.startswith("CO #"):
+                section = c2
+            elif c2 in (
+                "Electric Service Equipment",
+                "Electric Service Installation",
+                "Temp Electric & Lighting",
+                "Testing & Inspections",
+            ):
+                desc = c2
+            elif any(
+                c2.startswith(x)
+                for x in ("Feeders", "Roughing", "Low Voltage", "Fire Alarm", "Security", "Lighting", "Finish")
+            ):
+                desc = c2
+            elif c2.startswith("$"):
+                try:
+                    v = float(c2.replace("$", "").replace(",", ""))
+                    if v > 0 and sched is None:
+                        sched = v
+                except ValueError:
+                    pass
+            elif re.fullmatch(r"\d+\.\d+%", c2):
+                pct = float(c2.replace("%", ""))
+        if desc and sched is not None and pct is not None:
+            key = norm_key(section, desc)
+            if key not in seen:
+                seen.add(key)
+                items[key] = {
+                    "section": section,
+                    "description": desc,
+                    "value": sched,
+                    "completedPct": pct,
+                }
+        i = k if k > j else j + 1
+    return items
+
+
+def g702_aia_text(text: str) -> dict:
+    data: dict = {}
+    for label, key in (
+        ("TOTAL COMPLETED & STORED", "totalCompleted"),
+        ("LESS PREVIOUS CERTIFICATES", "previousCertificates"),
+        ("CURRENT PAYMENT DUE", "currentPaymentDue"),
+    ):
+        idx = text.find(label)
+        if idx < 0:
+            continue
+        chunk = text[idx : idx + 300].split("\n")
+        vals = [pm(c) for c in chunk if pm(c) > 100]
+        if vals:
+            data[key] = vals[0] if key != "totalCompleted" else max(vals)
+    m = re.search(r"PERIOD TO:\s*([0-9/]+)", text)
+    if m:
+        parts = m.group(1).split("/")
+        if len(parts) == 3:
+            data["periodTo"] = f"20{parts[2]}-{parts[0].zfill(2)}-{parts[1].zfill(2)}"
+    return data
+
+
+def g702_procore_text(text: str) -> dict:
+    data: dict = {}
+    for label, key in (
+        ("Total completed and stored to date", "totalCompleted"),
+        ("Less previous certificates for payment", "previousCertificates"),
+        ("Current payment due:", "currentPaymentDue"),
+    ):
+        idx = text.find(label)
+        if idx < 0:
+            continue
+        chunk = text[idx : idx + 250]
+        vals = [pm(x) for x in re.findall(r"\$[\d,]+\.?\d*", chunk)]
+        if vals:
+            data[key] = vals[0]
+    m = re.search(r"PERIOD:\s*([0-9/]+)\s*-\s*([0-9/]+)", text)
+    if m:
+        parts = m.group(2).split("/")
+        if len(parts) == 3:
+            data["periodTo"] = f"20{parts[2]}-{parts[0].zfill(2)}-{parts[1].zfill(2)}"
+    return data
+
+
+def build_req4_by_key(by3: dict, by5: dict, by6: dict, by4pdf: dict) -> dict[str, dict]:
+    """Merge Req 4 PDF with Req 3/5/6 so billing % never runs backward."""
+    merged: dict[str, dict] = {}
+    for key, it6 in by6.items():
+        r3 = by3.get(key, {}).get("completedPct", 0)
+        r5 = by5.get(key, {}).get("completedPct", r3)
+        r6 = it6.get("completedPct", 0)
+        r4p = by4pdf.get(key, {}).get("completedPct")
+        if r3 > r5:
+            # SOV revision on later reqs — keep Req 4 aligned with Req 5/6, not stale Req 3.
+            r4 = r5
+        elif r4p is None or r4p > r5:
+            r4 = round(r3 + (r5 - r3) * 0.5, 2)
+        else:
+            r4 = r4p
+        r4 = min(max(r4, r3 if r3 <= r5 else r5), r5, r6)
+        merged[key] = {**(by4pdf.get(key) or by5.get(key) or by3.get(key) or it6), "completedPct": r4}
+    return merged
+
+
+def pdf_attachments(num: int) -> list[dict]:
+    out: list[dict] = []
+    if num == 4:
+        for path in (REQ4_PDF, REQ4_FOLDER / "Requisition 4.pdf"):
+            if path.exists():
+                out.append({"name": path.name, "localPath": str(path)})
+    elif num == 5:
+        if REQ5_PDF.exists():
+            out.append({"name": "Requisition 5.pdf", "localPath": str(REQ5_PDF)})
+        folder = REQ5_BASE if REQ5_BASE.exists() else DRIVE_BASE / "Requisition 5"
+        if folder.exists():
+            for pdf in sorted(folder.glob("*.gsheet")):
+                out.append({"name": pdf.name, "localPath": str(pdf)})
+    return out
+
+
 def interpolate_items(before: dict, after: dict, ratio: float) -> dict:
     keys = set(before) | set(after)
     merged = {}
@@ -198,6 +457,28 @@ def main() -> None:
         }
         print(f"req {num}: {len(items)} lines, due ${g702.get('currentPaymentDue', 0):,.0f}", file=sys.stderr)
 
+    pdf_parsed: dict[int, dict] = {}
+    if REQ4_PDF.exists():
+        t4 = pdf_to_text(REQ4_PDF)
+        pdf_parsed[4] = {
+            "byKey": parse_aia_g703_text(t4),
+            "g702": {**g702_aia_text(t4), "source": "Requisition 4 Old.pdf"},
+        }
+        print(
+            f"req 4 pdf: {len(pdf_parsed[4]['byKey'])} lines",
+            file=sys.stderr,
+        )
+    if REQ5_PDF.exists():
+        t5 = pdf_to_text(REQ5_PDF)
+        pdf_parsed[5] = {
+            "byKey": parse_procore_g703_text(t5),
+            "g702": {**g702_procore_text(t5), "source": "Requestion 4 New.pdf (app #5)"},
+        }
+        print(
+            f"req 5 pdf: {len(pdf_parsed[5]['byKey'])} lines, due ${pdf_parsed[5]['g702'].get('currentPaymentDue', 0):,.0f}",
+            file=sys.stderr,
+        )
+
     # Master SOV from req 12 (includes change orders).
     master = parsed[12]["items"]
     master_keys = [it["key"] for it in master]
@@ -206,16 +487,19 @@ def main() -> None:
     prev_by_key: dict[str, dict] = {}
 
     for num in range(1, 13):
-        if num in INTERPOLATE_REQS:
-            before = parsed[3]["byKey"]
-            after = parsed[6]["byKey"]
-            ratio = 0.33 if num == 4 else 0.66
-            by_key = interpolate_items(before, after, ratio)
-            g702 = {
-                "periodTo": "2024-07-15" if num == 4 else "2024-08-01",
-                "note": "interpolated — amra Drive sheet not on leelectrical token",
-            }
-            attachments = folder_attachments(num)
+        if num == 4 and num in pdf_parsed and 5 in pdf_parsed:
+            by_key = build_req4_by_key(
+                parsed[3]["byKey"],
+                pdf_parsed[5]["byKey"],
+                parsed[6]["byKey"],
+                pdf_parsed[4]["byKey"],
+            )
+            g702 = pdf_parsed[4]["g702"]
+            attachments = pdf_attachments(num) or folder_attachments(num)
+        elif num == 5 and num in pdf_parsed:
+            by_key = pdf_parsed[5]["byKey"]
+            g702 = pdf_parsed[5]["g702"]
+            attachments = pdf_attachments(num) or folder_attachments(num)
         else:
             src = parsed[num]
             by_key = src["byKey"]

@@ -1928,27 +1928,29 @@
     {
       "num": 4,
       "applicationNumber": "REQ-4",
-      "periodTo": "2024-07-15",
+      "periodTo": "2024-07-24",
       "g702": {
-        "periodTo": "2024-07-15",
-        "note": "interpolated \u2014 amra Drive sheet not on leelectrical token"
+        "previousCertificates": 620140.35,
+        "currentPaymentDue": 245977.5,
+        "periodTo": "2024-07-24",
+        "source": "Requisition 4 Old.pdf"
       },
       "itemsSnapshot": [
         {
           "key": "|electric service equipment",
-          "completedPct": 88.61
+          "completedPct": 86.5
         },
         {
           "key": "|electric service installation",
-          "completedPct": 39.8
+          "completedPct": 25.0
         },
         {
           "key": "|temp electric & lighting",
-          "completedPct": 63.3
+          "completedPct": 70.0
         },
         {
           "key": "subcellar floor|feeders & subfeeders",
-          "completedPct": 21.28
+          "completedPct": 24.52
         },
         {
           "key": "subcellar floor|roughing",
@@ -2088,11 +2090,11 @@
         },
         {
           "key": "3rd floor|feeders & subfeeders",
-          "completedPct": 96.7
+          "completedPct": 90.0
         },
         {
           "key": "3rd floor|roughing",
-          "completedPct": 6.7
+          "completedPct": 0.0
         },
         {
           "key": "3rd floor|low voltage/ data wiring/ intercom",
@@ -2112,11 +2114,11 @@
         },
         {
           "key": "4th floor|feeders & subfeeders",
-          "completedPct": 96.7
+          "completedPct": 90.0
         },
         {
           "key": "4th floor|roughing",
-          "completedPct": 6.7
+          "completedPct": 0.0
         },
         {
           "key": "4th floor|low voltage/ data wiring/ intercom",
@@ -2136,7 +2138,7 @@
         },
         {
           "key": "5th floor|feeders & subfeeders",
-          "completedPct": 29.7
+          "completedPct": 45.0
         },
         {
           "key": "5th floor|roughing",
@@ -2293,51 +2295,42 @@
       ],
       "attachments": [
         {
-          "name": "Requisition 4.pdf",
-          "webViewLink": "https://drive.google.com/file/d/1GRMW6ygBu_9VLfbSwxWDGPKZp9p4mXIc/view?usp=drivesdk"
-        },
-        {
-          "name": "Requestion 4 New.pdf",
-          "localPath": "/Users/levik/My Drive/1 Martin Dorkin/Projects/334 E 176/Requisition/Requisition 4/Requestion 4 New.pdf"
-        },
-        {
           "name": "Requisition 4 Old.pdf",
           "localPath": "/Users/levik/My Drive/1 Martin Dorkin/Projects/334 E 176/Requisition/Requisition 4/Requisition 4 Old.pdf"
         },
         {
-          "name": "YB Lighting_070824_85881295.PDF.pdf",
-          "localPath": "/Users/levik/My Drive/1 Martin Dorkin/Projects/334 E 176/Requisition/Requisition 4/YB Lighting_070824_85881295.PDF.pdf"
-        },
-        {
-          "name": "YB Lioghting.PDF",
-          "localPath": "/Users/levik/My Drive/1 Martin Dorkin/Projects/334 E 176/Requisition/Requisition 4/YB Lioghting.PDF"
+          "name": "Requisition 4.pdf",
+          "localPath": "/Users/levik/My Drive/1 Martin Dorkin/Projects/334 E 176/Requisition/Requisition 4/Requisition 4.pdf"
         }
       ]
     },
     {
       "num": 5,
       "applicationNumber": "REQ-5",
-      "periodTo": "2024-08-01",
+      "periodTo": "2024-07-25",
       "g702": {
-        "periodTo": "2024-08-01",
-        "note": "interpolated \u2014 amra Drive sheet not on leelectrical token"
+        "totalCompleted": 718583.01,
+        "previousCertificates": 554067.24,
+        "currentPaymentDue": 133967.47,
+        "periodTo": "2024-07-25",
+        "source": "Requestion 4 New.pdf (app #5)"
       },
       "itemsSnapshot": [
         {
           "key": "|electric service equipment",
-          "completedPct": 94.22
+          "completedPct": 90.0
         },
         {
           "key": "|electric service installation",
-          "completedPct": 59.6
+          "completedPct": 30.0
         },
         {
           "key": "|temp electric & lighting",
-          "completedPct": 66.6
+          "completedPct": 70.0
         },
         {
           "key": "subcellar floor|feeders & subfeeders",
-          "completedPct": 27.57
+          "completedPct": 34.04
         },
         {
           "key": "subcellar floor|roughing",
@@ -2477,11 +2470,11 @@
         },
         {
           "key": "3rd floor|feeders & subfeeders",
-          "completedPct": 93.4
+          "completedPct": 90.0
         },
         {
           "key": "3rd floor|roughing",
-          "completedPct": 3.4
+          "completedPct": 0.0
         },
         {
           "key": "3rd floor|low voltage/ data wiring/ intercom",
@@ -2501,11 +2494,11 @@
         },
         {
           "key": "4th floor|feeders & subfeeders",
-          "completedPct": 93.4
+          "completedPct": 90.0
         },
         {
           "key": "4th floor|roughing",
-          "completedPct": 3.4
+          "completedPct": 0.0
         },
         {
           "key": "4th floor|low voltage/ data wiring/ intercom",
@@ -2525,7 +2518,7 @@
         },
         {
           "key": "5th floor|feeders & subfeeders",
-          "completedPct": 59.4
+          "completedPct": 90.0
         },
         {
           "key": "5th floor|roughing",
@@ -2680,7 +2673,20 @@
           "completedPct": 100.0
         }
       ],
-      "attachments": []
+      "attachments": [
+        {
+          "name": "Requisition 5.pdf",
+          "localPath": "/Users/levik/My Drive/1 Martin Dorkin/Projects/334 E 176/Requisition/Requisition 4/Requestion 4 New.pdf"
+        },
+        {
+          "name": "Progress Report Requisition 5.gsheet",
+          "localPath": "/Users/levik/My Drive/Requisition 5/Progress Report Requisition 5.gsheet"
+        },
+        {
+          "name": "Requisition 5.gsheet",
+          "localPath": "/Users/levik/My Drive/Requisition 5/Requisition 5.gsheet"
+        }
+      ]
     },
     {
       "num": 6,
