@@ -6,7 +6,7 @@ import LiveEditActionMenu from "./LiveEditActionMenu.jsx";
 import LiveEditChooser from "./LiveEditChooser.jsx";
 import LiveEditStylePanel from "./LiveEditStylePanel.jsx";
 import StyleResizeHandles from "./StyleResizeHandles.jsx";
-import { autoEditKey, buildStyleRules } from "../lib/liveEdit.js";
+import { applyDomLabels, autoEditKey, buildStyleRules } from "../lib/liveEdit.js";
 
 const IGNORE_SEL =
   "input, textarea, select, [contenteditable], [data-sheet], [data-floating-panel], [data-dev-overlay-ignore], [data-testid='live-edit-bar'], [data-testid='suggest-changes'], [data-testid='live-edit-style'], [data-testid='live-edit-chooser'], [data-testid='style-resize-handles']";
@@ -57,7 +57,7 @@ export default function DevModeOverlay() {
   const tapRef = useRef(null);
   dragRef.current = drag;
 
-  // Inject saved element styles.
+  // Apply saved/pending UI edits to the live page (styles, hide, relabel).
   useEffect(() => {
     const id = "lepro-live-edit-styles";
     let tag = document.getElementById(id);
@@ -66,11 +66,12 @@ export default function DevModeOverlay() {
       tag.id = id;
       document.head.appendChild(tag);
     }
+    applyDomLabels(loc.pathname, merged);
     tag.textContent = buildStyleRules(merged);
     return () => {
       if (tag) tag.textContent = "";
     };
-  }, [merged]);
+  }, [merged, loc.pathname]);
 
   const openMenuFor = useCallback(
     (el, e) => {

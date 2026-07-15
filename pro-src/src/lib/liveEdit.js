@@ -113,13 +113,25 @@ export function autoEditKey(el, pathname) {
   return makeEditKey(scope, label || "element");
 }
 
-/** CSS rules for saved element styles. */
+const EDITABLE_SEL = "button, a[href], [role='button'], .btn, .btn-brand";
+
+/** Escape a key for use in a [data-live-edit-key="…"] selector. */
+export function editKeyAttr(key) {
+  return String(key).replace(/\\/g, "\\\\").replace(/"/g, '\\"');
+}
+
+/** CSS rules for saved element styles and hidden state. */
 export function buildStyleRules(edits) {
   return Object.entries(edits || {})
-    .filter(([, v]) => v?.style && Object.keys(v.style).length)
+    .filter(([, v]) => {
+      if (!v) return false;
+      if (v.hidden) return true;
+      return v.style && Object.keys(v.style).length > 0;
+    })
     .map(([key, v]) => {
       const decl = [];
-      const s = v.style;
+      if (v.hidden) decl.push("display: none !important");
+      const s = v.style || {};
       if (s.fontSize) decl.push(`font-size: ${s.fontSize}`);
       if (s.color) decl.push(`color: ${s.color}`);
       if (s.backgroundColor) decl.push(`background-color: ${s.backgroundColor}`);
@@ -127,11 +139,62 @@ export function buildStyleRules(edits) {
       if (s.height) decl.push(`height: ${s.height}`);
       if (s.minHeight) decl.push(`min-height: ${s.minHeight}`);
       if (!decl.length) return "";
-      const escaped = key.replace(/\\/g, "\\\\").replace(/"/g, '\\"');
-      return `[data-live-edit-key="${escaped}"] { ${decl.join("; ")} }`;
+      return `[data-live-edit-key="${editKeyAttr(key)}"] { ${decl.join("; ")} }`;
     })
     .filter(Boolean)
     .join("\n");
+}
+
+function isEditableCandidate(el) {
+  if (!el?.matches) return false;
+  const text = (el.textContent || "").trim();
+  return text.length > 0 && text.length < 240;
+}
+
+/** Tag editable controls with stable keys so saved edits can target them. */
+export function tagEditableElements(pathname) {
+  if (typeof document === "undefined") return;
+  document.querySelectorAll(EDITABLE_SEL).forEach((el) => {
+    if (!isEditableCandidate(el)) return;
+    const key = autoEditKey(el, pathname);
+    if (key) el.dataset.liveEditKey = key;
+  });
+}
+
+function storeOriginalLabel(el) {
+  if (el.dataset.liveEditOrig != null) return el.dataset.liveEditOrig;
+  const orig = (el.textContent || "").trim().replace(/\s+/g, " ");
+  el.dataset.liveEditOrig = orig;
+  return orig;
+}
+
+/** Apply or restore a relabel on a single element. */
+export function applyLabelToElement(el, label, active) {
+  if (!el) return;
+  if (!active) {
+    const orig = el.dataset.liveEditOrig;
+    if (orig != null) el.textContent = orig;
+    return;
+  }
+  const orig = storeOriginalLabel(el);
+  const m = orig.match(/^(\p{Extended_Pictographic}|\S{1,3})\s+/u);
+  const prefix = m && orig.slice(m[0].length).trim() ? m[0] : "";
+  el.textContent = prefix ? prefix + label : label;
+}
+
+/** Apply relabels from merged edits onto the live DOM. */
+export function applyDomLabels(pathname, edits) {
+  if (typeof document === "undefined") return;
+  tagEditableElements(pathname);
+  const touched = new Set();
+  document.querySelectorAll("[data-live-edit-key]").forEach((el) => {
+    const key = el.dataset.liveEditKey;
+    if (!key || touched.has(key)) return;
+    touched.add(key);
+    const patch = getEdit(edits, key);
+    if (patch.label) applyLabelToElement(el, patch.label, true);
+    else applyLabelToElement(el, "", false);
+  });
 }
 
 export function hasPendingWork(pending, sessionHighlights = []) {
