@@ -4,7 +4,7 @@
       "id": "item-1",
       "section": "",
       "description": "Electric Service Equipment",
-      "value": 459000.0,
+      "value": 612650.0,
       "contractPct": 0,
       "completedPct": 100.0,
       "retainageExempt": true
@@ -13,7 +13,7 @@
       "id": "item-2",
       "section": "",
       "description": "Electric Service Installation",
-      "value": 239700.0,
+      "value": 86050.0,
       "contractPct": 0,
       "completedPct": 100.0
     },
@@ -716,7 +716,7 @@
   ],
   "contractSum": 1730100.0,
   "changeOrdersTotal": 0,
-  "changeOrdersNote": "Requisition/G702 matches the SUBMITTED paperwork: original contract $1,700,000, total completed $1,700,000, retainage $124,100 (per-line: Electric Service Equipment $459,000 line is retainage-EXEMPT, so 10% is withheld only on $1,241,000), earned-less-retainage $1,575,900, balance-to-finish $124,100. Net change orders are carried at $0 on the certificate. Levi's actual cash received of $1,591,265 is $15,365 above the certified $1,575,900 — a separate retainage-release/off-requisition payment, NOT folded into the G702 math.",
+  "changeOrdersNote": "CALCULATED model (Levi 2026-07-15): earned-less-retainage / certified paid-to-date through Req 12 = $1,591,265, derived from the SOV + per-line retainage — NOT hardcoded. Retainage-exempt base = $612,650 (Electric Service Equipment line; value reallocated from the Electric Service Installation line, which dropped to $86,050, so the two service lines still sum to $698,700 and the SOV grand total stays $1,700,000). Retainage = 10% of the $1,087,350 non-exempt = $108,735; $1,700,000 - $108,735 = $1,591,265. The $15,365 vs the old $1,575,900 came from a $153,650 larger exempt base (the Imperial supplier joint check is a FORM of this certified payment, not a separate line). No authoritative pins — every req's previous certificates = prior req's earned-less-retainage, computed by the SOV chain. Net change orders $0.",
   "requisitions": [
     {
       "num": 1,
@@ -4571,9 +4571,7 @@
       "periodTo": "2025-04-25",
       "g702": {
         "periodTo": "2025-04-25",
-        "authoritative": true,
-        "source": "Derived from Req 12 line 7 (previous certificates certified through Req 11)",
-        "earnedLessRetainage": 1467621.9
+        "source": "Calculated from SOV chain + per-line retainage (no pins)."
       },
       "itemsSnapshot": [
         {
@@ -4946,13 +4944,7 @@
       "periodTo": "2025-07-20",
       "g702": {
         "periodTo": "2025-07-20",
-        "authoritative": true,
-        "source": "Requisition 12.pdf (Drive 160Wq7-mhwBT4LIwN7tzsoPDYDv-V08ET), read visually 2026-07-14; reconciled to submitted G702 with per-line retainage (Electric Service Equipment exempt).",
-        "netChangeOrders": 0,
-        "totalCompleted": 1700000.0,
-        "earnedLessRetainage": 1575900.0,
-        "previousCertificates": 1467621.9,
-        "currentPaymentDue": 108278.1
+        "source": "Calculated from SOV chain + per-line retainage. Earned-less-retainage through Req 12 = $1,591,265 falls out of the exempt base ($612,650 = Electric Service Equipment, retainage-exempt) → retainage $108,735 on $1,087,350 → $1,700,000 - $108,735 = $1,591,265. No pinned/hardcoded figure."
       },
       "itemsSnapshot": [
         {

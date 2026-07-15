@@ -21,8 +21,8 @@ import { enrichAndPatchCustomer } from "./NewJobFlow.jsx";
 import { useStore } from "../state/store.jsx";
 
 import { fmt$, parseAmount, todayStr } from "../lib/format.js";
-import { docStorePdfUrl, openPdfBlob, openPdfUrl } from "../lib/pdfOpen.js";
-import { canGenerateLocalDoc } from "../lib/jobToQbDoc.js";
+import { docStorePdfUrl, openPdfBlob, openPdfUrl, downloadPdfBlob } from "../lib/pdfOpen.js";
+import { canGenerateLocalDoc, docPdfFilename } from "../lib/jobToQbDoc.js";
 import { buildInvoicePdfFromJob, buildEstimatePdfFromJob } from "../lib/invoicePdf.js";
 import { chargeCardInApp, fetchSolaIfieldsConfig } from "../lib/solaCharge.js";
 import SolaCardForm, { tokenizeSolaCard } from "./SolaCardForm.jsx";
@@ -1279,34 +1279,23 @@ function useDocPdfView(job, kind, no) {
       return;
     }
     setSt({ phase: "fetching", source: DOC_SOURCE_LOCAL });
-    // Build the PDF entirely in the browser (like the requisition) — the
-    // server generate-doc lambda is unreliable, and a client blob opens
-    // instantly with no round-trip. Kick off server-side storage in the
-    // background so the email-send flow still has a stored copy.
+    // Build the PDF entirely in the browser and DOWNLOAD it — the server
+    // generate-doc lambda is broken (502s), so the view path never waits on it.
+    // Download (not a blob-URL new tab) is what reliably opens the native PDF
+    // viewer across devices — same path the working requisition PDF uses.
+    // Server-side storage for the email flow is best-effort in the background.
     try {
       const blob = kind === "estimate" ? buildEstimatePdfFromJob(job) : buildInvoicePdfFromJob(job);
-      if (blob) {
-        if (api.generateLocalDoc) api.generateLocalDoc(job, kind).catch(() => {});
-        openPdfBlob(blob);
-        setSt({ phase: "idle", source: null });
-        return;
-      }
+      if (!blob) throw new Error("empty pdf");
+      const filename = docPdfFilename(kind, job, no) || `${kind}-${no || "document"}.pdf`;
+      downloadPdfBlob(blob, filename);
+      setSt({ phase: "idle", source: null });
+      if (api.generateLocalDoc) api.generateLocalDoc(job, kind).catch(() => {});
+      return;
     } catch (e) {
-      /* fall through to the server path below */
+      setSt({ phase: "error", source: DOC_SOURCE_LOCAL });
+      showToast("Couldn't build the PDF on this device — try View QuickBooks");
     }
-    // Fallback: server-generated + stored copy.
-    const gen = api.generateLocalDoc ? await api.generateLocalDoc(job, kind) : { ok: false };
-    if (gen.ok) {
-      if (await waitForStored()) return openStored();
-      const key = String(gen.key || docKey || "").trim();
-      if (key) {
-        openPdfUrl(docStorePdfUrl(key));
-        setSt({ phase: "idle", source: null });
-        return;
-      }
-    }
-    setSt({ phase: "error", source: DOC_SOURCE_LOCAL });
-    showToast("Could not build the local PDF — try again or use View QuickBooks");
   };
 
   const viewQbo = async () => {
