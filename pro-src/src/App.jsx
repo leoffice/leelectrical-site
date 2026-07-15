@@ -30,6 +30,7 @@ import { LiveEditProvider } from "./components/LiveEditProvider.jsx";
 import LiveEditBar from "./components/LiveEditBar.jsx";
 import DevModeOverlay from "./components/DevModeOverlay.jsx";
 import InstallAppBanner from "./components/InstallAppBanner.jsx";
+import AppBackHandler from "./components/AppBackHandler.jsx";
 import { docConfirmMessage } from "./lib/docConfirm.js";
 import NewJobFlow from "./components/NewJobFlow.jsx";
 import Sheet, { Opt } from "./components/Sheet.jsx";
@@ -162,6 +163,7 @@ export default function App() {
 
   return (
     <LiveEditProvider>
+    <AppBackHandler />
     <div className="min-h-screen lg:flex">
       {/* Desktop sidebar — fixed so it never scrolls away */}
       <aside
