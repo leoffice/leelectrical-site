@@ -5,7 +5,7 @@ import { paymentStatusLabel, requisitionBalance } from "../../lib/requisitionHel
 
 export default function RequisitionsCard({ project, onSelect, selectedId }) {
   const [open, setOpen] = useState(true);
-  const reqs = [...(project?.requisitions || [])].sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
+  const reqs = [...(project?.requisitions || [])].sort((a, b) => (b.num || 0) - (a.num || 0));
   const pct = overallPct(project?.items);
 
   if (!reqs.length) {

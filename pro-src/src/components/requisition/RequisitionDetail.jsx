@@ -6,63 +6,14 @@ import {
   mailtoRequisitionUrl,
   paymentNeedsInfo,
   requisitionBalance,
+  requisitionsAscending,
 } from "../../lib/requisitionHelpers.js";
 import { downloadRequisitionPdf } from "../../lib/requisitionPdf.js";
 import { downloadRequisitionExcel } from "../../lib/requisitionExcel.js";
 import { buildInvoicePdfFromJob } from "../../lib/invoicePdf.js";
 import { openPdfBlob } from "../../lib/pdfOpen.js";
 import { clientKey } from "../../lib/customers.js";
-
-function G702View({ req }) {
-  return (
-    <div className="space-y-2 text-sm" data-testid="g702-view">
-      <div className="grid grid-cols-2 gap-x-4 gap-y-1">
-        <span className="text-slate-500">Total completed</span>
-        <span className="text-right font-semibold">{fmtUsd(req.totalCompleted)}</span>
-        <span className="text-slate-500">Retainage ({req.retainagePct || 10}%)</span>
-        <span className="text-right">{fmtUsd(req.totalRetainage)}</span>
-        <span className="text-slate-500">Previously paid</span>
-        <span className="text-right">{fmtUsd(req.previousCertificates)}</span>
-        <span className="text-slate-500 font-bold">Current payment due</span>
-        <span className="text-right font-extrabold text-brand">{fmtUsd(req.currentPaymentDue)}</span>
-        <span className="text-slate-500">Balance to finish</span>
-        <span className="text-right">{fmtUsd(req.balanceToFinish)}</span>
-      </div>
-    </div>
-  );
-}
-
-function G703View({ req }) {
-  const rows = req.g703 || [];
-  return (
-    <div className="card overflow-hidden" data-testid="g703-view">
-      <table className="w-full text-xs">
-        <thead>
-          <tr className="text-slate-500 border-b bg-slate-50">
-            <th className="text-left px-2 py-2">#</th>
-            <th className="text-left px-2 py-2">Description</th>
-            <th className="text-right px-2 py-2">Scheduled</th>
-            <th className="text-right px-2 py-2">Prev</th>
-            <th className="text-right px-2 py-2">This</th>
-            <th className="text-right px-2 py-2">Total</th>
-          </tr>
-        </thead>
-        <tbody>
-          {rows.map((r) => (
-            <tr key={r.itemNo} className="border-b border-slate-100">
-              <td className="px-2 py-1.5">{r.itemNo}</td>
-              <td className="px-2 py-1.5">{r.description}</td>
-              <td className="text-right px-2 py-1.5 tabular-nums">{fmtUsd(r.scheduledValue)}</td>
-              <td className="text-right px-2 py-1.5 tabular-nums">{fmtUsd(r.prevCompleted)}</td>
-              <td className="text-right px-2 py-1.5 tabular-nums">{fmtUsd(r.thisPeriod)}</td>
-              <td className="text-right px-2 py-1.5 tabular-nums">{fmtUsd(r.totalCompleted)}</td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-    </div>
-  );
-}
+import { G702View, G703View, ReqNavArrows, ReqTabBar, useReqTabSwipe } from "./RequisitionViews.jsx";
 
 function PaymentsTab({ req, onUpdate, busy }) {
   const [amount, setAmount] = useState("");
@@ -560,6 +511,7 @@ export default function RequisitionDetail({
   canDelete,
   deleteBlocked,
   onClose,
+  onSelect,
   busy,
   showToast,
 }) {
@@ -574,16 +526,9 @@ export default function RequisitionDetail({
     { id: "pay", label: "Payments" },
     { id: "files", label: "Files" },
   ];
-  // Swipe left/right to move between tabs (no PDF download needed).
-  const touchX = useRef(0);
-  const idx = tabs.findIndex((t) => t.id === tab);
-  const onTouchStart = (e) => (touchX.current = e.touches[0]?.clientX ?? 0);
-  const onTouchEnd = (e) => {
-    const dx = (e.changedTouches[0]?.clientX ?? 0) - touchX.current;
-    if (Math.abs(dx) < 50) return;
-    const next = dx < 0 ? Math.min(tabs.length - 1, idx + 1) : Math.max(0, idx - 1);
-    setTab(tabs[next].id);
-  };
+  const { onTouchStart, onTouchEnd } = useReqTabSwipe(tabs, tab, setTab);
+  const navList = useMemo(() => requisitionsAscending(project), [project]);
+  const navIdx = navList.findIndex((r) => r.id === req?.id);
 
   if (!req) return null;
 
@@ -593,26 +538,19 @@ export default function RequisitionDetail({
         <button type="button" className="text-sm font-semibold text-brand" onClick={onClose}>
           ← Back
         </button>
-        <h2 className="text-base font-extrabold">{req.applicationNumber}</h2>
       </div>
 
-      <div className="flex gap-1 overflow-x-auto pb-1" data-testid="req-detail-tabs">
-        {tabs.map((t) => (
-          <button
-            key={t.id}
-            type="button"
-            className={`shrink-0 px-3 py-1.5 rounded-full text-xs font-semibold border ${
-              tab === t.id ? "bg-brand text-white border-brand" : "bg-white text-slate-600 border-slate-200"
-            }`}
-            onClick={() => setTab(t.id)}
-          >
-            {t.label}
-          </button>
-        ))}
-      </div>
+      <ReqNavArrows
+        label={req.applicationNumber || `REQ-${req.num}`}
+        onPrev={() => navIdx > 0 && onSelect?.(navList[navIdx - 1].id)}
+        onNext={() => navIdx >= 0 && navIdx < navList.length - 1 && onSelect?.(navList[navIdx + 1].id)}
+        prevDisabled={navIdx <= 0}
+        nextDisabled={navIdx < 0 || navIdx >= navList.length - 1}
+      />
+
+      <ReqTabBar tabs={tabs} tab={tab} setTab={setTab} />
 
       <div onTouchStart={onTouchStart} onTouchEnd={onTouchEnd} data-testid="req-tab-content">
-        {tab === "sov" ? <SovTab req={req} onUpdate={onUpdate} busy={busy} showToast={showToast} /> : null}
         {tab === "app" ? <G702View req={req} /> : null}
         {tab === "cont" ? <G703View req={req} /> : null}
         {tab === "pay" ? <PaymentsTab req={req} onUpdate={onUpdate} busy={busy} /> : null}

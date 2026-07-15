@@ -2,6 +2,11 @@
 import { evStart } from "./format.js";
 import { linkedJobForEvent, suggestJobsForEvent } from "./calendarLink.js";
 import { addDays } from "./calendarDue.js";
+import {
+  assessJobFollowUp,
+  specificFollowUpNudge,
+  unsentDocCandidates,
+} from "./followUpStatus.js";
 
 export const STATE_KEY = "lepro_followup_state";
 export const SERVICE_LOOKBACK_DAYS = 7;
@@ -228,8 +233,26 @@ export function allocateReminderTime(eventId, remindAt, extras = {}) {
   });
 }
 
+function maybeAutoPostponeSendCooldown(eventId, assessment, state) {
+  if (!assessment?.autoRemindAt || !assessment.reason?.endsWith("_cooldown")) return;
+  const st = eventState(state, eventId);
+  const target = assessment.autoRemindAt;
+  if (st.remindAt && st.remindAt >= target) return;
+  if (st.nextStepAt && !st.remindAt) return;
+  patchEventState(eventId, {
+    remindAt: target,
+    reminderAllocatedAt: Date.now(),
+    nudge: assessment.nudge || "",
+    note: assessment.docKind === "invoice" ? "Email invoice follow-up" : "Email estimate follow-up",
+    priority: "medium",
+    pushOffCount: 0,
+    nextNudgeAt: "",
+    autoPostponed: true,
+  });
+}
+
 /** Service calls from the past week that may need a follow-up popup. */
-export function serviceCallCandidates(events, jobs, today, now = new Date()) {
+export function serviceCallCandidates(events, jobs, today, now = new Date(), commands = []) {
   const state = loadState();
   const cut = daysAgoYmd(SERVICE_LOOKBACK_DAYS, today);
   return (events || [])
@@ -241,6 +264,12 @@ export function serviceCallCandidates(events, jobs, today, now = new Date()) {
       if (isEventAllocated(state, e.id, now)) return false;
       const st = eventState(state, e.id);
       if (isSnoozed(st, now)) return false;
+      const job = linkedJobForEvent(e, jobs);
+      const assessment = assessJobFollowUp(job, today, commands);
+      if (assessment.suppressServiceCall) {
+        maybeAutoPostponeSendCooldown(e.id, assessment, state);
+        return false;
+      }
       return true;
     })
     .sort((a, b) => evStart(b).localeCompare(evStart(a)));
@@ -380,13 +409,16 @@ function stNote(eventId) {
 }
 
 /** Build the login prompt queue — nudges first, then inspections, then service calls. */
-export function buildPromptQueue(events, jobs, today, now = new Date()) {
+export function buildPromptQueue(events, jobs, today, now = new Date(), commands = []) {
   const queue = [];
   for (const item of dueMustTodayNudges(events, jobs, today, now)) {
     queue.push({ kind: "must_today_nudge", ...item });
   }
   for (const item of dueScheduledReminders(events, jobs, today, now)) {
     queue.push({ kind: "scheduled_reminder", ...item });
+  }
+  for (const item of unsentDocCandidates(jobs, commands)) {
+    queue.push({ kind: "unsent_doc", ...item });
   }
   for (const event of inspectionCandidates(events, today)) {
     const ymd = eventYmd(event);
@@ -397,12 +429,15 @@ export function buildPromptQueue(events, jobs, today, now = new Date()) {
       job: linkedJobForEvent(event, jobs),
     });
   }
-  for (const event of serviceCallCandidates(events, jobs, today, now)) {
+  for (const event of serviceCallCandidates(events, jobs, today, now, commands)) {
+    const job = linkedJobForEvent(event, jobs);
+    const assessment = assessJobFollowUp(job, today, commands);
     queue.push({
       kind: "service_call",
       event,
-      job: linkedJobForEvent(event, jobs),
+      job,
       suggestions: suggestJobsForEvent(event, jobs),
+      assessment,
     });
   }
   return queue;
@@ -429,8 +464,9 @@ function timeAgoPhrase(days) {
 }
 
 /** Friendly nudge Levi sees when a reminder fires — uses appointment + job context. */
-export function generateReminderNudge({ event, job, userNote, today }) {
+export function generateReminderNudge({ event, job, userNote, today, commands = [] }) {
   const note = (userNote || "").trim();
+  const specific = specificFollowUpNudge(job, today, commands);
   const evYmd = eventYmd(event);
   const days = evYmd && today ? daysBetween(evYmd, today) : 0;
   const when = timeAgoPhrase(days);
@@ -442,6 +478,7 @@ export function generateReminderNudge({ event, job, userNote, today }) {
     const lead = when === "yesterday" ? "Yesterday" : `About ${when.replace("about ", "")}`;
     return `${lead} you noted: “${note}.” ${name} is still on your list — friendly follow-up when you're ready.`;
   }
+  if (specific) return specific;
   if (!hasEst && job) {
     return `You saw ${name} ${when} — no estimate yet. Worth putting one together or logging what you discussed.`;
   }

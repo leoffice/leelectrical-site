@@ -26,6 +26,21 @@ export function activeRequisitions(project) {
     .sort((a, b) => (b.num || 0) - (a.num || 0) || (b.createdAt || 0) - (a.createdAt || 0));
 }
 
+/** Active requisitions sorted by num ascending (for prev/next navigation). */
+export function requisitionsAscending(project) {
+  return [...(project?.requisitions || [])]
+    .filter((r) => r.status !== "void" && r.status !== "draft")
+    .sort((a, b) => (a.num || 0) - (b.num || 0) || (a.createdAt || 0) - (b.createdAt || 0));
+}
+
+/** CO $ earned at end of the latest submitted requisition (for draft G703 CO row). */
+function priorChangeOrdersEarned(project) {
+  const latest = activeRequisitions(project)[0];
+  const coRow = latest?.g703?.find((r) => /change orders/i.test(r.description || ""));
+  if (coRow) return roundMoney(coRow.totalCompleted);
+  return roundMoney(Number(project?.changeOrdersCompletedToDate) || 0);
+}
+
 /** Sum certified / due amounts from requisitions before a given number. */
 export function sumPriorPayments(requisitions, beforeNum) {
   return roundMoney(
@@ -365,12 +380,13 @@ export function buildDraftG702(project, opts = {}) {
   const prevItemsById = prevItemsByIdForG702(project);
   const scoped = { ...project, items: requisitionItems(project.items) };
   const coCompleted = Number(project.changeOrdersCompletedToDate) || 0;
+  const coPrev = priorChangeOrdersEarned(project);
   return buildG702(scoped, {
     ...opts, // opts.previousCertificates (manual "previously paid") passes through
     prevItemsById,
     changeOrders: Number(project.changeOrders) || 0,
     changeOrdersCompleted: coCompleted,
-    changeOrdersPrevCompleted: coCompleted,
+    changeOrdersPrevCompleted: coPrev,
   });
 }
 

@@ -6,8 +6,9 @@ import Sheet, { Fld } from "../components/Sheet.jsx";
 import CustomerCard from "../components/CustomerCard.jsx";
 import RequisitionDetail from "../components/requisition/RequisitionDetail.jsx";
 import ChangeOrdersPanel from "../components/requisition/ChangeOrdersPanel.jsx";
+import { G702View, G703View, ReqNavArrows, ReqTabBar, useReqTabSwipe } from "../components/requisition/RequisitionViews.jsx";
 import { useStore } from "../state/store.jsx";
-import { isChangeOrderItem, itemEarned, overallPct, requisitionItems } from "../lib/requisitionCalc.js";
+import { isChangeOrderItem, itemEarned, itemPreviouslyEarned, overallPct, requisitionItems } from "../lib/requisitionCalc.js";
 import {
   BAEZ_PROJECT_ID,
   ensureProjectDefaults,
@@ -35,6 +36,7 @@ import {
   removeRequisition,
   requisitionBalance,
   requisitionDeleteMode,
+  requisitionsAscending,
   sovItemKey,
   certifiedPaidToDate,
   totalPaidToDate,
@@ -194,9 +196,8 @@ function SovUpload({ onParsed, onReplace, projectName }) {
 }
 
 function RequisitionHistoryList({ project, onSelect, onDelete, busy }) {
-  // Newest first — Req 13 → Req 1.
-  const reqs = [...(project?.requisitions || [])].sort((a, b) => (b.num || 0) - (a.num || 0));
-  const visible = reqs.filter((r) => r.status !== "void");
+  const reqs = activeRequisitions(project);
+  const visible = reqs;
   if (!visible.length) {
     return <p className="text-sm text-slate-400 text-center py-8" data-testid="req-history-empty">No requisition history yet.</p>;
   }
@@ -247,9 +248,15 @@ function RequisitionHistoryList({ project, onSelect, onDelete, busy }) {
                 <span className="font-bold text-slate-900 block">
                   {r.applicationNumber || `REQ-${r.num}`}
                 </span>
-                <span className="text-xs text-slate-500 mt-1 block">
-                  {r.periodTo || "—"} · {fmtUsd(r.currentPaymentDue)} due · {fmtUsd(requisitionBalance(r))} balance
-                </span>
+                <span className="text-xs text-slate-500 mt-1 block">{r.periodTo || "—"}</span>
+                <div className="grid grid-cols-2 gap-x-3 gap-y-1 mt-2 text-xs text-slate-500">
+                  <span>Paid so far</span>
+                  <span className="text-right font-semibold text-slate-800">{fmtUsd(r.previousCertificates)}</span>
+                  <span>Total (this application)</span>
+                  <span className="text-right font-semibold text-slate-800">{fmtUsd(r.earnedLessRetainage)}</span>
+                  <span>Amount due</span>
+                  <span className="text-right font-bold text-brand">{fmtUsd(r.currentPaymentDue)}</span>
+                </div>
               </button>
               <div className="flex flex-col items-end gap-2 shrink-0">
                 <span
@@ -294,25 +301,40 @@ function mergeProjectItems(localItems, serverItems) {
   });
 }
 
+function parseMoneyInput(raw) {
+  const s = String(raw || "").trim().replace(/[$,\s]/g, "");
+  if (!s) return undefined;
+  const n = Number(s);
+  return Number.isFinite(n) ? n : undefined;
+}
+
 function RequisitionWorkbench({ project, onSave, busy, showToast, onSaved }) {
   const carrySeed = useMemo(
     () => `${project?.id}:${project?.requisitions?.length}:${project?.requisitions?.at(-1)?.id || ""}`,
     [project?.id, project?.requisitions]
   );
+  const navList = useMemo(() => requisitionsAscending(project), [project]);
+  const latestReq = navList[navList.length - 1] || null;
+  const [browseReqId, setBrowseReqId] = useState(null);
+  const [workTab, setWorkTab] = useState("app");
   const [draft, setDraft] = useState(() => applyCarriedPercentages(project));
   const [periodTo, setPeriodTo] = useState(new Date().toISOString().slice(0, 10));
   const [reqNum, setReqNum] = useState(String(nextRequisitionNum(project)));
   const [appNum, setAppNum] = useState(`REQ-${nextRequisitionNum(project)}`);
   const [pendingReq, setPendingReq] = useState(null);
-  // Manual "previously paid" (line 7). "" = use the auto cascade value.
   const [prevPaidInput, setPrevPaidInput] = useState("");
   const [prevPaidConfirmed, setPrevPaidConfirmed] = useState(false);
-  // fill -> overview -> approve -> generate
   const [overview, setOverview] = useState(false);
-  // Header fields auto-collapse to a compact summary once untouched for a beat.
   const [fieldsTouched, setFieldsTouched] = useState(false);
   const [fieldsCollapsed, setFieldsCollapsed] = useState(false);
   const dirty = JSON.stringify(draft.items) !== JSON.stringify(project.items);
+  const viewingPrior = !!browseReqId;
+  const viewedReq = viewingPrior ? navList.find((r) => r.id === browseReqId) || null : null;
+  const workTabs = [
+    { id: "app", label: "Application & Cert" },
+    { id: "cont", label: "Continuation Sheet" },
+  ];
+  const { onTouchStart, onTouchEnd } = useReqTabSwipe(workTabs, workTab, setWorkTab);
 
   useEffect(() => setDraft(applyCarriedPercentages(project)), [carrySeed]);
 
@@ -320,6 +342,12 @@ function RequisitionWorkbench({ project, onSave, busy, showToast, onSaved }) {
     const n = nextRequisitionNum(project);
     setReqNum(String(n));
     setAppNum(`REQ-${n}`);
+  }, [carrySeed]);
+
+  useEffect(() => {
+    const auto = buildDraftG702(applyCarriedPercentages(project)).computedPreviousCertificates;
+    setPrevPaidInput(auto ? String(auto) : "");
+    setPrevPaidConfirmed(false);
   }, [carrySeed]);
 
   useEffect(() => {
@@ -332,12 +360,13 @@ function RequisitionWorkbench({ project, onSave, busy, showToast, onSaved }) {
 
   const prevSnap = useMemo(() => previousPctByItemId(project), [project]);
   const hasPrev = Object.keys(prevSnap).length > 0;
-  const prevOverride = prevPaidInput.trim() === "" ? undefined : prevPaidInput;
+  const prevOverride = parseMoneyInput(prevPaidInput);
   const g702 = useMemo(
     () => buildDraftG702(draft, { periodTo, previousCertificates: prevOverride }),
     [draft, periodTo, prevOverride]
   );
   const previewG702 = pendingReq || g702;
+  const displayG702 = viewingPrior ? viewedReq : previewG702;
   const completion = useMemo(() => completionBreakdown(draft.items), [draft.items]);
 
   // Consistency check: does the entered "previously paid" match what the prior
@@ -455,41 +484,120 @@ function RequisitionWorkbench({ project, onSave, busy, showToast, onSaved }) {
     return groups;
   }, [draft.items]);
 
+  const navLabel = viewingPrior
+    ? viewedReq?.applicationNumber || `REQ-${viewedReq?.num}`
+    : appNum || `REQ-${reqNum}`;
+  const navIdx = viewingPrior ? navList.findIndex((r) => r.id === browseReqId) : -1;
+  const goPrev = () => {
+    if (viewingPrior) {
+      if (navIdx > 0) setBrowseReqId(navList[navIdx - 1].id);
+      return;
+    }
+    if (latestReq) setBrowseReqId(latestReq.id);
+  };
+  const goNext = () => {
+    if (!viewingPrior) return;
+    if (navIdx >= 0 && navIdx < navList.length - 1) setBrowseReqId(navList[navIdx + 1].id);
+    else setBrowseReqId(null);
+  };
+
   return (
     <div className="space-y-4" data-testid="requisition-panel">
       <div className="flex items-center justify-between gap-2">
-        <h2 className="text-sm font-extrabold text-slate-700 uppercase tracking-wide">New Requisition</h2>
+        <h2 className="text-sm font-extrabold text-slate-700 uppercase tracking-wide">
+          {viewingPrior ? "Requisition" : "New Requisition"}
+        </h2>
         <span className="text-xs text-slate-500">
           {fmtUsd(draft.contractSum)} · {overallPct(requisitionItems(draft.items))}% · {draft.retainagePct}% retainage
         </span>
       </div>
 
-      <p className="text-xs text-slate-500">
-        <span className="inline-block w-3 h-3 bg-red-100 border border-red-200 rounded mr-1 align-middle" />
-        Red = same as last submitted ·
-        <span className="inline-block w-3 h-3 bg-emerald-100 border border-emerald-300 rounded mx-1 align-middle" />
-        Green = you changed it
-      </p>
+      <ReqNavArrows
+        label={navLabel}
+        onPrev={goPrev}
+        onNext={goNext}
+        prevDisabled={viewingPrior ? navIdx <= 0 : !latestReq}
+        nextDisabled={viewingPrior ? false : true}
+        testId="workbench-req-nav"
+      />
 
-      {dirty ? (
-        <button type="button" className="btn w-full" onClick={saveProgress} disabled={busy}>
-          Save progress %
-        </button>
-      ) : null}
+      <ReqTabBar tabs={workTabs} tab={workTab} setTab={setWorkTab} testId="workbench-tabs" />
 
-      <div className="card px-4 py-3 space-y-2 text-sm" data-testid="requisition-preview-live">
-        <div className="grid grid-cols-2 gap-x-4 gap-y-1">
-          <span className="text-slate-500">Original contract done</span>
-          <span className="text-right font-semibold">{fmtUsd(completion.baseCompleted)}</span>
+      {!viewingPrior ? (
+        <p className="text-xs text-slate-500">
+          <span className="inline-block w-3 h-3 bg-red-100 border border-red-200 rounded mr-1 align-middle" />
+          Red = same as last submitted ·
+          <span className="inline-block w-3 h-3 bg-emerald-100 border border-emerald-300 rounded mx-1 align-middle" />
+          Green = you changed it
+        </p>
+      ) : (
+        <p className="text-xs text-slate-500 text-center">Viewing saved requisition — tap Next → for the new draft.</p>
+      )}
 
-          <span className="text-slate-500">Total completed</span>
-          <span className="text-right font-semibold">{fmtUsd(previewG702.totalCompleted)}</span>
-          <span className="text-slate-500 font-bold">Current payment due</span>
-          <span className="text-right font-extrabold text-brand">{fmtUsd(previewG702.currentPaymentDue)}</span>
-          <span className="text-slate-500">Previously paid</span>
-          <span className="text-right">{fmtUsd(previewG702.previousCertificates)}</span>
-        </div>
+      <div onTouchStart={onTouchStart} onTouchEnd={onTouchEnd} data-testid="workbench-tab-content">
+        {workTab === "app" ? (
+          <div className="card px-4 py-3 space-y-2 text-sm" data-testid="requisition-preview-live">
+            <G702View req={displayG702} showContract />
+          </div>
+        ) : null}
+
+        {workTab === "cont" ? (
+          viewingPrior ? (
+            <G703View req={viewedReq} />
+          ) : (
+            <div className="space-y-3">
+              {dirty ? (
+                <button type="button" className="btn w-full" onClick={saveProgress} disabled={busy}>
+                  Save progress %
+                </button>
+              ) : null}
+              {sections.map((sec) => (
+                <div key={sec.name} className="card overflow-hidden">
+                  <div className="px-4 py-2 bg-slate-50 font-bold text-sm border-b">{sec.name}</div>
+                  <table className="w-full text-sm">
+                    <thead>
+                      <tr className="text-xs text-slate-500 border-b">
+                        <th className="text-left px-3 py-2">Item</th>
+                        <th className="text-right px-2 py-2">Schedule value</th>
+                        <th className="text-right px-2 py-2">From previous application</th>
+                        <th className="text-right px-2 py-2">Total comp completed</th>
+                        <th className="text-right px-2 py-2">% G/C</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {sec.items.map((it) => {
+                        const status = pctChangeStatus(it.completedPct, prevSnap[it.id], hasPrev);
+                        const prevPct = prevSnap[it.id] ?? 0;
+                        return (
+                          <tr key={it.id} className="border-b border-slate-100 last:border-0">
+                            <td className="px-3 py-2">{it.description}</td>
+                            <td className="text-right px-2 py-2 tabular-nums">{fmtUsd(it.value)}</td>
+                            <td className="text-right px-2 py-2 tabular-nums">{fmtUsd(itemPreviouslyEarned(it, prevPct))}</td>
+                            <td className="text-right px-2 py-2 tabular-nums">{fmtUsd(itemEarned(it))}</td>
+                            <td className="text-right px-2 py-2">
+                              {pctInput(it.completedPct, (v) => setItemPct(it.id, v), status)}
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              ))}
+            </div>
+          )
+        ) : null}
+        <p className="text-[11px] text-slate-400 text-center mt-2">← swipe to switch views →</p>
       </div>
+
+      {!viewingPrior ? null : (
+        <button type="button" className="btn w-full bg-brand text-white" onClick={() => setBrowseReqId(null)} data-testid="back-to-new-req">
+          Back to new requisition
+        </button>
+      )}
+
+      {viewingPrior ? null : (
+      <>
 
       {fieldsCollapsed && !fieldsTouched ? (
         <button
@@ -542,9 +650,9 @@ function RequisitionWorkbench({ project, onSave, busy, showToast, onSaved }) {
               Previously paid (previous certificates)
               <div className="flex items-center gap-2 mt-1">
                 <input
-                  type="number"
-                  step="0.01"
-                  className="block border rounded px-2 py-1 w-40 tabular-nums"
+                  type="text"
+                  inputMode="decimal"
+                  className="block border rounded px-2 py-1 w-44 tabular-nums"
                   value={prevPaidInput}
                   placeholder={String(g702.computedPreviousCertificates ?? 0)}
                   onChange={(e) => {
@@ -686,39 +794,8 @@ function RequisitionWorkbench({ project, onSave, busy, showToast, onSaved }) {
           ) : null}
         </>
       )}
-
-      <div className="space-y-3">
-        {sections.map((sec) => (
-          <div key={sec.name} className="card overflow-hidden">
-            <div className="px-4 py-2 bg-slate-50 font-bold text-sm border-b">{sec.name}</div>
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="text-xs text-slate-500 border-b">
-                  <th className="text-left px-3 py-2">Item</th>
-                  <th className="text-right px-2 py-2">Value</th>
-                  <th className="text-right px-2 py-2">Done %</th>
-                  <th className="text-right px-3 py-2">Earned</th>
-                </tr>
-              </thead>
-              <tbody>
-                {sec.items.map((it) => {
-                  const status = pctChangeStatus(it.completedPct, prevSnap[it.id], hasPrev);
-                  return (
-                    <tr key={it.id} className="border-b border-slate-100 last:border-0">
-                      <td className="px-3 py-2">{it.description}</td>
-                      <td className="text-right px-2 py-2 tabular-nums">{fmtUsd(it.value)}</td>
-                      <td className="text-right px-2 py-2">
-                        {pctInput(it.completedPct, (v) => setItemPct(it.id, v), status)}
-                      </td>
-                      <td className="text-right px-3 py-2 tabular-nums">{fmtUsd(itemEarned(it))}</td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
-        ))}
-      </div>
+      </>
+      )}
     </div>
   );
 }
@@ -1006,6 +1083,7 @@ export default function Projects() {
             canDelete={canHardDeleteRequisition(project, selectedReq)}
             deleteBlocked={requisitionDeleteMode(project, selectedReq) === "blocked"}
             onClose={() => setSelectedReqId(null)}
+            onSelect={setSelectedReqId}
             busy={busy}
             showToast={showToast}
           />
