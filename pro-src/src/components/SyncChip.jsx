@@ -7,7 +7,7 @@ import { syncContextFromRoute } from "../lib/syncContext.js";
 import QboSyncSheet from "./QboSyncSheet.jsx";
 
 export default function SyncChip({ dark, compact }) {
-  const { syncedAt, busy, syncProgress, effectiveJob, jobs } = useStore();
+  const { syncedAt, eventsSyncedAt, busy, syncProgress, effectiveJob, jobs } = useStore();
   const loc = useLocation();
   const [open, setOpen] = useState(false);
   const pct = syncProgress?.pct ?? 0;
@@ -19,7 +19,11 @@ export default function SyncChip({ dark, compact }) {
     setOpen(true);
   };
 
-  const idleLabel = syncedAt ? "QBO " + ago(syncedAt) : "Sync QB";
+  const idleLabel = syncedAt
+    ? eventsSyncedAt
+      ? "QBO " + ago(syncedAt) + " · Cal " + ago(eventsSyncedAt)
+      : "QBO " + ago(syncedAt)
+    : "Sync";
 
   if (compact) {
     return (
