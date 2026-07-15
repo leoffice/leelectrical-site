@@ -7,11 +7,7 @@
 import { readFileSync } from "fs";
 import { dirname, join } from "path";
 import { fileURLToPath } from "url";
-<<<<<<< HEAD
-import { buildG702, overallPct } from "../src/lib/requisitionCalc.js";
-=======
 import { buildG702, changeOrderItems, overallPct, sumItemValues } from "../src/lib/requisitionCalc.js";
->>>>>>> main
 import {
   BAEZ_PROJECT_ID,
   BAEZ_ADDRESS,
@@ -19,10 +15,7 @@ import {
   joyCustomerKey,
   ensureProjectDefaults,
 } from "../src/lib/requisitionData.js";
-<<<<<<< HEAD
-=======
 import { reconcileRequisitionFinancials } from "../src/lib/requisitionHelpers.js";
->>>>>>> main
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const dryRun = process.argv.includes("--dry-run");
@@ -83,6 +76,9 @@ function buildReqRecord(project, draft, meta, createdAt) {
     createdAt,
     submittedAt: createdAt,
     importNote: meta.g702?.note || null,
+    // Carry the authoritative certificate block (real submitted paperwork) so
+    // reconcileRequisitionFinancials pins this period to the actual G702.
+    g702: meta.g702 && meta.g702.authoritative ? meta.g702 : undefined,
   };
 }
 
@@ -94,11 +90,11 @@ function itemKey(it) {
 
 function applyImport() {
   const items = data.masterItems.map((it) => ({ ...it }));
-<<<<<<< HEAD
-=======
-  const coTotal = sumItemValues(changeOrderItems(items));
-  const baseContract = sumItemValues(items) - coTotal;
->>>>>>> main
+  // Net change-order total: prefer the authoritative figure from the submitted
+  // paperwork (data.changeOrdersTotal), else sum the CO SOV lines.
+  const coLineTotal = sumItemValues(changeOrderItems(items));
+  const coTotal = data.changeOrdersTotal != null ? data.changeOrdersTotal : coLineTotal;
+  const baseContract = sumItemValues(items) - coLineTotal;
   const project = {
     id: BAEZ_PROJECT_ID,
     name: "Baez Place",
@@ -106,15 +102,9 @@ function applyImport() {
     contractor: "Martin Dorkin",
     gc: JOY_GC_LABEL,
     customerKey: joyCustomerKey(),
-<<<<<<< HEAD
-    contractSum: data.contractSum,
-    retainagePct: 10,
-    changeOrders: 0,
-=======
     contractSum: baseContract,
     retainagePct: 10,
     changeOrders: coTotal,
->>>>>>> main
     changeOrderList: [],
     items,
     requisitions: [],
@@ -167,11 +157,6 @@ function applyImport() {
     project.requisitions.push(req);
     project.items = draftItems;
   }
-<<<<<<< HEAD
-  project._importSteps = steps;
-
-  return ensureProjectDefaults(project);
-=======
   const reconciled = ensureProjectDefaults(reconcileRequisitionFinancials(project));
   reconciled._importSteps = steps;
   return reconciled;
@@ -195,23 +180,18 @@ function mergeProject(localP, serverP) {
           ? serverReqs
           : localReqs;
   return { ...serverP, ...localP, requisitions, items: localP.items?.length ? localP.items : serverP.items };
->>>>>>> main
 }
 
 async function push(project) {
   const cb = Date.now();
   const stateRes = await fetch(`https://leelectrical.us/.netlify/functions/state?cb=${cb}`);
   const state = await stateRes.json();
-<<<<<<< HEAD
-  const ov = { ...(state.ov || {}), _projects: { list: [project] } };
-=======
   const existing = state.ov?._projects?.list || [];
   const merged = mergeProject(project, existing.find((p) => p.id === project.id));
   const list = existing.some((p) => p.id === project.id)
     ? existing.map((p) => (p.id === project.id ? merged : p))
     : [...existing, merged];
   const ov = { ...(state.ov || {}), _projects: { list } };
->>>>>>> main
   const saveRes = await fetch(`https://leelectrical.us/.netlify/functions/state?cb=${cb}`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -229,37 +209,25 @@ for (const s of project._importSteps || []) {
     `Req ${s.num}: ${s.linesWithPct} lines · ${s.pctDone}% done · due $${Math.round(s.currentDue).toLocaleString()} · balance $${Math.round(s.balance).toLocaleString()} · ${flag}`
   );
 }
-<<<<<<< HEAD
-delete project._importSteps;
-=======
 const lastReq = project.requisitions.at(-1);
->>>>>>> main
 console.log(
   JSON.stringify(
     {
       items: project.items.length,
       requisitions: project.requisitions.length,
-<<<<<<< HEAD
-      lastReq: project.requisitions.at(-1)?.applicationNumber,
-      lastDue: project.requisitions.at(-1)?.currentPaymentDue,
-=======
       contractSum: project.contractSum,
       changeOrders: project.changeOrders,
       lastReq: lastReq?.applicationNumber,
       lastDue: lastReq?.currentPaymentDue,
       lastPrev: lastReq?.previousCertificates,
       lastTotal: lastReq?.totalCompleted,
->>>>>>> main
       overallPct: overallPct(project.items),
     },
     null,
     2
   )
 );
-<<<<<<< HEAD
-=======
 delete project._importSteps;
->>>>>>> main
 
 if (dryRun) {
   console.log("dry-run — not pushing");

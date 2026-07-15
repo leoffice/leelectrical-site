@@ -29,7 +29,7 @@ import { fmt$, ago } from "../lib/format.js";
 import CustomerCard from "../components/CustomerCard.jsx";
 import JobInfoCard from "../components/JobInfoCard.jsx";
 import JobAddressCarousel from "../components/JobAddressCarousel.jsx";
-import JobTimeCard from "../components/JobTimeCard.jsx";
+import api from "../data/adapter.js";
 
 import JobEditSheet from "../components/JobEditSheet.jsx";
 
@@ -130,6 +130,35 @@ export default function JobDetail() {
     if (!job) return [];
     return sortJobs(carouselVisibleJobs(jobs, job));
   }, [job, jobs]);
+
+  // If a requisition project is linked to this job (by jobId or shared customer
+  // key) and has requisitions, surface a jump-to-requisition affordance.
+  const [reqProjectId, setReqProjectId] = useState("");
+  useEffect(() => {
+    let alive = true;
+    (async () => {
+      if (!job) {
+        setReqProjectId("");
+        return;
+      }
+      try {
+        const projects = (await api.getProjects()) || [];
+        const jk = clientKey(job);
+        const match = projects.find(
+          (p) =>
+            (p.jobId && p.jobId === job.id) ||
+            (p.customerKey && jk && p.customerKey === jk)
+        );
+        const has = match && ((match.requisitions || []).length > 0 || match.requisitionEnabled);
+        if (alive) setReqProjectId(has ? match.id : "");
+      } catch {
+        if (alive) setReqProjectId("");
+      }
+    })();
+    return () => {
+      alive = false;
+    };
+  }, [job?.id]);
 
   const addJobAtAddress = async () => {
     if (!job) return;
@@ -355,6 +384,7 @@ export default function JobDetail() {
             onPayment={() => setSheet({ kind: "paymenu" })}
             onCalendar={() => openDocTab(job, "calendar", setSheet)}
             onBubbleTap={(bubble) => tapAwarenessBubble(job, bubble, setSheet, openDocTab)}
+            onJumpToRequisition={reqProjectId ? () => nav("/projects/" + reqProjectId) : undefined}
           />
         )}
       </div>
@@ -374,7 +404,8 @@ export default function JobDetail() {
 
       {detailSectionsExpanded ? (
       <>
-      <JobTimeCard job={job} showToast={showToast} />
+      {/* Job timer (clock in/out) removed from Job Information per Phase 3 —
+          time tracking remains on the Time tab. */}
 
       {/* Money */}
       {(() => {

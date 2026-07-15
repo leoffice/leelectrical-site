@@ -1,3 +1,6 @@
 # Apex → www (cutover: www on Cloudflare, apex still on Netlify)
 https://leelectrical.us/*  https://www.leelectrical.us/:splat  301!
 http://leelectrical.us/*   https://www.leelectrical.us/:splat  301!
+
+# Abba app — old /app/gematria preview retired; live app on Cloudflare
+/app/gematria/*  https://gematria-sorter.pages.dev/  301

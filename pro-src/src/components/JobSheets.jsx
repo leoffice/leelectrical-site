@@ -23,6 +23,7 @@ import { useStore } from "../state/store.jsx";
 import { fmt$, parseAmount, todayStr } from "../lib/format.js";
 import { docStorePdfUrl, openPdfBlob, openPdfUrl } from "../lib/pdfOpen.js";
 import { canGenerateLocalDoc } from "../lib/jobToQbDoc.js";
+import { buildInvoicePdfFromJob, buildEstimatePdfFromJob } from "../lib/invoicePdf.js";
 import { chargeCardInApp, fetchSolaIfieldsConfig } from "../lib/solaCharge.js";
 import SolaCardForm, { tokenizeSolaCard } from "./SolaCardForm.jsx";
 import { fmtMoneyPrecise, totalWithFee } from "../lib/payFees.js";
@@ -1278,6 +1279,22 @@ function useDocPdfView(job, kind, no) {
       return;
     }
     setSt({ phase: "fetching", source: DOC_SOURCE_LOCAL });
+    // Build the PDF entirely in the browser (like the requisition) — the
+    // server generate-doc lambda is unreliable, and a client blob opens
+    // instantly with no round-trip. Kick off server-side storage in the
+    // background so the email-send flow still has a stored copy.
+    try {
+      const blob = kind === "estimate" ? buildEstimatePdfFromJob(job) : buildInvoicePdfFromJob(job);
+      if (blob) {
+        if (api.generateLocalDoc) api.generateLocalDoc(job, kind).catch(() => {});
+        openPdfBlob(blob);
+        setSt({ phase: "idle", source: null });
+        return;
+      }
+    } catch (e) {
+      /* fall through to the server path below */
+    }
+    // Fallback: server-generated + stored copy.
     const gen = api.generateLocalDoc ? await api.generateLocalDoc(job, kind) : { ok: false };
     if (gen.ok) {
       if (await waitForStored()) return openStored();

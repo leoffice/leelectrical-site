@@ -8,6 +8,10 @@ import {
   requisitionBalance,
 } from "../../lib/requisitionHelpers.js";
 import { downloadRequisitionPdf } from "../../lib/requisitionPdf.js";
+import { downloadRequisitionExcel } from "../../lib/requisitionExcel.js";
+import { buildInvoicePdfFromJob } from "../../lib/invoicePdf.js";
+import { openPdfBlob } from "../../lib/pdfOpen.js";
+import { clientKey } from "../../lib/customers.js";
 
 function G702View({ req }) {
   return (
@@ -157,17 +161,36 @@ function FilesTab({ req, onUpdate, busy }) {
   );
 }
 
-function SubmitReviewSheet({ project, req, contact, onClose, onUpdate, busy, showToast }) {
+function SubmitReviewSheet({ project, req, contact, jobs = [], onClose, onUpdate, busy, showToast }) {
   const baseEmail = useMemo(() => buildRequisitionEmail({ project, requisition: req, contact }), [project, req, contact]);
   const [includePdf, setIncludePdf] = useState(true);
   const [emailTo, setEmailTo] = useState(() => baseEmail.to);
   const [emailSubject, setEmailSubject] = useState(() => baseEmail.subject);
   const [draftOpened, setDraftOpened] = useState(false);
+  // Change orders: separate files (NOT rolled into the requisition), pulled from
+  // the customer's change-order jobs (synced from QuickBooks). Levi multi-selects.
+  const [addChangeOrders, setAddChangeOrders] = useState(false);
+  const [selectedCoIds, setSelectedCoIds] = useState(() => new Set());
+  const changeOrderJobs = useMemo(() => {
+    const pk = project?.customerKey || "";
+    return (jobs || []).filter(
+      (j) => j.changeOrder && ((pk && clientKey(j) === pk) || (j.changeOrderSourceId && project?.jobId === j.changeOrderSourceId))
+    );
+  }, [jobs, project?.customerKey, project?.jobId]);
+  const toggleCo = (id) =>
+    setSelectedCoIds((s) => {
+      const next = new Set(s);
+      next.has(id) ? next.delete(id) : next.add(id);
+      return next;
+    });
 
   const selectedAttachments = useMemo(
     () => (req.attachments || []).filter((a) => a.attachToEmail),
     [req.attachments]
   );
+
+  const coFileName = (co) =>
+    `${(co.changeOrderLabel || "change-order").replace(/\s+/g, "-")}-${co.invoiceNo || co.id}.pdf`;
 
   const attachList = useMemo(() => {
     const list = [];
@@ -175,8 +198,13 @@ function SubmitReviewSheet({ project, req, contact, onClose, onUpdate, busy, sho
       list.push({ id: "g702-pdf", name: `${req.applicationNumber || "requisition"}.pdf` });
     }
     for (const a of selectedAttachments) list.push(a);
+    if (addChangeOrders) {
+      for (const co of changeOrderJobs) {
+        if (selectedCoIds.has(co.id)) list.push({ id: "co-" + co.id, name: coFileName(co), isChangeOrder: true });
+      }
+    }
     return list;
-  }, [includePdf, req.applicationNumber, selectedAttachments]);
+  }, [includePdf, req.applicationNumber, selectedAttachments, addChangeOrders, changeOrderJobs, selectedCoIds]);
 
   const email = useMemo(
     () =>
@@ -191,8 +219,50 @@ function SubmitReviewSheet({ project, req, contact, onClose, onUpdate, busy, sho
     [project, req, contact, emailTo, emailSubject, attachList]
   );
 
+  // Attach files straight from the device (Android/iOS file finder). Reads each
+  // as a data URL and appends to req.attachments flagged for the email.
+  const addDeviceFiles = async (fileList) => {
+    const files = Array.from(fileList || []);
+    if (!files.length) return;
+    const atts = await Promise.all(
+      files.map(
+        (f) =>
+          new Promise((resolve) => {
+            const reader = new FileReader();
+            reader.onload = () =>
+              resolve({
+                id: `att-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+                name: f.name,
+                url: reader.result,
+                mime: f.type,
+                attachToEmail: true,
+                addedAt: Date.now(),
+              });
+            reader.onerror = () => resolve(null);
+            reader.readAsDataURL(f);
+          })
+      )
+    );
+    const added = atts.filter(Boolean);
+    if (!added.length) return;
+    await onUpdate({ ...req, attachments: [...(req.attachments || []), ...added] });
+    showToast?.(`${added.length} file${added.length > 1 ? "s" : ""} attached`);
+  };
+
   const openDraft = () => {
     if (includePdf) downloadRequisitionPdf(project, req);
+    // Change orders ride along as SEPARATE invoice files (never rolled into the
+    // requisition math) — generate each selected one client-side to attach.
+    if (addChangeOrders) {
+      for (const co of changeOrderJobs) {
+        if (!selectedCoIds.has(co.id)) continue;
+        try {
+          openPdfBlob(buildInvoicePdfFromJob(co));
+        } catch {
+          /* skip a CO that can't render */
+        }
+      }
+    }
     const url = mailtoRequisitionUrl(email);
     window.open(url, "_blank");
     setDraftOpened(true);
@@ -219,12 +289,12 @@ function SubmitReviewSheet({ project, req, contact, onClose, onUpdate, busy, sho
         Nothing goes to the customer until you press Send in your email app. Review everything here first.
       </p>
 
-      <Fld label="To">
+      <Fld label="Recipients (comma-separated)">
         <input
           className="w-full border rounded px-3 py-2 text-sm"
           value={emailTo}
           onChange={(e) => setEmailTo(e.target.value)}
-          placeholder="gc@example.com"
+          placeholder="gc@example.com, pm@example.com"
           data-testid="submit-email-to"
         />
       </Fld>
@@ -245,13 +315,63 @@ function SubmitReviewSheet({ project, req, contact, onClose, onUpdate, busy, sho
         </label>
         {selectedAttachments.map((a) => (
           <div key={a.id} className="card px-3 py-2 text-sm text-slate-600">
-            📎 {a.name} <span className="text-xs text-slate-400">(from Files tab)</span>
+            📎 {a.name} <span className="text-xs text-slate-400">(attached)</span>
           </div>
         ))}
+        <label className="btn w-full cursor-pointer" data-testid="submit-attach-device-label">
+          📎 Attach files from device…
+          <input
+            type="file"
+            multiple
+            accept="image/*,.pdf,.csv,.xls,.xlsx"
+            className="hidden"
+            onChange={(e) => addDeviceFiles(e.target.files)}
+            data-testid="submit-attach-device"
+          />
+        </label>
+
+        <div className="rounded border border-slate-200 p-2" data-testid="submit-change-orders">
+          <label className="flex items-center gap-2 text-sm font-semibold cursor-pointer">
+            <input
+              type="checkbox"
+              checked={addChangeOrders}
+              onChange={() => setAddChangeOrders((v) => !v)}
+              data-testid="submit-add-cos-toggle"
+            />
+            Add change orders (separate files — not rolled into this requisition)
+          </label>
+          {addChangeOrders ? (
+            changeOrderJobs.length ? (
+              <div className="mt-2 space-y-1">
+                {changeOrderJobs.map((co) => (
+                  <label key={co.id} className="flex items-center gap-2 text-sm cursor-pointer px-1 py-0.5">
+                    <input
+                      type="checkbox"
+                      checked={selectedCoIds.has(co.id)}
+                      onChange={() => toggleCo(co.id)}
+                      data-testid={"submit-co-" + co.id}
+                    />
+                    <span className="flex-1 truncate">
+                      🧾 {co.changeOrderLabel || co.title || "Change order"}
+                      {co.invoiceNo ? ` — #${co.invoiceNo}` : ""}
+                    </span>
+                  </label>
+                ))}
+                <p className="text-[11px] text-slate-400 mt-1">
+                  Each selected change order is generated as its own invoice PDF and attached separately.
+                </p>
+              </div>
+            ) : (
+              <p className="text-xs text-slate-500 mt-2">
+                No change orders synced for this customer yet. Sync them from QuickBooks on the job (＋ Change order), then reopen this window.
+              </p>
+            )
+          ) : null}
+        </div>
         {!includePdf && !selectedAttachments.length ? (
           <p className="text-xs text-red-600">Pick at least the G702 PDF or a file to attach.</p>
         ) : null}
-        <p className="text-xs text-slate-400">Download opens the PDF — drag it into your email along with any extra files.</p>
+        <p className="text-xs text-slate-400">Download opens the PDF — attach it plus any extra files in your email app.</p>
       </div>
 
       <div className="mt-3">
@@ -279,7 +399,7 @@ function SubmitReviewSheet({ project, req, contact, onClose, onUpdate, busy, sho
           type="button"
           className="btn w-full bg-brand text-white"
           onClick={openDraft}
-          disabled={busy || (!includePdf && !selectedAttachments.length)}
+          disabled={busy || (!includePdf && !selectedAttachments.length && !(addChangeOrders && selectedCoIds.size))}
           data-testid="submit-open-draft"
         >
           Open email draft
@@ -302,6 +422,7 @@ export default function RequisitionDetail({
   project,
   requisition,
   contact,
+  jobs = [],
   onUpdate,
   onDelete,
   canDelete,
@@ -360,6 +481,14 @@ export default function RequisitionDetail({
         >
           Download PDF
         </button>
+        <button
+          type="button"
+          className="btn flex-1"
+          onClick={() => downloadRequisitionExcel(project, req)}
+          data-testid="download-req-excel"
+        >
+          Download Excel
+        </button>
         <button type="button" className="btn flex-1 bg-brand text-white" onClick={() => setShowEmail(true)} data-testid="submit-requisition">
           Submit requisition
         </button>
@@ -381,6 +510,7 @@ export default function RequisitionDetail({
           project={project}
           req={req}
           contact={contact}
+          jobs={jobs}
           onClose={() => setShowEmail(false)}
           onUpdate={onUpdate}
           busy={busy}

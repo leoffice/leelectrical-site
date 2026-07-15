@@ -6,7 +6,8 @@
       "description": "Electric Service Equipment",
       "value": 459000.0,
       "contractPct": 0,
-      "completedPct": 100.0
+      "completedPct": 100.0,
+      "retainageExempt": true
     },
     {
       "id": "item-2",
@@ -714,6 +715,8 @@
     }
   ],
   "contractSum": 1730100.0,
+  "changeOrdersTotal": 0,
+  "changeOrdersNote": "Requisition/G702 matches the SUBMITTED paperwork: original contract $1,700,000, total completed $1,700,000, retainage $124,100 (per-line: Electric Service Equipment $459,000 line is retainage-EXEMPT, so 10% is withheld only on $1,241,000), earned-less-retainage $1,575,900, balance-to-finish $124,100. Net change orders are carried at $0 on the certificate. Levi's actual cash received of $1,591,265 is $15,365 above the certified $1,575,900 — a separate retainage-release/off-requisition payment, NOT folded into the G702 math.",
   "requisitions": [
     {
       "num": 1,
@@ -4568,8 +4571,9 @@
       "periodTo": "2025-04-25",
       "g702": {
         "periodTo": "2025-04-25",
-        "totalCompleted": 1579691.0,
-        "currentPaymentDue": 52846.2
+        "authoritative": true,
+        "source": "Derived from Req 12 line 7 (previous certificates certified through Req 11)",
+        "earnedLessRetainage": 1467621.9
       },
       "itemsSnapshot": [
         {
@@ -4942,7 +4946,12 @@
       "periodTo": "2025-07-20",
       "g702": {
         "periodTo": "2025-07-20",
+        "authoritative": true,
+        "source": "Requisition 12.pdf (Drive 160Wq7-mhwBT4LIwN7tzsoPDYDv-V08ET), read visually 2026-07-14; reconciled to submitted G702 with per-line retainage (Electric Service Equipment exempt).",
+        "netChangeOrders": 0,
         "totalCompleted": 1700000.0,
+        "earnedLessRetainage": 1575900.0,
+        "previousCertificates": 1467621.9,
         "currentPaymentDue": 108278.1
       },
       "itemsSnapshot": [

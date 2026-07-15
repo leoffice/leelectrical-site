@@ -1,10 +1,6 @@
-<<<<<<< HEAD
 import { getStore } from "./lib/storage/index.mjs";
-=======
-import { getStore } from "@netlify/blobs";
 import { generateAndStoreDoc, loadJobForInvoice } from "./lib/docGenerate.mjs";
 import { canGenerateLocalDoc, docStoreKey } from "./lib/jobToQbDoc.mjs";
->>>>>>> main
 
 // Public pay page + LE Pro — ensure invoice PDFs use the local QBO-clone template.
 // POST { invoiceNo, jobId? }  or  GET ?invoice=<no>&jobId=<id>
