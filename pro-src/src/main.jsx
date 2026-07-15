@@ -45,4 +45,9 @@ if ("serviceWorker" in navigator && !location.hostname.includes("localhost")) {
     checkForAppUpdate();
     navigator.serviceWorker.register(import.meta.env.BASE_URL + "sw.js").catch(() => {});
   });
+  // Long-open PWAs: re-check for a new deploy whenever the app regains focus, so
+  // a stale bundle (e.g. an old server-only invoice generator) can't linger.
+  document.addEventListener("visibilitychange", () => {
+    if (document.visibilityState === "visible") checkForAppUpdate();
+  });
 }

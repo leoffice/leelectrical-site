@@ -1,5 +1,5 @@
 /** Force installed PWAs/APKs to pick up a new deploy — clears stale cached UI. */
-const VERSION_KEY = "le-pro-live-sha";
+const VERSION_KEY = "le-pro-live-build";
 
 async function clearAppCaches() {
   if ("serviceWorker" in navigator) {
@@ -23,17 +23,20 @@ export async function checkForAppUpdate() {
     if (!res.ok) return;
 
     const data = await res.json();
-    const liveSha = String(data.gitShaShort || data.gitSha || "").trim().slice(0, 7);
-    if (!liveSha) return;
+    // Key off builtAt (changes on every build) so a redeploy is always detected
+    // even when the git SHA is unchanged (dirty/same-commit deploys). Fall back
+    // to the SHA if builtAt is missing.
+    const liveBuild = String(data.builtAt || data.gitShaShort || data.gitSha || "").trim();
+    if (!liveBuild) return;
 
     const prev = localStorage.getItem(VERSION_KEY);
-    if (prev && prev !== liveSha) {
+    if (prev && prev !== liveBuild) {
       await clearAppCaches();
-      localStorage.setItem(VERSION_KEY, liveSha);
+      localStorage.setItem(VERSION_KEY, liveBuild);
       window.location.reload();
       return;
     }
-    localStorage.setItem(VERSION_KEY, liveSha);
+    localStorage.setItem(VERSION_KEY, liveBuild);
   } catch {
     /* offline or blocked — keep running with cached shell */
   }
