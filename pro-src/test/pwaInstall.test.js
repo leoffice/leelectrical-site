@@ -2,11 +2,15 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   dismissInstallPrompt,
+  dismissShortcutWarn,
   isAndroid,
+  isBrowserTab,
   isIosSafari,
   isStandalone,
   shouldOfferInstall,
+  shouldWarnShortcut,
   wasInstallDismissed,
+  wasShortcutWarnDismissed,
 } from "../src/lib/pwaInstall.js";
 
 describe("pwaInstall", () => {
@@ -65,5 +69,38 @@ describe("pwaInstall", () => {
     expect(isAndroid()).toBe(true);
     expect(isIosSafari()).toBe(false);
     expect(shouldOfferInstall()).toBe(true);
+  });
+
+  it("detects browser-tab shortcut mode on Android", () => {
+    vi.stubGlobal("navigator", {
+      userAgent: "Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 Chrome/124.0.0.0 Mobile Safari/537.36",
+      platform: "Linux armv8l",
+      maxTouchPoints: 5,
+      standalone: false,
+    });
+    vi.stubGlobal("matchMedia", (q) => ({
+      matches: q.includes("browser"),
+      addEventListener: () => {},
+      removeEventListener: () => {},
+    }));
+    expect(isBrowserTab()).toBe(true);
+    expect(shouldWarnShortcut()).toBe(true);
+  });
+
+  it("hides shortcut warning after dismiss", () => {
+    vi.stubGlobal("navigator", {
+      userAgent: "Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 Chrome/124.0.0.0 Mobile Safari/537.36",
+      platform: "Linux armv8l",
+      maxTouchPoints: 5,
+      standalone: false,
+    });
+    vi.stubGlobal("matchMedia", (q) => ({
+      matches: q.includes("browser"),
+      addEventListener: () => {},
+      removeEventListener: () => {},
+    }));
+    dismissShortcutWarn();
+    expect(wasShortcutWarnDismissed()).toBe(true);
+    expect(shouldWarnShortcut()).toBe(false);
   });
 });

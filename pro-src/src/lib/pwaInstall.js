@@ -1,4 +1,5 @@
 const DISMISS_KEY = "le-pro-install-dismissed";
+const SHORTCUT_WARN_KEY = "le-pro-shortcut-warn-dismissed";
 
 function mediaMatches(query) {
   if (typeof window === "undefined" || typeof window.matchMedia !== "function") return false;
@@ -33,6 +34,37 @@ export function isIosSafari() {
 
 export function isAndroid() {
   return typeof navigator !== "undefined" && /android/i.test(navigator.userAgent || "");
+}
+
+/** True when Chrome opened a home-screen shortcut — still shows the URL bar. */
+export function isBrowserTab() {
+  if (typeof window === "undefined") return false;
+  if (isStandalone()) return false;
+  return mediaMatches("(display-mode: browser)");
+}
+
+export function wasShortcutWarnDismissed() {
+  try {
+    return localStorage.getItem(SHORTCUT_WARN_KEY) === "1";
+  } catch {
+    return false;
+  }
+}
+
+export function dismissShortcutWarn() {
+  try {
+    localStorage.setItem(SHORTCUT_WARN_KEY, "1");
+  } catch {
+    /* ignore */
+  }
+}
+
+/** Android shortcut users need to reinstall as the real app. */
+export function shouldWarnShortcut() {
+  if (typeof window === "undefined") return false;
+  if (!isAndroid() || isStandalone()) return false;
+  if (wasShortcutWarnDismissed()) return false;
+  return isBrowserTab();
 }
 
 export function wasInstallDismissed() {

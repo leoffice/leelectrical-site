@@ -1,0 +1,12 @@
+[
+  {
+    "relation": ["delegate_permission/common.handle_all_urls"],
+    "target": {
+      "namespace": "android_app",
+      "package_name": "us.leelectrical.pro.twa",
+      "sha256_cert_fingerprints": [
+        "AC:62:69:81:81:CE:69:84:42:18:43:3C:BF:7C:E4:5B:B0:5A:BA:1A:10:46:B9:E6:4F:18:5D:98:24:44:E5:80"
+      ]
+    }
+  }
+]
