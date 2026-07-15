@@ -1,4 +1,4 @@
-const CACHE = "ohr-v3";
+const CACHE = "ohr-v4";
 
 const PRECACHE = ["/", "/manifest.json", "/icon-192.png", "/icon-512.png"];
 

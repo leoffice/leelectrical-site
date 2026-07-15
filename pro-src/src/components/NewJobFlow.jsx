@@ -367,6 +367,8 @@ export default function NewJobFlow() {
       key={(newJob.prefill?.calEventId || "new") + ":" + (newJob.prefill?.customer || "manual")}
       prefill={newJob.prefill || {}}
       vendorMode={Boolean(newJob.vendorMode)}
+      sasCallId={newJob.sasCallId || ""}
+      sasRecordingUrl={newJob.sasRecordingUrl || ""}
       onClose={close}
       onCreated={(id) => {
         if (newJob.sasCallId) markSasHandled(newJob.sasCallId, { handled: true, jobId: id });
@@ -666,7 +668,7 @@ function NewCustomerForm({ prefill = {}, onClose, onCreated }) {
   );
 }
 
-function NewJobForm({ prefill, onClose, onCreated, vendorMode = false }) {
+function NewJobForm({ prefill, onClose, onCreated, vendorMode = false, sasCallId = "", sasRecordingUrl = "" }) {
   const { createJob, jobs, events, api, enqueue } = useStore();
   const [f, setF] = useState(() => {
     const o = { date: prefill.date || "", title: prefill.title || "", description: prefill.description || "" };
@@ -831,6 +833,8 @@ function NewJobForm({ prefill, onClose, onCreated, vendorMode = false }) {
       parentCustomerName: cur.parentCustomerName || "",
       parentQboCustomerId: cur.parentQboCustomerId || "",
       description: cur.description || (cur.vendor ? "Vendor: " + cur.vendor : ""),
+      sasCallId: sasCallId || "",
+      sasRecordingUrl: sasRecordingUrl || "",
     };
     const id = await createJob(payload, prefill.calEventId || "");
     if (id) {

@@ -104,7 +104,12 @@ export default function Calls() {
   const done = calls.filter((c) => isHandled(sasTickets, c.id));
 
   const convert = (c) =>
-    setNewJob({ step: "form", prefill: prefillFromCall(c), sasCallId: c.id });
+    setNewJob({
+      step: "form",
+      prefill: prefillFromCall(c),
+      sasCallId: c.id,
+      sasRecordingUrl: callRecording(c),
+    });
   const dismiss = (c) => {
     markSasHandled(c.id, { handled: true, dismissed: true });
     showToast("Ticket dismissed");

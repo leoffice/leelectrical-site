@@ -113,6 +113,7 @@ export default function JobDetail() {
     showToast,
     events,
     jobs,
+    sasCalls,
   } = useStore();
   const job = effectiveJob(id);
   const custKey = job ? (fromCust || clientKey(job)) : "";
@@ -324,6 +325,7 @@ export default function JobDetail() {
             activeId={id}
             events={events}
             commands={commands}
+            sasCalls={sasCalls}
             onSelectJob={(j) => nav("/job/" + j.id + (fromCust ? "?from=" + encodeURIComponent(fromCust) : ""))}
             onAddChangeOrder={() => setSheet({ kind: "changeOrder" })}
             canAddChangeOrder={canAddChangeOrder(jobs, job)}
@@ -341,6 +343,7 @@ export default function JobDetail() {
             job={job}
             events={events}
             commands={commands}
+            sasCalls={sasCalls}
             showOpenLink={false}
             onCardTap={toggleDetailSections}
             onEditJob={() => setSheet({ kind: "jobedit" })}

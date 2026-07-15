@@ -819,6 +819,8 @@ export function StoreProvider({ children }) {
         followUp: { text: "", date: "" },
         status,
         calEventId: calEventId || "",
+        _sasCallId: g.sasCallId || "",
+        _sasRecordingUrl: g.sasRecordingUrl || "",
       };
       setJobs((js) => [...js, { id, ...JSON.parse(JSON.stringify(ov)) }]);
       api

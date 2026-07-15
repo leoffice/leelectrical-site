@@ -7,6 +7,7 @@ export default function JobAddressCarousel({
   activeId,
   events,
   commands,
+  sasCalls,
   onSelectJob,
   onAddChangeOrder,
   canAddChangeOrder = true,
@@ -107,6 +108,7 @@ export default function JobAddressCarousel({
               job={j}
               events={events}
               commands={commands}
+              sasCalls={sasCalls}
               showOpenLink={false}
               onCardTap={j.id === activeId ? onCardTap : () => onSelectJob?.(j)}
               onEditJob={j.id === activeId ? onEditJob : undefined}
