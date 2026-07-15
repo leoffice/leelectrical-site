@@ -194,7 +194,8 @@ function SovUpload({ onParsed, onReplace, projectName }) {
 }
 
 function RequisitionHistoryList({ project, onSelect, onDelete, busy }) {
-  const reqs = [...(project?.requisitions || [])].sort((a, b) => (a.num || 0) - (b.num || 0));
+  // Newest first — Req 13 → Req 1.
+  const reqs = [...(project?.requisitions || [])].sort((a, b) => (b.num || 0) - (a.num || 0));
   const visible = reqs.filter((r) => r.status !== "void");
   if (!visible.length) {
     return <p className="text-sm text-slate-400 text-center py-8" data-testid="req-history-empty">No requisition history yet.</p>;
@@ -731,7 +732,8 @@ export default function Projects() {
   const [sheet, setSheet] = useState(null);
   const [booted, setBooted] = useState(false);
   const [loaded, setLoaded] = useState(false);
-  const [hubTab, setHubTab] = useState("history");
+  // Default landing = Create New Requisition; History is a deliberate tab.
+  const [hubTab, setHubTab] = useState("work");
   const [selectedReqId, setSelectedReqId] = useState(null);
 
   // Normalize stored requisition financials on every read so the G702 identity
@@ -1011,8 +1013,8 @@ export default function Projects() {
           <>
             <div className="flex gap-1 overflow-x-auto pb-1" data-testid="hub-tabs">
               {[
+                { id: "work", label: "Create New Requisition" },
                 { id: "history", label: "Requisition History" },
-                { id: "work", label: "New Requisition" },
                 { id: "changes", label: "Change Orders" },
               ].map((t) => (
                 <button

@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from "react";
+import React, { useMemo, useRef, useState } from "react";
 import Sheet, { Fld } from "../Sheet.jsx";
 import { fmtUsd } from "../../lib/requisitionData.js";
 import {
@@ -418,6 +418,138 @@ function SubmitReviewSheet({ project, req, contact, jobs = [], onClose, onUpdate
   );
 }
 
+/**
+ * In-app Schedule of Values — collapsible, per-line % EDITABLE with live
+ * recompute of each line's earned amount and the requisition totals. Saving
+ * writes the edited %s back to the requisition snapshot.
+ */
+function SovTab({ req, onUpdate, busy, showToast }) {
+  const rows = req.g703 || [];
+  const [pcts, setPcts] = useState(() => {
+    const m = {};
+    rows.forEach((r) => (m[r.itemNo] = Number(r.pctComplete) || 0));
+    return m;
+  });
+  const [collapsed, setCollapsed] = useState(false);
+  const setPct = (itemNo, v) =>
+    setPcts((p) => ({ ...p, [itemNo]: Math.min(100, Math.max(0, Number(v) || 0)) }));
+
+  const live = useMemo(() => {
+    let completed = 0;
+    let retainage = 0;
+    const lines = rows.map((r) => {
+      const pct = pcts[r.itemNo] ?? Number(r.pctComplete) ?? 0;
+      const earned = Math.round(((Number(r.scheduledValue) || 0) * pct) / 100 * 100) / 100;
+      const ret = Math.round((earned * (Number(r.retainagePct) || 0)) / 100 * 100) / 100;
+      completed += earned;
+      retainage += ret;
+      return { ...r, pct, earned, ret, thisPeriod: Math.round((earned - (Number(r.prevCompleted) || 0)) * 100) / 100 };
+    });
+    completed = Math.round(completed * 100) / 100;
+    retainage = Math.round(retainage * 100) / 100;
+    const elr = Math.round((completed - retainage) * 100) / 100;
+    const prevCerts = Number(req.previousCertificates) || 0;
+    const currentDue = Math.round(Math.max(0, elr - prevCerts) * 100) / 100;
+    return { lines, completed, retainage, elr, prevCerts, currentDue };
+  }, [rows, pcts, req.previousCertificates]);
+
+  const dirty = rows.some((r) => (pcts[r.itemNo] ?? Number(r.pctComplete) ?? 0) !== (Number(r.pctComplete) || 0));
+
+  const saveEdits = async () => {
+    const snap = (req.itemsSnapshot || []).map((s, i) => {
+      const row = rows[i];
+      return { ...s, completedPct: row ? (pcts[row.itemNo] ?? s.completedPct) : s.completedPct };
+    });
+    const g703 = live.lines.map((l) => ({
+      ...l,
+      pctComplete: l.pct,
+      totalCompleted: l.earned,
+      thisPeriod: l.thisPeriod,
+      retainage: l.ret,
+    }));
+    await onUpdate({
+      ...req,
+      itemsSnapshot: snap,
+      g703,
+      totalCompleted: live.completed,
+      totalRetainage: live.retainage,
+      earnedLessRetainage: live.elr,
+      currentPaymentDue: live.currentDue,
+      amountCertified: live.currentDue,
+    });
+    showToast?.("Schedule of Values updated");
+  };
+
+  return (
+    <div className="space-y-2" data-testid="sov-tab">
+      <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-sm card px-3 py-2">
+        <span className="text-slate-500">Total completed</span>
+        <span className="text-right font-semibold tabular-nums" data-testid="sov-total-completed">{fmtUsd(live.completed)}</span>
+        <span className="text-slate-500">Retainage</span>
+        <span className="text-right tabular-nums">{fmtUsd(live.retainage)}</span>
+        <span className="text-slate-500">Earned less retainage</span>
+        <span className="text-right tabular-nums">{fmtUsd(live.elr)}</span>
+        <span className="text-slate-500">Previously paid</span>
+        <span className="text-right tabular-nums">{fmtUsd(live.prevCerts)}</span>
+        <span className="text-slate-500 font-bold">Current payment due</span>
+        <span className="text-right font-extrabold text-brand tabular-nums" data-testid="sov-current-due">{fmtUsd(live.currentDue)}</span>
+      </div>
+
+      <button
+        type="button"
+        className="w-full flex items-center justify-between text-sm font-bold px-1 py-1"
+        onClick={() => setCollapsed((c) => !c)}
+        data-testid="sov-collapse-toggle"
+      >
+        <span>Schedule of Values ({rows.length} lines)</span>
+        <span className="text-brand">{collapsed ? "Show ▾" : "Hide ▴"}</span>
+      </button>
+
+      {!collapsed ? (
+        <div className="card overflow-hidden">
+          <table className="w-full text-xs">
+            <thead>
+              <tr className="text-slate-500 border-b bg-slate-50">
+                <th className="text-left px-2 py-2">Description</th>
+                <th className="text-right px-2 py-2">Value</th>
+                <th className="text-right px-2 py-2">%</th>
+                <th className="text-right px-2 py-2">Earned</th>
+              </tr>
+            </thead>
+            <tbody>
+              {live.lines.map((l) => (
+                <tr key={l.itemNo} className="border-b border-slate-100">
+                  <td className="px-2 py-1.5">{l.description}</td>
+                  <td className="text-right px-2 py-1.5 tabular-nums">{fmtUsd(l.scheduledValue)}</td>
+                  <td className="text-right px-1 py-1.5">
+                    <input
+                      type="number"
+                      min={0}
+                      max={100}
+                      className="w-14 text-right border rounded px-1 py-0.5"
+                      value={l.pct}
+                      onChange={(e) => setPct(l.itemNo, e.target.value)}
+                      onFocus={(e) => e.target.select()}
+                      data-testid={`sov-pct-${l.itemNo}`}
+                    />
+                  </td>
+                  <td className="text-right px-2 py-1.5 tabular-nums font-semibold">{fmtUsd(l.earned)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      ) : null}
+
+      {dirty ? (
+        <button type="button" className="btn w-full bg-brand text-white" onClick={saveEdits} disabled={busy} data-testid="sov-save">
+          Save Schedule of Values changes
+        </button>
+      ) : null}
+    </div>
+  );
+}
+
 export default function RequisitionDetail({
   project,
   requisition,
@@ -431,17 +563,29 @@ export default function RequisitionDetail({
   busy,
   showToast,
 }) {
-  const [tab, setTab] = useState("app");
+  const [tab, setTab] = useState("sov");
   const [showEmail, setShowEmail] = useState(false);
   const req = requisition;
-  if (!req) return null;
 
   const tabs = [
+    { id: "sov", label: "Schedule of Values" },
     { id: "app", label: "Application & Cert" },
     { id: "cont", label: "Continuation Sheet" },
     { id: "pay", label: "Payments" },
     { id: "files", label: "Files" },
   ];
+  // Swipe left/right to move between tabs (no PDF download needed).
+  const touchX = useRef(0);
+  const idx = tabs.findIndex((t) => t.id === tab);
+  const onTouchStart = (e) => (touchX.current = e.touches[0]?.clientX ?? 0);
+  const onTouchEnd = (e) => {
+    const dx = (e.changedTouches[0]?.clientX ?? 0) - touchX.current;
+    if (Math.abs(dx) < 50) return;
+    const next = dx < 0 ? Math.min(tabs.length - 1, idx + 1) : Math.max(0, idx - 1);
+    setTab(tabs[next].id);
+  };
+
+  if (!req) return null;
 
   return (
     <div className="space-y-4" data-testid="requisition-detail">
@@ -467,10 +611,14 @@ export default function RequisitionDetail({
         ))}
       </div>
 
-      {tab === "app" ? <G702View req={req} /> : null}
-      {tab === "cont" ? <G703View req={req} /> : null}
-      {tab === "pay" ? <PaymentsTab req={req} onUpdate={onUpdate} busy={busy} /> : null}
-      {tab === "files" ? <FilesTab req={req} onUpdate={onUpdate} busy={busy} /> : null}
+      <div onTouchStart={onTouchStart} onTouchEnd={onTouchEnd} data-testid="req-tab-content">
+        {tab === "sov" ? <SovTab req={req} onUpdate={onUpdate} busy={busy} showToast={showToast} /> : null}
+        {tab === "app" ? <G702View req={req} /> : null}
+        {tab === "cont" ? <G703View req={req} /> : null}
+        {tab === "pay" ? <PaymentsTab req={req} onUpdate={onUpdate} busy={busy} /> : null}
+        {tab === "files" ? <FilesTab req={req} onUpdate={onUpdate} busy={busy} /> : null}
+        <p className="text-[11px] text-slate-400 text-center mt-2">← swipe to switch views →</p>
+      </div>
 
       <div className="flex gap-2 flex-wrap">
         <button
