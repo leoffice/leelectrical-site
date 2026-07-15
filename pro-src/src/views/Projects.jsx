@@ -344,8 +344,16 @@ function RequisitionWorkbench({ project, onSave, busy, showToast, onSaved }) {
   const prevMismatch =
     prevOverride != null &&
     Math.abs((Number(prevOverride) || 0) - (Number(g702.computedPreviousCertificates) || 0)) > 0.01;
-  // Generate gate: at least one SOV change AND previously-paid confirmed.
-  const canGenerate = dirty && prevPaidConfirmed;
+  // Every SOV line already at 100% — the project is complete, so the next
+  // requisition is the final/retainage draw (e.g. Baez Req 13); there's no % to
+  // raise, so we allow generation without a fresh SOV change.
+  const allComplete = useMemo(() => {
+    const base = requisitionItems(draft.items);
+    return base.length > 0 && base.every((it) => (Number(it.completedPct) || 0) >= 100);
+  }, [draft.items]);
+  // Generate gate: previously-paid confirmed AND (a SOV change was made OR the
+  // project is already fully complete).
+  const canGenerate = prevPaidConfirmed && (dirty || allComplete);
 
   // Auto-collapse the header fields after a short idle once untouched.
   useEffect(() => {
@@ -670,9 +678,9 @@ function RequisitionWorkbench({ project, onSave, busy, showToast, onSaved }) {
           </button>
           {!canGenerate ? (
             <p className="text-[11px] text-slate-500 text-center mt-1" data-testid="generate-gate-hint">
-              {!dirty
-                ? "Change at least one line’s % to generate."
-                : "Confirm “Previously paid” to generate."}
+              {!prevPaidConfirmed
+                ? "Confirm “Previously paid” to generate."
+                : "Raise at least one line’s % to generate the next draw."}
             </p>
           ) : null}
         </>
