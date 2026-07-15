@@ -10,6 +10,7 @@
 //   snoozePair / isSnoozed -> "Ask me later" until next login
 //     (sessionStorage lepro_merge_snooze — cleared on fresh app open)
 
+import { serviceAddressesExcludingBilling } from "./addressSync.js";
 import { fmt$, parseAmount } from "./format.js";
 import { normalizePayments, remainingBalance, totalPaid, amountOwedAtStart } from "./payments.js";
 
@@ -508,13 +509,15 @@ export function unknownCustomers(list, jobs) {
 
 /** Contact fields for side-by-side customer duplicate comparison. */
 export function customerContactCompareRows(profileA, profileB) {
-  const svc = (p) => (p.serviceAddresses || []).join("\n");
+  const svc = (p) => serviceAddressesExcludingBilling(p.serviceAddresses, p.billingAddress).join("\n");
+  const leftSvc = svc(profileA);
+  const rightSvc = svc(profileB);
   return [
     { label: "Customer", left: profileA.name, right: profileB.name },
     { label: "Phone", left: profileA.phone, right: profileB.phone },
     { label: "Email", left: profileA.email, right: profileB.email },
     { label: "Billing", left: profileA.billingAddress, right: profileB.billingAddress },
-    { label: "Service", left: svc(profileA), right: svc(profileB) },
+    ...(leftSvc || rightSvc ? [{ label: "Service", left: leftSvc, right: rightSvc }] : []),
   ];
 }
 

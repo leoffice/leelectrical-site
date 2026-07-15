@@ -102,7 +102,7 @@ export default function AddAppointmentSheet({
   onDuplicate,
   showCalendar = true,
 }) {
-  const { events, jobs, enqueue, showToast, patchAndSave, patchJob, appendLocalEvent, pullCalendarNow } = useStore();
+  const { events, jobs, api, enqueue, showToast, patchAndSave, patchJob, appendLocalEvent, pullCalendarNow } = useStore();
   const isDuplicate = !!duplicateFrom;
   const isEdit = !!editEvent && !isDuplicate;
   const fromInspection = !!inspectionPreset?.step || (isEdit && isInspectionEvent(editEvent));
@@ -322,7 +322,8 @@ export default function AddAppointmentSheet({
         events={events}
         value={location}
         onChange={setLocation}
-        hint="Tap a suggested address to confirm, or type your own"
+        suggestAddresses={api.suggestAddresses?.bind(api)}
+        hint="Your saved addresses first, then real-world matches as you type"
       />
       <Fld label="Notes" hint="Phone, details (optional)">
         <textarea className="input min-h-[60px]" value={notes} onChange={(e) => setNotes(e.target.value)} aria-label="Notes" />

@@ -27,6 +27,7 @@ export default function ServiceAddressField({
   events = [],
   value,
   onChange,
+  onServiceBlur,
   onApartmentChange,
   suggestAddresses,
   testId = "service-address",
@@ -86,6 +87,7 @@ export default function ServiceAddressField({
         label={label}
         value={value}
         onChange={onChange}
+        onBlurExtra={onServiceBlur}
         jobs={jobs}
         events={events}
         suggestAddresses={suggestAddresses}

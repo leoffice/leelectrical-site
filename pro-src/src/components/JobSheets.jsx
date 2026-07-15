@@ -18,6 +18,8 @@ import CustomerComposeSheet from "./CustomerComposeSheet.jsx";
 import { evStart } from "../lib/format.js";
 import CustomerSearch from "./CustomerSearch.jsx";
 import { enrichAndPatchCustomer } from "./NewJobFlow.jsx";
+import AddressAutocompleteField from "./AddressAutocompleteField.jsx";
+import { syncBillingFromService } from "../lib/addressSync.js";
 import { useStore } from "../state/store.jsx";
 
 import { fmt$, parseAmount, todayStr } from "../lib/format.js";
@@ -2085,13 +2087,14 @@ export function PaperworkApptSheet({ job, branch, step, initialDt = "", onClose 
 
 /* ---------- 3. Customer + job location edit ---------- */
 export function CustEditSheet({ job, onClose }) {
-  const { patchAndSave, enqueue, showToast, jobs, api } = useStore();
+  const { patchAndSave, enqueue, showToast, jobs, events, api } = useStore();
   const [f, setF] = useState({
     businessName: job.businessName || job.customer || "",
     personName: job.personName || "",
     phone: job.phone || "",
     email: job.email || "",
     billingAddress: job.billingAddress || "",
+    serviceAddress: job.serviceAddress || job.address || "",
 
     qboCustomerId: job.qboCustomerId || "",
     parentCustomerName: job.parentCustomerName || "",
@@ -2113,15 +2116,21 @@ export function CustEditSheet({ job, onClose }) {
         return;
       }
       const patch = await enrichAndPatchCustomer(customer, jobs, api);
-      setF((o) => ({
-        ...o,
-        businessName: patch.businessName || patch.customer || o.businessName,
-        personName: patch.personName || o.personName || "",
-        phone: patch.phone || o.phone || "",
-        email: patch.email || o.email || "",
-        billingAddress: patch.billingAddress || o.billingAddress || "",
-        qboCustomerId: patch.qboCustomerId || o.qboCustomerId || "",
-      }));
+      setF((o) => {
+        const serviceAddress = patch.serviceAddress || patch.address || o.serviceAddress || "";
+        return {
+          ...o,
+          businessName: patch.businessName || patch.customer || o.businessName,
+          personName: patch.personName || o.personName || "",
+          phone: patch.phone || o.phone || "",
+          email: patch.email || o.email || "",
+          serviceAddress,
+          billingAddress:
+            patch.billingAddress ||
+            syncBillingFromService(serviceAddress, { billingAddress: o.billingAddress, serviceAddress: o.serviceAddress }),
+          qboCustomerId: patch.qboCustomerId || o.qboCustomerId || "",
+        };
+      });
     },
     [api, jobs]
   );
@@ -2135,6 +2144,8 @@ export function CustEditSheet({ job, onClose }) {
       phone: f.phone || "",
       email: f.email || "",
       billingAddress: f.billingAddress || "",
+      serviceAddress: f.serviceAddress || "",
+      address: f.serviceAddress || "",
 
       qboCustomerId: f.qboCustomerId || "",
       parentCustomerName: f.parentCustomerName || "",
@@ -2214,18 +2225,46 @@ export function CustEditSheet({ job, onClose }) {
         onParentNameChange={(v) => setF((o) => ({ ...o, parentCustomerName: v, parentQboCustomerId: "" }))}
         onParentPick={pickParent}
       />
-      {[["personName", "Person name"], ["phone", "Phone"], ["email", "Email"], ["billingAddress", "Billing address"]].map(
-        ([k, l]) => (
-          <Fld key={k} label={l}>
-            <input className="input" value={f[k]} onChange={set(k)} aria-label={l} />
-          </Fld>
-        )
-      )}
+      {[["personName", "Person name"], ["phone", "Phone"], ["email", "Email"]].map(([k, l]) => (
+        <Fld key={k} label={l}>
+          <input className="input" value={f[k]} onChange={set(k)} aria-label={l} />
+        </Fld>
+      ))}
+      <Fld label="Service address" hint="Fills billing when billing is empty or still matched the old service address">
+        <AddressAutocompleteField
+          label="Service address"
+          value={f.serviceAddress}
+          onChange={(v) => setF((o) => ({ ...o, serviceAddress: v }))}
+          onBlurExtra={() =>
+            setF((o) => ({
+              ...o,
+              billingAddress: syncBillingFromService(o.serviceAddress, o),
+            }))
+          }
+          jobs={jobs}
+          events={events}
+          suggestAddresses={api.suggestAddresses?.bind(api)}
+          testId="custedit-service"
+          ariaLabel="Service address"
+        />
+      </Fld>
+      <Fld label="Billing address" hint="Your saved addresses first, then real-world matches as you type">
+        <AddressAutocompleteField
+          label="Billing address"
+          value={f.billingAddress}
+          onChange={(v) => setF((o) => ({ ...o, billingAddress: v }))}
+          jobs={jobs}
+          events={events}
+          suggestAddresses={api.suggestAddresses?.bind(api)}
+          testId="custedit-billing"
+          ariaLabel="Billing address"
+        />
+      </Fld>
       <button className="btn-brand w-full mt-3" onClick={saveAndSync} data-testid="cust-save-sync">
         Save &amp; sync
       </button>
       <p className="text-[11px] text-slate-400 text-center mt-2">
-        Saves customer info and syncs to QuickBooks. Use Edit job for service address on this invoice/estimate.
+        Saves customer info and syncs to QuickBooks. Service address here is the customer default — use Edit job to change it on a specific invoice or estimate.
       </p>
     </Sheet>
   );

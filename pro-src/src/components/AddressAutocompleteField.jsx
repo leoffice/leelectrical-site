@@ -96,6 +96,7 @@ export default function AddressAutocompleteField({
   label,
   value,
   onChange,
+  onBlurExtra,
   jobs = [],
   events = [],
   suggestAddresses,
@@ -138,6 +139,7 @@ export default function AddressAutocompleteField({
     setPicked(true);
     setOpen(false);
     onChange(addr);
+    onBlurExtra?.(addr);
   };
 
   return (
@@ -153,7 +155,10 @@ export default function AddressAutocompleteField({
           }
           setOpen(true);
         }}
-        onBlur={() => setTimeout(() => setOpen(false), 150)}
+        onBlur={() => {
+          setTimeout(() => setOpen(false), 150);
+          onBlurExtra?.(value);
+        }}
         aria-label={ariaLabel || label}
         data-testid={testId}
         autoComplete="off"

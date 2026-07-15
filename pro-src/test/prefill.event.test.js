@@ -60,7 +60,7 @@ describe("prefillFromEvent", () => {
     expect(p.phone).toBe("917-555-2222");
     expect(p.email).toBe("jane@x.com");
     expect(p.serviceAddress).toBe("55 Elm St, Brooklyn, NY");
-    expect(p.billingAddress).toBe("");
+    expect(p.billingAddress).toBe("55 Elm St, Brooklyn, NY");
   });
 });
 

@@ -213,9 +213,8 @@ export function prefillFromEvent(e) {
   }
 
   const serviceAddress = location || "";
-  if (!billingAddress && location) {
-    // Same address or none in description — service only.
-    billingAddress = "";
+  if (!billingAddress && serviceAddress) {
+    billingAddress = serviceAddress;
   }
 
   let businessName = names.businessName;

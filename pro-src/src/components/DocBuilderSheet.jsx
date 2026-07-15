@@ -6,6 +6,7 @@ import CustomerSearch from "./CustomerSearch.jsx";
 import { useStore } from "../state/store.jsx";
 import { DEFAULT_QBO_ITEMS, filterQboItems } from "../data/qboItems.js";
 import ServiceAddressField from "./ServiceAddressField.jsx";
+import AddressAutocompleteField from "./AddressAutocompleteField.jsx";
 import { emptyLine, initialLines, lineAmount, linesTotal } from "../lib/qboDoc.js";
 import { planDocSaveLocal, planDocSaveSync } from "../lib/docSync.js";
 import { enqueueCustomerQboSync } from "../lib/customerQboEnqueue.js";
@@ -214,7 +215,7 @@ function LineRow({ line, index, items, onChange, onRemove, canRemove, progressMo
   );
 }
 
-function CustomerHeaderPanel({ job, allJobs, api, onPatch }) {
+function CustomerHeaderPanel({ job, allJobs, events, api, onPatch }) {
   const applyCustomer = async (c) => {
     if (!c) return;
     if (c._newCustomer) {
@@ -263,8 +264,17 @@ function CustomerHeaderPanel({ job, allJobs, api, onPatch }) {
       <Fld label="Email">
         <input className="input" value={job.email || ""} onChange={set("email")} aria-label="Email" />
       </Fld>
-      <Fld label="Billing address">
-        <input className="input" value={job.billingAddress || ""} onChange={set("billingAddress")} aria-label="Billing address" />
+      <Fld label="Billing address" hint="Your saved addresses first, then real-world matches as you type">
+        <AddressAutocompleteField
+          label="Billing address"
+          value={job.billingAddress || ""}
+          onChange={(v) => onPatch({ billingAddress: v })}
+          jobs={allJobs}
+          events={events}
+          suggestAddresses={api.suggestAddresses?.bind(api)}
+          testId="doc-billing"
+          ariaLabel="Billing address"
+        />
       </Fld>
       <Fld label="Job title / scope" hint="What this invoice is for">
         <input className="input" value={job.title || ""} onChange={set("title")} aria-label="Job title" />
@@ -285,7 +295,7 @@ export default function DocBuilderSheet({
   allJobs,
   onCustomerPatch,
 }) {
-  const { patchAndSave, enqueue, logSend, showToast, api, createJob, jobs: storeJobs } = useStore();
+  const { patchAndSave, enqueue, logSend, showToast, api, createJob, jobs: storeJobs, events } = useStore();
   const boardJobs = allJobs || storeJobs;
   const [job, setJob] = useState(() => jobProp || {});
   useEffect(() => {
@@ -595,7 +605,7 @@ export default function DocBuilderSheet({
   return (
     <Sheet title={title + (job.customer ? " — " + job.customer : "")} onClose={onClose} wide>
       {editableCustomer ? (
-        <CustomerHeaderPanel job={job} allJobs={boardJobs} api={api} onPatch={patchJobState} />
+        <CustomerHeaderPanel job={job} allJobs={boardJobs} events={events} api={api} onPatch={patchJobState} />
       ) : (
         <p className="text-[11px] text-slate-400 -mt-1 mb-3">
           Pre-filled from job info. Line items use exact QuickBooks Products &amp; Services names.
@@ -605,7 +615,7 @@ export default function DocBuilderSheet({
       <ServiceAddressField
         job={job}
         jobs={boardJobs}
-        events={[]}
+        events={events}
         value={serviceAddress}
         onChange={setServiceAddress}
         onApartmentChange={setApartment}
