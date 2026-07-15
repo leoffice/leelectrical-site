@@ -65,6 +65,25 @@ export function reminderQuickActions() {
   ];
 }
 
+/** Contextual smart suggestions — hide actions that duplicate existing paperwork. */
+export function contextualReminderActions(job) {
+  const scenario = classifyAppointment(job);
+  const actions = followUpActions(scenario).filter((a) => a.key !== "remind");
+  const hasEst = !!(
+    job?.estimateNo ||
+    job?._estimateConfirmed ||
+    (job?.estimateLines && job.estimateLines.length)
+  );
+  const hasInv = !!(job?.invoiceNo || job?._invoiceConfirmed);
+
+  return actions.filter((a) => {
+    if (a.key === "create_job" && job?.id) return false;
+    if (a.key === "create_estimate" && hasEst) return false;
+    if (a.key === "create_invoice" && hasInv) return false;
+    return true;
+  });
+}
+
 /** Action keys the UI can render as buttons. */
 export function followUpActions(scenario) {
   const actions = [];

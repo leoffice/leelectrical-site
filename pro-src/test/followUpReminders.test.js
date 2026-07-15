@@ -85,11 +85,23 @@ describe("followUpReminders", () => {
     expect(hits.map((e) => e.id)).toEqual(["michelle"]);
   });
 
-  it("generateReminderNudge asks about next step when estimate exists", () => {
+  it("generateReminderNudge asks about next step when estimate was emailed", () => {
     const event = { id: "e1", summary: "Michelle", start: "2026-07-07T10:00" };
-    const job = { id: "J-1", customer: "Michelle", estimateNo: "251900" };
+    const job = {
+      id: "J-1",
+      customer: "Michelle",
+      estimateNo: "251900",
+      invoiceHistory: [{ date: "2026-07-01", kind: "Estimate #251900 emailed", to: "a@x.com" }],
+    };
     const msg = generateReminderNudge({ event, job, userNote: "", today: "2026-07-10" });
-    expect(msg).toMatch(/next step|approval|invoice/i);
+    expect(msg).toMatch(/approve|changes|emailed/i);
+  });
+
+  it("generateReminderNudge flags unsent estimate", () => {
+    const event = { id: "e1", summary: "Michelle", start: "2026-07-07T10:00" };
+    const job = { id: "J-1", customer: "Michelle", estimateNo: "251900", invoiceHistory: [] };
+    const msg = generateReminderNudge({ event, job, userNote: "", today: "2026-07-10" });
+    expect(msg).toMatch(/never sent|created but/i);
   });
 
   it("generateReminderNudge prompts estimate when job has no docs", () => {

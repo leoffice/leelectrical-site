@@ -10,7 +10,8 @@ describe("followUpDedupe", () => {
 
   it("flags note intent that matches a smart suggestion", () => {
     const actions = [{ key: "create_invoice" }];
-    expect(intentDuplicatesSuggestion({ kind: "invoice" }, actions)).toBe(true);
-    expect(intentDuplicatesSuggestion({ kind: "estimate" }, actions)).toBe(false);
+    expect(intentDuplicatesSuggestion({ action: "create_invoice" }, actions)).toBe(true);
+    expect(intentDuplicatesSuggestion({ action: "create_estimate" }, actions)).toBe(false);
+    expect(intentDuplicatesSuggestion({ action: "email_invoice" }, [{ key: "email_invoice" }])).toBe(true);
   });
 });
