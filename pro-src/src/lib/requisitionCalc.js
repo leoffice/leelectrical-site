@@ -122,14 +122,17 @@ export function buildG702(project, opts = {}) {
   // draws). Prefer the stored cumulative; fall back to summing draws for legacy
   // records that never stored earnedLessRetainage.
   const priorReqs = (project.requisitions || []).filter((r) => r.status !== "void" && r.status !== "draft");
-  const maxPriorElr = priorReqs.reduce((m, r) => Math.max(m, Number(r.earnedLessRetainage) || 0), 0);
+  const latestPrior = [...priorReqs].sort(
+    (a, b) => (b.num || 0) - (a.num || 0) || (b.createdAt || 0) - (a.createdAt || 0)
+  )[0];
+  const latestPriorElr = latestPrior ? Number(latestPrior.earnedLessRetainage) || 0 : 0;
   const sumPriorDraws = priorReqs.reduce((s, r) => s + (Number(r.amountCertified) || Number(r.currentPaymentDue) || 0), 0);
   // "Previously paid" (line 7) is normally the prior period's cumulative earned-
   // less-retainage, but Levi can override it to the amount he ACTUALLY received
   // (the GC sometimes certifies less than requested — see reconciliation notes).
   const hasPrevOverride =
     opts.previousCertificates != null && opts.previousCertificates !== "" && !Number.isNaN(Number(opts.previousCertificates));
-  const computedPrevCerts = maxPriorElr > 0 ? maxPriorElr : sumPriorDraws;
+  const computedPrevCerts = latestPriorElr > 0 ? latestPriorElr : sumPriorDraws;
   const prevCertsRaw = roundMoney(hasPrevOverride ? Number(opts.previousCertificates) : computedPrevCerts);
   const currentDue = roundMoney(Math.max(0, earnedLessRetainage - prevCertsRaw));
   const prevCerts = roundMoney(earnedLessRetainage - currentDue);
