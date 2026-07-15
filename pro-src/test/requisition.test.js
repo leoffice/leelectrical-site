@@ -44,6 +44,13 @@ describe("requisitionCalc", () => {
     expect(itemEarned({ value: 10000, completedPct: 50 })).toBe(5000);
   });
 
+  it("seeds Baez SOV from Drive import (first line $459,000)", () => {
+    const project = seedBaezProject();
+    expect(project.items[0].description).toBe("Electric Service Equipment");
+    expect(project.items[0].value).toBe(459000);
+    expect(project.contractSum).toBe(1700000);
+  });
+
   it("builds G702 with retainage and previous certs", () => {
     const project = seedBaezProject();
     project.items = project.items.slice(0, 2).map((it) => ({ ...it, completedPct: 100 }));
@@ -189,7 +196,11 @@ describe("requisitionHelpers", () => {
 
   it("createRequisitionRecord captures G702 fields", () => {
     const project = seedBaezProject();
-    const draft = { ...project, items: project.items.slice(0, 2).map((it) => ({ ...it, completedPct: 50 })) };
+    const draft = {
+      ...project,
+      changeOrders: 0,
+      items: project.items.slice(0, 2).map((it) => ({ ...it, completedPct: 50 })),
+    };
     const req = createRequisitionRecord(project, draft, { periodTo: "2026-07-14", num: 13 });
     expect(req.num).toBe(13);
     expect(req.applicationNumber).toBe("REQ-13");

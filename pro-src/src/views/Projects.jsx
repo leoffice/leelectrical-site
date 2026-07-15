@@ -7,7 +7,7 @@ import CustomerCard from "../components/CustomerCard.jsx";
 import RequisitionDetail from "../components/requisition/RequisitionDetail.jsx";
 import ChangeOrdersPanel from "../components/requisition/ChangeOrdersPanel.jsx";
 import { useStore } from "../state/store.jsx";
-import { isChangeOrderItem, itemEarned, overallPct, requisitionItems } from "../lib/requisitionCalc.js";
+import { isChangeOrderItem, itemEarned, itemPreviouslyEarned, overallPct, requisitionItems } from "../lib/requisitionCalc.js";
 import {
   BAEZ_PROJECT_ID,
   ensureProjectDefaults,
@@ -697,22 +697,25 @@ function RequisitionWorkbench({ project, onSave, busy, showToast, onSaved }) {
               <thead>
                 <tr className="text-xs text-slate-500 border-b">
                   <th className="text-left px-3 py-2">Item</th>
-                  <th className="text-right px-2 py-2">Value</th>
-                  <th className="text-right px-2 py-2">Done %</th>
-                  <th className="text-right px-3 py-2">Earned</th>
+                  <th className="text-right px-2 py-2">Schedule value</th>
+                  <th className="text-right px-2 py-2">From previous application</th>
+                  <th className="text-right px-2 py-2">Total comp completed</th>
+                  <th className="text-right px-2 py-2">% G/C</th>
                 </tr>
               </thead>
               <tbody>
                 {sec.items.map((it) => {
                   const status = pctChangeStatus(it.completedPct, prevSnap[it.id], hasPrev);
+                  const prevPct = prevSnap[it.id] ?? 0;
                   return (
                     <tr key={it.id} className="border-b border-slate-100 last:border-0">
                       <td className="px-3 py-2">{it.description}</td>
                       <td className="text-right px-2 py-2 tabular-nums">{fmtUsd(it.value)}</td>
+                      <td className="text-right px-2 py-2 tabular-nums">{fmtUsd(itemPreviouslyEarned(it, prevPct))}</td>
+                      <td className="text-right px-2 py-2 tabular-nums">{fmtUsd(itemEarned(it))}</td>
                       <td className="text-right px-2 py-2">
                         {pctInput(it.completedPct, (v) => setItemPct(it.id, v), status)}
                       </td>
-                      <td className="text-right px-3 py-2 tabular-nums">{fmtUsd(itemEarned(it))}</td>
                     </tr>
                   );
                 })}

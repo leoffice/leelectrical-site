@@ -72,7 +72,7 @@ function G703View({ req }) {
 
   return (
     <div className="space-y-2" data-testid="g703-view">
-      <p className="text-xs text-slate-500">From previous application only — % G/C carries forward from the last submitted requisition.</p>
+      <p className="text-xs text-slate-500">Continuation sheet — from previous application, total comp completed, and % G/C (matches your Excel layout).</p>
       {sections.map((sec) => {
         const open = openSections.has(sec.name);
         return (
@@ -91,8 +91,8 @@ function G703View({ req }) {
                 <thead>
                   <tr className="text-slate-500 border-b">
                     <th className="text-left px-2 py-2">Item</th>
-                    <th className="text-right px-2 py-2">From prev</th>
-                    <th className="text-right px-2 py-2">Stored to date</th>
+                    <th className="text-right px-2 py-2">From previous application</th>
+                    <th className="text-right px-2 py-2">Total comp completed</th>
                     <th className="text-right px-2 py-2">% G/C</th>
                   </tr>
                 </thead>

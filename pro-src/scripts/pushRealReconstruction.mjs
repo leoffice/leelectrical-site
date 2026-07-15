@@ -25,24 +25,25 @@ import { readFileSync } from "fs";
 const DRY = process.argv.includes("--dry-run");
 const PRO = "/Users/levik/Downloads/leelectrical-repo/pro-src";
 const STATE = "https://leelectrical.us/.netlify/functions/state";
-const { requisitionItems, sumItemValues, roundMoney } = await import(PRO + "/src/lib/requisitionCalc.js");
+const { requisitionItems, sumItemValues, roundMoney, changeOrderItems } = await import(PRO + "/src/lib/requisitionCalc.js");
 const { reconcileRequisitionFinancials, buildDraftG702, applyCarriedPercentages } = await import(PRO + "/src/lib/requisitionHelpers.js");
 const { ensureProjectDefaults, BAEZ_PROJECT_ID, BAEZ_ADDRESS, JOY_GC_LABEL, joyCustomerKey } = await import(PRO + "/src/lib/requisitionData.js");
 
 const data = JSON.parse(readFileSync(PRO + "/scripts/baez_requisitions_import.json", "utf8"));
-const REAL = { "item-1": 466800, "item-2": 231900 }; // real service-line values (retainage-exempt)
 const TARGET = 1591265; // Levi-confirmed paid-to-date through Req 12
 const key = (it) => `${String(it.section || "").trim().toLowerCase().replace(/\s+/g, " ")}|${String(it.description || "").trim().toLowerCase().replace(/\s+/g, " ")}`;
 
+// SOV line values come straight from the Drive continuation sheets (e.g. item 1 = $459,000).
 const items = data.masterItems.map((it) => ({
   ...it,
-  value: REAL[it.id] != null ? REAL[it.id] : it.value,
   retainageExempt: it.id === "item-1" || it.id === "item-2",
 }));
+const coTotal = sumItemValues(changeOrderItems(items));
+const baseContract = sumItemValues(items) - coTotal;
 
 const project = {
   id: BAEZ_PROJECT_ID, name: "Baez Place", address: BAEZ_ADDRESS, contractor: "Martin Dorkin", gc: JOY_GC_LABEL,
-  customerKey: joyCustomerKey(), contractSum: 1700000, retainagePct: 10, changeOrders: 0, changeOrderList: [],
+  customerKey: joyCustomerKey(), contractSum: baseContract, retainagePct: 10, changeOrders: coTotal, changeOrderList: [],
   items, requisitions: [], requisitionEnabled: true,
   driveLinks: [{ label: "Baez Requisitions folder", url: "https://drive.google.com/drive/folders/1u7dvjlppZD5DUFJURAzqeMD_c5kNCEOs", addedAt: Date.now() }],
   jobId: "", createdAt: Date.now() - 86400000 * 400, updatedAt: Date.now(),
