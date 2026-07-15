@@ -14,6 +14,7 @@ import {
   paymentNeedsInfo,
   previousItemSnapshot,
   previousPctByItemId,
+  reconcileRequisitionFinancials,
   removeRequisition,
   requisitionBalance,
   requisitionDeleteMode,
@@ -110,6 +111,24 @@ describe("requisitionCalc", () => {
     ];
     expect(overallPct(items)).toBe(50);
   });
+
+  it("rolls aggregate change orders into total completed and balance", () => {
+    const project = {
+      contractSum: 1000,
+      changeOrders: 200,
+      retainagePct: 10,
+      items: [{ id: "a", description: "Roughing", value: 1000, completedPct: 100 }],
+      requisitions: [],
+    };
+    const g702 = buildG702(project, { changeOrders: 200, changeOrdersCompleted: 50 });
+    expect(g702.contractSumToDate).toBe(1200); // line 3 = 1 +/- 2
+    expect(g702.netChangeOrders).toBe(200);
+    expect(g702.totalCompleted).toBe(1050); // base 1000 + 50 of COs
+    expect(g702.earnedLessRetainage).toBe(945); // 1050 * 0.9
+    expect(g702.balanceToFinish).toBe(255); // 1200 - 945
+    // G703 gains a change-order aggregate row
+    expect(g702.g703[g702.g703.length - 1].description).toMatch(/Change Orders/i);
+  });
 });
 
 describe("requisitionHelpers", () => {
@@ -186,6 +205,47 @@ describe("requisitionHelpers", () => {
   it("paymentNeedsInfo flags missing date or check", () => {
     expect(paymentNeedsInfo({ amount: 100, date: "", checkNumber: "" })).toBe(true);
     expect(paymentNeedsInfo({ amount: 100, date: "2026-01-01", checkNumber: "123" })).toBe(false);
+  });
+
+  it("reconcile pins an authoritative certificate and cascades previously-paid", () => {
+    const project = {
+      contractSum: 1700000,
+      changeOrders: 124100,
+      retainagePct: 10,
+      items: [{ id: "base", description: "Electrical", value: 1700000, completedPct: 100 }],
+      requisitions: [
+        {
+          num: 11,
+          status: "submitted",
+          itemsSnapshot: [{ id: "base", key: "|electrical", completedPct: 92.9230588 }], // ~1,579,692 base earned
+          g702: { authoritative: true, earnedLessRetainage: 1467621.9 },
+        },
+        {
+          num: 12,
+          status: "submitted",
+          itemsSnapshot: [{ id: "base", key: "|electrical", completedPct: 100 }],
+          g702: {
+            authoritative: true,
+            totalCompleted: 1751000,
+            earnedLessRetainage: 1575900,
+            previousCertificates: 1467621.9,
+            currentPaymentDue: 108278.1,
+          },
+        },
+      ],
+    };
+    const rec = reconcileRequisitionFinancials(project);
+    const r12 = rec.requisitions.find((r) => r.num === 12);
+    expect(r12.earnedLessRetainage).toBe(1575900);
+    expect(r12.previousCertificates).toBe(1467621.9);
+    expect(r12.currentPaymentDue).toBe(108278.1);
+    expect(r12.contractSumToDate).toBe(1824100);
+    expect(r12.balanceToFinish).toBe(248200);
+    // 6 = 7 + 8 exactly
+    expect(r12.previousCertificates + r12.currentPaymentDue).toBeCloseTo(r12.earnedLessRetainage, 2);
+    // previously-paid = prior period's cumulative (sum of prior draws)
+    expect(rec.requisitions.find((r) => r.num === 11).earnedLessRetainage).toBe(1467621.9);
+    expect(rec.changeOrdersCompletedToDate).toBe(51000);
   });
 
   it("sumPriorPayments skips void requisitions", () => {

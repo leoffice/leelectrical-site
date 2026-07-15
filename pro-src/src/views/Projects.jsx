@@ -31,12 +31,17 @@ import {
   nextRequisitionNum,
   pctChangeStatus,
   previousPctByItemId,
+  reconcileRequisitionFinancials,
   removeRequisition,
   requisitionBalance,
   requisitionDeleteMode,
   sovItemKey,
+  certifiedPaidToDate,
+  totalPaidToDate,
+  unreconciledPayments,
 } from "../lib/requisitionHelpers.js";
 import { downloadRequisitionPdf } from "../lib/requisitionPdf.js";
+import { downloadRequisitionExcel } from "../lib/requisitionExcel.js";
 import { customerAmountSummary } from "../lib/customers.js";
 import { parseSovCsv } from "../lib/sovParser.js";
 
@@ -189,13 +194,46 @@ function SovUpload({ onParsed, onReplace, projectName }) {
 }
 
 function RequisitionHistoryList({ project, onSelect, onDelete, busy }) {
-  const reqs = [...(project?.requisitions || [])].sort((a, b) => (a.num || 0) - (b.num || 0));
+  // Newest first — Req 13 → Req 1.
+  const reqs = [...(project?.requisitions || [])].sort((a, b) => (b.num || 0) - (a.num || 0));
   const visible = reqs.filter((r) => r.status !== "void");
   if (!visible.length) {
     return <p className="text-sm text-slate-400 text-center py-8" data-testid="req-history-empty">No requisition history yet.</p>;
   }
+  const certified = certifiedPaidToDate(project);
+  const paidToDate = totalPaidToDate(project);
+  const unreconciled = unreconciledPayments(project);
   return (
     <div className="space-y-2" data-testid="requisition-history">
+      <div className="card px-4 py-3" data-testid="paid-to-date-summary">
+        <div className="flex justify-between text-sm">
+          <span className="text-slate-500">Certified (G702)</span>
+          <span className="tabular-nums font-semibold">{fmtUsd(certified)}</span>
+        </div>
+        {(project?.otherPayments || []).map((p) => (
+          <div key={p.id} className="flex justify-between text-sm mt-1" data-testid={`other-payment-${p.id}`}>
+            <span className="text-amber-700">
+              {p.label || "Other payment"}
+              {!p.reconciled ? (
+                <span className="ml-1 text-[10px] font-bold uppercase bg-amber-100 text-amber-800 px-1.5 py-0.5 rounded-full">
+                  unreconciled
+                </span>
+              ) : null}
+            </span>
+            <span className="tabular-nums font-semibold text-amber-700">{fmtUsd(p.amount)}</span>
+          </div>
+        ))}
+        <div className="flex justify-between text-sm mt-1 pt-1 border-t border-slate-200">
+          <span className="font-bold text-slate-800">Paid to date</span>
+          <span className="tabular-nums font-extrabold" data-testid="paid-to-date-total">{fmtUsd(paidToDate)}</span>
+        </div>
+        {unreconciled.length ? (
+          <p className="text-[11px] text-amber-600 mt-1">
+            Includes {fmtUsd(unreconciled.reduce((s, p) => s + (Number(p.amount) || 0), 0))} received but not tied to a
+            certified draw — the G702 certified figure is unchanged.
+          </p>
+        ) : null}
+      </div>
       <p className="text-xs text-slate-500 text-center">{visible.length} requisitions in project history</p>
       {reqs.map((r) => {
         if (r.status === "void") return null;
@@ -266,6 +304,14 @@ function RequisitionWorkbench({ project, onSave, busy, showToast, onSaved }) {
   const [reqNum, setReqNum] = useState(String(nextRequisitionNum(project)));
   const [appNum, setAppNum] = useState(`REQ-${nextRequisitionNum(project)}`);
   const [pendingReq, setPendingReq] = useState(null);
+  // Manual "previously paid" (line 7). "" = use the auto cascade value.
+  const [prevPaidInput, setPrevPaidInput] = useState("");
+  const [prevPaidConfirmed, setPrevPaidConfirmed] = useState(false);
+  // fill -> overview -> approve -> generate
+  const [overview, setOverview] = useState(false);
+  // Header fields auto-collapse to a compact summary once untouched for a beat.
+  const [fieldsTouched, setFieldsTouched] = useState(false);
+  const [fieldsCollapsed, setFieldsCollapsed] = useState(false);
   const dirty = JSON.stringify(draft.items) !== JSON.stringify(project.items);
 
   useEffect(() => setDraft(applyCarriedPercentages(project)), [carrySeed]);
@@ -286,9 +332,39 @@ function RequisitionWorkbench({ project, onSave, busy, showToast, onSaved }) {
 
   const prevSnap = useMemo(() => previousPctByItemId(project), [project]);
   const hasPrev = Object.keys(prevSnap).length > 0;
-  const g702 = useMemo(() => buildDraftG702(draft, { periodTo }), [draft, periodTo]);
+  const prevOverride = prevPaidInput.trim() === "" ? undefined : prevPaidInput;
+  const g702 = useMemo(
+    () => buildDraftG702(draft, { periodTo, previousCertificates: prevOverride }),
+    [draft, periodTo, prevOverride]
+  );
   const previewG702 = pendingReq || g702;
   const completion = useMemo(() => completionBreakdown(draft.items), [draft.items]);
+
+  // Consistency check: does the entered "previously paid" match what the prior
+  // requisition certified (the auto value)?
+  const prevMismatch =
+    prevOverride != null &&
+    Math.abs((Number(prevOverride) || 0) - (Number(g702.computedPreviousCertificates) || 0)) > 0.01;
+  // Every SOV line already at 100% — the project is complete, so the next
+  // requisition is the final/retainage draw (e.g. Baez Req 13); there's no % to
+  // raise, so we allow generation without a fresh SOV change.
+  const allComplete = useMemo(() => {
+    const base = requisitionItems(draft.items);
+    return base.length > 0 && base.every((it) => (Number(it.completedPct) || 0) >= 100);
+  }, [draft.items]);
+  // Generate gate: previously-paid confirmed AND (a SOV change was made OR the
+  // project is already fully complete).
+  const canGenerate = prevPaidConfirmed && (dirty || allComplete);
+
+  // Auto-collapse the header fields after a short idle once untouched.
+  useEffect(() => {
+    if (fieldsTouched) {
+      setFieldsCollapsed(false);
+      return;
+    }
+    const t = setTimeout(() => setFieldsCollapsed(true), 4000);
+    return () => clearTimeout(t);
+  }, [fieldsTouched, periodTo, reqNum, appNum, prevPaidInput]);
 
   const setItemPct = (id, completedPct) => {
     setDraft((d) => ({
@@ -307,12 +383,40 @@ function RequisitionWorkbench({ project, onSave, busy, showToast, onSaved }) {
       periodTo,
       num,
       applicationNumber: appNum.trim() || `REQ-${num}`,
+      previousCertificates: prevOverride,
     });
+  };
+
+  // Consistency prompt — "Update the previous requisition" branch: pin the prior
+  // requisition's certified total to the value Levi actually received, so the
+  // whole ledger reconciles forward from the corrected number.
+  const updatePreviousRequisition = async () => {
+    const prev = activeRequisitions(project)[0];
+    if (!prev || prevOverride == null) return;
+    const elr = Math.round(Number(prevOverride) * 100) / 100;
+    const patched = {
+      ...prev,
+      earnedLessRetainage: elr,
+      g702: {
+        ...(prev.g702 || {}),
+        authoritative: true,
+        source: "Adjusted from next requisition (Phase 3 consistency prompt)",
+        earnedLessRetainage: elr,
+      },
+    };
+    await onSave({
+      ...draft,
+      requisitions: (draft.requisitions || []).map((r) => (r.id === prev.id ? patched : r)),
+    });
+    setPrevPaidInput("");
+    setPrevPaidConfirmed(true);
+    showToast?.("Previous requisition updated — this requisition now reconciles");
   };
 
   const generatePreview = () => {
     const req = buildPendingRecord();
     setPendingReq(req);
+    setOverview(false);
     downloadRequisitionPdf(project, req);
     showToast?.("Requisition generated — review the PDF, then save or regenerate");
   };
@@ -378,43 +482,123 @@ function RequisitionWorkbench({ project, onSave, busy, showToast, onSaved }) {
           <span className="text-slate-500">Original contract done</span>
           <span className="text-right font-semibold">{fmtUsd(completion.baseCompleted)}</span>
 
-          <span className="text-slate-500">Total completed</span>
+          <span className="text-slate-500">Total completed &amp; stored to date</span>
           <span className="text-right font-semibold">{fmtUsd(previewG702.totalCompleted)}</span>
+          <span className="text-slate-500 font-semibold">Total earned, less retainage</span>
+          <span className="text-right font-bold">{fmtUsd(previewG702.earnedLessRetainage)}</span>
+          <span className="text-slate-500">Less previous certified for payment</span>
+          <span className="text-right">{fmtUsd(previewG702.previousCertificates)}</span>
           <span className="text-slate-500 font-bold">Current payment due</span>
           <span className="text-right font-extrabold text-brand">{fmtUsd(previewG702.currentPaymentDue)}</span>
-          <span className="text-slate-500">Previously paid</span>
-          <span className="text-right">{fmtUsd(previewG702.previousCertificates)}</span>
         </div>
       </div>
 
-      <div className="flex gap-2 items-end flex-wrap">
-        <label className="text-sm">
-          Period to
-          <input type="date" className="block border rounded px-2 py-1 mt-1" value={periodTo} onChange={(e) => setPeriodTo(e.target.value)} />
-        </label>
-        <label className="text-sm">
-          Req #
-          <input
-            type="number"
-            className="block border rounded px-2 py-1 mt-1 w-16"
-            value={reqNum}
-            onChange={(e) => {
-              setReqNum(e.target.value);
-              if (!appNum.startsWith("REQ-") || appNum === `REQ-${reqNum}`) setAppNum(`REQ-${e.target.value}`);
-            }}
-            data-testid="req-num-input"
-          />
-        </label>
-        <label className="text-sm flex-1 min-w-[120px]">
-          Application #
-          <input
-            className="block border rounded px-2 py-1 mt-1 w-full"
-            value={appNum}
-            onChange={(e) => setAppNum(e.target.value)}
-            data-testid="app-num-input"
-          />
-        </label>
-      </div>
+      {fieldsCollapsed && !fieldsTouched ? (
+        <button
+          type="button"
+          className="w-full text-left text-xs text-slate-500 border rounded px-3 py-2 bg-slate-50 flex items-center justify-between"
+          onClick={() => {
+            setFieldsTouched(true);
+            setFieldsCollapsed(false);
+          }}
+          data-testid="req-fields-collapsed"
+        >
+          <span>
+            <b>{appNum}</b> · {periodTo} · Prev paid {fmtUsd(previewG702.previousCertificates)}
+          </span>
+          <span className="text-brand font-semibold">Edit ▾</span>
+        </button>
+      ) : (
+        <div className="space-y-2" data-testid="req-fields">
+          <div className="flex gap-2 items-end flex-wrap" onFocusCapture={() => setFieldsTouched(true)}>
+            <label className="text-sm">
+              Period to
+              <input type="date" className="block border rounded px-2 py-1 mt-1" value={periodTo} onChange={(e) => setPeriodTo(e.target.value)} />
+            </label>
+            <label className="text-sm">
+              Req #
+              <input
+                type="number"
+                className="block border rounded px-2 py-1 mt-1 w-16"
+                value={reqNum}
+                onChange={(e) => {
+                  setReqNum(e.target.value);
+                  if (!appNum.startsWith("REQ-") || appNum === `REQ-${reqNum}`) setAppNum(`REQ-${e.target.value}`);
+                }}
+                data-testid="req-num-input"
+              />
+            </label>
+            <label className="text-sm flex-1 min-w-[120px]">
+              Application #
+              <input
+                className="block border rounded px-2 py-1 mt-1 w-full"
+                value={appNum}
+                onChange={(e) => setAppNum(e.target.value)}
+                data-testid="app-num-input"
+              />
+            </label>
+          </div>
+
+          <div className="rounded border border-slate-200 p-2 bg-slate-50/60">
+            <label className="text-sm block">
+              Previously paid (previous certificates)
+              <div className="flex items-center gap-2 mt-1">
+                <input
+                  type="number"
+                  step="0.01"
+                  className="block border rounded px-2 py-1 w-40 tabular-nums"
+                  value={prevPaidInput}
+                  placeholder={String(g702.computedPreviousCertificates ?? 0)}
+                  onChange={(e) => {
+                    setFieldsTouched(true);
+                    setPrevPaidInput(e.target.value);
+                    setPrevPaidConfirmed(false);
+                  }}
+                  data-testid="prev-paid-input"
+                />
+                <label className="text-xs flex items-center gap-1 text-slate-600">
+                  <input
+                    type="checkbox"
+                    checked={prevPaidConfirmed}
+                    onChange={(e) => setPrevPaidConfirmed(e.target.checked)}
+                    data-testid="prev-paid-confirm"
+                  />
+                  Confirmed
+                </label>
+              </div>
+            </label>
+            <p className="text-[11px] text-slate-500 mt-1">
+              Auto (from prior req): {fmtUsd(g702.computedPreviousCertificates)}. Leave blank to use it, or enter the amount actually received.
+            </p>
+            {prevMismatch ? (
+              <div className="mt-2 rounded border border-amber-300 bg-amber-50 p-2 text-xs" data-testid="prev-paid-mismatch">
+                <p className="font-semibold text-amber-800">
+                  Entered {fmtUsd(Number(prevOverride))} ≠ prior requisition’s {fmtUsd(g702.computedPreviousCertificates)}.
+                </p>
+                <div className="flex gap-2 mt-2">
+                  <button
+                    type="button"
+                    className="btn flex-1 text-xs !py-1 bg-brand text-white"
+                    onClick={updatePreviousRequisition}
+                    disabled={busy}
+                    data-testid="update-prev-req"
+                  >
+                    Update the previous requisition
+                  </button>
+                  <button
+                    type="button"
+                    className="btn flex-1 text-xs !py-1"
+                    onClick={() => setPrevPaidConfirmed(true)}
+                    data-testid="keep-this-req"
+                  >
+                    Change this one (keep entered)
+                  </button>
+                </div>
+              </div>
+            ) : null}
+          </div>
+        </div>
+      )}
 
       {pendingReq ? (
         <div className="space-y-2" data-testid="requisition-approval">
@@ -441,17 +625,68 @@ function RequisitionWorkbench({ project, onSave, busy, showToast, onSaved }) {
               Regenerate requisition
             </button>
           </div>
+          <button
+            type="button"
+            className="btn w-full"
+            onClick={() => downloadRequisitionExcel(project, pendingReq)}
+            disabled={busy}
+            data-testid="download-req-excel-draft"
+          >
+            Download Excel (.xls)
+          </button>
+        </div>
+      ) : overview ? (
+        <div className="space-y-2 rounded border border-brand/30 bg-brand/5 p-3" data-testid="requisition-overview">
+          <p className="text-xs font-extrabold text-brand uppercase tracking-wide">Overview — approve to generate</p>
+          <dl className="text-sm space-y-1">
+            {[
+              ["Total completed", previewG702.totalCompleted],
+              ["Retainage", previewG702.totalRetainage],
+              ["Earned less retainage", previewG702.earnedLessRetainage],
+              ["Previously paid", previewG702.previousCertificates],
+              ["Current payment due", previewG702.currentPaymentDue],
+              ["Balance to finish", previewG702.balanceToFinish],
+            ].map(([k, v]) => (
+              <div key={k} className="flex justify-between">
+                <dt className="text-slate-600">{k}</dt>
+                <dd className="tabular-nums font-semibold">{fmtUsd(v)}</dd>
+              </div>
+            ))}
+          </dl>
+          <div className="flex gap-2 pt-1">
+            <button type="button" className="btn flex-1" onClick={() => setOverview(false)} data-testid="overview-back">
+              ← Back to edit
+            </button>
+            <button
+              type="button"
+              className="btn flex-1 bg-brand text-white"
+              onClick={generatePreview}
+              disabled={busy}
+              data-testid="approve-generate"
+            >
+              Approve & generate
+            </button>
+          </div>
         </div>
       ) : (
-        <button
-          type="button"
-          className="btn w-full bg-brand text-white"
-          onClick={generatePreview}
-          disabled={busy}
-          data-testid="generate-requisition"
-        >
-          Generate requisition
-        </button>
+        <>
+          <button
+            type="button"
+            className="btn w-full bg-brand text-white disabled:opacity-40"
+            onClick={() => setOverview(true)}
+            disabled={busy || !canGenerate}
+            data-testid="generate-requisition"
+          >
+            Review &amp; approve →
+          </button>
+          {!canGenerate ? (
+            <p className="text-[11px] text-slate-500 text-center mt-1" data-testid="generate-gate-hint">
+              {!prevPaidConfirmed
+                ? "Confirm “Previously paid” to generate."
+                : "Raise at least one line’s % to generate the next draw."}
+            </p>
+          ) : null}
+        </>
       )}
 
       <div className="space-y-3">
@@ -499,12 +734,20 @@ export default function Projects() {
   const [sheet, setSheet] = useState(null);
   const [booted, setBooted] = useState(false);
   const [loaded, setLoaded] = useState(false);
-  const [hubTab, setHubTab] = useState("history");
+  // Default landing = Create New Requisition; History is a deliberate tab.
+  const [hubTab, setHubTab] = useState("work");
   const [selectedReqId, setSelectedReqId] = useState(null);
+
+  // Normalize stored requisition financials on every read so the G702 identity
+  // (line 6 = line 7 + line 8) and cumulative "previously paid" are always
+  // rebuilt from the SOV snapshot chain — self-heals any legacy/imported data.
+  const reconcileProjects = (norm) => ({
+    list: (norm?.list || []).map((p) => (p?.requisitions?.length ? reconcileRequisitionFinancials(p) : p)),
+  });
 
   const load = useCallback(async () => {
     const raw = await api.getProjects?.().catch(() => ({ list: [] }));
-    setProjects(normalizeProjects(raw));
+    setProjects(reconcileProjects(normalizeProjects(raw)));
     setLoaded(true);
   }, []);
 
@@ -543,7 +786,7 @@ export default function Projects() {
     try {
       const normalized = normalizeProjects(next);
       const latest = await api.getProjects?.().catch(() => ({ list: [] }));
-      const merged = mergeWithServerProjects(normalized, latest);
+      const merged = reconcileProjects(mergeWithServerProjects(normalized, latest));
       await api.saveProjects?.(merged);
       setProjects(merged);
     } finally {
@@ -759,6 +1002,7 @@ export default function Projects() {
             project={project}
             requisition={selectedReq}
             contact={contact}
+            jobs={jobs}
             onUpdate={onUpdateRequisition}
             onDelete={() => onDeleteRequisition(selectedReq)}
             canDelete={canHardDeleteRequisition(project, selectedReq)}
@@ -771,8 +1015,8 @@ export default function Projects() {
           <>
             <div className="flex gap-1 overflow-x-auto pb-1" data-testid="hub-tabs">
               {[
+                { id: "work", label: "Create New Requisition" },
                 { id: "history", label: "Requisition History" },
-                { id: "work", label: "New Requisition" },
                 { id: "changes", label: "Change Orders" },
               ].map((t) => (
                 <button

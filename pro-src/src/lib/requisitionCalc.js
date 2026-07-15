@@ -40,8 +40,16 @@ export function itemThisPeriod(item, prevCompletedPct = 0) {
   return roundMoney(itemEarned(item) - itemPreviouslyEarned(item, prevCompletedPct));
 }
 
-/** Roll up SOV items into G703 continuation rows. */
-export function buildG703Rows(items, prevItemsById = {}) {
+/** Retainage % that applies to one SOV line — a per-line override, else the project rate. */
+export function lineRetainagePct(item, projectPct = 10) {
+  const base = Number(projectPct) || 0;
+  if (item && item.retainagePct != null && item.retainagePct !== "") return Number(item.retainagePct) || 0;
+  if (item && item.retainageExempt) return 0; // e.g. service-equipment lines billed without retainage
+  return base;
+}
+
+/** Roll up SOV items into G703 continuation rows (retainage is per-line — see lineRetainagePct). */
+export function buildG703Rows(items, prevItemsById = {}, retainagePct = 10) {
   return (items || []).map((it, idx) => {
     const prev = prevItemsById[it.id];
     const prevPct = prev ? prev.completedPct : 0;
@@ -51,9 +59,10 @@ export function buildG703Rows(items, prevItemsById = {}) {
     const totalCompleted = itemEarned(it);
     const balance = roundMoney(scheduled - totalCompleted);
     const pctComplete = scheduled ? roundMoney((totalCompleted / scheduled) * 100) : 0;
+    const retPct = lineRetainagePct(it, retainagePct);
     return {
       itemNo: idx + 1,
-      description: it.section ? `${it.section} — ${it.description}` : it.description,
+      description: it.section ? `${it.section} - ${it.description}` : it.description,
       scheduledValue: scheduled,
       prevCompleted: prevEarned,
       thisPeriod,
@@ -61,45 +70,97 @@ export function buildG703Rows(items, prevItemsById = {}) {
       totalCompleted,
       pctComplete,
       balance,
-      retainage: 0,
+      retainagePct: retPct,
+      retainage: roundMoney((totalCompleted * retPct) / 100),
     };
   });
 }
 
 /**
  * Build G702 application summary.
- * @param {object} project — { contractSum, retainagePct, changeOrders, items, requisitions }
- * @param {object} opts — { periodTo, prevItemsById }
+ *
+ * Change orders are handled as an AGGREGATE (net total + completed-to-date),
+ * not as per-line SOV items, because the real Baez COs aren't itemised in the
+ * app yet. `opts.changeOrders` = net change-order total (AIA line 2);
+ * `opts.changeOrdersCompleted` = $ of that total earned to date (rolls into
+ * line 4). `opts.changeOrdersPrevCompleted` = the prior period's figure (for
+ * the G703 "from previous" split).
+ *
+ * "Previous certificates" (line 7) is the prior period's *total earned less
+ * retainage* (the running cumulative = sum of prior draws), NOT a % of the
+ * contract — falls back to summing prior draw amounts when earlier records
+ * predate this field.
+ *
+ * @param {object} project — { contractSum, retainagePct, items, requisitions }
+ * @param {object} opts — { periodTo, prevItemsById, changeOrders, changeOrdersCompleted, changeOrdersPrevCompleted }
  */
 export function buildG702(project, opts = {}) {
   const contractSum = roundMoney(project.contractSum || 0);
-  const changeOrders = opts.includeChangeOrders ? roundMoney(project.changeOrders || 0) : 0;
-  const contractToDate = roundMoney(contractSum + changeOrders);
   const retainagePct = Number(project.retainagePct) || 10;
 
-  const scopeItems = opts.includeChangeOrders ? project.items || [] : requisitionItems(project.items);
-  const g703 = buildG703Rows(scopeItems, opts.prevItemsById || {});
-  const totalCompletedRaw = roundMoney(g703.reduce((s, r) => s + r.totalCompleted, 0));
+  const coTotal = roundMoney(
+    opts.changeOrders != null ? opts.changeOrders : opts.includeChangeOrders ? project.changeOrders || 0 : 0
+  );
+  const coCompleted = roundMoney(Math.min(opts.changeOrdersCompleted != null ? opts.changeOrdersCompleted : 0, coTotal));
+  const coPrevCompleted = roundMoney(Math.min(opts.changeOrdersPrevCompleted != null ? opts.changeOrdersPrevCompleted : 0, coCompleted));
+  const contractToDate = roundMoney(contractSum + coTotal);
+
+  const baseItems = requisitionItems(project.items);
+  const g703base = buildG703Rows(baseItems, opts.prevItemsById || {}, retainagePct);
+  const baseCompleted = roundMoney(g703base.reduce((s, r) => s + r.totalCompleted, 0));
+  const totalCompletedRaw = roundMoney(baseCompleted + coCompleted);
   const totalCompleted = roundMoney(Math.min(totalCompletedRaw, contractToDate));
-  const retainage = roundMoney((totalCompleted * retainagePct) / 100);
+  // Retainage is summed PER LINE (some SOV lines, e.g. service equipment, are
+  // billed at 0% retainage), not a flat % of the total.
+  const coRetPct = opts.changeOrdersRetainagePct != null ? Number(opts.changeOrdersRetainagePct) : retainagePct;
+  const baseRetainage = roundMoney(g703base.reduce((s, r) => s + r.retainage, 0));
+  const coRetainage = roundMoney((coCompleted * coRetPct) / 100);
+  const retainage = roundMoney(baseRetainage + coRetainage);
   const earnedLessRetainage = roundMoney(totalCompleted - retainage);
 
-  const prevCertsRaw = roundMoney(
-    (project.requisitions || [])
-      .filter((r) => r.status !== "void" && r.status !== "draft")
-      .reduce((s, r) => s + (Number(r.amountCertified) || Number(r.currentPaymentDue) || 0), 0)
-  );
+  // Line 7 = prior period's cumulative earned-less-retainage (= sum of prior
+  // draws). Prefer the stored cumulative; fall back to summing draws for legacy
+  // records that never stored earnedLessRetainage.
+  const priorReqs = (project.requisitions || []).filter((r) => r.status !== "void" && r.status !== "draft");
+  const maxPriorElr = priorReqs.reduce((m, r) => Math.max(m, Number(r.earnedLessRetainage) || 0), 0);
+  const sumPriorDraws = priorReqs.reduce((s, r) => s + (Number(r.amountCertified) || Number(r.currentPaymentDue) || 0), 0);
+  // "Previously paid" (line 7) is normally the prior period's cumulative earned-
+  // less-retainage, but Levi can override it to the amount he ACTUALLY received
+  // (the GC sometimes certifies less than requested — see reconciliation notes).
+  const hasPrevOverride =
+    opts.previousCertificates != null && opts.previousCertificates !== "" && !Number.isNaN(Number(opts.previousCertificates));
+  const computedPrevCerts = maxPriorElr > 0 ? maxPriorElr : sumPriorDraws;
+  const prevCertsRaw = roundMoney(hasPrevOverride ? Number(opts.previousCertificates) : computedPrevCerts);
   const currentDue = roundMoney(Math.max(0, earnedLessRetainage - prevCertsRaw));
   const prevCerts = roundMoney(earnedLessRetainage - currentDue);
-  const balanceToFinish = roundMoney(Math.max(0, contractToDate - totalCompleted));
+  // AIA G702 line 9 = line 3 (contract sum to date) - line 6 (total earned less
+  // retainage). At 100% complete this equals the retainage still held, not zero.
+  const balanceToFinish = roundMoney(contractToDate - earnedLessRetainage);
 
-  const reqNum = (project.requisitions?.length || 0) + 1;
+  const g703 = [...g703base];
+  if (coTotal > 0) {
+    g703.push({
+      itemNo: g703.length + 1,
+      description: "Change Orders (net) - completed to date",
+      scheduledValue: coTotal,
+      prevCompleted: coPrevCompleted,
+      thisPeriod: roundMoney(coCompleted - coPrevCompleted),
+      storedMaterial: 0,
+      totalCompleted: coCompleted,
+      pctComplete: coTotal ? roundMoney((coCompleted / coTotal) * 100) : 0,
+      balance: roundMoney(coTotal - coCompleted),
+      retainagePct: coRetPct,
+      retainage: roundMoney((coCompleted * coRetPct) / 100),
+    });
+  }
+
+  const reqNum = priorReqs.length + 1;
 
   return {
     applicationNumber: `REQ-${reqNum}`,
     periodTo: opts.periodTo || new Date().toISOString().slice(0, 10),
     originalContractSum: contractSum,
-    netChangeOrders: changeOrders,
+    netChangeOrders: coTotal,
     contractSumToDate: contractToDate,
     totalCompleted,
     retainagePct,
@@ -108,6 +169,8 @@ export function buildG702(project, opts = {}) {
     totalRetainage: retainage,
     earnedLessRetainage,
     previousCertificates: prevCerts,
+    computedPreviousCertificates: roundMoney(computedPrevCerts),
+    previousCertificatesOverridden: hasPrevOverride,
     currentPaymentDue: currentDue,
     balanceToFinish,
     g703,

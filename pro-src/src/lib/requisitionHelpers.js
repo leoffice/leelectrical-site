@@ -3,6 +3,7 @@
 import {
   baseContractItems,
   buildG702,
+  buildG703Rows,
   changeOrderItems,
   requisitionItems,
   roundMoney,
@@ -39,8 +40,22 @@ export function sumPriorPayments(requisitions, beforeNum) {
   );
 }
 
-/** Cash received — payments recorded, else certified amounts on closed reqs. */
-export function totalPaidToDate(project) {
+/**
+ * Off-requisition payments — money received that isn't a certified draw (e.g. a
+ * retainage release or a supplier joint check). Each: {id, label, amount, date,
+ * reconciled}. Kept SEPARATE from the G702 certified math on purpose.
+ */
+export function otherPaymentsTotal(project) {
+  return roundMoney((project?.otherPayments || []).reduce((s, p) => s + (Number(p.amount) || 0), 0));
+}
+
+/** Off-requisition payments not yet tied to a certified draw. */
+export function unreconciledPayments(project) {
+  return (project?.otherPayments || []).filter((p) => !p.reconciled);
+}
+
+/** Certified draws received (from requisitions) — excludes off-req payments. */
+export function certifiedPaidToDate(project) {
   const reqs = project?.requisitions || [];
   const fromPayments = roundMoney(
     reqs.reduce(
@@ -48,8 +63,12 @@ export function totalPaidToDate(project) {
       0
     )
   );
-  if (fromPayments > 0) return fromPayments;
-  return sumPriorPayments(reqs);
+  return fromPayments > 0 ? fromPayments : sumPriorPayments(reqs);
+}
+
+/** Cash received = certified draws + off-requisition payments (Imperial etc.). */
+export function totalPaidToDate(project) {
+  return roundMoney(certifiedPaidToDate(project) + otherPaymentsTotal(project));
 }
 
 /** G702 completion breakdown for preview (base contract vs change orders). */
@@ -100,14 +119,36 @@ export function removeRequisition(project, reqId, { forceVoid = false } = {}) {
   return project;
 }
 
-/** Recalculate stored G702 fields from itemsSnapshot chain (fixes prev-cert drift). */
+/**
+ * Recompute every requisition's G702 lines from the SOV snapshot chain so the
+ * whole ledger reconciles (line 6 = line 7 + line 8) and "previously paid" =
+ * the running cumulative of prior draws.
+ *
+ * Change orders are an aggregate: `project.changeOrders` is the net CO total
+ * (AIA line 2). A requisition may carry an authoritative G702 block read from
+ * the real submitted paperwork (`req.g702.authoritative` with any of
+ * earnedLessRetainage / totalCompleted / previousCertificates /
+ * currentPaymentDue / netChangeOrders); those values win and pin the ledger to
+ * the actual certificate. The CO amount earned-to-date for such a period is
+ * inferred (totalCompleted - base completed) and carried forward.
+ *
+ * Also stamps `project.changeOrdersCompletedToDate` = the latest period's CO
+ * earned, so a fresh draft starts from the right cumulative.
+ */
 export function reconcileRequisitionFinancials(project) {
   if (!project) return project;
   const items = project.items || [];
+  const retPct = Number(project.retainagePct) || 10;
+  const retMul = 1 - retPct / 100;
+  const coTotal = roundMoney(Number(project.changeOrders) || 0);
+  const baseContract = roundMoney(Number(project.contractSum) || 0);
+  const contractToDate = roundMoney(baseContract + coTotal);
   const sorted = [...(project.requisitions || [])].sort(
     (a, b) => (a.num || 0) - (b.num || 0) || (a.createdAt || 0) - (b.createdAt || 0)
   );
   const rebuilt = [];
+  let priorElr = 0;
+  let priorCoEarned = 0;
   for (const r of sorted) {
     if (r.status === "void") {
       rebuilt.push(r);
@@ -121,27 +162,70 @@ export function reconcileRequisitionFinancials(project) {
       completedPct: snapMap[sovItemKey(it)] ?? carriedPctForItem(it, previousItemSnapshot({ requisitions: rebuilt })) ?? 0,
     }));
     const prevItemsById = prevItemsByIdForG702({ ...project, requisitions: rebuilt });
-    const g702 = buildG702(
-      { ...project, items: draftItems, requisitions: rebuilt.filter((x) => x.status !== "void") },
-      { periodTo: r.periodTo, prevItemsById }
-    );
-    const prevCerts = sumPriorPayments(rebuilt.filter((x) => x.status !== "void"), r.num);
-    const storedDue = roundMoney(Number(r.currentPaymentDue) || Number(r.amountCertified) || 0);
-    const due = storedDue > 0 ? storedDue : g702.currentPaymentDue;
+    const g703base = buildG703Rows(draftItems, prevItemsById, retPct);
+    const baseCompleted = roundMoney(g703base.reduce((s, row) => s + row.totalCompleted, 0));
+    const baseRetainage = roundMoney(g703base.reduce((s, row) => s + row.retainage, 0)); // per-line
+    const coRetPct = Number(project.changeOrdersRetainagePct != null ? project.changeOrdersRetainagePct : retPct) || 0;
+
+    const auth = r.g702 && r.g702.authoritative ? r.g702 : null;
+    let elr, totalCompleted, coEarned, prevCerts, due;
+    if (auth && (auth.earnedLessRetainage != null || auth.totalCompleted != null)) {
+      // Real submitted certificate — pin to the paperwork.
+      elr =
+        auth.earnedLessRetainage != null
+          ? roundMoney(auth.earnedLessRetainage)
+          : roundMoney(auth.totalCompleted * retMul);
+      totalCompleted = auth.totalCompleted != null ? roundMoney(auth.totalCompleted) : roundMoney(elr / retMul);
+      coEarned = roundMoney(Math.min(Math.max(0, totalCompleted - baseCompleted), coTotal));
+      prevCerts = auth.previousCertificates != null ? roundMoney(auth.previousCertificates) : roundMoney(priorElr);
+      due = auth.currentPaymentDue != null ? roundMoney(auth.currentPaymentDue) : roundMoney(elr - prevCerts);
+    } else {
+      // No paperwork override — carry prior CO earned (SOV chain drives base),
+      // retainage summed per line so 0%-retainage lines aren't withheld.
+      coEarned = roundMoney(Math.min(priorCoEarned, coTotal));
+      totalCompleted = roundMoney(Math.min(baseCompleted + coEarned, contractToDate));
+      const periodRetainage = roundMoney(baseRetainage + (coEarned * coRetPct) / 100);
+      elr = roundMoney(totalCompleted - periodRetainage);
+      prevCerts = roundMoney(priorElr);
+      due = roundMoney(Math.max(0, elr - prevCerts));
+    }
+    const totalRetainage = roundMoney(totalCompleted - elr);
+    const balanceToFinish = roundMoney(contractToDate - elr);
+
+    const g703 = [...g703base];
+    if (coTotal > 0) {
+      g703.push({
+        itemNo: g703.length + 1,
+        description: "Change Orders (net) - completed to date",
+        scheduledValue: coTotal,
+        prevCompleted: roundMoney(Math.min(priorCoEarned, coEarned)),
+        thisPeriod: roundMoney(coEarned - Math.min(priorCoEarned, coEarned)),
+        storedMaterial: 0,
+        totalCompleted: coEarned,
+        pctComplete: coTotal ? roundMoney((coEarned / coTotal) * 100) : 0,
+        balance: roundMoney(coTotal - coEarned),
+        retainage: roundMoney((coEarned * retPct) / 100),
+      });
+    }
+
     rebuilt.push({
       ...r,
       previousCertificates: prevCerts,
-      totalCompleted: g702.totalCompleted,
+      totalCompleted,
       currentPaymentDue: due,
       amountCertified: due,
-      earnedLessRetainage: g702.earnedLessRetainage,
-      totalRetainage: g702.totalRetainage,
-      balanceToFinish: g702.balanceToFinish,
-      contractSumToDate: g702.contractSumToDate,
-      g703: g702.g703,
+      earnedLessRetainage: elr,
+      totalRetainage,
+      retainagePct: retPct,
+      netChangeOrders: coTotal,
+      balanceToFinish,
+      contractSumToDate: contractToDate,
+      g703,
     });
+    priorElr = elr;
+    priorCoEarned = coEarned;
   }
-  return { ...project, requisitions: rebuilt };
+  return { ...project, requisitions: rebuilt, changeOrdersCompletedToDate: roundMoney(priorCoEarned) };
 }
 
 /** Stable key for matching SOV lines across imports / CSV re-uploads. */
@@ -276,16 +360,26 @@ export function changeOrdersTotal(project) {
   return Number(project?.changeOrders) || 0;
 }
 
-/** Build G702 for a draft using prior requisition snapshot (base contract only — no CO lines). */
+/** Build G702 for a draft using prior requisition snapshot + the aggregate change-order totals. */
 export function buildDraftG702(project, opts = {}) {
   const prevItemsById = prevItemsByIdForG702(project);
   const scoped = { ...project, items: requisitionItems(project.items) };
-  return buildG702(scoped, { ...opts, prevItemsById, includeChangeOrders: false });
+  const coCompleted = Number(project.changeOrdersCompletedToDate) || 0;
+  return buildG702(scoped, {
+    ...opts, // opts.previousCertificates (manual "previously paid") passes through
+    prevItemsById,
+    changeOrders: Number(project.changeOrders) || 0,
+    changeOrdersCompleted: coCompleted,
+    changeOrdersPrevCompleted: coCompleted,
+  });
 }
 
 /** Create a requisition record from current draft. */
 export function createRequisitionRecord(project, draft, opts = {}) {
-  const g702 = buildDraftG702(draft, { periodTo: opts.periodTo });
+  const g702 = buildDraftG702(draft, {
+    periodTo: opts.periodTo,
+    previousCertificates: opts.previousCertificates,
+  });
   const snap = requisitionItems(draft.items).map((it) => ({
     id: it.id,
     key: sovItemKey(it),
@@ -295,6 +389,20 @@ export function createRequisitionRecord(project, draft, opts = {}) {
   }));
   const num = opts.num ?? nextRequisitionNum(project);
   const applicationNumber = opts.applicationNumber || `REQ-${num}`;
+  // When Levi manually sets "previously paid", pin this period to the generated
+  // figures (authoritative) so reconcileRequisitionFinancials honors the entered
+  // value instead of recomputing line 7 from the SOV cascade.
+  const g702Pin = g702.previousCertificatesOverridden
+    ? {
+        authoritative: true,
+        source: "Manual entry (Phase 3 requisition form)",
+        previousCertificates: g702.previousCertificates,
+        earnedLessRetainage: g702.earnedLessRetainage,
+        totalCompleted: g702.totalCompleted,
+        currentPaymentDue: g702.currentPaymentDue,
+        periodTo: opts.periodTo || g702.periodTo,
+      }
+    : undefined;
   return {
     id: `req-${Date.now()}`,
     num,
@@ -312,6 +420,7 @@ export function createRequisitionRecord(project, draft, opts = {}) {
     contractSumToDate: g702.contractSumToDate,
     itemsSnapshot: snap,
     g703: g702.g703,
+    ...(g702Pin ? { g702: g702Pin } : {}),
     payments: [],
     attachments: [],
     emailSentAt: null,
