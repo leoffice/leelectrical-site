@@ -26,3 +26,16 @@
   status = 200
   query = { code = ":code" }
   force = true
+
+# Abba app — old /app/gematria preview retired; live app on Cloudflare
+[[redirects]]
+  from = "/app/gematria"
+  to = "https://gematria-sorter.pages.dev/"
+  status = 301
+  force = true
+
+[[redirects]]
+  from = "/app/gematria/*"
+  to = "https://gematria-sorter.pages.dev/"
+  status = 301
+  force = true
