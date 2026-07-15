@@ -3,7 +3,7 @@
 //   findDuplicateInvoiceSuggestion(jobs) -> first non-dismissed pair
 //   dismissInvoicePair / isInvoiceDismissed -> lepro_noinvdedup memory
 
-import { boardCustomerLabel, fmtAmountDue } from "./customers.js";
+import { boardCustomerLabel, fmtAmountDue, invoiceTotal } from "./customers.js";
 
 const NOINV_KEY = "lepro_noinvdedup";
 
@@ -61,6 +61,88 @@ function jobSummary(job, jobs) {
   return parts.join(" · ") || job.id;
 }
 
+/** Canonical YYYY-MM-DD for invoice-date comparison. */
+export function jobInvoiceDateKey(job) {
+  const raw =
+    job?.invoiceDate ||
+    job?.status?.Invoiced?.d ||
+    job?.status?.Invoice?.d ||
+    "";
+  const s = String(raw).trim();
+  if (!s) return "";
+  const iso = s.match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if (iso) return iso[0];
+  const us = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})/);
+  if (us) {
+    return `${us[3]}-${us[1].padStart(2, "0")}-${us[2].padStart(2, "0")}`;
+  }
+  return s;
+}
+
+/** True when two jobs share invoice #, date, and total amount. */
+export function isExactInvoiceDuplicate(a, b) {
+  const noA = String(a?.invoiceNo || "").trim();
+  const noB = String(b?.invoiceNo || "").trim();
+  if (!noA || noA !== noB) return false;
+  const dateA = jobInvoiceDateKey(a);
+  const dateB = jobInvoiceDateKey(b);
+  if (!dateA || !dateB || dateA !== dateB) return false;
+  const amtA = invoiceTotal(a);
+  const amtB = invoiceTotal(b);
+  return amtA > 0 && amtA === amtB;
+}
+
+/** Same invoice # but not an exact duplicate and not OK to keep separate (different date). */
+export function shouldPromptInvoiceDedup(a, b) {
+  const noA = String(a?.invoiceNo || "").trim();
+  const noB = String(b?.invoiceNo || "").trim();
+  if (!noA || noA !== noB) return false;
+  if (isExactInvoiceDuplicate(a, b)) return false;
+  const dateA = jobInvoiceDateKey(a);
+  const dateB = jobInvoiceDateKey(b);
+  if (dateA && dateB && dateA !== dateB) return false;
+  return true;
+}
+
+/** Auto-delete weaker rows when invoice #, date, and amount all match. */
+export function planExactInvoiceAutoDedup(jobs) {
+  const byInv = new Map();
+  for (const j of jobs || []) {
+    if (!j || j._archived || j._deleted) continue;
+    const no = String(j.invoiceNo || "").trim();
+    if (!no) continue;
+    if (!byInv.has(no)) byInv.set(no, []);
+    byInv.get(no).push(j);
+  }
+
+  const actions = [];
+  for (const [no, group] of byInv) {
+    if (group.length < 2) continue;
+    const clusters = new Map();
+    for (const j of group) {
+      const dk = jobInvoiceDateKey(j);
+      const amt = invoiceTotal(j);
+      if (!dk || amt <= 0) continue;
+      const key = dk + "|" + amt;
+      if (!clusters.has(key)) clusters.set(key, []);
+      clusters.get(key).push(j);
+    }
+    for (const [, cluster] of clusters) {
+      if (cluster.length < 2) continue;
+      let keeper = cluster[0];
+      for (let i = 1; i < cluster.length; i++) {
+        keeper = pickKeeperJob(keeper, cluster[i]);
+      }
+      for (const j of cluster) {
+        if (j.id !== keeper.id) {
+          actions.push({ dropId: j.id, keepId: keeper.id, invoiceNo: no });
+        }
+      }
+    }
+  }
+  return actions;
+}
+
 /** Core fields shown side by side in the duplicate-invoice prompt. */
 export function jobCompareFields(job, jobs) {
   const j = job || {};
@@ -69,6 +151,7 @@ export function jobCompareFields(job, jobs) {
     serviceAddress: String(j.serviceAddress || j.address || "").trim(),
     amount: fmtAmountDue(j) || String(j.amount || "").trim(),
     invoiceNo: String(j.invoiceNo || "").trim(),
+    invoiceDate: jobInvoiceDateKey(j) || "",
     title: String(j.title || "").trim(),
   };
 }
@@ -80,6 +163,7 @@ export function invoiceCompareRows(jobA, jobB, jobs) {
     { label: "Customer", left: a.name, right: b.name },
     { label: "Service", left: a.serviceAddress, right: b.serviceAddress },
     { label: "Amount", left: a.amount, right: b.amount },
+    { label: "Invoice date", left: a.invoiceDate, right: b.invoiceDate },
     { label: "Invoice #", left: a.invoiceNo, right: b.invoiceNo },
   ];
 }
@@ -112,16 +196,27 @@ export function findDuplicateInvoiceSuggestion(jobs) {
   const list = [...byInv.entries()].sort((a, b) => a[0].localeCompare(b[0]));
   for (const [no, group] of list) {
     if (group.length < 2) continue;
-    const a = group[0];
-    const b = group[1];
-    if (isInvoiceDismissed(no, a.id, b.id)) continue;
-    return {
-      id: invoicePairId(no, a.id, b.id),
-      invoiceNo: no,
-      a: { job: a, summary: jobSummary(a, jobs) },
-      b: { job: b, summary: jobSummary(b, jobs) },
-      extra: group.length > 2 ? group.length - 2 : 0,
-    };
+    for (let i = 0; i < group.length; i++) {
+      for (let k = i + 1; k < group.length; k++) {
+        const a = group[i];
+        const b = group[k];
+        if (!shouldPromptInvoiceDedup(a, b)) continue;
+        if (isInvoiceDismissed(no, a.id, b.id)) continue;
+        const prompted = group.filter(
+          (j, idx) =>
+            idx !== i &&
+            idx !== k &&
+            (shouldPromptInvoiceDedup(a, j) || shouldPromptInvoiceDedup(b, j))
+        );
+        return {
+          id: invoicePairId(no, a.id, b.id),
+          invoiceNo: no,
+          a: { job: a, summary: jobSummary(a, jobs) },
+          b: { job: b, summary: jobSummary(b, jobs) },
+          extra: prompted.length,
+        };
+      }
+    }
   }
   return null;
 }

@@ -395,6 +395,26 @@ describe("bug 2 — near-duplicate combine prompt", () => {
 });
 
 describe("invoice dedupe prompt", () => {
+  it("auto-removes exact duplicate invoices without prompting", async () => {
+    const srv = mockServer({
+      jobs: [
+        job("J-1", "Arthur koptiv", "Meter bank", "$100", {
+          invoiceNo: "251809",
+          invoiceDate: "2026-07-01",
+        }),
+        job("J-2", "Arthur koptiv", "Meter bank copy", "$100", {
+          invoiceNo: "251809",
+          invoiceDate: "2026-07-01",
+          qboCustomerId: "99",
+        }),
+      ],
+    });
+    renderApp("#/");
+    await screen.findByText("Arthur koptiv");
+    await waitFor(() => expect(srv.state.ov["J-1"]?._deleted).toBe(true));
+    expect(screen.queryByTestId("invoice-dedup-prompt")).not.toBeInTheDocument();
+  });
+
   it("Remove duplicate deletes the weaker job row", async () => {
     const srv = mockServer({
       jobs: [

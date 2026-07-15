@@ -15,6 +15,7 @@ import {
 } from "../lib/customers.js";
 import { parentCustomerPatch } from "../lib/customerHierarchy.js";
 import { enqueueCustomerQboSync } from "../lib/customerQboEnqueue.js";
+import { serviceAddressesExcludingBilling } from "../lib/addressSync.js";
 import { fmt$ } from "../lib/format.js";
 
 function LinkModeTabs({ mode, onChange }) {
@@ -56,6 +57,7 @@ function LinkModeTabs({ mode, onChange }) {
 }
 
 function ProfileColumn({ profile, role, interactive, onTap, testId }) {
+  const serviceOnly = serviceAddressesExcludingBilling(profile.serviceAddresses, profile.billingAddress);
   const roleRing =
     role === "parent"
       ? "border-emerald-400 ring-1 ring-emerald-300/80 bg-emerald-50/30"
@@ -85,10 +87,10 @@ function ProfileColumn({ profile, role, interactive, onTap, testId }) {
           ["Email", profile.email],
           ["Billing address", profile.billingAddress],
           profile.qboCustomerId ? ["QuickBooks ID", profile.qboCustomerId] : null,
-          profile.serviceAddresses.length
+          serviceOnly.length
             ? [
-                "Service address" + (profile.serviceAddresses.length > 1 ? "es" : ""),
-                profile.serviceAddresses.join("\n"),
+                "Service address" + (serviceOnly.length > 1 ? "es" : ""),
+                serviceOnly.join("\n"),
               ]
             : null,
           [profile.jobCount === 1 ? "Job" : "Jobs (" + profile.jobCount + ")", profile.jobLines.join("\n")],

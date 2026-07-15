@@ -24,6 +24,7 @@ import ApprovalWatcher from "./components/ApprovalWatcher.jsx";
 import DocConfirmWatcher from "./components/DocConfirmWatcher.jsx";
 import SendInvoiceWatcher from "./components/SendInvoiceWatcher.jsx";
 import DedupePrompts from "./components/DedupePrompts.jsx";
+import InvoiceDedupAutoResolver from "./components/InvoiceDedupAutoResolver.jsx";
 import FollowUpPrompts from "./components/FollowUpPrompts.jsx";
 import EmailInsightPrompts from "./components/EmailInsightPrompts.jsx";
 import { LiveEditProvider } from "./components/LiveEditProvider.jsx";
@@ -279,6 +280,7 @@ export default function App() {
         <ApprovalWatcher />
         <DocConfirmWatcher />
         <SendInvoiceWatcher />
+        <InvoiceDedupAutoResolver />
         <DedupePrompts />
         <FollowUpPrompts />
         <EmailInsightPrompts />

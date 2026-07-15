@@ -1,5 +1,6 @@
 // Shared QuickBooks match dropdown — search + add-new on top, full customer rows below.
 import React from "react";
+import { addressesDiffer } from "../lib/prefillFromEvent.js";
 
 export function customerServiceLine(c) {
   return String(c?.serviceAddress || c?.address || "").trim();
@@ -16,6 +17,7 @@ export function CustomerMatchCard({ customer, onPick, testId = "customer-match" 
   const email = String(customer?.email || "").trim();
   const billing = customerBillingLine(customer);
   const service = customerServiceLine(customer);
+  const showService = service && addressesDiffer(service, billing);
   const pendingQbo = Boolean(customer?._pendingQbo);
 
   return (
@@ -56,9 +58,11 @@ export function CustomerMatchCard({ customer, onPick, testId = "customer-match" 
         <div data-testid="customer-match-billing">
           <span className="text-slate-400">Billing:</span> {billing || "—"}
         </div>
-        <div data-testid="customer-match-service">
-          <span className="text-slate-400">Service:</span> {service || "—"}
-        </div>
+        {showService ? (
+          <div data-testid="customer-match-service">
+            <span className="text-slate-400">Service:</span> {service}
+          </div>
+        ) : null}
       </div>
     </button>
   );

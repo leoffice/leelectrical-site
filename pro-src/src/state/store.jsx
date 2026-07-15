@@ -175,17 +175,25 @@ export function StoreProvider({ children }) {
       setEvents((prev) => mergePendingEvents(prev, meta.events || []));
       setEventsSyncedAt(meta.syncedAt || 0);
       if (pull && api.pullCalendar) {
+        const beforeSync = meta.syncedAt || 0;
         const run = async () => {
           const evs = await api.pullCalendar();
           setEvents((prev) => mergePendingEvents(prev, evs));
           const m = await api.listEventsMeta();
           setEventsSyncedAt(m.syncedAt || 0);
+          return (m.syncedAt || 0) > beforeSync;
         };
-        if (awaitPull) await run();
-        else run().catch(() => {});
+        if (awaitPull) {
+          const fresh = await run();
+          if (!fresh) showToast("Calendar refresh timed out — showing last sync");
+        } else {
+          run().catch(() => showToast("Couldn't refresh calendar"));
+        }
       }
-    } catch {}
-  }, [mergePendingEvents]);
+    } catch (e) {
+      setError(String((e && e.message) || e));
+    }
+  }, [mergePendingEvents, showToast]);
 
   const pullCalendarNow = useCallback(async () => {
     await refreshEvents({ pull: true, awaitPull: true });
@@ -370,7 +378,7 @@ export function StoreProvider({ children }) {
 
       setSyncPhase(1, 50);
       await Promise.all([
-        refresh(true, { pullCalendar: true, awaitPull: false }),
+        refresh(true, { pullCalendar: true, awaitPull: true }),
         animateSyncPct("Refreshing", 50, 95, isTest ? 40 : 1200),
       ]);
       await refreshJobs(true);

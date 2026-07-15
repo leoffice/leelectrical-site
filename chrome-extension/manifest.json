@@ -1,6 +1,6 @@
 {
   "manifest_version": 3,
-  "name": "LE Voice Flow",
+  "name": "LE Flow",
   "version": "1.0.0",
   "description": "Wispr-style dictation bubble for any text field in Chrome.",
   "permissions": ["storage", "activeTab"],

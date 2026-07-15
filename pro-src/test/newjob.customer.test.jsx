@@ -46,6 +46,8 @@ describe("#49 New Job form — split addresses + apartment", () => {
 
     await user.type(screen.getByLabelText("Business name"), "Fresh Client");
     await user.type(screen.getByLabelText("Service address"), "12 Oak Ave");
+    await user.tab();
+    await user.clear(screen.getByLabelText("Billing address"));
     await user.type(screen.getByLabelText("Billing address"), "99 Bill St");
     await user.type(screen.getByLabelText("Apartment #"), "3R");
     await user.click(screen.getByText("Create job"));
