@@ -5,9 +5,12 @@ import {
   findDuplicateInvoiceSuggestion,
   invoiceCompareRows,
   invoicePairId,
+  isExactInvoiceDuplicate,
   isInvoiceDismissed,
   pickKeeperJob,
+  planExactInvoiceAutoDedup,
   qboStubJobIds,
+  shouldPromptInvoiceDedup,
 } from "../src/lib/invoiceDedup.js";
 
 const job = (id, invoiceNo, extra = {}) => ({
@@ -56,14 +59,66 @@ describe("findDuplicateInvoiceSuggestion", () => {
     expect(qboStubJobIds(jobs, "251900", "qbo-251900")).toEqual([]);
   });
 
-  it("invoiceCompareRows lines up customer, service, amount, and invoice #", () => {
+  it("invoiceCompareRows lines up customer, service, amount, date, and invoice #", () => {
     const jobs = [
-      job("J-1", "251808", { customer: "Arthur", serviceAddress: "10 Oak", amount: "$100" }),
-      job("J-2", "251808", { customer: "Art", serviceAddress: "20 Pine", amount: "$200" }),
+      job("J-1", "251808", { customer: "Arthur", serviceAddress: "10 Oak", amount: "$100", invoiceDate: "2026-07-01" }),
+      job("J-2", "251808", { customer: "Art", serviceAddress: "20 Pine", amount: "$200", invoiceDate: "2026-07-02" }),
     ];
     const rows = invoiceCompareRows(jobs[0], jobs[1], jobs);
-    expect(rows.map((r) => r.label)).toEqual(["Customer", "Service", "Amount", "Invoice #"]);
+    expect(rows.map((r) => r.label)).toEqual([
+      "Customer",
+      "Service",
+      "Amount",
+      "Invoice date",
+      "Invoice #",
+    ]);
     expect(rows[0].left).toBe("Arthur");
-    expect(rows[3].right).toBe("251808");
+    expect(rows[3].left).toBe("2026-07-01");
+    expect(rows[4].right).toBe("251808");
+  });
+
+  it("isExactInvoiceDuplicate requires matching #, date, and amount", () => {
+    const base = job("J-1", "251808", { amount: "$500", invoiceDate: "2026-07-10" });
+    const twin = job("J-2", "251808", { amount: "$500", invoiceDate: "2026-07-10" });
+    const diffDate = job("J-3", "251808", { amount: "$500", invoiceDate: "2026-07-11" });
+    expect(isExactInvoiceDuplicate(base, twin)).toBe(true);
+    expect(isExactInvoiceDuplicate(base, diffDate)).toBe(false);
+  });
+
+  it("shouldPromptInvoiceDedup skips exact dupes and different-date pairs", () => {
+    const a = job("J-1", "251808", { amount: "$500", invoiceDate: "2026-07-10" });
+    const twin = job("J-2", "251808", { amount: "$500", invoiceDate: "2026-07-10" });
+    const diffDate = job("J-3", "251808", { amount: "$500", invoiceDate: "2026-07-11" });
+    expect(shouldPromptInvoiceDedup(a, twin)).toBe(false);
+    expect(shouldPromptInvoiceDedup(a, diffDate)).toBe(false);
+    expect(shouldPromptInvoiceDedup(a, job("J-4", "251808", { amount: "$600", invoiceDate: "2026-07-10" }))).toBe(true);
+  });
+
+  it("findDuplicateInvoiceSuggestion ignores exact duplicates and different dates", () => {
+    const exact = [
+      job("J-1", "251808", { amount: "$100", invoiceDate: "2026-07-01" }),
+      job("J-2", "251808", { amount: "$100", invoiceDate: "2026-07-01" }),
+    ];
+    expect(findDuplicateInvoiceSuggestion(exact)).toBeNull();
+
+    const diffDate = [
+      job("J-1", "251808", { amount: "$100", invoiceDate: "2026-07-01" }),
+      job("J-2", "251808", { amount: "$100", invoiceDate: "2026-07-02" }),
+    ];
+    expect(findDuplicateInvoiceSuggestion(diffDate)).toBeNull();
+  });
+
+  it("planExactInvoiceAutoDedup drops weaker rows in exact clusters", () => {
+    const jobs = [
+      job("J-1", "251808", { amount: "$100", invoiceDate: "2026-07-01" }),
+      job("J-2", "251808", {
+        amount: "$100",
+        invoiceDate: "2026-07-01",
+        qboCustomerId: "42",
+      }),
+    ];
+    expect(planExactInvoiceAutoDedup(jobs)).toEqual([
+      { dropId: "J-1", keepId: "J-2", invoiceNo: "251808" },
+    ]);
   });
 });

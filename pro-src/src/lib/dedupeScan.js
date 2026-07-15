@@ -9,7 +9,7 @@ import {
   namesNearDuplicate,
   pairId,
 } from "./customers.js";
-import { findDuplicateInvoiceSuggestion, isInvoiceDismissed } from "./invoiceDedup.js";
+import { findDuplicateInvoiceSuggestion, isInvoiceDismissed, shouldPromptInvoiceDedup } from "./invoiceDedup.js";
 import { findMergeSuggestion } from "./customers.js";
 
 export const DEDUPE_SCAN_KEY = "lepro_dedupe_scan";
@@ -79,10 +79,19 @@ export function countInvoiceDupes(jobs) {
   let n = 0;
   for (const [, group] of byInv) {
     if (group.length < 2) continue;
-    const a = group[0];
-    const b = group[1];
-    if (isInvoiceDismissed(noFromGroup(group), a.id, b.id)) continue;
-    n++;
+    const no = noFromGroup(group);
+    let found = false;
+    for (let i = 0; i < group.length && !found; i++) {
+      for (let k = i + 1; k < group.length; k++) {
+        const a = group[i];
+        const b = group[k];
+        if (!shouldPromptInvoiceDedup(a, b)) continue;
+        if (isInvoiceDismissed(no, a.id, b.id)) continue;
+        n++;
+        found = true;
+        break;
+      }
+    }
   }
   return n;
 }
