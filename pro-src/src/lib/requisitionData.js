@@ -14,12 +14,13 @@ export const DEFAULT_REQ_COMPANY_NAME = "LE Electrical";
 
 /**
  * Fixed billing block under the logo on printed requisitions.
- * Company name is editable separately; address / phone / email stay the same.
+ * Company name is editable separately (bold on letterhead); address / phone / email stay fixed.
+ * Print order: company (bold) → street → suite → city → phone + email on one line.
  */
 export const REQ_BILLING = {
   addressLines: ["383 Kingston Avenue", "Suite 297", "Brooklyn, New York 11213"],
   phone: "718-594-1850",
-  email: "toffees@leelectrical.us",
+  email: "LE@LEelectrical.US",
 };
 
 /** Contractor name shown on G702 FROM (Contractor) and CONTRACTOR signature. */
