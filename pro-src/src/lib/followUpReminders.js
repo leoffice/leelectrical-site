@@ -308,6 +308,22 @@ export function inspectionCandidates(events, today) {
 }
 
 /** Must-today reminders due for same-day loop (initial or 2-hour firmer nudge). */
+/** Hard-linked job, then jobId saved on the reminder, then best soft match. */
+export function resolveReminderJob(event, jobs, st = {}) {
+  const linked = linkedJobForEvent(event, jobs);
+  if (linked) return linked;
+  const list = (jobs || []).filter((j) => j?.id && !j._archived && !j._deleted);
+  if (st?.jobId) {
+    const byId = list.find((j) => String(j.id) === String(st.jobId));
+    if (byId) return byId;
+  }
+  if (st?.linkedJobId) {
+    const byLink = list.find((j) => String(j.id) === String(st.linkedJobId));
+    if (byLink) return byLink;
+  }
+  return null;
+}
+
 export function dueMustTodayNudges(events, jobs, today, now = new Date()) {
   const state = loadState();
   const out = [];
@@ -324,7 +340,14 @@ export function dueMustTodayNudges(events, jobs, today, now = new Date()) {
       (nextNudge && nextNudge <= now) ||
       (remindAt && remindAt <= now && !st.nextNudgeAt && st.pushOffCount > 0) ||
       (remindAt && remindAt <= now && !st.pushOffCount);
-    if (due) out.push({ event: e, state: st, job: linkedJobForEvent(e, jobs) });
+    if (due) {
+      out.push({
+        event: e,
+        state: st,
+        job: resolveReminderJob(e, jobs, st),
+        candidates: suggestJobsForEvent(e, jobs),
+      });
+    }
   }
   return out;
 }
@@ -382,7 +405,12 @@ export function dueScheduledReminders(events, jobs, today, now = new Date()) {
     if (isSnoozed(st, now)) continue;
     if (st.priority === "must_today" && st.remindAt.slice(0, 10) === today) continue;
     if (!remindAtDue(st, now)) continue;
-    out.push({ event: e, state: st, job: linkedJobForEvent(e, jobs) });
+    out.push({
+      event: e,
+      state: st,
+      job: resolveReminderJob(e, jobs, st),
+      candidates: suggestJobsForEvent(e, jobs),
+    });
   }
   return out;
 }
@@ -501,7 +529,7 @@ export function cancelStaleUnsentReminders(events, jobs, commands = [], now = ne
     const st = eventState(state, e.id);
     if (!st || st.handledAt || st.noReminders) continue;
     if (!st.remindAt && !st.nextNudgeAt && !st.snoozeUntil) continue;
-    const job = linkedJobForEvent(e, jobs) || (st.jobId ? byId.get(String(st.jobId)) : null);
+    const job = resolveReminderJob(e, jobs, st) || (st.jobId ? byId.get(String(st.jobId)) : null);
     if (!job) continue;
     const note = String(st.note || st.nudge || "").toLowerCase();
     const unsentish =
@@ -578,7 +606,8 @@ export function buildReminderList(events, jobs, today, now = new Date(), command
         detail: st.note || st.nudge || "",
         event: e,
         state: st,
-        job: linkedJobForEvent(e, jobs),
+        job: resolveReminderJob(e, jobs, st),
+        candidates: suggestJobsForEvent(e, jobs),
         dueAt: st.remindAt || st.nextNudgeAt || "",
       });
       continue;
@@ -592,7 +621,8 @@ export function buildReminderList(events, jobs, today, now = new Date(), command
         detail: st.note || st.nudge || "",
         event: e,
         state: st,
-        job: linkedJobForEvent(e, jobs),
+        job: resolveReminderJob(e, jobs, st),
+        candidates: suggestJobsForEvent(e, jobs),
         dueAt: st.remindAt,
       });
     }

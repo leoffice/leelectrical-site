@@ -65,21 +65,65 @@ export function reminderQuickActions() {
   ];
 }
 
-/** Contextual smart suggestions — hide actions that duplicate existing paperwork. */
-export function contextualReminderActions(job) {
-  const scenario = classifyAppointment(job);
-  const actions = followUpActions(scenario).filter((a) => a.key !== "remind");
-  const hasEst = !!(
+function jobHasEstimate(job) {
+  return !!(
     job?.estimateNo ||
     job?._estimateConfirmed ||
     (job?.estimateLines && job.estimateLines.length)
   );
-  const hasInv = !!(job?.invoiceNo || job?._invoiceConfirmed);
+}
+
+function jobHasInvoice(job) {
+  return !!(job?.invoiceNo || job?._invoiceConfirmed);
+}
+
+/** Pick best known job for suggestions: hard link, then first candidate match. */
+export function effectiveJobForSuggestions(job, candidates = []) {
+  if (job?.id) return job;
+  const list = Array.isArray(candidates) ? candidates : [];
+  return list.find((j) => j?.id) || null;
+}
+
+/** Note language that means paperwork/job already exists — never offer create-*. */
+export function noteImpliesExistingInvoice(note) {
+  const t = String(note || "");
+  if (!/\binvoice\b/i.test(t)) return false;
+  return /\b(make\s+sure|ensure|verify|confirm|check|updated?|have|has|already|existing|on\s+file|sent|paid|status)\b/i.test(
+    t
+  );
+}
+
+export function noteImpliesExistingEstimate(note) {
+  const t = String(note || "");
+  if (!/\bestimate\b/i.test(t)) return false;
+  return /\b(make\s+sure|ensure|verify|confirm|check|updated?|have|has|already|existing|on\s+file|sent|approved|status)\b/i.test(
+    t
+  );
+}
+
+/**
+ * Contextual smart suggestions — hide actions that duplicate existing paperwork.
+ * opts.note: reminder text (suppress create when it talks about an existing invoice/job)
+ * opts.candidates: soft-matched jobs for this appointment (suppress create-job if any match)
+ */
+export function contextualReminderActions(job, opts = {}) {
+  const note = opts.note || "";
+  const candidates = opts.candidates || [];
+  const effective = effectiveJobForSuggestions(job, candidates);
+  const knownJob = !!(job?.id || effective?.id || (candidates && candidates.length));
+  const hasEst = jobHasEstimate(effective) || candidates.some(jobHasEstimate);
+  const hasInv = jobHasInvoice(effective) || candidates.some(jobHasInvoice);
+  const noteInv = noteImpliesExistingInvoice(note);
+  const noteEst = noteImpliesExistingEstimate(note);
+
+  const scenario = classifyAppointment(effective);
+  const actions = followUpActions(scenario).filter((a) => a.key !== "remind");
 
   return actions.filter((a) => {
-    if (a.key === "create_job" && job?.id) return false;
-    if (a.key === "create_estimate" && hasEst) return false;
-    if (a.key === "create_invoice" && hasInv) return false;
+    // Never "create a job" when one is linked, soft-matched, or note implies existing work.
+    if (a.key === "create_job" && (knownJob || noteInv || noteEst || hasInv || hasEst)) return false;
+    if (a.key === "create_estimate" && (hasEst || noteEst)) return false;
+    if (a.key === "create_invoice" && (hasInv || noteInv)) return false;
     return true;
   });
 }
