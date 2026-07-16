@@ -1,14 +1,12 @@
-import { createRequire } from "module";
 import { getStore } from "./storage/index.mjs";
-import { fileURLToPath } from "url";
-import path from "path";
 import { canGenerateLocalDoc, docPdfFilename, docStoreKey, mapJobToQbDocData } from "./jobToQbDoc.mjs";
 
-const moduleDir = path.dirname(fileURLToPath(import.meta.url));
-const require = createRequire(import.meta.url);
-const { generateDocument } = require("./le-invoice-suite/qb-pdf.js");
+// NOTE: the pdfkit generator + Node fs/path/module bits load lazily inside
+// generateAndStoreDoc(), NOT at module load. This module is transitively imported
+// by docs-fetch, which must load on Cloudflare's V8 isolate — where import.meta.url
+// is undefined and pdfkit can't run. Deferring keeps import crash-free; only an
+// actual generateAndStoreDoc() call (Node only) touches those APIs.
 
-const SUITE_DIR = path.join(moduleDir, "le-invoice-suite");
 const JOBS_KEY = "jobsdata-v1";
 const STATE_KEY = "ov-v1";
 
@@ -38,6 +36,13 @@ export async function generateAndStoreDoc({ job, kind = "invoice" }) {
   if (!canGenerateLocalDoc(job, kind)) {
     return { ok: false, reason: "insufficient_data" };
   }
+  // Lazy Node-only deps — pdfkit and fs/path/module can't run on Cloudflare V8.
+  const { createRequire } = await import("module");
+  const { fileURLToPath } = await import("url");
+  const path = (await import("path")).default;
+  const require = createRequire(import.meta.url);
+  const { generateDocument } = require("./le-invoice-suite/qb-pdf.js");
+  const SUITE_DIR = path.join(path.dirname(fileURLToPath(import.meta.url)), "le-invoice-suite");
   const data = mapJobToQbDocData(job, kind);
   data.logoPath = path.join(SUITE_DIR, "assets", "logo.png");
   const buf = await generateDocument(data);
