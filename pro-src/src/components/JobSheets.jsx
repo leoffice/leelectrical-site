@@ -2316,46 +2316,168 @@ export function ReminderSheet({ job, onClose }) {
 }
 
 /* ---------- 8. Add attachment ---------- */
+// Pick a device file (system search), name it, Save — sheet stays open for more.
 export function AttachSheet({ job, onClose }) {
   const { patchJob, enqueue, showToast } = useStore();
+  const fileRef = useRef(null);
   const [name, setName] = useState("");
   const [url, setUrl] = useState("");
-  const add = () => {
-    const n = name.trim(), u = url.trim();
-    if (!n) return showToast("Give it a name");
-    patchJob(job.id, { attachments: (job.attachments || []).concat([{ name: n, url: u }]) });
+  const [mime, setMime] = useState("");
+  const [fileLabel, setFileLabel] = useState("");
+  const [uploading, setUploading] = useState(false);
+  const [search, setSearch] = useState("");
+  const existing = job.attachments || [];
+  const filtered = search.trim()
+    ? existing.filter((a) => String(a.name || "").toLowerCase().includes(search.trim().toLowerCase()))
+    : existing;
+
+  const resetForm = () => {
+    setName("");
+    setUrl("");
+    setMime("");
+    setFileLabel("");
+    if (fileRef.current) fileRef.current.value = "";
+  };
+
+  const onPickFile = async (e) => {
+    const file = (e.target.files && e.target.files[0]) || null;
+    if (!file) return;
+    setUploading(true);
+    try {
+      const { uploadChatAttachment, formatFileSize } = await import("../lib/chatAttach.js");
+      const fileUrl = await uploadChatAttachment(file);
+      const base = String(file.name || "file").replace(/\.[^.]+$/, "") || file.name || "Attachment";
+      setName(base);
+      setUrl(fileUrl);
+      setMime(file.type || "");
+      setFileLabel((file.name || "file") + " · " + formatFileSize(file.size));
+      showToast("File ready — give it a title, then Save");
+    } catch (err) {
+      showToast("Couldn't upload file — " + (err?.message || "try again"));
+      resetForm();
+    } finally {
+      setUploading(false);
+    }
+  };
+
+  const save = () => {
+    const n = name.trim();
+    const u = url.trim();
+    if (!n) return showToast("Give it a title");
+    if (!u) return showToast("Pick a file or paste a link first");
+    const att = {
+      id: "att-" + Date.now() + "-" + Math.random().toString(36).slice(2, 6),
+      name: n,
+      url: u,
+      mime: mime || "",
+      attachToEmail: true,
+      addedAt: Date.now(),
+    };
+    patchJob(job.id, { attachments: (job.attachments || []).concat([att]) });
     if (u && job.invoiceNo) {
       enqueue(
         "attach_to_invoice",
         job.id,
         { invoiceNo: job.invoiceNo, name: n, url: u },
         "deterministic",
-        "att:inv:" + job.id + ":" + n
+        "att:inv:" + job.id + ":" + n + ":" + att.id
       );
-      showToast("Added — attaching to the QuickBooks invoice too");
+      showToast("Saved — also attaching to the QuickBooks invoice");
     } else if (u && job.estimateNo) {
       enqueue(
         "attach_to_estimate",
         job.id,
         { estimateNo: job.estimateNo, name: n, url: u },
         "deterministic",
-        "att:est:" + job.id + ":" + n
+        "att:est:" + job.id + ":" + n + ":" + att.id
       );
-      showToast("Added — attaching to the QuickBooks estimate too");
+      showToast("Saved — also attaching to the QuickBooks estimate");
     } else {
-      showToast("Attachment staged" + (u ? "" : " (add a link to also attach it in QuickBooks)"));
+      showToast("Attachment saved on this job");
     }
-    onClose();
+    // Stay open so Levi can title-confirm and add more files.
+    resetForm();
   };
+
   return (
     <Sheet title="Add attachment" onClose={onClose}>
-      <Fld label="Name">
-        <input className="input" placeholder="e.g. Panel photo, blueprint" value={name} onChange={(e) => setName(e.target.value)} aria-label="Attachment name" />
+      <p className="text-xs text-slate-500 mb-3">
+        Search your files, pick one, name it, then Save. This stays open so you can add more.
+      </p>
+
+      <input
+        ref={fileRef}
+        type="file"
+        className="sr-only"
+        accept="image/*,.pdf,.doc,.docx,.xls,.xlsx,.csv,.txt,.png,.jpg,.jpeg,.heic"
+        onChange={onPickFile}
+        data-testid="attach-file-input"
+        aria-label="Search and choose a file"
+      />
+      <button
+        type="button"
+        className="btn-brand w-full mb-3"
+        disabled={uploading}
+        onClick={() => fileRef.current && fileRef.current.click()}
+        data-testid="attach-browse-btn"
+      >
+        {uploading ? "Uploading…" : "📋 Search & choose file"}
+      </button>
+
+      {fileLabel ? (
+        <p className="text-xs text-emerald-700 bg-emerald-50 border border-emerald-100 rounded-xl px-3 py-2 mb-3" data-testid="attach-file-ready">
+          Ready: {fileLabel}
+        </p>
+      ) : null}
+
+      <Fld label="Title" hint="What should this file be called on the job?">
+        <input
+          className="input"
+          placeholder="e.g. Panel photo, signed CO, blueprint"
+          value={name}
+          onChange={(e) => setName(e.target.value)}
+          aria-label="Attachment name"
+          data-testid="attach-title"
+        />
       </Fld>
-      <Fld label="Link" hint="With a link + invoice/estimate #, it also attaches in QuickBooks">
-        <input className="input" placeholder="Optional — paste a Drive/photo link" value={url} onChange={(e) => setUrl(e.target.value)} aria-label="Attachment link" />
+      <Fld label="Or paste a link" hint="Drive / photo link if you already have one">
+        <input
+          className="input"
+          placeholder="Optional — https://…"
+          value={url}
+          onChange={(e) => setUrl(e.target.value)}
+          aria-label="Attachment link"
+          data-testid="attach-url"
+        />
       </Fld>
-      <button className="btn-brand w-full" onClick={add}>Add</button>
+      <button type="button" className="btn-brand w-full mb-2" onClick={save} disabled={uploading} data-testid="attach-save-btn">
+        Save attachment
+      </button>
+      <button type="button" className="btn-ghost w-full !py-2 mb-4" onClick={onClose} data-testid="attach-done-btn">
+        Done
+      </button>
+
+      {existing.length ? (
+        <div data-testid="attach-existing">
+          <p className="text-[11px] font-bold uppercase tracking-wide text-slate-400 mb-2">
+            On this job ({existing.length})
+          </p>
+          <input
+            className="input mb-2"
+            placeholder="Search attachments…"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            aria-label="Search attachments"
+            data-testid="attach-search"
+          />
+          {filtered.map((a, i) => (
+            <div key={a.id || i} className="text-sm flex gap-2 py-1.5 border-b border-dashed border-slate-200">
+              <span className="flex-1 truncate">📎 {a.name || "file"}</span>
+            </div>
+          ))}
+          {!filtered.length ? <p className="text-xs text-slate-400">No matches.</p> : null}
+        </div>
+      ) : null}
     </Sheet>
   );
 }

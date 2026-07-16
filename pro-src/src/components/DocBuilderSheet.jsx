@@ -323,6 +323,7 @@ export default function DocBuilderSheet({
   const [attachments, setAttachments] = useState([]);
   const [attName, setAttName] = useState("");
   const [attUrl, setAttUrl] = useState("");
+  const [attUploading, setAttUploading] = useState(false);
   const [items, setItems] = useState(DEFAULT_QBO_ITEMS);
   const [saving, setSaving] = useState(false);
   const initialContract = contractTotalForJob(job) || contractTotalFromEstimate(job.estimateLines) || 0;
@@ -410,10 +411,50 @@ export default function DocBuilderSheet({
     const n = attName.trim();
     const u = attUrl.trim();
     if (!n) return showToast("Name the attachment");
-    setAttachments((a) => a.concat([{ name: n, url: u }]));
+    setAttachments((a) =>
+      a.concat([{ id: "att-" + Date.now(), name: n, url: u, attachToEmail: true }])
+    );
     setAttName("");
     setAttUrl("");
   };
+
+  const onPickDocFile = async (e) => {
+    const file = (e.target.files && e.target.files[0]) || null;
+    e.target.value = "";
+    if (!file) return;
+    setAttUploading(true);
+    try {
+      const { uploadChatAttachment } = await import("../lib/chatAttach.js");
+      const fileUrl = await uploadChatAttachment(file);
+      const base = String(file.name || "file").replace(/\.[^.]+$/, "") || file.name || "Attachment";
+      setAttachments((a) =>
+        a.concat([
+          {
+            id: "att-" + Date.now(),
+            name: base,
+            url: fileUrl,
+            mime: file.type || "",
+            attachToEmail: true,
+          },
+        ])
+      );
+      showToast("File attached — uncheck “Include in email” if you don’t want it emailed");
+    } catch (err) {
+      showToast("Couldn't attach file — " + (err?.message || "try again"));
+    } finally {
+      setAttUploading(false);
+    }
+  };
+
+  const toggleAttEmail = (key) => {
+    setAttachments((rows) =>
+      rows.map((a) =>
+        a.id === key || a.name === key ? { ...a, attachToEmail: a.attachToEmail === false } : a
+      )
+    );
+  };
+
+  const emailAttachments = () => attachments.filter((a) => a.attachToEmail !== false);
 
   const ensureJobId = async () => {
     if (job.id) return job.id;
@@ -471,6 +512,24 @@ export default function DocBuilderSheet({
     return valid;
   };
 
+  const downloadLocalPdf = async (jobForPdf) => {
+    try {
+      const { buildInvoicePdfFromJob, buildEstimatePdfFromJob } = await import("../lib/invoicePdf.js");
+      const { downloadPdfBlob } = await import("../lib/pdfOpen.js");
+      const { docPdfFilename } = await import("../lib/jobToQbDoc.js");
+      const blob =
+        kind === "estimate"
+          ? buildEstimatePdfFromJob(jobForPdf)
+          : buildInvoicePdfFromJob(jobForPdf);
+      if (!blob) return;
+      const no = kind === "invoice" ? jobForPdf.invoiceNo : jobForPdf.estimateNo;
+      const filename = docPdfFilename(kind, jobForPdf, no || "DRAFT") || `${kind}-draft.pdf`;
+      downloadPdfBlob(blob, filename);
+    } catch {
+      /* non-fatal — save still succeeded */
+    }
+  };
+
   const submitLocal = async () => {
     const valid = validate(false);
     if (!valid) return;
@@ -496,7 +555,18 @@ export default function DocBuilderSheet({
         jobPatch.attachments = (job.attachments || []).concat(attachments);
       }
       await patchAndSave(jobId, jobPatch);
-      showToast("Saved on this job — tap the Estimate or Invoice tab to review, then sync to QuickBooks when ready");
+      const pdfJob = {
+        ...activeJob,
+        ...jobPatch,
+        invoiceNo: jobPatch.invoiceNo || activeJob.invoiceNo || "DRAFT",
+        estimateNo: jobPatch.estimateNo || activeJob.estimateNo || "DRAFT",
+      };
+      await downloadLocalPdf(pdfJob);
+      showToast(
+        "Saved + downloaded a nice " +
+          (kind === "estimate" ? "estimate" : "invoice") +
+          " PDF — sync to QuickBooks when ready"
+      );
       resumeFollowUpPrompts();
       onDone && onDone(activeJob);
       onClose();
@@ -534,8 +604,17 @@ export default function DocBuilderSheet({
       const needsCustomer =
         mode !== "edit" && !String(activeJob.qboCustomerId || "").trim();
 
+      const attsForEmail = send ? emailAttachments() : attachments;
+      const attsForQbo = attachments;
+
       if (needsCustomer) {
-        stashPendingDocSync(jobId, { commands, attachments, send, kind });
+        stashPendingDocSync(jobId, {
+          commands,
+          attachments: attsForQbo,
+          emailAttachments: attsForEmail,
+          send,
+          kind,
+        });
         enqueueCustomerQboSync(enqueue, jobId, activeJob, "");
         showToast(
           send
@@ -550,11 +629,16 @@ export default function DocBuilderSheet({
       } else {
         for (let i = 0; i < commands.length; i++) {
           const cmd = commands[i];
-          const payload = { ...cmd.payload, attachments: i === 0 ? attachments : [] };
+          // Only email-flagged attachments ride with the doc command payload.
+          const payload = {
+            ...cmd.payload,
+            attachments: i === 0 ? (send ? attsForEmail : attsForQbo) : [],
+            includeAttachmentsInEmail: send ? attsForEmail.length > 0 : undefined,
+          };
           await enqueue(cmd.type, jobId, payload, "judgment", cmd.idk);
         }
 
-        for (const att of attachments) {
+        for (const att of attsForQbo) {
           const attachType = kind === "estimate" ? "attach_to_estimate" : "attach_to_invoice";
           await enqueue(
             attachType,
@@ -565,9 +649,10 @@ export default function DocBuilderSheet({
               name: att.name,
               url: att.url || "",
               pendingDoc: true,
+              attachToEmail: att.attachToEmail !== false,
             },
             "deterministic",
-            "att:" + kind + ":" + jobId + ":" + att.name
+            "att:" + kind + ":" + jobId + ":" + att.name + ":" + Date.now()
           );
         }
 
@@ -578,7 +663,12 @@ export default function DocBuilderSheet({
             await enqueue(
               "send_" + kind,
               jobId,
-              { email: activeJob.email, [noKey]: no },
+              {
+                email: activeJob.email,
+                [noKey]: no,
+                attachments: attsForEmail,
+                includeAttachmentsInEmail: attsForEmail.length > 0,
+              },
               "deterministic",
               "send_" + kind + ":" + no
             );
@@ -586,11 +676,25 @@ export default function DocBuilderSheet({
           }
         }
 
+        const pdfJob = {
+          ...activeJob,
+          ...jobPatch,
+          invoiceNo: jobPatch.invoiceNo || activeJob.invoiceNo || "DRAFT",
+          estimateNo: jobPatch.estimateNo || activeJob.estimateNo || "DRAFT",
+        };
+        await downloadLocalPdf(pdfJob);
+
         const recurNote =
           showRecurring && recurring.enabled ? " + recurring schedule in QuickBooks" : "";
+        const attNote =
+          send && attachments.length
+            ? attsForEmail.length
+              ? " · " + attsForEmail.length + " file(s) in email"
+              : " · files on job only (not emailed)"
+            : "";
         showToast(
           send
-            ? "Sending to QuickBooks and emailing " + activeJob.email + recurNote + "…"
+            ? "Sending to QuickBooks and emailing " + activeJob.email + recurNote + attNote + "…"
             : "Sending " + (kind === "estimate" ? "estimate" : "invoice") + " to QuickBooks" + recurNote + "…"
         );
       }
@@ -667,20 +771,44 @@ export default function DocBuilderSheet({
       </div>
 
       <p className="text-[11px] font-bold uppercase tracking-wide text-slate-400 mb-2">Attachments</p>
+      <p className="text-[11px] text-slate-500 mb-2">
+        When you send this {kind === "estimate" ? "estimate" : "invoice"}, choose which files ride along in the email.
+      </p>
       {attachments.map((a, i) => (
-        <div key={i} className="text-sm flex gap-2 py-1 border-b border-dashed border-slate-200">
-          <span className="flex-1 truncate">📎 {a.name}</span>
-          <button type="button" className="text-red-500 text-xs" onClick={() => setAttachments((x) => x.filter((_, j) => j !== i))}>
+        <div key={a.id || i} className="text-sm flex flex-wrap items-center gap-2 py-1.5 border-b border-dashed border-slate-200" data-testid="doc-attachment-row">
+          <span className="flex-1 truncate min-w-[6rem]">📎 {a.name}</span>
+          <label className="inline-flex items-center gap-1.5 text-[11px] font-semibold text-slate-600 shrink-0 cursor-pointer">
+            <input
+              type="checkbox"
+              checked={a.attachToEmail !== false}
+              onChange={() => toggleAttEmail(a.id || a.name)}
+              data-testid="doc-att-email-toggle"
+              aria-label={"Include " + (a.name || "file") + " in email"}
+            />
+            Include in email
+          </label>
+          <button type="button" className="text-red-500 text-xs" onClick={() => setAttachments((x) => x.filter((_, j) => j !== i))} aria-label={"Remove " + a.name}>
             ✕
           </button>
         </div>
       ))}
+      <label className="btn-ghost w-full !py-1.5 mb-1 text-center cursor-pointer block">
+        <input
+          type="file"
+          className="sr-only"
+          accept="image/*,.pdf,.doc,.docx,.xls,.xlsx,.csv,.txt"
+          onChange={onPickDocFile}
+          disabled={attUploading}
+          data-testid="doc-attach-file"
+        />
+        {attUploading ? "Uploading…" : "📋 Search & choose file"}
+      </label>
       <div className="flex gap-2 mb-1">
         <input className="input flex-1" placeholder="Name" value={attName} onChange={(e) => setAttName(e.target.value)} aria-label="Attachment name" />
         <input className="input flex-1" placeholder="Link (optional)" value={attUrl} onChange={(e) => setAttUrl(e.target.value)} aria-label="Attachment URL" />
       </div>
       <button type="button" className="btn-ghost w-full !py-1.5 mb-4" onClick={addAtt}>
-        ＋ Add attachment
+        ＋ Add by name / link
       </button>
 
       {showRecurring ? (

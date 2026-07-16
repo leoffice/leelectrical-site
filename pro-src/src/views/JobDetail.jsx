@@ -335,6 +335,7 @@ export default function JobDetail() {
             onSelectJob={(j) => nav("/job/" + j.id + (fromCust ? "?from=" + encodeURIComponent(fromCust) : ""))}
             onAddChangeOrder={() => setSheet({ kind: "changeOrder" })}
             canAddChangeOrder={canAddChangeOrder(jobs, job)}
+            onAddAttachment={() => setSheet({ kind: "attach" })}
             onAddJob={addJobAtAddress}
             onEditJob={() => setSheet({ kind: "jobedit" })}
             onEstimate={(j) => openDocTab(j, "estimate", setSheet)}
@@ -359,6 +360,7 @@ export default function JobDetail() {
             onAddJob={addJobAtAddress}
             onAddChangeOrder={() => setSheet({ kind: "changeOrder" })}
             canAddChangeOrder={canAddChangeOrder(jobs, job)}
+            onAddAttachment={() => setSheet({ kind: "attach" })}
             onEstimate={() => openDocTab(job, "estimate", setSheet)}
             onInvoice={() => openDocTab(job, "invoice", setSheet)}
             onPayment={() => setSheet({ kind: "paymenu" })}
@@ -865,34 +867,41 @@ export default function JobDetail() {
         </div>
       </div>
 
-      {/* Attachments */}
-      <h2 className="text-[11px] font-extrabold text-slate-500 uppercase tracking-wider px-1 !mb-[-6px]">Attachments</h2>
-      <div className="card px-4 py-4">
-        {at.length ? (
-          at.map((a, i) => (
-            <div key={i} className="flex items-center gap-2.5 py-1.5 border-b border-dashed border-slate-200 last:border-0 text-sm">
-              <span>📎</span>
-              <span className="flex-1 min-w-0 truncate">
-                {a.url ? (
-                  <a href={a.url} target="_blank" rel="noreferrer" className="text-brand font-semibold">
-                    {a.name || "file"}
-                  </a>
-                ) : (
-                  a.name || "file"
-                )}
-              </span>
-              <button className="btn-ghost !py-1 !px-2.5" onClick={() => rmAtt(i)} aria-label={`Remove ${a.name}`}>
-                ✕
-              </button>
-            </div>
-          ))
-        ) : (
-          <div className="text-sm text-slate-400 mb-2">No attachments yet.</div>
-        )}
-        <button className="btn bg-brand-soft text-brand w-full !py-2 mt-2" onClick={() => setSheet({ kind: "attach" })}>
-          ＋ Add attachment
-        </button>
-      </div>
+      {/* Attachments list — add via 📋 Attach next to Job information */}
+      {at.length ? (
+        <>
+          <h2 className="text-[11px] font-extrabold text-slate-500 uppercase tracking-wider px-1 !mb-[-6px]">
+            Attachments ({at.length})
+          </h2>
+          <div className="card px-4 py-3" data-testid="attachments-list">
+            {at.map((a, i) => (
+              <div key={i} className="flex items-center gap-2.5 py-1.5 border-b border-dashed border-slate-200 last:border-0 text-sm">
+                <span>📎</span>
+                <span className="flex-1 min-w-0 truncate">
+                  {a.url ? (
+                    <a href={a.url} target="_blank" rel="noreferrer" className="text-brand font-semibold">
+                      {a.name || "file"}
+                    </a>
+                  ) : (
+                    a.name || "file"
+                  )}
+                </span>
+                <button className="btn-ghost !py-1 !px-2.5" onClick={() => rmAtt(i)} aria-label={`Remove ${a.name}`}>
+                  ✕
+                </button>
+              </div>
+            ))}
+            <button
+              type="button"
+              className="btn-ghost w-full !py-1.5 mt-1 text-brand text-sm font-semibold"
+              onClick={() => setSheet({ kind: "attach" })}
+              data-testid="attachments-add-more"
+            >
+              📋 Add another
+            </button>
+          </div>
+        </>
+      ) : null}
 
       {/* Send history */}
       {hist.length > 0 && (

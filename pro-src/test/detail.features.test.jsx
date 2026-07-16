@@ -331,21 +331,28 @@ describe("7. follow-up card + payment reminder + notes", () => {
 });
 
 describe("8. attachments", () => {
-  it("lists with links + remove; add with url+invoice -> attach_to_invoice deterministic", async () => {
+  it("lists with links + remove; add via job-info attach with title + link stays open", async () => {
     const srv = mockServer();
     const user = userEvent.setup();
     const pane = await openDetail();
 
     expect(within(pane).getByText("Old photo")).toHaveAttribute("href", "https://x/1");
-    await user.click(within(pane).getByText("＋ Add attachment"));
-    await user.type(screen.getByLabelText("Attachment name"), "Panel photo");
-    await user.type(screen.getByLabelText("Attachment link"), "https://x/2");
-    await user.click(screen.getByRole("button", { name: "Add" }));
+    // Clipboard Attach lives next to Job information (Change order).
+    await user.click(within(pane).getByTestId("add-attachment-btn"));
+    await user.type(screen.getByTestId("attach-title"), "Panel photo");
+    await user.type(screen.getByTestId("attach-url"), "https://x/2");
+    await user.click(screen.getByTestId("attach-save-btn"));
     await waitFor(() => expect(srv.enqueued("attach_to_invoice")).toHaveLength(1));
     const cmd = srv.enqueued("attach_to_invoice")[0];
     expect(cmd.lane).toBe("deterministic");
-    expect(cmd.idempotencyKey).toBe("att:inv:J-1:Panel photo");
-    expect(cmd.payload).toEqual({ invoiceNo: "251841", name: "Panel photo", url: "https://x/2" });
+    expect(cmd.idempotencyKey).toMatch(/^att:inv:J-1:Panel photo:/);
+    expect(cmd.payload.invoiceNo).toBe("251841");
+    expect(cmd.payload.name).toBe("Panel photo");
+    expect(cmd.payload.url).toBe("https://x/2");
+    // Sheet stays open for more attachments (title/url cleared).
+    expect(screen.getByTestId("attach-title")).toBeInTheDocument();
+    expect(screen.getByTestId("attach-title")).toHaveValue("");
+    await user.click(screen.getByTestId("attach-done-btn"));
     expect(await within(pane).findByText("Panel photo")).toBeInTheDocument();
 
     await user.click(within(pane).getByLabelText("Remove Old photo"));

@@ -71,13 +71,14 @@ describe("customer doc tabs — create + service addresses", () => {
     expect(within(panel).getByText("Pay")).toBeInTheDocument();
   });
 
-  it("job detail shows add job and change order next to edit", async () => {
+  it("job detail shows add job, change order, and attach next to edit", async () => {
     mockServer({ jobs: [jobs[0]] });
     const user = userEvent.setup();
     renderApp("#/job/J-a");
     const pane = await screen.findByTestId("detail-pane");
     expect(within(pane).getByTestId("job-add-btn")).toBeInTheDocument();
     expect(within(pane).getByTestId("add-change-order-btn")).toBeInTheDocument();
+    expect(within(pane).getByTestId("add-attachment-btn")).toBeInTheDocument();
     await user.click(within(pane).getByTestId("add-change-order-btn"));
     expect(await screen.findByTestId("co-pick-invoice")).toBeInTheDocument();
   });

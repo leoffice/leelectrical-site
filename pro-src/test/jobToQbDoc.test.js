@@ -27,11 +27,16 @@ const job = {
 };
 
 describe("jobToQbDoc", () => {
-  it("canGenerateLocalDoc requires doc number and billable lines", () => {
+  it("canGenerateLocalDoc allows drafts without doc number when billable lines exist", () => {
     expect(canGenerateLocalDoc(job, "invoice")).toBe(true);
-    expect(canGenerateLocalDoc({ ...job, invoiceNo: "" }, "invoice")).toBe(false);
+    expect(canGenerateLocalDoc({ ...job, invoiceNo: "" }, "invoice")).toBe(true);
     expect(canGenerateLocalDoc({ ...job, amount: "", invoiceLines: [] }, "invoice")).toBe(false);
     expect(canGenerateLocalDoc({ ...job, invoiceNo: "", estimateNo: "9001", estimateLines: job.invoiceLines }, "estimate")).toBe(true);
+  });
+
+  it("mapJobToQbDocData uses DRAFT when no invoice number", () => {
+    const d = mapJobToQbDocData({ ...job, invoiceNo: "" }, "invoice");
+    expect(d.docNumber).toBe("DRAFT");
   });
 
   it("mapJobToQbDocData maps invoice fields for le-invoice-suite", () => {
