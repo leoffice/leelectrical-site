@@ -1,19 +1,22 @@
+import { createRequire } from "module";
+import { readFileSync } from "fs";
+import path from "path";
+import { fileURLToPath } from "url";
 import {
   isEmailTestMode,
   resolveFromAddress,
   resolveRecipient,
 } from "./paymentConfirmEnv.mjs";
+import { generateAndStoreDoc } from "./docGenerate.mjs";
 import { docPdfFilename, mapJobToQbDocData } from "./jobToQbDoc.mjs";
-// Static ESM default-import of the CJS template (esbuild/Node interop) — no
-// createRequire, which isn't available on Cloudflare's V8 isolate.
-import emailTemplate from "./le-invoice-suite/email-template.js";
-// Logo inlined as base64 — Cloudflare/V8 has no filesystem for readFileSync.
-import { LOGO_PNG_BASE64 } from "./le-invoice-suite/logoBase64.mjs";
 
-const { buildEmailHTML, buildPayLink } = emailTemplate;
+const moduleDir = path.dirname(fileURLToPath(import.meta.url));
+const require = createRequire(import.meta.url);
+const { buildEmailHTML, buildPayLink } = require("./le-invoice-suite/email-template.js");
 
 const RESEND_URL = "https://api.resend.com/emails";
 const SITE = "https://leelectrical.us";
+const SUITE_DIR = path.join(moduleDir, "le-invoice-suite");
 
 /** During the test phase, the ONLY address a testSend/officeOnly call may reach. */
 const OFFICE_EMAIL = "office@leelectrical.us";
@@ -51,6 +54,7 @@ export async function sendDocEmail({
   includePaymentLink = true,
   pdfB64,
   filename: filenameIn,
+  message = "",
   probe = false,
   officeOnly = false,
 }) {
@@ -78,11 +82,11 @@ export async function sendDocEmail({
   let pdfBuffer = decodePdfB64(pdfB64);
   let docKey = "";
   if (!pdfBuffer) {
-    // Client-PDF only. Server-side pdfkit generation is gone — it can't run on
-    // Cloudflare's V8 isolate (and pulling docGenerate in would drag pdfkit into
-    // the bundle). The browser always sends the qb-pdf as pdfB64. See the
-    // generate-doc stub for the server-gen story.
-    return { ok: false, reason: pdfB64 ? "bad_client_pdf" : "pdf_required" };
+    if (pdfB64) return { ok: false, reason: "bad_client_pdf" };
+    const gen = await generateAndStoreDoc({ job, kind });
+    if (!gen.ok) return { ok: false, reason: gen.reason || "pdf_failed" };
+    pdfBuffer = gen.pdfBuffer;
+    docKey = gen.key;
   }
 
   const isInvoice = kind === "invoice";
@@ -99,14 +103,21 @@ export async function sendDocEmail({
     });
   }
 
+  const customTop = String(message || "").trim();
+  const defaultPayTop =
+    isInvoice && payLink
+      ? `You can pay this invoice securely online:\n${payLink}\n\nThank you — BLZ Electric`
+      : undefined;
   const html = buildEmailHTML({
     ...docData,
     viewLink,
     payLink,
     logoSrc: "cid:companylogo",
-    topMessage: isInvoice && payLink
-      ? `You can pay this invoice securely online:\n${payLink}\n\nThank you — BLZ Electric`
-      : undefined,
+    topMessage: customTop
+      ? payLink
+        ? `${customTop}\n\nYou can pay this invoice securely online:\n${payLink}`
+        : customTop
+      : defaultPayTop,
     paymentMessage: isInvoice
       ? 'To make a payment, please follow one of these options:\n\nOnline Payment: Click the "View invoice" button in the email and pay via the provided credit card payment link.\n-Zelle: Send payment to Office@LeElectrical.us.\n-Check: Make checks payable to "BLZ Electric Inc." and either: Mail it or Email a clear picture of the check to Office@LeElectrical.us.'
       : undefined,
@@ -138,6 +149,7 @@ export async function sendDocEmail({
     return { ok: false, skipped: true, reason: "office_only_guard", ...meta };
   }
 
+  const logoBuf = readFileSync(path.join(SUITE_DIR, "assets", "logo.png"));
   const pdfAttachB64 = pdfBuffer.toString("base64");
   const filename = filenameIn || docPdfFilename(kind, job, docData.docNumber);
 
@@ -149,7 +161,8 @@ export async function sendDocEmail({
 
   if (!apiKey) {
     console.log("[doc-email] DRY-RUN (no RESEND_API_KEY)", JSON.stringify(meta));
-    return { ok: true, dryRun: true, reason: "no_api_key", viewLink, payLink: payLink || "", ...meta };
+    // Not a successful send — client must surface this (was ok:true and looked "sent").
+    return { ok: false, dryRun: true, reason: "no_api_key", viewLink, payLink: payLink || "", ...meta };
   }
 
   const payload = {
@@ -160,7 +173,7 @@ export async function sendDocEmail({
     text,
     attachments: [
       { filename, content: pdfAttachB64 },
-      { filename: "logo.png", content: LOGO_PNG_BASE64, content_id: "companylogo" },
+      { filename: "logo.png", content: logoBuf.toString("base64"), content_id: "companylogo" },
     ],
   };
   if (testMode && email !== recipient) {

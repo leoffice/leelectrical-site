@@ -148,40 +148,54 @@ function LineRow({ line, index, items, onChange, onRemove, canRemove, progressMo
 
   return (
     <div className="card px-3 py-3 mb-2 space-y-2" data-testid="doc-line-row">
-      <Fld label={"Line " + (index + 1) + " — Product/Service"}>
-        <div className="relative">
-          <input
-            className="input"
-            value={itemQ}
-            onChange={(e) => {
-              setItemQ(e.target.value);
-              onChange(index, { itemName: e.target.value });
-              setOpen(true);
-            }}
-            onFocus={() => setOpen(true)}
-            placeholder="Search QuickBooks items…"
-            aria-label={"Product service line " + (index + 1)}
-          />
-          {open && picks.length > 0 && (
-            <div className="absolute z-10 left-0 right-0 mt-1 max-h-40 overflow-y-auto bg-white border border-slate-200 rounded-xl shadow-lg">
-              {picks.map((it) => (
-                <button
-                  key={it.name}
-                  type="button"
-                  className="w-full text-left px-3 py-2 text-sm hover:bg-slate-50 border-b border-slate-100 last:border-0"
-                  onClick={() => pick(it)}
-                >
-                  <span className="font-semibold text-slate-800 block truncate">{it.name}</span>
-                  <span className="text-xs text-slate-500">
-                    {it.price ? fmt$(it.price) : "custom price"}
-                    {it.description ? " · " + it.description.slice(0, 40) : ""}
-                  </span>
-                </button>
-              ))}
+      <div className="flex items-end gap-2">
+        <div className="flex-1 min-w-0">
+          <Fld label={"Line " + (index + 1) + " — Product/Service"}>
+            <div className="relative">
+              <input
+                className="input"
+                value={itemQ}
+                onChange={(e) => {
+                  setItemQ(e.target.value);
+                  onChange(index, { itemName: e.target.value });
+                  setOpen(true);
+                }}
+                onFocus={() => setOpen(true)}
+                placeholder="Search QuickBooks items…"
+                aria-label={"Product service line " + (index + 1)}
+              />
+              {open && picks.length > 0 && (
+                <div className="absolute z-10 left-0 right-0 mt-1 max-h-40 overflow-y-auto bg-white border border-slate-200 rounded-xl shadow-lg">
+                  {picks.map((it) => (
+                    <button
+                      key={it.name}
+                      type="button"
+                      className="w-full text-left px-3 py-2 text-sm hover:bg-slate-50 border-b border-slate-100 last:border-0"
+                      onClick={() => pick(it)}
+                    >
+                      <span className="font-semibold text-slate-800 block truncate">{it.name}</span>
+                      <span className="text-xs text-slate-500">
+                        {it.price ? fmt$(it.price) : "custom price"}
+                        {it.description ? " · " + it.description.slice(0, 40) : ""}
+                      </span>
+                    </button>
+                  ))}
+                </div>
+              )}
             </div>
-          )}
+          </Fld>
         </div>
-      </Fld>
+        {canRemove ? (
+          <button
+            type="button"
+            className="shrink-0 mb-3 text-xs font-semibold text-red-500 whitespace-nowrap px-1 py-2"
+            onClick={() => onRemove(index)}
+            data-testid={"doc-line-remove-" + (index + 1)}
+          >
+            Remove line
+          </button>
+        ) : null}
+      </div>
       <DescriptionField
         value={line.description || ""}
         onChange={(v) => onChange(index, { description: v })}
@@ -215,7 +229,10 @@ function LineRow({ line, index, items, onChange, onRemove, canRemove, progressMo
             </div>
           </Fld>
         ) : (
-          <div className="shrink-0 pb-2 text-sm font-bold text-slate-700 min-w-[4.5rem] text-right" data-testid={"doc-line-amount-" + (index + 1)}>
+          <div
+            className="shrink-0 input !w-auto min-w-[4.5rem] bg-slate-50 text-slate-700 font-semibold text-right flex items-center justify-end"
+            data-testid={"doc-line-amount-" + (index + 1)}
+          >
             {fmt$(lineAmount(line))}
           </div>
         )}
@@ -226,11 +243,6 @@ function LineRow({ line, index, items, onChange, onRemove, canRemove, progressMo
           testId={"doc-line-desc-" + (index + 1)}
         />
       </div>
-      {canRemove ? (
-        <button type="button" className="text-xs font-semibold text-red-500" onClick={() => onRemove(index)}>
-          Remove line
-        </button>
-      ) : null}
     </div>
   );
 }
@@ -763,14 +775,33 @@ export default function DocBuilderSheet({
               " will sync"
         );
       } else if (docSource === DOC_SOURCE_LOCAL && send) {
-        // Local save + email path — no QuickBooks create/update.
+        // Local PDF + email now (client generates PDF). No QuickBooks create/update.
         const noKey = kind === "estimate" ? "estimateNo" : "invoiceNo";
         const no =
           jobPatch[noKey] ||
           activeJob[noKey] ||
           jobPatch[kind === "invoice" ? "_preferredInvoiceNo" : "_preferredEstimateNo"] ||
           preferredChangeOrderDocNo(activeJob, kind) ||
-          "";
+          "DRAFT";
+        const pdfJob = buildPdfJob(activeJob, {
+          ...jobPatch,
+          [noKey]: no,
+          email: emailTo || activeJob.email || "",
+        });
+        showToast("Sending local " + (kind === "estimate" ? "estimate" : "invoice") + " to " + emailTo + "…");
+        let res = null;
+        try {
+          if (typeof api.sendDocEmailNow === "function") {
+            res = await api.sendDocEmailNow(pdfJob, kind, {
+              email: emailTo,
+              includePaymentLink: withPay,
+              message: customMsg,
+            });
+          }
+        } catch (err) {
+          res = { ok: false, error: String(err?.message || err) };
+        }
+        // Always log + enqueue so Activity shows the attempt (and host can retry if needed).
         const payload =
           kind === "invoice"
             ? {
@@ -783,7 +814,8 @@ export default function DocBuilderSheet({
                 message: customMsg,
                 attachments: attsForEmail,
                 includeAttachmentsInEmail: attsForEmail.length > 0,
-                job: { ...activeJob, ...jobPatch },
+                job: pdfJob,
+                clientSend: res || undefined,
               }
             : {
                 email: emailTo,
@@ -792,24 +824,72 @@ export default function DocBuilderSheet({
                 message: customMsg,
                 attachments: attsForEmail,
                 includeAttachmentsInEmail: attsForEmail.length > 0,
-                job: { ...activeJob, ...jobPatch },
+                job: pdfJob,
+                clientSend: res || undefined,
               };
-        await enqueue(
-          "send_" + kind,
-          jobId,
-          payload,
-          "deterministic",
-          "send_" + kind + ":local:" + (no || jobId)
-        );
-        logSend(
-          jobId,
-          (kind === "estimate" ? "Estimate" : "Invoice") +
-            " local send queued" +
-            (withPay ? " + payment link" : ""),
-          emailTo
-        );
-        await downloadLocalPdf(buildPdfJob(activeJob, jobPatch));
-        showToast("Sending local " + (kind === "estimate" ? "estimate" : "invoice") + " to " + emailTo + "…");
+        if (res?.ok && res.sent) {
+          logSend(
+            jobId,
+            (kind === "estimate" ? "Estimate" : "Invoice") +
+              " emailed (local PDF)" +
+              (withPay ? " + payment link" : ""),
+            emailTo
+          );
+          await downloadLocalPdf(pdfJob);
+          showToast(
+            "Emailed " + (kind === "estimate" ? "estimate" : "invoice") + " to " + emailTo
+          );
+        } else if (res?.dryRun || res?.reason === "no_api_key") {
+          showToast(
+            "Email not set up on the server yet — nothing was sent. Use Send through QB for now."
+          );
+          setSaving(false);
+          return;
+        } else if (res?.skipped || res?.reason === "test_email_unset" || res?.reason === "no_recipient") {
+          showToast("Could not send — check the email address and try again.");
+          setSaving(false);
+          return;
+        } else if (res && !res.ok) {
+          // Fall back to command bus so host/listener can retry.
+          await enqueue(
+            "send_" + kind,
+            jobId,
+            payload,
+            "deterministic",
+            "send_" + kind + ":local:" + (no || jobId) + ":" + Date.now()
+          );
+          logSend(
+            jobId,
+            (kind === "estimate" ? "Estimate" : "Invoice") +
+              " local send queued" +
+              (withPay ? " + payment link" : ""),
+            emailTo
+          );
+          await downloadLocalPdf(pdfJob);
+          showToast(
+            "Queued local email to " +
+              emailTo +
+              (res.error || res.reason ? " (" + String(res.error || res.reason).slice(0, 60) + ")" : "")
+          );
+        } else {
+          // No client API — queue for host listener (legacy).
+          await enqueue(
+            "send_" + kind,
+            jobId,
+            payload,
+            "deterministic",
+            "send_" + kind + ":local:" + (no || jobId)
+          );
+          logSend(
+            jobId,
+            (kind === "estimate" ? "Estimate" : "Invoice") +
+              " local send queued" +
+              (withPay ? " + payment link" : ""),
+            emailTo
+          );
+          await downloadLocalPdf(pdfJob);
+          showToast("Sending local " + (kind === "estimate" ? "estimate" : "invoice") + " to " + emailTo + "…");
+        }
       } else {
         for (let i = 0; i < commands.length; i++) {
           const cmd = commands[i];
@@ -1112,19 +1192,19 @@ export default function DocBuilderSheet({
         </div>
       ) : null}
 
-      <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 mb-1" data-testid="doc-action-bar">
+      <div className="grid grid-cols-4 gap-1.5 mb-1" data-testid="doc-action-bar">
         <button
           type="button"
-          className="btn !py-2.5 text-sm bg-slate-50 text-slate-800 border border-slate-200"
+          className="btn !py-2 !px-1.5 text-xs sm:text-sm bg-slate-50 text-slate-800 border border-slate-200"
           disabled={saving || attUploading}
           onClick={() => fileInputRef.current?.click()}
           data-testid="doc-attach-btn"
         >
-          {attUploading ? "…" : "📎 Attachment"}
+          {attUploading ? "…" : "📎 Attach"}
         </button>
         <button
           type="button"
-          className="btn !py-2.5 text-sm bg-slate-50 text-slate-800 border border-slate-200"
+          className="btn !py-2 !px-1.5 text-xs sm:text-sm bg-slate-50 text-slate-800 border border-slate-200"
           disabled={saving}
           onClick={() => submitLocal({ close: false, toast: "Saved" })}
           data-testid="doc-save"
@@ -1133,16 +1213,7 @@ export default function DocBuilderSheet({
         </button>
         <button
           type="button"
-          className="btn-brand !py-2.5 text-sm"
-          disabled={saving}
-          onClick={() => submitLocal({ close: true })}
-          data-testid="doc-save-close"
-        >
-          Save Job
-        </button>
-        <button
-          type="button"
-          className="btn !py-2.5 text-sm bg-slate-50 text-slate-800 border border-slate-200"
+          className="btn !py-2 !px-1.5 text-xs sm:text-sm bg-slate-50 text-slate-800 border border-slate-200"
           disabled={saving}
           onClick={printPdfOnly}
           data-testid="doc-print-pdf"
@@ -1151,7 +1222,7 @@ export default function DocBuilderSheet({
         </button>
         <button
           type="button"
-          className="btn !py-2.5 text-sm bg-brand-soft text-brand col-span-2 sm:col-span-1"
+          className="btn-brand !py-2 !px-1.5 text-xs sm:text-sm"
           disabled={saving}
           onClick={() => {
             setSendEmails(job.email || sendEmails || "");
@@ -1159,14 +1230,14 @@ export default function DocBuilderSheet({
               setSendMessage(
                 "Please find your " +
                   (kind === "estimate" ? "estimate" : "invoice") +
-                  " attached. Thank you for choosing LE Electrical."
+                  " attached. Thank you for choosing BLZ Electric."
               );
             }
             setEmailSheet(true);
           }}
           data-testid="doc-sync-email"
         >
-          Sync &amp; Email
+          Save &amp; Email
         </button>
       </div>
 
@@ -1220,10 +1291,10 @@ export default function DocBuilderSheet({
                 <span className="text-sm font-semibold text-slate-800">For credit card payment</span>
               </label>
             ) : null}
-            <div className="space-y-2">
+            <div className="grid grid-cols-2 gap-2">
               <button
                 type="button"
-                className="btn-brand w-full"
+                className="btn-brand !py-2.5 text-sm"
                 disabled={saving}
                 onClick={() =>
                   submitSync(true, {
@@ -1235,11 +1306,11 @@ export default function DocBuilderSheet({
                 }
                 data-testid="doc-save-sync-send"
               >
-                Send through QuickBooks
+                Send through QB
               </button>
               <button
                 type="button"
-                className="btn w-full bg-brand-soft text-brand"
+                className="btn !py-2.5 text-sm bg-brand-soft text-brand"
                 disabled={saving}
                 onClick={() =>
                   submitSync(true, {
@@ -1252,15 +1323,6 @@ export default function DocBuilderSheet({
                 data-testid="doc-send-local"
               >
                 Send locally
-              </button>
-              <button
-                type="button"
-                className="btn-ghost w-full !py-2 text-sm"
-                disabled={saving}
-                onClick={() => submitSync(false, { docSource: DOC_SOURCE_QBO })}
-                data-testid="doc-save-sync"
-              >
-                Sync to QuickBooks only (no email)
               </button>
             </div>
           </div>

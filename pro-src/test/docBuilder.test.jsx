@@ -41,7 +41,7 @@ describe("Estimate / invoice builder", () => {
     expect(addr).toHaveValue("10 Broadway");
 
     await user.click(screen.getByTestId("doc-sync-email"));
-    await user.click(screen.getByTestId("doc-save-sync"));
+    await user.click(screen.getByTestId("doc-save-sync-send"));
 
     await waitFor(() => expect(srv.enqueued("create_estimate")).toHaveLength(1));
     const cmd = srv.enqueued("create_estimate")[0];
@@ -49,6 +49,7 @@ describe("Estimate / invoice builder", () => {
     expect(cmd.payload.serviceAddress).toBe("10 Broadway");
     expect(cmd.payload.shipAddr.Line2).toBe("2A");
     expect(cmd.payload.lines.length).toBeGreaterThan(0);
+    expect(cmd.payload.send).toBe(true);
     expect(srv.state.ov["J-EST"].status?.Estimate?.s).not.toBe("done");
     expect(srv.state.ov["J-EST"].estimateLines?.length).toBeGreaterThan(0);
   });
@@ -74,7 +75,7 @@ describe("Estimate / invoice builder", () => {
 
     await user.click(within(pane).getByTestId("progress-step-Estimate"));
     await user.click(within(pane).getByTestId("generate-estimate"));
-    await user.click(await screen.findByTestId("doc-save-close"));
+    await user.click(await screen.findByTestId("doc-save"));
 
     await waitFor(() => expect(srv.state.ov["J-DRAFT"].estimateLines?.length).toBeGreaterThan(0));
     const tabs = within(pane).getByTestId("job-doc-tabs");
@@ -107,7 +108,7 @@ describe("Estimate / invoice builder", () => {
 
     await user.click(within(pane).getByTestId("progress-step-Estimate"));
     await user.click(within(pane).getByTestId("generate-estimate"));
-    await user.click(await screen.findByTestId("doc-save-close"));
+    await user.click(await screen.findByTestId("doc-save"));
 
     await waitFor(() => expect(srv.state.ov["J-LOCAL"].status.Estimate.s).toBe("done"));
     expect(srv.enqueued("create_estimate")).toHaveLength(0);
@@ -136,7 +137,7 @@ describe("Estimate / invoice builder", () => {
     await user.click(within(pane).getByTestId("progress-step-Estimate"));
     await user.click(within(pane).getByTestId("generate-estimate"));
     await user.click(screen.getByTestId("doc-sync-email"));
-    await user.click(screen.getByTestId("doc-save-sync"));
+    await user.click(screen.getByTestId("doc-save-sync-send"));
 
     await waitFor(() => expect(srv.enqueued("create_customer")).toHaveLength(1));
     expect(srv.enqueued("create_estimate")).toHaveLength(0);
@@ -208,7 +209,7 @@ describe("Estimate / invoice builder", () => {
 
     expect(await screen.findByText(/Invoice from estimate \(50%\)/)).toBeInTheDocument();
     await user.click(screen.getByTestId("doc-sync-email"));
-    await user.click(screen.getByTestId("doc-save-sync"));
+    await user.click(screen.getByTestId("doc-save-sync-send"));
 
     await waitFor(() => expect(srv.enqueued("create_invoice")).toHaveLength(1));
     const cmd = srv.enqueued("create_invoice")[0];

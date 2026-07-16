@@ -51,7 +51,7 @@ describe("estimate ↔ invoice sync — e2e", () => {
     await user.clear(addr);
     await user.type(addr, "200 New Address");
     await user.click(screen.getByTestId("doc-sync-email"));
-    await user.click(screen.getByTestId("doc-save-sync"));
+    await user.click(screen.getByTestId("doc-save-sync-send"));
 
     await waitFor(() => expect(srv.enqueued("update_invoice")).toHaveLength(1));
     await waitFor(() => expect(srv.enqueued("update_estimate")).toHaveLength(1));
@@ -93,7 +93,7 @@ describe("estimate ↔ invoice sync — e2e", () => {
     await user.clear(addr);
     await user.type(addr, "88 Side St");
     await user.click(screen.getByTestId("doc-sync-email"));
-    await user.click(screen.getByTestId("doc-save-sync"));
+    await user.click(screen.getByTestId("doc-save-sync-send"));
 
     await waitFor(() => expect(srv.enqueued("update_estimate")).toHaveLength(1));
     await waitFor(() => expect(srv.enqueued("update_invoice")).toHaveLength(1));

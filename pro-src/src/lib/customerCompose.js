@@ -10,7 +10,7 @@ function firstName(customer) {
 }
 
 function sign(channel) {
-  return channel === "sms" ? "— LE Electric" : "— LE Electrical";
+  return channel === "sms" ? "— BLZ Electric" : "— BLZ Electric";
 }
 
 /** Shorten email body for SMS (first lines + optional link). */
@@ -30,7 +30,7 @@ export function emailToSms(text, extra) {
 const GENERAL = {
   email: {
     professional: (n, title) =>
-      `Dear ${n},\n\nThank you for choosing LE Electrical for ${title}. Please let us know if you have any questions.\n\n${sign("email")}`,
+      `Dear ${n},\n\nThank you for choosing BLZ Electric for ${title}. Please let us know if you have any questions.\n\n${sign("email")}`,
     friendly: (n, title) =>
       `Hi ${n}! 😊\n\nJust checking in about ${title}. We're here if you need anything!\n\n${sign("email")}`,
     direct: (n, title) =>
@@ -41,11 +41,11 @@ const GENERAL = {
       `Hi ${n},\n\nWe need to hear back on ${title} to keep your spot on the schedule. Please reply today.\n\n${sign("email")}`,
   },
   sms: {
-    professional: (n, title) => `Hi ${n}, LE Electrical re: ${title}. Questions? Call or reply here. ${sign("sms")}`,
-    friendly: (n, title) => `Hi ${n}! 😊 LE Electric checking in on ${title}. We're here if you need us! ${sign("sms")}`,
+    professional: (n, title) => `Hi ${n}, BLZ Electric re: ${title}. Questions? Call or reply here. ${sign("sms")}`,
+    friendly: (n, title) => `Hi ${n}! 😊 BLZ Electric checking in on ${title}. We're here if you need us! ${sign("sms")}`,
     direct: (n, title) => `Hi ${n}, following up on ${title}. Reply with questions or to confirm. ${sign("sms")}`,
-    casual: (n, title) => `Hey ${n}! LE Electric here — still good on ${title}? Holler if you need anything. ⚡ ${sign("sms")}`,
-    urgent: (n, title) => `Hi ${n}, need your reply on ${title} today to hold your schedule. — LE Electric`,
+    casual: (n, title) => `Hey ${n}! BLZ Electric here — still good on ${title}? Holler if you need anything. ⚡ ${sign("sms")}`,
+    urgent: (n, title) => `Hi ${n}, need your reply on ${title} today to hold your schedule. — BLZ Electric`,
   },
 };
 
@@ -63,7 +63,7 @@ const PAYMENT = {
       `Hi ${n},\n\nInvoice #${inv} (${due}) is past due. Please pay today:\n${url || "(link)"}\n\n${sign("email")}`,
   },
   sms: {
-    professional: (n, inv, due, url) => `Hi ${n}, invoice #${inv} (${due}) from LE Electric. Pay: ${url || ""} ${sign("sms")}`,
+    professional: (n, inv, due, url) => `Hi ${n}, invoice #${inv} (${due}) from BLZ Electric. Pay: ${url || ""} ${sign("sms")}`,
     friendly: (n, inv, due, url) => `Hi ${n}! Friendly nudge — invoice #${inv} (${due}). Pay: ${url || ""} ${sign("sms")}`,
     direct: (n, inv, due, url) => `Hi ${n}, invoice #${inv} ${due} due. Pay: ${url || ""} ${sign("sms")}`,
     casual: (n, inv, due, url) => `Hey ${n}, invoice #${inv} (${due}) 👋 Pay: ${url || ""} ${sign("sms")}`,
@@ -85,11 +85,11 @@ const REMINDER = {
       `Hi ${n},\n\nWe need to resolve ${title}${inv ? " (invoice #" + inv + ")" : ""} promptly. Please reply today.\n\n${sign("email")}`,
   },
   sms: {
-    professional: (n, title, inv) => `Hi ${n}, reminder re: ${title}${inv ? " inv #" + inv : ""}. — LE Electric`,
-    friendly: (n, title, inv) => `Hi ${n}! Friendly reminder on ${title}${inv ? " (#" + inv + ")" : ""}. 😊 LE Electric`,
-    direct: (n, title, inv) => `Hi ${n}, following up on ${title}${inv ? " inv #" + inv : ""}. Reply when you can. LE Electric`,
+    professional: (n, title, inv) => `Hi ${n}, reminder re: ${title}${inv ? " inv #" + inv : ""}. — BLZ Electric`,
+    friendly: (n, title, inv) => `Hi ${n}! Friendly reminder on ${title}${inv ? " (#" + inv + ")" : ""}. 😊 BLZ Electric`,
+    direct: (n, title, inv) => `Hi ${n}, following up on ${title}${inv ? " inv #" + inv : ""}. Reply when you can. BLZ Electric`,
     casual: (n, title, inv) => `Hey ${n}! ${title}${inv ? " #" + inv : ""} — still on our list. Holler if you need us! ⚡`,
-    urgent: (n, title, inv) => `Hi ${n}, need to hear back on ${title}${inv ? " #" + inv : ""} today. — LE Electric`,
+    urgent: (n, title, inv) => `Hi ${n}, need to hear back on ${title}${inv ? " #" + inv : ""} today. — BLZ Electric`,
   },
 };
 
@@ -97,10 +97,10 @@ const REMINDER = {
 export function defaultEmailSubject(job, context) {
   const inv = job?.invoiceNo;
   const est = job?.estimateNo;
-  if (context === "payment" && inv) return `Invoice #${inv} — pay online — LE Electrical`;
+  if (context === "payment" && inv) return `Invoice #${inv} — pay online — BLZ Electric`;
   if (context === "reminder" && inv) return `Payment reminder — invoice #${inv}`;
-  if (est) return `Estimate follow-up — LE Electrical`;
-  return `LE Electrical — ${(job?.title || job?.customer || "your project").trim()}`;
+  if (est) return `Estimate follow-up — BLZ Electric`;
+  return `BLZ Electric — ${(job?.title || job?.customer || "your project").trim()}`;
 }
 
 /** Generate a draft message for the chosen channel, context, and mood. */
@@ -140,7 +140,7 @@ export function defaultComposeDraft(job, { channel = "email", context = "general
   const n = firstName(job?.customer);
   const title = (job?.title || "your project").trim();
   if (channel === "sms") {
-    return `Hi ${n}, LE Electric re: ${title}. Let us know if you need anything. ${sign("sms")}`;
+    return `Hi ${n}, BLZ Electric re: ${title}. Let us know if you need anything. ${sign("sms")}`;
   }
   return `Hi ${n},\n\nChecking in about ${title}. Let us know if you have any questions.\n\n${sign("email")}`;
 }
