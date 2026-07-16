@@ -13,6 +13,7 @@ import {
   connectDocsPatch,
   isChangeOrderJob,
   nextChangeOrderSeq,
+  seqFromCoPi,
   tagChangeOrderPatch,
   textLooksLikeChangeOrder,
 } from "../src/lib/changeOrder.js";
@@ -66,6 +67,15 @@ describe("change order detection", () => {
     expect(textLooksLikeChangeOrder("Change order for lighting")).toBe(true);
     expect(isChangeOrderJob({ id: "x", title: "Change order — $120" })).toBe(true);
     expect(isChangeOrderJob({ id: "x", invoiceNo: "251100-CO-2" })).toBe(true);
+    expect(isChangeOrderJob(BASE)).toBe(false);
+  });
+
+  it("detects CO from QuickBooks CO / PI custom field", () => {
+    expect(seqFromCoPi("01")).toBe(1);
+    expect(seqFromCoPi("11 (007)")).toBe(11);
+    expect(seqFromCoPi("")).toBe(0);
+    expect(isChangeOrderJob({ id: "qbo-251702", qboCoPi: "01", title: "Heater" })).toBe(true);
+    expect(isChangeOrderJob({ id: "qbo-x", coPi: "02" })).toBe(true);
     expect(isChangeOrderJob(BASE)).toBe(false);
   });
 

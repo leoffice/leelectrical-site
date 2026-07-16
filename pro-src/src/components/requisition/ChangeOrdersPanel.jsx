@@ -34,8 +34,15 @@ export default function ChangeOrdersPanel({ project, onSave, busy }) {
           {list.map((co) => (
             <div key={co.id} className="px-4 py-3 flex justify-between gap-2 text-sm">
               <div>
-                <div className="font-semibold">{co.description}</div>
-                <div className="text-xs text-slate-400">{co.date}</div>
+                <div className="font-semibold">
+                  {co.invoiceNo ? `Inv #${co.invoiceNo} · ` : ""}
+                  {co.seq != null ? `CO ${co.seq}` : co.description}
+                </div>
+                <div className="text-xs text-slate-400">
+                  {co.description}
+                  {co.date ? ` · ${co.date}` : ""}
+                  {co.attachOnly ? " · invoice (not on progress app)" : ""}
+                </div>
               </div>
               <span className="font-bold tabular-nums">{fmtUsd(co.amount)}</span>
             </div>

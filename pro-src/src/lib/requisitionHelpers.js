@@ -383,7 +383,11 @@ export function paymentStatusLabel(req) {
 
 export function changeOrdersTotal(project) {
   const list = project?.changeOrderList || [];
-  if (list.length) return list.reduce((s, co) => s + (Number(co.amount) || 0), 0);
+  // attachOnly = QBO CO invoices linked for email/PDF attach (Joy etc.) — not net
+  // change to the contract sum on G702 progress apps.
+  const contractList = list.filter((co) => !co?.attachOnly);
+  if (contractList.length) return contractList.reduce((s, co) => s + (Number(co.amount) || 0), 0);
+  if (list.length && !contractList.length) return Number(project?.changeOrders) || 0;
   return Number(project?.changeOrders) || 0;
 }
 
