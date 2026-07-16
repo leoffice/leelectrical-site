@@ -12,6 +12,16 @@ import { planDocSaveLocal, planDocSaveSync } from "../lib/docSync.js";
 import { enqueueCustomerQboSync } from "../lib/customerQboEnqueue.js";
 import { stashPendingDocSync } from "../lib/docSyncChain.js";
 import { fmt$, parseAmount } from "../lib/format.js";
+import {
+  bestChangeOrderSource,
+  canAddChangeOrder,
+  changeOrderDocLabel,
+  isChangeOrderJob,
+  nextChangeOrderSeq,
+  preferredChangeOrderDocNo,
+  tagChangeOrderPatch,
+} from "../lib/changeOrder.js";
+import Toggle from "./Toggle.jsx";
 
 import { enrichAndPatchCustomer } from "./NewJobFlow.jsx";
 import {
@@ -340,6 +350,35 @@ export default function DocBuilderSheet({
   });
   const showRecurring = kind === "invoice" && mode !== "edit";
   const [recurring, setRecurring] = useState(() => defaultRecurringState(job));
+  // Toggle to mark this new invoice/estimate as a change order (CO) at the address.
+  const alreadyCo = isChangeOrderJob(jobProp || job);
+  const [asChangeOrder, setAsChangeOrder] = useState(() => alreadyCo);
+  const coSource = useMemo(
+    () => bestChangeOrderSource(boardJobs, job) || job,
+    [boardJobs, job]
+  );
+  const canToggleCo =
+    mode !== "edit" &&
+    !alreadyCo &&
+    !!(coSource?.invoiceNo || coSource?.estimateNo || coSource?.id);
+  const coPreview =
+    asChangeOrder || alreadyCo
+      ? preferredChangeOrderDocNo(
+          alreadyCo
+            ? job
+            : {
+                ...job,
+                ...tagChangeOrderPatch(
+                  job,
+                  coSource,
+                  nextChangeOrderSeq(boardJobs, coSource, kind),
+                  kind
+                ),
+              },
+          kind
+        ) ||
+        changeOrderDocLabel(coSource, kind, nextChangeOrderSeq(boardJobs, coSource, kind))
+      : "";
 
   useEffect(() => {
     let cancelled = false;
@@ -363,6 +402,29 @@ export default function DocBuilderSheet({
       : mode === "from_estimate" || mode === "turn_from_estimate"
       ? "Invoice from estimate" + (progressPct != null ? " (" + progressPct + "%)" : "")
       : "Create invoice";
+
+  const applyCoToggle = (on) => {
+    if (!canToggleCo) return;
+    setAsChangeOrder(!!on);
+    if (on) {
+      if (!canAddChangeOrder(boardJobs, coSource)) {
+        showToast("Finish the open change order first — save, email, and confirm in QuickBooks");
+        setAsChangeOrder(false);
+        return;
+      }
+      const seq = nextChangeOrderSeq(boardJobs, coSource, kind);
+      const patch = tagChangeOrderPatch(job, coSource, seq, kind);
+      patchJobState(patch);
+    } else {
+      patchJobState({
+        changeOrder: false,
+        changeOrderKind: "",
+        changeOrderSourceId: "",
+        changeOrderSeq: 0,
+        changeOrderLabel: "",
+      });
+    }
+  };
 
   const contractLines = job.estimateLines?.length
     ? job.estimateLines
@@ -530,6 +592,17 @@ export default function DocBuilderSheet({
     }
   };
 
+  const coTagsFromJob = (j) => {
+    if (!j?.changeOrder && !isChangeOrderJob(j)) return {};
+    return {
+      changeOrder: true,
+      changeOrderKind: j.changeOrderKind || kind,
+      changeOrderSourceId: j.changeOrderSourceId || "",
+      changeOrderSeq: j.changeOrderSeq || 0,
+      changeOrderLabel: j.changeOrderLabel || preferredChangeOrderDocNo(j, kind) || "",
+    };
+  };
+
   const submitLocal = async () => {
     const valid = validate(false);
     if (!valid) return;
@@ -551,6 +624,7 @@ export default function DocBuilderSheet({
         progressPct: progressPctEdit,
         contractAmount,
       });
+      Object.assign(jobPatch, coTagsFromJob(activeJob));
       if (attachments.length) {
         jobPatch.attachments = (job.attachments || []).concat(attachments);
       }
@@ -558,8 +632,18 @@ export default function DocBuilderSheet({
       const pdfJob = {
         ...activeJob,
         ...jobPatch,
-        invoiceNo: jobPatch.invoiceNo || activeJob.invoiceNo || "DRAFT",
-        estimateNo: jobPatch.estimateNo || activeJob.estimateNo || "DRAFT",
+        invoiceNo:
+          jobPatch.invoiceNo ||
+          activeJob.invoiceNo ||
+          jobPatch._preferredInvoiceNo ||
+          preferredChangeOrderDocNo(activeJob, "invoice") ||
+          "DRAFT",
+        estimateNo:
+          jobPatch.estimateNo ||
+          activeJob.estimateNo ||
+          jobPatch._preferredEstimateNo ||
+          preferredChangeOrderDocNo(activeJob, "estimate") ||
+          "DRAFT",
       };
       await downloadLocalPdf(pdfJob);
       showToast(
@@ -598,6 +682,7 @@ export default function DocBuilderSheet({
         send,
         recurringState: showRecurring && recurring.enabled ? recurring : null,
       });
+      Object.assign(jobPatch, coTagsFromJob(activeJob));
 
       await patchAndSave(jobId, jobPatch);
 
@@ -679,8 +764,18 @@ export default function DocBuilderSheet({
         const pdfJob = {
           ...activeJob,
           ...jobPatch,
-          invoiceNo: jobPatch.invoiceNo || activeJob.invoiceNo || "DRAFT",
-          estimateNo: jobPatch.estimateNo || activeJob.estimateNo || "DRAFT",
+          invoiceNo:
+            jobPatch.invoiceNo ||
+            activeJob.invoiceNo ||
+            jobPatch._preferredInvoiceNo ||
+            preferredChangeOrderDocNo(activeJob, "invoice") ||
+            "DRAFT",
+          estimateNo:
+            jobPatch.estimateNo ||
+            activeJob.estimateNo ||
+            jobPatch._preferredEstimateNo ||
+            preferredChangeOrderDocNo(activeJob, "estimate") ||
+            "DRAFT",
         };
         await downloadLocalPdf(pdfJob);
 
@@ -730,6 +825,30 @@ export default function DocBuilderSheet({
       <Fld label="Apartment / unit" hint="Optional — appended to ShipAddr in QuickBooks">
         <input className="input" value={apartment} onChange={(e) => setApartment(e.target.value)} aria-label="Apartment" />
       </Fld>
+
+      {canToggleCo || alreadyCo || asChangeOrder ? (
+        <div
+          className="flex items-center justify-between gap-3 rounded-2xl border border-slate-200 px-3 py-3 mb-3"
+          data-testid="doc-co-toggle-row"
+        >
+          <div className="min-w-0">
+            <div className="text-sm font-bold text-slate-900">Change order (CO)</div>
+            <div className="text-xs text-slate-500 mt-0.5">
+              {asChangeOrder || alreadyCo
+                ? coPreview
+                  ? "Number will be " + coPreview
+                  : "Tagged as a change order"
+                : "Turn on so this bill uses the original invoice number + -CO-"}
+            </div>
+          </div>
+          <Toggle
+            on={asChangeOrder || alreadyCo}
+            onChange={alreadyCo ? undefined : applyCoToggle}
+            label="Change order"
+            small
+          />
+        </div>
+      ) : null}
 
       {progressMode ? (
         <ProgressBillingPanel

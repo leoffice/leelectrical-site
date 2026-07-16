@@ -25,6 +25,7 @@ import { useStore } from "../state/store.jsx";
 import { useLongPress } from "../lib/useLongPress.js";
 import ConnectDocSheet from "./ConnectDocSheet.jsx";
 import ChangeOrdersTabPanel from "./ChangeOrdersTabPanel.jsx";
+import AddJobAtAddressSheet from "./AddJobAtAddressSheet.jsx";
 
 const TAB_BTN =
   "flex-1 rounded-xl border px-2 py-2 text-center text-[10px] font-bold leading-tight transition-colors";
@@ -207,19 +208,38 @@ export default function CustomerDocTabs({ jobs, activeJobId, fromCust = "" }) {
     return cloneJobAtAddressPatch(anchor || templateJob);
   };
 
-  const startNewJob = async ({ atAddressKey = "" } = {}) => {
-    const patch = jobPatchFor(atAddressKey);
-    if (!patch) return showToast("No customer info yet");
+  const [addJobSheet, setAddJobSheet] = useState(null); // { atAddressKey, sourceJob }
+
+  const openAddJobSheet = ({ atAddressKey = "" } = {}) => {
+    if (!templateJob) return showToast("No customer info yet");
+    let source = templateJob;
+    if (atAddressKey) {
+      const anchor = jobs.find((j) => serviceAddressKey(j) === atAddressKey);
+      if (anchor) source = anchor;
+    }
+    setAddJobSheet({ atAddressKey, sourceJob: source });
+  };
+
+  const confirmAddJobAtAddress = async (patch, meta = {}) => {
+    setAddJobSheet(null);
     const newId = await createJob(patch);
     if (!newId) return;
+    if (meta.changeOrder) {
+      navNewDoc(newId, meta.kind || "invoice");
+      return;
+    }
     const parts = [];
     if (fromCust) parts.push("from=" + encodeURIComponent(fromCust));
     nav("/job/" + newId + (parts.length ? "?" + parts.join("&") : ""));
   };
 
+  const startNewJob = ({ atAddressKey = "" } = {}) => openAddJobSheet({ atAddressKey });
+
   const startNewDoc = async (kind, { atAddressKey = "" } = {}) => {
     const patch = jobPatchFor(atAddressKey);
     if (!patch) return showToast("No customer info yet");
+    // Creating an invoice/estimate job — open with CO toggle available via add-job sheet
+    // only when user explicitly adds a job; direct Create still makes a regular job.
     const newId = await createJob(patch);
     if (newId) navNewDoc(newId, kind);
   };
@@ -405,6 +425,15 @@ export default function CustomerDocTabs({ jobs, activeJobId, fromCust = "" }) {
 
       {connect ? (
         <ConnectDocSheet job={connect.job} pressedKind={connect.kind} onClose={() => setConnect(null)} />
+      ) : null}
+
+      {addJobSheet?.sourceJob ? (
+        <AddJobAtAddressSheet
+          sourceJob={addJobSheet.sourceJob}
+          jobs={jobs}
+          onCreate={confirmAddJobAtAddress}
+          onClose={() => setAddJobSheet(null)}
+        />
       ) : null}
     </div>
   );

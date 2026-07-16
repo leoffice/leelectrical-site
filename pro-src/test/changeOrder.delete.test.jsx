@@ -52,6 +52,21 @@ describe("change order + delete UX", () => {
     expect(screen.getByTestId("co-pick-estimate")).toBeInTheDocument();
   });
 
+  it("add job at address opens sheet with change order toggle", async () => {
+    mockServer({ jobs: [BASE] });
+    const user = userEvent.setup();
+    renderApp("#/job/J-1");
+    await screen.findByTestId("detail-pane");
+    await user.click(screen.getByTestId("job-add-btn"));
+    expect(await screen.findByTestId("add-job-co-toggle-row")).toBeInTheDocument();
+    expect(screen.getByTestId("add-job-at-address-confirm")).toBeInTheDocument();
+    // Toggle CO on → shows preview / kind picker
+    const toggle = within(screen.getByTestId("add-job-co-toggle-row")).getByRole("switch");
+    await user.click(toggle);
+    expect(await screen.findByTestId("add-job-co-kind")).toBeInTheDocument();
+    expect(screen.getByText(/251100-CO-1/)).toBeInTheDocument();
+  });
+
   it("customer view menu removes customer from app", async () => {
     const srv = mockServer({
       jobs: [

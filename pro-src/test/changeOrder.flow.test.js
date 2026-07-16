@@ -1,6 +1,7 @@
 // Change order numbering, carousel visibility, connect docs, tab rows.
 import { describe, expect, it } from "vitest";
 import {
+  bestChangeOrderSource,
   briefJobTitleFromDoc,
   buildChangeOrderLinesFromQbo,
   canAddChangeOrder,
@@ -13,10 +14,13 @@ import {
   connectDocsPatch,
   isChangeOrderJob,
   nextChangeOrderSeq,
+  preferredChangeOrderDocNo,
   seqFromCoPi,
   tagChangeOrderPatch,
   textLooksLikeChangeOrder,
 } from "../src/lib/changeOrder.js";
+import { buildDocCommandPayload } from "../src/lib/qboDoc.js";
+import { planDocSaveSync } from "../src/lib/docSync.js";
 
 const BASE = {
   id: "J-1",
@@ -37,6 +41,10 @@ describe("changeOrder numbering", () => {
     expect(changeOrderDocLabel(BASE, "estimate", 2)).toBe("25400-CO-2");
   });
 
+  it("does not nest CO suffixes on the base number", () => {
+    expect(changeOrderDocLabel({ invoiceNo: "251100-CO-1" }, "invoice", 2)).toBe("251100-CO-2");
+  });
+
   it("increments sequence per source + kind", () => {
     const jobs = [
       BASE,
@@ -54,6 +62,50 @@ describe("changeOrder numbering", () => {
     expect(p.changeOrderLabel).toBe("251100-CO-1");
     expect(p.invoiceNo).toBe("");
     expect(p.title).toMatch(/Change Order 1/);
+  });
+
+  it("preferredChangeOrderDocNo uses original-CO-seq for generate", () => {
+    const p = changeOrderJobPatch(BASE, "invoice", [BASE]);
+    expect(preferredChangeOrderDocNo(p, "invoice")).toBe("251100-CO-1");
+  });
+
+  it("create_invoice payload uses CO doc number", () => {
+    const coJob = {
+      ...changeOrderJobPatch(BASE, "invoice", [BASE]),
+      id: "J-co",
+    };
+    const payload = buildDocCommandPayload(coJob, {
+      kind: "invoice",
+      lines: [{ itemName: "General electrical work", qty: 1, unitPrice: 500, description: "Extra outlets" }],
+      serviceAddress: "10 Oak St",
+      mode: "create",
+    });
+    expect(payload.invoiceNo).toBe("251100-CO-1");
+
+    const plan = planDocSaveSync(coJob, {
+      kind: "invoice",
+      mode: "create",
+      lines: [{ itemName: "General electrical work", qty: 1, unitPrice: 500, description: "Extra outlets" }],
+      serviceAddress: "10 Oak St",
+      apartment: "",
+    });
+    expect(plan.commands[0].type).toBe("create_invoice");
+    expect(plan.commands[0].payload.invoiceNo).toBe("251100-CO-1");
+    // Local job still has no confirmed invoiceNo so create (not update) is used
+    expect(coJob.invoiceNo).toBe("");
+  });
+
+  it("bestChangeOrderSource prefers non-CO invoice at address", () => {
+    const co = {
+      id: "J-co",
+      changeOrder: true,
+      customer: "Acme",
+      qboCustomerId: "55",
+      serviceAddress: "10 Oak St",
+      invoiceNo: "251100-CO-1",
+    };
+    const src = bestChangeOrderSource([BASE, co], co);
+    expect(src.id).toBe("J-1");
   });
 
   it("display name is Change Order N", () => {
