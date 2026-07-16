@@ -179,7 +179,7 @@ function SovUpload({ onParsed, onReplace, projectName }) {
   return (
     <div className="space-y-3" data-testid="sov-upload">
       <p className="text-sm text-slate-500">
-        Schedule SOV CSV — line items, values, and sections. This is the working import path (Drive auto-pull coming next).
+        Upload a Schedule of Values CSV (line items, values, sections). For a PDF, send it to Israel — he breaks it down and loads the schedule on the job.
       </p>
       <div className="flex gap-2">
         <button
