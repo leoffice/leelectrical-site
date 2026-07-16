@@ -57,6 +57,7 @@ import IntelligentSuggestionBlock from "./IntelligentSuggestionBlock.jsx";
 import AppointmentEmailSheet from "./AppointmentEmailSheet.jsx";
 import {
   dismissUnsentDoc,
+  unsentDocCardFields,
   unsentDocLead,
   unsentDocPath,
 } from "../lib/followUpStatus.js";
@@ -528,6 +529,7 @@ function UnsentDocSheet({ job, docKind, docNo, onClose, onDone, dismissForWork, 
   const { showToast } = useStore();
   const lead = unsentDocLead({ job, docKind, docNo });
   const label = docKind === "invoice" ? "invoice" : "estimate";
+  const card = unsentDocCardFields(job, docKind);
 
   const openDoc = () => {
     dismissForWork();
@@ -545,10 +547,15 @@ function UnsentDocSheet({ job, docKind, docNo, onClose, onDone, dismissForWork, 
     <Sheet title={"📧 Unsent " + label} onClose={dontRemind}>
       <PauseRemindersInPopup onPaused={onPauseAll} />
       <p className="text-sm text-slate-600 mb-4">{lead}</p>
-      <div className="text-sm space-y-1 mb-4 card px-3 py-2.5">
+      <div className="text-sm space-y-2 mb-4 card px-3 py-2.5" data-testid="unsent-doc-card">
         <div className="font-semibold text-slate-900">{job?.customer || "Job"}</div>
         {job?.title ? <div className="text-slate-500">{job.title}</div> : null}
-        {docNo ? <div className="text-slate-500">#{docNo}</div> : null}
+        {card.rows.map((r) => (
+          <div key={r.label} className="flex gap-2 justify-between text-sm">
+            <span className="text-slate-500 shrink-0">{r.label}</span>
+            <span className="text-slate-800 font-medium text-right break-words">{r.value}</span>
+          </div>
+        ))}
       </div>
       <button type="button" className="btn-brand w-full mb-2" onClick={openDoc} data-testid="unsent-doc-open">
         Open {label} &amp; send

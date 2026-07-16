@@ -4,6 +4,7 @@ import { linkedJobForEvent, suggestJobsForEvent } from "./calendarLink.js";
 import { addDays } from "./calendarDue.js";
 import {
   assessJobFollowUp,
+  docNeverSent,
   specificFollowUpNudge,
   unsentDocCandidates,
   unsentDocLead,
@@ -483,20 +484,80 @@ function compareReminders(a, b) {
   return String(ha).localeCompare(String(hb));
 }
 
+/**
+ * Cancel local follow-up reminders that no longer apply after send status updates.
+ * Runs before popups / Reminders tab so false "created but not sent" never shows.
+ * Returns how many event reminders were cleared.
+ */
+export function cancelStaleUnsentReminders(events, jobs, commands = [], now = new Date()) {
+  const state = loadState();
+  let cleared = 0;
+  const byId = new Map((jobs || []).filter((j) => j?.id).map((j) => [String(j.id), j]));
+
+  // Drop event reminders that were only about sending a doc that's already emailed.
+  for (const e of events || []) {
+    if (!e?.id) continue;
+    const st = eventState(state, e.id);
+    if (!st || st.handledAt || st.noReminders) continue;
+    if (!st.remindAt && !st.nextNudgeAt && !st.snoozeUntil) continue;
+    const job = linkedJobForEvent(e, jobs) || (st.jobId ? byId.get(String(st.jobId)) : null);
+    if (!job) continue;
+    const note = String(st.note || st.nudge || "").toLowerCase();
+    const unsentish =
+      /never (email|sent)|not (been )?email|hasn'?t been email|created but never|ready but hasn'?t|open.*send|unsent/.test(
+        note
+      ) || st.autoPostponed === true;
+    if (!unsentish) continue;
+    // If invoice/estimate is no longer "never sent", clear the stale reminder.
+    const invOk = hasDocish(job, "invoice") && !docNeverSent(job, "invoice", commands);
+    const estOk = hasDocish(job, "estimate") && !docNeverSent(job, "estimate", commands);
+    if (!invOk && !estOk) continue;
+    // Keep real payment follow-ups after cooldown (not pure "go send it" nags).
+    if (/payment follow-up|check back in a week|worth a friendly payment/.test(note) && invOk) {
+      continue;
+    }
+    if (invOk || estOk) {
+      patchEventState(e.id, {
+        handledAt: Date.now(),
+        remindAt: "",
+        nextNudgeAt: "",
+        snoozeUntil: "",
+        staleCancelAt: now.getTime?.() || Date.now(),
+        staleCancelReason: "doc_already_sent",
+      });
+      cleared += 1;
+    }
+  }
+  return cleared;
+}
+
+function hasDocish(job, docKind) {
+  if (!job) return false;
+  if (docKind === "invoice") return !!(job.invoiceNo || job._invoiceConfirmed);
+  return !!(job.estimateNo || job._estimateConfirmed || (job.estimateLines && job.estimateLines.length));
+}
+
 /** All active reminders for the Reminders tab — same sources as popups, sorted by priority. */
 export function buildReminderList(events, jobs, today, now = new Date(), commands = []) {
+  cancelStaleUnsentReminders(events, jobs, commands, now);
   const list = [];
   const state = loadState();
 
   for (const item of unsentDocCandidates(jobs, commands)) {
     const label = item.docKind === "invoice" ? "Invoice" : "Estimate";
     const no = item.docNo ? " #" + item.docNo : "";
+    const job = item.job;
+    const addr = String(job?.serviceAddress || job?.address || "").trim();
+    const amt = job?.amount ? String(job.amount) : "";
+    const bits = [unsentDocLead(item)];
+    if (addr) bits.push(addr);
+    if (amt) bits.push(amt);
     list.push({
       id: "unsent:" + item.job.id + ":" + item.docKind,
       kind: "unsent_doc",
       priority: "high",
       headline: "Unsent " + label.toLowerCase() + no,
-      detail: unsentDocLead(item),
+      detail: bits.join(" · "),
       job: item.job,
       docKind: item.docKind,
       docNo: item.docNo,
@@ -579,6 +640,8 @@ export function activeReminderCount(events, jobs, today, now = new Date(), comma
 /** Build the login prompt queue — nudges first, then inspections, then service calls. */
 export function buildPromptQueue(events, jobs, today, now = new Date(), commands = []) {
   if (isRemindersPaused(now)) return [];
+  // Verify send status before any popup — cancel stale "unsent" reminders first.
+  cancelStaleUnsentReminders(events, jobs, commands, now);
   const queue = [];
   for (const item of dueMustTodayNudges(events, jobs, today, now)) {
     queue.push({ kind: "must_today_nudge", ...item });
