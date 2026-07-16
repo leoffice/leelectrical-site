@@ -174,7 +174,7 @@ function invoiceRef(job) {
   return job.invoiceNo ? "invoice #" + job.invoiceNo : "your invoice";
 }
 
-const SIGN = "— LE Electrical";
+const SIGN = "— BLZ Electric";
 
 /** Generate a customer email draft for the chosen mood and scenario. */
 export function generateFollowUpEmail(job, emailKind, mood) {

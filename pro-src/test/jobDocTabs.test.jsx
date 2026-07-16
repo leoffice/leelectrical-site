@@ -24,7 +24,7 @@ describe("Task 63 — invoice/estimate tabs", () => {
     await user.click(within(tabs).getByTestId("tab-invoice"));
     expect(await screen.findByText(/Create invoice — Peretz Chein/)).toBeInTheDocument();
     expect(screen.getByTestId("doc-sync-email")).toBeInTheDocument();
-    expect(screen.getByTestId("doc-save-close")).toBeInTheDocument();
+    expect(screen.getByTestId("doc-save")).toBeInTheDocument();
   });
 
   it("gray estimate tab opens create; colored invoice opens doc sheet", async () => {

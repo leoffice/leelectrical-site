@@ -48,6 +48,7 @@ export default async (req) => {
       includePaymentLink,
       pdfB64: body.pdfB64 || body.pdfBase64 || "",
       filename: body.filename || "",
+      message: body.message || body.topMessage || "",
       probe,
       officeOnly,
     });

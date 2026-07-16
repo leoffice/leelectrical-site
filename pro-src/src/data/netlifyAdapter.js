@@ -193,6 +193,7 @@ export function createNetlifyAdapter() {
           includePaymentLink: opts.includePaymentLink !== false,
           pdfB64,
           filename,
+          message: opts.message || opts.topMessage || "",
           probe: !!opts.probe,
           officeOnly: !!opts.officeOnly,
         });

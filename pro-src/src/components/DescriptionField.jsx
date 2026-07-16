@@ -41,7 +41,7 @@ export function PolishButton({
         type="button"
         className={
           compact
-            ? "btn !py-1.5 !px-2.5 text-xs bg-purple-50 text-purple-900 border border-purple-200 whitespace-nowrap"
+            ? "btn !py-2.5 !px-3 text-sm h-[42px] bg-purple-50 text-purple-900 border border-purple-200 whitespace-nowrap"
             : "btn w-full !py-2 bg-purple-50 text-purple-900 border border-purple-200"
         }
         onClick={() => setOpen((v) => !v)}

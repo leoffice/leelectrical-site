@@ -2284,7 +2284,7 @@ export function ReminderSheet({ job, onClose }) {
   const [msg, setMsg] = useState(
     `Hi ${(job.customer || "").split(" ")[0]}, just a friendly reminder about your ${
       job.title || "job"
-    } (invoice ${job.invoiceNo ? "#" + job.invoiceNo : "pending"}). Please let us know if you have any questions. — LE Electric`
+    } (invoice ${job.invoiceNo ? "#" + job.invoiceNo : "pending"}). Please let us know if you have any questions. — BLZ Electric`
   );
   return (
     <Sheet title={"Payment reminder — " + (job.customer || "")} onClose={onClose}>

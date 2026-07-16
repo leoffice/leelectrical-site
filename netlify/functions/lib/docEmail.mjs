@@ -54,6 +54,7 @@ export async function sendDocEmail({
   includePaymentLink = true,
   pdfB64,
   filename: filenameIn,
+  message = "",
   probe = false,
   officeOnly = false,
 }) {
@@ -102,14 +103,21 @@ export async function sendDocEmail({
     });
   }
 
+  const customTop = String(message || "").trim();
+  const defaultPayTop =
+    isInvoice && payLink
+      ? `You can pay this invoice securely online:\n${payLink}\n\nThank you — BLZ Electric`
+      : undefined;
   const html = buildEmailHTML({
     ...docData,
     viewLink,
     payLink,
     logoSrc: "cid:companylogo",
-    topMessage: isInvoice && payLink
-      ? `You can pay this invoice securely online:\n${payLink}\n\nThank you — BLZ Electric`
-      : undefined,
+    topMessage: customTop
+      ? payLink
+        ? `${customTop}\n\nYou can pay this invoice securely online:\n${payLink}`
+        : customTop
+      : defaultPayTop,
     paymentMessage: isInvoice
       ? 'To make a payment, please follow one of these options:\n\nOnline Payment: Click the "View invoice" button in the email and pay via the provided credit card payment link.\n-Zelle: Send payment to Office@LeElectrical.us.\n-Check: Make checks payable to "BLZ Electric Inc." and either: Mail it or Email a clear picture of the check to Office@LeElectrical.us.'
       : undefined,
@@ -153,7 +161,8 @@ export async function sendDocEmail({
 
   if (!apiKey) {
     console.log("[doc-email] DRY-RUN (no RESEND_API_KEY)", JSON.stringify(meta));
-    return { ok: true, dryRun: true, reason: "no_api_key", viewLink, payLink: payLink || "", ...meta };
+    // Not a successful send — client must surface this (was ok:true and looked "sent").
+    return { ok: false, dryRun: true, reason: "no_api_key", viewLink, payLink: payLink || "", ...meta };
   }
 
   const payload = {

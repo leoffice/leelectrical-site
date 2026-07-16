@@ -63,7 +63,7 @@ describe("Progress invoice editor", () => {
     expect(parseFloat(qtyInput.value)).toBeCloseTo(0.5, 4);
 
     await user.click(screen.getByTestId("doc-sync-email"));
-    await user.click(screen.getByTestId("doc-save-sync"));
+    await user.click(screen.getByTestId("doc-save-sync-send"));
     await waitFor(() => expect(srv.enqueued("update_invoice")).toHaveLength(1));
     const cmd = srv.enqueued("update_invoice")[0];
     expect(cmd.payload.lines[0].unitPrice).toBe(46000);
