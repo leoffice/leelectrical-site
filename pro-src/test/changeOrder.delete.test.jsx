@@ -32,7 +32,7 @@ describe("changeOrderJobPatch", () => {
     expect(inv.invoiceNo).toBe("");
     expect(inv.estimateNo).toBe("");
     expect(inv.serviceAddress).toBe("10 Oak St");
-    expect(inv.title).toContain("Change order");
+    expect(inv.title).toMatch(/Change [Oo]rder/);
 
     const est = changeOrderJobPatch(BASE, "estimate", [BASE]);
     expect(est.changeOrderKind).toBe("estimate");

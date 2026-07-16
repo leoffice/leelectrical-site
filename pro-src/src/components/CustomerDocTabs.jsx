@@ -15,9 +15,16 @@ import {
   serviceAddressesForJobs,
   serviceAddressKey,
 } from "../lib/customerHierarchy.js";
+import {
+  canAddChangeOrder,
+  changeOrderJobPatch,
+  changeOrderTabRowsAll,
+  isChangeOrderJob,
+} from "../lib/changeOrder.js";
 import { useStore } from "../state/store.jsx";
 import { useLongPress } from "../lib/useLongPress.js";
 import ConnectDocSheet from "./ConnectDocSheet.jsx";
+import ChangeOrdersTabPanel from "./ChangeOrdersTabPanel.jsx";
 
 const TAB_BTN =
   "flex-1 rounded-xl border px-2 py-2 text-center text-[10px] font-bold leading-tight transition-colors";
@@ -159,7 +166,8 @@ export default function CustomerDocTabs({ jobs, activeJobId, fromCust = "" }) {
     return jobsAtSameAddress(jobs, anchor);
   }, [jobs, addrKey, templateJob]);
 
-  const allInv = invoiceJobs(jobs);
+  // Regular invoices tab excludes pure change-order jobs (those live under Change Orders).
+  const allInv = invoiceJobs(jobs).filter((j) => !isChangeOrderJob(j));
   const openInv = allInv.filter((j) => invoiceRowDetail(j).tone === "open");
   const closedInv = allInv.filter((j) => invoiceRowDetail(j).tone === "paid");
 
@@ -167,7 +175,14 @@ export default function CustomerDocTabs({ jobs, activeJobId, fromCust = "" }) {
   const openEst = allEst.filter(isOpenEstimate);
   const closedEst = allEst.filter((j) => !isOpenEstimate(j));
 
-  const counts = { invoices: allInv.length, estimates: allEst.length, addresses: addresses.length };
+  const coRows = useMemo(() => changeOrderTabRowsAll(jobs), [jobs]);
+
+  const counts = {
+    invoices: allInv.length,
+    estimates: allEst.length,
+    changes: coRows.length,
+    addresses: addresses.length,
+  };
 
   const openJob = (j) => {
     const parts = [];
@@ -209,6 +224,16 @@ export default function CustomerDocTabs({ jobs, activeJobId, fromCust = "" }) {
     if (newId) navNewDoc(newId, kind);
   };
 
+  const startChangeOrder = async () => {
+    if (!templateJob) return showToast("No customer info yet");
+    if (!canAddChangeOrder(jobs, templateJob)) {
+      return showToast("Finish the open change order first — save, email, and confirm in QuickBooks");
+    }
+    const patch = changeOrderJobPatch(templateJob, "invoice", jobs);
+    const newId = await createJob(patch);
+    if (newId) navNewDoc(newId, "invoice");
+  };
+
   const toggle = (t) => {
     setTab((cur) => {
       const next = cur === t ? null : t;
@@ -223,7 +248,8 @@ export default function CustomerDocTabs({ jobs, activeJobId, fromCust = "" }) {
         {[
           ["invoices", "🧾 Invoices", counts.invoices],
           ["estimates", "📝 Estimates", counts.estimates],
-          ["addresses", "📍 Service addresses", counts.addresses],
+          ["changes", "📋 Change orders", counts.changes],
+          ["addresses", "📍 Addresses", counts.addresses],
         ].map(([id, label, n]) => (
           <button
             key={id}
@@ -297,6 +323,31 @@ export default function CustomerDocTabs({ jobs, activeJobId, fromCust = "" }) {
               onConnectRequest={(j, kind) => setConnect({ job: j, kind })}
             />
           </DocSection>
+        </div>
+      ) : null}
+
+      {tab === "changes" ? (
+        <div data-testid="cust-tab-panel-changes">
+          <ChangeOrdersTabPanel
+            jobs={jobs}
+            sourceJob={templateJob}
+            rows={coRows}
+            scope="all"
+            canAdd={!!templateJob && canAddChangeOrder(jobs, templateJob)}
+            onAdd={startChangeOrder}
+            onEdit={(row) => {
+              const j = row.job;
+              if (!j?.id) return;
+              const kind = row.docKind === "estimate" ? "estimate" : "invoice";
+              const parts = [];
+              if (fromCust) parts.push("from=" + encodeURIComponent(fromCust));
+              parts.push("doc=" + kind);
+              parts.push(j.invoiceNo || j.estimateNo ? "edit=1" : "create=1");
+              parts.push("fold=1");
+              nav("/job/" + j.id + "?" + parts.join("&"));
+            }}
+            onOpenJob={openJob}
+          />
         </div>
       ) : null}
 
