@@ -365,6 +365,40 @@ export function requisitionBalance(req) {
   return Math.max(0, due - paid);
 }
 
+/**
+ * Apply percentage edits to a saved requisition (local save).
+ * Updates itemsSnapshot, rebuilds G703/G702 via reconcile (clears authoritative pin
+ * so SOV math drives the numbers again). If this is the latest active req, also
+ * updates live project.items completedPct.
+ */
+export function updateRequisitionPercentages(project, reqId, pctByItemId = {}) {
+  if (!project || !reqId) return project;
+  const reqs = (project.requisitions || []).map((r) => {
+    if (r.id !== reqId) return r;
+    const snap = (r.itemsSnapshot || []).map((s) => {
+      const byId = pctByItemId[s.id];
+      const byKey = pctByItemId[s.key || sovItemKey(s)];
+      const next = byId != null ? byId : byKey != null ? byKey : s.completedPct;
+      return { ...s, completedPct: roundMoney(Number(next) || 0) };
+    });
+    // Drop g702 pin so reconcile rebuilds from the edited snapshot.
+    const rest = { ...r };
+    delete rest.g702;
+    return { ...rest, itemsSnapshot: snap };
+  });
+  const latest = activeRequisitions({ ...project, requisitions: reqs })[0];
+  let items = project.items || [];
+  if (latest?.id === reqId) {
+    items = items.map((it) => {
+      const key = sovItemKey(it);
+      const next = pctByItemId[it.id] != null ? pctByItemId[it.id] : pctByItemId[key];
+      if (next == null) return it;
+      return { ...it, completedPct: roundMoney(Number(next) || 0) };
+    });
+  }
+  return reconcileRequisitionFinancials({ ...project, items, requisitions: reqs });
+}
+
 export function paymentNeedsInfo(p) {
   if (!p) return true;
   const amt = Number(p.amount) || 0;

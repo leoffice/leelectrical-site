@@ -116,7 +116,20 @@ export default function ChangeOrdersTabPanel({
                       ) : null}
                     </span>
                     <span className="text-right shrink-0">
-                      <span className="block text-xs font-bold tabular-nums">{row.amountLine}</span>
+                      <span className="block text-xs font-bold tabular-nums" data-testid={"co-tab-amount-" + row.seq}>
+                        {row.amountLine || (row.amount > 0 ? fmt$(row.amount) : "—")}
+                      </span>
+                      <span
+                        className="block text-[11px] font-bold tabular-nums mt-0.5 opacity-90"
+                        data-testid={"co-tab-balance-" + row.seq}
+                      >
+                        {row.balanceLine ||
+                          (row.paid
+                            ? "Balance $0"
+                            : row.balance != null
+                              ? "Balance " + fmt$(row.balance)
+                              : "")}
+                      </span>
                       <span className="block text-[10px] font-extrabold uppercase tracking-wide mt-0.5 opacity-80">
                         {row.statusLabel}
                       </span>
@@ -125,14 +138,36 @@ export default function ChangeOrdersTabPanel({
                 </button>
 
                 {open ? (
-                  <div className="mt-2" data-testid={"co-tab-detail-" + row.seq}>
+                  <div className="mt-2 space-y-2" data-testid={"co-tab-detail-" + row.seq}>
                     {row.kind === "line" && row.parentInvoiceNo ? (
                       <p className="text-[11px] text-slate-500 mb-1">
                         On invoice #{row.parentInvoiceNo} (extra work billed on the original)
                       </p>
                     ) : null}
+                    <dl className="grid grid-cols-2 gap-x-3 gap-y-1 text-xs border-t border-slate-100 pt-2">
+                      {row.docNo ? (
+                        <>
+                          <dt className="text-slate-500 font-semibold">Invoice</dt>
+                          <dd className="text-right font-semibold text-slate-800">#{row.docNo}</dd>
+                        </>
+                      ) : null}
+                      <dt className="text-slate-500 font-semibold">Amount</dt>
+                      <dd className="text-right font-bold tabular-nums text-slate-900">
+                        {row.amount > 0 ? fmt$(row.amount) : "—"}
+                      </dd>
+                      <dt className="text-slate-500 font-semibold">Balance</dt>
+                      <dd className="text-right font-bold tabular-nums text-brand">
+                        {row.paid || (row.balance != null && row.balance <= 0.01)
+                          ? fmt$(0)
+                          : row.balance != null
+                            ? fmt$(row.balance)
+                            : "—"}
+                      </dd>
+                      <dt className="text-slate-500 font-semibold">Status</dt>
+                      <dd className="text-right font-semibold">{row.statusLabel}</dd>
+                    </dl>
                     <LineDetail lines={row.lines} />
-                    <div className="flex flex-wrap gap-2 mt-3">
+                    <div className="flex flex-wrap gap-2 mt-1">
                       {onEdit ? (
                         <button
                           type="button"
@@ -140,7 +175,7 @@ export default function ChangeOrdersTabPanel({
                           onClick={() => onEdit(row)}
                           data-testid={"co-tab-edit-" + row.seq}
                         >
-                          ✏️ Edit
+                          ✏️ View invoice
                         </button>
                       ) : null}
                       {onOpenJob && row.jobId !== sourceJob?.id ? (
