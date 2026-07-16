@@ -1,11 +1,29 @@
 // Server copy — mirrors pro-src/src/lib/jobToQbDoc.js (keep in sync).
 
 export const QB_COMPANY = {
-  name: "BLZ Electric Inc. Lic #11212",
+  name: "BLZ Electric Inc.",
   addressLines: ["383 Kingston Ave", "Brooklyn, NY  11213"],
   phone: "(718) 594-1850",
   email: "Office@LeElectrical.us",
+  /** Printed on its own line under the email (not next to the company name). */
+  license: "Lic #11212",
 };
+
+/** Payment options block — same wording on every invoice PDF (gray message area). */
+export const INVOICE_PAYMENT_LINES = [
+  'Online Payment: Click the "View Invoice" tab in the email and pay',
+  "via the provided credit card payment link.",
+  "-Zelle: Send payment to Office@LeElectrical.us.",
+  '-Check: Make checks payable to "BLZ Electric Inc." and either: Mail',
+  "it or Email a clear picture of the check to Office@LeElectrical.us.",
+];
+
+export const INVOICE_CLOSING_LINES = [
+  "Thank you for your business - we appreciate it very much.",
+  "",
+  "Sincerely,",
+  "BLZ Electric Inc.",
+];
 
 function parseAmount(v) {
   if (v == null || v === "") return 0;
@@ -49,6 +67,21 @@ function effectiveServiceAddress(job) {
   return (job?.serviceAddress || job?.address || "").trim();
 }
 
+/** Service address with apartment when present (e.g. "…, Apt 4B"). */
+export function formatServiceAddressWithApt(job) {
+  const addr = effectiveServiceAddress(job).trim();
+  const apt = String(job?.apartment || "").trim();
+  if (!addr) return "";
+  if (!apt) return addr;
+  const aptNorm = apt.replace(/^#/, "").trim();
+  const esc = aptNorm.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const already =
+    new RegExp(`\\bapt\\.?\\s*#?\\s*${esc}\\b`, "i").test(addr) ||
+    new RegExp(`\\b#\\s*${esc}\\b`, "i").test(addr);
+  if (already) return addr;
+  return `${addr}, Apt ${aptNorm}`;
+}
+
 function amountPaid(job) {
   const pays = job?.payments;
   if (Array.isArray(pays) && pays.length) {
@@ -81,6 +114,20 @@ function billableLines(job, kind) {
     ];
   }
   return [];
+}
+
+/** Lightweight CO detect (mirrors pro-src changeOrder.isChangeOrderJob). */
+function isChangeOrderJob(job) {
+  if (!job) return false;
+  if (job.changeOrder) return true;
+  if (job.changeOrderSeq != null && Number(job.changeOrderSeq) > 0) return true;
+  if (String(job.changeOrderLabel || "").trim()) return true;
+  if (String(job.qboCoPi || job.coPi || "").trim().match(/^0*\d+/)) return true;
+  const title = String(job.title || "");
+  if (/change\s*ord(?:er|ers)?\b|change\s*over\b/i.test(title)) return true;
+  const inv = String(job.invoiceNo || job.estimateNo || "");
+  if (/(?:^|[\s\-_/])CO[\s\-_]*\d+\b/i.test(inv) || /-CO-\d+/i.test(inv)) return true;
+  return false;
 }
 
 export function docStoreKey(kind, no) {
@@ -147,18 +194,26 @@ export function mapJobToQbDocData(job, kind = "invoice") {
 
   const billName = (job.customer || job.businessName || job.personName || "").trim();
   const billAddr = (job.billingAddress || job.address || "").trim();
-  const svcAddr = effectiveServiceAddress(job);
+  const svcAddr = formatServiceAddressWithApt(job);
   const customFields = [];
-  if (svcAddr && billAddr && svcAddr.toLowerCase() !== billAddr.toLowerCase()) {
+  const billCmp = billAddr.toLowerCase();
+  const svcStreet = effectiveServiceAddress(job).trim().toLowerCase();
+  const hasApt = !!String(job?.apartment || "").trim();
+  if (svcAddr && (svcStreet !== billCmp || hasApt)) {
     customFields.push({ label: "Service Address", value: svcAddr });
   }
 
   const firstServiceDate = lines.find((ln) => ln.serviceDate)?.serviceDate;
 
+  let displayDocNumber = docNumber;
+  if (isChangeOrderJob(job) && displayDocNumber && !/change\s*order/i.test(displayDocNumber)) {
+    displayDocNumber = `${displayDocNumber} - Change Order`;
+  }
+
   return {
     docType,
     company: QB_COMPANY,
-    docNumber,
+    docNumber: displayDocNumber,
     date: fmtInvoiceDate(invoiceDateRaw),
     dueDate: isInvoice ? fmtInvoiceDate(dueDateRaw) : undefined,
     billTo: {
@@ -175,7 +230,7 @@ export function mapJobToQbDocData(job, kind = "invoice") {
     amountDue: isInvoice ? balanceDue : total,
     balanceDue: isInvoice ? balanceDue : undefined,
     messageLines: isInvoice
-      ? ["Thank you for your business - we appreciate it very much.", "", "Sincerely,", "BLZ Electric Inc."]
+      ? [...INVOICE_PAYMENT_LINES, "", ...INVOICE_CLOSING_LINES]
       : undefined,
     showAcceptance: !isInvoice,
   };

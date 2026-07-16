@@ -16,16 +16,16 @@ const HEAD = 14;
 const TITLE = 20;
 
 export const COMPANY = {
-  name: "BLZ Electric Inc. Lic #11212",
+  name: "BLZ Electric Inc.",
   street: "383 Kingston Ave",
   cityStateZip: "Brooklyn, NY 11213",
   phone: "(718) 594-1850",
   email: "Office@LeElectrical.us",
+  /** Own line under email — not next to the company name. */
+  license: "Lic #11212",
 };
 
 export const PAYMENT_INSTRUCTIONS = [
-  "To make a payment, please follow one of these options:",
-  "",
   'Online Payment: Click the "View Invoice" tab in the email and pay',
   "via the provided credit card payment link.",
   "-Zelle: Send payment to Office@LeElectrical.us.",
@@ -175,11 +175,31 @@ export function mapJobToInvoicePdfData(job, overrides = {}) {
 
   const billName = (j.customer || j.businessName || j.personName || "").trim();
   const billAddr = (j.billingAddress || j.address || "").trim();
-  const svcAddr = effectiveServiceAddress(j).trim();
-  const showService = svcAddr && billAddr && svcAddr.toLowerCase() !== billAddr.toLowerCase();
+  const apt = String(j.apartment || "").trim().replace(/^#/, "");
+  let svcAddr = effectiveServiceAddress(j).trim();
+  if (svcAddr && apt) {
+    const aptEsc = apt.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    const already =
+      new RegExp(`\\bapt\\.?\\s*#?\\s*${aptEsc}\\b`, "i").test(svcAddr) ||
+      new RegExp(`\\b#\\s*${aptEsc}\\b`, "i").test(svcAddr);
+    if (!already) svcAddr = `${svcAddr}, Apt ${apt}`;
+  }
+  const showService =
+    !!svcAddr &&
+    (!!apt || (billAddr && svcAddr.toLowerCase() !== billAddr.toLowerCase()));
+
+  let invoiceNo = String(overrides.invoiceNo || (isEstimate ? j.estimateNo : j.invoiceNo) || "").trim();
+  // Change order: dash + label next to the document number.
+  if (
+    (j.changeOrder || j.changeOrderSeq || j.changeOrderLabel || /(?:^|[\s\-_/])CO[\s\-_]*\d+/i.test(invoiceNo)) &&
+    invoiceNo &&
+    !/change\s*order/i.test(invoiceNo)
+  ) {
+    invoiceNo = `${invoiceNo} - Change Order`;
+  }
 
   return {
-    invoiceNo: String(overrides.invoiceNo || (isEstimate ? j.estimateNo : j.invoiceNo) || "").trim(),
+    invoiceNo,
     invoiceDate: fmtInvoiceDate(invoiceDateRaw),
     dueDate: fmtInvoiceDate(dueDateRaw),
     billTo: { name: billName, address: billAddr },
@@ -236,7 +256,7 @@ function renderInvoicePages(data) {
 
   const addText = (x, yy, text, opts = {}) => add(textCmd(x, yy, text, opts));
 
-  // --- Page 1 header (company + INVOICE block) ---
+  // --- Page 1 header (company + INVOICE block); license under email ---
   addText(MARGIN, y, COMPANY.name, { size: BODY, font: "F1" });
   y -= 13;
   addText(MARGIN, y, COMPANY.street);
@@ -246,7 +266,12 @@ function renderInvoicePages(data) {
   addText(MARGIN, y, COMPANY.phone);
   y -= 13;
   addText(MARGIN, y, COMPANY.email);
-  y -= 28;
+  y -= 13;
+  if (COMPANY.license) {
+    addText(MARGIN, y, COMPANY.license);
+    y -= 13;
+  }
+  y -= 15;
 
   const isEstimate = data.kind === "estimate";
   if (isEstimate) {
@@ -328,11 +353,26 @@ function renderInvoicePages(data) {
   y -= 10;
   needPage(12);
 
-  // Payment instructions + totals (QBO places these after line items).
+  // Payment instructions + thank-you / sincerely (after line items).
   // An estimate/proposal has no money due yet, so it omits the payment block.
   if (!isEstimate) {
     for (const ln of PAYMENT_INSTRUCTIONS) {
       needPage();
+      addText(MARGIN, y, ln, { size: SMALL });
+      y -= 11;
+    }
+    y -= 11; // blank line before closing
+    for (const ln of [
+      "Thank you for your business - we appreciate it very much.",
+      "",
+      "Sincerely,",
+      COMPANY.name,
+    ]) {
+      needPage();
+      if (ln === "") {
+        y -= 11;
+        continue;
+      }
       addText(MARGIN, y, ln, { size: SMALL });
       y -= 11;
     }

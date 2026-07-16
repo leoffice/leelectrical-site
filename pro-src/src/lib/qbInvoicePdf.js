@@ -156,9 +156,14 @@ export function buildQbDocPdf(data) {
   const total = data.total != null ? Number(data.total) : subtotal + tax;
   const payment = Number(data.payment || 0);
 
-  // Header — company block + logo
+  // Header — company block + logo (license sits under email, not next to name)
   pg.text(M, 46.5, company.name || "", { size: 10.98, bold: true, color: BLACK });
-  const details = [...(company.addressLines || []), company.phone, company.email].filter(Boolean);
+  const details = [
+    ...(company.addressLines || []),
+    company.phone,
+    company.email,
+    company.license,
+  ].filter(Boolean);
   details.forEach((ln, i) => pg.text(M, 61.5 + i * 12.75, ln, { size: 7.32, color: BLACK }));
   pg.image("ImLogo", 254.25, 36, 103.5, 81);
 
@@ -226,9 +231,21 @@ export function buildQbDocPdf(data) {
   const totalsTop = cursor + 11.25;
   pg.dottedRule(M, M + 540, totalsTop);
 
-  // Message block (gray, bottom-left) — include pay link line when present
+  // Message block (gray, bottom-left) — payment options + thank-you / sincerely
   if (data.messageLines !== null) {
-    const msg = [...(data.messageLines || ["Thank you for your business - we appreciate it very much.", "", "Sincerely,", company.name])];
+    const defaultMsg = [
+      'Online Payment: Click the "View Invoice" tab in the email and pay',
+      "via the provided credit card payment link.",
+      "-Zelle: Send payment to Office@LeElectrical.us.",
+      '-Check: Make checks payable to "BLZ Electric Inc." and either: Mail',
+      "it or Email a clear picture of the check to Office@LeElectrical.us.",
+      "",
+      "Thank you for your business - we appreciate it very much.",
+      "",
+      "Sincerely,",
+      company.name || "BLZ Electric Inc.",
+    ];
+    const msg = [...(data.messageLines || defaultMsg)];
     if (data.payUrl) {
       msg.unshift("Pay securely online:", data.payUrl, "");
     }

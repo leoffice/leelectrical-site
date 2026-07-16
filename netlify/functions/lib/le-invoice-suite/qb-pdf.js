@@ -215,10 +215,12 @@ function generateDocument(data, outPath) {
       textAtBaseline(data.company.name, M, S.company.nameY);
 
       doc.font('reg').fontSize(S.company.detailSize);
+      // License sits under email — not next to the company name.
       const details = [
         ...(data.company.addressLines || []),
         data.company.phone,
         data.company.email,
+        data.company.license,
       ].filter(Boolean);
       details.forEach((line, i) =>
         textAtBaseline(line, M, S.company.detailStartY + i * S.company.detailLeading));

@@ -53,6 +53,21 @@ describe("invoicePdf field mapping", () => {
     expect(d.serviceAddress).toContain("479A East New York");
   });
 
+  it("appends apartment to service address", () => {
+    const d = mapJobToInvoicePdfData({
+      ...job,
+      billingAddress: "405 Lefferts Ave, Brooklyn, NY 11225",
+      serviceAddress: "479A East New York Ave, Brooklyn, NY 11225",
+      apartment: "2A",
+    });
+    expect(d.serviceAddress).toMatch(/Apt\s*2A/i);
+  });
+
+  it("labels change-order invoice numbers", () => {
+    const d = mapJobToInvoicePdfData({ ...job, changeOrder: true, invoiceNo: "251100-CO-1" });
+    expect(d.invoiceNo).toBe("251100-CO-1 - Change Order");
+  });
+
   it("canGenerateLocalInvoice allows drafts without invoice number when lines exist", () => {
     expect(canGenerateLocalInvoice(job)).toBe(true);
     expect(canGenerateLocalInvoice({ ...job, invoiceNo: "" })).toBe(true);
@@ -86,11 +101,15 @@ describe("invoicePdf generation", () => {
     const text = await blob.text();
     expect(text.startsWith("%PDF-1.4")).toBe(true);
     expect(text).toContain(COMPANY.name);
+    expect(text).toContain(COMPANY.license || "Lic #11212");
+    expect(COMPANY.name).not.toMatch(/Lic/);
     expect(text).toContain("251841");
     expect(text).toContain("INVOICE");
     expect(text).toContain("BILL TO");
     expect(text).toContain("SUBTOTAL");
     expect(text).toContain("BALANCE DUE");
+    expect(text).toContain("Online Payment");
+    expect(text).toContain("Zelle");
   });
 
   it("buildInvoicePdfFromJob wraps job mapping", async () => {
