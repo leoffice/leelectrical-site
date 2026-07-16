@@ -3,6 +3,8 @@
 // and G703 continuation) that opens natively in Excel/Numbers and imports
 // cleanly into Google Sheets — so the requisition can be edited as a sheet.
 
+import { projectCompanyName, REQ_BILLING } from "./requisitionData.js";
+
 function xmlEsc(s) {
   return String(s == null ? "" : s)
     .replace(/&/g, "&amp;")
@@ -31,14 +33,18 @@ function g702Sheet(project, req) {
   const contractSum = Number(req.originalContractSum != null ? req.originalContractSum : project.contractSum) || 0;
   const contractToDate = Number(req.contractSumToDate) || contractSum;
   const changeOrders = Math.round((contractToDate - contractSum) * 100) / 100;
+  const company = projectCompanyName(project, req?.companyName);
   const rows = [
     row([cell("APPLICATION AND CERTIFICATE FOR PAYMENT (AIA G702)", { style: "title" })]),
-    row([cell("LE Electrical", { style: "bold" })]),
+    ...REQ_BILLING.addressLines.map((line) => row([cell(line, { style: "bold" })])),
+    row([cell(REQ_BILLING.phone)]),
+    row([cell(REQ_BILLING.email)]),
     blankRow(),
     row([cell("Project"), cell(project.name || "")]),
     row([cell("Location"), cell(project.address || "")]),
     row([cell("To (Owner)"), cell(project.gc || "")]),
-    row([cell("From (Contractor)"), cell("LE Electrical")]),
+    row([cell("From (Contractor)"), cell(company)]),
+    row([cell("Contractor Name"), cell(company)]),
     row([cell("Application No"), cell(req.applicationNumber || `REQ-${req.num || ""}`)]),
     row([cell("Period To"), cell(req.periodTo || "")]),
     blankRow(),

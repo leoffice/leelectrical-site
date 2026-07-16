@@ -8,6 +8,7 @@
 // across as many pages as the line items need with a carried-forward totals row.
 
 import { LE_LOGO_JPEG, leLogoJpegBytes } from "./leLogoJpeg.js";
+import { projectCompanyName, REQ_BILLING } from "./requisitionData.js";
 
 const LETTER_W = 612;
 const LETTER_H = 792;
@@ -189,41 +190,53 @@ function renderG702(project, req) {
   const R = LETTER_W - MARGIN;
   const W = R - L;
   let y = LETTER_H - MARGIN;
+  const company = projectCompanyName(project, req?.companyName);
 
-  // Letterhead — LE logo top-left, certificate title top-right.
+  // Letterhead — LE logo top-left; billing address under the logo text block.
+  // Company name is NOT the letterhead brand — it appears on FROM / CONTRACTOR.
+  const billingLines = [
+    ...REQ_BILLING.addressLines,
+    REQ_BILLING.phone,
+    REQ_BILLING.email,
+  ];
   if (LOGO) {
     const lw = 62;
     const lh = roundMoney2((lw * LOGO.height) / LOGO.width);
     pg.image(LOGO.name, L, y - lh + 4, lw, lh);
-    pg.text(L + lw + 8, y - lh + 14, "LE ELECTRICAL", { size: 12, bold: true });
+    const textX = L + lw + 8;
+    let by = y - 2;
+    for (let i = 0; i < billingLines.length; i++) {
+      pg.text(textX, by - i * 10, billingLines[i], { size: i === 0 ? 9 : 8, bold: i === 0 });
+    }
     pg.text(R, y - 6, "APPLICATION AND CERTIFICATE FOR PAYMENT", { size: 10, bold: true, align: "right" });
     pg.text(R, y - 18, "AIA Document G702", { size: 8, align: "right" });
-    y -= Math.max(lh, 26) + 2;
+    const billH = billingLines.length * 10;
+    y -= Math.max(lh, billH, 26) + 4;
   } else {
-    pg.text(L, y - 4, "LE ELECTRICAL", { size: 16, bold: true });
+    for (let i = 0; i < billingLines.length; i++) {
+      pg.text(L, y - 4 - i * 11, billingLines[i], { size: i === 0 ? 10 : 9, bold: i === 0 });
+    }
     pg.text(R, y - 3, "APPLICATION AND CERTIFICATE FOR PAYMENT", { size: 10, bold: true, align: "right" });
     pg.text(R, y - 15, "AIA Document G702", { size: 8, align: "right" });
-    y -= 22;
+    y -= billingLines.length * 11 + 6;
   }
   pg.line(L, y, R, y, 1);
   y -= 10;
 
-  // Two-column info block (TO / project + application details)
+  // Two-column info block (TO / project + application details). No VIA (Engineer).
   const colW = W / 2;
   const infoTop = y;
   const leftInfo = [
     ["TO (Owner):", project.gc || "JOY CONSTRUCTION CORP."],
     ["PROJECT:", project.name || "Baez Place"],
     ["", project.address || ""],
-    ["FROM (Contractor):", "LE Electrical"],
-    ["VIA (Engineer):", project.contractor || "Martin Dorkin"],
+    ["FROM (Contractor):", company],
   ];
   const rightInfo = [
     ["APPLICATION NO:", req.applicationNumber || `REQ-${req.num || ""}`],
     ["PERIOD TO:", req.periodTo || ""],
     ["CONTRACT FOR:", "Electrical Work"],
     ["INVOICE / REQ #:", String(req.num || "")],
-    ["", ""],
   ];
   for (let i = 0; i < leftInfo.length; i++) {
     pg.text(L, y - 8, leftInfo[i][0], { size: 8, bold: true });
@@ -289,8 +302,8 @@ function renderG702(project, req) {
   pg.text(L, y, "payments received from the Owner, and that current payment shown herein is now due.", { size: 8 });
   y -= 30;
 
-  // Signature lines
-  pg.text(L, y, "CONTRACTOR: LE Electrical", { size: 9, bold: true });
+  // Signature lines — contractor name follows the editable company name
+  pg.text(L, y, `CONTRACTOR: ${company}`, { size: 9, bold: true });
   pg.line(L + 260, y - 2, R, y - 2, 0.6);
   pg.text(L + 260, y + 3, "", { size: 8 });
   y -= 16;

@@ -18,6 +18,7 @@ import { useStore } from "../state/store.jsx";
 import { overallPct, requisitionItems, sanitizeSovForRequisitions } from "../lib/requisitionCalc.js";
 import {
   BAEZ_PROJECT_ID,
+  DEFAULT_REQ_COMPANY_NAME,
   ensureProjectDefaults,
   findBaezJob,
   findProject,
@@ -25,10 +26,13 @@ import {
   JOY_CONSTRUCTION_NAME,
   joyCustomerKey,
   normalizeProjects,
+  projectCompanyName,
   projectCustomerContact,
+  REQ_BILLING,
   seedBaezProject,
   upsertProject,
 } from "../lib/requisitionData.js";
+import Toggle from "../components/Toggle.jsx";
 import {
   activeRequisitions,
   applyCarriedPercentages,
@@ -179,7 +183,7 @@ function SovUpload({ onParsed, onReplace, projectName }) {
   return (
     <div className="space-y-3" data-testid="sov-upload">
       <p className="text-sm text-slate-500">
-        Schedule SOV CSV — line items, values, and sections. This is the working import path (Drive auto-pull coming next).
+        Upload a Schedule of Values CSV (line items, values, sections). For a PDF, send it to Israel — he breaks it down and loads the schedule on the job.
       </p>
       <div className="flex gap-2">
         <button
@@ -335,16 +339,26 @@ function RequisitionWorkbench({ project, onSave, busy, showToast, onSaved }) {
   const [overview, setOverview] = useState(false);
   const [fieldsTouched, setFieldsTouched] = useState(false);
   const [fieldsCollapsed, setFieldsCollapsed] = useState(false);
-  const dirty = JSON.stringify(draft.items) !== JSON.stringify(project.items);
+  const [companyName, setCompanyName] = useState(() => projectCompanyName(project));
+  const [editCompanyName, setEditCompanyName] = useState(false);
+  const itemsDirty = JSON.stringify(draft.items) !== JSON.stringify(project.items);
+  const companyDirty = (companyName.trim() || DEFAULT_REQ_COMPANY_NAME) !== projectCompanyName(project);
+  const dirty = itemsDirty || companyDirty;
   const viewingPrior = !!browseReqId;
   const viewedReq = viewingPrior ? navList.find((r) => r.id === browseReqId) || null : null;
   const workTabs = [
     { id: "app", label: "Application & Cert" },
     { id: "cont", label: "Continuation Sheet" },
+    { id: "company", label: "Company Name" },
   ];
   const { onTouchStart, onTouchEnd } = useReqTabSwipe(workTabs, workTab, setWorkTab);
+  const effectiveCompany = companyName.trim() || DEFAULT_REQ_COMPANY_NAME;
 
-  useEffect(() => setDraft(applyCarriedPercentages(project)), [carrySeed]);
+  useEffect(() => {
+    setDraft(applyCarriedPercentages(project));
+    setCompanyName(projectCompanyName(project));
+    setEditCompanyName(false);
+  }, [carrySeed]);
 
   useEffect(() => {
     const n = nextRequisitionNum(project);
@@ -364,7 +378,7 @@ function RequisitionWorkbench({ project, onSave, busy, showToast, onSaved }) {
 
   useEffect(() => {
     setPendingReq(null);
-  }, [periodTo, reqNum, appNum]);
+  }, [periodTo, reqNum, appNum, companyName]);
 
   const prevSnap = useMemo(() => previousPctByItemId(project), [project]);
   const hasPrev = Object.keys(prevSnap).length > 0;
@@ -390,8 +404,8 @@ function RequisitionWorkbench({ project, onSave, busy, showToast, onSaved }) {
     return base.length > 0 && base.every((it) => (Number(it.completedPct) || 0) >= 100);
   }, [draft.items]);
   // Generate gate: previously-paid confirmed AND (a SOV change was made OR the
-  // project is already fully complete).
-  const canGenerate = prevPaidConfirmed && (dirty || allComplete);
+  // project is already fully complete). Company-name-only edits do not unlock draw.
+  const canGenerate = prevPaidConfirmed && (itemsDirty || allComplete);
 
   // Auto-collapse the header fields after a short idle once untouched.
   useEffect(() => {
@@ -416,19 +430,31 @@ function RequisitionWorkbench({ project, onSave, busy, showToast, onSaved }) {
     showToast?.("All lines set to 100% — check Application & Cert, then generate your final requisition");
   };
 
+  const withCompany = (p) => ({
+    ...p,
+    companyName: effectiveCompany,
+    contractor: effectiveCompany,
+    updatedAt: Date.now(),
+  });
+
   const saveProgress = async () => {
-    await onSave({ ...draft, updatedAt: Date.now() });
+    await onSave(withCompany(draft));
   };
 
   const buildPendingRecord = () => {
     const num = parseInt(reqNum, 10) || (draft.requisitions?.length || 0) + 1;
-    return createRequisitionRecord(project, draft, {
+    const draftWithCompany = withCompany(draft);
+    return createRequisitionRecord(project, draftWithCompany, {
       periodTo,
       num,
       applicationNumber: appNum.trim() || `REQ-${num}`,
       previousCertificates: prevOverride,
+      companyName: effectiveCompany,
     });
   };
+
+  /** Project snapshot for PDF/Excel so company name is on the certificate. */
+  const projectForPrint = () => withCompany(draft);
 
   // Consistency prompt — "Update the previous requisition" branch: pin the prior
   // requisition's certified total to the value Levi actually received, so the
@@ -460,21 +486,21 @@ function RequisitionWorkbench({ project, onSave, busy, showToast, onSaved }) {
     const req = buildPendingRecord();
     setPendingReq(req);
     setOverview(false);
-    downloadRequisitionPdf(project, req);
+    downloadRequisitionPdf(projectForPrint(), req);
     showToast?.("Requisition generated — review the PDF, then save or regenerate");
   };
 
   const regeneratePreview = () => {
     const req = buildPendingRecord();
     setPendingReq(req);
-    downloadRequisitionPdf(project, req);
+    downloadRequisitionPdf(projectForPrint(), req);
     showToast?.("Requisition regenerated");
   };
 
   const savePending = async () => {
     if (!pendingReq) return;
     const next = applyCarriedPercentages({
-      ...draft,
+      ...withCompany(draft),
       requisitions: [...(draft.requisitions || []), pendingReq],
     });
     await onSave(next);
@@ -570,6 +596,63 @@ function RequisitionWorkbench({ project, onSave, busy, showToast, onSaved }) {
               />
             </div>
           )
+        ) : null}
+
+        {workTab === "company" ? (
+          <div className="card px-4 py-3 space-y-3" data-testid="requisition-company-tab">
+            <div className="flex items-center justify-between gap-3">
+              <div>
+                <p className="text-sm font-bold text-slate-800">Company name</p>
+                <p className="text-xs text-slate-500">
+                  Name on the requisition: From Contractor, Contractor line, and header contractor.
+                </p>
+              </div>
+              <div className="flex items-center gap-2 shrink-0">
+                <span className="text-xs text-slate-600 whitespace-nowrap">Edit company name</span>
+                <Toggle
+                  small
+                  on={editCompanyName}
+                  onChange={setEditCompanyName}
+                  label="Edit company name"
+                />
+              </div>
+            </div>
+            {editCompanyName ? (
+              <label className="text-sm block">
+                Company name
+                <input
+                  className="block border rounded px-2 py-2 mt-1 w-full font-semibold"
+                  value={companyName}
+                  onChange={(e) => setCompanyName(e.target.value)}
+                  placeholder={DEFAULT_REQ_COMPANY_NAME}
+                  data-testid="req-company-name-input"
+                />
+              </label>
+            ) : (
+              <p className="text-base font-extrabold text-slate-900" data-testid="req-company-name-display">
+                {effectiveCompany}
+              </p>
+            )}
+            <div className="rounded border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-600 space-y-0.5">
+              <p className="font-semibold text-slate-700">Billing (always the same)</p>
+              {REQ_BILLING.addressLines.map((line) => (
+                <p key={line}>{line}</p>
+              ))}
+              <p>{REQ_BILLING.phone}</p>
+              <p>{REQ_BILLING.email}</p>
+            </div>
+            {!viewingPrior && dirty ? (
+              <button
+                type="button"
+                className="btn w-full bg-brand text-white"
+                onClick={saveProgress}
+                disabled={busy}
+                data-testid="save-company-name"
+              >
+                Save company name
+              </button>
+            ) : null}
+          </div>
         ) : null}
         <p className="text-[11px] text-slate-400 text-center mt-2">← swipe to switch views →</p>
       </div>
@@ -718,7 +801,7 @@ function RequisitionWorkbench({ project, onSave, busy, showToast, onSaved }) {
           <button
             type="button"
             className="btn w-full"
-            onClick={() => downloadRequisitionExcel(project, pendingReq)}
+            onClick={() => downloadRequisitionExcel(projectForPrint(), pendingReq)}
             disabled={busy}
             data-testid="download-req-excel-draft"
           >
@@ -948,7 +1031,8 @@ export default function Projects() {
       id,
       name: parsed.name || "New Project",
       address: "",
-      contractor: "Martin Dorkin",
+      companyName: DEFAULT_REQ_COMPANY_NAME,
+      contractor: DEFAULT_REQ_COMPANY_NAME,
       gc: project?.gc || "",
       customerKey: joyCustomerKey(),
       contractSum: cleaned.contractSum,

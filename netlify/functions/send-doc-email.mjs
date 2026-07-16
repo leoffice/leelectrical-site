@@ -1,4 +1,5 @@
 import { sendDocEmail } from "./lib/docEmail.mjs";
+import { sendStatementEmail } from "./lib/statementEmailServer.mjs";
 
 function json(o, status = 200) {
   return new Response(JSON.stringify(o), {
@@ -26,7 +27,7 @@ export default async (req) => {
   }
 
   const kind = String(body.kind || "invoice").toLowerCase();
-  if (kind !== "invoice" && kind !== "estimate") {
+  if (kind !== "invoice" && kind !== "estimate" && kind !== "statement") {
     return json({ ok: false, error: "bad kind" }, 400);
   }
 
@@ -37,10 +38,23 @@ export default async (req) => {
   // Non-probe, non-officeOnly sends still require a recipient.
   if (!email && !probe && !officeOnly) return json({ ok: false, error: "missing email" }, 400);
 
-  const includePaymentLink =
-    kind === "invoice" && body.includePaymentLink !== false && body.includePaymentLink !== 0;
-
   try {
+    // Statements are customer-level (no single job) — a self-contained branded
+    // email carrying the client-generated statement PDF + per-invoice pay links.
+    if (kind === "statement") {
+      const result = await sendStatementEmail({
+        to: email,
+        officeOnly,
+        probe,
+        pdfB64: body.pdfB64 || body.pdfBase64 || "",
+        filename: body.filename || "Statement.pdf",
+        statement: body.statement || {},
+      });
+      return json(result, result.ok ? 200 : 502);
+    }
+
+    const includePaymentLink =
+      kind === "invoice" && body.includePaymentLink !== false && body.includePaymentLink !== 0;
     const result = await sendDocEmail({
       job,
       kind,

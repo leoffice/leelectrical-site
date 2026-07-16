@@ -378,4 +378,22 @@ describe("requisitionPdf", () => {
     expect(blob.type).toBe("application/pdf");
     expect(blob.size).toBeGreaterThan(500);
   });
+
+  it("uses editable company name and billing block, not VIA engineer", async () => {
+    const project = { ...seedBaezProject(), companyName: "BLZ Electric" };
+    const req = createRequisitionRecord(project, {
+      ...project,
+      items: project.items.slice(0, 2).map((it) => ({ ...it, completedPct: 10 })),
+    }, { companyName: "BLZ Electric" });
+    expect(req.companyName).toBe("BLZ Electric");
+    const blob = buildRequisitionPdf(project, req);
+    const text = await blob.text();
+    expect(text).toContain("BLZ Electric");
+    expect(text).toContain("383 Kingston Avenue");
+    expect(text).toContain("Suite 297");
+    expect(text).toContain("718-594-1850");
+    expect(text).toContain("toffees@leelectrical.us");
+    expect(text).not.toContain("VIA (Engineer)");
+    expect(text).not.toContain("Martin Dorkin");
+  });
 });
