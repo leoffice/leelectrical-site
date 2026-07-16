@@ -83,6 +83,22 @@ describe("followUpStatus", () => {
     expect(unsentDocCandidates([job], cmds)).toHaveLength(0);
   });
 
+  it("does not flag unsent when QuickBooks EmailStatus is EmailSent", () => {
+    const job = {
+      id: "qbo-251849",
+      customer: "Avi Loschak",
+      invoiceNo: "251849",
+      invoiceHistory: [],
+      invoiceEmailStatus: "EmailSent",
+      invoiceEmailedAt: "2026-07-15",
+      email: "AviLoschak@gmail.com",
+    };
+    expect(docNeverSent(job, "invoice", [])).toBe(false);
+    expect(unsentDocCandidates([job], [])).toHaveLength(0);
+    const assessment = assessJobFollowUp(job, "2026-07-16", []);
+    expect(assessment.reason).not.toBe("invoice_unsent");
+  });
+
   it("serviceCallCandidates skips appointments with recent invoice work", () => {
     const jobs = [
       {
