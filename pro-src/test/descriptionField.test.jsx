@@ -5,7 +5,6 @@ import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import "@testing-library/jest-dom/vitest";
 import DescriptionField from "../src/components/DescriptionField.jsx";
 import { buildDescriptionPdf } from "../src/lib/descriptionPdf.js";
-import { stubPdfOpen } from "./helpers.jsx";
 
 afterEach(() => {
   cleanup();
@@ -28,6 +27,7 @@ describe("DescriptionField", () => {
     expect(menu.className).toContain("flex-col");
     expect(screen.getByTestId("description-field-polish-professional")).toBeInTheDocument();
     expect(screen.getByTestId("description-field-polish-invoice")).toBeInTheDocument();
+    expect(screen.queryByTestId("description-field-polish-commercial")).toBeNull();
   });
 
   it("shows revert after polish and restores the previous text", () => {
@@ -37,7 +37,7 @@ describe("DescriptionField", () => {
     });
     const { rerender } = render(<DescriptionField value={text} onChange={onChange} />);
     fireEvent.click(screen.getByTestId("description-field-polish-btn"));
-    fireEvent.click(screen.getByTestId("description-field-polish-commercial"));
+    fireEvent.click(screen.getByTestId("description-field-polish-brief"));
     expect(onChange).toHaveBeenCalled();
     expect(screen.getByTestId("description-field-polish-revert-btn")).toBeInTheDocument();
     fireEvent.click(screen.getByTestId("description-field-polish-revert-btn"));
@@ -53,28 +53,16 @@ describe("DescriptionField", () => {
     });
     const { rerender } = render(<DescriptionField value={text} onChange={onChange} />);
     fireEvent.click(screen.getByTestId("description-field-polish-btn"));
-    fireEvent.click(screen.getByTestId("description-field-polish-commercial"));
+    fireEvent.click(screen.getByTestId("description-field-polish-brief"));
     rerender(<DescriptionField value={text} onChange={onChange} />);
     fireEvent.click(screen.getByTestId("description-field-polish-btn"));
     expect(screen.getByTestId("description-field-polish-revert")).toBeInTheDocument();
   });
 
-  it("opens description text as a native PDF from the view button", () => {
-    URL.createObjectURL = vi.fn(() => "blob:desc-pdf");
-    URL.revokeObjectURL = vi.fn();
-    const click = stubPdfOpen();
-    render(
-      <DescriptionField
-        value={"Panel upgrade\nNew circuits"}
-        onChange={() => {}}
-        context={{ jobTitle: "Rewire", address: "10 Broadway" }}
-        testId="scope-desc"
-      />
-    );
-    fireEvent.click(screen.getByTestId("scope-desc-view-pdf-btn"));
-    expect(URL.createObjectURL).toHaveBeenCalled();
-    expect(click).toHaveBeenCalledTimes(1);
-    expect(screen.queryByTestId("scope-desc-pdf-overlay")).toBeNull();
+  it("can hide polish when polish sits next to amount", () => {
+    render(<DescriptionField value="panel" onChange={() => {}} showPolish={false} />);
+    expect(screen.queryByTestId("description-field-polish-btn")).toBeNull();
+    expect(screen.queryByTestId("description-field-view-pdf-btn")).toBeNull();
   });
 });
 

@@ -50,6 +50,7 @@ describe("estimate ↔ invoice sync — e2e", () => {
     const addr = screen.getByTestId("doc-service-address");
     await user.clear(addr);
     await user.type(addr, "200 New Address");
+    await user.click(screen.getByTestId("doc-sync-email"));
     await user.click(screen.getByTestId("doc-save-sync"));
 
     await waitFor(() => expect(srv.enqueued("update_invoice")).toHaveLength(1));
@@ -91,6 +92,7 @@ describe("estimate ↔ invoice sync — e2e", () => {
     const addr = await screen.findByTestId("doc-service-address");
     await user.clear(addr);
     await user.type(addr, "88 Side St");
+    await user.click(screen.getByTestId("doc-sync-email"));
     await user.click(screen.getByTestId("doc-save-sync"));
 
     await waitFor(() => expect(srv.enqueued("update_estimate")).toHaveLength(1));
@@ -115,6 +117,6 @@ describe("estimate ↔ invoice sync — e2e", () => {
     await user.click(invStep);
     const editBtn = await within(pane).findByTestId("edit-invoice-paperwork");
     await user.click(editBtn);
-    expect(await screen.findByTestId("doc-save-sync")).toBeInTheDocument();
+    expect(await screen.findByTestId("doc-sync-email")).toBeInTheDocument();
   }, 15000);
 });

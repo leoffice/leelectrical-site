@@ -6,8 +6,14 @@ import {
 } from "../src/lib/workDescriptionPolish.js";
 
 describe("workDescriptionPolish", () => {
-  it("exposes 10 work-description polish styles", () => {
-    expect(WORK_DESCRIPTION_STYLES).toHaveLength(10);
+  it("exposes a short polish style menu", () => {
+    expect(WORK_DESCRIPTION_STYLES).toHaveLength(4);
+    expect(WORK_DESCRIPTION_STYLES.map((s) => s.key)).toEqual([
+      "professional",
+      "brief",
+      "detailed",
+      "invoice",
+    ]);
   });
 
   it("breakdown style bulletizes multi-part notes", () => {

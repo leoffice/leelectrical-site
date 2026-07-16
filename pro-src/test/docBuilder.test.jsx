@@ -40,6 +40,7 @@ describe("Estimate / invoice builder", () => {
     const addr = await screen.findByTestId("doc-service-address");
     expect(addr).toHaveValue("10 Broadway");
 
+    await user.click(screen.getByTestId("doc-sync-email"));
     await user.click(screen.getByTestId("doc-save-sync"));
 
     await waitFor(() => expect(srv.enqueued("create_estimate")).toHaveLength(1));
@@ -134,6 +135,7 @@ describe("Estimate / invoice builder", () => {
 
     await user.click(within(pane).getByTestId("progress-step-Estimate"));
     await user.click(within(pane).getByTestId("generate-estimate"));
+    await user.click(screen.getByTestId("doc-sync-email"));
     await user.click(screen.getByTestId("doc-save-sync"));
 
     await waitFor(() => expect(srv.enqueued("create_customer")).toHaveLength(1));
@@ -164,6 +166,8 @@ describe("Estimate / invoice builder", () => {
 
     await user.click(within(pane).getByTestId("progress-step-Estimate"));
     await user.click(within(pane).getByTestId("generate-estimate"));
+    await user.click(screen.getByTestId("doc-sync-email"));
+    expect(screen.getByTestId("doc-send-emails")).toHaveValue("send@x.com");
     await user.click(screen.getByTestId("doc-save-sync-send"));
 
     await waitFor(() => expect(srv.enqueued("create_estimate")).toHaveLength(1));
@@ -203,6 +207,7 @@ describe("Estimate / invoice builder", () => {
     await user.click(screen.getByTestId("progress-pct-confirm"));
 
     expect(await screen.findByText(/Invoice from estimate \(50%\)/)).toBeInTheDocument();
+    await user.click(screen.getByTestId("doc-sync-email"));
     await user.click(screen.getByTestId("doc-save-sync"));
 
     await waitFor(() => expect(srv.enqueued("create_invoice")).toHaveLength(1));

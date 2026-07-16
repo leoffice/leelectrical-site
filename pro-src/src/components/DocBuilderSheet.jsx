@@ -1,7 +1,8 @@
 // Build a QuickBooks estimate or invoice — line items, service address, attachments.
-import React, { useCallback, useEffect, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Sheet, { Fld } from "./Sheet.jsx";
-import DescriptionField from "./DescriptionField.jsx";
+import DescriptionField, { PolishButton } from "./DescriptionField.jsx";
+import { DOC_SOURCE_LOCAL, DOC_SOURCE_QBO } from "../lib/docSource.js";
 import CustomerSearch from "./CustomerSearch.jsx";
 import { useStore } from "../state/store.jsx";
 import { DEFAULT_QBO_ITEMS, filterQboItems } from "../data/qboItems.js";
@@ -186,8 +187,9 @@ function LineRow({ line, index, items, onChange, onRemove, canRemove, progressMo
         onChange={(v) => onChange(index, { description: v })}
         testId={"doc-line-desc-" + (index + 1)}
         ariaLabel={"Description line " + (index + 1)}
+        showPolish={false}
       />
-      <div className={"flex gap-2 " + (progressMode ? "flex-wrap" : "")}>
+      <div className={"flex gap-2 items-end " + (progressMode ? "flex-wrap" : "")}>
         <Fld label={progressMode ? "Rate (full)" : "Rate"}>
           <input
             className="input"
@@ -213,8 +215,16 @@ function LineRow({ line, index, items, onChange, onRemove, canRemove, progressMo
             </div>
           </Fld>
         ) : (
-          <div className="shrink-0 pt-6 text-sm font-bold text-slate-700 w-20 text-right">{fmt$(lineAmount(line))}</div>
+          <div className="shrink-0 pb-2 text-sm font-bold text-slate-700 min-w-[4.5rem] text-right" data-testid={"doc-line-amount-" + (index + 1)}>
+            {fmt$(lineAmount(line))}
+          </div>
         )}
+        <PolishButton
+          compact
+          value={line.description || ""}
+          onChange={(v) => onChange(index, { description: v })}
+          testId={"doc-line-desc-" + (index + 1)}
+        />
       </div>
       {canRemove ? (
         <button type="button" className="text-xs font-semibold text-red-500" onClick={() => onRemove(index)}>
@@ -331,11 +341,18 @@ export default function DocBuilderSheet({
   const progressMode = kind === "invoice" && isProgressBillingContext(job, { kind, mode });
   const [lines, setLines] = useState(() => initialLines(job, { kind, mode, progressPct }));
   const [attachments, setAttachments] = useState([]);
-  const [attName, setAttName] = useState("");
-  const [attUrl, setAttUrl] = useState("");
   const [attUploading, setAttUploading] = useState(false);
   const [items, setItems] = useState(DEFAULT_QBO_ITEMS);
   const [saving, setSaving] = useState(false);
+  const [emailSheet, setEmailSheet] = useState(false);
+  const [sendEmails, setSendEmails] = useState(() => job.email || "");
+  const [sendMessage, setSendMessage] = useState("");
+  const [includePayLink, setIncludePayLink] = useState(false);
+  const fileInputRef = useRef(null);
+
+  useEffect(() => {
+    setSendEmails(job.email || "");
+  }, [job.email]);
   const initialContract = contractTotalForJob(job) || contractTotalFromEstimate(job.estimateLines) || 0;
   const [contractAmount, setContractAmount] = useState(initialContract ? String(initialContract) : "");
   const [adjustMode, setAdjustMode] = useState("amount");
@@ -469,17 +486,6 @@ export default function DocBuilderSheet({
     [adjustMode, amountDueEdit, applyDueAmount, applyProgressPct, progressPctEdit]
   );
 
-  const addAtt = () => {
-    const n = attName.trim();
-    const u = attUrl.trim();
-    if (!n) return showToast("Name the attachment");
-    setAttachments((a) =>
-      a.concat([{ id: "att-" + Date.now(), name: n, url: u, attachToEmail: true }])
-    );
-    setAttName("");
-    setAttUrl("");
-  };
-
   const onPickDocFile = async (e) => {
     const file = (e.target.files && e.target.files[0]) || null;
     e.target.value = "";
@@ -500,7 +506,7 @@ export default function DocBuilderSheet({
           },
         ])
       );
-      showToast("File attached — uncheck “Include in email” if you don’t want it emailed");
+      showToast("File attached");
     } catch (err) {
       showToast("Couldn't attach file — " + (err?.message || "try again"));
     } finally {
@@ -545,7 +551,7 @@ export default function DocBuilderSheet({
     return id;
   };
 
-  const validate = (send) => {
+  const validate = (send, emailOverride) => {
     if (editableCustomer && !(job.businessName || job.customer || "").trim()) {
       showToast("Pick a customer first");
       return null;
@@ -567,12 +573,22 @@ export default function DocBuilderSheet({
       showToast("No estimate number on this job yet — create the estimate first");
       return null;
     }
-    if (send && !job.email) {
+    const to = String(emailOverride != null ? emailOverride : job.email || "")
+      .split(/[,;\s]+/)
+      .map((s) => s.trim())
+      .filter(Boolean);
+    if (send && !to.length) {
       showToast("Add customer email to send");
       return null;
     }
     return valid;
   };
+
+  const primaryEmail = (raw) =>
+    String(raw || "")
+      .split(/[,;\s]+/)
+      .map((s) => s.trim())
+      .filter(Boolean)[0] || "";
 
   const downloadLocalPdf = async (jobForPdf) => {
     try {
@@ -603,17 +619,34 @@ export default function DocBuilderSheet({
     };
   };
 
-  const submitLocal = async () => {
+  const buildPdfJob = (activeJob, jobPatch) => ({
+    ...activeJob,
+    ...jobPatch,
+    invoiceNo:
+      jobPatch.invoiceNo ||
+      activeJob.invoiceNo ||
+      jobPatch._preferredInvoiceNo ||
+      preferredChangeOrderDocNo(activeJob, "invoice") ||
+      "DRAFT",
+    estimateNo:
+      jobPatch.estimateNo ||
+      activeJob.estimateNo ||
+      jobPatch._preferredEstimateNo ||
+      preferredChangeOrderDocNo(activeJob, "estimate") ||
+      "DRAFT",
+  });
+
+  /** @param {{ close?: boolean, printPdf?: boolean, toast?: string }} opts */
+  const submitLocal = async (opts = {}) => {
+    const close = opts.close !== false;
+    const printPdf = !!opts.printPdf;
     const valid = validate(false);
-    if (!valid) return;
+    if (!valid) return null;
 
     setSaving(true);
     try {
       const jobId = await ensureJobId();
-      if (!jobId) {
-        setSaving(false);
-        return;
-      }
+      if (!jobId) return null;
       const activeJob = { ...job, id: jobId };
       const { jobPatch } = planDocSaveLocal(activeJob, {
         kind,
@@ -629,38 +662,48 @@ export default function DocBuilderSheet({
         jobPatch.attachments = (job.attachments || []).concat(attachments);
       }
       await patchAndSave(jobId, jobPatch);
-      const pdfJob = {
-        ...activeJob,
-        ...jobPatch,
-        invoiceNo:
-          jobPatch.invoiceNo ||
-          activeJob.invoiceNo ||
-          jobPatch._preferredInvoiceNo ||
-          preferredChangeOrderDocNo(activeJob, "invoice") ||
-          "DRAFT",
-        estimateNo:
-          jobPatch.estimateNo ||
-          activeJob.estimateNo ||
-          jobPatch._preferredEstimateNo ||
-          preferredChangeOrderDocNo(activeJob, "estimate") ||
-          "DRAFT",
-      };
-      await downloadLocalPdf(pdfJob);
+      const pdfJob = buildPdfJob(activeJob, jobPatch);
+      if (printPdf) await downloadLocalPdf(pdfJob);
       showToast(
-        "Saved + downloaded a nice " +
-          (kind === "estimate" ? "estimate" : "invoice") +
-          " PDF — sync to QuickBooks when ready"
+        opts.toast ||
+          (printPdf
+            ? "Saved + printed " + (kind === "estimate" ? "estimate" : "invoice") + " PDF"
+            : "Saved on job — sync or email when ready")
       );
       resumeFollowUpPrompts();
       onDone && onDone(activeJob);
-      onClose();
+      if (close) onClose();
+      return pdfJob;
     } finally {
       setSaving(false);
     }
   };
 
-  const submitSync = async (send) => {
-    const valid = validate(send);
+  const printPdfOnly = async () => {
+    const valid = validate(false);
+    if (!valid) return;
+    const activeJob = { ...job, id: job.id || "draft" };
+    const { jobPatch } = planDocSaveLocal(activeJob, {
+      kind,
+      mode,
+      lines: valid,
+      serviceAddress,
+      apartment,
+      progressPct: progressPctEdit,
+      contractAmount,
+    });
+    Object.assign(jobPatch, coTagsFromJob(activeJob));
+    await downloadLocalPdf(buildPdfJob(activeJob, jobPatch));
+    showToast("Opening " + (kind === "estimate" ? "estimate" : "invoice") + " PDF");
+  };
+
+  /**
+   * @param {boolean} send
+   * @param {{ email?: string, message?: string, includePaymentLink?: boolean, docSource?: string, close?: boolean }} opts
+   */
+  const submitSync = async (send, opts = {}) => {
+    const emailTo = primaryEmail(opts.email != null ? opts.email : sendEmails) || job.email || "";
+    const valid = validate(send, emailTo);
     if (!valid) return;
 
     setSaving(true);
@@ -670,7 +713,7 @@ export default function DocBuilderSheet({
         setSaving(false);
         return;
       }
-      const activeJob = { ...job, id: jobId };
+      const activeJob = { ...job, id: jobId, email: emailTo || job.email || "" };
       const { jobPatch, commands } = planDocSaveSync(activeJob, {
         kind,
         mode,
@@ -683,6 +726,7 @@ export default function DocBuilderSheet({
         recurringState: showRecurring && recurring.enabled ? recurring : null,
       });
       Object.assign(jobPatch, coTagsFromJob(activeJob));
+      if (emailTo) jobPatch.email = emailTo;
 
       await patchAndSave(jobId, jobPatch);
 
@@ -691,14 +735,21 @@ export default function DocBuilderSheet({
 
       const attsForEmail = send ? emailAttachments() : attachments;
       const attsForQbo = attachments;
+      const docSource = opts.docSource === DOC_SOURCE_LOCAL ? DOC_SOURCE_LOCAL : DOC_SOURCE_QBO;
+      const withPay = !!(opts.includePaymentLink && kind === "invoice");
+      const customMsg = String(opts.message || sendMessage || "").trim();
 
-      if (needsCustomer) {
+      if (needsCustomer && docSource === DOC_SOURCE_QBO) {
         stashPendingDocSync(jobId, {
           commands,
           attachments: attsForQbo,
           emailAttachments: attsForEmail,
           send,
           kind,
+          email: emailTo,
+          message: customMsg,
+          includePaymentLink: withPay,
+          docSource,
         });
         enqueueCustomerQboSync(enqueue, jobId, activeJob, "");
         showToast(
@@ -706,17 +757,67 @@ export default function DocBuilderSheet({
             ? "Setting up customer in QuickBooks first — then your " +
               (kind === "estimate" ? "estimate" : "invoice") +
               " will go out to " +
-              activeJob.email
+              emailTo
             : "Setting up customer in QuickBooks first — then your " +
               (kind === "estimate" ? "estimate" : "invoice") +
               " will sync"
         );
+      } else if (docSource === DOC_SOURCE_LOCAL && send) {
+        // Local save + email path — no QuickBooks create/update.
+        const noKey = kind === "estimate" ? "estimateNo" : "invoiceNo";
+        const no =
+          jobPatch[noKey] ||
+          activeJob[noKey] ||
+          jobPatch[kind === "invoice" ? "_preferredInvoiceNo" : "_preferredEstimateNo"] ||
+          preferredChangeOrderDocNo(activeJob, kind) ||
+          "";
+        const payload =
+          kind === "invoice"
+            ? {
+                email: emailTo,
+                invoiceNo: no,
+                customer: activeJob.customer || "",
+                amount: String(linesTotal(valid) || "").replace(/[$,]/g, ""),
+                includePaymentLink: withPay,
+                docSource: DOC_SOURCE_LOCAL,
+                message: customMsg,
+                attachments: attsForEmail,
+                includeAttachmentsInEmail: attsForEmail.length > 0,
+                job: { ...activeJob, ...jobPatch },
+              }
+            : {
+                email: emailTo,
+                estimateNo: no,
+                docSource: DOC_SOURCE_LOCAL,
+                message: customMsg,
+                attachments: attsForEmail,
+                includeAttachmentsInEmail: attsForEmail.length > 0,
+                job: { ...activeJob, ...jobPatch },
+              };
+        await enqueue(
+          "send_" + kind,
+          jobId,
+          payload,
+          "deterministic",
+          "send_" + kind + ":local:" + (no || jobId)
+        );
+        logSend(
+          jobId,
+          (kind === "estimate" ? "Estimate" : "Invoice") +
+            " local send queued" +
+            (withPay ? " + payment link" : ""),
+          emailTo
+        );
+        await downloadLocalPdf(buildPdfJob(activeJob, jobPatch));
+        showToast("Sending local " + (kind === "estimate" ? "estimate" : "invoice") + " to " + emailTo + "…");
       } else {
         for (let i = 0; i < commands.length; i++) {
           const cmd = commands[i];
-          // Only email-flagged attachments ride with the doc command payload.
           const payload = {
             ...cmd.payload,
+            email: emailTo || cmd.payload.email,
+            message: customMsg || undefined,
+            includePaymentLink: send ? withPay : undefined,
             attachments: i === 0 ? (send ? attsForEmail : attsForQbo) : [],
             includeAttachmentsInEmail: send ? attsForEmail.length > 0 : undefined,
           };
@@ -741,7 +842,7 @@ export default function DocBuilderSheet({
           );
         }
 
-        if (send && activeJob.email) {
+        if (send && emailTo) {
           const noKey = kind === "estimate" ? "estimateNo" : "invoiceNo";
           const no = activeJob[noKey];
           if (no) {
@@ -749,35 +850,28 @@ export default function DocBuilderSheet({
               "send_" + kind,
               jobId,
               {
-                email: activeJob.email,
+                email: emailTo,
                 [noKey]: no,
+                message: customMsg || undefined,
+                includePaymentLink: withPay,
+                docSource: DOC_SOURCE_QBO,
                 attachments: attsForEmail,
                 includeAttachmentsInEmail: attsForEmail.length > 0,
               },
               "deterministic",
               "send_" + kind + ":" + no
             );
-            logSend(jobId, (kind === "estimate" ? "Estimate" : "Invoice") + " send queued after create", activeJob.email);
+            logSend(
+              jobId,
+              (kind === "estimate" ? "Estimate" : "Invoice") +
+                " send queued after create" +
+                (withPay ? " + payment link" : ""),
+              emailTo
+            );
           }
         }
 
-        const pdfJob = {
-          ...activeJob,
-          ...jobPatch,
-          invoiceNo:
-            jobPatch.invoiceNo ||
-            activeJob.invoiceNo ||
-            jobPatch._preferredInvoiceNo ||
-            preferredChangeOrderDocNo(activeJob, "invoice") ||
-            "DRAFT",
-          estimateNo:
-            jobPatch.estimateNo ||
-            activeJob.estimateNo ||
-            jobPatch._preferredEstimateNo ||
-            preferredChangeOrderDocNo(activeJob, "estimate") ||
-            "DRAFT",
-        };
-        await downloadLocalPdf(pdfJob);
+        await downloadLocalPdf(buildPdfJob(activeJob, jobPatch));
 
         const recurNote =
           showRecurring && recurring.enabled ? " + recurring schedule in QuickBooks" : "";
@@ -789,13 +883,16 @@ export default function DocBuilderSheet({
             : "";
         showToast(
           send
-            ? "Sending to QuickBooks and emailing " + activeJob.email + recurNote + attNote + "…"
+            ? "Sending to QuickBooks and emailing " + emailTo + recurNote + attNote + "…"
             : "Sending " + (kind === "estimate" ? "estimate" : "invoice") + " to QuickBooks" + recurNote + "…"
         );
       }
       resumeFollowUpPrompts();
       onDone && onDone(activeJob);
-      onClose();
+      if (opts.close !== false) {
+        setEmailSheet(false);
+        onClose();
+      }
     } finally {
       setSaving(false);
     }
@@ -882,53 +979,56 @@ export default function DocBuilderSheet({
         ＋ Add line
       </button>
 
-      <div className="flex justify-between items-center px-1 mb-3">
-        <span className="text-sm font-bold text-slate-600">Total</span>
-        <span className="text-lg font-extrabold text-slate-900" data-testid="doc-total">
-          {fmt$(total) || "$0"}
+      <div className="flex justify-between items-baseline gap-2 px-1 mb-3" data-testid="doc-total-row">
+        <span className="text-sm font-bold text-slate-600">
+          Total{" "}
+          <span className="text-lg font-extrabold text-slate-900" data-testid="doc-total">
+            {fmt$(total) || "$0"}
+          </span>
         </span>
       </div>
 
-      <p className="text-[11px] font-bold uppercase tracking-wide text-slate-400 mb-2">Attachments</p>
-      <p className="text-[11px] text-slate-500 mb-2">
-        When you send this {kind === "estimate" ? "estimate" : "invoice"}, choose which files ride along in the email.
-      </p>
-      {attachments.map((a, i) => (
-        <div key={a.id || i} className="text-sm flex flex-wrap items-center gap-2 py-1.5 border-b border-dashed border-slate-200" data-testid="doc-attachment-row">
-          <span className="flex-1 truncate min-w-[6rem]">📎 {a.name}</span>
-          <label className="inline-flex items-center gap-1.5 text-[11px] font-semibold text-slate-600 shrink-0 cursor-pointer">
-            <input
-              type="checkbox"
-              checked={a.attachToEmail !== false}
-              onChange={() => toggleAttEmail(a.id || a.name)}
-              data-testid="doc-att-email-toggle"
-              aria-label={"Include " + (a.name || "file") + " in email"}
-            />
-            Include in email
-          </label>
-          <button type="button" className="text-red-500 text-xs" onClick={() => setAttachments((x) => x.filter((_, j) => j !== i))} aria-label={"Remove " + a.name}>
-            ✕
-          </button>
+      {attachments.length ? (
+        <div className="mb-3 space-y-1" data-testid="doc-attachments-list">
+          {attachments.map((a, i) => (
+            <div
+              key={a.id || i}
+              className="text-sm flex flex-wrap items-center gap-2 py-1.5 border-b border-dashed border-slate-200"
+              data-testid="doc-attachment-row"
+            >
+              <span className="flex-1 truncate min-w-[6rem]">📎 {a.name}</span>
+              <label className="inline-flex items-center gap-1.5 text-[11px] font-semibold text-slate-600 shrink-0 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={a.attachToEmail !== false}
+                  onChange={() => toggleAttEmail(a.id || a.name)}
+                  data-testid="doc-att-email-toggle"
+                  aria-label={"Include " + (a.name || "file") + " in email"}
+                />
+                Email
+              </label>
+              <button
+                type="button"
+                className="text-red-500 text-xs"
+                onClick={() => setAttachments((x) => x.filter((_, j) => j !== i))}
+                aria-label={"Remove " + a.name}
+              >
+                ✕
+              </button>
+            </div>
+          ))}
         </div>
-      ))}
-      <label className="btn-ghost w-full !py-1.5 mb-1 text-center cursor-pointer block">
-        <input
-          type="file"
-          className="sr-only"
-          accept="image/*,.pdf,.doc,.docx,.xls,.xlsx,.csv,.txt"
-          onChange={onPickDocFile}
-          disabled={attUploading}
-          data-testid="doc-attach-file"
-        />
-        {attUploading ? "Uploading…" : "📋 Search & choose file"}
-      </label>
-      <div className="flex gap-2 mb-1">
-        <input className="input flex-1" placeholder="Name" value={attName} onChange={(e) => setAttName(e.target.value)} aria-label="Attachment name" />
-        <input className="input flex-1" placeholder="Link (optional)" value={attUrl} onChange={(e) => setAttUrl(e.target.value)} aria-label="Attachment URL" />
-      </div>
-      <button type="button" className="btn-ghost w-full !py-1.5 mb-4" onClick={addAtt}>
-        ＋ Add by name / link
-      </button>
+      ) : null}
+
+      <input
+        ref={fileInputRef}
+        type="file"
+        className="sr-only"
+        accept="image/*,.pdf,.doc,.docx,.xls,.xlsx,.csv,.txt"
+        onChange={onPickDocFile}
+        disabled={attUploading}
+        data-testid="doc-attach-file"
+      />
 
       {showRecurring ? (
         <div className="card px-3 py-3 mb-3 border-slate-200 bg-slate-50/80" data-testid="recurring-billing-panel">
@@ -1012,22 +1112,160 @@ export default function DocBuilderSheet({
         </div>
       ) : null}
 
-      <button type="button" className="btn-brand w-full mb-2" disabled={saving} onClick={submitLocal} data-testid="doc-save-close">
-        Save on job
-      </button>
-      <button type="button" className="btn bg-brand-soft text-brand w-full mb-2" disabled={saving} onClick={() => submitSync(false)} data-testid="doc-save-sync">
-        Save &amp; sync to QuickBooks
-      </button>
-      <button
-        type="button"
-        className="btn bg-brand-soft text-brand w-full"
-        disabled={saving || !job.email}
-        onClick={() => submitSync(true)}
-        data-testid="doc-save-sync-send"
-      >
-        Save &amp; sync &amp; send{job.email ? " to " + job.email : ""}
-      </button>
-      {!job.email ? <p className="text-[11px] text-slate-400 text-center mt-2">Add email on the customer card to enable send.</p> : null}
+      <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 mb-1" data-testid="doc-action-bar">
+        <button
+          type="button"
+          className="btn !py-2.5 text-sm bg-slate-50 text-slate-800 border border-slate-200"
+          disabled={saving || attUploading}
+          onClick={() => fileInputRef.current?.click()}
+          data-testid="doc-attach-btn"
+        >
+          {attUploading ? "…" : "📎 Attachment"}
+        </button>
+        <button
+          type="button"
+          className="btn !py-2.5 text-sm bg-slate-50 text-slate-800 border border-slate-200"
+          disabled={saving}
+          onClick={() => submitLocal({ close: false, toast: "Saved" })}
+          data-testid="doc-save"
+        >
+          Save
+        </button>
+        <button
+          type="button"
+          className="btn-brand !py-2.5 text-sm"
+          disabled={saving}
+          onClick={() => submitLocal({ close: true })}
+          data-testid="doc-save-close"
+        >
+          Save Job
+        </button>
+        <button
+          type="button"
+          className="btn !py-2.5 text-sm bg-slate-50 text-slate-800 border border-slate-200"
+          disabled={saving}
+          onClick={printPdfOnly}
+          data-testid="doc-print-pdf"
+        >
+          🖨 Print PDF
+        </button>
+        <button
+          type="button"
+          className="btn !py-2.5 text-sm bg-brand-soft text-brand col-span-2 sm:col-span-1"
+          disabled={saving}
+          onClick={() => {
+            setSendEmails(job.email || sendEmails || "");
+            if (!sendMessage) {
+              setSendMessage(
+                "Please find your " +
+                  (kind === "estimate" ? "estimate" : "invoice") +
+                  " attached. Thank you for choosing LE Electrical."
+              );
+            }
+            setEmailSheet(true);
+          }}
+          data-testid="doc-sync-email"
+        >
+          Sync &amp; Email
+        </button>
+      </div>
+
+      {emailSheet ? (
+        <div
+          className="fixed inset-0 z-[80] flex items-end sm:items-center justify-center bg-black/40 p-3"
+          data-testid="doc-email-sheet"
+          role="dialog"
+          aria-label="Sync and email"
+        >
+          <div className="bg-white rounded-2xl shadow-xl w-full max-w-md max-h-[90vh] overflow-y-auto p-4">
+            <div className="flex items-center justify-between mb-3">
+              <h3 className="text-base font-extrabold text-slate-900">Sync &amp; Email</h3>
+              <button
+                type="button"
+                className="text-slate-400 text-xl leading-none px-2"
+                onClick={() => setEmailSheet(false)}
+                aria-label="Close"
+              >
+                ×
+              </button>
+            </div>
+            <Fld label="Send to" hint="Separate multiple emails with a comma">
+              <input
+                className="input"
+                type="email"
+                multiple
+                value={sendEmails}
+                onChange={(e) => setSendEmails(e.target.value)}
+                placeholder="customer@email.com"
+                aria-label="Email recipients"
+                data-testid="doc-send-emails"
+              />
+            </Fld>
+            <Fld label="Message">
+              <textarea
+                className="input min-h-[100px]"
+                value={sendMessage}
+                onChange={(e) => setSendMessage(e.target.value)}
+                aria-label="Email message"
+                data-testid="doc-send-message"
+              />
+            </Fld>
+            {kind === "invoice" ? (
+              <label className="flex items-center gap-2 mb-3 cursor-pointer" data-testid="doc-pay-link-toggle">
+                <input
+                  type="checkbox"
+                  checked={includePayLink}
+                  onChange={(e) => setIncludePayLink(e.target.checked)}
+                />
+                <span className="text-sm font-semibold text-slate-800">For credit card payment</span>
+              </label>
+            ) : null}
+            <div className="space-y-2">
+              <button
+                type="button"
+                className="btn-brand w-full"
+                disabled={saving}
+                onClick={() =>
+                  submitSync(true, {
+                    email: sendEmails,
+                    message: sendMessage,
+                    includePaymentLink: includePayLink,
+                    docSource: DOC_SOURCE_QBO,
+                  })
+                }
+                data-testid="doc-save-sync-send"
+              >
+                Send through QuickBooks
+              </button>
+              <button
+                type="button"
+                className="btn w-full bg-brand-soft text-brand"
+                disabled={saving}
+                onClick={() =>
+                  submitSync(true, {
+                    email: sendEmails,
+                    message: sendMessage,
+                    includePaymentLink: includePayLink,
+                    docSource: DOC_SOURCE_LOCAL,
+                  })
+                }
+                data-testid="doc-send-local"
+              >
+                Send locally
+              </button>
+              <button
+                type="button"
+                className="btn-ghost w-full !py-2 text-sm"
+                disabled={saving}
+                onClick={() => submitSync(false, { docSource: DOC_SOURCE_QBO })}
+                data-testid="doc-save-sync"
+              >
+                Sync to QuickBooks only (no email)
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
     </Sheet>
   );
 }

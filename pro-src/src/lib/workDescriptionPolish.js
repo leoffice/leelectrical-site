@@ -1,16 +1,11 @@
 // Polish rough notes into professional electrical work descriptions (estimates, invoices, job scope).
 
+/** Menu styles only — keep polishWorkDescription switch cases for older keys. */
 export const WORK_DESCRIPTION_STYLES = [
-  { key: "professional", label: "Professional scope", emoji: "💼" },
-  { key: "commercial", label: "Commercial bid", emoji: "🏢" },
-  { key: "breakdown", label: "Break it down", emoji: "📋" },
-  { key: "brief", label: "Brief summary", emoji: "✂️" },
-  { key: "detailed", label: "Detailed scope", emoji: "📐" },
-  { key: "permit", label: "Permit-ready", emoji: "📄" },
-  { key: "customer", label: "Customer-friendly", emoji: "🤝" },
-  { key: "insurance", label: "Inspection report", emoji: "🔍" },
-  { key: "estimate", label: "Estimate-ready", emoji: "📝" },
-  { key: "invoice", label: "Invoice narrative", emoji: "🧾" },
+  { key: "professional", label: "Professional", emoji: "💼" },
+  { key: "brief", label: "Brief", emoji: "✂️" },
+  { key: "detailed", label: "Detailed", emoji: "📐" },
+  { key: "invoice", label: "Invoice-ready", emoji: "🧾" },
 ];
 
 function clean(raw) {

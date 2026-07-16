@@ -194,7 +194,7 @@ describe("QB sync on customer view", () => {
 
     await user.click(within(tabs).getByTestId("tab-invoice"));
     expect(await screen.findByText(/Create invoice — View Co/)).toBeInTheDocument();
-    expect(screen.getByTestId("doc-save-sync")).toBeInTheDocument();
+    expect(screen.getByTestId("doc-sync-email")).toBeInTheDocument();
   });
 
   it("shows doc tabs on customer page; sync chip has customer context", async () => {
