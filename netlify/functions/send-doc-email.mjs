@@ -32,13 +32,25 @@ export default async (req) => {
 
   const job = body.job || {};
   const email = String(body.email || body.to || job.email || "").trim();
-  if (!email) return json({ ok: false, error: "missing email" }, 400);
+  const probe = body.probe === true || body.probe === 1;
+  const officeOnly = body.officeOnly === true || body.officeOnly === 1;
+  // Non-probe, non-officeOnly sends still require a recipient.
+  if (!email && !probe && !officeOnly) return json({ ok: false, error: "missing email" }, 400);
 
   const includePaymentLink =
     kind === "invoice" && body.includePaymentLink !== false && body.includePaymentLink !== 0;
 
   try {
-    const result = await sendDocEmail({ job, kind, to: email, includePaymentLink });
+    const result = await sendDocEmail({
+      job,
+      kind,
+      to: email,
+      includePaymentLink,
+      pdfB64: body.pdfB64 || body.pdfBase64 || "",
+      filename: body.filename || "",
+      probe,
+      officeOnly,
+    });
     return json(result, result.ok ? 200 : 502);
   } catch (err) {
     console.error("[send-doc-email]", err);

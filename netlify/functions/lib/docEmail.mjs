@@ -18,25 +18,79 @@ const RESEND_URL = "https://api.resend.com/emails";
 const SITE = "https://leelectrical.us";
 const SUITE_DIR = path.join(moduleDir, "le-invoice-suite");
 
+/** During the test phase, the ONLY address a testSend/officeOnly call may reach. */
+const OFFICE_EMAIL = "office@leelectrical.us";
+
 function docsUrl(key) {
   return `${SITE}/.netlify/functions/docs?key=${encodeURIComponent(key)}`;
 }
 
+/** Decode a base64 (or data-URL) PDF the client generated into a Buffer. */
+function decodePdfB64(b64) {
+  const raw = String(b64 || "").replace(/^data:[^;]*;base64,/, "").trim();
+  if (!raw) return null;
+  const buf = Buffer.from(raw, "base64");
+  // Sanity: a real PDF starts with "%PDF".
+  return buf.length > 4 && buf.slice(0, 4).toString("latin1") === "%PDF" ? buf : null;
+}
+
 /**
- * Send invoice/estimate email with locally generated PDF + QBO-style HTML.
- * Invoices with balance auto-include View and Pay link unless payLink omitted.
+ * Send invoice/estimate email with a PDF + QBO-style HTML via Resend.
+ *
+ * PDF source (in order): `pdfB64` — a client-generated qb-pdf PDF (Cloudflare/
+ * V8-safe, no pdfkit) — else the server pdfkit generator (legacy; 502s today).
+ *
+ * Safety/diagnostics:
+ *  - `probe:true`   → returns { hasResendKey, testMode, wouldSendTo, from } and
+ *                     sends NOTHING. Lets us verify RESEND_API_KEY with zero risk.
+ *  - `officeOnly:true` → hard-pins the recipient to office@leelectrical.us and
+ *                     refuses to send anywhere else (test-phase guard).
+ * Invoices with balance auto-include the View-and-Pay link unless suppressed.
  */
-export async function sendDocEmail({ job, kind = "invoice", to, includePaymentLink = true }) {
+export async function sendDocEmail({
+  job,
+  kind = "invoice",
+  to,
+  includePaymentLink = true,
+  pdfB64,
+  filename: filenameIn,
+  probe = false,
+  officeOnly = false,
+}) {
   const email = String(to || job?.email || "").trim();
-  if (!email) return { ok: false, reason: "no_recipient" };
 
-  const gen = await generateAndStoreDoc({ job, kind });
-  if (!gen.ok) return { ok: false, reason: gen.reason || "pdf_failed" };
+  // --- Safe diagnostics: report env/recipient without generating or sending ---
+  if (probe) {
+    const apiKey = String(process.env.RESEND_API_KEY || "").trim();
+    const testMode = isEmailTestMode();
+    return {
+      ok: true,
+      probe: true,
+      hasResendKey: !!apiKey,
+      testMode,
+      from: resolveFromAddress(),
+      wouldSendTo: officeOnly ? OFFICE_EMAIL : resolveRecipient(email) || "(unset)",
+      testEmailConfigured: !!String(process.env.PAYMENT_CONFIRM_TEST_EMAIL || "").trim(),
+    };
+  }
 
+  if (!email && !officeOnly) return { ok: false, reason: "no_recipient" };
+
+  // --- PDF: prefer the client-generated qb-pdf (no server pdfkit) ---
   const docData = mapJobToQbDocData(job, kind);
+  let pdfBuffer = decodePdfB64(pdfB64);
+  let docKey = "";
+  if (!pdfBuffer) {
+    if (pdfB64) return { ok: false, reason: "bad_client_pdf" };
+    const gen = await generateAndStoreDoc({ job, kind });
+    if (!gen.ok) return { ok: false, reason: gen.reason || "pdf_failed" };
+    pdfBuffer = gen.pdfBuffer;
+    docKey = gen.key;
+  }
+
   const isInvoice = kind === "invoice";
   const docWord = isInvoice ? "Invoice" : "Estimate";
-  const viewLink = docsUrl(gen.key);
+  const viewLink = docKey ? docsUrl(docKey) : "";
 
   let payLink;
   if (isInvoice && includePaymentLink && docData.amountDue > 0.01) {
@@ -61,7 +115,9 @@ export async function sendDocEmail({ job, kind = "invoice", to, includePaymentLi
       : undefined,
   });
 
-  const recipient = resolveRecipient(email);
+  // officeOnly hard-pins the recipient to office@ and refuses anything else —
+  // the test-phase guard so a test send can NEVER reach a real customer.
+  const recipient = officeOnly ? OFFICE_EMAIL : resolveRecipient(email);
   const testMode = isEmailTestMode();
   const apiKey = String(process.env.RESEND_API_KEY || "").trim();
   const from = resolveFromAddress();
@@ -69,7 +125,8 @@ export async function sendDocEmail({ job, kind = "invoice", to, includePaymentLi
 
   const meta = {
     testMode,
-    intendedTo: email,
+    officeOnly,
+    intendedTo: email || OFFICE_EMAIL,
     to: recipient || "(unset)",
     from,
     subject,
@@ -80,16 +137,19 @@ export async function sendDocEmail({ job, kind = "invoice", to, includePaymentLi
   if (!recipient) {
     return { ok: false, skipped: true, reason: testMode ? "test_email_unset" : "no_recipient", ...meta };
   }
+  if (officeOnly && recipient.toLowerCase() !== OFFICE_EMAIL) {
+    return { ok: false, skipped: true, reason: "office_only_guard", ...meta };
+  }
 
   const logoBuf = readFileSync(path.join(SUITE_DIR, "assets", "logo.png"));
-  const pdfB64 = gen.pdfBuffer.toString("base64");
-  const filename = docPdfFilename(kind, job, docData.docNumber);
+  const pdfAttachB64 = pdfBuffer.toString("base64");
+  const filename = filenameIn || docPdfFilename(kind, job, docData.docNumber);
 
   const text =
     `${docWord} ${docData.docNumber} from ${docData.company.name}\n` +
     (isInvoice ? `Due ${docData.dueDate} — $${docData.amountDue}\n\n` : `Total — $${docData.amountDue}\n\n`) +
     (payLink ? `Pay online: ${payLink}\n\n` : "") +
-    `View PDF: ${viewLink}`;
+    (viewLink ? `View PDF: ${viewLink}` : "");
 
   if (!apiKey) {
     console.log("[doc-email] DRY-RUN (no RESEND_API_KEY)", JSON.stringify(meta));
@@ -103,7 +163,7 @@ export async function sendDocEmail({ job, kind = "invoice", to, includePaymentLi
     html,
     text,
     attachments: [
-      { filename, content: pdfB64 },
+      { filename, content: pdfAttachB64 },
       { filename: "logo.png", content: logoBuf.toString("base64"), content_id: "companylogo" },
     ],
   };
@@ -126,7 +186,7 @@ export async function sendDocEmail({ job, kind = "invoice", to, includePaymentLi
       return { ok: false, reason: "resend_error", status: res.status, error: body, ...meta };
     }
     console.log("[doc-email] SENT", JSON.stringify({ ...meta, resendId: body.id }));
-    return { ok: true, sent: true, resendId: body.id, viewLink, payLink: payLink || "", docKey: gen.key, ...meta };
+    return { ok: true, sent: true, resendId: body.id, viewLink, payLink: payLink || "", docKey, ...meta };
   } catch (err) {
     console.error("[doc-email] fetch failed", err);
     return { ok: false, reason: "fetch_failed", error: String(err?.message || err), ...meta };
