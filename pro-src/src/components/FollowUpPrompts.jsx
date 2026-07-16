@@ -51,6 +51,7 @@ import {
 import { askReminderNotifyPermission, notifyReminderDue } from "../lib/reminderNotify.js";
 import ReminderDateTimePicker from "./ReminderDateTimePicker.jsx";
 import SnoozePicker from "./SnoozePicker.jsx";
+import PauseRemindersInPopup from "./PauseRemindersInPopup.jsx";
 import { intentDuplicatesSuggestion } from "../lib/followUpDedupe.js";
 import IntelligentSuggestionBlock from "./IntelligentSuggestionBlock.jsx";
 import AppointmentEmailSheet from "./AppointmentEmailSheet.jsx";
@@ -335,7 +336,7 @@ function BatchSnoozeBar({ queue, onBatchSnooze }) {
   );
 }
 
-function MustTodayNudgeSheet({ event, state: st, job, queue, onClose, onDone, onReschedule, onSnooze, onBatchSnooze, dismissForWork }) {
+function MustTodayNudgeSheet({ event, state: st, job, queue, onClose, onDone, onReschedule, onSnooze, onBatchSnooze, dismissForWork, onPauseAll }) {
   const nav = useNavigate();
   const { showToast } = useStore();
   const isFirmer = (st.pushOffCount || 0) > 0;
@@ -377,6 +378,7 @@ function MustTodayNudgeSheet({ event, state: st, job, queue, onClose, onDone, on
 
   return (
     <Sheet title={isFirmer ? "⏰ Take care of it today!" : "Reminder — today"} onClose={onClose}>
+      <PauseRemindersInPopup onPaused={onPauseAll} />
       <BatchSnoozeBar queue={queue} onBatchSnooze={onBatchSnooze} />
       <p className={`text-sm mb-4 ${isFirmer ? "text-red-700 font-medium" : "text-slate-600"}`}>{message}</p>
       <div className="text-sm space-y-1 mb-4 card px-3 py-2.5">
@@ -415,6 +417,7 @@ function ScheduledReminderSheet({
   onCreateJob,
   dismissForWork,
   onEmail,
+  onPauseAll,
 }) {
   const nav = useNavigate();
   const { showToast } = useStore();
@@ -478,6 +481,7 @@ function ScheduledReminderSheet({
 
   return (
     <Sheet title="🔔 Reminder" onClose={onClose}>
+      <PauseRemindersInPopup onPaused={onPauseAll} />
       <BatchSnoozeBar queue={queue} onBatchSnooze={onBatchSnooze} />
       <p className="text-sm text-slate-600 mb-4">{message}</p>
       <div className="text-sm space-y-1 mb-4 card px-3 py-2.5">
@@ -519,7 +523,7 @@ function ScheduledReminderSheet({
   );
 }
 
-function UnsentDocSheet({ job, docKind, docNo, onClose, onDone, dismissForWork }) {
+function UnsentDocSheet({ job, docKind, docNo, onClose, onDone, dismissForWork, onPauseAll }) {
   const nav = useNavigate();
   const { showToast } = useStore();
   const lead = unsentDocLead({ job, docKind, docNo });
@@ -539,6 +543,7 @@ function UnsentDocSheet({ job, docKind, docNo, onClose, onDone, dismissForWork }
 
   return (
     <Sheet title={"📧 Unsent " + label} onClose={dontRemind}>
+      <PauseRemindersInPopup onPaused={onPauseAll} />
       <p className="text-sm text-slate-600 mb-4">{lead}</p>
       <div className="text-sm space-y-1 mb-4 card px-3 py-2.5">
         <div className="font-semibold text-slate-900">{job?.customer || "Job"}</div>
@@ -555,7 +560,7 @@ function UnsentDocSheet({ job, docKind, docNo, onClose, onDone, dismissForWork }
   );
 }
 
-function InspectionReminderSheet({ event, when, job, onClose, onDone, dismissForWork }) {
+function InspectionReminderSheet({ event, when, job, onClose, onDone, dismissForWork, onPauseAll }) {
   const nav = useNavigate();
   const label = when === "today" ? "Today" : "Tomorrow";
 
@@ -573,6 +578,7 @@ function InspectionReminderSheet({ event, when, job, onClose, onDone, dismissFor
 
   return (
     <Sheet title={`🔴 Inspection — ${label}`} onClose={ack}>
+      <PauseRemindersInPopup onPaused={onPauseAll} />
       <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 mb-4">
         <div className="font-bold text-red-800">{event?.summary || "Inspection"}</div>
         <div className="text-sm text-red-700 mt-1">{evStart(event).replace("T", " ").slice(0, 16)}</div>
@@ -601,6 +607,7 @@ function ServiceCallSheet({
   dismissForWork,
   onEmail,
   commands,
+  onPauseAll,
 }) {
   const nav = useNavigate();
   const { showToast } = useStore();
@@ -640,6 +647,7 @@ function ServiceCallSheet({
 
   return (
     <Sheet title="Follow up?" onClose={skip}>
+      <PauseRemindersInPopup onPaused={onPauseAll} />
       <p className="text-sm text-slate-600 mb-3">{lead}</p>
       <div className="text-sm space-y-2 mb-4 card px-3 py-2.5">
         <div>
@@ -881,6 +889,14 @@ export default function FollowUpPrompts() {
     });
   }, []);
 
+  /** Global pause from inside a popup — clear every open reminder, not just this one. */
+  const handlePauseAll = useCallback(() => {
+    setCurrent(null);
+    setQueue([]);
+    setSubSheet(null);
+    setHiddenForNav(false);
+  }, []);
+
   if ((hiddenForNav || shouldSuppressPrompts() || isRemindersPaused()) && !subSheet) return null;
 
   if (!current && !subSheet) return null;
@@ -950,6 +966,7 @@ export default function FollowUpPrompts() {
         onSnooze={() => clearNotified([current.event.id])}
         onBatchSnooze={handleBatchSnooze}
         dismissForWork={dismissForWork}
+        onPauseAll={handlePauseAll}
         onReschedule={() =>
           setSubSheet({
             kind: "reschedule",
@@ -974,6 +991,7 @@ export default function FollowUpPrompts() {
         onSnooze={() => clearNotified([current.event.id])}
         onBatchSnooze={handleBatchSnooze}
         dismissForWork={dismissForWork}
+        onPauseAll={handlePauseAll}
         onCreateJob={() =>
           openCreateJobFromReminder(current.event, suggestJobsForEvent(current.event, jobs))
         }
@@ -998,6 +1016,7 @@ export default function FollowUpPrompts() {
         onClose={advance}
         onDone={advance}
         dismissForWork={dismissForWork}
+        onPauseAll={handlePauseAll}
       />
     );
   }
@@ -1011,6 +1030,7 @@ export default function FollowUpPrompts() {
         onClose={advance}
         onDone={advance}
         dismissForWork={dismissForWork}
+        onPauseAll={handlePauseAll}
       />
     );
   }
@@ -1027,6 +1047,7 @@ export default function FollowUpPrompts() {
         onClose={advance}
         onDone={advance}
         dismissForWork={dismissForWork}
+        onPauseAll={handlePauseAll}
         onCreateJob={() => openCreateJobFromReminder(current.event, current.suggestions)}
         onEmail={(kind) => openEmailFromReminder(kind, linked)}
         onRemind={() =>

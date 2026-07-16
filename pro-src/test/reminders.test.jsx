@@ -1,14 +1,18 @@
 // @vitest-environment jsdom
 import React from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { screen, waitFor, within } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import "@testing-library/jest-dom/vitest";
+import { HashRouter } from "react-router-dom";
 import { mockServer, renderApp } from "./helpers.jsx";
+import { StoreProvider } from "../src/state/store.jsx";
+import PauseRemindersInPopup from "../src/components/PauseRemindersInPopup.jsx";
 import {
   GLOBAL_PAUSE_KEY,
   buildReminderList,
   buildPromptQueue,
+  isRemindersPaused,
   pauseAllReminders,
 } from "../src/lib/followUpReminders.js";
 
@@ -64,13 +68,53 @@ describe("Reminders tab", () => {
     await waitFor(() => expect(screen.getByTestId("reminders-empty")).toBeInTheDocument());
   });
 
-  it("pause bar on other tabs hides pop-up queue", async () => {
+  it("pause control lives inside the reminder pop-up and pauses all", async () => {
     mockServer({ jobs: [unsentJob()], events: [] });
     const user = userEvent.setup();
+    // Force a pop-up queue item via the unsent-doc path after login session
     renderApp("#/");
     await screen.findByText("Bob");
+    // Page chrome no longer has the pause bar — only Reminders tab + pop-up
+    expect(screen.queryByTestId("pause-reminders-bar")).not.toBeInTheDocument();
+
+    // Open Reminders tab bar (still has global pause for resume / proactive pause)
+    window.location.hash = "#/reminders";
+    expect(await screen.findByTestId("reminders-view")).toBeInTheDocument();
     await user.click(screen.getByTestId("pause-reminders-btn"));
     await user.click(screen.getByTestId("pause-preset-15"));
-    expect(screen.queryByTestId("unsent-doc-open")).not.toBeInTheDocument();
+    expect(localStorage.getItem(GLOBAL_PAUSE_KEY)).toBeTruthy();
+    expect(buildPromptQueue([], [unsentJob()], "2026-07-15", new Date())).toHaveLength(0);
+  });
+
+  it("pop-up pause control pauses every reminder not just the open one", () => {
+    pauseAllReminders(30, new Date("2026-07-16T12:00:00"));
+    expect(isRemindersPaused(new Date("2026-07-16T12:00:00"))).toBe(true);
+    expect(localStorage.getItem(GLOBAL_PAUSE_KEY)).toBeTruthy();
+    const jobs = [
+      unsentJob(),
+      { id: "J-10", customer: "Ann", invoiceNo: "99", invoiceHistory: [], paid: false },
+    ];
+    expect(buildPromptQueue([], jobs, "2026-07-16", new Date("2026-07-16T12:00:00"))).toHaveLength(0);
+  });
+});
+
+describe("PauseRemindersInPopup", () => {
+  it("shows Pause Reminders label above the button and pauses all on preset", async () => {
+    mockServer({ jobs: [], events: [] });
+    const user = userEvent.setup();
+    const onPaused = vi.fn();
+    render(
+      <HashRouter>
+        <StoreProvider>
+          <PauseRemindersInPopup onPaused={onPaused} />
+        </StoreProvider>
+      </HashRouter>
+    );
+    expect(screen.getByTestId("pause-reminders-label")).toHaveTextContent("Pause Reminders");
+    await user.click(screen.getByTestId("pause-reminders-popup-btn"));
+    await user.click(screen.getByTestId("pause-popup-preset-15"));
+    expect(localStorage.getItem(GLOBAL_PAUSE_KEY)).toBeTruthy();
+    expect(onPaused).toHaveBeenCalledWith(15);
+    expect(isRemindersPaused()).toBe(true);
   });
 });

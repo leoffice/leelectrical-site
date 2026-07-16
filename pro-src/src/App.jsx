@@ -9,7 +9,6 @@ import JobDetail from "./views/JobDetail.jsx";
 import CustomerView from "./views/CustomerView.jsx";
 import Today from "./views/Today.jsx";
 import Reminders from "./views/Reminders.jsx";
-import PauseRemindersBar from "./components/PauseRemindersBar.jsx";
 import Time from "./views/Time.jsx";
 import Projects from "./views/Projects.jsx";
 import Dev from "./views/Dev.jsx";
@@ -158,7 +157,6 @@ export default function App() {
   const { toast, docConfirm, error, setNewJob, refresh, dirtyCount, effectiveJob, jobs, toggleChat, chatUnread } = useStore();
   const isDesktop = useIsDesktop();
   const loc = useLocation();
-  const showPauseBar = !loc.pathname.startsWith("/reminders");
   const inDetail = loc.pathname.startsWith("/job/");
   const inCustomer = loc.pathname.startsWith("/customer/");
 
@@ -230,7 +228,6 @@ export default function App() {
             inDetail || inCustomer ? "max-w-3xl lg:max-w-6xl" : "max-w-3xl"
           }`}
         >
-          {showPauseBar ? <PauseRemindersBar /> : null}
           <Routes>
             <Route path="/" element={<Jobs />} />
             <Route path="/job/:id" element={<JobDetail />} />
