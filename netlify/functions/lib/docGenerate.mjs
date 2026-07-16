@@ -1,5 +1,5 @@
 import { createRequire } from "module";
-import { getStore } from "@netlify/blobs";
+import { getStore } from "./storage/index.mjs";
 import { fileURLToPath } from "url";
 import path from "path";
 import { canGenerateLocalDoc, docPdfFilename, docStoreKey, mapJobToQbDocData } from "./jobToQbDoc.mjs";

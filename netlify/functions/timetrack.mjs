@@ -1,4 +1,4 @@
-import { getStore } from "@netlify/blobs";
+import { getStore } from "./lib/storage/index.mjs";
 
 // Multi-user employee time tracking — clock in/out, job time, live sync.
 // GET  -> { employees, active, entries, ts }
