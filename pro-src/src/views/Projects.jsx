@@ -89,12 +89,12 @@ function pctInput(val, onChange, status) {
   );
 }
 
-function JobInfoCard({ job, project, onAddJob }) {
+function JobInfoCard({ job, project, onAddJob, requisitionEnabled, onToggleRequisition }) {
   if (job) {
     return (
       <div className="card px-4 py-3 space-y-2" data-testid="requisition-job-card">
         <div className="flex items-center justify-between gap-2">
-          <h2 className="text-sm font-extrabold text-slate-700 uppercase tracking-wide">Job</h2>
+          <h2 className="text-sm font-extrabold text-slate-700 uppercase tracking-wide">Job information</h2>
           <Link to={"/job/" + encodeURIComponent(job.id)} className="text-sm font-semibold text-brand">
             Open job →
           </Link>
@@ -102,13 +102,27 @@ function JobInfoCard({ job, project, onAddJob }) {
         <div className="font-bold text-slate-900">{job.title || project.name}</div>
         <div className="text-xs text-slate-500">{job.serviceAddress || job.address || project.address}</div>
         {job.customer ? <div className="text-sm text-slate-600">{job.customer}</div> : null}
+        {onToggleRequisition ? (
+          <div className="flex items-center justify-between gap-3 pt-2 border-t border-slate-100">
+            <div>
+              <p className="text-xs font-bold text-slate-700">Requisition flow</p>
+              <p className="text-[11px] text-slate-500">Turn on SOV progress billing for this job</p>
+            </div>
+            <Toggle
+              small
+              on={!!requisitionEnabled}
+              onChange={(v) => onToggleRequisition(v)}
+              label="Requisition flow"
+            />
+          </div>
+        ) : null}
       </div>
     );
   }
   return (
     <div className="card px-4 py-3 space-y-2" data-testid="requisition-job-card">
       <div className="flex items-center justify-between gap-2">
-        <h2 className="text-sm font-extrabold text-slate-700 uppercase tracking-wide">Job</h2>
+        <h2 className="text-sm font-extrabold text-slate-700 uppercase tracking-wide">Job information</h2>
         <button type="button" className="text-sm font-semibold text-brand" onClick={onAddJob} data-testid="add-job-btn">
           Add a job
         </button>
@@ -116,6 +130,20 @@ function JobInfoCard({ job, project, onAddJob }) {
       <div className="font-bold text-slate-900">{project.name}</div>
       <div className="text-xs text-slate-500">{project.address}</div>
       <p className="text-xs text-slate-400">No linked job yet — tap Add a job to connect this project.</p>
+      {onToggleRequisition ? (
+        <div className="flex items-center justify-between gap-3 pt-2 border-t border-slate-100">
+          <div>
+            <p className="text-xs font-bold text-slate-700">Requisition flow</p>
+            <p className="text-[11px] text-slate-500">Turn on SOV progress billing for this project</p>
+          </div>
+          <Toggle
+            small
+            on={!!requisitionEnabled}
+            onChange={(v) => onToggleRequisition(v)}
+            label="Requisition flow"
+          />
+        </div>
+      ) : null}
     </div>
   );
 }
@@ -348,6 +376,9 @@ function RequisitionWorkbench({ project, onSave, busy, showToast, onSaved }) {
   const [fieldsCollapsed, setFieldsCollapsed] = useState(false);
   const [companyName, setCompanyName] = useState(() => projectCompanyName(project));
   const [editCompanyName, setEditCompanyName] = useState(false);
+  const [expandAllToken, setExpandAllToken] = useState(0);
+  const [collapseAllToken, setCollapseAllToken] = useState(0);
+  const [contExpanded, setContExpanded] = useState(true);
   const itemsDirty = JSON.stringify(draft.items) !== JSON.stringify(project.items);
   const companyDirty = (companyName.trim() || DEFAULT_REQ_COMPANY_NAME) !== projectCompanyName(project);
   const dirty = itemsDirty || companyDirty;
@@ -359,6 +390,21 @@ function RequisitionWorkbench({ project, onSave, busy, showToast, onSaved }) {
     { id: "company", label: "Company Name" },
   ];
   const { onTouchStart, onTouchEnd } = useReqTabSwipe(workTabs, workTab, setWorkTab);
+  const onWorkTabPress = (id, wasActive) => {
+    if (id !== "cont") return;
+    if (!wasActive) {
+      setExpandAllToken((n) => n + 1);
+      setContExpanded(true);
+      return;
+    }
+    if (contExpanded) {
+      setCollapseAllToken((n) => n + 1);
+      setContExpanded(false);
+    } else {
+      setExpandAllToken((n) => n + 1);
+      setContExpanded(true);
+    }
+  };
   const effectiveCompany = companyName.trim() || DEFAULT_REQ_COMPANY_NAME;
 
   useEffect(() => {
@@ -554,7 +600,13 @@ function RequisitionWorkbench({ project, onSave, busy, showToast, onSaved }) {
         testId="workbench-req-nav"
       />
 
-      <ReqTabBar tabs={workTabs} tab={workTab} setTab={setWorkTab} testId="workbench-tabs" />
+      <ReqTabBar
+        tabs={workTabs}
+        tab={workTab}
+        setTab={setWorkTab}
+        onTabPress={onWorkTabPress}
+        testId="workbench-tabs"
+      />
 
       {!viewingPrior ? (
         <p className="text-xs text-slate-500">
@@ -576,7 +628,12 @@ function RequisitionWorkbench({ project, onSave, busy, showToast, onSaved }) {
 
         {workTab === "cont" ? (
           viewingPrior ? (
-            <G703View req={viewedReq} />
+            <G703View
+              req={viewedReq}
+              defaultExpandAll
+              expandAllToken={expandAllToken}
+              collapseAllToken={collapseAllToken}
+            />
           ) : (
             <div className="space-y-3">
               {dirty ? (
@@ -597,6 +654,9 @@ function RequisitionWorkbench({ project, onSave, busy, showToast, onSaved }) {
                 items={draft.items}
                 prevPctById={prevSnap}
                 retainagePct={draft.retainagePct}
+                defaultExpandAll
+                expandAllToken={expandAllToken}
+                collapseAllToken={collapseAllToken}
                 renderPct={(it) => {
                   const status = pctChangeStatus(it.completedPct, prevSnap[it.id], hasPrev);
                   return pctInput(it.completedPct, (v) => setItemPct(it.id, v), status);
@@ -994,6 +1054,12 @@ export default function Projects() {
     showToast?.("Requisition system enabled for " + project.name);
   };
 
+  const onToggleRequisition = async (on) => {
+    if (!project) return;
+    await persist(upsertProject(projects, { ...project, requisitionEnabled: !!on }));
+    showToast?.(on ? "Requisition flow on" : "Requisition flow off");
+  };
+
   const onAddJob = () => {
     setNewJob?.({
       step: "form",
@@ -1129,7 +1195,13 @@ export default function Projects() {
         </div>
       ) : null}
 
-      <JobInfoCard job={linkedJob} project={project} onAddJob={onAddJob} />
+      <JobInfoCard
+        job={linkedJob}
+        project={project}
+        onAddJob={onAddJob}
+        requisitionEnabled={!!project.requisitionEnabled}
+        onToggleRequisition={onToggleRequisition}
+      />
 
       <div className="flex flex-wrap gap-2">
         <button type="button" className="btn btn-sm" onClick={onAddJob} data-testid="hub-add-job">
@@ -1170,6 +1242,7 @@ export default function Projects() {
             contact={contact}
             jobs={jobs}
             onUpdate={onUpdateRequisition}
+            onSaveProject={onSaveProject}
             onDelete={() => onDeleteRequisition(selectedReq)}
             canDelete={canHardDeleteRequisition(project, selectedReq)}
             deleteBlocked={requisitionDeleteMode(project, selectedReq) === "blocked"}
@@ -1219,7 +1292,9 @@ export default function Projects() {
                 busy={busy}
               />
             ) : null}
-            {hubTab === "changes" ? <ChangeOrdersPanel project={project} onSave={onSaveProject} busy={busy} /> : null}
+            {hubTab === "changes" ? (
+              <ChangeOrdersPanel project={project} onSave={onSaveProject} busy={busy} jobs={jobs} />
+            ) : null}
           </>
         )
       ) : (

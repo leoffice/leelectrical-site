@@ -21,6 +21,7 @@ import {
   requisitionDeleteMode,
   sumPriorPayments,
   sovItemKey,
+  updateRequisitionPercentages,
 } from "../src/lib/requisitionHelpers.js";
 import { buildRequisitionPdf } from "../src/lib/requisitionPdf.js";
 
@@ -386,6 +387,25 @@ describe("requisitionHelpers", () => {
     expect(email.body).toContain("invoice.pdf");
     expect(email.to).toBe("gc@test.com");
     expect(email.signature).toContain("Office@LeElectrical.us");
+  });
+});
+
+describe("updateRequisitionPercentages", () => {
+  it("saves local % edits and rebuilds due amount", () => {
+    const project = seedBaezProject();
+    const items = project.items.slice(0, 3).map((it, i) => ({
+      ...it,
+      completedPct: i === 0 ? 50 : 0,
+    }));
+    const draft = { ...project, items };
+    const req = createRequisitionRecord(project, draft, { num: 1, applicationNumber: "REQ-1" });
+    const withReq = { ...project, items, requisitions: [req] };
+    const pctById = Object.fromEntries(items.map((it) => [it.id, 100]));
+    const next = updateRequisitionPercentages(withReq, req.id, pctById);
+    const saved = next.requisitions.find((r) => r.id === req.id);
+    expect(saved.itemsSnapshot.every((s) => Number(s.completedPct) === 100)).toBe(true);
+    expect(saved.totalCompleted).toBeGreaterThan(req.totalCompleted);
+    expect(next.items.slice(0, 3).every((it) => Number(it.completedPct) === 100)).toBe(true);
   });
 });
 

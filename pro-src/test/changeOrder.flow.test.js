@@ -130,6 +130,11 @@ describe("change order tab rows", () => {
     expect(rows.some((r) => r.kind === "job" && r.docNo === "251101")).toBe(true);
     expect(rows.some((r) => r.kind === "line")).toBe(true);
     expect(rows.every((r) => /Change Order/.test(r.label))).toBe(true);
+    const coRow = rows.find((r) => r.kind === "job" && r.docNo === "251101");
+    expect(coRow.amount).toBe(500);
+    expect(coRow.balance).toBe(500);
+    expect(coRow.balanceLine).toMatch(/Balance/);
+    expect(coRow.amountLine).toMatch(/\$500/);
   });
 });
 

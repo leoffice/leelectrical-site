@@ -1,19 +1,30 @@
-import React, { useMemo, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import Sheet, { Fld } from "../Sheet.jsx";
 import { fmtUsd } from "../../lib/requisitionData.js";
 import {
   buildRequisitionEmail,
   mailtoRequisitionUrl,
   paymentNeedsInfo,
+  pctChangeStatus,
   requisitionBalance,
   requisitionsAscending,
+  sovItemKey,
+  updateRequisitionPercentages,
 } from "../../lib/requisitionHelpers.js";
 import { downloadRequisitionPdf } from "../../lib/requisitionPdf.js";
 import { downloadRequisitionExcel } from "../../lib/requisitionExcel.js";
 import { buildInvoicePdfFromJob } from "../../lib/invoicePdf.js";
 import { openPdfBlob } from "../../lib/pdfOpen.js";
 import { clientKey } from "../../lib/customers.js";
-import { G702View, G703View, ReqNavArrows, ReqTabBar, useReqTabSwipe } from "./RequisitionViews.jsx";
+import { requisitionItems } from "../../lib/requisitionCalc.js";
+import {
+  G702View,
+  G703DraftContinuation,
+  G703View,
+  ReqNavArrows,
+  ReqTabBar,
+  useReqTabSwipe,
+} from "./RequisitionViews.jsx";
 
 function PaymentsTab({ req, onUpdate, busy }) {
   const [amount, setAmount] = useState("");
@@ -369,12 +380,142 @@ function SubmitReviewSheet({ project, req, contact, jobs = [], onClose, onUpdate
   );
 }
 
+function roundPct(n) {
+  return Math.round((Number(n) || 0) * 100) / 100;
+}
+
+/** Edit SOV % on a saved requisition — green when changed, red when same as original. */
+function RequisitionEditTab({ project, req, onSaveProject, busy, showToast }) {
+  const baseItems = useMemo(() => {
+    const snap = req?.itemsSnapshot || [];
+    const byId = Object.fromEntries(snap.map((s) => [s.id, s]));
+    const byKey = Object.fromEntries(snap.map((s) => [s.key || sovItemKey(s), s]));
+    const items = requisitionItems(project?.items || []);
+    if (!items.length && snap.length) {
+      return snap.map((s) => ({
+        id: s.id || s.key,
+        section: s.section || "",
+        description: s.description || "",
+        value: Number(s.value) || 0,
+        completedPct: Number(s.completedPct) || 0,
+      }));
+    }
+    return items.map((it) => {
+      const s = byId[it.id] || byKey[sovItemKey(it)];
+      return {
+        ...it,
+        completedPct: s != null ? Number(s.completedPct) || 0 : Number(it.completedPct) || 0,
+      };
+    });
+  }, [project?.items, req?.id, req?.itemsSnapshot]);
+
+  const originalPct = useMemo(() => {
+    const m = {};
+    for (const s of req?.itemsSnapshot || []) {
+      if (s.id) m[s.id] = Number(s.completedPct) || 0;
+      const k = s.key || sovItemKey(s);
+      if (k) m[k] = Number(s.completedPct) || 0;
+    }
+    return m;
+  }, [req?.itemsSnapshot]);
+
+  const [pctById, setPctById] = useState(() =>
+    Object.fromEntries(baseItems.map((it) => [it.id, Number(it.completedPct) || 0]))
+  );
+
+  useEffect(() => {
+    setPctById(Object.fromEntries(baseItems.map((it) => [it.id, Number(it.completedPct) || 0])));
+  }, [req?.id, baseItems]);
+
+  const draftItems = useMemo(
+    () => baseItems.map((it) => ({ ...it, completedPct: pctById[it.id] ?? it.completedPct ?? 0 })),
+    [baseItems, pctById]
+  );
+
+  const dirty = useMemo(() => {
+    return baseItems.some((it) => {
+      const cur = roundPct(pctById[it.id]);
+      const orig = roundPct(originalPct[it.id] ?? originalPct[sovItemKey(it)] ?? it.completedPct);
+      return cur !== orig;
+    });
+  }, [baseItems, pctById, originalPct]);
+
+  const setPct = (id, v) => setPctById((m) => ({ ...m, [id]: roundPct(v) }));
+
+  const saveLocal = async () => {
+    if (!onSaveProject) return;
+    const next = updateRequisitionPercentages(project, req.id, pctById);
+    await onSaveProject(next);
+    showToast?.("Requisition saved locally");
+  };
+
+  return (
+    <div className="space-y-3" data-testid="req-edit-tab">
+      <p className="text-xs text-slate-500">
+        Edit percentages on this requisition. Green = you changed it · Red = same as saved. Connected dollars update when you save.
+      </p>
+      <button
+        type="button"
+        className="btn w-full bg-brand text-white"
+        onClick={saveLocal}
+        disabled={busy || !dirty}
+        data-testid="req-edit-save-local"
+      >
+        {dirty ? "Save locally" : "Saved"}
+      </button>
+      <G703DraftContinuation
+        items={draftItems}
+        prevPctById={Object.fromEntries(
+          baseItems.map((it) => [it.id, originalPct[it.id] ?? originalPct[sovItemKey(it)] ?? it.completedPct])
+        )}
+        retainagePct={req.retainagePct || project?.retainagePct || 10}
+        defaultExpandAll
+        renderPct={(it) => {
+          const status = pctChangeStatus(
+            pctById[it.id],
+            originalPct[it.id] ?? originalPct[sovItemKey(it)],
+            true
+          );
+          const cls =
+            status === "changed"
+              ? "bg-emerald-100 text-emerald-800 border-emerald-300"
+              : "bg-red-50 text-red-700 border-red-200";
+          return (
+            <input
+              type="number"
+              min={0}
+              max={100}
+              step={0.01}
+              inputMode="decimal"
+              className={`w-16 text-right border rounded px-1 py-0.5 text-sm ${cls}`}
+              value={roundPct(pctById[it.id] ?? 0)}
+              onFocus={(e) => e.target.select()}
+              onChange={(e) => setPct(it.id, e.target.value)}
+              data-testid="req-edit-pct"
+            />
+          );
+        }}
+      />
+      <button
+        type="button"
+        className="btn w-full bg-brand text-white"
+        onClick={saveLocal}
+        disabled={busy || !dirty}
+        data-testid="req-edit-save-local-bottom"
+      >
+        {dirty ? "Save locally" : "Saved"}
+      </button>
+    </div>
+  );
+}
+
 export default function RequisitionDetail({
   project,
   requisition,
   contact,
   jobs = [],
   onUpdate,
+  onSaveProject,
   onDelete,
   canDelete,
   deleteBlocked,
@@ -385,6 +526,9 @@ export default function RequisitionDetail({
 }) {
   const [tab, setTab] = useState("app");
   const [showEmail, setShowEmail] = useState(false);
+  const [expandAllToken, setExpandAllToken] = useState(0);
+  const [collapseAllToken, setCollapseAllToken] = useState(0);
+  const [contExpanded, setContExpanded] = useState(true);
   const req = requisition;
 
   const tabs = [
@@ -392,10 +536,28 @@ export default function RequisitionDetail({
     { id: "cont", label: "Continuation Sheet" },
     { id: "pay", label: "Payments" },
     { id: "files", label: "Files" },
+    { id: "edit", label: "Edit" },
   ];
   const { onTouchStart, onTouchEnd } = useReqTabSwipe(tabs, tab, setTab);
   const navList = useMemo(() => requisitionsAscending(project), [project]);
   const navIdx = navList.findIndex((r) => r.id === req?.id);
+
+  const onTabPress = (id, wasActive) => {
+    if (id !== "cont") return;
+    // First open of Continuation → expand all; re-press toggles expand/collapse all.
+    if (!wasActive) {
+      setExpandAllToken((n) => n + 1);
+      setContExpanded(true);
+      return;
+    }
+    if (contExpanded) {
+      setCollapseAllToken((n) => n + 1);
+      setContExpanded(false);
+    } else {
+      setExpandAllToken((n) => n + 1);
+      setContExpanded(true);
+    }
+  };
 
   if (!req) return null;
 
@@ -415,13 +577,29 @@ export default function RequisitionDetail({
         nextDisabled={navIdx < 0 || navIdx >= navList.length - 1}
       />
 
-      <ReqTabBar tabs={tabs} tab={tab} setTab={setTab} />
+      <ReqTabBar tabs={tabs} tab={tab} setTab={setTab} onTabPress={onTabPress} />
 
       <div onTouchStart={onTouchStart} onTouchEnd={onTouchEnd} data-testid="req-tab-content">
         {tab === "app" ? <G702View req={req} /> : null}
-        {tab === "cont" ? <G703View req={req} /> : null}
+        {tab === "cont" ? (
+          <G703View
+            req={req}
+            defaultExpandAll
+            expandAllToken={expandAllToken}
+            collapseAllToken={collapseAllToken}
+          />
+        ) : null}
         {tab === "pay" ? <PaymentsTab req={req} onUpdate={onUpdate} busy={busy} /> : null}
         {tab === "files" ? <FilesTab req={req} onUpdate={onUpdate} busy={busy} /> : null}
+        {tab === "edit" ? (
+          <RequisitionEditTab
+            project={project}
+            req={req}
+            onSaveProject={onSaveProject}
+            busy={busy}
+            showToast={showToast}
+          />
+        ) : null}
         <p className="text-[11px] text-slate-400 text-center mt-2">← swipe to switch views →</p>
       </div>
 

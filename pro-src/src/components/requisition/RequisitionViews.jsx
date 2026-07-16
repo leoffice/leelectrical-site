@@ -53,9 +53,18 @@ function parseG703Section(description) {
   return { section: "General", item: d };
 }
 
-export function G703View({ req, editable = false, onPctChange, prevPctById = {} }) {
+export function G703View({
+  req,
+  editable = false,
+  onPctChange,
+  prevPctById = {},
+  pctStatusById = {},
+  expandAllToken = 0,
+  collapseAllToken = 0,
+  defaultExpandAll = true,
+  renderPct,
+}) {
   const rows = req?.g703 || [];
-  const [openSections, setOpenSections] = useState(() => new Set());
 
   const sections = useMemo(() => {
     const groups = [];
@@ -73,6 +82,26 @@ export function G703View({ req, editable = false, onPctChange, prevPctById = {} 
     return groups;
   }, [rows]);
 
+  const allNames = useMemo(() => sections.map((s) => s.name), [sections]);
+  const [openSections, setOpenSections] = useState(
+    () => (defaultExpandAll ? new Set(allNames) : new Set())
+  );
+
+  // When section names first load / change with defaultExpandAll, open them.
+  React.useEffect(() => {
+    if (defaultExpandAll && allNames.length) {
+      setOpenSections(new Set(allNames));
+    }
+  }, [allNames.join("|"), defaultExpandAll]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  React.useEffect(() => {
+    if (expandAllToken > 0) setOpenSections(new Set(allNames));
+  }, [expandAllToken]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  React.useEffect(() => {
+    if (collapseAllToken > 0) setOpenSections(new Set());
+  }, [collapseAllToken]); // eslint-disable-line react-hooks/exhaustive-deps
+
   const toggleSection = (name) =>
     setOpenSections((prev) => {
       const next = new Set(prev);
@@ -80,15 +109,34 @@ export function G703View({ req, editable = false, onPctChange, prevPctById = {} 
       return next;
     });
 
+  const toggleAll = () => {
+    setOpenSections((prev) => {
+      if (prev.size >= allNames.length) return new Set();
+      return new Set(allNames);
+    });
+  };
+
   if (!sections.length) {
     return <p className="text-sm text-slate-400 text-center py-6" data-testid="g703-view">No continuation lines yet.</p>;
   }
 
+  const allOpen = openSections.size >= allNames.length && allNames.length > 0;
+
   return (
     <div className="space-y-2" data-testid="g703-view">
-      <p className="text-xs text-slate-500">
-        Continuation sheet — scheduled value, previous application, total completed &amp; stored, % G/C, balance to finish.
-      </p>
+      <div className="flex items-start justify-between gap-2">
+        <p className="text-xs text-slate-500 flex-1">
+          Continuation sheet — scheduled value, previous application, total completed &amp; stored, % G/C, balance to finish.
+        </p>
+        <button
+          type="button"
+          className="text-[11px] font-bold text-brand shrink-0 px-2 py-1 rounded-lg border border-brand/30 bg-brand-soft"
+          onClick={toggleAll}
+          data-testid="g703-expand-all"
+        >
+          {allOpen ? "Collapse all" : "Expand all"}
+        </button>
+      </div>
       {sections.map((sec) => {
         const open = openSections.has(sec.name);
         return (
@@ -107,25 +155,36 @@ export function G703View({ req, editable = false, onPctChange, prevPctById = {} 
                 <table className="w-full text-xs min-w-[640px]">
                   <thead>{G703_COLS}</thead>
                   <tbody>
-                    {sec.items.map((r) => (
+                    {sec.items.map((r) => {
+                      const itemId = r.itemId || r.id;
+                      const status = pctStatusById[itemId] || "new";
+                      const pctCls =
+                        status === "changed"
+                          ? "bg-emerald-100 text-emerald-800 border-emerald-300"
+                          : status === "unchanged"
+                            ? "bg-red-50 text-red-700 border-red-200"
+                            : "bg-white border-slate-200";
+                      return (
                       <tr key={r.itemNo} className="border-b border-slate-100 last:border-0">
                         <td className="px-2 py-1.5">{r.itemLabel}</td>
                         <td className="text-right px-2 py-1.5 tabular-nums">{fmtUsd(r.scheduledValue)}</td>
                         <td className="text-right px-2 py-1.5 tabular-nums">{fmtUsd(r.prevCompleted)}</td>
                         <td className="text-right px-2 py-1.5 tabular-nums">{fmtUsd(r.totalCompleted)}</td>
                         <td className="text-right px-2 py-1.5 tabular-nums font-semibold">
-                          {editable && onPctChange && r.itemId ? (
+                          {renderPct ? (
+                            renderPct(r)
+                          ) : editable && onPctChange && itemId ? (
                             <input
                               type="number"
                               min={0}
                               max={100}
                               step={0.01}
                               inputMode="decimal"
-                              className="w-14 text-right border rounded px-1 py-0.5"
+                              className={`w-14 text-right border rounded px-1 py-0.5 ${pctCls}`}
                               value={Math.round((Number(r.pctComplete) || 0) * 100) / 100}
                               onChange={(e) =>
                                 onPctChange(
-                                  r.itemId,
+                                  itemId,
                                   Math.min(100, Math.max(0, Math.round((Number(e.target.value) || 0) * 100) / 100))
                                 )
                               }
@@ -141,7 +200,8 @@ export function G703View({ req, editable = false, onPctChange, prevPctById = {} 
                         <td className="text-right px-2 py-1.5 tabular-nums">{Number(r.retainagePct) || 0}%</td>
                         <td className="text-right px-2 py-1.5 tabular-nums">{fmtUsd(r.retainage)}</td>
                       </tr>
-                    ))}
+                      );
+                    })}
                   </tbody>
                 </table>
               </div>
@@ -182,52 +242,112 @@ function groupRequisitionSections(items) {
 }
 
 /** Editable continuation sheet for a new requisition draft (matches Excel column order). */
-export function G703DraftContinuation({ items, prevPctById = {}, retainagePct = 10, onPctChange, renderPct }) {
+export function G703DraftContinuation({
+  items,
+  prevPctById = {},
+  retainagePct = 10,
+  onPctChange,
+  renderPct,
+  expandAllToken = 0,
+  collapseAllToken = 0,
+  defaultExpandAll = true,
+}) {
   const baseItems = useMemo(() => requisitionItems(items), [items]);
   const rowById = useMemo(() => {
     const rows = draftContinuationRows(baseItems, prevPctById, retainagePct);
     return Object.fromEntries(rows.map((r) => [r.itemId, r]));
   }, [baseItems, prevPctById, retainagePct]);
   const sections = useMemo(() => groupRequisitionSections(items), [items]);
+  const allNames = useMemo(() => sections.map((s) => s.name), [sections]);
+  const [openSections, setOpenSections] = useState(
+    () => (defaultExpandAll ? new Set(allNames) : new Set())
+  );
+
+  React.useEffect(() => {
+    if (defaultExpandAll && allNames.length) setOpenSections(new Set(allNames));
+  }, [allNames.join("|"), defaultExpandAll]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  React.useEffect(() => {
+    if (expandAllToken > 0) setOpenSections(new Set(allNames));
+  }, [expandAllToken]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  React.useEffect(() => {
+    if (collapseAllToken > 0) setOpenSections(new Set());
+  }, [collapseAllToken]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const toggleSection = (name) =>
+    setOpenSections((prev) => {
+      const next = new Set(prev);
+      next.has(name) ? next.delete(name) : next.add(name);
+      return next;
+    });
+
+  const allOpen = openSections.size >= allNames.length && allNames.length > 0;
+  const toggleAll = () => {
+    setOpenSections((prev) => (prev.size >= allNames.length ? new Set() : new Set(allNames)));
+  };
 
   return (
     <div className="space-y-3" data-testid="g703-draft">
-      {sections.map((sec) => (
-        <div key={sec.name} className="card overflow-hidden">
-          <div className="px-4 py-2 bg-slate-50 font-bold text-sm border-b">{sec.name}</div>
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm min-w-[680px]">
-              <thead className="text-xs">{G703_COLS}</thead>
-              <tbody>
-                {sec.items.map((it) => {
-                  const r = rowById[it.id];
-                  if (!r) return null;
-                  return (
-                    <tr key={it.id} className="border-b border-slate-100 last:border-0">
-                      <td className="px-3 py-2">{it.description}</td>
-                      <td className="text-right px-2 py-2 tabular-nums text-xs">{fmtUsd(r.scheduledValue)}</td>
-                      <td className="text-right px-2 py-2 tabular-nums text-xs">{fmtUsd(r.prevCompleted)}</td>
-                      <td className="text-right px-2 py-2 tabular-nums text-xs">{fmtUsd(r.totalCompleted)}</td>
-                      <td className="text-right px-2 py-2">
-                        {renderPct ? renderPct(it) : (
-                          <span className="tabular-nums font-semibold text-xs">
-                            {(Math.round((Number(r.pctComplete) || 0) * 100) / 100).toFixed(
-                              Number(r.pctComplete) % 1 ? 2 : 0
-                            )}%
-                          </span>
-                        )}
-                      </td>
-                      <td className="text-right px-2 py-2 tabular-nums text-xs">{fmtUsd(r.balance)}</td>
-                      <td className="text-right px-2 py-2 tabular-nums text-xs">{Number(r.retainagePct) || 0}%</td>
-                      <td className="text-right px-2 py-2 tabular-nums text-xs">{fmtUsd(r.retainage)}</td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
+      <div className="flex justify-end">
+        <button
+          type="button"
+          className="text-[11px] font-bold text-brand shrink-0 px-2 py-1 rounded-lg border border-brand/30 bg-brand-soft"
+          onClick={toggleAll}
+          data-testid="g703-draft-expand-all"
+        >
+          {allOpen ? "Collapse all" : "Expand all"}
+        </button>
+      </div>
+      {sections.map((sec) => {
+        const open = openSections.has(sec.name);
+        return (
+          <div key={sec.name} className="card overflow-hidden">
+            <button
+              type="button"
+              className="w-full flex items-center justify-between px-4 py-2 bg-slate-50 font-bold text-sm border-b text-left"
+              onClick={() => toggleSection(sec.name)}
+              data-testid={`g703-draft-floor-${sec.name}`}
+            >
+              <span>{sec.name}</span>
+              <span className="text-brand text-xs font-semibold">{open ? "Hide ▴" : "Show ▾"}</span>
+            </button>
+            {open ? (
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm min-w-[680px]">
+                  <thead className="text-xs">{G703_COLS}</thead>
+                  <tbody>
+                    {sec.items.map((it) => {
+                      const r = rowById[it.id];
+                      if (!r) return null;
+                      return (
+                        <tr key={it.id} className="border-b border-slate-100 last:border-0">
+                          <td className="px-3 py-2">{it.description}</td>
+                          <td className="text-right px-2 py-2 tabular-nums text-xs">{fmtUsd(r.scheduledValue)}</td>
+                          <td className="text-right px-2 py-2 tabular-nums text-xs">{fmtUsd(r.prevCompleted)}</td>
+                          <td className="text-right px-2 py-2 tabular-nums text-xs">{fmtUsd(r.totalCompleted)}</td>
+                          <td className="text-right px-2 py-2">
+                            {renderPct ? renderPct(it) : (
+                              <span className="tabular-nums font-semibold text-xs">
+                                {(Math.round((Number(r.pctComplete) || 0) * 100) / 100).toFixed(
+                                  Number(r.pctComplete) % 1 ? 2 : 0
+                                )}%
+                              </span>
+                            )}
+                          </td>
+                          <td className="text-right px-2 py-2 tabular-nums text-xs">{fmtUsd(r.balance)}</td>
+                          <td className="text-right px-2 py-2 tabular-nums text-xs">{Number(r.retainagePct) || 0}%</td>
+                          <td className="text-right px-2 py-2 tabular-nums text-xs">{fmtUsd(r.retainage)}</td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            ) : null}
           </div>
-        </div>
-      ))}
+        );
+      })}
     </div>
   );
 }
@@ -245,7 +365,7 @@ export function useReqTabSwipe(tabs, tab, setTab) {
   return { onTouchStart, onTouchEnd };
 }
 
-export function ReqTabBar({ tabs, tab, setTab, testId = "req-detail-tabs" }) {
+export function ReqTabBar({ tabs, tab, setTab, onTabPress, testId = "req-detail-tabs" }) {
   return (
     <div className="flex gap-1 overflow-x-auto pb-1" data-testid={testId}>
       {tabs.map((t) => (
@@ -255,7 +375,11 @@ export function ReqTabBar({ tabs, tab, setTab, testId = "req-detail-tabs" }) {
           className={`shrink-0 px-3 py-1.5 rounded-full text-xs font-semibold border ${
             tab === t.id ? "bg-brand text-white border-brand" : "bg-white text-slate-600 border-slate-200"
           }`}
-          onClick={() => setTab(t.id)}
+          onClick={() => {
+            // Re-pressing the active tab still fires (Continuation Sheet expand/collapse toggle).
+            if (onTabPress) onTabPress(t.id, tab === t.id);
+            setTab(t.id);
+          }}
         >
           {t.label}
         </button>

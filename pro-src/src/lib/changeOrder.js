@@ -286,6 +286,7 @@ export function changeOrderTabRows(jobs, sourceJob) {
       balance: due,
       paid: !!(j.paid || due <= 0.01),
       amountLine: formatCoAmountLine(total, paid, due, j.paid),
+      balanceLine: formatCoBalanceLine(total, paid, due, j.paid || due <= 0.01),
       description: firstLineDesc(lines) || j.title || "",
       lines,
       statusLabel: j.paid || due <= 0.01 ? "Paid" : due > 0.01 && paid > 0.01 ? "Partial" : "Open",
@@ -300,6 +301,9 @@ export function changeOrderTabRows(jobs, sourceJob) {
     coLines.forEach((ln, i) => {
       seq += 1;
       const amt = parseAmountSafe(ln.amount != null ? ln.amount : (ln.qty || 1) * (ln.unitPrice || 0));
+      const invPaid = !!(j.paid || openBalance(j) <= 0.01);
+      // Line on a paid parent invoice has $0 open balance; otherwise treat as open.
+      const lineBal = invPaid ? 0 : amt;
       rows.push({
         id: "line:" + j.id + ":" + (ln._idx != null ? ln._idx : i),
         kind: "line",
@@ -310,12 +314,13 @@ export function changeOrderTabRows(jobs, sourceJob) {
         docNo: j.invoiceNo || "",
         docKind: "invoice",
         amount: amt,
-        balance: null,
-        paid: !!(j.paid || openBalance(j) <= 0.01),
+        balance: lineBal,
+        paid: invPaid,
         amountLine: amt > 0 ? fmt$(amt) : "",
+        balanceLine: formatCoBalanceLine(amt, invPaid ? amt : 0, lineBal, invPaid),
         description: String(ln.description || ln.itemName || "").trim(),
         lines: [ln],
-        statusLabel: j.paid || openBalance(j) <= 0.01 ? "Paid" : "On invoice",
+        statusLabel: invPaid ? "Paid" : "On invoice",
         parentInvoiceNo: j.invoiceNo || "",
       });
     });
@@ -345,12 +350,21 @@ function firstLineDesc(lines) {
 }
 
 function formatCoAmountLine(total, paid, due, fullyPaid) {
+  // Always surface the change-order amount; balance is separate on the row UI.
   if (fullyPaid || due <= 0.01) {
-    return total > 0 ? fmt$(paid || total) + " paid" : "Paid";
+    return total > 0 ? fmt$(total) : "Paid";
   }
-  if (paid > 0.01 && total > 0) return fmt$(paid) + " of " + fmt$(total);
-  if (due > 0.01) return fmt$(due) + " open";
-  return total > 0 ? fmt$(total) : "";
+  if (total > 0) return fmt$(total);
+  if (due > 0.01) return fmt$(due);
+  return paid > 0.01 ? fmt$(paid) : "";
+}
+
+/** Balance line for CO tab rows (open amount remaining). */
+export function formatCoBalanceLine(total, paid, due, fullyPaid) {
+  if (fullyPaid || due <= 0.01) return "Balance $0";
+  if (due > 0.01) return "Balance " + fmt$(due);
+  if (paid > 0.01 && total > 0) return "Balance " + fmt$(Math.max(0, total - paid));
+  return total > 0 ? "Balance " + fmt$(total) : "";
 }
 
 /**
