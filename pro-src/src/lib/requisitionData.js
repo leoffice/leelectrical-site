@@ -9,6 +9,28 @@ export const JOY_GC_LABEL = "JOY CONSTRUCTION CORP.";
 export const BAEZ_PROJECT_ID = "proj-baez-place";
 export const BAEZ_ADDRESS = "334 East 176th Street, Bronx NY";
 
+/** Default contractor name on requisitions (FROM / CONTRACTOR lines). */
+export const DEFAULT_REQ_COMPANY_NAME = "LE Electrical";
+
+/**
+ * Fixed billing block under the logo on printed requisitions.
+ * Company name is editable separately; address / phone / email stay the same.
+ */
+export const REQ_BILLING = {
+  addressLines: ["383 Kingston Avenue", "Suite 297", "Brooklyn, New York 11213"],
+  phone: "718-594-1850",
+  email: "toffees@leelectrical.us",
+};
+
+/** Contractor name shown on G702 FROM (Contractor) and CONTRACTOR signature. */
+export function projectCompanyName(project, override) {
+  const fromOverride = override != null ? String(override).trim() : "";
+  if (fromOverride) return fromOverride;
+  const fromProject = String(project?.companyName || "").trim();
+  if (fromProject) return fromProject;
+  return DEFAULT_REQ_COMPANY_NAME;
+}
+
 /** Route key for the Joy Construction customer hub. */
 export function joyCustomerKey() {
   return customerKeyForName(JOY_CONSTRUCTION_NAME);
@@ -74,7 +96,8 @@ export function seedBaezProject() {
     id: BAEZ_PROJECT_ID,
     name: "Baez Place",
     address: BAEZ_ADDRESS,
-    contractor: "Martin Dorkin",
+    companyName: DEFAULT_REQ_COMPANY_NAME,
+    contractor: DEFAULT_REQ_COMPANY_NAME,
     gc: JOY_GC_LABEL,
     customerKey: joyCustomerKey(),
     contractSum: baseContract,

@@ -431,12 +431,17 @@ export function createRequisitionRecord(project, draft, opts = {}) {
         periodTo: opts.periodTo || g702.periodTo,
       }
     : undefined;
+  const companyName =
+    (opts.companyName != null ? String(opts.companyName).trim() : "") ||
+    String(draft?.companyName || project?.companyName || "").trim() ||
+    "LE Electrical";
   return {
     id: `req-${Date.now()}`,
     num,
     applicationNumber,
     periodTo: opts.periodTo || g702.periodTo,
     status: "generated",
+    companyName,
     amountCertified: g702.currentPaymentDue,
     currentPaymentDue: g702.currentPaymentDue,
     previousCertificates: g702.previousCertificates,
