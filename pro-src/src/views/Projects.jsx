@@ -604,7 +604,7 @@ function RequisitionWorkbench({ project, onSave, busy, showToast, onSaved }) {
               <div>
                 <p className="text-sm font-bold text-slate-800">Company name</p>
                 <p className="text-xs text-slate-500">
-                  Name on the requisition: From Contractor, Contractor line, and header contractor.
+                  Bold name at the top of the printout, plus From Contractor and Contractor lines.
                 </p>
               </div>
               <div className="flex items-center gap-2 shrink-0">
@@ -634,12 +634,16 @@ function RequisitionWorkbench({ project, onSave, busy, showToast, onSaved }) {
               </p>
             )}
             <div className="rounded border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-600 space-y-0.5">
-              <p className="font-semibold text-slate-700">Billing (always the same)</p>
+              <p className="font-semibold text-slate-700">Print letterhead</p>
+              <p className="font-bold text-slate-900">{effectiveCompany}</p>
               {REQ_BILLING.addressLines.map((line) => (
                 <p key={line}>{line}</p>
               ))}
-              <p>{REQ_BILLING.phone}</p>
-              <p>{REQ_BILLING.email}</p>
+              <p>
+                {REQ_BILLING.phone}
+                <span className="mx-2 text-slate-400">·</span>
+                {REQ_BILLING.email}
+              </p>
             </div>
             {!viewingPrior && dirty ? (
               <button

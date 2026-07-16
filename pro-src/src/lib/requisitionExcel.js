@@ -36,9 +36,9 @@ function g702Sheet(project, req) {
   const company = projectCompanyName(project, req?.companyName);
   const rows = [
     row([cell("APPLICATION AND CERTIFICATE FOR PAYMENT (AIA G702)", { style: "title" })]),
-    ...REQ_BILLING.addressLines.map((line) => row([cell(line, { style: "bold" })])),
-    row([cell(REQ_BILLING.phone)]),
-    row([cell(REQ_BILLING.email)]),
+    row([cell(company, { style: "bold" })]),
+    ...REQ_BILLING.addressLines.map((line) => row([cell(line)])),
+    row([cell(REQ_BILLING.phone), cell(REQ_BILLING.email)]),
     blankRow(),
     row([cell("Project"), cell(project.name || "")]),
     row([cell("Location"), cell(project.address || "")]),

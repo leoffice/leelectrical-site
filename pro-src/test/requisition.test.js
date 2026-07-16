@@ -392,7 +392,7 @@ describe("requisitionPdf", () => {
     expect(text).toContain("383 Kingston Avenue");
     expect(text).toContain("Suite 297");
     expect(text).toContain("718-594-1850");
-    expect(text).toContain("toffees@leelectrical.us");
+    expect(text).toContain("LE@LEelectrical.US");
     expect(text).not.toContain("VIA (Engineer)");
     expect(text).not.toContain("Martin Dorkin");
   });

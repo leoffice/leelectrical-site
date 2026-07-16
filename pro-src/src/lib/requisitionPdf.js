@@ -192,33 +192,45 @@ function renderG702(project, req) {
   let y = LETTER_H - MARGIN;
   const company = projectCompanyName(project, req?.companyName);
 
-  // Letterhead — LE logo top-left; billing address under the logo text block.
-  // Company name is NOT the letterhead brand — it appears on FROM / CONTRACTOR.
-  const billingLines = [
-    ...REQ_BILLING.addressLines,
-    REQ_BILLING.phone,
-    REQ_BILLING.email,
-  ];
+  // Letterhead — LE logo top-left; company (bold) + address; phone | email on one line.
+  // Company name also appears on FROM / CONTRACTOR.
+  const addr = REQ_BILLING.addressLines;
+  const phone = REQ_BILLING.phone;
+  const email = REQ_BILLING.email;
+  // Lines after company name: street, suite, city, then phone+email row.
+  const lineCount = 1 + addr.length + 1; // company + address lines + contact row
   if (LOGO) {
     const lw = 62;
     const lh = roundMoney2((lw * LOGO.height) / LOGO.width);
     pg.image(LOGO.name, L, y - lh + 4, lw, lh);
     const textX = L + lw + 8;
     let by = y - 2;
-    for (let i = 0; i < billingLines.length; i++) {
-      pg.text(textX, by - i * 10, billingLines[i], { size: i === 0 ? 9 : 8, bold: i === 0 });
+    pg.text(textX, by, company, { size: 10, bold: true });
+    by -= 11;
+    for (let i = 0; i < addr.length; i++) {
+      pg.text(textX, by - i * 10, addr[i], { size: 8 });
     }
+    by -= addr.length * 10;
+    // Phone and email side-by-side (parallel)
+    const phoneW = pg.text(textX, by, phone, { size: 8 });
+    pg.text(textX + phoneW + 12, by, email, { size: 8 });
     pg.text(R, y - 6, "APPLICATION AND CERTIFICATE FOR PAYMENT", { size: 10, bold: true, align: "right" });
     pg.text(R, y - 18, "AIA Document G702", { size: 8, align: "right" });
-    const billH = billingLines.length * 10;
+    const billH = lineCount * 10 + 4;
     y -= Math.max(lh, billH, 26) + 4;
   } else {
-    for (let i = 0; i < billingLines.length; i++) {
-      pg.text(L, y - 4 - i * 11, billingLines[i], { size: i === 0 ? 10 : 9, bold: i === 0 });
+    let by = y - 4;
+    pg.text(L, by, company, { size: 11, bold: true });
+    by -= 12;
+    for (let i = 0; i < addr.length; i++) {
+      pg.text(L, by - i * 11, addr[i], { size: 9 });
     }
+    by -= addr.length * 11;
+    const phoneW = pg.text(L, by, phone, { size: 9 });
+    pg.text(L + phoneW + 12, by, email, { size: 9 });
     pg.text(R, y - 3, "APPLICATION AND CERTIFICATE FOR PAYMENT", { size: 10, bold: true, align: "right" });
     pg.text(R, y - 15, "AIA Document G702", { size: 8, align: "right" });
-    y -= billingLines.length * 11 + 6;
+    y -= lineCount * 11 + 6;
   }
   pg.line(L, y, R, y, 1);
   y -= 10;
