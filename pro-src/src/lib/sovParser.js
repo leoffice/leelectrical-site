@@ -1,5 +1,7 @@
 // Parse Schedule of Values (SOV) CSV exports — Baez Place / Joy Construction format.
 
+import { sanitizeSovForRequisitions, sumItemValues } from "./requisitionCalc.js";
+
 function parseMoney(raw) {
   const s = String(raw || "").replace(/[$,\s]/g, "");
   const n = parseFloat(s);
@@ -102,9 +104,12 @@ export function parseSovCsv(text, opts = {}) {
     }
   }
 
-  if (!contractSum && items.length) {
-    contractSum = items.reduce((s, it) => s + it.value, 0);
+  // Mistake CO lines (CO1, CO - 02, …) never enter the progress SOV — same line
+  // set from the first requisition through the last (Levi 2026-07-16).
+  const cleaned = sanitizeSovForRequisitions(items, contractSum);
+  if (!cleaned.contractSum && cleaned.items.length) {
+    cleaned.contractSum = sumItemValues(cleaned.items);
   }
 
-  return { name, contractSum, items };
+  return { name, contractSum: cleaned.contractSum, items: cleaned.items };
 }

@@ -4,9 +4,21 @@ export function roundMoney(n) {
   return Math.round((Number(n) || 0) * 100) / 100;
 }
 
-/** Change-order SOV lines (CO - 01, etc.) — tracked separately, not on progress requisitions. */
+/**
+ * Mistake / change-order SOV lines (CO1, CO - 01, Change Order 2, etc.).
+ * Levi (2026-07-16): these do not belong on the progress Schedule of Values —
+ * pretend they are not there. Never bill or roll them into G702/G703.
+ */
 export function isChangeOrderItem(it) {
-  return /^co\s*-/i.test(String(it?.description || "").trim());
+  const d = String(it?.description || "").trim();
+  if (!d) return false;
+  // CO - 01, CO-01, CO1, CO 1, CO01
+  if (/^co\s*[-–—.]?\s*0*\d+\b/i.test(d)) return true;
+  // C.O. 1 / C.O.#2
+  if (/^c\.?\s*o\.?\s*#?\s*0*\d+\b/i.test(d)) return true;
+  // Change Order 1 / Change Orders #02
+  if (/^change\s*orders?\s*#?\s*0*\d+\b/i.test(d)) return true;
+  return false;
 }
 
 export function baseContractItems(items) {
@@ -20,6 +32,28 @@ export function changeOrderItems(items) {
 /** SOV lines that belong on a progress requisition (excludes change-order lines). */
 export function requisitionItems(items) {
   return baseContractItems(items);
+}
+
+/**
+ * Drop mistaken CO lines from an SOV and recompute the contract sum from the
+ * remaining base lines when the sum had included those extras.
+ * Same line set from first requisition through the last — no late-added COs.
+ */
+export function sanitizeSovForRequisitions(items, contractSum) {
+  const base = baseContractItems(items);
+  const allSum = sumItemValues(items);
+  const baseSum = sumItemValues(base);
+  const stated = roundMoney(Number(contractSum) || 0);
+  // Prefer explicit contract when it matches the base (or is empty); if it equals
+  // the inflated all-items total, collapse to base.
+  let nextSum = stated;
+  if (!stated) nextSum = baseSum;
+  else if (Math.abs(stated - allSum) < 0.02 && Math.abs(stated - baseSum) > 0.02) nextSum = baseSum;
+  else if (stated > baseSum && Math.abs(stated - (baseSum + (allSum - baseSum))) < 0.02 && allSum > baseSum) {
+    // stated includes CO dollars even if not exactly allSum due to rounding — keep base when COs present
+    if (changeOrderItems(items).length && Math.abs(stated - allSum) < 1) nextSum = baseSum;
+  }
+  return { items: base, contractSum: nextSum };
 }
 
 export function sumItemValues(items) {

@@ -38,6 +38,18 @@ Subcellar Floor,,,
     expect(parsed.items[0].value).toBe(466800);
     expect(parsed.items[1].section).toBe("Subcellar Floor");
   });
+
+  it("drops mistaken CO lines from the progress SOV", () => {
+    const csv = `Project SOV,"$1,030.00",,,
+Description,, Value ,Percentage
+General,,,
+,Roughing," $ 1,000.00 ",97%
+,CO1," $ 20.00 ",2%
+,CO - 02," $ 10.00 ",1%`;
+    const parsed = parseSovCsv(csv);
+    expect(parsed.items.map((i) => i.description)).toEqual(["Roughing"]);
+    expect(parsed.contractSum).toBe(1000);
+  });
 });
 
 describe("requisitionCalc", () => {
@@ -108,9 +120,22 @@ describe("requisitionCalc", () => {
     expect(g702.totalCompleted).toBe(100);
   });
 
-  it("detects change-order SOV lines", () => {
+  it("detects change-order SOV lines (CO1 / CO - 01 / Change Order 2)", () => {
     expect(isChangeOrderItem({ description: "CO - 01" })).toBe(true);
+    expect(isChangeOrderItem({ description: "CO1" })).toBe(true);
+    expect(isChangeOrderItem({ description: "CO2" })).toBe(true);
+    expect(isChangeOrderItem({ description: "CO 12" })).toBe(true);
+    expect(isChangeOrderItem({ description: "Change Order 3" })).toBe(true);
     expect(isChangeOrderItem({ description: "Roughing" })).toBe(false);
+    expect(isChangeOrderItem({ description: "Lighting Controls" })).toBe(false);
+  });
+
+  it("seeded Baez SOV has no CO lines and is $1.7M base only", () => {
+    const project = seedBaezProject();
+    expect(project.items.every((it) => !isChangeOrderItem(it))).toBe(true);
+    expect(project.changeOrderList).toEqual([]);
+    expect(project.contractSum).toBe(1700000);
+    expect(project.items.length).toBe(81);
   });
 
   it("excludes change-order lines from requisition G703 by default", () => {

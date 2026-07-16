@@ -15,7 +15,7 @@ import {
   useReqTabSwipe,
 } from "../components/requisition/RequisitionViews.jsx";
 import { useStore } from "../state/store.jsx";
-import { overallPct, requisitionItems } from "../lib/requisitionCalc.js";
+import { overallPct, requisitionItems, sanitizeSovForRequisitions } from "../lib/requisitionCalc.js";
 import {
   BAEZ_PROJECT_ID,
   ensureProjectDefaults,
@@ -942,6 +942,8 @@ export default function Projects() {
 
   const onNewFromSov = async (parsed) => {
     const id = "proj-" + Date.now();
+    // Drop mistaken CO lines; progress SOV is the base line set only.
+    const cleaned = sanitizeSovForRequisitions(parsed.items, parsed.contractSum);
     const fresh = ensureProjectDefaults({
       id,
       name: parsed.name || "New Project",
@@ -949,11 +951,11 @@ export default function Projects() {
       contractor: "Martin Dorkin",
       gc: project?.gc || "",
       customerKey: joyCustomerKey(),
-      contractSum: parsed.contractSum,
+      contractSum: cleaned.contractSum,
       retainagePct: 10,
       changeOrders: 0,
       changeOrderList: [],
-      items: parsed.items,
+      items: cleaned.items,
       requisitions: [],
       requisitionEnabled: true,
       driveLinks: [],
@@ -969,13 +971,22 @@ export default function Projects() {
 
   const onReplaceSov = async (parsed) => {
     if (!project) return;
+    const cleaned = sanitizeSovForRequisitions(parsed.items, parsed.contractSum);
     const next = {
       ...project,
-      contractSum: parsed.contractSum,
-      items: parsed.items.map((it, i) => ({
+      contractSum: cleaned.contractSum,
+      changeOrders: 0,
+      items: cleaned.items.map((it, i) => ({
         ...it,
-        completedPct: project.items?.find((x) => x.description === it.description)?.completedPct ?? it.completedPct ?? 0,
-        id: project.items?.[i]?.id || it.id,
+        completedPct:
+          project.items?.find(
+            (x) =>
+              x.description === it.description &&
+              String(x.section || "") === String(it.section || "")
+          )?.completedPct ??
+          it.completedPct ??
+          0,
+        id: project.items?.find((x) => x.description === it.description)?.id || project.items?.[i]?.id || it.id,
       })),
       updatedAt: Date.now(),
     };
