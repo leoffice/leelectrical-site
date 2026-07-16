@@ -8,7 +8,8 @@ import Jobs from "./views/Jobs.jsx";
 import JobDetail from "./views/JobDetail.jsx";
 import CustomerView from "./views/CustomerView.jsx";
 import Today from "./views/Today.jsx";
-import Calls from "./views/Calls.jsx";
+import Reminders from "./views/Reminders.jsx";
+import PauseRemindersBar from "./components/PauseRemindersBar.jsx";
 import Time from "./views/Time.jsx";
 import Projects from "./views/Projects.jsx";
 import Dev from "./views/Dev.jsx";
@@ -38,10 +39,11 @@ import Sheet, { Opt } from "./components/Sheet.jsx";
 import { appointmentContextFromRoute } from "./lib/appointmentContext.js";
 import { logOff } from "./lib/lock.js";
 
+
 const TABS = [
   { to: "/", label: "Customers", ic: "🗂️", end: true },
   { to: "/today", label: "Calendar", ic: "📅" },
-  { to: "/calls", label: "Calls", ic: "📞" },
+  { to: "/reminders", label: "Reminders", ic: "🔔" },
   { to: "/time", label: "Time", ic: "⏱️" },
   { to: "/projects", label: "Requisition", ic: "📋" },
   { to: "/company", label: "Company", ic: "📊" },
@@ -54,7 +56,7 @@ const TABS = [
 const MOBILE_NAV_BEFORE = [
   { to: "/", label: "Customers", ic: "🗂️", end: true },
   { to: "/today", label: "Calendar", ic: "📅" },
-  { to: "/calls", label: "Calls", ic: "📞" },
+  { to: "/reminders", label: "Reminders", ic: "🔔" },
   { to: "/time", label: "Time", ic: "⏱️" },
   { to: "/projects", label: "Requisition", ic: "📋" },
   { to: "/company", label: "Company", ic: "📊" },
@@ -63,10 +65,10 @@ const MOBILE_NAV_BEFORE = [
 const MOBILE_NAV_AFTER = { to: "/dev", label: "Dev", ic: "🛠️" };
 
 function Tab({ t, sidebar }) {
-  const { devBadge, sasBadge, guardNav, dirtyJobs } = useStore();
+  const { devBadge, reminderBadge, guardNav, dirtyJobs } = useStore();
   const nav = useNavigate();
   const loc = useLocation();
-  const badge = t.to === "/dev" ? devBadge : t.to === "/calls" ? sasBadge : 0;
+  const badge = t.to === "/dev" ? devBadge : t.to === "/reminders" ? reminderBadge : 0;
   return (
     <NavLink
       to={t.to}
@@ -156,6 +158,7 @@ export default function App() {
   const { toast, docConfirm, error, setNewJob, refresh, dirtyCount, effectiveJob, jobs, toggleChat, chatUnread } = useStore();
   const isDesktop = useIsDesktop();
   const loc = useLocation();
+  const showPauseBar = !loc.pathname.startsWith("/reminders");
   const inDetail = loc.pathname.startsWith("/job/");
   const inCustomer = loc.pathname.startsWith("/customer/");
 
@@ -227,12 +230,13 @@ export default function App() {
             inDetail || inCustomer ? "max-w-3xl lg:max-w-6xl" : "max-w-3xl"
           }`}
         >
+          {showPauseBar ? <PauseRemindersBar /> : null}
           <Routes>
             <Route path="/" element={<Jobs />} />
             <Route path="/job/:id" element={<JobDetail />} />
             <Route path="/customer/:key" element={<CustomerView />} />
             <Route path="/today" element={<Today />} />
-            <Route path="/calls" element={<Calls />} />
+            <Route path="/reminders" element={<Reminders />} />
             <Route path="/time" element={<Time />} />
             <Route path="/projects" element={<Projects />} />
             <Route path="/projects/:projectId" element={<Projects />} />

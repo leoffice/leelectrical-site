@@ -67,7 +67,6 @@ export default function JobInfoCard({
   onAddJob,
   onAddChangeOrder,
   canAddChangeOrder = true,
-  onJumpToRequisition,
 }) {
   const total = invoiceTotal(job);
   const paid = amountPaid(job);
@@ -167,19 +166,6 @@ export default function JobInfoCard({
                 data-testid="add-change-order-btn"
               >
                 ＋ Change order
-              </button>
-            ) : null}
-            {onJumpToRequisition ? (
-              <button
-                type="button"
-                className={`${HEADER_BTN} !text-brand !border-brand/40`}
-                onClick={(e) => {
-                  stopBubble(e);
-                  onJumpToRequisition();
-                }}
-                data-testid="jump-to-requisition-btn"
-              >
-                📋 Requisition
               </button>
             ) : null}
           </div>

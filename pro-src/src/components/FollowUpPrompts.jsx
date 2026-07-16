@@ -24,6 +24,7 @@ import {
   scheduleNextBusinessDayReminder,
   scheduleReminderSnooze,
   shouldSuppressPrompts,
+  isRemindersPaused,
   snoozableQueueItems,
   suggestJobsForEvent,
   touchPromptActivity,
@@ -520,6 +521,7 @@ function ScheduledReminderSheet({
 
 function UnsentDocSheet({ job, docKind, docNo, onClose, onDone, dismissForWork }) {
   const nav = useNavigate();
+  const { showToast } = useStore();
   const lead = unsentDocLead({ job, docKind, docNo });
   const label = docKind === "invoice" ? "invoice" : "estimate";
 
@@ -528,14 +530,15 @@ function UnsentDocSheet({ job, docKind, docNo, onClose, onDone, dismissForWork }
     nav(unsentDocPath(job, docKind));
   };
 
-  const dismiss = () => {
+  const dontRemind = () => {
     dismissUnsentDoc(job.id, docKind);
+    showToast("OK — won't remind you about this " + label);
     onDone();
     onClose();
   };
 
   return (
-    <Sheet title={"📧 Unsent " + label} onClose={dismiss}>
+    <Sheet title={"📧 Unsent " + label} onClose={dontRemind}>
       <p className="text-sm text-slate-600 mb-4">{lead}</p>
       <div className="text-sm space-y-1 mb-4 card px-3 py-2.5">
         <div className="font-semibold text-slate-900">{job?.customer || "Job"}</div>
@@ -545,8 +548,8 @@ function UnsentDocSheet({ job, docKind, docNo, onClose, onDone, dismissForWork }
       <button type="button" className="btn-brand w-full mb-2" onClick={openDoc} data-testid="unsent-doc-open">
         Open {label} &amp; send
       </button>
-      <button type="button" className="btn-ghost w-full text-slate-600" onClick={dismiss} data-testid="unsent-doc-dismiss">
-        Got it — dismiss
+      <button type="button" className="btn-ghost w-full text-slate-600" onClick={dontRemind} data-testid="unsent-doc-dismiss">
+        Don't remind me
       </button>
     </Sheet>
   );
@@ -758,10 +761,16 @@ export default function FollowUpPrompts() {
   }, []);
 
   useEffect(() => {
-    if (IS_TEST) return;
-    const iv = setInterval(() => setPauseTick((t) => t + 1), 5000);
+    const iv = setInterval(() => setPauseTick((t) => t + 1), IS_TEST ? 500 : 5000);
     return () => clearInterval(iv);
   }, []);
+
+  useEffect(() => {
+    if (!isRemindersPaused()) return;
+    setCurrent(null);
+    setQueue([]);
+    setSubSheet(null);
+  }, [pauseTick]);
 
   useEffect(() => {
     const restore = () => {
@@ -872,7 +881,7 @@ export default function FollowUpPrompts() {
     });
   }, []);
 
-  if ((hiddenForNav || shouldSuppressPrompts()) && !subSheet) return null;
+  if ((hiddenForNav || shouldSuppressPrompts() || isRemindersPaused()) && !subSheet) return null;
 
   if (!current && !subSheet) return null;
 

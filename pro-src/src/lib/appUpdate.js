@@ -4,13 +4,19 @@ const LOOP_GUARD_KEY = "le-pro-update-reload-ts";
 const LOOP_GUARD_MS = 30_000;
 
 async function clearAppCaches() {
-  if ("serviceWorker" in navigator) {
-    const regs = await navigator.serviceWorker.getRegistrations();
-    await Promise.all(regs.map((r) => r.unregister()));
-  }
   if ("caches" in window) {
     const keys = await caches.keys();
-    await Promise.all(keys.map((k) => caches.delete(k)));
+    await Promise.all(keys.filter((k) => k.startsWith("le-pro-")).map((k) => caches.delete(k)));
+  }
+  // Nudge the waiting worker — full SW unregister on iOS PWAs can crash on reload.
+  if ("serviceWorker" in navigator) {
+    try {
+      const base = import.meta.env.BASE_URL || "/";
+      const reg = await navigator.serviceWorker.getRegistration(base + "sw.js");
+      if (reg?.waiting) reg.waiting.postMessage({ type: "SKIP_WAITING" });
+    } catch {
+      /* SW unavailable */
+    }
   }
 }
 

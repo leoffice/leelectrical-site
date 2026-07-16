@@ -152,29 +152,6 @@ export function mockServer(opts = {}) {
         }
         return { ok: false, status: 400, json: async () => ({ ok: false }) };
       }
-      if (path === "send-doc-email") {
-        if (method === "POST") {
-          if (body?.probe) {
-            return {
-              ok: true,
-              status: 200,
-              json: async () => ({
-                ok: true,
-                probe: true,
-                hasResendKey: state.hasResendKey !== false,
-                testMode: true,
-                wouldSendTo: body.officeOnly ? "office@leelectrical.us" : body.email,
-              }),
-            };
-          }
-          const to = body?.officeOnly ? "office@leelectrical.us" : String(body?.email || "");
-          if (state.hasResendKey === false) {
-            return { ok: true, status: 200, json: async () => ({ ok: true, dryRun: true, reason: "no_api_key", to }) };
-          }
-          return { ok: true, status: 200, json: async () => ({ ok: true, sent: true, to, resendId: "test-resend-id", docNumber: body?.job?.invoiceNo || body?.job?.estimateNo }) };
-        }
-        return { ok: false, status: 405, json: async () => ({ ok: false }) };
-      }
       if (path === "docs-fetch") {
         if (method === "POST" && body?.invoiceNo) {
           const no = String(body.invoiceNo);

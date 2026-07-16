@@ -71,7 +71,7 @@ describe("#44 jobs-list Invoice offers View as well as Send", () => {
 });
 
 describe("#44/#45 PDF viewing: local open + background QBO fetch", () => {
-  it("generates invoice PDF CLIENT-SIDE (no server fetch) when job has invoice data", async () => {
+  it("generates invoice PDF on server when job has invoice data", async () => {
     const click = stubPdfOpen();
     const srv = mockServer(); // docs empty -> local gen path
     const user = userEvent.setup();
@@ -79,11 +79,9 @@ describe("#44/#45 PDF viewing: local open + background QBO fetch", () => {
     renderNode(<QuickSendSheet job={JOB} onClose={() => {}} />);
     await user.click(await screen.findByText("View Local Invoice"));
 
-    // The PDF is built in the browser and downloaded (anchor click), and the
-    // broken server generate-doc lambda is never hit.
     await waitFor(() => expect(click).toHaveBeenCalledTimes(1));
     expect(screen.queryByText("Generating your PDF — a few seconds…")).toBeNull();
-    expect(srv.calls.some((c) => c.path === "generate-doc")).toBe(false);
+    await waitFor(() => expect(srv.calls.some((c) => c.path === "generate-doc")).toBe(true));
     expect(document.querySelector("[data-fullscreen-pdf]")).toBeNull();
   });
 

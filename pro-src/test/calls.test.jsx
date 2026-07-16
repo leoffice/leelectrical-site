@@ -5,10 +5,8 @@
 // guard that keeps "_" keys out of the jobs list.
 import React from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { screen, waitFor, within } from "@testing-library/react";
-import userEvent from "@testing-library/user-event";
 import "@testing-library/jest-dom/vitest";
-import { J1, mockServer, renderApp } from "./helpers.jsx";
+import { J1 } from "./helpers.jsx";
 import { mergeJobs } from "../src/data/merge.js";
 import {
   callMessage,
@@ -83,86 +81,4 @@ describe("sas helpers (pure)", () => {
   });
 });
 
-describe("Calls tab", () => {
-  it("shows the 📞 Calls tab in bottom nav + sidebar with unhandled-count badge", async () => {
-    mockServer({ sasCalls: [CALL, CALL2], ov: { _sasTickets: { "call-def": { handled: true } } } });
-    renderApp("#/");
-    await screen.findByText("Peretz Chein");
-    const nav = screen.getByTestId("bottom-nav");
-    expect(within(nav).getByText("Calls")).toBeInTheDocument();
-    expect(within(screen.getByTestId("sidebar")).getByText("Calls")).toBeInTheDocument();
-    // 2 calls, 1 already handled -> badge "1"
-    await waitFor(() => expect(within(nav).getByText("1")).toBeInTheDocument());
-  });
 
-  it("renders lead ticket cards: name, tel: link, relative time, message, type badge, NEW", async () => {
-    mockServer({ sasCalls: [CALL] });
-    renderApp("#/calls");
-    expect(await screen.findByText("Jane Lead")).toBeInTheDocument();
-    const tel = screen.getByRole("link", { name: /9175550001/ });
-    expect(tel).toHaveAttribute("href", "tel:9175550001");
-    expect(screen.getByText("5m ago")).toBeInTheDocument();
-    expect(screen.getByText(/No power in the kitchen/)).toBeInTheDocument();
-    expect(screen.getByText("Message taken")).toBeInTheDocument(); // call type badge
-    expect(screen.getByTestId("call-new")).toBeInTheDocument();
-    expect(screen.getByText(/Lead · not in QuickBooks/)).toBeInTheDocument();
-  });
-
-  it("shows play-recording link when SAS sends recording_url", async () => {
-    mockServer({
-      sasCalls: [
-        {
-          ...CALL,
-          data: { ...CALL.data, recording_url: "https://recordings.example/call-abc.mp3" },
-        },
-      ],
-    });
-    renderApp("#/calls");
-    const link = await screen.findByTestId("call-recording-link");
-    expect(link).toHaveAttribute("href", "https://recordings.example/call-abc.mp3");
-  });
-
-  it("Dismiss marks the ticket handled under ov._sasTickets (reserved key) — no QBO commands", async () => {
-    const srv = mockServer({ sasCalls: [CALL] });
-    const user = userEvent.setup();
-    renderApp("#/calls");
-    await screen.findByText("Jane Lead");
-    await user.click(screen.getByRole("button", { name: "Dismiss" }));
-    await waitFor(() => {
-      const posts = srv.posts("state", (b) => b.ov && b.ov._sasTickets && b.ov._sasTickets["call-abc"]?.handled === true);
-      expect(posts).toHaveLength(1);
-    });
-    expect(screen.queryByTestId("call-new")).not.toBeInTheDocument();
-    expect(screen.getByText("Handled ✓")).toBeInTheDocument();
-    expect(srv.enqueued()).toHaveLength(0); // leads: nothing on the command bus
-  });
-
-  it("Convert to job opens the existing new-job form prefilled, creates a Lead overlay job, marks ticket handled with jobId", async () => {
-    const srv = mockServer({ sasCalls: [CALL] });
-    const user = userEvent.setup();
-    renderApp("#/calls");
-    await screen.findByText("Jane Lead");
-    await user.click(screen.getByRole("button", { name: /Convert to job/ }));
-    // Existing NewJobFlow form, prefilled from the call
-    expect(await screen.findByText("New job — details")).toBeInTheDocument();
-    expect(screen.getByLabelText("Business name")).toHaveValue("Jane Lead");
-    expect(screen.getByLabelText("Phone")).toHaveValue("9175550001");
-    expect(screen.getByLabelText("Email")).toHaveValue("jane@lead.com");
-    expect(screen.getByLabelText("Service address")).toHaveValue("77 Ocean Pkwy, Brooklyn");
-    expect(screen.getByLabelText("Scheduled date")).toHaveValue("2026-07-06");
-    await user.click(screen.getByRole("button", { name: "Create job" }));
-    // Overlay job saved via state ov with _new + Lead done
-    await waitFor(() => {
-      const jobPosts = srv.posts("state", (b) => Object.keys(b.ov || {}).some((k) => k.startsWith("local-")));
-      expect(jobPosts.length).toBeGreaterThan(0);
-    });
-    const ov = srv.state.ov;
-    const jobId = Object.keys(ov).find((k) => k.startsWith("local-"));
-    expect(ov[jobId]).toMatchObject({ _new: true, customer: "Jane Lead", phone: "9175550001" });
-    expect(ov[jobId].status.Lead.s).toBe("done");
-    // Ticket handled + linked to the created job
-    await waitFor(() => expect(ov._sasTickets?.["call-abc"]).toMatchObject({ handled: true, jobId }));
-    // Landed on the new job's detail page
-    await waitFor(() => expect(window.location.hash).toBe("#/job/" + encodeURIComponent(jobId)));
-  });
-});

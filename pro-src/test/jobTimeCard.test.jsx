@@ -13,17 +13,16 @@ afterEach(() => {
 });
 
 describe("Job time card", () => {
-  // Phase 3: the clock-in / job-timer card was removed from Job Information.
-  // Time tracking now lives on the Time tab only.
-  it("is no longer shown on job detail", async () => {
+  it("shows on job detail and starts job timer", async () => {
     mockServer();
     localStorage.setItem("lepro_employee_id", "emp-levi");
+    const user = userEvent.setup();
     renderApp("#/job/" + encodeURIComponent(J1.id));
-    // Job detail renders (find the job info card), but the timer card is gone.
-    await screen.findByTestId("job-info-card");
-    await waitFor(() =>
-      expect(screen.queryByTestId("job-time-card")).not.toBeInTheDocument()
-    );
-    expect(screen.queryByTestId("job-clock-in-btn")).not.toBeInTheDocument();
+    const card = await screen.findByTestId("job-time-card");
+    expect(card).toBeInTheDocument();
+    await user.click(screen.getByTestId("job-clock-in-btn"));
+    expect(await screen.findByTestId("job-time-elapsed")).toBeInTheDocument();
+    await user.click(screen.getByTestId("job-clock-out-btn"));
+    await waitFor(() => expect(screen.queryByTestId("job-time-elapsed")).not.toBeInTheDocument());
   });
 });

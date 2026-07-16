@@ -61,6 +61,24 @@ export function isPageReload() {
   }
 }
 
+/** True when the browser reports camera access is blocked (iOS ties this to Face ID). */
+export async function mediaPermissionDenied(name = "camera") {
+  try {
+    if (!globalThis.navigator?.permissions?.query) return false;
+    const status = await globalThis.navigator.permissions.query({ name });
+    return status?.state === "denied";
+  } catch {
+    return false;
+  }
+}
+
+/** Face ID auto-prompt only on a cold open — never on reload or when camera is blocked. */
+export async function shouldAutoBiometric() {
+  if (isPageReload()) return false;
+  if (await mediaPermissionDenied("camera")) return false;
+  return biometricSupported();
+}
+
 export function isSessionUnlocked(now = Date.now()) {
   const s = sessionStore();
   if (s && isWithinGrace(s.getItem(GRACE_KEY), now)) return true;

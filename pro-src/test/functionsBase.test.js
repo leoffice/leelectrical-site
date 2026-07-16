@@ -6,18 +6,17 @@ describe("functionsBase", () => {
     vi.unstubAllGlobals();
   });
 
-  // The apex leelectrical.us serves the CF Pages Functions natively again.
   it("uses same-origin on apex leelectrical.us", () => {
     vi.stubGlobal("location", { hostname: "leelectrical.us" });
     expect(functionsBase()).toBe("/.netlify/functions");
   });
 
-  it("uses the canonical apex URL on www (cross-origin, CORS-enabled)", () => {
+  it("uses canonical apex URL on www (Cloudflare has no functions)", () => {
     vi.stubGlobal("location", { hostname: "www.leelectrical.us" });
     expect(functionsBase()).toBe(`${CANONICAL_ORIGIN}/.netlify/functions`);
   });
 
-  it("uses the canonical apex URL for local dev", () => {
+  it("uses canonical apex URL for local dev", () => {
     vi.stubGlobal("location", { hostname: "localhost" });
     expect(functionsBase()).toBe(`${CANONICAL_ORIGIN}/.netlify/functions`);
   });

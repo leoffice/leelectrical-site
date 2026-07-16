@@ -1,5 +1,5 @@
 // Status-aware follow-ups — respect recent sends, unsent docs, contextual nudges.
-import { lastDocSend, docSendInFlight } from "./docSendStatus.js";
+import { lastDocSend, docSendInFlight, docSendSucceeded } from "./docSendStatus.js";
 import { classifyAppointment } from "./appointmentActions.js";
 import { addDays } from "./calendarDue.js";
 
@@ -22,10 +22,13 @@ export function hasDoc(job, docKind) {
   return !!(job.estimateNo || job._estimateConfirmed || (job.estimateLines && job.estimateLines.length));
 }
 
+/** True only when the doc exists locally but no email record confirms delivery. */
 export function docNeverSent(job, docKind, commands = []) {
   if (!hasDoc(job, docKind)) return false;
   if (docSendInFlight(commands, job.id, docKind)) return false;
-  return !lastDocSend(job, docKind);
+  if (docSendSucceeded(commands, job, docKind)) return false;
+  if (lastDocSend(job, docKind)) return false;
+  return true;
 }
 
 export function daysSinceDocSent(job, docKind, today) {

@@ -1,14 +1,7 @@
-/** Canonical apex — serves the CF Pages Functions + customer-facing links. */
+/** Canonical apex — Netlify functions only serve here (www is Cloudflare static). */
 export const CANONICAL_ORIGIN = "https://leelectrical.us";
 
-/**
- * Base URL for /.netlify/functions API calls.
- *
- * The backend is now Cloudflare Pages Functions bundled into this same project
- * (functions/.netlify/functions/*), so the apex leelectrical.us serves
- * /.netlify/functions/* natively again. Apex = same-origin; www/previews/dev
- * call the canonical apex cross-origin (functions send CORS allow-origin:*).
- */
+/** Base URL for /.netlify/functions API calls. */
 export function functionsBase() {
   if (typeof location !== "undefined" && location.hostname === "leelectrical.us") {
     return "/.netlify/functions";

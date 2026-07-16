@@ -9,9 +9,6 @@
 //   iterate   nudges Dispatch to look at the message
 import { deepMerge, isPlainObject, mergeJobs } from "./merge.js";
 import { functionsBase } from "../lib/functionsBase.js";
-import { buildInvoicePdfFromJob, buildEstimatePdfFromJob } from "../lib/invoicePdf.js";
-import { downloadPdfBlob } from "../lib/pdfOpen.js";
-import { docPdfFilename } from "../lib/jobToQbDoc.js";
 
 const base = functionsBase;
 
@@ -27,20 +24,6 @@ async function http(path, body) {
 }
 
 const cb = () => "cb=" + Date.now();
-
-/** Blob → bare base64 string (no data-URL prefix) for JSON transport. */
-function blobToBase64(blob) {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onerror = () => reject(reader.error || new Error("read failed"));
-    reader.onloadend = () => {
-      const s = String(reader.result || "");
-      const comma = s.indexOf(",");
-      resolve(comma >= 0 ? s.slice(comma + 1) : s);
-    };
-    reader.readAsDataURL(blob);
-  });
-}
 
 export function createNetlifyAdapter() {
   // saveJob is fetch-latest -> merge -> post; two CONCURRENT saves could
@@ -146,64 +129,19 @@ export function createNetlifyAdapter() {
     },
 
     /** Generate invoice/estimate PDF locally (le-invoice-suite) and store in docs. */
-    async generateLocalDoc(job, kind = "invoice", opts = {}) {
-      // 100% CLIENT-SIDE — no network. The old server `generate-doc` lambda is
-      // gone/unreachable after the Cloudflare migration ("Failed to fetch"); the
-      // PDF is built in the browser and downloaded. `opts.download === false`
-      // just validates/prewarms without triggering a download.
+    async generateLocalDoc(job, kind = "invoice") {
+      const res = await fetch(`${base()}/generate-doc`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ kind, job }),
+      });
+      let data = {};
       try {
-        const blob = kind === "estimate" ? buildEstimatePdfFromJob(job) : buildInvoicePdfFromJob(job);
-        if (!blob) return { ok: false, error: "no_pdf" };
-        const no = kind === "invoice" ? job?.invoiceNo : job?.estimateNo;
-        if (opts.download !== false) {
-          const filename = docPdfFilename(kind, job, no) || `${kind}-${String(no || "document")}.pdf`;
-          downloadPdfBlob(blob, filename);
-        }
-        return { ok: true, clientGenerated: true, docNumber: String(no || "").trim(), bytes: blob.size };
-      } catch (err) {
-        return { ok: false, error: String(err?.message || err) };
+        data = await res.json();
+      } catch {
+        /* ignore */
       }
-    },
-
-    /**
-     * Send an invoice/estimate email with the CLIENT-generated qb-pdf PDF as the
-     * attachment (Cloudflare/V8-safe — the server pdfkit lambda is dead/502).
-     * The browser builds the PDF, base64-encodes it, and posts it to
-     * send-doc-email, which only builds the branded HTML + calls Resend.
-     *
-     * opts: { email, includePaymentLink, payUrl, probe, officeOnly }.
-     *  - probe:true      → server reports RESEND key/recipient status, sends nothing.
-     *  - officeOnly:true → server hard-pins the recipient to office@leelectrical.us.
-     */
-    async sendDocEmailNow(job, kind = "invoice", opts = {}) {
-      try {
-        const no = kind === "invoice" ? job?.invoiceNo : job?.estimateNo;
-        let pdfB64 = "";
-        let filename = "";
-        if (!opts.probe) {
-          const overrides = kind === "estimate" ? { kind: "estimate" } : {};
-          if (opts.payUrl) overrides.payUrl = opts.payUrl;
-          const blob =
-            kind === "estimate"
-              ? buildEstimatePdfFromJob(job, overrides)
-              : buildInvoicePdfFromJob(job, overrides);
-          if (!blob) return { ok: false, error: "no_pdf" };
-          pdfB64 = await blobToBase64(blob);
-          filename = docPdfFilename(kind, job, no) || `${kind}-${String(no || "document")}.pdf`;
-        }
-        return await http("send-doc-email", {
-          kind,
-          job,
-          email: String(opts.email || job?.email || "").trim(),
-          includePaymentLink: opts.includePaymentLink !== false,
-          pdfB64,
-          filename,
-          probe: !!opts.probe,
-          officeOnly: !!opts.officeOnly,
-        });
-      } catch (err) {
-        return { ok: false, error: String(err?.message || err) };
-      }
+      return { ok: !!(res.ok && data.ok), ...data };
     },
 
     /** Fetch a stored PDF from the docs fn. Returns a Blob, or null while the
