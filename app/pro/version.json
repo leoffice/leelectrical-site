@@ -1,9 +1,9 @@
 {
   "schema": "le-pro-version/v1",
-  "gitSha": "5e77f02",
-  "gitShaShort": "5e77f02",
+  "gitSha": "c5747c3dd16975100f86604020eb48e097a290b3",
+  "gitShaShort": "c5747c3",
   "netlifyDeployId": null,
-  "builtAt": "2026-07-16T17:57:45.013Z",
-  "task": "",
+  "builtAt": "2026-07-16T18:14:56.257Z",
+  "task": "remove-pwa-install-banner",
   "rollbackAvailable": true
 }

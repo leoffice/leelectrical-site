@@ -30,7 +30,6 @@ import EmailInsightPrompts from "./components/EmailInsightPrompts.jsx";
 import { LiveEditProvider } from "./components/LiveEditProvider.jsx";
 import LiveEditBar from "./components/LiveEditBar.jsx";
 import DevModeOverlay from "./components/DevModeOverlay.jsx";
-import InstallAppBanner from "./components/InstallAppBanner.jsx";
 import AppBackHandler from "./components/AppBackHandler.jsx";
 import { docConfirmMessage } from "./lib/docConfirm.js";
 import NewJobFlow from "./components/NewJobFlow.jsx";
@@ -285,7 +284,6 @@ export default function App() {
         <DedupePrompts />
         <FollowUpPrompts />
         <EmailInsightPrompts />
-        <InstallAppBanner />
         <DevModeOverlay />
         <LiveEditBar />
         <LeaveSheet />
