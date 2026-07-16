@@ -13,6 +13,7 @@ import {
 } from "../lib/followUpReminders.js";
 import {
   dismissUnsentDoc,
+  unsentDocCardFields,
   unsentDocPath,
 } from "../lib/followUpStatus.js";
 
@@ -82,7 +83,19 @@ function ReminderRow({ item, expanded, onToggle, onAction }) {
       {expanded ? (
         <div className="px-4 pb-4 border-t border-slate-100 pt-3 space-y-2">
           {item.detail ? <p className="text-sm text-slate-600">{item.detail}</p> : null}
-          {item.job?.customer ? (
+          {item.kind === "unsent_doc" && item.job ? (
+            <div className="text-sm space-y-1.5 rounded-xl bg-slate-50 border border-slate-100 px-3 py-2.5" data-testid="reminder-unsent-card">
+              {item.job.customer ? (
+                <div className="font-semibold text-slate-800">{item.job.customer}</div>
+              ) : null}
+              {unsentDocCardFields(item.job, item.docKind).rows.map((r) => (
+                <div key={r.label} className="flex gap-2 justify-between">
+                  <span className="text-slate-500 shrink-0">{r.label}</span>
+                  <span className="text-slate-800 font-medium text-right break-words">{r.value}</span>
+                </div>
+              ))}
+            </div>
+          ) : item.job?.customer ? (
             <div className="text-sm text-slate-500">{item.job.customer}</div>
           ) : null}
           {item.dueAt ? (

@@ -275,6 +275,49 @@ export function contactInfoMatches(a, b) {
   return !!(ea && eb && ea === eb);
 }
 
+/** Collapse billing address noise for exact identity match. */
+export function normalizeBillingAddress(addr) {
+  return String(addr || "")
+    .toLowerCase()
+    .replace(/[.,#]/g, " ")
+    .replace(/\bapt\.?\b/g, "apt")
+    .replace(/\bapartment\b/g, "apt")
+    .replace(/\bsuite\b/g, "ste")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+/**
+ * Exact identity field matches between two customer-like objects.
+ * Fields: name, phone, email, billing address.
+ * Returns { matchCount, matches: {name,phone,email,billing} }.
+ */
+export function matchCustomerFields(a, b) {
+  const left = a || {};
+  const right = b || {};
+  const na = normalizeCustomer(left.businessName || left.name || left.customer || "");
+  const nb = normalizeCustomer(right.businessName || right.name || right.customer || "");
+  const pa = normalizePhone(left.phone);
+  const pb = normalizePhone(right.phone);
+  const ea = normalizeEmail(left.email);
+  const eb = normalizeEmail(right.email);
+  const ba = normalizeBillingAddress(left.billingAddress || left.addr || left.billingAddr);
+  const bb = normalizeBillingAddress(right.billingAddress || right.addr || right.billingAddr);
+  const matches = {
+    name: !!(na && nb && na === nb),
+    phone: !!(pa && pb && pa === pb),
+    email: !!(ea && eb && ea === eb),
+    billing: !!(ba && bb && ba === bb),
+  };
+  const matchCount = ["name", "phone", "email", "billing"].filter((k) => matches[k]).length;
+  return { matchCount, matches };
+}
+
+/** True when ≥ min of the four identity fields match 100% (default 3). */
+export function isStrongCustomerMatch(a, b, min = 3) {
+  return matchCustomerFields(a, b).matchCount >= min;
+}
+
 /** Near-identical customer names: case-insensitive Levenshtein <= 2 on
  *  strings longer than 4 chars, or one contains the other with a
  *  >= 5-char overlap. Identical names are NOT a "pair" (same key already). */
@@ -587,6 +630,7 @@ export function mergePairAlreadyResolved(ja, jb) {
 
 /** First (deterministic) pair of distinct client keys whose names look like
  *  the same customer and that Levi hasn't already said "Not the same" to.
+ *  Strong 3-of-4 exact matches are auto-handled elsewhere — not prompted.
  *  Returns { id, a:{name,jobs}, b:{name,jobs} } or null. */
 export function findMergeSuggestion(jobs) {
   const map = new Map();
@@ -609,6 +653,10 @@ export function findMergeSuggestion(jobs) {
       if (!nameMatch && !contactMatch) continue;
       if (isDismissed(na, nb)) continue;
       if (isSnoozed(na, nb)) continue;
+      // 3-of-4 exact → auto path (green), not a manual decision popup
+      const pa = customerProfileFromJobs(entries[i][1], na);
+      const pb = customerProfileFromJobs(entries[k][1], nb);
+      if (isStrongCustomerMatch(pa, pb, 3)) continue;
       return {
         id: pairId(na, nb),
         reason: contactMatch ? "contact" : "name",

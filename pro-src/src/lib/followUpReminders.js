@@ -546,12 +546,18 @@ export function buildReminderList(events, jobs, today, now = new Date(), command
   for (const item of unsentDocCandidates(jobs, commands)) {
     const label = item.docKind === "invoice" ? "Invoice" : "Estimate";
     const no = item.docNo ? " #" + item.docNo : "";
+    const job = item.job;
+    const addr = String(job?.serviceAddress || job?.address || "").trim();
+    const amt = job?.amount ? String(job.amount) : "";
+    const bits = [unsentDocLead(item)];
+    if (addr) bits.push(addr);
+    if (amt) bits.push(amt);
     list.push({
       id: "unsent:" + item.job.id + ":" + item.docKind,
       kind: "unsent_doc",
       priority: "high",
       headline: "Unsent " + label.toLowerCase() + no,
-      detail: unsentDocLead(item),
+      detail: bits.join(" · "),
       job: item.job,
       docKind: item.docKind,
       docNo: item.docNo,

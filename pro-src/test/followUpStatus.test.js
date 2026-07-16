@@ -8,6 +8,7 @@ import {
   hasDoc,
   specificFollowUpNudge,
   unsentDocCandidates,
+  unsentDocCardFields,
   withinSentCooldown,
 } from "../src/lib/followUpStatus.js";
 import { contextualReminderActions as ctxFromAppt } from "../src/lib/appointmentActions.js";
@@ -124,6 +125,29 @@ describe("followUpStatus", () => {
     const jobs = [{ id: "J-9", customer: "Bob", invoiceNo: "88", invoiceHistory: [] }];
     const q = buildPromptQueue([], jobs, "2026-07-15");
     expect(q.some((x) => x.kind === "unsent_doc" && x.job.id === "J-9")).toBe(true);
+  });
+
+  it("unsentDocCardFields lists invoice number, date, address, amount, and due when different", () => {
+    const job = {
+      id: "J-1",
+      customer: "Bob",
+      invoiceNo: "251900",
+      invoiceDate: "2026-07-10",
+      serviceAddress: "100 Main St Brooklyn",
+      amount: "$1,500",
+      openBalance: "$500",
+      invoiceHistory: [],
+    };
+    const card = unsentDocCardFields(job, "invoice");
+    expect(card.docNo).toBe("251900");
+    expect(card.date).toMatch(/07\/10\/2026|7\/10\/2026/);
+    expect(card.address).toMatch(/100 Main/);
+    expect(card.amountInvoiced).toMatch(/1,500|1500/);
+    expect(card.dueDiffers).toBe(true);
+    expect(card.amountDue).toMatch(/500/);
+    expect(card.rows.map((r) => r.label)).toEqual(
+      expect.arrayContaining(["Invoice #", "Invoice date", "Service address", "Amount invoiced", "Amount due"])
+    );
   });
 
   it("cancels stale unsent reminders once QuickBooks shows the invoice was emailed", () => {

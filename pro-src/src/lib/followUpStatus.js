@@ -2,6 +2,10 @@
 import { lastDocSend, docSendInFlight, docSendSucceeded } from "./docSendStatus.js";
 import { classifyAppointment } from "./appointmentActions.js";
 import { addDays } from "./calendarDue.js";
+import { openBalance, invoiceTotal } from "./customers.js";
+import { serviceAddressDisplay } from "./customerSync.js";
+import { jobInvoiceDateDisplay, jobServiceDateDisplay } from "./customerDocLists.js";
+import { fmt$ } from "./format.js";
 
 function daysBetween(earlier, later) {
   const a = new Date(String(earlier) + "T12:00:00").getTime();
@@ -187,7 +191,46 @@ export function unsentDocLead({ job, docKind, docNo }) {
   const name = firstName(job?.customer);
   const label = docKind === "invoice" ? "Invoice" : "Estimate";
   const no = docNo ? " #" + docNo : "";
-  return `${label}${no} for ${name} was created but never emailed.`;
+  return `${label}${no} for ${name} was created but never emailed — verify it was not sent, then open and send.`;
+}
+
+/**
+ * Card fields for unsent invoice/estimate reminders:
+ * number, date, service address, amount invoiced, amount due (when different).
+ */
+export function unsentDocCardFields(job, docKind) {
+  const j = job || {};
+  const isInv = docKind !== "estimate";
+  const docNo = isInv ? j.invoiceNo : j.estimateNo;
+  const date = isInv
+    ? jobInvoiceDateDisplay(j) || jobServiceDateDisplay(j)
+    : jobServiceDateDisplay(j) || jobInvoiceDateDisplay(j);
+  const address = serviceAddressDisplay(j) || j.serviceAddress || j.address || "";
+  const total = invoiceTotal(j);
+  const due = openBalance(j);
+  const amountInvoiced = total > 0 ? fmt$(total) : j.amount ? String(j.amount) : "";
+  const amountDue = due > 0 ? fmt$(due) : j.paid ? "Paid" : "";
+  const dueDiffers =
+    total > 0.01 && due > 0.01 && Math.abs(total - due) > 0.01 && !j.paid;
+  const rows = [];
+  if (docNo) rows.push({ label: isInv ? "Invoice #" : "Estimate #", value: String(docNo) });
+  if (date) rows.push({ label: isInv ? "Invoice date" : "Date", value: date });
+  if (address) rows.push({ label: "Service address", value: address });
+  if (amountInvoiced) rows.push({ label: "Amount invoiced", value: amountInvoiced });
+  if (dueDiffers && amountDue) {
+    rows.push({ label: "Amount due", value: amountDue });
+  } else if (!amountInvoiced && amountDue && amountDue !== "Paid") {
+    rows.push({ label: "Amount due", value: amountDue });
+  }
+  return {
+    docNo: docNo ? String(docNo) : "",
+    date,
+    address,
+    amountInvoiced,
+    amountDue: dueDiffers || (!amountInvoiced && amountDue && amountDue !== "Paid") ? amountDue : "",
+    dueDiffers,
+    rows,
+  };
 }
 
 export function unsentDocPath(job, docKind) {

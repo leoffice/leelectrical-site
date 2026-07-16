@@ -1,0 +1,209 @@
+// Auto customer match — when ≥3 of 4 identity fields match 100%, link without asking Levi.
+// Fields: name, phone, email, billing address.
+// Strong pairs auto-combine; orange (unlinked / incomplete) customers auto-link to unique QBO hits.
+import {
+  clientKey,
+  customerContact,
+  customerProfileFromJobs,
+  dismissPair,
+  isDismissed,
+  isStrongCustomerMatch,
+  matchCustomerFields,
+  mergePairAlreadyResolved,
+  normalizeBillingAddress,
+  normalizeCustomer,
+  pairId,
+} from "./customers.js";
+import { customerProfileComplete, qboCustomerToJobPatch } from "./customerSync.js";
+
+export { matchCustomerFields, isStrongCustomerMatch, normalizeBillingAddress };
+
+/** Group active jobs by client key → { key, jobs, profile, contact }. */
+export function customerGroupsFromJobs(jobs) {
+  const map = new Map();
+  for (const j of jobs || []) {
+    if (!j || j._archived || j._deleted) continue;
+    const k = clientKey(j);
+    if (!k || k.startsWith("j:")) continue;
+    if (!map.has(k)) map.set(k, []);
+    map.get(k).push(j);
+  }
+  return [...map.entries()].map(([key, list]) => {
+    const contact = customerContact(list);
+    const profile = customerProfileFromJobs(list, contact.businessName || contact.name);
+    return { key, jobs: list, profile, contact };
+  });
+}
+
+/**
+ * All strong (≥3/4 exact) same-customer pairs that still need combining.
+ * Deterministic order by pairId.
+ */
+export function findStrongAutoMergePairs(jobs) {
+  const groups = customerGroupsFromJobs(jobs);
+  const pairs = [];
+  for (let i = 0; i < groups.length; i++) {
+    const ga = groups[i];
+    const ja = ga.jobs[0];
+    for (let k = i + 1; k < groups.length; k++) {
+      const gb = groups[k];
+      const jb = gb.jobs[0];
+      if (mergePairAlreadyResolved(ja, jb)) continue;
+      if (isDismissed(ga.profile.name, gb.profile.name)) continue;
+      if (!isStrongCustomerMatch(ga.profile, gb.profile, 3)) continue;
+      pairs.push({
+        id: pairId(ga.profile.name, gb.profile.name),
+        score: matchCustomerFields(ga.profile, gb.profile),
+        a: { name: ga.profile.name, jobs: ga.jobs, profile: ga.profile, key: ga.key },
+        b: { name: gb.profile.name, jobs: gb.jobs, profile: gb.profile, key: gb.key },
+      });
+    }
+  }
+  return pairs.sort((x, y) => x.id.localeCompare(y.id));
+}
+
+/**
+ * Unique QuickBooks customer that strongly matches this app profile (≥3/4).
+ * Returns the QBO row or null if zero or ambiguous (>1).
+ */
+export function findUniqueStrongQboMatch(profile, qboIndex, min = 3) {
+  if (!profile || !Array.isArray(qboIndex) || !qboIndex.length) return null;
+  const hits = [];
+  for (const c of qboIndex) {
+    if (!c) continue;
+    const qboProfile = {
+      name: c.businessName || c.name,
+      businessName: c.businessName || c.name,
+      phone: c.phone,
+      email: c.email,
+      billingAddress: c.billingAddress || c.addr,
+    };
+    if (isStrongCustomerMatch(profile, qboProfile, min)) {
+      hits.push({ customer: c, score: matchCustomerFields(profile, qboProfile) });
+    }
+  }
+  if (hits.length !== 1) return null;
+  return hits[0].customer;
+}
+
+/**
+ * Orange / incomplete groups: not fully green (missing QBO link or incomplete profile)
+ * that have a unique strong QBO match — or already linked and need a fill from QBO.
+ */
+export function findOrangeAutoLinkTargets(jobs, qboIndex) {
+  const out = [];
+  if (!Array.isArray(qboIndex) || !qboIndex.length) return out;
+  for (const g of customerGroupsFromJobs(jobs)) {
+    const contact = g.contact || {};
+    const linked = String(contact.qboCustomerId || "").trim();
+    const complete = customerProfileComplete(contact) && linked;
+    if (complete) continue; // already green
+
+    if (linked) {
+      const row = qboIndex.find((c) => String(c?.id || "") === linked);
+      if (row) {
+        const hasGap =
+          (!String(contact.phone || "").trim() && row.phone) ||
+          (!String(contact.email || "").trim() && row.email) ||
+          (!String(contact.billingAddress || "").trim() && (row.billingAddress || row.addr));
+        if (hasGap) {
+          out.push({
+            key: g.key,
+            jobs: g.jobs,
+            profile: g.profile,
+            qbo: row,
+            reason: "fill_linked",
+          });
+        }
+      }
+      continue;
+    }
+    const qbo = findUniqueStrongQboMatch(g.profile, qboIndex, 3);
+    if (!qbo) continue;
+    out.push({
+      key: g.key,
+      jobs: g.jobs,
+      profile: g.profile,
+      qbo,
+      reason: "strong_match",
+    });
+  }
+  return out;
+}
+
+/**
+ * Apply auto-combine for all strong pairs. Mutates via patchAndSave.
+ * Returns count of pairs combined.
+ */
+export async function applyStrongAutoMerges(jobs, { patchAndSave, persistDismiss } = {}) {
+  if (!patchAndSave) return 0;
+  const pairs = findStrongAutoMergePairs(jobs);
+  let n = 0;
+  for (const pair of pairs) {
+    const all = [...pair.a.jobs, ...pair.b.jobs];
+    const grp =
+      all.map((j) => j.clientGroup).find(Boolean) ||
+      "auto-" + pair.id.replace(/\|/g, "-").slice(0, 40);
+    const richer =
+      (pair.a.profile.qboCustomerId && pair.a.profile) ||
+      (pair.b.profile.qboCustomerId && pair.b.profile) ||
+      pair.a.profile;
+    const enrichPatch = {};
+    if (richer.phone) enrichPatch.phone = richer.phone;
+    if (richer.email) enrichPatch.email = richer.email;
+    if (richer.billingAddress) enrichPatch.billingAddress = richer.billingAddress;
+    if (richer.qboCustomerId) enrichPatch.qboCustomerId = richer.qboCustomerId;
+    if (richer.businessName) enrichPatch.businessName = richer.businessName;
+    if (richer.personName) enrichPatch.personName = richer.personName;
+
+    for (const j of all) {
+      await patchAndSave(j.id, { clientGroup: grp, ...enrichPatch });
+    }
+    dismissPair(pair.a.name, pair.b.name);
+    n += 1;
+  }
+  if (n && persistDismiss) {
+    try {
+      await persistDismiss();
+    } catch {
+      /* offline ok */
+    }
+  }
+  return n;
+}
+
+/**
+ * Link orange customers to unique strong QBO matches; fill contact from QBO.
+ * Returns count of customer groups linked/filled.
+ */
+export async function applyOrangeAutoLinks(jobs, qboIndex, { patchAndSave } = {}) {
+  if (!patchAndSave) return 0;
+  const targets = findOrangeAutoLinkTargets(jobs, qboIndex);
+  let n = 0;
+  for (const t of targets) {
+    const patch = qboCustomerToJobPatch(t.qbo);
+    if (!patch.qboCustomerId && t.qbo?.id) patch.qboCustomerId = String(t.qbo.id);
+    for (const j of t.jobs) {
+      const existing = String(j.qboCustomerId || "").trim();
+      if (existing && existing !== String(patch.qboCustomerId || "")) continue;
+      await patchAndSave(j.id, patch);
+    }
+    n += 1;
+  }
+  return n;
+}
+
+/**
+ * One-shot auto reconcile used on app open.
+ * Combines strong pairs first, then links orange → QBO.
+ */
+export async function runCustomerAutoReconcile(jobs, qboIndex, ctx = {}) {
+  const merged = await applyStrongAutoMerges(jobs, ctx);
+  const linked = await applyOrangeAutoLinks(jobs, qboIndex, ctx);
+  return { merged, linked, total: merged + linked };
+}
+
+/** Stable day key for once-per-day toast. */
+export function autoReconcileDayKey(d = new Date()) {
+  return d.toISOString().slice(0, 10);
+}
