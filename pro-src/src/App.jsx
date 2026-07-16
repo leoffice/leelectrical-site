@@ -13,6 +13,7 @@ import Time from "./views/Time.jsx";
 import Projects from "./views/Projects.jsx";
 import Dev from "./views/Dev.jsx";
 import Company from "./views/Company.jsx";
+import Settings from "./views/Settings.jsx";
 import Progress from "./views/Progress.jsx";
 import Archive from "./views/Archive.jsx";
 import Placeholder from "./views/Placeholder.jsx";
@@ -46,6 +47,7 @@ const TABS = [
   { to: "/time", label: "Time", ic: "⏱️" },
   { to: "/projects", label: "Requisition", ic: "📋" },
   { to: "/company", label: "Company", ic: "📊" },
+  { to: "/settings", label: "Settings", ic: "⚙️" },
   { to: "/progress", label: "Build", ic: "⚡" },
   { to: "/dev", label: "Dev", ic: "🛠️" },
   { to: "/archive", label: "Archive", ic: "📦" },
@@ -59,6 +61,7 @@ const MOBILE_NAV_BEFORE = [
   { to: "/time", label: "Time", ic: "⏱️" },
   { to: "/projects", label: "Requisition", ic: "📋" },
   { to: "/company", label: "Company", ic: "📊" },
+  { to: "/settings", label: "Settings", ic: "⚙️" },
   { to: "/progress", label: "Build", ic: "⚡" },
 ];
 const MOBILE_NAV_AFTER = { to: "/dev", label: "Dev", ic: "🛠️" };
@@ -238,6 +241,7 @@ export default function App() {
             <Route path="/projects" element={<Projects />} />
             <Route path="/projects/:projectId" element={<Projects />} />
             <Route path="/company" element={<Company />} />
+            <Route path="/settings" element={<Settings />} />
             <Route path="/progress" element={<Progress />} />
             <Route path="/dev" element={<Dev />} />
             <Route path="/archive" element={<Archive />} />

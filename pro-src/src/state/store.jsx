@@ -970,6 +970,19 @@ export function StoreProvider({ children }) {
     [api]
   );
 
+  const getSettings = useCallback(async () => {
+    if (!api.getSettings) return { profile: {}, features: {} };
+    return api.getSettings();
+  }, [api]);
+
+  const saveSettings = useCallback(
+    async (doc) => {
+      if (!api.saveSettings) throw new Error("Settings save not available");
+      return api.saveSettings(doc);
+    },
+    [api]
+  );
+
   const value = {
     jobs: effectiveJobs,
     rawJobs: jobs,
@@ -1032,6 +1045,8 @@ export function StoreProvider({ children }) {
     createJob,
     addDevTask,
     patchDevTask,
+    getSettings,
+    saveSettings,
     showToast,
     api,
   };
