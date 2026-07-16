@@ -60,6 +60,9 @@ export default function JobInfoCard({
   onInvoice,
   onPayment,
   onCalendar,
+  onChangeOrders,
+  changeOrdersActive = false,
+  jobs,
   onBubbleTap,
   showOpenLink = false,
   onCardTap,
@@ -197,12 +200,15 @@ export default function JobInfoCard({
         <div data-no-card-open onClick={stopBubble}>
           <JobDocTabs
             job={job}
+            jobs={jobs}
             events={events}
             commands={commands}
             onEstimate={onEstimate}
             onInvoice={onInvoice}
             onPayment={onPayment}
             onCalendar={onCalendar}
+            onChangeOrders={onChangeOrders}
+            changeOrdersActive={changeOrdersActive}
           />
         </div>
       ) : null}

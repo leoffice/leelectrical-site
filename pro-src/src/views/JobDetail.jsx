@@ -40,6 +40,7 @@ import {
 } from "../lib/changeOrder.js";
 import { cloneJobAtAddressPatch } from "../lib/customerHierarchy.js";
 import ChangeOrderSheet from "../components/ChangeOrderSheet.jsx";
+import ChangeOrdersTabPanel from "../components/ChangeOrdersTabPanel.jsx";
 import {
   customerDisplayName,
   calendarServiceLocation,
@@ -166,6 +167,7 @@ export default function JobDetail() {
   const [openStep, setOpenStep] = useState(null);
   const [showRemoved, setShowRemoved] = useState({}); // paperwork branch -> expanded
   const [sheet, setSheet] = useState(null); // {kind, ...}
+  const [showChangeOrders, setShowChangeOrders] = useState(false);
   const [detailSectionsExpanded, setDetailSectionsExpanded] = useState(!foldOnOpen);
   const stepTimer = useRef(null);
   const jobInfoRef = useRef(null);
@@ -179,6 +181,7 @@ export default function JobDetail() {
 
   useEffect(() => {
     setDetailSectionsExpanded(foldParam !== "1");
+    setShowChangeOrders(false);
   }, [id, foldParam]);
 
   useEffect(() => {
@@ -190,12 +193,15 @@ export default function JobDetail() {
     requestAnimationFrame(scrollToJobInfo);
   };
 
+  const openDocEdit = sp.get("edit") === "1";
   useEffect(() => {
     if (openPay && job) setSheet({ kind: "paymenu" });
     if (openDocCreate && job && (openDoc === "estimate" || openDoc === "invoice")) {
       setSheet({ kind: "docBuild", docKind: openDoc, mode: "create" });
+    } else if (openDocEdit && job && (openDoc === "estimate" || openDoc === "invoice")) {
+      setSheet({ kind: "docBuild", docKind: openDoc, mode: "edit" });
     }
-  }, [openPay, openDoc, openDocCreate, job?.id]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [openPay, openDoc, openDocCreate, openDocEdit, job?.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // 5s auto-collapse of the step action row (sleek's stepTimer)
   useEffect(() => {
@@ -335,12 +341,15 @@ export default function JobDetail() {
             onInvoice={(j) => openDocTab(j, "invoice", setSheet)}
             onPayment={() => setSheet({ kind: "paymenu" })}
             onCalendar={(j) => openDocTab(j, "calendar", setSheet)}
+            onChangeOrders={() => setShowChangeOrders((v) => !v)}
+            changeOrdersActive={showChangeOrders}
             onBubbleTap={(j, bubble) => tapAwarenessBubble(j, bubble, setSheet, openDocTab)}
             onCardTap={toggleDetailSections}
           />
         ) : (
           <JobInfoCard
             job={job}
+            jobs={jobs}
             events={events}
             commands={commands}
             sasCalls={sasCalls}
@@ -354,9 +363,48 @@ export default function JobDetail() {
             onInvoice={() => openDocTab(job, "invoice", setSheet)}
             onPayment={() => setSheet({ kind: "paymenu" })}
             onCalendar={() => openDocTab(job, "calendar", setSheet)}
+            onChangeOrders={() => setShowChangeOrders((v) => !v)}
+            changeOrdersActive={showChangeOrders}
             onBubbleTap={(bubble) => tapAwarenessBubble(job, bubble, setSheet, openDocTab)}
           />
         )}
+        {showChangeOrders ? (
+          <div className="mt-2" data-testid="job-change-orders-section">
+            <ChangeOrdersTabPanel
+              jobs={jobs}
+              sourceJob={job}
+              canAdd={canAddChangeOrder(jobs, job)}
+              onAdd={() => setSheet({ kind: "changeOrder" })}
+              onEdit={(row) => {
+                const target = row.job || job;
+                const kind = row.docKind === "estimate" ? "estimate" : "invoice";
+                const mode =
+                  kind === "estimate"
+                    ? target.estimateNo
+                      ? "edit"
+                      : "create"
+                    : target.invoiceNo
+                      ? "edit"
+                      : "create";
+                if (target.id && target.id !== job.id) {
+                  const parts = [];
+                  if (fromCust) parts.push("from=" + encodeURIComponent(fromCust));
+                  parts.push("doc=" + kind);
+                  if (mode === "create") parts.push("create=1");
+                  else parts.push("edit=1");
+                  nav("/job/" + target.id + "?" + parts.join("&"));
+                  return;
+                }
+                setSheet({ kind: "docBuild", docKind: kind, mode });
+              }}
+              onOpenJob={(j) => {
+                if (!j?.id) return;
+                const q = fromCust ? "?from=" + encodeURIComponent(fromCust) : "";
+                nav("/job/" + j.id + q);
+              }}
+            />
+          </div>
+        ) : null}
       </div>
 
       {!detailSectionsExpanded && siblingJobs.length > 0 ? (

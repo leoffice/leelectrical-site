@@ -1,9 +1,10 @@
-// Estimate / Invoice / Payment / Calendar tabs below job info.
+// Estimate / Invoice / Payment / Calendar / Change Orders tabs below job info.
 import React, { useMemo } from "react";
 import { jobCalendarLinkState } from "../lib/calendarLink.js";
 import { docSyncFailedForJob, docSyncPendingForJob } from "../lib/docSync.js";
 import { hasEstimateDraft, hasEstimateOnJob, hasInvoiceDraft, hasInvoiceOnJob } from "../lib/docDraft.js";
 import { hasPendingInvoiceReview } from "../lib/invoiceAgentDraft.js";
+import { changeOrderTabRows } from "../lib/changeOrder.js";
 
 function tabTone(active, pending, failed) {
   if (pending) return "bg-amber-50 text-amber-800 border-amber-200";
@@ -14,12 +15,15 @@ function tabTone(active, pending, failed) {
 
 export default function JobDocTabs({
   job,
+  jobs,
   events,
   commands,
   onEstimate,
   onInvoice,
   onPayment,
   onCalendar,
+  onChangeOrders,
+  changeOrdersActive = false,
 }) {
   const hasEst = hasEstimateOnJob(job);
   const hasInv = hasInvoiceOnJob(job);
@@ -27,6 +31,7 @@ export default function JobDocTabs({
   const invDraft = hasInvoiceDraft(job);
   const agentReview = hasPendingInvoiceReview(job);
   const canPay = !!(job.invoiceNo || job.amount) && !job.paid;
+  const coCount = useMemo(() => changeOrderTabRows(jobs || [job], job).length, [jobs, job]);
 
   const pending = useMemo(() => {
     const syncing = docSyncPendingForJob(commands, job.id);
@@ -65,12 +70,13 @@ export default function JobDocTabs({
     : cal.pending
     ? "bg-orange-50 text-orange-800 border-orange-200"
     : "bg-red-50 text-red-700 border-red-200";
+  const coLabel = coCount > 0 ? "CO · " + coCount : "Change order";
 
   return (
-    <div className="grid grid-cols-4 gap-1.5 mt-3" data-testid="job-doc-tabs">
+    <div className="grid grid-cols-5 gap-1 mt-3" data-testid="job-doc-tabs">
       <button
         type="button"
-        className={`rounded-xl border px-1.5 py-2 text-center text-[10px] font-bold leading-tight ${tabTone(hasEst, pending.estimate, failed.estimate)}`}
+        className={`rounded-xl border px-1 py-2 text-center text-[9px] font-bold leading-tight ${tabTone(hasEst, pending.estimate, failed.estimate)}`}
         onClick={onEstimate}
         data-testid="tab-estimate"
       >
@@ -78,7 +84,7 @@ export default function JobDocTabs({
       </button>
       <button
         type="button"
-        className={`rounded-xl border px-1.5 py-2 text-center text-[10px] font-bold leading-tight ${
+        className={`rounded-xl border px-1 py-2 text-center text-[9px] font-bold leading-tight ${
           agentReview
             ? "bg-red-50 text-red-600 border-red-300 animate-pulse"
             : tabTone(hasInv, pending.invoice, failed.invoice)
@@ -91,7 +97,7 @@ export default function JobDocTabs({
       </button>
       <button
         type="button"
-        className={`rounded-xl border px-1.5 py-2 text-center text-[10px] font-bold leading-tight ${
+        className={`rounded-xl border px-1 py-2 text-center text-[9px] font-bold leading-tight ${
           canPay ? "bg-emerald-50 text-emerald-800 border-emerald-200" : "bg-slate-50 text-slate-400 border-slate-200"
         }`}
         onClick={onPayment}
@@ -102,11 +108,25 @@ export default function JobDocTabs({
       </button>
       <button
         type="button"
-        className={`rounded-xl border px-1.5 py-2 text-center text-[10px] font-bold leading-tight ${calTone}`}
+        className={`rounded-xl border px-1 py-2 text-center text-[9px] font-bold leading-tight ${calTone}`}
         onClick={onCalendar}
         data-testid="tab-calendar"
       >
         📅 Calendar
+      </button>
+      <button
+        type="button"
+        className={`rounded-xl border px-1 py-2 text-center text-[9px] font-bold leading-tight ${
+          changeOrdersActive
+            ? "bg-brand-soft text-brand border-brand/30"
+            : coCount > 0
+            ? "bg-violet-50 text-violet-800 border-violet-200"
+            : "bg-slate-50 text-slate-500 border-slate-200"
+        }`}
+        onClick={onChangeOrders}
+        data-testid="tab-change-orders"
+      >
+        📋 {coLabel}
       </button>
     </div>
   );

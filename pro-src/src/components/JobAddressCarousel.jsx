@@ -15,6 +15,8 @@ export default function JobAddressCarousel({
   onInvoice,
   onPayment,
   onCalendar,
+  onChangeOrders,
+  changeOrdersActive = false,
   onBubbleTap,
   onCardTap,
   onEditJob,
@@ -106,6 +108,7 @@ export default function JobAddressCarousel({
           >
             <JobInfoCard
               job={j}
+              jobs={list}
               events={events}
               commands={commands}
               sasCalls={sasCalls}
@@ -119,6 +122,8 @@ export default function JobAddressCarousel({
               onInvoice={() => onInvoice?.(j)}
               onPayment={() => onPayment?.(j)}
               onCalendar={() => onCalendar?.(j)}
+              onChangeOrders={j.id === activeId ? onChangeOrders : undefined}
+              changeOrdersActive={j.id === activeId && changeOrdersActive}
               onBubbleTap={(b) => onBubbleTap?.(j, b)}
             />
           </div>
