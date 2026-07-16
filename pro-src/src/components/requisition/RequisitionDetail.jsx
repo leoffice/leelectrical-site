@@ -487,7 +487,7 @@ function RequisitionEditTab({ project, req, onSaveProject, busy, showToast }) {
               max={100}
               step={0.01}
               inputMode="decimal"
-              className={`w-16 text-right border rounded px-1 py-0.5 text-sm ${cls}`}
+              className={`w-11 max-w-full text-right border rounded px-0.5 py-0 text-[10px] sm:text-[11px] ${cls}`}
               value={roundPct(pctById[it.id] ?? 0)}
               onFocus={(e) => e.target.select()}
               onChange={(e) => setPct(it.id, e.target.value)}

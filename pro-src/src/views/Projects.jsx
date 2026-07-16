@@ -79,7 +79,7 @@ function pctInput(val, onChange, status) {
       max={100}
       step={0.01}
       inputMode="decimal"
-      className={`w-16 text-right border rounded px-1 py-0.5 text-sm ${cls}`}
+      className={`w-11 max-w-full text-right border rounded px-0.5 py-0 text-[10px] sm:text-[11px] ${cls}`}
       value={display}
       onFocus={(e) => e.target.select()}
       onClick={(e) => e.target.select()}
