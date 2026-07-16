@@ -66,8 +66,9 @@ export function ensureProjectDefaults(project) {
 
 export function seedBaezProject() {
   const coItems = changeOrderItems(BAEZ_SOV_ITEMS);
-  const coTotal = sumItemValues(coItems);
-  const baseContract = sumItemValues(BAEZ_SOV_ITEMS) - coTotal;
+  // Progress requisitions bill the $1.7M base only — COs stay off the app (Levi 2026-07-16).
+  // Electric Service Equipment (item-1) is the only retainage-exempt line.
+  const baseContract = sumItemValues(BAEZ_SOV_ITEMS) - sumItemValues(coItems);
   return ensureProjectDefaults({
     id: BAEZ_PROJECT_ID,
     name: "Baez Place",
@@ -77,8 +78,17 @@ export function seedBaezProject() {
     customerKey: joyCustomerKey(),
     contractSum: baseContract,
     retainagePct: 10,
-    changeOrders: coTotal,
-    items: BAEZ_SOV_ITEMS.map((it) => ({ ...it })),
+    changeOrders: 0,
+    changeOrderList: coItems.map((it) => ({
+      id: it.id,
+      description: it.description,
+      value: it.value,
+      section: it.section,
+    })),
+    items: BAEZ_SOV_ITEMS.map((it) => ({
+      ...it,
+      retainageExempt: it.id === "item-1" || it.retainageExempt === true,
+    })),
     requisitions: [],
     requisitionEnabled: true,
     driveLinks: [],
