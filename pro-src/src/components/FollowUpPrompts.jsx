@@ -56,12 +56,11 @@ import { intentDuplicatesSuggestion } from "../lib/followUpDedupe.js";
 import IntelligentSuggestionBlock from "./IntelligentSuggestionBlock.jsx";
 import AppointmentEmailSheet from "./AppointmentEmailSheet.jsx";
 import {
-  dismissUnsentDoc,
   unsentDocCardFields,
   unsentDocLead,
-  unsentDocPath,
 } from "../lib/followUpStatus.js";
 import VerifyReminderButton from "./VerifyReminderButton.jsx";
+import UnsentDocActions from "./UnsentDocActions.jsx";
 
 function SmartFollowUpActions({ event, job, scope, state, onCreateJob, dismissForWork, onEmail }) {
   const nav = useNavigate();
@@ -544,26 +543,18 @@ function ScheduledReminderSheet({
 }
 
 function UnsentDocSheet({ job, docKind, docNo, onClose, onDone, dismissForWork, onPauseAll }) {
-  const nav = useNavigate();
-  const { showToast } = useStore();
   const lead = unsentDocLead({ job, docKind, docNo });
   const label = docKind === "invoice" ? "invoice" : "estimate";
   const card = unsentDocCardFields(job, docKind);
 
-  const openDoc = () => {
-    dismissForWork();
-    nav(unsentDocPath(job, docKind));
-  };
-
-  const dontRemind = () => {
-    dismissUnsentDoc(job.id, docKind);
-    showToast("OK — won't remind you about this " + label);
-    onDone();
-    onClose();
-  };
-
   return (
-    <Sheet title={"📧 Unsent " + label} onClose={dontRemind}>
+    <Sheet
+      title={"📧 Unsent " + label}
+      onClose={() => {
+        onDone();
+        onClose();
+      }}
+    >
       <PauseRemindersInPopup onPaused={onPauseAll} />
       <p className="text-sm text-slate-600 mb-4">{lead}</p>
       <div className="text-sm space-y-2 mb-4 card px-3 py-2.5" data-testid="unsent-doc-card">
@@ -576,28 +567,18 @@ function UnsentDocSheet({ job, docKind, docNo, onClose, onDone, dismissForWork, 
           </div>
         ))}
       </div>
-      <button type="button" className="btn-brand w-full mb-2" onClick={openDoc} data-testid="unsent-doc-open">
-        Open {label} &amp; send
-      </button>
-      <div className="mb-2">
-        <VerifyReminderButton
-          item={{
-            id: "unsent:" + job.id + ":" + docKind,
-            kind: "unsent_doc",
-            job,
-            docKind,
-            docNo,
-          }}
-          onStart={() => {
-            onDone();
-            onClose();
-          }}
-          primary
-        />
-      </div>
-      <button type="button" className="btn-ghost w-full text-slate-600" onClick={dontRemind} data-testid="unsent-doc-dismiss">
-        Don't remind me
-      </button>
+      <UnsentDocActions
+        job={job}
+        docKind={docKind}
+        docNo={docNo}
+        onOpen={dismissForWork}
+        onAction={onDone}
+        onVerifyStart={() => {
+          onDone();
+          onClose();
+        }}
+        onClose={onClose}
+      />
     </Sheet>
   );
 }

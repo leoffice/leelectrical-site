@@ -15,9 +15,14 @@ function daysBetween(earlier, later) {
 
 export const SENT_FOLLOWUP_DAYS = 7;
 export const UNSENT_DISMISS_KEY = "lepro_unsent_dismissed";
+export const UNSENT_SNOOZE_KEY = "lepro_unsent_snoozed";
 
 function s(v) {
   return v == null ? "" : String(v).trim();
+}
+
+function unsentKey(jobId, docKind) {
+  return String(jobId || "") + ":" + String(docKind || "");
 }
 
 export function hasDoc(job, docKind) {
@@ -165,22 +170,75 @@ export function saveUnsentDismissed(state) {
 
 export function dismissUnsentDoc(jobId, docKind) {
   const st = loadUnsentDismissed();
-  st[jobId + ":" + docKind] = Date.now();
+  st[unsentKey(jobId, docKind)] = Date.now();
   saveUnsentDismissed(st);
+  // Permanent dismiss wins — clear any temporary snooze.
+  clearUnsentSnooze(jobId, docKind);
 }
 
 export function isUnsentDismissed(jobId, docKind) {
-  return !!loadUnsentDismissed()[jobId + ":" + docKind];
+  return !!loadUnsentDismissed()[unsentKey(jobId, docKind)];
+}
+
+export function loadUnsentSnoozed() {
+  try {
+    const raw = localStorage.getItem(UNSENT_SNOOZE_KEY);
+    const o = raw ? JSON.parse(raw) : {};
+    return o && typeof o === "object" ? o : {};
+  } catch {
+    return {};
+  }
+}
+
+export function saveUnsentSnoozed(state) {
+  try {
+    localStorage.setItem(UNSENT_SNOOZE_KEY, JSON.stringify(state || {}));
+  } catch {
+    /* ignore */
+  }
+}
+
+/** Hide an unsent-doc reminder until a weekday/work-hour datetime. */
+export function snoozeUnsentDoc(jobId, docKind, untilIso) {
+  if (!jobId || !docKind || !untilIso) return;
+  const st = loadUnsentSnoozed();
+  st[unsentKey(jobId, docKind)] = String(untilIso);
+  saveUnsentSnoozed(st);
+}
+
+export function clearUnsentSnooze(jobId, docKind) {
+  const st = loadUnsentSnoozed();
+  const k = unsentKey(jobId, docKind);
+  if (!(k in st)) return;
+  delete st[k];
+  saveUnsentSnoozed(st);
+}
+
+export function isUnsentSnoozed(jobId, docKind, now = new Date()) {
+  const until = loadUnsentSnoozed()[unsentKey(jobId, docKind)];
+  if (!until) return false;
+  const t = new Date(until).getTime();
+  if (!Number.isFinite(t)) return false;
+  if (t <= now.getTime()) {
+    clearUnsentSnooze(jobId, docKind);
+    return false;
+  }
+  return true;
 }
 
 /** Active jobs with a generated doc that was never emailed. */
-export function unsentDocCandidates(jobs, commands = [], { dismissed = loadUnsentDismissed() } = {}) {
+export function unsentDocCandidates(
+  jobs,
+  commands = [],
+  { dismissed = loadUnsentDismissed(), now = new Date() } = {}
+) {
   const out = [];
   for (const job of jobs || []) {
     if (!job?.id || job.paid || job._archived || job._deleted) continue;
     for (const kind of ["invoice", "estimate"]) {
       if (!docNeverSent(job, kind, commands)) continue;
-      if (dismissed[job.id + ":" + kind]) continue;
+      if (dismissed[unsentKey(job.id, kind)]) continue;
+      if (isUnsentSnoozed(job.id, kind, now)) continue;
       out.push({ job, docKind: kind, docNo: kind === "invoice" ? job.invoiceNo : job.estimateNo });
     }
   }

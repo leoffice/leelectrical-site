@@ -2,10 +2,13 @@
 import { describe, expect, it, beforeEach } from "vitest";
 import {
   UNSENT_DISMISS_KEY,
+  UNSENT_SNOOZE_KEY,
   assessJobFollowUp,
   dismissUnsentDoc,
   docNeverSent,
   hasDoc,
+  isUnsentSnoozed,
+  snoozeUnsentDoc,
   specificFollowUpNudge,
   unsentDocCandidates,
   unsentDocCardFields,
@@ -22,6 +25,7 @@ import {
 
 beforeEach(() => {
   localStorage.removeItem(UNSENT_DISMISS_KEY);
+  localStorage.removeItem(UNSENT_SNOOZE_KEY);
   localStorage.removeItem(STATE_KEY);
 });
 
@@ -80,6 +84,18 @@ describe("followUpStatus", () => {
     dismissUnsentDoc("J-1", "invoice");
     const jobs = [{ id: "J-1", invoiceNo: "100", invoiceHistory: [] }];
     expect(unsentDocCandidates(jobs, [])).toHaveLength(0);
+  });
+
+  it("hides unsent docs until remind-later time passes", () => {
+    const jobs = [{ id: "J-1", invoiceNo: "100", invoiceHistory: [] }];
+    snoozeUnsentDoc("J-1", "invoice", "2026-07-20T10:00");
+    expect(isUnsentSnoozed("J-1", "invoice", new Date("2026-07-16T12:00:00"))).toBe(true);
+    expect(
+      unsentDocCandidates(jobs, [], { now: new Date("2026-07-16T12:00:00") })
+    ).toHaveLength(0);
+    expect(
+      unsentDocCandidates(jobs, [], { now: new Date("2026-07-20T11:00:00") })
+    ).toHaveLength(1);
   });
 
   it("does not flag unsent when a send command succeeded", () => {

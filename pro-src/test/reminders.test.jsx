@@ -58,13 +58,18 @@ describe("Reminders tab", () => {
     await waitFor(() => expect(within(remindersTab).getByText("1")).toBeInTheDocument());
   });
 
-  it("lists expandable reminders and supports Don't remind me", async () => {
+  it("lists expandable reminders with parallel unsent actions and Don't Remind Me", async () => {
     mockServer({ jobs: [unsentJob()], events: [] });
     const user = userEvent.setup();
     renderApp("#/reminders");
     expect(await screen.findByTestId("reminders-view")).toBeInTheDocument();
     await user.click(screen.getByTestId("reminder-headline-unsent:J-9:invoice"));
-    await user.click(screen.getByTestId("reminder-dont-remind"));
+    const actions = screen.getByTestId("unsent-doc-actions");
+    expect(within(actions).getByTestId("unsent-doc-open")).toHaveTextContent("Open");
+    expect(within(actions).getByTestId("reminder-verify")).toHaveTextContent("Verify");
+    expect(within(actions).getByTestId("unsent-doc-remind-later")).toHaveTextContent("Remind Me Later");
+    expect(within(actions).getByTestId("unsent-doc-dismiss")).toHaveTextContent("Don't Remind Me");
+    await user.click(within(actions).getByTestId("unsent-doc-dismiss"));
     await waitFor(() => expect(screen.getByTestId("reminders-empty")).toBeInTheDocument());
   });
 
