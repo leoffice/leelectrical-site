@@ -12,10 +12,15 @@ import {
   isSessionUnlocked,
   markUnlocked,
   passwordUnlock,
+  touchUnlocked,
 } from "../lib/lock.js";
 
 export default function LockGate({ children }) {
-  const [unlocked, setUnlocked] = useState(() => isSessionUnlocked());
+  const [unlocked, setUnlocked] = useState(() => {
+    const ok = isSessionUnlocked();
+    if (ok) touchUnlocked();
+    return ok;
+  });
   const [bioAvail, setBioAvail] = useState(false);
   const [mode, setMode] = useState("biometric"); // "biometric" | "password"
   const [busy, setBusy] = useState(false);

@@ -1,7 +1,7 @@
 /* LE Pro service worker — simple cache-first for static assets.
  * API calls (/.netlify/functions/*) always go to the network.
  * Bump CACHE version to invalidate old assets after a deploy. */
-const CACHE = "le-pro-v117";
+const CACHE = "le-pro-v118";
 const CORE = ["/app/pro/", "/app/pro/index.html", "/app/pro/manifest.json"];
 
 self.addEventListener("install", (e) => {
@@ -30,6 +30,8 @@ self.addEventListener("fetch", (e) => {
   if (url.pathname.startsWith("/.netlify/")) return;
   // Only handle our own scope.
   if (url.origin !== self.location.origin || !url.pathname.startsWith("/app/pro/")) return;
+  // version.json must always hit the network — stale sha causes reload loops.
+  if (url.pathname.endsWith("/version.json")) return;
 
   // Navigations: network-first so a new deploy shows up, cache fallback offline.
   if (e.request.mode === "navigate") {

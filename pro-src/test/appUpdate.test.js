@@ -44,4 +44,18 @@ describe("appUpdate", () => {
     expect(localStorage.getItem("le-pro-live-sha")).toBe("new2222");
     expect(reload).toHaveBeenCalledTimes(1);
   });
+
+  it("does not reload-loop when sha keeps changing within the guard window", async () => {
+    localStorage.setItem("le-pro-live-sha", "old1111");
+    sessionStorage.setItem("le-pro-update-reload-ts", String(Date.now()));
+    fetch.mockResolvedValue({
+      ok: true,
+      json: async () => ({ gitShaShort: "new2222" }),
+    });
+
+    await checkForAppUpdate();
+
+    expect(localStorage.getItem("le-pro-live-sha")).toBe("new2222");
+    expect(reload).not.toHaveBeenCalled();
+  });
 });

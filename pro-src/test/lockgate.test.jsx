@@ -11,6 +11,7 @@ import "@testing-library/jest-dom/vitest";
 const lock = vi.hoisted(() => ({
   isSessionUnlocked: vi.fn(() => false),
   markUnlocked: vi.fn(),
+  touchUnlocked: vi.fn(),
   hasEnrolledCredential: vi.fn(() => false),
   biometricSupported: vi.fn(async () => false),
   biometricUnlock: vi.fn(async () => true),

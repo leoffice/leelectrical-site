@@ -7,17 +7,19 @@
 //             verify with navigator.credentials.get (userVerification required).
 //   Fallback: Supabase email + password (same project as the /app landing).
 //
-// A short in-session grace (stored in sessionStorage) means a mid-session
-// reload does NOT re-prompt, but a fresh app open — which starts a new browsing
-// session and clears sessionStorage — DOES prompt.
+// In-session grace means a mid-session reload does NOT re-prompt, but a fresh
+// app open — which starts a new browsing session and clears sessionStorage —
+// DOES prompt. sessionStorage is primary; localStorage holds a reload-only
+// backup because iOS PWAs sometimes wipe sessionStorage on pull-to-refresh.
 //
 // This module is intentionally free of React so the logic is unit-testable in
 // the vitest "node" environment; storage/crypto/network access is guarded and
 // injectable.
 
-export const GRACE_MS = 3 * 60 * 1000; // 3 minutes
+export const GRACE_MS = 8 * 60 * 60 * 1000; // 8 hours — field day + reloads
 export const CRED_KEY = "lepro_lock_cred_id"; // localStorage (persists across launches)
 export const GRACE_KEY = "lepro_lock_unlocked_at"; // sessionStorage (cleared on fresh open)
+export const GRACE_BACKUP_KEY = "lepro_lock_unlocked_at_reload"; // localStorage, reload-only fallback
 
 // Supabase — same project/keys as app/index.html's landing gate.
 export const SUPABASE_URL = "https://scgpxbubakfwypycugoa.supabase.co";
@@ -49,20 +51,42 @@ export function isWithinGrace(unlockedAt, now = Date.now(), windowMs = GRACE_MS)
   return dt >= 0 && dt < windowMs;
 }
 
+export function isPageReload() {
+  try {
+    const nav = performance.getEntriesByType?.("navigation")?.[0];
+    if (nav?.type === "reload") return true;
+    return performance.navigation?.type === 1;
+  } catch {
+    return false;
+  }
+}
+
 export function isSessionUnlocked(now = Date.now()) {
   const s = sessionStore();
-  if (!s) return false;
-  return isWithinGrace(s.getItem(GRACE_KEY), now);
+  if (s && isWithinGrace(s.getItem(GRACE_KEY), now)) return true;
+  if (isPageReload()) {
+    const backup = localStore()?.getItem(GRACE_BACKUP_KEY);
+    if (isWithinGrace(backup, now)) {
+      if (s) s.setItem(GRACE_KEY, backup);
+      return true;
+    }
+  }
+  return false;
 }
 
 export function markUnlocked(now = Date.now()) {
-  const s = sessionStore();
-  if (s) s.setItem(GRACE_KEY, String(now));
+  const t = String(now);
+  sessionStore()?.setItem(GRACE_KEY, t);
+  localStore()?.setItem(GRACE_BACKUP_KEY, t);
+}
+
+export function touchUnlocked(now = Date.now()) {
+  if (isSessionUnlocked(now)) markUnlocked(now);
 }
 
 export function clearUnlocked() {
-  const s = sessionStore();
-  if (s) s.removeItem(GRACE_KEY);
+  sessionStore()?.removeItem(GRACE_KEY);
+  localStore()?.removeItem(GRACE_BACKUP_KEY);
 }
 
 /** End the session — re-lock on next load and bust cached app shell. */

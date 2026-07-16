@@ -1,5 +1,7 @@
 /** Force installed PWAs/APKs to pick up a new deploy — clears stale cached UI. */
 const VERSION_KEY = "le-pro-live-sha";
+const LOOP_GUARD_KEY = "le-pro-update-reload-ts";
+const LOOP_GUARD_MS = 30_000;
 
 async function clearAppCaches() {
   if ("serviceWorker" in navigator) {
@@ -28,11 +30,18 @@ export async function checkForAppUpdate() {
 
     const prev = localStorage.getItem(VERSION_KEY);
     if (prev && prev !== liveSha) {
+      const lastReload = Number(sessionStorage.getItem(LOOP_GUARD_KEY) || 0);
+      if (lastReload && Date.now() - lastReload < LOOP_GUARD_MS) {
+        localStorage.setItem(VERSION_KEY, liveSha);
+        return;
+      }
+      sessionStorage.setItem(LOOP_GUARD_KEY, String(Date.now()));
       await clearAppCaches();
       localStorage.setItem(VERSION_KEY, liveSha);
       window.location.reload();
       return;
     }
+    sessionStorage.removeItem(LOOP_GUARD_KEY);
     localStorage.setItem(VERSION_KEY, liveSha);
   } catch {
     /* offline or blocked — keep running with cached shell */
