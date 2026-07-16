@@ -83,4 +83,41 @@ describe("jobToQbDoc", () => {
     expect(d.showAcceptance).toBe(true);
     expect(d.dueDate).toBeUndefined();
   });
+
+  it("puts license under company contact (not in company name)", () => {
+    expect(QB_COMPANY.name).toBe("BLZ Electric Inc.");
+    expect(QB_COMPANY.license).toBe("Lic #11212");
+    expect(QB_COMPANY.name).not.toMatch(/Lic/);
+  });
+
+  it("appends apartment to service address when set", () => {
+    const d = mapJobToQbDocData(
+      {
+        ...job,
+        billingAddress: "1 Billing St, Brooklyn, NY",
+        serviceAddress: "479A East New York Ave, Brooklyn, NY 11225",
+        apartment: "4B",
+      },
+      "invoice"
+    );
+    const svc = d.customFields.find((f) => /service address/i.test(f.label));
+    expect(svc?.value).toContain("479A East New York");
+    expect(svc?.value).toMatch(/Apt\s*4B/i);
+  });
+
+  it("labels change-order invoice numbers", () => {
+    const d = mapJobToQbDocData({ ...job, changeOrder: true, invoiceNo: "251100-CO-1" }, "invoice");
+    expect(d.docNumber).toBe("251100-CO-1 - Change Order");
+  });
+
+  it("includes payment options before thank-you on invoices", () => {
+    const d = mapJobToQbDocData(job, "invoice");
+    expect(d.messageLines.some((l) => /Online Payment/i.test(l))).toBe(true);
+    expect(d.messageLines.some((l) => /Zelle/i.test(l))).toBe(true);
+    expect(d.messageLines.some((l) => /Thank you for your business/i.test(l))).toBe(true);
+    expect(d.messageLines.some((l) => /Sincerely/i.test(l))).toBe(true);
+    const payIdx = d.messageLines.findIndex((l) => /Online Payment/i.test(l));
+    const thanksIdx = d.messageLines.findIndex((l) => /Thank you for your business/i.test(l));
+    expect(payIdx).toBeLessThan(thanksIdx);
+  });
 });

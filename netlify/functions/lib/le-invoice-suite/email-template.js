@@ -235,6 +235,7 @@ ${d.paymentMessage ? `
     <div style="font-size:15px;color:${T.muted};margin-top:15px;display:inline-block;margin:15px 10px 0 10px;">${esc(d.company.phone)}</div>
     <div style="font-size:15px;color:${T.muted};margin-top:15px;display:inline-block;margin:15px 10px 0 10px;">${esc(d.company.email)}</div>
   </div>
+  ${d.company.license ? `<div style="font-size:15px;text-align:center;color:${T.muted};margin-top:15px;">${esc(d.company.license)}</div>` : ''}
 </td></tr>
 
 <!-- anti-fraud note -->
