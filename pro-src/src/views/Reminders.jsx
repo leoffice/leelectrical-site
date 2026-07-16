@@ -4,6 +4,7 @@ import { Link, useNavigate } from "react-router-dom";
 import { useStore } from "../state/store.jsx";
 import { todayStr } from "../lib/format.js";
 import PauseRemindersBar from "../components/PauseRemindersBar.jsx";
+import VerifyReminderButton from "../components/VerifyReminderButton.jsx";
 import {
   REMINDER_PRIORITIES,
   buildReminderList,
@@ -109,6 +110,12 @@ function ReminderRow({ item, expanded, onToggle, onAction }) {
               <button type="button" className="btn-brand w-full" onClick={openDoc} data-testid="reminder-open-doc">
                 Open &amp; send
               </button>
+              <VerifyReminderButton
+                item={item}
+                onStart={onAction}
+                onDone={onAction}
+                className="btn bg-violet-100 text-violet-900 w-full border border-violet-200"
+              />
               <button type="button" className="btn-ghost w-full text-slate-600" onClick={dontRemind} data-testid="reminder-dont-remind">
                 Don't remind me
               </button>
@@ -119,6 +126,15 @@ function ReminderRow({ item, expanded, onToggle, onAction }) {
             <button type="button" className="btn bg-slate-100 text-slate-800 w-full" onClick={openJob}>
               Open job
             </button>
+          ) : null}
+
+          {item.kind !== "unsent_doc" ? (
+            <VerifyReminderButton
+              item={item}
+              onStart={onAction}
+              onDone={onAction}
+              className="btn bg-violet-100 text-violet-900 w-full border border-violet-200"
+            />
           ) : null}
 
           {item.kind !== "unsent_doc" && item.event?.id ? (
