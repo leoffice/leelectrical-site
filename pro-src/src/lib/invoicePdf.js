@@ -3,6 +3,8 @@ import { parseAmount, todayStr } from "./format.js";
 import { lineAmount, linesTotal } from "./qboDoc.js";
 import { amountPaid, invoiceTotal, openBalance } from "./customers.js";
 import { effectiveServiceAddress } from "./customerSync.js";
+import { buildQbDocPdf } from "./qbInvoicePdf.js";
+import { mapJobToQbDocData } from "./jobToQbDoc.js";
 
 const PAGE_W = 612;
 const PAGE_H = 792;
@@ -435,12 +437,30 @@ export function buildInvoicePdf(data) {
   return new Blob([assemblePdf(pages)], { type: "application/pdf" });
 }
 
-/** Convenience: job → Blob. */
+/**
+ * Convenience: job → Blob. Renders the QuickBooks-clone layout (buildQbDocPdf,
+ * client-side port of the le-invoice-suite template — green logo/heading/header
+ * band, per-line service date, two-column totals). `overrides.payUrl` adds the
+ * "Pay securely online" line. Falls back to the plain layout only if QB mapping
+ * throws.
+ */
 export function buildInvoicePdfFromJob(job, overrides = {}) {
-  return buildInvoicePdf(mapJobToInvoicePdfData(job, overrides));
+  try {
+    const data = mapJobToQbDocData(job, "invoice");
+    if (overrides.payUrl) data.payUrl = overrides.payUrl;
+    return buildQbDocPdf(data);
+  } catch {
+    return buildInvoicePdf(mapJobToInvoicePdfData(job, overrides));
+  }
 }
 
-/** Estimate/Proposal PDF — same layout, no payment/balance-due section. */
+/** Estimate/Proposal PDF — same QB-clone layout, no payment section. */
 export function buildEstimatePdfFromJob(job, overrides = {}) {
-  return buildInvoicePdf(mapJobToInvoicePdfData(job, { ...overrides, kind: "estimate" }));
+  try {
+    const data = mapJobToQbDocData(job, "estimate");
+    if (overrides.payUrl) data.payUrl = overrides.payUrl;
+    return buildQbDocPdf(data);
+  } catch {
+    return buildInvoicePdf(mapJobToInvoicePdfData(job, { ...overrides, kind: "estimate" }));
+  }
 }
