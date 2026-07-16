@@ -22,8 +22,16 @@ function docNoMatches(entry, docNo) {
 
 function isDelivered(entry) {
   const k = s(entry?.kind).toLowerCase();
-  if (k.includes("failed") || k.includes("did not")) return false;
-  return k.includes("emailed") || /\bemailed\b/.test(k) || k.includes("delivered") || /\binvoice sent\b/.test(k) || /\bestimate sent\b/.test(k);
+  if (k.includes("failed") || k.includes("did not") || k.includes("queued") || k.includes("bounce")) return false;
+  return (
+    k.includes("emailed") ||
+    /\bemailed\b/.test(k) ||
+    k.includes("delivered") ||
+    /\binvoice sent\b/.test(k) ||
+    /\bestimate sent\b/.test(k) ||
+    // Older local history rows used "Invoice sent" / "Estimate sent" without "emailed"
+    (/\bsent\b/.test(k) && (k.includes("invoice") || k.includes("estimate")) && !k.includes("send "))
+  );
 }
 
 /** QBO EmailStatus=EmailSent (and related fields) — source of truth when local history is empty. */

@@ -11,8 +11,13 @@ import {
   withinSentCooldown,
 } from "../src/lib/followUpStatus.js";
 import { contextualReminderActions as ctxFromAppt } from "../src/lib/appointmentActions.js";
-import { serviceCallCandidates, buildPromptQueue } from "../src/lib/followUpReminders.js";
-import { STATE_KEY } from "../src/lib/followUpReminders.js";
+import {
+  serviceCallCandidates,
+  buildPromptQueue,
+  cancelStaleUnsentReminders,
+  allocateReminderTime,
+  STATE_KEY,
+} from "../src/lib/followUpReminders.js";
 
 beforeEach(() => {
   localStorage.removeItem(UNSENT_DISMISS_KEY);
@@ -119,6 +124,28 @@ describe("followUpStatus", () => {
     const jobs = [{ id: "J-9", customer: "Bob", invoiceNo: "88", invoiceHistory: [] }];
     const q = buildPromptQueue([], jobs, "2026-07-15");
     expect(q.some((x) => x.kind === "unsent_doc" && x.job.id === "J-9")).toBe(true);
+  });
+
+  it("cancels stale unsent reminders once QuickBooks shows the invoice was emailed", () => {
+    allocateReminderTime("ev-stale", "2026-07-10T10:00", {
+      note: "Invoice was created but never emailed — open and send",
+      priority: "high",
+    });
+    const jobs = [
+      {
+        id: "J-1",
+        calEventId: "ev-stale",
+        invoiceNo: "251839",
+        invoiceEmailStatus: "EmailSent",
+        invoiceEmailedAt: "2026-07-15",
+        invoiceHistory: [{ date: "2026-07-15", kind: "Invoice #251839 emailed", source: "qbo" }],
+      },
+    ];
+    const events = [{ id: "ev-stale", summary: "Chani — service", start: "2026-07-10T10:00" }];
+    expect(cancelStaleUnsentReminders(events, jobs, [])).toBe(1);
+    const q = buildPromptQueue(events, jobs, "2026-07-16", new Date("2026-07-16T12:00:00"), []);
+    expect(q.some((x) => x.kind === "unsent_doc" && x.job?.invoiceNo === "251839")).toBe(false);
+    expect(q.some((x) => x.event?.id === "ev-stale")).toBe(false);
   });
 });
 
