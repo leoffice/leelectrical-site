@@ -28,6 +28,20 @@ async function http(path, body) {
 
 const cb = () => "cb=" + Date.now();
 
+/** Blob → bare base64 string (no data-URL prefix) for JSON transport. */
+function blobToBase64(blob) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onerror = () => reject(reader.error || new Error("read failed"));
+    reader.onloadend = () => {
+      const s = String(reader.result || "");
+      const comma = s.indexOf(",");
+      resolve(comma >= 0 ? s.slice(comma + 1) : s);
+    };
+    reader.readAsDataURL(blob);
+  });
+}
+
 export function createNetlifyAdapter() {
   // saveJob is fetch-latest -> merge -> post; two CONCURRENT saves could
   // clobber each other's keys (e.g. convert-to-job writes the new job and
@@ -146,6 +160,47 @@ export function createNetlifyAdapter() {
           downloadPdfBlob(blob, filename);
         }
         return { ok: true, clientGenerated: true, docNumber: String(no || "").trim(), bytes: blob.size };
+      } catch (err) {
+        return { ok: false, error: String(err?.message || err) };
+      }
+    },
+
+    /**
+     * Send an invoice/estimate email with the CLIENT-generated qb-pdf PDF as the
+     * attachment (Cloudflare/V8-safe — the server pdfkit lambda is dead/502).
+     * The browser builds the PDF, base64-encodes it, and posts it to
+     * send-doc-email, which only builds the branded HTML + calls Resend.
+     *
+     * opts: { email, includePaymentLink, payUrl, probe, officeOnly }.
+     *  - probe:true      → server reports RESEND key/recipient status, sends nothing.
+     *  - officeOnly:true → server hard-pins the recipient to office@leelectrical.us.
+     */
+    async sendDocEmailNow(job, kind = "invoice", opts = {}) {
+      try {
+        const no = kind === "invoice" ? job?.invoiceNo : job?.estimateNo;
+        let pdfB64 = "";
+        let filename = "";
+        if (!opts.probe) {
+          const overrides = kind === "estimate" ? { kind: "estimate" } : {};
+          if (opts.payUrl) overrides.payUrl = opts.payUrl;
+          const blob =
+            kind === "estimate"
+              ? buildEstimatePdfFromJob(job, overrides)
+              : buildInvoicePdfFromJob(job, overrides);
+          if (!blob) return { ok: false, error: "no_pdf" };
+          pdfB64 = await blobToBase64(blob);
+          filename = docPdfFilename(kind, job, no) || `${kind}-${String(no || "document")}.pdf`;
+        }
+        return await http("send-doc-email", {
+          kind,
+          job,
+          email: String(opts.email || job?.email || "").trim(),
+          includePaymentLink: opts.includePaymentLink !== false,
+          pdfB64,
+          filename,
+          probe: !!opts.probe,
+          officeOnly: !!opts.officeOnly,
+        });
       } catch (err) {
         return { ok: false, error: String(err?.message || err) };
       }

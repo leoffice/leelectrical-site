@@ -111,7 +111,7 @@ describe("1. mark-as-paid sheet -> staged -> record_payment on Save", () => {
 });
 
 describe("2. quick views — invoice/estimate/calendar sheets", () => {
-  it("invoice sheet: local/QB view + send submenu -> send_invoice deterministic + history log", async () => {
+  it("invoice sheet: local send POSTs our qb-pdf to send-doc-email (Resend); QB send enqueues", async () => {
     const srv = mockServer();
     const user = userEvent.setup();
     const pane = await openDetail();
@@ -119,19 +119,35 @@ describe("2. quick views — invoice/estimate/calendar sheets", () => {
     await user.click(within(pane).getByTestId("tab-invoice"));
     expect(screen.getByText("View Local Invoice")).toBeInTheDocument();
     expect(screen.getByText("View QuickBooks Invoice")).toBeInTheDocument();
+
+    // LOCAL docSource → client builds the PDF + POSTs it to send-doc-email (no queue).
     await user.click(screen.getByText(/Send invoice only/));
     await user.click(await screen.findByTestId("doc-source-local"));
+    await waitFor(() => expect(srv.posts("send-doc-email")).toHaveLength(1));
+    const sent = srv.posts("send-doc-email")[0].body;
+    expect(sent.email).toBe("p@x.com");
+    expect(sent.kind).toBe("invoice");
+    expect(sent.includePaymentLink).toBe(false);
+    expect(typeof sent.pdfB64).toBe("string");
+    expect(sent.pdfB64.length).toBeGreaterThan(100);
+    expect(srv.enqueued("send_invoice")).toHaveLength(0);
+  });
+
+  it("invoice sheet: QuickBooks send docSource enqueues send_invoice deterministic", async () => {
+    const srv = mockServer();
+    const user = userEvent.setup();
+    const pane = await openDetail();
+
+    await user.click(within(pane).getByTestId("tab-invoice"));
+    await user.click(screen.getByText(/Send invoice only/));
+    await user.click(await screen.findByTestId("doc-source-qbo"));
     await waitFor(() => expect(srv.enqueued("send_invoice")).toHaveLength(1));
     const cmd = srv.enqueued("send_invoice")[0];
     expect(cmd.lane).toBe("deterministic");
-    expect(cmd.idempotencyKey).toBe("send_invoice:local:251841");
-    expect(cmd.payload).toMatchObject({
-      email: "p@x.com",
-      invoiceNo: "251841",
-      includePaymentLink: false,
-      docSource: "local",
-    });
-    expect(await within(pane).findByText(/Invoice #251841 send queued/)).toBeInTheDocument();
+    expect(cmd.idempotencyKey).toBe("send_invoice:qbo:251841");
+    expect(cmd.payload).toMatchObject({ email: "p@x.com", invoiceNo: "251841", docSource: "qbo" });
+    expect(srv.posts("send-doc-email")).toHaveLength(0);
+    expect(await within(pane).findByText(/Invoice #251841.*send queued/)).toBeInTheDocument();
   });
 
   it("estimate sheet enqueues send_estimate; calendar sheet links Google Calendar", async () => {

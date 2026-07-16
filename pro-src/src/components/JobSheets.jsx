@@ -85,8 +85,8 @@ export const PAY_METHODS = [
 
 /** Shared "send invoice/estimate" action (sleek's doSend). */
 export function useDoSend() {
-  const { enqueue, logSend, showToast } = useStore();
-  return (job, kind, opts = {}) => {
+  const { enqueue, logSend, showToast, api } = useStore();
+  return async (job, kind, opts = {}) => {
     const no = kind === "invoice" ? job.invoiceNo : job.estimateNo;
     const email = (opts.email || job.email || "").trim();
     const due = openBalance(job);
@@ -95,39 +95,53 @@ export function useDoSend() {
       due > 0.01 &&
       opts.includePaymentLink !== false;
     const docSource = opts.docSource === DOC_SOURCE_QBO ? DOC_SOURCE_QBO : DOC_SOURCE_LOCAL;
-    const payload =
-      kind === "invoice"
-        ? {
-            email,
-            invoiceNo: no,
-            customer: job.customer || "",
-            amount: String(due || "").replace(/[$,]/g, ""),
-            includePaymentLink: withPay,
-            docSource,
-            job,
-          }
-        : { email, estimateNo: no, docSource, job };
+    const label = (kind === "invoice" ? "Invoice" : "Estimate") + " #" + no + (withPay ? " + payment link" : "");
+
+    // LOCAL docSource → send OUR branded qb-pdf via Resend (client builds the PDF,
+    // server only attaches it + calls Resend). QBO docSource stays on the durable
+    // queue so the cloud executor triggers QuickBooks' native send.
+    if (docSource === DOC_SOURCE_LOCAL && api?.sendDocEmailNow) {
+      if (!email) return showToast("Add a customer email first");
+      showToast("Sending " + label + " (local PDF)…");
+      let res;
+      try {
+        res = await api.sendDocEmailNow(job, kind, { email, includePaymentLink: withPay });
+      } catch (err) {
+        res = { ok: false, error: String(err?.message || err) };
+      }
+      if (res?.ok && res.sent) {
+        logSend(job.id, label + " sent to " + (res.to || email) + " (local PDF · Resend)", job.email);
+        showToast("Sent " + label + " to " + (res.to || email));
+      } else if (res?.ok && res.dryRun) {
+        logSend(job.id, label + " NOT sent — email backend has no RESEND_API_KEY (dry-run)", job.email);
+        showToast("Not sent — email key not configured (dry-run)");
+      } else {
+        const why = res?.reason || res?.error || "send failed";
+        logSend(job.id, label + " send FAILED — " + why, job.email);
+        showToast("Couldn't send " + label + " — " + why);
+      }
+      return res;
+    }
+
+    const payload = {
+      email,
+      customer: job.customer || "",
+      amount: String(due || "").replace(/[$,]/g, ""),
+      includePaymentLink: withPay,
+      docSource,
+      job,
+      ...(kind === "invoice" ? { invoiceNo: no } : { estimateNo: no }),
+    };
     const idk =
       kind === "invoice" && withPay
         ? "send_invoice_pay:" + docSource + ":" + no
         : "send_" + kind + ":" + docSource + ":" + no;
     enqueue("send_" + kind, job.id, payload, "deterministic", idk);
-    const via = docSource === DOC_SOURCE_QBO ? "QuickBooks" : "local PDF";
-    logSend(
-      job.id,
-      (kind === "invoice" ? "Invoice" : "Estimate") +
-        " #" +
-        no +
-        (withPay ? " + payment link" : "") +
-        " send queued (" +
-        via +
-        ")",
-      job.email
-    );
+    logSend(job.id, label + " send queued (QuickBooks)", job.email);
     showToast(
       withPay
-        ? "Queued " + via + " send with payment link — Activity"
-        : "Queued " + via + " send — Activity"
+        ? "Queued QuickBooks send with payment link — Activity"
+        : "Queued QuickBooks send — Activity"
     );
   };
 }
