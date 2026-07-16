@@ -68,6 +68,25 @@ describe("Reminders tab", () => {
     await waitFor(() => expect(screen.getByTestId("reminders-empty")).toBeInTheDocument());
   });
 
+  it("Verify button checks send status and keeps still-unsent on the list", async () => {
+    mockServer({ jobs: [unsentJob()], events: [] });
+    const user = userEvent.setup();
+    renderApp("#/reminders");
+    expect(await screen.findByTestId("reminders-view")).toBeInTheDocument();
+    await user.click(screen.getByTestId("reminder-headline-unsent:J-9:invoice"));
+    expect(screen.getByTestId("reminder-verify")).toBeInTheDocument();
+    await user.click(screen.getByTestId("reminder-verify"));
+    // Still unsent → after check it remains (or returns) on the list
+    await waitFor(() => {
+      expect(screen.getByTestId("reminders-view")).toBeInTheDocument();
+    });
+    await waitFor(() => {
+      const empty = screen.queryByTestId("reminders-empty");
+      // Either still showing the row, or briefly held then back — not permanently empty without dismiss
+      expect(empty).not.toBeInTheDocument();
+    });
+  });
+
   it("pause control lives inside the reminder pop-up and pauses all", async () => {
     mockServer({ jobs: [unsentJob()], events: [] });
     const user = userEvent.setup();

@@ -61,6 +61,7 @@ import {
   unsentDocLead,
   unsentDocPath,
 } from "../lib/followUpStatus.js";
+import VerifyReminderButton from "./VerifyReminderButton.jsx";
 
 function SmartFollowUpActions({ event, job, scope, state, onCreateJob, dismissForWork, onEmail }) {
   const nav = useNavigate();
@@ -389,6 +390,15 @@ function MustTodayNudgeSheet({ event, state: st, job, queue, onClose, onDone, on
       <button type="button" className="btn-brand w-full mb-2" onClick={openJob}>
         Open &amp; handle it
       </button>
+      <div className="mb-2">
+        <VerifyReminderButton
+          item={{ id: "must:" + event.id, kind: "must_today_nudge", event, state: st, job }}
+          onStart={() => {
+            onDone();
+            onClose();
+          }}
+        />
+      </div>
       <button type="button" className="btn bg-slate-100 text-slate-800 w-full mb-2" onClick={openInCalendar} data-testid="reminder-open-calendar">
         📅 Open in calendar
       </button>
@@ -508,6 +518,15 @@ function ScheduledReminderSheet({
           📂 Open job
         </button>
       ) : null}
+      <div className="mb-2">
+        <VerifyReminderButton
+          item={{ id: "sched:" + event.id, kind: "scheduled_reminder", event, state: st, job }}
+          onStart={() => {
+            onDone();
+            onClose();
+          }}
+        />
+      </div>
       <button type="button" className="btn bg-slate-100 text-slate-800 w-full mb-2" onClick={openInCalendar} data-testid="scheduled-reminder-open-calendar">
         📅 Open in calendar
       </button>
@@ -560,6 +579,22 @@ function UnsentDocSheet({ job, docKind, docNo, onClose, onDone, dismissForWork, 
       <button type="button" className="btn-brand w-full mb-2" onClick={openDoc} data-testid="unsent-doc-open">
         Open {label} &amp; send
       </button>
+      <div className="mb-2">
+        <VerifyReminderButton
+          item={{
+            id: "unsent:" + job.id + ":" + docKind,
+            kind: "unsent_doc",
+            job,
+            docKind,
+            docNo,
+          }}
+          onStart={() => {
+            onDone();
+            onClose();
+          }}
+          primary
+        />
+      </div>
       <button type="button" className="btn-ghost w-full text-slate-600" onClick={dontRemind} data-testid="unsent-doc-dismiss">
         Don't remind me
       </button>
@@ -596,6 +631,15 @@ function InspectionReminderSheet({ event, when, job, onClose, onDone, dismissFor
           Open job — {job.customer || "linked"}
         </button>
       ) : null}
+      <div className="mb-2">
+        <VerifyReminderButton
+          item={{ id: "insp:" + event.id, kind: "inspection", event, job, when }}
+          onStart={() => {
+            onDone();
+            onClose();
+          }}
+        />
+      </div>
       <button type="button" className="btn-brand w-full" onClick={ack} data-testid="inspection-thanks">
         Got it — thanks
       </button>
@@ -694,6 +738,15 @@ function ServiceCallSheet({
       <button type="button" className="btn-brand w-full mb-2" onClick={onRemind} data-testid="followup-remind">
         🔔 Remind me
       </button>
+      <div className="mb-2">
+        <VerifyReminderButton
+          item={{ id: "svc:" + event.id, kind: "service_call", event, job, assessment }}
+          onStart={() => {
+            onDone();
+            onClose();
+          }}
+        />
+      </div>
       <button type="button" className="btn bg-slate-100 text-slate-800 w-full mb-2" onClick={openInCalendar} data-testid="followup-open-calendar">
         📅 Open in calendar
       </button>
@@ -786,6 +839,19 @@ export default function FollowUpPrompts() {
     setQueue([]);
     setSubSheet(null);
   }, [pauseTick]);
+
+  // After Verify finishes (and hold lifts), rebuild queue so still-needed items can pop back.
+  useEffect(() => {
+    const onVerifyDone = () => {
+      if (IS_TEST || shouldSuppressPrompts() || isRemindersPaused()) return;
+      const q = buildPromptQueue(events, jobs, today, new Date(), commands);
+      setQueue(q);
+      setCurrent((c) => c || q[0] || null);
+      setHiddenForNav(false);
+    };
+    window.addEventListener("lepro-reminder-verify-done", onVerifyDone);
+    return () => window.removeEventListener("lepro-reminder-verify-done", onVerifyDone);
+  }, [events, jobs, today, commands]);
 
   useEffect(() => {
     const restore = () => {

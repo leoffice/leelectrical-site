@@ -9,6 +9,7 @@ import {
   unsentDocCandidates,
   unsentDocLead,
 } from "./followUpStatus.js";
+import { filterVerifyHeld } from "./reminderVerifyHold.js";
 
 export const STATE_KEY = "lepro_followup_state";
 export const SERVICE_LOOKBACK_DAYS = 7;
@@ -629,7 +630,8 @@ export function buildReminderList(events, jobs, today, now = new Date(), command
     });
   }
 
-  return list.sort(compareReminders);
+  // Hide items mid-verify (10s hold) so the sheet can disappear while we check.
+  return filterVerifyHeld(list.sort(compareReminders), now.getTime?.() || Date.now());
 }
 
 export function activeReminderCount(events, jobs, today, now = new Date(), commands = []) {
@@ -672,7 +674,7 @@ export function buildPromptQueue(events, jobs, today, now = new Date(), commands
       assessment,
     });
   }
-  return queue;
+  return filterVerifyHeld(queue, now.getTime?.() || Date.now());
 }
 
 /** Days between two YYYY-MM-DD strings (floor). */
