@@ -28,13 +28,15 @@ const key = (it) =>
     .toLowerCase()
     .replace(/\s+/g, " ")}`;
 
-// Keep CO lines on the project SOV for reference, but they never bill on a progress
-// requisition (changeOrders: 0 + requisitionItems filter). Only item-1 is exempt.
-const items = data.masterItems.map((it) => ({
+// CO1–CO8 on the raw sheet are mistakes — strip them entirely. Progress SOV is
+// the same base line set from Req 1 through the last (Levi 2026-07-16).
+// Only item-1 (Electric Service Equipment) is retainage-exempt.
+const allItems = data.masterItems.map((it) => ({
   ...it,
   retainageExempt: it.id === "item-1",
 }));
-const coLines = changeOrderItems(items);
+const coLines = changeOrderItems(allItems);
+const items = requisitionItems(allItems);
 const baseContract = 1700000; // Levi-confirmed; base SOV lines sum to this
 
 const project = {
@@ -46,13 +48,8 @@ const project = {
   customerKey: joyCustomerKey(),
   contractSum: baseContract,
   retainagePct: 10,
-  changeOrders: 0, // COs not included on progress requisitions
-  changeOrderList: coLines.map((it) => ({
-    id: it.id,
-    description: it.description,
-    value: it.value,
-    section: it.section,
-  })),
+  changeOrders: 0, // COs not on progress SOV or apps
+  changeOrderList: [],
   items,
   requisitions: [],
   requisitionEnabled: true,
@@ -134,7 +131,7 @@ console.log(
   "| exempt:",
   baseItems.filter((i) => i.retainageExempt).map((i) => `${i.id}=${i.value}`).join(",") || "(none)"
 );
-console.log("changeOrders on project:", rec.changeOrders, "| CO lines kept for ref:", coLines.length);
+console.log("changeOrders on project:", rec.changeOrders, "| stripped CO lines:", coLines.length, "| SOV lines:", items.length);
 console.log("distinct %s per req (1..12):", distinctByReq.join(","));
 for (const r of rec.requisitions) {
   console.log(

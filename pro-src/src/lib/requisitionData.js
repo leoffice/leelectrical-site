@@ -2,7 +2,7 @@
 
 import { customerKeyForName, customerContact, normalizeCustomer } from "./customers.js";
 import { BAEZ_SOV_ITEMS } from "../data/baezSovItems.js";
-import { changeOrderItems, sumItemValues } from "./requisitionCalc.js";
+import { baseContractItems, sumItemValues } from "./requisitionCalc.js";
 
 export const JOY_CONSTRUCTION_NAME = "Joy Construction";
 export const JOY_GC_LABEL = "JOY CONSTRUCTION CORP.";
@@ -65,10 +65,11 @@ export function ensureProjectDefaults(project) {
 }
 
 export function seedBaezProject() {
-  const coItems = changeOrderItems(BAEZ_SOV_ITEMS);
-  // Progress requisitions bill the $1.7M base only — COs stay off the app (Levi 2026-07-16).
+  // Progress SOV = base contract lines only. CO1–CO8 on the raw Drive sheet are
+  // mistakes — not on the schedule and never calculated (Levi 2026-07-16).
   // Electric Service Equipment (item-1) is the only retainage-exempt line.
-  const baseContract = sumItemValues(BAEZ_SOV_ITEMS) - sumItemValues(coItems);
+  const baseItems = baseContractItems(BAEZ_SOV_ITEMS);
+  const baseContract = sumItemValues(baseItems);
   return ensureProjectDefaults({
     id: BAEZ_PROJECT_ID,
     name: "Baez Place",
@@ -79,13 +80,8 @@ export function seedBaezProject() {
     contractSum: baseContract,
     retainagePct: 10,
     changeOrders: 0,
-    changeOrderList: coItems.map((it) => ({
-      id: it.id,
-      description: it.description,
-      value: it.value,
-      section: it.section,
-    })),
-    items: BAEZ_SOV_ITEMS.map((it) => ({
+    changeOrderList: [],
+    items: baseItems.map((it) => ({
       ...it,
       retainageExempt: it.id === "item-1" || it.retainageExempt === true,
     })),

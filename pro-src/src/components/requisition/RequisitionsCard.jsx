@@ -1,12 +1,13 @@
 import React, { useState } from "react";
 import { fmtUsd } from "../../lib/requisitionData.js";
-import { overallPct } from "../../lib/requisitionCalc.js";
+import { overallPct, requisitionItems } from "../../lib/requisitionCalc.js";
 import { paymentStatusLabel, requisitionBalance } from "../../lib/requisitionHelpers.js";
 
 export default function RequisitionsCard({ project, onSelect, selectedId }) {
   const [open, setOpen] = useState(true);
   const reqs = [...(project?.requisitions || [])].sort((a, b) => (b.num || 0) - (a.num || 0));
-  const pct = overallPct(project?.items);
+  // Base SOV only — mistaken CO lines never count toward % done.
+  const pct = overallPct(requisitionItems(project?.items));
 
   if (!reqs.length) {
     return (
