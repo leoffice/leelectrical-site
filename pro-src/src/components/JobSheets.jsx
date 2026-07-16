@@ -23,8 +23,9 @@ import { syncBillingFromService } from "../lib/addressSync.js";
 import { useStore } from "../state/store.jsx";
 
 import { fmt$, parseAmount, todayStr } from "../lib/format.js";
-import { docStorePdfUrl, openPdfBlob, openPdfUrl } from "../lib/pdfOpen.js";
-import { canGenerateLocalDoc } from "../lib/jobToQbDoc.js";
+import { docStorePdfUrl, openPdfBlob, openPdfUrl, downloadPdfBlob } from "../lib/pdfOpen.js";
+import { canGenerateLocalDoc, docPdfFilename } from "../lib/jobToQbDoc.js";
+import { buildInvoicePdfFromJob, buildEstimatePdfFromJob } from "../lib/invoicePdf.js";
 import { chargeCardInApp, fetchSolaIfieldsConfig } from "../lib/solaCharge.js";
 import SolaCardForm, { tokenizeSolaCard } from "./SolaCardForm.jsx";
 import { fmtMoneyPrecise, totalWithFee } from "../lib/payFees.js";
@@ -1280,18 +1281,25 @@ function useDocPdfView(job, kind, no) {
       return;
     }
     setSt({ phase: "fetching", source: DOC_SOURCE_LOCAL });
-    const gen = api.generateLocalDoc ? await api.generateLocalDoc(job, kind) : { ok: false };
-    if (gen.ok) {
-      if (await waitForStored()) return openStored();
-      const key = String(gen.key || docKey || "").trim();
-      if (key) {
-        openPdfUrl(docStorePdfUrl(key));
-        setSt({ phase: "idle", source: null });
-        return;
-      }
+    // Client-side only — no server generate-doc (dead after CF cutover).
+    const gen = api.generateLocalDoc
+      ? await api.generateLocalDoc(job, kind)
+      : (() => {
+          try {
+            const blob = kind === "estimate" ? buildEstimatePdfFromJob(job) : buildInvoicePdfFromJob(job);
+            if (!blob) return { ok: false };
+            downloadPdfBlob(blob, docPdfFilename(kind, job, no) || `${kind}-${no || "document"}.pdf`);
+            return { ok: true };
+          } catch (e) {
+            return { ok: false, error: String(e) };
+          }
+        })();
+    if (gen && gen.ok) {
+      setSt({ phase: "idle", source: null });
+      return;
     }
     setSt({ phase: "error", source: DOC_SOURCE_LOCAL });
-    showToast("Could not build the local PDF — try again or use View QuickBooks");
+    showToast("Couldn't build the PDF on this device — try View QuickBooks");
   };
 
   const viewQbo = async () => {
@@ -1580,9 +1588,9 @@ export function PaymentLinkSheet({ job, onClose }) {
       "deterministic",
       key
     );
-    // Pre-generate invoice PDF locally so customer View invoice matches QBO clone.
+    // Prewarm client PDF path (no download) so View Local is ready.
     if (canGenerateLocalDoc(job, "invoice") && api.generateLocalDoc) {
-      api.generateLocalDoc(job, "invoice").catch(() => {});
+      api.generateLocalDoc(job, "invoice", { download: false }).catch(() => {});
     } else {
       enqueue(
         "fetch_pdf",

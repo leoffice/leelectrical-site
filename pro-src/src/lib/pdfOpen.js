@@ -33,3 +33,27 @@ export function openPdfBlob(blob) {
     }
   }, 120_000);
 }
+
+/**
+ * Download a generated PDF blob with a filename — the reliable cross-device
+ * path (mobile browsers open blob-URL new tabs inconsistently; a download lands
+ * in the native PDF viewer). Mirrors the working requisition PDF download.
+ */
+export function downloadPdfBlob(blob, filename = "document.pdf") {
+  if (!blob || typeof document === "undefined" || typeof URL === "undefined" || !URL.createObjectURL) return;
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  a.rel = "noopener";
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  setTimeout(() => {
+    try {
+      URL.revokeObjectURL(url);
+    } catch {
+      /* ignore */
+    }
+  }, 120_000);
+}

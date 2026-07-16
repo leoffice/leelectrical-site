@@ -32,12 +32,13 @@ describe("invoice/estimate quick view — View PDF", () => {
     const sheet = await openInvoiceSheet(user);
 
     await user.click(within(sheet).getByText("View Local Invoice"));
+    // Client-side: PDF built + downloaded, no server generate-doc.
     await waitFor(() => expect(click).toHaveBeenCalledTimes(1));
-    await waitFor(() => expect(srv.calls.some((c) => c.path === "generate-doc")).toBe(true));
+    expect(srv.calls.some((c) => c.path === "generate-doc")).toBe(false);
     expect(srv.enqueued("fetch_pdf")).toHaveLength(0);
   });
 
-  it("on a miss with invoice data: opens local preview and generates PDF on server", async () => {
+  it("on a miss with invoice data: builds + downloads the PDF client-side (no server)", async () => {
     const click = stubPdfOpen();
     const srv = mockServer(); // docs empty -> 404
     const user = userEvent.setup();
@@ -46,7 +47,7 @@ describe("invoice/estimate quick view — View PDF", () => {
     await user.click(within(sheet).getByText("View Local Invoice"));
     await waitFor(() => expect(click).toHaveBeenCalledTimes(1));
     expect(screen.queryByText("Generating your PDF — a few seconds…")).toBeNull();
-    await waitFor(() => expect(srv.calls.some((c) => c.path === "generate-doc")).toBe(true));
+    expect(srv.calls.some((c) => c.path === "generate-doc")).toBe(false);
     expect(srv.enqueued("fetch_pdf")).toHaveLength(0);
   });
 
