@@ -638,14 +638,50 @@ export function StoreProvider({ children }) {
   const enqueue = useCallback(
     async (type, jobId, payload, lane, idempotencyKey) => {
       try {
+        const idk = idempotencyKey || type + ":" + jobId + ":" + todayStr();
         const { command, deduped } = await api.enqueueCommand(
           type,
           jobId,
           payload,
           lane || "judgment",
-          idempotencyKey || type + ":" + jobId + ":" + todayStr()
+          idk
         );
-        if (deduped) showToast("Already sent — deduped, no double-send.");
+        if (deduped) {
+          // If the prior attempt failed, re-queue it instead of dead-ending Save & sync.
+          const sameKey = (commands || []).find((c) => String(c.idempotencyKey || "") === String(idk));
+          const failedSame =
+            sameKey?.status === "failed"
+              ? sameKey
+              : (commands || []).find(
+                  (c) => c.type === type && String(c.jobId) === String(jobId) && c.status === "failed"
+                );
+          if (failedSame?.id) {
+            await api
+              .updateCommand(failedSame.id, { status: "queued", attempts: 0, error: null }, "auto-retry after re-save")
+              .catch(() => {});
+            showToast("Re-trying the failed QuickBooks sync…");
+            refreshCommands();
+            return failedSame;
+          }
+          // Prior create was lost from the short command history and the job still
+          // has no QuickBooks number — allow one fresh attempt (not a double on done).
+          if (type === "create_invoice" || type === "create_estimate") {
+            const j = effectiveJob(jobId) || {};
+            const hasNo =
+              type === "create_estimate"
+                ? !!(j.estimateNo || j._estimateConfirmed)
+                : !!(j.invoiceNo || j._invoiceConfirmed);
+            if (!hasNo && (!sameKey || sameKey.status !== "done")) {
+              const retryKey = idk + ":r" + Date.now();
+              const again = await api.enqueueCommand(type, jobId, payload, lane || "judgment", retryKey);
+              refreshCommands();
+              if (!again?.deduped) showToast("Queued again for QuickBooks…");
+              else showToast("Already sent — no double-send.");
+              return again?.command || command;
+            }
+          }
+          showToast("Already sent — deduped, no double-send.");
+        }
         refreshCommands();
         return command;
       } catch (e) {
@@ -653,7 +689,7 @@ export function StoreProvider({ children }) {
         return null;
       }
     },
-    [refreshCommands, showToast]
+    [commands, effectiveJob, refreshCommands, showToast]
   );
   const enqueueRef = useRef(enqueue);
   enqueueRef.current = enqueue;

@@ -103,10 +103,10 @@ export function docPdfFilename(kind, job = {}, docNumber = "") {
   return parts.join("_") + ".pdf";
 }
 
-/** True when the job has enough data to generate a local PDF. */
+/** True when the job has enough data to generate a local PDF.
+ *  Invoice/estimate number is optional — drafts use "DRAFT" so Save-on-job
+ *  can still download the QuickBooks-style PDF before QBO assigns a number. */
 export function canGenerateLocalDoc(job, kind = "invoice") {
-  const no = kind === "invoice" ? job?.invoiceNo : job?.estimateNo;
-  if (!no) return false;
   const lines = billableLines(job, kind);
   const total = linesTotal(lines);
   return lines.length > 0 && total > 0;
@@ -116,7 +116,8 @@ export function canGenerateLocalDoc(job, kind = "invoice") {
 export function mapJobToQbDocData(job, kind = "invoice") {
   const isInvoice = kind === "invoice";
   const docType = isInvoice ? "INVOICE" : "ESTIMATE";
-  const docNumber = String(isInvoice ? job.invoiceNo : job.estimateNo || "").trim();
+  const docNumber =
+    String(isInvoice ? job.invoiceNo : job.estimateNo || "").trim() || "DRAFT";
   const lines = mapLines(billableLines(job, kind));
   const subtotal = linesTotal(billableLines(job, kind));
   const tax = parseAmount(job.tax ?? 0);

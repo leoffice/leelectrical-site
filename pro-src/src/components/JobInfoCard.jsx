@@ -70,6 +70,7 @@ export default function JobInfoCard({
   onAddJob,
   onAddChangeOrder,
   canAddChangeOrder = true,
+  onAddAttachment,
 }) {
   const total = invoiceTotal(job);
   const paid = amountPaid(job);
@@ -169,6 +170,21 @@ export default function JobInfoCard({
                 data-testid="add-change-order-btn"
               >
                 ＋ Change order
+              </button>
+            ) : null}
+            {onAddAttachment ? (
+              <button
+                type="button"
+                className={HEADER_BTN}
+                onClick={(e) => {
+                  stopBubble(e);
+                  onAddAttachment();
+                }}
+                data-testid="add-attachment-btn"
+                aria-label="Add attachment"
+                title="Add attachment"
+              >
+                📋 Attach
               </button>
             ) : null}
           </div>

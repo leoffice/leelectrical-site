@@ -11,6 +11,7 @@ export default function JobAddressCarousel({
   onSelectJob,
   onAddChangeOrder,
   canAddChangeOrder = true,
+  onAddAttachment,
   onEstimate,
   onInvoice,
   onPayment,
@@ -118,6 +119,7 @@ export default function JobAddressCarousel({
               onAddJob={j.id === activeId ? onAddJob : undefined}
               onAddChangeOrder={j.id === activeId ? onAddChangeOrder : undefined}
               canAddChangeOrder={canAddChangeOrder}
+              onAddAttachment={j.id === activeId ? onAddAttachment : undefined}
               onEstimate={() => onEstimate?.(j)}
               onInvoice={() => onInvoice?.(j)}
               onPayment={() => onPayment?.(j)}

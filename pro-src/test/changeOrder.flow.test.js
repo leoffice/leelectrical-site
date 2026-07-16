@@ -1,14 +1,21 @@
-// Change order numbering, carousel visibility, connect docs.
+// Change order numbering, carousel visibility, connect docs, tab rows.
 import { describe, expect, it } from "vitest";
 import {
   briefJobTitleFromDoc,
+  buildChangeOrderLinesFromQbo,
   canAddChangeOrder,
   carouselVisibleJobs,
+  changeOrderDisplayName,
   changeOrderDocLabel,
   changeOrderJobPatch,
   changeOrderReadyForCarousel,
+  changeOrderTabRows,
   connectDocsPatch,
+  isChangeOrderJob,
   nextChangeOrderSeq,
+  seqFromCoPi,
+  tagChangeOrderPatch,
+  textLooksLikeChangeOrder,
 } from "../src/lib/changeOrder.js";
 
 const BASE = {
@@ -46,6 +53,83 @@ describe("changeOrder numbering", () => {
     expect(p.changeOrderSeq).toBe(1);
     expect(p.changeOrderLabel).toBe("251100-CO-1");
     expect(p.invoiceNo).toBe("");
+    expect(p.title).toMatch(/Change Order 1/);
+  });
+
+  it("display name is Change Order N", () => {
+    expect(changeOrderDisplayName(1)).toBe("Change Order 1");
+    expect(changeOrderDisplayName(2, "estimate")).toBe("Change Order Estimate 2");
+  });
+});
+
+describe("change order detection", () => {
+  it("detects CO from title and doc number", () => {
+    expect(textLooksLikeChangeOrder("Change order for lighting")).toBe(true);
+    expect(isChangeOrderJob({ id: "x", title: "Change order — $120" })).toBe(true);
+    expect(isChangeOrderJob({ id: "x", invoiceNo: "251100-CO-2" })).toBe(true);
+    expect(isChangeOrderJob(BASE)).toBe(false);
+  });
+
+  it("detects CO from QuickBooks CO / PI custom field", () => {
+    expect(seqFromCoPi("01")).toBe(1);
+    expect(seqFromCoPi("11 (007)")).toBe(11);
+    expect(seqFromCoPi("")).toBe(0);
+    expect(isChangeOrderJob({ id: "qbo-251702", qboCoPi: "01", title: "Heater" })).toBe(true);
+    expect(isChangeOrderJob({ id: "qbo-x", coPi: "02" })).toBe(true);
+    expect(isChangeOrderJob(BASE)).toBe(false);
+  });
+
+  it("extracts CO lines from QBO line items", () => {
+    const lines = buildChangeOrderLinesFromQbo([
+      { description: "Base install", amount: 10000 },
+      { description: "Change order for extra switches", amount: 5280 },
+      { description: "Change order for extra recessed lights.", amount: 9100 },
+    ]);
+    expect(lines).toHaveLength(2);
+    expect(lines[0].changeOrderSeq).toBe(1);
+    expect(lines[1].amount).toBe(9100);
+  });
+
+  it("tagChangeOrderPatch sets seq and label", () => {
+    const p = tagChangeOrderPatch({ id: "J-co", invoiceNo: "251200" }, BASE, 1);
+    expect(p.changeOrder).toBe(true);
+    expect(p.changeOrderSeq).toBe(1);
+    expect(p.changeOrderLabel).toBe("251100-CO-1");
+  });
+});
+
+describe("change order tab rows", () => {
+  it("lists separate CO jobs and CO lines on the original", () => {
+    const original = {
+      ...BASE,
+      invoiceLines: [
+        { description: "Main panel upgrade", amount: 8000 },
+        { description: "Change order for second floor lights", amount: 1200 },
+      ],
+      changeOrderLines: [
+        { description: "Change order for second floor lights", amount: 1200, changeOrderSeq: 1 },
+      ],
+    };
+    const coJob = {
+      id: "J-co2",
+      customer: "Acme",
+      qboCustomerId: "55",
+      serviceAddress: "10 Oak St",
+      changeOrder: true,
+      changeOrderSourceId: "J-1",
+      changeOrderSeq: 2,
+      changeOrderLabel: "251100-CO-2",
+      invoiceNo: "251101",
+      amount: "$500",
+      openBalance: "$500",
+      paid: false,
+      invoiceLines: [{ description: "Extra outlet", amount: 500 }],
+    };
+    const rows = changeOrderTabRows([original, coJob], original);
+    expect(rows.length).toBeGreaterThanOrEqual(2);
+    expect(rows.some((r) => r.kind === "job" && r.docNo === "251101")).toBe(true);
+    expect(rows.some((r) => r.kind === "line")).toBe(true);
+    expect(rows.every((r) => /Change Order/.test(r.label))).toBe(true);
   });
 });
 

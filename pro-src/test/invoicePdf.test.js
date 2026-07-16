@@ -53,9 +53,9 @@ describe("invoicePdf field mapping", () => {
     expect(d.serviceAddress).toContain("479A East New York");
   });
 
-  it("canGenerateLocalInvoice requires invoice number and billable lines", () => {
+  it("canGenerateLocalInvoice allows drafts without invoice number when lines exist", () => {
     expect(canGenerateLocalInvoice(job)).toBe(true);
-    expect(canGenerateLocalInvoice({ ...job, invoiceNo: "" })).toBe(false);
+    expect(canGenerateLocalInvoice({ ...job, invoiceNo: "" })).toBe(true);
     expect(canGenerateLocalInvoice({ ...job, amount: "", invoiceLines: [] })).toBe(false);
   });
 

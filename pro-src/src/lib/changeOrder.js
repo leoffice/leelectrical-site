@@ -32,12 +32,20 @@ export function seqFromDocNumber(docNo) {
   return m ? parseInt(m[1], 10) : 0;
 }
 
+/** Parse QuickBooks "CO / PI" custom field (e.g. "01", "11 (007)") → sequence #. */
+export function seqFromCoPi(val) {
+  const m = String(val || "").trim().match(/^0*(\d+)/);
+  return m ? parseInt(m[1], 10) : 0;
+}
+
 /** True when this job is (or should be treated as) a change-order document. */
 export function isChangeOrderJob(job) {
   if (!job || !jobAlive(job)) return false;
   if (job.changeOrder) return true;
   if (job.changeOrderSeq != null && Number(job.changeOrderSeq) > 0) return true;
   if (String(job.changeOrderLabel || "").trim()) return true;
+  // QuickBooks sales-form custom field "CO / PI" (Joy Construction etc.)
+  if (seqFromCoPi(job.qboCoPi || job.coPi)) return true;
   if (textLooksLikeChangeOrder(job.title)) return true;
   if (seqFromDocNumber(job.invoiceNo) || seqFromDocNumber(job.estimateNo)) return true;
   return false;

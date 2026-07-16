@@ -205,7 +205,7 @@ export function mapJobToInvoicePdfData(job, overrides = {}) {
 
 /** True when the job has enough data to render a local invoice PDF. */
 export function canGenerateLocalInvoice(job) {
-  if (!job?.invoiceNo) return false;
+  // Number optional — drafts still render the QB-style PDF as DRAFT.
   const mapped = mapJobToInvoicePdfData(job);
   return mapped.lines.length > 0 && mapped.total > 0;
 }
