@@ -1,35 +1,25 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { CANONICAL_ORIGIN, FUNCTIONS_ORIGIN, functionsBase, siteOrigin } from "../src/lib/functionsBase.js";
+import { CANONICAL_ORIGIN, functionsBase, siteOrigin } from "../src/lib/functionsBase.js";
 
 describe("functionsBase", () => {
   afterEach(() => {
     vi.unstubAllGlobals();
   });
 
-  // The apex leelectrical.us moved to Cloudflare and no longer serves
-  // /.netlify/functions/* — API calls must go to the CF Pages Functions origin.
-  it("uses the CF functions origin on apex leelectrical.us (no longer serves functions)", () => {
+  // The apex leelectrical.us serves the CF Pages Functions natively again.
+  it("uses same-origin on apex leelectrical.us", () => {
     vi.stubGlobal("location", { hostname: "leelectrical.us" });
-    expect(functionsBase()).toBe(`${FUNCTIONS_ORIGIN}/.netlify/functions`);
-  });
-
-  it("uses the CF functions origin on www", () => {
-    vi.stubGlobal("location", { hostname: "www.leelectrical.us" });
-    expect(functionsBase()).toBe(`${FUNCTIONS_ORIGIN}/.netlify/functions`);
-  });
-
-  it("uses same-origin when served from the CF functions host itself", () => {
-    vi.stubGlobal("location", { hostname: "cf-native.leelectrical-cf.pages.dev" });
     expect(functionsBase()).toBe("/.netlify/functions");
   });
 
-  it("uses the CF functions origin for local dev", () => {
-    vi.stubGlobal("location", { hostname: "localhost" });
-    expect(functionsBase()).toBe(`${FUNCTIONS_ORIGIN}/.netlify/functions`);
+  it("uses the canonical apex URL on www (cross-origin, CORS-enabled)", () => {
+    vi.stubGlobal("location", { hostname: "www.leelectrical.us" });
+    expect(functionsBase()).toBe(`${CANONICAL_ORIGIN}/.netlify/functions`);
   });
 
-  it("keeps the canonical apex for customer-facing links", () => {
-    expect(CANONICAL_ORIGIN).toBe("https://leelectrical.us");
+  it("uses the canonical apex URL for local dev", () => {
+    vi.stubGlobal("location", { hostname: "localhost" });
+    expect(functionsBase()).toBe(`${CANONICAL_ORIGIN}/.netlify/functions`);
   });
 });
 

@@ -1,29 +1,19 @@
-/** Canonical apex — used for customer-facing links (pay pages, doc URLs). */
+/** Canonical apex — serves the CF Pages Functions + customer-facing links. */
 export const CANONICAL_ORIGIN = "https://leelectrical.us";
 
 /**
- * Origin that actually SERVES /.netlify/functions/*.
+ * Base URL for /.netlify/functions API calls.
  *
- * The backend migrated Netlify → Cloudflare Pages Functions. When the apex
- * leelectrical.us moved to Cloudflare it STOPPED serving /.netlify/functions/*
- * — those paths now fall through to the SPA shell (index.html), so every API
- * fetch got HTML back → "Unexpected token '<', "<!DOCTYPE"... is not valid JSON".
- * The ported functions are served by the leelectrical-cf Pages project's
- * cf-native deployment, which sends CORS `access-control-allow-origin: *`.
+ * The backend is now Cloudflare Pages Functions bundled into this same project
+ * (functions/.netlify/functions/*), so the apex leelectrical.us serves
+ * /.netlify/functions/* natively again. Apex = same-origin; www/previews/dev
+ * call the canonical apex cross-origin (functions send CORS allow-origin:*).
  */
-export const FUNCTIONS_ORIGIN = "https://cf-native.leelectrical-cf.pages.dev";
-
-/** Base URL for /.netlify/functions API calls. */
 export function functionsBase() {
-  // Same-origin when the app is served from the functions host itself.
-  if (
-    typeof location !== "undefined" &&
-    (location.hostname === "cf-native.leelectrical-cf.pages.dev" ||
-      location.hostname === "leelectrical-cf.pages.dev")
-  ) {
+  if (typeof location !== "undefined" && location.hostname === "leelectrical.us") {
     return "/.netlify/functions";
   }
-  return `${FUNCTIONS_ORIGIN}/.netlify/functions`;
+  return `${CANONICAL_ORIGIN}/.netlify/functions`;
 }
 
 /** Origin for app and customer-facing links — apex in production. */
