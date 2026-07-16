@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { parseSovCsv } from "../src/lib/sovParser.js";
 import { buildG702, isChangeOrderItem, itemEarned, overallPct, requisitionItems } from "../src/lib/requisitionCalc.js";
-import { seedBaezProject } from "../src/lib/requisitionData.js";
+import { fmtUsd, seedBaezProject } from "../src/lib/requisitionData.js";
 import {
   applyCarriedPercentages,
   setAllRequisitionItemsComplete,
@@ -52,9 +52,23 @@ General,,,
   });
 });
 
+describe("fmtUsd", () => {
+  it("always shows cents so paid-so-far and amount due stay exact", () => {
+    expect(fmtUsd(108278.1)).toBe("$108,278.10");
+    expect(fmtUsd(1467621.9)).toBe("$1,467,621.90");
+    expect(fmtUsd(100)).toBe("$100.00");
+  });
+});
+
 describe("requisitionCalc", () => {
   it("computes earned amount from completion %", () => {
     expect(itemEarned({ value: 10000, completedPct: 50 })).toBe(5000);
+  });
+
+  it("supports fractional SOV % so dollars land on the cent", () => {
+    // 92.92% of $1,579,692.00-ish line → cents preserved via roundMoney
+    expect(itemEarned({ value: 100000, completedPct: 33.33 })).toBe(33330);
+    expect(itemEarned({ value: 459000, completedPct: 100 })).toBe(459000);
   });
 
   it("seeds Baez SOV from Drive import (first line $459,000)", () => {
@@ -352,7 +366,13 @@ describe("requisitionHelpers", () => {
 
   it("buildRequisitionEmail includes key amounts, subject, and signature", () => {
     const project = seedBaezProject();
-    const req = { applicationNumber: "REQ-12", currentPaymentDue: 108000, previousCertificates: 1470000, totalCompleted: 1600000, periodTo: "2026-07-01" };
+    const req = {
+      applicationNumber: "REQ-12",
+      currentPaymentDue: 108278.1,
+      previousCertificates: 1467621.9,
+      totalCompleted: 1600000,
+      periodTo: "2026-07-01",
+    };
     const email = buildRequisitionEmail({
       project,
       requisition: req,
@@ -360,7 +380,9 @@ describe("requisitionHelpers", () => {
       attachments: [{ name: "invoice.pdf" }],
     });
     expect(email.subject).toContain("REQ-12");
-    expect(email.body).toContain("108,000");
+    // Money shows to the cent (paid-so-far / due must not round to whole dollars).
+    expect(email.body).toContain("108,278.10");
+    expect(email.body).toContain("1,467,621.90");
     expect(email.body).toContain("invoice.pdf");
     expect(email.to).toBe("gc@test.com");
     expect(email.signature).toContain("Office@LeElectrical.us");

@@ -408,7 +408,10 @@ function renderG703Pages(project, req) {
       const ry = y - rowH;
       for (const c of cols) {
         let val = r[c.key];
-        if (c.key === "pctComplete") val = `${Math.round(Number(val) || 0)}%`;
+        if (c.key === "pctComplete") {
+          const p = Math.round((Number(val) || 0) * 100) / 100;
+          val = `${p % 1 ? p.toFixed(2) : String(p)}%`;
+        }
         else if (c.key !== "itemNo" && c.key !== "description") val = money(val);
         else val = String(val == null ? "" : val);
         if (c.key === "description") val = clip(val, c.w - 6, 7);

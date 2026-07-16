@@ -119,14 +119,22 @@ export function G703View({ req, editable = false, onPctChange, prevPctById = {} 
                               type="number"
                               min={0}
                               max={100}
-                              step={1}
+                              step={0.01}
+                              inputMode="decimal"
                               className="w-14 text-right border rounded px-1 py-0.5"
-                              value={Math.round(Number(r.pctComplete) || 0)}
-                              onChange={(e) => onPctChange(r.itemId, Math.min(100, Math.max(0, Number(e.target.value) || 0)))}
+                              value={Math.round((Number(r.pctComplete) || 0) * 100) / 100}
+                              onChange={(e) =>
+                                onPctChange(
+                                  r.itemId,
+                                  Math.min(100, Math.max(0, Math.round((Number(e.target.value) || 0) * 100) / 100))
+                                )
+                              }
                               data-testid="g703-pct-input"
                             />
                           ) : (
-                            `${Math.round(Number(r.pctComplete) || 0)}%`
+                            `${(Math.round((Number(r.pctComplete) || 0) * 100) / 100).toFixed(
+                              Number(r.pctComplete) % 1 ? 2 : 0
+                            )}%`
                           )}
                         </td>
                         <td className="text-right px-2 py-1.5 tabular-nums">{fmtUsd(r.balance)}</td>
@@ -202,7 +210,11 @@ export function G703DraftContinuation({ items, prevPctById = {}, retainagePct = 
                       <td className="text-right px-2 py-2 tabular-nums text-xs">{fmtUsd(r.totalCompleted)}</td>
                       <td className="text-right px-2 py-2">
                         {renderPct ? renderPct(it) : (
-                          <span className="tabular-nums font-semibold text-xs">{Math.round(Number(r.pctComplete) || 0)}%</span>
+                          <span className="tabular-nums font-semibold text-xs">
+                            {(Math.round((Number(r.pctComplete) || 0) * 100) / 100).toFixed(
+                              Number(r.pctComplete) % 1 ? 2 : 0
+                            )}%
+                          </span>
                         )}
                       </td>
                       <td className="text-right px-2 py-2 tabular-nums text-xs">{fmtUsd(r.balance)}</td>
