@@ -9,6 +9,9 @@
 //   iterate   nudges Dispatch to look at the message
 import { deepMerge, isPlainObject, mergeJobs } from "./merge.js";
 import { functionsBase } from "../lib/functionsBase.js";
+import { buildInvoicePdfFromJob, buildEstimatePdfFromJob } from "../lib/invoicePdf.js";
+import { downloadPdfBlob } from "../lib/pdfOpen.js";
+import { docPdfFilename } from "../lib/jobToQbDoc.js";
 
 const base = functionsBase;
 
@@ -129,19 +132,23 @@ export function createNetlifyAdapter() {
     },
 
     /** Generate invoice/estimate PDF locally (le-invoice-suite) and store in docs. */
-    async generateLocalDoc(job, kind = "invoice") {
-      const res = await fetch(`${base()}/generate-doc`, {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ kind, job }),
-      });
-      let data = {};
+    async generateLocalDoc(job, kind = "invoice", opts = {}) {
+      // 100% CLIENT-SIDE — no network. The old server `generate-doc` lambda is
+      // gone/unreachable after the Cloudflare migration ("Failed to fetch"); the
+      // PDF is built in the browser and downloaded. `opts.download === false`
+      // just validates/prewarms without triggering a download.
       try {
-        data = await res.json();
-      } catch {
-        /* ignore */
+        const blob = kind === "estimate" ? buildEstimatePdfFromJob(job) : buildInvoicePdfFromJob(job);
+        if (!blob) return { ok: false, error: "no_pdf" };
+        const no = kind === "invoice" ? job?.invoiceNo : job?.estimateNo;
+        if (opts.download !== false) {
+          const filename = docPdfFilename(kind, job, no) || `${kind}-${String(no || "document")}.pdf`;
+          downloadPdfBlob(blob, filename);
+        }
+        return { ok: true, clientGenerated: true, docNumber: String(no || "").trim(), bytes: blob.size };
+      } catch (err) {
+        return { ok: false, error: String(err?.message || err) };
       }
-      return { ok: !!(res.ok && data.ok), ...data };
     },
 
     /** Fetch a stored PDF from the docs fn. Returns a Blob, or null while the

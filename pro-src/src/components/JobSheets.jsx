@@ -1281,23 +1281,27 @@ function useDocPdfView(job, kind, no) {
       return;
     }
     setSt({ phase: "fetching", source: DOC_SOURCE_LOCAL });
-    // Build the PDF entirely in the browser and DOWNLOAD it — the server
-    // generate-doc lambda is broken (502s), so the view path never waits on it.
-    // Download (not a blob-URL new tab) is what reliably opens the native PDF
-    // viewer across devices — same path the working requisition PDF uses.
-    // Server-side storage for the email flow is best-effort in the background.
-    try {
-      const blob = kind === "estimate" ? buildEstimatePdfFromJob(job) : buildInvoicePdfFromJob(job);
-      if (!blob) throw new Error("empty pdf");
-      const filename = docPdfFilename(kind, job, no) || `${kind}-${no || "document"}.pdf`;
-      downloadPdfBlob(blob, filename);
+    // Generate the PDF fully CLIENT-SIDE via generateLocalDoc (builds in the
+    // browser and downloads — no server round-trip). The old server generate-doc
+    // fetch is gone, so nothing here can "Failed to fetch"/hang.
+    const gen = api.generateLocalDoc
+      ? await api.generateLocalDoc(job, kind)
+      : (() => {
+          try {
+            const blob = kind === "estimate" ? buildEstimatePdfFromJob(job) : buildInvoicePdfFromJob(job);
+            if (!blob) return { ok: false };
+            downloadPdfBlob(blob, docPdfFilename(kind, job, no) || `${kind}-${no || "document"}.pdf`);
+            return { ok: true };
+          } catch (e) {
+            return { ok: false, error: String(e) };
+          }
+        })();
+    if (gen && gen.ok) {
       setSt({ phase: "idle", source: null });
-      if (api.generateLocalDoc) api.generateLocalDoc(job, kind).catch(() => {});
       return;
-    } catch (e) {
-      setSt({ phase: "error", source: DOC_SOURCE_LOCAL });
-      showToast("Couldn't build the PDF on this device — try View QuickBooks");
     }
+    setSt({ phase: "error", source: DOC_SOURCE_LOCAL });
+    showToast("Couldn't build the PDF on this device — try View QuickBooks");
   };
 
   const viewQbo = async () => {
@@ -1586,9 +1590,10 @@ export function PaymentLinkSheet({ job, onClose }) {
       "deterministic",
       key
     );
-    // Pre-generate invoice PDF locally so customer View invoice matches QBO clone.
+    // Prewarm (validate the local PDF builds) — download:false so this background
+    // step never triggers a visible download.
     if (canGenerateLocalDoc(job, "invoice") && api.generateLocalDoc) {
-      api.generateLocalDoc(job, "invoice").catch(() => {});
+      api.generateLocalDoc(job, "invoice", { download: false }).catch(() => {});
     } else {
       enqueue(
         "fetch_pdf",
