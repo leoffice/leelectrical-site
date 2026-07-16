@@ -2,6 +2,11 @@
 
 const s = (v) => (v == null ? "" : String(v).trim());
 
+export function docNoForJob(job, docKind) {
+  if (!job) return "";
+  return s(docKind === "invoice" ? job.invoiceNo : job.estimateNo);
+}
+
 function kindMatches(entry, docKind) {
   const k = s(entry?.kind).toLowerCase();
   if (!k || k.includes("queued") || k.includes("reminder")) return false;
@@ -9,19 +14,41 @@ function kindMatches(entry, docKind) {
   return k.includes("estimate");
 }
 
+function docNoMatches(entry, docNo) {
+  if (!docNo) return true;
+  return s(entry?.kind).includes(docNo);
+}
+
 function isDelivered(entry) {
   const k = s(entry?.kind).toLowerCase();
-  return k.includes("emailed") || /\bsent\b/.test(k) || k.includes("delivered");
+  if (k.includes("failed") || k.includes("did not")) return false;
+  return k.includes("emailed") || /\bemailed\b/.test(k) || k.includes("delivered") || /\binvoice sent\b/.test(k) || /\bestimate sent\b/.test(k);
 }
 
 /** Latest delivered send for this doc kind from job history (chronological list). */
-export function lastDocSend(job, docKind) {
+export function lastDocSend(job, docKind, { docNo } = {}) {
+  const no = docNo != null ? s(docNo) : docNoForJob(job, docKind);
   const hist = job?.invoiceHistory || [];
   for (let i = hist.length - 1; i >= 0; i--) {
     const e = hist[i];
-    if (kindMatches(e, docKind) && isDelivered(e)) return e;
+    if (kindMatches(e, docKind) && docNoMatches(e, no) && isDelivered(e)) return e;
   }
   return null;
+}
+
+/** True when a send command completed successfully for this job + doc. */
+export function docSendSucceeded(commands, job, docKind) {
+  const jobId = String(job?.id || "");
+  if (!jobId) return false;
+  const type = docKind === "invoice" ? "send_invoice" : "send_estimate";
+  const docNo = docNoForJob(job, docKind);
+  return (commands || []).some((c) => {
+    if (!c || c.type !== type || c.status !== "done" || String(c.jobId) !== jobId) return false;
+    const pl = c.payload || {};
+    const cmdNo = s(pl.invoiceNo || pl.estimateNo);
+    if (docNo && cmdNo && cmdNo !== docNo) return false;
+    return true;
+  });
 }
 
 /** True when a send_invoice / send_estimate command is in flight for this job + kind. */

@@ -5,7 +5,7 @@ export const DOUBLE_BACK_MS = 2000;
 const ROOT_EXACT = new Set([
   "/",
   "/today",
-  "/calls",
+  "/reminders",
   "/time",
   "/projects",
   "/company",

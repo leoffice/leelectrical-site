@@ -6,6 +6,7 @@ import {
   assessJobFollowUp,
   specificFollowUpNudge,
   unsentDocCandidates,
+  unsentDocLead,
 } from "./followUpStatus.js";
 
 export const STATE_KEY = "lepro_followup_state";
@@ -19,7 +20,7 @@ export const PROMPT_WORK_PAUSE_MS = 5 * 60 * 1000;
 export const PROMPT_IDLE_MS = 45 * 1000;
 const PROMPT_WORK_PAUSE_KEY = "lepro_prompt_work_pause";
 
-/** Quick snooze presets Levi asked for. */
+/** Quick snooze presets for individual reminder sheets. */
 export const SNOOZE_PRESETS = [
   { minutes: 10, label: "10 min" },
   { minutes: 30, label: "30 min" },
@@ -27,9 +28,23 @@ export const SNOOZE_PRESETS = [
   { minutes: 120, label: "2 hours" },
 ];
 
+/** Global pause presets — short options at the top of the app. */
+export const PAUSE_PRESETS = [
+  { minutes: 5, label: "5 min" },
+  { minutes: 10, label: "10 min" },
+  { minutes: 15, label: "15 min" },
+  { minutes: 30, label: "30 min" },
+];
+
 export const SNOOZE_SLIDER_MIN = 30;
 export const SNOOZE_SLIDER_MAX = 300;
 export const SNOOZE_SLIDER_STEP = 30;
+
+export const PAUSE_SLIDER_MIN = 5;
+export const PAUSE_SLIDER_MAX = 120;
+export const PAUSE_SLIDER_STEP = 5;
+
+export const GLOBAL_PAUSE_KEY = "lepro_reminders_paused_until";
 
 export const REMINDER_PRIORITIES = [
   { key: "low", label: "Low" },
@@ -408,8 +423,162 @@ function stNote(eventId) {
   return eventState(loadState(), eventId).note || "";
 }
 
+export function remindersPausedUntil(now = new Date()) {
+  try {
+    const raw = localStorage.getItem(GLOBAL_PAUSE_KEY);
+    if (!raw) return null;
+    const until = new Date(raw);
+    if (!(until > now)) {
+      localStorage.removeItem(GLOBAL_PAUSE_KEY);
+      return null;
+    }
+    return until;
+  } catch {
+    return null;
+  }
+}
+
+export function isRemindersPaused(now = new Date()) {
+  return !!remindersPausedUntil(now);
+}
+
+/** Pause every reminder popup until the chosen time. */
+export function pauseAllReminders(minutes, now = new Date()) {
+  const mins = Math.max(1, Math.round(Number(minutes) || 0));
+  const until = new Date(now);
+  until.setMinutes(until.getMinutes() + mins);
+  try {
+    localStorage.setItem(GLOBAL_PAUSE_KEY, until.toISOString());
+  } catch {
+    /* storage unavailable */
+  }
+  return until;
+}
+
+export function clearRemindersPause() {
+  try {
+    localStorage.removeItem(GLOBAL_PAUSE_KEY);
+  } catch {
+    /* ignore */
+  }
+}
+
+const PRIORITY_RANK = { must_today: 0, high: 1, medium: 2, low: 3 };
+
+function priorityRank(key) {
+  return PRIORITY_RANK[key] ?? 4;
+}
+
+function reminderSortKey(item) {
+  const p = priorityRank(item.priority || item.state?.priority);
+  const due = item.dueAt || item.state?.remindAt || item.state?.snoozeUntil || "";
+  return [p, due, item.headline || ""];
+}
+
+function compareReminders(a, b) {
+  const [pa, da, ha] = reminderSortKey(a);
+  const [pb, db, hb] = reminderSortKey(b);
+  if (pa !== pb) return pa - pb;
+  if (da !== db) return String(da).localeCompare(String(db));
+  return String(ha).localeCompare(String(hb));
+}
+
+/** All active reminders for the Reminders tab — same sources as popups, sorted by priority. */
+export function buildReminderList(events, jobs, today, now = new Date(), commands = []) {
+  const list = [];
+  const state = loadState();
+
+  for (const item of unsentDocCandidates(jobs, commands)) {
+    const label = item.docKind === "invoice" ? "Invoice" : "Estimate";
+    const no = item.docNo ? " #" + item.docNo : "";
+    list.push({
+      id: "unsent:" + item.job.id + ":" + item.docKind,
+      kind: "unsent_doc",
+      priority: "high",
+      headline: "Unsent " + label.toLowerCase() + no,
+      detail: unsentDocLead(item),
+      job: item.job,
+      docKind: item.docKind,
+      docNo: item.docNo,
+      dueAt: "",
+    });
+  }
+
+  for (const e of events || []) {
+    const st = eventState(state, e.id);
+    if (isEventHandled(state, e.id)) continue;
+    if (st.priority === "must_today" && (st.remindAt || "").slice(0, 10) === today) {
+      list.push({
+        id: "must:" + e.id,
+        kind: "must_today_nudge",
+        priority: "must_today",
+        headline: e.summary || "Must-do today",
+        detail: st.note || st.nudge || "",
+        event: e,
+        state: st,
+        job: linkedJobForEvent(e, jobs),
+        dueAt: st.remindAt || st.nextNudgeAt || "",
+      });
+      continue;
+    }
+    if (st.remindAt) {
+      list.push({
+        id: "sched:" + e.id,
+        kind: "scheduled_reminder",
+        priority: st.priority || "medium",
+        headline: e.summary || "Reminder",
+        detail: st.note || st.nudge || "",
+        event: e,
+        state: st,
+        job: linkedJobForEvent(e, jobs),
+        dueAt: st.remindAt,
+      });
+    }
+  }
+
+  for (const event of inspectionCandidates(events, today)) {
+    const ymd = eventYmd(event);
+    list.push({
+      id: "insp:" + event.id,
+      kind: "inspection",
+      priority: "high",
+      headline: event.summary || "Inspection",
+      detail: ymd === today ? "Today" : "Tomorrow",
+      event,
+      when: ymd === today ? "today" : "tomorrow",
+      job: linkedJobForEvent(event, jobs),
+      dueAt: evStart(event),
+    });
+  }
+
+  for (const event of serviceCallCandidates(events, jobs, today, now, commands)) {
+    const job = linkedJobForEvent(event, jobs);
+    const assessment = assessJobFollowUp(job, today, commands);
+    list.push({
+      id: "svc:" + event.id,
+      kind: "service_call",
+      priority: "medium",
+      headline: event.summary || "Follow up",
+      detail: assessment?.nudge || "",
+      event,
+      job,
+      assessment,
+      suggestions: suggestJobsForEvent(event, jobs),
+      dueAt: evStart(event),
+    });
+  }
+
+  return list.sort(compareReminders);
+}
+
+export function activeReminderCount(events, jobs, today, now = new Date(), commands = []) {
+  if (isRemindersPaused(now)) return 0;
+  return buildReminderList(events, jobs, today, now, commands).length;
+}
+
 /** Build the login prompt queue — nudges first, then inspections, then service calls. */
 export function buildPromptQueue(events, jobs, today, now = new Date(), commands = []) {
+  if (isRemindersPaused(now)) return [];
   const queue = [];
   for (const item of dueMustTodayNudges(events, jobs, today, now)) {
     queue.push({ kind: "must_today_nudge", ...item });

@@ -19,6 +19,7 @@ import { calendarServiceLocation } from "../lib/customerSync.js";
 import { evStart, fmt$, parseAmount, todayStr } from "../lib/format.js";
 import { normalizePayments } from "../lib/payments.js";
 import { unhandledCount } from "../lib/sas.js";
+import { activeReminderCount } from "../lib/followUpReminders.js";
 import { customerSyncPayload, qboCustomerToJobPatch } from "../lib/customerSync.js";
 import { customerQboJobPatch } from "../lib/customerQboLink.js";
 import { flushPendingDocSync, hasPendingDocSync, takePendingDocSync } from "../lib/docSyncChain.js";
@@ -905,6 +906,11 @@ export function StoreProvider({ children }) {
 
   const sasBadge = useMemo(() => unhandledCount(sasCalls, sasTickets), [sasCalls, sasTickets]);
 
+  const reminderBadge = useMemo(
+    () => activeReminderCount(events, effectiveJobs, todayStr(), new Date(), commands),
+    [events, effectiveJobs, commands]
+  );
+
   const devBadge = useMemo(
     () => devTasks.filter((t) => ["question", "verify"].includes(t.status)).length,
     [devTasks]
@@ -941,6 +947,7 @@ export function StoreProvider({ children }) {
     sasCalls,
     sasTickets,
     sasBadge,
+    reminderBadge,
     refreshSas,
     markSasHandled,
     emailInsights,

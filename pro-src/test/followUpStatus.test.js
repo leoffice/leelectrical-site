@@ -76,6 +76,13 @@ describe("followUpStatus", () => {
     expect(unsentDocCandidates(jobs, [])).toHaveLength(0);
   });
 
+  it("does not flag unsent when a send command succeeded", () => {
+    const job = { id: "J-1", invoiceNo: "100", invoiceHistory: [] };
+    const cmds = [{ type: "send_invoice", jobId: "J-1", status: "done", payload: { invoiceNo: "100" } }];
+    expect(docNeverSent(job, "invoice", cmds)).toBe(false);
+    expect(unsentDocCandidates([job], cmds)).toHaveLength(0);
+  });
+
   it("serviceCallCandidates skips appointments with recent invoice work", () => {
     const jobs = [
       {
