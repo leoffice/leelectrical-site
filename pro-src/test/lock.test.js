@@ -12,6 +12,8 @@ import {
   hasEnrolledCredential,
   isPageReload,
   isSessionUnlocked,
+  mediaPermissionDenied,
+  shouldAutoBiometric,
   isWithinGrace,
   logOff,
   markUnlocked,
@@ -134,6 +136,38 @@ describe("stored credential id (localStorage, survives launches)", () => {
     expect(hasEnrolledCredential()).toBe(true);
     clearCredentialId();
     expect(hasEnrolledCredential()).toBe(false);
+  });
+});
+
+describe("biometric auto-prompt policy", () => {
+  it("shouldAutoBiometric is false on reload", async () => {
+    vi.stubGlobal("isSecureContext", true);
+    vi.stubGlobal("navigator", { credentials: {}, permissions: { query: async () => ({ state: "granted" }) } });
+    vi.stubGlobal("PublicKeyCredential", {
+      isUserVerifyingPlatformAuthenticatorAvailable: async () => true,
+    });
+    vi.stubGlobal("performance", {
+      getEntriesByType: () => [{ type: "reload" }],
+      navigation: { type: 1 },
+    });
+    expect(await shouldAutoBiometric()).toBe(false);
+  });
+
+  it("shouldAutoBiometric is false when camera permission is denied", async () => {
+    vi.stubGlobal("isSecureContext", true);
+    vi.stubGlobal("navigator", {
+      credentials: {},
+      permissions: { query: async () => ({ state: "denied" }) },
+    });
+    vi.stubGlobal("PublicKeyCredential", {
+      isUserVerifyingPlatformAuthenticatorAvailable: async () => true,
+    });
+    vi.stubGlobal("performance", {
+      getEntriesByType: () => [{ type: "navigate" }],
+      navigation: { type: 0 },
+    });
+    expect(await mediaPermissionDenied("camera")).toBe(true);
+    expect(await shouldAutoBiometric()).toBe(false);
   });
 });
 

@@ -1,9 +1,9 @@
 // LockGate (task #39) — full-screen unlock shown on every fresh app open,
 // BEFORE the app content mounts. Primary: device biometric (Face ID /
 // fingerprint) via the WebAuthn platform authenticator — prompted immediately
-// on open (no tap-to-unlock). Fallback: Supabase email + password. A short
-// in-session grace keeps a mid-session reload from re-prompting; a fresh
-// launch re-locks.
+// on a cold open only (reload → password first; camera blocked → password only).
+// Fallback: Supabase email + password. In-session grace keeps mid-session
+// reloads from re-prompting; a fresh launch re-locks.
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import {
   biometricSupported,
@@ -11,7 +11,9 @@ import {
   hasEnrolledCredential,
   isSessionUnlocked,
   markUnlocked,
+  mediaPermissionDenied,
   passwordUnlock,
+  shouldAutoBiometric,
   touchUnlocked,
 } from "../lib/lock.js";
 
@@ -30,21 +32,28 @@ export default function LockGate({ children }) {
 
   const enrolled = hasEnrolledCredential();
   const autoBioRan = useRef(false);
+  const autoBioAllowed = useRef(false);
 
   const succeed = useCallback(() => {
     markUnlocked();
     setUnlocked(true);
   }, []);
 
-  // Detect biometric availability; fall back to password if unavailable.
+  // Detect biometric availability; skip auto-prompt on reload or blocked camera.
   useEffect(() => {
     if (unlocked) return;
     let alive = true;
-    biometricSupported().then((ok) => {
+    (async () => {
+      const [ok, camBlocked, auto] = await Promise.all([
+        biometricSupported(),
+        mediaPermissionDenied("camera"),
+        shouldAutoBiometric(),
+      ]);
       if (!alive) return;
-      setBioAvail(ok);
-      if (!ok) setMode("password");
-    });
+      autoBioAllowed.current = auto;
+      setBioAvail(ok && !camBlocked);
+      if (!ok || camBlocked || !auto) setMode("password");
+    })();
     return () => {
       alive = false;
     };
@@ -69,9 +78,10 @@ export default function LockGate({ children }) {
     }
   }, [succeed]);
 
-  // Open → fingerprint/Face ID right away (no tap-to-unlock step).
+  // Cold open only → fingerprint/Face ID right away (reload uses password first).
   useEffect(() => {
-    if (unlocked || !bioAvail || mode !== "biometric" || busy || autoBioRan.current) return;
+    if (unlocked || !bioAvail || !autoBioAllowed.current || mode !== "biometric" || busy || autoBioRan.current)
+      return;
     autoBioRan.current = true;
     runBiometric();
   }, [unlocked, bioAvail, mode, busy, runBiometric]);

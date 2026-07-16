@@ -16,6 +16,8 @@ const lock = vi.hoisted(() => ({
   biometricSupported: vi.fn(async () => false),
   biometricUnlock: vi.fn(async () => true),
   passwordUnlock: vi.fn(async () => ({ access_token: "tok" })),
+  mediaPermissionDenied: vi.fn(async () => false),
+  shouldAutoBiometric: vi.fn(async () => false),
 }));
 vi.mock("../src/lib/lock.js", () => lock);
 
@@ -25,6 +27,8 @@ afterEach(() => {
   vi.clearAllMocks();
   lock.isSessionUnlocked.mockReturnValue(false);
   lock.biometricSupported.mockResolvedValue(false);
+  lock.shouldAutoBiometric.mockResolvedValue(false);
+  lock.mediaPermissionDenied.mockResolvedValue(false);
   lock.hasEnrolledCredential.mockReturnValue(false);
 });
 
@@ -89,6 +93,7 @@ describe("LockGate", () => {
 
   it("auto-triggers biometric when a platform authenticator is available", async () => {
     lock.biometricSupported.mockResolvedValue(true);
+    lock.shouldAutoBiometric.mockResolvedValue(true);
     render(
       <LockGate>
         <div data-testid="app">SECRET APP</div>
@@ -99,8 +104,35 @@ describe("LockGate", () => {
     expect(lock.markUnlocked).toHaveBeenCalled();
   });
 
+  it("does not auto-trigger biometric on a page reload", async () => {
+    lock.biometricSupported.mockResolvedValue(true);
+    lock.shouldAutoBiometric.mockResolvedValue(false);
+    render(
+      <LockGate>
+        <div data-testid="app">SECRET APP</div>
+      </LockGate>
+    );
+    await waitFor(() => expect(screen.getByTestId("lock-password-form")).toBeInTheDocument());
+    expect(lock.biometricUnlock).not.toHaveBeenCalled();
+  });
+
+  it("does not auto-trigger biometric when camera permission is blocked", async () => {
+    lock.biometricSupported.mockResolvedValue(true);
+    lock.shouldAutoBiometric.mockResolvedValue(false);
+    lock.mediaPermissionDenied.mockResolvedValue(true);
+    render(
+      <LockGate>
+        <div data-testid="app">SECRET APP</div>
+      </LockGate>
+    );
+    await waitFor(() => expect(screen.getByTestId("lock-password-form")).toBeInTheDocument());
+    expect(lock.biometricUnlock).not.toHaveBeenCalled();
+    expect(screen.queryByTestId("lock-use-biometric")).not.toBeInTheDocument();
+  });
+
   it("falls back to password after biometric cancel without requiring a tap first", async () => {
     lock.biometricSupported.mockResolvedValue(true);
+    lock.shouldAutoBiometric.mockResolvedValue(true);
     lock.biometricUnlock.mockRejectedValueOnce({ name: "NotAllowedError" });
     render(
       <LockGate>
