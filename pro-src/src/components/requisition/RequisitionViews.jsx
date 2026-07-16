@@ -10,6 +10,8 @@ const G703_COLS = (
     <th className="text-right px-2 py-2 whitespace-nowrap">Total completed &amp; stored</th>
     <th className="text-right px-2 py-2 whitespace-nowrap">% G/C</th>
     <th className="text-right px-2 py-2 whitespace-nowrap">Balance to finish</th>
+    <th className="text-right px-2 py-2 whitespace-nowrap">Ret. %</th>
+    <th className="text-right px-2 py-2 whitespace-nowrap">Retainage</th>
   </tr>
 );
 
@@ -128,6 +130,8 @@ export function G703View({ req, editable = false, onPctChange, prevPctById = {} 
                           )}
                         </td>
                         <td className="text-right px-2 py-1.5 tabular-nums">{fmtUsd(r.balance)}</td>
+                        <td className="text-right px-2 py-1.5 tabular-nums">{Number(r.retainagePct) || 0}%</td>
+                        <td className="text-right px-2 py-1.5 tabular-nums">{fmtUsd(r.retainage)}</td>
                       </tr>
                     ))}
                   </tbody>
@@ -202,6 +206,8 @@ export function G703DraftContinuation({ items, prevPctById = {}, retainagePct = 
                         )}
                       </td>
                       <td className="text-right px-2 py-2 tabular-nums text-xs">{fmtUsd(r.balance)}</td>
+                      <td className="text-right px-2 py-2 tabular-nums text-xs">{Number(r.retainagePct) || 0}%</td>
+                      <td className="text-right px-2 py-2 tabular-nums text-xs">{fmtUsd(r.retainage)}</td>
                     </tr>
                   );
                 })}

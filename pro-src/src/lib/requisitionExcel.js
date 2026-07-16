@@ -66,6 +66,7 @@ function g703Sheet(req) {
     cell("Total Comp Completed", { style: "hdr" }),
     cell("%", { style: "hdr" }),
     cell("Balance to Finish", { style: "hdr" }),
+    cell("Retainage %", { style: "hdr" }),
     cell("Retainage", { style: "hdr" }),
   ]);
   const body = (req.g703 || []).map((r) =>
@@ -78,6 +79,7 @@ function g703Sheet(req) {
       num(r.totalCompleted),
       cell(`${Math.round(Number(r.pctComplete) || 0)}%`),
       num(r.balance),
+      cell(`${Number(r.retainagePct) || 0}%`),
       num(r.retainage),
     ])
   );
@@ -101,6 +103,7 @@ function g703Sheet(req) {
     num(t.totalCompleted, "moneyBold"),
     cell(""),
     num(t.balance, "moneyBold"),
+    cell(""),
     num(t.retainage, "moneyBold"),
   ]);
   return `<Worksheet ss:Name="G703"><Table>${header}${body.join("")}${totals}</Table></Worksheet>`;

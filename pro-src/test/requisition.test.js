@@ -50,6 +50,25 @@ describe("requisitionCalc", () => {
     expect(project.items[0].description).toBe("Electric Service Equipment");
     expect(project.items[0].value).toBe(459000);
     expect(project.contractSum).toBe(1700000);
+    // Only Electric Service Equipment is retainage-exempt; COs off progress apps.
+    expect(project.items[0].retainageExempt).toBe(true);
+    expect(project.items[1].retainageExempt).toBeFalsy();
+    expect(project.changeOrders).toBe(0);
+  });
+
+  it("Baez 100% closeout: item-1 0% retainage → $124,100 held, ELR $1,575,900", () => {
+    const project = seedBaezProject();
+    project.items = project.items.map((it) => ({ ...it, completedPct: 100 }));
+    const g702 = buildG702(project, { changeOrders: 0 });
+    expect(g702.totalCompleted).toBe(1700000);
+    expect(g702.totalRetainage).toBe(124100);
+    expect(g702.earnedLessRetainage).toBe(1575900);
+    expect(g702.g703[0].retainagePct).toBe(0);
+    expect(g702.g703[0].retainage).toBe(0);
+    expect(g702.g703[1].retainagePct).toBe(10);
+    // line retainage sums match application total
+    const lineSum = g702.g703.reduce((s, r) => s + r.retainage, 0);
+    expect(lineSum).toBe(124100);
   });
 
   it("builds G702 with retainage and previous certs", () => {
