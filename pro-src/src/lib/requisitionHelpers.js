@@ -5,6 +5,7 @@ import {
   buildG702,
   buildG703Rows,
   changeOrderItems,
+  isChangeOrderItem,
   requisitionItems,
   roundMoney,
   sumItemValues,
@@ -283,6 +284,17 @@ export function carriedPctForItem(it, snap) {
   const key = sovItemKey(it);
   if (snap.byKey[key] != null) return snap.byKey[key];
   return null;
+}
+
+/** Set every base-contract SOV line to 100% — for the final / retainage-closeout requisition. */
+export function setAllRequisitionItemsComplete(draft) {
+  if (!draft) return draft;
+  return {
+    ...draft,
+    items: (draft.items || []).map((it) =>
+      isChangeOrderItem(it) ? it : { ...it, completedPct: 100 }
+    ),
+  };
 }
 
 /** Seed SOV line % from the last saved requisition (new req starts where the last one left off). */
