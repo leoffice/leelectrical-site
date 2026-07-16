@@ -195,6 +195,24 @@ describe("contextualReminderActions", () => {
     const keys = ctxFromAppt(job).map((a) => a.key);
     expect(keys).not.toContain("create_invoice");
     expect(keys).not.toContain("create_estimate");
+    expect(keys).not.toContain("create_job");
     expect(keys).toContain("email_invoice");
+  });
+
+  it("hides create-job when a soft-matched candidate job exists", () => {
+    const keys = ctxFromAppt(null, {
+      candidates: [{ id: "J-9", customer: "Bob", invoiceNo: "88" }],
+    }).map((a) => a.key);
+    expect(keys).not.toContain("create_job");
+    expect(keys).not.toContain("create_invoice");
+    expect(keys).toContain("email_invoice");
+  });
+
+  it("hides create-job and create-invoice when note says updated invoice", () => {
+    const keys = ctxFromAppt(null, {
+      note: "Make sure they have updated invoice",
+    }).map((a) => a.key);
+    expect(keys).not.toContain("create_job");
+    expect(keys).not.toContain("create_invoice");
   });
 });

@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   EMAIL_MOODS,
   classifyAppointment,
+  contextualReminderActions,
   followUpActions,
   followUpCopy,
   generateFollowUpEmail,
@@ -51,5 +52,11 @@ describe("appointmentActions", () => {
       "create_estimate",
       "create_invoice",
     ]);
+  });
+
+  it("contextualReminderActions never offers create when docs already exist", () => {
+    const keys = contextualReminderActions({ id: "J1", invoiceNo: "I-1" }).map((a) => a.key);
+    expect(keys).not.toContain("create_job");
+    expect(keys).not.toContain("create_invoice");
   });
 });

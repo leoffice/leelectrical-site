@@ -12,8 +12,8 @@ import CreateJobFromEventSheet from "./CreateJobFromEventSheet.jsx";
 import AppointmentEmailSheet from "./AppointmentEmailSheet.jsx";
 import {
   classifyAppointment,
+  contextualReminderActions,
   emailKindForAction,
-  followUpActions,
   followUpCopy,
 } from "../lib/appointmentActions.js";
 
@@ -36,6 +36,10 @@ export default function AppointmentDetailSheet({ event, onClose }) {
     if (unlinkDone) return null;
     return linkedJobForEvent(liveEvent, jobs);
   }, [liveEvent, jobs, unlinkDone]);
+
+  const matchCandidates = useMemo(() => suggestJobsForEvent(liveEvent, jobs), [liveEvent, jobs]);
+  const workJob = linked || matchCandidates[0] || null;
+  const notes = displayEventNotes(liveEvent?.description);
 
   useEffect(() => {
     setUnlinkDone(false);
@@ -94,10 +98,10 @@ export default function AppointmentDetailSheet({ event, onClose }) {
     );
   }
 
-  if (mode === "email" && linked) {
+  if (mode === "email" && workJob) {
     return (
       <AppointmentEmailSheet
-        job={linked}
+        job={workJob}
         emailKind={emailKind}
         title={emailKind === "invoice" ? "Payment reminder email" : "Estimate follow-up email"}
         onClose={() => setMode("view")}
@@ -145,24 +149,26 @@ export default function AppointmentDetailSheet({ event, onClose }) {
     );
   }
 
-  const notes = displayEventNotes(liveEvent.description);
-  const scenario = classifyAppointment(linked);
+  const scenario = classifyAppointment(workJob);
   const nextCopy = followUpCopy(scenario);
-  const nextActions = followUpActions(scenario).filter((a) => a.key !== "remind");
+  const nextActions = contextualReminderActions(linked, {
+    note: notes,
+    candidates: matchCandidates,
+  });
 
   const runNextAction = (action) => {
     if (action.key === "create_job") return setMode("createJob");
-    if (action.key === "open_job" && linked) {
+    if (action.key === "open_job" && workJob) {
       onClose();
-      return nav("/job/" + encodeURIComponent(linked.id));
+      return nav("/job/" + encodeURIComponent(workJob.id));
     }
-    if (action.key === "create_estimate" && linked) {
+    if (action.key === "create_estimate" && workJob) {
       onClose();
-      return nav("/job/" + encodeURIComponent(linked.id) + "?doc=estimate&create=1");
+      return nav("/job/" + encodeURIComponent(workJob.id) + "?doc=estimate&create=1");
     }
-    if (action.key === "create_invoice" && linked) {
+    if (action.key === "create_invoice" && workJob) {
       onClose();
-      return nav("/job/" + encodeURIComponent(linked.id) + "?doc=invoice&create=1");
+      return nav("/job/" + encodeURIComponent(workJob.id) + "?doc=invoice&create=1");
     }
     if (action.key === "email_followup" || action.key === "email_invoice") {
       setEmailKind(emailKindForAction(action.key, scenario));

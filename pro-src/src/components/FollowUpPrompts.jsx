@@ -62,11 +62,24 @@ import {
 import VerifyReminderButton from "./VerifyReminderButton.jsx";
 import UnsentDocActions from "./UnsentDocActions.jsx";
 
-function SmartFollowUpActions({ event, job, scope, state, onCreateJob, dismissForWork, onEmail }) {
+function SmartFollowUpActions({
+  event,
+  job,
+  scope,
+  state,
+  note = "",
+  candidates = [],
+  onCreateJob,
+  dismissForWork,
+  onEmail,
+}) {
   const nav = useNavigate();
   const { showToast } = useStore();
-  const scenario = classifyAppointment(job);
-  const actions = contextualReminderActions(job);
+  const actions = contextualReminderActions(job, { note: note || state?.note || "", candidates });
+  // Soft-matched jobs count for paperwork-aware suggestions when the calendar link is missing.
+  const workJob =
+    job?.id ? job : (Array.isArray(candidates) ? candidates.find((j) => j?.id) : null) || null;
+  const scenario = classifyAppointment(workJob);
   const copy = followUpCopy(scenario);
 
   const run = (action) => {
@@ -75,22 +88,22 @@ function SmartFollowUpActions({ event, job, scope, state, onCreateJob, dismissFo
       onCreateJob();
       return;
     }
-    if (action.key === "open_job" && job?.id) {
+    if (action.key === "open_job" && workJob?.id) {
       dismissForWork();
-      nav("/job/" + encodeURIComponent(job.id));
+      nav("/job/" + encodeURIComponent(workJob.id));
       return;
     }
     if (action.key === "email_followup" || action.key === "email_invoice") {
-      if (!job?.id) {
+      if (!workJob?.id) {
         showToast("Link or create a job first");
         return;
       }
-      onEmail(emailKindForAction(action.key, scenario), job);
+      onEmail(emailKindForAction(action.key, scenario), workJob);
       return;
     }
     const doc = action.key === "create_estimate" ? "estimate" : "invoice";
     const label = action.key === "create_estimate" ? "Create an estimate" : "Create an invoice";
-    if (!job?.id) {
+    if (!workJob?.id) {
       stashPendingDocAfterJob(doc);
       onCreateJob();
       return;
@@ -98,7 +111,7 @@ function SmartFollowUpActions({ event, job, scope, state, onCreateJob, dismissFo
     stashReminderReturn({ eventId: event.id, kind: scope, state: state || null });
     stashCalendarPick(event.id);
     dismissForWork({ keepReminderReturn: true });
-    nav("/job/" + encodeURIComponent(job.id) + "?doc=" + doc + "&create=1");
+    nav("/job/" + encodeURIComponent(workJob.id) + "?doc=" + doc + "&create=1");
     showToast(label + " — approve when ready");
   };
 
@@ -194,7 +207,12 @@ function RemindMeSheet({ event, job, onClose, onSaved, dismissForWork }) {
       return;
     }
     const nudge = generateReminderNudge({ event, job, userNote: note, today });
-    allocateReminderTime(event.id, dt, { note, nudge, priority });
+    allocateReminderTime(event.id, dt, {
+      note,
+      nudge,
+      priority,
+      ...(job?.id ? { jobId: job.id } : {}),
+    });
     if (job?.id) {
       await patchAndSave(job.id, {
         followUp: {
@@ -418,6 +436,7 @@ function ScheduledReminderSheet({
   event,
   state: st,
   job,
+  candidates = [],
   queue,
   onClose,
   onDone,
@@ -432,13 +451,15 @@ function ScheduledReminderSheet({
   const nav = useNavigate();
   const { showToast } = useStore();
   const today = todayStr();
-  const message = st.nudge || generateReminderNudge({ event, job, userNote: st.note, today });
-  const noteIntent = parseReminderNote(st.note, job);
+  const workJob = job?.id ? job : candidates.find((j) => j?.id) || null;
+  const message = st.nudge || generateReminderNudge({ event, job: workJob, userNote: st.note, today });
+  const noteIntent = parseReminderNote(st.note, workJob);
+  const smartActions = contextualReminderActions(job, { note: st.note, candidates });
 
   const openJob = () => {
     allocateNextStep(event.id, "open_job");
     dismissForWork();
-    if (job?.id) nav("/job/" + encodeURIComponent(job.id));
+    if (workJob?.id) nav("/job/" + encodeURIComponent(workJob.id));
     else nav("/today");
   };
 
@@ -454,7 +475,7 @@ function ScheduledReminderSheet({
 
   const runNoteIntent = () => {
     if (!noteIntent) return;
-    if (noteIntent.needsJob && !job?.id) {
+    if (noteIntent.needsJob && !workJob?.id) {
       showToast("Link or create a job first");
       return;
     }
@@ -462,10 +483,12 @@ function ScheduledReminderSheet({
     stashReminderReturn({ eventId: event.id, kind: "scheduled_reminder", state: st });
     stashCalendarPick(event.id);
     dismissForWork({ keepReminderReturn: true });
-    const docPath = reminderIntentJobPath(noteIntent, job?.id);
+    const docPath = reminderIntentJobPath(noteIntent, workJob?.id);
     if (docPath) {
       nav(docPath);
       showToast(noteIntent.label + " — approve when ready");
+    } else if (noteIntent.action === "email_invoice" || noteIntent.action === "email_followup") {
+      onEmail(emailKindForAction(noteIntent.action, classifyAppointment(workJob)), workJob);
     } else {
       nav("/today");
     }
@@ -503,16 +526,22 @@ function ScheduledReminderSheet({
         job={job}
         scope="scheduled_reminder"
         state={st}
+        note={st.note}
+        candidates={candidates}
         onCreateJob={onCreateJob}
         dismissForWork={dismissForWork}
         onEmail={onEmail}
       />
-      {noteIntent && intentOpensDocBuilder(noteIntent) && !intentDuplicatesSuggestion(noteIntent, contextualReminderActions(job)) ? (
+      {noteIntent &&
+      (intentOpensDocBuilder(noteIntent) ||
+        noteIntent.action === "email_invoice" ||
+        noteIntent.action === "email_followup") &&
+      !intentDuplicatesSuggestion(noteIntent, smartActions) ? (
         <button type="button" className="btn bg-slate-100 text-slate-800 w-full mb-2" onClick={runNoteIntent} data-testid="scheduled-reminder-do-now">
           ⚡ {noteIntent.label}
         </button>
       ) : null}
-      {job?.id ? (
+      {workJob?.id ? (
         <button type="button" className="btn bg-slate-100 text-slate-800 w-full mb-2" onClick={openJob}>
           📂 Open job
         </button>
@@ -632,6 +661,7 @@ function ServiceCallSheet({
   event,
   job,
   assessment,
+  suggestions = [],
   onClose,
   onDone,
   onCreateJob,
@@ -712,6 +742,7 @@ function ServiceCallSheet({
         event={event}
         job={job}
         scope="service_call"
+        candidates={suggestions || []}
         onCreateJob={onCreateJob}
         dismissForWork={dismissForWork}
         onEmail={onEmail}
@@ -1034,11 +1065,14 @@ export default function FollowUpPrompts() {
   }
 
   if (current.kind === "scheduled_reminder") {
+    const schedCandidates =
+      current.candidates || suggestJobsForEvent(current.event, jobs) || [];
     return (
       <ScheduledReminderSheet
         event={current.event}
         state={current.state}
         job={current.job}
+        candidates={schedCandidates}
         queue={queue}
         onClose={advance}
         onDone={advance}
@@ -1046,10 +1080,8 @@ export default function FollowUpPrompts() {
         onBatchSnooze={handleBatchSnooze}
         dismissForWork={dismissForWork}
         onPauseAll={handlePauseAll}
-        onCreateJob={() =>
-          openCreateJobFromReminder(current.event, suggestJobsForEvent(current.event, jobs))
-        }
-        onEmail={(kind) => openEmailFromReminder(kind, current.job)}
+        onCreateJob={() => openCreateJobFromReminder(current.event, schedCandidates)}
+        onEmail={(kind, emailJob) => openEmailFromReminder(kind, emailJob || current.job)}
         onReschedule={() =>
           setSubSheet({
             kind: "remind",
@@ -1103,7 +1135,7 @@ export default function FollowUpPrompts() {
         dismissForWork={dismissForWork}
         onPauseAll={handlePauseAll}
         onCreateJob={() => openCreateJobFromReminder(current.event, current.suggestions)}
-        onEmail={(kind) => openEmailFromReminder(kind, linked)}
+        onEmail={(kind, emailJob) => openEmailFromReminder(kind, emailJob || linked)}
         onRemind={() =>
           setSubSheet({
             kind: "remind",
