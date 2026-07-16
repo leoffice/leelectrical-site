@@ -3,12 +3,14 @@
 // fallback. Runs in the default "node" env (no jsdom) using injected globals.
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
+  GRACE_BACKUP_KEY,
   GRACE_MS,
   biometricSupported,
   clearCredentialId,
   clearUnlocked,
   getCredentialId,
   hasEnrolledCredential,
+  isPageReload,
   isSessionUnlocked,
   isWithinGrace,
   logOff,
@@ -39,7 +41,7 @@ afterEach(() => {
 
 describe("in-session grace window", () => {
   it("isWithinGrace honours the [now-window, now] band", () => {
-    const now = 1_000_000;
+    const now = 100_000_000_000;
     expect(isWithinGrace(now, now)).toBe(true); // just unlocked
     expect(isWithinGrace(now - (GRACE_MS - 1), now)).toBe(true); // barely inside
     expect(isWithinGrace(now - GRACE_MS, now)).toBe(false); // exactly at edge = expired
@@ -68,6 +70,31 @@ describe("in-session grace window", () => {
     // Simulate relaunch: brand-new sessionStorage with no grace key.
     globalThis.sessionStorage = memStorage();
     expect(isSessionUnlocked()).toBe(false);
+  });
+
+  it("reload restores grace from localStorage when sessionStorage was wiped", () => {
+    const t0 = 9_000_000;
+    markUnlocked(t0);
+    globalThis.sessionStorage = memStorage();
+    vi.stubGlobal("performance", {
+      getEntriesByType: () => [{ type: "reload" }],
+      navigation: { type: 1 },
+    });
+    expect(isPageReload()).toBe(true);
+    expect(isSessionUnlocked(t0 + 60_000)).toBe(true);
+    expect(globalThis.sessionStorage.getItem("lepro_lock_unlocked_at")).toBe(String(t0));
+    expect(globalThis.localStorage.getItem(GRACE_BACKUP_KEY)).toBe(String(t0));
+  });
+
+  it("fresh open does not use the reload backup in localStorage", () => {
+    const t0 = 9_000_000;
+    globalThis.localStorage.setItem(GRACE_BACKUP_KEY, String(t0));
+    globalThis.sessionStorage = memStorage();
+    vi.stubGlobal("performance", {
+      getEntriesByType: () => [{ type: "navigate" }],
+      navigation: { type: 0 },
+    });
+    expect(isSessionUnlocked(t0 + 60_000)).toBe(false);
   });
 });
 

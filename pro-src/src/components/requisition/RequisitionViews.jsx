@@ -1,11 +1,25 @@
 import React, { useMemo, useState } from "react";
 import { fmtUsd } from "../../lib/requisitionData.js";
-import { buildG703Rows } from "../../lib/requisitionCalc.js";
+import { buildG703Rows, requisitionItems } from "../../lib/requisitionCalc.js";
 
-export function G702View({ req, showContract = false }) {
+const G703_COLS = (
+  <tr className="text-slate-500 border-b">
+    <th className="text-left px-2 py-2">Item</th>
+    <th className="text-right px-2 py-2 whitespace-nowrap">Scheduled value</th>
+    <th className="text-right px-2 py-2 whitespace-nowrap">Previous application</th>
+    <th className="text-right px-2 py-2 whitespace-nowrap">Total completed &amp; stored</th>
+    <th className="text-right px-2 py-2 whitespace-nowrap">% G/C</th>
+    <th className="text-right px-2 py-2 whitespace-nowrap">Balance to finish</th>
+  </tr>
+);
+
+export function G702View({ req, showContract = false, live = false }) {
   if (!req) return null;
   return (
     <div className="space-y-2 text-sm" data-testid="g702-view">
+      {live ? (
+        <p className="text-xs text-slate-500">Application — updates as you change line percentages.</p>
+      ) : null}
       <div className="grid grid-cols-2 gap-x-4 gap-y-1">
         {showContract ? (
           <>
@@ -23,6 +37,8 @@ export function G702View({ req, showContract = false }) {
         <span className="text-right">{fmtUsd(req.previousCertificates)}</span>
         <span className="text-slate-500 font-bold">Current payment due</span>
         <span className="text-right font-extrabold text-brand">{fmtUsd(req.currentPaymentDue)}</span>
+        <span className="text-slate-500">Balance to finish</span>
+        <span className="text-right font-semibold">{fmtUsd(req.balanceToFinish)}</span>
       </div>
     </div>
   );
@@ -69,7 +85,7 @@ export function G703View({ req, editable = false, onPctChange, prevPctById = {} 
   return (
     <div className="space-y-2" data-testid="g703-view">
       <p className="text-xs text-slate-500">
-        Continuation sheet — from previous application, total comp completed, and % G/C.
+        Continuation sheet — scheduled value, previous application, total completed &amp; stored, % G/C, balance to finish.
       </p>
       {sections.map((sec) => {
         const open = openSections.has(sec.name);
@@ -85,41 +101,38 @@ export function G703View({ req, editable = false, onPctChange, prevPctById = {} 
               <span className="text-brand text-xs font-semibold">{open ? "Hide ▴" : "Show ▾"}</span>
             </button>
             {open ? (
-              <table className="w-full text-xs">
-                <thead>
-                  <tr className="text-slate-500 border-b">
-                    <th className="text-left px-2 py-2">Item</th>
-                    <th className="text-right px-2 py-2">From previous application</th>
-                    <th className="text-right px-2 py-2">Total comp completed</th>
-                    <th className="text-right px-2 py-2">% G/C</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {sec.items.map((r) => (
-                    <tr key={r.itemNo} className="border-b border-slate-100 last:border-0">
-                      <td className="px-2 py-1.5">{r.itemLabel}</td>
-                      <td className="text-right px-2 py-1.5 tabular-nums">{fmtUsd(r.prevCompleted)}</td>
-                      <td className="text-right px-2 py-1.5 tabular-nums">{fmtUsd(r.totalCompleted)}</td>
-                      <td className="text-right px-2 py-1.5 tabular-nums font-semibold">
-                        {editable && onPctChange && r.itemId ? (
-                          <input
-                            type="number"
-                            min={0}
-                            max={100}
-                            step={1}
-                            className="w-14 text-right border rounded px-1 py-0.5"
-                            value={Math.round(Number(r.pctComplete) || 0)}
-                            onChange={(e) => onPctChange(r.itemId, Math.min(100, Math.max(0, Number(e.target.value) || 0)))}
-                            data-testid="g703-pct-input"
-                          />
-                        ) : (
-                          `${Math.round(Number(r.pctComplete) || 0)}%`
-                        )}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+              <div className="overflow-x-auto">
+                <table className="w-full text-xs min-w-[640px]">
+                  <thead>{G703_COLS}</thead>
+                  <tbody>
+                    {sec.items.map((r) => (
+                      <tr key={r.itemNo} className="border-b border-slate-100 last:border-0">
+                        <td className="px-2 py-1.5">{r.itemLabel}</td>
+                        <td className="text-right px-2 py-1.5 tabular-nums">{fmtUsd(r.scheduledValue)}</td>
+                        <td className="text-right px-2 py-1.5 tabular-nums">{fmtUsd(r.prevCompleted)}</td>
+                        <td className="text-right px-2 py-1.5 tabular-nums">{fmtUsd(r.totalCompleted)}</td>
+                        <td className="text-right px-2 py-1.5 tabular-nums font-semibold">
+                          {editable && onPctChange && r.itemId ? (
+                            <input
+                              type="number"
+                              min={0}
+                              max={100}
+                              step={1}
+                              className="w-14 text-right border rounded px-1 py-0.5"
+                              value={Math.round(Number(r.pctComplete) || 0)}
+                              onChange={(e) => onPctChange(r.itemId, Math.min(100, Math.max(0, Number(e.target.value) || 0)))}
+                              data-testid="g703-pct-input"
+                            />
+                          ) : (
+                            `${Math.round(Number(r.pctComplete) || 0)}%`
+                          )}
+                        </td>
+                        <td className="text-right px-2 py-1.5 tabular-nums">{fmtUsd(r.balance)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
             ) : null}
           </div>
         );
@@ -140,6 +153,65 @@ export function draftContinuationRows(items, prevPctById = {}, retainagePct = 10
     ...r,
     itemId: items[idx]?.id,
   }));
+}
+
+function groupRequisitionSections(items) {
+  const groups = [];
+  let cur = { name: "General", items: [] };
+  for (const it of requisitionItems(items)) {
+    if (it.section && it.section !== cur.name) {
+      if (cur.items.length) groups.push(cur);
+      cur = { name: it.section, items: [] };
+    }
+    cur.items.push(it);
+  }
+  if (cur.items.length) groups.push(cur);
+  return groups;
+}
+
+/** Editable continuation sheet for a new requisition draft (matches Excel column order). */
+export function G703DraftContinuation({ items, prevPctById = {}, retainagePct = 10, onPctChange, renderPct }) {
+  const baseItems = useMemo(() => requisitionItems(items), [items]);
+  const rowById = useMemo(() => {
+    const rows = draftContinuationRows(baseItems, prevPctById, retainagePct);
+    return Object.fromEntries(rows.map((r) => [r.itemId, r]));
+  }, [baseItems, prevPctById, retainagePct]);
+  const sections = useMemo(() => groupRequisitionSections(items), [items]);
+
+  return (
+    <div className="space-y-3" data-testid="g703-draft">
+      {sections.map((sec) => (
+        <div key={sec.name} className="card overflow-hidden">
+          <div className="px-4 py-2 bg-slate-50 font-bold text-sm border-b">{sec.name}</div>
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm min-w-[680px]">
+              <thead className="text-xs">{G703_COLS}</thead>
+              <tbody>
+                {sec.items.map((it) => {
+                  const r = rowById[it.id];
+                  if (!r) return null;
+                  return (
+                    <tr key={it.id} className="border-b border-slate-100 last:border-0">
+                      <td className="px-3 py-2">{it.description}</td>
+                      <td className="text-right px-2 py-2 tabular-nums text-xs">{fmtUsd(r.scheduledValue)}</td>
+                      <td className="text-right px-2 py-2 tabular-nums text-xs">{fmtUsd(r.prevCompleted)}</td>
+                      <td className="text-right px-2 py-2 tabular-nums text-xs">{fmtUsd(r.totalCompleted)}</td>
+                      <td className="text-right px-2 py-2">
+                        {renderPct ? renderPct(it) : (
+                          <span className="tabular-nums font-semibold text-xs">{Math.round(Number(r.pctComplete) || 0)}%</span>
+                        )}
+                      </td>
+                      <td className="text-right px-2 py-2 tabular-nums text-xs">{fmtUsd(r.balance)}</td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      ))}
+    </div>
+  );
 }
 
 export function useReqTabSwipe(tabs, tab, setTab) {

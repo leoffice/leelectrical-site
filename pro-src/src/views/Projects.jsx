@@ -6,9 +6,16 @@ import Sheet, { Fld } from "../components/Sheet.jsx";
 import CustomerCard from "../components/CustomerCard.jsx";
 import RequisitionDetail from "../components/requisition/RequisitionDetail.jsx";
 import ChangeOrdersPanel from "../components/requisition/ChangeOrdersPanel.jsx";
-import { G702View, G703View, ReqNavArrows, ReqTabBar, useReqTabSwipe } from "../components/requisition/RequisitionViews.jsx";
+import {
+  G702View,
+  G703DraftContinuation,
+  G703View,
+  ReqNavArrows,
+  ReqTabBar,
+  useReqTabSwipe,
+} from "../components/requisition/RequisitionViews.jsx";
 import { useStore } from "../state/store.jsx";
-import { isChangeOrderItem, itemEarned, itemPreviouslyEarned, overallPct, requisitionItems } from "../lib/requisitionCalc.js";
+import { overallPct, requisitionItems } from "../lib/requisitionCalc.js";
 import {
   BAEZ_PROJECT_ID,
   ensureProjectDefaults,
@@ -37,6 +44,7 @@ import {
   requisitionBalance,
   requisitionDeleteMode,
   requisitionsAscending,
+  setAllRequisitionItemsComplete,
   sovItemKey,
   certifiedPaidToDate,
   totalPaidToDate,
@@ -402,6 +410,12 @@ function RequisitionWorkbench({ project, onSave, busy, showToast, onSaved }) {
     }));
   };
 
+  const createFinalRequisition = () => {
+    setDraft((d) => setAllRequisitionItemsComplete(d));
+    setPendingReq(null);
+    showToast?.("All lines set to 100% — check Application & Cert, then generate your final requisition");
+  };
+
   const saveProgress = async () => {
     await onSave({ ...draft, updatedAt: Date.now() });
   };
@@ -469,21 +483,6 @@ function RequisitionWorkbench({ project, onSave, busy, showToast, onSaved }) {
     onSaved?.(pendingReq.id);
   };
 
-  const sections = useMemo(() => {
-    const groups = [];
-    let cur = { name: "General", items: [] };
-    for (const it of draft.items || []) {
-      if (isChangeOrderItem(it)) continue;
-      if (it.section && it.section !== cur.name) {
-        if (cur.items.length) groups.push(cur);
-        cur = { name: it.section, items: [] };
-      }
-      cur.items.push(it);
-    }
-    if (cur.items.length) groups.push(cur);
-    return groups;
-  }, [draft.items]);
-
   const navLabel = viewingPrior
     ? viewedReq?.applicationNumber || `REQ-${viewedReq?.num}`
     : appNum || `REQ-${reqNum}`;
@@ -537,7 +536,7 @@ function RequisitionWorkbench({ project, onSave, busy, showToast, onSaved }) {
       <div onTouchStart={onTouchStart} onTouchEnd={onTouchEnd} data-testid="workbench-tab-content">
         {workTab === "app" ? (
           <div className="card px-4 py-3 space-y-2 text-sm" data-testid="requisition-preview-live">
-            <G702View req={displayG702} showContract />
+            <G702View req={displayG702} showContract live={!viewingPrior} />
           </div>
         ) : null}
 
@@ -551,39 +550,24 @@ function RequisitionWorkbench({ project, onSave, busy, showToast, onSaved }) {
                   Save progress %
                 </button>
               ) : null}
-              {sections.map((sec) => (
-                <div key={sec.name} className="card overflow-hidden">
-                  <div className="px-4 py-2 bg-slate-50 font-bold text-sm border-b">{sec.name}</div>
-                  <table className="w-full text-sm">
-                    <thead>
-                      <tr className="text-xs text-slate-500 border-b">
-                        <th className="text-left px-3 py-2">Item</th>
-                        <th className="text-right px-2 py-2">Schedule value</th>
-                        <th className="text-right px-2 py-2">From previous application</th>
-                        <th className="text-right px-2 py-2">Total comp completed</th>
-                        <th className="text-right px-2 py-2">% G/C</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {sec.items.map((it) => {
-                        const status = pctChangeStatus(it.completedPct, prevSnap[it.id], hasPrev);
-                        const prevPct = prevSnap[it.id] ?? 0;
-                        return (
-                          <tr key={it.id} className="border-b border-slate-100 last:border-0">
-                            <td className="px-3 py-2">{it.description}</td>
-                            <td className="text-right px-2 py-2 tabular-nums">{fmtUsd(it.value)}</td>
-                            <td className="text-right px-2 py-2 tabular-nums">{fmtUsd(itemPreviouslyEarned(it, prevPct))}</td>
-                            <td className="text-right px-2 py-2 tabular-nums">{fmtUsd(itemEarned(it))}</td>
-                            <td className="text-right px-2 py-2">
-                              {pctInput(it.completedPct, (v) => setItemPct(it.id, v), status)}
-                            </td>
-                          </tr>
-                        );
-                      })}
-                    </tbody>
-                  </table>
-                </div>
-              ))}
+              <button
+                type="button"
+                className="btn w-full border-2 border-brand text-brand font-semibold"
+                onClick={createFinalRequisition}
+                disabled={busy || allComplete}
+                data-testid="create-final-requisition"
+              >
+                Create final requisition (100% all lines)
+              </button>
+              <G703DraftContinuation
+                items={draft.items}
+                prevPctById={prevSnap}
+                retainagePct={draft.retainagePct}
+                renderPct={(it) => {
+                  const status = pctChangeStatus(it.completedPct, prevSnap[it.id], hasPrev);
+                  return pctInput(it.completedPct, (v) => setItemPct(it.id, v), status);
+                }}
+              />
             </div>
           )
         ) : null}

@@ -4,6 +4,7 @@ import { buildG702, isChangeOrderItem, itemEarned, overallPct, requisitionItems 
 import { seedBaezProject } from "../src/lib/requisitionData.js";
 import {
   applyCarriedPercentages,
+  setAllRequisitionItemsComplete,
   buildRequisitionEmail,
   canHardDeleteRequisition,
   carriedPctForItem,
@@ -181,6 +182,18 @@ describe("requisitionHelpers", () => {
   it("nextRequisitionNum uses max num not array length", () => {
     const project = { requisitions: [{ num: 12 }, { num: 5 }] };
     expect(nextRequisitionNum(project)).toBe(13);
+  });
+
+  it("setAllRequisitionItemsComplete sets base lines to 100% and skips CO lines", () => {
+    const draft = {
+      items: [
+        { id: "a", description: "Roughing", completedPct: 50 },
+        { id: "b", description: "CO - 01", completedPct: 0 },
+      ],
+    };
+    const next = setAllRequisitionItemsComplete(draft);
+    expect(next.items[0].completedPct).toBe(100);
+    expect(next.items[1].completedPct).toBe(0);
   });
 
   it("applyCarriedPercentages seeds new req from last submitted snapshot", () => {
