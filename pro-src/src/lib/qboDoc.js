@@ -1,6 +1,7 @@
 // QuickBooks estimate/invoice payloads — line items, ShipAddr, progress billing.
 import { parseAmount, fmt$ } from "./format.js";
 import { effectiveServiceAddress } from "./customerSync.js";
+import { preferredChangeOrderDocNo } from "./changeOrder.js";
 import {
   inferProgressInvoiceLines,
   isProgressBillingContext,
@@ -91,7 +92,9 @@ export function buildDocCommandPayload(job, { kind, lines, serviceAddress, apart
     send: !!send,
   };
   if (kind === "invoice") {
-    base.invoiceNo = job.invoiceNo || "";
+    // Change-order invoices: original invoice # + -CO- + seq (e.g. 251100-CO-1).
+    base.invoiceNo =
+      String(job.invoiceNo || "").trim() || preferredChangeOrderDocNo(job, "invoice") || "";
     base.source = mode === "from_estimate" || mode === "turn_from_estimate" ? "estimate" : "new";
     base.estimateNo = job.estimateNo || "";
     const contract = contractTotalForJob(job);
@@ -105,7 +108,8 @@ export function buildDocCommandPayload(job, { kind, lines, serviceAddress, apart
     if (recurring) base.recurring = recurring;
   }
   if (kind === "estimate") {
-    base.estimateNo = job.estimateNo || "";
+    base.estimateNo =
+      String(job.estimateNo || "").trim() || preferredChangeOrderDocNo(job, "estimate") || "";
   }
   return base;
 }

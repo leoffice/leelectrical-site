@@ -8,7 +8,7 @@ import {
 } from "./qboDoc.js";
 import { buildRecurringPayload, recurringIdempotencyKey } from "./recurringBilling.js";
 import { isProgressBillingContext, progressBillingJobPatch } from "./progressBilling.js";
-import { briefTitlePatch } from "./changeOrder.js";
+import { briefTitlePatch, preferredChangeOrderDocNo } from "./changeOrder.js";
 
 export const DOC_SYNC_COMMAND_TYPES = [
   "create_estimate",
@@ -86,6 +86,17 @@ function buildDocJobPatch(job, { kind, mode, lines, serviceAddress, apartment, m
     Object.assign(jobPatch, progressBillingJobPatch(valid, job, { progressPct, contractAmount }));
   }
 
+  // Prefer original#-CO-N for local PDF / display on CO jobs (not confirmed until QBO).
+  // Only stamp when the job still has no real number so create vs update stays correct.
+  if (kind === "invoice" && !String(job.invoiceNo || "").trim()) {
+    const coNo = preferredChangeOrderDocNo(job, "invoice");
+    if (coNo) jobPatch._preferredInvoiceNo = coNo;
+  }
+  if (kind === "estimate" && !String(job.estimateNo || "").trim()) {
+    const coNo = preferredChangeOrderDocNo(job, "estimate");
+    if (coNo) jobPatch._preferredEstimateNo = coNo;
+  }
+
   if (markDone) {
     jobPatch.status = statusPatch(kind);
     if (kind === "invoice" && mode === "turn_from_estimate") {
@@ -131,7 +142,16 @@ export function planDocSaveSync(job, { kind, mode, lines, serviceAddress, apartm
     contractAmount,
   });
   const recurring = kind === "invoice" ? buildRecurringPayload(recurringState, { send }) : null;
-  const primaryPayload = buildDocCommandPayload(job, {
+  // Merge preferred CO doc # onto the job for the QBO payload without flipping create→update.
+  const jobForPayload = { ...job };
+  if (kind === "invoice" && !String(job.invoiceNo || "").trim() && jobPatch._preferredInvoiceNo) {
+    jobForPayload.invoiceNo = jobPatch._preferredInvoiceNo;
+  }
+  if (kind === "estimate" && !String(job.estimateNo || "").trim() && jobPatch._preferredEstimateNo) {
+    jobForPayload.estimateNo = jobPatch._preferredEstimateNo;
+  }
+
+  const primaryPayload = buildDocCommandPayload(jobForPayload, {
     kind,
     lines: valid,
     serviceAddress,

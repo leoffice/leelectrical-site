@@ -117,14 +117,61 @@ export function nextChangeOrderSeq(jobs, sourceJob, kind) {
   return max + 1;
 }
 
-/** Display / requested doc number: e.g. 251100-CO-1 */
+/** Display / requested doc number: e.g. 251100-CO-1 (original invoice # + -CO- + seq). */
 export function changeOrderDocLabel(sourceJob, kind, seq) {
   const base =
     kind === "estimate"
       ? String(sourceJob?.estimateNo || sourceJob?.invoiceNo || "").trim()
       : String(sourceJob?.invoiceNo || sourceJob?.estimateNo || "").trim();
-  const root = base || "CO";
+  // Strip any existing -CO-N so we never nest (251100-CO-1-CO-2).
+  const root = String(base || "CO").replace(/-CO-\d+\b/i, "").trim() || "CO";
   return root + "-CO-" + seq;
+}
+
+/**
+ * Invoice/estimate DocNumber to send to QuickBooks for a change-order job.
+ * Uses original# + -CO- + N so the generated doc is e.g. 251100-CO-1.
+ * Empty when not a CO or when a real confirmed number already exists.
+ */
+export function preferredChangeOrderDocNo(job, kind = "invoice") {
+  if (!job) return "";
+  const existing =
+    kind === "estimate" ? String(job.estimateNo || "").trim() : String(job.invoiceNo || "").trim();
+  // Already has a real number (possibly already CO-formatted) — keep it.
+  if (existing && (kind === "estimate" ? job._estimateConfirmed : job._invoiceConfirmed)) {
+    return existing;
+  }
+  if (existing && /-CO-\d+\b/i.test(existing)) return existing;
+  const label = String(job.changeOrderLabel || "").trim();
+  if (label) return label;
+  if (!job.changeOrder && !isChangeOrderJob(job)) return "";
+  const seq =
+    Number(job.changeOrderSeq) ||
+    seqFromDocNumber(job.changeOrderLabel) ||
+    seqFromCoPi(job.qboCoPi || job.coPi) ||
+    0;
+  if (seq > 0) {
+    // Best-effort label from whatever base we still have on the job.
+    return changeOrderDocLabel(job, kind, seq);
+  }
+  return existing || "";
+}
+
+/**
+ * Best parent job at the same address to hang a new change order off
+ * (prefers non-CO invoice with a doc number).
+ */
+export function bestChangeOrderSource(jobs, anchorJob) {
+  if (!anchorJob) return null;
+  const addr = jobsAtSameAddress(jobs, anchorJob);
+  const pool = addr.length ? addr : [anchorJob];
+  const originals = pool.filter((j) => jobAlive(j) && !isChangeOrderJob(j));
+  const withInv = originals.find((j) => String(j.invoiceNo || "").trim());
+  if (withInv) return withInv;
+  const withEst = originals.find((j) => String(j.estimateNo || "").trim());
+  if (withEst) return withEst;
+  if (!isChangeOrderJob(anchorJob)) return anchorJob;
+  return originals[0] || anchorJob;
 }
 
 /** One-line job title from line items + amount. */

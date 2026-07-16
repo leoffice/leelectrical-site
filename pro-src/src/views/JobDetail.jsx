@@ -39,8 +39,8 @@ import {
   changeOrderJobPatch,
 } from "../lib/changeOrder.js";
 import { BAEZ_PROJECT_ID, findBaezJob } from "../lib/requisitionData.js";
-import { cloneJobAtAddressPatch } from "../lib/customerHierarchy.js";
 import ChangeOrderSheet from "../components/ChangeOrderSheet.jsx";
+import AddJobAtAddressSheet from "../components/AddJobAtAddressSheet.jsx";
 import ChangeOrdersTabPanel from "../components/ChangeOrdersTabPanel.jsx";
 import {
   customerDisplayName,
@@ -156,15 +156,26 @@ export default function JobDetail() {
     showToast(on ? "Requisition flow on — open Change orders for balances" : "Requisition flow off");
   };
 
-  const addJobAtAddress = async () => {
+  const addJobAtAddress = () => {
     if (!job) return;
-    const patch = cloneJobAtAddressPatch(job);
+    setSheet({ kind: "addJobAtAddress" });
+  };
+
+  const confirmAddJobAtAddress = async (patch, meta = {}) => {
+    if (!job) return;
+    setSheet(null);
     const newId = await createJob(patch);
-    if (newId) {
-      showToast("New job at this address — add details when ready");
-      const q = fromCust ? "?from=" + encodeURIComponent(fromCust) : "";
+    if (!newId) return;
+    const q = fromCust ? "?from=" + encodeURIComponent(fromCust) : "";
+    if (meta.changeOrder) {
+      const label = meta.kind === "estimate" ? "Change order estimate" : "Change order invoice";
+      showToast(label + " started — number will be original invoice + CO");
       nav("/job/" + newId + q);
+      setSheet({ kind: "docBuild", docKind: meta.kind || "invoice", mode: "create" });
+      return;
     }
+    showToast("New job at this address — add details when ready");
+    nav("/job/" + newId + q);
   };
 
   const startChangeOrder = async (kind) => {
@@ -178,7 +189,7 @@ export default function JobDetail() {
     const newId = await createJob(patch);
     if (newId) {
       const label = kind === "estimate" ? "Change order estimate" : "Change order invoice";
-      showToast(label + " started — fill in the description and send when ready");
+      showToast(label + " started — number will be original invoice + CO");
       const q = fromCust ? "?from=" + encodeURIComponent(fromCust) : "";
       nav("/job/" + newId + q);
       setSheet({ kind: "docBuild", docKind: kind, mode: "create" });
@@ -1106,6 +1117,14 @@ export default function JobDetail() {
               : job.title || "this job"
           }
           onPick={startChangeOrder}
+          onClose={() => setSheet(null)}
+        />
+      ) : null}
+      {sheet?.kind === "addJobAtAddress" ? (
+        <AddJobAtAddressSheet
+          sourceJob={job}
+          jobs={jobs}
+          onCreate={confirmAddJobAtAddress}
           onClose={() => setSheet(null)}
         />
       ) : null}
