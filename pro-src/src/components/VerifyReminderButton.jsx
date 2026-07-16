@@ -20,6 +20,7 @@ const IS_TEST = import.meta.env.MODE === "test" || !!import.meta.env.VITEST;
  * @param {(result: object) => void} [props.onCleared] — only when permanently gone
  * @param {string} [props.className]
  * @param {boolean} [props.primary]
+ * @param {string} [props.label] — button text when idle
  */
 export default function VerifyReminderButton({
   item,
@@ -28,6 +29,7 @@ export default function VerifyReminderButton({
   onCleared,
   className,
   primary = false,
+  label = "✓ Verify",
 }) {
   const { jobs, events, commands, refreshJobs, showToast } = useStore();
   const [busy, setBusy] = useState(false);
@@ -95,7 +97,7 @@ export default function VerifyReminderButton({
       data-testid="reminder-verify"
       aria-busy={busy}
     >
-      {busy ? "Checking…" : "✓ Verify"}
+      {busy ? "Checking…" : label}
     </button>
   );
 }

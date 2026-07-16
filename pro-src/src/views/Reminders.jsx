@@ -5,6 +5,7 @@ import { useStore } from "../state/store.jsx";
 import { todayStr } from "../lib/format.js";
 import PauseRemindersBar from "../components/PauseRemindersBar.jsx";
 import VerifyReminderButton from "../components/VerifyReminderButton.jsx";
+import UnsentDocActions from "../components/UnsentDocActions.jsx";
 import {
   REMINDER_PRIORITIES,
   buildReminderList,
@@ -12,11 +13,7 @@ import {
   isRemindersPaused,
   scheduleReminderSnooze,
 } from "../lib/followUpReminders.js";
-import {
-  dismissUnsentDoc,
-  unsentDocCardFields,
-  unsentDocPath,
-} from "../lib/followUpStatus.js";
+import { unsentDocCardFields } from "../lib/followUpStatus.js";
 
 const PRIORITY_LABEL = Object.fromEntries(REMINDER_PRIORITIES.map((p) => [p.key, p.label]));
 
@@ -38,12 +35,6 @@ function ReminderRow({ item, expanded, onToggle, onAction }) {
   };
 
   const dontRemind = () => {
-    if (item.kind === "unsent_doc" && item.job?.id && item.docKind) {
-      dismissUnsentDoc(item.job.id, item.docKind);
-      showToast("OK — won't remind you about this " + item.docKind);
-      onAction();
-      return;
-    }
     if (item.event?.id) {
       dismissEventReminders(item.event.id, { noReminders: true });
       showToast("OK — won't remind you about this one");
@@ -57,10 +48,6 @@ function ReminderRow({ item, expanded, onToggle, onAction }) {
       showToast("Snoozed " + minutes + " min");
       onAction();
     }
-  };
-
-  const openDoc = () => {
-    if (item.job?.id && item.docKind) nav(unsentDocPath(item.job, item.docKind));
   };
 
   return (
@@ -105,21 +92,13 @@ function ReminderRow({ item, expanded, onToggle, onAction }) {
             </div>
           ) : null}
 
-          {item.kind === "unsent_doc" ? (
-            <>
-              <button type="button" className="btn-brand w-full" onClick={openDoc} data-testid="reminder-open-doc">
-                Open &amp; send
-              </button>
-              <VerifyReminderButton
-                item={item}
-                onStart={onAction}
-                onDone={onAction}
-                className="btn bg-violet-100 text-violet-900 w-full border border-violet-200"
-              />
-              <button type="button" className="btn-ghost w-full text-slate-600" onClick={dontRemind} data-testid="reminder-dont-remind">
-                Don't remind me
-              </button>
-            </>
+          {item.kind === "unsent_doc" && item.job ? (
+            <UnsentDocActions
+              job={item.job}
+              docKind={item.docKind}
+              docNo={item.docNo}
+              onAction={onAction}
+            />
           ) : null}
 
           {item.kind !== "unsent_doc" && item.job?.id ? (
