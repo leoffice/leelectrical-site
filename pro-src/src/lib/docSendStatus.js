@@ -1,4 +1,5 @@
 // Estimate / invoice email send status — "Never sent" vs last delivered send.
+// History from the app (SendInvoiceWatcher) OR QuickBooks EmailStatus on the job.
 
 const s = (v) => (v == null ? "" : String(v).trim());
 
@@ -25,6 +26,30 @@ function isDelivered(entry) {
   return k.includes("emailed") || /\bemailed\b/.test(k) || k.includes("delivered") || /\binvoice sent\b/.test(k) || /\bestimate sent\b/.test(k);
 }
 
+/** QBO EmailStatus=EmailSent (and related fields) — source of truth when local history is empty. */
+export function qboDocSend(job, docKind, { docNo } = {}) {
+  if (!job || docKind !== "invoice") return null;
+  const status = s(job.invoiceEmailStatus || job.EmailStatus).toLowerCase();
+  const emailedFlag = status === "emailsent";
+  // Only trust _docEmailed when this job has an invoice and no estimate-only ambiguity.
+  // Prefer explicit QBO status; flag alone is a soft fallback for older records.
+  if (!emailedFlag && !job._docEmailed) return null;
+  if (!emailedFlag && job.estimateNo && !job.invoiceNo) return null;
+  if (!emailedFlag && !job.invoiceNo && !job._invoiceConfirmed) return null;
+  const no = docNo != null ? s(docNo) : docNoForJob(job, "invoice");
+  const date =
+    s(job.invoiceEmailedAt).slice(0, 10) ||
+    s(job.invoiceEmailDeliveryTime).slice(0, 10) ||
+    "";
+  const to = s(job.email) || s(job.billEmail);
+  return {
+    date: date || undefined,
+    to: to || undefined,
+    kind: (no ? "Invoice #" + no : "Invoice") + " emailed",
+    source: "qbo",
+  };
+}
+
 /** Latest delivered send for this doc kind from job history (chronological list). */
 export function lastDocSend(job, docKind, { docNo } = {}) {
   const no = docNo != null ? s(docNo) : docNoForJob(job, docKind);
@@ -33,7 +58,8 @@ export function lastDocSend(job, docKind, { docNo } = {}) {
     const e = hist[i];
     if (kindMatches(e, docKind) && docNoMatches(e, no) && isDelivered(e)) return e;
   }
-  return null;
+  // Fall back to QuickBooks email status when the browser never logged the send.
+  return qboDocSend(job, docKind, { docNo: no });
 }
 
 /** True when a send command completed successfully for this job + doc. */

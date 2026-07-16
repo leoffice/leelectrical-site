@@ -53,4 +53,29 @@ describe("docSendStatus", () => {
     job.invoiceHistory.push({ date: "2026-07-14", kind: "Invoice #200 emailed", to: "new@x.com" });
     expect(lastDocSend(job, "invoice")?.to).toBe("new@x.com");
   });
+
+  it("treats QBO EmailStatus=EmailSent as delivered when history is empty", () => {
+    const job = {
+      id: "qbo-251849",
+      invoiceNo: "251849",
+      email: "AviLoschak@gmail.com",
+      invoiceHistory: [],
+      invoiceEmailStatus: "EmailSent",
+      invoiceEmailedAt: "2026-07-15",
+    };
+    expect(lastDocSend(job, "invoice")?.kind).toMatch(/251849 emailed/);
+    expect(docSendStatusLine(job, "invoice", []).text).toContain("2026-07-15");
+    expect(docSendStatusLine(job, "invoice", []).state).toBe("sent");
+  });
+
+  it("does not treat bare _docEmailed as invoice send when only estimate exists", () => {
+    const job = {
+      id: "J-2",
+      estimateNo: "55",
+      invoiceHistory: [],
+      _docEmailed: true,
+    };
+    expect(lastDocSend(job, "invoice")).toBe(null);
+    expect(docSendStatusLine(job, "invoice", []).text).toBe("Never sent");
+  });
 });

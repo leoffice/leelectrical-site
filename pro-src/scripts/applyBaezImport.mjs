@@ -76,9 +76,6 @@ function buildReqRecord(project, draft, meta, createdAt) {
     createdAt,
     submittedAt: createdAt,
     importNote: meta.g702?.note || null,
-    // Carry the authoritative certificate block (real submitted paperwork) so
-    // reconcileRequisitionFinancials pins this period to the actual G702.
-    g702: meta.g702 && meta.g702.authoritative ? meta.g702 : undefined,
   };
 }
 
@@ -90,11 +87,8 @@ function itemKey(it) {
 
 function applyImport() {
   const items = data.masterItems.map((it) => ({ ...it }));
-  // Net change-order total: prefer the authoritative figure from the submitted
-  // paperwork (data.changeOrdersTotal), else sum the CO SOV lines.
-  const coLineTotal = sumItemValues(changeOrderItems(items));
-  const coTotal = data.changeOrdersTotal != null ? data.changeOrdersTotal : coLineTotal;
-  const baseContract = sumItemValues(items) - coLineTotal;
+  const coTotal = sumItemValues(changeOrderItems(items));
+  const baseContract = sumItemValues(items) - coTotal;
   const project = {
     id: BAEZ_PROJECT_ID,
     name: "Baez Place",
