@@ -59,6 +59,11 @@ import { downloadRequisitionExcel } from "../lib/requisitionExcel.js";
 import { customerAmountSummary } from "../lib/customers.js";
 import { parseSovCsv } from "../lib/sovParser.js";
 
+/** SOV % to hundredths so line dollars can land on the cent. */
+function roundPct(n) {
+  return Math.round((Number(n) || 0) * 100) / 100;
+}
+
 function pctInput(val, onChange, status) {
   const cls =
     status === "changed"
@@ -66,18 +71,19 @@ function pctInput(val, onChange, status) {
       : status === "unchanged"
       ? "bg-red-50 text-red-700 border-red-200"
       : "bg-red-50/60 text-red-600 border-red-100";
-  const display = Number.isFinite(Number(val)) ? Number(val) : 0;
+  const display = Number.isFinite(Number(val)) ? roundPct(val) : 0;
   return (
     <input
       type="number"
       min={0}
       max={100}
-      step={1}
+      step={0.01}
+      inputMode="decimal"
       className={`w-16 text-right border rounded px-1 py-0.5 text-sm ${cls}`}
       value={display}
       onFocus={(e) => e.target.select()}
       onClick={(e) => e.target.select()}
-      onChange={(e) => onChange(Math.min(100, Math.max(0, Number(e.target.value) || 0)))}
+      onChange={(e) => onChange(Math.min(100, Math.max(0, roundPct(e.target.value))))}
       data-testid="sov-pct-input"
     />
   );
@@ -317,7 +323,8 @@ function parseMoneyInput(raw) {
   const s = String(raw || "").trim().replace(/[$,\s]/g, "");
   if (!s) return undefined;
   const n = Number(s);
-  return Number.isFinite(n) ? n : undefined;
+  // Round to the cent so previously-paid stops current due on exact cash received.
+  return Number.isFinite(n) ? Math.round(n * 100) / 100 : undefined;
 }
 
 function RequisitionWorkbench({ project, onSave, busy, showToast, onSaved }) {
@@ -368,7 +375,8 @@ function RequisitionWorkbench({ project, onSave, busy, showToast, onSaved }) {
 
   useEffect(() => {
     const auto = buildDraftG702(applyCarriedPercentages(project)).computedPreviousCertificates;
-    setPrevPaidInput(auto ? String(auto) : "");
+    // Always seed to the cent so paid-so-far and current due stay exact.
+    setPrevPaidInput(auto != null && auto !== 0 ? (Math.round(Number(auto) * 100) / 100).toFixed(2) : "");
     setPrevPaidConfirmed(false);
   }, [carrySeed]);
 

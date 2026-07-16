@@ -137,7 +137,13 @@ export function upsertProject(projects, project) {
   return { list };
 }
 
+/** Format money to the cent (Levi 2026-07-16 — requisition paid-so-far / due must show cents). */
 export function fmtUsd(n) {
   const v = Number(n) || 0;
-  return v.toLocaleString("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 0 });
+  return v.toLocaleString("en-US", {
+    style: "currency",
+    currency: "USD",
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  });
 }

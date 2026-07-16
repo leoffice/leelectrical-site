@@ -83,7 +83,10 @@ function g703Sheet(req) {
       num(r.prevCompleted),
       num(r.thisPeriod),
       num(r.totalCompleted),
-      cell(`${Math.round(Number(r.pctComplete) || 0)}%`),
+      cell((() => {
+        const p = Math.round((Number(r.pctComplete) || 0) * 100) / 100;
+        return `${p % 1 ? p.toFixed(2) : String(p)}%`;
+      })()),
       num(r.balance),
       cell(`${Number(r.retainagePct) || 0}%`),
       num(r.retainage),
