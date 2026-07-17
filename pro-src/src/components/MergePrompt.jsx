@@ -1,6 +1,6 @@
 // "Same customer?" bottom sheet (bug #2). After jobs load, offers to combine
 // near-duplicate customer names — contact info compared immediately side by side.
-import React, { useCallback, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { useStore } from "../state/store.jsx";
 import Sheet, { Opt } from "./Sheet.jsx";
 import SideBySideCompare from "./SideBySideCompare.jsx";
@@ -13,6 +13,11 @@ import {
   persistDismissed,
   snoozePair,
 } from "../lib/customers.js";
+import {
+  canShowNameSortPrompt,
+  claimReminderSlots,
+  consumeNameSortSlot,
+} from "../lib/promptQueueCap.js";
 import { parentCustomerPatch } from "../lib/customerHierarchy.js";
 import { enqueueCustomerQboSync } from "../lib/customerQboEnqueue.js";
 import { serviceAddressesExcludingBilling } from "../lib/addressSync.js";
@@ -221,17 +226,27 @@ function CompareSheet({
 }
 
 export default function MergePrompt() {
-  const { jobs, loading, patchAndSave, enqueue, showToast } = useStore();
+  const { jobs, loading, patchAndSave, enqueue, showToast, reminderBadge } = useStore();
   const [tick, setTick] = useState(0);
   const [busy, setBusy] = useState(false);
   const [mode, setMode] = useState("prompt");
   const [linkMode, setLinkMode] = useState("combined");
   const [parentSide, setParentSide] = useState("left");
 
-  const sug = useMemo(
-    () => (loading ? null : findMergeSuggestion(jobs)),
-    [jobs, loading, tick] // eslint-disable-line react-hooks/exhaustive-deps
-  );
+  // Shared five-card day budget with reminders — reserve reminder slots first.
+  claimReminderSlots(reminderBadge || 0);
+  const budgetOk = canShowNameSortPrompt();
+
+  const sug = useMemo(() => {
+    if (loading || !budgetOk) return null;
+    return findMergeSuggestion(jobs);
+  }, [jobs, loading, tick, budgetOk]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Count each name-sort card against today's shared cap (once per pair).
+  useEffect(() => {
+    if (!sug?.id) return;
+    consumeNameSortSlot(sug.id);
+  }, [sug?.id]);
 
   const contactRows = useMemo(() => {
     if (!sug) return [];

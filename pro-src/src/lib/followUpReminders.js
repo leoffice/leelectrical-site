@@ -10,6 +10,17 @@ import {
   unsentDocLead,
 } from "./followUpStatus.js";
 import { filterVerifyHeld } from "./reminderVerifyHold.js";
+import {
+  claimReminderSlots,
+  OVERFLOW_REMINDER_MESSAGE,
+  PROMPT_QUEUE_CAP,
+} from "./promptQueueCap.js";
+
+export {
+  claimReminderSlots,
+  OVERFLOW_REMINDER_MESSAGE,
+  PROMPT_QUEUE_CAP,
+} from "./promptQueueCap.js";
 
 export const STATE_KEY = "lepro_followup_state";
 export const SERVICE_LOOKBACK_DAYS = 7;
@@ -48,10 +59,8 @@ export const PAUSE_SLIDER_STEP = 5;
 
 export const GLOBAL_PAUSE_KEY = "lepro_reminders_paused_until";
 
-/** Max real reminder popups at once — 6th is the overflow nudge to the Reminders tab. */
-export const PROMPT_QUEUE_CAP = 5;
-export const OVERFLOW_REMINDER_MESSAGE =
-  "There are more things to do. Please go to the reminders tab and choose the top five to give me the most pressing.";
+/** Max real popups at once (reminders + name-sort) — 6th is overflow nudge. */
+// PROMPT_QUEUE_CAP + OVERFLOW_REMINDER_MESSAGE live in promptQueueCap.js (shared).
 
 export const REMINDER_PRIORITIES = [
   { key: "low", label: "Low" },
@@ -786,6 +795,8 @@ export function buildPromptQueue(events, jobs, today, now = new Date(), commands
   }
   const held = filterVerifyHeld(queue, now.getTime?.() || Date.now());
   held.sort(comparePromptQueueItems);
+  // Reserve shared popup slots so name-sort cards cannot exceed the five-card total.
+  claimReminderSlots(held.length, now instanceof Date ? now : new Date());
   return applyPromptQueueCap(held, PROMPT_QUEUE_CAP);
 }
 
