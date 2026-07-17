@@ -299,12 +299,8 @@ export default function CustomerView() {
         }
       />
 
-      {/* Short transactions ON → ledger only (jobs hidden). OFF → jobs as usual. */}
-      {shortTxns && !(key.startsWith("p:") && subs.length > 0) ? (
-        <CustomerTransactionHistory jobs={displayJobs} fromCust={key} />
-      ) : null}
-
-      {!shortTxns && subs.length > 0 ? (
+      {/* Parent with subs: sub-company list. Leaf: doc tabs always; short-txns ledger under tabs. */}
+      {subs.length > 0 ? (
         <div className="card px-3 py-2.5 space-y-1.5" data-testid="customer-sub-companies">
           <h2 className="text-[11px] font-extrabold text-slate-500 uppercase tracking-wider px-0.5">
             Sub companies ({subs.length})
@@ -326,8 +322,14 @@ export default function CustomerView() {
         </div>
       ) : null}
 
-      {!shortTxns && !(key.startsWith("p:") && subs.length > 0) ? (
-        <CustomerDocTabs jobs={displayJobs} fromCust={key} />
+      {/* Order: customer card → Invoice/Estimates/CO/Addresses tabs → short transaction list */}
+      {!(key.startsWith("p:") && subs.length > 0) ? (
+        <>
+          <CustomerDocTabs jobs={displayJobs} fromCust={key} />
+          {shortTxns ? (
+            <CustomerTransactionHistory jobs={displayJobs} fromCust={key} />
+          ) : null}
+        </>
       ) : null}
 
       {sheet?.kind === "cust" && sheet.job ? (

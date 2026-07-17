@@ -1,6 +1,6 @@
 // Compact short-transaction list for a customer company (all job addresses;
-// not sub-companies). Shown when "Short transactions" is on — jobs hide.
-// Prefer one-line rows; second line only for due amount when it differs.
+// not sub-companies). Shown under Invoice/Estimates/CO/Addresses tabs when
+// "Short transactions" is on. Prefer one-line rows; second line only for due.
 import React, { useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import {
