@@ -82,4 +82,24 @@ describe("customer doc tabs — create + service addresses", () => {
     await user.click(within(pane).getByTestId("add-change-order-btn"));
     expect(await screen.findByTestId("co-pick-invoice")).toBeInTheDocument();
   });
+
+  it("short transactions keeps doc tabs above the ledger under customer card", async () => {
+    mockServer({ jobs });
+    const user = userEvent.setup();
+    renderApp("#/customer/c:addr%20co");
+    const view = await screen.findByTestId("customer-view");
+    expect(within(view).getByTestId("customer-doc-tabs")).toBeInTheDocument();
+    expect(within(view).queryByTestId("customer-txn-history")).not.toBeInTheDocument();
+
+    await user.click(within(view).getByRole("switch", { name: /Short transactions/i }));
+
+    const card = within(view).getByTestId("customer-card");
+    const tabs = within(view).getByTestId("customer-doc-tabs");
+    const ledger = within(view).getByTestId("customer-txn-history");
+    // DOM order: customer card → tabs → short transaction history
+    expect(card.compareDocumentPosition(tabs) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(tabs.compareDocumentPosition(ledger) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(within(view).getByTestId("cust-tab-invoices")).toBeInTheDocument();
+    expect(within(view).getByTestId("cust-tab-changes")).toBeInTheDocument();
+  });
 });

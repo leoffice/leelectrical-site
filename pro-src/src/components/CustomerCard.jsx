@@ -1,5 +1,5 @@
 // Customer header card — contact info on top, tappable fields, edit in corner.
-// Optional "Short transactions" toggle (bottom right) hides jobs and shows the ledger.
+// Optional "Short transactions" toggle (bottom right) shows the compact ledger under the tabs.
 import React from "react";
 import { CustomerAvatar } from "./JobCard.jsx";
 import { CustomerAmountSubline } from "./AmountDisplay.jsx";
