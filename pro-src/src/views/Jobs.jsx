@@ -168,6 +168,9 @@ const loadSort = () => {
   }
 };
 
+/** How many customer rows to paint first — rest load as you scroll (keeps open snappy). */
+const LIST_PAGE = 48;
+
 export default function Jobs({ embedded, collapseGroups = false, activeJobId = "" }) {
   const { jobs, loading, showToast, api, enqueue, refreshJobs } = useStore();
   const nav = useNavigate();
@@ -180,9 +183,11 @@ export default function Jobs({ embedded, collapseGroups = false, activeJobId = "
   const [importCust, setImportCust] = useState(null); // #56 confirm-import target
   const [qboIndex, setQboIndex] = useState([]);
   const [recencyTick, setRecencyTick] = useState(0);
+  const [listLimit, setListLimit] = useState(LIST_PAGE);
   const timers = useRef({}); // groupKey -> auto-collapse timer
   const custTimer = useRef(null);
   const searchIdleTimer = useRef(null);
+  const listMoreRef = useRef(null);
 
   const pickSort = (k) => {
     setSort(k);
@@ -205,6 +210,11 @@ export default function Jobs({ embedded, collapseGroups = false, activeJobId = "
   }, [api]);
 
   useEffect(() => subscribeRecency(() => setRecencyTick((n) => n + 1)), []);
+
+  // Filter / search / sort change → show the top page again (recency order is already top-first).
+  useEffect(() => {
+    setListLimit(LIST_PAGE);
+  }, [filter, q, sort]);
 
   const active = useMemo(() => jobs.filter((j) => !j._archived && !j._deleted), [jobs]);
   const matchesChip = useCallback(
@@ -379,6 +389,31 @@ export default function Jobs({ embedded, collapseGroups = false, activeJobId = "
     return () => Object.values(t).forEach(clearTimeout);
   }, []);
 
+  // Progressive list: paint top rows first, grow as the sentinel nears the viewport.
+  const totalListRows = parentRows.length + flatGroups.length;
+  const visibleParentRows = useMemo(() => parentRows.slice(0, listLimit), [parentRows, listLimit]);
+  const flatRoom = Math.max(0, listLimit - parentRows.length);
+  const visibleFlatGroups = useMemo(() => flatGroups.slice(0, flatRoom), [flatGroups, flatRoom]);
+  useEffect(() => {
+    const el = listMoreRef.current;
+    if (!el || listLimit >= totalListRows) return;
+    if (typeof IntersectionObserver !== "function") {
+      // No IO (tests / old webview) — reveal the rest in a couple of frames.
+      const t = setTimeout(() => setListLimit(totalListRows), 0);
+      return () => clearTimeout(t);
+    }
+    const io = new IntersectionObserver(
+      (entries) => {
+        if (entries.some((e) => e.isIntersecting)) {
+          setListLimit((n) => Math.min(totalListRows, n + LIST_PAGE));
+        }
+      },
+      { root: null, rootMargin: "240px 0px", threshold: 0 }
+    );
+    io.observe(el);
+    return () => io.disconnect();
+  }, [listLimit, totalListRows, filter, q, sort]);
+
   const quickSend = (job) => {
     if (!job.email) return showToast("No email on file — add one first");
     setSheet({ kind: "send", job });
@@ -497,7 +532,7 @@ export default function Jobs({ embedded, collapseGroups = false, activeJobId = "
         </div>
       ) : (
         <div className="space-y-2.5">
-          {parentRows.map((row) => {
+          {visibleParentRows.map((row) => {
             const searchOn = !!q.trim();
             const visibleSubs = searchOn ? row.subs.filter((sub) => sub.jobs.some(matchesChip)) : row.subs;
             const multiSub = visibleSubs.length > 0;
@@ -567,7 +602,7 @@ export default function Jobs({ embedded, collapseGroups = false, activeJobId = "
               </div>
             );
           })}
-          {flatGroups.map(([key, list]) => {
+          {visibleFlatGroups.map(([key, list]) => {
             const job = list[0];
             const customerName = boardCustomerLabel(job, list);
             const showFullGroup = (filter === "Active" || filter === "All") && !q.trim();
@@ -656,6 +691,15 @@ export default function Jobs({ embedded, collapseGroups = false, activeJobId = "
               </div>
             );
           })}
+          {listLimit < totalListRows ? (
+            <div
+              ref={listMoreRef}
+              className="py-3 text-center text-xs text-slate-400"
+              data-testid="jobs-list-more"
+            >
+              Loading more customers…
+            </div>
+          ) : null}
         </div>
       )}
       {/* #56 — customers on file not yet on the board. Tap → import + open invoices. */}

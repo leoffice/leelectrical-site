@@ -689,11 +689,8 @@ export function mergePairAlreadyResolved(ja, jb) {
   return false;
 }
 
-/** First (deterministic) pair of distinct client keys whose names look like
- *  the same customer and that Levi hasn't already said "Not the same" to.
- *  Strong 3-of-4 exact matches are auto-handled elsewhere — not prompted.
- *  Returns { id, a:{name,jobs}, b:{name,jobs} } or null. */
-export function findMergeSuggestion(jobs) {
+/** Active jobs grouped by clientKey — stable array of [key, jobs[]]. */
+export function clientGroupEntries(jobs) {
   const map = new Map();
   for (const j of jobs || []) {
     if (!j || j._archived || j._deleted) continue;
@@ -701,30 +698,151 @@ export function findMergeSuggestion(jobs) {
     if (!map.has(k)) map.set(k, []);
     map.get(k).push(j);
   }
-  const entries = [...map.entries()];
-  for (let i = 0; i < entries.length; i++) {
-    const ja = entries[i][1][0];
-    const na = mergeDisplayName(ja);
-    for (let k = i + 1; k < entries.length; k++) {
-      const jb = entries[k][1][0];
-      const nb = mergeDisplayName(jb);
-      if (mergePairAlreadyResolved(ja, jb)) continue;
-      const nameMatch = namesNearDuplicate(na, nb);
-      const contactMatch = !nameMatch && contactInfoMatches(ja, jb);
-      if (!nameMatch && !contactMatch) continue;
-      if (isMergeDecisionRemembered(ja, jb)) continue;
-      if (isSnoozed(na, nb) || isSnoozed(ja.customer, jb.customer)) continue;
-      // 3-of-4 exact → auto path (green), not a manual decision popup
-      const pa = customerProfileFromJobs(entries[i][1], na);
-      const pb = customerProfileFromJobs(entries[k][1], nb);
-      if (isStrongCustomerMatch(pa, pb, 3)) continue;
-      return {
-        id: pairId(na, nb),
-        reason: contactMatch ? "contact" : "name",
-        a: { name: na, jobs: entries[i][1] },
-        b: { name: nb, jobs: entries[k][1] },
-      };
+  return [...map.entries()];
+}
+
+/**
+ * Candidate index pairs (i<k) for near-duplicate / contact merge.
+ * Avoids full O(n²) Levenshtein on every customer pair — indexes by phone,
+ * email, name prefix, and long shared words first.
+ */
+export function nearDuplicateCandidatePairs(entries) {
+  const n = entries.length;
+  const cand = new Set();
+  const add = (i, k) => {
+    if (i === k || i < 0 || k < 0 || i >= n || k >= n) return;
+    cand.add(i < k ? `${i}:${k}` : `${k}:${i}`);
+  };
+
+  const norms = new Array(n);
+  const phones = new Map();
+  const emails = new Map();
+  const byFirst = new Map();
+  const byWord = new Map();
+
+  for (let i = 0; i < n; i++) {
+    const j = entries[i][1][0] || {};
+    const name = normalizeCustomer(mergeDisplayName(j));
+    const phone = normalizePhone(j.phone);
+    const email = normalizeEmail(j.email);
+    norms[i] = { name, phone, email, first: name ? name[0] : "", len: name.length };
+    if (phone) {
+      if (!phones.has(phone)) phones.set(phone, []);
+      phones.get(phone).push(i);
     }
+    if (email) {
+      if (!emails.has(email)) emails.set(email, []);
+      emails.get(email).push(i);
+    }
+    if (norms[i].first) {
+      if (!byFirst.has(norms[i].first)) byFirst.set(norms[i].first, []);
+      byFirst.get(norms[i].first).push(i);
+    }
+    if (name) {
+      for (const w of name.split(" ")) {
+        if (w.length < 5) continue;
+        if (!byWord.has(w)) byWord.set(w, []);
+        byWord.get(w).push(i);
+      }
+    }
+  }
+
+  const addAllPairs = (idxs) => {
+    for (let a = 0; a < idxs.length; a++) {
+      for (let b = a + 1; b < idxs.length; b++) add(idxs[a], idxs[b]);
+    }
+  };
+  for (const idxs of phones.values()) if (idxs.length > 1) addAllPairs(idxs);
+  for (const idxs of emails.values()) if (idxs.length > 1) addAllPairs(idxs);
+
+  // Same first letter + similar length → Levenshtein; longer contains shorter.
+  for (const idxs of byFirst.values()) {
+    for (let a = 0; a < idxs.length; a++) {
+      const i = idxs[a];
+      const ni = norms[i];
+      for (let b = a + 1; b < idxs.length; b++) {
+        const k = idxs[b];
+        const nk = norms[k];
+        if (ni.len > 4 && nk.len > 4 && Math.abs(ni.len - nk.len) <= 2) {
+          add(i, k);
+          continue;
+        }
+        const short = ni.len <= nk.len ? ni : nk;
+        const long = ni.len <= nk.len ? nk : ni;
+        if (short.len >= 5 && long.len > short.len && long.name.includes(short.name)) add(i, k);
+      }
+    }
+  }
+
+  // Shared long word (different first letter still possible for contains).
+  for (const idxs of byWord.values()) {
+    if (idxs.length < 2) continue;
+    for (let a = 0; a < idxs.length; a++) {
+      for (let b = a + 1; b < idxs.length; b++) {
+        const i = idxs[a];
+        const k = idxs[b];
+        const ni = norms[i];
+        const nk = norms[k];
+        if (ni.len >= 5 && nk.len > ni.len && nk.name.includes(ni.name)) add(i, k);
+        else if (nk.len >= 5 && ni.len > nk.len && ni.name.includes(nk.name)) add(i, k);
+        else if (ni.len > 4 && nk.len > 4 && Math.abs(ni.len - nk.len) <= 2) add(i, k);
+      }
+    }
+  }
+
+  // Full-string contains across any first letter ("Levin" ⊂ "Yehudah Levinson").
+  // Plain includes is cheap; full Levenshtein on every pair is what froze the app.
+  for (let i = 0; i < n; i++) {
+    const ni = norms[i];
+    if (ni.len < 5) continue;
+    for (let k = 0; k < n; k++) {
+      if (k === i) continue;
+      const nk = norms[k];
+      if (nk.len > ni.len && nk.name.includes(ni.name)) add(i, k);
+    }
+  }
+
+  return cand;
+}
+
+/** Sorted [i,k] pairs from a "i:k" candidate set. */
+function sortedCandidatePairs(cand) {
+  return [...cand]
+    .map((s) => {
+      const c = s.indexOf(":");
+      return [Number(s.slice(0, c)), Number(s.slice(c + 1))];
+    })
+    .sort((a, b) => a[0] - b[0] || a[1] - b[1]);
+}
+
+/** First (deterministic) pair of distinct client keys whose names look like
+ *  the same customer and that Levi hasn't already said "Not the same" to.
+ *  Strong 3-of-4 exact matches are auto-handled elsewhere — not prompted.
+ *  Returns { id, a:{name,jobs}, b:{name,jobs} } or null. */
+export function findMergeSuggestion(jobs) {
+  const entries = clientGroupEntries(jobs);
+  const pairs = sortedCandidatePairs(nearDuplicateCandidatePairs(entries));
+  for (const [i, k] of pairs) {
+    const ja = entries[i][1][0];
+    const jb = entries[k][1][0];
+    const na = mergeDisplayName(ja);
+    const nb = mergeDisplayName(jb);
+    if (mergePairAlreadyResolved(ja, jb)) continue;
+    const nameMatch = namesNearDuplicate(na, nb);
+    const contactMatch = !nameMatch && contactInfoMatches(ja, jb);
+    if (!nameMatch && !contactMatch) continue;
+    if (isMergeDecisionRemembered(ja, jb)) continue;
+    if (isSnoozed(na, nb) || isSnoozed(ja.customer, jb.customer)) continue;
+    // 3-of-4 exact → auto path (green), not a manual decision popup
+    const pa = customerProfileFromJobs(entries[i][1], na);
+    const pb = customerProfileFromJobs(entries[k][1], nb);
+    if (isStrongCustomerMatch(pa, pb, 3)) continue;
+    return {
+      id: pairId(na, nb),
+      reason: contactMatch ? "contact" : "name",
+      a: { name: na, jobs: entries[i][1] },
+      b: { name: nb, jobs: entries[k][1] },
+    };
   }
   return null;
 }

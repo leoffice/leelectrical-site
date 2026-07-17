@@ -3,11 +3,12 @@
 // Findings feed MergePrompt + InvoiceDedupPrompt (app-wide).
 
 import {
-  clientKey,
+  clientGroupEntries,
   contactInfoMatches,
   isMergeDecisionRemembered,
   mergeDisplayName,
   namesNearDuplicate,
+  nearDuplicateCandidatePairs,
   pairId,
   findMergeSuggestion,
 } from "./customers.js";
@@ -40,29 +41,24 @@ export function scanDue(now = Date.now(), last = loadLastScan()) {
   return !last || last.day !== day;
 }
 
-/** Count all non-dismissed customer merge pairs (full scan). */
+/** Count all non-dismissed customer merge pairs (indexed candidates only). */
 export function countMergePairs(jobs) {
-  const map = new Map();
-  for (const j of jobs || []) {
-    if (!j || j._archived || j._deleted) continue;
-    const k = clientKey(j);
-    if (!map.has(k)) map.set(k, []);
-    map.get(k).push(j);
-  }
-  const entries = [...map.entries()];
+  const entries = clientGroupEntries(jobs);
+  const cand = nearDuplicateCandidatePairs(entries);
   let n = 0;
-  for (let i = 0; i < entries.length; i++) {
+  for (const key of cand) {
+    const c = key.indexOf(":");
+    const i = Number(key.slice(0, c));
+    const k = Number(key.slice(c + 1));
     const ja = entries[i][1][0];
+    const jb = entries[k][1][0];
     const na = mergeDisplayName(ja);
-    for (let k = i + 1; k < entries.length; k++) {
-      const jb = entries[k][1][0];
-      const nb = mergeDisplayName(jb);
-      const nameMatch = namesNearDuplicate(na, nb);
-      const contactMatch = !nameMatch && contactInfoMatches(ja, jb);
-      if (!nameMatch && !contactMatch) continue;
-      if (isMergeDecisionRemembered(ja, jb)) continue;
-      n++;
-    }
+    const nb = mergeDisplayName(jb);
+    const nameMatch = namesNearDuplicate(na, nb);
+    const contactMatch = !nameMatch && contactInfoMatches(ja, jb);
+    if (!nameMatch && !contactMatch) continue;
+    if (isMergeDecisionRemembered(ja, jb)) continue;
+    n++;
   }
   return n;
 }

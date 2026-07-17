@@ -12,6 +12,8 @@ import {
   mergePairAlreadyResolved,
   normalizeBillingAddress,
   normalizeCustomer,
+  normalizeEmail,
+  normalizePhone,
   pairId,
 } from "./customers.js";
 import { customerProfileComplete, qboCustomerToJobPatch } from "./customerSync.js";
@@ -36,28 +38,61 @@ export function customerGroupsFromJobs(jobs) {
 }
 
 /**
+ * Index pairs that share at least one identity field (phone/email/name/billing).
+ * Strong 3-of-4 matches must share ≥1 field — full n² is never needed.
+ */
+function strongMatchCandidatePairs(groups) {
+  const cand = new Set();
+  const add = (i, k) => {
+    if (i === k) return;
+    cand.add(i < k ? `${i}:${k}` : `${k}:${i}`);
+  };
+  const index = (keyFn) => {
+    const m = new Map();
+    for (let i = 0; i < groups.length; i++) {
+      const key = keyFn(groups[i].profile || {});
+      if (!key) continue;
+      if (!m.has(key)) m.set(key, []);
+      m.get(key).push(i);
+    }
+    for (const idxs of m.values()) {
+      for (let a = 0; a < idxs.length; a++) {
+        for (let b = a + 1; b < idxs.length; b++) add(idxs[a], idxs[b]);
+      }
+    }
+  };
+  index((p) => normalizePhone(p.phone));
+  index((p) => normalizeEmail(p.email));
+  index((p) => normalizeCustomer(p.businessName || p.name || p.customer || ""));
+  index((p) => normalizeBillingAddress(p.billingAddress || p.addr || p.billingAddr));
+  return cand;
+}
+
+/**
  * All strong (≥3/4 exact) same-customer pairs that still need combining.
  * Deterministic order by pairId.
  */
 export function findStrongAutoMergePairs(jobs) {
   const groups = customerGroupsFromJobs(jobs);
   const pairs = [];
-  for (let i = 0; i < groups.length; i++) {
+  const cand = strongMatchCandidatePairs(groups);
+  for (const key of cand) {
+    const c = key.indexOf(":");
+    const i = Number(key.slice(0, c));
+    const k = Number(key.slice(c + 1));
     const ga = groups[i];
+    const gb = groups[k];
     const ja = ga.jobs[0];
-    for (let k = i + 1; k < groups.length; k++) {
-      const gb = groups[k];
-      const jb = gb.jobs[0];
-      if (mergePairAlreadyResolved(ja, jb)) continue;
-      if (isMergeDecisionRemembered(ja, jb)) continue;
-      if (!isStrongCustomerMatch(ga.profile, gb.profile, 3)) continue;
-      pairs.push({
-        id: pairId(ga.profile.name, gb.profile.name),
-        score: matchCustomerFields(ga.profile, gb.profile),
-        a: { name: ga.profile.name, jobs: ga.jobs, profile: ga.profile, key: ga.key },
-        b: { name: gb.profile.name, jobs: gb.jobs, profile: gb.profile, key: gb.key },
-      });
-    }
+    const jb = gb.jobs[0];
+    if (mergePairAlreadyResolved(ja, jb)) continue;
+    if (isMergeDecisionRemembered(ja, jb)) continue;
+    if (!isStrongCustomerMatch(ga.profile, gb.profile, 3)) continue;
+    pairs.push({
+      id: pairId(ga.profile.name, gb.profile.name),
+      score: matchCustomerFields(ga.profile, gb.profile),
+      a: { name: ga.profile.name, jobs: ga.jobs, profile: ga.profile, key: ga.key },
+      b: { name: gb.profile.name, jobs: gb.jobs, profile: gb.profile, key: gb.key },
+    });
   }
   return pairs.sort((x, y) => x.id.localeCompare(y.id));
 }
