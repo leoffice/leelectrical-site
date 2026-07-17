@@ -16,6 +16,7 @@ import {
   shouldAutoBiometric,
   isWithinGrace,
   logOff,
+  markAgentUnlocked,
   markUnlocked,
   passwordUnlock,
   setCredentialId,
@@ -192,6 +193,36 @@ describe("biometric availability detection", () => {
       isUserVerifyingPlatformAuthenticatorAvailable: async () => true,
     });
     expect(await biometricSupported()).toBe(true);
+  });
+});
+
+describe("agent access unlock", () => {
+  it("markAgentUnlocked unlocks until the grant expires", () => {
+    const t0 = 8_000_000;
+    markAgentUnlocked(
+      {
+        token: "abc",
+        grantId: "g1",
+        scope: "full",
+        startedAt: t0,
+        expiresAt: t0 + 30 * 60 * 1000,
+        label: "agent",
+      },
+      t0
+    );
+    expect(isSessionUnlocked(t0 + 1000)).toBe(true);
+    expect(isSessionUnlocked(t0 + 31 * 60 * 1000)).toBe(false);
+  });
+
+  it("clearUnlocked drops the agent session", () => {
+    const t0 = Date.now();
+    markAgentUnlocked(
+      { token: "x", grantId: "g", expiresAt: t0 + 60_000, startedAt: t0 },
+      t0
+    );
+    expect(isSessionUnlocked(t0)).toBe(true);
+    clearUnlocked();
+    expect(isSessionUnlocked(t0)).toBe(false);
   });
 });
 

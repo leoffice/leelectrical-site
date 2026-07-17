@@ -79,7 +79,33 @@ export async function shouldAutoBiometric() {
   return biometricSupported();
 }
 
+/** Optional agent-session check (lazy import avoided — key read only). */
+function agentSessionStillValid(now) {
+  try {
+    const raw = sessionStore()?.getItem("lepro_agent_session");
+    if (!raw) return null; // no agent session
+    const obj = JSON.parse(raw);
+    const exp = Number(obj?.expiresAt);
+    if (!obj?.token || !Number.isFinite(exp)) return false;
+    if (now >= exp) {
+      sessionStore()?.removeItem("lepro_agent_session");
+      return false;
+    }
+    return true;
+  } catch {
+    return null;
+  }
+}
+
 export function isSessionUnlocked(now = Date.now()) {
+  const agentOk = agentSessionStillValid(now);
+  if (agentOk === false) {
+    // Expired agent session → force re-lock.
+    clearUnlockedKeysOnly();
+    return false;
+  }
+  if (agentOk === true) return true;
+
   const s = sessionStore();
   if (s && isWithinGrace(s.getItem(GRACE_KEY), now)) return true;
   if (isPageReload()) {
@@ -90,6 +116,11 @@ export function isSessionUnlocked(now = Date.now()) {
     }
   }
   return false;
+}
+
+function clearUnlockedKeysOnly() {
+  sessionStore()?.removeItem(GRACE_KEY);
+  localStore()?.removeItem(GRACE_BACKUP_KEY);
 }
 
 export function markUnlocked(now = Date.now()) {
@@ -103,8 +134,40 @@ export function touchUnlocked(now = Date.now()) {
 }
 
 export function clearUnlocked() {
-  sessionStore()?.removeItem(GRACE_KEY);
-  localStore()?.removeItem(GRACE_BACKUP_KEY);
+  clearUnlockedKeysOnly();
+  try {
+    sessionStore()?.removeItem("lepro_agent_session");
+  } catch {
+    /* storage unavailable */
+  }
+}
+
+/**
+ * Unlock after a validated agent access code.
+ * Grace is clipped to the grant's remaining lifetime.
+ */
+export function markAgentUnlocked(session, now = Date.now()) {
+  const exp = Number(session?.expiresAt);
+  if (!session?.token || !Number.isFinite(exp) || exp <= now) {
+    throw new Error("Agent session expired");
+  }
+  try {
+    sessionStore()?.setItem(
+      "lepro_agent_session",
+      JSON.stringify({
+        token: session.token,
+        grantId: session.grantId,
+        scope: session.scope || "full",
+        startedAt: session.startedAt || now,
+        expiresAt: exp,
+        label: session.label || "agent",
+      })
+    );
+  } catch {
+    /* storage unavailable */
+  }
+  markUnlocked(now);
+  return true;
 }
 
 /** End the session — re-lock on next load and bust cached app shell. */
