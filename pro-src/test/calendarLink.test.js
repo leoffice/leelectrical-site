@@ -4,7 +4,9 @@ import {
   googleCalendarOpenUrl,
   isCalendarUnlinkCommand,
   jobCalendarLinkState,
+  mergePendingCalendarEvents,
   parseCalendarUpsertResult,
+  promotePendingCalendarEvent,
   searchCalendarEvents,
   suggestAppointmentsForJob,
   suggestJobsForEvent,
@@ -138,5 +140,42 @@ describe("calendar link state", () => {
     const ev = googleCalendarOpenUrl({ event: { id: "abc123", start: "2026-07-10T09:00" } });
     expect(ev).toContain("calendar/event");
     expect(ev).toContain("eid=");
+  });
+
+  it("mergePendingCalendarEvents drops optimistic pending when real event already pulled", () => {
+    const prev = [
+      { id: "ev-orig", summary: "Meeting with Jose", start: "2026-07-10T09:00" },
+      { id: "pending-1", summary: "Meeting with Jose", start: "2026-07-17T09:00", description: "dup" },
+    ];
+    const pulled = [
+      { id: "ev-orig", summary: "Meeting with Jose", start: "2026-07-10T09:00" },
+      { id: "gcal-real", summary: "Meeting with Jose", start: "2026-07-17T09:00", description: "dup" },
+    ];
+    const merged = mergePendingCalendarEvents(prev, pulled);
+    expect(merged.map((e) => e.id).sort()).toEqual(["ev-orig", "gcal-real"]);
+  });
+
+  it("mergePendingCalendarEvents keeps pending until a real match arrives", () => {
+    const prev = [{ id: "pending-2", summary: "New visit", start: "2026-07-20T11:00" }];
+    const pulled = [{ id: "other", summary: "Other", start: "2026-07-20T11:00" }];
+    const merged = mergePendingCalendarEvents(prev, pulled);
+    expect(merged.map((e) => e.id).sort()).toEqual(["other", "pending-2"]);
+  });
+
+  it("promotePendingCalendarEvent removes all matching pendings", () => {
+    const evs = [
+      { id: "ev-orig", summary: "Meeting", start: "2026-07-10T09:00" },
+      { id: "pending-a", summary: "Meeting", start: "2026-07-17T09:00" },
+      { id: "pending-b", summary: "Meeting", start: "2026-07-17T09:00" },
+    ];
+    const next = promotePendingCalendarEvent(evs, "gcal-1", {
+      summary: "Meeting",
+      start: "2026-07-17T09:00",
+      location: "x",
+      description: "y",
+    });
+    expect(next.filter((e) => String(e.id).startsWith("pending-"))).toHaveLength(0);
+    expect(next.find((e) => e.id === "gcal-1")).toBeTruthy();
+    expect(next.find((e) => e.id === "ev-orig")).toBeTruthy();
   });
 });
