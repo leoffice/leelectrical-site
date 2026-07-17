@@ -38,10 +38,12 @@ export const DEFAULT_FEATURES = {
   paymentZelle: true,
   paymentCheck: true,
   aiFeatures: true,
+  speechToText: true,
 };
 
 /** Labels for Settings UI — keep in sync with DEFAULT_FEATURES keys. */
 export const FEATURE_LABELS = [
+  { key: "speechToText", label: "Speech to text (voice bubble + chat mic)" },
   { key: "requisitions", label: "Requisitions (AIA G702/G703)" },
   { key: "timeTracking", label: "Time tracking / clock-in" },
   { key: "changeOrders", label: "Change orders" },

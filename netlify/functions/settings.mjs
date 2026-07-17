@@ -46,6 +46,7 @@ const DEFAULT_FEATURES = {
   paymentZelle: true,
   paymentCheck: true,
   aiFeatures: true,
+  speechToText: true,
 };
 
 function json(o, status = 200) {

@@ -10,6 +10,14 @@ import {
 } from "../lib/tenantProfile.js";
 import { probeConnections } from "../lib/connectionHealth.js";
 import { logOff } from "../lib/lock.js";
+import {
+  clearCompanyLogo,
+  getCompanyLogoSrc,
+  readLogoFileAsDataUrl,
+  setCompanyLogoDataUrl,
+  setSpeechToTextEnabled,
+} from "../lib/appSettings.js";
+import Toggle from "../components/Toggle.jsx";
 
 function Section({ title, children, hint }) {
   return (
@@ -52,6 +60,7 @@ export default function Settings() {
   const [features, setFeatures] = useState(() => mergeFeatures(DEFAULT_FEATURES));
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [logoBusy, setLogoBusy] = useState(false);
   const [health, setHealth] = useState(null);
   const [healthBusy, setHealthBusy] = useState(false);
   const [calBusy, setCalBusy] = useState(false);
@@ -62,8 +71,14 @@ export default function Settings() {
     try {
       if (typeof getSettings === "function") {
         const doc = await getSettings();
-        setProfile(mergeProfile(doc?.profile));
-        setFeatures(mergeFeatures(doc?.features));
+        const p = mergeProfile(doc?.profile);
+        const f = mergeFeatures(doc?.features);
+        setProfile(p);
+        setFeatures(f);
+        // Mirror logo + speech to this device so sidebar / voice bubble update live.
+        if (p.logoDataUrl) setCompanyLogoDataUrl(p.logoDataUrl);
+        else clearCompanyLogo();
+        setSpeechToTextEnabled(f.speechToText !== false);
       }
     } catch (e) {
       showToast?.(String(e.message || e));
@@ -104,20 +119,23 @@ export default function Settings() {
 
   const setF = (key, on) => {
     setFeatures((f) => ({ ...f, [key]: on }));
+    if (key === "speechToText") setSpeechToTextEnabled(!!on);
     setDirty(true);
   };
 
-  const onLogo = (file) => {
+  const onLogo = async (file) => {
     if (!file) return;
-    if (file.size > 220 * 1024) {
-      showToast?.("Logo must be under 200 KB for now");
-      return;
+    setLogoBusy(true);
+    try {
+      const dataUrl = await readLogoFileAsDataUrl(file);
+      setP("logoDataUrl", dataUrl);
+      setCompanyLogoDataUrl(dataUrl);
+      showToast?.("Logo ready — tap Save");
+    } catch {
+      showToast?.("Couldn’t read that image — try another file");
+    } finally {
+      setLogoBusy(false);
     }
-    const r = new FileReader();
-    r.onload = () => {
-      setP("logoDataUrl", String(r.result || ""));
-    };
-    r.readAsDataURL(file);
   };
 
   const save = async () => {
@@ -128,6 +146,9 @@ export default function Settings() {
     setSaving(true);
     try {
       await saveSettings({ profile, features });
+      if (profile.logoDataUrl) setCompanyLogoDataUrl(profile.logoDataUrl);
+      else clearCompanyLogo();
+      setSpeechToTextEnabled(features.speechToText !== false);
       setDirty(false);
       showToast?.("Settings saved");
     } catch (e) {
@@ -272,28 +293,53 @@ export default function Settings() {
             />
           </div>
         </Fld>
-        <Fld label="Logo (under 200 KB)">
-          <div className="flex items-center gap-3">
-            {profile.logoDataUrl ? (
-              <img src={profile.logoDataUrl} alt="Logo" className="h-12 w-12 object-contain rounded-lg border" />
-            ) : (
-              <div className="h-12 w-12 rounded-lg border border-dashed border-slate-300 bg-slate-50" />
-            )}
-            <input
-              type="file"
-              accept="image/*"
-              onChange={(e) => onLogo(e.target.files && e.target.files[0])}
-              className="text-xs font-semibold"
-            />
-            {profile.logoDataUrl ? (
-              <button
-                type="button"
-                className="text-xs font-extrabold text-rose-600"
-                onClick={() => setP("logoDataUrl", "")}
-              >
-                Clear
-              </button>
-            ) : null}
+        <Fld label="Company logo file">
+          <div className="flex items-start gap-3" data-testid="settings-logo-row">
+            <div className="h-16 w-16 rounded-xl border border-slate-200 bg-slate-50 flex items-center justify-center overflow-hidden shrink-0">
+              <img
+                src={profile.logoDataUrl || getCompanyLogoSrc()}
+                alt="Company logo"
+                className="max-h-full max-w-full object-contain"
+                data-testid="settings-logo-preview"
+              />
+            </div>
+            <div className="flex-1 min-w-0">
+              <div className="text-xs text-slate-500 font-semibold mb-2">
+                {profile.logoDataUrl
+                  ? "Custom logo on file — used in the app. Tap Save after changing."
+                  : "Default LE logo file — change it anytime."}
+              </div>
+              <div className="flex flex-wrap gap-2">
+                <label className="rounded-xl bg-slate-100 px-3 py-2 text-xs font-extrabold text-slate-800 cursor-pointer">
+                  {logoBusy ? "Loading…" : "Change logo"}
+                  <input
+                    type="file"
+                    accept="image/*"
+                    className="hidden"
+                    disabled={logoBusy}
+                    onChange={(e) => {
+                      const f = e.target.files && e.target.files[0];
+                      e.target.value = "";
+                      onLogo(f);
+                    }}
+                    data-testid="settings-logo-file"
+                  />
+                </label>
+                {profile.logoDataUrl ? (
+                  <button
+                    type="button"
+                    className="rounded-xl bg-rose-50 px-3 py-2 text-xs font-extrabold text-rose-700"
+                    onClick={() => {
+                      setP("logoDataUrl", "");
+                      clearCompanyLogo();
+                    }}
+                    data-testid="settings-logo-reset"
+                  >
+                    Use default
+                  </button>
+                ) : null}
+              </div>
+            </div>
           </div>
         </Fld>
         <Fld label="Calendar account">
@@ -341,9 +387,31 @@ export default function Settings() {
         </div>
       </Section>
 
+      <Section
+        title="Speech to text"
+        hint="Green voice bubble and chat mic. Also toggle from the chat bubble header."
+      >
+        <div
+          className="flex items-center justify-between gap-3 rounded-xl border border-slate-100 bg-slate-50 px-3 py-2.5"
+          data-testid="settings-speech-to-text"
+        >
+          <div className="min-w-0">
+            <div className="text-sm font-semibold text-slate-800">Speech to text</div>
+            <div className="text-xs text-slate-500 font-semibold mt-0.5">
+              On = voice bubble + chat mic. Off = both hidden.
+            </div>
+          </div>
+          <Toggle
+            on={features.speechToText !== false}
+            onChange={(on) => setF("speechToText", on)}
+            label="Speech to text"
+          />
+        </div>
+      </Section>
+
       <Section title="Features" hint="Turn sections on or off for this company.">
         <div className="space-y-2">
-          {FEATURE_LABELS.map(({ key, label }) => (
+          {FEATURE_LABELS.filter((x) => x.key !== "speechToText").map(({ key, label }) => (
             <label
               key={key}
               className="flex items-center justify-between gap-3 rounded-xl border border-slate-100 bg-slate-50 px-3 py-2.5"

@@ -42,6 +42,7 @@ import {
   readTextExcerpt,
   uploadChatAttachment,
 } from "../lib/chatAttach.js";
+import { setSpeechToTextEnabled, useAppSettings } from "../lib/appSettings.js";
 const ONLINE_MS = 4 * 60_000; // israel-heartbeat (or last reply) younger than this = online
 const STUCK_MS = 90_000; // a "Working on it" we've watched longer than this stops looking like a live spinner
 const NEAR_BOTTOM_PX = 48; // within this distance of the bottom we auto-scroll on new messages
@@ -126,6 +127,7 @@ export default function ChatBubble() {
     chatUnread,
     setChatUnread,
   } = useStore();
+  const { speechToText } = useAppSettings();
   const loc = useLocation();
   const [msgs, setMsgs] = useState([]);
   const [text, setText] = useState("");
@@ -787,6 +789,10 @@ export default function ChatBubble() {
       recRef.current.stop();
       return;
     }
+    if (!speechToText) {
+      showToast("Speech to text is off — turn it on in Settings");
+      return;
+    }
     const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
     if (!SR) return showToast("Voice input not supported in this browser");
     const r = new SR();
@@ -877,6 +883,30 @@ export default function ChatBubble() {
               </span>
             </div>
             {working && <span className="text-[11px] opacity-85 shrink-0">working…</span>}
+            <button
+              type="button"
+              onClick={() => {
+                const next = !speechToText;
+                setSpeechToTextEnabled(next);
+                if (!next && recRef.current) {
+                  try {
+                    recRef.current.stop();
+                  } catch {
+                    /* ignore */
+                  }
+                }
+                showToast(next ? "Speech to text on" : "Speech to text off");
+              }}
+              className={`text-[11px] font-bold px-2 py-1 rounded-full shrink-0 border border-white/30 ${
+                speechToText ? "bg-white/20" : "bg-black/20 opacity-80"
+              }`}
+              aria-label={speechToText ? "Turn speech to text off" : "Turn speech to text on"}
+              aria-pressed={speechToText}
+              data-testid="chat-speech-toggle"
+              title="Speech to text"
+            >
+              🎤 {speechToText ? "On" : "Off"}
+            </button>
             <button onClick={() => setChatOpen(false)} className="text-white" aria-label="Close chat">✕</button>
           </div>
           <div
@@ -1042,14 +1072,17 @@ export default function ChatBubble() {
               }}
               aria-label="Chat message"
             />
-            <button
-              ref={micBtn}
-              onClick={toggleMic}
-              aria-label="Voice input"
-              className={`w-9 h-9 rounded-full text-base shrink-0 transition-transform ${rec ? "bg-red-100" : "bg-slate-100"}`}
-            >
-              🎤
-            </button>
+            {speechToText ? (
+              <button
+                ref={micBtn}
+                onClick={toggleMic}
+                aria-label="Voice input"
+                className={`w-9 h-9 rounded-full text-base shrink-0 transition-transform ${rec ? "bg-red-100" : "bg-slate-100"}`}
+                data-testid="chat-mic"
+              >
+                🎤
+              </button>
+            ) : null}
             <button onClick={send} aria-label="Send message" className="w-9 h-9 rounded-full bg-brand text-white shrink-0">
               ➤
             </button>

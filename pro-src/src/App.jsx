@@ -38,6 +38,7 @@ import NewJobFlow from "./components/NewJobFlow.jsx";
 import Sheet, { Opt } from "./components/Sheet.jsx";
 import { appointmentContextFromRoute } from "./lib/appointmentContext.js";
 import { logOff } from "./lib/lock.js";
+import { useAppSettings } from "./lib/appSettings.js";
 
 
 const TABS = [
@@ -158,6 +159,7 @@ function useIsDesktop() {
 
 export default function App() {
   const { toast, docConfirm, error, setNewJob, refresh, dirtyCount, effectiveJob, jobs, toggleChat, chatUnread } = useStore();
+  const { logoSrc } = useAppSettings();
   const isDesktop = useIsDesktop();
   const loc = useLocation();
   const inDetail = loc.pathname.startsWith("/job/");
@@ -177,7 +179,7 @@ export default function App() {
       >
         <div className="flex flex-col items-center px-2 py-4 mb-2">
           <img
-            src={import.meta.env.BASE_URL + "le-logo.png?v=5"}
+            src={logoSrc}
             alt="LE Electric"
             className="h-32 w-auto max-w-[280px] object-contain shrink-0"
             data-testid="app-logo"

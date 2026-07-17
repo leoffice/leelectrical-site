@@ -983,6 +983,43 @@ export function StoreProvider({ children }) {
     [api]
   );
 
+  // Mirror company logo from server settings onto this device.
+  // Speech-to-text: only seed from server when this device has no local preference yet
+  // (so the chat-bubble toggle isn't wiped on every reload).
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        if (!api.getSettings) return;
+        const doc = await api.getSettings();
+        if (cancelled || !doc) return;
+        const {
+          setCompanyLogoDataUrl,
+          clearCompanyLogo,
+          setSpeechToTextEnabled,
+          SPEECH_TO_TEXT_KEY,
+        } = await import("../lib/appSettings.js");
+        const logo = doc.profile?.logoDataUrl || "";
+        if (logo) setCompanyLogoDataUrl(logo);
+        else clearCompanyLogo();
+        const hasLocalSpeech =
+          typeof localStorage !== "undefined" && localStorage.getItem(SPEECH_TO_TEXT_KEY) != null;
+        if (
+          !hasLocalSpeech &&
+          doc.features &&
+          Object.prototype.hasOwnProperty.call(doc.features, "speechToText")
+        ) {
+          setSpeechToTextEnabled(doc.features.speechToText !== false);
+        }
+      } catch {
+        /* offline / missing endpoint — keep device defaults */
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [api]);
+
   const value = {
     jobs: effectiveJobs,
     rawJobs: jobs,
