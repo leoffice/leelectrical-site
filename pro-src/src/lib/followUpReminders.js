@@ -48,6 +48,11 @@ export const PAUSE_SLIDER_STEP = 5;
 
 export const GLOBAL_PAUSE_KEY = "lepro_reminders_paused_until";
 
+/** Max real reminder popups at once — 6th is the overflow nudge to the Reminders tab. */
+export const PROMPT_QUEUE_CAP = 5;
+export const OVERFLOW_REMINDER_MESSAGE =
+  "There are more things to do. Please go to the reminders tab and choose the top five to give me the most pressing.";
+
 export const REMINDER_PRIORITIES = [
   { key: "low", label: "Low" },
   { key: "medium", label: "Medium" },
@@ -437,7 +442,56 @@ export function dueScheduledReminders(events, jobs, today, now = new Date()) {
 
 /** Event ids in the queue that Levi can snooze together. */
 export function snoozableQueueItems(queue) {
-  return (queue || []).filter((x) => x.kind === "must_today_nudge" || x.kind === "scheduled_reminder");
+  return (queue || []).filter(
+    (x) =>
+      x &&
+      x.kind !== "overflow" &&
+      (x.kind === "must_today_nudge" || x.kind === "scheduled_reminder")
+  );
+}
+
+function queueItemPriority(item) {
+  if (!item) return "medium";
+  if (item.kind === "must_today_nudge") return "must_today";
+  if (item.kind === "scheduled_reminder") return item.state?.priority || "medium";
+  if (item.kind === "unsent_doc" || item.kind === "inspection") return "high";
+  if (item.kind === "service_call") return "medium";
+  return item.priority || "medium";
+}
+
+function queueItemDueAt(item) {
+  if (!item) return "";
+  if (item.dueAt) return item.dueAt;
+  if (item.state?.remindAt) return item.state.remindAt;
+  if (item.state?.nextNudgeAt) return item.state.nextNudgeAt;
+  if (item.event) return evStart(item.event);
+  return "";
+}
+
+function comparePromptQueueItems(a, b) {
+  return compareReminders(
+    { priority: queueItemPriority(a), dueAt: queueItemDueAt(a), headline: a.event?.summary || a.job?.customer || "" },
+    { priority: queueItemPriority(b), dueAt: queueItemDueAt(b), headline: b.event?.summary || b.job?.customer || "" }
+  );
+}
+
+/** Cap popups at PROMPT_QUEUE_CAP; when more exist, append a single overflow card. */
+export function applyPromptQueueCap(queue, cap = PROMPT_QUEUE_CAP) {
+  const list = (queue || []).filter((x) => x && x.kind !== "overflow");
+  const limit = Math.max(1, Math.round(Number(cap) || PROMPT_QUEUE_CAP));
+  if (list.length <= limit) return list;
+  const top = list.slice(0, limit);
+  const remaining = list.length - limit;
+  return [
+    ...top,
+    {
+      kind: "overflow",
+      id: "overflow",
+      remaining,
+      total: list.length,
+      message: OVERFLOW_REMINDER_MESSAGE,
+    },
+  ];
 }
 
 export function scheduleNextBusinessDayReminder(eventId, note, today) {
@@ -689,25 +743,30 @@ export function activeReminderCount(events, jobs, today, now = new Date(), comma
   return buildReminderList(events, jobs, today, now, commands).length;
 }
 
-/** Build the login prompt queue — nudges first, then inspections, then service calls. */
+/** Build the login prompt queue — most pressing first, capped at five + overflow. */
 export function buildPromptQueue(events, jobs, today, now = new Date(), commands = []) {
   if (isRemindersPaused(now)) return [];
   // Verify send status before any popup — cancel stale "unsent" reminders first.
   cancelStaleUnsentReminders(events, jobs, commands, now);
   const queue = [];
   for (const item of dueMustTodayNudges(events, jobs, today, now)) {
-    queue.push({ kind: "must_today_nudge", ...item });
+    queue.push({ kind: "must_today_nudge", ...item, priority: "must_today" });
   }
   for (const item of dueScheduledReminders(events, jobs, today, now)) {
-    queue.push({ kind: "scheduled_reminder", ...item });
+    queue.push({
+      kind: "scheduled_reminder",
+      ...item,
+      priority: item.state?.priority || "medium",
+    });
   }
   for (const item of unsentDocCandidates(jobs, commands)) {
-    queue.push({ kind: "unsent_doc", ...item });
+    queue.push({ kind: "unsent_doc", priority: "high", ...item });
   }
   for (const event of inspectionCandidates(events, today)) {
     const ymd = eventYmd(event);
     queue.push({
       kind: "inspection",
+      priority: "high",
       event,
       when: ymd === today ? "today" : "tomorrow",
       job: linkedJobForEvent(event, jobs),
@@ -718,13 +777,16 @@ export function buildPromptQueue(events, jobs, today, now = new Date(), commands
     const assessment = assessJobFollowUp(job, today, commands);
     queue.push({
       kind: "service_call",
+      priority: "medium",
       event,
       job,
       suggestions: suggestJobsForEvent(event, jobs),
       assessment,
     });
   }
-  return filterVerifyHeld(queue, now.getTime?.() || Date.now());
+  const held = filterVerifyHeld(queue, now.getTime?.() || Date.now());
+  held.sort(comparePromptQueueItems);
+  return applyPromptQueueCap(held, PROMPT_QUEUE_CAP);
 }
 
 /** Days between two YYYY-MM-DD strings (floor). */

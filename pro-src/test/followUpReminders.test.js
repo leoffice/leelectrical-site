@@ -5,6 +5,9 @@ import {
   allocateNextStep,
   allocateReminderTime,
   batchSnoozeReminders,
+  PROMPT_QUEUE_CAP,
+  OVERFLOW_REMINDER_MESSAGE,
+  applyPromptQueueCap,
   buildPromptQueue,
   dismissEventReminders,
   dueScheduledReminders,
@@ -328,8 +331,41 @@ describe("followUpReminders", () => {
       { kind: "must_today_nudge", event: { id: "a" } },
       { kind: "scheduled_reminder", event: { id: "b" } },
       { kind: "inspection", event: { id: "c" } },
+      { kind: "overflow", remaining: 3 },
     ];
     expect(snoozableQueueItems(q).map((x) => x.event.id)).toEqual(["a", "b"]);
+  });
+
+  it("applyPromptQueueCap keeps five real items and appends overflow as sixth", () => {
+    const items = Array.from({ length: 8 }, (_, i) => ({
+      kind: "scheduled_reminder",
+      event: { id: "e" + i, summary: "R" + i },
+    }));
+    const capped = applyPromptQueueCap(items);
+    expect(capped).toHaveLength(PROMPT_QUEUE_CAP + 1);
+    expect(capped.filter((x) => x.kind !== "overflow")).toHaveLength(PROMPT_QUEUE_CAP);
+    expect(capped[PROMPT_QUEUE_CAP].kind).toBe("overflow");
+    expect(capped[PROMPT_QUEUE_CAP].remaining).toBe(3);
+    expect(capped[PROMPT_QUEUE_CAP].total).toBe(8);
+    expect(capped[PROMPT_QUEUE_CAP].message).toBe(OVERFLOW_REMINDER_MESSAGE);
+    expect(applyPromptQueueCap(items.slice(0, 5))).toHaveLength(5);
+    expect(applyPromptQueueCap(items.slice(0, 5)).every((x) => x.kind !== "overflow")).toBe(true);
+  });
+
+  it("buildPromptQueue caps at five plus overflow when more than five are due", () => {
+    const jobs = Array.from({ length: 7 }, (_, i) => ({
+      id: "J-" + i,
+      customer: "Cust" + i,
+      invoiceNo: String(100 + i),
+      invoiceHistory: [],
+      paid: false,
+    }));
+    const q = buildPromptQueue([], jobs, "2026-07-15", new Date("2026-07-15T12:00:00"));
+    expect(q.filter((x) => x.kind === "unsent_doc")).toHaveLength(PROMPT_QUEUE_CAP);
+    expect(q[q.length - 1].kind).toBe("overflow");
+    expect(q[q.length - 1].message).toMatch(/more things to do/i);
+    expect(q[q.length - 1].remaining).toBe(2);
+    expect(q).toHaveLength(PROMPT_QUEUE_CAP + 1);
   });
 
   it("isEventAllocated blocks past-week popup when next step or reminder is set", () => {

@@ -13,6 +13,8 @@ import {
   allocateReminderTime,
   batchSnoozeReminders,
   beginPromptWorkPause,
+  OVERFLOW_REMINDER_MESSAGE,
+  applyPromptQueueCap,
   buildPromptQueue,
   defaultRemindDatetime,
   dismissEventReminders,
@@ -330,6 +332,34 @@ function RescheduleReminderSheet({ event, state: st, job, onClose, onSaved }) {
       </button>
       <button type="button" className="btn-ghost w-full text-slate-500" onClick={onClose}>
         Cancel
+      </button>
+    </Sheet>
+  );
+}
+
+function OverflowRemindersSheet({ remaining, total, message, onClose, onOpenReminders }) {
+  const body = message || OVERFLOW_REMINDER_MESSAGE;
+  return (
+    <Sheet title="More to do" onClose={onClose}>
+      <p className="text-sm text-slate-700 mb-4 leading-relaxed" data-testid="overflow-reminder-message">
+        {body}
+      </p>
+      {remaining > 0 ? (
+        <p className="text-xs text-slate-500 mb-4" data-testid="overflow-reminder-count">
+          {remaining} more on the Reminders tab
+          {total > 0 ? ` (${total} total)` : ""}
+        </p>
+      ) : null}
+      <button
+        type="button"
+        className="btn-brand w-full mb-2"
+        onClick={onOpenReminders}
+        data-testid="overflow-open-reminders"
+      >
+        Open Reminders tab
+      </button>
+      <button type="button" className="btn-ghost w-full text-slate-500" onClick={onClose} data-testid="overflow-dismiss">
+        Got it
       </button>
     </Sheet>
   );
@@ -779,6 +809,7 @@ function ServiceCallSheet({
 
 export default function FollowUpPrompts() {
   const { events, jobs, commands, loading, showToast } = useStore();
+  const nav = useNavigate();
   const [queue, setQueue] = useState([]);
   const [current, setCurrent] = useState(null);
   const [subSheet, setSubSheet] = useState(null); // remind | createJob | email
@@ -936,8 +967,13 @@ export default function FollowUpPrompts() {
       if (!current) {
         setCurrent(dueNow[0]);
         setQueue((prev) => {
-          const rest = prev.filter((x) => x.kind !== "must_today_nudge" && x.kind !== "scheduled_reminder");
-          return [...dueNow, ...rest];
+          const rest = prev.filter(
+            (x) =>
+              x.kind !== "must_today_nudge" &&
+              x.kind !== "scheduled_reminder" &&
+              x.kind !== "overflow"
+          );
+          return applyPromptQueueCap([...dueNow, ...rest]);
         });
       }
     };
@@ -1038,6 +1074,24 @@ export default function FollowUpPrompts() {
   }
 
   if (!current) return null;
+
+  if (current.kind === "overflow") {
+    return (
+      <OverflowRemindersSheet
+        remaining={current.remaining || 0}
+        total={current.total || 0}
+        message={current.message}
+        onClose={advance}
+        onOpenReminders={() => {
+          setCurrent(null);
+          setQueue([]);
+          setSubSheet(null);
+          beginPromptWorkPause();
+          nav("/reminders");
+        }}
+      />
+    );
+  }
 
   if (current.kind === "must_today_nudge") {
     return (
