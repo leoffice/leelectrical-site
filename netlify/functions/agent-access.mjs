@@ -1,4 +1,4 @@
-import { getStore } from "./lib/storage/index.mjs";
+import { getStore } from "@netlify/blobs";
 import { rotateJsonBackup } from "./blob-backup.mjs";
 import {
   DOC_KEY,
@@ -14,9 +14,7 @@ import {
 
 /**
  * Agent access grants (time-boxed one-time codes).
- *
- * GET  → status (active grant summary + audit)
- * POST → { op: "mint"|"redeem"|"revoke"|"end"|"status", ... }
+ * GET  → status · POST → { op: mint|redeem|revoke|end|status }
  */
 function json(o, status = 200) {
   return new Response(JSON.stringify(o), {
