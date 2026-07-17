@@ -6,6 +6,7 @@ import { Link, useNavigate, useParams } from "react-router-dom";
 import { useStore } from "../state/store.jsx";
 import Jobs from "./Jobs.jsx";
 import CustomerCard from "../components/CustomerCard.jsx";
+import CustomerTransactionHistory from "../components/CustomerTransactionHistory.jsx";
 import CustomerDocTabs from "../components/CustomerDocTabs.jsx";
 import JobDocSheets, { openDocTab } from "../components/JobDocSheets.jsx";
 import { buildQboHierarchyCtx, subsUnderParent } from "../lib/customerHierarchy.js";
@@ -292,6 +293,11 @@ export default function CustomerView() {
           })
         }
       />
+
+      {/* Same company only (all job addresses) — not sub-companies */}
+      {!(key.startsWith("p:") && subs.length > 0) ? (
+        <CustomerTransactionHistory jobs={displayJobs} fromCust={key} />
+      ) : null}
 
       {subs.length > 0 ? (
         <div className="card px-3 py-2.5 space-y-1.5" data-testid="customer-sub-companies">

@@ -365,15 +365,76 @@ export function isDismissed(a, b) {
   return loadDismissed().includes(pairId(a, b));
 }
 
-export function dismissPair(a, b) {
+/** Best display name for merge pairing (customer field, else business name). */
+export function mergeDisplayName(job) {
+  const j = job || {};
+  return String(j.customer || j.businessName || "").trim();
+}
+
+/**
+ * Durable keys for a merge decision — name pair, client keys, shared phone/email.
+ * Storing all of these stops the same combo from reappearing after renames or QBO sync.
+ */
+export function mergeDecisionKeys(ja, jb) {
+  const a = ja || {};
+  const b = jb || {};
+  const keys = [];
+  const namePairs = [
+    [a.customer, b.customer],
+    [a.businessName || a.customer, b.businessName || b.customer],
+    [mergeDisplayName(a), mergeDisplayName(b)],
+  ];
+  for (const [na, nb] of namePairs) {
+    const xa = normalizeCustomer(na);
+    const xb = normalizeCustomer(nb);
+    if (xa && xb && xa !== xb) keys.push(pairId(na, nb));
+  }
+  const ca = clientKey(a);
+  const cb = clientKey(b);
+  if (ca && cb && ca !== cb) {
+    keys.push("ck:" + [ca, cb].sort().join("|"));
+  }
+  const pa = normalizePhone(a.phone);
+  const pb = normalizePhone(b.phone);
+  if (pa && pb && pa === pb) keys.push("ph:" + pa);
+  const ea = normalizeEmail(a.email);
+  const eb = normalizeEmail(b.email);
+  if (ea && eb && ea === eb) keys.push("em:" + ea);
+  return [...new Set(keys)];
+}
+
+function storeDismissedKeys(keys) {
+  if (!keys || !keys.length) return;
   const list = loadDismissed();
-  const id = pairId(a, b);
-  if (!list.includes(id)) {
+  let changed = false;
+  for (const id of keys) {
+    if (!id || list.includes(id)) continue;
     list.push(id);
+    changed = true;
+  }
+  if (changed) {
     try {
       localStorage.setItem(NOMERGE_KEY, JSON.stringify(list));
     } catch {}
   }
+}
+
+export function dismissPair(a, b) {
+  // Name-only (legacy) or full job objects for durable multi-key memory.
+  if (a && typeof a === "object" && b && typeof b === "object") {
+    storeDismissedKeys(mergeDecisionKeys(a, b));
+    return;
+  }
+  storeDismissedKeys([pairId(a, b)]);
+}
+
+/** True when Levi already decided this pair (names, client keys, or shared contact). */
+export function isMergeDecisionRemembered(ja, jb) {
+  const remembered = loadDismissed();
+  if (!remembered.length) return false;
+  if (isDismissed(mergeDisplayName(ja), mergeDisplayName(jb))) return true;
+  if (isDismissed(ja?.customer, jb?.customer)) return true;
+  return mergeDecisionKeys(ja, jb).some((k) => remembered.includes(k));
 }
 
 /** Push the full dismissal list to the server overlay (fire-and-forget). */
@@ -643,16 +704,16 @@ export function findMergeSuggestion(jobs) {
   const entries = [...map.entries()];
   for (let i = 0; i < entries.length; i++) {
     const ja = entries[i][1][0];
-    const na = ja.customer;
+    const na = mergeDisplayName(ja);
     for (let k = i + 1; k < entries.length; k++) {
       const jb = entries[k][1][0];
-      const nb = jb.customer;
+      const nb = mergeDisplayName(jb);
       if (mergePairAlreadyResolved(ja, jb)) continue;
       const nameMatch = namesNearDuplicate(na, nb);
       const contactMatch = !nameMatch && contactInfoMatches(ja, jb);
       if (!nameMatch && !contactMatch) continue;
-      if (isDismissed(na, nb)) continue;
-      if (isSnoozed(na, nb)) continue;
+      if (isMergeDecisionRemembered(ja, jb)) continue;
+      if (isSnoozed(na, nb) || isSnoozed(ja.customer, jb.customer)) continue;
       // 3-of-4 exact → auto path (green), not a manual decision popup
       const pa = customerProfileFromJobs(entries[i][1], na);
       const pb = customerProfileFromJobs(entries[k][1], nb);

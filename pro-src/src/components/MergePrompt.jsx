@@ -253,14 +253,22 @@ export default function MergePrompt() {
   const leftRole = linkMode === "sub" ? (parentSide === "left" ? "parent" : "sub") : null;
   const rightRole = linkMode === "sub" ? (parentSide === "right" ? "parent" : "sub") : null;
 
+  const rememberPair = () => {
+    // Prefer job objects so phone/email/QBO keys stick across renames.
+    const ja = sug.a.jobs?.[0];
+    const jb = sug.b.jobs?.[0];
+    if (ja && jb) dismissPair(ja, jb);
+    else dismissPair(sug.a.name, sug.b.name);
+    persistDismissed(api);
+  };
+
   const combine = async () => {
     if (busy) return;
     setBusy(true);
     const all = [...sug.a.jobs, ...sug.b.jobs];
     const grp = all.map((j) => j.clientGroup).find(Boolean) || "grp" + Date.now();
     for (const j of all) await patchAndSave(j.id, { clientGroup: grp });
-    dismissPair(sug.a.name, sug.b.name);
-    persistDismissed(api);
+    rememberPair();
     setBusy(false);
     setMode("prompt");
     setTick((t) => t + 1);
@@ -286,8 +294,7 @@ export default function MergePrompt() {
       enqueueCustomerQboSync(enqueue, j.id, updated, updated.qboCustomerId);
     }
 
-    dismissPair(sug.a.name, sug.b.name);
-    persistDismissed(api);
+    rememberPair();
     setBusy(false);
     setMode("prompt");
     setTick((t) => t + 1);
@@ -302,8 +309,7 @@ export default function MergePrompt() {
   };
 
   const separate = () => {
-    dismissPair(sug.a.name, sug.b.name);
-    persistDismissed(api);
+    rememberPair();
     setMode("prompt");
     setTick((t) => t + 1);
     showToast("Got it — separate customers");

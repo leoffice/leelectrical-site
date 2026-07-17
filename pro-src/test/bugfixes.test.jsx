@@ -295,7 +295,10 @@ describe("bug 2 — near-duplicate combine prompt", () => {
     const prompt = await screen.findByTestId("merge-prompt");
     await user.click(within(prompt).getByTestId("merge-separate-btn"));
     expect(screen.queryByTestId("merge-prompt")).not.toBeInTheDocument();
-    expect(JSON.parse(localStorage.getItem("lepro_nomerge"))).toEqual(["arthur koptiv|arthur koptive"]);
+    const remembered = JSON.parse(localStorage.getItem("lepro_nomerge"));
+    expect(remembered).toContain("arthur koptiv|arthur koptive");
+    // Durable multi-key memory also stores client-key pair (survives renames).
+    expect(remembered.some((k) => String(k).startsWith("ck:"))).toBe(true);
 
     // fresh mount (new visit) — dismissal persisted, no prompt
     first.unmount();

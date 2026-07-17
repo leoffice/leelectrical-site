@@ -10,6 +10,8 @@ import {
   findMergeSuggestion,
   hydrateDismissed,
   isDismissed,
+  isMergeDecisionRemembered,
+  mergeDecisionKeys,
   mergePairAlreadyResolved,
   isSnoozed,
   levenshtein,
@@ -189,6 +191,19 @@ describe("findMergeSuggestion", () => {
   it("dismissed pairs are never suggested again", () => {
     dismissPair("Arthur koptiv", "Arthur Koptive");
     expect(findMergeSuggestion(jobs())).toBeNull();
+  });
+
+  it("remembered contact decision survives rename of one side", () => {
+    const a = { id: "1", customer: "Joe Smith", phone: "(718) 555-1234", qboCustomerId: "10" };
+    const b = { id: "2", customer: "Joseph S", phone: "718-555-1234", qboCustomerId: "11" };
+    expect(findMergeSuggestion([a, b])).toBeTruthy();
+    dismissPair(a, b);
+    expect(isMergeDecisionRemembered(a, b)).toBe(true);
+    // Same phone / client keys after display-name change — still remembered
+    const a2 = { ...a, customer: "Joseph Smith LLC" };
+    const b2 = { ...b, customer: "J. S. Services" };
+    expect(findMergeSuggestion([a2, b2])).toBeNull();
+    expect(mergeDecisionKeys(a, b).some((k) => k.startsWith("ph:"))).toBe(true);
   });
 
   it("snoozed pairs are skipped until the next login clears session storage", () => {
