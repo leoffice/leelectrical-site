@@ -72,8 +72,14 @@ describe("payment confirm email env helpers", () => {
     expect(resolveRecipient("customer@example.com")).toBe("customer@example.com");
   });
 
-  it("defaults from address to payments@leelectrical.us", () => {
+  it("defaults from address to office@leelectrical.us (same mailbox for everything)", () => {
     delete process.env.PAYMENT_CONFIRM_FROM;
-    expect(resolveFromAddress()).toBe("payments@leelectrical.us");
+    delete process.env.EMAIL_FROM;
+    expect(resolveFromAddress()).toBe("office@leelectrical.us");
+  });
+
+  it("honors PAYMENT_CONFIRM_FROM when set", () => {
+    process.env.PAYMENT_CONFIRM_FROM = "billing@example.com";
+    expect(resolveFromAddress()).toBe("billing@example.com");
   });
 });

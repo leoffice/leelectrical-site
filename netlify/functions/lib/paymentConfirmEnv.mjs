@@ -3,10 +3,13 @@ export function isEmailTestMode() {
   return String(process.env.EMAIL_TEST_MODE ?? "true").trim().toLowerCase() !== "false";
 }
 
+/** Single company mailbox for all outbound app mail (payment confirm, invoices, etc.). */
+const DEFAULT_FROM = "office@leelectrical.us";
+
 export function resolveFromAddress() {
   return (
-    String(process.env.PAYMENT_CONFIRM_FROM || "").trim() ||
-    "payments@leelectrical.us"
+    String(process.env.PAYMENT_CONFIRM_FROM || process.env.EMAIL_FROM || "").trim() ||
+    DEFAULT_FROM
   );
 }
 

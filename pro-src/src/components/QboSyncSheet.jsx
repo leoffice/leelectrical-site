@@ -5,9 +5,16 @@ import Sheet, { Opt } from "./Sheet.jsx";
 import { runQboSync } from "../lib/qboSyncActions.js";
 
 const KINDS = [
-  { id: "refresh", icon: "📅", title: "Refresh calendar & jobs", note: "Update calendar and local data", global: true },
-  { id: "customer", icon: "👤", title: "Customer info", note: "Pull name, phone, email & billing from QuickBooks" },
-  { id: "invoices", icon: "🧾", title: "Invoices", note: "Pull invoice jobs from QuickBooks", sub: true },
+  { id: "refresh", icon: "📅", title: "Refresh calendar & jobs", note: "Update calendar and jobs on this device", global: true },
+  {
+    id: "refresh_files",
+    icon: "🗂️",
+    title: "Update office files",
+    note: "Refresh the fast internal customer & invoice files from QuickBooks (backend)",
+    global: true,
+  },
+  { id: "customer", icon: "👤", title: "Customer info", note: "Pull name, phone, email & billing from office files" },
+  { id: "invoices", icon: "🧾", title: "Invoices", note: "Pull invoice jobs from office files (QuickBooks if missing)", sub: true },
   { id: "estimates", icon: "📝", title: "Estimates", note: "Refresh estimate jobs on file", sub: true },
   { id: "payments", icon: "💳", title: "Payments", note: "Pull payment history per invoice", sub: true },
   { id: "history", icon: "📚", title: "Full history", note: "Customer + all invoices + all payments" },
@@ -44,13 +51,15 @@ export default function QboSyncSheet({ job, customerJobs, contextLabel, onClose 
   };
 
   return (
-    <Sheet title="QuickBooks sync" onClose={onClose}>
+    <Sheet title="Sync" onClose={onClose}>
       {contextLabel ? (
         <p className="text-xs text-brand font-semibold mb-2" data-testid="qbo-sync-context">
           Syncing for {contextLabel}
         </p>
       ) : (
-        <p className="text-xs text-slate-500 mb-2">Choose what to refresh. Open a customer or job for scoped QuickBooks pulls.</p>
+        <p className="text-xs text-slate-500 mb-2">
+          Uses office files first (fast). Open a customer or job for scoped pulls. Update office files when something is missing.
+        </p>
       )}
       {KINDS.map((k) => {
         const disabled = !k.global && !hasContext;
