@@ -25,7 +25,7 @@ function linkedCustomerName(job) {
 }
 
 export default function AppointmentDetailSheet({ event, onClose }) {
-  const { jobs, events, setNewJob, patchJob, patchAndSave, patchLocalEvent, removeLocalEvent, enqueue, showToast, pullCalendarNow } =
+  const { jobs, events, setNewJob, patchJob, patchAndSave, patchLocalEvent, removeLocalEvent, enqueue, showToast } =
     useStore();
   const nav = useNavigate();
   const [mode, setMode] = useState("view"); // view | edit | link | unlink | createJob | email | afterDuplicate
@@ -149,7 +149,7 @@ export default function AppointmentDetailSheet({ event, onClose }) {
           onClose();
         }}
         onDuplicated={() => {
-          pullCalendarNow();
+          // Save already queued + pulled; avoid a second pull that can flash extra local rows.
           setMode("afterDuplicate");
         }}
       />

@@ -76,6 +76,58 @@ export function isPendingCalEventId(id) {
   return String(id || "").startsWith("pending-");
 }
 
+function eventStartKey(e) {
+  return String(evStart(e) || e?.start || "").slice(0, 16);
+}
+
+/** Same title + start slot — used to drop optimistic pendings once Google returns the real row. */
+export function eventsMatchApptSlot(a, b) {
+  if (!a || !b) return false;
+  return (a.summary || "") === (b.summary || "") && eventStartKey(a) === eventStartKey(b);
+}
+
+/**
+ * Merge pulled Google events with local optimistic "pending-*" rows.
+ * Drop a pending when a real event already occupies the same title+start (prevents
+ * triple copies after duplicate: original + pending + pulled real).
+ */
+export function mergePendingCalendarEvents(prev, pulled) {
+  const pulledList = Array.isArray(pulled) ? pulled : [];
+  const pending = (prev || []).filter((e) => isPendingCalEventId(e.id));
+  const merged = [...pulledList];
+  for (const p of pending) {
+    const covered = pulledList.some((e) => !isPendingCalEventId(e.id) && eventsMatchApptSlot(e, p));
+    if (covered) continue;
+    if (!merged.some((e) => String(e.id) === String(p.id))) merged.push(p);
+  }
+  return merged;
+}
+
+/**
+ * When calendar_upsert finishes, drop all matching pendings and ensure the real event id is present.
+ * match(e) is an optional extra predicate (e.g. same leJobId for caldup).
+ */
+export function promotePendingCalendarEvent(evs, eventId, pl, match) {
+  if (!eventId) return evs || [];
+  const startKey = String(pl?.start || "").slice(0, 16);
+  const rest = (evs || []).filter((e) => {
+    if (!isPendingCalEventId(e.id)) return true;
+    if (typeof match === "function" && match(e)) return false;
+    if ((e.summary || "") === (pl?.summary || "") && eventStartKey(e) === startKey) return false;
+    return true;
+  });
+  if (rest.some((e) => String(e.id) === String(eventId))) return rest;
+  return rest.concat([
+    {
+      id: eventId,
+      summary: pl?.summary || "",
+      start: pl?.start || "",
+      location: pl?.location || "",
+      description: pl?.description || "",
+    },
+  ]);
+}
+
 /** Parse calendar_upsert command result for the Google event id. */
 export function parseCalendarUpsertResult(result) {
   if (!result) return null;

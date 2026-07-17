@@ -31,7 +31,9 @@ import {
   isCalendarUnlinkCommand,
   isPendingCalEventId,
   jobIdFromEventDescription,
+  mergePendingCalendarEvents,
   parseCalendarUpsertResult,
+  promotePendingCalendarEvent as promotePendingCalEvent,
 } from "../lib/calendarLink.js";
 
 const Ctx = createContext(null);
@@ -161,14 +163,7 @@ export function StoreProvider({ children }) {
   const appliedCalUpserts = useRef(new Set());
   const appliedFetchPayments = useRef(new Set());
 
-  const mergePendingEvents = useCallback((prev, pulled) => {
-    const pending = (prev || []).filter((e) => isPendingCalEventId(e.id));
-    const merged = [...(pulled || [])];
-    for (const p of pending) {
-      if (!merged.some((e) => String(e.id) === String(p.id))) merged.push(p);
-    }
-    return merged;
-  }, []);
+  const mergePendingEvents = useCallback((prev, pulled) => mergePendingCalendarEvents(prev, pulled), []);
 
   const refreshEvents = useCallback(async ({ pull = false, awaitPull = true } = {}) => {
     try {
@@ -523,26 +518,10 @@ export function StoreProvider({ children }) {
     [showToast]
   );
 
-  const promotePendingCalendarEvent = useCallback((evs, eventId, pl, match) => {
-    const pending = evs.find(
-      (e) =>
-        isPendingCalEventId(e.id) &&
-        (match(e) ||
-          (e.summary === pl.summary && String(evStart(e)).slice(0, 16) === String(pl.start || "").slice(0, 16)))
-    );
-    const rest = evs.filter((e) => !(pending && isPendingCalEventId(e.id) && e.id === pending.id));
-    if (rest.some((e) => String(e.id) === String(eventId))) return rest;
-    const next = pending
-      ? { ...pending, id: eventId }
-      : {
-          id: eventId,
-          summary: pl.summary,
-          start: pl.start,
-          location: pl.location || "",
-          description: pl.description || "",
-        };
-    return rest.concat([next]);
-  }, []);
+  const promotePendingCalendarEvent = useCallback(
+    (evs, eventId, pl, match) => promotePendingCalEvent(evs, eventId, pl, match),
+    []
+  );
 
   // When calendar_upsert finishes on the Mac, store the real Google event id on the job.
   useEffect(() => {

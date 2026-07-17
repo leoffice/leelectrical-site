@@ -1,5 +1,5 @@
 // Create or edit a Google Calendar appointment — week view, reminders, guest notify.
-import React, { useState } from "react";
+import React, { useRef, useState } from "react";
 import Sheet, { Fld } from "./Sheet.jsx";
 import WeekCalendar from "./WeekCalendar.jsx";
 import { useStore } from "../state/store.jsx";
@@ -109,6 +109,10 @@ export default function AddAppointmentSheet({
   const presetDt = defaultDate || (fromInspection && inspectionPreset ? inspectionPreset?.date : "");
   const presetReminders = isEdit ? initialReminders(editEvent) : null;
   const presetGuest = isEdit ? initialGuest(editEvent, job) : null;
+  // One save per form open — double-taps used to create multiple Google events (unique Date.now keys).
+  const savingRef = useRef(false);
+  const [saving, setSaving] = useState(false);
+  const dupIdempotencyRef = useRef(null);
 
   const [summary, setSummary] = useState(() => {
     if (isEdit) return editEvent.summary || "";
@@ -161,110 +165,124 @@ export default function AddAppointmentSheet({
   };
 
   const save = async () => {
+    if (savingRef.current) return;
     const title = (summary || "").trim();
     if (!title) return showToast("Add a title for the appointment");
     if (!dt) return showToast("Pick date and time");
+    savingRef.current = true;
+    setSaving(true);
     const notify = buildNotifyPayload();
 
-    if (isEdit) {
-      const eventId = editEvent.id || "";
+    try {
+      if (isEdit) {
+        const eventId = editEvent.id || "";
+        const busId = job?.id || "today";
+        const description = job?.id ? withJobLink(notes, job.id) : notes || "Updated in LE Pro";
+        const payload = {
+          calEventId: eventId,
+          summary: title,
+          start: dt,
+          location: location || "",
+          description,
+          ...notify,
+        };
+        if (fromInspection) payload.colorId = GCAL_RED_COLOR_ID;
+        else if (editEvent.colorId) payload.colorId = editEvent.colorId;
+
+        await enqueue(
+          "calendar_upsert",
+          busId,
+          payload,
+          "judgment",
+          "caledit:" + (eventId || dt) + ":" + title.slice(0, 24)
+        );
+        const patch = {
+          id: eventId || "pending-" + Date.now(),
+          summary: title,
+          start: dt,
+          location: location || "",
+          description,
+        };
+        appendLocalEvent({ ...editEvent, ...patch });
+        pullCalendarNow();
+        showToast("Appointment updated — syncing to calendar");
+        onSaved?.({ ...editEvent, ...patch });
+        onClose();
+        return;
+      }
+
       const busId = job?.id || "today";
-      const description = job?.id ? withJobLink(notes, job.id) : notes || "Updated in LE Pro";
+      const description = job ? withJobLink(notes || "Created in LE Pro", job.id) : notes || "Created in LE Pro";
+      // Stable key for this form open so a second tap cannot mint a second Google event.
+      if (isDuplicate && !dupIdempotencyRef.current) {
+        dupIdempotencyRef.current =
+          "caldup:" + (duplicateFrom?.id || "x") + ":" + Date.now() + ":" + dt + ":" + title.slice(0, 24);
+      }
+      const key = isDuplicate
+        ? dupIdempotencyRef.current
+        : (job ? "jobcal:" + job.id : "todaycal:") + ":" + dt + ":" + title.slice(0, 24);
+
       const payload = {
-        calEventId: eventId,
         summary: title,
         start: dt,
         location: location || "",
         description,
         ...notify,
       };
+      if (!isDuplicate && job?.calEventId) payload.calEventId = job.calEventId;
       if (fromInspection) payload.colorId = GCAL_RED_COLOR_ID;
-      else if (editEvent.colorId) payload.colorId = editEvent.colorId;
 
-      await enqueue(
-        "calendar_upsert",
-        busId,
-        payload,
-        "judgment",
-        "caledit:" + (eventId || dt) + ":" + title.slice(0, 24)
-      );
-      const patch = {
-        id: eventId || "pending-" + Date.now(),
+      await enqueue("calendar_upsert", busId, payload, "judgment", key);
+
+      const pendingId = "pending-" + Date.now();
+      const paperworkPatch =
+        fromInspection && job?.id && inspectionPreset?.branch && inspectionPreset?.step
+          ? {
+              paperwork: {
+                [inspectionPreset.branch]: {
+                  dates: {
+                    [inspectionPreset.step]:
+                      (DATE_STEPS[inspectionPreset.step] || "date") === "datetime" ? dt : dt.slice(0, 10),
+                  },
+                },
+              },
+            }
+          : {};
+
+      if (job?.id && !isDuplicate && !job._customerContext) {
+        const day = dt.slice(0, 10);
+        await patchAndSave(job.id, {
+          calEventId: pendingId,
+          status: { Scheduled: { s: "done", d: day } },
+          ...paperworkPatch,
+        });
+      } else if (job?.id && !isDuplicate) {
+        patchJob(job.id, { calEventId: pendingId, ...paperworkPatch });
+      }
+
+      appendLocalEvent({
+        id: pendingId,
         summary: title,
         start: dt,
         location: location || "",
         description,
-      };
-      appendLocalEvent({ ...editEvent, ...patch });
-      pullCalendarNow();
-      showToast("Appointment updated — syncing to calendar");
-      onSaved?.({ ...editEvent, ...patch });
-      onClose();
-      return;
-    }
-
-    const busId = job?.id || "today";
-    const description = job ? withJobLink(notes || "Created in LE Pro", job.id) : notes || "Created in LE Pro";
-    const key = isDuplicate
-      ? "caldup:" + Date.now() + ":" + dt + ":" + title.slice(0, 24)
-      : (job ? "jobcal:" + job.id : "todaycal:") + ":" + dt + ":" + title.slice(0, 24);
-
-    const payload = {
-      summary: title,
-      start: dt,
-      location: location || "",
-      description,
-      ...notify,
-    };
-    if (!isDuplicate && job?.calEventId) payload.calEventId = job.calEventId;
-    if (fromInspection) payload.colorId = GCAL_RED_COLOR_ID;
-
-    await enqueue("calendar_upsert", busId, payload, "judgment", key);
-
-    const pendingId = "pending-" + Date.now();
-    const paperworkPatch =
-      fromInspection && job?.id && inspectionPreset?.branch && inspectionPreset?.step
-        ? {
-            paperwork: {
-              [inspectionPreset.branch]: {
-                dates: {
-                  [inspectionPreset.step]:
-                    (DATE_STEPS[inspectionPreset.step] || "date") === "datetime" ? dt : dt.slice(0, 10),
-                },
-              },
-            },
-          }
-        : {};
-
-    if (job?.id && !isDuplicate && !job._customerContext) {
-      const day = dt.slice(0, 10);
-      await patchAndSave(job.id, {
-        calEventId: pendingId,
-        status: { Scheduled: { s: "done", d: day } },
-        ...paperworkPatch,
       });
-    } else if (job?.id && !isDuplicate) {
-      patchJob(job.id, { calEventId: pendingId, ...paperworkPatch });
+      stashCalendarPick(pendingId);
+      pullCalendarNow();
+      showToast(
+        isDuplicate
+          ? "Duplicate saved for " + formatApptWhen(dt) + " — syncing to Google Calendar"
+          : job
+            ? "Appointment queued for " + (job.customer || "job")
+            : "Appointment queued — syncs to Google Calendar"
+      );
+      onSaved?.({ id: pendingId, summary: title, start: dt, location: location || "", description });
+      onClose();
+    } catch {
+      savingRef.current = false;
+      setSaving(false);
+      showToast("Couldn't save appointment — try again");
     }
-
-    appendLocalEvent({
-      id: pendingId,
-      summary: title,
-      start: dt,
-      location: location || "",
-      description,
-    });
-    stashCalendarPick(pendingId);
-    pullCalendarNow();
-    showToast(
-      isDuplicate
-        ? "Duplicate saved for " + formatApptWhen(dt) + " — syncing to Google Calendar"
-        : job
-          ? "Appointment queued for " + (job.customer || "job")
-          : "Appointment queued — syncs to Google Calendar"
-    );
-    onSaved?.({ id: pendingId, summary: title, start: dt, location: location || "", description });
-    onClose();
   };
 
   const sheetTitle = isEdit
@@ -364,8 +382,14 @@ export default function AddAppointmentSheet({
         </Fld>
       ) : null}
 
-      <button type="button" className="btn-brand w-full" onClick={save} data-testid="appt-save">
-        {isEdit ? "Save changes" : "Save & sync to calendar"}
+      <button
+        type="button"
+        className="btn-brand w-full"
+        onClick={save}
+        disabled={saving}
+        data-testid="appt-save"
+      >
+        {saving ? "Saving…" : isEdit ? "Save changes" : "Save & sync to calendar"}
       </button>
       {onDuplicate ? (
         <button type="button" className="btn bg-brand-soft text-brand w-full mt-2" onClick={onDuplicate}>
