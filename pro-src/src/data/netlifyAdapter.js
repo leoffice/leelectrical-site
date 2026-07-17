@@ -26,6 +26,27 @@ async function http(path, body) {
   return res.json();
 }
 
+/** Like http(), but keeps JSON bodies on 4xx/5xx (send-doc-email dry-run / no_api_key). */
+async function httpAllowErrorBody(path, body) {
+  const res = await fetch(`${base()}/${path}`, {
+    method: body ? "POST" : "GET",
+    cache: "no-store",
+    headers: body ? { "content-type": "application/json" } : undefined,
+    body: body ? JSON.stringify(body) : undefined,
+  });
+  let data = null;
+  try {
+    data = await res.json();
+  } catch {
+    data = null;
+  }
+  if (data && typeof data === "object") {
+    return { ...data, httpStatus: res.status, ok: data.ok === true };
+  }
+  if (!res.ok) throw new Error(`${path}: HTTP ${res.status}`);
+  return data;
+}
+
 const cb = () => "cb=" + Date.now();
 
 /** Blob → bare base64 string (no data-URL prefix) for JSON transport. */
@@ -186,7 +207,7 @@ export function createNetlifyAdapter() {
           pdfB64 = await blobToBase64(blob);
           filename = docPdfFilename(kind, job, no) || `${kind}-${String(no || "document")}.pdf`;
         }
-        return await http("send-doc-email", {
+        return await httpAllowErrorBody("send-doc-email", {
           kind,
           job,
           email: String(opts.email || job?.email || "").trim(),
@@ -199,7 +220,16 @@ export function createNetlifyAdapter() {
           officeOnly: !!opts.officeOnly,
         });
       } catch (err) {
-        return { ok: false, error: String(err?.message || err) };
+        // Cloudflare often returns bare "error code: 502" (not JSON) when Resend is
+        // missing — surface a stable reason so the app queues office-Gmail fallback.
+        const msg = String(err?.message || err);
+        const is502 = /HTTP 502|502/.test(msg);
+        return {
+          ok: false,
+          error: msg,
+          reason: is502 ? "no_api_key" : "send_failed",
+          dryRun: is502,
+        };
       }
     },
 
