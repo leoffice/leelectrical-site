@@ -1,5 +1,6 @@
-// Auto customer match — when ≥3 of 4 identity fields match 100%, link without asking Levi.
-// Fields: name, phone, email, billing address.
+// Auto customer match — when ≥3 of 5 identity fields match 100% (and service
+// matches when both sides have one), link without asking Levi.
+// Fields: name, phone, email, billing address, service address.
 // Strong pairs auto-combine; orange (unlinked / incomplete) customers auto-link to unique QBO hits.
 import {
   clientKey,
@@ -14,6 +15,7 @@ import {
   normalizeCustomer,
   normalizeEmail,
   normalizePhone,
+  normalizeServiceAddress,
   pairId,
 } from "./customers.js";
 import { customerProfileComplete, qboCustomerToJobPatch } from "./customerSync.js";
@@ -38,8 +40,8 @@ export function customerGroupsFromJobs(jobs) {
 }
 
 /**
- * Index pairs that share at least one identity field (phone/email/name/billing).
- * Strong 3-of-4 matches must share ≥1 field — full n² is never needed.
+ * Index pairs that share at least one identity field
+ * (phone/email/name/billing/service). Strong 3-of-5 matches must share ≥1 field.
  */
 function strongMatchCandidatePairs(groups) {
   const cand = new Set();
@@ -61,15 +63,36 @@ function strongMatchCandidatePairs(groups) {
       }
     }
   };
+  const indexMulti = (keysFn) => {
+    const m = new Map();
+    for (let i = 0; i < groups.length; i++) {
+      for (const key of keysFn(groups[i].profile || {}) || []) {
+        if (!key) continue;
+        if (!m.has(key)) m.set(key, []);
+        m.get(key).push(i);
+      }
+    }
+    for (const idxs of m.values()) {
+      const uniq = [...new Set(idxs)];
+      for (let a = 0; a < uniq.length; a++) {
+        for (let b = a + 1; b < uniq.length; b++) add(uniq[a], uniq[b]);
+      }
+    }
+  };
   index((p) => normalizePhone(p.phone));
   index((p) => normalizeEmail(p.email));
   index((p) => normalizeCustomer(p.businessName || p.name || p.customer || ""));
   index((p) => normalizeBillingAddress(p.billingAddress || p.addr || p.billingAddr));
+  indexMulti((p) => {
+    const addrs = Array.isArray(p.serviceAddresses) ? p.serviceAddresses : [];
+    const single = p.serviceAddress || p.address || "";
+    return [...addrs, single].map(normalizeServiceAddress).filter(Boolean);
+  });
   return cand;
 }
 
 /**
- * All strong (≥3/4 exact) same-customer pairs that still need combining.
+ * All strong (≥3/5 exact, service included when available) same-customer pairs.
  * Deterministic order by pairId.
  */
 export function findStrongAutoMergePairs(jobs) {
@@ -98,7 +121,8 @@ export function findStrongAutoMergePairs(jobs) {
 }
 
 /**
- * Unique QuickBooks customer that strongly matches this app profile (≥3/4).
+ * Unique QuickBooks customer that strongly matches this app profile (≥3/5).
+ * QBO rows usually lack service addresses — service is not required then.
  * Returns the QBO row or null if zero or ambiguous (>1).
  */
 export function findUniqueStrongQboMatch(profile, qboIndex, min = 3) {
