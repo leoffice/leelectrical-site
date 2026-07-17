@@ -275,7 +275,7 @@ export function contactInfoMatches(a, b) {
   return !!(ea && eb && ea === eb);
 }
 
-/** Collapse billing address noise for exact identity match. */
+/** Collapse billing/service address noise for exact identity match. */
 export function normalizeBillingAddress(addr) {
   return String(addr || "")
     .toLowerCase()
@@ -287,10 +287,50 @@ export function normalizeBillingAddress(addr) {
     .trim();
 }
 
+/** Alias — same normalizer for service addresses. */
+export const normalizeServiceAddress = normalizeBillingAddress;
+
+/**
+ * Two normalized service addresses count as the same site when equal, or when
+ * the longer one starts with the shorter (e.g. "489 midwood st" vs
+ * "489 midwood st brooklyn ny 11225"). Min short length 10 avoids loose hits.
+ */
+export function serviceAddressesEqual(a, b) {
+  const x = normalizeServiceAddress(a);
+  const y = normalizeServiceAddress(b);
+  if (!x || !y) return false;
+  if (x === y) return true;
+  const short = x.length <= y.length ? x : y;
+  const long = x.length <= y.length ? y : x;
+  return short.length >= 10 && long.startsWith(short);
+}
+
+/**
+ * Distinct normalized service addresses from a customer-like object or job list.
+ * Accepts serviceAddresses[], serviceAddress, address, and jobs[].
+ */
+export function serviceAddressSet(profile) {
+  const p = profile || {};
+  const out = new Set();
+  const add = (v) => {
+    const n = normalizeServiceAddress(v);
+    if (n) out.add(n);
+  };
+  if (Array.isArray(p.serviceAddresses)) p.serviceAddresses.forEach(add);
+  add(p.serviceAddress);
+  add(p.address);
+  if (Array.isArray(p.jobs)) {
+    for (const j of p.jobs) {
+      add(j?.serviceAddress || j?.address);
+    }
+  }
+  return out;
+}
+
 /**
  * Exact identity field matches between two customer-like objects.
- * Fields: name, phone, email, billing address.
- * Returns { matchCount, matches: {name,phone,email,billing} }.
+ * Fields (5): name, phone, email, billing address, service address.
+ * Returns { matchCount, matches: {name,phone,email,billing,service}, hasServiceData }.
  */
 export function matchCustomerFields(a, b) {
   const left = a || {};
@@ -303,19 +343,47 @@ export function matchCustomerFields(a, b) {
   const eb = normalizeEmail(right.email);
   const ba = normalizeBillingAddress(left.billingAddress || left.addr || left.billingAddr);
   const bb = normalizeBillingAddress(right.billingAddress || right.addr || right.billingAddr);
+  const sa = serviceAddressSet(left);
+  const sb = serviceAddressSet(right);
+  let service = false;
+  if (sa.size && sb.size) {
+    for (const aAddr of sa) {
+      for (const bAddr of sb) {
+        if (serviceAddressesEqual(aAddr, bAddr)) {
+          service = true;
+          break;
+        }
+      }
+      if (service) break;
+    }
+  }
   const matches = {
     name: !!(na && nb && na === nb),
     phone: !!(pa && pb && pa === pb),
     email: !!(ea && eb && ea === eb),
     billing: !!(ba && bb && ba === bb),
+    service,
   };
-  const matchCount = ["name", "phone", "email", "billing"].filter((k) => matches[k]).length;
-  return { matchCount, matches };
+  const matchCount = ["name", "phone", "email", "billing", "service"].filter((k) => matches[k]).length;
+  return {
+    matchCount,
+    matches,
+    hasServiceData: sa.size > 0 && sb.size > 0,
+  };
 }
 
-/** True when ≥ min of the four identity fields match 100% (default 3). */
-export function isStrongCustomerMatch(a, b, min = 3) {
-  return matchCustomerFields(a, b).matchCount >= min;
+/**
+ * True when ≥ min of the five identity fields match 100% (default 3).
+ * When both sides have a service address, service MUST match for auto-approve
+ * (Levi: 3 of 5 including service address). When either side has no service
+ * data (e.g. QuickBooks index), service is not required — ≥min of the rest.
+ */
+export function isStrongCustomerMatch(a, b, min = 3, opts = {}) {
+  const { matchCount, matches, hasServiceData } = matchCustomerFields(a, b);
+  if (matchCount < min) return false;
+  const requireService = opts.requireService !== false;
+  if (requireService && hasServiceData && !matches.service) return false;
+  return true;
 }
 
 /** Near-identical customer names: case-insensitive Levenshtein <= 2 on
@@ -817,7 +885,8 @@ function sortedCandidatePairs(cand) {
 
 /** First (deterministic) pair of distinct client keys whose names look like
  *  the same customer and that Levi hasn't already said "Not the same" to.
- *  Strong 3-of-4 exact matches are auto-handled elsewhere — not prompted.
+ *  Strong 3-of-5 exact matches (service included when available) are
+ *  auto-handled elsewhere — not prompted.
  *  Returns { id, a:{name,jobs}, b:{name,jobs} } or null. */
 export function findMergeSuggestion(jobs) {
   const entries = clientGroupEntries(jobs);
@@ -833,7 +902,7 @@ export function findMergeSuggestion(jobs) {
     if (!nameMatch && !contactMatch) continue;
     if (isMergeDecisionRemembered(ja, jb)) continue;
     if (isSnoozed(na, nb) || isSnoozed(ja.customer, jb.customer)) continue;
-    // 3-of-4 exact → auto path (green), not a manual decision popup
+    // 3-of-5 exact (service when both have it) → auto path, not a popup
     const pa = customerProfileFromJobs(entries[i][1], na);
     const pb = customerProfileFromJobs(entries[k][1], nb);
     if (isStrongCustomerMatch(pa, pb, 3)) continue;

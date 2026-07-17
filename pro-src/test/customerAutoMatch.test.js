@@ -17,26 +17,71 @@ beforeEach(() => {
 });
 
 describe("matchCustomerFields", () => {
-  it("counts exact name phone email billing matches", () => {
+  it("counts exact name phone email billing service matches", () => {
     const a = {
       name: "Acme LLC",
       phone: "(718) 555-0100",
       email: "A@Acme.com",
       billingAddress: "100 Main St, Apt 2",
+      serviceAddress: "200 Work Ave",
     };
     const b = {
       name: "Acme LLC",
       phone: "718-555-0100",
       email: "a@acme.com",
       billingAddress: "100 Main St Apartment 2",
+      serviceAddress: "200 Work Ave",
     };
     const m = matchCustomerFields(a, b);
-    expect(m.matchCount).toBe(4);
+    expect(m.matchCount).toBe(5);
     expect(m.matches.name).toBe(true);
     expect(m.matches.phone).toBe(true);
     expect(m.matches.email).toBe(true);
     expect(m.matches.billing).toBe(true);
+    expect(m.matches.service).toBe(true);
     expect(isStrongCustomerMatch(a, b, 3)).toBe(true);
+  });
+
+  it("is strong with 3 of 5 when service matches", () => {
+    const a = {
+      name: "Same Co",
+      phone: "7185551111",
+      email: "",
+      billingAddress: "",
+      serviceAddress: "55 Service Rd",
+    };
+    const b = {
+      name: "Same Co",
+      phone: "7185551111",
+      email: "x@y.com",
+      billingAddress: "Other bill",
+      serviceAddress: "55 Service Rd",
+    };
+    const m = matchCustomerFields(a, b);
+    expect(m.matchCount).toBe(3); // name + phone + service
+    expect(m.matches.service).toBe(true);
+    expect(isStrongCustomerMatch(a, b, 3)).toBe(true);
+  });
+
+  it("is not strong when service differs even if 3 other fields match", () => {
+    const a = {
+      name: "Acme",
+      phone: "7185550100",
+      email: "a@acme.com",
+      billingAddress: "1 Oak",
+      serviceAddress: "10 A St",
+    };
+    const b = {
+      name: "Acme",
+      phone: "7185550100",
+      email: "a@acme.com",
+      billingAddress: "2 Pine",
+      serviceAddress: "99 Z St",
+    };
+    // name + phone + email = 3, but service differs
+    expect(matchCustomerFields(a, b).matchCount).toBe(3);
+    expect(matchCustomerFields(a, b).matches.service).toBe(false);
+    expect(isStrongCustomerMatch(a, b, 3)).toBe(false);
   });
 
   it("is not strong with only two fields", () => {
@@ -45,10 +90,44 @@ describe("matchCustomerFields", () => {
     expect(matchCustomerFields(a, b).matchCount).toBe(2);
     expect(isStrongCustomerMatch(a, b, 3)).toBe(false);
   });
+
+  it("treats short and full service address as the same site", () => {
+    const a = {
+      name: "Jeremy Hoffman",
+      phone: "7185550001",
+      email: "j@h.com",
+      serviceAddress: "489 Midwood St",
+    };
+    const b = {
+      name: "Jermi Hofmann",
+      phone: "7185550001",
+      email: "j@h.com",
+      serviceAddress: "489 Midwood St, Brooklyn, NY, 11225",
+    };
+    expect(matchCustomerFields(a, b).matches.service).toBe(true);
+    expect(isStrongCustomerMatch(a, b, 3)).toBe(true); // phone + email + service
+  });
+
+  it("allows strong match without service when neither side has service data (QBO)", () => {
+    const a = {
+      name: "Bob Builder",
+      phone: "3475559999",
+      email: "bob@build.com",
+      billingAddress: "9 Pine Rd",
+    };
+    const b = {
+      name: "Bob Builder",
+      phone: "3475559999",
+      email: "bob@build.com",
+      billingAddress: "9 Pine Rd",
+    };
+    expect(matchCustomerFields(a, b).hasServiceData).toBe(false);
+    expect(isStrongCustomerMatch(a, b, 3)).toBe(true);
+  });
 });
 
 describe("findStrongAutoMergePairs", () => {
-  it("finds pairs with 3 exact field matches", () => {
+  it("finds pairs with 3 exact field matches including service", () => {
     const jobs = [
       {
         id: "1",
@@ -56,6 +135,7 @@ describe("findStrongAutoMergePairs", () => {
         phone: "7185551111",
         email: "a@same.com",
         billingAddress: "1 Oak St",
+        serviceAddress: "1 Oak St",
       },
       {
         id: "2",
@@ -63,12 +143,14 @@ describe("findStrongAutoMergePairs", () => {
         phone: "7185551111",
         email: "a@same.com",
         billingAddress: "1 Oak St",
+        serviceAddress: "1 Oak St",
       },
     ];
-    // names differ so different client keys; phone+email+billing = 3
+    // names differ so different client keys; phone+email+billing+service ≥ 3
     const pairs = findStrongAutoMergePairs(jobs);
     expect(pairs).toHaveLength(1);
     expect(pairs[0].score.matchCount).toBeGreaterThanOrEqual(3);
+    expect(pairs[0].score.matches.service).toBe(true);
   });
 
   it("skips pairs already in same clientGroup", () => {
@@ -80,6 +162,7 @@ describe("findStrongAutoMergePairs", () => {
         phone: "7185551111",
         email: "a@x.com",
         billingAddress: "1 Oak",
+        serviceAddress: "1 Oak",
       },
       {
         id: "2",
@@ -88,6 +171,7 @@ describe("findStrongAutoMergePairs", () => {
         phone: "7185551111",
         email: "a@x.com",
         billingAddress: "1 Oak",
+        serviceAddress: "1 Oak",
       },
     ];
     expect(findStrongAutoMergePairs(jobs)).toHaveLength(0);
@@ -154,6 +238,7 @@ describe("applyStrongAutoMerges", () => {
         phone: "7185551111",
         email: "a@same.com",
         billingAddress: "1 Oak St",
+        serviceAddress: "1 Oak St",
       },
       {
         id: "2",
@@ -161,6 +246,7 @@ describe("applyStrongAutoMerges", () => {
         phone: "7185551111",
         email: "a@same.com",
         billingAddress: "1 Oak St",
+        serviceAddress: "1 Oak St",
       },
     ];
     const patches = [];
@@ -207,7 +293,7 @@ describe("applyOrangeAutoLinks", () => {
 });
 
 describe("findMergeSuggestion skips strong pairs", () => {
-  it("does not prompt for 3-of-4 exact matches", () => {
+  it("does not prompt for 3-of-5 exact matches with service", () => {
     const jobs = [
       {
         id: "1",
@@ -215,6 +301,7 @@ describe("findMergeSuggestion skips strong pairs", () => {
         phone: "7185551111",
         email: "a@same.com",
         billingAddress: "1 Oak St",
+        serviceAddress: "1 Oak St",
       },
       {
         id: "2",
@@ -222,9 +309,9 @@ describe("findMergeSuggestion skips strong pairs", () => {
         phone: "7185551111",
         email: "a@same.com",
         billingAddress: "1 Oak St",
+        serviceAddress: "1 Oak St",
       },
     ];
-    // near-duplicate name + contact would normally prompt; strong match auto path wins
     expect(findMergeSuggestion(jobs)).toBeNull();
   });
 
