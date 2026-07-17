@@ -442,7 +442,7 @@ export default function Jobs({ embedded, collapseGroups = false, activeJobId = "
     const testMode = typeof import.meta !== "undefined" && import.meta.env && import.meta.env.MODE === "test";
     const wait = await waitForCommandDone(api, idk, { maxMs: testMode ? 80 : 120000, intervalMs: testMode ? 15 : 2000 });
     await refreshJobs?.(true);
-    if (!wait.ok && !wait.timeout) showToast(String(wait.cmd?.error || "Import from QuickBooks failed"));
+    if (!wait.ok && !wait.timeout) showToast(String(wait.cmd?.error || "Import failed"));
   };
 
   return (
@@ -658,12 +658,11 @@ export default function Jobs({ embedded, collapseGroups = false, activeJobId = "
           })}
         </div>
       )}
-      {/* #56 — existing QBO customers not yet in the app. Tapping one offers to
-          import the customer with all their open invoices as jobs. */}
+      {/* #56 — customers on file not yet on the board. Tap → import + open invoices. */}
       {q.trim().length >= 2 && custMatches.length > 0 && (
         <div className="pt-1" data-testid="qbo-customer-matches">
           <div className="px-1 pb-1.5 text-xs font-bold text-slate-500">
-            Existing QuickBooks customers
+            Import customer
           </div>
           <div className="card overflow-hidden divide-y divide-slate-100">
             {custMatches.map((c) => (
@@ -680,7 +679,7 @@ export default function Jobs({ embedded, collapseGroups = false, activeJobId = "
                     {c.name}
                   </span>
                   <span className="block text-[11px] text-slate-500 lg:text-xs">
-                    In QuickBooks · tap to import their open invoices as jobs
+                    Tap to import · open invoices become jobs
                   </span>
                 </span>
               </button>

@@ -790,7 +790,7 @@ export default function ChatBubble() {
       return;
     }
     if (!speechToText) {
-      showToast("Speech to text is off — turn it on in Settings");
+      showToast("Speech to text is off — turn it on in Company settings");
       return;
     }
     const SR = window.SpeechRecognition || window.webkitSpeechRecognition;

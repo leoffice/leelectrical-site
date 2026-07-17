@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { pullCustomerFromQbo, runQboSync } from "../src/lib/qboSyncActions.js";
+import { pullCustomerFromQbo, runQboSync, refreshOfficeFiles } from "../src/lib/qboSyncActions.js";
 
 describe("pullCustomerFromQbo", () => {
   it("fetches QuickBooks customer and patches every job for the group", async () => {
@@ -30,7 +30,62 @@ describe("pullCustomerFromQbo", () => {
     expect(patchAndSave).toHaveBeenCalledTimes(2);
     expect(patchAndSave.mock.calls[0][1].phone).toBe("718-555-0100");
     expect(patchAndSave.mock.calls[0][1].billingAddress).toBe("12 Bill St");
-    expect(showToast).toHaveBeenCalledWith("Customer info updated from QuickBooks");
+    expect(showToast).toHaveBeenCalledWith("Customer info updated");
+  });
+});
+
+describe("refreshOfficeFiles / refresh_files", () => {
+  it("enqueues refresh_local_db and reports success when done", async () => {
+    const enqueue = vi.fn(async () => {});
+    const showToast = vi.fn();
+    const api = {
+      listCommands: vi.fn(async () => [
+        { idempotencyKey: "refresh_local_db|1", status: "done", result: '{"ok":true}' },
+      ]),
+    };
+    // Force a known idk by stubbing Date.now
+    const now = Date.now;
+    Date.now = () => 1;
+    try {
+      const ok = await refreshOfficeFiles({ enqueue, showToast, api });
+      expect(ok).toBe(true);
+      expect(enqueue).toHaveBeenCalledWith(
+        "refresh_local_db",
+        "refresh-local-db",
+        {},
+        "deterministic",
+        "refresh_local_db|1"
+      );
+      expect(showToast).toHaveBeenCalledWith("Office files updated — imports will be fast again");
+    } finally {
+      Date.now = now;
+    }
+
+    enqueue.mockClear();
+    showToast.mockClear();
+    Date.now = () => 2;
+    try {
+      await runQboSync({
+        kind: "refresh_files",
+        job: { id: "J1", customer: "X" },
+        enqueue,
+        showToast,
+        api: {
+          listCommands: vi.fn(async () => [
+            { idempotencyKey: "refresh_local_db|2", status: "done", result: "{}" },
+          ]),
+        },
+      });
+      expect(enqueue).toHaveBeenCalledWith(
+        "refresh_local_db",
+        expect.any(String),
+        {},
+        "deterministic",
+        expect.stringMatching(/^refresh_local_db\|/)
+      );
+    } finally {
+      Date.now = now;
+    }
   });
 });
 

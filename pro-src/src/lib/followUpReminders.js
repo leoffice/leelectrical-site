@@ -186,6 +186,25 @@ export function isServiceCallEvent(event) {
   return SERVICE_RE.test(hay) || /\b(estimate|service)\b/i.test(event.summary || "");
 }
 
+/** Calendar appointment whose purpose is making / delivering an estimate. */
+export function isEstimateAppointment(event) {
+  if (!event || isInspectionEvent(event)) return false;
+  const hay = [event.summary, event.description].filter(Boolean).join(" ");
+  return /\bestimate\b/i.test(hay);
+}
+
+/**
+ * Hold same-day estimate appointments until end of work day (or next day).
+ * Don't nag while Levi is still scheduled to do the estimate today.
+ */
+export function shouldHoldSameDayEstimateReminder(event, today, now = new Date()) {
+  if (!isEstimateAppointment(event)) return false;
+  const ymd = eventYmd(event);
+  if (!ymd || ymd !== today) return false;
+  const hour = typeof now.getHours === "function" ? now.getHours() : 12;
+  return hour < WORK_END;
+}
+
 /** Past-week appointments worth a follow-up — service calls, linked jobs, customer visits. */
 export function isPastWeekFollowUpEvent(event, jobs) {
   if (!event || isInspectionEvent(event)) return false;
@@ -277,6 +296,7 @@ export function serviceCallCandidates(events, jobs, today, now = new Date(), com
       const ymd = eventYmd(e);
       if (!ymd || ymd < cut || ymd > today) return false;
       if (!isPastWeekFollowUpEvent(e, jobs)) return false;
+      if (shouldHoldSameDayEstimateReminder(e, today, now)) return false;
       if (isEventHandled(state, e.id)) return false;
       if (isEventAllocated(state, e.id, now)) return false;
       const st = eventState(state, e.id);

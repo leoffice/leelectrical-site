@@ -420,17 +420,5 @@ export function createNetlifyAdapter() {
     async timeTrackOp(body) {
       return http("timetrack", body);
     },
-
-    /** Tenant / white-label settings (company profile + feature toggles). */
-    async getSettings() {
-      return http(`settings?${cb()}`);
-    },
-
-    async saveSettings(doc) {
-      return http("settings", {
-        profile: doc?.profile,
-        features: doc?.features,
-      });
-    },
   };
 }

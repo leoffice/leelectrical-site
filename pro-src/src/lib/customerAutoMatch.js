@@ -6,7 +6,7 @@ import {
   customerContact,
   customerProfileFromJobs,
   dismissPair,
-  isDismissed,
+  isMergeDecisionRemembered,
   isStrongCustomerMatch,
   matchCustomerFields,
   mergePairAlreadyResolved,
@@ -49,7 +49,7 @@ export function findStrongAutoMergePairs(jobs) {
       const gb = groups[k];
       const jb = gb.jobs[0];
       if (mergePairAlreadyResolved(ja, jb)) continue;
-      if (isDismissed(ga.profile.name, gb.profile.name)) continue;
+      if (isMergeDecisionRemembered(ja, jb)) continue;
       if (!isStrongCustomerMatch(ga.profile, gb.profile, 3)) continue;
       pairs.push({
         id: pairId(ga.profile.name, gb.profile.name),
@@ -159,7 +159,10 @@ export async function applyStrongAutoMerges(jobs, { patchAndSave, persistDismiss
     for (const j of all) {
       await patchAndSave(j.id, { clientGroup: grp, ...enrichPatch });
     }
-    dismissPair(pair.a.name, pair.b.name);
+    const ja = pair.a.jobs?.[0];
+    const jb = pair.b.jobs?.[0];
+    if (ja && jb) dismissPair(ja, jb);
+    else dismissPair(pair.a.name, pair.b.name);
     n += 1;
   }
   if (n && persistDismiss) {

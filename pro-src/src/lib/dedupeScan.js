@@ -5,12 +5,13 @@
 import {
   clientKey,
   contactInfoMatches,
-  isDismissed,
+  isMergeDecisionRemembered,
+  mergeDisplayName,
   namesNearDuplicate,
   pairId,
+  findMergeSuggestion,
 } from "./customers.js";
 import { findDuplicateInvoiceSuggestion, isInvoiceDismissed, shouldPromptInvoiceDedup } from "./invoiceDedup.js";
-import { findMergeSuggestion } from "./customers.js";
 
 export const DEDUPE_SCAN_KEY = "lepro_dedupe_scan";
 
@@ -52,14 +53,14 @@ export function countMergePairs(jobs) {
   let n = 0;
   for (let i = 0; i < entries.length; i++) {
     const ja = entries[i][1][0];
-    const na = ja.customer;
+    const na = mergeDisplayName(ja);
     for (let k = i + 1; k < entries.length; k++) {
       const jb = entries[k][1][0];
-      const nb = jb.customer;
+      const nb = mergeDisplayName(jb);
       const nameMatch = namesNearDuplicate(na, nb);
       const contactMatch = !nameMatch && contactInfoMatches(ja, jb);
       if (!nameMatch && !contactMatch) continue;
-      if (isDismissed(na, nb)) continue;
+      if (isMergeDecisionRemembered(ja, jb)) continue;
       n++;
     }
   }

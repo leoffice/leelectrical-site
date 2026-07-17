@@ -15,6 +15,8 @@ import {
   isInspectionEvent,
   isPastWeekFollowUpEvent,
   isServiceCallEvent,
+  isEstimateAppointment,
+  shouldHoldSameDayEstimateReminder,
   pickFirmerNudge,
   rescheduleEventReminder,
   scheduleReminderSnooze,
@@ -65,6 +67,21 @@ describe("followUpReminders", () => {
     ];
     const hits = serviceCallCandidates(events, [], today);
     expect(hits.map((e) => e.id)).toEqual(["e1"]);
+  });
+
+  it("holds same-day estimate appointments until end of work day", () => {
+    const ev = { id: "est1", summary: "Estimate — 123 Main", start: "2026-07-10T11:00" };
+    expect(isEstimateAppointment(ev)).toBe(true);
+    const morning = new Date("2026-07-10T10:00:00");
+    expect(shouldHoldSameDayEstimateReminder(ev, today, morning)).toBe(true);
+    expect(serviceCallCandidates([ev], [], today, morning)).toHaveLength(0);
+    const evening = new Date("2026-07-10T18:00:00");
+    expect(shouldHoldSameDayEstimateReminder(ev, today, evening)).toBe(false);
+    expect(serviceCallCandidates([ev], [], today, evening).map((e) => e.id)).toEqual(["est1"]);
+    // Past-day estimate is never held
+    const past = { id: "est2", summary: "Estimate — Bob", start: "2026-07-08T11:00" };
+    expect(shouldHoldSameDayEstimateReminder(past, today, morning)).toBe(false);
+    expect(serviceCallCandidates([past], [], today, morning).map((e) => e.id)).toEqual(["est2"]);
   });
 
   it("isPastWeekFollowUpEvent includes linked jobs and customer appointments", () => {
