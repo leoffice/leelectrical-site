@@ -300,18 +300,42 @@ export function StoreProvider({ children }) {
     };
   }, [refresh, refreshJobs, refreshCommands, refreshDev, refreshEvents, refreshSas, refreshEmailInsights]);
 
-  /** Once-daily customer + invoice dedupe scan after jobs load. */
+  /** Once-daily customer + invoice dedupe scan after jobs load — deferred so the list can paint first. */
+  const dedupeFpRef = useRef("");
   useEffect(() => {
     if (loading) return;
-    const scan = runDailyDedupeScan(jobs);
-    setDedupeScan(scan);
-    if (scan.ran && (scan.customerCount > 0 || scan.invoiceCount > 0)) {
-      const parts = [];
-      if (scan.customerCount) parts.push(scan.customerCount + " customer pair" + (scan.customerCount === 1 ? "" : "s"));
-      if (scan.invoiceCount) parts.push(scan.invoiceCount + " invoice dupe" + (scan.invoiceCount === 1 ? "" : "s"));
-      showToast("Daily dedupe scan — " + parts.join(", "));
+    if (!jobs || !jobs.length) return;
+    // Quiet polls reuse the same job set — skip re-scanning thousands of customers.
+    const fp = `${jobs.length}:${syncedAt || 0}`;
+    if (fp === dedupeFpRef.current && dedupeScan) return;
+    let cancelled = false;
+    const run = () => {
+      if (cancelled) return;
+      const scan = runDailyDedupeScan(jobs);
+      if (cancelled) return;
+      dedupeFpRef.current = fp;
+      setDedupeScan(scan);
+      if (scan.ran && (scan.customerCount > 0 || scan.invoiceCount > 0)) {
+        const parts = [];
+        if (scan.customerCount) parts.push(scan.customerCount + " customer pair" + (scan.customerCount === 1 ? "" : "s"));
+        if (scan.invoiceCount) parts.push(scan.invoiceCount + " invoice dupe" + (scan.invoiceCount === 1 ? "" : "s"));
+        showToast("Daily dedupe scan — " + parts.join(", "));
+      }
+    };
+    // Let React paint the jobs list before the merge scan touches the main thread.
+    let idleId = 0;
+    let t = 0;
+    if (typeof requestIdleCallback === "function") {
+      idleId = requestIdleCallback(run, { timeout: 1500 });
+    } else {
+      t = setTimeout(run, 80);
     }
-  }, [jobs, loading]); // eslint-disable-line react-hooks/exhaustive-deps
+    return () => {
+      cancelled = true;
+      if (idleId && typeof cancelIdleCallback === "function") cancelIdleCallback(idleId);
+      if (t) clearTimeout(t);
+    };
+  }, [jobs, loading, syncedAt]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const SYNC_PHASES = useMemo(
     () => [
