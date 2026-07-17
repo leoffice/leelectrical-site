@@ -92,8 +92,8 @@ export async function runQboSync({
     );
     const testMode = typeof import.meta !== "undefined" && import.meta.env && import.meta.env.MODE === "test";
     const wait = await waitForCommandDone(api, idk, { maxMs: testMode ? 80 : 120000, intervalMs: testMode ? 15 : 2000 });
-    if (wait.timeout) showToast("Still pulling from QuickBooks — check back in a moment");
-    else if (!wait.ok) showToast(String(wait.cmd?.error || "Import from QuickBooks failed"));
+    if (wait.timeout) showToast("Still importing — check back in a moment");
+    else if (!wait.ok) showToast(String(wait.cmd?.error || "Import failed"));
     await refreshJobs?.(true);
     return wait.ok;
   };

@@ -131,7 +131,7 @@ export default function CustomerView() {
         if (!wait.ok && !wait.timeout) {
           setImporting(false);
           setImportTimedOut(true);
-          showToast?.(String(wait.cmd?.error || "Import from QuickBooks failed"));
+          showToast?.(String(wait.cmd?.error || "Import failed"));
           return;
         }
       }
@@ -208,15 +208,15 @@ export default function CustomerView() {
         {importing || (loading && !lastListRef.current.length) ? (
           <div>
             <p className="font-semibold text-slate-600 mb-1">
-              {importing ? "Pulling from QuickBooks…" : "Loading…"}
+              {importing ? "Importing customer…" : "Loading…"}
             </p>
             {importing ? (
-              <p className="text-xs text-slate-400">Customer info and invoices usually show up within a minute.</p>
+              <p className="text-xs text-slate-400">Pulling from your local file — usually a few seconds.</p>
             ) : null}
           </div>
         ) : importTimedOut ? (
           <div className="space-y-3">
-            <p className="text-slate-600">QuickBooks didn&apos;t finish loading this customer yet.</p>
+            <p className="text-slate-600">Import didn&apos;t finish loading this customer yet.</p>
             <button type="button" className="btn bg-brand text-white" data-testid="customer-import-retry" onClick={retryImport}>
               Try import again
             </button>
