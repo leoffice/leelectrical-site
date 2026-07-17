@@ -145,13 +145,16 @@ export function useDoSend() {
         return { ok: true, res };
       }
 
-      const noKey = !!(res?.dryRun || res?.reason === "no_api_key");
-      const detail = String(res?.error || res?.reason || (noKey ? "email_service_retry" : "Send failed")).slice(
-        0,
-        120
+      const noKey = !!(
+        res?.dryRun ||
+        res?.reason === "no_api_key" ||
+        /HTTP 502|no_api_key|error code:\s*502/i.test(String(res?.error || ""))
       );
-      // Always queue with pdfB64 on failure so the host can finish (Gmail fallback
-      // when Cloudflare has no RESEND key). Never silently drop.
+      const detail = String(
+        res?.error || res?.reason || (noKey ? "email_service_retry" : "Send failed")
+      ).slice(0, 120);
+      // Always queue with pdfB64 on failure so the host can finish via office Gmail
+      // (Cloudflare currently 502s without Resend). Never silently drop.
       try {
         const blob =
           kind === "estimate" ? buildEstimatePdfFromJob(job) : buildInvoicePdfFromJob(job);
