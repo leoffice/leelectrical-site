@@ -194,6 +194,7 @@ export function createNetlifyAdapter() {
           pdfB64,
           filename,
           message: opts.message || opts.topMessage || "",
+          subject: opts.subject || "",
           probe: !!opts.probe,
           officeOnly: !!opts.officeOnly,
         });
