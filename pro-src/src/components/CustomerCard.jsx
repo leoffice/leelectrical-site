@@ -1,7 +1,9 @@
 // Customer header card — contact info on top, tappable fields, edit in corner.
+// Optional "Short transactions" toggle (bottom right) hides jobs and shows the ledger.
 import React from "react";
 import { CustomerAvatar } from "./JobCard.jsx";
 import { CustomerAmountSubline } from "./AmountDisplay.jsx";
+import Toggle from "./Toggle.jsx";
 import { fmt$ } from "../lib/format.js";
 import { effectiveServiceAddress } from "../lib/customerSync.js";
 import { emailHref, googleMapsHref, isDesktop } from "../lib/contactLinks.js";
@@ -35,6 +37,8 @@ export default function CustomerCard({
   onEmail,
   primaryJob,
   showSummary = true,
+  shortTxns = false,
+  onShortTxnsChange,
 }) {
   const displayName = contact.businessName || contact.name;
   const addr = mapAddress || (primaryJob ? effectiveServiceAddress(primaryJob) : "");
@@ -149,6 +153,21 @@ export default function CustomerCard({
           ))}
         </dl>
       )}
+
+      {typeof onShortTxnsChange === "function" ? (
+        <div
+          className="mt-3 pt-2 border-t border-slate-100 flex items-center justify-end gap-2"
+          data-testid="customer-short-txns-row"
+        >
+          <span className="text-[11px] font-semibold text-slate-600">Short transactions</span>
+          <Toggle
+            on={!!shortTxns}
+            onChange={onShortTxnsChange}
+            small
+            label="Short transactions"
+          />
+        </div>
+      ) : null}
     </div>
   );
 }

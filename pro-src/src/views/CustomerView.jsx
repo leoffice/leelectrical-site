@@ -35,6 +35,7 @@ export default function CustomerView() {
   const nav = useNavigate();
   const { jobs, loading, events, commands, patchJob, refreshJobs, api, enqueue, showToast } = useStore();
   const [qboIndex, setQboIndex] = useState([]);
+  const [shortTxns, setShortTxns] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -267,6 +268,10 @@ export default function CustomerView() {
         contact={contact}
         summary={summary}
         primaryJob={primaryJob}
+        shortTxns={shortTxns}
+        onShortTxnsChange={
+          !(key.startsWith("p:") && subs.length > 0) ? setShortTxns : undefined
+        }
         onEdit={() => setSheet({ kind: "cust", job: primaryJob })}
         onText={() =>
           setSheet({
@@ -294,12 +299,12 @@ export default function CustomerView() {
         }
       />
 
-      {/* Same company only (all job addresses) — not sub-companies */}
-      {!(key.startsWith("p:") && subs.length > 0) ? (
+      {/* Short transactions ON → ledger only (jobs hidden). OFF → jobs as usual. */}
+      {shortTxns && !(key.startsWith("p:") && subs.length > 0) ? (
         <CustomerTransactionHistory jobs={displayJobs} fromCust={key} />
       ) : null}
 
-      {subs.length > 0 ? (
+      {!shortTxns && subs.length > 0 ? (
         <div className="card px-3 py-2.5 space-y-1.5" data-testid="customer-sub-companies">
           <h2 className="text-[11px] font-extrabold text-slate-500 uppercase tracking-wider px-0.5">
             Sub companies ({subs.length})
@@ -321,7 +326,7 @@ export default function CustomerView() {
         </div>
       ) : null}
 
-      {!(key.startsWith("p:") && subs.length > 0) ? (
+      {!shortTxns && !(key.startsWith("p:") && subs.length > 0) ? (
         <CustomerDocTabs jobs={displayJobs} fromCust={key} />
       ) : null}
 
