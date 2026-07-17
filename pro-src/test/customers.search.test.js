@@ -218,4 +218,12 @@ describe("unknownCustomers (#56 not-in-app filter)", () => {
     expect(unknownCustomers(null, jobs)).toEqual([]);
     expect(unknownCustomers([{ name: "New" }], [])).toEqual([{ name: "New" }]);
   });
+
+  it("skips void-named QBO cards — not uploadable", () => {
+    const list = [
+      { name: "Void Yossi Hackner", id: "258" },
+      { name: "Real Customer", id: "99" },
+    ];
+    expect(unknownCustomers(list, []).map((c) => c.name)).toEqual(["Real Customer"]);
+  });
 });

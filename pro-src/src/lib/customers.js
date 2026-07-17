@@ -86,6 +86,25 @@ export function normalizeCustomer(name) {
     .replace(/[\s.,;:!?]+$/, "");
 }
 
+/**
+ * Void / cancelled QBO cards (name contains the word "void") are not
+ * uploadable and must never enter same-customer merge or import lists.
+ * Levi 2026-07-17: "anyone that says void don't consider them uploadable."
+ */
+export function isVoidCustomerName(name) {
+  return /\bvoid\b/i.test(String(name || "").trim());
+}
+
+/** True when any of the job's display names is a void card. */
+export function isVoidCustomerJob(job) {
+  const j = job || {};
+  return (
+    isVoidCustomerName(j.customer) ||
+    isVoidCustomerName(j.businessName) ||
+    isVoidCustomerName(j.personName)
+  );
+}
+
 /** Loose name match — "izzy" matches "izzy ben shimon" (old customer URLs). */
 export function customerNameMatches(job, nameKey) {
   const n = normalizeCustomer(job?.customer);
@@ -669,6 +688,14 @@ export function unknownCustomers(list, jobs) {
     );
   return (Array.isArray(list) ? list : []).filter((c) => {
     if (!c) return false;
+    // Void QBO cards are never offered as uploadable imports (Levi 2026-07-17).
+    if (
+      isVoidCustomerName(c.name) ||
+      isVoidCustomerName(c.businessName) ||
+      isVoidCustomerName(c.personName)
+    ) {
+      return false;
+    }
     const id = c.id != null ? String(c.id).trim() : "";
     if (id && haveIds.has(id)) return false;
     const n = normalizeCustomer(c.name);
@@ -894,6 +921,8 @@ export function findMergeSuggestion(jobs) {
   for (const [i, k] of pairs) {
     const ja = entries[i][1][0];
     const jb = entries[k][1][0];
+    // Void cards are not merge candidates (not uploadable / not same-customer).
+    if (isVoidCustomerJob(ja) || isVoidCustomerJob(jb)) continue;
     const na = mergeDisplayName(ja);
     const nb = mergeDisplayName(jb);
     if (mergePairAlreadyResolved(ja, jb)) continue;

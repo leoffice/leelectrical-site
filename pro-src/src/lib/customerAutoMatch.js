@@ -9,6 +9,8 @@ import {
   dismissPair,
   isMergeDecisionRemembered,
   isStrongCustomerMatch,
+  isVoidCustomerJob,
+  isVoidCustomerName,
   matchCustomerFields,
   mergePairAlreadyResolved,
   normalizeBillingAddress,
@@ -107,6 +109,7 @@ export function findStrongAutoMergePairs(jobs) {
     const gb = groups[k];
     const ja = ga.jobs[0];
     const jb = gb.jobs[0];
+    if (isVoidCustomerJob(ja) || isVoidCustomerJob(jb)) continue;
     if (mergePairAlreadyResolved(ja, jb)) continue;
     if (isMergeDecisionRemembered(ja, jb)) continue;
     if (!isStrongCustomerMatch(ga.profile, gb.profile, 3)) continue;
@@ -127,9 +130,23 @@ export function findStrongAutoMergePairs(jobs) {
  */
 export function findUniqueStrongQboMatch(profile, qboIndex, min = 3) {
   if (!profile || !Array.isArray(qboIndex) || !qboIndex.length) return null;
+  if (
+    isVoidCustomerName(profile?.name) ||
+    isVoidCustomerName(profile?.businessName) ||
+    isVoidCustomerName(profile?.customer)
+  ) {
+    return null;
+  }
   const hits = [];
   for (const c of qboIndex) {
     if (!c) continue;
+    if (
+      isVoidCustomerName(c.name) ||
+      isVoidCustomerName(c.businessName) ||
+      isVoidCustomerName(c.personName)
+    ) {
+      continue;
+    }
     const qboProfile = {
       name: c.businessName || c.name,
       businessName: c.businessName || c.name,

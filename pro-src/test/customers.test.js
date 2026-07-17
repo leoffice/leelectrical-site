@@ -11,6 +11,7 @@ import {
   hydrateDismissed,
   isDismissed,
   isMergeDecisionRemembered,
+  isVoidCustomerName,
   mergeDecisionKeys,
   mergePairAlreadyResolved,
   isSnoozed,
@@ -25,6 +26,15 @@ import { customerProfileComplete, customerSyncCardClass } from "../src/lib/custo
 beforeEach(() => {
   localStorage.clear();
   sessionStorage.clear();
+});
+
+describe("isVoidCustomerName", () => {
+  it("detects void word in customer names", () => {
+    expect(isVoidCustomerName("Void Yossi Hackner")).toBe(true);
+    expect(isVoidCustomerName("void - old card")).toBe(true);
+    expect(isVoidCustomerName("Yossi Hackner")).toBe(false);
+    expect(isVoidCustomerName("Avoid This Name")).toBe(false);
+  });
 });
 
 describe("normalizeCustomer", () => {
@@ -236,6 +246,15 @@ describe("findMergeSuggestion", () => {
     ]);
     expect(s).toBeTruthy();
     expect(s.reason).toBe("contact");
+  });
+
+  it("void-named cards are never merge candidates", () => {
+    expect(
+      findMergeSuggestion([
+        { id: "1", customer: "Yossi Hackner", phone: "347-693-5123", email: "y@x.com" },
+        { id: "2", customer: "Void Yossi Hackner", phone: "347-693-5123", email: "y@x.com" },
+      ])
+    ).toBeNull();
   });
 });
 
