@@ -17,7 +17,7 @@ const KINDS = [
   { id: "invoices", icon: "🧾", title: "Invoices", note: "Pull invoice jobs from office files (QuickBooks if missing)", sub: true },
   { id: "estimates", icon: "📝", title: "Estimates", note: "Refresh estimate jobs on file", sub: true },
   { id: "payments", icon: "💳", title: "Payments", note: "Pull payment history per invoice", sub: true },
-  { id: "history", icon: "📚", title: "Full history", note: "Customer + all invoices + all payments" },
+  { id: "history", icon: "📚", title: "Full history", note: "Customer + all invoices + estimates + payments (from office files)" },
 ];
 
 export default function QboSyncSheet({ job, customerJobs, contextLabel, onClose }) {

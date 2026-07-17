@@ -118,3 +118,48 @@ describe("runQboSync customer kind", () => {
     expect(patchAndSave).toHaveBeenCalledWith("J-open", expect.objectContaining({ phone: "718-555-0000" }));
   });
 });
+
+describe("runQboSync history kind", () => {
+  it("always imports full history with scope=all (not open-only)", async () => {
+    const enqueue = vi.fn(async () => {});
+    const showToast = vi.fn();
+    const refreshJobs = vi.fn(async () => []);
+    const patchAndSave = vi.fn(async () => {});
+    const now = Date.now;
+    Date.now = () => 99;
+    try {
+      await runQboSync({
+        kind: "history",
+        scope: "open", // UI default — must still force all
+        job: { id: "J1", customer: "Test Co", qboCustomerId: "99", invoiceNo: "100" },
+        customerJobs: [{ id: "J1", customer: "Test Co", qboCustomerId: "99", invoiceNo: "100" }],
+        enqueue,
+        showToast,
+        refreshJobs,
+        api: {
+          getCustomer: vi.fn(async () => null),
+          listCommands: vi.fn(async () => [
+            {
+              idempotencyKey: "import_customer|99|history|all|99",
+              status: "done",
+              result: JSON.stringify({ imported: 5, paymentsAttached: 3, estimatesImported: 1, source: "local" }),
+            },
+          ]),
+        },
+        patchAndSave,
+      });
+    } finally {
+      Date.now = now;
+    }
+    expect(enqueue).toHaveBeenCalledWith(
+      "import_customer",
+      expect.any(String),
+      expect.objectContaining({ scope: "all", kind: "history", qboId: "99" }),
+      "deterministic",
+      expect.stringMatching(/^import_customer\|/)
+    );
+    // Should not flood fetch_payments — payments come from office files
+    expect(enqueue.mock.calls.every((c) => c[0] !== "fetch_payments")).toBe(true);
+    expect(refreshJobs).toHaveBeenCalled();
+  });
+});

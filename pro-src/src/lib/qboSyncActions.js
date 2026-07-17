@@ -198,13 +198,11 @@ export async function runQboSync({
     showToast(
       scope === "open"
         ? "Pulling open invoices from office files…"
-        : "Pulling all invoices from office files…"
+        : "Pulling all invoices + payments from office files…"
     );
+    // scope=all pulls paid invoices too; payments attach from office files in the import.
     await pullOpenInvoices("invoices");
-    if (scope === "all") {
-      const n = await pullPaymentsFor(invoiceJobs(jobs));
-      if (n) showToast("Refreshing payment status on " + n + " invoice" + (n === 1 ? "" : "s") + "…");
-    }
+    await refreshJobs?.(true);
     return;
   }
 
@@ -217,6 +215,18 @@ export async function runQboSync({
   }
 
   if (kind === "payments") {
+    // Prefer re-importing this customer's invoices with payments from office files
+    // (fast, complete). Fall back to live QBO only when no customer link.
+    if (name || qboId) {
+      showToast(
+        scope === "open"
+          ? "Pulling payments on open invoices from office files…"
+          : "Pulling all payment history from office files…"
+      );
+      await pullOpenInvoices(scope === "all" ? "history" : "invoices");
+      await refreshJobs?.(true);
+      return;
+    }
     const list = scope === "open" ? invoiceJobs(jobs, { openOnly: true }) : invoiceJobs(jobs);
     const n = await pullPaymentsFor(list);
     showToast(n ? "Pulling payments for " + n + " invoice" + (n === 1 ? "" : "s") + "…" : "No invoices to pull payments for");
@@ -224,8 +234,39 @@ export async function runQboSync({
   }
 
   if (kind === "history") {
+    // Always all invoices + estimates + payments from office files (not open-only).
     showToast("Pulling full customer history from office files…");
-    await pullOpenInvoices("history");
+    if (!name && !qboId) {
+      showToast("Link this customer first");
+      return;
+    }
+    const key = qboId || name;
+    const idk = "import_customer|" + key + "|history|all|" + Date.now();
+    await enqueue(
+      "import_customer",
+      "import-" + key,
+      { name, qboId, scope: "all", kind: "history" },
+      "deterministic",
+      idk
+    );
+    const testMode = typeof import.meta !== "undefined" && import.meta.env && import.meta.env.MODE === "test";
+    const wait = await waitForCommandDone(api, idk, { maxMs: testMode ? 80 : 180000, intervalMs: testMode ? 15 : 2000 });
+    if (wait.timeout) showToast("Still importing history — check back in a moment");
+    else if (!wait.ok) showToast(String(wait.cmd?.error || "History import failed"));
+    else {
+      const res = parseCmdResult(wait.cmd);
+      const pays = Number(res?.paymentsAttached || 0);
+      const ests = Number(res?.estimatesImported || 0);
+      if (pays > 0 || ests > 0) {
+        showToast(
+          "History loaded" +
+            (pays ? " · " + pays + " payment" + (pays === 1 ? "" : "s") : "") +
+            (ests ? " · " + ests + " estimate" + (ests === 1 ? "" : "s") : "")
+        );
+      } else {
+        importResultToast(res, showToast);
+      }
+    }
     await pullCustomerFromQbo({
       qboId,
       name,
@@ -236,8 +277,8 @@ export async function runQboSync({
       enqueue,
       showToast,
     });
-    const n = await pullPaymentsFor(invoiceJobs(jobs));
-    if (n) showToast("History sync queued — " + n + " invoice" + (n === 1 ? "" : "s") + " updating");
+    // Payments ride in with the office-file import (no per-invoice QBO flood).
+    await refreshJobs?.(true);
     return;
   }
 }
