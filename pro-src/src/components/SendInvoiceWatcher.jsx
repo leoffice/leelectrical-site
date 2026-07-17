@@ -53,12 +53,20 @@ export default function SendInvoiceWatcher() {
         }
       } else {
         const err = String(c.error || "");
+        // Loud failure — leave doc as not-sent (no success history). Never silent.
         if (err.includes("PaymentSITE")) {
-          showToast(label(c) + " did not send — payment page setup issue. Try Send invoice only.");
+          showToast(label(c) + " did NOT send — payment page setup issue. Try Send invoice only.");
+        } else if (err.includes("pdfB64") || err.toLowerCase().includes("needs pdf")) {
+          showToast(label(c) + " did NOT send — open the invoice and use Send again (PDF missing).");
         } else if (err.includes("5010") || err.toLowerCase().includes("stale")) {
-          showToast(label(c) + " did not send — QuickBooks was busy. Tap Retry in Activity.");
+          showToast(label(c) + " did NOT send — QuickBooks was busy. Tap Retry in Activity.");
         } else {
-          showToast(label(c) + " did not send — check Activity and tap Retry");
+          showToast(
+            label(c) +
+              " did NOT send" +
+              (err ? " — " + err.slice(0, 80) : "") +
+              ". Still marked not sent — check Activity."
+          );
         }
       }
     }

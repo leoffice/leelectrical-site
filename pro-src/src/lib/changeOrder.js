@@ -232,6 +232,7 @@ export function changeOrderJobPatch(sourceJob, kind = "invoice", allJobs = []) {
     _estimateConfirmed: false,
     _invoiceConfirmed: false,
     _docEmailed: false,
+    _draftChangeOrder: true,
   };
 }
 

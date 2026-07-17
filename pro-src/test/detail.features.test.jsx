@@ -111,7 +111,7 @@ describe("1. mark-as-paid sheet -> staged -> record_payment on Save", () => {
 });
 
 describe("2. quick views — invoice/estimate/calendar sheets", () => {
-  it("invoice sheet: local/QB view + send submenu -> send_invoice deterministic + history log", async () => {
+  it("invoice sheet: local/QB view + confirm send -> send-doc-email with PDF (not silent queue)", async () => {
     const srv = mockServer();
     const user = userEvent.setup();
     const pane = await openDetail();
@@ -121,17 +121,19 @@ describe("2. quick views — invoice/estimate/calendar sheets", () => {
     expect(screen.getByText("View QuickBooks Invoice")).toBeInTheDocument();
     await user.click(screen.getByText(/Send invoice only/));
     await user.click(await screen.findByTestId("doc-source-local"));
-    await waitFor(() => expect(srv.enqueued("send_invoice")).toHaveLength(1));
-    const cmd = srv.enqueued("send_invoice")[0];
-    expect(cmd.lane).toBe("deterministic");
-    expect(cmd.idempotencyKey).toBe("send_invoice:local:251841");
-    expect(cmd.payload).toMatchObject({
-      email: "p@x.com",
-      invoiceNo: "251841",
-      includePaymentLink: false,
-      docSource: "local",
-    });
-    expect(await within(pane).findByText(/Invoice #251841 send queued/)).toBeInTheDocument();
+    // Confirm sheet before anything goes out
+    expect(await screen.findByTestId("send-confirm-approve")).toBeInTheDocument();
+    expect(screen.getByTestId("send-confirm-email")).toHaveValue("p@x.com");
+    await user.click(screen.getByTestId("send-confirm-approve"));
+    await waitFor(() =>
+      expect(srv.calls.some((c) => c.path === "send-doc-email" && c.method === "POST")).toBe(true)
+    );
+    const sendCall = srv.calls.find((c) => c.path === "send-doc-email" && c.method === "POST");
+    expect(sendCall.body.email).toBe("p@x.com");
+    expect(sendCall.body.kind).toBe("invoice");
+    expect(String(sendCall.body.pdfB64 || "").length).toBeGreaterThan(20);
+    // Must not leave a phantom unsaved change from the send log
+    await waitFor(() => expect(screen.queryByTestId("savebar")).not.toBeInTheDocument());
   });
 
   it("estimate sheet enqueues send_estimate; calendar sheet links Google Calendar", async () => {

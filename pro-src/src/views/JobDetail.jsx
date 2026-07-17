@@ -105,6 +105,7 @@ export default function JobDetail() {
   const {
     effectiveJob,
     patchJob,
+    patchAndSave,
     createJob,
     commands,
     pending,
@@ -444,6 +445,17 @@ export default function JobDetail() {
                 if (!j?.id) return;
                 const q = fromCust ? "?from=" + encodeURIComponent(fromCust) : "";
                 nav("/job/" + j.id + q);
+              }}
+              onRemove={(row) => {
+                if (!row?.jobId) return;
+                if (!window.confirm("Remove this change order from the app? QuickBooks is not changed.")) return;
+                patchAndSave(row.jobId, { _deleted: true })
+                  .then(() => showToast("Change order removed"))
+                  .catch(() => showToast("Could not remove — try again"));
+                if (String(row.jobId) === String(id)) {
+                  const q = fromCust ? "?from=" + encodeURIComponent(fromCust) : "";
+                  nav(fromCust ? "/customer/" + encodeURIComponent(fromCust) : "/");
+                }
               }}
             />
           </div>

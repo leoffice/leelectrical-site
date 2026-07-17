@@ -48,6 +48,7 @@ export default function ChangeOrdersTabPanel({
   onAdd,
   onEdit,
   onOpenJob,
+  onRemove,
   canAdd = true,
 }) {
   const rows = useMemo(() => {
@@ -186,6 +187,16 @@ export default function ChangeOrdersTabPanel({
                           data-testid={"co-tab-open-" + row.seq}
                         >
                           Open job ›
+                        </button>
+                      ) : null}
+                      {onRemove && row.kind === "job" && row.jobId ? (
+                        <button
+                          type="button"
+                          className="text-xs font-bold text-red-700 border border-red-200 bg-red-50 rounded-lg px-3 py-1.5"
+                          onClick={() => onRemove(row)}
+                          data-testid={"co-tab-remove-" + row.seq}
+                        >
+                          🗑 Remove change order
                         </button>
                       ) : null}
                     </div>
