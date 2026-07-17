@@ -420,5 +420,27 @@ export function createNetlifyAdapter() {
     async timeTrackOp(body) {
       return http("timetrack", body);
     },
+
+    /** Tenant / white-label settings (when settings function is live). */
+    async getSettings() {
+      return http(`settings?${cb()}`);
+    },
+
+    async saveSettings(doc) {
+      return http("settings", {
+        op: "set",
+        profile: doc?.profile,
+        features: doc?.features,
+      });
+    },
+
+    /** Agent access grant (time-boxed one-time codes). */
+    async agentAccessStatus() {
+      return http(`agent-access?${cb()}`);
+    },
+
+    async agentAccessOp(body) {
+      return http("agent-access", body);
+    },
   };
 }

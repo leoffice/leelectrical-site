@@ -1,4 +1,4 @@
-// Settings — company profile, feature toggles, connection health, agent access shell.
+// Settings — company profile, feature toggles, connection health, agent access.
 import React, { useCallback, useEffect, useState } from "react";
 import { useStore } from "../state/store.jsx";
 import {
@@ -17,6 +17,12 @@ import {
   setCompanyLogoDataUrl,
   setSpeechToTextEnabled,
 } from "../lib/appSettings.js";
+import {
+  fetchAgentAccessStatus,
+  formatRemaining,
+  mintAgentAccess,
+  revokeAgentAccess,
+} from "../lib/agentAccessClient.js";
 import Toggle from "../components/Toggle.jsx";
 
 function Section({ title, children, hint }) {
@@ -65,6 +71,13 @@ export default function Settings() {
   const [healthBusy, setHealthBusy] = useState(false);
   const [calBusy, setCalBusy] = useState(false);
   const [dirty, setDirty] = useState(false);
+  const [agentGrant, setAgentGrant] = useState(null);
+  const [agentAudit, setAgentAudit] = useState([]);
+  const [agentCodeShown, setAgentCodeShown] = useState("");
+  const [agentTtlMin, setAgentTtlMin] = useState(30);
+  const [agentScope, setAgentScope] = useState("full");
+  const [agentBusy, setAgentBusy] = useState(false);
+  const [agentNow, setAgentNow] = useState(Date.now());
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -98,6 +111,70 @@ export default function Settings() {
       setHealthBusy(false);
     }
   }, [showToast]);
+
+  const loadAgentAccess = useCallback(async () => {
+    try {
+      const st = await fetchAgentAccessStatus();
+      setAgentGrant(st.grant || null);
+      setAgentAudit(Array.isArray(st.audit) ? st.audit : []);
+    } catch {
+      /* offline / function not live yet */
+    }
+  }, []);
+
+  useEffect(() => {
+    loadAgentAccess();
+  }, [loadAgentAccess]);
+
+  useEffect(() => {
+    const id = setInterval(() => setAgentNow(Date.now()), 15000);
+    return () => clearInterval(id);
+  }, []);
+
+  const grantAgent = useCallback(async () => {
+    setAgentBusy(true);
+    setAgentCodeShown("");
+    try {
+      const res = await mintAgentAccess({
+        ttlMs: agentTtlMin * 60 * 1000,
+        scope: agentScope,
+        label: "agent",
+      });
+      setAgentCodeShown(res.code || "");
+      setAgentGrant(res.grant || null);
+      setAgentAudit(Array.isArray(res.audit) ? res.audit : []);
+      showToast?.("Agent code ready — share it once");
+    } catch (e) {
+      showToast?.(String(e.message || e));
+    } finally {
+      setAgentBusy(false);
+    }
+  }, [agentScope, agentTtlMin, showToast]);
+
+  const revokeAgent = useCallback(async () => {
+    setAgentBusy(true);
+    try {
+      const res = await revokeAgentAccess();
+      setAgentGrant(null);
+      setAgentCodeShown("");
+      setAgentAudit(Array.isArray(res.audit) ? res.audit : []);
+      showToast?.(res.revoked ? "Agent access revoked" : "No active grant");
+    } catch (e) {
+      showToast?.(String(e.message || e));
+    } finally {
+      setAgentBusy(false);
+    }
+  }, [showToast]);
+
+  const copyAgentCode = useCallback(async () => {
+    if (!agentCodeShown) return;
+    try {
+      await navigator.clipboard?.writeText?.(agentCodeShown);
+      showToast?.("Code copied");
+    } catch {
+      showToast?.("Could not copy — select the code manually");
+    }
+  }, [agentCodeShown, showToast]);
 
   useEffect(() => {
     load();
@@ -430,19 +507,136 @@ export default function Settings() {
 
       <Section
         title="Agent access"
-        hint="Time-boxed access codes for agents. Full secure grant ships after safety review."
+        hint="Time-boxed one-time codes so an agent can unlock the app and test — you control when and for how long."
       >
-        <p className="text-sm font-semibold text-slate-600">
-          Ready to wire: 30-minute signed codes, audit log, and instant revoke. Not live yet so nobody
-          can bypass your lock by accident.
-        </p>
-        <button
-          type="button"
-          disabled
-          className="mt-3 rounded-xl bg-slate-100 px-4 py-2.5 text-sm font-extrabold text-slate-400 cursor-not-allowed"
-        >
-          Grant agent access (coming soon)
-        </button>
+        <div className="flex flex-wrap gap-3 mb-3">
+          <label className="text-sm font-semibold text-slate-700">
+            Duration
+            <select
+              className={`${inputCls} mt-1 w-auto min-w-[7rem]`}
+              value={agentTtlMin}
+              onChange={(e) => setAgentTtlMin(Number(e.target.value))}
+              data-testid="agent-ttl"
+            >
+              <option value={15}>15 min</option>
+              <option value={30}>30 min</option>
+              <option value={60}>1 hour</option>
+              <option value={120}>2 hours</option>
+            </select>
+          </label>
+          <label className="text-sm font-semibold text-slate-700">
+            Scope
+            <select
+              className={`${inputCls} mt-1 w-auto min-w-[7rem]`}
+              value={agentScope}
+              onChange={(e) => setAgentScope(e.target.value)}
+              data-testid="agent-scope"
+            >
+              <option value="full">Full app</option>
+              <option value="test">Test / read</option>
+            </select>
+          </label>
+        </div>
+
+        {agentCodeShown ? (
+          <div
+            className="rounded-xl border-2 border-emerald-200 bg-emerald-50 px-4 py-3 mb-3"
+            data-testid="agent-code-panel"
+          >
+            <div className="text-[11px] font-extrabold uppercase tracking-wide text-emerald-800 mb-1">
+              Show this code once
+            </div>
+            <div className="text-2xl font-mono font-extrabold tracking-[0.2em] text-slate-900 text-center py-1">
+              {agentCodeShown}
+            </div>
+            <button
+              type="button"
+              onClick={copyAgentCode}
+              className="mt-2 w-full rounded-xl bg-emerald-700 text-white px-3 py-2 text-sm font-extrabold"
+            >
+              Copy code
+            </button>
+            <p className="text-xs text-emerald-900/80 font-semibold mt-2 text-center">
+              Agent enters it on the lock screen. Single-use · expires automatically.
+            </p>
+          </div>
+        ) : null}
+
+        {agentGrant && !agentCodeShown ? (
+          <div className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 mb-3 text-sm font-semibold text-slate-700">
+            {agentGrant.hasSession ? (
+              <span data-testid="agent-session-active">
+                Agent is in · {formatRemaining(Math.max(0, (agentGrant.sessionExpiresAt || agentGrant.expiresAt) - agentNow))} left
+              </span>
+            ) : agentGrant.used ? (
+              <span>Code used · session ended or expired</span>
+            ) : (
+              <span data-testid="agent-grant-waiting">
+                Code waiting · {formatRemaining(Math.max(0, (agentGrant.expiresAt || 0) - agentNow))} left
+              </span>
+            )}
+          </div>
+        ) : null}
+
+        <div className="flex flex-wrap gap-2">
+          <button
+            type="button"
+            disabled={agentBusy}
+            onClick={grantAgent}
+            className="rounded-xl bg-brand text-white px-4 py-2.5 text-sm font-extrabold disabled:opacity-50"
+            data-testid="agent-grant-btn"
+          >
+            {agentBusy ? "Working…" : "Grant agent access"}
+          </button>
+          <button
+            type="button"
+            disabled={agentBusy || !agentGrant}
+            onClick={revokeAgent}
+            className="rounded-xl bg-slate-100 text-slate-800 px-4 py-2.5 text-sm font-extrabold disabled:opacity-40"
+            data-testid="agent-revoke-btn"
+          >
+            Revoke now
+          </button>
+          <button
+            type="button"
+            disabled={agentBusy}
+            onClick={loadAgentAccess}
+            className="rounded-xl bg-white border border-slate-200 text-slate-700 px-4 py-2.5 text-sm font-extrabold disabled:opacity-50"
+          >
+            Refresh
+          </button>
+        </div>
+
+        {agentAudit.length > 0 ? (
+          <div className="mt-4">
+            <div className="text-[11px] font-extrabold uppercase tracking-wide text-slate-500 mb-2">
+              Access log
+            </div>
+            <ul className="space-y-1.5 max-h-40 overflow-y-auto" data-testid="agent-audit">
+              {agentAudit.slice(0, 12).map((row, i) => (
+                <li
+                  key={`${row.at}-${row.type}-${i}`}
+                  className="text-xs font-semibold text-slate-600 flex gap-2"
+                >
+                  <span className="text-slate-400 shrink-0 tabular-nums">
+                    {row.at
+                      ? new Date(row.at).toLocaleString(undefined, {
+                          month: "short",
+                          day: "numeric",
+                          hour: "numeric",
+                          minute: "2-digit",
+                        })
+                      : "—"}
+                  </span>
+                  <span>
+                    {row.type}
+                    {row.note ? ` · ${row.note}` : ""}
+                  </span>
+                </li>
+              ))}
+            </ul>
+          </div>
+        ) : null}
       </Section>
 
       <Section title="Account">
