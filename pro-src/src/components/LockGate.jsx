@@ -20,6 +20,11 @@ import {
 import { getCompanyLogoSrc } from "../lib/appSettings.js";
 import { redeemAgentAccess } from "../lib/agentAccessClient.js";
 
+// A pending native passkey prompt must never trap the user. If the device
+// never answers (no platform authenticator, unenrolled, hung WebAuthn call),
+// auto-abort and drop to the password view instead of spinning forever.
+export const BIOMETRIC_TIMEOUT_MS = 25000;
+
 export default function LockGate({ children }) {
   const [unlocked, setUnlocked] = useState(() => {
     const ok = isSessionUnlocked();
@@ -37,11 +42,37 @@ export default function LockGate({ children }) {
   const enrolled = hasEnrolledCredential();
   const autoBioRan = useRef(false);
   const autoBioAllowed = useRef(false);
+  // Controls the in-flight navigator.credentials.get()/create() call so a
+  // fallback tap or the watchdog timeout can dismiss the native prompt.
+  const abortRef = useRef(null);
+  const bioTimerRef = useRef(null);
 
   const succeed = useCallback(() => {
     markUnlocked();
     setUnlocked(true);
   }, []);
+
+  // Cancel any pending WebAuthn call and clear its watchdog. Safe to call any
+  // number of times; leaves the chosen view intact for the caller to set.
+  const abortBiometric = useCallback(() => {
+    if (bioTimerRef.current) {
+      clearTimeout(bioTimerRef.current);
+      bioTimerRef.current = null;
+    }
+    const controller = abortRef.current;
+    abortRef.current = null;
+    if (controller) {
+      try {
+        controller.abort();
+      } catch {
+        /* AbortController unavailable */
+      }
+    }
+    setBusy(false);
+  }, []);
+
+  // Tear down any in-flight prompt if the gate unmounts.
+  useEffect(() => () => abortBiometric(), [abortBiometric]);
 
   // Detect biometric availability; skip auto-prompt on reload or blocked camera.
   useEffect(() => {
@@ -75,10 +106,31 @@ export default function LockGate({ children }) {
   const runBiometric = useCallback(async () => {
     setErr("");
     setBusy(true);
+    const controller = typeof AbortController !== "undefined" ? new AbortController() : null;
+    abortRef.current = controller;
+    // Watchdog: never leave the user stuck on "Waiting for device…".
+    if (bioTimerRef.current) clearTimeout(bioTimerRef.current);
+    bioTimerRef.current = setTimeout(() => {
+      bioTimerRef.current = null;
+      // Only fire if this call is still the active one and hasn't resolved.
+      if (abortRef.current !== controller) return;
+      abortRef.current = null;
+      try {
+        controller?.abort();
+      } catch {
+        /* AbortController unavailable */
+      }
+      setErr("Face ID / fingerprint timed out. Use your password instead.");
+      setMode("password");
+      setBusy(false);
+    }, BIOMETRIC_TIMEOUT_MS);
     try {
-      await biometricUnlock();
+      await biometricUnlock({ signal: controller?.signal });
       succeed();
     } catch (e) {
+      // Aborted by a fallback tap or the watchdog → the view/message is already
+      // set by whoever aborted; don't clobber it.
+      if (e?.name === "AbortError" || controller?.signal?.aborted) return;
       // Cancelled / failed / unavailable → offer the password fallback.
       setErr(
         e?.name === "NotAllowedError"
@@ -87,6 +139,11 @@ export default function LockGate({ children }) {
       );
       setMode("password");
     } finally {
+      if (bioTimerRef.current) {
+        clearTimeout(bioTimerRef.current);
+        bioTimerRef.current = null;
+      }
+      if (abortRef.current === controller) abortRef.current = null;
       setBusy(false);
     }
   }, [succeed]);
@@ -197,6 +254,7 @@ export default function LockGate({ children }) {
             <button
               type="button"
               onClick={() => {
+                abortBiometric();
                 setErr("");
                 setMode("password");
               }}
@@ -208,6 +266,7 @@ export default function LockGate({ children }) {
             <button
               type="button"
               onClick={() => {
+                abortBiometric();
                 setErr("");
                 setMode("agent");
               }}

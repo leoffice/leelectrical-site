@@ -252,7 +252,8 @@ export async function biometricSupported() {
 const RP_NAME = "LE Pro";
 
 // First-use enrollment: create a platform credential and remember its id.
-export async function registerBiometric({ label = "LE Pro user" } = {}) {
+// `signal` (optional AbortSignal) lets the UI cancel a pending native prompt.
+export async function registerBiometric({ label = "LE Pro user", signal } = {}) {
   const publicKey = {
     challenge: randomBytes(32),
     rp: { name: RP_NAME, id: globalThis.location?.hostname },
@@ -273,7 +274,7 @@ export async function registerBiometric({ label = "LE Pro user" } = {}) {
     timeout: 60000,
     attestation: "none",
   };
-  const cred = await globalThis.navigator.credentials.create({ publicKey });
+  const cred = await globalThis.navigator.credentials.create({ publicKey, signal });
   if (!cred) throw new Error("Enrollment cancelled");
   const id = bufToB64url(cred.rawId);
   setCredentialId(id);
@@ -281,7 +282,8 @@ export async function registerBiometric({ label = "LE Pro user" } = {}) {
 }
 
 // Later opens: verify the stored platform credential with user verification.
-export async function verifyBiometric(credId = getCredentialId()) {
+// `signal` (optional AbortSignal) lets the UI cancel a pending native prompt.
+export async function verifyBiometric(credId = getCredentialId(), { signal } = {}) {
   if (!credId) throw new Error("No enrolled credential");
   const publicKey = {
     challenge: randomBytes(32),
@@ -290,17 +292,19 @@ export async function verifyBiometric(credId = getCredentialId()) {
     timeout: 60000,
     rpId: globalThis.location?.hostname,
   };
-  const assertion = await globalThis.navigator.credentials.get({ publicKey });
+  const assertion = await globalThis.navigator.credentials.get({ publicKey, signal });
   if (!assertion) throw new Error("Verification failed");
   return true;
 }
 
 // Enroll-if-needed then verify — the single entry point the UI calls.
-export async function biometricUnlock() {
+// `signal` is forwarded so a UI-side AbortController can dismiss the pending
+// native WebAuthn prompt and free the page (see LockGate escape hatches).
+export async function biometricUnlock({ signal } = {}) {
   if (hasEnrolledCredential()) {
-    return verifyBiometric();
+    return verifyBiometric(getCredentialId(), { signal });
   }
-  await registerBiometric();
+  await registerBiometric({ signal });
   return true;
 }
 
