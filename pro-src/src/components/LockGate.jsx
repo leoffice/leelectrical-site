@@ -16,6 +16,7 @@ import {
   shouldAutoBiometric,
   touchUnlocked,
 } from "../lib/lock.js";
+import { getCompanyLogoSrc } from "../lib/appSettings.js";
 
 export default function LockGate({ children }) {
   const [unlocked, setUnlocked] = useState(() => {
@@ -122,9 +123,10 @@ export default function LockGate({ children }) {
     >
       <div className="w-full max-w-sm flex flex-col items-center">
         <img
-          src={import.meta.env.BASE_URL + "le-logo.png?v=5"}
+          src={getCompanyLogoSrc()}
           alt="LE Electric"
           className="h-36 w-auto max-w-[320px] object-contain mb-4"
+          data-testid="lock-logo"
         />
         <h1 className="text-2xl font-extrabold tracking-tight">LE Pro</h1>
         <p className="text-sm text-white/70 mb-8">

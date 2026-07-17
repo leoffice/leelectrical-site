@@ -1,12 +1,20 @@
 // Company dashboard — business KPIs from QuickBooks-synced jobs + Google Calendar.
-import React, { useMemo, useState } from "react";
+import React, { useMemo, useRef, useState } from "react";
 import { useStore } from "../state/store.jsx";
 import DashboardWidget, { DeltaBadge, DetailTable } from "../components/DashboardWidget.jsx";
 import CompanyLinkedTable from "../components/CompanyLinkedTable.jsx";
+import Toggle from "../components/Toggle.jsx";
 import { ago } from "../lib/format.js";
 import { CO, Donut, Funnel, Gauge, HBar, HBarRow, StackBar, Trend, VBars } from "../lib/dashboard/charts.jsx";
 import { buildCompanyMetrics, fmtMoney, fmtMoneyK } from "../lib/companyMetrics.js";
 import { COMPANY_SECTIONS, widgetsForSection } from "../lib/companyDashboardConfig.js";
+import {
+  clearCompanyLogo,
+  readLogoFileAsDataUrl,
+  setCompanyLogoDataUrl,
+  setSpeechToTextEnabled,
+  useAppSettings,
+} from "../lib/appSettings.js";
 
 function odPill(od) {
   if (!od) return '<span class="inline-block text-[10px] font-extrabold px-1.5 py-0.5 rounded bg-emerald-50 text-emerald-700">current</span>';
@@ -523,10 +531,106 @@ function buildWidgets(data) {
   return builders;
 }
 
+function CompanyInfoSettings({ showToast }) {
+  const settings = useAppSettings();
+  const logoInputRef = useRef(null);
+  const [logoBusy, setLogoBusy] = useState(false);
+
+  const onLogoPick = async (e) => {
+    const file = e.target.files && e.target.files[0];
+    e.target.value = "";
+    if (!file) return;
+    setLogoBusy(true);
+    try {
+      const dataUrl = await readLogoFileAsDataUrl(file);
+      setCompanyLogoDataUrl(dataUrl);
+      showToast?.("Company logo updated");
+    } catch {
+      showToast?.("Couldn’t read that image — try another file");
+    } finally {
+      setLogoBusy(false);
+    }
+  };
+
+  return (
+    <div className="bg-white border border-slate-200 rounded-xl p-3 shadow-sm space-y-3" data-testid="company-info-settings">
+      <div>
+        <h2 className="text-sm font-extrabold text-slate-900 m-0">Company info</h2>
+        <p className="text-xs text-slate-500 mt-0.5">Logo and app settings for this device</p>
+      </div>
+
+      <div className="flex items-start gap-3" data-testid="company-logo-row">
+        <div className="w-16 h-16 rounded-xl border border-slate-200 bg-slate-50 flex items-center justify-center overflow-hidden shrink-0">
+          <img
+            src={settings.logoSrc}
+            alt="Company logo"
+            className="max-w-full max-h-full object-contain"
+            data-testid="company-logo-preview"
+          />
+        </div>
+        <div className="flex-1 min-w-0">
+          <div className="text-sm font-bold text-slate-800">Company logo</div>
+          <div className="text-xs text-slate-500 mt-0.5">
+            {settings.logoCustom ? "Custom file on this device" : "Default LE Electrical logo file"}
+          </div>
+          <div className="flex flex-wrap gap-2 mt-2">
+            <label className="btn !py-1.5 !px-2.5 text-[11px] bg-slate-100 text-slate-800 cursor-pointer">
+              {logoBusy ? "Loading…" : "Change logo"}
+              <input
+                ref={logoInputRef}
+                type="file"
+                accept="image/*"
+                className="hidden"
+                onChange={onLogoPick}
+                disabled={logoBusy}
+                data-testid="company-logo-file"
+              />
+            </label>
+            {settings.logoCustom ? (
+              <button
+                type="button"
+                className="btn-ghost !py-1.5 !px-2.5 text-[11px]"
+                onClick={() => {
+                  clearCompanyLogo();
+                  showToast?.("Restored default logo");
+                }}
+                data-testid="company-logo-reset"
+              >
+                Use default
+              </button>
+            ) : null}
+          </div>
+        </div>
+      </div>
+
+      <div
+        className="flex items-center gap-3 pt-2 border-t border-slate-100"
+        data-testid="speech-to-text-setting"
+      >
+        <div className="flex-1 min-w-0">
+          <div className="text-sm font-bold text-slate-800">Speech to text</div>
+          <div className="text-xs text-slate-500 mt-0.5">
+            Green voice bubble + chat mic. Turn off to hide them.
+          </div>
+        </div>
+        <Toggle
+          on={settings.speechToText}
+          onChange={(on) => {
+            setSpeechToTextEnabled(on);
+            showToast?.(on ? "Speech to text on" : "Speech to text off");
+          }}
+          label="Speech to text"
+        />
+      </div>
+    </div>
+  );
+}
+
 export default function Company() {
   const { jobs, events, syncedAt, eventsSyncedAt, syncNow, pullCalendarNow, busy, showToast } = useStore();
   const [calBusy, setCalBusy] = useState(false);
   const data = useMemo(() => buildCompanyMetrics(jobs, events), [jobs, events]);
+  const settings = useAppSettings();
 
   const refreshQbo = async () => {
     showToast("Refreshing QuickBooks…");
@@ -568,9 +672,12 @@ export default function Company() {
     <div className="space-y-1 pb-4" data-testid="company-dashboard">
       <div className="sticky top-0 z-10 -mx-4 px-4 py-3 bg-[#f4f6f8]/90 backdrop-blur border-b border-slate-200/80 mb-2">
         <div className="flex items-center gap-2.5">
-          <div className="w-9 h-9 rounded-lg bg-gradient-to-br from-brand to-emerald-700 text-white font-extrabold flex items-center justify-center text-sm shadow-sm">
-            LE
-          </div>
+          <img
+            src={settings.logoSrc}
+            alt="LE"
+            className="w-9 h-9 rounded-lg object-contain bg-white border border-slate-200 shadow-sm"
+            data-testid="company-header-logo"
+          />
           <div className="flex-1 min-w-0">
             <h1 className="text-lg font-extrabold tracking-tight m-0">Company Dashboard</h1>
             <div className="text-xs text-slate-500">LE Pro · Business overview</div>
@@ -608,6 +715,10 @@ export default function Company() {
             </button>
           </div>
         </div>
+      </div>
+
+      <div className="mb-3">
+        <CompanyInfoSettings showToast={showToast} />
       </div>
 
       {renderSection("week", "This week vs last week", data.weekLabel)}

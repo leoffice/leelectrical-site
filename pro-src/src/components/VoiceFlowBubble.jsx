@@ -1,6 +1,7 @@
 // Wispr-style LE voice bubble — floats above the app, inserts polished text into any field.
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import { useStore } from "../state/store.jsx";
+import { useAppSettings } from "../lib/appSettings.js";
 import {
   createSilentRecognizer,
   getLastTextTarget,
@@ -10,8 +11,6 @@ import {
   speechRecognitionSupported,
   trackVoiceFocus,
 } from "../lib/voiceFlow.js";
-
-const LOGO = import.meta.env.BASE_URL + "le-logo.png?v=5";
 
 const REVIEW_STYLE = {
   unicodeBidi: "plaintext",
@@ -26,6 +25,7 @@ function holdFocus(e) {
 
 export default function VoiceFlowBubble() {
   const { showToast } = useStore();
+  const { speechToText, logoSrc } = useAppSettings();
   const [phase, setPhase] = useState("idle");
   const [level, setLevel] = useState(0);
   const [preview, setPreview] = useState("");
@@ -185,7 +185,15 @@ export default function VoiceFlowBubble() {
 
   useEffect(() => () => stopListening(), [stopListening]);
 
-  if (!speechRecognitionSupported()) return null;
+  useEffect(() => {
+    if (!speechToText) {
+      stopListening();
+      setPhase("idle");
+      setPreview("");
+    }
+  }, [speechToText, stopListening]);
+
+  if (!speechToText || !speechRecognitionSupported()) return null;
 
   const scale = 1 + level * 0.35;
   const expanded = phase !== "idle";
@@ -290,7 +298,7 @@ export default function VoiceFlowBubble() {
             ✓
           </span>
         ) : (
-          <img src={LOGO} alt="LE" className="w-10 h-10 object-contain" />
+          <img src={logoSrc} alt="LE" className="w-10 h-10 object-contain" />
         )}
       </button>
     </div>
