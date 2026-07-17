@@ -55,6 +55,7 @@ export async function sendDocEmail({
   pdfB64,
   filename: filenameIn,
   message = "",
+  subject: subjectIn = "",
   probe = false,
   officeOnly = false,
 }) {
@@ -129,7 +130,8 @@ export async function sendDocEmail({
   const testMode = isEmailTestMode();
   const apiKey = String(process.env.RESEND_API_KEY || "").trim();
   const from = resolveFromAddress();
-  const subject = `${docWord} #${docData.docNumber} from ${docData.company.name}`;
+  const subject =
+    String(subjectIn || "").trim() || `${docWord} #${docData.docNumber} from ${docData.company.name}`;
 
   const meta = {
     testMode,

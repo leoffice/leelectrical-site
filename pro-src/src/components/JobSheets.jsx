@@ -126,6 +126,7 @@ export function useDoSend() {
             email,
             includePaymentLink: withPay,
             message,
+            subject,
             payUrl: opts.payUrl || "",
           });
         }
@@ -144,15 +145,13 @@ export function useDoSend() {
         return { ok: true, res };
       }
 
-      if (res?.dryRun || res?.reason === "no_api_key") {
-        const err = "Email is not set up on the server yet — nothing was sent";
-        showToast(err);
-        return { ok: false, error: err, pending: true };
-      }
-
-      const detail = String(res?.error || res?.reason || "Send failed").slice(0, 120);
-      // Fall back to host queue ONLY when we have pdfB64 from a partial client path —
-      // without it the listener fails silently. Re-try with pdf in payload if we can.
+      const noKey = !!(res?.dryRun || res?.reason === "no_api_key");
+      const detail = String(res?.error || res?.reason || (noKey ? "email_service_retry" : "Send failed")).slice(
+        0,
+        120
+      );
+      // Always queue with pdfB64 on failure so the host can finish (Gmail fallback
+      // when Cloudflare has no RESEND key). Never silently drop.
       try {
         const blob =
           kind === "estimate" ? buildEstimatePdfFromJob(job) : buildInvoicePdfFromJob(job);
@@ -181,6 +180,7 @@ export function useDoSend() {
                   job,
                   pdfB64,
                   filename: docPdfFilename(kind, job, no) || `${kind}-${no || "document"}.pdf`,
+                  clientSend: res || { ok: false, reason: detail },
                 }
               : {
                   email,
@@ -191,14 +191,18 @@ export function useDoSend() {
                   job,
                   pdfB64,
                   filename: docPdfFilename(kind, job, no) || `${kind}-${no || "document"}.pdf`,
+                  clientSend: res || { ok: false, reason: detail },
                 };
           const idk =
             "send_" + kind + ":local:" + (no || job.id) + ":" + Date.now();
           await enqueue("send_" + kind, job.id, payload, "deterministic", idk);
           showToast(
-            "Could not send right now (" + detail + "). Queued for retry — check Activity."
+            noKey
+              ? "Sending via office email — you'll get a toast when it lands"
+              : "Could not send right now (" + detail + "). Queued for retry — check Activity."
           );
-          return { ok: false, error: detail, pending: true, queued: true };
+          // Queued is progress, not a hard fail — stay pending until watcher confirms.
+          return { ok: true, queued: true, pending: true };
         }
       } catch {
         /* fall through */
