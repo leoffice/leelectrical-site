@@ -48,7 +48,11 @@ export default function EditAppointmentSheet({
         defaultNotes={displayEventNotes(event.description)}
         onClose={() => setDuplicating(false)}
         onSaved={() => {
-          onDuplicated && onDuplicated();
+          // Parent owns post-save navigation (back vs customer chooser).
+          if (onDuplicated) {
+            onDuplicated();
+            return;
+          }
           onClose();
         }}
       />

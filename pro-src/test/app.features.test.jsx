@@ -454,12 +454,20 @@ describe("12. sync chip + today view + jobs list", () => {
 
   it("duplicate appointment opens full booking sheet and creates a new event", async () => {
     const srv = mockServer({
-      jobs: [{ ...JSON.parse(JSON.stringify(J1)), calEventId: "ev1" }],
+      jobs: [{ ...JSON.parse(JSON.stringify(J1)), calEventId: "ev1", phone: "718-555-0100", email: "jane@example.com" }],
       events: [{ id: "ev1", summary: "Estimate — Jane Doe", start: "2026-07-09T10:00", location: "123 Main St" }],
     });
     const user = userEvent.setup();
     renderApp("#/today");
     await user.click(await screen.findByText("Estimate — Jane Doe"));
+    // Contact fields are tappable (phone / email / maps) on appointment detail.
+    const contact = await screen.findByTestId("appt-contact-block");
+    expect(within(contact).getByTestId("tap-address")).toHaveAttribute(
+      "href",
+      expect.stringContaining("google.com/maps")
+    );
+    expect(within(contact).getByTestId("tap-phone")).toHaveAttribute("href", "tel:7185550100");
+    expect(within(contact).getByTestId("tap-email")).toBeInTheDocument();
     await user.click(screen.getByText("✏️ Edit appointment"));
     await user.click(screen.getByText("Duplicate (same job link)"));
     expect(screen.getByText("Duplicate appointment")).toBeInTheDocument();
@@ -472,6 +480,12 @@ describe("12. sync chip + today view + jobs list", () => {
     expect(cmd.payload.calEventId || "").toBe("");
     expect(cmd.payload.start).toBe("2026-07-15T14:00");
     expect(cmd.payload.description).toContain("leJobId:J-1");
+    // After save: choose back to calendar or same customer (not auto-jump).
+    expect(await screen.findByTestId("after-duplicate-sheet")).toBeInTheDocument();
+    expect(screen.getByTestId("after-dup-back")).toBeInTheDocument();
+    expect(screen.getByTestId("after-dup-customer")).toBeInTheDocument();
+    await user.click(screen.getByTestId("after-dup-back"));
+    await waitFor(() => expect(screen.queryByTestId("after-duplicate-sheet")).not.toBeInTheDocument());
   });
   });
 

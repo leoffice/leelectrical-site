@@ -14,6 +14,7 @@ import { fmtAmountDue, openBalance, totalBalanceDue } from "../lib/customers.js"
 import { bucketFollowUps, dueDateTone, followUpDate, followUpLabel } from "../lib/calendarDue.js";
 import { evStart, fmt$, todayStr } from "../lib/format.js";
 import { displayEventNotes, searchCalendarEvents } from "../lib/calendarLink.js";
+import { TappableAddress } from "../components/TappableContact.jsx";
 
 function FollowUpRow({ job, dateTone }) {
   const d = followUpDate(job);
@@ -156,13 +157,8 @@ export default function Today() {
           calMatches.length ? (
             <div className="space-y-2 mb-3" data-testid="cal-tab-search-results">
               {calMatches.slice(0, 12).map((e) => {
-                const note = [
-                  formatWhen(e),
-                  e.location || "",
-                  displayEventNotes(e.description).slice(0, 60),
-                ]
-                  .filter(Boolean)
-                  .join(" · ");
+                const when = formatWhen(e);
+                const noteBits = displayEventNotes(e.description).slice(0, 60);
                 return (
                   <button
                     key={e.id || evStart(e) + e.summary}
@@ -174,7 +170,16 @@ export default function Today() {
                     }}
                   >
                     <div className="text-sm font-semibold text-slate-900 line-clamp-2">{e.summary || "Appointment"}</div>
-                    {note ? <div className="text-[11px] text-slate-500 mt-0.5 line-clamp-2">{note}</div> : null}
+                    <div className="text-[11px] text-slate-500 mt-0.5 line-clamp-2">
+                      {when}
+                      {e.location ? (
+                        <>
+                          {" · "}
+                          <TappableAddress address={e.location} className="text-[11px]" />
+                        </>
+                      ) : null}
+                      {noteBits ? ` · ${noteBits}` : null}
+                    </div>
                   </button>
                 );
               })}
