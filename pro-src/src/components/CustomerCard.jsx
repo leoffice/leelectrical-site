@@ -4,33 +4,9 @@ import { CustomerAvatar } from "./JobCard.jsx";
 import { CustomerAmountSubline } from "./AmountDisplay.jsx";
 import { fmt$ } from "../lib/format.js";
 import { effectiveServiceAddress } from "../lib/customerSync.js";
-const OFFICE_EMAIL = "office@leelectrical.us";
+import { emailHref, googleMapsHref, isDesktop } from "../lib/contactLinks.js";
 
 const FIELD_LINK = "text-brand font-semibold active:opacity-80";
-
-function isDesktop() {
-  if (typeof window === "undefined") return false;
-  if (typeof window.matchMedia !== "function") return false;
-  return window.matchMedia("(min-width: 1024px)").matches;
-}
-
-function googleMapsHref(address) {
-  if (!address) return "";
-  return `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(address)}`;
-}
-
-function emailHref(email) {
-  if (!email) return "";
-  if (isDesktop()) {
-    return (
-      "https://mail.google.com/mail/?view=cm&fs=1&to=" +
-      encodeURIComponent(email) +
-      "&authuser=" +
-      encodeURIComponent(OFFICE_EMAIL)
-    );
-  }
-  return `mailto:${email}`;
-}
 
 function ContactValue({ value, onClick, href, newTab }) {
   if (onClick) {

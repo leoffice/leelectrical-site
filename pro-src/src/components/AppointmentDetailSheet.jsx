@@ -16,6 +16,9 @@ import {
   emailKindForAction,
   followUpCopy,
 } from "../lib/appointmentActions.js";
+import { clientKey } from "../lib/customers.js";
+import { appointmentContactInfo } from "../lib/contactLinks.js";
+import { TappableAddress, TappableEmail, TappablePhone } from "./TappableContact.jsx";
 
 function linkedCustomerName(job) {
   return (job?.customer || job?.businessName || job?.title || "").trim() || "job";
@@ -25,7 +28,7 @@ export default function AppointmentDetailSheet({ event, onClose }) {
   const { jobs, events, setNewJob, patchJob, patchAndSave, patchLocalEvent, removeLocalEvent, enqueue, showToast, pullCalendarNow } =
     useStore();
   const nav = useNavigate();
-  const [mode, setMode] = useState("view"); // view | edit | link | unlink | createJob | email
+  const [mode, setMode] = useState("view"); // view | edit | link | unlink | createJob | email | afterDuplicate
   const [emailKind, setEmailKind] = useState("estimate");
   const [unlinkDone, setUnlinkDone] = useState(false);
   const liveEvent = useMemo(
@@ -40,10 +43,23 @@ export default function AppointmentDetailSheet({ event, onClose }) {
   const matchCandidates = useMemo(() => suggestJobsForEvent(liveEvent, jobs), [liveEvent, jobs]);
   const workJob = linked || matchCandidates[0] || null;
   const notes = displayEventNotes(liveEvent?.description);
+  const prefill = useMemo(() => prefillFromEvent(liveEvent), [liveEvent]);
+  const contact = useMemo(
+    () => appointmentContactInfo(liveEvent, workJob, prefill),
+    [liveEvent, workJob, prefill]
+  );
 
   useEffect(() => {
     setUnlinkDone(false);
   }, [event?.id]);
+
+  const goToCustomer = (job) => {
+    if (!job) return;
+    const key = clientKey(job);
+    if (!key) return;
+    onClose();
+    nav("/customer/" + encodeURIComponent(key));
+  };
 
   const confirmUnlink = async () => {
     if (!linked) return;
@@ -71,6 +87,45 @@ export default function AppointmentDetailSheet({ event, onClose }) {
     }
   };
 
+  if (mode === "afterDuplicate") {
+    const custName = workJob ? linkedCustomerName(workJob) : "";
+    return (
+      <Sheet title="Duplicate saved" onClose={onClose}>
+        <div data-testid="after-duplicate-sheet">
+        <p className="text-sm text-slate-600 mb-4">
+          Copy is on the calendar. Where do you want to go?
+        </p>
+        <button
+          type="button"
+          className="btn-brand w-full mb-2"
+          onClick={onClose}
+          data-testid="after-dup-back"
+        >
+          Back to where I was
+        </button>
+        {workJob ? (
+          <button
+            type="button"
+            className="btn bg-brand-soft text-brand w-full mb-2"
+            onClick={() => goToCustomer(workJob)}
+            data-testid="after-dup-customer"
+          >
+            Open customer — {custName}
+          </button>
+        ) : null}
+        <button
+          type="button"
+          className="btn-ghost w-full"
+          onClick={() => setMode("view")}
+          data-testid="after-dup-stay"
+        >
+          Stay on this appointment
+        </button>
+        </div>
+      </Sheet>
+    );
+  }
+
   if (mode === "edit") {
     return (
       <EditAppointmentSheet
@@ -93,7 +148,10 @@ export default function AppointmentDetailSheet({ event, onClose }) {
           removeLocalEvent(eid);
           onClose();
         }}
-        onDuplicated={() => pullCalendarNow()}
+        onDuplicated={() => {
+          pullCalendarNow();
+          setMode("afterDuplicate");
+        }}
       />
     );
   }
@@ -178,14 +236,30 @@ export default function AppointmentDetailSheet({ event, onClose }) {
 
   return (
     <Sheet title={liveEvent.summary || "Appointment"} onClose={onClose}>
-      <div className="text-sm space-y-2 mb-4">
+      <div className="text-sm space-y-2 mb-4" data-testid="appt-contact-block">
         <div>
           <b className="font-semibold">When</b>{" "}
           <span className="text-slate-600">{evStart(liveEvent).replace("T", " ").slice(0, 16)}</span>
         </div>
-        {liveEvent.location ? (
+        {contact.address ? (
           <div>
-            <b className="font-semibold">Location</b> <span className="text-slate-600">{liveEvent.location}</span>
+            <b className="font-semibold">Location</b>{" "}
+            <TappableAddress address={contact.address} className="text-slate-600" />
+          </div>
+        ) : liveEvent.location ? (
+          <div>
+            <b className="font-semibold">Location</b>{" "}
+            <TappableAddress address={liveEvent.location} className="text-slate-600" />
+          </div>
+        ) : null}
+        {contact.phone ? (
+          <div>
+            <b className="font-semibold">Phone</b> <TappablePhone phone={contact.phone} className="text-slate-600" />
+          </div>
+        ) : null}
+        {contact.email ? (
+          <div>
+            <b className="font-semibold">Email</b> <TappableEmail email={contact.email} className="text-slate-600" />
           </div>
         ) : null}
         {notes ? (

@@ -3,6 +3,7 @@ import React, { useCallback, useMemo, useRef, useState } from "react";
 import { eventsForWorkWeek, evTimeLabel, mondayOf, weekRangeLabel, ymd } from "../lib/calendarWeek.js";
 import { todayStr } from "../lib/format.js";
 import AddAppointmentSheet from "./AddAppointmentSheet.jsx";
+import { TappableAddress } from "./TappableContact.jsx";
 
 const CAL_HEIGHT_KEY = "lepro_calendar_height_v1";
 const DEFAULT_LIST_HEIGHT = 200;
@@ -174,6 +175,11 @@ export default function WeekCalendar({ events, onPickEvent, embedded, onAddDay }
                           {e.summary || "Appointment"}
                         </div>
                         <div className="text-[9px] text-slate-400">{evTimeLabel(e)}</div>
+                        {e.location ? (
+                          <div className="text-[9px] leading-tight line-clamp-2 mt-0.5">
+                            <TappableAddress address={e.location} className="text-[9px] font-semibold" />
+                          </div>
+                        ) : null}
                       </button>
                     ))
                   ) : (
