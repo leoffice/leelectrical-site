@@ -42,7 +42,7 @@ describe("changeOrderJobPatch", () => {
 });
 
 describe("change order + delete UX", () => {
-  it("job detail shows single add change order button + picker", async () => {
+  it("job detail shows single add change order button + picker + confirm", async () => {
     mockServer({ jobs: [BASE] });
     const user = userEvent.setup();
     renderApp("#/job/J-1");
@@ -50,6 +50,8 @@ describe("change order + delete UX", () => {
     await user.click(screen.getByTestId("add-change-order-btn"));
     expect(await screen.findByTestId("co-pick-invoice")).toBeInTheDocument();
     expect(screen.getByTestId("co-pick-estimate")).toBeInTheDocument();
+    await user.click(screen.getByTestId("co-pick-invoice"));
+    expect(await screen.findByTestId("co-confirm-create")).toBeInTheDocument();
   });
 
   it("add job at address opens sheet with change order toggle", async () => {
@@ -86,7 +88,7 @@ describe("change order + delete UX", () => {
     });
   });
 
-  it("job edit delete removes one invoice job", async () => {
+  it("job edit delete requires typing DELETE then removes one invoice job", async () => {
     const srv = mockServer({
       jobs: [
         BASE,
@@ -98,6 +100,9 @@ describe("change order + delete UX", () => {
     await screen.findByTestId("detail-pane");
     await user.click(screen.getByTestId("job-edit-btn"));
     await user.click(screen.getByTestId("job-edit-delete"));
+    // Type-to-confirm — button disabled until DELETE is typed
+    expect(screen.getByTestId("delete-confirm-btn")).toBeDisabled();
+    await user.type(screen.getByTestId("delete-type-input"), "DELETE");
     await user.click(screen.getByTestId("delete-confirm-btn"));
     await waitFor(() => expect(srv.state.ov["J-1"]?._deleted).toBe(true));
   });

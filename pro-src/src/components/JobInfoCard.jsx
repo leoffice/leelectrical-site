@@ -16,6 +16,9 @@ const BUBBLE_LAYOUT =
   "inline-flex items-center gap-1 rounded-2xl border px-2 py-1 text-[10px] leading-tight lg:rounded-full lg:px-2.5 lg:py-1 lg:text-xs";
 const HEADER_BTN =
   "text-[10px] font-semibold text-slate-500 hover:text-brand px-1.5 py-0.5 rounded border border-slate-200 bg-white shrink-0";
+/** Visually separate destructive-ish CO action from Est/Inv so misclicks are rarer. */
+const HEADER_BTN_CO =
+  "text-[10px] font-semibold text-amber-800 hover:text-amber-900 px-1.5 py-0.5 rounded border border-amber-300 bg-amber-50 shrink-0 ml-1";
 
 function stopBubble(e) {
   e.stopPropagation();
@@ -166,13 +169,14 @@ export default function JobInfoCard({
             {onAddChangeOrder ? (
               <button
                 type="button"
-                className={`${HEADER_BTN} disabled:opacity-40`}
+                className={`${HEADER_BTN_CO} disabled:opacity-40`}
                 disabled={!canAddChangeOrder}
                 onClick={(e) => {
                   stopBubble(e);
                   onAddChangeOrder();
                 }}
                 data-testid="add-change-order-btn"
+                title="Creates a separate change-order document — confirm required"
               >
                 ＋ Change order
               </button>

@@ -154,7 +154,7 @@ function AddressJobRows({ list, activeJobId, onOpen }) {
 
 export default function CustomerDocTabs({ jobs, activeJobId, fromCust = "" }) {
   const nav = useNavigate();
-  const { createJob, showToast } = useStore();
+  const { createJob, showToast, patchAndSave } = useStore();
   const [tab, setTab] = useState(null); // null | invoices | estimates | addresses
   const [addrKey, setAddrKey] = useState(""); // selected service-address key
   const [connect, setConnect] = useState(null); // { job, kind }
@@ -367,6 +367,13 @@ export default function CustomerDocTabs({ jobs, activeJobId, fromCust = "" }) {
               nav("/job/" + j.id + "?" + parts.join("&"));
             }}
             onOpenJob={openJob}
+            onRemove={(row) => {
+              if (!row?.jobId) return;
+              if (!window.confirm("Remove this change order from the app? QuickBooks is not changed.")) return;
+              patchAndSave(row.jobId, { _deleted: true })
+                .then(() => showToast("Change order removed"))
+                .catch(() => showToast("Could not remove — try again"));
+            }}
           />
         </div>
       ) : null}

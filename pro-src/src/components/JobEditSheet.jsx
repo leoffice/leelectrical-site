@@ -73,8 +73,9 @@ export default function JobEditSheet({ job, fromCust = "", onClose }) {
     return (
       <DeleteConfirmSheet
         title={"Remove " + deleteDocLabel(job) + "?"}
-        note="Hides from your dashboard. QuickBooks stays unchanged."
-        confirmLabel="Remove"
+        note="This deletes the ENTIRE job from your dashboard (not just one field). QuickBooks stays unchanged."
+        confirmLabel="Delete entire job"
+        typeToConfirm="DELETE"
         onClose={() => setConfirm(null)}
         onConfirm={remove}
       />
@@ -144,11 +145,11 @@ export default function JobEditSheet({ job, fromCust = "", onClose }) {
         </button>
         <button
           type="button"
-          className="btn-ghost flex-1 min-h-[44px] text-sm border border-red-200 text-red-700"
+          className="btn-ghost flex-1 min-h-[44px] text-sm border-2 border-red-400 bg-red-50 text-red-800 font-bold"
           onClick={() => setConfirm("delete")}
           data-testid="job-edit-delete"
         >
-          Delete
+          Delete job
         </button>
       </div>
     </Sheet>

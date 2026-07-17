@@ -62,6 +62,7 @@ import { DATE_STEPS } from "../lib/paperwork.js";
 import Toggle from "./Toggle.jsx";
 import SubCompanySection from "./SubCompanySection.jsx";
 import DocSourcePicker from "./DocSourcePicker.jsx";
+import SendDocConfirmSheet from "./SendDocConfirmSheet.jsx";
 import {
   DOC_SOURCE_LOCAL,
   DOC_SOURCE_QBO,
@@ -70,6 +71,7 @@ import {
   viewQboLabel,
 } from "../lib/docSource.js";
 import { docSendStatusLine } from "../lib/docSendStatus.js";
+import { beginPromptWorkPause } from "../lib/followUpReminders.js";
 
 export const PAY_METHODS = [
   "Credit card",
@@ -83,18 +85,129 @@ export const PAY_METHODS = [
   "Other",
 ];
 
-/** Shared "send invoice/estimate" action (sleek's doSend). */
+/**
+ * Execute an approved invoice/estimate send.
+ * Local path: build PDF in the browser and POST send-doc-email (with pdfB64).
+ * QuickBooks path: queue send_* on the command bus.
+ * Returns { ok, error?, pending? } — never silently reverts.
+ */
 export function useDoSend() {
-  const { enqueue, logSend, showToast } = useStore();
-  return (job, kind, opts = {}) => {
+  const { enqueue, logSend, showToast, api, patchAndSave } = useStore();
+  return async (job, kind, opts = {}) => {
     const no = kind === "invoice" ? job.invoiceNo : job.estimateNo;
     const email = (opts.email || job.email || "").trim();
+    if (!email || !email.includes("@")) {
+      showToast("Add a customer email before sending");
+      return { ok: false, error: "no_email", pending: true };
+    }
     const due = openBalance(job);
     const withPay =
       kind === "invoice" &&
       due > 0.01 &&
       opts.includePaymentLink !== false;
     const docSource = opts.docSource === DOC_SOURCE_QBO ? DOC_SOURCE_QBO : DOC_SOURCE_LOCAL;
+    const message = String(opts.message || "").trim();
+    const subject = String(opts.subject || "").trim();
+    const label = kind === "invoice" ? "Invoice" : "Estimate";
+    const via = docSource === DOC_SOURCE_QBO ? "QuickBooks" : "local PDF";
+
+    // LOCAL: send immediately with client PDF — never queue without pdfB64.
+    if (docSource === DOC_SOURCE_LOCAL) {
+      if (!canGenerateLocalDoc(job, kind)) {
+        const err = "Add line items on this job to build a local PDF — or send the QuickBooks file";
+        showToast(err);
+        return { ok: false, error: err, pending: true };
+      }
+      showToast("Sending " + label.toLowerCase() + " to " + email + "…");
+      let res = null;
+      try {
+        if (typeof api.sendDocEmailNow === "function") {
+          res = await api.sendDocEmailNow(job, kind, {
+            email,
+            includePaymentLink: withPay,
+            message,
+            payUrl: opts.payUrl || "",
+          });
+        }
+      } catch (err) {
+        res = { ok: false, error: String(err?.message || err) };
+      }
+
+      if (res?.ok && res.sent) {
+        logSend(
+          job.id,
+          label + " #" + (no || "") + " emailed (local PDF)" + (withPay ? " + payment link" : ""),
+          email
+        );
+        await patchAndSave(job.id, { _docEmailed: true, _draftChangeOrder: false }).catch(() => {});
+        showToast(label + " emailed to " + email);
+        return { ok: true, res };
+      }
+
+      if (res?.dryRun || res?.reason === "no_api_key") {
+        const err = "Email is not set up on the server yet — nothing was sent";
+        showToast(err);
+        return { ok: false, error: err, pending: true };
+      }
+
+      const detail = String(res?.error || res?.reason || "Send failed").slice(0, 120);
+      // Fall back to host queue ONLY when we have pdfB64 from a partial client path —
+      // without it the listener fails silently. Re-try with pdf in payload if we can.
+      try {
+        const blob =
+          kind === "estimate" ? buildEstimatePdfFromJob(job) : buildInvoicePdfFromJob(job);
+        if (blob && typeof FileReader !== "undefined") {
+          const pdfB64 = await new Promise((resolve, reject) => {
+            const r = new FileReader();
+            r.onerror = () => reject(r.error || new Error("read failed"));
+            r.onloadend = () => {
+              const s = String(r.result || "");
+              const i = s.indexOf(",");
+              resolve(i >= 0 ? s.slice(i + 1) : s);
+            };
+            r.readAsDataURL(blob);
+          });
+          const payload =
+            kind === "invoice"
+              ? {
+                  email,
+                  invoiceNo: no,
+                  customer: job.customer || "",
+                  amount: String(due || "").replace(/[$,]/g, ""),
+                  includePaymentLink: withPay,
+                  docSource: DOC_SOURCE_LOCAL,
+                  message,
+                  subject,
+                  job,
+                  pdfB64,
+                  filename: docPdfFilename(kind, job, no) || `${kind}-${no || "document"}.pdf`,
+                }
+              : {
+                  email,
+                  estimateNo: no,
+                  docSource: DOC_SOURCE_LOCAL,
+                  message,
+                  subject,
+                  job,
+                  pdfB64,
+                  filename: docPdfFilename(kind, job, no) || `${kind}-${no || "document"}.pdf`,
+                };
+          const idk =
+            "send_" + kind + ":local:" + (no || job.id) + ":" + Date.now();
+          await enqueue("send_" + kind, job.id, payload, "deterministic", idk);
+          showToast(
+            "Could not send right now (" + detail + "). Queued for retry — check Activity."
+          );
+          return { ok: false, error: detail, pending: true, queued: true };
+        }
+      } catch {
+        /* fall through */
+      }
+      showToast(label + " did NOT send — " + detail + ". Still marked not sent.");
+      return { ok: false, error: detail, pending: true };
+    }
+
+    // QuickBooks path — command bus (host has QBO credentials).
     const payload =
       kind === "invoice"
         ? {
@@ -103,32 +216,23 @@ export function useDoSend() {
             customer: job.customer || "",
             amount: String(due || "").replace(/[$,]/g, ""),
             includePaymentLink: withPay,
-            docSource,
+            docSource: DOC_SOURCE_QBO,
+            message,
+            subject,
             job,
           }
-        : { email, estimateNo: no, docSource, job };
+        : { email, estimateNo: no, docSource: DOC_SOURCE_QBO, message, subject, job };
     const idk =
       kind === "invoice" && withPay
-        ? "send_invoice_pay:" + docSource + ":" + no
-        : "send_" + kind + ":" + docSource + ":" + no;
-    enqueue("send_" + kind, job.id, payload, "deterministic", idk);
-    const via = docSource === DOC_SOURCE_QBO ? "QuickBooks" : "local PDF";
-    logSend(
-      job.id,
-      (kind === "invoice" ? "Invoice" : "Estimate") +
-        " #" +
-        no +
-        (withPay ? " + payment link" : "") +
-        " send queued (" +
-        via +
-        ")",
-      job.email
-    );
+        ? "send_invoice_pay:qbo:" + no + ":" + Date.now()
+        : "send_" + kind + ":qbo:" + no + ":" + Date.now();
+    await enqueue("send_" + kind, job.id, payload, "deterministic", idk);
     showToast(
       withPay
-        ? "Queued " + via + " send with payment link — Activity"
-        : "Queued " + via + " send — Activity"
+        ? "Sending " + via + " with payment link — you'll get a toast when it lands"
+        : "Sending " + via + " — you'll get a toast when it lands"
     );
+    return { ok: true, queued: true };
   };
 }
 
@@ -1281,25 +1385,30 @@ function useDocPdfView(job, kind, no) {
       return;
     }
     setSt({ phase: "fetching", source: DOC_SOURCE_LOCAL });
-    // Client-side only — no server generate-doc (dead after CF cutover).
-    const gen = api.generateLocalDoc
-      ? await api.generateLocalDoc(job, kind)
-      : (() => {
-          try {
-            const blob = kind === "estimate" ? buildEstimatePdfFromJob(job) : buildInvoicePdfFromJob(job);
-            if (!blob) return { ok: false };
-            downloadPdfBlob(blob, docPdfFilename(kind, job, no) || `${kind}-${no || "document"}.pdf`);
-            return { ok: true };
-          } catch (e) {
-            return { ok: false, error: String(e) };
-          }
-        })();
-    if (gen && gen.ok) {
+    // Client-side only — open blob URL in a new tab (works where download-only looked dead).
+    // Also trigger a download as a mobile-friendly fallback when popups are blocked.
+    try {
+      const blob =
+        kind === "estimate" ? buildEstimatePdfFromJob(job) : buildInvoicePdfFromJob(job);
+      if (!blob) {
+        setSt({ phase: "error", source: DOC_SOURCE_LOCAL });
+        showToast("Couldn't build the PDF on this device — try View QuickBooks");
+        return;
+      }
+      const filename = docPdfFilename(kind, job, no) || `${kind}-${no || "document"}.pdf`;
+      openPdfBlob(blob);
+      // Download as backup so iOS/Android still get a file if the tab is blocked.
+      try {
+        downloadPdfBlob(blob, filename);
+      } catch {
+        /* open is enough */
+      }
       setSt({ phase: "idle", source: null });
-      return;
+      showToast("Opening " + (kind === "estimate" ? "estimate" : "invoice") + " PDF");
+    } catch (e) {
+      setSt({ phase: "error", source: DOC_SOURCE_LOCAL });
+      showToast("Couldn't build the PDF on this device — try View QuickBooks");
     }
-    setSt({ phase: "error", source: DOC_SOURCE_LOCAL });
-    showToast("Couldn't build the PDF on this device — try View QuickBooks");
   };
 
   const viewQbo = async () => {
@@ -1498,6 +1607,9 @@ export function PaymentLinkSheet({ job, onClose }) {
   const [includeFee, setIncludeFee] = useState(true);
   const [emailSubject, setEmailSubject] = useState("");
   const [emailBody, setEmailBody] = useState("");
+  const [payConfirm, setPayConfirm] = useState(null); // { docSource }
+  const [paySendBusy, setPaySendBusy] = useState(false);
+  const [paySendErr, setPaySendErr] = useState("");
   const deadline = useRef(0);
   const doSend = useDoSend();
 
@@ -1508,6 +1620,8 @@ export function PaymentLinkSheet({ job, onClose }) {
     setErr("");
     setIdk("");
     setComposeChannel(null);
+    setPayConfirm(null);
+    setPaySendErr("");
   }, [job.id, job.invoiceNo, job.openBalance, job.paid, job.amount, job.email]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // The matching command (by idempotencyKey) as the store re-polls it.
@@ -1612,12 +1726,43 @@ export function PaymentLinkSheet({ job, onClose }) {
     }
   };
 
-  const sendWithPayLink = (docSource) => {
-    const to = (job.email || "").trim();
-    if (!to) return showToast("Add customer email first");
-    doSend(job, "invoice", { includePaymentLink: true, email: to, docSource });
-    onClose();
-  };
+  if (payConfirm) {
+    return (
+      <SendDocConfirmSheet
+        job={job}
+        kind="invoice"
+        docSource={payConfirm.docSource}
+        withPay
+        payUrl={url}
+        busy={paySendBusy}
+        error={paySendErr}
+        onBack={() => {
+          if (paySendBusy) return;
+          setPayConfirm(null);
+          setPaySendErr("");
+        }}
+        onApprove={async (model) => {
+          setPaySendBusy(true);
+          setPaySendErr("");
+          beginPromptWorkPause();
+          const result = await doSend(job, "invoice", {
+            includePaymentLink: true,
+            email: model.email,
+            docSource: model.docSource,
+            message: model.message,
+            subject: model.subject,
+            payUrl: url,
+          });
+          setPaySendBusy(false);
+          if (result?.ok) {
+            onClose();
+            return;
+          }
+          setPaySendErr(result?.error || "Send failed — document was not emailed");
+        }}
+      />
+    );
+  }
 
   if (composeChannel) {
     return (
@@ -1638,14 +1783,20 @@ export function PaymentLinkSheet({ job, onClose }) {
               <button
                 type="button"
                 className="btn w-full !py-2 bg-brand text-white mb-2"
-                onClick={() => sendWithPayLink(DOC_SOURCE_LOCAL)}
+                onClick={() => {
+                  setPayConfirm({ docSource: DOC_SOURCE_LOCAL });
+                  setPaySendErr("");
+                }}
               >
                 Send Local Invoice with Payment Link
               </button>
               <button
                 type="button"
                 className="btn w-full !py-2 bg-slate-100 text-slate-800"
-                onClick={() => sendWithPayLink(DOC_SOURCE_QBO)}
+                onClick={() => {
+                  setPayConfirm({ docSource: DOC_SOURCE_QBO });
+                  setPaySendErr("");
+                }}
               >
                 Send QuickBooks Invoice with Payment Link
               </button>
@@ -1754,9 +1905,49 @@ export function PaymentLinkSheet({ job, onClose }) {
 export function DocSheet({ job, kind, onClose, onEdit, onConvert, onSync }) {
   const doSend = useDoSend();
   const { commands } = useStore();
-  const [sendPick, setSendPick] = useState(null);
+  const [sendPick, setSendPick] = useState(null); // { withPay, title }
+  const [confirmSend, setConfirmSend] = useState(null); // { withPay, docSource }
+  const [sendBusy, setSendBusy] = useState(false);
+  const [sendErr, setSendErr] = useState("");
   const no = kind === "invoice" ? job.invoiceNo : job.estimateNo;
   const label = kind === "invoice" ? "invoice" : "estimate";
+
+  if (confirmSend) {
+    return (
+      <SendDocConfirmSheet
+        job={job}
+        kind={kind}
+        docSource={confirmSend.docSource}
+        withPay={!!confirmSend.withPay}
+        busy={sendBusy}
+        error={sendErr}
+        onBack={() => {
+          if (sendBusy) return;
+          setConfirmSend(null);
+          setSendErr("");
+        }}
+        onApprove={async (model) => {
+          setSendBusy(true);
+          setSendErr("");
+          beginPromptWorkPause();
+          const result = await doSend(job, kind, {
+            docSource: model.docSource,
+            includePaymentLink: model.withPay,
+            email: model.email,
+            message: model.message,
+            subject: model.subject,
+          });
+          setSendBusy(false);
+          if (result?.ok) {
+            onClose();
+            return;
+          }
+          // Stay open in pending/not-sent state with a loud error.
+          setSendErr(result?.error || "Send failed — document was not emailed");
+        }}
+      />
+    );
+  }
 
   if (sendPick) {
     return (
@@ -1765,8 +1956,9 @@ export function DocSheet({ job, kind, onClose, onEdit, onConvert, onSync }) {
         kind={kind}
         onBack={() => setSendPick(null)}
         onPick={(src) => {
-          doSend(job, kind, { docSource: src, includePaymentLink: sendPick.withPay });
-          onClose();
+          setConfirmSend({ withPay: sendPick.withPay, docSource: src });
+          setSendPick(null);
+          setSendErr("");
         }}
       />
     );
@@ -1852,7 +2044,46 @@ export function DocSheet({ job, kind, onClose, onEdit, onConvert, onSync }) {
 export function QuickSendSheet({ job, onClose, onEdit }) {
   const doSend = useDoSend();
   const [sendPick, setSendPick] = useState(null);
+  const [confirmSend, setConfirmSend] = useState(null);
+  const [sendBusy, setSendBusy] = useState(false);
+  const [sendErr, setSendErr] = useState("");
   const due = openBalance(job);
+
+  if (confirmSend) {
+    return (
+      <SendDocConfirmSheet
+        job={job}
+        kind="invoice"
+        docSource={confirmSend.docSource}
+        withPay={!!confirmSend.withPay}
+        busy={sendBusy}
+        error={sendErr}
+        onBack={() => {
+          if (sendBusy) return;
+          setConfirmSend(null);
+          setSendErr("");
+        }}
+        onApprove={async (model) => {
+          setSendBusy(true);
+          setSendErr("");
+          beginPromptWorkPause();
+          const result = await doSend(job, "invoice", {
+            docSource: model.docSource,
+            includePaymentLink: model.withPay,
+            email: model.email,
+            message: model.message,
+            subject: model.subject,
+          });
+          setSendBusy(false);
+          if (result?.ok) {
+            onClose();
+            return;
+          }
+          setSendErr(result?.error || "Send failed — document was not emailed");
+        }}
+      />
+    );
+  }
 
   if (sendPick) {
     return (
@@ -1861,8 +2092,9 @@ export function QuickSendSheet({ job, onClose, onEdit }) {
         kind="invoice"
         onBack={() => setSendPick(null)}
         onPick={(src) => {
-          doSend(job, "invoice", { docSource: src, includePaymentLink: sendPick.withPay });
-          onClose();
+          setConfirmSend({ withPay: sendPick.withPay, docSource: src });
+          setSendPick(null);
+          setSendErr("");
         }}
       />
     );
@@ -2591,17 +2823,46 @@ export function CombineSheet({ job, onClose }) {
 }
 
 /* ---------- 6. Delete confirm (job / invoice / estimate / customer) ---------- */
-export function DeleteConfirmSheet({ title, note, confirmLabel, onConfirm, onClose }) {
+export function DeleteConfirmSheet({
+  title,
+  note,
+  confirmLabel,
+  onConfirm,
+  onClose,
+  /** When set, user must type this exact word (case-insensitive) before Remove enables. */
+  typeToConfirm,
+}) {
+  const [typed, setTyped] = useState("");
+  const needType = String(typeToConfirm || "").trim();
+  const typedOk = !needType || typed.trim().toUpperCase() === needType.toUpperCase();
   return (
     <Sheet title={title || "Remove from app?"} onClose={onClose}>
       <p className="text-sm text-slate-500 mb-3">
         {note || "Removes from your dashboard only — QuickBooks is never touched."}
       </p>
+      {needType ? (
+        <div className="mb-3" data-testid="delete-type-confirm">
+          <label className="block text-xs font-bold text-slate-500 mb-1.5">
+            Type <span className="text-red-700 font-extrabold tracking-wide">{needType}</span> to confirm
+          </label>
+          <input
+            className="input"
+            value={typed}
+            onChange={(e) => setTyped(e.target.value)}
+            aria-label={"Type " + needType + " to confirm"}
+            data-testid="delete-type-input"
+            autoComplete="off"
+            placeholder={needType}
+          />
+        </div>
+      ) : null}
       <button
         type="button"
-        className="btn bg-red-100 text-red-600 w-full"
+        className="btn bg-red-100 text-red-600 w-full disabled:opacity-40"
         data-testid="delete-confirm-btn"
+        disabled={!typedOk}
         onClick={() => {
+          if (!typedOk) return;
           onConfirm?.();
           onClose?.();
         }}

@@ -79,8 +79,8 @@ describe("#44/#45 PDF viewing: local open + background QBO fetch", () => {
     renderNode(<QuickSendSheet job={JOB} onClose={() => {}} />);
     await user.click(await screen.findByText("View Local Invoice"));
 
-    // Built in the browser and downloaded — generate-doc is never hit.
-    await waitFor(() => expect(click).toHaveBeenCalledTimes(1));
+    // Built in the browser — open + optional download (1–2 clicks); generate-doc never hit.
+    await waitFor(() => expect(click.mock.calls.length).toBeGreaterThanOrEqual(1));
     expect(screen.queryByText("Generating your PDF — a few seconds…")).toBeNull();
     expect(srv.calls.some((c) => c.path === "generate-doc")).toBe(false);
     expect(document.querySelector("[data-fullscreen-pdf]")).toBeNull();

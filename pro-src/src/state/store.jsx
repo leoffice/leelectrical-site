@@ -517,7 +517,39 @@ export function StoreProvider({ children }) {
 
   const discardAll = useCallback(() => {
     setPending({});
-    showToast("Changes discarded");
+    // Soft-delete unfinished draft change orders (created on misclick, never emailed/confirmed).
+    // Discard must remove them — they are saved immediately, not only staged in pending.
+    setJobs((js) => {
+      const draftIds = [];
+      const next = js.map((j) => {
+        if (
+          j &&
+          j.changeOrder &&
+          j._draftChangeOrder &&
+          !j._docEmailed &&
+          !j._invoiceConfirmed &&
+          !j._estimateConfirmed &&
+          !j._deleted
+        ) {
+          draftIds.push(j.id);
+          return { ...j, _deleted: true };
+        }
+        return j;
+      });
+      for (const id of draftIds) {
+        api.saveJob(id, { _deleted: true }).catch(() => {});
+      }
+      if (draftIds.length) {
+        showToast(
+          draftIds.length === 1
+            ? "Changes discarded — draft change order removed"
+            : "Changes discarded — draft change orders removed"
+        );
+      } else {
+        showToast("Changes discarded");
+      }
+      return next;
+    });
   }, [showToast]);
 
   /** Patch + save immediately (archive / restore / delete / combine). */
@@ -776,14 +808,14 @@ export function StoreProvider({ children }) {
     [commands, effectiveJob, enqueue, patchAndSave, refreshCommands, showToast]
   );
 
-  /** Append to the job's send history (staged like every other edit). */
+  /** Append to the job's send history immediately — never stages a phantom unsaved change. */
   const logSend = useCallback(
     (id, kind, to) => {
       const j = effectiveJob(id) || {};
       const hist = (j.invoiceHistory || []).concat([{ date: todayStr(), to: to || j.email || "", kind }]);
-      patchJob(id, { invoiceHistory: hist });
+      patchAndSave(id, { invoiceHistory: hist }).catch(() => {});
     },
-    [effectiveJob, patchJob]
+    [effectiveJob, patchAndSave]
   );
 
   const appliedCustomerQbo = useRef(new Set());
@@ -869,6 +901,20 @@ export function StoreProvider({ children }) {
         calEventId: calEventId || "",
         _sasCallId: g.sasCallId || "",
         _sasRecordingUrl: g.sasRecordingUrl || "",
+        // Change-order fields (must survive create — Discard removes draft COs).
+        ...(g.changeOrder
+          ? {
+              changeOrder: true,
+              changeOrderKind: g.changeOrderKind || "invoice",
+              changeOrderSourceId: g.changeOrderSourceId || "",
+              changeOrderSeq: g.changeOrderSeq || 0,
+              changeOrderLabel: g.changeOrderLabel || "",
+              _estimateConfirmed: false,
+              _invoiceConfirmed: false,
+              _docEmailed: false,
+              _draftChangeOrder: true,
+            }
+          : {}),
       };
       setJobs((js) => [...js, { id, ...JSON.parse(JSON.stringify(ov)) }]);
       api

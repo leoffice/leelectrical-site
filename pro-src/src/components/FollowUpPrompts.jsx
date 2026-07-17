@@ -153,6 +153,7 @@ function openCalendarKeepingReminder({ event, kind, state, dismissForWork, nav }
 }
 
 const SESSION_KEY = "lepro_followup_session";
+const DISMISSED_KEY = "lepro_followup_dismissed";
 const IS_TEST = import.meta.env.MODE === "test" || !!import.meta.env.VITEST;
 
 function markSessionPrompted() {
@@ -169,6 +170,44 @@ function sessionAlreadyPrompted() {
   } catch {
     return false;
   }
+}
+
+function loadDismissedIds() {
+  try {
+    const raw = sessionStorage.getItem(DISMISSED_KEY);
+    const arr = raw ? JSON.parse(raw) : [];
+    return new Set(Array.isArray(arr) ? arr.map(String) : []);
+  } catch {
+    return new Set();
+  }
+}
+
+function persistDismissedIds(set) {
+  try {
+    sessionStorage.setItem(DISMISSED_KEY, JSON.stringify([...set].slice(-80)));
+  } catch {
+    /* ignore */
+  }
+}
+
+/** True when another action sheet/modal is already covering the screen. */
+function hasBlockingActionSheet() {
+  if (typeof document === "undefined") return false;
+  return !!document.querySelector("[data-sheet]");
+}
+
+function itemKey(item) {
+  if (!item) return "";
+  if (item.kind === "overflow") return "overflow";
+  return String(item.event?.id || item.id || "");
+}
+
+function filterDismissed(queue, dismissed) {
+  return (queue || []).filter((x) => {
+    const k = itemKey(x);
+    if (!k || k === "overflow") return true;
+    return !dismissed.has(k);
+  });
 }
 
 function RemindMeSheet({ event, job, onClose, onSaved, dismissForWork }) {
@@ -816,8 +855,35 @@ export default function FollowUpPrompts() {
   const [hiddenForNav, setHiddenForNav] = useState(false);
   const [pauseTick, setPauseTick] = useState(0);
   const notifiedRef = useRef(new Set());
+  const dismissedRef = useRef(loadDismissedIds());
 
   const today = todayStr();
+
+  const markDismissed = useCallback((item) => {
+    const k = itemKey(item);
+    if (!k || k === "overflow") return;
+    dismissedRef.current.add(k);
+    persistDismissedIds(dismissedRef.current);
+  }, []);
+
+  /** One-at-a-time: mark closed items so rebuild does not re-open them. */
+  const takeNext = useCallback((q, closedItem, { showNext = true } = {}) => {
+    if (closedItem) {
+      const k = itemKey(closedItem);
+      if (k && k !== "overflow") {
+        dismissedRef.current.add(k);
+        persistDismissedIds(dismissedRef.current);
+      }
+    }
+    const rest = filterDismissed(q, dismissedRef.current);
+    if (!showNext) {
+      setCurrent(null);
+      return rest;
+    }
+    // User closed this card — show the next one alone (never stack).
+    setCurrent(rest[0] || null);
+    return rest;
+  }, []);
 
   const dismissForWork = useCallback(({ keepReminderReturn = false } = {}) => {
     beginPromptWorkPause();
@@ -825,19 +891,21 @@ export default function FollowUpPrompts() {
     setHiddenForNav(true);
     setSubSheet(null);
     setQueue((q) => {
-      const rest = q.slice(1);
-      setCurrent(rest[0] || null);
-      return rest;
+      const closed = q[0] || current;
+      // Leave the queue for later — do not pop the next card over work UI.
+      return takeNext(q.slice(1), closed, { showNext: false });
     });
-  }, []);
+  }, [current, takeNext]);
 
   const dismissReminderPopup = useCallback(
     ({ keepReminderReturn = false, openSubSheet = null } = {}) => {
       beginPromptWorkPause();
       if (!keepReminderReturn) clearReminderReturn();
       setQueue((q) => {
-        const rest = q.slice(1);
-        setCurrent(null);
+        const closed = q[0] || current;
+        markDismissed(closed);
+        const rest = filterDismissed(q.slice(1), dismissedRef.current);
+        setCurrent(null); // never immediately re-cover with the next card
         return rest;
       });
       if (openSubSheet) {
@@ -847,7 +915,7 @@ export default function FollowUpPrompts() {
         setHiddenForNav(true);
       }
     },
-    []
+    [current, markDismissed]
   );
 
   const openCreateJobFromReminder = useCallback(
@@ -887,7 +955,11 @@ export default function FollowUpPrompts() {
   useEffect(() => {
     const onVerifyDone = () => {
       if (IS_TEST || shouldSuppressPrompts() || isRemindersPaused()) return;
-      const q = buildPromptQueue(events, jobs, today, new Date(), commands);
+      if (hasBlockingActionSheet()) return;
+      const q = filterDismissed(
+        buildPromptQueue(events, jobs, today, new Date(), commands),
+        dismissedRef.current
+      );
       setQueue(q);
       setCurrent((c) => c || q[0] || null);
       setHiddenForNav(false);
@@ -899,6 +971,7 @@ export default function FollowUpPrompts() {
   useEffect(() => {
     const restore = () => {
       if (shouldSuppressPrompts()) return;
+      if (hasBlockingActionSheet()) return;
       setHiddenForNav(false);
     };
     window.addEventListener(RESTORE_REMINDER_EVENT, restore);
@@ -908,9 +981,14 @@ export default function FollowUpPrompts() {
   useEffect(() => {
     if (IS_TEST || shouldSuppressPrompts()) return;
     if (!hiddenForNav) return;
+    if (hasBlockingActionSheet()) return;
     setHiddenForNav(false);
-    const q = buildPromptQueue(events, jobs, today, new Date(), commands);
+    const q = filterDismissed(
+      buildPromptQueue(events, jobs, today, new Date(), commands),
+      dismissedRef.current
+    );
     setQueue(q);
+    // Only show next if nothing is currently open — never re-stack.
     setCurrent((c) => c || q[0] || null);
   }, [pauseTick, hiddenForNav, events, jobs, today, commands]);
 
@@ -942,17 +1020,23 @@ export default function FollowUpPrompts() {
 
   const refreshQueue = useCallback(() => {
     if (loading || !events?.length) return;
-    const q = buildPromptQueue(events, jobs, today, new Date(), commands);
+    const q = filterDismissed(
+      buildPromptQueue(events, jobs, today, new Date(), commands),
+      dismissedRef.current
+    );
     setQueue(q);
-    setCurrent((c) => c || q[0] || null);
+    setCurrent((c) => c || (hasBlockingActionSheet() ? null : q[0] || null));
   }, [events, jobs, loading, today, commands]);
 
   useEffect(() => {
     if (loading || IS_TEST) return;
     askReminderNotifyPermission();
-    const q = buildPromptQueue(events, jobs, today, new Date(), commands);
+    const q = filterDismissed(
+      buildPromptQueue(events, jobs, today, new Date(), commands),
+      dismissedRef.current
+    );
     setQueue(q);
-    setCurrent((c) => c || q[0] || null);
+    setCurrent((c) => c || (hasBlockingActionSheet() ? null : q[0] || null));
     if (q.length && !sessionAlreadyPrompted()) markSessionPrompted();
   }, [loading, events, jobs, today, commands]);
 
@@ -960,11 +1044,15 @@ export default function FollowUpPrompts() {
     if (IS_TEST) return;
     const tick = () => {
       if (shouldSuppressPrompts()) return;
-      const q = buildPromptQueue(events, jobs, today, new Date(), commands);
+      if (hasBlockingActionSheet() && !current) return;
+      const q = filterDismissed(
+        buildPromptQueue(events, jobs, today, new Date(), commands),
+        dismissedRef.current
+      );
       const dueNow = q.filter((x) => x.kind === "must_today_nudge" || x.kind === "scheduled_reminder");
       if (!dueNow.length) return;
       dueNow.forEach(notifyDueItem);
-      if (!current) {
+      if (!current && !hasBlockingActionSheet()) {
         setCurrent(dueNow[0]);
         setQueue((prev) => {
           const rest = prev.filter(
@@ -984,6 +1072,7 @@ export default function FollowUpPrompts() {
 
   const openEmailFromReminder = useCallback((emailKind, job) => {
     if (!job?.id) return;
+    beginPromptWorkPause();
     setSubSheet({ kind: "email", emailKind: emailKind || "estimate", job });
   }, []);
 
@@ -991,9 +1080,16 @@ export default function FollowUpPrompts() {
     (eventIds, minutes) => {
       batchSnoozeReminders(eventIds, minutes);
       clearNotified(eventIds);
+      for (const id of eventIds || []) {
+        dismissedRef.current.add(String(id));
+      }
+      persistDismissedIds(dismissedRef.current);
       showToast("Snoozed " + eventIds.length + " reminders for " + formatSnoozeDuration(minutes));
       setQueue((q) => {
-        const rest = q.filter((x) => !eventIds.includes(x.event?.id));
+        const rest = filterDismissed(
+          q.filter((x) => !eventIds.includes(x.event?.id)),
+          dismissedRef.current
+        );
         setCurrent((c) => (c && eventIds.includes(c.event?.id) ? rest[0] || null : c));
         return rest;
       });
@@ -1004,11 +1100,11 @@ export default function FollowUpPrompts() {
   const advance = useCallback(() => {
     setSubSheet(null);
     setQueue((q) => {
-      const rest = q.slice(1);
-      setCurrent(rest[0] || null);
-      return rest;
+      const closed = q[0] || current;
+      // One at a time: close this card, then (optionally) show the next alone.
+      return takeNext(q.slice(1), closed, { showNext: true });
     });
-  }, []);
+  }, [current, takeNext]);
 
   /** Global pause from inside a popup — clear every open reminder, not just this one. */
   const handlePauseAll = useCallback(() => {

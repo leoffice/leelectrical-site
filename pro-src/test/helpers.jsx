@@ -152,6 +152,26 @@ export function mockServer(opts = {}) {
         }
         return { ok: false, status: 400, json: async () => ({ ok: false }) };
       }
+      if (path === "send-doc-email") {
+        if (method === "POST") {
+          // Mirror live: client PDF + Resend. Tests treat as sent when pdfB64 present.
+          if (body?.probe) {
+            data = { ok: true, probe: true, hasResendKey: true };
+          } else if (!body?.email && !body?.officeOnly) {
+            data = { ok: false, reason: "no_recipient" };
+          } else if (!body?.pdfB64 && !body?.pdfBase64) {
+            data = { ok: false, reason: "no_pdf", error: "pdfB64 missing" };
+          } else {
+            data = {
+              ok: true,
+              sent: true,
+              resendId: "test-resend-" + seq++,
+              to: body.email,
+              kind: body.kind || "invoice",
+            };
+          }
+        } else data = { ok: false };
+      }
       if (path === "docs-fetch") {
         if (method === "POST" && body?.invoiceNo) {
           const no = String(body.invoiceNo);
