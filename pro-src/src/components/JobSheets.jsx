@@ -204,8 +204,18 @@ export function useDoSend() {
               ? "Sending via office email — you'll get a toast when it lands"
               : "Could not send right now (" + detail + "). Queued for retry — check Activity."
           );
-          // Queued is progress, not a hard fail — stay pending until watcher confirms.
-          return { ok: true, queued: true, pending: true };
+          // Queued is NOT sent. Reporting ok:true here closed the confirm sheet
+          // as if the document had gone out, while the status line still read
+          // "Never sent" — the send never actually happened. Surface it as
+          // not-sent-yet so the sheet stays open and says so.
+          return {
+            ok: false,
+            queued: true,
+            pending: true,
+            error: noKey
+              ? "Not sent yet — queued for the office email retry. Check Activity."
+              : "Not sent (" + detail + "). Queued for retry — check Activity.",
+          };
         }
       } catch {
         /* fall through */
