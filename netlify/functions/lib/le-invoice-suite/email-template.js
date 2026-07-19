@@ -109,9 +109,9 @@ function buildEmailHTML(d) {
   const customFieldRows = (d.customFields || [])
     .filter((c) => c && c.value)
     .map((c) => `
-      <tr>
-        <td style="font-size:18px;font-weight:bold;vertical-align:top;padding:10px 5px 0 5px;width:250px;">${esc(c.label)}</td>
-        <td style="font-size:18px;padding:10px 5px 0 5px;word-break:break-word;">${esc(c.value)}</td>
+      <tr class="le-fieldrow">
+        <td class="le-fieldlabel" style="font-size:18px;font-weight:bold;vertical-align:top;padding:10px 5px 0 5px;width:110px;white-space:nowrap;">${esc(c.label)}</td>
+        <td class="le-fieldvalue" style="font-size:18px;padding:10px 5px 0 5px;overflow-wrap:anywhere;word-break:normal;min-width:200px;">${esc(c.value)}</td>
       </tr>`).join('');
 
   const lineItems = d.lines.map((l) => `
@@ -140,6 +140,17 @@ function buildEmailHTML(d) {
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>${esc(d.company.name)}</title>
+<style>
+  /* Bill-to used a rigid 250px label cell, so on a phone the details column
+     collapsed and the customer name wrapped one letter per line. Stack the
+     label above the details under 480px and never break inside a word. */
+  .le-fieldrow td { word-break: normal; overflow-wrap: anywhere; }
+  @media only screen and (max-width:480px) {
+    .le-fieldrow td { display:block !important; width:100% !important; }
+    .le-fieldlabel { padding:10px 5px 0 5px !important; }
+    .le-fieldvalue { padding:2px 5px 10px 5px !important; }
+  }
+</style>
 </head>
 <body style="margin:0;padding:0;background:#ffffff;">
 <div style="font-family:${T.font};color:${T.text};padding-top:0.5in;padding-bottom:0.25in;">
@@ -182,10 +193,10 @@ function buildEmailHTML(d) {
   <table width="100%" cellpadding="0" cellspacing="0" border="0" style="font-family:${T.font};color:${T.text};">
     <tr>
       <td style="padding:10px 20px 10px 40px;">
-        <table width="100%" style="font-family:${T.font};color:${T.text};">
-          <tr>
-            <td style="vertical-align:top;font-weight:bold;font-size:18px;padding:10px 5px;width:250px;">Bill to</td>
-            <td style="font-size:18px;padding:10px 5px;word-break:break-word;">
+        <table width="100%" style="font-family:${T.font};color:${T.text};table-layout:auto;">
+          <tr class="le-fieldrow">
+            <td class="le-fieldlabel" style="vertical-align:top;font-weight:bold;font-size:18px;padding:10px 5px;width:110px;white-space:nowrap;">Bill to</td>
+            <td class="le-fieldvalue" style="font-size:18px;padding:10px 5px;overflow-wrap:anywhere;word-break:normal;min-width:200px;">
               ${esc(d.billTo.name)}<br>${(d.billTo.addressLines || []).map(esc).join('<br>')}</td>
           </tr>
         </table>
@@ -224,8 +235,6 @@ ${d.paymentMessage ? `
   If you have any questions concerning this ${docType.toLowerCase()} please contact us.<br>
   Phone: ${esc(d.company.phone)} Email: ${esc(d.company.email)}</td></tr>
 
-<!-- second button row -->
-<tr><td align="center" style="padding:20px 0;">${btnRow()}</td></tr>
 
 <!-- company address -->
 <tr><td style="border-top:${T.rule};padding:10px 40px 25px 40px;">

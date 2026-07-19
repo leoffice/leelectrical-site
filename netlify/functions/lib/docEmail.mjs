@@ -10,6 +10,7 @@ import emailTemplate from "./le-invoice-suite/email-template.js";
 // Logo inlined as base64 — Cloudflare/V8 has no filesystem for readFileSync.
 import { LOGO_PNG_BASE64 } from "./le-invoice-suite/logoBase64.mjs";
 import { POWERED_BY_LE_TEXT, poweredByLeHtml, resolveEmailBrand } from "./emailBranding.mjs";
+import { buildEmailPayLandingPayload, mintShortPayLink } from "./payLandingLink.mjs";
 
 const { buildEmailHTML, buildPayLink } = emailTemplate;
 
@@ -90,11 +91,12 @@ export async function sendDocEmail({
 
   const isInvoice = kind === "invoice";
   const docWord = isInvoice ? "Invoice" : "Estimate";
-  const viewLink = docKey ? docsUrl(docKey) : "";
-
-  let payLink;
+  // The Cardknox URL is NEVER shown to the customer. It is embedded in the
+  // landing payload so the PayLanding page can offer Pay; the email only ever
+  // exposes a short /pay/<code> link behind one button.
+  let cardknoxUrl = "";
   if (isInvoice && includePaymentLink && docData.amountDue > 0.01) {
-    payLink = buildPayLink({
+    cardknoxUrl = buildPayLink({
       amount: docData.amountDue,
       invoiceNumber: docData.docNumber,
       customerName: docData.billTo.name,
@@ -102,26 +104,31 @@ export async function sendDocEmail({
     });
   }
 
+  // Primary (and only) CTA: View Invoice -> review/pay landing page.
+  let viewLink = docKey ? docsUrl(docKey) : "";
+  if (isInvoice) {
+    const shortLink = await mintShortPayLink(
+      buildEmailPayLandingPayload({ job, docData, email, cardknoxUrl })
+    );
+    if (shortLink) viewLink = shortLink;
+  }
+
   const customTop = String(message || "").trim();
-  const defaultPayTop =
-    isInvoice && payLink
-      ? `You can pay this invoice securely online:\n${payLink}\n\nThank you — BLZ Electric`
-      : undefined;
+  // No "pay securely online" line and no raw URL — the View Invoice button is
+  // the single action, and paying lives on the landing page it opens.
+  const defaultPayTop = undefined;
   // Header brand = tenant (company name + logo). Footer = constant Powered by LE.
   const brand = resolveEmailBrand({ name: docData.company?.name, logoUrl: docData.company?.logoUrl });
   const html = buildEmailHTML({
     ...docData,
     viewLink,
-    payLink,
+    // payLink intentionally omitted: one primary CTA only.
     logoSrc: brand.logoSrc,
+    viewLabel: isInvoice ? "View Invoice" : "View Estimate",
     poweredByHtml: poweredByLeHtml(),
-    topMessage: customTop
-      ? payLink
-        ? `${customTop}\n\nYou can pay this invoice securely online:\n${payLink}`
-        : customTop
-      : defaultPayTop,
+    topMessage: customTop || defaultPayTop,
     paymentMessage: isInvoice
-      ? 'To make a payment, please follow one of these options:\n\nOnline Payment: Click the "View invoice" button in the email and pay via the provided credit card payment link.\n-Zelle: Send payment to Office@LeElectrical.us.\n-Check: Make checks payable to "BLZ Electric Inc." and either: Mail it or Email a clear picture of the check to Office@LeElectrical.us.'
+      ? 'Other ways to pay:\n\n-Zelle: Send payment to Office@LeElectrical.us.\n-Check: Make checks payable to "BLZ Electric Inc." and either mail it or email a clear picture of the check to Office@LeElectrical.us.'
       : undefined,
   });
 
@@ -158,14 +165,13 @@ export async function sendDocEmail({
   const text =
     `${docWord} ${docData.docNumber} from ${docData.company.name}\n` +
     (isInvoice ? `Due ${docData.dueDate} — $${docData.amountDue}\n\n` : `Total — $${docData.amountDue}\n\n`) +
-    (payLink ? `Pay online: ${payLink}\n\n` : "") +
-    (viewLink ? `View PDF: ${viewLink}` : "") +
+    (viewLink ? `View your invoice and pay: ${viewLink}` : "") +
     `\n\n${POWERED_BY_LE_TEXT}`;
 
   if (!apiKey) {
     console.log("[doc-email] DRY-RUN (no RESEND_API_KEY)", JSON.stringify(meta));
     // Not a successful send — client must surface this (was ok:true and looked "sent").
-    return { ok: false, dryRun: true, reason: "no_api_key", viewLink, payLink: payLink || "", ...meta };
+    return { ok: false, dryRun: true, reason: "no_api_key", viewLink, payLink: cardknoxUrl || "", ...meta };
   }
 
   const payload = {
@@ -198,7 +204,7 @@ export async function sendDocEmail({
       return { ok: false, reason: "resend_error", status: res.status, error: body, ...meta };
     }
     console.log("[doc-email] SENT", JSON.stringify({ ...meta, resendId: body.id }));
-    return { ok: true, sent: true, resendId: body.id, viewLink, payLink: payLink || "", docKey, ...meta };
+    return { ok: true, sent: true, resendId: body.id, viewLink, payLink: cardknoxUrl || "", docKey, ...meta };
   } catch (err) {
     console.error("[doc-email] fetch failed", err);
     return { ok: false, reason: "fetch_failed", error: String(err?.message || err), ...meta };
