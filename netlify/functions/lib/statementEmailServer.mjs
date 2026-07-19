@@ -9,6 +9,7 @@ import {
   resolveRecipient,
 } from "./paymentConfirmEnv.mjs";
 import { LOGO_PNG_BASE64 } from "./le-invoice-suite/logoBase64.mjs";
+import { poweredByLeHtml, resolveEmailBrand } from "./emailBranding.mjs";
 
 const RESEND_URL = "https://api.resend.com/emails";
 const OFFICE_EMAIL = "office@leelectrical.us";
@@ -32,7 +33,7 @@ function decodePdfB64(b64) {
   return buf.length > 4 && buf.slice(0, 4).toString("latin1") === "%PDF" ? buf : null;
 }
 
-function buildStatementHtml(st) {
+export function buildStatementHtml(st) {
   const companyName = esc(st.company?.name || "BLZ Electric");
   const rows = (st.payRows || [])
     .map(
@@ -46,10 +47,12 @@ function buildStatementHtml(st) {
          </tr>`
     )
     .join("");
+  // Header brand = tenant; footer = constant Powered by LE.
+  const brand = resolveEmailBrand({ name: companyName, logoUrl: st.company?.logoUrl });
   return `<!doctype html><html><body style="margin:0;background:#f6f7f8;font-family:Arial,Helvetica,sans-serif;color:#1f2937;">
   <div style="max-width:600px;margin:0 auto;background:#fff;">
     <div style="background:${GREEN};padding:16px 24px;">
-      <img src="cid:companylogo" alt="${companyName}" height="40" style="vertical-align:middle;" />
+      <img src="${brand.logoSrc}" alt="${companyName}" height="40" style="vertical-align:middle;" />
       <span style="color:#fff;font-weight:bold;font-size:16px;margin-left:10px;vertical-align:middle;">${companyName}</span>
     </div>
     <div style="padding:24px;">
@@ -75,6 +78,7 @@ function buildStatementHtml(st) {
       }
       <p style="font-size:13px;color:#6b7280;margin-top:20px;">Questions? Reply to this email or call us anytime.<br/>Thank you — ${companyName}</p>
     </div>
+    ${poweredByLeHtml()}
   </div></body></html>`;
 }
 

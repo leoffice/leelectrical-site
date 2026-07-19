@@ -1,3 +1,5 @@
+import { poweredByLeHtml } from "./emailBranding.mjs";
+
 const SITE = "https://leelectrical.us";
 const LOGO = `${SITE}/app/pro/le-logo.png?v=5`;
 export const PAYMENT_CONFIRM_COMPANY = "BLZ Electric";
@@ -90,6 +92,7 @@ export function buildPaymentConfirmEmail({
         <tr><td style="padding:16px 24px 24px;text-align:center;font-size:11px;color:#64748b;">
           <a href="${SITE}" style="color:#64748b;text-decoration:none;">leelectrical.us</a>
         </td></tr>
+        <tr><td style="padding:0;">${poweredByLeHtml()}</td></tr>
       </table>
     </td></tr>
   </table>

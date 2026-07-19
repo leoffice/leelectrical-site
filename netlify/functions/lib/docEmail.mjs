@@ -9,6 +9,7 @@ import { docPdfFilename, mapJobToQbDocData } from "./jobToQbDoc.mjs";
 import emailTemplate from "./le-invoice-suite/email-template.js";
 // Logo inlined as base64 — Cloudflare/V8 has no filesystem for readFileSync.
 import { LOGO_PNG_BASE64 } from "./le-invoice-suite/logoBase64.mjs";
+import { POWERED_BY_LE_TEXT, poweredByLeHtml, resolveEmailBrand } from "./emailBranding.mjs";
 
 const { buildEmailHTML, buildPayLink } = emailTemplate;
 
@@ -106,11 +107,14 @@ export async function sendDocEmail({
     isInvoice && payLink
       ? `You can pay this invoice securely online:\n${payLink}\n\nThank you — BLZ Electric`
       : undefined;
+  // Header brand = tenant (company name + logo). Footer = constant Powered by LE.
+  const brand = resolveEmailBrand({ name: docData.company?.name, logoUrl: docData.company?.logoUrl });
   const html = buildEmailHTML({
     ...docData,
     viewLink,
     payLink,
-    logoSrc: "cid:companylogo",
+    logoSrc: brand.logoSrc,
+    poweredByHtml: poweredByLeHtml(),
     topMessage: customTop
       ? payLink
         ? `${customTop}\n\nYou can pay this invoice securely online:\n${payLink}`
@@ -155,7 +159,8 @@ export async function sendDocEmail({
     `${docWord} ${docData.docNumber} from ${docData.company.name}\n` +
     (isInvoice ? `Due ${docData.dueDate} — $${docData.amountDue}\n\n` : `Total — $${docData.amountDue}\n\n`) +
     (payLink ? `Pay online: ${payLink}\n\n` : "") +
-    (viewLink ? `View PDF: ${viewLink}` : "");
+    (viewLink ? `View PDF: ${viewLink}` : "") +
+    `\n\n${POWERED_BY_LE_TEXT}`;
 
   if (!apiKey) {
     console.log("[doc-email] DRY-RUN (no RESEND_API_KEY)", JSON.stringify(meta));

@@ -70,7 +70,8 @@ function buildPayLink(o, cfg = {}) {
  * @param {string} [d.buttonLabel='Print or save']
  * @param {string} [d.topMessage]       text right under the banner (supports \n)
  * @param {string} [d.paymentMessage]   payment-options block (supports \n)
- * @param {string} [d.logoSrc='cid:companylogo']
+ * @param {string} [d.logoSrc='cid:companylogo']  tenant logo (header brand)
+ * @param {string} [d.poweredByHtml]   constant 'Powered by LE' footer block
  */
 function buildEmailHTML(d) {
   const docType = (d.docType || 'INVOICE').toUpperCase();
@@ -242,6 +243,9 @@ ${d.paymentMessage ? `
 <tr><td style="border-top:${T.rule};text-align:center;padding:27px 0 25px 0;font-size:15px;color:${T.muted};">
   If you receive an email that seems fraudulent, please check with the business owner before paying.
 </td></tr>
+
+<!-- powered-by footer (constant across tenants; injected by the caller) -->
+${d.poweredByHtml ? `<tr><td style="padding:0;">${d.poweredByHtml}</td></tr>` : ''}
 
 </table>
 </td><td></td></tr>
