@@ -35,6 +35,7 @@ import {
   parseCalendarUpsertResult,
   promotePendingCalendarEvent as promotePendingCalEvent,
 } from "../lib/calendarLink.js";
+import { productName } from "../lib/tenantBranding.js";
 
 const Ctx = createContext(null);
 const DRAFT_KEY = "lepro_draft_v1";
@@ -802,7 +803,7 @@ export function StoreProvider({ children }) {
       }
       refreshCommands();
       if (choice === "skip") showToast("Skipped");
-      else if (choice === "pull_qbo") showToast("Updated LE Pro from QuickBooks");
+      else if (choice === "pull_qbo") showToast(`Updated ${productName()} from QuickBooks`);
       else showToast("Approved — running…");
     },
     [commands, effectiveJob, enqueue, patchAndSave, refreshCommands, showToast]
@@ -932,7 +933,11 @@ export function StoreProvider({ children }) {
             summary: (g.title || "Job") + " — " + (g.customer || ""),
             start: g.date,
             location: calendarServiceLocation({ serviceAddress: serviceAddr, apartment: g.apartment, billingAddress: g.billingAddress }),
-            description: "Created in LE Pro",
+            // Lands in the Google Calendar event body — EXTERNAL stored data,
+            // not just UI. A rename therefore only affects events created
+            // after it; events already on the calendar keep the old wording.
+            // Nothing reads this string back, so no parser is needed.
+            description: `Created in ${productName()}`,
           },
           "judgment",
           "njcal:" + id

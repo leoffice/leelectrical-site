@@ -3,7 +3,7 @@ import {
   canGenerateLocalDoc,
   docPdfFilename,
   mapJobToQbDocData,
-  QB_COMPANY,
+  qbCompany,
 } from "../src/lib/jobToQbDoc.js";
 
 const job = {
@@ -43,7 +43,7 @@ describe("jobToQbDoc", () => {
     const d = mapJobToQbDocData({ ...job, invoiceDate: "2026-06-30" }, "invoice");
     expect(d.docType).toBe("INVOICE");
     expect(d.docNumber).toBe("251841");
-    expect(d.company).toEqual(QB_COMPANY);
+    expect(d.company).toEqual(qbCompany());
     expect(d.date).toBe("06/30/2026");
     expect(d.billTo.name).toBe("Peretz Chein");
     expect(d.lines).toHaveLength(1);
@@ -85,9 +85,11 @@ describe("jobToQbDoc", () => {
   });
 
   it("puts license under company contact (not in company name)", () => {
-    expect(QB_COMPANY.name).toBe("BLZ Electric Inc.");
-    expect(QB_COMPANY.license).toBe("Lic #11212");
-    expect(QB_COMPANY.name).not.toMatch(/Lic/);
+    expect(qbCompany().name).toBe("BLZ Electric Inc.");
+    expect(qbCompany().license).toBe("Lic #11212");
+    expect(qbCompany().name).not.toMatch(/Lic/);
+    // Locks the QBO header's historic double space before the ZIP.
+    expect(qbCompany().addressLines).toEqual(["383 Kingston Ave", "Brooklyn, NY  11213"]);
   });
 
   it("appends apartment to service address when set", () => {

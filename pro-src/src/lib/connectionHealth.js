@@ -1,4 +1,5 @@
 import { functionsBase } from "./functionsBase.js";
+import { activeTenantConfig } from "./tenantBranding.js";
 
 const base = () => functionsBase();
 
@@ -61,7 +62,7 @@ export async function probeConnections() {
         kind: "invoice",
         officeOnly: true,
         probe: true,
-        to: "office@leelectrical.us",
+        to: activeTenantConfig().profile?.officeEmail || "",
         subject: "probe",
       }),
     });
@@ -70,7 +71,7 @@ export async function probeConnections() {
       if (body.hasResendKey) {
         out.email = {
           ok: true,
-          detail: `Ready · from ${body.from || "payments@leelectrical.us"}`,
+          detail: `Ready · from ${body.from || activeTenantConfig().profile?.emailFrom || ""}`,
           hasResendKey: true,
         };
       } else {

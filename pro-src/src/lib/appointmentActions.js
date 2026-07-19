@@ -1,5 +1,6 @@
 // Appointment follow-up — classify job state, suggest actions, mood-based emails.
 import { linkedJobForEvent } from "./calendarLink.js";
+import { activeTenantConfig } from "./tenantBranding.js";
 
 export const EMAIL_MOODS = [
   { key: "professional", label: "Professional", emoji: "💼" },
@@ -174,10 +175,12 @@ function invoiceRef(job) {
   return job.invoiceNo ? "invoice #" + job.invoiceNo : "your invoice";
 }
 
-const SIGN = "— BLZ Electric";
-
 /** Generate a customer email draft for the chosen mood and scenario. */
 export function generateFollowUpEmail(job, emailKind, mood) {
+  // Resolved per call, not at module load: the tenant snapshot is published
+  // after this module is imported. Uses the short trading name rather than
+  // tenantSignOff(), which carries the legal "Inc." used on documents.
+  const SIGN = `— ${activeTenantConfig().profile?.shortName || ""}`;
   const name = firstName(job.customer);
   const title = job.title || "your project";
   const est = estimateRef(job);

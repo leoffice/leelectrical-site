@@ -6,6 +6,7 @@ import LockGate from "./components/LockGate.jsx";
 import PayLanding from "./views/PayLanding.jsx";
 import PayThanks from "./views/PayThanks.jsx";
 import { StoreProvider } from "./state/store.jsx";
+import { TenantProvider } from "./state/tenant.jsx";
 import "./index.css";
 import { checkForAppUpdate, watchServiceWorkerUpdates } from "./lib/appUpdate.js";
 
@@ -24,7 +25,11 @@ function PayOrApp() {
   return (
     <LockGate>
       <StoreProvider>
-        <App />
+        {/* Loads tenant_config before App mounts, so disabled routes are
+            never registered — not even for a frame. */}
+        <TenantProvider>
+          <App />
+        </TenantProvider>
       </StoreProvider>
     </LockGate>
   );

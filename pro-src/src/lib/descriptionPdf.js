@@ -1,4 +1,5 @@
 // Build a simple printable PDF from description / scope text (no external deps).
+import { activeTenantConfig, tenantName } from "./tenantBranding.js";
 
 const PAGE_W = 612;
 const PAGE_H = 792;
@@ -99,8 +100,18 @@ function buildPages(title, subtitle, body, footer) {
   return pages;
 }
 
+/**
+ * Header when the caller doesn't pass one — the tenant's short trading name,
+ * read at call time so white-label tenants get their own. Falls back to the
+ * legal name for a tenant that never set a short name.
+ */
+function defaultTitle() {
+  const p = activeTenantConfig().profile || {};
+  return p.shortName || tenantName();
+}
+
 /** @returns {Blob} application/pdf */
-export function buildDescriptionPdf({ title = "BLZ Electric", subtitle = "", body = "", footer = "" } = {}) {
+export function buildDescriptionPdf({ title = defaultTitle(), subtitle = "", body = "", footer = "" } = {}) {
   const pageBodies = buildPages(title, subtitle, body, footer);
   const objs = [];
   const kids = [];

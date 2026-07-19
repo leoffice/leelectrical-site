@@ -4,6 +4,8 @@ import React, { useEffect, useRef, useState } from "react";
 import { useStore } from "../state/store.jsx";
 import Sheet, { Fld } from "../components/Sheet.jsx";
 import { logOff } from "../lib/lock.js";
+import { useTenantConfig } from "../state/tenant.jsx";
+import { tenantChrome } from "../lib/tenantBranding.js";
 
 export const DVLBL = {
   new: "New",
@@ -25,12 +27,11 @@ const ORDER = { question: 0, verify: 1, approved: 2, understood: 3, new: 4, done
 // LE Pro is the ONLY active target (Levi 2026-07-06 — Command Center, Dashboard,
 // Beta, Sleek are officially PAUSED). The paused targets stay defined so existing
 // tasks still render, but are tucked under a collapsible "Development" section.
-const TARGETS = [
-  ["pro", "LE Pro"],
-  ["dashboard", "Dashboard"],
-  ["beta", "Beta"],
-  ["sleek", "Sleek"],
-];
+// Keys only: the active ("pro") target's label is the product name, which is
+// config-driven and must be read at render time — a module-level literal would
+// freeze whatever the config was at import. The paused targets below keep their
+// labels because those are internal codenames, not the product brand.
+const TARGET_KEYS = ["pro", "dashboard", "beta", "sleek"];
 const PAUSED_TARGETS = [
   ["dashboard", "Dashboard"],
   ["beta", "Beta"],
@@ -50,6 +51,7 @@ export default function Dev() {
   const [edit, setEdit] = useState(null); // task being edited
   const [showArch, setShowArch] = useState(false); // archived section expanded
   const fileRef = useRef(null);
+  const product = tenantChrome(useTenantConfig()).product;
 
   useEffect(() => {
     refreshDev();
@@ -147,7 +149,7 @@ export default function Dev() {
               checked={!!target.pro}
               onChange={(e) => setTarget((t) => ({ ...t, pro: e.target.checked }))}
             />
-            LE Pro
+            {product}
           </label>
           <button
             type="button"
@@ -290,7 +292,7 @@ function TaskCard({ t, archived, patchDevTask, onEdit }) {
           </button>
         )}
         <span className="flex-1" />
-        {(t.target ? TARGETS.map(([k]) => k).filter((k) => t.target[k]) : []).map((k) => (
+        {(t.target ? TARGET_KEYS.filter((k) => t.target[k]) : []).map((k) => (
           <span key={k} className="pill bg-slate-100 text-slate-500">{k}</span>
         ))}
         {t.priority === "High" && <span className="pill bg-red-100 text-red-700">High</span>}

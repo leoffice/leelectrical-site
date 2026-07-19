@@ -1,5 +1,6 @@
 import React, { useEffect, useRef, useState } from "react";
 import { fetchSolaIfieldsConfig, formatCardExpInput } from "../lib/solaCharge.js";
+import { productName } from "../lib/tenantBranding.js";
 
 const IFIELD_STYLE = {
   border: "1px solid #cbd5e1",
@@ -52,7 +53,13 @@ export default function SolaCardForm({ disabled, onReadyChange, savedMasked }) {
         await loadScript(`https://cdn.cardknox.com/ifields/${ver}/ifields.min.js`);
         if (cancelled) return;
         if (typeof window.setAccount === "function") {
-          window.setAccount(cfg.ifieldsKey, cfg.softwareName || "LE Pro", cfg.softwareVersion || "1.0.0");
+          // Read via the module snapshot, not the hook: setAccount is a
+          // one-shot SDK init and must not re-run when config resolves.
+          window.setAccount(
+            cfg.ifieldsKey,
+            cfg.softwareName || productName(),
+            cfg.softwareVersion || "1.0.0"
+          );
         }
         if (typeof window.setIfieldStyle === "function") {
           window.setIfieldStyle("card-number", IFIELD_STYLE);

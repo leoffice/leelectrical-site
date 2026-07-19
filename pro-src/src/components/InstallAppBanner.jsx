@@ -8,8 +8,11 @@ import {
   shouldOfferInstall,
   shouldWarnShortcut,
 } from "../lib/pwaInstall.js";
+import { productName } from "../lib/tenantBranding.js";
+import { useTenantConfig } from "../state/tenant.jsx";
 
 export default function InstallAppBanner() {
+  const product = productName(useTenantConfig());
   const [visible, setVisible] = useState(false);
   const [deferred, setDeferred] = useState(null);
   const [busy, setBusy] = useState(false);
@@ -65,12 +68,12 @@ export default function InstallAppBanner() {
           </span>
           <div className="flex-1 min-w-0">
             <div className="font-bold text-slate-900 text-sm">
-              {shortcut ? "This is a browser shortcut — not the real app" : "Install LE Pro on your phone"}
+              {shortcut ? "This is a browser shortcut — not the real app" : `Install ${product} on your phone`}
             </div>
             {shortcut ? (
               <p className="text-xs text-slate-700 mt-1 leading-relaxed">
                 Long-press the home-screen icon and <b>Remove</b>. Open{" "}
-                <b>www.leelectrical.us/app/pro</b> in Chrome, then tap <b>Install app</b> — LE Pro opens
+                <b>www.leelectrical.us/app/pro</b> in Chrome, then tap <b>Install app</b> — {product} opens
                 full-screen with just your logo, like a native app.
               </p>
             ) : ios ? (
@@ -80,7 +83,7 @@ export default function InstallAppBanner() {
               </p>
             ) : android && deferred ? (
               <p className="text-xs text-slate-600 mt-1 leading-relaxed">
-                Tap Install — LE Pro opens full-screen from your home screen like a native app.
+                Tap Install — {product} opens full-screen from your home screen like a native app.
               </p>
             ) : android ? (
               <p className="text-xs text-slate-600 mt-1 leading-relaxed">
@@ -100,7 +103,7 @@ export default function InstallAppBanner() {
                   disabled={busy}
                   data-testid="install-app-btn"
                 >
-                  {busy ? "Installing…" : "Install LE Pro"}
+                  {busy ? "Installing…" : `Install ${product}`}
                 </button>
               ) : null}
               <button

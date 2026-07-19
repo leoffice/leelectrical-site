@@ -1,9 +1,12 @@
 // Shell: bottom tab nav on mobile, left sidebar on desktop (>=1024px),
 // header sync chip, + FAB, chat bubble, approval watcher, leave-guard
 // sheet, sticky SaveBar and toast. Hash routing.
-import React, { useEffect, useState } from "react";
+import React, { Suspense, useEffect, useMemo, useState } from "react";
 import { NavLink, Route, Routes, useLocation, useNavigate } from "react-router-dom";
 import { useStore } from "./state/store.jsx";
+import { useTenantConfig } from "./state/tenant.jsx";
+import { allowedRoutePaths, visibleNavItems } from "./lib/tenantNav.js";
+import { tenantChrome } from "./lib/tenantBranding.js";
 import Jobs from "./views/Jobs.jsx";
 import JobDetail from "./views/JobDetail.jsx";
 import CustomerView from "./views/CustomerView.jsx";
@@ -11,11 +14,15 @@ import Today from "./views/Today.jsx";
 import Reminders from "./views/Reminders.jsx";
 import Time from "./views/Time.jsx";
 import Projects from "./views/Projects.jsx";
-import Dev from "./views/Dev.jsx";
 import Company from "./views/Company.jsx";
 import Settings from "./views/Settings.jsx";
-import Progress from "./views/Progress.jsx";
 import Archive from "./views/Archive.jsx";
+
+// Internal-only views are lazy so they are code-split out of the main chunk.
+// A non-internal tenant never registers these routes, so the chunks are never
+// requested — the dev tooling is absent from their app, not just hidden.
+const Dev = React.lazy(() => import("./views/Dev.jsx"));
+const Progress = React.lazy(() => import("./views/Progress.jsx"));
 import Placeholder from "./views/Placeholder.jsx";
 import SaveBar from "./components/SaveBar.jsx";
 import SyncChip from "./components/SyncChip.jsx";
@@ -41,31 +48,25 @@ import { logOff } from "./lib/lock.js";
 import { useAppSettings } from "./lib/appSettings.js";
 
 
-const TABS = [
-  { to: "/", label: "Customers", ic: "🗂️", end: true },
-  { to: "/today", label: "Calendar", ic: "📅" },
-  { to: "/reminders", label: "Reminders", ic: "🔔" },
-  { to: "/time", label: "Time", ic: "⏱️" },
-  { to: "/projects", label: "Requisition", ic: "📋" },
-  { to: "/company", label: "Company", ic: "📊" },
-  { to: "/settings", label: "Settings", ic: "⚙️" },
-  { to: "/progress", label: "Build", ic: "⚡" },
-  { to: "/dev", label: "Dev", ic: "🛠️" },
-  { to: "/archive", label: "Archive", ic: "📦" },
-];
-
-/** Mobile bottom bar — Archive, then + / chat, then Dev. */
-const MOBILE_NAV_BEFORE = [
-  { to: "/", label: "Customers", ic: "🗂️", end: true },
-  { to: "/today", label: "Calendar", ic: "📅" },
-  { to: "/reminders", label: "Reminders", ic: "🔔" },
-  { to: "/time", label: "Time", ic: "⏱️" },
-  { to: "/projects", label: "Requisition", ic: "📋" },
-  { to: "/company", label: "Company", ic: "📊" },
-  { to: "/settings", label: "Settings", ic: "⚙️" },
-  { to: "/progress", label: "Build", ic: "⚡" },
-];
-const MOBILE_NAV_AFTER = { to: "/dev", label: "Dev", ic: "🛠️" };
+/**
+ * Element for each gateable route path. Paths absent from the tenant's
+ * allow-list are never turned into a <Route>, so they 404 by URL.
+ */
+const ROUTE_ELEMENTS = {
+  "/": <Jobs />,
+  "/job/:id": <JobDetail />,
+  "/customer/:key": <CustomerView />,
+  "/today": <Today />,
+  "/reminders": <Reminders />,
+  "/time": <Time />,
+  "/projects": <Projects />,
+  "/projects/:projectId": <Projects />,
+  "/company": <Company />,
+  "/settings": <Settings />,
+  "/progress": <Progress />,
+  "/dev": <Dev />,
+  "/archive": <Archive />,
+};
 
 function Tab({ t, sidebar }) {
   const { devBadge, reminderBadge, guardNav, dirtyJobs } = useStore();
@@ -160,8 +161,21 @@ function useIsDesktop() {
 export default function App() {
   const { toast, docConfirm, error, setNewJob, refresh, dirtyCount, effectiveJob, jobs, toggleChat, chatUnread } = useStore();
   const { logoSrc } = useAppSettings();
+  const config = useTenantConfig();
   const isDesktop = useIsDesktop();
   const loc = useLocation();
+
+  const chrome = useMemo(() => tenantChrome(config), [config]);
+  const internal = config.internal === true;
+
+  // Nav links and registered routes are derived from the SAME allow-list, so
+  // a disabled module cannot be hidden-but-reachable. See lib/tenantNav.js.
+  const navItems = useMemo(() => visibleNavItems(config), [config]);
+  const routePaths = useMemo(() => allowedRoutePaths(config), [config]);
+
+  // Mobile bottom bar keeps Dev pinned after the ＋/💬 cluster when present.
+  const mobileBefore = navItems.filter((t) => t.to !== "/dev");
+  const mobileAfter = navItems.find((t) => t.to === "/dev") || null;
   const inDetail = loc.pathname.startsWith("/job/");
   const inCustomer = loc.pathname.startsWith("/customer/");
 
@@ -179,20 +193,22 @@ export default function App() {
       >
         <div className="flex flex-col items-center px-2 py-4 mb-2">
           <img
-            src={logoSrc}
-            alt="LE Electric"
+            src={chrome.logoUrl || logoSrc}
+            alt={chrome.logoAlt}
             className="h-32 w-auto max-w-[280px] object-contain shrink-0"
             data-testid="app-logo"
           />
           <div className="mt-2 text-center">
-            <div className="font-extrabold tracking-tight text-slate-900 leading-none text-lg">LE Pro</div>
-            <div className="text-[11px] text-slate-400 mt-0.5">LE Electric · Brooklyn</div>
+            <div className="font-extrabold tracking-tight text-slate-900 leading-none text-lg">
+              {chrome.product}
+            </div>
+            <div className="text-[11px] text-slate-400 mt-0.5">{chrome.subtitle}</div>
           </div>
         </div>
         <div className="px-2 mb-3">
           <SyncChip />
         </div>
-        {TABS.map((t) => (
+        {navItems.map((t) => (
           <Tab key={t.to} t={t} sidebar />
         ))}
         <div className="mt-auto px-2 pt-3 border-t border-slate-100">
@@ -204,7 +220,9 @@ export default function App() {
           >
             Log off
           </button>
-          <div className="text-[11px] text-slate-400">LE Pro · full parity build</div>
+          {internal ? (
+            <div className="text-[11px] text-slate-400">{chrome.product} · full parity build</div>
+          ) : null}
         </div>
       </aside>
 
@@ -218,6 +236,17 @@ export default function App() {
             <SyncChip compact />
           </span>
         </div>
+
+        {/* Never let a downgraded preview be mistaken for the real session. */}
+        {config.previewingAs ? (
+          <div
+            className="mx-4 mt-3 rounded-xl bg-amber-100 border border-amber-300 text-amber-900 text-xs font-bold px-3 py-2 text-center"
+            data-testid="view-as-banner"
+          >
+            Previewing as a <b>{config.previewingAs}</b>-tier tenant (not internal) — remove
+            <code className="mx-1">?viewAs=</code>from the URL to exit
+          </div>
+        ) : null}
 
         {error && (
           <div className="mx-4 mt-3 card border-red-200 bg-red-50 text-red-700 text-sm px-4 py-2.5 flex items-center gap-3">
@@ -233,22 +262,20 @@ export default function App() {
             inDetail || inCustomer ? "max-w-3xl lg:max-w-6xl" : "max-w-3xl"
           }`}
         >
-          <Routes>
-            <Route path="/" element={<Jobs />} />
-            <Route path="/job/:id" element={<JobDetail />} />
-            <Route path="/customer/:key" element={<CustomerView />} />
-            <Route path="/today" element={<Today />} />
-            <Route path="/reminders" element={<Reminders />} />
-            <Route path="/time" element={<Time />} />
-            <Route path="/projects" element={<Projects />} />
-            <Route path="/projects/:projectId" element={<Projects />} />
-            <Route path="/company" element={<Company />} />
-            <Route path="/settings" element={<Settings />} />
-            <Route path="/progress" element={<Progress />} />
-            <Route path="/dev" element={<Dev />} />
-            <Route path="/archive" element={<Archive />} />
-            <Route path="*" element={<Placeholder icon="🤔" title="Not found" note="That page doesn’t exist." />} />
-          </Routes>
+          {/*
+            Only the tenant's allowed paths are registered. A disabled module's
+            URL matches nothing and falls through to the catch-all below —
+            typing /dev on a non-internal tenant lands on Not found, the same
+            as any nonexistent page. Nav-link hiding alone would not do this.
+          */}
+          <Suspense fallback={<div className="p-4 text-sm font-semibold text-slate-400">Loading…</div>}>
+            <Routes>
+              {routePaths.map((path) => (
+                <Route key={path} path={path} element={ROUTE_ELEMENTS[path]} />
+              ))}
+              <Route path="*" element={<Placeholder icon="🤔" title="Not found" note="That page doesn’t exist." />} />
+            </Routes>
+          </Suspense>
         </main>
 
         <SaveBar />
@@ -292,14 +319,15 @@ export default function App() {
         <FollowUpPrompts />
         <EmailInsightPrompts />
         <InstallAppBanner />
-        <DevModeOverlay />
-        <LiveEditBar />
+        {/* LiveEdit / dev-mode authoring tools — internal tenants only. */}
+        {internal ? <DevModeOverlay /> : null}
+        {internal ? <LiveEditBar /> : null}
         <LeaveSheet />
 
         {/* Mobile bottom tab nav — Archive | ＋ 💬 | Dev */}
         <nav className="lg:hidden fixed bottom-0 inset-x-0 z-30 bg-white/95 backdrop-blur border-t border-slate-200 pb-safe" data-testid="bottom-nav">
           <div className="flex max-w-3xl mx-auto items-stretch">
-            {MOBILE_NAV_BEFORE.map((t) => (
+            {mobileBefore.map((t) => (
               <Tab key={t.to} t={t} />
             ))}
             <div
@@ -334,7 +362,7 @@ export default function App() {
                 </button>
               ) : null}
             </div>
-            <Tab t={MOBILE_NAV_AFTER} />
+            {mobileAfter ? <Tab t={mobileAfter} /> : null}
           </div>
         </nav>
 

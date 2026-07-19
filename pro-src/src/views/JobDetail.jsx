@@ -82,6 +82,7 @@ import {
   ReminderSheet,
 } from "../components/JobSheets.jsx";
 import CustomerComposeSheet from "../components/CustomerComposeSheet.jsx";
+import { productName } from "../lib/tenantBranding.js";
 
 const CMD_TONES = {
   queued: "bg-slate-100 text-slate-500",
@@ -289,7 +290,8 @@ export default function JobDetail() {
         summary: (job.title || "Job") + " — " + (job.customer || ""),
         start: d,
         location: calendarServiceLocation(job),
-        description: "Scheduled from LE Pro",
+        // Lands in the external calendar record — see calendarLink.js.
+        description: `Scheduled from ${productName()}`,
       },
       "judgment",
       "sched:" + id + ":" + d

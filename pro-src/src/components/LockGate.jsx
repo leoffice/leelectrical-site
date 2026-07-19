@@ -18,6 +18,7 @@ import {
   touchUnlocked,
 } from "../lib/lock.js";
 import { getCompanyLogoSrc } from "../lib/appSettings.js";
+import { productName, tenantName } from "../lib/tenantBranding.js";
 import { redeemAgentAccess } from "../lib/agentAccessClient.js";
 
 // A pending native passkey prompt must never trap the user. If the device
@@ -213,16 +214,20 @@ export default function LockGate({ children }) {
       data-testid="lock-gate"
       role="dialog"
       aria-modal="true"
-      aria-label="Unlock LE Pro"
+      aria-label={`Unlock ${productName()}`}
     >
       <div className="w-full max-w-sm flex flex-col items-center">
+        {/* LockGate renders BEFORE TenantProvider mounts (see main.jsx), so
+            branding here comes from the device-cached logo and the build seed
+            rather than server config. Good enough for the unlock screen; the
+            in-app chrome uses the resolved config. */}
         <img
           src={getCompanyLogoSrc()}
-          alt="LE Electric"
+          alt={tenantName() || "Company logo"}
           className="h-36 w-auto max-w-[320px] object-contain mb-4"
           data-testid="lock-logo"
         />
-        <h1 className="text-2xl font-extrabold tracking-tight">LE Pro</h1>
+        <h1 className="text-2xl font-extrabold tracking-tight">{productName()}</h1>
         <p className="text-sm text-white/70 mb-8">
           {mode === "biometric" && bioAvail && busy
             ? enrolled

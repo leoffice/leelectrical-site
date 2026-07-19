@@ -4,6 +4,8 @@ import React, { useCallback, useEffect, useState } from "react";
 import { fetchProgress, fmtUpdated } from "../lib/progressDashboard.js";
 import { commas, kfmt, md, money, shortTitle, DEV_PROGRESS_CONFIG } from "../lib/devProgressFormat.js";
 import { MomentumLine, SpeedBars } from "../lib/dashboard/charts.jsx";
+import { useTenantConfig } from "../state/tenant.jsx";
+import { tenantChrome } from "../lib/tenantBranding.js";
 
 function StatCard({ n, label, colorClass = "" }) {
   const colors = { b: "text-sky-400", p: "text-purple-400", o: "text-amber-400", pk: "text-pink-400" };
@@ -63,6 +65,7 @@ export default function Progress() {
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState("");
   const [openUpdate, setOpenUpdate] = useState(null);
+  const product = tenantChrome(useTenantConfig()).product;
 
   const load = useCallback(async () => {
     setBusy(true);
@@ -135,7 +138,7 @@ export default function Progress() {
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
           <h1 className="text-2xl sm:text-[34px] font-extrabold tracking-tight m-0 bg-gradient-to-r from-[#5eff9b] to-[#37d0ff] bg-clip-text text-transparent">
-            ⚡ {m.project || "LE Pro"} — Development Progress
+            ⚡ {m.project || product} — Development Progress
           </h1>
           <p className="text-sm text-[#8fa0c8] mt-1 mb-0">
             {t.first_commit ? md(t.first_commit.slice(0, 10)) : "—"} → {t.last_commit ? md(t.last_commit.slice(0, 10)) : "—"}, 2026 · {t.active_days} build days · built, tested & shipped live

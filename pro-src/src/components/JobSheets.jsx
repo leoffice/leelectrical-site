@@ -21,6 +21,8 @@ import { enrichAndPatchCustomer } from "./NewJobFlow.jsx";
 import AddressAutocompleteField from "./AddressAutocompleteField.jsx";
 import { syncBillingFromService } from "../lib/addressSync.js";
 import { useStore } from "../state/store.jsx";
+import { productName } from "../lib/tenantBranding.js";
+import { useTenantConfig } from "../state/tenant.jsx";
 
 import { fmt$, parseAmount, todayStr } from "../lib/format.js";
 import { docStorePdfUrl, openPdfBlob, openPdfUrl, downloadPdfBlob } from "../lib/pdfOpen.js";
@@ -71,6 +73,7 @@ import {
   viewQboLabel,
 } from "../lib/docSource.js";
 import { docSendStatusLine } from "../lib/docSendStatus.js";
+import { tenantCalendarAccount, tenantSignOff } from "../lib/tenantBranding.js";
 import { beginPromptWorkPause } from "../lib/followUpReminders.js";
 
 export const PAY_METHODS = [
@@ -286,6 +289,7 @@ export function MarkPaidSheet({
   initialCustomerName = "",
 }) {
   const { patchJob, showToast, syncNow, refreshJobs, jobs } = useStore();
+  const product = productName(useTenantConfig());
   const needsPick = !jobProp;
   const [activeJob, setActiveJob] = useState(jobProp || null);
   const [pickCust, setPickCust] = useState(() => {
@@ -384,7 +388,7 @@ export function MarkPaidSheet({
       return false;
     }
     if (alreadyPaid) {
-      showToast("Invoice already paid in LE Pro — sync from QuickBooks first");
+      showToast(`Invoice already paid in ${product} — sync from QuickBooks first`);
       return false;
     }
     if (payAmt <= 0) {
@@ -737,7 +741,8 @@ export function MarkPaidSheet({
         <div className="rounded-xl bg-amber-50 border border-amber-200 px-3 py-2.5 mb-3 text-[12px] text-amber-900">
           <p className="font-semibold">Already paid (balance {fmt$(due)})</p>
           <p className="mt-1 text-amber-800">
-            QuickBooks may already show this invoice as paid. Sync first so LE Pro matches QBO before recording another payment.
+            QuickBooks may already show this invoice as paid. Sync first so {product} matches QBO before recording
+            another payment.
           </p>
           <button className="btn bg-brand text-white w-full mt-2" onClick={() => syncNow().then(onClose)}>
             Sync from QuickBooks
@@ -1480,6 +1485,7 @@ function DocPdfStatus({ st, onRetry }) {
 /** Local vs QuickBooks view buttons — explicit source, no auto-mixing. */
 export function DocPdfViewButtons({ job, kind, no, compact }) {
   const { st, viewLocal, viewQbo } = useDocPdfView(job, kind, no);
+  const product = productName(useTenantConfig());
   const retry = () => (st.source === DOC_SOURCE_QBO ? viewQbo() : viewLocal());
 
   if (st.phase === "checking" || st.phase === "fetching" || st.phase === "timeout") {
@@ -1514,7 +1520,7 @@ export function DocPdfViewButtons({ job, kind, no, compact }) {
       <Opt
         icon="📄"
         title={viewLocalLabel(kind)}
-        note="LE Pro PDF from this job's line items"
+        note={`${product} PDF from this job's line items`}
         onClick={viewLocal}
         data-testid="view-local-doc"
       />
@@ -2147,11 +2153,14 @@ export function QuickSendSheet({ job, onClose, onEdit }) {
 }
 
 /* ---------- 2b. Calendar quick view ---------- */
-// The office account every LE calendar link must open under. Google keys the
+// The office account every calendar link must open under. Google keys the
 // account off the /u/<index> segment for the *current* sign-in order (which
 // varies per device) and off ?authuser=<email> as an explicit hint — so we set
-// both and let authuser win, landing reliably on office@leelectrical.us.
-export const CAL_ACCOUNT = "office@leelectrical.us";
+// both and let authuser win, landing reliably on the tenant's office mailbox.
+// Read at call time: tenant_config resolves after this module is evaluated.
+export function calAccount() {
+  return tenantCalendarAccount();
+}
 export function CalSheet({ job, onClose }) {
   const { events, commands, patchJob, patchAndSave, enqueue, patchLocalEvent, showToast, effectiveJob } = useStore();
   const [mode, setMode] = useState("menu"); // menu | add | pick | unlink | view
@@ -2167,7 +2176,7 @@ export function CalSheet({ job, onClose }) {
   const gcalUrl = googleCalendarOpenUrl({
     event: linked && event ? event : null,
     dateYmd: d,
-    account: CAL_ACCOUNT,
+    account: calAccount(),
   });
 
   if (mode === "view" && event) {
@@ -2249,7 +2258,7 @@ export function CalSheet({ job, onClose }) {
       <Opt
         icon="＋"
         title="Create appointment"
-        note="Syncs to office@leelectrical.us & links to this job"
+        note={`Syncs to ${calAccount()} & links to this job`}
         onClick={() => setMode("add")}
       />
       {linked ? (
@@ -2533,7 +2542,7 @@ export function ReminderSheet({ job, onClose }) {
   const [msg, setMsg] = useState(
     `Hi ${(job.customer || "").split(" ")[0]}, just a friendly reminder about your ${
       job.title || "job"
-    } (invoice ${job.invoiceNo ? "#" + job.invoiceNo : "pending"}). Please let us know if you have any questions. — BLZ Electric`
+    } (invoice ${job.invoiceNo ? "#" + job.invoiceNo : "pending"}). Please let us know if you have any questions. ${tenantSignOff()}`
   );
   return (
     <Sheet title={"Payment reminder — " + (job.customer || "")} onClose={onClose}>

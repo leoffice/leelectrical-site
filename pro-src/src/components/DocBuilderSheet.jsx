@@ -5,7 +5,8 @@ import DescriptionField, { PolishButton } from "./DescriptionField.jsx";
 import { DOC_SOURCE_LOCAL, DOC_SOURCE_QBO } from "../lib/docSource.js";
 import CustomerSearch from "./CustomerSearch.jsx";
 import { useStore } from "../state/store.jsx";
-import { DEFAULT_QBO_ITEMS, filterQboItems } from "../data/qboItems.js";
+import { useTenantConfig } from "../state/tenant.jsx";
+import { defaultQboItems, filterQboItems } from "../data/qboItems.js";
 import ServiceAddressField from "./ServiceAddressField.jsx";
 import AddressAutocompleteField from "./AddressAutocompleteField.jsx";
 import { emptyLine, initialLines, lineAmount, linesTotal } from "../lib/qboDoc.js";
@@ -328,6 +329,9 @@ export default function DocBuilderSheet({
   onCustomerPatch,
 }) {
   const { patchAndSave, enqueue, logSend, showToast, api, createJob, jobs: storeJobs, events } = useStore();
+  // Short trading name for the customer email draft — the legal name lives on
+  // the document itself, not in the covering message.
+  const tenantShortName = useTenantConfig().profile?.shortName || "";
   const boardJobs = allJobs || storeJobs;
   const [job, setJob] = useState(() => jobProp || {});
   useEffect(() => {
@@ -354,7 +358,10 @@ export default function DocBuilderSheet({
   const [lines, setLines] = useState(() => initialLines(job, { kind, mode, progressPct }));
   const [attachments, setAttachments] = useState([]);
   const [attUploading, setAttUploading] = useState(false);
-  const [items, setItems] = useState(DEFAULT_QBO_ITEMS);
+  // Lazy initializer: reads the live tenant config rather than the build seed.
+  // A non-internal tenant starts with an empty catalogue instead of inheriting
+  // LE's service names and prices.
+  const [items, setItems] = useState(() => defaultQboItems());
   const [saving, setSaving] = useState(false);
   const [emailSheet, setEmailSheet] = useState(false);
   const [sendEmails, setSendEmails] = useState(() => job.email || "");
@@ -1230,7 +1237,9 @@ export default function DocBuilderSheet({
               setSendMessage(
                 "Please find your " +
                   (kind === "estimate" ? "estimate" : "invoice") +
-                  " attached. Thank you for choosing BLZ Electric."
+                  " attached. Thank you for choosing " +
+                  tenantShortName +
+                  "."
               );
             }
             setEmailSheet(true);

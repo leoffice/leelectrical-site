@@ -9,6 +9,7 @@ import {
 // band, gray meta labels, per-line service date, two-column totals with dotted
 // rules, bold BALANCE DUE, centered footer. No network / no pdfkit.
 import { LE_LOGO_JPEG, leLogoJpegBytes } from "./leLogoJpeg.js";
+import { activeTenantConfig, tenantCompany } from "./tenantBranding.js";
 
 const PAGE_W = 612;
 const PAGE_H = 792;
@@ -238,17 +239,23 @@ export function buildQbDocPdf(data) {
 
   // Message block (gray, bottom-left) — payment options + thank-you / sincerely
   if (data.messageLines !== null) {
+    // Fallback copy only — callers normally pass data.messageLines. Built from
+    // tenant config so a white-label tenant never sees another tenant's name.
+    // The Zelle line is the tenant's configured wording; the check line keeps
+    // this template's own two-line phrasing with the name/mailbox swapped in.
+    const tenant = tenantCompany();
+    const profile = activeTenantConfig().profile || {};
     const defaultMsg = [
       'Online Payment: Click the "View Invoice" tab in the email and pay',
       "via the provided credit card payment link.",
-      "-Zelle: Send payment to Office@LeElectrical.us.",
-      '-Check: Make checks payable to "BLZ Electric Inc." and either: Mail',
-      "it or Email a clear picture of the check to Office@LeElectrical.us.",
+      `-${profile.zelleInstructions}`,
+      `-Check: Make checks payable to "${tenant.name}" and either: Mail`,
+      `it or Email a clear picture of the check to ${tenant.email}.`,
       "",
       "Thank you for your business - we appreciate it very much.",
       "",
       "Sincerely,",
-      company.name || "BLZ Electric Inc.",
+      company.name || tenant.name,
     ];
     const msg = [...(data.messageLines || defaultMsg)];
     if (data.payUrl) {

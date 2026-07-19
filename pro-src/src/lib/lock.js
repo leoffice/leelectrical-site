@@ -16,6 +16,8 @@
 // the vitest "node" environment; storage/crypto/network access is guarded and
 // injectable.
 
+import { productName } from "./tenantBranding.js";
+
 export const GRACE_MS = 8 * 60 * 60 * 1000; // 8 hours — field day + reloads
 export const CRED_KEY = "lepro_lock_cred_id"; // localStorage (persists across launches)
 export const GRACE_KEY = "lepro_lock_unlocked_at"; // sessionStorage (cleared on fresh open)
@@ -249,18 +251,25 @@ export async function biometricSupported() {
   }
 }
 
-const RP_NAME = "LE Pro";
+// WebAuthn `rp.name` is config-driven, and that is SAFE — do not "fix" it back
+// to a literal out of caution. Credentials are scoped by rp.id (the hostname,
+// set below and unchanged here); rp.name is a display-only label the OS shows
+// in the Face ID / fingerprint prompt. Changing it does NOT invalidate any
+// already-enrolled passkey.
+const rpName = () => productName();
 
 // First-use enrollment: create a platform credential and remember its id.
 // `signal` (optional AbortSignal) lets the UI cancel a pending native prompt.
-export async function registerBiometric({ label = "LE Pro user", signal } = {}) {
+export async function registerBiometric({ label, signal } = {}) {
+  // Shown next to the passkey in OS/browser settings; display-only, like rp.name.
+  const userLabel = label || `${productName()} user`;
   const publicKey = {
     challenge: randomBytes(32),
-    rp: { name: RP_NAME, id: globalThis.location?.hostname },
+    rp: { name: rpName(), id: globalThis.location?.hostname },
     user: {
       id: randomBytes(16),
-      name: label,
-      displayName: label,
+      name: userLabel,
+      displayName: userLabel,
     },
     pubKeyCredParams: [
       { type: "public-key", alg: -7 }, // ES256

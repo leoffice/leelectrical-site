@@ -10,7 +10,7 @@ import userEvent from "@testing-library/user-event";
 import "@testing-library/jest-dom/vitest";
 import { HashRouter } from "react-router-dom";
 import { StoreProvider } from "../src/state/store.jsx";
-import { CalSheet, QuickSendSheet, PDF_STAGES, CAL_ACCOUNT } from "../src/components/JobSheets.jsx";
+import { CalSheet, QuickSendSheet, PDF_STAGES, calAccount } from "../src/components/JobSheets.jsx";
 import { mockServer, stubPdfOpen } from "./helpers.jsx";
 
 // This harness runs without vitest globals:true, so RTL's afterEach auto-cleanup
@@ -52,7 +52,9 @@ describe("#54 calendar opens the office account", () => {
 
     expect(openSpy).toHaveBeenCalledTimes(1);
     const url = String(openSpy.mock.calls[0][0]);
-    expect(CAL_ACCOUNT).toBe("office@leelectrical.us");
+    // The calendar account is now read from tenant_config rather than a
+    // module const; for the LE tenant it resolves to the same mailbox.
+    expect(calAccount()).toBe("office@leelectrical.us");
     expect(url).toContain("calendar.google.com");
     expect(url).toContain("authuser=" + encodeURIComponent("office@leelectrical.us")); // office%40leelectrical.us
     expect(url).toContain("2026/07/10"); // date deep-link preserved

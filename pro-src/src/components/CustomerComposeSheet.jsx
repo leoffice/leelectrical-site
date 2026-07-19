@@ -3,6 +3,7 @@ import React, { useMemo, useState } from "react";
 import Sheet, { Fld } from "./Sheet.jsx";
 import { useStore } from "../state/store.jsx";
 import { todayStr } from "../lib/format.js";
+import { activeTenantConfig } from "../lib/tenantBranding.js";
 import {
   EMAIL_MOODS,
   defaultComposeDraft,
@@ -197,7 +198,13 @@ export default function CustomerComposeSheet({
       {extraActions ? <div className="mt-2 space-y-2">{extraActions}</div> : null}
 
       <p className="text-[11px] text-slate-400 text-center mt-2">
-        {isEmail ? "Sends from office@leelectrical.us — shows in Activity." : "Goes to Dispatch to send — status in Activity."}
+        {/* TODO(levi): this copy names the OFFICE mailbox, but profile.emailFrom
+            is payments@leelectrical.us — the label and the actual send-from may
+            already disagree. Preserved as-is here so config plumbing doesn't
+            silently change what the user is told; confirm which is correct. */}
+        {isEmail
+          ? `Sends from ${activeTenantConfig().profile?.officeEmail || ""} — shows in Activity.`
+          : "Goes to Dispatch to send — status in Activity."}
       </p>
     </Sheet>
   );

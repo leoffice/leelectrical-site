@@ -3,13 +3,29 @@ import React from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import { fmtMoneyPrecise } from "../lib/payFees.js";
 import { fmtBalanceNow, parsePayThanksParams } from "../lib/payThanks.js";
+import { useTenantConfig } from "../state/tenant.jsx";
+import { productName, tenantLocality } from "../lib/tenantBranding.js";
 
-const LOGO = import.meta.env.BASE_URL + "le-logo.png?v=5";
+const DEFAULT_LOGO = import.meta.env.BASE_URL + "le-logo.png?v=5";
 
 export default function PayThanks() {
   const [params] = useSearchParams();
   const { ok, inv, amt, bal, msg } = parsePayThanksParams(params);
   const balanceLabel = fmtBalanceNow(bal);
+
+  // This page is public and renders OUTSIDE TenantProvider (see main.jsx —
+  // /pay bypasses LockGate and StoreProvider), so this resolves to the BUILD
+  // seed, not the server's config for the tenant who issued the link. Correct
+  // for the single-tenant build; a later batch must resolve the tenant from
+  // the pay token so a customer of tenant B never sees tenant A's branding.
+  const config = useTenantConfig();
+  const profile = config.profile || {};
+  const logo = config.branding?.logoUrl || DEFAULT_LOGO;
+  // Short trading name — the pay page has always shown "BLZ Electric", not the
+  // legal "… Inc." that appears on the invoice PDF.
+  const brandName = profile.shortName || "";
+  const subline = [tenantLocality(config), profile.tagline].filter(Boolean).join(" · ");
+  const website = profile.website || "";
 
   return (
     <div className="min-h-screen bg-[#f4f6fb]">
@@ -19,14 +35,14 @@ export default function PayThanks() {
           data-testid="pay-thanks-header"
         >
           <img
-            src={LOGO}
-            alt="BLZ Electric"
+            src={logo}
+            alt={brandName}
             className="h-36 sm:h-40 w-auto max-w-[min(100%,380px)] object-contain mx-auto"
             data-testid="pay-thanks-logo"
           />
           <div className="w-full">
-            <div className="font-extrabold text-xl tracking-tight text-slate-900">BLZ Electric</div>
-            <div className="text-slate-500 text-sm">Brooklyn, NY · Licensed &amp; insured</div>
+            <div className="font-extrabold text-xl tracking-tight text-slate-900">{brandName}</div>
+            <div className="text-slate-500 text-sm">{subline}</div>
           </div>
         </div>
       </header>
@@ -85,12 +101,12 @@ export default function PayThanks() {
       </main>
 
       <footer className="text-center text-[11px] text-[#64748b] pb-8 px-4">
-        <a href="https://leelectrical.us" className="text-[#64748b] hover:text-brand">
-          leelectrical.us
+        <a href={`https://${website}`} className="text-[#64748b] hover:text-brand">
+          {website}
         </a>
         <span className="mx-2">·</span>
         <Link to="/" className="text-[#94a3b8]">
-          LE Pro (staff)
+          {productName(config)} (staff)
         </Link>
       </footer>
     </div>

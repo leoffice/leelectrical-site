@@ -1,26 +1,107 @@
 // Project requisition seed data + helpers.
 
 import { customerKeyForName, customerContact, normalizeCustomer } from "./customers.js";
-import { BAEZ_SOV_ITEMS } from "../data/baezSovItems.js";
 import { baseContractItems, sumItemValues } from "./requisitionCalc.js";
+import { activeTenantConfig, onTenantConfigChange } from "./tenantBranding.js";
+import { isInternal } from "./tenantConfig.js";
+import { DEFAULT_PROFILE } from "./tenantProfile.js";
 
+/* ------------------------------------------------------------------ *
+ * LE-SPECIFIC SAMPLE DATA — INTERNAL TENANT ONLY
+ *
+ * The Joy Construction / Baez Place constants below are REAL customer and
+ * project data belonging to LE Electrical, not generic demo fixtures. They
+ * predate multi-tenancy, when this app had exactly one tenant and the pilot
+ * project could safely be a hard-coded seed.
+ *
+ * They must never reach another tenant: shipping them would put one
+ * customer's GC name, jobsite address and contract structure into a
+ * stranger's account. Every entry point that SEEDS or MATCHES this data is
+ * therefore gated on `internal === true` (see seedBaezProject, findBaezJob
+ * and projectCustomerContact). The LE tenant is internal, so those gates are
+ * no-ops there and the live Baez requisition ledger is untouched.
+ *
+ * The constants themselves stay exported at their literal values because
+ * views/Projects.jsx and views/JobDetail.jsx import them for the customer-hub
+ * heading and the pilot route. Gating the entry points is what keeps the data
+ * from being written; the strings alone are inert.
+ *
+ * PROPER FIX (Batch 3): a new tenant's first project should come from the
+ * provisioning flow seeding tenant-owned data, not from a constant in a
+ * library module. When that lands, this whole block can be deleted.
+ * ------------------------------------------------------------------ */
 export const JOY_CONSTRUCTION_NAME = "Joy Construction";
 export const JOY_GC_LABEL = "JOY CONSTRUCTION CORP.";
 export const BAEZ_PROJECT_ID = "proj-baez-place";
 export const BAEZ_ADDRESS = "334 East 176th Street, Bronx NY";
 
-/** Default contractor name on requisitions (FROM / CONTRACTOR lines). */
-export const DEFAULT_REQ_COMPANY_NAME = "LE Electrical";
+/** True when this tenant may seed/match the LE pilot data above. */
+function internalTenant() {
+  return isInternal(activeTenantConfig());
+}
 
 /**
- * Fixed billing block under the logo on printed requisitions.
- * Company name is editable separately (bold on letterhead); address / phone / email stay fixed.
+ * Default contractor name on requisitions (FROM / CONTRACTOR lines).
+ *
+ * A live ESM binding, not a frozen literal: requisitionPdf.js, requisitionExcel.js
+ * and views/Projects.jsx import it as a plain string (one compares it with !==,
+ * so a String wrapper or getter would silently break identity), and importers
+ * see the updated binding. Kept current by the subscription below rather than
+ * lazily — an importer that read it before any function in this module had run
+ * would otherwise get the build seed. Prefer reqCompanyName() in new code.
+ */
+export let DEFAULT_REQ_COMPANY_NAME = DEFAULT_PROFILE.requisition.companyName;
+
+// Refresh the live binding whenever tenant_config changes, so its value never
+// depends on whether some other read path happened to run first.
+onTenantConfigChange(() => {
+  DEFAULT_REQ_COMPANY_NAME = reqProfile().companyName || "";
+});
+
+/**
+ * The tenant's requisition branding block, read LIVE on every call.
+ *
+ * Capturing this at import time would freeze it to the build seed, because
+ * TenantProvider publishes the real config asynchronously after boot.
+ */
+function reqProfile() {
+  const raw = activeTenantConfig()?.profile?.requisition;
+  const merged =
+    raw && typeof raw === "object"
+      ? { ...DEFAULT_PROFILE.requisition, ...raw }
+      : { ...DEFAULT_PROFILE.requisition };
+  DEFAULT_REQ_COMPANY_NAME = merged.companyName || "";
+  return merged;
+}
+
+/** Contractor name for this tenant's requisitions. */
+export function reqCompanyName() {
+  return reqProfile().companyName || "";
+}
+
+/**
+ * Billing block under the logo on printed requisitions, from tenant_config.
+ *
+ * Getters, not values: PDF/Excel builders and the Projects view read these
+ * properties at render time, and each read must reflect the tenant whose
+ * config is live — this is no longer a fixed LE address.
+ *
+ * Kept deliberately separate from the invoice header block: LE's requisitions
+ * go out under a different trading name, suite and mailbox (see
+ * tenantProfile.js). Do not collapse them onto profile.companyName/street/phone.
+ *
  * Print order: company (bold) → street → suite → city → phone + email on one line.
  */
 export const REQ_BILLING = {
-  addressLines: ["383 Kingston Avenue", "Suite 297", "Brooklyn, New York 11213"],
-  phone: "718-594-1850",
-  email: "LE@LEelectrical.US",
+  get addressLines() {
+    return reqProfile().addressLines || [];
+  },
+  get phone() {
+    return reqProfile().phone || "";
+  },
+  get email() {
+    return reqProfile().email || "";
+  },
 };
 
 /** Contractor name shown on G702 FROM (Contractor) and CONTRACTOR signature. */
@@ -29,7 +110,7 @@ export function projectCompanyName(project, override) {
   if (fromOverride) return fromOverride;
   const fromProject = String(project?.companyName || "").trim();
   if (fromProject) return fromProject;
-  return DEFAULT_REQ_COMPANY_NAME;
+  return reqCompanyName();
 }
 
 /** Route key for the Joy Construction customer hub. */
@@ -37,8 +118,15 @@ export function joyCustomerKey() {
   return customerKeyForName(JOY_CONSTRUCTION_NAME);
 }
 
-/** Match the Baez Place job from the jobs list (address, title, or GC name). */
+/**
+ * Match the Baez Place job from the jobs list (address, title, or GC name).
+ *
+ * INTERNAL ONLY — the "176" / "bae" / "joy" needles are LE's real jobsite and
+ * GC. On another tenant they would silently mis-link an unrelated job that
+ * happens to contain those substrings, so match nothing at all.
+ */
 export function findBaezJob(jobs) {
+  if (!internalTenant()) return null;
   const active = (jobs || []).filter((j) => j && !j._archived && !j._deleted);
   const addrNeedle = "176";
   for (const j of active) {
@@ -55,18 +143,39 @@ export function findBaezJob(jobs) {
   return null;
 }
 
-/** Contact card fields for Joy — prefer linked job, else project seed. */
+/**
+ * Contact card fields — prefer the linked job, else the project's own fields.
+ *
+ * The Joy / Baez literals are only used as a fallback for the internal tenant
+ * (LE's pilot project predates the project record carrying its own gc/address).
+ * Other tenants fall back to their project data, or to blanks.
+ */
+/**
+ * Heading name for the requisition hub.
+ *
+ * The internal tenant keeps the title-cased pilot label so LE's live hub is
+ * unchanged (its persisted project records predate a customerName field, and
+ * project.gc is the uppercase "…CORP." form). Every other tenant reads their
+ * own project record and never sees LE's customer.
+ */
+export function projectDisplayName(project) {
+  if (project?.customerName) return project.customerName;
+  if (internalTenant()) return JOY_CONSTRUCTION_NAME;
+  return project?.gc || "";
+}
+
 export function projectCustomerContact(project, linkedJob) {
   if (linkedJob) return customerContact([linkedJob]);
+  const internal = internalTenant();
   return {
-    name: JOY_CONSTRUCTION_NAME,
-    businessName: project?.gc || JOY_GC_LABEL,
+    name: internal ? JOY_CONSTRUCTION_NAME : project?.gc || "",
+    businessName: project?.gc || (internal ? JOY_GC_LABEL : ""),
     personName: "",
     phone: "",
     email: "",
     billingAddress: "",
     apartment: "",
-    address: project?.address || BAEZ_ADDRESS,
+    address: project?.address || (internal ? BAEZ_ADDRESS : ""),
     qboCustomerId: "",
   };
 }
@@ -80,14 +189,31 @@ export function ensureProjectDefaults(project) {
   return {
     driveLinks: [],
     jobId: "",
-    customerKey: joyCustomerKey(),
+    // Joy is LE's pilot customer — only default other tenants' projects to it
+    // when we are the internal tenant.
+    customerKey: internalTenant() ? joyCustomerKey() : "",
     ...project,
     requisitionEnabled: !!enabled,
     driveLinks: project.driveLinks || [],
   };
 }
 
-export function seedBaezProject() {
+/**
+ * First-boot project seed — INTERNAL ONLY. Returns null for other tenants.
+ *
+ * ASYNC ON PURPOSE. The schedule of values in ../data/baezSovItems.js is LE's
+ * real contract: line descriptions and dollar values down to the cent. A static
+ * import puts all 14KB of it in the main bundle, where any tenant can read it
+ * out of devtools — gating the seed only stops it being WRITTEN, not shipped.
+ * Importing it dynamically makes Rollup emit it as its own chunk that is
+ * fetched only when this function actually runs.
+ *
+ * The internal check therefore has to come BEFORE the await: an early return
+ * means a non-internal tenant never even requests the chunk.
+ */
+export async function seedBaezProject() {
+  if (!internalTenant()) return null;
+  const { BAEZ_SOV_ITEMS } = await import("../data/baezSovItems.js");
   // Progress SOV = base contract lines only. CO1–CO8 on the raw Drive sheet are
   // mistakes — not on the schedule and never calculated (Levi 2026-07-16).
   // Electric Service Equipment (item-1) is the only retainage-exempt line.
@@ -97,8 +223,8 @@ export function seedBaezProject() {
     id: BAEZ_PROJECT_ID,
     name: "Baez Place",
     address: BAEZ_ADDRESS,
-    companyName: DEFAULT_REQ_COMPANY_NAME,
-    contractor: DEFAULT_REQ_COMPANY_NAME,
+    companyName: reqCompanyName(),
+    contractor: reqCompanyName(),
     gc: JOY_GC_LABEL,
     customerKey: joyCustomerKey(),
     contractSum: baseContract,

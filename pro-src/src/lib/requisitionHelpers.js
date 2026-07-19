@@ -10,13 +10,38 @@ import {
   roundMoney,
   sumItemValues,
 } from "./requisitionCalc.js";
-import { fmtUsd } from "./requisitionData.js";
+import { fmtUsd, reqCompanyName } from "./requisitionData.js";
+import { activeTenantConfig } from "./tenantBranding.js";
+import { DEFAULT_PROFILE } from "./tenantProfile.js";
 
-export const REQUISITION_EMAIL_SIGNATURE = [
-  "Thank you,",
-  "Martin Dorkin / LE Electrical",
-  "Office@LeElectrical.us",
-].join("\n");
+/**
+ * Live ESM binding kept in sync by requisitionEmailSignature() below. Retained
+ * as an exported string for callers that read it as a value; prefer the
+ * function in new code.
+ */
+export let REQUISITION_EMAIL_SIGNATURE = "";
+
+/**
+ * Sign-off on the GC requisition email, built from tenant_config.
+ *
+ * Read live rather than captured at import: TenantProvider publishes the real
+ * config after boot, so a module-level literal would freeze every tenant to the
+ * build seed. Signer + company come from profile.requisition (LE's requisitions
+ * go out under a different trading name than its invoices); the contact line is
+ * the tenant's office mailbox.
+ */
+export function requisitionEmailSignature() {
+  const profile = activeTenantConfig()?.profile || {};
+  const req = { ...DEFAULT_PROFILE.requisition, ...(profile.requisition || {}) };
+  const who = [req.signerName, req.companyName || reqCompanyName()].filter(Boolean).join(" / ");
+  const office = profile.email || profile.officeEmail || "";
+  const sig = ["Thank you,", who, office].filter(Boolean).join("\n");
+  REQUISITION_EMAIL_SIGNATURE = sig;
+  return sig;
+}
+
+// Prime the binding so a value-read before the first email build is sane.
+requisitionEmailSignature();
 
 const ACTIVE_REQ_STATUSES = new Set(["submitted", "generated"]);
 
@@ -472,7 +497,7 @@ export function createRequisitionRecord(project, draft, opts = {}) {
   const companyName =
     (opts.companyName != null ? String(opts.companyName).trim() : "") ||
     String(draft?.companyName || project?.companyName || "").trim() ||
-    "LE Electrical";
+    reqCompanyName();
   return {
     id: `req-${Date.now()}`,
     num,
@@ -512,6 +537,7 @@ export function buildRequisitionEmail({ project, requisition, contact, to: toOve
   const prev = fmtUsd(req.previousCertificates);
   const total = fmtUsd(req.totalCompleted);
   const bal = fmtUsd(requisitionBalance(req));
+  const signature = requisitionEmailSignature();
 
   const subject = subjectOverride?.trim() || `${app} — ${proj} — Progress Payment Application`;
 
@@ -538,13 +564,13 @@ export function buildRequisitionEmail({ project, requisition, contact, to: toOve
     "Attach to your email:",
     ...attachLines,
     "",
-    REQUISITION_EMAIL_SIGNATURE,
+    signature,
   ]
     .filter(Boolean)
     .join("\n");
 
   const to = (toOverride ?? contact?.email ?? "").trim();
-  return { subject, body, to, signature: REQUISITION_EMAIL_SIGNATURE };
+  return { subject, body, to, signature };
 }
 
 export function mailtoRequisitionUrl(email) {

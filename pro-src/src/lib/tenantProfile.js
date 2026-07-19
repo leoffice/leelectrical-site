@@ -1,4 +1,19 @@
-/** Default company profile + feature toggles for LE Pro Settings / white-label. */
+/**
+ * Default company profile + feature toggles for LE Pro Settings / white-label.
+ *
+ * NOTE ON THE VALUES BELOW: these are the LE Electrical tenant's seed, not
+ * generic defaults. They are deliberately byte-identical to the literals that
+ * used to be hard-coded in invoicePdf.js / jobToQbDoc.js / requisitionData.js
+ * so that routing those call sites through tenant_config produces exactly the
+ * same invoice, estimate and requisition output as before.
+ *
+ * Where a call site historically used DIFFERENT wording (the requisition
+ * billing block names "LE Electrical" and a Suite 297 address; the four copies
+ * of the payment-instruction text had drifted), that variant is preserved as
+ * its own field rather than collapsed onto the shared one. Unifying them
+ * changes customer-facing documents and belongs in its own reviewable change,
+ * not in the config plumbing.
+ */
 
 export const DEFAULT_PROFILE = {
   companyName: "BLZ Electric Inc.",
@@ -20,6 +35,29 @@ export const DEFAULT_PROFILE = {
   invoiceStart: "",
   estimateStart: "",
   calendarAccount: "office@leelectrical.us",
+
+  // Short trading name used in email/SMS sign-offs ("— BLZ Electric").
+  // Distinct from companyName, which carries the legal "Inc.".
+  shortName: "BLZ Electric",
+  // Public website shown in customer-facing email footers and pay pages.
+  website: "leelectrical.us",
+  // Sub-line under the company name on the pay pages.
+  tagline: "Licensed & insured",
+  // Mailbox used for the Gmail authuser= hint on desktop mailto links.
+  officeEmail: "office@leelectrical.us",
+
+  /**
+   * AIA G702/G703 requisition billing block. Intentionally its own set of
+   * values — LE's requisitions go out under "LE Electrical" with a Suite 297
+   * address and a different mailbox from the invoice header.
+   */
+  requisition: {
+    companyName: "LE Electrical",
+    addressLines: ["383 Kingston Avenue", "Suite 297", "Brooklyn, New York 11213"],
+    phone: "718-594-1850",
+    email: "LE@LEelectrical.US",
+    signerName: "Martin Dorkin",
+  },
 };
 
 export const DEFAULT_FEATURES = {
@@ -66,6 +104,10 @@ export function mergeProfile(raw) {
   p.paymentMethods = {
     ...DEFAULT_PROFILE.paymentMethods,
     ...(p.paymentMethods && typeof p.paymentMethods === "object" ? p.paymentMethods : {}),
+  };
+  p.requisition = {
+    ...DEFAULT_PROFILE.requisition,
+    ...(p.requisition && typeof p.requisition === "object" ? p.requisition : {}),
   };
   return p;
 }

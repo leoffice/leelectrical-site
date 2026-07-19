@@ -1,5 +1,14 @@
 // Default QuickBooks Products & Services — matches BLZ Electric live QBO catalog.
 // Host can push a fresher list via POST items { op:"set" }. Use exact names.
+//
+// WHITE-LABEL: this list is LE Electrical's actual service catalogue, with LE's
+// actual prices. It must not be handed to another tenant as their starting
+// point — a Chicago plumber should not open the app to "8 Coned Service, $210".
+// Use defaultQboItems() rather than importing the array directly; it serves the
+// catalogue to the internal tenant only. Every other tenant starts empty and
+// fills the list from their own QuickBooks sync (the POST items path above).
+
+import { activeTenantConfig } from "../lib/tenantBranding.js";
 
 export const DEFAULT_QBO_ITEMS = [
   { name: "Service call:Service call", type: "Service", price: 180, description: "Service call" },
@@ -43,6 +52,15 @@ export const DEFAULT_QBO_ITEMS = [
   { name: "Quickpay Processing Fee", type: "Service", price: 3.5, description: "Credit card fees" },
   { name: "NYC", type: "Service", price: 0, description: "Sales tax (8.88064%)" },
 ];
+
+/**
+ * The starting item catalogue for this tenant. LE (internal) keeps its live
+ * QBO list; every other tenant starts empty rather than inheriting LE's
+ * services and prices.
+ */
+export function defaultQboItems() {
+  return activeTenantConfig().internal === true ? DEFAULT_QBO_ITEMS : [];
+}
 
 export function filterQboItems(items, query) {
   const q = String(query || "")
