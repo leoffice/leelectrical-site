@@ -1,6 +1,7 @@
 // Sheet — bottom sheet on mobile, centered modal on desktop (>=1024px).
 import React, { useEffect } from "react";
 import { registerSheet } from "../lib/sheetRegistry.js";
+import { lockBodyScroll } from "../lib/scrollLock.js";
 
 export default function Sheet({ title, onClose, children, wide, tall }) {
   useEffect(() => {
@@ -11,6 +12,10 @@ export default function Sheet({ title, onClose, children, wide, tall }) {
 
   // Announce this sheet globally so auto-opening prompts never stack on it.
   useEffect(() => registerSheet(), []);
+
+  // Freeze the page behind the sheet and restore the exact scroll position on
+  // close, so content never shifts under the user's cursor.
+  useEffect(() => lockBodyScroll(), []);
 
   return (
     <div className="fixed inset-0 z-[60] flex items-end lg:items-center justify-center" role="dialog" aria-modal="true" data-sheet>
