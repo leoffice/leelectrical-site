@@ -2,6 +2,9 @@
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import JobInfoCard from "./JobInfoCard.jsx";
 
+// A tap-driven scroll settles well inside this window; a real swipe does not.
+const TAP_GUARD_MS = 700;
+
 export default function JobAddressCarousel({
   jobs,
   activeId,
@@ -49,14 +52,27 @@ export default function JobAddressCarousel({
     [list, activeId, onSelectJob]
   );
 
+  // Tapping a control on a partially-visible card scrolls that card into view
+  // (focus scroll + scroll-snap). That scroll must NOT be read as "the user
+  // swiped to a different job" — it would navigate away and race the tap the
+  // user actually made. A tap wins for a short window after it fires.
+  const tapGuardUntil = useRef(0);
+  const markCardActionTap = useCallback(() => {
+    tapGuardUntil.current = Date.now() + TAP_GUARD_MS;
+  }, []);
+
   const onScroll = () => {
     const el = scrollRef.current;
     if (!el || !list.length) return;
     const w = el.clientWidth * 0.88;
+    if (!w) return;
     const i = Math.round(el.scrollLeft / w);
     const clamped = Math.max(0, Math.min(i, list.length - 1));
     if (clamped !== index) {
       setIndex(clamped);
+      // Scroll caused by a tap on a card control: keep the visual snap, but
+      // don't navigate — the tap's own handler owns what happens next.
+      if (Date.now() < tapGuardUntil.current) return;
       const job = list[clamped];
       if (job && job.id !== activeId) onSelectJob?.(job);
     }
@@ -123,13 +139,13 @@ export default function JobAddressCarousel({
               onAddChangeOrder={j.id === activeId ? onAddChangeOrder : undefined}
               canAddChangeOrder={canAddChangeOrder}
               onAddAttachment={j.id === activeId ? onAddAttachment : undefined}
-              onEstimate={() => onEstimate?.(j)}
-              onInvoice={() => onInvoice?.(j)}
-              onPayment={() => onPayment?.(j)}
-              onCalendar={() => onCalendar?.(j)}
+              onEstimate={() => { markCardActionTap(); onEstimate?.(j); }}
+              onInvoice={() => { markCardActionTap(); onInvoice?.(j); }}
+              onPayment={() => { markCardActionTap(); onPayment?.(j); }}
+              onCalendar={() => { markCardActionTap(); onCalendar?.(j); }}
               onChangeOrders={j.id === activeId ? onChangeOrders : undefined}
               changeOrdersActive={j.id === activeId && changeOrdersActive}
-              onBubbleTap={(b) => onBubbleTap?.(j, b)}
+              onBubbleTap={(b) => { markCardActionTap(); onBubbleTap?.(j, b); }}
               requisitionEnabled={j.id === activeId ? requisitionEnabled : !!(j.requisitionFlowEnabled || j.requisitionEnabled)}
               onToggleRequisition={j.id === activeId ? onToggleRequisition : undefined}
               requisitionHref={j.id === activeId ? requisitionHref : undefined}
