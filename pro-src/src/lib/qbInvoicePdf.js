@@ -1,3 +1,8 @@
+import {
+  POWERED_BY_LE,
+  POWERED_BY_LE_PDF_COLOR,
+  POWERED_BY_LE_PDF_SIZE,
+} from "./brand.js";
 // QuickBooks-clone invoice/estimate PDF — 100% client-side byte-writer port of
 // netlify/functions/lib/le-invoice-suite/qb-pdf.js (the server pdfkit template).
 // Matches the QBO layout: LE logo, green "INVOICE" heading, green table-header
@@ -294,13 +299,19 @@ export function buildQbDocPdf(data) {
       `If you have any questions concerning this ${docType.toLowerCase()} please contact us.`,
       `Phone: ${company.phone} Email: ${company.email}`,
     ];
-  pg.center(fLines[0], 718, { size: 10, color: GRAY });
-  let fy = 746;
+  pg.center(fLines[0], 706, { size: 10, color: GRAY });
+  let fy = 734;
   for (const l of fLines.slice(2)) {
     pg.center(l, fy, { size: 10, color: GRAY });
     fy += 14;
   }
   pg.center("Page 1 of 1", fy, { size: 10, color: GRAY });
+  // Constant product mark under the tenant's own footer — muted dark, not the
+  // near-invisible body gray, so it stays legible on white and in print.
+  pg.center(POWERED_BY_LE, fy + 14, {
+    size: POWERED_BY_LE_PDF_SIZE,
+    color: POWERED_BY_LE_PDF_COLOR,
+  });
 
   const image = { name: "ImLogo", width: LE_LOGO_JPEG.width, height: LE_LOGO_JPEG.height, bytes: leLogoJpegBytes() };
   return new Blob([assemblePdf(pg, image)], { type: "application/pdf" });

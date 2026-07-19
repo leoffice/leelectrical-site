@@ -4,6 +4,7 @@ import { lineAmount, linesTotal } from "./qboDoc.js";
 import { amountPaid, invoiceTotal, openBalance } from "./customers.js";
 import { effectiveServiceAddress } from "./customerSync.js";
 import { buildQbDocPdf } from "./qbInvoicePdf.js";
+import { POWERED_BY_LE, POWERED_BY_LE_PDF_COLOR, POWERED_BY_LE_PDF_SIZE } from "./brand.js";
 import { mapJobToQbDocData } from "./jobToQbDoc.js";
 
 const PAGE_W = 612;
@@ -422,7 +423,14 @@ function renderInvoicePages(data) {
   // Page numbers on each page
   return pages.map((stream, i) => {
     const pageNum = `Page ${i + 1} of ${pages.length}`;
-    return stream + "\n" + textCmd(RIGHT - 80, MARGIN - 10, pageNum, { size: SMALL });
+    // Constant product mark, centred, muted dark so it stays legible on white.
+    const markX = (PAGE_W - textWidth(POWERED_BY_LE, POWERED_BY_LE_PDF_SIZE, false)) / 2;
+    const c = POWERED_BY_LE_PDF_COLOR;
+    const mark =
+      `${c[0]} ${c[1]} ${c[2]} rg\n` +
+      textCmd(markX, MARGIN - 10, POWERED_BY_LE, { size: POWERED_BY_LE_PDF_SIZE }) +
+      "\n0 0 0 rg";
+    return stream + "\n" + textCmd(RIGHT - 80, MARGIN - 10, pageNum, { size: SMALL }) + "\n" + mark;
   });
 }
 
