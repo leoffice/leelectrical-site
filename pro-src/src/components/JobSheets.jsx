@@ -71,6 +71,7 @@ import {
   viewQboLabel,
 } from "../lib/docSource.js";
 import { docSendStatusLine } from "../lib/docSendStatus.js";
+import { tenantCalendarAccount, tenantSignOff } from "../lib/tenantBranding.js";
 import { beginPromptWorkPause } from "../lib/followUpReminders.js";
 
 export const PAY_METHODS = [
@@ -2147,11 +2148,14 @@ export function QuickSendSheet({ job, onClose, onEdit }) {
 }
 
 /* ---------- 2b. Calendar quick view ---------- */
-// The office account every LE calendar link must open under. Google keys the
+// The office account every calendar link must open under. Google keys the
 // account off the /u/<index> segment for the *current* sign-in order (which
 // varies per device) and off ?authuser=<email> as an explicit hint — so we set
-// both and let authuser win, landing reliably on office@leelectrical.us.
-export const CAL_ACCOUNT = "office@leelectrical.us";
+// both and let authuser win, landing reliably on the tenant's office mailbox.
+// Read at call time: tenant_config resolves after this module is evaluated.
+export function calAccount() {
+  return tenantCalendarAccount();
+}
 export function CalSheet({ job, onClose }) {
   const { events, commands, patchJob, patchAndSave, enqueue, patchLocalEvent, showToast, effectiveJob } = useStore();
   const [mode, setMode] = useState("menu"); // menu | add | pick | unlink | view
@@ -2167,7 +2171,7 @@ export function CalSheet({ job, onClose }) {
   const gcalUrl = googleCalendarOpenUrl({
     event: linked && event ? event : null,
     dateYmd: d,
-    account: CAL_ACCOUNT,
+    account: calAccount(),
   });
 
   if (mode === "view" && event) {
@@ -2249,7 +2253,7 @@ export function CalSheet({ job, onClose }) {
       <Opt
         icon="＋"
         title="Create appointment"
-        note="Syncs to office@leelectrical.us & links to this job"
+        note={`Syncs to ${calAccount()} & links to this job`}
         onClick={() => setMode("add")}
       />
       {linked ? (
@@ -2533,7 +2537,7 @@ export function ReminderSheet({ job, onClose }) {
   const [msg, setMsg] = useState(
     `Hi ${(job.customer || "").split(" ")[0]}, just a friendly reminder about your ${
       job.title || "job"
-    } (invoice ${job.invoiceNo ? "#" + job.invoiceNo : "pending"}). Please let us know if you have any questions. — BLZ Electric`
+    } (invoice ${job.invoiceNo ? "#" + job.invoiceNo : "pending"}). Please let us know if you have any questions. ${tenantSignOff()}`
   );
   return (
     <Sheet title={"Payment reminder — " + (job.customer || "")} onClose={onClose}>

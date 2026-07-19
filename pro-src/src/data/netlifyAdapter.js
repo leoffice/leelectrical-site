@@ -462,6 +462,9 @@ export function createNetlifyAdapter() {
         op: "set",
         profile: doc?.profile,
         features: doc?.features,
+        // tenant_config (branding / plan / module overrides / agencies).
+        // `internal` inside this payload is ignored by the server.
+        tenant: doc?.tenant,
       });
     },
 

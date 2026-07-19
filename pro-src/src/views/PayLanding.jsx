@@ -17,8 +17,10 @@ import {
   totalWithFee,
 } from "../lib/payFees.js";
 import { chargeCardFromLanding } from "../lib/solaCharge.js";
+import { useTenantConfig } from "../state/tenant.jsx";
+import { tenantLocality } from "../lib/tenantBranding.js";
 
-const LOGO = import.meta.env.BASE_URL + "le-logo.png?v=5";
+const DEFAULT_LOGO = import.meta.env.BASE_URL + "le-logo.png?v=5";
 
 function Row({ label, value, bold, children, onClick, expandable }) {
   if (children) {
@@ -132,6 +134,20 @@ export default function PayLanding() {
 
   const includeFee = feeEnabledInPayload(data);
 
+  // Public page: renders OUTSIDE TenantProvider (see main.jsx — /pay bypasses
+  // LockGate and StoreProvider), so this is the BUILD seed rather than the
+  // server config of the tenant who issued the link. Fine while the build is
+  // single-tenant; a later batch must resolve branding from the pay token so a
+  // customer of tenant B is never shown tenant A's name and logo.
+  const config = useTenantConfig();
+  const profile = config.profile || {};
+  const logo = config.branding?.logoUrl || DEFAULT_LOGO;
+  // Short trading name — this page has always shown "BLZ Electric", not the
+  // legal "… Inc." carried on the invoice PDF.
+  const brandName = profile.shortName || "";
+  const subline = [tenantLocality(config), profile.tagline].filter(Boolean).join(" · ");
+  const website = profile.website || "";
+
   useEffect(() => {
     if (!token) {
       setData(null);
@@ -189,10 +205,10 @@ export default function PayLanding() {
           <div className="text-4xl mb-3">⚠️</div>
           <h1 className="text-lg font-bold text-slate-900 mb-2">Link not valid</h1>
           <p className="text-sm text-slate-500 mb-4">
-            This payment link may be incomplete or expired. Contact BLZ Electric for a fresh link.
+            This payment link may be incomplete or expired. Contact {brandName} for a fresh link.
           </p>
-          <a href="https://leelectrical.us" className="text-brand font-semibold text-sm">
-            leelectrical.us
+          <a href={`https://${website}`} className="text-brand font-semibold text-sm">
+            {website}
           </a>
         </div>
       </div>
@@ -287,14 +303,14 @@ export default function PayLanding() {
       <header className="bg-white border-b border-slate-200 px-4 py-6 pt-safe shadow-sm">
         <div className="max-w-lg mx-auto flex flex-col items-center text-center gap-2">
           <img
-            src={LOGO}
-            alt="BLZ Electric"
+            src={logo}
+            alt={brandName}
             className="h-36 sm:h-40 w-auto max-w-[min(100%,380px)] object-contain"
             data-testid="pay-logo"
           />
           <div>
-            <div className="font-extrabold text-xl tracking-tight text-slate-900">BLZ Electric</div>
-            <div className="text-slate-500 text-sm">Brooklyn, NY · Licensed &amp; insured</div>
+            <div className="font-extrabold text-xl tracking-tight text-slate-900">{brandName}</div>
+            <div className="text-slate-500 text-sm">{subline}</div>
           </div>
         </div>
       </header>
@@ -468,8 +484,8 @@ export default function PayLanding() {
       </main>
 
       <footer className="text-center text-[11px] text-slate-500 pb-8 px-4">
-        <a href="https://leelectrical.us" className="text-slate-500 hover:text-brand">
-          leelectrical.us
+        <a href={`https://${website}`} className="text-slate-500 hover:text-brand">
+          {website}
         </a>
         <span className="mx-2">·</span>
         <Link to="/" className="text-slate-400">

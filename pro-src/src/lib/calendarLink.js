@@ -3,6 +3,7 @@
 import { evStart } from "./format.js";
 import { clientKey } from "./customers.js";
 import { sortJobs } from "./stages.js";
+import { tenantCalendarAccount } from "./tenantBranding.js";
 
 const JOB_TAG = /(?:^|\n)leJobId:([^\s\n]+)/;
 
@@ -428,8 +429,8 @@ export async function applyAppointmentJobLink({
   if (patchLocalEvent && eid) patchLocalEvent(eid, { description: desc });
 }
 
-/** Google Calendar day or event deep-link for office@leelectrical.us. */
-export function googleCalendarOpenUrl({ event, dateYmd, account = "office@leelectrical.us" }) {
+/** Google Calendar day or event deep-link for the tenant's office account. */
+export function googleCalendarOpenUrl({ event, dateYmd, account = tenantCalendarAccount() }) {
   const auth = "?authuser=" + encodeURIComponent(account);
   const d =
     dateYmd ||

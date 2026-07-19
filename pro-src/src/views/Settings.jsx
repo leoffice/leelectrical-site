@@ -1,6 +1,8 @@
 // Settings — company profile, feature toggles, connection health, agent access.
 import React, { useCallback, useEffect, useState } from "react";
 import { useStore } from "../state/store.jsx";
+import { useTenantConfig } from "../state/tenant.jsx";
+import { MODULES, MODULE_LABELS } from "../lib/tenantConfig.js";
 import {
   DEFAULT_FEATURES,
   DEFAULT_PROFILE,
@@ -62,6 +64,8 @@ function StatusPill({ ok, label }) {
 
 export default function Settings() {
   const { showToast, pullCalendarNow, getSettings, saveSettings } = useStore();
+  const config = useTenantConfig();
+  const internal = config.internal === true;
   const [profile, setProfile] = useState(() => mergeProfile(DEFAULT_PROFILE));
   const [features, setFeatures] = useState(() => mergeFeatures(DEFAULT_FEATURES));
   const [loading, setLoading] = useState(true);
@@ -486,9 +490,49 @@ export default function Settings() {
         </div>
       </Section>
 
+      {/* Plan and modules are set by the tenant's subscription, not by the
+          tenant — shown read-only so what the nav does is explainable. */}
+      <Section title="Plan" hint="Your subscription decides which modules are available.">
+        <div className="flex flex-wrap items-center gap-2 mb-3" data-testid="settings-plan">
+          <span className="rounded-full bg-slate-900 text-white text-xs font-extrabold px-3 py-1 uppercase">
+            {config.plan.tier}
+          </span>
+          {config.plan.crewAddon ? (
+            <span className="rounded-full bg-emerald-100 text-emerald-700 text-xs font-bold px-3 py-1">
+              + Crew
+            </span>
+          ) : null}
+          {internal ? (
+            <span className="rounded-full bg-purple-100 text-purple-700 text-xs font-bold px-3 py-1">
+              Internal
+            </span>
+          ) : null}
+        </div>
+        <div className="space-y-1.5">
+          {MODULES.map((key) => (
+            <div
+              key={key}
+              className="flex items-center justify-between gap-3 rounded-xl border border-slate-100 bg-slate-50 px-3 py-2"
+              data-testid={`module-${key}`}
+            >
+              <span className="text-sm font-semibold text-slate-800">{MODULE_LABELS[key]}</span>
+              <span
+                className={`text-xs font-extrabold ${
+                  config.modules[key] ? "text-emerald-600" : "text-slate-400"
+                }`}
+              >
+                {config.modules[key] ? "On" : "Off"}
+              </span>
+            </div>
+          ))}
+        </div>
+      </Section>
+
       <Section title="Features" hint="Turn sections on or off for this company.">
         <div className="space-y-2">
-          {FEATURE_LABELS.filter((x) => x.key !== "speechToText").map(({ key, label }) => (
+          {FEATURE_LABELS.filter(
+            (x) => x.key !== "speechToText" && (internal || x.key !== "progressDashboard")
+          ).map(({ key, label }) => (
             <label
               key={key}
               className="flex items-center justify-between gap-3 rounded-xl border border-slate-100 bg-slate-50 px-3 py-2.5"
@@ -505,6 +549,9 @@ export default function Settings() {
         </div>
       </Section>
 
+      {/* Agent access mints codes that let the build agent into the app.
+          Dev tooling — internal tenants only. */}
+      {internal ? (
       <Section
         title="Agent access"
         hint="Time-boxed one-time codes so an agent can unlock the app and test — you control when and for how long."
@@ -640,6 +687,7 @@ export default function Settings() {
           </div>
         ) : null}
       </Section>
+      ) : null}
 
       <Section title="Account">
         <button

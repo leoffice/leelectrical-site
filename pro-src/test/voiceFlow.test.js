@@ -150,8 +150,10 @@ describe("requisition hub helpers", () => {
     expect(findBaezJob(jobs)?.id).toBe("j2");
   });
 
-  it("seed project has requisition enabled and customer key", () => {
-    const p = seedBaezProject();
+  // seedBaezProject is async now: the LE schedule-of-values it seeds from is
+  // dynamically imported so it stays out of the tenant bundle.
+  it("seed project has requisition enabled and customer key", async () => {
+    const p = await seedBaezProject();
     expect(p.requisitionEnabled).toBe(true);
     expect(p.customerKey).toBe("c:joy construction");
   });

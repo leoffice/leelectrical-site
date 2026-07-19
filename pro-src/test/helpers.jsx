@@ -6,6 +6,7 @@ import { HashRouter } from "react-router-dom";
 import { vi } from "vitest";
 import App from "../src/App.jsx";
 import { StoreProvider } from "../src/state/store.jsx";
+import { TenantProvider } from "../src/state/tenant.jsx";
 import { searchCustomerIndex } from "../../netlify/functions/lib/customerSearch.mjs";
 
 export const J1 = {
@@ -64,6 +65,13 @@ export function mockServer(opts = {}) {
     eventsSyncedAt: opts.eventsSyncedAt ?? Date.now() - 60000,
     calendarRequested: false,
     tasks: opts.tasks || [],
+    // tenant_config document served by the settings endpoint. Defaults to the
+    // LE flagship (everything on, internal) so existing tests are unaffected.
+    settings: opts.settings || {
+      profile: {},
+      features: {},
+      tenant: { tenantId: "le", internal: true, plan: { tier: "full", crewAddon: true } },
+    },
     messages: opts.messages || [],
     legacyMessages: opts.legacyMessages || {},
     failChatPosts: opts.failChatPosts || 0, // fail the next N chat op:msg POSTs (retry tests)
@@ -374,6 +382,17 @@ export function mockServer(opts = {}) {
           version: "2.15.2409.2601",
           achEnabled: false,
         };
+      } else if (path === "settings") {
+        // tenant_config + company profile. Tests pass `settings` to mockServer
+        // to render the app as a specific tenant (plan tier / internal flag).
+        if (method === "POST") {
+          state.settings = {
+            ...state.settings,
+            ...(body || {}),
+            updatedAt: Date.now(),
+          };
+        }
+        data = JSON.parse(JSON.stringify(state.settings));
       } else if (path === "progress") {
         if (method === "POST") {
           state.progress = { ...state.progress, updatedAt: Date.now() };
@@ -515,6 +534,24 @@ export function renderApp(hash = "#/") {
     <HashRouter>
       <StoreProvider>
         <App />
+      </StoreProvider>
+    </HashRouter>
+  );
+}
+
+/**
+ * Like renderApp, but with the real TenantProvider in the tree so nav and
+ * route gating run against the tenant_config the mock server serves.
+ * Pair with mockServer({ settings: { tenant: {...} } }).
+ */
+export function renderAppAsTenant(hash = "#/") {
+  window.location.hash = hash;
+  return render(
+    <HashRouter>
+      <StoreProvider>
+        <TenantProvider>
+          <App />
+        </TenantProvider>
       </StoreProvider>
     </HashRouter>
   );

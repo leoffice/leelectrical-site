@@ -571,7 +571,7 @@ function CompanyInfoSettings({ showToast }) {
         <div className="flex-1 min-w-0">
           <div className="text-sm font-bold text-slate-800">Company logo</div>
           <div className="text-xs text-slate-500 mt-0.5">
-            {settings.logoCustom ? "Custom file on this device" : "Default LE Electrical logo file"}
+            {settings.logoCustom ? "Custom file on this device" : "Default logo file"}
           </div>
           <div className="flex flex-wrap gap-2 mt-2">
             <label className="btn !py-1.5 !px-2.5 text-[11px] bg-slate-100 text-slate-800 cursor-pointer">

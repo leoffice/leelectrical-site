@@ -72,8 +72,8 @@ describe("requisitionCalc", () => {
     expect(itemEarned({ value: 459000, completedPct: 100 })).toBe(459000);
   });
 
-  it("seeds Baez SOV from Drive import (first line $459,000)", () => {
-    const project = seedBaezProject();
+  it("seeds Baez SOV from Drive import (first line $459,000)", async () => {
+    const project = await seedBaezProject();
     expect(project.items[0].description).toBe("Electric Service Equipment");
     expect(project.items[0].value).toBe(459000);
     expect(project.contractSum).toBe(1700000);
@@ -83,8 +83,8 @@ describe("requisitionCalc", () => {
     expect(project.changeOrders).toBe(0);
   });
 
-  it("Baez 100% closeout: item-1 0% retainage → $124,100 held, ELR $1,575,900", () => {
-    const project = seedBaezProject();
+  it("Baez 100% closeout: item-1 0% retainage → $124,100 held, ELR $1,575,900", async () => {
+    const project = await seedBaezProject();
     project.items = project.items.map((it) => ({ ...it, completedPct: 100 }));
     const g702 = buildG702(project, { changeOrders: 0 });
     expect(g702.totalCompleted).toBe(1700000);
@@ -98,8 +98,8 @@ describe("requisitionCalc", () => {
     expect(lineSum).toBe(124100);
   });
 
-  it("builds G702 with retainage and previous certs", () => {
-    const project = seedBaezProject();
+  it("builds G702 with retainage and previous certs", async () => {
+    const project = await seedBaezProject();
     project.items = project.items.slice(0, 2).map((it) => ({ ...it, completedPct: 100 }));
     project.requisitions = [{ currentPaymentDue: 50000, status: "submitted" }];
     const g702 = buildG702(project);
@@ -110,8 +110,8 @@ describe("requisitionCalc", () => {
     expect(g702.g703.length).toBe(2);
   });
 
-  it("keeps previous certs + current due aligned with earned less retainage", () => {
-    const project = seedBaezProject();
+  it("keeps previous certs + current due aligned with earned less retainage", async () => {
+    const project = await seedBaezProject();
     project.items = project.items.slice(0, 2).map((it) => ({ ...it, completedPct: 100 }));
     project.requisitions = [
       { currentPaymentDue: 900000, status: "submitted" },
@@ -145,8 +145,8 @@ describe("requisitionCalc", () => {
     expect(isChangeOrderItem({ description: "Lighting Controls" })).toBe(false);
   });
 
-  it("seeded Baez SOV has no CO lines and is $1.7M base only", () => {
-    const project = seedBaezProject();
+  it("seeded Baez SOV has no CO lines and is $1.7M base only", async () => {
+    const project = await seedBaezProject();
     expect(project.items.every((it) => !isChangeOrderItem(it))).toBe(true);
     expect(project.changeOrderList).toEqual([]);
     expect(project.contractSum).toBe(1700000);
@@ -205,8 +205,8 @@ describe("requisitionHelpers", () => {
     expect(pctChangeStatus(50, 0, false)).toBe("new");
   });
 
-  it("previousItemSnapshot reads last submitted requisition", () => {
-    const project = seedBaezProject();
+  it("previousItemSnapshot reads last submitted requisition", async () => {
+    const project = await seedBaezProject();
     project.requisitions = [
       { id: "r1", num: 1, status: "submitted", itemsSnapshot: [{ id: "item-1", completedPct: 40 }] },
     ];
@@ -255,8 +255,8 @@ describe("requisitionHelpers", () => {
     expect(next.items[1].completedPct).toBe(0);
   });
 
-  it("applyCarriedPercentages seeds new req from last submitted snapshot", () => {
-    const project = seedBaezProject();
+  it("applyCarriedPercentages seeds new req from last submitted snapshot", async () => {
+    const project = await seedBaezProject();
     project.items = project.items.slice(0, 2).map((it) => ({ ...it, completedPct: 0 }));
     project.requisitions = [
       { id: "r1", status: "submitted", itemsSnapshot: [{ id: "item-1", completedPct: 55 }, { id: "item-2", completedPct: 30 }] },
@@ -266,8 +266,8 @@ describe("requisitionHelpers", () => {
     expect(next.items[1].completedPct).toBe(30);
   });
 
-  it("createRequisitionRecord captures G702 fields", () => {
-    const project = seedBaezProject();
+  it("createRequisitionRecord captures G702 fields", async () => {
+    const project = await seedBaezProject();
     const draft = {
       ...project,
       changeOrders: 0,
@@ -365,8 +365,8 @@ describe("requisitionHelpers", () => {
     expect(next.requisitions).toHaveLength(1);
   });
 
-  it("buildRequisitionEmail includes key amounts, subject, and signature", () => {
-    const project = seedBaezProject();
+  it("buildRequisitionEmail includes key amounts, subject, and signature", async () => {
+    const project = await seedBaezProject();
     const req = {
       applicationNumber: "REQ-12",
       currentPaymentDue: 108278.1,
@@ -391,8 +391,8 @@ describe("requisitionHelpers", () => {
 });
 
 describe("updateRequisitionPercentages", () => {
-  it("saves local % edits and rebuilds due amount", () => {
-    const project = seedBaezProject();
+  it("saves local % edits and rebuilds due amount", async () => {
+    const project = await seedBaezProject();
     const items = project.items.slice(0, 3).map((it, i) => ({
       ...it,
       completedPct: i === 0 ? 50 : 0,
@@ -410,8 +410,8 @@ describe("updateRequisitionPercentages", () => {
 });
 
 describe("requisitionPdf", () => {
-  it("builds a PDF blob for G702/G703", () => {
-    const project = seedBaezProject();
+  it("builds a PDF blob for G702/G703", async () => {
+    const project = await seedBaezProject();
     const req = createRequisitionRecord(project, {
       ...project,
       items: project.items.slice(0, 3).map((it) => ({ ...it, completedPct: 25 })),
@@ -422,7 +422,7 @@ describe("requisitionPdf", () => {
   });
 
   it("uses editable company name and billing block, not VIA engineer", async () => {
-    const project = { ...seedBaezProject(), companyName: "BLZ Electric" };
+    const project = { ...(await seedBaezProject()), companyName: "BLZ Electric" };
     const req = createRequisitionRecord(project, {
       ...project,
       items: project.items.slice(0, 2).map((it) => ({ ...it, completedPct: 10 })),

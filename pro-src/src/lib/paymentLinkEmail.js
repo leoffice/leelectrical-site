@@ -1,6 +1,7 @@
 import { fmt$ } from "./format.js";
 import { invoiceTotal, openBalance } from "./customers.js";
 import { fmtMoneyPrecise, totalWithFee } from "./payFees.js";
+import { activeTenantConfig } from "./tenantBranding.js";
 
 /** Default subject/body for payment-link customer email — short link, friendly layout. */
 export function buildPaymentLinkEmail({ job, url, linkAmount, inv }) {
@@ -14,7 +15,12 @@ export function buildPaymentLinkEmail({ job, url, linkAmount, inv }) {
   const chargeStr = fmtMoneyPrecise(totalWithFee(linkAmt));
   const work = (job.title || job.serviceType || "your electrical work").trim();
 
-  const subject = `Invoice #${inv} — pay online — BLZ Electric`;
+  // Short trading name, not tenantName()/tenantSignOff() — those carry the
+  // legal "Inc." that belongs on documents, not in customer email copy.
+  const profile = activeTenantConfig().profile || {};
+  const brand = profile.shortName || "";
+
+  const subject = `Invoice #${inv} — pay online — ${brand}`;
 
   const body = [
     `Hi ${first},`,
@@ -33,8 +39,8 @@ export function buildPaymentLinkEmail({ job, url, linkAmount, inv }) {
     "Questions? Reply to this email or call us anytime.",
     "",
     "Thank you,",
-    "BLZ Electric",
-    "leelectrical.us",
+    brand,
+    profile.website || "",
   ].join("\n");
 
   return { subject, body, first, payButtonLabel: "Pay invoice #" + inv };

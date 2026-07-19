@@ -3,7 +3,7 @@ import {
   buildInvoicePdf,
   buildInvoicePdfFromJob,
   canGenerateLocalInvoice,
-  COMPANY,
+  company,
   fmtBalance,
   fmtInvoiceDate,
   fmtMoney,
@@ -100,9 +100,9 @@ describe("invoicePdf generation", () => {
     expect(blob.type).toBe("application/pdf");
     const text = await blob.text();
     expect(text.startsWith("%PDF-1.4")).toBe(true);
-    expect(text).toContain(COMPANY.name);
-    expect(text).toContain(COMPANY.license || "Lic #11212");
-    expect(COMPANY.name).not.toMatch(/Lic/);
+    expect(text).toContain(company().name);
+    expect(text).toContain(company().license || "Lic #11212");
+    expect(company().name).not.toMatch(/Lic/);
     expect(text).toContain("251841");
     expect(text).toContain("INVOICE");
     expect(text).toContain("BILL TO");

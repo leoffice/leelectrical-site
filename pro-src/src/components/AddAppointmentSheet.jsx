@@ -9,6 +9,7 @@ import { displayEventNotes, withJobLink } from "../lib/calendarLink.js";
 import { DATE_STEPS, inspectionAppointmentTitle } from "../lib/paperwork.js";
 import { evStart, todayStr } from "../lib/format.js";
 import { stashCalendarPick } from "../lib/calendarNavigate.js";
+import { tenantCalendarAccount } from "../lib/tenantBranding.js";
 
 /** Google Calendar colorId 11 = red (Tomato). */
 export const GCAL_RED_COLOR_ID = "11";
@@ -310,7 +311,8 @@ export default function AddAppointmentSheet({
         </p>
       ) : !isEdit && job ? (
         <p className="text-[11px] text-slate-400 -mt-1 mb-2">
-          Pre-filled from {job._customerContext ? "customer" : "job"} info — writes to office@leelectrical.us
+          Pre-filled from {job._customerContext ? "customer" : "job"} info — writes to{" "}
+          {tenantCalendarAccount()}
         </p>
       ) : null}
 
@@ -402,7 +404,7 @@ export default function AddAppointmentSheet({
         </button>
       ) : null}
       <p className="text-[11px] text-slate-400 text-center mt-2">
-        Syncs to office@leelectrical.us — appears on Today after sync.
+        Syncs to {tenantCalendarAccount()} — appears on Today after sync.
       </p>
     </Sheet>
   );

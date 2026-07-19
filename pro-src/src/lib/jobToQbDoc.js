@@ -5,31 +5,52 @@ import { amountPaid, invoiceTotal, openBalance } from "./customers.js";
 import { effectiveServiceAddress } from "./customerSync.js";
 import { fmtInvoiceDate } from "./invoicePdf.js";
 import { isChangeOrderJob } from "./changeOrder.js";
+import { activeTenantConfig, tenantCompany } from "./tenantBranding.js";
 
-export const QB_COMPANY = {
-  name: "BLZ Electric Inc.",
-  addressLines: ["383 Kingston Ave", "Brooklyn, NY  11213"],
-  phone: "(718) 594-1850",
-  email: "Office@LeElectrical.us",
-  /** Printed on its own line under the email (not next to the company name). */
-  license: "Lic #11212",
-};
+/**
+ * Header company block for the QBO template. Functions rather than consts:
+ * tenant config resolves after import, so a captured value would freeze the seed.
+ */
+export function qbCompany() {
+  const c = tenantCompany();
+  return {
+    name: c.name,
+    // The QBO header has always rendered two spaces before the ZIP. Kept so
+    // regenerating an existing invoice produces byte-identical output.
+    addressLines: [c.street, c.cityStateZip.replace(/\s+(\d{5}(?:-\d{4})?)$/, "  $1")],
+    phone: c.phone,
+    email: c.email,
+    /** Printed on its own line under the email (not next to the company name). */
+    license: c.license,
+  };
+}
 
-/** Payment options block — same wording on every invoice PDF (gray message area). */
-export const INVOICE_PAYMENT_LINES = [
-  'Online Payment: Click the "View Invoice" tab in the email and pay',
-  "via the provided credit card payment link.",
-  "-Zelle: Send payment to Office@LeElectrical.us.",
-  '-Check: Make checks payable to "BLZ Electric Inc." and either: Mail',
-  "it or Email a clear picture of the check to Office@LeElectrical.us.",
-];
+/**
+ * Payment options block — gray message area. The Zelle line uses the tenant's
+ * configured wording; the check line keeps this template's own two-line
+ * phrasing (which differs from profile.checkInstructions) with the name and
+ * mailbox swapped in, so existing invoices render unchanged.
+ */
+export function invoicePaymentLines() {
+  const c = tenantCompany();
+  const p = activeTenantConfig().profile || {};
+  return [
+    'Online Payment: Click the "View Invoice" tab in the email and pay',
+    "via the provided credit card payment link.",
+    `-${p.zelleInstructions}`,
+    `-Check: Make checks payable to "${c.name}" and either: Mail`,
+    `it or Email a clear picture of the check to ${c.email}.`,
+  ];
+}
 
-export const INVOICE_CLOSING_LINES = [
-  "Thank you for your business - we appreciate it very much.",
-  "",
-  "Sincerely,",
-  "BLZ Electric Inc.",
-];
+export function invoiceClosingLines() {
+  return [
+    "Thank you for your business - we appreciate it very much.",
+    "",
+    "Sincerely,",
+    tenantCompany().name,
+  ];
+}
 
 /** Service address with apartment when present (e.g. "…, Apt 4B"). */
 export function formatServiceAddressWithApt(job) {
@@ -190,7 +211,7 @@ export function mapJobToQbDocData(job, kind = "invoice") {
 
   return {
     docType,
-    company: QB_COMPANY,
+    company: qbCompany(),
     docNumber: displayDocNumber,
     date: fmtInvoiceDate(invoiceDateRaw),
     dueDate: isInvoice ? fmtInvoiceDate(dueDateRaw) : undefined,
@@ -209,7 +230,7 @@ export function mapJobToQbDocData(job, kind = "invoice") {
     balanceDue: isInvoice ? balanceDue : undefined,
     // Payment options first, blank line, then thank-you / sincerely (same gray font).
     messageLines: isInvoice
-      ? [...INVOICE_PAYMENT_LINES, "", ...INVOICE_CLOSING_LINES]
+      ? [...invoicePaymentLines(), "", ...invoiceClosingLines()]
       : undefined,
     showAcceptance: !isInvoice,
   };

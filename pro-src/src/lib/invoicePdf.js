@@ -6,6 +6,7 @@ import { effectiveServiceAddress } from "./customerSync.js";
 import { buildQbDocPdf } from "./qbInvoicePdf.js";
 import { POWERED_BY_LE, POWERED_BY_LE_PDF_COLOR, POWERED_BY_LE_PDF_SIZE } from "./brand.js";
 import { mapJobToQbDocData } from "./jobToQbDoc.js";
+import { activeTenantConfig, tenantCompany } from "./tenantBranding.js";
 
 const PAGE_W = 612;
 const PAGE_H = 792;
@@ -16,29 +17,44 @@ const SMALL = 9;
 const HEAD = 14;
 const TITLE = 20;
 
-export const COMPANY = {
-  name: "BLZ Electric Inc.",
-  street: "383 Kingston Ave",
-  cityStateZip: "Brooklyn, NY 11213",
-  phone: "(718) 594-1850",
-  email: "Office@LeElectrical.us",
-  /** Own line under email — not next to the company name. */
-  license: "Lic #11212",
-};
+/**
+ * Header company block. A function, not a const: the tenant config resolves
+ * after this module is imported, so a captured value would freeze the seed.
+ * `license` prints on its own line under the email, not next to the name.
+ */
+export function company() {
+  return tenantCompany();
+}
 
-export const PAYMENT_INSTRUCTIONS = [
-  'Online Payment: Click the "View Invoice" tab in the email and pay',
-  "via the provided credit card payment link.",
-  "-Zelle: Send payment to Office@LeElectrical.us.",
-  '-Check: Make checks payable to "BLZ Electric Inc." and either: Mail',
-  "it or Email a clear picture of the check to Office@LeElectrical.us.",
-];
+/**
+ * Payment options block. The Zelle line comes straight from the tenant's
+ * configured wording; the check line keeps this document's own two-line
+ * phrasing (it predates and differs from profile.checkInstructions) with only
+ * the company name and mailbox swapped in.
+ */
+export function paymentInstructions() {
+  const c = tenantCompany();
+  const p = activeTenantConfig().profile || {};
+  return [
+    'Online Payment: Click the "View Invoice" tab in the email and pay',
+    "via the provided credit card payment link.",
+    `-${p.zelleInstructions}`,
+    `-Check: Make checks payable to "${c.name}" and either: Mail`,
+    `it or Email a clear picture of the check to ${c.email}.`,
+  ];
+}
 
-const FOOTER_LINES = [
-  "Thank you for your business!",
-  "If you have any questions concerning this invoice please contact us.",
-  `Phone: ${COMPANY.phone} Email: office@LeElectrical.us`,
-];
+function footerLines() {
+  const c = tenantCompany();
+  return [
+    "Thank you for your business!",
+    "If you have any questions concerning this invoice please contact us.",
+    // TODO: pre-existing inconsistency — the footer mailbox is lowercased here
+    // while the header renders c.email as "Office@…". Left literal so the
+    // rendered PDF stays byte-identical; unify in its own reviewable change.
+    `Phone: ${c.phone} Email: office@LeElectrical.us`,
+  ];
+}
 
 function esc(s) {
   return String(s || "")
@@ -258,18 +274,19 @@ function renderInvoicePages(data) {
   const addText = (x, yy, text, opts = {}) => add(textCmd(x, yy, text, opts));
 
   // --- Page 1 header (company + INVOICE block); license under email ---
-  addText(MARGIN, y, COMPANY.name, { size: BODY, font: "F1" });
+  const co = company();
+  addText(MARGIN, y, co.name, { size: BODY, font: "F1" });
   y -= 13;
-  addText(MARGIN, y, COMPANY.street);
+  addText(MARGIN, y, co.street);
   y -= 13;
-  addText(MARGIN, y, COMPANY.cityStateZip);
+  addText(MARGIN, y, co.cityStateZip);
   y -= 13;
-  addText(MARGIN, y, COMPANY.phone);
+  addText(MARGIN, y, co.phone);
   y -= 13;
-  addText(MARGIN, y, COMPANY.email);
+  addText(MARGIN, y, co.email);
   y -= 13;
-  if (COMPANY.license) {
-    addText(MARGIN, y, COMPANY.license);
+  if (co.license) {
+    addText(MARGIN, y, co.license);
     y -= 13;
   }
   y -= 15;
@@ -357,7 +374,7 @@ function renderInvoicePages(data) {
   // Payment instructions + thank-you / sincerely (after line items).
   // An estimate/proposal has no money due yet, so it omits the payment block.
   if (!isEstimate) {
-    for (const ln of PAYMENT_INSTRUCTIONS) {
+    for (const ln of paymentInstructions()) {
       needPage();
       addText(MARGIN, y, ln, { size: SMALL });
       y -= 11;
@@ -367,7 +384,7 @@ function renderInvoicePages(data) {
       "Thank you for your business - we appreciate it very much.",
       "",
       "Sincerely,",
-      COMPANY.name,
+      co.name,
     ]) {
       needPage();
       if (ln === "") {
@@ -409,9 +426,10 @@ function renderInvoicePages(data) {
   }
 
   y -= 10;
+  const baseFooter = footerLines();
   const footer = isEstimate
-    ? FOOTER_LINES.map((ln) => ln.replace("this invoice", "this estimate"))
-    : FOOTER_LINES;
+    ? baseFooter.map((ln) => ln.replace("this invoice", "this estimate"))
+    : baseFooter;
   for (const ln of footer) {
     needPage();
     addText(MARGIN, y, ln, { size: SMALL });

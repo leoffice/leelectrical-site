@@ -1013,7 +1013,14 @@ export default function Projects() {
     const list = projects?.list || [];
     if (!list.length) {
       (async () => {
-        const seeded = seedBaezProject();
+        // Null for non-internal tenants — the Baez seed is LE's real project
+        // data (see seedBaezProject). They start with no projects at all; a
+        // proper per-tenant seed belongs in the provisioning flow (Batch 3).
+        const seeded = await seedBaezProject();
+        if (!seeded) {
+          setBooted(true);
+          return;
+        }
         const next = upsertProject(projects, seeded);
         await persist(next);
         setBooted(true);

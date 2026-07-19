@@ -2,8 +2,15 @@
 import { fmt$ } from "./format.js";
 import { openBalance, invoiceTotal } from "./customers.js";
 import { DOC_SOURCE_LOCAL, DOC_SOURCE_QBO } from "./docSource.js";
+import { activeTenantConfig } from "./tenantBranding.js";
 
 const s = (v) => (v == null ? "" : String(v).trim());
+
+/**
+ * Short trading name for email copy. Deliberately not tenantName(), which
+ * returns the legal name ("… Inc.") that belongs on the PDF itself.
+ */
+const brand = () => activeTenantConfig().profile?.shortName || "";
 
 /** Default subject for invoice/estimate customer email. */
 export function defaultDocEmailSubject(job, kind, { withPay = false } = {}) {
@@ -11,9 +18,9 @@ export function defaultDocEmailSubject(job, kind, { withPay = false } = {}) {
   const label = kind === "estimate" ? "Estimate" : "Invoice";
   const num = no ? ` #${no}` : "";
   if (kind === "invoice" && withPay) {
-    return `${label}${num} — pay online — BLZ Electric`;
+    return `${label}${num} — pay online — ${brand()}`;
   }
-  return `${label}${num} — BLZ Electric`;
+  return `${label}${num} — ${brand()}`;
 }
 
 /** Default body for invoice/estimate customer email. */
@@ -46,8 +53,8 @@ export function defaultDocEmailBody(job, kind, { withPay = false, payUrl = "" } 
     "Questions? Reply to this email or call us anytime.",
     "",
     "Thank you,",
-    "BLZ Electric",
-    "leelectrical.us"
+    brand(),
+    activeTenantConfig().profile?.website || ""
   );
   return lines.join("\n");
 }

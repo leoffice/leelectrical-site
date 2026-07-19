@@ -9,6 +9,7 @@ import DescriptionField from "./DescriptionField.jsx";
 import CalendarSearchSheet from "./CalendarSearchSheet.jsx";
 import AddAppointmentSheet from "./AddAppointmentSheet.jsx";
 import { useStore } from "../state/store.jsx";
+import { useIsInternal } from "../state/tenant.jsx";
 import { evStart, todayStr } from "../lib/format.js";
 import {
   customerKeyForName,
@@ -152,10 +153,15 @@ function PickCustomerJobsSheet({ title, hint, jobs, onClose, onPick, filterOpen,
 export default function NewJobFlow() {
   const { newJob, setNewJob, events, markSasHandled, jobs, enqueue, showToast, syncNow, refreshJobs, api } = useStore();
   const { startDevMode } = useLiveEdit();
+  const internal = useIsInternal();
   const nav = useNavigate();
   if (!newJob) return null;
   const close = () => setNewJob(null);
   const context = newJob.context || null;
+
+  // Belt and braces: even if a dev step is set programmatically, a
+  // non-internal tenant never renders it.
+  if (!internal && (newJob.step === "devMode" || newJob.step === "devPageNote")) return null;
 
   if (newJob.step === "devPageNote") return <PageNoteSheet onClose={close} />;
 
@@ -225,13 +231,16 @@ export default function NewJobFlow() {
             });
           }}
         />
-        <Opt
-          icon="🛠️"
-          title="Developer mode"
-          note="Page notes, live edits, highlight areas for changes"
-          onClick={() => setNewJob({ step: "devMode", context })}
-          data-testid="dev-mode-entry"
-        />
+        {/* Dev tooling — internal tenants only. */}
+        {internal ? (
+          <Opt
+            icon="🛠️"
+            title="Developer mode"
+            note="Page notes, live edits, highlight areas for changes"
+            onClick={() => setNewJob({ step: "devMode", context })}
+            data-testid="dev-mode-entry"
+          />
+        ) : null}
       </Sheet>
     );
 

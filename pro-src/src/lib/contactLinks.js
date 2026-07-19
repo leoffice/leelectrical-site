@@ -1,5 +1,13 @@
 // Tappable phone / email / address links for calendar cards and contact fields.
-const OFFICE_EMAIL = "office@leelectrical.us";
+import { activeTenantConfig } from "./tenantBranding.js";
+
+/**
+ * The mailbox Gmail should compose from on desktop. Read at call time, not
+ * import time — tenant_config resolves after this module is first evaluated.
+ */
+function officeEmail() {
+  return activeTenantConfig().profile?.officeEmail || "";
+}
 
 export function isDesktop() {
   if (typeof window === "undefined") return false;
@@ -25,11 +33,11 @@ export function emailHref(email) {
   const e = String(email || "").trim();
   if (!e) return "";
   if (isDesktop()) {
+    const authuser = officeEmail();
     return (
       "https://mail.google.com/mail/?view=cm&fs=1&to=" +
       encodeURIComponent(e) +
-      "&authuser=" +
-      encodeURIComponent(OFFICE_EMAIL)
+      (authuser ? "&authuser=" + encodeURIComponent(authuser) : "")
     );
   }
   return `mailto:${e}`;
