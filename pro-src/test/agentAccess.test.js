@@ -23,7 +23,9 @@ describe("agent access codes", () => {
   it("clamps TTL", () => {
     expect(clampTtlMs(1000)).toBe(5 * 60 * 1000);
     expect(clampTtlMs(undefined)).toBe(DEFAULT_TTL_MS);
-    expect(clampTtlMs(99 * 60 * 60 * 1000)).toBe(4 * 60 * 60 * 1000);
+    expect(clampTtlMs(12 * 60 * 60 * 1000)).toBe(12 * 60 * 60 * 1000);
+    expect(clampTtlMs(24 * 60 * 60 * 1000)).toBe(24 * 60 * 60 * 1000);
+    expect(clampTtlMs(99 * 60 * 60 * 1000)).toBe(24 * 60 * 60 * 1000);
   });
 
   it("mints a single-use code that redeems into a session", () => {
