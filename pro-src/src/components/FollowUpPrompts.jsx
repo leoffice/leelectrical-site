@@ -63,6 +63,7 @@ import {
 } from "../lib/followUpStatus.js";
 import VerifyReminderButton from "./VerifyReminderButton.jsx";
 import UnsentDocActions from "./UnsentDocActions.jsx";
+import { isScreenCovered } from "../lib/sheetRegistry.js";
 
 function SmartFollowUpActions({
   event,
@@ -190,11 +191,10 @@ function persistDismissedIds(set) {
   }
 }
 
-/** True when another action sheet/modal is already covering the screen. */
-function hasBlockingActionSheet() {
-  if (typeof document === "undefined") return false;
-  return !!document.querySelector("[data-sheet]");
-}
+/** True when another action sheet/modal is already covering the screen.
+ *  Backed by the shared sheet registry so MergePrompt / EmailInsightPrompts
+ *  answer the same question the same way. */
+const hasBlockingActionSheet = isScreenCovered;
 
 function itemKey(item) {
   if (!item) return "";

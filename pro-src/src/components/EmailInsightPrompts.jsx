@@ -8,6 +8,7 @@ import { useStore } from "../state/store.jsx";
 import { enrichInsight, appointmentTypeLabel } from "../lib/emailInsight.js";
 import { applyEmailInsight, buildCalendarPayload } from "../lib/applyEmailInsight.js";
 import { shouldSuppressPrompts, beginPromptWorkPause } from "../lib/followUpReminders.js";
+import { isScreenCovered, subscribeSheets } from "../lib/sheetRegistry.js";
 
 const IS_TEST = import.meta.env.MODE === "test" || !!import.meta.env.VITEST;
 const SESSION_KEY = "lepro_email_insight_session";
@@ -217,12 +218,17 @@ export default function EmailInsightPrompts() {
     return () => clearInterval(iv);
   }, [loading, refreshEmailInsights]);
 
+  // Re-evaluate when any sheet opens/closes so we can open once it clears.
+  const [sheetTick, setSheetTick] = useState(0);
+  useEffect(() => subscribeSheets(() => setSheetTick((t) => t + 1)), []);
+
   useEffect(() => {
     if (IS_TEST || shouldSuppressPrompts() || hidden || editSheet) return;
     if (!pending.length) return;
-    if (!current) setCurrent(pending[0]);
+    // Never stack on another sheet — its dimmer would swallow clicks.
+    if (!current && !isScreenCovered()) setCurrent(pending[0]);
     if (!sessionAlreadySeen()) markSessionSeen();
-  }, [pending, current, hidden, editSheet]);
+  }, [pending, current, hidden, editSheet, sheetTick]);
 
   if (IS_TEST || shouldSuppressPrompts() || hidden) return null;
   if (!current && !editSheet) return null;

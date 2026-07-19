@@ -1,5 +1,6 @@
 // Sheet — bottom sheet on mobile, centered modal on desktop (>=1024px).
 import React, { useEffect } from "react";
+import { registerSheet } from "../lib/sheetRegistry.js";
 
 export default function Sheet({ title, onClose, children, wide, tall }) {
   useEffect(() => {
@@ -7,6 +8,9 @@ export default function Sheet({ title, onClose, children, wide, tall }) {
     window.addEventListener("keydown", h);
     return () => window.removeEventListener("keydown", h);
   }, [onClose]);
+
+  // Announce this sheet globally so auto-opening prompts never stack on it.
+  useEffect(() => registerSheet(), []);
 
   return (
     <div className="fixed inset-0 z-[60] flex items-end lg:items-center justify-center" role="dialog" aria-modal="true" data-sheet>

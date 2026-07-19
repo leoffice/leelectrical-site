@@ -22,6 +22,7 @@ import { parentCustomerPatch } from "../lib/customerHierarchy.js";
 import { enqueueCustomerQboSync } from "../lib/customerQboEnqueue.js";
 import { serviceAddressesExcludingBilling } from "../lib/addressSync.js";
 import { fmt$ } from "../lib/format.js";
+import { isScreenCovered, subscribeSheets } from "../lib/sheetRegistry.js";
 
 function LinkModeTabs({ mode, onChange }) {
   return (
@@ -232,6 +233,7 @@ export default function MergePrompt() {
   const [mode, setMode] = useState("prompt");
   const [linkMode, setLinkMode] = useState("combined");
   const [parentSide, setParentSide] = useState("left");
+  const [opened, setOpened] = useState(false);
 
   // Shared five-card day budget with reminders — reserve reminder slots first.
   claimReminderSlots(reminderBadge || 0);
@@ -248,6 +250,24 @@ export default function MergePrompt() {
     consumeNameSortSlot(sug.id);
   }, [sug?.id]);
 
+  // Never open on top of another sheet — a stack makes the lower sheet's
+  // buttons unreachable. Latch once open so our own sheet doesn't close us.
+  useEffect(() => {
+    if (!sug) {
+      setOpened(false);
+      return;
+    }
+    if (opened) return;
+    if (!isScreenCovered()) {
+      setOpened(true);
+      return;
+    }
+    // Screen is busy — open as soon as it clears.
+    return subscribeSheets(() => {
+      if (!isScreenCovered()) setOpened(true);
+    });
+  }, [sug, opened]);
+
   const contactRows = useMemo(() => {
     if (!sug) return [];
     const left = customerProfileFromJobs(sug.a.jobs, sug.a.name);
@@ -263,7 +283,7 @@ export default function MergePrompt() {
     setParentSide((cur) => (cur === "right" ? "left" : "right"));
   }, []);
 
-  if (!sug) return null;
+  if (!sug || !opened) return null;
 
   const leftRole = linkMode === "sub" ? (parentSide === "left" ? "parent" : "sub") : null;
   const rightRole = linkMode === "sub" ? (parentSide === "right" ? "parent" : "sub") : null;
