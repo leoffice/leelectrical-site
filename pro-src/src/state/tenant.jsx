@@ -11,13 +11,31 @@
 
 import React, { createContext, useContext, useEffect, useMemo, useState } from "react";
 import { useStore } from "./store.jsx";
-import { resolveTenantConfig, seedTenantConfig } from "../lib/tenantConfig.js";
+import { asLesserTenant, resolveTenantConfig, seedTenantConfig } from "../lib/tenantConfig.js";
 import { setActiveTenantConfig } from "../lib/tenantBranding.js";
 
 const CACHE_KEY = "lepro_tenant_config_v1";
 
 /** Cap on the blocking boot fetch before falling back to cache/seed. */
 const BOOT_TIMEOUT_MS = 6000;
+
+/**
+ * Read `?viewAs=<tier>` from the URL. The app uses HashRouter, so the param
+ * may sit before the hash (?viewAs=pro#/) or inside it (#/settings?viewAs=pro);
+ * accept either so the toggle survives in-app navigation.
+ */
+function previewTierFromUrl() {
+  try {
+    const { search, hash } = globalThis.location || {};
+    const fromSearch = new URLSearchParams(search || "").get("viewAs");
+    if (fromSearch) return fromSearch;
+    const q = String(hash || "").indexOf("?");
+    if (q === -1) return null;
+    return new URLSearchParams(String(hash).slice(q + 1)).get("viewAs");
+  } catch {
+    return null;
+  }
+}
 
 const Ctx = createContext(null);
 
@@ -76,7 +94,15 @@ export function TenantProvider({ children }) {
     };
   }, [getSettings]);
 
-  const config = useMemo(() => resolveTenantConfig(raw), [raw]);
+  const config = useMemo(() => {
+    const resolved = resolveTenantConfig(raw);
+    // `?viewAs=free|pro|full` previews the app as a lesser, non-internal
+    // tenant. Downgrade-only (see asLesserTenant), so it grants nothing and
+    // needs no auth — it exists so the tenant experience is demonstrable on a
+    // deployment that is itself internal.
+    const viewAs = previewTierFromUrl();
+    return viewAs ? asLesserTenant(resolved, viewAs) : resolved;
+  }, [raw]);
 
   // Publish to the module-level snapshot so PDF builders, email templates and
   // other non-React callers can read branding without prop-drilling.

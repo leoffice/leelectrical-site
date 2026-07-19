@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  asLesserTenant,
   LE_TENANT_SEED,
   MODULES,
   isInternal,
@@ -172,5 +173,58 @@ describe("fail-closed defaults", () => {
   it("isModuleEnabled denies unknown module keys", () => {
     expect(isModuleEnabled(tenant({ plan: { tier: "full" } }), "nope")).toBe(false);
     expect(isModuleEnabled(null, "invoicing")).toBe(false);
+  });
+});
+
+describe("viewAs preview is downgrade-only", () => {
+  const internalLE = () => resolveTenantConfig(LE_TENANT_SEED);
+
+  it("strips internal even from the LE flagship", () => {
+    const view = asLesserTenant(internalLE(), "full");
+    expect(view.internal).toBe(false);
+    expect(isRouteAllowed("/dev", view)).toBe(false);
+    expect(isRouteAllowed("/progress", view)).toBe(false);
+  });
+
+  it("previewing as free disables the paid modules", () => {
+    const view = asLesserTenant(internalLE(), "free");
+    expect(isModuleEnabled(view, "requisitions")).toBe(false);
+    expect(isModuleEnabled(view, "reports")).toBe(false);
+    expect(isRouteAllowed("/projects", view)).toBe(false);
+  });
+
+  it("CANNOT grant a module the real config lacks", () => {
+    // A Free tenant asking to preview as Full must stay on Free's modules:
+    // the real config is the ceiling, so this can never escalate.
+    const realFree = resolveTenantConfig({
+      tenantId: "acme",
+      internal: false,
+      plan: { tier: "free" },
+    });
+    const view = asLesserTenant(realFree, "full");
+    for (const key of MODULES) {
+      expect(view.modules[key]).toBe(realFree.modules[key] === true && view.modules[key]);
+      if (realFree.modules[key] !== true) expect(view.modules[key]).toBe(false);
+    }
+    expect(isModuleEnabled(view, "permits")).toBe(false);
+    expect(isModuleEnabled(view, "requisitions")).toBe(false);
+  });
+
+  it("never turns a module on that was off, for any tier pair", () => {
+    for (const real of ["free", "pro", "full"]) {
+      const base = resolveTenantConfig({ tenantId: "t", internal: false, plan: { tier: real } });
+      for (const asked of ["free", "pro", "full"]) {
+        const view = asLesserTenant(base, asked);
+        for (const key of MODULES) {
+          if (view.modules[key]) expect(base.modules[key]).toBe(true);
+        }
+        expect(view.internal).toBe(false);
+      }
+    }
+  });
+
+  it("an unknown tier falls back to free rather than opening up", () => {
+    const view = asLesserTenant(internalLE(), "enterprise");
+    expect(view.plan.tier).toBe("free");
   });
 });

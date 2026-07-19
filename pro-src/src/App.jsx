@@ -237,6 +237,17 @@ export default function App() {
           </span>
         </div>
 
+        {/* Never let a downgraded preview be mistaken for the real session. */}
+        {config.previewingAs ? (
+          <div
+            className="mx-4 mt-3 rounded-xl bg-amber-100 border border-amber-300 text-amber-900 text-xs font-bold px-3 py-2 text-center"
+            data-testid="view-as-banner"
+          >
+            Previewing as a <b>{config.previewingAs}</b>-tier tenant (not internal) — remove
+            <code className="mx-1">?viewAs=</code>from the URL to exit
+          </div>
+        ) : null}
+
         {error && (
           <div className="mx-4 mt-3 card border-red-200 bg-red-50 text-red-700 text-sm px-4 py-2.5 flex items-center gap-3">
             <span className="flex-1 min-w-0">Couldn’t reach the server — {error}</span>

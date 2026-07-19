@@ -278,6 +278,39 @@ function slug(s) {
     .replace(/^_+|_+$/g, "");
 }
 
+/**
+ * View the app as a lesser tenant — the "what does my customer see?" toggle.
+ *
+ * STRICTLY DOWNGRADE-ONLY, and that property is the whole reason this is safe
+ * to ship. It can only ever turn things OFF:
+ *   - `internal` is forced false, never true.
+ *   - each module is ANDed with what the real config already allows, so a
+ *     requested tier can never grant a module the tenant doesn't have.
+ * A user can restrict their own view; nobody can widen anyone's access with
+ * it. That is why it needs no authentication and can't be used to escalate.
+ *
+ * @param tier one of PLAN_TIERS — the tier to preview as.
+ */
+export function asLesserTenant(config, tier = "free") {
+  if (!config) return config;
+  const requested = PLAN_TIERS.includes(tier) ? tier : "free";
+  const wanted = resolveModules({ plan: { tier: requested }, internal: false });
+
+  const modules = {};
+  for (const key of MODULES) {
+    // AND, never OR: the real config is the ceiling.
+    modules[key] = config.modules?.[key] === true && wanted[key] === true;
+  }
+
+  return {
+    ...config,
+    internal: false,
+    plan: { tier: requested, crewAddon: false },
+    modules,
+    previewingAs: requested,
+  };
+}
+
 /** Is a module enabled for this tenant? Unknown keys are denied by default. */
 export function isModuleEnabled(config, key) {
   if (!config || !config.modules) return false;
