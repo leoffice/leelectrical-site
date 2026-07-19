@@ -20,6 +20,8 @@ import ChatReplyButtons from "./ChatReplyButtons.jsx";
 import { parseReplyButtons } from "../lib/chatReplyButtons.js";
 import { LE_PRO_CONVO, clearLegacyDeviceConvo, legacyDeviceConvo } from "../lib/chatConvo.js";
 import { appendPayment } from "../lib/payments.js";
+import { productName } from "../lib/tenantBranding.js";
+import { useTenantConfig } from "../state/tenant.jsx";
 
 import {
   analyzeImageIntent,
@@ -128,6 +130,7 @@ export default function ChatBubble() {
     setChatUnread,
   } = useStore();
   const { speechToText } = useAppSettings();
+  const product = productName(useTenantConfig());
   const loc = useLocation();
   const [msgs, setMsgs] = useState([]);
   const [text, setText] = useState("");
@@ -172,8 +175,8 @@ export default function ChatBubble() {
         }${j.address ? ", " + j.address : ""}] — `;
     }
     if (view === "dev") return "";
-    return `[LE Pro / ${view} view] — `;
-  }, [ctxOn, jobId, view, effectiveJob]);
+    return `[${product} / ${view} view] — `;
+  }, [ctxOn, jobId, view, effectiveJob, product]);
 
   // Optimistically-rendered messages the server hasn't echoed back yet —
   // poll() keeps them visible instead of blinking them away.

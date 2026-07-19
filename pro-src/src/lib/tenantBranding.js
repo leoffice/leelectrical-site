@@ -6,12 +6,17 @@
 // copies of the payment-instruction block had already drifted apart. Anything
 // customer-visible should come from here.
 //
-// Deliberately NOT tenant-configurable (do not "fix" these):
-//   - POWERED_BY_LE in brand.js — the product mark, constant across tenants.
-//   - RP_NAME in lock.js — the WebAuthn relying-party name. Changing it
-//     invalidates every enrolled biometric credential.
-//   - "LE Pro" product chrome — the product name, not the tenant's name.
+// The PRODUCT brand (name, logo, "Powered by LE" wording) is also swappable —
+// its defaults live in shared/productBrand.mjs and a tenant_config `product`
+// block overrides them. Use productName() / productPoweredBy() below; never
+// write the product name as a literal.
+//
+// Deliberately NOT config-driven (do not "fix" these):
 //   - CANONICAL_ORIGIN in functionsBase.js — a hostname allowlist.
+//   - LE_PRO_CONVO in chatConvo.js — a stable server storage key. Its VALUE
+//     ("pro-levi") is data, not branding; changing it orphans chat history.
+//   - The legacy tokens in shared/productBrand.mjs — they match notes on
+//     records written before any rename.
 
 import { resolveTenantConfig } from "./tenantConfig.js";
 
@@ -111,6 +116,37 @@ export function tenantSignOff(config = current) {
   return name ? `— ${name}` : "";
 }
 
+/* ── PRODUCT BRAND ─────────────────────────────────────────────────────────
+ * Defaults from shared/productBrand.mjs, overridable per tenant. Every UI,
+ * email and document reference goes through these — a rename is one value.
+ */
+
+/** Product name, e.g. "LE Pro". Never hard-code this string. */
+export function productName(config = current) {
+  return config.product?.name || "";
+}
+
+/** Short umbrella mark, e.g. "LE". */
+export function productShortName(config = current) {
+  return config.product?.shortName || "";
+}
+
+/** The mark under the tenant's brand on emails/documents, e.g. "Powered by LE". */
+export function productPoweredBy(config = current) {
+  return config.product?.poweredBy || "";
+}
+
+/** Product logo src — an explicit override, else the bundled default asset. */
+export function productLogoUrl(config = current) {
+  const explicit = config.product?.logoUrl;
+  if (explicit) return explicit;
+  const file = config.product?.logoFile || "";
+  if (!file) return "";
+  const base =
+    (typeof import.meta !== "undefined" && import.meta.env?.BASE_URL) || "/app/pro/";
+  return base + file;
+}
+
 /** Display company name, safe for alt text and headings. */
 export function tenantName(config = current) {
   return tenantCompany(config).name || "";
@@ -137,13 +173,13 @@ export function tenantLocality(config = current) {
 
 /**
  * App chrome strings: what the sidebar and lock screen show.
- * `product` stays constant ("LE Pro") — only the tenant line varies.
+ * `product` comes from the product brand, so a rename flows through here too.
  */
 export function tenantChrome(config = current) {
   const name = tenantName(config);
   const locality = tenantLocality(config);
   return {
-    product: "LE Pro",
+    product: productName(config),
     companyName: name,
     logoAlt: name || "Company logo",
     subtitle: [name, locality].filter(Boolean).join(" · "),

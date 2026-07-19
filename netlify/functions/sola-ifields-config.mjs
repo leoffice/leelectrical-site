@@ -1,5 +1,6 @@
 // Public iFields key for in-app card entry (safe to expose to LE Pro staff UI).
 import { resolveIfieldsKey, solaEnvironment } from "./sola-keys.mjs";
+import { PRODUCT_BRAND } from "../../shared/productBrand.mjs";
 
 const IFIELDS_VERSION = "2.15.2409.2601";
 
@@ -42,7 +43,7 @@ export default async (req) => {
       ifieldsKey,
       version: IFIELDS_VERSION,
       environment,
-      softwareName: "LE Pro",
+      softwareName: PRODUCT_BRAND.name,
       softwareVersion: "1.0.0",
       achEnabled,
     }),

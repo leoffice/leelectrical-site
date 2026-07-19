@@ -5,6 +5,8 @@ import FloatingPanel from "./FloatingPanel.jsx";
 import { Opt } from "./Sheet.jsx";
 import { useStore } from "../state/store.jsx";
 import { customerSyncPayload, qboCustomerToJobPatch } from "../lib/customerSync.js";
+import { productName } from "../lib/tenantBranding.js";
+import { useTenantConfig } from "../state/tenant.jsx";
 
 const FIELD_LABELS = {
   name: "Name",
@@ -26,6 +28,7 @@ function fieldRows(proposed, qboCustomer, diffs) {
 
 export default function ApprovalWatcher() {
   const { commands, resolveApproval, enqueue, effectiveJob, showToast } = useStore();
+  const product = productName(useTenantConfig());
   const seen = useRef({});
   const [cmd, setCmd] = useState(null);
   const [q, setQ] = useState("");
@@ -79,7 +82,7 @@ export default function ApprovalWatcher() {
     <FloatingPanel title="QuickBooks needs your OK" onClose={close} testId="customer-sync-approval">
       <p className="text-sm text-slate-500 mb-3">
         {isUpdateConflict
-          ? "LE Pro and QuickBooks disagree. Drag this panel aside, check the job, then pick which side is correct."
+          ? `${product} and QuickBooks disagree. Drag this panel aside, check the job, then pick which side is correct.`
           : r.message || `For ${p.name || "customer"}: ${r.reason || "choose how to sync."}`}
       </p>
 
@@ -87,7 +90,7 @@ export default function ApprovalWatcher() {
         <div className="text-xs border border-slate-200 rounded-xl overflow-hidden mb-3">
           <div className="grid grid-cols-3 gap-1 bg-slate-50 px-2 py-1.5 font-bold uppercase tracking-wide text-[10px] text-slate-400">
             <span>Field</span>
-            <span>LE Pro</span>
+            <span>{product}</span>
             <span>QuickBooks</span>
           </div>
           {rows.map((row) => (
@@ -124,13 +127,13 @@ export default function ApprovalWatcher() {
         <>
           <Opt
             icon="📲"
-            title="LE Pro is correct → Update QuickBooks"
+            title={`${product} is correct → Update QuickBooks`}
             note="Push your edits in the app to the QuickBooks customer"
             onClick={() => resolve("update", upd.id)}
           />
           <Opt
             icon="📥"
-            title="QuickBooks is correct → Update LE Pro"
+            title={`QuickBooks is correct → Update ${product}`}
             note="Replace this job's customer info with what's in QuickBooks"
             onClick={() => resolve("pull_qbo", upd.id)}
           />

@@ -9,7 +9,8 @@ import { displayEventNotes, withJobLink } from "../lib/calendarLink.js";
 import { DATE_STEPS, inspectionAppointmentTitle } from "../lib/paperwork.js";
 import { evStart, todayStr } from "../lib/format.js";
 import { stashCalendarPick } from "../lib/calendarNavigate.js";
-import { tenantCalendarAccount } from "../lib/tenantBranding.js";
+import { productName, tenantCalendarAccount } from "../lib/tenantBranding.js";
+import { useTenantConfig } from "../state/tenant.jsx";
 
 /** Google Calendar colorId 11 = red (Tomato). */
 export const GCAL_RED_COLOR_ID = "11";
@@ -104,6 +105,7 @@ export default function AddAppointmentSheet({
   showCalendar = true,
 }) {
   const { events, jobs, api, enqueue, showToast, patchAndSave, patchJob, appendLocalEvent, pullCalendarNow } = useStore();
+  const product = productName(useTenantConfig());
   const isDuplicate = !!duplicateFrom;
   const isEdit = !!editEvent && !isDuplicate;
   const fromInspection = !!inspectionPreset?.step || (isEdit && isInspectionEvent(editEvent));
@@ -178,7 +180,10 @@ export default function AddAppointmentSheet({
       if (isEdit) {
         const eventId = editEvent.id || "";
         const busId = job?.id || "today";
-        const description = job?.id ? withJobLink(notes, job.id) : notes || "Updated in LE Pro";
+        // Descriptions are written into the Google Calendar event itself, so a
+        // rename only affects events created afterwards — anything reading these
+        // back must tolerate both the old and the current product name.
+        const description = job?.id ? withJobLink(notes, job.id) : notes || `Updated in ${product}`;
         const payload = {
           calEventId: eventId,
           summary: title,
@@ -213,7 +218,8 @@ export default function AddAppointmentSheet({
       }
 
       const busId = job?.id || "today";
-      const description = job ? withJobLink(notes || "Created in LE Pro", job.id) : notes || "Created in LE Pro";
+      const created = `Created in ${product}`; // also stored on the Google event — see note above
+      const description = job ? withJobLink(notes || created, job.id) : notes || created;
       // Stable key for this form open so a second tap cannot mint a second Google event.
       if (isDuplicate && !dupIdempotencyRef.current) {
         dupIdempotencyRef.current =

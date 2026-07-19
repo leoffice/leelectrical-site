@@ -2,7 +2,7 @@
 import { fmt$ } from "./format.js";
 import { openBalance, invoiceTotal } from "./customers.js";
 import { DOC_SOURCE_LOCAL, DOC_SOURCE_QBO } from "./docSource.js";
-import { activeTenantConfig } from "./tenantBranding.js";
+import { activeTenantConfig, productName } from "./tenantBranding.js";
 
 const s = (v) => (v == null ? "" : String(v).trim());
 
@@ -91,7 +91,7 @@ export function buildSendDocConfirm({
     message: body,
     attachmentName: docAttachmentName(job, kind),
     payUrl: s(payUrl),
-    sourceLabel: src === DOC_SOURCE_QBO ? "QuickBooks file" : "Local LE Pro PDF",
+    sourceLabel: src === DOC_SOURCE_QBO ? "QuickBooks file" : `Local ${productName()} PDF`,
   };
 }
 

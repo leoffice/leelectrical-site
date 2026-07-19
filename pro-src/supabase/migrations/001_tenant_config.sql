@@ -48,6 +48,14 @@ create table if not exists tenant_config (
   --                quickbooks, documents, reports.
   module_overrides     jsonb not null default '{}'::jsonb,
 
+  -- ---- product brand override --------------------------------------------
+  -- {"name":"Level","shortName":"Lvl","poweredBy":"Powered by Lvl","logoUrl":"…"}
+  -- Empty object = use the platform defaults in shared/productBrand.mjs, which
+  -- is the ONE place the product name lives. Renaming the product for everyone
+  -- is a change in that file; renaming it for a single tenant is this column.
+  -- Blank strings fall through to the default rather than blanking the brand.
+  product              jsonb not null default '{}'::jsonb,
+
   -- ---- permit tracker agencies -------------------------------------------
   -- [{"id":"dob","label":"DOB"},{"id":"coned","label":"Con Edison"}]
   -- NYC defaults ship as the preset; non-NYC tenants relabel (ComEd, etc.).

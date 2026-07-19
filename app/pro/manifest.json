@@ -1,17 +1,23 @@
 {
   "name": "LE Pro",
   "short_name": "LE Pro",
-  "description": "LE Electric — jobs, schedule and billing in your pocket.",
+  "description": "LE Pro — jobs, schedule and billing in your pocket.",
   "id": "https://www.leelectrical.us/app/pro/",
   "start_url": "https://www.leelectrical.us/app/pro/",
   "scope": "https://www.leelectrical.us/app/pro/",
   "display": "standalone",
-  "display_override": ["standalone", "fullscreen"],
+  "display_override": [
+    "standalone",
+    "fullscreen"
+  ],
   "orientation": "any",
   "background_color": "#f8fafc",
   "theme_color": "#f8fafc",
   "prefer_related_applications": false,
-  "categories": ["business", "productivity"],
+  "categories": [
+    "business",
+    "productivity"
+  ],
   "icons": [
     {
       "src": "icons/icon-192.png",

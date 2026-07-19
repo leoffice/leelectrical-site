@@ -18,7 +18,7 @@ import {
 } from "../lib/payFees.js";
 import { chargeCardFromLanding } from "../lib/solaCharge.js";
 import { useTenantConfig } from "../state/tenant.jsx";
-import { tenantLocality } from "../lib/tenantBranding.js";
+import { productName, tenantLocality } from "../lib/tenantBranding.js";
 
 const DEFAULT_LOGO = import.meta.env.BASE_URL + "le-logo.png?v=5";
 
@@ -489,7 +489,7 @@ export default function PayLanding() {
         </a>
         <span className="mx-2">·</span>
         <Link to="/" className="text-slate-400">
-          LE Pro (staff)
+          {productName(config)} (staff)
         </Link>
       </footer>
     </div>

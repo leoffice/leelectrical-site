@@ -8,6 +8,7 @@ import userEvent from "@testing-library/user-event";
 import "@testing-library/jest-dom/vitest";
 import { EV, J1, J2, mockServer, pinCalWeek, renderApp } from "./helpers.jsx";
 import * as lock from "../src/lib/lock.js";
+import { productName } from "../src/lib/tenantBranding.js";
 
 afterEach(() => {
   vi.unstubAllGlobals();
@@ -39,12 +40,14 @@ describe("3b. needs_approval sheets (customer_sync)", () => {
     const user = userEvent.setup();
     renderApp("#/");
     expect(await screen.findByText("QuickBooks needs your OK")).toBeInTheDocument();
-    expect(screen.getByText(/LE Pro and QuickBooks disagree/)).toBeInTheDocument();
-    expect(screen.getByText("917")).toBeInTheDocument(); // LE Pro value in comparison
+    expect(
+      screen.getByText(new RegExp(`^${productName()} and QuickBooks disagree`))
+    ).toBeInTheDocument();
+    expect(screen.getByText("917")).toBeInTheDocument(); // app-side value in comparison
     expect(screen.getByText("P. Chein")).toBeInTheDocument(); // candidate
     expect(screen.getByText(/Create new customer in QuickBooks/)).toBeInTheDocument();
     expect(screen.getByText("Skip for now")).toBeInTheDocument();
-    await user.click(screen.getByText(/LE Pro is correct/));
+    await user.click(screen.getByText(`${productName()} is correct → Update QuickBooks`));
     // customer_sync approvals resolve client-side: the sync command is closed
     // out (done) and a concrete update_customer command is enqueued — requeueing
     // with an approval patch would loop, the listener never reads that field.
@@ -268,12 +271,12 @@ describe("10. chat bubble", () => {
     await screen.findByText("Peretz Chein");
     await user.click(screen.getByTestId("chat-fab"));
     expect(screen.getByTestId("chat-panel")).toBeInTheDocument();
-    expect(screen.getByTestId("ctx-chip")).toHaveTextContent("[LE Pro / jobs view]");
+    expect(screen.getByTestId("ctx-chip")).toHaveTextContent(`[${productName()} / jobs view]`);
 
     await user.type(screen.getByLabelText("Chat message"), "where is the check{Enter}");
     await waitFor(() => expect(srv.posts("chat", (b) => b.op === "msg")).toHaveLength(1));
     const post = srv.posts("chat", (b) => b.op === "msg")[0].body;
-    expect(post.text).toBe("[LE Pro / jobs view] — where is the check");
+    expect(post.text).toBe(`[${productName()} / jobs view] — where is the check`);
     expect(post.convo).toBe("pro-levi");
     expect(post.id).toMatch(/^m\d+$/);
     const it2 = srv.posts("iterate")[0].body;

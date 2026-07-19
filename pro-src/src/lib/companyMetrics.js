@@ -3,6 +3,7 @@ import { parseAmount } from "./format.js";
 import { normalizePayments } from "./payments.js";
 import { openBalance, invoiceTotal } from "./customers.js";
 import { stageOf, stepState } from "./stages.js";
+import { productName } from "./tenantBranding.js";
 
 const NET_TERMS_DAYS = 7;
 
@@ -273,7 +274,9 @@ export function buildCompanyMetrics(jobs, events, now = new Date()) {
     .filter((j) => stepState(j, "Lead") === "done" || stepState(j, "Lead") === "current")
     .map((j) => ({
       cust: j.customer || "—",
-      src: j.leadSource || "LE Pro",
+      // Display fallback only — a lead with no recorded source is shown as
+      // having come from the app itself. Not persisted.
+      src: j.leadSource || productName(),
       est: j.estimateNo ? "Yes" : "No",
     }));
   const leadsLast = (jobs || []).filter((j) => inRange(stageDate(j, "Lead"), lastStart, lastEnd)).length;

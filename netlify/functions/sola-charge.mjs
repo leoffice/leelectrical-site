@@ -7,6 +7,7 @@ import {
 } from "./sola-shared.mjs";
 import { sendPaymentConfirmEmail } from "./payment-confirm-email.mjs";
 import { resolveXKey, sutMismatchHint } from "./sola-keys.mjs";
+import { PRODUCT_BRAND } from "../../shared/productBrand.mjs";
 
 const GATEWAY = "https://x1.cardknox.com/gatewayjson";
 
@@ -37,7 +38,7 @@ async function solaSave(body) {
   const payload = {
     xKey,
     xVersion: "5.0.0",
-    xSoftwareName: "LE Pro",
+    xSoftwareName: PRODUCT_BRAND.name,
     xSoftwareVersion: "1.0.0",
     xCommand: "cc:save",
     xCardNum: body.xCardNum,
@@ -72,7 +73,7 @@ async function solaSale(body) {
   const payload = {
     xKey,
     xVersion: "5.0.0",
-    xSoftwareName: "LE Pro",
+    xSoftwareName: PRODUCT_BRAND.name,
     xSoftwareVersion: "1.0.0",
     xCommand: "cc:sale",
     xAmount: body.xAmount,
@@ -199,7 +200,9 @@ export default async (req) => {
     amount: principal,
     ref,
     method,
-    note: "LE Pro in-app card payment",
+    // Written into the payment ledger — external stored data. A rename affects
+    // only NEW records; readers must tolerate both wordings.
+    note: `${PRODUCT_BRAND.name} in-app card payment`,
     cardToken: saveOnFile ? cardToken : "",
     cardMasked: saveOnFile ? cardMasked : "",
   });

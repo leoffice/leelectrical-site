@@ -1,16 +1,39 @@
 // Product brand mark shown on customer-facing DOCUMENTS (invoice / estimate
-// PDFs), mirroring the "Powered by LE" footer on outbound emails.
+// PDFs), mirroring the mark on outbound emails.
 //
 // The tenant's own company block is the primary header (see tenantProfile.js);
 // this mark is the small constant underneath. Same model as the email:
-// his brand on top, Powered by LE underneath.
+// their brand on top, ours underneath.
 //
-// ── WORDING LIVES HERE ──────────────────────────────────────────────────────
-// Levi is still deciding between "Powered by LE" and "LE Products". Change
-// this one constant and every document + email follows.
-// Keep in sync with POWERED_BY_LE_TEXT in
-// netlify/functions/lib/emailBranding.mjs — a test asserts they match.
-export const POWERED_BY_LE = "Powered by LE";
+// ── WORDING DOES NOT LIVE HERE ANYMORE ──────────────────────────────────────
+// The text is a single swappable value in shared/productBrand.mjs, overridable
+// per tenant via tenant_config.product.poweredBy. "Powered by LE" is the
+// current DEFAULT, not a fixed string — renaming the product is a one-value
+// change there, not a sweep through this codebase.
+//
+// The server side (netlify/functions/lib/emailBranding.mjs) imports the same
+// shared module, so the two can no longer drift.
+
+import { productPoweredBy } from "./tenantBranding.js";
+import { onTenantConfigChange } from "./tenantBranding.js";
+
+/**
+ * The document mark for the active tenant. Prefer this in new code.
+ */
+export function poweredByMark() {
+  return productPoweredBy();
+}
+
+/**
+ * Live ESM binding kept for the PDF builders that import it as a plain string
+ * (invoicePdf.js, qbInvoicePdf.js). Refreshed on config change rather than
+ * captured at import, so it reflects the tenant whose config is live.
+ */
+export let POWERED_BY_LE = productPoweredBy();
+
+onTenantConfigChange(() => {
+  POWERED_BY_LE = productPoweredBy();
+});
 
 /**
  * Footer mark colour, as a PDF RGB triple (0-1).

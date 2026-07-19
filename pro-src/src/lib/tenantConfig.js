@@ -13,6 +13,7 @@
 // live in LE_TENANT_SEED below.
 
 import { DEFAULT_PROFILE, mergeProfile } from "./tenantProfile.js";
+import { resolveProductBrand } from "../../../shared/productBrand.mjs";
 
 /** Plan tiers, cheapest first. `crewAddon` is orthogonal — see resolveModules. */
 export const PLAN_TIERS = ["free", "pro", "full"];
@@ -238,6 +239,11 @@ export function resolveTenantConfig(raw, { fallbackTenantId = BUILD_TENANT_ID } 
     Array.isArray(r.agencies) ? r.agencies : present ? [] : seed.agencies
   );
 
+  // Product brand: platform defaults from shared/productBrand.mjs, optionally
+  // overridden per tenant. A rename is a change in that one file (or one
+  // tenant_config field) — never a sweep through the codebase.
+  const product = resolveProductBrand(r.product);
+
   return {
     tenantId: r.tenantId || seed.tenantId || fallbackTenantId,
     internal,
@@ -245,6 +251,7 @@ export function resolveTenantConfig(raw, { fallbackTenantId = BUILD_TENANT_ID } 
     branding,
     moduleOverrides,
     agencies,
+    product,
     profile,
     modules: resolveModules({ plan, moduleOverrides, internal }),
   };
@@ -291,5 +298,6 @@ export function serializeTenantConfig(config) {
     branding: { ...DEFAULT_BRANDING, ...(config.branding || {}) },
     moduleOverrides: config.moduleOverrides || {},
     agencies: normalizeAgencies(config.agencies),
+    product: config.product || {},
   };
 }

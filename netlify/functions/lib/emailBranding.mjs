@@ -13,6 +13,8 @@
 // first open. docEmail/statement already proved this path in production.
 
 import { LOGO_PNG_BASE64 } from "./le-invoice-suite/logoBase64.mjs";
+// Same module the PWA imports — the two sides can no longer drift.
+import { resolveProductBrand } from "../../../shared/productBrand.mjs";
 
 /** content_id every template references as `cid:companylogo`. */
 export const LE_LOGO_CID = "companylogo";
@@ -36,24 +38,52 @@ export function resolveEmailBrand(tenant = {}) {
   return { name, logoSrc, usesDefaultLogo: !custom };
 }
 
+function escapeHtml(s) {
+  return String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
+}
+
 /**
- * The constant "Powered by LE" footer. Present on EVERY email regardless of
- * tenant. Text-only by design — it must render even when a client blocks
- * images, and it should stay subordinate to the tenant's own header mark.
+ * The product mark footer. Present on EVERY email regardless of tenant.
+ * Text-only by design — it must render even when a client blocks images, and
+ * it should stay subordinate to the tenant's own header mark.
+ *
+ * The wording is NOT a literal here: it comes from shared/productBrand.mjs
+ * (optionally overridden per tenant), so renaming the product is one value.
+ * The short mark inside the phrase is emphasised wherever it appears, which
+ * keeps the "Powered by **LE**" treatment working for any replacement pair.
  */
-export function poweredByLeHtml({ muted = "#94a3b8", rule = true } = {}) {
+export function poweredByLeHtml({ muted = "#94a3b8", rule = true, product } = {}) {
+  const brand = resolveProductBrand(product);
+  const phrase = escapeHtml(brand.poweredBy);
+  const mark = escapeHtml(brand.shortName);
+  const emphasised =
+    mark && phrase.includes(mark)
+      ? phrase.replace(
+          mark,
+          `<span style="font-weight:700;color:${BRAND_GREEN};letter-spacing:.02em;">${mark}</span>`
+        )
+      : phrase;
   return (
     `<div style="` +
     (rule ? "border-top:1px solid #e5e7eb;" : "") +
     `margin:0;padding:14px 0 18px 0;text-align:center;` +
     `font-family:Arial,Helvetica,sans-serif;font-size:12px;line-height:1.4;color:${muted};">` +
-    `Powered by <span style="font-weight:700;color:${BRAND_GREEN};letter-spacing:.02em;">LE</span>` +
+    emphasised +
     `</div>`
   );
 }
 
 /** Plain-text counterpart for the text/* alternative part. */
-export const POWERED_BY_LE_TEXT = "Powered by LE";
+export function poweredByText(product) {
+  return resolveProductBrand(product).poweredBy;
+}
+
+/**
+ * Back-compat constant for callers that import the plain string. Reflects the
+ * platform default; pass a tenant's `product` block to poweredByText() when
+ * per-tenant wording matters.
+ */
+export const POWERED_BY_LE_TEXT = poweredByText();
 
 /** The CID logo attachment descriptor for a Resend payload. */
 export function leLogoAttachment() {

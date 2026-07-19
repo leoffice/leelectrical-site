@@ -15,6 +15,8 @@ import {
   setSpeechToTextEnabled,
   useAppSettings,
 } from "../lib/appSettings.js";
+import { useTenantConfig } from "../state/tenant.jsx";
+import { tenantChrome } from "../lib/tenantBranding.js";
 
 function odPill(od) {
   if (!od) return '<span class="inline-block text-[10px] font-extrabold px-1.5 py-0.5 rounded bg-emerald-50 text-emerald-700">current</span>';
@@ -631,6 +633,7 @@ export default function Company() {
   const [calBusy, setCalBusy] = useState(false);
   const data = useMemo(() => buildCompanyMetrics(jobs, events), [jobs, events]);
   const settings = useAppSettings();
+  const product = tenantChrome(useTenantConfig()).product;
 
   const refreshQbo = async () => {
     showToast("Refreshing QuickBooks…");
@@ -680,7 +683,7 @@ export default function Company() {
           />
           <div className="flex-1 min-w-0">
             <h1 className="text-lg font-extrabold tracking-tight m-0">Company Dashboard</h1>
-            <div className="text-xs text-slate-500">LE Pro · Business overview</div>
+            <div className="text-xs text-slate-500">{product} · Business overview</div>
           </div>
           <div className="text-xs font-extrabold text-amber-700 bg-amber-50 px-2.5 py-1 rounded-full shrink-0">
             {fmtMoneyK(data.ar.openTotal)} open A/R
@@ -745,7 +748,7 @@ export default function Company() {
           </div>
           <div className="flex gap-2">
             <span className="text-[10px] font-extrabold px-1.5 py-0.5 rounded bg-purple-50 text-purple-700 shrink-0">DISP</span>
-            <span>LE Pro computes conversion, forecasts and insights on top.</span>
+            <span>{product} computes conversion, forecasts and insights on top.</span>
           </div>
         </div>
       </div>

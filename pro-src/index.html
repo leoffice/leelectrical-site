@@ -6,8 +6,10 @@
     <meta name="theme-color" content="#f8fafc" />
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
-    <meta name="apple-mobile-web-app-title" content="LE Pro" />
-    <title>LE Pro</title>
+    <!-- Substituted at build time from shared/productBrand.mjs — see the
+         productBrand plugin in vite.config.js. Do not hard-code the name. -->
+    <meta name="apple-mobile-web-app-title" content="%PRODUCT_NAME%" />
+    <title>%PRODUCT_NAME%</title>
     <link rel="manifest" href="manifest.json" />
     <link rel="icon" type="image/svg+xml" href="icons/icon.svg" />
     <link rel="apple-touch-icon" href="icons/apple-touch-icon.png" />

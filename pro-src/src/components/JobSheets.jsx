@@ -21,6 +21,8 @@ import { enrichAndPatchCustomer } from "./NewJobFlow.jsx";
 import AddressAutocompleteField from "./AddressAutocompleteField.jsx";
 import { syncBillingFromService } from "../lib/addressSync.js";
 import { useStore } from "../state/store.jsx";
+import { productName } from "../lib/tenantBranding.js";
+import { useTenantConfig } from "../state/tenant.jsx";
 
 import { fmt$, parseAmount, todayStr } from "../lib/format.js";
 import { docStorePdfUrl, openPdfBlob, openPdfUrl, downloadPdfBlob } from "../lib/pdfOpen.js";
@@ -287,6 +289,7 @@ export function MarkPaidSheet({
   initialCustomerName = "",
 }) {
   const { patchJob, showToast, syncNow, refreshJobs, jobs } = useStore();
+  const product = productName(useTenantConfig());
   const needsPick = !jobProp;
   const [activeJob, setActiveJob] = useState(jobProp || null);
   const [pickCust, setPickCust] = useState(() => {
@@ -385,7 +388,7 @@ export function MarkPaidSheet({
       return false;
     }
     if (alreadyPaid) {
-      showToast("Invoice already paid in LE Pro — sync from QuickBooks first");
+      showToast(`Invoice already paid in ${product} — sync from QuickBooks first`);
       return false;
     }
     if (payAmt <= 0) {
@@ -738,7 +741,8 @@ export function MarkPaidSheet({
         <div className="rounded-xl bg-amber-50 border border-amber-200 px-3 py-2.5 mb-3 text-[12px] text-amber-900">
           <p className="font-semibold">Already paid (balance {fmt$(due)})</p>
           <p className="mt-1 text-amber-800">
-            QuickBooks may already show this invoice as paid. Sync first so LE Pro matches QBO before recording another payment.
+            QuickBooks may already show this invoice as paid. Sync first so {product} matches QBO before recording
+            another payment.
           </p>
           <button className="btn bg-brand text-white w-full mt-2" onClick={() => syncNow().then(onClose)}>
             Sync from QuickBooks
@@ -1481,6 +1485,7 @@ function DocPdfStatus({ st, onRetry }) {
 /** Local vs QuickBooks view buttons — explicit source, no auto-mixing. */
 export function DocPdfViewButtons({ job, kind, no, compact }) {
   const { st, viewLocal, viewQbo } = useDocPdfView(job, kind, no);
+  const product = productName(useTenantConfig());
   const retry = () => (st.source === DOC_SOURCE_QBO ? viewQbo() : viewLocal());
 
   if (st.phase === "checking" || st.phase === "fetching" || st.phase === "timeout") {
@@ -1515,7 +1520,7 @@ export function DocPdfViewButtons({ job, kind, no, compact }) {
       <Opt
         icon="📄"
         title={viewLocalLabel(kind)}
-        note="LE Pro PDF from this job's line items"
+        note={`${product} PDF from this job's line items`}
         onClick={viewLocal}
         data-testid="view-local-doc"
       />

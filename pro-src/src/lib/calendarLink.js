@@ -3,7 +3,7 @@
 import { evStart } from "./format.js";
 import { clientKey } from "./customers.js";
 import { sortJobs } from "./stages.js";
-import { tenantCalendarAccount } from "./tenantBranding.js";
+import { productName, tenantCalendarAccount } from "./tenantBranding.js";
 
 const JOB_TAG = /(?:^|\n)leJobId:([^\s\n]+)/;
 
@@ -420,7 +420,10 @@ export async function applyAppointmentJobLink({
         summary: event.summary || "Appointment",
         start: evStart(event),
         location: event.location || "",
-        description: desc || "Linked from LE Pro",
+        // Written into the Google Calendar event, i.e. external stored data:
+        // a rename affects only NEW events, and any future reader must
+        // tolerate both the old and new wording.
+        description: desc || `Linked from ${productName()}`,
       },
       "judgment",
       "callink:" + eid + ":" + job.id
@@ -476,7 +479,7 @@ export async function unlinkAppointmentJob({
         summary: event.summary || "Appointment",
         start: evStart(event),
         location: event.location || "",
-        description: desc || "Unlinked in LE Pro",
+        description: desc || `Unlinked in ${productName()}`,
       },
       "judgment",
       "calunlink:" + eid + ":" + Date.now()

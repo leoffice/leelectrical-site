@@ -8,6 +8,7 @@ import { screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import "@testing-library/jest-dom/vitest";
 import { mockServer, renderApp } from "./helpers.jsx";
+import { productName } from "../src/lib/tenantBranding.js";
 
 afterEach(() => {
   vi.useRealTimers();
@@ -113,7 +114,7 @@ describe("customer_sync approval resolution", () => {
     expect(await screen.findByText("718-555-0199")).toBeInTheDocument();
     expect(screen.getByText("718-555-0142")).toBeInTheDocument();
 
-    await user.click(screen.getByText(/LE Pro is correct/));
+    await user.click(screen.getByText(`${productName()} is correct → Update QuickBooks`));
     await waitFor(() => {
       const updates = srv.posts("command", (b) => b.op === "update" && b.id === "c-sync-1");
       expect(updates).toHaveLength(1);

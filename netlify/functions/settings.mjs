@@ -151,6 +151,21 @@ function slug(s) {
 }
 
 /**
+ * Product brand override. Only the four known keys, only non-empty strings —
+ * a blank value must fall through to the platform default rather than
+ * blanking the product name across the UI, emails and documents.
+ */
+function normalizeProduct(raw) {
+  const p = raw && typeof raw === "object" ? raw : {};
+  const out = {};
+  for (const k of ["name", "shortName", "poweredBy", "logoUrl"]) {
+    const v = typeof p[k] === "string" ? p[k].trim() : "";
+    if (v) out[k] = v;
+  }
+  return out;
+}
+
+/**
  * Normalize a stored/incoming tenant_config. `internal` is ALWAYS taken from
  * the environment, never from `raw` — see the security note at the top.
  */
@@ -176,6 +191,10 @@ function normalizeTenant(raw) {
     branding: { ...DEFAULT_TENANT.branding, ...(t.branding && typeof t.branding === "object" ? t.branding : {}) },
     moduleOverrides: overrides,
     agencies: Array.isArray(t.agencies) ? normalizeAgencies(t.agencies) : DEFAULT_TENANT.agencies,
+    // Product brand override (name / shortName / poweredBy / logo). Absent or
+    // blank fields fall back to the platform defaults in
+    // shared/productBrand.mjs — see resolveProductBrand on the client.
+    product: normalizeProduct(t.product),
   };
 }
 
