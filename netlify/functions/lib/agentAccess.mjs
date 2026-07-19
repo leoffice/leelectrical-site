@@ -7,7 +7,8 @@ import { createHash, randomBytes, timingSafeEqual } from "crypto";
 export const DOC_KEY = "agent-access-v1";
 export const SECRET_KEY = "agent-access-signing-secret";
 export const DEFAULT_TTL_MS = 30 * 60 * 1000;
-export const MAX_TTL_MS = 4 * 60 * 60 * 1000;
+/** Longest grant: 24h (UI offers 15m–24h). */
+export const MAX_TTL_MS = 24 * 60 * 60 * 1000;
 export const MIN_TTL_MS = 5 * 60 * 1000;
 export const MAX_AUDIT = 80;
 export const SCOPES = new Set(["full", "test"]);

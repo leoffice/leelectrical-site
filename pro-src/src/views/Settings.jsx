@@ -522,6 +522,8 @@ export default function Settings() {
               <option value={30}>30 min</option>
               <option value={60}>1 hour</option>
               <option value={120}>2 hours</option>
+              <option value={720}>12 hours</option>
+              <option value={1440}>24 hours</option>
             </select>
           </label>
           <label className="text-sm font-semibold text-slate-700">
