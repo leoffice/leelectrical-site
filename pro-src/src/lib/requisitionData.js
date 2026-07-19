@@ -2,7 +2,7 @@
 
 import { customerKeyForName, customerContact, normalizeCustomer } from "./customers.js";
 import { baseContractItems, sumItemValues } from "./requisitionCalc.js";
-import { activeTenantConfig } from "./tenantBranding.js";
+import { activeTenantConfig, onTenantConfigChange } from "./tenantBranding.js";
 import { isInternal } from "./tenantConfig.js";
 import { DEFAULT_PROFILE } from "./tenantProfile.js";
 
@@ -44,12 +44,19 @@ function internalTenant() {
  * Default contractor name on requisitions (FROM / CONTRACTOR lines).
  *
  * A live ESM binding, not a frozen literal: requisitionPdf.js, requisitionExcel.js
- * and views/Projects.jsx import it as a plain string, so it cannot become a
- * getter without editing them. Instead reqProfile() — which every read path in
- * this module goes through — refreshes it from tenant_config, and importers see
- * the updated binding. Prefer reqCompanyName() in new code.
+ * and views/Projects.jsx import it as a plain string (one compares it with !==,
+ * so a String wrapper or getter would silently break identity), and importers
+ * see the updated binding. Kept current by the subscription below rather than
+ * lazily — an importer that read it before any function in this module had run
+ * would otherwise get the build seed. Prefer reqCompanyName() in new code.
  */
 export let DEFAULT_REQ_COMPANY_NAME = DEFAULT_PROFILE.requisition.companyName;
+
+// Refresh the live binding whenever tenant_config changes, so its value never
+// depends on whether some other read path happened to run first.
+onTenantConfigChange(() => {
+  DEFAULT_REQ_COMPANY_NAME = reqProfile().companyName || "";
+});
 
 /**
  * The tenant's requisition branding block, read LIVE on every call.
@@ -143,6 +150,20 @@ export function findBaezJob(jobs) {
  * (LE's pilot project predates the project record carrying its own gc/address).
  * Other tenants fall back to their project data, or to blanks.
  */
+/**
+ * Heading name for the requisition hub.
+ *
+ * The internal tenant keeps the title-cased pilot label so LE's live hub is
+ * unchanged (its persisted project records predate a customerName field, and
+ * project.gc is the uppercase "…CORP." form). Every other tenant reads their
+ * own project record and never sees LE's customer.
+ */
+export function projectDisplayName(project) {
+  if (project?.customerName) return project.customerName;
+  if (internalTenant()) return JOY_CONSTRUCTION_NAME;
+  return project?.gc || "";
+}
+
 export function projectCustomerContact(project, linkedJob) {
   if (linkedJob) return customerContact([linkedJob]);
   const internal = internalTenant();

@@ -23,7 +23,7 @@ import {
   findBaezJob,
   findProject,
   fmtUsd,
-  JOY_CONSTRUCTION_NAME,
+  projectDisplayName,
   joyCustomerKey,
   normalizeProjects,
   projectCompanyName,
@@ -1071,9 +1071,11 @@ export default function Projects() {
     setNewJob?.({
       step: "form",
       prefill: {
-        customer: JOY_CONSTRUCTION_NAME,
-        businessName: project?.gc || JOY_CONSTRUCTION_NAME,
-        title: project?.name || "Baez Place",
+        // Prefill from the project record, so a tenant adding a job never gets
+        // LE's pilot customer pre-typed into their form.
+        customer: projectDisplayName(project),
+        businessName: project?.gc || projectDisplayName(project),
+        title: project?.name || "",
         serviceAddress: project?.address || "",
         address: project?.address || "",
       },
@@ -1167,7 +1169,7 @@ export default function Projects() {
   if (!project) {
     return (
       <div className="card px-6 py-12 text-center text-slate-400 text-sm" data-testid="projects-loading">
-        Loading Joy Construction…
+        Loading…
       </div>
     );
   }
@@ -1178,7 +1180,7 @@ export default function Projects() {
   return (
     <div className="space-y-4 pb-8" data-testid="joy-requisition-hub">
       <div className="flex items-center justify-between gap-2">
-        <h1 className="text-xl font-extrabold text-slate-900">{JOY_CONSTRUCTION_NAME}</h1>
+        <h1 className="text-xl font-extrabold text-slate-900">{projectDisplayName(project)}</h1>
         <Link to={"/customer/" + encodeURIComponent(custKey)} className="text-sm font-semibold text-brand shrink-0" data-testid="joy-customer-link">
           Customer →
         </Link>

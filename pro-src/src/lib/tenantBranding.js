@@ -18,9 +18,34 @@ import { resolveTenantConfig } from "./tenantConfig.js";
 /** Module-level snapshot so non-React callers (PDF builders) can read it. */
 let current = resolveTenantConfig(null);
 
+const listeners = new Set();
+
+/**
+ * Subscribe to config changes.
+ *
+ * For modules that expose a live ESM binding (a plain string other modules
+ * import directly) rather than a getter. Those cannot refresh themselves
+ * lazily — an importer reading the binding before any of the module's own
+ * functions have run would see a stale value. Subscribing removes that
+ * ordering dependency. Returns an unsubscribe function.
+ */
+export function onTenantConfigChange(fn) {
+  listeners.add(fn);
+  fn(current);
+  return () => listeners.delete(fn);
+}
+
 /** Called by TenantProvider once config resolves. */
 export function setActiveTenantConfig(config) {
-  if (config) current = config;
+  if (!config) return;
+  current = config;
+  for (const fn of listeners) {
+    try {
+      fn(current);
+    } catch {
+      /* a bad subscriber must not break config propagation */
+    }
+  }
 }
 
 export function activeTenantConfig() {
