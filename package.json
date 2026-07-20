@@ -4,6 +4,7 @@
   "type": "module",
   "dependencies": {
     "@netlify/blobs": "^8.2.0",
-    "pdfkit": "^0.19.1"
+    "pdfkit": "^0.19.1",
+    "unpdf": "^1.6.2"
   }
 }

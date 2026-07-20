@@ -146,22 +146,26 @@ describe("blankManualItem", () => {
 });
 
 describe("takeoff module gating", () => {
-  it("LE (internal) and full tier get takeoff; pro/free do not", () => {
+  it("takeoff is ON by default for EVERY tier + internal (platform-wide)", () => {
     const le = resolveTenantConfig(LE_TENANT_SEED);
     expect(isModuleEnabled(le, "takeoff")).toBe(true);
-
-    const full = resolveTenantConfig({ tenantId: "t", plan: { tier: "full" } });
-    expect(isModuleEnabled(full, "takeoff")).toBe(true);
-
-    const pro = resolveTenantConfig({ tenantId: "t", plan: { tier: "pro" } });
-    expect(isModuleEnabled(pro, "takeoff")).toBe(false);
+    for (const tier of ["free", "pro", "full"]) {
+      const cfg = resolveTenantConfig({ tenantId: "t", plan: { tier } });
+      expect(isModuleEnabled(cfg, "takeoff")).toBe(true);
+    }
   });
 
-  it("the /takeoff route is registered only when the module is on", () => {
-    const full = resolveTenantConfig({ tenantId: "t", plan: { tier: "full" } });
+  it("a tenant can still be opted OUT via an explicit moduleOverride", () => {
+    const off = resolveTenantConfig({ tenantId: "t", plan: { tier: "pro" }, moduleOverrides: { takeoff: false } });
+    // Non-internal tenants honor an explicit false override.
+    expect(isModuleEnabled(off, "takeoff")).toBe(false);
+  });
+
+  it("the /takeoff route is registered for a default (pro) tenant", () => {
     const pro = resolveTenantConfig({ tenantId: "t", plan: { tier: "pro" } });
-    expect(isRouteAllowed("/takeoff", full)).toBe(true);
-    expect(isRouteAllowed("/takeoff/:projectId", full)).toBe(true);
-    expect(isRouteAllowed("/takeoff", pro)).toBe(false);
+    expect(isRouteAllowed("/takeoff", pro)).toBe(true);
+    expect(isRouteAllowed("/takeoff/:projectId", pro)).toBe(true);
+    const off = resolveTenantConfig({ tenantId: "t", plan: { tier: "pro" }, moduleOverrides: { takeoff: false } });
+    expect(isRouteAllowed("/takeoff", off)).toBe(false);
   });
 });

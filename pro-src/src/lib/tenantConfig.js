@@ -60,7 +60,7 @@ export const PLAN_MODULES = {
     quickbooks: false,
     documents: false,
     reports: false,
-    takeoff: false,
+    takeoff: true,
   },
   pro: {
     invoicing: true,
@@ -71,7 +71,7 @@ export const PLAN_MODULES = {
     quickbooks: true,
     documents: false,
     reports: true,
-    takeoff: false,
+    takeoff: true,
   },
   full: {
     invoicing: true,
