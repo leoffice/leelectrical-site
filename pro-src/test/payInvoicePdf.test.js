@@ -27,14 +27,36 @@ describe("payInvoicePdf", () => {
     expect(JSON.parse(calls[0].opts.body)).toEqual({ invoiceNo: "251839", jobId: "J-9" });
   });
 
-  it("retrieveInvoicePdf queues fetch when PDF missing then succeeds on poll", async () => {
+  // The stored-copy path: the PDF was archived to R2 when the invoice was
+  // emailed, so it is served on the first read with no server work at all.
+  it("retrieveInvoicePdf serves the cached PDF without asking the server", async () => {
+    const phases = [];
+    const fetchMock = vi.fn(async () => ({
+      ok: true,
+      headers: { get: (h) => (h === "content-type" ? "application/pdf" : "") },
+    }));
+    vi.stubGlobal("fetch", fetchMock);
+    const ok = await retrieveInvoicePdf({
+      url: "https://leelectrical.us/.netlify/functions/docs?key=inv-251839",
+      invoiceNo: "251839",
+      jobId: "J-1",
+      onPhase: (p) => phases.push(p),
+    });
+    expect(ok).toBe(true);
+    expect(phases[phases.length - 1]).toBe("ready");
+    // Never reached docs-fetch — the cached copy answered it.
+    expect(fetchMock.mock.calls.every((c) => !String(c[0]).includes("docs-fetch"))).toBe(true);
+  });
+
+  it("retrieveInvoicePdf has the server render the PDF when nothing is cached", async () => {
     let docsHits = 0;
     const phases = [];
     vi.stubGlobal(
       "fetch",
-      vi.fn(async (url, opts = {}) => {
+      vi.fn(async (url) => {
         if (String(url).includes("docs-fetch")) {
-          return { ok: true, json: async () => ({ ok: true, queued: true }) };
+          // Server-side render + cache to R2. No office-computer queue.
+          return { ok: true, json: async () => ({ ok: true, ready: true, generated: true }) };
         }
         docsHits += 1;
         if (docsHits >= 2) {
@@ -57,7 +79,6 @@ describe("payInvoicePdf", () => {
     });
     expect(ok).toBe(true);
     expect(phases).toContain("requesting");
-    expect(phases).toContain("fetching");
     expect(phases[phases.length - 1]).toBe("ready");
   });
 

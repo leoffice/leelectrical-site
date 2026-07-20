@@ -63,7 +63,8 @@ describe("PayLanding view", () => {
     );
     renderPay(token);
     await waitForPayLoaded();
-    expect(screen.getByText("BLZ Electric")).toBeInTheDocument();
+    // Header brand and the footer both carry the company name now.
+    expect(screen.getAllByText("BLZ Electric").length).toBeGreaterThan(0);
     expect(screen.getByRole("heading", { level: 1, name: /Invoice.*251839/ })).toBeInTheDocument();
     expect(screen.getByText("Billing address")).toBeInTheDocument();
     expect(screen.queryByText("Service address")).toBeNull();
@@ -145,14 +146,14 @@ describe("PayLanding view", () => {
     await waitFor(() => expect(screen.getByText("Link not valid")).toBeInTheDocument());
   });
 
-  it("View invoice triggers QBO fetch overlay when PDF is missing", async () => {
+  it("View invoice shows the preparing overlay and has the server render the PDF", async () => {
     let docsHits = 0;
     vi.stubGlobal(
       "fetch",
       vi.fn(async (url) => {
         await new Promise((r) => setTimeout(r, 60));
         if (String(url).includes("docs-fetch")) {
-          return { ok: true, json: async () => ({ ok: true, queued: true }) };
+          return { ok: true, json: async () => ({ ok: true, ready: true, generated: true }) };
         }
         docsHits += 1;
         if (docsHits >= 4) {
@@ -189,11 +190,65 @@ describe("PayLanding view", () => {
     await user.click(screen.getByTestId("view-invoice"));
     await waitFor(() => expect(screen.getByTestId("pdf-retrieve-overlay")).toBeInTheDocument());
     expect(screen.getByText(/Loading your invoice/)).toBeInTheDocument();
-    expect(screen.getByText(/Generating PDF/)).toBeInTheDocument();
+    expect(screen.getByText(/Preparing/)).toBeInTheDocument();
     await waitFor(() =>
       expect(vi.mocked(fetch).mock.calls.some((c) => String(c[0]).includes("docs-fetch"))).toBe(
         true
       )
     );
+  });
+
+  // --- customer-facing copy guarantees -------------------------------------
+  // This page is seen by paying customers, not staff. Two strings leaked
+  // through before: an error blaming the office computer for an unviewable
+  // invoice, and a footer link labelled "LE Pro (staff)".
+
+  it("never blames the office computer when the PDF cannot be loaded", async () => {
+    // Everything fails: no cached PDF, and the server cannot render one.
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url) => {
+        if (String(url).includes("docs-fetch")) {
+          return { ok: true, json: async () => ({ ok: false, reason: "unavailable" }) };
+        }
+        return { ok: false, headers: { get: () => "application/json" } };
+      })
+    );
+    const user = userEvent.setup();
+    const token = encodePayLanding(
+      buildPayLandingPayload({
+        job: { id: "J-1", customer: "Ann", amount: "$500", invoiceNo: "888" },
+        cardknoxUrl: "https://secure.cardknox.com/x?xAmount=500",
+        linkAmount: "500",
+        inv: "888",
+        siteSlug: "s",
+      })
+    );
+    renderPay(token);
+    await waitForPayLoaded();
+    await user.click(screen.getByTestId("view-invoice"));
+    await waitFor(
+      () => expect(screen.getByText(/still being prepared/i)).toBeInTheDocument(),
+      { timeout: 15000 }
+    );
+    expect(document.body.textContent).not.toMatch(/office computer/i);
+  }, 20000);
+
+  it("footer shows the company, never a staff link", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => ({ ok: true })));
+    const token = encodePayLanding(
+      buildPayLandingPayload({
+        job: { id: "J-1", customer: "Ann", amount: "$500", invoiceNo: "888" },
+        cardknoxUrl: "https://secure.cardknox.com/x?xAmount=500",
+        linkAmount: "500",
+        inv: "888",
+        siteSlug: "blzelectric",
+      })
+    );
+    renderPay(token);
+    await waitForPayLoaded();
+    const footer = screen.getByTestId("pay-footer");
+    expect(footer.textContent).not.toMatch(/staff/i);
+    expect(footer.textContent).toMatch(/BLZ Electric/);
   });
 });

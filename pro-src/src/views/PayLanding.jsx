@@ -1,6 +1,6 @@
 // Public View & Pay — invoice details, View invoice PDF, in-page card payment.
 import React, { useEffect, useState } from "react";
-import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
+import { useNavigate, useParams, useSearchParams } from "react-router-dom";
 import SolaCardForm, { tokenizeSolaCard } from "../components/SolaCardForm.jsx";
 import { addressesDiffer, invoicePdfUrl, resolvePayLandingToken } from "../lib/payLanding.js";
 import { openPdfUrl } from "../lib/pdfOpen.js";
@@ -18,7 +18,7 @@ import {
 } from "../lib/payFees.js";
 import { chargeCardFromLanding } from "../lib/solaCharge.js";
 import { useTenantConfig } from "../state/tenant.jsx";
-import { productName, tenantLocality } from "../lib/tenantBranding.js";
+import { tenantLocality } from "../lib/tenantBranding.js";
 
 const DEFAULT_LOGO = import.meta.env.BASE_URL + "le-logo.png?v=5";
 
@@ -281,9 +281,10 @@ export default function PayLanding() {
       setPdfReady(true);
       openPdfUrl(pdfSrc);
     } else {
-      setPdfErr(
-        "We couldn't load the invoice PDF yet. Make sure our office computer is online, then tap View invoice again."
-      );
+      // Never explain our infrastructure to a customer — and never blame the
+      // office computer, which the PDF no longer depends on. A miss here is a
+      // transient storage lag, so say so neutrally and invite one more tap.
+      setPdfErr("One moment — your invoice is still being prepared. Tap View invoice again.");
     }
   };
 
@@ -483,14 +484,15 @@ export default function PayLanding() {
         </p>
       </main>
 
-      <footer className="text-center text-[11px] text-slate-500 pb-8 px-4">
+      {/* Customer-facing footer: the company only. The staff link to the LE Pro
+          app used to sit here reading "LE Pro (staff)" — internal tooling a
+          customer should neither see nor be invited into. */}
+      <footer className="text-center text-[11px] text-slate-500 pb-8 px-4" data-testid="pay-footer">
+        <span className="font-semibold text-slate-600">{brandName}</span>
+        <span className="mx-2">·</span>
         <a href={`https://${website}`} className="text-slate-500 hover:text-brand">
           {website}
         </a>
-        <span className="mx-2">·</span>
-        <Link to="/" className="text-slate-400">
-          {productName(config)} (staff)
-        </Link>
       </footer>
     </div>
   );

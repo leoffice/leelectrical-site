@@ -2,11 +2,19 @@
 // Resend — not the template in isolation. This is what lands in the inbox.
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-// In-memory paylinks store so mintShortPayLink behaves as it does in prod.
+// In-memory paylinks + docs store so mintShortPayLink and the sent-PDF archive
+// behave as they do in prod. `failWrites` lets a test simulate storage being
+// down, to prove archiving is best-effort and never blocks the email.
 const written = new Map();
+const storeFailure = { pattern: null };
 vi.mock("../../netlify/functions/lib/storage/index.mjs", () => ({
   getStore: () => ({
-    set: async (k, v) => void written.set(k, v),
+    set: async (k, v) => {
+      if (storeFailure.pattern && storeFailure.pattern.test(String(k))) {
+        throw new Error("storage unavailable");
+      }
+      written.set(k, v);
+    },
     get: async (k) => written.get(k) || null,
   }),
   bindStorageEnv: () => {},
@@ -33,6 +41,7 @@ let sent;
 
 beforeEach(() => {
   written.clear();
+  storeFailure.pattern = null;
   sent = null;
   process.env.RESEND_API_KEY = "re_test_key";
   process.env.EMAIL_TEST_MODE = "false"; // exercise the real recipient path
@@ -91,12 +100,30 @@ describe("composed invoice email", () => {
   it("registered the landing payload so the page can review + pay", async () => {
     await compose();
     const keys = [...written.keys()];
-    expect(keys).toHaveLength(1);
-    expect(keys[0]).toMatch(/^pl-/);
-    const rec = JSON.parse(written.get(keys[0]));
+    const plKey = keys.find((k) => k.startsWith("pl-"));
+    expect(plKey).toBeTruthy();
+    const rec = JSON.parse(written.get(plKey));
     expect(rec.payload.i).toBe("231595");
     expect(rec.payload.pay).toContain("cardknox"); // pay lives on the page
     expect(rec.payload.ps).toHaveLength(1); // payment history
+  });
+
+  // The pay page used to fetch the customer's PDF off the office Mac, so an
+  // invoice was unviewable whenever that machine slept. Archiving the sent
+  // bytes to the durable docs store (R2) at send time is what removed that
+  // dependency — if this stops happening, the outage comes back.
+  it("archives the sent PDF to the docs store so the pay page never needs the office computer", async () => {
+    await compose();
+    const stored = written.get("inv-231595");
+    expect(stored).toBeTruthy();
+    expect(Buffer.from(stored).subarray(0, 4).toString("latin1")).toBe("%PDF");
+  });
+
+  it("still sends the email when archiving the PDF fails", async () => {
+    storeFailure.pattern = /^inv-/;
+    const { res } = await compose();
+    expect(res.ok).toBe(true);
+    expect(written.has("inv-231595")).toBe(false);
   });
 
   it("has no 'securely online' duplicate line", async () => {

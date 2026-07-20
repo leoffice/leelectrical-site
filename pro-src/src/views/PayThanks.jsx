@@ -1,10 +1,10 @@
 // Customer thank-you / declined page after Sola Cardknox redirect.
 import React from "react";
-import { Link, useSearchParams } from "react-router-dom";
+import { useSearchParams } from "react-router-dom";
 import { fmtMoneyPrecise } from "../lib/payFees.js";
 import { fmtBalanceNow, parsePayThanksParams } from "../lib/payThanks.js";
 import { useTenantConfig } from "../state/tenant.jsx";
-import { productName, tenantLocality } from "../lib/tenantBranding.js";
+import { tenantLocality } from "../lib/tenantBranding.js";
 
 const DEFAULT_LOGO = import.meta.env.BASE_URL + "le-logo.png?v=5";
 
@@ -100,14 +100,13 @@ export default function PayThanks() {
         </div>
       </main>
 
-      <footer className="text-center text-[11px] text-[#64748b] pb-8 px-4">
+      {/* Customer-facing footer: company only — same rule as PayLanding. */}
+      <footer className="text-center text-[11px] text-[#64748b] pb-8 px-4" data-testid="thanks-footer">
+        <span className="font-semibold text-slate-600">{brandName}</span>
+        <span className="mx-2">·</span>
         <a href={`https://${website}`} className="text-[#64748b] hover:text-brand">
           {website}
         </a>
-        <span className="mx-2">·</span>
-        <Link to="/" className="text-[#94a3b8]">
-          {productName(config)} (staff)
-        </Link>
       </footer>
     </div>
   );

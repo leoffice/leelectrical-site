@@ -3,7 +3,8 @@ import {
   resolveFromAddress,
   resolveRecipient,
 } from "./paymentConfirmEnv.mjs";
-import { docPdfFilename, mapJobToQbDocData } from "./jobToQbDoc.mjs";
+import { docPdfFilename, docStoreKey, mapJobToQbDocData } from "./jobToQbDoc.mjs";
+import { getStore } from "./storage/index.mjs";
 // Static ESM default-import of the CJS template (esbuild/Node interop) — no
 // createRequire, which isn't available on Cloudflare's V8 isolate.
 import emailTemplate from "./le-invoice-suite/email-template.js";
@@ -22,6 +23,37 @@ const OFFICE_EMAIL = "office@leelectrical.us";
 
 function docsUrl(key) {
   return `${SITE}/.netlify/functions/docs?key=${encodeURIComponent(key)}`;
+}
+
+/**
+ * Archive the sent PDF to the durable docs store (R2) so the customer's
+ * /pay/<code> page can always serve it.
+ *
+ * Before this, an emailed invoice left no server-side copy at all: the pay page
+ * had to re-derive the PDF, and when it couldn't it fell back to pulling the
+ * file off the office Mac. Writing it here — at the moment we know the exact
+ * bytes the customer received — is what makes "View invoice" independent of
+ * that machine. Best-effort by design: a storage hiccup must never block the
+ * email, and docs-fetch can still re-render on demand.
+ */
+async function archiveSentPdf(kind, docNumber, buf, filename) {
+  const no = String(docNumber || "").trim();
+  if (!no || !buf) return "";
+  try {
+    const key = docStoreKey(kind, no);
+    await getStore("docs").set(key, buf, {
+      metadata: {
+        mime: "application/pdf",
+        bytes: buf.length,
+        ts: Date.now(),
+        source: "sent",
+        filename,
+      },
+    });
+    return key;
+  } catch {
+    return "";
+  }
 }
 
 /** Decode a base64 (or data-URL) PDF the client generated into a Buffer. */
@@ -161,6 +193,10 @@ export async function sendDocEmail({
 
   const pdfAttachB64 = pdfBuffer.toString("base64");
   const filename = filenameIn || docPdfFilename(kind, job, docData.docNumber);
+
+  // Keep the exact bytes we're about to email, so "View invoice" on the pay
+  // page serves the same document without touching the office computer.
+  await archiveSentPdf(kind, docData.docNumber, pdfBuffer, filename);
 
   const text =
     `${docWord} ${docData.docNumber} from ${docData.company.name}\n` +

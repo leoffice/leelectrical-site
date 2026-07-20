@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import React from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { render, screen } from "@testing-library/react";
+import { render, screen, within } from "@testing-library/react";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
 import "@testing-library/jest-dom/vitest";
 import PayThanks from "../src/views/PayThanks.jsx";
@@ -30,7 +30,17 @@ describe("PayThanks view", () => {
     expect(header).toHaveClass("items-center");
     expect(header).toHaveClass("text-center");
     expect(screen.getByTestId("pay-thanks-logo")).toHaveClass("mx-auto");
-    expect(screen.getByText("BLZ Electric")).toBeInTheDocument();
+    // Scoped to the header: the footer carries the company name too.
+    expect(within(header).getByText("BLZ Electric")).toBeInTheDocument();
+  });
+
+  // A customer reaches this page right after paying; it must not advertise
+  // internal staff tooling. The footer used to read "LE Pro (staff)".
+  it("footer shows the company, never a staff link", () => {
+    renderThanks("ok=1&inv=9&amt=500&bal=0");
+    const footer = screen.getByTestId("thanks-footer");
+    expect(footer.textContent).not.toMatch(/staff/i);
+    expect(footer.textContent).toMatch(/BLZ Electric/);
   });
 
   it("shows receipt with amount paid and balance now from redirect params", () => {

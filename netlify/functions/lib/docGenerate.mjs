@@ -1,11 +1,14 @@
 import { getStore } from "./storage/index.mjs";
 import { canGenerateLocalDoc, docPdfFilename, docStoreKey, mapJobToQbDocData } from "./jobToQbDoc.mjs";
+import { buildQbDocPdfBytes } from "../../../shared/qbDocPdf.mjs";
 
-// NOTE: the pdfkit generator + Node fs/path/module bits load lazily inside
-// generateAndStoreDoc(), NOT at module load. This module is transitively imported
-// by docs-fetch, which must load on Cloudflare's V8 isolate — where import.meta.url
-// is undefined and pdfkit can't run. Deferring keeps import crash-free; only an
-// actual generateAndStoreDoc() call (Node only) touches those APIs.
+// Renders invoice/estimate PDFs with the shared pure-JS byte-writer from
+// shared/qbDocPdf.mjs — the same renderer the browser uses. It replaced the old
+// pdfkit template, which needed Node's fs/path/module and so could never run
+// here: that limitation is exactly why the customer pay page used to fall back
+// to fetching PDFs off the office Mac. Generation now works on Cloudflare's V8
+// isolate, so docs-fetch can serve a customer with the office machine offline.
+// Keep this module free of Node built-ins.
 
 const JOBS_KEY = "jobsdata-v1";
 const STATE_KEY = "ov-v1";
@@ -36,16 +39,10 @@ export async function generateAndStoreDoc({ job, kind = "invoice" }) {
   if (!canGenerateLocalDoc(job, kind)) {
     return { ok: false, reason: "insufficient_data" };
   }
-  // Lazy Node-only deps — pdfkit and fs/path/module can't run on Cloudflare V8.
-  const { createRequire } = await import("module");
-  const { fileURLToPath } = await import("url");
-  const path = (await import("path")).default;
-  const require = createRequire(import.meta.url);
-  const { generateDocument } = require("./le-invoice-suite/qb-pdf.js");
-  const SUITE_DIR = path.join(path.dirname(fileURLToPath(import.meta.url)), "le-invoice-suite");
   const data = mapJobToQbDocData(job, kind);
-  data.logoPath = path.join(SUITE_DIR, "assets", "logo.png");
-  const buf = await generateDocument(data);
+  // The logo is embedded in the renderer (shared/leLogoJpeg.mjs), so there is
+  // no logoPath to resolve off disk any more.
+  const buf = buildQbDocPdfBytes(data);
   const key = docStoreKey(kind, data.docNumber);
   const filename = docPdfFilename(kind, job, data.docNumber);
   const store = getStore("docs");

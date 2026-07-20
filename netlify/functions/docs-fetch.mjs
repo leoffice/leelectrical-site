@@ -4,7 +4,14 @@ import { canGenerateLocalDoc, docStoreKey } from "./lib/jobToQbDoc.mjs";
 
 // Public pay page + LE Pro — ensure invoice PDFs use the local QBO-clone template.
 // POST { invoiceNo, jobId? }  or  GET ?invoice=<no>&jobId=<id>
-const COMMANDS_KEY = "commands-v1";
+//
+// Every path here is always-online. This endpoint used to have a third tier
+// that enqueued a `fetch_pdf` command for the office-Mac host agent to pull the
+// PDF out of QuickBooks; when that machine was asleep the customer got
+// "Make sure our office computer is online" and simply could not see their
+// invoice. That tier is gone. A customer-facing document must never depend on
+// a machine in the office, so we render server-side instead (tier 1) and fall
+// back to the durable R2 copy written at send time (tier 2).
 const INV_RE = /^\d{1,12}$/;
 
 function json(o, status = 200) {
@@ -20,53 +27,10 @@ function json(o, status = 200) {
   });
 }
 
-function todayISO() {
-  return new Date().toISOString().slice(0, 10);
-}
-
 async function docExists(key) {
   const store = getStore("docs");
   const rec = await store.getWithMetadata(key, { type: "arrayBuffer", consistency: "strong" });
   return !!(rec && rec.data);
-}
-
-async function enqueueFetchPdf(invoiceNo, jobId = "") {
-  const no = String(invoiceNo || "").trim();
-  const store = getStore("commands");
-  const doc =
-    (await store.get(COMMANDS_KEY, { type: "json", consistency: "strong" })) ||
-    { commands: [], seq: 0, ts: 0 };
-  const idk = `pdf:pay:${no}:${todayISO()}`;
-  const existing = (doc.commands || []).find(
-    (c) => c.idempotencyKey === idk && c.status !== "failed"
-  );
-  if (existing) return { deduped: true, command: existing };
-
-  const now = Date.now();
-  doc.seq = (doc.seq || 0) + 1;
-  const command = {
-    id: "c" + now + Math.random().toString(36).slice(2, 6),
-    num: doc.seq,
-    type: "fetch_pdf",
-    jobId: String(jobId || "").trim(),
-    lane: "judgment",
-    status: "queued",
-    attempts: 0,
-    maxAttempts: 3,
-    payload: { kind: "invoice", no, docKey: "inv-" + no },
-    idempotencyKey: idk,
-    createdAt: now,
-    updatedAt: now,
-    result: null,
-    error: null,
-    escalatedAt: 0,
-    audit: [{ ts: now, status: "queued", note: "pay-page view invoice (QBO fallback)" }],
-  };
-  doc.commands = doc.commands || [];
-  doc.commands.push(command);
-  doc.ts = now;
-  await store.setJSON(COMMANDS_KEY, doc);
-  return { deduped: false, command };
 }
 
 export default async (req) => {
@@ -94,25 +58,28 @@ export default async (req) => {
   const no = String(invoiceNo || "").trim();
   if (!INV_RE.test(no)) return json({ ok: false, error: "bad invoice number" }, 400);
 
+  // Tier 1 — render from job data and cache to R2. Pure CPU, no network, so
+  // this works on the V8 isolate and keeps the PDF in step with edits made
+  // after the invoice was emailed.
   const job = await loadJobForInvoice(no, jobId);
   if (canGenerateLocalDoc(job, "invoice")) {
-    const result = await generateAndStoreDoc({ job, kind: "invoice" });
-    if (result.ok) {
-      return json({
-        ok: true,
-        generated: true,
-        local: true,
-        key: result.key,
-        invoiceNo: no,
-      });
+    try {
+      const result = await generateAndStoreDoc({ job, kind: "invoice" });
+      if (result.ok) {
+        return json({ ok: true, ready: true, generated: true, key: result.key, invoiceNo: no });
+      }
+    } catch {
+      // Fall through to the stored copy rather than failing the customer.
     }
   }
 
+  // Tier 2 — the durable copy written to R2 when the invoice was sent.
   const key = docStoreKey("invoice", no);
   if (await docExists(key)) {
-    return json({ ok: true, ready: true, invoiceNo: no });
+    return json({ ok: true, ready: true, stored: true, invoiceNo: no });
   }
 
-  const result = await enqueueFetchPdf(no, jobId);
-  return json({ ok: true, queued: true, deduped: result.deduped, invoiceNo: no });
+  // Nothing renderable and nothing stored. Report it plainly; the pay page
+  // shows a neutral "one moment" and retries. Never blame the office computer.
+  return json({ ok: false, ready: false, reason: "unavailable", invoiceNo: no });
 };
