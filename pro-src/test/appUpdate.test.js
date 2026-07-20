@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { checkForAppUpdate } from "../src/lib/appUpdate.js";
+import { checkForAppUpdate, makeForegroundUpdateHandler } from "../src/lib/appUpdate.js";
 
 describe("appUpdate", () => {
   const reload = vi.fn();
@@ -57,5 +57,40 @@ describe("appUpdate", () => {
 
     expect(localStorage.getItem("le-pro-live-sha")).toBe("new2222");
     expect(reload).not.toHaveBeenCalled();
+  });
+});
+
+describe("makeForegroundUpdateHandler (long-open PWA re-check)", () => {
+  const setHidden = (v) => Object.defineProperty(document, "hidden", { value: v, configurable: true });
+  afterEach(() => setHidden(false));
+
+  it("re-checks for a new deploy when the app is refocused and visible", () => {
+    setHidden(false);
+    const check = vi.fn();
+    const handler = makeForegroundUpdateHandler(() => 1_000_000, check);
+    handler();
+    expect(check).toHaveBeenCalledTimes(1); // a long-open PWA now notices the deploy
+  });
+
+  it("does not check while the app is hidden (background)", () => {
+    setHidden(true);
+    const check = vi.fn();
+    const handler = makeForegroundUpdateHandler(() => 2_000_000, check);
+    handler();
+    expect(check).not.toHaveBeenCalled();
+  });
+
+  it("throttles rapid refocus, then checks again after the window passes", () => {
+    setHidden(false);
+    const check = vi.fn();
+    let t = 5_000_000;
+    const handler = makeForegroundUpdateHandler(() => t, check);
+    handler();                 // t=5_000_000 → checks (1)
+    handler();                 // same instant → throttled
+    t = 5_030_000;             // +30s, still inside 60s window
+    handler();                 // throttled
+    t = 5_070_000;             // +70s from first → past window
+    handler();                 // checks (2)
+    expect(check).toHaveBeenCalledTimes(2);
   });
 });

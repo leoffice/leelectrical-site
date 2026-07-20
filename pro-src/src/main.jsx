@@ -8,7 +8,7 @@ import PayThanks from "./views/PayThanks.jsx";
 import { StoreProvider } from "./state/store.jsx";
 import { TenantProvider } from "./state/tenant.jsx";
 import "./index.css";
-import { checkForAppUpdate, watchServiceWorkerUpdates } from "./lib/appUpdate.js";
+import { checkForAppUpdate, watchServiceWorkerUpdates, watchForegroundUpdates } from "./lib/appUpdate.js";
 
 /** Public customer pay page — no biometric/password gate. */
 function PayOrApp() {
@@ -46,6 +46,9 @@ createRoot(document.getElementById("root")).render(
 // PWA: register the service worker (cache-first assets, offline shell).
 if ("serviceWorker" in navigator && !location.hostname.includes("localhost")) {
   watchServiceWorkerUpdates();
+  // Long-open PWAs only fire `load` once; also re-check when refocused so a new
+  // deploy reaches the device without a full relaunch.
+  watchForegroundUpdates();
   window.addEventListener("load", () => {
     checkForAppUpdate();
     navigator.serviceWorker.register(import.meta.env.BASE_URL + "sw.js").catch(() => {});

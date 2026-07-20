@@ -54,6 +54,35 @@ export async function checkForAppUpdate() {
   }
 }
 
+/**
+ * Re-check for a new deploy when a long-open PWA returns to the foreground.
+ * Installed PWAs/APKs often stay open for days and only fire `load` once, so the
+ * load-time check in main.jsx never re-runs — a deploy then never reaches the
+ * device until it is fully relaunched. Re-checking on visibility/focus closes
+ * that gap. Throttled so quick tab switches don't hammer the network, and the
+ * reload itself is still guarded by checkForAppUpdate's loop guard.
+ */
+const FOREGROUND_CHECK_THROTTLE_MS = 60_000;
+
+/** The throttled, visibility-gated handler — pure and self-contained for tests. */
+export function makeForegroundUpdateHandler(now = () => Date.now(), check = checkForAppUpdate) {
+  let last = 0;
+  return () => {
+    if (typeof document !== "undefined" && document.hidden) return;
+    const t = now();
+    if (last && t - last < FOREGROUND_CHECK_THROTTLE_MS) return;
+    last = t;
+    check();
+  };
+}
+
+export function watchForegroundUpdates(now = () => Date.now()) {
+  if (typeof document === "undefined" || location.hostname.includes("localhost")) return;
+  const onForeground = makeForegroundUpdateHandler(now);
+  document.addEventListener("visibilitychange", onForeground);
+  window.addEventListener("focus", onForeground);
+}
+
 /** Reload when a waiting service worker takes control (post-deploy SW bump). */
 export function watchServiceWorkerUpdates() {
   if (!("serviceWorker" in navigator) || location.hostname.includes("localhost")) return;
