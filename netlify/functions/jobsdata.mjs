@@ -1,5 +1,6 @@
 import { getStore } from "./lib/storage/index.mjs";
 import { rotateJsonBackup } from "./blob-backup.mjs";
+import { auditJobs, checkAutogenTripwire, formatProblems } from "../../pro-src/src/lib/dataIntegrity.js";
 
 // Live jobs dataset synced from QuickBooks + Google Calendar by a scheduled
 // Dispatch job (overnight + midday) and on demand. The dashboard GETs this to
@@ -33,6 +34,7 @@ export default async (req) => {
     let b = {};
     try { b = await req.json(); } catch (e) {}
     const doc = await load(store);
+    const prevJobs = doc.jobs || [];
     if (b.op === "set" && Array.isArray(b.jobs)) {
       doc.jobs = b.jobs;
       doc.syncedAt = Date.now();
@@ -52,6 +54,24 @@ export default async (req) => {
       doc.request = 0;
     } else if (b.op === "request") {
       doc.request = Date.now();
+    }
+    // Data-integrity gate. The fan-out tripwire BLOCKS the write (that is the
+    // failure mode we cannot let reach the dataset); the softer invariants are
+    // reported so the scheduled alerter surfaces them without ever wedging the
+    // nightly QuickBooks sync on a pre-existing problem.
+    if (b.op === "set" || b.op === "merge") {
+      const tripped = checkAutogenTripwire(prevJobs, doc.jobs);
+      if (tripped.length) {
+        console.error("[jobsdata] BLOCKED — autogen tripwire\n" + formatProblems(tripped));
+        return json({ ok: false, blocked: true, problems: tripped });
+      }
+      const problems = auditJobs(doc.jobs);
+      if (problems.length) {
+        console.warn("[jobsdata] integrity warnings\n" + formatProblems(problems));
+        doc.integrityWarnings = problems.length;
+      } else {
+        delete doc.integrityWarnings;
+      }
     }
     doc.ts = Date.now();
     await rotateJsonBackup(store, KEY, doc);

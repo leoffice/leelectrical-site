@@ -49,4 +49,22 @@ describe("qboPayments", () => {
     expect(patch.openBalance).toBe(9999);
     expect(patch.paid).toBe(false);
   });
+
+  it("namespaces QBO payment ids away from job ids and stamps the invoice back-ref", () => {
+    const job = { id: "qbo-16664", amount: "$52,535", invoiceNo: "16664" };
+    const fetch = {
+      invoiceNo: "16664",
+      invoiceTotal: 52535,
+      openBalance: 50075,
+      // Incoming id uses the colliding legacy "qbo-" shape.
+      payments: [{ id: "qbo-14811", qboPaymentId: "14811", amount: 2460, date: "2020-06-04" }],
+    };
+    const patch = patchFromQboPaymentFetch(job, fetch);
+    const p = patch.payments[0];
+    expect(p.id).toBe("qbopay-14811");
+    expect(p.id.startsWith("qbo-")).toBe(false);
+    expect(p.qboPaymentId).toBe("14811");
+    expect(p.invoiceNo).toBe("16664");
+    expect(p.jobId).toBe("qbo-16664");
+  });
 });
