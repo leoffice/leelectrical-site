@@ -204,6 +204,13 @@ export function demoJobs() {
       calEventId: "evt-1002",
       openBalance: 4250,
       paymentBaseline: 8500,
+      // [verification-only] requisition flow on this invoice → Edit Invoice toggle (item 2)
+      requisitionEnabled: true,
+      // [verification-only] permit paperwork on an invoice → Progress Con Ed + City + inspection date (item 4)
+      paperwork: {
+        coned: { enabled: true, steps: {}, dates: { "Inspection appointment": D.soon + "T10:00" } },
+        dob: { enabled: true, steps: {}, dates: {} },
+      },
       payments: [
         {
           id: "demopay-1002a",
