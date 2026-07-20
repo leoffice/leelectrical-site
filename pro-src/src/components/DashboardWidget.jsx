@@ -34,7 +34,13 @@ export function DetailTable({ title, cols, rows, align, total, foot }) {
   return (
     <div>
       {title ? <div className="text-[11px] uppercase tracking-wide text-slate-400 font-extrabold mb-2">{title}</div> : null}
-      <table className="w-full text-[13px] border-collapse">
+      {/*
+        A 4-column money table does not fit a 360px phone. Let it scroll inside
+        its own box rather than wrapping every cell into an unreadable stack —
+        and never let it widen the page itself.
+      */}
+      <div className="overflow-x-auto -mx-1 px-1">
+      <table className="w-full min-w-[300px] text-[13px] border-collapse">
         <thead>
           <tr>
             {cols.map((c, i) => (
@@ -67,6 +73,7 @@ export function DetailTable({ title, cols, rows, align, total, foot }) {
           ))}
         </tbody>
       </table>
+      </div>
       {total ? (
         <div className="flex justify-between text-[13px] font-extrabold pt-2 mt-1 border-t-2 border-slate-200">
           <span>{total[0]}</span>
@@ -105,7 +112,12 @@ export default function DashboardWidget({
         onClick={() => setOpen((o) => !o)}
         aria-expanded={open}
       >
-        <div className={layout === "arow" ? "flex-1 min-w-0" : layout === "brow" ? "flex-none" : ""}>{head}</div>
+        {/*
+          `flex-none` alone lets this box size to max-content, so a long caption
+          inside it renders as one unwrappable line and overflows the card on a
+          phone. Cap it to the card width and let the text wrap.
+        */}
+        <div className={layout === "arow" ? "flex-1 min-w-0" : layout === "brow" ? "flex-none min-w-0 max-w-full" : ""}>{head}</div>
         <span className={`absolute top-2.5 right-2.5 text-slate-400 text-xs transition-transform ${open ? "rotate-180" : ""}`}>
           ▾
         </span>

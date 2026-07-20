@@ -5,8 +5,14 @@ import React, { Suspense, useEffect, useMemo, useState } from "react";
 import { NavLink, Route, Routes, useLocation, useNavigate } from "react-router-dom";
 import { useStore } from "./state/store.jsx";
 import { useTenantConfig } from "./state/tenant.jsx";
-import { allowedRoutePaths, visibleNavItems } from "./lib/tenantNav.js";
-import { tenantChrome } from "./lib/tenantBranding.js";
+import {
+  allowedRoutePaths,
+  mobileNavItems,
+  mobileOverflowNavItems,
+  visibleNavItems,
+} from "./lib/tenantNav.js";
+import { activeTenantConfig, tenantChrome } from "./lib/tenantBranding.js";
+import { isInternal } from "./lib/tenantConfig.js";
 import Jobs from "./views/Jobs.jsx";
 import JobDetail from "./views/JobDetail.jsx";
 import CustomerView from "./views/CustomerView.jsx";
@@ -18,11 +24,23 @@ import Company from "./views/Company.jsx";
 import Settings from "./views/Settings.jsx";
 import Archive from "./views/Archive.jsx";
 
-// Internal-only views are lazy so they are code-split out of the main chunk.
-// A non-internal tenant never registers these routes, so the chunks are never
-// requested — the dev tooling is absent from their app, not just hidden.
-const Dev = React.lazy(() => import("./views/Dev.jsx"));
-const Progress = React.lazy(() => import("./views/Progress.jsx"));
+// Internal-only views (Dev, and Build = /progress) are lazy so they are
+// code-split out of the main chunk. A non-internal tenant never registers
+// these routes, so the chunks are never requested — the dev tooling is absent
+// from their app, not just hidden.
+//
+// The import is additionally deferred behind an internal check. `React.lazy`
+// only invokes this factory when the component actually mounts, and the guard
+// below means it cannot mount for a non-internal tenant — so even a future
+// mistake in the route registry cannot cause the chunk to be fetched.
+const lazyInternal = (load) =>
+  React.lazy(async () => {
+    if (!isInternal(activeTenantConfig())) return { default: NotFound };
+    return load();
+  });
+
+const Dev = lazyInternal(() => import("./views/Dev.jsx"));
+const Progress = lazyInternal(() => import("./views/Progress.jsx"));
 import Placeholder from "./views/Placeholder.jsx";
 import SaveBar from "./components/SaveBar.jsx";
 import SyncChip from "./components/SyncChip.jsx";
@@ -47,6 +65,15 @@ import { appointmentContextFromRoute } from "./lib/appointmentContext.js";
 import { logOff } from "./lib/lock.js";
 import { useAppSettings } from "./lib/appSettings.js";
 
+
+/**
+ * The catch-all page. Also what an internal-only view degrades to if it is
+ * ever mounted without the internal flag — a tenant sees a plain 404, with no
+ * hint that another surface exists.
+ */
+function NotFound() {
+  return <Placeholder icon="🤔" title="Not found" note="That page doesn’t exist." />;
+}
 
 /**
  * Element for each gateable route path. Paths absent from the tenant's
@@ -159,7 +186,22 @@ function useIsDesktop() {
 }
 
 export default function App() {
-  const { toast, docConfirm, error, setNewJob, refresh, dirtyCount, effectiveJob, jobs, toggleChat, chatUnread } = useStore();
+  const {
+    toast,
+    docConfirm,
+    error,
+    setNewJob,
+    refresh,
+    dirtyCount,
+    effectiveJob,
+    jobs,
+    toggleChat,
+    chatUnread,
+    devBadge,
+    dirtyJobs,
+    guardNav,
+  } = useStore();
+  const navigate = useNavigate();
   const { logoSrc } = useAppSettings();
   const config = useTenantConfig();
   const isDesktop = useIsDesktop();
@@ -173,9 +215,12 @@ export default function App() {
   const navItems = useMemo(() => visibleNavItems(config), [config]);
   const routePaths = useMemo(() => allowedRoutePaths(config), [config]);
 
-  // Mobile bottom bar keeps Dev pinned after the ＋/💬 cluster when present.
-  const mobileBefore = navItems.filter((t) => t.to !== "/dev");
-  const mobileAfter = navItems.find((t) => t.to === "/dev") || null;
+  // Mobile bottom bar: a few primary tabs either side of the ＋/💬 cluster,
+  // everything else behind "More". Fitting all ten destinations across a 375px
+  // phone left ~35px per tab and the labels ran together.
+  const mobileTabs = useMemo(() => mobileNavItems(config), [config]);
+  const overflowTabs = useMemo(() => mobileOverflowNavItems(config), [config]);
+  const [moreOpen, setMoreOpen] = useState(false);
   const inDetail = loc.pathname.startsWith("/job/");
   const inCustomer = loc.pathname.startsWith("/customer/");
 
@@ -300,7 +345,7 @@ export default function App() {
               {routePaths.map((path) => (
                 <Route key={path} path={path} element={ROUTE_ELEMENTS[path]} />
               ))}
-              <Route path="*" element={<Placeholder icon="🤔" title="Not found" note="That page doesn’t exist." />} />
+              <Route path="*" element={<NotFound />} />
             </Routes>
           </Suspense>
         </main>
@@ -339,10 +384,10 @@ export default function App() {
         {internal ? <LiveEditBar /> : null}
         <LeaveSheet />
 
-        {/* Mobile bottom tab nav — Archive | ＋ 💬 | Dev */}
+        {/* Mobile bottom tab nav — primary tabs | ＋ 💬 | More */}
         <nav className="lg:hidden fixed bottom-0 inset-x-0 z-30 bg-white/95 backdrop-blur border-t border-slate-200 pb-safe" data-testid="bottom-nav">
           <div className="flex max-w-3xl mx-auto items-stretch">
-            {mobileBefore.map((t) => (
+            {mobileTabs.map((t) => (
               <Tab key={t.to} t={t} />
             ))}
             {/* Add moved to the top bar (beside search) — no longer squeezed
@@ -366,9 +411,47 @@ export default function App() {
                 </button>
               ) : null}
             </div>
-            {mobileAfter ? <Tab t={mobileAfter} /> : null}
+            {overflowTabs.length ? (
+              <button
+                type="button"
+                onClick={() => setMoreOpen(true)}
+                aria-label="More"
+                data-testid="nav-more"
+                className="relative flex flex-col items-center gap-0.5 py-1.5 flex-1 text-[10px] font-medium text-slate-500 active:opacity-70"
+              >
+                <span className="text-lg leading-none">☰</span>
+                <span>More</span>
+                {/* Badges from hidden tabs must still be visible, or a pending
+                    item behind "More" would go unnoticed. */}
+                {devBadge > 0 && overflowTabs.some((t) => t.to === "/dev") ? (
+                  <span className="absolute top-1 right-[22%] bg-red-600 text-white text-[9px] font-extrabold rounded-full min-w-[15px] h-[15px] leading-[15px] text-center px-0.5">
+                    {devBadge}
+                  </span>
+                ) : null}
+              </button>
+            ) : null}
           </div>
         </nav>
+
+        {moreOpen ? (
+          <Sheet title="More" onClose={() => setMoreOpen(false)}>
+            <div data-testid="nav-more-sheet">
+              {overflowTabs.map((t) => (
+                <Opt
+                  key={t.to}
+                  icon={t.ic}
+                  title={t.label}
+                  onClick={() => {
+                    setMoreOpen(false);
+                    // Same leave-guard as a tab: don't drop unsaved job edits.
+                    if (dirtyJobs > 0 && loc.pathname.startsWith("/job/")) guardNav(() => navigate(t.to));
+                    else navigate(t.to);
+                  }}
+                />
+              ))}
+            </div>
+          </Sheet>
+        ) : null}
 
         {docConfirm && (
           <div

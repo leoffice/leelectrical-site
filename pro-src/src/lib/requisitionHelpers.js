@@ -127,6 +127,56 @@ export function completionBreakdown(items) {
   };
 }
 
+/**
+ * One project's headline requisition numbers, for the Reports view.
+ *
+ * `pct` is dollar-weighted (completed value / scheduled value), NOT the mean of
+ * the per-line percentages — a 90%-done $500 line and a 10%-done $500,000 line
+ * are not "50% complete", and a contractor reading this is asking about money.
+ * Scheduled value includes change orders, so the denominator matches the
+ * contract as it stands today rather than as originally signed.
+ */
+export function projectProgressSummary(project) {
+  // completionBreakdown splits base vs change-order lines itself, so it wants
+  // the WHOLE SOV — passing requisitionItems() here would drop every change
+  // order and understate both the contract and the work done against it.
+  const b = completionBreakdown(project?.items || []);
+  const scheduled = roundMoney(b.baseScheduled + b.coScheduled);
+  const completed = b.totalCompleted;
+  const paid = totalPaidToDate(project);
+  return {
+    id: project?.id || "",
+    name: project?.name || project?.address || "Untitled project",
+    scheduled,
+    completed,
+    pct: scheduled ? roundMoney((completed / scheduled) * 100) : 0,
+    paid,
+    // What's been certified as complete but not yet collected — retainage plus
+    // draws still in flight. This is the number that funds payroll.
+    outstanding: roundMoney(completed - paid),
+    reqCount: (project?.requisitions || []).length,
+  };
+}
+
+/** Portfolio roll-up across every project, most complete last. */
+export function requisitionPortfolio(projects) {
+  const rows = (projects?.list || projects || [])
+    .filter(Boolean)
+    .map(projectProgressSummary)
+    .filter((r) => r.scheduled > 0)
+    .sort((a, b) => b.scheduled - a.scheduled);
+  const scheduled = roundMoney(rows.reduce((s, r) => s + r.scheduled, 0));
+  const completed = roundMoney(rows.reduce((s, r) => s + r.completed, 0));
+  return {
+    rows,
+    scheduled,
+    completed,
+    paid: roundMoney(rows.reduce((s, r) => s + r.paid, 0)),
+    outstanding: roundMoney(rows.reduce((s, r) => s + r.outstanding, 0)),
+    pct: scheduled ? roundMoney((completed / scheduled) * 100) : 0,
+  };
+}
+
 /** Whether a requisition can be removed (only last in sequence, or void if later exist). */
 export function requisitionDeleteMode(project, req) {
   if (!req || req.status === "void") return "none";

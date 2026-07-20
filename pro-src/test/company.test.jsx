@@ -16,16 +16,21 @@ describe("Company dashboard", () => {
     mockServer();
     renderApp("#/company");
     expect(await screen.findByTestId("company-dashboard")).toBeInTheDocument();
-    expect(screen.getByText("Company Dashboard")).toBeInTheDocument();
+    // Batch 2 renamed the heading from "Company Dashboard" to "Reports" — the
+    // tenant-facing name for this surface, and what §1b of the plan calls it.
+    expect(screen.getByText("Reports")).toBeInTheDocument();
     expect(screen.getByText("Estimates submitted")).toBeInTheDocument();
     expect(screen.getAllByText("Money collected").length).toBeGreaterThan(0);
   });
 
-  it("Company tab appears in bottom nav", async () => {
+  it("Company is reachable from the mobile bottom nav via More", async () => {
+    // Company moved out of the always-visible tabs when the bottom bar was
+    // trimmed for phone legibility; it must still be one tap away.
     mockServer();
     renderApp("#/");
     const nav = screen.getByTestId("bottom-nav");
-    expect(within(nav).getByText("Company")).toBeInTheDocument();
+    fireEvent.click(within(nav).getByTestId("nav-more"));
+    expect(within(await screen.findByTestId("nav-more-sheet")).getByText("Company")).toBeInTheDocument();
   });
 
   it("shows company logo file + speech-to-text setting", async () => {

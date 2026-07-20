@@ -32,10 +32,15 @@ describe("Dev Progress dashboard", () => {
     expect(screen.queryByTestId("progress-refresh-btn")).not.toBeInTheDocument();
   });
 
-  it("Build tab appears in bottom nav", async () => {
+  it("Build is reachable from the bottom nav via More (internal only)", async () => {
+    // Build left the always-visible tabs when the bar was trimmed for phone
+    // legibility. For an internal build it must still be one tap away; for a
+    // tenant it is absent from both the bar and the sheet (tenantRouteGate /
+    // reportsTenant cover that side).
     mockServer();
     renderApp("#/");
     const nav = screen.getByTestId("bottom-nav");
-    expect(within(nav).getByText("Build")).toBeInTheDocument();
+    await userEvent.click(within(nav).getByTestId("nav-more"));
+    expect(within(await screen.findByTestId("nav-more-sheet")).getByText("Build")).toBeInTheDocument();
   });
 });

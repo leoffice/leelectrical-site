@@ -553,9 +553,40 @@ describe("responsive layout — 390px and 1280px", () => {
     expect(sidebar.className).toContain("hidden"); // hidden on phone…
     expect(sidebar.className).toContain("lg:flex"); // …sidebar on desktop
     expect(within(nav).getByTestId("nav-actions")).toBeInTheDocument();
-    ["Customers", "Calendar", "Reminders", "Company", "Build", "Dev"].forEach((t) =>
+    // Only the primary tabs sit in the bar now; the rest moved behind "More"
+    // because ten tabs at phone width made the labels collide.
+    ["Customers", "Calendar", "Reminders"].forEach((t) =>
       expect(within(nav).getByText(t)).toBeInTheDocument()
     );
+    expect(within(nav).getByTestId("nav-more")).toBeInTheDocument();
+    ["Company", "Build", "Dev", "Settings", "Archive"].forEach((t) =>
+      expect(within(nav).queryByText(t)).not.toBeInTheDocument()
+    );
+  });
+
+  it("390px: every hidden destination is still reachable through More", async () => {
+    mockServer();
+    setWidth(390);
+    renderApp("#/");
+    await screen.findByText("Peretz Chein");
+    await userEvent.click(screen.getByTestId("nav-more"));
+    const sheet = await screen.findByTestId("nav-more-sheet");
+    // Nothing may fall out of the mobile UI by being neither primary nor
+    // overflow — this is the assertion that would catch that.
+    ["Company", "Settings", "Archive", "Build", "Dev"].forEach((t) =>
+      expect(within(sheet).getByText(t)).toBeInTheDocument()
+    );
+  });
+
+  it("390px: tapping a More entry navigates there and closes the sheet", async () => {
+    mockServer();
+    setWidth(390);
+    renderApp("#/");
+    await screen.findByText("Peretz Chein");
+    await userEvent.click(screen.getByTestId("nav-more"));
+    await userEvent.click(within(await screen.findByTestId("nav-more-sheet")).getByText("Company"));
+    expect(await screen.findByTestId("company-dashboard")).toBeInTheDocument();
+    expect(screen.queryByTestId("nav-more-sheet")).not.toBeInTheDocument();
   });
 
   it("desktop sidebar Log off ends the session", async () => {
