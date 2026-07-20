@@ -6,7 +6,10 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import "@testing-library/jest-dom/vitest";
-import { groupSub, mockServer, renderApp } from "./helpers.jsx";
+import { groupSub, mockServer, renderApp , useAllCustomersView } from "./helpers.jsx";
+
+// Balance view is the default landing view — these specs assert All-view markup.
+beforeEach(() => useAllCustomersView());
 
 afterEach(() => {
   vi.unstubAllGlobals();

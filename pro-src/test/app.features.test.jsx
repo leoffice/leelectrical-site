@@ -6,9 +6,12 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { fireEvent, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import "@testing-library/jest-dom/vitest";
-import { EV, J1, J2, mockServer, pinCalWeek, renderApp } from "./helpers.jsx";
+import { EV, J1, J2, mockServer, pinCalWeek, renderApp , useAllCustomersView } from "./helpers.jsx";
 import * as lock from "../src/lib/lock.js";
 import { productName } from "../src/lib/tenantBranding.js";
+
+// Balance view is the default landing view — these specs assert All-view markup.
+beforeEach(() => useAllCustomersView());
 
 afterEach(() => {
   vi.unstubAllGlobals();
