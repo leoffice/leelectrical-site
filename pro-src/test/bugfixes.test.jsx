@@ -3,11 +3,14 @@
 // list (grouping), the "Same customer?" combine prompt, and the Dispatch
 // chat panel (reply rendering, optimistic send, retry, hint).
 import React from "react";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, beforeEach, vi } from "vitest";
 import { act, fireEvent, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import "@testing-library/jest-dom/vitest";
-import { groupSub, mockServer, renderApp } from "./helpers.jsx";
+import { groupSub, mockServer, renderApp , useAllCustomersView } from "./helpers.jsx";
+
+// Balance view is the default landing view — these specs assert All-view markup.
+beforeEach(() => useAllCustomersView());
 
 afterEach(() => {
   vi.useRealTimers();

@@ -25,6 +25,9 @@ describe("Active tab customer recency", () => {
     });
     const user = userEvent.setup();
     renderApp("#/");
+    // Recency ordering is an All-customers-view behaviour; Balance view is
+    // balance-sorted and expands in place instead of navigating.
+    await user.click(await screen.findByRole("button", { name: "All customers" }));
     const alpha = await screen.findByText("Alpha Corp");
     const beta = await screen.findByText("Beta LLC");
     expect(before(alpha, beta)).toBe(true);

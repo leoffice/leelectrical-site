@@ -24,8 +24,10 @@ const jobs = () => [
 const before = (a, b) =>
   !!(a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING);
 
-/** Active tab sorts by recency — use All when testing the sort dropdown. */
+/** The job sort dropdown lives in the All-customers view, behind the All chip.
+ *  (Balance view has its own customer sort menu — see jobs.balance.test.jsx.) */
 async function useAllFilter(user) {
+  await user.click(await screen.findByRole("button", { name: "All customers" }));
   await user.click(screen.getByRole("button", { name: "All" }));
 }
 

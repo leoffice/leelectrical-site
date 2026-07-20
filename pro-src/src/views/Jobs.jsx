@@ -42,6 +42,16 @@ import {
 } from "../lib/customerHierarchy.js";
 import { compareCustomerRecency, subscribeRecency, touchCustomer } from "../lib/customerRecency.js";
 import { waitForCommandDone } from "../lib/commandWait.js";
+import {
+  CUSTOMER_SORTS,
+  applyStableOrder,
+  loadCustomerSort,
+  loadCustomerView,
+  partitionBalanceSearch,
+  saveCustomerSort,
+  saveCustomerView,
+  sortCustomerRows,
+} from "../lib/customerListView.js";
 
 /** Gray subline under customer name — jobs / open invoices / invoiced / paid. */
 function customerMetaLine(sum) {
@@ -171,12 +181,129 @@ const loadSort = () => {
 /** How many customer rows to paint first — rest load as you scroll (keeps open snappy). */
 const LIST_PAGE = 48;
 
+/** Contact / job-count line inside an expanded balance card. */
+function BalanceCardDetail({ row, onOpen }) {
+  const contact = customerContact(row.jobs);
+  const bits = [contact.phone, contact.email, contact.address].filter(Boolean);
+  return (
+    <div
+      className="px-2.5 pb-2.5 pt-2 space-y-1.5 bg-slate-50/60 border-t border-slate-100"
+      data-testid="balance-card-detail"
+    >
+      {bits.length ? (
+        <div className="text-[11px] text-slate-500 leading-snug space-y-0.5 px-1">
+          {contact.phone ? <div>📞 {contact.phone}</div> : null}
+          {contact.email ? <div className="truncate">✉️ {contact.email}</div> : null}
+          {contact.address ? <div className="truncate">📍 {contact.address}</div> : null}
+        </div>
+      ) : null}
+      <div className="text-[10px] text-slate-400 px-1">{customerMetaLine(row.summary)}</div>
+      {row.jobs.map((j) => (
+        <GroupJobRow key={j.id} job={j} />
+      ))}
+      <button
+        type="button"
+        className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-700 active:bg-slate-50"
+        data-testid="balance-open-customer"
+        onClick={onOpen}
+      >
+        Open full customer →
+      </button>
+    </div>
+  );
+}
+
+/**
+ * Compact balance row — name/company left, amount due right. Tapping toggles
+ * the detail open in place; it never navigates and never moves the row.
+ */
+function BalanceCard({ row, expanded, onToggle, onOpen }) {
+  const due = row.summary?.due || 0;
+  return (
+    <div className="card relative overflow-hidden" data-testid="balance-card">
+      <button
+        type="button"
+        className="w-full px-3 py-2.5 text-left active:opacity-90"
+        data-testid="balance-card-tap"
+        aria-expanded={expanded}
+        onClick={onToggle}
+      >
+        <div className="flex items-center gap-2 min-w-0">
+          <CustomerAvatar name={row.name} />
+          <div className="min-w-0 flex-1">
+            <div
+              className="text-sm font-semibold text-slate-900 truncate leading-snug"
+              title={row.name}
+              data-testid="balance-card-name"
+            >
+              {row.name}
+            </div>
+          </div>
+          {due > 0 ? (
+            <div
+              className="shrink-0 text-sm font-bold text-slate-900 tabular-nums"
+              data-testid="balance-card-amount"
+            >
+              {fmt$(due)}
+            </div>
+          ) : null}
+        </div>
+      </button>
+      {expanded ? <BalanceCardDetail row={row} onOpen={onOpen} /> : null}
+    </div>
+  );
+}
+
+/** Sort picker — pick for now, or "Set as default" to persist it per user. */
+function SortSheet({ value, onPick, onSetDefault, onClose }) {
+  return (
+    <Sheet title="Sort customers" onClose={onClose}>
+      <div className="space-y-1.5">
+        {CUSTOMER_SORTS.map((o) => (
+          <div
+            key={o.key}
+            className={`flex items-center gap-2 rounded-xl border px-3 py-2.5 ${
+              value === o.key ? "border-slate-900 bg-slate-50" : "border-slate-200 bg-white"
+            }`}
+          >
+            <button
+              type="button"
+              className="flex-1 min-w-0 text-left"
+              data-testid={`sort-opt-${o.key}`}
+              onClick={() => onPick(o.key)}
+            >
+              <div className="text-sm font-semibold text-slate-900">
+                {value === o.key ? "✓ " : ""}
+                {o.label}
+              </div>
+              <div className="text-[11px] text-slate-500">{o.note}</div>
+            </button>
+            <button
+              type="button"
+              className="shrink-0 rounded-lg border border-slate-200 px-2 py-1 text-[11px] font-semibold text-slate-600 active:bg-slate-100"
+              data-testid={`sort-default-${o.key}`}
+              onClick={() => onSetDefault(o.key)}
+            >
+              Set as default
+            </button>
+          </div>
+        ))}
+      </div>
+    </Sheet>
+  );
+}
+
 export default function Jobs({ embedded, collapseGroups = false, activeJobId = "" }) {
   const { jobs, loading, showToast, api, enqueue, refreshJobs } = useStore();
   const nav = useNavigate();
   const [q, setQ] = useState("");
   const [filter, setFilter] = useState("Active");
   const [sort, setSort] = useState(loadSort);
+  const [view, setView] = useState(loadCustomerView); // "balance" | "all"
+  const [custSort, setCustSort] = useState(loadCustomerSort);
+  const [sortSheet, setSortSheet] = useState(false);
+  const [expanded, setExpanded] = useState({}); // balance card key -> open in place
+  const [resortNonce, setResortNonce] = useState(0); // bumped by explicit refresh
   const [open, setOpen] = useState({}); // groupKey -> expanded
   const [sheet, setSheet] = useState(null); // {kind:"paid"|"send", job}
   const [custMatches, setCustMatches] = useState([]); // #56 QBO customers not yet in the app
@@ -196,6 +323,35 @@ export default function Jobs({ embedded, collapseGroups = false, activeJobId = "
     } catch {}
   };
 
+  // Balance view spans every customer with money owed — the Active/To-Do chips
+  // only apply to the All view, so internally Balance always filters as "All".
+  const balanceView = view === "balance";
+  const effFilter = balanceView ? "All" : filter;
+
+  const pickView = (v) => {
+    setView(v);
+    saveCustomerView(v);
+    setExpanded({});
+  };
+
+  /**
+   * Re-sort epoch. Order is frozen inside an epoch, so tapping / expanding /
+   * editing a customer can never move its row (the "jumps to top" bug). It
+   * changes only on a deliberate re-sort: view, sort, search, refresh, remount.
+   */
+  const epoch = `${view}|${custSort}|${sort}|${effFilter}|${q.trim()}|${resortNonce}`;
+  const balanceOrder = useRef({});
+  const otherOrder = useRef({});
+  const parentOrder = useRef({});
+  const flatOrder = useRef({});
+
+  const refreshList = useCallback(async () => {
+    setExpanded({});
+    setOpen({});
+    await refreshJobs?.(true);
+    setResortNonce((n) => n + 1);
+  }, [refreshJobs]);
+
   useEffect(() => {
     let cancelled = false;
     api
@@ -214,18 +370,18 @@ export default function Jobs({ embedded, collapseGroups = false, activeJobId = "
   // Filter / search / sort change → show the top page again (recency order is already top-first).
   useEffect(() => {
     setListLimit(LIST_PAGE);
-  }, [filter, q, sort]);
+  }, [effFilter, q, sort, view, custSort]);
 
   const active = useMemo(() => jobs.filter((j) => !j._archived && !j._deleted), [jobs]);
   const matchesChip = useCallback(
-    (j) => matchesFilter(j, filter) && matchesQuery(j, q),
-    [filter, q]
+    (j) => matchesFilter(j, effFilter) && matchesQuery(j, q),
+    [effFilter, q]
   );
   const shown = useMemo(() => {
     const list = active.filter(matchesChip);
-    if (filter === "To Do" || filter === "Upcoming") return sortByNextAction(list);
+    if (effFilter === "To Do" || effFilter === "Upcoming") return sortByNextAction(list);
     return sortJobs(list, sort);
-  }, [active, matchesChip, sort, filter]);
+  }, [active, matchesChip, sort, effFilter]);
 
   // Bug #1: group ALL jobs for a customer together (paid + unpaid). The filter
   // chip only controls which *groups* appear, not whether paid siblings vanish
@@ -293,11 +449,11 @@ export default function Jobs({ embedded, collapseGroups = false, activeJobId = "
     const entries = [...map.entries()]
       .filter(([, list]) => list.some(matchesChip))
       .map(([k, list]) => [k, sortJobs(list, sort)]);
-    if (filter === "Active") {
+    if (effFilter === "Active") {
       return entries.sort((A, B) => compareCustomerRecency(A[0], A[1], B[0], B[1]));
     }
     return entries.sort((A, B) => cmp(rank(A[1]), rank(B[1])));
-  }, [active, matchesChip, sort, filter, recencyTick]);
+  }, [active, matchesChip, sort, effFilter, recencyTick]);
 
   const qboHierarchy = useMemo(() => buildQboHierarchyCtx(qboIndex), [qboIndex]);
 
@@ -315,7 +471,7 @@ export default function Jobs({ embedded, collapseGroups = false, activeJobId = "
     let flat = groups
       .map(([k, list]) => [k, list.filter((j) => !parentJobIds.has(j.id) && !effectiveHasParentCustomer(j, qboHierarchy))])
       .filter(([, list]) => list.length && list.some(matchesChip));
-    if (filter === "Active") {
+    if (effFilter === "Active") {
       const parentJobs = (row) => row.jobs.concat((row.subs || []).flatMap((s) => s.jobs));
       parents = parents
         .slice()
@@ -323,15 +479,51 @@ export default function Jobs({ embedded, collapseGroups = false, activeJobId = "
       flat = flat.slice().sort((A, B) => compareCustomerRecency(A[0], A[1], B[0], B[1]));
     }
     return { parentRows: parents, flatGroups: flat };
-  }, [active, groups, matchesChip, sort, qboIndex, qboHierarchy, filter, recencyTick]);
+  }, [active, groups, matchesChip, sort, qboIndex, qboHierarchy, effFilter, recencyTick]);
+
+  /** One flat row per customer (parent companies + plain groups) for the Balance view. */
+  const customerRows = useMemo(() => {
+    const rows = parentRows.map((r) => ({
+      key: r.key,
+      name: r.name,
+      jobs: r.jobs.concat((r.subs || []).flatMap((s) => s.jobs)),
+      summary: r.summary,
+    }));
+    for (const [key, list] of flatGroups) {
+      rows.push({
+        key,
+        name: boardCustomerLabel(list[0], list),
+        jobs: list,
+        summary: customerAmountSummary(list),
+      });
+    }
+    return rows;
+  }, [parentRows, flatGroups]);
+
+  /**
+   * Balance view. Sorted fresh per epoch, then frozen: `applyStableOrder` hands
+   * every row the slot it had when the epoch began, so expanding a card at the
+   * bottom of the list leaves it exactly where the finger landed.
+   */
+  const searching = !!q.trim();
+  const { owing, other } = partitionBalanceSearch(sortCustomerRows(customerRows, custSort));
+  const balanceRows = applyStableOrder(owing, balanceOrder.current, epoch);
+  const otherRows = searching ? applyStableOrder(other, otherOrder.current, epoch) : [];
+
+  // The All view keeps its existing grouping/markup — it just gets the same
+  // frozen ordering so its rows hold still too.
+  const stableParentRows = applyStableOrder(parentRows, parentOrder.current, epoch);
+  const stableFlatGroups = applyStableOrder(flatGroups, flatOrder.current, epoch, (t) => t[0]);
+
+  const toggleExpanded = (key) => setExpanded((m) => ({ ...m, [key]: !m[key] }));
 
   /** Jobs shown inside an expanded group — full customer when Active/All + no search. */
   const expandJobs = useCallback(
     (list) => {
-      const showAll = (filter === "Active" || filter === "All") && !q.trim();
+      const showAll = (effFilter === "Active" || effFilter === "All") && !q.trim();
       return showAll ? list : list.filter(matchesChip);
     },
-    [filter, q, matchesChip]
+    [effFilter, q, matchesChip]
   );
 
   /** After ~10s idle with text in the search bar, clear search and collapse groups. */
@@ -390,10 +582,15 @@ export default function Jobs({ embedded, collapseGroups = false, activeJobId = "
   }, []);
 
   // Progressive list: paint top rows first, grow as the sentinel nears the viewport.
-  const totalListRows = parentRows.length + flatGroups.length;
-  const visibleParentRows = useMemo(() => parentRows.slice(0, listLimit), [parentRows, listLimit]);
-  const flatRoom = Math.max(0, listLimit - parentRows.length);
-  const visibleFlatGroups = useMemo(() => flatGroups.slice(0, flatRoom), [flatGroups, flatRoom]);
+  const totalListRows = balanceView
+    ? balanceRows.length + otherRows.length
+    : stableParentRows.length + stableFlatGroups.length;
+  const visibleParentRows = stableParentRows.slice(0, listLimit);
+  const flatRoom = Math.max(0, listLimit - stableParentRows.length);
+  const visibleFlatGroups = stableFlatGroups.slice(0, flatRoom);
+  const visibleBalanceRows = balanceRows.slice(0, listLimit);
+  const otherRoom = Math.max(0, listLimit - balanceRows.length);
+  const visibleOtherRows = otherRows.slice(0, otherRoom);
   useEffect(() => {
     const el = listMoreRef.current;
     if (!el || listLimit >= totalListRows) return;
@@ -412,7 +609,7 @@ export default function Jobs({ embedded, collapseGroups = false, activeJobId = "
     );
     io.observe(el);
     return () => io.disconnect();
-  }, [listLimit, totalListRows, filter, q, sort]);
+  }, [listLimit, totalListRows, effFilter, q, sort, view, custSort]);
 
   const quickSend = (job) => {
     if (!job.email) return showToast("No email on file — add one first");
@@ -493,6 +690,56 @@ export default function Jobs({ embedded, collapseGroups = false, activeJobId = "
         aria-label="Search jobs"
       />
 
+      <div className="flex items-center gap-2">
+        <div
+          className="flex rounded-xl bg-slate-100 p-0.5 shrink-0"
+          role="group"
+          aria-label="Customer view"
+        >
+          {[
+            { key: "balance", text: "Balance", label: "Balance customers" },
+            { key: "all", text: "All", label: "All customers" },
+          ].map((v) => (
+            <button
+              key={v.key}
+              type="button"
+              aria-label={v.label}
+              aria-pressed={view === v.key}
+              data-testid={`view-${v.key}`}
+              className={`px-3.5 py-1.5 text-xs font-semibold rounded-[10px] transition-colors ${
+                view === v.key ? "bg-white text-slate-900 shadow-sm" : "text-slate-500"
+              }`}
+              onClick={() => pickView(v.key)}
+            >
+              {v.text}
+            </button>
+          ))}
+        </div>
+        {balanceView ? (
+          <>
+            <button
+              type="button"
+              className="input !w-auto !py-1.5 !px-2.5 !text-xs shrink-0 text-left"
+              aria-label="Sort customers"
+              data-testid="sort-customers"
+              onClick={() => setSortSheet(true)}
+            >
+              {CUSTOMER_SORTS.find((o) => o.key === custSort)?.label} ▾
+            </button>
+            <button
+              type="button"
+              className="ml-auto shrink-0 rounded-lg px-2 py-1.5 text-xs text-slate-500 active:bg-slate-100"
+              aria-label="Refresh customers"
+              data-testid="refresh-customers"
+              onClick={refreshList}
+            >
+              ↻
+            </button>
+          </>
+        ) : null}
+      </div>
+
+      {balanceView ? null : (
       <div className="flex items-center gap-2 -mx-4 px-4">
         <div className="flex gap-1.5 overflow-x-auto pb-1 [scrollbar-width:none] flex-1 min-w-0">
           {FILTER_NAMES.map((f) => (
@@ -520,6 +767,7 @@ export default function Jobs({ embedded, collapseGroups = false, activeJobId = "
           ))}
         </select>
       </div>
+      )}
 
       {loading && !jobs.length ? (
         <div className="card px-4 py-8 text-center text-slate-400 text-sm">Loading jobs…</div>
@@ -529,6 +777,52 @@ export default function Jobs({ embedded, collapseGroups = false, activeJobId = "
           No jobs match.
           <br />
           Try another filter, or hit ＋ to add a job.
+        </div>
+      ) : balanceView ? (
+        <div className="space-y-2" data-testid="balance-list">
+          {!visibleBalanceRows.length && !visibleOtherRows.length ? (
+            <div className="card px-4 py-8 text-center text-slate-400 text-sm">
+              <span className="block text-3xl mb-2">✅</span>
+              {searching ? "No customers match." : "Nothing owed — every balance is clear."}
+            </div>
+          ) : null}
+          {visibleBalanceRows.map((row) => (
+            <BalanceCard
+              key={row.key}
+              row={row}
+              expanded={!!expanded[row.key]}
+              onToggle={() => toggleExpanded(row.key)}
+              onOpen={() => openCustomer(row.key, row.jobs)}
+            />
+          ))}
+          {visibleOtherRows.length ? (
+            <div
+              className="flex items-center gap-2 pt-2 pb-0.5 px-1"
+              data-testid="other-customers-divider"
+            >
+              <div className="h-px flex-1 bg-slate-200" />
+              <span className="text-[11px] font-semibold text-slate-400">Other customers</span>
+              <div className="h-px flex-1 bg-slate-200" />
+            </div>
+          ) : null}
+          {visibleOtherRows.map((row) => (
+            <BalanceCard
+              key={row.key}
+              row={row}
+              expanded={!!expanded[row.key]}
+              onToggle={() => toggleExpanded(row.key)}
+              onOpen={() => openCustomer(row.key, row.jobs)}
+            />
+          ))}
+          {listLimit < totalListRows ? (
+            <div
+              ref={listMoreRef}
+              className="py-3 text-center text-xs text-slate-400"
+              data-testid="jobs-list-more"
+            >
+              Loading more customers…
+            </div>
+          ) : null}
         </div>
       ) : (
         <div className="space-y-2.5">
@@ -605,7 +899,7 @@ export default function Jobs({ embedded, collapseGroups = false, activeJobId = "
           {visibleFlatGroups.map(([key, list]) => {
             const job = list[0];
             const customerName = boardCustomerLabel(job, list);
-            const showFullGroup = (filter === "Active" || filter === "All") && !q.trim();
+            const showFullGroup = (effFilter === "Active" || effFilter === "All") && !q.trim();
             const chipHits = list.filter(matchesChip);
             const displayList = showFullGroup ? list : chipHits.length ? chipHits : list;
             const sum = customerAmountSummary(showFullGroup ? list : displayList);
@@ -736,6 +1030,23 @@ export default function Jobs({ embedded, collapseGroups = false, activeJobId = "
         <div className="text-center text-xs text-slate-400 pt-1">
           {shown.length} of {active.length} jobs
         </div>
+      )}
+
+      {sortSheet && (
+        <SortSheet
+          value={custSort}
+          onPick={(k) => {
+            setCustSort(k);
+            setSortSheet(false);
+          }}
+          onSetDefault={(k) => {
+            setCustSort(k);
+            saveCustomerSort(k);
+            setSortSheet(false);
+            showToast("Default sort: " + CUSTOMER_SORTS.find((o) => o.key === k)?.label);
+          }}
+          onClose={() => setSortSheet(false)}
+        />
       )}
 
       {sheet?.kind === "paid" && <MarkPaidSheet job={sheet.job} onClose={() => setSheet(null)} />}

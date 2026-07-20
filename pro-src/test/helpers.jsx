@@ -528,6 +528,17 @@ export function stubPdfOpen() {
   return click;
 }
 
+/**
+ * The customer list opens on the Balance view (compact cards, expand in place).
+ * Suites that assert the All-view grouping markup — client-group /
+ * parent-group-card / standalone job cards — call this before renderApp so the
+ * list mounts in that view, the same way a user who set it as their default
+ * would land there.
+ */
+export function useAllCustomersView() {
+  localStorage.setItem("lepro_cust_view_v1", "all");
+}
+
 export function renderApp(hash = "#/") {
   window.location.hash = hash;
   return render(

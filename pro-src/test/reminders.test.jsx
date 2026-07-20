@@ -1,13 +1,16 @@
 // @vitest-environment jsdom
 import React from "react";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, beforeEach, vi } from "vitest";
 import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import "@testing-library/jest-dom/vitest";
 import { HashRouter } from "react-router-dom";
-import { mockServer, renderApp } from "./helpers.jsx";
+import { mockServer, renderApp , useAllCustomersView } from "./helpers.jsx";
 import { StoreProvider } from "../src/state/store.jsx";
 import PauseRemindersInPopup from "../src/components/PauseRemindersInPopup.jsx";
+
+// Balance view is the default landing view — these specs assert All-view markup.
+beforeEach(() => useAllCustomersView());
 import {
   GLOBAL_PAUSE_KEY,
   buildReminderList,
