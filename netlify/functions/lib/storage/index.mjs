@@ -2,7 +2,7 @@ import { createNetlifyStore } from "./netlify.mjs";
 import { createKvJsonStore, createR2BinaryStore } from "./cloudflare.mjs";
 
 /** Binary/large-file stores → R2 on Cloudflare. Everything else → KV. */
-const R2_STORES = new Set(["docs"]);
+const R2_STORES = new Set(["docs", "takeoffs"]);
 
 /** @type {Record<string, unknown>|null} */
 let runtimeEnv = null;

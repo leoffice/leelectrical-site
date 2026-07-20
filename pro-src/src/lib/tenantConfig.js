@@ -31,6 +31,7 @@ export const MODULES = [
   "quickbooks",
   "documents",
   "reports",
+  "takeoff",
 ];
 
 export const MODULE_LABELS = {
@@ -42,6 +43,7 @@ export const MODULE_LABELS = {
   quickbooks: "QuickBooks sync",
   documents: "Document generation",
   reports: "Reports",
+  takeoff: "Blueprint takeoff sheets",
 };
 
 /**
@@ -58,6 +60,7 @@ export const PLAN_MODULES = {
     quickbooks: false,
     documents: false,
     reports: false,
+    takeoff: false,
   },
   pro: {
     invoicing: true,
@@ -68,6 +71,7 @@ export const PLAN_MODULES = {
     quickbooks: true,
     documents: false,
     reports: true,
+    takeoff: false,
   },
   full: {
     invoicing: true,
@@ -78,6 +82,7 @@ export const PLAN_MODULES = {
     quickbooks: true,
     documents: true,
     reports: true,
+    takeoff: true,
   },
 };
 

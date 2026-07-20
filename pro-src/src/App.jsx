@@ -23,6 +23,9 @@ import Archive from "./views/Archive.jsx";
 // requested — the dev tooling is absent from their app, not just hidden.
 const Dev = React.lazy(() => import("./views/Dev.jsx"));
 const Progress = React.lazy(() => import("./views/Progress.jsx"));
+// Takeoff is a premium module — lazy so its chunk is absent from tenants
+// without the feature (its route is never registered for them anyway).
+const Takeoff = React.lazy(() => import("./views/Takeoff.jsx"));
 import Placeholder from "./views/Placeholder.jsx";
 import SaveBar from "./components/SaveBar.jsx";
 import SyncChip from "./components/SyncChip.jsx";
@@ -61,6 +64,8 @@ const ROUTE_ELEMENTS = {
   "/time": <Time />,
   "/projects": <Projects />,
   "/projects/:projectId": <Projects />,
+  "/takeoff": <Takeoff />,
+  "/takeoff/:projectId": <Takeoff />,
   "/company": <Company />,
   "/settings": <Settings />,
   "/progress": <Progress />,

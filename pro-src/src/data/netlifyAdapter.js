@@ -316,6 +316,44 @@ export function createNetlifyAdapter() {
       return { ok: true };
     },
 
+    /** Takeoff — send chosen blueprint files to the server processing endpoint.
+     *  Files ride as base64 for JSON transport (same as sendDocEmail). The
+     *  endpoint stores them in R2 and returns worker-output JSON (one document
+     *  per file, or a single merged document). See netlify/functions/takeoff.mjs.
+     *  In a demo build the fetch interceptor answers this synthetically. */
+    async processTakeoff({ files, jobId, projectId, symbolClasses } = {}) {
+      const payload = {
+        op: "process",
+        jobId: jobId || "",
+        projectId: projectId || "",
+        symbolClasses: Array.isArray(symbolClasses) ? symbolClasses : [],
+        files: Array.isArray(files) ? files : [],
+      };
+      return httpAllowErrorBody("takeoff", payload);
+    },
+
+    /** Takeoff calibration log — the diff between the skill's original counts
+     *  and the human-finalised sheet, appended to ov._takeoffFeedback (reserved
+     *  overlay key, mirrors _invoiceEditLearning). This is the correction store
+     *  a periodic recalibration reads; it is deliberately client-persisted so it
+     *  works identically in demo and production. */
+    async appendTakeoffFeedback(entry) {
+      const state = await freshState();
+      const ov = (state && state.ov) || {};
+      const cur = Array.isArray(ov._takeoffFeedback) ? ov._takeoffFeedback : [];
+      ov._takeoffFeedback = cur.concat([{ ...entry, ts: Date.now() }]).slice(-200);
+      const res = await http("state", { ov });
+      if (res && res.ts) lastWriteTs = Math.max(lastWriteTs, res.ts);
+      return { ok: true };
+    },
+
+    /** Read back the takeoff calibration log (for a future review UI / export). */
+    async getTakeoffFeedback() {
+      const state = await http(`state?${cb()}`);
+      const ov = (state && state.ov) || {};
+      return Array.isArray(ov._takeoffFeedback) ? ov._takeoffFeedback : [];
+    },
+
     /** Customer index for the New Job smart search (#49) + the Jobs-tab
      *  QBO customer search (#56). GET /customers -> { customers:[{name,id,...}] };
      *  GET /customers?q=<query> -> top ~12 matches (name, person, phone, email)

@@ -15,6 +15,8 @@ import {
   useReqTabSwipe,
 } from "../components/requisition/RequisitionViews.jsx";
 import { useStore } from "../state/store.jsx";
+import { useTenantConfig } from "../state/tenant.jsx";
+import { isModuleEnabled } from "../lib/tenantConfig.js";
 import { overallPct, requisitionItems, sanitizeSovForRequisitions } from "../lib/requisitionCalc.js";
 import {
   BAEZ_PROJECT_ID,
@@ -943,6 +945,8 @@ export default function Projects() {
   const { projectId } = useParams();
   const navigate = useNavigate();
   const { jobs, setNewJob, showToast } = useStore();
+  const tenantConfig = useTenantConfig();
+  const takeoffOn = isModuleEnabled(tenantConfig, "takeoff");
   const [projects, setProjects] = useState({ list: [] });
   const [busy, setBusy] = useState(false);
   const [sheet, setSheet] = useState(null);
@@ -1231,6 +1235,16 @@ export default function Projects() {
         <button type="button" className="btn btn-sm" onClick={() => setSheet({ kind: "sov" })} data-testid="upload-sov">
           Upload SOV
         </button>
+        {takeoffOn && (
+          <button
+            type="button"
+            className="btn btn-sm bg-brand text-white"
+            onClick={() => navigate(`/takeoff/${project.id}`)}
+            data-testid="create-takeoff"
+          >
+            📐 Create Takeoff Sheet
+          </button>
+        )}
       </div>
 
       {(project.driveLinks || []).length ? (
