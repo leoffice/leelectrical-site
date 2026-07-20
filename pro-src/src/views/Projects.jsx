@@ -1029,14 +1029,23 @@ export default function Projects() {
       return;
     }
     setBooted(true);
-    if (!projectId && findProject(projects, BAEZ_PROJECT_ID)) {
-      navigate("/projects/" + BAEZ_PROJECT_ID, { replace: true });
-    } else if (projectId && !findProject(projects, projectId) && findProject(projects, BAEZ_PROJECT_ID)) {
-      navigate("/projects/" + BAEZ_PROJECT_ID, { replace: true });
+    // Landing project when the URL carries no id: the Baez pilot on the LE
+    // instance, else the tenant's first project (a white-label tenant has no
+    // Baez record, so without this fallback the hub would hang on "Loading…").
+    const landingId = findProject(projects, BAEZ_PROJECT_ID)
+      ? BAEZ_PROJECT_ID
+      : projects?.list?.[0]?.id || BAEZ_PROJECT_ID;
+    if (!projectId && findProject(projects, landingId)) {
+      navigate("/projects/" + landingId, { replace: true });
+    } else if (projectId && !findProject(projects, projectId) && findProject(projects, landingId)) {
+      navigate("/projects/" + landingId, { replace: true });
     }
   }, [projects, booted, loaded, projectId, navigate]);
 
-  const rawProject = findProject(projects, projectId || BAEZ_PROJECT_ID);
+  const landingProjectId = findProject(projects, BAEZ_PROJECT_ID)
+    ? BAEZ_PROJECT_ID
+    : projects?.list?.[0]?.id || BAEZ_PROJECT_ID;
+  const rawProject = findProject(projects, projectId || landingProjectId);
   const project = rawProject ? ensureProjectDefaults(rawProject) : null;
   const linkedJob = useMemo(() => {
     if (!project) return null;
