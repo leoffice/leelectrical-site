@@ -58,6 +58,34 @@ describe("customerDocLists — address job rows", () => {
     ).toBe("07/02/2026");
   });
 
+  it("jobInvoiceDateDisplay falls back to invoiceHistory date for invoices", () => {
+    expect(
+      jobInvoiceDateDisplay({
+        invoiceNo: "1002",
+        invoiceHistory: [{ no: "1002", date: "2026-07-13", amount: 8500 }],
+      })
+    ).toBe("07/13/2026");
+  });
+
+  it("jobInvoiceDateDisplay falls back to invoiceHistory date for estimates", () => {
+    expect(
+      jobInvoiceDateDisplay({
+        estimateNo: "2013",
+        invoiceHistory: [{ kind: "Estimate #2013 emailed", no: "2013", date: "2026-07-18" }],
+      })
+    ).toBe("07/18/2026");
+  });
+
+  it("explicit invoiceDate wins over invoiceHistory", () => {
+    expect(
+      jobInvoiceDateDisplay({
+        invoiceNo: "1002",
+        invoiceDate: "2026-06-15",
+        invoiceHistory: [{ no: "1002", date: "2026-07-13", amount: 8500 }],
+      })
+    ).toBe("06/15/2026");
+  });
+
   it("invoiceRowDetail returns a formatted date", () => {
     const d = invoiceRowDetail({
       invoiceNo: "251900",
@@ -69,6 +97,18 @@ describe("customerDocLists — address job rows", () => {
     });
     expect(d.date).toBe("06/15/2026");
     expect(d.amountLine).toBe("$500");
+  });
+
+  it("invoiceRowDetail picks up invoiceHistory date fallback", () => {
+    const d = invoiceRowDetail({
+      invoiceNo: "1002",
+      amount: "$8,500",
+      paid: false,
+      openBalance: 8500,
+      serviceAddress: "10 Oak St",
+      invoiceHistory: [{ no: "1002", date: "2026-07-13", amount: 8500 }],
+    });
+    expect(d.date).toBe("07/13/2026");
   });
 
   it("estimateRowDetail shows number, amount, address, and date", () => {
@@ -83,6 +123,16 @@ describe("customerDocLists — address job rows", () => {
     expect(d.address).toContain("20 Pine Rd");
     expect(d.date).toBe("05/01/2026");
     expect(d.linked).toBe("");
+  });
+
+  it("estimateRowDetail picks up invoiceHistory date fallback", () => {
+    const d = estimateRowDetail({
+      estimateNo: "2013",
+      amount: "$1,200",
+      serviceAddress: "20 Pine Rd",
+      invoiceHistory: [{ kind: "Estimate #2013 emailed", no: "2013", date: "2026-07-18" }],
+    });
+    expect(d.date).toBe("07/18/2026");
   });
 
   it("estimateRowDetail links converted estimates to their invoice", () => {

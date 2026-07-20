@@ -178,6 +178,21 @@ export function addressJobToneClass(tone) {
   return "bg-slate-50 text-slate-700 border-slate-200";
 }
 
+function historyDocDate(job) {
+  const hist = Array.isArray(job?.invoiceHistory) ? job.invoiceHistory : [];
+  const byNo = (no) => hist.find((h) => h && h.date && String(h.no) === String(no));
+  if (job?.invoiceNo) {
+    const h = byNo(job.invoiceNo);
+    if (h) return h.date;
+  }
+  if (job?.estimateNo) {
+    const h = byNo(job.estimateNo);
+    if (h) return h.date;
+  }
+  const any = hist.find((h) => h && h.date);
+  return any ? any.date : "";
+}
+
 export function jobInvoiceDateDisplay(job) {
   const raw =
     job?.invoiceDate ||
@@ -185,6 +200,7 @@ export function jobInvoiceDateDisplay(job) {
     job?.status?.Invoiced?.d ||
     job?.status?.Invoice?.d ||
     job?.status?.Estimate?.d ||
+    historyDocDate(job) ||
     "";
   return raw ? fmtInvoiceDate(raw) : "";
 }
