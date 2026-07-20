@@ -233,15 +233,8 @@ export default function App() {
       </aside>
 
       <div className="flex-1 min-w-0 flex flex-col lg:pl-64">
-        {/* Mobile — floating sync chip only (no top logo bar) */}
-        <div
-          className="lg:hidden fixed top-0 right-0 z-30 pt-safe pr-2 flex items-center h-11 pointer-events-none"
-          data-testid="mobile-sync-float"
-        >
-          <span className="pointer-events-auto">
-            <SyncChip compact />
-          </span>
-        </div>
+        {/* Mobile top-right QuickBooks sync control removed (Levi 2026-07-20):
+            QB sync lives in Settings → Connections and runs in the background. */}
 
         {/* Never let a downgraded preview be mistaken for the real session. */}
         {config.previewingAs ? (

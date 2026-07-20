@@ -26,7 +26,11 @@ export const NAV_ITEMS = [
   { to: "/projects", label: "Requisition", ic: "📋", module: "requisitions" },
   { to: "/company", label: "Company", ic: "📊", module: "reports" },
   { to: "/settings", label: "Settings", ic: "⚙️" },
-  { to: "/progress", label: "Build", ic: "⚡", internal: true },
+  // Build (/progress) is removed from the nav entirely (Levi 2026-07-20) — even
+  // for the owner. `hidden` drops the tab from every nav surface while the route
+  // stays REACHABLE by URL for internal (reachability preserved; content lives on
+  // under Settings → Archive per the Settings IA).
+  { to: "/progress", label: "Build", ic: "⚡", internal: true, hidden: true },
   { to: "/dev", label: "Dev", ic: "🛠️", internal: true },
   { to: "/archive", label: "Archive", ic: "📦" },
 ];
@@ -59,9 +63,9 @@ export function isNavItemAllowed(item, config) {
   return true;
 }
 
-/** Nav entries this tenant may see. */
+/** Nav entries this tenant may see. `hidden` items are routed but never linked. */
 export function visibleNavItems(config) {
-  return NAV_ITEMS.filter((item) => isNavItemAllowed(item, config));
+  return NAV_ITEMS.filter((item) => !item.hidden && isNavItemAllowed(item, config));
 }
 
 /**

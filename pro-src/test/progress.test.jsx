@@ -32,10 +32,13 @@ describe("Dev Progress dashboard", () => {
     expect(screen.queryByTestId("progress-refresh-btn")).not.toBeInTheDocument();
   });
 
-  it("Build tab appears in bottom nav", async () => {
+  it("Build tab is NOT in the bottom nav (removed), but /progress stays reachable", async () => {
     mockServer();
     renderApp("#/");
     const nav = screen.getByTestId("bottom-nav");
-    expect(within(nav).getByText("Build")).toBeInTheDocument();
+    expect(within(nav).queryByText("Build")).not.toBeInTheDocument();
+    // Sanity: the route itself still resolves (reachability preserved above).
+    renderApp("#/progress");
+    expect(await screen.findByTestId("progress-dashboard")).toBeInTheDocument();
   });
 });

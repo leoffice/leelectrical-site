@@ -138,13 +138,20 @@ describe("the LE flagship keeps everything", () => {
     }
   });
 
-  it("renders Build and Dev nav links", async () => {
+  it("renders the Dev nav link but NOT the Build tab (Build removed from nav)", async () => {
     mockServer({ settings: le });
     renderAppAsTenant("#/");
-    // Both the desktop sidebar and the mobile bottom bar render the tabs, so
-    // each label legitimately appears more than once.
-    await waitFor(() => expect(screen.getAllByText("Build").length).toBeGreaterThan(0));
-    expect(screen.getAllByText("Dev").length).toBeGreaterThan(0);
+    await waitFor(() => expect(screen.getAllByText("Dev").length).toBeGreaterThan(0));
+    // Build was removed from every nav surface — even for the internal owner.
+    expect(screen.queryByText("Build")).not.toBeInTheDocument();
+  });
+
+  it("keeps /progress reachable by URL even though the Build tab is gone", async () => {
+    mockServer({ settings: le });
+    renderAppAsTenant("#/progress");
+    await waitFor(() => expect(screen.queryByText("That page doesn’t exist.")).not.toBeInTheDocument());
+    // ...and no Build nav link anywhere.
+    expect(screen.queryByText("Build")).not.toBeInTheDocument();
   });
 });
 

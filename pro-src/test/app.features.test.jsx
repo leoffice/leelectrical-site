@@ -553,9 +553,11 @@ describe("responsive layout — 390px and 1280px", () => {
     expect(sidebar.className).toContain("hidden"); // hidden on phone…
     expect(sidebar.className).toContain("lg:flex"); // …sidebar on desktop
     expect(within(nav).getByTestId("nav-actions")).toBeInTheDocument();
-    ["Customers", "Calendar", "Reminders", "Company", "Build", "Dev"].forEach((t) =>
+    ["Customers", "Calendar", "Reminders", "Company", "Dev"].forEach((t) =>
       expect(within(nav).getByText(t)).toBeInTheDocument()
     );
+    // Build tab was removed from the nav entirely (Levi 2026-07-20).
+    expect(within(nav).queryByText("Build")).not.toBeInTheDocument();
   });
 
   it("desktop sidebar Log off ends the session", async () => {
