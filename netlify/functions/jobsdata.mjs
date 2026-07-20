@@ -10,6 +10,10 @@ import { auditJobs, checkAutogenTripwire, formatProblems } from "../../pro-src/s
 //         { op:"request" }          (dashboard asks for a fresh pull)
 const KEY = "jobsdata-v1";
 
+// Busiest real day in the dataset is 18 new documents; 60 is well clear of
+// legitimate volume while still catching a runaway fan-out.
+const BULK_SYNC_SANITY_LIMIT = 60;
+
 function json(o) {
   return new Response(JSON.stringify(o), {
     headers: {
@@ -60,10 +64,20 @@ export default async (req) => {
     // reported so the scheduled alerter surfaces them without ever wedging the
     // nightly QuickBooks sync on a pre-existing problem.
     if (b.op === "set" || b.op === "merge") {
-      const tripped = checkAutogenTripwire(prevJobs, doc.jobs);
-      if (tripped.length) {
+      // The ">3 new invoices" rule applies to INCREMENTAL app writes (op:"merge"),
+      // where "one transaction -> one estimate" holds. It must NOT gate op:"set":
+      // that is the nightly full-dataset QuickBooks sync, and real invoice volume
+      // exceeded 3/day on 323 of the last 1842 days — a flat limit there would
+      // block the sync roughly one day in six. op:"set" gets a loose sanity bound
+      // that only catches genuine runaway, and warns rather than blocks.
+      const limit = b.op === "merge" ? undefined : BULK_SYNC_SANITY_LIMIT;
+      const tripped = checkAutogenTripwire(prevJobs, doc.jobs, { limit });
+      if (tripped.length && b.op === "merge") {
         console.error("[jobsdata] BLOCKED — autogen tripwire\n" + formatProblems(tripped));
         return json({ ok: false, blocked: true, problems: tripped });
+      }
+      if (tripped.length) {
+        console.error("[jobsdata] bulk sync exceeded sanity bound\n" + formatProblems(tripped));
       }
       const problems = auditJobs(doc.jobs);
       if (problems.length) {
