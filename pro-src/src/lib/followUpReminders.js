@@ -9,6 +9,7 @@ import {
   unsentDocCandidates,
   unsentDocLead,
 } from "./followUpStatus.js";
+import { daysBetween } from "./dateUtils.js";
 import { filterVerifyHeld } from "./reminderVerifyHold.js";
 import {
   claimReminderSlots,
@@ -21,6 +22,9 @@ export {
   OVERFLOW_REMINDER_MESSAGE,
   PROMPT_QUEUE_CAP,
 } from "./promptQueueCap.js";
+
+/** Re-export so existing importers of daysBetween from this module keep working. */
+export { daysBetween } from "./dateUtils.js";
 
 export const STATE_KEY = "lepro_followup_state";
 export const SERVICE_LOOKBACK_DAYS = 7;
@@ -655,7 +659,7 @@ export function buildReminderList(events, jobs, today, now = new Date(), command
   const list = [];
   const state = loadState();
 
-  for (const item of unsentDocCandidates(jobs, commands)) {
+  for (const item of unsentDocCandidates(jobs, commands, { now })) {
     const label = item.docKind === "invoice" ? "Invoice" : "Estimate";
     const no = item.docNo ? " #" + item.docNo : "";
     const job = item.job;
@@ -768,7 +772,7 @@ export function buildPromptQueue(events, jobs, today, now = new Date(), commands
       priority: item.state?.priority || "medium",
     });
   }
-  for (const item of unsentDocCandidates(jobs, commands)) {
+  for (const item of unsentDocCandidates(jobs, commands, { now })) {
     queue.push({ kind: "unsent_doc", priority: "high", ...item });
   }
   for (const event of inspectionCandidates(events, today)) {
@@ -798,13 +802,6 @@ export function buildPromptQueue(events, jobs, today, now = new Date(), commands
   // Reserve shared popup slots so name-sort cards cannot exceed the five-card total.
   claimReminderSlots(held.length, now instanceof Date ? now : new Date());
   return applyPromptQueueCap(held, PROMPT_QUEUE_CAP);
-}
-
-/** Days between two YYYY-MM-DD strings (floor). */
-export function daysBetween(earlier, later) {
-  const a = new Date(String(earlier) + "T12:00:00").getTime();
-  const b = new Date(String(later) + "T12:00:00").getTime();
-  return Math.max(0, Math.floor((b - a) / 86400000));
 }
 
 function firstName(customer) {
