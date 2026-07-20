@@ -1,5 +1,5 @@
 // Company dashboard — business KPIs from QuickBooks-synced jobs + Google Calendar.
-import React, { useMemo, useRef, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import { useStore } from "../state/store.jsx";
 import DashboardWidget, { DeltaBadge, DetailTable } from "../components/DashboardWidget.jsx";
 import CompanyLinkedTable from "../components/CompanyLinkedTable.jsx";
@@ -7,7 +7,10 @@ import Toggle from "../components/Toggle.jsx";
 import { ago } from "../lib/format.js";
 import { CO, Donut, Funnel, Gauge, HBar, HBarRow, StackBar, Trend, VBars } from "../lib/dashboard/charts.jsx";
 import { buildCompanyMetrics, fmtMoney, fmtMoneyK } from "../lib/companyMetrics.js";
-import { COMPANY_SECTIONS, widgetsForSection } from "../lib/companyDashboardConfig.js";
+import { COMPANY_SECTIONS, sectionsForTenant, widgetsForSection } from "../lib/companyDashboardConfig.js";
+import { requisitionPortfolio } from "../lib/requisitionHelpers.js";
+import { normalizeProjects } from "../lib/requisitionData.js";
+import api from "../data/adapter.js";
 import {
   clearCompanyLogo,
   readLogoFileAsDataUrl,
@@ -527,6 +530,117 @@ function buildWidgets(data) {
         />
       );
     },
+    "pipeline-panel": () => {
+      const p = data.pipeline;
+      const maxPhase = Math.max(1, ...p.phases.map((x) => x.count));
+      return (
+        <div
+          className="bg-white border border-slate-200 rounded-[14px] shadow-sm border-t-[3px] border-t-blue-500 p-3"
+          data-testid="widget-pipeline-panel"
+        >
+          <div className="flex items-baseline gap-2 flex-wrap">
+            <div className="text-[28px] font-extrabold tracking-tight leading-none">{p.activeCount}</div>
+            <div className="text-[12.5px] text-slate-500 font-bold">
+              open job{p.activeCount === 1 ? "" : "s"} · {fmtMoneyK(p.activeAmt)} in flight
+            </div>
+          </div>
+          {/* Phase roll-up first — five rows a phone can read at a glance. */}
+          <div className="mt-3 space-y-1">
+            {p.phases.map((ph) => (
+              <DashboardWidget
+                key={ph.nm}
+                id={"phase-" + ph.nm}
+                accent="grey"
+                head={
+                  <div className="flex items-center gap-2">
+                    <span className="text-base shrink-0">{ph.ic}</span>
+                    <span className="font-bold text-sm flex-[0_0_92px] sm:flex-[0_0_128px]">{ph.nm}</span>
+                    <span className="flex-1 min-w-[30px]">
+                      <HBar frac={ph.count / maxPhase} color={CO.blue} />
+                    </span>
+                    <span className="text-sm font-extrabold tabular-nums shrink-0">
+                      {ph.count} · {fmtMoneyK(ph.amt)}
+                    </span>
+                  </div>
+                }
+                detail={
+                  <DetailTable
+                    title={`${ph.nm} — jobs waiting by stage`}
+                    cols={["Stage", "Jobs", "Value"]}
+                    align={["", "r", "r"]}
+                    rows={ph.stages.map((s) => [s.stage, String(s.count), fmtMoney(s.amt)])}
+                    total={["Phase total", fmtMoney(ph.amt)]}
+                    foot="A job counts once, against the stage it is waiting on."
+                  />
+                }
+              />
+            ))}
+          </div>
+        </div>
+      );
+    },
+    "requisition-progress": () => {
+      const r = data.requisitions;
+      if (!r || !r.rows.length) {
+        return (
+          <div
+            className="bg-white border border-slate-200 rounded-[14px] shadow-sm border-t-[3px] border-t-purple-500 p-4 text-sm text-slate-500"
+            data-testid="widget-requisition-progress"
+          >
+            No requisition projects yet. Start one from the <b className="text-slate-700">Requisition</b> tab to
+            track per-item % completion here.
+          </div>
+        );
+      }
+      return (
+        <div
+          className="bg-white border border-slate-200 rounded-[14px] shadow-sm border-t-[3px] border-t-purple-500 p-3"
+          data-testid="widget-requisition-progress"
+        >
+          <div className="flex items-baseline gap-2 flex-wrap">
+            <div className="text-[28px] font-extrabold tracking-tight leading-none">{r.pct.toFixed(0)}%</div>
+            <div className="text-[12.5px] text-slate-500 font-bold">
+              complete across {r.rows.length} project{r.rows.length === 1 ? "" : "s"} ·{" "}
+              {fmtMoneyK(r.outstanding)} earned not yet paid
+            </div>
+          </div>
+          <div className="mt-3 space-y-1">
+            {r.rows.map((row) => (
+              <DashboardWidget
+                key={row.id || row.name}
+                id={"req-" + (row.id || row.name)}
+                accent="grey"
+                head={
+                  <div className="flex items-center gap-2">
+                    <span className="font-bold text-sm flex-[0_0_92px] sm:flex-[0_0_150px] truncate">{row.name}</span>
+                    <span className="flex-1 min-w-[30px]">
+                      <HBar frac={row.pct / 100} color={CO.purple} />
+                    </span>
+                    <span className="text-sm font-extrabold tabular-nums shrink-0">{row.pct.toFixed(0)}%</span>
+                  </div>
+                }
+                detail={
+                  <DetailTable
+                    title={row.name}
+                    cols={["Measure", "Amount"]}
+                    align={["", "r"]}
+                    rows={[
+                      ["Scheduled value (incl. change orders)", fmtMoney(row.scheduled)],
+                      ["Completed to date", fmtMoney(row.completed)],
+                      ["Paid to date", fmtMoney(row.paid)],
+                      ["Earned, not yet paid", fmtMoney(row.outstanding)],
+                      ["Requisitions submitted", String(row.reqCount)],
+                    ]}
+                    total={["% complete", row.pct.toFixed(1) + "%"]}
+                    foot="% complete is dollar-weighted across all SOV line items."
+                  />
+                }
+              />
+            ))}
+          </div>
+        </div>
+      );
+    },
     "revenue-mix": () => null,
   };
 
@@ -631,9 +745,32 @@ function CompanyInfoSettings({ showToast }) {
 export default function Company() {
   const { jobs, events, syncedAt, eventsSyncedAt, syncNow, pullCalendarNow, busy, showToast } = useStore();
   const [calBusy, setCalBusy] = useState(false);
-  const data = useMemo(() => buildCompanyMetrics(jobs, events), [jobs, events]);
+  const config = useTenantConfig();
+  const product = tenantChrome(config).product;
+  const internal = config.internal === true;
   const settings = useAppSettings();
-  const product = tenantChrome(useTenantConfig()).product;
+
+  // Requisition progress is the one report sourced outside the jobs/calendar
+  // sync. Only fetch it when the tenant actually has the module — an off
+  // module should cost them nothing, not even a request.
+  const wantsRequisitions = sectionsForTenant(config).some((s) => s.key === "requisitions");
+  const [projects, setProjects] = useState(null);
+  useEffect(() => {
+    if (!wantsRequisitions) return;
+    let alive = true;
+    (async () => {
+      const raw = await api.getProjects?.().catch(() => ({ list: [] }));
+      if (alive) setProjects(normalizeProjects(raw));
+    })();
+    return () => {
+      alive = false;
+    };
+  }, [wantsRequisitions]);
+
+  const data = useMemo(() => {
+    const base = buildCompanyMetrics(jobs, events);
+    return { ...base, requisitions: projects ? requisitionPortfolio(projects) : null };
+  }, [jobs, events, projects]);
 
   const refreshQbo = async () => {
     showToast("Refreshing QuickBooks…");
@@ -653,23 +790,25 @@ export default function Company() {
   };
   const builders = useMemo(() => buildWidgets(data), [data]);
 
-  const renderSection = (sectionKey, title, subtitle, extra) => {
-    const ids = widgetsForSection(sectionKey);
-    return (
-      <>
-        <div className="flex items-baseline gap-2 mt-4 mb-2 px-0.5">
-          <h2 className="text-[13.5px] uppercase tracking-wide text-slate-500 font-extrabold m-0">{title}</h2>
-          {subtitle ? <span className="text-[11.5px] text-slate-400 font-semibold">{subtitle}</span> : null}
-          {extra}
-        </div>
-        <div className={COMPANY_SECTIONS[sectionKey]}>
-          {ids.map((cfg) => (
-            <div key={cfg.id}>{builders[cfg.id]?.()}</div>
-          ))}
-        </div>
-      </>
-    );
-  };
+  // Sections AND the widgets inside them come from the same tenant-gated
+  // registry, so an internal-only report cannot leak in via a stray heading.
+  const sections = useMemo(() => sectionsForTenant(config), [config]);
+
+  const renderSection = (s) => (
+    <React.Fragment key={s.key}>
+      <div className="flex items-baseline gap-2 mt-4 mb-2 px-0.5">
+        <h2 className="text-[13.5px] uppercase tracking-wide text-slate-500 font-extrabold m-0">
+          {s.key === "week" ? `${s.title} · ${data.weekLabel}` : s.title}
+        </h2>
+        {s.subtitle ? <span className="text-[11.5px] text-slate-400 font-semibold">{s.subtitle}</span> : null}
+      </div>
+      <div className={COMPANY_SECTIONS[s.key]}>
+        {widgetsForSection(s.key, config).map((cfg) => (
+          <div key={cfg.id}>{builders[cfg.id]?.()}</div>
+        ))}
+      </div>
+    </React.Fragment>
+  );
 
   return (
     <div className="space-y-1 pb-4" data-testid="company-dashboard">
@@ -677,13 +816,13 @@ export default function Company() {
         <div className="flex items-center gap-2.5">
           <img
             src={settings.logoSrc}
-            alt="LE"
+            alt={product}
             className="w-9 h-9 rounded-lg object-contain bg-white border border-slate-200 shadow-sm"
             data-testid="company-header-logo"
           />
           <div className="flex-1 min-w-0">
-            <h1 className="text-lg font-extrabold tracking-tight m-0">Company Dashboard</h1>
-            <div className="text-xs text-slate-500">{product} · Business overview</div>
+            <h1 className="text-lg font-extrabold tracking-tight m-0">Reports</h1>
+            <div className="text-xs text-slate-500 truncate">{product} · Business overview</div>
           </div>
           <div className="text-xs font-extrabold text-amber-700 bg-amber-50 px-2.5 py-1 rounded-full shrink-0">
             {fmtMoneyK(data.ar.openTotal)} open A/R
@@ -693,8 +832,9 @@ export default function Company() {
           <div className="flex gap-2 items-start">
             <span className="text-base">🔄</span>
             <span>
-              Live from <b className="text-slate-800">QuickBooks</b> + <b className="text-slate-800">Google Calendar</b>. Tap any card for detail — invoice rows open the doc, double-tap opens job info.{" "}
-              {data.sources.jobs} jobs · {data.sources.events} calendar events.
+              Live from <b className="text-slate-800">QuickBooks</b> + <b className="text-slate-800">Google Calendar</b>. Tap any card for detail.
+              {/* Raw record counts are a sync diagnostic, not a report. */}
+              {internal ? ` ${data.sources.jobs} jobs · ${data.sources.events} calendar events.` : ""}
             </span>
           </div>
           <div className="flex flex-wrap gap-2">
@@ -720,20 +860,7 @@ export default function Company() {
         </div>
       </div>
 
-      <div className="mb-3">
-        <CompanyInfoSettings showToast={showToast} />
-      </div>
-
-      {renderSection("week", "This week vs last week", data.weekLabel)}
-      {renderSection("month", "This month", "month-to-date vs last month")}
-      {renderSection("ar", "Collections & accounts receivable", "tap rows to expand")}
-      {renderSection("performance", "Performance analytics")}
-      {renderSection(
-        "extras",
-        "More insights",
-        null,
-        <span className="text-[10.5px] font-extrabold text-purple-700 bg-purple-50 px-2 py-0.5 rounded-full">Suggested extras</span>
-      )}
+      {sections.map(renderSection)}
 
       <div className="mt-4 px-0.5">
         <h2 className="text-[13.5px] uppercase tracking-wide text-slate-500 font-extrabold mb-2">Where the data comes from</h2>
@@ -748,9 +875,19 @@ export default function Company() {
           </div>
           <div className="flex gap-2">
             <span className="text-[10px] font-extrabold px-1.5 py-0.5 rounded bg-purple-50 text-purple-700 shrink-0">DISP</span>
-            <span>{product} computes conversion, forecasts and insights on top.</span>
+            <span>{product} computes the aging buckets, pipeline and requisition totals on top.</span>
           </div>
         </div>
+      </div>
+
+      {/*
+        Device settings, not a report — kept on this page because it is where
+        the logo lives today, but moved below the reports so the top of Reports
+        is reports. (Its natural home is Settings; moving it there touches a
+        view another session may be in, so it is left for a follow-up.)
+      */}
+      <div className="mt-4">
+        <CompanyInfoSettings showToast={showToast} />
       </div>
     </div>
   );

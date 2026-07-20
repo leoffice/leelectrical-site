@@ -2,7 +2,7 @@
 import { parseAmount } from "./format.js";
 import { normalizePayments } from "./payments.js";
 import { openBalance, invoiceTotal } from "./customers.js";
-import { stageOf, stepState } from "./stages.js";
+import { PHASES, STAGES, stageOf, stepState } from "./stages.js";
 import { productName } from "./tenantBranding.js";
 
 const NET_TERMS_DAYS = 7;
@@ -170,6 +170,42 @@ function monthKey(ymd) {
 }
 
 /** Build the full company dashboard dataset from jobs + calendar. */
+/**
+ * Where the open work sits right now — one of the five reports a contractor
+ * actually reads. Jobs are bucketed by the stage they are *waiting on*
+ * (stageOf = first stage not done/skipped), which is the question being asked:
+ * "what's stuck, and where?". Fully-cleared jobs are done, not pipeline.
+ */
+export function pipelineSummary(jobs) {
+  const active = (jobs || []).filter((j) => stageOf(j) !== "Paid");
+  const byStage = {};
+  for (const j of active) {
+    const s = stageOf(j);
+    (byStage[s] = byStage[s] || []).push(j);
+  }
+  const stageRow = (name) => {
+    const list = byStage[name] || [];
+    return { stage: name, count: list.length, amt: list.reduce((s, j) => s + jobAmt(j), 0), jobs: list };
+  };
+  const stages = STAGES.filter((s) => s !== "Paid").map(stageRow);
+  const phases = PHASES.map((p) => {
+    const rows = p.steps.filter((s) => s !== "Paid").map(stageRow);
+    return {
+      nm: p.nm,
+      ic: p.ic,
+      count: rows.reduce((s, r) => s + r.count, 0),
+      amt: rows.reduce((s, r) => s + r.amt, 0),
+      stages: rows,
+    };
+  });
+  return {
+    stages,
+    phases,
+    activeCount: active.length,
+    activeAmt: active.reduce((s, j) => s + jobAmt(j), 0),
+  };
+}
+
 export function buildCompanyMetrics(jobs, events, now = new Date()) {
   const today = now.toISOString().slice(0, 10);
   const { thisStart, thisEnd, lastStart, lastEnd } = weekRanges(now);
@@ -307,6 +343,7 @@ export function buildCompanyMetrics(jobs, events, now = new Date()) {
     month: {
       collected: { rows: collMtd, total: sumAmt(collMtd), prev: sumAmt(collPrevMonth) },
     },
+    pipeline: pipelineSummary(jobs),
     ar: {
       open,
       openTotal: sumAmt(open),

@@ -358,10 +358,11 @@ export default function DocBuilderSheet({
   const [lines, setLines] = useState(() => initialLines(job, { kind, mode, progressPct }));
   const [attachments, setAttachments] = useState([]);
   const [attUploading, setAttUploading] = useState(false);
-  // Lazy initializer: reads the live tenant config rather than the build seed.
-  // A non-internal tenant starts with an empty catalogue instead of inheriting
-  // LE's service names and prices.
-  const [items, setItems] = useState(() => defaultQboItems());
+  // Starts empty and fills in asynchronously: LE's internal catalogue is a
+  // separate chunk (see data/qboItems.js), so it cannot be read synchronously.
+  // A non-internal tenant resolves to [] with no fetch at all, and keeps an
+  // empty picker until their own QuickBooks items sync in.
+  const [items, setItems] = useState([]);
   const [saving, setSaving] = useState(false);
   const [emailSheet, setEmailSheet] = useState(false);
   const [sendEmails, setSendEmails] = useState(() => job.email || "");
@@ -419,6 +420,14 @@ export default function DocBuilderSheet({
   useEffect(() => {
     let cancelled = false;
     (async () => {
+      // Seed with the built-in catalogue first. For LE this awaits a lazy
+      // chunk; for every other tenant it resolves to [] immediately and
+      // fetches nothing. The tenant's own synced QuickBooks items then
+      // replace the seed when they arrive — remote always wins.
+      try {
+        const seed = await defaultQboItems();
+        if (!cancelled && seed.length) setItems(seed);
+      } catch {}
       try {
         const remote = await api.searchItems("");
         if (!cancelled && remote && remote.length) setItems(remote);
