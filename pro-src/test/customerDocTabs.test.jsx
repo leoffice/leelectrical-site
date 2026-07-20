@@ -89,8 +89,12 @@ describe("customer doc tabs — create + service addresses", () => {
     renderApp("#/customer/c:addr%20co");
     const view = await screen.findByTestId("customer-view");
     expect(within(view).getByTestId("customer-doc-tabs")).toBeInTheDocument();
-    expect(within(view).queryByTestId("customer-txn-history")).not.toBeInTheDocument();
+    // Transactions is part of the customer detail now, so it renders by default;
+    // the switch collapses it rather than revealing it.
+    expect(within(view).getByTestId("customer-txn-history")).toBeInTheDocument();
 
+    await user.click(within(view).getByRole("switch", { name: /Short transactions/i }));
+    expect(within(view).queryByTestId("customer-txn-history")).not.toBeInTheDocument();
     await user.click(within(view).getByRole("switch", { name: /Short transactions/i }));
 
     const card = within(view).getByTestId("customer-card");

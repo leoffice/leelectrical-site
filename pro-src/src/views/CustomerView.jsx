@@ -35,7 +35,9 @@ export default function CustomerView() {
   const nav = useNavigate();
   const { jobs, loading, events, commands, patchJob, refreshJobs, api, enqueue, showToast } = useStore();
   const [qboIndex, setQboIndex] = useState([]);
-  const [shortTxns, setShortTxns] = useState(false);
+  // Transactions section is part of the customer detail per spec; the toggle
+  // stays so it can be collapsed, but it is shown by default.
+  const [shortTxns, setShortTxns] = useState(true);
 
   useEffect(() => {
     let cancelled = false;

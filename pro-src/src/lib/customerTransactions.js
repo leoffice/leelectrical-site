@@ -2,7 +2,7 @@
 // all job addresses for one company (not sub-companies).
 import { openBalance, invoiceTotal } from "./customers.js";
 import { normalizePayments, normalizePaymentMethod, fmtPaymentDate } from "./payments.js";
-import { fmt$ } from "./format.js";
+import { fmt$, parseAmount } from "./format.js";
 import { serviceAddressDisplay } from "./customerSync.js";
 
 /** Soft palette — same invoice # always gets the same bubble color. */
@@ -42,6 +42,57 @@ export function shortTxnDate(raw) {
   return s;
 }
 
+/**
+ * Which invoice is this payment applied to?
+ *
+ * Order matters. The explicit back-reference (added by the payment-namespace
+ * fix) wins when present, but most stored payments predate it — for those the
+ * job the payment is NESTED UNDER is the truth, and always has been: the
+ * nesting was never what broke, only the id namespace was. So this resolves
+ * correctly both before and after the re-key migration.
+ *
+ * Returns { invoiceNo, jobId, unlinked }. Never guesses: a payment on a job
+ * with no invoice number is reported unlinked rather than mislabelled.
+ */
+export function resolvePaymentInvoice(payment, hostJob, jobsById) {
+  const byId = jobsById instanceof Map ? jobsById : null;
+  const refJobId = String(payment?.jobId || "").trim();
+  const refInvNo = String(payment?.invoiceNo || "").trim();
+
+  if (refJobId) {
+    const target = byId?.get(refJobId) || (hostJob?.id === refJobId ? hostJob : null);
+    const invoiceNo = String(target?.invoiceNo || refInvNo || "").trim();
+    if (invoiceNo) return { invoiceNo, jobId: refJobId, unlinked: false };
+  }
+  if (refInvNo) {
+    return { invoiceNo: refInvNo, jobId: refJobId || hostJob?.id || "", unlinked: false };
+  }
+  const hostInv = String(hostJob?.invoiceNo || "").trim();
+  if (hostInv) return { invoiceNo: hostInv, jobId: hostJob?.id || "", unlinked: false };
+
+  return { invoiceNo: "", jobId: hostJob?.id || "", unlinked: true };
+}
+
+/** Estimate → the invoice it became, when the same job carries both. */
+function convertedInvoiceNo(job) {
+  return job?.estimateNo && job?.invoiceNo ? String(job.invoiceNo) : "";
+}
+
+/** Totals across a customer's whole history: invoiced / paid / balance due. */
+export function customerTransactionSummary(jobs) {
+  let invoiced = 0;
+  let paid = 0;
+  let due = 0;
+  for (const j of jobs || []) {
+    if (!j || j._archived || j._deleted) continue;
+    if (!j.invoiceNo) continue; // estimates are not money owed
+    invoiced += invoiceTotal(j);
+    due += openBalance(j);
+    for (const p of normalizePayments(j)) paid += parseAmount(p.amount);
+  }
+  return { invoiced, paid, due };
+}
+
 function invoiceSortDate(job) {
   return (
     job?.invoiceDate ||
@@ -68,8 +119,9 @@ function estimateSortDate(job) {
  */
 export function buildCustomerTransactions(jobs, { filter = "all", sort = "new" } = {}) {
   const rows = [];
-  for (const j of jobs || []) {
-    if (!j || j._archived || j._deleted) continue;
+  const list0 = (jobs || []).filter((j) => j && !j._archived && !j._deleted);
+  const jobsById = new Map(list0.map((j) => [j.id, j]));
+  for (const j of list0) {
     const address = serviceAddressDisplay(j);
 
     if (j.invoiceNo) {
@@ -86,6 +138,8 @@ export function buildCustomerTransactions(jobs, { filter = "all", sort = "new" }
         address,
         total,
         due,
+        statusLabel: due > 0.01 ? "Open " + (fmt$(due) || "$0") : "Paid",
+        isOpen: due > 0.01,
         dateLabel: shortTxnDate(dateRaw),
         color: linkColorForDoc(j.invoiceNo),
       });
@@ -103,6 +157,12 @@ export function buildCustomerTransactions(jobs, { filter = "all", sort = "new" }
         address,
         total: invoiceTotal(j),
         due: 0,
+        convertedTo: convertedInvoiceNo(j),
+        statusLabel: convertedInvoiceNo(j)
+          ? "Accepted"
+          : j.status?.Accepted?.s === "done"
+            ? "Accepted"
+            : "Sent",
         dateLabel: shortTxnDate(dateRaw),
         color: linkColorForDoc(j.estimateNo),
       });
@@ -110,19 +170,23 @@ export function buildCustomerTransactions(jobs, { filter = "all", sort = "new" }
 
     for (const p of normalizePayments(j)) {
       const dateRaw = p.date || "";
+      const link = resolvePaymentInvoice(p, j, jobsById);
       rows.push({
         id: "pay:" + j.id + ":" + (p.id || dateRaw + p.amount),
         kind: "payment",
         sortDate: String(dateRaw || ""),
-        jobId: j.id,
+        // Tap target: the invoice this payment is applied to.
+        jobId: link.jobId || j.id,
         job: j,
         payment: p,
         amount: p.amount,
         method: normalizePaymentMethod(p.method, { note: p.note, ref: p.ref }),
-        docNo: j.invoiceNo ? String(j.invoiceNo) : "",
+        ref: String(p.ref || "").trim(),
+        docNo: link.invoiceNo,
+        unlinked: link.unlinked,
         address,
         dateLabel: shortTxnDate(dateRaw),
-        color: j.invoiceNo ? linkColorForDoc(j.invoiceNo) : LINK_COLORS[0],
+        color: link.invoiceNo ? linkColorForDoc(link.invoiceNo) : LINK_COLORS[0],
       });
     }
   }
@@ -131,6 +195,7 @@ export function buildCustomerTransactions(jobs, { filter = "all", sort = "new" }
   if (filter === "invoices") list = rows.filter((r) => r.kind === "invoice");
   else if (filter === "payments") list = rows.filter((r) => r.kind === "payment");
   else if (filter === "estimates") list = rows.filter((r) => r.kind === "estimate");
+  else if (filter === "open") list = rows.filter((r) => r.kind === "invoice" && r.isOpen);
 
   list = list.slice().sort((a, b) => {
     const da = String(a.sortDate || "");
@@ -156,6 +221,8 @@ export function txnFilterCounts(jobs) {
     invoices: all.filter((r) => r.kind === "invoice").length,
     payments: all.filter((r) => r.kind === "payment").length,
     estimates: all.filter((r) => r.kind === "estimate").length,
+    open: all.filter((r) => r.kind === "invoice" && r.isOpen).length,
+    unlinked: all.filter((r) => r.kind === "payment" && r.unlinked).length,
   };
 }
 

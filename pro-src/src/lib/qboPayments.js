@@ -35,7 +35,7 @@ export function qboPaymentIdOf(p) {
 }
 
 /** Canonical, collision-free payment id. */
-export function paymentId(p, amt) {
+export function canonicalPaymentId(p, amt) {
   const id = String(p?.id || "").trim();
   if (id.startsWith("sola-")) return id; // already namespaced
   const qid = qboPaymentIdOf(p);
@@ -55,7 +55,7 @@ function mapFetchedPayment(p, job) {
   const note = p.note || p.privateNote || "";
   const ref = refFromNote(note, p.ref) || p.ref || "";
   return {
-    id: paymentId(p, amt),
+    id: canonicalPaymentId(p, amt),
     amount: whole ? "$" + Math.round(amt) : "$" + amt.toFixed(2),
     method: normalizePaymentMethod(p.method, { note, ref }),
     ref,
