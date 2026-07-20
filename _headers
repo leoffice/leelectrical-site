@@ -1,3 +1,23 @@
+# PWA update-critical files: always revalidate so a new deploy reaches installed
+# apps immediately. Without this, CF's default (max-age=14400) let browsers/edge
+# serve a stale sw.js / index.html / version.json for up to 4h, so deploys did
+# not land for users until they manually cleared cache. Hashed assets under
+# /app/pro/assets/* keep their long cache (their filename changes every build).
+/app/pro/sw.js
+  Cache-Control: no-cache, must-revalidate
+
+/app/pro/
+  Cache-Control: no-cache, must-revalidate
+
+/app/pro/index.html
+  Cache-Control: no-cache, must-revalidate
+
+/app/pro/version.json
+  Cache-Control: no-cache, must-revalidate
+
+/app/pro/manifest.json
+  Cache-Control: no-cache, must-revalidate
+
 /app/pro/apk/*.apk
   Content-Type: application/vnd.android.package-archive
   Cache-Control: public, max-age=3600
