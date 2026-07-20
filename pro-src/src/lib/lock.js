@@ -17,6 +17,7 @@
 // injectable.
 
 import { productName } from "./tenantBranding.js";
+import { DEMO, isDemoCredential } from "./demoMode.js";
 
 export const GRACE_MS = 8 * 60 * 60 * 1000; // 8 hours — field day + reloads
 export const CRED_KEY = "lepro_lock_cred_id"; // localStorage (persists across launches)
@@ -324,6 +325,14 @@ export async function passwordUnlock(
   password,
   { fetchImpl = globalThis.fetch, url = SUPABASE_URL, anonKey = SUPABASE_ANON_KEY } = {}
 ) {
+  // DEMO / white-label TEST TENANT: the pre-loaded demo login is validated
+  // locally and never sent to Supabase (the demo has no real auth backend).
+  if (DEMO) {
+    if (isDemoCredential(email, password)) {
+      return { access_token: "demo-session", token_type: "bearer", demo: true };
+    }
+    throw new Error("Use the demo login shown below.");
+  }
   if (!fetchImpl) throw new Error("Network unavailable");
   const res = await fetchImpl(`${url}/auth/v1/token?grant_type=password`, {
     method: "POST",
