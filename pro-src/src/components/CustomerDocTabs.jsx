@@ -203,6 +203,18 @@ export default function CustomerDocTabs({ jobs, activeJobId, fromCust = "" }) {
     nav("/job/" + j.id + q);
   };
 
+  /** Open an invoice job's Progress accordion (detail sections expanded). */
+  const openInvoiceProgress = (j) => {
+    if (!j?.id) return;
+    const parts = [];
+    if (fromCust) parts.push("from=" + encodeURIComponent(fromCust));
+    parts.push("progress=1");
+    nav("/job/" + j.id + "?" + parts.join("&"));
+  };
+
+  const progressTarget =
+    allInv.find((j) => j.id === activeJobId) || openInv[0] || closedInv[0] || allInv[0] || null;
+
   const navNewDoc = (newId, kind) => {
     const parts = [];
     if (fromCust) parts.push("from=" + encodeURIComponent(fromCust));
@@ -324,6 +336,16 @@ export default function CustomerDocTabs({ jobs, activeJobId, fromCust = "" }) {
               onConnectRequest={(j, kind) => setConnect({ job: j, kind })}
             />
           </DocSection>
+          {progressTarget ? (
+            <button
+              type="button"
+              className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 text-sm font-semibold text-slate-700 mt-1 mb-0.5 active:opacity-80"
+              data-testid="invoice-open-progress"
+              onClick={() => openInvoiceProgress(progressTarget)}
+            >
+              📑 View progress
+            </button>
+          ) : null}
         </div>
       ) : null}
 

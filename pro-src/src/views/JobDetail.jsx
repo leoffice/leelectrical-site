@@ -97,7 +97,9 @@ export default function JobDetail() {
   const [sp] = useSearchParams();
   const fromCust = sp.get("from") || ""; // customer-group key when opened from CustomerView
   const foldParam = sp.get("fold");
-  const foldOnOpen = foldParam === "1"; // job info only until card tap (from customer invoice)
+  const progressParam = sp.get("progress");
+  // progress=1 forces expanded detail (un-folds) so Progress accordion is reachable
+  const foldOnOpen = foldParam === "1" && progressParam !== "1"; // job info only until card tap (from customer invoice)
   const goBack = () =>
     fromCust
       ? nav("/customer/" + encodeURIComponent(fromCust) + "?job=" + encodeURIComponent(id))
@@ -184,6 +186,7 @@ export default function JobDetail() {
   const [detailSectionsExpanded, setDetailSectionsExpanded] = useState(!foldOnOpen);
   const stepTimer = useRef(null);
   const jobInfoRef = useRef(null);
+  const progressRef = useRef(null);
 
   const scrollToJobInfo = useCallback(() => {
     const el = jobInfoRef.current;
@@ -192,14 +195,34 @@ export default function JobDetail() {
     window.scrollTo({ top: Math.max(0, top), behavior: "instant" });
   }, []);
 
-  useEffect(() => {
-    setDetailSectionsExpanded(foldParam !== "1");
-    setShowChangeOrders(false);
-  }, [id, foldParam]);
+  const scrollToProgress = useCallback(() => {
+    const el = progressRef.current;
+    if (!el) return;
+    const top = el.getBoundingClientRect().top + window.scrollY - 72;
+    window.scrollTo({ top: Math.max(0, top), behavior: "smooth" });
+  }, []);
 
   useEffect(() => {
+    // progress=1 wins over fold=1 — expand sections so Progress is visible
+    if (progressParam === "1") {
+      setDetailSectionsExpanded(true);
+      // Open the Paperwork phase so Con Ed / City branches are immediately reachable
+      const paperworkIdx = PHASES.findIndex((p) => p.nm === "Paperwork");
+      if (paperworkIdx >= 0) setOpenPhase(paperworkIdx);
+    } else {
+      setDetailSectionsExpanded(foldParam !== "1");
+    }
+    setShowChangeOrders(false);
+  }, [id, foldParam, progressParam]);
+
+  useEffect(() => {
+    if (progressParam === "1") {
+      // Wait a frame for expanded sections + Paperwork phase to mount
+      requestAnimationFrame(() => requestAnimationFrame(scrollToProgress));
+      return;
+    }
     requestAnimationFrame(scrollToJobInfo);
-  }, [id, scrollToJobInfo]);
+  }, [id, progressParam, scrollToJobInfo, scrollToProgress]);
 
   const toggleDetailSections = () => {
     setDetailSectionsExpanded((v) => !v);
@@ -497,7 +520,7 @@ export default function JobDetail() {
       })()}
 
       {/* Progress */}
-      <div>
+      <div ref={progressRef} className="scroll-mt-20" data-testid="job-progress" id="job-progress">
         <div className="flex items-center gap-3 px-1 mb-2">
           <h2 className="text-[11px] font-extrabold text-slate-500 uppercase tracking-wider">
             Progress — {progressPct(job)}%
@@ -645,9 +668,12 @@ export default function JobDetail() {
                             )}
                           </div>
                         )}
-                        {/* Paperwork branches */}
-                        {s === "Paperwork" && e.s !== "skipped" && (
-                          <div className="ml-7">
+                        {/* Paperwork branches — always for non-skipped; also for invoice
+                            jobs even when the stage was auto-skipped (invoice-first
+                            imports). Additive: pure permit jobs that skip Paperwork
+                            keep prior behavior. */}
+                        {s === "Paperwork" && (e.s !== "skipped" || !!job.invoiceNo) && (
+                          <div className="ml-7" data-testid="job-paperwork-branches">
                             {Object.keys(PAPER).map((k) => {
                               const br = (job.paperwork || {})[k] || { enabled: false, steps: {}, dates: {} };
                               return (
