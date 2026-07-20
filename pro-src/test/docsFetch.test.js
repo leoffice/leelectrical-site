@@ -68,6 +68,19 @@ describe("docs-fetch", () => {
     expect(Buffer.from(pdf).subarray(0, 4).toString("latin1")).toBe("%PDF");
   });
 
+  // A server-rendered PDF must look like the browser-rendered one. The
+  // renderer takes branding by injection, so it is easy to forget here and
+  // silently ship pay-page invoices with no product mark in the footer.
+  it("brands the server-rendered PDF with the product footer mark", async () => {
+    stores.jobsdata.set("jobsdata-v1", JSON.stringify({ jobs: [JOB] }));
+    await post({ invoiceNo: "231595", jobId: "J-1" });
+    const { PRODUCT_BRAND } = await import("../../shared/productBrand.mjs");
+    // PDF text is written as literal latin1 strings in the content stream.
+    expect(Buffer.from(stores.docs.get("inv-231595")).toString("latin1")).toContain(
+      PRODUCT_BRAND.poweredBy
+    );
+  });
+
   it("serves the copy archived at send time when the job is gone", async () => {
     // No job data at all — only the PDF that was stored when the invoice was
     // emailed. This is the case that used to fall through to the office Mac.

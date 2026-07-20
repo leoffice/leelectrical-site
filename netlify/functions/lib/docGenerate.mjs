@@ -1,6 +1,7 @@
 import { getStore } from "./storage/index.mjs";
 import { canGenerateLocalDoc, docPdfFilename, docStoreKey, mapJobToQbDocData } from "./jobToQbDoc.mjs";
 import { buildQbDocPdfBytes } from "../../../shared/qbDocPdf.mjs";
+import { PRODUCT_BRAND } from "../../../shared/productBrand.mjs";
 
 // Renders invoice/estimate PDFs with the shared pure-JS byte-writer from
 // shared/qbDocPdf.mjs — the same renderer the browser uses. It replaced the old
@@ -41,8 +42,10 @@ export async function generateAndStoreDoc({ job, kind = "invoice" }) {
   }
   const data = mapJobToQbDocData(job, kind);
   // The logo is embedded in the renderer (shared/leLogoJpeg.mjs), so there is
-  // no logoPath to resolve off disk any more.
-  const buf = buildQbDocPdfBytes(data);
+  // no logoPath to resolve off disk any more. The footer product mark IS
+  // injected, so a server-rendered PDF is branded identically to the one the
+  // browser produces — otherwise the pay-page copy would silently lose it.
+  const buf = buildQbDocPdfBytes({ ...data, poweredBy: PRODUCT_BRAND.poweredBy });
   const key = docStoreKey(kind, data.docNumber);
   const filename = docPdfFilename(kind, job, data.docNumber);
   const store = getStore("docs");
