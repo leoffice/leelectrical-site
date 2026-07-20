@@ -27,9 +27,9 @@ import {
 import { followUpFromPaperworkStep } from "../lib/calendarDue.js";
 import { fmt$, ago } from "../lib/format.js";
 import CustomerCard from "../components/CustomerCard.jsx";
+import CustomerTransactionHistory from "../components/CustomerTransactionHistory.jsx";
 import JobInfoCard from "../components/JobInfoCard.jsx";
 import JobAddressCarousel from "../components/JobAddressCarousel.jsx";
-import JobTimeCard from "../components/JobTimeCard.jsx";
 
 import JobEditSheet from "../components/JobEditSheet.jsx";
 
@@ -38,7 +38,6 @@ import {
   carouselVisibleJobs,
   changeOrderJobPatch,
 } from "../lib/changeOrder.js";
-import { BAEZ_PROJECT_ID, findBaezJob } from "../lib/requisitionData.js";
 import ChangeOrderSheet from "../components/ChangeOrderSheet.jsx";
 import AddJobAtAddressSheet from "../components/AddJobAtAddressSheet.jsx";
 import ChangeOrdersTabPanel from "../components/ChangeOrdersTabPanel.jsx";
@@ -134,29 +133,6 @@ export default function JobDetail() {
     if (!job) return [];
     return sortJobs(carouselVisibleJobs(jobs, job));
   }, [job, jobs]);
-
-  // Requisition flow toggle — any job can opt in; Joy/Baez jobs open the pilot hub.
-  const isRequisitionPilotJob = useMemo(() => {
-    if (!job) return false;
-    const baez = findBaezJob([job]);
-    if (baez?.id === job.id) return true;
-    const hay = [job.title, job.customer, job.businessName, job.serviceAddress, job.address]
-      .filter(Boolean)
-      .join(" ")
-      .toLowerCase();
-    return hay.includes("bae") || hay.includes("176") || hay.includes("joy construction");
-  }, [job]);
-  const requisitionHref = isRequisitionPilotJob
-    ? "/projects/" + BAEZ_PROJECT_ID
-    : job?.projectId
-      ? "/projects/" + job.projectId
-      : "/projects";
-  const requisitionOn = !!(job?.requisitionFlowEnabled || job?.requisitionEnabled);
-  const toggleRequisitionFlow = (on) => {
-    if (!job) return;
-    patchJob(id, { requisitionFlowEnabled: !!on, requisitionEnabled: !!on });
-    showToast(on ? "Requisition flow on — open Change orders for balances" : "Requisition flow off");
-  };
 
   const addJobAtAddress = () => {
     if (!job) return;
@@ -384,9 +360,6 @@ export default function JobDetail() {
             changeOrdersActive={showChangeOrders}
             onBubbleTap={(j, bubble) => tapAwarenessBubble(j, bubble, setSheet, openDocTab)}
             onCardTap={toggleDetailSections}
-            requisitionEnabled={requisitionOn}
-            onToggleRequisition={toggleRequisitionFlow}
-            requisitionHref={requisitionHref}
           />
         ) : (
           <JobInfoCard
@@ -409,9 +382,6 @@ export default function JobDetail() {
             onChangeOrders={() => setShowChangeOrders((v) => !v)}
             changeOrdersActive={showChangeOrders}
             onBubbleTap={(bubble) => tapAwarenessBubble(job, bubble, setSheet, openDocTab)}
-            requisitionEnabled={requisitionOn}
-            onToggleRequisition={toggleRequisitionFlow}
-            requisitionHref={requisitionHref}
           />
         )}
         {showChangeOrders ? (
@@ -479,8 +449,6 @@ export default function JobDetail() {
 
       {detailSectionsExpanded ? (
       <>
-      <JobTimeCard job={job} showToast={showToast} />
-
       {/* Money */}
       {(() => {
         const due = openBalance(job);
@@ -1007,6 +975,11 @@ export default function JobDetail() {
         )}
       </div>
       </>
+      ) : null}
+
+      {/* Customer-wide transactions — stay visible when opened from a customer (even if folded). */}
+      {fromCust && customerJobs.length ? (
+        <CustomerTransactionHistory jobs={customerJobs} fromCust={fromCust} />
       ) : null}
 
       {/* Sheets */}

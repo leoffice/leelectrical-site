@@ -1,5 +1,6 @@
 // Build a QuickBooks estimate or invoice — line items, service address, attachments.
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Link } from "react-router-dom";
 import Sheet, { Fld } from "./Sheet.jsx";
 import DescriptionField, { PolishButton } from "./DescriptionField.jsx";
 import { DOC_SOURCE_LOCAL, DOC_SOURCE_QBO } from "../lib/docSource.js";
@@ -23,6 +24,10 @@ import {
   preferredChangeOrderDocNo,
   tagChangeOrderPatch,
 } from "../lib/changeOrder.js";
+import {
+  requisitionFlowExists,
+  requisitionHrefForJob,
+} from "../lib/requisitionData.js";
 import Toggle from "./Toggle.jsx";
 
 import { enrichAndPatchCustomer } from "./NewJobFlow.jsx";
@@ -415,6 +420,32 @@ export default function DocBuilderSheet({
         ) ||
         changeOrderDocLabel(coSource, kind, nextChangeOrderSeq(boardJobs, coSource, kind))
       : "";
+
+  // Requisition flow — Edit Invoice only, and only when a flow already exists for the job.
+  const showRequisitionToggle =
+    mode === "edit" && kind === "invoice" && requisitionFlowExists(job);
+  const requisitionOn = !!(job?.requisitionFlowEnabled || job?.requisitionEnabled);
+  const requisitionHref = requisitionHrefForJob(job);
+  const toggleRequisitionFlow = async (on) => {
+    if (!job?.id) return;
+    const next = !!on;
+    setJob((o) => ({ ...o, requisitionFlowEnabled: next, requisitionEnabled: next }));
+    try {
+      await patchAndSave(job.id, { requisitionFlowEnabled: next, requisitionEnabled: next });
+      showToast(
+        next
+          ? "Requisition flow on — open Change orders for balances"
+          : "Requisition flow off"
+      );
+    } catch {
+      setJob((o) => ({
+        ...o,
+        requisitionFlowEnabled: !next,
+        requisitionEnabled: !next,
+      }));
+      showToast("Could not update requisition flow — try again");
+    }
+  };
 
   useEffect(() => {
     let cancelled = false;
@@ -1030,6 +1061,31 @@ export default function DocBuilderSheet({
             onChange={alreadyCo ? undefined : applyCoToggle}
             label="Change order"
             small
+          />
+        </div>
+      ) : null}
+
+      {showRequisitionToggle ? (
+        <div
+          className="flex items-center justify-between gap-3 rounded-2xl border border-slate-200 px-3 py-3 mb-3"
+          data-testid="job-requisition-toggle"
+        >
+          <div className="min-w-0">
+            <p className="text-sm font-bold text-slate-900">Requisition flow</p>
+            <p className="text-xs text-slate-500 mt-0.5 leading-snug">
+              Enables progress requisitions + change-order balances for this invoice
+            </p>
+            {requisitionOn && requisitionHref ? (
+              <Link to={requisitionHref} className="text-[11px] font-semibold text-brand mt-0.5 inline-block">
+                Open requisitions →
+              </Link>
+            ) : null}
+          </div>
+          <Toggle
+            small
+            on={!!requisitionOn}
+            onChange={(v) => toggleRequisitionFlow(v)}
+            label="Requisition flow"
           />
         </div>
       ) : null}

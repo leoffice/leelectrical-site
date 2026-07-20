@@ -1,6 +1,5 @@
 // Per-job summary — awareness bubbles under title, then service address + doc tabs.
 import React, { useMemo } from "react";
-import { Link } from "react-router-dom";
 import AmountDisplay from "./AmountDisplay.jsx";
 import { amountPaid, invoiceTotal, openBalance, paidPct } from "../lib/customers.js";
 import { serviceAddressDisplay } from "../lib/customerSync.js";
@@ -9,7 +8,6 @@ import { fmt$ } from "../lib/format.js";
 import { bubbleStyle, jobAwarenessBubbles } from "../lib/jobAwareness.js";
 import JobDocTabs from "./JobDocTabs.jsx";
 import SasRecordingLink from "./SasRecordingLink.jsx";
-import Toggle from "./Toggle.jsx";
 
 
 const BUBBLE_LAYOUT =
@@ -76,9 +74,6 @@ export default function JobInfoCard({
   onAddChangeOrder,
   canAddChangeOrder = true,
   onAddAttachment,
-  requisitionEnabled = false,
-  onToggleRequisition,
-  requisitionHref,
 }) {
   const total = invoiceTotal(job);
   const paid = amountPaid(job);
@@ -220,33 +215,6 @@ export default function JobInfoCard({
           ))}
         </dl>
       )}
-
-      {onToggleRequisition ? (
-        <div
-          className="mt-2 flex items-center justify-between gap-3 pt-2 border-t border-slate-100"
-          data-no-card-open
-          data-testid="job-requisition-toggle"
-          onClick={stopBubble}
-        >
-          <div className="min-w-0">
-            <p className="text-[11px] font-bold text-slate-700">Requisition flow</p>
-            <p className="text-[10px] text-slate-500 leading-snug">
-              Enables progress requisitions + change-order balances for this job
-            </p>
-            {requisitionEnabled && requisitionHref ? (
-              <Link to={requisitionHref} className="text-[11px] font-semibold text-brand mt-0.5 inline-block">
-                Open requisitions →
-              </Link>
-            ) : null}
-          </div>
-          <Toggle
-            small
-            on={!!requisitionEnabled}
-            onChange={(v) => onToggleRequisition(v)}
-            label="Requisition flow"
-          />
-        </div>
-      ) : null}
 
       {onEstimate && onInvoice && onCalendar ? (
         <div data-no-card-open onClick={stopBubble}>

@@ -143,6 +143,38 @@ export function findBaezJob(jobs) {
   return null;
 }
 
+/** True when this single job is the Joy/Baez pilot (or matches its needles). */
+export function isRequisitionPilotJob(job) {
+  if (!job) return false;
+  const baez = findBaezJob([job]);
+  if (baez?.id === job.id) return true;
+  const hay = [job.title, job.customer, job.businessName, job.serviceAddress, job.address]
+    .filter(Boolean)
+    .join(" ")
+    .toLowerCase();
+  return hay.includes("bae") || hay.includes("176") || hay.includes("joy construction");
+}
+
+/**
+ * Whether the requisition-flow control should appear for this job.
+ * Pilot jobs, project-linked jobs, or jobs with the flag already on.
+ */
+export function requisitionFlowExists(job) {
+  return (
+    isRequisitionPilotJob(job) ||
+    !!job?.projectId ||
+    !!(job?.requisitionFlowEnabled || job?.requisitionEnabled)
+  );
+}
+
+/** Hub route for the job's requisition flow (pilot → Baez project, else project id). */
+export function requisitionHrefForJob(job) {
+  if (!job) return "/projects";
+  if (isRequisitionPilotJob(job)) return "/projects/" + BAEZ_PROJECT_ID;
+  if (job.projectId) return "/projects/" + job.projectId;
+  return "/projects";
+}
+
 /**
  * Contact card fields — prefer the linked job, else the project's own fields.
  *

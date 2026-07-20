@@ -25,9 +25,6 @@ export default function JobAddressCarousel({
   onCardTap,
   onEditJob,
   onAddJob,
-  requisitionEnabled = false,
-  onToggleRequisition,
-  requisitionHref,
 }) {
   const list = jobs || [];
   const scrollRef = useRef(null);
@@ -146,9 +143,6 @@ export default function JobAddressCarousel({
               onChangeOrders={j.id === activeId ? onChangeOrders : undefined}
               changeOrdersActive={j.id === activeId && changeOrdersActive}
               onBubbleTap={(b) => { markCardActionTap(); onBubbleTap?.(j, b); }}
-              requisitionEnabled={j.id === activeId ? requisitionEnabled : !!(j.requisitionFlowEnabled || j.requisitionEnabled)}
-              onToggleRequisition={j.id === activeId ? onToggleRequisition : undefined}
-              requisitionHref={j.id === activeId ? requisitionHref : undefined}
             />
           </div>
         ))}
