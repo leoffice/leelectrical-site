@@ -294,7 +294,7 @@ function SortSheet({ value, onPick, onSetDefault, onClose }) {
 }
 
 export default function Jobs({ embedded, collapseGroups = false, activeJobId = "" }) {
-  const { jobs, loading, showToast, api, enqueue, refreshJobs } = useStore();
+  const { jobs, loading, showToast, api, enqueue, refreshJobs, setNewJob } = useStore();
   const nav = useNavigate();
   const [q, setQ] = useState("");
   const [filter, setFilter] = useState("Active");
@@ -679,16 +679,38 @@ export default function Jobs({ embedded, collapseGroups = false, activeJobId = "
 
   return (
     <div className="space-y-3">
-      <input
-        className="input"
-        type="search"
-        placeholder="🔍  Search customers, jobs, addresses…"
-        value={q}
-        onChange={(e) => setQ(e.target.value)}
-        onFocus={armSearchIdle}
-        onBlur={armSearchIdle}
-        aria-label="Search jobs"
-      />
+      {/*
+        Add control docked in the top bar, right beside the search input, so it
+        is the most prominent thing on the main screen on every viewport — the
+        fix for the mobile FAB that got squeezed off to the right edge. Same
+        handler and `fab-add` testid as the old floating button. When Jobs is
+        embedded in a job/customer page, that page's own top bar provides the
+        add control, so this copy must not render (else two `fab-add`s exist).
+      */}
+      <div className="flex items-center gap-2">
+        <input
+          className="input flex-1 min-w-0"
+          type="search"
+          placeholder="🔍  Search customers, jobs, addresses…"
+          value={q}
+          onChange={(e) => setQ(e.target.value)}
+          onFocus={armSearchIdle}
+          onBlur={armSearchIdle}
+          aria-label="Search jobs"
+        />
+        {!embedded ? (
+          <button
+            type="button"
+            onClick={() => setNewJob({ step: "choose", context: null })}
+            aria-label="Add a job"
+            data-testid="fab-add"
+            className="shrink-0 flex items-center gap-1.5 rounded-xl bg-slate-900 text-white text-sm font-bold px-3.5 py-2.5 shadow-sm hover:bg-slate-800 active:opacity-80"
+          >
+            <span className="text-lg leading-none">＋</span>
+            <span>New job</span>
+          </button>
+        ) : null}
+      </div>
 
       <div className="flex items-center gap-2">
         <div

@@ -180,7 +180,13 @@ export default function App() {
   const inCustomer = loc.pathname.startsWith("/customer/");
 
   const showFab = !loc.pathname.startsWith("/archive");
+  // The Jobs list renders its own add control docked beside the search bar (see
+  // Jobs.jsx). Everywhere else the add control lives in a top action bar here,
+  // so it is always visible at the top of the screen and never squeezed into a
+  // bottom-nav corner. Exactly one `fab-add` exists per route.
+  const isJobsRoute = loc.pathname === "/";
   const fabContext = appointmentContextFromRoute(loc.pathname, { effectiveJob, jobs });
+  const openNewJob = () => setNewJob({ step: "choose", context: fabContext });
 
   return (
     <LiveEditProvider>
@@ -263,6 +269,27 @@ export default function App() {
           }`}
         >
           {/*
+            Top action bar for every route EXCEPT the Jobs list (which docks its
+            own add control beside the search bar). Keeps the add control at the
+            top of the screen and always visible, with the same route-derived
+            context the old FAB used. `pr-14` on mobile clears the floating sync
+            chip pinned to the top-right.
+          */}
+          {showFab && !isJobsRoute ? (
+            <div className="flex justify-end mb-3 pr-14 lg:pr-0" data-testid="top-add-bar">
+              <button
+                type="button"
+                onClick={openNewJob}
+                aria-label="Add a job"
+                data-testid="fab-add"
+                className="flex items-center gap-1.5 rounded-xl bg-slate-900 text-white text-sm font-bold px-3.5 py-2 shadow-sm hover:bg-slate-800 active:opacity-80"
+              >
+                <span className="text-lg leading-none">＋</span>
+                <span>New job</span>
+              </button>
+            </div>
+          ) : null}
+          {/*
             Only the tenant's allowed paths are registered. A disabled module's
             URL matches nothing and falls through to the catch-all below —
             typing /dev on a non-internal tenant lands on Not found, the same
@@ -280,19 +307,7 @@ export default function App() {
 
         <SaveBar />
 
-        {/* Desktop — floating + and chat */}
-        {isDesktop && showFab ? (
-          <button
-            onClick={() => setNewJob({ step: "choose", context: fabContext })}
-            aria-label="Add a job"
-            data-testid="fab-add"
-            className={`fixed z-40 right-24 w-[54px] h-[54px] rounded-2xl bg-slate-900 text-white text-2xl shadow-xl flex items-center justify-center ${
-              dirtyCount ? "bottom-24" : "bottom-6"
-            }`}
-          >
-            ＋
-          </button>
-        ) : null}
+        {/* Desktop — floating chat only. Add lives in the top bar / search row. */}
         {isDesktop ? (
           <button
             type="button"
@@ -330,23 +345,12 @@ export default function App() {
             {mobileBefore.map((t) => (
               <Tab key={t.to} t={t} />
             ))}
+            {/* Add moved to the top bar (beside search) — no longer squeezed
+                into this bottom-nav corner. Chat stays here. */}
             <div
               className="flex items-center justify-center gap-1 px-1 shrink-0 border-x border-slate-100"
               data-testid="nav-actions"
             >
-              {!isDesktop && showFab ? (
-                <button
-                  type="button"
-                  onClick={() => setNewJob({ step: "choose", context: fabContext })}
-                  aria-label="Add a job"
-                  data-testid="fab-add"
-                  className="flex flex-col items-center justify-center min-w-[2.5rem] py-1 active:opacity-70"
-                >
-                  <span className="flex items-center justify-center w-8 h-8 rounded-xl bg-slate-900 text-white text-lg leading-none shadow-sm">
-                    ＋
-                  </span>
-                </button>
-              ) : null}
               {!isDesktop ? (
                 <button
                   type="button"
