@@ -55,7 +55,7 @@ export function invoiceButtonLabel(job) {
   return { no, amt, tone };
 }
 
-/** Rich invoice row — address, paid-of-total, open/closed tone. */
+/** Rich invoice row — address, amount (due/paid), date, open/closed tone. */
 export function invoiceRowDetail(job) {
   const no = job.invoiceNo || "—";
   const total = invoiceTotal(job);
@@ -63,21 +63,33 @@ export function invoiceRowDetail(job) {
   const due = openBalance(job);
   const tone = invoiceButtonTone(job);
   const address = serviceAddressDisplay(job);
+  const date = jobInvoiceDateDisplay(job);
   let amountLine;
   if (tone === "paid") {
-    amountLine = total > 0 ? `${fmt$(paid || total)} of ${fmt$(total)}` : fmt$(paid || total);
-  } else if (paid > 0.01 && total > 0) {
-    amountLine = `${fmt$(paid)} of ${fmt$(total)}`;
+    amountLine = "Paid " + fmt$(total || paid);
+  } else if (total > 0 && Math.abs(due - total) >= 0.01) {
+    amountLine = "Due " + fmt$(due) + " of " + fmt$(total);
   } else {
-    amountLine = total > 0 ? `${fmt$(due || total)} of ${fmt$(total)}` : fmt$(due);
+    amountLine = fmt$(due || total);
   }
-  return { no, address, amountLine, tone };
+  return { no, address, amountLine, date, tone };
 }
 
 export function estimateButtonLabel(job) {
   const no = job.estimateNo || "—";
   const linked = job.invoiceNo ? " → Inv #" + job.invoiceNo : "";
   return { no, linked };
+}
+
+/** Rich estimate row — number, linked invoice, amount, address, date. */
+export function estimateRowDetail(job) {
+  const no = job.estimateNo || "—";
+  const linked = job.invoiceNo ? " → Inv #" + job.invoiceNo : "";
+  const total = invoiceTotal(job);
+  const amountLine = total > 0 ? fmt$(total) : "";
+  const address = serviceAddressDisplay(job);
+  const date = jobInvoiceDateDisplay(job);
+  return { no, linked, amountLine, address, date };
 }
 
 export function paymentButtonLabel(row) {

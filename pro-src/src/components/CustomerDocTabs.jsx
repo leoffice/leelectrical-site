@@ -4,7 +4,7 @@ import { useNavigate } from "react-router-dom";
 import {
   invoiceJobs,
   estimateJobs,
-  estimateButtonLabel,
+  estimateRowDetail,
   invoiceRowDetail,
   addressJobRowDetail,
   addressJobToneClass,
@@ -68,7 +68,7 @@ function DocRowButton({ className, onOpen, onLongPress, testId, children }) {
 function InvoiceRows({ list, activeJobId, fromCust, onOpen, onConnectRequest }) {
   if (!list.length) return null;
   return list.map((j) => {
-    const { no, address, amountLine, tone } = invoiceRowDetail(j);
+    const { no, address, amountLine, date, tone } = invoiceRowDetail(j);
     const active = j.id === activeJobId;
     return (
       <DocRowButton
@@ -83,6 +83,7 @@ function InvoiceRows({ list, activeJobId, fromCust, onOpen, onConnectRequest }) 
           {address ? (
             <span className="block text-[11px] font-normal opacity-85 truncate mt-0.5">{address}</span>
           ) : null}
+          {date ? <span className="block text-[11px] font-normal opacity-70 mt-0.5">{date}</span> : null}
         </span>
         <span className="text-xs tabular-nums shrink-0 text-right leading-snug">{amountLine}</span>
       </DocRowButton>
@@ -93,7 +94,7 @@ function InvoiceRows({ list, activeJobId, fromCust, onOpen, onConnectRequest }) 
 function EstimateRows({ list, activeJobId, onOpen, onConnectRequest }) {
   if (!list.length) return null;
   return list.map((j) => {
-    const { no, linked } = estimateButtonLabel(j);
+    const { no, linked, amountLine, address, date } = estimateRowDetail(j);
     const active = j.id === activeJobId;
     const open = isOpenEstimate(j);
     return (
@@ -106,10 +107,19 @@ function EstimateRows({ list, activeJobId, onOpen, onConnectRequest }) {
         onLongPress={() => onConnectRequest?.(j, "estimate")}
         testId={"cust-est-" + no}
       >
-        <span>
-          Estimate #{no}
-          {linked ? <span className="text-xs text-slate-400 font-normal">{linked}</span> : null}
+        <span className="min-w-0 flex-1">
+          <span className="block">
+            Estimate #{no}
+            {linked ? <span className="text-xs text-slate-400 font-normal">{linked}</span> : null}
+          </span>
+          {address ? (
+            <span className="block text-[11px] font-normal opacity-85 truncate mt-0.5">{address}</span>
+          ) : null}
+          {date ? <span className="block text-[11px] font-normal opacity-70 mt-0.5">{date}</span> : null}
         </span>
+        {amountLine ? (
+          <span className="text-xs tabular-nums shrink-0 text-right leading-snug">{amountLine}</span>
+        ) : null}
       </DocRowButton>
     );
   });

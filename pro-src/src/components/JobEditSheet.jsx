@@ -1,15 +1,37 @@
-// Edit job title + service address; archive / delete with confirm.
+// Edit job title + service address + customer re-link; archive / delete with confirm.
 import React, { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useStore } from "../state/store.jsx";
 import Sheet, { Fld } from "./Sheet.jsx";
 import ServiceAddressField from "./ServiceAddressField.jsx";
+import CustomerSearch from "./CustomerSearch.jsx";
 import { DeleteConfirmSheet } from "./JobSheets.jsx";
 import { jobsAtSameAddress } from "../lib/customerHierarchy.js";
 import { sortJobs } from "../lib/stages.js";
-import { fmtAmountDue, openBalance } from "../lib/customers.js";
+import { customerPickPatch, fmtAmountDue, normalizeCustomer, openBalance } from "../lib/customers.js";
 import { fmt$ } from "../lib/format.js";
 import { deleteDocLabel } from "../lib/deleteDoc.js";
+
+function currentCustomerName(job) {
+  return job.businessName || job.customer || "";
+}
+
+function relinkDocLabel(job) {
+  if (job.invoiceNo && job.estimateNo) {
+    return "Invoice #" + job.invoiceNo + " / Estimate #" + job.estimateNo;
+  }
+  if (job.invoiceNo) return "Invoice #" + job.invoiceNo;
+  if (job.estimateNo) return "Estimate #" + job.estimateNo;
+  return "this record";
+}
+
+function pickHasCustomer(c) {
+  if (!c) return false;
+  const name = normalizeCustomer(c.businessName || c.name || c.customer || "");
+  const qboId = String(c.qboCustomerId || c.id || "").trim();
+  // Guardrail: never re-link to an empty/blank customer with no qbo id.
+  return !!(name || qboId);
+}
 
 export default function JobEditSheet({ job, fromCust = "", onClose }) {
   const { jobs, events, api, patchAndSave, showToast } = useStore();
@@ -17,17 +39,24 @@ export default function JobEditSheet({ job, fromCust = "", onClose }) {
   const [title, setTitle] = useState(job.title || "");
   const [serviceAddress, setServiceAddress] = useState(job.serviceAddress || job.address || "");
   const [apartment, setApartment] = useState(job.apartment || "");
+  const [pickedCustomer, setPickedCustomer] = useState(null);
+  const [customerText, setCustomerText] = useState(currentCustomerName(job));
   const [confirm, setConfirm] = useState(null); // 'archive' | 'delete'
 
   const sameAddr = sortJobs(jobsAtSameAddress(jobs, job).filter((j) => j.id !== job.id));
+  const displayCustomer = currentCustomerName(job) || "(no customer)";
 
   const save = async () => {
-    await patchAndSave(job.id, {
+    const patch = {
       title: title.trim(),
       serviceAddress: serviceAddress.trim(),
       address: serviceAddress.trim(),
       apartment: apartment.trim(),
-    });
+    };
+    if (pickedCustomer && pickHasCustomer(pickedCustomer)) {
+      Object.assign(patch, customerPickPatch(pickedCustomer, jobs));
+    }
+    await patchAndSave(job.id, patch);
     showToast("Job info saved");
     onClose();
   };
@@ -57,6 +86,11 @@ export default function JobEditSheet({ job, fromCust = "", onClose }) {
     nav("/job/" + j.id + q);
   };
 
+  const onPickCustomer = (c) => {
+    setPickedCustomer(c);
+    setCustomerText(c?.businessName || c?.name || c?.customer || "");
+  };
+
   if (confirm === "archive") {
     return (
       <DeleteConfirmSheet
@@ -82,8 +116,36 @@ export default function JobEditSheet({ job, fromCust = "", onClose }) {
     );
   }
 
+  const newName = pickedCustomer
+    ? pickedCustomer.businessName || pickedCustomer.name || pickedCustomer.customer || ""
+    : "";
+
   return (
     <Sheet title="Edit job information" onClose={onClose}>
+      <div className="mb-3" data-testid="job-edit-customer">
+        <p className="text-sm font-semibold text-slate-800 mb-2" data-testid="job-edit-current-customer">
+          {displayCustomer}
+        </p>
+        <Fld label="Customer">
+          <CustomerSearch
+            label="Customer"
+            testId="job-edit-customer-search"
+            value={customerText}
+            onChangeText={(t) => {
+              setCustomerText(t);
+              setPickedCustomer(null);
+            }}
+            onPick={onPickCustomer}
+            jobs={jobs}
+          />
+        </Fld>
+        {pickedCustomer && pickHasCustomer(pickedCustomer) ? (
+          <p className="text-[11px] text-slate-500 mt-1 px-0.5" data-testid="job-edit-relink-note">
+            Will re-link {relinkDocLabel(job)} to “{newName}”. Line items and amounts stay.
+          </p>
+        ) : null}
+      </div>
+
       <Fld label="Job title">
         <input className="input" aria-label="Job title" value={title} onChange={(e) => setTitle(e.target.value)} />
       </Fld>

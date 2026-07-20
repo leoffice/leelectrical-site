@@ -102,4 +102,24 @@ describe("customer doc tabs — create + service addresses", () => {
     expect(within(view).getByTestId("cust-tab-invoices")).toBeInTheDocument();
     expect(within(view).getByTestId("cust-tab-changes")).toBeInTheDocument();
   });
+
+  it("estimate rows show service address; invoice rows show amount + address", async () => {
+    mockServer({ jobs });
+    const user = userEvent.setup();
+    renderApp("#/customer/c:addr%20co");
+    const view = await screen.findByTestId("customer-view");
+
+    await user.click(within(view).getByTestId("cust-tab-estimates"));
+    const estPanel = await within(view).findByTestId("cust-tab-panel-estimates");
+    const estRow = within(estPanel).getByTestId("cust-est-E-5");
+    expect(estRow).toHaveTextContent("20 Pine Rd");
+    expect(estRow).toHaveTextContent("Estimate #E-5");
+
+    await user.click(within(view).getByTestId("cust-tab-invoices"));
+    const invPanel = await within(view).findByTestId("cust-tab-panel-invoices");
+    const invRow = within(invPanel).getByTestId("cust-inv-100");
+    expect(invRow).toHaveTextContent("55 Elm St");
+    expect(invRow).toHaveTextContent("$100");
+    expect(invRow).toHaveTextContent("Invoice #100");
+  });
 });

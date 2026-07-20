@@ -62,15 +62,20 @@ describe("customerDocLists helpers", () => {
       apartment: "4B",
       amount: "$1,000",
       openBalance: 600,
+      invoiceDate: "2026-06-15",
     });
     expect(open.tone).toBe("open");
     expect(open.address).toContain("10 Oak St");
     expect(open.address).toContain("4B");
-    expect(open.amountLine).toContain("of $1,000");
+    expect(open.amountLine).toBe("Due $600 of $1,000");
+    expect(open.date).toBe("06/15/2026");
 
     const paid = invoiceRowDetail({ ...J_PAID, serviceAddress: "22 Elm" });
     expect(paid.tone).toBe("paid");
-    expect(paid.amountLine).toContain("of $300");
+    expect(paid.amountLine).toBe("Paid $300");
+
+    // Full open balance — ONE number, no "of"
+    expect(invoiceRowDetail({ ...J_OPEN }).amountLine).toBe("$500");
   });
 });
 
