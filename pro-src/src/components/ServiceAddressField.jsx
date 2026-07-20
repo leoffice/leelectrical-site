@@ -28,6 +28,8 @@ export default function ServiceAddressField({
   value,
   onChange,
   onServiceBlur,
+  /** When provided (string), render the single apartment input under the street field. */
+  apartment,
   onApartmentChange,
   suggestAddresses,
   testId = "service-address",
@@ -41,59 +43,80 @@ export default function ServiceAddressField({
   );
 
   const pickAddress = (label) => {
-    const { serviceAddress, apartment } = parseServiceAddressPick(label);
+    const { serviceAddress, apartment: apt } = parseServiceAddressPick(label);
     onChange(serviceAddress);
-    if (apartment && onApartmentChange) onApartmentChange(apartment);
+    // Always push apt (incl. clear) so street+unit stay in sync with the pick.
+    if (onApartmentChange) onApartmentChange(apt || "");
+  };
+
+  const startNew = () => {
+    onChange("");
+    if (onApartmentChange) onApartmentChange("");
   };
 
   const label = serviceAddressLabel(job);
   const baseHint = hint || serviceAddressHint(job);
   const fieldHint = baseHint + (partialOk && !addressChoices.length ? " — partial address OK" : "");
+  const showApartment = apartment !== undefined && typeof onApartmentChange === "function";
 
   return (
-    <Fld label={label} hint={fieldHint}>
-      {addressChoices.length > 0 ? (
-        <div className="mb-2 flex flex-wrap gap-1.5" data-testid={testId + "-choices"}>
-          {addressChoices.map((a) => {
-            const street = parseServiceAddressPick(a.label).serviceAddress;
-            const active = String(value || "").trim() === street;
-            return (
-              <button
-                key={a.key}
-                type="button"
-                className={`text-left text-xs px-2.5 py-1.5 rounded-lg border max-w-full truncate ${
-                  active
-                    ? "border-brand bg-brand/5 text-brand font-semibold"
-                    : "border-slate-200 bg-slate-50 text-slate-700 active:bg-slate-100"
-                }`}
-                onClick={() => pickAddress(a.label)}
-                data-testid={testId + "-pick-" + a.key}
-              >
-                📍 {a.label}
-              </button>
-            );
-          })}
-          <button
-            type="button"
-            className="text-xs px-2.5 py-1.5 rounded-lg border border-dashed border-slate-300 text-slate-500 shrink-0"
-            onClick={() => onChange("")}
-            data-testid={testId + "-new"}
-          >
-            ＋ New
-          </button>
-        </div>
+    <>
+      <Fld label={label} hint={fieldHint}>
+        {addressChoices.length > 0 ? (
+          <div className="mb-2 flex flex-wrap gap-1.5" data-testid={testId + "-choices"}>
+            {addressChoices.map((a) => {
+              const street = parseServiceAddressPick(a.label).serviceAddress;
+              const active = String(value || "").trim() === street;
+              return (
+                <button
+                  key={a.key}
+                  type="button"
+                  className={`text-left text-xs px-2.5 py-1.5 rounded-lg border max-w-full truncate ${
+                    active
+                      ? "border-brand bg-brand/5 text-brand font-semibold"
+                      : "border-slate-200 bg-slate-50 text-slate-700 active:bg-slate-100"
+                  }`}
+                  onClick={() => pickAddress(a.label)}
+                  data-testid={testId + "-pick-" + a.key}
+                >
+                  📍 {a.label}
+                </button>
+              );
+            })}
+            <button
+              type="button"
+              className="text-xs px-2.5 py-1.5 rounded-lg border border-dashed border-slate-300 text-slate-500 shrink-0"
+              onClick={startNew}
+              data-testid={testId + "-new"}
+            >
+              ＋ New
+            </button>
+          </div>
+        ) : null}
+        <AddressAutocompleteField
+          label={label}
+          value={value}
+          onChange={onChange}
+          onBlurExtra={onServiceBlur}
+          jobs={jobs}
+          events={events}
+          suggestAddresses={suggestAddresses}
+          testId={testId}
+          ariaLabel={label}
+        />
+      </Fld>
+      {showApartment ? (
+        <Fld label="Apartment / unit" hint="Optional — appended to ShipAddr in QuickBooks">
+          <input
+            className="input"
+            value={apartment}
+            onChange={(e) => onApartmentChange(e.target.value)}
+            aria-label="Apartment"
+            data-testid={testId + "-apartment"}
+            placeholder="Optional"
+          />
+        </Fld>
       ) : null}
-      <AddressAutocompleteField
-        label={label}
-        value={value}
-        onChange={onChange}
-        onBlurExtra={onServiceBlur}
-        jobs={jobs}
-        events={events}
-        suggestAddresses={suggestAddresses}
-        testId={testId}
-        ariaLabel={label}
-      />
-    </Fld>
+    </>
   );
 }

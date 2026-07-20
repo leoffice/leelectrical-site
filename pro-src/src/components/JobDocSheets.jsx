@@ -90,12 +90,19 @@ export default function JobDocSheets({ sheet, setSheet, job, onDocDone }) {
   }
 
   if (sheet.kind === "docBuild") {
+    const mode = sheet.mode || "create";
+    // Create layout is shared for invoice + estimate: changeable customer picker
+    // (prefilled from context) + service-address control. Edit keeps the linked
+    // customer stable (re-link lives on JobEditSheet).
+    const isCreate = mode === "create" || mode === "new";
     return (
       <DocBuilderSheet
         job={job}
         kind={sheet.docKind}
-        mode={sheet.mode || "create"}
+        mode={mode}
         progressPct={sheet.progressPct}
+        editableCustomer={isCreate}
+        draftMode={isCreate && !job?.id}
         onClose={() => setSheet(null)}
         onDone={onDocDone}
       />

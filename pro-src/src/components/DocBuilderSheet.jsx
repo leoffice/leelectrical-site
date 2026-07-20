@@ -669,6 +669,24 @@ export default function DocBuilderSheet({
     };
   };
 
+  /** Persist customer header fields when the create-time picker is enabled. */
+  const customerFieldsFromJob = (j) => {
+    if (!editableCustomer || !j) return {};
+    const biz = (j.businessName || j.customer || "").trim();
+    return {
+      businessName: biz,
+      customer: biz,
+      personName: j.personName || "",
+      phone: j.phone || "",
+      email: j.email || "",
+      billingAddress: j.billingAddress || "",
+      title: j.title || "",
+      qboCustomerId: j.qboCustomerId || "",
+      parentCustomerName: j.parentCustomerName || "",
+      parentQboCustomerId: j.parentQboCustomerId || "",
+    };
+  };
+
   const buildPdfJob = (activeJob, jobPatch) => ({
     ...activeJob,
     ...jobPatch,
@@ -707,7 +725,7 @@ export default function DocBuilderSheet({
         progressPct: progressPctEdit,
         contractAmount,
       });
-      Object.assign(jobPatch, coTagsFromJob(activeJob));
+      Object.assign(jobPatch, coTagsFromJob(activeJob), customerFieldsFromJob(activeJob));
       if (attachments.length) {
         jobPatch.attachments = (job.attachments || []).concat(attachments);
       }
@@ -775,7 +793,7 @@ export default function DocBuilderSheet({
         send,
         recurringState: showRecurring && recurring.enabled ? recurring : null,
       });
-      Object.assign(jobPatch, coTagsFromJob(activeJob));
+      Object.assign(jobPatch, coTagsFromJob(activeJob), customerFieldsFromJob(activeJob));
       if (emailTo) jobPatch.email = emailTo;
 
       await patchAndSave(jobId, jobPatch);
@@ -1032,14 +1050,12 @@ export default function DocBuilderSheet({
         events={events}
         value={serviceAddress}
         onChange={setServiceAddress}
+        apartment={apartment}
         onApartmentChange={setApartment}
         suggestAddresses={api.suggestAddresses?.bind(api)}
         testId="doc-service-address"
         partialOk={false}
       />
-      <Fld label="Apartment / unit" hint="Optional — appended to ShipAddr in QuickBooks">
-        <input className="input" value={apartment} onChange={(e) => setApartment(e.target.value)} aria-label="Apartment" />
-      </Fld>
 
       {canToggleCo || alreadyCo || asChangeOrder ? (
         <div

@@ -58,4 +58,47 @@ describe("ServiceAddressField", () => {
     expect(screen.queryByTestId("svc-choices")).toBeNull();
     expect(screen.getByLabelText("Service address")).toBeInTheDocument();
   });
+
+  it("＋ New clears street and apartment", async () => {
+    const user = userEvent.setup();
+    const state = { addr: "22 Pine Rd", apt: "2B" };
+    function Harness() {
+      const [addr, setAddr] = React.useState("22 Pine Rd");
+      const [apt, setApt] = React.useState("2B");
+      state.addr = addr;
+      state.apt = apt;
+      return (
+        <ServiceAddressField
+          job={{ customer: "Acme", qboCustomerId: "99" }}
+          jobs={jobs}
+          value={addr}
+          onChange={setAddr}
+          apartment={apt}
+          onApartmentChange={setApt}
+          testId="svc"
+        />
+      );
+    }
+    render(<Harness />);
+    expect(screen.getByTestId("svc-apartment")).toHaveValue("2B");
+    await user.click(screen.getByTestId("svc-new"));
+    expect(state.addr).toBe("");
+    expect(state.apt).toBe("");
+  });
+
+  it("renders only one apartment field when apartment prop is controlled", () => {
+    render(
+      <ServiceAddressField
+        job={{ customer: "Acme", qboCustomerId: "99" }}
+        jobs={jobs}
+        value="10 Oak St"
+        onChange={() => {}}
+        apartment="1A"
+        onApartmentChange={() => {}}
+        testId="svc"
+      />
+    );
+    expect(screen.getAllByLabelText("Apartment")).toHaveLength(1);
+    expect(screen.getByTestId("svc-apartment")).toHaveValue("1A");
+  });
 });
