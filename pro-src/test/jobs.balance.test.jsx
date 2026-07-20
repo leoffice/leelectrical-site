@@ -17,12 +17,16 @@ afterEach(() => {
 const before = (a, b) =>
   !!(a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING);
 
+// Names deliberately out of amount order so A-Z and Balance disagree.
 const jobs = () => [
-  { id: "A", customer: "Alpha Corp", title: "Big", amount: "$9,000", paid: false, status: {} },
-  { id: "B", customer: "Beta LLC", title: "Mid", amount: "$500", paid: false, status: {} },
-  { id: "C", customer: "Zeta Inc", title: "Small", amount: "$100", paid: false, status: {} },
+  { id: "A", customer: "Zeta Inc", title: "Big", amount: "$9,000", paid: false, status: {} },
+  { id: "B", customer: "Alpha Corp", title: "Mid", amount: "$500", paid: false, status: {} },
+  { id: "C", customer: "Mid Co", title: "Small", amount: "$100", paid: false, status: {} },
   { id: "D", customer: "Paid Pete", title: "Settled", amount: "$400", paid: true, status: {} },
 ];
+
+const BY_BALANCE = ["Zeta Inc", "Alpha Corp", "Mid Co"];
+const BY_NAME = ["Alpha Corp", "Mid Co", "Zeta Inc"];
 
 const names = () =>
   screen.getAllByTestId("balance-card-name").map((n) => n.textContent);
@@ -32,7 +36,7 @@ describe("Balance view", () => {
     mockServer({ jobs: jobs() });
     renderApp("#/");
     await screen.findByTestId("balance-list");
-    expect(names()).toEqual(["Alpha Corp", "Beta LLC", "Zeta Inc"]);
+    expect(names()).toEqual(BY_BALANCE);
     // compact: amount on the row, no detail until tapped
     expect(screen.getAllByTestId("balance-card-amount")[0]).toHaveTextContent("$9,000");
     expect(screen.queryByTestId("balance-card-detail")).toBeNull();
@@ -46,18 +50,18 @@ describe("Balance view", () => {
 
     const taps = screen.getAllByTestId("balance-card-tap");
     const last = taps[taps.length - 1];
-    expect(within(last).getByTestId("balance-card-name")).toHaveTextContent("Zeta Inc");
+    expect(within(last).getByTestId("balance-card-name")).toHaveTextContent("Mid Co");
 
     await user.click(last);
     // expanded in place...
     expect(screen.getByTestId("balance-card-detail")).toBeInTheDocument();
     // ...and still last. This is the jump-to-top regression guard.
-    expect(names()).toEqual(["Alpha Corp", "Beta LLC", "Zeta Inc"]);
+    expect(names()).toEqual(BY_BALANCE);
 
     // tap again collapses
     await user.click(screen.getAllByTestId("balance-card-tap").slice(-1)[0]);
     expect(screen.queryByTestId("balance-card-detail")).toBeNull();
-    expect(names()).toEqual(["Alpha Corp", "Beta LLC", "Zeta Inc"]);
+    expect(names()).toEqual(BY_BALANCE);
   });
 
   it("A–Z sort reorders, and Set as default persists for the next mount", async () => {
@@ -68,7 +72,7 @@ describe("Balance view", () => {
 
     await user.click(screen.getByTestId("sort-customers"));
     await user.click(await screen.findByTestId("sort-default-az"));
-    expect(names()).toEqual(["Alpha Corp", "Beta LLC", "Zeta Inc"]);
+    expect(names()).toEqual(BY_NAME); // really reordered, not coincidence
     expect(localStorage.getItem("lepro_cust_sort_v1")).toBe("az");
 
     first.unmount();
