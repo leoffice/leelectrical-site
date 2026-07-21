@@ -53,8 +53,8 @@ import {
   removePayment,
   updatePayment,
 } from "../lib/payments.js";
-import { reconcileZellePayment } from "../lib/zelleReconcile.js";
-import { paymentAutofillPatch, paymentMemoNote } from "../lib/paymentAutofill.js";
+import { findJobByInvoice, reconcileZellePayment } from "../lib/zelleReconcile.js";
+import { paymentAutofillPatch, paymentMemoNote, invoiceNoFromExtracted } from "../lib/paymentAutofill.js";
 import { DEPOSIT_BANKS } from "../lib/chatPayment.js";
 import { analyzePaymentImage, analyzePaymentScreenshot, fileToBase64 } from "../lib/paymentVision.js";
 import ZelleReconcileSheet from "./ZelleReconcileSheet.jsx";
@@ -329,11 +329,16 @@ export function MarkPaidSheet({
   const [zelleReconcile, setZelleReconcile] = useState(null);
   const [deposit, setDeposit] = useState(DEPOSIT_BANKS[0]);
   const [depositOther, setDepositOther] = useState("");
+  /** True when user chose Attach a picture — keep the photo CTA highlighted until they pick one. */
+  const [awaitingProof, setAwaitingProof] = useState(Boolean(openProofPicker));
   const proofInputRef = useRef(null);
   const depositVal = deposit === "Other" ? depositOther.trim() : deposit;
   useEffect(() => {
-    if (!openProofPicker || !proofInputRef.current) return;
-    const t = setTimeout(() => proofInputRef.current?.click(), 120);
+    if (!openProofPicker) return;
+    setAwaitingProof(true);
+    // Best-effort auto-open. Desktop browsers often block this without a fresh
+    // user gesture — PaymentProofFld still shows a big attach button.
+    const t = setTimeout(() => proofInputRef.current?.click(), 180);
     return () => clearTimeout(t);
   }, [openProofPicker]);
 
@@ -480,20 +485,44 @@ export function MarkPaidSheet({
     setAutofillExtracted(extracted);
     setAutofillDone(true);
     setPaymentVerified(true);
+    // When adding a payment from ＋ (no job yet), try to land on the invoice
+    // written on the check memo / image (invoice #, amount, date already set).
+    if (needsPick && !activeJob) {
+      const invNo = invoiceNoFromExtracted(extracted);
+      if (invNo) {
+        const matched = findJobByInvoice(jobs, invNo);
+        if (matched) {
+          setActiveJob(matched);
+          setPickCust({ name: matched.customer || "" });
+          const d = openBalance(matched);
+          if (!(patch.amt && parseFloat(patch.amt) > 0)) {
+            setAmt(d > 0 ? String(d) : String(matched.amount || "").replace(/[$,]/g, ""));
+          }
+          showToast("Matched invoice #" + invNo + " — review and tap Record");
+          return;
+        }
+      }
+    }
   };
 
-  const runAutofill = async () => {
-    if (!proofB64) return;
+  const runAutofill = async (b64Override, fileOverride) => {
+    const b64 = b64Override || proofB64;
+    const file = fileOverride || proofFile;
+    if (!b64) return;
     setAutofillBusy(true);
     try {
       const { extracted } = await analyzePaymentImage(
-        proofB64,
-        proofFile?.type || "image/jpeg",
-        isCheck ? "check" : isZelle ? "zelle" : "",
-        proofFile?.name || ""
+        b64,
+        file?.type || "image/jpeg",
+        isCheck ? "check" : isZelle ? "zelle" : "check",
+        file?.name || ""
       );
+      const invNo = invoiceNoFromExtracted(extracted);
+      const matched = invNo && needsPick && !activeJob ? findJobByInvoice(jobs, invNo) : null;
       applyAutofill(extracted);
-      showToast("Fields filled from image — review and tap Record");
+      if (!matched) {
+        showToast("Fields filled from image — review and tap Record");
+      }
     } catch (e) {
       showToast("Could not read image — " + String((e && e.message) || "enter manually"));
     } finally {
@@ -668,13 +697,23 @@ export function MarkPaidSheet({
     const file = e.target.files?.[0];
     if (!file) return;
     setProofFile(file);
+    setAwaitingProof(false);
     setPaymentVerified(false);
     setAutofillDone(false);
     setAutofillExtracted(null);
+    // Prefer check when a photo is attached without a method (Attach a picture path).
+    const treatAsCheck = !mth || mth === "Check" || isCheck;
+    if (!mth) setMth("Check");
     try {
       const b64 = await fileToBase64(file);
       setProofB64(b64);
-      showToast("Image attached — tap Autofill or Record");
+      if (treatAsCheck) {
+        // Check path: auto-read amount, check #, date, memo, invoice (the old skill).
+        showToast("Reading check photo…");
+        await runAutofill(b64, file);
+      } else {
+        showToast("Image attached — tap Autofill or Record");
+      }
     } catch {
       showToast("Could not read image file");
       setProofFile(null);
@@ -885,11 +924,12 @@ export function MarkPaidSheet({
             file={proofFile}
             inputRef={proofInputRef}
             onFile={onProofFile}
-            onAutofill={runAutofill}
+            onAutofill={() => runAutofill()}
             autofillBusy={autofillBusy}
             autofillDone={autofillDone}
             disabled={processing}
             testId="zelle-screenshot-input"
+            pendingPick={awaitingProof && !proofFile}
           />
           <Fld label="Deposit to">
             <select
@@ -922,6 +962,20 @@ export function MarkPaidSheet({
         </>
       ) : isCheck ? (
         <>
+          <PaymentProofFld
+            label="Check photo"
+            hint="Photo of the check — fills amount, check #, date, memo, and invoice when readable"
+            file={proofFile}
+            inputRef={proofInputRef}
+            onFile={onProofFile}
+            onAutofill={() => runAutofill()}
+            autofillBusy={autofillBusy}
+            autofillDone={autofillDone}
+            disabled={processing}
+            testId="check-screenshot-input"
+            emphasize
+            pendingPick={awaitingProof && !proofFile}
+          />
           <Fld label="Check number" hint="Required for check deposits">
             <input
               className="input"
@@ -949,18 +1003,6 @@ export function MarkPaidSheet({
               aria-label="Check memo"
             />
           </Fld>
-          <PaymentProofFld
-            label="Check image (optional)"
-            hint="Photo of check — attach then tap Autofill"
-            file={proofFile}
-            inputRef={proofInputRef}
-            onFile={onProofFile}
-            onAutofill={runAutofill}
-            autofillBusy={autofillBusy}
-            autofillDone={autofillDone}
-            disabled={processing}
-            testId="check-screenshot-input"
-          />
           <Fld label="Deposit to">
             <select
               className="input"

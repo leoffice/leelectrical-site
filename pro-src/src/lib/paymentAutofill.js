@@ -13,6 +13,29 @@ export function paymentAutofillPatch(extracted) {
   return patch;
 }
 
+/**
+ * Pull an invoice # from vision output (explicit field, memo, or payee note).
+ * Used when recording a check payment from ＋ so we can open the right invoice.
+ */
+export function invoiceNoFromExtracted(extracted) {
+  if (!extracted) return "";
+  const direct = String(extracted.invoiceNo || extracted.invoiceNumber || "").replace(/\D/g, "");
+  if (direct.length >= 4) return direct;
+  const list = Array.isArray(extracted.invoiceNumbers) ? extracted.invoiceNumbers : [];
+  for (const n of list) {
+    const d = String(n || "").replace(/\D/g, "");
+    if (d.length >= 4) return d;
+  }
+  const hay = [extracted.memo, extracted.payee, extracted.confirmationNumber]
+    .map((s) => String(s || ""))
+    .join(" ");
+  // Prefer inv/invoice labeled numbers, then a bare 5–6 digit run (QBO-style).
+  const labeled = hay.match(/\b(?:inv(?:oice)?\.?\s*#?\s*)(\d{4,7})\b/i);
+  if (labeled) return labeled[1];
+  const bare = hay.match(/\b(\d{5,6})\b/);
+  return bare ? bare[1] : "";
+}
+
 /** Build memo note segment for payment ledger entry. */
 export function paymentMemoNote({ method, ref, memo, proofName, deposit }) {
   const bits = [];

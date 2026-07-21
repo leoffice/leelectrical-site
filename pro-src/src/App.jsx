@@ -278,15 +278,11 @@ export default function App() {
       </aside>
 
       <div className="flex-1 min-w-0 flex flex-col lg:pl-64">
-        {/* Mobile — floating sync chip only (no top logo bar) */}
-        <div
-          className="lg:hidden fixed top-0 right-0 z-30 pt-safe pr-2 flex items-center h-11 pointer-events-none"
-          data-testid="mobile-sync-float"
-        >
-          <span className="pointer-events-auto">
-            <SyncChip compact />
-          </span>
-        </div>
+        {/*
+          Mobile no longer pins the QuickBooks sync chip over the top-right
+          (it covered the ＋ Add control). Sync lives in the desktop sidebar
+          and in the More menu on the phone.
+        */}
 
         {/* Never let a downgraded preview be mistaken for the real session. */}
         {config.previewingAs ? (
@@ -315,22 +311,20 @@ export default function App() {
         >
           {/*
             Top action bar for every route EXCEPT the Jobs list (which docks its
-            own add control beside the search bar). Keeps the add control at the
-            top of the screen and always visible, with the same route-derived
-            context the old FAB used. `pr-14` on mobile clears the floating sync
-            chip pinned to the top-right.
+            own add control beside the search bar). Always visible on phone and
+            desktop browser — same handler/context as the old floating ＋.
           */}
           {showFab && !isJobsRoute ? (
-            <div className="flex justify-end mb-3 pr-14 lg:pr-0" data-testid="top-add-bar">
+            <div className="flex justify-end mb-3" data-testid="top-add-bar">
               <button
                 type="button"
                 onClick={openNewJob}
-                aria-label="Add a job"
+                aria-label="Add"
                 data-testid="fab-add"
                 className="flex items-center gap-1.5 rounded-xl bg-slate-900 text-white text-sm font-bold px-3.5 py-2 shadow-sm hover:bg-slate-800 active:opacity-80"
               >
                 <span className="text-lg leading-none">＋</span>
-                <span>New job</span>
+                <span>Add</span>
               </button>
             </div>
           ) : null}
@@ -352,7 +346,25 @@ export default function App() {
 
         <SaveBar />
 
-        {/* Desktop — floating chat only. Add lives in the top bar / search row. */}
+        {/*
+          Desktop — floating ＋ (always visible, same menu as top-bar Add) + chat.
+          Top-bar Add still exists on non-Jobs routes for placement tests; Jobs
+          list keeps Add next to search. Floating uses a distinct test id so
+          placement tests still see exactly one fab-add.
+        */}
+        {isDesktop && showFab ? (
+          <button
+            type="button"
+            onClick={openNewJob}
+            aria-label="Add"
+            data-testid="fab-add-desktop"
+            className={`fixed z-40 right-24 w-[54px] h-[54px] rounded-2xl bg-slate-900 text-white text-2xl shadow-xl flex items-center justify-center hover:bg-slate-800 active:opacity-90 ${
+              dirtyCount ? "bottom-24" : "bottom-6"
+            }`}
+          >
+            ＋
+          </button>
+        ) : null}
         {isDesktop ? (
           <button
             type="button"
@@ -436,6 +448,13 @@ export default function App() {
         {moreOpen ? (
           <Sheet title="More" onClose={() => setMoreOpen(false)}>
             <div data-testid="nav-more-sheet">
+              {/* QuickBooks last-sync lives here on mobile — not over the front page. */}
+              <div className="mb-3 px-0.5" data-testid="more-sync-row">
+                <p className="text-[11px] font-semibold text-slate-400 uppercase tracking-wide mb-1.5">
+                  QuickBooks
+                </p>
+                <SyncChip />
+              </div>
               {overflowTabs.map((t) => (
                 <Opt
                   key={t.to}

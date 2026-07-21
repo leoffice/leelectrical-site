@@ -25,9 +25,10 @@ Extract these fields and return ONLY valid JSON (no markdown):
   "date": <YYYY-MM-DD date on the check>,
   "memo": <memo line text exactly as written>,
   "payee": <pay to the order of name>,
+  "invoiceNumber": <invoice or job number if written on the memo or anywhere on the check, digits only, else null>,
   "confidence": <"high" or "low">
 }
-If a field is missing or unreadable use null. checkNumber and amount are critical — always try both the printed check number and the MICR check number field.`;
+If a field is missing or unreadable use null. checkNumber and amount are critical — always try both the printed check number and the MICR check number field. invoiceNumber helps match the payment to the right invoice.`;
 
 export const IMAGE_INTENT_PROMPT = `You are reading a photo Levi sent LE Electrical (payment proof, invoice, estimate, job site, document, or screenshot).
 Extract visible clues and return ONLY valid JSON (no markdown):
@@ -61,11 +62,15 @@ export function normalizePaymentExtracted(raw, kind = "zelle") {
   }
   const checkNo = raw.checkNumber ? String(raw.checkNumber).trim() : "";
   const confNo = raw.confirmationNumber ? String(raw.confirmationNumber).trim() : "";
+  const invNo = String(raw.invoiceNumber || raw.invoiceNo || "")
+    .replace(/\D/g, "")
+    .trim();
   const ref = kind === "check" ? checkNo : confNo;
   return {
     amount: Number.isFinite(amt) && amt > 0 ? amt : null,
     confirmationNumber: ref,
     checkNumber: checkNo,
+    invoiceNumber: invNo || "",
     date,
     memo: raw.memo ? String(raw.memo).trim() : "",
     payee: raw.payee ? String(raw.payee).trim() : "",

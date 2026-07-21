@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { paymentAutofillPatch, paymentMemoNote } from "../src/lib/paymentAutofill.js";
+import { invoiceNoFromExtracted, paymentAutofillPatch, paymentMemoNote } from "../src/lib/paymentAutofill.js";
 
 describe("paymentAutofill", () => {
   it("maps extracted fields to form patch", () => {
@@ -15,6 +15,13 @@ describe("paymentAutofill", () => {
       dt: "2026-07-09",
       memo: "inv 251841",
     });
+  });
+
+  it("pulls invoice # from memo or explicit field", () => {
+    expect(invoiceNoFromExtracted({ invoiceNumber: "251841" })).toBe("251841");
+    expect(invoiceNoFromExtracted({ memo: "Inv #231595 final" })).toBe("231595");
+    expect(invoiceNoFromExtracted({ memo: "for job 251841" })).toBe("251841");
+    expect(invoiceNoFromExtracted({ memo: "no numbers here" })).toBe("");
   });
 
   it("builds check memo note with ref, deposit, and memo", () => {

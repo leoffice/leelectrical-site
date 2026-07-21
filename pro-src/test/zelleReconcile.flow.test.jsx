@@ -204,12 +204,13 @@ describe("Zelle screenshot reconciliation flow", () => {
     await user.click(screen.getByText("Check"));
     const input = screen.getByTestId("check-screenshot-input");
     await user.upload(input, new File(["x"], "check.jpg", { type: "image/jpeg" }));
-    await user.click(screen.getByTestId("payment-autofill"));
+    // Check photos auto-run vision on attach (check + zelle pair = 2 calls).
     await waitFor(() => expect(screen.getByDisplayValue("5521")).toBeInTheDocument());
     expect(screen.getByDisplayValue("panel upgrade")).toBeInTheDocument();
     expect(visionCalls).toBe(2);
     await user.click(screen.getByTestId("record-payment"));
     await waitFor(() => expect(screen.getByTestId("savebar")).toBeInTheDocument());
+    // Record reuses autofill result — no second vision pass.
     expect(visionCalls).toBe(2);
     await user.click(screen.getByText("Save & sync"));
     await waitFor(() => expect(srv.enqueued("record_payment")).toHaveLength(1));
