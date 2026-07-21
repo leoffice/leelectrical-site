@@ -41,6 +41,8 @@ export function seqFromCoPi(val) {
 /** True when this job is (or should be treated as) a change-order document. */
 export function isChangeOrderJob(job) {
   if (!job || !jobAlive(job)) return false;
+  // Explicit off from the Change order toggle (edit or create) wins over heuristics.
+  if (job.changeOrder === false) return false;
   if (job.changeOrder) return true;
   if (job.changeOrderSeq != null && Number(job.changeOrderSeq) > 0) return true;
   if (String(job.changeOrderLabel || "").trim()) return true;

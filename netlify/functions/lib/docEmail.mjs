@@ -104,7 +104,9 @@ export async function sendDocEmail({
     });
   }
 
-  // Primary (and only) CTA: View Invoice -> review/pay landing page.
+// Prefer confirm-sheet body when provided; otherwise leave greeting empty
+  // (HTML template still shows bill-to banner + CTA). Short pay link stays
+  // the only customer-facing URL — never the raw Cardknox link.
   let viewLink = docKey ? docsUrl(docKey) : "";
   if (isInvoice) {
     const shortLink = await mintShortPayLink(
@@ -114,9 +116,6 @@ export async function sendDocEmail({
   }
 
   const customTop = String(message || "").trim();
-  // No "pay securely online" line and no raw URL — the View Invoice button is
-  // the single action, and paying lives on the landing page it opens.
-  const defaultPayTop = undefined;
   // Header brand = tenant (company name + logo). Footer = constant Powered by LE.
   const brand = resolveEmailBrand({ name: docData.company?.name, logoUrl: docData.company?.logoUrl });
   const html = buildEmailHTML({
@@ -126,7 +125,7 @@ export async function sendDocEmail({
     logoSrc: brand.logoSrc,
     viewLabel: isInvoice ? "View Invoice" : "View Estimate",
     poweredByHtml: poweredByLeHtml(),
-    topMessage: customTop || defaultPayTop,
+    topMessage: customTop || undefined,
     paymentMessage: isInvoice
       ? 'Other ways to pay:\n\n-Zelle: Send payment to Office@LeElectrical.us.\n-Check: Make checks payable to "BLZ Electric Inc." and either mail it or email a clear picture of the check to Office@LeElectrical.us.'
       : undefined,

@@ -68,7 +68,7 @@ function buildPayLink(o, cfg = {}) {
  * @param {number} [d.subtotal] [d.tax] [d.total] [d.balanceDue]
  * @param {string} [d.payLink]          "Print or save" / pay button target
  * @param {string} [d.buttonLabel='Print or save']
- * @param {string} [d.topMessage]       text right under the banner (supports \n)
+ * @param {string} [d.topMessage]       text right under logo / greeting (supports \n)
  * @param {string} [d.paymentMessage]   payment-options block (supports \n)
  * @param {string} [d.logoSrc='cid:companylogo']  tenant logo (header brand)
  * @param {string} [d.poweredByHtml]   constant 'Powered by LE' footer block
@@ -91,9 +91,6 @@ function buildEmailHTML(d) {
   const isEstimate = docType === 'ESTIMATE';
 
   // Button row: "View invoice/estimate" (dark) + "View and Pay" (green).
-  // Renders whichever links exist; nothing if neither is set.
-  // Estimates have no payment, so the pay button only renders if you
-  // explicitly pass payLink (e.g. for a deposit request).
   const btnRow = () => {
     const cells = [];
     const viewLabel = d.viewLabel || (isEstimate ? 'View estimate' : 'View invoice');
@@ -106,8 +103,14 @@ function buildEmailHTML(d) {
     </table>`;
   };
 
-  const customFieldRows = (d.customFields || [])
-    .filter((c) => c && c.value)
+  // Service address from custom fields (collapsed into the green banner).
+  const serviceField = (d.customFields || []).find(
+    (c) => c && c.value && /service/i.test(String(c.label || ''))
+  );
+  const otherCustom = (d.customFields || []).filter(
+    (c) => c && c.value && !/service/i.test(String(c.label || ''))
+  );
+  const customFieldRows = otherCustom
     .map((c) => `
       <tr class="le-fieldrow">
         <td class="le-fieldlabel" style="font-size:18px;font-weight:bold;vertical-align:top;padding:10px 5px 0 5px;width:110px;white-space:nowrap;">${esc(c.label)}</td>
@@ -133,6 +136,11 @@ function buildEmailHTML(d) {
       <td style="padding:0 40px 20px 0;color:${T.text};">${esc(label)}</td>
       <td style="text-align:right;padding:0 0 20px 0;">${esc(value)}</td>
     </tr>`;
+
+  // Compact green banner: bill-to + service address up top (after greeting).
+  const billName = (d.billTo && d.billTo.name) || '';
+  const billLines = ((d.billTo && d.billTo.addressLines) || []).filter(Boolean);
+  const svcValue = serviceField ? serviceField.value : '';
 
   return `<!DOCTYPE html>
 <html>
@@ -170,41 +178,42 @@ function buildEmailHTML(d) {
     <tr><td style="font-size:20px;text-align:center;padding:14px 0 0 0;color:${T.green};">
       ${esc(d.company.name)}</td></tr>
   </table>
-  <br><br>
+  <br>
 
-  <!-- banner -->
-  <table width="100%" cellpadding="0" cellspacing="0" border="0"
-         style="font-family:${T.font};width:100%;background-color:${T.bannerBg};text-align:center;">
-    <tr><td style="padding:31px 0 20px 0;">
-      <div style="font-size:16px;font-weight:bold;color:${T.text};">${isEstimate ? 'TOTAL' : 'DUE ' + esc(d.dueDate)}</div>
-      <div style="font-size:48px;font-weight:bold;color:${T.text};padding:9px 0 12px 0;">${money(d.amountDue)}</div>
-      <div style="padding:0 0 10px 0;">${btnRow()}</div>
-    </td></tr>
-  </table>
-
+  <!-- greeting / ready message (after logo, before green banner) -->
   ${d.topMessage ? `
-  <div style="font-size:18px;line-height:1.5;text-align:left;padding:20px 20px 0 40px;">
-    <p style="margin:16px 0;">${nl2br(d.topMessage)}</p>
+  <div style="font-size:18px;line-height:1.5;text-align:left;padding:8px 40px 16px 40px;">
+    <p style="margin:0;">${nl2br(d.topMessage)}</p>
   </div>` : ''}
-</td></tr>
 
-<!-- bill to / custom fields on gray -->
-<tr><td style="background-color:${T.sectionBg};padding:20px 0;">
-  <table width="100%" cellpadding="0" cellspacing="0" border="0" style="font-family:${T.font};color:${T.text};">
-    <tr>
-      <td style="padding:10px 20px 10px 40px;">
-        <table width="100%" style="font-family:${T.font};color:${T.text};table-layout:auto;">
-          <tr class="le-fieldrow">
-            <td class="le-fieldlabel" style="vertical-align:top;font-weight:bold;font-size:18px;padding:10px 5px;width:110px;white-space:nowrap;">Bill to</td>
-            <td class="le-fieldvalue" style="font-size:18px;padding:10px 5px;overflow-wrap:anywhere;word-break:normal;min-width:200px;">
-              ${esc(d.billTo.name)}<br>${(d.billTo.addressLines || []).map(esc).join('<br>')}</td>
-          </tr>
-        </table>
-      </td>
-    </tr>
-    ${customFieldRows ? `<tr><td style="padding:10px 20px 10px 40px;">
-      <table width="100%" style="font-family:${T.font};color:${T.text};border-top:${T.rule};">${customFieldRows}</table>
-    </td></tr>` : ''}
+  <!-- green banner: bill to + service address collapsed to the top -->
+  <table width="100%" cellpadding="0" cellspacing="0" border="0"
+         style="font-family:${T.font};width:100%;background-color:${T.bannerBg};">
+    <tr><td style="padding:18px 28px 14px 28px;">
+      <table width="100%" cellpadding="0" cellspacing="0" border="0" style="font-family:${T.font};color:${T.text};">
+        <tr>
+          <td class="le-fieldvalue" style="vertical-align:top;width:50%;padding:0 12px 8px 0;overflow-wrap:anywhere;word-break:normal;min-width:200px;">
+            <div style="font-size:12px;font-weight:bold;text-transform:uppercase;letter-spacing:0.04em;color:${T.green};margin-bottom:6px;">Bill to</div>
+            <div style="font-size:16px;line-height:1.4;overflow-wrap:anywhere;word-break:normal;">
+              ${esc(billName)}${billLines.length ? '<br>' + billLines.map(esc).join('<br>') : ''}
+            </div>
+          </td>
+          ${svcValue ? `
+          <td class="le-fieldvalue" style="vertical-align:top;width:50%;padding:0 0 8px 12px;overflow-wrap:anywhere;word-break:normal;min-width:200px;">
+            <div style="font-size:12px;font-weight:bold;text-transform:uppercase;letter-spacing:0.04em;color:${T.green};margin-bottom:6px;">Service address</div>
+            <div style="font-size:16px;line-height:1.4;overflow-wrap:anywhere;word-break:normal;">${nl2br(svcValue)}</div>
+          </td>` : '<td></td>'}
+        </tr>
+        ${customFieldRows ? `<tr><td colspan="2" style="padding-top:6px;">
+          <table width="100%" style="font-family:${T.font};color:${T.text};border-top:${T.rule};">${customFieldRows}</table>
+        </td></tr>` : ''}
+      </table>
+    </td></tr>
+    <tr><td style="padding:4px 28px 20px 28px;text-align:center;">
+      <div style="font-size:14px;font-weight:bold;color:${T.text};">${isEstimate ? 'TOTAL' : 'DUE ' + esc(d.dueDate || '')}</div>
+      <div style="font-size:36px;font-weight:bold;color:${T.text};padding:6px 0 10px 0;">${money(d.amountDue)}</div>
+      <div style="padding:0 0 4px 0;">${btnRow()}</div>
+    </td></tr>
   </table>
 </td></tr>
 

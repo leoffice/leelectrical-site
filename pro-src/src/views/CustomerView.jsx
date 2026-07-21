@@ -269,9 +269,7 @@ export default function CustomerView() {
         summary={summary}
         primaryJob={primaryJob}
         shortTxns={shortTxns}
-        onShortTxnsChange={
-          !(key.startsWith("p:") && subs.length > 0) ? setShortTxns : undefined
-        }
+        onShortTxnsChange={setShortTxns}
         onEdit={() => setSheet({ kind: "cust", job: primaryJob })}
         onText={() =>
           setSheet({
@@ -299,7 +297,7 @@ export default function CustomerView() {
         }
       />
 
-      {/* Parent with subs: sub-company list. Leaf: doc tabs always; short-txns ledger under tabs. */}
+      {/* Parent with subs: sub-company list. Leaf: doc tabs always; transactions when toggled. */}
       {subs.length > 0 ? (
         <div className="card px-3 py-2.5 space-y-1.5" data-testid="customer-sub-companies">
           <h2 className="text-[11px] font-extrabold text-slate-500 uppercase tracking-wider px-0.5">
@@ -322,7 +320,7 @@ export default function CustomerView() {
         </div>
       ) : null}
 
-      {/* Order: customer card → Invoice/Estimates/CO/Addresses tabs → short transaction list */}
+      {/* Order: customer card → Invoice/Estimates/CO/Addresses tabs → transactions when on */}
       {!(key.startsWith("p:") && subs.length > 0) ? (
         <>
           <CustomerDocTabs jobs={displayJobs} fromCust={key} />
@@ -330,6 +328,8 @@ export default function CustomerView() {
             <CustomerTransactionHistory jobs={displayJobs} fromCust={key} />
           ) : null}
         </>
+      ) : shortTxns ? (
+        <CustomerTransactionHistory jobs={displayJobs} fromCust={key} />
       ) : null}
 
       {sheet?.kind === "cust" && sheet.job ? (

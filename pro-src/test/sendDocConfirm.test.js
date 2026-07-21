@@ -2,8 +2,10 @@ import { describe, expect, it } from "vitest";
 import {
   buildSendDocConfirm,
   canApproveSendConfirm,
+  defaultDocEmailBody,
   defaultDocEmailSubject,
   docAttachmentName,
+  docEmailGreetingName,
 } from "../src/lib/sendDocConfirm.js";
 
 const job = {
@@ -39,5 +41,35 @@ describe("sendDocConfirm", () => {
   it("names estimate attachment", () => {
     expect(docAttachmentName({ estimateNo: "E-9" }, "estimate")).toBe("Estimate-E-9.pdf");
     expect(defaultDocEmailSubject(job, "estimate")).toMatch(/Estimate/);
+  });
+
+  it("greets with full company name, not first word only", () => {
+    expect(
+      docEmailGreetingName({
+        customer: "419 Kingston Realty",
+        businessName: "419 Kingston Realty",
+      })
+    ).toBe("419 Kingston Realty");
+  });
+
+  it("email body drops total/balance lines and uses ready + PDF copy", () => {
+    const body = defaultDocEmailBody(
+      {
+        customer: "419 Kingston Realty",
+        businessName: "419 Kingston Realty",
+        invoiceNo: "251850",
+        title: "Change order",
+        amount: "$4500",
+        changeOrder: true,
+      },
+      "invoice",
+      { withPay: true }
+    );
+    expect(body).toContain("Hi 419 Kingston Realty,");
+    expect(body).toMatch(/Your invoice #251850 for Change order/);
+    expect(body).toMatch(/is ready/);
+    expect(body).toContain("The PDF is attached. A secure payment link is included with this email.");
+    expect(body).not.toMatch(/Invoice total:/i);
+    expect(body).not.toMatch(/Balance due:/i);
   });
 });

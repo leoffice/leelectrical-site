@@ -1,4 +1,4 @@
-// Settings — company profile, feature toggles, connection health, agent access.
+// Settings — collapsible menu: connections, company profile, features, agent access.
 import React, { useCallback, useEffect, useState } from "react";
 import { useStore } from "../state/store.jsx";
 import { useTenantConfig } from "../state/tenant.jsx";
@@ -6,7 +6,8 @@ import { MODULES, MODULE_LABELS } from "../lib/tenantConfig.js";
 import {
   DEFAULT_FEATURES,
   DEFAULT_PROFILE,
-  FEATURE_LABELS,
+  FEATURE_GROUPS,
+  featureLabel,
   mergeFeatures,
   mergeProfile,
 } from "../lib/tenantProfile.js";
@@ -20,6 +21,7 @@ import {
   setSpeechToTextEnabled,
 } from "../lib/appSettings.js";
 import {
+  extendAgentAccess,
   fetchAgentAccessStatus,
   formatRemaining,
   mintAgentAccess,
@@ -27,15 +29,8 @@ import {
 } from "../lib/agentAccessClient.js";
 import Toggle from "../components/Toggle.jsx";
 
-function Section({ title, children, hint }) {
-  return (
-    <section className="bg-white rounded-2xl border border-slate-200 shadow-sm p-4 sm:p-5 mb-4">
-      <h2 className="text-[15px] font-extrabold text-slate-800 tracking-tight">{title}</h2>
-      {hint ? <p className="text-xs text-slate-500 font-semibold mt-1 mb-3">{hint}</p> : <div className="h-3" />}
-      {children}
-    </section>
-  );
-}
+const inputCls =
+  "w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 text-sm font-semibold text-slate-800 outline-none focus:border-brand focus:bg-white";
 
 function Fld({ label, children }) {
   return (
@@ -45,9 +40,6 @@ function Fld({ label, children }) {
     </label>
   );
 }
-
-const inputCls =
-  "w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 text-sm font-semibold text-slate-800 outline-none focus:border-brand focus:bg-white";
 
 function StatusPill({ ok, label }) {
   return (
@@ -59,6 +51,79 @@ function StatusPill({ ok, label }) {
       <span className={`w-1.5 h-1.5 rounded-full ${ok ? "bg-emerald-500" : "bg-amber-500"}`} />
       {label}
     </span>
+  );
+}
+
+/** Top-level Settings menu row — closed by default; expands in place. */
+function MenuSection({ id, title, summary, open, onToggle, children, badge }) {
+  return (
+    <section
+      className="bg-white rounded-2xl border border-slate-200 shadow-sm mb-3 overflow-hidden"
+      data-testid={`settings-section-${id}`}
+    >
+      <button
+        type="button"
+        onClick={onToggle}
+        aria-expanded={open}
+        className="w-full flex items-center gap-3 px-4 py-3.5 text-left hover:bg-slate-50/80 active:bg-slate-50 transition-colors"
+        data-testid={`settings-toggle-${id}`}
+      >
+        <span
+          className={`text-slate-400 text-[10px] w-3 shrink-0 transition-transform ${
+            open ? "rotate-90" : ""
+          }`}
+          aria-hidden
+        >
+          ▶
+        </span>
+        <div className="flex-1 min-w-0">
+          <div className="text-[15px] font-extrabold text-slate-800 tracking-tight">{title}</div>
+          {!open && summary ? (
+            <div className="text-xs text-slate-500 font-semibold mt-0.5 truncate">{summary}</div>
+          ) : null}
+        </div>
+        {badge ? <div className="shrink-0">{badge}</div> : null}
+      </button>
+      {open ? (
+        <div className="px-4 pb-4 pt-1 border-t border-slate-100" data-testid={`settings-body-${id}`}>
+          {children}
+        </div>
+      ) : null}
+    </section>
+  );
+}
+
+/** Nested feature category under Features. */
+function FeatureSubmenu({ id, title, hint, open, onToggle, children }) {
+  return (
+    <div
+      className="rounded-xl border border-slate-200 bg-slate-50/60 mb-2 overflow-hidden"
+      data-testid={`feature-group-${id}`}
+    >
+      <button
+        type="button"
+        onClick={onToggle}
+        aria-expanded={open}
+        className="w-full flex items-center gap-2.5 px-3 py-2.5 text-left hover:bg-slate-100/80"
+        data-testid={`feature-toggle-${id}`}
+      >
+        <span
+          className={`text-slate-400 text-[9px] w-2.5 shrink-0 transition-transform ${
+            open ? "rotate-90" : ""
+          }`}
+          aria-hidden
+        >
+          ▶
+        </span>
+        <div className="flex-1 min-w-0">
+          <div className="text-sm font-extrabold text-slate-800">{title}</div>
+          {!open && hint ? (
+            <div className="text-[11px] text-slate-500 font-semibold mt-0.5 truncate">{hint}</div>
+          ) : null}
+        </div>
+      </button>
+      {open ? <div className="px-3 pb-3 space-y-2 border-t border-slate-200/80 pt-2">{children}</div> : null}
+    </div>
   );
 }
 
@@ -83,6 +148,22 @@ export default function Settings() {
   const [agentBusy, setAgentBusy] = useState(false);
   const [agentNow, setAgentNow] = useState(Date.now());
 
+  // All top-level menus start collapsed.
+  const [openMenu, setOpenMenu] = useState({
+    connections: false,
+    company: false,
+    features: false,
+    agent: false,
+    account: false,
+  });
+  // Feature subcategories start collapsed.
+  const [openFeature, setOpenFeature] = useState(() =>
+    Object.fromEntries(FEATURE_GROUPS.map((g) => [g.id, false]))
+  );
+
+  const toggleMenu = (key) => setOpenMenu((m) => ({ ...m, [key]: !m[key] }));
+  const toggleFeature = (key) => setOpenFeature((m) => ({ ...m, [key]: !m[key] }));
+
   const load = useCallback(async () => {
     setLoading(true);
     try {
@@ -92,7 +173,6 @@ export default function Settings() {
         const f = mergeFeatures(doc?.features);
         setProfile(p);
         setFeatures(f);
-        // Mirror logo + speech to this device so sidebar / voice bubble update live.
         if (p.logoDataUrl) setCompanyLogoDataUrl(p.logoDataUrl);
         else clearCompanyLogo();
         setSpeechToTextEnabled(f.speechToText !== false);
@@ -148,6 +228,25 @@ export default function Settings() {
       setAgentGrant(res.grant || null);
       setAgentAudit(Array.isArray(res.audit) ? res.audit : []);
       showToast?.("Agent code ready — share it once");
+    } catch (e) {
+      showToast?.(String(e.message || e));
+    } finally {
+      setAgentBusy(false);
+    }
+  }, [agentScope, agentTtlMin, showToast]);
+
+  /** Refresh = add the chosen duration to the same code (keep code / session). */
+  const extendAgent = useCallback(async () => {
+    setAgentBusy(true);
+    try {
+      const res = await extendAgentAccess({
+        ttlMs: agentTtlMin * 60 * 1000,
+        scope: agentScope,
+      });
+      setAgentGrant(res.grant || null);
+      setAgentAudit(Array.isArray(res.audit) ? res.audit : []);
+      // Don't clear a just-shown code — same code, more time.
+      showToast?.("Access extended — same code, more time");
     } catch (e) {
       showToast?.(String(e.message || e));
     } finally {
@@ -260,13 +359,26 @@ export default function Settings() {
     );
   }
 
+  const connOk =
+    !!health?.calendar?.ok && !!health?.email?.ok && !!health?.cardEntry?.ok;
+  const agentRemain =
+    agentGrant &&
+    formatRemaining(
+      Math.max(
+        0,
+        (agentGrant.hasSession
+          ? agentGrant.sessionExpiresAt || agentGrant.expiresAt
+          : agentGrant.expiresAt || 0) - agentNow
+      )
+    );
+
   return (
-    <div className="max-w-2xl mx-auto p-3 sm:p-5 pb-28">
-      <div className="flex items-start justify-between gap-3 mb-4">
+    <div className="max-w-2xl mx-auto p-3 sm:p-5 pb-28" data-testid="settings-page">
+      <div className="flex items-start justify-between gap-3 mb-5">
         <div>
           <h1 className="text-xl font-extrabold tracking-tight text-slate-900">Settings</h1>
           <p className="text-xs text-slate-500 font-semibold mt-1">
-            Company profile, connections, and what shows in the app.
+            Open a section to manage it. Everything starts collapsed.
           </p>
         </div>
         <button
@@ -283,10 +395,22 @@ export default function Settings() {
         </button>
       </div>
 
-      <Section
+      {/* ── Connections ── */}
+      <MenuSection
+        id="connections"
         title="Connections"
-        hint="Live checks — calendar sync, email send path, and card entry."
+        summary="Calendar, email, and card entry health"
+        open={openMenu.connections}
+        onToggle={() => toggleMenu("connections")}
+        badge={
+          health ? (
+            <StatusPill ok={connOk} label={connOk ? "OK" : "Check"} />
+          ) : null
+        }
       >
+        <p className="text-xs text-slate-500 font-semibold mb-3">
+          Live checks — calendar sync, email send path, and card entry.
+        </p>
         <div className="flex flex-wrap gap-2 mb-3">
           <StatusPill ok={!!health?.calendar?.ok} label="Calendar" />
           <StatusPill ok={!!health?.email?.ok} label="Email" />
@@ -325,12 +449,22 @@ export default function Settings() {
           </button>
         </div>
         <p className="text-[11px] text-slate-500 font-semibold mt-3">
-          Payment links (send-to-customer) use the host link builder. Card typing in the app needs the
-          server card key. Email needs the send key on the server.
+          Payment links use the host link builder. Card typing needs the server card key. Email needs
+          the send key on the server.
         </p>
-      </Section>
+      </MenuSection>
 
-      <Section title="Company profile" hint="Used on invoices, estimates, statements, and letterhead.">
+      {/* ── Company profile ── */}
+      <MenuSection
+        id="company"
+        title="Company profile"
+        summary={profile.companyName || "Name, logo, address, payment profile"}
+        open={openMenu.company}
+        onToggle={() => toggleMenu("company")}
+      >
+        <p className="text-xs text-slate-500 font-semibold mb-3">
+          Used on invoices, estimates, statements, and letterhead.
+        </p>
         <Fld label="Company name">
           <input
             className={inputCls}
@@ -466,96 +600,132 @@ export default function Settings() {
             </label>
           ))}
         </div>
-      </Section>
+      </MenuSection>
 
-      <Section
-        title="Speech to text"
-        hint="Green voice bubble and chat mic. Also toggle from the chat bubble header."
+      {/* ── Features (plans & toggles, categorized) ── */}
+      <MenuSection
+        id="features"
+        title="Features"
+        summary="Speech-to-text, documents, payments, AI — turn sections on or off"
+        open={openMenu.features}
+        onToggle={() => toggleMenu("features")}
       >
-        <div
-          className="flex items-center justify-between gap-3 rounded-xl border border-slate-100 bg-slate-50 px-3 py-2.5"
-          data-testid="settings-speech-to-text"
-        >
-          <div className="min-w-0">
-            <div className="text-sm font-semibold text-slate-800">Speech to text</div>
-            <div className="text-xs text-slate-500 font-semibold mt-0.5">
-              On = voice bubble + chat mic. Off = both hidden.
-            </div>
-          </div>
-          <Toggle
-            on={features.speechToText !== false}
-            onChange={(on) => setF("speechToText", on)}
-            label="Speech to text"
-          />
-        </div>
-      </Section>
-
-      {/* Plan and modules are set by the tenant's subscription, not by the
-          tenant — shown read-only so what the nav does is explainable. */}
-      <Section title="Plan" hint="Your subscription decides which modules are available.">
-        <div className="flex flex-wrap items-center gap-2 mb-3" data-testid="settings-plan">
-          <span className="rounded-full bg-slate-900 text-white text-xs font-extrabold px-3 py-1 uppercase">
-            {config.plan.tier}
-          </span>
-          {config.plan.crewAddon ? (
-            <span className="rounded-full bg-emerald-100 text-emerald-700 text-xs font-bold px-3 py-1">
-              + Crew
+        <p className="text-xs text-slate-500 font-semibold mb-3">
+          Plans and features for this company. Open a category to turn items on or off.
+        </p>
+        {/* Plan/modules are subscription-driven (read-only). */}
+        <div className="mb-3" data-testid="settings-plan">
+          <div className="flex flex-wrap items-center gap-2 mb-2">
+            <span className="rounded-full bg-slate-900 text-white text-xs font-extrabold px-3 py-1 uppercase">
+              {config.plan.tier}
             </span>
-          ) : null}
-          {internal ? (
-            <span className="rounded-full bg-purple-100 text-purple-700 text-xs font-bold px-3 py-1">
-              Internal
-            </span>
-          ) : null}
-        </div>
-        <div className="space-y-1.5">
-          {MODULES.map((key) => (
-            <div
-              key={key}
-              className="flex items-center justify-between gap-3 rounded-xl border border-slate-100 bg-slate-50 px-3 py-2"
-              data-testid={`module-${key}`}
-            >
-              <span className="text-sm font-semibold text-slate-800">{MODULE_LABELS[key]}</span>
-              <span
-                className={`text-xs font-extrabold ${
-                  config.modules[key] ? "text-emerald-600" : "text-slate-400"
-                }`}
-              >
-                {config.modules[key] ? "On" : "Off"}
+            {config.plan.crewAddon ? (
+              <span className="rounded-full bg-emerald-100 text-emerald-700 text-xs font-bold px-3 py-1">
+                + Crew
               </span>
-            </div>
-          ))}
+            ) : null}
+            {internal ? (
+              <span className="rounded-full bg-purple-100 text-purple-700 text-xs font-bold px-3 py-1">
+                Internal
+              </span>
+            ) : null}
+          </div>
+          <div className="space-y-1.5">
+            {MODULES.map((key) => (
+              <div
+                key={key}
+                className="flex items-center justify-between gap-3 rounded-xl border border-slate-100 bg-white px-3 py-2"
+                data-testid={`module-${key}`}
+              >
+                <span className="text-sm font-semibold text-slate-800">{MODULE_LABELS[key]}</span>
+                <span
+                  className={`text-xs font-extrabold ${
+                    config.modules[key] ? "text-emerald-600" : "text-slate-400"
+                  }`}
+                >
+                  {config.modules[key] ? "On" : "Off"}
+                </span>
+              </div>
+            ))}
+          </div>
         </div>
-      </Section>
+        {FEATURE_GROUPS.map((group) => (
+          <FeatureSubmenu
+            key={group.id}
+            id={group.id}
+            title={group.title}
+            hint={group.hint}
+            open={!!openFeature[group.id]}
+            onToggle={() => toggleFeature(group.id)}
+          >
+            {group.keys
+              .filter((key) => internal || key !== "progressDashboard")
+              .map((key) =>
+              key === "speechToText" ? (
+                <div
+                  key={key}
+                  className="flex items-center justify-between gap-3 rounded-xl border border-slate-100 bg-white px-3 py-2.5"
+                  data-testid="settings-speech-to-text"
+                >
+                  <div className="min-w-0">
+                    <div className="text-sm font-semibold text-slate-800">Speech to text</div>
+                    <div className="text-xs text-slate-500 font-semibold mt-0.5">
+                      On = voice bubble + chat mic. Off = both hidden.
+                    </div>
+                  </div>
+                  <Toggle
+                    on={features.speechToText !== false}
+                    onChange={(on) => setF("speechToText", on)}
+                    label="Speech to text"
+                  />
+                </div>
+              ) : (
+                <label
+                  key={key}
+                  className="flex items-center justify-between gap-3 rounded-xl border border-slate-100 bg-white px-3 py-2.5"
+                >
+                  <span className="text-sm font-semibold text-slate-800">{featureLabel(key)}</span>
+                  <input
+                    type="checkbox"
+                    checked={features[key] !== false}
+                    onChange={(e) => setF(key, e.target.checked)}
+                    className="h-4 w-4"
+                  />
+                </label>
+              )
+            )}
+          </FeatureSubmenu>
+        ))}
+      </MenuSection>
 
-      <Section title="Features" hint="Turn sections on or off for this company.">
-        <div className="space-y-2">
-          {FEATURE_LABELS.filter(
-            (x) => x.key !== "speechToText" && (internal || x.key !== "progressDashboard")
-          ).map(({ key, label }) => (
-            <label
-              key={key}
-              className="flex items-center justify-between gap-3 rounded-xl border border-slate-100 bg-slate-50 px-3 py-2.5"
-            >
-              <span className="text-sm font-semibold text-slate-800">{label}</span>
-              <input
-                type="checkbox"
-                checked={features[key] !== false}
-                onChange={(e) => setF(key, e.target.checked)}
-                className="h-4 w-4"
-              />
-            </label>
-          ))}
-        </div>
-      </Section>
-
-      {/* Agent access mints codes that let the build agent into the app.
-          Dev tooling — internal tenants only. */}
+      {/* ── Agent access (internal tenants only) ── */}
       {internal ? (
-      <Section
+      <MenuSection
+        id="agent"
         title="Agent access"
-        hint="Time-boxed one-time codes so an agent can unlock the app and test — you control when and for how long."
+        summary={
+          agentGrant
+            ? agentGrant.hasSession
+              ? `Agent is in · ${agentRemain} left`
+              : agentGrant.used
+                ? "Code used · session ended"
+                : `Code waiting · ${agentRemain} left`
+            : "Time-boxed codes for agents"
+        }
+        open={openMenu.agent}
+        onToggle={() => toggleMenu("agent")}
+        badge={
+          agentGrant && !agentGrant.used ? (
+            <StatusPill ok label={agentRemain || "Active"} />
+          ) : agentGrant?.hasSession ? (
+            <StatusPill ok label="In" />
+          ) : null
+        }
       >
+        <p className="text-xs text-slate-500 font-semibold mb-3">
+          One-time codes so an agent can unlock the app. Grant makes a new code. Refresh adds more
+          time to the same code.
+        </p>
         <div className="flex flex-wrap gap-3 mb-3">
           <label className="text-sm font-semibold text-slate-700">
             Duration
@@ -615,13 +785,18 @@ export default function Settings() {
           <div className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 mb-3 text-sm font-semibold text-slate-700">
             {agentGrant.hasSession ? (
               <span data-testid="agent-session-active">
-                Agent is in · {formatRemaining(Math.max(0, (agentGrant.sessionExpiresAt || agentGrant.expiresAt) - agentNow))} left
+                Agent is in ·{" "}
+                {formatRemaining(
+                  Math.max(0, (agentGrant.sessionExpiresAt || agentGrant.expiresAt) - agentNow)
+                )}{" "}
+                left
               </span>
             ) : agentGrant.used ? (
               <span>Code used · session ended or expired</span>
             ) : (
               <span data-testid="agent-grant-waiting">
-                Code waiting · {formatRemaining(Math.max(0, (agentGrant.expiresAt || 0) - agentNow))} left
+                Code waiting · {formatRemaining(Math.max(0, (agentGrant.expiresAt || 0) - agentNow))}{" "}
+                left
               </span>
             )}
           </div>
@@ -640,21 +815,26 @@ export default function Settings() {
           <button
             type="button"
             disabled={agentBusy || !agentGrant}
+            onClick={extendAgent}
+            className="rounded-xl bg-sky-600 text-white px-4 py-2.5 text-sm font-extrabold disabled:opacity-40"
+            data-testid="agent-refresh-btn"
+            title="Add the selected duration to the same access code"
+          >
+            {agentBusy ? "Working…" : "Refresh"}
+          </button>
+          <button
+            type="button"
+            disabled={agentBusy || !agentGrant}
             onClick={revokeAgent}
             className="rounded-xl bg-slate-100 text-slate-800 px-4 py-2.5 text-sm font-extrabold disabled:opacity-40"
             data-testid="agent-revoke-btn"
           >
             Revoke now
           </button>
-          <button
-            type="button"
-            disabled={agentBusy}
-            onClick={loadAgentAccess}
-            className="rounded-xl bg-white border border-slate-200 text-slate-700 px-4 py-2.5 text-sm font-extrabold disabled:opacity-50"
-          >
-            Refresh
-          </button>
         </div>
+        <p className="text-[11px] text-slate-500 font-semibold mt-2">
+          Refresh keeps the same code and adds the duration you picked (e.g. 31 min left + 24 hours).
+        </p>
 
         {agentAudit.length > 0 ? (
           <div className="mt-4">
@@ -686,10 +866,17 @@ export default function Settings() {
             </ul>
           </div>
         ) : null}
-      </Section>
+      </MenuSection>
       ) : null}
 
-      <Section title="Account">
+      {/* ── Account ── */}
+      <MenuSection
+        id="account"
+        title="Account"
+        summary="Log off this device"
+        open={openMenu.account}
+        onToggle={() => toggleMenu("account")}
+      >
         <button
           type="button"
           onClick={() => logOff()}
@@ -697,7 +884,7 @@ export default function Settings() {
         >
           Log off
         </button>
-      </Section>
+      </MenuSection>
     </div>
   );
 }

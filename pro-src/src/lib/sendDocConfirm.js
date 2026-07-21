@@ -3,6 +3,7 @@ import { fmt$ } from "./format.js";
 import { openBalance, invoiceTotal } from "./customers.js";
 import { DOC_SOURCE_LOCAL, DOC_SOURCE_QBO } from "./docSource.js";
 import { activeTenantConfig, productName } from "./tenantBranding.js";
+import { isChangeOrderJob } from "./changeOrder.js";
 
 const s = (v) => (v == null ? "" : String(v).trim());
 
@@ -11,6 +12,32 @@ const s = (v) => (v == null ? "" : String(v).trim());
  * returns the legal name ("… Inc.") that belongs on the PDF itself.
  */
 const brand = () => activeTenantConfig().profile?.shortName || "";
+
+/**
+ * Greeting name for customer emails.
+ * Companies keep the full name (e.g. "419 Kingston Realty");
+ * people can use personName when set, else full customer string.
+ */
+export function docEmailGreetingName(job) {
+  const company = s(job?.businessName);
+  const customer = s(job?.customer);
+  const person = s(job?.personName);
+  // Prefer business/company name when present
+  if (company) return company;
+  if (customer) return customer;
+  if (person) return person;
+  return "there";
+}
+
+/** Work / scope line for "Your invoice #… for X — $Y is ready." */
+export function docEmailWorkLabel(job) {
+  const title = s(job?.title || job?.serviceType);
+  if (isChangeOrderJob(job)) {
+    if (title && /change\s*ord/i.test(title)) return title;
+    return "Change order";
+  }
+  return title || "your electrical work";
+}
 
 /** Default subject for invoice/estimate customer email. */
 export function defaultDocEmailSubject(job, kind, { withPay = false } = {}) {
@@ -25,30 +52,27 @@ export function defaultDocEmailSubject(job, kind, { withPay = false } = {}) {
 
 /** Default body for invoice/estimate customer email. */
 export function defaultDocEmailBody(job, kind, { withPay = false, payUrl = "" } = {}) {
-  const first = s(job?.customer).split(" ")[0] || "there";
+  const greet = docEmailGreetingName(job);
   const no = kind === "invoice" ? s(job?.invoiceNo) : s(job?.estimateNo);
-  const work = s(job?.title || job?.serviceType || "your electrical work") || "your electrical work";
+  const work = docEmailWorkLabel(job);
   const label = kind === "estimate" ? "estimate" : "invoice";
+  const total = kind === "invoice" ? openBalance(job) || invoiceTotal(job) : invoiceTotal(job);
+  const amtPart = total > 0 ? ` — ${fmt$(total)}` : "";
   const lines = [
-    `Hi ${first},`,
+    `Hi ${greet},`,
     "",
-    `Your ${label}${no ? " #" + no : ""} for ${work} is ready.`,
-    "",
+    `Your ${label}${no ? " #" + no : ""} for ${work}${amtPart} is ready.`,
   ];
-  if (kind === "invoice") {
-    const total = invoiceTotal(job);
-    const due = openBalance(job);
-    if (total > 0) lines.push(`Invoice total: ${fmt$(total)}`);
-    if (due > 0.01) lines.push(`Balance due: ${fmt$(due)}`);
-    if (total > 0 || due > 0.01) lines.push("");
-  }
-  if (withPay && payUrl) {
-    lines.push("Pay securely online:", payUrl, "");
-  } else if (withPay) {
-    lines.push("A secure payment link is included with this email.", "");
+  // Single combined line — no separate invoice-total / balance-due block.
+  if (kind === "invoice" && (withPay || payUrl)) {
+    lines.push("The PDF is attached. A secure payment link is included with this email.");
+  } else if (withPay && payUrl) {
+    lines.push("", "Pay securely online:", payUrl);
+    lines.push("The PDF is attached.");
+  } else {
+    lines.push("The PDF is attached.");
   }
   lines.push(
-    "The PDF is attached.",
     "",
     "Questions? Reply to this email or call us anytime.",
     "",

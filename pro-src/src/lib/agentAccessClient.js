@@ -42,6 +42,11 @@ export async function mintAgentAccess({ ttlMs, scope, label } = {}) {
   return post({ op: "mint", ttlMs, scope, label });
 }
 
+/** Extend the current grant by +ttlMs (same code). Optionally update scope. */
+export async function extendAgentAccess({ ttlMs, scope } = {}) {
+  return post({ op: "extend", ttlMs, scope });
+}
+
 export async function redeemAgentAccess(code, { label } = {}) {
   return post({ op: "redeem", code, label: label || "agent" });
 }

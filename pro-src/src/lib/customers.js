@@ -14,11 +14,14 @@ import { serviceAddressesExcludingBilling } from "./addressSync.js";
 import { fmt$, parseAmount } from "./format.js";
 import { normalizePayments, remainingBalance, totalPaid, amountOwedAtStart } from "./payments.js";
 
-/** Open balance for a job = the amount still owed.
- *  Priority: explicit job.openBalance -> a "balance: $X" / "owes $X" figure in
- *  notes or the follow-up text -> the job.amount when unpaid. Paid jobs with no
- *  explicit remainder are 0. Used for the customer-group "total balance due". */
-export function openBalance(job) {
+/** True when a job is an actual invoice (has an invoice #). Estimates/leads are not. */
+export function isInvoiceJob(job) {
+  return !!(job && String(job.invoiceNo || "").trim());
+}
+
+/** Raw amount-owed for a job IGNORING the invoice gate. Used ONLY as a sort /
+ *  magnitude proxy so ranking is unchanged — NEVER as a displayed balance due. */
+export function rawBalance(job) {
   if (!job) return 0;
   const pays = normalizePayments(job);
   if (pays.length) return remainingBalance(job, pays);
@@ -27,6 +30,63 @@ export function openBalance(job) {
   const m = hay.match(/(?:open\s*balance|balance\s*due|balance|owes?|remaining|still\s*owes?)\D{0,8}\$?\s*([\d,]+(?:\.\d+)?)/i);
   if (m) return parseAmount(m[1]);
   return job.paid ? 0 : parseAmount(job.amount);
+}
+
+/** Open balance for a job = amount still owed on an INVOICE only.
+ *  HARD RULE (Levi): estimates/leads never count toward balance due. */
+export function openBalance(job) {
+  if (!job) return 0;
+  if (!isInvoiceJob(job)) return 0;
+  return rawBalance(job);
+}
+
+/** Days since invoice date (0 if unknown). Used for aging stripe color. */
+export function invoiceAgeDays(job, nowMs = Date.now()) {
+  if (!job) return 0;
+  const raw =
+    job.invoiceDate ||
+    job.txnDate ||
+    job.date ||
+    (job.status && job.status.Invoiced && job.status.Invoiced.d) ||
+    "";
+  const t = Date.parse(String(raw).slice(0, 10));
+  if (!Number.isFinite(t)) return 0;
+  return Math.max(0, Math.floor((nowMs - t) / 86_400_000));
+}
+
+/** Red shade for open balance aging: older → darker red. Zero due → neutral. */
+export function agingStripeColor(days, due = 1) {
+  if (!(due > 0)) return "#cbd5e1"; // slate-300 — zero / closed
+  if (days >= 120) return "#7f1d1d"; // very dark red
+  if (days >= 90) return "#991b1b";
+  if (days >= 60) return "#dc2626";
+  if (days >= 30) return "#f87171";
+  return "#fca5a5"; // light red under 30 days
+}
+
+/** Oldest open-invoice age (days) across jobs — for card bottom stripe. */
+export function oldestOpenInvoiceAgeDays(jobs, nowMs = Date.now()) {
+  let max = 0;
+  let any = false;
+  for (const j of jobs || []) {
+    const due = openBalance(j);
+    if (!(due > 0)) continue;
+    any = true;
+    max = Math.max(max, invoiceAgeDays(j, nowMs));
+  }
+  return any ? max : null;
+}
+
+/** Group jobs by service address for list expand. */
+export function groupJobsByServiceAddress(jobs) {
+  const map = new Map();
+  for (const j of jobs || []) {
+    const addr =
+      String(j.serviceAddress || j.address || j.location || "").trim() || "No service address";
+    if (!map.has(addr)) map.set(addr, []);
+    map.get(addr).push(j);
+  }
+  return [...map.entries()].map(([address, list]) => ({ address, jobs: list }));
 }
 
 /** Sum of open balances across a customer's jobs. */
@@ -50,6 +110,10 @@ export function invoiceTotal(job) {
 /** Amount paid so far (invoice total minus open balance, or full amount when paid). */
 export function amountPaid(job) {
   if (!job) return 0;
+  // Estimates never carry payments in any balance sense — and since their
+  // openBalance is now $0, the `total - due` inference below would wrongly
+  // report the whole estimate as "paid". Gate on being an actual invoice.
+  if (!isInvoiceJob(job)) return 0;
   const pays = normalizePayments(job);
   if (pays.length) return totalPaid(pays);
   const total = invoiceTotal(job);
@@ -71,8 +135,12 @@ export function paidPct(job) {
 /** Customer-group totals for the Jobs list header. */
 export function customerAmountSummary(jobs) {
   const list = jobs || [];
-  const invoiced = list.reduce((s, j) => s + invoiceTotal(j), 0);
-  const paid = list.reduce((s, j) => s + amountPaid(j), 0);
+  // Estimates are never counted in any form: invoiced/paid/due sum over
+  // actual invoices only. (Estimate rows still show their own amount on their
+  // row, but they contribute $0 to a customer's money totals.)
+  const invoices = list.filter(isInvoiceJob);
+  const invoiced = invoices.reduce((s, j) => s + invoiceTotal(j), 0);
+  const paid = invoices.reduce((s, j) => s + amountPaid(j), 0);
   const due = totalBalanceDue(list);
   const openInvoices = list.filter((j) => !j.paid && openBalance(j) > 0).length;
   return { due, invoiced, paid, openInvoices, jobCount: list.length };

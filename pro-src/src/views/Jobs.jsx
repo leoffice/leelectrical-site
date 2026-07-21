@@ -19,11 +19,14 @@ import {
   sortJobs,
 } from "../lib/stages.js";
 import {
+  agingStripeColor,
   customerAmountSummary,
   customerContact,
   customerNameMatches,
   fmtAmountDue,
+  groupJobsByServiceAddress,
   normalizeCustomer,
+  oldestOpenInvoiceAgeDays,
   openBalance,
   unknownCustomers,
   customerKeyForImport,
@@ -68,6 +71,12 @@ function customerMetaLine(sum) {
 }
 
 function singleJobMetaLine(job) {
+  // Estimates never read as "invoiced" — only real invoices.
+  if (!String(job?.invoiceNo || "").trim()) {
+    if (job?.estimateNo) return `Est #${job.estimateNo}`;
+    const total = parseAmount(job?.amount);
+    return total ? `${fmt$(total)} quoted` : "";
+  }
   const total = parseAmount(job.amount);
   if (!total) return "";
   if (job.paid) return `${fmt$(total)} invoiced`;
@@ -89,6 +98,86 @@ function AttentionGradient({ show }) {
       data-testid="needs-attention-gradient"
       aria-hidden
     />
+  );
+}
+
+/** Aging stripe on the card bottom — older open balance = darker red. */
+function AgingBottomStripe({ jobs }) {
+  const age = oldestOpenInvoiceAgeDays(jobs);
+  if (age == null) {
+    return (
+      <div
+        className="pointer-events-none absolute inset-x-0 bottom-0 h-0.5 bg-slate-200 rounded-b-[inherit]"
+        data-testid="aging-stripe-zero"
+        aria-hidden
+      />
+    );
+  }
+  const color = agingStripeColor(age, 1);
+  return (
+    <div
+      className="pointer-events-none absolute inset-x-0 bottom-0 h-1 rounded-b-[inherit]"
+      style={{ backgroundColor: color }}
+      data-testid="aging-stripe"
+      data-age-days={String(age)}
+      aria-hidden
+    />
+  );
+}
+
+/** Expanded customer body: service addresses → open invoices → billing (tap → customer info). */
+function CustomerExpandPanel({ jobs, onOpenCustomer, openInvoicesOnly = false }) {
+  const contact = customerContact(jobs);
+  const billing = String(contact.billingAddress || "").trim();
+  const groups = groupJobsByServiceAddress(jobs);
+  const openGroups = groups
+    .map((g) => ({
+      ...g,
+      openJobs: g.jobs.filter((j) => openBalance(j) > 0),
+      otherJobs: openInvoicesOnly ? [] : g.jobs.filter((j) => !(openBalance(j) > 0)),
+    }))
+    .filter((g) => (openInvoicesOnly ? g.openJobs.length : g.jobs.length));
+
+  return (
+    <div className="px-2.5 pb-2.5 space-y-2 bg-slate-50/60 border-t border-slate-100 pt-2" data-testid="customer-expand-panel">
+      {openGroups.length ? (
+        openGroups.map((g) => (
+          <div key={g.address} className="space-y-1" data-testid="expand-service-block">
+            <div className="text-[10px] font-extrabold text-slate-500 uppercase tracking-wider px-0.5">
+              Service
+            </div>
+            <div className="text-[11px] font-semibold text-slate-700 px-0.5 leading-snug break-words">
+              {g.address}
+            </div>
+            <div className="space-y-1">
+              {g.openJobs.map((j) => (
+                <GroupJobRow key={j.id} job={j} openInvoiceOnly />
+              ))}
+              {!openInvoicesOnly &&
+                g.otherJobs.map((j) => (
+                  <GroupJobRow key={j.id} job={j} />
+                ))}
+            </div>
+          </div>
+        ))
+      ) : (
+        <div className="text-[11px] text-slate-400 px-0.5" data-testid="expand-no-open">
+          {openInvoicesOnly ? "No open invoices" : "No jobs at this address"}
+        </div>
+      )}
+      <button
+        type="button"
+        className="w-full text-left rounded-xl bg-white border border-slate-200 px-3 py-2 active:bg-slate-50"
+        data-testid="expand-billing-box"
+        onClick={onOpenCustomer}
+      >
+        <div className="text-[10px] font-extrabold text-slate-500 uppercase tracking-wider">Billing address</div>
+        <div className="text-[11px] font-semibold text-slate-800 mt-0.5 break-words leading-snug">
+          {billing || "No billing on file — tap for customer info"}
+        </div>
+        <div className="text-[10px] text-brand font-semibold mt-1">Customer information ›</div>
+      </button>
+    </div>
   );
 }
 
@@ -858,6 +947,7 @@ export default function Jobs({ embedded, collapseGroups = false, activeJobId = "
             return (
               <div key={row.key} className={`card relative overflow-hidden ${syncCardClass}`} data-testid="parent-customer-group">
                 <AttentionGradient show={needsAttention} />
+                <AgingBottomStripe jobs={row.jobs} />
                 <button
                   type="button"
                   className="w-full px-3 py-2.5 lg:px-4 lg:py-3 text-left active:opacity-90"
@@ -898,21 +988,52 @@ export default function Jobs({ embedded, collapseGroups = false, activeJobId = "
                     onPointerDown={() => armCollapse(row.key, PARENT_SUB_COLLAPSE_MS)}
                     data-testid="parent-sub-list"
                   >
-                    {visibleSubs.map((sub) => (
-                      <button
-                        key={sub.key}
-                        type="button"
-                        className="w-full text-left rounded-lg bg-white border border-slate-100 px-3 py-2 active:bg-slate-50"
-                        data-testid="sub-customer-row"
-                        onClick={() => openCustomer(sub.key, sub.jobs)}
-                      >
-                        <div className="flex items-center justify-between gap-2">
-                          <span className="text-sm font-semibold text-slate-800 truncate">{sub.name}</span>
-                          <span className="text-sm font-semibold tabular-nums shrink-0">{fmt$(sub.summary.due) || "$0"}</span>
+                    {visibleSubs.map((sub) => {
+                      const subOpen = !!open[sub.key];
+                      return (
+                        <div key={sub.key} className="rounded-lg bg-white border border-slate-100 overflow-hidden" data-testid="sub-customer-row">
+                          <button
+                            type="button"
+                            className="w-full text-left px-3 py-2 active:bg-slate-50"
+                            onClick={() => {
+                              if (subOpen) openCustomer(sub.key, sub.jobs);
+                              else toggleGroup(sub.key, PARENT_SUB_COLLAPSE_MS);
+                            }}
+                          >
+                            <div className="flex items-center justify-between gap-2">
+                              <span className="text-sm font-semibold text-slate-800 truncate">{sub.name}</span>
+                              <span className="text-sm font-semibold tabular-nums shrink-0 flex items-center gap-1">
+                                {fmt$(sub.summary.due) || "$0"}
+                                <span className={`inline-block text-slate-400 transition-transform ${subOpen ? "rotate-180" : ""}`}>▾</span>
+                              </span>
+                            </div>
+                            <div className="text-[10px] text-slate-400 mt-0.5">{customerMetaLine(sub.summary)}</div>
+                          </button>
+                          {subOpen ? (
+                            <div onPointerDown={() => armCollapse(sub.key, PARENT_SUB_COLLAPSE_MS)}>
+                              <CustomerExpandPanel
+                                jobs={sub.jobs}
+                                openInvoicesOnly
+                                onOpenCustomer={() => openCustomer(sub.key, sub.jobs)}
+                              />
+                            </div>
+                          ) : null}
                         </div>
-                        <div className="text-[10px] text-slate-400 mt-0.5">{customerMetaLine(sub.summary)}</div>
-                      </button>
-                    ))}
+                      );
+                    })}
+                    <button
+                      type="button"
+                      className="w-full text-left rounded-xl bg-white border border-slate-200 px-3 py-2 active:bg-slate-50"
+                      data-testid="expand-billing-box"
+                      onClick={() => openCustomer(row.key, row.jobs)}
+                    >
+                      <div className="text-[10px] font-extrabold text-slate-500 uppercase tracking-wider">Billing address</div>
+                      <div className="text-[11px] font-semibold text-slate-800 mt-0.5 break-words leading-snug">
+                        {String(customerContact(row.jobs).billingAddress || "").trim() ||
+                          "No billing on file — tap for customer info"}
+                      </div>
+                      <div className="text-[10px] text-brand font-semibold mt-1">Customer information ›</div>
+                    </button>
                   </div>
                 )}
               </div>
@@ -942,6 +1063,7 @@ export default function Jobs({ embedded, collapseGroups = false, activeJobId = "
                   onClick={goCustomer}
                 >
                   <AttentionGradient show={needsAttention} />
+                  <AgingBottomStripe jobs={list} />
                   <ClientListHeader
                     headless
                     name={customerName}
@@ -971,6 +1093,7 @@ export default function Jobs({ embedded, collapseGroups = false, activeJobId = "
             return (
               <div key={key} className={`card relative overflow-hidden ${syncCardClass}`} data-testid="client-group">
                 <AttentionGradient show={needsAttention} />
+                <AgingBottomStripe jobs={list} />
                 <div className={`w-full px-3 py-2.5 ${embedded ? "" : "lg:px-4 lg:py-3"}`}>
                   <ClientListHeader
                     name={customerName}
@@ -995,13 +1118,11 @@ export default function Jobs({ embedded, collapseGroups = false, activeJobId = "
                   />
                 </div>
                 {groupExpanded(key) && (
-                  <div
-                    className="px-2.5 pb-2.5 space-y-1.5 bg-slate-50/60 border-t border-slate-100 pt-2"
-                    onPointerDown={() => armCollapse(key)}
-                  >
-                    {expandJobs(list).map((j) => (
-                      <GroupJobRow key={j.id} job={j} />
-                    ))}
+                  <div onPointerDown={() => armCollapse(key)}>
+                    <CustomerExpandPanel
+                      jobs={expandJobs(list)}
+                      onOpenCustomer={() => openCustomer(key, list)}
+                    />
                   </div>
                 )}
               </div>

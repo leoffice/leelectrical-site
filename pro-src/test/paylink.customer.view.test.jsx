@@ -110,7 +110,7 @@ describe("Feature 2 — customer group total due + Customer view", () => {
   const jobs = () => [
     job("K-1", "Meir Kabakov", "Panel swap", "$1,000", { invoiceNo: "1001", email: "meir@x.com", phone: "555-1" }),
     job("K-2", "meir kabakov ", "EV charger", "$900", { paid: true }), // paid -> 0 balance
-    job("K-3", "Meir Kabakov.", "Service", "$300"), // folds into the same group
+    job("K-3", "Meir Kabakov.", "Service", "$300", { invoiceNo: "1003" }), // folds into the same group
   ];
 
   beforeEach(() => mockServer({ jobs: jobs() }));

@@ -120,6 +120,9 @@ describe("change order detection", () => {
     expect(isChangeOrderJob({ id: "x", title: "Change order — $120" })).toBe(true);
     expect(isChangeOrderJob({ id: "x", invoiceNo: "251100-CO-2" })).toBe(true);
     expect(isChangeOrderJob(BASE)).toBe(false);
+    // Explicit toggle-off wins over title / doc-number heuristics
+    expect(isChangeOrderJob({ id: "x", title: "Change order — $120", changeOrder: false })).toBe(false);
+    expect(isChangeOrderJob({ id: "x", invoiceNo: "251100-CO-2", changeOrder: false })).toBe(false);
   });
 
   it("detects CO from QuickBooks CO / PI custom field", () => {

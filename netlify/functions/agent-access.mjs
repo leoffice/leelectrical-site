@@ -4,6 +4,7 @@ import {
   DOC_KEY,
   emptyDoc,
   endSession,
+  extendGrant,
   mintGrant,
   publicGrant,
   redeemGrant,
@@ -14,7 +15,7 @@ import {
 
 /**
  * Agent access grants (time-boxed one-time codes).
- * GET  → status · POST → { op: mint|redeem|revoke|end|status }
+ * GET  → status · POST → { op: mint|extend|redeem|revoke|end|status }
  */
 function json(o, status = 200) {
   return new Response(JSON.stringify(o), {
@@ -81,6 +82,22 @@ export default async (req) => {
       grant,
       audit: (next.audit || []).slice(0, 40),
       message: "Show this code once — it expires automatically.",
+    });
+  }
+
+  if (op === "extend" || op === "refresh") {
+    const result = extendGrant(doc, {
+      ttlMs: body.ttlMs,
+      scope: body.scope,
+    });
+    await save(store, result.doc);
+    if (!result.ok) return json({ ok: false, error: result.error }, 400);
+    return json({
+      ok: true,
+      grant: result.grant,
+      extendedMs: result.extendedMs,
+      audit: (result.doc.audit || []).slice(0, 40),
+      message: "Access extended — same code, more time.",
     });
   }
 

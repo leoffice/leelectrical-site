@@ -172,6 +172,57 @@ export function mintGrant(doc, { ttlMs, scope, label } = {}, now = Date.now()) {
   return { doc: next, code: formatCode(code), grant: publicGrant(grant, now) };
 }
 
+/**
+ * Extend the current grant by +ttlMs (same code / same session).
+ * Remaining time is preserved and the chosen duration is added on top.
+ * Scope can be updated. Fails if there is no active grant.
+ */
+export function extendGrant(doc, { ttlMs, scope } = {}, now = Date.now()) {
+  let next = refreshGrantState(doc, now);
+  const g = next.activeGrant;
+  if (!g) {
+    return {
+      ok: false,
+      error: "No active access code to extend. Grant a new one first.",
+      doc: next,
+    };
+  }
+  const add = clampTtlMs(ttlMs);
+  const sc = scope != null && scope !== "" ? normalizeScope(scope) : g.scope;
+  const base = Math.max(Number(g.expiresAt) || now, now);
+  const newExpires = base + add;
+  const updated = {
+    ...g,
+    scope: sc,
+    ttlMs: add,
+    expiresAt: newExpires,
+    session:
+      g.session && g.session.expiresAt
+        ? {
+            ...g.session,
+            // Keep session clock in lockstep with the grant expiry.
+            expiresAt: newExpires,
+          }
+        : g.session || null,
+  };
+  const mins = Math.round(add / 60000);
+  next = pushAudit(
+    { ...next, activeGrant: updated },
+    {
+      type: "extend",
+      grantId: g.id,
+      scope: sc,
+      note: `Extended +${mins} min · same code`,
+    }
+  );
+  return {
+    ok: true,
+    doc: next,
+    grant: publicGrant(updated, now),
+    extendedMs: add,
+  };
+}
+
 export function redeemGrant(doc, code, { label } = {}, now = Date.now()) {
   let next = refreshGrantState(doc, now);
   const g = next.activeGrant;

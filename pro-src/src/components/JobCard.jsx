@@ -1,6 +1,8 @@
 import React from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { isPaid, nextAction, progressPct, stageOf } from "../lib/stages.js";
+import { agingStripeColor, invoiceAgeDays, openBalance } from "../lib/customers.js";
+import { fmt$ } from "../lib/format.js";
 import AmountDisplay from "./AmountDisplay.jsx";
 
 export function StagePill({ job }) {
@@ -41,21 +43,50 @@ export function CustomerAvatar({ name, className = "" }) {
   );
 }
 
-/** One job inside an expanded customer group — short row, no progress bar. */
-export function GroupJobRow({ job }) {
+/** One job inside an expanded customer group — short row, no progress bar.
+ *  Open invoices get a vertical aging rail (older = darker red). */
+export function GroupJobRow({ job, openInvoiceOnly = false }) {
   const href = `/job/${encodeURIComponent(job.id)}`;
   const cur = stageOf(job);
+  const due = openBalance(job);
+  const isOpenInv = due > 0;
+  if (openInvoiceOnly && !isOpenInv) return null;
+  const age = isOpenInv ? invoiceAgeDays(job) : 0;
+  const rail = isOpenInv ? agingStripeColor(age, due) : "transparent";
+  const title = job.title || "(untitled job)";
+  const docBit = job.invoiceNo
+    ? `Inv #${job.invoiceNo}`
+    : job.estimateNo
+      ? `Est #${job.estimateNo}`
+      : "";
+  const sub = [
+    isOpenInv ? `${fmt$(due)} due` : null,
+    isOpenInv && age >= 30 ? `${age}d` : cur,
+    docBit,
+  ]
+    .filter(Boolean)
+    .join(" · ");
   return (
     <Link
       to={href}
-      className="flex items-center gap-2 rounded-xl bg-white border border-slate-100 px-2.5 py-2 active:bg-slate-50"
+      className="flex items-stretch gap-0 rounded-xl bg-white border border-slate-100 overflow-hidden active:bg-slate-50"
       data-testid="group-job-row"
+      data-open-invoice={isOpenInv ? "1" : "0"}
+      data-age-days={isOpenInv ? String(age) : undefined}
     >
-      <div className="min-w-0 flex-1">
-        <div className="text-xs font-semibold text-slate-900 truncate">{job.title || "(untitled job)"}</div>
-        <div className="text-[10px] text-slate-500 truncate mt-0.5">{cur}</div>
+      <span
+        className="w-1.5 shrink-0 self-stretch"
+        style={{ backgroundColor: rail }}
+        data-testid="invoice-aging-rail"
+        aria-hidden
+      />
+      <div className="flex items-center gap-2 min-w-0 flex-1 px-2.5 py-2">
+        <div className="min-w-0 flex-1">
+          <div className="text-xs font-semibold text-slate-900 truncate">{title}</div>
+          <div className="text-[10px] text-slate-500 truncate mt-0.5">{sub}</div>
+        </div>
+        <AmountDisplay job={job} size="sm" showSub={false} />
       </div>
-      <AmountDisplay job={job} size="sm" showSub={false} />
     </Link>
   );
 }

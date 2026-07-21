@@ -34,107 +34,33 @@ import {
   dueFromContract,
   isProgressBillingContext,
   progressPctFromLines,
+  roundQty,
 } from "../lib/progressBilling.js";
 import { RECUR_INTERVALS, defaultRecurringState } from "../lib/recurringBilling.js";
 import { resumeFollowUpPrompts } from "../lib/calendarNavigate.js";
 
-function ProgressBillingPanel({ job, lines, contractAmount, adjustMode, progressPct, amountDue, onContractChange, onModeChange, onPctChange, onDueChange }) {
-  const contract = parseAmount(contractAmount) || contractTotalForJob(job) || linesTotal(job.estimateLines) || 0;
-  const billed = linesTotal(lines);
-  const pct = progressPctFromLines(lines, contract) || parseAmount(progressPct);
-
-  return (
-    <div className="card px-3 py-3 mb-3 border-amber-200 bg-amber-50/60" data-testid="progress-billing-panel">
-      <p className="text-[11px] font-bold uppercase tracking-wide text-amber-700 mb-1">Progress invoice</p>
-      <p className="text-xs text-slate-600 mb-3">
-        {job.estimateNo
-          ? "Linked to estimate #" + job.estimateNo + ". "
-          : "Partial billing on a project — matches QuickBooks quantity × rate. "}
-        {contract > 0 && billed < contract
-          ? "Billing " + fmt$(billed) + " of " + fmt$(contract) + " (" + pct + "%)."
-          : contract > 0
-          ? "Full contract " + fmt$(contract) + "."
-          : "Enter the full contract amount below."}
-      </p>
-
-      <Fld label="Full contract amount" hint="Total estimate / project value in QuickBooks">
-        <input
-          className="input"
-          inputMode="decimal"
-          value={contractAmount}
-          onChange={(e) => onContractChange(e.target.value)}
-          placeholder={contract > 0 ? String(contract) : "e.g. 46000"}
-          aria-label="Full contract amount"
-          data-testid="progress-contract-amount"
-          disabled={!!job.estimateLines?.length && !job.contractAmount}
-        />
-      </Fld>
-
-      <div className="flex gap-2 mt-3 mb-2">
-        <button
-          type="button"
-          className={"flex-1 py-2 rounded-xl text-xs font-bold " + (adjustMode === "pct" ? "bg-brand text-white" : "bg-white border border-slate-200 text-slate-600")}
-          onClick={() => onModeChange("pct")}
-          data-testid="progress-mode-pct"
-        >
-          % of contract
-        </button>
-        <button
-          type="button"
-          className={"flex-1 py-2 rounded-xl text-xs font-bold " + (adjustMode === "amount" ? "bg-brand text-white" : "bg-white border border-slate-200 text-slate-600")}
-          onClick={() => onModeChange("amount")}
-          data-testid="progress-mode-amount"
-        >
-          Dollar amount
-        </button>
-      </div>
-
-      {adjustMode === "pct" ? (
-        <div className="space-y-2">
-          <Fld label="Progress percent">
-            <div className="flex items-center gap-2">
-              <input
-                className="input flex-1"
-                inputMode="decimal"
-                value={progressPct}
-                onChange={(e) => onPctChange(e.target.value)}
-                aria-label="Progress percent"
-                data-testid="progress-pct-edit"
-              />
-              <span className="text-sm font-bold text-slate-600">%</span>
-            </div>
-          </Fld>
-          <input
-            type="range"
-            min={1}
-            max={100}
-            value={Math.min(100, Math.max(1, parseAmount(progressPct) || pct || 50))}
-            onChange={(e) => onPctChange(e.target.value)}
-            className="w-full"
-            aria-label="Progress percent slider"
-          />
-          <p className="text-xs text-slate-500">Due on this invoice: {fmt$(dueFromContract(contract, progressPct || pct))}</p>
-        </div>
-      ) : (
-        <Fld label="Amount due on this invoice" hint="What this progress invoice bills">
-          <input
-            className="input"
-            inputMode="decimal"
-            value={amountDue}
-            onChange={(e) => onDueChange(e.target.value)}
-            aria-label="Amount due on invoice"
-            data-testid="progress-amount-due"
-          />
-        </Fld>
-      )}
-    </div>
-  );
-}
-
-function LineRow({ line, index, items, onChange, onRemove, canRemove, progressMode }) {
+/** Line-level progress: compact Progress field before Rate, with % / $ toggle. */
+function LineRow({
+  line,
+  index,
+  items,
+  onChange,
+  onRemove,
+  canRemove,
+  progressMode,
+  adjustMode,
+  onAdjustModeChange,
+  onLineProgress,
+}) {
   const [itemQ, setItemQ] = useState(line.itemName || "");
   const [open, setOpen] = useState(false);
   const picks = useMemo(() => filterQboItems(items, itemQ), [items, itemQ]);
+  const rate = parseAmount(line.unitPrice) || 0;
+  const qty = parseAmount(line.qty) || 0;
+  const due = lineAmount(line);
+  // Progress % from fractional qty (QBO style: full rate × progress qty).
+  const linePct = rate > 0 && qty > 0 ? Math.round(qty * 10000) / 100 : qty * 100;
+  const progressDisplay = adjustMode === "pct" ? String(linePct || "") : String(due || "");
 
   const pick = (it) => {
     onChange(index, {
@@ -205,6 +131,30 @@ function LineRow({ line, index, items, onChange, onRemove, canRemove, progressMo
         showPolish={false}
       />
       <div className={"flex gap-2 items-end " + (progressMode ? "flex-wrap" : "")}>
+        {progressMode ? (
+          <div className="flex items-end gap-1 shrink-0" data-testid={"doc-line-progress-" + (index + 1)}>
+            <Fld label="Progress">
+              <input
+                className="input !w-[4.25rem] !px-1.5 text-center text-sm"
+                inputMode="decimal"
+                value={progressDisplay}
+                onChange={(e) => onLineProgress && onLineProgress(index, e.target.value)}
+                aria-label={"Progress line " + (index + 1)}
+                data-testid={"progress-line-edit-" + (index + 1)}
+              />
+            </Fld>
+            <button
+              type="button"
+              className="mb-0.5 h-9 min-w-[2.25rem] px-1.5 rounded-lg border border-slate-200 bg-white text-[11px] font-extrabold text-slate-700"
+              onClick={() => onAdjustModeChange && onAdjustModeChange(adjustMode === "pct" ? "amount" : "pct")}
+              aria-label={adjustMode === "pct" ? "Switch progress to dollars" : "Switch progress to percent"}
+              data-testid={"progress-mode-toggle-" + (index + 1)}
+              title={adjustMode === "pct" ? "Showing percent — tap for $" : "Showing dollars — tap for %"}
+            >
+              {adjustMode === "pct" ? "%" : "$"}
+            </button>
+          </div>
+        ) : null}
         <Fld label={progressMode ? "Rate (full)" : "Rate"}>
           <input
             className="input"
@@ -226,7 +176,7 @@ function LineRow({ line, index, items, onChange, onRemove, canRemove, progressMo
         {progressMode ? (
           <Fld label="Due">
             <div className="input bg-slate-50 text-slate-700 font-semibold" aria-label={"Due line " + (index + 1)}>
-              {fmt$(lineAmount(line))}
+              {fmt$(due)}
             </div>
           </Fld>
         ) : (
@@ -387,17 +337,18 @@ export default function DocBuilderSheet({
   });
   const showRecurring = kind === "invoice" && mode !== "edit";
   const [recurring, setRecurring] = useState(() => defaultRecurringState(job));
-  // Toggle to mark this new invoice/estimate as a change order (CO) at the address.
-  const alreadyCo = isChangeOrderJob(jobProp || job);
-  const [asChangeOrder, setAsChangeOrder] = useState(() => alreadyCo);
+  // Toggle to mark this invoice/estimate as a change order (CO) — enable or disable anytime.
+  const alreadyCo = isChangeOrderJob(job);
+  const [asChangeOrder, setAsChangeOrder] = useState(() => isChangeOrderJob(jobProp || job));
+  useEffect(() => {
+    setAsChangeOrder(isChangeOrderJob(job));
+  }, [job.changeOrder, job.changeOrderSeq, job.changeOrderLabel, job.title, job.invoiceNo, job.estimateNo]);
   const coSource = useMemo(
     () => bestChangeOrderSource(boardJobs, job) || job,
     [boardJobs, job]
   );
-  const canToggleCo =
-    mode !== "edit" &&
-    !alreadyCo &&
-    !!(coSource?.invoiceNo || coSource?.estimateNo || coSource?.id);
+  // Always allow flip on/off when we have a job context (create or edit).
+  const canToggleCo = !!(job?.id || coSource?.invoiceNo || coSource?.estimateNo || coSource?.id || alreadyCo || asChangeOrder);
   const coPreview =
     asChangeOrder || alreadyCo
       ? preferredChangeOrderDocNo(
@@ -452,15 +403,21 @@ export default function DocBuilderSheet({
     if (!canToggleCo) return;
     setAsChangeOrder(!!on);
     if (on) {
-      if (!canAddChangeOrder(boardJobs, coSource)) {
+      // Turning on a brand-new CO: block if another unfinished CO is open.
+      // Re-enabling or editing an existing CO always allowed.
+      if (!alreadyCo && !canAddChangeOrder(boardJobs, coSource)) {
         showToast("Finish the open change order first — save, email, and confirm in QuickBooks");
         setAsChangeOrder(false);
         return;
       }
-      const seq = nextChangeOrderSeq(boardJobs, coSource, kind);
+      const seq =
+        Number(job.changeOrderSeq) > 0
+          ? Number(job.changeOrderSeq)
+          : nextChangeOrderSeq(boardJobs, coSource, kind);
       const patch = tagChangeOrderPatch(job, coSource, seq, kind);
       patchJobState(patch);
     } else {
+      // Explicit false so heuristics (title / CO in doc #) do not re-force it on.
       patchJobState({
         changeOrder: false,
         changeOrderKind: "",
@@ -500,18 +457,36 @@ export default function DocBuilderSheet({
     [contractAmount, contractLines, job]
   );
 
-  const onContractChange = useCallback(
-    (val) => {
-      setContractAmount(val);
-      const contract = parseAmount(val);
-      if (!contract) return;
+  /** Per-line progress: % sets fractional qty; $ sets qty = due / full rate. */
+  const onLineProgress = useCallback(
+    (index, raw) => {
+      const val = parseAmount(raw);
+      setLines((rows) =>
+        rows.map((ln, i) => {
+          if (i !== index) return ln;
+          const rate = parseAmount(ln.unitPrice) || 0;
+          if (adjustMode === "pct") {
+            const pct = Math.min(100, Math.max(0, val));
+            setProgressPctEdit(String(pct));
+            return {
+              ...ln,
+              qty: roundQty(pct / 100),
+              progressBilling: pct < 99.99,
+            };
+          }
+          if (!rate) return { ...ln, unitPrice: val, qty: 1, progressBilling: true };
+          const qty = roundQty(val / rate);
+          setAmountDueEdit(String(val));
+          return { ...ln, qty, progressBilling: qty < 0.9999 };
+        })
+      );
       if (adjustMode === "pct") {
-        applyProgressPct(progressPctEdit);
+        setProgressPctEdit(String(val));
       } else {
-        applyDueAmount(amountDueEdit);
+        setAmountDueEdit(String(raw));
       }
     },
-    [adjustMode, amountDueEdit, applyDueAmount, applyProgressPct, progressPctEdit]
+    [adjustMode]
   );
 
   const onPickDocFile = async (e) => {
@@ -637,6 +612,16 @@ export default function DocBuilderSheet({
   };
 
   const coTagsFromJob = (j) => {
+    // Persist explicit off so save doesn't re-tag from title/doc heuristics.
+    if (j?.changeOrder === false) {
+      return {
+        changeOrder: false,
+        changeOrderKind: "",
+        changeOrderSourceId: "",
+        changeOrderSeq: 0,
+        changeOrderLabel: "",
+      };
+    }
     if (!j?.changeOrder && !isChangeOrderJob(j)) return {};
     return {
       changeOrder: true,
@@ -1030,35 +1015,27 @@ export default function DocBuilderSheet({
               {asChangeOrder || alreadyCo
                 ? coPreview
                   ? "Number will be " + coPreview
-                  : "Tagged as a change order"
+                  : "Tagged as a change order — turn off anytime"
                 : "Turn on so this bill uses the original invoice number + -CO-"}
             </div>
           </div>
           <Toggle
-            on={asChangeOrder || alreadyCo}
-            onChange={alreadyCo ? undefined : applyCoToggle}
+            on={!!(asChangeOrder || alreadyCo)}
+            onChange={applyCoToggle}
             label="Change order"
             small
           />
         </div>
       ) : null}
 
-      {progressMode ? (
-        <ProgressBillingPanel
-          job={job}
-          lines={lines}
-          contractAmount={contractAmount}
-          adjustMode={adjustMode}
-          progressPct={progressPctEdit}
-          amountDue={amountDueEdit}
-          onContractChange={onContractChange}
-          onModeChange={setAdjustMode}
-          onPctChange={(v) => applyProgressPct(v)}
-          onDueChange={(v) => applyDueAmount(v)}
-        />
-      ) : null}
-
-      <p className="text-[11px] font-bold uppercase tracking-wide text-slate-400 mt-2 mb-2">Line items</p>
+      <p className="text-[11px] font-bold uppercase tracking-wide text-slate-400 mt-2 mb-2">
+        Line items
+        {progressMode ? (
+          <span className="normal-case font-semibold text-slate-500 ml-1">
+            · progress sits before rate (% / $)
+          </span>
+        ) : null}
+      </p>
       {lines.map((ln, i) => (
         <LineRow
           key={i}
@@ -1069,6 +1046,9 @@ export default function DocBuilderSheet({
           onRemove={(idx) => setLines((rows) => rows.filter((_, j) => j !== idx))}
           canRemove={lines.length > 1}
           progressMode={progressMode}
+          adjustMode={adjustMode}
+          onAdjustModeChange={setAdjustMode}
+          onLineProgress={onLineProgress}
         />
       ))}
       <button type="button" className="btn-ghost w-full !py-2 mb-3" onClick={() => setLines((rows) => rows.concat([emptyLine()]))}>

@@ -99,6 +99,47 @@ export const FEATURE_LABELS = [
   { key: "aiFeatures", label: "AI features (image-to-payment, drafts)" },
 ];
 
+/**
+ * Feature groups for Settings → Features submenus.
+ * Keys must exist in FEATURE_LABELS / DEFAULT_FEATURES.
+ */
+export const FEATURE_GROUPS = [
+  {
+    id: "voice",
+    title: "Voice & chat",
+    hint: "Talk-to-type and chat tools",
+    keys: ["speechToText"],
+  },
+  {
+    id: "documents",
+    title: "Documents",
+    hint: "Estimates, paperwork, letterhead",
+    keys: ["estimates", "statements", "letterhead", "changeOrders", "requisitions"],
+  },
+  {
+    id: "operations",
+    title: "Operations",
+    hint: "Day-to-day job tools",
+    keys: ["timeTracking", "calendar", "reminders", "progressDashboard", "subCompanies", "quickbooks"],
+  },
+  {
+    id: "payments",
+    title: "Payments",
+    hint: "How customers can pay",
+    keys: ["paymentCard", "paymentZelle", "paymentCheck"],
+  },
+  {
+    id: "ai",
+    title: "AI features",
+    hint: "Drafts and smart helpers",
+    keys: ["aiFeatures"],
+  },
+];
+
+export function featureLabel(key) {
+  return FEATURE_LABELS.find((x) => x.key === key)?.label || key;
+}
+
 export function mergeProfile(raw) {
   const p = { ...DEFAULT_PROFILE, ...(raw && typeof raw === "object" ? raw : {}) };
   p.paymentMethods = {

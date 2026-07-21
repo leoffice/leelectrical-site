@@ -504,7 +504,9 @@ describe("12. sync chip + today view + jobs list", () => {
     // grouped into one client row (count · total · unpaid)
     const grp = await screen.findByTestId("client-group");
     expect(within(grp).getByTestId("client-group-meta")).toHaveTextContent(/2 jobs/);
-    expect(within(grp).getByTestId("client-group-amount")).toHaveTextContent("$2,800");
+    // Only J-1 is an invoice ($2,300 due); J-2 "Outlet swap" has no invoice # so it
+    // owes $0 and does NOT inflate the group balance (estimates/leads never count).
+    expect(within(grp).getByTestId("client-group-amount")).toHaveTextContent("$2,300");
     await user.click(screen.getByTestId("client-group-toggle"));
     expect(screen.getByText("Panel upgrade")).toBeInTheDocument();
     expect(screen.getByText("Outlet swap")).toBeInTheDocument();

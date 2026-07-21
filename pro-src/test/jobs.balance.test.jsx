@@ -18,11 +18,12 @@ const before = (a, b) =>
   !!(a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING);
 
 // Names deliberately out of amount order so A-Z and Balance disagree.
+// invoiceNo required — estimates (no invoice #) never count toward balance due.
 const jobs = () => [
-  { id: "A", customer: "Zeta Inc", title: "Big", amount: "$9,000", paid: false, status: {} },
-  { id: "B", customer: "Alpha Corp", title: "Mid", amount: "$500", paid: false, status: {} },
-  { id: "C", customer: "Mid Co", title: "Small", amount: "$100", paid: false, status: {} },
-  { id: "D", customer: "Paid Pete", title: "Settled", amount: "$400", paid: true, status: {} },
+  { id: "A", customer: "Zeta Inc", title: "Big", amount: "$9,000", invoiceNo: "9001", paid: false, status: {} },
+  { id: "B", customer: "Alpha Corp", title: "Mid", amount: "$500", invoiceNo: "9002", paid: false, status: {} },
+  { id: "C", customer: "Mid Co", title: "Small", amount: "$100", invoiceNo: "9003", paid: false, status: {} },
+  { id: "D", customer: "Paid Pete", title: "Settled", amount: "$400", invoiceNo: "9004", paid: true, status: {} },
 ];
 
 const BY_BALANCE = ["Zeta Inc", "Alpha Corp", "Mid Co"];
@@ -87,7 +88,7 @@ describe("Balance view", () => {
     mockServer({
       jobs: [
         ...jobs(),
-        { id: "E", customer: "Alpha Legacy", title: "Old", amount: "$300", paid: true, status: {} },
+        { id: "E", customer: "Alpha Legacy", title: "Old", amount: "$300", invoiceNo: "9005", paid: true, status: {} },
       ],
     });
     const user = userEvent.setup();

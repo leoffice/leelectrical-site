@@ -48,6 +48,7 @@ export default function CustomerCard({
   const service = String(addr || "").trim();
   const showServiceRow = service && (mapAddress || service !== billing);
 
+  // Service addresses first, billing below (Levi 2026-07-21).
   const contactRows = [
     ...(contact.businessName && contact.businessName !== displayName
       ? [["Business", contact.businessName, null]]
@@ -69,12 +70,12 @@ export default function CustomerCard({
           }
         : null,
     ],
+    ...(showServiceRow ? [["Service address", service, { href: mapHref, newTab: true }]] : []),
     [
       "Billing address",
       contact.billingAddress,
       contact.billingAddress ? { href: googleMapsHref(contact.billingAddress), newTab: true } : null,
     ],
-    ...(showServiceRow ? [["Service address", service, { href: mapHref, newTab: true }]] : []),
   ].filter(([, v]) => v);
 
   return (
@@ -159,12 +160,12 @@ export default function CustomerCard({
           className="mt-3 pt-2 border-t border-slate-100 flex items-center justify-end gap-2"
           data-testid="customer-short-txns-row"
         >
-          <span className="text-[11px] font-semibold text-slate-600">Short transactions</span>
+          <span className="text-[11px] font-semibold text-slate-600">Transactions</span>
           <Toggle
             on={!!shortTxns}
             onChange={onShortTxnsChange}
             small
-            label="Short transactions"
+            label="Transactions"
           />
         </div>
       ) : null}

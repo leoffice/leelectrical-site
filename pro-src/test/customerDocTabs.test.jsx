@@ -91,7 +91,7 @@ describe("customer doc tabs — create + service addresses", () => {
     expect(within(view).getByTestId("customer-doc-tabs")).toBeInTheDocument();
     expect(within(view).queryByTestId("customer-txn-history")).not.toBeInTheDocument();
 
-    await user.click(within(view).getByRole("switch", { name: /Short transactions/i }));
+    await user.click(within(view).getByRole("switch", { name: /Transactions/i }));
 
     const card = within(view).getByTestId("customer-card");
     const tabs = within(view).getByTestId("customer-doc-tabs");

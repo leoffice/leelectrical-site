@@ -4,6 +4,7 @@ import {
   clampTtlMs,
   DEFAULT_TTL_MS,
   emptyDoc,
+  extendGrant,
   formatCode,
   mintGrant,
   normalizeCode,
@@ -70,5 +71,44 @@ describe("agent access codes", () => {
     expect(pub.codeHash).toBeUndefined();
     expect(pub.id).toBeTruthy();
     expect(pub.remainingMs).toBeGreaterThan(0);
+  });
+
+  it("extends the same grant by adding duration (keeps code hash)", () => {
+    const now = 4_000_000_000_000;
+    const { doc, code } = mintGrant(emptyDoc(), { ttlMs: 30 * 60 * 1000, scope: "full" }, now);
+    const hashBefore = doc.activeGrant.codeHash;
+    const expiresBefore = doc.activeGrant.expiresAt;
+    // 1 min later: 29 min left; add 24h → ~24h 29m remaining
+    const t1 = now + 60 * 1000;
+    const ext = extendGrant(doc, { ttlMs: 24 * 60 * 60 * 1000, scope: "test" }, t1);
+    expect(ext.ok).toBe(true);
+    expect(ext.doc.activeGrant.codeHash).toBe(hashBefore);
+    expect(ext.doc.activeGrant.id).toBe(doc.activeGrant.id);
+    expect(ext.doc.activeGrant.scope).toBe("test");
+    expect(ext.doc.activeGrant.expiresAt).toBe(expiresBefore + 24 * 60 * 60 * 1000);
+    expect(ext.grant.remainingMs).toBeGreaterThan(24 * 60 * 60 * 1000 - 2 * 60 * 1000);
+    // Same code still redeems
+    const ok = redeemGrant(ext.doc, code, { label: "agent" }, t1 + 1000);
+    expect(ok.ok).toBe(true);
+    expect(ok.session.expiresAt).toBe(ext.doc.activeGrant.expiresAt);
+  });
+
+  it("extend fails when no active grant", () => {
+    const now = 5_000_000_000_000;
+    const res = extendGrant(emptyDoc(), { ttlMs: 60 * 60 * 1000 }, now);
+    expect(res.ok).toBe(false);
+    expect(res.error).toMatch(/no active/i);
+  });
+
+  it("extend lengthens an active agent session", () => {
+    const now = 6_000_000_000_000;
+    const { doc, code } = mintGrant(emptyDoc(), { ttlMs: 30 * 60 * 1000 }, now);
+    const redeemed = redeemGrant(doc, code, { label: "israel" }, now + 1000);
+    expect(redeemed.ok).toBe(true);
+    const t1 = now + 5 * 60 * 1000;
+    const ext = extendGrant(redeemed.doc, { ttlMs: 60 * 60 * 1000 }, t1);
+    expect(ext.ok).toBe(true);
+    expect(ext.doc.activeGrant.session.expiresAt).toBe(ext.doc.activeGrant.expiresAt);
+    expect(ext.doc.activeGrant.expiresAt).toBeGreaterThan(redeemed.doc.activeGrant.expiresAt);
   });
 });

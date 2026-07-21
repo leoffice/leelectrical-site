@@ -26,6 +26,9 @@ const job = (id, customer, title, amount, extra = {}) => ({
   amount,
   paid: false,
   status: {},
+  // These fixtures represent invoices carrying a balance, so grouping shows the
+  // amount due (balance now comes only from invoices — estimates owe $0).
+  invoiceNo: "inv-" + id,
   ...extra,
 });
 
