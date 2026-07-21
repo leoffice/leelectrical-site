@@ -270,34 +270,22 @@ const loadSort = () => {
 /** How many customer rows to paint first — rest load as you scroll (keeps open snappy). */
 const LIST_PAGE = 48;
 
-/** Contact / job-count line inside an expanded balance card. */
-function BalanceCardDetail({ row, onOpen }) {
-  const contact = customerContact(row.jobs);
-  const bits = [contact.phone, contact.email, contact.address].filter(Boolean);
+/**
+ * Expanded balance card — open invoices with balance only (no estimates /
+ * paid / payment history). Grouped by service address; invoice # on each row.
+ * Billing box opens full customer info.
+ */
+function BalanceCardDetail({ row, onOpen, onInteract }) {
   return (
     <div
-      className="px-2.5 pb-2.5 pt-2 space-y-1.5 bg-slate-50/60 border-t border-slate-100"
       data-testid="balance-card-detail"
+      onPointerDown={() => onInteract?.()}
     >
-      {bits.length ? (
-        <div className="text-[11px] text-slate-500 leading-snug space-y-0.5 px-1">
-          {contact.phone ? <div>📞 {contact.phone}</div> : null}
-          {contact.email ? <div className="truncate">✉️ {contact.email}</div> : null}
-          {contact.address ? <div className="truncate">📍 {contact.address}</div> : null}
-        </div>
-      ) : null}
-      <div className="text-[10px] text-slate-400 px-1">{customerMetaLine(row.summary)}</div>
-      {row.jobs.map((j) => (
-        <GroupJobRow key={j.id} job={j} />
-      ))}
-      <button
-        type="button"
-        className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-700 active:bg-slate-50"
-        data-testid="balance-open-customer"
-        onClick={onOpen}
-      >
-        Open full customer →
-      </button>
+      <CustomerExpandPanel
+        jobs={row.jobs}
+        openInvoicesOnly
+        onOpenCustomer={onOpen}
+      />
     </div>
   );
 }
@@ -305,8 +293,9 @@ function BalanceCardDetail({ row, onOpen }) {
 /**
  * Compact balance row — name/company left, amount due right. Tapping toggles
  * the detail open in place; it never navigates and never moves the row.
+ * Expanded rows auto-fold after ~10s idle (re-armed on touch inside).
  */
-function BalanceCard({ row, expanded, onToggle, onOpen }) {
+function BalanceCard({ row, expanded, onToggle, onOpen, onInteract }) {
   const due = row.summary?.due || 0;
   return (
     <div className="card relative overflow-hidden" data-testid="balance-card">
@@ -338,7 +327,9 @@ function BalanceCard({ row, expanded, onToggle, onOpen }) {
           ) : null}
         </div>
       </button>
-      {expanded ? <BalanceCardDetail row={row} onOpen={onOpen} /> : null}
+      {expanded ? (
+        <BalanceCardDetail row={row} onOpen={onOpen} onInteract={onInteract} />
+      ) : null}
     </div>
   );
 }
@@ -604,7 +595,28 @@ export default function Jobs({ embedded, collapseGroups = false, activeJobId = "
   const stableParentRows = applyStableOrder(parentRows, parentOrder.current, epoch);
   const stableFlatGroups = applyStableOrder(flatGroups, flatOrder.current, epoch, (t) => t[0]);
 
-  const toggleExpanded = (key) => setExpanded((m) => ({ ...m, [key]: !m[key] }));
+  /** Balance-card expand — folds after ~10s idle unless touched. */
+  const armBalanceCollapse = useCallback((key) => {
+    const tKey = `b:${key}`;
+    clearTimeout(timers.current[tKey]);
+    timers.current[tKey] = setTimeout(
+      () => setExpanded((o) => (o[key] ? { ...o, [key]: false } : o)),
+      IDLE_COLLAPSE_MS
+    );
+  }, []);
+
+  const toggleExpanded = useCallback(
+    (key) => {
+      setExpanded((m) => {
+        const now = !m[key];
+        const tKey = `b:${key}`;
+        if (now) armBalanceCollapse(key);
+        else clearTimeout(timers.current[tKey]);
+        return { ...m, [key]: now };
+      });
+    },
+    [armBalanceCollapse]
+  );
 
   /** Jobs shown inside an expanded group — full customer when Active/All + no search. */
   const expandJobs = useCallback(
@@ -904,6 +916,7 @@ export default function Jobs({ embedded, collapseGroups = false, activeJobId = "
               expanded={!!expanded[row.key]}
               onToggle={() => toggleExpanded(row.key)}
               onOpen={() => openCustomer(row.key, row.jobs)}
+              onInteract={() => armBalanceCollapse(row.key)}
             />
           ))}
           {visibleOtherRows.length ? (
@@ -923,6 +936,7 @@ export default function Jobs({ embedded, collapseGroups = false, activeJobId = "
               expanded={!!expanded[row.key]}
               onToggle={() => toggleExpanded(row.key)}
               onOpen={() => openCustomer(row.key, row.jobs)}
+              onInteract={() => armBalanceCollapse(row.key)}
             />
           ))}
           {listLimit < totalListRows ? (

@@ -56,10 +56,14 @@ describe("bug 1 — duplicate customers collapse into ONE group row", () => {
     expect(screen.getAllByText(/meir kabakov/i)).toHaveLength(1);
     expect(screen.queryByText("Panel swap")).not.toBeInTheDocument();
 
-    // expanding shows both job cards, no third copy anywhere
+    // expanding shows both open invoices (Inv # lead + job title subline)
     await user.click(within(rows[0]).getByTestId("client-group-toggle"));
-    expect(screen.getByText("Panel swap")).toBeInTheDocument();
-    expect(screen.getByText("EV charger")).toBeInTheDocument();
+    const openRows = screen.getAllByTestId("group-job-row");
+    expect(openRows).toHaveLength(2);
+    expect(openRows[0]).toHaveTextContent(/Panel swap|EV charger/);
+    expect(openRows[1]).toHaveTextContent(/Panel swap|EV charger/);
+    expect(screen.getByText(/Inv #inv-K-1/)).toBeInTheDocument();
+    expect(screen.getByText(/Inv #inv-K-2/)).toBeInTheDocument();
   });
 
   it("clientGroup jobs + same-name loose jobs fold into one row (no double listing)", async () => {
@@ -88,11 +92,13 @@ describe("bug 1 — duplicate customers collapse into ONE group row", () => {
     const row = await screen.findByTestId("client-group"); // load with real timers
     vi.useFakeTimers();
     fireEvent.click(within(row).getByTestId("client-group-toggle"));
-    expect(screen.getByText("Panel swap")).toBeInTheDocument();
+    expect(screen.getByTestId("customer-expand-panel")).toBeInTheDocument();
+    expect(screen.getByText(/Inv #inv-K-1/)).toBeInTheDocument();
     act(() => {
       vi.advanceTimersByTime(10_500);
     });
-    expect(screen.queryByText("Panel swap")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("customer-expand-panel")).not.toBeInTheDocument();
+    expect(screen.queryByText(/Inv #inv-K-1/)).not.toBeInTheDocument();
     vi.useRealTimers();
   });
 });

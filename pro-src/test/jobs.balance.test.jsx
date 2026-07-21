@@ -111,4 +111,70 @@ describe("Balance view", () => {
     expect(await screen.findByText("Paid Pete")).toBeInTheDocument();
     expect(screen.queryByTestId("balance-list")).toBeNull();
   });
+
+  it("expand shows only open invoices + service address + invoice # (no estimates/paid)", async () => {
+    mockServer({
+      jobs: [
+        {
+          id: "open1",
+          customer: "Zeta Inc",
+          title: "Panel upgrade",
+          amount: "$9,000",
+          invoiceNo: "9001",
+          paid: false,
+          serviceAddress: "10 Main St",
+          status: {},
+        },
+        {
+          id: "est1",
+          customer: "Zeta Inc",
+          title: "Future work est",
+          amount: "$2,000",
+          estimateNo: "E-44",
+          paid: false,
+          serviceAddress: "10 Main St",
+          status: {},
+        },
+        {
+          id: "paid1",
+          customer: "Zeta Inc",
+          title: "Old paid job",
+          amount: "$400",
+          invoiceNo: "8000",
+          paid: true,
+          serviceAddress: "10 Main St",
+          status: {},
+        },
+      ],
+    });
+    const user = userEvent.setup();
+    renderApp("#/");
+    await screen.findByTestId("balance-list");
+    await user.click(screen.getAllByTestId("balance-card-tap")[0]);
+
+    const detail = await screen.findByTestId("balance-card-detail");
+    expect(within(detail).getByTestId("customer-expand-panel")).toBeInTheDocument();
+    expect(within(detail).getByTestId("expand-service-block")).toHaveTextContent("10 Main St");
+    const rows = within(detail).getAllByTestId("group-job-row");
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toHaveAttribute("data-invoice-no", "9001");
+    expect(rows[0]).toHaveTextContent(/Inv #9001/);
+    expect(within(detail).queryByText(/Est #E-44/i)).toBeNull();
+    expect(within(detail).queryByText(/8000/)).toBeNull();
+    expect(within(detail).queryByText(/Future work est/i)).toBeNull();
+  });
+
+  it("expanded balance card collapses after ~10s idle", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    mockServer({ jobs: jobs() });
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+    renderApp("#/");
+    await screen.findByTestId("balance-list");
+    await user.click(screen.getAllByTestId("balance-card-tap")[0]);
+    expect(screen.getByTestId("balance-card-detail")).toBeInTheDocument();
+
+    await vi.advanceTimersByTimeAsync(10_000);
+    expect(screen.queryByTestId("balance-card-detail")).toBeNull();
+    vi.useRealTimers();
+  });
 });

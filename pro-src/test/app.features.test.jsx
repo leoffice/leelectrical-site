@@ -508,18 +508,21 @@ describe("12. sync chip + today view + jobs list", () => {
     // owes $0 and does NOT inflate the group balance (estimates/leads never count).
     expect(within(grp).getByTestId("client-group-amount")).toHaveTextContent("$2,300");
     await user.click(screen.getByTestId("client-group-toggle"));
-    // Expand shows open invoices only — estimates/leads (Outlet swap) stay off the list
-    expect(screen.getByText("Panel upgrade")).toBeInTheDocument();
+    // Expand shows open invoices only — Inv # + title; estimates/leads stay off
+    const openRow = screen.getByTestId("group-job-row");
+    expect(openRow).toHaveAttribute("data-invoice-no", "251841");
+    expect(openRow).toHaveTextContent(/Inv #251841/);
+    expect(openRow).toHaveTextContent(/Panel upgrade/);
     expect(screen.queryByText("Outlet swap")).not.toBeInTheDocument();
     // chips filter
     await user.click(screen.getByRole("button", { name: "Unpaid" }));
-    expect(screen.getByText("Panel upgrade")).toBeInTheDocument();
+    expect(screen.getByTestId("group-job-row")).toHaveTextContent(/Inv #251841/);
     expect(screen.queryByText("Outlet swap")).not.toBeInTheDocument(); // no invoice
     // search — group card lists matching job titles when collapsed
     await user.click(screen.getByRole("button", { name: "All" }));
     await user.click(screen.getByTestId("client-group-toggle")); // collapse
     await user.type(screen.getByLabelText("Search jobs"), "outlet");
-    expect(screen.queryByText("Panel upgrade")).not.toBeInTheDocument();
+    expect(screen.queryByText(/Inv #251841/)).not.toBeInTheDocument();
     expect(screen.getByText("Outlet swap")).toBeInTheDocument();
   });
 

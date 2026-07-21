@@ -44,7 +44,8 @@ export function CustomerAvatar({ name, className = "" }) {
 }
 
 /** One job inside an expanded customer group — short row, no progress bar.
- *  Open invoices get a vertical aging rail (older = darker red). */
+ *  Open invoices get a vertical aging rail (older = darker red).
+ *  openInvoiceOnly rows lead with Inv # + due (no estimates / payments). */
 export function GroupJobRow({ job, openInvoiceOnly = false, to }) {
   const href = to || `/job/${encodeURIComponent(job.id)}`;
   const cur = stageOf(job);
@@ -53,19 +54,33 @@ export function GroupJobRow({ job, openInvoiceOnly = false, to }) {
   if (openInvoiceOnly && !isOpenInv) return null;
   const age = isOpenInv ? invoiceAgeDays(job) : 0;
   const rail = isOpenInv ? agingStripeColor(age, due) : "transparent";
-  const title = job.title || "(untitled job)";
-  const docBit = job.invoiceNo
-    ? `Inv #${job.invoiceNo}`
-    : job.estimateNo
-      ? `Est #${job.estimateNo}`
-      : "";
-  const sub = [
-    isOpenInv ? `${fmt$(due)} due` : null,
-    isOpenInv && age >= 30 ? `${age}d` : cur,
-    docBit,
-  ]
-    .filter(Boolean)
-    .join(" · ");
+  const invLabel = job.invoiceNo ? `Inv #${job.invoiceNo}` : "";
+  const title =
+    openInvoiceOnly && invLabel
+      ? invLabel
+      : job.title || "(untitled job)";
+  const docBit = openInvoiceOnly
+    ? null
+    : invLabel
+      ? invLabel
+      : job.estimateNo
+        ? `Est #${job.estimateNo}`
+        : "";
+  const sub = openInvoiceOnly
+    ? [
+        job.title && job.title !== invLabel ? job.title : null,
+        `${fmt$(due)} due`,
+        age >= 30 ? `${age}d` : null,
+      ]
+        .filter(Boolean)
+        .join(" · ")
+    : [
+        isOpenInv ? `${fmt$(due)} due` : null,
+        isOpenInv && age >= 30 ? `${age}d` : cur,
+        docBit,
+      ]
+        .filter(Boolean)
+        .join(" · ");
   return (
     <Link
       to={href}
@@ -73,6 +88,7 @@ export function GroupJobRow({ job, openInvoiceOnly = false, to }) {
       data-testid="group-job-row"
       data-open-invoice={isOpenInv ? "1" : "0"}
       data-age-days={isOpenInv ? String(age) : undefined}
+      data-invoice-no={job.invoiceNo ? String(job.invoiceNo) : undefined}
     >
       <span
         className="w-1.5 shrink-0 self-stretch"

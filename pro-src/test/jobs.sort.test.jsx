@@ -86,9 +86,13 @@ describe("sort dropdown", () => {
     await user.selectOptions(screen.getByLabelText("Sort jobs"), "next");
     // Beta group's best job (C, dated) outranks undated Alpha
     expect(before(screen.getByText(/2 jobs/), screen.getByText("Alpha"))).toBe(true);
-    // inside the group the dated job leads too
+    // inside the group the dated open invoice leads (rows show Inv # first)
     await user.click(screen.getByTestId("client-group-toggle"));
-    expect(before(screen.getByText("Small two"), screen.getByText("Small one"))).toBe(true);
+    const rows = screen.getAllByTestId("group-job-row");
+    expect(rows).toHaveLength(2);
+    expect(rows[0]).toHaveAttribute("data-invoice-no", "8003"); // Small two — dated
+    expect(rows[1]).toHaveAttribute("data-invoice-no", "8002"); // Small one — undated
+    expect(before(rows[0], rows[1])).toBe(true);
   });
 
   it("Amount sort restores the classic biggest-first order", async () => {
