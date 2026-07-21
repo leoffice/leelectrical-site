@@ -18,7 +18,14 @@ import { normalizePayments, remainingBalance, totalPaid, amountOwedAtStart } fro
  *  Priority: explicit job.openBalance -> a "balance: $X" / "owes $X" figure in
  *  notes or the follow-up text -> the job.amount when unpaid. Paid jobs with no
  *  explicit remainder are 0. Used for the customer-group "total balance due". */
-export function openBalance(job) {
+/** True when a job is an actual invoice (has an invoice #). Estimates/leads are not. */
+export function isInvoiceJob(job) {
+  return !!(job && String(job.invoiceNo || "").trim());
+}
+
+/** Raw amount-owed for a job IGNORING the invoice gate. Used ONLY as a sort /
+ *  magnitude proxy so ranking is unchanged — NEVER as a displayed balance due. */
+export function rawBalance(job) {
   if (!job) return 0;
   const pays = normalizePayments(job);
   if (pays.length) return remainingBalance(job, pays);
@@ -27,6 +34,17 @@ export function openBalance(job) {
   const m = hay.match(/(?:open\s*balance|balance\s*due|balance|owes?|remaining|still\s*owes?)\D{0,8}\$?\s*([\d,]+(?:\.\d+)?)/i);
   if (m) return parseAmount(m[1]);
   return job.paid ? 0 : parseAmount(job.amount);
+}
+
+export function openBalance(job) {
+  if (!job) return 0;
+  // HARD RULE (Levi 2026-07-20): balance due comes ONLY from open invoices.
+  // Estimates/leads are hypothetical until converted to an invoice and owe
+  // $0 in any form. This is the single source of truth for "amount due" used
+  // by cards, the list, detail, the aging stripe and transactions — fixes the
+  // estimate-counted-as-balance bug (Shaina Levin / ManyCoin / 315 Albany).
+  if (!isInvoiceJob(job)) return 0;
+  return rawBalance(job);
 }
 
 /** Sum of open balances across a customer's jobs. */
@@ -50,6 +68,10 @@ export function invoiceTotal(job) {
 /** Amount paid so far (invoice total minus open balance, or full amount when paid). */
 export function amountPaid(job) {
   if (!job) return 0;
+  // Estimates never carry payments in any balance sense — and since their
+  // openBalance is now $0, the `total - due` inference below would wrongly
+  // report the whole estimate as "paid". Gate on being an actual invoice.
+  if (!isInvoiceJob(job)) return 0;
   const pays = normalizePayments(job);
   if (pays.length) return totalPaid(pays);
   const total = invoiceTotal(job);
@@ -71,8 +93,12 @@ export function paidPct(job) {
 /** Customer-group totals for the Jobs list header. */
 export function customerAmountSummary(jobs) {
   const list = jobs || [];
-  const invoiced = list.reduce((s, j) => s + invoiceTotal(j), 0);
-  const paid = list.reduce((s, j) => s + amountPaid(j), 0);
+  // Estimates are never counted in any form: invoiced/paid/due sum over
+  // actual invoices only. (Estimate rows still show their own amount on their
+  // row, but they contribute $0 to a customer's money totals.)
+  const invoices = list.filter(isInvoiceJob);
+  const invoiced = invoices.reduce((s, j) => s + invoiceTotal(j), 0);
+  const paid = invoices.reduce((s, j) => s + amountPaid(j), 0);
   const due = totalBalanceDue(list);
   const openInvoices = list.filter((j) => !j.paid && openBalance(j) > 0).length;
   return { due, invoiced, paid, openInvoices, jobCount: list.length };

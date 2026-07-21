@@ -1,7 +1,7 @@
 // Stage/phase model — names MUST match the existing dashboard exactly.
 // job.status = { "Lead": { s: "done"|"skipped"|""|"current", d?: "YYYY-MM-DD" }, ... }
 import { parseAmount, todayStr } from "./format.js";
-import { openBalance } from "./customers.js";
+import { rawBalance } from "./customers.js";
 import { isToDoJob, isUpcomingJob } from "./calendarDue.js";
 import { needsAttentionJob } from "./jobAwareness.js";
 
@@ -149,7 +149,9 @@ export { clientKey, normalizeCustomer } from "./customers.js";
 
 /* ---------- Jobs sort-by ---------- */
 
-const byAmountDesc = (a, b) => openBalance(b) - openBalance(a);
+// Sort by amount magnitude (rawBalance, NOT the invoice-gated openBalance) so
+// ranking is unchanged by the estimates-owe-$0 display rule.
+const byAmountDesc = (a, b) => rawBalance(b) - rawBalance(a);
 
 const followUpDate = (j) => (j.followUp && j.followUp.date) || "";
 const scheduledDate = (j) => (j.status && j.status.Scheduled && j.status.Scheduled.d) || "";

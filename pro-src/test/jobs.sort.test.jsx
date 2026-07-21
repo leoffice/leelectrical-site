@@ -15,9 +15,9 @@ afterEach(() => {
 });
 
 const jobs = () => [
-  { id: "A", customer: "Alpha", title: "Big solo", amount: "$9,000", paid: false, status: {} },
-  { id: "B", customer: "Beta", title: "Small one", amount: "$100", paid: false, status: {} },
-  { id: "C", customer: "Beta", title: "Small two", amount: "$200", paid: false, status: {} },
+  { id: "A", customer: "Alpha", title: "Big solo", invoiceNo: "8001", amount: "$9,000", paid: false, status: {} },
+  { id: "B", customer: "Beta", title: "Small one", invoiceNo: "8002", amount: "$100", paid: false, status: {} },
+  { id: "C", customer: "Beta", title: "Small two", invoiceNo: "8003", amount: "$200", paid: false, status: {} },
 ];
 
 /** DOM order helper — a must appear before b. */

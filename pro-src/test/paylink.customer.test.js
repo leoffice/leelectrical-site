@@ -13,19 +13,27 @@ import {
 } from "../src/lib/customers.js";
 import { paylinkUrl } from "../src/components/JobSheets.jsx";
 
+// NOTE: balance-due now comes ONLY from open invoices (Levi 2026-07-20). These
+// fixtures carry an invoiceNo because they represent invoices with a balance;
+// a job WITHOUT an invoice # owes $0 (see the dedicated assertion below and
+// balanceEstimateRule.test.js).
 describe("openBalance", () => {
   it("uses explicit openBalance when set", () => {
-    expect(openBalance({ openBalance: "$1,250", amount: "$5,000", paid: true })).toBe(1250);
-    expect(openBalance({ openBalance: 300 })).toBe(300);
+    expect(openBalance({ invoiceNo: "1", openBalance: "$1,250", amount: "$5,000", paid: true })).toBe(1250);
+    expect(openBalance({ invoiceNo: "1", openBalance: 300 })).toBe(300);
   });
   it("falls back to unpaid amount, zero when paid", () => {
-    expect(openBalance({ amount: "$800", paid: false })).toBe(800);
-    expect(openBalance({ amount: "$800", paid: true })).toBe(0);
+    expect(openBalance({ invoiceNo: "1", amount: "$800", paid: false })).toBe(800);
+    expect(openBalance({ invoiceNo: "1", amount: "$800", paid: true })).toBe(0);
+  });
+  it("owes $0 without an invoice # (estimates/leads never count)", () => {
+    expect(openBalance({ amount: "$800", paid: false })).toBe(0);
+    expect(openBalance({ estimateNo: "2013", amount: "$5,000", paid: false })).toBe(0);
   });
   it("reads a balance figure out of notes / follow-up text", () => {
-    expect(openBalance({ amount: "$900", paid: true, notes: "Open balance $250 remaining" })).toBe(250);
-    expect(openBalance({ amount: "$900", paid: false, followUp: { text: "still owes 400" } })).toBe(400);
-    expect(openBalance({ amount: "$900", paid: true, notes: "balance due: $1,050.50" })).toBe(1050.5);
+    expect(openBalance({ invoiceNo: "1", amount: "$900", paid: true, notes: "Open balance $250 remaining" })).toBe(250);
+    expect(openBalance({ invoiceNo: "1", amount: "$900", paid: false, followUp: { text: "still owes 400" } })).toBe(400);
+    expect(openBalance({ invoiceNo: "1", amount: "$900", paid: true, notes: "balance due: $1,050.50" })).toBe(1050.5);
   });
   it("is 0 for null / empty", () => {
     expect(openBalance(null)).toBe(0);
@@ -35,12 +43,12 @@ describe("openBalance", () => {
 
 describe("amountPaid / invoiceTotal", () => {
   it("unpaid full balance -> 0 paid; partial notes -> remainder paid", () => {
-    expect(amountPaid({ amount: "$2,300", paid: false })).toBe(0);
-    expect(amountPaid({ amount: "$900", paid: false, notes: "still owes 400" })).toBe(500);
-    expect(paidPct({ amount: "$900", paid: false, notes: "still owes 400" })).toBe(56);
+    expect(amountPaid({ invoiceNo: "1", amount: "$2,300", paid: false })).toBe(0);
+    expect(amountPaid({ invoiceNo: "1", amount: "$900", paid: false, notes: "still owes 400" })).toBe(500);
+    expect(paidPct({ invoiceNo: "1", amount: "$900", paid: false, notes: "still owes 400" })).toBe(56);
   });
   it("paid job counts full invoice", () => {
-    expect(amountPaid({ amount: "$800", paid: true })).toBe(800);
+    expect(amountPaid({ invoiceNo: "1", amount: "$800", paid: true })).toBe(800);
     expect(invoiceTotal({ amount: "$1,200" })).toBe(1200);
   });
 });
@@ -48,8 +56,8 @@ describe("amountPaid / invoiceTotal", () => {
 describe("customerAmountSummary", () => {
   it("aggregates due, invoiced, paid across jobs", () => {
     const s = customerAmountSummary([
-      { amount: "$1,000", paid: false },
-      { amount: "$500", paid: true },
+      { invoiceNo: "1", amount: "$1,000", paid: false },
+      { invoiceNo: "2", amount: "$500", paid: true },
     ]);
     expect(s.due).toBe(1000);
     expect(s.invoiced).toBe(1500);
@@ -61,9 +69,9 @@ describe("customerAmountSummary", () => {
 describe("totalBalanceDue", () => {
   it("sums open balances across a customer's jobs", () => {
     const jobs = [
-      { amount: "$1,000", paid: false }, // 1000
-      { amount: "$500", paid: true }, // 0
-      { amount: "$2,000", paid: true, notes: "balance $750 left" }, // 750
+      { invoiceNo: "1", amount: "$1,000", paid: false }, // 1000
+      { invoiceNo: "2", amount: "$500", paid: true }, // 0
+      { invoiceNo: "3", amount: "$2,000", paid: true, notes: "balance $750 left" }, // 750
     ];
     expect(totalBalanceDue(jobs)).toBe(1750);
   });

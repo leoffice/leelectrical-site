@@ -19,10 +19,10 @@ const before = (a, b) =>
 
 // Names deliberately out of amount order so A-Z and Balance disagree.
 const jobs = () => [
-  { id: "A", customer: "Zeta Inc", title: "Big", amount: "$9,000", paid: false, status: {} },
-  { id: "B", customer: "Alpha Corp", title: "Mid", amount: "$500", paid: false, status: {} },
-  { id: "C", customer: "Mid Co", title: "Small", amount: "$100", paid: false, status: {} },
-  { id: "D", customer: "Paid Pete", title: "Settled", amount: "$400", paid: true, status: {} },
+  { id: "A", customer: "Zeta Inc", title: "Big", invoiceNo: "9001", amount: "$9,000", paid: false, status: {} },
+  { id: "B", customer: "Alpha Corp", title: "Mid", invoiceNo: "9002", amount: "$500", paid: false, status: {} },
+  { id: "C", customer: "Mid Co", title: "Small", invoiceNo: "9003", amount: "$100", paid: false, status: {} },
+  { id: "D", customer: "Paid Pete", title: "Settled", invoiceNo: "9004", amount: "$400", paid: true, status: {} },
 ];
 
 const BY_BALANCE = ["Zeta Inc", "Alpha Corp", "Mid Co"];
@@ -87,7 +87,7 @@ describe("Balance view", () => {
     mockServer({
       jobs: [
         ...jobs(),
-        { id: "E", customer: "Alpha Legacy", title: "Old", amount: "$300", paid: true, status: {} },
+        { id: "E", customer: "Alpha Legacy", title: "Old", invoiceNo: "9005", amount: "$300", paid: true, status: {} },
       ],
     });
     const user = userEvent.setup();
