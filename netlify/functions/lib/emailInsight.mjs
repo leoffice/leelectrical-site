@@ -36,11 +36,28 @@ function addressSimilarity(a, b) {
   return overlap / Math.max(ta.size, tb.size);
 }
 
+/** Strip HTML tags / entities so Con Edison HTML mail is parseable as plain text. */
+export function stripHtml(raw) {
+  let s = String(raw || "");
+  if (!/<[a-z!/?]/i.test(s)) return s.replace(/\s+/g, " ").trim();
+  s = s
+    .replace(/<\s*br\s*\/?>/gi, "\n")
+    .replace(/<\/\s*(p|div|tr|li|h[1-6]|table)\s*>/gi, "\n")
+    .replace(/<[^>]+>/g, " ")
+    .replace(/&nbsp;/gi, " ")
+    .replace(/&amp;/gi, "&")
+    .replace(/&lt;/gi, "<")
+    .replace(/&gt;/gi, ">")
+    .replace(/&#(\d+);/g, (_, n) => String.fromCharCode(parseInt(n, 10)))
+    .replace(/&[a-z]+;/gi, " ");
+  return s.replace(/[ \t]+/g, " ").replace(/\n\s*\n+/g, "\n").trim();
+}
+
 const ENERGY_SENDER_RE =
-  /energy\s*services|con\s*edison|coned|@coned\.com|@conedison\.com|@energy-services/i;
+  /energy\s*services|con\s*edison|coned|@coned\.com|@conedison\.com|@energy-services|cpms\.noreply/i;
 
 const STREET_RE =
-  /\d+\s+[\w\s.'-]+(?:\b(?:st|street|ave|avenue|rd|road|blvd|boulevard|ln|lane|dr|drive|ct|court|pl|place)\b)[^,;\n]*/i;
+  /\d+\s+[\w\s.'-]+(?:\b(?:st|street|ave|avenue|rd|road|blvd|boulevard|ln|lane|dr|drive|ct|court|pl|place|pkwy|parkway)\b)[^,;\n]*/i;
 
 const DATE_TIME_RE =
   /(?:on\s+)?(?:(?:monday|tuesday|wednesday|thursday|friday|saturday|sunday)[,\s]+)?(\w+\s+\d{1,2}(?:,?\s+\d{4})?)[\s,]+(?:at\s+)?(\d{1,2}(?::\d{2})?\s*(?:am|pm)?)/i;
@@ -49,18 +66,33 @@ const DATE_ONLY_RE = /(\d{1,2}\/\d{1,2}\/\d{2,4}|\d{4}-\d{2}-\d{2})/;
 
 const MONTHS = {
   january: 0,
+  jan: 0,
   february: 1,
+  feb: 1,
   march: 2,
+  mar: 2,
   april: 3,
+  apr: 3,
   may: 4,
   june: 5,
+  jun: 5,
   july: 6,
+  jul: 6,
   august: 7,
+  aug: 7,
   september: 8,
+  sep: 8,
+  sept: 8,
   october: 9,
+  oct: 9,
   november: 10,
+  nov: 10,
   december: 11,
+  dec: 11,
 };
+
+/** Strong match threshold for silent auto-apply to calendar. */
+export const AUTO_APPLY_MIN_SCORE = 0.7;
 
 export function isEnergyServicesEmail(from, subject = "", body = "") {
   const blob = [from, subject, body].join(" ");
@@ -68,7 +100,14 @@ export function isEnergyServicesEmail(from, subject = "", body = "") {
 }
 
 export function extractAddress(text) {
-  const m = String(text || "").match(STREET_RE);
+  const plain = stripHtml(text);
+  // Prefer "Service Address" block from Con Ed HTML mail.
+  const svc = plain.match(/service\s*address\s+([^\n]+?)(?:\s+brooklyn|\s+ny\b|\s+case\s*number|$)/i);
+  if (svc) {
+    const candidate = svc[1].replace(/\s+/g, " ").trim();
+    if (/\d/.test(candidate) && candidate.length >= 6) return candidate;
+  }
+  const m = plain.match(STREET_RE);
   return m ? m[0].replace(/\s+/g, " ").trim() : "";
 }
 
@@ -87,7 +126,32 @@ function toIsoLocal(y, mo, d, hour, min) {
 }
 
 export function extractDateTime(text, refYear = new Date().getFullYear()) {
-  const s = String(text || "");
+  const s = stripHtml(text);
+  // "Jul 28, 2026 at 9:30 AM" / "July 15, 2026 at 2:00 PM"
+  const coned = s.match(
+    /\b((?:jan|feb|mar|apr|may|jun|jul|aug|sep|sept|oct|nov|dec)[a-z]*)\s+(\d{1,2})(?:,?\s+(\d{4}))?\s*(?:at\s+)?(\d{1,2})(?::(\d{2}))?\s*(am|pm)\b/i
+  );
+  if (coned) {
+    const mo = MONTHS[coned[1].toLowerCase()];
+    if (mo != null) {
+      const day = parseInt(coned[2], 10);
+      const year = coned[3] ? parseInt(coned[3], 10) : refYear;
+      const { hour, min } = parseClock(coned[4], coned[5], coned[6]);
+      return toIsoLocal(year, mo, day, hour, min);
+    }
+  }
+  // "Tuesday, July 21, 2026" (completed emails — date only)
+  const weekdayDate = s.match(
+    /(?:monday|tuesday|wednesday|thursday|friday|saturday|sunday)[,\s]+((?:jan|feb|mar|apr|may|jun|jul|aug|sep|sept|oct|nov|dec)[a-z]*)\s+(\d{1,2})(?:,?\s+(\d{4}))?/i
+  );
+  if (weekdayDate) {
+    const mo = MONTHS[weekdayDate[1].toLowerCase()];
+    if (mo != null) {
+      const day = parseInt(weekdayDate[2], 10);
+      const year = weekdayDate[3] ? parseInt(weekdayDate[3], 10) : refYear;
+      return toIsoLocal(year, mo, day, 9, 0);
+    }
+  }
   const dt = s.match(DATE_TIME_RE);
   if (dt) {
     const datePart = dt[1].trim();
@@ -121,11 +185,32 @@ export function extractDateTime(text, refYear = new Date().getFullYear()) {
 }
 
 export function classifyAppointmentType(text) {
-  const s = String(text || "").toLowerCase();
+  const s = stripHtml(text).toLowerCase();
   if (/meter\s*(?:install|replacement|set)/.test(s)) return "meter_installation";
-  if (/poe|point\s*of\s*entry/.test(s)) return "poe";
-  if (/inspection|inspect/.test(s)) return "inspection";
-  if (/appointment|scheduled|schedule/.test(s)) return "appointment";
+  if (/poe|point\s*of\s*entry|determine\s*poe/.test(s)) return "poe";
+  if (/final\s*inspection|initial\s*inspection|inspection|inspect/.test(s)) return "inspection";
+  if (/appointment|scheduled|schedule|reminder/.test(s)) return "appointment";
+  return "other";
+}
+
+/**
+ * Outcome of the email — drives auto-calendar vs paperwork-only vs skip.
+ * scheduled | reminder | cancelled | completed | other
+ */
+export function classifyEmailOutcome(subject = "", body = "") {
+  const s = stripHtml([subject, body].join("\n")).toLowerCase();
+  // Do NOT treat "Reschedule the appointment" (Con Ed footer link) as cancelled.
+  if (
+    /\b(appointment\s+)?cancell?ed\b/.test(s) ||
+    /\bcancellation\b/.test(s) ||
+    /\bcancelled by\b/.test(s)
+  ) {
+    return "cancelled";
+  }
+  if (/\bcompleted\b|\bpassed\b|\bpassed on\b|\binspection\s+passed\b/.test(s)) return "completed";
+  if (/\breminder\b|\bupcoming\b/.test(s)) return "reminder";
+  if (/\bscheduled\b|\bappointment is set\b|\bhas been scheduled\b/.test(s)) return "scheduled";
+  if (/\bappointment\b/.test(s)) return "scheduled";
   return "other";
 }
 
@@ -142,16 +227,24 @@ export function appointmentTypeLabel(type) {
 }
 
 export function parseEmailInsight({ from = "", subject = "", body = "", receivedAt = "", messageId = "" }) {
-  const blob = [subject, body].filter(Boolean).join("\n");
+  const plainBody = stripHtml(body);
+  const blob = [subject, plainBody].filter(Boolean).join("\n");
   const address = extractAddress(blob);
   const dateTime = extractDateTime(blob);
   const appointmentType = classifyAppointmentType(blob);
-  const fromLabel = /energy\s*services/i.test(from) ? "Energy Services" : /con\s*ed/i.test(from) ? "Con Edison" : "Email";
+  const outcome = classifyEmailOutcome(subject, plainBody);
+  const fromLabel = /energy\s*services/i.test(from)
+    ? "Energy Services"
+    : /con\s*ed|@coned\.com|cpms\.noreply/i.test(from)
+      ? "Con Edison"
+      : "Email";
 
   const summaryParts = [];
   if (address) summaryParts.push(`at ${address}`);
   if (dateTime) summaryParts.push(`on ${dateTime.replace("T", " ").slice(0, 16)}`);
   summaryParts.push(`for ${appointmentTypeLabel(appointmentType)}`);
+  if (outcome === "cancelled") summaryParts.push("(cancelled)");
+  if (outcome === "completed") summaryParts.push("(completed)");
 
   return {
     id: messageId ? "ei-" + messageId : "ei-" + Date.now(),
@@ -165,10 +258,11 @@ export function parseEmailInsight({ from = "", subject = "", body = "", received
       messageId: messageId || "",
     },
     appointmentType,
+    outcome,
     address,
     dateTime,
     summary: summaryParts.join(" "),
-    emailSnippet: String(body || subject || "").slice(0, 400).trim(),
+    emailSnippet: plainBody.slice(0, 400).trim() || String(subject || "").slice(0, 200),
     jobId: null,
     jobMatchScore: 0,
     proposedActions: [],
@@ -197,25 +291,44 @@ export function matchJobForInsight(insight, jobs, minScore = 0.55) {
 
 export function buildProposedActions(insight, job) {
   const type = insight?.appointmentType || "other";
+  const outcome = insight?.outcome || "other";
   const actions = [];
   const when = insight?.dateTime || "";
   const addr = insight?.address || job?.serviceAddress || job?.address || "";
 
-  actions.push({
-    key: "calendar",
-    label: when
-      ? `Add ${appointmentTypeLabel(type)} to calendar (${when.replace("T", " ").slice(0, 16)})`
-      : `Add ${appointmentTypeLabel(type)} to calendar`,
-    enabled: true,
-    defaultOn: true,
-  });
+  const scheduleable = outcome !== "cancelled" && outcome !== "completed";
 
-  if (type === "inspection" || type === "appointment") {
-    actions.push({ key: "remind_1d", label: "Reminder 1 day before", enabled: true, defaultOn: true });
-    actions.push({ key: "remind_1h", label: "Reminder 1 hour before", enabled: true, defaultOn: true });
+  if (scheduleable) {
+    actions.push({
+      key: "calendar",
+      label: when
+        ? `Add ${appointmentTypeLabel(type)} to calendar (${when.replace("T", " ").slice(0, 16)})`
+        : `Add ${appointmentTypeLabel(type)} to calendar`,
+      enabled: true,
+      defaultOn: true,
+    });
+
+    if (type === "inspection" || type === "appointment" || type === "poe") {
+      actions.push({ key: "remind_1d", label: "Reminder 1 day before", enabled: true, defaultOn: true });
+      actions.push({ key: "remind_1h", label: "Reminder 1 hour before", enabled: true, defaultOn: true });
+    }
+  } else if (outcome === "cancelled") {
+    actions.push({
+      key: "note_cancelled",
+      label: "Note cancelled appointment (no calendar add)",
+      enabled: true,
+      defaultOn: true,
+    });
+  } else if (outcome === "completed") {
+    actions.push({
+      key: "note_completed",
+      label: "Note inspection completed (update paperwork)",
+      enabled: true,
+      defaultOn: true,
+    });
   }
 
-  if (job?.customer) {
+  if (job?.customer && scheduleable) {
     actions.push({
       key: "guest_customer",
       label: `Add ${job.customer} to the event`,
@@ -223,7 +336,7 @@ export function buildProposedActions(insight, job) {
       defaultOn: true,
     });
   }
-  if (job?.email) {
+  if (job?.email && scheduleable) {
     actions.push({
       key: "guest_email",
       label: `Add customer email (${job.email}) to the event`,
@@ -235,7 +348,10 @@ export function buildProposedActions(insight, job) {
   if (job?.id && type === "inspection") {
     actions.push({
       key: "paperwork_inspection",
-      label: "Update Con Ed paperwork — Inspection appointment",
+      label:
+        outcome === "completed"
+          ? "Update Con Ed paperwork — inspection completed"
+          : "Update Con Ed paperwork — Inspection appointment",
       enabled: true,
       defaultOn: true,
     });
@@ -246,7 +362,7 @@ export function buildProposedActions(insight, job) {
       enabled: true,
       defaultOn: true,
     });
-  } else if (job?.id) {
+  } else if (job?.id && outcome !== "cancelled") {
     actions.push({
       key: "paperwork_progress",
       label: "Update task progress on the job",
@@ -255,7 +371,7 @@ export function buildProposedActions(insight, job) {
     });
   }
 
-  if (addr) {
+  if (addr && scheduleable) {
     actions.push({
       key: "calendar_location",
       label: `Set event location: ${addr}`,
@@ -269,22 +385,88 @@ export function buildProposedActions(insight, job) {
 
 export function formatInsightLead(insight, job) {
   const src = insight?.source?.fromLabel || "Email";
-  const jobLine = job
+  const outcome = insight?.outcome || "other";
+  let jobLine = job
     ? `I'm going to add this to the existing job for ${job.customer || "this customer"}.`
     : insight?.address
       ? `I found an address (${insight.address}) but no matching job yet.`
       : "I couldn't match this to a job address yet.";
+  if (outcome === "cancelled") {
+    jobLine = job
+      ? `This appointment was cancelled for ${job.customer || "this customer"}.`
+      : "This appointment was cancelled.";
+  } else if (outcome === "completed") {
+    jobLine = job
+      ? `Inspection completed for ${job.customer || "this customer"} — I'll update the job.`
+      : "Inspection marked completed.";
+  }
   const appt = insight?.summary || appointmentTypeLabel(insight?.appointmentType);
   return `From ${src}: ${appt}. ${jobLine}`;
 }
 
+export function formatAppliedLead(insight, job) {
+  const src = insight?.source?.fromLabel || "Email";
+  const type = appointmentTypeLabel(insight?.appointmentType);
+  const when = insight?.dateTime ? insight.dateTime.replace("T", " ").slice(0, 16) : "";
+  const who = job?.customer || "the job";
+  const outcome = insight?.outcome || "other";
+  if (outcome === "completed") {
+    return `From ${src}: marked ${type} completed for ${who}${when ? ` (${when})` : ""}. Already on the job.`;
+  }
+  if (outcome === "cancelled") {
+    return `From ${src}: noted cancelled ${type} for ${who}. Nothing added to the calendar.`;
+  }
+  return when
+    ? `From ${src}: added ${type} for ${who} to your schedule calendar on ${when}.`
+    : `From ${src}: applied email update for ${who}.`;
+}
+
+/** True when dateTime is today or in the future (local clock). */
+export function isDateTimeActionable(dateTime, now = new Date()) {
+  if (!dateTime) return false;
+  const raw = String(dateTime).trim();
+  // Treat bare date as end of that day.
+  const d = new Date(raw.length <= 10 ? raw + "T23:59:00" : raw);
+  if (Number.isNaN(d.getTime())) return false;
+  const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  return d.getTime() >= startOfToday.getTime();
+}
+
+/**
+ * Silent auto-apply when we have a strong job match and a clear scheduleable email.
+ * Weak matches still need Levi's approve sheet.
+ */
+export function canAutoApply(insight, job, now = new Date()) {
+  if (!insight || !job?.id) return false;
+  if ((insight.jobMatchScore || 0) < AUTO_APPLY_MIN_SCORE) return false;
+  const outcome = insight.outcome || "other";
+  if (outcome === "cancelled") return false;
+  // Completed inspections: auto-update paperwork only (still notify).
+  if (outcome === "completed") return true;
+  // Need a date/time on the calendar, and not a stale past appointment.
+  if (!insight.dateTime || !isDateTimeActionable(insight.dateTime, now)) return false;
+  return outcome === "scheduled" || outcome === "reminder" || outcome === "other" || outcome === "appointment";
+}
+
+export function defaultActionKeys(insight, job) {
+  const actions = insight?.proposedActions?.length
+    ? insight.proposedActions
+    : buildProposedActions(insight, job);
+  return actions.filter((a) => a.defaultOn !== false && a.enabled !== false).map((a) => a.key);
+}
+
 export function enrichInsight(raw, jobs) {
   const insight = { ...raw };
+  if (!insight.outcome) {
+    insight.outcome = classifyEmailOutcome(insight.source?.subject || "", insight.emailSnippet || "");
+  }
   const match = matchJobForInsight(insight, jobs);
   insight.jobId = match.jobId;
   insight.jobMatchScore = match.score;
   insight.proposedActions = buildProposedActions(insight, match.job);
   insight.lead = formatInsightLead(insight, match.job);
+  insight.appliedLead = formatAppliedLead(insight, match.job);
+  insight.canAutoApply = canAutoApply(insight, match.job);
   return insight;
 }
 

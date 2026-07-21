@@ -1,11 +1,19 @@
-// Pending email insights (Energy Services / Con Edison) — approve, edit, or ignore.
+// Email insights (Energy Services / Con Edison):
+// - Strong job match → auto-add to calendar, then show a "done" notice
+// - Weak / no match → approve, edit, or ignore sheet
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import Sheet, { Opt } from "./Sheet.jsx";
 import IntelligentSuggestionBadge from "./IntelligentSuggestionBadge.jsx";
 import AddAppointmentSheet from "./AddAppointmentSheet.jsx";
 import { useStore } from "../state/store.jsx";
-import { enrichInsight, appointmentTypeLabel } from "../lib/emailInsight.js";
+import {
+  enrichInsight,
+  appointmentTypeLabel,
+  canAutoApply,
+  defaultActionKeys,
+  formatAppliedLead,
+} from "../lib/emailInsight.js";
 import { applyEmailInsight, buildCalendarPayload } from "../lib/applyEmailInsight.js";
 import { shouldSuppressPrompts, beginPromptWorkPause } from "../lib/followUpReminders.js";
 import { isScreenCovered, subscribeSheets } from "../lib/sheetRegistry.js";
@@ -129,6 +137,48 @@ function EmailInsightSheet({ insight, job, onApprove, onEdit, onIgnore, onOpenJo
   );
 }
 
+/** Post-auto-apply notice — tells Levi the calendar/job was already updated. */
+function EmailInsightDoneSheet({ insight, job, onAck, onOpenJob, onOpenCalendar }) {
+  const lead = insight?.appliedLead || formatAppliedLead(insight, job);
+  const outcome = insight?.outcome || "other";
+  const onCal = outcome !== "cancelled" && outcome !== "completed" && insight?.dateTime;
+  return (
+    <Sheet title="Already on your calendar" onClose={onAck} testId="email-insight-done-sheet">
+      <SourceBadge insight={insight} />
+      <div className="rounded-xl border border-emerald-200 bg-emerald-50/90 px-3 py-3 mb-3">
+        <div className="flex flex-wrap items-center gap-2 mb-1.5">
+          <span className="text-[10px] font-bold uppercase tracking-wide text-emerald-800 bg-emerald-100 border border-emerald-200 px-2 py-0.5 rounded-full">
+            ✅ Done automatically
+          </span>
+          <span className="text-xs font-bold text-emerald-900 uppercase tracking-wide">
+            {appointmentTypeLabel(insight?.appointmentType)}
+          </span>
+        </div>
+        <p className="text-sm text-emerald-950/90 mb-1" data-testid="email-insight-done-lead">
+          {lead}
+        </p>
+        {insight?.source?.subject ? (
+          <p className="text-xs text-emerald-700/80 truncate" title={insight.source.subject}>
+            Re: {insight.source.subject}
+          </p>
+        ) : null}
+      </div>
+      {onCal ? (
+        <p className="text-xs text-slate-500 mb-3">
+          Check Today or the schedule calendar — it should be there (syncing if you just opened the app).
+        </p>
+      ) : null}
+      {job?.id ? (
+        <Opt icon="📂" title="Open job" note={job.customer || job.title || job.id} onClick={onOpenJob} />
+      ) : null}
+      {onCal ? (
+        <Opt icon="📅" title="Open schedule calendar" note="See it on the calendar" onClick={onOpenCalendar} />
+      ) : null}
+      <Opt icon="👍" title="Got it" note="Dismiss this notice" onClick={onAck} testId="email-insight-ack" />
+    </Sheet>
+  );
+}
+
 export default function EmailInsightPrompts() {
   const {
     jobs,
@@ -145,20 +195,39 @@ export default function EmailInsightPrompts() {
   } = useStore();
   const nav = useNavigate();
   const [current, setCurrent] = useState(null);
+  const [doneNotice, setDoneNotice] = useState(null);
   const [editSheet, setEditSheet] = useState(null);
   const [hidden, setHidden] = useState(false);
   const seen = useRef(new Set());
+  const autoRunning = useRef(new Set());
 
-  const pending = useMemo(() => {
-    return (emailInsights || [])
-      .filter((x) => x.status === "pending" && !seen.current.has(x.id))
-      .map((x) => enrichInsight(x, jobs));
+  const enrichedAll = useMemo(() => {
+    return (emailInsights || []).map((x) => enrichInsight(x, jobs));
   }, [emailInsights, jobs]);
+
+  // Pending that still need Levi (weak match / no date) — strong matches auto-apply silently.
+  const pendingNeedsApprove = useMemo(() => {
+    return enrichedAll.filter((x) => {
+      if (x.status !== "pending" || seen.current.has(x.id)) return false;
+      const job = x.jobId ? effectiveJob(x.jobId) : null;
+      return !canAutoApply(x, job);
+    });
+  }, [enrichedAll, effectiveJob]);
+
+  const doneQueue = useMemo(() => {
+    return enrichedAll.filter(
+      (x) =>
+        (x.status === "auto_applied" || (x.autoApplied && x.notified === false)) &&
+        x.notified !== true &&
+        !seen.current.has(x.id)
+    );
+  }, [enrichedAll]);
 
   const dismiss = useCallback(() => {
     beginPromptWorkPause();
     setHidden(true);
     setCurrent(null);
+    setDoneNotice(null);
     setEditSheet(null);
   }, []);
 
@@ -191,6 +260,7 @@ export default function EmailInsightPrompts() {
           appendLocalEvent,
           pullCalendarNow,
           showToast,
+          autoApply: false,
         });
         seen.current.add(insight.id);
         setCurrent(null);
@@ -211,6 +281,71 @@ export default function EmailInsightPrompts() {
     ]
   );
 
+  const ackDone = useCallback(
+    async (insight) => {
+      if (!insight?.id) return;
+      seen.current.add(insight.id);
+      try {
+        await patchEmailInsight(insight.id, { notified: true, status: insight.status || "auto_applied" });
+      } catch {
+        /* local dismiss is fine */
+      }
+      setDoneNotice(null);
+      await refreshEmailInsights();
+    },
+    [patchEmailInsight, refreshEmailInsights]
+  );
+
+  // Auto-apply strong matches in the background.
+  useEffect(() => {
+    if (IS_TEST || loading || !jobs?.length) return;
+    let cancelled = false;
+    (async () => {
+      for (const raw of emailInsights || []) {
+        if (cancelled) break;
+        if (raw.status !== "pending") continue;
+        if (autoRunning.current.has(raw.id) || seen.current.has(raw.id)) continue;
+        const enriched = enrichInsight(raw, jobs);
+        const job = enriched.jobId ? effectiveJob(enriched.jobId) : null;
+        if (!canAutoApply(enriched, job)) continue;
+        autoRunning.current.add(raw.id);
+        try {
+          await applyEmailInsight({
+            insight: enriched,
+            job,
+            selectedActionKeys: defaultActionKeys(enriched, job),
+            enqueue,
+            patchAndSave,
+            patchEmailInsight,
+            appendLocalEvent,
+            pullCalendarNow,
+            showToast: null,
+            autoApply: true,
+          });
+        } catch {
+          /* leave pending for manual approve */
+        } finally {
+          autoRunning.current.delete(raw.id);
+        }
+      }
+      if (!cancelled) await refreshEmailInsights();
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    loading,
+    jobs,
+    emailInsights,
+    effectiveJob,
+    enqueue,
+    patchAndSave,
+    patchEmailInsight,
+    appendLocalEvent,
+    pullCalendarNow,
+    refreshEmailInsights,
+  ]);
+
   useEffect(() => {
     if (IS_TEST || loading) return;
     refreshEmailInsights();
@@ -224,14 +359,43 @@ export default function EmailInsightPrompts() {
 
   useEffect(() => {
     if (IS_TEST || shouldSuppressPrompts() || hidden || editSheet) return;
-    if (!pending.length) return;
-    // Never stack on another sheet — its dimmer would swallow clicks.
-    if (!current && !isScreenCovered()) setCurrent(pending[0]);
-    if (!sessionAlreadySeen()) markSessionSeen();
-  }, [pending, current, hidden, editSheet, sheetTick]);
+    if (current || doneNotice) return;
+    if (isScreenCovered()) return;
+    // Prefer "done" notices so Levi sees what already landed.
+    if (doneQueue.length) {
+      setDoneNotice(doneQueue[0]);
+      if (!sessionAlreadySeen()) markSessionSeen();
+      return;
+    }
+    if (pendingNeedsApprove.length) {
+      setCurrent(pendingNeedsApprove[0]);
+      if (!sessionAlreadySeen()) markSessionSeen();
+    }
+  }, [pendingNeedsApprove, doneQueue, current, doneNotice, hidden, editSheet, sheetTick]);
 
   if (IS_TEST || shouldSuppressPrompts() || hidden) return null;
-  if (!current && !editSheet) return null;
+  if (!current && !editSheet && !doneNotice) return null;
+
+  if (doneNotice) {
+    const ins = doneNotice;
+    const job = ins?.jobId ? effectiveJob(ins.jobId) : null;
+    return (
+      <EmailInsightDoneSheet
+        insight={ins}
+        job={job}
+        onAck={() => ackDone(ins)}
+        onOpenJob={() => {
+          if (!job?.id) return;
+          dismiss();
+          nav("/job/" + encodeURIComponent(job.id));
+        }}
+        onOpenCalendar={() => {
+          dismiss();
+          nav("/today");
+        }}
+      />
+    );
+  }
 
   const job = current?.jobId ? effectiveJob(current.jobId) : null;
 
@@ -275,7 +439,11 @@ export default function EmailInsightPrompts() {
       job={job}
       onApprove={(keys) => approve(current, keys)}
       onEdit={() => {
-        setEditSheet({ insight: current, job, selected: [...(current?.proposedActions || []).filter((a) => a.defaultOn !== false).map((a) => a.key)] });
+        setEditSheet({
+          insight: current,
+          job,
+          selected: [...(current?.proposedActions || []).filter((a) => a.defaultOn !== false).map((a) => a.key)],
+        });
         dismiss();
       }}
       onIgnore={() => ignore(current)}

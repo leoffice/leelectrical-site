@@ -1,6 +1,11 @@
 // Apply approved email-insight actions (calendar, paperwork, reminders).
 import { withJobLink } from "./calendarLink.js";
-import { appointmentTypeLabel, paperworkPatchForInsight } from "./emailInsight.js";
+import {
+  appointmentTypeLabel,
+  paperworkPatchForInsight,
+  defaultActionKeys,
+  canAutoApply,
+} from "./emailInsight.js";
 import { inspectionAppointmentTitle } from "./paperwork.js";
 const GCAL_RED_COLOR_ID = "11";
 
@@ -40,6 +45,10 @@ export function jobPatchForInsight(insight, selected) {
   return paperworkPatchForInsight(insight, insight?.dateTime);
 }
 
+/**
+ * Apply insight actions. When autoApply=true, marks status auto_applied
+ * so the app can show a "done" notice instead of an approve sheet.
+ */
 export async function applyEmailInsight({
   insight,
   job,
@@ -50,11 +59,16 @@ export async function applyEmailInsight({
   appendLocalEvent,
   pullCalendarNow,
   showToast,
+  autoApply = false,
 }) {
-  const selected = new Set(selectedActionKeys || []);
+  const selected = new Set(
+    selectedActionKeys?.length ? selectedActionKeys : defaultActionKeys(insight, job)
+  );
   const jobId = job?.id || insight?.jobId || "today";
+  const outcome = insight?.outcome || "other";
+  const scheduleable = outcome !== "cancelled" && outcome !== "completed";
 
-  if (selected.has("calendar") && insight?.dateTime) {
+  if (selected.has("calendar") && insight?.dateTime && scheduleable) {
     const payload = buildCalendarPayload(insight, job, selected);
     const key = "emailins:" + (insight.id || insight.source?.messageId || Date.now());
     await enqueue("calendar_upsert", jobId, payload, "judgment", key);
@@ -78,10 +92,25 @@ export async function applyEmailInsight({
       colorId: payload.colorId,
     });
     pullCalendarNow?.();
-  } else if (job?.id && jobPatchForInsight(insight, selected) && Object.keys(jobPatchForInsight(insight, selected)).length) {
-    await patchAndSave(job.id, jobPatchForInsight(insight, selected));
+  } else if (job?.id) {
+    const paper = jobPatchForInsight(insight, selected);
+    if (paper && Object.keys(paper).length) {
+      await patchAndSave(job.id, paper);
+    }
   }
 
-  await patchEmailInsight(insight.id, { status: "approved", approvedAt: new Date().toISOString() });
-  showToast?.("Applied — syncing to calendar and job");
+  const now = new Date().toISOString();
+  await patchEmailInsight(insight.id, {
+    status: autoApply ? "auto_applied" : "approved",
+    approvedAt: now,
+    appliedAt: now,
+    autoApplied: !!autoApply,
+    notified: false,
+    jobId: job?.id || insight?.jobId || null,
+  });
+  if (!autoApply) {
+    showToast?.("Applied — syncing to calendar and job");
+  }
 }
+
+export { canAutoApply, defaultActionKeys };
