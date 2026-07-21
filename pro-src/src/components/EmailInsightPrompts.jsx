@@ -13,6 +13,7 @@ import {
   canAutoApply,
   defaultActionKeys,
   formatAppliedLead,
+  EMAIL_INSIGHT_TEST_AUTO_APPLY_LIMIT,
 } from "../lib/emailInsight.js";
 import { applyEmailInsight, buildCalendarPayload } from "../lib/applyEmailInsight.js";
 import { shouldSuppressPrompts, beginPromptWorkPause } from "../lib/followUpReminders.js";
@@ -20,6 +21,8 @@ import { isScreenCovered, subscribeSheets } from "../lib/sheetRegistry.js";
 
 const IS_TEST = import.meta.env.MODE === "test" || !!import.meta.env.VITEST;
 const SESSION_KEY = "lepro_email_insight_session";
+/** Per app-open: how many calendar auto-applies already ran this session. */
+let autoApplyCalendarCount = 0;
 
 function markSessionSeen() {
   try {
@@ -297,6 +300,7 @@ export default function EmailInsightPrompts() {
   );
 
   // Auto-apply strong matches in the background.
+  // Test limit (Levi): only execute ONE calendar appointment until he lifts the cap.
   useEffect(() => {
     if (IS_TEST || loading || !jobs?.length) return;
     let cancelled = false;
@@ -308,6 +312,23 @@ export default function EmailInsightPrompts() {
         const enriched = enrichInsight(raw, jobs);
         const job = enriched.jobId ? effectiveJob(enriched.jobId) : null;
         if (!canAutoApply(enriched, job)) continue;
+
+        const outcome = enriched.outcome || "other";
+        const wantsCalendar =
+          outcome !== "cancelled" &&
+          outcome !== "completed" &&
+          !!enriched.dateTime &&
+          (defaultActionKeys(enriched, job) || []).includes("calendar");
+
+        // Hard test gate: scan may find many; only execute one appointment.
+        if (
+          wantsCalendar &&
+          Number.isFinite(EMAIL_INSIGHT_TEST_AUTO_APPLY_LIMIT) &&
+          autoApplyCalendarCount >= EMAIL_INSIGHT_TEST_AUTO_APPLY_LIMIT
+        ) {
+          continue;
+        }
+
         autoRunning.current.add(raw.id);
         try {
           await applyEmailInsight({
@@ -322,6 +343,7 @@ export default function EmailInsightPrompts() {
             showToast: null,
             autoApply: true,
           });
+          if (wantsCalendar) autoApplyCalendarCount += 1;
         } catch {
           /* leave pending for manual approve */
         } finally {

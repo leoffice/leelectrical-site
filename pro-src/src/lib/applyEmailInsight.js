@@ -5,6 +5,9 @@ import {
   paperworkPatchForInsight,
   defaultActionKeys,
   canAutoApply,
+  buildAppointmentDescription,
+  addMinutesToLocalIso,
+  APPOINTMENT_DURATION_MINUTES,
 } from "./emailInsight.js";
 import { inspectionAppointmentTitle } from "./paperwork.js";
 const GCAL_RED_COLOR_ID = "11";
@@ -15,20 +18,42 @@ export function calendarTitleForInsight(insight) {
   return appointmentTypeLabel(type);
 }
 
+/**
+ * Force inspection defaults Levi requires for the test:
+ * 1h + 1d reminders, share-with-customer when we have an email.
+ */
+export function ensureInspectionSelections(insight, job, selected) {
+  const next = new Set(selected || []);
+  if (insight?.appointmentType === "inspection") {
+    next.add("remind_1h");
+    next.add("remind_1d");
+    if (job?.email) next.add("guest_email");
+  }
+  return next;
+}
+
 export function buildCalendarPayload(insight, job, selected) {
+  const sel = ensureInspectionSelections(insight, job, selected);
   const dt = insight?.dateTime || "";
+  const end =
+    insight?.endDateTime ||
+    (dt ? addMinutesToLocalIso(dt, APPOINTMENT_DURATION_MINUTES) : "");
   const location = insight?.address || job?.serviceAddress || job?.address || "";
   const title = calendarTitleForInsight(insight);
   const reminders = [];
-  if (selected.has("remind_1h")) reminders.push({ label: "1h", minutes: 60 });
-  if (selected.has("remind_1d")) reminders.push({ label: "1d", minutes: 1440 });
+  if (sel.has("remind_1h")) reminders.push({ label: "1h", minutes: 60 });
+  if (sel.has("remind_1d")) reminders.push({ label: "1d", minutes: 1440 });
   const guests = [];
-  if (selected.has("guest_email") && job?.email) guests.push(String(job.email).trim());
+  if (sel.has("guest_email") && job?.email) guests.push(String(job.email).trim());
+  const notes = buildAppointmentDescription(insight, job);
+  const description = job?.id ? withJobLink(notes, job.id) : notes;
   const payload = {
     summary: title,
     start: dt || new Date().toISOString().slice(0, 16),
-    location: selected.has("calendar_location") ? location : location,
-    description: job?.id ? withJobLink("From Energy Services email", job.id) : "From Energy Services email",
+    end: end || undefined,
+    durationMinutes: APPOINTMENT_DURATION_MINUTES,
+    location: sel.has("calendar_location") ? location : location,
+    description,
     guests,
     attendees: guests,
     reminders,
@@ -61,9 +86,10 @@ export async function applyEmailInsight({
   showToast,
   autoApply = false,
 }) {
-  const selected = new Set(
+  let selected = new Set(
     selectedActionKeys?.length ? selectedActionKeys : defaultActionKeys(insight, job)
   );
+  selected = ensureInspectionSelections(insight, job, selected);
   const jobId = job?.id || insight?.jobId || "today";
   const outcome = insight?.outcome || "other";
   const scheduleable = outcome !== "cancelled" && outcome !== "completed";
@@ -87,6 +113,7 @@ export async function applyEmailInsight({
       id: pendingId,
       summary: payload.summary,
       start: payload.start,
+      end: payload.end,
       location: payload.location,
       description: payload.description,
       colorId: payload.colorId,

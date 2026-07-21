@@ -7,13 +7,20 @@ import {
   isEnergyServicesEmail,
   extractAddress,
   extractDateTime,
+  extractTimeWindow,
+  floorToHalfHour,
+  resolveScheduleTimes,
+  buildAppointmentDescription,
   classifyAppointmentType,
   classifyEmailOutcome,
   canAutoApply,
   defaultActionKeys,
   stripHtml,
   formatAppliedLead,
+  EMAIL_INSIGHT_TEST_AUTO_APPLY_LIMIT,
+  APPOINTMENT_DURATION_MINUTES,
 } from "../src/lib/emailInsight.js";
+import { buildCalendarPayload, ensureInspectionSelections } from "../src/lib/applyEmailInsight.js";
 
 const SAMPLE_BODY = `Energy Services has scheduled a Con Edison inspection appointment
 for 503 Schenectady Avenue on August 15, 2026 at 2:00 PM.
@@ -168,5 +175,78 @@ describe("emailInsight", () => {
     };
     expect(formatAppliedLead(insight, job)).toMatch(/Izzy/);
     expect(formatAppliedLead(insight, job)).toMatch(/schedule calendar/);
+  });
+
+  it("floors exact times to half-hour slots", () => {
+    expect(floorToHalfHour("2026-08-15T11:15")).toBe("2026-08-15T11:00");
+    expect(floorToHalfHour("2026-08-15T11:45")).toBe("2026-08-15T11:30");
+    expect(floorToHalfHour("2026-08-15T11:00")).toBe("2026-08-15T11:00");
+    expect(floorToHalfHour("2026-08-15T09:30")).toBe("2026-08-15T09:30");
+  });
+
+  it("extracts appointment windows between two clocks", () => {
+    const w = extractTimeWindow("Appointment set between 11:00 and 1:00 on the service day.");
+    expect(w).toBeTruthy();
+    expect(w.startHour).toBe(11);
+    expect(w.startMin).toBe(0);
+    expect(w.endHour).toBe(13);
+    expect(w.text).toMatch(/Appointment set between 11:00 and 1:00/);
+  });
+
+  it("window appointment schedules start of window for 30 minutes", () => {
+    const body = `Service Address 1127 Lincoln Pl Brooklyn
+Your appointment is between 11:00 and 1:00 on July 28, 2026.`;
+    const sched = resolveScheduleTimes(body);
+    expect(sched.timeWindow?.text).toMatch(/between 11:00 and 1:00/);
+    expect(sched.dateTime).toBe("2026-07-28T11:00");
+    expect(sched.endDateTime).toBe("2026-07-28T11:30");
+    expect(APPOINTMENT_DURATION_MINUTES).toBe(30);
+  });
+
+  it("inspection exact time lands in description; schedule uses half-hour", () => {
+    const body = `Energy Services has scheduled a Con Edison inspection
+for 503 Schenectady Avenue on August 15, 2026 at 11:15 AM.`;
+    const raw = parseEmailInsight({
+      from: "noreply@energy-services.com",
+      subject: "Inspection scheduled",
+      body,
+      messageId: "msg-1115",
+    });
+    expect(raw.exactDateTime).toBe("2026-08-15T11:15");
+    expect(raw.dateTime).toBe("2026-08-15T11:00");
+    expect(raw.endDateTime).toBe("2026-08-15T11:30");
+    const desc = buildAppointmentDescription(raw, { id: "J-1", email: "c@x.com" });
+    expect(desc).toMatch(/11:15/);
+    expect(desc).toMatch(/11:00/);
+    expect(desc).toMatch(/half-hour/i);
+  });
+
+  it("buildCalendarPayload forces inspection reminders + guest + 30 min end", () => {
+    const insight = {
+      appointmentType: "inspection",
+      dateTime: "2026-08-15T11:00",
+      exactDateTime: "2026-08-15T11:15",
+      endDateTime: "2026-08-15T11:30",
+      address: "503 Schenectady Ave",
+      outcome: "scheduled",
+      timeWindow: null,
+    };
+    const job = { id: "J-1", customer: "Jane", email: "j@x.com", serviceAddress: "503 Schenectady Ave" };
+    const selected = ensureInspectionSelections(insight, job, new Set(["calendar"]));
+    expect(selected.has("remind_1h")).toBe(true);
+    expect(selected.has("remind_1d")).toBe(true);
+    expect(selected.has("guest_email")).toBe(true);
+    const payload = buildCalendarPayload(insight, job, selected);
+    expect(payload.end).toBe("2026-08-15T11:30");
+    expect(payload.durationMinutes).toBe(30);
+    expect(payload.reminders.map((r) => r.minutes).sort((a, b) => a - b)).toEqual([60, 1440]);
+    expect(payload.guests).toEqual(["j@x.com"]);
+    expect(payload.notifyCustomer).toBe(true);
+    expect(payload.description).toMatch(/11:15/);
+    expect(payload.description).toMatch(/Appointment|inspection|From Energy/i);
+  });
+
+  it("test auto-apply limit is one appointment", () => {
+    expect(EMAIL_INSIGHT_TEST_AUTO_APPLY_LIMIT).toBe(1);
   });
 });

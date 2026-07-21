@@ -94,6 +94,15 @@ const MONTHS = {
 /** Strong match threshold for silent auto-apply to calendar. */
 export const AUTO_APPLY_MIN_SCORE = 0.7;
 
+/**
+ * Test gate (Levi 2026-07-21): auto-apply only N calendar appointments per app open.
+ * Set to Infinity (or a large number) when the test looks good and limits lift.
+ */
+export const EMAIL_INSIGHT_TEST_AUTO_APPLY_LIMIT = 1;
+
+/** Calendar event length for email-driven appointments — always 30 minutes. */
+export const APPOINTMENT_DURATION_MINUTES = 30;
+
 export function isEnergyServicesEmail(from, subject = "", body = "") {
   const blob = [from, subject, body].join(" ");
   return ENERGY_SENDER_RE.test(blob);
@@ -125,7 +134,187 @@ function toIsoLocal(y, mo, d, hour, min) {
   return `${y}-${pad(mo + 1)}-${pad(d)}T${pad(hour)}:${pad(min)}`;
 }
 
+/** "11:00", "1:00 PM" style labels for calendar descriptions. */
+export function formatClockLabel(hour, min, withAmPm = false) {
+  const h24 = hour;
+  const m = min || 0;
+  const pad = (n) => String(n).padStart(2, "0");
+  if (!withAmPm) {
+    // Prefer 12-hour without leading zero on hour for Levi's window copy ("11:00 and 1:00").
+    let h12 = h24 % 12;
+    if (h12 === 0) h12 = 12;
+    return `${h12}:${pad(m)}`;
+  }
+  const ap = h24 >= 12 ? "p.m." : "a.m.";
+  let h12 = h24 % 12;
+  if (h12 === 0) h12 = 12;
+  return `${h12}:${pad(m)} ${ap}`;
+}
+
+/**
+ * Floor a local ISO datetime (YYYY-MM-DDTHH:MM) to the previous half-hour slot.
+ * 11:15 → 11:00, 11:45 → 11:30, 11:00 → 11:00. (Levi: half-hour increments only.)
+ */
+export function floorToHalfHour(isoLocal) {
+  const raw = String(isoLocal || "").trim();
+  if (!raw || !raw.includes("T")) return raw;
+  const m = raw.match(/^(\d{4})-(\d{2})-(\d{2})T(\d{1,2}):(\d{2})/);
+  if (!m) return raw;
+  const y = parseInt(m[1], 10);
+  const mo = parseInt(m[2], 10) - 1;
+  const d = parseInt(m[3], 10);
+  let hour = parseInt(m[4], 10);
+  let min = parseInt(m[5], 10);
+  if (min < 30) min = 0;
+  else min = 30;
+  return toIsoLocal(y, mo, d, hour, min);
+}
+
+/** Add minutes to a local ISO datetime string (no timezone math — civil clock). */
+export function addMinutesToLocalIso(isoLocal, minutes) {
+  const raw = String(isoLocal || "").trim();
+  const m = raw.match(/^(\d{4})-(\d{2})-(\d{2})T(\d{1,2}):(\d{2})/);
+  if (!m) return "";
+  const y = parseInt(m[1], 10);
+  const mo = parseInt(m[2], 10) - 1;
+  const d = parseInt(m[3], 10);
+  let hour = parseInt(m[4], 10);
+  let min = parseInt(m[5], 10) + (minutes || 0);
+  while (min >= 60) {
+    min -= 60;
+    hour += 1;
+  }
+  while (min < 0) {
+    min += 60;
+    hour -= 1;
+  }
+  // Day rollover is rare for 30-min appointments; keep simple civil add.
+  let day = d;
+  while (hour >= 24) {
+    hour -= 24;
+    day += 1;
+  }
+  while (hour < 0) {
+    hour += 24;
+    day -= 1;
+  }
+  return toIsoLocal(y, mo, day, hour, min);
+}
+
+/**
+ * Extract a customer appointment window like "between 11:00 and 1:00" / "from 11 AM to 1 PM".
+ * Returns labels + clock parts, or null.
+ */
+export function extractTimeWindow(text) {
+  const s = stripHtml(text);
+  const re =
+    /(?:between|from)\s+(\d{1,2})(?::(\d{2}))?\s*(am|pm|a\.m\.|p\.m\.)?\s*(?:and|to|-|–|—)\s+(\d{1,2})(?::(\d{2}))?\s*(am|pm|a\.m\.|p\.m\.)?/i;
+  const m = s.match(re);
+  if (!m) return null;
+  let startAmpm = m[3] || "";
+  let endAmpm = m[6] || "";
+  // If only the end has am/pm, infer start is also morning when both are single-digit-ish.
+  if (!startAmpm && endAmpm) {
+    const sh = parseInt(m[1], 10);
+    const eh = parseInt(m[4], 10);
+    // "11 and 1 PM" → start AM; "10 and 12 PM" → start AM if end is PM and start > end in 12h.
+    if (/p/i.test(endAmpm) && sh > eh) startAmpm = "am";
+    else startAmpm = endAmpm;
+  }
+  if (startAmpm && !endAmpm) endAmpm = startAmpm;
+  const start = parseClock(m[1], m[2], startAmpm);
+  const end = parseClock(m[4], m[5], endAmpm);
+  // Cross-noon without pm: "11:00 and 1:00" → treat 1:00 as PM when start is 11.
+  if (!m[3] && !m[6] && start.hour >= 10 && end.hour < start.hour && end.hour < 12) {
+    end.hour += 12;
+  }
+  const startLabel = formatClockLabel(start.hour, start.min, false);
+  const endLabel = formatClockLabel(end.hour, end.min, false);
+  return {
+    startHour: start.hour,
+    startMin: start.min,
+    endHour: end.hour,
+    endMin: end.min,
+    startLabel,
+    endLabel,
+    text: `Appointment set between ${startLabel} and ${endLabel}.`,
+  };
+}
+
+/** Pull YYYY-MM-DD from email text when a full datetime is missing. */
+function extractDateOnly(text, refYear = new Date().getFullYear()) {
+  const s = stripHtml(text);
+  const named = s.match(
+    /\b((?:jan|feb|mar|apr|may|jun|jul|aug|sep|sept|oct|nov|dec)[a-z]*)\s+(\d{1,2})(?:,?\s+(\d{4}))?/i
+  );
+  if (named) {
+    const mo = MONTHS[named[1].toLowerCase()];
+    if (mo != null) {
+      const day = parseInt(named[2], 10);
+      const year = named[3] ? parseInt(named[3], 10) : refYear;
+      return toIsoLocal(year, mo, day, 0, 0).slice(0, 10);
+    }
+  }
+  const slash = s.match(/\b(\d{1,2})\/(\d{1,2})\/(\d{2,4})\b/);
+  if (slash) {
+    const mo = parseInt(slash[1], 10) - 1;
+    const day = parseInt(slash[2], 10);
+    let year = parseInt(slash[3], 10);
+    if (year < 100) year += 2000;
+    return toIsoLocal(year, mo, day, 0, 0).slice(0, 10);
+  }
+  const iso = s.match(/\b(\d{4}-\d{2}-\d{2})\b/);
+  return iso ? iso[1] : "";
+}
+
+/**
+ * Resolve schedule start/end for an email insight.
+ * - Window → start of window, 30 min duration; description carries the full window.
+ * - Exact time → floor to half-hour for the calendar slot; keep exact for the description.
+ */
+export function resolveScheduleTimes(text, refYear = new Date().getFullYear()) {
+  const plain = stripHtml(text);
+  const window = extractTimeWindow(plain);
+  // Prefer a single exact clock when the email is not a window appointment.
+  let exactDateTime = window ? "" : extractDateTimeRaw(plain, refYear);
+  // Window emails may still name a date + a precise inspector time later; keep exact if present.
+  if (window) {
+    const maybeExact = extractDateTimeRaw(plain, refYear);
+    // Only treat as "exact" when minutes are not on a clean window-start match.
+    if (maybeExact) {
+      const t = maybeExact.slice(11, 16);
+      const winStart = `${String(window.startHour).padStart(2, "0")}:${String(window.startMin).padStart(2, "0")}`;
+      if (t !== winStart) exactDateTime = maybeExact;
+      else exactDateTime = maybeExact; // still record for description
+    }
+  }
+  let dateTime = "";
+  if (window) {
+    const day =
+      (exactDateTime && exactDateTime.slice(0, 10)) ||
+      extractDateOnly(plain, refYear) ||
+      "";
+    if (day) {
+      dateTime = `${day}T${String(window.startHour).padStart(2, "0")}:${String(window.startMin).padStart(2, "0")}`;
+    }
+  } else if (exactDateTime) {
+    dateTime = floorToHalfHour(exactDateTime);
+  }
+  const endDateTime = dateTime ? addMinutesToLocalIso(dateTime, APPOINTMENT_DURATION_MINUTES) : "";
+  return {
+    exactDateTime: exactDateTime || "",
+    dateTime: dateTime || "",
+    endDateTime,
+    timeWindow: window,
+  };
+}
+
+/** Original extractDateTime — keeps tests that call it directly working. */
 export function extractDateTime(text, refYear = new Date().getFullYear()) {
+  return extractDateTimeRaw(text, refYear);
+}
+
+function extractDateTimeRaw(text, refYear = new Date().getFullYear()) {
   const s = stripHtml(text);
   // "Jul 28, 2026 at 9:30 AM" / "July 15, 2026 at 2:00 PM"
   const coned = s.match(
@@ -230,7 +419,8 @@ export function parseEmailInsight({ from = "", subject = "", body = "", received
   const plainBody = stripHtml(body);
   const blob = [subject, plainBody].filter(Boolean).join("\n");
   const address = extractAddress(blob);
-  const dateTime = extractDateTime(blob);
+  const schedule = resolveScheduleTimes(blob);
+  const dateTime = schedule.dateTime;
   const appointmentType = classifyAppointmentType(blob);
   const outcome = classifyEmailOutcome(subject, plainBody);
   const fromLabel = /energy\s*services/i.test(from)
@@ -242,6 +432,7 @@ export function parseEmailInsight({ from = "", subject = "", body = "", received
   const summaryParts = [];
   if (address) summaryParts.push(`at ${address}`);
   if (dateTime) summaryParts.push(`on ${dateTime.replace("T", " ").slice(0, 16)}`);
+  if (schedule.timeWindow) summaryParts.push(`(${schedule.timeWindow.text.replace(/\.$/, "")})`);
   summaryParts.push(`for ${appointmentTypeLabel(appointmentType)}`);
   if (outcome === "cancelled") summaryParts.push("(cancelled)");
   if (outcome === "completed") summaryParts.push("(completed)");
@@ -261,12 +452,61 @@ export function parseEmailInsight({ from = "", subject = "", body = "", received
     outcome,
     address,
     dateTime,
+    exactDateTime: schedule.exactDateTime || "",
+    endDateTime: schedule.endDateTime || "",
+    timeWindow: schedule.timeWindow || null,
     summary: summaryParts.join(" "),
     emailSnippet: plainBody.slice(0, 400).trim() || String(subject || "").slice(0, 200),
     jobId: null,
     jobMatchScore: 0,
     proposedActions: [],
   };
+}
+
+/**
+ * Plain-language description for the Google Calendar event.
+ * Includes appointment window and (for inspections) exact time vs half-hour slot.
+ */
+export function buildAppointmentDescription(insight, job) {
+  const lines = [];
+  const type = insight?.appointmentType || "other";
+  const window = insight?.timeWindow;
+  const exact = insight?.exactDateTime || "";
+  const scheduled = insight?.dateTime || "";
+
+  if (window?.text) {
+    lines.push(window.text);
+  }
+
+  if (type === "inspection" && exact && scheduled) {
+    const exactLabel = formatClockLabel(
+      parseInt(exact.slice(11, 13), 10),
+      parseInt(exact.slice(14, 16), 10),
+      true
+    );
+    const schedLabel = formatClockLabel(
+      parseInt(scheduled.slice(11, 13), 10),
+      parseInt(scheduled.slice(14, 16), 10),
+      true
+    );
+    if (exact.slice(11, 16) !== scheduled.slice(11, 16)) {
+      lines.push(
+        `Con Edison inspection at ${exactLabel}. Scheduled for ${schedLabel} because we only use half-hour increments.`
+      );
+    } else {
+      lines.push(`Con Edison inspection at ${exactLabel}.`);
+    }
+  } else if (type === "inspection" && scheduled) {
+    const schedLabel = formatClockLabel(
+      parseInt(scheduled.slice(11, 13), 10),
+      parseInt(scheduled.slice(14, 16), 10),
+      true
+    );
+    lines.push(`Con Edison inspection at ${schedLabel}.`);
+  }
+
+  lines.push("From Energy Services email");
+  return lines.filter(Boolean).join("\n");
 }
 
 export function matchJobForInsight(insight, jobs, minScore = 0.55) {
