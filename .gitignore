@@ -2,6 +2,9 @@
 *.zip
 node_modules/
 
-# Local Netlify folder
-.netlify
+# Local Netlify folder (root only — NOT functions/.netlify Pages wrappers)
+/.netlify
+# Keep Cloudflare Pages Function route wrappers tracked + deployable
+!functions/.netlify/
+!functions/.netlify/**
 dist/
