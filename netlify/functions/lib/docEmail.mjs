@@ -3,7 +3,7 @@ import {
   resolveFromAddress,
   resolveRecipient,
 } from "./paymentConfirmEnv.mjs";
-import { docPdfFilename, mapJobToQbDocData } from "./jobToQbDoc.mjs";
+import { docPdfFilename, docStoreKey, mapJobToQbDocData } from "./jobToQbDoc.mjs";
 // Static ESM default-import of the CJS template (esbuild/Node interop) — no
 // createRequire, which isn't available on Cloudflare's V8 isolate.
 import emailTemplate from "./le-invoice-suite/email-template.js";
@@ -11,6 +11,7 @@ import emailTemplate from "./le-invoice-suite/email-template.js";
 import { LOGO_PNG_BASE64 } from "./le-invoice-suite/logoBase64.mjs";
 import { POWERED_BY_LE_TEXT, poweredByLeHtml, resolveEmailBrand } from "./emailBranding.mjs";
 import { buildEmailPayLandingPayload, mintShortPayLink } from "./payLandingLink.mjs";
+import { getStore } from "./storage/index.mjs";
 
 const { buildEmailHTML, buildPayLink } = emailTemplate;
 
@@ -31,6 +32,33 @@ function decodePdfB64(b64) {
   const buf = Buffer.from(raw, "base64");
   // Sanity: a real PDF starts with "%PDF".
   return buf.length > 4 && buf.slice(0, 4).toString("latin1") === "%PDF" ? buf : null;
+}
+
+/**
+ * Persist the emailed PDF so the pay-page "View invoice" button can open it.
+ * Without this, the short /pay link lands but the PDF lookup 404s (or tries
+ * the dead pdfkit path on Cloudflare).
+ */
+async function storePdfForView(kind, docNumber, pdfBuffer, filename) {
+  const no = String(docNumber || "").trim();
+  if (!no || !pdfBuffer?.length) return "";
+  const key = docStoreKey(kind, no);
+  try {
+    const store = getStore("docs");
+    await store.set(key, pdfBuffer, {
+      metadata: {
+        mime: "application/pdf",
+        bytes: pdfBuffer.length,
+        ts: Date.now(),
+        source: "email",
+        filename: String(filename || "").replace(/[^\w .-]/g, "_") || undefined,
+      },
+    });
+    return key;
+  } catch (err) {
+    console.error("[doc-email] store pdf failed", err);
+    return "";
+  }
 }
 
 /**
@@ -80,7 +108,6 @@ export async function sendDocEmail({
   // --- PDF: prefer the client-generated qb-pdf (no server pdfkit) ---
   const docData = mapJobToQbDocData(job, kind);
   let pdfBuffer = decodePdfB64(pdfB64);
-  let docKey = "";
   if (!pdfBuffer) {
     // Client-PDF only. Server-side pdfkit generation is gone — it can't run on
     // Cloudflare's V8 isolate (and pulling docGenerate in would drag pdfkit into
@@ -91,6 +118,10 @@ export async function sendDocEmail({
 
   const isInvoice = kind === "invoice";
   const docWord = isInvoice ? "Invoice" : "Estimate";
+  const filename = filenameIn || docPdfFilename(kind, job, docData.docNumber);
+  // Store the same PDF the email attaches so pay-page "View invoice" works.
+  const docKey = await storePdfForView(kind, docData.docNumber, pdfBuffer, filename);
+
   // The Cardknox URL is NEVER shown to the customer. It is embedded in the
   // landing payload so the PayLanding page can offer Pay; the email only ever
   // exposes a short /pay/<code> link behind one button.
@@ -104,7 +135,7 @@ export async function sendDocEmail({
     });
   }
 
-// Prefer confirm-sheet body when provided; otherwise leave greeting empty
+  // Prefer confirm-sheet body when provided; otherwise leave greeting empty
   // (HTML template still shows bill-to banner + CTA). Short pay link stays
   // the only customer-facing URL — never the raw Cardknox link.
   let viewLink = docKey ? docsUrl(docKey) : "";
@@ -159,7 +190,6 @@ export async function sendDocEmail({
   }
 
   const pdfAttachB64 = pdfBuffer.toString("base64");
-  const filename = filenameIn || docPdfFilename(kind, job, docData.docNumber);
 
   const text =
     `${docWord} ${docData.docNumber} from ${docData.company.name}\n` +
