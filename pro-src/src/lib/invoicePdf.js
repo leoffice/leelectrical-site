@@ -49,10 +49,8 @@ function footerLines() {
   return [
     "Thank you for your business!",
     "If you have any questions concerning this invoice please contact us.",
-    // TODO: pre-existing inconsistency — the footer mailbox is lowercased here
-    // while the header renders c.email as "Office@…". Left literal so the
-    // rendered PDF stays byte-identical; unify in its own reviewable change.
-    `Phone: ${c.phone} Email: office@LeElectrical.us`,
+    // Company mailbox from profile — not a hard-coded BLZ address.
+    `Phone: ${c.phone} Email: ${c.email || ""}`,
   ];
 }
 

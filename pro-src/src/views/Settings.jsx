@@ -585,6 +585,55 @@ export default function Settings() {
             onChange={(e) => setP("payLinkBase", e.target.value)}
           />
         </Fld>
+        <Fld label="Short name (emails / sign-off)">
+          <input
+            className={inputCls}
+            value={profile.shortName || ""}
+            onChange={(e) => setP("shortName", e.target.value)}
+            placeholder="e.g. BLZ Electric"
+          />
+        </Fld>
+        <Fld label="Website">
+          <input
+            className={inputCls}
+            value={profile.website || ""}
+            onChange={(e) => setP("website", e.target.value)}
+          />
+        </Fld>
+        <Fld label="Zelle payment line (on invoices)">
+          <input
+            className={inputCls}
+            value={profile.zelleInstructions || ""}
+            onChange={(e) => setP("zelleInstructions", e.target.value)}
+          />
+        </Fld>
+        <Fld label="Check payment line (on invoices)">
+          <textarea
+            className={inputCls + " min-h-[4.5rem]"}
+            value={profile.checkInstructions || ""}
+            onChange={(e) => setP("checkInstructions", e.target.value)}
+          />
+        </Fld>
+        <Fld label="Deposit-to banks (one per line)">
+          <textarea
+            className={inputCls + " min-h-[4.5rem]"}
+            value={Array.isArray(profile.depositBanks) ? profile.depositBanks.join("\n") : String(profile.depositBanks || "")}
+            onChange={(e) =>
+              setP(
+                "depositBanks",
+                e.target.value
+                  .split("\n")
+                  .map((s) => s.trim())
+                  .filter(Boolean)
+              )
+            }
+            placeholder={"Martin Dorkin\nWells Fargo\nBLZ Chase"}
+            data-testid="settings-deposit-banks"
+          />
+          <p className="text-[11px] text-slate-500 font-semibold mt-1">
+            Shown when you record a check or Zelle — which bank the money goes into.
+          </p>
+        </Fld>
         <div className="text-[11px] font-extrabold uppercase tracking-wide text-slate-500 mb-2">
           Payment methods (profile)
         </div>

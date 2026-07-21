@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   DEPOSIT_BANKS,
+  getDepositBanks,
   buildChatPaymentDraft,
   isPaymentMethodOnly,
   looksLikePaymentImage,
@@ -8,6 +9,7 @@ import {
   resolvePaymentKind,
   shouldAutoOpenPaymentDraft,
 } from "../src/lib/chatPayment.js";
+import { depositBanksFromProfile } from "../src/lib/tenantProfile.js";
 
 describe("chatPayment", () => {
   it("parsePaymentMethodHint reads check, zelle, and zell", () => {
@@ -56,6 +58,7 @@ describe("chatPayment", () => {
     expect(draft.invoiceNo).toBe("251841");
     expect(draft.amount).toBe("1200");
     expect(draft.ref).toBe("5521");
+    expect(draft.deposit).toBe(getDepositBanks()[0]);
     expect(draft.deposit).toBe(DEPOSIT_BANKS[0]);
   });
 
@@ -63,5 +66,17 @@ describe("chatPayment", () => {
     expect(looksLikePaymentImage({ amount: 100 })).toBe(true);
     expect(looksLikePaymentImage({ checkNumber: "1" })).toBe(true);
     expect(looksLikePaymentImage({})).toBe(false);
+  });
+
+  it("getDepositBanks / depositBanksFromProfile respect company profile", () => {
+    expect(getDepositBanks()).toEqual(DEPOSIT_BANKS);
+    expect(depositBanksFromProfile({ depositBanks: ["Acme Bank", "Local CU"] })).toEqual([
+      "Acme Bank",
+      "Local CU",
+    ]);
+    expect(depositBanksFromProfile({ depositBanks: "One Bank\nTwo Bank" })).toEqual([
+      "One Bank",
+      "Two Bank",
+    ]);
   });
 });

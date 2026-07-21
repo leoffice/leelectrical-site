@@ -2,9 +2,25 @@
 import { parseInvoiceFromMemo } from "./zelleReconcile.js";
 import { paymentAutofillPatch } from "./paymentAutofill.js";
 import { todayStr } from "./format.js";
+import { DEFAULT_PROFILE, depositBanksFromProfile } from "./tenantProfile.js";
+import { activeTenantConfig } from "./tenantBranding.js";
 
-/** Bank accounts for check/Zelle deposits (not payment methods). */
-export const DEPOSIT_BANKS = ["Martin Dorkin", "Wells Fargo", "BLZ Chase"];
+/**
+ * Bank accounts for check/Zelle deposits (not payment methods).
+ * Kept as a named export for tests + legacy imports; reads the active company
+ * profile when available so white-label tenants use their own list.
+ */
+export function getDepositBanks(profile) {
+  if (profile) return depositBanksFromProfile(profile);
+  try {
+    return depositBanksFromProfile(activeTenantConfig()?.profile);
+  } catch {
+    return depositBanksFromProfile(DEFAULT_PROFILE);
+  }
+}
+
+/** @deprecated Prefer getDepositBanks() — seed list for the LE tenant only. */
+export const DEPOSIT_BANKS = [...DEFAULT_PROFILE.depositBanks];
 
 /** Parse "check", "zelle", or "zell" from a chat message. */
 export function parsePaymentMethodHint(text) {
@@ -59,7 +75,7 @@ export function buildChatPaymentDraft({
     memo,
     date: patch.dt || todayStr(),
     invoiceNo: invoiceFromMemo || jobInvoiceNo || "",
-    deposit: DEPOSIT_BANKS[0],
+    deposit: getDepositBanks()[0],
     extracted: extracted || null,
     proofName: file?.name || "",
     previewUrl,

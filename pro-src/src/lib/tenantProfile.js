@@ -45,6 +45,11 @@ export const DEFAULT_PROFILE = {
   tagline: "Licensed & insured",
   // Mailbox used for the Gmail authuser= hint on desktop mailto links.
   officeEmail: "office@leelectrical.us",
+  /**
+   * Banks shown on check / Zelle "Deposit to" pickers. Per-company — not a
+   * hard-coded BLZ list. White-label tenants set their own in Settings.
+   */
+  depositBanks: ["Martin Dorkin", "Wells Fargo", "BLZ Chase"],
 
   /**
    * AIA G702/G703 requisition billing block. Intentionally its own set of
@@ -150,7 +155,29 @@ export function mergeProfile(raw) {
     ...DEFAULT_PROFILE.requisition,
     ...(p.requisition && typeof p.requisition === "object" ? p.requisition : {}),
   };
+  p.depositBanks = normalizeDepositBanks(p.depositBanks);
   return p;
+}
+
+/** Normalize deposit bank list from array or newline/comma text. */
+export function normalizeDepositBanks(raw) {
+  if (Array.isArray(raw)) {
+    const list = raw.map((s) => String(s || "").trim()).filter(Boolean);
+    return list.length ? list : [...DEFAULT_PROFILE.depositBanks];
+  }
+  if (typeof raw === "string") {
+    const list = raw
+      .split(/[\n,;]+/)
+      .map((s) => s.trim())
+      .filter(Boolean);
+    return list.length ? list : [...DEFAULT_PROFILE.depositBanks];
+  }
+  return [...DEFAULT_PROFILE.depositBanks];
+}
+
+/** Deposit-to banks for the active company profile (or defaults). */
+export function depositBanksFromProfile(profile) {
+  return normalizeDepositBanks(mergeProfile(profile).depositBanks);
 }
 
 export function mergeFeatures(raw) {

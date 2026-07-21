@@ -60,7 +60,7 @@ import {
 } from "../lib/customerDocLists.js";
 import { findJobByInvoice, reconcileZellePayment } from "../lib/zelleReconcile.js";
 import { paymentAutofillPatch, paymentMemoNote, invoiceNoFromExtracted } from "../lib/paymentAutofill.js";
-import { DEPOSIT_BANKS } from "../lib/chatPayment.js";
+import { getDepositBanks } from "../lib/chatPayment.js";
 import { analyzePaymentImage, analyzePaymentScreenshot, fileToBase64 } from "../lib/paymentVision.js";
 import ZelleReconcileSheet from "./ZelleReconcileSheet.jsx";
 import PaymentProofFld from "./PaymentProofFld.jsx";
@@ -337,7 +337,8 @@ export function MarkPaidSheet({
   const [autofillExtracted, setAutofillExtracted] = useState(null);
   const [paymentVerified, setPaymentVerified] = useState(false);
   const [zelleReconcile, setZelleReconcile] = useState(null);
-  const [deposit, setDeposit] = useState(DEPOSIT_BANKS[0]);
+  const depositBanks = useMemo(() => getDepositBanks(), []);
+  const [deposit, setDeposit] = useState(() => getDepositBanks()[0]);
   const [depositOther, setDepositOther] = useState("");
   /** True when user chose Attach a picture — keep the photo CTA highlighted until they pick one. */
   const [awaitingProof, setAwaitingProof] = useState(Boolean(openProofPicker));
@@ -345,11 +346,9 @@ export function MarkPaidSheet({
   const depositVal = deposit === "Other" ? depositOther.trim() : deposit;
   useEffect(() => {
     if (!openProofPicker) return;
+    // Highlight the dual picker (Take photo / Choose from files) — do not
+    // auto-force the camera; that was the bug on mobile.
     setAwaitingProof(true);
-    // Best-effort auto-open. Desktop browsers often block this without a fresh
-    // user gesture — PaymentProofFld still shows a big attach button.
-    const t = setTimeout(() => proofInputRef.current?.click(), 180);
-    return () => clearTimeout(t);
   }, [openProofPicker]);
 
   const openInvoices = useMemo(() => {
@@ -716,12 +715,18 @@ export function MarkPaidSheet({
     setPaymentVerified(false);
     setAutofillDone(false);
     setAutofillExtracted(null);
-    // Prefer check when a photo is attached without a method (Attach a picture path).
+    // Prefer check when a file is attached without a method (Attach path).
     const treatAsCheck = !mth || mth === "Check" || isCheck;
     if (!mth) setMth("Check");
+    const isImage = String(file.type || "").startsWith("image/");
     try {
       const b64 = await fileToBase64(file);
       setProofB64(b64);
+      if (!isImage) {
+        // PDF / non-image stays on the payment as proof — no vision autofill.
+        showToast("File attached — enter details and tap Record");
+        return;
+      }
       if (treatAsCheck) {
         // Check path: auto-read amount, check #, date, memo, invoice (the old skill).
         showToast("Reading check photo…");
@@ -730,7 +735,7 @@ export function MarkPaidSheet({
         showToast("Image attached — tap Autofill or Record");
       }
     } catch {
-      showToast("Could not read image file");
+      showToast("Could not read that file");
       setProofFile(null);
       setProofB64("");
     }
@@ -995,7 +1000,7 @@ export function MarkPaidSheet({
               data-testid="payment-deposit"
               disabled={processing}
             >
-              {DEPOSIT_BANKS.map((b) => (
+              {depositBanks.map((b) => (
                 <option key={b}>{b}</option>
               ))}
               <option>Other</option>
@@ -1018,8 +1023,8 @@ export function MarkPaidSheet({
       ) : isCheck ? (
         <>
           <PaymentProofFld
-            label="Check photo"
-            hint="Photo of the check — fills amount, check #, date, memo, and invoice when readable"
+            label="Check attachment"
+            hint="Photo or PDF of the check — photos fill amount, check #, date, memo, and invoice when readable"
             file={proofFile}
             inputRef={proofInputRef}
             onFile={onProofFile}
@@ -1067,7 +1072,7 @@ export function MarkPaidSheet({
               data-testid="payment-deposit"
               disabled={processing}
             >
-              {DEPOSIT_BANKS.map((b) => (
+              {depositBanks.map((b) => (
                 <option key={b}>{b}</option>
               ))}
               <option>Other</option>

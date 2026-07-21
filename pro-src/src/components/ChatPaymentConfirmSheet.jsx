@@ -3,17 +3,18 @@ import React, { useState } from "react";
 import Sheet, { Fld } from "./Sheet.jsx";
 import PaymentImageZoom from "./PaymentImageZoom.jsx";
 import { fmt$, todayStr } from "../lib/format.js";
-import { DEPOSIT_BANKS } from "../lib/chatPayment.js";
+import { getDepositBanks } from "../lib/chatPayment.js";
 
 export default function ChatPaymentConfirmSheet({ draft, job, onConfirm, onCancel }) {
   if (!draft) return null;
+  const banks = getDepositBanks();
   const [kind, setKind] = useState(draft.kind || "Zelle");
   const [amt, setAmt] = useState(String(draft.amount || ""));
   const [ref, setRef] = useState(draft.ref || "");
   const [memo, setMemo] = useState(draft.memo || "");
   const [dt, setDt] = useState(draft.date || todayStr());
   const [invoiceNo, setInvoiceNo] = useState(draft.invoiceNo || job?.invoiceNo || "");
-  const [deposit, setDeposit] = useState(draft.deposit || DEPOSIT_BANKS[0]);
+  const [deposit, setDeposit] = useState(draft.deposit || banks[0]);
   const [depositOther, setDepositOther] = useState("");
   const locked = Boolean(draft.methodLocked);
   const depositVal = deposit === "Other" ? depositOther.trim() : deposit;
@@ -68,7 +69,7 @@ export default function ChatPaymentConfirmSheet({ draft, job, onConfirm, onCance
           aria-label="Deposit to"
           data-testid="chat-payment-deposit"
         >
-          {DEPOSIT_BANKS.map((b) => (
+          {banks.map((b) => (
             <option key={b}>{b}</option>
           ))}
           <option>Other</option>
