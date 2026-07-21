@@ -94,21 +94,32 @@ export default async (req) => {
   const no = String(invoiceNo || "").trim();
   if (!INV_RE.test(no)) return json({ ok: false, error: "bad invoice number" }, 400);
 
+  const key = docStoreKey("invoice", no);
+  // Fast path: PDF already stored (e.g. from a local email send).
+  if (await docExists(key)) {
+    return json({ ok: true, ready: true, invoiceNo: no });
+  }
+
   const job = await loadJobForInvoice(no, jobId);
+  // Server pdfkit only works on Node (Netlify / host). On Cloudflare V8 it
+  // throws (error 1101) — catch and fall through to queue / ready checks.
   if (canGenerateLocalDoc(job, "invoice")) {
-    const result = await generateAndStoreDoc({ job, kind: "invoice" });
-    if (result.ok) {
-      return json({
-        ok: true,
-        generated: true,
-        local: true,
-        key: result.key,
-        invoiceNo: no,
-      });
+    try {
+      const result = await generateAndStoreDoc({ job, kind: "invoice" });
+      if (result.ok) {
+        return json({
+          ok: true,
+          generated: true,
+          local: true,
+          key: result.key,
+          invoiceNo: no,
+        });
+      }
+    } catch (err) {
+      console.error("[docs-fetch] local generate failed (likely CF runtime)", err);
     }
   }
 
-  const key = docStoreKey("invoice", no);
   if (await docExists(key)) {
     return json({ ok: true, ready: true, invoiceNo: no });
   }
