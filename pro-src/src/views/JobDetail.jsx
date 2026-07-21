@@ -28,6 +28,8 @@ import {
 import { followUpFromPaperworkStep } from "../lib/calendarDue.js";
 import { fmt$, ago } from "../lib/format.js";
 import CustomerCard from "../components/CustomerCard.jsx";
+import CustomerTransactionHistory from "../components/CustomerTransactionHistory.jsx";
+import ConnectDocSheet from "../components/ConnectDocSheet.jsx";
 import JobInfoCard from "../components/JobInfoCard.jsx";
 import JobAddressCarousel from "../components/JobAddressCarousel.jsx";
 
@@ -212,6 +214,7 @@ export default function JobDetail() {
   const [sheet, setSheet] = useState(null); // {kind, ...}
   const [showChangeOrders, setShowChangeOrders] = useState(false);
   const [detailSectionsExpanded, setDetailSectionsExpanded] = useState(!foldOnOpen);
+  const [shortTxns, setShortTxns] = useState(false);
   const stepTimer = useRef(null);
   const jobInfoRef = useRef(null);
 
@@ -349,7 +352,7 @@ export default function JobDetail() {
         </button>
       </div>
 
-      {/* Customer card — contact on top, compact actions, edit + sync */}
+      {/* Customer card — contact on top; Transaction history toggle (estimates live here) */}
       <CustomerCard
         contact={{
           ...customerContact(customerJobs),
@@ -357,10 +360,16 @@ export default function JobDetail() {
         }}
         showSummary={false}
         primaryJob={job}
+        shortTxns={shortTxns}
+        onShortTxnsChange={setShortTxns}
         onEdit={() => setSheet({ kind: "cust" })}
         onText={() => setSheet({ kind: "compose", channel: "sms" })}
         onEmail={() => setSheet({ kind: "compose", channel: "email" })}
       />
+
+      {shortTxns ? (
+        <CustomerTransactionHistory jobs={customerJobs} fromCust={custKey || fromCust} />
+      ) : null}
 
       {pending[id] ? (
         <div className="px-1 -mt-2">
@@ -1023,8 +1032,20 @@ export default function JobDetail() {
 
       {/* Sheets */}
       {sheet?.kind === "menu" && (
-        <MenuSheet job={job} onClose={() => setSheet(null)} onCombine={() => setSheet({ kind: "combine" })} />
+        <MenuSheet
+          job={job}
+          onClose={() => setSheet(null)}
+          onCombine={() => setSheet({ kind: "combine" })}
+          onConnect={(kind) => setSheet({ kind: "connect", connectKind: kind })}
+        />
       )}
+      {sheet?.kind === "connect" && job ? (
+        <ConnectDocSheet
+          job={job}
+          pressedKind={sheet.connectKind || (job.invoiceNo ? "invoice" : job.estimateNo ? "estimate" : "permit")}
+          onClose={() => setSheet(null)}
+        />
+      ) : null}
       {sheet?.kind === "combine" && <CombineSheet job={job} onClose={() => setSheet(null)} />}
       {sheet?.kind === "payintro" && (
         <PaymentIntroSheet

@@ -95,6 +95,8 @@ export default function JobInfoCard({
     invoiceDate ? ["Invoice date", invoiceDate] : null,
     job.invoiceNo ? ["Invoice", job.invoiceNo] : null,
     job.estimateNo ? ["Estimate", job.estimateNo] : null,
+    job.linkedPermitJobId ? ["Linked permit", "Connected"] : null,
+    job.linkedInvoiceNo && !job.invoiceNo ? ["Linked invoice", "#" + job.linkedInvoiceNo] : null,
     total > 0 ? ["Invoice amount", fmt$(total)] : null,
     paid > 0 ? ["Paid", fmt$(paid)] : null,
     !job.paid && balance > 0 ? ["Balance due", fmt$(balance)] : null,

@@ -1,10 +1,29 @@
-// Long-press: connect invoice ↔ estimate at the same service address.
+// Long-press / menu: connect invoice ↔ estimate or invoice ↔ permit at the same service address.
 import React, { useMemo, useState } from "react";
 import Sheet from "./Sheet.jsx";
 import { useStore } from "../state/store.jsx";
-import { connectDocsPatch, sameAddressDocsForConnect } from "../lib/changeOrder.js";
+import {
+  connectCandidateKind,
+  connectDocsPatch,
+  jobHasPermitPaperwork,
+  sameAddressDocsForConnect,
+} from "../lib/changeOrder.js";
 import { fmt$ } from "../lib/format.js";
 import { openBalance, invoiceTotal } from "../lib/customers.js";
+
+function candidateLabel(j) {
+  const kind = connectCandidateKind(j);
+  if (kind === "estimate") return "Estimate #" + (j.estimateNo || "—");
+  if (kind === "permit") {
+    const bits = [];
+    if (j.invoiceNo) bits.push("Inv #" + j.invoiceNo);
+    if (j.estimateNo) bits.push("Est #" + j.estimateNo);
+    const head = bits.length ? bits.join(" · ") : j.title || "Permit job";
+    return "Permit · " + head;
+  }
+  if (j.invoiceNo) return "Invoice #" + j.invoiceNo;
+  return j.title || "Job";
+}
 
 export default function ConnectDocSheet({ job, pressedKind, onClose }) {
   const { jobs, patchAndSave, showToast } = useStore();
@@ -18,13 +37,24 @@ export default function ConnectDocSheet({ job, pressedKind, onClose }) {
 
   const title =
     pressedKind === "invoice"
-      ? "Connect invoice to estimate"
-      : "Connect estimate to invoice";
+      ? "Connect invoice to estimate or permit"
+      : pressedKind === "permit"
+        ? "Connect permit to invoice"
+        : "Connect estimate to invoice";
 
   const emptyNote =
     pressedKind === "invoice"
-      ? "No other estimates at this service address."
-      : "No other invoices at this service address.";
+      ? "No other estimates or permit jobs at this service address."
+      : pressedKind === "permit"
+        ? "No other invoices at this service address."
+        : "No other invoices at this service address.";
+
+  const holdLabel =
+    pressedKind === "invoice"
+      ? "invoice #" + (job.invoiceNo || "—")
+      : pressedKind === "permit"
+        ? "permit on " + (job.title || job.invoiceNo || "this job")
+        : "estimate #" + (job.estimateNo || "—");
 
   const toggle = (id) => {
     setPicked((prev) => {
@@ -41,28 +71,36 @@ export default function ConnectDocSheet({ job, pressedKind, onClose }) {
       showToast("Pick at least one to connect");
       return;
     }
-    const patches = connectDocsPatch(job, selected, { sameJobInfo });
+    const patches = connectDocsPatch(job, selected, {
+      sameJobInfo,
+      linkKind: pressedKind === "permit" ? "permit" : "",
+    });
     await Promise.all(Object.entries(patches).map(([id, patch]) => patchAndSave(id, patch)));
-    showToast(sameJobInfo ? "Connected — showing on same job information" : "Documents connected");
+    const linkedPermit = selected.some((j) => jobHasPermitPaperwork(j));
+    const linkedEst = selected.some((j) => j.estimateNo && !j.invoiceNo);
+    let msg = sameJobInfo ? "Connected — showing on same job information" : "Documents connected";
+    if (linkedPermit && linkedEst) msg = "Linked estimate + permit";
+    else if (linkedPermit) msg = "Linked permit to invoice";
+    else if (linkedEst || pressedKind === "estimate") msg = sameJobInfo ? msg : "Linked estimate and invoice";
+    showToast(msg);
     onClose();
   };
 
   return (
     <Sheet title={title} onClose={onClose}>
       <p className="text-sm text-slate-500 mb-3">
-        Same service address only. Hold was on{" "}
-        {pressedKind === "invoice" ? "invoice #" + (job.invoiceNo || "—") : "estimate #" + (job.estimateNo || "—")}.
+        Same service address only. Connecting from {holdLabel}.
       </p>
 
       {candidates.length ? (
         <div className="space-y-2 mb-4" data-testid="connect-doc-list">
           {candidates.map((j) => {
             const on = picked.has(j.id);
-            const label =
-              j.estimateNo && !j.invoiceNo
-                ? "Estimate #" + j.estimateNo
-                : "Invoice #" + (j.invoiceNo || "—");
-            const amt = j.invoiceNo ? fmt$(openBalance(j) || invoiceTotal(j)) : fmt$(invoiceTotal(j) || j.amount);
+            const label = candidateLabel(j);
+            const kind = connectCandidateKind(j);
+            const amt = j.invoiceNo
+              ? fmt$(openBalance(j) || invoiceTotal(j))
+              : fmt$(invoiceTotal(j) || j.amount);
             return (
               <button
                 key={j.id}
@@ -73,9 +111,15 @@ export default function ConnectDocSheet({ job, pressedKind, onClose }) {
                 }
                 onClick={() => toggle(j.id)}
                 data-testid={"connect-pick-" + j.id}
+                data-connect-kind={kind}
               >
                 <span className="block">{label}</span>
-                {j.title ? <span className="block text-xs font-normal text-slate-500 truncate">{j.title}</span> : null}
+                {j.title && kind !== "permit" ? (
+                  <span className="block text-xs font-normal text-slate-500 truncate">{j.title}</span>
+                ) : null}
+                {kind === "permit" && j.title ? (
+                  <span className="block text-xs font-normal text-slate-500 truncate">{j.title}</span>
+                ) : null}
                 {amt ? <span className="block text-xs font-normal tabular-nums mt-0.5">{amt}</span> : null}
               </button>
             );

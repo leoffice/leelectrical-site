@@ -53,8 +53,9 @@ export default function JobEditSheet({ job, fromCust = "", onClose }) {
 
   const openJob = (j) => {
     onClose();
-    const q = fromCust ? "?from=" + encodeURIComponent(fromCust) : "";
-    nav("/job/" + j.id + q);
+    const parts = ["fold=1"];
+    if (fromCust) parts.push("from=" + encodeURIComponent(fromCust));
+    nav("/job/" + j.id + "?" + parts.join("&"));
   };
 
   if (confirm === "archive") {
@@ -105,24 +106,37 @@ export default function JobEditSheet({ job, fromCust = "", onClose }) {
       {sameAddr.length ? (
         <div className="mt-4 mb-3">
           <p className="text-[11px] font-bold uppercase tracking-wide text-slate-400 mb-2">
-            Other invoices at this address ({sameAddr.length})
+            Other jobs at this address ({sameAddr.length})
           </p>
           <div className="flex gap-2 overflow-x-auto pb-1 -mx-1 px-1 snap-x" data-testid="job-edit-same-addr">
             {sameAddr.map((j) => {
               const due = openBalance(j);
-              const tone = j.paid || due <= 0.01 ? "border-emerald-200 bg-emerald-50" : "border-red-200 bg-red-50";
+              const isEst = !!(j.estimateNo && !j.invoiceNo);
+              const tone = isEst
+                ? "border-slate-200 bg-slate-50"
+                : j.paid || due <= 0.01
+                  ? "border-emerald-200 bg-emerald-50"
+                  : "border-red-200 bg-red-50";
+              const label = j.invoiceNo
+                ? "Inv #" + j.invoiceNo
+                : j.estimateNo
+                  ? "Est #" + j.estimateNo
+                  : j.title || "Job";
               return (
                 <button
                   key={j.id}
                   type="button"
                   className={`snap-start shrink-0 w-[72%] max-w-[240px] rounded-xl border px-3 py-2.5 text-left ${tone}`}
                   onClick={() => openJob(j)}
+                  data-testid={"job-edit-sibling-" + j.id}
                 >
-                  <div className="text-xs font-bold text-slate-800 truncate">
-                    {j.invoiceNo ? "Inv #" + j.invoiceNo : j.title || "Job"}
-                  </div>
+                  <div className="text-xs font-bold text-slate-800 truncate">{label}</div>
                   <div className="text-[10px] text-slate-500 mt-0.5">
-                    {j.paid ? "Paid" : fmtAmountDue(j) || fmt$(due) || "—"}
+                    {isEst
+                      ? j.title || "Estimate"
+                      : j.paid
+                        ? "Paid"
+                        : fmtAmountDue(j) || fmt$(due) || "—"}
                   </div>
                 </button>
               );

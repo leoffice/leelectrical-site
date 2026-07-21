@@ -3047,7 +3047,7 @@ export function AttachSheet({ job, onClose }) {
 }
 
 /* ---------- 5. Job menu: archive / combine / delete ---------- */
-export function MenuSheet({ job, onClose, onCombine }) {
+export function MenuSheet({ job, onClose, onCombine, onConnect }) {
   const { patchAndSave, showToast } = useStore();
   const nav = useNavigate();
   const [confirmDel, setConfirmDel] = useState(false);
@@ -3071,8 +3071,38 @@ export function MenuSheet({ job, onClose, onCombine }) {
         <button className="btn-ghost w-full mt-2" onClick={onClose}>Cancel</button>
       </Sheet>
     );
+  const canLinkInvoice = !!job?.invoiceNo;
+  const canLinkEstimate = !!(job?.estimateNo && !job?.invoiceNo);
+  const canLinkPermit = !canLinkInvoice && !canLinkEstimate; // paperwork-only job
   return (
     <Sheet title={job.customer || "Job"} onClose={onClose}>
+      {canLinkInvoice && typeof onConnect === "function" ? (
+        <Opt
+          icon="🔗"
+          title="Link to estimate or permit"
+          note="Connect this invoice to an estimate or permit job at the same address"
+          onClick={() => onConnect("invoice")}
+          data-testid="menu-connect-invoice"
+        />
+      ) : null}
+      {canLinkEstimate && typeof onConnect === "function" ? (
+        <Opt
+          icon="🔗"
+          title="Link to invoice"
+          note="Connect this estimate to an invoice at the same address"
+          onClick={() => onConnect("estimate")}
+          data-testid="menu-connect-estimate"
+        />
+      ) : null}
+      {canLinkPermit && typeof onConnect === "function" ? (
+        <Opt
+          icon="🏙️"
+          title="Link permit to invoice"
+          note="Attach this permit/paperwork job to an invoice at the same address"
+          onClick={() => onConnect("permit")}
+          data-testid="menu-connect-permit"
+        />
+      ) : null}
       <Opt
         icon="📦"
         title="Archive job"

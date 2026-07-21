@@ -81,4 +81,23 @@ describe("JobDetail — same-address invoices when progress is folded", () => {
     await screen.findByTestId("job-info-card");
     expect(screen.queryByTestId("customer-sibling-jobs")).not.toBeInTheDocument();
   });
+
+  it("job customer card has Transaction history toggle to reach estimates", async () => {
+    mockServer({ jobs: jobs() });
+    const user = userEvent.setup();
+    renderApp("#/job/K-1?from=c%3Ameir%20kabakov");
+
+    const pane = await screen.findByTestId("detail-pane");
+    const card = within(pane).getByTestId("customer-card");
+    expect(within(card).getByTestId("customer-short-txns-row")).toBeInTheDocument();
+    expect(screen.queryByTestId("customer-txn-history")).not.toBeInTheDocument();
+
+    await user.click(within(card).getByRole("switch", { name: /Transaction/i }));
+
+    const ledger = await screen.findByTestId("customer-txn-history");
+    expect(within(ledger).getByTestId("cust-txn-filter-estimates")).toBeInTheDocument();
+    await user.click(within(ledger).getByTestId("cust-txn-filter-estimates"));
+    // Estimate E-9 appears in the customer transaction ledger (not in sibling invoices)
+    expect(within(ledger).getByText(/E-9|Quoted only/i)).toBeInTheDocument();
+  });
 });

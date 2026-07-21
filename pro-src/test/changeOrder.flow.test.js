@@ -12,6 +12,7 @@ import {
   changeOrderReadyForCarousel,
   changeOrderTabRows,
   connectDocsPatch,
+  sameAddressDocsForConnect,
   isChangeOrderJob,
   nextChangeOrderSeq,
   preferredChangeOrderDocNo,
@@ -262,5 +263,39 @@ describe("connectDocsPatch", () => {
     const patches = connectDocsPatch(inv, [est], { sameJobInfo: true });
     expect(patches["J-inv"].estimateNo).toBe("25400");
     expect(patches["J-est"].jobInfoLeadId).toBe("J-inv");
+  });
+
+  it("links invoice job to permit/paperwork job at same address", () => {
+    const inv = { id: "J-inv", invoiceNo: "251100", serviceAddress: "10 Oak St", customer: "Acme" };
+    const permit = {
+      id: "J-perm",
+      serviceAddress: "10 Oak St",
+      customer: "Acme",
+      title: "DOB permit",
+      paperwork: { dob: { enabled: true, steps: {} } },
+    };
+    const patches = connectDocsPatch(inv, [permit], { sameJobInfo: true });
+    expect(patches["J-inv"].linkedPermitJobId).toBe("J-perm");
+    expect(patches["J-perm"].linkedInvoiceJobId).toBe("J-inv");
+    expect(patches["J-perm"].linkedInvoiceNo).toBe("251100");
+    expect(patches["J-perm"].jobInfoLeadId).toBe("J-inv");
+  });
+});
+
+describe("sameAddressDocsForConnect", () => {
+  it("offers estimates and permit jobs when connecting from an invoice", () => {
+    const inv = { id: "J-inv", invoiceNo: "1", serviceAddress: "10 Oak St", customer: "A", qboCustomerId: "1" };
+    const est = { id: "J-est", estimateNo: "E1", serviceAddress: "10 Oak St", customer: "A", qboCustomerId: "1" };
+    const permit = {
+      id: "J-p",
+      serviceAddress: "10 Oak St",
+      customer: "A",
+      qboCustomerId: "1",
+      paperwork: { dob: { enabled: true } },
+    };
+    const otherInv = { id: "J-2", invoiceNo: "2", serviceAddress: "10 Oak St", customer: "A", qboCustomerId: "1" };
+    const list = sameAddressDocsForConnect([inv, est, permit, otherInv], inv, "invoice");
+    const ids = list.map((j) => j.id).sort();
+    expect(ids).toEqual(["J-est", "J-p"]);
   });
 });

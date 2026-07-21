@@ -472,20 +472,87 @@ export function invoiceIsPureChangeOrder(lines, total) {
   return coSum >= t * 0.85;
 }
 
-/** Jobs at same address that can be linked (opposite doc kind). */
-export function sameAddressDocsForConnect(jobs, job, pressedKind) {
-  const list = jobsAtSameAddress(jobs, job).filter((j) => j.id !== job.id);
-  if (pressedKind === "invoice") {
-    return list.filter((j) => j.estimateNo && !j.jobInfoLeadId);
+/** True when job has DOB/city permit or Con Ed paperwork tracking. */
+export function jobHasPermitPaperwork(job) {
+  const pw = job?.paperwork || {};
+  if (pw.dob?.enabled || pw.coned?.enabled) return true;
+  // Legacy permit branch (ignored for steps, still a signal)
+  if (pw.permit?.enabled) return true;
+  // Soft: title/description mentions permit when no invoice/estimate number yet
+  if (!job?.invoiceNo && !job?.estimateNo) {
+    const hay = [job?.title, job?.serviceType, job?.notes].filter(Boolean).join(" ").toLowerCase();
+    if (/\b(permit|dob|con\s*ed|coned)\b/.test(hay)) return true;
   }
-  return list.filter((j) => j.invoiceNo && !j.jobInfoLeadId);
+  return false;
+}
+
+/** Jobs at same address that can be linked (opposite doc kind, or permit). */
+export function sameAddressDocsForConnect(jobs, job, pressedKind) {
+  const list = jobsAtSameAddress(jobs, job).filter((j) => j.id !== job.id && !j.jobInfoLeadId);
+  if (pressedKind === "invoice") {
+    // Invoice → estimates and/or permit/paperwork jobs at this address
+    return list.filter((j) => {
+      if (j.estimateNo && !j.invoiceNo) return true;
+      if (jobHasPermitPaperwork(j) && String(j.linkedInvoiceJobId || "") !== String(job.id)) return true;
+      return false;
+    });
+  }
+  if (pressedKind === "permit") {
+    return list.filter((j) => j.invoiceNo);
+  }
+  // estimate → invoices
+  return list.filter((j) => j.invoiceNo);
+}
+
+/** Classify a connect candidate for UI labels. */
+export function connectCandidateKind(job) {
+  if (job?.estimateNo && !job?.invoiceNo) return "estimate";
+  if (jobHasPermitPaperwork(job) && !job?.invoiceNo) return "permit";
+  if (jobHasPermitPaperwork(job)) return "permit";
+  if (job?.invoiceNo) return "invoice";
+  return "job";
 }
 
 /** Patch to link pressed job to selected docs; optional merge onto same job info card. */
-export function connectDocsPatch(pressedJob, selectedJobs, { sameJobInfo = false } = {}) {
+export function connectDocsPatch(pressedJob, selectedJobs, { sameJobInfo = false, linkKind = "" } = {}) {
   const patches = {};
   const leadId = sameJobInfo ? pressedJob.id : "";
-  if (pressedJob.estimateNo && !pressedJob.invoiceNo) {
+  const wantPermit =
+    linkKind === "permit" ||
+    (pressedJob.invoiceNo && selectedJobs.some((j) => jobHasPermitPaperwork(j) && !(j.estimateNo && !j.invoiceNo)));
+
+  // Invoice ↔ permit (paperwork job at same address)
+  if (pressedJob.invoiceNo && wantPermit) {
+    const permitJobs = selectedJobs.filter((j) => jobHasPermitPaperwork(j));
+    const estJobs = selectedJobs.filter((j) => j.estimateNo && !j.invoiceNo);
+    if (permitJobs.length) {
+      const p = permitJobs[0];
+      patches[pressedJob.id] = {
+        ...(patches[pressedJob.id] || {}),
+        linkedPermitJobId: p.id,
+        ...(leadId ? { jobInfoLeadId: leadId } : {}),
+      };
+      patches[p.id] = {
+        ...(patches[p.id] || {}),
+        linkedInvoiceJobId: pressedJob.id,
+        linkedInvoiceNo: pressedJob.invoiceNo,
+        ...(leadId ? { jobInfoLeadId: leadId } : {}),
+      };
+    }
+    // Can also link estimate in same save when multi-selected
+    if (estJobs.length) {
+      const est = estJobs[0];
+      patches[pressedJob.id] = {
+        ...(patches[pressedJob.id] || {}),
+        estimateNo: est.estimateNo || pressedJob.estimateNo,
+        linkedEstimateJobId: est.id,
+        ...(leadId ? { jobInfoLeadId: leadId } : {}),
+      };
+      if (leadId) {
+        patches[est.id] = { ...(patches[est.id] || {}), jobInfoLeadId: leadId };
+      }
+    }
+  } else if (pressedJob.estimateNo && !pressedJob.invoiceNo) {
     const inv = selectedJobs.find((j) => j.invoiceNo);
     if (inv) {
       patches[pressedJob.id] = {
@@ -500,6 +567,19 @@ export function connectDocsPatch(pressedJob, selectedJobs, { sameJobInfo = false
       patches[pressedJob.id] = {
         estimateNo: est.estimateNo,
         linkedEstimateJobId: est.id,
+        ...(leadId ? { jobInfoLeadId: leadId } : {}),
+      };
+    }
+  } else if (jobHasPermitPaperwork(pressedJob) || linkKind === "permit") {
+    const inv = selectedJobs.find((j) => j.invoiceNo);
+    if (inv) {
+      patches[pressedJob.id] = {
+        linkedInvoiceJobId: inv.id,
+        linkedInvoiceNo: inv.invoiceNo,
+        ...(leadId ? { jobInfoLeadId: leadId } : {}),
+      };
+      patches[inv.id] = {
+        linkedPermitJobId: pressedJob.id,
         ...(leadId ? { jobInfoLeadId: leadId } : {}),
       };
     }
