@@ -256,9 +256,9 @@ function generateDocument(data, outPath) {
 
     drawPageHeader();
 
-    // Title
+    // Title top-right (Levi layout preference)
     doc.font('reg').fontSize(S.title.size).fillColor(S.colors.green);
-    textAtBaseline(docType, M, S.title.baselineY);
+    rightText(docType, pageW - M, S.title.baselineY);
 
     // Meta block — left: ADDRESS
     doc.fontSize(S.meta.labelSize);

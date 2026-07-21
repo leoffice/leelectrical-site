@@ -186,8 +186,8 @@ export function buildQbDocPdf(data) {
   details.forEach((ln, i) => pg.text(M, 61.5 + i * 12.75, ln, { size: 7.32, color: BLACK }));
   pg.image("ImLogo", 254.25, 36, 103.5, 81);
 
-  // Title "INVOICE" (green)
-  pg.text(M, titleY, docType, { size: 13.72, color: GREEN });
+  // Title "INVOICE"/"ESTIMATE" top-right (green) — Levi layout preference
+  pg.text(PAGE_W - M, titleY, docType, { size: 13.72, color: GREEN, align: "right" });
 
   // Meta left: ADDRESS
   pg.text(M, metaY, "ADDRESS", { size: 9.15, color: GRAY });
