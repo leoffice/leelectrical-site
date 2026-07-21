@@ -23,7 +23,7 @@ const openConEd = async (user, pane) => {
 };
 
 const openDetail = async () => {
-  renderApp("#/job/J-1");
+  renderApp("#/job/J-1?fold=0");
   const pane = await screen.findByTestId("detail-pane");
   await within(pane).findByText("Peretz Chein");
   return pane;

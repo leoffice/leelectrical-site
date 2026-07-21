@@ -49,12 +49,17 @@ import {
   appendPayment,
   canVoidInQbo,
   fmtPaymentLine,
+  movePayment,
   normalizePayments,
   removePayment,
   updatePayment,
 } from "../lib/payments.js";
-import { reconcileZellePayment } from "../lib/zelleReconcile.js";
-import { paymentAutofillPatch, paymentMemoNote } from "../lib/paymentAutofill.js";
+import {
+  formatInvoicePayOption,
+  invoicesForCustomerPick,
+} from "../lib/customerDocLists.js";
+import { findJobByInvoice, reconcileZellePayment } from "../lib/zelleReconcile.js";
+import { paymentAutofillPatch, paymentMemoNote, invoiceNoFromExtracted } from "../lib/paymentAutofill.js";
 import { DEPOSIT_BANKS } from "../lib/chatPayment.js";
 import { analyzePaymentImage, analyzePaymentScreenshot, fileToBase64 } from "../lib/paymentVision.js";
 import ZelleReconcileSheet from "./ZelleReconcileSheet.jsx";
@@ -291,13 +296,18 @@ export function MarkPaidSheet({
   const { patchJob, showToast, syncNow, refreshJobs, jobs } = useStore();
   const product = productName(useTenantConfig());
   const needsPick = !jobProp;
+  const [reassign, setReassign] = useState(false);
   const [activeJob, setActiveJob] = useState(jobProp || null);
   const [pickCust, setPickCust] = useState(() => {
     if (initialCustomerName) return { name: initialCustomerName };
     if (jobProp?.customer) return { name: jobProp.customer };
     return null;
   });
+  const [custDraft, setCustDraft] = useState(
+    () => initialCustomerName || jobProp?.customer || ""
+  );
   const job = activeJob;
+  const showCustomerPick = needsPick || reassign;
   const due = job ? openBalance(job) : 0;
   const alreadyPaid = job ? due <= 0.01 : false;
   const [amt, setAmt] = useState(() => {
@@ -329,25 +339,35 @@ export function MarkPaidSheet({
   const [zelleReconcile, setZelleReconcile] = useState(null);
   const [deposit, setDeposit] = useState(DEPOSIT_BANKS[0]);
   const [depositOther, setDepositOther] = useState("");
+  /** True when user chose Attach a picture — keep the photo CTA highlighted until they pick one. */
+  const [awaitingProof, setAwaitingProof] = useState(Boolean(openProofPicker));
   const proofInputRef = useRef(null);
   const depositVal = deposit === "Other" ? depositOther.trim() : deposit;
   useEffect(() => {
-    if (!openProofPicker || !proofInputRef.current) return;
-    const t = setTimeout(() => proofInputRef.current?.click(), 120);
+    if (!openProofPicker) return;
+    setAwaitingProof(true);
+    // Best-effort auto-open. Desktop browsers often block this without a fresh
+    // user gesture — PaymentProofFld still shows a big attach button.
+    const t = setTimeout(() => proofInputRef.current?.click(), 180);
     return () => clearTimeout(t);
   }, [openProofPicker]);
 
   const openInvoices = useMemo(() => {
-    if (!needsPick || !pickCust) return [];
-    const key = customerKeyForName(pickCust.name);
-    return sortJobs(jobsForCustomerKey(jobs, key).filter((j) => !j.paid && openBalance(j) > 0.01));
-  }, [needsPick, pickCust, jobs]);
+    if (!showCustomerPick || !pickCust) return [];
+    return invoicesForCustomerPick(jobs, pickCust.name, {
+      openOnly: true,
+      includeJobId: jobProp?.id || "",
+    });
+  }, [showCustomerPick, pickCust, jobs, jobProp?.id]);
 
   useEffect(() => {
-    if (!needsPick) return;
+    if (!showCustomerPick) return;
     if (openInvoices.length === 1) setActiveJob(openInvoices[0]);
-    else if (!openInvoices.some((j) => j.id === activeJob?.id)) setActiveJob(null);
-  }, [needsPick, openInvoices, activeJob?.id]);
+    else if (!openInvoices.some((j) => j.id === activeJob?.id)) {
+      if (reassign && jobProp && openInvoices.some((j) => j.id === jobProp.id)) setActiveJob(jobProp);
+      else setActiveJob(null);
+    }
+  }, [showCustomerPick, openInvoices, activeJob?.id, reassign, jobProp]);
 
   useEffect(() => {
     if (!activeJob) return;
@@ -480,20 +500,44 @@ export function MarkPaidSheet({
     setAutofillExtracted(extracted);
     setAutofillDone(true);
     setPaymentVerified(true);
+    // When adding a payment from ＋ (no job yet), try to land on the invoice
+    // written on the check memo / image (invoice #, amount, date already set).
+    if (needsPick && !activeJob) {
+      const invNo = invoiceNoFromExtracted(extracted);
+      if (invNo) {
+        const matched = findJobByInvoice(jobs, invNo);
+        if (matched) {
+          setActiveJob(matched);
+          setPickCust({ name: matched.customer || "" });
+          const d = openBalance(matched);
+          if (!(patch.amt && parseFloat(patch.amt) > 0)) {
+            setAmt(d > 0 ? String(d) : String(matched.amount || "").replace(/[$,]/g, ""));
+          }
+          showToast("Matched invoice #" + invNo + " — review and tap Record");
+          return;
+        }
+      }
+    }
   };
 
-  const runAutofill = async () => {
-    if (!proofB64) return;
+  const runAutofill = async (b64Override, fileOverride) => {
+    const b64 = b64Override || proofB64;
+    const file = fileOverride || proofFile;
+    if (!b64) return;
     setAutofillBusy(true);
     try {
       const { extracted } = await analyzePaymentImage(
-        proofB64,
-        proofFile?.type || "image/jpeg",
-        isCheck ? "check" : isZelle ? "zelle" : "",
-        proofFile?.name || ""
+        b64,
+        file?.type || "image/jpeg",
+        isCheck ? "check" : isZelle ? "zelle" : "check",
+        file?.name || ""
       );
+      const invNo = invoiceNoFromExtracted(extracted);
+      const matched = invNo && needsPick && !activeJob ? findJobByInvoice(jobs, invNo) : null;
       applyAutofill(extracted);
-      showToast("Fields filled from image — review and tap Record");
+      if (!matched) {
+        showToast("Fields filled from image — review and tap Record");
+      }
     } catch (e) {
       showToast("Could not read image — " + String((e && e.message) || "enter manually"));
     } finally {
@@ -668,13 +712,23 @@ export function MarkPaidSheet({
     const file = e.target.files?.[0];
     if (!file) return;
     setProofFile(file);
+    setAwaitingProof(false);
     setPaymentVerified(false);
     setAutofillDone(false);
     setAutofillExtracted(null);
+    // Prefer check when a photo is attached without a method (Attach a picture path).
+    const treatAsCheck = !mth || mth === "Check" || isCheck;
+    if (!mth) setMth("Check");
     try {
       const b64 = await fileToBase64(file);
       setProofB64(b64);
-      showToast("Image attached — tap Autofill or Record");
+      if (treatAsCheck) {
+        // Check path: auto-read amount, check #, date, memo, invoice (the old skill).
+        showToast("Reading check photo…");
+        await runAutofill(b64, file);
+      } else {
+        showToast("Image attached — tap Autofill or Record");
+      }
     } catch {
       showToast("Could not read image file");
       setProofFile(null);
@@ -682,25 +736,34 @@ export function MarkPaidSheet({
     }
   };
 
-  const sheetTitle = needsPick ? "Add a payment" : "Mark as paid — " + (job?.customer || "");
+  const sheetTitle = needsPick || reassign ? "Add a payment" : "Mark as paid — " + (job?.customer || "");
 
   return (
     <>
     <Sheet title={sheetTitle} onClose={onClose}>
-      {needsPick ? (
+      {showCustomerPick ? (
         <>
           <CustomerSearch
-            label="Customer"
+            label="Customer / service address"
+            placeholder="Name or service address…"
             testId="payment-customer-search"
-            value={pickCust?.name || ""}
-            onChangeText={() => {
+            value={custDraft}
+            onChangeText={(t) => {
+              setCustDraft(t);
               setPickCust(null);
               setActiveJob(null);
             }}
-            onPick={(c) => setPickCust(c && !c._newCustomer ? c : null)}
+            onPick={(c) => {
+              if (!c || c._newCustomer) {
+                setPickCust(null);
+                return;
+              }
+              setPickCust(c);
+              setCustDraft(c.name || c.businessName || "");
+            }}
           />
           {pickCust && openInvoices.length > 1 ? (
-            <Fld label="Invoice" hint="Which invoice to apply this payment to">
+            <Fld label="Invoice" hint="Each line shows the service address">
               <select
                 className="input"
                 value={activeJob?.id || ""}
@@ -709,14 +772,12 @@ export function MarkPaidSheet({
                   setActiveJob(picked);
                 }}
                 aria-label="Invoice"
+                data-testid="payment-invoice-select"
               >
                 <option value="">— choose invoice —</option>
                 {openInvoices.map((j) => (
                   <option key={j.id} value={j.id}>
-                    {(j.invoiceNo ? "Inv #" + j.invoiceNo + " · " : "") +
-                      (j.title || j.customer || "Job") +
-                      " · " +
-                      (fmtAmountDue(j) || fmt$(openBalance(j)))}
+                    {formatInvoicePayOption(j)}
                   </option>
                 ))}
               </select>
@@ -724,18 +785,51 @@ export function MarkPaidSheet({
           ) : null}
           {pickCust && openInvoices.length === 1 && activeJob ? (
             <p className="text-[12px] text-slate-500 mb-2">
-              Invoice #{activeJob.invoiceNo || "—"} · Open{" "}
-              <span className="font-semibold text-slate-700">{fmt$(due)}</span>
+              {formatInvoicePayOption(activeJob)}
             </p>
           ) : null}
           {pickCust && !openInvoices.length ? (
             <p className="text-sm text-slate-400 text-center py-4">No open invoices for this customer.</p>
           ) : null}
+          {reassign && jobProp ? (
+            <button
+              type="button"
+              className="text-[11px] font-semibold text-slate-500 mb-2"
+              onClick={() => {
+                setReassign(false);
+                setActiveJob(jobProp);
+                setPickCust(jobProp.customer ? { name: jobProp.customer } : null);
+                setCustDraft(jobProp.customer || "");
+              }}
+            >
+              Keep original job
+            </button>
+          ) : null}
         </>
       ) : (
-        <Fld label="Customer">
-          <p className="input bg-slate-50 text-slate-800 font-medium">{job.customer || ""}</p>
-        </Fld>
+        <div className="mb-2">
+          <Fld label="Paying towards">
+            <div className="input bg-slate-50 text-slate-800 font-medium flex items-start justify-between gap-2">
+              <div className="min-w-0">
+                <div data-testid="payment-toward-customer">{job.customer || ""}</div>
+                {job.invoiceNo ? (
+                  <div className="text-[11px] font-normal text-slate-500 mt-0.5 break-words">
+                    {formatInvoicePayOption(job)}
+                  </div>
+                ) : null}
+              </div>
+              <button
+                type="button"
+                className="btn bg-white border border-slate-200 text-slate-800 !px-2 !py-1 text-xs shrink-0"
+                onClick={() => setReassign(true)}
+                data-testid="payment-change-target"
+                aria-label="Change customer or invoice"
+              >
+                ✏️ Edit
+              </button>
+            </div>
+          </Fld>
+        </div>
       )}
       {job && alreadyPaid ? (
         <div className="rounded-xl bg-amber-50 border border-amber-200 px-3 py-2.5 mb-3 text-[12px] text-amber-900">
@@ -885,11 +979,12 @@ export function MarkPaidSheet({
             file={proofFile}
             inputRef={proofInputRef}
             onFile={onProofFile}
-            onAutofill={runAutofill}
+            onAutofill={() => runAutofill()}
             autofillBusy={autofillBusy}
             autofillDone={autofillDone}
             disabled={processing}
             testId="zelle-screenshot-input"
+            pendingPick={awaitingProof && !proofFile}
           />
           <Fld label="Deposit to">
             <select
@@ -922,6 +1017,20 @@ export function MarkPaidSheet({
         </>
       ) : isCheck ? (
         <>
+          <PaymentProofFld
+            label="Check photo"
+            hint="Photo of the check — fills amount, check #, date, memo, and invoice when readable"
+            file={proofFile}
+            inputRef={proofInputRef}
+            onFile={onProofFile}
+            onAutofill={() => runAutofill()}
+            autofillBusy={autofillBusy}
+            autofillDone={autofillDone}
+            disabled={processing}
+            testId="check-screenshot-input"
+            emphasize
+            pendingPick={awaitingProof && !proofFile}
+          />
           <Fld label="Check number" hint="Required for check deposits">
             <input
               className="input"
@@ -949,18 +1058,6 @@ export function MarkPaidSheet({
               aria-label="Check memo"
             />
           </Fld>
-          <PaymentProofFld
-            label="Check image (optional)"
-            hint="Photo of check — attach then tap Autofill"
-            file={proofFile}
-            inputRef={proofInputRef}
-            onFile={onProofFile}
-            onAutofill={runAutofill}
-            autofillBusy={autofillBusy}
-            autofillDone={autofillDone}
-            disabled={processing}
-            testId="check-screenshot-input"
-          />
           <Fld label="Deposit to">
             <select
               className="input"
@@ -1066,16 +1163,180 @@ export function MarkPaidSheet({
 }
 
 /* ---------- 1b. Payment history ---------- */
-function PaymentEditForm({ payment, onSave, onDelete, onVoid, onCancel }) {
+function PaymentEditForm({
+  payment,
+  sourceJob,
+  jobs = [],
+  onSave,
+  onDelete,
+  onVoid,
+  onCancel,
+}) {
   const [amt, setAmt] = useState(String(payment.amount || "").replace(/[$,]/g, ""));
   const [mth, setMth] = useState(payment.method || "");
   const [ref, setRef] = useState(payment.ref || "");
   const [dt, setDt] = useState(payment.date || todayStr());
+  const [custName, setCustName] = useState(sourceJob?.customer || sourceJob?.businessName || "");
+  const [pickCust, setPickCust] = useState(() =>
+    sourceJob?.customer || sourceJob?.businessName
+      ? { name: sourceJob.customer || sourceJob.businessName }
+      : null
+  );
+  const [targetJobId, setTargetJobId] = useState(sourceJob?.id || "");
+  const [invQuery, setInvQuery] = useState("");
+  const [fullEdit, setFullEdit] = useState(false);
   const voidable = canVoidInQbo(payment);
+
+  const invoiceChoices = useMemo(() => {
+    const name = pickCust?.name || custName;
+    if (!name) return [];
+    let list = invoicesForCustomerPick(jobs, name, {
+      openOnly: false,
+      includeJobId: sourceJob?.id,
+    });
+    const q = invQuery.trim().toLowerCase();
+    if (q) {
+      list = list.filter((j) => {
+        const no = String(j.invoiceNo || "").toLowerCase();
+        const addr = formatInvoicePayOption(j).toLowerCase();
+        return no.includes(q) || addr.includes(q);
+      });
+    }
+    return list;
+  }, [jobs, pickCust?.name, custName, invQuery, sourceJob?.id]);
+
+  const targetJob =
+    (jobs || []).find((j) => String(j.id) === String(targetJobId)) ||
+    (String(targetJobId) === String(sourceJob?.id) ? sourceJob : null);
+
+  const lockedTowardLabel = sourceJob?.invoiceNo
+    ? formatInvoicePayOption(sourceJob)
+    : "This job (no invoice #)";
+
   return (
-    <div className="space-y-3 border-t border-slate-100 pt-3 mt-2">
+    <div className="space-y-3 border-t border-slate-100 pt-3 mt-2" data-testid="payment-edit-form">
+      {!fullEdit ? (
+        <div className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5">
+          <div className="flex items-start justify-between gap-2">
+            <div className="min-w-0">
+              <div className="text-[10px] font-bold uppercase tracking-wide text-slate-500">
+                Paying towards
+              </div>
+              <p className="text-sm font-semibold text-slate-800 mt-0.5 break-words" data-testid="payment-toward-locked">
+                {lockedTowardLabel}
+              </p>
+              {sourceJob?.customer ? (
+                <p className="text-[11px] text-slate-500 mt-0.5 truncate">{sourceJob.customer}</p>
+              ) : null}
+            </div>
+            <button
+              type="button"
+              className="btn bg-white border border-slate-200 text-slate-800 !px-2.5 !py-1.5 text-xs shrink-0"
+              onClick={() => setFullEdit(true)}
+              data-testid="payment-full-edit"
+              aria-label="Edit customer or invoice"
+            >
+              ✏️ Edit
+            </button>
+          </div>
+        </div>
+      ) : (
+        <div className="space-y-2 rounded-xl border border-brand/20 bg-brand-soft/30 px-3 py-2.5">
+          <div className="flex items-center justify-between gap-2 mb-1">
+            <div className="text-[10px] font-bold uppercase tracking-wide text-brand">
+              Full edit — customer & invoice
+            </div>
+            <button
+              type="button"
+              className="text-[11px] font-semibold text-slate-500"
+              onClick={() => {
+                setFullEdit(false);
+                setCustName(sourceJob?.customer || sourceJob?.businessName || "");
+                setPickCust(
+                  sourceJob?.customer || sourceJob?.businessName
+                    ? { name: sourceJob.customer || sourceJob.businessName }
+                    : null
+                );
+                setTargetJobId(sourceJob?.id || "");
+                setInvQuery("");
+              }}
+            >
+              Keep original
+            </button>
+          </div>
+          <CustomerSearch
+            label="Customer / service address"
+            placeholder="Name or service address…"
+            testId="payment-edit-customer-search"
+            value={custName}
+            onChangeText={(t) => {
+              setCustName(t);
+              setPickCust(null);
+              setTargetJobId("");
+            }}
+            onPick={(c) => {
+              if (!c || c._newCustomer) {
+                setPickCust(null);
+                return;
+              }
+              setPickCust(c);
+              setCustName(c.name || c.businessName || "");
+              setTargetJobId("");
+              setInvQuery("");
+            }}
+          />
+          {(pickCust || custName) && (
+            <>
+              <Fld label="Find invoice #" hint="Type number or street to narrow the list">
+                <input
+                  className="input"
+                  value={invQuery}
+                  onChange={(e) => setInvQuery(e.target.value)}
+                  placeholder="Invoice # or address…"
+                  aria-label="Filter invoices"
+                  data-testid="payment-edit-invoice-filter"
+                />
+              </Fld>
+              <Fld label="Invoice" hint="Each line shows service address">
+                <select
+                  className="input"
+                  value={targetJobId || ""}
+                  onChange={(e) => setTargetJobId(e.target.value)}
+                  aria-label="Invoice to apply payment"
+                  data-testid="payment-edit-invoice-select"
+                >
+                  <option value="">— choose invoice —</option>
+                  {invoiceChoices.map((j) => (
+                    <option key={j.id} value={j.id}>
+                      {formatInvoicePayOption(j)}
+                    </option>
+                  ))}
+                </select>
+              </Fld>
+              {!invoiceChoices.length ? (
+                <p className="text-xs text-amber-800 bg-amber-50 border border-amber-100 rounded-xl px-2.5 py-2">
+                  No invoices for this customer — try another name or address.
+                </p>
+              ) : null}
+              {targetJob ? (
+                <p className="text-[11px] text-slate-600">
+                  Will apply to <b>#{targetJob.invoiceNo || "—"}</b>
+                  {targetJob.id !== sourceJob?.id ? " (moved from current job)" : ""}
+                </p>
+              ) : null}
+            </>
+          )}
+        </div>
+      )}
+
       <Fld label="Amount">
-        <input className="input" inputMode="decimal" value={amt} onChange={(e) => setAmt(e.target.value)} aria-label="Edit amount" />
+        <input
+          className="input"
+          inputMode="decimal"
+          value={amt}
+          onChange={(e) => setAmt(e.target.value)}
+          aria-label="Edit amount"
+        />
       </Fld>
       <Fld label="Payment method">
         <select className="input" value={mth} onChange={(e) => setMth(e.target.value)} aria-label="Edit method">
@@ -1094,7 +1355,16 @@ function PaymentEditForm({ payment, onSave, onDelete, onVoid, onCancel }) {
       <div className="flex flex-nowrap gap-1.5">
         <button
           className="btn bg-brand text-white flex-1 !px-2 !py-2 text-xs"
-          onClick={() => onSave({ amount: amt, method: mth, ref, date: dt })}
+          data-testid="payment-edit-save"
+          onClick={() =>
+            onSave({
+              amount: amt,
+              method: mth,
+              ref,
+              date: dt,
+              targetJobId: fullEdit ? targetJobId || sourceJob?.id : sourceJob?.id,
+            })
+          }
         >
           Save
         </button>
@@ -1127,8 +1397,17 @@ function PaymentEditForm({ payment, onSave, onDelete, onVoid, onCancel }) {
 }
 
 export function PaymentHistorySheet({ job, onClose, onAddPayment }) {
-  const { patchJob, patchAndSave, showToast, enqueue, commands, refreshCommands, refreshJobs, effectiveJob } =
-    useStore();
+  const {
+    patchJob,
+    patchAndSave,
+    showToast,
+    enqueue,
+    commands,
+    refreshCommands,
+    refreshJobs,
+    effectiveJob,
+    jobs,
+  } = useStore();
   const [editId, setEditId] = useState(null);
   const [fetchPhase, setFetchPhase] = useState("idle"); // idle | working | done | failed
   const [fetchErr, setFetchErr] = useState("");
@@ -1141,6 +1420,10 @@ export function PaymentHistorySheet({ job, onClose, onAddPayment }) {
   const due = openBalance(liveJob);
   const paid = amountPaid(liveJob);
   const pct = paidPct(liveJob);
+  const boardJobs = useMemo(
+    () => (jobs || []).map((j) => effectiveJob(j.id) || j),
+    [jobs, effectiveJob]
+  );
 
   const fetchCmd = useMemo(() => {
     if (!activeFetchKey) return null;
@@ -1264,8 +1547,29 @@ export function PaymentHistorySheet({ job, onClose, onAddPayment }) {
       showToast("Enter a payment amount");
       return;
     }
-    patchJob(job.id, updatePayment(liveJob, editId, entry));
-    showToast("Payment updated — Save & sync");
+    const targetId = entry.targetJobId || job.id;
+    const targetLive =
+      String(targetId) === String(job.id)
+        ? liveJob
+        : boardJobs.find((j) => String(j.id) === String(targetId)) || null;
+    if (!targetLive) {
+      showToast("Pick an invoice to apply this payment to");
+      return;
+    }
+    const { amount, method, ref, date } = entry;
+    const moved = movePayment(liveJob, targetLive, editId, { amount, method, ref, date });
+    if (!moved?.patches?.length) {
+      showToast("Could not update that payment");
+      return;
+    }
+    for (const row of moved.patches) {
+      patchJob(row.jobId, row.patch);
+    }
+    showToast(
+      moved.same
+        ? "Payment updated — Save & sync"
+        : "Payment moved to invoice #" + (targetLive.invoiceNo || "—") + " — Save & sync"
+    );
     setEditId(null);
   };
 
@@ -1312,6 +1616,8 @@ export function PaymentHistorySheet({ job, onClose, onAddPayment }) {
               {editId === p.id ? (
                 <PaymentEditForm
                   payment={p}
+                  sourceJob={liveJob}
+                  jobs={boardJobs}
                   onSave={saveEdit}
                   onDelete={() => deletePay(p.id)}
                   onVoid={() => voidInQbo(p)}

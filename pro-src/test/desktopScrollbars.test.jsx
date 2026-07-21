@@ -44,7 +44,7 @@ describe("desktop scrollbar cleanup — 1280px", () => {
 
   it("sidebar and job list pane hide scrollbar chrome on desktop", async () => {
     mockServer();
-    renderApp("#/job/J-1");
+    renderApp("#/job/J-1?fold=0");
     await screen.findByTestId("detail-pane");
     expect(screen.getByTestId("sidebar").className).toContain("lg-scroll-hidden");
     expect(screen.getByTestId("list-pane").className).toContain("lg-scroll-hidden");
@@ -53,7 +53,7 @@ describe("desktop scrollbar cleanup — 1280px", () => {
   it("opened sheets use hidden scrollbar styling on desktop", async () => {
     mockServer();
     const user = userEvent.setup();
-    renderApp("#/job/J-1");
+    renderApp("#/job/J-1?fold=0");
     const pane = await screen.findByTestId("detail-pane");
     await user.click(within(pane).getByText("💳 Payment history"));
     const sheetBody = await screen.findByTestId("sheet-body");
@@ -65,7 +65,7 @@ describe("desktop scrollbar cleanup — 1280px", () => {
     mockCardknoxScript();
     mockServer();
     const user = userEvent.setup();
-    renderApp("#/job/J-1");
+    renderApp("#/job/J-1?fold=0");
     const pane = await screen.findByTestId("detail-pane");
     await user.click(within(pane).getByTestId("tab-payment"));
     await user.click(screen.getByText("Record a payment"));

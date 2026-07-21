@@ -38,7 +38,7 @@ describe("estimate ↔ invoice sync — e2e", () => {
   it("invoice edit allowed; address change syncs estimate + both tabs orange then clear", async () => {
     const srv = mockServer({ jobs: [JSON.parse(JSON.stringify(LINKED_JOB))] });
     const user = userEvent.setup();
-    renderApp("#/job/J-LINK");
+    renderApp("#/job/J-LINK?fold=0");
     const pane = await screen.findByTestId("detail-pane");
     const tabs = within(pane).getByTestId("job-doc-tabs");
 
@@ -82,7 +82,7 @@ describe("estimate ↔ invoice sync — e2e", () => {
   it("estimate address change syncs invoice + QBO commands for both", async () => {
     const srv = mockServer({ jobs: [JSON.parse(JSON.stringify(LINKED_JOB))] });
     const user = userEvent.setup();
-    renderApp("#/job/J-LINK");
+    renderApp("#/job/J-LINK?fold=0");
     const pane = await screen.findByTestId("detail-pane");
     const tabs = within(pane).getByTestId("job-doc-tabs");
 
@@ -109,7 +109,7 @@ describe("estimate ↔ invoice sync — e2e", () => {
   it("paperwork Invoiced step offers Edit invoice when invoice exists", async () => {
     const srv = mockServer({ jobs: [JSON.parse(JSON.stringify(LINKED_JOB))] });
     const user = userEvent.setup();
-    renderApp("#/job/J-LINK");
+    renderApp("#/job/J-LINK?fold=0");
     const pane = await screen.findByTestId("detail-pane");
 
     await user.click(within(pane).getByRole("button", { name: /🧾\s*Billing/i }));

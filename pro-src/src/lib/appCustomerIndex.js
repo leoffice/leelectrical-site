@@ -2,6 +2,7 @@
 // index is separate. Merge both for search so app-only customers always appear
 // (light orange = not verified in QuickBooks yet).
 import { normalizeCustomer, customerContact, jobsForCustomerKey, clientKey } from "./customers.js";
+import { serviceAddressDisplay } from "./customerSync.js";
 
 /** True when this QBO id exists in the cached index row set. */
 export function qboIdInIndex(qboCustomerId, qboIndex) {
@@ -29,6 +30,9 @@ export function buildAppCustomerIndex(jobs) {
     if (!byKey.has(key)) {
       const list = jobsForCustomerKey(active, key);
       const contact = customerContact(list);
+      const serviceAddresses = [
+        ...new Set(list.map((j) => serviceAddressDisplay(j)).filter(Boolean)),
+      ];
       byKey.set(key, {
         id: contact.qboCustomerId || key,
         name: contact.businessName || contact.name || name,
@@ -38,6 +42,8 @@ export function buildAppCustomerIndex(jobs) {
         email: contact.email || "",
         billingAddress: contact.billingAddress || "",
         addr: contact.billingAddress || "",
+        serviceAddress: serviceAddresses[0] || "",
+        serviceAddresses,
         qboCustomerId: contact.qboCustomerId || "",
         _appKey: key,
         _fromApp: true,
@@ -58,6 +64,8 @@ function rowMatchesQuery(row, needle) {
     row.email,
     row.billingAddress,
     row.addr,
+    row.serviceAddress,
+    ...(Array.isArray(row.serviceAddresses) ? row.serviceAddresses : []),
   ]
     .map((x) => normalizeCustomer(x))
     .filter(Boolean);

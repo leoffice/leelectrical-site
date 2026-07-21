@@ -6,6 +6,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { useStore } from "../state/store.jsx";
+import { productName } from "../lib/tenantBranding.js";
 import {
   FOLLOWUP_TYPES,
   PHASES,
@@ -49,6 +50,7 @@ import {
   amountPaid,
   clientKey,
   customerContact,
+  isInvoiceJob,
   jobsForCustomerKey,
   openBalance,
   paidPct,
@@ -81,7 +83,6 @@ import {
   ReminderSheet,
 } from "../components/JobSheets.jsx";
 import CustomerComposeSheet from "../components/CustomerComposeSheet.jsx";
-import { productName } from "../lib/tenantBranding.js";
 
 const CMD_TONES = {
   queued: "bg-slate-100 text-slate-500",
@@ -97,7 +98,9 @@ export default function JobDetail() {
   const [sp] = useSearchParams();
   const fromCust = sp.get("from") || ""; // customer-group key when opened from CustomerView
   const foldParam = sp.get("fold");
-  const foldOnOpen = foldParam === "1"; // job info only until card tap (from customer invoice)
+  // Levi: open any job on the job info card only; tap card again to expand progress.
+  // fold=0 forces expanded (rare deep links); fold=1 or omitted → collapsed.
+  const foldOnOpen = foldParam !== "0";
   const goBack = () =>
     fromCust
       ? nav("/customer/" + encodeURIComponent(fromCust) + "?job=" + encodeURIComponent(id))
@@ -128,11 +131,15 @@ export default function JobDetail() {
     if (!job) return;
     touchCustomer(custKey, customerJobs.length ? customerJobs : [job]);
   }, [id, custKey, job?.id, customerJobs]);
-  const siblingJobs = useMemo(() => customerJobs.filter((j) => j.id !== job?.id), [customerJobs, job?.id]);
   const addressJobs = useMemo(() => {
     if (!job) return [];
     return sortJobs(carouselVisibleJobs(jobs, job));
   }, [job, jobs]);
+  // When progress is folded: other invoices at this service address (not estimates, not swipe).
+  const siblingJobs = useMemo(() => {
+    if (!job) return [];
+    return addressJobs.filter((j) => j.id !== job.id && isInvoiceJob(j));
+  }, [addressJobs, job?.id]);
 
   // Requisition flow toggle — any job can opt in; Joy/Baez jobs open the pilot hub.
   const isRequisitionPilotJob = useMemo(() => {
@@ -216,7 +223,8 @@ export default function JobDetail() {
   }, []);
 
   useEffect(() => {
-    setDetailSectionsExpanded(foldParam !== "1");
+    // Default collapsed job info; only fold=0 opens fully expanded.
+    setDetailSectionsExpanded(foldParam === "0");
     setShowChangeOrders(false);
   }, [id, foldParam]);
 
@@ -289,7 +297,6 @@ export default function JobDetail() {
         summary: (job.title || "Job") + " — " + (job.customer || ""),
         start: d,
         location: calendarServiceLocation(job),
-        // Lands in the external calendar record — see calendarLink.js.
         description: `Scheduled from ${productName()}`,
       },
       "judgment",
@@ -466,12 +473,20 @@ export default function JobDetail() {
       {!detailSectionsExpanded && siblingJobs.length > 0 ? (
         <div className="space-y-2" data-testid="customer-sibling-jobs">
           <h2 className="text-[11px] font-extrabold text-slate-500 uppercase tracking-wider px-1">
-            Other jobs ({siblingJobs.length})
+            Other invoices at this address ({siblingJobs.length})
           </h2>
           <div className="space-y-1.5">
-            {siblingJobs.map((j) => (
-              <GroupJobRow key={j.id} job={j} />
-            ))}
+            {siblingJobs.map((j) => {
+              const parts = ["fold=1"];
+              if (fromCust) parts.push("from=" + encodeURIComponent(fromCust));
+              return (
+                <GroupJobRow
+                  key={j.id}
+                  job={j}
+                  to={"/job/" + encodeURIComponent(j.id) + "?" + parts.join("&")}
+                />
+              );
+            })}
           </div>
         </div>
       ) : null}

@@ -1,5 +1,5 @@
 // Customer header card — contact info on top, tappable fields, edit in corner.
-// Optional "Short transactions" toggle (bottom right) shows the compact ledger under the tabs.
+// Transactions toggle (always on customer info) opens the compact ledger — estimates live only there from the list expand path.
 import React from "react";
 import { CustomerAvatar } from "./JobCard.jsx";
 import { CustomerAmountSubline } from "./AmountDisplay.jsx";
@@ -160,12 +160,12 @@ export default function CustomerCard({
           className="mt-3 pt-2 border-t border-slate-100 flex items-center justify-end gap-2"
           data-testid="customer-short-txns-row"
         >
-          <span className="text-[11px] font-semibold text-slate-600">Transactions</span>
+          <span className="text-[11px] font-semibold text-slate-600">Transaction history</span>
           <Toggle
             on={!!shortTxns}
             onChange={onShortTxnsChange}
             small
-            label="Transactions"
+            label="Transaction history"
           />
         </div>
       ) : null}

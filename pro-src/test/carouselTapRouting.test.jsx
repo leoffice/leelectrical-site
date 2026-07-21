@@ -1,9 +1,6 @@
 // @vitest-environment jsdom
-// Regression: tapping a doc pill on a card in the address carousel must act on
-// THAT card's job and must not navigate elsewhere. Tapping a control on a
-// partially-visible card scrolls it into view; that scroll used to be read as
-// "user swiped to another job" and fired onSelectJob, racing the tap — the
-// "Inv 251850 opens a different customer" report.
+// Address card is count-label only (no swipe). Doc pills act on the active job.
+// Sibling invoices at the same address open from the folded job list, not a carousel.
 import React from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { fireEvent, render, screen } from "@testing-library/react";
@@ -12,19 +9,6 @@ import JobAddressCarousel from "../src/components/JobAddressCarousel.jsx";
 
 const JOB_A = { id: "job-a", customer: "Alpha Co", invoiceNo: "111111", address: "1445 President st" };
 const JOB_B = { id: "job-b", customer: "Beta Co", invoiceNo: "251850", address: "1445 President st" };
-
-/** Give the scroll container a real width so onScroll's index math works. */
-function sizeScroller(width = 400) {
-  const el = screen.getByTestId("job-address-scroll");
-  Object.defineProperty(el, "clientWidth", { value: width, configurable: true });
-  return el;
-}
-
-/** Simulate the browser scrolling card `i` into view. */
-function scrollToCard(el, i, cardWidthFactor = 0.88) {
-  el.scrollLeft = i * el.clientWidth * cardWidthFactor;
-  fireEvent.scroll(el);
-}
 
 function renderCarousel(overrides = {}) {
   const handlers = {
@@ -49,62 +33,34 @@ function renderCarousel(overrides = {}) {
 
 afterEach(() => vi.clearAllMocks());
 
-describe("carousel pill tap routing", () => {
-  it("an invoice pill tap acts on its own card's job", () => {
-    const h = renderCarousel();
-    // Card B's invoice pill.
-    const cardB = screen.getByTestId("carousel-job-job-b");
-    fireEvent.click(cardB.querySelector('[data-testid="tab-invoice"]'));
-    expect(h.onInvoice).toHaveBeenCalledTimes(1);
-    expect(h.onInvoice.mock.calls[0][0]).toMatchObject({ id: "job-b", invoiceNo: "251850" });
+describe("address card (no swipe)", () => {
+  it("shows a count label when multiple jobs share an address", () => {
+    renderCarousel();
+    expect(screen.getByTestId("jobs-at-address-count")).toHaveTextContent("2 jobs at this address");
+    expect(screen.queryByTestId("job-address-scroll")).not.toBeInTheDocument();
   });
 
-  it("the scroll caused by a pill tap does NOT navigate to another job", () => {
+  it("renders only the active job card", () => {
+    renderCarousel();
+    expect(screen.getByTestId("carousel-job-job-a")).toBeInTheDocument();
+    expect(screen.queryByTestId("carousel-job-job-b")).not.toBeInTheDocument();
+  });
+
+  it("an invoice pill tap acts on the active job", () => {
     const h = renderCarousel();
-    const el = sizeScroller();
-    const cardB = screen.getByTestId("carousel-job-job-b");
-
-    fireEvent.click(cardB.querySelector('[data-testid="tab-invoice"]'));
-    // The tap scrolls card B into view — this must not be read as a swipe.
-    scrollToCard(el, 1);
-
+    const card = screen.getByTestId("carousel-job-job-a");
+    fireEvent.click(card.querySelector('[data-testid="tab-invoice"]'));
     expect(h.onInvoice).toHaveBeenCalledTimes(1);
+    expect(h.onInvoice.mock.calls[0][0]).toMatchObject({ id: "job-a", invoiceNo: "111111" });
     expect(h.onSelectJob).not.toHaveBeenCalled();
   });
 
-  it("the same guard protects estimate and payment pills", () => {
+  it("estimate and payment pills also use the active job", () => {
     const h = renderCarousel();
-    const el = sizeScroller();
-    const cardB = screen.getByTestId("carousel-job-job-b");
-
-    fireEvent.click(cardB.querySelector('[data-testid="tab-estimate"]'));
-    scrollToCard(el, 1);
-    expect(h.onEstimate).toHaveBeenCalledTimes(1);
-    expect(h.onSelectJob).not.toHaveBeenCalled();
-  });
-
-  it("a genuine swipe (no preceding tap) still selects the new job", () => {
-    const h = renderCarousel();
-    const el = sizeScroller();
-    scrollToCard(el, 1);
-    expect(h.onSelectJob).toHaveBeenCalledTimes(1);
-    expect(h.onSelectJob.mock.calls[0][0]).toMatchObject({ id: "job-b" });
-  });
-
-  it("a swipe after the guard window expires still selects", () => {
-    vi.useFakeTimers();
-    try {
-      const h = renderCarousel();
-      const el = sizeScroller();
-      const cardB = screen.getByTestId("carousel-job-job-b");
-      fireEvent.click(cardB.querySelector('[data-testid="tab-invoice"]'));
-
-      // Well past the tap-guard window — this is a real swipe now.
-      vi.advanceTimersByTime(2000);
-      scrollToCard(el, 1);
-      expect(h.onSelectJob).toHaveBeenCalledTimes(1);
-    } finally {
-      vi.useRealTimers();
-    }
+    const card = screen.getByTestId("carousel-job-job-a");
+    fireEvent.click(card.querySelector('[data-testid="tab-estimate"]'));
+    fireEvent.click(card.querySelector('[data-testid="tab-payment"]'));
+    expect(h.onEstimate.mock.calls[0][0]).toMatchObject({ id: "job-a" });
+    expect(h.onPayment.mock.calls[0][0]).toMatchObject({ id: "job-a" });
   });
 });

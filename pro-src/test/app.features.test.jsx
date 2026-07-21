@@ -293,7 +293,7 @@ describe("10. chat bubble", () => {
   it("context chip is removable and job context is used on detail pages", async () => {
     const srv = mockServer();
     const user = userEvent.setup();
-    renderApp("#/job/J-1");
+    renderApp("#/job/J-1?fold=0");
     await screen.findByTestId("detail-pane");
     await user.click(screen.getByTestId("chat-fab"));
     expect(screen.getByTestId("ctx-chip")).toHaveTextContent(/Regarding Job: Peretz Chein/);
@@ -508,15 +508,16 @@ describe("12. sync chip + today view + jobs list", () => {
     // owes $0 and does NOT inflate the group balance (estimates/leads never count).
     expect(within(grp).getByTestId("client-group-amount")).toHaveTextContent("$2,300");
     await user.click(screen.getByTestId("client-group-toggle"));
+    // Expand shows open invoices only — estimates/leads (Outlet swap) stay off the list
     expect(screen.getByText("Panel upgrade")).toBeInTheDocument();
-    expect(screen.getByText("Outlet swap")).toBeInTheDocument();
-    // expanded rows are compact (title + balance); quick actions live on job detail
+    expect(screen.queryByText("Outlet swap")).not.toBeInTheDocument();
     // chips filter
     await user.click(screen.getByRole("button", { name: "Unpaid" }));
     expect(screen.getByText("Panel upgrade")).toBeInTheDocument();
     expect(screen.queryByText("Outlet swap")).not.toBeInTheDocument(); // no invoice
-    // search
+    // search — group card lists matching job titles when collapsed
     await user.click(screen.getByRole("button", { name: "All" }));
+    await user.click(screen.getByTestId("client-group-toggle")); // collapse
     await user.type(screen.getByLabelText("Search jobs"), "outlet");
     expect(screen.queryByText("Panel upgrade")).not.toBeInTheDocument();
     expect(screen.getByText("Outlet swap")).toBeInTheDocument();
@@ -606,7 +607,7 @@ describe("responsive layout — 390px and 1280px", () => {
   it("1280px (desktop): sidebar nav with sync chip; detail becomes two-pane", async () => {
     mockServer();
     setWidth(1280);
-    renderApp("#/job/J-1");
+    renderApp("#/job/J-1?fold=0");
     await screen.findByTestId("detail-pane");
     const sidebar = screen.getByTestId("sidebar");
     ["Customers", "Calendar", "Dev", "Archive"].forEach((t) => expect(within(sidebar).getByText(t)).toBeInTheDocument());
@@ -624,7 +625,7 @@ describe("responsive layout — 390px and 1280px", () => {
   it("savebar sits above the bottom nav on phone and clears the sidebar on desktop", async () => {
     mockServer();
     const user = userEvent.setup();
-    renderApp("#/job/J-1");
+    renderApp("#/job/J-1?fold=0");
     const pane = await screen.findByTestId("detail-pane");
     await user.type(within(pane).getByLabelText("Notes"), "x");
     const savebar = screen.getByTestId("savebar");

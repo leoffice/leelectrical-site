@@ -16,7 +16,8 @@ afterEach(() => {
 });
 
 const openDetail = async () => {
-  renderApp("#/job/J-1");
+  // fold=0 = full progress/notes/activity (production default is collapsed job-info only)
+  renderApp("#/job/J-1?fold=0");
   const pane = await screen.findByTestId("detail-pane");
   await within(pane).findByText("Peretz Chein");
   return pane;
@@ -89,7 +90,7 @@ describe("1. mark-as-paid sheet -> staged -> record_payment on Save", () => {
       ],
     });
     const user = userEvent.setup();
-    renderApp("#/job/J-partial");
+    renderApp("#/job/J-partial?fold=0");
     const pane = await screen.findByTestId("detail-pane");
     await user.click(within(pane).getByTestId("tab-payment"));
     await user.click(screen.getByText("Record a payment"));

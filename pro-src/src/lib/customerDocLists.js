@@ -1,6 +1,12 @@
 // Customer-level invoice / estimate / payment lists from board jobs.
 import { sortJobs } from "./stages.js";
-import { openBalance, invoiceTotal, amountPaid } from "./customers.js";
+import {
+  openBalance,
+  invoiceTotal,
+  amountPaid,
+  customerKeyForName,
+  jobsForCustomerKey,
+} from "./customers.js";
 import { normalizePayments } from "./payments.js";
 import { fmt$ } from "./format.js";
 import { serviceAddressDisplay } from "./customerSync.js";
@@ -12,6 +18,38 @@ export function invoiceJobs(jobs, { openOnly = false } = {}) {
   let list = (jobs || []).filter((j) => j && !j._archived && !j._deleted && j.invoiceNo);
   if (openOnly) list = list.filter((j) => !j.paid && openBalance(j) > 0.01);
   return sortJobs(list);
+}
+
+/** Invoice picker line: Inv # · service address · open/paid balance. */
+export function formatInvoicePayOption(job) {
+  const no = job?.invoiceNo ? "Inv #" + job.invoiceNo : "No invoice #";
+  const addr = serviceAddressDisplay(job) || "No service address";
+  const due = openBalance(job);
+  const bal =
+    due > 0.01 ? "Open " + (fmt$(due) || "$0") : job?.paid || due <= 0.01 ? "Paid" : "Open $0";
+  return no + " · " + addr + " · " + bal;
+}
+
+/**
+ * Invoices for a customer when applying / redirecting a payment.
+ * openOnly: only open balances (new payment). includeJobId always kept even if paid.
+ */
+export function invoicesForCustomerPick(jobs, customerName, { openOnly = false, includeJobId = "" } = {}) {
+  const key = customerKeyForName(customerName);
+  const all = jobsForCustomerKey(jobs || [], key).filter(
+    (j) => j && !j._archived && !j._deleted && j.invoiceNo
+  );
+  let list = openOnly ? all.filter((j) => !j.paid && openBalance(j) > 0.01) : all.slice();
+  if (includeJobId && !list.some((j) => String(j.id) === String(includeJobId))) {
+    const keep = (jobs || []).find((j) => String(j.id) === String(includeJobId));
+    if (keep?.invoiceNo) list = [keep, ...list];
+  }
+  // Open invoices first, then paid — easier when redirecting a misapplied payment.
+  return sortJobs(list).sort((a, b) => {
+    const ao = openBalance(a) > 0.01 ? 0 : 1;
+    const bo = openBalance(b) > 0.01 ? 0 : 1;
+    return ao - bo;
+  });
 }
 
 /** Jobs with an estimate number, newest first. */

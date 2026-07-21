@@ -3,6 +3,7 @@ import {
   appendPayment,
   canVoidInQbo,
   fmtPaymentLine,
+  movePayment,
   normalizePaymentMethod,
   normalizePayments,
   removePayment,
@@ -10,6 +11,10 @@ import {
   updatePayment,
 } from "../src/lib/payments.js";
 import { amountPaid, openBalance } from "../src/lib/customers.js";
+import {
+  formatInvoicePayOption,
+  invoicesForCustomerPick,
+} from "../src/lib/customerDocLists.js";
 
 describe("payments ledger", () => {
   const job = {
@@ -69,5 +74,88 @@ describe("payments ledger", () => {
     patch = removePayment(merged2, patch.payments[0].id);
     expect(patch.openBalance).toBe(11000);
     expect(patch.payments).toHaveLength(0);
+  });
+
+  it("movePayment updates in place on the same job", () => {
+    const patch = appendPayment(job, { amount: 1000, method: "Zelle", date: "2026-07-07", id: "pay-1" });
+    // appendPayment always assigns a new id — grab it
+    const merged = { ...job, ...patch };
+    const payId = merged.payments[0].id;
+    const moved = movePayment(merged, merged, payId, { amount: 2500, method: "Check", date: "2026-07-08" });
+    expect(moved.same).toBe(true);
+    expect(moved.patches).toHaveLength(1);
+    expect(moved.patches[0].patch.openBalance).toBe(8500);
+    expect(moved.patches[0].patch.payments[0].method).toBe("Check");
+  });
+
+  it("movePayment redirects payment to another invoice job", () => {
+    const from = {
+      id: "j-wrong",
+      customer: "Acme",
+      amount: "$5,000",
+      invoiceNo: "100",
+      serviceAddress: "1 Wrong St",
+      paid: false,
+    };
+    const to = {
+      id: "j-right",
+      customer: "Acme",
+      amount: "$5,000",
+      invoiceNo: "200",
+      serviceAddress: "99 Right Ave",
+      paid: false,
+    };
+    const staged = appendPayment(from, { amount: 1500, method: "Zelle", date: "2026-07-07" });
+    const fromLive = { ...from, ...staged };
+    const payId = fromLive.payments[0].id;
+    const moved = movePayment(fromLive, to, payId, { amount: 1500, method: "Zelle", date: "2026-07-07" });
+    expect(moved.same).toBe(false);
+    expect(moved.patches).toHaveLength(2);
+    const fromPatch = moved.patches.find((p) => p.jobId === "j-wrong").patch;
+    const toPatch = moved.patches.find((p) => p.jobId === "j-right").patch;
+    expect(fromPatch.payments).toHaveLength(0);
+    expect(fromPatch.openBalance).toBe(5000);
+    expect(toPatch.payments).toHaveLength(1);
+    expect(toPatch.payments[0].id).toBe(payId);
+    expect(toPatch.openBalance).toBe(3500);
+  });
+
+  it("formatInvoicePayOption includes service address", () => {
+    const label = formatInvoicePayOption({
+      invoiceNo: "231595",
+      serviceAddress: "1446 Lincoln Pl",
+      amount: "$1,000",
+      openBalance: 400,
+      paid: false,
+    });
+    expect(label).toContain("Inv #231595");
+    expect(label).toContain("1446 Lincoln Pl");
+  });
+
+  it("invoicesForCustomerPick lists invoices with open ones first", () => {
+    const jobs = [
+      {
+        id: "a",
+        customer: "Acme Co",
+        businessName: "Acme Co",
+        invoiceNo: "1",
+        paid: true,
+        openBalance: 0,
+        amount: 100,
+        serviceAddress: "10 A St",
+      },
+      {
+        id: "b",
+        customer: "Acme Co",
+        businessName: "Acme Co",
+        invoiceNo: "2",
+        paid: false,
+        openBalance: 50,
+        amount: 50,
+        serviceAddress: "20 B St",
+      },
+    ];
+    const list = invoicesForCustomerPick(jobs, "Acme Co", { openOnly: false });
+    expect(list.map((j) => j.invoiceNo)).toEqual(["2", "1"]);
   });
 });

@@ -58,4 +58,42 @@ describe("progressBilling", () => {
     const lines = progressBillLines(estimateLines, 50);
     expect(progressPctFromLines(lines, 46000)).toBe(50);
   });
+
+  it("progressBillLines accepts office-file rate field (not only unitPrice)", () => {
+    const lines = progressBillLines(
+      [{ itemName: "Installation", qty: 1, rate: 32000, description: "Wiring" }],
+      50
+    );
+    expect(lines[0].unitPrice).toBe(32000);
+    expect(lines[0].qty).toBeCloseTo(0.5, 5);
+  });
+
+  it("inferProgressInvoiceLines from multi-line QBO progress invoice (Seawald-style)", () => {
+    const job = {
+      id: "qbo-231595",
+      invoiceNo: "231595",
+      amount: "$16,000",
+      contractAmount: 42800,
+      invoiceProgressBilling: true,
+      estimateLines: [
+        { itemName: "Installation", qty: 1, unitPrice: 32000, description: "Main wiring" },
+        { itemName: "LED", qty: 1, unitPrice: 8000, description: "LED strips" },
+        { itemName: "Permit", qty: 1, unitPrice: 2800, description: "Filing" },
+      ],
+      invoiceLines: [
+        { itemName: "Installation", qty: 0.5, unitPrice: 32000, description: "Main wiring", progressBilling: true },
+        { itemName: "LED", qty: 0, unitPrice: 8000, description: "LED strips", progressBilling: true },
+        { itemName: "Permit", qty: 0, unitPrice: 2800, description: "Filing", progressBilling: true },
+      ],
+    };
+    expect(isProgressBillingContext(job, { kind: "invoice", mode: "edit" })).toBe(true);
+    // Prefer saved invoice lines when present (import path)
+    const fromSaved = job.invoiceLines;
+    expect(fromSaved[0].qty).toBe(0.5);
+    expect(fromSaved[0].unitPrice).toBe(32000);
+    expect(fromSaved[1].qty).toBe(0);
+    // Contract from estimate lines
+    const pct = progressPctFromLines(fromSaved, 42800);
+    expect(pct).toBeCloseTo(37.38, 1);
+  });
 });

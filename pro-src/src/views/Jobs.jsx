@@ -791,12 +791,12 @@ export default function Jobs({ embedded, collapseGroups = false, activeJobId = "
           <button
             type="button"
             onClick={() => setNewJob({ step: "choose", context: null })}
-            aria-label="Add a job"
+            aria-label="Add"
             data-testid="fab-add"
             className="shrink-0 flex items-center gap-1.5 rounded-xl bg-slate-900 text-white text-sm font-bold px-3.5 py-2.5 shadow-sm hover:bg-slate-800 active:opacity-80"
           >
             <span className="text-lg leading-none">＋</span>
-            <span>New job</span>
+            <span className="hidden sm:inline">Add</span>
           </button>
         ) : null}
       </div>
@@ -1121,6 +1121,7 @@ export default function Jobs({ embedded, collapseGroups = false, activeJobId = "
                   <div onPointerDown={() => armCollapse(key)}>
                     <CustomerExpandPanel
                       jobs={expandJobs(list)}
+                      openInvoicesOnly
                       onOpenCustomer={() => openCustomer(key, list)}
                     />
                   </div>

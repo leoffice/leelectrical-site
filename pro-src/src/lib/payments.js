@@ -1,7 +1,5 @@
 // Job payment ledger — supports multiple payments per invoice (partial pay).
 import { fmt$, parseAmount } from "./format.js";
-import { isBrandNoteToken } from "../../../shared/productBrand.mjs";
-import { productName } from "./tenantBranding.js";
 
 function invoiceTotal(job) {
   return parseAmount(job?.amount);
@@ -97,6 +95,44 @@ export function removePayment(job, payId) {
   return applyPaymentsPatch(job, list);
 }
 
+/**
+ * Update a payment in place, or move it to another job/invoice.
+ * Returns { same, patches: [{ jobId, patch }] } or null if the payment is missing.
+ * Keeps the same payment id so history / QBO void metadata stay linked.
+ */
+export function movePayment(fromJob, toJob, payId, entry = {}) {
+  if (!fromJob || !payId) return null;
+  const fromList = normalizePayments(fromJob);
+  const existing = fromList.find((p) => p.id === payId);
+  if (!existing) return null;
+
+  const amountRaw = entry.amount != null ? entry.amount : existing.amount;
+  const updated = {
+    ...existing,
+    ...entry,
+    id: payId,
+    amount: String(parseAmount(amountRaw) || amountRaw || ""),
+  };
+
+  const target = toJob || fromJob;
+  if (!target?.id || String(target.id) === String(fromJob.id)) {
+    return {
+      same: true,
+      patches: [{ jobId: fromJob.id, patch: updatePayment(fromJob, payId, updated) }],
+    };
+  }
+
+  const remaining = fromList.filter((p) => p.id !== payId);
+  const dest = normalizePayments(target).filter((p) => p.id !== payId).concat(updated);
+  return {
+    same: false,
+    patches: [
+      { jobId: fromJob.id, patch: applyPaymentsPatch(fromJob, remaining) },
+      { jobId: target.id, patch: applyPaymentsPatch(target, dest) },
+    ],
+  };
+}
+
 /** User-facing payment method (never raw "QBO"). */
 export function normalizePaymentMethod(raw, opts = {}) {
   const note = String(opts.note || "").trim();
@@ -104,10 +140,7 @@ export function normalizePaymentMethod(raw, opts = {}) {
   let s = String(raw || "").trim();
   if (note.includes(" — ")) {
     const first = note.split(" — ")[0].trim();
-    // isBrandNoteToken accepts BOTH the legacy literal and the current product
-    // name: these notes sit on records written before any rename, so matching
-    // only the current name would orphan every historical payment.
-    if (first && first.toLowerCase() !== "sola online payment" && !isBrandNoteToken(first, productName())) {
+    if (first && first.toLowerCase() !== "sola online payment" && first.toLowerCase() !== "recorded from le pro") {
       s = first;
     }
   }

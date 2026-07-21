@@ -44,11 +44,16 @@ export function progressPctFromLines(lines, contractTotal) {
 }
 
 /** QBO-style: keep full rate, scale qty by progress percent. */
+/** Unit price from app lines (unitPrice) or office-file import (rate). */
+export function lineUnitPrice(ln) {
+  return parseAmount(ln?.unitPrice) || parseAmount(ln?.rate) || 0;
+}
+
 export function progressBillLines(estimateLines, progressPct) {
   const pct = Math.min(100, Math.max(0, parseAmount(progressPct))) / 100;
   return (estimateLines || []).map((ln) => {
     const baseQty = parseAmount(ln.qty) || 1;
-    const rate = parseAmount(ln.unitPrice) || 0;
+    const rate = lineUnitPrice(ln);
     return {
       ...emptyLine(),
       ...ln,

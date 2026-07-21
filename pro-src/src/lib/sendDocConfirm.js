@@ -1,4 +1,6 @@
 // Preview + subject/body for the pre-send confirmation sheet.
+// Layout target: LEPRO_EMAIL_DESIGN_FIXES (amount banner + gray Bill-to HTML).
+// Body text: invoice total / balance due lines; never dump a raw pay URL.
 import { fmt$ } from "./format.js";
 import { openBalance, invoiceTotal } from "./customers.js";
 import { DOC_SOURCE_LOCAL, DOC_SOURCE_QBO } from "./docSource.js";
@@ -29,7 +31,7 @@ export function docEmailGreetingName(job) {
   return "there";
 }
 
-/** Work / scope line for "Your invoice #… for X — $Y is ready." */
+/** Work / scope line for "Your invoice #… for X is ready." */
 export function docEmailWorkLabel(job) {
   const title = s(job?.title || job?.serviceType);
   if (isChangeOrderJob(job)) {
@@ -50,29 +52,36 @@ export function defaultDocEmailSubject(job, kind, { withPay = false } = {}) {
   return `${label}${num} — ${brand()}`;
 }
 
-/** Default body for invoice/estimate customer email. */
+/**
+ * Default body for invoice/estimate customer email.
+ * Design-fixes era: total/balance lines + no raw pay URL in the body
+ * (payment is the View Invoice button / landing page only).
+ */
 export function defaultDocEmailBody(job, kind, { withPay = false, payUrl = "" } = {}) {
+  // payUrl intentionally unused in the body — never print a long payment URL.
+  void payUrl;
   const greet = docEmailGreetingName(job);
   const no = kind === "invoice" ? s(job?.invoiceNo) : s(job?.estimateNo);
   const work = docEmailWorkLabel(job);
   const label = kind === "estimate" ? "estimate" : "invoice";
-  const total = kind === "invoice" ? openBalance(job) || invoiceTotal(job) : invoiceTotal(job);
-  const amtPart = total > 0 ? ` — ${fmt$(total)}` : "";
   const lines = [
     `Hi ${greet},`,
     "",
-    `Your ${label}${no ? " #" + no : ""} for ${work}${amtPart} is ready.`,
+    `Your ${label}${no ? " #" + no : ""} for ${work} is ready.`,
+    "",
   ];
-  // Single combined line — no separate invoice-total / balance-due block.
-  if (kind === "invoice" && (withPay || payUrl)) {
-    lines.push("The PDF is attached. A secure payment link is included with this email.");
-  } else if (withPay && payUrl) {
-    lines.push("", "Pay securely online:", payUrl);
-    lines.push("The PDF is attached.");
-  } else {
-    lines.push("The PDF is attached.");
+  if (kind === "invoice") {
+    const total = invoiceTotal(job);
+    const due = openBalance(job);
+    if (total > 0) lines.push(`Invoice total: ${fmt$(total)}`);
+    if (due > 0.01) lines.push(`Balance due: ${fmt$(due)}`);
+    if (total > 0 || due > 0.01) lines.push("");
+  }
+  if (withPay) {
+    lines.push("A secure payment link is included with this email.", "");
   }
   lines.push(
+    "The PDF is attached.",
     "",
     "Questions? Reply to this email or call us anytime.",
     "",

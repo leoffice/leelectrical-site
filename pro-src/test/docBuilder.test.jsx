@@ -31,7 +31,7 @@ describe("Estimate / invoice builder", () => {
       ],
     });
     const user = userEvent.setup();
-    renderApp("#/job/J-EST");
+    renderApp("#/job/J-EST?fold=0");
     const pane = await screen.findByTestId("detail-pane");
 
     await user.click(within(pane).getByTestId("progress-step-Estimate"));
@@ -70,7 +70,7 @@ describe("Estimate / invoice builder", () => {
       ],
     });
     const user = userEvent.setup();
-    renderApp("#/job/J-DRAFT");
+    renderApp("#/job/J-DRAFT?fold=0");
     const pane = await screen.findByTestId("detail-pane");
 
     await user.click(within(pane).getByTestId("progress-step-Estimate"));
@@ -103,7 +103,7 @@ describe("Estimate / invoice builder", () => {
       ],
     });
     const user = userEvent.setup();
-    renderApp("#/job/J-LOCAL");
+    renderApp("#/job/J-LOCAL?fold=0");
     const pane = await screen.findByTestId("detail-pane");
 
     await user.click(within(pane).getByTestId("progress-step-Estimate"));
@@ -131,7 +131,7 @@ describe("Estimate / invoice builder", () => {
       ],
     });
     const user = userEvent.setup();
-    renderApp("#/job/J-NOQBO");
+    renderApp("#/job/J-NOQBO?fold=0");
     const pane = await screen.findByTestId("detail-pane");
 
     await user.click(within(pane).getByTestId("progress-step-Estimate"));
@@ -162,7 +162,7 @@ describe("Estimate / invoice builder", () => {
       ],
     });
     const user = userEvent.setup();
-    renderApp("#/job/J-SEND");
+    renderApp("#/job/J-SEND?fold=0");
     const pane = await screen.findByTestId("detail-pane");
 
     await user.click(within(pane).getByTestId("progress-step-Estimate"));
@@ -199,7 +199,7 @@ describe("Estimate / invoice builder", () => {
       ],
     });
     const user = userEvent.setup();
-    renderApp("#/job/J-INV");
+    renderApp("#/job/J-INV?fold=0");
     const pane = await screen.findByTestId("detail-pane");
 
     await user.click(within(pane).getByTestId("progress-step-Invoiced"));

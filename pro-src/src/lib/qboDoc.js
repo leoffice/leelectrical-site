@@ -16,7 +16,7 @@ export function emptyLine() {
 
 export function lineAmount(line) {
   const q = parseAmount(line.qty) || 0;
-  const p = parseAmount(line.unitPrice) || 0;
+  const p = parseAmount(line.unitPrice) || parseAmount(line.rate) || 0;
   return Math.round(q * p * 100) / 100;
 }
 

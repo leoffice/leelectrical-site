@@ -45,8 +45,8 @@ export function CustomerAvatar({ name, className = "" }) {
 
 /** One job inside an expanded customer group — short row, no progress bar.
  *  Open invoices get a vertical aging rail (older = darker red). */
-export function GroupJobRow({ job, openInvoiceOnly = false }) {
-  const href = `/job/${encodeURIComponent(job.id)}`;
+export function GroupJobRow({ job, openInvoiceOnly = false, to }) {
+  const href = to || `/job/${encodeURIComponent(job.id)}`;
   const cur = stageOf(job);
   const due = openBalance(job);
   const isOpenInv = due > 0;
