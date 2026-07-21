@@ -122,4 +122,55 @@ describe("jobToQbDoc", () => {
     const thanksIdx = d.messageLines.findIndex((l) => /Thank you for your business/i.test(l));
     expect(payIdx).toBeLessThan(thanksIdx);
   });
+
+  it("prints description only — product/service name stays off the PDF", () => {
+    const d = mapJobToQbDocData(
+      {
+        ...job,
+        invoiceLines: [
+          {
+            itemName: "Service call",
+            description: "Main panel upgrade",
+            qty: 1,
+            unitPrice: 2300,
+          },
+        ],
+      },
+      "invoice"
+    );
+    expect(d.lines[0].description).toBe("Main panel upgrade");
+    expect(d.lines[0].description).not.toMatch(/Service call/);
+  });
+
+  it("preserves multi-line description newlines for print", () => {
+    const d = mapJobToQbDocData(
+      {
+        ...job,
+        invoiceLines: [
+          {
+            itemName: "Service call",
+            description: "Diagnose breaker trip\nReplace faulty GFCI\nTest remaining outlets",
+            qty: 1,
+            unitPrice: 180,
+          },
+        ],
+      },
+      "invoice"
+    );
+    expect(d.lines[0].description).toBe(
+      "Diagnose breaker trip\nReplace faulty GFCI\nTest remaining outlets"
+    );
+    expect(d.lines[0].description).not.toMatch(/Service call/);
+  });
+
+  it("falls back to product/service name when description is empty", () => {
+    const d = mapJobToQbDocData(
+      {
+        ...job,
+        invoiceLines: [{ itemName: "Permit fee", description: "", qty: 1, unitPrice: 150 }],
+      },
+      "invoice"
+    );
+    expect(d.lines[0].description).toBe("Permit fee");
+  });
 });

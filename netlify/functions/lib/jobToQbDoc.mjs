@@ -172,7 +172,9 @@ export function mapJobToQbDocData(job, kind = "invoice") {
   const docNumber = String(isInvoice ? job.invoiceNo : job.estimateNo || "").trim();
   const rawLines = billableLines(job, kind);
   const lines = rawLines.map((ln) => {
-    const desc = [ln.itemName, ln.description].filter(Boolean).join("\n").trim() || ln.itemName || "";
+    // Product/Service (itemName) is backend-only — print description only.
+    // Fall back to item name only when description is empty so the row isn't blank.
+    const desc = String(ln.description || "").trim() || String(ln.itemName || "").trim() || "";
     const rate = parseAmount(ln.unitPrice);
     const qty = parseAmount(ln.qty) || 1;
     return { description: desc, rate, qty, amount: lineAmount(ln), serviceDate: ln.serviceDate || ln.date || "" };

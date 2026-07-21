@@ -223,7 +223,8 @@ export function mapJobToInvoicePdfData(job, overrides = {}) {
     serviceAddress: showService ? svcAddr : "",
     lines: lines.map((ln) => ({
       serviceDate: fmtInvoiceDate(ln.serviceDate || ln.date || ""),
-      description: [ln.itemName, ln.description].filter(Boolean).join("\n").trim() || ln.itemName || "",
+      // Product/Service (itemName) is backend-only — print description only.
+      description: String(ln.description || "").trim() || String(ln.itemName || "").trim() || "",
       rate: parseAmount(ln.unitPrice),
       qty: parseAmount(ln.qty) || 1,
       amount: lineAmount(ln),

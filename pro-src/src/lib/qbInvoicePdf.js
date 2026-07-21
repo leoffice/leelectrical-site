@@ -47,19 +47,25 @@ const r2 = (n) => Math.round(n * 100) / 100;
 export const qbMoney = (n) =>
   (Number(n) || 0).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
-/** Word-wrap to a pixel width (returns lines). */
+/** Word-wrap to a pixel width (returns lines). Preserves intentional newlines. */
 function wrap(str, maxW, size, bold = false) {
-  const words = String(str || "").split(/\s+/).filter(Boolean);
   const out = [];
-  let cur = "";
-  for (const w of words) {
-    const next = cur ? cur + " " + w : w;
-    if (textWidth(next, size, bold) > maxW && cur) {
-      out.push(cur);
-      cur = w;
-    } else cur = next;
+  for (const para of String(str || "").split(/\r?\n/)) {
+    if (!para.trim()) {
+      out.push("");
+      continue;
+    }
+    const words = para.split(/\s+/).filter(Boolean);
+    let cur = "";
+    for (const w of words) {
+      const next = cur ? cur + " " + w : w;
+      if (textWidth(next, size, bold) > maxW && cur) {
+        out.push(cur);
+        cur = w;
+      } else cur = next;
+    }
+    if (cur) out.push(cur);
   }
-  if (cur) out.push(cur);
   return out.length ? out : [""];
 }
 
@@ -162,6 +168,13 @@ export function buildQbDocPdf(data) {
   const total = data.total != null ? Number(data.total) : subtotal + tax;
   const payment = Number(data.payment || 0);
 
+  // Raise body toward logo (~20pt) so more room remains at the bottom.
+  const LIFT = 20;
+  const titleY = 164.25 - LIFT;
+  const metaY = 186 - LIFT;
+  const customY = 241.5 - LIFT;
+  const tableTop = 270.75 - LIFT;
+
   // Header — company block + logo (license sits under email, not next to name)
   pg.text(M, 46.5, company.name || "", { size: 10.98, bold: true, color: BLACK });
   const details = [
@@ -174,11 +187,11 @@ export function buildQbDocPdf(data) {
   pg.image("ImLogo", 254.25, 36, 103.5, 81);
 
   // Title "INVOICE" (green)
-  pg.text(M, 164.25, docType, { size: 13.72, color: GREEN });
+  pg.text(M, titleY, docType, { size: 13.72, color: GREEN });
 
   // Meta left: ADDRESS
-  pg.text(M, 186, "ADDRESS", { size: 9.15, color: GRAY });
-  let ly = 186 + 13.5;
+  pg.text(M, metaY, "ADDRESS", { size: 9.15, color: GRAY });
+  let ly = metaY + 13.5;
   for (const ln of [data.billTo?.name, ...(data.billTo?.addressLines || [])].filter(Boolean)) {
     pg.text(M, ly, ln, { size: 9.15, color: BLACK });
     ly += 14.25;
@@ -187,7 +200,7 @@ export function buildQbDocPdf(data) {
   const rightRows = [[docType, data.docNumber], ["DATE", data.date]];
   if (!isEstimate && data.dueDate) rightRows.push(["DUE DATE", data.dueDate]);
   if (!isEstimate && data.terms) rightRows.push(["TERMS", data.terms]);
-  let ry = 186;
+  let ry = metaY;
   for (const [label, value] of rightRows) {
     pg.text(396.45, ry, label, { size: 9.15, color: GRAY });
     pg.text(477.23, ry, String(value ?? ""), { size: 9.15, color: BLACK });
@@ -198,14 +211,14 @@ export function buildQbDocPdf(data) {
     const colXs = [36, 237.68, 435.61];
     data.customFields.slice(0, 3).forEach((cf, i) => {
       if (!cf || !cf.value) return;
-      pg.text(colXs[i], 241.5, String(cf.label).toUpperCase(), { size: 9.15, color: GRAY });
-      pg.text(colXs[i], 241.5 + 12, String(cf.value), { size: 9.15, color: BLACK });
+      pg.text(colXs[i], customY, String(cf.label).toUpperCase(), { size: 9.15, color: GRAY });
+      pg.text(colXs[i], customY + 12, String(cf.value), { size: 9.15, color: BLACK });
     });
   }
 
   // Table header band + labels (green)
-  pg.fillRect(M, 270.75, 540, 21, HEADERBG);
-  const hb = 270.75 + 14.25;
+  pg.fillRect(M, tableTop, 540, 21, HEADERBG);
+  const hb = tableTop + 14.25;
   pg.text(39.75, hb, "DESCRIPTION", { size: 9.15, color: GREEN });
   pg.text(448.4, hb, "RATE", { size: 9.15, color: GREEN, align: "right" });
   pg.text(491.6, hb, "QTY", { size: 9.15, color: GREEN, align: "right" });
@@ -215,7 +228,7 @@ export function buildQbDocPdf(data) {
   const descTextX = 39.75;
   const descW = 396.5 - 39.75;
   const LEAD = 13.5;
-  let cursor = 270.75 + 21;
+  let cursor = tableTop + 21;
   if (data.serviceDate) {
     cursor += 7.5;
     pg.text(descTextX, cursor + 10.75, String(data.serviceDate), { size: 10.07, color: BLACK });
@@ -237,12 +250,13 @@ export function buildQbDocPdf(data) {
   const totalsTop = cursor + 11.25;
   pg.dottedRule(M, M + 540, totalsTop);
 
-  // Message block (gray, bottom-left) — payment options + thank-you / sincerely
+  // Message lines: payment options sit left of totals; thank-you / sincerely
+  // start BELOW Balance Due with breathing room (Levi 2026-07-21).
+  let paymentMsg = null;
+  let closingMsg = null;
   if (data.messageLines !== null) {
     // Fallback copy only — callers normally pass data.messageLines. Built from
     // tenant config so a white-label tenant never sees another tenant's name.
-    // The Zelle line is the tenant's configured wording; the check line keeps
-    // this template's own two-line phrasing with the name/mailbox swapped in.
     const tenant = tenantCompany();
     const profile = activeTenantConfig().profile || {};
     const defaultMsg = [
@@ -261,8 +275,16 @@ export function buildQbDocPdf(data) {
     if (data.payUrl) {
       msg.unshift("Pay securely online:", data.payUrl, "");
     }
+    const thanksIdx = msg.findIndex((l) => /Thank you for your business/i.test(String(l || "")));
+    if (thanksIdx >= 0) {
+      paymentMsg = msg.slice(0, thanksIdx).filter((l, i, a) => !(l === "" && i === a.length - 1));
+      closingMsg = msg.slice(thanksIdx);
+    } else {
+      paymentMsg = msg;
+      closingMsg = [];
+    }
     let my = totalsTop + 22.5;
-    for (const lineTxt of msg) {
+    for (const lineTxt of paymentMsg) {
       if (lineTxt === "") {
         my += 10.5;
         continue;
@@ -291,6 +313,21 @@ export function buildQbDocPdf(data) {
   pg.text(298.96, ty, bigLabel, { size: 10.07, color: GRAY });
   pg.text(572.6, ty, "$" + qbMoney(bigAmount), { size: 14.09, bold: true, color: BLACK, align: "right" });
 
+  // Thank-you / sincerely — below Balance Due with a clear gap
+  if (closingMsg && closingMsg.length) {
+    let my = ty + 28;
+    for (const lineTxt of closingMsg) {
+      if (lineTxt === "") {
+        my += 10.5;
+        continue;
+      }
+      for (const wl of wrap(lineTxt, 240, 7.62)) {
+        pg.text(M, my, wl, { size: 7.62, color: GRAY });
+        my += 10.5;
+      }
+    }
+  }
+
   // Acceptance (estimates)
   const showAcceptance = data.showAcceptance != null ? data.showAcceptance : isEstimate;
   if (showAcceptance) {
@@ -298,7 +335,8 @@ export function buildQbDocPdf(data) {
     pg.text(M, ty + 81, "Accepted Date", { size: 9.15, color: GRAY });
   }
 
-  // Centered footer
+  // Centered footer (questions + page). Thank-you spacing after Balance Due is
+  // handled in the left message block above — keep footer at the page margin.
   const fLines =
     data.footerLines || [
       "Thank you for your business!",

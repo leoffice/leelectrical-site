@@ -94,21 +94,11 @@ function billableLines(job, kind) {
 
 function mapLines(lines) {
   return lines.map((ln) => {
-    // Item name + description, but DON'T repeat when they're the same text (or
-    // one contains the other) — QBO shows it once.
+    // Product/Service (itemName) is backend-only — print description only.
+    // Fall back to item name only when description is empty so the row isn't blank.
     const name = String(ln.itemName || "").trim();
     const dtxt = String(ln.description || "").trim();
-    let desc;
-    if (name && dtxt) {
-      desc =
-        name === dtxt || dtxt.includes(name) || name.includes(dtxt)
-          ? dtxt.length >= name.length
-            ? dtxt
-            : name
-          : `${name}\n${dtxt}`;
-    } else {
-      desc = name || dtxt || "";
-    }
+    const desc = dtxt || name || "";
     const rate = parseAmount(ln.unitPrice);
     const qty = parseAmount(ln.qty) || 1;
     return {

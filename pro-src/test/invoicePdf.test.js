@@ -68,6 +68,29 @@ describe("invoicePdf field mapping", () => {
     expect(d.invoiceNo).toBe("251100-CO-1 - Change Order");
   });
 
+  it("prints description only — product/service name stays off the PDF", () => {
+    const d = mapJobToInvoicePdfData(job);
+    expect(d.lines[0].description).toBe(
+      "Main panel upgrade: remove existing panel, install new hardware"
+    );
+    expect(d.lines[0].description).not.toMatch(/^Panel upgrade/);
+  });
+
+  it("preserves multi-line description newlines for print", () => {
+    const d = mapJobToInvoicePdfData({
+      ...job,
+      invoiceLines: [
+        {
+          itemName: "Service call",
+          description: "Line one\nLine two",
+          qty: 1,
+          unitPrice: 180,
+        },
+      ],
+    });
+    expect(d.lines[0].description).toBe("Line one\nLine two");
+  });
+
   it("canGenerateLocalInvoice allows drafts without invoice number when lines exist", () => {
     expect(canGenerateLocalInvoice(job)).toBe(true);
     expect(canGenerateLocalInvoice({ ...job, invoiceNo: "" })).toBe(true);

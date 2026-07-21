@@ -53,19 +53,20 @@ const STYLE = {
     detailSize: 7.32, detailStartY: 61.5, detailLeading: 12.75,
   },
 
-  title:   { size: 13.72, baselineY: 164.25 },             // "ESTIMATE"/"INVOICE"
+  // Raised ~20pt toward the logo so more room remains at the bottom (Levi 2026-07-21).
+  title:   { size: 13.72, baselineY: 144.25 },             // "ESTIMATE"/"INVOICE"
 
   // Meta block (left: customer address / right: doc no + dates)
   meta: {
     labelSize: 9.15, leading: 13.5,
-    leftX: 36, firstBaselineY: 186,
+    leftX: 36, firstBaselineY: 166,
     rightLabelX: 396.45, rightValueX: 477.23,
-    customFieldGapY: 241.5,                                 // SERVICE ADDRESS baseline
+    customFieldGapY: 221.5,                                 // SERVICE ADDRESS baseline
     customFieldValueDy: 12,
   },
 
   table: {
-    top: 270.75, headerH: 21,
+    top: 250.75, headerH: 21,
     x: 36, w: 540,
     // column right boundaries (from page left)
     colDesc: { textX: 39.75, maxX: 396.5 },   // wrap width incl. trailing-space allowance
@@ -354,19 +355,30 @@ function generateDocument(data, outPath) {
 
     dottedRule(M, M + S.table.w, totalsTop);
 
-    // gray message block, bottom-left
+    // gray message block — payment options left of totals; thank-you / sincerely
+    // drawn BELOW Balance Due with breathing room (Levi 2026-07-21).
+    let paymentMsg = null;
+    let closingMsg = null;
     if (data.messageLines !== null) {
-      const msg = data.messageLines || [
+      const msg = [...(data.messageLines || [
         `Your ${docType.toLowerCase()} is attached.`,
         'Thank you for your interest in our business - we appreciate it very much.',
         '',
         'Sincerely,',
         data.company.name,
-      ];
+      ])];
+      const thanksIdx = msg.findIndex((l) => /Thank you for your business/i.test(String(l || '')));
+      if (thanksIdx >= 0) {
+        paymentMsg = msg.slice(0, thanksIdx).filter((l, i, a) => !(l === '' && i === a.length - 1));
+        closingMsg = msg.slice(thanksIdx);
+      } else {
+        paymentMsg = msg;
+        closingMsg = [];
+      }
       doc.font('reg').fontSize(S.message.size).fillColor(S.colors.gray);
       const msgGap = S.message.leading - doc.currentLineHeight(true);
       let my = totalsTop + 22.5;
-      for (const lineTxt of msg) {
+      for (const lineTxt of paymentMsg) {
         if (lineTxt === '') { my += S.message.leading; continue; }
         const h = doc.heightOfString(lineTxt, { width: S.message.maxW, lineGap: msgGap });
         const nLines = Math.max(1, Math.round(h / S.message.leading));
@@ -404,6 +416,22 @@ function generateDocument(data, outPath) {
     doc.font('bold').fontSize(S.totals.totalAmtSize).fillColor(S.colors.black);
     rightText('$' + fmtMoney(bigAmount), S.totals.amtRightX, ty);
     doc.font('reg');
+
+    // Thank-you / sincerely — below Balance Due with a clear gap
+    if (closingMsg && closingMsg.length) {
+      doc.font('reg').fontSize(S.message.size).fillColor(S.colors.gray);
+      const msgGap = S.message.leading - doc.currentLineHeight(true);
+      let my = ty + 28;
+      for (const lineTxt of closingMsg) {
+        if (lineTxt === '') { my += S.message.leading; continue; }
+        const h = doc.heightOfString(lineTxt, { width: S.message.maxW, lineGap: msgGap });
+        const nLines = Math.max(1, Math.round(h / S.message.leading));
+        doc.text(lineTxt, S.message.x,
+          my - (doc._font.ascender / 1000) * S.message.size,
+          { width: S.message.maxW, lineGap: msgGap });
+        my += nLines * S.message.leading;
+      }
+    }
 
     // acceptance block (estimates)
     const showAcceptance = data.showAcceptance != null ? data.showAcceptance : isEstimate;
