@@ -41,6 +41,9 @@ export function keysLookPaired() {
 
 export function sutMismatchHint(gatewayError) {
   const err = String(gatewayError || "");
+  if (/specified key not found/i.test(err)) {
+    return " Card processing is misconfigured on the server (gateway key). Contact the office.";
+  }
   if (!/unauthorized token|invalid token|invalid xcardnum/i.test(err)) return "";
   if (!keysLookPaired()) {
     return " Card processing keys on the server may be mismatched — both Sola keys must be from the same merchant account.";

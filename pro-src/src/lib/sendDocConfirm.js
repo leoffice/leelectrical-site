@@ -1,8 +1,6 @@
 // Preview + subject/body for the pre-send confirmation sheet.
 // Layout target: LEPRO_EMAIL_DESIGN_FIXES (amount banner + gray Bill-to HTML).
-// Body text: invoice total / balance due lines; never dump a raw pay URL.
-import { fmt$ } from "./format.js";
-import { openBalance, invoiceTotal } from "./customers.js";
+// Body text: greeting + ready to view/pay; never dump a raw pay URL.
 import { DOC_SOURCE_LOCAL, DOC_SOURCE_QBO } from "./docSource.js";
 import { activeTenantConfig, productName } from "./tenantBranding.js";
 import { isChangeOrderJob } from "./changeOrder.js";
@@ -18,7 +16,7 @@ const brand = () => activeTenantConfig().profile?.shortName || "";
 /**
  * Greeting name for customer emails.
  * Companies keep the full name (e.g. "419 Kingston Realty");
- * people can use personName when set, else full customer string.
+ * people get first name (e.g. Mendel, not Mendel Cohen).
  */
 export function docEmailGreetingName(job) {
   const company = s(job?.businessName);
@@ -26,8 +24,12 @@ export function docEmailGreetingName(job) {
   const person = s(job?.personName);
   // Prefer business/company name when present
   if (company) return company;
-  if (customer) return customer;
-  if (person) return person;
+  const personOrCustomer = person || customer;
+  if (personOrCustomer) {
+    // First token only for people (Levi: "Hi Mendel,")
+    const first = personOrCustomer.split(/\s+/)[0];
+    return first || personOrCustomer;
+  }
   return "there";
 }
 
@@ -54,31 +56,22 @@ export function defaultDocEmailSubject(job, kind, { withPay = false } = {}) {
 
 /**
  * Default body for invoice/estimate customer email.
- * Design-fixes era: total/balance lines + no raw pay URL in the body
- * (payment is the View Invoice button / landing page only).
+ * With pay: "Your invoice #N is ready to view and pay online."
+ * No test-mode wording, no raw pay URL (View Invoice button + payment methods).
  */
 export function defaultDocEmailBody(job, kind, { withPay = false, payUrl = "" } = {}) {
   // payUrl intentionally unused in the body — never print a long payment URL.
   void payUrl;
   const greet = docEmailGreetingName(job);
   const no = kind === "invoice" ? s(job?.invoiceNo) : s(job?.estimateNo);
-  const work = docEmailWorkLabel(job);
   const label = kind === "estimate" ? "estimate" : "invoice";
-  const lines = [
-    `Hi ${greet},`,
-    "",
-    `Your ${label}${no ? " #" + no : ""} for ${work} is ready.`,
-    "",
-  ];
-  if (kind === "invoice") {
-    const total = invoiceTotal(job);
-    const due = openBalance(job);
-    if (total > 0) lines.push(`Invoice total: ${fmt$(total)}`);
-    if (due > 0.01) lines.push(`Balance due: ${fmt$(due)}`);
-    if (total > 0 || due > 0.01) lines.push("");
-  }
-  if (withPay) {
-    lines.push("A secure payment link is included with this email.", "");
+  const num = no ? ` #${no}` : "";
+  const lines = [`Hi ${greet},`, ""];
+  if (kind === "invoice" && withPay) {
+    lines.push(`Your invoice${num} is ready to view and pay online.`, "");
+  } else {
+    const work = docEmailWorkLabel(job);
+    lines.push(`Your ${label}${num} for ${work} is ready.`, "");
   }
   lines.push(
     "The PDF is attached.",

@@ -100,14 +100,21 @@ describe("2 — one primary CTA at the top", () => {
     expect(html.toLowerCase()).not.toContain("securely online");
   });
 
-  it("does not advertise a separate credit-card payment link", () => {
+  it("lists credit card after Zelle with a clickable Link to the pay page (not Cardknox)", () => {
     const html = render({
-      paymentMessage:
-        'Other ways to pay:\n\n-Zelle: Send payment to Office@LeElectrical.us.\n-Check: Make checks payable to "BLZ Electric Inc."',
+      paymentMessageHtml:
+        'Other ways to pay:<br><br>-Zelle: Send payment to Office@LeElectrical.us.<br>' +
+        '-Credit card: Pay with credit card by pressing the following <a href="' +
+        SHORT +
+        '">Link</a><br>' +
+        '-Check: Make checks payable to "BLZ Electric Inc."',
     });
-    expect(html.toLowerCase()).not.toContain("credit card payment link");
     expect(html).toContain("Other ways to pay");
     expect(html).toContain("Zelle");
+    expect(html).toContain("Credit card");
+    expect(html).toContain(`href="${SHORT}"`);
+    expect(html).toContain(">Link</a>");
+    expect(html).not.toContain("secure.cardknox.com");
   });
 });
 

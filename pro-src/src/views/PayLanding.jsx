@@ -129,6 +129,7 @@ export default function PayLanding() {
   const [pdfErr, setPdfErr] = useState("");
   const [showPaidHist, setShowPaidHist] = useState(false);
   const [cardReady, setCardReady] = useState(false);
+  const [saveOnFile, setSaveOnFile] = useState(true);
   const [payBusy, setPayBusy] = useState(false);
   const [payErr, setPayErr] = useState("");
 
@@ -246,6 +247,7 @@ export default function PayLanding() {
         data,
         principalAmount: payAmount,
         includeFee,
+        saveOnFile,
         ...tokens,
       });
       const newBal = Math.max(0, balanceDue - payAmount);
@@ -460,6 +462,24 @@ export default function PayLanding() {
             Secure payment — your card details stay on our encrypted form, not a third-party page.
           </p>
           <SolaCardForm disabled={payBusy} onReadyChange={setCardReady} />
+          <label
+            className="flex items-start gap-2.5 mt-4 cursor-pointer select-none"
+            data-testid="save-card-for-future"
+          >
+            <input
+              type="checkbox"
+              className="mt-0.5 h-4 w-4 rounded border-slate-300 text-brand focus:ring-brand"
+              checked={saveOnFile}
+              disabled={payBusy}
+              onChange={(e) => setSaveOnFile(e.target.checked)}
+            />
+            <span className="text-sm text-slate-700 leading-snug">
+              <span className="font-semibold">Save this card for future payments</span>
+              <span className="block text-[11px] text-slate-500 mt-0.5">
+                Securely store your card for this customer so the next invoice is one tap.
+              </span>
+            </span>
+          </label>
           {payErr ? (
             <p className="text-xs text-red-600 bg-red-50 border border-red-100 rounded-xl px-3 py-2 mt-3">
               {payErr}

@@ -91,12 +91,21 @@ describe("composed invoice email", () => {
   it("registered the landing payload so the page can review + pay", async () => {
     await compose();
     const keys = [...written.keys()];
-    expect(keys).toHaveLength(1);
-    expect(keys[0]).toMatch(/^pl-/);
-    const rec = JSON.parse(written.get(keys[0]));
+    expect(keys.some((k) => k.startsWith("pl-"))).toBe(true);
+    const plKey = keys.find((k) => k.startsWith("pl-"));
+    const rec = JSON.parse(written.get(plKey));
     expect(rec.payload.i).toBe("231595");
     expect(rec.payload.pay).toContain("cardknox"); // pay lives on the page
     expect(rec.payload.ps).toHaveLength(1); // payment history
+  });
+
+  it("stores the PDF so pay-page View invoice can open it", async () => {
+    const { res } = await compose();
+    expect(res.docKey).toBe("inv-231595");
+    expect(written.has("inv-231595")).toBe(true);
+    const buf = written.get("inv-231595");
+    expect(Buffer.isBuffer(buf) || buf instanceof Uint8Array).toBe(true);
+    expect(Buffer.from(buf).slice(0, 4).toString("latin1")).toBe("%PDF");
   });
 
   it("has no 'securely online' duplicate line", async () => {
