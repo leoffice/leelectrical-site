@@ -1,8 +1,9 @@
-// App preferences — speech-to-text + company logo (local device).
+// App preferences — speech-to-text + company logo + QuickBooks feature (local device).
 import { useEffect, useState } from "react";
 
 export const SPEECH_TO_TEXT_KEY = "lepro_speech_to_text";
 export const COMPANY_LOGO_KEY = "lepro_company_logo";
+export const QUICKBOOKS_FEATURE_KEY = "lepro_feature_quickbooks";
 export const SETTINGS_EVENT = "lepro-settings";
 
 const DEFAULT_LOGO = () =>
@@ -44,6 +45,33 @@ export function setSpeechToTextEnabled(on) {
   if (!ls) return;
   try {
     ls.setItem(SPEECH_TO_TEXT_KEY, on ? "1" : "0");
+  } catch {
+    /* ignore */
+  }
+  notify();
+}
+
+/**
+ * Settings → Features → QuickBooks. Default ON so LE Electrical keeps
+ * full QB paths until someone turns it off for local-only / white-label.
+ */
+export function isQuickbooksFeatureEnabled() {
+  const ls = storage();
+  if (!ls) return true;
+  try {
+    const v = ls.getItem(QUICKBOOKS_FEATURE_KEY);
+    if (v === null || v === undefined || v === "") return true;
+    return v === "1" || v === "true";
+  } catch {
+    return true;
+  }
+}
+
+export function setQuickbooksFeatureEnabled(on) {
+  const ls = storage();
+  if (!ls) return;
+  try {
+    ls.setItem(QUICKBOOKS_FEATURE_KEY, on ? "1" : "0");
   } catch {
     /* ignore */
   }
@@ -144,6 +172,7 @@ export function readLogoFileAsDataUrl(file, maxEdge = 512) {
 export function readAppSettings() {
   return {
     speechToText: isSpeechToTextEnabled(),
+    quickbooks: isQuickbooksFeatureEnabled(),
     logoSrc: getCompanyLogoSrc(),
     logoCustom: !!getCompanyLogoDataUrl(),
   };

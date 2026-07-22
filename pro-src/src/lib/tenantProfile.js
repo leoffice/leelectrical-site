@@ -95,7 +95,7 @@ export const FEATURE_LABELS = [
   { key: "estimates", label: "Estimates" },
   { key: "statements", label: "Statements" },
   { key: "letterhead", label: "Letterhead" },
-  { key: "quickbooks", label: "QuickBooks sync" },
+  { key: "quickbooks", label: "QuickBooks (save, send & sync via QB)" },
   { key: "calendar", label: "Calendar" },
   { key: "reminders", label: "Reminders / follow-ups" },
   { key: "progressDashboard", label: "Progress / Build dashboard" },
@@ -127,7 +127,7 @@ export const FEATURE_GROUPS = [
   {
     id: "operations",
     title: "Operations",
-    hint: "Day-to-day job tools",
+    hint: "Day-to-day job tools · turn QuickBooks off for local-only",
     keys: ["timeTracking", "calendar", "reminders", "progressDashboard", "subCompanies", "quickbooks"],
   },
   {

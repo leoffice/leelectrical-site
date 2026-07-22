@@ -6,6 +6,9 @@ import {
   defaultDocEmailSubject,
   docAttachmentName,
   docEmailGreetingName,
+  EMAIL_POLICY_KEEP,
+  EMAIL_POLICY_ONCE,
+  sendEmailDiffersFromCustomer,
 } from "../src/lib/sendDocConfirm.js";
 
 const job = {
@@ -74,5 +77,46 @@ describe("sendDocConfirm", () => {
     expect(body).toContain("The PDF is attached.");
     expect(body).not.toContain("cardknox");
     expect(body).not.toContain("xAmount");
+  });
+
+  it("detects when send email differs from customer (case-insensitive)", () => {
+    expect(sendEmailDiffersFromCustomer("other@x.com", "p@x.com")).toBe(true);
+    expect(sendEmailDiffersFromCustomer("P@X.COM", "p@x.com")).toBe(false);
+    expect(sendEmailDiffersFromCustomer("  p@x.com ", "p@x.com")).toBe(false);
+  });
+
+  it("requires Keep / Use once when email differs before approve", () => {
+    const m = buildSendDocConfirm({
+      job,
+      kind: "invoice",
+      email: "once@other.com",
+    });
+    expect(m.emailDiffers).toBe(true);
+    expect(m.emailPolicy).toBe("");
+    expect(canApproveSendConfirm(m)).toBe(false);
+
+    const keep = buildSendDocConfirm({
+      job,
+      kind: "invoice",
+      email: "once@other.com",
+      emailPolicy: EMAIL_POLICY_KEEP,
+    });
+    expect(keep.emailPolicy).toBe(EMAIL_POLICY_KEEP);
+    expect(canApproveSendConfirm(keep)).toBe(true);
+
+    const once = buildSendDocConfirm({
+      job,
+      kind: "invoice",
+      email: "once@other.com",
+      emailPolicy: EMAIL_POLICY_ONCE,
+    });
+    expect(once.emailPolicy).toBe(EMAIL_POLICY_ONCE);
+    expect(canApproveSendConfirm(once)).toBe(true);
+  });
+
+  it("same email does not require a policy choice", () => {
+    const m = buildSendDocConfirm({ job, kind: "invoice", email: "p@x.com" });
+    expect(m.emailDiffers).toBe(false);
+    expect(canApproveSendConfirm(m)).toBe(true);
   });
 });

@@ -4,8 +4,25 @@
 import { DOC_SOURCE_LOCAL, DOC_SOURCE_QBO } from "./docSource.js";
 import { activeTenantConfig, productName } from "./tenantBranding.js";
 import { isChangeOrderJob } from "./changeOrder.js";
+import { normalizeEmail } from "./customers.js";
 
 const s = (v) => (v == null ? "" : String(v).trim());
+
+/**
+ * True when the typed send-to address differs from the job/customer email.
+ * Used to offer Keep this email vs Use it once before send.
+ */
+export function sendEmailDiffersFromCustomer(typedEmail, jobEmail) {
+  const a = normalizeEmail(typedEmail);
+  const b = normalizeEmail(jobEmail);
+  if (!a || !a.includes("@")) return false;
+  if (!b) return true;
+  return a !== b;
+}
+
+/** keep = save on customer/job; once = send only, do not change customer. */
+export const EMAIL_POLICY_KEEP = "keep";
+export const EMAIL_POLICY_ONCE = "once";
 
 /**
  * Short trading name for email copy. Deliberately not tenantName(), which
@@ -102,11 +119,19 @@ export function buildSendDocConfirm({
   subject,
   message,
   payUrl = "",
+  emailPolicy = "",
 } = {}) {
   const to = s(email || job?.email);
   const src = docSource === DOC_SOURCE_QBO ? DOC_SOURCE_QBO : DOC_SOURCE_LOCAL;
   const subj = s(subject) || defaultDocEmailSubject(job, kind, { withPay });
   const body = s(message) || defaultDocEmailBody(job, kind, { withPay, payUrl });
+  const differs = sendEmailDiffersFromCustomer(to, job?.email);
+  const policy =
+    emailPolicy === EMAIL_POLICY_KEEP || emailPolicy === EMAIL_POLICY_ONCE
+      ? emailPolicy
+      : differs
+        ? ""
+        : EMAIL_POLICY_ONCE;
   return {
     job,
     kind,
@@ -118,10 +143,16 @@ export function buildSendDocConfirm({
     attachmentName: docAttachmentName(job, kind),
     payUrl: s(payUrl),
     sourceLabel: src === DOC_SOURCE_QBO ? "QuickBooks file" : `Local ${productName()} PDF`,
+    emailDiffers: differs,
+    emailPolicy: policy,
   };
 }
 
-/** True when confirm model has a usable recipient. */
+/** True when confirm model has a usable recipient (and email policy if needed). */
 export function canApproveSendConfirm(model) {
-  return !!(model && s(model.email) && model.email.includes("@"));
+  if (!(model && s(model.email) && model.email.includes("@"))) return false;
+  if (model.emailDiffers && model.emailPolicy !== EMAIL_POLICY_KEEP && model.emailPolicy !== EMAIL_POLICY_ONCE) {
+    return false;
+  }
+  return true;
 }
