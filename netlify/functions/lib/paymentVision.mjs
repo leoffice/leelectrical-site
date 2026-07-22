@@ -187,16 +187,23 @@ async function callVision({ imageBase64, mime, prompt, model, apiKey }) {
 
 /**
  * Call xAI vision API. Returns normalized extracted fields or throws.
- * kind: "zelle" | "check"
+ * kind: "zelle" | "check" | "intent"
+ * learningHint: optional few-shot text from Levi's field corrections (trains the reader).
  */
-export async function extractPaymentFromImage({ imageBase64, mime = "image/jpeg", kind = "zelle" }) {
+export async function extractPaymentFromImage({
+  imageBase64,
+  mime = "image/jpeg",
+  kind = "zelle",
+  learningHint = "",
+}) {
   const apiKey = process.env.XAI_API_KEY;
   if (!apiKey) {
     return { dryRun: true, extracted: null, error: "XAI_API_KEY not set" };
   }
   const model = process.env.XAI_VISION_MODEL || "grok-4.5";
   const k = kind === "check" ? "check" : kind === "intent" ? "intent" : "zelle";
-  const prompt = PROMPTS[k];
+  const hint = String(learningHint || "").trim();
+  const prompt = hint ? `${PROMPTS[k]}\n\n${hint}` : PROMPTS[k];
   const text = await callVision({ imageBase64, mime, prompt, model, apiKey });
   const parsed = parseVisionJson(text);
   const extracted =

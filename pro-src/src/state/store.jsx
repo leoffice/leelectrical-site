@@ -1078,6 +1078,25 @@ export function StoreProvider({ children }) {
     [api]
   );
 
+  const appendPaymentVisionFeedback = useCallback(
+    async (entry) => {
+      if (!api.appendPaymentVisionFeedback) return;
+      try {
+        await api.appendPaymentVisionFeedback(entry);
+      } catch {}
+    },
+    [api]
+  );
+
+  const getPaymentVisionLearning = useCallback(async () => {
+    if (!api.getPaymentVisionLearning) return [];
+    try {
+      return (await api.getPaymentVisionLearning()) || [];
+    } catch {
+      return [];
+    }
+  }, [api]);
+
   const getSettings = useCallback(async () => {
     if (!api.getSettings) throw new Error("Settings not available");
     return api.getSettings();
@@ -1136,6 +1155,8 @@ export function StoreProvider({ children }) {
       refreshDev,
       syncNow,
       appendInvoiceEditFeedback,
+      appendPaymentVisionFeedback,
+      getPaymentVisionLearning,
       patchLocalEvent,
       removeLocalEvent,
       enqueue,
@@ -1194,6 +1215,8 @@ export function StoreProvider({ children }) {
       refreshDev,
       syncNow,
       appendInvoiceEditFeedback,
+      appendPaymentVisionFeedback,
+      getPaymentVisionLearning,
       patchLocalEvent,
       removeLocalEvent,
       enqueue,

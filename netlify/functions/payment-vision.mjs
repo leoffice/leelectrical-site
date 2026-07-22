@@ -31,11 +31,13 @@ export default async (req) => {
   const mime = String(body.mime || "image/jpeg").trim();
   const rawKind = String(body.kind || "zelle").trim().toLowerCase();
   const kind = rawKind === "check" ? "check" : rawKind === "intent" ? "intent" : "zelle";
+  // Levi's field corrections from prior photos — few-shot training for the reader.
+  const learningHint = String(body.learningHint || "").slice(0, 4000);
   if (!image) return json({ ok: false, error: "image required" }, 400);
   if (image.length > 28_000_000) return json({ ok: false, error: "image too large" }, 413);
 
   try {
-    const result = await extractPaymentFromImage({ imageBase64: image, mime, kind });
+    const result = await extractPaymentFromImage({ imageBase64: image, mime, kind, learningHint });
     if (result.dryRun) {
       return json({
         ok: false,

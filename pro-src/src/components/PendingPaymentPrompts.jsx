@@ -9,6 +9,7 @@ import {
   hasUsefulPaymentAutofill,
   paymentAutofillPatch,
 } from "../lib/paymentAutofill.js";
+import { buildPaymentVisionLearningEntry } from "../lib/paymentVisionLearning.js";
 import { getDepositBanks } from "../lib/chatPayment.js";
 import { fmt$, todayStr } from "../lib/format.js";
 import PaymentImageZoom from "./PaymentImageZoom.jsx";
@@ -43,7 +44,7 @@ function collectPending(jobs, systemItems = []) {
 export default function PendingPaymentPrompts() {
   const { jobs, loading } = useStoreData();
   // saveAll (not syncNow): approve must persist payments + queue QuickBooks record.
-  const { patchJob, showToast, saveAll } = useStore();
+  const { patchJob, showToast, saveAll, appendPaymentVisionFeedback, getPaymentVisionLearning } = useStore();
   const [systemItems, setSystemItems] = useState([]);
   const [current, setCurrent] = useState(null);
   const [amt, setAmt] = useState("");
@@ -54,6 +55,7 @@ export default function PendingPaymentPrompts() {
   const [busy, setBusy] = useState(false);
   const [autofillBusy, setAutofillBusy] = useState(false);
   const [autofillDone, setAutofillDone] = useState(false);
+  const [autofillExtracted, setAutofillExtracted] = useState(null);
   const depositBanks = useMemo(() => getDepositBanks(), []);
 
   // Load system queue (ov._pendingPayments) on boot + poll so bank/pay-page items appear without reload.
@@ -97,10 +99,11 @@ export default function PendingPaymentPrompts() {
   // Prefill fields when the card opens.
   useEffect(() => {
     if (!current) return;
-    setAmt(String(current.amount || current.extracted?.amount || "").replace(/[$,]/g, ""));
+    setAmt(String(current.amount || current.extracted?.amount || "").replace(/[$,*\s]/g, ""));
     setRef(String(current.checkNumber || current.confirmationNumber || current.ref || current.extracted?.checkNumber || current.extracted?.confirmationNumber || ""));
     setMemo(String(current.memo || current.extracted?.memo || ""));
     setDt(String(current.date || todayStr()).slice(0, 10));
+    setAutofillExtracted(current.extracted || null);
     setAutofillDone(Boolean(current.extracted && hasStrongPaymentAutofill(current.extracted)));
   }, [current?.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -145,9 +148,22 @@ export default function PendingPaymentPrompts() {
       const file = new File([blob], current.fileName || "check.jpg", { type: blob.type || "image/jpeg" });
       const { b64, mime } = await compressImageForVision(file);
       const kindHint = current.kind === "zelle" ? "zelle" : "check";
-      const { extracted } = await analyzePaymentImage(b64, mime || "image/jpeg", kindHint, file.name);
+      let learningEntries = [];
+      try {
+        learningEntries = (await getPaymentVisionLearning?.()) || [];
+      } catch {
+        learningEntries = [];
+      }
+      const { extracted } = await analyzePaymentImage(
+        b64,
+        mime || "image/jpeg",
+        kindHint,
+        file.name,
+        { learningEntries }
+      );
+      setAutofillExtracted(extracted || null);
       if (!hasUsefulPaymentAutofill(extracted)) {
-        showToast("Couldn't read amount or number — enter them manually");
+        showToast("Couldn't read amount or number yet — fill what it missed and Approve to train the reader");
         return;
       }
       const patch = paymentAutofillPatch(extracted);
@@ -156,9 +172,9 @@ export default function PendingPaymentPrompts() {
       if (patch.dt) setDt(patch.dt);
       if (patch.memo) setMemo(patch.memo);
       setAutofillDone(hasStrongPaymentAutofill(extracted));
-      showToast("Fields filled from photo — review and Approve");
+      showToast("Fields filled from photo — fix anything wrong and Approve (trains the reader)");
     } catch (e) {
-      showToast("Could not read photo — " + String((e && e.message) || "enter manually"));
+      showToast("Could not read photo — fill fields and Approve to train. " + String((e && e.message) || ""));
     } finally {
       setAutofillBusy(false);
     }
@@ -191,6 +207,28 @@ export default function PendingPaymentPrompts() {
     try {
       const method = current.kind === "zelle" ? "Zelle" : "Check";
       const payRef = String(ref || "").trim();
+      // Train the reader from Levi's fixes before saving payment.
+      try {
+        const entry = buildPaymentVisionLearningEntry({
+          kind: method === "Zelle" ? "zelle" : "check",
+          extracted: autofillExtracted || current.extracted || null,
+          finalFields: {
+            amount: payAmt,
+            ref: payRef,
+            date: dt,
+            memo,
+            invoiceNo: job.invoiceNo || current.invoiceNo || "",
+            payer: job.customer || current.customer || "",
+            openBalanceDefault: current.amount || "",
+          },
+          jobId: job.id,
+          invoiceNo: job.invoiceNo || current.invoiceNo || "",
+          proofName: current.fileName || current.proofKey || "",
+        });
+        if (entry) await appendPaymentVisionFeedback?.(entry);
+      } catch {
+        /* never block approve */
+      }
       const noteBits = [
         method,
         payRef ? (method === "Check" ? `Check #${payRef}` : `ref ${payRef}`) : "",
@@ -222,8 +260,8 @@ export default function PendingPaymentPrompts() {
         await saveAll?.();
         showToast(
           patch.paid
-            ? "Payment approved and saved — recording in QuickBooks"
-            : `Partial payment approved (${fmt$(payAmt)}) — saved to the job`
+            ? "Payment approved and saved — recording in QuickBooks · fixes train the reader"
+            : `Partial payment approved (${fmt$(payAmt)}) — saved · fixes train the reader`
         );
       } catch {
         showToast(
