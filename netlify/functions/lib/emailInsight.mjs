@@ -821,10 +821,92 @@ export function formatInsightLead(insight, job) {
   return `From ${src}: ${appt}. ${jobLine}`;
 }
 
+/**
+ * Friendly appointment date from local ISO "YYYY-MM-DDTHH:MM" (or date-only).
+ * e.g. "Wed, Jul 8, 2026"
+ */
+export function formatInsightDateLabel(isoLocal) {
+  const raw = String(isoLocal || "").trim();
+  if (!raw) return "";
+  const m = raw.match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if (!m) return "";
+  const y = Number(m[1]);
+  const mo = Number(m[2]) - 1;
+  const d = Number(m[3]);
+  const dt = new Date(y, mo, d);
+  if (Number.isNaN(dt.getTime())) return "";
+  return dt.toLocaleDateString(undefined, {
+    weekday: "short",
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+  });
+}
+
+/** "9:30 AM" from local ISO or HH:MM fragment. */
+export function formatInsightTimeLabel(isoLocal) {
+  const raw = String(isoLocal || "").trim();
+  if (!raw) return "";
+  let hh;
+  let mm;
+  if (raw.includes("T")) {
+    const t = raw.split("T")[1] || "";
+    [hh, mm] = t.split(":");
+  } else if (/^\d{1,2}:\d{2}/.test(raw)) {
+    [hh, mm] = raw.split(":");
+  } else {
+    return "";
+  }
+  const hour = Number(hh);
+  const min = Number(mm);
+  if (!Number.isFinite(hour)) return "";
+  const ap = hour >= 12 ? "PM" : "AM";
+  const h12 = hour % 12 || 12;
+  return `${h12}:${String(Number.isFinite(min) ? min : 0).padStart(2, "0")} ${ap}`;
+}
+
+/**
+ * Hours range for the notice: "9:30 AM – 10:30 AM" or single clock.
+ * Prefers exact time when present; falls back to floored start + end.
+ */
+export function formatInsightHoursLabel(insight, event) {
+  const start =
+    event?.start ||
+    insight?.exactDateTime ||
+    insight?.dateTime ||
+    "";
+  const end = event?.end || insight?.endDateTime || "";
+  const win = insight?.timeWindow;
+  if (win && (win.startHour != null || win.text)) {
+    // Window copy already human ("between 11:00 and 1:00")
+    if (win.text) return String(win.text).replace(/\.$/, "");
+    const a = formatClockLabel(win.startHour, win.startMin || 0, true);
+    const b = formatClockLabel(win.endHour, win.endMin || 0, true);
+    if (a && b) return `${a} – ${b}`;
+  }
+  const a = formatInsightTimeLabel(start);
+  const b = formatInsightTimeLabel(end);
+  if (a && b && a !== b) return `${a} – ${b}`;
+  return a || "";
+}
+
+/** Source line for UI: "Email · Con Edison" */
+export function formatInsightSourceLabel(insight) {
+  const src = insight?.source || {};
+  const kind = src.type === "email" || !src.type ? "Email" : String(src.type);
+  const who = src.fromLabel || "Unknown";
+  return `${kind} · ${who}`;
+}
+
 export function formatAppliedLead(insight, job) {
   const src = insight?.source?.fromLabel || "Email";
   const type = appointmentTypeLabel(insight?.appointmentType, insight?.agency);
-  const when = insight?.dateTime ? insight.dateTime.replace("T", " ").slice(0, 16) : "";
+  const dateLabel = formatInsightDateLabel(insight?.dateTime || insight?.exactDateTime);
+  const hoursLabel = formatInsightHoursLabel(insight);
+  const whenPretty =
+    dateLabel && hoursLabel ? `${dateLabel} · ${hoursLabel}` : dateLabel || hoursLabel || "";
+  const whenRaw = insight?.dateTime ? insight.dateTime.replace("T", " ").slice(0, 16) : "";
+  const when = whenPretty || whenRaw;
   const who = job?.customer || "the job";
   const outcome = insight?.outcome || "other";
   if (insight?.skipReason === "already_on_calendar") {
@@ -839,7 +921,9 @@ export function formatAppliedLead(insight, job) {
     return `From ${src}: noted cancelled ${type} for ${who}. Nothing added to the calendar.`;
   }
   if (outcome === "reminder") {
-    return `From ${src}: reminder only for ${who} — no new calendar appointment.`;
+    return when
+      ? `From ${src}: reminder only for ${who} — appointment ${when}. No new calendar event.`
+      : `From ${src}: reminder only for ${who} — no new calendar appointment.`;
   }
   const emailed = insight?.customerEmailed ? " and emailed the customer the invite" : "";
   return when
