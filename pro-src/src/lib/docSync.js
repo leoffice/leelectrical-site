@@ -10,6 +10,7 @@ import { buildRecurringPayload, recurringIdempotencyKey } from "./recurringBilli
 import { isProgressBillingContext, progressBillingJobPatch } from "./progressBilling.js";
 import { briefTitlePatch, preferredChangeOrderDocNo } from "./changeOrder.js";
 import { reconcileBalanceOnAmountChange } from "./payments.js";
+import { discountJobPatch, docTotalAfterDiscount } from "./docDiscount.js";
 
 export const DOC_SYNC_COMMAND_TYPES = [
   "create_estimate",
@@ -74,13 +75,35 @@ export function docSyncFailurePatch(commandType) {
     : { status: { Invoiced: { s: "", d: "" } } };
 }
 
-function buildDocJobPatch(job, { kind, mode, lines, serviceAddress, apartment, markDone, progressPct, contractAmount }) {
+function buildDocJobPatch(job, { kind, mode, lines, serviceAddress, apartment, markDone, progressPct, contractAmount, discountType, discountValue }) {
   const valid = lines || [];
-  const total = linesTotal(valid);
+  const subtotal = linesTotal(valid);
+  const discInput = {
+    type: discountType === "percent" ? "percent" : "amount",
+    value: discountValue,
+  };
+  // Prefer explicit builder input; fall back to what is already on the job.
+  const hasExplicit =
+    discountType != null ||
+    (discountValue != null && discountValue !== "");
+  const discPatch = hasExplicit
+    ? discountJobPatch(subtotal, discInput)
+    : discountJobPatch(subtotal, {
+        type: job?.discountType === "percent" ? "percent" : "amount",
+        value:
+          job?.discountType === "percent"
+            ? job?.discountPercent ?? job?.discountValue
+            : job?.discount ?? job?.discountValue,
+      });
+  const total = docTotalAfterDiscount(subtotal, {
+    type: discPatch.discountType,
+    value: discPatch.discountType === "percent" ? discPatch.discountPercent : discPatch.discount,
+  });
   const jobPatch = {
     ...sharedAddressFields(serviceAddress, apartment),
     amount: fmt$(total),
     [kind === "estimate" ? "estimateLines" : "invoiceLines"]: valid,
+    ...discPatch,
   };
 
   if (kind === "invoice" && isProgressBillingContext(job, { kind, mode })) {
@@ -122,7 +145,7 @@ function buildDocJobPatch(job, { kind, mode, lines, serviceAddress, apartment, m
 }
 
 /** Plan local job patch only — Save & close (no QuickBooks commands). */
-export function planDocSaveLocal(job, { kind, mode, lines, serviceAddress, apartment, progressPct, contractAmount }) {
+export function planDocSaveLocal(job, { kind, mode, lines, serviceAddress, apartment, progressPct, contractAmount, discountType, discountValue }) {
   const { jobPatch } = buildDocJobPatch(job, {
     kind,
     mode,
@@ -132,12 +155,14 @@ export function planDocSaveLocal(job, { kind, mode, lines, serviceAddress, apart
     markDone: true,
     progressPct,
     contractAmount,
+    discountType,
+    discountValue,
   });
   return { jobPatch };
 }
 
 /** Plan local job patch + command bus enqueue for Save & sync (incl. linked doc address sync). */
-export function planDocSaveSync(job, { kind, mode, lines, serviceAddress, apartment, progressPct, send, contractAmount, recurringState }) {
+export function planDocSaveSync(job, { kind, mode, lines, serviceAddress, apartment, progressPct, send, contractAmount, recurringState, discountType, discountValue }) {
   const hasInvoice = !!(job?.invoiceNo || job?._invoiceConfirmed);
   const syncMode = kind === "invoice" && mode !== "edit" && hasInvoice ? "edit" : mode;
 
@@ -150,10 +175,12 @@ export function planDocSaveSync(job, { kind, mode, lines, serviceAddress, apartm
     markDone: false,
     progressPct,
     contractAmount,
+    discountType,
+    discountValue,
   });
   const recurring = kind === "invoice" ? buildRecurringPayload(recurringState, { send }) : null;
   // Merge preferred CO doc # onto the job for the QBO payload without flipping create→update.
-  const jobForPayload = { ...job };
+  const jobForPayload = { ...job, ...jobPatch };
   if (kind === "invoice" && !String(job.invoiceNo || "").trim() && jobPatch._preferredInvoiceNo) {
     jobForPayload.invoiceNo = jobPatch._preferredInvoiceNo;
   }

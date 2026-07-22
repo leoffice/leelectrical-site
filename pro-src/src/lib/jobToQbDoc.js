@@ -183,9 +183,19 @@ export function mapJobToQbDocData(job, kind = "invoice") {
   const subtotal = linesTotal(billableLines(job, kind));
   const tax = parseAmount(job.tax ?? 0);
   const discount = parseAmount(job.discount ?? 0);
-  const total = subtotal + tax - discount || (isInvoice ? invoiceTotal(job) : subtotal);
+  // Prefer line math minus discount; fall back to stored invoice total.
+  const computed = Math.max(0, Math.round((subtotal + tax - discount) * 100) / 100);
+  const total = computed || (isInvoice ? invoiceTotal(job) : subtotal) || subtotal;
   const paid = isInvoice ? amountPaid(job) : 0;
-  const balanceDue = isInvoice ? openBalance(job) : total;
+  // When discount changes the face total, balance due tracks the discounted total
+  // unless payments / openBalance already encode a different remaining amount.
+  const balanceDue = isInvoice
+    ? (() => {
+        const stored = openBalance(job);
+        if (paid > 0 || (job.openBalance != null && job.openBalance !== "")) return stored;
+        return Math.max(0, total - paid);
+      })()
+    : total;
 
   const invoiceDateRaw =
     job.invoiceDate ||
@@ -231,6 +241,7 @@ export function mapJobToQbDocData(job, kind = "invoice") {
     lines: lines.map(({ description, rate, qty, amount }) => ({ description, rate, qty, amount })),
     subtotal,
     tax,
+    discount: discount > 0 ? discount : 0,
     total: total || subtotal,
     payment: paid > 0 ? paid : undefined,
     amountDue: isInvoice ? balanceDue : total,

@@ -15,6 +15,11 @@ import { enqueueCustomerQboSync } from "../lib/customerQboEnqueue.js";
 import { stashPendingDocSync } from "../lib/docSyncChain.js";
 import { fmt$, parseAmount } from "../lib/format.js";
 import {
+  discountInputFromJob,
+  docTotalAfterDiscount,
+  resolveDiscountAmount,
+} from "../lib/docDiscount.js";
+import {
   bestChangeOrderSource,
   canAddChangeOrder,
   changeOrderDocLabel,
@@ -337,6 +342,12 @@ export default function DocBuilderSheet({
   });
   const showRecurring = kind === "invoice" && mode !== "edit";
   const [recurring, setRecurring] = useState(() => defaultRecurringState(job));
+  // Document-level discount: $ off the total, or % of line subtotal.
+  const seedDisc = discountInputFromJob(job);
+  const [discountType, setDiscountType] = useState(seedDisc.type);
+  const [discountValue, setDiscountValue] = useState(
+    seedDisc.value > 0 ? String(seedDisc.value) : ""
+  );
   // Toggle to mark this invoice/estimate as a change order (CO) — enable or disable anytime.
   const alreadyCo = isChangeOrderJob(job);
   const [asChangeOrder, setAsChangeOrder] = useState(() => isChangeOrderJob(jobProp || job));
@@ -389,7 +400,23 @@ export default function DocBuilderSheet({
     };
   }, [api]);
 
-  const total = useMemo(() => linesTotal(lines), [lines]);
+  const subtotal = useMemo(() => linesTotal(lines), [lines]);
+  const discountDollars = useMemo(
+    () =>
+      resolveDiscountAmount(subtotal, {
+        type: discountType,
+        value: discountValue,
+      }),
+    [subtotal, discountType, discountValue]
+  );
+  const total = useMemo(
+    () =>
+      docTotalAfterDiscount(subtotal, {
+        type: discountType,
+        value: discountValue,
+      }),
+    [subtotal, discountType, discountValue]
+  );
   const title =
     mode === "edit"
       ? "Edit " + (kind === "estimate" ? "estimate" : "invoice")
@@ -669,6 +696,8 @@ export default function DocBuilderSheet({
         apartment,
         progressPct: progressPctEdit,
         contractAmount,
+        discountType,
+        discountValue,
       });
       Object.assign(jobPatch, coTagsFromJob(activeJob));
       if (attachments.length) {
@@ -704,6 +733,8 @@ export default function DocBuilderSheet({
       apartment,
       progressPct: progressPctEdit,
       contractAmount,
+      discountType,
+      discountValue,
     });
     Object.assign(jobPatch, coTagsFromJob(activeJob));
     await downloadLocalPdf(buildPdfJob(activeJob, jobPatch));
@@ -737,6 +768,8 @@ export default function DocBuilderSheet({
         contractAmount,
         send,
         recurringState: showRecurring && recurring.enabled ? recurring : null,
+        discountType,
+        discountValue,
       });
       Object.assign(jobPatch, coTagsFromJob(activeJob));
       if (emailTo) jobPatch.email = emailTo;
@@ -809,7 +842,7 @@ export default function DocBuilderSheet({
                 email: emailTo,
                 invoiceNo: no,
                 customer: activeJob.customer || "",
-                amount: String(linesTotal(valid) || "").replace(/[$,]/g, ""),
+                amount: String(total || "").replace(/[$,]/g, ""),
                 includePaymentLink: withPay,
                 docSource: DOC_SOURCE_LOCAL,
                 message: customMsg,
@@ -1054,6 +1087,59 @@ export default function DocBuilderSheet({
       <button type="button" className="btn-ghost w-full !py-2 mb-3" onClick={() => setLines((rows) => rows.concat([emptyLine()]))}>
         ＋ Add line
       </button>
+
+      <div
+        className="card px-3 py-3 mb-3 border-slate-200 space-y-2"
+        data-testid="doc-discount-panel"
+      >
+        <div className="flex items-end gap-2">
+          <div className="flex-1 min-w-0">
+            <Fld label="Discount on total" hint={discountType === "percent" ? "Percent off line total" : "Dollar amount off total"}>
+              <input
+                className="input"
+                inputMode="decimal"
+                value={discountValue}
+                onChange={(e) => setDiscountValue(e.target.value)}
+                placeholder={discountType === "percent" ? "e.g. 10" : "e.g. 100"}
+                aria-label="Discount value"
+                data-testid="doc-discount-input"
+              />
+            </Fld>
+          </div>
+          <button
+            type="button"
+            className="mb-0.5 h-10 min-w-[2.5rem] px-2 rounded-lg border border-slate-200 bg-white text-sm font-extrabold text-slate-700"
+            onClick={() => {
+              // Keep the typed number; only switch unit so 10% vs $10 is intentional.
+              setDiscountType((t) => (t === "percent" ? "amount" : "percent"));
+            }}
+            aria-label={
+              discountType === "percent" ? "Switch discount to dollars" : "Switch discount to percent"
+            }
+            data-testid="doc-discount-mode-toggle"
+            title={discountType === "percent" ? "Percent — tap for $" : "Dollars — tap for %"}
+          >
+            {discountType === "percent" ? "%" : "$"}
+          </button>
+        </div>
+        {discountDollars > 0 ? (
+          <div className="flex justify-between text-xs font-semibold text-slate-600 px-0.5" data-testid="doc-discount-applied">
+            <span>
+              Discount
+              {discountType === "percent" && parseAmount(discountValue) > 0
+                ? " (" + parseAmount(discountValue) + "%)"
+                : ""}
+            </span>
+            <span className="text-red-600">−{fmt$(discountDollars)}</span>
+          </div>
+        ) : null}
+        {discountDollars > 0 ? (
+          <div className="flex justify-between text-xs font-semibold text-slate-500 px-0.5" data-testid="doc-subtotal-row">
+            <span>Subtotal</span>
+            <span>{fmt$(subtotal) || "$0"}</span>
+          </div>
+        ) : null}
+      </div>
 
       <div className="flex justify-between items-baseline gap-2 px-1 mb-3" data-testid="doc-total-row">
         <span className="text-sm font-bold text-slate-600">
