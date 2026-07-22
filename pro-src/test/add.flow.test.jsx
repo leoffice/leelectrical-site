@@ -50,7 +50,7 @@ describe("Add flow — calendar search + add appointment", () => {
     expect(screen.queryByTestId("cal-search-input")).not.toBeInTheDocument();
   });
 
-  it("Add appointment from job detail pre-fills customer and guest email", async () => {
+  it("Add appointment from job detail pre-fills title/location; guest opt-in", async () => {
     const srv = mockServer({ jobs: [JSON.parse(JSON.stringify(J1))] });
     const user = userEvent.setup();
     renderApp("#/job/J-1");
@@ -63,12 +63,16 @@ describe("Add flow — calendar search + add appointment", () => {
     expect(screen.getByText(/Add appointment — Peretz Chein/)).toBeInTheDocument();
     expect(screen.getByLabelText("Appointment title")).toHaveValue("Panel upgrade — Peretz Chein");
     expect(screen.getByLabelText("Location")).toHaveValue("123 Main St, Brooklyn");
+    // Regular site visits do not auto-invite the customer (skill default).
+    expect(screen.queryByTestId("guest-email")).not.toBeInTheDocument();
+    await user.click(screen.getByTestId("notify-customer-toggle"));
     expect(screen.getByTestId("guest-email")).toHaveValue("p@x.com");
 
     await user.click(screen.getByTestId("appt-save"));
     await waitFor(() => expect(srv.enqueued("calendar_upsert")).toHaveLength(1));
     const cmd = srv.enqueued("calendar_upsert")[0];
     expect(cmd.payload.guests).toEqual(["p@x.com"]);
+    expect(cmd.payload.reminders?.some((r) => r.minutes === 60)).toBe(true);
     expect(cmd.payload.summary).toContain("Peretz Chein");
   });
 });

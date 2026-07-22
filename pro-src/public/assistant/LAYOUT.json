@@ -1,0 +1,30 @@
+{
+  "product": "LE Pro",
+  "basePath": "/app/pro",
+  "knowledgePack": "/app/pro/assistant/",
+  "routes": {
+    "today": "#/",
+    "jobs": "#/jobs",
+    "customers": "#/customers",
+    "calendar": "#/calendar",
+    "time": "#/time",
+    "settings": "#/settings",
+    "chats": "#/chats"
+  },
+  "apis": {
+    "jobs": "/.netlify/functions/jobsdata",
+    "calendar": "/.netlify/functions/calendar",
+    "chat": "/.netlify/functions/chat",
+    "command": "/.netlify/functions/command",
+    "state": "/.netlify/functions/state"
+  },
+  "skills": {
+    "appointments": "create-appointment",
+    "sovPdf": "sov-pdf-import"
+  },
+  "status": {
+    "chatsTab": "planned",
+    "assistantSettingsToggle": "planned",
+    "knowledgePack": "phase0"
+  }
+}

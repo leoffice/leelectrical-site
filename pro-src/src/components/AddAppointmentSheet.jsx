@@ -13,25 +13,14 @@ import { productName, tenantCalendarAccount } from "../lib/tenantBranding.js";
 import { useTenantConfig } from "../state/tenant.jsx";
 
 import { GCAL_RED_COLOR_ID, isInspectionEvent } from "../lib/calendarEventStyle.js";
+import {
+  jobDefaultSummary,
+  jobDefaultNotes,
+  defaultReminders,
+  defaultNotifyCustomer,
+} from "../lib/appointmentDefaults.js";
 
 export { GCAL_RED_COLOR_ID, isInspectionEvent };
-
-function jobDefaultSummary(job) {
-  if (!job) return "";
-  const cust = job.businessName || job.customer || "";
-  const title = job.title || "Job";
-  return cust ? title + " — " + cust : title;
-}
-
-function jobDefaultNotes(job) {
-  if (!job) return "";
-  const parts = [];
-  if (job.personName) parts.push(job.personName);
-  if (job.phone) parts.push("phone: " + job.phone);
-  if (job.email) parts.push(job.email);
-  if (job.description) parts.push(job.description);
-  return parts.join("\n");
-}
 
 function jobDefaultDate(job, defaultDate) {
   if (defaultDate) return defaultDate.includes("T") ? defaultDate : defaultDate + "T09:00";
@@ -132,14 +121,18 @@ export default function AddAppointmentSheet({
     if (isEdit) return displayEventNotes(editEvent.description) || "";
     return defaultNotes ?? jobDefaultNotes(job);
   });
-  const [remind1h, setRemind1h] = useState(() =>
-    presetReminders ? presetReminders.h1 : fromInspection
-  );
-  const [remind1d, setRemind1d] = useState(() =>
-    presetReminders ? presetReminders.d1 : fromInspection
-  );
+  const [remind1h, setRemind1h] = useState(() => {
+    if (presetReminders) return presetReminders.h1;
+    return defaultReminders({ inspection: fromInspection }).h1;
+  });
+  const [remind1d, setRemind1d] = useState(() => {
+    if (presetReminders) return presetReminders.d1;
+    return defaultReminders({ inspection: fromInspection }).d1;
+  });
+  // Guest invite: on for inspections when we have email; off for regular site visits
+  // so Levi opts in (create-appointment skill — avoid surprise customer invites).
   const [notifyCustomer, setNotifyCustomer] = useState(() =>
-    presetGuest ? presetGuest.notify : !!job?.email
+    presetGuest ? presetGuest.notify : defaultNotifyCustomer(job, { inspection: fromInspection })
   );
   const [guestEmail, setGuestEmail] = useState(() =>
     presetGuest ? presetGuest.email : job?.email || ""
