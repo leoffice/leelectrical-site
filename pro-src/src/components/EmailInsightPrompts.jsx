@@ -17,6 +17,8 @@ import {
   formatInsightHoursLabel,
   formatInsightSourceLabel,
   wantsNewCalendarAppointment,
+  isPastAppointmentInsight,
+  shouldSurfaceInsight,
   EMAIL_INSIGHT_TEST_AUTO_APPLY_LIMIT,
 } from "../lib/emailInsight.js";
 import { applyEmailInsight, buildCalendarPayload } from "../lib/applyEmailInsight.js";
@@ -268,9 +270,11 @@ export default function EmailInsightPrompts() {
   }, [emailInsights, jobs]);
 
   // Pending that still need Levi (weak match / no date) — strong matches auto-apply silently.
+  // Never surface past-day appointments (Levi 2026-07-22) — those auto-ignore.
   const pendingNeedsApprove = useMemo(() => {
     return enrichedAll.filter((x) => {
       if (x.status !== "pending" || seen.current.has(x.id)) return false;
+      if (!shouldSurfaceInsight(x)) return false;
       const job = x.jobId ? effectiveJob(x.jobId) : null;
       return !canAutoApply(x, job);
     });
@@ -281,7 +285,9 @@ export default function EmailInsightPrompts() {
       (x) =>
         (x.status === "auto_applied" || (x.autoApplied && x.notified === false)) &&
         x.notified !== true &&
-        !seen.current.has(x.id)
+        !seen.current.has(x.id) &&
+        // Past-day appointments: no "already on calendar" notice either.
+        shouldSurfaceInsight(x)
     );
   }, [enrichedAll]);
 
@@ -362,6 +368,7 @@ export default function EmailInsightPrompts() {
 
   // Auto-apply strong NEW appointment sets in the background.
   // Reminders: never create — if already on calendar mark done, else quiet ignore.
+  // Past-day appointments (Levi 2026-07-22): silent ignore — no suggestion, no reminder sheet.
   // Test limit (Levi): only execute ONE calendar appointment until he lifts the cap.
   useEffect(() => {
     if (IS_TEST || loading || !jobs?.length) return;
@@ -369,14 +376,56 @@ export default function EmailInsightPrompts() {
     (async () => {
       for (const raw of emailInsights || []) {
         if (cancelled) break;
+        // Also clear already-notified past "done" leftovers so they never reappear.
+        if (
+          (raw.status === "auto_applied" || raw.autoApplied) &&
+          raw.notified !== true &&
+          isPastAppointmentInsight(enrichInsight(raw, jobs))
+        ) {
+          if (autoRunning.current.has(raw.id) || seen.current.has(raw.id)) continue;
+          autoRunning.current.add(raw.id);
+          try {
+            await patchEmailInsight(raw.id, {
+              notified: true,
+              status: "ignored",
+              ignoreReason: "past_appointment",
+              appliedAt: new Date().toISOString(),
+            });
+            seen.current.add(raw.id);
+          } catch {
+            /* leave */
+          } finally {
+            autoRunning.current.delete(raw.id);
+          }
+          continue;
+        }
         if (raw.status !== "pending") continue;
         if (autoRunning.current.has(raw.id) || seen.current.has(raw.id)) continue;
         const enriched = enrichInsight(raw, jobs);
         const job = enriched.jobId ? effectiveJob(enriched.jobId) : null;
         const outcome = enriched.outcome || "other";
 
+        // Appointment day already over → quiet dismiss (clears already-generated junk too).
+        if (isPastAppointmentInsight(enriched)) {
+          autoRunning.current.add(raw.id);
+          try {
+            await patchEmailInsight(raw.id, {
+              status: "ignored",
+              ignoreReason: "past_appointment",
+              notified: true,
+              appliedAt: new Date().toISOString(),
+            });
+            seen.current.add(raw.id);
+          } catch {
+            /* leave pending */
+          } finally {
+            autoRunning.current.delete(raw.id);
+          }
+          continue;
+        }
+
         // Reminder-only mail: leave calendar alone.
-        // If already on calendar, show a done notice with date/hours/source (not silent).
+        // If already on calendar (and still today/future), show a done notice with facts.
         if (outcome === "reminder") {
           autoRunning.current.add(raw.id);
           try {
@@ -478,6 +527,18 @@ export default function EmailInsightPrompts() {
   // Re-evaluate when any sheet opens/closes so we can open once it clears.
   const [sheetTick, setSheetTick] = useState(0);
   useEffect(() => subscribeSheets(() => setSheetTick((t) => t + 1)), []);
+
+  // Drop a sheet that became past / ignored while it was open.
+  useEffect(() => {
+    if (current && !shouldSurfaceInsight(current)) {
+      seen.current.add(current.id);
+      setCurrent(null);
+    }
+    if (doneNotice && !shouldSurfaceInsight(doneNotice)) {
+      seen.current.add(doneNotice.id);
+      setDoneNotice(null);
+    }
+  }, [current, doneNotice, enrichedAll]);
 
   useEffect(() => {
     if (IS_TEST || shouldSuppressPrompts() || hidden || editSheet) return;

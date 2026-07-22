@@ -35,6 +35,7 @@ import {
   shouldSuppressPrompts,
   touchPromptActivity,
   clearPromptWorkPause,
+  cancelPastAppointmentReminders,
   PROMPT_IDLE_MS,
   PROMPT_WORK_PAUSE_MS,
 } from "../src/lib/followUpReminders.js";
@@ -141,6 +142,37 @@ describe("followUpReminders", () => {
       { id: "later", summary: "Inspection", start: "2026-07-15T09:00" },
     ];
     expect(inspectionCandidates(events, today).map((e) => e.id)).toEqual(["today", "tom"]);
+  });
+
+  it("cancelPastAppointmentReminders clears past inspection leftovers only", () => {
+    const events = [
+      { id: "yest-insp", summary: "Final inspection", start: "2026-07-21T10:30" },
+      { id: "today-insp", summary: "Inspection", start: "2026-07-22T10:00" },
+      { id: "follow-work", summary: "Service call — Bob", start: "2026-07-21T14:00" },
+      { id: "old-follow", summary: "Estimate follow-up", start: "2026-04-01T10:00" },
+    ];
+    allocateReminderTime("yest-insp", "2026-07-21T09:00", { note: "1 day before", priority: "medium" });
+    allocateReminderTime("today-insp", "2026-07-22T09:00", { note: "day of", priority: "medium" });
+    allocateReminderTime("follow-work", "2026-07-22T10:00", { priority: "must_today", note: "Send estimate" });
+    allocateReminderTime("old-follow", "2026-07-22T08:00", { priority: "high", note: "Ping Bob" });
+
+    const cleared = cancelPastAppointmentReminders(events, "2026-07-22", new Date("2026-07-22T08:32:00"));
+    expect(cleared).toBe(1);
+
+    const state = JSON.parse(localStorage.getItem(STATE_KEY));
+    expect(state["yest-insp"].handledAt).toBeTruthy();
+    expect(state["yest-insp"].staleCancelReason).toBe("past_appointment");
+    expect(state["today-insp"].remindAt).toBe("2026-07-22T09:00");
+    expect(state["follow-work"].priority).toBe("must_today");
+    expect(state["follow-work"].handledAt).toBeFalsy();
+    // Non-inspection follow-ups on past visits stay.
+    expect(state["old-follow"].remindAt).toBe("2026-07-22T08:00");
+    expect(state["old-follow"].handledAt).toBeFalsy();
+
+    // Past-day inspection no longer in prompt queue as scheduled reminder.
+    const queue = buildPromptQueue(events, [], "2026-07-22", new Date("2026-07-22T08:32:00"));
+    expect(queue.some((x) => x.event?.id === "yest-insp")).toBe(false);
+    expect(queue.some((x) => x.event?.id === "old-follow" && x.kind === "scheduled_reminder")).toBe(true);
   });
 
   it("ackInspectionReminder survives calendar id change (pending → google)", () => {

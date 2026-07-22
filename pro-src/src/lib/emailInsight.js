@@ -33,6 +33,8 @@ export {
   wantsNewCalendarAppointment,
   defaultActionKeys,
   isDateTimeActionable,
+  isPastAppointmentInsight,
+  shouldSurfaceInsight,
   AUTO_APPLY_MIN_SCORE,
   EMAIL_INSIGHT_TEST_AUTO_APPLY_LIMIT,
   APPOINTMENT_DURATION_MINUTES,
