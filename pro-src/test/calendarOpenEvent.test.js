@@ -1,8 +1,11 @@
 // @vitest-environment jsdom
 import { describe, expect, it, beforeEach } from "vitest";
 import {
+  clearCalendarPick,
   consumeCalendarPick,
   findEventForInsight,
+  peekCalendarPick,
+  resolveCalendarPick,
   stashCalendarPick,
 } from "../src/lib/calendarNavigate.js";
 import { isInspectionEvent, eventChipClassName, GCAL_RED_COLOR_ID } from "../src/lib/calendarEventStyle.js";
@@ -42,6 +45,32 @@ describe("open schedule calendar → event", () => {
     stashCalendarPick("ev-99");
     expect(consumeCalendarPick()).toBe("ev-99");
     expect(consumeCalendarPick()).toBe("");
+  });
+
+  it("stashCalendarPick keeps focusDate until cleared (no early consume race)", () => {
+    stashCalendarPick("ev-city", { focusDate: "2026-07-30" });
+    const peek = peekCalendarPick();
+    expect(peek).toEqual({ eventId: "ev-city", focusDate: "2026-07-30" });
+    // Still there — Today must wait for events before clearing
+    expect(peekCalendarPick()?.eventId).toBe("ev-city");
+    clearCalendarPick();
+    expect(peekCalendarPick()).toBe(null);
+  });
+
+  it("resolveCalendarPick finds event by id, then same-day inspection fallback", () => {
+    const events = [
+      { id: "ev-a", summary: "Estimate", start: "2026-07-30T09:00" },
+      { id: "ev-insp", summary: "City electrical inspection — 10:15 AM", start: "2026-07-30T10:15", colorId: "11" },
+    ];
+    expect(resolveCalendarPick(events, { eventId: "ev-insp", focusDate: "2026-07-30" })?.event?.id).toBe(
+      "ev-insp"
+    );
+    // Stale id + focus day → prefer inspection on that day
+    expect(resolveCalendarPick(events, { eventId: "gone", focusDate: "2026-07-30" })?.event?.id).toBe(
+      "ev-insp"
+    );
+    // Date only
+    expect(resolveCalendarPick(events, { eventId: "", focusDate: "2026-07-30" })?.event?.id).toBe("ev-insp");
   });
 });
 

@@ -76,3 +76,28 @@ body {
     opacity: 1;
   }
 }
+
+/* Inspection reminder — soft translucent red pulse (heartbeat) */
+@keyframes insp-heartbeat {
+  0%,
+  100% {
+    box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.22);
+  }
+  18% {
+    box-shadow: 0 0 0 7px rgba(239, 68, 68, 0);
+  }
+  36% {
+    box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.18);
+  }
+  54% {
+    box-shadow: 0 0 0 5px rgba(239, 68, 68, 0);
+  }
+}
+.animate-insp-heartbeat {
+  animation: insp-heartbeat 1.7s ease-in-out infinite;
+}
+@media (prefers-reduced-motion: reduce) {
+  .animate-insp-heartbeat {
+    animation: none;
+  }
+}

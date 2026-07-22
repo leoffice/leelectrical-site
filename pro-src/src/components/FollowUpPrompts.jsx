@@ -1,7 +1,8 @@
 // Login follow-up popups — service calls, must-today loop, inspections.
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import Sheet, { Fld } from "./Sheet.jsx";
+import PromptSurface from "./PromptSurface.jsx";
+import { Fld } from "./Sheet.jsx";
 import CreateJobFromEventSheet from "./CreateJobFromEventSheet.jsx";
 import { useStore } from "../state/store.jsx";
 import { evStart } from "../lib/format.js";
@@ -149,7 +150,9 @@ function openCalendarKeepingReminder({ event, kind, state, dismissForWork, nav }
     kind: kind || "followup",
     state: state || null,
   });
-  stashCalendarPick(event.id);
+  stashCalendarPick(event.id, {
+    focusDate: evStart(event).slice(0, 10),
+  });
   dismissForWork({ keepReminderReturn: true });
   nav("/today");
 }
@@ -283,7 +286,7 @@ function RemindMeSheet({ event, job, onClose, onSaved, dismissForWork }) {
   };
 
   return (
-    <Sheet title="Remind me" onClose={onClose}>
+    <PromptSurface title="Remind me" onClose={onClose} testId="remind-me-sheet">
       <p className="text-sm text-slate-500 mb-3">{event?.summary || "Appointment"}</p>
       <Fld label="When" hint="Pick a weekday, then choose a work-hour slot">
         <ReminderDateTimePicker value={dt} onChange={setDt} minDate={today} />
@@ -329,7 +332,7 @@ function RemindMeSheet({ event, job, onClose, onSaved, dismissForWork }) {
       <button type="button" className="btn-ghost w-full text-slate-500" onClick={skipReminders} data-testid="reminder-no-thanks">
         No reminders for this appointment
       </button>
-    </Sheet>
+    </PromptSurface>
   );
 }
 
@@ -362,7 +365,7 @@ function RescheduleReminderSheet({ event, state: st, job, onClose, onSaved }) {
   };
 
   return (
-    <Sheet title="Move reminder" onClose={onClose}>
+    <PromptSurface title="Move reminder" onClose={onClose}>
       <p className="text-sm text-slate-500 mb-3">{event?.summary || "Appointment"}</p>
       <Fld label="New day & time" hint="Weekdays during work hours">
         <ReminderDateTimePicker value={dt} onChange={setDt} minDate={today} />
@@ -373,14 +376,14 @@ function RescheduleReminderSheet({ event, state: st, job, onClose, onSaved }) {
       <button type="button" className="btn-ghost w-full text-slate-500" onClick={onClose}>
         Cancel
       </button>
-    </Sheet>
+    </PromptSurface>
   );
 }
 
 function OverflowRemindersSheet({ remaining, total, message, onClose, onOpenReminders }) {
   const body = message || OVERFLOW_REMINDER_MESSAGE;
   return (
-    <Sheet title="More to do" onClose={onClose}>
+    <PromptSurface title="More to do" onClose={onClose}>
       <p className="text-sm text-slate-700 mb-4 leading-relaxed" data-testid="overflow-reminder-message">
         {body}
       </p>
@@ -401,7 +404,7 @@ function OverflowRemindersSheet({ remaining, total, message, onClose, onOpenRemi
       <button type="button" className="btn-ghost w-full text-slate-500" onClick={onClose} data-testid="overflow-dismiss">
         Got it
       </button>
-    </Sheet>
+    </PromptSurface>
   );
 }
 
@@ -466,7 +469,7 @@ function MustTodayNudgeSheet({ event, state: st, job, queue, onClose, onDone, on
   };
 
   return (
-    <Sheet title={isFirmer ? "⏰ Take care of it today!" : "Reminder — today"} onClose={onClose}>
+    <PromptSurface title={isFirmer ? "⏰ Take care of it today!" : "Reminder — today"} onClose={onClose}>
       <PauseRemindersInPopup onPaused={onPauseAll} />
       <BatchSnoozeBar queue={queue} onBatchSnooze={onBatchSnooze} />
       <p className={`text-sm mb-4 ${isFirmer ? "text-red-700 font-medium" : "text-slate-600"}`}>{message}</p>
@@ -498,7 +501,7 @@ function MustTodayNudgeSheet({ event, state: st, job, queue, onClose, onDone, on
       <button type="button" className="btn-ghost w-full text-slate-600" onClick={pushTomorrow}>
         Next business day only
       </button>
-    </Sheet>
+    </PromptSurface>
   );
 }
 
@@ -583,7 +586,7 @@ function ScheduledReminderSheet({
   };
 
   return (
-    <Sheet title="🔔 Reminder" onClose={onClose}>
+    <PromptSurface title="🔔 Reminder" onClose={onClose}>
       <PauseRemindersInPopup onPaused={onPauseAll} />
       <BatchSnoozeBar queue={queue} onBatchSnooze={onBatchSnooze} />
       <p className="text-sm text-slate-600 mb-4">{message}</p>
@@ -637,7 +640,7 @@ function ScheduledReminderSheet({
       <button type="button" className="btn-ghost w-full text-slate-600" onClick={dismiss}>
         Got it — dismiss
       </button>
-    </Sheet>
+    </PromptSurface>
   );
 }
 
@@ -647,7 +650,7 @@ function UnsentDocSheet({ job, docKind, docNo, onClose, onDone, dismissForWork, 
   const card = unsentDocCardFields(job, docKind);
 
   return (
-    <Sheet
+    <PromptSurface
       title={"📧 Unsent " + label}
       onClose={() => {
         onDone();
@@ -678,7 +681,7 @@ function UnsentDocSheet({ job, docKind, docNo, onClose, onDone, dismissForWork, 
         }}
         onClose={onClose}
       />
-    </Sheet>
+    </PromptSurface>
   );
 }
 
@@ -699,19 +702,45 @@ function InspectionReminderSheet({ event, when, job, onClose, onDone, dismissFor
     if (job?.id) nav("/job/" + encodeURIComponent(job.id));
   };
 
+  const openInCalendar = () => {
+    // Keep inspection ack so it doesn't re-fire; open the appointment to check/edit.
+    openCalendarKeepingReminder({
+      event,
+      kind: "inspection",
+      dismissForWork,
+      nav,
+    });
+  };
+
   return (
-    <Sheet title={`🔴 Inspection — ${label}`} onClose={ack}>
+    <PromptSurface
+      title={`🔴 Inspection — ${label}`}
+      onClose={ack}
+      testId="inspection-reminder-sheet"
+      urgent
+    >
       <PauseRemindersInPopup onPaused={onPauseAll} />
-      <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 mb-4">
-        <div className="font-bold text-red-800">{event?.summary || "Inspection"}</div>
-        <div className="text-sm text-red-700 mt-1">{evStart(event).replace("T", " ").slice(0, 16)}</div>
-        {event?.location ? <div className="text-sm text-red-600 mt-1">{event.location}</div> : null}
+      <div
+        className="rounded-xl border border-red-300/40 bg-red-500/10 px-4 py-3 mb-4 animate-insp-heartbeat"
+        data-testid="inspection-reminder-card"
+      >
+        <div className="font-bold text-red-900/90">{event?.summary || "Inspection"}</div>
+        <div className="text-sm text-red-800/80 mt-1">{evStart(event).replace("T", " ").slice(0, 16)}</div>
+        {event?.location ? <div className="text-sm text-red-700/75 mt-1">{event.location}</div> : null}
       </div>
       {job ? (
-        <button type="button" className="btn bg-red-100 text-red-800 w-full mb-2" onClick={openJob}>
+        <button type="button" className="btn bg-red-500/15 text-red-900 border border-red-200/60 w-full mb-2" onClick={openJob}>
           Open job — {job.customer || "linked"}
         </button>
       ) : null}
+      <button
+        type="button"
+        className="btn bg-white text-slate-800 border border-red-200/50 w-full mb-2"
+        onClick={openInCalendar}
+        data-testid="inspection-open-calendar"
+      >
+        📅 Open appointment
+      </button>
       <div className="mb-2">
         <VerifyReminderButton
           item={{ id: "insp:" + event.id, kind: "inspection", event, job, when }}
@@ -724,7 +753,7 @@ function InspectionReminderSheet({ event, when, job, onClose, onDone, dismissFor
       <button type="button" className="btn-brand w-full" onClick={ack} data-testid="inspection-thanks">
         Got it — thanks
       </button>
-    </Sheet>
+    </PromptSurface>
   );
 }
 
@@ -779,7 +808,7 @@ function ServiceCallSheet({
   };
 
   return (
-    <Sheet title="Follow up?" onClose={skip}>
+    <PromptSurface title="Follow up?" onClose={skip}>
       <PauseRemindersInPopup onPaused={onPauseAll} />
       <p className="text-sm text-slate-600 mb-3">{lead}</p>
       <div className="text-sm space-y-2 mb-4 card px-3 py-2.5">
@@ -844,7 +873,7 @@ function ServiceCallSheet({
       <button type="button" className="btn-ghost w-full mt-1" onClick={skip} data-testid="followup-skip">
         Skip
       </button>
-    </Sheet>
+    </PromptSurface>
   );
 }
 
