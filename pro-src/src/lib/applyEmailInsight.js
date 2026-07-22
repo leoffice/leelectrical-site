@@ -14,30 +14,59 @@ import { calendarServiceLocation } from "./customerSync.js";
 import { GCAL_RED_COLOR_ID } from "./calendarEventStyle.js";
 import { findEventForInsight } from "./calendarNavigate.js";
 
+/** Local clock label from insight dateTime for short calendar titles. */
+function titleTimeFromInsight(insight) {
+  const dt = insight?.dateTime || insight?.exactDateTime || "";
+  if (!dt || !dt.includes("T")) return "";
+  const t = dt.split("T")[1] || "";
+  const [hh, mm] = t.split(":");
+  const hour = Number(hh);
+  if (!Number.isFinite(hour)) return "";
+  const ampm = hour >= 12 ? "PM" : "AM";
+  const h12 = hour % 12 || 12;
+  return `${h12}:${mm || "00"} ${ampm}`;
+}
+
 /**
  * Calendar title — time only (date lives on the day column).
- * City vs Con Edison named clearly.
+ * City vs Con Edison named clearly. Meter install never ships as bare "appointment".
  */
 export function calendarTitleForInsight(insight) {
   const type = insight?.appointmentType || "other";
   const agency = insight?.agency || "";
+  const clock = titleTimeFromInsight(insight);
   if (type === "inspection") {
     if (agency === "city") {
-      // Same time-only pattern as Con Ed inspection titles.
       const base = "City electrical inspection";
-      const dt = insight?.dateTime || "";
-      if (!dt || !dt.includes("T")) return base;
-      const t = dt.split("T")[1] || "";
-      const [hh, mm] = t.split(":");
-      const hour = Number(hh);
-      if (!Number.isFinite(hour)) return base;
-      const ampm = hour >= 12 ? "PM" : "AM";
-      const h12 = hour % 12 || 12;
-      return `${base} — ${h12}:${mm || "00"} ${ampm}`;
+      return clock ? `${base} — ${clock}` : base;
     }
     return inspectionAppointmentTitle("Inspection appointment", insight?.dateTime);
   }
-  return appointmentTypeLabel(type, agency);
+  if (type === "meter_installation") {
+    // Short week-grid title; full "Con Edison meter installation appointment" lives in notes.
+    const base = agency === "coned" ? "Meter installation" : "Meter installation";
+    return clock ? `${base} — ${clock}` : base;
+  }
+  // Never leave a useless bare "appointment" on the week grid.
+  const label = appointmentTypeLabel(type, agency);
+  if (!label || /^appointment$/i.test(label)) {
+    return clock ? `Appointment — ${clock}` : "Appointment";
+  }
+  return clock && !/—/.test(label) ? `${label} — ${clock}` : label;
+}
+
+/**
+ * Force meter-install defaults: 1h + 1d reminders (same as inspection),
+ * share-with-customer when we have an email.
+ */
+export function ensureMeterInstallSelections(insight, job, selected) {
+  const next = new Set(selected || []);
+  if (insight?.appointmentType === "meter_installation") {
+    next.add("remind_1h");
+    next.add("remind_1d");
+    if (job?.email) next.add("guest_email");
+  }
+  return next;
 }
 
 /**
@@ -55,7 +84,8 @@ export function ensureInspectionSelections(insight, job, selected) {
 }
 
 export function buildCalendarPayload(insight, job, selected) {
-  const sel = ensureInspectionSelections(insight, job, selected);
+  let sel = ensureInspectionSelections(insight, job, selected);
+  sel = ensureMeterInstallSelections(insight, job, sel);
   const dt = insight?.dateTime || "";
   // Prefer end from insight; otherwise duration from start (1 hour slot).
   const end =
@@ -124,6 +154,7 @@ export async function applyEmailInsight({
     selectedActionKeys?.length ? selectedActionKeys : defaultActionKeys(insight, job)
   );
   selected = ensureInspectionSelections(insight, job, selected);
+  selected = ensureMeterInstallSelections(insight, job, selected);
   const jobId = job?.id || insight?.jobId || "today";
   const outcome = insight?.outcome || "other";
   const scheduleable = wantsNewCalendarAppointment(insight) && outcome !== "cancelled" && outcome !== "completed";
@@ -131,7 +162,8 @@ export async function applyEmailInsight({
   let skipReason = "";
   let customerEmailed = false;
 
-  // Cross-check: already on calendar? Leave it alone.
+  // Cross-check: already on calendar? Leave it alone (same day + address / same start).
+  // Also catches original + forwarded Con Ed emails that would otherwise double-book.
   const existing = findEventForInsight(insight, job, events);
   if (existing && selected.has("calendar") && scheduleable) {
     appliedEventId = existing.id || job?.calEventId || "";
@@ -158,7 +190,17 @@ export async function applyEmailInsight({
     }
     customerEmailed = !!(payload.notifyCustomer && payload.guests?.length);
     payload.sendUpdates = customerEmailed ? "all" : "none";
-    const key = "emailins:" + (insight.id || insight.source?.messageId || Date.now());
+    // Stable key by place+start so original + forward of the same set don't double-create.
+    const placeKey = String(insight.address || job?.serviceAddress || job?.address || "")
+      .toLowerCase()
+      .replace(/[^a-z0-9]/g, "")
+      .slice(0, 24);
+    const whenKey = String(insight.dateTime || "").slice(0, 16);
+    const key =
+      "emailins:" +
+      (placeKey && whenKey
+        ? `${placeKey}:${whenKey}`
+        : insight.id || insight.source?.messageId || Date.now());
     await enqueue("calendar_upsert", jobId, payload, "judgment", key);
 
     const pendingId = "pending-" + Date.now();
