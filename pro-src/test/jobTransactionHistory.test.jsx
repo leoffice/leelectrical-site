@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import React from "react";
 import { describe, expect, it, vi } from "vitest";
-import { render, screen } from "@testing-library/react";
+import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import "@testing-library/jest-dom/vitest";
 import JobTransactionHistory from "../src/components/JobTransactionHistory.jsx";
@@ -27,6 +27,25 @@ describe("JobTransactionHistory", () => {
     expect(screen.getByText(/Check/)).toBeInTheDocument();
     expect(screen.getByText(/Zelle/)).toBeInTheDocument();
     expect(screen.getByText(/Invoice #251841/)).toBeInTheDocument();
+  });
+
+  it("invoice row shows due amount and left open rail (not invoice total)", () => {
+    render(<JobTransactionHistory job={job} />);
+    const inv = screen.getByTestId("job-txn-inv-251841");
+    expect(inv).toHaveAttribute("data-open-invoice", "1");
+    expect(within(inv).getByTestId("job-txn-open-rail")).toBeInTheDocument();
+    // due is $300, not total $2,300
+    expect(within(inv).getByTestId("job-txn-amount")).toHaveTextContent("$300");
+    expect(within(inv).queryByText(/Due /)).toBeNull();
+  });
+
+  it("paid invoice shows $0 and no open rail", () => {
+    const paid = { ...job, openBalance: 0, paid: true, payments: [{ id: "p1", amount: 2300, method: "Check", date: "2026-01-10" }] };
+    render(<JobTransactionHistory job={paid} />);
+    const inv = screen.getByTestId("job-txn-inv-251841");
+    expect(inv).toHaveAttribute("data-open-invoice", "0");
+    expect(within(inv).queryByTestId("job-txn-open-rail")).toBeNull();
+    expect(within(inv).getByTestId("job-txn-amount")).toHaveTextContent("$0");
   });
 
   it("opens full payment editor when requested", async () => {

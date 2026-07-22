@@ -5,9 +5,9 @@ import React, { useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import {
   buildCustomerTransactions,
-  formatTxnAmount,
   txnFilterCounts,
   txnKindStyle,
+  txnRowDisplay,
 } from "../lib/customerTransactions.js";
 
 const FILTERS = [
@@ -50,21 +50,10 @@ function DocBubble({ docNo, color, testId }) {
   );
 }
 
-/** One-line row: type · # · date · place · amount (due on 2nd line if needed). */
+/** One-line row: type · # · date · place · amount (invoice = due only). */
 function CompactRow({ row, onOpen, testId }) {
   const kind = txnKindStyle(row.kind);
-  const amount =
-    row.kind === "payment"
-      ? formatTxnAmount(row.amount)
-      : row.total > 0
-        ? formatTxnAmount(row.total)
-        : "";
-  const amountClass =
-    row.kind === "payment" ? "text-emerald-700" : "text-slate-800";
-  const due =
-    row.kind === "invoice" && row.due > 0.01 && Math.abs((row.due || 0) - (row.total || 0)) > 0.01
-      ? formatTxnAmount(row.due)
-      : "";
+  const { amount, amountClass, isOpen } = txnRowDisplay(row);
   const mid =
     row.kind === "payment"
       ? [row.method || "Payment", row.address].filter(Boolean).join(" · ")
@@ -73,49 +62,62 @@ function CompactRow({ row, onOpen, testId }) {
   return (
     <button
       type="button"
-      className="w-full text-left rounded-lg border border-slate-100 bg-white px-2.5 py-1.5 active:bg-slate-50"
+      className={
+        "w-full text-left rounded-lg border border-slate-100 bg-white active:bg-slate-50 overflow-hidden " +
+        (isOpen ? "flex items-stretch" : "")
+      }
       data-testid={testId}
+      data-open-invoice={isOpen ? "1" : "0"}
       onClick={() => onOpen(row)}
     >
-      <div className="flex items-center justify-between gap-2 min-w-0">
-        <div className="flex items-center gap-1.5 min-w-0 flex-1 overflow-hidden">
-          <span
-            className={
-              "text-[10px] font-extrabold uppercase tracking-wide shrink-0 " + kind.className
-            }
-            data-testid={"cust-txn-kind-" + row.kind}
-          >
-            {kind.label}
-          </span>
-          {row.docNo ? (
-            <DocBubble
-              docNo={row.docNo}
-              color={row.color}
-              testId={
-                row.kind === "payment"
-                  ? "cust-txn-pay-bubble-" + row.docNo
-                  : row.kind === "estimate"
-                    ? "cust-txn-est-bubble-" + row.docNo
-                    : "cust-txn-bubble-" + row.docNo
-              }
-            />
-          ) : null}
-          {row.dateLabel ? (
-            <span className="text-[11px] text-slate-500 tabular-nums shrink-0">{row.dateLabel}</span>
-          ) : null}
-          {mid ? (
-            <span className="text-xs text-slate-600 truncate min-w-0">{mid}</span>
-          ) : null}
-        </div>
-        {amount ? (
-          <div className={"text-sm font-bold tabular-nums shrink-0 " + amountClass}>{amount}</div>
-        ) : null}
-      </div>
-      {due ? (
-        <div className="text-right text-[11px] font-semibold tabular-nums text-red-600 mt-0.5">
-          Due {due}
-        </div>
+      {isOpen ? (
+        <span
+          className="w-1.5 shrink-0 self-stretch bg-red-500"
+          data-testid="cust-txn-open-rail"
+          aria-hidden
+        />
       ) : null}
+      <div className="flex-1 min-w-0 px-2.5 py-1.5">
+        <div className="flex items-center justify-between gap-2 min-w-0">
+          <div className="flex items-center gap-1.5 min-w-0 flex-1 overflow-hidden">
+            <span
+              className={
+                "text-[10px] font-extrabold uppercase tracking-wide shrink-0 " + kind.className
+              }
+              data-testid={"cust-txn-kind-" + row.kind}
+            >
+              {kind.label}
+            </span>
+            {row.docNo ? (
+              <DocBubble
+                docNo={row.docNo}
+                color={row.color}
+                testId={
+                  row.kind === "payment"
+                    ? "cust-txn-pay-bubble-" + row.docNo
+                    : row.kind === "estimate"
+                      ? "cust-txn-est-bubble-" + row.docNo
+                      : "cust-txn-bubble-" + row.docNo
+                }
+              />
+            ) : null}
+            {row.dateLabel ? (
+              <span className="text-[11px] text-slate-500 tabular-nums shrink-0">{row.dateLabel}</span>
+            ) : null}
+            {mid ? (
+              <span className="text-xs text-slate-600 truncate min-w-0">{mid}</span>
+            ) : null}
+          </div>
+          {amount ? (
+            <div
+              className={"text-sm font-bold tabular-nums shrink-0 " + amountClass}
+              data-testid="cust-txn-amount"
+            >
+              {amount}
+            </div>
+          ) : null}
+        </div>
+      </div>
     </button>
   );
 }

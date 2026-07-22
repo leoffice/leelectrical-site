@@ -4,9 +4,9 @@
 import React, { useMemo, useState } from "react";
 import {
   buildCustomerTransactions,
-  formatTxnAmount,
   txnFilterCounts,
   txnKindStyle,
+  txnRowDisplay,
 } from "../lib/customerTransactions.js";
 import { amountPaid, openBalance, paidPct } from "../lib/customers.js";
 import { fmt$ } from "../lib/format.js";
@@ -20,13 +20,7 @@ const FILTERS = [
 
 function Row({ row }) {
   const kind = txnKindStyle(row.kind);
-  const amount =
-    row.kind === "payment"
-      ? formatTxnAmount(row.amount)
-      : row.total > 0
-        ? formatTxnAmount(row.total)
-        : "";
-  const amountClass = row.kind === "payment" ? "text-emerald-700" : "text-slate-800";
+  const { amount, amountClass, isOpen } = txnRowDisplay(row);
   const mid =
     row.kind === "payment"
       ? [row.method || "Payment", row.docNo ? "#" + row.docNo : ""].filter(Boolean).join(" · ")
@@ -36,7 +30,10 @@ function Row({ row }) {
 
   return (
     <div
-      className="w-full text-left rounded-lg border border-slate-100 bg-white px-2.5 py-1.5"
+      className={
+        "w-full text-left rounded-lg border border-slate-100 bg-white overflow-hidden " +
+        (isOpen ? "flex items-stretch" : "")
+      }
       data-testid={
         row.kind === "payment"
           ? "job-txn-pay-" + (row.payment?.id || row.id)
@@ -44,31 +41,41 @@ function Row({ row }) {
             ? "job-txn-est-" + row.docNo
             : "job-txn-inv-" + row.docNo
       }
+      data-open-invoice={isOpen ? "1" : "0"}
     >
-      <div className="flex items-center justify-between gap-2 min-w-0">
-        <div className="flex items-center gap-1.5 min-w-0 flex-1 overflow-hidden">
-          <span
-            className={
-              "text-[10px] font-extrabold uppercase tracking-wide shrink-0 " + kind.className
-            }
-            data-testid={"job-txn-kind-" + row.kind}
-          >
-            {kind.label}
-          </span>
-          {row.dateLabel ? (
-            <span className="text-[11px] text-slate-500 tabular-nums shrink-0">{row.dateLabel}</span>
-          ) : null}
-          {mid ? <span className="text-xs text-slate-600 truncate min-w-0">{mid}</span> : null}
-        </div>
-        {amount ? (
-          <div className={"text-sm font-bold tabular-nums shrink-0 " + amountClass}>{amount}</div>
-        ) : null}
-      </div>
-      {row.kind === "invoice" && row.due > 0.01 && Math.abs((row.due || 0) - (row.total || 0)) > 0.01 ? (
-        <div className="text-right text-[11px] font-semibold tabular-nums text-red-600 mt-0.5">
-          Due {formatTxnAmount(row.due)}
-        </div>
+      {isOpen ? (
+        <span
+          className="w-1.5 shrink-0 self-stretch bg-red-500"
+          data-testid="job-txn-open-rail"
+          aria-hidden
+        />
       ) : null}
+      <div className="flex-1 min-w-0 px-2.5 py-1.5">
+        <div className="flex items-center justify-between gap-2 min-w-0">
+          <div className="flex items-center gap-1.5 min-w-0 flex-1 overflow-hidden">
+            <span
+              className={
+                "text-[10px] font-extrabold uppercase tracking-wide shrink-0 " + kind.className
+              }
+              data-testid={"job-txn-kind-" + row.kind}
+            >
+              {kind.label}
+            </span>
+            {row.dateLabel ? (
+              <span className="text-[11px] text-slate-500 tabular-nums shrink-0">{row.dateLabel}</span>
+            ) : null}
+            {mid ? <span className="text-xs text-slate-600 truncate min-w-0">{mid}</span> : null}
+          </div>
+          {amount ? (
+            <div
+              className={"text-sm font-bold tabular-nums shrink-0 " + amountClass}
+              data-testid="job-txn-amount"
+            >
+              {amount}
+            </div>
+          ) : null}
+        </div>
+      </div>
     </div>
   );
 }
