@@ -20,7 +20,7 @@ If a field is missing or unreadable use null. confirmationNumber is critical.`;
 export const CHECK_VISION_PROMPT = `You are reading a paper check or mobile check-deposit photo for LE Electrical payment entry.
 Extract these fields carefully and return ONLY valid JSON (no markdown):
 {
-  "amount": <number USD, no $ sign — use the numeric amount box (usually right side), not the written-out words unless the box is unreadable>,
+  "amount": <number USD, no $ sign — REQUIRED when the $ box or written amount is visible. Read the numeric amount box on the RIGHT first (ignore trailing *** or ** fillers — "$450.00***" → 450). Only use the written-out words line if the box is unreadable. Never leave amount null when any dollar figure is visible on the check>,
   "checkNumber": <printed check number as digits only — upper-right of the check AND/OR the MICR check-number field at the bottom (leftmost MICR group). Do NOT put invoice numbers here>,
   "date": <YYYY-MM-DD from the DATE line on the check (usually top-right). Convert "Month DD, YYYY" or MM/DD/YY or MM/DD/YYYY to YYYY-MM-DD>,
   "memo": <memo / For: line text exactly as written, or null>,
@@ -30,7 +30,7 @@ Extract these fields carefully and return ONLY valid JSON (no markdown):
   "confidence": <"high" or "low">
 }
 If a field is missing or unreadable use null.
-Critical: amount + date + checkNumber whenever visible. payer helps match the customer. invoiceNumber matches the right invoice — prefer a bare memo/"For:" number as invoice, not as check number.
+Critical: amount is the #1 field — never skip a readable $ box. Also get date + checkNumber whenever visible. payer helps match the customer. invoiceNumber matches the right invoice — prefer a bare memo/"For:" number as invoice, not as check number.
 
 LAYOUT MAP (standard US business check — read every zone):
 - Top-left: payer company name + mailing address (this is "payer", NOT payee)
@@ -65,10 +65,27 @@ const PROMPTS = {
   intent: IMAGE_INTENT_PROMPT,
 };
 
+/** Parse amount from vision (handles $ , *** fillers, 450.00/100). Shared with client parse spirit. */
+export function parseVisionAmount(raw) {
+  if (raw == null || raw === "") return null;
+  let s = String(raw).trim().replace(/[$*\s]/g, "");
+  s = s.replace(/\/\d{0,3}$/, "");
+  if (/^\d{1,3}(,\d{3})+(\.\d+)?$/.test(s)) s = s.replace(/,/g, "");
+  else if (/^\d{1,3}(\.\d{3})+(,\d+)$/.test(s)) s = s.replace(/\./g, "").replace(",", ".");
+  else if (/^\d+,\d{1,2}$/.test(s)) s = s.replace(",", ".");
+  else s = s.replace(/,/g, "");
+  const n = parseFloat(s);
+  return Number.isFinite(n) && n > 0 ? n : null;
+}
+
 /** Normalize vision model output to app shape (Zelle + check). */
 export function normalizePaymentExtracted(raw, kind = "zelle") {
   if (!raw || typeof raw !== "object") return null;
-  const amt = raw.amount != null ? parseFloat(String(raw.amount).replace(/[$,*\s]/g, "")) : null;
+  // Prefer numeric box; fall back to writtenAmount if model split the fields.
+  const amt =
+    parseVisionAmount(raw.amount) ??
+    parseVisionAmount(raw.amountNumeric) ??
+    parseVisionAmount(raw.writtenAmount);
   const conf = String(raw.confidence || "").toLowerCase() === "low" ? "low" : "high";
   let date = raw.date ? String(raw.date).trim() : "";
   const dm = date.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{2,4})/);

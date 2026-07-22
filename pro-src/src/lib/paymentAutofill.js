@@ -1,10 +1,22 @@
 // Apply vision-extracted payment fields to manual entry form state.
 import { todayStr } from "./format.js";
 
-/** Parse a vision amount that may be number or "$1,234.56" string. */
+/** Parse a vision amount that may be number or "$1,234.56" / "450***" / "450.00/100" string. */
 export function parseExtractedAmount(raw) {
   if (raw == null || raw === "") return null;
-  const n = parseFloat(String(raw).replace(/[$,*\s]/g, ""));
+  let s = String(raw).trim();
+  // Strip filler stars, currency, spaces; keep digits, comma, dot, slash.
+  s = s.replace(/[$*\s]/g, "");
+  // Written-fraction tail on some checks: "450.00/100" → "450.00"
+  s = s.replace(/\/\d{0,3}$/, "");
+  // Thousands commas: "1,250.50" → "1250.50"
+  if (/^\d{1,3}(,\d{3})+(\.\d+)?$/.test(s)) s = s.replace(/,/g, "");
+  // European-style rare OCR: "1.250,50" → "1250.50"
+  else if (/^\d{1,3}(\.\d{3})+(,\d+)$/.test(s)) s = s.replace(/\./g, "").replace(",", ".");
+  // Lone trailing comma as decimal
+  else if (/^\d+,\d{1,2}$/.test(s)) s = s.replace(",", ".");
+  else s = s.replace(/,/g, "");
+  const n = parseFloat(s);
   return Number.isFinite(n) && n > 0 ? n : null;
 }
 
