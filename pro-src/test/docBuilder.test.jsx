@@ -176,6 +176,44 @@ describe("Estimate / invoice builder", () => {
     expect(srv.enqueued("create_estimate")[0].payload.email).toBe("send@x.com");
   });
 
+  it("condenses address, apt, CO, line metrics, and discount on one row each", async () => {
+    mockServer({
+      jobs: [
+        {
+          id: "J-COMPACT",
+          customer: "Compact Co",
+          title: "Panel",
+          email: "c@x.com",
+          qboCustomerId: "1701",
+          serviceAddress: "88 Grove",
+          apartment: "3C",
+          amount: "$400",
+          paid: false,
+          status: { Lead: { s: "done" }, "Site Visit": { s: "done" } },
+        },
+      ],
+    });
+    const user = userEvent.setup();
+    renderApp("#/job/J-COMPACT?fold=0");
+    const pane = await screen.findByTestId("detail-pane");
+
+    await user.click(within(pane).getByTestId("progress-step-Estimate"));
+    await user.click(within(pane).getByTestId("generate-estimate"));
+
+    expect(await screen.findByTestId("doc-address-row")).toBeInTheDocument();
+    expect(screen.getByTestId("doc-service-address")).toHaveValue("88 Grove");
+    expect(screen.getByTestId("doc-apartment")).toHaveValue("3C");
+    // Sites list is a dropdown, not always-visible chips.
+    expect(screen.queryByTestId("doc-service-address-sites-menu")).toBeNull();
+    // Discount and total share the footer panel.
+    expect(screen.getByTestId("doc-discount-panel")).toContainElement(screen.getByTestId("doc-total"));
+    expect(screen.getByTestId("doc-discount-input")).toBeInTheDocument();
+    expect(screen.getByTestId("doc-add-line")).toBeInTheDocument();
+    // Metrics sit beside description on the line row.
+    expect(screen.getByTestId("doc-line-metrics-1")).toBeInTheDocument();
+    expect(screen.getByTestId("doc-line-desc-1")).toBeInTheDocument();
+  });
+
   it("Invoiced Create → from estimate prompts progress % then create_invoice", async () => {
     const srv = mockServer({
       jobs: [

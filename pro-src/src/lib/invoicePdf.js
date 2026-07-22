@@ -8,6 +8,7 @@ import { POWERED_BY_LE, POWERED_BY_LE_PDF_COLOR, POWERED_BY_LE_PDF_SIZE } from "
 import { mapJobToQbDocData } from "./jobToQbDoc.js";
 import { activeTenantConfig, tenantCompany } from "./tenantBranding.js";
 import { formatPrintDescription, wrapPrintDescription } from "./printDescription.js";
+import { changeOrderPrintDocNumber, isChangeOrderJob } from "./changeOrder.js";
 
 const PAGE_W = 612;
 const PAGE_H = 792;
@@ -190,13 +191,16 @@ export function mapJobToInvoicePdfData(job, overrides = {}) {
     (!!apt || (billAddr && svcAddr.toLowerCase() !== billAddr.toLowerCase()));
 
   let invoiceNo = String(overrides.invoiceNo || (isEstimate ? j.estimateNo : j.invoiceNo) || "").trim();
-  // Change order: dash + label next to the document number.
-  if (
-    (j.changeOrder || j.changeOrderSeq || j.changeOrderLabel || /(?:^|[\s\-_/])CO[\s\-_]*\d+/i.test(invoiceNo)) &&
-    invoiceNo &&
-    !/change\s*order/i.test(invoiceNo)
-  ) {
-    invoiceNo = `${invoiceNo} - Change Order`;
+  // Change order: short CO-## only — full "Change Order" overflows the printed header.
+  if (isChangeOrderJob(j) || (invoiceNo && /(?:^|[\s\-_/])CO[\s\-_]*\d+/i.test(invoiceNo))) {
+    invoiceNo = changeOrderPrintDocNumber(
+      {
+        ...j,
+        invoiceNo: isEstimate ? j.invoiceNo : invoiceNo || j.invoiceNo,
+        estimateNo: isEstimate ? invoiceNo || j.estimateNo : j.estimateNo,
+      },
+      isEstimate ? "estimate" : "invoice"
+    );
   }
 
   return {

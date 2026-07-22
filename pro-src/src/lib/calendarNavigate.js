@@ -102,26 +102,47 @@ export function findEventForInsight(insight, job, events) {
     .replace(" ", "T")
     .slice(0, 16);
   if (!dt || dt.length < 10) return null;
+  const locRaw = String(insight?.address || job?.serviceAddress || job?.address || "")
+    .toLowerCase()
+    .replace(/\s+/g, " ");
+  const locKey = locRaw.replace(/[^a-z0-9]/g, "").slice(0, 14);
+  const streetNum = (locRaw.match(/\b(\d{2,6})\b/) || [])[1] || "";
+  const isEmailAppt = (e) =>
+    /inspection|con edison|city electrical|meter\s*install|appointment|energy services/i.test(
+      String(e?.summary || "") + " " + String(e?.description || "")
+    );
+
   const sameTime = list.filter((e) => evStart(e).replace(" ", "T").slice(0, 16) === dt);
-  if (!sameTime.length) {
-    // Same calendar day fallback (time may have been floored/adjusted).
-    const day = dt.slice(0, 10);
-    const sameDay = list.filter((e) => evStart(e).slice(0, 10) === day);
-    if (!sameDay.length) return null;
-    const loc = String(insight?.address || job?.serviceAddress || job?.address || "")
-      .toLowerCase()
-      .replace(/\s+/g, " ")
-      .slice(0, 18);
-    if (loc) {
-      const byLoc = sameDay.find((e) => String(e.location || "").toLowerCase().includes(loc.slice(0, 10)));
+  if (sameTime.length) {
+    if (locKey || streetNum) {
+      const byLoc = sameTime.find((e) => {
+        const el = String(e.location || e.summary || "")
+          .toLowerCase()
+          .replace(/[^a-z0-9]/g, "");
+        return (streetNum && el.includes(streetNum)) || (locKey && el.includes(locKey.slice(0, 10)));
+      });
       if (byLoc) return byLoc;
     }
-    const insp = sameDay.find((e) => /inspection|con edison|city electrical/i.test(e.summary || ""));
-    return insp || sameDay[0];
+    if (sameTime.length === 1) return sameTime[0];
+    const insp = sameTime.find(isEmailAppt);
+    return insp || sameTime[0];
   }
-  if (sameTime.length === 1) return sameTime[0];
-  const insp = sameTime.find((e) => /inspection|con edison|city electrical/i.test(e.summary || ""));
-  return insp || sameTime[0];
+
+  // Same calendar day fallback (time may have been floored/adjusted).
+  const day = dt.slice(0, 10);
+  const sameDay = list.filter((e) => evStart(e).slice(0, 10) === day);
+  if (!sameDay.length) return null;
+  if (locKey || streetNum) {
+    const byLoc = sameDay.find((e) => {
+      const el = String(e.location || e.summary || "")
+        .toLowerCase()
+        .replace(/[^a-z0-9]/g, "");
+      return (streetNum && el.includes(streetNum)) || (locKey && el.includes(locKey.slice(0, 10)));
+    });
+    if (byLoc) return byLoc;
+  }
+  const insp = sameDay.find(isEmailAppt);
+  return insp || sameDay[0];
 }
 
 /**

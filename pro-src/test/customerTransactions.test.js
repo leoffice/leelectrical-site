@@ -3,11 +3,13 @@ import { describe, expect, it } from "vitest";
 import {
   assignLinkStyles,
   buildCustomerTransactions,
+  formatTxnAmount,
   linkColorForDoc,
   linkColorKeyForJob,
   shortTxnDate,
   txnFilterCounts,
   txnKindStyle,
+  txnRowDisplay,
 } from "../src/lib/customerTransactions.js";
 
 describe("customerTransactions", () => {
@@ -165,5 +167,30 @@ describe("customerTransactions", () => {
     expect(inv.total).toBe(1000);
     expect(inv.due).toBe(400);
     expect(inv.address).toContain("Main");
+  });
+
+  it("txnRowDisplay: invoices show due only (incl. $0); open invoices flagged", () => {
+    const open = buildCustomerTransactions(jobs, { filter: "invoices" }).find((r) => r.docNo === "1001");
+    const paid = buildCustomerTransactions(jobs, { filter: "invoices" }).find((r) => r.docNo === "1002");
+    const est = buildCustomerTransactions(jobs, { filter: "estimates" }).find((r) => r.docNo === "E-9");
+    const pay = buildCustomerTransactions(jobs, { filter: "payments" })[0];
+
+    const openDisp = txnRowDisplay(open);
+    expect(openDisp.amount).toBe(formatTxnAmount(400));
+    expect(openDisp.isOpen).toBe(true);
+    expect(openDisp.amountClass).toMatch(/red/);
+
+    const paidDisp = txnRowDisplay(paid);
+    expect(paidDisp.amount).toBe("$0");
+    expect(paidDisp.isOpen).toBe(false);
+
+    const estDisp = txnRowDisplay(est);
+    expect(estDisp.amount).toBe(formatTxnAmount(200));
+    expect(estDisp.isOpen).toBe(false);
+
+    const payDisp = txnRowDisplay(pay);
+    expect(payDisp.amount).toBeTruthy();
+    expect(payDisp.isOpen).toBe(false);
+    expect(payDisp.amountClass).toMatch(/emerald/);
   });
 });

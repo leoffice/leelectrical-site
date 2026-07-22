@@ -8,8 +8,8 @@ export function formatPrintDescription(description) {
   s = s.replace(/\r\n/g, "\n").replace(/\r/g, "\n");
   // Unicode bullets / middle-dots at line start → ASCII dash bullets
   s = s.replace(/^[ \t]*[•●◦▪▫·∙‣⁃]/gm, (m) => m.replace(/[•●◦▪▫·∙‣⁃]/, "-"));
-  // En/em dash used as a bullet at line start
-  s = s.replace(/^[ \t]*[–—]/gm, (m) => m.replace(/[–—]/, "-"));
+  // En/em dash anywhere → regular hyphen (PDF fonts often print them as "?")
+  s = s.replace(/[–—]/g, "-");
   // "-text" → "- text" (professional gap after the bullet)
   s = s.replace(/^([ \t]*-)(?=[^\s-])/gm, "$1 ");
   // Smart quotes / ellipsis / nbsp → PDF-safe ASCII

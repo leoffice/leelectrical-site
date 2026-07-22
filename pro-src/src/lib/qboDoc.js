@@ -110,7 +110,7 @@ export function buildDocCommandPayload(job, { kind, lines, serviceAddress, apart
     ...discFields,
   };
   if (kind === "invoice") {
-    // Change-order invoices: original invoice # + -CO- + seq (e.g. 251100-CO-1).
+    // Change-order invoices: original invoice # + -CO- + seq (e.g. 251100-CO-01).
     base.invoiceNo =
       String(job.invoiceNo || "").trim() || preferredChangeOrderDocNo(job, "invoice") || "";
     base.source = mode === "from_estimate" || mode === "turn_from_estimate" ? "estimate" : "new";

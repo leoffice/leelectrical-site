@@ -51,7 +51,7 @@ import {
 import { RECUR_INTERVALS, defaultRecurringState } from "../lib/recurringBilling.js";
 import { resumeFollowUpPrompts } from "../lib/calendarNavigate.js";
 
-/** Line-level progress: compact Progress field before Rate, with % / $ toggle. */
+/** Compact line: product chip, one-line description, rate/qty/progress beside it. */
 function LineRow({
   line,
   index,
@@ -66,6 +66,8 @@ function LineRow({
 }) {
   const [itemQ, setItemQ] = useState(line.itemName || "");
   const [open, setOpen] = useState(false);
+  // After a catalog pick, collapse the name into a small square chip until reopened.
+  const [itemPicked, setItemPicked] = useState(() => !!(line.itemName || "").trim());
   const picks = useMemo(() => filterQboItems(items, itemQ), [items, itemQ]);
   const rate = parseAmount(line.unitPrice) || 0;
   const qty = parseAmount(line.qty) || 0;
@@ -73,6 +75,7 @@ function LineRow({
   // Progress % from fractional qty (QBO style: full rate × progress qty).
   const linePct = rate > 0 && qty > 0 ? Math.round(qty * 10000) / 100 : qty * 100;
   const progressDisplay = adjustMode === "pct" ? String(linePct || "") : String(due || "");
+  const showChip = itemPicked && !!(line.itemName || itemQ || "").trim() && !open;
 
   const pick = (it) => {
     onChange(index, {
@@ -82,82 +85,116 @@ function LineRow({
       description: line.description || it.description || "",
     });
     setItemQ(it.name);
+    setItemPicked(true);
     setOpen(false);
   };
 
+  const reOpenItem = () => {
+    setOpen(true);
+    setItemPicked(false);
+  };
+
   return (
-    <div className="card px-3 py-3 mb-2 space-y-2" data-testid="doc-line-row">
-      <div className="flex items-end gap-2">
-        <div className="flex-1 min-w-0">
-          <Fld label={"Line " + (index + 1) + " — Product/Service"}>
-            <div className="relative">
-              <input
-                className="input"
-                value={itemQ}
-                onChange={(e) => {
-                  setItemQ(e.target.value);
-                  onChange(index, { itemName: e.target.value });
-                  setOpen(true);
-                }}
-                onFocus={() => setOpen(true)}
-                placeholder="Search QuickBooks items…"
-                aria-label={"Product service line " + (index + 1)}
-              />
-              {open && picks.length > 0 && (
-                <div className="absolute z-10 left-0 right-0 mt-1 max-h-40 overflow-y-auto bg-white border border-slate-200 rounded-xl shadow-lg">
-                  {picks.map((it) => (
-                    <button
-                      key={it.name}
-                      type="button"
-                      className="w-full text-left px-3 py-2 text-sm hover:bg-slate-50 border-b border-slate-100 last:border-0"
-                      onClick={() => pick(it)}
-                    >
-                      <span className="font-semibold text-slate-800 block truncate">{it.name}</span>
-                      <span className="text-xs text-slate-500">
-                        {it.price ? fmt$(it.price) : "custom price"}
-                        {it.description ? " · " + it.description.slice(0, 40) : ""}
-                      </span>
-                    </button>
-                  ))}
-                </div>
-              )}
-            </div>
-          </Fld>
-        </div>
+    <div className="rounded-xl border border-slate-200 bg-white px-2 py-2 mb-2 space-y-1.5" data-testid="doc-line-row">
+      <div className="flex items-start gap-1.5">
+        {showChip ? (
+          <button
+            type="button"
+            className="shrink-0 w-11 h-11 rounded-lg border border-slate-200 bg-slate-50 px-1 flex items-center justify-center text-[10px] font-bold leading-tight text-slate-800 text-center break-words overflow-hidden"
+            onClick={reOpenItem}
+            title={line.itemName || itemQ}
+            aria-label={"Product service line " + (index + 1) + " — change"}
+            data-testid={"doc-line-item-chip-" + (index + 1)}
+          >
+            <span className="line-clamp-3">{shortItemLabel(line.itemName || itemQ)}</span>
+          </button>
+        ) : (
+          <div className="relative flex-1 min-w-0">
+            <input
+              className="input !py-2 text-sm"
+              value={itemQ}
+              onChange={(e) => {
+                setItemQ(e.target.value);
+                onChange(index, { itemName: e.target.value });
+                setOpen(true);
+                setItemPicked(false);
+              }}
+              onFocus={() => setOpen(true)}
+              onBlur={() => {
+                // Collapse to chip if a name is set; delay so pick click still fires.
+                window.setTimeout(() => {
+                  if ((line.itemName || itemQ || "").trim()) {
+                    setItemPicked(true);
+                    setOpen(false);
+                  }
+                }, 150);
+              }}
+              placeholder="Search item…"
+              aria-label={"Product service line " + (index + 1)}
+              data-testid={"doc-line-item-" + (index + 1)}
+            />
+            {open && picks.length > 0 && (
+              <div className="absolute z-10 left-0 right-0 mt-1 max-h-40 overflow-y-auto bg-white border border-slate-200 rounded-xl shadow-lg">
+                {picks.map((it) => (
+                  <button
+                    key={it.name}
+                    type="button"
+                    className="w-full text-left px-3 py-2 text-sm hover:bg-slate-50 border-b border-slate-100 last:border-0"
+                    onClick={() => pick(it)}
+                  >
+                    <span className="font-semibold text-slate-800 block truncate">{it.name}</span>
+                    <span className="text-xs text-slate-500">
+                      {it.price ? fmt$(it.price) : "custom price"}
+                      {it.description ? " · " + it.description.slice(0, 40) : ""}
+                    </span>
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
         {canRemove ? (
           <button
             type="button"
-            className="shrink-0 mb-3 text-xs font-semibold text-red-500 whitespace-nowrap px-1 py-2"
+            className="shrink-0 text-xs font-semibold text-red-500 px-1 py-2"
             onClick={() => onRemove(index)}
             data-testid={"doc-line-remove-" + (index + 1)}
+            aria-label={"Remove line " + (index + 1)}
           >
-            Remove line
+            ✕
           </button>
         ) : null}
       </div>
-      <DescriptionField
-        value={line.description || ""}
-        onChange={(v) => onChange(index, { description: v })}
-        testId={"doc-line-desc-" + (index + 1)}
-        ariaLabel={"Description line " + (index + 1)}
-        showPolish={false}
-      />
-      <div className={"flex gap-2 items-end " + (progressMode ? "flex-wrap" : "")}>
+
+      {/* Description + rate / qty / progress on one parallel row */}
+      <div className="flex flex-wrap items-start gap-1.5" data-testid={"doc-line-metrics-" + (index + 1)}>
+        <div className="flex-1 min-w-[10rem]">
+          <DescriptionField
+            value={line.description || ""}
+            onChange={(v) => onChange(index, { description: v })}
+            testId={"doc-line-desc-" + (index + 1)}
+            ariaLabel={"Description line " + (index + 1)}
+            showPolish={false}
+            compact
+            bare
+            placeholder="Description…"
+          />
+        </div>
         {progressMode ? (
-          <div className="flex items-end gap-1 shrink-0" data-testid={"doc-line-progress-" + (index + 1)}>
-            <Fld label="Progress">
-              <input
-                className="input !w-[4.25rem] !px-1.5 text-center text-sm"
-                inputMode="decimal"
-                value={progressDisplay}
-                onChange={(e) => onLineProgress && onLineProgress(index, e.target.value)}
-                aria-label={"Progress line " + (index + 1)}
-                data-testid={"progress-line-edit-" + (index + 1)}
-              />
-            </Fld>
+          <div className="flex items-center gap-0.5 shrink-0" data-testid={"doc-line-progress-" + (index + 1)}>
+            <input
+              className="input !w-[3.5rem] !px-1 !py-2 text-center text-sm"
+              inputMode="decimal"
+              value={progressDisplay}
+              onChange={(e) => onLineProgress && onLineProgress(index, e.target.value)}
+              aria-label={"Progress line " + (index + 1)}
+              data-testid={"progress-line-edit-" + (index + 1)}
+              title="Progress"
+              placeholder="Prog"
+            />
             <button
               type="button"
-              className="mb-0.5 h-9 min-w-[2.25rem] px-1.5 rounded-lg border border-slate-200 bg-white text-[11px] font-extrabold text-slate-700"
+              className="h-9 min-w-[1.75rem] px-1 rounded-lg border border-slate-200 bg-white text-[11px] font-extrabold text-slate-700"
               onClick={() => onAdjustModeChange && onAdjustModeChange(adjustMode === "pct" ? "amount" : "pct")}
               aria-label={adjustMode === "pct" ? "Switch progress to dollars" : "Switch progress to percent"}
               data-testid={"progress-mode-toggle-" + (index + 1)}
@@ -167,33 +204,35 @@ function LineRow({
             </button>
           </div>
         ) : null}
-        <Fld label={progressMode ? "Rate (full)" : "Rate"}>
-          <input
-            className="input"
-            inputMode="decimal"
-            value={line.unitPrice}
-            onChange={(e) => onChange(index, { unitPrice: e.target.value })}
-            aria-label={"Rate line " + (index + 1)}
-          />
-        </Fld>
-        <Fld label="Qty">
-          <input
-            className="input"
-            inputMode="decimal"
-            value={line.qty}
-            onChange={(e) => onChange(index, { qty: e.target.value })}
-            aria-label={"Quantity line " + (index + 1)}
-          />
-        </Fld>
+        <input
+          className="input !w-[4.25rem] !px-1.5 !py-2 text-sm text-right shrink-0"
+          inputMode="decimal"
+          value={line.unitPrice}
+          onChange={(e) => onChange(index, { unitPrice: e.target.value })}
+          aria-label={"Rate line " + (index + 1)}
+          title={progressMode ? "Rate (full)" : "Rate"}
+          placeholder="Rate"
+        />
+        <input
+          className="input !w-[3.25rem] !px-1 !py-2 text-sm text-center shrink-0"
+          inputMode="decimal"
+          value={line.qty}
+          onChange={(e) => onChange(index, { qty: e.target.value })}
+          aria-label={"Quantity line " + (index + 1)}
+          title="Qty"
+          placeholder="Qty"
+        />
         {progressMode ? (
-          <Fld label="Due">
-            <div className="input bg-slate-50 text-slate-700 font-semibold" aria-label={"Due line " + (index + 1)}>
-              {fmt$(due)}
-            </div>
-          </Fld>
+          <div
+            className="shrink-0 input !w-auto min-w-[3.75rem] !px-1.5 !py-2 bg-slate-50 text-slate-700 font-semibold text-right text-sm"
+            aria-label={"Due line " + (index + 1)}
+            data-testid={"doc-line-amount-" + (index + 1)}
+          >
+            {fmt$(due)}
+          </div>
         ) : (
           <div
-            className="shrink-0 input !w-auto min-w-[4.5rem] bg-slate-50 text-slate-700 font-semibold text-right flex items-center justify-end"
+            className="shrink-0 input !w-auto min-w-[3.75rem] !px-1.5 !py-2 bg-slate-50 text-slate-700 font-semibold text-right text-sm"
             data-testid={"doc-line-amount-" + (index + 1)}
           >
             {fmt$(lineAmount(line))}
@@ -208,6 +247,16 @@ function LineRow({
       </div>
     </div>
   );
+}
+
+/** Short label for the product chip (first words, max ~18 chars). */
+function shortItemLabel(name) {
+  const s = String(name || "").trim();
+  if (!s) return "?";
+  if (s.length <= 18) return s;
+  const cut = s.slice(0, 17);
+  const sp = cut.lastIndexOf(" ");
+  return (sp > 6 ? cut.slice(0, sp) : cut) + "…";
 }
 
 function CustomerHeaderPanel({ job, allJobs, events, api, onPatch }) {
@@ -1045,52 +1094,51 @@ export default function DocBuilderSheet({
         </p>
       )}
 
-      <ServiceAddressField
-        job={job}
-        jobs={boardJobs}
-        events={events}
-        value={serviceAddress}
-        onChange={setServiceAddress}
-        onApartmentChange={setApartment}
-        suggestAddresses={api.suggestAddresses?.bind(api)}
-        testId="doc-service-address"
-        partialOk={false}
-      />
-      <Fld label="Apartment / unit" hint="Optional — appended to ShipAddr in QuickBooks">
-        <input className="input" value={apartment} onChange={(e) => setApartment(e.target.value)} aria-label="Apartment" />
-      </Fld>
-
-      {canToggleCo || alreadyCo || asChangeOrder ? (
-        <div
-          className="flex items-center justify-between gap-3 rounded-2xl border border-slate-200 px-3 py-3 mb-3"
-          data-testid="doc-co-toggle-row"
-        >
-          <div className="min-w-0">
-            <div className="text-sm font-bold text-slate-900">Change order (CO)</div>
-            <div className="text-xs text-slate-500 mt-0.5">
-              {asChangeOrder || alreadyCo
-                ? coPreview
-                  ? "Number will be " + coPreview
-                  : "Tagged as a change order — turn off anytime"
-                : "Turn on so this bill uses the original invoice number + -CO-"}
-            </div>
+      {/* Address + apt + CO on one condensed row */}
+      <div className="flex flex-wrap items-center gap-1.5 mb-3" data-testid="doc-address-row">
+        <ServiceAddressField
+          job={job}
+          jobs={boardJobs}
+          events={events}
+          value={serviceAddress}
+          onChange={setServiceAddress}
+          onApartmentChange={setApartment}
+          suggestAddresses={api.suggestAddresses?.bind(api)}
+          testId="doc-service-address"
+          partialOk={false}
+          sitePicker="dropdown"
+          compact
+        />
+        <input
+          className="input !w-[4.5rem] !px-2 !py-2 text-sm shrink-0"
+          value={apartment}
+          onChange={(e) => setApartment(e.target.value)}
+          aria-label="Apartment"
+          placeholder="Apt"
+          data-testid="doc-apartment"
+          title="Apartment / unit"
+        />
+        {canToggleCo || alreadyCo || asChangeOrder ? (
+          <div className="flex items-center gap-1.5 shrink-0 ml-auto" data-testid="doc-co-toggle-row">
+            <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wide">CO</span>
+            <Toggle
+              on={!!(asChangeOrder || alreadyCo)}
+              onChange={applyCoToggle}
+              label={
+                asChangeOrder || alreadyCo
+                  ? coPreview
+                    ? "Change order on — " + coPreview
+                    : "Change order on"
+                  : "Change order off"
+              }
+              small
+            />
           </div>
-          <Toggle
-            on={!!(asChangeOrder || alreadyCo)}
-            onChange={applyCoToggle}
-            label="Change order"
-            small
-          />
-        </div>
-      ) : null}
-
-      <p className="text-[11px] font-bold uppercase tracking-wide text-slate-400 mt-2 mb-2">
-        Line items
-        {progressMode ? (
-          <span className="normal-case font-semibold text-slate-500 ml-1">
-            · progress sits before rate (% / $)
-          </span>
         ) : null}
+      </div>
+
+      <p className="text-[11px] font-bold uppercase tracking-wide text-slate-400 mt-1 mb-1.5">
+        Line items
       </p>
       {lines.map((ln, i) => (
         <LineRow
@@ -1107,31 +1155,25 @@ export default function DocBuilderSheet({
           onLineProgress={onLineProgress}
         />
       ))}
-      <button type="button" className="btn-ghost w-full !py-2 mb-3" onClick={() => setLines((rows) => rows.concat([emptyLine()]))}>
+      <button
+        type="button"
+        className="btn-ghost w-full !py-1.5 mb-3 text-sm"
+        onClick={() => setLines((rows) => rows.concat([emptyLine()]))}
+        data-testid="doc-add-line"
+      >
         ＋ Add line
       </button>
 
+      {/* Discount left + total right — one footer line */}
       <div
-        className="card px-3 py-3 mb-3 border-slate-200 space-y-2"
+        className="flex flex-wrap items-center gap-2 px-1 mb-3"
         data-testid="doc-discount-panel"
       >
-        <div className="flex items-end gap-2">
-          <div className="flex-1 min-w-0">
-            <Fld label="Discount on total" hint={discountType === "percent" ? "Percent off line total" : "Dollar amount off total"}>
-              <input
-                className="input"
-                inputMode="decimal"
-                value={discountValue}
-                onChange={(e) => setDiscountValue(e.target.value)}
-                placeholder={discountType === "percent" ? "e.g. 10" : "e.g. 100"}
-                aria-label="Discount value"
-                data-testid="doc-discount-input"
-              />
-            </Fld>
-          </div>
+        <div className="flex items-center gap-1 min-w-0">
+          <span className="text-xs font-bold text-slate-500 shrink-0">Disc</span>
           <button
             type="button"
-            className="mb-0.5 h-10 min-w-[2.5rem] px-2 rounded-lg border border-slate-200 bg-white text-sm font-extrabold text-slate-700"
+            className="h-9 min-w-[2rem] px-1.5 rounded-lg border border-slate-200 bg-white text-sm font-extrabold text-slate-700"
             onClick={() => {
               // Keep the typed number; only switch unit so 10% vs $10 is intentional.
               setDiscountType((t) => (t === "percent" ? "amount" : "percent"));
@@ -1144,33 +1186,32 @@ export default function DocBuilderSheet({
           >
             {discountType === "percent" ? "%" : "$"}
           </button>
-        </div>
-        {discountDollars > 0 ? (
-          <div className="flex justify-between text-xs font-semibold text-slate-600 px-0.5" data-testid="doc-discount-applied">
-            <span>
-              Discount
-              {discountType === "percent" && parseAmount(discountValue) > 0
-                ? " (" + parseAmount(discountValue) + "%)"
-                : ""}
+          <input
+            className="input !w-[4.5rem] !px-1.5 !py-2 text-sm"
+            inputMode="decimal"
+            value={discountValue}
+            onChange={(e) => setDiscountValue(e.target.value)}
+            placeholder={discountType === "percent" ? "0" : "0"}
+            aria-label="Discount value"
+            data-testid="doc-discount-input"
+          />
+          {discountDollars > 0 ? (
+            <span className="text-xs font-semibold text-red-600 shrink-0" data-testid="doc-discount-applied">
+              −{fmt$(discountDollars)}
             </span>
-            <span className="text-red-600">−{fmt$(discountDollars)}</span>
-          </div>
-        ) : null}
-        {discountDollars > 0 ? (
-          <div className="flex justify-between text-xs font-semibold text-slate-500 px-0.5" data-testid="doc-subtotal-row">
-            <span>Subtotal</span>
-            <span>{fmt$(subtotal) || "$0"}</span>
-          </div>
-        ) : null}
-      </div>
-
-      <div className="flex justify-between items-baseline gap-2 px-1 mb-3" data-testid="doc-total-row">
-        <span className="text-sm font-bold text-slate-600">
-          Total{" "}
+          ) : null}
+        </div>
+        <div className="ml-auto flex items-baseline gap-1.5" data-testid="doc-total-row">
+          {discountDollars > 0 ? (
+            <span className="text-[11px] font-semibold text-slate-400" data-testid="doc-subtotal-row">
+              Sub {fmt$(subtotal) || "$0"}
+            </span>
+          ) : null}
+          <span className="text-sm font-bold text-slate-600">Total</span>
           <span className="text-lg font-extrabold text-slate-900" data-testid="doc-total">
             {fmt$(total) || "$0"}
           </span>
-        </span>
+        </div>
       </div>
 
       {attachments.length ? (

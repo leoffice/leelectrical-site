@@ -482,14 +482,58 @@ describe("emailInsight", () => {
     expect(w.startHour).toBe(11);
     expect(w.startMin).toBe(0);
     expect(w.endHour).toBe(13);
-    expect(w.text).toMatch(/Appointment set between 11:00 and 1:00/);
+    // Levi 2026-07-22: BTWN + a.m./p.m. (cross-noon shows both).
+    expect(w.text).toMatch(/BTWN/i);
+    expect(w.text).toMatch(/11:00/);
+    expect(w.text).toMatch(/1:00/);
+  });
+
+  it("3-hour window classifies as meter installation (Con Ed Appointments)", () => {
+    const body = `Dear Chanan Sheleg,
+Your appointment for electric service repair/installation at 503 SCHENECTADY AVE, BROOKLYN 11203
+has been scheduled for August 4, 2026. Appointment set between 8:00 and 11:00.`;
+    const raw = parseEmailInsight({
+      from: "Con Edison Appointments <Appointments@coned.com>",
+      subject: "Your Con Edison appointment | APPT-721826",
+      body,
+      messageId: "appt-721826",
+    });
+    expect(raw.appointmentType).toBe("meter_installation");
+    expect(raw.timeWindow?.startHour).toBe(8);
+    expect(raw.timeWindow?.endHour).toBe(11);
+    expect(raw.timeWindow?.text).toMatch(/BTWN 8:00 and 11:00 a\.m\./i);
+    expect(raw.dateTime).toMatch(/T08:00/);
+    const job = {
+      id: "J-chanan",
+      customer: "Chanan Sheleg",
+      email: "hanan770@gmail.com",
+      phone: "718-555-0100",
+      serviceAddress: "503 Schenectady Ave, Brooklyn, NY 11203",
+    };
+    const title = calendarTitleForInsight(raw);
+    expect(title).toMatch(/Meter installation/i);
+    expect(title).toMatch(/8:00/);
+    expect(title).not.toMatch(/^appointment$/i);
+    const desc = buildAppointmentDescription(raw, job);
+    expect(desc).toMatch(/Customer: Chanan Sheleg/);
+    expect(desc).toMatch(/Phone:/);
+    expect(desc).toMatch(/Email: hanan770@gmail.com/);
+    expect(desc).toMatch(/meter installation/i);
+    expect(desc).toMatch(/BTWN 8:00 and 11:00 a\.m\./i);
+    expect(desc).not.toMatch(/leJobId/i);
+    const payload = buildCalendarPayload(raw, job, ensureInspectionSelections(raw, job, new Set(["calendar"])));
+    expect(payload.summary).toMatch(/Meter installation/i);
+    expect(payload.description).toMatch(/BTWN/i);
+    expect(payload.reminders.map((r) => r.minutes).sort((a, b) => a - b)).toEqual([60, 1440]);
   });
 
   it("window appointment schedules start of window for 1 hour", () => {
     const body = `Service Address 1127 Lincoln Pl Brooklyn
 Your appointment is between 11:00 and 1:00 on July 28, 2026.`;
     const sched = resolveScheduleTimes(body);
-    expect(sched.timeWindow?.text).toMatch(/between 11:00 and 1:00/);
+    expect(sched.timeWindow?.text).toMatch(/BTWN/i);
+    expect(sched.timeWindow?.text).toMatch(/11:00/);
+    expect(sched.timeWindow?.text).toMatch(/1:00/);
     expect(sched.dateTime).toBe("2026-07-28T11:00");
     expect(sched.endDateTime).toBe("2026-07-28T12:00");
     expect(APPOINTMENT_DURATION_MINUTES).toBe(60);

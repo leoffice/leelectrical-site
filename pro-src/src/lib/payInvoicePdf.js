@@ -1,5 +1,6 @@
 /** Public pay page — check / poll / request invoice PDFs from the docs store. */
 import { functionsBase } from "./functionsBase.js";
+import { buildInvoicePdfBlobFromPayload } from "./estimateLanding.js";
 
 export const PDF_RETRIEVE_STAGES = ["Checking", "Generating PDF", "Ready"];
 
@@ -34,13 +35,22 @@ export async function requestInvoicePdfFetch(invoiceNo, jobId = "") {
   return { ok: !!(res.ok && data.ok), ...data };
 }
 
-const defaultPollMs =
-  typeof import.meta !== "undefined" && import.meta.vitest ? 25 : 3000;
+function inTestEnv() {
+  return (
+    (typeof import.meta !== "undefined" && import.meta.vitest) ||
+    (typeof process !== "undefined" &&
+      (process.env.VITEST || process.env.NODE_ENV === "test"))
+  );
+}
+
+function pollIntervalMs() {
+  return inTestEnv() ? 25 : 3000;
+}
 
 /** Poll until the PDF lands (host fetch_pdf) or timeout. */
 export async function waitForInvoicePdf(
   url,
-  { intervalMs = defaultPollMs, timeoutMs = 90000 } = {}
+  { intervalMs = pollIntervalMs(), timeoutMs = 90000 } = {}
 ) {
   const start = Date.now();
   while (Date.now() - start < timeoutMs) {
@@ -51,27 +61,56 @@ export async function waitForInvoicePdf(
 }
 
 /**
- * Full customer flow: generate local QBO-clone PDF when possible, else QBO fetch.
+ * Full customer flow: store/docs-fetch first, then client-built PDF from the
+ * pay link payload (no office computer required).
  * onPhase: idle | checking | requesting | fetching | ready | timeout
+ * Returns { ok, blobUrl? } — blobUrl is set when we built the PDF in-browser.
  */
-export async function retrieveInvoicePdf({ url, invoiceNo, jobId = "", onPhase }) {
+export async function retrieveInvoicePdf({
+  url,
+  invoiceNo,
+  jobId = "",
+  payload = null,
+  onPhase,
+}) {
   onPhase?.("checking");
-  onPhase?.("requesting");
-  const result = await requestInvoicePdfFetch(invoiceNo, jobId);
-  if (!result.ok) {
-    onPhase?.("timeout");
-    return false;
-  }
-  if (await invoicePdfAvailable(url)) {
+  if (url && (await invoicePdfAvailable(url))) {
     onPhase?.("ready");
-    return true;
+    return { ok: true };
   }
-  if (result.queued) {
+  onPhase?.("requesting");
+  const result = await requestInvoicePdfFetch(invoiceNo, jobId).catch(() => ({ ok: false }));
+  if (result.ok && url && (await invoicePdfAvailable(url))) {
+    onPhase?.("ready");
+    return { ok: true };
+  }
+  if (result.ok && result.queued && url) {
     onPhase?.("fetching");
-    const ok = await waitForInvoicePdf(url);
-    onPhase?.(ok ? "ready" : "timeout");
-    return ok;
+    // Short poll — then fall through to client PDF so customers aren't stuck.
+    const interval = pollIntervalMs();
+    const pollTimeout = interval < 100 ? 120 : 12_000;
+    const ok = await waitForInvoicePdf(url, {
+      intervalMs: interval,
+      timeoutMs: pollTimeout,
+    });
+    if (ok) {
+      onPhase?.("ready");
+      return { ok: true };
+    }
+  }
+  // Client-side fallback — same layout as office PDFs, built from the pay link.
+  if (payload) {
+    try {
+      const built = buildInvoicePdfBlobFromPayload(payload);
+      if (built.ok && built.blob) {
+        const blobUrl = URL.createObjectURL(built.blob);
+        onPhase?.("ready");
+        return { ok: true, blobUrl, blob: built.blob };
+      }
+    } catch {
+      /* fall through */
+    }
   }
   onPhase?.("timeout");
-  return false;
+  return { ok: false };
 }

@@ -1,5 +1,12 @@
 import { describe, expect, it } from "vitest";
-import { invoiceNoFromExtracted, paymentAutofillPatch, paymentMemoNote } from "../src/lib/paymentAutofill.js";
+import {
+  hasStrongPaymentAutofill,
+  hasUsefulPaymentAutofill,
+  invoiceNoFromExtracted,
+  parseExtractedAmount,
+  paymentAutofillPatch,
+  paymentMemoNote,
+} from "../src/lib/paymentAutofill.js";
 
 describe("paymentAutofill", () => {
   it("maps extracted fields to form patch", () => {
@@ -58,5 +65,25 @@ describe("paymentAutofill", () => {
     expect(
       paymentMemoNote({ method: "Zelle", ref: "JPM1", memo: "partial", proofName: "z.png" })
     ).toBe("Zelle ref JPM1 · proof: z.png · partial");
+  });
+
+  it("parses string amounts and rejects empty extracts as not useful", () => {
+    expect(parseExtractedAmount("$1,250.50")).toBe(1250.5);
+    expect(parseExtractedAmount(null)).toBe(null);
+    expect(hasUsefulPaymentAutofill(null)).toBe(false);
+    expect(hasUsefulPaymentAutofill({})).toBe(false);
+    expect(hasUsefulPaymentAutofill({ amount: 100, checkNumber: "12" })).toBe(true);
+    expect(paymentAutofillPatch({ amount: "$80.00", checkNumber: "99" })).toEqual({
+      amt: "80",
+      ref: "99",
+    });
+  });
+
+  it("green Autofilled only when amount or check # is present", () => {
+    expect(hasStrongPaymentAutofill({ payer: "Only Name" })).toBe(false);
+    expect(hasStrongPaymentAutofill({ memo: "for the job" })).toBe(false);
+    expect(hasStrongPaymentAutofill({ amount: 50 })).toBe(true);
+    expect(hasStrongPaymentAutofill({ checkNumber: "1042" })).toBe(true);
+    expect(hasUsefulPaymentAutofill({ payer: "Only Name" })).toBe(true);
   });
 });

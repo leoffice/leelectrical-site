@@ -251,3 +251,34 @@ export function txnFilterCounts(jobs) {
 export function formatTxnAmount(n) {
   return fmt$(n) || "$0";
 }
+
+/**
+ * Right-side amount + open-invoice flag for a transaction row.
+ * Invoices always show due (including $0 when paid). Estimates show total.
+ * Payments show the payment amount. Open invoices (due > 0) get a left rail.
+ */
+export function txnRowDisplay(row) {
+  if (!row) return { amount: "", amountClass: "text-slate-800", isOpen: false };
+  if (row.kind === "payment") {
+    return {
+      amount: formatTxnAmount(row.amount),
+      amountClass: "text-emerald-700",
+      isOpen: false,
+    };
+  }
+  if (row.kind === "invoice") {
+    const due = Number(row.due) || 0;
+    const isOpen = due > 0.01;
+    return {
+      amount: formatTxnAmount(due),
+      amountClass: isOpen ? "text-red-600" : "text-slate-800",
+      isOpen,
+    };
+  }
+  // estimate — keep total; show $0 when empty
+  return {
+    amount: formatTxnAmount(row.total || 0),
+    amountClass: "text-slate-800",
+    isOpen: false,
+  };
+}

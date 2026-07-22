@@ -5,6 +5,9 @@ import { WORK_DESCRIPTION_STYLES, polishWorkDescription } from "../lib/workDescr
 
 const MIN_TEXTAREA_PX = 96;
 const MAX_TEXTAREA_PX = 320;
+/** One-line start height; grows when the description wraps. */
+const COMPACT_MIN_TEXTAREA_PX = 38;
+const COMPACT_MAX_TEXTAREA_PX = 160;
 
 /** Compact polish control — sits next to amount (or anywhere). */
 export function PolishButton({
@@ -110,24 +113,31 @@ export default function DescriptionField({
   testId = "description-field",
   ariaLabel = "Description",
   showPolish = true,
+  /** Start as one line; expand only when content grows. No outer Fld when bare. */
+  compact = false,
+  bare = false,
 }) {
   const taRef = useRef(null);
+  const minPx = compact ? COMPACT_MIN_TEXTAREA_PX : MIN_TEXTAREA_PX;
+  const maxPx = compact ? COMPACT_MAX_TEXTAREA_PX : MAX_TEXTAREA_PX;
 
   const resize = useCallback(() => {
     const el = taRef.current;
     if (!el || !multiline) return;
     el.style.height = "auto";
-    const next = Math.min(MAX_TEXTAREA_PX, Math.max(MIN_TEXTAREA_PX, el.scrollHeight));
+    const next = Math.min(maxPx, Math.max(minPx, el.scrollHeight));
     el.style.height = next + "px";
-  }, [multiline]);
+  }, [multiline, minPx, maxPx]);
 
   useEffect(() => {
     resize();
   }, [value, resize]);
 
-  const minH = minRows ? minRows + "px" : MIN_TEXTAREA_PX + "px";
+  const minH = minRows ? minRows + "px" : minPx + "px";
   const inputProps = {
-    className: multiline ? "input resize-y leading-relaxed" : "input",
+    className: multiline
+      ? "input resize-y " + (compact ? "leading-snug !py-2 text-sm" : "leading-relaxed")
+      : "input",
     value: value || "",
     onChange: (e) => onChange(e.target.value),
     placeholder,
@@ -136,21 +146,33 @@ export default function DescriptionField({
     ...(multiline
       ? {
           ref: taRef,
-          rows: 4,
-          style: { minHeight: minH, maxHeight: MAX_TEXTAREA_PX + "px" },
+          rows: compact ? 1 : 4,
+          style: { minHeight: minH, maxHeight: maxPx + "px" },
           onInput: resize,
         }
       : {}),
   };
 
+  const control = multiline ? <textarea {...inputProps} /> : <input {...inputProps} />;
+  const polish = showPolish ? (
+    <div className={compact ? "shrink-0" : "mt-2"}>
+      <PolishButton value={value} onChange={onChange} context={context} testId={testId} compact={compact} />
+    </div>
+  ) : null;
+
+  if (bare) {
+    return (
+      <div className={compact && showPolish ? "flex items-start gap-1.5 min-w-0" : undefined}>
+        <div className={compact ? "flex-1 min-w-0" : undefined}>{control}</div>
+        {polish}
+      </div>
+    );
+  }
+
   return (
     <Fld label={label} hint={hint}>
-      {multiline ? <textarea {...inputProps} /> : <input {...inputProps} />}
-      {showPolish ? (
-        <div className="mt-2">
-          <PolishButton value={value} onChange={onChange} context={context} testId={testId} />
-        </div>
-      ) : null}
+      {control}
+      {polish}
     </Fld>
   );
 }
