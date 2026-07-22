@@ -1,6 +1,6 @@
 // Jobs view — search, filter chips, amount-sorted cards, customer grouping
 // (clientGroup OR normalized name), and per-card quick actions.
-import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import React, { useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
 import { useStore } from "../state/store.jsx";
 import { CustomerAvatar, GroupJobRow, PaidPill, StagePill } from "../components/JobCard.jsx";
 import { progressPct } from "../lib/stages.js";
@@ -376,7 +376,9 @@ function SortSheet({ value, onPick, onSetDefault, onClose }) {
 export default function Jobs({ embedded, collapseGroups = false, activeJobId = "" }) {
   const { jobs, loading, showToast, api, enqueue, refreshJobs, setNewJob } = useStore();
   const nav = useNavigate();
+  /** Input value stays instant; heavy list filter uses the deferred copy. */
   const [q, setQ] = useState("");
+  const deferredQ = useDeferredValue(q);
   const [filter, setFilter] = useState("Active");
   const [sort, setSort] = useState(loadSort);
   const [view, setView] = useState(loadCustomerView); // "balance" | "all"
@@ -418,8 +420,9 @@ export default function Jobs({ embedded, collapseGroups = false, activeJobId = "
    * Re-sort epoch. Order is frozen inside an epoch, so tapping / expanding /
    * editing a customer can never move its row (the "jumps to top" bug). It
    * changes only on a deliberate re-sort: view, sort, search, refresh, remount.
+   * Uses deferredQ so typing doesn't reset order every keystroke before filter catches up.
    */
-  const epoch = `${view}|${custSort}|${sort}|${effFilter}|${q.trim()}|${resortNonce}`;
+  const epoch = `${view}|${custSort}|${sort}|${effFilter}|${deferredQ.trim()}|${resortNonce}`;
   const balanceOrder = useRef({});
   const otherOrder = useRef({});
   const parentOrder = useRef({});
@@ -450,12 +453,12 @@ export default function Jobs({ embedded, collapseGroups = false, activeJobId = "
   // Filter / search / sort change → show the top page again (recency order is already top-first).
   useEffect(() => {
     setListLimit(LIST_PAGE);
-  }, [effFilter, q, sort, view, custSort]);
+  }, [effFilter, deferredQ, sort, view, custSort]);
 
   const active = useMemo(() => jobs.filter((j) => !j._archived && !j._deleted), [jobs]);
   const matchesChip = useCallback(
-    (j) => matchesFilter(j, effFilter) && matchesQuery(j, q),
-    [effFilter, q]
+    (j) => matchesFilter(j, effFilter) && matchesQuery(j, deferredQ),
+    [effFilter, deferredQ]
   );
   const shown = useMemo(() => {
     const list = active.filter(matchesChip);
@@ -463,10 +466,10 @@ export default function Jobs({ embedded, collapseGroups = false, activeJobId = "
     return sortJobs(list, sort);
   }, [active, matchesChip, sort, effFilter]);
 
-  // Bug #1: group ALL jobs for a customer together (paid + unpaid). The filter
-  // chip only controls which *groups* appear, not whether paid siblings vanish
-  // from a multi-invoice customer (e.g. izzy: $650 paid + $870 open).
-  const groups = useMemo(() => {
+  // Bug #1: group ALL jobs for a customer together (paid + unpaid). Base merge
+  // is independent of the search box — only the final chip/search filter re-runs
+  // while typing (keeps the input snappy with 4k+ jobs).
+  const baseGroups = useMemo(() => {
     const map = new Map();
     for (const j of active) {
       const k = clientKey(j);
@@ -521,35 +524,51 @@ export default function Jobs({ embedded, collapseGroups = false, activeJobId = "
         map.delete(k);
       }
     }
+    return [...map.entries()].map(([k, list]) => [k, sortJobs(list, sort)]);
+  }, [active, sort]);
+
+  const groups = useMemo(() => {
     const cmp = sortCmp(sort);
     const rank = (list) => {
       const hit = list.filter(matchesChip);
       return sortJobs(hit.length ? hit : list, sort)[0];
     };
-    const entries = [...map.entries()]
-      .filter(([, list]) => list.some(matchesChip))
-      .map(([k, list]) => [k, sortJobs(list, sort)]);
+    const entries = baseGroups.filter(([, list]) => list.some(matchesChip));
     if (effFilter === "Active") {
-      return entries.sort((A, B) => compareCustomerRecency(A[0], A[1], B[0], B[1]));
+      return entries.slice().sort((A, B) => compareCustomerRecency(A[0], A[1], B[0], B[1]));
     }
-    return entries.sort((A, B) => cmp(rank(A[1]), rank(B[1])));
-  }, [active, matchesChip, sort, effFilter, recencyTick]);
+    return entries.slice().sort((A, B) => cmp(rank(A[1]), rank(B[1])));
+  }, [baseGroups, matchesChip, sort, effFilter, recencyTick]);
 
   const qboHierarchy = useMemo(() => buildQboHierarchyCtx(qboIndex), [qboIndex]);
 
-  /** Parent companies with sub-entities — separate from flat customer groups. */
-  const { parentRows, flatGroups } = useMemo(() => {
+  /** Board layout (parents + flats) without search — rebuilt only when jobs/QBO change. */
+  const boardBase = useMemo(() => {
     const board = buildCustomerBoardGroups(active, (list) => sortJobs(list, sort), qboIndex);
     const parentJobIds = new Set();
-    let parents = board
+    const parents = board
       .filter((r) => r.kind === "parent")
-      .filter((r) => r.jobs.some(matchesChip))
       .map((r) => {
         r.jobs.forEach((j) => parentJobIds.add(j.id));
-        return { ...r, subs: subsUnderParent(active, r.key, qboHierarchy).map((s) => ({ ...s, jobs: sortJobs(s.jobs, sort) })) };
+        return {
+          ...r,
+          subs: subsUnderParent(active, r.key, qboHierarchy).map((s) => ({
+            ...s,
+            jobs: sortJobs(s.jobs, sort),
+          })),
+        };
       });
+    return { parents, parentJobIds };
+  }, [active, sort, qboIndex, qboHierarchy]);
+
+  /** Parent companies with sub-entities — separate from flat customer groups. */
+  const { parentRows, flatGroups } = useMemo(() => {
+    let parents = boardBase.parents.filter((r) => r.jobs.some(matchesChip));
     let flat = groups
-      .map(([k, list]) => [k, list.filter((j) => !parentJobIds.has(j.id) && !effectiveHasParentCustomer(j, qboHierarchy))])
+      .map(([k, list]) => [
+        k,
+        list.filter((j) => !boardBase.parentJobIds.has(j.id) && !effectiveHasParentCustomer(j, qboHierarchy)),
+      ])
       .filter(([, list]) => list.length && list.some(matchesChip));
     if (effFilter === "Active") {
       const parentJobs = (row) => row.jobs.concat((row.subs || []).flatMap((s) => s.jobs));
@@ -559,7 +578,7 @@ export default function Jobs({ embedded, collapseGroups = false, activeJobId = "
       flat = flat.slice().sort((A, B) => compareCustomerRecency(A[0], A[1], B[0], B[1]));
     }
     return { parentRows: parents, flatGroups: flat };
-  }, [active, groups, matchesChip, sort, qboIndex, qboHierarchy, effFilter, recencyTick]);
+  }, [boardBase, groups, matchesChip, qboHierarchy, effFilter, recencyTick]);
 
   /** One flat row per customer (parent companies + plain groups) for the Balance view. */
   const customerRows = useMemo(() => {
@@ -585,7 +604,7 @@ export default function Jobs({ embedded, collapseGroups = false, activeJobId = "
    * every row the slot it had when the epoch began, so expanding a card at the
    * bottom of the list leaves it exactly where the finger landed.
    */
-  const searching = !!q.trim();
+  const searching = !!deferredQ.trim();
   const { owing, other } = partitionBalanceSearch(sortCustomerRows(customerRows, custSort));
   const balanceRows = applyStableOrder(owing, balanceOrder.current, epoch);
   const otherRows = searching ? applyStableOrder(other, otherOrder.current, epoch) : [];
@@ -621,10 +640,10 @@ export default function Jobs({ embedded, collapseGroups = false, activeJobId = "
   /** Jobs shown inside an expanded group — full customer when Active/All + no search. */
   const expandJobs = useCallback(
     (list) => {
-      const showAll = (effFilter === "Active" || effFilter === "All") && !q.trim();
+      const showAll = (effFilter === "Active" || effFilter === "All") && !deferredQ.trim();
       return showAll ? list : list.filter(matchesChip);
     },
-    [effFilter, q, matchesChip]
+    [effFilter, deferredQ, matchesChip]
   );
 
   /** After ~10s idle with text in the search bar, clear search and collapse groups. */
@@ -664,7 +683,7 @@ export default function Jobs({ embedded, collapseGroups = false, activeJobId = "
 
   /** Searching a sub-company name expands its parent and shows matching subs only. */
   useEffect(() => {
-    const query = q.trim();
+    const query = deferredQ.trim();
     if (!query) return;
     for (const row of parentRows) {
       if (row.subs.length < 2) continue;
@@ -674,7 +693,7 @@ export default function Jobs({ embedded, collapseGroups = false, activeJobId = "
         armCollapse(row.key, PARENT_SUB_COLLAPSE_MS);
       }
     }
-  }, [q, parentRows, matchesChip]);
+  }, [deferredQ, parentRows, matchesChip]);
 
   const groupExpanded = (key) => (isParentBoardKey(key) || !collapseGroups) && open[key];
   useEffect(() => {
@@ -710,7 +729,7 @@ export default function Jobs({ embedded, collapseGroups = false, activeJobId = "
     );
     io.observe(el);
     return () => io.disconnect();
-  }, [listLimit, totalListRows, effFilter, q, sort, view, custSort]);
+  }, [listLimit, totalListRows, effFilter, deferredQ, sort, view, custSort]);
 
   const quickSend = (job) => {
     if (!job.email) return showToast("No email on file — add one first");
@@ -738,9 +757,11 @@ export default function Jobs({ embedded, collapseGroups = false, activeJobId = "
   }, [q, api]);
   useEffect(() => () => clearTimeout(custTimer.current), []);
 
-  const openCustomer = (key, jobs = []) => {
-    touchCustomer(key, jobs);
+  const openCustomer = (key, jobsList = []) => {
+    // Navigate first — recording recency used to re-sort the whole list under the
+    // finger (multi-second lag) before the customer screen opened.
     nav("/customer/" + encodeURIComponent(key));
+    setTimeout(() => touchCustomer(key, jobsList), 0);
   };
 
   const confirmImport = async () => {
@@ -952,7 +973,7 @@ export default function Jobs({ embedded, collapseGroups = false, activeJobId = "
       ) : (
         <div className="space-y-2.5">
           {visibleParentRows.map((row) => {
-            const searchOn = !!q.trim();
+            const searchOn = !!deferredQ.trim();
             const visibleSubs = searchOn ? row.subs.filter((sub) => sub.jobs.some(matchesChip)) : row.subs;
             const multiSub = visibleSubs.length > 0;
             const expanded = groupExpanded(row.key);
@@ -1056,7 +1077,7 @@ export default function Jobs({ embedded, collapseGroups = false, activeJobId = "
           {visibleFlatGroups.map(([key, list]) => {
             const job = list[0];
             const customerName = boardCustomerLabel(job, list);
-            const showFullGroup = (effFilter === "Active" || effFilter === "All") && !q.trim();
+            const showFullGroup = (effFilter === "Active" || effFilter === "All") && !deferredQ.trim();
             const chipHits = list.filter(matchesChip);
             const displayList = showFullGroup ? list : chipHits.length ? chipHits : list;
             const sum = customerAmountSummary(showFullGroup ? list : displayList);

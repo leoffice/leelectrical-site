@@ -7,6 +7,10 @@ const MAX_ENTRIES = 400;
 const recencyListeners = new Set();
 let recencyRevision = 0;
 
+/** In-memory cache — Active-tab sort compares hundreds of customers and used to
+ *  re-parse localStorage on every comparison (multi-second freezes on open/type). */
+let cachedMap = null;
+
 /** Bump when recency changes so the customer list can re-sort without remounting. */
 export function getRecencyRevision() {
   return recencyRevision;
@@ -27,13 +31,15 @@ function notifyRecency() {
 }
 
 function loadMap() {
+  if (cachedMap) return cachedMap;
   try {
     const raw = localStorage.getItem(RECENCY_KEY);
     const parsed = raw ? JSON.parse(raw) : null;
-    return parsed && typeof parsed === "object" ? parsed : {};
+    cachedMap = parsed && typeof parsed === "object" ? parsed : {};
   } catch {
-    return {};
+    cachedMap = {};
   }
+  return cachedMap;
 }
 
 function saveMap(map) {
@@ -44,9 +50,15 @@ function saveMap(map) {
       .slice(MAX_ENTRIES)
       .forEach((k) => delete map[k]);
   }
+  cachedMap = map;
   try {
     localStorage.setItem(RECENCY_KEY, JSON.stringify(map));
   } catch {}
+}
+
+/** Test helper — drop the in-memory cache so the next read hits storage. */
+export function _resetRecencyCacheForTests() {
+  cachedMap = null;
 }
 
 /** All board keys that refer to the same customer (q:/c:/g: aliases). */
