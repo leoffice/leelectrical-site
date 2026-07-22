@@ -494,7 +494,8 @@ describe("12. sync chip + today view + jobs list", () => {
     const cmd = srv.enqueued("calendar_upsert")[0];
     expect(cmd.payload.calEventId || "").toBe("");
     expect(cmd.payload.start).toBe("2026-07-15T14:00");
-    expect(cmd.payload.description).toContain("leJobId:J-1");
+    // Job link is calEventId on the job — never dump leJobId into Google notes.
+    expect(cmd.payload.description || "").not.toMatch(/leJobId/i);
     // After save: choose back to calendar or same customer (not auto-jump).
     expect(await screen.findByTestId("after-duplicate-sheet")).toBeInTheDocument();
     expect(screen.getByTestId("after-dup-back")).toBeInTheDocument();

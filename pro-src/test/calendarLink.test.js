@@ -30,7 +30,7 @@ describe("calendar link state", () => {
           id: "pending-99",
           summary: "Inspection",
           start: "2099-01-01T09:00",
-          description: withJobLink("Created in LE Pro", "J-1"),
+          description: "Created in LE Pro\nleJobId:J-1",
         },
       ],
       [{ type: "calendar_upsert", jobId: "J-1", status: "working" }]
@@ -70,7 +70,7 @@ describe("calendar link state", () => {
       id: "ev-other",
       summary: "Service call",
       start: "2026-08-01T10:00",
-      description: withJobLink("Other visit", "J-1"),
+      description: "Other visit\nleJobId:J-1",
     };
     const unlinked = { ...job, _calUnlinked: true, calDismissedEventIds: ["ev-other"] };
     expect(eventForJob(unlinked, [ev])).toBe(null);

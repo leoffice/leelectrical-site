@@ -1,4 +1,6 @@
-// Job ↔ calendar appointment linking (calEventId on job + leJobId: tag in description).
+// Job ↔ calendar appointment linking — primary link is calEventId on the job.
+// Legacy leJobId: tags in descriptions are still stripped for display / reverse lookup,
+// but we never write them into Google Calendar notes (Levi 2026-07-22).
 
 import { evStart } from "./format.js";
 import { clientKey } from "./customers.js";
@@ -12,14 +14,9 @@ export function jobIdFromEventDescription(desc) {
   return m ? m[1].trim() : "";
 }
 
-export function withJobLink(description, jobId) {
-  const base = String(description || "")
-    .replace(JOB_TAG, "")
-    .replace(/\n{3,}/g, "\n\n")
-    .trim();
-  if (!jobId) return base;
-  const tag = "leJobId:" + jobId;
-  return base ? base + "\n" + tag : tag;
+/** Clean notes for Google Calendar — strips any legacy leJobId tag; does not re-add one. */
+export function withJobLink(description, _jobId) {
+  return displayEventNotes(description);
 }
 
 export function displayEventNotes(desc) {
