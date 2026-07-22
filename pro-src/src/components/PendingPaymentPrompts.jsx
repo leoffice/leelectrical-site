@@ -3,7 +3,7 @@
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { useStore, useStoreData } from "../state/store.jsx";
 import { appendPayment } from "../lib/payments.js";
-import { analyzePaymentImage, fileToBase64 } from "../lib/paymentVision.js";
+import { analyzePaymentImage, compressImageForVision } from "../lib/paymentVision.js";
 import {
   hasStrongPaymentAutofill,
   hasUsefulPaymentAutofill,
@@ -42,7 +42,8 @@ function collectPending(jobs, systemItems = []) {
 
 export default function PendingPaymentPrompts() {
   const { jobs, loading } = useStoreData();
-  const { patchJob, showToast, syncNow } = useStore();
+  // saveAll (not syncNow): approve must persist payments + queue QuickBooks record.
+  const { patchJob, showToast, saveAll } = useStore();
   const [systemItems, setSystemItems] = useState([]);
   const [current, setCurrent] = useState(null);
   const [amt, setAmt] = useState("");
@@ -55,11 +56,11 @@ export default function PendingPaymentPrompts() {
   const [autofillDone, setAutofillDone] = useState(false);
   const depositBanks = useMemo(() => getDepositBanks(), []);
 
-  // Load system queue (ov._pendingPayments) once after boot.
+  // Load system queue (ov._pendingPayments) on boot + poll so bank/pay-page items appear without reload.
   useEffect(() => {
     if (IS_TEST) return;
     let cancelled = false;
-    (async () => {
+    const load = async () => {
       try {
         const { default: api } = await import("../data/adapter.js");
         if (!api.getPendingPayments) return;
@@ -68,9 +69,17 @@ export default function PendingPaymentPrompts() {
       } catch {
         /* optional */
       }
-    })();
+    };
+    load();
+    const iv = setInterval(load, 45_000);
+    const onVis = () => {
+      if (!document.hidden) load();
+    };
+    document.addEventListener("visibilitychange", onVis);
     return () => {
       cancelled = true;
+      clearInterval(iv);
+      document.removeEventListener("visibilitychange", onVis);
     };
   }, []);
 
@@ -134,9 +143,9 @@ export default function PendingPaymentPrompts() {
       if (!res.ok) throw new Error("Could not load check photo");
       const blob = await res.blob();
       const file = new File([blob], current.fileName || "check.jpg", { type: blob.type || "image/jpeg" });
-      const b64 = await fileToBase64(file);
-      const kind = current.kind === "zelle" ? "zelle" : "check";
-      const { extracted } = await analyzePaymentImage(b64, file.type || "image/jpeg", kind, file.name);
+      const { b64, mime } = await compressImageForVision(file);
+      const kindHint = current.kind === "zelle" ? "zelle" : "check";
+      const { extracted } = await analyzePaymentImage(b64, mime || "image/jpeg", kindHint, file.name);
       if (!hasUsefulPaymentAutofill(extracted)) {
         showToast("Couldn't read amount or number — enter them manually");
         return;
@@ -157,9 +166,20 @@ export default function PendingPaymentPrompts() {
 
   const onApprove = async () => {
     if (!current) return;
-    const job = current.job || (jobs || []).find((j) => String(j.id) === String(current.jobId));
+    let job =
+      current.job ||
+      (jobs || []).find((j) => String(j.id) === String(current.jobId));
+    // Fall back: match invoice # when the system queue has no hard job id.
+    if (!job && current.invoiceNo) {
+      const inv = String(current.invoiceNo).trim();
+      job = (jobs || []).find(
+        (j) =>
+          String(j.invoiceNo || "").trim() === inv ||
+          String(j.estimateNo || "").trim() === inv
+      );
+    }
     if (!job) {
-      showToast("Open the invoice first — job not loaded");
+      showToast("Couldn’t find that job — open the invoice, then Approve again");
       return;
     }
     const payAmt = parseFloat(String(amt).replace(/[$,]/g, "")) || 0;
@@ -197,16 +217,20 @@ export default function PendingPaymentPrompts() {
       });
       await clearPending(current, "approved");
       setCurrent(null);
-      showToast(
-        patch.paid
-          ? "Payment approved — Save & sync to record in QuickBooks"
-          : `Partial payment staged (${fmt$(payAmt)}) — Save & sync for QuickBooks`
-      );
-      // Best-effort immediate sync so LE Pro balance updates without an extra tap.
+      // Persist + queue record_payment (same path as job Payment tab Save & sync).
       try {
-        await syncNow?.();
+        await saveAll?.();
+        showToast(
+          patch.paid
+            ? "Payment approved and saved — recording in QuickBooks"
+            : `Partial payment approved (${fmt$(payAmt)}) — saved to the job`
+        );
       } catch {
-        /* staged is enough */
+        showToast(
+          patch.paid
+            ? "Payment staged — tap Save & sync if the balance didn’t update"
+            : `Partial payment staged (${fmt$(payAmt)}) — tap Save & sync to finish`
+        );
       }
     } finally {
       setBusy(false);

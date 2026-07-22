@@ -16,6 +16,43 @@ export function fileToBase64(file) {
 }
 
 /**
+ * Downscale large payment photos before vision (phone check pics are often 3–8MB
+ * and trip gateway 502s). Returns { b64, mime }. Falls back to original on failure.
+ */
+export async function compressImageForVision(file, maxEdge = 1600, quality = 0.82) {
+  if (!file || typeof createImageBitmap !== "function") {
+    const b64 = await fileToBase64(file);
+    return { b64, mime: file?.type || "image/jpeg" };
+  }
+  try {
+    const bmp = await createImageBitmap(file);
+    const scale = Math.min(1, maxEdge / Math.max(bmp.width, bmp.height));
+    const w = Math.max(1, Math.round(bmp.width * scale));
+    const h = Math.max(1, Math.round(bmp.height * scale));
+    const canvas = document.createElement("canvas");
+    canvas.width = w;
+    canvas.height = h;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) {
+      const b64 = await fileToBase64(file);
+      return { b64, mime: file.type || "image/jpeg" };
+    }
+    ctx.drawImage(bmp, 0, 0, w, h);
+    bmp.close?.();
+    const blob = await new Promise((resolve) => canvas.toBlob(resolve, "image/jpeg", quality));
+    if (!blob) {
+      const b64 = await fileToBase64(file);
+      return { b64, mime: file.type || "image/jpeg" };
+    }
+    const b64 = await fileToBase64(new File([blob], "vision.jpg", { type: "image/jpeg" }));
+    return { b64, mime: "image/jpeg" };
+  } catch {
+    const b64 = await fileToBase64(file);
+    return { b64, mime: file?.type || "image/jpeg" };
+  }
+}
+
+/**
  * Analyze a payment screenshot via backend vision.
  * @param {string} imageBase64 — raw base64, no data: prefix
  * @param {string} mime — e.g. image/png
