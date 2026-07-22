@@ -6,6 +6,7 @@ import {
   buildCustomerTransactions,
   formatTxnAmount,
   txnFilterCounts,
+  txnKindStyle,
 } from "../lib/customerTransactions.js";
 import { amountPaid, openBalance, paidPct } from "../lib/customers.js";
 import { fmt$ } from "../lib/format.js";
@@ -18,9 +19,7 @@ const FILTERS = [
 ];
 
 function Row({ row }) {
-  const kindLabel =
-    row.kind === "payment" ? "Payment" : row.kind === "estimate" ? "Estimate" : "Invoice";
-  const kindClass = row.kind === "payment" ? "text-emerald-600" : "text-slate-400";
+  const kind = txnKindStyle(row.kind);
   const amount =
     row.kind === "payment"
       ? formatTxnAmount(row.amount)
@@ -48,8 +47,13 @@ function Row({ row }) {
     >
       <div className="flex items-center justify-between gap-2 min-w-0">
         <div className="flex items-center gap-1.5 min-w-0 flex-1 overflow-hidden">
-          <span className={"text-[10px] font-extrabold uppercase tracking-wide shrink-0 " + kindClass}>
-            {kindLabel}
+          <span
+            className={
+              "text-[10px] font-extrabold uppercase tracking-wide shrink-0 " + kind.className
+            }
+            data-testid={"job-txn-kind-" + row.kind}
+          >
+            {kind.label}
           </span>
           {row.dateLabel ? (
             <span className="text-[11px] text-slate-500 tabular-nums shrink-0">{row.dateLabel}</span>

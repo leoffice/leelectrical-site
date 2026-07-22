@@ -17,6 +17,17 @@ const LINK_COLORS = [
   { bg: "bg-orange-100", text: "text-orange-900", ring: "ring-orange-200" },
 ];
 
+/** Type-word colors on the row label (Payment / Invoice / Estimate). */
+export const TXN_KIND_STYLES = {
+  payment: { label: "Payment", className: "text-emerald-600" },
+  invoice: { label: "Invoice", className: "text-sky-700" },
+  estimate: { label: "Estimate", className: "text-amber-700" },
+};
+
+export function txnKindStyle(kind) {
+  return TXN_KIND_STYLES[kind] || TXN_KIND_STYLES.invoice;
+}
+
 /** Stable color pair for an invoice / estimate number. */
 export function linkColorForDoc(docNo) {
   const s = String(docNo || "").trim();
@@ -24,6 +35,16 @@ export function linkColorForDoc(docNo) {
   let h = 0;
   for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) >>> 0;
   return LINK_COLORS[h % LINK_COLORS.length];
+}
+
+/**
+ * Color key for linked docs: invoice family shares one color.
+ * Prefer invoice # (same job or linked), else estimate #.
+ */
+export function linkColorKeyForJob(job) {
+  const inv = String(job?.invoiceNo || job?.linkedInvoiceNo || "").trim();
+  if (inv) return inv;
+  return String(job?.estimateNo || "").trim();
 }
 
 /** Short date like Mar/06/26 or 03/15/26 from ISO / US strings. */
@@ -72,6 +93,9 @@ export function buildCustomerTransactions(jobs, { filter = "all", sort = "new" }
     if (!j || j._archived || j._deleted) continue;
     const address = serviceAddressDisplay(j);
 
+    const familyKey = linkColorKeyForJob(j);
+    const familyColor = familyKey ? linkColorForDoc(familyKey) : LINK_COLORS[0];
+
     if (j.invoiceNo) {
       const total = invoiceTotal(j);
       const due = openBalance(j);
@@ -87,7 +111,7 @@ export function buildCustomerTransactions(jobs, { filter = "all", sort = "new" }
         total,
         due,
         dateLabel: shortTxnDate(dateRaw),
-        color: linkColorForDoc(j.invoiceNo),
+        color: familyColor,
       });
     }
 
@@ -104,7 +128,8 @@ export function buildCustomerTransactions(jobs, { filter = "all", sort = "new" }
         total: invoiceTotal(j),
         due: 0,
         dateLabel: shortTxnDate(dateRaw),
-        color: linkColorForDoc(j.estimateNo),
+        // Same bubble color as the invoice when linked (same job or linkedInvoiceNo)
+        color: familyColor,
       });
     }
 
@@ -119,10 +144,10 @@ export function buildCustomerTransactions(jobs, { filter = "all", sort = "new" }
         payment: p,
         amount: p.amount,
         method: normalizePaymentMethod(p.method, { note: p.note, ref: p.ref }),
-        docNo: j.invoiceNo ? String(j.invoiceNo) : "",
+        docNo: j.invoiceNo ? String(j.invoiceNo) : j.linkedInvoiceNo ? String(j.linkedInvoiceNo) : "",
         address,
         dateLabel: shortTxnDate(dateRaw),
-        color: j.invoiceNo ? linkColorForDoc(j.invoiceNo) : LINK_COLORS[0],
+        color: familyColor,
       });
     }
   }

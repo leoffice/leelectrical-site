@@ -3,8 +3,10 @@ import { describe, expect, it } from "vitest";
 import {
   buildCustomerTransactions,
   linkColorForDoc,
+  linkColorKeyForJob,
   shortTxnDate,
   txnFilterCounts,
+  txnKindStyle,
 } from "../src/lib/customerTransactions.js";
 
 describe("customerTransactions", () => {
@@ -13,6 +15,7 @@ describe("customerTransactions", () => {
       id: "j1",
       customer: "Acme Co",
       invoiceNo: "1001",
+      estimateNo: "E-1001",
       invoiceDate: "2026-07-01",
       amount: "1000",
       openBalance: 400,
@@ -45,6 +48,59 @@ describe("customerTransactions", () => {
     expect(linkColorForDoc("1001").bg).toBeTruthy();
     // Different numbers may share a color from the palette — just ensure object shape.
     expect(linkColorForDoc("9999").text).toMatch(/^text-/);
+  });
+
+  it("txnKindStyle gives distinct colors for payment, invoice, estimate", () => {
+    expect(txnKindStyle("payment").label).toBe("Payment");
+    expect(txnKindStyle("invoice").label).toBe("Invoice");
+    expect(txnKindStyle("estimate").label).toBe("Estimate");
+    expect(txnKindStyle("payment").className).toMatch(/emerald/);
+    expect(txnKindStyle("invoice").className).toMatch(/sky/);
+    expect(txnKindStyle("estimate").className).toMatch(/amber/);
+    expect(txnKindStyle("payment").className).not.toBe(txnKindStyle("invoice").className);
+    expect(txnKindStyle("invoice").className).not.toBe(txnKindStyle("estimate").className);
+  });
+
+  it("linkColorKeyForJob prefers invoice / linked invoice over estimate", () => {
+    expect(linkColorKeyForJob({ invoiceNo: "1001", estimateNo: "E-9" })).toBe("1001");
+    expect(linkColorKeyForJob({ linkedInvoiceNo: "1001", estimateNo: "E-9" })).toBe("1001");
+    expect(linkColorKeyForJob({ estimateNo: "E-9" })).toBe("E-9");
+  });
+
+  it("linked estimate+invoice on same job share bubble color", () => {
+    const rows = buildCustomerTransactions(jobs, { filter: "all" });
+    const inv = rows.find((r) => r.kind === "invoice" && r.docNo === "1001");
+    const est = rows.find((r) => r.kind === "estimate" && r.docNo === "E-1001");
+    const pay = rows.find((r) => r.kind === "payment" && r.docNo === "1001");
+    expect(inv.color).toEqual(est.color);
+    expect(inv.color).toEqual(pay.color);
+  });
+
+  it("estimate linked via linkedInvoiceNo matches that invoice color", () => {
+    const linked = [
+      {
+        id: "inv",
+        customer: "Acme",
+        invoiceNo: "5000",
+        invoiceDate: "2026-07-01",
+        amount: "800",
+        serviceAddress: "1 A St",
+      },
+      {
+        id: "est",
+        customer: "Acme",
+        estimateNo: "E-5000",
+        estimateDate: "2026-06-20",
+        linkedInvoiceNo: "5000",
+        amount: "800",
+        serviceAddress: "1 A St",
+      },
+    ];
+    const rows = buildCustomerTransactions(linked, { filter: "all" });
+    const inv = rows.find((r) => r.kind === "invoice");
+    const est = rows.find((r) => r.kind === "estimate");
+    expect(inv.color).toEqual(est.color);
+    expect(est.color).toEqual(linkColorForDoc("5000"));
   });
 
   it("shortTxnDate formats ISO dates", () => {
@@ -85,8 +141,8 @@ describe("customerTransactions", () => {
     const c = txnFilterCounts(jobs);
     expect(c.invoices).toBe(2);
     expect(c.payments).toBe(2);
-    expect(c.estimates).toBe(1);
-    expect(c.all).toBe(5);
+    expect(c.estimates).toBe(2); // standalone E-9 + E-1001 on j1
+    expect(c.all).toBe(6);
   });
 
   it("invoice shows due when different from total", () => {

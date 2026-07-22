@@ -5,10 +5,12 @@ import {
 } from "./brand.js";
 // QuickBooks-clone invoice/estimate PDF — 100% client-side byte-writer port of
 // netlify/functions/lib/le-invoice-suite/qb-pdf.js (the server pdfkit template).
-// Layout (Levi 2026-07-22):
+// Layout (Levi 2026-07-22 follow-up):
 //   Top-left company · centered logo · top-right ESTIMATE/INVOICE + meta
-//   Billing address | Service address side-by-side
-//   Description table raised; multi-page when description is long so totals never clip
+//   Bigger gap under logo → billing | service (| apt) closer to description
+//   Meta: gray labels : values, colon centered under first letter of title
+//   Estimate acceptance on its own page; page N of M only when multi-page
+//   Powered by LE bottom-left; page numbers same baseline when multi-page
 import { LE_LOGO_JPEG, leLogoJpegBytes } from "./leLogoJpeg.js";
 import { activeTenantConfig, tenantCompany } from "./tenantBranding.js";
 import { wrapPrintDescription } from "./printDescription.js";
@@ -174,10 +176,11 @@ export function buildQbDocPdf(data) {
       : Math.max(0, Math.round((subtotal + tax - discount) * 100) / 100);
   const payment = Number(data.payment || 0);
 
-  // ---- Layout constants (Levi 2026-07-22 + polish) -----------------------
+  // ---- Layout constants (Levi 2026-07-22 printout polish) ----------------
   // Logo top y=36; ESTIMATE/INVOICE title sits at same height top-right.
-  // Meta labels + values start under the left edge of that green title word
-  // (right side of page, not flush edge) — Levi 2026-07-22 follow-up.
+  // Meta: gray label : value — colon centered under the first letter (E/I).
+  // Addresses drop further under the logo so there's more air at the top,
+  // and sit tight above the green DESCRIPTION bar.
   const LOGO = { x: 254.25, y: 36, w: 103.5, h: 81 };
   const TITLE_SIZE = 16; // bold green title — nicer weight than body
   const TITLE_Y = 50; // same height band as logo top / company name
@@ -185,23 +188,41 @@ export function buildQbDocPdf(data) {
   const META_LEAD = 13.5;
   const META_LABEL_SIZE = 8.5;
   const META_VALUE_SIZE = 9.5;
-  const META_GAP = 8; // space between gray label and value
-  const ADDR_COL_RIGHT = 306; // service address column (halfway across page)
-  const ADDR_GAP_BELOW = 10; // gap under header before addresses (tighter)
-  const TABLE_GAP_ABOVE = 6; // pull green DESCRIPTION bar up a little
+  const META_COLON_GAP = 3; // space around the ":" between label and value
+  const ADDR_COL_RIGHT = 306; // service address column (halfway) when no apt
+  const ADDR_COL_SVC_WITH_APT = 220; // service slides left when APT is parallel
+  const ADDR_COL_APT = 460; // APT column (parallel third field)
+  const ADDR_GAP_BELOW = 28; // bigger gap under logo → addresses lower
+  const TABLE_GAP_ABOVE = 8; // addresses stay close to description bar
   const LEAD = 13.5;
   const descTextX = 39.75;
   const descW = 396.5 - 39.75;
 
-  // Service address from customFields (preferred) or explicit field
+  // Service address from customFields (preferred) or explicit field.
+  // Strip trailing ", Apt X" so apartment can print as its own parallel field.
   const svcField =
     (data.customFields || []).find((cf) => cf && /service\s*address/i.test(String(cf.label || "")) && cf.value) ||
     null;
-  const serviceAddress = svcField
+  let serviceAddress = svcField
     ? String(svcField.value)
     : data.serviceAddress
       ? String(data.serviceAddress)
       : "";
+  const apartmentRaw = String(data.apartment || "").trim().replace(/^#/, "");
+  // Prefer explicit apartment; fall back to Apt suffix baked into service line.
+  let apartment = apartmentRaw;
+  if (!apartment && serviceAddress) {
+    const m = serviceAddress.match(/,?\s*Apt\.?\s*#?\s*([A-Za-z0-9\-]+)\s*$/i);
+    if (m) {
+      apartment = m[1];
+      serviceAddress = serviceAddress.replace(/,?\s*Apt\.?\s*#?\s*[A-Za-z0-9\-]+\s*$/i, "").trim();
+    }
+  } else if (apartment && serviceAddress) {
+    const aptEsc = apartment.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    serviceAddress = serviceAddress
+      .replace(new RegExp(`,?\\s*Apt\\.?\\s*#?\\s*${aptEsc}\\s*$`, "i"), "")
+      .trim();
+  }
 
   // Precompute message blocks
   let paymentMsg = null;
@@ -267,30 +288,38 @@ export function buildQbDocPdf(data) {
   // ---- PAGE 1 HEADER: company left · logo center · title+meta right ------
   const companyBottom = drawCompanyLogo(pg);
 
-  // Bold green title top-right; meta hangs under its left edge (not page-left)
+  // Bold green title top-right
   const titleRight = PAGE_W - M;
   const titleW = textWidth(docType, TITLE_SIZE, true);
   const titleLeft = titleRight - titleW;
   pg.text(titleRight, TITLE_Y, docType, { size: TITLE_SIZE, bold: true, color: GREEN, align: "right" });
 
-  // Meta under the green title: labels + values start at titleLeft, close together
+  // Meta under title: gray LABEL : value
+  // Colon center sits under the first letter (E of ESTIMATE / I of INVOICE).
+  // Labels right-align into the colon; values left-align after it.
   const rightRows = [[docType, data.docNumber], ["DATE", data.date]];
   if (!isEstimate && data.dueDate) rightRows.push(["DUE DATE", data.dueDate]);
   if (!isEstimate && data.terms) rightRows.push(["TERMS", data.terms]);
-  const labelColW = Math.max(
-    ...rightRows.map(([label]) => textWidth(label, META_LABEL_SIZE, false)),
-    textWidth("DUE DATE", META_LABEL_SIZE, false)
-  );
-  const valueX = titleLeft + labelColW + META_GAP;
+  const firstLetter = docType.charAt(0) || "I";
+  const letterW = textWidth(firstLetter, TITLE_SIZE, true);
+  const colonCenterX = titleLeft + letterW / 2;
+  const colonStr = ":";
+  const colonW = textWidth(colonStr, META_LABEL_SIZE, false);
+  const colonLeft = colonCenterX - colonW / 2;
+  const labelRightEdge = colonLeft - META_COLON_GAP;
+  const valueX = colonLeft + colonW + META_COLON_GAP;
   let ry = META_Y;
   for (const [label, value] of rightRows) {
-    pg.text(titleLeft, ry, label, { size: META_LABEL_SIZE, color: GRAY });
+    pg.text(labelRightEdge, ry, label, { size: META_LABEL_SIZE, color: GRAY, align: "right" });
+    pg.text(colonLeft, ry, colonStr, { size: META_LABEL_SIZE, color: GRAY });
     pg.text(valueX, ry, String(value ?? ""), { size: META_VALUE_SIZE, color: BLACK });
     ry += META_LEAD;
   }
   const rightBottom = ry;
 
-  // ---- ADDRESSES: billing left · service right (parallel) ---------------
+  // ---- ADDRESSES: billing | service (| apt parallel) --------------------
+  // Drop further under the logo so the top has more air; sit tight above the
+  // green DESCRIPTION bar (Levi: addresses closer to the description box).
   let addrTop = Math.max(companyBottom, LOGO.y + LOGO.h, rightBottom) + ADDR_GAP_BELOW;
 
   const billLines = [data.billTo?.name, ...(data.billTo?.addressLines || [])].filter(Boolean);
@@ -300,6 +329,11 @@ export function buildQbDocPdf(data) {
         .map((s) => s.trim())
         .filter(Boolean)
     : [];
+  const hasApt = !!apartment;
+  const svcColX = hasApt ? ADDR_COL_SVC_WITH_APT : ADDR_COL_RIGHT;
+  const svcMaxW = hasApt
+    ? ADDR_COL_APT - svcColX - 8
+    : PAGE_W - M - ADDR_COL_RIGHT;
 
   // BILLING ADDRESS (left)
   pg.text(M, addrTop, "BILLING ADDRESS", { size: 9.15, color: GRAY });
@@ -309,23 +343,31 @@ export function buildQbDocPdf(data) {
     by += 14.25;
   }
 
-  // SERVICE ADDRESS (right half — parallel)
+  // SERVICE ADDRESS (middle/right — parallel)
   let sy = addrTop;
   if (svcLines.length) {
-    pg.text(ADDR_COL_RIGHT, addrTop, "SERVICE ADDRESS", { size: 9.15, color: GRAY });
+    pg.text(svcColX, addrTop, "SERVICE ADDRESS", { size: 9.15, color: GRAY });
     sy = addrTop + 13.5;
     for (const ln of svcLines) {
-      // wrap long single-line service addresses into the right column
-      const wrapped = wrap(ln, PAGE_W - M - ADDR_COL_RIGHT, 9.15);
+      const wrapped = wrap(ln, svcMaxW, 9.15);
       for (const wl of wrapped) {
-        pg.text(ADDR_COL_RIGHT, sy, wl, { size: 9.15, color: BLACK });
+        pg.text(svcColX, sy, wl, { size: 9.15, color: BLACK });
         sy += 14.25;
       }
     }
   }
 
-  // ---- DESCRIPTION TABLE (raised — green bar sits tight under addresses) -
-  const tableTop = Math.max(by, sy) + TABLE_GAP_ABOVE;
+  // APT (parallel third field when present)
+  let ay = addrTop;
+  if (hasApt) {
+    pg.text(ADDR_COL_APT, addrTop, "APT", { size: 9.15, color: GRAY });
+    ay = addrTop + 13.5;
+    pg.text(ADDR_COL_APT, ay, apartment, { size: 9.15, color: BLACK });
+    ay += 14.25;
+  }
+
+  // ---- DESCRIPTION TABLE (tight under addresses) ------------------------
+  const tableTop = Math.max(by, sy, ay) + TABLE_GAP_ABOVE;
   let cursor = drawTableHeader(pg, tableTop);
 
   if (data.serviceDate) {
@@ -443,10 +485,19 @@ export function buildQbDocPdf(data) {
     }
   }
 
+  // Estimate acceptance = its own page (whole chunk — not piled under totals).
   const showAcceptance = data.showAcceptance != null ? data.showAcceptance : isEstimate;
   if (showAcceptance) {
-    pg.text(M, ty + 54, "Accepted By", { size: 9.15, color: GRAY });
-    pg.text(M, ty + 81, "Accepted Date", { size: 9.15, color: GRAY });
+    pg = Page();
+    pages.push(pg);
+    drawCompanyLogo(pg);
+    // Clean signature block with room to sign — not cramped on page 1.
+    const acceptTop = 200;
+    pg.text(M, acceptTop, "Accepted By", { size: 11, color: GRAY });
+    // Signature underline
+    pg.dottedRule(M, M + 280, acceptTop + 36);
+    pg.text(M, acceptTop + 90, "Accepted Date", { size: 11, color: GRAY });
+    pg.dottedRule(M, M + 180, acceptTop + 126);
   }
 
   // ---- FOOTERS on every page --------------------------------------------
@@ -458,6 +509,7 @@ export function buildQbDocPdf(data) {
       `Phone: ${company.phone} Email: ${company.email}`,
     ];
   const pageCount = pages.length;
+  const multiPage = pageCount > 1;
   pages.forEach((page, idx) => {
     page.center(fLines[0], 706, { size: 10, color: GRAY });
     let fy = 734;
@@ -465,11 +517,19 @@ export function buildQbDocPdf(data) {
       page.center(l, fy, { size: 10, color: GRAY });
       fy += 14;
     }
-    page.center(`Page ${idx + 1} of ${pageCount}`, fy, { size: 10, color: GRAY });
-    page.center(POWERED_BY_LE, fy + 14, {
+    // Powered by LE bottom-left. Page N of M only when multi-page, same line.
+    const bottomY = fy + 4;
+    page.text(M, bottomY, POWERED_BY_LE, {
       size: POWERED_BY_LE_PDF_SIZE,
       color: POWERED_BY_LE_PDF_COLOR,
     });
+    if (multiPage) {
+      page.text(PAGE_W - M, bottomY, `Page ${idx + 1} of ${pageCount}`, {
+        size: 10,
+        color: GRAY,
+        align: "right",
+      });
+    }
   });
 
   const image = { name: "ImLogo", width: LE_LOGO_JPEG.width, height: LE_LOGO_JPEG.height, bytes: leLogoJpegBytes() };

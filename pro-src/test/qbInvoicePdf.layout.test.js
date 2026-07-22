@@ -87,26 +87,78 @@ describe("qbInvoicePdf layout (Levi 2026-07-22)", () => {
     expect(text).toContain("BALANCE DUE");
   });
 
-  it("aligns meta labels under the green title (not far left at 396)", async () => {
+  it("puts colon between gray meta labels and values under first letter of title", async () => {
     const data = mapJobToQbDocData(baseJob, "invoice");
     const blob = buildQbDocPdf(data);
     const text = await pdfText(blob);
     const ops = parseTextOps(text);
-    // Bold green title (F2, size 16) right-side
+    // Bold green title (F2, size 16) right-side — title.x is left edge (E/I)
     const title = ops.find((o) => o.str === "INVOICE" && o.font === "F2" && o.size === 16);
     expect(title).toBeTruthy();
-    // Gray meta label "DATE" should start at same x as title left edge
+    // Colon between gray label and value
+    const colon = ops.find((o) => o.str === ":" && o.font === "F1" && o.size === 8.5);
+    expect(colon).toBeTruthy();
+    // Colon roughly under the first letter (I) of INVOICE
+    const titleLeft = title.x;
+    expect(colon.x).toBeGreaterThan(titleLeft - 4);
+    expect(colon.x).toBeLessThan(titleLeft + 20);
+    // Gray label is right-aligned into the colon (label.x is its left edge after align:right)
     const dateLabel = ops.find((o) => o.str === "DATE" && o.font === "F1" && o.size === 8.5);
     expect(dateLabel).toBeTruthy();
-    // Title is right-aligned; its left edge ≈ title.x; meta labels share that x
-    expect(Math.abs(dateLabel.x - title.x)).toBeLessThan(1);
-    // Not the old far-left meta column
-    expect(dateLabel.x).toBeGreaterThan(450);
-    // Value sits close to the right of the label (not the old 477 fixed column alone)
+    expect(dateLabel.x).toBeLessThan(colon.x);
+    // Value sits just to the right of the colon
     const invNo = ops.find((o) => o.str === "251900");
     expect(invNo).toBeTruthy();
-    expect(invNo.x).toBeGreaterThan(dateLabel.x);
-    expect(invNo.x - dateLabel.x).toBeLessThan(80);
+    expect(invNo.x).toBeGreaterThan(colon.x);
+    expect(invNo.x - colon.x).toBeLessThan(20);
+  });
+
+  it("prints APT as a parallel field when apartment is set", async () => {
+    const data = mapJobToQbDocData(
+      {
+        ...baseJob,
+        apartment: "4B",
+      },
+      "invoice"
+    );
+    const blob = buildQbDocPdf(data);
+    const text = await pdfText(blob);
+    expect(text).toContain("APT");
+    expect(text).toContain("4B");
+    expect(text).toContain("SERVICE ADDRESS");
+    // Not baked into the street line as "Apt 4B"
+    expect(text).not.toMatch(/Apt\s*4B/i);
+  });
+
+  it("puts estimate acceptance on its own page (not piled under totals)", async () => {
+    const data = mapJobToQbDocData(baseJob, "estimate");
+    const blob = buildQbDocPdf(data);
+    const text = await pdfText(blob);
+    expect(text).toContain("Accepted By");
+    expect(text).toContain("Accepted Date");
+    // Acceptance forces a second page → page numbers appear
+    expect(text).toMatch(/Page 1 of 2/);
+    expect(text).toMatch(/Page 2 of 2/);
+  });
+
+  it("omits Page 1 of 1 on single-page invoices", async () => {
+    const data = mapJobToQbDocData(baseJob, "invoice");
+    const blob = buildQbDocPdf(data);
+    const text = await pdfText(blob);
+    expect(text).toContain("BALANCE DUE");
+    expect(text).not.toMatch(/Page 1 of 1/);
+    expect(text).toContain("Powered by LE");
+  });
+
+  it("puts Powered by LE bottom-left (not centered)", async () => {
+    const data = mapJobToQbDocData(baseJob, "invoice");
+    const blob = buildQbDocPdf(data);
+    const text = await pdfText(blob);
+    const ops = parseTextOps(text);
+    const mark = ops.find((o) => o.str === "Powered by LE");
+    expect(mark).toBeTruthy();
+    // Left margin ≈ 36
+    expect(mark.x).toBeLessThan(50);
   });
 
   it("paginates a long description so SUBTOTAL still appears", async () => {
