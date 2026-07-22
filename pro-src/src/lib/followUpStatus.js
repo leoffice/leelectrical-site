@@ -6,15 +6,12 @@ import { openBalance, invoiceTotal, invoiceAgeDays } from "./customers.js";
 import { serviceAddressDisplay } from "./customerSync.js";
 import { jobInvoiceDateDisplay, jobServiceDateDisplay } from "./customerDocLists.js";
 import { fmt$ } from "./format.js";
+import { daysBetween, localYmd } from "./dateUtils.js";
 
 /** Don't nag on unsent invoices older than this (Levi 2026-07-22). */
 export const UNSENT_INVOICE_MAX_AGE_DAYS = 365;
-
-function daysBetween(earlier, later) {
-  const a = new Date(String(earlier) + "T12:00:00").getTime();
-  const b = new Date(String(later) + "T12:00:00").getTime();
-  return Math.max(0, Math.floor((b - a) / 86400000));
-}
+/** Unsent estimate reminders older than this many days are suppressed (Levi 2026-07-22). */
+export const UNSENT_ESTIMATE_MAX_AGE_DAYS = 30;
 
 export const SENT_FOLLOWUP_DAYS = 7;
 export const UNSENT_DISMISS_KEY = "lepro_unsent_dismissed";
@@ -229,6 +226,27 @@ export function isUnsentSnoozed(jobId, docKind, now = new Date()) {
   return true;
 }
 
+/**
+ * Document date for an estimate (never modified/updated timestamps).
+ * Estimate-first order; falls back to invoice date fields only when needed.
+ * @returns {string} YYYY-MM-DD or "" when undated
+ */
+export function estimateDateYmd(job) {
+  const raw =
+    job?.estimateDate ||
+    job?.status?.Estimate?.d ||
+    job?.invoiceDate ||
+    job?.status?.Invoiced?.d ||
+    job?.txnDate ||
+    job?.date ||
+    "";
+  const ymd = String(raw || "").trim().slice(0, 10);
+  return /^\d{4}-\d{2}-\d{2}$/.test(ymd) ? ymd : "";
+}
+
+/** Last unsentDocCandidates run: how many undated estimates were suppressed. */
+export let lastUndatedEstimateSuppressCount = 0;
+
 /** Active jobs with a generated doc that was never emailed. */
 export function unsentDocCandidates(
   jobs,
@@ -236,21 +254,31 @@ export function unsentDocCandidates(
   { dismissed = loadUnsentDismissed(), now = new Date() } = {}
 ) {
   const out = [];
+  let undatedEstimates = 0;
   const nowMs = now instanceof Date ? now.getTime() : Date.now();
+  const todayYmd = localYmd(now);
   for (const job of jobs || []) {
     if (!job?.id || job.paid || job._archived || job._deleted) continue;
     for (const kind of ["invoice", "estimate"]) {
       if (!docNeverSent(job, kind, commands)) continue;
       if (dismissed[unsentKey(job.id, kind)]) continue;
       if (isUnsentSnoozed(job.id, kind, now)) continue;
-      // Skip ancient invoices — older than 1 year never becomes a reminder (batch report later).
+      // Invoices: skip older than 1 year. Estimates: only last ~month; undated suppressed.
       if (kind === "invoice") {
         const age = invoiceAgeDays(job, nowMs);
         if (age > UNSENT_INVOICE_MAX_AGE_DAYS) continue;
+      } else if (kind === "estimate") {
+        const estYmd = estimateDateYmd(job);
+        if (!estYmd) {
+          undatedEstimates += 1;
+          continue;
+        }
+        if (daysBetween(estYmd, todayYmd) > UNSENT_ESTIMATE_MAX_AGE_DAYS) continue;
       }
       out.push({ job, docKind: kind, docNo: kind === "invoice" ? job.invoiceNo : job.estimateNo });
     }
   }
+  lastUndatedEstimateSuppressCount = undatedEstimates;
   return out.sort((a, b) => String(b.job.id).localeCompare(String(a.job.id)));
 }
 

@@ -874,7 +874,14 @@ export default function Jobs({ embedded, collapseGroups = false, activeJobId = "
               className="input !w-auto !py-1.5 !px-2.5 !text-xs shrink-0 text-left"
               aria-label="Sort customers"
               data-testid="sort-customers"
-              onClick={() => setSortSheet(true)}
+              onClick={(e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                // Sort sheet only — fold open cards so dimmer doesn't look like a stuck customer.
+                setExpanded({});
+                setOpen({});
+                setSortSheet(true);
+              }}
             >
               {CUSTOMER_SORTS.find((o) => o.key === custSort)?.label} ▾
             </button>

@@ -2,6 +2,7 @@
 import { evStart } from "./format.js";
 import { linkedJobForEvent, suggestJobsForEvent } from "./calendarLink.js";
 import { addDays } from "./calendarDue.js";
+import { daysBetween } from "./dateUtils.js";
 import {
   assessJobFollowUp,
   docNeverSent,
@@ -21,6 +22,9 @@ export {
   OVERFLOW_REMINDER_MESSAGE,
   PROMPT_QUEUE_CAP,
 } from "./promptQueueCap.js";
+
+/** Days between two YYYY-MM-DD strings (floor). Shared helper re-export. */
+export { daysBetween } from "./dateUtils.js";
 
 export const STATE_KEY = "lepro_followup_state";
 export const SERVICE_LOOKBACK_DAYS = 7;
@@ -865,13 +869,6 @@ export function buildPromptQueue(events, jobs, today, now = new Date(), commands
   // Reserve shared popup slots so name-sort cards cannot exceed the five-card total.
   claimReminderSlots(held.length, now instanceof Date ? now : new Date());
   return applyPromptQueueCap(held, PROMPT_QUEUE_CAP);
-}
-
-/** Days between two YYYY-MM-DD strings (floor). */
-export function daysBetween(earlier, later) {
-  const a = new Date(String(earlier) + "T12:00:00").getTime();
-  const b = new Date(String(later) + "T12:00:00").getTime();
-  return Math.max(0, Math.floor((b - a) / 86400000));
 }
 
 function firstName(customer) {
