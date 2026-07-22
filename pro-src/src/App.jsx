@@ -64,6 +64,7 @@ import Sheet, { Opt } from "./components/Sheet.jsx";
 import { appointmentContextFromRoute } from "./lib/appointmentContext.js";
 import { logOff } from "./lib/lock.js";
 import { useAppSettings } from "./lib/appSettings.js";
+import { isAssistantEntitledLocally } from "./lib/assistantLicenseClient.js";
 
 
 /**
@@ -247,6 +248,8 @@ export default function App() {
 
   const chrome = useMemo(() => tenantChrome(config), [config]);
   const internal = config.internal === true;
+  // Paid AI assistant: LE (seller) always unlocked; other tenants need a license token.
+  const assistantOk = isAssistantEntitledLocally({ internal });
 
   // Nav links and registered routes are derived from the SAME allow-list, so
   // a disabled module cannot be hidden-but-reachable. See lib/tenantNav.js.
@@ -407,7 +410,7 @@ export default function App() {
             ＋
           </DesktopFab>
         ) : null}
-        {isDesktop ? (
+        {isDesktop && assistantOk ? (
           <DesktopFab
             onClick={toggleChat}
             ariaLabel="Chat with Dispatch"
@@ -419,7 +422,7 @@ export default function App() {
           </DesktopFab>
         ) : null}
 
-        <ChatBubble />
+        {assistantOk ? <ChatBubble /> : null}
         <VoiceFlowBubble />
         <NewJobFlow />
         <ApprovalWatcher />
@@ -447,7 +450,7 @@ export default function App() {
               className="flex items-center justify-center gap-1 px-1 shrink-0 border-x border-slate-100"
               data-testid="nav-actions"
             >
-              {!isDesktop ? (
+              {!isDesktop && assistantOk ? (
                 <button
                   type="button"
                   onClick={toggleChat}

@@ -81,6 +81,8 @@ export const DEFAULT_FEATURES = {
   paymentZelle: true,
   paymentCheck: true,
   aiFeatures: true,
+  /** Paid AI assistant (chat bubble + future Chats tab). Off for new tenants until licensed. */
+  aiAssistant: true,
   speechToText: true,
 };
 
@@ -102,6 +104,7 @@ export const FEATURE_LABELS = [
   { key: "paymentZelle", label: "Zelle payments" },
   { key: "paymentCheck", label: "Check payments" },
   { key: "aiFeatures", label: "AI features (image-to-payment, drafts)" },
+  { key: "aiAssistant", label: "AI assistant (paid — needs license token)" },
 ];
 
 /**
@@ -136,8 +139,8 @@ export const FEATURE_GROUPS = [
   {
     id: "ai",
     title: "AI features",
-    hint: "Drafts and smart helpers",
-    keys: ["aiFeatures"],
+    hint: "Drafts, smart helpers, paid assistant",
+    keys: ["aiFeatures", "aiAssistant"],
   },
 ];
 

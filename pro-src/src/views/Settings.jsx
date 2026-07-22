@@ -27,6 +27,14 @@ import {
   mintAgentAccess,
   revokeAgentAccess,
 } from "../lib/agentAccessClient.js";
+import {
+  activateAssistantLicense,
+  clearStoredAssistantToken,
+  fetchAssistantLicenseStatus,
+  getStoredAssistantToken,
+  mintAssistantLicense,
+  revokeAssistantLicense,
+} from "../lib/assistantLicenseClient.js";
 import Toggle from "../components/Toggle.jsx";
 
 const inputCls =
@@ -147,12 +155,20 @@ export default function Settings() {
   const [agentScope, setAgentScope] = useState("full");
   const [agentBusy, setAgentBusy] = useState(false);
   const [agentNow, setAgentNow] = useState(Date.now());
+  const [asstLicenses, setAsstLicenses] = useState([]);
+  const [asstAudit, setAsstAudit] = useState([]);
+  const [asstBusy, setAsstBusy] = useState(false);
+  const [asstTokenShown, setAsstTokenShown] = useState("");
+  const [asstPaidLabel, setAsstPaidLabel] = useState("");
+  const [asstActivateInput, setAsstActivateInput] = useState("");
+  const [asstStored, setAsstStored] = useState(() => getStoredAssistantToken());
 
   // All top-level menus start collapsed.
   const [openMenu, setOpenMenu] = useState({
     connections: false,
     company: false,
     features: false,
+    assistant: false,
     agent: false,
     account: false,
   });
@@ -210,10 +226,118 @@ export default function Settings() {
     loadAgentAccess();
   }, [loadAgentAccess]);
 
+  const loadAssistantLicenses = useCallback(async () => {
+    try {
+      const st = await fetchAssistantLicenseStatus();
+      setAsstLicenses(Array.isArray(st.licenses) ? st.licenses : []);
+      setAsstAudit(Array.isArray(st.audit) ? st.audit : []);
+      setAsstStored(getStoredAssistantToken());
+    } catch {
+      /* offline / function not live yet */
+    }
+  }, []);
+
+  useEffect(() => {
+    loadAssistantLicenses();
+  }, [loadAssistantLicenses]);
+
   useEffect(() => {
     const id = setInterval(() => setAgentNow(Date.now()), 15000);
     return () => clearInterval(id);
   }, []);
+
+  const mintOwnerAsst = useCallback(async () => {
+    setAsstBusy(true);
+    setAsstTokenShown("");
+    try {
+      const res = await mintAssistantLicense({
+        kind: "owner",
+        label: "Owner unlimited",
+      });
+      setAsstTokenShown(res.token || "");
+      setAsstLicenses(Array.isArray(res.licenses) ? res.licenses : []);
+      setAsstAudit(Array.isArray(res.audit) ? res.audit : []);
+      showToast?.("Your unlimited assistant token is ready — copy it once");
+    } catch (e) {
+      showToast?.(String(e.message || e));
+    } finally {
+      setAsstBusy(false);
+    }
+  }, [showToast]);
+
+  const mintPaidAsst = useCallback(async () => {
+    const label = asstPaidLabel.trim();
+    if (!label) {
+      showToast?.("Enter the customer name first");
+      return;
+    }
+    setAsstBusy(true);
+    setAsstTokenShown("");
+    try {
+      const res = await mintAssistantLicense({ kind: "paid", label });
+      setAsstTokenShown(res.token || "");
+      setAsstLicenses(Array.isArray(res.licenses) ? res.licenses : []);
+      setAsstAudit(Array.isArray(res.audit) ? res.audit : []);
+      setAsstPaidLabel("");
+      showToast?.("Customer token ready — copy once and send it");
+    } catch (e) {
+      showToast?.(String(e.message || e));
+    } finally {
+      setAsstBusy(false);
+    }
+  }, [asstPaidLabel, showToast]);
+
+  const revokeAsst = useCallback(
+    async (licenseId) => {
+      setAsstBusy(true);
+      try {
+        const res = await revokeAssistantLicense(licenseId);
+        setAsstLicenses(Array.isArray(res.licenses) ? res.licenses : []);
+        setAsstAudit(Array.isArray(res.audit) ? res.audit : []);
+        showToast?.(res.message || "License revoked");
+      } catch (e) {
+        showToast?.(String(e.message || e));
+      } finally {
+        setAsstBusy(false);
+      }
+    },
+    [showToast]
+  );
+
+  const activateAsst = useCallback(async () => {
+    const token = asstActivateInput.trim();
+    if (!token) {
+      showToast?.("Paste a license token first");
+      return;
+    }
+    setAsstBusy(true);
+    try {
+      const res = await activateAssistantLicense(token);
+      setAsstStored(getStoredAssistantToken());
+      setAsstActivateInput("");
+      showToast?.(res.message || "Assistant unlocked");
+    } catch (e) {
+      showToast?.(String(e.message || e));
+    } finally {
+      setAsstBusy(false);
+    }
+  }, [asstActivateInput, showToast]);
+
+  const clearAsstLocal = useCallback(() => {
+    clearStoredAssistantToken();
+    setAsstStored(null);
+    showToast?.("License removed from this device");
+  }, [showToast]);
+
+  const copyAsstToken = useCallback(async () => {
+    if (!asstTokenShown) return;
+    try {
+      await navigator.clipboard?.writeText?.(asstTokenShown);
+      showToast?.("Token copied");
+    } catch {
+      showToast?.("Could not copy — select the token manually");
+    }
+  }, [asstTokenShown, showToast]);
 
   const grantAgent = useCallback(async () => {
     setAgentBusy(true);
@@ -745,6 +869,208 @@ export default function Settings() {
             )}
           </FeatureSubmenu>
         ))}
+      </MenuSection>
+
+      {/* ── AI Assistant licenses (paid feature) ── */}
+      <MenuSection
+        id="assistant"
+        title="AI Assistant licenses"
+        summary={
+          internal
+            ? asstLicenses.some((l) => l.active)
+              ? `${asstLicenses.filter((l) => l.active).length} active token${
+                  asstLicenses.filter((l) => l.active).length === 1 ? "" : "s"
+                }`
+              : "Paid feature · mint unlimited tokens"
+            : asstStored
+              ? "Licensed on this device"
+              : "Enter a paid license token"
+        }
+        open={openMenu.assistant}
+        onToggle={() => toggleMenu("assistant")}
+        badge={
+          internal || asstStored ? (
+            <StatusPill ok label={internal ? "Seller" : "Licensed"} />
+          ) : (
+            <StatusPill ok={false} label="Locked" />
+          )
+        }
+      >
+        <p className="text-xs text-slate-500 font-semibold mb-3">
+          The in-app assistant is a paid feature. Generate an unlimited token for yourself, or a
+          token for anyone who pays. Tokens never expire unless you revoke them.
+        </p>
+
+        {internal ? (
+          <>
+            <div className="flex flex-wrap gap-2 mb-3">
+              <button
+                type="button"
+                disabled={asstBusy}
+                onClick={mintOwnerAsst}
+                className="rounded-xl bg-brand text-white px-4 py-2.5 text-sm font-extrabold disabled:opacity-50"
+                data-testid="asst-mint-owner"
+              >
+                {asstBusy ? "Working…" : "My unlimited token"}
+              </button>
+            </div>
+            <div className="flex flex-col sm:flex-row gap-2 mb-3">
+              <input
+                className={inputCls}
+                placeholder="Customer name (who paid)"
+                value={asstPaidLabel}
+                onChange={(e) => setAsstPaidLabel(e.target.value)}
+                data-testid="asst-paid-label"
+              />
+              <button
+                type="button"
+                disabled={asstBusy}
+                onClick={mintPaidAsst}
+                className="rounded-xl bg-sky-600 text-white px-4 py-2.5 text-sm font-extrabold disabled:opacity-50 shrink-0"
+                data-testid="asst-mint-paid"
+              >
+                {asstBusy ? "Working…" : "Token for customer"}
+              </button>
+            </div>
+          </>
+        ) : null}
+
+        {asstTokenShown ? (
+          <div
+            className="rounded-xl border-2 border-emerald-200 bg-emerald-50 px-4 py-3 mb-3"
+            data-testid="asst-token-panel"
+          >
+            <div className="text-[11px] font-extrabold uppercase tracking-wide text-emerald-800 mb-1">
+              Copy this token once
+            </div>
+            <div className="text-sm font-mono font-extrabold tracking-wide text-slate-900 text-center py-1 break-all">
+              {asstTokenShown}
+            </div>
+            <button
+              type="button"
+              onClick={copyAsstToken}
+              className="mt-2 w-full rounded-xl bg-emerald-700 text-white px-3 py-2 text-sm font-extrabold"
+            >
+              Copy token
+            </button>
+            <p className="text-xs text-emerald-900/80 font-semibold mt-2 text-center">
+              Shown once · unlimited use until revoked
+            </p>
+          </div>
+        ) : null}
+
+        <div className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-3 mb-3">
+          <div className="text-[11px] font-extrabold uppercase tracking-wide text-slate-500 mb-2">
+            Activate on this device
+          </div>
+          {asstStored ? (
+            <div className="flex flex-wrap items-center gap-2">
+              <StatusPill ok label="Licensed" />
+              <span className="text-xs font-semibold text-slate-600">
+                {asstStored.license?.label || asstStored.license?.tokenPreview || "Active"}
+              </span>
+              <button
+                type="button"
+                onClick={clearAsstLocal}
+                className="text-xs font-extrabold text-slate-500 underline"
+              >
+                Remove from device
+              </button>
+            </div>
+          ) : (
+            <div className="flex flex-col sm:flex-row gap-2">
+              <input
+                className={inputCls}
+                placeholder="Paste license token"
+                value={asstActivateInput}
+                onChange={(e) => setAsstActivateInput(e.target.value)}
+                data-testid="asst-activate-input"
+              />
+              <button
+                type="button"
+                disabled={asstBusy}
+                onClick={activateAsst}
+                className="rounded-xl bg-slate-900 text-white px-4 py-2.5 text-sm font-extrabold disabled:opacity-50 shrink-0"
+                data-testid="asst-activate-btn"
+              >
+                Unlock assistant
+              </button>
+            </div>
+          )}
+          {internal ? (
+            <p className="text-[11px] text-slate-500 font-semibold mt-2">
+              Your office app stays unlocked as the seller. Tokens are for other companies or
+              devices that need the paid assistant.
+            </p>
+          ) : null}
+        </div>
+
+        {internal && asstLicenses.length > 0 ? (
+          <div className="mb-2">
+            <div className="text-[11px] font-extrabold uppercase tracking-wide text-slate-500 mb-2">
+              Issued tokens
+            </div>
+            <ul className="space-y-2 max-h-48 overflow-y-auto" data-testid="asst-license-list">
+              {asstLicenses.slice(0, 40).map((lic) => (
+                <li
+                  key={lic.id}
+                  className="flex items-center gap-2 text-xs font-semibold text-slate-700 rounded-lg border border-slate-100 bg-white px-2.5 py-2"
+                >
+                  <span className="flex-1 min-w-0">
+                    <span className="font-extrabold">{lic.label}</span>
+                    <span className="text-slate-400">
+                      {" "}
+                      · {lic.kind === "owner" ? "owner" : "paid"} · {lic.tokenPreview}
+                      {lic.active ? "" : " · revoked"}
+                    </span>
+                  </span>
+                  {lic.active ? (
+                    <button
+                      type="button"
+                      disabled={asstBusy}
+                      onClick={() => revokeAsst(lic.id)}
+                      className="shrink-0 rounded-lg bg-slate-100 px-2 py-1 text-[11px] font-extrabold text-slate-700 disabled:opacity-40"
+                      data-testid={`asst-revoke-${lic.id}`}
+                    >
+                      Revoke
+                    </button>
+                  ) : null}
+                </li>
+              ))}
+            </ul>
+          </div>
+        ) : null}
+
+        {internal && asstAudit.length > 0 ? (
+          <div className="mt-3">
+            <div className="text-[11px] font-extrabold uppercase tracking-wide text-slate-500 mb-2">
+              License log
+            </div>
+            <ul className="space-y-1.5 max-h-32 overflow-y-auto" data-testid="asst-audit">
+              {asstAudit.slice(0, 12).map((row, i) => (
+                <li
+                  key={`${row.at}-${row.type}-${i}`}
+                  className="text-xs font-semibold text-slate-600 flex gap-2"
+                >
+                  <span className="text-slate-400 shrink-0 tabular-nums">
+                    {row.at
+                      ? new Date(row.at).toLocaleString(undefined, {
+                          month: "short",
+                          day: "numeric",
+                          hour: "numeric",
+                          minute: "2-digit",
+                        })
+                      : "—"}
+                  </span>
+                  <span>
+                    {row.type}
+                    {row.note ? ` · ${row.note}` : ""}
+                  </span>
+                </li>
+              ))}
+            </ul>
+          </div>
+        ) : null}
       </MenuSection>
 
       {/* ── Agent access (internal tenants only) ── */}
