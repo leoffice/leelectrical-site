@@ -1,6 +1,14 @@
 // Mon–Fri work-week grid with swipe (or arrows) to change weeks.
-import React, { useCallback, useMemo, useRef, useState } from "react";
-import { eventsForWorkWeek, evTimeLabel, mondayOf, weekRangeLabel, ymd } from "../lib/calendarWeek.js";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  eventsForWorkWeek,
+  evTimeLabel,
+  mondayOf,
+  weekOffsetForDate,
+  weekRangeLabel,
+  ymd,
+} from "../lib/calendarWeek.js";
+import { eventChipClassName, isInspectionEvent } from "../lib/calendarEventStyle.js";
 import { todayStr } from "../lib/format.js";
 import AddAppointmentSheet from "./AddAppointmentSheet.jsx";
 import { TappableAddress } from "./TappableContact.jsx";
@@ -24,11 +32,24 @@ const saveListHeight = (h) => {
   } catch {}
 };
 
-export default function WeekCalendar({ events, onPickEvent, embedded, onAddDay }) {
+export default function WeekCalendar({
+  events,
+  onPickEvent,
+  embedded,
+  onAddDay,
+  selectedEventId,
+  focusDate,
+}) {
   const [weekOffset, setWeekOffset] = useState(0);
   const [addDay, setAddDay] = useState(null);
   const [listHeight, setListHeight] = useState(() => (embedded ? DEFAULT_LIST_HEIGHT : loadListHeight()));
   const resizeRef = useRef(null);
+
+  // Jump the grid to the week of the open/deep-linked appointment.
+  useEffect(() => {
+    if (!focusDate) return;
+    setWeekOffset(weekOffsetForDate(focusDate));
+  }, [focusDate, selectedEventId]);
 
   const requestAdd = (dayKey) => {
     if (onAddDay) onAddDay(dayKey);
@@ -164,24 +185,37 @@ export default function WeekCalendar({ events, onPickEvent, embedded, onAddDay }
                   data-testid={key === today ? "week-day-events" : undefined}
                 >
                   {list.length ? (
-                    list.map((e, i) => (
-                      <button
-                        key={e.id || i}
-                        type="button"
-                        className="w-full text-left rounded-lg bg-white border border-slate-100 px-1.5 py-1 shadow-sm active:bg-slate-50"
-                        onClick={() => onPickEvent && onPickEvent(e)}
-                      >
-                        <div className="text-[10px] font-bold text-slate-800 leading-tight line-clamp-2">
-                          {e.summary || "Appointment"}
-                        </div>
-                        <div className="text-[9px] text-slate-400">{evTimeLabel(e)}</div>
-                        {e.location ? (
-                          <div className="text-[9px] leading-tight line-clamp-2 mt-0.5">
-                            <TappableAddress address={e.location} className="text-[9px] font-semibold" />
+                    list.map((e, i) => {
+                      const selected = selectedEventId && String(e.id) === String(selectedEventId);
+                      const insp = isInspectionEvent(e);
+                      return (
+                        <button
+                          key={e.id || i}
+                          type="button"
+                          className={eventChipClassName(e, { selected })}
+                          onClick={() => onPickEvent && onPickEvent(e)}
+                          data-testid={selected ? "week-event-selected" : undefined}
+                          data-inspection={insp ? "1" : undefined}
+                          aria-pressed={selected ? "true" : undefined}
+                        >
+                          <div
+                            className={`text-[10px] font-bold leading-tight line-clamp-2 ${
+                              insp ? "text-red-900/80" : "text-slate-800"
+                            }`}
+                          >
+                            {e.summary || "Appointment"}
                           </div>
-                        ) : null}
-                      </button>
-                    ))
+                          <div className={`text-[9px] ${insp ? "text-red-700/60" : "text-slate-400"}`}>
+                            {evTimeLabel(e)}
+                          </div>
+                          {e.location ? (
+                            <div className="text-[9px] leading-tight line-clamp-2 mt-0.5">
+                              <TappableAddress address={e.location} className="text-[9px] font-semibold" />
+                            </div>
+                          ) : null}
+                        </button>
+                      );
+                    })
                   ) : (
                     <div className="text-[9px] text-slate-300 text-center py-2">—</div>
                   )}

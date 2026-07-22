@@ -10,7 +10,7 @@ import {
 } from "./emailInsight.js";
 import { inspectionAppointmentTitle } from "./paperwork.js";
 import { calendarServiceLocation } from "./customerSync.js";
-const GCAL_RED_COLOR_ID = "11";
+import { GCAL_RED_COLOR_ID } from "./calendarEventStyle.js";
 
 export function calendarTitleForInsight(insight) {
   const type = insight?.appointmentType || "other";
@@ -100,6 +100,7 @@ export async function applyEmailInsight({
   const jobId = job?.id || insight?.jobId || "today";
   const outcome = insight?.outcome || "other";
   const scheduleable = outcome !== "cancelled" && outcome !== "completed";
+  let appliedEventId = "";
 
   if (selected.has("calendar") && insight?.dateTime && scheduleable) {
     const payload = buildCalendarPayload(insight, job, selected);
@@ -107,6 +108,7 @@ export async function applyEmailInsight({
     await enqueue("calendar_upsert", jobId, payload, "judgment", key);
 
     const pendingId = "pending-" + Date.now();
+    appliedEventId = pendingId;
     if (job?.id) {
       const patch = {
         calEventId: pendingId,
@@ -141,6 +143,8 @@ export async function applyEmailInsight({
     autoApplied: !!autoApply,
     notified: false,
     jobId: job?.id || insight?.jobId || null,
+    // So "Open schedule calendar" deep-links to this event.
+    ...(appliedEventId ? { appliedEventId } : {}),
   });
   if (!autoApply) {
     showToast?.("Applied — syncing to calendar and job");

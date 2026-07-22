@@ -423,11 +423,17 @@ describe("12. sync chip + today view + jobs list", () => {
     expect(screen.getByTestId("calendar-view")).toBeInTheDocument();
     expect(await screen.findByTestId("week-calendar")).toBeInTheDocument();
     await user.click(await screen.findByText("Estimate — Jane Doe"));
+    // Opens as expand under calendar (not a covering modal).
+    expect(screen.getByTestId("calendar-focus-panel")).toBeInTheDocument();
+    expect(screen.getByTestId("appt-inline-card")).toBeInTheDocument();
     expect(screen.getByText("✏️ Edit appointment")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /Open the job — Peretz Chein/ })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /Unlink/ })).toBeInTheDocument();
     await user.click(screen.getByText("✏️ Edit appointment"));
     expect(screen.getByText("Edit appointment")).toBeInTheDocument();
+    expect(screen.getByTestId("appt-edit-inline")).toBeInTheDocument();
+    // Nested week grid hidden — calendar stays above the form.
+    expect(screen.queryByTestId("appt-week-calendar")).not.toBeInTheDocument();
     fireEvent.change(screen.getByLabelText("Appointment date and time"), { target: { value: "2026-07-09T11:00" } });
     await user.click(screen.getByText("Save changes"));
     await waitFor(() => expect(srv.enqueued("calendar_upsert")).toHaveLength(1));
@@ -455,6 +461,7 @@ describe("12. sync chip + today view + jobs list", () => {
     expect(within(results).getByText("Estimate — Jane Doe")).toBeInTheDocument();
     expect(screen.queryByText("Panel upgrade — Other")).not.toBeInTheDocument();
     await user.click(within(results).getByText("Estimate — Jane Doe"));
+    expect(screen.getByTestId("appt-inline-card")).toBeInTheDocument();
     expect(screen.getByText("✏️ Edit appointment")).toBeInTheDocument();
   });
 
@@ -477,7 +484,9 @@ describe("12. sync chip + today view + jobs list", () => {
     await user.click(screen.getByText("✏️ Edit appointment"));
     await user.click(screen.getByText("Duplicate (same job link)"));
     expect(screen.getByText("Duplicate appointment")).toBeInTheDocument();
-    expect(screen.getByTestId("appt-week-calendar")).toBeInTheDocument();
+    // Inline under the week calendar (calendar already visible above).
+    expect(screen.getByTestId("week-calendar")).toBeInTheDocument();
+    expect(screen.getByTestId("appt-edit-inline")).toBeInTheDocument();
     expect(screen.getByTestId("notify-customer-toggle")).toBeInTheDocument();
     fireEvent.change(screen.getByTestId("appt-datetime"), { target: { value: "2026-07-15T14:00" } });
     await user.click(screen.getByTestId("appt-save"));

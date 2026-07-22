@@ -18,6 +18,7 @@ import {
 import { applyEmailInsight, buildCalendarPayload } from "../lib/applyEmailInsight.js";
 import { shouldSuppressPrompts, beginPromptWorkPause } from "../lib/followUpReminders.js";
 import { isScreenCovered, subscribeSheets } from "../lib/sheetRegistry.js";
+import { findEventForInsight, stashCalendarPick } from "../lib/calendarNavigate.js";
 
 const IS_TEST = import.meta.env.MODE === "test" || !!import.meta.env.VITEST;
 const SESSION_KEY = "lepro_email_insight_session";
@@ -175,7 +176,7 @@ function EmailInsightDoneSheet({ insight, job, onAck, onOpenJob, onOpenCalendar 
         <Opt icon="📂" title="Open job" note={job.customer || job.title || job.id} onClick={onOpenJob} />
       ) : null}
       {onCal ? (
-        <Opt icon="📅" title="Open schedule calendar" note="See it on the calendar" onClick={onOpenCalendar} />
+        <Opt icon="📅" title="Open schedule calendar" note="Open this appointment on the calendar" onClick={onOpenCalendar} />
       ) : null}
       <Opt icon="👍" title="Got it" note="Dismiss this notice" onClick={onAck} testId="email-insight-ack" />
     </Sheet>
@@ -185,6 +186,7 @@ function EmailInsightDoneSheet({ insight, job, onAck, onOpenJob, onOpenCalendar 
 export default function EmailInsightPrompts() {
   const {
     jobs,
+    events,
     loading,
     emailInsights,
     refreshEmailInsights,
@@ -412,6 +414,13 @@ export default function EmailInsightPrompts() {
           nav("/job/" + encodeURIComponent(job.id));
         }}
         onOpenCalendar={() => {
+          // Open the appointment card, not just the calendar page.
+          const liveJob = job?.id ? effectiveJob(job.id) : job;
+          const ev =
+            findEventForInsight(ins, liveJob, events) ||
+            findEventForInsight(ins, job, events);
+          const eid = ev?.id || liveJob?.calEventId || ins?.appliedEventId || "";
+          if (eid) stashCalendarPick(eid);
           dismiss();
           nav("/today");
         }}
