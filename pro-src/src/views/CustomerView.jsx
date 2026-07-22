@@ -20,6 +20,7 @@ import {
 } from "../lib/bubbleHandlers.js";
 import { CustEditSheet, PaperworkApptSheet, CustomerMenuSheet } from "../components/JobSheets.jsx";
 import CustomerComposeSheet from "../components/CustomerComposeSheet.jsx";
+import DesktopListSplit from "../components/DesktopListSplit.jsx";
 import { sortJobs } from "../lib/stages.js";
 import {
   customerAmountSummary,
@@ -420,13 +421,10 @@ export default function CustomerView() {
     </div>
   );
 
-  // Desktop: jobs list | customer detail (same split as job detail).
+  // Desktop: resizable/collapsible list | customer detail (same as job detail).
   return (
-    <div className="lg:grid lg:grid-cols-[minmax(320px,400px)_minmax(0,1fr)] lg:gap-5 lg:items-start">
-      <div className="hidden lg:block sticky top-4 max-h-[calc(100vh-2rem)] overflow-y-auto overflow-x-hidden lg-scroll-hidden pr-1" data-testid="list-pane">
-        <Jobs embedded collapseGroups />
-      </div>
+    <DesktopListSplit list={<Jobs embedded collapseGroups />}>
       {panel}
-    </div>
+    </DesktopListSplit>
   );
 }

@@ -6,7 +6,7 @@ import { ago } from "../lib/format.js";
 import { syncContextFromRoute } from "../lib/syncContext.js";
 import QboSyncSheet from "./QboSyncSheet.jsx";
 
-export default function SyncChip({ dark, compact }) {
+export default function SyncChip({ dark, compact, iconOnly }) {
   // Data only — typing staged edits must not re-render this chip.
   const { syncedAt, eventsSyncedAt, busy, syncProgress, jobs } = useStoreData();
   const loc = useLocation();
@@ -26,6 +26,36 @@ export default function SyncChip({ dark, compact }) {
       ? "QBO " + ago(syncedAt) + " · Cal " + ago(eventsSyncedAt)
       : "QBO " + ago(syncedAt)
     : "Sync";
+
+  // Icon-only for collapsed desktop sidebar — just the widget, no labels.
+  if (iconOnly) {
+    return (
+      <>
+        <button
+          onClick={handleClick}
+          disabled={busy}
+          data-testid="sync-chip"
+          title={busy ? "Syncing…" : idleLabel}
+          aria-label={busy ? "Syncing" : "QuickBooks sync"}
+          className={`inline-flex items-center justify-center w-10 h-10 rounded-xl border text-base font-semibold transition-all ${
+            busy
+              ? "border-amber-200 bg-amber-50 text-amber-700"
+              : "border-slate-200 bg-slate-50 text-slate-600 hover:bg-white hover:border-slate-300"
+          }`}
+        >
+          {busy ? "…" : "↻"}
+        </button>
+        {open ? (
+          <QboSyncSheet
+            job={ctx.job}
+            customerJobs={ctx.customerJobs}
+            contextLabel={ctx.label}
+            onClose={() => setOpen(false)}
+          />
+        ) : null}
+      </>
+    );
+  }
 
   if (compact) {
     return (

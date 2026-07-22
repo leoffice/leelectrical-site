@@ -101,13 +101,13 @@ function AttentionGradient({ show }) {
   );
 }
 
-/** Aging stripe on the card bottom — older open balance = darker red. */
-function AgingBottomStripe({ jobs }) {
+/** Aging rail on the card left — older open balance = darker red; keeps card body full-width. */
+function AgingSideRail({ jobs }) {
   const age = oldestOpenInvoiceAgeDays(jobs);
   if (age == null) {
     return (
-      <div
-        className="pointer-events-none absolute inset-x-0 bottom-0 h-0.5 bg-slate-200 rounded-b-[inherit]"
+      <span
+        className="w-1 shrink-0 self-stretch bg-slate-200 rounded-l-[inherit]"
         data-testid="aging-stripe-zero"
         aria-hidden
       />
@@ -115,11 +115,12 @@ function AgingBottomStripe({ jobs }) {
   }
   const color = agingStripeColor(age, 1);
   return (
-    <div
-      className="pointer-events-none absolute inset-x-0 bottom-0 h-1 rounded-b-[inherit]"
+    <span
+      className="w-1.5 shrink-0 self-stretch rounded-l-[inherit]"
       style={{ backgroundColor: color }}
       data-testid="aging-stripe"
       data-age-days={String(age)}
+      title={age >= 1 ? `${age} day${age === 1 ? "" : "s"} open` : "Open balance"}
       aria-hidden
     />
   );
@@ -191,22 +192,23 @@ function jobTitlesHint(list, max = 3) {
   return bits.slice(0, max).join(" · ") + ` · +${bits.length - max}`;
 }
 
-/** Customer row: entire header is one tap target; optional chevron toggles inline jobs. */
+/** Customer row: entire header is one tap target; optional chevron toggles inline jobs.
+ *  Name max 2 lines; name + amount stay together so the whole card stays tappable. */
 function ClientListHeader({ name, amount, meta, hint, onCardClick, trailing, avatar, headless = false }) {
   const body = (
     <div className="flex items-start gap-2 min-w-0">
       {avatar}
       <div className="min-w-0 flex-1">
-        <div className="flex items-center gap-2 min-w-0">
+        <div className="flex items-start gap-2 min-w-0">
           <div
-            className="flex-1 min-w-0 text-sm font-semibold text-slate-900 break-words line-clamp-2 leading-snug max-lg:line-clamp-3 lg:text-base lg:font-bold lg:truncate"
+            className="flex-1 min-w-0 text-sm font-semibold text-slate-900 break-words line-clamp-2 leading-snug lg:text-base lg:font-bold"
             title={name}
             data-testid="client-group-name"
           >
             {name}
           </div>
           <div
-            className="shrink-0 text-sm font-semibold text-slate-900 tabular-nums lg:font-bold lg:text-base"
+            className="shrink-0 text-sm font-semibold text-slate-900 tabular-nums lg:font-bold lg:text-base pt-0.5"
             data-testid="client-group-amount"
           >
             {amount}
@@ -214,14 +216,17 @@ function ClientListHeader({ name, amount, meta, hint, onCardClick, trailing, ava
         </div>
         {meta ? (
           <div
-            className="text-[10px] text-slate-400 leading-snug truncate mt-0.5 lg:text-[11px]"
+            className="text-[10px] text-slate-400 leading-snug truncate mt-0.5 lg:text-[11px] desktop-list-hide-when-compact"
             data-testid="client-group-meta"
           >
             {meta}
           </div>
         ) : null}
         {hint ? (
-          <div className="text-[11px] text-slate-500 leading-snug truncate mt-0.5" title={hint}>
+          <div
+            className="text-[11px] text-slate-500 leading-snug truncate mt-0.5 desktop-list-hide-when-compact"
+            title={hint}
+          >
             {hint}
           </div>
         ) : null}
@@ -298,38 +303,41 @@ function BalanceCardDetail({ row, onOpen, onInteract }) {
 function BalanceCard({ row, expanded, onToggle, onOpen, onInteract }) {
   const due = row.summary?.due || 0;
   return (
-    <div className="card relative overflow-hidden" data-testid="balance-card">
-      <button
-        type="button"
-        className="w-full px-3 py-2.5 text-left active:opacity-90"
-        data-testid="balance-card-tap"
-        aria-expanded={expanded}
-        onClick={onToggle}
-      >
-        <div className="flex items-center gap-2 min-w-0">
-          <CustomerAvatar name={row.name} />
-          <div className="min-w-0 flex-1">
-            <div
-              className="text-sm font-semibold text-slate-900 truncate leading-snug"
-              title={row.name}
-              data-testid="balance-card-name"
-            >
-              {row.name}
+    <div className="card relative overflow-hidden flex items-stretch" data-testid="balance-card">
+      <AgingSideRail jobs={row.jobs} />
+      <div className="min-w-0 flex-1">
+        <button
+          type="button"
+          className="w-full px-3 py-2.5 text-left active:opacity-90"
+          data-testid="balance-card-tap"
+          aria-expanded={expanded}
+          onClick={onToggle}
+        >
+          <div className="flex items-start gap-2 min-w-0">
+            <CustomerAvatar name={row.name} />
+            <div className="min-w-0 flex-1">
+              <div
+                className="text-sm font-semibold text-slate-900 break-words line-clamp-2 leading-snug"
+                title={row.name}
+                data-testid="balance-card-name"
+              >
+                {row.name}
+              </div>
             </div>
+            {due > 0 ? (
+              <div
+                className="shrink-0 text-sm font-bold text-slate-900 tabular-nums pt-0.5"
+                data-testid="balance-card-amount"
+              >
+                {fmt$(due)}
+              </div>
+            ) : null}
           </div>
-          {due > 0 ? (
-            <div
-              className="shrink-0 text-sm font-bold text-slate-900 tabular-nums"
-              data-testid="balance-card-amount"
-            >
-              {fmt$(due)}
-            </div>
-          ) : null}
-        </div>
-      </button>
-      {expanded ? (
-        <BalanceCardDetail row={row} onOpen={onOpen} onInteract={onInteract} />
-      ) : null}
+        </button>
+        {expanded ? (
+          <BalanceCardDetail row={row} onOpen={onOpen} onInteract={onInteract} />
+        ) : null}
+      </div>
     </div>
   );
 }
@@ -980,9 +988,10 @@ export default function Jobs({ embedded, collapseGroups = false, activeJobId = "
             const needsAttention = row.jobs.some(needsAttentionJob);
             const syncCardClass = customerSyncCardClass(customerContact(row.jobs), { qboIndex });
             return (
-              <div key={row.key} className={`card relative overflow-hidden ${syncCardClass}`} data-testid="parent-customer-group">
+              <div key={row.key} className={`card relative overflow-hidden flex items-stretch ${syncCardClass}`} data-testid="parent-customer-group">
+                <AgingSideRail jobs={row.jobs} />
+                <div className="min-w-0 flex-1 relative">
                 <AttentionGradient show={needsAttention} />
-                <AgingBottomStripe jobs={row.jobs} />
                 <button
                   type="button"
                   className="w-full px-3 py-2.5 lg:px-4 lg:py-3 text-left active:opacity-90"
@@ -1071,6 +1080,7 @@ export default function Jobs({ embedded, collapseGroups = false, activeJobId = "
                     </button>
                   </div>
                 )}
+                </div>
               </div>
             );
           })}
@@ -1090,45 +1100,50 @@ export default function Jobs({ embedded, collapseGroups = false, activeJobId = "
               const title = job.title || "(untitled job)";
               const goCustomer = () => openCustomer(key, list);
               return (
-                <button
+                <div
                   key={key}
-                  type="button"
-                  className={`card relative overflow-hidden w-full text-left active:opacity-90 ${syncCardClass} ${embedded ? "px-2.5 py-2" : "px-3 py-2.5 lg:px-4 lg:py-3"}`}
+                  className={`card relative overflow-hidden flex items-stretch ${syncCardClass}`}
                   data-testid="client-single"
-                  onClick={goCustomer}
                 >
-                  <AttentionGradient show={needsAttention} />
-                  <AgingBottomStripe jobs={list} />
-                  <ClientListHeader
-                    headless
-                    name={customerName}
-                    amount={due}
-                    meta={singleJobMetaLine(job)}
-                    hint={title}
-                    avatar={<CustomerAvatar name={customerName} />}
-                  />
-                  {!embedded && (
-                    <>
-                      <div className="mt-1.5 flex items-center gap-1 flex-wrap pl-9 pointer-events-none">
-                        <StagePill job={job} />
-                        <PaidPill job={job} />
-                      </div>
-                      <div className="mt-1.5 h-1 rounded-full bg-slate-100 overflow-hidden ml-9 pointer-events-none">
-                        <div
-                          className="h-full rounded-full bg-gradient-to-r from-brand to-accent"
-                          style={{ width: `${pct}%` }}
-                        />
-                      </div>
-                    </>
-                  )}
-                </button>
+                  <AgingSideRail jobs={list} />
+                  <button
+                    type="button"
+                    className={`min-w-0 flex-1 relative text-left active:opacity-90 ${embedded ? "px-2.5 py-2" : "px-3 py-2.5 lg:px-4 lg:py-3"}`}
+                    onClick={goCustomer}
+                  >
+                    <AttentionGradient show={needsAttention} />
+                    <ClientListHeader
+                      headless
+                      name={customerName}
+                      amount={due}
+                      meta={singleJobMetaLine(job)}
+                      hint={title}
+                      avatar={<CustomerAvatar name={customerName} />}
+                    />
+                    {!embedded && (
+                      <>
+                        <div className="mt-1.5 flex items-center gap-1 flex-wrap pl-9 pointer-events-none desktop-list-hide-when-compact">
+                          <StagePill job={job} />
+                          <PaidPill job={job} />
+                        </div>
+                        <div className="mt-1.5 h-1 rounded-full bg-slate-100 overflow-hidden ml-9 pointer-events-none desktop-list-hide-when-compact">
+                          <div
+                            className="h-full rounded-full bg-gradient-to-r from-brand to-accent"
+                            style={{ width: `${pct}%` }}
+                          />
+                        </div>
+                      </>
+                    )}
+                  </button>
+                </div>
               );
             }
 
             return (
-              <div key={key} className={`card relative overflow-hidden ${syncCardClass}`} data-testid="client-group">
+              <div key={key} className={`card relative overflow-hidden flex items-stretch ${syncCardClass}`} data-testid="client-group">
+                <AgingSideRail jobs={list} />
+                <div className="min-w-0 flex-1 relative">
                 <AttentionGradient show={needsAttention} />
-                <AgingBottomStripe jobs={list} />
                 <div className={`w-full px-3 py-2.5 ${embedded ? "" : "lg:px-4 lg:py-3"}`}>
                   <ClientListHeader
                     name={customerName}
@@ -1161,6 +1176,7 @@ export default function Jobs({ embedded, collapseGroups = false, activeJobId = "
                     />
                   </div>
                 )}
+                </div>
               </div>
             );
           })}

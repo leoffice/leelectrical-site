@@ -1,23 +1,33 @@
 // Compact transaction list for ONE job/invoice only (not the full customer ledger).
 // Shown under Job Information when the Payment history toggle is on.
-import React, { useMemo } from "react";
-import { buildCustomerTransactions, formatTxnAmount } from "../lib/customerTransactions.js";
+// Tabs: All · Invoices · Payments · Estimates (same as customer short history).
+import React, { useMemo, useState } from "react";
+import {
+  buildCustomerTransactions,
+  formatTxnAmount,
+  txnFilterCounts,
+} from "../lib/customerTransactions.js";
 import { amountPaid, openBalance, paidPct } from "../lib/customers.js";
 import { fmt$ } from "../lib/format.js";
+
+const FILTERS = [
+  { id: "all", label: "All" },
+  { id: "invoices", label: "Invoices" },
+  { id: "payments", label: "Payments" },
+  { id: "estimates", label: "Estimates" },
+];
 
 function Row({ row }) {
   const kindLabel =
     row.kind === "payment" ? "Payment" : row.kind === "estimate" ? "Estimate" : "Invoice";
-  const kindClass =
-    row.kind === "payment" ? "text-emerald-600" : "text-slate-400";
+  const kindClass = row.kind === "payment" ? "text-emerald-600" : "text-slate-400";
   const amount =
     row.kind === "payment"
       ? formatTxnAmount(row.amount)
       : row.total > 0
         ? formatTxnAmount(row.total)
         : "";
-  const amountClass =
-    row.kind === "payment" ? "text-emerald-700" : "text-slate-800";
+  const amountClass = row.kind === "payment" ? "text-emerald-700" : "text-slate-800";
   const mid =
     row.kind === "payment"
       ? [row.method || "Payment", row.docNo ? "#" + row.docNo : ""].filter(Boolean).join(" · ")
@@ -44,9 +54,7 @@ function Row({ row }) {
           {row.dateLabel ? (
             <span className="text-[11px] text-slate-500 tabular-nums shrink-0">{row.dateLabel}</span>
           ) : null}
-          {mid ? (
-            <span className="text-xs text-slate-600 truncate min-w-0">{mid}</span>
-          ) : null}
+          {mid ? <span className="text-xs text-slate-600 truncate min-w-0">{mid}</span> : null}
         </div>
         {amount ? (
           <div className={"text-sm font-bold tabular-nums shrink-0 " + amountClass}>{amount}</div>
@@ -62,9 +70,12 @@ function Row({ row }) {
 }
 
 export default function JobTransactionHistory({ job, onOpenFull }) {
+  const [filter, setFilter] = useState("all");
+  const jobs = useMemo(() => (job ? [job] : []), [job]);
+  const counts = useMemo(() => txnFilterCounts(jobs), [jobs]);
   const rows = useMemo(
-    () => buildCustomerTransactions(job ? [job] : [], { filter: "all", sort: "new" }),
-    [job]
+    () => buildCustomerTransactions(jobs, { filter, sort: "new" }),
+    [jobs, filter]
   );
   const paid = amountPaid(job);
   const due = openBalance(job);
@@ -98,9 +109,33 @@ export default function JobTransactionHistory({ job, onOpenFull }) {
         ) : null}
       </div>
 
+      <div className="flex flex-wrap items-center gap-1.5" data-testid="job-txn-filters">
+        {FILTERS.map((f) => {
+          const n = counts[f.id] ?? 0;
+          const active = filter === f.id;
+          return (
+            <button
+              key={f.id}
+              type="button"
+              className={
+                "rounded-lg border px-2 py-1 text-[10px] font-bold transition-colors " +
+                (active
+                  ? "bg-brand-soft text-brand border-brand/30"
+                  : "bg-slate-50 text-slate-500 border-slate-200")
+              }
+              data-testid={"job-txn-filter-" + f.id}
+              onClick={() => setFilter(f.id)}
+            >
+              {f.label}
+              {n > 0 ? <span className="opacity-70"> {n}</span> : null}
+            </button>
+          );
+        })}
+      </div>
+
       {!rows.length ? (
         <p className="text-xs text-slate-400 text-center py-2" data-testid="job-txn-empty">
-          No transactions on this job yet.
+          No transactions match this filter.
         </p>
       ) : (
         <div className="space-y-1" data-testid="job-txn-list">

@@ -152,3 +152,63 @@ describe("composed invoice email", () => {
     expect(sent?.bcc).toBeUndefined();
   });
 });
+
+const EST_JOB = {
+  id: "local-est-1",
+  customer: "Mendy Lein",
+  email: "customer@example.com",
+  estimateNo: "25499",
+  amount: "$5,500",
+  address: "157 Remsen Ave",
+  title: "Service upgrade",
+  estimateLines: [
+    { itemName: "Service", description: "100A upgrade", qty: 1, unitPrice: 2200 },
+    { itemName: "Service", description: "200A upgrade", qty: 1, unitPrice: 3300 },
+  ],
+};
+
+describe("composed estimate email", () => {
+  it('uses "View and Approve" CTA and a short /pay/ landing link', async () => {
+    const res = await sendDocEmail({
+      job: EST_JOB,
+      kind: "estimate",
+      to: "customer@example.com",
+      pdfB64: PDF_B64,
+      filename: "Estimate-25499.pdf",
+    });
+    expect(res.ok).toBe(true);
+    expect(sent.html).toContain("View and Approve");
+    expect(sent.html).not.toContain("View Estimate");
+    expect(sent.html).toMatch(/href="https:\/\/leelectrical\.us\/pay\/[0-9]{5,8}-[a-z0-9]{4}"/i);
+    expect(sent.text).toMatch(/View and approve/i);
+  });
+
+  it("registers an estimate landing payload with lines for deposit", async () => {
+    await sendDocEmail({
+      job: EST_JOB,
+      kind: "estimate",
+      to: "customer@example.com",
+      pdfB64: PDF_B64,
+    });
+    const plKey = [...written.keys()].find((k) => k.startsWith("pl-"));
+    expect(plKey).toBeTruthy();
+    const rec = JSON.parse(written.get(plKey));
+    expect(rec.payload.k).toBe("e");
+    expect(rec.payload.i).toBe("25499");
+    expect(rec.payload.lines).toHaveLength(2);
+    expect(rec.payload.dp).toBe(50);
+    expect(rec.payload.pay).toBe("");
+  });
+
+  it("stores the estimate PDF under est- key", async () => {
+    const res = await sendDocEmail({
+      job: EST_JOB,
+      kind: "estimate",
+      to: "customer@example.com",
+      pdfB64: PDF_B64,
+    });
+    expect(res.docKey).toBe("est-25499");
+    expect(written.has("est-25499")).toBe(true);
+  });
+});
+

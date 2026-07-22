@@ -54,6 +54,21 @@ body {
   }
 }
 
+/* Narrow customer list (dragged thin / collapsed): hide secondary lines. */
+.desktop-list-compact .desktop-list-hide-when-compact {
+  display: none !important;
+}
+/* Keep name (2 lines max) + amount readable when the list is squeezed. */
+.desktop-list-compact [data-testid="client-group-name"],
+.desktop-list-compact [data-testid="balance-card-name"] {
+  font-size: 0.75rem;
+  line-height: 1.15;
+}
+.desktop-list-compact [data-testid="client-group-amount"],
+.desktop-list-compact [data-testid="balance-card-amount"] {
+  font-size: 0.75rem;
+}
+
 /* Safe-area padding for the iOS home indicator (standalone PWA). */
 .pb-safe {
   padding-bottom: env(safe-area-inset-bottom, 0px);
