@@ -21,16 +21,30 @@ export const CHECK_VISION_PROMPT = `You are reading a paper check or mobile chec
 Extract these fields carefully and return ONLY valid JSON (no markdown):
 {
   "amount": <number USD, no $ sign — use the numeric amount box (usually right side), not the written-out words unless the box is unreadable>,
-  "checkNumber": <printed check number as digits only — upper-right of the check AND/OR the MICR check-number field at the bottom (after routing/account). Do NOT put invoice numbers here>,
-  "date": <YYYY-MM-DD from the DATE line on the check (usually top-right). Convert MM/DD/YY or MM/DD/YYYY to YYYY-MM-DD>,
-  "memo": <memo line text exactly as written, or null>,
-  "payee": <"Pay to the order of" name — usually the business being paid>,
+  "checkNumber": <printed check number as digits only — upper-right of the check AND/OR the MICR check-number field at the bottom (leftmost MICR group). Do NOT put invoice numbers here>,
+  "date": <YYYY-MM-DD from the DATE line on the check (usually top-right). Convert "Month DD, YYYY" or MM/DD/YY or MM/DD/YYYY to YYYY-MM-DD>,
+  "memo": <memo / For: line text exactly as written, or null>,
+  "payee": <"Pay to the order of" name — usually the business being paid (e.g. BLZ Electric Inc.)>,
   "payer": <name of the person/company who wrote the check — usually printed top-left under/near the address block, or the account-holder name. NOT the payee>,
-  "invoiceNumber": <invoice or job number if present. Rules: (1) if memo/anywhere says Inv/Invoice/# then use those digits; (2) if memo or note is just a bare number (no English word like "check"/"acct"), treat that number as the invoice number; (3) digits only, typically 4–7 digits. Else null>,
+  "invoiceNumber": <invoice or job number if present. Rules: (1) if memo/anywhere says Inv/Invoice/# then use those digits; (2) if memo or "For:" line is just a bare number (no English word like "check"/"acct"), treat that number as the invoice number; (3) digits only, typically 4–7 digits. Else null>,
   "confidence": <"high" or "low">
 }
 If a field is missing or unreadable use null.
-Critical: amount + date + checkNumber whenever visible. payer helps match the customer. invoiceNumber matches the right invoice — prefer a bare memo number as invoice, not as check number.`;
+Critical: amount + date + checkNumber whenever visible. payer helps match the customer. invoiceNumber matches the right invoice — prefer a bare memo/"For:" number as invoice, not as check number.
+
+LAYOUT MAP (standard US business check — read every zone):
+- Top-left: payer company name + mailing address (this is "payer", NOT payee)
+- Top-right: large printed check number (this is checkNumber)
+- Under bank name (often center-right): Date line
+- Middle: "Pay to the Order Of" → payee; amount box $###.## on the right (stars after amount are fillers — ignore)
+- Written amount line under payee (use only if $ box unreadable)
+- Bottom-left "For:" / memo line — often the invoice number alone (e.g. 251843)
+- Bottom MICR: ⑆check#⑆ ⑆routing⑆ account — use leftmost group as checkNumber if top-right is blurry
+
+GOLD WORKED EXAMPLE (Chase business check, high confidence):
+Payer top-left "Mendel Drizin LLC", check# top-right 1356, Date July 14, 2026 → 2026-07-14, payee "BLZ Electric Inc.", amount box $450.00 → 450, For: 251843 → memo + invoiceNumber 251843.
+Correct JSON:
+{"amount":450,"checkNumber":"1356","date":"2026-07-14","memo":"251843","payee":"BLZ Electric Inc.","payer":"Mendel Drizin LLC","invoiceNumber":"251843","confidence":"high"}`;
 
 export const IMAGE_INTENT_PROMPT = `You are reading a photo Levi sent LE Electrical (payment proof, invoice, estimate, job site, document, or screenshot).
 Extract visible clues and return ONLY valid JSON (no markdown):
