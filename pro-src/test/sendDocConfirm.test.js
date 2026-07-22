@@ -52,24 +52,25 @@ describe("sendDocConfirm", () => {
     ).toBe("419 Kingston Realty");
   });
 
-  it("email body restores design-fixes total/balance lines and never dumps a raw pay URL", () => {
+  it("greets people with first name only", () => {
+    expect(docEmailGreetingName({ customer: "Mendel Cohen" })).toBe("Mendel");
+  });
+
+  it("email body says ready to view and pay online; never dumps a raw pay URL", () => {
     const body = defaultDocEmailBody(
       {
-        customer: "419 Kingston Realty",
-        businessName: "419 Kingston Realty",
-        invoiceNo: "251850",
-        title: "Change order",
+        customer: "Mendel Cohen",
+        invoiceNo: "201762",
+        title: "Electrical work",
         amount: "$4500",
-        changeOrder: true,
       },
       "invoice",
       { withPay: true, payUrl: "https://secure.cardknox.com/blzelectric?xAmount=4500" }
     );
-    expect(body).toContain("Hi 419 Kingston Realty,");
-    expect(body).toMatch(/Your invoice #251850 for Change order is ready/);
-    expect(body).toMatch(/Invoice total:/i);
-    expect(body).toMatch(/Balance due:/i);
-    expect(body).toContain("A secure payment link is included with this email.");
+    expect(body).toContain("Hi Mendel,");
+    expect(body).toContain("Your invoice #201762 is ready to view and pay online.");
+    expect(body).not.toMatch(/end-to-end test/i);
+    expect(body).not.toMatch(/real end/i);
     expect(body).toContain("The PDF is attached.");
     expect(body).not.toContain("cardknox");
     expect(body).not.toContain("xAmount");

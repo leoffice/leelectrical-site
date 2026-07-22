@@ -69,7 +69,8 @@ function buildPayLink(o, cfg = {}) {
  * @param {string} [d.payLink]          "Print or save" / pay button target
  * @param {string} [d.buttonLabel='Print or save']
  * @param {string} [d.topMessage]       text right under the banner (supports \n)
- * @param {string} [d.paymentMessage]   payment-options block (supports \n)
+ * @param {string} [d.paymentMessage]   payment-options block (supports \n; escaped)
+ * @param {string} [d.paymentMessageHtml] pre-built HTML payment block (e.g. clickable Link)
  * @param {string} [d.logoSrc='cid:companylogo']  tenant logo (header brand)
  * @param {string} [d.poweredByHtml]   constant 'Powered by LE' footer block
  */
@@ -224,10 +225,10 @@ function buildEmailHTML(d) {
   </table>
 </td></tr>
 
-<!-- payment message -->
-${d.paymentMessage ? `
+<!-- payment message (HTML form allows a clickable "Link" after Zelle) -->
+${(d.paymentMessageHtml || d.paymentMessage) ? `
 <tr><td style="font-size:18px;padding:20px 40px;text-align:left;border-bottom:${T.rule};color:${T.muted};line-height:1.5;">
-  ${nl2br(d.paymentMessage)}</td></tr>` : ''}
+  ${d.paymentMessageHtml || nl2br(d.paymentMessage)}</td></tr>` : ''}
 
 <!-- footer note -->
 <tr><td style="font-size:18px;padding:20px 40px;color:${T.muted};text-align:left;line-height:1.5;">

@@ -13,7 +13,6 @@ export function buildPaymentLinkEmail({ job, url, linkAmount, inv }) {
   const dueStr = due > 0 ? fmt$(due) : totalStr;
   const linkStr = fmt$(linkAmt) || String(linkAmount);
   const chargeStr = fmtMoneyPrecise(totalWithFee(linkAmt));
-  const work = (job.title || job.serviceType || "your electrical work").trim();
 
   // Short trading name, not tenantName()/tenantSignOff() — those carry the
   // legal "Inc." that belongs on documents, not in customer email copy.
@@ -25,7 +24,7 @@ export function buildPaymentLinkEmail({ job, url, linkAmount, inv }) {
   const body = [
     `Hi ${first},`,
     "",
-    `Your invoice #${inv} for ${work} is ready.`,
+    `Your invoice #${inv} is ready to view and pay online.`,
     "",
     `Invoice total: ${totalStr}`,
     `Balance due: ${dueStr}`,

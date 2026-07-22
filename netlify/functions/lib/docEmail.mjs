@@ -149,17 +149,44 @@ export async function sendDocEmail({
   const customTop = String(message || "").trim();
   // Header brand = tenant (company name + logo). Footer = constant Powered by LE.
   const brand = resolveEmailBrand({ name: docData.company?.name, logoUrl: docData.company?.logoUrl });
+  // Payment methods: Zelle, then credit-card Link (same short pay page), then Check.
+  // "Link" is a real <a> to viewLink — never the raw Cardknox URL.
+  let paymentMessage;
+  let paymentMessageHtml;
+  if (isInvoice) {
+    const zelle = "Zelle: Send payment to Office@LeElectrical.us.";
+    const check =
+      'Check: Make checks payable to "BLZ Electric Inc." and either mail it or email a clear picture of the check to Office@LeElectrical.us.';
+    if (viewLink) {
+      paymentMessage =
+        "Other ways to pay:\n\n-" +
+        zelle +
+        "\n-Credit card: Pay with credit card by pressing the following Link\n-" +
+        check;
+      paymentMessageHtml =
+        "Other ways to pay:<br><br>" +
+        "-" +
+        zelle +
+        "<br>" +
+        '-Credit card: Pay with credit card by pressing the following <a href="' +
+        String(viewLink).replace(/&/g, "&amp;").replace(/"/g, "&quot;") +
+        '" style="color:#066a34;font-weight:bold;text-decoration:underline;">Link</a><br>' +
+        "-" +
+        check;
+    } else {
+      paymentMessage = "Other ways to pay:\n\n-" + zelle + "\n-" + check;
+    }
+  }
   const html = buildEmailHTML({
     ...docData,
     viewLink,
-    // payLink intentionally omitted: one primary CTA only.
+    // payLink intentionally omitted: one primary CTA only (View Invoice).
     logoSrc: brand.logoSrc,
     viewLabel: isInvoice ? "View Invoice" : "View Estimate",
     poweredByHtml: poweredByLeHtml(),
     topMessage: customTop || undefined,
-    paymentMessage: isInvoice
-      ? 'Other ways to pay:\n\n-Zelle: Send payment to Office@LeElectrical.us.\n-Check: Make checks payable to "BLZ Electric Inc." and either mail it or email a clear picture of the check to Office@LeElectrical.us.'
-      : undefined,
+    paymentMessage,
+    paymentMessageHtml,
   });
 
   // officeOnly hard-pins the recipient to office@ and refuses anything else —
