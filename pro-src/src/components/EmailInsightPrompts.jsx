@@ -19,6 +19,7 @@ import {
   formatInsightSourceLabel,
   wantsNewCalendarAppointment,
   isPastAppointmentInsight,
+  hasRealInsightData,
   shouldSurfaceInsight,
   EMAIL_INSIGHT_TEST_AUTO_APPLY_LIMIT,
 } from "../lib/emailInsight.js";
@@ -449,6 +450,25 @@ export default function EmailInsightPrompts() {
             await patchEmailInsight(raw.id, {
               status: "ignored",
               ignoreReason: "past_appointment",
+              notified: true,
+              appliedAt: new Date().toISOString(),
+            });
+            seen.current.add(raw.id);
+          } catch {
+            /* leave pending */
+          } finally {
+            autoRunning.current.delete(raw.id);
+          }
+          continue;
+        }
+
+        // Vague / test / no real facts (subject "x", no address or date) → never show.
+        if (!hasRealInsightData(enriched)) {
+          autoRunning.current.add(raw.id);
+          try {
+            await patchEmailInsight(raw.id, {
+              status: "ignored",
+              ignoreReason: "no_real_data",
               notified: true,
               appliedAt: new Date().toISOString(),
             });

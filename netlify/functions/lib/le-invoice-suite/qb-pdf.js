@@ -53,31 +53,36 @@ const STYLE = {
     detailSize: 7.32, detailStartY: 61.5, detailLeading: 12.75,
   },
 
-  // Raised ~20pt toward the logo so more room remains at the bottom (Levi 2026-07-21).
-  title:   { size: 13.72, baselineY: 144.25 },             // "ESTIMATE"/"INVOICE"
+  // Levi 2026-07-22: ESTIMATE/INVOICE top-right at logo height; meta under it.
+  title:   { size: 13.72, baselineY: 50 },                 // "ESTIMATE"/"INVOICE" = logo top band
 
-  // Meta block (left: customer address / right: doc no + dates)
+  // Meta block — doc no + dates under the title word (right column only)
   meta: {
     labelSize: 9.15, leading: 13.5,
-    leftX: 36, firstBaselineY: 166,
     rightLabelX: 396.45, rightValueX: 477.23,
-    customFieldGapY: 221.5,                                 // SERVICE ADDRESS baseline
-    customFieldValueDy: 12,
+    firstBaselineY: 68,                                     // under title
+  },
+
+  // Addresses: BILLING left · SERVICE right (parallel, halfway)
+  address: {
+    labelSize: 9.15, leading: 14.25, valueSize: 9.15,
+    leftX: 36, rightX: 306,                                 // service col halfway
+    gapBelowHeader: 14,
   },
 
   table: {
-    top: 250.75, headerH: 21,
+    headerH: 21,
     x: 36, w: 540,
     // column right boundaries (from page left)
     colDesc: { textX: 39.75, maxX: 396.5 },   // wrap width incl. trailing-space allowance
     colRate: { rightX: 448.4 },                             // numbers right-aligned
     colQty:  { rightX: 491.6 },
     colAmt:  { rightX: 572.6 },
-    headSize: 9.15, headBaselineDy: 14.25,                  // baseline 285 = 270.75+14.25
+    headSize: 9.15, headBaselineDy: 14.25,
     bodySize: 10.07, leading: 13.5, firstBaselineDy: 10.75,
     serviceDateGap: 7.5,                                    // gap above service-date row
     rowGap: 7.5,                                            // gap between rows
-    firstRowY: 298.99,                                      // top of first (service date) row
+    contPageTableTop: 130,                                  // table top on continuation pages
   },
 
   totals: {
@@ -254,28 +259,36 @@ function generateDocument(data, outPath) {
 
     /* ================= PAGE 1 ======================================= */
 
-    drawPageHeader();
+    // Company + logo
+    const companyBottom = (() => {
+      doc.font('bold').fontSize(S.company.nameSize).fillColor(S.colors.black);
+      textAtBaseline(data.company.name, M, S.company.nameY);
+      doc.font('reg').fontSize(S.company.detailSize);
+      const details = [
+        ...(data.company.addressLines || []),
+        data.company.phone,
+        data.company.email,
+        data.company.license,
+      ].filter(Boolean);
+      details.forEach((line, i) =>
+        textAtBaseline(line, M, S.company.detailStartY + i * S.company.detailLeading));
+      const logoPath = data.logoPath || S.logo.path;
+      if (fs.existsSync(logoPath)) {
+        doc.image(logoPath, S.logo.x, S.logo.y, { fit: [S.logo.w, S.logo.h], align: 'center' });
+      }
+      return S.company.detailStartY + details.length * S.company.detailLeading;
+    })();
 
-    // Title top-right (Levi layout preference)
+    // Title top-right at logo height (Levi 2026-07-22)
     doc.font('reg').fontSize(S.title.size).fillColor(S.colors.green);
     rightText(docType, pageW - M, S.title.baselineY);
 
-    // Meta block — left: ADDRESS
-    doc.fontSize(S.meta.labelSize);
-    doc.fillColor(S.colors.gray);
-    textAtBaseline('ADDRESS', M, S.meta.firstBaselineY);
-    doc.fillColor(S.colors.black);
-    let y = S.meta.firstBaselineY + S.meta.leading;
-    for (const line of [data.billTo.name, ...(data.billTo.addressLines || [])].filter(Boolean)) {
-      textAtBaseline(line, M, y);
-      y += 14.25;
-    }
-
-    // Meta block — right: doc number + dates
+    // Meta under the title word — doc number + dates (right column only)
     const rightRows = [[docType, data.docNumber], ['DATE', data.date]];
     if (!isEstimate && data.dueDate) rightRows.push(['DUE DATE', data.dueDate]);
     if (!isEstimate && data.terms)   rightRows.push(['TERMS', data.terms]);
     let ry = S.meta.firstBaselineY;
+    doc.fontSize(S.meta.labelSize);
     for (const [label, value] of rightRows) {
       doc.fillColor(S.colors.gray);
       textAtBaseline(label, S.meta.rightLabelX, ry);
@@ -283,26 +296,51 @@ function generateDocument(data, outPath) {
       textAtBaseline(String(value ?? ''), S.meta.rightValueX, ry);
       ry += S.meta.leading;
     }
+    const rightBottom = ry;
+    const logoBottom = S.logo.y + S.logo.h;
 
-    // Custom fields (e.g. SERVICE ADDRESS)
-    let cfBottom = Math.max(y, ry);
-    if (data.customFields && data.customFields.length) {
-      let cy = S.meta.customFieldGapY;
-      // QBO lays custom fields in up to 3 columns; single field measured at x=36
-      const colXs = [36, 237.68, 435.61];
-      data.customFields.slice(0, 3).forEach((cf, i) => {
-        if (!cf || !cf.value) return;
-        doc.fillColor(S.colors.gray);
-        textAtBaseline(cf.label.toUpperCase(), colXs[i], cy);
-        doc.fillColor(S.colors.black);
-        textAtBaseline(String(cf.value), colXs[i], cy + S.meta.customFieldValueDy);
-      });
-      cfBottom = cy + S.meta.customFieldValueDy;
+    // Addresses: BILLING left · SERVICE right (parallel)
+    let addrTop = Math.max(companyBottom, logoBottom, rightBottom) + S.address.gapBelowHeader;
+    const billLines = [data.billTo && data.billTo.name, ...((data.billTo && data.billTo.addressLines) || [])].filter(Boolean);
+    const svcField = (data.customFields || []).find(
+      (cf) => cf && /service\s*address/i.test(String(cf.label || '')) && cf.value
+    );
+    const svcLines = svcField
+      ? String(svcField.value).split(/\n/).map((s) => s.trim()).filter(Boolean)
+      : (data.serviceAddress
+          ? String(data.serviceAddress).split(/\n/).map((s) => s.trim()).filter(Boolean)
+          : []);
+
+    doc.font('reg').fontSize(S.address.labelSize).fillColor(S.colors.gray);
+    textAtBaseline('BILLING ADDRESS', S.address.leftX, addrTop);
+    let by = addrTop + S.meta.leading;
+    doc.fillColor(S.colors.black).fontSize(S.address.valueSize);
+    for (const line of billLines) {
+      textAtBaseline(line, S.address.leftX, by);
+      by += S.address.leading;
     }
 
-    /* -- line-item table --------------------------------------------- */
+    let sy = addrTop;
+    if (svcLines.length) {
+      doc.fillColor(S.colors.gray).fontSize(S.address.labelSize);
+      textAtBaseline('SERVICE ADDRESS', S.address.rightX, addrTop);
+      sy = addrTop + S.meta.leading;
+      doc.fillColor(S.colors.black).fontSize(S.address.valueSize);
+      const svcMaxW = pageW - M - S.address.rightX;
+      for (const line of svcLines) {
+        const h = doc.heightOfString(line, { width: svcMaxW });
+        const nLines = Math.max(1, Math.round(h / S.address.leading));
+        doc.text(line, S.address.rightX,
+          sy - (doc._font.ascender / 1000) * S.address.valueSize,
+          { width: svcMaxW, lineBreak: true });
+        sy += nLines * S.address.leading;
+      }
+    }
 
-    let cursor = drawTableHeader(S.table.top);
+    /* -- line-item table (raised — starts just below addresses) --------- */
+
+    const tableTop = Math.max(by, sy) + 12;
+    let cursor = drawTableHeader(tableTop);
 
     doc.font('reg').fontSize(S.table.bodySize).fillColor(S.colors.black);
     const descW = S.table.colDesc.maxX - S.table.colDesc.textX;
@@ -310,7 +348,8 @@ function generateDocument(data, outPath) {
     const newPageForRows = () => {
       doc.addPage();
       drawPageHeader();
-      cursor = drawTableHeader(S.title.baselineY + 20);
+      cursor = drawTableHeader(S.table.contPageTableTop);
+      doc.font('reg').fontSize(S.table.bodySize).fillColor(S.colors.black);
     };
 
     // service date row (spans table, like QBO)
@@ -325,27 +364,72 @@ function generateDocument(data, outPath) {
 
     for (const line of data.lines) {
       cursor += S.table.rowGap;
-      const descHeight = doc.heightOfString(line.description, {
+      const descHeight = doc.heightOfString(line.description || '', {
         width: descW, lineGap: bodyLineGap,
       });
       const rowLines = Math.max(1, Math.round(descHeight / S.table.leading));
       const rowH = rowLines * S.table.leading;
 
-      if (cursor + rowH > footerBottomLimit) newPageForRows();
+      // If the row won't fit, jump to next page so description + totals never clip
+      if (cursor + Math.min(rowH, S.table.leading) > footerBottomLimit) newPageForRows();
 
-      const firstBaseline = cursor + S.table.firstBaselineDy;
-      // wrapped description
-      doc.text(line.description, S.table.colDesc.textX,
-        firstBaseline - (doc._font.ascender / 1000) * S.table.bodySize, {
-          width: descW,
-          lineGap: bodyLineGap,
-        });
-      // numbers on the first line of the row
-      rightText(fmtMoney(line.rate), S.table.colRate.rightX, firstBaseline);
-      rightText(fmtQty(line.qty), S.table.colQty.rightX, firstBaseline);
-      rightText(fmtMoney(line.amount), S.table.colAmt.rightX, firstBaseline);
+      // Split very long descriptions across pages
+      let remainingDesc = String(line.description || '');
+      let firstChunk = true;
+      while (true) {
+        const room = footerBottomLimit - (cursor + S.table.firstBaselineDy);
+        const maxLinesHere = Math.max(1, Math.floor(room / S.table.leading));
+        const maxH = maxLinesHere * S.table.leading;
 
-      cursor += rowH;
+        // Measure full remaining
+        const fullH = doc.heightOfString(remainingDesc, { width: descW, lineGap: bodyLineGap });
+        const fitsFully = fullH <= maxH + 1;
+
+        const firstBaseline = cursor + S.table.firstBaselineDy;
+        if (fitsFully) {
+          doc.text(remainingDesc, S.table.colDesc.textX,
+            firstBaseline - (doc._font.ascender / 1000) * S.table.bodySize, {
+              width: descW,
+              lineGap: bodyLineGap,
+            });
+          if (firstChunk) {
+            rightText(fmtMoney(line.rate), S.table.colRate.rightX, firstBaseline);
+            rightText(fmtQty(line.qty), S.table.colQty.rightX, firstBaseline);
+            rightText(fmtMoney(line.amount), S.table.colAmt.rightX, firstBaseline);
+          }
+          cursor += Math.max(S.table.leading, Math.round(fullH / S.table.leading) * S.table.leading);
+          break;
+        }
+
+        // Truncate to what fits on this page via progressive character budget
+        // (pdfkit doesn't expose line-break indices; approximate by height).
+        let cut = Math.floor(remainingDesc.length * (maxH / Math.max(fullH, 1)));
+        cut = Math.max(1, Math.min(remainingDesc.length - 1, cut));
+        // Prefer break at whitespace near cut
+        let breakAt = remainingDesc.lastIndexOf(' ', cut);
+        if (breakAt < cut * 0.5) breakAt = cut;
+        const chunk = remainingDesc.slice(0, breakAt).trimEnd();
+        const rest = remainingDesc.slice(breakAt).trimStart();
+
+        doc.text(chunk, S.table.colDesc.textX,
+          firstBaseline - (doc._font.ascender / 1000) * S.table.bodySize, {
+            width: descW,
+            lineGap: bodyLineGap,
+          });
+        if (firstChunk) {
+          rightText(fmtMoney(line.rate), S.table.colRate.rightX, firstBaseline);
+          rightText(fmtQty(line.qty), S.table.colQty.rightX, firstBaseline);
+          rightText(fmtMoney(line.amount), S.table.colAmt.rightX, firstBaseline);
+          firstChunk = false;
+        }
+        if (!rest) {
+          cursor += maxH;
+          break;
+        }
+        remainingDesc = rest;
+        newPageForRows();
+        cursor += S.table.rowGap;
+      }
     }
 
     /* -- totals + message block --------------------------------------- */
