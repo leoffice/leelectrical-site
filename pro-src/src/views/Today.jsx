@@ -1,5 +1,6 @@
 // Calendar — totals, to-do / upcoming follow-ups, week schedule.
-import React, { useEffect, useMemo, useState } from "react";
+// Opening an appointment expands under the calendar (not a covering modal).
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import { useStore } from "../state/store.jsx";
 import AppointmentDetailSheet from "../components/AppointmentDetailSheet.jsx";
@@ -68,6 +69,7 @@ export default function Today() {
   const [picked, setPicked] = useState(null);
   const [calQuery, setCalQuery] = useState("");
   const [reminderReturn, setReminderReturn] = useState(() => peekReminderReturn());
+  const focusRef = useRef(null);
   const t = todayStr();
   const calMatches = useMemo(() => searchCalendarEvents(events, calQuery), [events, calQuery]);
 
@@ -93,6 +95,23 @@ export default function Today() {
     const ev = events.find((e) => String(e.id) === String(pickId));
     if (ev) setPicked(ev);
   }, [events]);
+
+  // When an event opens (tap or deep-link), keep calendar at the top of the page.
+  useEffect(() => {
+    if (!picked) return;
+    const el = focusRef.current;
+    if (!el) return;
+    try {
+      el.scrollIntoView({ behavior: "smooth", block: "start" });
+    } catch {
+      try {
+        el.scrollIntoView(true);
+      } catch {
+        /* ignore */
+      }
+    }
+  }, [picked?.id]);
+
   const js = useMemo(() => jobs.filter((j) => !j._archived && !j._deleted), [jobs]);
   const buckets = useMemo(() => bucketFollowUps(js, t), [js, t]);
   const todo = useMemo(() => [...buckets.overdue, ...buckets.todayDue], [buckets]);
@@ -100,6 +119,53 @@ export default function Today() {
   const owed = totalBalanceDue(unpaid);
 
   const showReminderBack = reminderReturn && (!picked || reminderReturn.apptClosed);
+  const focusDate = picked ? evStart(picked).slice(0, 10) : "";
+
+  // Focused layout: calendar on top, event card expanding below (edit lives there too).
+  if (picked) {
+    return (
+      <div className="space-y-4" data-testid="calendar-view" data-appt-open="1">
+        {showReminderBack ? (
+          <button
+            type="button"
+            className="card w-full text-left px-3 py-2.5 flex items-center gap-2 text-sm font-semibold text-brand active:opacity-90"
+            onClick={backToReminder}
+            data-testid="back-to-reminder"
+          >
+            <span>←</span>
+            <span>Back to reminder</span>
+          </button>
+        ) : null}
+
+        <section ref={focusRef} data-testid="calendar-focus-panel">
+          <div className="flex items-center gap-2 mb-2 px-1">
+            <h2 className="text-[11px] font-extrabold text-slate-500 uppercase tracking-wider flex-1">
+              Schedule — Mon through Fri
+            </h2>
+            <button
+              type="button"
+              className="text-[11px] font-semibold text-brand"
+              onClick={closeAppointment}
+              data-testid="appt-close-focus"
+            >
+              Close
+            </button>
+          </div>
+          <div className="card px-3 py-3">
+            <WeekCalendar
+              events={events}
+              onPickEvent={setPicked}
+              selectedEventId={picked.id}
+              focusDate={focusDate}
+            />
+          </div>
+          <div className="mt-3" data-testid="appt-expand-panel">
+            <AppointmentDetailSheet event={picked} onClose={closeAppointment} inline />
+          </div>
+        </section>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-4" data-testid="calendar-view">
@@ -141,7 +207,7 @@ export default function Today() {
         <FollowUpSection title="Later" jobs={buckets.later} defaultOpen={false} />
       ) : null}
 
-      <section>
+      <section ref={focusRef}>
         <h2 className="text-[11px] font-extrabold text-slate-500 uppercase tracking-wider mb-2 px-1">
           Schedule — Mon through Fri
         </h2>
@@ -194,8 +260,6 @@ export default function Today() {
           <WeekCalendar events={events} onPickEvent={setPicked} />
         </div>
       </section>
-
-      {picked && <AppointmentDetailSheet event={picked} onClose={closeAppointment} />}
     </div>
   );
 }

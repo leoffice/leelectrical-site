@@ -346,8 +346,7 @@ export function MarkPaidSheet({
   const depositVal = deposit === "Other" ? depositOther.trim() : deposit;
   useEffect(() => {
     if (!openProofPicker) return;
-    // Highlight the dual picker (Take photo / Choose from files) — do not
-    // auto-force the camera; that was the bug on mobile.
+    // Highlight the seamless attach control — OS sheet offers camera/files.
     setAwaitingProof(true);
   }, [openProofPicker]);
 
@@ -500,14 +499,15 @@ export function MarkPaidSheet({
     setAutofillDone(true);
     setPaymentVerified(true);
     // When adding a payment from ＋ (no job yet), try to land on the invoice
-    // written on the check memo / image (invoice #, amount, date already set).
+    // written on the check (invoice #, amount, date, name already set).
     if (needsPick && !activeJob) {
-      const invNo = invoiceNoFromExtracted(extracted);
+      const invNo = patch.invoiceNo || invoiceNoFromExtracted(extracted);
       if (invNo) {
         const matched = findJobByInvoice(jobs, invNo);
         if (matched) {
           setActiveJob(matched);
           setPickCust({ name: matched.customer || "" });
+          setCustDraft(matched.customer || "");
           const d = openBalance(matched);
           if (!(patch.amt && parseFloat(patch.amt) > 0)) {
             setAmt(d > 0 ? String(d) : String(matched.amount || "").replace(/[$,]/g, ""));
@@ -515,6 +515,13 @@ export function MarkPaidSheet({
           showToast("Matched invoice #" + invNo + " — review and tap Record");
           return;
         }
+      }
+      // Fallback: payer name on the check → prefill customer search.
+      if (patch.name) {
+        setCustDraft(patch.name);
+        setPickCust({ name: patch.name });
+        showToast("Read name from check — pick the invoice if needed");
+        return;
       }
     }
   };

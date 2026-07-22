@@ -1,9 +1,12 @@
 // Re-export shared email-insight logic (canonical copy in netlify/functions/lib).
 export {
   isEnergyServicesEmail,
+  isCityDobEmail,
+  classifyAgency,
   extractAddress,
   extractDateTime,
   extractTimeWindow,
+  extractDobJobNumber,
   floorToHalfHour,
   addMinutesToLocalIso,
   formatClockLabel,
@@ -23,6 +26,7 @@ export {
   addressSimilarity,
   stripHtml,
   canAutoApply,
+  wantsNewCalendarAppointment,
   defaultActionKeys,
   isDateTimeActionable,
   AUTO_APPLY_MIN_SCORE,

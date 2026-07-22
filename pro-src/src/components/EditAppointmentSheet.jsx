@@ -21,7 +21,11 @@ export default function EditAppointmentSheet({
   onSaved,
   onDeleted,
   onDuplicated,
+  /** In-page under calendar (no nested week grid / no modal). */
+  inline = false,
+  showCalendar,
 }) {
+  const embedCal = showCalendar != null ? showCalendar : !inline;
   const { jobs, enqueue, showToast } = useStore();
   const linkedJob = linkedJobId ? (jobs || []).find((j) => String(j.id) === String(linkedJobId)) : null;
   const [duplicating, setDuplicating] = useState(false);
@@ -46,6 +50,8 @@ export default function EditAppointmentSheet({
         defaultSummary={event.summary}
         defaultLocation={event.location}
         defaultNotes={displayEventNotes(event.description)}
+        showCalendar={embedCal}
+        inline={inline}
         onClose={() => setDuplicating(false)}
         onSaved={() => {
           // Parent owns post-save navigation (back vs customer chooser).
@@ -80,6 +86,8 @@ export default function EditAppointmentSheet({
       editEvent={event}
       job={linkedJob}
       inspectionPreset={inspectionPreset}
+      showCalendar={embedCal}
+      inline={inline}
       onClose={onClose}
       onSaved={onSaved}
       onDelete={event.id ? () => setConfirmDel(true) : undefined}

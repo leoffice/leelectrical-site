@@ -5,8 +5,11 @@ import {
   buildProposedActions,
   enrichInsight,
   isEnergyServicesEmail,
+  isCityDobEmail,
+  classifyAgency,
   extractAddress,
   extractDateTime,
+  extractDobJobNumber,
   extractTimeWindow,
   floorToHalfHour,
   resolveScheduleTimes,
@@ -14,13 +17,19 @@ import {
   classifyAppointmentType,
   classifyEmailOutcome,
   canAutoApply,
+  wantsNewCalendarAppointment,
   defaultActionKeys,
   stripHtml,
   formatAppliedLead,
   EMAIL_INSIGHT_TEST_AUTO_APPLY_LIMIT,
   APPOINTMENT_DURATION_MINUTES,
 } from "../src/lib/emailInsight.js";
-import { buildCalendarPayload, ensureInspectionSelections } from "../src/lib/applyEmailInsight.js";
+import {
+  buildCalendarPayload,
+  ensureInspectionSelections,
+  calendarTitleForInsight,
+} from "../src/lib/applyEmailInsight.js";
+import { applyEmailInsight } from "../src/lib/applyEmailInsight.js";
 
 const SAMPLE_BODY = `Energy Services has scheduled a Con Edison inspection appointment
 for 503 Schenectady Avenue on August 15, 2026 at 2:00 PM.
@@ -38,11 +47,19 @@ const CONED_COMPLETED = `Service Address
 BROOKLYN , NY 11203
 Your Final Inspection passed on Tuesday, July 21, 2026.`;
 
+const DOB_CITY_BODY = `The Department of Buildings has scheduled an Electrical Inspection on 7/30/2026 10:15 AM at 149,EAST 116 STREET,Manhattan,10029 for Job Number M01228312.
+If there is an immediate need to cancel this scheduled inspection, log into DOB NOW: Inspections.`;
+
 describe("emailInsight", () => {
-  it("detects Energy Services senders", () => {
+  it("detects Energy Services and City DOB senders", () => {
     expect(isEnergyServicesEmail("noreply@energy-services.com", "Appointment", "")).toBe(true);
     expect(isEnergyServicesEmail("alerts@coned.com", "Inspection", "")).toBe(true);
     expect(isEnergyServicesEmail("CPMS.noreply@coned.com", "Case", "")).toBe(true);
+    expect(isEnergyServicesEmail("dobnowdonotreply@buildings.nyc.gov", "Electrical Inspection Scheduled", "")).toBe(
+      true
+    );
+    expect(isCityDobEmail("dobnowdonotreply@buildings.nyc.gov", "Electrical Inspection Scheduled", "")).toBe(true);
+    expect(classifyAgency("dobnowdonotreply@buildings.nyc.gov", "Electrical Inspection Scheduled", "")).toBe("city");
     expect(isEnergyServicesEmail("bob@example.com", "Hello", "")).toBe(false);
   });
 
@@ -122,14 +139,30 @@ describe("emailInsight", () => {
     expect(hit.jobId).toBeNull();
   });
 
-  it("canAutoApply requires strong match + scheduleable date", () => {
+  it("canAutoApply requires strong match + NEW appointment set (not reminder)", () => {
     const job = { id: "J-99", customer: "Jane", serviceAddress: "503 Schenectady Ave" };
     const good = enrichInsight(
-      parseEmailInsight({ from: "coned.com", subject: "Reminder", body: SAMPLE_BODY }),
+      parseEmailInsight({ from: "coned.com", subject: "Inspection scheduled", body: SAMPLE_BODY }),
       [job]
     );
+    expect(good.outcome).toBe("scheduled");
     expect(canAutoApply(good, job)).toBe(true);
     expect(defaultActionKeys(good, job)).toContain("calendar");
+    expect(wantsNewCalendarAppointment(good)).toBe(true);
+
+    // Reminder emails never auto-create calendar appointments.
+    const reminder = enrichInsight(
+      parseEmailInsight({
+        from: "CPMS.noreply@coned.com",
+        subject: "Initial Inspection Reminder",
+        body: CONED_HTML_REMINDER,
+      }),
+      [{ id: "J-1", serviceAddress: "1127 Lincoln Pl" }]
+    );
+    expect(reminder.outcome).toBe("reminder");
+    expect(canAutoApply(reminder, { id: "J-1", serviceAddress: "1127 Lincoln Pl" })).toBe(false);
+    expect(wantsNewCalendarAppointment(reminder)).toBe(false);
+    expect(defaultActionKeys(reminder, { id: "J-1" })).not.toContain("calendar");
 
     const weak = { ...good, jobMatchScore: 0.4 };
     expect(canAutoApply(weak, job)).toBe(false);
@@ -165,16 +198,57 @@ describe("emailInsight", () => {
     expect(canAutoApply(cancelled, { id: "J-1", serviceAddress: "1127 Lincoln Pl" })).toBe(false);
   });
 
-  it("formatAppliedLead is plain for calendar add", () => {
+  it("formatAppliedLead is plain for calendar add and already-on-calendar", () => {
     const job = { id: "J-1", customer: "Izzy" };
     const insight = {
-      outcome: "reminder",
+      outcome: "scheduled",
       appointmentType: "inspection",
+      agency: "coned",
       dateTime: "2026-07-28T09:30",
       source: { fromLabel: "Con Edison" },
     };
     expect(formatAppliedLead(insight, job)).toMatch(/Izzy/);
     expect(formatAppliedLead(insight, job)).toMatch(/schedule calendar/);
+    expect(
+      formatAppliedLead({ ...insight, skipReason: "already_on_calendar" }, job)
+    ).toMatch(/already on your schedule/i);
+  });
+
+  it("parses City DOB electrical inspection email", () => {
+    const raw = parseEmailInsight({
+      from: "DOBNOW donotreply <dobnowdonotreply@buildings.nyc.gov>",
+      subject: "Electrical Inspection Scheduled - Job Number M01228312/I1 /149 EAST 116 STREET",
+      body: DOB_CITY_BODY,
+      messageId: "dob-msg-1",
+    });
+    expect(raw.agency).toBe("city");
+    expect(raw.outcome).toBe("scheduled");
+    expect(raw.appointmentType).toBe("inspection");
+    expect(raw.address).toMatch(/149/i);
+    expect(raw.address).toMatch(/116/i);
+    expect(raw.address).toMatch(/10029|Manhattan/i);
+    expect(raw.dateTime).toBe("2026-07-30T10:00"); // floored from 10:15
+    expect(raw.exactDateTime).toBe("2026-07-30T10:15");
+    expect(extractDobJobNumber(DOB_CITY_BODY)).toMatch(/M01228312/i);
+    expect(raw.dobJobNumber).toMatch(/M01228312/i);
+    expect(raw.source.fromLabel).toMatch(/DOB|City/i);
+
+    const jobs = [{ id: "J-city", customer: "East 116", serviceAddress: "149 East 116 Street, Manhattan" }];
+    const enriched = enrichInsight(raw, jobs);
+    expect(enriched.jobId).toBe("J-city");
+    expect(canAutoApply(enriched, jobs[0])).toBe(true);
+    expect(defaultActionKeys(enriched, jobs[0])).toContain("calendar");
+
+    const title = calendarTitleForInsight(enriched);
+    expect(title).toMatch(/City electrical/i);
+    expect(title).toMatch(/10:00/);
+    expect(title).not.toMatch(/Jul|July|30/);
+
+    const desc = buildAppointmentDescription(enriched, jobs[0]);
+    expect(desc).toMatch(/10:15/);
+    expect(desc).toMatch(/City|DOB|Buildings/i);
+    expect(desc).toMatch(/M01228312/);
+    expect(desc).not.toMatch(/leJobId/i);
   });
 
   it("floors exact times to half-hour slots", () => {
@@ -193,14 +267,14 @@ describe("emailInsight", () => {
     expect(w.text).toMatch(/Appointment set between 11:00 and 1:00/);
   });
 
-  it("window appointment schedules start of window for 30 minutes", () => {
+  it("window appointment schedules start of window for 1 hour", () => {
     const body = `Service Address 1127 Lincoln Pl Brooklyn
 Your appointment is between 11:00 and 1:00 on July 28, 2026.`;
     const sched = resolveScheduleTimes(body);
     expect(sched.timeWindow?.text).toMatch(/between 11:00 and 1:00/);
     expect(sched.dateTime).toBe("2026-07-28T11:00");
-    expect(sched.endDateTime).toBe("2026-07-28T11:30");
-    expect(APPOINTMENT_DURATION_MINUTES).toBe(30);
+    expect(sched.endDateTime).toBe("2026-07-28T12:00");
+    expect(APPOINTMENT_DURATION_MINUTES).toBe(60);
   });
 
   it("inspection exact time lands in description; schedule uses half-hour", () => {
@@ -214,36 +288,98 @@ for 503 Schenectady Avenue on August 15, 2026 at 11:15 AM.`;
     });
     expect(raw.exactDateTime).toBe("2026-08-15T11:15");
     expect(raw.dateTime).toBe("2026-08-15T11:00");
-    expect(raw.endDateTime).toBe("2026-08-15T11:30");
+    expect(raw.endDateTime).toBe("2026-08-15T12:00");
     const desc = buildAppointmentDescription(raw, { id: "J-1", email: "c@x.com" });
     expect(desc).toMatch(/11:15/);
     expect(desc).toMatch(/11:00/);
     expect(desc).toMatch(/half-hour/i);
   });
 
-  it("buildCalendarPayload forces inspection reminders + guest + 30 min end", () => {
+  it("buildCalendarPayload forces inspection reminders + guest + 1h slot, clean notes, full address", () => {
     const insight = {
       appointmentType: "inspection",
+      agency: "coned",
       dateTime: "2026-08-15T11:00",
       exactDateTime: "2026-08-15T11:15",
-      endDateTime: "2026-08-15T11:30",
+      endDateTime: "2026-08-15T12:00",
       address: "503 Schenectady Ave",
       outcome: "scheduled",
       timeWindow: null,
     };
-    const job = { id: "J-1", customer: "Jane", email: "j@x.com", serviceAddress: "503 Schenectady Ave" };
+    const job = {
+      id: "J-1",
+      customer: "Jane",
+      email: "j@x.com",
+      serviceAddress: "503 Schenectady Ave",
+      billingAddress: "503 Schenectady Ave, Brooklyn, NY 11203",
+    };
     const selected = ensureInspectionSelections(insight, job, new Set(["calendar"]));
     expect(selected.has("remind_1h")).toBe(true);
     expect(selected.has("remind_1d")).toBe(true);
     expect(selected.has("guest_email")).toBe(true);
     const payload = buildCalendarPayload(insight, job, selected);
-    expect(payload.end).toBe("2026-08-15T11:30");
-    expect(payload.durationMinutes).toBe(30);
+    expect(payload.end).toBe("2026-08-15T12:00");
+    expect(payload.durationMinutes).toBe(60);
+    expect(payload.summary).toMatch(/11:00 AM|11:00/);
+    expect(payload.summary).not.toMatch(/Aug|August|15/);
+    expect(payload.description).not.toMatch(/leJobId/i);
+    expect(payload.description).toMatch(/Jane|Customer/i);
+    expect(payload.location).toMatch(/503 Schenectady/i);
+    expect(payload.location).toMatch(/Brooklyn|11203/i);
     expect(payload.reminders.map((r) => r.minutes).sort((a, b) => a - b)).toEqual([60, 1440]);
     expect(payload.guests).toEqual(["j@x.com"]);
     expect(payload.notifyCustomer).toBe(true);
     expect(payload.description).toMatch(/11:15/);
-    expect(payload.description).toMatch(/Appointment|inspection|From Energy/i);
+    expect(payload.description).toMatch(/inspection|Con Edison|Energy/i);
+  });
+
+  it("skips calendar create when appointment already on the calendar", async () => {
+    const insight = enrichInsight(
+      parseEmailInsight({
+        from: "noreply@energy-services.com",
+        subject: "Inspection scheduled",
+        body: SAMPLE_BODY,
+        messageId: "already-there",
+      }),
+      [{ id: "J-99", customer: "Jane", serviceAddress: "503 Schenectady Ave", email: "j@x.com" }]
+    );
+    const job = {
+      id: "J-99",
+      customer: "Jane",
+      serviceAddress: "503 Schenectady Ave",
+      email: "j@x.com",
+      calEventId: "ev-existing",
+    };
+    const events = [
+      {
+        id: "ev-existing",
+        summary: "Con Edison appointment — 2:00 PM",
+        start: "2026-08-15T14:00:00",
+        location: "503 Schenectady Ave",
+      },
+    ];
+    const enqueued = [];
+    const patches = [];
+    await applyEmailInsight({
+      insight,
+      job,
+      selectedActionKeys: defaultActionKeys(insight, job),
+      enqueue: async (type, jobId, payload) => {
+        enqueued.push({ type, jobId, payload });
+      },
+      patchAndSave: async () => {},
+      patchEmailInsight: async (id, patch) => {
+        patches.push({ id, patch });
+      },
+      appendLocalEvent: () => {},
+      pullCalendarNow: () => {},
+      showToast: null,
+      autoApply: true,
+      events,
+    });
+    expect(enqueued.filter((e) => e.type === "calendar_upsert")).toHaveLength(0);
+    expect(patches[0]?.patch?.skipReason).toBe("already_on_calendar");
+    expect(patches[0]?.patch?.appliedEventId).toBe("ev-existing");
   });
 
   it("test auto-apply limit is one appointment", () => {

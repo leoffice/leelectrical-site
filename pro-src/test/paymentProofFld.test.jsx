@@ -6,7 +6,7 @@ import "@testing-library/jest-dom/vitest";
 import PaymentProofFld from "../src/components/PaymentProofFld.jsx";
 
 describe("PaymentProofFld", () => {
-  it("offers Take photo and Choose from files (not camera-only)", () => {
+  it("offers one seamless attach control (OS handles camera vs files)", () => {
     const inputRef = { current: null };
     render(
       <PaymentProofFld
@@ -18,15 +18,16 @@ describe("PaymentProofFld", () => {
         testId="check-screenshot-input"
       />
     );
-    expect(screen.getByTestId("check-screenshot-input-take-photo")).toHaveTextContent(/Take photo/i);
-    expect(screen.getByTestId("check-screenshot-input-choose-file")).toHaveTextContent(
-      /Choose from files/i
+    expect(screen.getByTestId("check-screenshot-input-pick")).toBeInTheDocument();
+    expect(screen.getByTestId("check-screenshot-input-attach-label")).toHaveTextContent(
+      /Attach check or payment/i
     );
-    // Files input accepts images + PDF; camera input has capture.
+    // No dual Take photo / Choose from files buttons.
+    expect(screen.queryByTestId("check-screenshot-input-take-photo")).toBeNull();
+    expect(screen.queryByTestId("check-screenshot-input-choose-file")).toBeNull();
+    // Single input accepts images + PDF; no capture so OS offers camera + files.
     const files = screen.getByTestId("check-screenshot-input");
-    const camera = screen.getByTestId("check-screenshot-input-camera");
     expect(files.getAttribute("accept")).toMatch(/pdf/i);
-    expect(camera.getAttribute("capture")).toBe("environment");
     expect(files.hasAttribute("capture")).toBe(false);
   });
 
@@ -36,14 +37,19 @@ describe("PaymentProofFld", () => {
       <PaymentProofFld
         label="Proof"
         file={null}
-        inputRef={inputRef}
+        inputRef={{ current: null }}
         onFile={() => {}}
         testId="proof"
       />
     );
-    expect(inputRef.current).toBeTruthy();
-    expect(inputRef.current.getAttribute("data-testid")).toBe("proof");
-    expect(inputRef.current.hasAttribute("capture")).toBe(false);
+    // Re-render with working ref
+    const ref = { current: null };
+    render(
+      <PaymentProofFld label="Proof" file={null} inputRef={ref} onFile={() => {}} testId="proof2" />
+    );
+    expect(ref.current).toBeTruthy();
+    expect(ref.current.getAttribute("data-testid")).toBe("proof2");
+    expect(ref.current.hasAttribute("capture")).toBe(false);
   });
 
   it("disables Autofill for non-image attachments (e.g. PDF)", () => {
@@ -74,7 +80,7 @@ describe("PaymentProofFld", () => {
     expect(screen.getByTestId("payment-autofill")).not.toBeDisabled();
   });
 
-  it("Take photo clicks the camera input", () => {
+  it("attach button clicks the file input", () => {
     const onFile = vi.fn();
     render(
       <PaymentProofFld
@@ -86,9 +92,9 @@ describe("PaymentProofFld", () => {
         testId="check-screenshot-input"
       />
     );
-    const camera = screen.getByTestId("check-screenshot-input-camera");
-    const clickSpy = vi.spyOn(camera, "click");
-    fireEvent.click(screen.getByTestId("check-screenshot-input-take-photo"));
+    const input = screen.getByTestId("check-screenshot-input");
+    const clickSpy = vi.spyOn(input, "click");
+    fireEvent.click(screen.getByTestId("check-screenshot-input-pick"));
     expect(clickSpy).toHaveBeenCalled();
   });
 });

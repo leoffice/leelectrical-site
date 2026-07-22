@@ -1,21 +1,43 @@
 // Apply approved email-insight actions (calendar, paperwork, reminders).
-import { withJobLink } from "./calendarLink.js";
 import {
   appointmentTypeLabel,
   paperworkPatchForInsight,
   defaultActionKeys,
   canAutoApply,
+  wantsNewCalendarAppointment,
   buildAppointmentDescription,
   addMinutesToLocalIso,
   APPOINTMENT_DURATION_MINUTES,
 } from "./emailInsight.js";
 import { inspectionAppointmentTitle } from "./paperwork.js";
-const GCAL_RED_COLOR_ID = "11";
+import { calendarServiceLocation } from "./customerSync.js";
+import { GCAL_RED_COLOR_ID } from "./calendarEventStyle.js";
+import { findEventForInsight } from "./calendarNavigate.js";
 
+/**
+ * Calendar title — time only (date lives on the day column).
+ * City vs Con Edison named clearly.
+ */
 export function calendarTitleForInsight(insight) {
   const type = insight?.appointmentType || "other";
-  if (type === "inspection") return inspectionAppointmentTitle("Inspection appointment", insight?.dateTime);
-  return appointmentTypeLabel(type);
+  const agency = insight?.agency || "";
+  if (type === "inspection") {
+    if (agency === "city") {
+      // Same time-only pattern as Con Ed inspection titles.
+      const base = "City electrical inspection";
+      const dt = insight?.dateTime || "";
+      if (!dt || !dt.includes("T")) return base;
+      const t = dt.split("T")[1] || "";
+      const [hh, mm] = t.split(":");
+      const hour = Number(hh);
+      if (!Number.isFinite(hour)) return base;
+      const ampm = hour >= 12 ? "PM" : "AM";
+      const h12 = hour % 12 || 12;
+      return `${base} — ${h12}:${mm || "00"} ${ampm}`;
+    }
+    return inspectionAppointmentTitle("Inspection appointment", insight?.dateTime);
+  }
+  return appointmentTypeLabel(type, agency);
 }
 
 /**
@@ -35,18 +57,25 @@ export function ensureInspectionSelections(insight, job, selected) {
 export function buildCalendarPayload(insight, job, selected) {
   const sel = ensureInspectionSelections(insight, job, selected);
   const dt = insight?.dateTime || "";
+  // Prefer end from insight; otherwise duration from start (1 hour slot).
   const end =
     insight?.endDateTime ||
     (dt ? addMinutesToLocalIso(dt, APPOINTMENT_DURATION_MINUTES) : "");
-  const location = insight?.address || job?.serviceAddress || job?.address || "";
+  // Full street + city/state/zip when the job has it; fall back to email extract.
+  const location =
+    calendarServiceLocation(job) ||
+    insight?.address ||
+    job?.serviceAddress ||
+    job?.address ||
+    "";
   const title = calendarTitleForInsight(insight);
   const reminders = [];
   if (sel.has("remind_1h")) reminders.push({ label: "1h", minutes: 60 });
   if (sel.has("remind_1d")) reminders.push({ label: "1d", minutes: 1440 });
   const guests = [];
   if (sel.has("guest_email") && job?.email) guests.push(String(job.email).trim());
-  const notes = buildAppointmentDescription(insight, job);
-  const description = job?.id ? withJobLink(notes, job.id) : notes;
+  // Customer-facing notes only — no leJobId tag (job is linked via calEventId).
+  const description = buildAppointmentDescription(insight, job);
   const payload = {
     summary: title,
     start: dt || new Date().toISOString().slice(0, 16),
@@ -73,6 +102,10 @@ export function jobPatchForInsight(insight, selected) {
 /**
  * Apply insight actions. When autoApply=true, marks status auto_applied
  * so the app can show a "done" notice instead of an approve sheet.
+ *
+ * Cross-checks the live calendar first (Levi 2026-07-22): if the appointment
+ * is already scheduled, leave it alone — no second event, no re-invite.
+ * New appointment sets create the event and email the customer when we have email.
  */
 export async function applyEmailInsight({
   insight,
@@ -85,6 +118,7 @@ export async function applyEmailInsight({
   pullCalendarNow,
   showToast,
   autoApply = false,
+  events = [],
 }) {
   let selected = new Set(
     selectedActionKeys?.length ? selectedActionKeys : defaultActionKeys(insight, job)
@@ -92,14 +126,43 @@ export async function applyEmailInsight({
   selected = ensureInspectionSelections(insight, job, selected);
   const jobId = job?.id || insight?.jobId || "today";
   const outcome = insight?.outcome || "other";
-  const scheduleable = outcome !== "cancelled" && outcome !== "completed";
+  const scheduleable = wantsNewCalendarAppointment(insight) && outcome !== "cancelled" && outcome !== "completed";
+  let appliedEventId = "";
+  let skipReason = "";
+  let customerEmailed = false;
 
-  if (selected.has("calendar") && insight?.dateTime && scheduleable) {
+  // Cross-check: already on calendar? Leave it alone.
+  const existing = findEventForInsight(insight, job, events);
+  if (existing && selected.has("calendar") && scheduleable) {
+    appliedEventId = existing.id || job?.calEventId || "";
+    skipReason = "already_on_calendar";
+    // Still sync paperwork if needed, but no calendar_upsert.
+    if (job?.id) {
+      const paper = jobPatchForInsight(insight, selected);
+      if (paper && Object.keys(paper).length) {
+        await patchAndSave(job.id, {
+          ...paper,
+          ...(appliedEventId && !String(job.calEventId || "").startsWith("pending-")
+            ? { calEventId: appliedEventId }
+            : {}),
+        });
+      }
+    }
+  } else if (selected.has("calendar") && insight?.dateTime && scheduleable) {
     const payload = buildCalendarPayload(insight, job, selected);
+    // Always email the customer invite when we have their address (Levi: "then email").
+    if (job?.email && !payload.guests?.length) {
+      payload.guests = [String(job.email).trim()];
+      payload.attendees = payload.guests;
+      payload.notifyCustomer = true;
+    }
+    customerEmailed = !!(payload.notifyCustomer && payload.guests?.length);
+    payload.sendUpdates = customerEmailed ? "all" : "none";
     const key = "emailins:" + (insight.id || insight.source?.messageId || Date.now());
     await enqueue("calendar_upsert", jobId, payload, "judgment", key);
 
     const pendingId = "pending-" + Date.now();
+    appliedEventId = pendingId;
     if (job?.id) {
       const patch = {
         calEventId: pendingId,
@@ -134,10 +197,18 @@ export async function applyEmailInsight({
     autoApplied: !!autoApply,
     notified: false,
     jobId: job?.id || insight?.jobId || null,
+    ...(skipReason ? { skipReason } : {}),
+    ...(customerEmailed ? { customerEmailed: true } : {}),
+    // So "Open schedule calendar" deep-links to this event.
+    ...(appliedEventId ? { appliedEventId } : {}),
   });
   if (!autoApply) {
-    showToast?.("Applied — syncing to calendar and job");
+    showToast?.(
+      skipReason === "already_on_calendar"
+        ? "Already on your calendar — left it alone"
+        : "Applied — syncing to calendar and job"
+    );
   }
 }
 
-export { canAutoApply, defaultActionKeys };
+export { canAutoApply, defaultActionKeys, wantsNewCalendarAppointment };

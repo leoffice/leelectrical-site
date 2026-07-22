@@ -1,4 +1,5 @@
 // Appointment detail: view info, edit, job link, or create job.
+// `inline` = expand under the week calendar (Today tab), not a covering modal.
 import React, { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import Sheet from "./Sheet.jsx";
@@ -24,7 +25,39 @@ function linkedCustomerName(job) {
   return (job?.customer || job?.businessName || job?.title || "").trim() || "job";
 }
 
-export default function AppointmentDetailSheet({ event, onClose }) {
+/** Frame: modal sheet, or in-page expand card under the calendar. */
+function ApptFrame({ inline, title, onClose, children }) {
+  if (inline) {
+    return (
+      <div
+        className="rounded-2xl border border-brand/30 bg-white shadow-md overflow-hidden animate-[sheetup_.22s_ease-out]"
+        data-testid="appt-inline-card"
+      >
+        <div className="flex items-center gap-3 px-4 pt-3 pb-2 border-b border-slate-100 bg-brand-soft/30">
+          <h3 className="font-extrabold text-slate-900 text-base flex-1 truncate">{title}</h3>
+          <button
+            type="button"
+            aria-label="Close"
+            className="w-8 h-8 rounded-full bg-white text-slate-500 font-bold text-sm border border-slate-200"
+            onClick={onClose}
+          >
+            ✕
+          </button>
+        </div>
+        <div className="px-4 py-4" data-testid="sheet-body">
+          {children}
+        </div>
+      </div>
+    );
+  }
+  return (
+    <Sheet title={title} onClose={onClose}>
+      {children}
+    </Sheet>
+  );
+}
+
+export default function AppointmentDetailSheet({ event, onClose, inline = false }) {
   const { jobs, events, setNewJob, patchJob, patchAndSave, patchLocalEvent, removeLocalEvent, enqueue, showToast } =
     useStore();
   const nav = useNavigate();
@@ -51,6 +84,7 @@ export default function AppointmentDetailSheet({ event, onClose }) {
 
   useEffect(() => {
     setUnlinkDone(false);
+    setMode("view");
   }, [event?.id]);
 
   const goToCustomer = (job) => {
@@ -92,35 +126,23 @@ export default function AppointmentDetailSheet({ event, onClose }) {
     return (
       <Sheet title="Duplicate saved" onClose={onClose}>
         <div data-testid="after-duplicate-sheet">
-        <p className="text-sm text-slate-600 mb-4">
-          Copy is on the calendar. Where do you want to go?
-        </p>
-        <button
-          type="button"
-          className="btn-brand w-full mb-2"
-          onClick={onClose}
-          data-testid="after-dup-back"
-        >
-          Back to where I was
-        </button>
-        {workJob ? (
-          <button
-            type="button"
-            className="btn bg-brand-soft text-brand w-full mb-2"
-            onClick={() => goToCustomer(workJob)}
-            data-testid="after-dup-customer"
-          >
-            Open customer — {custName}
+          <p className="text-sm text-slate-600 mb-4">Copy is on the calendar. Where do you want to go?</p>
+          <button type="button" className="btn-brand w-full mb-2" onClick={onClose} data-testid="after-dup-back">
+            Back to where I was
           </button>
-        ) : null}
-        <button
-          type="button"
-          className="btn-ghost w-full"
-          onClick={() => setMode("view")}
-          data-testid="after-dup-stay"
-        >
-          Stay on this appointment
-        </button>
+          {workJob ? (
+            <button
+              type="button"
+              className="btn bg-brand-soft text-brand w-full mb-2"
+              onClick={() => goToCustomer(workJob)}
+              data-testid="after-dup-customer"
+            >
+              Open customer — {custName}
+            </button>
+          ) : null}
+          <button type="button" className="btn-ghost w-full" onClick={() => setMode("view")} data-testid="after-dup-stay">
+            Stay on this appointment
+          </button>
         </div>
       </Sheet>
     );
@@ -131,6 +153,8 @@ export default function AppointmentDetailSheet({ event, onClose }) {
       <EditAppointmentSheet
         event={liveEvent}
         linkedJobId={linked?.id}
+        inline={inline}
+        showCalendar={!inline}
         onClose={() => setMode("view")}
         onSaved={(ev) => patchLocalEvent(ev.id, ev)}
         onDeleted={async (eid) => {
@@ -235,7 +259,7 @@ export default function AppointmentDetailSheet({ event, onClose }) {
   };
 
   return (
-    <Sheet title={liveEvent.summary || "Appointment"} onClose={onClose}>
+    <ApptFrame inline={inline} title={liveEvent.summary || "Appointment"} onClose={onClose}>
       <div className="text-sm space-y-2 mb-4" data-testid="appt-contact-block">
         <div>
           <b className="font-semibold">When</b>{" "}
@@ -339,6 +363,6 @@ export default function AppointmentDetailSheet({ event, onClose }) {
       >
         ＋ Create customer from appointment
       </button>
-    </Sheet>
+    </ApptFrame>
   );
 }

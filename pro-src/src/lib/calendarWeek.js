@@ -48,13 +48,15 @@ export function evTimeLabel(e) {
   return `${hr}:${String(m).padStart(2, "0")} ${ap}`;
 }
 
-/** Group events into Mon–Fri buckets for one work week. Skips inspection summaries. */
+/**
+ * Group events into Mon–Fri buckets for one work week.
+ * Inspections stay on the grid (styled light translucent red in WeekCalendar).
+ */
 export function eventsForWorkWeek(events, weekStart) {
   const days = workWeekDays(weekStart);
   const keys = new Set(days.map((d) => d.key));
   const byDay = Object.fromEntries(days.map((d) => [d.key, []]));
   for (const e of events || []) {
-    if (/inspection/i.test(e.summary || "")) continue;
     const k = evStart(e).slice(0, 10);
     if (!keys.has(k)) continue;
     byDay[k].push(e);
@@ -63,4 +65,12 @@ export function eventsForWorkWeek(events, weekStart) {
     byDay[k].sort((a, b) => evStart(a).localeCompare(evStart(b)));
   }
   return { days, byDay };
+}
+
+/** Week offset from this Monday to the Monday of `ymdStr` (can be negative). */
+export function weekOffsetForDate(ymdStr, fromDate = new Date()) {
+  if (!ymdStr || ymdStr.length < 10) return 0;
+  const target = mondayOf(ymdStr.slice(0, 10));
+  const base = mondayOf(fromDate);
+  return Math.round((target.getTime() - base.getTime()) / (7 * 24 * 60 * 60 * 1000));
 }

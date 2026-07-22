@@ -2,10 +2,13 @@
 import { lastDocSend, docSendInFlight, docSendSucceeded } from "./docSendStatus.js";
 import { classifyAppointment } from "./appointmentActions.js";
 import { addDays } from "./calendarDue.js";
-import { openBalance, invoiceTotal } from "./customers.js";
+import { openBalance, invoiceTotal, invoiceAgeDays } from "./customers.js";
 import { serviceAddressDisplay } from "./customerSync.js";
 import { jobInvoiceDateDisplay, jobServiceDateDisplay } from "./customerDocLists.js";
 import { fmt$ } from "./format.js";
+
+/** Don't nag on unsent invoices older than this (Levi 2026-07-22). */
+export const UNSENT_INVOICE_MAX_AGE_DAYS = 365;
 
 function daysBetween(earlier, later) {
   const a = new Date(String(earlier) + "T12:00:00").getTime();
@@ -233,12 +236,18 @@ export function unsentDocCandidates(
   { dismissed = loadUnsentDismissed(), now = new Date() } = {}
 ) {
   const out = [];
+  const nowMs = now instanceof Date ? now.getTime() : Date.now();
   for (const job of jobs || []) {
     if (!job?.id || job.paid || job._archived || job._deleted) continue;
     for (const kind of ["invoice", "estimate"]) {
       if (!docNeverSent(job, kind, commands)) continue;
       if (dismissed[unsentKey(job.id, kind)]) continue;
       if (isUnsentSnoozed(job.id, kind, now)) continue;
+      // Skip ancient invoices — older than 1 year never becomes a reminder (batch report later).
+      if (kind === "invoice") {
+        const age = invoiceAgeDays(job, nowMs);
+        if (age > UNSENT_INVOICE_MAX_AGE_DAYS) continue;
+      }
       out.push({ job, docKind: kind, docNo: kind === "invoice" ? job.invoiceNo : job.estimateNo });
     }
   }

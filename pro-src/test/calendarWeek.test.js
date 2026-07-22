@@ -12,7 +12,7 @@ describe("calendarWeek", () => {
     expect(days[4].key).toBe("2026-07-10");
   });
 
-  it("eventsForWorkWeek buckets by day and skips inspections", () => {
+  it("eventsForWorkWeek buckets by day and keeps inspections (light red on grid)", () => {
     const { byDay } = eventsForWorkWeek(
       [
         { id: "a", summary: "Estimate — Jane", start: "2026-07-10T10:00" },
@@ -22,7 +22,8 @@ describe("calendarWeek", () => {
       mondayOf("2026-07-10")
     );
     expect(byDay["2026-07-10"]).toHaveLength(1);
-    expect(byDay["2026-07-08"]).toHaveLength(0);
+    expect(byDay["2026-07-08"]).toHaveLength(1);
+    expect(byDay["2026-07-08"][0].summary).toMatch(/Inspection/);
     expect(byDay["2026-07-07"]).toHaveLength(1);
   });
 });

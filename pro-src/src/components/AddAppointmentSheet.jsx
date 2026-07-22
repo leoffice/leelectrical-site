@@ -12,8 +12,9 @@ import { stashCalendarPick } from "../lib/calendarNavigate.js";
 import { productName, tenantCalendarAccount } from "../lib/tenantBranding.js";
 import { useTenantConfig } from "../state/tenant.jsx";
 
-/** Google Calendar colorId 11 = red (Tomato). */
-export const GCAL_RED_COLOR_ID = "11";
+import { GCAL_RED_COLOR_ID, isInspectionEvent } from "../lib/calendarEventStyle.js";
+
+export { GCAL_RED_COLOR_ID, isInspectionEvent };
 
 function jobDefaultSummary(job) {
   if (!job) return "";
@@ -64,13 +65,6 @@ function formatApptWhen(dt) {
   return dt.replace("T", " ").slice(0, 16);
 }
 
-export function isInspectionEvent(ev) {
-  if (!ev) return false;
-  if (String(ev.colorId) === GCAL_RED_COLOR_ID) return true;
-  const s = (ev.summary || "").toLowerCase();
-  return /inspection|con edison appointment/.test(s);
-}
-
 function initialReminders(ev) {
   const r = ev?.reminders;
   if (!Array.isArray(r) || !r.length) return null;
@@ -103,6 +97,8 @@ export default function AddAppointmentSheet({
   onDelete,
   onDuplicate,
   showCalendar = true,
+  /** When true, render as an in-page card (calendar already above on Today). */
+  inline = false,
 }) {
   const { events, jobs, api, enqueue, showToast, patchAndSave, patchJob, appendLocalEvent, pullCalendarNow } = useStore();
   const product = productName(useTenantConfig());
@@ -274,7 +270,9 @@ export default function AddAppointmentSheet({
         location: location || "",
         description,
       });
-      stashCalendarPick(pendingId);
+      // Don't deep-link when already editing under the Today calendar — that
+      // would swap the open card and kill the post-duplicate chooser.
+      if (!inline) stashCalendarPick(pendingId);
       pullCalendarNow();
       showToast(
         isDuplicate
@@ -300,8 +298,12 @@ export default function AddAppointmentSheet({
         ? "Add appointment — " + (job.customer || "job")
         : "Add appointment";
 
-  return (
-    <Sheet title={sheetTitle} onClose={onClose} wide>
+  // When embedded under the Today calendar, hide the nested week grid so the
+  // page layout is: calendar on top → edit form below.
+  const showEmbeddedCal = showCalendar && !inline;
+
+  const body = (
+    <>
       {isEdit && job?.id ? (
         <p className="text-[11px] text-slate-400 -mt-1 mb-2">Linked to job {job.id}.</p>
       ) : null}
@@ -313,7 +315,7 @@ export default function AddAppointmentSheet({
         </p>
       ) : fromInspection ? (
         <p className="text-[11px] text-slate-400 -mt-1 mb-2">
-          Inspection — syncs as <span className="text-red-600 font-semibold">red</span> with guest + reminders.
+          Inspection — syncs as <span className="text-red-600 font-semibold">light red</span> with guest + reminders.
         </p>
       ) : !isEdit && job ? (
         <p className="text-[11px] text-slate-400 -mt-1 mb-2">
@@ -322,7 +324,7 @@ export default function AddAppointmentSheet({
         </p>
       ) : null}
 
-      {showCalendar ? (
+      {showEmbeddedCal ? (
         <div className="mb-4" data-testid="appt-week-calendar">
           <p className="text-[11px] font-bold uppercase tracking-wide text-slate-400 mb-2">Calendar — see what&apos;s booked</p>
           <WeekCalendar events={events} embedded onAddDay={pickDay} />
@@ -412,6 +414,36 @@ export default function AddAppointmentSheet({
       <p className="text-[11px] text-slate-400 text-center mt-2">
         Syncs to {tenantCalendarAccount()} — appears on Today after sync.
       </p>
+    </>
+  );
+
+  if (inline) {
+    return (
+      <div
+        className="rounded-2xl border border-brand/25 bg-white shadow-md overflow-hidden"
+        data-testid="appt-edit-inline"
+      >
+        <div className="flex items-center gap-3 px-4 pt-3 pb-2 border-b border-slate-100">
+          <h3 className="font-extrabold text-slate-900 text-base flex-1 truncate">{sheetTitle}</h3>
+          <button
+            type="button"
+            aria-label="Close"
+            className="w-8 h-8 rounded-full bg-slate-100 text-slate-500 font-bold text-sm"
+            onClick={onClose}
+          >
+            ✕
+          </button>
+        </div>
+        <div className="px-4 py-4" data-testid="sheet-body">
+          {body}
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <Sheet title={sheetTitle} onClose={onClose} wide>
+      {body}
     </Sheet>
   );
 }

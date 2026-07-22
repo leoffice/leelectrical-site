@@ -17,18 +17,20 @@ Extract these fields and return ONLY valid JSON (no markdown):
 }
 If a field is missing or unreadable use null. confirmationNumber is critical.`;
 
-export const CHECK_VISION_PROMPT = `You are reading a paper check or mobile check-deposit photo.
-Extract these fields and return ONLY valid JSON (no markdown):
+export const CHECK_VISION_PROMPT = `You are reading a paper check or mobile check-deposit photo for LE Electrical payment entry.
+Extract these fields carefully and return ONLY valid JSON (no markdown):
 {
-  "amount": <number USD, no $ sign>,
-  "checkNumber": <check number as digits only — look in the upper-right corner of the check AND on the MICR line at the bottom (between routing and account numbers)>,
-  "date": <YYYY-MM-DD date on the check>,
-  "memo": <memo line text exactly as written>,
-  "payee": <pay to the order of name>,
-  "invoiceNumber": <invoice or job number if written on the memo or anywhere on the check, digits only, else null>,
+  "amount": <number USD, no $ sign — use the numeric amount box (usually right side), not the written-out words unless the box is unreadable>,
+  "checkNumber": <printed check number as digits only — upper-right of the check AND/OR the MICR check-number field at the bottom (after routing/account). Do NOT put invoice numbers here>,
+  "date": <YYYY-MM-DD from the DATE line on the check (usually top-right). Convert MM/DD/YY or MM/DD/YYYY to YYYY-MM-DD>,
+  "memo": <memo line text exactly as written, or null>,
+  "payee": <"Pay to the order of" name — usually the business being paid>,
+  "payer": <name of the person/company who wrote the check — usually printed top-left under/near the address block, or the account-holder name. NOT the payee>,
+  "invoiceNumber": <invoice or job number if present. Rules: (1) if memo/anywhere says Inv/Invoice/# then use those digits; (2) if memo or note is just a bare number (no English word like "check"/"acct"), treat that number as the invoice number; (3) digits only, typically 4–7 digits. Else null>,
   "confidence": <"high" or "low">
 }
-If a field is missing or unreadable use null. checkNumber and amount are critical — always try both the printed check number and the MICR check number field. invoiceNumber helps match the payment to the right invoice.`;
+If a field is missing or unreadable use null.
+Critical: amount + date + checkNumber whenever visible. payer helps match the customer. invoiceNumber matches the right invoice — prefer a bare memo number as invoice, not as check number.`;
 
 export const IMAGE_INTENT_PROMPT = `You are reading a photo Levi sent LE Electrical (payment proof, invoice, estimate, job site, document, or screenshot).
 Extract visible clues and return ONLY valid JSON (no markdown):
@@ -52,7 +54,7 @@ const PROMPTS = {
 /** Normalize vision model output to app shape (Zelle + check). */
 export function normalizePaymentExtracted(raw, kind = "zelle") {
   if (!raw || typeof raw !== "object") return null;
-  const amt = raw.amount != null ? parseFloat(String(raw.amount).replace(/[$,]/g, "")) : null;
+  const amt = raw.amount != null ? parseFloat(String(raw.amount).replace(/[$,*\s]/g, "")) : null;
   const conf = String(raw.confidence || "").toLowerCase() === "low" ? "low" : "high";
   let date = raw.date ? String(raw.date).trim() : "";
   const dm = date.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{2,4})/);
@@ -60,20 +62,31 @@ export function normalizePaymentExtracted(raw, kind = "zelle") {
     const yr = dm[3].length === 2 ? "20" + dm[3] : dm[3];
     date = `${yr}-${dm[1].padStart(2, "0")}-${dm[2].padStart(2, "0")}`;
   }
-  const checkNo = raw.checkNumber ? String(raw.checkNumber).trim() : "";
+  const checkNo = raw.checkNumber ? String(raw.checkNumber).replace(/\D/g, "").trim() : "";
   const confNo = raw.confirmationNumber ? String(raw.confirmationNumber).trim() : "";
-  const invNo = String(raw.invoiceNumber || raw.invoiceNo || "")
+  let invNo = String(raw.invoiceNumber || raw.invoiceNo || "")
     .replace(/\D/g, "")
     .trim();
+  const memo = raw.memo ? String(raw.memo).trim() : "";
+  // Bare memo number (no letters) on a check is almost always the invoice #.
+  if (!invNo && kind === "check" && memo) {
+    const bare = memo.match(/^\s*#?\s*(\d{4,7})\s*$/);
+    if (bare) invNo = bare[1];
+  }
   const ref = kind === "check" ? checkNo : confNo;
+  const payer = raw.payer ? String(raw.payer).trim() : "";
+  const payee = raw.payee ? String(raw.payee).trim() : "";
   return {
     amount: Number.isFinite(amt) && amt > 0 ? amt : null,
     confirmationNumber: ref,
     checkNumber: checkNo,
     invoiceNumber: invNo || "",
     date,
-    memo: raw.memo ? String(raw.memo).trim() : "",
-    payee: raw.payee ? String(raw.payee).trim() : "",
+    memo,
+    payee,
+    payer,
+    // Alias for older callers that only looked at payee for "who paid".
+    name: payer || payee || "",
     confidence: conf,
     kind,
   };
@@ -88,7 +101,7 @@ export function normalizeIntentExtracted(raw) {
   const addrs = Array.isArray(raw.addresses)
     ? raw.addresses.map((a) => String(a).trim()).filter(Boolean)
     : [];
-  const amt = raw.amount != null ? parseFloat(String(raw.amount).replace(/[$,]/g, "")) : null;
+  const amt = raw.amount != null ? parseFloat(String(raw.amount).replace(/[$,*\s]/g, "")) : null;
   const doc = String(raw.documentType || "other").toLowerCase();
   const pm = raw.paymentMethod ? String(raw.paymentMethod).toLowerCase() : null;
   return {

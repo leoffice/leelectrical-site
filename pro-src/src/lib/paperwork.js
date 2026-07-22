@@ -95,6 +95,19 @@ export function firstVisiblePaperStep(branchKey, br = {}) {
   return visiblePaperSteps(branchKey, br)[0] || "";
 }
 
+/** Time-only clock from a stored datetime (e.g. "9:30 AM") — no date. */
+export function formatPaperTimeOnly(raw) {
+  const s = String(raw || "").trim();
+  if (!s || !s.includes("T")) return "";
+  const t = s.split("T")[1] || "";
+  const [hh, mm] = t.split(":");
+  const hour = Number(hh);
+  if (!Number.isFinite(hour)) return "";
+  const ampm = hour >= 12 ? "PM" : "AM";
+  const h12 = hour % 12 || 12;
+  return `${h12}:${mm || "00"} ${ampm}`;
+}
+
 /** Format a stored date/datetime for display in Up next. */
 export function formatPaperDate(raw, kind = "date") {
   const s = String(raw || "").trim();
@@ -147,10 +160,16 @@ export function paperworkTiming(next) {
   return d <= today ? "Current" : "Up next";
 }
 
-/** Default calendar title when creating an inspection appointment from paperwork. */
+/**
+ * Default calendar title for inspection appointments.
+ * Time only in the title (date is already on the calendar day) — Levi 2026-07-22.
+ */
 export function inspectionAppointmentTitle(step, dateRaw = "") {
   const base = step === "Inspection appointment" ? "Con Edison appointment" : "Inspection appointment";
   if (!dateRaw) return base;
+  // Prefer clock-only so the title stays glanceable (no redundant date).
+  const timeOnly = formatPaperTimeOnly(dateRaw);
+  if (timeOnly) return `${base} — ${timeOnly}`;
   const when = formatPaperDate(dateRaw, DATE_STEPS[step] || "datetime");
   return when ? `${base} — ${when}` : base;
 }
