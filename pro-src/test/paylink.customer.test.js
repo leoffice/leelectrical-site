@@ -39,6 +39,34 @@ describe("openBalance", () => {
     expect(openBalance(null)).toBe(0);
     expect(openBalance({})).toBe(0);
   });
+  it("trusts openBalance 0 over an incomplete payment ledger (QBO paid mark)", () => {
+    // Safarnovich-style: paid_patch zeros balance but payments[] still miss last $800
+    const job = {
+      invoiceNo: "231388",
+      amount: "$7,200",
+      openBalance: 0,
+      paid: true,
+      paymentBaseline: 7200,
+      payments: [
+        { id: "qbo-18437", amount: "$1000", date: "2024-01-10" },
+        { id: "qbo-18301", amount: "$4400", date: "2023-10-25" },
+        { id: "qbo-18300", amount: "$1000", date: "2023-10-23" },
+      ],
+    };
+    expect(openBalance(job)).toBe(0);
+    expect(amountPaid(job)).toBe(7200);
+  });
+  it("prefers lower of payment-remainder vs explicit openBalance", () => {
+    const job = {
+      invoiceNo: "1",
+      amount: "$1,000",
+      openBalance: 200,
+      paymentBaseline: 1000,
+      payments: [{ id: "p1", amount: "$500", date: "2026-01-01" }],
+    };
+    // payments imply $500 left; QBO openBalance says $200 — show $200
+    expect(openBalance(job)).toBe(200);
+  });
 });
 
 describe("amountPaid / invoiceTotal", () => {
