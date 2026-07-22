@@ -36,8 +36,29 @@ export function totalPaid(payments) {
   return (payments || []).reduce((s, p) => s + parseAmount(p.amount), 0);
 }
 
-/** Invoice amount owed before any recorded payments in LE Pro. */
-export function amountOwedAtStart(job, payments) {
+/**
+ * True when this invoice looks like progress billing (partial % of a contract).
+ * Used to repair frozen payment baselines after the invoice total is raised
+ * (e.g. 50% → 80%) without breaking QBO imports where amount ≫ open balance.
+ */
+export function isProgressInvoiceJob(job) {
+  if (!job) return false;
+  if (job.invoiceProgressBilling) return true;
+  if (job.invoiceProgressPct != null && job.invoiceProgressPct !== "" && parseAmount(job.invoiceProgressPct) < 99.99) {
+    return true;
+  }
+  const lines = job.invoiceLines || [];
+  if (lines.some((ln) => ln.progressBilling || (parseAmount(ln.qty) > 0 && parseAmount(ln.qty) < 0.9999))) {
+    return true;
+  }
+  // Estimate-linked invoice — common path for progress draws.
+  if (job.estimateLines?.length && String(job.invoiceNo || "").trim()) return true;
+  if (parseAmount(job.contractAmount) > 0 && String(job.invoiceNo || "").trim()) return true;
+  return false;
+}
+
+/** Frozen baseline before any LE Pro payments, adjusted when invoice total changes. */
+function frozenBaseline(job, payments) {
   if (job?.paymentBaseline != null && job.paymentBaseline !== "") {
     return parseAmount(job.paymentBaseline);
   }
@@ -47,7 +68,38 @@ export function amountOwedAtStart(job, payments) {
   if (curOpen != null && paidSum > 0) return curOpen + paidSum;
   const noteBal = parseBalanceFromNotes(job);
   if (noteBal != null) return noteBal;
-  return invoiceTotal(job) || parseAmount(job?.amount);
+  return invoiceTotal(job) || parseAmount(job?.amount) || 0;
+}
+
+/**
+ * Invoice amount owed before recorded payments.
+ * When the invoice total is raised after payments (progress bill 50%→80%),
+ * owed-at-start tracks the new total so balance due = invoice − paid.
+ * amountWhenBaselined stamps the invoice total at the time paymentBaseline
+ * was locked so later amount edits apply a clean delta.
+ */
+export function amountOwedAtStart(job, payments) {
+  const inv = invoiceTotal(job);
+  let baseline = frozenBaseline(job, payments);
+
+  const stampedRaw = job?.amountWhenBaselined;
+  const stamped =
+    stampedRaw != null && stampedRaw !== "" ? parseAmount(stampedRaw) : null;
+
+  if (stamped != null && inv > 0 && Math.abs(inv - stamped) > 0.009) {
+    // Invoice total changed since baseline was set — shift owed by the same delta.
+    baseline = Math.max(0, baseline + (inv - stamped));
+  } else if (stamped == null && inv > 0 && baseline > 0 && inv > baseline + 0.009) {
+    // Legacy: invoice total raised after paymentBaseline was frozen (progress draw
+    // 50%→80%). Promote to invoice total when this looks like a full prior draw,
+    // not a QBO import where amount ≫ open balance with little of that baseline paid.
+    const paidSum = totalPaid(payments);
+    const looksLikePriorFullDraw =
+      isProgressInvoiceJob(job) || (paidSum > 0 && paidSum / baseline >= 0.3);
+    if (looksLikePriorFullDraw) baseline = inv;
+  }
+
+  return baseline;
 }
 
 export function remainingBalance(job, payments) {
@@ -55,20 +107,77 @@ export function remainingBalance(job, payments) {
   return Math.max(0, owed - totalPaid(payments));
 }
 
+/**
+ * When invoice amount changes (progress % edit, line edits), recompute
+ * paymentBaseline / openBalance so balance due stays invoice − paid.
+ * Call from doc save with the NEW amount and the job BEFORE the amount patch.
+ */
+export function reconcileBalanceOnAmountChange(job, newAmount) {
+  const inv = parseAmount(newAmount);
+  if (!(inv >= 0) || !job) return {};
+  const pays = normalizePayments(job);
+  const paid = totalPaid(pays);
+  const oldInv = invoiceTotal(job);
+
+  let baseline = frozenBaseline(job, pays);
+  if (oldInv > 0 && Math.abs(inv - oldInv) > 0.009) {
+    baseline = Math.max(0, baseline + (inv - oldInv));
+  } else if (pays.length && inv > baseline + 0.009) {
+    // Amount raised with no prior total to diff — use new invoice total.
+    baseline = inv;
+  } else if (!pays.length) {
+    // No payment ledger: open balance tracks the full invoice (unless already paid).
+    if (job.paid && (job.openBalance == null || parseAmount(job.openBalance) === 0)) {
+      return { amountWhenBaselined: inv };
+    }
+    const remaining = inv;
+    const fullPay = remaining <= 0.01;
+    return {
+      openBalance: fullPay ? 0 : remaining,
+      paid: fullPay || !!job.paid,
+      amountWhenBaselined: inv,
+      ...(job.paymentBaseline != null && job.paymentBaseline !== ""
+        ? { paymentBaseline: inv }
+        : {}),
+    };
+  }
+
+  const remaining = Math.max(0, baseline - paid);
+  const fullPay = remaining <= 0.01;
+  return {
+    paymentBaseline: baseline,
+    amountWhenBaselined: inv,
+    openBalance: fullPay ? 0 : remaining,
+    paid: fullPay,
+  };
+}
+
 /** Build overlay patch after payments[] changed (add / edit / delete). */
 export function applyPaymentsPatch(job, payments) {
   const list = payments.map((p) => ({ ...p }));
+  const inv = invoiceTotal(job);
   const owed = amountOwedAtStart(job, list);
   const remaining = Math.max(0, owed - totalPaid(list));
   const fullPay = remaining <= 0.01;
   const latest = list.slice().sort((a, b) => String(a.date || "").localeCompare(String(b.date || ""))).pop();
+  const stamp =
+    job?.amountWhenBaselined != null && job.amountWhenBaselined !== ""
+      ? job.amountWhenBaselined
+      : inv || owed;
   const patch = {
     payments: list,
-    paymentBaseline: job?.paymentBaseline != null ? job.paymentBaseline : owed,
+    paymentBaseline: job?.paymentBaseline != null && job.paymentBaseline !== "" ? job.paymentBaseline : owed,
+    amountWhenBaselined: stamp,
     openBalance: fullPay ? 0 : remaining,
     paid: fullPay,
     payment: latest || null,
   };
+  // If invoice total already exceeds a frozen baseline (legacy progress raise),
+  // lock baseline to the adjusted owed so later payment edits stay correct.
+  if (owed > parseAmount(patch.paymentBaseline) + 0.009) {
+    patch.paymentBaseline = owed;
+    patch.amountWhenBaselined = inv || owed;
+  }
   if (fullPay && latest?.date) {
     patch.status = { Paid: { s: "done", d: latest.date }, "Follow-up": { s: "done", d: latest.date } };
   } else {

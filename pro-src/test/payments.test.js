@@ -6,6 +6,7 @@ import {
   movePayment,
   normalizePaymentMethod,
   normalizePayments,
+  reconcileBalanceOnAmountChange,
   removePayment,
   remainingBalance,
   updatePayment,
@@ -157,5 +158,76 @@ describe("payments ledger", () => {
     ];
     const list = invoicesForCustomerPick(jobs, "Acme Co", { openOnly: false });
     expect(list.map((j) => j.invoiceNo)).toEqual(["2", "1"]);
+  });
+
+  // Levi 2026-07-22 — Chanan Sheleg: progress draw raised 50%→80%, invoice
+  // total went up, but balance due stayed frozen at the old remaining.
+  it("progress invoice total raise updates balance due (invoice − paid)", () => {
+    // 50% draw was $25,000; $20,000 paid → $5,000 open. Then raised to $36,800.
+    const afterRaise = {
+      id: "j-progress",
+      invoiceNo: "251808",
+      amount: "$36,800",
+      paid: false,
+      paymentBaseline: 25000,
+      openBalance: 5000,
+      invoiceProgressBilling: true,
+      invoiceProgressPct: 80,
+      payments: [
+        { id: "p1", amount: "$5,000", method: "Check", date: "2026-03-20" },
+        { id: "p2", amount: "$5,000", method: "Zelle", date: "2026-04-10" },
+        { id: "p3", amount: "$5,000", method: "Check", date: "2026-05-01" },
+        { id: "p4", amount: "$5,000", method: "Zelle", date: "2026-06-15" },
+      ],
+    };
+    expect(amountPaid(afterRaise)).toBe(20000);
+    expect(openBalance(afterRaise)).toBe(16800); // 36800 − 20000, not the frozen $5,000
+    expect(remainingBalance(afterRaise, afterRaise.payments)).toBe(16800);
+  });
+
+  it("reconcileBalanceOnAmountChange bumps baseline when draw amount rises", () => {
+    const before = {
+      id: "j1",
+      invoiceNo: "1",
+      amount: "$25,000",
+      paid: false,
+      paymentBaseline: 25000,
+      amountWhenBaselined: 25000,
+      openBalance: 5000,
+      payments: [{ id: "p1", amount: "20000", method: "Check", date: "2026-03-01" }],
+    };
+    const patch = reconcileBalanceOnAmountChange(before, 36800);
+    expect(patch.paymentBaseline).toBe(36800);
+    expect(patch.openBalance).toBe(16800);
+    expect(patch.paid).toBe(false);
+    expect(patch.amountWhenBaselined).toBe(36800);
+  });
+
+  it("incomplete ledger (amount ≫ baseline, not progress) keeps open balance", () => {
+    // QBO import: full invoice $41k on file, $11k still open, one LE payment $1k.
+    const incomplete = {
+      id: "j-qbo",
+      invoiceNo: "999",
+      amount: "$41,000",
+      paid: false,
+      paymentBaseline: 12000,
+      openBalance: 11000,
+      payments: [{ id: "p1", amount: "1000", method: "Cash", date: "2026-01-01" }],
+    };
+    expect(openBalance(incomplete)).toBe(11000);
+  });
+
+  it("progress raise without progress flags still fixes when most of baseline was paid", () => {
+    // Same Chanan numbers, no invoiceProgressBilling marker on the job.
+    const job = {
+      id: "j-legacy",
+      invoiceNo: "251808",
+      amount: "$36,800",
+      paid: false,
+      paymentBaseline: 25000,
+      openBalance: 5000,
+      payments: [{ id: "p1", amount: "20000", method: "Check", date: "2026-03-01" }],
+    };
+    expect(openBalance(job)).toBe(16800);
   });
 });
