@@ -68,7 +68,12 @@ import {
 } from "../lib/paymentAutofill.js";
 import { buildPaymentVisionLearningEntry } from "../lib/paymentVisionLearning.js";
 import { getDepositBanks } from "../lib/chatPayment.js";
-import { analyzePaymentImage, analyzePaymentScreenshot, fileToBase64 } from "../lib/paymentVision.js";
+import {
+  analyzePaymentImage,
+  analyzePaymentScreenshot,
+  compressImageForVision,
+  fileToBase64,
+} from "../lib/paymentVision.js";
 import ZelleReconcileSheet from "./ZelleReconcileSheet.jsx";
 import PaymentProofFld from "./PaymentProofFld.jsx";
 import { sortJobs } from "../lib/stages.js";
@@ -374,6 +379,8 @@ export function MarkPaidSheet({
   /** True when user chose Attach a picture — keep the photo CTA highlighted until they pick one. */
   const [awaitingProof, setAwaitingProof] = useState(Boolean(openProofPicker));
   const proofInputRef = useRef(null);
+  /** Once Autofill puts a check amount on the form, do not let open-balance prefill wipe it. */
+  const visionAmountLockedRef = useRef(false);
   const depositVal = deposit === "Other" ? depositOther.trim() : deposit;
   useEffect(() => {
     if (!openProofPicker) return;
@@ -400,8 +407,11 @@ export function MarkPaidSheet({
 
   useEffect(() => {
     if (!activeJob) return;
-    const d = openBalance(activeJob);
-    setAmt(d > 0 ? String(d) : String(activeJob.amount || "").replace(/[$,]/g, ""));
+    // Autofill may setActiveJob after reading the check — never clobber vision amount with open balance.
+    if (!visionAmountLockedRef.current) {
+      const d = openBalance(activeJob);
+      setAmt(d > 0 ? String(d) : String(activeJob.amount || "").replace(/[$,]/g, ""));
+    }
     setAchName(activeJob.customer || "");
     setUseSavedCard(Boolean(activeJob.solaCardToken));
   }, [activeJob?.id]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -565,7 +575,10 @@ export function MarkPaidSheet({
       return false;
     }
     const patch = paymentAutofillPatch(extracted);
-    if (patch.amt) setAmt(patch.amt);
+    if (patch.amt) {
+      setAmt(patch.amt);
+      visionAmountLockedRef.current = true;
+    }
     if (patch.ref) setRef(patch.ref);
     if (patch.dt) setDt(patch.dt);
     if (patch.memo) setMemo(patch.memo);
@@ -583,8 +596,9 @@ export function MarkPaidSheet({
           setActiveJob(matched);
           setPickCust({ name: matched.customer || "" });
           setCustDraft(matched.customer || "");
-          const d = openBalance(matched);
+          // Vision amount already set + locked — only fall back to open balance if amount was missed.
           if (!(patch.amt && parseFloat(patch.amt) > 0)) {
+            const d = openBalance(matched);
             setAmt(d > 0 ? String(d) : String(matched.amount || "").replace(/[$,]/g, ""));
           }
           showToast("Matched invoice #" + invNo + " — review and tap Record");
@@ -603,11 +617,26 @@ export function MarkPaidSheet({
   };
 
   const runAutofill = async (b64Override, fileOverride) => {
-    const b64 = b64Override || proofB64;
     const file = fileOverride || proofFile;
-    if (!b64) return;
+    let b64 = b64Override || proofB64;
+    let mime = file?.type || "image/jpeg";
+    if (!b64 && !file) return;
     setAutofillBusy(true);
     try {
+      // Compress large phone photos so the amount box stays readable and gateway doesn't 502.
+      if (file && String(file.type || "").startsWith("image/")) {
+        try {
+          const compressed = await compressImageForVision(file);
+          if (compressed?.b64) {
+            b64 = compressed.b64;
+            mime = compressed.mime || "image/jpeg";
+            setProofB64(b64);
+          }
+        } catch {
+          /* keep original b64 */
+        }
+      }
+      if (!b64) return;
       let learningEntries = [];
       try {
         learningEntries = (await getPaymentVisionLearning?.()) || [];
@@ -616,7 +645,7 @@ export function MarkPaidSheet({
       }
       const { extracted } = await analyzePaymentImage(
         b64,
-        file?.type || "image/jpeg",
+        mime,
         isCheck ? "check" : isZelle ? "zelle" : "check",
         file?.name || "",
         { learningEntries }
@@ -817,6 +846,7 @@ export function MarkPaidSheet({
     setPaymentVerified(false);
     setAutofillDone(false);
     setAutofillExtracted(null);
+    visionAmountLockedRef.current = false;
     // Prefer check when a file is attached without a method (Attach path).
     const treatAsCheck = !mth || mth === "Check" || isCheck;
     if (!mth) setMth("Check");
@@ -960,7 +990,10 @@ export function MarkPaidSheet({
           className="input"
           inputMode="decimal"
           value={amt}
-          onChange={(e) => setAmt(e.target.value)}
+          onChange={(e) => {
+            visionAmountLockedRef.current = false;
+            setAmt(e.target.value);
+          }}
           aria-label="Amount"
           disabled={alreadyPaid || !job}
         />
@@ -978,6 +1011,7 @@ export function MarkPaidSheet({
             setPaymentVerified(false);
             setAutofillDone(false);
             setAutofillExtracted(null);
+            visionAmountLockedRef.current = false;
           }}
           aria-label="Payment method"
           disabled={processing}

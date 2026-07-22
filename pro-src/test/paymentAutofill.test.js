@@ -70,6 +70,8 @@ describe("paymentAutofill", () => {
   it("parses string amounts and rejects empty extracts as not useful", () => {
     expect(parseExtractedAmount("$1,250.50")).toBe(1250.5);
     expect(parseExtractedAmount(null)).toBe(null);
+    expect(parseExtractedAmount("$450.00***")).toBe(450);
+    expect(parseExtractedAmount("450.00/100")).toBe(450);
     expect(hasUsefulPaymentAutofill(null)).toBe(false);
     expect(hasUsefulPaymentAutofill({})).toBe(false);
     expect(hasUsefulPaymentAutofill({ amount: 100, checkNumber: "12" })).toBe(true);

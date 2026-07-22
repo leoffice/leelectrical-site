@@ -113,6 +113,36 @@ function paymentExtractScore(extracted) {
   return s;
 }
 
+/**
+ * Merge two vision extracts so a "winning" kind does not drop fields the other pass found.
+ * Classic bug: check pass finds check # but misses $ box; zelle pass finds amount → old picker
+ * returned check-only and left amount empty (Israel could read it; Autofill could not).
+ */
+export function mergePaymentExtracts(primary, secondary) {
+  if (!primary && !secondary) return null;
+  if (!primary) return secondary ? { ...secondary } : null;
+  if (!secondary) return { ...primary };
+  const out = { ...primary };
+  const fill = (key, preferTruthy = true) => {
+    const a = out[key];
+    const b = secondary[key];
+    const emptyA = a == null || a === "" || (preferTruthy && a === 0);
+    if (emptyA && b != null && b !== "") out[key] = b;
+  };
+  fill("amount");
+  fill("checkNumber");
+  fill("confirmationNumber");
+  fill("date");
+  fill("memo");
+  fill("payer");
+  fill("payee");
+  fill("invoiceNumber");
+  fill("name");
+  // Prefer non-low confidence when either side is high.
+  if (out.confidence !== "high" && secondary.confidence === "high") out.confidence = "high";
+  return out;
+}
+
 /** Pick the best check vs zelle vision result using text hint and extracted fields. */
 export function pickPaymentAnalysis({ checkResult, zelleResult, textHint = "", fileName = "" }) {
   const hint = String(textHint || "")
@@ -121,24 +151,37 @@ export function pickPaymentAnalysis({ checkResult, zelleResult, textHint = "", f
   const wantsCheck = /\b(?:check|cheque|deposit)\b/.test(hint);
   const wantsZelle = /\b(?:zelle?|zell)\b/.test(hint);
 
-  if (wantsCheck && checkResult) return { extracted: checkResult, kind: "check" };
-  if (wantsZelle && zelleResult) return { extracted: zelleResult, kind: "zelle" };
+  // Always merge complementary fields — never throw away amount/check# from the other pass.
+  if (wantsCheck && checkResult) {
+    const extracted = mergePaymentExtracts(checkResult, zelleResult);
+    return { extracted, kind: "check" };
+  }
+  if (wantsZelle && zelleResult) {
+    const extracted = mergePaymentExtracts(zelleResult, checkResult);
+    return { extracted, kind: "zelle" };
+  }
 
   const checkKind = detectPaymentKind(checkResult, fileName);
   const zelleKind = detectPaymentKind(zelleResult, fileName);
-  if (checkKind === "check" && checkResult?.checkNumber) return { extracted: checkResult, kind: "check" };
-  if (zelleKind === "zelle" && zelleResult?.confirmationNumber) return { extracted: zelleResult, kind: "zelle" };
+  if (checkKind === "check" && checkResult?.checkNumber) {
+    const extracted = mergePaymentExtracts(checkResult, zelleResult);
+    return { extracted, kind: "check" };
+  }
+  if (zelleKind === "zelle" && zelleResult?.confirmationNumber) {
+    const extracted = mergePaymentExtracts(zelleResult, checkResult);
+    return { extracted, kind: "zelle" };
+  }
 
   const checkScore = paymentExtractScore(checkResult);
   const zelleScore = paymentExtractScore(zelleResult);
   if (checkScore >= zelleScore && checkResult) {
-    const merged =
-      checkResult.checkNumber || !zelleResult
-        ? checkResult
-        : { ...zelleResult, checkNumber: checkResult.checkNumber, kind: "check" };
-    return { extracted: merged, kind: detectPaymentKind(merged, fileName) || "check" };
+    const extracted = mergePaymentExtracts(checkResult, zelleResult);
+    return { extracted, kind: detectPaymentKind(extracted, fileName) || "check" };
   }
-  if (zelleResult) return { extracted: zelleResult, kind: "zelle" };
+  if (zelleResult) {
+    const extracted = mergePaymentExtracts(zelleResult, checkResult);
+    return { extracted, kind: "zelle" };
+  }
   return { extracted: checkResult || zelleResult, kind: checkKind || zelleKind || "check" };
 }
 
