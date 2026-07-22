@@ -6,7 +6,10 @@ export default function SaveBar() {
   const { dirtyCount, saving, saveAll, discardAll } = useStoreEdit();
   if (!dirtyCount) return null;
   return (
-    <div className="fixed z-40 inset-x-0 bottom-16 lg:bottom-4 lg:left-60 pb-safe" data-testid="savebar">
+    <div
+      className="fixed z-40 inset-x-0 bottom-16 lg:bottom-4 pb-safe lg:left-[var(--desktop-sidebar-w,15rem)]"
+      data-testid="savebar"
+    >
       <div className="max-w-3xl mx-auto px-4 pb-2">
         <div className="flex items-center gap-3 px-4 py-3 rounded-2xl bg-slate-900 text-white shadow-xl">
           <span className="text-sm font-medium flex-1">
