@@ -34,6 +34,7 @@ export {
   defaultActionKeys,
   isDateTimeActionable,
   isPastAppointmentInsight,
+  hasRealInsightData,
   shouldSurfaceInsight,
   AUTO_APPLY_MIN_SCORE,
   EMAIL_INSIGHT_TEST_AUTO_APPLY_LIMIT,

@@ -3,6 +3,7 @@ import {
   isEnergyServicesEmail,
   parseEmailInsight,
   enrichInsight,
+  hasRealInsightData,
 } from "./lib/emailInsight.mjs";
 
 const KEY = "insights-v1";
@@ -65,6 +66,10 @@ export default async (req) => {
             });
       const jobs = Array.isArray(body.jobs) ? body.jobs : [];
       if (jobs.length) insight = enrichInsight(insight, jobs);
+      // Reject vague/test/junk emails with no real address, date, or job (Levi 2026-07-22).
+      if (!hasRealInsightData(insight)) {
+        return json({ ok: false, skipped: true, reason: "no_real_data" });
+      }
       const mid = insight.source?.messageId || insight.id;
       const dupe = (doc.insights || []).find(
         (x) => (x.source?.messageId && x.source.messageId === mid) || x.id === insight.id

@@ -27,6 +27,7 @@ import {
   formatInsightSourceLabel,
   isDateTimeActionable,
   isPastAppointmentInsight,
+  hasRealInsightData,
   shouldSurfaceInsight,
   EMAIL_INSIGHT_TEST_AUTO_APPLY_LIMIT,
   APPOINTMENT_DURATION_MINUTES,
@@ -260,9 +261,100 @@ describe("emailInsight", () => {
       outcome: "completed",
       dateTime: "2026-07-21T10:30",
       appointmentType: "inspection",
+      address: "503 SCHENECTADY AVE, BROOKLYN, NY 11203",
+      source: { subject: "Final Inspection Appointment Completed", fromLabel: "Con Edison" },
+      emailSnippet: "Your Final Inspection passed on Tuesday, July 21, 2026.",
     };
     expect(isPastAppointmentInsight(completed, morningAfter)).toBe(false);
+    expect(hasRealInsightData(completed)).toBe(true);
     expect(shouldSurfaceInsight(completed, morningAfter)).toBe(true);
+  });
+
+  it("never surfaces vague / junk email insights without real facts (Levi 2026-07-22)", () => {
+    // Screenshot case: subject "x", no address, no date — still proposed calendar add.
+    const junkX = {
+      outcome: "other",
+      appointmentType: "other",
+      agency: "coned",
+      address: "",
+      dateTime: "",
+      jobId: null,
+      jobMatchScore: 0,
+      source: { subject: "x", fromLabel: "Con Edison", type: "email" },
+      emailSnippet: "x",
+    };
+    expect(hasRealInsightData(junkX)).toBe(false);
+    expect(shouldSurfaceInsight(junkX)).toBe(false);
+    expect(buildProposedActions(junkX, null).some((a) => a.key === "calendar")).toBe(false);
+
+    // Has Con Ed-ish subject but still no address or date.
+    const emptyFacts = {
+      outcome: "scheduled",
+      appointmentType: "other",
+      agency: "coned",
+      address: "",
+      dateTime: "",
+      source: {
+        subject: "Energy Services appointment",
+        fromLabel: "Con Edison",
+        type: "email",
+      },
+      emailSnippet: "From Con Edison: for Energy Services appointment.",
+    };
+    expect(hasRealInsightData(emptyFacts)).toBe(false);
+    expect(shouldSurfaceInsight(emptyFacts)).toBe(false);
+
+    // Address only, no date → still not actionable for a calendar set.
+    const addrNoDate = {
+      outcome: "scheduled",
+      appointmentType: "inspection",
+      agency: "coned",
+      address: "503 Schenectady Ave, Brooklyn, NY 11203",
+      dateTime: "",
+      source: { subject: "Inspection scheduled", fromLabel: "Con Edison" },
+      emailSnippet: "Service Address 503 SCHENECTADY AVE BROOKLYN NY 11203",
+    };
+    expect(hasRealInsightData(addrNoDate)).toBe(false);
+    expect(shouldSurfaceInsight(addrNoDate)).toBe(false);
+
+    // Real: address + date + meaningful content.
+    const real = {
+      outcome: "scheduled",
+      appointmentType: "inspection",
+      agency: "coned",
+      address: "503 Schenectady Ave, Brooklyn, NY 11203",
+      dateTime: "2026-08-15T14:00",
+      source: {
+        subject: "Con Edison inspection scheduled",
+        fromLabel: "Con Edison",
+      },
+      emailSnippet:
+        "Energy Services has scheduled a Con Edison inspection for 503 Schenectady Avenue on August 15, 2026 at 2:00 PM.",
+    };
+    expect(hasRealInsightData(real)).toBe(true);
+    expect(shouldSurfaceInsight(real, new Date(2026, 6, 22))).toBe(true);
+
+    // Real completed with address only (date may be past — paperwork still useful).
+    const completedOk = {
+      outcome: "completed",
+      appointmentType: "inspection",
+      address: "1127 Lincoln Pl, Brooklyn, NY 11213",
+      dateTime: "2026-07-21T09:30",
+      source: { subject: "Final Inspection Appointment Completed" },
+      emailSnippet: "Your Final Inspection passed.",
+    };
+    expect(hasRealInsightData(completedOk)).toBe(true);
+
+    // Stub subject with short content rejected.
+    expect(
+      hasRealInsightData({
+        outcome: "other",
+        address: "503 Schenectady Ave",
+        dateTime: "2026-08-01T10:00",
+        source: { subject: "test" },
+        emailSnippet: "test",
+      })
+    ).toBe(false);
   });
 
   it("canAutoApply completed inspection for paperwork; not cancelled", () => {

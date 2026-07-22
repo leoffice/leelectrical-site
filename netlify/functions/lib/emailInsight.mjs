@@ -715,15 +715,14 @@ export function buildProposedActions(insight, job, now = new Date()) {
 
   // Only NEW appointment-set emails create calendar events (not pure reminders).
   // Past appointments are never scheduleable — no second calendar add after the day.
+  // No date → never offer calendar (junk / incomplete parse — Levi 2026-07-22).
   const isNewSet = outcome === "scheduled" || outcome === "other";
-  const scheduleable = isNewSet && !past;
+  const scheduleable = isNewSet && !past && !!when;
 
   if (scheduleable) {
     actions.push({
       key: "calendar",
-      label: when
-        ? `Add ${typeLabel} to calendar (${when.replace("T", " ").slice(0, 16)})`
-        : `Add ${typeLabel} to calendar`,
+      label: `Add ${typeLabel} to calendar (${when.replace("T", " ").slice(0, 16)})`,
       enabled: true,
       defaultOn: true,
     });
@@ -974,11 +973,55 @@ export function isPastAppointmentInsight(insight, now = new Date()) {
 }
 
 /**
+ * Real-data quality gate (Levi 2026-07-22): only surface insights with concrete
+ * facts — not vague / test / junk mail like subject "x" with no address or date.
+ *
+ * Requires:
+ *  - Meaningful email content (not a stub)
+ *  - At least one real anchor: address, DOB job #, or job match
+ *  - Date/time for schedule / reminder / generic appointment sets
+ */
+export function hasRealInsightData(insight) {
+  if (!insight) return false;
+
+  const subject = String(insight.source?.subject || "").trim();
+  const snippet = String(insight.emailSnippet || insight.source?.body || "").trim();
+  const content = `${subject} ${snippet}`.replace(/\s+/g, " ").trim();
+
+  // Empty or trivial body/subject — e.g. "x" / "Re: x" / "test".
+  if (!content || content.length < 12) return false;
+  const stubRe = /^(re:\s*)?(x+|test|asdf|foo|bar|hello|hi|n\/a|na|none|tbd)\s*$/i;
+  if (stubRe.test(subject) && content.length < 48) return false;
+  if (stubRe.test(snippet) && content.length < 48) return false;
+
+  const address = String(insight.address || "").trim();
+  const hasAddress = address.length >= 6 && /\d/.test(address);
+  const hasDobJob = !!String(insight.dobJobNumber || "").trim();
+  const hasJob =
+    !!insight.jobId ||
+    (Number(insight.jobMatchScore) || 0) >= 0.5 ||
+    !!String(insight.matchedJobId || "").trim();
+  const hasDate = !!String(insight.dateTime || insight.exactDateTime || "").trim();
+
+  // Must pin to a place or a known job — "Energy Services appointment" alone is not enough.
+  if (!hasAddress && !hasJob && !hasDobJob) return false;
+
+  const outcome = insight.outcome || "other";
+  // New sets / reminders / generic "other" need a real when — otherwise calendar is empty.
+  if (outcome === "scheduled" || outcome === "reminder" || outcome === "other") {
+    if (!hasDate) return false;
+  }
+  // completed / cancelled: address or job (already required) is enough for paperwork/note.
+  return true;
+}
+
+/**
  * Whether the app should show any sheet for this insight (approve / done notice).
- * Past appointment reminders and late-arriving sets are silent — auto-ignored.
+ * Past appointment reminders, late-arriving sets, and junk/vague emails are silent.
  */
 export function shouldSurfaceInsight(insight, now = new Date()) {
   if (!insight) return false;
+  if (!hasRealInsightData(insight)) return false;
   if (isPastAppointmentInsight(insight, now)) return false;
   return true;
 }
