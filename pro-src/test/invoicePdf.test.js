@@ -91,6 +91,32 @@ describe("invoicePdf field mapping", () => {
     expect(d.lines[0].description).toBe("Line one\nLine two");
   });
 
+  it("never prints product/service name when description is empty", () => {
+    const d = mapJobToInvoicePdfData({
+      ...job,
+      invoiceLines: [{ itemName: "Permit fee", description: "", qty: 1, unitPrice: 150 }],
+    });
+    expect(d.lines[0].description).toBe("");
+    expect(d.lines[0].description).not.toMatch(/Permit fee/);
+  });
+
+  it("keeps blank gaps and converts bullet dots for professional layout", () => {
+    const d = mapJobToInvoicePdfData({
+      ...job,
+      invoiceLines: [
+        {
+          itemName: "Installation:Installation",
+          description: "Scope:\n\n• Step one\n• Step two\n\nNotes below.",
+          qty: 1,
+          unitPrice: 100,
+        },
+      ],
+    });
+    expect(d.lines[0].description).toContain("\n\n");
+    expect(d.lines[0].description).toContain("- Step one");
+    expect(d.lines[0].description).not.toMatch(/Installation:Installation/);
+  });
+
   it("canGenerateLocalInvoice allows drafts without invoice number when lines exist", () => {
     expect(canGenerateLocalInvoice(job)).toBe(true);
     expect(canGenerateLocalInvoice({ ...job, invoiceNo: "" })).toBe(true);

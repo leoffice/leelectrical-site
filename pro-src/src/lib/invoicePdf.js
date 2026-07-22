@@ -7,6 +7,7 @@ import { buildQbDocPdf } from "./qbInvoicePdf.js";
 import { POWERED_BY_LE, POWERED_BY_LE_PDF_COLOR, POWERED_BY_LE_PDF_SIZE } from "./brand.js";
 import { mapJobToQbDocData } from "./jobToQbDoc.js";
 import { activeTenantConfig, tenantCompany } from "./tenantBranding.js";
+import { formatPrintDescription, wrapPrintDescription } from "./printDescription.js";
 
 const PAGE_W = 612;
 const PAGE_H = 792;
@@ -111,32 +112,8 @@ function addDays(iso, days) {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 }
 
-function wrapParagraph(para, max = 52) {
-  const words = String(para || "").trim().split(/\s+/).filter(Boolean);
-  if (!words.length) return [""];
-  const out = [];
-  let cur = "";
-  for (const w of words) {
-    const next = cur ? cur + " " + w : w;
-    if (next.length > max && cur) {
-      out.push(cur);
-      cur = w;
-    } else cur = next;
-  }
-  if (cur) out.push(cur);
-  return out;
-}
-
 function wrapBlock(text, max = 52) {
-  const lines = [];
-  for (const para of String(text || "").split("\n")) {
-    if (!para.trim()) {
-      lines.push("");
-      continue;
-    }
-    lines.push(...wrapParagraph(para, max));
-  }
-  return lines.length ? lines : [""];
+  return wrapPrintDescription(text, max);
 }
 
 function textCmd(x, y, text, { size = BODY, font = "F1", align = "left" } = {}) {
@@ -221,8 +198,8 @@ export function mapJobToInvoicePdfData(job, overrides = {}) {
     serviceAddress: showService ? svcAddr : "",
     lines: lines.map((ln) => ({
       serviceDate: fmtInvoiceDate(ln.serviceDate || ln.date || ""),
-      // Product/Service (itemName) is backend-only — print description only.
-      description: String(ln.description || "").trim() || String(ln.itemName || "").trim() || "",
+      // Product/Service (itemName) is backend-only — never print it.
+      description: formatPrintDescription(ln.description),
       rate: parseAmount(ln.unitPrice),
       qty: parseAmount(ln.qty) || 1,
       amount: lineAmount(ln),
