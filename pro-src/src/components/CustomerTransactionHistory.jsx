@@ -17,20 +17,33 @@ const FILTERS = [
   { id: "estimates", label: "Estimates" },
 ];
 
+/** Doc # chip: color + shape (pill / square / tag) so invoices stay distinguishable. */
 function DocBubble({ docNo, color, testId }) {
   if (!docNo) return null;
   const c = color || {};
+  const shape = c.shape || "pill";
+  const shapeCls =
+    shape === "square"
+      ? "rounded-md"
+      : shape === "tag"
+        ? "rounded-sm border-l-2"
+        : "rounded-full";
   return (
     <span
       className={
-        "inline-flex items-center px-1.5 py-0.5 rounded-full text-[10px] font-extrabold tabular-nums ring-1 shrink-0 " +
+        "inline-flex items-center px-1.5 py-0.5 text-[10px] font-extrabold tabular-nums ring-1 border shrink-0 " +
+        shapeCls +
+        " " +
         (c.bg || "bg-slate-100") +
         " " +
         (c.text || "text-slate-700") +
         " " +
-        (c.ring || "ring-slate-200")
+        (c.ring || "ring-slate-200") +
+        " " +
+        (c.border || "border-slate-300")
       }
       data-testid={testId}
+      data-shape={shape}
     >
       {docNo}
     </span>

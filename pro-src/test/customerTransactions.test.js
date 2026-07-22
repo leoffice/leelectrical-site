@@ -1,6 +1,7 @@
 /** @vitest-environment jsdom */
 import { describe, expect, it } from "vitest";
 import {
+  assignLinkStyles,
   buildCustomerTransactions,
   linkColorForDoc,
   linkColorKeyForJob,
@@ -43,11 +44,24 @@ describe("customerTransactions", () => {
     },
   ];
 
-  it("linkColorForDoc is stable per invoice number", () => {
+  it("linkColorForDoc is stable per invoice number and includes shape", () => {
     expect(linkColorForDoc("1001")).toEqual(linkColorForDoc("1001"));
     expect(linkColorForDoc("1001").bg).toBeTruthy();
-    // Different numbers may share a color from the palette — just ensure object shape.
+    expect(linkColorForDoc("1001").shape).toMatch(/pill|square|tag/);
+    // No green on doc bubbles — green is reserved for payment amounts
+    expect(linkColorForDoc("1001").bg).not.toMatch(/emerald/);
     expect(linkColorForDoc("9999").text).toMatch(/^text-/);
+  });
+
+  it("assignLinkStyles prefers unique color+shape pairs across a list", () => {
+    const keys = Array.from({ length: 14 }, (_, i) => String(2000 + i));
+    const map = assignLinkStyles(keys);
+    const tokens = keys.map((k) => {
+      const s = map.get(k);
+      return s.bg + ":" + s.shape;
+    });
+    // First 12 should all be unique (palette size × at least one shape)
+    expect(new Set(tokens.slice(0, 12)).size).toBe(12);
   });
 
   it("txnKindStyle gives distinct colors for payment, invoice, estimate", () => {
@@ -55,7 +69,8 @@ describe("customerTransactions", () => {
     expect(txnKindStyle("invoice").label).toBe("Invoice");
     expect(txnKindStyle("estimate").label).toBe("Estimate");
     expect(txnKindStyle("payment").className).toMatch(/emerald/);
-    expect(txnKindStyle("invoice").className).toMatch(/sky/);
+    // Invoice label is neutral so the colored doc bubble carries identity
+    expect(txnKindStyle("invoice").className).toMatch(/slate/);
     expect(txnKindStyle("estimate").className).toMatch(/amber/);
     expect(txnKindStyle("payment").className).not.toBe(txnKindStyle("invoice").className);
     expect(txnKindStyle("invoice").className).not.toBe(txnKindStyle("estimate").className);

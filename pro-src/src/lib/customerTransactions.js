@@ -5,22 +5,33 @@ import { normalizePayments, normalizePaymentMethod, fmtPaymentDate } from "./pay
 import { fmt$ } from "./format.js";
 import { serviceAddressDisplay } from "./customerSync.js";
 
-/** Soft palette — same invoice # always gets the same bubble color. */
+/**
+ * Soft palette for doc-number bubbles — NO green (payment amount stays green).
+ * Same invoice # always gets the same color + shape so linked rows match.
+ * When the palette wraps (many invoices), shape cycles: pill → square → diamond edge.
+ */
 const LINK_COLORS = [
-  { bg: "bg-sky-100", text: "text-sky-800", ring: "ring-sky-200" },
-  { bg: "bg-violet-100", text: "text-violet-800", ring: "ring-violet-200" },
-  { bg: "bg-amber-100", text: "text-amber-900", ring: "ring-amber-200" },
-  { bg: "bg-emerald-100", text: "text-emerald-800", ring: "ring-emerald-200" },
-  { bg: "bg-rose-100", text: "text-rose-800", ring: "ring-rose-200" },
-  { bg: "bg-indigo-100", text: "text-indigo-800", ring: "ring-indigo-200" },
-  { bg: "bg-teal-100", text: "text-teal-800", ring: "ring-teal-200" },
-  { bg: "bg-orange-100", text: "text-orange-900", ring: "ring-orange-200" },
+  { bg: "bg-sky-100", text: "text-sky-900", ring: "ring-sky-400", border: "border-sky-400" },
+  { bg: "bg-violet-100", text: "text-violet-900", ring: "ring-violet-400", border: "border-violet-400" },
+  { bg: "bg-amber-100", text: "text-amber-950", ring: "ring-amber-500", border: "border-amber-500" },
+  { bg: "bg-rose-100", text: "text-rose-900", ring: "ring-rose-400", border: "border-rose-400" },
+  { bg: "bg-indigo-100", text: "text-indigo-900", ring: "ring-indigo-400", border: "border-indigo-400" },
+  { bg: "bg-teal-100", text: "text-teal-900", ring: "ring-teal-500", border: "border-teal-500" },
+  { bg: "bg-orange-100", text: "text-orange-950", ring: "ring-orange-500", border: "border-orange-500" },
+  { bg: "bg-fuchsia-100", text: "text-fuchsia-900", ring: "ring-fuchsia-400", border: "border-fuchsia-400" },
+  { bg: "bg-cyan-100", text: "text-cyan-900", ring: "ring-cyan-500", border: "border-cyan-500" },
+  { bg: "bg-lime-100", text: "text-lime-950", ring: "ring-lime-500", border: "border-lime-500" },
+  { bg: "bg-pink-100", text: "text-pink-900", ring: "ring-pink-400", border: "border-pink-400" },
+  { bg: "bg-blue-100", text: "text-blue-900", ring: "ring-blue-500", border: "border-blue-500" },
 ];
+
+/** pill = rounded-full; square = rounded-md; tag = rounded-sm + left bar feel */
+const LINK_SHAPES = ["pill", "square", "tag"];
 
 /** Type-word colors on the row label (Payment / Invoice / Estimate). */
 export const TXN_KIND_STYLES = {
   payment: { label: "Payment", className: "text-emerald-600" },
-  invoice: { label: "Invoice", className: "text-sky-700" },
+  invoice: { label: "Invoice", className: "text-slate-700" },
   estimate: { label: "Estimate", className: "text-amber-700" },
 };
 
@@ -28,13 +39,59 @@ export function txnKindStyle(kind) {
   return TXN_KIND_STYLES[kind] || TXN_KIND_STYLES.invoice;
 }
 
-/** Stable color pair for an invoice / estimate number. */
-export function linkColorForDoc(docNo) {
-  const s = String(docNo || "").trim();
-  if (!s) return LINK_COLORS[0];
+function hashDoc(s) {
   let h = 0;
   for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) >>> 0;
-  return LINK_COLORS[h % LINK_COLORS.length];
+  return h;
+}
+
+/** Stable color + shape for an invoice / estimate number. */
+export function linkColorForDoc(docNo) {
+  const s = String(docNo || "").trim();
+  if (!s) return { ...LINK_COLORS[0], shape: LINK_SHAPES[0] };
+  const h = hashDoc(s);
+  const colorIdx = h % LINK_COLORS.length;
+  // Shape from higher bits so same color can still look different on collisions
+  const shapeIdx = Math.floor(h / LINK_COLORS.length) % LINK_SHAPES.length;
+  return { ...LINK_COLORS[colorIdx], shape: LINK_SHAPES[shapeIdx] };
+}
+
+/**
+ * Assign colors within one customer list so nearby invoices rarely share a look.
+ * Stable per doc #; prefers unused color+shape pairs before reusing.
+ */
+export function assignLinkStyles(keys) {
+  const ordered = [];
+  const seen = new Set();
+  for (const k of keys || []) {
+    const s = String(k || "").trim();
+    if (!s || seen.has(s)) continue;
+    seen.add(s);
+    ordered.push(s);
+  }
+  const used = new Set();
+  const map = new Map();
+  for (const key of ordered) {
+    const preferred = linkColorForDoc(key);
+    let pick = preferred;
+    const preferToken = preferred.bg + ":" + preferred.shape;
+    if (used.has(preferToken)) {
+      // Walk palette+shapes until free, then fall back to preferred
+      let found = null;
+      for (let s = 0; s < LINK_SHAPES.length && !found; s++) {
+        for (let c = 0; c < LINK_COLORS.length && !found; c++) {
+          const token = LINK_COLORS[c].bg + ":" + LINK_SHAPES[s];
+          if (!used.has(token)) {
+            found = { ...LINK_COLORS[c], shape: LINK_SHAPES[s] };
+          }
+        }
+      }
+      pick = found || preferred;
+    }
+    used.add(pick.bg + ":" + pick.shape);
+    map.set(key, pick);
+  }
+  return map;
 }
 
 /**
@@ -88,13 +145,20 @@ function estimateSortDate(job) {
  * kind: invoice | payment | estimate
  */
 export function buildCustomerTransactions(jobs, { filter = "all", sort = "new" } = {}) {
+  const liveJobs = (jobs || []).filter((j) => j && !j._archived && !j._deleted);
+  // Pre-assign unique-ish color+shape per invoice family across this list
+  const familyKeys = liveJobs.map((j) => linkColorKeyForJob(j)).filter(Boolean);
+  const styleMap = assignLinkStyles(familyKeys);
+  const defaultStyle = { ...LINK_COLORS[0], shape: LINK_SHAPES[0] };
+
   const rows = [];
-  for (const j of jobs || []) {
-    if (!j || j._archived || j._deleted) continue;
+  for (const j of liveJobs) {
     const address = serviceAddressDisplay(j);
 
     const familyKey = linkColorKeyForJob(j);
-    const familyColor = familyKey ? linkColorForDoc(familyKey) : LINK_COLORS[0];
+    const familyColor = familyKey
+      ? styleMap.get(familyKey) || linkColorForDoc(familyKey)
+      : defaultStyle;
 
     if (j.invoiceNo) {
       const total = invoiceTotal(j);
@@ -128,7 +192,7 @@ export function buildCustomerTransactions(jobs, { filter = "all", sort = "new" }
         total: invoiceTotal(j),
         due: 0,
         dateLabel: shortTxnDate(dateRaw),
-        // Same bubble color as the invoice when linked (same job or linkedInvoiceNo)
+        // Same bubble color+shape as the invoice when linked
         color: familyColor,
       });
     }

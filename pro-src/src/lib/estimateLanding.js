@@ -4,7 +4,7 @@ import { parseAmount, fmt$ } from "./format.js";
 import { functionsBase } from "./functionsBase.js";
 import { progressBillLines } from "./progressBilling.js";
 import { lineAmount, linesTotal } from "./qboDoc.js";
-import { buildInvoicePdfFromJob } from "./invoicePdf.js";
+import { buildEstimatePdfFromJob, buildInvoicePdfFromJob } from "./invoicePdf.js";
 
 export function isEstimateLanding(data) {
   if (!data) return false;
@@ -14,6 +14,54 @@ export function isEstimateLanding(data) {
 
 export function estimateDocNo(data) {
   return String(data?.en || data?.i || "").trim();
+}
+
+/**
+ * Map public estimate landing payload → job shape for client PDF.
+ * Used when docs store has no est-{no} yet (test links, or send-time upload miss).
+ */
+export function buildEstimateJobFromPayload(data) {
+  const estNo = estimateDocNo(data);
+  const lines = Array.isArray(data?.lines) ? data.lines : [];
+  const total =
+    lines.length > 0
+      ? lines.reduce((s, ln) => s + lineAmount(ln), 0)
+      : parseAmount(data?.a) || parseAmount(String(data?.t || "").replace(/[$,]/g, "")) || 0;
+  return {
+    id: String(data?.j || "").trim(),
+    customer: String(data?.c || "").trim(),
+    businessName: String(data?.businessName || data?.c || "").trim(),
+    personName: String(data?.personName || "").trim(),
+    qboCustomerId: String(data?.qboCustomerId || "").trim(),
+    email: String(data?.e || "").trim(),
+    phone: String(data?.ph || "").trim(),
+    title: String(data?.w || "Electrical services").trim(),
+    serviceAddress: String(data?.sa || "").trim(),
+    billingAddress: String(data?.ba || data?.sa || "").trim(),
+    address: String(data?.sa || data?.ba || "").trim(),
+    apartment: String(data?.apartment || "").trim(),
+    zip: String(data?.z || "").trim(),
+    estimateNo: estNo,
+    estimateLines: lines.length
+      ? lines
+      : total > 0
+        ? [{ itemName: "Electrical services", description: String(data?.w || "").trim(), qty: 1, unitPrice: total }]
+        : [],
+    amount: total,
+    openBalance: total,
+    payments: [],
+  };
+}
+
+/** Build estimate PDF blob from landing payload (client qb-pdf). */
+export function buildEstimatePdfBlobFromPayload(data) {
+  const job = buildEstimateJobFromPayload(data);
+  if (!job.estimateNo && !job.estimateLines?.length && !(job.amount > 0)) {
+    return { ok: false, error: "no_data", job };
+  }
+  const blob = buildEstimatePdfFromJob(job);
+  if (!blob) return { ok: false, error: "no_pdf", job };
+  return { ok: true, blob, job };
 }
 
 export function depositPctFromPayload(data) {
