@@ -133,4 +133,22 @@ describe("composed invoice email", () => {
     const { payload } = await compose();
     expect(payload.attachments.some((a) => a.filename === "Invoice-231595.pdf")).toBe(true);
   });
+
+  it("BCCs office so Gmail can file a copy under the LE Pro tab", async () => {
+    const { payload } = await compose();
+    expect(payload.bcc).toEqual(["office@leelectrical.us"]);
+  });
+
+  it("does not BCC when the only recipient is already office", async () => {
+    sent = null;
+    await sendDocEmail({
+      job: JOB,
+      kind: "invoice",
+      to: "office@leelectrical.us",
+      includePaymentLink: false,
+      pdfB64: PDF_B64,
+      officeOnly: true,
+    });
+    expect(sent?.bcc).toBeUndefined();
+  });
 });
