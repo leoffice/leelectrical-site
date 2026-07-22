@@ -5,9 +5,10 @@ import {
 } from "./brand.js";
 // QuickBooks-clone invoice/estimate PDF — 100% client-side byte-writer port of
 // netlify/functions/lib/le-invoice-suite/qb-pdf.js (the server pdfkit template).
-// Matches the QBO layout: LE logo, green "INVOICE" heading, green table-header
-// band, gray meta labels, per-line service date, two-column totals with dotted
-// rules, bold BALANCE DUE, centered footer. No network / no pdfkit.
+// Layout (Levi 2026-07-22):
+//   Top-left company · centered logo · top-right ESTIMATE/INVOICE + meta
+//   Billing address | Service address side-by-side
+//   Description table raised; multi-page when description is long so totals never clip
 import { LE_LOGO_JPEG, leLogoJpegBytes } from "./leLogoJpeg.js";
 import { activeTenantConfig, tenantCompany } from "./tenantBranding.js";
 import { wrapPrintDescription } from "./printDescription.js";
@@ -23,7 +24,10 @@ const BLACK = [0, 0, 0];
 const HEADERBG = [205 / 255, 225 / 255, 214 / 255]; // #cde1d6
 const RULE = [186 / 255, 190 / 255, 197 / 255]; // #babec5
 
-// Helvetica AFM advance widths (/1000 em, ASCII 32..126) — Arial-metric ≈ Liberation.
+// Content must stop above the footer zone
+const FOOTER_LIMIT = 700;
+
+// Helvetica AFM advance widths (/1000 em, ASCII 32..126)
 const HELV = [278,278,355,556,556,889,667,191,333,333,389,584,278,333,278,278,556,556,556,556,556,556,556,556,556,556,278,278,584,584,584,556,1015,667,667,722,722,667,611,778,722,278,500,667,556,833,722,778,667,778,722,667,611,722,667,944,667,667,611,278,278,278,469,556,333,556,556,500,556,556,278,556,556,222,222,500,222,833,556,556,556,556,333,500,278,556,500,722,500,500,500,334,260,334,584];
 const HELVB = [278,333,474,556,556,889,722,238,333,333,389,584,278,333,278,278,556,556,556,556,556,556,556,556,556,556,333,333,584,584,584,611,975,722,722,722,722,667,611,778,722,278,556,722,611,833,722,778,667,778,722,667,611,722,667,944,667,667,611,333,278,333,584,556,333,556,611,556,611,556,333,611,611,278,278,556,278,889,611,611,611,611,389,556,333,611,556,778,556,556,500,389,280,389,584];
 function textWidth(str, size, bold) {
@@ -82,7 +86,7 @@ function Page() {
   };
 }
 
-function assemblePdf(page, image) {
+function assemblePdf(pages, image) {
   const chunks = [];
   const xref = [];
   let offset = 0;
@@ -96,16 +100,30 @@ function assemblePdf(page, image) {
     push(s);
   };
   push("%PDF-1.4\n%\xe2\xe3\xcf\xd3\n");
-  const fontReg = 5, fontBold = 6, imgId = 7;
+
+  const n = pages.length;
+  // Object map: 1 Catalog, 2 Pages, then per page: Page + Content, then fonts + image
+  // Page i objects: pageObj = 3 + i*2, contentObj = 4 + i*2
+  const fontReg = 3 + n * 2;
+  const fontBold = fontReg + 1;
+  const imgId = fontBold + 1;
+
+  const pageKids = pages.map((_, i) => `${3 + i * 2} 0 R`).join(" ");
   obj(1, "1 0 obj << /Type /Catalog /Pages 2 0 R >> endobj\n");
-  obj(2, "2 0 obj << /Type /Pages /Kids [3 0 R] /Count 1 >> endobj\n");
-  const stream = page.stream();
-  obj(
-    3,
-    `3 0 obj << /Type /Page /Parent 2 0 R /MediaBox [0 0 ${PAGE_W} ${PAGE_H}] /Contents 4 0 R ` +
-      `/Resources << /Font << /F1 ${fontReg} 0 R /F2 ${fontBold} 0 R >> /XObject << /${image.name} ${imgId} 0 R >> >> >> endobj\n`
-  );
-  obj(4, `4 0 obj << /Length ${stream.length} >> stream\n${stream}\nendstream\nendobj\n`);
+  obj(2, `2 0 obj << /Type /Pages /Kids [${pageKids}] /Count ${n} >> endobj\n`);
+
+  for (let i = 0; i < n; i++) {
+    const pageObj = 3 + i * 2;
+    const contentObj = 4 + i * 2;
+    const stream = pages[i].stream();
+    obj(
+      pageObj,
+      `${pageObj} 0 obj << /Type /Page /Parent 2 0 R /MediaBox [0 0 ${PAGE_W} ${PAGE_H}] /Contents ${contentObj} 0 R ` +
+        `/Resources << /Font << /F1 ${fontReg} 0 R /F2 ${fontBold} 0 R >> /XObject << /${image.name} ${imgId} 0 R >> >> >> endobj\n`
+    );
+    obj(contentObj, `${contentObj} 0 obj << /Length ${stream.length} >> stream\n${stream}\nendstream\nendobj\n`);
+  }
+
   obj(fontReg, `${fontReg} 0 obj << /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding >> endobj\n`);
   obj(fontBold, `${fontBold} 0 obj << /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Bold /Encoding /WinAnsiEncoding >> endobj\n`);
   xref[imgId] = offset;
@@ -116,10 +134,11 @@ function assemblePdf(page, image) {
   push(image.bytes);
   push("\nendstream\nendobj\n");
   const xrefStart = offset;
-  let table = "xref\n0 " + (imgId + 1) + "\n0000000000 65535 f \n";
-  for (let i = 1; i <= imgId; i++) table += String(xref[i] || 0).padStart(10, "0") + " 00000 n \n";
+  const maxId = imgId;
+  let table = "xref\n0 " + (maxId + 1) + "\n0000000000 65535 f \n";
+  for (let i = 1; i <= maxId; i++) table += String(xref[i] || 0).padStart(10, "0") + " 00000 n \n";
   push(table);
-  push(`trailer << /Size ${imgId + 1} /Root 1 0 R >>\nstartxref\n${xrefStart}\n%%EOF`);
+  push(`trailer << /Size ${maxId + 1} /Root 1 0 R >>\nstartxref\n${xrefStart}\n%%EOF`);
   const total = chunks.reduce((s, c) => s + c.length, 0);
   const outb = new Uint8Array(total);
   let p = 0;
@@ -143,7 +162,6 @@ function latin1(s) {
  * payment, messageLines:[], footerLines:[], showAcceptance, payUrl }.
  */
 export function buildQbDocPdf(data) {
-  const pg = Page();
   const docType = String(data.docType || "INVOICE").toUpperCase();
   const isEstimate = docType === "ESTIMATE";
   const company = data.company || {};
@@ -152,95 +170,31 @@ export function buildQbDocPdf(data) {
   const total = data.total != null ? Number(data.total) : subtotal + tax;
   const payment = Number(data.payment || 0);
 
-  // Raise body toward logo (~20pt) so more room remains at the bottom.
-  const LIFT = 20;
-  const titleY = 164.25 - LIFT;
-  const metaY = 186 - LIFT;
-  const customY = 241.5 - LIFT;
-  const tableTop = 270.75 - LIFT;
-
-  // Header — company block + logo (license sits under email, not next to name)
-  pg.text(M, 46.5, company.name || "", { size: 10.98, bold: true, color: BLACK });
-  const details = [
-    ...(company.addressLines || []),
-    company.phone,
-    company.email,
-    company.license,
-  ].filter(Boolean);
-  details.forEach((ln, i) => pg.text(M, 61.5 + i * 12.75, ln, { size: 7.32, color: BLACK }));
-  pg.image("ImLogo", 254.25, 36, 103.5, 81);
-
-  // Title "INVOICE"/"ESTIMATE" top-right (green) — Levi layout preference
-  pg.text(PAGE_W - M, titleY, docType, { size: 13.72, color: GREEN, align: "right" });
-
-  // Meta left: ADDRESS
-  pg.text(M, metaY, "ADDRESS", { size: 9.15, color: GRAY });
-  let ly = metaY + 13.5;
-  for (const ln of [data.billTo?.name, ...(data.billTo?.addressLines || [])].filter(Boolean)) {
-    pg.text(M, ly, ln, { size: 9.15, color: BLACK });
-    ly += 14.25;
-  }
-  // Meta right: doc no + dates
-  const rightRows = [[docType, data.docNumber], ["DATE", data.date]];
-  if (!isEstimate && data.dueDate) rightRows.push(["DUE DATE", data.dueDate]);
-  if (!isEstimate && data.terms) rightRows.push(["TERMS", data.terms]);
-  let ry = metaY;
-  for (const [label, value] of rightRows) {
-    pg.text(396.45, ry, label, { size: 9.15, color: GRAY });
-    pg.text(477.23, ry, String(value ?? ""), { size: 9.15, color: BLACK });
-    ry += 13.5;
-  }
-  // Custom fields (SERVICE ADDRESS)
-  if (data.customFields && data.customFields.length) {
-    const colXs = [36, 237.68, 435.61];
-    data.customFields.slice(0, 3).forEach((cf, i) => {
-      if (!cf || !cf.value) return;
-      pg.text(colXs[i], customY, String(cf.label).toUpperCase(), { size: 9.15, color: GRAY });
-      pg.text(colXs[i], customY + 12, String(cf.value), { size: 9.15, color: BLACK });
-    });
-  }
-
-  // Table header band + labels (green)
-  pg.fillRect(M, tableTop, 540, 21, HEADERBG);
-  const hb = tableTop + 14.25;
-  pg.text(39.75, hb, "DESCRIPTION", { size: 9.15, color: GREEN });
-  pg.text(448.4, hb, "RATE", { size: 9.15, color: GREEN, align: "right" });
-  pg.text(491.6, hb, "QTY", { size: 9.15, color: GREEN, align: "right" });
-  pg.text(572.6, hb, "AMOUNT", { size: 9.15, color: GREEN, align: "right" });
-
-  // Rows
+  // ---- Layout constants (Levi 2026-07-22) ---------------------------------
+  // Logo top y=36; ESTIMATE/INVOICE title sits at same height top-right.
+  const LOGO = { x: 254.25, y: 36, w: 103.5, h: 81 };
+  const TITLE_Y = 50; // same height band as logo top / company name
+  const META_Y = 68; // doc # / date / due date under the title word
+  const META_LEAD = 13.5;
+  const ADDR_COL_RIGHT = 306; // service address column (halfway across page)
+  const LEAD = 13.5;
   const descTextX = 39.75;
   const descW = 396.5 - 39.75;
-  const LEAD = 13.5;
-  let cursor = tableTop + 21;
-  if (data.serviceDate) {
-    cursor += 7.5;
-    pg.text(descTextX, cursor + 10.75, String(data.serviceDate), { size: 10.07, color: BLACK });
-    cursor += LEAD;
-  }
-  for (const line of data.lines || []) {
-    cursor += 7.5;
-    const dlines = wrap(line.description, descW, 10.07);
-    const rowH = dlines.length * LEAD;
-    const firstBaseline = cursor + 10.75;
-    dlines.forEach((dl, i) => pg.text(descTextX, firstBaseline + i * LEAD, dl, { size: 10.07, color: BLACK }));
-    pg.text(448.4, firstBaseline, qbMoney(line.rate), { size: 10.07, color: BLACK, align: "right" });
-    pg.text(491.6, firstBaseline, String(Number(line.qty)), { size: 10.07, color: BLACK, align: "right" });
-    pg.text(572.6, firstBaseline, qbMoney(line.amount), { size: 10.07, color: BLACK, align: "right" });
-    cursor += rowH;
-  }
 
-  // Totals + message block
-  const totalsTop = cursor + 11.25;
-  pg.dottedRule(M, M + 540, totalsTop);
+  // Service address from customFields (preferred) or explicit field
+  const svcField =
+    (data.customFields || []).find((cf) => cf && /service\s*address/i.test(String(cf.label || "")) && cf.value) ||
+    null;
+  const serviceAddress = svcField
+    ? String(svcField.value)
+    : data.serviceAddress
+      ? String(data.serviceAddress)
+      : "";
 
-  // Message lines: payment options sit left of totals; thank-you / sincerely
-  // start BELOW Balance Due with breathing room (Levi 2026-07-21).
+  // Precompute message blocks
   let paymentMsg = null;
   let closingMsg = null;
   if (data.messageLines !== null) {
-    // Fallback copy only — callers normally pass data.messageLines. Built from
-    // tenant config so a white-label tenant never sees another tenant's name.
     const tenant = tenantCompany();
     const profile = activeTenantConfig().profile || {};
     const defaultMsg = [
@@ -267,6 +221,164 @@ export function buildQbDocPdf(data) {
       paymentMsg = msg;
       closingMsg = [];
     }
+  }
+
+  const pages = [];
+  let pg = Page();
+  pages.push(pg);
+
+  /** Company block + logo only (no title — title is page-1 top-right). */
+  const drawCompanyLogo = (page) => {
+    page.text(M, 46.5, company.name || "", { size: 10.98, bold: true, color: BLACK });
+    const details = [
+      ...(company.addressLines || []),
+      company.phone,
+      company.email,
+      company.license,
+    ].filter(Boolean);
+    details.forEach((ln, i) => page.text(M, 61.5 + i * 12.75, ln, { size: 7.32, color: BLACK }));
+    page.image("ImLogo", LOGO.x, LOGO.y, LOGO.w, LOGO.h);
+    return 61.5 + details.length * 12.75;
+  };
+
+  /** Table header band + column labels. Returns bottom y of band. */
+  const drawTableHeader = (page, tableTop) => {
+    page.fillRect(M, tableTop, 540, 21, HEADERBG);
+    const hb = tableTop + 14.25;
+    page.text(39.75, hb, "DESCRIPTION", { size: 9.15, color: GREEN });
+    page.text(448.4, hb, "RATE", { size: 9.15, color: GREEN, align: "right" });
+    page.text(491.6, hb, "QTY", { size: 9.15, color: GREEN, align: "right" });
+    page.text(572.6, hb, "AMOUNT", { size: 9.15, color: GREEN, align: "right" });
+    return tableTop + 21;
+  };
+
+  // ---- PAGE 1 HEADER: company left · logo center · title+meta right ------
+  const companyBottom = drawCompanyLogo(pg);
+
+  // Title word top-right, same height as logo top / company name
+  pg.text(PAGE_W - M, TITLE_Y, docType, { size: 13.72, color: GREEN, align: "right" });
+
+  // Meta under the title word (same height band as the logo)
+  const rightRows = [[docType, data.docNumber], ["DATE", data.date]];
+  if (!isEstimate && data.dueDate) rightRows.push(["DUE DATE", data.dueDate]);
+  if (!isEstimate && data.terms) rightRows.push(["TERMS", data.terms]);
+  let ry = META_Y;
+  for (const [label, value] of rightRows) {
+    pg.text(396.45, ry, label, { size: 9.15, color: GRAY });
+    pg.text(477.23, ry, String(value ?? ""), { size: 9.15, color: BLACK });
+    ry += META_LEAD;
+  }
+  const rightBottom = ry;
+
+  // ---- ADDRESSES: billing left · service right (parallel) ---------------
+  let addrTop = Math.max(companyBottom, LOGO.y + LOGO.h, rightBottom) + 14;
+
+  const billLines = [data.billTo?.name, ...(data.billTo?.addressLines || [])].filter(Boolean);
+  const svcLines = serviceAddress
+    ? String(serviceAddress)
+        .split(/\n/)
+        .map((s) => s.trim())
+        .filter(Boolean)
+    : [];
+
+  // BILLING ADDRESS (left)
+  pg.text(M, addrTop, "BILLING ADDRESS", { size: 9.15, color: GRAY });
+  let by = addrTop + 13.5;
+  for (const ln of billLines) {
+    pg.text(M, by, ln, { size: 9.15, color: BLACK });
+    by += 14.25;
+  }
+
+  // SERVICE ADDRESS (right half — parallel)
+  let sy = addrTop;
+  if (svcLines.length) {
+    pg.text(ADDR_COL_RIGHT, addrTop, "SERVICE ADDRESS", { size: 9.15, color: GRAY });
+    sy = addrTop + 13.5;
+    for (const ln of svcLines) {
+      // wrap long single-line service addresses into the right column
+      const wrapped = wrap(ln, PAGE_W - M - ADDR_COL_RIGHT, 9.15);
+      for (const wl of wrapped) {
+        pg.text(ADDR_COL_RIGHT, sy, wl, { size: 9.15, color: BLACK });
+        sy += 14.25;
+      }
+    }
+  }
+
+  // ---- DESCRIPTION TABLE (raised a few lines) ---------------------------
+  const tableTop = Math.max(by, sy) + 12;
+  let cursor = drawTableHeader(pg, tableTop);
+
+  if (data.serviceDate) {
+    cursor += 7.5;
+    pg.text(descTextX, cursor + 10.75, String(data.serviceDate), { size: 10.07, color: BLACK });
+    cursor += LEAD;
+  }
+
+  /** Start a new page for overflow rows/totals. Returns new cursor after header. */
+  const newPageForRows = () => {
+    pg = Page();
+    pages.push(pg);
+    drawCompanyLogo(pg);
+    // Continuation pages keep a compact top band (logo + company), then table
+    return drawTableHeader(pg, 130);
+  };
+
+  for (const line of data.lines || []) {
+    cursor += 7.5;
+    const dlines = wrap(line.description, descW, 10.07);
+    // If the whole row won't fit, jump first so description starts clean on next page
+    const minRowH = Math.min(dlines.length, 1) * LEAD + 10;
+    if (cursor + minRowH > FOOTER_LIMIT) {
+      cursor = newPageForRows();
+      cursor += 7.5;
+    }
+
+    // Paint numbers on first baseline of this row chunk
+    let firstOfRow = true;
+    let i = 0;
+    while (i < dlines.length) {
+      const firstBaseline = cursor + 10.75;
+      // How many description lines fit on this page?
+      let fit = 0;
+      while (i + fit < dlines.length) {
+        const nextY = firstBaseline + fit * LEAD;
+        if (nextY > FOOTER_LIMIT) break;
+        fit++;
+      }
+      if (fit === 0) {
+        // Even one line won't fit — new page and retry
+        cursor = newPageForRows();
+        cursor += 7.5;
+        continue;
+      }
+      for (let j = 0; j < fit; j++) {
+        pg.text(descTextX, firstBaseline + j * LEAD, dlines[i + j], { size: 10.07, color: BLACK });
+      }
+      if (firstOfRow) {
+        pg.text(448.4, firstBaseline, qbMoney(line.rate), { size: 10.07, color: BLACK, align: "right" });
+        pg.text(491.6, firstBaseline, String(Number(line.qty)), { size: 10.07, color: BLACK, align: "right" });
+        pg.text(572.6, firstBaseline, qbMoney(line.amount), { size: 10.07, color: BLACK, align: "right" });
+        firstOfRow = false;
+      }
+      i += fit;
+      cursor = firstBaseline + fit * LEAD - 10.75 + LEAD;
+      // More description remains → continue on next page
+      if (i < dlines.length) {
+        cursor = newPageForRows();
+        cursor += 7.5;
+      }
+    }
+  }
+
+  // ---- TOTALS — never clip; push to next page if needed ------------------
+  const totalsNeed = 120;
+  if (cursor + totalsNeed > FOOTER_LIMIT) {
+    cursor = newPageForRows();
+  }
+  const totalsTop = cursor + 11.25;
+  pg.dottedRule(M, M + 540, totalsTop);
+
+  if (paymentMsg) {
     let my = totalsTop + 22.5;
     for (const lineTxt of paymentMsg) {
       if (lineTxt === "") {
@@ -280,7 +392,6 @@ export function buildQbDocPdf(data) {
     }
   }
 
-  // SUBTOTAL / TAX / PAYMENT
   let ty = totalsTop + 22.5;
   const totalRows = [["SUBTOTAL", qbMoney(subtotal)], ["TAX", qbMoney(tax)]];
   if (payment) totalRows.push(["PAYMENT", "-" + qbMoney(payment)]);
@@ -289,7 +400,6 @@ export function buildQbDocPdf(data) {
     pg.text(572.6, ty, value, { size: 10.07, color: BLACK, align: "right" });
     ty += 21;
   }
-  // rule above TOTAL (right side only)
   pg.dottedRule(295.5, M + 540, ty - 21 + 10.5);
   ty += 13.5;
   const bigLabel = data.totalLabel || (isEstimate ? "TOTAL" : "BALANCE DUE");
@@ -297,7 +407,6 @@ export function buildQbDocPdf(data) {
   pg.text(298.96, ty, bigLabel, { size: 10.07, color: GRAY });
   pg.text(572.6, ty, "$" + qbMoney(bigAmount), { size: 14.09, bold: true, color: BLACK, align: "right" });
 
-  // Thank-you / sincerely — below Balance Due with a clear gap
   if (closingMsg && closingMsg.length) {
     let my = ty + 28;
     for (const lineTxt of closingMsg) {
@@ -312,15 +421,13 @@ export function buildQbDocPdf(data) {
     }
   }
 
-  // Acceptance (estimates)
   const showAcceptance = data.showAcceptance != null ? data.showAcceptance : isEstimate;
   if (showAcceptance) {
     pg.text(M, ty + 54, "Accepted By", { size: 9.15, color: GRAY });
     pg.text(M, ty + 81, "Accepted Date", { size: 9.15, color: GRAY });
   }
 
-  // Centered footer (questions + page). Thank-you spacing after Balance Due is
-  // handled in the left message block above — keep footer at the page margin.
+  // ---- FOOTERS on every page --------------------------------------------
   const fLines =
     data.footerLines || [
       "Thank you for your business!",
@@ -328,20 +435,21 @@ export function buildQbDocPdf(data) {
       `If you have any questions concerning this ${docType.toLowerCase()} please contact us.`,
       `Phone: ${company.phone} Email: ${company.email}`,
     ];
-  pg.center(fLines[0], 706, { size: 10, color: GRAY });
-  let fy = 734;
-  for (const l of fLines.slice(2)) {
-    pg.center(l, fy, { size: 10, color: GRAY });
-    fy += 14;
-  }
-  pg.center("Page 1 of 1", fy, { size: 10, color: GRAY });
-  // Constant product mark under the tenant's own footer — muted dark, not the
-  // near-invisible body gray, so it stays legible on white and in print.
-  pg.center(POWERED_BY_LE, fy + 14, {
-    size: POWERED_BY_LE_PDF_SIZE,
-    color: POWERED_BY_LE_PDF_COLOR,
+  const pageCount = pages.length;
+  pages.forEach((page, idx) => {
+    page.center(fLines[0], 706, { size: 10, color: GRAY });
+    let fy = 734;
+    for (const l of fLines.slice(2)) {
+      page.center(l, fy, { size: 10, color: GRAY });
+      fy += 14;
+    }
+    page.center(`Page ${idx + 1} of ${pageCount}`, fy, { size: 10, color: GRAY });
+    page.center(POWERED_BY_LE, fy + 14, {
+      size: POWERED_BY_LE_PDF_SIZE,
+      color: POWERED_BY_LE_PDF_COLOR,
+    });
   });
 
   const image = { name: "ImLogo", width: LE_LOGO_JPEG.width, height: LE_LOGO_JPEG.height, bytes: leLogoJpegBytes() };
-  return new Blob([assemblePdf(pg, image)], { type: "application/pdf" });
+  return new Blob([assemblePdf(pages, image)], { type: "application/pdf" });
 }
