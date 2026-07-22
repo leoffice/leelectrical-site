@@ -1,8 +1,7 @@
 // @vitest-environment jsdom
 import React from "react";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { screen, waitFor } from "@testing-library/react";
-import userEvent from "@testing-library/user-event";
+import { screen } from "@testing-library/react";
 import "@testing-library/jest-dom/vitest";
 import { mockServer, renderApp } from "./helpers.jsx";
 
@@ -16,32 +15,27 @@ afterEach(() => {
   window.location.hash = "#/";
 });
 
-describe("desktop collapsible layout — 1280px", () => {
+describe("desktop layout — 1280px", () => {
   beforeEach(() => setWidth(1280));
 
-  it("sidebar collapse toggles to icon-only widgets", async () => {
+  it("sidebar is fixed-width stable shell (no collapse thrash)", async () => {
     mockServer();
-    const user = userEvent.setup();
     renderApp("#/");
     const sidebar = await screen.findByTestId("sidebar");
-    expect(sidebar.getAttribute("data-collapsed")).toBe("0");
-    expect(screen.getByTestId("sidebar-collapse")).toBeInTheDocument();
-    expect(screen.getByTestId("sidebar-resize")).toBeInTheDocument();
-
-    await user.click(screen.getByTestId("sidebar-collapse"));
-    await waitFor(() => expect(screen.getByTestId("sidebar").getAttribute("data-collapsed")).toBe("1"));
-    // Labels hide; icons remain reachable by aria-label
-    expect(screen.getByTestId("sidebar").querySelector('[aria-label="Customers"]')).toBeTruthy();
+    expect(sidebar).toBeInTheDocument();
+    // Stable shell — no resize/collapse chrome that was causing layout twitch.
+    expect(screen.queryByTestId("sidebar-collapse")).toBeNull();
+    expect(screen.queryByTestId("sidebar-resize")).toBeNull();
+    expect(screen.getByTestId("app-logo")).toBeInTheDocument();
   });
 
-  it("job detail has resizable list pane and collapse control", async () => {
+  it("job detail has list pane beside detail on desktop", async () => {
     mockServer();
     renderApp("#/job/J-1?fold=0");
     await screen.findByTestId("detail-pane");
-    expect(screen.getByTestId("desktop-list-split")).toBeInTheDocument();
     expect(screen.getByTestId("list-pane")).toBeInTheDocument();
-    expect(screen.getByTestId("list-detail-resize")).toBeInTheDocument();
-    expect(screen.getByTestId("list-pane-collapse")).toBeInTheDocument();
+    expect(screen.queryByTestId("desktop-list-split")).toBeNull();
+    expect(screen.queryByTestId("list-detail-resize")).toBeNull();
   });
 
   it("balance cards show left aging rail when money is owed", async () => {

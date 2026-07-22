@@ -7,8 +7,8 @@ export const SETTINGS_EVENT = "lepro-settings";
 
 const DEFAULT_LOGO = () =>
   typeof import.meta !== "undefined" && import.meta.env?.BASE_URL
-    ? import.meta.env.BASE_URL + "le-logo.png?v=5"
-    : "/app/pro/le-logo.png?v=5";
+    ? import.meta.env.BASE_URL + "le-logo.png?v=6"
+    : "/app/pro/le-logo.png?v=6";
 
 function storage() {
   try {

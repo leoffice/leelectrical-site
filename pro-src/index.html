@@ -13,6 +13,11 @@
     <link rel="manifest" href="manifest.json" />
     <link rel="icon" type="image/svg+xml" href="icons/icon.svg" />
     <link rel="apple-touch-icon" href="icons/apple-touch-icon.png" />
+    <!-- FOUC guard: keep layout sane before the main stylesheet arrives (esp. huge logos). -->
+    <style>
+      html, body { margin: 0; background: #f8fafc; }
+      img[data-testid="app-logo"] { max-height: 8rem; max-width: 280px; width: auto; height: auto; object-fit: contain; }
+    </style>
   </head>
   <body class="bg-slate-100">
     <div id="root"></div>

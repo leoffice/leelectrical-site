@@ -1,7 +1,7 @@
 // Shell: bottom tab nav on mobile, left sidebar on desktop (>=1024px),
 // header sync chip, + FAB, chat bubble, approval watcher, leave-guard
 // sheet, sticky SaveBar and toast. Hash routing.
-import React, { Suspense, useCallback, useEffect, useMemo, useState } from "react";
+import React, { Suspense, useEffect, useMemo, useState } from "react";
 import { NavLink, Route, Routes, useLocation, useNavigate } from "react-router-dom";
 import { useStore, useStoreData, useStoreEdit } from "./state/store.jsx";
 import { useTenantConfig } from "./state/tenant.jsx";
@@ -13,16 +13,6 @@ import {
 } from "./lib/tenantNav.js";
 import { activeTenantConfig, tenantChrome } from "./lib/tenantBranding.js";
 import { isInternal } from "./lib/tenantConfig.js";
-import {
-  SIDEBAR_MAX,
-  SIDEBAR_MIN,
-  applySidebarCssVar,
-  effectiveSidebarWidth,
-  loadSidebarLayout,
-  saveSidebarLayout,
-  sidebarIconOnly,
-} from "./lib/desktopLayout.js";
-import ResizeHandle from "./components/ResizeHandle.jsx";
 import Jobs from "./views/Jobs.jsx";
 import JobDetail from "./views/JobDetail.jsx";
 import CustomerView from "./views/CustomerView.jsx";
@@ -105,7 +95,7 @@ const ROUTE_ELEMENTS = {
   "/archive": <Archive />,
 };
 
-function Tab({ t, sidebar, iconOnly = false }) {
+function Tab({ t, sidebar }) {
   const { devBadge, reminderBadge } = useStoreData();
   const { guardNav, dirtyJobs } = useStoreEdit();
   const nav = useNavigate();
@@ -115,8 +105,6 @@ function Tab({ t, sidebar, iconOnly = false }) {
     <NavLink
       to={t.to}
       end={t.end}
-      title={t.label}
-      aria-label={t.label}
       onClick={(e) => {
         // Leave guard: unsaved edits + leaving a job detail page.
         if (dirtyJobs > 0 && loc.pathname.startsWith("/job/")) {
@@ -126,10 +114,8 @@ function Tab({ t, sidebar, iconOnly = false }) {
       }}
       className={({ isActive }) =>
         sidebar
-          ? `relative flex items-center rounded-xl text-sm font-semibold transition-colors ${
-              iconOnly
-                ? `justify-center px-2 py-3 ${isActive ? "bg-brand text-white" : "text-slate-600 hover:bg-slate-100"}`
-                : `gap-3 px-4 py-3 ${isActive ? "bg-brand text-white" : "text-slate-600 hover:bg-slate-100"}`
+          ? `relative flex items-center gap-3 rounded-xl px-4 py-3 text-sm font-semibold transition-colors ${
+              isActive ? "bg-brand text-white" : "text-slate-600 hover:bg-slate-100"
             }`
           : `relative flex flex-col items-center gap-0.5 py-1.5 flex-1 text-[10px] font-medium ${
               isActive ? "text-brand" : "text-slate-500"
@@ -137,15 +123,11 @@ function Tab({ t, sidebar, iconOnly = false }) {
       }
     >
       <span className={sidebar ? "text-base" : "text-lg leading-none"}>{t.ic}</span>
-      {sidebar && iconOnly ? null : <span>{t.label}</span>}
+      <span>{t.label}</span>
       {badge > 0 && (
         <span
           className={`absolute bg-red-600 text-white text-[9px] font-extrabold rounded-full min-w-[15px] h-[15px] leading-[15px] text-center px-0.5 ${
-            sidebar
-              ? iconOnly
-                ? "right-1 top-1"
-                : "right-3 top-1/2 -translate-y-1/2"
-              : "top-1 right-[22%]"
+            sidebar ? "right-3 top-1/2 -translate-y-1/2" : "top-1 right-[22%]"
           }`}
         >
           {badge}
@@ -277,40 +259,8 @@ export default function App() {
   const mobileTabs = useMemo(() => mobileNavItems(config), [config]);
   const overflowTabs = useMemo(() => mobileOverflowNavItems(config), [config]);
   const [moreOpen, setMoreOpen] = useState(false);
-  const [sidebarLayout, setSidebarLayout] = useState(loadSidebarLayout);
   const inDetail = loc.pathname.startsWith("/job/");
   const inCustomer = loc.pathname.startsWith("/customer/");
-  const sidebarW = effectiveSidebarWidth(sidebarLayout);
-  const iconOnly = sidebarIconOnly(sidebarLayout);
-
-  useEffect(() => {
-    saveSidebarLayout(sidebarLayout);
-    applySidebarCssVar(sidebarW);
-  }, [sidebarLayout, sidebarW]);
-
-  useEffect(() => {
-    applySidebarCssVar(effectiveSidebarWidth(loadSidebarLayout()));
-  }, []);
-
-  const onSidebarResize = useCallback((dx) => {
-    setSidebarLayout((prev) => {
-      const base = prev.collapsed ? SIDEBAR_MIN : prev.width;
-      const next = Math.min(SIDEBAR_MAX, Math.max(SIDEBAR_MIN, base + dx));
-      return {
-        width: next,
-        collapsed: next <= SIDEBAR_MIN + 4,
-      };
-    });
-  }, []);
-
-  const toggleSidebarCollapse = () => {
-    setSidebarLayout((prev) => {
-      if (prev.collapsed || prev.width <= SIDEBAR_MIN + 4) {
-        return { width: Math.max(200, prev.width > SIDEBAR_MIN ? prev.width : 256), collapsed: false };
-      }
-      return { ...prev, collapsed: true };
-    });
-  };
 
   const showFab = !loc.pathname.startsWith("/archive");
   // The Jobs list renders its own add control docked beside the search bar (see
@@ -329,85 +279,50 @@ export default function App() {
     <LiveEditProvider>
     <AppBackHandler />
     <div className="min-h-screen lg:flex">
-      {/* Desktop sidebar — fixed so it never scrolls away; collapsible + resizable */}
+      {/* Desktop sidebar — fixed so it never scrolls away */}
       <aside
-        className="hidden lg:fixed lg:inset-y-0 lg:left-0 lg:z-40 lg:flex lg:flex-col border-r border-slate-200 bg-white gap-1 overflow-y-auto lg-scroll-hidden"
-        style={{ width: sidebarW }}
+        className="hidden lg:fixed lg:inset-y-0 lg:left-0 lg:z-40 lg:flex lg:w-64 lg:flex-col border-r border-slate-200 bg-white p-4 gap-1 overflow-y-auto lg-scroll-hidden"
         data-testid="sidebar"
-        data-collapsed={iconOnly ? "1" : "0"}
-        data-sidebar-width={String(sidebarW)}
       >
-        <div className={`flex flex-col items-center mb-2 ${iconOnly ? "px-1 py-3" : "px-2 py-4"}`}>
+        <div className="flex flex-col items-center px-2 py-4 mb-2">
           <img
             src={chrome.logoUrl || logoSrc}
             alt={chrome.logoAlt}
-            className={`w-auto object-contain shrink-0 ${iconOnly ? "h-10 max-w-[48px]" : "h-32 max-w-[280px]"}`}
+            width={280}
+            height={128}
+            className="h-32 w-auto max-w-[280px] object-contain shrink-0"
+            style={{ maxHeight: 128, maxWidth: 280, width: "auto", height: "auto" }}
             data-testid="app-logo"
           />
-          {!iconOnly ? (
-            <div className="mt-2 text-center">
-              <div className="font-extrabold tracking-tight text-slate-900 leading-none text-lg">
-                {chrome.product}
-              </div>
-              <div className="text-[11px] text-slate-400 mt-0.5">{chrome.subtitle}</div>
+          <div className="mt-2 text-center">
+            <div className="font-extrabold tracking-tight text-slate-900 leading-none text-lg">
+              {chrome.product}
             </div>
-          ) : null}
-          <button
-            type="button"
-            className="mt-2 text-[10px] font-bold text-slate-400 hover:text-slate-700 px-1.5 py-0.5 rounded-md hover:bg-slate-100"
-            data-testid="sidebar-collapse"
-            aria-label={iconOnly ? "Expand menu" : "Collapse menu"}
-            title={iconOnly ? "Expand menu" : "Collapse menu"}
-            onClick={toggleSidebarCollapse}
-          >
-            {iconOnly ? "›" : "‹"}
-          </button>
+            <div className="text-[11px] text-slate-400 mt-0.5">{chrome.subtitle}</div>
+          </div>
         </div>
-        <div className={iconOnly ? "px-1 mb-2 flex justify-center" : "px-2 mb-3"}>
-          <SyncChip iconOnly={iconOnly} />
+        <div className="px-2 mb-3">
+          <SyncChip />
         </div>
-        <div className={iconOnly ? "px-1 flex flex-col gap-0.5" : "px-0 flex flex-col gap-0.5"}>
-          {navItems.map((t) => (
-            <Tab key={t.to} t={t} sidebar iconOnly={iconOnly} />
-          ))}
-        </div>
-        <div className={`mt-auto pt-3 border-t border-slate-100 ${iconOnly ? "px-1" : "px-2"}`}>
+        {navItems.map((t) => (
+          <Tab key={t.to} t={t} sidebar />
+        ))}
+        <div className="mt-auto px-2 pt-3 border-t border-slate-100">
           <button
             type="button"
             onClick={() => logOff()}
-            className={`w-full text-sm font-semibold text-slate-500 hover:text-slate-800 py-2 ${
-              iconOnly ? "text-center text-lg" : "text-left"
-            }`}
+            className="w-full text-left text-sm font-semibold text-slate-500 hover:text-slate-800 py-2"
             data-testid="log-off-btn"
-            title="Log off"
-            aria-label="Log off"
           >
-            {iconOnly ? "⏻" : "Log off"}
+            Log off
           </button>
-          {internal && !iconOnly ? (
+          {internal ? (
             <div className="text-[11px] text-slate-400">{chrome.product} · full parity build</div>
           ) : null}
         </div>
       </aside>
 
-      {/* Drag strip between menu and main content (desktop only) */}
-      <div
-        className="hidden lg:fixed lg:inset-y-0 lg:z-50 lg:flex"
-        style={{ left: sidebarW }}
-        data-testid="sidebar-resize-wrap"
-      >
-        <ResizeHandle
-          testId="sidebar-resize"
-          title="Drag to resize menu"
-          onResize={onSidebarResize}
-        />
-      </div>
-
-      <div
-        className="flex-1 min-w-0 flex flex-col"
-        style={isDesktop ? { paddingLeft: sidebarW } : undefined}
-        data-testid="app-main-offset"
-      >
+      <div className="flex-1 min-w-0 flex flex-col lg:pl-64">
         {/*
           Mobile no longer pins the QuickBooks sync chip over the top-right
           (it covered the ＋ Add control). Sync lives in the desktop sidebar
