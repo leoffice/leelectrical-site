@@ -14,7 +14,25 @@ describe("paymentAutofill", () => {
       ref: "JPM123",
       dt: "2026-07-09",
       memo: "inv 251841",
+      invoiceNo: "251841",
     });
+  });
+
+  it("maps check payer name and invoice for matching", () => {
+    const patch = paymentAutofillPatch({
+      amount: 850,
+      checkNumber: "1042",
+      confirmationNumber: "1042",
+      date: "2026-07-20",
+      memo: "251841",
+      payer: "Shaina Levin",
+      invoiceNumber: "251841",
+    });
+    expect(patch.amt).toBe("850");
+    expect(patch.ref).toBe("1042");
+    expect(patch.dt).toBe("2026-07-20");
+    expect(patch.name).toBe("Shaina Levin");
+    expect(patch.invoiceNo).toBe("251841");
   });
 
   it("pulls invoice # from memo or explicit field", () => {
@@ -22,6 +40,12 @@ describe("paymentAutofill", () => {
     expect(invoiceNoFromExtracted({ memo: "Inv #231595 final" })).toBe("231595");
     expect(invoiceNoFromExtracted({ memo: "for job 251841" })).toBe("251841");
     expect(invoiceNoFromExtracted({ memo: "no numbers here" })).toBe("");
+  });
+
+  it("treats a bare memo number as the invoice #", () => {
+    expect(invoiceNoFromExtracted({ memo: "251841" })).toBe("251841");
+    expect(invoiceNoFromExtracted({ memo: "#231595" })).toBe("231595");
+    expect(invoiceNoFromExtracted({ memo: "  251808  " })).toBe("251808");
   });
 
   it("builds check memo note with ref, deposit, and memo", () => {

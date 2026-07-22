@@ -50,11 +50,42 @@ describe("normalizeExtracted", () => {
 
   it("normalizes check fields", () => {
     const n = normalizePaymentExtracted(
-      { amount: 500, checkNumber: "1042", date: "07/10/26", memo: "251841", confidence: "high" },
+      {
+        amount: 500,
+        checkNumber: "1042",
+        date: "07/10/26",
+        memo: "251841",
+        payer: "Shaina Levin",
+        payee: "LE Electrical",
+        confidence: "high",
+      },
       "check"
     );
     expect(n.confirmationNumber).toBe("1042");
     expect(n.checkNumber).toBe("1042");
     expect(n.kind).toBe("check");
+    expect(n.payer).toBe("Shaina Levin");
+    expect(n.payee).toBe("LE Electrical");
+    expect(n.name).toBe("Shaina Levin");
+    // Bare memo digits → invoice #
+    expect(n.invoiceNumber).toBe("251841");
+  });
+
+  it("keeps labeled invoice over bare check confusion", () => {
+    const n = normalizePaymentExtracted(
+      {
+        amount: 200,
+        checkNumber: "88",
+        date: "07/20/2026",
+        memo: "Inv 251808",
+        invoiceNumber: "251808",
+        payer: "Acme LLC",
+      },
+      "check"
+    );
+    expect(n.checkNumber).toBe("88");
+    expect(n.invoiceNumber).toBe("251808");
+    expect(n.date).toBe("2026-07-20");
+    expect(n.payer).toBe("Acme LLC");
   });
 });

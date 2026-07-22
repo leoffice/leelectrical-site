@@ -10,12 +10,19 @@ export function paymentAutofillPatch(extracted) {
   if (ref) patch.ref = ref;
   if (extracted.date) patch.dt = extracted.date;
   if (extracted.memo) patch.memo = extracted.memo;
+  // Payer = who wrote the check (top-left). Prefer over payee (usually us).
+  const name = String(extracted.payer || extracted.name || "").trim();
+  if (name) patch.name = name;
+  const inv = invoiceNoFromExtracted(extracted);
+  if (inv) patch.invoiceNo = inv;
   return patch;
 }
 
 /**
  * Pull an invoice # from vision output (explicit field, memo, or payee note).
  * Used when recording a check payment from ＋ so we can open the right invoice.
+ *
+ * Levi rule: if memo is just a bare number (no English word), treat it as the invoice #.
  */
 export function invoiceNoFromExtracted(extracted) {
   if (!extracted) return "";
@@ -26,12 +33,18 @@ export function invoiceNoFromExtracted(extracted) {
     const d = String(n || "").replace(/\D/g, "");
     if (d.length >= 4) return d;
   }
-  const hay = [extracted.memo, extracted.payee, extracted.confirmationNumber]
+  const memoOnly = String(extracted.memo || "").trim();
+  // Bare memo digits → invoice # (e.g. "251841" or "#251841" with nothing else).
+  const bareMemo = memoOnly.match(/^#?\s*(\d{4,7})\s*$/);
+  if (bareMemo) return bareMemo[1];
+
+  const hay = [extracted.memo, extracted.payee, extracted.payer, extracted.confirmationNumber]
     .map((s) => String(s || ""))
     .join(" ");
   // Prefer inv/invoice labeled numbers, then a bare 5–6 digit run (QBO-style).
   const labeled = hay.match(/\b(?:inv(?:oice)?\.?\s*#?\s*)(\d{4,7})\b/i);
   if (labeled) return labeled[1];
+  // Avoid treating a short check # as invoice when labeled fields already set checkNumber.
   const bare = hay.match(/\b(\d{5,6})\b/);
   return bare ? bare[1] : "";
 }
