@@ -54,7 +54,7 @@ const PROMPTS = {
 /** Normalize vision model output to app shape (Zelle + check). */
 export function normalizePaymentExtracted(raw, kind = "zelle") {
   if (!raw || typeof raw !== "object") return null;
-  const amt = raw.amount != null ? parseFloat(String(raw.amount).replace(/[$,]/g, "")) : null;
+  const amt = raw.amount != null ? parseFloat(String(raw.amount).replace(/[$,*\s]/g, "")) : null;
   const conf = String(raw.confidence || "").toLowerCase() === "low" ? "low" : "high";
   let date = raw.date ? String(raw.date).trim() : "";
   const dm = date.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{2,4})/);
@@ -101,7 +101,7 @@ export function normalizeIntentExtracted(raw) {
   const addrs = Array.isArray(raw.addresses)
     ? raw.addresses.map((a) => String(a).trim()).filter(Boolean)
     : [];
-  const amt = raw.amount != null ? parseFloat(String(raw.amount).replace(/[$,]/g, "")) : null;
+  const amt = raw.amount != null ? parseFloat(String(raw.amount).replace(/[$,*\s]/g, "")) : null;
   const doc = String(raw.documentType || "other").toLowerCase();
   const pm = raw.paymentMethod ? String(raw.paymentMethod).toLowerCase() : null;
   return {
