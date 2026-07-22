@@ -276,6 +276,22 @@ export function createNetlifyAdapter() {
       return isPlainObject(ov._sasTickets) ? ov._sasTickets : {};
     },
 
+    /** Customer pay-page checks + bank Zelle alerts waiting for Levi to approve.
+     *  ov._pendingPayments = { items: [...], ts } — reserved key (not a job). */
+    async getPendingPayments() {
+      const state = await http(`state?${cb()}`);
+      const ov = (state && state.ov) || {};
+      const row = ov._pendingPayments;
+      if (Array.isArray(row)) return row.filter(Boolean);
+      if (isPlainObject(row) && Array.isArray(row.items)) return row.items.filter(Boolean);
+      return [];
+    },
+
+    async savePendingPayments(items) {
+      const list = Array.isArray(items) ? items.filter(Boolean).slice(-40) : [];
+      return this.saveJob("_pendingPayments", { items: list, ts: Date.now() });
+    },
+
     /** Mark one ticket handled/dismissed (deep-merged, same path as saveJob). */
     async markSasTicket(callId, patch) {
       return this.saveJob("_sasTickets", { [callId]: patch || { handled: true } });

@@ -102,8 +102,14 @@ export function buildCalendarPayload(insight, job, selected) {
   const reminders = [];
   if (sel.has("remind_1h")) reminders.push({ label: "1h", minutes: 60 });
   if (sel.has("remind_1d")) reminders.push({ label: "1d", minutes: 1440 });
+  // Job.email may be "a@x.com, b@y.com" — split so Google Calendar accepts each guest.
   const guests = [];
-  if (sel.has("guest_email") && job?.email) guests.push(String(job.email).trim());
+  if (sel.has("guest_email") && job?.email) {
+    for (const part of String(job.email).split(/[,;\s]+/)) {
+      const e = part.trim();
+      if (e && e.includes("@") && !guests.includes(e)) guests.push(e);
+    }
+  }
   // Customer-facing notes only — no leJobId tag (job is linked via calEventId).
   const description = buildAppointmentDescription(insight, job);
   const payload = {
@@ -184,9 +190,14 @@ export async function applyEmailInsight({
     const payload = buildCalendarPayload(insight, job, selected);
     // Always email the customer invite when we have their address (Levi: "then email").
     if (job?.email && !payload.guests?.length) {
-      payload.guests = [String(job.email).trim()];
-      payload.attendees = payload.guests;
-      payload.notifyCustomer = true;
+      const emails = [];
+      for (const part of String(job.email).split(/[,;\s]+/)) {
+        const e = part.trim();
+        if (e && e.includes("@") && !emails.includes(e)) emails.push(e);
+      }
+      payload.guests = emails;
+      payload.attendees = emails;
+      payload.notifyCustomer = emails.length > 0;
     }
     customerEmailed = !!(payload.notifyCustomer && payload.guests?.length);
     payload.sendUpdates = customerEmailed ? "all" : "none";
