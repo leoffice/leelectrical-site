@@ -1,10 +1,10 @@
 // Silently remove 100% duplicate invoices (same #, date, amount) — no prompt.
 import { useEffect, useRef } from "react";
-import { useStore } from "../state/store.jsx";
+import { useStoreData } from "../state/store.jsx";
 import { dismissInvoicePair, planExactInvoiceAutoDedup } from "../lib/invoiceDedup.js";
 
 export default function InvoiceDedupAutoResolver() {
-  const { jobs, loading, patchAndSave } = useStore();
+  const { jobs, loading, patchAndSave } = useStoreData();
   const resolved = useRef(new Set());
 
   useEffect(() => {

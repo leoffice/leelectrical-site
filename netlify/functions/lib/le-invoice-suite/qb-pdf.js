@@ -53,13 +53,13 @@ const STYLE = {
     detailSize: 7.32, detailStartY: 61.5, detailLeading: 12.75,
   },
 
-  // Levi 2026-07-22: ESTIMATE/INVOICE top-right at logo height; meta under it.
-  title:   { size: 13.72, baselineY: 50 },                 // "ESTIMATE"/"INVOICE" = logo top band
+  // Levi 2026-07-22 + polish: ESTIMATE/INVOICE top-right (bold); meta under title left edge.
+  title:   { size: 16, baselineY: 50, bold: true },         // nicer green title word
 
-  // Meta block — doc no + dates under the title word (right column only)
+  // Meta block — labels + values start under left edge of green title (right side)
   meta: {
-    labelSize: 9.15, leading: 13.5,
-    rightLabelX: 396.45, rightValueX: 477.23,
+    labelSize: 8.5, valueSize: 9.5, leading: 13.5,
+    labelValueGap: 8,                                       // close label → value
     firstBaselineY: 68,                                     // under title
   },
 
@@ -67,8 +67,11 @@ const STYLE = {
   address: {
     labelSize: 9.15, leading: 14.25, valueSize: 9.15,
     leftX: 36, rightX: 306,                                 // service col halfway
-    gapBelowHeader: 14,
+    gapBelowHeader: 10,                                     // tighter under header
   },
+
+  // Green DESCRIPTION bar sits tight under addresses
+  tableGapAbove: 6,
 
   table: {
     headerH: 21,
@@ -279,21 +282,29 @@ function generateDocument(data, outPath) {
       return S.company.detailStartY + details.length * S.company.detailLeading;
     })();
 
-    // Title top-right at logo height (Levi 2026-07-22)
-    doc.font('reg').fontSize(S.title.size).fillColor(S.colors.green);
-    rightText(docType, pageW - M, S.title.baselineY);
+    // Bold green title top-right; meta hangs under its left edge (Levi polish)
+    doc.font(S.title.bold ? 'bold' : 'reg').fontSize(S.title.size).fillColor(S.colors.green);
+    const titleRight = pageW - M;
+    const titleW = doc.widthOfString(docType);
+    const titleLeft = titleRight - titleW;
+    rightText(docType, titleRight, S.title.baselineY);
 
-    // Meta under the title word — doc number + dates (right column only)
+    // Meta under the green title: labels + values start at titleLeft, close together
     const rightRows = [[docType, data.docNumber], ['DATE', data.date]];
     if (!isEstimate && data.dueDate) rightRows.push(['DUE DATE', data.dueDate]);
     if (!isEstimate && data.terms)   rightRows.push(['TERMS', data.terms]);
+    doc.font('reg').fontSize(S.meta.labelSize);
+    const labelColW = Math.max(
+      ...rightRows.map(([label]) => doc.widthOfString(label)),
+      doc.widthOfString('DUE DATE')
+    );
+    const valueX = titleLeft + labelColW + S.meta.labelValueGap;
     let ry = S.meta.firstBaselineY;
-    doc.fontSize(S.meta.labelSize);
     for (const [label, value] of rightRows) {
-      doc.fillColor(S.colors.gray);
-      textAtBaseline(label, S.meta.rightLabelX, ry);
-      doc.fillColor(S.colors.black);
-      textAtBaseline(String(value ?? ''), S.meta.rightValueX, ry);
+      doc.font('reg').fontSize(S.meta.labelSize).fillColor(S.colors.gray);
+      textAtBaseline(label, titleLeft, ry);
+      doc.font('reg').fontSize(S.meta.valueSize).fillColor(S.colors.black);
+      textAtBaseline(String(value ?? ''), valueX, ry);
       ry += S.meta.leading;
     }
     const rightBottom = ry;
@@ -339,7 +350,7 @@ function generateDocument(data, outPath) {
 
     /* -- line-item table (raised — starts just below addresses) --------- */
 
-    const tableTop = Math.max(by, sy) + 12;
+    const tableTop = Math.max(by, sy) + (S.tableGapAbove != null ? S.tableGapAbove : 6);
     let cursor = drawTableHeader(tableTop);
 
     doc.font('reg').fontSize(S.table.bodySize).fillColor(S.colors.black);

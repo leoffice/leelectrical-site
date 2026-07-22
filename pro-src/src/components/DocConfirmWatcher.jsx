@@ -1,6 +1,6 @@
 // When create_estimate / create_invoice completes or fails, patch job + notify.
 import { useEffect, useRef } from "react";
-import { useStore } from "../state/store.jsx";
+import { useStoreData } from "../state/store.jsx";
 import {
   loadDocConfirmSeen,
   parseDocCommandResult,
@@ -41,7 +41,8 @@ function docFailToastMessage(c) {
 }
 
 export default function DocConfirmWatcher() {
-  const { commands, jobs, patchAndSave, effectiveJob, showDocConfirm, showToast, refreshCommands } = useStore();
+  const { commands, jobs, showDocConfirm, showToast, refreshCommands, patchAndSave, effectiveJob } =
+    useStoreData();
   const seen = useRef(loadDocConfirmSeen());
   const failSeen = useRef(loadDocFailSeen());
 

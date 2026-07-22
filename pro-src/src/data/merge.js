@@ -30,8 +30,17 @@ export function deepMerge(base, patch) {
   return out;
 }
 
+// Prefer structuredClone when available (faster than JSON round-trip on large jobs).
 function clone(v) {
-  return v === null || typeof v !== "object" ? v : JSON.parse(JSON.stringify(v));
+  if (v === null || typeof v !== "object") return v;
+  if (typeof structuredClone === "function") {
+    try {
+      return structuredClone(v);
+    } catch {
+      /* fall through for non-cloneable values */
+    }
+  }
+  return JSON.parse(JSON.stringify(v));
 }
 
 export function blankJob(id) {
@@ -63,7 +72,7 @@ export function blankJob(id) {
 /** Apply one overlay entry to one base job — sleek's merge2 semantics:
  *  objects merge per key, arrays/scalars replaced by the overlay. */
 export function applyOverlay(base, ov) {
-  if (!ov) return clone(base);
+  if (!ov || (typeof ov === "object" && !Object.keys(ov).length)) return base;
   return deepMerge(base, ov);
 }
 

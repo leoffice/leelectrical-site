@@ -15,9 +15,13 @@ export function emptyLine() {
 }
 
 export function lineAmount(line) {
-  const q = parseAmount(line.qty) || 0;
-  const p = parseAmount(line.unitPrice) || parseAmount(line.rate) || 0;
-  return Math.round(q * p * 100) / 100;
+  // Explicit 0 qty stays 0 (progress lines not yet billed). Missing qty → 1.
+  const hasQty = line?.qty != null && line.qty !== "";
+  const q = hasQty ? parseAmount(line.qty) : 1;
+  const p = parseAmount(line?.unitPrice) || parseAmount(line?.rate) || 0;
+  if (p) return Math.round((q || 0) * p * 100) / 100;
+  // QBO / office imports sometimes only carry Amount
+  return parseAmount(line?.amount) || 0;
 }
 
 export function linesTotal(lines) {

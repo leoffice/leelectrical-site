@@ -7,7 +7,7 @@ import { Opt } from "./Sheet.jsx";
 import PromptSurface from "./PromptSurface.jsx";
 import IntelligentSuggestionBadge from "./IntelligentSuggestionBadge.jsx";
 import AddAppointmentSheet from "./AddAppointmentSheet.jsx";
-import { useStore } from "../state/store.jsx";
+import { useStoreData } from "../state/store.jsx";
 import {
   enrichInsight,
   appointmentTypeLabel,
@@ -294,7 +294,7 @@ export default function EmailInsightPrompts() {
     pullCalendarNow,
     showToast,
     effectiveJob,
-  } = useStore();
+  } = useStoreData();
   const nav = useNavigate();
   const [current, setCurrent] = useState(null);
   const [doneNotice, setDoneNotice] = useState(null);

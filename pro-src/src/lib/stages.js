@@ -121,14 +121,21 @@ export function matchesFilter(job, name) {
   return (FILTERS[name] || FILTERS.All)(job);
 }
 
-export function matchesQuery(job, q) {
-  if (!q) return true;
+/** Per-object cache — filtering 4k+ jobs reuses the joined haystack. */
+const jobSearchHayCache = new WeakMap();
+
+/** Build once per job object when filtering many thousands of rows. */
+export function jobSearchHay(job) {
+  if (!job) return "";
+  const cached = jobSearchHayCache.get(job);
+  if (cached != null) return cached;
   const hay = [
     job.customer,
     job.businessName,
     job.personName,
     job.title,
     job.address,
+    job.serviceAddress,
     job.invoiceNo,
     job.estimateNo,
     job.notes,
@@ -137,6 +144,13 @@ export function matchesQuery(job, q) {
   ]
     .join(" ")
     .toLowerCase();
+  jobSearchHayCache.set(job, hay);
+  return hay;
+}
+
+export function matchesQuery(job, q) {
+  if (!q) return true;
+  const hay = jobSearchHay(job);
   return q
     .toLowerCase()
     .split(/\s+/)

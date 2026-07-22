@@ -1,17 +1,19 @@
 // Header sync chip — opens scoped QuickBooks sync menu (context-aware on detail pages).
 import React, { useState } from "react";
 import { useLocation } from "react-router-dom";
-import { useStore } from "../state/store.jsx";
+import { useStoreData } from "../state/store.jsx";
 import { ago } from "../lib/format.js";
 import { syncContextFromRoute } from "../lib/syncContext.js";
 import QboSyncSheet from "./QboSyncSheet.jsx";
 
 export default function SyncChip({ dark, compact }) {
-  const { syncedAt, eventsSyncedAt, busy, syncProgress, effectiveJob, jobs } = useStore();
+  // Data only — typing staged edits must not re-render this chip.
+  const { syncedAt, eventsSyncedAt, busy, syncProgress, jobs } = useStoreData();
   const loc = useLocation();
   const [open, setOpen] = useState(false);
   const pct = syncProgress?.pct ?? 0;
   const phase = syncProgress?.label || "Syncing";
+  const effectiveJob = (id) => jobs.find((j) => String(j.id) === String(id)) || null;
   const ctx = syncContextFromRoute(loc.pathname, { effectiveJob, jobs });
 
   const handleClick = () => {

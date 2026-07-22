@@ -1,7 +1,7 @@
 // Trap hardware back on home tabs; close overlays first; double-back to exit.
 import { useEffect, useRef } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
-import { useStore } from "../state/store.jsx";
+import { useStoreData, useStoreEdit } from "../state/store.jsx";
 import { useLiveEdit } from "./LiveEditProvider.jsx";
 import {
   detailBackTarget,
@@ -36,7 +36,10 @@ function pushRootTrap() {
 export default function AppBackHandler() {
   const loc = useLocation();
   const nav = useNavigate();
-  const store = useStore();
+  const data = useStoreData();
+  const edit = useStoreEdit();
+  // Merge into a ref so popstate handlers see latest without rebinding on every keystroke.
+  const store = { ...data, ...edit, jobs: edit.jobs, rawJobs: edit.rawJobs };
   const live = useLiveEdit();
   const prevPathRef = useRef(loc.pathname);
   const lastRootBackRef = useRef(0);

@@ -161,7 +161,8 @@ describe("2. quick views — invoice/estimate/calendar sheets", () => {
     expect(cal.jobId).toBe("J-1");
     expect(cal.payload.summary).toBe("Panel upgrade — Peretz Chein");
     expect(cal.payload.start).toBe("2026-08-15T14:00");
-    expect(cal.payload.description).toContain("leJobId:J-1");
+    // Job link is calEventId on the job — never dump leJobId into Google notes.
+    expect(cal.payload.description || "").not.toMatch(/leJobId/i);
     await waitFor(() => expect(srv.state.ov["J-1"]?.status?.Scheduled?.d).toBe("2026-08-15"));
   });
 });

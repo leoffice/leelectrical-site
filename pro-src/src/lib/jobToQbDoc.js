@@ -74,23 +74,35 @@ function addDays(iso, days) {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 }
 
+function syntheticAmountLine(job) {
+  const amt = parseAmount(job?.amount);
+  if (!(amt > 0)) return null;
+  return {
+    description: job.title || job.serviceType || "Electrical services",
+    itemName: job.title || job.serviceType || "Electrical services",
+    qty: 1,
+    unitPrice: amt,
+  };
+}
+
 function billableLines(job, kind) {
   const saved = (kind === "invoice" ? job.invoiceLines : job.estimateLines) || [];
   const filtered = saved.filter(
-    (ln) => ln && (ln.description || ln.itemName || parseAmount(ln.unitPrice))
+    (ln) =>
+      ln &&
+      (ln.description ||
+        ln.itemName ||
+        parseAmount(ln.unitPrice) ||
+        parseAmount(ln.rate) ||
+        parseAmount(ln.amount))
   );
-  if (filtered.length) return filtered;
-  if (parseAmount(job.amount) > 0) {
-    return [
-      {
-        description: job.title || job.serviceType || "Electrical services",
-        itemName: job.title || job.serviceType || "Electrical services",
-        qty: 1,
-        unitPrice: parseAmount(job.amount),
-      },
-    ];
-  }
-  return [];
+  // Prefer lines that actually bill — empty/zero-qty staging lines must not
+  // block the job.amount fallback (View Local PDF was failing on those jobs).
+  const withMoney = filtered.filter((ln) => lineAmount(ln) > 0);
+  if (withMoney.length) return withMoney;
+  const synth = syntheticAmountLine(job);
+  if (synth) return [synth];
+  return filtered;
 }
 
 function mapLines(lines) {
@@ -98,13 +110,17 @@ function mapLines(lines) {
     // Product/Service (itemName) is backend-only — never print it.
     // Blank lines + bullet layout are preserved for the PDF.
     const desc = formatPrintDescription(ln.description);
-    const rate = parseAmount(ln.unitPrice);
-    const qty = parseAmount(ln.qty) || 1;
+    const qty =
+      ln.qty != null && ln.qty !== "" ? parseAmount(ln.qty) : 1;
+    let rate = parseAmount(ln.unitPrice) || parseAmount(ln.rate) || 0;
+    const amount = lineAmount(ln);
+    // Derive rate from amount when QBO only sent Amount
+    if (!rate && amount && qty) rate = Math.round((amount / qty) * 100) / 100;
     return {
       description: desc,
       rate,
-      qty,
-      amount: lineAmount(ln),
+      qty: qty || 0,
+      amount,
       serviceDate: ln.serviceDate || ln.date || "",
       progressLabel: ln.progressLabel || "",
     };
@@ -152,7 +168,9 @@ export function docPdfFilename(kind, job = {}, docNumber = "") {
 export function canGenerateLocalDoc(job, kind = "invoice") {
   const lines = billableLines(job, kind);
   const total = linesTotal(lines);
-  return lines.length > 0 && total > 0;
+  if (lines.length > 0 && total > 0) return true;
+  // Last resort: known invoice/estimate total even when line math is incomplete
+  return parseAmount(job?.amount) > 0;
 }
 
 /** Map a job → le-invoice-suite generateDocument() input. */

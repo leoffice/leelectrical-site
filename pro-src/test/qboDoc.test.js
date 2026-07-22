@@ -24,6 +24,11 @@ describe("qboDoc", () => {
   it("lineAmount and linesTotal", () => {
     expect(lineAmount({ qty: 2, unitPrice: 110 })).toBe(220);
     expect(linesTotal([{ qty: 1, unitPrice: 120 }, { qty: 2, unitPrice: 50 }])).toBe(220);
+    // Missing qty defaults to 1; amount-only lines work
+    expect(lineAmount({ unitPrice: 110 })).toBe(110);
+    expect(lineAmount({ amount: 2300, qty: 1 })).toBe(2300);
+    // Explicit zero qty stays zero (progress not yet billed)
+    expect(lineAmount({ qty: 0, unitPrice: 5000 })).toBe(0);
   });
 
   it("scaleLines applies progress percent to unit price", () => {

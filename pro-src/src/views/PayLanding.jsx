@@ -1,5 +1,5 @@
 // Public View & Pay — invoice details, View invoice PDF, in-page card payment.
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import SolaCardForm, { tokenizeSolaCard } from "../components/SolaCardForm.jsx";
 import { addressesDiffer, invoicePdfUrl, resolvePayLandingToken } from "../lib/payLanding.js";
@@ -128,6 +128,8 @@ export default function PayLanding() {
   const [pdfPhase, setPdfPhase] = useState("idle");
   const [pdfErr, setPdfErr] = useState("");
   const [showPaidHist, setShowPaidHist] = useState(false);
+  const [showWorkDesc, setShowWorkDesc] = useState(false);
+  const workDescTimer = useRef(null);
   const [cardReady, setCardReady] = useState(false);
   const [saveOnFile, setSaveOnFile] = useState(true);
   const [payBusy, setPayBusy] = useState(false);
@@ -175,6 +177,14 @@ export default function PayLanding() {
       setDraft(String(data.a));
     }
   }, [data?.a]);
+
+  // Work description: expand on tap; auto-collapse after 20s (or collapse yourself).
+  useEffect(() => {
+    clearTimeout(workDescTimer.current);
+    if (!showWorkDesc) return undefined;
+    workDescTimer.current = setTimeout(() => setShowWorkDesc(false), 20_000);
+    return () => clearTimeout(workDescTimer.current);
+  }, [showWorkDesc]);
 
   const pdfSrc = data?.i ? invoicePdfUrl(data.i) : "";
 
@@ -366,10 +376,29 @@ export default function PayLanding() {
 
           {data.w ? (
             <div className="mt-4 text-sm">
-              <div className="text-[10px] font-extrabold uppercase tracking-wider text-slate-500 mb-1">
-                Work
-              </div>
-              <div className="text-slate-900 leading-snug">{data.w}</div>
+              <button
+                type="button"
+                className="w-full text-left"
+                data-testid="work-desc-toggle"
+                aria-expanded={showWorkDesc}
+                onClick={() => setShowWorkDesc((v) => !v)}
+              >
+                <div className="text-[10px] font-extrabold uppercase tracking-wider text-slate-500 mb-1 flex items-center justify-between gap-2">
+                  <span>Work</span>
+                  <span className="text-[10px] font-bold text-brand normal-case tracking-normal">
+                    {showWorkDesc ? "Hide ▴" : "Details ▾"}
+                  </span>
+                </div>
+                <div
+                  className={
+                    "text-slate-900 leading-snug whitespace-pre-wrap " +
+                    (showWorkDesc ? "" : "line-clamp-2")
+                  }
+                  data-testid="work-desc-body"
+                >
+                  {data.w}
+                </div>
+              </button>
             </div>
           ) : null}
 

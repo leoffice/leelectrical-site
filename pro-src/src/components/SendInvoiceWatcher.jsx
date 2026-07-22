@@ -1,6 +1,6 @@
 // Toast when send_invoice / send_estimate commands finish or fail.
 import { useEffect, useRef } from "react";
-import { useStore } from "../state/store.jsx";
+import { useStoreData } from "../state/store.jsx";
 
 const SEEN_KEY = "le-pro-send-seen";
 
@@ -25,7 +25,7 @@ function label(c) {
 }
 
 export default function SendInvoiceWatcher() {
-  const { commands, showToast, refreshCommands, patchAndSave, logSend } = useStore();
+  const { commands, showToast, refreshCommands, logSend, patchAndSave } = useStoreData();
   const seen = useRef(loadSeen());
 
   useEffect(() => {

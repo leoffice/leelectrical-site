@@ -4,7 +4,7 @@ import { useNavigate } from "react-router-dom";
 import PromptSurface from "./PromptSurface.jsx";
 import { Fld } from "./Sheet.jsx";
 import CreateJobFromEventSheet from "./CreateJobFromEventSheet.jsx";
-import { useStore } from "../state/store.jsx";
+import { useStore, useStoreData } from "../state/store.jsx";
 import { evStart } from "../lib/format.js";
 import { todayStr } from "../lib/format.js";
 import { linkedJobForEvent, displayEventNotes } from "../lib/calendarLink.js";
@@ -878,7 +878,8 @@ function ServiceCallSheet({
 }
 
 export default function FollowUpPrompts() {
-  const { events, jobs, commands, loading, showToast } = useStore();
+  // Data-only: reminder sheets must not recompute on every notes keystroke.
+  const { events, jobs, commands, loading, showToast } = useStoreData();
   const nav = useNavigate();
   const [queue, setQueue] = useState([]);
   const [current, setCurrent] = useState(null);

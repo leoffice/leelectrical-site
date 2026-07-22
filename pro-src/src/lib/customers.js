@@ -12,7 +12,13 @@
 
 import { serviceAddressesExcludingBilling } from "./addressSync.js";
 import { fmt$, parseAmount } from "./format.js";
-import { normalizePayments, remainingBalance, totalPaid, amountOwedAtStart } from "./payments.js";
+import {
+  normalizePayments,
+  remainingBalance,
+  totalPaid,
+  amountOwedAtStart,
+  isProgressInvoiceJob,
+} from "./payments.js";
 
 /** True when a job is an actual invoice (has an invoice #). Estimates/leads are not. */
 export function isInvoiceJob(job) {
@@ -25,7 +31,15 @@ export function rawBalance(job) {
   if (!job) return 0;
   const pays = normalizePayments(job);
   if (pays.length) return remainingBalance(job, pays);
-  if (job.openBalance != null && job.openBalance !== "") return parseAmount(job.openBalance);
+  if (job.openBalance != null && job.openBalance !== "") {
+    const stored = parseAmount(job.openBalance);
+    // Progress invoice total raised with no payment ledger — balance tracks amount.
+    if (isProgressInvoiceJob(job)) {
+      const inv = parseAmount(job.amount);
+      if (inv > stored + 0.009) return inv;
+    }
+    return stored;
+  }
   const hay = [job.notes, job.followUp && job.followUp.text].filter(Boolean).join(" ");
   const m = hay.match(/(?:open\s*balance|balance\s*due|balance|owes?|remaining|still\s*owes?)\D{0,8}\$?\s*([\d,]+(?:\.\d+)?)/i);
   if (m) return parseAmount(m[1]);

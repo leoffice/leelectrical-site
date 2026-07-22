@@ -34,6 +34,34 @@ describe("jobToQbDoc", () => {
     expect(canGenerateLocalDoc({ ...job, invoiceNo: "", estimateNo: "9001", estimateLines: job.invoiceLines }, "estimate")).toBe(true);
   });
 
+  it("canGenerateLocalDoc falls back to job.amount when line prices are missing", () => {
+    // QBO import shape: description + amount only, no unitPrice
+    expect(
+      canGenerateLocalDoc(
+        {
+          ...job,
+          invoiceLines: [{ description: "Panel upgrade", amount: 2300, qty: 1 }],
+        },
+        "invoice"
+      )
+    ).toBe(true);
+    // Zero-qty staging lines must not block amount fallback
+    expect(
+      canGenerateLocalDoc(
+        {
+          ...job,
+          amount: "$1,500",
+          invoiceLines: [{ description: "Not billed yet", qty: 0, unitPrice: 5000 }],
+        },
+        "invoice"
+      )
+    ).toBe(true);
+    // Amount-only job with empty lines
+    expect(
+      canGenerateLocalDoc({ ...job, invoiceLines: [], amount: "$800" }, "invoice")
+    ).toBe(true);
+  });
+
   it("mapJobToQbDocData uses DRAFT when no invoice number", () => {
     const d = mapJobToQbDocData({ ...job, invoiceNo: "" }, "invoice");
     expect(d.docNumber).toBe("DRAFT");

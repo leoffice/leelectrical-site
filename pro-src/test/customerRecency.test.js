@@ -7,11 +7,13 @@ import {
   compareCustomerRecency,
   getRecencyRevision,
   subscribeRecency,
+  _resetRecencyCacheForTests,
 } from "../src/lib/customerRecency.js";
 
 describe("customerRecency", () => {
   beforeEach(() => {
     localStorage.clear();
+    _resetRecencyCacheForTests();
   });
 
   it("touchCustomer stores and reads recency for a board key", () => {
@@ -60,5 +62,17 @@ describe("customerRecency", () => {
     unsub();
     expect(seen.length).toBe(1);
     expect(getRecencyRevision()).toBeGreaterThan(0);
+  });
+
+  it("compareCustomerRecency stays cheap after many comparisons (cached map)", () => {
+    for (let i = 0; i < 200; i++) touchCustomer("c:cust-" + i);
+    const keys = Array.from({ length: 200 }, (_, i) => "c:cust-" + i);
+    const t0 = performance.now();
+    keys.sort((a, b) => compareCustomerRecency(a, [], b, []));
+    const ms = performance.now() - t0;
+    // Uncached localStorage re-parse used to take seconds for ~1k customers;
+    // 200-key sort must stay well under a frame.
+    expect(ms).toBeLessThan(50);
+    expect(customerRecencyTs(keys[0], [])).toBeGreaterThan(0);
   });
 });

@@ -38,6 +38,28 @@ async function pdfText(blob) {
   return s;
 }
 
+/** Parse text draws: { x, y, size, font, str } from client PDF stream. */
+function parseTextOps(pdfStr) {
+  const ops = [];
+  const re =
+    /BT \/(F[12]) ([\d.]+) Tf 1 0 0 1 ([\d.]+) ([\d.]+) Tm \((?:\\.|[^\\)])*\) Tj ET/g;
+  let m;
+  while ((m = re.exec(pdfStr))) {
+    const full = m[0];
+    const strM = full.match(/Tm \((.*)\) Tj ET$/);
+    const raw = strM ? strM[1] : "";
+    const str = raw.replace(/\\([()\\])/g, "$1");
+    ops.push({
+      font: m[1],
+      size: Number(m[2]),
+      x: Number(m[3]),
+      y: Number(m[4]),
+      str,
+    });
+  }
+  return ops;
+}
+
 describe("qbInvoicePdf layout (Levi 2026-07-22)", () => {
   it("puts ESTIMATE title and BILLING/SERVICE ADDRESS labels on the PDF", async () => {
     const data = mapJobToQbDocData(baseJob, "estimate");
@@ -63,6 +85,28 @@ describe("qbInvoicePdf layout (Levi 2026-07-22)", () => {
     expect(text).toContain("DUE DATE");
     expect(text).toContain("BILLING ADDRESS");
     expect(text).toContain("BALANCE DUE");
+  });
+
+  it("aligns meta labels under the green title (not far left at 396)", async () => {
+    const data = mapJobToQbDocData(baseJob, "invoice");
+    const blob = buildQbDocPdf(data);
+    const text = await pdfText(blob);
+    const ops = parseTextOps(text);
+    // Bold green title (F2, size 16) right-side
+    const title = ops.find((o) => o.str === "INVOICE" && o.font === "F2" && o.size === 16);
+    expect(title).toBeTruthy();
+    // Gray meta label "DATE" should start at same x as title left edge
+    const dateLabel = ops.find((o) => o.str === "DATE" && o.font === "F1" && o.size === 8.5);
+    expect(dateLabel).toBeTruthy();
+    // Title is right-aligned; its left edge ≈ title.x; meta labels share that x
+    expect(Math.abs(dateLabel.x - title.x)).toBeLessThan(1);
+    // Not the old far-left meta column
+    expect(dateLabel.x).toBeGreaterThan(450);
+    // Value sits close to the right of the label (not the old 477 fixed column alone)
+    const invNo = ops.find((o) => o.str === "251900");
+    expect(invNo).toBeTruthy();
+    expect(invNo.x).toBeGreaterThan(dateLabel.x);
+    expect(invNo.x - dateLabel.x).toBeLessThan(80);
   });
 
   it("paginates a long description so SUBTOTAL still appears", async () => {

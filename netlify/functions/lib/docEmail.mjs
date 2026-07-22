@@ -241,6 +241,14 @@ export async function sendDocEmail({
       { filename: "logo.png", content: LOGO_PNG_BASE64, content_id: "companylogo" },
     ],
   };
+  // Levi 2026-07-22: silent office copy of every real customer invoice/estimate
+  // so Gmail can file it under the "LE Pro" tab (host labeler + optional filter).
+  // Skip when already sending only to office / test redirect / officeOnly.
+  const officeLc = OFFICE_EMAIL.toLowerCase();
+  const recipientLc = String(recipient || "").toLowerCase();
+  if (!officeOnly && !testMode && recipientLc && recipientLc !== officeLc) {
+    payload.bcc = [OFFICE_EMAIL];
+  }
   if (testMode && email !== recipient) {
     payload.headers = { "X-Intended-Recipient": email };
   }

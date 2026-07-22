@@ -23,9 +23,8 @@ export default function JobAddressCarousel({
   onCardTap,
   onEditJob,
   onAddJob,
-  requisitionEnabled = false,
-  onToggleRequisition,
-  requisitionHref,
+  jobTxns = false,
+  onJobTxnsChange,
 }) {
   const list = jobs || [];
   if (!list.length) return null;
@@ -79,9 +78,8 @@ export default function JobAddressCarousel({
           onChangeOrders={onChangeOrders}
           changeOrdersActive={changeOrdersActive}
           onBubbleTap={(b) => onBubbleTap?.(active, b)}
-          requisitionEnabled={requisitionEnabled}
-          onToggleRequisition={onToggleRequisition}
-          requisitionHref={requisitionHref}
+          jobTxns={jobTxns}
+          onJobTxnsChange={onJobTxnsChange}
         />
       </div>
     </div>

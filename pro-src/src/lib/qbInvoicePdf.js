@@ -170,13 +170,21 @@ export function buildQbDocPdf(data) {
   const total = data.total != null ? Number(data.total) : subtotal + tax;
   const payment = Number(data.payment || 0);
 
-  // ---- Layout constants (Levi 2026-07-22) ---------------------------------
+  // ---- Layout constants (Levi 2026-07-22 + polish) -----------------------
   // Logo top y=36; ESTIMATE/INVOICE title sits at same height top-right.
+  // Meta labels + values start under the left edge of that green title word
+  // (right side of page, not flush edge) — Levi 2026-07-22 follow-up.
   const LOGO = { x: 254.25, y: 36, w: 103.5, h: 81 };
+  const TITLE_SIZE = 16; // bold green title — nicer weight than body
   const TITLE_Y = 50; // same height band as logo top / company name
   const META_Y = 68; // doc # / date / due date under the title word
   const META_LEAD = 13.5;
+  const META_LABEL_SIZE = 8.5;
+  const META_VALUE_SIZE = 9.5;
+  const META_GAP = 8; // space between gray label and value
   const ADDR_COL_RIGHT = 306; // service address column (halfway across page)
+  const ADDR_GAP_BELOW = 10; // gap under header before addresses (tighter)
+  const TABLE_GAP_ABOVE = 6; // pull green DESCRIPTION bar up a little
   const LEAD = 13.5;
   const descTextX = 39.75;
   const descW = 396.5 - 39.75;
@@ -255,23 +263,31 @@ export function buildQbDocPdf(data) {
   // ---- PAGE 1 HEADER: company left · logo center · title+meta right ------
   const companyBottom = drawCompanyLogo(pg);
 
-  // Title word top-right, same height as logo top / company name
-  pg.text(PAGE_W - M, TITLE_Y, docType, { size: 13.72, color: GREEN, align: "right" });
+  // Bold green title top-right; meta hangs under its left edge (not page-left)
+  const titleRight = PAGE_W - M;
+  const titleW = textWidth(docType, TITLE_SIZE, true);
+  const titleLeft = titleRight - titleW;
+  pg.text(titleRight, TITLE_Y, docType, { size: TITLE_SIZE, bold: true, color: GREEN, align: "right" });
 
-  // Meta under the title word (same height band as the logo)
+  // Meta under the green title: labels + values start at titleLeft, close together
   const rightRows = [[docType, data.docNumber], ["DATE", data.date]];
   if (!isEstimate && data.dueDate) rightRows.push(["DUE DATE", data.dueDate]);
   if (!isEstimate && data.terms) rightRows.push(["TERMS", data.terms]);
+  const labelColW = Math.max(
+    ...rightRows.map(([label]) => textWidth(label, META_LABEL_SIZE, false)),
+    textWidth("DUE DATE", META_LABEL_SIZE, false)
+  );
+  const valueX = titleLeft + labelColW + META_GAP;
   let ry = META_Y;
   for (const [label, value] of rightRows) {
-    pg.text(396.45, ry, label, { size: 9.15, color: GRAY });
-    pg.text(477.23, ry, String(value ?? ""), { size: 9.15, color: BLACK });
+    pg.text(titleLeft, ry, label, { size: META_LABEL_SIZE, color: GRAY });
+    pg.text(valueX, ry, String(value ?? ""), { size: META_VALUE_SIZE, color: BLACK });
     ry += META_LEAD;
   }
   const rightBottom = ry;
 
   // ---- ADDRESSES: billing left · service right (parallel) ---------------
-  let addrTop = Math.max(companyBottom, LOGO.y + LOGO.h, rightBottom) + 14;
+  let addrTop = Math.max(companyBottom, LOGO.y + LOGO.h, rightBottom) + ADDR_GAP_BELOW;
 
   const billLines = [data.billTo?.name, ...(data.billTo?.addressLines || [])].filter(Boolean);
   const svcLines = serviceAddress
@@ -304,8 +320,8 @@ export function buildQbDocPdf(data) {
     }
   }
 
-  // ---- DESCRIPTION TABLE (raised a few lines) ---------------------------
-  const tableTop = Math.max(by, sy) + 12;
+  // ---- DESCRIPTION TABLE (raised — green bar sits tight under addresses) -
+  const tableTop = Math.max(by, sy) + TABLE_GAP_ABOVE;
   let cursor = drawTableHeader(pg, tableTop);
 
   if (data.serviceDate) {

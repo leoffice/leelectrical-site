@@ -6,6 +6,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { useStore } from "../state/store.jsx";
+import { useDebouncedPatchField } from "../lib/useDebouncedPatch.js";
 import { productName } from "../lib/tenantBranding.js";
 import {
   FOLLOWUP_TYPES,
@@ -29,6 +30,7 @@ import { followUpFromPaperworkStep } from "../lib/calendarDue.js";
 import { fmt$, ago } from "../lib/format.js";
 import CustomerCard from "../components/CustomerCard.jsx";
 import CustomerTransactionHistory from "../components/CustomerTransactionHistory.jsx";
+import JobTransactionHistory from "../components/JobTransactionHistory.jsx";
 import ConnectDocSheet from "../components/ConnectDocSheet.jsx";
 import JobInfoCard from "../components/JobInfoCard.jsx";
 import JobAddressCarousel from "../components/JobAddressCarousel.jsx";
@@ -40,7 +42,6 @@ import {
   carouselVisibleJobs,
   changeOrderJobPatch,
 } from "../lib/changeOrder.js";
-import { BAEZ_PROJECT_ID, findBaezJob } from "../lib/requisitionData.js";
 import ChangeOrderSheet from "../components/ChangeOrderSheet.jsx";
 import AddJobAtAddressSheet from "../components/AddJobAtAddressSheet.jsx";
 import ChangeOrdersTabPanel from "../components/ChangeOrdersTabPanel.jsx";
@@ -143,29 +144,6 @@ export default function JobDetail() {
     return addressJobs.filter((j) => j.id !== job.id && isInvoiceJob(j));
   }, [addressJobs, job?.id]);
 
-  // Requisition flow toggle — any job can opt in; Joy/Baez jobs open the pilot hub.
-  const isRequisitionPilotJob = useMemo(() => {
-    if (!job) return false;
-    const baez = findBaezJob([job]);
-    if (baez?.id === job.id) return true;
-    const hay = [job.title, job.customer, job.businessName, job.serviceAddress, job.address]
-      .filter(Boolean)
-      .join(" ")
-      .toLowerCase();
-    return hay.includes("bae") || hay.includes("176") || hay.includes("joy construction");
-  }, [job]);
-  const requisitionHref = isRequisitionPilotJob
-    ? "/projects/" + BAEZ_PROJECT_ID
-    : job?.projectId
-      ? "/projects/" + job.projectId
-      : "/projects";
-  const requisitionOn = !!(job?.requisitionFlowEnabled || job?.requisitionEnabled);
-  const toggleRequisitionFlow = (on) => {
-    if (!job) return;
-    patchJob(id, { requisitionFlowEnabled: !!on, requisitionEnabled: !!on });
-    showToast(on ? "Requisition flow on — open Change orders for balances" : "Requisition flow off");
-  };
-
   const addJobAtAddress = () => {
     if (!job) return;
     setSheet({ kind: "addJobAtAddress" });
@@ -215,6 +193,7 @@ export default function JobDetail() {
   const [showChangeOrders, setShowChangeOrders] = useState(false);
   const [detailSectionsExpanded, setDetailSectionsExpanded] = useState(!foldOnOpen);
   const [shortTxns, setShortTxns] = useState(false);
+  const [jobTxns, setJobTxns] = useState(false);
   const stepTimer = useRef(null);
   const jobInfoRef = useRef(null);
 
@@ -229,6 +208,7 @@ export default function JobDetail() {
     // Default collapsed job info; only fold=0 opens fully expanded.
     setDetailSectionsExpanded(foldParam === "0");
     setShowChangeOrders(false);
+    setJobTxns(false);
   }, [id, foldParam]);
 
   useEffect(() => {
@@ -263,6 +243,17 @@ export default function JobDetail() {
         .filter((c) => String(c.jobId) === String(id))
         .sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0)),
     [commands, id]
+  );
+
+  // Hooks must run before the !job early return.
+  const notesToPatch = useCallback((v) => ({ notes: v }), []);
+  const fuTextToPatch = useCallback((v) => ({ followUp: { text: v } }), []);
+  const notesField = useDebouncedPatchField(id, job?.notes || "", patchJob, notesToPatch);
+  const fuTextField = useDebouncedPatchField(
+    id,
+    (job?.followUp && job.followUp.text) || "",
+    patchJob,
+    fuTextToPatch
   );
 
   if (!job) {
@@ -399,9 +390,8 @@ export default function JobDetail() {
             changeOrdersActive={showChangeOrders}
             onBubbleTap={(j, bubble) => tapAwarenessBubble(j, bubble, setSheet, openDocTab)}
             onCardTap={toggleDetailSections}
-            requisitionEnabled={requisitionOn}
-            onToggleRequisition={toggleRequisitionFlow}
-            requisitionHref={requisitionHref}
+            jobTxns={jobTxns}
+            onJobTxnsChange={setJobTxns}
           />
         ) : (
           <JobInfoCard
@@ -424,11 +414,18 @@ export default function JobDetail() {
             onChangeOrders={() => setShowChangeOrders((v) => !v)}
             changeOrdersActive={showChangeOrders}
             onBubbleTap={(bubble) => tapAwarenessBubble(job, bubble, setSheet, openDocTab)}
-            requisitionEnabled={requisitionOn}
-            onToggleRequisition={toggleRequisitionFlow}
-            requisitionHref={requisitionHref}
+            jobTxns={jobTxns}
+            onJobTxnsChange={setJobTxns}
           />
         )}
+        {jobTxns ? (
+          <div className="mt-2" data-testid="job-txn-history-section">
+            <JobTransactionHistory
+              job={job}
+              onOpenFull={() => setSheet({ kind: "payhist" })}
+            />
+          </div>
+        ) : null}
         {showChangeOrders ? (
           <div className="mt-2" data-testid="job-change-orders-section">
             <ChangeOrdersTabPanel
@@ -903,8 +900,9 @@ export default function JobDetail() {
           <input
             className="input flex-1"
             placeholder="Custom message (optional)"
-            value={fu.text || ""}
-            onChange={(e) => setFu({ text: e.target.value })}
+            value={fuTextField.value}
+            onChange={fuTextField.onChange}
+            onBlur={fuTextField.onBlur}
             aria-label="Follow-up text"
           />
           <input
@@ -936,8 +934,9 @@ export default function JobDetail() {
           <label className="block text-xs font-bold text-slate-500 mb-1.5">Notes</label>
           <textarea
             className="input min-h-[74px]"
-            value={job.notes || ""}
-            onChange={(e) => patchJob(id, { notes: e.target.value })}
+            value={notesField.value}
+            onChange={notesField.onChange}
+            onBlur={notesField.onBlur}
             aria-label="Notes"
           />
         </div>

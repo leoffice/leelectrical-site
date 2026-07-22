@@ -80,6 +80,38 @@ describe("PayLanding view", () => {
     expect(cta.tagName).toBe("BUTTON");
   });
 
+  it("expands work description and can collapse it again", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => ({ ok: true })));
+    const user = userEvent.setup();
+    const longWork =
+      "Replace main panel and all branch circuits.\nPhase 2: install EV charger and conduit run.";
+    const token = encodePayLanding(
+      buildPayLandingPayload({
+        job: {
+          customer: "Work Expand Co",
+          title: longWork,
+          amount: "$1,200",
+          invoiceNo: "251900",
+          billingAddress: "10 Main St, Brooklyn, NY 11201",
+          serviceAddress: "10 Main St, Brooklyn, NY 11201",
+        },
+        cardknoxUrl: "https://secure.cardknox.com/blzelectric?xAmount=1200&xinvoice=251900",
+        linkAmount: "1200",
+        inv: "251900",
+        siteSlug: "blzelectric",
+      })
+    );
+    renderPay(token);
+    await waitForPayLoaded();
+    const toggle = screen.getByTestId("work-desc-toggle");
+    expect(toggle).toHaveAttribute("aria-expanded", "false");
+    await user.click(toggle);
+    expect(toggle).toHaveAttribute("aria-expanded", "true");
+    expect(screen.getByTestId("work-desc-body")).toHaveTextContent(/EV charger/);
+    await user.click(toggle);
+    expect(toggle).toHaveAttribute("aria-expanded", "false");
+  });
+
   it("expands paid-to-date to show payment history from the token", async () => {
     vi.stubGlobal("fetch", vi.fn(async () => ({ ok: true })));
     const user = userEvent.setup();

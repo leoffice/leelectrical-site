@@ -1,5 +1,5 @@
 // Bi-directional estimate ↔ invoice sync — shared address fields + QBO update commands.
-import { fmt$, todayStr } from "./format.js";
+import { fmt$, todayStr, parseAmount } from "./format.js";
 import {
   buildDocCommandPayload,
   docIdempotencyKey,
@@ -9,6 +9,7 @@ import {
 import { buildRecurringPayload, recurringIdempotencyKey } from "./recurringBilling.js";
 import { isProgressBillingContext, progressBillingJobPatch } from "./progressBilling.js";
 import { briefTitlePatch, preferredChangeOrderDocNo } from "./changeOrder.js";
+import { reconcileBalanceOnAmountChange } from "./payments.js";
 
 export const DOC_SYNC_COMMAND_TYPES = [
   "create_estimate",
@@ -84,6 +85,15 @@ function buildDocJobPatch(job, { kind, mode, lines, serviceAddress, apartment, m
 
   if (kind === "invoice" && isProgressBillingContext(job, { kind, mode })) {
     Object.assign(jobPatch, progressBillingJobPatch(valid, job, { progressPct, contractAmount }));
+  }
+
+  // When invoice total changes (e.g. progress 50% → 80%), recompute balance due
+  // so paymentBaseline / openBalance are not left frozen at the old draw.
+  if (kind === "invoice") {
+    const prevAmt = parseAmount(job?.amount);
+    if (Math.abs(total - prevAmt) > 0.009 || (total > 0 && prevAmt === 0)) {
+      Object.assign(jobPatch, reconcileBalanceOnAmountChange(job, total));
+    }
   }
 
   // Prefer original#-CO-N for local PDF / display on CO jobs (not confirmed until QBO).
