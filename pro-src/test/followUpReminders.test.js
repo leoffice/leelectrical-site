@@ -8,13 +8,16 @@ import {
   PROMPT_QUEUE_CAP,
   OVERFLOW_REMINDER_MESSAGE,
   applyPromptQueueCap,
+  ackInspectionReminder,
   buildPromptQueue,
   dismissEventReminders,
   dueScheduledReminders,
+  eventFingerprint,
   formatSnoozeDuration,
   generateReminderNudge,
   inspectionCandidates,
   isEventAllocated,
+  isEventHandled,
   isInspectionEvent,
   isPastWeekFollowUpEvent,
   isServiceCallEvent,
@@ -138,6 +141,25 @@ describe("followUpReminders", () => {
       { id: "later", summary: "Inspection", start: "2026-07-15T09:00" },
     ];
     expect(inspectionCandidates(events, today).map((e) => e.id)).toEqual(["today", "tom"]);
+  });
+
+  it("ackInspectionReminder survives calendar id change (pending → google)", () => {
+    const pending = {
+      id: "pending-123",
+      summary: "Con Edison appointment — 10:00 AM",
+      start: "2026-07-10T10:00",
+    };
+    const live = {
+      id: "google-abc",
+      summary: "Con Edison appointment — 10:00 AM",
+      start: "2026-07-10T10:00",
+    };
+    ackInspectionReminder(pending);
+    const state = JSON.parse(localStorage.getItem(STATE_KEY));
+    expect(state["pending-123"].inspectionAcked).toBe(true);
+    expect(state["pending-123"].fingerprint).toBe(eventFingerprint(pending));
+    expect(isEventHandled(state, live.id, live)).toBe(true);
+    expect(inspectionCandidates([live], today).map((e) => e.id)).toEqual([]);
   });
 
   it("validateRemindDatetime enforces weekdays and work hours", () => {

@@ -108,6 +108,45 @@ describe("emailInsight", () => {
         "Your Initial Inspection is scheduled on Jul 28, 2026 at 9:30 AM. Log in to Reschedule the appointment."
       )
     ).toBe("scheduled");
+    // DOB "how to cancel" footer must NOT mark a real scheduled email as cancelled
+    // (this was looping the Smart Suggestion sheet every login).
+    expect(
+      classifyEmailOutcome(
+        "Electrical Inspection Scheduled - Job Number M01228312/I1 /149 EAST  116 STREET",
+        DOB_CITY_BODY +
+          " If there is an immediate need to cancel this scheduled inspection, log into DOB NOW: Inspections+ to submit your cancellation request at least 48 hours prior to the scheduled inspection."
+      )
+    ).toBe("scheduled");
+    expect(classifyEmailOutcome("Your appointment is cancelled", "Your appointment is cancelled.")).toBe("cancelled");
+  });
+
+  it("re-enriches wrong stored cancelled outcome from DOB footer text", () => {
+    const jobs = [
+      {
+        id: "qbo-est-25435",
+        customer: "Arthur",
+        serviceAddress: "149 East 116 Street, Manhattan, NY 10029",
+      },
+    ];
+    const stuck = {
+      id: "ei-stuck",
+      status: "pending",
+      outcome: "cancelled", // bad store value from old classifier
+      appointmentType: "inspection",
+      agency: "city",
+      dateTime: "2026-07-30T10:00",
+      address: "149 East 116 Street, Manhattan, NY 10029",
+      summary: "at 149 East 116 Street … (cancelled)",
+      source: {
+        subject: "Electrical Inspection Scheduled - Job Number M01228312",
+        from: "dobnowdonotreply@buildings.nyc.gov",
+      },
+      emailSnippet: DOB_CITY_BODY + " submit your cancellation request at least 48 hours prior",
+    };
+    const enriched = enrichInsight(stuck, jobs);
+    expect(enriched.outcome).toBe("scheduled");
+    expect(enriched.canAutoApply).toBe(true);
+    expect(enriched.summary).not.toMatch(/\(cancelled\)/i);
   });
 
   it("matches job by service address", () => {
