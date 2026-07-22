@@ -76,9 +76,24 @@ export async function analyzePaymentScreenshot(imageBase64, mime = "image/jpeg",
       ...(learningHint ? { learningHint } : {}),
     }),
   });
-  const data = await res.json().catch(() => ({}));
+  const rawText = await res.text().catch(() => "");
+  let data = {};
+  try {
+    data = rawText ? JSON.parse(rawText) : {};
+  } catch {
+    data = {};
+  }
   if (!res.ok || !data.ok) {
-    throw new Error(data.error || `Vision failed (${res.status})`);
+    // CF custom domains strip 502 JSON bodies → bare "error code: 502". Map that to a clear message.
+    const bare502 = /error code:\s*502/i.test(rawText) || res.status === 502;
+    const msg =
+      data.error ||
+      (bare502
+        ? "Check reader hit a server glitch — try Autofill again or a clearer photo"
+        : rawText && rawText.length < 200
+          ? rawText
+          : `Vision failed (${res.status})`);
+    throw new Error(msg);
   }
   return data.extracted;
 }
@@ -185,7 +200,21 @@ export function pickPaymentAnalysis({ checkResult, zelleResult, textHint = "", f
   return { extracted: checkResult || zelleResult, kind: checkKind || zelleKind || "check" };
 }
 
-/** Run check + zelle vision and pick the best result for the text hint / image. */
+function extractLooksStrong(extracted) {
+  if (!extracted) return false;
+  const amt = Number(extracted.amount);
+  const hasAmt = Number.isFinite(amt) && amt > 0;
+  const hasRef = !!(extracted.checkNumber || extracted.confirmationNumber);
+  return hasAmt && hasRef;
+}
+
+/**
+ * Run vision for a payment photo.
+ * When the user already chose Check or Zelle, prefer that pass first (one round-trip,
+ * less double-failure). Only call the other kind when amount/ref is still missing —
+ * then merge so a partial check # + zelle amount can still fill the form.
+ * If every call fails, throw (do not pretend the check was blank).
+ */
 export async function analyzePaymentImage(
   imageBase64,
   mime = "image/jpeg",
@@ -194,9 +223,48 @@ export async function analyzePaymentImage(
   opts = {}
 ) {
   const visionOpts = { learningEntries: opts.learningEntries };
-  const [checkResult, zelleResult] = await Promise.all([
-    analyzePaymentScreenshot(imageBase64, mime, "check", visionOpts).catch(() => null),
-    analyzePaymentScreenshot(imageBase64, mime, "zelle", visionOpts).catch(() => null),
-  ]);
+  const hint = String(textHint || "")
+    .trim()
+    .toLowerCase();
+  const wantsCheck = /\b(?:check|cheque|deposit)\b/.test(hint) || opts.forceKind === "check";
+  const wantsZelle = /\b(?:zelle?|zell)\b/.test(hint) || opts.forceKind === "zelle";
+
+  let checkResult = null;
+  let zelleResult = null;
+  const errors = [];
+
+  const run = async (kind) => {
+    try {
+      return await analyzePaymentScreenshot(imageBase64, mime, kind, visionOpts);
+    } catch (e) {
+      errors.push(e);
+      return null;
+    }
+  };
+
+  if (wantsCheck && !wantsZelle) {
+    checkResult = await run("check");
+    // Second pass only when primary is weak — merge can still recover amount.
+    if (!extractLooksStrong(checkResult)) {
+      zelleResult = await run("zelle");
+    }
+  } else if (wantsZelle && !wantsCheck) {
+    zelleResult = await run("zelle");
+    if (!extractLooksStrong(zelleResult)) {
+      checkResult = await run("check");
+    }
+  } else {
+    // Unknown kind — parallel both, then pick.
+    const [c, z] = await Promise.all([run("check"), run("zelle")]);
+    checkResult = c;
+    zelleResult = z;
+  }
+
+  if (!checkResult && !zelleResult) {
+    const msg = errors.map((e) => String(e?.message || e)).filter(Boolean)[0];
+    throw new Error(msg || "Could not reach the check reader");
+  }
+
+  // At least one pass returned a payload (may still have empty fields = true unread).
   return pickPaymentAnalysis({ checkResult, zelleResult, textHint, fileName });
 }

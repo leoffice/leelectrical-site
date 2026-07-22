@@ -35,14 +35,18 @@ export default async (req) => {
   try {
     const result = await extractPaymentFromImage({ imageBase64: image, mime, kind: "zelle" });
     if (result.dryRun) {
-      return json({
-        ok: false,
-        dryRun: true,
-        error: result.error || "Vision API not configured — set XAI_API_KEY on Netlify",
-      });
+      // 422 not 502 — CF custom domains strip 502 response bodies.
+      return json(
+        {
+          ok: false,
+          dryRun: true,
+          error: result.error || "Vision API not configured — set XAI_API_KEY",
+        },
+        422
+      );
     }
     return json({ ok: true, extracted: result.extracted, model: result.model });
   } catch (e) {
-    return json({ ok: false, error: String(e.message || e).slice(0, 300) }, 502);
+    return json({ ok: false, error: String(e.message || e).slice(0, 300) }, 422);
   }
 };
