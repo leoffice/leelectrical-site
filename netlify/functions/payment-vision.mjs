@@ -39,14 +39,21 @@ export default async (req) => {
   try {
     const result = await extractPaymentFromImage({ imageBase64: image, mime, kind, learningHint });
     if (result.dryRun) {
-      return json({
-        ok: false,
-        dryRun: true,
-        error: result.error || "Vision API not configured — set XAI_API_KEY on Netlify",
-      });
+      // 422 not 502 — custom domains on Cloudflare replace bare 502 bodies with "error code: 502"
+      // and the app loses the real reason (then pretends the check was unreadable).
+      return json(
+        {
+          ok: false,
+          dryRun: true,
+          error: result.error || "Vision API not configured — set XAI_API_KEY",
+        },
+        422
+      );
     }
     return json({ ok: true, extracted: result.extracted, model: result.model, kind: result.kind });
   } catch (e) {
-    return json({ ok: false, error: String(e.message || e).slice(0, 300) }, 502);
+    // Application failure (bad key, unreadable image, model error) — NOT a gateway 502.
+    // Status 422 keeps the JSON body intact on leelectrical.us (CF strips 502 bodies).
+    return json({ ok: false, error: String(e.message || e).slice(0, 300) }, 422);
   }
 };

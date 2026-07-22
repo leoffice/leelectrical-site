@@ -21,10 +21,13 @@ function mockPaymentVision(srv, extracted) {
       const path = String(url).split("/functions/")[1]?.split("?")[0];
       if ((path === "payment-vision" || path === "zelle-vision") && o.method === "POST") {
         srv.calls.push({ path, method: "POST", body: JSON.parse(o.body) });
+        const payload = { ok: true, extracted, model: "test" };
+        const body = JSON.stringify(payload);
         return {
           ok: true,
           status: 200,
-          json: async () => ({ ok: true, extracted, model: "test" }),
+          text: async () => body,
+          json: async () => payload,
         };
       }
       return origFetch(url, o);
@@ -177,20 +180,23 @@ describe("Zelle screenshot reconciliation flow", () => {
         const path = String(url).split("/functions/")[1]?.split("?")[0];
         if (path === "payment-vision" && o.method === "POST") {
           visionCalls++;
+          const payload = {
+            ok: true,
+            extracted: {
+              amount: 800,
+              checkNumber: "5521",
+              date: "2026-07-10",
+              memo: "panel upgrade",
+              confidence: "high",
+              kind: "check",
+            },
+          };
+          const body = JSON.stringify(payload);
           return {
             ok: true,
             status: 200,
-            json: async () => ({
-              ok: true,
-              extracted: {
-                amount: 800,
-                checkNumber: "5521",
-                date: "2026-07-10",
-                memo: "panel upgrade",
-                confidence: "high",
-                kind: "check",
-              },
-            }),
+            text: async () => body,
+            json: async () => payload,
           };
         }
         return fetchMock(url, o);
@@ -204,14 +210,14 @@ describe("Zelle screenshot reconciliation flow", () => {
     await user.click(screen.getByText("Check"));
     const input = screen.getByTestId("check-screenshot-input");
     await user.upload(input, new File(["x"], "check.jpg", { type: "image/jpeg" }));
-    // Check photos auto-run vision on attach (check + zelle pair = 2 calls).
+    // Check photos auto-run vision on attach — strong check read = 1 call (no zelle fallback).
     await waitFor(() => expect(screen.getByDisplayValue("5521")).toBeInTheDocument());
     expect(screen.getByDisplayValue("panel upgrade")).toBeInTheDocument();
-    expect(visionCalls).toBe(2);
+    expect(visionCalls).toBe(1);
     await user.click(screen.getByTestId("record-payment"));
     await waitFor(() => expect(screen.getByTestId("savebar")).toBeInTheDocument());
     // Record reuses autofill result — no second vision pass.
-    expect(visionCalls).toBe(2);
+    expect(visionCalls).toBe(1);
     await user.click(screen.getByText("Save & sync"));
     await waitFor(() => expect(srv.enqueued("record_payment")).toHaveLength(1));
     expect(srv.enqueued("record_payment")[0].payload).toMatchObject({

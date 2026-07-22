@@ -665,10 +665,13 @@ export function MarkPaidSheet({
       setPaymentVerified(false);
       // Keep a null extract so Record still trains on Levi's fill-ins.
       setAutofillExtracted(null);
-      showToast(
-        "Could not read image — fill the fields and Record to train. " +
-          String((e && e.message) || "")
-      );
+      const msg = String((e && e.message) || "");
+      // Reader/server failure (not "photo was blank") — shorter plain toast.
+      const short =
+        /glitch|reach the check reader|Vision failed|502|422|xAI|API key/i.test(msg)
+          ? "Check reader didn't respond — try Autofill again, or fill amount + check # and Record (that trains it)"
+          : "Could not read image — fill the fields and Record to train" + (msg ? ". " + msg : "");
+      showToast(short);
     } finally {
       setAutofillBusy(false);
     }

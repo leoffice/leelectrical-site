@@ -174,7 +174,12 @@ export default function PendingPaymentPrompts() {
       setAutofillDone(hasStrongPaymentAutofill(extracted));
       showToast("Fields filled from photo — fix anything wrong and Approve (trains the reader)");
     } catch (e) {
-      showToast("Could not read photo — fill fields and Approve to train. " + String((e && e.message) || ""));
+      const msg = String((e && e.message) || "");
+      const short =
+        /glitch|reach the check reader|Vision failed|502|422|xAI|API key/i.test(msg)
+          ? "Check reader didn't respond — try Autofill again, or fill amount + number and Approve (that trains it)"
+          : "Could not read photo — fill fields and Approve to train" + (msg ? ". " + msg : "");
+      showToast(short);
     } finally {
       setAutofillBusy(false);
     }
