@@ -218,6 +218,47 @@ export function formatClockLabel(hour, min, withAmPm = false) {
 }
 
 /**
+ * Window length in hours (civil clock). Returns 0 if missing.
+ * Levi 2026-07-22: a ~3 hour window is almost always a meter installation set.
+ */
+export function windowDurationHours(window) {
+  if (!window || window.startHour == null || window.endHour == null) return 0;
+  const a = Number(window.startHour) + Number(window.startMin || 0) / 60;
+  const b = Number(window.endHour) + Number(window.endMin || 0) / 60;
+  const d = b - a;
+  return d > 0 ? d : d + 24;
+}
+
+/** True when the customer window is about 3 hours (meter install signal). */
+export function isMeterInstallWindow(window) {
+  const h = windowDurationHours(window);
+  return h >= 2.5 && h <= 3.5;
+}
+
+/**
+ * Levi preferred window copy: "BTWN 8:00 and 11:00 a.m."
+ * Same am/pm once when both ends share it; both labeled when they cross noon.
+ */
+export function formatWindowBtwn(window) {
+  if (!window) return "";
+  const sh = Number(window.startHour);
+  const sm = Number(window.startMin || 0);
+  const eh = Number(window.endHour);
+  const em = Number(window.endMin || 0);
+  if (!Number.isFinite(sh) || !Number.isFinite(eh)) {
+    return window.text || "";
+  }
+  const startAp = sh >= 12 ? "p.m." : "a.m.";
+  const endAp = eh >= 12 ? "p.m." : "a.m.";
+  const startClock = formatClockLabel(sh, sm, false);
+  const endClock = formatClockLabel(eh, em, false);
+  if (startAp === endAp) {
+    return `BTWN ${startClock} and ${endClock} ${startAp}`;
+  }
+  return `BTWN ${startClock} ${startAp} and ${endClock} ${endAp}`;
+}
+
+/**
  * Floor a local ISO datetime (YYYY-MM-DDTHH:MM) to the previous half-hour slot.
  * 11:15 → 11:00, 11:45 → 11:30, 11:00 → 11:00. (Levi: half-hour increments only.)
  */
@@ -296,15 +337,17 @@ export function extractTimeWindow(text) {
   }
   const startLabel = formatClockLabel(start.hour, start.min, false);
   const endLabel = formatClockLabel(end.hour, end.min, false);
-  return {
+  const win = {
     startHour: start.hour,
     startMin: start.min,
     endHour: end.hour,
     endMin: end.min,
     startLabel,
     endLabel,
-    text: `Appointment set between ${startLabel} and ${endLabel}.`,
   };
+  // Canonical window copy — BTWN + a.m./p.m. (already ends with period in a.m./p.m.).
+  win.text = formatWindowBtwn(win);
+  return win;
 }
 
 /** Pull YYYY-MM-DD from email text when a full datetime is missing. */
@@ -451,9 +494,19 @@ function extractDateTimeRaw(text, refYear = new Date().getFullYear()) {
   return "";
 }
 
-export function classifyAppointmentType(text) {
+export function classifyAppointmentType(text, timeWindow = null) {
   const s = stripHtml(text).toLowerCase();
-  if (/meter\s*(?:install|replacement|set)/.test(s)) return "meter_installation";
+  // Explicit meter language first.
+  if (
+    /meter\s*(?:install|replacement|set|appointment)/.test(s) ||
+    /electric\s+service\s+(?:repair\/)?installation/.test(s) ||
+    /service\s+repair\/installation/.test(s) ||
+    /(?:repair\/)?installation\s+at\b/.test(s)
+  ) {
+    return "meter_installation";
+  }
+  // Levi 2026-07-22: a ~3 hour Con Ed / Energy Services window is a meter install.
+  if (isMeterInstallWindow(timeWindow)) return "meter_installation";
   if (/poe|point\s*of\s*entry|determine\s*poe/.test(s)) return "poe";
   if (
     /final\s*inspection|initial\s*inspection|electrical\s*inspection|inspection|inspect/.test(s)
@@ -531,8 +584,14 @@ export function appointmentTypeLabel(type, agency = "") {
     if (agency === "coned") return "Con Edison inspection";
     return "Inspection";
   }
+  if (type === "meter_installation") {
+    if (agency === "coned") return "Con Edison meter installation appointment";
+    return "Meter installation appointment";
+  }
   if (agency === "city") return `City ${base}`;
-  if (agency === "coned" && type === "other") return "Energy Services appointment";
+  if (agency === "coned" && (type === "other" || type === "appointment")) {
+    return "Energy Services appointment";
+  }
   return base;
 }
 
@@ -542,7 +601,8 @@ export function parseEmailInsight({ from = "", subject = "", body = "", received
   const address = extractAddress(blob);
   const schedule = resolveScheduleTimes(blob);
   const dateTime = schedule.dateTime;
-  const appointmentType = classifyAppointmentType(blob);
+  // Pass window so a 3-hour slot classifies as meter install even without "meter" in text.
+  const appointmentType = classifyAppointmentType(blob, schedule.timeWindow);
   const outcome = classifyEmailOutcome(subject, plainBody);
   const agency = classifyAgency(from, subject, plainBody);
   const dobJobNumber = extractDobJobNumber(blob);
@@ -595,10 +655,9 @@ export function parseEmailInsight({ from = "", subject = "", body = "", received
 
 /**
  * Plain-language description for the Google Calendar event.
- * Glanceable layout (Levi 2026-07-22 screenshot feedback):
- *  - who / agency first line
- *  - exact inspection time (and half-hour slot note if floored)
- *  - customer window if any
+ * Glanceable layout (Levi 2026-07-22 screenshot feedback + meter-install review):
+ *  - Customer / Phone / Email contact block first
+ *  - What it is (meter install / inspection) + BTWN window or exact time
  *  - DOB job # when present
  *  - source line last
  * No leJobId / internal tags — job is linked via calEventId.
@@ -611,16 +670,21 @@ export function buildAppointmentDescription(insight, job) {
   const exact = insight?.exactDateTime || "";
   const scheduled = insight?.dateTime || "";
   const who = (job?.customer || "").trim();
-  const agencyName =
-    agency === "city" ? "NYC Department of Buildings" : agency === "coned" ? "Con Edison" : "Agency";
+  const phone = String(job?.phone || job?.mobile || job?.cell || "").trim();
+  const email = String(job?.email || "").trim();
+  const typeLabel = appointmentTypeLabel(type, agency);
+  const btwn = window ? formatWindowBtwn(window) : "";
 
   if (who) lines.push(`Customer: ${who}`);
+  if (phone) lines.push(`Phone: ${phone}`);
+  if (email) lines.push(`Email: ${email}`);
+  if (who || phone || email) lines.push("");
 
-  if (window?.text) {
-    lines.push(window.text);
-  }
-
-  if (type === "inspection" && exact && scheduled) {
+  if (type === "meter_installation" || (window && isMeterInstallWindow(window))) {
+    // e.g. "Con Edison meter installation appointment BTWN 8:00 and 11:00 a.m."
+    // btwn already ends with a.m./p.m. — do not add a second period.
+    lines.push(btwn ? `${typeLabel} ${btwn}` : `${typeLabel}.`);
+  } else if (type === "inspection" && exact && scheduled) {
     const exactLabel = formatClockLabel(
       parseInt(exact.slice(11, 13), 10),
       parseInt(exact.slice(14, 16), 10),
@@ -655,15 +719,19 @@ export function buildAppointmentDescription(insight, job) {
         ? `City electrical inspection at ${schedLabel}.`
         : `Con Edison inspection at ${schedLabel}.`
     );
-  } else if (scheduled && !window) {
+  } else if (window && btwn) {
+    lines.push(`${typeLabel} ${btwn}`);
+  } else if (scheduled) {
     const schedLabel = formatClockLabel(
       parseInt(scheduled.slice(11, 13), 10),
       parseInt(scheduled.slice(14, 16) || "00", 10),
       true
     );
     if (schedLabel && !Number.isNaN(parseInt(scheduled.slice(11, 13), 10))) {
-      lines.push(`Appointment at ${schedLabel}.`);
+      lines.push(`${typeLabel} at ${schedLabel}.`);
     }
+  } else {
+    lines.push(`${typeLabel}.`);
   }
 
   if (insight?.dobJobNumber) {
@@ -677,10 +745,11 @@ export function buildAppointmentDescription(insight, job) {
         ? "From Energy Services / Con Edison email"
         : "From email";
   lines.push(src);
-  if (agencyName && type === "inspection") {
-    // Agency already in lines above for inspections.
-  }
-  return lines.filter(Boolean).join("\n");
+  return lines.filter((l, i, arr) => {
+    // Drop trailing blank; keep intentional blank after contact block.
+    if (l !== "") return true;
+    return i > 0 && i < arr.length - 1 && arr[i - 1] !== "";
+  }).join("\n");
 }
 
 export function matchJobForInsight(insight, jobs, minScore = 0.55) {
@@ -727,7 +796,7 @@ export function buildProposedActions(insight, job, now = new Date()) {
       defaultOn: true,
     });
 
-    if (type === "inspection" || type === "appointment" || type === "poe") {
+    if (type === "inspection" || type === "appointment" || type === "poe" || type === "meter_installation") {
       actions.push({ key: "remind_1d", label: "Reminder 1 day before", enabled: true, defaultOn: true });
       actions.push({ key: "remind_1h", label: "Reminder 1 hour before", enabled: true, defaultOn: true });
     }
@@ -741,7 +810,7 @@ export function buildProposedActions(insight, job, now = new Date()) {
   } else if (outcome === "cancelled") {
     actions.push({
       key: "note_cancelled",
-      label: "Note cancelled appointment (no calendar add)",
+      label: "Note cancelled — use Ignore and cancel to remove it from the calendar",
       enabled: true,
       defaultOn: true,
     });
@@ -1027,9 +1096,10 @@ export function shouldSurfaceInsight(insight, now = new Date()) {
 }
 
 /**
- * Silent auto-apply when we have a strong job match and a clear NEW appointment set.
- * Reminder emails never auto-create (Levi 2026-07-22) — they may be auto-dismissed
- * elsewhere after a calendar cross-check. Weak matches still need Levi's approve sheet.
+ * Silent auto-apply is ONLY for completed-inspection paperwork updates.
+ * Levi 2026-07-22: never auto-create a calendar appointment — new sets always
+ * wait for Approve (or Edit first). Reminders never create. Weak matches and
+ * cancelled emails also stay on the approve sheet.
  */
 export function canAutoApply(insight, job, now = new Date()) {
   if (!insight || !job?.id) return false;
@@ -1041,11 +1111,8 @@ export function canAutoApply(insight, job, now = new Date()) {
   // Past appointment day: never auto-create / never suggest.
   if (isPastAppointmentInsight(insight, now)) return false;
   // Completed inspections: auto-update paperwork only (still notify).
-  if (outcome === "completed") return true;
-  // Need a date/time on the calendar, and not a stale past appointment.
-  if (!insight.dateTime || !isDateTimeActionable(insight.dateTime, now)) return false;
-  // Only true new appointment sets (and loose "other" with a clear datetime).
-  return outcome === "scheduled" || outcome === "other";
+  // New appointment sets require Levi's Approve — no silent calendar create.
+  return outcome === "completed";
 }
 
 /**
@@ -1072,6 +1139,7 @@ export function enrichInsight(raw, jobs) {
   // "cancellation request" footer false-positive) self-heals on the next open.
   const subject = insight.source?.subject || "";
   const bodyText = insight.emailSnippet || insight.source?.body || "";
+  const blob = [subject, bodyText].filter(Boolean).join("\n");
   insight.outcome = classifyEmailOutcome(subject, bodyText);
   if (!insight.agency) {
     insight.agency = classifyAgency(
@@ -1079,6 +1147,25 @@ export function enrichInsight(raw, jobs) {
       subject,
       bodyText
     );
+  }
+  // Refresh window copy + re-classify type (3h → meter install) so old rows heal.
+  if (!insight.timeWindow && blob) {
+    const sched = resolveScheduleTimes(blob);
+    if (sched.timeWindow) insight.timeWindow = sched.timeWindow;
+    if (!insight.dateTime && sched.dateTime) {
+      insight.dateTime = sched.dateTime;
+      insight.endDateTime = sched.endDateTime;
+      insight.exactDateTime = sched.exactDateTime;
+    }
+  } else if (insight.timeWindow && !insight.timeWindow.text?.includes("BTWN")) {
+    insight.timeWindow = {
+      ...insight.timeWindow,
+      text: formatWindowBtwn(insight.timeWindow),
+    };
+  }
+  const reType = classifyAppointmentType(blob, insight.timeWindow);
+  if (reType === "meter_installation" || !insight.appointmentType || insight.appointmentType === "appointment" || insight.appointmentType === "other") {
+    insight.appointmentType = reType;
   }
   // Drop the stale "(cancelled)" tag from older summaries after reclassify.
   if (insight.outcome !== "cancelled" && typeof insight.summary === "string") {

@@ -83,6 +83,43 @@ export default async (req) => {
         await store.setJSON(KEY, doc);
         return json({ ok: true, insight: dupe, refreshed: true });
       }
+      // Semantic dedupe: original Con Ed email + Levi's forward (different messageIds)
+      // would otherwise create two insights → two calendar events (Levi 2026-07-22).
+      const placeKey = String(insight.address || "")
+        .toLowerCase()
+        .replace(/[^a-z0-9]/g, "")
+        .slice(0, 24);
+      const whenKey = String(insight.dateTime || "").slice(0, 16);
+      if (placeKey && whenKey) {
+        const semantic = (doc.insights || []).find((x) => {
+          if (!x) return false;
+          // Only collapse recent sets (pending / already applied) — not ancient history.
+          const st = x.status || "pending";
+          if (st === "ignored") return false;
+          const xp = String(x.address || "")
+            .toLowerCase()
+            .replace(/[^a-z0-9]/g, "")
+            .slice(0, 24);
+          const xw = String(x.dateTime || "").slice(0, 16);
+          return xp === placeKey && xw === whenKey;
+        });
+        if (semantic) {
+          // Keep the richer/newer parse on the existing row; do not create a second card.
+          Object.assign(semantic, {
+            ...insight,
+            id: semantic.id,
+            status: semantic.status === "pending" ? "pending" : semantic.status,
+            createdAt: semantic.createdAt || insight.createdAt,
+            updatedAt: new Date().toISOString(),
+            // Preserve applied calendar link if already done.
+            appliedEventId: semantic.appliedEventId || insight.appliedEventId,
+            skipReason: semantic.skipReason || insight.skipReason,
+          });
+          doc.ts = Date.now();
+          await store.setJSON(KEY, doc);
+          return json({ ok: true, deduped: true, insight: semantic, semantic: true });
+        }
+      }
       insight.createdAt = new Date().toISOString();
       insight.updatedAt = insight.createdAt;
       doc.insights = [insight, ...(doc.insights || [])].slice(0, MAX);
