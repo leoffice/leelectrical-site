@@ -36,6 +36,24 @@ describe("JobTransactionHistory", () => {
     await user.click(screen.getByTestId("job-txn-open-full"));
     expect(onOpenFull).toHaveBeenCalledTimes(1);
   });
+
+  it("filters with All / Invoices / Payments / Estimates tabs", async () => {
+    const user = userEvent.setup();
+    render(<JobTransactionHistory job={job} />);
+    expect(screen.getByTestId("job-txn-filter-all")).toBeInTheDocument();
+    expect(screen.getByTestId("job-txn-filter-invoices")).toBeInTheDocument();
+    expect(screen.getByTestId("job-txn-filter-payments")).toBeInTheDocument();
+    expect(screen.getByTestId("job-txn-filter-estimates")).toBeInTheDocument();
+
+    await user.click(screen.getByTestId("job-txn-filter-payments"));
+    expect(screen.queryByTestId("job-txn-inv-251841")).toBeNull();
+    expect(screen.getByText(/Check/)).toBeInTheDocument();
+    expect(screen.getByText(/Zelle/)).toBeInTheDocument();
+
+    await user.click(screen.getByTestId("job-txn-filter-invoices"));
+    expect(screen.getByTestId("job-txn-inv-251841")).toBeInTheDocument();
+    expect(screen.queryByText(/Zelle/)).toBeNull();
+  });
 });
 
 describe("JobInfoCard payment history toggle", () => {

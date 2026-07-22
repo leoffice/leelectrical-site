@@ -167,7 +167,11 @@ export function buildQbDocPdf(data) {
   const company = data.company || {};
   const subtotal = data.subtotal != null ? Number(data.subtotal) : (data.lines || []).reduce((s, l) => s + Number(l.amount || 0), 0);
   const tax = Number(data.tax || 0);
-  const total = data.total != null ? Number(data.total) : subtotal + tax;
+  const discount = Number(data.discount || 0);
+  const total =
+    data.total != null
+      ? Number(data.total)
+      : Math.max(0, Math.round((subtotal + tax - discount) * 100) / 100);
   const payment = Number(data.payment || 0);
 
   // ---- Layout constants (Levi 2026-07-22 + polish) -----------------------
@@ -409,7 +413,9 @@ export function buildQbDocPdf(data) {
   }
 
   let ty = totalsTop + 22.5;
-  const totalRows = [["SUBTOTAL", qbMoney(subtotal)], ["TAX", qbMoney(tax)]];
+  const totalRows = [["SUBTOTAL", qbMoney(subtotal)]];
+  if (discount > 0) totalRows.push(["DISCOUNT", "-" + qbMoney(discount)]);
+  if (tax > 0) totalRows.push(["TAX", qbMoney(tax)]);
   if (payment) totalRows.push(["PAYMENT", "-" + qbMoney(payment)]);
   for (const [label, value] of totalRows) {
     pg.text(298.96, ty, label, { size: 10.07, color: GRAY });

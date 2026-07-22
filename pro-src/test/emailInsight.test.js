@@ -36,8 +36,9 @@ import {
   buildCalendarPayload,
   ensureInspectionSelections,
   calendarTitleForInsight,
+  applyEmailInsight,
+  cancelEmailInsightAppointment,
 } from "../src/lib/applyEmailInsight.js";
-import { applyEmailInsight } from "../src/lib/applyEmailInsight.js";
 
 const SAMPLE_BODY = `Energy Services has scheduled a Con Edison inspection appointment
 for 503 Schenectady Avenue on August 15, 2026 at 2:00 PM.
@@ -149,7 +150,8 @@ describe("emailInsight", () => {
     };
     const enriched = enrichInsight(stuck, jobs);
     expect(enriched.outcome).toBe("scheduled");
-    expect(enriched.canAutoApply).toBe(true);
+    // New sets never auto-apply — Levi must Approve first.
+    expect(enriched.canAutoApply).toBe(false);
     expect(enriched.summary).not.toMatch(/\(cancelled\)/i);
   });
 
@@ -169,7 +171,8 @@ describe("emailInsight", () => {
     expect(enriched.lead).toMatch(/existing job/i);
     expect(enriched.proposedActions.some((a) => a.key === "calendar")).toBe(true);
     expect(enriched.proposedActions.some((a) => a.key === "paperwork_inspection")).toBe(true);
-    expect(enriched.canAutoApply).toBe(true);
+    // Strong match still waits for Approve before creating a calendar event.
+    expect(enriched.canAutoApply).toBe(false);
   });
 
   it("buildProposedActions includes reminders for inspections", () => {
@@ -186,14 +189,15 @@ describe("emailInsight", () => {
     expect(hit.jobId).toBeNull();
   });
 
-  it("canAutoApply requires strong match + NEW appointment set (not reminder)", () => {
+  it("never auto-creates calendar appointments — new sets need Approve (Levi 2026-07-22)", () => {
     const job = { id: "J-99", customer: "Jane", serviceAddress: "503 Schenectady Ave" };
     const good = enrichInsight(
       parseEmailInsight({ from: "coned.com", subject: "Inspection scheduled", body: SAMPLE_BODY }),
       [job]
     );
     expect(good.outcome).toBe("scheduled");
-    expect(canAutoApply(good, job)).toBe(true);
+    // Offer calendar on approve sheet, but do not silent-create.
+    expect(canAutoApply(good, job)).toBe(false);
     expect(defaultActionKeys(good, job)).toContain("calendar");
     expect(wantsNewCalendarAppointment(good)).toBe(true);
 
@@ -450,7 +454,7 @@ describe("emailInsight", () => {
     const jobs = [{ id: "J-city", customer: "East 116", serviceAddress: "149 East 116 Street, Manhattan" }];
     const enriched = enrichInsight(raw, jobs);
     expect(enriched.jobId).toBe("J-city");
-    expect(canAutoApply(enriched, jobs[0])).toBe(true);
+    expect(canAutoApply(enriched, jobs[0])).toBe(false);
     expect(defaultActionKeys(enriched, jobs[0])).toContain("calendar");
 
     const title = calendarTitleForInsight(enriched);
@@ -598,5 +602,85 @@ for 503 Schenectady Avenue on August 15, 2026 at 11:15 AM.`;
 
   it("test auto-apply limit is one appointment", () => {
     expect(EMAIL_INSIGHT_TEST_AUTO_APPLY_LIMIT).toBe(1);
+  });
+
+  it("Ignore and cancel deletes the existing calendar appointment", async () => {
+    const insight = {
+      id: "ei-cancel-1",
+      outcome: "scheduled",
+      appointmentType: "inspection",
+      agency: "coned",
+      dateTime: "2026-08-15T14:00",
+      address: "503 Schenectady Ave",
+      appliedEventId: "ev-to-kill",
+    };
+    const job = {
+      id: "J-99",
+      customer: "Jane",
+      serviceAddress: "503 Schenectady Ave",
+      calEventId: "ev-to-kill",
+    };
+    const events = [
+      {
+        id: "ev-to-kill",
+        summary: "Con Edison inspection — 2:00 PM",
+        start: "2026-08-15T14:00:00",
+        location: "503 Schenectady Ave",
+      },
+    ];
+    const enqueued = [];
+    const patches = [];
+    const removed = [];
+    const jobPatches = [];
+    const result = await cancelEmailInsightAppointment({
+      insight,
+      job,
+      events,
+      enqueue: async (type, jobId, payload) => {
+        enqueued.push({ type, jobId, payload });
+      },
+      patchAndSave: async (id, patch) => {
+        jobPatches.push({ id, patch });
+      },
+      patchEmailInsight: async (id, patch) => {
+        patches.push({ id, patch });
+      },
+      removeLocalEvent: (id) => removed.push(id),
+      pullCalendarNow: () => {},
+      showToast: () => {},
+    });
+    expect(result.cancelled).toBe(true);
+    expect(enqueued).toEqual([
+      { type: "calendar_delete", jobId: "J-99", payload: { calEventId: "ev-to-kill" } },
+    ]);
+    expect(removed).toEqual(["ev-to-kill"]);
+    expect(jobPatches[0]?.patch?.calEventId).toBe("");
+    expect(patches[0]?.patch?.status).toBe("ignored");
+    expect(patches[0]?.patch?.ignoreReason).toBe("ignore_and_cancel");
+  });
+
+  it("Ignore and cancel with nothing on calendar just dismisses", async () => {
+    const insight = {
+      id: "ei-cancel-2",
+      outcome: "scheduled",
+      dateTime: "2026-08-20T10:00",
+      address: "999 Nowhere St",
+    };
+    const patches = [];
+    const enqueued = [];
+    const result = await cancelEmailInsightAppointment({
+      insight,
+      job: null,
+      events: [],
+      enqueue: async (type, jobId, payload) => enqueued.push({ type, jobId, payload }),
+      patchAndSave: async () => {},
+      patchEmailInsight: async (id, patch) => patches.push({ id, patch }),
+      removeLocalEvent: () => {},
+      showToast: () => {},
+    });
+    expect(result.cancelled).toBe(false);
+    expect(enqueued).toHaveLength(0);
+    expect(patches[0]?.patch?.status).toBe("ignored");
+    expect(patches[0]?.patch?.ignoreReason).toBe("ignored");
   });
 });

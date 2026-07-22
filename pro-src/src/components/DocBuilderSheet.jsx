@@ -6,6 +6,13 @@ import { DOC_SOURCE_LOCAL, DOC_SOURCE_QBO } from "../lib/docSource.js";
 import CustomerSearch from "./CustomerSearch.jsx";
 import { useStore } from "../state/store.jsx";
 import { useTenantConfig } from "../state/tenant.jsx";
+import { isQuickbooksEnabled, resolveDocSource } from "../lib/qboEnabled.js";
+import { useAppSettings } from "../lib/appSettings.js";
+import {
+  EMAIL_POLICY_KEEP,
+  EMAIL_POLICY_ONCE,
+  sendEmailDiffersFromCustomer,
+} from "../lib/sendDocConfirm.js";
 import { defaultQboItems, filterQboItems } from "../data/qboItems.js";
 import ServiceAddressField from "./ServiceAddressField.jsx";
 import AddressAutocompleteField from "./AddressAutocompleteField.jsx";
@@ -14,6 +21,11 @@ import { planDocSaveLocal, planDocSaveSync } from "../lib/docSync.js";
 import { enqueueCustomerQboSync } from "../lib/customerQboEnqueue.js";
 import { stashPendingDocSync } from "../lib/docSyncChain.js";
 import { fmt$, parseAmount } from "../lib/format.js";
+import {
+  discountInputFromJob,
+  docTotalAfterDiscount,
+  resolveDiscountAmount,
+} from "../lib/docDiscount.js";
 import {
   bestChangeOrderSource,
   canAddChangeOrder,
@@ -281,7 +293,11 @@ export default function DocBuilderSheet({
   const { patchAndSave, enqueue, logSend, showToast, api, createJob, jobs: storeJobs, events } = useStore();
   // Short trading name for the customer email draft — the legal name lives on
   // the document itself, not in the covering message.
-  const tenantShortName = useTenantConfig().profile?.shortName || "";
+  const tenantConfig = useTenantConfig();
+  const tenantShortName = tenantConfig.profile?.shortName || "";
+  const appSettings = useAppSettings();
+  void appSettings.quickbooks;
+  const qboOn = isQuickbooksEnabled(tenantConfig);
   const boardJobs = allJobs || storeJobs;
   const [job, setJob] = useState(() => jobProp || {});
   useEffect(() => {
@@ -316,6 +332,7 @@ export default function DocBuilderSheet({
   const [saving, setSaving] = useState(false);
   const [emailSheet, setEmailSheet] = useState(false);
   const [sendEmails, setSendEmails] = useState(() => job.email || "");
+  const [emailPolicy, setEmailPolicy] = useState("");
   const [sendMessage, setSendMessage] = useState("");
   const [includePayLink, setIncludePayLink] = useState(false);
   const fileInputRef = useRef(null);
@@ -337,6 +354,12 @@ export default function DocBuilderSheet({
   });
   const showRecurring = kind === "invoice" && mode !== "edit";
   const [recurring, setRecurring] = useState(() => defaultRecurringState(job));
+  // Document-level discount: $ off the total, or % of line subtotal.
+  const seedDisc = discountInputFromJob(job);
+  const [discountType, setDiscountType] = useState(seedDisc.type);
+  const [discountValue, setDiscountValue] = useState(
+    seedDisc.value > 0 ? String(seedDisc.value) : ""
+  );
   // Toggle to mark this invoice/estimate as a change order (CO) — enable or disable anytime.
   const alreadyCo = isChangeOrderJob(job);
   const [asChangeOrder, setAsChangeOrder] = useState(() => isChangeOrderJob(jobProp || job));
@@ -389,7 +412,23 @@ export default function DocBuilderSheet({
     };
   }, [api]);
 
-  const total = useMemo(() => linesTotal(lines), [lines]);
+  const subtotal = useMemo(() => linesTotal(lines), [lines]);
+  const discountDollars = useMemo(
+    () =>
+      resolveDiscountAmount(subtotal, {
+        type: discountType,
+        value: discountValue,
+      }),
+    [subtotal, discountType, discountValue]
+  );
+  const total = useMemo(
+    () =>
+      docTotalAfterDiscount(subtotal, {
+        type: discountType,
+        value: discountValue,
+      }),
+    [subtotal, discountType, discountValue]
+  );
   const title =
     mode === "edit"
       ? "Edit " + (kind === "estimate" ? "estimate" : "invoice")
@@ -593,6 +632,9 @@ export default function DocBuilderSheet({
       .map((s) => s.trim())
       .filter(Boolean)[0] || "";
 
+  const emailDiffers = (raw) =>
+    sendEmailDiffersFromCustomer(primaryEmail(raw != null ? raw : sendEmails), job.email);
+
   const downloadLocalPdf = async (jobForPdf) => {
     try {
       const { buildInvoicePdfFromJob, buildEstimatePdfFromJob } = await import("../lib/invoicePdf.js");
@@ -669,6 +711,8 @@ export default function DocBuilderSheet({
         apartment,
         progressPct: progressPctEdit,
         contractAmount,
+        discountType,
+        discountValue,
       });
       Object.assign(jobPatch, coTagsFromJob(activeJob));
       if (attachments.length) {
@@ -704,6 +748,8 @@ export default function DocBuilderSheet({
       apartment,
       progressPct: progressPctEdit,
       contractAmount,
+      discountType,
+      discountValue,
     });
     Object.assign(jobPatch, coTagsFromJob(activeJob));
     await downloadLocalPdf(buildPdfJob(activeJob, jobPatch));
@@ -726,7 +772,12 @@ export default function DocBuilderSheet({
         setSaving(false);
         return;
       }
-      const activeJob = { ...job, id: jobId, email: emailTo || job.email || "" };
+      // Keep this email → update customer. Use it once → send only; job/PDF keep saved email.
+      const policy = opts.emailPolicy || emailPolicy || "";
+      const differs = sendEmailDiffersFromCustomer(emailTo, job.email);
+      const keepOnCustomer = !!(emailTo && (!differs || policy === EMAIL_POLICY_KEEP));
+      const savedEmail = keepOnCustomer ? emailTo : job.email || "";
+      const activeJob = { ...job, id: jobId, email: savedEmail };
       const { jobPatch, commands } = planDocSaveSync(activeJob, {
         kind,
         mode,
@@ -737,9 +788,12 @@ export default function DocBuilderSheet({
         contractAmount,
         send,
         recurringState: showRecurring && recurring.enabled ? recurring : null,
+        discountType,
+        discountValue,
       });
       Object.assign(jobPatch, coTagsFromJob(activeJob));
-      if (emailTo) jobPatch.email = emailTo;
+      if (keepOnCustomer) jobPatch.email = emailTo;
+      else delete jobPatch.email;
 
       await patchAndSave(jobId, jobPatch);
 
@@ -748,7 +802,9 @@ export default function DocBuilderSheet({
 
       const attsForEmail = send ? emailAttachments() : attachments;
       const attsForQbo = attachments;
-      const docSource = opts.docSource === DOC_SOURCE_LOCAL ? DOC_SOURCE_LOCAL : DOC_SOURCE_QBO;
+      const docSource = resolveDocSource(
+        opts.docSource === DOC_SOURCE_LOCAL ? DOC_SOURCE_LOCAL : DOC_SOURCE_QBO
+      );
       const withPay = !!(opts.includePaymentLink && kind === "invoice");
       const customMsg = String(opts.message || sendMessage || "").trim();
 
@@ -809,7 +865,7 @@ export default function DocBuilderSheet({
                 email: emailTo,
                 invoiceNo: no,
                 customer: activeJob.customer || "",
-                amount: String(linesTotal(valid) || "").replace(/[$,]/g, ""),
+                amount: String(total || "").replace(/[$,]/g, ""),
                 includePaymentLink: withPay,
                 docSource: DOC_SOURCE_LOCAL,
                 message: customMsg,
@@ -1055,6 +1111,59 @@ export default function DocBuilderSheet({
         ＋ Add line
       </button>
 
+      <div
+        className="card px-3 py-3 mb-3 border-slate-200 space-y-2"
+        data-testid="doc-discount-panel"
+      >
+        <div className="flex items-end gap-2">
+          <div className="flex-1 min-w-0">
+            <Fld label="Discount on total" hint={discountType === "percent" ? "Percent off line total" : "Dollar amount off total"}>
+              <input
+                className="input"
+                inputMode="decimal"
+                value={discountValue}
+                onChange={(e) => setDiscountValue(e.target.value)}
+                placeholder={discountType === "percent" ? "e.g. 10" : "e.g. 100"}
+                aria-label="Discount value"
+                data-testid="doc-discount-input"
+              />
+            </Fld>
+          </div>
+          <button
+            type="button"
+            className="mb-0.5 h-10 min-w-[2.5rem] px-2 rounded-lg border border-slate-200 bg-white text-sm font-extrabold text-slate-700"
+            onClick={() => {
+              // Keep the typed number; only switch unit so 10% vs $10 is intentional.
+              setDiscountType((t) => (t === "percent" ? "amount" : "percent"));
+            }}
+            aria-label={
+              discountType === "percent" ? "Switch discount to dollars" : "Switch discount to percent"
+            }
+            data-testid="doc-discount-mode-toggle"
+            title={discountType === "percent" ? "Percent — tap for $" : "Dollars — tap for %"}
+          >
+            {discountType === "percent" ? "%" : "$"}
+          </button>
+        </div>
+        {discountDollars > 0 ? (
+          <div className="flex justify-between text-xs font-semibold text-slate-600 px-0.5" data-testid="doc-discount-applied">
+            <span>
+              Discount
+              {discountType === "percent" && parseAmount(discountValue) > 0
+                ? " (" + parseAmount(discountValue) + "%)"
+                : ""}
+            </span>
+            <span className="text-red-600">−{fmt$(discountDollars)}</span>
+          </div>
+        ) : null}
+        {discountDollars > 0 ? (
+          <div className="flex justify-between text-xs font-semibold text-slate-500 px-0.5" data-testid="doc-subtotal-row">
+            <span>Subtotal</span>
+            <span>{fmt$(subtotal) || "$0"}</span>
+          </div>
+        ) : null}
+      </div>
+
       <div className="flex justify-between items-baseline gap-2 px-1 mb-3" data-testid="doc-total-row">
         <span className="text-sm font-bold text-slate-600">
           Total{" "}
@@ -1264,12 +1373,51 @@ export default function DocBuilderSheet({
                 type="email"
                 multiple
                 value={sendEmails}
-                onChange={(e) => setSendEmails(e.target.value)}
+                onChange={(e) => {
+                  setSendEmails(e.target.value);
+                  setEmailPolicy("");
+                }}
                 placeholder="customer@email.com"
                 aria-label="Email recipients"
                 data-testid="doc-send-emails"
               />
             </Fld>
+            {emailDiffers(sendEmails) ? (
+              <div
+                className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-3 mb-3"
+                data-testid="doc-email-policy"
+              >
+                <p className="text-sm font-semibold text-amber-900 mb-2">
+                  Different from the customer&apos;s saved email. Keep it or use once?
+                </p>
+                <div className="grid grid-cols-2 gap-2">
+                  <button
+                    type="button"
+                    className={`btn !py-2 text-sm ${
+                      emailPolicy === EMAIL_POLICY_KEEP
+                        ? "bg-brand text-white"
+                        : "bg-white border border-amber-200 text-slate-800"
+                    }`}
+                    onClick={() => setEmailPolicy(EMAIL_POLICY_KEEP)}
+                    data-testid="doc-email-keep"
+                  >
+                    Keep this email
+                  </button>
+                  <button
+                    type="button"
+                    className={`btn !py-2 text-sm ${
+                      emailPolicy === EMAIL_POLICY_ONCE
+                        ? "bg-brand text-white"
+                        : "bg-white border border-amber-200 text-slate-800"
+                    }`}
+                    onClick={() => setEmailPolicy(EMAIL_POLICY_ONCE)}
+                    data-testid="doc-email-once"
+                  >
+                    Use it once
+                  </button>
+                </div>
+              </div>
+            ) : null}
             <Fld label="Message">
               <textarea
                 className="input min-h-[100px]"
@@ -1289,40 +1437,59 @@ export default function DocBuilderSheet({
                 <span className="text-sm font-semibold text-slate-800">For credit card payment</span>
               </label>
             ) : null}
-            <div className="grid grid-cols-2 gap-2">
-              <button
-                type="button"
-                className="btn-brand !py-2.5 text-sm"
-                disabled={saving}
-                onClick={() =>
-                  submitSync(true, {
-                    email: sendEmails,
-                    message: sendMessage,
-                    includePaymentLink: includePayLink,
-                    docSource: DOC_SOURCE_QBO,
-                  })
-                }
-                data-testid="doc-save-sync-send"
-              >
-                Send through QB
-              </button>
-              <button
-                type="button"
-                className="btn !py-2.5 text-sm bg-brand-soft text-brand"
-                disabled={saving}
-                onClick={() =>
-                  submitSync(true, {
-                    email: sendEmails,
-                    message: sendMessage,
-                    includePaymentLink: includePayLink,
-                    docSource: DOC_SOURCE_LOCAL,
-                  })
-                }
-                data-testid="doc-send-local"
-              >
-                Send locally
-              </button>
-            </div>
+            {(() => {
+              const emailNeedsPolicy =
+                emailDiffers(sendEmails) &&
+                emailPolicy !== EMAIL_POLICY_KEEP &&
+                emailPolicy !== EMAIL_POLICY_ONCE;
+              const sendOpts = {
+                email: sendEmails,
+                message: sendMessage,
+                includePaymentLink: includePayLink,
+                emailPolicy: emailPolicy || (emailDiffers(sendEmails) ? "" : EMAIL_POLICY_ONCE),
+              };
+              if (!qboOn) {
+                return (
+                  <button
+                    type="button"
+                    className="btn-brand w-full !py-2.5 text-sm"
+                    disabled={saving || emailNeedsPolicy}
+                    onClick={() =>
+                      submitSync(true, { ...sendOpts, docSource: DOC_SOURCE_LOCAL })
+                    }
+                    data-testid="doc-send-local"
+                  >
+                    Send locally
+                  </button>
+                );
+              }
+              return (
+                <div className="grid grid-cols-2 gap-2">
+                  <button
+                    type="button"
+                    className="btn-brand !py-2.5 text-sm"
+                    disabled={saving || emailNeedsPolicy}
+                    onClick={() =>
+                      submitSync(true, { ...sendOpts, docSource: DOC_SOURCE_QBO })
+                    }
+                    data-testid="doc-save-sync-send"
+                  >
+                    Send through QB
+                  </button>
+                  <button
+                    type="button"
+                    className="btn !py-2.5 text-sm bg-brand-soft text-brand"
+                    disabled={saving || emailNeedsPolicy}
+                    onClick={() =>
+                      submitSync(true, { ...sendOpts, docSource: DOC_SOURCE_LOCAL })
+                    }
+                    data-testid="doc-send-local"
+                  >
+                    Send locally
+                  </button>
+                </div>
+              );
+            })()}
           </div>
         </div>
       ) : null}

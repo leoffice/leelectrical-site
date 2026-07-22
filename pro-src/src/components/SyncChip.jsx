@@ -1,25 +1,35 @@
 // Header sync chip — opens scoped QuickBooks sync menu (context-aware on detail pages).
+// Hidden when Settings turns QuickBooks off (local-only / white-label).
 import React, { useState } from "react";
 import { useLocation } from "react-router-dom";
 import { useStoreData } from "../state/store.jsx";
 import { ago } from "../lib/format.js";
 import { syncContextFromRoute } from "../lib/syncContext.js";
 import QboSyncSheet from "./QboSyncSheet.jsx";
+import { isQuickbooksEnabled } from "../lib/qboEnabled.js";
+import { useAppSettings } from "../lib/appSettings.js";
+import { useTenantConfig } from "../state/tenant.jsx";
 
 export default function SyncChip({ dark, compact, iconOnly }) {
   // Data only — typing staged edits must not re-render this chip.
   const { syncedAt, eventsSyncedAt, busy, syncProgress, jobs } = useStoreData();
   const loc = useLocation();
   const [open, setOpen] = useState(false);
+  const config = useTenantConfig();
+  const appSettings = useAppSettings();
+  void appSettings.quickbooks;
+  const qboOn = isQuickbooksEnabled(config);
   const pct = syncProgress?.pct ?? 0;
   const phase = syncProgress?.label || "Syncing";
   const effectiveJob = (id) => jobs.find((j) => String(j.id) === String(id)) || null;
   const ctx = syncContextFromRoute(loc.pathname, { effectiveJob, jobs });
 
   const handleClick = () => {
-    if (busy) return;
+    if (busy || !qboOn) return;
     setOpen(true);
   };
+
+  if (!qboOn) return null;
 
   const idleLabel = syncedAt
     ? eventsSyncedAt

@@ -80,6 +80,9 @@ import {
 import { docSendStatusLine } from "../lib/docSendStatus.js";
 import { tenantCalendarAccount, tenantSignOff } from "../lib/tenantBranding.js";
 import { beginPromptWorkPause } from "../lib/followUpReminders.js";
+import { isQuickbooksEnabled, resolveDocSource } from "../lib/qboEnabled.js";
+import { useAppSettings } from "../lib/appSettings.js";
+import { EMAIL_POLICY_KEEP } from "../lib/sendDocConfirm.js";
 
 export const PAY_METHODS = [
   "Credit card",
@@ -108,12 +111,25 @@ export function useDoSend() {
       showToast("Add a customer email before sending");
       return { ok: false, error: "no_email", pending: true };
     }
+    // Keep this email → save on the customer/job before sending.
+    if (opts.emailPolicy === EMAIL_POLICY_KEEP && email) {
+      try {
+        await patchAndSave(job.id, { email });
+      } catch {
+        /* send still proceeds with this address */
+      }
+    }
     const due = openBalance(job);
     const withPay =
       kind === "invoice" &&
       due > 0.01 &&
       opts.includePaymentLink !== false;
-    const docSource = opts.docSource === DOC_SOURCE_QBO ? DOC_SOURCE_QBO : DOC_SOURCE_LOCAL;
+    // Settings / plan can force local-only (white-label, QuickBooks off).
+    const docSource =
+      resolveDocSource(opts.docSource === DOC_SOURCE_QBO ? DOC_SOURCE_QBO : DOC_SOURCE_LOCAL) ===
+      DOC_SOURCE_QBO
+        ? DOC_SOURCE_QBO
+        : DOC_SOURCE_LOCAL;
     const message = String(opts.message || "").trim();
     const subject = String(opts.subject || "").trim();
     const label = kind === "invoice" ? "Invoice" : "Estimate";
@@ -1803,8 +1819,12 @@ function DocPdfStatus({ st, onRetry }) {
 /** Local vs QuickBooks view buttons — explicit source, no auto-mixing. */
 export function DocPdfViewButtons({ job, kind, no, compact }) {
   const { st, viewLocal, viewQbo } = useDocPdfView(job, kind, no);
-  const product = productName(useTenantConfig());
-  const retry = () => (st.source === DOC_SOURCE_QBO ? viewQbo() : viewLocal());
+  const config = useTenantConfig();
+  const appSettings = useAppSettings();
+  void appSettings.quickbooks;
+  const qboOn = isQuickbooksEnabled(config);
+  const product = productName(config);
+  const retry = () => (st.source === DOC_SOURCE_QBO && qboOn ? viewQbo() : viewLocal());
 
   if (st.phase === "checking" || st.phase === "fetching" || st.phase === "timeout") {
     return <DocPdfStatus st={st} onRetry={retry} />;
@@ -1821,14 +1841,16 @@ export function DocPdfViewButtons({ job, kind, no, compact }) {
         >
           {viewLocalLabel(kind)}
         </button>
-        <button
-          type="button"
-          className="btn flex-1 !py-2.5 bg-slate-100 text-slate-800 font-semibold"
-          onClick={viewQbo}
-          data-testid="view-qbo-doc"
-        >
-          {viewQboLabel(kind)}
-        </button>
+        {qboOn ? (
+          <button
+            type="button"
+            className="btn flex-1 !py-2.5 bg-slate-100 text-slate-800 font-semibold"
+            onClick={viewQbo}
+            data-testid="view-qbo-doc"
+          >
+            {viewQboLabel(kind)}
+          </button>
+        ) : null}
       </div>
     );
   }
@@ -1842,13 +1864,15 @@ export function DocPdfViewButtons({ job, kind, no, compact }) {
         onClick={viewLocal}
         data-testid="view-local-doc"
       />
-      <Opt
-        icon="📗"
-        title={viewQboLabel(kind)}
-        note="Pulls the PDF from QuickBooks Online"
-        onClick={viewQbo}
-        data-testid="view-qbo-doc"
-      />
+      {qboOn ? (
+        <Opt
+          icon="📗"
+          title={viewQboLabel(kind)}
+          note="Pulls the PDF from QuickBooks Online"
+          onClick={viewQbo}
+          data-testid="view-qbo-doc"
+        />
+      ) : null}
     </>
   );
 }
@@ -1863,6 +1887,12 @@ export function DocSendButtons({ job, kind, onPickSend }) {
   const due = openBalance(job);
   const label = docKindLabel(kind);
   const withPay = kind === "invoice" && due > 0.01;
+  const appSettings = useAppSettings();
+  void appSettings.quickbooks;
+  const qboOn = isQuickbooksEnabled();
+  const sourceNote = qboOn
+    ? "Choose local file or QuickBooks file"
+    : "Sends the local PDF from this job";
 
   return (
     <div data-testid="doc-send-row">
@@ -1870,7 +1900,7 @@ export function DocSendButtons({ job, kind, onPickSend }) {
         <Opt
           icon="💳"
           title="Send invoice with payment link"
-          note="Choose local file or QuickBooks file"
+          note={sourceNote}
           onClick={() =>
             onPickSend({ withPay: true, title: "Send invoice with payment link" })
           }
@@ -1880,7 +1910,7 @@ export function DocSendButtons({ job, kind, onPickSend }) {
       <Opt
         icon="📤"
         title={withPay ? "Send invoice only" : "Send " + label}
-        note="Choose local file or QuickBooks file"
+        note={sourceNote}
         onClick={() =>
           onPickSend({
             withPay: false,
@@ -2093,6 +2123,7 @@ export function PaymentLinkSheet({ job, onClose }) {
             message: model.message,
             subject: model.subject,
             payUrl: url,
+            emailPolicy: model.emailPolicy,
           });
           setPaySendBusy(false);
           if (result?.ok) {
@@ -2106,6 +2137,7 @@ export function PaymentLinkSheet({ job, onClose }) {
   }
 
   if (composeChannel) {
+    const qboOn = isQuickbooksEnabled();
     return (
       <CustomerComposeSheet
         job={job}
@@ -2131,16 +2163,18 @@ export function PaymentLinkSheet({ job, onClose }) {
               >
                 Send Local Invoice with Payment Link
               </button>
-              <button
-                type="button"
-                className="btn w-full !py-2 bg-slate-100 text-slate-800"
-                onClick={() => {
-                  setPayConfirm({ docSource: DOC_SOURCE_QBO });
-                  setPaySendErr("");
-                }}
-              >
-                Send QuickBooks Invoice with Payment Link
-              </button>
+              {qboOn ? (
+                <button
+                  type="button"
+                  className="btn w-full !py-2 bg-slate-100 text-slate-800"
+                  onClick={() => {
+                    setPayConfirm({ docSource: DOC_SOURCE_QBO });
+                    setPaySendErr("");
+                  }}
+                >
+                  Send QuickBooks Invoice with Payment Link
+                </button>
+              ) : null}
             </>
           ) : null
         }
@@ -2277,6 +2311,7 @@ export function DocSheet({ job, kind, onClose, onEdit, onConvert, onSync }) {
             email: model.email,
             message: model.message,
             subject: model.subject,
+            emailPolicy: model.emailPolicy,
           });
           setSendBusy(false);
           if (result?.ok) {
@@ -2306,6 +2341,7 @@ export function DocSheet({ job, kind, onClose, onEdit, onConvert, onSync }) {
   }
   const lines = kind === "invoice" ? job.invoiceLines : job.estimateLines;
   const isDraft = !no && (lines || []).some((ln) => String(ln?.itemName || "").trim());
+  const qboOn = isQuickbooksEnabled();
   const title = no
     ? (kind === "invoice" ? "Invoice " : "Estimate ") + no
     : isDraft
@@ -2318,7 +2354,9 @@ export function DocSheet({ job, kind, onClose, onEdit, onConvert, onSync }) {
     <Sheet title={title} onClose={onClose}>
       {isDraft ? (
         <p className="text-xs text-amber-800 bg-amber-50 border border-amber-200 rounded-xl px-3 py-2 mb-3" data-testid="doc-draft-banner">
-          Saved on this job — not in QuickBooks yet. Tap sync when you are ready.
+          {qboOn
+            ? "Saved on this job — not in QuickBooks yet. Tap sync when you are ready."
+            : "Saved on this job — local only (QuickBooks is off)."}
         </p>
       ) : null}
 
@@ -2347,7 +2385,7 @@ export function DocSheet({ job, kind, onClose, onEdit, onConvert, onSync }) {
 
       {no ? <DocPdfViewButtons job={job} kind={kind} no={no} compact /> : null}
 
-      {isDraft && onSync ? (
+      {isDraft && onSync && qboOn ? (
         <button type="button" className="btn-brand w-full mb-2" onClick={onSync} data-testid="doc-sync-qbo">
           Sync to QuickBooks
         </button>
@@ -2414,6 +2452,7 @@ export function QuickSendSheet({ job, onClose, onEdit }) {
             email: model.email,
             message: model.message,
             subject: model.subject,
+            emailPolicy: model.emailPolicy,
           });
           setSendBusy(false);
           if (result?.ok) {

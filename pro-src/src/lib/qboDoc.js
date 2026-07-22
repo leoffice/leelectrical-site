@@ -9,6 +9,7 @@ import {
   progressPctFromLines,
   contractTotalForJob,
 } from "./progressBilling.js";
+import { discountCommandFields, docTotalAfterDiscount, discountInputFromJob } from "./docDiscount.js";
 
 export function emptyLine() {
   return { itemName: "", itemId: "", description: "", qty: 1, unitPrice: 0 };
@@ -71,7 +72,18 @@ export function shipAddrPayload(serviceAddress, apartment) {
 
 /** Command payload for create_estimate / create_invoice (host → QBO API). */
 export function buildDocCommandPayload(job, { kind, lines, serviceAddress, apartment, mode, progressPct, send, recurring }) {
-  const total = linesTotal(lines);
+  const subtotal = linesTotal(lines);
+  const discInput = discountInputFromJob(job);
+  const total = docTotalAfterDiscount(subtotal, discInput);
+  const discFields = discountCommandFields(
+    {
+      ...job,
+      discountType: discInput.type,
+      discountPercent: discInput.type === "percent" ? discInput.value : 0,
+      discount: discInput.type === "amount" ? discInput.value : job.discount,
+    },
+    subtotal
+  );
   const base = {
     customer: job.customer || job.businessName || "",
     businessName: job.businessName || job.customer || "",
@@ -90,10 +102,12 @@ export function buildDocCommandPayload(job, { kind, lines, serviceAddress, apart
       unitPrice: parseAmount(ln.unitPrice) || 0,
       amount: lineAmount(ln),
     })),
+    subtotal,
     total,
     totalFormatted: fmt$(total),
     attachments: [],
     send: !!send,
+    ...discFields,
   };
   if (kind === "invoice") {
     // Change-order invoices: original invoice # + -CO- + seq (e.g. 251100-CO-1).

@@ -1,4 +1,5 @@
 // Pre-send confirmation — recipient, subject, body, attachment, pay link. Explicit Approve required.
+// When the typed email differs from the customer: Keep this email | Use it once.
 import React, { useEffect, useState } from "react";
 import Sheet, { Fld } from "./Sheet.jsx";
 import {
@@ -6,6 +7,8 @@ import {
   canApproveSendConfirm,
   defaultDocEmailBody,
   defaultDocEmailSubject,
+  EMAIL_POLICY_KEEP,
+  EMAIL_POLICY_ONCE,
 } from "../lib/sendDocConfirm.js";
 import { DOC_SOURCE_LOCAL } from "../lib/docSource.js";
 
@@ -32,6 +35,7 @@ export default function SendDocConfirmSheet({
   const [email, setEmail] = useState(seed.email);
   const [subject, setSubject] = useState(seed.subject);
   const [message, setMessage] = useState(seed.message);
+  const [emailPolicy, setEmailPolicy] = useState(seed.emailPolicy || "");
 
   useEffect(() => {
     const next = buildSendDocConfirm({
@@ -45,6 +49,7 @@ export default function SendDocConfirmSheet({
     setEmail(next.email);
     setSubject(next.subject);
     setMessage(next.message);
+    setEmailPolicy(next.emailPolicy || "");
   }, [job?.id, kind, docSource, withPay, payUrl, initialEmail]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const model = buildSendDocConfirm({
@@ -56,6 +61,7 @@ export default function SendDocConfirmSheet({
     subject,
     message,
     payUrl,
+    emailPolicy,
   });
   const ok = canApproveSendConfirm(model);
   const label = kind === "estimate" ? "estimate" : "invoice";
@@ -71,11 +77,55 @@ export default function SendDocConfirmSheet({
           className="input"
           type="email"
           value={email}
-          onChange={(e) => setEmail(e.target.value)}
+          onChange={(e) => {
+            setEmail(e.target.value);
+            setEmailPolicy("");
+          }}
           aria-label="Recipient email"
           data-testid="send-confirm-email"
         />
       </Fld>
+
+      {model.emailDiffers ? (
+        <div
+          className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-3 mb-3"
+          data-testid="send-email-policy"
+          role="group"
+          aria-label="Save this email on the customer?"
+        >
+          <p className="text-sm font-semibold text-amber-900 mb-2">
+            This email is different from the customer&apos;s saved address. What should we do?
+          </p>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+            <button
+              type="button"
+              className={`btn !py-2.5 text-sm text-left ${
+                emailPolicy === EMAIL_POLICY_KEEP
+                  ? "bg-brand text-white"
+                  : "bg-white text-slate-800 border border-amber-200"
+              }`}
+              onClick={() => setEmailPolicy(EMAIL_POLICY_KEEP)}
+              data-testid="send-email-keep"
+            >
+              <span className="font-extrabold block">Keep this email</span>
+              <span className="text-[11px] opacity-90 font-semibold">Update customer information</span>
+            </button>
+            <button
+              type="button"
+              className={`btn !py-2.5 text-sm text-left ${
+                emailPolicy === EMAIL_POLICY_ONCE
+                  ? "bg-brand text-white"
+                  : "bg-white text-slate-800 border border-amber-200"
+              }`}
+              onClick={() => setEmailPolicy(EMAIL_POLICY_ONCE)}
+              data-testid="send-email-once"
+            >
+              <span className="font-extrabold block">Use it once</span>
+              <span className="text-[11px] opacity-90 font-semibold">Don&apos;t change the customer</span>
+            </button>
+          </div>
+        </div>
+      ) : null}
 
       <Fld label="Subject">
         <input
