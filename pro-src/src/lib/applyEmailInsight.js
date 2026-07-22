@@ -211,4 +211,69 @@ export async function applyEmailInsight({
   }
 }
 
+/**
+ * Dismiss the insight and, if a matching appointment is already on the
+ * calendar, cancel/delete it (Levi: "Ignore and cancel").
+ * Does not create anything new.
+ */
+export async function cancelEmailInsightAppointment({
+  insight,
+  job,
+  events = [],
+  enqueue,
+  patchAndSave,
+  patchEmailInsight,
+  removeLocalEvent,
+  pullCalendarNow,
+  showToast,
+}) {
+  const existing = findEventForInsight(insight, job, events);
+  const eventId = existing?.id || job?.calEventId || insight?.appliedEventId || "";
+  const realId = String(eventId || "").trim();
+  const isPending = realId.startsWith("pending-");
+  let cancelled = false;
+
+  if (realId && !isPending) {
+    const jobId = job?.id || insight?.jobId || "today";
+    await enqueue(
+      "calendar_delete",
+      jobId,
+      { calEventId: realId },
+      "judgment",
+      "caldel-insight:" + (insight?.id || realId)
+    );
+    cancelled = true;
+  } else if (realId && isPending) {
+    // Optimistic local-only row — drop it; no Google id yet.
+    cancelled = true;
+  }
+
+  if (realId) {
+    removeLocalEvent?.(realId);
+    if (job?.id && String(job.calEventId || "") === realId) {
+      await patchAndSave?.(job.id, { calEventId: "" });
+    }
+    pullCalendarNow?.();
+  }
+
+  const now = new Date().toISOString();
+  if (insight?.id) {
+    await patchEmailInsight(insight.id, {
+      status: "ignored",
+      ignoreReason: cancelled ? "ignore_and_cancel" : "ignored",
+      cancelledEventId: cancelled ? realId : "",
+      notified: true,
+      appliedAt: now,
+      jobId: job?.id || insight?.jobId || null,
+    });
+  }
+
+  if (cancelled) {
+    showToast?.("Appointment cancelled — removed from your calendar");
+  } else {
+    showToast?.("Ignored — no calendar appointment to cancel");
+  }
+  return { cancelled, eventId: cancelled ? realId : "" };
+}
+
 export { canAutoApply, defaultActionKeys, wantsNewCalendarAppointment };

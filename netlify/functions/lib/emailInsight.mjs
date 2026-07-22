@@ -741,7 +741,7 @@ export function buildProposedActions(insight, job, now = new Date()) {
   } else if (outcome === "cancelled") {
     actions.push({
       key: "note_cancelled",
-      label: "Note cancelled appointment (no calendar add)",
+      label: "Note cancelled — use Ignore and cancel to remove it from the calendar",
       enabled: true,
       defaultOn: true,
     });
@@ -1027,9 +1027,10 @@ export function shouldSurfaceInsight(insight, now = new Date()) {
 }
 
 /**
- * Silent auto-apply when we have a strong job match and a clear NEW appointment set.
- * Reminder emails never auto-create (Levi 2026-07-22) — they may be auto-dismissed
- * elsewhere after a calendar cross-check. Weak matches still need Levi's approve sheet.
+ * Silent auto-apply is ONLY for completed-inspection paperwork updates.
+ * Levi 2026-07-22: never auto-create a calendar appointment — new sets always
+ * wait for Approve (or Edit first). Reminders never create. Weak matches and
+ * cancelled emails also stay on the approve sheet.
  */
 export function canAutoApply(insight, job, now = new Date()) {
   if (!insight || !job?.id) return false;
@@ -1041,11 +1042,8 @@ export function canAutoApply(insight, job, now = new Date()) {
   // Past appointment day: never auto-create / never suggest.
   if (isPastAppointmentInsight(insight, now)) return false;
   // Completed inspections: auto-update paperwork only (still notify).
-  if (outcome === "completed") return true;
-  // Need a date/time on the calendar, and not a stale past appointment.
-  if (!insight.dateTime || !isDateTimeActionable(insight.dateTime, now)) return false;
-  // Only true new appointment sets (and loose "other" with a clear datetime).
-  return outcome === "scheduled" || outcome === "other";
+  // New appointment sets require Levi's Approve — no silent calendar create.
+  return outcome === "completed";
 }
 
 /**

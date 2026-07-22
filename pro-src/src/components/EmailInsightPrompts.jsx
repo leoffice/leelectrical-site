@@ -1,6 +1,7 @@
-// Email insights (Energy Services / Con Edison):
-// - Strong job match → auto-add to calendar, then show a "done" notice
-// - Weak / no match → approve, edit, or ignore sheet
+// Email insights (Energy Services / Con Edison / City DOB):
+// - New appointment sets → approve / edit / ignore / ignore-and-cancel (never auto-create)
+// - Reminders → calendar cross-check only (already-on-calendar notice or quiet dismiss)
+// - Completed inspections → may auto-update paperwork, then "done" notice
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { Opt } from "./Sheet.jsx";
@@ -17,13 +18,15 @@ import {
   formatInsightDateLabel,
   formatInsightHoursLabel,
   formatInsightSourceLabel,
-  wantsNewCalendarAppointment,
   isPastAppointmentInsight,
   hasRealInsightData,
   shouldSurfaceInsight,
-  EMAIL_INSIGHT_TEST_AUTO_APPLY_LIMIT,
 } from "../lib/emailInsight.js";
-import { applyEmailInsight, buildCalendarPayload } from "../lib/applyEmailInsight.js";
+import {
+  applyEmailInsight,
+  buildCalendarPayload,
+  cancelEmailInsightAppointment,
+} from "../lib/applyEmailInsight.js";
 import { shouldSuppressPrompts, beginPromptWorkPause } from "../lib/followUpReminders.js";
 import { isScreenCovered, subscribeSheets } from "../lib/sheetRegistry.js";
 import { findEventForInsight, stashCalendarPick } from "../lib/calendarNavigate.js";
@@ -31,7 +34,7 @@ import { evStart } from "../lib/format.js";
 
 const IS_TEST = import.meta.env.MODE === "test" || !!import.meta.env.VITEST;
 const SESSION_KEY = "lepro_email_insight_session";
-/** Per app-open: how many calendar auto-applies already ran this session. */
+/** Per app-open: how many calendar auto-applies already ran this session (paperwork only). */
 let autoApplyCalendarCount = 0;
 
 function markSessionSeen() {
@@ -136,7 +139,16 @@ function ActionToggles({ actions, selected, onToggle }) {
   );
 }
 
-function EmailInsightSheet({ insight, job, onApprove, onEdit, onIgnore, onOpenJob }) {
+function EmailInsightSheet({
+  insight,
+  job,
+  hasExistingAppointment,
+  onApprove,
+  onEdit,
+  onIgnore,
+  onIgnoreAndCancel,
+  onOpenJob,
+}) {
   const [selected, setSelected] = useState(() => {
     const s = new Set();
     for (const a of insight?.proposedActions || []) {
@@ -153,6 +165,8 @@ function EmailInsightSheet({ insight, job, onApprove, onEdit, onIgnore, onOpenJo
       return next;
     });
   };
+
+  const isCancelled = (insight?.outcome || "") === "cancelled";
 
   return (
     <PromptSurface title="Email understood" onClose={onIgnore} testId="email-insight-sheet">
@@ -181,24 +195,45 @@ function EmailInsightSheet({ insight, job, onApprove, onEdit, onIgnore, onOpenJo
 
       <ActionToggles actions={insight?.proposedActions} selected={selected} onToggle={toggle} />
 
-      <Opt
-        icon="✅"
-        title="Approve"
-        note="Apply the checked actions"
-        onClick={() => onApprove([...selected])}
-        testId="email-insight-approve"
-      />
-      <Opt icon="✏️" title="Edit first" note="Tweak the appointment before saving" onClick={onEdit} testId="email-insight-edit" />
+      {!isCancelled ? (
+        <Opt
+          icon="✅"
+          title="Approve"
+          note="Apply the checked actions — only then is a new appointment created"
+          onClick={() => onApprove([...selected])}
+          testId="email-insight-approve"
+        />
+      ) : null}
+      {!isCancelled ? (
+        <Opt
+          icon="✏️"
+          title="Edit first"
+          note="Tweak the appointment before saving"
+          onClick={onEdit}
+          testId="email-insight-edit"
+        />
+      ) : null}
       {job?.id ? (
         <Opt icon="📂" title="Open job" note={job.customer || job.title || job.id} onClick={onOpenJob} />
       ) : null}
-      <Opt icon="✋" title="Ignore" note="Dismiss — won't ask again for this email" onClick={onIgnore} testId="email-insight-ignore" />
+      <Opt
+        icon="🗑️"
+        title="Ignore and cancel"
+        note={
+          hasExistingAppointment
+            ? "Dismiss this email and cancel the appointment already on your calendar"
+            : "Dismiss — cancels the calendar appointment if one is already set"
+        }
+        onClick={onIgnoreAndCancel}
+        testId="email-insight-ignore-cancel"
+      />
+      <Opt icon="✋" title="Ignore" note="Dismiss only — leave the calendar alone" onClick={onIgnore} testId="email-insight-ignore" />
     </PromptSurface>
   );
 }
 
-/** Post-auto-apply notice — tells Levi the calendar/job was already updated. */
-function EmailInsightDoneSheet({ insight, job, event, onAck, onOpenJob, onOpenCalendar }) {
+/** Post-auto notice — already on calendar, or paperwork auto-updated. */
+function EmailInsightDoneSheet({ insight, job, event, onAck, onOpenJob, onOpenCalendar, onIgnoreAndCancel }) {
   const lead = insight?.appliedLead || formatAppliedLead(insight, job);
   const outcome = insight?.outcome || "other";
   const hasWhen = !!(event?.start || insight?.dateTime || insight?.exactDateTime);
@@ -275,6 +310,15 @@ function EmailInsightDoneSheet({ insight, job, event, onAck, onOpenJob, onOpenCa
       {job?.id ? (
         <Opt icon="📂" title="Open job" note={job.customer || job.title || job.id} onClick={onOpenJob} />
       ) : null}
+      {onCal && onIgnoreAndCancel ? (
+        <Opt
+          icon="🗑️"
+          title="Cancel this appointment"
+          note="Remove it from your calendar and dismiss this notice"
+          onClick={onIgnoreAndCancel}
+          testId="email-insight-ignore-cancel"
+        />
+      ) : null}
       <Opt icon="👍" title="Got it" note="Dismiss this notice" onClick={onAck} testId="email-insight-ack" />
     </PromptSurface>
   );
@@ -291,6 +335,7 @@ export default function EmailInsightPrompts() {
     enqueue,
     patchAndSave,
     appendLocalEvent,
+    removeLocalEvent,
     pullCalendarNow,
     showToast,
     effectiveJob,
@@ -347,9 +392,48 @@ export default function EmailInsightPrompts() {
         showToast("Couldn't save — dismissed locally");
       }
       setCurrent(null);
+      setDoneNotice(null);
       await refreshEmailInsights();
     },
     [dismiss, patchEmailInsight, refreshEmailInsights, showToast]
+  );
+
+  const ignoreAndCancel = useCallback(
+    async (insight) => {
+      if (!insight?.id) return dismiss();
+      const job = insight?.jobId ? effectiveJob(insight.jobId) : null;
+      seen.current.add(insight.id);
+      try {
+        await cancelEmailInsightAppointment({
+          insight,
+          job,
+          events,
+          enqueue,
+          patchAndSave,
+          patchEmailInsight,
+          removeLocalEvent,
+          pullCalendarNow,
+          showToast,
+        });
+      } catch (e) {
+        showToast(String(e?.message || "Couldn't cancel appointment"));
+      }
+      setCurrent(null);
+      setDoneNotice(null);
+      await refreshEmailInsights();
+    },
+    [
+      dismiss,
+      effectiveJob,
+      events,
+      enqueue,
+      patchAndSave,
+      patchEmailInsight,
+      removeLocalEvent,
+      pullCalendarNow,
+      refreshEmailInsights,
+      showToast,
+    ]
   );
 
   const approve = useCallback(
@@ -404,10 +488,10 @@ export default function EmailInsightPrompts() {
     [patchEmailInsight, refreshEmailInsights]
   );
 
-  // Auto-apply strong NEW appointment sets in the background.
-  // Reminders: never create — if already on calendar mark done, else quiet ignore.
-  // Past-day appointments (Levi 2026-07-22): silent ignore — no suggestion, no reminder sheet.
-  // Test limit (Levi): only execute ONE calendar appointment until he lifts the cap.
+  // Background housekeeping only — never auto-create calendar appointments
+  // (Levi 2026-07-22: wait for Approve). Reminders: cross-check calendar only.
+  // Completed inspections may still auto-update paperwork via canAutoApply.
+  // Past-day / junk: silent ignore.
   useEffect(() => {
     if (IS_TEST || loading || !jobs?.length) return;
     let cancelled = false;
@@ -481,6 +565,32 @@ export default function EmailInsightPrompts() {
           continue;
         }
 
+        // New appointment set that is already on the calendar → "already on calendar"
+        // notice (no second create). Still never auto-create when missing.
+        if (outcome === "scheduled" || outcome === "other") {
+          const existing = findEventForInsight(enriched, job, events);
+          if (existing) {
+            autoRunning.current.add(raw.id);
+            try {
+              await patchEmailInsight(raw.id, {
+                status: "auto_applied",
+                autoApplied: true,
+                notified: false,
+                skipReason: "already_on_calendar",
+                appliedEventId: existing.id || "",
+                jobId: job?.id || enriched.jobId || null,
+                appliedAt: new Date().toISOString(),
+              });
+            } catch {
+              /* leave pending for approve */
+            } finally {
+              autoRunning.current.delete(raw.id);
+            }
+            continue;
+          }
+          // Missing on calendar → stay pending for Approve (do not create).
+        }
+
         // Reminder-only mail: leave calendar alone.
         // If already on calendar (and still today/future), show a done notice with facts.
         if (outcome === "reminder") {
@@ -513,27 +623,11 @@ export default function EmailInsightPrompts() {
           continue;
         }
 
+        // Only completed-inspection paperwork may auto-apply (no calendar create).
         if (!canAutoApply(enriched, job)) continue;
-
-        const wantsCalendar =
-          wantsNewCalendarAppointment(enriched) &&
-          (defaultActionKeys(enriched, job) || []).includes("calendar");
-
-        // Already on calendar? Apply path will no-op create + mark done.
-        // Hard test gate: scan may find many; only execute one *new* appointment.
-        if (
-          wantsCalendar &&
-          Number.isFinite(EMAIL_INSIGHT_TEST_AUTO_APPLY_LIMIT) &&
-          autoApplyCalendarCount >= EMAIL_INSIGHT_TEST_AUTO_APPLY_LIMIT
-        ) {
-          // Still allow "already on calendar" cross-check without burning the slot.
-          const existing = findEventForInsight(enriched, job, events);
-          if (!existing) continue;
-        }
 
         autoRunning.current.add(raw.id);
         try {
-          const beforeExisting = findEventForInsight(enriched, job, events);
           await applyEmailInsight({
             insight: enriched,
             job,
@@ -547,8 +641,7 @@ export default function EmailInsightPrompts() {
             autoApply: true,
             events,
           });
-          // Count only true new creates (not already-on-calendar skips).
-          if (wantsCalendar && !beforeExisting) autoApplyCalendarCount += 1;
+          autoApplyCalendarCount += 1;
         } catch {
           /* leave pending for manual approve */
         } finally {
@@ -630,6 +723,7 @@ export default function EmailInsightPrompts() {
         job={job}
         event={matchedEvent}
         onAck={() => ackDone(ins)}
+        onIgnoreAndCancel={() => ignoreAndCancel(ins)}
         onOpenJob={() => {
           if (!job?.id) return;
           dismiss();
@@ -656,6 +750,12 @@ export default function EmailInsightPrompts() {
   }
 
   const job = current?.jobId ? effectiveJob(current.jobId) : null;
+  const currentExisting =
+    current && job
+      ? findEventForInsight(current, job, events)
+      : current
+        ? findEventForInsight(current, null, events)
+        : null;
 
   if (editSheet) {
     const ins = editSheet.insight;
@@ -695,6 +795,7 @@ export default function EmailInsightPrompts() {
     <EmailInsightSheet
       insight={current}
       job={job}
+      hasExistingAppointment={!!currentExisting}
       onApprove={(keys) => approve(current, keys)}
       onEdit={() => {
         setEditSheet({
@@ -705,6 +806,7 @@ export default function EmailInsightPrompts() {
         dismiss();
       }}
       onIgnore={() => ignore(current)}
+      onIgnoreAndCancel={() => ignoreAndCancel(current)}
       onOpenJob={() => {
         if (!job?.id) return;
         dismiss();
