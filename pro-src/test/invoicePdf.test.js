@@ -63,9 +63,10 @@ describe("invoicePdf field mapping", () => {
     expect(d.serviceAddress).toMatch(/Apt\s*2A/i);
   });
 
-  it("labels change-order invoice numbers", () => {
+  it("labels change-order invoice numbers as short CO-## (no full words)", () => {
     const d = mapJobToInvoicePdfData({ ...job, changeOrder: true, invoiceNo: "251100-CO-1" });
-    expect(d.invoiceNo).toBe("251100-CO-1 - Change Order");
+    expect(d.invoiceNo).toBe("251100-CO-01");
+    expect(d.invoiceNo).not.toMatch(/Change Order/i);
   });
 
   it("prints description only — product/service name stays off the PDF", () => {

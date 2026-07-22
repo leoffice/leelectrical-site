@@ -10,6 +10,11 @@ describe("formatPrintDescription", () => {
     expect(formatPrintDescription("• Removal\n● Install")).toBe("- Removal\n- Install");
   });
 
+  it("replaces em/en dashes with regular hyphens (PDF-safe)", () => {
+    expect(formatPrintDescription("CO-2 General — Redirect")).toBe("CO-2 General - Redirect");
+    expect(formatPrintDescription("A – B")).toBe("A - B");
+  });
+
   it("does not invent product/service text", () => {
     expect(formatPrintDescription("")).toBe("");
     expect(formatPrintDescription(null)).toBe("");

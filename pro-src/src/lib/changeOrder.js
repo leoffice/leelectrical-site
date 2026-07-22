@@ -32,6 +32,12 @@ export function seqFromDocNumber(docNo) {
   return m ? parseInt(m[1], 10) : 0;
 }
 
+/** Zero-pad CO sequence for print/labels (01, 02, …). */
+export function padCoSeq(n) {
+  const seq = Number(n);
+  return String(Math.max(1, Number.isFinite(seq) && seq > 0 ? seq : 1)).padStart(2, "0");
+}
+
 /** Parse QuickBooks "CO / PI" custom field (e.g. "01", "11 (007)") → sequence #. */
 export function seqFromCoPi(val) {
   const m = String(val || "").trim().match(/^0*(\d+)/);
@@ -119,20 +125,52 @@ export function nextChangeOrderSeq(jobs, sourceJob, kind) {
   return max + 1;
 }
 
-/** Display / requested doc number: e.g. 251100-CO-1 (original invoice # + -CO- + seq). */
+/** Display / requested doc number: e.g. 251100-CO-01 (original invoice # + -CO- + seq). */
 export function changeOrderDocLabel(sourceJob, kind, seq) {
   const base =
     kind === "estimate"
       ? String(sourceJob?.estimateNo || sourceJob?.invoiceNo || "").trim()
       : String(sourceJob?.invoiceNo || sourceJob?.estimateNo || "").trim();
-  // Strip any existing -CO-N so we never nest (251100-CO-1-CO-2).
+  // Strip any existing -CO-N so we never nest (251100-CO-01-CO-02).
   const root = String(base || "CO").replace(/-CO-\d+\b/i, "").trim() || "CO";
-  return root + "-CO-" + seq;
+  return root + "-CO-" + padCoSeq(seq);
+}
+
+/**
+ * PDF header invoice/estimate number for change orders.
+ * Short form only (e.g. 251100-CO-01) — never the words "Change Order"
+ * (they overflow the printed header).
+ */
+export function changeOrderPrintDocNumber(job, kind = "invoice") {
+  const raw = String(
+    kind === "estimate"
+      ? job?.estimateNo || job?.invoiceNo || ""
+      : job?.invoiceNo || job?.estimateNo || ""
+  ).trim();
+  const label = String(job?.changeOrderLabel || "").trim();
+  const seq =
+    Number(job?.changeOrderSeq) ||
+    seqFromDocNumber(raw) ||
+    seqFromDocNumber(label) ||
+    seqFromCoPi(job?.qboCoPi || job?.coPi) ||
+    1;
+  const padded = padCoSeq(seq);
+  const base = raw || label || "DRAFT";
+  if (/-CO-\d+\b/i.test(base)) {
+    return base.replace(/-CO-\d+\b/i, `-CO-${padded}`);
+  }
+  if (/\bCO[\s\-_]*\d+\b/i.test(base)) {
+    return base.replace(/\bCO[\s\-_]*\d+\b/i, `CO-${padded}`);
+  }
+  if (base && base !== "DRAFT") {
+    return `${base}-CO-${padded}`;
+  }
+  return `CO-${padded}`;
 }
 
 /**
  * Invoice/estimate DocNumber to send to QuickBooks for a change-order job.
- * Uses original# + -CO- + N so the generated doc is e.g. 251100-CO-1.
+ * Uses original# + -CO- + N so the generated doc is e.g. 251100-CO-01.
  * Empty when not a CO or when a real confirmed number already exists.
  */
 export function preferredChangeOrderDocNo(job, kind = "invoice") {
@@ -182,8 +220,10 @@ export function briefJobTitleFromDoc(lines, amount) {
     .map((ln) => String(ln.description || ln.itemName || "").trim())
     .filter(Boolean);
   let summary = descs[0] || "Change order";
-  if (summary.length > 72) summary = summary.slice(0, 69) + "…";
-  const amt = amount != null && parseAmountSafe(amount) > 0 ? " — " + fmt$(amount) : "";
+  // PDF-safe: never use em/en dash (prints as "?") — plain hyphen only.
+  summary = summary.replace(/[–—]/g, "-");
+  if (summary.length > 72) summary = summary.slice(0, 69) + "...";
+  const amt = amount != null && parseAmountSafe(amount) > 0 ? " - " + fmt$(amount) : "";
   return summary + amt;
 }
 

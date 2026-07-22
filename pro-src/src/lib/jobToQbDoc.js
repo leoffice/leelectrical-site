@@ -4,7 +4,7 @@ import { lineAmount, linesTotal } from "./qboDoc.js";
 import { amountPaid, invoiceTotal, openBalance } from "./customers.js";
 import { effectiveServiceAddress } from "./customerSync.js";
 import { fmtInvoiceDate } from "./invoicePdf.js";
-import { isChangeOrderJob } from "./changeOrder.js";
+import { changeOrderPrintDocNumber, isChangeOrderJob } from "./changeOrder.js";
 import { activeTenantConfig, tenantCompany } from "./tenantBranding.js";
 import { formatPrintDescription } from "./printDescription.js";
 
@@ -223,10 +223,10 @@ export function mapJobToQbDocData(job, kind = "invoice") {
 
   const firstServiceDate = lines.find((ln) => ln.serviceDate)?.serviceDate;
 
-  // Change orders: dash + "Change Order" next to the invoice/estimate number.
+  // Change orders: short CO-## form only — full "Change Order" overflows the header.
   let displayDocNumber = docNumber;
-  if (isChangeOrderJob(job) && !/change\s*order/i.test(displayDocNumber)) {
-    displayDocNumber = `${displayDocNumber} - Change Order`;
+  if (isChangeOrderJob(job)) {
+    displayDocNumber = changeOrderPrintDocNumber(job, kind);
   }
 
   return {

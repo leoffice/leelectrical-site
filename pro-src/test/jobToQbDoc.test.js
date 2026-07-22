@@ -137,9 +137,10 @@ describe("jobToQbDoc", () => {
     expect(d.apartment).toBe("4B");
   });
 
-  it("labels change-order invoice numbers", () => {
+  it("labels change-order invoice numbers as short CO-## (no full words)", () => {
     const d = mapJobToQbDocData({ ...job, changeOrder: true, invoiceNo: "251100-CO-1" }, "invoice");
-    expect(d.docNumber).toBe("251100-CO-1 - Change Order");
+    expect(d.docNumber).toBe("251100-CO-01");
+    expect(d.docNumber).not.toMatch(/Change Order/i);
   });
 
   it("includes payment options before thank-you on invoices", () => {

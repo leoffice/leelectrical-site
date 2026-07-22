@@ -38,12 +38,12 @@ const BASE = {
 
 describe("changeOrder numbering", () => {
   it("assigns CO suffix from source invoice number", () => {
-    expect(changeOrderDocLabel(BASE, "invoice", 1)).toBe("251100-CO-1");
-    expect(changeOrderDocLabel(BASE, "estimate", 2)).toBe("25400-CO-2");
+    expect(changeOrderDocLabel(BASE, "invoice", 1)).toBe("251100-CO-01");
+    expect(changeOrderDocLabel(BASE, "estimate", 2)).toBe("25400-CO-02");
   });
 
   it("does not nest CO suffixes on the base number", () => {
-    expect(changeOrderDocLabel({ invoiceNo: "251100-CO-1" }, "invoice", 2)).toBe("251100-CO-2");
+    expect(changeOrderDocLabel({ invoiceNo: "251100-CO-1" }, "invoice", 2)).toBe("251100-CO-02");
   });
 
   it("increments sequence per source + kind", () => {
@@ -60,14 +60,14 @@ describe("changeOrder numbering", () => {
     expect(p.changeOrder).toBe(true);
     expect(p.changeOrderSourceId).toBe("J-1");
     expect(p.changeOrderSeq).toBe(1);
-    expect(p.changeOrderLabel).toBe("251100-CO-1");
+    expect(p.changeOrderLabel).toBe("251100-CO-01");
     expect(p.invoiceNo).toBe("");
     expect(p.title).toMatch(/Change Order 1/);
   });
 
   it("preferredChangeOrderDocNo uses original-CO-seq for generate", () => {
     const p = changeOrderJobPatch(BASE, "invoice", [BASE]);
-    expect(preferredChangeOrderDocNo(p, "invoice")).toBe("251100-CO-1");
+    expect(preferredChangeOrderDocNo(p, "invoice")).toBe("251100-CO-01");
   });
 
   it("create_invoice payload uses CO doc number", () => {
@@ -81,7 +81,7 @@ describe("changeOrder numbering", () => {
       serviceAddress: "10 Oak St",
       mode: "create",
     });
-    expect(payload.invoiceNo).toBe("251100-CO-1");
+    expect(payload.invoiceNo).toBe("251100-CO-01");
 
     const plan = planDocSaveSync(coJob, {
       kind: "invoice",
@@ -91,7 +91,7 @@ describe("changeOrder numbering", () => {
       apartment: "",
     });
     expect(plan.commands[0].type).toBe("create_invoice");
-    expect(plan.commands[0].payload.invoiceNo).toBe("251100-CO-1");
+    expect(plan.commands[0].payload.invoiceNo).toBe("251100-CO-01");
     // Local job still has no confirmed invoiceNo so create (not update) is used
     expect(coJob.invoiceNo).toBe("");
   });
@@ -150,7 +150,7 @@ describe("change order detection", () => {
     const p = tagChangeOrderPatch({ id: "J-co", invoiceNo: "251200" }, BASE, 1);
     expect(p.changeOrder).toBe(true);
     expect(p.changeOrderSeq).toBe(1);
-    expect(p.changeOrderLabel).toBe("251100-CO-1");
+    expect(p.changeOrderLabel).toBe("251100-CO-01");
   });
 });
 

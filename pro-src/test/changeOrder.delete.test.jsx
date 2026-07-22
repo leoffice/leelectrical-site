@@ -28,7 +28,7 @@ describe("changeOrderJobPatch", () => {
     const inv = changeOrderJobPatch(BASE, "invoice", [BASE]);
     expect(inv.changeOrder).toBe(true);
     expect(inv.changeOrderKind).toBe("invoice");
-    expect(inv.changeOrderLabel).toBe("251100-CO-1");
+    expect(inv.changeOrderLabel).toBe("251100-CO-01");
     expect(inv.invoiceNo).toBe("");
     expect(inv.estimateNo).toBe("");
     expect(inv.serviceAddress).toBe("10 Oak St");
@@ -36,7 +36,7 @@ describe("changeOrderJobPatch", () => {
 
     const est = changeOrderJobPatch(BASE, "estimate", [BASE]);
     expect(est.changeOrderKind).toBe("estimate");
-    expect(est.changeOrderLabel).toBe("251100-CO-1");
+    expect(est.changeOrderLabel).toBe("251100-CO-01");
     expect(est.estimateNo).toBe("");
   });
 });
@@ -66,7 +66,7 @@ describe("change order + delete UX", () => {
     const toggle = within(screen.getByTestId("add-job-co-toggle-row")).getByRole("switch");
     await user.click(toggle);
     expect(await screen.findByTestId("add-job-co-kind")).toBeInTheDocument();
-    expect(screen.getByText(/251100-CO-1/)).toBeInTheDocument();
+    expect(screen.getByText(/251100-CO-01/)).toBeInTheDocument();
   });
 
   it("customer view menu removes customer from app", async () => {
