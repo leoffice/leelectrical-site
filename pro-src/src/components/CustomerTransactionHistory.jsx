@@ -7,6 +7,7 @@ import {
   buildCustomerTransactions,
   formatTxnAmount,
   txnFilterCounts,
+  txnKindStyle,
 } from "../lib/customerTransactions.js";
 
 const FILTERS = [
@@ -38,12 +39,7 @@ function DocBubble({ docNo, color, testId }) {
 
 /** One-line row: type · # · date · place · amount (due on 2nd line if needed). */
 function CompactRow({ row, onOpen, testId }) {
-  const kindLabel =
-    row.kind === "payment" ? "Payment" : row.kind === "estimate" ? "Estimate" : "Invoice";
-  const kindClass =
-    row.kind === "payment"
-      ? "text-emerald-600"
-      : "text-slate-400";
+  const kind = txnKindStyle(row.kind);
   const amount =
     row.kind === "payment"
       ? formatTxnAmount(row.amount)
@@ -70,8 +66,13 @@ function CompactRow({ row, onOpen, testId }) {
     >
       <div className="flex items-center justify-between gap-2 min-w-0">
         <div className="flex items-center gap-1.5 min-w-0 flex-1 overflow-hidden">
-          <span className={"text-[10px] font-extrabold uppercase tracking-wide shrink-0 " + kindClass}>
-            {kindLabel}
+          <span
+            className={
+              "text-[10px] font-extrabold uppercase tracking-wide shrink-0 " + kind.className
+            }
+            data-testid={"cust-txn-kind-" + row.kind}
+          >
+            {kind.label}
           </span>
           {row.docNo ? (
             <DocBubble
