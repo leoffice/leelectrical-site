@@ -6,8 +6,11 @@ import { useStore } from "../state/store.jsx";
 import AppointmentDetailSheet from "../components/AppointmentDetailSheet.jsx";
 import WeekCalendar from "../components/WeekCalendar.jsx";
 import {
-  consumeCalendarPick,
+  CALENDAR_PICK_EVENT,
+  clearCalendarPick,
+  peekCalendarPick,
   peekReminderReturn,
+  resolveCalendarPick,
   signalRestoreReminder,
   stashReminderReturn,
 } from "../lib/calendarNavigate.js";
@@ -67,6 +70,7 @@ function formatWhen(event) {
 export default function Today() {
   const { jobs, events } = useStore();
   const [picked, setPicked] = useState(null);
+  const [weekFocusDate, setWeekFocusDate] = useState("");
   const [calQuery, setCalQuery] = useState("");
   const [reminderReturn, setReminderReturn] = useState(() => peekReminderReturn());
   const focusRef = useRef(null);
@@ -89,11 +93,38 @@ export default function Today() {
     setReminderReturn(null);
   };
 
+  // Open schedule calendar / Open in calendar — resolve pick once events are ready.
+  // Do NOT consume the pick until we can resolve it (race when events still loading).
   useEffect(() => {
-    const pickId = consumeCalendarPick();
-    if (!pickId || !events?.length) return;
-    const ev = events.find((e) => String(e.id) === String(pickId));
-    if (ev) setPicked(ev);
+    const applyPick = () => {
+      const raw = peekCalendarPick();
+      if (!raw) return;
+      // Still loading events — keep the pick for a later pass.
+      if (raw.eventId && (!events || !events.length)) {
+        if (raw.focusDate) setWeekFocusDate(raw.focusDate);
+        return;
+      }
+      const resolved = resolveCalendarPick(events, raw);
+      if (!resolved) {
+        clearCalendarPick();
+        return;
+      }
+      if (resolved.event) {
+        clearCalendarPick();
+        setPicked(resolved.event);
+        setWeekFocusDate("");
+        return;
+      }
+      // Events loaded (or date-only pick) but no matching event — jump the week grid.
+      if (resolved.focusDate) {
+        clearCalendarPick();
+        setWeekFocusDate(resolved.focusDate);
+        setPicked(null);
+      }
+    };
+    applyPick();
+    window.addEventListener(CALENDAR_PICK_EVENT, applyPick);
+    return () => window.removeEventListener(CALENDAR_PICK_EVENT, applyPick);
   }, [events]);
 
   // When an event opens (tap or deep-link), keep calendar at the top of the page.
@@ -119,7 +150,7 @@ export default function Today() {
   const owed = totalBalanceDue(unpaid);
 
   const showReminderBack = reminderReturn && (!picked || reminderReturn.apptClosed);
-  const focusDate = picked ? evStart(picked).slice(0, 10) : "";
+  const focusDate = picked ? evStart(picked).slice(0, 10) : weekFocusDate || "";
 
   // Focused layout: calendar on top, event card expanding below (edit lives there too).
   if (picked) {
@@ -257,7 +288,7 @@ export default function Today() {
           )
         ) : null}
         <div className="card px-3 py-3">
-          <WeekCalendar events={events} onPickEvent={setPicked} />
+          <WeekCalendar events={events} onPickEvent={setPicked} focusDate={focusDate || undefined} />
         </div>
       </section>
     </div>

@@ -3,28 +3,86 @@ import { clearPromptWorkPause } from "./followUpReminders.js";
 import { evStart } from "./format.js";
 
 export const CALENDAR_PICK_KEY = "lepro_calendar_pick";
+export const CALENDAR_PICK_EVENT = "lepro-calendar-pick";
 export const REMINDER_RETURN_KEY = "lepro_reminder_return";
 export const PENDING_DOC_AFTER_JOB_KEY = "lepro_pending_doc_after_job";
 export const RESTORE_REMINDER_EVENT = "lepro-restore-reminder";
 
-export function stashCalendarPick(eventId) {
-  const id = String(eventId || "").trim();
-  if (!id) return;
+function parsePickRaw(raw) {
+  if (!raw) return null;
+  // Legacy: plain event id string
+  if (raw[0] !== "{") {
+    const eventId = String(raw).trim();
+    return eventId ? { eventId, focusDate: "" } : null;
+  }
   try {
-    sessionStorage.setItem(CALENDAR_PICK_KEY, id);
+    const o = JSON.parse(raw);
+    const eventId = String(o?.eventId || o?.id || "").trim();
+    const focusDate = String(o?.focusDate || "").slice(0, 10);
+    if (!eventId && !focusDate) return null;
+    return { eventId, focusDate };
+  } catch {
+    return null;
+  }
+}
+
+function signalCalendarPick() {
+  try {
+    window.dispatchEvent(new CustomEvent(CALENDAR_PICK_EVENT));
   } catch {
     /* ignore */
   }
 }
 
-export function consumeCalendarPick() {
-  try {
-    const id = sessionStorage.getItem(CALENDAR_PICK_KEY) || "";
-    if (id) sessionStorage.removeItem(CALENDAR_PICK_KEY);
-    return id;
-  } catch {
-    return "";
+/**
+ * Remember which appointment to open on the Calendar tab.
+ * @param {string|{eventId?:string,id?:string,focusDate?:string}} eventIdOrPayload
+ * @param {{focusDate?:string}} [opts]
+ */
+export function stashCalendarPick(eventIdOrPayload, opts = {}) {
+  let eventId = "";
+  let focusDate = String(opts.focusDate || "").slice(0, 10);
+  if (eventIdOrPayload && typeof eventIdOrPayload === "object") {
+    eventId = String(eventIdOrPayload.eventId || eventIdOrPayload.id || "").trim();
+    if (!focusDate) focusDate = String(eventIdOrPayload.focusDate || "").slice(0, 10);
+  } else {
+    eventId = String(eventIdOrPayload || "").trim();
   }
+  if (!eventId && !focusDate) return;
+  try {
+    sessionStorage.setItem(CALENDAR_PICK_KEY, JSON.stringify({ eventId, focusDate }));
+  } catch {
+    /* ignore */
+  }
+  signalCalendarPick();
+}
+
+/** Read the pending calendar pick without clearing it. */
+export function peekCalendarPick() {
+  try {
+    return parsePickRaw(sessionStorage.getItem(CALENDAR_PICK_KEY) || "");
+  } catch {
+    return null;
+  }
+}
+
+/** Clear the pending pick (after it was applied or abandoned). */
+export function clearCalendarPick() {
+  try {
+    sessionStorage.removeItem(CALENDAR_PICK_KEY);
+  } catch {
+    /* ignore */
+  }
+}
+
+/**
+ * Consume and return the event id (legacy API).
+ * Prefer peekCalendarPick + clearCalendarPick when you also need focusDate.
+ */
+export function consumeCalendarPick() {
+  const p = peekCalendarPick();
+  clearCalendarPick();
+  return p?.eventId || "";
 }
 
 /**
@@ -64,6 +122,34 @@ export function findEventForInsight(insight, job, events) {
   if (sameTime.length === 1) return sameTime[0];
   const insp = sameTime.find((e) => /inspection|con edison|city electrical/i.test(e.summary || ""));
   return insp || sameTime[0];
+}
+
+/**
+ * Resolve a stashed pick against the live events list.
+ * Returns { event, focusDate } — event may be null if only the day is known.
+ */
+export function resolveCalendarPick(events, pick = peekCalendarPick()) {
+  if (!pick) return null;
+  const list = events || [];
+  const focusDate = pick.focusDate || "";
+  let event = null;
+  if (pick.eventId) {
+    event = list.find((e) => String(e.id) === String(pick.eventId)) || null;
+  }
+  if (!event && focusDate) {
+    const sameDay = list.filter((e) => evStart(e).slice(0, 10) === focusDate);
+    if (sameDay.length === 1) event = sameDay[0];
+    else if (sameDay.length > 1) {
+      event =
+        sameDay.find((e) => /inspection|con edison|city electrical/i.test(e.summary || "")) ||
+        sameDay[0];
+    }
+  }
+  if (!event && !focusDate) return null;
+  return {
+    event,
+    focusDate: focusDate || (event ? evStart(event).slice(0, 10) : ""),
+  };
 }
 
 /** Remember which reminder popup to restore after calendar → appointment → back. */

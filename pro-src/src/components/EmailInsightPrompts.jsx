@@ -3,7 +3,8 @@
 // - Weak / no match → approve, edit, or ignore sheet
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import Sheet, { Opt } from "./Sheet.jsx";
+import { Opt } from "./Sheet.jsx";
+import PromptSurface from "./PromptSurface.jsx";
 import IntelligentSuggestionBadge from "./IntelligentSuggestionBadge.jsx";
 import AddAppointmentSheet from "./AddAppointmentSheet.jsx";
 import { useStore } from "../state/store.jsx";
@@ -25,6 +26,7 @@ import { applyEmailInsight, buildCalendarPayload } from "../lib/applyEmailInsigh
 import { shouldSuppressPrompts, beginPromptWorkPause } from "../lib/followUpReminders.js";
 import { isScreenCovered, subscribeSheets } from "../lib/sheetRegistry.js";
 import { findEventForInsight, stashCalendarPick } from "../lib/calendarNavigate.js";
+import { evStart } from "../lib/format.js";
 
 const IS_TEST = import.meta.env.MODE === "test" || !!import.meta.env.VITEST;
 const SESSION_KEY = "lepro_email_insight_session";
@@ -152,7 +154,7 @@ function EmailInsightSheet({ insight, job, onApprove, onEdit, onIgnore, onOpenJo
   };
 
   return (
-    <Sheet title="Email understood" onClose={onIgnore} testId="email-insight-sheet">
+    <PromptSurface title="Email understood" onClose={onIgnore} testId="email-insight-sheet">
       <SourceBadge insight={insight} />
       <InsightWhenBlock insight={insight} />
       <div className="rounded-xl border border-purple-200 bg-purple-50/80 px-3 py-3 mb-3">
@@ -190,7 +192,7 @@ function EmailInsightSheet({ insight, job, onApprove, onEdit, onIgnore, onOpenJo
         <Opt icon="📂" title="Open job" note={job.customer || job.title || job.id} onClick={onOpenJob} />
       ) : null}
       <Opt icon="✋" title="Ignore" note="Dismiss — won't ask again for this email" onClick={onIgnore} testId="email-insight-ignore" />
-    </Sheet>
+    </PromptSurface>
   );
 }
 
@@ -200,45 +202,80 @@ function EmailInsightDoneSheet({ insight, job, event, onAck, onOpenJob, onOpenCa
   const outcome = insight?.outcome || "other";
   const hasWhen = !!(event?.start || insight?.dateTime || insight?.exactDateTime);
   const onCal = outcome !== "cancelled" && outcome !== "completed" && hasWhen;
+  const isInsp = (insight?.appointmentType || "") === "inspection";
   const title =
     insight?.skipReason === "already_on_calendar" || outcome === "reminder"
       ? "Already on your calendar"
       : "Added to your calendar";
   return (
-    <Sheet title={title} onClose={onAck} testId="email-insight-done-sheet">
+    <PromptSurface
+      title={title}
+      onClose={onAck}
+      testId="email-insight-done-sheet"
+      urgent={isInsp}
+    >
       <SourceBadge insight={insight} />
       <InsightWhenBlock insight={insight} event={event} />
-      <div className="rounded-xl border border-emerald-200 bg-emerald-50/90 px-3 py-3 mb-3">
+      <div
+        className={
+          isInsp
+            ? "rounded-xl border border-red-300/40 bg-red-500/10 px-3 py-3 mb-3 animate-insp-heartbeat"
+            : "rounded-xl border border-emerald-200 bg-emerald-50/90 px-3 py-3 mb-3"
+        }
+        data-testid="email-insight-done-card"
+      >
         <div className="flex flex-wrap items-center gap-2 mb-1.5">
-          <span className="text-[10px] font-bold uppercase tracking-wide text-emerald-800 bg-emerald-100 border border-emerald-200 px-2 py-0.5 rounded-full">
+          <span
+            className={
+              isInsp
+                ? "text-[10px] font-bold uppercase tracking-wide text-red-900 bg-red-500/15 border border-red-300/40 px-2 py-0.5 rounded-full"
+                : "text-[10px] font-bold uppercase tracking-wide text-emerald-800 bg-emerald-100 border border-emerald-200 px-2 py-0.5 rounded-full"
+            }
+          >
             ✅ Done automatically
           </span>
-          <span className="text-xs font-bold text-emerald-900 uppercase tracking-wide">
+          <span
+            className={
+              "text-xs font-bold uppercase tracking-wide " + (isInsp ? "text-red-900" : "text-emerald-900")
+            }
+          >
             {appointmentTypeLabel(insight?.appointmentType, insight?.agency)}
           </span>
         </div>
-        <p className="text-sm text-emerald-950/90 mb-1" data-testid="email-insight-done-lead">
+        <p
+          className={"text-sm mb-1 " + (isInsp ? "text-red-950/90" : "text-emerald-950/90")}
+          data-testid="email-insight-done-lead"
+        >
           {lead}
         </p>
         {insight?.source?.subject ? (
-          <p className="text-xs text-emerald-700/80 truncate" title={insight.source.subject}>
+          <p
+            className={"text-xs truncate " + (isInsp ? "text-red-800/70" : "text-emerald-700/80")}
+            title={insight.source.subject}
+          >
             Re: {insight.source.subject}
           </p>
         ) : null}
       </div>
       {onCal ? (
         <p className="text-xs text-slate-500 mb-3">
-          Check Today or the schedule calendar — it should be there (syncing if you just opened the app).
+          Open the appointment below to check or edit it — date, hours, and address are listed above.
         </p>
+      ) : null}
+      {onCal ? (
+        <Opt
+          icon="📅"
+          title="Open & edit appointment"
+          note="Opens this booking on your schedule so you can check or change it"
+          onClick={onOpenCalendar}
+          testId="email-insight-open-calendar"
+        />
       ) : null}
       {job?.id ? (
         <Opt icon="📂" title="Open job" note={job.customer || job.title || job.id} onClick={onOpenJob} />
       ) : null}
-      {onCal ? (
-        <Opt icon="📅" title="Open schedule calendar" note="Open this appointment on the calendar" onClick={onOpenCalendar} />
-      ) : null}
       <Opt icon="👍" title="Got it" note="Dismiss this notice" onClick={onAck} testId="email-insight-ack" />
-    </Sheet>
+    </PromptSurface>
   );
 }
 
@@ -579,10 +616,18 @@ export default function EmailInsightPrompts() {
           nav("/job/" + encodeURIComponent(job.id));
         }}
         onOpenCalendar={() => {
-          // Open the appointment card, not just the calendar page.
+          // Open the appointment itself (expand under the week grid) so Levi can check/edit.
           const eid =
             matchedEvent?.id || liveJob?.calEventId || ins?.appliedEventId || "";
-          if (eid) stashCalendarPick(eid);
+          const focusDate = (
+            (matchedEvent ? evStart(matchedEvent) : "") ||
+            ins?.exactDateTime ||
+            ins?.dateTime ||
+            ""
+          )
+            .replace(" ", "T")
+            .slice(0, 10);
+          stashCalendarPick(eid, { focusDate });
           dismiss();
           nav("/today");
         }}

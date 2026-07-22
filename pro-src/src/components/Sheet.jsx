@@ -3,7 +3,7 @@ import React, { useEffect } from "react";
 import { registerSheet } from "../lib/sheetRegistry.js";
 import { lockBodyScroll } from "../lib/scrollLock.js";
 
-export default function Sheet({ title, onClose, children, wide, tall }) {
+export default function Sheet({ title, onClose, children, wide, tall, testId, urgent = false }) {
   useEffect(() => {
     const h = (e) => e.key === "Escape" && onClose && onClose();
     window.addEventListener("keydown", h);
@@ -17,16 +17,26 @@ export default function Sheet({ title, onClose, children, wide, tall }) {
   // close, so content never shifts under the user's cursor.
   useEffect(() => lockBodyScroll(), []);
 
+  const cardShell = urgent
+    ? "bg-red-50/95 border border-red-200/60 animate-insp-heartbeat"
+    : "bg-white";
+
   return (
-    <div className="fixed inset-0 z-[60] flex items-end lg:items-center justify-center" role="dialog" aria-modal="true" data-sheet>
+    <div
+      className="fixed inset-0 z-[60] flex items-end lg:items-center justify-center"
+      role="dialog"
+      aria-modal="true"
+      data-sheet
+      data-testid={testId || undefined}
+    >
       <div className="absolute inset-0 bg-slate-900/45" onClick={onClose} data-sheet-dim />
       <div
         className={`relative w-full mb-16 lg:mb-0 ${wide ? "lg:max-w-2xl" : "lg:max-w-lg"} ${
           tall ? "max-h-[94vh] lg:max-h-[90vh]" : "max-h-[88vh] lg:max-h-[80vh]"
-        } bg-white rounded-t-3xl lg:rounded-2xl shadow-2xl flex flex-col animate-[sheetup_.22s_ease-out]`}
+        } ${cardShell} rounded-t-3xl lg:rounded-2xl shadow-2xl flex flex-col animate-[sheetup_.22s_ease-out]`}
       >
         <div className="lg:hidden w-10 h-1 rounded-full bg-slate-300 mx-auto mt-2.5" />
-        <div className="flex items-center gap-3 px-5 pt-3 pb-2.5">
+        <div className={`flex items-center gap-3 px-5 pt-3 pb-2.5 ${urgent ? "bg-red-500/10" : ""}`}>
           <h3 className="font-extrabold text-slate-900 text-base flex-1 truncate">{title}</h3>
           <button
             aria-label="Close"
