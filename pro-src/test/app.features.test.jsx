@@ -643,6 +643,7 @@ describe("responsive layout — 390px and 1280px", () => {
     await user.type(within(pane).getByLabelText("Notes"), "x");
     const savebar = screen.getByTestId("savebar");
     expect(savebar.className).toContain("bottom-16"); // above phone tab bar
-    expect(savebar.className).toContain("lg:left-60"); // clears the 240px sidebar
+    // Clears the fixed desktop sidebar (stable shell — no resizable width twitch).
+    expect(savebar.className).toMatch(/lg:left-60/);
   });
 });

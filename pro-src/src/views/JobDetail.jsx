@@ -86,7 +86,6 @@ import {
   ReminderSheet,
 } from "../components/JobSheets.jsx";
 import CustomerComposeSheet from "../components/CustomerComposeSheet.jsx";
-import DesktopListSplit from "../components/DesktopListSplit.jsx";
 
 const CMD_TONES = {
   queued: "bg-slate-100 text-slate-500",
@@ -1179,10 +1178,13 @@ export default function JobDetail() {
     </div>
   );
 
-  // Desktop: resizable/collapsible list | detail; mobile: detail only.
+  // Desktop: two-pane (job list | detail); mobile: detail only.
   return (
-    <DesktopListSplit list={<Jobs embedded collapseGroups activeJobId={id} />}>
+    <div className="lg:grid lg:grid-cols-[minmax(320px,400px)_minmax(0,1fr)] lg:gap-5 lg:items-start">
+      <div className="hidden lg:block sticky top-4 max-h-[calc(100vh-2rem)] overflow-y-auto overflow-x-hidden lg-scroll-hidden pr-1" data-testid="list-pane">
+        <Jobs embedded collapseGroups activeJobId={id} />
+      </div>
       {detail}
-    </DesktopListSplit>
+    </div>
   );
 }
