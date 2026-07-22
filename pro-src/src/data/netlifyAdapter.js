@@ -332,6 +332,24 @@ export function createNetlifyAdapter() {
       return { ok: true };
     },
 
+    /** Check/Zelle photo learning — ov._paymentVisionLearning (reserved key). */
+    async getPaymentVisionLearning() {
+      const state = await freshState();
+      const ov = (state && state.ov) || {};
+      return Array.isArray(ov._paymentVisionLearning) ? ov._paymentVisionLearning : [];
+    },
+
+    async appendPaymentVisionFeedback(entry) {
+      if (!entry || !Array.isArray(entry.deltas) || !entry.deltas.length) return { ok: false };
+      const state = await freshState();
+      const ov = (state && state.ov) || {};
+      const cur = Array.isArray(ov._paymentVisionLearning) ? ov._paymentVisionLearning : [];
+      ov._paymentVisionLearning = cur.concat([{ ...entry, ts: Date.now() }]).slice(-200);
+      const res = await http("state", { ov });
+      if (res && res.ts) lastWriteTs = Math.max(lastWriteTs, res.ts);
+      return { ok: true };
+    },
+
     /** Customer index for the New Job smart search (#49) + the Jobs-tab
      *  QBO customer search (#56). GET /customers -> { customers:[{name,id,...}] };
      *  GET /customers?q=<query> -> top ~12 matches (name, person, phone, email)

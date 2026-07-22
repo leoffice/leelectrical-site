@@ -1,5 +1,6 @@
 // Client — POST payment screenshot (Zelle or check) to Netlify vision function.
 import { functionsBase as base } from "./functionsBase.js";
+import { formatLearningForPrompt } from "./paymentVisionLearning.js";
 
 /** Read a File as base64 (no data: prefix). */
 export function fileToBase64(file) {
@@ -56,15 +57,24 @@ export async function compressImageForVision(file, maxEdge = 1600, quality = 0.8
  * Analyze a payment screenshot via backend vision.
  * @param {string} imageBase64 — raw base64, no data: prefix
  * @param {string} mime — e.g. image/png
- * @param {"zelle"|"check"} kind
+ * @param {"zelle"|"check"|"intent"} kind
+ * @param {{ learningEntries?: object[] }} [opts] — Levi corrections for few-shot training
  */
-export async function analyzePaymentScreenshot(imageBase64, mime = "image/jpeg", kind = "zelle") {
-  const k = kind === "check" ? "check" : "zelle";
+export async function analyzePaymentScreenshot(imageBase64, mime = "image/jpeg", kind = "zelle", opts = {}) {
+  const k = kind === "check" ? "check" : kind === "intent" ? "intent" : "zelle";
+  const learningEntries = Array.isArray(opts.learningEntries) ? opts.learningEntries : [];
+  const learningHint =
+    k === "intent" ? "" : formatLearningForPrompt(learningEntries, k === "zelle" ? "zelle" : "check");
   const res = await fetch(`${base()}/payment-vision?cb=${Date.now()}`, {
     method: "POST",
     cache: "no-store",
     headers: { "content-type": "application/json" },
-    body: JSON.stringify({ image: imageBase64, mime, kind: k }),
+    body: JSON.stringify({
+      image: imageBase64,
+      mime,
+      kind: k,
+      ...(learningHint ? { learningHint } : {}),
+    }),
   });
   const data = await res.json().catch(() => ({}));
   if (!res.ok || !data.ok) {
@@ -74,8 +84,8 @@ export async function analyzePaymentScreenshot(imageBase64, mime = "image/jpeg",
 }
 
 /** Back-compat — Zelle screenshots. */
-export async function analyzeZelleScreenshot(imageBase64, mime = "image/jpeg") {
-  return analyzePaymentScreenshot(imageBase64, mime, "zelle");
+export async function analyzeZelleScreenshot(imageBase64, mime = "image/jpeg", opts = {}) {
+  return analyzePaymentScreenshot(imageBase64, mime, "zelle", opts);
 }
 
 /** General image intent — invoice #, address, document type (shared Telegram + bubble). */
@@ -133,10 +143,17 @@ export function pickPaymentAnalysis({ checkResult, zelleResult, textHint = "", f
 }
 
 /** Run check + zelle vision and pick the best result for the text hint / image. */
-export async function analyzePaymentImage(imageBase64, mime = "image/jpeg", textHint = "", fileName = "") {
+export async function analyzePaymentImage(
+  imageBase64,
+  mime = "image/jpeg",
+  textHint = "",
+  fileName = "",
+  opts = {}
+) {
+  const visionOpts = { learningEntries: opts.learningEntries };
   const [checkResult, zelleResult] = await Promise.all([
-    analyzePaymentScreenshot(imageBase64, mime, "check").catch(() => null),
-    analyzePaymentScreenshot(imageBase64, mime, "zelle").catch(() => null),
+    analyzePaymentScreenshot(imageBase64, mime, "check", visionOpts).catch(() => null),
+    analyzePaymentScreenshot(imageBase64, mime, "zelle", visionOpts).catch(() => null),
   ]);
   return pickPaymentAnalysis({ checkResult, zelleResult, textHint, fileName });
 }

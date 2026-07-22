@@ -66,6 +66,7 @@ import {
   hasUsefulPaymentAutofill,
   hasStrongPaymentAutofill,
 } from "../lib/paymentAutofill.js";
+import { buildPaymentVisionLearningEntry } from "../lib/paymentVisionLearning.js";
 import { getDepositBanks } from "../lib/chatPayment.js";
 import { analyzePaymentImage, analyzePaymentScreenshot, fileToBase64 } from "../lib/paymentVision.js";
 import ZelleReconcileSheet from "./ZelleReconcileSheet.jsx";
@@ -315,7 +316,15 @@ export function MarkPaidSheet({
   openProofPicker = false,
   initialCustomerName = "",
 }) {
-  const { patchJob, showToast, syncNow, refreshJobs, jobs } = useStore();
+  const {
+    patchJob,
+    showToast,
+    syncNow,
+    refreshJobs,
+    jobs,
+    appendPaymentVisionFeedback,
+    getPaymentVisionLearning,
+  } = useStore();
   const product = productName(useTenantConfig());
   const needsPick = !jobProp;
   const [reassign, setReassign] = useState(false);
@@ -462,13 +471,49 @@ export function MarkPaidSheet({
     return memoText || "";
   };
 
+  /** When Levi fixes vision fields (or fills what it missed) and Records, train the reader. */
+  const trainFromRecord = (targetJob) => {
+    if (!proofFile && !proofB64) return;
+    if (!(isCheck || isZelle)) return;
+    try {
+      const openDefault = targetJob ? openBalance(targetJob) : 0;
+      const entry = buildPaymentVisionLearningEntry({
+        kind: isCheck ? "check" : "zelle",
+        extracted: autofillExtracted,
+        finalFields: {
+          amount: payAmt,
+          ref,
+          date: dt,
+          memo,
+          invoiceNo: targetJob?.invoiceNo || inv || "",
+          payer: targetJob?.customer || pickCust?.name || custDraft || "",
+          openBalanceDefault: openDefault > 0 ? openDefault : "",
+        },
+        jobId: targetJob?.id || "",
+        invoiceNo: targetJob?.invoiceNo || inv || "",
+        proofName: proofFile?.name || "",
+      });
+      if (entry && appendPaymentVisionFeedback) {
+        appendPaymentVisionFeedback(entry);
+        return entry.deltas?.length || 0;
+      }
+    } catch {
+      /* training must never block record */
+    }
+    return 0;
+  };
+
   const stagePaymentOnJob = (targetJob, entry) => {
+    const trained = trainFromRecord(targetJob);
     const patch = appendPayment(targetJob, entry);
     const remaining = parseFloat(String(patch.openBalance)) || 0;
+    const trainNote = trained ? " · Your fixes train the check reader" : "";
     if (patch.paid) {
-      showToast("Payment staged — Save & sync to record in QuickBooks");
+      showToast("Payment staged — Save & sync to record in QuickBooks" + trainNote);
     } else {
-      showToast("Partial payment staged — " + fmt$(remaining) + " remaining. Save & sync for QuickBooks.");
+      showToast(
+        "Partial payment staged — " + fmt$(remaining) + " remaining. Save & sync for QuickBooks." + trainNote
+      );
     }
     patchJob(targetJob.id, patch);
     onClose();
@@ -512,8 +557,9 @@ export function MarkPaidSheet({
   };
 
   const applyAutofill = (extracted) => {
+    // Always keep the extract (even empty) so Record can train on vision_missed fields.
+    setAutofillExtracted(extracted || null);
     if (!hasUsefulPaymentAutofill(extracted)) {
-      setAutofillExtracted(null);
       setAutofillDone(false);
       setPaymentVerified(false);
       return false;
@@ -523,7 +569,6 @@ export function MarkPaidSheet({
     if (patch.ref) setRef(patch.ref);
     if (patch.dt) setDt(patch.dt);
     if (patch.memo) setMemo(patch.memo);
-    setAutofillExtracted(extracted);
     // Green Autofilled only when amount or check # actually filled — not name-only.
     const strong = hasStrongPaymentAutofill(extracted);
     setAutofillDone(strong);
@@ -563,27 +608,38 @@ export function MarkPaidSheet({
     if (!b64) return;
     setAutofillBusy(true);
     try {
+      let learningEntries = [];
+      try {
+        learningEntries = (await getPaymentVisionLearning?.()) || [];
+      } catch {
+        learningEntries = [];
+      }
       const { extracted } = await analyzePaymentImage(
         b64,
         file?.type || "image/jpeg",
         isCheck ? "check" : isZelle ? "zelle" : "check",
-        file?.name || ""
+        file?.name || "",
+        { learningEntries }
       );
       const invNo = invoiceNoFromExtracted(extracted);
       const matched = invNo && needsPick && !activeJob ? findJobByInvoice(jobs, invNo) : null;
       const ok = applyAutofill(extracted);
       if (!ok) {
-        showToast("Couldn't read amount or check # from the photo — enter them manually");
+        showToast("Couldn't read amount or check # yet — fill what it missed and Record to train the reader");
       } else if (!hasStrongPaymentAutofill(extracted) && !matched) {
-        showToast("Couldn't read amount or check # — enter them manually");
+        showToast("Partial read — fix anything wrong and Record to train the reader");
       } else if (!matched) {
-        showToast("Fields filled from image — review and tap Record");
+        showToast("Fields filled from image — fix anything wrong and Record (that trains the reader)");
       }
     } catch (e) {
       setAutofillDone(false);
       setPaymentVerified(false);
+      // Keep a null extract so Record still trains on Levi's fill-ins.
       setAutofillExtracted(null);
-      showToast("Could not read image — " + String((e && e.message) || "enter manually"));
+      showToast(
+        "Could not read image — fill the fields and Record to train. " +
+          String((e && e.message) || "")
+      );
     } finally {
       setAutofillBusy(false);
     }
