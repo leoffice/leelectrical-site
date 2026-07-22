@@ -88,28 +88,64 @@ export function hasPaymentVisionLearning(deltas) {
 
 /**
  * Compact few-shot block for the vision prompt from recent learning entries.
- * Each entry: { kind, deltas: [{field, vision, approved}], proofName?, ts }
+ * Each entry: { kind, deltas: [{field, vision, approved}], visionSnapshot?, source?, proofName?, ts }
+ * Gold entries (source includes "gold" + visionSnapshot) emit as full correct-read examples.
+ * Only same-kind entries are included (check vs zelle are not mixed).
  */
 export function formatLearningForPrompt(entries, kind = "check", max = 8) {
-  const list = (Array.isArray(entries) ? entries : [])
-    .filter((e) => !e.kind || e.kind === kind || e.kind === "check" || e.kind === "zelle")
+  const want = kind === "zelle" ? "zelle" : "check";
+  const all = (Array.isArray(entries) ? entries : []).filter(
+    (e) => !e.kind || e.kind === want
+  );
+  const gold = all
+    .filter(
+      (e) =>
+        e.visionSnapshot &&
+        (String(e.source || "").includes("gold") || e.gold === true)
+    )
+    .slice(-Math.min(4, max));
+  const corrections = all
     .filter((e) => Array.isArray(e.deltas) && e.deltas.length)
     .slice(-max);
-  if (!list.length) return "";
+  if (!gold.length && !corrections.length) return "";
 
-  const lines = [
-    "Levi's recent corrections (use these patterns — he fixed the reader before):",
-  ];
-  for (const e of list) {
-    const bits = e.deltas.map((d) => {
-      if (d.kind === "vision_missed" || !d.vision) {
-        return `${d.field}: you returned null/empty → correct is ${JSON.stringify(d.approved)}`;
+  const lines = [];
+  if (gold.length) {
+    lines.push(
+      want === "zelle"
+        ? "GOLD Zelle reads (correct full extracts — match this quality):"
+        : "GOLD check reads (correct full extracts — match this quality):"
+    );
+    for (const e of gold) {
+      const s = e.visionSnapshot || {};
+      const bits = [];
+      if (s.amount != null && s.amount !== "") bits.push(`amount=${s.amount}`);
+      if (want === "check" && s.checkNumber) bits.push(`checkNumber=${s.checkNumber}`);
+      if (want === "zelle" && (s.confirmationNumber || s.checkNumber)) {
+        bits.push(`confirmationNumber=${s.confirmationNumber || s.checkNumber}`);
       }
-      return `${d.field}: you said ${JSON.stringify(d.vision)} → correct is ${JSON.stringify(d.approved)}`;
-    });
-    lines.push("- " + bits.join("; "));
+      if (s.date) bits.push(`date=${s.date}`);
+      if (s.memo) bits.push(`memo=${JSON.stringify(s.memo)}`);
+      if (s.invoiceNumber) bits.push(`invoiceNumber=${s.invoiceNumber}`);
+      if (s.payer) bits.push(`payer=${JSON.stringify(s.payer)}`);
+      if (s.depositBank) bits.push(`depositBank=${JSON.stringify(s.depositBank)}`);
+      if (e.proofName) bits.push(`(proof: ${e.proofName})`);
+      lines.push("- " + bits.join(" · "));
+    }
   }
-  lines.push("Apply the same field rules on this new photo.");
+  if (corrections.length) {
+    lines.push("Levi's recent corrections (use these patterns — he fixed the reader before):");
+    for (const e of corrections) {
+      const bits = e.deltas.map((d) => {
+        if (d.kind === "vision_missed" || !d.vision) {
+          return `${d.field}: you returned null/empty → correct is ${JSON.stringify(d.approved)}`;
+        }
+        return `${d.field}: you said ${JSON.stringify(d.vision)} → correct is ${JSON.stringify(d.approved)}`;
+      });
+      lines.push("- " + bits.join("; "));
+    }
+    lines.push("Apply the same field rules on this new photo.");
+  }
   return lines.join("\n");
 }
 

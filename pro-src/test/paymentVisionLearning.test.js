@@ -78,6 +78,38 @@ describe("formatLearningForPrompt", () => {
     expect(text).toContain("450");
   });
 
+  it("emits gold snapshot examples and does not mix check into zelle", () => {
+    const text = formatLearningForPrompt(
+      [
+        {
+          kind: "zelle",
+          source: "israel_gold_train",
+          visionSnapshot: {
+            amount: 2000,
+            confirmationNumber: "BACzsyfc1ixk",
+            date: "2026-07-22",
+            memo: "157-159 remsen Lein",
+            payer: "MIRIAM WOLF",
+            depositBank: "Wells Fargo",
+          },
+          deltas: [],
+        },
+        {
+          kind: "check",
+          source: "israel_gold_train",
+          visionSnapshot: { amount: 450, checkNumber: "1356" },
+          deltas: [{ field: "amount", vision: null, approved: "450", kind: "vision_missed" }],
+        },
+      ],
+      "zelle"
+    );
+    expect(text).toContain("GOLD Zelle");
+    expect(text).toContain("BACzsyfc1ixk");
+    expect(text).toContain("MIRIAM WOLF");
+    expect(text).not.toContain("1356");
+    expect(text).not.toContain("checkNumber");
+  });
+
   it("empty when no entries", () => {
     expect(formatLearningForPrompt([])).toBe("");
   });
