@@ -25,6 +25,9 @@ import {
   formatInsightTimeLabel,
   formatInsightHoursLabel,
   formatInsightSourceLabel,
+  isDateTimeActionable,
+  isPastAppointmentInsight,
+  shouldSurfaceInsight,
   EMAIL_INSIGHT_TEST_AUTO_APPLY_LIMIT,
   APPOINTMENT_DURATION_MINUTES,
 } from "../src/lib/emailInsight.js";
@@ -212,6 +215,54 @@ describe("emailInsight", () => {
 
     const noDate = { ...good, dateTime: "", outcome: "scheduled" };
     expect(canAutoApply(noDate, job)).toBe(false);
+  });
+
+  it("never surfaces past-day appointment suggestions or reminders (Levi 2026-07-22)", () => {
+    // Morning after a Jul 21 Con Ed inspection — same case as the screenshot.
+    const morningAfter = new Date(2026, 6, 22, 8, 32, 0); // Jul 22 local
+    expect(isDateTimeActionable("2026-07-21T10:30", morningAfter)).toBe(false);
+    expect(isDateTimeActionable("2026-07-22T10:30", morningAfter)).toBe(true);
+
+    const pastReminder = {
+      outcome: "reminder",
+      dateTime: "2026-07-21T10:30",
+      appointmentType: "inspection",
+      agency: "coned",
+      address: "503 SCHENECTADY AVE, BROOKLYN, NY 11203",
+      source: { subject: "Con Edison Case Number MC-91013-Final Inspection Reminder", fromLabel: "Con Edison" },
+    };
+    expect(isPastAppointmentInsight(pastReminder, morningAfter)).toBe(true);
+    expect(shouldSurfaceInsight(pastReminder, morningAfter)).toBe(false);
+    expect(wantsNewCalendarAppointment(pastReminder, morningAfter)).toBe(false);
+    expect(canAutoApply(pastReminder, { id: "J-1" }, morningAfter)).toBe(false);
+
+    const pastScheduled = {
+      outcome: "scheduled",
+      dateTime: "2026-07-21T10:30",
+      appointmentType: "inspection",
+      jobMatchScore: 0.95,
+    };
+    expect(isPastAppointmentInsight(pastScheduled, morningAfter)).toBe(true);
+    expect(shouldSurfaceInsight(pastScheduled, morningAfter)).toBe(false);
+    expect(wantsNewCalendarAppointment(pastScheduled, morningAfter)).toBe(false);
+    expect(canAutoApply(pastScheduled, { id: "J-1" }, morningAfter)).toBe(false);
+    expect(buildProposedActions(pastScheduled, { id: "J-1" }, morningAfter).some((a) => a.key === "calendar")).toBe(
+      false
+    );
+
+    // Same-day appointment still surfaces.
+    const todayReminder = { ...pastReminder, dateTime: "2026-07-22T10:30" };
+    expect(isPastAppointmentInsight(todayReminder, morningAfter)).toBe(false);
+    expect(shouldSurfaceInsight(todayReminder, morningAfter)).toBe(true);
+
+    // Completed paperwork updates still surface even when the date is past.
+    const completed = {
+      outcome: "completed",
+      dateTime: "2026-07-21T10:30",
+      appointmentType: "inspection",
+    };
+    expect(isPastAppointmentInsight(completed, morningAfter)).toBe(false);
+    expect(shouldSurfaceInsight(completed, morningAfter)).toBe(true);
   });
 
   it("canAutoApply completed inspection for paperwork; not cancelled", () => {

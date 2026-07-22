@@ -1,5 +1,6 @@
 // Build a simple printable PDF from description / scope text (no external deps).
 import { activeTenantConfig, tenantName } from "./tenantBranding.js";
+import { formatPrintDescription, wrapPrintDescription } from "./printDescription.js";
 
 const PAGE_W = 612;
 const PAGE_H = 792;
@@ -19,32 +20,8 @@ function esc(s) {
     .replace(/[^\x09\x0a\x0d\x20-\x7e]/g, "?");
 }
 
-function wrapParagraph(para, max = 88) {
-  const words = String(para || "").trim().split(/\s+/).filter(Boolean);
-  if (!words.length) return [""];
-  const out = [];
-  let cur = "";
-  for (const w of words) {
-    const next = cur ? cur + " " + w : w;
-    if (next.length > max && cur) {
-      out.push(cur);
-      cur = w;
-    } else cur = next;
-  }
-  if (cur) out.push(cur);
-  return out;
-}
-
 function bodyLines(text) {
-  const lines = [];
-  for (const para of String(text || "").split("\n")) {
-    if (!para.trim()) {
-      lines.push("");
-      continue;
-    }
-    lines.push(...wrapParagraph(para));
-  }
-  return lines.length ? lines : [""];
+  return wrapPrintDescription(formatPrintDescription(text), 88);
 }
 
 function textLine(y, text, size) {

@@ -671,6 +671,42 @@ export function cancelStaleUnsentReminders(events, jobs, commands = [], now = ne
   return cleared;
 }
 
+/**
+ * Clear inspection day-before / day-of leftovers once the inspection day is over
+ * (Levi 2026-07-22 — no nag about yesterday's inspection).
+ * Does NOT touch service-call / estimate follow-ups on past visits (those are work items).
+ * Must-today / next-step work items stay.
+ * Returns how many were cleared.
+ */
+export function cancelPastAppointmentReminders(events, today, now = new Date()) {
+  const day = String(today || "").slice(0, 10);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(day)) return 0;
+  let cleared = 0;
+  for (const e of events || []) {
+    if (!e?.id) continue;
+    // Only inspections — "the appointment was yesterday" noise, not post-visit follow-ups.
+    if (!isInspectionEvent(e)) continue;
+    const ymd = eventYmd(e);
+    // Only past event days — today and future keep their reminders.
+    if (!ymd || ymd >= day) continue;
+    const st = eventState(loadState(), e.id);
+    if (!st || st.handledAt || st.noReminders || st.inspectionAcked) continue;
+    // Keep intentional work loops Levi set after the visit.
+    if (st.priority === "must_today" || st.nextStepAt) continue;
+    if (!st.remindAt && !st.nextNudgeAt && !st.snoozeUntil) continue;
+    patchEventState(e.id, {
+      handledAt: now.getTime?.() || Date.now(),
+      remindAt: "",
+      nextNudgeAt: "",
+      snoozeUntil: "",
+      staleCancelAt: now.getTime?.() || Date.now(),
+      staleCancelReason: "past_appointment",
+    });
+    cleared += 1;
+  }
+  return cleared;
+}
+
 function hasDocish(job, docKind) {
   if (!job) return false;
   if (docKind === "invoice") return !!(job.invoiceNo || job._invoiceConfirmed);
@@ -680,6 +716,7 @@ function hasDocish(job, docKind) {
 /** All active reminders for the Reminders tab — same sources as popups, sorted by priority. */
 export function buildReminderList(events, jobs, today, now = new Date(), commands = []) {
   cancelStaleUnsentReminders(events, jobs, commands, now);
+  cancelPastAppointmentReminders(events, today, now);
   const list = [];
   const state = loadState();
 
@@ -785,6 +822,8 @@ export function buildPromptQueue(events, jobs, today, now = new Date(), commands
   if (isRemindersPaused(now)) return [];
   // Verify send status before any popup — cancel stale "unsent" reminders first.
   cancelStaleUnsentReminders(events, jobs, commands, now);
+  // Drop leftover appointment-day reminders after the event day ends.
+  cancelPastAppointmentReminders(events, today, now);
   const queue = [];
   for (const item of dueMustTodayNudges(events, jobs, today, now)) {
     queue.push({ kind: "must_today_nudge", ...item, priority: "must_today" });

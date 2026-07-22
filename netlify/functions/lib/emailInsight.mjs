@@ -703,7 +703,7 @@ export function matchJobForInsight(insight, jobs, minScore = 0.55) {
   return { jobId: best.id, score: bestScore, job: best };
 }
 
-export function buildProposedActions(insight, job) {
+export function buildProposedActions(insight, job, now = new Date()) {
   const type = insight?.appointmentType || "other";
   const outcome = insight?.outcome || "other";
   const agency = insight?.agency || "";
@@ -711,10 +711,12 @@ export function buildProposedActions(insight, job) {
   const when = insight?.dateTime || "";
   const addr = insight?.address || job?.serviceAddress || job?.address || "";
   const typeLabel = appointmentTypeLabel(type, agency);
+  const past = isPastAppointmentInsight(insight, now);
 
   // Only NEW appointment-set emails create calendar events (not pure reminders).
+  // Past appointments are never scheduleable — no second calendar add after the day.
   const isNewSet = outcome === "scheduled" || outcome === "other";
-  const scheduleable = isNewSet;
+  const scheduleable = isNewSet && !past;
 
   if (scheduleable) {
     actions.push({
@@ -730,7 +732,7 @@ export function buildProposedActions(insight, job) {
       actions.push({ key: "remind_1d", label: "Reminder 1 day before", enabled: true, defaultOn: true });
       actions.push({ key: "remind_1h", label: "Reminder 1 hour before", enabled: true, defaultOn: true });
     }
-  } else if (outcome === "reminder") {
+  } else if (outcome === "reminder" && !past) {
     actions.push({
       key: "note_reminder",
       label: "Reminder email only — won't add a second calendar appointment",
@@ -958,6 +960,30 @@ export function isDateTimeActionable(dateTime, now = new Date()) {
 }
 
 /**
+ * True when this insight's appointment day is already over (before today).
+ * Used to drop stale suggestion/reminder popups (Levi 2026-07-22):
+ * no smart-suggestion and no reminder sheet for yesterday's appointment.
+ * Completed emails keep flowing (paperwork) even when the date is past.
+ */
+export function isPastAppointmentInsight(insight, now = new Date()) {
+  if (!insight?.dateTime) return false;
+  const outcome = insight.outcome || "other";
+  // Completed = "inspection done" update — date is always past when the email arrives.
+  if (outcome === "completed") return false;
+  return !isDateTimeActionable(insight.dateTime, now);
+}
+
+/**
+ * Whether the app should show any sheet for this insight (approve / done notice).
+ * Past appointment reminders and late-arriving sets are silent — auto-ignored.
+ */
+export function shouldSurfaceInsight(insight, now = new Date()) {
+  if (!insight) return false;
+  if (isPastAppointmentInsight(insight, now)) return false;
+  return true;
+}
+
+/**
  * Silent auto-apply when we have a strong job match and a clear NEW appointment set.
  * Reminder emails never auto-create (Levi 2026-07-22) — they may be auto-dismissed
  * elsewhere after a calendar cross-check. Weak matches still need Levi's approve sheet.
@@ -969,6 +995,8 @@ export function canAutoApply(insight, job, now = new Date()) {
   if (outcome === "cancelled") return false;
   // Reminder-only: do not create calendar events from reminders.
   if (outcome === "reminder") return false;
+  // Past appointment day: never auto-create / never suggest.
+  if (isPastAppointmentInsight(insight, now)) return false;
   // Completed inspections: auto-update paperwork only (still notify).
   if (outcome === "completed") return true;
   // Need a date/time on the calendar, and not a stale past appointment.
@@ -980,10 +1008,12 @@ export function canAutoApply(insight, job, now = new Date()) {
 /**
  * Whether this email should create a calendar event (new set only, not reminder).
  */
-export function wantsNewCalendarAppointment(insight) {
+export function wantsNewCalendarAppointment(insight, now = new Date()) {
   const outcome = insight?.outcome || "other";
   if (outcome === "reminder" || outcome === "cancelled" || outcome === "completed") return false;
-  return !!insight?.dateTime;
+  if (!insight?.dateTime) return false;
+  // Never create calendar events for appointments that already happened.
+  return isDateTimeActionable(insight.dateTime, now);
 }
 
 export function defaultActionKeys(insight, job) {

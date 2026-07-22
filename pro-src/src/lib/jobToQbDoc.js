@@ -6,6 +6,7 @@ import { effectiveServiceAddress } from "./customerSync.js";
 import { fmtInvoiceDate } from "./invoicePdf.js";
 import { isChangeOrderJob } from "./changeOrder.js";
 import { activeTenantConfig, tenantCompany } from "./tenantBranding.js";
+import { formatPrintDescription } from "./printDescription.js";
 
 /**
  * Header company block for the QBO template. Functions rather than consts:
@@ -94,11 +95,9 @@ function billableLines(job, kind) {
 
 function mapLines(lines) {
   return lines.map((ln) => {
-    // Product/Service (itemName) is backend-only — print description only.
-    // Fall back to item name only when description is empty so the row isn't blank.
-    const name = String(ln.itemName || "").trim();
-    const dtxt = String(ln.description || "").trim();
-    const desc = dtxt || name || "";
+    // Product/Service (itemName) is backend-only — never print it.
+    // Blank lines + bullet layout are preserved for the PDF.
+    const desc = formatPrintDescription(ln.description);
     const rate = parseAmount(ln.unitPrice);
     const qty = parseAmount(ln.qty) || 1;
     return {

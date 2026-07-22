@@ -163,7 +163,7 @@ describe("jobToQbDoc", () => {
     expect(d.lines[0].description).not.toMatch(/Service call/);
   });
 
-  it("falls back to product/service name when description is empty", () => {
+  it("never prints product/service name — even when description is empty", () => {
     const d = mapJobToQbDocData(
       {
         ...job,
@@ -171,6 +171,31 @@ describe("jobToQbDoc", () => {
       },
       "invoice"
     );
-    expect(d.lines[0].description).toBe("Permit fee");
+    expect(d.lines[0].description).toBe("");
+    expect(d.lines[0].description).not.toMatch(/Permit fee/);
+  });
+
+  it("preserves blank lines and normalizes bullet dots for print", () => {
+    const d = mapJobToQbDocData(
+      {
+        ...job,
+        estimateLines: [
+          {
+            itemName: "Service Upgrade:2 Meters",
+            description:
+              "Installation at 157 Remsen Avenue as follows:\n\n• Removal of existing equipment\n• Installation of 100 A panel\n\nPrice does not include filing.",
+            qty: 1,
+            unitPrice: 2200,
+          },
+        ],
+      },
+      "estimate"
+    );
+    const desc = d.lines[0].description;
+    expect(desc).toContain("\n\n");
+    expect(desc).toContain("- Removal of existing equipment");
+    expect(desc).toContain("- Installation of 100 A panel");
+    expect(desc).not.toMatch(/Service Upgrade/);
+    expect(desc).not.toMatch(/[•●]/);
   });
 });

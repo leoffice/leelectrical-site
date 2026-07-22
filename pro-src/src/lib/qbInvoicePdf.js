@@ -10,6 +10,7 @@ import {
 // rules, bold BALANCE DUE, centered footer. No network / no pdfkit.
 import { LE_LOGO_JPEG, leLogoJpegBytes } from "./leLogoJpeg.js";
 import { activeTenantConfig, tenantCompany } from "./tenantBranding.js";
+import { wrapPrintDescription } from "./printDescription.js";
 
 const PAGE_W = 612;
 const PAGE_H = 792;
@@ -47,26 +48,9 @@ const r2 = (n) => Math.round(n * 100) / 100;
 export const qbMoney = (n) =>
   (Number(n) || 0).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
-/** Word-wrap to a pixel width (returns lines). Preserves intentional newlines. */
+/** Word-wrap to a pixel width (returns lines). Preserves blank lines + bullets. */
 function wrap(str, maxW, size, bold = false) {
-  const out = [];
-  for (const para of String(str || "").split(/\r?\n/)) {
-    if (!para.trim()) {
-      out.push("");
-      continue;
-    }
-    const words = para.split(/\s+/).filter(Boolean);
-    let cur = "";
-    for (const w of words) {
-      const next = cur ? cur + " " + w : w;
-      if (textWidth(next, size, bold) > maxW && cur) {
-        out.push(cur);
-        cur = w;
-      } else cur = next;
-    }
-    if (cur) out.push(cur);
-  }
-  return out.length ? out : [""];
+  return wrapPrintDescription(str, maxW, (s) => textWidth(s, size, bold));
 }
 
 function Page() {

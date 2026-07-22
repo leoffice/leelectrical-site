@@ -172,9 +172,16 @@ export function mapJobToQbDocData(job, kind = "invoice") {
   const docNumber = String(isInvoice ? job.invoiceNo : job.estimateNo || "").trim();
   const rawLines = billableLines(job, kind);
   const lines = rawLines.map((ln) => {
-    // Product/Service (itemName) is backend-only — print description only.
-    // Fall back to item name only when description is empty so the row isn't blank.
-    const desc = String(ln.description || "").trim() || String(ln.itemName || "").trim() || "";
+    // Product/Service (itemName) is backend-only — never print it.
+    // Preserve blank lines and normalize bullets the same way as the client PDF.
+    let desc = String(ln.description ?? "");
+    desc = desc.replace(/\r\n/g, "\n").replace(/\r/g, "\n");
+    desc = desc.replace(/^[ \t]*[•●◦▪▫·∙‣⁃]/gm, (m) => m.replace(/[•●◦▪▫·∙‣⁃]/, "-"));
+    desc = desc.replace(/^[ \t]*[–—]/gm, (m) => m.replace(/[–—]/, "-"));
+    desc = desc.replace(/^([ \t]*-)(?=[^\s-])/gm, "$1 ");
+    desc = desc.replace(/[\u201C\u201D]/g, '"').replace(/[\u2018\u2019]/g, "'");
+    desc = desc.replace(/\u2026/g, "...").replace(/\u00a0/g, " ");
+    desc = desc.replace(/^\n+/, "").replace(/\n+$/, "");
     const rate = parseAmount(ln.unitPrice);
     const qty = parseAmount(ln.qty) || 1;
     return { description: desc, rate, qty, amount: lineAmount(ln), serviceDate: ln.serviceDate || ln.date || "" };
