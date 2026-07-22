@@ -860,30 +860,28 @@ export default function PayLanding() {
 
           {data.w ? (
             <div className="mt-4 text-sm">
-              <button
-                type="button"
-                className="w-full text-left"
-                data-testid="work-desc-toggle"
-                aria-expanded={showWorkDesc}
-                onClick={() => setShowWorkDesc((v) => !v)}
-              >
-                <div className="text-[10px] font-extrabold uppercase tracking-wider text-slate-500 mb-1 flex items-center justify-between gap-2">
-                  <span>Work</span>
-                  <span className="text-[10px] font-bold text-brand normal-case tracking-normal">
-                    {showWorkDesc ? "Hide ▴" : "Details ▾"}
-                  </span>
-                </div>
-                {/* max-height collapse — more reliable than line-clamp + pre-wrap on iOS */}
-                <div
-                  className={
-                    "text-slate-900 leading-snug whitespace-pre-wrap transition-[max-height] " +
-                    (showWorkDesc ? "max-h-[2000px]" : "max-h-[2.75rem] overflow-hidden")
-                  }
-                  data-testid="work-desc-body"
+              <div className="text-[10px] font-extrabold uppercase tracking-wider text-slate-500 mb-1 flex items-center justify-between gap-2">
+                <span>Work</span>
+                <button
+                  type="button"
+                  className="text-[10px] font-bold text-brand normal-case tracking-normal px-1 py-0.5"
+                  data-testid="work-desc-toggle"
+                  aria-expanded={showWorkDesc}
+                  onClick={() => setShowWorkDesc((v) => !v)}
                 >
-                  {data.w}
-                </div>
-              </button>
+                  {showWorkDesc ? "Hide ▴" : "Details ▾"}
+                </button>
+              </div>
+              {/* Conditional render — iOS-safe (max-height on pre-wrap was a no-op for some taps) */}
+              <div
+                className={
+                  "text-slate-900 leading-snug whitespace-pre-wrap " +
+                  (showWorkDesc ? "" : "line-clamp-2 overflow-hidden")
+                }
+                data-testid="work-desc-body"
+              >
+                {data.w}
+              </div>
             </div>
           ) : null}
 

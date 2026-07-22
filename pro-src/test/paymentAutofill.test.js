@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  hasStrongPaymentAutofill,
   hasUsefulPaymentAutofill,
   invoiceNoFromExtracted,
   parseExtractedAmount,
@@ -76,5 +77,13 @@ describe("paymentAutofill", () => {
       amt: "80",
       ref: "99",
     });
+  });
+
+  it("green Autofilled only when amount or check # is present", () => {
+    expect(hasStrongPaymentAutofill({ payer: "Only Name" })).toBe(false);
+    expect(hasStrongPaymentAutofill({ memo: "for the job" })).toBe(false);
+    expect(hasStrongPaymentAutofill({ amount: 50 })).toBe(true);
+    expect(hasStrongPaymentAutofill({ checkNumber: "1042" })).toBe(true);
+    expect(hasUsefulPaymentAutofill({ payer: "Only Name" })).toBe(true);
   });
 });

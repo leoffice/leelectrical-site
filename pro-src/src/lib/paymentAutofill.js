@@ -27,12 +27,21 @@ export function paymentAutofillPatch(extracted) {
 }
 
 /**
- * True when vision actually returned something we can put on the form.
+ * True when vision returned something we can put on the form (partial OK).
  * Empty / failed extracts must NOT show green "Autofilled" / "Read from check".
  */
 export function hasUsefulPaymentAutofill(extracted) {
   const patch = paymentAutofillPatch(extracted);
   return !!(patch.amt || patch.ref || patch.memo || patch.invoiceNo || patch.name || patch.dt);
+}
+
+/**
+ * Green "Autofilled" / "Read from check" only when amount or check/ref landed.
+ * Name/memo alone is useful for matching but must not look like a full read.
+ */
+export function hasStrongPaymentAutofill(extracted) {
+  const patch = paymentAutofillPatch(extracted);
+  return !!(patch.amt || patch.ref);
 }
 
 /**

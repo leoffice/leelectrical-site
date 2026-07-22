@@ -8,8 +8,9 @@ import { buildEstimatePdfFromJob, buildInvoicePdfFromJob } from "./invoicePdf.js
 
 export function isEstimateLanding(data) {
   if (!data) return false;
+  if (data.k === "i" || data.kind === "invoice") return false;
   if (data.k === "e" || data.kind === "estimate") return true;
-  return Array.isArray(data.lines) && data.lines.length > 0 && !data.pay;
+  return Array.isArray(data.lines) && data.lines.length > 0 && !data.pay && !data.sl;
 }
 
 export function estimateDocNo(data) {
@@ -87,6 +88,23 @@ export function buildInvoiceJobFromPayload(data) {
         ref: String(p?.r || "").trim(),
       }))
     : [];
+  // Prefer line items from the pay link (change orders carry full scope here).
+  const fromPayload = Array.isArray(data?.lines)
+    ? data.lines
+        .filter((ln) => ln && (ln.description || ln.itemName || lineAmount(ln)))
+        .map((ln) => ({
+          itemName: String(ln.itemName || "").trim(),
+          description: String(ln.description || ln.itemName || work).trim(),
+          qty: Number(ln.qty) > 0 ? Number(ln.qty) : 1,
+          unitPrice: Number(ln.unitPrice) || lineAmount(ln) || 0,
+        }))
+    : [];
+  const invoiceLines =
+    fromPayload.length > 0
+      ? fromPayload
+      : total > 0
+        ? [{ itemName: "Electrical services", description: work, qty: 1, unitPrice: total }]
+        : [];
   return {
     id: String(data?.j || "").trim(),
     customer: String(data?.c || "").trim(),
@@ -98,10 +116,7 @@ export function buildInvoiceJobFromPayload(data) {
     address: String(data?.sa || data?.ba || "").trim(),
     zip: String(data?.z || "").trim(),
     invoiceNo: invNo,
-    invoiceLines:
-      total > 0
-        ? [{ itemName: "Electrical services", description: work, qty: 1, unitPrice: total }]
-        : [],
+    invoiceLines,
     amount: total,
     openBalance: due,
     payments: pays,

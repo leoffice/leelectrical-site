@@ -64,6 +64,7 @@ import {
   paymentMemoNote,
   invoiceNoFromExtracted,
   hasUsefulPaymentAutofill,
+  hasStrongPaymentAutofill,
 } from "../lib/paymentAutofill.js";
 import { getDepositBanks } from "../lib/chatPayment.js";
 import { analyzePaymentImage, analyzePaymentScreenshot, fileToBase64 } from "../lib/paymentVision.js";
@@ -523,8 +524,10 @@ export function MarkPaidSheet({
     if (patch.dt) setDt(patch.dt);
     if (patch.memo) setMemo(patch.memo);
     setAutofillExtracted(extracted);
-    setAutofillDone(true);
-    setPaymentVerified(true);
+    // Green Autofilled only when amount or check # actually filled — not name-only.
+    const strong = hasStrongPaymentAutofill(extracted);
+    setAutofillDone(strong);
+    setPaymentVerified(strong);
     // When adding a payment from ＋ (no job yet), try to land on the invoice
     // written on the check (invoice #, amount, date, name already set).
     if (needsPick && !activeJob) {
@@ -571,6 +574,8 @@ export function MarkPaidSheet({
       const ok = applyAutofill(extracted);
       if (!ok) {
         showToast("Couldn't read amount or check # from the photo — enter them manually");
+      } else if (!hasStrongPaymentAutofill(extracted) && !matched) {
+        showToast("Couldn't read amount or check # — enter them manually");
       } else if (!matched) {
         showToast("Fields filled from image — review and tap Record");
       }
@@ -594,7 +599,8 @@ export function MarkPaidSheet({
           : await analyzePaymentScreenshot(proofB64, proofFile?.type || "image/jpeg", proofKind);
       if (!autofillDone) {
         setAutofillExtracted(extracted);
-        setAutofillDone(true);
+        // Only mark Autofilled green when amount/ref actually present.
+        setAutofillDone(hasStrongPaymentAutofill(extracted));
       }
       if (isCheck) {
         const checkRef = String(extracted.confirmationNumber || extracted.checkNumber || ref || "").trim();

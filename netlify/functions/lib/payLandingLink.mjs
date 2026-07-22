@@ -54,7 +54,9 @@ function paymentsFor(job) {
 /** Compact line items for estimate→deposit invoice on the public landing page. */
 function compactLines(job, kind = "invoice") {
   const raw =
-    (kind === "estimate" ? job?.estimateLines : job?.invoiceLines) ||
+    (kind === "estimate"
+      ? job?.estimateLines
+      : job?.changeOrderLines || job?.invoiceLines) ||
     job?.items ||
     [];
   return (Array.isArray(raw) ? raw : [])
@@ -67,6 +69,22 @@ function compactLines(job, kind = "invoice") {
       unitPrice: amt(ln.unitPrice || ln.rate) || amt(ln.amount),
     }))
     .slice(0, 80);
+}
+
+/** Full work text for Details expand — lines first, not truncated title. */
+function workDescription(job) {
+  const sets = [job?.changeOrderLines, job?.invoiceLines, job?.items, job?.estimateLines];
+  const parts = [];
+  for (const set of sets) {
+    if (!Array.isArray(set) || !set.length) continue;
+    for (const ln of set) {
+      const d = String(ln?.description || ln?.itemName || "").trim();
+      if (d && !parts.includes(d)) parts.push(d);
+    }
+    if (parts.length) break;
+  }
+  if (parts.length) return parts.join("\n\n").slice(0, 8000);
+  return String(job?.title || job?.serviceType || "Electrical services").trim();
 }
 
 /**
@@ -91,13 +109,14 @@ export function buildEmailPayLandingPayload({
   const docNo = String(
     docData.docNumber || (isEstimate ? job.estimateNo : job.invoiceNo) || ""
   ).trim();
+  const invLines = isEstimate ? compactLines(job, "estimate") : compactLines(job, "invoice");
   const payload = {
     j: String(job.id || "").trim(),
     i: docNo,
     a: due,
     fe: isEstimate ? 0 : 1,
     c: String(docData.billTo?.name || job.customer || "").trim(),
-    w: String(job.title || job.serviceType || "Electrical services").trim(),
+    w: workDescription(job),
     t: money(isEstimate ? due : due + paid),
     d: money(due),
     p: money(paid),
@@ -112,9 +131,9 @@ export function buildEmailPayLandingPayload({
     as: new Date().toISOString().slice(0, 10),
     k: isEstimate ? "e" : "i",
   };
+  if (invLines.length) payload.lines = invLines;
   if (isEstimate) {
     payload.en = docNo; // estimate number (i also holds it)
-    payload.lines = compactLines(job, "estimate");
     payload.dp = 50; // default deposit %
     payload.qboCustomerId = String(job.qboCustomerId || "").trim();
     payload.businessName = String(job.businessName || job.customer || "").trim();
