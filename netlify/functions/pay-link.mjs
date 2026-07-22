@@ -24,7 +24,9 @@ function randomSuffix() {
 
 function makeCode(invoiceNo) {
   const inv = String(invoiceNo || "").trim().replace(/\D/g, "");
-  const base = inv || String(Date.now()).slice(-6);
+  // Always 5–8 digits so short codes still match CODE_RE / short-link resolver.
+  let base = (inv || String(Date.now()).slice(-6)).slice(0, 8);
+  if (base.length < 5) base = base.padStart(5, "0");
   return `${base}-${randomSuffix()}`;
 }
 

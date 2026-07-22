@@ -19,7 +19,9 @@ const TTL_MS = 90 * 24 * 60 * 60 * 1000; // 90 days — matches pay-link.mjs
 /** Same shape pay-link.mjs mints and PayLanding accepts: 5-8 digits + "-" + 4. */
 export function makePayCode(invoiceNo, rand = Math.random) {
   const inv = String(invoiceNo || "").trim().replace(/\D/g, "");
-  const base = (inv || String(Date.now()).slice(-6)).slice(0, 8);
+  // Always 5–8 digits so short codes (est names like TEST-VA-1 → "1") still resolve.
+  let base = (inv || String(Date.now()).slice(-6)).slice(0, 8);
+  if (base.length < 5) base = base.padStart(5, "0");
   const suffix = rand().toString(36).slice(2, 6).padEnd(4, "0").slice(0, 4);
   return `${base}-${suffix}`;
 }
