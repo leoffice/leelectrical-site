@@ -30,15 +30,44 @@ export function isInvoiceJob(job) {
 export function rawBalance(job) {
   if (!job) return 0;
   const pays = normalizePayments(job);
-  if (pays.length) return remainingBalance(job, pays);
-  if (job.openBalance != null && job.openBalance !== "") {
-    const stored = parseAmount(job.openBalance);
+  const hasExplicitOpen = job.openBalance != null && job.openBalance !== "";
+  const storedOpen = hasExplicitOpen ? parseAmount(job.openBalance) : null;
+
+  // QBO sync often marks paid (openBalance 0) without refreshing the payment
+  // ledger. Incomplete payments would still show a remainder — trust zero.
+  if (hasExplicitOpen && storedOpen <= 0.01) return 0;
+
+  if (pays.length) {
+    const fromPays = remainingBalance(job, pays);
+    if (!hasExplicitOpen) return fromPays;
+    // Payment ledger says more owed than openBalance:
+    // - Progress draw raised after payments → trust payments (invoice − paid)
+    // - QBO already applied a payment the local list missed → trust openBalance
+    if (fromPays > storedOpen + 0.009) {
+      const inv = parseAmount(job.amount);
+      const baseline =
+        job.paymentBaseline != null && job.paymentBaseline !== ""
+          ? parseAmount(job.paymentBaseline)
+          : null;
+      const paidSum = totalPaid(pays);
+      const progressLike =
+        isProgressInvoiceJob(job) ||
+        (baseline != null &&
+          inv > baseline + 0.009 &&
+          paidSum > 0 &&
+          paidSum / Math.max(baseline, 1) >= 0.3);
+      if (progressLike) return fromPays;
+      return Math.max(0, storedOpen);
+    }
+    return fromPays;
+  }
+  if (hasExplicitOpen) {
     // Progress invoice total raised with no payment ledger — balance tracks amount.
     if (isProgressInvoiceJob(job)) {
       const inv = parseAmount(job.amount);
-      if (inv > stored + 0.009) return inv;
+      if (inv > storedOpen + 0.009) return inv;
     }
-    return stored;
+    return storedOpen;
   }
   const hay = [job.notes, job.followUp && job.followUp.text].filter(Boolean).join(" ");
   const m = hay.match(/(?:open\s*balance|balance\s*due|balance|owes?|remaining|still\s*owes?)\D{0,8}\$?\s*([\d,]+(?:\.\d+)?)/i);
@@ -128,9 +157,20 @@ export function amountPaid(job) {
   // openBalance is now $0, the `total - due` inference below would wrongly
   // report the whole estimate as "paid". Gate on being an actual invoice.
   if (!isInvoiceJob(job)) return 0;
+  const total = invoiceTotal(job);
+  const hasExplicitOpen = job.openBalance != null && job.openBalance !== "";
+  const storedOpen = hasExplicitOpen ? parseAmount(job.openBalance) : null;
+  // Fully paid in QBO/sync even when the local payment list is incomplete.
+  if (
+    (job.paid && (!hasExplicitOpen || storedOpen <= 0.01)) ||
+    (hasExplicitOpen && storedOpen <= 0.01)
+  ) {
+    const pays = normalizePayments(job);
+    const sum = pays.length ? totalPaid(pays) : 0;
+    return Math.max(sum, total || parseAmount(job.payment?.amount) || 0);
+  }
   const pays = normalizePayments(job);
   if (pays.length) return totalPaid(pays);
-  const total = invoiceTotal(job);
   if (job.paid && (job.openBalance == null || job.openBalance === "" || parseAmount(job.openBalance) === 0)) {
     return total || parseAmount(job.payment?.amount);
   }
