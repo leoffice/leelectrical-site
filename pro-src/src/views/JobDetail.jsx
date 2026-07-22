@@ -6,6 +6,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { useStore } from "../state/store.jsx";
+import { useDebouncedPatchField } from "../lib/useDebouncedPatch.js";
 import { productName } from "../lib/tenantBranding.js";
 import {
   FOLLOWUP_TYPES,
@@ -263,6 +264,17 @@ export default function JobDetail() {
         .filter((c) => String(c.jobId) === String(id))
         .sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0)),
     [commands, id]
+  );
+
+  // Hooks must run before the !job early return.
+  const notesToPatch = useCallback((v) => ({ notes: v }), []);
+  const fuTextToPatch = useCallback((v) => ({ followUp: { text: v } }), []);
+  const notesField = useDebouncedPatchField(id, job?.notes || "", patchJob, notesToPatch);
+  const fuTextField = useDebouncedPatchField(
+    id,
+    (job?.followUp && job.followUp.text) || "",
+    patchJob,
+    fuTextToPatch
   );
 
   if (!job) {
@@ -903,8 +915,9 @@ export default function JobDetail() {
           <input
             className="input flex-1"
             placeholder="Custom message (optional)"
-            value={fu.text || ""}
-            onChange={(e) => setFu({ text: e.target.value })}
+            value={fuTextField.value}
+            onChange={fuTextField.onChange}
+            onBlur={fuTextField.onBlur}
             aria-label="Follow-up text"
           />
           <input
@@ -936,8 +949,9 @@ export default function JobDetail() {
           <label className="block text-xs font-bold text-slate-500 mb-1.5">Notes</label>
           <textarea
             className="input min-h-[74px]"
-            value={job.notes || ""}
-            onChange={(e) => patchJob(id, { notes: e.target.value })}
+            value={notesField.value}
+            onChange={notesField.onChange}
+            onBlur={notesField.onBlur}
             aria-label="Notes"
           />
         </div>

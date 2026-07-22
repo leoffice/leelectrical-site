@@ -1,9 +1,9 @@
 // Sticky staged-changes bar — appears whenever edits are pending.
 import React from "react";
-import { useStore } from "../state/store.jsx";
+import { useStoreEdit } from "../state/store.jsx";
 
 export default function SaveBar() {
-  const { dirtyCount, saving, saveAll, discardAll } = useStore();
+  const { dirtyCount, saving, saveAll, discardAll } = useStoreEdit();
   if (!dirtyCount) return null;
   return (
     <div className="fixed z-40 inset-x-0 bottom-16 lg:bottom-4 lg:left-60 pb-safe" data-testid="savebar">

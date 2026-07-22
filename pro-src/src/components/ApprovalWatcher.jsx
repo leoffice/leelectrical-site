@@ -3,7 +3,7 @@
 import React, { useEffect, useRef, useState } from "react";
 import FloatingPanel from "./FloatingPanel.jsx";
 import { Opt } from "./Sheet.jsx";
-import { useStore } from "../state/store.jsx";
+import { useStoreData } from "../state/store.jsx";
 import { customerSyncPayload, qboCustomerToJobPatch } from "../lib/customerSync.js";
 import { productName } from "../lib/tenantBranding.js";
 import { useTenantConfig } from "../state/tenant.jsx";
@@ -27,7 +27,7 @@ function fieldRows(proposed, qboCustomer, diffs) {
 }
 
 export default function ApprovalWatcher() {
-  const { commands, resolveApproval, enqueue, effectiveJob, showToast } = useStore();
+  const { commands, resolveApproval, enqueue, showToast, effectiveJob } = useStoreData();
   const product = productName(useTenantConfig());
   const seen = useRef({});
   const [cmd, setCmd] = useState(null);

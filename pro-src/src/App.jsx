@@ -3,7 +3,7 @@
 // sheet, sticky SaveBar and toast. Hash routing.
 import React, { Suspense, useEffect, useMemo, useState } from "react";
 import { NavLink, Route, Routes, useLocation, useNavigate } from "react-router-dom";
-import { useStore } from "./state/store.jsx";
+import { useStore, useStoreData, useStoreEdit } from "./state/store.jsx";
 import { useTenantConfig } from "./state/tenant.jsx";
 import {
   allowedRoutePaths,
@@ -96,7 +96,8 @@ const ROUTE_ELEMENTS = {
 };
 
 function Tab({ t, sidebar }) {
-  const { devBadge, reminderBadge, guardNav, dirtyJobs } = useStore();
+  const { devBadge, reminderBadge } = useStoreData();
+  const { guardNav, dirtyJobs } = useStoreEdit();
   const nav = useNavigate();
   const loc = useLocation();
   const badge = t.to === "/dev" ? devBadge : t.to === "/reminders" ? reminderBadge : 0;
@@ -137,7 +138,7 @@ function Tab({ t, sidebar }) {
 }
 
 function LeaveSheet() {
-  const { leaveReq, setLeaveReq, saveAll, discardAll, dirtyCount } = useStore();
+  const { leaveReq, setLeaveReq, saveAll, discardAll, dirtyCount } = useStoreEdit();
   if (!leaveReq) return null;
   const close = () => setLeaveReq(null);
   const go = leaveReq.cb;
@@ -185,22 +186,59 @@ function useIsDesktop() {
   return desktop;
 }
 
+/** FAB that lifts above the save bar — isolated so App shell doesn't re-render on type. */
+function DesktopFab({ onClick, testId, className, children, ariaLabel }) {
+  const { dirtyCount } = useStoreEdit();
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      aria-label={ariaLabel}
+      data-testid={testId}
+      className={`${className} ${dirtyCount ? "bottom-24" : "bottom-6"}`}
+    >
+      {children}
+    </button>
+  );
+}
+
+function DevOverflowBadge({ overflowTabs }) {
+  const { devBadge } = useStoreData();
+  if (!(devBadge > 0 && overflowTabs.some((t) => t.to === "/dev"))) return null;
+  return (
+    <span className="absolute top-1 right-[22%] bg-red-600 text-white text-[9px] font-extrabold rounded-full min-w-[15px] h-[15px] leading-[15px] text-center px-0.5">
+      {devBadge}
+    </span>
+  );
+}
+
+function MoreNavOpt({ t, onClose, pathname, navigate }) {
+  const { dirtyJobs, guardNav } = useStoreEdit();
+  return (
+    <Opt
+      icon={t.ic}
+      title={t.label}
+      onClick={() => {
+        onClose();
+        if (dirtyJobs > 0 && pathname.startsWith("/job/")) guardNav(() => navigate(t.to));
+        else navigate(t.to);
+      }}
+    />
+  );
+}
+
 export default function App() {
+  // Data-only shell: typing staged edits must NOT re-render the whole app tree.
   const {
     toast,
     docConfirm,
     error,
     setNewJob,
     refresh,
-    dirtyCount,
-    effectiveJob,
     jobs,
     toggleChat,
     chatUnread,
-    devBadge,
-    dirtyJobs,
-    guardNav,
-  } = useStore();
+  } = useStoreData();
   const navigate = useNavigate();
   const { logoSrc } = useAppSettings();
   const config = useTenantConfig();
@@ -230,7 +268,11 @@ export default function App() {
   // so it is always visible at the top of the screen and never squeezed into a
   // bottom-nav corner. Exactly one `fab-add` exists per route.
   const isJobsRoute = loc.pathname === "/";
-  const fabContext = appointmentContextFromRoute(loc.pathname, { effectiveJob, jobs });
+  // Base jobs are enough for FAB context; staged notes don't change appointment context.
+  const fabContext = appointmentContextFromRoute(loc.pathname, {
+    effectiveJob: (id) => jobs.find((j) => String(j.id) === String(id)) || null,
+    jobs,
+  });
   const openNewJob = () => setNewJob({ step: "choose", context: fabContext });
 
   return (
@@ -353,31 +395,25 @@ export default function App() {
           placement tests still see exactly one fab-add.
         */}
         {isDesktop && showFab ? (
-          <button
-            type="button"
+          <DesktopFab
             onClick={openNewJob}
-            aria-label="Add"
-            data-testid="fab-add-desktop"
-            className={`fixed z-40 right-24 w-[54px] h-[54px] rounded-2xl bg-slate-900 text-white text-2xl shadow-xl flex items-center justify-center hover:bg-slate-800 active:opacity-90 ${
-              dirtyCount ? "bottom-24" : "bottom-6"
-            }`}
+            ariaLabel="Add"
+            testId="fab-add-desktop"
+            className="fixed z-40 right-24 w-[54px] h-[54px] rounded-2xl bg-slate-900 text-white text-2xl shadow-xl flex items-center justify-center hover:bg-slate-800 active:opacity-90"
           >
             ＋
-          </button>
+          </DesktopFab>
         ) : null}
         {isDesktop ? (
-          <button
-            type="button"
+          <DesktopFab
             onClick={toggleChat}
-            aria-label="Chat with Dispatch"
-            data-testid="chat-fab"
-            className={`fixed z-40 right-6 w-12 h-12 rounded-full bg-brand text-white text-xl shadow-xl flex items-center justify-center ${
-              dirtyCount ? "bottom-24" : "bottom-6"
-            }`}
+            ariaLabel="Chat with Dispatch"
+            testId="chat-fab"
+            className="fixed z-40 right-6 w-12 h-12 rounded-full bg-brand text-white text-xl shadow-xl flex items-center justify-center"
           >
             💬
             <ChatUnreadBadge unread={chatUnread} />
-          </button>
+          </DesktopFab>
         ) : null}
 
         <ChatBubble />
@@ -435,11 +471,7 @@ export default function App() {
                 <span>More</span>
                 {/* Badges from hidden tabs must still be visible, or a pending
                     item behind "More" would go unnoticed. */}
-                {devBadge > 0 && overflowTabs.some((t) => t.to === "/dev") ? (
-                  <span className="absolute top-1 right-[22%] bg-red-600 text-white text-[9px] font-extrabold rounded-full min-w-[15px] h-[15px] leading-[15px] text-center px-0.5">
-                    {devBadge}
-                  </span>
-                ) : null}
+                <DevOverflowBadge overflowTabs={overflowTabs} />
               </button>
             ) : null}
           </div>
@@ -456,16 +488,12 @@ export default function App() {
                 <SyncChip />
               </div>
               {overflowTabs.map((t) => (
-                <Opt
+                <MoreNavOpt
                   key={t.to}
-                  icon={t.ic}
-                  title={t.label}
-                  onClick={() => {
-                    setMoreOpen(false);
-                    // Same leave-guard as a tab: don't drop unsaved job edits.
-                    if (dirtyJobs > 0 && loc.pathname.startsWith("/job/")) guardNav(() => navigate(t.to));
-                    else navigate(t.to);
-                  }}
+                  t={t}
+                  onClose={() => setMoreOpen(false)}
+                  pathname={loc.pathname}
+                  navigate={navigate}
                 />
               ))}
             </div>

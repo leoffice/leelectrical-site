@@ -1,6 +1,6 @@
 // Wispr-style LE voice bubble — floats above the app, inserts polished text into any field.
 import React, { useCallback, useEffect, useRef, useState } from "react";
-import { useStore } from "../state/store.jsx";
+import { useStoreData } from "../state/store.jsx";
 import { useAppSettings } from "../lib/appSettings.js";
 import {
   createSilentRecognizer,
@@ -24,7 +24,7 @@ function holdFocus(e) {
 }
 
 export default function VoiceFlowBubble() {
-  const { showToast } = useStore();
+  const { showToast } = useStoreData();
   const { speechToText, logoSrc } = useAppSettings();
   const [phase, setPhase] = useState("idle");
   const [level, setLevel] = useState(0);

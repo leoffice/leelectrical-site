@@ -12,6 +12,8 @@ import React, {
   useRef,
   useState,
 } from "react";
+// Dual context: typing only invalidates EditCtx. Shell watchers that only need
+// jobs/events/commands subscribe via useStoreData and stay idle while you type.
 import api from "../data/adapter.js";
 import { applyOverlay, deepMerge, isPlainObject, mergeJobsStaleGuard } from "../data/merge.js";
 import { STAGES } from "../lib/stages.js";
@@ -36,9 +38,12 @@ import {
   promotePendingCalendarEvent as promotePendingCalEvent,
 } from "../lib/calendarLink.js";
 import { productName } from "../lib/tenantBranding.js";
+import { flushAllDebouncedPatches } from "../lib/useDebouncedPatch.js";
 
-const Ctx = createContext(null);
+const DataCtx = createContext(null);
+const EditCtx = createContext(null);
 const DRAFT_KEY = "lepro_draft_v1";
+const DRAFT_PERSIST_MS = 400;
 
 function loadDraft() {
   try {
@@ -108,11 +113,21 @@ export function StoreProvider({ children }) {
   }, []);
 
   /* ---------- crash-safe draft + beforeunload guard ---------- */
+  // Debounce disk writes — keystroke-by-keystroke stringify of pending blocked the UI thread.
+  // Clear immediately on discard/save so leave-guard tests and crash recovery stay correct.
   useEffect(() => {
-    try {
-      if (Object.keys(pending).length) localStorage.setItem(DRAFT_KEY, JSON.stringify(pending));
-      else localStorage.removeItem(DRAFT_KEY);
-    } catch {}
+    if (!Object.keys(pending).length) {
+      try {
+        localStorage.removeItem(DRAFT_KEY);
+      } catch {}
+      return;
+    }
+    const t = setTimeout(() => {
+      try {
+        localStorage.setItem(DRAFT_KEY, JSON.stringify(pending));
+      } catch {}
+    }, DRAFT_PERSIST_MS);
+    return () => clearTimeout(t);
   }, [pending]);
 
   useEffect(() => {
@@ -417,28 +432,64 @@ export function StoreProvider({ children }) {
 
   /* ---------- staged edits ---------- */
   const patchJob = useCallback((id, patch) => {
-    setPending((p) => ({ ...p, [id]: deepMerge(p[id] || {}, patch) }));
+    setPending((p) => {
+      const next = { ...p, [id]: deepMerge(p[id] || {}, patch) };
+      // Keep ref in sync so saveAll can flush debounced text then read immediately.
+      pendingRef.current = next;
+      return next;
+    });
   }, []);
 
-  /** Merged job + staged edits applied on top (what the UI renders). */
-  const effectiveJob = useCallback(
-    (id) => {
-      const base = jobs.find((j) => String(j.id) === String(id));
-      if (!base) return null;
-      return pending[id] ? applyOverlay(base, pending[id]) : base;
-    },
-    [jobs, pending]
-  );
+  /** Merged job + staged edits. Reads pending via ref so the callback identity
+   *  stays stable while typing (shell watchers won't re-render). */
+  const effectiveJob = useCallback((id) => {
+    const base = jobs.find((j) => String(j.id) === String(id));
+    if (!base) return null;
+    const ov = pendingRef.current[id];
+    return ov ? applyOverlay(base, ov) : base;
+  }, [jobs]);
 
-  const effectiveJobs = useMemo(
-    () => jobs.map((j) => (pending[j.id] ? applyOverlay(j, pending[j.id]) : j)),
-    [jobs, pending]
-  );
+  // Overlay only jobs with staged edits. Reuse prior row objects when that
+  // job's pending patch is unchanged so list memoization can skip work.
+  const effJobsRef = useRef({ jobs, pending, list: jobs, byId: null });
+  const effectiveJobs = useMemo(() => {
+    const prev = effJobsRef.current;
+    if (!Object.keys(pending).length) {
+      effJobsRef.current = { jobs, pending, list: jobs, byId: null };
+      return jobs;
+    }
+    const prevById =
+      prev.byId && prev.jobs === jobs
+        ? prev.byId
+        : prev.list && prev.jobs === jobs
+          ? new Map(prev.list.map((j) => [j.id, j]))
+          : null;
+    const list = new Array(jobs.length);
+    const byId = new Map();
+    for (let i = 0; i < jobs.length; i++) {
+      const j = jobs[i];
+      const ov = pending[j.id];
+      let row;
+      if (!ov) {
+        row = j;
+      } else if (prevById && prev.pending && prev.pending[j.id] === ov) {
+        row = prevById.get(j.id) || applyOverlay(j, ov);
+      } else {
+        row = applyOverlay(j, ov);
+      }
+      list[i] = row;
+      byId.set(j.id, row);
+    }
+    effJobsRef.current = { jobs, pending, list, byId };
+    return list;
+  }, [jobs, pending]);
 
   const dirtyCount = useMemo(() => countLeaves(pending), [pending]);
   const dirtyJobs = Object.keys(pending).length;
 
   const saveAll = useCallback(async () => {
+    // Pull any still-debounced text fields into pending before we read it.
+    flushAllDebouncedPatches();
     const entries = Object.entries(pendingRef.current);
     if (!entries.length || saving) return;
     setSaving(true);
@@ -517,6 +568,7 @@ export function StoreProvider({ children }) {
   }, [saving, jobs, effectiveJob, refreshJobs, showToast]);
 
   const discardAll = useCallback(() => {
+    pendingRef.current = {};
     setPending({});
     // Soft-delete unfinished draft change orders (created on misclick, never emailed/confirmed).
     // Discard must remove them — they are saved immediately, not only staged in pending.
@@ -996,9 +1048,11 @@ export function StoreProvider({ children }) {
 
   const sasBadge = useMemo(() => unhandledCount(sasCalls, sasTickets), [sasCalls, sasTickets]);
 
+  // Use base jobs (not effectiveJobs) so typing staged notes doesn't recompute
+  // badges and invalidate DataCtx for the whole shell.
   const reminderBadge = useMemo(
-    () => activeReminderCount(events, effectiveJobs, todayStr(), new Date(), commands),
-    [events, effectiveJobs, commands]
+    () => activeReminderCount(events, jobs, todayStr(), new Date(), commands),
+    [events, jobs, commands]
   );
 
   const devBadge = useMemo(
@@ -1037,11 +1091,12 @@ export function StoreProvider({ children }) {
     [api]
   );
 
-  // Stable context identity when nothing changed — avoids every useStore()
-  // consumer re-rendering on unrelated parent updates (search/open felt laggy).
-  const value = useMemo(
+  // DataCtx: stable while typing (actions + base data). EditCtx: pending state only.
+  // Typing a note must not re-render FollowUpPrompts / chat / sync shell / watchers.
+  const dataValue = useMemo(
     () => ({
-      jobs: effectiveJobs,
+      // Base jobs (no staged overlay). Lists that show live edits use useStoreEdit().jobs.
+      jobs,
       rawJobs: jobs,
       events,
       eventsSyncedAt,
@@ -1059,42 +1114,30 @@ export function StoreProvider({ children }) {
       emailInsights,
       refreshEmailInsights,
       patchEmailInsight,
-      pending,
-      dirtyCount,
-      dirtyJobs,
       syncedAt,
       busy,
       syncProgress,
       dedupeScan,
       loading,
-      saving,
       error,
       toast,
       docConfirm,
       showDocConfirm,
       newJob,
       setNewJob,
-      leaveReq,
-      setLeaveReq,
       chatOpen,
       setChatOpen,
       chatUnread,
       setChatUnread,
       toggleChat,
-      guardNav,
       refresh,
       refreshJobs,
       refreshCommands,
       refreshDev,
       syncNow,
-      patchJob,
-      patchAndSave,
       appendInvoiceEditFeedback,
       patchLocalEvent,
       removeLocalEvent,
-      effectiveJob,
-      saveAll,
-      discardAll,
       enqueue,
       retryCommand,
       resolveApproval,
@@ -1106,9 +1149,15 @@ export function StoreProvider({ children }) {
       saveSettings,
       showToast,
       api,
+      // Stable actions — safe to call without subscribing to pending.
+      guardNav,
+      patchJob,
+      patchAndSave,
+      effectiveJob,
+      saveAll,
+      discardAll,
     }),
     [
-      effectiveJobs,
       jobs,
       events,
       eventsSyncedAt,
@@ -1126,38 +1175,27 @@ export function StoreProvider({ children }) {
       emailInsights,
       refreshEmailInsights,
       patchEmailInsight,
-      pending,
-      dirtyCount,
-      dirtyJobs,
       syncedAt,
       busy,
       syncProgress,
       dedupeScan,
       loading,
-      saving,
       error,
       toast,
       docConfirm,
       showDocConfirm,
       newJob,
-      leaveReq,
       chatOpen,
       chatUnread,
       toggleChat,
-      guardNav,
       refresh,
       refreshJobs,
       refreshCommands,
       refreshDev,
       syncNow,
-      patchJob,
-      patchAndSave,
       appendInvoiceEditFeedback,
       patchLocalEvent,
       removeLocalEvent,
-      effectiveJob,
-      saveAll,
-      discardAll,
       enqueue,
       retryCommand,
       resolveApproval,
@@ -1168,13 +1206,85 @@ export function StoreProvider({ children }) {
       getSettings,
       saveSettings,
       showToast,
+      guardNav,
+      patchJob,
+      patchAndSave,
+      effectiveJob,
+      saveAll,
+      discardAll,
     ]
   );
-  return <Ctx.Provider value={value}>{children}</Ctx.Provider>;
+
+  const editValue = useMemo(
+    () => ({
+      // Live list with staged overlays — Jobs/Detail/Customers use this.
+      jobs: effectiveJobs,
+      rawJobs: jobs,
+      pending,
+      dirtyCount,
+      dirtyJobs,
+      saving,
+      leaveReq,
+      setLeaveReq,
+      // Also exposed here for call-sites that only import useStoreEdit.
+      guardNav,
+      patchJob,
+      patchAndSave,
+      effectiveJob,
+      saveAll,
+      discardAll,
+    }),
+    [
+      effectiveJobs,
+      jobs,
+      pending,
+      dirtyCount,
+      dirtyJobs,
+      saving,
+      leaveReq,
+      guardNav,
+      patchJob,
+      patchAndSave,
+      effectiveJob,
+      saveAll,
+      discardAll,
+    ]
+  );
+
+  return (
+    <DataCtx.Provider value={dataValue}>
+      <EditCtx.Provider value={editValue}>{children}</EditCtx.Provider>
+    </DataCtx.Provider>
+  );
 }
 
-export function useStore() {
-  const v = useContext(Ctx);
-  if (!v) throw new Error("useStore outside StoreProvider");
+/** Jobs/events/commands/UI — does NOT update on every keystroke of a staged edit. */
+export function useStoreData() {
+  const v = useContext(DataCtx);
+  if (!v) throw new Error("useStoreData outside StoreProvider");
   return v;
+}
+
+/** Staged edits, dirty counts, save/discard, effective job overlays. */
+export function useStoreEdit() {
+  const v = useContext(EditCtx);
+  if (!v) throw new Error("useStoreEdit outside StoreProvider");
+  return v;
+}
+
+/** Full store (data + edits). Re-renders on either side — prefer the split hooks in shell widgets. */
+export function useStore() {
+  const data = useContext(DataCtx);
+  const edit = useContext(EditCtx);
+  if (!data || !edit) throw new Error("useStore outside StoreProvider");
+  // edit.jobs is the overlay-applied list (matches historical useStore().jobs).
+  return useMemo(
+    () => ({
+      ...data,
+      ...edit,
+      jobs: edit.jobs,
+      rawJobs: edit.rawJobs,
+    }),
+    [data, edit]
+  );
 }

@@ -7,7 +7,7 @@
 // the tab is hidden (permission asked on first open).
 import React, { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { useLocation } from "react-router-dom";
-import { useStore } from "../state/store.jsx";
+import { useStoreData } from "../state/store.jsx";
 import { fmt$ } from "../lib/format.js";
 import { appointmentContextFromRoute } from "../lib/appointmentContext.js";
 import { CHAT_SLASH_HINT, jobPatchFromSlash, parseChatSlash } from "../lib/chatActions.js";
@@ -128,7 +128,7 @@ export default function ChatBubble() {
     setChatOpen,
     chatUnread,
     setChatUnread,
-  } = useStore();
+  } = useStoreData();
   const { speechToText } = useAppSettings();
   const product = productName(useTenantConfig());
   const loc = useLocation();
