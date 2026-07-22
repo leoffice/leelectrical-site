@@ -899,6 +899,13 @@ export function enrichInsight(raw, jobs) {
   if (!insight.outcome) {
     insight.outcome = classifyEmailOutcome(insight.source?.subject || "", insight.emailSnippet || "");
   }
+  if (!insight.agency) {
+    insight.agency = classifyAgency(
+      insight.source?.from || "",
+      insight.source?.subject || "",
+      insight.emailSnippet || ""
+    );
+  }
   const match = matchJobForInsight(insight, jobs);
   insight.jobId = match.jobId;
   insight.jobMatchScore = match.score;
