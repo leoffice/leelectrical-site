@@ -137,13 +137,22 @@ export function mapJobToInvoicePdfData(job, overrides = {}) {
   // Estimates carry their line items (and number/date) in the estimate fields;
   // invoices in the invoice fields. Read the right set for the requested kind.
   const rawLines = (isEstimate ? j.estimateLines : j.invoiceLines) || [];
-  const saved = rawLines.filter((ln) => ln && (ln.description || ln.itemName || parseAmount(ln.unitPrice)));
+  const saved = rawLines.filter(
+    (ln) =>
+      ln &&
+      (ln.description ||
+        ln.itemName ||
+        parseAmount(ln.unitPrice) ||
+        parseAmount(ln.rate) ||
+        parseAmount(ln.amount))
+  );
+  const withMoney = saved.filter((ln) => lineAmount(ln) > 0);
   const lines =
-    saved.length > 0
-      ? saved
+    withMoney.length > 0
+      ? withMoney
       : parseAmount(j.amount) > 0
       ? [{ description: j.title || j.serviceType || "Electrical services", qty: 1, unitPrice: parseAmount(j.amount) }]
-      : [];
+      : saved;
 
   const subtotal = overrides.subtotal != null ? parseAmount(overrides.subtotal) : linesTotal(lines);
   const tax = parseAmount(overrides.tax ?? j.tax ?? 0);
