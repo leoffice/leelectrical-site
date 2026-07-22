@@ -105,4 +105,43 @@ describe("PayLanding estimate mode", () => {
     });
     expect(screen.getByTestId("estimate-approve")).toHaveTextContent(/Approved/);
   });
+
+  it("builds estimate PDF on the page when docs store has no file (test / miss)", async () => {
+    // Mimic fake test estimate #99001 — docs 404, no stored PDF.
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url) => {
+        if (String(url).includes("/docs")) {
+          return {
+            ok: false,
+            status: 404,
+            headers: { get: () => "application/json" },
+          };
+        }
+        return { ok: true, json: async () => ({ ok: true }) };
+      })
+    );
+    // jsdom has no real createObjectURL in some environments — stub it.
+    const createUrl = vi.fn(() => "blob:estimate-local-pdf");
+    const revokeUrl = vi.fn();
+    vi.stubGlobal("URL", {
+      ...URL,
+      createObjectURL: createUrl,
+      revokeObjectURL: revokeUrl,
+    });
+
+    const token = encodePayLanding(estimatePayload);
+    renderPay(token);
+
+    await waitFor(() => {
+      expect(screen.queryByText("Loading…")).not.toBeInTheDocument();
+    });
+
+    await waitFor(() => {
+      expect(screen.getByTestId("estimate-pdf-frame")).toBeInTheDocument();
+    });
+    expect(screen.getByTestId("estimate-pdf-frame")).toHaveAttribute("src", "blob:estimate-local-pdf");
+    expect(createUrl).toHaveBeenCalled();
+    expect(screen.queryByText(/not available yet/i)).not.toBeInTheDocument();
+  });
 });

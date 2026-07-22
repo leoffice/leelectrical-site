@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import {
   buildDepositInvoiceJob,
+  buildEstimateJobFromPayload,
+  buildEstimatePdfBlobFromPayload,
   depositAmountFromPayload,
   depositPctFromPayload,
   formatDepositCta,
@@ -59,5 +61,21 @@ describe("estimate landing helpers", () => {
     expect(decoded.k).toBe("e");
     expect(decoded.i).toBe("25499");
     expect(decoded.lines).toHaveLength(1);
+  });
+
+  it("maps landing payload to a job for client PDF (store-miss fallback)", () => {
+    const job = buildEstimateJobFromPayload(estimatePayload);
+    expect(job.estimateNo).toBe("25499");
+    expect(job.customer).toBe("Test Customer");
+    expect(job.estimateLines).toHaveLength(1);
+    expect(job.amount).toBe(1000);
+  });
+
+  it("builds an estimate PDF blob from payload when docs store is empty", () => {
+    const built = buildEstimatePdfBlobFromPayload(estimatePayload);
+    expect(built.ok).toBe(true);
+    expect(built.blob).toBeTruthy();
+    expect(built.blob.type || built.blob.constructor?.name).toBeTruthy();
+    expect(built.job.estimateNo).toBe("25499");
   });
 });

@@ -25,6 +25,7 @@ import {
 import { chargeCardFromLanding } from "../lib/solaCharge.js";
 import {
   buildDepositInvoicePdfB64,
+  buildEstimatePdfBlobFromPayload,
   depositAmountFromPayload,
   depositPctFromPayload,
   estimateDocNo,
@@ -153,6 +154,9 @@ export default function PayLanding() {
   const [estErr, setEstErr] = useState("");
   const [approved, setApproved] = useState(false);
   const [depositDone, setDepositDone] = useState(null);
+  /** Client-built estimate PDF object URL when docs store has no file yet. */
+  const [localEstPdfUrl, setLocalEstPdfUrl] = useState("");
+  const localEstPdfUrlRef = useRef("");
 
   const isEstimate = isEstimateLanding(data);
   const includeFee = !isEstimate && feeEnabledInPayload(data);
@@ -217,22 +221,64 @@ export default function PayLanding() {
   }, [showWorkDesc]);
 
   const estNo = isEstimateLanding(data) ? estimateDocNo(data) : "";
-  const pdfSrc = data?.i
+  const storePdfSrc = data?.i
     ? isEstimateLanding(data)
       ? estimatePdfUrl(estNo || data.i)
       : invoicePdfUrl(data.i)
     : "";
+  // Prefer stored PDF; fall back to client-built blob URL for estimates (test links / store miss).
+  const pdfSrc = localEstPdfUrl || storePdfSrc;
 
   useEffect(() => {
-    if (!pdfSrc) return;
+    if (!storePdfSrc || !data) return;
     let alive = true;
-    invoicePdfAvailable(pdfSrc).then((ok) => {
-      if (alive) setPdfReady(ok);
-    });
+    const revokeLocal = () => {
+      if (localEstPdfUrlRef.current) {
+        try {
+          URL.revokeObjectURL(localEstPdfUrlRef.current);
+        } catch {
+          /* ignore */
+        }
+        localEstPdfUrlRef.current = "";
+      }
+    };
+    setLocalEstPdfUrl("");
+    setPdfReady(false);
+    setPdfErr("");
+
+    (async () => {
+      const ok = await invoicePdfAvailable(storePdfSrc);
+      if (!alive) return;
+      if (ok) {
+        revokeLocal();
+        setLocalEstPdfUrl("");
+        setPdfReady(true);
+        return;
+      }
+      // Estimate: build PDF from link payload so customers always see the document.
+      if (isEstimateLanding(data)) {
+        try {
+          const built = buildEstimatePdfBlobFromPayload(data);
+          if (built.ok && built.blob) {
+            revokeLocal();
+            const url = URL.createObjectURL(built.blob);
+            localEstPdfUrlRef.current = url;
+            setLocalEstPdfUrl(url);
+            setPdfReady(true);
+            return;
+          }
+        } catch {
+          /* fall through */
+        }
+      }
+      setPdfReady(false);
+    })();
+
     return () => {
       alive = false;
+      revokeLocal();
     };
-  }, [pdfSrc]);
+  }, [storePdfSrc, data]);
 
   if (resolving) {
     return (
@@ -312,16 +358,38 @@ export default function PayLanding() {
 
   const openInvoicePdf = async (e) => {
     e?.preventDefault?.();
-    if (!pdfSrc || !data?.i) return;
-    // Estimates already have the PDF stored at send time — open/embed, no QBO fetch.
+    if (!data?.i) return;
+    // Estimates: open stored or client-built PDF (never wait on QBO fetch).
     if (isEstimate) {
-      if (pdfReady) {
+      if (pdfReady && pdfSrc) {
         openPdfUrl(pdfSrc);
         return;
+      }
+      try {
+        const built = buildEstimatePdfBlobFromPayload(data);
+        if (built.ok && built.blob) {
+          const url = URL.createObjectURL(built.blob);
+          if (localEstPdfUrlRef.current) {
+            try {
+              URL.revokeObjectURL(localEstPdfUrlRef.current);
+            } catch {
+              /* ignore */
+            }
+          }
+          localEstPdfUrlRef.current = url;
+          setLocalEstPdfUrl(url);
+          setPdfReady(true);
+          setPdfErr("");
+          openPdfUrl(url);
+          return;
+        }
+      } catch {
+        /* fall through */
       }
       setPdfErr("Estimate PDF is not available yet. Please contact the office.");
       return;
     }
+    if (!pdfSrc) return;
     setPdfErr("");
     setPdfBusy(true);
     setPdfPhase("checking");
@@ -542,12 +610,47 @@ export default function PayLanding() {
                     ? "Loading the estimate PDF…"
                     : "PDF is not available for this link."}
                 </p>
-                {pdfSrc ? (
+                {storePdfSrc || data ? (
                   <button
                     type="button"
                     className="text-sm font-bold text-brand"
                     onClick={() => {
-                      invoicePdfAvailable(pdfSrc).then((ok) => setPdfReady(ok));
+                      if (!data) return;
+                      if (storePdfSrc) {
+                        invoicePdfAvailable(storePdfSrc).then((ok) => {
+                          if (ok) {
+                            setLocalEstPdfUrl("");
+                            setPdfReady(true);
+                            setPdfErr("");
+                            return;
+                          }
+                          const built = buildEstimatePdfBlobFromPayload(data);
+                          if (built.ok && built.blob) {
+                            if (localEstPdfUrlRef.current) {
+                              try {
+                                URL.revokeObjectURL(localEstPdfUrlRef.current);
+                              } catch {
+                                /* ignore */
+                              }
+                            }
+                            const url = URL.createObjectURL(built.blob);
+                            localEstPdfUrlRef.current = url;
+                            setLocalEstPdfUrl(url);
+                            setPdfReady(true);
+                            setPdfErr("");
+                          } else {
+                            setPdfReady(false);
+                          }
+                        });
+                      } else {
+                        const built = buildEstimatePdfBlobFromPayload(data);
+                        if (built.ok && built.blob) {
+                          const url = URL.createObjectURL(built.blob);
+                          localEstPdfUrlRef.current = url;
+                          setLocalEstPdfUrl(url);
+                          setPdfReady(true);
+                        }
+                      }
                     }}
                   >
                     Retry
