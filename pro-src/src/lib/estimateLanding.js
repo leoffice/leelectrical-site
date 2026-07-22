@@ -8,8 +8,9 @@ import { buildEstimatePdfFromJob, buildInvoicePdfFromJob } from "./invoicePdf.js
 
 export function isEstimateLanding(data) {
   if (!data) return false;
+  if (data.k === "i" || data.kind === "invoice") return false;
   if (data.k === "e" || data.kind === "estimate") return true;
-  return Array.isArray(data.lines) && data.lines.length > 0 && !data.pay;
+  return Array.isArray(data.lines) && data.lines.length > 0 && !data.pay && !data.sl;
 }
 
 export function estimateDocNo(data) {
@@ -60,6 +61,75 @@ export function buildEstimatePdfBlobFromPayload(data) {
     return { ok: false, error: "no_data", job };
   }
   const blob = buildEstimatePdfFromJob(job);
+  if (!blob) return { ok: false, error: "no_pdf", job };
+  return { ok: true, blob, job };
+}
+
+/**
+ * Map public invoice pay-landing payload → job shape for client PDF.
+ * Used when docs store has no inv-{no} yet (host offline / upload miss).
+ */
+export function buildInvoiceJobFromPayload(data) {
+  const invNo = String(data?.i || "").trim();
+  const total =
+    parseAmount(String(data?.t || "").replace(/[$,]/g, "")) ||
+    parseAmount(data?.a) ||
+    0;
+  const due =
+    parseAmount(String(data?.d || "").replace(/[$,]/g, "")) ||
+    parseAmount(data?.a) ||
+    total;
+  const work = String(data?.w || "Electrical services").trim();
+  const pays = Array.isArray(data?.ps)
+    ? data.ps.map((p) => ({
+        amount: parseAmount(p?.a),
+        method: String(p?.m || "").trim(),
+        date: String(p?.d || "").trim(),
+        ref: String(p?.r || "").trim(),
+      }))
+    : [];
+  // Prefer line items from the pay link (change orders carry full scope here).
+  const fromPayload = Array.isArray(data?.lines)
+    ? data.lines
+        .filter((ln) => ln && (ln.description || ln.itemName || lineAmount(ln)))
+        .map((ln) => ({
+          itemName: String(ln.itemName || "").trim(),
+          description: String(ln.description || ln.itemName || work).trim(),
+          qty: Number(ln.qty) > 0 ? Number(ln.qty) : 1,
+          unitPrice: Number(ln.unitPrice) || lineAmount(ln) || 0,
+        }))
+    : [];
+  const invoiceLines =
+    fromPayload.length > 0
+      ? fromPayload
+      : total > 0
+        ? [{ itemName: "Electrical services", description: work, qty: 1, unitPrice: total }]
+        : [];
+  return {
+    id: String(data?.j || "").trim(),
+    customer: String(data?.c || "").trim(),
+    email: String(data?.e || "").trim(),
+    phone: String(data?.ph || "").trim(),
+    title: work,
+    serviceAddress: String(data?.sa || "").trim(),
+    billingAddress: String(data?.ba || data?.sa || "").trim(),
+    address: String(data?.sa || data?.ba || "").trim(),
+    zip: String(data?.z || "").trim(),
+    invoiceNo: invNo,
+    invoiceLines,
+    amount: total,
+    openBalance: due,
+    payments: pays,
+  };
+}
+
+/** Build invoice PDF blob from landing payload (client qb-pdf) — no office computer needed. */
+export function buildInvoicePdfBlobFromPayload(data) {
+  const job = buildInvoiceJobFromPayload(data);
+  if (!job.invoiceNo && !(job.amount > 0)) {
+    return { ok: false, error: "no_data", job };
+  }
+  const blob = buildInvoicePdfFromJob(job);
   if (!blob) return { ok: false, error: "no_pdf", job };
   return { ok: true, blob, job };
 }

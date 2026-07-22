@@ -12,6 +12,48 @@ export function isShortPayCode(token) {
   return SHORT_CODE_RE.test(String(token || "").trim());
 }
 
+/**
+ * Full work description for the public pay page Details expand.
+ * Prefer change-order / invoice line text over a truncated job title.
+ */
+export function workDescriptionForPay(job) {
+  const lineSets = [
+    job?.changeOrderLines,
+    job?.invoiceLines,
+    job?.items,
+    job?.estimateLines,
+  ];
+  const parts = [];
+  for (const set of lineSets) {
+    if (!Array.isArray(set) || !set.length) continue;
+    for (const ln of set) {
+      const d = String(ln?.description || ln?.itemName || ln?.item || "").trim();
+      if (d && !parts.includes(d)) parts.push(d);
+    }
+    if (parts.length) break;
+  }
+  if (parts.length) return parts.join("\n\n").slice(0, 8000);
+  return String(job?.title || job?.serviceType || "Electrical services").trim();
+}
+
+/** Compact line items so client PDF fallback matches the invoice. */
+export function compactPayLines(job) {
+  const raw =
+    job?.changeOrderLines ||
+    job?.invoiceLines ||
+    job?.items ||
+    [];
+  return (Array.isArray(raw) ? raw : [])
+    .filter((ln) => ln && (ln.description || ln.itemName || ln.item || parseAmount(ln.unitPrice || ln.rate || ln.amount)))
+    .map((ln) => ({
+      itemName: String(ln.itemName || ln.item || "").trim(),
+      description: String(ln.description || ln.itemName || ln.item || "").trim(),
+      qty: parseAmount(ln.qty) || 1,
+      unitPrice: parseAmount(ln.unitPrice || ln.rate) || parseAmount(ln.amount),
+    }))
+    .slice(0, 80);
+}
+
 /** Compact payload embedded in the public View & Pay URL. */
 export function buildPayLandingPayload({
   job,
@@ -36,13 +78,14 @@ export function buildPayLandingPayload({
     parseUSAddress(billAddr).zip ||
     parseUSAddress(serviceAddr).zip ||
     "";
-  return {
+  const lines = compactPayLines(job);
+  const payload = {
     j: (job?.id || "").trim(),
     i: invoiceNo,
     a: linkAmt,
     fe: includeFee ? 1 : 0,
     c: (job?.customer || "").trim(),
-    w: (job?.title || job?.serviceType || "Electrical services").trim(),
+    w: workDescriptionForPay(job),
     t: total > 0 ? fmt$(total) : job?.amount || "",
     d: due > 0 ? fmt$(due) : "",
     p: paid > 0 ? fmt$(paid) : "",
@@ -60,7 +103,10 @@ export function buildPayLandingPayload({
     sl: siteSlug,
     pay: cardknoxUrl || "",
     as: todayStr(),
+    k: "i", // invoice — not estimate (lines alone must not flip View & Pay)
   };
+  if (lines.length) payload.lines = lines;
+  return payload;
 }
 
 function b64urlEncode(obj) {
@@ -164,8 +210,11 @@ export function estimatePdfUrl(estimateNo) {
 /** True when the landing payload is an estimate (View and Approve), not an invoice pay page. */
 export function isEstimateLanding(data) {
   if (!data) return false;
+  // Explicit invoice kind always wins (invoices may also carry line items).
+  if (data.k === "i" || data.kind === "invoice") return false;
   if (data.k === "e" || data.kind === "estimate") return true;
-  return Array.isArray(data.lines) && data.lines.length > 0 && !data.pay;
+  // Legacy: lines without pay used to mean estimate — keep for old estimate links only.
+  return Array.isArray(data.lines) && data.lines.length > 0 && !data.pay && !data.sl;
 }
 
 export function addressesDiffer(ba, sa) {

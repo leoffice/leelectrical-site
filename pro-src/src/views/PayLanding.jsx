@@ -26,6 +26,7 @@ import { chargeCardFromLanding } from "../lib/solaCharge.js";
 import {
   buildDepositInvoicePdfB64,
   buildEstimatePdfBlobFromPayload,
+  buildInvoicePdfBlobFromPayload,
   depositAmountFromPayload,
   depositPctFromPayload,
   estimateDocNo,
@@ -34,6 +35,7 @@ import {
 } from "../lib/estimateLanding.js";
 import { useTenantConfig } from "../state/tenant.jsx";
 import { productName, tenantLocality } from "../lib/tenantBranding.js";
+import { functionsBase } from "../lib/functionsBase.js";
 
 const DEFAULT_LOGO = import.meta.env.BASE_URL + "le-logo.png?v=5";
 
@@ -157,6 +159,13 @@ export default function PayLanding() {
   /** Client-built estimate PDF object URL when docs store has no file yet. */
   const [localEstPdfUrl, setLocalEstPdfUrl] = useState("");
   const localEstPdfUrlRef = useRef("");
+  const [checkOpen, setCheckOpen] = useState(false);
+  const [checkFile, setCheckFile] = useState(null);
+  const [checkB64, setCheckB64] = useState("");
+  const [checkNo, setCheckNo] = useState("");
+  const [checkBusy, setCheckBusy] = useState(false);
+  const [checkErr, setCheckErr] = useState("");
+  const checkInputRef = useRef(null);
 
   const isEstimate = isEstimateLanding(data);
   const includeFee = !isEstimate && feeEnabledInPayload(data);
@@ -255,21 +264,22 @@ export default function PayLanding() {
         setPdfReady(true);
         return;
       }
-      // Estimate: build PDF from link payload so customers always see the document.
-      if (isEstimateLanding(data)) {
-        try {
-          const built = buildEstimatePdfBlobFromPayload(data);
-          if (built.ok && built.blob) {
-            revokeLocal();
-            const url = URL.createObjectURL(built.blob);
-            localEstPdfUrlRef.current = url;
-            setLocalEstPdfUrl(url);
-            setPdfReady(true);
-            return;
-          }
-        } catch {
-          /* fall through */
+      // Build PDF from link payload so customers always see the document
+      // (estimates + invoices — no office computer required).
+      try {
+        const built = isEstimateLanding(data)
+          ? buildEstimatePdfBlobFromPayload(data)
+          : buildInvoicePdfBlobFromPayload(data);
+        if (built.ok && built.blob) {
+          revokeLocal();
+          const url = URL.createObjectURL(built.blob);
+          localEstPdfUrlRef.current = url;
+          setLocalEstPdfUrl(url);
+          setPdfReady(true);
+          return;
         }
+      } catch {
+        /* fall through */
       }
       setPdfReady(false);
     })();
@@ -356,58 +366,151 @@ export default function PayLanding() {
     }
   };
 
+  const openLocalBuiltPdf = (built) => {
+    if (!built?.ok || !built.blob) return false;
+    const url = URL.createObjectURL(built.blob);
+    if (localEstPdfUrlRef.current) {
+      try {
+        URL.revokeObjectURL(localEstPdfUrlRef.current);
+      } catch {
+        /* ignore */
+      }
+    }
+    localEstPdfUrlRef.current = url;
+    setLocalEstPdfUrl(url);
+    setPdfReady(true);
+    setPdfErr("");
+    openPdfUrl(url);
+    return true;
+  };
+
   const openInvoicePdf = async (e) => {
     e?.preventDefault?.();
     if (!data?.i) return;
-    // Estimates: open stored or client-built PDF (never wait on QBO fetch).
+    // Prefer already-ready source (store or client blob).
+    if (pdfReady && pdfSrc) {
+      openPdfUrl(pdfSrc);
+      return;
+    }
+    // Estimates: never wait on host — build from payload if needed.
     if (isEstimate) {
-      if (pdfReady && pdfSrc) {
-        openPdfUrl(pdfSrc);
-        return;
-      }
       try {
-        const built = buildEstimatePdfBlobFromPayload(data);
-        if (built.ok && built.blob) {
-          const url = URL.createObjectURL(built.blob);
-          if (localEstPdfUrlRef.current) {
-            try {
-              URL.revokeObjectURL(localEstPdfUrlRef.current);
-            } catch {
-              /* ignore */
-            }
-          }
-          localEstPdfUrlRef.current = url;
-          setLocalEstPdfUrl(url);
-          setPdfReady(true);
-          setPdfErr("");
-          openPdfUrl(url);
-          return;
-        }
+        if (openLocalBuiltPdf(buildEstimatePdfBlobFromPayload(data))) return;
       } catch {
         /* fall through */
       }
       setPdfErr("Estimate PDF is not available yet. Please contact the office.");
       return;
     }
-    if (!pdfSrc) return;
     setPdfErr("");
     setPdfBusy(true);
     setPdfPhase("checking");
-    const ok = await retrieveInvoicePdf({
-      url: pdfSrc,
+    const result = await retrieveInvoicePdf({
+      url: storePdfSrc,
       invoiceNo: data.i,
       jobId: data.j || "",
+      payload: data,
       onPhase: setPdfPhase,
     });
     setPdfBusy(false);
     setPdfPhase("idle");
-    if (ok) {
+    if (result?.ok && result.blobUrl) {
+      if (localEstPdfUrlRef.current) {
+        try {
+          URL.revokeObjectURL(localEstPdfUrlRef.current);
+        } catch {
+          /* ignore */
+        }
+      }
+      localEstPdfUrlRef.current = result.blobUrl;
+      setLocalEstPdfUrl(result.blobUrl);
       setPdfReady(true);
-      openPdfUrl(pdfSrc);
-    } else {
-      setPdfErr(
-        "We couldn't load the invoice PDF yet. Make sure our office computer is online, then tap View invoice again."
-      );
+      openPdfUrl(result.blobUrl);
+      return;
+    }
+    if (result?.ok && storePdfSrc) {
+      setPdfReady(true);
+      openPdfUrl(storePdfSrc);
+      return;
+    }
+    // Last resort: pure client build (same layout as office).
+    try {
+      if (openLocalBuiltPdf(buildInvoicePdfBlobFromPayload(data))) return;
+    } catch {
+      /* fall through */
+    }
+    setPdfErr(
+      "We couldn't open the invoice PDF. Please try again, or contact the office for a copy."
+    );
+  };
+
+  const onCheckFile = async (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setCheckErr("");
+    setCheckFile(file);
+    try {
+      const reader = new FileReader();
+      const b64 = await new Promise((resolve, reject) => {
+        reader.onload = () => {
+          const dataUrl = String(reader.result || "");
+          resolve(dataUrl.includes(",") ? dataUrl.split(",")[1] : dataUrl);
+        };
+        reader.onerror = () => reject(reader.error || new Error("read failed"));
+        reader.readAsDataURL(file);
+      });
+      setCheckB64(b64);
+    } catch {
+      setCheckFile(null);
+      setCheckB64("");
+      setCheckErr("Could not read that photo — try another.");
+    }
+  };
+
+  const submitCheckPayment = async () => {
+    if (checkBusy || !data?.i) return;
+    if (!checkB64) {
+      setCheckErr("Add a photo of your check first.");
+      return;
+    }
+    if (payAmount <= 0) {
+      setCheckErr("Enter the amount you're paying.");
+      return;
+    }
+    setCheckErr("");
+    setCheckBusy(true);
+    try {
+      const res = await fetch(`${functionsBase()}/customer-check-pay`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          invoiceNo: data.i,
+          jobId: data.j || "",
+          amount: payAmount,
+          checkNumber: checkNo,
+          customer: data.c || "",
+          email: data.e || "",
+          imageB64: checkB64,
+          mime: checkFile?.type || "image/jpeg",
+          fileName: checkFile?.name || "check.jpg",
+        }),
+      });
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok || !body.ok) {
+        throw new Error(body.error || body.message || `Could not submit (${res.status})`);
+      }
+      const qs = new URLSearchParams({
+        ok: "1",
+        inv: String(data.i || ""),
+        amt: String(payAmount),
+        bal: String(Math.max(0, balanceDue - payAmount)),
+        method: "check",
+      });
+      navigate(`/pay/thanks?${qs.toString()}`);
+    } catch (err) {
+      setCheckErr(String((err && err.message) || "Could not submit check — try again"));
+    } finally {
+      setCheckBusy(false);
     }
   };
 
@@ -757,29 +860,28 @@ export default function PayLanding() {
 
           {data.w ? (
             <div className="mt-4 text-sm">
-              <button
-                type="button"
-                className="w-full text-left"
-                data-testid="work-desc-toggle"
-                aria-expanded={showWorkDesc}
-                onClick={() => setShowWorkDesc((v) => !v)}
-              >
-                <div className="text-[10px] font-extrabold uppercase tracking-wider text-slate-500 mb-1 flex items-center justify-between gap-2">
-                  <span>Work</span>
-                  <span className="text-[10px] font-bold text-brand normal-case tracking-normal">
-                    {showWorkDesc ? "Hide ▴" : "Details ▾"}
-                  </span>
-                </div>
-                <div
-                  className={
-                    "text-slate-900 leading-snug whitespace-pre-wrap " +
-                    (showWorkDesc ? "" : "line-clamp-2")
-                  }
-                  data-testid="work-desc-body"
+              <div className="text-[10px] font-extrabold uppercase tracking-wider text-slate-500 mb-1 flex items-center justify-between gap-2">
+                <span>Work</span>
+                <button
+                  type="button"
+                  className="text-[10px] font-bold text-brand normal-case tracking-normal px-1 py-0.5"
+                  data-testid="work-desc-toggle"
+                  aria-expanded={showWorkDesc}
+                  onClick={() => setShowWorkDesc((v) => !v)}
                 >
-                  {data.w}
-                </div>
-              </button>
+                  {showWorkDesc ? "Hide ▴" : "Details ▾"}
+                </button>
+              </div>
+              {/* Conditional render — iOS-safe (max-height on pre-wrap was a no-op for some taps) */}
+              <div
+                className={
+                  "text-slate-900 leading-snug whitespace-pre-wrap " +
+                  (showWorkDesc ? "" : "line-clamp-2 overflow-hidden")
+                }
+                data-testid="work-desc-body"
+              >
+                {data.w}
+              </div>
             </div>
           ) : null}
 
@@ -871,7 +973,7 @@ export default function PayLanding() {
           <p className="text-[11px] text-slate-500 mb-4">
             Secure payment — your card details stay on our encrypted form, not a third-party page.
           </p>
-          <SolaCardForm disabled={payBusy} onReadyChange={setCardReady} />
+          <SolaCardForm disabled={payBusy || checkBusy} onReadyChange={setCardReady} />
           <label
             className="flex items-start gap-2.5 mt-4 cursor-pointer select-none"
             data-testid="save-card-for-future"
@@ -880,7 +982,7 @@ export default function PayLanding() {
               type="checkbox"
               className="mt-0.5 h-4 w-4 rounded border-slate-300 text-brand focus:ring-brand"
               checked={saveOnFile}
-              disabled={payBusy}
+              disabled={payBusy || checkBusy}
               onChange={(e) => setSaveOnFile(e.target.checked)}
             />
             <span className="text-sm text-slate-700 leading-snug">
@@ -903,14 +1005,91 @@ export default function PayLanding() {
             payBusy || !cardReady ? "opacity-70" : ""
           }`}
           data-testid="pay-cta"
-          disabled={payBusy || !cardReady || payAmount <= 0}
+          disabled={payBusy || checkBusy || !cardReady || payAmount <= 0}
           onClick={submitPayment}
         >
           {payBusy ? "Processing…" : `Pay ${fmtMoneyPrecise(includeFee ? chargeTotal : payAmount)}`}
         </button>
-        <p className="text-center text-[11px] text-slate-500 px-2 mb-1">
+        <p className="text-center text-[11px] text-slate-500 px-2 mb-4">
           You&apos;ll get a confirmation on this page right after payment.
         </p>
+
+        <div className="card p-5 mb-4" data-testid="pay-by-check">
+          <button
+            type="button"
+            className="w-full flex items-center justify-between gap-3 text-left"
+            data-testid="pay-check-toggle"
+            aria-expanded={checkOpen}
+            onClick={() => setCheckOpen((v) => !v)}
+          >
+            <div>
+              <h2 className="font-bold text-slate-900">Pay with a check</h2>
+              <p className="text-[11px] text-slate-500 mt-0.5">
+                Photo of the check — we&apos;ll match it to this invoice.
+              </p>
+            </div>
+            <span className="text-brand font-bold text-sm shrink-0">{checkOpen ? "Hide ▴" : "Show ▾"}</span>
+          </button>
+          {checkOpen ? (
+            <div className="mt-4 space-y-3">
+              <div>
+                <label className="text-[10px] font-extrabold uppercase tracking-wider text-slate-500 mb-1 block">
+                  Check photo
+                </label>
+                <input
+                  ref={checkInputRef}
+                  type="file"
+                  accept="image/*,application/pdf"
+                  capture="environment"
+                  className="sr-only"
+                  data-testid="pay-check-file"
+                  onChange={onCheckFile}
+                />
+                <button
+                  type="button"
+                  className="w-full rounded-xl border border-dashed border-slate-300 bg-slate-50 px-3 py-3 text-sm text-slate-700 font-semibold"
+                  data-testid="pay-check-attach"
+                  onClick={() => checkInputRef.current?.click()}
+                  disabled={checkBusy}
+                >
+                  {checkFile ? `📎 ${checkFile.name}` : "📷 Attach check photo"}
+                </button>
+              </div>
+              <div>
+                <label className="text-[10px] font-extrabold uppercase tracking-wider text-slate-500 mb-1 block">
+                  Check number (optional)
+                </label>
+                <input
+                  className="input"
+                  placeholder="Check #"
+                  value={checkNo}
+                  onChange={(e) => setCheckNo(e.target.value)}
+                  disabled={checkBusy}
+                  data-testid="pay-check-number"
+                />
+              </div>
+              {checkErr ? (
+                <p className="text-xs text-red-600 bg-red-50 border border-red-100 rounded-xl px-3 py-2">
+                  {checkErr}
+                </p>
+              ) : null}
+              <button
+                type="button"
+                className={`btn-ghost w-full !py-3 border border-slate-200 ${checkBusy ? "opacity-70" : ""}`}
+                data-testid="pay-check-submit"
+                disabled={checkBusy || payBusy || !checkB64 || payAmount <= 0}
+                onClick={submitCheckPayment}
+              >
+                {checkBusy
+                  ? "Submitting…"
+                  : `Submit check for ${fmtMoneyPrecise(payAmount)}`}
+              </button>
+              <p className="text-[11px] text-slate-500 leading-relaxed">
+                We review the photo in the office and mark the invoice paid — not an instant charge.
+              </p>
+            </div>
+          ) : null}
+        </div>
       </main>
 
       <footer className="text-center text-[11px] text-slate-500 pb-8 px-4">
