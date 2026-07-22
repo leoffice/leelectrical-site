@@ -53,25 +53,27 @@ const STYLE = {
     detailSize: 7.32, detailStartY: 61.5, detailLeading: 12.75,
   },
 
-  // Levi 2026-07-22 + polish: ESTIMATE/INVOICE top-right (bold); meta under title left edge.
+  // Levi 2026-07-22 printout polish: title top-right; meta LABEL : value under E/I.
   title:   { size: 16, baselineY: 50, bold: true },         // nicer green title word
 
-  // Meta block — labels + values start under left edge of green title (right side)
+  // Meta block — gray labels right-align into ":", values left after colon.
+  // Colon center sits under the first letter of ESTIMATE/INVOICE.
   meta: {
     labelSize: 8.5, valueSize: 9.5, leading: 13.5,
-    labelValueGap: 8,                                       // close label → value
+    colonGap: 3,                                            // space around ":"
     firstBaselineY: 68,                                     // under title
   },
 
-  // Addresses: BILLING left · SERVICE right (parallel, halfway)
+  // Addresses: BILLING left · SERVICE right · APT parallel when present
   address: {
     labelSize: 9.15, leading: 14.25, valueSize: 9.15,
-    leftX: 36, rightX: 306,                                 // service col halfway
-    gapBelowHeader: 10,                                     // tighter under header
+    leftX: 36, rightX: 306,                                 // service col halfway (no apt)
+    svcWithAptX: 220, aptX: 460,                            // three-column when apt
+    gapBelowHeader: 28,                                     // bigger air under logo
   },
 
   // Green DESCRIPTION bar sits tight under addresses
-  tableGapAbove: 6,
+  tableGapAbove: 8,
 
   table: {
     headerH: 21,
@@ -100,12 +102,14 @@ const STYLE = {
 
   message: { x: 36, size: 7.62, leading: 10.5, maxW: 240 }, // gray block left of totals
 
-  acceptance: { size: 9.15, gap1: 45, gap2: 27 },           // estimate only
+  // Estimate acceptance lives on its own page (not piled under totals).
+  acceptance: { size: 11, topY: 200, lineGap: 90, ruleW1: 280, ruleW2: 180 },
 
   footer: {
     size: 10, leading: 14, color: '#8d9096',
-    // baselines measured from page bottom (792): 718, 746, 760, 774
+    // baselines measured from page top: thank-you band, then bottom mark
     line1Y: 718, blockY: 746,
+    poweredByY: 774,                                        // same line as page N of M
   },
 };
 
@@ -257,7 +261,11 @@ function generateDocument(data, outPath) {
       center(lines[0], S.footer.line1Y);
       let y = S.footer.blockY;
       for (const l of lines.slice(2)) { center(l, y); y += S.footer.leading; }
-      center(`Page ${pageNo} of ${pageCount}`, y);
+      // Powered-by mark is drawn by the caller (needs the product brand constant).
+      // Page N of M only when multi-page, same baseline as Powered by LE (bottom).
+      if (pageCount > 1) {
+        rightText(`Page ${pageNo} of ${pageCount}`, pageW - M, S.footer.poweredByY || y + 4);
+      }
     };
 
     /* ================= PAGE 1 ======================================= */
@@ -282,27 +290,33 @@ function generateDocument(data, outPath) {
       return S.company.detailStartY + details.length * S.company.detailLeading;
     })();
 
-    // Bold green title top-right; meta hangs under its left edge (Levi polish)
+    // Bold green title top-right
     doc.font(S.title.bold ? 'bold' : 'reg').fontSize(S.title.size).fillColor(S.colors.green);
     const titleRight = pageW - M;
     const titleW = doc.widthOfString(docType);
     const titleLeft = titleRight - titleW;
     rightText(docType, titleRight, S.title.baselineY);
 
-    // Meta under the green title: labels + values start at titleLeft, close together
+    // Meta under title: gray LABEL : value — colon under first letter (E/I)
     const rightRows = [[docType, data.docNumber], ['DATE', data.date]];
     if (!isEstimate && data.dueDate) rightRows.push(['DUE DATE', data.dueDate]);
     if (!isEstimate && data.terms)   rightRows.push(['TERMS', data.terms]);
+    doc.font(S.title.bold ? 'bold' : 'reg').fontSize(S.title.size);
+    const firstLetter = docType.charAt(0) || 'I';
+    const letterW = doc.widthOfString(firstLetter);
+    const colonCenterX = titleLeft + letterW / 2;
     doc.font('reg').fontSize(S.meta.labelSize);
-    const labelColW = Math.max(
-      ...rightRows.map(([label]) => doc.widthOfString(label)),
-      doc.widthOfString('DUE DATE')
-    );
-    const valueX = titleLeft + labelColW + S.meta.labelValueGap;
+    const colonStr = ':';
+    const colonW = doc.widthOfString(colonStr);
+    const colonLeft = colonCenterX - colonW / 2;
+    const colonGap = S.meta.colonGap != null ? S.meta.colonGap : 3;
+    const labelRightEdge = colonLeft - colonGap;
+    const valueX = colonLeft + colonW + colonGap;
     let ry = S.meta.firstBaselineY;
     for (const [label, value] of rightRows) {
       doc.font('reg').fontSize(S.meta.labelSize).fillColor(S.colors.gray);
-      textAtBaseline(label, titleLeft, ry);
+      rightText(label, labelRightEdge, ry);
+      textAtBaseline(colonStr, colonLeft, ry);
       doc.font('reg').fontSize(S.meta.valueSize).fillColor(S.colors.black);
       textAtBaseline(String(value ?? ''), valueX, ry);
       ry += S.meta.leading;
@@ -310,17 +324,35 @@ function generateDocument(data, outPath) {
     const rightBottom = ry;
     const logoBottom = S.logo.y + S.logo.h;
 
-    // Addresses: BILLING left · SERVICE right (parallel)
+    // Addresses: BILLING | SERVICE (| APT parallel) — dropped under logo
     let addrTop = Math.max(companyBottom, logoBottom, rightBottom) + S.address.gapBelowHeader;
     const billLines = [data.billTo && data.billTo.name, ...((data.billTo && data.billTo.addressLines) || [])].filter(Boolean);
+    let svcRaw = '';
     const svcField = (data.customFields || []).find(
       (cf) => cf && /service\s*address/i.test(String(cf.label || '')) && cf.value
     );
-    const svcLines = svcField
-      ? String(svcField.value).split(/\n/).map((s) => s.trim()).filter(Boolean)
-      : (data.serviceAddress
-          ? String(data.serviceAddress).split(/\n/).map((s) => s.trim()).filter(Boolean)
-          : []);
+    if (svcField) svcRaw = String(svcField.value);
+    else if (data.serviceAddress) svcRaw = String(data.serviceAddress);
+
+    // Apartment: explicit field, or strip ", Apt X" from service line
+    let apartment = String(data.apartment || '').trim().replace(/^#/, '');
+    if (!apartment && svcRaw) {
+      const m = svcRaw.match(/,?\s*Apt\.?\s*#?\s*([A-Za-z0-9\-]+)\s*$/i);
+      if (m) {
+        apartment = m[1];
+        svcRaw = svcRaw.replace(/,?\s*Apt\.?\s*#?\s*[A-Za-z0-9\-]+\s*$/i, '').trim();
+      }
+    } else if (apartment && svcRaw) {
+      const aptEsc = apartment.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      svcRaw = svcRaw.replace(new RegExp(`,?\\s*Apt\\.?\\s*#?\\s*${aptEsc}\\s*$`, 'i'), '').trim();
+    }
+    const svcLines = svcRaw
+      ? svcRaw.split(/\n/).map((s) => s.trim()).filter(Boolean)
+      : [];
+    const hasApt = !!apartment;
+    const svcColX = hasApt ? (S.address.svcWithAptX || 220) : S.address.rightX;
+    const aptColX = S.address.aptX || 460;
+    const svcMaxW = hasApt ? aptColX - svcColX - 8 : pageW - M - S.address.rightX;
 
     doc.font('reg').fontSize(S.address.labelSize).fillColor(S.colors.gray);
     textAtBaseline('BILLING ADDRESS', S.address.leftX, addrTop);
@@ -334,23 +366,32 @@ function generateDocument(data, outPath) {
     let sy = addrTop;
     if (svcLines.length) {
       doc.fillColor(S.colors.gray).fontSize(S.address.labelSize);
-      textAtBaseline('SERVICE ADDRESS', S.address.rightX, addrTop);
+      textAtBaseline('SERVICE ADDRESS', svcColX, addrTop);
       sy = addrTop + S.meta.leading;
       doc.fillColor(S.colors.black).fontSize(S.address.valueSize);
-      const svcMaxW = pageW - M - S.address.rightX;
       for (const line of svcLines) {
         const h = doc.heightOfString(line, { width: svcMaxW });
         const nLines = Math.max(1, Math.round(h / S.address.leading));
-        doc.text(line, S.address.rightX,
+        doc.text(line, svcColX,
           sy - (doc._font.ascender / 1000) * S.address.valueSize,
           { width: svcMaxW, lineBreak: true });
         sy += nLines * S.address.leading;
       }
     }
 
-    /* -- line-item table (raised — starts just below addresses) --------- */
+    let ay = addrTop;
+    if (hasApt) {
+      doc.fillColor(S.colors.gray).fontSize(S.address.labelSize);
+      textAtBaseline('APT', aptColX, addrTop);
+      ay = addrTop + S.meta.leading;
+      doc.fillColor(S.colors.black).fontSize(S.address.valueSize);
+      textAtBaseline(apartment, aptColX, ay);
+      ay += S.address.leading;
+    }
 
-    const tableTop = Math.max(by, sy) + (S.tableGapAbove != null ? S.tableGapAbove : 6);
+    /* -- line-item table (tight under addresses) --------- */
+
+    const tableTop = Math.max(by, sy, ay) + (S.tableGapAbove != null ? S.tableGapAbove : 8);
     let cursor = drawTableHeader(tableTop);
 
     doc.font('reg').fontSize(S.table.bodySize).fillColor(S.colors.black);
@@ -528,12 +569,17 @@ function generateDocument(data, outPath) {
       }
     }
 
-    // acceptance block (estimates)
+    // Estimate acceptance = own page (whole chunk — not piled under totals)
     const showAcceptance = data.showAcceptance != null ? data.showAcceptance : isEstimate;
     if (showAcceptance) {
-      doc.fontSize(S.acceptance.size).fillColor(S.colors.gray);
-      textAtBaseline('Accepted By', M, ty + S.acceptance.gap1 + 9);
-      textAtBaseline('Accepted Date', M, ty + S.acceptance.gap1 + 9 + S.acceptance.gap2);
+      doc.addPage();
+      drawPageHeader();
+      const acceptTop = S.acceptance.topY || 200;
+      doc.font('reg').fontSize(S.acceptance.size || 11).fillColor(S.colors.gray);
+      textAtBaseline('Accepted By', M, acceptTop);
+      dottedRule(M, M + (S.acceptance.ruleW1 || 280), acceptTop + 36);
+      textAtBaseline('Accepted Date', M, acceptTop + (S.acceptance.lineGap || 90));
+      dottedRule(M, M + (S.acceptance.ruleW2 || 180), acceptTop + (S.acceptance.lineGap || 90) + 36);
     }
 
     /* -- footers on all pages ------------------------------------------ */

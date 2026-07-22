@@ -208,14 +208,17 @@ export function mapJobToQbDocData(job, kind = "invoice") {
 
   const billName = (job.customer || job.businessName || job.personName || "").trim();
   const billAddr = (job.billingAddress || job.address || "").trim();
-  const svcAddr = formatServiceAddressWithApt(job);
+  // Street only for the PDF — apartment prints as its own parallel field.
+  const svcStreet = effectiveServiceAddress(job).trim();
+  const apartment = String(job?.apartment || "")
+    .trim()
+    .replace(/^#/, "");
   const customFields = [];
   // Show when street differs from bill-to, or apartment is set (even if street matches).
   const billCmp = billAddr.toLowerCase();
-  const svcStreet = effectiveServiceAddress(job).trim().toLowerCase();
-  const hasApt = !!String(job?.apartment || "").trim();
-  if (svcAddr && (svcStreet !== billCmp || hasApt)) {
-    customFields.push({ label: "Service Address", value: svcAddr });
+  const hasApt = !!apartment;
+  if (svcStreet && (svcStreet.toLowerCase() !== billCmp || hasApt)) {
+    customFields.push({ label: "Service Address", value: svcStreet });
   }
 
   const firstServiceDate = lines.find((ln) => ln.serviceDate)?.serviceDate;
@@ -237,6 +240,7 @@ export function mapJobToQbDocData(job, kind = "invoice") {
       addressLines: billAddr ? billAddr.split("\n").filter(Boolean) : [],
     },
     customFields,
+    apartment: apartment || undefined,
     serviceDate: firstServiceDate ? fmtInvoiceDate(firstServiceDate) : fmtInvoiceDate(invoiceDateRaw),
     lines: lines.map(({ description, rate, qty, amount }) => ({ description, rate, qty, amount })),
     subtotal,
@@ -250,6 +254,7 @@ export function mapJobToQbDocData(job, kind = "invoice") {
     messageLines: isInvoice
       ? [...invoicePaymentLines(), "", ...invoiceClosingLines()]
       : undefined,
+    // Estimates get a dedicated acceptance page (not piled under totals).
     showAcceptance: !isInvoice,
   };
 }

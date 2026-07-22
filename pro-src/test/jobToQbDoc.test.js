@@ -120,7 +120,7 @@ describe("jobToQbDoc", () => {
     expect(qbCompany().addressLines).toEqual(["383 Kingston Ave", "Brooklyn, NY  11213"]);
   });
 
-  it("appends apartment to service address when set", () => {
+  it("passes apartment as its own field (not baked into service address)", () => {
     const d = mapJobToQbDocData(
       {
         ...job,
@@ -132,7 +132,9 @@ describe("jobToQbDoc", () => {
     );
     const svc = d.customFields.find((f) => /service address/i.test(f.label));
     expect(svc?.value).toContain("479A East New York");
-    expect(svc?.value).toMatch(/Apt\s*4B/i);
+    // Apartment is a parallel PDF field — not inline on the street line.
+    expect(svc?.value).not.toMatch(/Apt\s*4B/i);
+    expect(d.apartment).toBe("4B");
   });
 
   it("labels change-order invoice numbers", () => {
