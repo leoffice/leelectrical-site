@@ -88,4 +88,51 @@ describe("normalizeExtracted", () => {
     expect(n.date).toBe("2026-07-20");
     expect(n.payer).toBe("Acme LLC");
   });
+
+  it("normalizes Zelle bank-email gold (Miriam Wolf / Wells Fargo)", () => {
+    const n = normalizePaymentExtracted(
+      {
+        amount: 2000,
+        confirmationNumber: "BACzsyfc1ixk",
+        date: "07/22/2026",
+        memo: "157-159 remsen Lein",
+        payer: "MIRIAM WOLF",
+        depositBank: "Wells Fargo",
+        confidence: "high",
+      },
+      "zelle"
+    );
+    expect(n.amount).toBe(2000);
+    expect(n.confirmationNumber).toBe("BACzsyfc1ixk");
+    expect(n.date).toBe("2026-07-22");
+    expect(n.payer).toBe("MIRIAM WOLF");
+    expect(n.depositBank).toBe("Wells Fargo");
+    expect(n.memo).toBe("157-159 remsen Lein");
+    expect(n.kind).toBe("zelle");
+  });
+
+  it("normalizes Zelle JPM conf + invoice memo + strips bank chrome payer", () => {
+    const n = normalizePaymentExtracted(
+      {
+        amount: "$5,000.00",
+        confirmationNumber: "JPM99cpprhp9",
+        date: "07/17/2026",
+        memo: "Inv 251841",
+        fromName: "IKIPPAH LLC",
+        depositBank: "Wells Fargo",
+      },
+      "zelle"
+    );
+    expect(n.amount).toBe(5000);
+    expect(n.confirmationNumber).toBe("JPM99cpprhp9");
+    expect(n.payer).toBe("IKIPPAH LLC");
+    expect(n.invoiceNumber).toBe("251841");
+    expect(n.depositBank).toBe("Wells Fargo");
+
+    const chrome = normalizePaymentExtracted(
+      { amount: 100, confirmationNumber: "X1", payer: "Wells Fargo home page" },
+      "zelle"
+    );
+    expect(chrome.payer).toBe("");
+  });
 });

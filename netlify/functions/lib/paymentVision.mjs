@@ -6,16 +6,53 @@ import {
 
 export { parseVisionJson };
 
-export const ZELLE_VISION_PROMPT = `You are reading a Zelle payment confirmation screenshot (bank app or email).
-Extract these fields and return ONLY valid JSON (no markdown):
+export const ZELLE_VISION_PROMPT = `You are reading a Zelle payment confirmation — bank app screenshot OR bank email alert (Wells Fargo, Chase/JPM, etc.).
+Extract these fields carefully and return ONLY valid JSON (no markdown):
 {
-  "amount": <number USD, no $ sign>,
-  "confirmationNumber": <Zelle confirmation/reference, often JPM…>,
-  "date": <YYYY-MM-DD payment date>,
-  "memo": <memo/note text exactly as shown>,
+  "amount": <number USD, no $ sign — REQUIRED when any $ figure is visible>,
+  "confirmationNumber": <Zelle confirmation/reference exactly as shown — critical. Often JPM…, BAC…, or WFCT…>,
+  "date": <YYYY-MM-DD payment date. Convert MM/DD/YY or MM/DD/YYYY>,
+  "memo": <memo/note text exactly as shown, or null>,
+  "payer": <who SENT the money — the customer name on "X sent you $…" or "from X". NOT the bank name, NOT Wells Fargo chrome>,
+  "depositBank": <bank the money was deposited into if shown (e.g. "Wells Fargo"), or null>,
+  "invoiceNumber": <invoice/job # if memo has Inv/Invoice/# or a bare 4–7 digit number; digits only, else null>,
   "confidence": <"high" or "low">
 }
-If a field is missing or unreadable use null. confirmationNumber is critical.`;
+If a field is missing or unreadable use null. confirmationNumber is critical. Never invent a payer from the bank brand.
+
+LAYOUT MAP (bank email "You received money with Zelle"):
+- Subject or body: "X sent you $A.BB" → payer=X, amount=A.BB
+- Date: MM/DD/YYYY → YYYY-MM-DD
+- Confirmation: long alphanumeric token (JPM… / BAC… / WFCT…)
+- Memo: free text after "Memo:" — often street address or invoice #
+- Footer: "We deposited the money into your Wells Fargo account" → depositBank=Wells Fargo
+- IGNORE chrome: "Wells Fargo home page", "Go to accounts", "Have any questions"
+
+LAYOUT MAP (bank app Zelle receive screen):
+- Large $ amount near top
+- "From" / sender name = payer
+- Confirmation # or Reference
+- Optional memo / note / "For"
+- Deposit account nickname if shown
+
+GOLD WORKED EXAMPLES (real LE Electrical receives — match this quality):
+
+1) Wells Fargo email — person sender + street memo:
+MIRIAM WOLF sent you $2000.00 · Date 07/22/2026 · Confirmation BACzsyfc1ixk · Memo: 157-159 remsen Lein · deposited into Wells Fargo
+Correct JSON:
+{"amount":2000,"confirmationNumber":"BACzsyfc1ixk","date":"2026-07-22","memo":"157-159 remsen Lein","payer":"MIRIAM WOLF","depositBank":"Wells Fargo","invoiceNumber":null,"confidence":"high"}
+
+2) Wells Fargo email — LLC sender + JPM confirmation (no memo):
+IKIPPAH LLC sent you $5000.00 · Date 07/17/2026 · Confirmation JPM99cpprhp9 · deposited into Wells Fargo
+Correct JSON:
+{"amount":5000,"confirmationNumber":"JPM99cpprhp9","date":"2026-07-17","memo":null,"payer":"IKIPPAH LLC","depositBank":"Wells Fargo","invoiceNumber":null,"confidence":"high"}
+
+3) Screenshot with invoice in memo:
+$1,250.00 from Sheleg Electric · Conf JPM88abc123 · Memo: Inv 251841 · Date 2026-07-09
+Correct JSON:
+{"amount":1250,"confirmationNumber":"JPM88abc123","date":"2026-07-09","memo":"Inv 251841","payer":"Sheleg Electric","depositBank":null,"invoiceNumber":"251841","confidence":"high"}
+
+LE deposit banks you may see (company profile): Martin Dorkin, Wells Fargo, BLZ Chase. Zelle receive identity often office@leelectrical.us.`;
 
 export const CHECK_VISION_PROMPT = `You are reading a paper check or mobile check-deposit photo for LE Electrical payment entry.
 Extract these fields carefully and return ONLY valid JSON (no markdown):
@@ -104,9 +141,28 @@ export function normalizePaymentExtracted(raw, kind = "zelle") {
     const bare = memo.match(/^\s*#?\s*(\d{4,7})\s*$/);
     if (bare) invNo = bare[1];
   }
+  // Zelle memo may be "Inv 251841" or bare digits.
+  if (!invNo && kind === "zelle" && memo) {
+    const labeled = memo.match(/(?:inv(?:oice)?|#)\s*(\d{4,7})/i);
+    if (labeled) invNo = labeled[1];
+    else {
+      const bare = memo.match(/^\s*#?\s*(\d{4,7})\s*$/);
+      if (bare) invNo = bare[1];
+    }
+  }
   const ref = kind === "check" ? checkNo : confNo;
-  const payer = raw.payer ? String(raw.payer).trim() : "";
+  // Prefer explicit payer; fall back to fromName / sender (bank emails).
+  let payer = raw.payer ? String(raw.payer).trim() : "";
+  if (!payer && raw.fromName) payer = String(raw.fromName).trim();
+  if (!payer && raw.sender) payer = String(raw.sender).trim();
+  // Drop bank chrome mistaken for payer
+  if (/^wells\s+fargo/i.test(payer) || /^chase\b/i.test(payer)) payer = "";
   const payee = raw.payee ? String(raw.payee).trim() : "";
+  const depositBank = raw.depositBank
+    ? String(raw.depositBank).trim()
+    : raw.depositAccount
+      ? String(raw.depositAccount).trim()
+      : "";
   return {
     amount: Number.isFinite(amt) && amt > 0 ? amt : null,
     confirmationNumber: ref,
@@ -116,6 +172,7 @@ export function normalizePaymentExtracted(raw, kind = "zelle") {
     memo,
     payee,
     payer,
+    depositBank,
     // Alias for older callers that only looked at payee for "who paid".
     name: payer || payee || "",
     confidence: conf,
