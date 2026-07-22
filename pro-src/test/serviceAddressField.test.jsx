@@ -58,4 +58,36 @@ describe("ServiceAddressField", () => {
     expect(screen.queryByTestId("svc-choices")).toBeNull();
     expect(screen.getByLabelText("Service address")).toBeInTheDocument();
   });
+
+  it("dropdown mode hides sites until tapped, then fills street + apartment", async () => {
+    const user = userEvent.setup();
+    const state = { addr: "", apt: "" };
+    function Harness() {
+      const [addr, setAddr] = React.useState("");
+      const [apt, setApt] = React.useState("");
+      state.addr = addr;
+      state.apt = apt;
+      return (
+        <ServiceAddressField
+          job={{ customer: "Acme", qboCustomerId: "99" }}
+          jobs={jobs}
+          value={addr}
+          onChange={setAddr}
+          onApartmentChange={setApt}
+          testId="svc"
+          sitePicker="dropdown"
+        />
+      );
+    }
+    render(<Harness />);
+
+    expect(screen.getByTestId("svc-choices")).toBeInTheDocument();
+    expect(screen.queryByTestId("svc-sites-menu")).toBeNull();
+    await user.click(screen.getByTestId("svc-sites-toggle"));
+    expect(screen.getByTestId("svc-sites-menu")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: /22 Pine Rd/ }));
+    expect(state.addr).toBe("22 Pine Rd");
+    expect(state.apt).toBe("2B");
+    expect(screen.getByTestId("svc")).toHaveValue("22 Pine Rd");
+  });
 });
