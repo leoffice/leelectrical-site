@@ -71,13 +71,23 @@ describe("followUpStatus", () => {
 
   it("scans for unsent docs across active jobs", () => {
     const jobs = [
-      { id: "J-1", invoiceNo: "100", invoiceHistory: [] },
+      { id: "J-1", invoiceNo: "100", invoiceHistory: [], invoiceDate: "2026-06-01" },
       { id: "J-2", estimateNo: "55", invoiceHistory: [] },
       { id: "J-3", paid: true, invoiceNo: "9", invoiceHistory: [] },
     ];
-    const hits = unsentDocCandidates(jobs, []);
+    const hits = unsentDocCandidates(jobs, [], { now: new Date("2026-07-16T12:00:00") });
     expect(hits).toHaveLength(2);
     expect(hits.map((h) => h.job.id).sort()).toEqual(["J-1", "J-2"]);
+  });
+
+  it("skips unsent invoices older than one year", () => {
+    const jobs = [
+      { id: "J-old", invoiceNo: "100", invoiceHistory: [], invoiceDate: "2024-01-15" },
+      { id: "J-new", invoiceNo: "200", invoiceHistory: [], invoiceDate: "2026-06-01" },
+      { id: "J-nodate", invoiceNo: "300", invoiceHistory: [] }, // no date → still eligible
+    ];
+    const hits = unsentDocCandidates(jobs, [], { now: new Date("2026-07-16T12:00:00") });
+    expect(hits.map((h) => h.job.id).sort()).toEqual(["J-new", "J-nodate"]);
   });
 
   it("respects unsent dismissals", () => {

@@ -1,5 +1,4 @@
 // Apply approved email-insight actions (calendar, paperwork, reminders).
-import { withJobLink } from "./calendarLink.js";
 import {
   appointmentTypeLabel,
   paperworkPatchForInsight,
@@ -10,6 +9,7 @@ import {
   APPOINTMENT_DURATION_MINUTES,
 } from "./emailInsight.js";
 import { inspectionAppointmentTitle } from "./paperwork.js";
+import { calendarServiceLocation } from "./customerSync.js";
 const GCAL_RED_COLOR_ID = "11";
 
 export function calendarTitleForInsight(insight) {
@@ -35,18 +35,25 @@ export function ensureInspectionSelections(insight, job, selected) {
 export function buildCalendarPayload(insight, job, selected) {
   const sel = ensureInspectionSelections(insight, job, selected);
   const dt = insight?.dateTime || "";
+  // Prefer end from insight; otherwise duration from start (1 hour slot).
   const end =
     insight?.endDateTime ||
     (dt ? addMinutesToLocalIso(dt, APPOINTMENT_DURATION_MINUTES) : "");
-  const location = insight?.address || job?.serviceAddress || job?.address || "";
+  // Full street + city/state/zip when the job has it; fall back to email extract.
+  const location =
+    calendarServiceLocation(job) ||
+    insight?.address ||
+    job?.serviceAddress ||
+    job?.address ||
+    "";
   const title = calendarTitleForInsight(insight);
   const reminders = [];
   if (sel.has("remind_1h")) reminders.push({ label: "1h", minutes: 60 });
   if (sel.has("remind_1d")) reminders.push({ label: "1d", minutes: 1440 });
   const guests = [];
   if (sel.has("guest_email") && job?.email) guests.push(String(job.email).trim());
-  const notes = buildAppointmentDescription(insight, job);
-  const description = job?.id ? withJobLink(notes, job.id) : notes;
+  // Customer-facing notes only — no leJobId tag (job is linked via calEventId).
+  const description = buildAppointmentDescription(insight, job);
   const payload = {
     summary: title,
     start: dt || new Date().toISOString().slice(0, 16),

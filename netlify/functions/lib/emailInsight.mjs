@@ -100,8 +100,8 @@ export const AUTO_APPLY_MIN_SCORE = 0.7;
  */
 export const EMAIL_INSIGHT_TEST_AUTO_APPLY_LIMIT = 1;
 
-/** Calendar event length for email-driven appointments — always 30 minutes. */
-export const APPOINTMENT_DURATION_MINUTES = 30;
+/** Calendar event length for email-driven appointments — 1 hour (Levi: keep the 1h slot). */
+export const APPOINTMENT_DURATION_MINUTES = 60;
 
 export function isEnergyServicesEmail(from, subject = "", body = "") {
   const blob = [from, subject, body].join(" ");
@@ -110,11 +110,30 @@ export function isEnergyServicesEmail(from, subject = "", body = "") {
 
 export function extractAddress(text) {
   const plain = stripHtml(text);
-  // Prefer "Service Address" block from Con Ed HTML mail.
+  // Prefer full "Service Address" block from Con Ed HTML (street + city/state/zip).
+  const block = plain.match(
+    /service\s*address\s+([^\n]+?)(?:\s*\n\s*)([A-Za-z .]+?\s*,?\s*[A-Z]{2}\s+\d{5}(?:-\d{4})?)/i
+  );
+  if (block) {
+    const street = block[1].replace(/\s+/g, " ").trim();
+    const cityLine = block[2].replace(/\s+/g, " ").replace(/\s*,\s*/g, ", ").trim();
+    if (/\d/.test(street) && street.length >= 6) {
+      return cityLine ? `${street}, ${cityLine}` : street;
+    }
+  }
+  // Prefer "Service Address" block from Con Ed HTML mail (street only fallback).
   const svc = plain.match(/service\s*address\s+([^\n]+?)(?:\s+brooklyn|\s+ny\b|\s+case\s*number|$)/i);
   if (svc) {
     const candidate = svc[1].replace(/\s+/g, " ").trim();
-    if (/\d/.test(candidate) && candidate.length >= 6) return candidate;
+    if (/\d/.test(candidate) && candidate.length >= 6) {
+      // If city/state/zip follows on the same flattened string, keep it.
+      const after = plain.slice(plain.toLowerCase().indexOf(candidate.toLowerCase()) + candidate.length);
+      const city = after.match(/^\s*(brooklyn|bronx|queens|manhattan|staten island|nyc)[,\s]+([A-Z]{2})\s+(\d{5}(?:-\d{4})?)/i);
+      if (city) {
+        return `${candidate}, ${city[1].replace(/\s+/g, " ")}, ${city[2]} ${city[3]}`.replace(/\s+/g, " ").trim();
+      }
+      return candidate;
+    }
   }
   const m = plain.match(STREET_RE);
   return m ? m[0].replace(/\s+/g, " ").trim() : "";
@@ -269,7 +288,7 @@ function extractDateOnly(text, refYear = new Date().getFullYear()) {
 
 /**
  * Resolve schedule start/end for an email insight.
- * - Window → start of window, 30 min duration; description carries the full window.
+ * - Window → start of window, 1h duration; description carries the full window.
  * - Exact time → floor to half-hour for the calendar slot; keep exact for the description.
  */
 export function resolveScheduleTimes(text, refYear = new Date().getFullYear()) {

@@ -193,14 +193,14 @@ describe("emailInsight", () => {
     expect(w.text).toMatch(/Appointment set between 11:00 and 1:00/);
   });
 
-  it("window appointment schedules start of window for 30 minutes", () => {
+  it("window appointment schedules start of window for 1 hour", () => {
     const body = `Service Address 1127 Lincoln Pl Brooklyn
 Your appointment is between 11:00 and 1:00 on July 28, 2026.`;
     const sched = resolveScheduleTimes(body);
     expect(sched.timeWindow?.text).toMatch(/between 11:00 and 1:00/);
     expect(sched.dateTime).toBe("2026-07-28T11:00");
-    expect(sched.endDateTime).toBe("2026-07-28T11:30");
-    expect(APPOINTMENT_DURATION_MINUTES).toBe(30);
+    expect(sched.endDateTime).toBe("2026-07-28T12:00");
+    expect(APPOINTMENT_DURATION_MINUTES).toBe(60);
   });
 
   it("inspection exact time lands in description; schedule uses half-hour", () => {
@@ -214,31 +214,42 @@ for 503 Schenectady Avenue on August 15, 2026 at 11:15 AM.`;
     });
     expect(raw.exactDateTime).toBe("2026-08-15T11:15");
     expect(raw.dateTime).toBe("2026-08-15T11:00");
-    expect(raw.endDateTime).toBe("2026-08-15T11:30");
+    expect(raw.endDateTime).toBe("2026-08-15T12:00");
     const desc = buildAppointmentDescription(raw, { id: "J-1", email: "c@x.com" });
     expect(desc).toMatch(/11:15/);
     expect(desc).toMatch(/11:00/);
     expect(desc).toMatch(/half-hour/i);
   });
 
-  it("buildCalendarPayload forces inspection reminders + guest + 30 min end", () => {
+  it("buildCalendarPayload forces inspection reminders + guest + 1h slot, clean notes, full address", () => {
     const insight = {
       appointmentType: "inspection",
       dateTime: "2026-08-15T11:00",
       exactDateTime: "2026-08-15T11:15",
-      endDateTime: "2026-08-15T11:30",
+      endDateTime: "2026-08-15T12:00",
       address: "503 Schenectady Ave",
       outcome: "scheduled",
       timeWindow: null,
     };
-    const job = { id: "J-1", customer: "Jane", email: "j@x.com", serviceAddress: "503 Schenectady Ave" };
+    const job = {
+      id: "J-1",
+      customer: "Jane",
+      email: "j@x.com",
+      serviceAddress: "503 Schenectady Ave",
+      billingAddress: "503 Schenectady Ave, Brooklyn, NY 11203",
+    };
     const selected = ensureInspectionSelections(insight, job, new Set(["calendar"]));
     expect(selected.has("remind_1h")).toBe(true);
     expect(selected.has("remind_1d")).toBe(true);
     expect(selected.has("guest_email")).toBe(true);
     const payload = buildCalendarPayload(insight, job, selected);
-    expect(payload.end).toBe("2026-08-15T11:30");
-    expect(payload.durationMinutes).toBe(30);
+    expect(payload.end).toBe("2026-08-15T12:00");
+    expect(payload.durationMinutes).toBe(60);
+    expect(payload.summary).toMatch(/11:00 AM|11:00/);
+    expect(payload.summary).not.toMatch(/Aug|August|15/);
+    expect(payload.description).not.toMatch(/leJobId/i);
+    expect(payload.location).toMatch(/503 Schenectady/i);
+    expect(payload.location).toMatch(/Brooklyn|11203/i);
     expect(payload.reminders.map((r) => r.minutes).sort((a, b) => a - b)).toEqual([60, 1440]);
     expect(payload.guests).toEqual(["j@x.com"]);
     expect(payload.notifyCustomer).toBe(true);
