@@ -58,11 +58,11 @@ export function findEventForInsight(insight, job, events) {
       const byLoc = sameDay.find((e) => String(e.location || "").toLowerCase().includes(loc.slice(0, 10)));
       if (byLoc) return byLoc;
     }
-    const insp = sameDay.find((e) => /inspection|con edison/i.test(e.summary || ""));
+    const insp = sameDay.find((e) => /inspection|con edison|city electrical/i.test(e.summary || ""));
     return insp || sameDay[0];
   }
   if (sameTime.length === 1) return sameTime[0];
-  const insp = sameTime.find((e) => /inspection|con edison/i.test(e.summary || ""));
+  const insp = sameTime.find((e) => /inspection|con edison|city electrical/i.test(e.summary || ""));
   return insp || sameTime[0];
 }
 

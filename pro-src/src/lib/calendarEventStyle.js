@@ -8,7 +8,7 @@ export function isInspectionEvent(ev) {
   if (!ev) return false;
   if (String(ev.colorId || "") === GCAL_RED_COLOR_ID) return true;
   const s = (ev.summary || "").toLowerCase();
-  return /inspection|con edison appointment/.test(s);
+  return /inspection|con edison appointment|city electrical/.test(s);
 }
 
 /**

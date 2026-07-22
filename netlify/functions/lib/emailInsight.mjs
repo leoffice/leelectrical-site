@@ -36,6 +36,24 @@ function addressSimilarity(a, b) {
   return overlap / Math.max(ta.size, tb.size);
 }
 
+/** Light title-case for DOB all-caps street / borough tokens. */
+function titleCaseStreet(s) {
+  return String(s || "")
+    .toLowerCase()
+    .replace(/\b([a-z])/g, (m) => m.toUpperCase())
+    .replace(/\b(Ny|Nyc)\b/g, (m) => m.toUpperCase());
+}
+
+/** DOB job number e.g. M01228312 or B01334914I1EL / M01228312/I1 */
+export function extractDobJobNumber(text) {
+  const s = stripHtml(text);
+  const m =
+    s.match(/\bjob\s*number\s*[:#]?\s*([A-Z]?\d{6,12}(?:\s*\/\s*I\d+)?[A-Z0-9]*)/i) ||
+    s.match(/\bjob\s*number\s+([A-Z]?\d{6,12}(?:\/I\d+)?[A-Z0-9]*)/i) ||
+    s.match(/\b([A-Z]\d{8,12}(?:\/I\d+)?(?:EL)?)\b/);
+  return m ? m[1].replace(/\s+/g, "").trim() : "";
+}
+
 /** Strip HTML tags / entities so Con Edison HTML mail is parseable as plain text. */
 export function stripHtml(raw) {
   let s = String(raw || "");
@@ -55,6 +73,10 @@ export function stripHtml(raw) {
 
 const ENERGY_SENDER_RE =
   /energy\s*services|con\s*edison|coned|@coned\.com|@conedison\.com|@energy-services|cpms\.noreply/i;
+
+/** NYC DOB / City electrical inspection mail (often lands under DOB label, not Inbox). */
+const CITY_DOB_SENDER_RE =
+  /buildings\.nyc\.gov|dobnow|@buildings\.nyc\.gov|department\s+of\s+buildings|nyc\s+dob|electrical\s+inspection\s+scheduled|dob\s*now/i;
 
 const STREET_RE =
   /\d+\s+[\w\s.'-]+(?:\b(?:st|street|ave|avenue|rd|road|blvd|boulevard|ln|lane|dr|drive|ct|court|pl|place|pkwy|parkway)\b)[^,;\n]*/i;
@@ -105,11 +127,36 @@ export const APPOINTMENT_DURATION_MINUTES = 60;
 
 export function isEnergyServicesEmail(from, subject = "", body = "") {
   const blob = [from, subject, body].join(" ");
-  return ENERGY_SENDER_RE.test(blob);
+  return ENERGY_SENDER_RE.test(blob) || CITY_DOB_SENDER_RE.test(blob);
+}
+
+/** True when mail is from NYC DOB / City electrical (not Con Ed). */
+export function isCityDobEmail(from, subject = "", body = "") {
+  const blob = [from, subject, body].join(" ");
+  return CITY_DOB_SENDER_RE.test(blob) && !ENERGY_SENDER_RE.test(from || "");
+}
+
+/** Agency for titles / notes: coned | city | other */
+export function classifyAgency(from = "", subject = "", body = "") {
+  if (isCityDobEmail(from, subject, body)) return "city";
+  if (ENERGY_SENDER_RE.test([from, subject, body].join(" "))) return "coned";
+  return "other";
 }
 
 export function extractAddress(text) {
   const plain = stripHtml(text);
+  // DOB: "at 149,EAST 116 STREET,Manhattan,10029" or "at 149 EAST 116 STREET, Manhattan, 10029"
+  const dobAt = plain.match(
+    /\bat\s+(\d+)\s*,?\s*([A-Za-z0-9 .'-]+?)\s*,\s*([A-Za-z .]+?)\s*,\s*(\d{5})(?:-\d{4})?\b/i
+  );
+  if (dobAt) {
+    const street = `${dobAt[1]} ${dobAt[2]}`.replace(/\s+/g, " ").replace(/\s*,\s*/g, " ").trim();
+    const borough = dobAt[3].replace(/\s+/g, " ").trim();
+    const zip = dobAt[4];
+    if (street.length >= 6) {
+      return `${titleCaseStreet(street)}, ${titleCaseStreet(borough)}, NY ${zip}`;
+    }
+  }
   // Prefer full "Service Address" block from Con Ed HTML (street + city/state/zip).
   const block = plain.match(
     /service\s*address\s+([^\n]+?)(?:\s*\n\s*)([A-Za-z .]+?\s*,?\s*[A-Z]{2}\s+\d{5}(?:-\d{4})?)/i
@@ -335,6 +382,18 @@ export function extractDateTime(text, refYear = new Date().getFullYear()) {
 
 function extractDateTimeRaw(text, refYear = new Date().getFullYear()) {
   const s = stripHtml(text);
+  // DOB: "7/30/2026 10:15 AM" or "on 7/30/2026 10:15 AM"
+  const slashTime = s.match(
+    /\b(\d{1,2})\/(\d{1,2})\/(\d{2,4})\s+(\d{1,2})(?::(\d{2}))?\s*(am|pm)\b/i
+  );
+  if (slashTime) {
+    const mo = parseInt(slashTime[1], 10) - 1;
+    const day = parseInt(slashTime[2], 10);
+    let year = parseInt(slashTime[3], 10);
+    if (year < 100) year += 2000;
+    const { hour, min } = parseClock(slashTime[4], slashTime[5], slashTime[6]);
+    return toIsoLocal(year, mo, day, hour, min);
+  }
   // "Jul 28, 2026 at 9:30 AM" / "July 15, 2026 at 2:00 PM"
   const coned = s.match(
     /\b((?:jan|feb|mar|apr|may|jun|jul|aug|sep|sept|oct|nov|dec)[a-z]*)\s+(\d{1,2})(?:,?\s+(\d{4}))?\s*(?:at\s+)?(\d{1,2})(?::(\d{2}))?\s*(am|pm)\b/i
@@ -396,7 +455,11 @@ export function classifyAppointmentType(text) {
   const s = stripHtml(text).toLowerCase();
   if (/meter\s*(?:install|replacement|set)/.test(s)) return "meter_installation";
   if (/poe|point\s*of\s*entry|determine\s*poe/.test(s)) return "poe";
-  if (/final\s*inspection|initial\s*inspection|inspection|inspect/.test(s)) return "inspection";
+  if (
+    /final\s*inspection|initial\s*inspection|electrical\s*inspection|inspection|inspect/.test(s)
+  ) {
+    return "inspection";
+  }
   if (/appointment|scheduled|schedule|reminder/.test(s)) return "appointment";
   return "other";
 }
@@ -404,6 +467,9 @@ export function classifyAppointmentType(text) {
 /**
  * Outcome of the email — drives auto-calendar vs paperwork-only vs skip.
  * scheduled | reminder | cancelled | completed | other
+ *
+ * Levi 2026-07-22: only NEW "appointment set" emails auto-create calendar events.
+ * Reminder / "upcoming" mail must not create (calendar cross-check may mark already-there).
  */
 export function classifyEmailOutcome(subject = "", body = "") {
   const s = stripHtml([subject, body].join("\n")).toLowerCase();
@@ -416,22 +482,43 @@ export function classifyEmailOutcome(subject = "", body = "") {
     return "cancelled";
   }
   if (/\bcompleted\b|\bpassed\b|\bpassed on\b|\binspection\s+passed\b/.test(s)) return "completed";
-  if (/\breminder\b|\bupcoming\b/.test(s)) return "reminder";
-  if (/\bscheduled\b|\bappointment is set\b|\bhas been scheduled\b/.test(s)) return "scheduled";
-  if (/\bappointment\b/.test(s)) return "scheduled";
+  // Reminder first — "reminder of an upcoming … scheduled" is still a reminder.
+  if (/\breminder\b|\bfriendly reminder\b|\bupcoming\b/.test(s)) return "reminder";
+  // True new appointment sets (Con Ed + DOB city).
+  if (
+    /\bhas\s+scheduled\b/.test(s) ||
+    /\bappointment\s+is\s+set\b/.test(s) ||
+    /\bhas\s+been\s+scheduled\b/.test(s) ||
+    /\binspection\s+scheduled\b/.test(s) ||
+    /\bscheduled\s+an?\s+(?:electrical\s+)?inspection\b/.test(s) ||
+    /\bscheduled\s+a\s+con\s*edison\b/.test(s) ||
+    /\bappointment\s+set\s+between\b/.test(s) ||
+    (/\bscheduled\b/.test(s) && !/\breminder\b/.test(s))
+  ) {
+    return "scheduled";
+  }
+  if (/\bappointment\b/.test(s) && !/\breminder\b/.test(s)) return "scheduled";
   return "other";
 }
 
 const TYPE_LABELS = {
-  inspection: "Con Edison inspection",
+  inspection: "inspection",
   meter_installation: "meter installation",
   poe: "POE appointment",
   appointment: "appointment",
-  other: "Energy Services appointment",
+  other: "appointment",
 };
 
-export function appointmentTypeLabel(type) {
-  return TYPE_LABELS[type] || TYPE_LABELS.other;
+export function appointmentTypeLabel(type, agency = "") {
+  const base = TYPE_LABELS[type] || TYPE_LABELS.other;
+  if (type === "inspection") {
+    if (agency === "city") return "City electrical inspection";
+    if (agency === "coned") return "Con Edison inspection";
+    return "Inspection";
+  }
+  if (agency === "city") return `City ${base}`;
+  if (agency === "coned" && type === "other") return "Energy Services appointment";
+  return base;
 }
 
 export function parseEmailInsight({ from = "", subject = "", body = "", receivedAt = "", messageId = "" }) {
@@ -442,19 +529,26 @@ export function parseEmailInsight({ from = "", subject = "", body = "", received
   const dateTime = schedule.dateTime;
   const appointmentType = classifyAppointmentType(blob);
   const outcome = classifyEmailOutcome(subject, plainBody);
-  const fromLabel = /energy\s*services/i.test(from)
-    ? "Energy Services"
-    : /con\s*ed|@coned\.com|cpms\.noreply/i.test(from)
-      ? "Con Edison"
-      : "Email";
+  const agency = classifyAgency(from, subject, plainBody);
+  const dobJobNumber = extractDobJobNumber(blob);
+  const fromLabel =
+    agency === "city"
+      ? "City / DOB"
+      : /energy\s*services/i.test(from)
+        ? "Energy Services"
+        : /con\s*ed|@coned\.com|cpms\.noreply/i.test(from)
+          ? "Con Edison"
+          : "Email";
 
   const summaryParts = [];
   if (address) summaryParts.push(`at ${address}`);
   if (dateTime) summaryParts.push(`on ${dateTime.replace("T", " ").slice(0, 16)}`);
   if (schedule.timeWindow) summaryParts.push(`(${schedule.timeWindow.text.replace(/\.$/, "")})`);
-  summaryParts.push(`for ${appointmentTypeLabel(appointmentType)}`);
+  summaryParts.push(`for ${appointmentTypeLabel(appointmentType, agency)}`);
+  if (dobJobNumber) summaryParts.push(`(job ${dobJobNumber})`);
   if (outcome === "cancelled") summaryParts.push("(cancelled)");
   if (outcome === "completed") summaryParts.push("(completed)");
+  if (outcome === "reminder") summaryParts.push("(reminder only — not a new set)");
 
   return {
     id: messageId ? "ei-" + messageId : "ei-" + Date.now(),
@@ -467,6 +561,7 @@ export function parseEmailInsight({ from = "", subject = "", body = "", received
       receivedAt: receivedAt || new Date().toISOString(),
       messageId: messageId || "",
     },
+    agency,
     appointmentType,
     outcome,
     address,
@@ -474,6 +569,7 @@ export function parseEmailInsight({ from = "", subject = "", body = "", received
     exactDateTime: schedule.exactDateTime || "",
     endDateTime: schedule.endDateTime || "",
     timeWindow: schedule.timeWindow || null,
+    dobJobNumber: dobJobNumber || "",
     summary: summaryParts.join(" "),
     emailSnippet: plainBody.slice(0, 400).trim() || String(subject || "").slice(0, 200),
     jobId: null,
@@ -484,14 +580,26 @@ export function parseEmailInsight({ from = "", subject = "", body = "", received
 
 /**
  * Plain-language description for the Google Calendar event.
- * Includes appointment window and (for inspections) exact time vs half-hour slot.
+ * Glanceable layout (Levi 2026-07-22 screenshot feedback):
+ *  - who / agency first line
+ *  - exact inspection time (and half-hour slot note if floored)
+ *  - customer window if any
+ *  - DOB job # when present
+ *  - source line last
+ * No leJobId / internal tags — job is linked via calEventId.
  */
 export function buildAppointmentDescription(insight, job) {
   const lines = [];
   const type = insight?.appointmentType || "other";
+  const agency = insight?.agency || "other";
   const window = insight?.timeWindow;
   const exact = insight?.exactDateTime || "";
   const scheduled = insight?.dateTime || "";
+  const who = (job?.customer || "").trim();
+  const agencyName =
+    agency === "city" ? "NYC Department of Buildings" : agency === "coned" ? "Con Edison" : "Agency";
+
+  if (who) lines.push(`Customer: ${who}`);
 
   if (window?.text) {
     lines.push(window.text);
@@ -510,10 +618,16 @@ export function buildAppointmentDescription(insight, job) {
     );
     if (exact.slice(11, 16) !== scheduled.slice(11, 16)) {
       lines.push(
-        `Con Edison inspection at ${exactLabel}. Scheduled for ${schedLabel} because we only use half-hour increments.`
+        agency === "city"
+          ? `City electrical inspection at ${exactLabel}. Calendar slot ${schedLabel} (half-hour increments only).`
+          : `Con Edison inspection at ${exactLabel}. Scheduled for ${schedLabel} because we only use half-hour increments.`
       );
     } else {
-      lines.push(`Con Edison inspection at ${exactLabel}.`);
+      lines.push(
+        agency === "city"
+          ? `City electrical inspection at ${exactLabel}.`
+          : `Con Edison inspection at ${exactLabel}.`
+      );
     }
   } else if (type === "inspection" && scheduled) {
     const schedLabel = formatClockLabel(
@@ -521,10 +635,36 @@ export function buildAppointmentDescription(insight, job) {
       parseInt(scheduled.slice(14, 16), 10),
       true
     );
-    lines.push(`Con Edison inspection at ${schedLabel}.`);
+    lines.push(
+      agency === "city"
+        ? `City electrical inspection at ${schedLabel}.`
+        : `Con Edison inspection at ${schedLabel}.`
+    );
+  } else if (scheduled && !window) {
+    const schedLabel = formatClockLabel(
+      parseInt(scheduled.slice(11, 13), 10),
+      parseInt(scheduled.slice(14, 16) || "00", 10),
+      true
+    );
+    if (schedLabel && !Number.isNaN(parseInt(scheduled.slice(11, 13), 10))) {
+      lines.push(`Appointment at ${schedLabel}.`);
+    }
   }
 
-  lines.push("From Energy Services email");
+  if (insight?.dobJobNumber) {
+    lines.push(`DOB job number ${insight.dobJobNumber}`);
+  }
+
+  const src =
+    agency === "city"
+      ? "From City / DOB email"
+      : agency === "coned"
+        ? "From Energy Services / Con Edison email"
+        : "From email";
+  lines.push(src);
+  if (agencyName && type === "inspection") {
+    // Agency already in lines above for inspections.
+  }
   return lines.filter(Boolean).join("\n");
 }
 
@@ -551,18 +691,22 @@ export function matchJobForInsight(insight, jobs, minScore = 0.55) {
 export function buildProposedActions(insight, job) {
   const type = insight?.appointmentType || "other";
   const outcome = insight?.outcome || "other";
+  const agency = insight?.agency || "";
   const actions = [];
   const when = insight?.dateTime || "";
   const addr = insight?.address || job?.serviceAddress || job?.address || "";
+  const typeLabel = appointmentTypeLabel(type, agency);
 
-  const scheduleable = outcome !== "cancelled" && outcome !== "completed";
+  // Only NEW appointment-set emails create calendar events (not pure reminders).
+  const isNewSet = outcome === "scheduled" || outcome === "other";
+  const scheduleable = isNewSet;
 
   if (scheduleable) {
     actions.push({
       key: "calendar",
       label: when
-        ? `Add ${appointmentTypeLabel(type)} to calendar (${when.replace("T", " ").slice(0, 16)})`
-        : `Add ${appointmentTypeLabel(type)} to calendar`,
+        ? `Add ${typeLabel} to calendar (${when.replace("T", " ").slice(0, 16)})`
+        : `Add ${typeLabel} to calendar`,
       enabled: true,
       defaultOn: true,
     });
@@ -571,6 +715,13 @@ export function buildProposedActions(insight, job) {
       actions.push({ key: "remind_1d", label: "Reminder 1 day before", enabled: true, defaultOn: true });
       actions.push({ key: "remind_1h", label: "Reminder 1 hour before", enabled: true, defaultOn: true });
     }
+  } else if (outcome === "reminder") {
+    actions.push({
+      key: "note_reminder",
+      label: "Reminder email only — won't add a second calendar appointment",
+      enabled: true,
+      defaultOn: true,
+    });
   } else if (outcome === "cancelled") {
     actions.push({
       key: "note_cancelled",
@@ -605,12 +756,17 @@ export function buildProposedActions(insight, job) {
   }
 
   if (job?.id && type === "inspection") {
+    const paperLabel =
+      agency === "city"
+        ? outcome === "completed"
+          ? "Update City / DOB paperwork — inspection completed"
+          : "Update City / DOB paperwork — Inspection scheduled"
+        : outcome === "completed"
+          ? "Update Con Ed paperwork — inspection completed"
+          : "Update Con Ed paperwork — Inspection appointment";
     actions.push({
       key: "paperwork_inspection",
-      label:
-        outcome === "completed"
-          ? "Update Con Ed paperwork — inspection completed"
-          : "Update Con Ed paperwork — Inspection appointment",
+      label: paperLabel,
       enabled: true,
       defaultOn: true,
     });
@@ -658,25 +814,36 @@ export function formatInsightLead(insight, job) {
     jobLine = job
       ? `Inspection completed for ${job.customer || "this customer"} — I'll update the job.`
       : "Inspection marked completed.";
+  } else if (outcome === "reminder") {
+    jobLine = "This is only a reminder — I won't create a new calendar appointment from it.";
   }
-  const appt = insight?.summary || appointmentTypeLabel(insight?.appointmentType);
+  const appt = insight?.summary || appointmentTypeLabel(insight?.appointmentType, insight?.agency);
   return `From ${src}: ${appt}. ${jobLine}`;
 }
 
 export function formatAppliedLead(insight, job) {
   const src = insight?.source?.fromLabel || "Email";
-  const type = appointmentTypeLabel(insight?.appointmentType);
+  const type = appointmentTypeLabel(insight?.appointmentType, insight?.agency);
   const when = insight?.dateTime ? insight.dateTime.replace("T", " ").slice(0, 16) : "";
   const who = job?.customer || "the job";
   const outcome = insight?.outcome || "other";
+  if (insight?.skipReason === "already_on_calendar") {
+    return when
+      ? `From ${src}: ${type} for ${who} was already on your schedule (${when}) — left it alone.`
+      : `From ${src}: ${type} for ${who} was already on your schedule — left it alone.`;
+  }
   if (outcome === "completed") {
     return `From ${src}: marked ${type} completed for ${who}${when ? ` (${when})` : ""}. Already on the job.`;
   }
   if (outcome === "cancelled") {
     return `From ${src}: noted cancelled ${type} for ${who}. Nothing added to the calendar.`;
   }
+  if (outcome === "reminder") {
+    return `From ${src}: reminder only for ${who} — no new calendar appointment.`;
+  }
+  const emailed = insight?.customerEmailed ? " and emailed the customer the invite" : "";
   return when
-    ? `From ${src}: added ${type} for ${who} to your schedule calendar on ${when}.`
+    ? `From ${src}: added ${type} for ${who} to your schedule calendar on ${when}${emailed}.`
     : `From ${src}: applied email update for ${who}.`;
 }
 
@@ -692,19 +859,32 @@ export function isDateTimeActionable(dateTime, now = new Date()) {
 }
 
 /**
- * Silent auto-apply when we have a strong job match and a clear scheduleable email.
- * Weak matches still need Levi's approve sheet.
+ * Silent auto-apply when we have a strong job match and a clear NEW appointment set.
+ * Reminder emails never auto-create (Levi 2026-07-22) — they may be auto-dismissed
+ * elsewhere after a calendar cross-check. Weak matches still need Levi's approve sheet.
  */
 export function canAutoApply(insight, job, now = new Date()) {
   if (!insight || !job?.id) return false;
   if ((insight.jobMatchScore || 0) < AUTO_APPLY_MIN_SCORE) return false;
   const outcome = insight.outcome || "other";
   if (outcome === "cancelled") return false;
+  // Reminder-only: do not create calendar events from reminders.
+  if (outcome === "reminder") return false;
   // Completed inspections: auto-update paperwork only (still notify).
   if (outcome === "completed") return true;
   // Need a date/time on the calendar, and not a stale past appointment.
   if (!insight.dateTime || !isDateTimeActionable(insight.dateTime, now)) return false;
-  return outcome === "scheduled" || outcome === "reminder" || outcome === "other" || outcome === "appointment";
+  // Only true new appointment sets (and loose "other" with a clear datetime).
+  return outcome === "scheduled" || outcome === "other";
+}
+
+/**
+ * Whether this email should create a calendar event (new set only, not reminder).
+ */
+export function wantsNewCalendarAppointment(insight) {
+  const outcome = insight?.outcome || "other";
+  if (outcome === "reminder" || outcome === "cancelled" || outcome === "completed") return false;
+  return !!insight?.dateTime;
 }
 
 export function defaultActionKeys(insight, job) {
@@ -733,7 +913,18 @@ export function paperworkPatchForInsight(insight, dateTime) {
   const dt = dateTime || insight?.dateTime || "";
   if (!dt) return {};
   const type = insight?.appointmentType;
+  const agency = insight?.agency || "";
   if (type === "inspection") {
+    if (agency === "city") {
+      return {
+        paperwork: {
+          dob: {
+            enabled: true,
+            dates: { "Inspection scheduled": dt },
+          },
+        },
+      };
+    }
     return {
       paperwork: {
         coned: {

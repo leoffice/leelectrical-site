@@ -13,6 +13,7 @@ import {
   canAutoApply,
   defaultActionKeys,
   formatAppliedLead,
+  wantsNewCalendarAppointment,
   EMAIL_INSIGHT_TEST_AUTO_APPLY_LIMIT,
 } from "../lib/emailInsight.js";
 import { applyEmailInsight, buildCalendarPayload } from "../lib/applyEmailInsight.js";
@@ -106,7 +107,7 @@ function EmailInsightSheet({ insight, job, onApprove, onEdit, onIgnore, onOpenJo
         <div className="flex flex-wrap items-center gap-2 mb-1.5">
           <IntelligentSuggestionBadge />
           <span className="text-xs font-bold text-purple-800 uppercase tracking-wide">
-            {appointmentTypeLabel(insight?.appointmentType)}
+            {appointmentTypeLabel(insight?.appointmentType, insight?.agency)}
           </span>
         </div>
         <p className="text-sm text-purple-900/90 mb-1">{insight?.lead}</p>
@@ -155,7 +156,7 @@ function EmailInsightDoneSheet({ insight, job, onAck, onOpenJob, onOpenCalendar 
             ✅ Done automatically
           </span>
           <span className="text-xs font-bold text-emerald-900 uppercase tracking-wide">
-            {appointmentTypeLabel(insight?.appointmentType)}
+            {appointmentTypeLabel(insight?.appointmentType, insight?.agency)}
           </span>
         </div>
         <p className="text-sm text-emerald-950/90 mb-1" data-testid="email-insight-done-lead">
@@ -266,6 +267,7 @@ export default function EmailInsightPrompts() {
           pullCalendarNow,
           showToast,
           autoApply: false,
+          events,
         });
         seen.current.add(insight.id);
         setCurrent(null);
@@ -276,6 +278,7 @@ export default function EmailInsightPrompts() {
     },
     [
       effectiveJob,
+      events,
       enqueue,
       patchAndSave,
       patchEmailInsight,
@@ -301,7 +304,8 @@ export default function EmailInsightPrompts() {
     [patchEmailInsight, refreshEmailInsights]
   );
 
-  // Auto-apply strong matches in the background.
+  // Auto-apply strong NEW appointment sets in the background.
+  // Reminders: never create — if already on calendar mark done, else quiet ignore.
   // Test limit (Levi): only execute ONE calendar appointment until he lifts the cap.
   useEffect(() => {
     if (IS_TEST || loading || !jobs?.length) return;
@@ -313,26 +317,60 @@ export default function EmailInsightPrompts() {
         if (autoRunning.current.has(raw.id) || seen.current.has(raw.id)) continue;
         const enriched = enrichInsight(raw, jobs);
         const job = enriched.jobId ? effectiveJob(enriched.jobId) : null;
+        const outcome = enriched.outcome || "other";
+
+        // Reminder-only mail: leave calendar alone; dismiss quietly.
+        if (outcome === "reminder") {
+          autoRunning.current.add(raw.id);
+          try {
+            const existing = findEventForInsight(enriched, job, events);
+            if (existing) {
+              await patchEmailInsight(raw.id, {
+                status: "auto_applied",
+                autoApplied: true,
+                notified: true,
+                skipReason: "already_on_calendar",
+                appliedEventId: existing.id || "",
+                jobId: job?.id || enriched.jobId || null,
+                appliedAt: new Date().toISOString(),
+              });
+            } else {
+              await patchEmailInsight(raw.id, {
+                status: "ignored",
+                ignoreReason: "reminder_not_new_set",
+                appliedAt: new Date().toISOString(),
+              });
+            }
+            seen.current.add(raw.id);
+          } catch {
+            /* leave pending */
+          } finally {
+            autoRunning.current.delete(raw.id);
+          }
+          continue;
+        }
+
         if (!canAutoApply(enriched, job)) continue;
 
-        const outcome = enriched.outcome || "other";
         const wantsCalendar =
-          outcome !== "cancelled" &&
-          outcome !== "completed" &&
-          !!enriched.dateTime &&
+          wantsNewCalendarAppointment(enriched) &&
           (defaultActionKeys(enriched, job) || []).includes("calendar");
 
-        // Hard test gate: scan may find many; only execute one appointment.
+        // Already on calendar? Apply path will no-op create + mark done.
+        // Hard test gate: scan may find many; only execute one *new* appointment.
         if (
           wantsCalendar &&
           Number.isFinite(EMAIL_INSIGHT_TEST_AUTO_APPLY_LIMIT) &&
           autoApplyCalendarCount >= EMAIL_INSIGHT_TEST_AUTO_APPLY_LIMIT
         ) {
-          continue;
+          // Still allow "already on calendar" cross-check without burning the slot.
+          const existing = findEventForInsight(enriched, job, events);
+          if (!existing) continue;
         }
 
         autoRunning.current.add(raw.id);
         try {
+          const beforeExisting = findEventForInsight(enriched, job, events);
           await applyEmailInsight({
             insight: enriched,
             job,
@@ -344,8 +382,10 @@ export default function EmailInsightPrompts() {
             pullCalendarNow,
             showToast: null,
             autoApply: true,
+            events,
           });
-          if (wantsCalendar) autoApplyCalendarCount += 1;
+          // Count only true new creates (not already-on-calendar skips).
+          if (wantsCalendar && !beforeExisting) autoApplyCalendarCount += 1;
         } catch {
           /* leave pending for manual approve */
         } finally {
@@ -360,6 +400,7 @@ export default function EmailInsightPrompts() {
   }, [
     loading,
     jobs,
+    events,
     emailInsights,
     effectiveJob,
     enqueue,
