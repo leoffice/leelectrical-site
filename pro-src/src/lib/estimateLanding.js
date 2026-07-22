@@ -64,6 +64,61 @@ export function buildEstimatePdfBlobFromPayload(data) {
   return { ok: true, blob, job };
 }
 
+/**
+ * Map public invoice pay-landing payload → job shape for client PDF.
+ * Used when docs store has no inv-{no} yet (host offline / upload miss).
+ */
+export function buildInvoiceJobFromPayload(data) {
+  const invNo = String(data?.i || "").trim();
+  const total =
+    parseAmount(String(data?.t || "").replace(/[$,]/g, "")) ||
+    parseAmount(data?.a) ||
+    0;
+  const due =
+    parseAmount(String(data?.d || "").replace(/[$,]/g, "")) ||
+    parseAmount(data?.a) ||
+    total;
+  const work = String(data?.w || "Electrical services").trim();
+  const pays = Array.isArray(data?.ps)
+    ? data.ps.map((p) => ({
+        amount: parseAmount(p?.a),
+        method: String(p?.m || "").trim(),
+        date: String(p?.d || "").trim(),
+        ref: String(p?.r || "").trim(),
+      }))
+    : [];
+  return {
+    id: String(data?.j || "").trim(),
+    customer: String(data?.c || "").trim(),
+    email: String(data?.e || "").trim(),
+    phone: String(data?.ph || "").trim(),
+    title: work,
+    serviceAddress: String(data?.sa || "").trim(),
+    billingAddress: String(data?.ba || data?.sa || "").trim(),
+    address: String(data?.sa || data?.ba || "").trim(),
+    zip: String(data?.z || "").trim(),
+    invoiceNo: invNo,
+    invoiceLines:
+      total > 0
+        ? [{ itemName: "Electrical services", description: work, qty: 1, unitPrice: total }]
+        : [],
+    amount: total,
+    openBalance: due,
+    payments: pays,
+  };
+}
+
+/** Build invoice PDF blob from landing payload (client qb-pdf) — no office computer needed. */
+export function buildInvoicePdfBlobFromPayload(data) {
+  const job = buildInvoiceJobFromPayload(data);
+  if (!job.invoiceNo && !(job.amount > 0)) {
+    return { ok: false, error: "no_data", job };
+  }
+  const blob = buildInvoicePdfFromJob(job);
+  if (!blob) return { ok: false, error: "no_pdf", job };
+  return { ok: true, blob, job };
+}
+
 export function depositPctFromPayload(data) {
   const n = parseAmount(data?.dp);
   return n > 0 && n <= 100 ? n : 50;

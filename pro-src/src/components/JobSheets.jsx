@@ -59,7 +59,12 @@ import {
   invoicesForCustomerPick,
 } from "../lib/customerDocLists.js";
 import { findJobByInvoice, reconcileZellePayment } from "../lib/zelleReconcile.js";
-import { paymentAutofillPatch, paymentMemoNote, invoiceNoFromExtracted } from "../lib/paymentAutofill.js";
+import {
+  paymentAutofillPatch,
+  paymentMemoNote,
+  invoiceNoFromExtracted,
+  hasUsefulPaymentAutofill,
+} from "../lib/paymentAutofill.js";
 import { getDepositBanks } from "../lib/chatPayment.js";
 import { analyzePaymentImage, analyzePaymentScreenshot, fileToBase64 } from "../lib/paymentVision.js";
 import ZelleReconcileSheet from "./ZelleReconcileSheet.jsx";
@@ -506,6 +511,12 @@ export function MarkPaidSheet({
   };
 
   const applyAutofill = (extracted) => {
+    if (!hasUsefulPaymentAutofill(extracted)) {
+      setAutofillExtracted(null);
+      setAutofillDone(false);
+      setPaymentVerified(false);
+      return false;
+    }
     const patch = paymentAutofillPatch(extracted);
     if (patch.amt) setAmt(patch.amt);
     if (patch.ref) setRef(patch.ref);
@@ -529,7 +540,7 @@ export function MarkPaidSheet({
             setAmt(d > 0 ? String(d) : String(matched.amount || "").replace(/[$,]/g, ""));
           }
           showToast("Matched invoice #" + invNo + " — review and tap Record");
-          return;
+          return true;
         }
       }
       // Fallback: payer name on the check → prefill customer search.
@@ -537,9 +548,10 @@ export function MarkPaidSheet({
         setCustDraft(patch.name);
         setPickCust({ name: patch.name });
         showToast("Read name from check — pick the invoice if needed");
-        return;
+        return true;
       }
     }
+    return true;
   };
 
   const runAutofill = async (b64Override, fileOverride) => {
@@ -556,11 +568,16 @@ export function MarkPaidSheet({
       );
       const invNo = invoiceNoFromExtracted(extracted);
       const matched = invNo && needsPick && !activeJob ? findJobByInvoice(jobs, invNo) : null;
-      applyAutofill(extracted);
-      if (!matched) {
+      const ok = applyAutofill(extracted);
+      if (!ok) {
+        showToast("Couldn't read amount or check # from the photo — enter them manually");
+      } else if (!matched) {
         showToast("Fields filled from image — review and tap Record");
       }
     } catch (e) {
+      setAutofillDone(false);
+      setPaymentVerified(false);
+      setAutofillExtracted(null);
       showToast("Could not read image — " + String((e && e.message) || "enter manually"));
     } finally {
       setAutofillBusy(false);
@@ -1070,7 +1087,7 @@ export function MarkPaidSheet({
               }}
               disabled={processing}
             />
-            {paymentVerified && autofillDone ? (
+            {paymentVerified && autofillDone && String(ref || "").trim() ? (
               <p className="text-[11px] text-emerald-600 mt-1 font-medium" data-testid="check-verified">
                 ✓ Read from check image
               </p>

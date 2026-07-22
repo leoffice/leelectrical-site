@@ -1,5 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { invoiceNoFromExtracted, paymentAutofillPatch, paymentMemoNote } from "../src/lib/paymentAutofill.js";
+import {
+  hasUsefulPaymentAutofill,
+  invoiceNoFromExtracted,
+  parseExtractedAmount,
+  paymentAutofillPatch,
+  paymentMemoNote,
+} from "../src/lib/paymentAutofill.js";
 
 describe("paymentAutofill", () => {
   it("maps extracted fields to form patch", () => {
@@ -58,5 +64,17 @@ describe("paymentAutofill", () => {
     expect(
       paymentMemoNote({ method: "Zelle", ref: "JPM1", memo: "partial", proofName: "z.png" })
     ).toBe("Zelle ref JPM1 · proof: z.png · partial");
+  });
+
+  it("parses string amounts and rejects empty extracts as not useful", () => {
+    expect(parseExtractedAmount("$1,250.50")).toBe(1250.5);
+    expect(parseExtractedAmount(null)).toBe(null);
+    expect(hasUsefulPaymentAutofill(null)).toBe(false);
+    expect(hasUsefulPaymentAutofill({})).toBe(false);
+    expect(hasUsefulPaymentAutofill({ amount: 100, checkNumber: "12" })).toBe(true);
+    expect(paymentAutofillPatch({ amount: "$80.00", checkNumber: "99" })).toEqual({
+      amt: "80",
+      ref: "99",
+    });
   });
 });

@@ -1,11 +1,19 @@
 // Apply vision-extracted payment fields to manual entry form state.
 import { todayStr } from "./format.js";
 
+/** Parse a vision amount that may be number or "$1,234.56" string. */
+export function parseExtractedAmount(raw) {
+  if (raw == null || raw === "") return null;
+  const n = parseFloat(String(raw).replace(/[$,*\s]/g, ""));
+  return Number.isFinite(n) && n > 0 ? n : null;
+}
+
 /** Map extracted vision fields → form patch for Mark as paid. */
 export function paymentAutofillPatch(extracted) {
   if (!extracted) return {};
   const patch = {};
-  if (extracted.amount > 0) patch.amt = String(extracted.amount);
+  const amt = parseExtractedAmount(extracted.amount);
+  if (amt != null) patch.amt = String(amt);
   const ref = String(extracted.confirmationNumber || extracted.checkNumber || "").trim();
   if (ref) patch.ref = ref;
   if (extracted.date) patch.dt = extracted.date;
@@ -16,6 +24,15 @@ export function paymentAutofillPatch(extracted) {
   const inv = invoiceNoFromExtracted(extracted);
   if (inv) patch.invoiceNo = inv;
   return patch;
+}
+
+/**
+ * True when vision actually returned something we can put on the form.
+ * Empty / failed extracts must NOT show green "Autofilled" / "Read from check".
+ */
+export function hasUsefulPaymentAutofill(extracted) {
+  const patch = paymentAutofillPatch(extracted);
+  return !!(patch.amt || patch.ref || patch.memo || patch.invoiceNo || patch.name || patch.dt);
 }
 
 /**
