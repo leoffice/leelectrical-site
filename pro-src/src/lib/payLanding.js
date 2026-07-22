@@ -94,7 +94,8 @@ export function encodePayLanding(payload) {
 export function decodePayLanding(token) {
   const o = b64urlDecode(token);
   if (!o || !o.i) return null;
-  if (!o.sl && !o.pay) return null;
+  // Invoice landings need sl or pay; estimate landings use k:"e" (or lines).
+  if (!o.sl && !o.pay && o.k !== "e" && o.kind !== "estimate") return null;
   return o;
 }
 
@@ -144,10 +145,27 @@ export async function resolvePayLandingToken(token) {
   return data.payload;
 }
 
-export function invoicePdfUrl(invoiceNo) {
-  const no = String(invoiceNo || "").trim();
+/** PDF store URL — invoices use inv-*, estimates use est-*. */
+export function docPdfUrl(kind, docNumber) {
+  const no = String(docNumber || "").trim();
   if (!no) return "";
-  return `${functionsBase()}/docs?key=inv-${encodeURIComponent(no)}`;
+  const prefix = String(kind || "invoice").toLowerCase() === "estimate" ? "est-" : "inv-";
+  return `${functionsBase()}/docs?key=${prefix}${encodeURIComponent(no)}`;
+}
+
+export function invoicePdfUrl(invoiceNo) {
+  return docPdfUrl("invoice", invoiceNo);
+}
+
+export function estimatePdfUrl(estimateNo) {
+  return docPdfUrl("estimate", estimateNo);
+}
+
+/** True when the landing payload is an estimate (View and Approve), not an invoice pay page. */
+export function isEstimateLanding(data) {
+  if (!data) return false;
+  if (data.k === "e" || data.kind === "estimate") return true;
+  return Array.isArray(data.lines) && data.lines.length > 0 && !data.pay;
 }
 
 export function addressesDiffer(ba, sa) {

@@ -49,35 +49,77 @@ function paymentsFor(job) {
     .sort((a, b) => String(b.d).localeCompare(String(a.d)));
 }
 
+/** Compact line items for estimate→deposit invoice on the public landing page. */
+function compactLines(job, kind = "invoice") {
+  const raw =
+    (kind === "estimate" ? job?.estimateLines : job?.invoiceLines) ||
+    job?.items ||
+    [];
+  return (Array.isArray(raw) ? raw : [])
+    .filter((ln) => ln && (ln.description || ln.itemName || amt(ln.unitPrice || ln.rate || ln.amount)))
+    .map((ln) => ({
+      itemName: String(ln.itemName || "").trim(),
+      itemId: String(ln.itemId || "").trim(),
+      description: String(ln.description || ln.itemName || "").trim(),
+      qty: amt(ln.qty) || 1,
+      unitPrice: amt(ln.unitPrice || ln.rate) || amt(ln.amount),
+    }))
+    .slice(0, 80);
+}
+
 /**
- * Landing payload for an emailed invoice. Mirrors the client's
+ * Landing payload for an emailed invoice or estimate. Mirrors the client's
  * buildPayLandingPayload contract (pro-src/src/lib/payLanding.js).
+ * Estimates set k:"e" and carry line items so the page can Approve / deposit-invoice.
  */
-export function buildEmailPayLandingPayload({ job = {}, docData = {}, email = "", cardknoxUrl = "" }) {
+export function buildEmailPayLandingPayload({
+  job = {},
+  docData = {},
+  email = "",
+  cardknoxUrl = "",
+  kind = "invoice",
+}) {
+  const isEstimate = String(kind || "invoice").toLowerCase() === "estimate";
   const serviceAddr = String(job.serviceAddress || job.address || "").trim();
   const billAddr = String(job.billingAddress || job.address || serviceAddr).trim();
   const due = amt(docData.amountDue);
-  const paid = (Array.isArray(job.payments) ? job.payments : []).reduce((s, p) => s + amt(p?.amount), 0);
-  return {
+  const paid = isEstimate
+    ? 0
+    : (Array.isArray(job.payments) ? job.payments : []).reduce((s, p) => s + amt(p?.amount), 0);
+  const docNo = String(
+    docData.docNumber || (isEstimate ? job.estimateNo : job.invoiceNo) || ""
+  ).trim();
+  const payload = {
     j: String(job.id || "").trim(),
-    i: String(docData.docNumber || job.invoiceNo || "").trim(),
+    i: docNo,
     a: due,
-    fe: 1,
+    fe: isEstimate ? 0 : 1,
     c: String(docData.billTo?.name || job.customer || "").trim(),
     w: String(job.title || job.serviceType || "Electrical services").trim(),
-    t: money(due + paid),
+    t: money(isEstimate ? due : due + paid),
     d: money(due),
     p: money(paid),
-    ps: paymentsFor(job),
+    ps: isEstimate ? [] : paymentsFor(job),
     e: String(email || job.email || "").trim(),
     ph: String(job.phone || "").trim(),
     sa: serviceAddr,
     ba: billAddr,
     z: String(job.zip || "").trim(),
     sl: "blzelectric",
-    pay: String(cardknoxUrl || ""),
+    pay: isEstimate ? "" : String(cardknoxUrl || ""),
     as: new Date().toISOString().slice(0, 10),
+    k: isEstimate ? "e" : "i",
   };
+  if (isEstimate) {
+    payload.en = docNo; // estimate number (i also holds it)
+    payload.lines = compactLines(job, "estimate");
+    payload.dp = 50; // default deposit %
+    payload.qboCustomerId = String(job.qboCustomerId || "").trim();
+    payload.businessName = String(job.businessName || job.customer || "").trim();
+    payload.personName = String(job.personName || "").trim();
+    payload.apartment = String(job.apartment || "").trim();
+  }
+  return payload;
 }
 
 /**

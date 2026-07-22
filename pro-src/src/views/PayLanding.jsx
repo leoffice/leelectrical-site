@@ -1,8 +1,14 @@
-// Public View & Pay — invoice details, View invoice PDF, in-page card payment.
+// Public View & Pay (invoices) + View and Approve (estimates).
 import React, { useEffect, useRef, useState } from "react";
 import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import SolaCardForm, { tokenizeSolaCard } from "../components/SolaCardForm.jsx";
-import { addressesDiffer, invoicePdfUrl, resolvePayLandingToken } from "../lib/payLanding.js";
+import {
+  addressesDiffer,
+  estimatePdfUrl,
+  invoicePdfUrl,
+  isEstimateLanding,
+  resolvePayLandingToken,
+} from "../lib/payLanding.js";
 import { openPdfUrl } from "../lib/pdfOpen.js";
 import {
   PDF_RETRIEVE_STAGES,
@@ -17,6 +23,14 @@ import {
   totalWithFee,
 } from "../lib/payFees.js";
 import { chargeCardFromLanding } from "../lib/solaCharge.js";
+import {
+  buildDepositInvoicePdfB64,
+  depositAmountFromPayload,
+  depositPctFromPayload,
+  estimateDocNo,
+  formatDepositCta,
+  postEstimateAction,
+} from "../lib/estimateLanding.js";
 import { useTenantConfig } from "../state/tenant.jsx";
 import { productName, tenantLocality } from "../lib/tenantBranding.js";
 
@@ -134,8 +148,14 @@ export default function PayLanding() {
   const [saveOnFile, setSaveOnFile] = useState(true);
   const [payBusy, setPayBusy] = useState(false);
   const [payErr, setPayErr] = useState("");
+  const [estBusy, setEstBusy] = useState("");
+  const [estMsg, setEstMsg] = useState("");
+  const [estErr, setEstErr] = useState("");
+  const [approved, setApproved] = useState(false);
+  const [depositDone, setDepositDone] = useState(null);
 
-  const includeFee = feeEnabledInPayload(data);
+  const isEstimate = isEstimateLanding(data);
+  const includeFee = !isEstimate && feeEnabledInPayload(data);
 
   // Public page: renders OUTSIDE TenantProvider (see main.jsx — /pay bypasses
   // LockGate and StoreProvider), so this is the BUILD seed rather than the
@@ -176,7 +196,17 @@ export default function PayLanding() {
       setPayAmount(parseMoney(data.a));
       setDraft(String(data.a));
     }
-  }, [data?.a]);
+    if (data) {
+      setApproved(!!data.approved);
+      if (data.depositDone) {
+        setDepositDone({
+          invoiceNo: data.depositInvoiceNo,
+          payUrl: data.depositPayUrl,
+          amount: data.depositAmount,
+        });
+      }
+    }
+  }, [data?.a, data?.approved, data?.depositDone, data?.depositInvoiceNo, data?.depositPayUrl, data?.depositAmount]);
 
   // Work description: expand on tap; auto-collapse after 20s (or collapse yourself).
   useEffect(() => {
@@ -186,7 +216,12 @@ export default function PayLanding() {
     return () => clearTimeout(workDescTimer.current);
   }, [showWorkDesc]);
 
-  const pdfSrc = data?.i ? invoicePdfUrl(data.i) : "";
+  const estNo = isEstimateLanding(data) ? estimateDocNo(data) : "";
+  const pdfSrc = data?.i
+    ? isEstimateLanding(data)
+      ? estimatePdfUrl(estNo || data.i)
+      : invoicePdfUrl(data.i)
+    : "";
 
   useEffect(() => {
     if (!pdfSrc) return;
@@ -203,7 +238,7 @@ export default function PayLanding() {
     return (
       <div className="min-h-screen bg-slate-50 flex items-center justify-center p-6">
         <div className="card max-w-md w-full p-6 text-center">
-          <p className="text-sm text-slate-500">Loading your invoice…</p>
+          <p className="text-sm text-slate-500">Loading…</p>
         </div>
       </div>
     );
@@ -216,7 +251,7 @@ export default function PayLanding() {
           <div className="text-4xl mb-3">⚠️</div>
           <h1 className="text-lg font-bold text-slate-900 mb-2">Link not valid</h1>
           <p className="text-sm text-slate-500 mb-4">
-            This payment link may be incomplete or expired. Contact {brandName} for a fresh link.
+            This link may be incomplete or expired. Contact {brandName} for a fresh link.
           </p>
           <a href={`https://${website}`} className="text-brand font-semibold text-sm">
             {website}
@@ -278,6 +313,15 @@ export default function PayLanding() {
   const openInvoicePdf = async (e) => {
     e?.preventDefault?.();
     if (!pdfSrc || !data?.i) return;
+    // Estimates already have the PDF stored at send time — open/embed, no QBO fetch.
+    if (isEstimate) {
+      if (pdfReady) {
+        openPdfUrl(pdfSrc);
+        return;
+      }
+      setPdfErr("Estimate PDF is not available yet. Please contact the office.");
+      return;
+    }
     setPdfErr("");
     setPdfBusy(true);
     setPdfPhase("checking");
@@ -299,6 +343,240 @@ export default function PayLanding() {
     }
   };
 
+  const depositPct = depositPctFromPayload(data);
+  const depositAmt = depositAmountFromPayload(data, depositPct);
+
+  const runApprove = async () => {
+    if (estBusy || !token) return;
+    setEstErr("");
+    setEstMsg("");
+    setEstBusy("approve");
+    try {
+      const res = await postEstimateAction({ code: token, action: "approve" });
+      setApproved(true);
+      setEstMsg(res.message || "Estimate approved. Thank you!");
+    } catch (e) {
+      setEstErr(String(e?.message || e || "Could not approve"));
+    } finally {
+      setEstBusy("");
+    }
+  };
+
+  const runDeposit = async () => {
+    if (estBusy || !token) return;
+    setEstErr("");
+    setEstMsg("");
+    setEstBusy("deposit");
+    try {
+      const built = await buildDepositInvoicePdfB64(data, { depositPct });
+      if (!built.ok) throw new Error(built.error || "Could not build deposit invoice");
+      const res = await postEstimateAction({
+        code: token,
+        action: "deposit",
+        pdfB64: built.pdfB64,
+        invoiceNo: built.invoiceNo,
+        depositPct,
+      });
+      setApproved(true);
+      setDepositDone({
+        invoiceNo: res.invoiceNo || built.invoiceNo,
+        payUrl: res.payUrl || "",
+        amount: res.amount ?? built.amount,
+      });
+      setEstMsg(res.message || "Deposit invoice created and emailed.");
+    } catch (e) {
+      setEstErr(String(e?.message || e || "Could not create deposit invoice"));
+    } finally {
+      setEstBusy("");
+    }
+  };
+
+  // ——— Estimate: View and Approve ———
+  if (isEstimate) {
+    return (
+      <div className="min-h-screen bg-slate-50">
+        <header className="bg-white border-b border-slate-200 px-4 py-6 pt-safe shadow-sm">
+          <div className="max-w-lg mx-auto flex flex-col items-center text-center gap-2">
+            <img
+              src={logo}
+              alt={brandName}
+              className="h-36 sm:h-40 w-auto max-w-[min(100%,380px)] object-contain"
+              data-testid="pay-logo"
+            />
+            <div>
+              <div className="font-extrabold text-xl tracking-tight text-slate-900">{brandName}</div>
+              <div className="text-slate-500 text-sm">{subline}</div>
+            </div>
+          </div>
+        </header>
+
+        <main className="max-w-lg mx-auto px-4 py-6 pb-10">
+          <div className="card p-5 mb-4">
+            <div className="min-w-0 mb-4">
+              <h1 className="text-2xl sm:text-3xl font-extrabold text-slate-900 leading-tight">
+                <span className="text-brand">Estimate</span>{" "}
+                <span className="tabular-nums">#{estNo || data.i}</span>
+              </h1>
+              {data.c ? (
+                <p className="text-lg font-semibold text-slate-800 mt-2 leading-snug">{data.c}</p>
+              ) : null}
+            </div>
+
+            <div className={`grid gap-4 text-sm ${addressesDiffer(data.ba, data.sa) ? "sm:grid-cols-2" : ""}`}>
+              {data.ba ? (
+                <div>
+                  <div className="text-[10px] font-extrabold uppercase tracking-wider text-slate-500 mb-1">
+                    Billing address
+                  </div>
+                  <div className="text-slate-900 leading-snug">{data.ba}</div>
+                </div>
+              ) : null}
+              {addressesDiffer(data.ba, data.sa) && data.sa ? (
+                <div>
+                  <div className="text-[10px] font-extrabold uppercase tracking-wider text-slate-500 mb-1">
+                    Service address
+                  </div>
+                  <div className="text-slate-900 leading-snug">{data.sa}</div>
+                </div>
+              ) : null}
+            </div>
+
+            {data.w ? (
+              <div className="mt-4 text-sm">
+                <div className="text-[10px] font-extrabold uppercase tracking-wider text-slate-500 mb-1">
+                  Work
+                </div>
+                <div className="text-slate-900 leading-snug whitespace-pre-wrap">{data.w}</div>
+              </div>
+            ) : null}
+
+            <div className="mt-4 flex justify-between items-baseline gap-3 border-t border-slate-100 pt-3">
+              <span className="text-sm text-slate-500">Estimate total</span>
+              <span className="text-xl font-extrabold text-slate-900 tabular-nums">
+                {data.t || data.d || fmtMoneyPrecise(parseMoney(data.a))}
+              </span>
+            </div>
+          </div>
+
+          {/* Top action buttons */}
+          <div className="flex flex-col gap-3 mb-4">
+            <button
+              type="button"
+              className={`btn-brand w-full !py-3.5 text-base shadow-md ${
+                estBusy || approved ? "opacity-80" : ""
+              }`}
+              data-testid="estimate-approve"
+              disabled={!!estBusy || approved}
+              onClick={runApprove}
+            >
+              {approved ? "Approved ✓" : estBusy === "approve" ? "Approving…" : "Approve"}
+            </button>
+            <button
+              type="button"
+              className={`w-full !py-3.5 text-base font-bold rounded-2xl border-2 border-brand text-brand bg-white hover:bg-brand-soft shadow-sm ${
+                estBusy || depositDone ? "opacity-80" : ""
+              }`}
+              data-testid="estimate-deposit"
+              disabled={!!estBusy || !!depositDone}
+              onClick={runDeposit}
+            >
+              {depositDone
+                ? `Deposit invoice #${depositDone.invoiceNo} ready`
+                : estBusy === "deposit"
+                ? "Creating deposit invoice…"
+                : formatDepositCta(depositAmt, depositPct)}
+            </button>
+          </div>
+
+          {estMsg ? (
+            <p
+              className="text-sm text-emerald-800 bg-emerald-50 border border-emerald-200 rounded-xl px-3 py-2 mb-4"
+              data-testid="estimate-success"
+            >
+              {estMsg}
+            </p>
+          ) : null}
+          {estErr ? (
+            <p className="text-sm text-red-700 bg-red-50 border border-red-100 rounded-xl px-3 py-2 mb-4">
+              {estErr}
+            </p>
+          ) : null}
+
+          {depositDone?.payUrl ? (
+            <a
+              href={depositDone.payUrl}
+              className="btn-brand w-full !py-3.5 text-base shadow-md mb-4 inline-flex items-center justify-center"
+              data-testid="estimate-pay-link"
+            >
+              Pay deposit invoice now
+            </a>
+          ) : null}
+
+          {/* PDF on page (not download-first) */}
+          <div className="card p-3 mb-4 overflow-hidden" data-testid="estimate-pdf-panel">
+            <div className="flex items-center justify-between gap-2 px-2 pt-1 pb-2">
+              <h2 className="font-bold text-slate-900 text-sm">Estimate PDF</h2>
+              {pdfSrc ? (
+                <button
+                  type="button"
+                  className="text-xs font-bold text-brand"
+                  data-testid="estimate-pdf-open"
+                  onClick={openInvoicePdf}
+                >
+                  Open full screen
+                </button>
+              ) : null}
+            </div>
+            {pdfSrc && pdfReady ? (
+              <iframe
+                title={`Estimate ${estNo || data.i}`}
+                src={pdfSrc}
+                className="w-full rounded-xl border border-slate-200 bg-white"
+                style={{ minHeight: "70vh", height: "640px" }}
+                data-testid="estimate-pdf-frame"
+              />
+            ) : (
+              <div className="rounded-xl border border-dashed border-slate-200 bg-slate-50 px-4 py-10 text-center">
+                <p className="text-sm text-slate-500 mb-3">
+                  {pdfSrc
+                    ? "Loading the estimate PDF…"
+                    : "PDF is not available for this link."}
+                </p>
+                {pdfSrc ? (
+                  <button
+                    type="button"
+                    className="text-sm font-bold text-brand"
+                    onClick={() => {
+                      invoicePdfAvailable(pdfSrc).then((ok) => setPdfReady(ok));
+                    }}
+                  >
+                    Retry
+                  </button>
+                ) : null}
+              </div>
+            )}
+            {pdfErr ? (
+              <p className="text-xs text-amber-800 bg-amber-50 border border-amber-200 rounded-xl px-3 py-2 mt-3">
+                {pdfErr}
+              </p>
+            ) : null}
+          </div>
+        </main>
+
+        <footer className="text-center text-[11px] text-slate-500 pb-8 px-4">
+          <a href={`https://${website}`} className="text-slate-500 hover:text-brand">
+            {website}
+          </a>
+          <span className="mx-2">·</span>
+          <Link to="/" className="text-slate-400">
+            {productName(config)} (staff)
+          </Link>
+        </footer>
+      </div>
+    );
+  }
+
+  // ——— Invoice: View & Pay ———
   return (
     <div className="min-h-screen bg-slate-50">
       {pdfBusy && pdfPhase !== "idle" ? (

@@ -136,15 +136,20 @@ export async function sendDocEmail({
   }
 
   // Prefer confirm-sheet body when provided; otherwise leave greeting empty
-  // (HTML template still shows bill-to banner + CTA). Short pay link stays
+  // (HTML template still shows bill-to banner + CTA). Short /pay link stays
   // the only customer-facing URL — never the raw Cardknox link.
+  // Invoices → View & Pay landing. Estimates → View and Approve landing.
   let viewLink = docKey ? docsUrl(docKey) : "";
-  if (isInvoice) {
-    const shortLink = await mintShortPayLink(
-      buildEmailPayLandingPayload({ job, docData, email, cardknoxUrl })
-    );
-    if (shortLink) viewLink = shortLink;
-  }
+  const shortLink = await mintShortPayLink(
+    buildEmailPayLandingPayload({
+      job,
+      docData,
+      email,
+      cardknoxUrl: isInvoice ? cardknoxUrl : "",
+      kind: isInvoice ? "invoice" : "estimate",
+    })
+  );
+  if (shortLink) viewLink = shortLink;
 
   const customTop = String(message || "").trim();
   // Header brand = tenant (company name + logo). Footer = constant Powered by LE.
@@ -180,9 +185,9 @@ export async function sendDocEmail({
   const html = buildEmailHTML({
     ...docData,
     viewLink,
-    // payLink intentionally omitted: one primary CTA only (View Invoice).
+    // payLink intentionally omitted: one primary CTA only (View Invoice / View and Approve).
     logoSrc: brand.logoSrc,
-    viewLabel: isInvoice ? "View Invoice" : "View Estimate",
+    viewLabel: isInvoice ? "View Invoice" : "View and Approve",
     poweredByHtml: poweredByLeHtml(),
     topMessage: customTop || undefined,
     paymentMessage,
@@ -221,7 +226,11 @@ export async function sendDocEmail({
   const text =
     `${docWord} ${docData.docNumber} from ${docData.company.name}\n` +
     (isInvoice ? `Due ${docData.dueDate} — $${docData.amountDue}\n\n` : `Total — $${docData.amountDue}\n\n`) +
-    (viewLink ? `View your invoice and pay: ${viewLink}` : "") +
+    (viewLink
+      ? isInvoice
+        ? `View your invoice and pay: ${viewLink}`
+        : `View and approve your estimate: ${viewLink}`
+      : "") +
     `\n\n${POWERED_BY_LE_TEXT}`;
 
   if (!apiKey) {
