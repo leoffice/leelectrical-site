@@ -239,9 +239,37 @@ function daysAgoYmd(days, today) {
   return addDays(today, -days);
 }
 
-export function isEventHandled(state, eventId) {
+/** Stable identity when Google/calendar sync swaps a pending-* id for a real one. */
+export function eventFingerprint(event) {
+  if (!event) return "";
+  const start = evStart(event).replace(" ", "T").slice(0, 16);
+  const summary = String(event.summary || "")
+    .trim()
+    .toLowerCase()
+    .replace(/\s+/g, " ")
+    .slice(0, 100);
+  if (!start && !summary) return "";
+  return start + "|" + summary;
+}
+
+function stateHasHandledFingerprint(state, fingerprint) {
+  if (!fingerprint || !state || typeof state !== "object") return false;
+  for (const v of Object.values(state)) {
+    if (!v || typeof v !== "object") continue;
+    if (v.fingerprint === fingerprint && (v.handledAt || v.inspectionAcked || v.noReminders)) {
+      return true;
+    }
+  }
+  return false;
+}
+
+export function isEventHandled(state, eventId, event = null) {
   const st = eventState(state, eventId);
-  return !!(st.handledAt || st.inspectionAcked || st.noReminders);
+  if (st.handledAt || st.inspectionAcked || st.noReminders) return true;
+  // Survive calendar id changes (pending-* → Google id) after "Got it".
+  const fp = event?.fingerprint || eventFingerprint(event);
+  if (fp && stateHasHandledFingerprint(state, fp)) return true;
+  return false;
 }
 
 /** True when Levi picked a next step or set a future reminder — skip the past-week popup. */
@@ -311,7 +339,7 @@ export function serviceCallCandidates(events, jobs, today, now = new Date(), com
       if (!ymd || ymd < cut || ymd > today) return false;
       if (!isPastWeekFollowUpEvent(e, jobs)) return false;
       if (shouldHoldSameDayEstimateReminder(e, today, now)) return false;
-      if (isEventHandled(state, e.id)) return false;
+      if (isEventHandled(state, e.id, e)) return false;
       if (isEventAllocated(state, e.id, now)) return false;
       const st = eventState(state, e.id);
       if (isSnoozed(st, now)) return false;
@@ -335,7 +363,7 @@ export function inspectionCandidates(events, today) {
       if (!isInspectionEvent(e)) return false;
       const ymd = eventYmd(e);
       if (ymd !== today && ymd !== tomorrow) return false;
-      if (isEventHandled(state, e.id)) return false;
+      if (isEventHandled(state, e.id, e)) return false;
       return true;
     })
     .sort((a, b) => evStart(a).localeCompare(evStart(b)));
@@ -364,7 +392,7 @@ export function dueMustTodayNudges(events, jobs, today, now = new Date()) {
   for (const e of events || []) {
     const st = eventState(state, e.id);
     if (st.priority !== "must_today") continue;
-    if (isEventHandled(state, e.id)) continue;
+    if (isEventHandled(state, e.id, e)) continue;
     if (isSnoozed(st, now)) continue;
     const remindYmd = (st.remindAt || "").slice(0, 10);
     if (remindYmd !== today) continue;
@@ -435,7 +463,7 @@ export function dueScheduledReminders(events, jobs, today, now = new Date()) {
   const out = [];
   for (const e of events || []) {
     const st = eventState(state, e.id);
-    if (!st.remindAt || isEventHandled(state, e.id)) continue;
+    if (!st.remindAt || isEventHandled(state, e.id, e)) continue;
     if (isSnoozed(st, now)) continue;
     if (st.priority === "must_today" && st.remindAt.slice(0, 10) === today) continue;
     if (!remindAtDue(st, now)) continue;
@@ -679,7 +707,7 @@ export function buildReminderList(events, jobs, today, now = new Date(), command
 
   for (const e of events || []) {
     const st = eventState(state, e.id);
-    if (isEventHandled(state, e.id)) continue;
+    if (isEventHandled(state, e.id, e)) continue;
     if (st.priority === "must_today" && (st.remindAt || "").slice(0, 10) === today) {
       list.push({
         id: "must:" + e.id,
@@ -926,13 +954,27 @@ export function promptWorkPauseStatus(now = Date.now()) {
 }
 
 /** Mark appointment as handled — no more follow-up popups. */
-export function dismissEventReminders(eventId, { noReminders = false } = {}) {
+export function dismissEventReminders(eventId, { noReminders = false, event = null } = {}) {
+  const fp = eventFingerprint(event);
   return patchEventState(eventId, {
     handledAt: Date.now(),
     noReminders: !!noReminders,
     remindAt: "",
     nextNudgeAt: "",
     snoozeUntil: "",
+    ...(fp ? { fingerprint: fp } : {}),
+  });
+}
+
+/** Ack inspection day-before / day-of notice so it never re-opens after id changes. */
+export function ackInspectionReminder(event) {
+  const id = event?.id;
+  if (!id) return null;
+  const fp = eventFingerprint(event);
+  return patchEventState(id, {
+    inspectionAcked: true,
+    handledAt: Date.now(),
+    ...(fp ? { fingerprint: fp } : {}),
   });
 }
 

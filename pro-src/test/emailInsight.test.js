@@ -21,6 +21,10 @@ import {
   defaultActionKeys,
   stripHtml,
   formatAppliedLead,
+  formatInsightDateLabel,
+  formatInsightTimeLabel,
+  formatInsightHoursLabel,
+  formatInsightSourceLabel,
   EMAIL_INSIGHT_TEST_AUTO_APPLY_LIMIT,
   APPOINTMENT_DURATION_MINUTES,
 } from "../src/lib/emailInsight.js";
@@ -104,6 +108,45 @@ describe("emailInsight", () => {
         "Your Initial Inspection is scheduled on Jul 28, 2026 at 9:30 AM. Log in to Reschedule the appointment."
       )
     ).toBe("scheduled");
+    // DOB "how to cancel" footer must NOT mark a real scheduled email as cancelled
+    // (this was looping the Smart Suggestion sheet every login).
+    expect(
+      classifyEmailOutcome(
+        "Electrical Inspection Scheduled - Job Number M01228312/I1 /149 EAST  116 STREET",
+        DOB_CITY_BODY +
+          " If there is an immediate need to cancel this scheduled inspection, log into DOB NOW: Inspections+ to submit your cancellation request at least 48 hours prior to the scheduled inspection."
+      )
+    ).toBe("scheduled");
+    expect(classifyEmailOutcome("Your appointment is cancelled", "Your appointment is cancelled.")).toBe("cancelled");
+  });
+
+  it("re-enriches wrong stored cancelled outcome from DOB footer text", () => {
+    const jobs = [
+      {
+        id: "qbo-est-25435",
+        customer: "Arthur",
+        serviceAddress: "149 East 116 Street, Manhattan, NY 10029",
+      },
+    ];
+    const stuck = {
+      id: "ei-stuck",
+      status: "pending",
+      outcome: "cancelled", // bad store value from old classifier
+      appointmentType: "inspection",
+      agency: "city",
+      dateTime: "2026-07-30T10:00",
+      address: "149 East 116 Street, Manhattan, NY 10029",
+      summary: "at 149 East 116 Street … (cancelled)",
+      source: {
+        subject: "Electrical Inspection Scheduled - Job Number M01228312",
+        from: "dobnowdonotreply@buildings.nyc.gov",
+      },
+      emailSnippet: DOB_CITY_BODY + " submit your cancellation request at least 48 hours prior",
+    };
+    const enriched = enrichInsight(stuck, jobs);
+    expect(enriched.outcome).toBe("scheduled");
+    expect(enriched.canAutoApply).toBe(true);
+    expect(enriched.summary).not.toMatch(/\(cancelled\)/i);
   });
 
   it("matches job by service address", () => {
@@ -205,13 +248,41 @@ describe("emailInsight", () => {
       appointmentType: "inspection",
       agency: "coned",
       dateTime: "2026-07-28T09:30",
-      source: { fromLabel: "Con Edison" },
+      endDateTime: "2026-07-28T10:30",
+      source: { fromLabel: "Con Edison", type: "email" },
     };
     expect(formatAppliedLead(insight, job)).toMatch(/Izzy/);
     expect(formatAppliedLead(insight, job)).toMatch(/schedule calendar/);
+    expect(formatAppliedLead(insight, job)).toMatch(/Jul/);
+    expect(formatAppliedLead(insight, job)).toMatch(/9:30/);
     expect(
       formatAppliedLead({ ...insight, skipReason: "already_on_calendar" }, job)
     ).toMatch(/already on your schedule/i);
+    expect(
+      formatAppliedLead({ ...insight, outcome: "reminder" }, job)
+    ).toMatch(/reminder only/i);
+    expect(
+      formatAppliedLead({ ...insight, outcome: "reminder" }, job)
+    ).toMatch(/9:30/);
+  });
+
+  it("formats notice date, hours, and source for the calendar card", () => {
+    expect(formatInsightDateLabel("2026-07-08T14:00")).toMatch(/Jul/);
+    expect(formatInsightDateLabel("2026-07-08T14:00")).toMatch(/8/);
+    expect(formatInsightDateLabel("2026-07-08T14:00")).toMatch(/2026/);
+    expect(formatInsightTimeLabel("2026-07-08T14:00")).toBe("2:00 PM");
+    expect(formatInsightTimeLabel("2026-07-08T09:30")).toBe("9:30 AM");
+    const insight = {
+      dateTime: "2026-07-08T09:30",
+      endDateTime: "2026-07-08T10:30",
+      source: { type: "email", fromLabel: "Con Edison" },
+    };
+    expect(formatInsightHoursLabel(insight)).toBe("9:30 AM – 10:30 AM");
+    expect(formatInsightSourceLabel(insight)).toBe("Email · Con Edison");
+    // Event start wins over insight when opening "already on calendar"
+    expect(
+      formatInsightHoursLabel(insight, { start: "2026-07-08T11:00", end: "2026-07-08T12:00" })
+    ).toBe("11:00 AM – 12:00 PM");
   });
 
   it("parses City DOB electrical inspection email", () => {

@@ -17,6 +17,7 @@ import {
   applyPromptQueueCap,
   buildPromptQueue,
   defaultRemindDatetime,
+  ackInspectionReminder,
   dismissEventReminders,
   formatSnoozeDuration,
   generateReminderNudge,
@@ -685,14 +686,15 @@ function InspectionReminderSheet({ event, when, job, onClose, onDone, dismissFor
   const nav = useNavigate();
   const label = when === "today" ? "Today" : "Tomorrow";
 
+  // Single advance only — calling both onDone + onClose skipped the next card and
+  // could re-open this one after a queue rebuild.
   const ack = () => {
-    patchEventState(event.id, { inspectionAcked: true, handledAt: Date.now() });
+    ackInspectionReminder(event);
     onDone();
-    onClose();
   };
 
   const openJob = () => {
-    patchEventState(event.id, { inspectionAcked: true, handledAt: Date.now() });
+    ackInspectionReminder(event);
     dismissForWork();
     if (job?.id) nav("/job/" + encodeURIComponent(job.id));
   };
@@ -714,8 +716,8 @@ function InspectionReminderSheet({ event, when, job, onClose, onDone, dismissFor
         <VerifyReminderButton
           item={{ id: "insp:" + event.id, kind: "inspection", event, job, when }}
           onStart={() => {
+            ackInspectionReminder(event);
             onDone();
-            onClose();
           }}
         />
       </div>

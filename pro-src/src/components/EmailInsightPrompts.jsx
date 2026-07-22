@@ -13,6 +13,9 @@ import {
   canAutoApply,
   defaultActionKeys,
   formatAppliedLead,
+  formatInsightDateLabel,
+  formatInsightHoursLabel,
+  formatInsightSourceLabel,
   wantsNewCalendarAppointment,
   EMAIL_INSIGHT_TEST_AUTO_APPLY_LIMIT,
 } from "../lib/emailInsight.js";
@@ -43,14 +46,60 @@ function sessionAlreadySeen() {
 }
 
 function SourceBadge({ insight }) {
-  const src = insight?.source || {};
   return (
     <div className="flex flex-wrap items-center gap-2 mb-2" data-testid="email-insight-source">
       <span className="text-[10px] font-bold uppercase tracking-wide text-sky-700 bg-sky-50 border border-sky-100 px-2 py-0.5 rounded-full">
-        📧 {src.type === "email" ? "Email" : src.type || "Source"} · {src.fromLabel || "Unknown"}
+        📧 {formatInsightSourceLabel(insight)}
       </span>
-      {src.receivedAt ? (
-        <span className="text-[10px] text-slate-400">{String(src.receivedAt).slice(0, 16).replace("T", " ")}</span>
+    </div>
+  );
+}
+
+/** Date + hours + source — the useful facts Levi wants on the calendar notice. */
+function InsightWhenBlock({ insight, event }) {
+  const start = event?.start || insight?.exactDateTime || insight?.dateTime || "";
+  const dateLabel = formatInsightDateLabel(start);
+  const hoursLabel = formatInsightHoursLabel(insight, event);
+  const sourceLabel = formatInsightSourceLabel(insight);
+  const where =
+    insight?.address ||
+    event?.location ||
+    "";
+  if (!dateLabel && !hoursLabel && !sourceLabel) return null;
+  return (
+    <div
+      className="rounded-xl border border-slate-200 bg-white px-3 py-2.5 mb-3 space-y-1.5"
+      data-testid="email-insight-when"
+    >
+      <div className="flex items-start gap-2 text-sm">
+        <span className="text-[10px] font-extrabold uppercase tracking-wider text-slate-400 w-14 shrink-0 pt-0.5">
+          Source
+        </span>
+        <span className="font-semibold text-slate-800">{sourceLabel}</span>
+      </div>
+      {dateLabel ? (
+        <div className="flex items-start gap-2 text-sm" data-testid="email-insight-date">
+          <span className="text-[10px] font-extrabold uppercase tracking-wider text-slate-400 w-14 shrink-0 pt-0.5">
+            Date
+          </span>
+          <span className="font-semibold text-slate-800">{dateLabel}</span>
+        </div>
+      ) : null}
+      {hoursLabel ? (
+        <div className="flex items-start gap-2 text-sm" data-testid="email-insight-hours">
+          <span className="text-[10px] font-extrabold uppercase tracking-wider text-slate-400 w-14 shrink-0 pt-0.5">
+            Hours
+          </span>
+          <span className="font-semibold text-slate-800">{hoursLabel}</span>
+        </div>
+      ) : null}
+      {where ? (
+        <div className="flex items-start gap-2 text-sm">
+          <span className="text-[10px] font-extrabold uppercase tracking-wider text-slate-400 w-14 shrink-0 pt-0.5">
+            Where
+          </span>
+          <span className="text-slate-700 text-[13px] leading-snug">{where}</span>
+        </div>
       ) : null}
     </div>
   );
@@ -103,6 +152,7 @@ function EmailInsightSheet({ insight, job, onApprove, onEdit, onIgnore, onOpenJo
   return (
     <Sheet title="Email understood" onClose={onIgnore} testId="email-insight-sheet">
       <SourceBadge insight={insight} />
+      <InsightWhenBlock insight={insight} />
       <div className="rounded-xl border border-purple-200 bg-purple-50/80 px-3 py-3 mb-3">
         <div className="flex flex-wrap items-center gap-2 mb-1.5">
           <IntelligentSuggestionBadge />
@@ -143,13 +193,19 @@ function EmailInsightSheet({ insight, job, onApprove, onEdit, onIgnore, onOpenJo
 }
 
 /** Post-auto-apply notice — tells Levi the calendar/job was already updated. */
-function EmailInsightDoneSheet({ insight, job, onAck, onOpenJob, onOpenCalendar }) {
+function EmailInsightDoneSheet({ insight, job, event, onAck, onOpenJob, onOpenCalendar }) {
   const lead = insight?.appliedLead || formatAppliedLead(insight, job);
   const outcome = insight?.outcome || "other";
-  const onCal = outcome !== "cancelled" && outcome !== "completed" && insight?.dateTime;
+  const hasWhen = !!(event?.start || insight?.dateTime || insight?.exactDateTime);
+  const onCal = outcome !== "cancelled" && outcome !== "completed" && hasWhen;
+  const title =
+    insight?.skipReason === "already_on_calendar" || outcome === "reminder"
+      ? "Already on your calendar"
+      : "Added to your calendar";
   return (
-    <Sheet title="Already on your calendar" onClose={onAck} testId="email-insight-done-sheet">
+    <Sheet title={title} onClose={onAck} testId="email-insight-done-sheet">
       <SourceBadge insight={insight} />
+      <InsightWhenBlock insight={insight} event={event} />
       <div className="rounded-xl border border-emerald-200 bg-emerald-50/90 px-3 py-3 mb-3">
         <div className="flex flex-wrap items-center gap-2 mb-1.5">
           <span className="text-[10px] font-bold uppercase tracking-wide text-emerald-800 bg-emerald-100 border border-emerald-200 px-2 py-0.5 rounded-full">
@@ -319,7 +375,8 @@ export default function EmailInsightPrompts() {
         const job = enriched.jobId ? effectiveJob(enriched.jobId) : null;
         const outcome = enriched.outcome || "other";
 
-        // Reminder-only mail: leave calendar alone; dismiss quietly.
+        // Reminder-only mail: leave calendar alone.
+        // If already on calendar, show a done notice with date/hours/source (not silent).
         if (outcome === "reminder") {
           autoRunning.current.add(raw.id);
           try {
@@ -328,7 +385,7 @@ export default function EmailInsightPrompts() {
               await patchEmailInsight(raw.id, {
                 status: "auto_applied",
                 autoApplied: true,
-                notified: true,
+                notified: false,
                 skipReason: "already_on_calendar",
                 appliedEventId: existing.id || "",
                 jobId: job?.id || enriched.jobId || null,
@@ -340,8 +397,8 @@ export default function EmailInsightPrompts() {
                 ignoreReason: "reminder_not_new_set",
                 appliedAt: new Date().toISOString(),
               });
+              seen.current.add(raw.id);
             }
-            seen.current.add(raw.id);
           } catch {
             /* leave pending */
           } finally {
@@ -444,10 +501,16 @@ export default function EmailInsightPrompts() {
   if (doneNotice) {
     const ins = doneNotice;
     const job = ins?.jobId ? effectiveJob(ins.jobId) : null;
+    const liveJob = job?.id ? effectiveJob(job.id) : job;
+    const matchedEvent =
+      findEventForInsight(ins, liveJob, events) ||
+      findEventForInsight(ins, job, events) ||
+      null;
     return (
       <EmailInsightDoneSheet
         insight={ins}
         job={job}
+        event={matchedEvent}
         onAck={() => ackDone(ins)}
         onOpenJob={() => {
           if (!job?.id) return;
@@ -456,11 +519,8 @@ export default function EmailInsightPrompts() {
         }}
         onOpenCalendar={() => {
           // Open the appointment card, not just the calendar page.
-          const liveJob = job?.id ? effectiveJob(job.id) : job;
-          const ev =
-            findEventForInsight(ins, liveJob, events) ||
-            findEventForInsight(ins, job, events);
-          const eid = ev?.id || liveJob?.calEventId || ins?.appliedEventId || "";
+          const eid =
+            matchedEvent?.id || liveJob?.calEventId || ins?.appliedEventId || "";
           if (eid) stashCalendarPick(eid);
           dismiss();
           nav("/today");

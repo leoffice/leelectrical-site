@@ -470,17 +470,32 @@ export function classifyAppointmentType(text) {
  *
  * Levi 2026-07-22: only NEW "appointment set" emails auto-create calendar events.
  * Reminder / "upcoming" mail must not create (calendar cross-check may mark already-there).
+ *
+ * Cancel detection is intentionally strict. DOB "how to cancel" footers and Con Ed
+ * "Reschedule the appointment" links must NOT mark a real scheduled email as cancelled
+ * (that left the Smart Suggestion sheet looping every login).
  */
 export function classifyEmailOutcome(subject = "", body = "") {
-  const s = stripHtml([subject, body].join("\n")).toLowerCase();
-  // Do NOT treat "Reschedule the appointment" (Con Ed footer link) as cancelled.
-  if (
-    /\b(appointment\s+)?cancell?ed\b/.test(s) ||
-    /\bcancellation\b/.test(s) ||
-    /\bcancelled by\b/.test(s)
-  ) {
+  const subj = stripHtml(subject).toLowerCase();
+  const plain = stripHtml(body).toLowerCase();
+  const s = [subj, plain].filter(Boolean).join("\n");
+
+  // Strong cancel signals only — not instructional "to cancel" / "cancellation request" footers.
+  const subjectCancelled =
+    /\bcancell?ed\b/.test(subj) ||
+    /\bcancellation\b/.test(subj);
+  const bodyStrongCancel =
+    /\b(appointment|inspection)\s+(has\s+been\s+|was\s+)?cancell?ed\b/.test(plain) ||
+    /\bhas\s+been\s+cancell?ed\b/.test(plain) ||
+    /\bwas\s+cancell?ed\b/.test(plain) ||
+    /\bcancell?ed\s+due\s+to\b/.test(plain) ||
+    /\bcancell?ed\s+by\b/.test(plain) ||
+    /\byour\s+appointment\s+is\s+cancell?ed\b/.test(plain);
+  // Bare "cancellation" in body is almost always "submit your cancellation request" help text.
+  if (subjectCancelled || bodyStrongCancel) {
     return "cancelled";
   }
+
   if (/\bcompleted\b|\bpassed\b|\bpassed on\b|\binspection\s+passed\b/.test(s)) return "completed";
   // Reminder first — "reminder of an upcoming … scheduled" is still a reminder.
   if (/\breminder\b|\bfriendly reminder\b|\bupcoming\b/.test(s)) return "reminder";
@@ -821,10 +836,92 @@ export function formatInsightLead(insight, job) {
   return `From ${src}: ${appt}. ${jobLine}`;
 }
 
+/**
+ * Friendly appointment date from local ISO "YYYY-MM-DDTHH:MM" (or date-only).
+ * e.g. "Wed, Jul 8, 2026"
+ */
+export function formatInsightDateLabel(isoLocal) {
+  const raw = String(isoLocal || "").trim();
+  if (!raw) return "";
+  const m = raw.match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if (!m) return "";
+  const y = Number(m[1]);
+  const mo = Number(m[2]) - 1;
+  const d = Number(m[3]);
+  const dt = new Date(y, mo, d);
+  if (Number.isNaN(dt.getTime())) return "";
+  return dt.toLocaleDateString(undefined, {
+    weekday: "short",
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+  });
+}
+
+/** "9:30 AM" from local ISO or HH:MM fragment. */
+export function formatInsightTimeLabel(isoLocal) {
+  const raw = String(isoLocal || "").trim();
+  if (!raw) return "";
+  let hh;
+  let mm;
+  if (raw.includes("T")) {
+    const t = raw.split("T")[1] || "";
+    [hh, mm] = t.split(":");
+  } else if (/^\d{1,2}:\d{2}/.test(raw)) {
+    [hh, mm] = raw.split(":");
+  } else {
+    return "";
+  }
+  const hour = Number(hh);
+  const min = Number(mm);
+  if (!Number.isFinite(hour)) return "";
+  const ap = hour >= 12 ? "PM" : "AM";
+  const h12 = hour % 12 || 12;
+  return `${h12}:${String(Number.isFinite(min) ? min : 0).padStart(2, "0")} ${ap}`;
+}
+
+/**
+ * Hours range for the notice: "9:30 AM – 10:30 AM" or single clock.
+ * Prefers exact time when present; falls back to floored start + end.
+ */
+export function formatInsightHoursLabel(insight, event) {
+  const start =
+    event?.start ||
+    insight?.exactDateTime ||
+    insight?.dateTime ||
+    "";
+  const end = event?.end || insight?.endDateTime || "";
+  const win = insight?.timeWindow;
+  if (win && (win.startHour != null || win.text)) {
+    // Window copy already human ("between 11:00 and 1:00")
+    if (win.text) return String(win.text).replace(/\.$/, "");
+    const a = formatClockLabel(win.startHour, win.startMin || 0, true);
+    const b = formatClockLabel(win.endHour, win.endMin || 0, true);
+    if (a && b) return `${a} – ${b}`;
+  }
+  const a = formatInsightTimeLabel(start);
+  const b = formatInsightTimeLabel(end);
+  if (a && b && a !== b) return `${a} – ${b}`;
+  return a || "";
+}
+
+/** Source line for UI: "Email · Con Edison" */
+export function formatInsightSourceLabel(insight) {
+  const src = insight?.source || {};
+  const kind = src.type === "email" || !src.type ? "Email" : String(src.type);
+  const who = src.fromLabel || "Unknown";
+  return `${kind} · ${who}`;
+}
+
 export function formatAppliedLead(insight, job) {
   const src = insight?.source?.fromLabel || "Email";
   const type = appointmentTypeLabel(insight?.appointmentType, insight?.agency);
-  const when = insight?.dateTime ? insight.dateTime.replace("T", " ").slice(0, 16) : "";
+  const dateLabel = formatInsightDateLabel(insight?.dateTime || insight?.exactDateTime);
+  const hoursLabel = formatInsightHoursLabel(insight);
+  const whenPretty =
+    dateLabel && hoursLabel ? `${dateLabel} · ${hoursLabel}` : dateLabel || hoursLabel || "";
+  const whenRaw = insight?.dateTime ? insight.dateTime.replace("T", " ").slice(0, 16) : "";
+  const when = whenPretty || whenRaw;
   const who = job?.customer || "the job";
   const outcome = insight?.outcome || "other";
   if (insight?.skipReason === "already_on_calendar") {
@@ -839,7 +936,9 @@ export function formatAppliedLead(insight, job) {
     return `From ${src}: noted cancelled ${type} for ${who}. Nothing added to the calendar.`;
   }
   if (outcome === "reminder") {
-    return `From ${src}: reminder only for ${who} — no new calendar appointment.`;
+    return when
+      ? `From ${src}: reminder only for ${who} — appointment ${when}. No new calendar event.`
+      : `From ${src}: reminder only for ${who} — no new calendar appointment.`;
   }
   const emailed = insight?.customerEmailed ? " and emailed the customer the invite" : "";
   return when
@@ -896,19 +995,25 @@ export function defaultActionKeys(insight, job) {
 
 export function enrichInsight(raw, jobs) {
   const insight = { ...raw };
-  if (!insight.outcome) {
-    insight.outcome = classifyEmailOutcome(insight.source?.subject || "", insight.emailSnippet || "");
-  }
+  // Always re-derive outcome from the email text so a bad stored value (e.g. DOB
+  // "cancellation request" footer false-positive) self-heals on the next open.
+  const subject = insight.source?.subject || "";
+  const bodyText = insight.emailSnippet || insight.source?.body || "";
+  insight.outcome = classifyEmailOutcome(subject, bodyText);
   if (!insight.agency) {
     insight.agency = classifyAgency(
       insight.source?.from || "",
-      insight.source?.subject || "",
-      insight.emailSnippet || ""
+      subject,
+      bodyText
     );
   }
+  // Drop the stale "(cancelled)" tag from older summaries after reclassify.
+  if (insight.outcome !== "cancelled" && typeof insight.summary === "string") {
+    insight.summary = insight.summary.replace(/\s*\(cancelled\)\s*$/i, "").trim();
+  }
   const match = matchJobForInsight(insight, jobs);
-  insight.jobId = match.jobId;
-  insight.jobMatchScore = match.score;
+  insight.jobId = match.jobId || insight.jobId || null;
+  insight.jobMatchScore = match.score || insight.jobMatchScore || 0;
   insight.proposedActions = buildProposedActions(insight, match.job);
   insight.lead = formatInsightLead(insight, match.job);
   insight.appliedLead = formatAppliedLead(insight, match.job);
