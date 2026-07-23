@@ -1,10 +1,9 @@
 // Compact transaction list for ONE job/invoice only (not the full customer ledger).
-// Shown under Job Information when the Payment history toggle is on.
+// Shown under Job Information when the Transaction history toggle is on.
 // Tabs: All · Invoices · Payments · Estimates (same as customer short history).
 import React, { useMemo, useState } from "react";
 import {
   buildCustomerTransactions,
-  txnFilterCounts,
   txnKindStyle,
   txnRowDisplay,
 } from "../lib/customerTransactions.js";
@@ -18,7 +17,19 @@ const FILTERS = [
   { id: "estimates", label: "Estimates" },
 ];
 
-function Row({ row }) {
+function countKinds(rows) {
+  let invoices = 0;
+  let payments = 0;
+  let estimates = 0;
+  for (const r of rows) {
+    if (r.kind === "invoice") invoices += 1;
+    else if (r.kind === "payment") payments += 1;
+    else if (r.kind === "estimate") estimates += 1;
+  }
+  return { all: rows.length, invoices, payments, estimates };
+}
+
+function Row({ row, onOpen }) {
   const kind = txnKindStyle(row.kind);
   const { amount, amountClass, isOpen } = txnRowDisplay(row);
   const mid =
@@ -27,12 +38,18 @@ function Row({ row }) {
       : row.docNo
         ? "#" + row.docNo
         : "";
+  const clickable = typeof onOpen === "function";
+  const Comp = clickable ? "button" : "div";
+  const clickProps = clickable
+    ? { type: "button", onClick: () => onOpen(row) }
+    : {};
 
   return (
-    <div
+    <Comp
       className={
         "w-full text-left rounded-lg border border-slate-100 bg-white overflow-hidden " +
-        (isOpen ? "flex items-stretch" : "")
+        (isOpen ? "flex items-stretch" : "") +
+        (clickable ? " active:bg-slate-50" : "")
       }
       data-testid={
         row.kind === "payment"
@@ -42,6 +59,7 @@ function Row({ row }) {
             : "job-txn-inv-" + row.docNo
       }
       data-open-invoice={isOpen ? "1" : "0"}
+      {...clickProps}
     >
       {isOpen ? (
         <span
@@ -76,18 +94,26 @@ function Row({ row }) {
           ) : null}
         </div>
       </div>
-    </div>
+    </Comp>
   );
 }
 
-export default function JobTransactionHistory({ job, onOpenFull }) {
+export default function JobTransactionHistory({ job, onOpenFull, onOpenRow }) {
   const [filter, setFilter] = useState("all");
   const jobs = useMemo(() => (job ? [job] : []), [job]);
-  const counts = useMemo(() => txnFilterCounts(jobs), [jobs]);
-  const rows = useMemo(
-    () => buildCustomerTransactions(jobs, { filter, sort: "new" }),
-    [jobs, filter]
+  // Build once — filter/count from the same list (faster than rebuild per tab).
+  const allRows = useMemo(
+    () => buildCustomerTransactions(jobs, { filter: "all", sort: "new" }),
+    [jobs]
   );
+  const counts = useMemo(() => countKinds(allRows), [allRows]);
+  const rows = useMemo(() => {
+    if (filter === "all") return allRows;
+    if (filter === "invoices") return allRows.filter((r) => r.kind === "invoice");
+    if (filter === "payments") return allRows.filter((r) => r.kind === "payment");
+    if (filter === "estimates") return allRows.filter((r) => r.kind === "estimate");
+    return allRows;
+  }, [allRows, filter]);
   const paid = amountPaid(job);
   const due = openBalance(job);
   const pct = paidPct(job);
@@ -151,7 +177,7 @@ export default function JobTransactionHistory({ job, onOpenFull }) {
       ) : (
         <div className="space-y-1" data-testid="job-txn-list">
           {rows.map((row) => (
-            <Row key={row.id} row={row} />
+            <Row key={row.id} row={row} onOpen={onOpenRow} />
           ))}
         </div>
       )}

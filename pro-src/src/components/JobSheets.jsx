@@ -1588,7 +1588,7 @@ function PaymentEditForm({
   );
 }
 
-export function PaymentHistorySheet({ job, onClose, onAddPayment }) {
+export function PaymentHistorySheet({ job, onClose, onAddPayment, initialEditId = null }) {
   const {
     patchJob,
     patchAndSave,
@@ -1600,7 +1600,7 @@ export function PaymentHistorySheet({ job, onClose, onAddPayment }) {
     effectiveJob,
     jobs,
   } = useStore();
-  const [editId, setEditId] = useState(null);
+  const [editId, setEditId] = useState(initialEditId || null);
   const [fetchPhase, setFetchPhase] = useState("idle"); // idle | working | done | failed
   const [fetchErr, setFetchErr] = useState("");
   const [activeFetchKey, setActiveFetchKey] = useState("");
