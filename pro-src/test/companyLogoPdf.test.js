@@ -1,7 +1,9 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, it } from "vitest";
 import {
+  defaultCompanyLogoImage,
   defaultLeLogoImage,
+  isLeCompanyTenant,
   jpegImageFromDataUrl,
   resolveCompanyLogoDataUrl,
   resolvePdfLogoImage,
@@ -11,6 +13,8 @@ import { setCompanyLogoDataUrl, clearCompanyLogo } from "../src/lib/appSettings.
 import { LE_LOGO_JPEG, leLogoJpegBytes } from "../src/lib/leLogoJpeg.js";
 import { buildQbDocPdf } from "../src/lib/qbInvoicePdf.js";
 import { mapJobToQbDocData } from "../src/lib/jobToQbDoc.js";
+import { setActiveTenantConfig } from "../src/lib/tenantBranding.js";
+import { resolveTenantConfig } from "../src/lib/tenantConfig.js";
 
 afterEach(() => {
   clearCompanyLogo();
@@ -19,6 +23,8 @@ afterEach(() => {
   } catch {
     /* ignore */
   }
+  // Restore LE flagship seed so other suites see the default.
+  setActiveTenantConfig(resolveTenantConfig(null));
 });
 
 /** Tiny 1x1 JPEG (solid white) for deterministic embed tests. */
@@ -27,13 +33,40 @@ const TINY_JPEG_B64 =
 
 const TINY_JPEG_DATA_URL = `data:image/jpeg;base64,${TINY_JPEG_B64}`;
 
+function asDemoTenant() {
+  setActiveTenantConfig(
+    resolveTenantConfig({
+      tenantId: "demo",
+      internal: false,
+      plan: { tier: "full", crewAddon: true },
+      branding: {
+        companyName: "Ace Plumbing Co.",
+        logoUrl: "",
+        primaryColor: "#1d4ed8",
+      },
+      profile: {
+        companyName: "Ace Plumbing Co.",
+        logoDataUrl: "",
+      },
+    })
+  );
+}
+
 describe("companyLogoPdf", () => {
-  it("defaults to the built-in LE logo when nothing is uploaded", () => {
+  it("defaults to the built-in LE logo for the LE Electrical account", () => {
+    expect(isLeCompanyTenant()).toBe(true);
     expect(resolveCompanyLogoDataUrl()).toBe("");
     const img = resolvePdfLogoImageSync();
     expect(img.width).toBe(LE_LOGO_JPEG.width);
     expect(img.height).toBe(LE_LOGO_JPEG.height);
     expect(img.bytes.length).toBe(leLogoJpegBytes().length);
+  });
+
+  it("never falls back to the LE mark for a white-label demo tenant", () => {
+    asDemoTenant();
+    expect(isLeCompanyTenant()).toBe(false);
+    expect(defaultCompanyLogoImage()).toBeNull();
+    expect(resolvePdfLogoImageSync()).toBeNull();
   });
 
   it("reads a custom JPEG data URL from device settings", () => {
@@ -42,6 +75,15 @@ describe("companyLogoPdf", () => {
     const img = resolvePdfLogoImageSync();
     expect(img.bytes.length).toBeGreaterThan(20);
     // Must not be the default LE logo bytes
+    expect(img.bytes.length).not.toBe(leLogoJpegBytes().length);
+  });
+
+  it("prefers a just-uploaded device logo over a stale empty tenant profile", () => {
+    asDemoTenant();
+    setCompanyLogoDataUrl(TINY_JPEG_DATA_URL);
+    expect(resolveCompanyLogoDataUrl()).toBe(TINY_JPEG_DATA_URL);
+    const img = resolvePdfLogoImageSync();
+    expect(img).not.toBeNull();
     expect(img.bytes.length).not.toBe(leLogoJpegBytes().length);
   });
 
@@ -91,5 +133,38 @@ describe("companyLogoPdf", () => {
       }
     }
     expect(found).toBe(true);
+  });
+
+  it("builds a PDF without the LE logo bytes for a demo tenant with no logo", async () => {
+    asDemoTenant();
+    const data = mapJobToQbDocData(
+      {
+        id: "j1",
+        customer: "Blue Ridge Cafe",
+        invoiceNo: "1002",
+        amount: 100,
+        invoiceLines: [{ description: "Work", qty: 1, unitPrice: 100 }],
+      },
+      "invoice"
+    );
+    const blob = buildQbDocPdf(data);
+    const buf = new Uint8Array(await blob.arrayBuffer());
+    const le = leLogoJpegBytes();
+    let foundLe = false;
+    outer: for (let i = 0; i < buf.length - le.length; i++) {
+      if (buf[i] !== le[0] || buf[i + 1] !== le[1]) continue;
+      let ok = true;
+      for (let j = 0; j < le.length; j++) {
+        if (buf[i + j] !== le[j]) {
+          ok = false;
+          break;
+        }
+      }
+      if (ok) {
+        foundLe = true;
+        break outer;
+      }
+    }
+    expect(foundLe).toBe(false);
   });
 });
