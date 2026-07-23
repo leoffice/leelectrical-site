@@ -4,9 +4,8 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>Start your account · LE Pro</title>
-<!-- Turnstile bot gate. Replace the TEST site key below with the real one from
-     the Cloudflare dashboard before go-live (site keys are public — safe to ship).
-     1x00000000000000000000AA is Cloudflare's always-passes TEST key. -->
+<!-- Turnstile bot gate. Real Managed widget "LE Pro signup" (site keys are public).
+     Hostnames: leelectrical.us, www.leelectrical.us, signup-preview.leelectrical-cf.pages.dev. -->
 <script src="https://challenges.cloudflare.com/turnstile/v0/api.js" async defer></script>
 <style>
   :root { --bg:#0a111d; --card:#13233a; --ink:#eef3fa; --muted:#9bb0c9; --green:#7bd938; --line:rgba(255,255,255,.16); }
@@ -62,7 +61,7 @@
     <input id="password" type="password" autocomplete="new-password" required minlength="8">
 
     <!-- Turnstile renders here; token read via turnstile.getResponse() on submit -->
-    <div class="cf-turnstile" data-sitekey="1x00000000000000000000AA" data-theme="dark"></div>
+    <div class="cf-turnstile" data-sitekey="0x4AAAAAAD8QRReo7oiXh9fH" data-theme="dark"></div>
 
     <button id="submit" type="submit">Create account</button>
     <a
