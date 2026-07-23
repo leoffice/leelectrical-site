@@ -581,7 +581,12 @@ export function StoreProvider({ children }) {
           idem
         );
       }
-      refreshJobs(true);
+      // No trailing full-blob refetch here: the optimistic setJobs above already
+      // applied every saved patch (last-write-wins, same as the server now
+      // holds), so re-downloading the whole ~4k-job blob only to re-merge and
+      // re-group the identical result was pure post-save jank. Payment syncs
+      // reconcile via their record_payment/fetch_payments command-completion
+      // refresh (below), and cross-device changes arrive on the 60s poll.
     } catch (e) {
       showToast("Save failed — changes kept. " + ((e && e.message) || ""));
     } finally {

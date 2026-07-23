@@ -72,12 +72,37 @@ export function createNetlifyAdapter() {
   // GET right after our own write can return the PREVIOUS snapshot — merging
   // into that (saveJob) or rendering it (refresh) silently reverts edits.
   let lastWriteTs = 0;
+  // The full overlay map from our last successful POST. Used to reconstruct a
+  // correct view WITHOUT blocking when a read comes back stale (see freshState).
+  let lastOv = null;
+  // Return the freshest overlay we can WITHOUT sleeping. The old implementation
+  // re-GET-and-slept (350+700+1050ms ≈ 2.1s) on every save after the first,
+  // waiting for the blob to reflect our own last write — a built-in 1–2s stall
+  // on the save path. Instead: read once, and if that read predates our own last
+  // write (stale blob), re-apply our last-known overlay on top. This is only
+  // done when stale — a read whose ts is current is authoritative and may carry
+  // another device's newer edits, which we must never clobber. Cross-device
+  // safety is unchanged (the retry loop only ever waited for the CALLER'S own
+  // write; other devices' concurrent writes were reconciled by the next poll,
+  // and still are).
   const freshState = async () => {
-    for (let i = 0; ; i++) {
-      const state = (await http(`state?${cb()}`)) || { ov: {}, ts: 0 };
-      if (!lastWriteTs || (state.ts || 0) >= lastWriteTs || i >= 3) return state;
-      await new Promise((r) => setTimeout(r, 350 * (i + 1))); // blob lag — retry
+    const state = (await http(`state?${cb()}`)) || { ov: {}, ts: 0 };
+    if (lastWriteTs && (state.ts || 0) < lastWriteTs && lastOv) {
+      const ov = { ...((state && state.ov) || {}) };
+      for (const k of Object.keys(lastOv)) {
+        ov[k] = deepMerge(ov[k] || {}, lastOv[k]);
+      }
+      return { ...state, ov, ts: lastWriteTs };
     }
+    return state;
+  };
+  // POST the full overlay and remember it, so the next stale read can be
+  // reconstructed from memory instead of waiting for the blob to converge.
+  const postState = async (ov) => {
+    const res = await http("state", { ov });
+    if (res && res.ts) lastWriteTs = Math.max(lastWriteTs, res.ts);
+    lastOv = ov;
+    return res;
   };
   return {
     name: "netlify",
@@ -132,8 +157,7 @@ export function createNetlifyAdapter() {
         const state = await freshState();
         const ov = (state && state.ov) || {};
         ov[id] = deepMerge(ov[id] || {}, patch || {});
-        const res = await http("state", { ov });
-        if (res && res.ts) lastWriteTs = Math.max(lastWriteTs, res.ts);
+        const res = await postState(ov);
         return { ok: true, ts: res && res.ts, ov: ov[id] };
       };
       const p = saveQ.then(run, run);
@@ -327,8 +351,7 @@ export function createNetlifyAdapter() {
       const ov = (state && state.ov) || {};
       const cur = Array.isArray(ov._invoiceEditLearning) ? ov._invoiceEditLearning : [];
       ov._invoiceEditLearning = cur.concat([{ ...entry, ts: Date.now() }]).slice(-200);
-      const res = await http("state", { ov });
-      if (res && res.ts) lastWriteTs = Math.max(lastWriteTs, res.ts);
+      await postState(ov);
       return { ok: true };
     },
 
@@ -345,8 +368,7 @@ export function createNetlifyAdapter() {
       const ov = (state && state.ov) || {};
       const cur = Array.isArray(ov._paymentVisionLearning) ? ov._paymentVisionLearning : [];
       ov._paymentVisionLearning = cur.concat([{ ...entry, ts: Date.now() }]).slice(-200);
-      const res = await http("state", { ov });
-      if (res && res.ts) lastWriteTs = Math.max(lastWriteTs, res.ts);
+      await postState(ov);
       return { ok: true };
     },
 

@@ -83,15 +83,12 @@ describe("customer doc tabs — create + service addresses", () => {
     expect(await screen.findByTestId("co-pick-invoice")).toBeInTheDocument();
   });
 
-  it("short transactions keeps doc tabs above the ledger under customer card", async () => {
+  it("transaction history is on by default under customer card and tabs", async () => {
     mockServer({ jobs });
-    const user = userEvent.setup();
     renderApp("#/customer/c:addr%20co");
     const view = await screen.findByTestId("customer-view");
     expect(within(view).getByTestId("customer-doc-tabs")).toBeInTheDocument();
-    expect(within(view).queryByTestId("customer-txn-history")).not.toBeInTheDocument();
-
-    await user.click(within(view).getByRole("switch", { name: /Transaction/i }));
+    expect(within(view).getByTestId("customer-txn-history")).toBeInTheDocument();
 
     const card = within(view).getByTestId("customer-card");
     const tabs = within(view).getByTestId("customer-doc-tabs");
