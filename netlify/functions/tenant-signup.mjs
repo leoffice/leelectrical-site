@@ -6,32 +6,38 @@
  *   1. tenants        row  (generated slug id)
  *   2. tenant_config  row  (branding defaults + a self-serve plan tier)
  *   3. auth user      via admin generate_link(type:signup) — creates the user
- *      UNCONFIRMED and issues the email-verification link (Supabase mails it
- *      when the project has SMTP + "Confirm email" on). Returns the user id.
+ *      UNCONFIRMED and RETURNS the confirmation action_link (admin generate_link
+ *      does NOT send email; we send it ourselves via Resend, step 5).
  *   4. profiles       row  (id = auth uid, tenant_id = slug, role 'owner')
+ *   5. email          — send the verification link via Resend (from the same
+ *      office@leelectrical.us identity the invoice/estimate emails use).
  *
- * The account cannot be used until the owner clicks the verification link
- * (login returns "Email not confirmed" until then). RLS resolves a user's
- * tenant from profiles.tenant_id via app_tenant_id() — the profiles row IS the
- * binding, so no custom access-token hook is needed.
+ * The account cannot be used until the owner clicks the link (login returns
+ * "Email not confirmed" until then). RLS resolves tenant from profiles.tenant_id
+ * via app_tenant_id() — the profiles row IS the binding (no JWT hook needed).
  *
  * POST { email, password, companyName, ownerName?, planTier?, cfTurnstileToken }
- *   -> { ok:true, tenantId, userId, status:"verify-email" }
+ *   -> { ok:true, tenantId, userId, emailSent }
  *
  * SECURITY / OPS:
  *   • Requires SUPABASE_SERVICE_ROLE_KEY (server-only — never shipped to client).
- *   • FAIL-CLOSED: 403 unless SIGNUP_ENABLED=1. Stays off until Levi's go.
+ *   • FAIL-CLOSED: 403 unless SIGNUP_ENABLED=1. Off in prod until Levi's go.
  *   • Bot gate: requires TURNSTILE_SECRET_KEY + a passing token, else 400.
+ *   • Email via RESEND_API_KEY (already configured on the Pages project).
  *   • planTier clamped to self-serve tiers — signup can NEVER create 'full',
  *     internal=true, or crew_addon (billing upgrades; also pinned by mig 003).
+ *
+ * NB: all env is read at CALL TIME (not module top-level) so the CF Pages
+ * pagesAdapter (bindProcessEnv) has populated process.env before we read it.
  */
 
-const URL = process.env.SUPABASE_URL || "https://scgpxbubakfwypycugoa.supabase.co";
-const KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
-const SIGNUP_ENABLED = process.env.SIGNUP_ENABLED === "1" || process.env.SIGNUP_ENABLED === "true";
-const TURNSTILE_SECRET = process.env.TURNSTILE_SECRET_KEY;
-// Where the verification link returns the user after confirming.
-const SIGNUP_REDIRECT = process.env.SIGNUP_REDIRECT_URL || "https://www.leelectrical.us/app/";
+// ---- lazy env accessors -----------------------------------------------------
+const SB_URL = () => process.env.SUPABASE_URL || "https://scgpxbubakfwypycugoa.supabase.co";
+const SVC_KEY = () => process.env.SUPABASE_SERVICE_ROLE_KEY;
+const signupEnabled = () =>
+  process.env.SIGNUP_ENABLED === "1" || process.env.SIGNUP_ENABLED === "true";
+const SIGNUP_REDIRECT = () => process.env.SIGNUP_REDIRECT_URL || "https://www.leelectrical.us/app/";
+const MAIL_FROM = () => process.env.SIGNUP_FROM || "LE Pro <office@leelectrical.us>";
 
 // Self-serve tiers only. 'full'/internal/crew are never reachable from signup.
 const SELF_SERVE_TIERS = new Set(["free", "pro"]);
@@ -49,11 +55,11 @@ const json = (body, status = 200) =>
   new Response(JSON.stringify(body), { status, headers: corsHeaders() });
 
 const svc = (path, init = {}) =>
-  fetch(`${URL}${path}`, {
+  fetch(`${SB_URL()}${path}`, {
     ...init,
     headers: {
-      apikey: KEY,
-      Authorization: `Bearer ${KEY}`,
+      apikey: SVC_KEY(),
+      Authorization: `Bearer ${SVC_KEY()}`,
       "Content-Type": "application/json",
       ...(init.headers || {}),
     },
@@ -61,10 +67,11 @@ const svc = (path, init = {}) =>
 
 // ---- Turnstile bot gate ----------------------------------------------------
 async function verifyTurnstile(token, ip) {
-  if (!TURNSTILE_SECRET) return { ok: false, reason: "captcha not configured" };
+  const secret = process.env.TURNSTILE_SECRET_KEY;
+  if (!secret) return { ok: false, reason: "captcha not configured" };
   if (!token) return { ok: false, reason: "missing token" };
   const form = new URLSearchParams();
-  form.set("secret", TURNSTILE_SECRET);
+  form.set("secret", secret);
   form.set("response", token);
   if (ip) form.set("remoteip", ip);
   let d = {};
@@ -79,6 +86,40 @@ async function verifyTurnstile(token, ip) {
     return { ok: false, reason: `verify unreachable: ${e.message}` };
   }
   return { ok: d.success === true, reason: (d["error-codes"] || []).join(",") };
+}
+
+// ---- verification email via Resend -----------------------------------------
+async function sendVerificationEmail(to, companyName, actionLink) {
+  const apiKey = String(process.env.RESEND_API_KEY || "").trim();
+  if (!apiKey) return { ok: false, reason: "no RESEND_API_KEY" };
+  const safeCo = String(companyName || "your account").replace(/[<>]/g, "");
+  const html = `
+    <div style="font-family:Inter,system-ui,sans-serif;max-width:480px;margin:auto;color:#0e1828">
+      <h2 style="color:#2d8a3e">Confirm your LE Pro account</h2>
+      <p>Welcome — you're one click from setting up <b>${safeCo}</b>.</p>
+      <p><a href="${actionLink}" style="display:inline-block;background:#2d8a3e;color:#fff;
+        text-decoration:none;padding:12px 22px;border-radius:10px;font-weight:700">Confirm my email</a></p>
+      <p style="color:#667; font-size:13px">If the button doesn't work, paste this link into your browser:<br>
+        <span style="word-break:break-all">${actionLink}</span></p>
+      <p style="color:#99a; font-size:12px">If you didn't request this, you can ignore this email.</p>
+    </div>`;
+  try {
+    const r = await fetch("https://api.resend.com/emails", {
+      method: "POST",
+      headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
+      body: JSON.stringify({
+        from: MAIL_FROM(),
+        to: [to],
+        subject: "Confirm your LE Pro account",
+        html,
+      }),
+    });
+    const b = await r.json().catch(() => ({}));
+    if (!r.ok) return { ok: false, reason: `resend ${r.status}`, detail: b };
+    return { ok: true, id: b.id };
+  } catch (e) {
+    return { ok: false, reason: e.message };
+  }
 }
 
 // ---- slug -------------------------------------------------------------------
@@ -123,8 +164,8 @@ async function emailExists(email) {
 export default async (req) => {
   if (req.method === "OPTIONS") return json({ ok: true });
   if (req.method !== "POST") return json({ ok: false, error: "POST only" }, 405);
-  if (!KEY) return json({ ok: false, error: "server not configured" }, 500);
-  if (!SIGNUP_ENABLED) return json({ ok: false, error: "signups are not open" }, 403);
+  if (!SVC_KEY()) return json({ ok: false, error: "server not configured" }, 500);
+  if (!signupEnabled()) return json({ ok: false, error: "signups are not open" }, 403);
 
   let body = {};
   try {
@@ -196,10 +237,8 @@ export default async (req) => {
     });
     if (!r.ok) throw new Error(`create tenant_config failed: HTTP ${r.status} ${(await r.text()).slice(0, 160)}`);
 
-    // 3) auth user + email verification, in one call. generate_link(type:signup)
-    //    creates the user UNCONFIRMED and issues the confirmation link; Supabase
-    //    emails it when the project has SMTP + "Confirm email" enabled. We never
-    //    return the link (it confirms the account — only the email owner gets it).
+    // 3) auth user + confirmation link. admin generate_link creates the user
+    //    UNCONFIRMED and returns action_link; it does NOT send the email.
     r = await svc(`/auth/v1/admin/generate_link`, {
       method: "POST",
       body: JSON.stringify({
@@ -207,14 +246,16 @@ export default async (req) => {
         email,
         password,
         data: ownerName ? { full_name: ownerName } : {},
-        redirect_to: SIGNUP_REDIRECT,
+        redirect_to: SIGNUP_REDIRECT(),
       }),
     });
     if (!(r.status === 200 || r.status === 201))
       throw new Error(`create auth user failed: HTTP ${r.status} ${(await r.text()).slice(0, 160)}`);
     const gl = await r.json();
     userId = gl?.user?.id || gl?.id || gl?.user_id;
+    const actionLink = gl?.action_link || gl?.properties?.action_link;
     if (!userId) throw new Error("auth user created without an id");
+    if (!actionLink) throw new Error("no confirmation link returned");
 
     // 4) profiles — the tenant binding + owner role.
     r = await svc(`/rest/v1/profiles`, {
@@ -224,7 +265,11 @@ export default async (req) => {
     });
     if (!r.ok) throw new Error(`create profile failed: HTTP ${r.status} ${(await r.text()).slice(0, 160)}`);
 
-    return json({ ok: true, tenantId, userId, status: "verify-email" });
+    // 5) send the verification email (Resend). Non-fatal if it fails — the
+    //    account exists and a resend can be offered; we report emailSent.
+    const mail = await sendVerificationEmail(email, companyName, actionLink);
+
+    return json({ ok: true, tenantId, userId, emailSent: mail.ok, emailReason: mail.ok ? undefined : mail.reason });
   } catch (e) {
     await rollback();
     return json({ ok: false, error: `signup failed: ${e.message}` }, 502);
@@ -232,18 +277,14 @@ export default async (req) => {
 };
 
 // TODO before opening SIGNUP_ENABLED=1 to the public:
-//   • Provision the Turnstile widget (CF dashboard) → set TURNSTILE_SECRET_KEY
-//     (server env) + the site key in signup.html. Until the secret is set this
-//     endpoint refuses every request (fail-closed).
-//   • Confirm email DELIVERY: the project must have SMTP configured + Auth
-//     "Confirm email" ON so generate_link's message is actually sent. If you'd
-//     rather not depend on Supabase SMTP, capture gl.properties.action_link and
-//     send it through the repo's Resend path (see lib/docEmail / cloudflare-
-//     email-service) — but never log or return the link.
+//   • Provision the Turnstile widget (CF dashboard, dashboard-only — the host
+//     wrangler token lacks Turnstile scope) → set TURNSTILE_SECRET_KEY (server
+//     env) + the site key in signup.html. Until the secret is set this endpoint
+//     refuses every request (fail-closed).
 //   • Add an IP rate-limit (KV counter) in front — Turnstile stops bots, not a
 //     determined script reusing solved tokens across accounts.
-//   • Reap unconfirmed signups (tenant+config+user with no confirmed login)
-//     on a schedule so abandoned/abusive rows don't accumulate.
-//   • CF Pages deploy shape: as a Pages Function this needs an onRequest(context)
-//     wrapper reading context.env (see functions/pay/[code].js), and the file
-//     must be ported into the cf-native tree (prod), like the dashboard fixes.
+//   • Reap unconfirmed signups (tenant+config+user with no confirmed login) on
+//     a schedule so abandoned/abusive rows don't accumulate.
+//   • Wrapper: functions/.netlify/functions/tenant-signup.js does
+//     `onRequest = toPagesFunction(handler)` — env is read at call time so
+//     pagesAdapter's bindProcessEnv populates it first.
