@@ -48,12 +48,10 @@ describe("JobTransactionHistory", () => {
     expect(within(inv).getByTestId("job-txn-amount")).toHaveTextContent("$0");
   });
 
-  it("opens full payment editor when requested", async () => {
-    const user = userEvent.setup();
-    const onOpenFull = vi.fn();
-    render(<JobTransactionHistory job={job} onOpenFull={onOpenFull} />);
-    await user.click(screen.getByTestId("job-txn-open-full"));
-    expect(onOpenFull).toHaveBeenCalledTimes(1);
+  it("does not show a separate Edit payments button", () => {
+    render(<JobTransactionHistory job={job} onOpenFull={() => {}} />);
+    expect(screen.queryByTestId("job-txn-open-full")).toBeNull();
+    expect(screen.queryByText(/Edit payments/i)).toBeNull();
   });
 
   it("tapping a payment row opens the payment card", async () => {

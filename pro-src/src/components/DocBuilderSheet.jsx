@@ -51,7 +51,26 @@ import {
 import { RECUR_INTERVALS, defaultRecurringState } from "../lib/recurringBilling.js";
 import { resumeFollowUpPrompts } from "../lib/calendarNavigate.js";
 
-/** Compact line: product chip, one-line description, rate/qty/progress beside it. */
+/** Width that hugs the typed number (not a wide empty rectangle). */
+function numInputStyle(value, { minCh = 3, maxCh = 12, pad = 1 } = {}) {
+  const s = String(value ?? "").trim();
+  const ch = Math.max(minCh, Math.min(maxCh, (s.length || 1) + pad));
+  return { width: ch + "ch", minWidth: minCh + "ch" };
+}
+
+/** Compact labeled number field. */
+function MetricFld({ label, children, testId }) {
+  return (
+    <div className="flex flex-col gap-0.5 shrink-0" data-testid={testId}>
+      <span className="text-[9px] font-bold uppercase tracking-wide text-slate-400 leading-none px-0.5">
+        {label}
+      </span>
+      {children}
+    </div>
+  );
+}
+
+/** Compact line: product rectangle + polish on row 1; description + metrics below. */
 function LineRow({
   line,
   index,
@@ -66,7 +85,7 @@ function LineRow({
 }) {
   const [itemQ, setItemQ] = useState(line.itemName || "");
   const [open, setOpen] = useState(false);
-  // After a catalog pick, collapse the name into a small square chip until reopened.
+  // After a catalog pick, collapse the name into a fitting rectangle until reopened.
   const [itemPicked, setItemPicked] = useState(() => !!(line.itemName || "").trim());
   const picks = useMemo(() => filterQboItems(items, itemQ), [items, itemQ]);
   const rate = parseAmount(line.unitPrice) || 0;
@@ -76,6 +95,7 @@ function LineRow({
   const linePct = rate > 0 && qty > 0 ? Math.round(qty * 10000) / 100 : qty * 100;
   const progressDisplay = adjustMode === "pct" ? String(linePct || "") : String(due || "");
   const showChip = itemPicked && !!(line.itemName || itemQ || "").trim() && !open;
+  const productLabel = String(line.itemName || itemQ || "").trim();
 
   const pick = (it) => {
     onChange(index, {
@@ -96,17 +116,18 @@ function LineRow({
 
   return (
     <div className="rounded-xl border border-slate-200 bg-white px-2 py-2 mb-2 space-y-1.5" data-testid="doc-line-row">
-      <div className="flex items-start gap-1.5">
+      {/* Row 1: product name rectangle (fits the word) + polish + remove */}
+      <div className="flex items-start gap-1.5" data-testid={"doc-line-product-row-" + (index + 1)}>
         {showChip ? (
           <button
             type="button"
-            className="shrink-0 w-11 h-11 rounded-lg border border-slate-200 bg-slate-50 px-1 flex items-center justify-center text-[10px] font-bold leading-tight text-slate-800 text-center break-words overflow-hidden"
+            className="min-h-[2.5rem] max-w-[min(100%,18rem)] rounded-lg border border-slate-200 bg-slate-50 px-2.5 py-1.5 flex items-center text-left text-xs font-bold leading-snug text-slate-800 break-words"
             onClick={reOpenItem}
-            title={line.itemName || itemQ}
+            title={productLabel}
             aria-label={"Product service line " + (index + 1) + " — change"}
             data-testid={"doc-line-item-chip-" + (index + 1)}
           >
-            <span className="line-clamp-3">{shortItemLabel(line.itemName || itemQ)}</span>
+            {productLabel || "?"}
           </button>
         ) : (
           <div className="relative flex-1 min-w-0">
@@ -153,6 +174,12 @@ function LineRow({
             )}
           </div>
         )}
+        <PolishButton
+          compact
+          value={line.description || ""}
+          onChange={(v) => onChange(index, { description: v })}
+          testId={"doc-line-desc-" + (index + 1)}
+        />
         {canRemove ? (
           <button
             type="button"
@@ -166,97 +193,88 @@ function LineRow({
         ) : null}
       </div>
 
-      {/* Description + rate / qty / progress on one parallel row */}
-      <div className="flex flex-wrap items-start gap-1.5" data-testid={"doc-line-metrics-" + (index + 1)}>
-        <div className="flex-1 min-w-[10rem]">
-          <DescriptionField
-            value={line.description || ""}
-            onChange={(v) => onChange(index, { description: v })}
-            testId={"doc-line-desc-" + (index + 1)}
-            ariaLabel={"Description line " + (index + 1)}
-            showPolish={false}
-            compact
-            bare
-            placeholder="Description…"
+      {/* Row 2: description full width */}
+      <DescriptionField
+        value={line.description || ""}
+        onChange={(v) => onChange(index, { description: v })}
+        testId={"doc-line-desc-" + (index + 1)}
+        ariaLabel={"Description line " + (index + 1)}
+        showPolish={false}
+        compact
+        bare
+        placeholder="Description…"
+      />
+
+      {/* Row 3: labeled number fields — only as wide as the digits */}
+      <div className="flex flex-wrap items-end gap-1.5" data-testid={"doc-line-metrics-" + (index + 1)}>
+        <MetricFld label={progressMode ? "Full rate" : "Rate"} testId={"doc-line-rate-fld-" + (index + 1)}>
+          <input
+            className="input !px-1.5 !py-1.5 text-sm text-right tabular-nums"
+            style={numInputStyle(line.unitPrice, { minCh: 4, maxCh: 12 })}
+            inputMode="decimal"
+            value={line.unitPrice}
+            onChange={(e) => onChange(index, { unitPrice: e.target.value })}
+            aria-label={"Rate line " + (index + 1)}
+            title={progressMode ? "Full job rate for this line" : "Rate"}
+            placeholder="0"
           />
-        </div>
+        </MetricFld>
         {progressMode ? (
-          <div className="flex items-center gap-0.5 shrink-0" data-testid={"doc-line-progress-" + (index + 1)}>
+          <MetricFld
+            label={adjustMode === "pct" ? "Progress %" : "This bill $"}
+            testId={"doc-line-progress-" + (index + 1)}
+          >
+            <div className="flex items-center gap-0.5">
+              <input
+                className="input !px-1 !py-1.5 text-center text-sm tabular-nums"
+                style={numInputStyle(progressDisplay, { minCh: 3, maxCh: 10 })}
+                inputMode="decimal"
+                value={progressDisplay}
+                onChange={(e) => onLineProgress && onLineProgress(index, e.target.value)}
+                aria-label={"Progress line " + (index + 1)}
+                data-testid={"progress-line-edit-" + (index + 1)}
+                title={adjustMode === "pct" ? "Percent of full rate" : "Dollar amount this invoice"}
+                placeholder={adjustMode === "pct" ? "%" : "$"}
+              />
+              <button
+                type="button"
+                className="h-8 min-w-[1.75rem] px-1 rounded-lg border border-slate-200 bg-white text-[11px] font-extrabold text-slate-700"
+                onClick={() => onAdjustModeChange && onAdjustModeChange(adjustMode === "pct" ? "amount" : "pct")}
+                aria-label={adjustMode === "pct" ? "Switch progress to dollars" : "Switch progress to percent"}
+                data-testid={"progress-mode-toggle-" + (index + 1)}
+                title={adjustMode === "pct" ? "Showing percent — tap for $" : "Showing dollars — tap for %"}
+              >
+                {adjustMode === "pct" ? "%" : "$"}
+              </button>
+            </div>
+          </MetricFld>
+        ) : (
+          <MetricFld label="Qty" testId={"doc-line-qty-fld-" + (index + 1)}>
             <input
-              className="input !w-[3.5rem] !px-1 !py-2 text-center text-sm"
+              className="input !px-1 !py-1.5 text-sm text-center tabular-nums"
+              style={numInputStyle(line.qty, { minCh: 2, maxCh: 8 })}
               inputMode="decimal"
-              value={progressDisplay}
-              onChange={(e) => onLineProgress && onLineProgress(index, e.target.value)}
-              aria-label={"Progress line " + (index + 1)}
-              data-testid={"progress-line-edit-" + (index + 1)}
-              title="Progress"
-              placeholder="Prog"
+              value={line.qty}
+              onChange={(e) => onChange(index, { qty: e.target.value })}
+              aria-label={"Quantity line " + (index + 1)}
+              title="Quantity"
+              placeholder="1"
             />
-            <button
-              type="button"
-              className="h-9 min-w-[1.75rem] px-1 rounded-lg border border-slate-200 bg-white text-[11px] font-extrabold text-slate-700"
-              onClick={() => onAdjustModeChange && onAdjustModeChange(adjustMode === "pct" ? "amount" : "pct")}
-              aria-label={adjustMode === "pct" ? "Switch progress to dollars" : "Switch progress to percent"}
-              data-testid={"progress-mode-toggle-" + (index + 1)}
-              title={adjustMode === "pct" ? "Showing percent — tap for $" : "Showing dollars — tap for %"}
-            >
-              {adjustMode === "pct" ? "%" : "$"}
-            </button>
-          </div>
-        ) : null}
-        <input
-          className="input !w-[4.25rem] !px-1.5 !py-2 text-sm text-right shrink-0"
-          inputMode="decimal"
-          value={line.unitPrice}
-          onChange={(e) => onChange(index, { unitPrice: e.target.value })}
-          aria-label={"Rate line " + (index + 1)}
-          title={progressMode ? "Rate (full)" : "Rate"}
-          placeholder="Rate"
-        />
-        <input
-          className="input !w-[3.25rem] !px-1 !py-2 text-sm text-center shrink-0"
-          inputMode="decimal"
-          value={line.qty}
-          onChange={(e) => onChange(index, { qty: e.target.value })}
-          aria-label={"Quantity line " + (index + 1)}
-          title="Qty"
-          placeholder="Qty"
-        />
-        {progressMode ? (
+          </MetricFld>
+        )}
+        <MetricFld label={progressMode ? "Line total" : "Amount"} testId={"doc-line-amount-fld-" + (index + 1)}>
           <div
-            className="shrink-0 input !w-auto min-w-[3.75rem] !px-1.5 !py-2 bg-slate-50 text-slate-700 font-semibold text-right text-sm"
+            className="input !px-1.5 !py-1.5 bg-slate-50 text-slate-700 font-semibold text-right text-sm tabular-nums"
+            style={numInputStyle(fmt$(due) || "$0", { minCh: 5, maxCh: 12, pad: 0 })}
             aria-label={"Due line " + (index + 1)}
             data-testid={"doc-line-amount-" + (index + 1)}
           >
             {fmt$(due)}
           </div>
-        ) : (
-          <div
-            className="shrink-0 input !w-auto min-w-[3.75rem] !px-1.5 !py-2 bg-slate-50 text-slate-700 font-semibold text-right text-sm"
-            data-testid={"doc-line-amount-" + (index + 1)}
-          >
-            {fmt$(lineAmount(line))}
-          </div>
-        )}
-        <PolishButton
-          compact
-          value={line.description || ""}
-          onChange={(v) => onChange(index, { description: v })}
-          testId={"doc-line-desc-" + (index + 1)}
-        />
+        </MetricFld>
       </div>
     </div>
   );
-}
-
-/** Short label for the product chip (first words, max ~18 chars). */
-function shortItemLabel(name) {
-  const s = String(name || "").trim();
-  if (!s) return "?";
-  if (s.length <= 18) return s;
-  const cut = s.slice(0, 17);
-  const sp = cut.lastIndexOf(" ");
-  return (sp > 6 ? cut.slice(0, sp) : cut) + "…";
 }
 
 function CustomerHeaderPanel({ job, allJobs, events, api, onPatch }) {
@@ -391,7 +409,8 @@ export default function DocBuilderSheet({
   }, [job.email]);
   const initialContract = contractTotalForJob(job) || contractTotalFromEstimate(job.estimateLines) || 0;
   const [contractAmount, setContractAmount] = useState(initialContract ? String(initialContract) : "");
-  const [adjustMode, setAdjustMode] = useState("amount");
+  // Default % so progress invoices open showing "80%" not a raw dollar / fraction.
+  const [adjustMode, setAdjustMode] = useState("pct");
   const [progressPctEdit, setProgressPctEdit] = useState(() => {
     if (progressPct != null) return String(progressPct);
     const init = initialLines(job, { kind, mode, progressPct });
@@ -516,9 +535,14 @@ export default function DocBuilderSheet({
     }
   };
 
-  const contractLines = job.estimateLines?.length
-    ? job.estimateLines
-    : lines.map((ln) => ({ ...ln, unitPrice: parseAmount(contractAmount) || ln.unitPrice, qty: 1 }));
+  const contractLines = useMemo(() => {
+    if (job.estimateLines?.length) return job.estimateLines;
+    return lines.map((ln) => ({
+      ...ln,
+      unitPrice: parseAmount(contractAmount) || ln.unitPrice,
+      qty: 1,
+    }));
+  }, [job.estimateLines, lines, contractAmount]);
 
   const changeLine = useCallback((i, patch) => {
     setLines((rows) => rows.map((ln, idx) => (idx === i ? { ...ln, ...patch } : ln)));
@@ -549,33 +573,47 @@ export default function DocBuilderSheet({
   const onLineProgress = useCallback(
     (index, raw) => {
       const val = parseAmount(raw);
-      setLines((rows) =>
-        rows.map((ln, i) => {
-          if (i !== index) return ln;
-          const rate = parseAmount(ln.unitPrice) || 0;
-          if (adjustMode === "pct") {
-            const pct = Math.min(100, Math.max(0, val));
-            setProgressPctEdit(String(pct));
+      const contract = parseAmount(contractAmount) || contractTotalForJob(job) || 0;
+      if (adjustMode === "pct") {
+        const pct = Math.min(100, Math.max(0, val));
+        setProgressPctEdit(String(pct));
+        if (contract > 0) setAmountDueEdit(String(dueFromContract(contract, pct)));
+        setLines((rows) =>
+          rows.map((ln, i) => {
+            if (i !== index) return ln;
             return {
               ...ln,
               qty: roundQty(pct / 100),
               progressBilling: pct < 99.99,
             };
-          }
+          })
+        );
+        return;
+      }
+      setAmountDueEdit(String(raw));
+      setLines((rows) => {
+        const next = rows.map((ln, i) => {
+          if (i !== index) return ln;
+          const rate = parseAmount(ln.unitPrice) || 0;
           if (!rate) return { ...ln, unitPrice: val, qty: 1, progressBilling: true };
-          const qty = roundQty(val / rate);
-          setAmountDueEdit(String(val));
-          return { ...ln, qty, progressBilling: qty < 0.9999 };
-        })
-      );
-      if (adjustMode === "pct") {
-        setProgressPctEdit(String(val));
-      } else {
-        setAmountDueEdit(String(raw));
+          const q = roundQty(val / rate);
+          return { ...ln, qty: q, progressBilling: q < 0.9999 };
+        });
+        return next;
+      });
+      // Approximate overall % from this line's $ (single-line progress is the common case).
+      if (contract > 0) {
+        setProgressPctEdit(String(Math.min(100, Math.max(0, Math.round((val / contract) * 10000) / 100))));
       }
     },
-    [adjustMode]
+    [adjustMode, contractAmount, job]
   );
+
+  // Live progress summary — full job · % · this invoice (keeps progress billing clear).
+  const liveContract = parseAmount(contractAmount) || contractTotalForJob(job) || 0;
+  const liveProgressPct =
+    liveContract > 0 ? progressPctFromLines(lines, liveContract) : parseAmount(progressPctEdit) || 100;
+  const liveInvoiceTotal = subtotal;
 
   const onPickDocFile = async (e) => {
     const file = (e.target.files && e.target.files[0]) || null;
@@ -1136,6 +1174,43 @@ export default function DocBuilderSheet({
           </div>
         ) : null}
       </div>
+
+      {progressMode ? (
+        <div
+          className="mb-2 rounded-xl border border-amber-200 bg-amber-50/80 px-3 py-2 flex flex-wrap items-center gap-x-3 gap-y-1"
+          data-testid="progress-summary-bar"
+        >
+          <label className="flex items-center gap-1.5 text-xs text-slate-700">
+            <span className="font-bold text-slate-500 uppercase tracking-wide text-[10px]">Full</span>
+            <input
+              className="input !py-1 !px-1.5 !w-auto text-sm font-bold tabular-nums text-slate-900"
+              style={numInputStyle(contractAmount || liveContract || "", { minCh: 5, maxCh: 12 })}
+              inputMode="decimal"
+              value={contractAmount}
+              onChange={(e) => {
+                setContractAmount(e.target.value);
+                const c = parseAmount(e.target.value);
+                if (c > 0) {
+                  setProgressPctEdit(String(progressPctFromLines(lines, c)));
+                  setAmountDueEdit(String(linesTotal(lines)));
+                }
+              }}
+              aria-label="Full job amount"
+              data-testid="progress-full-amount"
+              title="Original / full job amount"
+            />
+          </label>
+          <span className="text-xs font-extrabold text-amber-900 tabular-nums" data-testid="progress-pct-label">
+            {liveProgressPct}%
+          </span>
+          <span className="text-xs text-slate-600">
+            This invoice{" "}
+            <b className="text-slate-900 tabular-nums" data-testid="progress-invoice-total">
+              {fmt$(liveInvoiceTotal) || "$0"}
+            </b>
+          </span>
+        </div>
+      ) : null}
 
       <p className="text-[11px] font-bold uppercase tracking-wide text-slate-400 mt-1 mb-1.5">
         Line items

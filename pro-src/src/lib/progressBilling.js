@@ -92,6 +92,55 @@ export function applyDueAmountToLines(lines, contractLines, amountDue, contractT
   });
 }
 
+/**
+ * Coerce invoice lines into QBO progress style: full rate × fractional qty.
+ * Fixes imports where unitPrice was the partial bill and qty was 1 (reads as 100% of a small rate).
+ */
+export function normalizeProgressInvoiceLines(lines, contractTotal, estimateLines) {
+  const contract = parseAmount(contractTotal) || 0;
+  const rows = (lines || []).map((ln) => ({ ...emptyLine(), ...ln }));
+  if (!rows.length) return rows;
+
+  // Prefer estimate template when billed total is a partial of the contract.
+  if (estimateLines?.length && contract > 0) {
+    const billed = linesTotal(rows);
+    if (billed > 0 && billed < contract * 0.999) {
+      return progressBillByAmount(estimateLines, billed, contract);
+    }
+  }
+
+  // Single line: qty≈1 and rate equals partial bill under full contract → flip to fractional qty.
+  if (rows.length === 1 && contract > 0) {
+    const ln = rows[0];
+    const qty = parseAmount(ln.qty);
+    const rate = lineUnitPrice(ln);
+    const amt = lineAmount(ln);
+    if (isFractionalProgressQty(qty) && rate > 0) {
+      return [{ ...ln, unitPrice: rate, progressBilling: true }];
+    }
+    if (qty >= 0.999 && rate > 0 && rate < contract * 0.999 && amt > 0 && amt <= contract) {
+      return [
+        {
+          ...ln,
+          unitPrice: contract,
+          qty: roundQty(amt / contract),
+          progressBilling: true,
+        },
+      ];
+    }
+  }
+
+  // Multi-line already fractional — keep rates, mark progress.
+  return rows.map((ln) => {
+    const qty = parseAmount(ln.qty);
+    const rate = lineUnitPrice(ln);
+    if (isFractionalProgressQty(qty) && rate > 0) {
+      return { ...ln, unitPrice: rate, progressBilling: true };
+    }
+    return ln;
+  });
+}
+
 /** Seed invoice lines for edit when none saved locally (e.g. QBO-imported job). */
 export function inferProgressInvoiceLines(job) {
   const due = parseAmount(job.amount);

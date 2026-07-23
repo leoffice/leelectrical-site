@@ -183,9 +183,9 @@ export default function JobInfoCard({
                   onAddChangeOrder();
                 }}
                 data-testid="add-change-order-btn"
-                title="Creates a separate change-order document — confirm required"
+                title="Create a new change-order invoice or estimate on this job"
               >
-                ＋ Change order
+                ＋ Add change order
               </button>
             ) : null}
             {onAddAttachment ? (

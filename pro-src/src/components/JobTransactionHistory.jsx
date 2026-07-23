@@ -118,6 +118,10 @@ export default function JobTransactionHistory({ job, onOpenFull, onOpenRow }) {
   const due = openBalance(job);
   const pct = paidPct(job);
 
+  // onOpenFull kept for callers that open the full payment editor from a payment row;
+  // the separate "Edit payments →" button is gone — tap a payment instead.
+  void onOpenFull;
+
   return (
     <div className="card px-3 py-2.5 space-y-2" data-testid="job-txn-history">
       <div className="flex items-center justify-between gap-2">
@@ -134,16 +138,6 @@ export default function JobTransactionHistory({ job, onOpenFull, onOpenRow }) {
             <span className="block text-slate-400 mt-0.5">Invoice #{job.invoiceNo}</span>
           ) : null}
         </div>
-        {onOpenFull ? (
-          <button
-            type="button"
-            className="text-[11px] font-bold text-brand shrink-0"
-            data-testid="job-txn-open-full"
-            onClick={onOpenFull}
-          >
-            Edit payments →
-          </button>
-        ) : null}
       </div>
 
       <div className="flex flex-wrap items-center gap-1.5" data-testid="job-txn-filters">

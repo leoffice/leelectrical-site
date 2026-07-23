@@ -54,22 +54,28 @@ describe("Progress invoice editor", () => {
     await user.click(within(tabs).getByTestId("tab-invoice"));
     await user.click(await screen.findByTestId("doc-edit"));
 
-    // Yellow contract box is gone — progress lives on the line item.
+    // Compact summary: full · % · this invoice (not the old yellow contract box).
     expect(screen.queryByTestId("progress-billing-panel")).not.toBeInTheDocument();
+    const summary = await screen.findByTestId("progress-summary-bar");
+    expect(summary).toBeInTheDocument();
+    expect(screen.getByTestId("progress-full-amount")).toBeInTheDocument();
+    expect(screen.getByTestId("progress-pct-label").textContent).toMatch(/%/);
 
     const rows = await screen.findAllByTestId("doc-line-row");
     const rateInput = within(rows[0]).getByLabelText("Rate line 1");
-    const qtyInput = within(rows[0]).getByLabelText("Quantity line 1");
     expect(rateInput).toHaveValue("46000");
-    expect(parseFloat(qtyInput.value)).toBeCloseTo(25000 / 46000, 4);
+    // Qty is internal in progress mode — driven by progress % field.
+    expect(within(rows[0]).queryByLabelText("Quantity line 1")).toBeNull();
 
-    // Compact progress field sits before rate; toggle between $ and %.
+    // Product chip shows full name (not a tiny square snippet).
+    const chip = within(rows[0]).getByTestId("doc-line-item-chip-1");
+    expect(chip).toHaveTextContent(/Installation of wiring/i);
+
+    // Progress field defaults to %; set 50% → fractional qty on save, full rate kept.
     const progressInput = screen.getByTestId("progress-line-edit-1");
     const modeToggle = screen.getByTestId("progress-mode-toggle-1");
     expect(progressInput).toBeInTheDocument();
     expect(modeToggle).toBeInTheDocument();
-
-    // Switch to % and set 50% → qty 0.5, full rate kept.
     if (modeToggle.textContent?.trim() === "$") {
       await user.click(modeToggle);
     }
@@ -77,7 +83,7 @@ describe("Progress invoice editor", () => {
     await user.clear(progressInput);
     await user.type(progressInput, "50");
     expect(rateInput).toHaveValue("46000");
-    expect(parseFloat(qtyInput.value)).toBeCloseTo(0.5, 4);
+    expect(screen.getByTestId("progress-pct-label")).toHaveTextContent("50%");
 
     await user.click(screen.getByTestId("doc-sync-email"));
     await user.click(screen.getByTestId("doc-save-sync-send"));

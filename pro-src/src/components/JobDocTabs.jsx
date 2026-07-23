@@ -70,7 +70,8 @@ export default function JobDocTabs({
     : cal.pending
     ? "bg-orange-50 text-orange-800 border-orange-200"
     : "bg-red-50 text-red-700 border-red-200";
-  const coLabel = coCount > 0 ? "CO · " + coCount : "Change order";
+  // Tab lists existing COs; header "Add change order" creates a new one.
+  const coLabel = coCount > 0 ? "COs · " + coCount : "View COs";
 
   return (
     <div className="grid grid-cols-5 gap-1 mt-3" data-testid="job-doc-tabs">
@@ -125,6 +126,11 @@ export default function JobDocTabs({
         }`}
         onClick={onChangeOrders}
         data-testid="tab-change-orders"
+        title={
+          coCount > 0
+            ? "Show change orders on this job"
+            : "No change orders yet — use Add change order above to create one"
+        }
       >
         📋 {coLabel}
       </button>
