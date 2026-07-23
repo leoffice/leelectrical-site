@@ -193,7 +193,7 @@ export function useDoSend() {
       // (Cloudflare currently 502s without Resend). Never silently drop.
       try {
         const blob =
-          kind === "estimate" ? buildEstimatePdfFromJob(job) : buildInvoicePdfFromJob(job);
+          kind === "estimate" ? await buildEstimatePdfFromJob(job) : await buildInvoicePdfFromJob(job);
         if (blob && typeof FileReader !== "undefined") {
           const pdfB64 = await new Promise((resolve, reject) => {
             const r = new FileReader();
@@ -1861,7 +1861,7 @@ function useDocPdfView(job, kind, no) {
     // Also trigger a download as a mobile-friendly fallback when popups are blocked.
     try {
       const blob =
-        kind === "estimate" ? buildEstimatePdfFromJob(job) : buildInvoicePdfFromJob(job);
+        kind === "estimate" ? await buildEstimatePdfFromJob(job) : await buildInvoicePdfFromJob(job);
       if (!blob) {
         setSt({ phase: "error", source: DOC_SOURCE_LOCAL });
         showToast("Couldn't build the PDF on this device — try View QuickBooks");

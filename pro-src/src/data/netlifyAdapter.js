@@ -224,7 +224,7 @@ export function createNetlifyAdapter() {
      */
     async generateLocalDoc(job, kind = "invoice", opts = {}) {
       try {
-        const blob = kind === "estimate" ? buildEstimatePdfFromJob(job) : buildInvoicePdfFromJob(job);
+        const blob = kind === "estimate" ? await buildEstimatePdfFromJob(job) : await buildInvoicePdfFromJob(job);
         if (!blob) return { ok: false, error: "no_pdf" };
         const no = kind === "invoice" ? job?.invoiceNo : job?.estimateNo;
         if (opts.download !== false) {
@@ -251,8 +251,8 @@ export function createNetlifyAdapter() {
           if (opts.payUrl) overrides.payUrl = opts.payUrl;
           const blob =
             kind === "estimate"
-              ? buildEstimatePdfFromJob(job, overrides)
-              : buildInvoicePdfFromJob(job, overrides);
+              ? await buildEstimatePdfFromJob(job, overrides)
+              : await buildInvoicePdfFromJob(job, overrides);
           if (!blob) return { ok: false, error: "no_pdf" };
           pdfB64 = await blobToBase64(blob);
           filename = docPdfFilename(kind, job, no) || `${kind}-${String(no || "document")}.pdf`;

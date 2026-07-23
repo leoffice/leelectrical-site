@@ -1,0 +1,112 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Test LE Pro</title>
+<meta name="description" content="Open the LE Pro demo — try jobs, invoices, calendar, and more on sample data.">
+<link rel="icon" type="image/png" href="/LE.png">
+<style>
+  :root {
+    --bg: #0a111d;
+    --card: #13233a;
+    --ink: #eef3fa;
+    --muted: #9bb0c9;
+    --green: #7bd938;
+    --line: rgba(255, 255, 255, 0.16);
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    min-height: 100vh;
+    background: radial-gradient(130% 120% at 50% 0%, #1a2740, #0a111d 70%);
+    font-family: Inter, system-ui, -apple-system, sans-serif;
+    color: var(--ink);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 20px;
+  }
+  .card {
+    width: 100%;
+    max-width: 440px;
+    background: linear-gradient(180deg, var(--card), #0d1828);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 20px;
+    padding: 28px;
+    box-shadow: 0 24px 60px rgba(0, 0, 0, 0.6);
+    text-align: center;
+  }
+  .brand { font-weight: 800; font-size: 22px; letter-spacing: 1px; }
+  .brand span { color: var(--green); }
+  .sub {
+    color: var(--muted);
+    font-size: 14px;
+    margin: 10px 0 22px;
+    line-height: 1.45;
+  }
+  .btn {
+    display: block;
+    width: 100%;
+    padding: 16px 18px;
+    border: 0;
+    border-radius: 12px;
+    background: var(--green);
+    color: #0e1828;
+    font-weight: 800;
+    font-size: 17px;
+    text-decoration: none;
+    cursor: pointer;
+    box-shadow: 0 4px 0 #3d7a12;
+  }
+  .btn:active { transform: translateY(2px); box-shadow: 0 2px 0 #3d7a12; }
+  .hint {
+    margin-top: 18px;
+    padding: 12px 14px;
+    border-radius: 12px;
+    background: rgba(59, 130, 246, 0.18);
+    border: 1px solid rgba(147, 197, 253, 0.35);
+    color: #e8f1ff;
+    font-size: 13px;
+    line-height: 1.45;
+    text-align: left;
+  }
+  .hint b { display: block; margin-bottom: 4px; }
+  .hint code {
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    font-size: 12px;
+    color: #cfe0ff;
+  }
+  .foot {
+    margin-top: 18px;
+    font-size: 12px;
+    color: var(--muted);
+  }
+  .foot a { color: var(--muted); }
+</style>
+</head>
+<body>
+  <div class="card">
+    <div class="brand">LE <span>PRO</span></div>
+    <p class="sub">
+      Tap below to open the test copy of LE Pro.
+      Sample company data only — nothing from real customers.
+    </p>
+    <a
+      class="btn"
+      id="open-demo"
+      href="https://demo.leelectrical-cf.pages.dev/app/pro/"
+      data-testid="try-le-pro-button"
+    >Test LE Pro</a>
+    <div class="hint">
+      <b>When the login screen opens</b>
+      Login is pre-filled. Tap <b>Unlock</b>.<br>
+      Email: <code>demo@aceplumbing.example</code><br>
+      Password: <code>demo1234</code>
+    </div>
+    <div class="foot">
+      Want your own company account? <a href="/signup">Start here</a>
+    </div>
+  </div>
+</body>
+</html>

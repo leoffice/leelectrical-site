@@ -58,6 +58,51 @@ export function activeTenantConfig() {
 }
 
 /**
+ * Push a just-uploaded company logo into the live tenant snapshot so PDF /
+ * email builders see it immediately — without waiting for a settings re-fetch.
+ */
+export function applyCompanyLogoToActiveConfig(logoDataUrl) {
+  const next = logoDataUrl ? String(logoDataUrl) : "";
+  const cfg = current || {};
+  setActiveTenantConfig({
+    ...cfg,
+    profile: { ...(cfg.profile || {}), logoDataUrl: next },
+    branding: {
+      ...(cfg.branding || {}),
+      logoUrl: next,
+      logoDataUrl: next,
+    },
+  });
+}
+
+/**
+ * Push the full company profile (Settings → Company) into the live tenant
+ * snapshot so invoice / estimate / statement / requisition printouts use the
+ * just-saved name, email, Zelle line, phone, address, etc. without a reload.
+ */
+export function applyCompanyProfileToActiveConfig(profile) {
+  if (!profile || typeof profile !== "object") return;
+  const cfg = current || {};
+  const prev = cfg.profile || {};
+  const nextProfile = { ...prev, ...profile };
+  // Keep logo keys consistent with branding (logo may live on either side).
+  const logo = nextProfile.logoDataUrl || "";
+  if (logo) nextProfile.logoDataUrl = logo;
+  setActiveTenantConfig({
+    ...cfg,
+    profile: nextProfile,
+    branding: {
+      ...(cfg.branding || {}),
+      companyName: nextProfile.companyName || cfg.branding?.companyName || "",
+      supportEmail: nextProfile.email || cfg.branding?.supportEmail || "",
+      primaryColor: nextProfile.brandColor || cfg.branding?.primaryColor || "",
+      logoUrl: logo || cfg.branding?.logoUrl || "",
+      logoDataUrl: logo || cfg.branding?.logoDataUrl || "",
+    },
+  });
+}
+
+/**
  * COMPANY-shaped block for invoice / estimate / QBO PDF headers.
  * Replaces the duplicated COMPANY consts in invoicePdf.js and jobToQbDoc.js.
  */
@@ -69,9 +114,38 @@ export function tenantCompany(config = current) {
     street: p.street || "",
     cityStateZip: p.cityStateZip || "",
     phone: p.phone || "",
-    email: p.email || "",
+    email: p.email || b.supportEmail || "",
     license: p.license || "",
   };
+}
+
+/** Standard Zelle payment line from a company mailbox (white-label default). */
+export function defaultZelleInstructions(email) {
+  const e = String(email || "").trim();
+  return e ? `Zelle: Send payment to ${e}.` : "";
+}
+
+/**
+ * Zelle line for invoices / estimates.
+ * Uses the configured wording when set; otherwise builds it from the company email.
+ * If the stored line still points at a different mailbox than the live company
+ * email but matches the standard pattern, rewrite it to the current email so
+ * Settings → Email always wins on print (demo + white-label).
+ */
+export function tenantZelleInstructions(config = current) {
+  const p = config.profile || {};
+  const email = tenantCompany(config).email || "";
+  const raw = String(p.zelleInstructions || "").trim();
+  if (!raw) return defaultZelleInstructions(email);
+  // Standard pattern: "Zelle: Send payment to <addr>." — keep in sync with email.
+  const m = raw.match(/^Zelle:\s*Send payment to\s+(.+?)\.?\s*$/i);
+  if (m && email) {
+    const listed = String(m[1] || "").trim();
+    if (listed.toLowerCase() !== email.toLowerCase()) {
+      return defaultZelleInstructions(email);
+    }
+  }
+  return raw;
 }
 
 /** Address as the array shape jobToQbDoc/qbInvoicePdf want. */
@@ -91,8 +165,9 @@ export function tenantPaymentLines(config = current) {
   if (methods.card !== false && p.payLinkBase) {
     lines.push("-Card: Pay online with the secure link on this invoice.");
   }
-  if (methods.zelle !== false && p.zelleInstructions) {
-    lines.push(`-${p.zelleInstructions}`);
+  if (methods.zelle !== false) {
+    const zelle = tenantZelleInstructions(config);
+    if (zelle) lines.push(`-${zelle}`);
   }
   if (methods.check !== false && p.checkInstructions) {
     lines.push(`-${p.checkInstructions}`);
