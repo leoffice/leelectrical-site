@@ -49,6 +49,7 @@ import VoiceFlowBubble from "./components/VoiceFlowBubble.jsx";
 import ApprovalWatcher from "./components/ApprovalWatcher.jsx";
 import DocConfirmWatcher from "./components/DocConfirmWatcher.jsx";
 import SendInvoiceWatcher from "./components/SendInvoiceWatcher.jsx";
+import QboSyncIssueWatcher from "./components/QboSyncIssueWatcher.jsx";
 import DedupePrompts from "./components/DedupePrompts.jsx";
 import InvoiceDedupAutoResolver from "./components/InvoiceDedupAutoResolver.jsx";
 import FollowUpPrompts from "./components/FollowUpPrompts.jsx";
@@ -429,6 +430,7 @@ export default function App() {
         <ApprovalWatcher />
         <DocConfirmWatcher />
         <SendInvoiceWatcher />
+        <QboSyncIssueWatcher />
         <InvoiceDedupAutoResolver />
         <DedupePrompts />
         <FollowUpPrompts />
