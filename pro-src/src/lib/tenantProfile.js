@@ -73,6 +73,8 @@ export const DEFAULT_FEATURES = {
   statements: true,
   letterhead: true,
   quickbooks: true,
+  /** Send/view/create docs through QB. Off = local docs only; sync still runs. */
+  quickbooksDocs: false,
   calendar: true,
   reminders: true,
   progressDashboard: true,
@@ -95,7 +97,8 @@ export const FEATURE_LABELS = [
   { key: "estimates", label: "Estimates" },
   { key: "statements", label: "Statements" },
   { key: "letterhead", label: "Letterhead" },
-  { key: "quickbooks", label: "QuickBooks (save, send & sync via QB)" },
+  { key: "quickbooks", label: "QuickBooks (keep integrated / sync data)" },
+  { key: "quickbooksDocs", label: "Send & view through QuickBooks" },
   { key: "calendar", label: "Calendar" },
   { key: "reminders", label: "Reminders / follow-ups" },
   { key: "progressDashboard", label: "Progress / Build dashboard" },
@@ -127,8 +130,16 @@ export const FEATURE_GROUPS = [
   {
     id: "operations",
     title: "Operations",
-    hint: "Day-to-day job tools · turn QuickBooks off for local-only",
-    keys: ["timeTracking", "calendar", "reminders", "progressDashboard", "subCompanies", "quickbooks"],
+    hint: "Day-to-day job tools · QuickBooks sync vs send/view",
+    keys: [
+      "timeTracking",
+      "calendar",
+      "reminders",
+      "progressDashboard",
+      "subCompanies",
+      "quickbooks",
+      "quickbooksDocs",
+    ],
   },
   {
     id: "payments",
@@ -148,16 +159,69 @@ export function featureLabel(key) {
   return FEATURE_LABELS.find((x) => x.key === key)?.label || key;
 }
 
+function requisitionFromCompany(p) {
+  return {
+    companyName: p.companyName || "",
+    addressLines: [p.street, p.cityStateZip].filter(Boolean),
+    phone: p.phone || "",
+    email: p.email || "",
+    signerName: DEFAULT_PROFILE.requisition.signerName,
+  };
+}
+
 export function mergeProfile(raw) {
-  const p = { ...DEFAULT_PROFILE, ...(raw && typeof raw === "object" ? raw : {}) };
+  const r = raw && typeof raw === "object" ? raw : {};
+  // Don't let a bare DEFAULT requisition ride in via object spread when the
+  // caller only set company name/email — requisition is handled below.
+  const { requisition: _drop, ...rRest } = r;
+  const p = { ...DEFAULT_PROFILE, ...rRest };
   p.paymentMethods = {
     ...DEFAULT_PROFILE.paymentMethods,
     ...(p.paymentMethods && typeof p.paymentMethods === "object" ? p.paymentMethods : {}),
   };
-  p.requisition = {
-    ...DEFAULT_PROFILE.requisition,
-    ...(p.requisition && typeof p.requisition === "object" ? p.requisition : {}),
-  };
+  const inputHadReq = Object.prototype.hasOwnProperty.call(r, "requisition");
+  const rawReq = inputHadReq && r.requisition && typeof r.requisition === "object" ? r.requisition : null;
+  const companyAddressLines = [p.street, p.cityStateZip].filter(Boolean);
+  const companyCustom =
+    (r.companyName && r.companyName !== DEFAULT_PROFILE.companyName) ||
+    (r.email && String(r.email).toLowerCase() !== String(DEFAULT_PROFILE.email).toLowerCase());
+
+  if (rawReq) {
+    // Explicit requisition (LE seed or tenant override). Missing email/phone
+    // fall back to the company profile — never leave a gap filled only by LE
+    // defaults when the company is someone else.
+    p.requisition = {
+      companyName: rawReq.companyName || p.companyName || DEFAULT_PROFILE.requisition.companyName,
+      addressLines:
+        Array.isArray(rawReq.addressLines) && rawReq.addressLines.length
+          ? rawReq.addressLines
+          : companyAddressLines.length
+            ? companyAddressLines
+            : [...DEFAULT_PROFILE.requisition.addressLines],
+      phone: rawReq.phone || p.phone || DEFAULT_PROFILE.requisition.phone,
+      email: rawReq.email || p.email || DEFAULT_PROFILE.requisition.email,
+      signerName: rawReq.signerName || DEFAULT_PROFILE.requisition.signerName,
+    };
+  } else if (companyCustom) {
+    // White-label / demo: Settings → Company is the source for every printout.
+    p.requisition = requisitionFromCompany(p);
+  } else {
+    p.requisition = { ...DEFAULT_PROFILE.requisition };
+  }
+  // Keep the standard Zelle line pointed at the company email when the
+  // mailbox changed but the Zelle wording was left as the default pattern.
+  if (p.email) {
+    const z = String(p.zelleInstructions || "").trim();
+    const m = z.match(/^Zelle:\s*Send payment to\s+(.+?)\.?\s*$/i);
+    if (!z) {
+      p.zelleInstructions = `Zelle: Send payment to ${p.email}.`;
+    } else if (m) {
+      const listed = String(m[1] || "").trim();
+      if (listed.toLowerCase() !== String(p.email).toLowerCase()) {
+        p.zelleInstructions = `Zelle: Send payment to ${p.email}.`;
+      }
+    }
+  }
   p.depositBanks = normalizeDepositBanks(p.depositBanks);
   return p;
 }

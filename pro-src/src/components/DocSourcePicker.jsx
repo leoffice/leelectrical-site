@@ -5,28 +5,30 @@ import Sheet, { Opt } from "./Sheet.jsx";
 import { docKindLabel, sourcePickerPrompt } from "../lib/docSource.js";
 import { productName } from "../lib/tenantBranding.js";
 import { useTenantConfig } from "../state/tenant.jsx";
-import { isQuickbooksEnabled } from "../lib/qboEnabled.js";
+import { isQuickbooksDocsEnabled } from "../lib/qboEnabled.js";
 import { useAppSettings } from "../lib/appSettings.js";
 
 export default function DocSourcePicker({ title, prompt, kind, onPick, onBack }) {
   const config = useTenantConfig();
   const appSettings = useAppSettings();
-  const qboOn = isQuickbooksEnabled(config);
+  // Docs path only — integration/sync can stay on while this is off.
+  const qboDocsOn = isQuickbooksDocsEnabled(config);
   // re-read when feature flag flips (useAppSettings triggers re-render)
   void appSettings.quickbooks;
+  void appSettings.quickbooksDocs;
   const word = docKindLabel(kind);
   const product = productName(config);
 
-  // Local-only tenants: skip the picker and go straight to local.
+  // Local-only docs: skip the picker and go straight to local.
   useEffect(() => {
-    if (!qboOn) onPick?.("local");
-  }, [qboOn]); // eslint-disable-line react-hooks/exhaustive-deps
+    if (!qboDocsOn) onPick?.("local");
+  }, [qboDocsOn]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  if (!qboOn) {
+  if (!qboDocsOn) {
     return (
       <Sheet title={title} onClose={onBack}>
         <p className="text-sm text-slate-500 mb-3" data-testid="doc-source-local-only">
-          QuickBooks is off — using the local {word} from this job.
+          Using the local {word} from this job (QuickBooks send/view is off — data still syncs).
         </p>
         <div className="text-sm text-slate-400 text-center py-2">Opening…</div>
       </Sheet>

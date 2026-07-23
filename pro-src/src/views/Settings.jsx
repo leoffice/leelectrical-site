@@ -18,9 +18,15 @@ import {
   getCompanyLogoSrc,
   readLogoFileAsDataUrl,
   setCompanyLogoDataUrl,
+  setQuickbooksDocsFeatureEnabled,
   setQuickbooksFeatureEnabled,
   setSpeechToTextEnabled,
 } from "../lib/appSettings.js";
+import {
+  applyCompanyLogoToActiveConfig,
+  applyCompanyProfileToActiveConfig,
+  defaultZelleInstructions,
+} from "../lib/tenantBranding.js";
 import {
   extendAgentAccess,
   fetchAgentAccessStatus,
@@ -190,10 +196,12 @@ export default function Settings() {
         const f = mergeFeatures(doc?.features);
         setProfile(p);
         setFeatures(f);
+        // Server logo wins when present. Never wipe a device upload just
+        // because the server hasn't stored one yet (demo/local/Company tab).
         if (p.logoDataUrl) setCompanyLogoDataUrl(p.logoDataUrl);
-        else clearCompanyLogo();
         setSpeechToTextEnabled(f.speechToText !== false);
         setQuickbooksFeatureEnabled(f.quickbooks !== false);
+        setQuickbooksDocsFeatureEnabled(f.quickbooksDocs !== false);
       }
     } catch (e) {
       showToast?.(String(e.message || e));
@@ -411,7 +419,20 @@ export default function Settings() {
   }, [load, runHealth]);
 
   const setP = (key, val) => {
-    setProfile((p) => ({ ...p, [key]: val }));
+    setProfile((p) => {
+      const next = { ...p, [key]: val };
+      // When the company email changes, keep the standard Zelle line pointed
+      // at that same mailbox so printouts (and the demo) stay in sync.
+      if (key === "email") {
+        const email = String(val || "").trim();
+        const prevZ = String(p.zelleInstructions || "").trim();
+        const m = prevZ.match(/^Zelle:\s*Send payment to\s+(.+?)\.?\s*$/i);
+        if (!prevZ || m) {
+          next.zelleInstructions = defaultZelleInstructions(email);
+        }
+      }
+      return next;
+    });
     setDirty(true);
   };
 
@@ -424,10 +445,24 @@ export default function Settings() {
   };
 
   const setF = (key, on) => {
-    setFeatures((f) => ({ ...f, [key]: on }));
+    setFeatures((f) => {
+      const next = { ...f, [key]: on };
+      // Full integration off also kills send/view (no half-state).
+      if (key === "quickbooks" && !on) next.quickbooksDocs = false;
+      // Docs on requires integration on.
+      if (key === "quickbooksDocs" && on) next.quickbooks = true;
+      return next;
+    });
     if (key === "speechToText") setSpeechToTextEnabled(!!on);
-    // Instant local gate so send/view/sync hide QB paths before Save.
-    if (key === "quickbooks") setQuickbooksFeatureEnabled(!!on);
+    // Instant local gates so UI flips before Save.
+    if (key === "quickbooks") {
+      setQuickbooksFeatureEnabled(!!on);
+      if (!on) setQuickbooksDocsFeatureEnabled(false);
+    }
+    if (key === "quickbooksDocs") {
+      setQuickbooksDocsFeatureEnabled(!!on);
+      if (on) setQuickbooksFeatureEnabled(true);
+    }
     setDirty(true);
   };
 
@@ -438,7 +473,8 @@ export default function Settings() {
       const dataUrl = await readLogoFileAsDataUrl(file);
       setP("logoDataUrl", dataUrl);
       setCompanyLogoDataUrl(dataUrl);
-      showToast?.("Logo ready — tap Save");
+      applyCompanyLogoToActiveConfig(dataUrl);
+      showToast?.("Logo ready — used on invoices right away. Tap Save to keep it.");
     } catch {
       showToast?.("Couldn’t read that image — try another file");
     } finally {
@@ -456,13 +492,22 @@ export default function Settings() {
       await saveSettings({ profile, features });
       if (profile.logoDataUrl) setCompanyLogoDataUrl(profile.logoDataUrl);
       else clearCompanyLogo();
+      // Push the whole company profile into live branding so local printouts
+      // (invoices, estimates, statements, requisitions) use the new values
+      // immediately — no reload.
+      applyCompanyProfileToActiveConfig(profile);
       setSpeechToTextEnabled(features.speechToText !== false);
       setQuickbooksFeatureEnabled(features.quickbooks !== false);
+      setQuickbooksDocsFeatureEnabled(
+        features.quickbooks !== false && features.quickbooksDocs !== false
+      );
       setDirty(false);
       showToast?.(
         features.quickbooks === false
           ? "Settings saved — QuickBooks off, local only"
-          : "Settings saved"
+          : features.quickbooksDocs === false
+            ? "Settings saved — QuickBooks still syncing, send/view is local only"
+            : "Settings saved"
       );
     } catch (e) {
       showToast?.(String(e.message || e));
@@ -680,6 +725,7 @@ export default function Settings() {
                     onClick={() => {
                       setP("logoDataUrl", "");
                       clearCompanyLogo();
+                      applyCompanyLogoToActiveConfig("");
                     }}
                     data-testid="settings-logo-reset"
                   >
@@ -870,13 +916,36 @@ export default function Settings() {
                   <div className="min-w-0">
                     <div className="text-sm font-semibold text-slate-800">QuickBooks</div>
                     <div className="text-xs text-slate-500 font-semibold mt-0.5">
-                      On = save, send, and sync through QuickBooks. Off = local only (white-label safe).
+                      On = keep integrated (jobs & customers sync in the background). Off = no QuickBooks at all.
                     </div>
                   </div>
                   <Toggle
                     on={features.quickbooks !== false}
                     onChange={(on) => setF("quickbooks", on)}
                     label="QuickBooks"
+                  />
+                </div>
+              ) : key === "quickbooksDocs" ? (
+                <div
+                  key={key}
+                  className="flex items-center justify-between gap-3 rounded-xl border border-slate-100 bg-white px-3 py-2.5"
+                  data-testid="settings-quickbooks-docs"
+                >
+                  <div className="min-w-0">
+                    <div className="text-sm font-semibold text-slate-800">
+                      Send & view through QuickBooks
+                    </div>
+                    <div className="text-xs text-slate-500 font-semibold mt-0.5">
+                      Off = no send-through-QB or view-in-QB options — local invoices only. Data still
+                      syncs when QuickBooks is on above.
+                    </div>
+                  </div>
+                  <Toggle
+                    on={
+                      features.quickbooks !== false && features.quickbooksDocs !== false
+                    }
+                    onChange={(on) => setF("quickbooksDocs", on)}
+                    label="Send and view through QuickBooks"
                   />
                 </div>
               ) : (

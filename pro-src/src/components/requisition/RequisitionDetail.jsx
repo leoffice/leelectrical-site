@@ -211,7 +211,7 @@ function SubmitReviewSheet({ project, req, contact, jobs = [], onClose, onUpdate
     showToast?.(`${added.length} file${added.length > 1 ? "s" : ""} attached`);
   };
 
-  const openDraft = () => {
+  const openDraft = async () => {
     if (includePdf) downloadRequisitionPdf(project, req);
     // Change orders ride along as SEPARATE invoice files (never rolled into the
     // requisition math) — generate each selected one client-side to attach.
@@ -219,7 +219,7 @@ function SubmitReviewSheet({ project, req, contact, jobs = [], onClose, onUpdate
       for (const co of changeOrderJobs) {
         if (!selectedCoIds.has(co.id)) continue;
         try {
-          openPdfBlob(buildInvoicePdfFromJob(co));
+          openPdfBlob(await buildInvoicePdfFromJob(co));
         } catch {
           /* skip a CO that can't render */
         }

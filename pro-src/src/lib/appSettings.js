@@ -4,12 +4,20 @@ import { useEffect, useState } from "react";
 export const SPEECH_TO_TEXT_KEY = "lepro_speech_to_text";
 export const COMPANY_LOGO_KEY = "lepro_company_logo";
 export const QUICKBOOKS_FEATURE_KEY = "lepro_feature_quickbooks";
+/** Send/view through QB UI — separate from backend sync integration. */
+export const QUICKBOOKS_DOCS_FEATURE_KEY = "lepro_feature_quickbooks_docs";
 export const SETTINGS_EVENT = "lepro-settings";
 
 const DEFAULT_LOGO = () =>
   typeof import.meta !== "undefined" && import.meta.env?.BASE_URL
     ? import.meta.env.BASE_URL + "le-logo.png?v=6"
     : "/app/pro/le-logo.png?v=6";
+
+/**
+ * In-memory mirror of the company logo. Survives localStorage quota failures
+ * for the rest of the session so View Local Invoice still picks up an upload.
+ */
+let companyLogoMemory = "";
 
 function storage() {
   try {
@@ -78,8 +86,38 @@ export function setQuickbooksFeatureEnabled(on) {
   notify();
 }
 
+/**
+ * Settings → Features → Send & view through QuickBooks.
+ * Default OFF (Levi 2026-07-23): local send/view only; integration/sync still runs.
+ * Turn ON only when you want send-through-QB / view-in-QB options again.
+ */
+export function isQuickbooksDocsFeatureEnabled() {
+  const ls = storage();
+  if (!ls) return false;
+  try {
+    const v = ls.getItem(QUICKBOOKS_DOCS_FEATURE_KEY);
+    // Unset = off (new default). Explicit "1"/"true" turns docs UI back on.
+    if (v === null || v === undefined || v === "") return false;
+    return v === "1" || v === "true";
+  } catch {
+    return false;
+  }
+}
+
+export function setQuickbooksDocsFeatureEnabled(on) {
+  const ls = storage();
+  if (!ls) return;
+  try {
+    ls.setItem(QUICKBOOKS_DOCS_FEATURE_KEY, on ? "1" : "0");
+  } catch {
+    /* ignore */
+  }
+  notify();
+}
+
 /** Custom logo data URL, or empty string when using the built-in logo. */
 export function getCompanyLogoDataUrl() {
+  if (companyLogoMemory) return companyLogoMemory;
   const ls = storage();
   if (!ls) return "";
   try {
@@ -96,14 +134,21 @@ export function getCompanyLogoSrc() {
   return DEFAULT_LOGO();
 }
 
+/**
+ * Persist the company logo for PDFs + chrome.
+ * Always updates the in-memory cache; localStorage is best-effort (quota).
+ */
 export function setCompanyLogoDataUrl(dataUrl) {
+  const next = dataUrl ? String(dataUrl) : "";
+  companyLogoMemory = next;
   const ls = storage();
-  if (!ls) return;
-  try {
-    if (dataUrl) ls.setItem(COMPANY_LOGO_KEY, dataUrl);
-    else ls.removeItem(COMPANY_LOGO_KEY);
-  } catch {
-    /* ignore */
+  if (ls) {
+    try {
+      if (next) ls.setItem(COMPANY_LOGO_KEY, next);
+      else ls.removeItem(COMPANY_LOGO_KEY);
+    } catch {
+      /* quota / private mode — memory still holds the logo this session */
+    }
   }
   notify();
 }
@@ -113,10 +158,10 @@ export function clearCompanyLogo() {
 }
 
 /**
- * Read an image file, downscale to max edge, return a JPEG/PNG data URL.
+ * Read an image file, downscale to max edge, return a JPEG data URL.
  * Keeps localStorage size reasonable for a company logo.
  */
-export function readLogoFileAsDataUrl(file, maxEdge = 512) {
+export function readLogoFileAsDataUrl(file, maxEdge = 384) {
   return new Promise((resolve, reject) => {
     if (!file || !String(file.type || "").startsWith("image/")) {
       reject(new Error("Pick an image file"));
@@ -156,8 +201,9 @@ export function readLogoFileAsDataUrl(file, maxEdge = 512) {
           ctx.fillStyle = "#ffffff";
           ctx.fillRect(0, 0, width, height);
           ctx.drawImage(img, 0, 0, width, height);
-          const out =
-            file.type === "image/png" ? canvas.toDataURL("image/png") : canvas.toDataURL("image/jpeg", 0.9);
+          // Always JPEG so invoice/estimate PDFs can embed the logo without
+          // an extra conversion step (PDF writer uses DCTDecode only).
+          const out = canvas.toDataURL("image/jpeg", 0.9);
           resolve(out);
         } catch (e) {
           reject(e);
@@ -173,6 +219,7 @@ export function readAppSettings() {
   return {
     speechToText: isSpeechToTextEnabled(),
     quickbooks: isQuickbooksFeatureEnabled(),
+    quickbooksDocs: isQuickbooksDocsFeatureEnabled(),
     logoSrc: getCompanyLogoSrc(),
     logoCustom: !!getCompanyLogoDataUrl(),
   };

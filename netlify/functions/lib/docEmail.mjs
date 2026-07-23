@@ -248,7 +248,17 @@ export async function sendDocEmail({
   if (!apiKey) {
     console.log("[doc-email] DRY-RUN (no RESEND_API_KEY)", JSON.stringify(meta));
     // Not a successful send — client must surface this (was ok:true and looked "sent").
-    return { ok: false, dryRun: true, reason: "no_api_key", viewLink, payLink: cardknoxUrl || "", ...meta };
+    // Include html + viewLink so host Gmail fallback can still ship the full layout.
+    return {
+      ok: false,
+      dryRun: true,
+      reason: "no_api_key",
+      viewLink,
+      payLink: cardknoxUrl || "",
+      html,
+      text,
+      ...meta,
+    };
   }
 
   const payload = {
@@ -287,12 +297,31 @@ export async function sendDocEmail({
     const body = await res.json().catch(() => ({}));
     if (!res.ok) {
       console.error("[doc-email] Resend error", res.status, body);
-      return { ok: false, reason: "resend_error", status: res.status, error: body, ...meta };
+      return {
+        ok: false,
+        reason: "resend_error",
+        status: res.status,
+        error: body,
+        viewLink,
+        payLink: cardknoxUrl || "",
+        html,
+        text,
+        ...meta,
+      };
     }
     console.log("[doc-email] SENT", JSON.stringify({ ...meta, resendId: body.id }));
     return { ok: true, sent: true, resendId: body.id, viewLink, payLink: cardknoxUrl || "", docKey, ...meta };
   } catch (err) {
     console.error("[doc-email] fetch failed", err);
-    return { ok: false, reason: "fetch_failed", error: String(err?.message || err), ...meta };
+    return {
+      ok: false,
+      reason: "fetch_failed",
+      error: String(err?.message || err),
+      viewLink,
+      payLink: cardknoxUrl || "",
+      html,
+      text,
+      ...meta,
+    };
   }
 }

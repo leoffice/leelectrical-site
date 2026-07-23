@@ -135,6 +135,41 @@ describe("NetlifyStoreAdapter (mocked fetch)", () => {
     });
   });
 
+  it("second saveJob uses session cache when GET is still lagging (no multi-second wait)", async () => {
+    const serverOv = {
+      "JP-001": { notes: "n1" },
+      "JP-777": { paid: true },
+    };
+    let postTs = 10;
+    // After first write, GETs keep returning the pre-write snapshot (blob lag).
+    let postCount = 0;
+    const calls = stubFetch({
+      state: (call) => {
+        if (call.method === "POST") {
+          postCount += 1;
+          postTs += 1;
+          // Mirror a real server: accept the posted ov.
+          Object.assign(serverOv, call.body.ov);
+          return { ok: true, ts: postTs };
+        }
+        // Always lag: ts stays below last write so adapter falls back to cache.
+        return { ov: { "JP-001": { notes: "n1" }, "JP-777": { paid: true } }, ts: 5 };
+      },
+    });
+    const api = createNetlifyAdapter();
+    await api.saveJob("JP-001", { paid: true });
+    await api.saveJob("JP-001", { notes: "n2" });
+
+    const posts = calls.filter((c) => c.method === "POST" && c.path === "state");
+    expect(posts).toHaveLength(2);
+    // Second POST must keep JP-777 and merge notes/paid from cache + patch.
+    expect(posts[1].body.ov["JP-777"]).toEqual({ paid: true });
+    expect(posts[1].body.ov["JP-001"]).toEqual({ notes: "n2", paid: true });
+    expect(postCount).toBe(2);
+  });
+
+
+
   it("enqueueCommand posts op:enqueue with the exact idempotencyKey + surfaces dedupe", async () => {
     const calls = stubFetch({
       command: (call) => ({

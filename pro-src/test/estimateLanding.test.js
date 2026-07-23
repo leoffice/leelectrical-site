@@ -71,8 +71,8 @@ describe("estimate landing helpers", () => {
     expect(job.amount).toBe(1000);
   });
 
-  it("builds an estimate PDF blob from payload when docs store is empty", () => {
-    const built = buildEstimatePdfBlobFromPayload(estimatePayload);
+  it("builds an estimate PDF blob from payload when docs store is empty", async () => {
+    const built = await buildEstimatePdfBlobFromPayload(estimatePayload);
     expect(built.ok).toBe(true);
     expect(built.blob).toBeTruthy();
     expect(built.blob.type || built.blob.constructor?.name).toBeTruthy();

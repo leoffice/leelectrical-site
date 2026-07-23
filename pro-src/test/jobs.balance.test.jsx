@@ -153,8 +153,13 @@ describe("Balance view", () => {
     await user.click(screen.getAllByTestId("balance-card-tap")[0]);
 
     const detail = await screen.findByTestId("balance-card-detail");
-    expect(within(detail).getByTestId("customer-expand-panel")).toBeInTheDocument();
-    expect(within(detail).getByTestId("expand-service-block")).toHaveTextContent("10 Main St");
+    const panel = within(detail).getByTestId("customer-expand-panel");
+    expect(panel).toBeInTheDocument();
+    // Order: billing first, then service address blocks with open invoices only.
+    const billing = within(panel).getByTestId("expand-billing-box");
+    const service = within(panel).getByTestId("expand-service-block");
+    expect(service).toHaveTextContent("10 Main St");
+    expect(billing.compareDocumentPosition(service) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     const rows = within(detail).getAllByTestId("group-job-row");
     expect(rows).toHaveLength(1);
     expect(rows[0]).toHaveAttribute("data-invoice-no", "9001");

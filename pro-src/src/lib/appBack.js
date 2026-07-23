@@ -45,7 +45,7 @@ export function detailBackTarget(pathname, search = "") {
     const id = decodeURIComponent(pathname.slice(5));
     const fromCust = new URLSearchParams(search.replace(/^\?/, "")).get("from");
     if (fromCust) {
-      return `/customer/${encodeURIComponent(fromCust)}?job=${encodeURIComponent(id)}`;
+      return `/customer/${encodeURIComponent(fromCust)}`;
     }
     return "/";
   }

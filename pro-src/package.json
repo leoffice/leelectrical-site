@@ -12,6 +12,7 @@
     "record-deploy": "node scripts/record-deploy.mjs",
     "rollback": "node scripts/rollback.mjs",
     "verify-live": "node scripts/verify-live.mjs",
+    "verify-isolation": "node scripts/verify-tenant-isolation.mjs",
     "bump-sw": "node scripts/bump-sw-cache.mjs"
   },
   "dependencies": {

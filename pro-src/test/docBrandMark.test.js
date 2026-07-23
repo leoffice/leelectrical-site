@@ -65,18 +65,18 @@ describe("contrast — must not blend into the page", () => {
 
 describe("invoice PDF", () => {
   it("carries the mark", async () => {
-    expect(await pdfText(buildInvoicePdfFromJob(JOB))).toContain(POWERED_BY_LE);
+    expect(await pdfText(await buildInvoicePdfFromJob(JOB))).toContain(POWERED_BY_LE);
   });
 
   it("still renders the tenant company header and the document body", async () => {
-    const txt = await pdfText(buildInvoicePdfFromJob(JOB));
+    const txt = await pdfText(await buildInvoicePdfFromJob(JOB));
     expect(txt).toContain("BLZ Electric Inc.");
     expect(txt).toContain("231595");
     expect(txt).toContain("Shneor Seewald");
   });
 
   it("draws the mark in the muted-dark colour, not the footer gray", async () => {
-    const txt = await pdfText(buildInvoicePdfFromJob(JOB));
+    const txt = await pdfText(await buildInvoicePdfFromJob(JOB));
     const [r, g, b] = POWERED_BY_LE_PDF_COLOR;
     const op = `${Math.round(r * 100) / 100}`.slice(0, 4);
     // the fill-colour operator for the mark must appear in the stream
@@ -86,11 +86,11 @@ describe("invoice PDF", () => {
 
 describe("estimate PDF", () => {
   it("carries the mark", async () => {
-    expect(await pdfText(buildEstimatePdfFromJob(JOB))).toContain(POWERED_BY_LE);
+    expect(await pdfText(await buildEstimatePdfFromJob(JOB))).toContain(POWERED_BY_LE);
   });
 
   it("still renders the estimate body and acceptance block", async () => {
-    const txt = await pdfText(buildEstimatePdfFromJob(JOB));
+    const txt = await pdfText(await buildEstimatePdfFromJob(JOB));
     expect(txt).toContain("ESTIMATE");
     expect(txt).toContain("Accepted By");
   });
@@ -98,7 +98,7 @@ describe("estimate PDF", () => {
 
 describe("mark placement clears the printable margin", () => {
   it("is drawn above the bottom edge of the page", async () => {
-    const txt = await pdfText(buildInvoicePdfFromJob(JOB));
+    const txt = await pdfText(await buildInvoicePdfFromJob(JOB));
     // Find the Tm matrix of the line that draws the mark; PDF y is bottom-up.
     const m = txt.match(/1 0 0 1 [\d.]+ ([\d.]+) Tm \(Powered by LE\)/);
     expect(m).toBeTruthy();

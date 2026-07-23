@@ -6,7 +6,7 @@ import { effectiveServiceAddress } from "./customerSync.js";
 import { buildQbDocPdf } from "./qbInvoicePdf.js";
 import { POWERED_BY_LE, POWERED_BY_LE_PDF_COLOR, POWERED_BY_LE_PDF_SIZE } from "./brand.js";
 import { mapJobToQbDocData } from "./jobToQbDoc.js";
-import { activeTenantConfig, tenantCompany } from "./tenantBranding.js";
+import { tenantCompany, tenantZelleInstructions } from "./tenantBranding.js";
 import { formatPrintDescription, wrapPrintDescription } from "./printDescription.js";
 import { changeOrderPrintDocNumber, isChangeOrderJob } from "./changeOrder.js";
 
@@ -36,14 +36,14 @@ export function company() {
  */
 export function paymentInstructions() {
   const c = tenantCompany();
-  const p = activeTenantConfig().profile || {};
+  const zelle = tenantZelleInstructions();
   return [
     'Online Payment: Click the "View Invoice" tab in the email and pay',
     "via the provided credit card payment link.",
-    `-${p.zelleInstructions}`,
+    zelle ? `-${zelle}` : null,
     `-Check: Make checks payable to "${c.name}" and either: Mail`,
     `it or Email a clear picture of the check to ${c.email}.`,
-  ];
+  ].filter((ln) => ln != null);
 }
 
 function footerLines() {
@@ -498,11 +498,20 @@ export function buildInvoicePdf(data) {
  * band, per-line service date, two-column totals). `overrides.payUrl` adds the
  * "Pay securely online" line. Falls back to the plain layout only if QB mapping
  * throws.
+ *
+ * Async so PNG/custom company logos can be converted to JPEG for the PDF.
+ * Callers should await. (Also accepts a pre-resolved logoImage on overrides.)
  */
-export function buildInvoicePdfFromJob(job, overrides = {}) {
+export async function buildInvoicePdfFromJob(job, overrides = {}) {
   try {
     const data = mapJobToQbDocData(job, "invoice");
     if (overrides.payUrl) data.payUrl = overrides.payUrl;
+    if (overrides.logoImage) data.logoImage = overrides.logoImage;
+    if (overrides.logoDataUrl) data.logoDataUrl = overrides.logoDataUrl;
+    if (overrides.logoUrl) data.logoUrl = overrides.logoUrl;
+    // Resolve company logo (settings / tenant) before embedding.
+    const { resolvePdfLogoImage } = await import("./companyLogoPdf.js");
+    data.logoImage = await resolvePdfLogoImage(data);
     return buildQbDocPdf(data);
   } catch {
     return buildInvoicePdf(mapJobToInvoicePdfData(job, overrides));
@@ -510,10 +519,15 @@ export function buildInvoicePdfFromJob(job, overrides = {}) {
 }
 
 /** Estimate/Proposal PDF — same QB-clone layout, no payment section. */
-export function buildEstimatePdfFromJob(job, overrides = {}) {
+export async function buildEstimatePdfFromJob(job, overrides = {}) {
   try {
     const data = mapJobToQbDocData(job, "estimate");
     if (overrides.payUrl) data.payUrl = overrides.payUrl;
+    if (overrides.logoImage) data.logoImage = overrides.logoImage;
+    if (overrides.logoDataUrl) data.logoDataUrl = overrides.logoDataUrl;
+    if (overrides.logoUrl) data.logoUrl = overrides.logoUrl;
+    const { resolvePdfLogoImage } = await import("./companyLogoPdf.js");
+    data.logoImage = await resolvePdfLogoImage(data);
     return buildQbDocPdf(data);
   } catch {
     return buildInvoicePdf(mapJobToInvoicePdfData(job, { ...overrides, kind: "estimate" }));

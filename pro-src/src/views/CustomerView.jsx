@@ -35,7 +35,8 @@ export default function CustomerView() {
   const nav = useNavigate();
   const { jobs, loading, events, commands, patchJob, refreshJobs, api, enqueue, showToast } = useStore();
   const [qboIndex, setQboIndex] = useState([]);
-  const [shortTxns, setShortTxns] = useState(false);
+  // Default on: customer info + transaction history (Levi 2026-07-22).
+  const [shortTxns, setShortTxns] = useState(true);
 
   useEffect(() => {
     let cancelled = false;

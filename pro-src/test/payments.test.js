@@ -34,6 +34,52 @@ describe("payments ledger", () => {
     expect(patch.paymentBaseline).toBe(11000);
   });
 
+  // Levi 2026-07-22 — Inv #251843: $450 check recorded in QBO but job still unpaid.
+  // Root cause: openBalance still full invoice + new payment → baseline open+paid (double count).
+  it("full pay on job with openBalance set marks paid (no double baseline)", () => {
+    const inv = {
+      id: "qbo-251843",
+      amount: "$450",
+      openBalance: "$450",
+      invoiceNo: "251843",
+      paid: false,
+    };
+    const patch = appendPayment(inv, {
+      amount: 450,
+      method: "Check",
+      ref: "1356",
+      date: "2026-07-14",
+    });
+    expect(patch.paid).toBe(true);
+    expect(patch.openBalance).toBe(0);
+    expect(patch.paymentBaseline).toBe(450);
+    expect(patch.payments).toHaveLength(1);
+    expect(patch.status?.Paid?.s).toBe("done");
+  });
+
+  it("heals corrupt double-counted paymentBaseline on full-pay invoice", () => {
+    const corrupted = {
+      id: "qbo-251843",
+      amount: "$450",
+      invoiceNo: "251843",
+      openBalance: 450,
+      paid: false,
+      paymentBaseline: 900,
+      amountWhenBaselined: 450,
+      payments: [{ id: "p1", amount: "450", method: "Check", date: "2026-07-14" }],
+    };
+    expect(openBalance(corrupted)).toBe(0);
+    expect(amountPaid(corrupted)).toBe(450);
+    const patch = updatePayment(corrupted, "p1", {
+      amount: 450,
+      method: "Check",
+      date: "2026-07-14",
+    });
+    expect(patch.paid).toBe(true);
+    expect(patch.openBalance).toBe(0);
+    expect(patch.paymentBaseline).toBe(450);
+  });
+
   it("migrates legacy single payment", () => {
     const legacy = {
       ...job,
