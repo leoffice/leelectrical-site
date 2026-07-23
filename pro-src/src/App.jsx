@@ -20,6 +20,7 @@ import Today from "./views/Today.jsx";
 import Reminders from "./views/Reminders.jsx";
 import Time from "./views/Time.jsx";
 import Projects from "./views/Projects.jsx";
+import Permits from "./views/Permits.jsx";
 import Company from "./views/Company.jsx";
 import Settings from "./views/Settings.jsx";
 import Archive from "./views/Archive.jsx";
@@ -90,6 +91,7 @@ const ROUTE_ELEMENTS = {
   "/time": <Time />,
   "/projects": <Projects />,
   "/projects/:projectId": <Projects />,
+  "/permits": <Permits />,
   "/company": <Company />,
   "/settings": <Settings />,
   "/progress": <Progress />,
