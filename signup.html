@@ -4,9 +4,11 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>Start your account · LE Pro</title>
-<!-- Turnstile bot gate. Real Managed widget "LE Pro signup" (site keys are public).
+<!-- Turnstile bot gate (email/password path). Real Managed widget "LE Pro signup".
      Hostnames: leelectrical.us, www.leelectrical.us, signup-preview.leelectrical-cf.pages.dev. -->
 <script src="https://challenges.cloudflare.com/turnstile/v0/api.js" async defer></script>
+<!-- Supabase JS (Google OAuth) -->
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <style>
   :root { --bg:#0a111d; --card:#13233a; --ink:#eef3fa; --muted:#9bb0c9; --green:#7bd938; --line:rgba(255,255,255,.16); }
   * { box-sizing:border-box; }
@@ -26,6 +28,14 @@
   button { width:100%; margin-top:18px; padding:13px; border:0; border-radius:11px; background:var(--green);
            color:#0e1828; font-weight:800; font-size:15px; cursor:pointer; }
   button:disabled { opacity:.5; cursor:not-allowed; }
+  /* Google button */
+  .gbtn { margin-top:14px; background:#fff; color:#1f2937; display:flex; align-items:center; justify-content:center;
+          gap:10px; font-weight:700; }
+  .gbtn:hover { background:#f3f4f6; }
+  .gbtn svg { width:18px; height:18px; }
+  /* divider */
+  .divider { display:flex; align-items:center; gap:12px; margin:18px 0 4px; color:var(--muted); font-size:12px; }
+  .divider::before, .divider::after { content:""; flex:1; height:1px; background:var(--line); }
   .cf-turnstile { margin-top:16px; display:flex; justify-content:center; }
   .msg { margin-top:14px; font-size:13px; text-align:center; min-height:18px; }
   .msg.err { color:#ff8a8a; }
@@ -44,9 +54,21 @@
   <div class="brand">LE <span>PRO</span></div>
   <div class="sub">Start your company account</div>
 
+  <div id="msg" class="msg"></div>
+
+  <!-- Company name — shared by both Google and email/password paths -->
+  <label for="company">Company name</label>
+  <input id="company" autocomplete="organization" required>
+
+  <!-- Google OAuth path (no email verification; still provisions tenant+profile) -->
+  <button id="google" class="gbtn" type="button" data-testid="signup-google">
+    <svg viewBox="0 0 18 18" xmlns="http://www.w3.org/2000/svg" aria-hidden="true"><path fill="#4285F4" d="M17.64 9.2c0-.64-.06-1.25-.16-1.84H9v3.48h4.84a4.14 4.14 0 0 1-1.8 2.72v2.26h2.92c1.7-1.57 2.68-3.88 2.68-6.62z"/><path fill="#34A853" d="M9 18c2.43 0 4.47-.8 5.96-2.18l-2.92-2.26c-.8.54-1.84.86-3.04.86-2.34 0-4.32-1.58-5.02-3.7H.96v2.34A9 9 0 0 0 9 18z"/><path fill="#FBBC05" d="M3.98 10.72a5.4 5.4 0 0 1 0-3.44V4.94H.96a9 9 0 0 0 0 8.12l3.02-2.34z"/><path fill="#EA4335" d="M9 3.58c1.32 0 2.5.46 3.44 1.35l2.58-2.58C13.47.9 11.43 0 9 0A9 9 0 0 0 .96 4.94l3.02 2.34C4.68 5.16 6.66 3.58 9 3.58z"/></svg>
+    Continue with Google
+  </button>
+
+  <div class="divider">or sign up with email</div>
+
   <form id="f" novalidate>
-    <label for="company">Company name</label>
-    <input id="company" autocomplete="organization" required>
     <div class="row">
       <div>
         <label for="owner">Your name</label>
@@ -70,7 +92,6 @@
       style="display:block;width:100%;margin-top:12px;padding:12px;border:1px solid rgba(123,217,56,.55);border-radius:11px;background:rgba(123,217,56,.12);color:var(--green);font-weight:800;font-size:14px;text-align:center;text-decoration:none"
       data-testid="signup-try-le-pro"
     >Test LE Pro first</a>
-    <div id="msg" class="msg"></div>
   </form>
 
   <div id="done" class="success hidden">
@@ -83,17 +104,68 @@
 
 <script>
 // Functions are same-origin on the canonical apex (CF Pages bundles them).
-const ENDPOINT = "/.netlify/functions/tenant-signup";
+const SIGNUP_ENDPOINT = "/.netlify/functions/tenant-signup";
+const PROVISION_ENDPOINT = "/.netlify/functions/tenant-provision";
+const SUPABASE_URL = "https://scgpxbubakfwypycugoa.supabase.co";
+const SUPABASE_ANON = "sb_publishable_3LZjnaH6r3gOITpZqgWEYA_na5Ue7Lu";
+const PENDING_KEY = "lepro_signup_company";
+
 const f = document.getElementById("f");
 const msg = document.getElementById("msg");
 const btn = document.getElementById("submit");
+const googleBtn = document.getElementById("google");
+const companyEl = document.getElementById("company");
 
 function setMsg(t, kind) { msg.textContent = t; msg.className = "msg" + (kind ? " " + kind : ""); }
 
+// ---- Supabase client (Google OAuth) ----------------------------------------
+let sb = null;
+try { if (window.supabase) sb = supabase.createClient(SUPABASE_URL, SUPABASE_ANON, { auth: { detectSessionInUrl: true, persistSession: true } }); } catch (e) {}
+
+// ---- Google sign-up: stash company, redirect to Google ---------------------
+googleBtn.addEventListener("click", async () => {
+  if (!sb) return setMsg("Google sign-up unavailable right now.", "err");
+  const companyName = companyEl.value.trim();
+  if (companyName.length < 2) { setMsg("Enter your company name first.", "err"); companyEl.focus(); return; }
+  try { localStorage.setItem(PENDING_KEY, companyName); } catch (_) {}
+  googleBtn.disabled = true;
+  setMsg("Redirecting to Google…");
+  const { error } = await sb.auth.signInWithOAuth({
+    provider: "google",
+    options: { redirectTo: location.origin + "/signup" },
+  });
+  if (error) { googleBtn.disabled = false; setMsg(error.message, "err"); }
+});
+
+// ---- OAuth return: a session is present → provision tenant, then enter app --
+(async () => {
+  if (!sb) return;
+  let session = null;
+  try { session = (await sb.auth.getSession()).data.session; } catch (_) {}
+  if (!session) return; // fresh visit, not a Google return
+  let companyName = ""; try { companyName = localStorage.getItem(PENDING_KEY) || ""; } catch (_) {}
+  setMsg("Finishing Google sign-up…");
+  try {
+    const res = await fetch(PROVISION_ENDPOINT, {
+      method: "POST",
+      headers: { "content-type": "application/json", authorization: "Bearer " + session.access_token },
+      body: JSON.stringify({ companyName }),
+    });
+    const d = await res.json().catch(() => ({}));
+    if (res.ok && d.ok) { try { localStorage.removeItem(PENDING_KEY); } catch (_) {} location.href = "/app/"; return; }
+    if (res.status === 403) return setMsg("Signups aren’t open yet — check back soon.", "err");
+    if (res.status === 400 && !companyName) return setMsg("Enter your company name, then Continue with Google again.", "err");
+    setMsg(d.error || "Couldn’t finish Google sign-up.", "err");
+  } catch (e) {
+    setMsg("Network error finishing Google sign-up.", "err");
+  }
+})();
+
+// ---- Email / password path (unchanged: Turnstile-gated, verification email) -
 f.addEventListener("submit", async (e) => {
   e.preventDefault();
   setMsg("");
-  const companyName = document.getElementById("company").value.trim();
+  const companyName = companyEl.value.trim();
   const ownerName   = document.getElementById("owner").value.trim();
   const email       = document.getElementById("email").value.trim();
   const password    = document.getElementById("password").value;
@@ -101,14 +173,13 @@ f.addEventListener("submit", async (e) => {
   if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) return setMsg("Enter a valid email.", "err");
   if (password.length < 8) return setMsg("Password must be at least 8 characters.", "err");
 
-  // Turnstile token (widget writes it; getResponse reads it).
   const token = (window.turnstile && turnstile.getResponse()) || "";
   if (!token) return setMsg("Please complete the verification challenge.", "err");
 
   btn.disabled = true;
   setMsg("Creating your account…");
   try {
-    const res = await fetch(ENDPOINT, {
+    const res = await fetch(SIGNUP_ENDPOINT, {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ companyName, ownerName, email, password, cfTurnstileToken: token }),
@@ -119,7 +190,6 @@ f.addEventListener("submit", async (e) => {
       document.getElementById("done").classList.remove("hidden");
       return;
     }
-    // Fail-closed / expected states surfaced plainly.
     if (res.status === 403) setMsg("Signups aren’t open yet — check back soon.", "err");
     else if (res.status === 409) setMsg("An account with that email already exists.", "err");
     else setMsg(data.error || "Something went wrong. Please try again.", "err");
@@ -127,7 +197,7 @@ f.addEventListener("submit", async (e) => {
     setMsg("Network error. Please try again.", "err");
   } finally {
     btn.disabled = false;
-    if (window.turnstile) turnstile.reset(); // one token per attempt
+    if (window.turnstile) turnstile.reset();
   }
 });
 </script>
