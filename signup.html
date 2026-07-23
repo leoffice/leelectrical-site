@@ -1,0 +1,130 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Start your account · LE Pro</title>
+<!-- Turnstile bot gate. Replace the TEST site key below with the real one from
+     the Cloudflare dashboard before go-live (site keys are public — safe to ship).
+     1x00000000000000000000AA is Cloudflare's always-passes TEST key. -->
+<script src="https://challenges.cloudflare.com/turnstile/v0/api.js" async defer></script>
+<style>
+  :root { --bg:#0a111d; --card:#13233a; --ink:#eef3fa; --muted:#9bb0c9; --green:#7bd938; --line:rgba(255,255,255,.16); }
+  * { box-sizing:border-box; }
+  body { margin:0; min-height:100vh; background:radial-gradient(130% 120% at 50% 0%,#1a2740,#0a111d 70%);
+         font-family:Inter,system-ui,-apple-system,sans-serif; color:var(--ink);
+         display:flex; align-items:center; justify-content:center; padding:20px; }
+  .card { width:100%; max-width:440px; background:linear-gradient(180deg,var(--card),#0d1828);
+          border:1px solid rgba(255,255,255,.1); border-radius:20px; padding:28px;
+          box-shadow:0 24px 60px rgba(0,0,0,.6); }
+  .brand { font-weight:800; font-size:20px; letter-spacing:1px; text-align:center; }
+  .brand span { color:var(--green); }
+  .sub { text-align:center; color:var(--muted); font-size:13px; margin:6px 0 22px; }
+  label { display:block; font-size:12px; color:var(--muted); margin:12px 0 5px; }
+  input { width:100%; background:rgba(255,255,255,.07); border:1px solid var(--line); border-radius:11px;
+          padding:12px 14px; color:#fff; font-size:15px; outline:none; }
+  input:focus { border-color:var(--green); }
+  button { width:100%; margin-top:18px; padding:13px; border:0; border-radius:11px; background:var(--green);
+           color:#0e1828; font-weight:800; font-size:15px; cursor:pointer; }
+  button:disabled { opacity:.5; cursor:not-allowed; }
+  .cf-turnstile { margin-top:16px; display:flex; justify-content:center; }
+  .msg { margin-top:14px; font-size:13px; text-align:center; min-height:18px; }
+  .msg.err { color:#ff8a8a; }
+  .msg.ok  { color:var(--green); }
+  .row { display:flex; gap:10px; }
+  .row > div { flex:1; }
+  .foot { margin-top:16px; text-align:center; font-size:12px; color:var(--muted); }
+  .foot a { color:var(--muted); }
+  .success { text-align:center; }
+  .success .big { font-size:40px; }
+  .hidden { display:none; }
+</style>
+</head>
+<body>
+<div class="card">
+  <div class="brand">LE <span>PRO</span></div>
+  <div class="sub">Start your company account</div>
+
+  <form id="f" novalidate>
+    <label for="company">Company name</label>
+    <input id="company" autocomplete="organization" required>
+    <div class="row">
+      <div>
+        <label for="owner">Your name</label>
+        <input id="owner" autocomplete="name">
+      </div>
+      <div>
+        <label for="email">Work email</label>
+        <input id="email" type="email" autocomplete="email" required>
+      </div>
+    </div>
+    <label for="password">Password <span style="opacity:.7">(8+ characters)</span></label>
+    <input id="password" type="password" autocomplete="new-password" required minlength="8">
+
+    <!-- Turnstile renders here; token read via turnstile.getResponse() on submit -->
+    <div class="cf-turnstile" data-sitekey="1x00000000000000000000AA" data-theme="dark"></div>
+
+    <button id="submit" type="submit">Create account</button>
+    <div id="msg" class="msg"></div>
+  </form>
+
+  <div id="done" class="success hidden">
+    <div class="big">📧</div>
+    <p><b>Check your email</b><br><span class="sub" style="margin:0">We sent a verification link to confirm your account. Click it to finish setting up.</span></p>
+  </div>
+
+  <div class="foot">Already have an account? <a href="/app/">Sign in</a></div>
+</div>
+
+<script>
+// Functions are same-origin on the canonical apex (CF Pages bundles them).
+const ENDPOINT = "/.netlify/functions/tenant-signup";
+const f = document.getElementById("f");
+const msg = document.getElementById("msg");
+const btn = document.getElementById("submit");
+
+function setMsg(t, kind) { msg.textContent = t; msg.className = "msg" + (kind ? " " + kind : ""); }
+
+f.addEventListener("submit", async (e) => {
+  e.preventDefault();
+  setMsg("");
+  const companyName = document.getElementById("company").value.trim();
+  const ownerName   = document.getElementById("owner").value.trim();
+  const email       = document.getElementById("email").value.trim();
+  const password    = document.getElementById("password").value;
+  if (companyName.length < 2) return setMsg("Enter your company name.", "err");
+  if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) return setMsg("Enter a valid email.", "err");
+  if (password.length < 8) return setMsg("Password must be at least 8 characters.", "err");
+
+  // Turnstile token (widget writes it; getResponse reads it).
+  const token = (window.turnstile && turnstile.getResponse()) || "";
+  if (!token) return setMsg("Please complete the verification challenge.", "err");
+
+  btn.disabled = true;
+  setMsg("Creating your account…");
+  try {
+    const res = await fetch(ENDPOINT, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ companyName, ownerName, email, password, cfTurnstileToken: token }),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (res.ok && data.ok) {
+      f.classList.add("hidden");
+      document.getElementById("done").classList.remove("hidden");
+      return;
+    }
+    // Fail-closed / expected states surfaced plainly.
+    if (res.status === 403) setMsg("Signups aren’t open yet — check back soon.", "err");
+    else if (res.status === 409) setMsg("An account with that email already exists.", "err");
+    else setMsg(data.error || "Something went wrong. Please try again.", "err");
+  } catch (err) {
+    setMsg("Network error. Please try again.", "err");
+  } finally {
+    btn.disabled = false;
+    if (window.turnstile) turnstile.reset(); // one token per attempt
+  }
+});
+</script>
+</body>
+</html>

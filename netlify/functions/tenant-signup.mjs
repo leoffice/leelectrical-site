@@ -1,33 +1,37 @@
 /**
  * Self-serve tenant signup — SERVICE-ROLE provisioning for white-label.
  *
- * Creates, atomically (with rollback on partial failure):
- *   1. tenants           row  (generated slug id)
- *   2. tenant_config     row  (branding defaults + a self-serve plan tier)
- *   3. auth user         (Supabase Auth admin API)
- *   4. profiles          row  (id = auth uid, tenant_id = slug, role 'owner')
+ * Flow (atomic, with rollback on partial failure):
+ *   0. Turnstile — verify the bot-gate token (fail-closed).
+ *   1. tenants        row  (generated slug id)
+ *   2. tenant_config  row  (branding defaults + a self-serve plan tier)
+ *   3. auth user      via admin generate_link(type:signup) — creates the user
+ *      UNCONFIRMED and issues the email-verification link (Supabase mails it
+ *      when the project has SMTP + "Confirm email" on). Returns the user id.
+ *   4. profiles       row  (id = auth uid, tenant_id = slug, role 'owner')
  *
- * RLS resolves a user's tenant from profiles.tenant_id via app_tenant_id(), so
- * no custom access-token hook is needed — the profiles row IS the binding.
+ * The account cannot be used until the owner clicks the verification link
+ * (login returns "Email not confirmed" until then). RLS resolves a user's
+ * tenant from profiles.tenant_id via app_tenant_id() — the profiles row IS the
+ * binding, so no custom access-token hook is needed.
  *
- * POST { email, password, companyName, ownerName?, planTier? }
- *   -> { ok:true, tenantId, userId }
+ * POST { email, password, companyName, ownerName?, planTier?, cfTurnstileToken }
+ *   -> { ok:true, tenantId, userId, status:"verify-email" }
  *
  * SECURITY / OPS:
  *   • Requires SUPABASE_SERVICE_ROLE_KEY (server-only — never shipped to client).
- *   • FAIL-CLOSED: returns 403 unless SIGNUP_ENABLED=1. This endpoint mints
- *     tenants + auth users, so it stays off until abuse controls (captcha /
- *     rate-limit / invite-code) are wired in front of it. See TODO below.
- *   • planTier is clamped to self-serve tiers — a signup can NEVER create
- *     'full', internal=true, or the crew add-on. Those are billing upgrades,
- *     granted only by a separate service-role path (and pinned by migration 003).
- *   • The trigger from 003 lets service-role writes set plan_tier freely; we
- *     still set it explicitly and defensively.
+ *   • FAIL-CLOSED: 403 unless SIGNUP_ENABLED=1. Stays off until Levi's go.
+ *   • Bot gate: requires TURNSTILE_SECRET_KEY + a passing token, else 400.
+ *   • planTier clamped to self-serve tiers — signup can NEVER create 'full',
+ *     internal=true, or crew_addon (billing upgrades; also pinned by mig 003).
  */
 
 const URL = process.env.SUPABASE_URL || "https://scgpxbubakfwypycugoa.supabase.co";
 const KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
 const SIGNUP_ENABLED = process.env.SIGNUP_ENABLED === "1" || process.env.SIGNUP_ENABLED === "true";
+const TURNSTILE_SECRET = process.env.TURNSTILE_SECRET_KEY;
+// Where the verification link returns the user after confirming.
+const SIGNUP_REDIRECT = process.env.SIGNUP_REDIRECT_URL || "https://www.leelectrical.us/app/";
 
 // Self-serve tiers only. 'full'/internal/crew are never reachable from signup.
 const SELF_SERVE_TIERS = new Set(["free", "pro"]);
@@ -55,7 +59,29 @@ const svc = (path, init = {}) =>
     },
   });
 
-// Slug: lowercase alnum + single hyphens, 2..32 chars, never empty.
+// ---- Turnstile bot gate ----------------------------------------------------
+async function verifyTurnstile(token, ip) {
+  if (!TURNSTILE_SECRET) return { ok: false, reason: "captcha not configured" };
+  if (!token) return { ok: false, reason: "missing token" };
+  const form = new URLSearchParams();
+  form.set("secret", TURNSTILE_SECRET);
+  form.set("response", token);
+  if (ip) form.set("remoteip", ip);
+  let d = {};
+  try {
+    const r = await fetch("https://challenges.cloudflare.com/turnstile/v0/siteverify", {
+      method: "POST",
+      headers: { "content-type": "application/x-www-form-urlencoded" },
+      body: form.toString(),
+    });
+    d = await r.json();
+  } catch (e) {
+    return { ok: false, reason: `verify unreachable: ${e.message}` };
+  }
+  return { ok: d.success === true, reason: (d["error-codes"] || []).join(",") };
+}
+
+// ---- slug -------------------------------------------------------------------
 function baseSlug(name) {
   const s = String(name || "")
     .toLowerCase()
@@ -67,7 +93,6 @@ function baseSlug(name) {
 function randSuffix() {
   return Math.random().toString(36).slice(2, 6);
 }
-
 async function slugTaken(id) {
   const r = await svc(`/rest/v1/tenants?id=eq.${encodeURIComponent(id)}&select=id`);
   if (!r.ok) throw new Error(`slug check failed: HTTP ${r.status}`);
@@ -85,7 +110,6 @@ async function uniqueSlug(name) {
 }
 
 async function emailExists(email) {
-  // Admin list is paged; a small scan is fine at signup volume.
   for (let page = 1; page <= 20; page++) {
     const r = await svc(`/auth/v1/admin/users?page=${page}&per_page=200`);
     if (!r.ok) throw new Error(`user lookup failed: HTTP ${r.status}`);
@@ -109,6 +133,13 @@ export default async (req) => {
     return json({ ok: false, error: "invalid JSON" }, 400);
   }
 
+  // 0) Bot gate FIRST — before any lookup or write.
+  const ip =
+    req.headers.get("cf-connecting-ip") ||
+    (req.headers.get("x-forwarded-for") || "").split(",")[0].trim();
+  const cap = await verifyTurnstile(body.cfTurnstileToken || body.turnstileToken, ip);
+  if (!cap.ok) return json({ ok: false, error: `captcha failed${cap.reason ? ` (${cap.reason})` : ""}` }, 400);
+
   const email = String(body.email || "").trim().toLowerCase();
   const password = String(body.password || "");
   const companyName = String(body.companyName || "").trim();
@@ -119,14 +150,12 @@ export default async (req) => {
   if (password.length < 8) return json({ ok: false, error: "password must be at least 8 characters" }, 400);
   if (companyName.length < 2) return json({ ok: false, error: "company name required" }, 400);
 
-  // Pre-flight: reject a duplicate email before creating any tenant rows.
   try {
     if (await emailExists(email)) return json({ ok: false, error: "an account with that email already exists" }, 409);
   } catch (e) {
     return json({ ok: false, error: `signup unavailable: ${e.message}` }, 502);
   }
 
-  // Track what we create so a later step's failure can roll the earlier ones back.
   let tenantId = null;
   let userId = null;
   const rollback = async () => {
@@ -138,7 +167,7 @@ export default async (req) => {
         await svc(`/rest/v1/tenants?id=eq.${tenantId}`, { method: "DELETE" });
       }
     } catch {
-      /* best-effort cleanup; surfaced to the caller as a generic failure */
+      /* best-effort cleanup */
     }
   };
 
@@ -167,21 +196,24 @@ export default async (req) => {
     });
     if (!r.ok) throw new Error(`create tenant_config failed: HTTP ${r.status} ${(await r.text()).slice(0, 160)}`);
 
-    // 3) auth user. email_confirm:true keeps this wireable now; production
-    //    should instead trigger an email-verification flow (see TODO).
-    r = await svc(`/auth/v1/admin/users`, {
+    // 3) auth user + email verification, in one call. generate_link(type:signup)
+    //    creates the user UNCONFIRMED and issues the confirmation link; Supabase
+    //    emails it when the project has SMTP + "Confirm email" enabled. We never
+    //    return the link (it confirms the account — only the email owner gets it).
+    r = await svc(`/auth/v1/admin/generate_link`, {
       method: "POST",
       body: JSON.stringify({
+        type: "signup",
         email,
         password,
-        email_confirm: true,
-        user_metadata: ownerName ? { full_name: ownerName } : {},
-        app_metadata: { tenant_id: tenantId },
+        data: ownerName ? { full_name: ownerName } : {},
+        redirect_to: SIGNUP_REDIRECT,
       }),
     });
     if (!(r.status === 200 || r.status === 201))
       throw new Error(`create auth user failed: HTTP ${r.status} ${(await r.text()).slice(0, 160)}`);
-    userId = (await r.json())?.id;
+    const gl = await r.json();
+    userId = gl?.user?.id || gl?.id || gl?.user_id;
     if (!userId) throw new Error("auth user created without an id");
 
     // 4) profiles — the tenant binding + owner role.
@@ -192,18 +224,26 @@ export default async (req) => {
     });
     if (!r.ok) throw new Error(`create profile failed: HTTP ${r.status} ${(await r.text()).slice(0, 160)}`);
 
-    return json({ ok: true, tenantId, userId });
+    return json({ ok: true, tenantId, userId, status: "verify-email" });
   } catch (e) {
     await rollback();
     return json({ ok: false, error: `signup failed: ${e.message}` }, 502);
   }
 };
 
-// TODO before opening SIGNUP_ENABLED to the public:
-//   • Put a bot/abuse gate in front (Turnstile/captcha + IP rate-limit) — this
-//     endpoint mints auth users + tenants on every call.
-//   • Switch step 3 to email-verification (email_confirm:false + confirmation
-//     mail) so unverified emails cannot hold a tenant.
-//   • Decide the CF Pages deployment shape: as a Pages Function this needs an
-//     onRequest(context) wrapper reading context.env (see functions/pay/[code].js)
-//     rather than process.env.
+// TODO before opening SIGNUP_ENABLED=1 to the public:
+//   • Provision the Turnstile widget (CF dashboard) → set TURNSTILE_SECRET_KEY
+//     (server env) + the site key in signup.html. Until the secret is set this
+//     endpoint refuses every request (fail-closed).
+//   • Confirm email DELIVERY: the project must have SMTP configured + Auth
+//     "Confirm email" ON so generate_link's message is actually sent. If you'd
+//     rather not depend on Supabase SMTP, capture gl.properties.action_link and
+//     send it through the repo's Resend path (see lib/docEmail / cloudflare-
+//     email-service) — but never log or return the link.
+//   • Add an IP rate-limit (KV counter) in front — Turnstile stops bots, not a
+//     determined script reusing solved tokens across accounts.
+//   • Reap unconfirmed signups (tenant+config+user with no confirmed login)
+//     on a schedule so abandoned/abusive rows don't accumulate.
+//   • CF Pages deploy shape: as a Pages Function this needs an onRequest(context)
+//     wrapper reading context.env (see functions/pay/[code].js), and the file
+//     must be ported into the cf-native tree (prod), like the dashboard fixes.
