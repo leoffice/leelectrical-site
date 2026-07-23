@@ -126,8 +126,9 @@ function AgingSideRail({ jobs }) {
   );
 }
 
-/** Expanded customer body: service addresses → open invoices → billing (tap → customer info). */
-function CustomerExpandPanel({ jobs, onOpenCustomer, openInvoicesOnly = false }) {
+/** Expanded customer body: billing first (tap → customer info), then each
+ *  service address with its open invoices only. */
+function CustomerExpandPanel({ jobs, onOpenCustomer, openInvoicesOnly = false, customerKey = "" }) {
   const contact = customerContact(jobs);
   const billing = String(contact.billingAddress || "").trim();
   const groups = groupJobsByServiceAddress(jobs);
@@ -139,33 +140,19 @@ function CustomerExpandPanel({ jobs, onOpenCustomer, openInvoicesOnly = false })
     }))
     .filter((g) => (openInvoicesOnly ? g.openJobs.length : g.jobs.length));
 
+  const jobHref = (j) => {
+    if (!customerKey) return undefined;
+    return (
+      "/job/" +
+      encodeURIComponent(j.id) +
+      "?from=" +
+      encodeURIComponent(customerKey) +
+      "&fold=1"
+    );
+  };
+
   return (
     <div className="px-2.5 pb-2.5 space-y-2 bg-slate-50/60 border-t border-slate-100 pt-2" data-testid="customer-expand-panel">
-      {openGroups.length ? (
-        openGroups.map((g) => (
-          <div key={g.address} className="space-y-1" data-testid="expand-service-block">
-            <div className="text-[10px] font-extrabold text-slate-500 uppercase tracking-wider px-0.5">
-              Service
-            </div>
-            <div className="text-[11px] font-semibold text-slate-700 px-0.5 leading-snug break-words">
-              {g.address}
-            </div>
-            <div className="space-y-1">
-              {g.openJobs.map((j) => (
-                <GroupJobRow key={j.id} job={j} openInvoiceOnly />
-              ))}
-              {!openInvoicesOnly &&
-                g.otherJobs.map((j) => (
-                  <GroupJobRow key={j.id} job={j} />
-                ))}
-            </div>
-          </div>
-        ))
-      ) : (
-        <div className="text-[11px] text-slate-400 px-0.5" data-testid="expand-no-open">
-          {openInvoicesOnly ? "No open invoices" : "No jobs at this address"}
-        </div>
-      )}
       <button
         type="button"
         className="w-full text-left rounded-xl bg-white border border-slate-200 px-3 py-2 active:bg-slate-50"
@@ -178,6 +165,31 @@ function CustomerExpandPanel({ jobs, onOpenCustomer, openInvoicesOnly = false })
         </div>
         <div className="text-[10px] text-brand font-semibold mt-1">Customer information ›</div>
       </button>
+      {openGroups.length ? (
+        openGroups.map((g) => (
+          <div key={g.address} className="space-y-1" data-testid="expand-service-block">
+            <div className="text-[10px] font-extrabold text-slate-500 uppercase tracking-wider px-0.5">
+              Service
+            </div>
+            <div className="text-[11px] font-semibold text-slate-700 px-0.5 leading-snug break-words">
+              {g.address}
+            </div>
+            <div className="space-y-1">
+              {g.openJobs.map((j) => (
+                <GroupJobRow key={j.id} job={j} openInvoiceOnly to={jobHref(j)} />
+              ))}
+              {!openInvoicesOnly &&
+                g.otherJobs.map((j) => (
+                  <GroupJobRow key={j.id} job={j} to={jobHref(j)} />
+                ))}
+            </div>
+          </div>
+        ))
+      ) : (
+        <div className="text-[11px] text-slate-400 px-0.5" data-testid="expand-no-open">
+          {openInvoicesOnly ? "No open invoices" : "No jobs at this address"}
+        </div>
+      )}
     </div>
   );
 }
@@ -276,7 +288,7 @@ const loadSort = () => {
 const LIST_PAGE = 48;
 
 /**
- * Expanded balance card — open invoices with balance only (no estimates /
+ * Expanded balance card — billing first, then open invoices only (no estimates /
  * paid / payment history). Grouped by service address; invoice # on each row.
  * Billing box opens full customer info.
  */
@@ -289,6 +301,7 @@ function BalanceCardDetail({ row, onOpen, onInteract }) {
       <CustomerExpandPanel
         jobs={row.jobs}
         openInvoicesOnly
+        customerKey={row.key}
         onOpenCustomer={onOpen}
       />
     </div>
@@ -1039,6 +1052,19 @@ export default function Jobs({ embedded, collapseGroups = false, activeJobId = "
                     onPointerDown={() => armCollapse(row.key, PARENT_SUB_COLLAPSE_MS)}
                     data-testid="parent-sub-list"
                   >
+                    <button
+                      type="button"
+                      className="w-full text-left rounded-xl bg-white border border-slate-200 px-3 py-2 active:bg-slate-50"
+                      data-testid="expand-billing-box"
+                      onClick={() => openCustomer(row.key, row.jobs)}
+                    >
+                      <div className="text-[10px] font-extrabold text-slate-500 uppercase tracking-wider">Billing address</div>
+                      <div className="text-[11px] font-semibold text-slate-800 mt-0.5 break-words leading-snug">
+                        {String(customerContact(row.jobs).billingAddress || "").trim() ||
+                          "No billing on file — tap for customer info"}
+                      </div>
+                      <div className="text-[10px] text-brand font-semibold mt-1">Customer information ›</div>
+                    </button>
                     {visibleSubs.map((sub) => {
                       const subOpen = !!open[sub.key];
                       return (
@@ -1065,6 +1091,7 @@ export default function Jobs({ embedded, collapseGroups = false, activeJobId = "
                               <CustomerExpandPanel
                                 jobs={sub.jobs}
                                 openInvoicesOnly
+                                customerKey={sub.key}
                                 onOpenCustomer={() => openCustomer(sub.key, sub.jobs)}
                               />
                             </div>
@@ -1072,19 +1099,6 @@ export default function Jobs({ embedded, collapseGroups = false, activeJobId = "
                         </div>
                       );
                     })}
-                    <button
-                      type="button"
-                      className="w-full text-left rounded-xl bg-white border border-slate-200 px-3 py-2 active:bg-slate-50"
-                      data-testid="expand-billing-box"
-                      onClick={() => openCustomer(row.key, row.jobs)}
-                    >
-                      <div className="text-[10px] font-extrabold text-slate-500 uppercase tracking-wider">Billing address</div>
-                      <div className="text-[11px] font-semibold text-slate-800 mt-0.5 break-words leading-snug">
-                        {String(customerContact(row.jobs).billingAddress || "").trim() ||
-                          "No billing on file — tap for customer info"}
-                      </div>
-                      <div className="text-[10px] text-brand font-semibold mt-1">Customer information ›</div>
-                    </button>
                   </div>
                 )}
                 </div>
@@ -1179,6 +1193,7 @@ export default function Jobs({ embedded, collapseGroups = false, activeJobId = "
                     <CustomerExpandPanel
                       jobs={expandJobs(list)}
                       openInvoicesOnly
+                      customerKey={key}
                       onOpenCustomer={() => openCustomer(key, list)}
                     />
                   </div>

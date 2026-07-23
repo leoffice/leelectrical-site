@@ -1,5 +1,6 @@
 // Customer header card — contact info on top, tappable fields, edit in corner.
 // Transactions toggle (always on customer info) opens the compact ledger — estimates live only there from the list expand path.
+// Optional onCardTap: tap empty card area (e.g. on a job opened from customer) to collapse job info back to the customer default page.
 import React from "react";
 import { CustomerAvatar } from "./JobCard.jsx";
 import { CustomerAmountSubline } from "./AmountDisplay.jsx";
@@ -13,14 +14,20 @@ const FIELD_LINK = "text-brand font-semibold active:opacity-80";
 function ContactValue({ value, onClick, href, newTab }) {
   if (onClick) {
     return (
-      <button type="button" className={`${FIELD_LINK} text-left`} onClick={onClick}>
+      <button type="button" className={`${FIELD_LINK} text-left`} data-no-card-open onClick={onClick}>
         {value}
       </button>
     );
   }
   if (href) {
     return (
-      <a href={href} className={FIELD_LINK} target={newTab ? "_blank" : undefined} rel="noreferrer">
+      <a
+        href={href}
+        className={FIELD_LINK}
+        target={newTab ? "_blank" : undefined}
+        rel="noreferrer"
+        data-no-card-open
+      >
         {value}
       </a>
     );
@@ -39,6 +46,7 @@ export default function CustomerCard({
   showSummary = true,
   shortTxns = false,
   onShortTxnsChange,
+  onCardTap,
 }) {
   const displayName = contact.businessName || contact.name;
   const addr = mapAddress || (primaryJob ? effectiveServiceAddress(primaryJob) : "");
@@ -78,8 +86,24 @@ export default function CustomerCard({
     ],
   ].filter(([, v]) => v);
 
+  const handleCardClick = onCardTap
+    ? (e) => {
+        if (e.target.closest("[data-no-card-open]")) return;
+        onCardTap();
+      }
+    : undefined;
+
   return (
-    <div className="card relative px-3 py-3 lg:px-4 lg:py-4" data-testid="customer-card">
+    <div
+      className={
+        "card relative px-3 py-3 lg:px-4 lg:py-4" +
+        (handleCardClick ? " cursor-pointer active:bg-slate-50/80" : "")
+      }
+      data-testid="customer-card"
+      onClick={handleCardClick}
+      role={handleCardClick ? "button" : undefined}
+      aria-label={handleCardClick ? "Back to customer overview" : undefined}
+    >
       {onEdit ? (
         <button
           type="button"
@@ -87,6 +111,7 @@ export default function CustomerCard({
           onClick={onEdit}
           aria-label="Edit customer info"
           data-testid="customer-edit-btn"
+          data-no-card-open
         >
           ✏️ Edit
         </button>
@@ -159,6 +184,7 @@ export default function CustomerCard({
         <div
           className="mt-3 pt-2 border-t border-slate-100 flex items-center justify-end gap-2"
           data-testid="customer-short-txns-row"
+          data-no-card-open
         >
           <span className="text-[11px] font-semibold text-slate-600">Transaction history</span>
           <Toggle

@@ -104,10 +104,9 @@ export default function JobDetail() {
   // Levi: open any job on the job info card only; tap card again to expand progress.
   // fold=0 forces expanded (rare deep links); fold=1 or omitted → collapsed.
   const foldOnOpen = foldParam !== "0";
+  // Back / tap customer card → customer default page (info + transaction history).
   const goBack = () =>
-    fromCust
-      ? nav("/customer/" + encodeURIComponent(fromCust) + "?job=" + encodeURIComponent(id))
-      : nav("/");
+    fromCust ? nav("/customer/" + encodeURIComponent(fromCust)) : nav("/");
   const {
     effectiveJob,
     patchJob,
@@ -343,7 +342,8 @@ export default function JobDetail() {
         </button>
       </div>
 
-      {/* Customer card — contact on top; Transaction history toggle (estimates live here) */}
+      {/* Customer card — contact on top; Transaction history toggle (estimates live here).
+          From customer: tap card body collapses job info and returns to customer default. */}
       <CustomerCard
         contact={{
           ...customerContact(customerJobs),
@@ -353,6 +353,7 @@ export default function JobDetail() {
         primaryJob={job}
         shortTxns={shortTxns}
         onShortTxnsChange={setShortTxns}
+        onCardTap={fromCust ? () => guardNav(goBack) : undefined}
         onEdit={() => setSheet({ kind: "cust" })}
         onText={() => setSheet({ kind: "compose", channel: "sms" })}
         onEmail={() => setSheet({ kind: "compose", channel: "email" })}
