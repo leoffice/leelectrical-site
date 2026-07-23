@@ -93,7 +93,7 @@ import {
 import { docSendStatusLine } from "../lib/docSendStatus.js";
 import { tenantCalendarAccount, tenantSignOff } from "../lib/tenantBranding.js";
 import { beginPromptWorkPause } from "../lib/followUpReminders.js";
-import { isQuickbooksEnabled, resolveDocSource } from "../lib/qboEnabled.js";
+import { isQuickbooksDocsEnabled, resolveDocSource } from "../lib/qboEnabled.js";
 import { useAppSettings } from "../lib/appSettings.js";
 import { EMAIL_POLICY_KEEP } from "../lib/sendDocConfirm.js";
 
@@ -111,9 +111,11 @@ export const PAY_METHODS = [
 
 /**
  * Execute an approved invoice/estimate send.
- * Local path: build PDF in the browser and POST send-doc-email (with pdfB64).
+ * Local path: build PDF once, POST send-doc-email, queue host retry on failure.
  * QuickBooks path: queue send_* on the command bus.
- * Returns { ok, error?, pending? } — never silently reverts.
+ * Default is fire-and-forget (opts.wait=false): UI can close immediately while
+ * PDF + network finish in the background; toasts report the real result.
+ * Returns { ok, error?, pending?, sending? } — never silently reverts.
  */
 export function useDoSend() {
   const { enqueue, logSend, showToast, api, patchAndSave } = useStore();
@@ -147,16 +149,54 @@ export function useDoSend() {
     const subject = String(opts.subject || "").trim();
     const label = kind === "invoice" ? "Invoice" : "Estimate";
     const via = docSource === DOC_SOURCE_QBO ? "QuickBooks" : "local PDF";
+    const wait = opts.wait === true;
 
-    // LOCAL: send immediately with client PDF — never queue without pdfB64.
-    if (docSource === DOC_SOURCE_LOCAL) {
-      if (!canGenerateLocalDoc(job, kind)) {
-        const err = "Add line items on this job to build a local PDF — or send the QuickBooks file";
-        showToast(err);
-        return { ok: false, error: err, pending: true };
-      }
-      showToast("Sending " + label.toLowerCase() + " to " + email + "…");
+    // QuickBooks path — command bus (host has QBO credentials). Fast queue.
+    if (docSource !== DOC_SOURCE_LOCAL) {
+      const payload =
+        kind === "invoice"
+          ? {
+              email,
+              invoiceNo: no,
+              customer: job.customer || "",
+              amount: String(due || "").replace(/[$,]/g, ""),
+              includePaymentLink: withPay,
+              docSource: DOC_SOURCE_QBO,
+              message,
+              subject,
+              job,
+            }
+          : { email, estimateNo: no, docSource: DOC_SOURCE_QBO, message, subject, job };
+      const idk =
+        kind === "invoice" && withPay
+          ? "send_invoice_pay:qbo:" + no + ":" + Date.now()
+          : "send_" + kind + ":qbo:" + no + ":" + Date.now();
+      await enqueue("send_" + kind, job.id, payload, "deterministic", idk);
+      showToast(
+        withPay
+          ? "Sending " + via + " with payment link — you'll get a toast when it lands"
+          : "Sending " + via + " — you'll get a toast when it lands"
+      );
+      return { ok: true, queued: true };
+    }
+
+    // LOCAL: never queue without pdfB64. Build PDF once; reuse on host retry.
+    if (!canGenerateLocalDoc(job, kind)) {
+      const err = "Add line items on this job to build a local PDF — or send the QuickBooks file";
+      showToast(err);
+      return { ok: false, error: err, pending: true };
+    }
+
+    showToast("Sending " + label.toLowerCase() + " to " + email + "…");
+
+    const runLocalSend = async () => {
       let res = null;
+      let pdfB64 = String(opts.pdfB64 || "").trim();
+      let filename =
+        String(opts.filename || "").trim() ||
+        docPdfFilename(kind, job, no) ||
+        `${kind}-${no || "document"}.pdf`;
+
       try {
         if (typeof api.sendDocEmailNow === "function") {
           res = await api.sendDocEmailNow(job, kind, {
@@ -165,7 +205,11 @@ export function useDoSend() {
             message,
             subject,
             payUrl: opts.payUrl || "",
+            pdfB64: pdfB64 || undefined,
+            filename,
           });
+          if (res?.pdfB64) pdfB64 = res.pdfB64;
+          if (res?.filename) filename = res.filename;
         }
       } catch (err) {
         res = { ok: false, error: String(err?.message || err) };
@@ -185,27 +229,31 @@ export function useDoSend() {
       const noKey = !!(
         res?.dryRun ||
         res?.reason === "no_api_key" ||
-        /HTTP 502|no_api_key|error code:\s*502/i.test(String(res?.error || ""))
+        /no_api_key/i.test(String(res?.error || ""))
       );
       const detail = String(
         res?.error || res?.reason || (noKey ? "email_service_retry" : "Send failed")
       ).slice(0, 120);
-      // Always queue with pdfB64 on failure so the host can finish via office Gmail
-      // (Cloudflare currently 502s without Resend). Never silently drop.
+
+      // Reuse PDF from the first attempt — never rebuild (was the 30s lag).
       try {
-        const blob =
-          kind === "estimate" ? await buildEstimatePdfFromJob(job) : await buildInvoicePdfFromJob(job);
-        if (blob && typeof FileReader !== "undefined") {
-          const pdfB64 = await new Promise((resolve, reject) => {
-            const r = new FileReader();
-            r.onerror = () => reject(r.error || new Error("read failed"));
-            r.onloadend = () => {
-              const s = String(r.result || "");
-              const i = s.indexOf(",");
-              resolve(i >= 0 ? s.slice(i + 1) : s);
-            };
-            r.readAsDataURL(blob);
-          });
+        if (!pdfB64) {
+          const blob =
+            kind === "estimate" ? await buildEstimatePdfFromJob(job) : await buildInvoicePdfFromJob(job);
+          if (blob && typeof FileReader !== "undefined") {
+            pdfB64 = await new Promise((resolve, reject) => {
+              const r = new FileReader();
+              r.onerror = () => reject(r.error || new Error("read failed"));
+              r.onloadend = () => {
+                const s = String(r.result || "");
+                const i = s.indexOf(",");
+                resolve(i >= 0 ? s.slice(i + 1) : s);
+              };
+              r.readAsDataURL(blob);
+            });
+          }
+        }
+        if (pdfB64) {
           const payload =
             kind === "invoice"
               ? {
@@ -219,7 +267,8 @@ export function useDoSend() {
                   subject,
                   job,
                   pdfB64,
-                  filename: docPdfFilename(kind, job, no) || `${kind}-${no || "document"}.pdf`,
+                  filename,
+                  viewLink: res?.viewLink || "",
                   clientSend: res || { ok: false, reason: detail },
                 }
               : {
@@ -230,28 +279,24 @@ export function useDoSend() {
                   subject,
                   job,
                   pdfB64,
-                  filename: docPdfFilename(kind, job, no) || `${kind}-${no || "document"}.pdf`,
+                  filename,
+                  viewLink: res?.viewLink || "",
                   clientSend: res || { ok: false, reason: detail },
                 };
-          const idk =
-            "send_" + kind + ":local:" + (no || job.id) + ":" + Date.now();
+          const idk = "send_" + kind + ":local:" + (no || job.id) + ":" + Date.now();
           await enqueue("send_" + kind, job.id, payload, "deterministic", idk);
           showToast(
             noKey
               ? "Sending via office email — you'll get a toast when it lands"
-              : "Could not send right now (" + detail + "). Queued for retry — check Activity."
+              : "Finishing send in the background — you'll get a toast when it lands"
           );
-          // Queued is NOT sent. Reporting ok:true here closed the confirm sheet
-          // as if the document had gone out, while the status line still read
-          // "Never sent" — the send never actually happened. Surface it as
-          // not-sent-yet so the sheet stays open and says so.
+          // Background accept: UI can close; SendInvoiceWatcher toasts real result.
           return {
-            ok: false,
+            ok: true,
             queued: true,
             pending: true,
-            error: noKey
-              ? "Not sent yet — queued for the office email retry. Check Activity."
-              : "Not sent (" + detail + "). Queued for retry — check Activity.",
+            sending: true,
+            error: detail,
           };
         }
       } catch {
@@ -259,34 +304,13 @@ export function useDoSend() {
       }
       showToast(label + " did NOT send — " + detail + ". Still marked not sent.");
       return { ok: false, error: detail, pending: true };
-    }
+    };
 
-    // QuickBooks path — command bus (host has QBO credentials).
-    const payload =
-      kind === "invoice"
-        ? {
-            email,
-            invoiceNo: no,
-            customer: job.customer || "",
-            amount: String(due || "").replace(/[$,]/g, ""),
-            includePaymentLink: withPay,
-            docSource: DOC_SOURCE_QBO,
-            message,
-            subject,
-            job,
-          }
-        : { email, estimateNo: no, docSource: DOC_SOURCE_QBO, message, subject, job };
-    const idk =
-      kind === "invoice" && withPay
-        ? "send_invoice_pay:qbo:" + no + ":" + Date.now()
-        : "send_" + kind + ":qbo:" + no + ":" + Date.now();
-    await enqueue("send_" + kind, job.id, payload, "deterministic", idk);
-    showToast(
-      withPay
-        ? "Sending " + via + " with payment link — you'll get a toast when it lands"
-        : "Sending " + via + " — you'll get a toast when it lands"
-    );
-    return { ok: true, queued: true };
+    if (wait) return runLocalSend();
+    // Fire-and-forget so the confirm sheet can close immediately.
+    const p = runLocalSend();
+    p.catch(() => {});
+    return { ok: true, sending: true, pending: true, promise: p };
   };
 }
 
@@ -1986,9 +2010,10 @@ export function DocPdfViewButtons({ job, kind, no, compact }) {
   const config = useTenantConfig();
   const appSettings = useAppSettings();
   void appSettings.quickbooks;
-  const qboOn = isQuickbooksEnabled(config);
+  void appSettings.quickbooksDocs;
+  const qboDocsOn = isQuickbooksDocsEnabled(config);
   const product = productName(config);
-  const retry = () => (st.source === DOC_SOURCE_QBO && qboOn ? viewQbo() : viewLocal());
+  const retry = () => (st.source === DOC_SOURCE_QBO && qboDocsOn ? viewQbo() : viewLocal());
 
   if (st.phase === "checking" || st.phase === "fetching" || st.phase === "timeout") {
     return <DocPdfStatus st={st} onRetry={retry} />;
@@ -2005,7 +2030,7 @@ export function DocPdfViewButtons({ job, kind, no, compact }) {
         >
           {viewLocalLabel(kind)}
         </button>
-        {qboOn ? (
+        {qboDocsOn ? (
           <button
             type="button"
             className="btn flex-1 !py-2.5 bg-slate-100 text-slate-800 font-semibold"
@@ -2028,7 +2053,7 @@ export function DocPdfViewButtons({ job, kind, no, compact }) {
         onClick={viewLocal}
         data-testid="view-local-doc"
       />
-      {qboOn ? (
+      {qboDocsOn ? (
         <Opt
           icon="📗"
           title={viewQboLabel(kind)}
@@ -2053,8 +2078,9 @@ export function DocSendButtons({ job, kind, onPickSend }) {
   const withPay = kind === "invoice" && due > 0.01;
   const appSettings = useAppSettings();
   void appSettings.quickbooks;
-  const qboOn = isQuickbooksEnabled();
-  const sourceNote = qboOn
+  void appSettings.quickbooksDocs;
+  const qboDocsOn = isQuickbooksDocsEnabled();
+  const sourceNote = qboDocsOn
     ? "Choose local file or QuickBooks file"
     : "Sends the local PDF from this job";
 
@@ -2301,7 +2327,7 @@ export function PaymentLinkSheet({ job, onClose }) {
   }
 
   if (composeChannel) {
-    const qboOn = isQuickbooksEnabled();
+    const qboDocsOn = isQuickbooksDocsEnabled();
     return (
       <CustomerComposeSheet
         job={job}
@@ -2327,7 +2353,7 @@ export function PaymentLinkSheet({ job, onClose }) {
               >
                 Send Local Invoice with Payment Link
               </button>
-              {qboOn ? (
+              {qboDocsOn ? (
                 <button
                   type="button"
                   className="btn w-full !py-2 bg-slate-100 text-slate-800"
@@ -2505,7 +2531,7 @@ export function DocSheet({ job, kind, onClose, onEdit, onConvert, onSync }) {
   }
   const lines = kind === "invoice" ? job.invoiceLines : job.estimateLines;
   const isDraft = !no && (lines || []).some((ln) => String(ln?.itemName || "").trim());
-  const qboOn = isQuickbooksEnabled();
+  const qboDocsOn = isQuickbooksDocsEnabled();
   const title = no
     ? (kind === "invoice" ? "Invoice " : "Estimate ") + no
     : isDraft
@@ -2518,9 +2544,9 @@ export function DocSheet({ job, kind, onClose, onEdit, onConvert, onSync }) {
     <Sheet title={title} onClose={onClose}>
       {isDraft ? (
         <p className="text-xs text-amber-800 bg-amber-50 border border-amber-200 rounded-xl px-3 py-2 mb-3" data-testid="doc-draft-banner">
-          {qboOn
+          {qboDocsOn
             ? "Saved on this job — not in QuickBooks yet. Tap sync when you are ready."
-            : "Saved on this job — local only (QuickBooks is off)."}
+            : "Saved on this job — local only (QuickBooks send/view is off; data still syncs)."}
         </p>
       ) : null}
 
@@ -2549,7 +2575,7 @@ export function DocSheet({ job, kind, onClose, onEdit, onConvert, onSync }) {
 
       {no ? <DocPdfViewButtons job={job} kind={kind} no={no} compact /> : null}
 
-      {isDraft && onSync && qboOn ? (
+      {isDraft && onSync && qboDocsOn ? (
         <button type="button" className="btn-brand w-full mb-2" onClick={onSync} data-testid="doc-sync-qbo">
           Sync to QuickBooks
         </button>

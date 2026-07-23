@@ -49,6 +49,48 @@ async function httpAllowErrorBody(path, body) {
 
 const cb = () => "cb=" + Date.now();
 
+/** Fields the send-doc-email server needs — drop heavy history/status blobs. */
+function pickJobForDocEmail(job) {
+  if (!job || typeof job !== "object") return {};
+  const keys = [
+    "id",
+    "customer",
+    "businessName",
+    "personName",
+    "email",
+    "phone",
+    "invoiceNo",
+    "estimateNo",
+    "amount",
+    "openBalance",
+    "tax",
+    "invoiceDate",
+    "estimateDate",
+    "dueDate",
+    "address",
+    "billingAddress",
+    "serviceAddress",
+    "apartment",
+    "title",
+    "serviceType",
+    "invoiceLines",
+    "estimateLines",
+    "payments",
+    "paid",
+    "changeOrder",
+    "changeOrderSeq",
+    "changeOrderLabel",
+    "changeOrderKind",
+    "changeOrderSourceId",
+    "status",
+  ];
+  const out = {};
+  for (const k of keys) {
+    if (job[k] != null && job[k] !== "") out[k] = job[k];
+  }
+  return out;
+}
+
 /** Blob → bare base64 string (no data-URL prefix) for JSON transport. */
 function blobToBase64(blob) {
   return new Promise((resolve, reject) => {
@@ -208,14 +250,19 @@ export function createNetlifyAdapter() {
 
     /**
      * Send invoice/estimate email with CLIENT-generated PDF attached.
-     * opts: { email, includePaymentLink, payUrl, probe, officeOnly }
+     * opts: { email, includePaymentLink, payUrl, probe, officeOnly, pdfB64, filename }
+     * Always returns pdfB64 when built so callers can queue a host retry without
+     * rebuilding the PDF (big lag on retry).
      */
     async sendDocEmailNow(job, kind = "invoice", opts = {}) {
+      const no = kind === "invoice" ? job?.invoiceNo : job?.estimateNo;
+      let pdfB64 = String(opts.pdfB64 || "").trim();
+      let filename =
+        String(opts.filename || "").trim() ||
+        docPdfFilename(kind, job, no) ||
+        `${kind}-${String(no || "document")}.pdf`;
       try {
-        const no = kind === "invoice" ? job?.invoiceNo : job?.estimateNo;
-        let pdfB64 = "";
-        let filename = "";
-        if (!opts.probe) {
+        if (!opts.probe && !pdfB64) {
           const overrides = kind === "estimate" ? { kind: "estimate" } : {};
           if (opts.payUrl) overrides.payUrl = opts.payUrl;
           const blob =
@@ -224,11 +271,13 @@ export function createNetlifyAdapter() {
               : await buildInvoicePdfFromJob(job, overrides);
           if (!blob) return { ok: false, error: "no_pdf" };
           pdfB64 = await blobToBase64(blob);
-          filename = docPdfFilename(kind, job, no) || `${kind}-${String(no || "document")}.pdf`;
         }
-        return await httpAllowErrorBody("send-doc-email", {
+        // Slim job payload — full status/history objects bloat the request and
+        // slow mobile sends. Server only needs fields for the email + PDF store.
+        const slimJob = pickJobForDocEmail(job);
+        const result = await httpAllowErrorBody("send-doc-email", {
           kind,
-          job,
+          job: slimJob,
           email: String(opts.email || job?.email || "").trim(),
           includePaymentLink: opts.includePaymentLink !== false,
           pdfB64,
@@ -238,16 +287,19 @@ export function createNetlifyAdapter() {
           probe: !!opts.probe,
           officeOnly: !!opts.officeOnly,
         });
+        return { ...result, pdfB64, filename };
       } catch (err) {
-        // Cloudflare often returns bare "error code: 502" (not JSON) when Resend is
-        // missing — surface a stable reason so the app queues office-Gmail fallback.
+        // Bare "error code: 502" from CF is NOT the same as missing Resend key —
+        // keep the PDF so the host can finish via office Gmail with full layout.
         const msg = String(err?.message || err);
         const is502 = /HTTP 502|502/.test(msg);
         return {
           ok: false,
           error: msg,
-          reason: is502 ? "no_api_key" : "send_failed",
-          dryRun: is502,
+          reason: is502 ? "http_502" : "send_failed",
+          dryRun: false,
+          pdfB64,
+          filename,
         };
       }
     },
