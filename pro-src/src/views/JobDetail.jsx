@@ -105,8 +105,11 @@ export default function JobDetail() {
   // fold=0 forces expanded (rare deep links); fold=1 or omitted → collapsed.
   const foldOnOpen = foldParam !== "0";
   // Back / tap customer card → customer default page (info + transaction history).
-  const goBack = () =>
-    fromCust ? nav("/customer/" + encodeURIComponent(fromCust)) : nav("/");
+  // Navigate immediately — never wait on local work (Levi snappy feedback).
+  const goBack = () => {
+    const to = fromCust ? "/customer/" + encodeURIComponent(fromCust) : "/";
+    nav(to);
+  };
   const {
     effectiveJob,
     patchJob,
@@ -131,7 +134,11 @@ export default function JobDetail() {
   }, [job, jobs, custKey]);
   useEffect(() => {
     if (!job) return;
-    touchCustomer(custKey, customerJobs.length ? customerJobs : [job]);
+    // Defer recency write so back/open never stalls on localStorage.
+    const t = setTimeout(() => {
+      touchCustomer(custKey, customerJobs.length ? customerJobs : [job]);
+    }, 0);
+    return () => clearTimeout(t);
   }, [id, custKey, job?.id, customerJobs]);
   const addressJobs = useMemo(() => {
     if (!job) return [];

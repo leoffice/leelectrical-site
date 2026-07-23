@@ -30,26 +30,78 @@ import {
 import { touchCustomer } from "../lib/customerRecency.js";
 import { waitForCommandDone } from "../lib/commandWait.js";
 
+// Module cache — avoid re-fetching the full customer index every time you open a card.
+let qboIndexCache = null;
+let qboIndexInflight = null;
+
 export default function CustomerView() {
   const { key: raw } = useParams();
   const nav = useNavigate();
   const { jobs, loading, events, commands, patchJob, refreshJobs, api, enqueue, showToast } = useStore();
-  const [qboIndex, setQboIndex] = useState([]);
+  const [qboIndex, setQboIndex] = useState(() => qboIndexCache || []);
   // Default on: customer info + transaction history (Levi 2026-07-22).
   const [shortTxns, setShortTxns] = useState(true);
+  // Snappy open (Levi): paint the customer card first; heavy list + history after first paint.
+  const testMode = typeof import.meta !== "undefined" && import.meta.env?.MODE === "test";
+  const [heavyReady, setHeavyReady] = useState(() => !!testMode);
+  const [listPaneReady, setListPaneReady] = useState(() => !!testMode);
 
   useEffect(() => {
     let cancelled = false;
-    api
-      .searchCustomers("")
-      .then((list) => {
-        if (!cancelled) setQboIndex(Array.isArray(list) ? list : []);
-      })
-      .catch(() => {});
+    if (qboIndexCache) {
+      setQboIndex(qboIndexCache);
+      return undefined;
+    }
+    if (!qboIndexInflight) {
+      qboIndexInflight = api
+        .searchCustomers("")
+        .then((list) => {
+          const arr = Array.isArray(list) ? list : [];
+          qboIndexCache = arr;
+          return arr;
+        })
+        .catch(() => [])
+        .finally(() => {
+          qboIndexInflight = null;
+        });
+    }
+    qboIndexInflight.then((list) => {
+      if (!cancelled) setQboIndex(list);
+    });
     return () => {
       cancelled = true;
     };
   }, [api]);
+
+  // Paint chrome immediately, then fill history / doc tabs / side list (same idea as job detail).
+  useEffect(() => {
+    if (testMode) return undefined;
+    let cancelled = false;
+    let idleId = 0;
+    let tList = 0;
+    let raf2 = 0;
+    const raf1 = requestAnimationFrame(() => {
+      raf2 = requestAnimationFrame(() => {
+        if (!cancelled) setHeavyReady(true);
+      });
+    });
+    const armList = () => {
+      if (!cancelled) setListPaneReady(true);
+    };
+    if (typeof window !== "undefined" && typeof window.requestIdleCallback === "function") {
+      idleId = window.requestIdleCallback(armList, { timeout: 350 });
+    } else {
+      tList = window.setTimeout(armList, 80);
+    }
+    return () => {
+      cancelled = true;
+      cancelAnimationFrame(raf1);
+      cancelAnimationFrame(raf2);
+      if (idleId && typeof window.cancelIdleCallback === "function") window.cancelIdleCallback(idleId);
+      if (tList) clearTimeout(tList);
+    };
+  }, [raw, testMode]);
+
   const key = raw ? decodeURIComponent(raw) : "";
   const [sheet, setSheet] = useState(null); // { kind, job? }
   const setDocSheet = useCallback((next) => {
@@ -81,7 +133,10 @@ export default function CustomerView() {
   if (list.length) lastListRef.current = list;
   const displayJobs = list.length ? list : lastListRef.current;
   useEffect(() => {
-    if (key) touchCustomer(key, displayJobs);
+    // Don't block first paint on recency writes.
+    if (!key || !displayJobs.length) return;
+    const t = setTimeout(() => touchCustomer(key, displayJobs), 0);
+    return () => clearTimeout(t);
   }, [key, displayJobs]);
   const contact = useMemo(() => customerContact(displayJobs), [displayJobs]);
   const summary = useMemo(() => customerAmountSummary(displayJobs), [displayJobs]);
@@ -251,7 +306,11 @@ export default function CustomerView() {
   const panel = (
     <div className="space-y-3.5 min-w-0" data-testid="customer-view">
       <div className="flex items-center gap-2">
-        <button className="inline-flex items-center gap-1 text-sm font-semibold text-brand min-w-0" onClick={() => nav("/")}>
+        <button
+          type="button"
+          className="inline-flex items-center gap-1 text-sm font-semibold text-brand min-w-0 active:opacity-60"
+          onClick={() => nav("/")}
+        >
           ‹ Customers
         </button>
         <button
@@ -321,17 +380,27 @@ export default function CustomerView() {
         </div>
       ) : null}
 
-      {/* Order: customer card → Invoice/Estimates/CO/Addresses tabs → transactions when on */}
-      {!(key.startsWith("p:") && subs.length > 0) ? (
-        <>
-          <CustomerDocTabs jobs={displayJobs} fromCust={key} />
-          {shortTxns ? (
-            <CustomerTransactionHistory jobs={displayJobs} fromCust={key} />
-          ) : null}
-        </>
-      ) : shortTxns ? (
-        <CustomerTransactionHistory jobs={displayJobs} fromCust={key} />
-      ) : null}
+      {/* Order: customer card → Invoice/Estimates/CO/Addresses tabs → transactions when on.
+          Heavy tabs/history wait one frame so the card feels instant (Levi snappy feedback). */}
+      {heavyReady ? (
+        !(key.startsWith("p:") && subs.length > 0) ? (
+          <>
+            <CustomerDocTabs jobs={displayJobs} fromCust={key} />
+            {shortTxns ? (
+              <CustomerTransactionHistory jobs={displayJobs} fromCust={key} />
+            ) : null}
+          </>
+        ) : shortTxns ? (
+          <CustomerTransactionHistory jobs={displayJobs} fromCust={key} />
+        ) : null
+      ) : (
+        <div
+          className="card px-3 py-6 text-center text-xs text-slate-400"
+          data-testid="customer-heavy-deferred"
+        >
+          Loading history…
+        </div>
+      )}
 
       {sheet?.kind === "cust" && sheet.job ? (
         <CustEditSheet job={sheet.job} onClose={() => setSheet(null)} />
@@ -422,10 +491,17 @@ export default function CustomerView() {
   );
 
   // Desktop: jobs list | customer detail (same split as job detail).
+  // Defer the left pane — rebuilding ~4k jobs under the finger was the multi-second lag.
   return (
     <div className="lg:grid lg:grid-cols-[minmax(320px,400px)_minmax(0,1fr)] lg:gap-5 lg:items-start">
       <div className="hidden lg:block sticky top-4 max-h-[calc(100vh-2rem)] overflow-y-auto overflow-x-hidden lg-scroll-hidden pr-1" data-testid="list-pane">
-        <Jobs embedded collapseGroups />
+        {listPaneReady ? (
+          <Jobs embedded collapseGroups />
+        ) : (
+          <div className="card px-4 py-8 text-center text-xs text-slate-400" data-testid="list-pane-deferred">
+            Loading list…
+          </div>
+        )}
       </div>
       {panel}
     </div>
