@@ -2,6 +2,8 @@ import {
   isEmailTestMode,
   resolveFromAddress,
   resolveRecipient,
+  resolveRecipients,
+  parseEmailRecipients,
 } from "./paymentConfirmEnv.mjs";
 import { docPdfFilename, docStoreKey, mapJobToQbDocData } from "./jobToQbDoc.mjs";
 // Static ESM default-import of the CJS template (esbuild/Node interop) — no
@@ -87,23 +89,28 @@ export async function sendDocEmail({
   officeOnly = false,
 }) {
   const email = String(to || job?.email || "").trim();
+  const parsedList = parseEmailRecipients(email);
 
   // --- Safe diagnostics: report env/recipient without generating or sending ---
   if (probe) {
     const apiKey = String(process.env.RESEND_API_KEY || "").trim();
     const testMode = isEmailTestMode();
+    const would = officeOnly
+      ? OFFICE_EMAIL
+      : (resolveRecipients(email).join(", ") || "(unset)");
     return {
       ok: true,
       probe: true,
       hasResendKey: !!apiKey,
       testMode,
       from: resolveFromAddress(),
-      wouldSendTo: officeOnly ? OFFICE_EMAIL : resolveRecipient(email) || "(unset)",
+      wouldSendTo: would,
+      recipientCount: officeOnly ? 1 : resolveRecipients(email).length,
       testEmailConfigured: !!String(process.env.PAYMENT_CONFIRM_TEST_EMAIL || "").trim(),
     };
   }
 
-  if (!email && !officeOnly) return { ok: false, reason: "no_recipient" };
+  if (!parsedList.length && !officeOnly) return { ok: false, reason: "no_recipient" };
 
   // --- PDF: prefer the client-generated qb-pdf (no server pdfkit) ---
   const docData = mapJobToQbDocData(job, kind);
@@ -125,13 +132,15 @@ export async function sendDocEmail({
   // The Cardknox URL is NEVER shown to the customer. It is embedded in the
   // landing payload so the PayLanding page can offer Pay; the email only ever
   // exposes a short /pay/<code> link behind one button.
+  // Pay-link form only needs one contact email — use the first recipient.
+  const primaryEmail = parsedList[0] || resolveRecipient(email) || email;
   let cardknoxUrl = "";
   if (isInvoice && includePaymentLink && docData.amountDue > 0.01) {
     cardknoxUrl = buildPayLink({
       amount: docData.amountDue,
       invoiceNumber: docData.docNumber,
       customerName: docData.billTo.name,
-      customerEmail: email,
+      customerEmail: primaryEmail,
     });
   }
 
@@ -144,7 +153,7 @@ export async function sendDocEmail({
     buildEmailPayLandingPayload({
       job,
       docData,
-      email,
+      email: primaryEmail,
       cardknoxUrl: isInvoice ? cardknoxUrl : "",
       kind: isInvoice ? "invoice" : "estimate",
     })
@@ -196,7 +205,9 @@ export async function sendDocEmail({
 
   // officeOnly hard-pins the recipient to office@ and refuses anything else —
   // the test-phase guard so a test send can NEVER reach a real customer.
-  const recipient = officeOnly ? OFFICE_EMAIL : resolveRecipient(email);
+  // Multi-address "to" fields (comma/semicolon) become a proper Resend array.
+  const recipients = officeOnly ? [OFFICE_EMAIL] : resolveRecipients(email);
+  const recipient = recipients[0] || "";
   const testMode = isEmailTestMode();
   const apiKey = String(process.env.RESEND_API_KEY || "").trim();
   const from = resolveFromAddress();
@@ -207,14 +218,15 @@ export async function sendDocEmail({
     testMode,
     officeOnly,
     intendedTo: email || OFFICE_EMAIL,
-    to: recipient || "(unset)",
+    to: recipients.length ? recipients.join(", ") : "(unset)",
+    recipients,
     from,
     subject,
     kind,
     docNumber: docData.docNumber,
   };
 
-  if (!recipient) {
+  if (!recipients.length) {
     return { ok: false, skipped: true, reason: testMode ? "test_email_unset" : "no_recipient", ...meta };
   }
   if (officeOnly && recipient.toLowerCase() !== OFFICE_EMAIL) {
@@ -241,7 +253,7 @@ export async function sendDocEmail({
 
   const payload = {
     from: `${docData.company.name} <${from}>`,
-    to: [recipient],
+    to: recipients,
     subject: testMode ? `[TEST] ${subject}` : subject,
     html,
     text,
@@ -254,11 +266,12 @@ export async function sendDocEmail({
   // so Gmail can file it under the "LE Pro" tab (host labeler + optional filter).
   // Skip when already sending only to office / test redirect / officeOnly.
   const officeLc = OFFICE_EMAIL.toLowerCase();
-  const recipientLc = String(recipient || "").toLowerCase();
-  if (!officeOnly && !testMode && recipientLc && recipientLc !== officeLc) {
+  const sendingToOfficeOnly =
+    recipients.length === 1 && String(recipients[0] || "").toLowerCase() === officeLc;
+  if (!officeOnly && !testMode && recipients.length && !sendingToOfficeOnly) {
     payload.bcc = [OFFICE_EMAIL];
   }
-  if (testMode && email !== recipient) {
+  if (testMode && email && recipients[0] && email.toLowerCase() !== String(recipients[0]).toLowerCase()) {
     payload.headers = { "X-Intended-Recipient": email };
   }
 

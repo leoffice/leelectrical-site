@@ -13,10 +13,35 @@ export function resolveFromAddress() {
   );
 }
 
-export function resolveRecipient(customerEmail) {
-  const cust = String(customerEmail || "").trim();
-  if (isEmailTestMode()) {
-    return String(process.env.PAYMENT_CONFIRM_TEST_EMAIL || "").trim();
+/**
+ * Split a free-typed "to" field into individual addresses.
+ * Customers often store "a@x.com, b@y.com" — Resend requires an array, not one string.
+ */
+export function parseEmailRecipients(raw) {
+  const seen = new Set();
+  const out = [];
+  for (const part of String(raw || "").split(/[,;]+/)) {
+    const e = part.trim();
+    if (!e || !e.includes("@")) continue;
+    const key = e.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(e);
   }
-  return cust;
+  return out;
+}
+
+/** Single recipient (first address). Test mode → test inbox only. */
+export function resolveRecipient(customerEmail) {
+  const list = resolveRecipients(customerEmail);
+  return list[0] || "";
+}
+
+/** All recipients for Resend `to: [...]`. Test mode → single test inbox. */
+export function resolveRecipients(customerEmail) {
+  if (isEmailTestMode()) {
+    const test = String(process.env.PAYMENT_CONFIRM_TEST_EMAIL || "").trim();
+    return test ? [test] : [];
+  }
+  return parseEmailRecipients(customerEmail);
 }

@@ -49,6 +49,48 @@ async function httpAllowErrorBody(path, body) {
 
 const cb = () => "cb=" + Date.now();
 
+/** Fields the send-doc-email server needs — drop heavy history/status blobs. */
+function pickJobForDocEmail(job) {
+  if (!job || typeof job !== "object") return {};
+  const keys = [
+    "id",
+    "customer",
+    "businessName",
+    "personName",
+    "email",
+    "phone",
+    "invoiceNo",
+    "estimateNo",
+    "amount",
+    "openBalance",
+    "tax",
+    "invoiceDate",
+    "estimateDate",
+    "dueDate",
+    "address",
+    "billingAddress",
+    "serviceAddress",
+    "apartment",
+    "title",
+    "serviceType",
+    "invoiceLines",
+    "estimateLines",
+    "payments",
+    "paid",
+    "changeOrder",
+    "changeOrderSeq",
+    "changeOrderLabel",
+    "changeOrderKind",
+    "changeOrderSourceId",
+    "status",
+  ];
+  const out = {};
+  for (const k of keys) {
+    if (job[k] != null && job[k] !== "") out[k] = job[k];
+  }
+  return out;
+}
+
 /** Blob → bare base64 string (no data-URL prefix) for JSON transport. */
 function blobToBase64(blob) {
   return new Promise((resolve, reject) => {
@@ -72,12 +114,27 @@ export function createNetlifyAdapter() {
   // GET right after our own write can return the PREVIOUS snapshot — merging
   // into that (saveJob) or rendering it (refresh) silently reverts edits.
   let lastWriteTs = 0;
+  // Last full ov we POSTed. Used only when a GET is still lagging behind our
+  // write — prefer this over multi-second retry sleeps (keeps Save snappy).
+  let cachedOv = null;
   const freshState = async () => {
-    for (let i = 0; ; i++) {
-      const state = (await http(`state?${cb()}`)) || { ov: {}, ts: 0 };
-      if (!lastWriteTs || (state.ts || 0) >= lastWriteTs || i >= 3) return state;
-      await new Promise((r) => setTimeout(r, 350 * (i + 1))); // blob lag — retry
+    // Always GET once (picks up other-device writes). If blob is lagging behind
+    // our last POST, return the session cache immediately — no 0.35–2s sleep.
+    const state = (await http(`state?${cb()}`)) || { ov: {}, ts: 0 };
+    if (!lastWriteTs || (state.ts || 0) >= lastWriteTs) {
+      cachedOv = state.ov || {};
+      if ((state.ts || 0) > lastWriteTs) lastWriteTs = state.ts || lastWriteTs;
+      return state;
     }
+    if (cachedOv) return { ov: cachedOv, ts: lastWriteTs };
+    // No cache yet — one short retry, then accept what we have.
+    await new Promise((r) => setTimeout(r, 120));
+    const again = (await http(`state?${cb()}`)) || { ov: {}, ts: 0 };
+    if ((again.ts || 0) >= lastWriteTs || !cachedOv) {
+      cachedOv = again.ov || {};
+      return again;
+    }
+    return { ov: cachedOv, ts: lastWriteTs };
   };
   return {
     name: "netlify",
@@ -130,10 +187,14 @@ export function createNetlifyAdapter() {
     async saveJob(id, patch) {
       const run = async () => {
         const state = await freshState();
-        const ov = (state && state.ov) || {};
-        ov[id] = deepMerge(ov[id] || {}, patch || {});
+        const baseOv = (state && state.ov) || {};
+        const ov = { ...baseOv };
+        ov[id] = deepMerge(baseOv[id] || {}, patch || {});
         const res = await http("state", { ov });
-        if (res && res.ts) lastWriteTs = Math.max(lastWriteTs, res.ts);
+        if (res && res.ts) {
+          lastWriteTs = Math.max(lastWriteTs, res.ts);
+          cachedOv = ov;
+        }
         return { ok: true, ts: res && res.ts, ov: ov[id] };
       };
       const p = saveQ.then(run, run);
@@ -174,7 +235,7 @@ export function createNetlifyAdapter() {
      */
     async generateLocalDoc(job, kind = "invoice", opts = {}) {
       try {
-        const blob = kind === "estimate" ? buildEstimatePdfFromJob(job) : buildInvoicePdfFromJob(job);
+        const blob = kind === "estimate" ? await buildEstimatePdfFromJob(job) : await buildInvoicePdfFromJob(job);
         if (!blob) return { ok: false, error: "no_pdf" };
         const no = kind === "invoice" ? job?.invoiceNo : job?.estimateNo;
         if (opts.download !== false) {
@@ -189,27 +250,34 @@ export function createNetlifyAdapter() {
 
     /**
      * Send invoice/estimate email with CLIENT-generated PDF attached.
-     * opts: { email, includePaymentLink, payUrl, probe, officeOnly }
+     * opts: { email, includePaymentLink, payUrl, probe, officeOnly, pdfB64, filename }
+     * Always returns pdfB64 when built so callers can queue a host retry without
+     * rebuilding the PDF (big lag on retry).
      */
     async sendDocEmailNow(job, kind = "invoice", opts = {}) {
+      const no = kind === "invoice" ? job?.invoiceNo : job?.estimateNo;
+      let pdfB64 = String(opts.pdfB64 || "").trim();
+      let filename =
+        String(opts.filename || "").trim() ||
+        docPdfFilename(kind, job, no) ||
+        `${kind}-${String(no || "document")}.pdf`;
       try {
-        const no = kind === "invoice" ? job?.invoiceNo : job?.estimateNo;
-        let pdfB64 = "";
-        let filename = "";
-        if (!opts.probe) {
+        if (!opts.probe && !pdfB64) {
           const overrides = kind === "estimate" ? { kind: "estimate" } : {};
           if (opts.payUrl) overrides.payUrl = opts.payUrl;
           const blob =
             kind === "estimate"
-              ? buildEstimatePdfFromJob(job, overrides)
-              : buildInvoicePdfFromJob(job, overrides);
+              ? await buildEstimatePdfFromJob(job, overrides)
+              : await buildInvoicePdfFromJob(job, overrides);
           if (!blob) return { ok: false, error: "no_pdf" };
           pdfB64 = await blobToBase64(blob);
-          filename = docPdfFilename(kind, job, no) || `${kind}-${String(no || "document")}.pdf`;
         }
-        return await httpAllowErrorBody("send-doc-email", {
+        // Slim job payload — full status/history objects bloat the request and
+        // slow mobile sends. Server only needs fields for the email + PDF store.
+        const slimJob = pickJobForDocEmail(job);
+        const result = await httpAllowErrorBody("send-doc-email", {
           kind,
-          job,
+          job: slimJob,
           email: String(opts.email || job?.email || "").trim(),
           includePaymentLink: opts.includePaymentLink !== false,
           pdfB64,
@@ -219,16 +287,19 @@ export function createNetlifyAdapter() {
           probe: !!opts.probe,
           officeOnly: !!opts.officeOnly,
         });
+        return { ...result, pdfB64, filename };
       } catch (err) {
-        // Cloudflare often returns bare "error code: 502" (not JSON) when Resend is
-        // missing — surface a stable reason so the app queues office-Gmail fallback.
+        // Bare "error code: 502" from CF is NOT the same as missing Resend key —
+        // keep the PDF so the host can finish via office Gmail with full layout.
         const msg = String(err?.message || err);
         const is502 = /HTTP 502|502/.test(msg);
         return {
           ok: false,
           error: msg,
-          reason: is502 ? "no_api_key" : "send_failed",
-          dryRun: is502,
+          reason: is502 ? "http_502" : "send_failed",
+          dryRun: false,
+          pdfB64,
+          filename,
         };
       }
     },
@@ -324,11 +395,14 @@ export function createNetlifyAdapter() {
     /** Agent invoice-edit learning loop — ov._invoiceEditLearning (reserved key). */
     async appendInvoiceEditFeedback(entry) {
       const state = await freshState();
-      const ov = (state && state.ov) || {};
+      const ov = { ...((state && state.ov) || {}) };
       const cur = Array.isArray(ov._invoiceEditLearning) ? ov._invoiceEditLearning : [];
       ov._invoiceEditLearning = cur.concat([{ ...entry, ts: Date.now() }]).slice(-200);
       const res = await http("state", { ov });
-      if (res && res.ts) lastWriteTs = Math.max(lastWriteTs, res.ts);
+      if (res && res.ts) {
+        lastWriteTs = Math.max(lastWriteTs, res.ts);
+        cachedOv = ov;
+      }
       return { ok: true };
     },
 
@@ -342,11 +416,14 @@ export function createNetlifyAdapter() {
     async appendPaymentVisionFeedback(entry) {
       if (!entry || !Array.isArray(entry.deltas) || !entry.deltas.length) return { ok: false };
       const state = await freshState();
-      const ov = (state && state.ov) || {};
+      const ov = { ...((state && state.ov) || {}) };
       const cur = Array.isArray(ov._paymentVisionLearning) ? ov._paymentVisionLearning : [];
       ov._paymentVisionLearning = cur.concat([{ ...entry, ts: Date.now() }]).slice(-200);
       const res = await http("state", { ov });
-      if (res && res.ts) lastWriteTs = Math.max(lastWriteTs, res.ts);
+      if (res && res.ts) {
+        lastWriteTs = Math.max(lastWriteTs, res.ts);
+        cachedOv = ov;
+      }
       return { ok: true };
     },
 

@@ -6,7 +6,7 @@ import { DOC_SOURCE_LOCAL, DOC_SOURCE_QBO } from "../lib/docSource.js";
 import CustomerSearch from "./CustomerSearch.jsx";
 import { useStore } from "../state/store.jsx";
 import { useTenantConfig } from "../state/tenant.jsx";
-import { isQuickbooksEnabled, resolveDocSource } from "../lib/qboEnabled.js";
+import { isQuickbooksDocsEnabled, resolveDocSource } from "../lib/qboEnabled.js";
 import { useAppSettings } from "../lib/appSettings.js";
 import {
   EMAIL_POLICY_KEEP,
@@ -51,17 +51,21 @@ import {
 import { RECUR_INTERVALS, defaultRecurringState } from "../lib/recurringBilling.js";
 import { resumeFollowUpPrompts } from "../lib/calendarNavigate.js";
 
-/** Width that hugs the typed number (not a wide empty rectangle). */
-function numInputStyle(value, { minCh = 3, maxCh = 12, pad = 1 } = {}) {
+/** Width that hugs the typed number — hard floor so money never clips. */
+function numInputStyle(value, { minCh = 8, maxCh = 18, pad = 2 } = {}) {
   const s = String(value ?? "").trim();
   const ch = Math.max(minCh, Math.min(maxCh, (s.length || 1) + pad));
   return { width: ch + "ch", minWidth: minCh + "ch" };
 }
 
-/** Compact labeled number field. */
-function MetricFld({ label, children, testId }) {
+/** Labeled money field — hard min width so full rate / % / total never cut off. */
+function MetricFld({ label, children, testId, minWidth = "8.5rem" }) {
   return (
-    <div className="flex flex-col gap-0.5 shrink-0" data-testid={testId}>
+    <div
+      className="flex flex-col gap-0.5 flex-1 overflow-visible"
+      style={{ minWidth }}
+      data-testid={testId}
+    >
       <span className="text-[9px] font-bold uppercase tracking-wide text-slate-400 leading-none px-0.5">
         {label}
       </span>
@@ -205,12 +209,18 @@ function LineRow({
         placeholder="Description…"
       />
 
-      {/* Row 3: labeled number fields — only as wide as the digits */}
-      <div className="flex flex-wrap items-end gap-1.5" data-testid={"doc-line-metrics-" + (index + 1)}>
+      {/* Row 3: rate / qty|progress / amount — hard min widths so nothing clips */}
+      <div
+        className="grid w-full gap-2 items-end overflow-visible"
+        style={{
+          gridTemplateColumns: "minmax(8.5rem, 1.15fr) minmax(7rem, 1fr) minmax(8.5rem, 1.15fr)",
+        }}
+        data-testid={"doc-line-metrics-" + (index + 1)}
+      >
         <MetricFld label={progressMode ? "Full rate" : "Rate"} testId={"doc-line-rate-fld-" + (index + 1)}>
           <input
-            className="input !px-1.5 !py-1.5 text-sm text-right tabular-nums"
-            style={numInputStyle(line.unitPrice, { minCh: 4, maxCh: 12 })}
+            className="input !px-2 !py-1.5 text-sm text-right tabular-nums w-full overflow-visible"
+            style={numInputStyle(line.unitPrice, { minCh: 9, maxCh: 16 })}
             inputMode="decimal"
             value={line.unitPrice}
             onChange={(e) => onChange(index, { unitPrice: e.target.value })}
@@ -223,11 +233,15 @@ function LineRow({
           <MetricFld
             label={adjustMode === "pct" ? "Progress %" : "This bill $"}
             testId={"doc-line-progress-" + (index + 1)}
+            minWidth="7rem"
           >
-            <div className="flex items-center gap-0.5">
+            <div className="flex items-center gap-1 w-full overflow-visible">
               <input
-                className="input !px-1 !py-1.5 text-center text-sm tabular-nums"
-                style={numInputStyle(progressDisplay, { minCh: 3, maxCh: 10 })}
+                className="input !px-1.5 !py-1.5 text-center text-sm tabular-nums flex-1 overflow-visible"
+                style={numInputStyle(progressDisplay, {
+                  minCh: adjustMode === "pct" ? 6 : 9,
+                  maxCh: 14,
+                })}
                 inputMode="decimal"
                 value={progressDisplay}
                 onChange={(e) => onLineProgress && onLineProgress(index, e.target.value)}
@@ -238,7 +252,7 @@ function LineRow({
               />
               <button
                 type="button"
-                className="h-8 min-w-[1.75rem] px-1 rounded-lg border border-slate-200 bg-white text-[11px] font-extrabold text-slate-700"
+                className="h-9 shrink-0 min-w-[2rem] px-1.5 rounded-lg border border-slate-200 bg-white text-[11px] font-extrabold text-slate-700"
                 onClick={() => onAdjustModeChange && onAdjustModeChange(adjustMode === "pct" ? "amount" : "pct")}
                 aria-label={adjustMode === "pct" ? "Switch progress to dollars" : "Switch progress to percent"}
                 data-testid={"progress-mode-toggle-" + (index + 1)}
@@ -249,10 +263,10 @@ function LineRow({
             </div>
           </MetricFld>
         ) : (
-          <MetricFld label="Qty" testId={"doc-line-qty-fld-" + (index + 1)}>
+          <MetricFld label="Qty" testId={"doc-line-qty-fld-" + (index + 1)} minWidth="5.5rem">
             <input
-              className="input !px-1 !py-1.5 text-sm text-center tabular-nums"
-              style={numInputStyle(line.qty, { minCh: 2, maxCh: 8 })}
+              className="input !px-2 !py-1.5 text-sm text-center tabular-nums w-full overflow-visible"
+              style={numInputStyle(line.qty, { minCh: 4, maxCh: 10 })}
               inputMode="decimal"
               value={line.qty}
               onChange={(e) => onChange(index, { qty: e.target.value })}
@@ -264,8 +278,8 @@ function LineRow({
         )}
         <MetricFld label={progressMode ? "Line total" : "Amount"} testId={"doc-line-amount-fld-" + (index + 1)}>
           <div
-            className="input !px-1.5 !py-1.5 bg-slate-50 text-slate-700 font-semibold text-right text-sm tabular-nums"
-            style={numInputStyle(fmt$(due) || "$0", { minCh: 5, maxCh: 12, pad: 0 })}
+            className="input !px-2 !py-1.5 bg-slate-50 text-slate-700 font-semibold text-right text-sm tabular-nums w-full overflow-visible whitespace-nowrap"
+            style={numInputStyle(fmt$(due) || due, { minCh: 9, maxCh: 16 })}
             aria-label={"Due line " + (index + 1)}
             data-testid={"doc-line-amount-" + (index + 1)}
           >
@@ -364,7 +378,9 @@ export default function DocBuilderSheet({
   const tenantShortName = tenantConfig.profile?.shortName || "";
   const appSettings = useAppSettings();
   void appSettings.quickbooks;
-  const qboOn = isQuickbooksEnabled(tenantConfig);
+  void appSettings.quickbooksDocs;
+  // Send/view through QB only — integration can stay on for backend sync.
+  const qboOn = isQuickbooksDocsEnabled(tenantConfig);
   const boardJobs = allJobs || storeJobs;
   const [job, setJob] = useState(() => jobProp || {});
   useEffect(() => {
@@ -715,12 +731,20 @@ export default function DocBuilderSheet({
 
   const primaryEmail = (raw) =>
     String(raw || "")
-      .split(/[,;\s]+/)
+      .split(/[,;]+/)
       .map((s) => s.trim())
-      .filter(Boolean)[0] || "";
+      .filter((s) => s.includes("@"))[0] || "";
+
+  /** Full multi-recipient string for send (preserve all addresses). */
+  const allEmails = (raw) =>
+    String(raw || "")
+      .split(/[,;]+/)
+      .map((s) => s.trim())
+      .filter((s) => s.includes("@"))
+      .join(", ");
 
   const emailDiffers = (raw) =>
-    sendEmailDiffersFromCustomer(primaryEmail(raw != null ? raw : sendEmails), job.email);
+    sendEmailDiffersFromCustomer(raw != null ? raw : sendEmails, job.email);
 
   const downloadLocalPdf = async (jobForPdf) => {
     try {
@@ -729,8 +753,8 @@ export default function DocBuilderSheet({
       const { docPdfFilename } = await import("../lib/jobToQbDoc.js");
       const blob =
         kind === "estimate"
-          ? buildEstimatePdfFromJob(jobForPdf)
-          : buildInvoicePdfFromJob(jobForPdf);
+          ? await buildEstimatePdfFromJob(jobForPdf)
+          : await buildInvoicePdfFromJob(jobForPdf);
       if (!blob) return;
       const no = kind === "invoice" ? jobForPdf.invoiceNo : jobForPdf.estimateNo;
       const filename = docPdfFilename(kind, jobForPdf, no || "DRAFT") || `${kind}-draft.pdf`;
@@ -848,11 +872,17 @@ export default function DocBuilderSheet({
    * @param {{ email?: string, message?: string, includePaymentLink?: boolean, docSource?: string, close?: boolean }} opts
    */
   const submitSync = async (send, opts = {}) => {
-    const emailTo = primaryEmail(opts.email != null ? opts.email : sendEmails) || job.email || "";
+    const emailTo =
+      allEmails(opts.email != null ? opts.email : sendEmails) ||
+      primaryEmail(opts.email != null ? opts.email : sendEmails) ||
+      job.email ||
+      "";
     const valid = validate(send, emailTo);
     if (!valid) return;
 
     setSaving(true);
+    // Close email sheet immediately so typing/send feels snappy; work continues.
+    if (send) setEmailSheet(false);
     try {
       const jobId = await ensureJobId();
       if (!jobId) {
@@ -945,6 +975,10 @@ export default function DocBuilderSheet({
         } catch (err) {
           res = { ok: false, error: String(err?.message || err) };
         }
+        const pdfB64 = res?.pdfB64 || "";
+        const filename =
+          res?.filename ||
+          `${kind === "estimate" ? "Estimate" : "Invoice"}-${no || "document"}.pdf`;
         // Always log + enqueue so Activity shows the attempt (and host can retry if needed).
         const payload =
           kind === "invoice"
@@ -959,6 +993,9 @@ export default function DocBuilderSheet({
                 attachments: attsForEmail,
                 includeAttachmentsInEmail: attsForEmail.length > 0,
                 job: pdfJob,
+                pdfB64: pdfB64 || undefined,
+                filename,
+                viewLink: res?.viewLink || "",
                 clientSend: res || undefined,
               }
             : {
@@ -969,6 +1006,9 @@ export default function DocBuilderSheet({
                 attachments: attsForEmail,
                 includeAttachmentsInEmail: attsForEmail.length > 0,
                 job: pdfJob,
+                pdfB64: pdfB64 || undefined,
+                filename,
+                viewLink: res?.viewLink || "",
                 clientSend: res || undefined,
               };
         if (res?.ok && res.sent) {
@@ -979,22 +1019,15 @@ export default function DocBuilderSheet({
               (withPay ? " + payment link" : ""),
             emailTo
           );
-          await downloadLocalPdf(pdfJob);
           showToast(
             "Emailed " + (kind === "estimate" ? "estimate" : "invoice") + " to " + emailTo
           );
-        } else if (res?.dryRun || res?.reason === "no_api_key") {
-          showToast(
-            "Email not set up on the server yet — nothing was sent. Use Send through QB for now."
-          );
-          setSaving(false);
-          return;
         } else if (res?.skipped || res?.reason === "test_email_unset" || res?.reason === "no_recipient") {
           showToast("Could not send — check the email address and try again.");
           setSaving(false);
           return;
         } else if (res && !res.ok) {
-          // Fall back to command bus so host/listener can retry.
+          // Fall back to command bus so host/listener can retry (with PDF).
           await enqueue(
             "send_" + kind,
             jobId,
@@ -1009,12 +1042,7 @@ export default function DocBuilderSheet({
               (withPay ? " + payment link" : ""),
             emailTo
           );
-          await downloadLocalPdf(pdfJob);
-          showToast(
-            "Queued local email to " +
-              emailTo +
-              (res.error || res.reason ? " (" + String(res.error || res.reason).slice(0, 60) + ")" : "")
-          );
+          showToast("Finishing send in the background — you'll get a toast when it lands");
         } else {
           // No client API — queue for host listener (legacy).
           await enqueue(
@@ -1031,7 +1059,6 @@ export default function DocBuilderSheet({
               (withPay ? " + payment link" : ""),
             emailTo
           );
-          await downloadLocalPdf(pdfJob);
           showToast("Sending local " + (kind === "estimate" ? "estimate" : "invoice") + " to " + emailTo + "…");
         }
       } else {
@@ -1183,8 +1210,8 @@ export default function DocBuilderSheet({
           <label className="flex items-center gap-1.5 text-xs text-slate-700">
             <span className="font-bold text-slate-500 uppercase tracking-wide text-[10px]">Full</span>
             <input
-              className="input !py-1 !px-1.5 !w-auto text-sm font-bold tabular-nums text-slate-900"
-              style={numInputStyle(contractAmount || liveContract || "", { minCh: 5, maxCh: 12 })}
+              className="input !py-1 !px-1.5 !w-auto text-sm font-bold tabular-nums text-slate-900 overflow-visible"
+              style={numInputStyle(contractAmount || liveContract || "", { minCh: 9, maxCh: 18 })}
               inputMode="decimal"
               value={contractAmount}
               onChange={(e) => {
@@ -1262,7 +1289,11 @@ export default function DocBuilderSheet({
             {discountType === "percent" ? "%" : "$"}
           </button>
           <input
-            className="input !w-[4.5rem] !px-1.5 !py-2 text-sm"
+            className="input !px-1.5 !py-2 text-sm overflow-visible tabular-nums"
+            style={numInputStyle(discountValue, {
+              minCh: discountType === "percent" ? 5 : 8,
+              maxCh: 14,
+            })}
             inputMode="decimal"
             value={discountValue}
             onChange={(e) => setDiscountValue(e.target.value)}
@@ -1486,8 +1517,12 @@ export default function DocBuilderSheet({
             <Fld label="Send to" hint="Separate multiple emails with a comma">
               <input
                 className="input"
-                type="email"
-                multiple
+                type="text"
+                inputMode="email"
+                autoComplete="email"
+                autoCorrect="off"
+                autoCapitalize="none"
+                spellCheck={false}
                 value={sendEmails}
                 onChange={(e) => {
                   setSendEmails(e.target.value);
