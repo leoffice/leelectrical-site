@@ -65,11 +65,27 @@ onTenantConfigChange(() => {
  * TenantProvider publishes the real config asynchronously after boot.
  */
 function reqProfile() {
-  const raw = activeTenantConfig()?.profile?.requisition;
-  const merged =
-    raw && typeof raw === "object"
-      ? { ...DEFAULT_PROFILE.requisition, ...raw }
-      : { ...DEFAULT_PROFILE.requisition };
+  const main = activeTenantConfig()?.profile || {};
+  const raw = main.requisition && typeof main.requisition === "object" ? main.requisition : {};
+  // Prefer the explicit requisition block; fill gaps from the company profile
+  // so Settings → Company email/name/phone land on G702 printouts. Never fill
+  // a white-label gap from the LE Suite-297 seed (that would leak LE contact info).
+  const companyAddress = [main.street, main.cityStateZip].filter(Boolean);
+  const hasAnyReq = Object.keys(raw).length > 0;
+  const merged = {
+    companyName: raw.companyName || main.companyName || (hasAnyReq ? "" : DEFAULT_PROFILE.requisition.companyName),
+    addressLines:
+      Array.isArray(raw.addressLines) && raw.addressLines.length
+        ? raw.addressLines
+        : companyAddress.length
+          ? companyAddress
+          : hasAnyReq
+            ? []
+            : [...DEFAULT_PROFILE.requisition.addressLines],
+    phone: raw.phone || main.phone || (hasAnyReq ? "" : DEFAULT_PROFILE.requisition.phone),
+    email: raw.email || main.email || (hasAnyReq ? "" : DEFAULT_PROFILE.requisition.email),
+    signerName: raw.signerName || (hasAnyReq ? "" : DEFAULT_PROFILE.requisition.signerName),
+  };
   DEFAULT_REQ_COMPANY_NAME = merged.companyName || "";
   return merged;
 }

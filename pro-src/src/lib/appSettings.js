@@ -11,6 +11,12 @@ const DEFAULT_LOGO = () =>
     ? import.meta.env.BASE_URL + "le-logo.png?v=6"
     : "/app/pro/le-logo.png?v=6";
 
+/**
+ * In-memory mirror of the company logo. Survives localStorage quota failures
+ * for the rest of the session so View Local Invoice still picks up an upload.
+ */
+let companyLogoMemory = "";
+
 function storage() {
   try {
     return globalThis.localStorage || null;
@@ -80,6 +86,7 @@ export function setQuickbooksFeatureEnabled(on) {
 
 /** Custom logo data URL, or empty string when using the built-in logo. */
 export function getCompanyLogoDataUrl() {
+  if (companyLogoMemory) return companyLogoMemory;
   const ls = storage();
   if (!ls) return "";
   try {
@@ -96,14 +103,21 @@ export function getCompanyLogoSrc() {
   return DEFAULT_LOGO();
 }
 
+/**
+ * Persist the company logo for PDFs + chrome.
+ * Always updates the in-memory cache; localStorage is best-effort (quota).
+ */
 export function setCompanyLogoDataUrl(dataUrl) {
+  const next = dataUrl ? String(dataUrl) : "";
+  companyLogoMemory = next;
   const ls = storage();
-  if (!ls) return;
-  try {
-    if (dataUrl) ls.setItem(COMPANY_LOGO_KEY, dataUrl);
-    else ls.removeItem(COMPANY_LOGO_KEY);
-  } catch {
-    /* ignore */
+  if (ls) {
+    try {
+      if (next) ls.setItem(COMPANY_LOGO_KEY, next);
+      else ls.removeItem(COMPANY_LOGO_KEY);
+    } catch {
+      /* quota / private mode — memory still holds the logo this session */
+    }
   }
   notify();
 }
@@ -113,10 +127,10 @@ export function clearCompanyLogo() {
 }
 
 /**
- * Read an image file, downscale to max edge, return a JPEG/PNG data URL.
+ * Read an image file, downscale to max edge, return a JPEG data URL.
  * Keeps localStorage size reasonable for a company logo.
  */
-export function readLogoFileAsDataUrl(file, maxEdge = 512) {
+export function readLogoFileAsDataUrl(file, maxEdge = 384) {
   return new Promise((resolve, reject) => {
     if (!file || !String(file.type || "").startsWith("image/")) {
       reject(new Error("Pick an image file"));
@@ -156,8 +170,9 @@ export function readLogoFileAsDataUrl(file, maxEdge = 512) {
           ctx.fillStyle = "#ffffff";
           ctx.fillRect(0, 0, width, height);
           ctx.drawImage(img, 0, 0, width, height);
-          const out =
-            file.type === "image/png" ? canvas.toDataURL("image/png") : canvas.toDataURL("image/jpeg", 0.9);
+          // Always JPEG so invoice/estimate PDFs can embed the logo without
+          // an extra conversion step (PDF writer uses DCTDecode only).
+          const out = canvas.toDataURL("image/jpeg", 0.9);
           resolve(out);
         } catch (e) {
           reject(e);

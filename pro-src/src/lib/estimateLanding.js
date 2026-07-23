@@ -55,12 +55,12 @@ export function buildEstimateJobFromPayload(data) {
 }
 
 /** Build estimate PDF blob from landing payload (client qb-pdf). */
-export function buildEstimatePdfBlobFromPayload(data) {
+export async function buildEstimatePdfBlobFromPayload(data) {
   const job = buildEstimateJobFromPayload(data);
   if (!job.estimateNo && !job.estimateLines?.length && !(job.amount > 0)) {
     return { ok: false, error: "no_data", job };
   }
-  const blob = buildEstimatePdfFromJob(job);
+  const blob = await buildEstimatePdfFromJob(job);
   if (!blob) return { ok: false, error: "no_pdf", job };
   return { ok: true, blob, job };
 }
@@ -124,12 +124,12 @@ export function buildInvoiceJobFromPayload(data) {
 }
 
 /** Build invoice PDF blob from landing payload (client qb-pdf) — no office computer needed. */
-export function buildInvoicePdfBlobFromPayload(data) {
+export async function buildInvoicePdfBlobFromPayload(data) {
   const job = buildInvoiceJobFromPayload(data);
   if (!job.invoiceNo && !(job.amount > 0)) {
     return { ok: false, error: "no_data", job };
   }
-  const blob = buildInvoicePdfFromJob(job);
+  const blob = await buildInvoicePdfFromJob(job);
   if (!blob) return { ok: false, error: "no_pdf", job };
   return { ok: true, blob, job };
 }
@@ -193,7 +193,7 @@ export async function blobToBase64(blob) {
 /** Build deposit invoice PDF (client qb-pdf) for the estimate-action API. */
 export async function buildDepositInvoicePdfB64(data, opts = {}) {
   const job = buildDepositInvoiceJob(data, opts);
-  const blob = buildInvoicePdfFromJob(job);
+  const blob = await buildInvoicePdfFromJob(job);
   if (!blob) return { ok: false, error: "no_pdf", job };
   const pdfB64 = await blobToBase64(blob);
   return { ok: true, pdfB64, job, invoiceNo: job.invoiceNo, amount: job.amount };

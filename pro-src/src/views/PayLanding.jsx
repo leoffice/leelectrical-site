@@ -268,8 +268,8 @@ export default function PayLanding() {
       // (estimates + invoices — no office computer required).
       try {
         const built = isEstimateLanding(data)
-          ? buildEstimatePdfBlobFromPayload(data)
-          : buildInvoicePdfBlobFromPayload(data);
+          ? await buildEstimatePdfBlobFromPayload(data)
+          : await buildInvoicePdfBlobFromPayload(data);
         if (built.ok && built.blob) {
           revokeLocal();
           const url = URL.createObjectURL(built.blob);
@@ -395,7 +395,7 @@ export default function PayLanding() {
     // Estimates: never wait on host — build from payload if needed.
     if (isEstimate) {
       try {
-        if (openLocalBuiltPdf(buildEstimatePdfBlobFromPayload(data))) return;
+        if (openLocalBuiltPdf(await buildEstimatePdfBlobFromPayload(data))) return;
       } catch {
         /* fall through */
       }
@@ -435,7 +435,7 @@ export default function PayLanding() {
     }
     // Last resort: pure client build (same layout as office).
     try {
-      if (openLocalBuiltPdf(buildInvoicePdfBlobFromPayload(data))) return;
+      if (openLocalBuiltPdf(await buildInvoicePdfBlobFromPayload(data))) return;
     } catch {
       /* fall through */
     }
@@ -717,36 +717,35 @@ export default function PayLanding() {
                   <button
                     type="button"
                     className="text-sm font-bold text-brand"
-                    onClick={() => {
+                    onClick={async () => {
                       if (!data) return;
                       if (storePdfSrc) {
-                        invoicePdfAvailable(storePdfSrc).then((ok) => {
-                          if (ok) {
-                            setLocalEstPdfUrl("");
-                            setPdfReady(true);
-                            setPdfErr("");
-                            return;
-                          }
-                          const built = buildEstimatePdfBlobFromPayload(data);
-                          if (built.ok && built.blob) {
-                            if (localEstPdfUrlRef.current) {
-                              try {
-                                URL.revokeObjectURL(localEstPdfUrlRef.current);
-                              } catch {
-                                /* ignore */
-                              }
+                        const ok = await invoicePdfAvailable(storePdfSrc);
+                        if (ok) {
+                          setLocalEstPdfUrl("");
+                          setPdfReady(true);
+                          setPdfErr("");
+                          return;
+                        }
+                        const built = await buildEstimatePdfBlobFromPayload(data);
+                        if (built.ok && built.blob) {
+                          if (localEstPdfUrlRef.current) {
+                            try {
+                              URL.revokeObjectURL(localEstPdfUrlRef.current);
+                            } catch {
+                              /* ignore */
                             }
-                            const url = URL.createObjectURL(built.blob);
-                            localEstPdfUrlRef.current = url;
-                            setLocalEstPdfUrl(url);
-                            setPdfReady(true);
-                            setPdfErr("");
-                          } else {
-                            setPdfReady(false);
                           }
-                        });
+                          const url = URL.createObjectURL(built.blob);
+                          localEstPdfUrlRef.current = url;
+                          setLocalEstPdfUrl(url);
+                          setPdfReady(true);
+                          setPdfErr("");
+                        } else {
+                          setPdfReady(false);
+                        }
                       } else {
-                        const built = buildEstimatePdfBlobFromPayload(data);
+                        const built = await buildEstimatePdfBlobFromPayload(data);
                         if (built.ok && built.blob) {
                           const url = URL.createObjectURL(built.blob);
                           localEstPdfUrlRef.current = url;
