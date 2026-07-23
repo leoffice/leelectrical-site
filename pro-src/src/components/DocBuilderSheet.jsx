@@ -58,10 +58,10 @@ function numInputStyle(value, { minCh = 3, maxCh = 12, pad = 1 } = {}) {
   return { width: ch + "ch", minWidth: minCh + "ch" };
 }
 
-/** Compact labeled number field. */
+/** Labeled number field — grows to share the full line width. */
 function MetricFld({ label, children, testId }) {
   return (
-    <div className="flex flex-col gap-0.5 shrink-0" data-testid={testId}>
+    <div className="flex flex-col gap-0.5 min-w-0 flex-1" data-testid={testId}>
       <span className="text-[9px] font-bold uppercase tracking-wide text-slate-400 leading-none px-0.5">
         {label}
       </span>
@@ -205,12 +205,14 @@ function LineRow({
         placeholder="Description…"
       />
 
-      {/* Row 3: labeled number fields — only as wide as the digits */}
-      <div className="flex flex-wrap items-end gap-1.5" data-testid={"doc-line-metrics-" + (index + 1)}>
+      {/* Row 3: rate / qty|progress / amount — equal share of the full line width */}
+      <div
+        className="grid grid-cols-3 gap-2 w-full items-end"
+        data-testid={"doc-line-metrics-" + (index + 1)}
+      >
         <MetricFld label={progressMode ? "Full rate" : "Rate"} testId={"doc-line-rate-fld-" + (index + 1)}>
           <input
-            className="input !px-1.5 !py-1.5 text-sm text-right tabular-nums"
-            style={numInputStyle(line.unitPrice, { minCh: 4, maxCh: 12 })}
+            className="input !px-2 !py-1.5 text-sm text-right tabular-nums w-full min-w-0"
             inputMode="decimal"
             value={line.unitPrice}
             onChange={(e) => onChange(index, { unitPrice: e.target.value })}
@@ -224,10 +226,9 @@ function LineRow({
             label={adjustMode === "pct" ? "Progress %" : "This bill $"}
             testId={"doc-line-progress-" + (index + 1)}
           >
-            <div className="flex items-center gap-0.5">
+            <div className="flex items-center gap-1 w-full min-w-0">
               <input
-                className="input !px-1 !py-1.5 text-center text-sm tabular-nums"
-                style={numInputStyle(progressDisplay, { minCh: 3, maxCh: 10 })}
+                className="input !px-1.5 !py-1.5 text-center text-sm tabular-nums w-full min-w-0 flex-1"
                 inputMode="decimal"
                 value={progressDisplay}
                 onChange={(e) => onLineProgress && onLineProgress(index, e.target.value)}
@@ -238,7 +239,7 @@ function LineRow({
               />
               <button
                 type="button"
-                className="h-8 min-w-[1.75rem] px-1 rounded-lg border border-slate-200 bg-white text-[11px] font-extrabold text-slate-700"
+                className="h-9 shrink-0 min-w-[2rem] px-1.5 rounded-lg border border-slate-200 bg-white text-[11px] font-extrabold text-slate-700"
                 onClick={() => onAdjustModeChange && onAdjustModeChange(adjustMode === "pct" ? "amount" : "pct")}
                 aria-label={adjustMode === "pct" ? "Switch progress to dollars" : "Switch progress to percent"}
                 data-testid={"progress-mode-toggle-" + (index + 1)}
@@ -251,8 +252,7 @@ function LineRow({
         ) : (
           <MetricFld label="Qty" testId={"doc-line-qty-fld-" + (index + 1)}>
             <input
-              className="input !px-1 !py-1.5 text-sm text-center tabular-nums"
-              style={numInputStyle(line.qty, { minCh: 2, maxCh: 8 })}
+              className="input !px-2 !py-1.5 text-sm text-center tabular-nums w-full min-w-0"
               inputMode="decimal"
               value={line.qty}
               onChange={(e) => onChange(index, { qty: e.target.value })}
@@ -264,8 +264,7 @@ function LineRow({
         )}
         <MetricFld label={progressMode ? "Line total" : "Amount"} testId={"doc-line-amount-fld-" + (index + 1)}>
           <div
-            className="input !px-1.5 !py-1.5 bg-slate-50 text-slate-700 font-semibold text-right text-sm tabular-nums"
-            style={numInputStyle(fmt$(due) || "$0", { minCh: 5, maxCh: 12, pad: 0 })}
+            className="input !px-2 !py-1.5 bg-slate-50 text-slate-700 font-semibold text-right text-sm tabular-nums w-full min-w-0"
             aria-label={"Due line " + (index + 1)}
             data-testid={"doc-line-amount-" + (index + 1)}
           >

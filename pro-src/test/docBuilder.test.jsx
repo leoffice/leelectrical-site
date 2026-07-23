@@ -209,7 +209,7 @@ describe("Estimate / invoice builder", () => {
     expect(screen.getByTestId("doc-discount-panel")).toContainElement(screen.getByTestId("doc-total"));
     expect(screen.getByTestId("doc-discount-input")).toBeInTheDocument();
     expect(screen.getByTestId("doc-add-line")).toBeInTheDocument();
-    // Metrics sit beside description on the line row.
+    // Metrics row (rate / qty / amount) under description — full line width.
     expect(screen.getByTestId("doc-line-metrics-1")).toBeInTheDocument();
     expect(screen.getByTestId("doc-line-desc-1")).toBeInTheDocument();
   });
