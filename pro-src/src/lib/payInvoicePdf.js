@@ -101,7 +101,7 @@ export async function retrieveInvoicePdf({
   // Client-side fallback — same layout as office PDFs, built from the pay link.
   if (payload) {
     try {
-      const built = buildInvoicePdfBlobFromPayload(payload);
+      const built = await buildInvoicePdfBlobFromPayload(payload);
       if (built.ok && built.blob) {
         const blobUrl = URL.createObjectURL(built.blob);
         onPhase?.("ready");

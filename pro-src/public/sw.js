@@ -1,8 +1,7 @@
 /* LE Pro service worker — simple cache-first for static assets.
  * API calls (/.netlify/functions/*) always go to the network.
  * Bump CACHE version to invalidate old assets after a deploy. */
-const CACHE = "le-pro-v217";
-const CORE = ["/app/pro/", "/app/pro/index.html", "/app/pro/manifest.json"];
+const CACHE = "le-pro-v219";
 
 self.addEventListener("install", (e) => {
   e.waitUntil(

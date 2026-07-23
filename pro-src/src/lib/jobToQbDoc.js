@@ -5,7 +5,7 @@ import { amountPaid, invoiceTotal, openBalance } from "./customers.js";
 import { effectiveServiceAddress } from "./customerSync.js";
 import { fmtInvoiceDate } from "./invoicePdf.js";
 import { changeOrderPrintDocNumber, isChangeOrderJob } from "./changeOrder.js";
-import { activeTenantConfig, tenantCompany } from "./tenantBranding.js";
+import { tenantCompany, tenantZelleInstructions } from "./tenantBranding.js";
 import { formatPrintDescription } from "./printDescription.js";
 
 /**
@@ -34,14 +34,14 @@ export function qbCompany() {
  */
 export function invoicePaymentLines() {
   const c = tenantCompany();
-  const p = activeTenantConfig().profile || {};
+  const zelle = tenantZelleInstructions();
   return [
     'Online Payment: Click the "View Invoice" tab in the email and pay',
     "via the provided credit card payment link.",
-    `-${p.zelleInstructions}`,
+    zelle ? `-${zelle}` : null,
     `-Check: Make checks payable to "${c.name}" and either: Mail`,
     `it or Email a clear picture of the check to ${c.email}.`,
-  ];
+  ].filter((ln) => ln != null);
 }
 
 export function invoiceClosingLines() {

@@ -19,7 +19,7 @@ import {
   useAppSettings,
 } from "../lib/appSettings.js";
 import { useTenantConfig } from "../state/tenant.jsx";
-import { tenantChrome } from "../lib/tenantBranding.js";
+import { applyCompanyLogoToActiveConfig, tenantChrome } from "../lib/tenantBranding.js";
 
 function odPill(od) {
   if (!od) return '<span class="inline-block text-[10px] font-extrabold px-1.5 py-0.5 rounded bg-emerald-50 text-emerald-700">current</span>';
@@ -660,7 +660,8 @@ function CompanyInfoSettings({ showToast }) {
     try {
       const dataUrl = await readLogoFileAsDataUrl(file);
       setCompanyLogoDataUrl(dataUrl);
-      showToast?.("Company logo updated");
+      applyCompanyLogoToActiveConfig(dataUrl);
+      showToast?.("Company logo updated — used on invoices right away");
     } catch {
       showToast?.("Couldn’t read that image — try another file");
     } finally {
@@ -708,6 +709,7 @@ function CompanyInfoSettings({ showToast }) {
                 className="btn-ghost !py-1.5 !px-2.5 text-[11px]"
                 onClick={() => {
                   clearCompanyLogo();
+                  applyCompanyLogoToActiveConfig("");
                   showToast?.("Restored default logo");
                 }}
                 data-testid="company-logo-reset"

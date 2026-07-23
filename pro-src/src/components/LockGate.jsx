@@ -20,6 +20,7 @@ import {
 import { getCompanyLogoSrc } from "../lib/appSettings.js";
 import { productName, tenantName } from "../lib/tenantBranding.js";
 import { redeemAgentAccess } from "../lib/agentAccessClient.js";
+import { DEMO, DEMO_CREDENTIALS } from "../lib/demoMode.js";
 
 // A pending native passkey prompt must never trap the user. If the device
 // never answers (no platform authenticator, unenrolled, hung WebAuthn call),
@@ -33,11 +34,12 @@ export default function LockGate({ children }) {
     return ok;
   });
   const [bioAvail, setBioAvail] = useState(false);
-  const [mode, setMode] = useState("biometric"); // "biometric" | "password" | "agent"
+  // Demo builds land straight on the password view with the login pre-filled.
+  const [mode, setMode] = useState(DEMO ? "password" : "biometric"); // "biometric" | "password" | "agent"
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState("");
-  const [email, setEmail] = useState("");
-  const [password, setPassword] = useState("");
+  const [email, setEmail] = useState(DEMO ? DEMO_CREDENTIALS.email : "");
+  const [password, setPassword] = useState(DEMO ? DEMO_CREDENTIALS.password : "");
   const [agentCode, setAgentCode] = useState("");
 
   const enrolled = hasEnrolledCredential();
@@ -78,6 +80,12 @@ export default function LockGate({ children }) {
   // Detect biometric availability; skip auto-prompt on reload or blocked camera.
   useEffect(() => {
     if (unlocked) return;
+    // Demo: no passkeys on a shared demo URL — password login only.
+    if (DEMO) {
+      setBioAvail(false);
+      setMode("password");
+      return;
+    }
     let alive = true;
     (async () => {
       const [ok, camBlocked, auto] = await Promise.all([
@@ -280,6 +288,17 @@ export default function LockGate({ children }) {
             >
               Have an agent code?
             </button>
+          </div>
+        )}
+
+        {DEMO && mode === "password" && (
+          <div
+            className="w-full mb-4 rounded-xl bg-blue-500/20 border border-blue-300/40 text-white text-sm px-4 py-3 text-center"
+            data-testid="demo-login-hint"
+          >
+            <div className="font-bold mb-1">Demo login — pre-filled, just tap Unlock</div>
+            <div className="font-mono text-xs opacity-90">{DEMO_CREDENTIALS.email}</div>
+            <div className="font-mono text-xs opacity-90">password: {DEMO_CREDENTIALS.password}</div>
           </div>
         )}
 

@@ -226,7 +226,18 @@ export function resolveTenantConfig(raw, { fallbackTenantId = BUILD_TENANT_ID } 
     ...(r.branding && typeof r.branding === "object" ? r.branding : {}),
   };
 
-  const profile = mergeProfile({ ...(seed.profile || {}), ...(r.profile || {}) });
+  // Company profile: when a tenant supplies its own name/email, do not inherit
+  // the seed's requisition block (LE Suite 297 / LE@ mailbox). Printouts should
+  // follow Settings → Company for white-label and demo tenants.
+  const seedProfile = { ...(seed.profile || {}) };
+  const rawProfile = r.profile && typeof r.profile === "object" ? { ...r.profile } : {};
+  const hasOwnCompany =
+    !!(rawProfile.companyName && rawProfile.companyName !== seedProfile.companyName) ||
+    !!(rawProfile.email && String(rawProfile.email).toLowerCase() !== String(seedProfile.email || "").toLowerCase());
+  if (hasOwnCompany && !Object.prototype.hasOwnProperty.call(rawProfile, "requisition")) {
+    delete seedProfile.requisition;
+  }
+  const profile = mergeProfile({ ...seedProfile, ...rawProfile });
 
   // Branding is the source of truth for the fields the two shapes share, so a
   // tenant editing "company name" once updates the app chrome and the PDFs.

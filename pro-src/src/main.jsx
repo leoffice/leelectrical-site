@@ -9,6 +9,13 @@ import { StoreProvider } from "./state/store.jsx";
 import { TenantProvider } from "./state/tenant.jsx";
 import "./index.css";
 import { checkForAppUpdate, watchServiceWorkerUpdates, watchForegroundUpdates } from "./lib/appUpdate.js";
+import { DEMO } from "./lib/demoMode.js";
+import { installDemoBackend } from "./demo/demoBackend.js";
+
+// DEMO / white-label TEST TENANT: intercept every backend call and serve a
+// synthetic, isolated store BEFORE any provider mounts or any fetch fires.
+// This is what guarantees a demo build can never reach real production data.
+if (DEMO) installDemoBackend();
 
 /** Public customer pay page — no biometric/password gate. */
 function PayOrApp() {
@@ -44,7 +51,9 @@ createRoot(document.getElementById("root")).render(
 );
 
 // PWA: register the service worker (cache-first assets, offline shell).
-if ("serviceWorker" in navigator && !location.hostname.includes("localhost")) {
+// Skipped in demo mode — a shared demo URL should not install a SW or cache a
+// stale shell, and the demo has no offline story to keep.
+if (!DEMO && "serviceWorker" in navigator && !location.hostname.includes("localhost")) {
   watchServiceWorkerUpdates();
   // Long-open PWAs only fire `load` once; also re-check when refocused so a new
   // deploy reaches the device without a full relaunch.
