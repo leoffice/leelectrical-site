@@ -72,12 +72,27 @@ export function createNetlifyAdapter() {
   // GET right after our own write can return the PREVIOUS snapshot — merging
   // into that (saveJob) or rendering it (refresh) silently reverts edits.
   let lastWriteTs = 0;
+  // Last full ov we POSTed. Used only when a GET is still lagging behind our
+  // write — prefer this over multi-second retry sleeps (keeps Save snappy).
+  let cachedOv = null;
   const freshState = async () => {
-    for (let i = 0; ; i++) {
-      const state = (await http(`state?${cb()}`)) || { ov: {}, ts: 0 };
-      if (!lastWriteTs || (state.ts || 0) >= lastWriteTs || i >= 3) return state;
-      await new Promise((r) => setTimeout(r, 350 * (i + 1))); // blob lag — retry
+    // Always GET once (picks up other-device writes). If blob is lagging behind
+    // our last POST, return the session cache immediately — no 0.35–2s sleep.
+    const state = (await http(`state?${cb()}`)) || { ov: {}, ts: 0 };
+    if (!lastWriteTs || (state.ts || 0) >= lastWriteTs) {
+      cachedOv = state.ov || {};
+      if ((state.ts || 0) > lastWriteTs) lastWriteTs = state.ts || lastWriteTs;
+      return state;
     }
+    if (cachedOv) return { ov: cachedOv, ts: lastWriteTs };
+    // No cache yet — one short retry, then accept what we have.
+    await new Promise((r) => setTimeout(r, 120));
+    const again = (await http(`state?${cb()}`)) || { ov: {}, ts: 0 };
+    if ((again.ts || 0) >= lastWriteTs || !cachedOv) {
+      cachedOv = again.ov || {};
+      return again;
+    }
+    return { ov: cachedOv, ts: lastWriteTs };
   };
   return {
     name: "netlify",
@@ -130,10 +145,14 @@ export function createNetlifyAdapter() {
     async saveJob(id, patch) {
       const run = async () => {
         const state = await freshState();
-        const ov = (state && state.ov) || {};
-        ov[id] = deepMerge(ov[id] || {}, patch || {});
+        const baseOv = (state && state.ov) || {};
+        const ov = { ...baseOv };
+        ov[id] = deepMerge(baseOv[id] || {}, patch || {});
         const res = await http("state", { ov });
-        if (res && res.ts) lastWriteTs = Math.max(lastWriteTs, res.ts);
+        if (res && res.ts) {
+          lastWriteTs = Math.max(lastWriteTs, res.ts);
+          cachedOv = ov;
+        }
         return { ok: true, ts: res && res.ts, ov: ov[id] };
       };
       const p = saveQ.then(run, run);
@@ -324,11 +343,14 @@ export function createNetlifyAdapter() {
     /** Agent invoice-edit learning loop — ov._invoiceEditLearning (reserved key). */
     async appendInvoiceEditFeedback(entry) {
       const state = await freshState();
-      const ov = (state && state.ov) || {};
+      const ov = { ...((state && state.ov) || {}) };
       const cur = Array.isArray(ov._invoiceEditLearning) ? ov._invoiceEditLearning : [];
       ov._invoiceEditLearning = cur.concat([{ ...entry, ts: Date.now() }]).slice(-200);
       const res = await http("state", { ov });
-      if (res && res.ts) lastWriteTs = Math.max(lastWriteTs, res.ts);
+      if (res && res.ts) {
+        lastWriteTs = Math.max(lastWriteTs, res.ts);
+        cachedOv = ov;
+      }
       return { ok: true };
     },
 
@@ -342,11 +364,14 @@ export function createNetlifyAdapter() {
     async appendPaymentVisionFeedback(entry) {
       if (!entry || !Array.isArray(entry.deltas) || !entry.deltas.length) return { ok: false };
       const state = await freshState();
-      const ov = (state && state.ov) || {};
+      const ov = { ...((state && state.ov) || {}) };
       const cur = Array.isArray(ov._paymentVisionLearning) ? ov._paymentVisionLearning : [];
       ov._paymentVisionLearning = cur.concat([{ ...entry, ts: Date.now() }]).slice(-200);
       const res = await http("state", { ov });
-      if (res && res.ts) lastWriteTs = Math.max(lastWriteTs, res.ts);
+      if (res && res.ts) {
+        lastWriteTs = Math.max(lastWriteTs, res.ts);
+        cachedOv = ov;
+      }
       return { ok: true };
     },
 

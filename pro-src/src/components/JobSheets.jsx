@@ -2956,35 +2956,42 @@ export function CustEditSheet({ job, onClose }) {
     [api, jobs]
   );
 
-  const saveAndSync = async () => {
+  const saveAndSync = () => {
     const patch = buildPatch();
-    try {
-      await patchAndSave(job.id, patch);
-      const updated = { ...job, ...patch };
-      const qid = String(patch.qboCustomerId || "").trim();
-      if (qid) {
-        enqueue(
-          "update_customer",
-          job.id,
-          { id: qid, ...customerSyncPayload(updated) },
-          "deterministic",
-          "update_customer|" + job.id + "|" + Date.now()
-        );
-        showToast("Saved & syncing update to QuickBooks…");
-      } else {
-        enqueue(
-          "create_customer",
-          job.id,
-          customerSyncPayload(updated),
-          "deterministic",
-          "create_customer|" + job.id + "|" + Date.now()
-        );
-        showToast("Saved & creating in QuickBooks…");
+    const updated = { ...job, ...patch };
+    const qid = String(patch.qboCustomerId || "").trim();
+    // Instant UI — local apply + close + toast; network + QuickBooks in background.
+    const bg = (async () => {
+      try {
+        await patchAndSave(job.id, patch);
+      } catch {
+        // patchAndSave already toasts + retries once; keep going so QB still queues.
       }
-      onClose();
-    } catch (e) {
-      showToast("Save failed — " + ((e && e.message) || "try again"));
-    }
+      try {
+        if (qid) {
+          await enqueue(
+            "update_customer",
+            job.id,
+            { id: qid, ...customerSyncPayload(updated) },
+            "deterministic",
+            "update_customer|" + job.id + "|" + Date.now()
+          );
+        } else {
+          await enqueue(
+            "create_customer",
+            job.id,
+            customerSyncPayload(updated),
+            "deterministic",
+            "create_customer|" + job.id + "|" + Date.now()
+          );
+        }
+      } catch {
+        /* enqueue surfaces its own toast */
+      }
+    })();
+    void bg;
+    showToast(qid ? "Saved & syncing update to QuickBooks…" : "Saved & creating in QuickBooks…");
+    onClose();
   };
 
   const toggleSubCompany = (next) => {

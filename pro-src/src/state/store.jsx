@@ -492,38 +492,50 @@ export function StoreProvider({ children }) {
     flushAllDebouncedPatches();
     const entries = Object.entries(pendingRef.current);
     if (!entries.length || saving) return;
-    setSaving(true);
-    try {
-      const newPaymentsToSync = [];
-      for (const [id, patch] of entries) {
-        if (!patch?.payments && !patch?.payment) continue;
-        const base = jobs.find((j) => String(j.id) === String(id));
-        if (!base) continue;
-        const after = effectiveJob(id);
-        const beforeIds = new Set(normalizePayments(base).map((p) => p.id));
-        for (const p of normalizePayments(after)) {
-          if (!beforeIds.has(p.id) && parseAmount(p.amount) > 0) {
-            newPaymentsToSync.push({ job: after, payment: p });
-          }
+
+    const newPaymentsToSync = [];
+    for (const [id, patch] of entries) {
+      if (!patch?.payments && !patch?.payment) continue;
+      const base = jobs.find((j) => String(j.id) === String(id));
+      if (!base) continue;
+      const after = effectiveJob(id);
+      const beforeIds = new Set(normalizePayments(base).map((p) => p.id));
+      for (const p of normalizePayments(after)) {
+        if (!beforeIds.has(p.id) && parseAmount(p.amount) > 0) {
+          newPaymentsToSync.push({ job: after, payment: p });
         }
       }
+    }
 
-      const touched = [];
+    // Instant local commit — screen never waits on the network.
+    const patchById = new Map(entries.map(([id, p]) => [String(id), p]));
+    const touched = [];
+    setJobs((js) =>
+      js.map((j) => {
+        const patch = patchById.get(String(j.id));
+        if (!patch) return j;
+        const merged = applyOverlay(j, patch);
+        touched.push(merged);
+        return merged;
+      })
+    );
+    touched.forEach((j) => touchCustomerJob(j));
+    pendingRef.current = {};
+    setPending({});
+    showToast("Saved ✓ syncing…");
+
+    setSaving(true);
+    try {
       for (const [id, patch] of entries) {
-        const r = await api.saveJob(id, patch);
-        if (r && r.ts) lastSavedTs.current = Math.max(lastSavedTs.current, r.ts);
-        setJobs((js) =>
-          js.map((j) => {
-            if (String(j.id) !== String(id)) return j;
-            const merged = applyOverlay(j, patch);
-            touched.push(merged);
-            return merged;
-          })
-        );
+        try {
+          const r = await api.saveJob(id, patch);
+          if (r && r.ts) lastSavedTs.current = Math.max(lastSavedTs.current, r.ts);
+        } catch {
+          await new Promise((res) => setTimeout(res, 400));
+          const r = await api.saveJob(id, patch);
+          if (r && r.ts) lastSavedTs.current = Math.max(lastSavedTs.current, r.ts);
+        }
       }
-      touched.forEach((j) => touchCustomerJob(j));
-      setPending({});
-      showToast("Saved ✓ synced to all devices");
 
       for (const { job: j, payment: pay } of newPaymentsToSync) {
         if (!j.invoiceNo) continue;
@@ -541,7 +553,7 @@ export function StoreProvider({ children }) {
           pay.date || "",
           pay.ref || "",
         ].join(":");
-        await enqueueRef.current(
+        void enqueueRef.current(
           "record_payment",
           j.id,
           {
@@ -561,6 +573,11 @@ export function StoreProvider({ children }) {
       }
       refreshJobs(true);
     } catch (e) {
+      // Re-stage failed patches so the bar comes back; local job rows already show edits.
+      const restore = {};
+      for (const [id, patch] of entries) restore[id] = patch;
+      pendingRef.current = { ...pendingRef.current, ...restore };
+      setPending((p) => ({ ...p, ...restore }));
       showToast("Save failed — changes kept. " + ((e && e.message) || ""));
     } finally {
       setSaving(false);
@@ -609,6 +626,7 @@ export function StoreProvider({ children }) {
   const patchAndSave = useCallback(
     async (id, patch) => {
       let merged = null;
+      // Local apply first so the screen never waits on the network.
       setJobs((js) =>
         js.map((j) => {
           if (String(j.id) !== String(id)) return j;
@@ -617,11 +635,19 @@ export function StoreProvider({ children }) {
         })
       );
       if (merged) touchCustomerJob(merged);
+      const trySave = () => api.saveJob(id, patch);
       try {
-        const r = await api.saveJob(id, patch);
+        let r = await trySave();
         if (r && r.ts) lastSavedTs.current = Math.max(lastSavedTs.current, r.ts);
-      } catch (e) {
-        showToast("Sync failed — will retry on next save");
+      } catch {
+        // One automatic retry, then surface — agent/host can pick up longer outages.
+        try {
+          await new Promise((res) => setTimeout(res, 400));
+          const r = await trySave();
+          if (r && r.ts) lastSavedTs.current = Math.max(lastSavedTs.current, r.ts);
+        } catch {
+          showToast("Sync failed — will retry on next save");
+        }
       }
     },
     [showToast]
