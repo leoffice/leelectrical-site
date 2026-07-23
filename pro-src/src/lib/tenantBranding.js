@@ -58,6 +58,24 @@ export function activeTenantConfig() {
 }
 
 /**
+ * Push a just-uploaded company logo into the live tenant snapshot so PDF /
+ * email builders see it immediately — without waiting for a settings re-fetch.
+ */
+export function applyCompanyLogoToActiveConfig(logoDataUrl) {
+  const next = logoDataUrl ? String(logoDataUrl) : "";
+  const cfg = current || {};
+  setActiveTenantConfig({
+    ...cfg,
+    profile: { ...(cfg.profile || {}), logoDataUrl: next },
+    branding: {
+      ...(cfg.branding || {}),
+      logoUrl: next,
+      logoDataUrl: next,
+    },
+  });
+}
+
+/**
  * COMPANY-shaped block for invoice / estimate / QBO PDF headers.
  * Replaces the duplicated COMPANY consts in invoicePdf.js and jobToQbDoc.js.
  */

@@ -104,11 +104,12 @@ function assemblePdf(pages, image) {
   push("%PDF-1.4\n%\xe2\xe3\xcf\xd3\n");
 
   const n = pages.length;
-  // Object map: 1 Catalog, 2 Pages, then per page: Page + Content, then fonts + image
+  const hasImage = !!(image && image.bytes && image.bytes.length && image.name);
+  // Object map: 1 Catalog, 2 Pages, then per page: Page + Content, then fonts + optional image
   // Page i objects: pageObj = 3 + i*2, contentObj = 4 + i*2
   const fontReg = 3 + n * 2;
   const fontBold = fontReg + 1;
-  const imgId = fontBold + 1;
+  const imgId = hasImage ? fontBold + 1 : null;
 
   const pageKids = pages.map((_, i) => `${3 + i * 2} 0 R`).join(" ");
   obj(1, "1 0 obj << /Type /Catalog /Pages 2 0 R >> endobj\n");
@@ -118,25 +119,31 @@ function assemblePdf(pages, image) {
     const pageObj = 3 + i * 2;
     const contentObj = 4 + i * 2;
     const stream = pages[i].stream();
+    const xobjects = hasImage
+      ? `/XObject << /${image.name} ${imgId} 0 R >> `
+      : "";
     obj(
       pageObj,
       `${pageObj} 0 obj << /Type /Page /Parent 2 0 R /MediaBox [0 0 ${PAGE_W} ${PAGE_H}] /Contents ${contentObj} 0 R ` +
-        `/Resources << /Font << /F1 ${fontReg} 0 R /F2 ${fontBold} 0 R >> /XObject << /${image.name} ${imgId} 0 R >> >> >> endobj\n`
+        `/Resources << /Font << /F1 ${fontReg} 0 R /F2 ${fontBold} 0 R >> ${xobjects}>> >> endobj\n`
     );
     obj(contentObj, `${contentObj} 0 obj << /Length ${stream.length} >> stream\n${stream}\nendstream\nendobj\n`);
   }
 
   obj(fontReg, `${fontReg} 0 obj << /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding >> endobj\n`);
   obj(fontBold, `${fontBold} 0 obj << /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Bold /Encoding /WinAnsiEncoding >> endobj\n`);
-  xref[imgId] = offset;
-  push(
-    `${imgId} 0 obj << /Type /XObject /Subtype /Image /Width ${image.width} /Height ${image.height} ` +
-      `/ColorSpace /DeviceRGB /BitsPerComponent 8 /Filter /DCTDecode /Length ${image.bytes.length} >> stream\n`
-  );
-  push(image.bytes);
-  push("\nendstream\nendobj\n");
+  let maxId = fontBold;
+  if (hasImage) {
+    xref[imgId] = offset;
+    push(
+      `${imgId} 0 obj << /Type /XObject /Subtype /Image /Width ${image.width} /Height ${image.height} ` +
+        `/ColorSpace /DeviceRGB /BitsPerComponent 8 /Filter /DCTDecode /Length ${image.bytes.length} >> stream\n`
+    );
+    push(image.bytes);
+    push("\nendstream\nendobj\n");
+    maxId = imgId;
+  }
   const xrefStart = offset;
-  const maxId = imgId;
   let table = "xref\n0 " + (maxId + 1) + "\n0000000000 65535 f \n";
   for (let i = 1; i <= maxId; i++) table += String(xref[i] || 0).padStart(10, "0") + " 00000 n \n";
   push(table);
@@ -175,6 +182,9 @@ export function buildQbDocPdf(data) {
       ? Number(data.total)
       : Math.max(0, Math.round((subtotal + tax - discount) * 100) / 100);
   const payment = Number(data.payment || 0);
+  // Resolve once up front so every page either draws the company mark or
+  // deliberately skips it (non-LE tenants with no logo).
+  const logoImage = resolvePdfLogoImageSync(data);
 
   // ---- Layout constants (Levi 2026-07-22 printout polish) ----------------
   // Logo top y=36; ESTIMATE/INVOICE title sits at same height top-right.
@@ -261,7 +271,7 @@ export function buildQbDocPdf(data) {
   pages.push(pg);
 
   /** Company block + logo only (no title — title is page-1 top-right). */
-  const drawCompanyLogo = (page) => {
+  const drawCompanyLogo = (page, logoImage) => {
     page.text(M, 46.5, company.name || "", { size: 10.98, bold: true, color: BLACK });
     const details = [
       ...(company.addressLines || []),
@@ -270,7 +280,11 @@ export function buildQbDocPdf(data) {
       company.license,
     ].filter(Boolean);
     details.forEach((ln, i) => page.text(M, 61.5 + i * 12.75, ln, { size: 7.32, color: BLACK }));
-    page.image("ImLogo", LOGO.x, LOGO.y, LOGO.w, LOGO.h);
+    // White-label: skip the center mark when no company logo resolved (never
+    // force the LE mark onto a non-LE tenant invoice).
+    if (logoImage && logoImage.bytes && logoImage.bytes.length) {
+      page.image("ImLogo", LOGO.x, LOGO.y, LOGO.w, LOGO.h);
+    }
     return 61.5 + details.length * 12.75;
   };
 
@@ -286,7 +300,7 @@ export function buildQbDocPdf(data) {
   };
 
   // ---- PAGE 1 HEADER: company left · logo center · title+meta right ------
-  const companyBottom = drawCompanyLogo(pg);
+  const companyBottom = drawCompanyLogo(pg, logoImage);
 
   // Bold green title top-right
   const titleRight = PAGE_W - M;
@@ -380,7 +394,7 @@ export function buildQbDocPdf(data) {
   const newPageForRows = () => {
     pg = Page();
     pages.push(pg);
-    drawCompanyLogo(pg);
+    drawCompanyLogo(pg, logoImage);
     // Continuation pages keep a compact top band (logo + company), then table
     return drawTableHeader(pg, 130);
   };
@@ -490,7 +504,7 @@ export function buildQbDocPdf(data) {
   if (showAcceptance) {
     pg = Page();
     pages.push(pg);
-    drawCompanyLogo(pg);
+    drawCompanyLogo(pg, logoImage);
     // Clean signature block with room to sign — not cramped on page 1.
     const acceptTop = 200;
     pg.text(M, acceptTop, "Accepted By", { size: 11, color: GRAY });
@@ -532,8 +546,6 @@ export function buildQbDocPdf(data) {
     }
   });
 
-  // Account-holder company logo from settings/tenant — not the product LE mark
-  // unless that is the company's uploaded/default logo.
-  const image = resolvePdfLogoImageSync(data);
-  return new Blob([assemblePdf(pages, image)], { type: "application/pdf" });
+  // logoImage resolved at start — company mark, or null for non-LE without a logo.
+  return new Blob([assemblePdf(pages, logoImage)], { type: "application/pdf" });
 }

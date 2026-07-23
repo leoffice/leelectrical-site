@@ -21,6 +21,7 @@ import {
   setQuickbooksFeatureEnabled,
   setSpeechToTextEnabled,
 } from "../lib/appSettings.js";
+import { applyCompanyLogoToActiveConfig } from "../lib/tenantBranding.js";
 import {
   extendAgentAccess,
   fetchAgentAccessStatus,
@@ -190,8 +191,9 @@ export default function Settings() {
         const f = mergeFeatures(doc?.features);
         setProfile(p);
         setFeatures(f);
+        // Server logo wins when present. Never wipe a device upload just
+        // because the server hasn't stored one yet (demo/local/Company tab).
         if (p.logoDataUrl) setCompanyLogoDataUrl(p.logoDataUrl);
-        else clearCompanyLogo();
         setSpeechToTextEnabled(f.speechToText !== false);
         setQuickbooksFeatureEnabled(f.quickbooks !== false);
       }
@@ -438,7 +440,8 @@ export default function Settings() {
       const dataUrl = await readLogoFileAsDataUrl(file);
       setP("logoDataUrl", dataUrl);
       setCompanyLogoDataUrl(dataUrl);
-      showToast?.("Logo ready — tap Save");
+      applyCompanyLogoToActiveConfig(dataUrl);
+      showToast?.("Logo ready — used on invoices right away. Tap Save to keep it.");
     } catch {
       showToast?.("Couldn’t read that image — try another file");
     } finally {
@@ -456,6 +459,7 @@ export default function Settings() {
       await saveSettings({ profile, features });
       if (profile.logoDataUrl) setCompanyLogoDataUrl(profile.logoDataUrl);
       else clearCompanyLogo();
+      applyCompanyLogoToActiveConfig(profile.logoDataUrl || "");
       setSpeechToTextEnabled(features.speechToText !== false);
       setQuickbooksFeatureEnabled(features.quickbooks !== false);
       setDirty(false);
@@ -680,6 +684,7 @@ export default function Settings() {
                     onClick={() => {
                       setP("logoDataUrl", "");
                       clearCompanyLogo();
+                      applyCompanyLogoToActiveConfig("");
                     }}
                     data-testid="settings-logo-reset"
                   >
