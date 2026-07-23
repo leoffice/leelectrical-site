@@ -1,6 +1,6 @@
 import { getStore } from "./lib/storage/index.mjs";
 import { rotateJsonBackup } from "./blob-backup.mjs";
-import { conditionalJson } from "./lib/etag.mjs";
+import { conditionalJson, optionsResponse } from "./lib/etag.mjs";
 
 // Cross-device sync for the dashboard's user edits (follow-ups, completed steps,
 // notes, paid flags, paperwork). GET returns the shared state; POST saves it.
@@ -21,7 +21,7 @@ function json(o) {
 
 export default async (req) => {
   const store = getStore("jobstate");
-  if (req.method === "OPTIONS") return json({ ok: true });
+  if (req.method === "OPTIONS") return optionsResponse();
   if (req.method === "POST") {
     let body = {};
     try { body = await req.json(); } catch (e) {}

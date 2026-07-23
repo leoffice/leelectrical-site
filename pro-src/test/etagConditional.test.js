@@ -58,4 +58,38 @@ test("client: httpConditional reuses cached data on a 304 (no re-parse)", async 
   vi.unstubAllGlobals();
 });
 
+test("client: command + calendar polls reuse cached data on a 304", async () => {
+  const bodies = {
+    command: { commands: [{ id: "c1", jobId: "J-1", status: "done" }], seq: 3, ts: 900 },
+    calendar: { events: [{ id: "ev1", summary: "Estimate" }], syncedAt: 42, request: 0, ts: 12 },
+  };
+  const etags = { command: '"c900"', calendar: '"cal12"' };
+  const seen = { command: 0, calendar: 0 };
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async (url, o = {}) => {
+      const path = String(url).split("/functions/")[1].split("?")[0];
+      const inm = o.headers && o.headers["if-none-match"];
+      seen[path] = (seen[path] || 0) + 1;
+      if (seen[path] === 1) {
+        expect(inm).toBeUndefined();
+        return { ok: true, status: 200, headers: { get: (h) => (h === "etag" ? etags[path] : null) }, json: async () => bodies[path] };
+      }
+      expect(inm).toBe(etags[path]);
+      return { ok: true, status: 304, headers: { get: () => null }, json: async () => { throw new Error("no 304 body"); } };
+    })
+  );
+
+  const api = createNetlifyAdapter();
+  expect((await api.listCommands()).length).toBe(1); // 200
+  expect((await api.listCommands()).length).toBe(1); // 304 → cached
+  expect((await api.listCommands("J-1")).length).toBe(1); // 304 → cached, then client-filtered
+  expect((await api.listCommands("nope")).length).toBe(0); // filter applied to cached list
+  const e1 = await api.listEventsMeta(); // 200
+  const e2 = await api.listEventsMeta(); // 304 → cached
+  expect(e1.syncedAt).toBe(42);
+  expect(e2.syncedAt).toBe(42);
+  vi.unstubAllGlobals();
+});
+
 afterEach(() => vi.unstubAllGlobals());

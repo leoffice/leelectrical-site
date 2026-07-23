@@ -1,4 +1,5 @@
 import { getStore } from "./lib/storage/index.mjs";
+import { conditionalJson, optionsResponse } from "./lib/etag.mjs";
 
 // Calendar events feed for task #16 (New Job "Choose from calendar" + two-way
 // job<->calendar linking). A host/agent sync writes upcoming Google Calendar
@@ -29,7 +30,7 @@ async function load(store) {
 
 export default async (req) => {
   const store = getStore("calendar");
-  if (req.method === "OPTIONS") return json({ ok: true });
+  if (req.method === "OPTIONS") return optionsResponse();
   if (req.method === "POST") {
     let b = {};
     try { b = await req.json(); } catch (e) {}
@@ -45,5 +46,7 @@ export default async (req) => {
     await store.setJSON(KEY, doc);
     return json(doc);
   }
-  return json(await load(store));
+  // GET: ETag off `ts` so the 30s/180s calendar polls 304 when unchanged.
+  const doc = await load(store);
+  return conditionalJson(req, doc, { prefix: "cal", ts: doc.ts });
 };

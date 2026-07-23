@@ -1,7 +1,7 @@
 // Reminders tab — every active reminder in priority order, synced with popups.
 import React, { useMemo, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
-import { useStore } from "../state/store.jsx";
+import { useStoreData } from "../state/store.jsx";
 import { todayStr } from "../lib/format.js";
 import PauseRemindersBar from "../components/PauseRemindersBar.jsx";
 import VerifyReminderButton from "../components/VerifyReminderButton.jsx";
@@ -24,10 +24,13 @@ function priorityPill(priority) {
   return "bg-sky-100 text-sky-800";
 }
 
-function ReminderRow({ item, expanded, onToggle, onAction }) {
+function ReminderRow({ item, expanded, onToggle, onAction, onHide }) {
   const nav = useNavigate();
-  const { showToast } = useStore();
+  const { showToast } = useStoreData();
   const label = PRIORITY_LABEL[item.priority] || "Reminder";
+  // Snooze/dismiss hide the row immediately (optimistic); fall back to a recompute
+  // if no hide handler was passed.
+  const hideNow = onHide || onAction;
 
   const openJob = () => {
     if (item.job?.id) nav("/job/" + encodeURIComponent(item.job.id));
@@ -38,7 +41,7 @@ function ReminderRow({ item, expanded, onToggle, onAction }) {
     if (item.event?.id) {
       dismissEventReminders(item.event.id, { noReminders: true });
       showToast("OK — won't remind you about this one");
-      onAction();
+      hideNow();
     }
   };
 
@@ -46,7 +49,7 @@ function ReminderRow({ item, expanded, onToggle, onAction }) {
     if (item.event?.id) {
       scheduleReminderSnooze(item.event.id, minutes);
       showToast("Snoozed " + minutes + " min");
-      onAction();
+      hideNow();
     }
   };
 
@@ -159,14 +162,24 @@ function ReminderRow({ item, expanded, onToggle, onAction }) {
 }
 
 export default function Reminders() {
-  const { events, jobs, commands } = useStore();
+  const { events, jobs, commands } = useStoreData();
   const today = todayStr();
   const [expandedId, setExpandedId] = useState(null);
   const [tick, setTick] = useState(0);
+  // Optimistic snooze/dismiss: hide the acted row INSTANTLY rather than waiting
+  // on a rebuild + re-render. The persist (scheduleReminderSnooze/dismiss) is a
+  // synchronous localStorage write; the next recompute drops the row for real.
+  // (Verify / unsent-doc actions still go through `tick` — they must RE-EVALUATE
+  // the item, e.g. keep it if it's confirmed still-unsent, not blindly hide it.)
+  const [hidden, setHidden] = useState(() => new Set());
 
-  const list = useMemo(
+  const fullList = useMemo(
     () => buildReminderList(events, jobs, today, new Date(), commands),
     [events, jobs, today, commands, tick]
+  );
+  const list = useMemo(
+    () => (hidden.size ? fullList.filter((it) => !hidden.has(it.id)) : fullList),
+    [fullList, hidden]
   );
 
   const paused = isRemindersPaused();
@@ -199,6 +212,7 @@ export default function Reminders() {
               expanded={expandedId === item.id}
               onToggle={() => setExpandedId((id) => (id === item.id ? null : item.id))}
               onAction={() => setTick((t) => t + 1)}
+              onHide={() => setHidden((h) => new Set(h).add(item.id))}
             />
           ))}
         </div>

@@ -192,7 +192,7 @@ export function createNetlifyAdapter() {
     },
 
     async listCommands(jobId) {
-      const d = await http(`command?${cb()}`);
+      const d = await httpConditional("command");
       const all = d.commands || [];
       return jobId == null ? all : all.filter((c) => String(c.jobId) === String(jobId));
     },
@@ -450,7 +450,7 @@ export function createNetlifyAdapter() {
     },
 
     async listEventsMeta() {
-      const d = await http(`calendar?${cb()}`);
+      const d = await httpConditional("calendar");
       return { events: d.events || [], syncedAt: d.syncedAt || 0, request: d.request || 0 };
     },
 

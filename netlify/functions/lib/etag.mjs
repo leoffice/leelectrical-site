@@ -16,6 +16,15 @@ const BASE_HEADERS = {
   "access-control-allow-headers": "content-type,if-none-match",
 };
 
+/** CORS preflight response. Advertises if-none-match so a cross-origin caller
+ *  (localhost dev, the extension) can send it on a conditional GET without the
+ *  browser blocking the follow-up request. Same-origin callers never preflight. */
+export function optionsResponse() {
+  return new Response(JSON.stringify({ ok: true }), {
+    headers: { ...BASE_HEADERS, "cache-control": "no-store" },
+  });
+}
+
 /** Deterministic entity tag from a document's monotonic write timestamp. */
 export function etagFor(ts, prefix = "") {
   return `"${prefix}${ts || 0}"`;

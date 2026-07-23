@@ -1,6 +1,6 @@
 // Duplicate invoice # prompt — side-by-side compare, then remove or keep separate.
 import React, { useMemo, useState } from "react";
-import { useStore } from "../state/store.jsx";
+import { useStoreData } from "../state/store.jsx";
 import SideBySideCompare from "./SideBySideCompare.jsx";
 import {
   dismissInvoicePair,
@@ -10,7 +10,8 @@ import {
 } from "../lib/invoiceDedup.js";
 
 export default function InvoiceDedupPrompt() {
-  const { jobs, loading, patchAndSave, showToast } = useStore();
+  // Base jobs (not the staged overlay) — the dedup scan must not re-run per keystroke.
+  const { rawJobs: jobs, loading, patchAndSave, showToast } = useStoreData();
   const [tick, setTick] = useState(0);
   const [busy, setBusy] = useState(false);
 
