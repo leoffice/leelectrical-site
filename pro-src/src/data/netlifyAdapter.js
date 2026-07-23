@@ -49,6 +49,32 @@ async function httpAllowErrorBody(path, body) {
 
 const cb = () => "cb=" + Date.now();
 
+// ---- Conditional (ETag) GET for the big read-heavy blobs --------------------
+// jobsdata (~20 MB) and state are polled every 60s (plus focus + action
+// refreshes). The server tags each with an ETag off its write-ts; we hold the
+// last {etag, data} per path and send If-None-Match, so an unchanged blob comes
+// back as a bodyless 304 and we reuse the cached parse — turning a repeated
+// multi-MB transfer into a few bytes. NO cache-buster here (a unique URL would
+// defeat revalidation) and NO browser HTTP cache (cache:no-store) — we manage
+// the entity tag ourselves, which stays predictable across browsers and is
+// exercisable in tests. Correctness is unchanged: every poll still revalidates
+// against the server; 304 means the document is byte-identical to what we hold.
+const condCache = new Map(); // path -> { etag, data }
+async function httpConditional(path) {
+  const entry = condCache.get(path);
+  const res = await fetch(`${base()}/${path}`, {
+    method: "GET",
+    cache: "no-store",
+    headers: entry && entry.etag ? { "if-none-match": entry.etag } : undefined,
+  });
+  if (res.status === 304 && entry) return entry.data;
+  if (!res.ok) throw new Error(`${path}: HTTP ${res.status}`);
+  const data = await res.json();
+  const etag = res.headers && typeof res.headers.get === "function" ? res.headers.get("etag") : null;
+  if (etag) condCache.set(path, { etag, data });
+  return data;
+}
+
 /** Blob → bare base64 string (no data-URL prefix) for JSON transport. */
 function blobToBase64(blob) {
   return new Promise((resolve, reject) => {
@@ -109,7 +135,7 @@ export function createNetlifyAdapter() {
 
     /** Merged view + sync metadata: jobsdata.jobs + state.ov (overlay wins). */
     async listJobsMeta() {
-      const [data, state] = await Promise.all([http(`jobsdata?${cb()}`), http(`state?${cb()}`)]);
+      const [data, state] = await Promise.all([httpConditional("jobsdata"), httpConditional("state")]);
       return {
         jobs: mergeJobs(data.jobs || [], (state && state.ov) || {}),
         syncedAt: data.syncedAt || 0,
@@ -295,7 +321,7 @@ export function createNetlifyAdapter() {
      *  mergeJobs() skips "_"-prefixed overlay keys, so this never renders
      *  as a phantom job. */
     async getSasTickets() {
-      const state = await http(`state?${cb()}`);
+      const state = await httpConditional("state");
       const ov = (state && state.ov) || {};
       return isPlainObject(ov._sasTickets) ? ov._sasTickets : {};
     },
@@ -303,7 +329,7 @@ export function createNetlifyAdapter() {
     /** Customer pay-page checks + bank Zelle alerts waiting for Levi to approve.
      *  ov._pendingPayments = { items: [...], ts } — reserved key (not a job). */
     async getPendingPayments() {
-      const state = await http(`state?${cb()}`);
+      const state = await httpConditional("state");
       const ov = (state && state.ov) || {};
       const row = ov._pendingPayments;
       if (Array.isArray(row)) return row.filter(Boolean);
@@ -323,7 +349,7 @@ export function createNetlifyAdapter() {
 
     /** Big-project requisitions — ov._projects (reserved key). */
     async getProjects() {
-      const state = await http(`state?${cb()}`);
+      const state = await httpConditional("state");
       const ov = (state && state.ov) || {};
       return isPlainObject(ov._projects) ? ov._projects : { list: [] };
     },
@@ -334,7 +360,7 @@ export function createNetlifyAdapter() {
 
     /** "Separate customers" / parent-sub decisions — ov._nomerge (reserved key). */
     async getNomergePairs() {
-      const state = await http(`state?${cb()}`);
+      const state = await httpConditional("state");
       const ov = (state && state.ov) || {};
       const v = ov._nomerge;
       return Array.isArray(v) ? v.filter(Boolean) : [];

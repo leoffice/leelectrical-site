@@ -1,5 +1,6 @@
 import { getStore } from "./lib/storage/index.mjs";
 import { rotateJsonBackup } from "./blob-backup.mjs";
+import { conditionalJson } from "./lib/etag.mjs";
 
 // Cross-device sync for the dashboard's user edits (follow-ups, completed steps,
 // notes, paid flags, paperwork). GET returns the shared state; POST saves it.
@@ -30,5 +31,6 @@ export default async (req) => {
     return json({ ok: true, ts });
   }
   const cur = (await store.get(KEY, { type: "json" })) || { ov: {}, ts: 0 };
-  return json(cur);
+  // GET: ETag off `ts` (bumped on every overlay write) → unchanged polls 304.
+  return conditionalJson(req, cur, { prefix: "s", ts: cur.ts });
 };
