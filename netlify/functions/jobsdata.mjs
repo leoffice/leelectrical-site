@@ -1,5 +1,6 @@
 import { getStore } from "./lib/storage/index.mjs";
 import { rotateJsonBackup } from "./blob-backup.mjs";
+import { conditionalJson } from "./lib/etag.mjs";
 
 // Live jobs dataset synced from QuickBooks + Google Calendar by a scheduled
 // Dispatch job (overnight + midday) and on demand. The dashboard GETs this to
@@ -57,5 +58,8 @@ export default async (req) => {
     await rotateJsonBackup(store, KEY, doc);
     return json(doc);
   }
-  return json(await load(store));
+  // GET: ETag off `ts` so an unchanged ~20 MB blob revalidates to a bodyless 304
+  // instead of re-transferring on every 60s poll / focus / action refresh.
+  const doc = await load(store);
+  return conditionalJson(req, doc, { prefix: "j", ts: doc.ts });
 };

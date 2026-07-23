@@ -143,6 +143,12 @@ export function StoreProvider({ children }) {
 
   /* ---------- pulls ---------- */
   const lastSavedTs = useRef(0); // ts of our latest overlay save (see refreshJobs)
+  // (syncedAt, stateTs) of the last poll we accepted. A background poll that
+  // returns the same pair carries byte-identical data, so replacing `jobs` with
+  // a fresh array would only churn: every consumer re-renders and the Jobs list
+  // re-runs its whole grouping pass over thousands of rows for nothing. Keep the
+  // existing reference in that case (the common one on the 60s idle poll).
+  const lastPollSig = useRef("");
   const refreshJobs = useCallback(async (quiet) => {
     if (!quiet) setLoading(true);
     try {
@@ -152,12 +158,18 @@ export function StoreProvider({ children }) {
       // Keep the local (already saved) state and let the next poll catch up.
       const stale = lastSavedTs.current && meta.stateTs && meta.stateTs < lastSavedTs.current;
       const incoming = meta.jobs || [];
+      const sig = `${meta.syncedAt || 0}:${meta.stateTs || 0}`;
+      const unchanged = sig === lastPollSig.current;
       // Never wipe the list when the server returns empty during a sync blip.
       if (stale) {
         // Blob lag — keep saved edits, but still show brand-new QBO jobs.
         setJobs((prev) => mergeJobsStaleGuard(prev, incoming));
+      } else if (unchanged && jobsCountRef.current) {
+        // Same sync + overlay stamp as last accepted poll → data is identical.
+        // Skip setJobs so the reference (and the grouping cache) stays warm.
       } else if (incoming.length || !jobsCountRef.current) {
         setJobs(incoming);
+        lastPollSig.current = sig;
       }
       setSyncedAt(meta.syncedAt || 0);
       setError("");
@@ -170,9 +182,19 @@ export function StoreProvider({ children }) {
     }
   }, []);
 
+  // The command history is polled every 3–8s. Handing React a fresh array each
+  // time re-renders every useStore() consumer and re-fires the prompt watchers'
+  // O(events × jobs) scans — even when nothing changed, which is the usual case.
+  // The list is short, so an exact stringify compare is cheap; skip the setState
+  // (keep the reference) when the payload is byte-identical to the last one.
+  const lastCommandsJson = useRef("");
   const refreshCommands = useCallback(async () => {
     try {
-      setCommands(await api.listCommands());
+      const next = await api.listCommands();
+      const json = JSON.stringify(next);
+      if (json === lastCommandsJson.current) return;
+      lastCommandsJson.current = json;
+      setCommands(next);
     } catch {}
   }, []);
 
@@ -559,7 +581,12 @@ export function StoreProvider({ children }) {
           idem
         );
       }
-      refreshJobs(true);
+      // No trailing full-blob refetch here: the optimistic setJobs above already
+      // applied every saved patch (last-write-wins, same as the server now
+      // holds), so re-downloading the whole ~4k-job blob only to re-merge and
+      // re-group the identical result was pure post-save jank. Payment syncs
+      // reconcile via their record_payment/fetch_payments command-completion
+      // refresh (below), and cross-device changes arrive on the 60s poll.
     } catch (e) {
       showToast("Save failed — changes kept. " + ((e && e.message) || ""));
     } finally {

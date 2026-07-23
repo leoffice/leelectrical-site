@@ -34,6 +34,7 @@ import {
   PENDING_IMPORT_LS,
 } from "../lib/customers.js";
 import { customerSyncCardClass } from "../lib/customerSync.js";
+import { memoOne } from "../lib/renderCache.js";
 import { needsAttentionJob } from "../lib/jobAwareness.js";
 import { fmt$, parseAmount } from "../lib/format.js";
 import { useNavigate } from "react-router-dom";
@@ -275,6 +276,95 @@ const loadSort = () => {
 /** How many customer rows to paint first — rest load as you scroll (keeps open snappy). */
 const LIST_PAGE = 48;
 
+// ---- Cross-remount grouping caches ------------------------------------------
+// These derivations are pure functions of (jobs, sort, qboIndex) and are the
+// heaviest per-mount cost in this view — an O(N) customer-grouping / hierarchy
+// pass over every job. React Router unmounts this route on navigation, so a
+// plain useMemo recomputes the whole pass on every return to the list. Hoisting
+// them to module-scope memoOne caches makes "back to the list" O(1) whenever the
+// store's jobs array, the sort key and the QBO index are reference-unchanged —
+// the usual case. Any identity change (data refresh, staged edit, sort switch)
+// recomputes, so results can never go stale. See lib/renderCache.js.
+const cacheActive = memoOne((jobs) => jobs.filter((j) => !j._archived && !j._deleted));
+
+const cacheBaseGroups = memoOne((active, sort) => {
+  const map = new Map();
+  for (const j of active) {
+    const k = clientKey(j);
+    if (!map.has(k)) map.set(k, []);
+    map.get(k).push(j);
+  }
+  const nameToGroup = new Map(); // normalized name -> first "g:" key containing it
+  const qboToGroup = new Map(); // qboCustomerId -> "q:" group key
+  for (const [k, list] of map) {
+    if (k.startsWith("g:")) {
+      for (const j of list) {
+        const n = normalizeCustomer(j.customer);
+        if (n && !nameToGroup.has(n)) nameToGroup.set(n, k);
+      }
+    }
+    if (k.startsWith("q:")) {
+      qboToGroup.set(k.slice(2), k);
+    }
+  }
+  for (const [k, list] of [...map]) {
+    if (!k.startsWith("c:")) continue;
+    const name = k.slice(2);
+    let target = nameToGroup.get(name);
+    if (!target) {
+      for (const [nn, gk] of nameToGroup) {
+        if (customerNameMatches({ customer: nn }, name)) {
+          target = gk;
+          break;
+        }
+      }
+    }
+    if (!target) {
+      for (const j of list) {
+        const qid = String(j.qboCustomerId || "").trim();
+        if (qid && qboToGroup.has(qid)) {
+          target = qboToGroup.get(qid);
+          break;
+        }
+      }
+    }
+    if (!target) {
+      for (const [qk, qgk] of qboToGroup) {
+        const qlist = map.get(qgk) || [];
+        if (qlist.some((j) => customerNameMatches(j, name) || customerNameMatches({ customer: j.personName }, name))) {
+          target = qgk;
+          break;
+        }
+      }
+    }
+    if (target) {
+      map.set(target, sortJobs(map.get(target).concat(list), sort));
+      map.delete(k);
+    }
+  }
+  return [...map.entries()].map(([k, list]) => [k, sortJobs(list, sort)]);
+});
+
+const cacheQboHierarchy = memoOne((qboIndex) => buildQboHierarchyCtx(qboIndex));
+
+const cacheBoardBase = memoOne((active, sort, qboIndex, qboHierarchy) => {
+  const board = buildCustomerBoardGroups(active, (list) => sortJobs(list, sort), qboIndex);
+  const parentJobIds = new Set();
+  const parents = board
+    .filter((r) => r.kind === "parent")
+    .map((r) => {
+      r.jobs.forEach((j) => parentJobIds.add(j.id));
+      return {
+        ...r,
+        subs: subsUnderParent(active, r.key, qboHierarchy).map((s) => ({
+          ...s,
+          jobs: sortJobs(s.jobs, sort),
+        })),
+      };
+    });
+  return { parents, parentJobIds };
+});
+
 /**
  * Expanded balance card — open invoices with balance only (no estimates /
  * paid / payment history). Grouped by service address; invoice # on each row.
@@ -463,7 +553,11 @@ export default function Jobs({ embedded, collapseGroups = false, activeJobId = "
     setListLimit(LIST_PAGE);
   }, [effFilter, deferredQ, sort, view, custSort]);
 
-  const active = useMemo(() => jobs.filter((j) => !j._archived && !j._deleted), [jobs]);
+  // Cross-remount cached (see cacheActive/cacheBaseGroups/cacheBoardBase below):
+  // navigating away and back reuses the last grouping pass when jobs/sort/QBO
+  // index are reference-unchanged, instead of rebuilding it over ~thousands of
+  // jobs on every return to the list.
+  const active = cacheActive(jobs);
   const matchesChip = useCallback(
     (j) => matchesFilter(j, effFilter) && matchesQuery(j, deferredQ),
     [effFilter, deferredQ]
@@ -477,63 +571,12 @@ export default function Jobs({ embedded, collapseGroups = false, activeJobId = "
   // Bug #1: group ALL jobs for a customer together (paid + unpaid). Base merge
   // is independent of the search box — only the final chip/search filter re-runs
   // while typing (keeps the input snappy with 4k+ jobs).
-  const baseGroups = useMemo(() => {
-    const map = new Map();
-    for (const j of active) {
-      const k = clientKey(j);
-      if (!map.has(k)) map.set(k, []);
-      map.get(k).push(j);
-    }
-    const nameToGroup = new Map(); // normalized name -> first "g:" key containing it
-    const qboToGroup = new Map(); // qboCustomerId -> "q:" group key
-    for (const [k, list] of map) {
-      if (k.startsWith("g:")) {
-        for (const j of list) {
-          const n = normalizeCustomer(j.customer);
-          if (n && !nameToGroup.has(n)) nameToGroup.set(n, k);
-        }
-      }
-      if (k.startsWith("q:")) {
-        qboToGroup.set(k.slice(2), k);
-      }
-    }
-    for (const [k, list] of [...map]) {
-      if (!k.startsWith("c:")) continue;
-      const name = k.slice(2);
-      let target = nameToGroup.get(name);
-      if (!target) {
-        for (const [nn, gk] of nameToGroup) {
-          if (customerNameMatches({ customer: nn }, name)) {
-            target = gk;
-            break;
-          }
-        }
-      }
-      if (!target) {
-        for (const j of list) {
-          const qid = String(j.qboCustomerId || "").trim();
-          if (qid && qboToGroup.has(qid)) {
-            target = qboToGroup.get(qid);
-            break;
-          }
-        }
-      }
-      if (!target) {
-        for (const [qk, qgk] of qboToGroup) {
-          const qlist = map.get(qgk) || [];
-          if (qlist.some((j) => customerNameMatches(j, name) || customerNameMatches({ customer: j.personName }, name))) {
-            target = qgk;
-            break;
-          }
-        }
-      }
-      if (target) {
-        map.set(target, sortJobs(map.get(target).concat(list), sort));
-        map.delete(k);
-      }
-    }
-    return [...map.entries()].map(([k, list]) => [k, sortJobs(list, sort)]);
-  }, [active, sort]);
+  const baseGroups = cacheBaseGroups(active, sort);
+
+  const qboHierarchy = cacheQboHierarchy(qboIndex);
+
+  /** Board layout (parents + flats) without search — rebuilt only when jobs/QBO change. */
+  const boardBase = cacheBoardBase(active, sort, qboIndex, qboHierarchy);
 
   const groups = useMemo(() => {
     const cmp = sortCmp(sort);
@@ -547,27 +590,6 @@ export default function Jobs({ embedded, collapseGroups = false, activeJobId = "
     }
     return entries.slice().sort((A, B) => cmp(rank(A[1]), rank(B[1])));
   }, [baseGroups, matchesChip, sort, effFilter, recencyTick]);
-
-  const qboHierarchy = useMemo(() => buildQboHierarchyCtx(qboIndex), [qboIndex]);
-
-  /** Board layout (parents + flats) without search — rebuilt only when jobs/QBO change. */
-  const boardBase = useMemo(() => {
-    const board = buildCustomerBoardGroups(active, (list) => sortJobs(list, sort), qboIndex);
-    const parentJobIds = new Set();
-    const parents = board
-      .filter((r) => r.kind === "parent")
-      .map((r) => {
-        r.jobs.forEach((j) => parentJobIds.add(j.id));
-        return {
-          ...r,
-          subs: subsUnderParent(active, r.key, qboHierarchy).map((s) => ({
-            ...s,
-            jobs: sortJobs(s.jobs, sort),
-          })),
-        };
-      });
-    return { parents, parentJobIds };
-  }, [active, sort, qboIndex, qboHierarchy]);
 
   /** Parent companies with sub-entities — separate from flat customer groups. */
   const { parentRows, flatGroups } = useMemo(() => {
