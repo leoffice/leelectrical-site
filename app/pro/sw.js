@@ -1,7 +1,11 @@
 /* LE Pro service worker — simple cache-first for static assets.
  * API calls (/.netlify/functions/*) always go to the network.
  * Bump CACHE version to invalidate old assets after a deploy. */
+<<<<<<< HEAD
 const CACHE = "le-pro-v221";
+=======
+const CACHE = "le-pro-v220";
+>>>>>>> wp0-settings-save
 const CORE = ["/app/pro/", "/app/pro/index.html", "/app/pro/manifest.json"];
 
 self.addEventListener("install", (e) => {
