@@ -1,9 +1,9 @@
 {
   "schema": "le-pro-version/v1",
-  "gitSha": "8753079aa08b8165de11a79a23c1c6e2a02e262a",
-  "gitShaShort": "8753079",
+  "gitSha": "abf6dd4e8688e7d79428b6d1caa52b1b92d37908",
+  "gitShaShort": "abf6dd4",
   "netlifyDeployId": null,
-  "builtAt": "2026-07-23T00:05:28.000Z",
-  "task": "check-autofill-blank-canvas-fix",
+  "builtAt": "2026-07-23T00:13:35.000Z",
+  "task": "check-autofill-no-canvas-wash",
   "rollbackAvailable": true
 }

@@ -3,7 +3,7 @@
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { useStore, useStoreData } from "../state/store.jsx";
 import { appendPayment } from "../lib/payments.js";
-import { analyzePaymentImage, compressImageForVision } from "../lib/paymentVision.js";
+import { analyzePaymentImage, compressImageForVision, fileToBase64 } from "../lib/paymentVision.js";
 import {
   hasStrongPaymentAutofill,
   hasUsefulPaymentAutofill,
@@ -146,21 +146,40 @@ export default function PendingPaymentPrompts() {
       if (!res.ok) throw new Error("Could not load check photo");
       const blob = await res.blob();
       const file = new File([blob], current.fileName || "check.jpg", { type: blob.type || "image/jpeg" });
-      const { b64, mime } = await compressImageForVision(file);
+      // Prefer original bytes — canvas compress on tablets washes checks blank.
+      const prepared = await compressImageForVision(file);
       const kindHint = current.kind === "zelle" ? "zelle" : "check";
       let learningEntries = [];
       try {
-        learningEntries = (await getPaymentVisionLearning?.()) || [];
+        learningEntries =
+          (await Promise.race([
+            getPaymentVisionLearning?.().then((x) => x || []),
+            new Promise((resolve) => setTimeout(() => resolve([]), 1200)),
+          ])) || [];
       } catch {
         learningEntries = [];
       }
-      const { extracted } = await analyzePaymentImage(
-        b64,
-        mime || "image/jpeg",
+      let { extracted } = await analyzePaymentImage(
+        prepared.b64,
+        prepared.mime || "image/jpeg",
         kindHint,
         file.name,
         { learningEntries }
       );
+      if (!hasStrongPaymentAutofill(extracted) && prepared.usedCompress) {
+        try {
+          const origB64 = await fileToBase64(file);
+          const retry = await analyzePaymentImage(origB64, file.type || "image/jpeg", kindHint, file.name, {
+            learningEntries: [],
+            _retriedClean: true,
+          });
+          if (hasStrongPaymentAutofill(retry?.extracted) || hasUsefulPaymentAutofill(retry?.extracted)) {
+            extracted = retry.extracted;
+          }
+        } catch {
+          /* keep first */
+        }
+      }
       setAutofillExtracted(extracted || null);
       if (!hasUsefulPaymentAutofill(extracted)) {
         showToast("Couldn't read amount or number yet — fill what it missed and Approve to train the reader");

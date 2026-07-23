@@ -73,6 +73,7 @@ import {
   analyzePaymentScreenshot,
   compressImageForVision,
   fileToBase64,
+  normalizeVisionMime,
 } from "../lib/paymentVision.js";
 import ZelleReconcileSheet from "./ZelleReconcileSheet.jsx";
 import PaymentProofFld from "./PaymentProofFld.jsx";
@@ -618,41 +619,85 @@ export function MarkPaidSheet({
 
   const runAutofill = async (b64Override, fileOverride) => {
     const file = fileOverride || proofFile;
-    let b64 = b64Override || proofB64;
-    let mime = file?.type || "image/jpeg";
-    if (!b64 && !file) return;
+    // Always keep the original attach bytes for Record/retry — never overwrite with canvas compress.
+    let originalB64 = b64Override || proofB64;
+    let originalMime = normalizeVisionMime(file?.type || "image/jpeg");
+    if (!originalB64 && !file) return;
     setAutofillBusy(true);
     try {
-      // Compress large phone photos so the amount box stays readable and gateway doesn't 502.
+      if (!originalB64 && file) {
+        originalB64 = await fileToBase64(file);
+        setProofB64(originalB64);
+      } else if (originalB64 && !proofB64) {
+        setProofB64(originalB64);
+      }
+      // Vision transport only — prefer original; compress only when file is huge (see paymentVision.js).
+      let visionB64 = originalB64;
+      let visionMime = originalMime;
+      let usedCompress = false;
       if (file && String(file.type || "").startsWith("image/")) {
         try {
-          const compressed = await compressImageForVision(file);
-          if (compressed?.b64) {
-            b64 = compressed.b64;
-            mime = compressed.mime || "image/jpeg";
-            setProofB64(b64);
+          const prepared = await compressImageForVision(file);
+          if (prepared?.b64) {
+            visionB64 = prepared.b64;
+            visionMime = prepared.mime || "image/jpeg";
+            usedCompress = Boolean(prepared.usedCompress);
           }
         } catch {
-          /* keep original b64 */
+          /* keep original */
         }
       }
-      if (!b64) {
+      if (!visionB64) {
         showToast("Could not load that photo — re-attach and try Autofill again");
         return;
       }
+      // Don't block Autofill on a slow full-state load — race learning vs 1.2s timeout.
       let learningEntries = [];
       try {
-        learningEntries = (await getPaymentVisionLearning?.()) || [];
+        learningEntries =
+          (await Promise.race([
+            getPaymentVisionLearning?.().then((x) => x || []),
+            new Promise((resolve) => setTimeout(() => resolve([]), 1200)),
+          ])) || [];
       } catch {
         learningEntries = [];
       }
-      const { extracted } = await analyzePaymentImage(
-        b64,
-        mime || "image/jpeg",
-        isCheck ? "check" : isZelle ? "zelle" : "check",
+      const kindHint = isCheck ? "check" : isZelle ? "zelle" : "check";
+      let { extracted } = await analyzePaymentImage(
+        visionB64,
+        visionMime || "image/jpeg",
+        kindHint,
         file?.name || "",
         { learningEntries }
       );
+      // Canvas wash path: empty read after compress → retry original bytes (no learning noise).
+      if (!hasStrongPaymentAutofill(extracted) && usedCompress && originalB64) {
+        try {
+          const retry = await analyzePaymentImage(
+            originalB64,
+            originalMime,
+            kindHint,
+            file?.name || "",
+            { learningEntries: [], _retriedClean: true }
+          );
+          if (hasStrongPaymentAutofill(retry?.extracted) || hasUsefulPaymentAutofill(retry?.extracted)) {
+            extracted = retry.extracted;
+          }
+        } catch {
+          /* keep first extract */
+        }
+      }
+      // Still empty after preferred path — one more clean original attempt.
+      if (!hasUsefulPaymentAutofill(extracted) && originalB64) {
+        try {
+          const clean = await analyzePaymentScreenshot(originalB64, originalMime, kindHint, {
+            skipLearning: true,
+          });
+          if (hasUsefulPaymentAutofill(clean)) extracted = clean;
+        } catch {
+          /* keep empty */
+        }
+      }
       const invNo = invoiceNoFromExtracted(extracted);
       const matched = invNo && needsPick && !activeJob ? findJobByInvoice(jobs, invNo) : null;
       const ok = applyAutofill(extracted);

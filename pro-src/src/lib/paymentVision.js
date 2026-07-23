@@ -35,26 +35,56 @@ export function fileToBase64(file) {
 }
 
 /**
- * Downscale large payment photos before vision (phone check pics are often 3–8MB).
- * Returns { b64, mime }.
+ * Sample canvas for near-white wash (iPad WebView blank-canvas bug).
+ * A washed canvas still makes a 15–40KB JPEG — size checks alone miss it.
+ */
+export function canvasLooksBlank(ctx, w, h) {
+  if (!ctx || w < 1 || h < 1) return true;
+  try {
+    const sw = Math.min(w, 80);
+    const sh = Math.min(h, 50);
+    const data = ctx.getImageData(0, 0, sw, sh).data;
+    let bright = 0;
+    let n = 0;
+    // Every 4th pixel is enough to catch uniform white/gray wash.
+    for (let i = 0; i < data.length; i += 16) {
+      const lum = 0.299 * data[i] + 0.587 * data[i + 1] + 0.114 * data[i + 2];
+      if (lum > 242) bright += 1;
+      n += 1;
+    }
+    return n > 0 && bright / n > 0.9;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Prepare payment photo bytes for vision. Prefer the original file.
  *
- * Critical: some iPad/Android WebViews produce a blank/near-empty canvas for large
- * HEIC/JPEG — vision then "succeeds" with empty fields and Autofill looks broken.
- * Skip canvas when the file is already small enough; fall back to original if the
- * compressed blob is suspiciously tiny vs the source.
+ * Critical history (Mendel check #1356 / $450): server always read the real photo,
+ * but iPad Autofill failed because canvas compress washed the image to near-white.
+ * White JPEGs still pass old size gates (~20KB) → vision returns ok + empty fields
+ * → toast "Couldn't read amount or check #".
+ *
+ * Policy: send original for anything under ~5.5MB (live server handles 3.6–4.9MB).
+ * Only canvas-downscale truly huge files; reject washed canvases and keep original.
+ * Returns { b64, mime, usedCompress }.
  */
 export async function compressImageForVision(file, maxEdge = 1600, quality = 0.82) {
   if (!file) {
-    return { b64: "", mime: "image/jpeg" };
+    return { b64: "", mime: "image/jpeg", usedCompress: false };
   }
   const origMime = normalizeVisionMime(file.type, "image/jpeg");
   const origB64 = await fileToBase64(file);
-  const orig = { b64: origB64, mime: origMime };
+  const orig = { b64: origB64, mime: origMime, usedCompress: false };
 
-  // Already small JPEG/PNG — send as-is (avoids blank-canvas bugs; server handles ~5MB).
+  // Live payment-vision accepts multi-MB check photos — skip canvas for normal phones.
   const size = Number(file.size) || 0;
-  const isJpegish = /image\/(jpeg|jpg|png|webp)/i.test(origMime);
-  if (size > 0 && size <= 1_200_000 && isJpegish) {
+  if (size > 0 && size <= 5_500_000) {
+    return orig;
+  }
+  // Unknown size but short base64 ≈ under ~4MB decoded — also safe as-is.
+  if (!size && origB64 && origB64.length <= 5_500_000) {
     return orig;
   }
 
@@ -79,20 +109,26 @@ export async function compressImageForVision(file, maxEdge = 1600, quality = 0.8
       bmp.close?.();
       return orig;
     }
+    // White fill first — if drawImage fails silently we detect wash below.
+    ctx.fillStyle = "#ffffff";
+    ctx.fillRect(0, 0, w, h);
     ctx.drawImage(bmp, 0, 0, w, h);
     bmp.close?.();
+    if (canvasLooksBlank(ctx, w, h)) {
+      return orig;
+    }
     const blob = await new Promise((resolve) => canvas.toBlob(resolve, "image/jpeg", quality));
-    if (!blob || blob.size < 2500) {
+    if (!blob || blob.size < 8000) {
       // Blank/near-empty canvas — keep original bytes.
       return orig;
     }
     // Compressed "succeeded" but is absurdly smaller than source → likely blank wash.
-    if (size > 80_000 && blob.size < Math.min(8_000, size * 0.01)) {
+    if (size > 80_000 && blob.size < Math.min(20_000, size * 0.02)) {
       return orig;
     }
     const b64 = await fileToBase64(new File([blob], "vision.jpg", { type: "image/jpeg" }));
-    if (!b64 || b64.length < 1000) return orig;
-    return { b64, mime: "image/jpeg" };
+    if (!b64 || b64.length < 4000) return orig;
+    return { b64, mime: "image/jpeg", usedCompress: true };
   } catch {
     return orig;
   }
