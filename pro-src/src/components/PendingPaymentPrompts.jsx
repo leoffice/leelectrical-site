@@ -284,13 +284,13 @@ export default function PendingPaymentPrompts() {
         await saveAll?.();
         showToast(
           patch.paid
-            ? "Payment approved and saved — recording in QuickBooks · fixes train the reader"
+            ? "Marked paid and saved — QuickBooks catches up in the background · fixes train the reader"
             : `Partial payment approved (${fmt$(payAmt)}) — saved · fixes train the reader`
         );
       } catch {
         showToast(
           patch.paid
-            ? "Payment staged — tap Save & sync if the balance didn’t update"
+            ? "Marked paid — tap Save & sync so QuickBooks catches up"
             : `Partial payment staged (${fmt$(payAmt)}) — tap Save & sync to finish`
         );
       }

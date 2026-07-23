@@ -163,10 +163,24 @@ function normalizePayments(job) {
 }
 
 function owedAtStart(job, payments) {
-  if (job?.paymentBaseline != null && job.paymentBaseline !== "") return parseMoney(job.paymentBaseline);
-  const paidSum = payments.reduce((s, p) => s + parseMoney(p.amount), 0);
+  // Local paid is authoritative — do not double-count open + new payment rows.
+  if (job?.paymentBaseline != null && job.paymentBaseline !== "") {
+    const locked = parseMoney(job.paymentBaseline);
+    const inv = parseMoney(job?.amount);
+    if (inv > 0 && locked > inv + 0.009) return inv;
+    return locked;
+  }
   const curOpen = job?.openBalance != null && job.openBalance !== "" ? parseMoney(job.openBalance) : null;
-  if (curOpen != null && paidSum > 0) return curOpen + paidSum;
+  const existing = normalizePayments(job);
+  const prevPaid = existing.reduce((s, p) => s + parseMoney(p.amount), 0);
+  if (curOpen != null) {
+    if (prevPaid > 0) {
+      const inv = parseMoney(job?.amount);
+      if (inv > 0 && Math.abs(curOpen - inv) <= 0.01) return inv;
+      return curOpen + prevPaid;
+    }
+    return curOpen;
+  }
   const hay = [job?.notes, job?.followUp?.text].filter(Boolean).join(" ");
   const m = hay.match(/(?:open\s*balance|balance\s*due|balance|owes?|remaining)\D{0,8}\$?\s*([\d,]+(?:\.\d+)?)/i);
   if (m) return parseMoney(m[1]);

@@ -520,10 +520,10 @@ export function MarkPaidSheet({
     const remaining = parseFloat(String(patch.openBalance)) || 0;
     const trainNote = trained ? " · Your fixes train the check reader" : "";
     if (patch.paid) {
-      showToast("Payment staged — Save & sync to record in QuickBooks" + trainNote);
+      showToast("Marked paid — Save & sync so QuickBooks catches up in the background" + trainNote);
     } else {
       showToast(
-        "Partial payment staged — " + fmt$(remaining) + " remaining. Save & sync for QuickBooks." + trainNote
+        "Partial payment applied — " + fmt$(remaining) + " remaining. Save & sync for QuickBooks." + trainNote
       );
     }
     patchJob(targetJob.id, patch);
@@ -1337,10 +1337,10 @@ export function MarkPaidSheet({
       )}
       <p className="text-[11px] text-slate-400 text-center mt-2">
         {isCard
-          ? "Card is charged now via Sola. QuickBooks records automatically — no Save & sync needed."
+          ? "Card is charged now. Invoice is marked paid here immediately — QuickBooks updates in the background."
           : isAch && achEnabled
             ? "ACH will debit via Sola once processing is wired — staged for now."
-            : "Staged now — QuickBooks records it when you hit Save & sync."}
+            : "Paid status updates here right away. QuickBooks is a background step on Save & sync."}
       </p>
     </Sheet>
     {zelleReconcile ? (
