@@ -48,12 +48,21 @@ describe("JobTransactionHistory", () => {
     expect(within(inv).getByTestId("job-txn-amount")).toHaveTextContent("$0");
   });
 
-  it("opens full payment editor when requested", async () => {
+  it("does not show a separate Edit payments button", () => {
+    render(<JobTransactionHistory job={job} onOpenFull={() => {}} />);
+    expect(screen.queryByTestId("job-txn-open-full")).toBeNull();
+    expect(screen.queryByText(/Edit payments/i)).toBeNull();
+  });
+
+  it("tapping a payment row opens the payment card", async () => {
     const user = userEvent.setup();
-    const onOpenFull = vi.fn();
-    render(<JobTransactionHistory job={job} onOpenFull={onOpenFull} />);
-    await user.click(screen.getByTestId("job-txn-open-full"));
-    expect(onOpenFull).toHaveBeenCalledTimes(1);
+    const onOpenRow = vi.fn();
+    render(<JobTransactionHistory job={job} onOpenRow={onOpenRow} />);
+    await user.click(screen.getByTestId("job-txn-filter-payments"));
+    await user.click(screen.getByTestId("job-txn-pay-p1"));
+    expect(onOpenRow).toHaveBeenCalledTimes(1);
+    expect(onOpenRow.mock.calls[0][0].kind).toBe("payment");
+    expect(onOpenRow.mock.calls[0][0].payment?.id).toBe("p1");
   });
 
   it("filters with All / Invoices / Payments / Estimates tabs", async () => {
@@ -75,13 +84,14 @@ describe("JobTransactionHistory", () => {
   });
 });
 
-describe("JobInfoCard payment history toggle", () => {
-  it("shows payment history toggle and never shows requisition flow", () => {
+describe("JobInfoCard transaction history toggle", () => {
+  it("shows Transaction history toggle next to % paid and never shows requisition flow", () => {
     const job = {
       id: "j-1",
       customer: "Test",
       title: "Panel",
       amount: 100,
+      openBalance: 40,
       invoiceNo: "1",
     };
     render(
@@ -94,8 +104,13 @@ describe("JobInfoCard payment history toggle", () => {
         onCalendar={() => {}}
       />
     );
-    expect(screen.getByTestId("job-txn-history-toggle")).toBeInTheDocument();
+    const pctRow = screen.getByTestId("job-info-pct-row");
+    expect(pctRow).toBeInTheDocument();
+    expect(within(pctRow).getByText("% paid")).toBeInTheDocument();
+    expect(within(pctRow).getByTestId("job-txn-history-toggle")).toBeInTheDocument();
+    expect(within(pctRow).getByText("Transaction history")).toBeInTheDocument();
     expect(screen.queryByTestId("job-requisition-toggle")).toBeNull();
     expect(screen.queryByText(/Requisition flow/i)).toBeNull();
+    expect(screen.queryByText("Payment history")).toBeNull();
   });
 });

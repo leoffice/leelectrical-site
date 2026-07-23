@@ -3,6 +3,7 @@ import {
   applyDueAmountToLines,
   inferProgressInvoiceLines,
   isProgressBillingContext,
+  normalizeProgressInvoiceLines,
   progressBillLines,
   progressPctFromLines,
   roundQty,
@@ -57,6 +58,16 @@ describe("progressBilling", () => {
   it("progressPctFromLines", () => {
     const lines = progressBillLines(estimateLines, 50);
     expect(progressPctFromLines(lines, 46000)).toBe(50);
+  });
+
+  it("normalizeProgressInvoiceLines flips partial-rate qty=1 into full rate × fraction", () => {
+    const lines = normalizeProgressInvoiceLines(
+      [{ itemName: "General Wiring", qty: 1, unitPrice: 36800, description: "80% bill" }],
+      46000
+    );
+    expect(lines[0].unitPrice).toBe(46000);
+    expect(lines[0].qty).toBeCloseTo(0.8, 5);
+    expect(progressPctFromLines(lines, 46000)).toBe(80);
   });
 
   it("progressBillLines accepts office-file rate field (not only unitPrice)", () => {

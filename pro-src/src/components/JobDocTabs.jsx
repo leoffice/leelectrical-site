@@ -70,10 +70,15 @@ export default function JobDocTabs({
     : cal.pending
     ? "bg-orange-50 text-orange-800 border-orange-200"
     : "bg-red-50 text-red-700 border-red-200";
-  const coLabel = coCount > 0 ? "CO · " + coCount : "Change order";
+  // Bottom CO tab only when history already has change orders (create is header "Add change order").
+  const showCoTab = coCount > 0;
+  const coLabel = "COs · " + coCount;
 
   return (
-    <div className="grid grid-cols-5 gap-1 mt-3" data-testid="job-doc-tabs">
+    <div
+      className={`grid gap-1 mt-3 ${showCoTab ? "grid-cols-5" : "grid-cols-4"}`}
+      data-testid="job-doc-tabs"
+    >
       <button
         type="button"
         className={`rounded-xl border px-1 py-2 text-center text-[9px] font-bold leading-tight ${tabTone(hasEst, pending.estimate, failed.estimate)}`}
@@ -114,20 +119,21 @@ export default function JobDocTabs({
       >
         📅 Calendar
       </button>
-      <button
-        type="button"
-        className={`rounded-xl border px-1 py-2 text-center text-[9px] font-bold leading-tight ${
-          changeOrdersActive
-            ? "bg-brand-soft text-brand border-brand/30"
-            : coCount > 0
-            ? "bg-violet-50 text-violet-800 border-violet-200"
-            : "bg-slate-50 text-slate-500 border-slate-200"
-        }`}
-        onClick={onChangeOrders}
-        data-testid="tab-change-orders"
-      >
-        📋 {coLabel}
-      </button>
+      {showCoTab ? (
+        <button
+          type="button"
+          className={`rounded-xl border px-1 py-2 text-center text-[9px] font-bold leading-tight ${
+            changeOrdersActive
+              ? "bg-brand-soft text-brand border-brand/30"
+              : "bg-violet-50 text-violet-800 border-violet-200"
+          }`}
+          onClick={onChangeOrders}
+          data-testid="tab-change-orders"
+          title="Show change orders on this job"
+        >
+          📋 {coLabel}
+        </button>
+      ) : null}
     </div>
   );
 }

@@ -88,6 +88,10 @@ export default function JobInfoCard({
   const invoiceDate = jobInvoiceDateDisplay(job);
   const bubbles = useMemo(() => jobAwarenessBubbles(job, events, commands), [job, events, commands]);
 
+  // % paid / paid status row hosts the Transaction History toggle (Levi: condensed).
+  const pctLabel = total > 0 && !job.paid ? pct + "%" : job.paid ? "Paid in full" : null;
+  const pctKey = total > 0 && !job.paid ? "% paid" : job.paid ? "Status" : null;
+
   const rows = [
     svc ? ["Service address", svc] : null,
     serviceDate ? ["Service date", serviceDate] : null,
@@ -99,9 +103,11 @@ export default function JobInfoCard({
     total > 0 ? ["Invoice amount", fmt$(total)] : null,
     paid > 0 ? ["Paid", fmt$(paid)] : null,
     !job.paid && balance > 0 ? ["Balance due", fmt$(balance)] : null,
-    total > 0 && !job.paid ? ["% paid", pct + "%"] : null,
-    job.paid ? ["Status", "Paid in full"] : null,
   ].filter(Boolean);
+
+  const showTxnToggle = typeof onJobTxnsChange === "function";
+  // When there's no %/status line, still show the toggle on its own condensed row.
+  const showPctRow = pctKey || showTxnToggle;
 
   const bubbleStrip = bubbles.length ? (
     <div
@@ -177,9 +183,9 @@ export default function JobInfoCard({
                   onAddChangeOrder();
                 }}
                 data-testid="add-change-order-btn"
-                title="Creates a separate change-order document — confirm required"
+                title="Create a new change-order invoice or estimate on this job"
               >
-                ＋ Change order
+                ＋ Add change order
               </button>
             ) : null}
             {onAddAttachment ? (
@@ -211,7 +217,7 @@ export default function JobInfoCard({
 
       <SasRecordingLink job={job} sasCalls={sasCalls} />
 
-      {rows.length > 0 && (
+      {(rows.length > 0 || showPctRow) && (
         <dl className="mt-2 space-y-1 text-xs lg:text-sm min-w-0 w-full">
           {rows.map(([k, v]) => (
             <div key={k} className="flex gap-2 items-baseline">
@@ -219,25 +225,43 @@ export default function JobInfoCard({
               <dd className="text-slate-500 break-words min-w-0">{v}</dd>
             </div>
           ))}
+          {showPctRow ? (
+            <div
+              className="flex gap-2 items-center min-w-0"
+              data-testid="job-info-pct-row"
+            >
+              {pctKey ? (
+                <dt className="font-semibold text-slate-800 shrink-0 w-[5.5rem] lg:w-32">
+                  {pctKey}
+                </dt>
+              ) : null}
+              {pctKey ? (
+                <dd className="text-slate-500 break-words min-w-0 flex-1">{pctLabel}</dd>
+              ) : null}
+              {showTxnToggle ? (
+                <div
+                  className={
+                    "flex items-center gap-1.5 shrink-0 " + (pctKey ? "ml-auto" : "ml-auto")
+                  }
+                  data-no-card-open
+                  data-testid="job-txn-history-toggle"
+                  onClick={stopBubble}
+                >
+                  <span className="text-[11px] font-semibold text-slate-600 whitespace-nowrap">
+                    Transaction history
+                  </span>
+                  <Toggle
+                    small
+                    on={!!jobTxns}
+                    onChange={onJobTxnsChange}
+                    label="Transaction history for this job"
+                  />
+                </div>
+              ) : null}
+            </div>
+          ) : null}
         </dl>
       )}
-
-      {typeof onJobTxnsChange === "function" ? (
-        <div
-          className="mt-2 flex items-center justify-end gap-2 pt-2 border-t border-slate-100"
-          data-no-card-open
-          data-testid="job-txn-history-toggle"
-          onClick={stopBubble}
-        >
-          <span className="text-[11px] font-semibold text-slate-600">Payment history</span>
-          <Toggle
-            small
-            on={!!jobTxns}
-            onChange={onJobTxnsChange}
-            label="Payment history for this job"
-          />
-        </div>
-      ) : null}
 
       {onEstimate && onInvoice && onCalendar ? (
         <div data-no-card-open onClick={stopBubble}>

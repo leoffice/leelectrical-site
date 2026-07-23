@@ -5,6 +5,7 @@ import { preferredChangeOrderDocNo } from "./changeOrder.js";
 import {
   inferProgressInvoiceLines,
   isProgressBillingContext,
+  normalizeProgressInvoiceLines,
   progressBillLines,
   progressPctFromLines,
   contractTotalForJob,
@@ -47,7 +48,11 @@ export function initialLines(job, { kind, mode, progressPct } = {}) {
     if (kind === "invoice" && mode === "from_estimate" && job.estimateLines) {
       return progressBillLines(job.estimateLines, progressPct ?? 100);
     }
-    return saved.map((ln) => ({ ...emptyLine(), ...ln }));
+    const mapped = saved.map((ln) => ({ ...emptyLine(), ...ln }));
+    if (kind === "invoice" && isProgressBillingContext(job, { kind, mode })) {
+      return normalizeProgressInvoiceLines(mapped, contractTotalForJob(job), job.estimateLines);
+    }
+    return mapped;
   }
   if (kind === "invoice" && mode === "edit" && isProgressBillingContext(job, { kind, mode })) {
     return inferProgressInvoiceLines(job);
