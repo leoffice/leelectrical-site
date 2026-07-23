@@ -156,8 +156,9 @@ export function readLogoFileAsDataUrl(file, maxEdge = 512) {
           ctx.fillStyle = "#ffffff";
           ctx.fillRect(0, 0, width, height);
           ctx.drawImage(img, 0, 0, width, height);
-          const out =
-            file.type === "image/png" ? canvas.toDataURL("image/png") : canvas.toDataURL("image/jpeg", 0.9);
+          // Always JPEG so invoice/estimate PDFs can embed the logo without
+          // an extra conversion step (PDF writer uses DCTDecode only).
+          const out = canvas.toDataURL("image/jpeg", 0.9);
           resolve(out);
         } catch (e) {
           reject(e);

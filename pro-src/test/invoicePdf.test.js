@@ -163,7 +163,7 @@ describe("invoicePdf generation", () => {
   });
 
   it("buildInvoicePdfFromJob wraps job mapping", async () => {
-    const blob = buildInvoicePdfFromJob({
+    const blob = await buildInvoicePdfFromJob({
       customer: "Test Customer",
       invoiceNo: "999",
       amount: "$500",
