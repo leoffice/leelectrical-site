@@ -7,7 +7,7 @@ import {
   agencyOrder,
   foldConedForJob,
 } from "../src/lib/permitsBoard.js";
-import { computeConedBackfill } from "../src/lib/permitBackfill.js";
+import { computeConedBackfill, computePermitBackfill } from "../src/lib/permitBackfill.js";
 
 const JOB = (id, over = {}) => ({ id, customer: `Cust ${id}`, serviceAddress: `${id} Main St`, ...over });
 
@@ -101,26 +101,55 @@ describe("buildPermitBoard — Con Ed derivation", () => {
   });
 });
 
-describe("buildPermitBoard — City/DOB interim projection", () => {
-  it("projects an applied City inspection insight into a read-only row", () => {
-    const cityInsight = {
-      id: "city-1",
-      status: "auto_applied",
-      agency: "city",
-      appointmentType: "inspection",
-      outcome: "scheduled",
-      dobJobNumber: "M01228312",
-      dateTime: "2026-08-10T10:00",
-      address: "503 Schenectady Ave",
-      source: { subject: "M01228312/I1 inspection", receivedAt: "Tue, 21 Jul 2026 08:00:00 -0400" },
-      jobId: "J-1",
-    };
+describe("buildPermitBoard — City/DOB real stage brain (WP-Permits-B)", () => {
+  const cityInsight = {
+    id: "city-1",
+    status: "auto_applied",
+    agency: "city",
+    dobJobNumber: "M01228312/I1",
+    dateTime: "2026-08-10T10:00",
+    address: "503 Schenectady Ave",
+    source: {
+      from: "DOBNOW donotreply <dobnowdonotreply@buildings.nyc.gov>",
+      subject: "Electrical Inspection Scheduled - Job Number M01228312/I1",
+      receivedAt: "Tue, 21 Jul 2026 08:00:00 -0400",
+    },
+    jobId: "J-1",
+  };
+  it("folds an applied DOB insight into a staged (non-interim) city case", () => {
     const board = buildPermitBoard({ jobs: [JOB("J-1")], insights: [cityInsight], config: LE_CONFIG });
     const dob = board.sections.find((s) => s.agency === "dob");
     expect(dob.cases).toHaveLength(1);
-    expect(dob.cases[0].caseNumber).toBe("M01228312");
-    expect(dob.cases[0].stageLabel).toBe("Inspection scheduled");
-    expect(dob.cases[0].interim).toBe(true);
+    expect(dob.cases[0].caseNumber).toBe("M01228312/I1");
+    expect(dob.cases[0].stage).toBe("inspection_scheduled");
+    expect(dob.cases[0].stageBucket).toBe("Scheduled");
+    expect(dob.cases[0].interim).toBeUndefined();
+  });
+  it("a DOB objection lands in the action-needed strip", () => {
+    const obj = { ...cityInsight, id: "city-2", jobId: "J-2", source: { ...cityInsight.source, subject: "Objection — additional information required for M01228312" } };
+    const board = buildPermitBoard({ jobs: [JOB("J-2")], insights: [obj], config: LE_CONFIG });
+    expect(board.actionNeeded).toHaveLength(1);
+    expect(board.actionNeeded[0].agency).toBe("dob");
+    expect(board.actionNeeded[0].health).toBe("blocked-by-us");
+  });
+});
+
+describe("computePermitBackfill — combined Con Ed + City, one unified permits[]", () => {
+  it("merges both agencies into a single permits patch (no clobber) + idempotent", () => {
+    const cityInsight = {
+      id: "city-9", status: "auto_applied", agency: "city", dobJobNumber: "M01228312/I1",
+      dateTime: "2026-08-10T10:00",
+      source: { from: "dobnowdonotreply@buildings.nyc.gov", subject: "Electrical Inspection Scheduled - Job Number M01228312/I1", receivedAt: "Tue, 21 Jul 2026 08:00:00 -0400" },
+      jobId: "J-1",
+    };
+    const insights = [conedInsight({ jobId: "J-1" }), cityInsight];
+    const plan = computePermitBackfill({ jobs: [JOB("J-1")], insights });
+    expect(plan).toHaveLength(1);
+    const agencies = plan[0].patch.permits.map((p) => p.agency).sort();
+    expect(agencies).toEqual(["city", "coned"]); // both survive in one list
+    // Idempotent: persist then re-plan → no-op.
+    const persisted = JOB("J-1", { permits: plan[0].patch.permits, paperwork: plan[0].patch.paperwork });
+    expect(computePermitBackfill({ jobs: [persisted], insights })).toHaveLength(0);
   });
 });
 

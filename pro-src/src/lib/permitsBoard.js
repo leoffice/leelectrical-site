@@ -12,9 +12,9 @@
 //      MEMORY. This is why the tab shows real data on day one without having
 //      to mutate anything first: opening the tab is side-effect free.
 //
-// City/DOB is INTERIM here: there is no City lifecycle brain yet (that is the
-// next work package, WP-Permits-B). We project applied City inspection
-// insights into read-only rows so the section isn't empty — no stage machine.
+// City/DOB (DOB NOW: Electrical) now has a real lifecycle brain too
+// (cityPermit.js, WP-Permits-B) — folded the same way as Con Ed, producing
+// staged `agency:"city"` permit records instead of the old read-only projection.
 
 import {
   conedPatchFromInsight,
@@ -23,6 +23,13 @@ import {
   stageHealth,
   CONED_STAGE_LABELS,
 } from "./conedPermit.js";
+import {
+  cityPatchFromInsight,
+  isCityAgencyInsight,
+  CITY_STAGE_LABELS,
+  CITY_STAGE_BUCKET,
+  cityStageHealth,
+} from "./cityPermit.js";
 
 /** An insight counts as "on the job" once it was approved or auto-applied. */
 export function isAppliedInsight(insight) {
@@ -154,49 +161,43 @@ function rowFromConedPaperwork(job, coned) {
 }
 
 /**
- * INTERIM City/DOB projection (no lifecycle brain yet — WP-Permits-B).
- * Read-only rows from applied City inspection insights that resolve to a job.
+ * Fold every applied City / DOB NOW insight for one job through the city brain,
+ * on top of whatever the job already persists. Mirror of foldConedForJob.
  */
-function cityRowsFromInsights(jobById, insights) {
-  const rows = [];
-  for (const ins of insights || []) {
-    if (!isAppliedInsight(ins)) continue;
-    if (canonAgency(ins.agency) !== "dob") continue;
-    const job = jobById.get(ins.jobId);
-    if (!job) continue;
-    const caseNumber =
-      ins.dobJobNumber ||
-      (ins.source?.subject || "").match(/\b([MB]\d{6,}\/?\w*)\b/)?.[1] ||
-      "";
-    const dt = ins.dateTime || ins.exactDateTime || "";
-    const scheduled = ins.outcome === "scheduled" || ins.appointmentType === "inspection";
-    rows.push({
-      key: `dob:${caseNumber || ins.id || job.id}`,
-      agency: "dob",
-      jobId: job.id,
-      jobName: jobName(job),
-      address: ins.address || jobAddress(job),
-      caseNumber,
-      stage: "",
-      stageLabel: scheduled ? "Inspection scheduled" : "City filing",
-      stageBucket: scheduled ? "Scheduled" : "Open",
-      health: "ok",
-      nextAction: dt ? `City inspection ${dt.replace("T", " ").slice(0, 16)}` : "City / DOB filing",
-      nextActionDate: dt || "",
-      updatedAt: ins.source?.receivedAt || "",
-      source: "city-insight",
-      interim: true,
-    });
+export function foldCityForJob(job, insights) {
+  let permits = Array.isArray(job?.permits) ? job.permits.map((p) => ({ ...p })) : [];
+  const applied = (insights || [])
+    .filter(isAppliedInsight)
+    .filter((i) => isCityAgencyInsight(i))
+    .sort((a, b) => receivedTs(a) - receivedTs(b));
+  for (const ins of applied) {
+    const synthJob = { ...job, permits };
+    const patch = cityPatchFromInsight(ins, synthJob);
+    if (!patch) continue;
+    permits = patch.permits || permits;
   }
-  // Latest per case wins.
-  const byKey = new Map();
-  for (const r of rows) {
-    const prev = byKey.get(r.key);
-    if (!prev || receivedTs({ source: { receivedAt: r.updatedAt } }) >= receivedTs({ source: { receivedAt: prev.updatedAt } })) {
-      byKey.set(r.key, r);
-    }
-  }
-  return [...byKey.values()];
+  return { permits };
+}
+
+/** Display row from a City/DOB permit record. */
+function rowFromCityPermit(job, permit) {
+  const stage = permit.currentStage || "";
+  return {
+    key: `dob:${permit.primaryKey || permit.id || job.id}`,
+    agency: "dob",
+    jobId: job.id,
+    jobName: jobName(job),
+    address: permit.addressNormalized || jobAddress(job),
+    caseNumber: permit.primaryKey || "",
+    stage,
+    stageLabel: CITY_STAGE_LABELS[stage] || permit.stageLabel || stage || "Open filing",
+    stageBucket: permit.stageBucket || CITY_STAGE_BUCKET[stage] || "Open",
+    health: permit.health || cityStageHealth(stage),
+    nextAction: permit.nextAction || "",
+    nextActionDate: permit.nextActionDate || "",
+    updatedAt: permit.updatedAt || "",
+    source: "city",
+  };
 }
 
 /** Health/bucket → does this case need us to do something? */
@@ -278,7 +279,30 @@ export function buildPermitBoard({ jobs = [], insights = [], config = null } = {
   }
   const conedCases = [...conedByKey.values()].sort(comparePermitRows);
 
-  const cityCases = cityRowsFromInsights(jobById, insights).sort(comparePermitRows);
+  // City / DOB — same fold pattern as Con Ed (real stage brain, WP-Permits-B).
+  const cityInsights = (insights || []).filter(isAppliedInsight).filter((i) => isCityAgencyInsight(i));
+  const cityByJob = new Map();
+  for (const ins of cityInsights) {
+    if (!ins.jobId) continue;
+    if (!cityByJob.has(ins.jobId)) cityByJob.set(ins.jobId, []);
+    cityByJob.get(ins.jobId).push(ins);
+  }
+  const cityCandidates = new Set(cityByJob.keys());
+  for (const j of jobs) {
+    if (!j || !j.id) continue;
+    if (Array.isArray(j.permits) && j.permits.some((p) => canonAgency(p.agency) === "dob")) cityCandidates.add(j.id);
+  }
+  const cityByKey = new Map();
+  for (const jobId of cityCandidates) {
+    const job = jobById.get(jobId);
+    if (!job) continue;
+    const folded = foldCityForJob(job, cityByJob.get(jobId) || []);
+    for (const permit of (folded.permits || []).filter((p) => canonAgency(p.agency) === "dob")) {
+      const row = rowFromCityPermit(job, permit);
+      cityByKey.set(row.key, row);
+    }
+  }
+  const cityCases = [...cityByKey.values()].sort(comparePermitRows);
 
   const byAgency = { coned: conedCases, dob: cityCases };
   const seen = Object.keys(byAgency).filter((a) => byAgency[a].length);
