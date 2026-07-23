@@ -1,16 +1,9 @@
 {
   "schema": "le-pro-version/v1",
-<<<<<<< HEAD
-  "gitSha": "2cb582fb50da3d831e9bed11f8ed63990187ddcd",
-  "gitShaShort": "2cb582f",
+  "gitSha": "48c169cf9bacb03ea5db6dbce9a354c5145d070c",
+  "gitShaShort": "48c169c",
   "netlifyDeployId": null,
-  "builtAt": "2026-07-23T19:56:11.684Z",
-=======
-  "gitSha": "63c960ab7efc80afc720bcda9bf415fa3fe64f19",
-  "gitShaShort": "63c960a",
-  "netlifyDeployId": null,
-  "builtAt": "2026-07-23T19:47:16.952Z",
->>>>>>> wp0-settings-save
+  "builtAt": "2026-07-23T20:11:44.612Z",
   "task": "",
   "rollbackAvailable": true
 }
