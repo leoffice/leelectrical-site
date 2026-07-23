@@ -254,6 +254,26 @@ export function useDoSend() {
           }
         }
         if (pdfB64) {
+          // Slim job for the bus — full history blobs bloat the queue write.
+          const slimJob = {
+            id: job.id,
+            customer: job.customer || "",
+            businessName: job.businessName || "",
+            personName: job.personName || "",
+            email: email || job.email || "",
+            invoiceNo: job.invoiceNo || no || "",
+            estimateNo: job.estimateNo || no || "",
+            amount: job.amount || due || "",
+            openBalance: job.openBalance,
+            dueDate: job.dueDate || "",
+            address: job.address || job.serviceAddress || "",
+            billingAddress: job.billingAddress || "",
+            serviceAddress: job.serviceAddress || job.address || "",
+            title: job.title || "",
+            invoiceLines: job.invoiceLines,
+            estimateLines: job.estimateLines,
+            items: job.items,
+          };
           const payload =
             kind === "invoice"
               ? {
@@ -265,11 +285,21 @@ export function useDoSend() {
                   docSource: DOC_SOURCE_LOCAL,
                   message,
                   subject,
-                  job,
+                  job: slimJob,
                   pdfB64,
                   filename,
                   viewLink: res?.viewLink || "",
-                  clientSend: res || { ok: false, reason: detail },
+                  html: res?.html || undefined,
+                  clientSend: res
+                    ? {
+                        ok: res.ok,
+                        sent: res.sent,
+                        error: res.error,
+                        reason: res.reason,
+                        dryRun: res.dryRun,
+                        viewLink: res.viewLink,
+                      }
+                    : { ok: false, reason: detail },
                 }
               : {
                   email,
@@ -277,11 +307,21 @@ export function useDoSend() {
                   docSource: DOC_SOURCE_LOCAL,
                   message,
                   subject,
-                  job,
+                  job: slimJob,
                   pdfB64,
                   filename,
                   viewLink: res?.viewLink || "",
-                  clientSend: res || { ok: false, reason: detail },
+                  html: res?.html || undefined,
+                  clientSend: res
+                    ? {
+                        ok: res.ok,
+                        sent: res.sent,
+                        error: res.error,
+                        reason: res.reason,
+                        dryRun: res.dryRun,
+                        viewLink: res.viewLink,
+                      }
+                    : { ok: false, reason: detail },
                 };
           const idk = "send_" + kind + ":local:" + (no || job.id) + ":" + Date.now();
           await enqueue("send_" + kind, job.id, payload, "deterministic", idk);

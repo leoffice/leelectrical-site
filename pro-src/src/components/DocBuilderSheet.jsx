@@ -10,9 +10,10 @@ import { isQuickbooksDocsEnabled, resolveDocSource } from "../lib/qboEnabled.js"
 import { useAppSettings } from "../lib/appSettings.js";
 import {
   EMAIL_POLICY_KEEP,
-  EMAIL_POLICY_ONCE,
+  defaultDocEmailBody,
   sendEmailDiffersFromCustomer,
 } from "../lib/sendDocConfirm.js";
+import DocEmailComposeSheet from "./DocEmailComposeSheet.jsx";
 import { defaultQboItems, filterQboItems } from "../data/qboItems.js";
 import ServiceAddressField from "./ServiceAddressField.jsx";
 import AddressAutocompleteField from "./AddressAutocompleteField.jsx";
@@ -372,10 +373,7 @@ export default function DocBuilderSheet({
   onCustomerPatch,
 }) {
   const { patchAndSave, enqueue, logSend, showToast, api, createJob, jobs: storeJobs, events } = useStore();
-  // Short trading name for the customer email draft — the legal name lives on
-  // the document itself, not in the covering message.
   const tenantConfig = useTenantConfig();
-  const tenantShortName = tenantConfig.profile?.shortName || "";
   const appSettings = useAppSettings();
   void appSettings.quickbooks;
   void appSettings.quickbooksDocs;
@@ -414,14 +412,14 @@ export default function DocBuilderSheet({
   const [items, setItems] = useState([]);
   const [saving, setSaving] = useState(false);
   const [emailSheet, setEmailSheet] = useState(false);
-  const [sendEmails, setSendEmails] = useState(() => job.email || "");
-  const [emailPolicy, setEmailPolicy] = useState("");
-  const [sendMessage, setSendMessage] = useState("");
-  const [includePayLink, setIncludePayLink] = useState(false);
+  // Seed only — the open email sheet owns typing state so keystrokes stay snappy.
+  const [sendEmailsSeed, setSendEmailsSeed] = useState(() => job.email || "");
+  const [sendMessageSeed, setSendMessageSeed] = useState("");
+  const [includePayLinkSeed, setIncludePayLinkSeed] = useState(false);
   const fileInputRef = useRef(null);
 
   useEffect(() => {
-    setSendEmails(job.email || "");
+    setSendEmailsSeed(job.email || "");
   }, [job.email]);
   const initialContract = contractTotalForJob(job) || contractTotalFromEstimate(job.estimateLines) || 0;
   const [contractAmount, setContractAmount] = useState(initialContract ? String(initialContract) : "");
@@ -743,9 +741,6 @@ export default function DocBuilderSheet({
       .filter((s) => s.includes("@"))
       .join(", ");
 
-  const emailDiffers = (raw) =>
-    sendEmailDiffersFromCustomer(raw != null ? raw : sendEmails, job.email);
-
   const downloadLocalPdf = async (jobForPdf) => {
     try {
       const { buildInvoicePdfFromJob, buildEstimatePdfFromJob } = await import("../lib/invoicePdf.js");
@@ -873,8 +868,8 @@ export default function DocBuilderSheet({
    */
   const submitSync = async (send, opts = {}) => {
     const emailTo =
-      allEmails(opts.email != null ? opts.email : sendEmails) ||
-      primaryEmail(opts.email != null ? opts.email : sendEmails) ||
+      allEmails(opts.email != null ? opts.email : sendEmailsSeed) ||
+      primaryEmail(opts.email != null ? opts.email : sendEmailsSeed) ||
       job.email ||
       "";
     const valid = validate(send, emailTo);
@@ -890,7 +885,7 @@ export default function DocBuilderSheet({
         return;
       }
       // Keep this email → update customer. Use it once → send only; job/PDF keep saved email.
-      const policy = opts.emailPolicy || emailPolicy || "";
+      const policy = opts.emailPolicy || "";
       const differs = sendEmailDiffersFromCustomer(emailTo, job.email);
       const keepOnCustomer = !!(emailTo && (!differs || policy === EMAIL_POLICY_KEEP));
       const savedEmail = keepOnCustomer ? emailTo : job.email || "";
@@ -923,7 +918,7 @@ export default function DocBuilderSheet({
         opts.docSource === DOC_SOURCE_LOCAL ? DOC_SOURCE_LOCAL : DOC_SOURCE_QBO
       );
       const withPay = !!(opts.includePaymentLink && kind === "invoice");
-      const customMsg = String(opts.message || sendMessage || "").trim();
+      const customMsg = String(opts.message || "").trim();
 
       if (needsCustomer && docSource === DOC_SOURCE_QBO) {
         stashPendingDocSync(jobId, {
@@ -949,7 +944,7 @@ export default function DocBuilderSheet({
               " will sync"
         );
       } else if (docSource === DOC_SOURCE_LOCAL && send) {
-        // Local PDF + email now (client generates PDF). No QuickBooks create/update.
+        // Local PDF + email: close UI immediately; PDF + Resend + host retry run in background.
         const noKey = kind === "estimate" ? "estimateNo" : "invoiceNo";
         const no =
           jobPatch[noKey] ||
@@ -962,105 +957,153 @@ export default function DocBuilderSheet({
           [noKey]: no,
           email: emailTo || activeJob.email || "",
         });
-        showToast("Sending local " + (kind === "estimate" ? "estimate" : "invoice") + " to " + emailTo + "…");
-        let res = null;
-        try {
-          if (typeof api.sendDocEmailNow === "function") {
-            res = await api.sendDocEmailNow(pdfJob, kind, {
-              email: emailTo,
-              includePaymentLink: withPay,
-              message: customMsg,
-            });
-          }
-        } catch (err) {
-          res = { ok: false, error: String(err?.message || err) };
+        const label = kind === "estimate" ? "estimate" : "invoice";
+        const amountStr = String(total || "").replace(/[$,]/g, "");
+        showToast("Sending " + label + " to " + emailTo + "…");
+        // Close sheet + parent before the slow PDF/network work (same pattern as useDoSend).
+        resumeFollowUpPrompts();
+        onDone && onDone(activeJob);
+        if (opts.close !== false) {
+          setEmailSheet(false);
+          onClose();
         }
-        const pdfB64 = res?.pdfB64 || "";
-        const filename =
-          res?.filename ||
-          `${kind === "estimate" ? "Estimate" : "Invoice"}-${no || "document"}.pdf`;
-        // Always log + enqueue so Activity shows the attempt (and host can retry if needed).
-        const payload =
-          kind === "invoice"
-            ? {
+        setSaving(false);
+
+        const runLocalBg = async () => {
+          let res = null;
+          try {
+            if (typeof api.sendDocEmailNow === "function") {
+              res = await api.sendDocEmailNow(pdfJob, kind, {
                 email: emailTo,
-                invoiceNo: no,
-                customer: activeJob.customer || "",
-                amount: String(total || "").replace(/[$,]/g, ""),
                 includePaymentLink: withPay,
-                docSource: DOC_SOURCE_LOCAL,
                 message: customMsg,
-                attachments: attsForEmail,
-                includeAttachmentsInEmail: attsForEmail.length > 0,
-                job: pdfJob,
-                pdfB64: pdfB64 || undefined,
-                filename,
-                viewLink: res?.viewLink || "",
-                clientSend: res || undefined,
-              }
-            : {
-                email: emailTo,
-                estimateNo: no,
-                docSource: DOC_SOURCE_LOCAL,
-                message: customMsg,
-                attachments: attsForEmail,
-                includeAttachmentsInEmail: attsForEmail.length > 0,
-                job: pdfJob,
-                pdfB64: pdfB64 || undefined,
-                filename,
-                viewLink: res?.viewLink || "",
-                clientSend: res || undefined,
-              };
-        if (res?.ok && res.sent) {
-          logSend(
-            jobId,
-            (kind === "estimate" ? "Estimate" : "Invoice") +
-              " emailed (local PDF)" +
-              (withPay ? " + payment link" : ""),
-            emailTo
-          );
-          showToast(
-            "Emailed " + (kind === "estimate" ? "estimate" : "invoice") + " to " + emailTo
-          );
-        } else if (res?.skipped || res?.reason === "test_email_unset" || res?.reason === "no_recipient") {
-          showToast("Could not send — check the email address and try again.");
-          setSaving(false);
-          return;
-        } else if (res && !res.ok) {
-          // Fall back to command bus so host/listener can retry (with PDF).
-          await enqueue(
-            "send_" + kind,
-            jobId,
-            payload,
-            "deterministic",
-            "send_" + kind + ":local:" + (no || jobId) + ":" + Date.now()
-          );
-          logSend(
-            jobId,
-            (kind === "estimate" ? "Estimate" : "Invoice") +
-              " local send queued" +
-              (withPay ? " + payment link" : ""),
-            emailTo
-          );
-          showToast("Finishing send in the background — you'll get a toast when it lands");
-        } else {
-          // No client API — queue for host listener (legacy).
-          await enqueue(
-            "send_" + kind,
-            jobId,
-            payload,
-            "deterministic",
-            "send_" + kind + ":local:" + (no || jobId)
-          );
-          logSend(
-            jobId,
-            (kind === "estimate" ? "Estimate" : "Invoice") +
-              " local send queued" +
-              (withPay ? " + payment link" : ""),
-            emailTo
-          );
-          showToast("Sending local " + (kind === "estimate" ? "estimate" : "invoice") + " to " + emailTo + "…");
-        }
+                subject: opts.subject || "",
+              });
+            }
+          } catch (err) {
+            res = { ok: false, error: String(err?.message || err) };
+          }
+          const pdfB64 = res?.pdfB64 || "";
+          const filename =
+            res?.filename ||
+            `${kind === "estimate" ? "Estimate" : "Invoice"}-${no || "document"}.pdf`;
+          // Strip heavy job history for the command bus — PDF is already attached.
+          const slimJob = {
+            id: pdfJob.id,
+            customer: pdfJob.customer || "",
+            businessName: pdfJob.businessName || "",
+            personName: pdfJob.personName || "",
+            email: emailTo || pdfJob.email || "",
+            invoiceNo: pdfJob.invoiceNo || "",
+            estimateNo: pdfJob.estimateNo || "",
+            amount: pdfJob.amount || amountStr,
+            openBalance: pdfJob.openBalance,
+            dueDate: pdfJob.dueDate || "",
+            address: pdfJob.address || pdfJob.serviceAddress || "",
+            billingAddress: pdfJob.billingAddress || "",
+            serviceAddress: pdfJob.serviceAddress || pdfJob.address || "",
+            title: pdfJob.title || "",
+            invoiceLines: pdfJob.invoiceLines,
+            estimateLines: pdfJob.estimateLines,
+            items: pdfJob.items,
+          };
+          const payload =
+            kind === "invoice"
+              ? {
+                  email: emailTo,
+                  invoiceNo: no,
+                  customer: activeJob.customer || "",
+                  amount: amountStr,
+                  includePaymentLink: withPay,
+                  docSource: DOC_SOURCE_LOCAL,
+                  message: customMsg,
+                  subject: opts.subject || "",
+                  attachments: attsForEmail,
+                  includeAttachmentsInEmail: attsForEmail.length > 0,
+                  job: slimJob,
+                  pdfB64: pdfB64 || undefined,
+                  filename,
+                  viewLink: res?.viewLink || "",
+                  html: res?.html || undefined,
+                  clientSend: res
+                    ? {
+                        ok: res.ok,
+                        sent: res.sent,
+                        error: res.error,
+                        reason: res.reason,
+                        dryRun: res.dryRun,
+                        viewLink: res.viewLink,
+                      }
+                    : undefined,
+                }
+              : {
+                  email: emailTo,
+                  estimateNo: no,
+                  docSource: DOC_SOURCE_LOCAL,
+                  message: customMsg,
+                  subject: opts.subject || "",
+                  attachments: attsForEmail,
+                  includeAttachmentsInEmail: attsForEmail.length > 0,
+                  job: slimJob,
+                  pdfB64: pdfB64 || undefined,
+                  filename,
+                  viewLink: res?.viewLink || "",
+                  html: res?.html || undefined,
+                  clientSend: res
+                    ? {
+                        ok: res.ok,
+                        sent: res.sent,
+                        error: res.error,
+                        reason: res.reason,
+                        dryRun: res.dryRun,
+                        viewLink: res.viewLink,
+                      }
+                    : undefined,
+                };
+          if (res?.ok && res.sent) {
+            logSend(
+              jobId,
+              (kind === "estimate" ? "Estimate" : "Invoice") +
+                " emailed (local PDF)" +
+                (withPay ? " + payment link" : ""),
+              emailTo
+            );
+            showToast("Emailed " + label + " to " + emailTo);
+            return;
+          }
+          if (res?.skipped || res?.reason === "test_email_unset" || res?.reason === "no_recipient") {
+            showToast("Could not send — check the email address and try again.");
+            return;
+          }
+          // Host finishes via Resend retry or office Gmail (full layout when html/viewLink present).
+          if (pdfB64 || !res) {
+            await enqueue(
+              "send_" + kind,
+              jobId,
+              payload,
+              "deterministic",
+              "send_" + kind + ":local:" + (no || jobId) + ":" + Date.now()
+            );
+            logSend(
+              jobId,
+              (kind === "estimate" ? "Estimate" : "Invoice") +
+                " local send queued" +
+                (withPay ? " + payment link" : ""),
+              emailTo
+            );
+            showToast("Finishing send in the background — you'll get a toast when it lands");
+          } else {
+            showToast(
+              (kind === "estimate" ? "Estimate" : "Invoice") +
+                " did NOT send — " +
+                String(res?.error || res?.reason || "failed").slice(0, 80)
+            );
+          }
+        };
+        runLocalBg().catch(() => {
+          showToast("Send hit a snag — open the invoice and try again");
+        });
+        return;
       } else {
         for (let i = 0; i < commands.length; i++) {
           const cmd = commands[i];
@@ -1477,14 +1520,12 @@ export default function DocBuilderSheet({
           className="btn-brand !py-2 !px-1.5 text-xs sm:text-sm"
           disabled={saving}
           onClick={() => {
-            setSendEmails(job.email || sendEmails || "");
-            if (!sendMessage) {
-              setSendMessage(
-                "Please find your " +
-                  (kind === "estimate" ? "estimate" : "invoice") +
-                  " attached. Thank you for choosing " +
-                  tenantShortName +
-                  "."
+            setSendEmailsSeed(job.email || sendEmailsSeed || "");
+            if (!sendMessageSeed) {
+              setSendMessageSeed(
+                defaultDocEmailBody(job, kind, {
+                  withPay: includePayLinkSeed && kind === "invoice",
+                })
               );
             }
             setEmailSheet(true);
@@ -1496,153 +1537,31 @@ export default function DocBuilderSheet({
       </div>
 
       {emailSheet ? (
-        <div
-          className="fixed inset-0 z-[80] flex items-end sm:items-center justify-center bg-black/40 p-3"
-          data-testid="doc-email-sheet"
-          role="dialog"
-          aria-label="Sync and email"
-        >
-          <div className="bg-white rounded-2xl shadow-xl w-full max-w-md max-h-[90vh] overflow-y-auto p-4">
-            <div className="flex items-center justify-between mb-3">
-              <h3 className="text-base font-extrabold text-slate-900">Sync &amp; Email</h3>
-              <button
-                type="button"
-                className="text-slate-400 text-xl leading-none px-2"
-                onClick={() => setEmailSheet(false)}
-                aria-label="Close"
-              >
-                ×
-              </button>
-            </div>
-            <Fld label="Send to" hint="Separate multiple emails with a comma">
-              <input
-                className="input"
-                type="text"
-                inputMode="email"
-                autoComplete="email"
-                autoCorrect="off"
-                autoCapitalize="none"
-                spellCheck={false}
-                value={sendEmails}
-                onChange={(e) => {
-                  setSendEmails(e.target.value);
-                  setEmailPolicy("");
-                }}
-                placeholder="customer@email.com"
-                aria-label="Email recipients"
-                data-testid="doc-send-emails"
-              />
-            </Fld>
-            {emailDiffers(sendEmails) ? (
-              <div
-                className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-3 mb-3"
-                data-testid="doc-email-policy"
-              >
-                <p className="text-sm font-semibold text-amber-900 mb-2">
-                  Different from the customer&apos;s saved email. Keep it or use once?
-                </p>
-                <div className="grid grid-cols-2 gap-2">
-                  <button
-                    type="button"
-                    className={`btn !py-2 text-sm ${
-                      emailPolicy === EMAIL_POLICY_KEEP
-                        ? "bg-brand text-white"
-                        : "bg-white border border-amber-200 text-slate-800"
-                    }`}
-                    onClick={() => setEmailPolicy(EMAIL_POLICY_KEEP)}
-                    data-testid="doc-email-keep"
-                  >
-                    Keep this email
-                  </button>
-                  <button
-                    type="button"
-                    className={`btn !py-2 text-sm ${
-                      emailPolicy === EMAIL_POLICY_ONCE
-                        ? "bg-brand text-white"
-                        : "bg-white border border-amber-200 text-slate-800"
-                    }`}
-                    onClick={() => setEmailPolicy(EMAIL_POLICY_ONCE)}
-                    data-testid="doc-email-once"
-                  >
-                    Use it once
-                  </button>
-                </div>
-              </div>
-            ) : null}
-            <Fld label="Message">
-              <textarea
-                className="input min-h-[100px]"
-                value={sendMessage}
-                onChange={(e) => setSendMessage(e.target.value)}
-                aria-label="Email message"
-                data-testid="doc-send-message"
-              />
-            </Fld>
-            {kind === "invoice" ? (
-              <label className="flex items-center gap-2 mb-3 cursor-pointer" data-testid="doc-pay-link-toggle">
-                <input
-                  type="checkbox"
-                  checked={includePayLink}
-                  onChange={(e) => setIncludePayLink(e.target.checked)}
-                />
-                <span className="text-sm font-semibold text-slate-800">For credit card payment</span>
-              </label>
-            ) : null}
-            {(() => {
-              const emailNeedsPolicy =
-                emailDiffers(sendEmails) &&
-                emailPolicy !== EMAIL_POLICY_KEEP &&
-                emailPolicy !== EMAIL_POLICY_ONCE;
-              const sendOpts = {
-                email: sendEmails,
-                message: sendMessage,
-                includePaymentLink: includePayLink,
-                emailPolicy: emailPolicy || (emailDiffers(sendEmails) ? "" : EMAIL_POLICY_ONCE),
-              };
-              if (!qboOn) {
-                return (
-                  <button
-                    type="button"
-                    className="btn-brand w-full !py-2.5 text-sm"
-                    disabled={saving || emailNeedsPolicy}
-                    onClick={() =>
-                      submitSync(true, { ...sendOpts, docSource: DOC_SOURCE_LOCAL })
-                    }
-                    data-testid="doc-send-local"
-                  >
-                    Send locally
-                  </button>
-                );
-              }
-              return (
-                <div className="grid grid-cols-2 gap-2">
-                  <button
-                    type="button"
-                    className="btn-brand !py-2.5 text-sm"
-                    disabled={saving || emailNeedsPolicy}
-                    onClick={() =>
-                      submitSync(true, { ...sendOpts, docSource: DOC_SOURCE_QBO })
-                    }
-                    data-testid="doc-save-sync-send"
-                  >
-                    Send through QB
-                  </button>
-                  <button
-                    type="button"
-                    className="btn !py-2.5 text-sm bg-brand-soft text-brand"
-                    disabled={saving || emailNeedsPolicy}
-                    onClick={() =>
-                      submitSync(true, { ...sendOpts, docSource: DOC_SOURCE_LOCAL })
-                    }
-                    data-testid="doc-send-local"
-                  >
-                    Send locally
-                  </button>
-                </div>
-              );
-            })()}
-          </div>
-        </div>
+        <DocEmailComposeSheet
+          key={"email-sheet-" + (job.id || "draft") + "-" + kind}
+          kind={kind}
+          jobEmail={job.email || ""}
+          initialEmail={sendEmailsSeed || job.email || ""}
+          initialMessage={
+            sendMessageSeed ||
+            defaultDocEmailBody(job, kind, {
+              withPay: includePayLinkSeed && kind === "invoice",
+            })
+          }
+          initialIncludePayLink={includePayLinkSeed}
+          qboOn={qboOn}
+          saving={saving}
+          onClose={() => {
+            if (saving) return;
+            setEmailSheet(false);
+          }}
+          onSend={(model) => {
+            setSendEmailsSeed(model.email || "");
+            setSendMessageSeed(model.message || "");
+            setIncludePayLinkSeed(!!model.includePaymentLink);
+            submitSync(true, model);
+          }}
+        />
       ) : null}
     </Sheet>
   );
