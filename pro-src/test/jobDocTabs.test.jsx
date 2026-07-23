@@ -52,6 +52,42 @@ describe("Task 63 — invoice/estimate tabs", () => {
     await user.click(within(pane).getByTestId("tab-estimate"));
     expect(await screen.findByText("Convert to invoice")).toBeInTheDocument();
   });
+
+  it("hides bottom change-order tab when job has no change-order history", async () => {
+    mockServer({ jobs: [{ ...JSON.parse(JSON.stringify(J1)), estimateNo: "", invoiceNo: "251841" }] });
+    renderApp("#/job/J-1");
+    const pane = await screen.findByTestId("detail-pane");
+    const tabs = within(pane).getByTestId("job-doc-tabs");
+    expect(within(tabs).queryByTestId("tab-change-orders")).not.toBeInTheDocument();
+    expect(within(pane).getByTestId("add-change-order-btn")).toBeInTheDocument();
+  });
+
+  it("shows bottom change-order tab when change-order history exists", async () => {
+    const original = {
+      ...JSON.parse(JSON.stringify(J1)),
+      id: "J-1",
+      estimateNo: "",
+      invoiceNo: "251841",
+      address: "10 Main St",
+      city: "Brooklyn",
+      state: "NY",
+    };
+    const coJob = {
+      ...original,
+      id: "J-co-1",
+      changeOrder: true,
+      changeOrderSourceId: "J-1",
+      changeOrderSeq: 1,
+      invoiceNo: "251841-CO-01",
+      title: "Change Order 1",
+    };
+    mockServer({ jobs: [original, coJob] });
+    renderApp("#/job/J-1");
+    const pane = await screen.findByTestId("detail-pane");
+    const tabs = within(pane).getByTestId("job-doc-tabs");
+    expect(within(tabs).getByTestId("tab-change-orders")).toBeInTheDocument();
+    expect(within(tabs).getByTestId("tab-change-orders")).toHaveTextContent(/COs/);
+  });
 });
 
 describe("docConfirm", () => {
