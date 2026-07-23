@@ -11,9 +11,9 @@ describe("functionsBase", () => {
     expect(functionsBase()).toBe("/.netlify/functions");
   });
 
-  it("uses canonical apex URL on www (Cloudflare has no functions)", () => {
+  it("uses same-origin on www (CF Pages Functions serve there too)", () => {
     vi.stubGlobal("location", { hostname: "www.leelectrical.us" });
-    expect(functionsBase()).toBe(`${CANONICAL_ORIGIN}/.netlify/functions`);
+    expect(functionsBase()).toBe("/.netlify/functions");
   });
 
   it("uses canonical apex URL for local dev", () => {

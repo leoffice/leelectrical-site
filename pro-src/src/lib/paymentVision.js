@@ -2,14 +2,32 @@
 import { functionsBase as base } from "./functionsBase.js";
 import { formatLearningForPrompt } from "./paymentVisionLearning.js";
 
+/** Strip data-URL wrapper / whitespace so xAI always gets pure base64. */
+export function normalizeImageBase64(raw) {
+  let s = String(raw || "").trim();
+  if (!s) return "";
+  const m = s.match(/^data:([^;]+);base64,(.+)$/i);
+  if (m) s = m[2];
+  // FileReader / some WebViews inject newlines in long base64 strings.
+  return s.replace(/\s+/g, "");
+}
+
+/** Normalize mime for vision (Android often sends image/jpg). */
+export function normalizeVisionMime(mime, fallback = "image/jpeg") {
+  const m = String(mime || "").trim().toLowerCase();
+  if (!m || m === "application/octet-stream") return fallback;
+  if (m === "image/jpg") return "image/jpeg";
+  if (m.startsWith("image/")) return m;
+  return fallback;
+}
+
 /** Read a File as base64 (no data: prefix). */
 export function fileToBase64(file) {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
     reader.onload = () => {
       const data = String(reader.result || "");
-      const b64 = data.includes(",") ? data.split(",")[1] : data;
-      resolve(b64);
+      resolve(normalizeImageBase64(data));
     };
     reader.onerror = () => reject(reader.error || new Error("read failed"));
     reader.readAsDataURL(file);
@@ -17,39 +35,66 @@ export function fileToBase64(file) {
 }
 
 /**
- * Downscale large payment photos before vision (phone check pics are often 3–8MB
- * and trip gateway 502s). Returns { b64, mime }. Falls back to original on failure.
+ * Downscale large payment photos before vision (phone check pics are often 3–8MB).
+ * Returns { b64, mime }.
+ *
+ * Critical: some iPad/Android WebViews produce a blank/near-empty canvas for large
+ * HEIC/JPEG — vision then "succeeds" with empty fields and Autofill looks broken.
+ * Skip canvas when the file is already small enough; fall back to original if the
+ * compressed blob is suspiciously tiny vs the source.
  */
 export async function compressImageForVision(file, maxEdge = 1600, quality = 0.82) {
-  if (!file || typeof createImageBitmap !== "function") {
-    const b64 = await fileToBase64(file);
-    return { b64, mime: file?.type || "image/jpeg" };
+  if (!file) {
+    return { b64: "", mime: "image/jpeg" };
+  }
+  const origMime = normalizeVisionMime(file.type, "image/jpeg");
+  const origB64 = await fileToBase64(file);
+  const orig = { b64: origB64, mime: origMime };
+
+  // Already small JPEG/PNG — send as-is (avoids blank-canvas bugs; server handles ~5MB).
+  const size = Number(file.size) || 0;
+  const isJpegish = /image\/(jpeg|jpg|png|webp)/i.test(origMime);
+  if (size > 0 && size <= 1_200_000 && isJpegish) {
+    return orig;
+  }
+
+  if (typeof createImageBitmap !== "function") {
+    return orig;
   }
   try {
     const bmp = await createImageBitmap(file);
     const scale = Math.min(1, maxEdge / Math.max(bmp.width, bmp.height));
     const w = Math.max(1, Math.round(bmp.width * scale));
     const h = Math.max(1, Math.round(bmp.height * scale));
+    // Reject absurdly small bitmaps (decode failure → blank read).
+    if (bmp.width < 32 || bmp.height < 32) {
+      bmp.close?.();
+      return orig;
+    }
     const canvas = document.createElement("canvas");
     canvas.width = w;
     canvas.height = h;
     const ctx = canvas.getContext("2d");
     if (!ctx) {
-      const b64 = await fileToBase64(file);
-      return { b64, mime: file.type || "image/jpeg" };
+      bmp.close?.();
+      return orig;
     }
     ctx.drawImage(bmp, 0, 0, w, h);
     bmp.close?.();
     const blob = await new Promise((resolve) => canvas.toBlob(resolve, "image/jpeg", quality));
-    if (!blob) {
-      const b64 = await fileToBase64(file);
-      return { b64, mime: file.type || "image/jpeg" };
+    if (!blob || blob.size < 2500) {
+      // Blank/near-empty canvas — keep original bytes.
+      return orig;
+    }
+    // Compressed "succeeded" but is absurdly smaller than source → likely blank wash.
+    if (size > 80_000 && blob.size < Math.min(8_000, size * 0.01)) {
+      return orig;
     }
     const b64 = await fileToBase64(new File([blob], "vision.jpg", { type: "image/jpeg" }));
+    if (!b64 || b64.length < 1000) return orig;
     return { b64, mime: "image/jpeg" };
   } catch {
-    const b64 = await fileToBase64(file);
-    return { b64, mime: file?.type || "image/jpeg" };
+    return orig;
   }
 }
 
@@ -63,15 +108,23 @@ export async function compressImageForVision(file, maxEdge = 1600, quality = 0.8
 export async function analyzePaymentScreenshot(imageBase64, mime = "image/jpeg", kind = "zelle", opts = {}) {
   const k = kind === "check" ? "check" : kind === "intent" ? "intent" : "zelle";
   const learningEntries = Array.isArray(opts.learningEntries) ? opts.learningEntries : [];
+  const skipLearning = opts.skipLearning === true;
   const learningHint =
-    k === "intent" ? "" : formatLearningForPrompt(learningEntries, k === "zelle" ? "zelle" : "check");
+    k === "intent" || skipLearning
+      ? ""
+      : formatLearningForPrompt(learningEntries, k === "zelle" ? "zelle" : "check");
+  const image = normalizeImageBase64(imageBase64);
+  const safeMime = normalizeVisionMime(mime, "image/jpeg");
+  if (!image) {
+    throw new Error("Check photo was empty — re-attach the picture and try Autofill again");
+  }
   const res = await fetch(`${base()}/payment-vision?cb=${Date.now()}`, {
     method: "POST",
     cache: "no-store",
     headers: { "content-type": "application/json" },
     body: JSON.stringify({
-      image: imageBase64,
-      mime,
+      image,
+      mime: safeMime,
       kind: k,
       ...(learningHint ? { learningHint } : {}),
     }),
@@ -265,6 +318,31 @@ export async function analyzePaymentImage(
     throw new Error(msg || "Could not reach the check reader");
   }
 
-  // At least one pass returned a payload (may still have empty fields = true unread).
-  return pickPaymentAnalysis({ checkResult, zelleResult, textHint, fileName });
+  let picked = pickPaymentAnalysis({ checkResult, zelleResult, textHint, fileName });
+
+  // Empty "success" is often a blank canvas / poisoned few-shot — one clean retry.
+  const empty =
+    !picked?.extracted ||
+    !(
+      (Number(picked.extracted.amount) > 0) ||
+      picked.extracted.checkNumber ||
+      picked.extracted.confirmationNumber ||
+      picked.extracted.memo ||
+      picked.extracted.invoiceNumber
+    );
+  if (empty && !opts._retriedClean && (wantsCheck || !wantsZelle)) {
+    try {
+      const clean = await analyzePaymentScreenshot(imageBase64, mime, "check", {
+        ...visionOpts,
+        skipLearning: true,
+      });
+      if (clean && (Number(clean.amount) > 0 || clean.checkNumber || clean.memo)) {
+        return { extracted: clean, kind: "check" };
+      }
+    } catch {
+      /* keep original pick */
+    }
+  }
+
+  return picked;
 }

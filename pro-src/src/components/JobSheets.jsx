@@ -636,7 +636,10 @@ export function MarkPaidSheet({
           /* keep original b64 */
         }
       }
-      if (!b64) return;
+      if (!b64) {
+        showToast("Could not load that photo — re-attach and try Autofill again");
+        return;
+      }
       let learningEntries = [];
       try {
         learningEntries = (await getPaymentVisionLearning?.()) || [];
@@ -645,7 +648,7 @@ export function MarkPaidSheet({
       }
       const { extracted } = await analyzePaymentImage(
         b64,
-        mime,
+        mime || "image/jpeg",
         isCheck ? "check" : isZelle ? "zelle" : "check",
         file?.name || "",
         { learningEntries }

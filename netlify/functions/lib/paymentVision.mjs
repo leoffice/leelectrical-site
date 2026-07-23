@@ -209,8 +209,25 @@ export function normalizeExtracted(raw) {
   return normalizePaymentExtracted(raw, "zelle");
 }
 
+/** Pure base64 + safe mime — double data: prefix makes xAI return "cannot be decoded". */
+export function normalizeVisionImageInput(imageBase64, mime = "image/jpeg") {
+  let raw = String(imageBase64 || "").trim();
+  let outMime = String(mime || "image/jpeg").trim() || "image/jpeg";
+  const dataMatch = raw.match(/^data:([^;]+);base64,(.+)$/i);
+  if (dataMatch) {
+    outMime = dataMatch[1].trim() || outMime;
+    raw = dataMatch[2];
+  }
+  // Strip accidental double wrappers and whitespace from long base64.
+  raw = raw.replace(/^data:[^;]+;base64,/i, "").replace(/\s+/g, "");
+  if (outMime === "image/jpg") outMime = "image/jpeg";
+  if (!outMime.startsWith("image/")) outMime = "image/jpeg";
+  return { imageBase64: raw, mime: outMime };
+}
+
 async function callVision({ imageBase64, mime, prompt, model, apiKey }) {
-  const dataUrl = `data:${mime};base64,${imageBase64}`;
+  const norm = normalizeVisionImageInput(imageBase64, mime);
+  const dataUrl = `data:${norm.mime};base64,${norm.imageBase64}`;
   let text = "";
 
   try {

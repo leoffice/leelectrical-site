@@ -1,12 +1,18 @@
 import { extractPaymentFromImage } from "./lib/paymentVision.mjs";
 
+const CORS = {
+  "access-control-allow-origin": "*",
+  "access-control-allow-methods": "POST, OPTIONS",
+  "access-control-allow-headers": "content-type",
+};
+
 function json(o, status = 200) {
   return new Response(JSON.stringify(o), {
     status,
     headers: {
       "content-type": "application/json",
       "cache-control": "no-store",
-      "access-control-allow-origin": "*",
+      ...CORS,
     },
   });
 }
@@ -15,7 +21,7 @@ export default async (req) => {
   if (req.method === "OPTIONS") {
     return new Response(null, {
       status: 204,
-      headers: { "access-control-allow-origin": "*", "access-control-allow-methods": "POST, OPTIONS" },
+      headers: CORS,
     });
   }
   if (req.method !== "POST") return json({ ok: false, error: "POST only" }, 405);
