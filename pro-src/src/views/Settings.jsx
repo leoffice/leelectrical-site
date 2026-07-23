@@ -21,7 +21,11 @@ import {
   setQuickbooksFeatureEnabled,
   setSpeechToTextEnabled,
 } from "../lib/appSettings.js";
-import { applyCompanyLogoToActiveConfig } from "../lib/tenantBranding.js";
+import {
+  applyCompanyLogoToActiveConfig,
+  applyCompanyProfileToActiveConfig,
+  defaultZelleInstructions,
+} from "../lib/tenantBranding.js";
 import {
   extendAgentAccess,
   fetchAgentAccessStatus,
@@ -413,7 +417,20 @@ export default function Settings() {
   }, [load, runHealth]);
 
   const setP = (key, val) => {
-    setProfile((p) => ({ ...p, [key]: val }));
+    setProfile((p) => {
+      const next = { ...p, [key]: val };
+      // When the company email changes, keep the standard Zelle line pointed
+      // at that same mailbox so printouts (and the demo) stay in sync.
+      if (key === "email") {
+        const email = String(val || "").trim();
+        const prevZ = String(p.zelleInstructions || "").trim();
+        const m = prevZ.match(/^Zelle:\s*Send payment to\s+(.+?)\.?\s*$/i);
+        if (!prevZ || m) {
+          next.zelleInstructions = defaultZelleInstructions(email);
+        }
+      }
+      return next;
+    });
     setDirty(true);
   };
 
@@ -459,7 +476,10 @@ export default function Settings() {
       await saveSettings({ profile, features });
       if (profile.logoDataUrl) setCompanyLogoDataUrl(profile.logoDataUrl);
       else clearCompanyLogo();
-      applyCompanyLogoToActiveConfig(profile.logoDataUrl || "");
+      // Push the whole company profile into live branding so local printouts
+      // (invoices, estimates, statements, requisitions) use the new values
+      // immediately — no reload.
+      applyCompanyProfileToActiveConfig(profile);
       setSpeechToTextEnabled(features.speechToText !== false);
       setQuickbooksFeatureEnabled(features.quickbooks !== false);
       setDirty(false);

@@ -12,7 +12,7 @@ import {
 //   Estimate acceptance on its own page; page N of M only when multi-page
 //   Powered by LE bottom-left; page numbers same baseline when multi-page
 import { resolvePdfLogoImageSync } from "./companyLogoPdf.js";
-import { activeTenantConfig, tenantCompany } from "./tenantBranding.js";
+import { tenantCompany, tenantZelleInstructions } from "./tenantBranding.js";
 import { wrapPrintDescription } from "./printDescription.js";
 
 const PAGE_W = 612;
@@ -239,11 +239,11 @@ export function buildQbDocPdf(data) {
   let closingMsg = null;
   if (data.messageLines !== null) {
     const tenant = tenantCompany();
-    const profile = activeTenantConfig().profile || {};
+    const zelle = tenantZelleInstructions();
     const defaultMsg = [
       'Online Payment: Click the "View Invoice" tab in the email and pay',
       "via the provided credit card payment link.",
-      `-${profile.zelleInstructions}`,
+      zelle ? `-${zelle}` : null,
       `-Check: Make checks payable to "${tenant.name}" and either: Mail`,
       `it or Email a clear picture of the check to ${tenant.email}.`,
       "",
@@ -251,7 +251,7 @@ export function buildQbDocPdf(data) {
       "",
       "Sincerely,",
       company.name || tenant.name,
-    ];
+    ].filter((ln) => ln != null);
     const msg = [...(data.messageLines || defaultMsg)];
     if (data.payUrl) {
       msg.unshift("Pay securely online:", data.payUrl, "");
