@@ -1,3 +1,14 @@
+-- ⚠️  DO NOT RE-RUN THIS FILE AGAINST THE LIVE DATABASE. ⚠️
+-- It is the historical single-tenant base. The live DB has moved on:
+--   • migrations 001_tenant_config.sql + 002_white_label_rls_security.sql add
+--     tenant_id + tenant-scoped RLS and are the source of truth for policies.
+--   • live `profiles` keys on `id` (= auth.uid()), NOT `user_id`.
+-- Re-applying this file would (a) recreate the example jobs_read/jobs_write
+-- policies WITHOUT tenant scoping, clobbering 002's tenant isolation, and
+-- (b) replace the hardened helpers. The helper + profiles PK below have been
+-- corrected to `id = auth.uid()` so the file is at least truthful, but treat it
+-- as reference only. New changes go in a numbered migration, never here.
+--
 -- LE Pro — Supabase (Postgres) schema for the future SupabaseAdapter.
 -- Mirrors the shapes the app already uses (see src/data/merge.js) so the
 -- migration from the Netlify blob store is a straight fold:
@@ -131,7 +142,7 @@ create index if not exists activity_payload_idx on activity using gin (payload);
 -- ----------------------------------------------------------------- profiles
 -- Maps auth.users to an app role; RLS policies key off this.
 create table if not exists profiles (
-  user_id    uuid primary key references auth.users(id) on delete cascade,
+  id         uuid primary key references auth.users(id) on delete cascade,
   role       text not null default 'viewer' check (role in ('owner','dispatch','viewer')),
   created_at timestamptz not null default now()
 );
@@ -158,8 +169,9 @@ begin
   end loop;
 end $$;
 
-create or replace function app_role() returns text language sql stable as $$
-  select role from profiles where user_id = auth.uid()
+create or replace function app_role() returns text
+  language sql stable security definer set search_path = public as $$
+  select role from profiles where id = auth.uid()
 $$;
 
 -- Example policy set (repeat per table; shown once for jobs):
@@ -170,7 +182,7 @@ create policy jobs_write on jobs for all
   using (app_role() in ('owner','dispatch'))
   with check (app_role() in ('owner','dispatch'));
 -- TODO: copy the read/write policy pair to the remaining tables, and add
---   create policy profiles_self on profiles for select using (user_id = auth.uid());
+--   create policy profiles_self on profiles for select using (id = auth.uid());
 -- NOTE: the SAS webhook and QBO sync write via the service_role key from a
 -- server function, which bypasses RLS by design — never ship that key to
 -- the browser.
