@@ -11,7 +11,7 @@ import {
 //   Meta: gray labels : values, colon centered under first letter of title
 //   Estimate acceptance on its own page; page N of M only when multi-page
 //   Powered by LE bottom-left; page numbers same baseline when multi-page
-import { LE_LOGO_JPEG, leLogoJpegBytes } from "./leLogoJpeg.js";
+import { resolvePdfLogoImageSync } from "./companyLogoPdf.js";
 import { activeTenantConfig, tenantCompany } from "./tenantBranding.js";
 import { wrapPrintDescription } from "./printDescription.js";
 
@@ -532,6 +532,8 @@ export function buildQbDocPdf(data) {
     }
   });
 
-  const image = { name: "ImLogo", width: LE_LOGO_JPEG.width, height: LE_LOGO_JPEG.height, bytes: leLogoJpegBytes() };
+  // Account-holder company logo from settings/tenant — not the product LE mark
+  // unless that is the company's uploaded/default logo.
+  const image = resolvePdfLogoImageSync(data);
   return new Blob([assemblePdf(pages, image)], { type: "application/pdf" });
 }

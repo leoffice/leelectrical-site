@@ -729,8 +729,8 @@ export default function DocBuilderSheet({
       const { docPdfFilename } = await import("../lib/jobToQbDoc.js");
       const blob =
         kind === "estimate"
-          ? buildEstimatePdfFromJob(jobForPdf)
-          : buildInvoicePdfFromJob(jobForPdf);
+          ? await buildEstimatePdfFromJob(jobForPdf)
+          : await buildInvoicePdfFromJob(jobForPdf);
       if (!blob) return;
       const no = kind === "invoice" ? jobForPdf.invoiceNo : jobForPdf.estimateNo;
       const filename = docPdfFilename(kind, jobForPdf, no || "DRAFT") || `${kind}-draft.pdf`;
