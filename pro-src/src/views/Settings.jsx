@@ -2,7 +2,7 @@
 import React, { useCallback, useEffect, useState } from "react";
 import { useStore } from "../state/store.jsx";
 import { useTenantConfig } from "../state/tenant.jsx";
-import { MODULES, MODULE_LABELS } from "../lib/tenantConfig.js";
+import { MODULES, MODULE_LABELS, PLAN_MODULES } from "../lib/tenantConfig.js";
 import {
   DEFAULT_FEATURES,
   DEFAULT_PROFILE,
@@ -142,6 +142,7 @@ export default function Settings() {
   const internal = config.internal === true;
   const [profile, setProfile] = useState(() => mergeProfile(DEFAULT_PROFILE));
   const [features, setFeatures] = useState(() => mergeFeatures(DEFAULT_FEATURES));
+  const [moduleOverrides, setModuleOverrides] = useState({});
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [logoBusy, setLogoBusy] = useState(false);
@@ -190,6 +191,9 @@ export default function Settings() {
         const f = mergeFeatures(doc?.features);
         setProfile(p);
         setFeatures(f);
+        setModuleOverrides({ ...(doc?.tenant?.moduleOverrides || {}) });
+        const brand = p.brandColor || "#0c4a6e";
+        document.documentElement.style.setProperty("--brand", brand);
         if (p.logoDataUrl) setCompanyLogoDataUrl(p.logoDataUrl);
         else clearCompanyLogo();
         setSpeechToTextEnabled(f.speechToText !== false);
@@ -412,6 +416,9 @@ export default function Settings() {
 
   const setP = (key, val) => {
     setProfile((p) => ({ ...p, [key]: val }));
+    if (key === "brandColor") {
+      document.documentElement.style.setProperty("--brand", val || "#0c4a6e");
+    }
     setDirty(true);
   };
 
@@ -453,7 +460,17 @@ export default function Settings() {
     }
     setSaving(true);
     try {
-      await saveSettings({ profile, features });
+      await saveSettings({
+        profile,
+        features,
+        tenant: {
+          branding: {
+            primaryColor: profile.brandColor,
+            logoUrl: profile.logoDataUrl || "",
+          },
+          moduleOverrides,
+        },
+      });
       if (profile.logoDataUrl) setCompanyLogoDataUrl(profile.logoDataUrl);
       else clearCompanyLogo();
       setSpeechToTextEnabled(features.speechToText !== false);
@@ -813,22 +830,45 @@ export default function Settings() {
             ) : null}
           </div>
           <div className="space-y-1.5">
-            {MODULES.map((key) => (
-              <div
-                key={key}
-                className="flex items-center justify-between gap-3 rounded-xl border border-slate-100 bg-white px-3 py-2"
-                data-testid={`module-${key}`}
-              >
-                <span className="text-sm font-semibold text-slate-800">{MODULE_LABELS[key]}</span>
-                <span
-                  className={`text-xs font-extrabold ${
-                    config.modules[key] ? "text-emerald-600" : "text-slate-400"
+            {MODULES.map((key) => {
+              const planBase = PLAN_MODULES[config.plan.tier] || PLAN_MODULES.free;
+              const planLocked = !planBase[key] && !internal;
+              const on =
+                moduleOverrides[key] !== undefined
+                  ? moduleOverrides[key]
+                  : config.modules[key];
+              return (
+                <div
+                  key={key}
+                  className={`flex items-center justify-between gap-3 rounded-xl border border-slate-100 bg-white px-3 py-2 ${
+                    planLocked ? "opacity-60" : ""
                   }`}
+                  data-testid={`module-${key}`}
                 >
-                  {config.modules[key] ? "On" : "Off"}
-                </span>
-              </div>
-            ))}
+                  <div className="min-w-0">
+                    <span className="text-sm font-semibold text-slate-800">
+                      {MODULE_LABELS[key]}
+                    </span>
+                    {planLocked ? (
+                      <span className="ml-2 text-[10px] font-extrabold uppercase tracking-wide text-amber-600">
+                        Upgrade
+                      </span>
+                    ) : null}
+                  </div>
+                  {planLocked ? (
+                    <span className="text-xs font-extrabold text-slate-400">Off</span>
+                  ) : (
+                    <Toggle
+                      on={!!on}
+                      onChange={(v) => {
+                        setModuleOverrides((m) => ({ ...m, [key]: v }));
+                        setDirty(true);
+                      }}
+                    />
+                  )}
+                </div>
+              );
+            })}
           </div>
         </div>
         {FEATURE_GROUPS.map((group) => (

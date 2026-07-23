@@ -221,10 +221,15 @@ export default async (req) => {
       body = {};
     }
     const cur = await load(store);
+    // plan is server-authoritative: never let a client omit/reset tier.
+    const incomingTenant =
+      body.tenant != null
+        ? { ...body.tenant, plan: cur.tenant.plan }
+        : cur.tenant;
     const next = {
       profile: normalizeProfile(body.profile != null ? body.profile : cur.profile),
       features: normalizeFeatures(body.features != null ? body.features : cur.features),
-      tenant: normalizeTenant(body.tenant != null ? body.tenant : cur.tenant),
+      tenant: normalizeTenant(incomingTenant),
       updatedAt: Date.now(),
       ts: Date.now(),
     };
