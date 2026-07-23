@@ -8,6 +8,19 @@ import App from "../src/App.jsx";
 import { StoreProvider } from "../src/state/store.jsx";
 import { TenantProvider } from "../src/state/tenant.jsx";
 import { searchCustomerIndex } from "../../netlify/functions/lib/customerSearch.mjs";
+import { setQuickbooksDocsFeatureEnabled } from "../src/lib/appSettings.js";
+
+/**
+ * Most harness tests still assert Send/View through QuickBooks paths.
+ * Production defaults docs OFF (sync-only); tests opt back into full docs UI.
+ */
+export function enableQboDocsForTests() {
+  try {
+    setQuickbooksDocsFeatureEnabled(true);
+  } catch {
+    /* ignore */
+  }
+}
 
 export const J1 = {
   id: "J-1",
@@ -55,6 +68,7 @@ export const EV = {
 };
 
 export function mockServer(opts = {}) {
+  enableQboDocsForTests();
   const state = {
     jobs: opts.jobs || [JSON.parse(JSON.stringify(J1)), JSON.parse(JSON.stringify(J2))],
     ov: opts.ov || {},
@@ -540,6 +554,7 @@ export function useAllCustomersView() {
 }
 
 export function renderApp(hash = "#/") {
+  enableQboDocsForTests();
   window.location.hash = hash;
   return render(
     <HashRouter>
@@ -556,6 +571,7 @@ export function renderApp(hash = "#/") {
  * Pair with mockServer({ settings: { tenant: {...} } }).
  */
 export function renderAppAsTenant(hash = "#/") {
+  enableQboDocsForTests();
   window.location.hash = hash;
   return render(
     <HashRouter>

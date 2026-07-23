@@ -4,6 +4,8 @@ import { useEffect, useState } from "react";
 export const SPEECH_TO_TEXT_KEY = "lepro_speech_to_text";
 export const COMPANY_LOGO_KEY = "lepro_company_logo";
 export const QUICKBOOKS_FEATURE_KEY = "lepro_feature_quickbooks";
+/** Send/view through QB UI — separate from backend sync integration. */
+export const QUICKBOOKS_DOCS_FEATURE_KEY = "lepro_feature_quickbooks_docs";
 export const SETTINGS_EVENT = "lepro-settings";
 
 const DEFAULT_LOGO = () =>
@@ -78,6 +80,35 @@ export function setQuickbooksFeatureEnabled(on) {
   if (!ls) return;
   try {
     ls.setItem(QUICKBOOKS_FEATURE_KEY, on ? "1" : "0");
+  } catch {
+    /* ignore */
+  }
+  notify();
+}
+
+/**
+ * Settings → Features → Send & view through QuickBooks.
+ * Default OFF (Levi 2026-07-23): local send/view only; integration/sync still runs.
+ * Turn ON only when you want send-through-QB / view-in-QB options again.
+ */
+export function isQuickbooksDocsFeatureEnabled() {
+  const ls = storage();
+  if (!ls) return false;
+  try {
+    const v = ls.getItem(QUICKBOOKS_DOCS_FEATURE_KEY);
+    // Unset = off (new default). Explicit "1"/"true" turns docs UI back on.
+    if (v === null || v === undefined || v === "") return false;
+    return v === "1" || v === "true";
+  } catch {
+    return false;
+  }
+}
+
+export function setQuickbooksDocsFeatureEnabled(on) {
+  const ls = storage();
+  if (!ls) return;
+  try {
+    ls.setItem(QUICKBOOKS_DOCS_FEATURE_KEY, on ? "1" : "0");
   } catch {
     /* ignore */
   }
@@ -188,6 +219,7 @@ export function readAppSettings() {
   return {
     speechToText: isSpeechToTextEnabled(),
     quickbooks: isQuickbooksFeatureEnabled(),
+    quickbooksDocs: isQuickbooksDocsFeatureEnabled(),
     logoSrc: getCompanyLogoSrc(),
     logoCustom: !!getCompanyLogoDataUrl(),
   };

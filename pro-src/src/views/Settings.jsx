@@ -18,6 +18,7 @@ import {
   getCompanyLogoSrc,
   readLogoFileAsDataUrl,
   setCompanyLogoDataUrl,
+  setQuickbooksDocsFeatureEnabled,
   setQuickbooksFeatureEnabled,
   setSpeechToTextEnabled,
 } from "../lib/appSettings.js";
@@ -200,6 +201,7 @@ export default function Settings() {
         if (p.logoDataUrl) setCompanyLogoDataUrl(p.logoDataUrl);
         setSpeechToTextEnabled(f.speechToText !== false);
         setQuickbooksFeatureEnabled(f.quickbooks !== false);
+        setQuickbooksDocsFeatureEnabled(f.quickbooksDocs !== false);
       }
     } catch (e) {
       showToast?.(String(e.message || e));
@@ -443,10 +445,24 @@ export default function Settings() {
   };
 
   const setF = (key, on) => {
-    setFeatures((f) => ({ ...f, [key]: on }));
+    setFeatures((f) => {
+      const next = { ...f, [key]: on };
+      // Full integration off also kills send/view (no half-state).
+      if (key === "quickbooks" && !on) next.quickbooksDocs = false;
+      // Docs on requires integration on.
+      if (key === "quickbooksDocs" && on) next.quickbooks = true;
+      return next;
+    });
     if (key === "speechToText") setSpeechToTextEnabled(!!on);
-    // Instant local gate so send/view/sync hide QB paths before Save.
-    if (key === "quickbooks") setQuickbooksFeatureEnabled(!!on);
+    // Instant local gates so UI flips before Save.
+    if (key === "quickbooks") {
+      setQuickbooksFeatureEnabled(!!on);
+      if (!on) setQuickbooksDocsFeatureEnabled(false);
+    }
+    if (key === "quickbooksDocs") {
+      setQuickbooksDocsFeatureEnabled(!!on);
+      if (on) setQuickbooksFeatureEnabled(true);
+    }
     setDirty(true);
   };
 
@@ -482,11 +498,16 @@ export default function Settings() {
       applyCompanyProfileToActiveConfig(profile);
       setSpeechToTextEnabled(features.speechToText !== false);
       setQuickbooksFeatureEnabled(features.quickbooks !== false);
+      setQuickbooksDocsFeatureEnabled(
+        features.quickbooks !== false && features.quickbooksDocs !== false
+      );
       setDirty(false);
       showToast?.(
         features.quickbooks === false
           ? "Settings saved — QuickBooks off, local only"
-          : "Settings saved"
+          : features.quickbooksDocs === false
+            ? "Settings saved — QuickBooks still syncing, send/view is local only"
+            : "Settings saved"
       );
     } catch (e) {
       showToast?.(String(e.message || e));
@@ -895,13 +916,36 @@ export default function Settings() {
                   <div className="min-w-0">
                     <div className="text-sm font-semibold text-slate-800">QuickBooks</div>
                     <div className="text-xs text-slate-500 font-semibold mt-0.5">
-                      On = save, send, and sync through QuickBooks. Off = local only (white-label safe).
+                      On = keep integrated (jobs & customers sync in the background). Off = no QuickBooks at all.
                     </div>
                   </div>
                   <Toggle
                     on={features.quickbooks !== false}
                     onChange={(on) => setF("quickbooks", on)}
                     label="QuickBooks"
+                  />
+                </div>
+              ) : key === "quickbooksDocs" ? (
+                <div
+                  key={key}
+                  className="flex items-center justify-between gap-3 rounded-xl border border-slate-100 bg-white px-3 py-2.5"
+                  data-testid="settings-quickbooks-docs"
+                >
+                  <div className="min-w-0">
+                    <div className="text-sm font-semibold text-slate-800">
+                      Send & view through QuickBooks
+                    </div>
+                    <div className="text-xs text-slate-500 font-semibold mt-0.5">
+                      Off = no send-through-QB or view-in-QB options — local invoices only. Data still
+                      syncs when QuickBooks is on above.
+                    </div>
+                  </div>
+                  <Toggle
+                    on={
+                      features.quickbooks !== false && features.quickbooksDocs !== false
+                    }
+                    onChange={(on) => setF("quickbooksDocs", on)}
+                    label="Send and view through QuickBooks"
                   />
                 </div>
               ) : (
