@@ -1186,6 +1186,12 @@ export function paperworkPatchForInsight(insight, dateTime) {
   if (!dt) return {};
   const type = insight?.appointmentType;
   const agency = insight?.agency || "";
+  const subject = insight?.source?.subject || "";
+  const snippet = insight?.emailSnippet || insight?.summary || "";
+  const blob = `${subject}\n${snippet}`.toLowerCase();
+  const isFinal =
+    /\bfinal\s+inspection\b/.test(blob) ||
+    (type === "inspection" && /\bfinal\b/.test(blob));
   if (type === "inspection") {
     if (agency === "city") {
       return {
@@ -1197,11 +1203,14 @@ export function paperworkPatchForInsight(insight, dateTime) {
         },
       };
     }
+    // Levi 2026-07-23: when final inspection date is confirmed, Final checklist is done.
+    const steps = isFinal ? { "Final checklist": true } : {};
     return {
       paperwork: {
         coned: {
           enabled: true,
           dates: { "Inspection appointment": dt },
+          ...(Object.keys(steps).length ? { steps } : {}),
         },
       },
     };

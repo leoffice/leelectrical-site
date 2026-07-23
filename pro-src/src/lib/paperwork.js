@@ -215,10 +215,17 @@ export function paperworkAwarenessLines(job, events, commands) {
       calendarConfirmed: cal.confirmed,
       calendarPending: cal.pending,
     });
+    // Prefer live ConEd stage next-action when the email brain set it.
+    let upNextLabel = next?.label || "—";
+    if (k === "coned" && br.nextAction) {
+      upNextLabel = br.nextAction;
+    } else if (k === "coned" && br.stageLabel && next?.step === null) {
+      upNextLabel = br.stageLabel;
+    }
     lines.push({
       branchKey: k,
       branchLabel: PAPER[k].short || PAPER[k].nm,
-      upNext: next?.label || "—",
+      upNext: upNextLabel,
       timing: paperworkTiming(next),
       step,
       hasDate,
@@ -228,6 +235,9 @@ export function paperworkAwarenessLines(job, events, commands) {
       calendarPending: cal.pending,
       tone,
       date: next?.date || "",
+      caseNumber: br.caseNumber || "",
+      stageLabel: br.stageLabel || "",
+      health: br.health || "",
     });
   }
   return lines;

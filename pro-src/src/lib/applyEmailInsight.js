@@ -13,6 +13,7 @@ import { inspectionAppointmentTitle } from "./paperwork.js";
 import { calendarServiceLocation } from "./customerSync.js";
 import { GCAL_RED_COLOR_ID } from "./calendarEventStyle.js";
 import { findEventForInsight } from "./calendarNavigate.js";
+import { conedPatchFromInsight } from "./conedPermit.js";
 
 /** Local clock label from insight dateTime for short calendar titles. */
 function titleTimeFromInsight(insight) {
@@ -128,11 +129,42 @@ export function buildCalendarPayload(insight, job, selected) {
   return payload;
 }
 
-export function jobPatchForInsight(insight, selected) {
-  if (!selected.has("paperwork_inspection") && !selected.has("paperwork_meter") && !selected.has("paperwork_progress")) {
-    return {};
+/**
+ * Merge classic paperwork date patch with ConEd open-case brain
+ * (stage, case #, final-checklist auto-complete, permit record).
+ */
+export function mergeConedIntoJobPatch(basePatch, insight, job) {
+  const coned = conedPatchFromInsight(insight, job);
+  if (!coned) return basePatch || {};
+  const paper = { ...(basePatch?.paperwork || {}) };
+  const baseConed = paper.coned || {};
+  const fromBrain = coned.paperwork?.coned || {};
+  paper.coned = {
+    ...baseConed,
+    ...fromBrain,
+    enabled: true,
+    steps: { ...(baseConed.steps || {}), ...(fromBrain.steps || {}) },
+    dates: { ...(baseConed.dates || {}), ...(fromBrain.dates || {}) },
+  };
+  return {
+    ...(basePatch || {}),
+    paperwork: paper,
+    permits: coned.permits,
+  };
+}
+
+export function jobPatchForInsight(insight, selected, job = null) {
+  let base = {};
+  if (
+    selected.has("paperwork_inspection") ||
+    selected.has("paperwork_meter") ||
+    selected.has("paperwork_progress")
+  ) {
+    base = paperworkPatchForInsight(insight, insight?.dateTime) || {};
   }
-  return paperworkPatchForInsight(insight, insight?.dateTime);
+  // Always run ConEd brain when this is a Con Ed / Energy Services mail —
+  // stages advance even on "already on calendar" / completed / no calendar select.
+  return mergeConedIntoJobPatch(base, insight, job);
 }
 
 /**
@@ -174,9 +206,9 @@ export async function applyEmailInsight({
   if (existing && selected.has("calendar") && scheduleable) {
     appliedEventId = existing.id || job?.calEventId || "";
     skipReason = "already_on_calendar";
-    // Still sync paperwork if needed, but no calendar_upsert.
+    // Still sync paperwork + ConEd stage brain, but no calendar_upsert.
     if (job?.id) {
-      const paper = jobPatchForInsight(insight, selected);
+      const paper = jobPatchForInsight(insight, selected, job);
       if (paper && Object.keys(paper).length) {
         await patchAndSave(job.id, {
           ...paper,
@@ -220,7 +252,7 @@ export async function applyEmailInsight({
       const patch = {
         calEventId: pendingId,
         status: { Scheduled: { s: "done", d: insight.dateTime.slice(0, 10) } },
-        ...jobPatchForInsight(insight, selected),
+        ...jobPatchForInsight(insight, selected, job),
       };
       await patchAndSave(job.id, patch);
     }
@@ -236,7 +268,8 @@ export async function applyEmailInsight({
     });
     pullCalendarNow?.();
   } else if (job?.id) {
-    const paper = jobPatchForInsight(insight, selected);
+    // Paperwork-only path + ConEd stage (deposit, checklist, pass/fail, etc.)
+    const paper = jobPatchForInsight(insight, selected, job);
     if (paper && Object.keys(paper).length) {
       await patchAndSave(job.id, paper);
     }

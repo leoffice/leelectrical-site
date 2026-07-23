@@ -772,6 +772,34 @@ export default function JobDetail() {
                                       }}
                                     />
                                   </div>
+                                  {/* ConEd open-case stage from email brain (Batch 1) */}
+                                  {br.enabled && k === "coned" && (br.stageLabel || br.caseNumber || br.nextAction) && (
+                                    <div className="text-[11px] text-slate-600 pb-1 space-y-0.5" data-testid="coned-stage-chip">
+                                      {br.caseNumber ? (
+                                        <div className="font-semibold text-slate-800">{br.caseNumber}</div>
+                                      ) : null}
+                                      {br.stageLabel ? (
+                                        <div>
+                                          <span
+                                            className={`inline-block rounded-full px-2 py-0.5 font-semibold ${
+                                              br.health === "blocked-by-us"
+                                                ? "bg-red-100 text-red-800"
+                                                : br.health === "at-risk"
+                                                  ? "bg-amber-100 text-amber-900"
+                                                  : br.stageBucket === "Passed" || br.stageBucket === "Terminal"
+                                                    ? "bg-emerald-100 text-emerald-800"
+                                                    : "bg-violet-100 text-violet-900"
+                                            }`}
+                                          >
+                                            {br.stageLabel}
+                                          </span>
+                                        </div>
+                                      ) : null}
+                                      {br.nextAction ? (
+                                        <div className="text-slate-500">{br.nextAction}</div>
+                                      ) : null}
+                                    </div>
+                                  )}
                                   {br.enabled &&
                                     PAPER[k].steps
                                       .filter((ps) => !(br.removed && br.removed[ps]))
