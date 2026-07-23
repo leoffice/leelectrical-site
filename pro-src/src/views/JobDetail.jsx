@@ -104,10 +104,9 @@ export default function JobDetail() {
   // Levi: open any job on the job info card only; tap card again to expand progress.
   // fold=0 forces expanded (rare deep links); fold=1 or omitted → collapsed.
   const foldOnOpen = foldParam !== "0";
+  // Back / tap customer card → customer default page (info + transaction history).
   const goBack = () =>
-    fromCust
-      ? nav("/customer/" + encodeURIComponent(fromCust) + "?job=" + encodeURIComponent(id))
-      : nav("/");
+    fromCust ? nav("/customer/" + encodeURIComponent(fromCust)) : nav("/");
   const {
     effectiveJob,
     patchJob,
@@ -184,6 +183,9 @@ export default function JobDetail() {
     }
   };
   const openPay = sp.get("pay") === "1";
+  const openPayHist = sp.get("payhist") === "1";
+  const openPayId = sp.get("payId") || "";
+  const focusJob = sp.get("focus") === "job" || openPayHist || foldOnOpen;
   const openDoc = sp.get("doc"); // estimate | invoice
   const openDocCreate = sp.get("create") === "1";
   const [openPhase, setOpenPhase] = useState(null); // null = auto
@@ -192,15 +194,22 @@ export default function JobDetail() {
   const [sheet, setSheet] = useState(null); // {kind, ...}
   const [showChangeOrders, setShowChangeOrders] = useState(false);
   const [detailSectionsExpanded, setDetailSectionsExpanded] = useState(!foldOnOpen);
+  // Opening from transaction history: keep customer list collapsed so job card is the focus.
   const [shortTxns, setShortTxns] = useState(false);
   const [jobTxns, setJobTxns] = useState(false);
+  // Desktop customer list is heavy (~thousands of jobs) — mount after first paint.
+  // Tests need the pane immediately so sidebar assertions don't race idle.
+  const [listPaneReady, setListPaneReady] = useState(
+    () => typeof import.meta !== "undefined" && import.meta.env?.MODE === "test"
+  );
   const stepTimer = useRef(null);
   const jobInfoRef = useRef(null);
 
   const scrollToJobInfo = useCallback(() => {
     const el = jobInfoRef.current;
     if (!el) return;
-    const top = el.getBoundingClientRect().top + window.scrollY - 72;
+    // Pin job information near the top (under sticky chrome) — not buried under lists.
+    const top = el.getBoundingClientRect().top + window.scrollY - 56;
     window.scrollTo({ top: Math.max(0, top), behavior: "instant" });
   }, []);
 
@@ -209,11 +218,41 @@ export default function JobDetail() {
     setDetailSectionsExpanded(foldParam === "0");
     setShowChangeOrders(false);
     setJobTxns(false);
+    // Always collapse customer-wide history when switching jobs (focus job card).
+    setShortTxns(false);
   }, [id, foldParam]);
 
   useEffect(() => {
-    requestAnimationFrame(scrollToJobInfo);
-  }, [id, scrollToJobInfo]);
+    // Double rAF: wait for layout after job swap, then pin job information.
+    let raf2 = 0;
+    const raf1 = requestAnimationFrame(() => {
+      raf2 = requestAnimationFrame(scrollToJobInfo);
+    });
+    return () => {
+      cancelAnimationFrame(raf1);
+      cancelAnimationFrame(raf2);
+    };
+  }, [id, focusJob, scrollToJobInfo]);
+
+  useEffect(() => {
+    // Defer heavy left-pane customer list so opening a job from transaction history feels instant.
+    let cancelled = false;
+    const arm = () => {
+      if (!cancelled) setListPaneReady(true);
+    };
+    let idleId = 0;
+    let t = 0;
+    if (typeof window !== "undefined" && typeof window.requestIdleCallback === "function") {
+      idleId = window.requestIdleCallback(arm, { timeout: 400 });
+    } else {
+      t = window.setTimeout(arm, 120);
+    }
+    return () => {
+      cancelled = true;
+      if (idleId && typeof window.cancelIdleCallback === "function") window.cancelIdleCallback(idleId);
+      if (t) clearTimeout(t);
+    };
+  }, [id]);
 
   const toggleDetailSections = () => {
     setDetailSectionsExpanded((v) => !v);
@@ -223,12 +262,15 @@ export default function JobDetail() {
   const openDocEdit = sp.get("edit") === "1";
   useEffect(() => {
     if (openPay && job) setSheet({ kind: "paymenu" });
+    if (openPayHist && job) {
+      setSheet({ kind: "payhist", editPayId: openPayId || null });
+    }
     if (openDocCreate && job && (openDoc === "estimate" || openDoc === "invoice")) {
       setSheet({ kind: "docBuild", docKind: openDoc, mode: "create" });
     } else if (openDocEdit && job && (openDoc === "estimate" || openDoc === "invoice")) {
       setSheet({ kind: "docBuild", docKind: openDoc, mode: "edit" });
     }
-  }, [openPay, openDoc, openDocCreate, openDocEdit, job?.id]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [openPay, openPayHist, openPayId, openDoc, openDocCreate, openDocEdit, job?.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // 5s auto-collapse of the step action row (sleek's stepTimer)
   useEffect(() => {
@@ -343,7 +385,8 @@ export default function JobDetail() {
         </button>
       </div>
 
-      {/* Customer card — contact on top; Transaction history toggle (estimates live here) */}
+      {/* Customer card — contact on top; Transaction history toggle (estimates live here).
+          From customer: tap card body collapses job info and returns to customer default. */}
       <CustomerCard
         contact={{
           ...customerContact(customerJobs),
@@ -353,6 +396,7 @@ export default function JobDetail() {
         primaryJob={job}
         shortTxns={shortTxns}
         onShortTxnsChange={setShortTxns}
+        onCardTap={fromCust ? () => guardNav(goBack) : undefined}
         onEdit={() => setSheet({ kind: "cust" })}
         onText={() => setSheet({ kind: "compose", channel: "sms" })}
         onEmail={() => setSheet({ kind: "compose", channel: "email" })}
@@ -423,6 +467,15 @@ export default function JobDetail() {
             <JobTransactionHistory
               job={job}
               onOpenFull={() => setSheet({ kind: "payhist" })}
+              onOpenRow={(row) => {
+                // Payment rows open the payment card (edit / delete / reassign invoice or customer).
+                if (row?.kind === "payment") {
+                  setSheet({
+                    kind: "payhist",
+                    editPayId: row.payment?.id || null,
+                  });
+                }
+              }}
             />
           </div>
         ) : null}
@@ -719,6 +772,34 @@ export default function JobDetail() {
                                       }}
                                     />
                                   </div>
+                                  {/* ConEd open-case stage from email brain (Batch 1) */}
+                                  {br.enabled && k === "coned" && (br.stageLabel || br.caseNumber || br.nextAction) && (
+                                    <div className="text-[11px] text-slate-600 pb-1 space-y-0.5" data-testid="coned-stage-chip">
+                                      {br.caseNumber ? (
+                                        <div className="font-semibold text-slate-800">{br.caseNumber}</div>
+                                      ) : null}
+                                      {br.stageLabel ? (
+                                        <div>
+                                          <span
+                                            className={`inline-block rounded-full px-2 py-0.5 font-semibold ${
+                                              br.health === "blocked-by-us"
+                                                ? "bg-red-100 text-red-800"
+                                                : br.health === "at-risk"
+                                                  ? "bg-amber-100 text-amber-900"
+                                                  : br.stageBucket === "Passed" || br.stageBucket === "Terminal"
+                                                    ? "bg-emerald-100 text-emerald-800"
+                                                    : "bg-violet-100 text-violet-900"
+                                            }`}
+                                          >
+                                            {br.stageLabel}
+                                          </span>
+                                        </div>
+                                      ) : null}
+                                      {br.nextAction ? (
+                                        <div className="text-slate-500">{br.nextAction}</div>
+                                      ) : null}
+                                    </div>
+                                  )}
                                   {br.enabled &&
                                     PAPER[k].steps
                                       .filter((ps) => !(br.removed && br.removed[ps]))
@@ -1063,9 +1144,11 @@ export default function JobDetail() {
       )}
       {sheet?.kind === "payhist" && (
         <PaymentHistorySheet
+          key={"payhist-" + (sheet.editPayId || "list")}
           job={job}
           onClose={() => setSheet(null)}
           onAddPayment={() => setSheet({ kind: "paid" })}
+          initialEditId={sheet.editPayId || null}
         />
       )}
       {sheet?.kind === "paymenu" && (
@@ -1179,10 +1262,17 @@ export default function JobDetail() {
   );
 
   // Desktop: two-pane (job list | detail); mobile: detail only.
+  // List pane mounts after idle so tapping a transaction opens job info first (no list lag).
   return (
     <div className="lg:grid lg:grid-cols-[minmax(320px,400px)_minmax(0,1fr)] lg:gap-5 lg:items-start">
       <div className="hidden lg:block sticky top-4 max-h-[calc(100vh-2rem)] overflow-y-auto overflow-x-hidden lg-scroll-hidden pr-1" data-testid="list-pane">
-        <Jobs embedded collapseGroups activeJobId={id} />
+        {listPaneReady ? (
+          <Jobs embedded collapseGroups activeJobId={id} />
+        ) : (
+          <div className="card px-4 py-8 text-center text-xs text-slate-400" data-testid="list-pane-deferred">
+            Loading customers…
+          </div>
+        )}
       </div>
       {detail}
     </div>
