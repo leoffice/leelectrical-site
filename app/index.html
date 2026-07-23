@@ -123,7 +123,7 @@
       <!-- Everything else is paused; tucked under Development -->
       <button type="button" onclick="var d=document.getElementById('gDev');var o=d.style.display==='none';d.style.display=o?'block':'none';document.getElementById('gDevArrow').textContent=o?'▾':'▸';" style="display:block;width:100%;margin-top:16px;background:none;border:0;color:#9bb0c9;font-size:12px;cursor:pointer;text-align:left;font-family:inherit"><span id="gDevArrow">▸</span> Development (paused)</button>
       <div id="gDev" style="display:none;margin-top:10px">
-        <button onclick="document.getElementById('gate').style.display='none'" style="display:flex;width:100%;gap:14px;align-items:center;text-align:left;background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.10);border-radius:14px;padding:14px;color:#9bb0c9;cursor:pointer;margin-bottom:10px;font-family:inherit;opacity:.7"><span style="font-size:24px">🏢</span><span><b style="font-size:14px">LE Command Center</b> <span style="font-size:10px;color:#748199">paused</span><br><span style="font-size:11px;color:#748199">Office floor · agents · chat</span></span></button>
+        <button onclick="enterCommandCenter()" style="display:flex;width:100%;gap:14px;align-items:center;text-align:left;background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.10);border-radius:14px;padding:14px;color:#9bb0c9;cursor:pointer;margin-bottom:10px;font-family:inherit;opacity:.7"><span style="font-size:24px">🏢</span><span><b style="font-size:14px">LE Command Center</b> <span style="font-size:10px;color:#748199">paused</span><br><span style="font-size:11px;color:#748199">Office floor · agents · chat</span></span></button>
         <button onclick="openJobs()" style="display:flex;width:100%;gap:14px;align-items:center;text-align:left;background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.10);border-radius:14px;padding:14px;color:#9bb0c9;cursor:pointer;margin-bottom:10px;font-family:inherit;opacity:.7"><span style="font-size:24px">📋</span><span><b style="font-size:14px">LE Electric Dashboard</b> <span style="font-size:10px;color:#748199">paused</span><br><span style="font-size:11px;color:#748199">Jobs · progress · next steps</span></span></button>
         <button onclick="openBeta()" style="display:flex;width:100%;gap:14px;align-items:center;text-align:left;background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.10);border-radius:14px;padding:14px;color:#9bb0c9;cursor:pointer;margin-bottom:10px;font-family:inherit;opacity:.7"><span style="font-size:24px">⚡</span><span><b style="font-size:14px">Beta Development</b> <span style="font-size:10px;color:#748199">paused</span><br><span style="font-size:11px;color:#748199">New layout · sample data</span></span></button>
         <button onclick="openJobs('sleek.html')" style="display:flex;width:100%;gap:14px;align-items:center;text-align:left;background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.10);border-radius:14px;padding:14px;color:#9bb0c9;cursor:pointer;font-family:inherit;opacity:.7"><span style="font-size:24px">✨</span><span><b style="font-size:14px">Sleek Beta</b> <span style="font-size:10px;color:#748199">paused</span><br><span style="font-size:11px;color:#748199">Redesigned dashboard</span></span></button>
@@ -159,13 +159,24 @@
 const SUPABASE_URL = "https://scgpxbubakfwypycugoa.supabase.co";
 const SUPABASE_ANON_KEY = "sb_publishable_3LZjnaH6r3gOITpZqgWEYA_na5Ue7Lu";
 let sb=null; try{ if(window.supabase && SUPABASE_ANON_KEY.indexOf('PASTE')<0) sb=supabase.createClient(SUPABASE_URL,SUPABASE_ANON_KEY); }catch(e){}
-/* ===== Auth gate: login overlay (login -> landing -> dashboard). Self-contained. ===== */
+/* ===== Auth gate: login overlay (login -> landing -> dashboard). Self-contained. =====
+   White-label RLS (migrations 001/002): the Command Center's live data (the
+   invoices widget) and the agent_messages chat are tenant-scoped, so they only
+   return/accept rows for an authenticated office user whose profiles row is
+   (id = auth.uid(), tenant_id='le', role owner|dispatch). We track `authed` and
+   refuse the RLS-backed calls — and the Command Center reveal — until a real
+   session exists; an unauthenticated peek would only hit empty/denied RLS. */
+let authed=false;
 function gateLanding(){const f=document.getElementById('gForm'),l=document.getElementById('gLand'),s=document.getElementById('gsub');if(f)f.style.display='none';if(l)l.style.display='block';if(s)s.textContent='Choose a dashboard';}
+function setAuthed(on){authed=!!on;if(authed){fetchLive();const c=document.getElementById('chat');if(c&&c.classList.contains('open'))loadChat();}}
 if(sb){
-  sb.auth.getSession().then(({data})=>{if(data.session)gateLanding();});
-  document.getElementById('gForm').addEventListener('submit',async e=>{e.preventDefault();const er=document.getElementById('gErr');er.textContent='Signing in…';const {error}=await sb.auth.signInWithPassword({email:document.getElementById('gEmail').value.trim(),password:document.getElementById('gPass').value});if(error){er.textContent=error.message;return;}er.textContent='';gateLanding();});
+  sb.auth.getSession().then(({data})=>{if(data.session){setAuthed(true);gateLanding();}});
+  sb.auth.onAuthStateChange((_e,session)=>{setAuthed(!!session);});
+  document.getElementById('gForm').addEventListener('submit',async e=>{e.preventDefault();const er=document.getElementById('gErr');er.textContent='Signing in…';const {error}=await sb.auth.signInWithPassword({email:document.getElementById('gEmail').value.trim(),password:document.getElementById('gPass').value});if(error){er.textContent=error.message;return;}er.textContent='';setAuthed(true);gateLanding();});
   document.getElementById('gOut').addEventListener('click',async()=>{await sb.auth.signOut();location.reload();});
 } else { const g=document.getElementById('gate'); if(g) g.style.display='none'; }
+/* Command Center is live-data + chat: require a session before revealing it. */
+function enterCommandCenter(){if(!authed){const er=document.getElementById('gErr');if(er)er.textContent='Sign in to open the Command Center.';return;}document.getElementById('gate').style.display='none';}
 
 const HALL={x:556,y:14,w:128,h:1512};
 /* layout inspired by the reference floor plan: labeled rooms, central elevator core, lounge + conference */
@@ -310,7 +321,7 @@ function applyRole(role){const owner=role==='owner';document.querySelectorAll('[
 
 /* ===== LIVE QuickBooks data from Supabase ===== */
 let LIVE={customers:null,revenue:null,invoicesHtml:null};
-async function fetchLive(){if(!sb)return;try{
+async function fetchLive(){if(!sb||!authed)return;try{
   const {data:cust}=await sb.from('customers').select('name,ytd_sales');
   if(cust){LIVE.customers=cust.length;const rev=cust.reduce((s,c)=>s+(parseFloat(c.ytd_sales)||0),0);LIVE.revenue='$'+rev.toLocaleString('en-US',{maximumFractionDigits:0});}
   const {data:inv}=await sb.from('invoices').select('*').order('txn_date',{ascending:false}).limit(6);
@@ -328,6 +339,7 @@ function setStatus(t){document.getElementById('chatStatus').textContent=t;}
 async function loadChat(){
   const log=document.getElementById('chatLog');
   if(!sb){setStatus('⚠ Chat not connected — add the Supabase anon key to go live.');return;}
+  if(!authed){setStatus('🔒 Sign in to use the agent channel.');log.innerHTML='';return;}
   try{
     const {data,error}=await sb.from('agent_messages').select('*')
       .or(`recipient.eq.${chatRecipient},sender.eq.${chatRecipient}`)
@@ -342,10 +354,11 @@ async function loadChat(){
 async function sendChat(){
   const inp=document.getElementById('chatInput');let body=inp.value.trim();if(!body)return;
   if(!sb){setStatus('⚠ Not connected.');return;}
+  if(!authed){setStatus('🔒 Sign in to send.');return;}
   if(replyTo){body='↩ "'+replyTo+'" — '+body;}
   inp.value='';
   try{
-    const {error}=await sb.from('agent_messages').insert({sender:'owner',recipient:chatRecipient,channel:'dashboard',body,status:'unread'});
+    const {error}=await sb.from('agent_messages').insert({sender:'owner',recipient:chatRecipient,channel:'dashboard',body,status:'unread',tenant_id:'le'});
     if(error){setStatus('⚠ '+error.message);return;}
     clearReply();loadChat();
   }catch(e){setStatus('⚠ '+e.message);}

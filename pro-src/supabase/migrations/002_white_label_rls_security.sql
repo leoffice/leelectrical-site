@@ -1,197 +1,136 @@
 -- Batch 2 — White-label security: tenant isolation + complete RLS.
--- Run in Supabase Dashboard → SQL Editor AFTER 001_tenant_config.sql.
--- Safe to re-run (IF NOT EXISTS / DROP POLICY IF EXISTS).
+-- CORRECTED 2026-07-23 for live-schema drift found via service-level inspection.
+-- Run AFTER 001_tenant_config.sql. Idempotent / safe to re-run.
 --
--- LIVE STATE (verified 2026-07-22 with public/anon key):
---   • customers/jobs/profiles/messages: tables exist, RLS already ON
---   • Existing policies use app_role() (NOT tenant_id) — so anon gets 0 rows
---     because app_role() is null without a logged-in profile. No contradiction.
---   • tenant_id columns are NOT on those tables yet — this migration adds them
---   • tenants / tenant_config tables do NOT exist until 001 runs
---   • invoices + agent_messages are still world-readable with the public key — locked below
+-- WHAT CHANGED FROM THE ORIGINAL (all four points Dispatch reported):
+--   1. Helper bodies use `profiles.id = auth.uid()` (live profiles has no
+--      user_id). Both helpers are (re)created here as SECURITY DEFINER.
+--   2. Neither helper existed live — created in 001 and re-asserted here.
+--   3. Legacy live policies are BLANKET-ALLOW and misc-named:
+--        agent_messages: anon+authenticated SELECT/INSERT/UPDATE qual=true (anon WRITE)
+--        invoices:       "invoices anon select" qual=true
+--        customers/jobs/schedules/customer_locations:
+--                        auth.role()='authenticated' reads + "Internal access" ALL qual=true
+--        messages:       authenticated-ALL
+--      Rather than guess each legacy policy NAME (a wrong guess leaves a leak),
+--      we ENABLE RLS then DROP EVERY existing policy on each managed table via a
+--      dynamic loop, then rebuild the known-good set. RLS-on + zero-policies is
+--      default-DENY, so every intermediate state is fail-closed.
+--   4. Coverage extended to the tables the original missed:
+--        schedules, dispatch_queue, customer_locations.
 --
--- Goal: every row is scoped to a tenant. Anon only sees nothing.
--- Authenticated users only see their own tenant. Service role bypasses RLS.
+-- Service role bypasses RLS — backend/service-key writers are unaffected. Only
+-- anon and authenticated-non-(owner|dispatch) client paths are constrained.
+-- >>> See the FLAGS block at the bottom before treating this as done. <<<
 
--- ------------------------------------------------------------------ tenant_id
--- Add tenant_id to core tables used by multi-tenant SaaS.
-alter table if exists customers
-  add column if not exists tenant_id text references tenants(id);
-alter table if exists jobs
-  add column if not exists tenant_id text references tenants(id);
-alter table if exists profiles
-  add column if not exists tenant_id text references tenants(id);
-alter table if exists messages
-  add column if not exists tenant_id text references tenants(id);
-alter table if exists invoices
-  add column if not exists tenant_id text references tenants(id);
-alter table if exists agent_messages
-  add column if not exists tenant_id text references tenants(id);
+-- =========================================================== 1. tenant_id cols
+alter table if exists customers          add column if not exists tenant_id text references tenants(id);
+alter table if exists jobs               add column if not exists tenant_id text references tenants(id);
+alter table if exists profiles           add column if not exists tenant_id text references tenants(id);
+alter table if exists messages           add column if not exists tenant_id text references tenants(id);
+alter table if exists invoices           add column if not exists tenant_id text references tenants(id);
+alter table if exists agent_messages     add column if not exists tenant_id text references tenants(id);
+alter table if exists schedules          add column if not exists tenant_id text references tenants(id);
+alter table if exists dispatch_queue     add column if not exists tenant_id text references tenants(id);
+alter table if exists customer_locations add column if not exists tenant_id text references tenants(id);
 
--- Backfill LE rows so existing single-tenant data stays under 'le'
-update customers set tenant_id = 'le' where tenant_id is null;
-update jobs set tenant_id = 'le' where tenant_id is null;
-update profiles set tenant_id = 'le' where tenant_id is null;
-update messages set tenant_id = 'le' where tenant_id is null;
-update invoices set tenant_id = 'le' where tenant_id is null;
-update agent_messages set tenant_id = 'le' where tenant_id is null;
+-- Backfill existing single-tenant data to 'le' (must run after 001 seeds 'le').
+update customers          set tenant_id = 'le' where tenant_id is null;
+update jobs               set tenant_id = 'le' where tenant_id is null;
+update profiles           set tenant_id = 'le' where tenant_id is null;
+update messages           set tenant_id = 'le' where tenant_id is null;
+update invoices           set tenant_id = 'le' where tenant_id is null;
+update agent_messages     set tenant_id = 'le' where tenant_id is null;
+update schedules          set tenant_id = 'le' where tenant_id is null;
+update dispatch_queue     set tenant_id = 'le' where tenant_id is null;
+update customer_locations set tenant_id = 'le' where tenant_id is null;
 
-create index if not exists customers_tenant_idx on customers (tenant_id);
-create index if not exists jobs_tenant_idx on jobs (tenant_id);
-create index if not exists messages_tenant_idx on messages (tenant_id);
-create index if not exists invoices_tenant_idx on invoices (tenant_id);
-create index if not exists agent_messages_tenant_idx on agent_messages (tenant_id);
+create index if not exists customers_tenant_idx          on customers (tenant_id);
+create index if not exists jobs_tenant_idx               on jobs (tenant_id);
+create index if not exists messages_tenant_idx           on messages (tenant_id);
+create index if not exists invoices_tenant_idx           on invoices (tenant_id);
+create index if not exists agent_messages_tenant_idx     on agent_messages (tenant_id);
+create index if not exists schedules_tenant_idx          on schedules (tenant_id);
+create index if not exists dispatch_queue_tenant_idx     on dispatch_queue (tenant_id);
+create index if not exists customer_locations_tenant_idx on customer_locations (tenant_id);
 
--- ------------------------------------------------------------------ helpers
--- security definer + fixed search_path so policies cannot be hijacked
+-- =========================================================== 2. helpers
+-- profiles.id = auth.uid(); SECURITY DEFINER so reading profiles inside a policy
+-- does not recurse through profiles' RLS.
 create or replace function app_role() returns text
   language sql stable security definer set search_path = public as $$
-  select role from profiles where user_id = auth.uid()
+  select role from profiles where id = auth.uid()
 $$;
 
 create or replace function app_tenant_id() returns text
   language sql stable security definer set search_path = public as $$
-  select tenant_id from profiles where user_id = auth.uid()
+  select tenant_id from profiles where id = auth.uid()
 $$;
 
--- ------------------------------------------------------------------ RLS on
+-- =========================================================== 3. wipe + enable RLS
+-- Enable RLS, then drop EVERY existing policy on each managed table (whatever
+-- its legacy name). Fail-closed: from here until section 4 recreates policies,
+-- these tables are RLS-on with no policy = deny-all.
 do $$
-declare t text;
+declare
+  tbl text;
+  pol record;
+  managed text[] := array[
+    'customers','jobs','messages','profiles','invoices','agent_messages',
+    'tenants','tenant_config','schedules','dispatch_queue','customer_locations'
+  ];
 begin
-  foreach t in array array[
-    'customers','jobs','profiles','messages','tenants','tenant_config',
-    'invoices','agent_messages'
-  ]
-  loop
-    if exists (select 1 from information_schema.tables where table_schema='public' and table_name=t) then
-      execute format('alter table %I enable row level security', t);
+  foreach tbl in array managed loop
+    if exists (select 1 from information_schema.tables
+               where table_schema = 'public' and table_name = tbl) then
+      execute format('alter table public.%I enable row level security', tbl);
+      for pol in
+        select policyname from pg_policies
+        where schemaname = 'public' and tablename = tbl
+      loop
+        execute format('drop policy if exists %I on public.%I', pol.policyname, tbl);
+      end loop;
     end if;
   end loop;
 end $$;
 
--- Policy predicates use (select app_tenant_id()) / (select app_role()) so Postgres
--- evaluates the helper once per query, not once per row.
+-- =========================================================== 4a. data-table policies
+-- Uniform tenant scoping for every business-data table. Read: any authenticated
+-- member of the tenant. Write: owner|dispatch of the tenant. Predicates use
+-- (select app_*()) so the helper runs once per query, not once per row.
+-- NOTE: 'messages','agent_messages','schedules','dispatch_queue' write roles —
+-- see FLAG 2. Kept tight (owner|dispatch) deliberately; loosen only after the
+-- real writer identities are confirmed.
+do $$
+declare
+  tbl text;
+  data_tables text[] := array[
+    'customers','jobs','messages','invoices','agent_messages',
+    'schedules','dispatch_queue','customer_locations'
+  ];
+begin
+  foreach tbl in array data_tables loop
+    if exists (select 1 from information_schema.tables
+               where table_schema = 'public' and table_name = tbl) then
+      execute format(
+        'create policy %I on public.%I for select using ('
+        || 'tenant_id = (select app_tenant_id()) and (select app_role()) is not null)',
+        tbl || '_tenant_read', tbl);
+      execute format(
+        'create policy %I on public.%I for all using ('
+        || 'tenant_id = (select app_tenant_id()) and (select app_role()) in (''owner'',''dispatch'')) '
+        || 'with check ('
+        || 'tenant_id = (select app_tenant_id()) and (select app_role()) in (''owner'',''dispatch''))',
+        tbl || '_tenant_write', tbl);
+    end if;
+  end loop;
+end $$;
 
--- ------------------------------------------------------------------ customers
-drop policy if exists customers_read on customers;
-drop policy if exists customers_write on customers;
-drop policy if exists customers_tenant_read on customers;
-drop policy if exists customers_tenant_write on customers;
-
-create policy customers_tenant_read on customers
-  for select using (
-    tenant_id = (select app_tenant_id())
-    and (select app_role()) is not null
-  );
-
-create policy customers_tenant_write on customers
-  for all
-  using (
-    tenant_id = (select app_tenant_id())
-    and (select app_role()) in ('owner','dispatch')
-  )
-  with check (
-    tenant_id = (select app_tenant_id())
-    and (select app_role()) in ('owner','dispatch')
-  );
-
--- ------------------------------------------------------------------ jobs
-drop policy if exists jobs_read on jobs;
-drop policy if exists jobs_write on jobs;
-drop policy if exists jobs_tenant_read on jobs;
-drop policy if exists jobs_tenant_write on jobs;
-
-create policy jobs_tenant_read on jobs
-  for select using (
-    tenant_id = (select app_tenant_id())
-    and (select app_role()) is not null
-  );
-
-create policy jobs_tenant_write on jobs
-  for all
-  using (
-    tenant_id = (select app_tenant_id())
-    and (select app_role()) in ('owner','dispatch')
-  )
-  with check (
-    tenant_id = (select app_tenant_id())
-    and (select app_role()) in ('owner','dispatch')
-  );
-
--- ------------------------------------------------------------------ messages
-drop policy if exists messages_read on messages;
-drop policy if exists messages_write on messages;
-drop policy if exists messages_tenant_read on messages;
-drop policy if exists messages_tenant_write on messages;
-
-create policy messages_tenant_read on messages
-  for select using (
-    tenant_id = (select app_tenant_id())
-    and (select app_role()) is not null
-  );
-
-create policy messages_tenant_write on messages
-  for all
-  using (
-    tenant_id = (select app_tenant_id())
-    and (select app_role()) in ('owner','dispatch')
-  )
-  with check (
-    tenant_id = (select app_tenant_id())
-    and (select app_role()) in ('owner','dispatch')
-  );
-
--- ------------------------------------------------------------------ invoices (was world-readable — lock to tenant)
-drop policy if exists invoices_tenant_read on invoices;
-drop policy if exists invoices_tenant_write on invoices;
-
-create policy invoices_tenant_read on invoices
-  for select using (
-    tenant_id = (select app_tenant_id())
-    and (select app_role()) is not null
-  );
-
-create policy invoices_tenant_write on invoices
-  for all
-  using (
-    tenant_id = (select app_tenant_id())
-    and (select app_role()) in ('owner','dispatch')
-  )
-  with check (
-    tenant_id = (select app_tenant_id())
-    and (select app_role()) in ('owner','dispatch')
-  );
-
--- ------------------------------------------------------------------ agent_messages (was world-readable — lock to tenant)
-drop policy if exists agent_messages_tenant_read on agent_messages;
-drop policy if exists agent_messages_tenant_write on agent_messages;
-
-create policy agent_messages_tenant_read on agent_messages
-  for select using (
-    tenant_id = (select app_tenant_id())
-    and (select app_role()) is not null
-  );
-
-create policy agent_messages_tenant_write on agent_messages
-  for all
-  using (
-    tenant_id = (select app_tenant_id())
-    and (select app_role()) in ('owner','dispatch')
-  )
-  with check (
-    tenant_id = (select app_tenant_id())
-    and (select app_role()) in ('owner','dispatch')
-  );
-
--- ------------------------------------------------------------------ profiles
--- Users can read their own profile; owner can read all profiles in their tenant.
-drop policy if exists profiles_self on profiles;
-drop policy if exists profiles_read on profiles;
-drop policy if exists profiles_write on profiles;
-drop policy if exists profiles_owner_read on profiles;
-
+-- =========================================================== 4b. profiles
+-- Users read their own row; owner reads all rows in their tenant. No client
+-- write (role/tenant grants are a service-role operation).
 create policy profiles_self on profiles
-  for select using (user_id = auth.uid());
+  for select using (id = auth.uid());
 
 create policy profiles_owner_read on profiles
   for select using (
@@ -199,32 +138,36 @@ create policy profiles_owner_read on profiles
     and (select app_role()) = 'owner'
   );
 
--- No client write on profiles by default — grant/role changes via service role.
-
--- ------------------------------------------------------------------ tenant_config / tenants (from 001 — restate)
-drop policy if exists tenant_config_read on tenant_config;
-drop policy if exists tenant_config_write on tenant_config;
-
+-- =========================================================== 4c. tenant_config / tenants
 create policy tenant_config_read on tenant_config
   for select using (tenant_id = (select app_tenant_id()));
 
 create policy tenant_config_write on tenant_config
   for all
-  using (
-    tenant_id = (select app_tenant_id())
-    and (select app_role()) = 'owner'
-  )
-  with check (
-    tenant_id = (select app_tenant_id())
-    and (select app_role()) = 'owner'
-  );
+  using (tenant_id = (select app_tenant_id()) and (select app_role()) = 'owner')
+  with check (tenant_id = (select app_tenant_id()) and (select app_role()) = 'owner');
 
-drop policy if exists tenants_read on tenants;
 create policy tenants_read on tenants
   for select using (id = (select app_tenant_id()));
 
--- ------------------------------------------------------------------ verify
--- After run, as anon (no login) every select should return 0 rows / RLS deny writes.
--- As authenticated user without profiles row: 0 rows.
--- As user with profiles.tenant_id='le': only 'le' rows.
--- invoices + agent_messages must no longer be world-readable on the public key.
+-- =========================================================== 5. post-apply verify
+-- Run these after apply and eyeball the results (each should return NO rows):
+--
+-- (a) any public table with RLS OFF (still client-reachable, unscoped):
+--     select tablename from pg_tables
+--     where schemaname='public' and rowsecurity = false;
+--
+-- (b) any public table RLS-ON but with ZERO policies (deny-all — fine for a
+--     locked infra table, but flag any you didn't intend to fully close):
+--     select t.tablename from pg_tables t
+--     where t.schemaname='public' and t.rowsecurity
+--       and not exists (select 1 from pg_policies p
+--                       where p.schemaname='public' and p.tablename=t.tablename);
+--
+-- (c) any remaining BLANKET-ALLOW policy (qual/with_check = true) — must be none
+--     on the managed tables:
+--     select tablename, policyname, cmd, qual, with_check from pg_policies
+--     where schemaname='public' and (qual='true' or with_check='true');
+--
+-- Then, as the anon key: select on customers/jobs/invoices/agent_messages/
+-- schedules/dispatch_queue/customer_locations must all return 0 rows.

@@ -1,14 +1,19 @@
 -- Batch 1 — tenant_config: the white-label foundation.
+-- CORRECTED 2026-07-23 for live-schema drift found by Dispatch's apply_migration:
+--   • live `profiles` has NO user_id column — its PK `id` IS the auth uid
+--     (the live "read own profile" policy is auth.uid() = id). Helper bodies
+--     therefore use `where id = auth.uid()`.
+--   • neither app_role() nor app_tenant_id() exists live — 001 now creates BOTH,
+--     as SECURITY DEFINER (required: the helpers read profiles, and a plain
+--     invoker function would recurse through profiles' own RLS). 001's
+--     tenant_config_write references app_role(), so it must exist first.
 --
 -- One row per tenant. Holds branding, per-module feature toggles, plan tier,
 -- the `internal` dev-tooling flag, and the permit-tracker agency presets.
---
--- The app reads this on load and uses it to render the nav AND to decide which
--- routes to register (see src/lib/tenantConfig.js). Disabled modules are
--- unreachable by URL, not merely hidden.
---
--- LE Electrical is NOT special-cased: it is seeded at the bottom of this file
--- as an ordinary tenant with every module on and internal = true.
+-- The app reads this on load to render the nav AND decide which routes register
+-- (src/lib/tenantConfig.js). Disabled modules are unreachable by URL, not hidden.
+-- LE Electrical is NOT special-cased: it is seeded at the bottom as an ordinary
+-- tenant with every module on and internal = true.
 
 create extension if not exists pgcrypto;
 
@@ -101,38 +106,43 @@ drop trigger if exists tenant_config_updated_at on tenant_config;
 create trigger tenant_config_updated_at before update on tenant_config
   for each row execute function set_updated_at();
 
+-- ------------------------------------------------------------------ helpers
+-- SECURITY DEFINER + fixed search_path: the helpers read `profiles`, so as
+-- plain invoker functions they would recurse through profiles' own RLS. As
+-- definer (owned by the table owner) they bypass RLS on that read — the
+-- standard Supabase pattern. Live profiles has no user_id; PK `id` = auth.uid().
+create or replace function app_tenant_id() returns text
+  language sql stable security definer set search_path = public as $$
+  select tenant_id from profiles where id = auth.uid()
+$$;
+
+create or replace function app_role() returns text
+  language sql stable security definer set search_path = public as $$
+  select role from profiles where id = auth.uid()
+$$;
+
 -- ------------------------------------------------------------------ RLS
--- A tenant may read only its own config; only an owner may write it, and
--- nobody may set `internal` from the client — that is a service-role change.
 alter table tenants       enable row level security;
 alter table tenant_config enable row level security;
 
--- profiles.tenant_id scopes a user to a tenant. Added here because Batch 1 is
--- the first thing that needs it; profiles itself is created in schema.sql.
+-- profiles.tenant_id scopes a user to a tenant.
 alter table profiles add column if not exists tenant_id text references tenants(id);
-
-create or replace function app_tenant_id() returns text language sql stable as $$
-  select tenant_id from profiles where user_id = auth.uid()
-$$;
 
 drop policy if exists tenant_config_read  on tenant_config;
 drop policy if exists tenant_config_write on tenant_config;
 
 create policy tenant_config_read on tenant_config
-  for select using (tenant_id = app_tenant_id());
+  for select using (tenant_id = (select app_tenant_id()));
 
--- Note: this permits an owner to write their own row. It does NOT stop them
--- writing internal = true, which Postgres RLS cannot express per-column here —
--- the settings endpoint strips `internal` from client payloads instead.
--- See functions note in the Batch 1 summary.
+-- Permits an owner to write their own row. It does NOT stop them writing
+-- internal = true (Postgres RLS cannot gate a single column) — the settings
+-- endpoint must strip `internal` from client payloads. See FLAG in the summary.
 create policy tenant_config_write on tenant_config
   for all
-  using (tenant_id = app_tenant_id() and app_role() = 'owner')
-  with check (tenant_id = app_tenant_id() and app_role() = 'owner');
+  using (tenant_id = (select app_tenant_id()) and (select app_role()) = 'owner')
+  with check (tenant_id = (select app_tenant_id()) and (select app_role()) = 'owner');
 
 -- ------------------------------------------------------------- seed: LE
--- The flagship instance, as an ordinary tenant: everything on, internal true,
--- NYC agency presets.
 insert into tenants (id, name)
 values ('le', 'LE Electrical')
 on conflict (id) do nothing;
