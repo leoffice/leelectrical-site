@@ -49,6 +49,32 @@ async function httpAllowErrorBody(path, body) {
 
 const cb = () => "cb=" + Date.now();
 
+// ---- Conditional (ETag) GET for the big read-heavy blobs --------------------
+// jobsdata (~20 MB) and state are polled every 60s (plus focus + action
+// refreshes). The server tags each with an ETag off its write-ts; we hold the
+// last {etag, data} per path and send If-None-Match, so an unchanged blob comes
+// back as a bodyless 304 and we reuse the cached parse — turning a repeated
+// multi-MB transfer into a few bytes. NO cache-buster here (a unique URL would
+// defeat revalidation) and NO browser HTTP cache (cache:no-store) — we manage
+// the entity tag ourselves, which stays predictable across browsers and is
+// exercisable in tests. Correctness is unchanged: every poll still revalidates
+// against the server; 304 means the document is byte-identical to what we hold.
+const condCache = new Map(); // path -> { etag, data }
+async function httpConditional(path) {
+  const entry = condCache.get(path);
+  const res = await fetch(`${base()}/${path}`, {
+    method: "GET",
+    cache: "no-store",
+    headers: entry && entry.etag ? { "if-none-match": entry.etag } : undefined,
+  });
+  if (res.status === 304 && entry) return entry.data;
+  if (!res.ok) throw new Error(`${path}: HTTP ${res.status}`);
+  const data = await res.json();
+  const etag = res.headers && typeof res.headers.get === "function" ? res.headers.get("etag") : null;
+  if (etag) condCache.set(path, { etag, data });
+  return data;
+}
+
 /** Blob → bare base64 string (no data-URL prefix) for JSON transport. */
 function blobToBase64(blob) {
   return new Promise((resolve, reject) => {
@@ -72,19 +98,44 @@ export function createNetlifyAdapter() {
   // GET right after our own write can return the PREVIOUS snapshot — merging
   // into that (saveJob) or rendering it (refresh) silently reverts edits.
   let lastWriteTs = 0;
+  // The full overlay map from our last successful POST. Used to reconstruct a
+  // correct view WITHOUT blocking when a read comes back stale (see freshState).
+  let lastOv = null;
+  // Return the freshest overlay we can WITHOUT sleeping. The old implementation
+  // re-GET-and-slept (350+700+1050ms ≈ 2.1s) on every save after the first,
+  // waiting for the blob to reflect our own last write — a built-in 1–2s stall
+  // on the save path. Instead: read once, and if that read predates our own last
+  // write (stale blob), re-apply our last-known overlay on top. This is only
+  // done when stale — a read whose ts is current is authoritative and may carry
+  // another device's newer edits, which we must never clobber. Cross-device
+  // safety is unchanged (the retry loop only ever waited for the CALLER'S own
+  // write; other devices' concurrent writes were reconciled by the next poll,
+  // and still are).
   const freshState = async () => {
-    for (let i = 0; ; i++) {
-      const state = (await http(`state?${cb()}`)) || { ov: {}, ts: 0 };
-      if (!lastWriteTs || (state.ts || 0) >= lastWriteTs || i >= 3) return state;
-      await new Promise((r) => setTimeout(r, 350 * (i + 1))); // blob lag — retry
+    const state = (await http(`state?${cb()}`)) || { ov: {}, ts: 0 };
+    if (lastWriteTs && (state.ts || 0) < lastWriteTs && lastOv) {
+      const ov = { ...((state && state.ov) || {}) };
+      for (const k of Object.keys(lastOv)) {
+        ov[k] = deepMerge(ov[k] || {}, lastOv[k]);
+      }
+      return { ...state, ov, ts: lastWriteTs };
     }
+    return state;
+  };
+  // POST the full overlay and remember it, so the next stale read can be
+  // reconstructed from memory instead of waiting for the blob to converge.
+  const postState = async (ov) => {
+    const res = await http("state", { ov });
+    if (res && res.ts) lastWriteTs = Math.max(lastWriteTs, res.ts);
+    lastOv = ov;
+    return res;
   };
   return {
     name: "netlify",
 
     /** Merged view + sync metadata: jobsdata.jobs + state.ov (overlay wins). */
     async listJobsMeta() {
-      const [data, state] = await Promise.all([http(`jobsdata?${cb()}`), http(`state?${cb()}`)]);
+      const [data, state] = await Promise.all([httpConditional("jobsdata"), httpConditional("state")]);
       return {
         jobs: mergeJobs(data.jobs || [], (state && state.ov) || {}),
         syncedAt: data.syncedAt || 0,
@@ -132,8 +183,7 @@ export function createNetlifyAdapter() {
         const state = await freshState();
         const ov = (state && state.ov) || {};
         ov[id] = deepMerge(ov[id] || {}, patch || {});
-        const res = await http("state", { ov });
-        if (res && res.ts) lastWriteTs = Math.max(lastWriteTs, res.ts);
+        const res = await postState(ov);
         return { ok: true, ts: res && res.ts, ov: ov[id] };
       };
       const p = saveQ.then(run, run);
@@ -271,7 +321,7 @@ export function createNetlifyAdapter() {
      *  mergeJobs() skips "_"-prefixed overlay keys, so this never renders
      *  as a phantom job. */
     async getSasTickets() {
-      const state = await http(`state?${cb()}`);
+      const state = await httpConditional("state");
       const ov = (state && state.ov) || {};
       return isPlainObject(ov._sasTickets) ? ov._sasTickets : {};
     },
@@ -279,7 +329,7 @@ export function createNetlifyAdapter() {
     /** Customer pay-page checks + bank Zelle alerts waiting for Levi to approve.
      *  ov._pendingPayments = { items: [...], ts } — reserved key (not a job). */
     async getPendingPayments() {
-      const state = await http(`state?${cb()}`);
+      const state = await httpConditional("state");
       const ov = (state && state.ov) || {};
       const row = ov._pendingPayments;
       if (Array.isArray(row)) return row.filter(Boolean);
@@ -299,7 +349,7 @@ export function createNetlifyAdapter() {
 
     /** Big-project requisitions — ov._projects (reserved key). */
     async getProjects() {
-      const state = await http(`state?${cb()}`);
+      const state = await httpConditional("state");
       const ov = (state && state.ov) || {};
       return isPlainObject(ov._projects) ? ov._projects : { list: [] };
     },
@@ -310,7 +360,7 @@ export function createNetlifyAdapter() {
 
     /** "Separate customers" / parent-sub decisions — ov._nomerge (reserved key). */
     async getNomergePairs() {
-      const state = await http(`state?${cb()}`);
+      const state = await httpConditional("state");
       const ov = (state && state.ov) || {};
       const v = ov._nomerge;
       return Array.isArray(v) ? v.filter(Boolean) : [];
@@ -327,8 +377,7 @@ export function createNetlifyAdapter() {
       const ov = (state && state.ov) || {};
       const cur = Array.isArray(ov._invoiceEditLearning) ? ov._invoiceEditLearning : [];
       ov._invoiceEditLearning = cur.concat([{ ...entry, ts: Date.now() }]).slice(-200);
-      const res = await http("state", { ov });
-      if (res && res.ts) lastWriteTs = Math.max(lastWriteTs, res.ts);
+      await postState(ov);
       return { ok: true };
     },
 
@@ -345,8 +394,7 @@ export function createNetlifyAdapter() {
       const ov = (state && state.ov) || {};
       const cur = Array.isArray(ov._paymentVisionLearning) ? ov._paymentVisionLearning : [];
       ov._paymentVisionLearning = cur.concat([{ ...entry, ts: Date.now() }]).slice(-200);
-      const res = await http("state", { ov });
-      if (res && res.ts) lastWriteTs = Math.max(lastWriteTs, res.ts);
+      await postState(ov);
       return { ok: true };
     },
 

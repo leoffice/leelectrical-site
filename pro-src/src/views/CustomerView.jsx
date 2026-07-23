@@ -35,7 +35,12 @@ export default function CustomerView() {
   const nav = useNavigate();
   const { jobs, loading, events, commands, patchJob, refreshJobs, api, enqueue, showToast } = useStore();
   const [qboIndex, setQboIndex] = useState([]);
-  const [shortTxns, setShortTxns] = useState(false);
+  // Default ON: the customer page opens with its transaction history already
+  // showing (Levi 2026-07-22). This shipped once via a dirty deploy and then
+  // regressed when a clean-tree deploy — built from the committed source, which
+  // still had this defaulting to false — went out; restored here on the source
+  // line so it can't silently revert again.
+  const [shortTxns, setShortTxns] = useState(true);
 
   useEffect(() => {
     let cancelled = false;
