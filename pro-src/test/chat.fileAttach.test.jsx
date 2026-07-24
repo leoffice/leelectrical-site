@@ -19,6 +19,7 @@ describe("chat file attach", () => {
     fireEvent.click(screen.getByTestId("chat-fab"));
     const input = await screen.findByTestId("chat-file-input");
     expect(input).not.toHaveAttribute("accept");
+    fireEvent.click(screen.getByTestId("chat-plus"));
     expect(screen.getByTestId("chat-attach-file")).toHaveAttribute("aria-label", "Attach file");
   });
 

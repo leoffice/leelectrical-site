@@ -48,6 +48,25 @@ import { setSpeechToTextEnabled, useAppSettings } from "../lib/appSettings.js";
 const ONLINE_MS = 4 * 60_000; // israel-heartbeat (or last reply) younger than this = online
 const STUCK_MS = 90_000; // a "Working on it" we've watched longer than this stops looking like a live spinner
 const NEAR_BOTTOM_PX = 48; // within this distance of the bottom we auto-scroll on new messages
+/** Quick emoji strip for the + menu (no heavy picker dependency). */
+const CHAT_EMOJIS = [
+  "👍",
+  "✅",
+  "🙏",
+  "😂",
+  "😊",
+  "🔥",
+  "💪",
+  "📅",
+  "💰",
+  "📍",
+  "⚡",
+  "🛠️",
+  "📎",
+  "❗",
+  "❓",
+  "👋",
+];
 
 /** Own-message delivery status → user-facing label. Statuses arrive on the
  *  message object from the chat fn (Sent -> Received -> Read -> Working on it). */
@@ -142,8 +161,18 @@ export default function ChatBubble() {
   const [pendingPaymentImage, setPendingPaymentImage] = useState(null);
   const [imageActionDraft, setImageActionDraft] = useState(null);
   const [imageBusy, setImageBusy] = useState(false);
+  const [plusOpen, setPlusOpen] = useState(false);
+  const [emojiOpen, setEmojiOpen] = useState(false);
   const imageInputRef = useRef(null);
   const convo = useRef(LE_PRO_CONVO);
+  // Mirror of the controlled draft so send can clear the box in the same tick
+  // without waiting for React to flush — same feel as a normal chat app.
+  const textRef = useRef("");
+  const setComposerText = useCallback((next) => {
+    const v = typeof next === "function" ? next(textRef.current) : next;
+    textRef.current = String(v ?? "");
+    setText(textRef.current);
+  }, []);
   const migrated = useRef(false);
   const lastN = useRef(0);
   const lastDispatchN = useRef(null); // null = not baselined yet (first poll)
@@ -333,7 +362,7 @@ export default function ChatBubble() {
     async (desc) => {
       const d = String(desc || "").trim();
       if (!d) {
-        setText("/task ");
+        setComposerText("/task ");
         showToast("Describe the dev task");
         return;
       }
@@ -345,10 +374,10 @@ export default function ChatBubble() {
         category: "build",
         target: { pro: true, sleek: false, beta: false, dashboard: false },
       });
-      if (ok !== false) setText("");
+      if (ok !== false) setComposerText("");
       return true;
     },
-    [addDevTask, showToast]
+    [addDevTask, setComposerText, showToast]
   );
 
   const openAppointment = useCallback(() => {
@@ -367,12 +396,12 @@ export default function ChatBubble() {
         const phone = (c.tel || [])[0] || "";
         const email = (c.email || [])[0] || "";
         const line = [name, phone, email].filter(Boolean).join(" · ");
-        if (line) setText((t) => (t ? t + " " : "") + line);
+        if (line) setComposerText((t) => (t ? t + " " : "") + line);
         return;
       }
     } catch {}
     showToast("Type a name and number — contact picker needs Chrome on Android");
-  }, [showToast]);
+  }, [setComposerText, showToast]);
 
   const sendChatFile = useCallback(
     async (file) => {
@@ -452,7 +481,7 @@ export default function ChatBubble() {
                 jobInvoiceNo: activeJob?.invoiceNo || "",
               })
             );
-            setText("");
+            setComposerText("");
             return;
           }
           setPendingPaymentImage({ extracted, visionKind: kind, file, previewUrl, proofName: file.name });
@@ -486,7 +515,7 @@ export default function ChatBubble() {
         setImageBusy(false);
       }
     },
-    [activeJob, jobs, sendChatFile, showToast, text]
+    [activeJob, jobs, sendChatFile, setComposerText, showToast, text]
   );
 
   const confirmImageAction = useCallback(
@@ -664,10 +693,10 @@ export default function ChatBubble() {
     const hint = text;
     const timer = setTimeout(() => {
       openPaymentDraft(pending, hint);
-      setText("");
+      setComposerText("");
     }, 500);
     return () => clearTimeout(timer);
-  }, [text, pendingPaymentImage, openPaymentDraft]);
+  }, [text, pendingPaymentImage, openPaymentDraft, setComposerText]);
 
   // Scroll to latest once when the panel opens; do not reset stick on every poll.
   useEffect(() => {
@@ -767,23 +796,68 @@ export default function ChatBubble() {
 
   const pickReplyButton = useCallback(
     (button) => {
-      postChatText(button.replyText || button.label || "A", { skipSlash: true, skipInvoiceEdit: true });
+      // Fire-and-forget — never hold the UI for a reply-button send.
+      void postChatText(button.replyText || button.label || "A", { skipSlash: true, skipInvoiceEdit: true });
     },
     [postChatText]
   );
 
-  const send = async () => {
-    const t = text.trim();
+  /** Clear the composer immediately (state + native value) so the box empties
+   *  the instant Send is tapped — not when Israel finishes answering. */
+  const clearComposer = useCallback(() => {
+    textRef.current = "";
+    setText("");
+    if (inputRef.current) {
+      inputRef.current.value = "";
+      inputRef.current.style.height = "";
+    }
+    requestAnimationFrame(resizeInput);
+  }, [resizeInput]);
+
+  const insertEmoji = useCallback(
+    (emoji) => {
+      setComposerText((t) => t + emoji);
+      setEmojiOpen(false);
+      setPlusOpen(false);
+      try {
+        inputRef.current?.focus({ preventScroll: true });
+      } catch {
+        try {
+          inputRef.current?.focus();
+        } catch {}
+      }
+    },
+    [setComposerText]
+  );
+
+  const send = () => {
+    const t = (textRef.current || text).trim();
     if (!t) return;
+    // Close attach menus so they don't sit over a fresh draft.
+    setPlusOpen(false);
+    setEmojiOpen(false);
+    // Clear first — same path as a regular message, never wait on the network
+    // or on Israel's reply before the box is empty and ready for the next line.
+    clearComposer();
+    // Keep focus so Levi can type the next message while Israel is still working.
+    try {
+      inputRef.current?.focus({ preventScroll: true });
+    } catch {
+      try {
+        inputRef.current?.focus();
+      } catch {}
+    }
     const slash = parseChatSlash(t);
     if (slash) {
-      setText("");
-      const handled = await runSlash(slash);
-      if (handled) return;
+      // Slash commands still run async; UI is already free.
+      void (async () => {
+        const handled = await runSlash(slash);
+        if (!handled) void postChatText(t);
+      })();
+      return;
     }
-    setText("");
-    requestAnimationFrame(resizeInput);
-    await postChatText(t);
+    // Network + AI iterate are background — do not await.
+    void postChatText(t);
   };
 
   /* mic with level animation (Web Speech API + analyser) */
@@ -827,11 +901,11 @@ export default function ChatBubble() {
         })
         .catch(() => {});
     }
-    const base = text;
+    const base = textRef.current || text;
     r.onresult = (e) => {
       let s = "";
       for (const res of e.results) s += res[0].transcript;
-      setText((base ? base + " " : "") + s);
+      setComposerText((base ? base + " " : "") + s);
     };
     r.onend = () => {
       setRec(false);
@@ -1045,50 +1119,161 @@ export default function ChatBubble() {
             onChange={onChatAttach}
             data-testid="chat-file-input"
           />
-          <div className="flex items-end gap-2 p-3 border-t border-slate-200">
-            <button
-              type="button"
-              onClick={() => imageInputRef.current?.click()}
-              disabled={imageBusy}
-              aria-label="Attach file"
-              className="w-9 h-9 rounded-full bg-slate-100 shrink-0 text-base"
-              data-testid="chat-attach-file"
-            >
-              {imageBusy ? (
-                <span className="inline-block w-4 h-4 border-2 border-slate-300 border-t-brand rounded-full animate-spin" />
-              ) : (
-                "📎"
-              )}
-            </button>
-            <textarea
-              ref={inputRef}
-              className="input flex-1 min-h-[2.5rem] resize-none overflow-y-auto lg-scroll-hidden leading-snug py-2"
-              rows={1}
-              placeholder="Message Israel…"
-              value={text}
-              onChange={(e) => setText(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === "Enter" && !e.shiftKey) {
-                  e.preventDefault();
-                  send();
-                }
-              }}
-              aria-label="Chat message"
-            />
-            {speechToText ? (
-              <button
-                ref={micBtn}
-                onClick={toggleMic}
-                aria-label="Voice input"
-                className={`w-9 h-9 rounded-full text-base shrink-0 transition-transform ${rec ? "bg-red-100" : "bg-slate-100"}`}
-                data-testid="chat-mic"
+          {/* Composer: one bubble — text on top, + (left) and send (right) on the bottom row. */}
+          <div className="p-3 border-t border-slate-200" data-testid="chat-composer">
+            {emojiOpen ? (
+              <div
+                className="mb-2 rounded-2xl border border-slate-200 bg-slate-50 p-2 flex flex-wrap gap-1"
+                data-testid="chat-emoji-picker"
+                role="listbox"
+                aria-label="Emojis"
               >
-                🎤
-              </button>
+                {CHAT_EMOJIS.map((em) => (
+                  <button
+                    key={em}
+                    type="button"
+                    className="w-9 h-9 rounded-xl text-lg hover:bg-white active:scale-95"
+                    onClick={() => insertEmoji(em)}
+                    aria-label={`Insert ${em}`}
+                  >
+                    {em}
+                  </button>
+                ))}
+              </div>
             ) : null}
-            <button onClick={send} aria-label="Send message" className="w-9 h-9 rounded-full bg-brand text-white shrink-0">
-              ➤
-            </button>
+            {plusOpen ? (
+              <div
+                className="mb-2 rounded-2xl border border-slate-200 bg-white shadow-sm overflow-hidden"
+                data-testid="chat-plus-menu"
+                role="menu"
+              >
+                <button
+                  type="button"
+                  role="menuitem"
+                  className="w-full flex items-center gap-2.5 px-3 py-2.5 text-sm font-semibold text-slate-800 hover:bg-slate-50 border-b border-slate-100"
+                  onClick={() => {
+                    setPlusOpen(false);
+                    setEmojiOpen(true);
+                  }}
+                  data-testid="chat-plus-emoji"
+                >
+                  <span className="text-base w-6 text-center">😊</span>
+                  Emoji
+                </button>
+                <button
+                  type="button"
+                  role="menuitem"
+                  className="w-full flex items-center gap-2.5 px-3 py-2.5 text-sm font-semibold text-slate-800 hover:bg-slate-50 border-b border-slate-100 disabled:opacity-50"
+                  onClick={() => {
+                    setPlusOpen(false);
+                    imageInputRef.current?.click();
+                  }}
+                  disabled={imageBusy}
+                  aria-label="Attach file"
+                  data-testid="chat-attach-file"
+                >
+                  <span className="text-base w-6 text-center">
+                    {imageBusy ? (
+                      <span className="inline-block w-4 h-4 border-2 border-slate-300 border-t-brand rounded-full animate-spin" />
+                    ) : (
+                      "📎"
+                    )}
+                  </span>
+                  Photo or file
+                </button>
+                {speechToText ? (
+                  <button
+                    type="button"
+                    role="menuitem"
+                    className="w-full flex items-center gap-2.5 px-3 py-2.5 text-sm font-semibold text-slate-800 hover:bg-slate-50"
+                    onClick={() => {
+                      setPlusOpen(false);
+                      toggleMic();
+                    }}
+                    data-testid="chat-plus-voice"
+                  >
+                    <span className="text-base w-6 text-center">🎤</span>
+                    Voice note
+                  </button>
+                ) : (
+                  <button
+                    type="button"
+                    role="menuitem"
+                    className="w-full flex items-center gap-2.5 px-3 py-2.5 text-sm font-semibold text-slate-500"
+                    onClick={() => {
+                      setPlusOpen(false);
+                      showToast("Turn on speech to text in Company settings");
+                    }}
+                    data-testid="chat-plus-voice"
+                  >
+                    <span className="text-base w-6 text-center">🎤</span>
+                    Voice note (off in settings)
+                  </button>
+                )}
+              </div>
+            ) : null}
+            <div
+              className="rounded-[22px] border border-slate-200 bg-slate-50 shadow-inner focus-within:border-brand/40 focus-within:ring-2 focus-within:ring-brand/15 transition-shadow"
+              data-testid="chat-composer-bubble"
+            >
+              <textarea
+                ref={inputRef}
+                className="w-full bg-transparent border-0 outline-none resize-none overflow-y-auto lg-scroll-hidden leading-snug px-3.5 pt-2.5 pb-1 min-h-[2.5rem] text-sm text-slate-900 placeholder:text-slate-400"
+                rows={1}
+                placeholder="Message Israel…"
+                value={text}
+                onChange={(e) => setComposerText(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" && !e.shiftKey) {
+                    e.preventDefault();
+                    send();
+                  }
+                }}
+                aria-label="Chat message"
+                data-testid="chat-message-input"
+              />
+              <div className="flex items-center justify-between gap-2 px-2 pb-2 pt-0.5">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setEmojiOpen(false);
+                    setPlusOpen((o) => !o);
+                  }}
+                  aria-label={plusOpen ? "Close attach menu" : "Open attach menu"}
+                  aria-expanded={plusOpen}
+                  className={`w-9 h-9 rounded-full shrink-0 text-lg font-bold leading-none flex items-center justify-center transition-colors ${
+                    plusOpen ? "bg-brand text-white" : "bg-white text-slate-700 border border-slate-200"
+                  }`}
+                  data-testid="chat-plus"
+                >
+                  +
+                </button>
+                <div className="flex items-center gap-1.5">
+                  {speechToText && rec ? (
+                    <button
+                      ref={micBtn}
+                      type="button"
+                      onClick={toggleMic}
+                      aria-label="Stop voice input"
+                      className="w-9 h-9 rounded-full text-base shrink-0 bg-red-100 transition-transform"
+                      data-testid="chat-mic"
+                    >
+                      🎤
+                    </button>
+                  ) : null}
+                  <button
+                    type="button"
+                    onClick={send}
+                    aria-label="Send message"
+                    className="w-9 h-9 rounded-full bg-brand text-white shrink-0 text-base flex items-center justify-center disabled:opacity-40"
+                    disabled={!text.trim()}
+                    data-testid="chat-send"
+                  >
+                    ➤
+                  </button>
+                </div>
+              </div>
+            </div>
           </div>
         </div>
       {jobSheet && activeJob && <ChatJobUpdateSheet job={activeJob} onClose={() => setJobSheet(false)} />}
