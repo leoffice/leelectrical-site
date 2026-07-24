@@ -27,6 +27,26 @@ const D = {
   older: ymd(-45),
 };
 
+/* ────────────────────────────── brand logo ────────────────────────────── */
+
+// Self-contained SVG wordmark for the demo tenant, so the white-label showcase
+// carries the COMPANY's brand (Ace Plumbing) — not the LE monogram — on the
+// lock screen, the sidebar and document headers. It renders before any settings
+// fetch resolves, so demoBackend seeds it synchronously via setCompanyLogoDataUrl.
+// A white rounded card keeps it legible on BOTH the dark lock screen and the
+// light app chrome. No external asset (CSP-safe, offline, never goes stale).
+export function demoBrandLogo() {
+  const svg =
+    '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 300 100">' +
+    '<rect x="2" y="10" width="296" height="80" rx="18" fill="#ffffff" stroke="#e2e8f0" stroke-width="2"/>' +
+    '<path d="M46 26 C46 26 66 52 66 68 A20 20 0 0 1 26 68 C26 52 46 26 46 26 Z" fill="#1d4ed8"/>' +
+    '<path d="M46 43 C46 43 57 57 57 66 A11 11 0 0 1 35 66 C35 57 46 43 46 43 Z" fill="#93c5fd"/>' +
+    '<text x="86" y="53" font-family="Helvetica,Arial,sans-serif" font-size="30" font-weight="800" fill="#0f172a">Ace Plumbing</text>' +
+    '<text x="87" y="77" font-family="Helvetica,Arial,sans-serif" font-size="14" font-weight="700" fill="#1d4ed8" letter-spacing="2">CO.  ·  AUSTIN, TX</text>' +
+    "</svg>";
+  return "data:image/svg+xml;utf8," + encodeURIComponent(svg);
+}
+
 /* ────────────────────────────── tenant config ─────────────────────────── */
 
 // White-label company identity. internal:false (an ordinary tenant — no dev
@@ -38,7 +58,7 @@ export function demoTenant() {
     plan: { tier: "full", crewAddon: true },
     branding: {
       companyName: "Ace Plumbing Co.",
-      logoUrl: "",
+      logoUrl: demoBrandLogo(),
       primaryColor: "#1d4ed8", // blue — deliberately not LE's green
       letterheadTemplate: "default",
       supportEmail: "office@aceplumbing.example",
@@ -63,7 +83,7 @@ export function demoProfile() {
     phone: "(512) 555-0142",
     email: "office@aceplumbing.example",
     brandColor: "#1d4ed8",
-    logoDataUrl: "",
+    logoDataUrl: demoBrandLogo(),
     paymentMethods: { card: true, zelle: true, check: true },
     zelleInstructions: "Zelle: Send payment to office@aceplumbing.example.",
     checkInstructions:
@@ -358,6 +378,283 @@ export function demoJobs() {
       payments: [],
       status: { Lead: { s: "done" }, "Site Visit": { s: "current" } },
     },
+
+    /* ══════════════════════════════════════════════════════════════════════
+       SCENARIO A — PARENT management company + SUB-COMPANY LLCs.
+       "Skyline Property Group" (qboCustomerId "P1") is the management company;
+       each building LLC bills under it via parentCustomerName/parentQboCustomerId.
+       Sub #1 also carries TWO service addresses (multi-address under one sub)
+       and an invoice-side CHANGE ORDER, so all three test scenarios interlock.
+       ══════════════════════════════════════════════════════════════════════ */
+
+    // 7) PARENT — Skyline Property Group (management co, its own retainer invoice).
+    {
+      id: "job-2001",
+      customer: "Skyline Property Group",
+      businessName: "Skyline Property Group",
+      personName: "Dana Fowler",
+      qboCustomerId: "P1",
+      title: "Portfolio annual backflow testing — retainer",
+      amount: 1800,
+      phone: "(512) 555-0210",
+      email: "dana@skylinepg.example",
+      address: "98 San Jacinto Blvd, Austin, TX 78701",
+      serviceAddress: "98 San Jacinto Blvd, Austin, TX 78701",
+      billingAddress: "98 San Jacinto Blvd, Austin, TX 78701",
+      apartment: "",
+      estimateNo: "",
+      invoiceNo: "1010",
+      paid: false,
+      notes: "Management company. Bills for the whole Skyline portfolio.",
+      attachments: [],
+      invoiceEmailStatus: "emailsent",
+      invoiceHistory: [{ no: "1010", date: D.lastWeek, amount: 1800 }],
+      followUp: null,
+      calEventId: "",
+      openBalance: 1800,
+      payments: [],
+      status: done(["Lead", "Invoiced", "Scheduled", "Done"], { "Follow-up": { s: "current" } }),
+    },
+
+    // 8) SUB #1 — Skyline Downtown LLC, service address #1 (500 Congress). Invoiced, partial paid.
+    {
+      id: "job-2002",
+      customer: "Skyline Downtown LLC",
+      businessName: "Skyline Downtown LLC",
+      personName: "Dana Fowler",
+      qboCustomerId: "S1",
+      parentCustomerName: "Skyline Property Group",
+      parentQboCustomerId: "P1",
+      title: "Lobby restroom re-pipe",
+      amount: 6200,
+      phone: "(512) 555-0211",
+      email: "downtown@skylinepg.example",
+      address: "500 Congress Ave, Austin, TX 78701",
+      serviceAddress: "500 Congress Ave, Austin, TX 78701",
+      billingAddress: "98 San Jacinto Blvd, Austin, TX 78701",
+      apartment: "",
+      estimateNo: "2020",
+      invoiceNo: "1011",
+      paid: false,
+      notes: "Bills under Skyline Property Group. 50% deposit received.",
+      attachments: [],
+      invoiceEmailStatus: "emailsent",
+      invoiceHistory: [
+        { no: "1011", date: D.lastWeek, amount: 6200 },
+        { kind: "Invoice #1011 emailed", no: "1011", date: D.lastWeek },
+      ],
+      followUp: {
+        type: "Payment / collect",
+        date: D.soon,
+        text: "Collect remaining $3,100 on the lobby re-pipe.",
+        done: false,
+      },
+      calEventId: "",
+      openBalance: 3100,
+      paymentBaseline: 6200,
+      payments: [
+        { id: "demopay-1011a", amount: 3100, method: "Check", date: D.lastWeek, ref: "CHK-3310", invoiceNo: "1011", jobId: "job-2002" },
+      ],
+      status: done(["Lead", "Site Visit", "Estimate", "Accepted", "Invoiced", "Deposit Receipt"], { Scheduled: { s: "current" } }),
+    },
+
+    // 8a) CHANGE ORDER #1 off invoice 1011 (invoice-side CO — its own numbered invoice).
+    {
+      id: "job-2002-co1",
+      customer: "Skyline Downtown LLC",
+      businessName: "Skyline Downtown LLC",
+      personName: "Dana Fowler",
+      qboCustomerId: "S1",
+      parentCustomerName: "Skyline Property Group",
+      parentQboCustomerId: "P1",
+      changeOrder: true,
+      changeOrderKind: "invoice",
+      changeOrderSourceId: "job-2002",
+      changeOrderSeq: 1,
+      changeOrderLabel: "1011-CO-01",
+      title: "Change Order 1 — add ADA fixture set + grab bars",
+      amount: 1450,
+      phone: "(512) 555-0211",
+      email: "downtown@skylinepg.example",
+      address: "500 Congress Ave, Austin, TX 78701",
+      serviceAddress: "500 Congress Ave, Austin, TX 78701",
+      billingAddress: "98 San Jacinto Blvd, Austin, TX 78701",
+      apartment: "",
+      estimateNo: "",
+      invoiceNo: "1011-CO-01",
+      paid: false,
+      notes: "Owner-requested ADA upgrade during rough-in.",
+      attachments: [],
+      invoiceHistory: [{ no: "1011-CO-01", date: D.lastWeek, amount: 1450 }],
+      followUp: null,
+      calEventId: "",
+      openBalance: 1450,
+      payments: [],
+      status: done(["Lead", "Invoiced"], { Scheduled: { s: "current" } }),
+    },
+
+    // 8b) CHANGE ORDER #2 off invoice 1011.
+    {
+      id: "job-2002-co2",
+      customer: "Skyline Downtown LLC",
+      businessName: "Skyline Downtown LLC",
+      personName: "Dana Fowler",
+      qboCustomerId: "S1",
+      parentCustomerName: "Skyline Property Group",
+      parentQboCustomerId: "P1",
+      changeOrder: true,
+      changeOrderKind: "invoice",
+      changeOrderSourceId: "job-2002",
+      changeOrderSeq: 2,
+      changeOrderLabel: "1011-CO-02",
+      title: "Change Order 2 — reroute vent around new duct",
+      amount: 900,
+      phone: "(512) 555-0211",
+      email: "downtown@skylinepg.example",
+      address: "500 Congress Ave, Austin, TX 78701",
+      serviceAddress: "500 Congress Ave, Austin, TX 78701",
+      billingAddress: "98 San Jacinto Blvd, Austin, TX 78701",
+      apartment: "",
+      estimateNo: "",
+      invoiceNo: "1011-CO-02",
+      paid: true,
+      notes: "Field change to clear mechanical duct.",
+      attachments: [],
+      invoiceHistory: [{ no: "1011-CO-02", date: D.lastWeek, amount: 900 }],
+      followUp: null,
+      calEventId: "",
+      openBalance: 0,
+      payments: [
+        { id: "demopay-co2", amount: 900, method: "Check", date: D.lastWeek, ref: "CHK-3311", invoiceNo: "1011-CO-02", jobId: "job-2002-co2" },
+      ],
+      status: done(["Lead", "Invoiced", "Done", "Paid"]),
+    },
+
+    // 9) SUB #1 second service address (512 Congress) — multi-address under one company.
+    {
+      id: "job-2003",
+      customer: "Skyline Downtown LLC",
+      businessName: "Skyline Downtown LLC",
+      personName: "Dana Fowler",
+      qboCustomerId: "S1",
+      parentCustomerName: "Skyline Property Group",
+      parentQboCustomerId: "P1",
+      title: "Garage level — trench drain replacement",
+      amount: 3400,
+      phone: "(512) 555-0211",
+      email: "downtown@skylinepg.example",
+      address: "512 Congress Ave, Austin, TX 78701",
+      serviceAddress: "512 Congress Ave, Austin, TX 78701",
+      billingAddress: "98 San Jacinto Blvd, Austin, TX 78701",
+      apartment: "",
+      estimateNo: "",
+      invoiceNo: "1012",
+      paid: false,
+      notes: "Second Skyline Downtown site — parking structure.",
+      attachments: [],
+      invoiceEmailStatus: "emailsent",
+      invoiceHistory: [{ no: "1012", date: D.lastMonth, amount: 3400 }],
+      followUp: { type: "Payment / collect", date: D.today, text: "Invoice 1012 past due — send reminder.", done: false },
+      calEventId: "",
+      openBalance: 3400,
+      payments: [],
+      status: done(["Lead", "Site Visit", "Invoiced", "Scheduled", "Done"], { "Follow-up": { s: "current" } }),
+    },
+
+    // 10) SUB #2 — Skyline Eastside LLC, single site. Invoiced, paid (card).
+    {
+      id: "job-2004",
+      customer: "Skyline Eastside LLC",
+      businessName: "Skyline Eastside LLC",
+      personName: "Dana Fowler",
+      qboCustomerId: "S2",
+      parentCustomerName: "Skyline Property Group",
+      parentQboCustomerId: "P1",
+      title: "Tenant unit — water heater swap",
+      amount: 2100,
+      phone: "(512) 555-0212",
+      email: "eastside@skylinepg.example",
+      address: "1200 E Cesar Chavez St, Austin, TX 78702",
+      serviceAddress: "1200 E Cesar Chavez St, Austin, TX 78702",
+      billingAddress: "98 San Jacinto Blvd, Austin, TX 78701",
+      apartment: "3C",
+      estimateNo: "",
+      invoiceNo: "1013",
+      paid: true,
+      notes: "Second Skyline LLC. Bills under Skyline Property Group.",
+      attachments: [],
+      invoiceHistory: [{ no: "1013", date: D.lastWeek, amount: 2100 }],
+      followUp: null,
+      calEventId: "",
+      openBalance: 0,
+      payments: [
+        { id: "demopay-1013a", amount: 2100, method: "Card", date: D.lastWeek, ref: "AUTH-5521", invoiceNo: "1013", jobId: "job-2004" },
+      ],
+      status: done(["Lead", "Invoiced", "Scheduled", "Done", "Follow-up", "Paid"]),
+    },
+
+    /* ══════════════════════════════════════════════════════════════════════
+       SCENARIO B — ONE company, MULTIPLE service addresses (no parent/sub).
+       Maple Street Apartments (existing job-1003 @ 77 Maple St) gains two more
+       buildings, so its Addresses tab lists three distinct service addresses.
+       ══════════════════════════════════════════════════════════════════════ */
+
+    // 11) Maple Street Apartments — Building B (142 Cedar Ln).
+    {
+      id: "job-2005",
+      customer: "Maple Street Apartments",
+      businessName: "Maple Street Apartments",
+      personName: "Property Manager",
+      title: "Building B laundry — backflow + shutoff",
+      amount: 780,
+      phone: "(512) 555-0133",
+      email: "manager@maplestreetapts.example",
+      address: "142 Cedar Ln, Austin, TX 78704",
+      serviceAddress: "142 Cedar Ln, Austin, TX 78704",
+      billingAddress: "77 Maple St, Austin, TX 78704",
+      apartment: "Bldg B",
+      estimateNo: "",
+      invoiceNo: "1014",
+      paid: false,
+      notes: "Same customer, different building. Net 30.",
+      attachments: [],
+      invoiceEmailStatus: "emailsent",
+      invoiceHistory: [{ no: "1014", date: D.lastWeek, amount: 780 }],
+      followUp: { type: "Payment / collect", date: D.soon2, text: "Follow up on invoice 1014.", done: false },
+      calEventId: "",
+      openBalance: 780,
+      payments: [],
+      status: done(["Lead", "Invoiced", "Scheduled", "Done"], { "Follow-up": { s: "current" } }),
+    },
+
+    // 12) Maple Street Apartments — Building C (210 Elm Ct). Paid.
+    {
+      id: "job-2006",
+      customer: "Maple Street Apartments",
+      businessName: "Maple Street Apartments",
+      personName: "Property Manager",
+      title: "Building C — main shutoff replacement",
+      amount: 540,
+      phone: "(512) 555-0133",
+      email: "manager@maplestreetapts.example",
+      address: "210 Elm Ct, Austin, TX 78704",
+      serviceAddress: "210 Elm Ct, Austin, TX 78704",
+      billingAddress: "77 Maple St, Austin, TX 78704",
+      apartment: "Bldg C",
+      estimateNo: "",
+      invoiceNo: "1015",
+      paid: true,
+      notes: "Third Maple building. Paid by check.",
+      attachments: [],
+      invoiceHistory: [{ no: "1015", date: D.lastMonth, amount: 540 }],
+      followUp: null,
+      calEventId: "",
+      openBalance: 0,
+      payments: [
+        { id: "demopay-1015a", amount: 540, method: "Check", date: D.lastMonth, ref: "CHK-7720", invoiceNo: "1015", jobId: "job-2006" },
+      ],
+      status: done(["Lead", "Invoiced", "Scheduled", "Done", "Follow-up", "Paid"]),
+    },
   ];
 }
 
@@ -388,8 +685,13 @@ export function demoProjects() {
         customerKey: "downtown lofts llc",
         contractSum,
         retainagePct: 10,
-        changeOrders: 0,
-        changeOrderList: [],
+        // Two approved change orders (net +$12,500). contractToDate auto-becomes
+        // contractSum + changeOrders, and a "Change Orders (net)" G703 row appears.
+        changeOrders: 12500,
+        changeOrderList: [
+          { id: "co-dl-1", seq: 1, description: "Added roof-drain leaders (3 risers)", amount: 8000, balance: 8000, date: D.lastMonth, invoiceNo: "CO-01", attachOnly: false },
+          { id: "co-dl-2", seq: 2, description: "Relocate gas riser per GC RFI-14", amount: 4500, balance: 4500, date: D.lastWeek, invoiceNo: "CO-02", attachOnly: false },
+        ],
         items,
         // No prior requisitions in the seed — the SOV + %-complete are set and
         // "Create requisition" works from a clean slate (a saved requisition
@@ -418,6 +720,9 @@ export function demoCustomerIndex(q) {
     { id: "cust-4", name: "Sarah Kim", businessName: "", personName: "Sarah Kim", phone: "(512) 555-0144", email: "sarah.kim@example.com", billingAddress: "1450 Barton Springs Rd, Austin, TX 78704" },
     { id: "cust-5", name: "Tom Bishop", businessName: "", personName: "Tom Bishop", phone: "(512) 555-0155", email: "tom.bishop@example.com", billingAddress: "612 W 34th St, Austin, TX 78705" },
     { id: "cust-6", name: "Downtown Lofts LLC", businessName: "Downtown Lofts LLC", personName: "Grant Whitmore", phone: "(512) 555-0166", email: "grant@downtownlofts.example", billingAddress: "220 Congress Ave, Austin, TX 78701" },
+    { id: "cust-7", name: "Skyline Property Group", businessName: "Skyline Property Group", personName: "Dana Fowler", qboCustomerId: "P1", phone: "(512) 555-0210", email: "dana@skylinepg.example", billingAddress: "98 San Jacinto Blvd, Austin, TX 78701" },
+    { id: "cust-8", name: "Skyline Downtown LLC", businessName: "Skyline Downtown LLC", personName: "Dana Fowler", qboCustomerId: "S1", parentId: "P1", parentName: "Skyline Property Group", phone: "(512) 555-0211", email: "downtown@skylinepg.example", billingAddress: "98 San Jacinto Blvd, Austin, TX 78701" },
+    { id: "cust-9", name: "Skyline Eastside LLC", businessName: "Skyline Eastside LLC", personName: "Dana Fowler", qboCustomerId: "S2", parentId: "P1", parentName: "Skyline Property Group", phone: "(512) 555-0212", email: "eastside@skylinepg.example", billingAddress: "98 San Jacinto Blvd, Austin, TX 78701" },
   ];
   const query = String(q || "").trim().toLowerCase();
   if (!query) return all;

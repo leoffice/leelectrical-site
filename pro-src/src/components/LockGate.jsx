@@ -20,7 +20,7 @@ import {
 import { getCompanyLogoSrc } from "../lib/appSettings.js";
 import { productName, tenantName } from "../lib/tenantBranding.js";
 import { redeemAgentAccess } from "../lib/agentAccessClient.js";
-import { DEMO, DEMO_CREDENTIALS } from "../lib/demoMode.js";
+import { DEMO, DEMO_CREDENTIALS, DEMO_COMPANY } from "../lib/demoMode.js";
 
 // A pending native passkey prompt must never trap the user. If the device
 // never answers (no platform authenticator, unenrolled, hung WebAuthn call),
@@ -235,7 +235,12 @@ export default function LockGate({ children }) {
           className="h-36 w-auto max-w-[320px] object-contain mb-4"
           data-testid="lock-logo"
         />
-        <h1 className="text-2xl font-extrabold tracking-tight">{productName()}</h1>
+        {/* White-label showcase: brand the unlock screen with the demo tenant's
+            COMPANY (Ace Plumbing), not the "LE Pro" product. Production is
+            unchanged — non-demo builds still show productName(). */}
+        <h1 className="text-2xl font-extrabold tracking-tight">
+          {DEMO ? DEMO_COMPANY.name : productName()}
+        </h1>
         <p className="text-sm text-white/70 mb-8">
           {mode === "biometric" && bioAvail && busy
             ? enrolled

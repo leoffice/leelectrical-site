@@ -23,7 +23,9 @@ import {
   demoItems,
   demoEvents,
   demoTimeTrack,
+  demoBrandLogo,
 } from "./demoData.js";
+import { setCompanyLogoDataUrl } from "../lib/appSettings.js";
 
 const STORE_KEY = "lepro_demo_store_v1";
 let installed = false;
@@ -316,6 +318,15 @@ export function installDemoBackend() {
   installed = true;
 
   seedReminderState();
+
+  // Seed the tenant's company logo synchronously so the lock screen, sidebar
+  // and document headers show Ace Plumbing's brand from the first paint — the
+  // lock gate renders before the async /settings fetch resolves the config.
+  try {
+    setCompanyLogoDataUrl(demoBrandLogo());
+  } catch {
+    /* logo is cosmetic — never block the demo backend on it */
+  }
 
   const realFetch = globalThis.fetch.bind(globalThis);
   const MARK = "/.netlify/functions/";

@@ -26,6 +26,15 @@ export const DEMO_CREDENTIALS = {
   password: "demo1234",
 };
 
+/** The demo tenant's company identity — used to brand the lock screen with the
+ *  COMPANY (Ace Plumbing), since this is the white-label showcase. The lock gate
+ *  renders before tenant_config resolves, so a static value avoids a "LE Pro"
+ *  flash. Kept in sync with demoTenant()/demoProfile() in ../demo/demoData.js. */
+export const DEMO_COMPANY = {
+  name: "Ace Plumbing Co.",
+  locality: "Austin, TX",
+};
+
 export function isDemoMode() {
   return DEMO;
 }
