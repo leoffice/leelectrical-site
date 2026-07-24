@@ -2,7 +2,7 @@
  * API calls (/.netlify/functions/*) always go to the network.
  * Bump CACHE version to invalidate old assets after a deploy. */
 <<<<<<< HEAD
-const CACHE = "le-pro-v222";
+const CACHE = "le-pro-v224";
 =======
 const CACHE = "le-pro-v220";
 >>>>>>> wp0-settings-save
