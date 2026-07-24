@@ -137,6 +137,8 @@ export default function CustomerTransactionHistory({ jobs, fromCust = "" }) {
   const nav = useNavigate();
   const [filter, setFilter] = useState("all");
   const [sort, setSort] = useState("new");
+  // Invoices tab only: Open = still due; All = paid + open (Levi 2026-07-24).
+  const [invoiceScope, setInvoiceScope] = useState("all");
 
   // Build full list once per jobs/sort — filter tabs are free after that.
   const allRows = useMemo(
@@ -145,12 +147,15 @@ export default function CustomerTransactionHistory({ jobs, fromCust = "" }) {
   );
   const counts = useMemo(() => countKinds(allRows), [allRows]);
   const rows = useMemo(() => {
-    if (filter === "all") return allRows;
-    if (filter === "invoices") return allRows.filter((r) => r.kind === "invoice");
-    if (filter === "payments") return allRows.filter((r) => r.kind === "payment");
-    if (filter === "estimates") return allRows.filter((r) => r.kind === "estimate");
-    return allRows;
-  }, [allRows, filter]);
+    let list = allRows;
+    if (filter === "invoices") list = allRows.filter((r) => r.kind === "invoice");
+    else if (filter === "payments") list = allRows.filter((r) => r.kind === "payment");
+    else if (filter === "estimates") list = allRows.filter((r) => r.kind === "estimate");
+    if (filter === "invoices" && invoiceScope === "open") {
+      list = list.filter((r) => txnRowDisplay(r).isOpen);
+    }
+    return list;
+  }, [allRows, filter, invoiceScope]);
 
   const openRow = (row) => {
     if (!row?.jobId) return;
@@ -193,29 +198,64 @@ export default function CustomerTransactionHistory({ jobs, fromCust = "" }) {
               </button>
             );
           })}
-          <div className="ml-auto flex rounded-lg border border-slate-200 overflow-hidden">
-            <button
-              type="button"
-              className={
-                "px-2 py-1 text-[10px] font-bold " +
-                (sort === "new" ? "bg-slate-800 text-white" : "bg-white text-slate-500")
-              }
-              data-testid="cust-txn-sort-new"
-              onClick={() => setSort("new")}
-            >
-              Newest
-            </button>
-            <button
-              type="button"
-              className={
-                "px-2 py-1 text-[10px] font-bold border-l border-slate-200 " +
-                (sort === "old" ? "bg-slate-800 text-white" : "bg-white text-slate-500")
-              }
-              data-testid="cust-txn-sort-old"
-              onClick={() => setSort("old")}
-            >
-              Oldest
-            </button>
+          <div className="ml-auto flex items-center gap-1.5">
+            {filter === "invoices" ? (
+              <div
+                className="flex rounded-lg border border-slate-200 overflow-hidden"
+                data-testid="cust-txn-invoice-scope"
+              >
+                <button
+                  type="button"
+                  className={
+                    "px-2 py-1 text-[10px] font-bold " +
+                    (invoiceScope === "open"
+                      ? "bg-red-600 text-white"
+                      : "bg-white text-slate-500")
+                  }
+                  data-testid="cust-txn-scope-open"
+                  onClick={() => setInvoiceScope("open")}
+                >
+                  Open
+                </button>
+                <button
+                  type="button"
+                  className={
+                    "px-2 py-1 text-[10px] font-bold border-l border-slate-200 " +
+                    (invoiceScope === "all"
+                      ? "bg-slate-800 text-white"
+                      : "bg-white text-slate-500")
+                  }
+                  data-testid="cust-txn-scope-all"
+                  onClick={() => setInvoiceScope("all")}
+                >
+                  All
+                </button>
+              </div>
+            ) : null}
+            <div className="flex rounded-lg border border-slate-200 overflow-hidden">
+              <button
+                type="button"
+                className={
+                  "px-2 py-1 text-[10px] font-bold " +
+                  (sort === "new" ? "bg-slate-800 text-white" : "bg-white text-slate-500")
+                }
+                data-testid="cust-txn-sort-new"
+                onClick={() => setSort("new")}
+              >
+                Newest
+              </button>
+              <button
+                type="button"
+                className={
+                  "px-2 py-1 text-[10px] font-bold border-l border-slate-200 " +
+                  (sort === "old" ? "bg-slate-800 text-white" : "bg-white text-slate-500")
+                }
+                data-testid="cust-txn-sort-old"
+                onClick={() => setSort("old")}
+              >
+                Oldest
+              </button>
+            </div>
           </div>
         </div>
 
