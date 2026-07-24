@@ -76,6 +76,52 @@ export function applyOverlay(base, ov) {
   return deepMerge(base, ov);
 }
 
+// Invoice doc-CONTENT fields QuickBooks becomes authoritative on once an invoice
+// has been emailed/synced. Never includes payments, balances, status, or
+// customer info — those stay owned by the overlay.
+const RECONCILE_DOC_FIELDS = [
+  "invoiceLines",
+  "estimateLines",
+  "contractAmount",
+  "invoiceProgressPct",
+  "invoiceProgressBilling",
+];
+
+function docEmailedTs(job) {
+  const t = Date.parse((job && job.invoiceEmailedAt) || "");
+  return Number.isNaN(t) ? 0 : t;
+}
+
+/**
+ * Stop a STALE overlay from shadowing fresher QuickBooks data.
+ *
+ * The overlay normally "always wins" so an edit shows instantly and survives
+ * QBO lag. But once QuickBooks has emailed/updated the invoice AFTER the overlay
+ * was last saved, the overlay's line items are stale and must yield — otherwise
+ * the app keeps snapping an edited invoice back to the pre-sync snapshot (the
+ * change-order-that-won't-stick bug on inv #231595: device held a 1-line pre-CO
+ * copy while QBO already had the emailed 2-line change order).
+ *
+ * Only the doc-CONTENT fields are dropped, and only when every guard holds:
+ *  - overlay carries its own invoiceLines (a doc edit to weigh),
+ *  - base has confirmed invoice lines for the SAME invoice number,
+ *  - base was emailed AFTER the overlay's _savedAt (0 for legacy overlays), and
+ *  - the content actually differs.
+ * A fresh local save stamps _savedAt (see adapter.saveJob), so in-flight and
+ * local-only edits are never pruned.
+ */
+export function reconcileStaleDocOverlay(base, ov) {
+  if (!isPlainObject(ov) || !Array.isArray(ov.invoiceLines)) return ov;
+  if (!base || !Array.isArray(base.invoiceLines) || !base.invoiceLines.length) return ov;
+  if (!base.invoiceNo) return ov;
+  if (String(ov.invoiceNo || base.invoiceNo) !== String(base.invoiceNo)) return ov;
+  if (docEmailedTs(base) <= Number(ov._savedAt || 0)) return ov;
+  if (JSON.stringify(ov.invoiceLines) === JSON.stringify(base.invoiceLines)) return ov;
+  const pruned = { ...ov };
+  for (const f of RECONCILE_DOC_FIELDS) delete pruned[f];
+  return pruned;
+}
+
 /** Merge the base jobs list with the ov overlay:
  *  - overlay patches win over base fields
  *  - overlay-only jobs included when _new:true
@@ -90,7 +136,7 @@ export function mergeJobs(baseJobs, ov) {
     if (!b || !b.id) continue;
     seen.add(b.id);
     if (deleted(b.id)) continue;
-    out.push(applyOverlay(b, overlay[b.id]));
+    out.push(applyOverlay(b, reconcileStaleDocOverlay(b, overlay[b.id])));
   }
   for (const id of Object.keys(overlay)) {
     // Reserved namespace: "_"-prefixed ov keys (e.g. _sasTickets) are app

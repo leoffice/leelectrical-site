@@ -82,6 +82,58 @@ describe("mergeJobs", () => {
     expect(mergeJobs([], { "LOCAL-1": { _new: true } })).toHaveLength(1);
     expect(mergeJobs([], {})).toEqual([]);
   });
+
+  // Regression: change-order edit that "won't stick" (inv #231595). The device
+  // held a stale pre-CO overlay (1 line, $32k) while QuickBooks already had the
+  // emailed change order (2 lines, $42k + $2.7k). The stale overlay must yield.
+  describe("stale doc-overlay reconcile", () => {
+    const base = {
+      id: "qbo-231595",
+      invoiceNo: "231595",
+      invoiceEmailedAt: "2026-07-09",
+      _docEmailed: true,
+      invoiceProgressPct: 37.38,
+      contractAmount: 42800,
+      invoiceLines: [
+        { itemName: "Installation", unitPrice: "42000", qty: 0.7955935, progressBilling: true },
+        { itemName: "Installation", unitPrice: "2700", qty: 1, description: "Change Order 1" },
+      ],
+      payments: [{ id: "p-old", amount: "$5000" }],
+    };
+    const staleOv = {
+      invoiceNo: "231595",
+      invoiceProgressPct: 84.38,
+      changeOrder: true,
+      changeOrderSeq: 2,
+      changeOrderLabel: "231595-CO-02",
+      invoiceLines: [{ itemName: "Installation", unitPrice: 32000, qty: 0.8438068, progressBilling: true }],
+      payments: [{ id: "p-new", amount: "$5000" }],
+      // legacy overlay: no _savedAt -> treated as older than the QBO email
+    };
+
+    it("drops stale overlay lines so the emailed QBO change order shows", () => {
+      const job = mergeJobs([base], { "qbo-231595": staleOv })[0];
+      expect(job.invoiceLines).toHaveLength(2);
+      expect(job.invoiceLines[0].unitPrice).toBe("42000");
+      expect(job.invoiceLines[1].unitPrice).toBe("2700");
+      expect(job.invoiceProgressPct).toBe(37.38); // stale 84.38 pruned
+      expect(job.changeOrderLabel).toBe("231595-CO-02"); // CO tags + newer payments stay
+      expect(job.payments[0].id).toBe("p-new");
+    });
+
+    it("keeps the overlay when it was saved AFTER the QBO email (in-flight edit)", () => {
+      const fresh = { ...staleOv, _savedAt: Date.parse("2026-07-20") };
+      const job = mergeJobs([base], { "qbo-231595": fresh })[0];
+      expect(job.invoiceLines).toHaveLength(1); // local edit protected
+      expect(job.invoiceLines[0].unitPrice).toBe(32000);
+    });
+
+    it("keeps a local-only edit to an un-emailed invoice", () => {
+      const notEmailed = { ...base, invoiceEmailedAt: "", _docEmailed: false };
+      const job = mergeJobs([notEmailed], { "qbo-231595": staleOv })[0];
+      expect(job.invoiceLines).toHaveLength(1); // nothing to yield to
+    });
+  });
 });
 
 describe("NetlifyStoreAdapter (mocked fetch)", () => {
@@ -128,11 +180,13 @@ describe("NetlifyStoreAdapter (mocked fetch)", () => {
     const post = calls.find((c) => c.method === "POST");
     expect(post).toBeTruthy();
     expect(post.body.ov["JP-777"]).toEqual({ paid: true }); // not clobbered
-    expect(post.body.ov["JP-001"]).toEqual({
+    expect(post.body.ov["JP-001"]).toMatchObject({
       notes: "existing note",
       status: { Lead: { s: "done" }, Invoiced: { s: "done" } }, // per-stage merge
       paid: true,
     });
+    // Every saved job is stamped so the stale-doc reconcile can date it.
+    expect(post.body.ov["JP-001"]._savedAt).toEqual(expect.any(Number));
   });
 
   it("enqueueCommand posts op:enqueue with the exact idempotencyKey + surfaces dedupe", async () => {

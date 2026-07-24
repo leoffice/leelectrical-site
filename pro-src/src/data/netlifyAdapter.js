@@ -183,6 +183,10 @@ export function createNetlifyAdapter() {
         const state = await freshState();
         const ov = (state && state.ov) || {};
         ov[id] = deepMerge(ov[id] || {}, patch || {});
+        // Stamp when this job's overlay was last written so reconcileStaleDocOverlay
+        // (merge.js) can tell an in-flight edit from a stale pre-sync snapshot. App
+        // metadata keys ("_sasTickets" etc.) are never merged as jobs.
+        if (String(id).charAt(0) !== "_") ov[id]._savedAt = Date.now();
         const res = await postState(ov);
         return { ok: true, ts: res && res.ts, ov: ov[id] };
       };

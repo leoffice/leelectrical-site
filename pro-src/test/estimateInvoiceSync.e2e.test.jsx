@@ -47,6 +47,11 @@ describe("estimate ↔ invoice sync — e2e", () => {
     await user.click(screen.getByTestId("doc-edit"));
     expect(await screen.findByText(/Edit invoice/)).toBeInTheDocument();
 
+    // Facts box states the invoice number + service address up top (read-only).
+    const facts = await screen.findByTestId("doc-facts-list");
+    expect(facts).toHaveTextContent("#251955");
+
+    await user.click(await screen.findByTestId("doc-facts-edit-toggle"));
     const addr = screen.getByTestId("doc-service-address");
     await user.clear(addr);
     await user.type(addr, "200 New Address");
@@ -89,6 +94,7 @@ describe("estimate ↔ invoice sync — e2e", () => {
     await user.click(within(tabs).getByTestId("tab-estimate"));
     await user.click(await screen.findByTestId("doc-edit"));
 
+    await user.click(await screen.findByTestId("doc-facts-edit-toggle"));
     const addr = await screen.findByTestId("doc-service-address");
     await user.clear(addr);
     await user.type(addr, "88 Side St");

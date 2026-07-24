@@ -89,6 +89,24 @@ describe("payments ledger", () => {
     expect(moved.patches[0].patch.payments[0].method).toBe("Check");
   });
 
+  it("movePayment persists estimate application (appliesTo + invoice # + quantity)", () => {
+    const patch = appendPayment(job, { amount: 1000, method: "Zelle", date: "2026-07-07", id: "pay-1" });
+    const merged = { ...job, ...patch };
+    const payId = merged.payments[0].id;
+    const moved = movePayment(merged, merged, payId, {
+      amount: 1000,
+      method: "Zelle",
+      date: "2026-07-07",
+      appliesTo: "estimate",
+      estimateInvoiceNo: "231595",
+      quantity: "3",
+    });
+    const saved = moved.patches[0].patch.payments[0];
+    expect(saved.appliesTo).toBe("estimate");
+    expect(saved.estimateInvoiceNo).toBe("231595");
+    expect(saved.quantity).toBe("3");
+  });
+
   it("movePayment redirects payment to another invoice job", () => {
     const from = {
       id: "j-wrong",
