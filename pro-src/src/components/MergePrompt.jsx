@@ -1,7 +1,7 @@
 // "Same customer?" bottom sheet (bug #2). After jobs load, offers to combine
 // near-duplicate customer names — contact info compared immediately side by side.
 import React, { useCallback, useEffect, useMemo, useState } from "react";
-import { useStore } from "../state/store.jsx";
+import { useStoreData } from "../state/store.jsx";
 import Sheet, { Opt } from "./Sheet.jsx";
 import SideBySideCompare from "./SideBySideCompare.jsx";
 import api from "../data/adapter.js";
@@ -227,7 +227,10 @@ function CompareSheet({
 }
 
 export default function MergePrompt() {
-  const { jobs, loading, patchAndSave, enqueue, showToast, reminderBadge } = useStore();
+  // Base jobs (rawJobs), NOT the staged-overlay list: the near-duplicate scan
+  // (findMergeSuggestion, ~140ms over thousands of jobs) must not re-run on every
+  // keystroke of an unsaved edit. Suggestions are over saved customers anyway.
+  const { rawJobs: jobs, loading, patchAndSave, enqueue, showToast, reminderBadge } = useStoreData();
   const [tick, setTick] = useState(0);
   const [busy, setBusy] = useState(false);
   const [mode, setMode] = useState("prompt");

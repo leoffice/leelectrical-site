@@ -1,6 +1,6 @@
 import { getStore } from "./lib/storage/index.mjs";
 import { rotateJsonBackup } from "./blob-backup.mjs";
-import { conditionalJson } from "./lib/etag.mjs";
+import { conditionalJson, optionsResponse } from "./lib/etag.mjs";
 
 // Live jobs dataset synced from QuickBooks + Google Calendar by a scheduled
 // Dispatch job (overnight + midday) and on demand. The dashboard GETs this to
@@ -29,7 +29,7 @@ async function load(store) {
 
 export default async (req) => {
   const store = getStore("jobsdata");
-  if (req.method === "OPTIONS") return json({ ok: true });
+  if (req.method === "OPTIONS") return optionsResponse();
   if (req.method === "POST") {
     let b = {};
     try { b = await req.json(); } catch (e) {}
