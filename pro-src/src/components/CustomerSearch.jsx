@@ -17,6 +17,32 @@ import {
   mergeCustomerSearchResults,
 } from "../lib/appCustomerIndex.js";
 
+// Session cache for the full QBO customer index (the `searchCustomers("")` list
+// used to enrich/dedupe matches). Fetched at most once per session, and only
+// when a search is actually opened — so merely opening the customer info on an
+// existing invoice (which mounts CustomerSearch) no longer re-pulls the whole
+// customer list. The per-query search still hits the live API, so brand-new
+// customers always show up regardless of this cache.
+let _qboIndexCache = null; // resolved list, or null until first load
+let _qboIndexPromise = null; // in-flight load shared across instances
+
+function loadQboCustomerIndex(api) {
+  if (_qboIndexCache) return Promise.resolve(_qboIndexCache);
+  if (!_qboIndexPromise) {
+    _qboIndexPromise = api
+      .searchCustomers("")
+      .then((list) => {
+        _qboIndexCache = Array.isArray(list) ? list : [];
+        return _qboIndexCache;
+      })
+      .catch(() => {
+        _qboIndexPromise = null; // allow a retry on the next open
+        return [];
+      });
+  }
+  return _qboIndexPromise;
+}
+
 export default function CustomerSearch({
   value,
   onChangeText,
@@ -47,18 +73,22 @@ export default function CustomerSearch({
     clearTimeout(timer.current);
   }, []);
 
+  // Load the QBO index only once the user actually opens the picker (focus/type),
+  // reusing the session cache — never on a plain mount of a prefilled form.
   useEffect(() => {
+    if (!open) return;
+    if (_qboIndexCache) {
+      qboIndexRef.current = _qboIndexCache;
+      return;
+    }
     let cancelled = false;
-    api
-      .searchCustomers("")
-      .then((list) => {
-        if (!cancelled && Array.isArray(list)) qboIndexRef.current = list;
-      })
-      .catch(() => {});
+    loadQboCustomerIndex(api).then((list) => {
+      if (!cancelled && Array.isArray(list)) qboIndexRef.current = list;
+    });
     return () => {
       cancelled = true;
     };
-  }, [api]);
+  }, [open, api]);
 
   const q = (value || "").trim();
 
