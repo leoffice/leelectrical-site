@@ -87,7 +87,7 @@ describe("Estimate / invoice builder", () => {
     expect(screen.getByTestId("doc-sync-qbo")).toBeInTheDocument();
   });
 
-  it("Save on job saves locally without enqueueing QuickBooks commands", async () => {
+  it("Save on job persists lines and continues without waiting for QBO confirm", async () => {
     const srv = mockServer({
       jobs: [
         {
@@ -110,9 +110,37 @@ describe("Estimate / invoice builder", () => {
     await user.click(within(pane).getByTestId("generate-estimate"));
     await user.click(await screen.findByTestId("doc-save"));
 
-    await waitFor(() => expect(srv.state.ov["J-LOCAL"].status.Estimate.s).toBe("done"));
-    expect(srv.enqueued("create_estimate")).toHaveLength(0);
-    expect(srv.state.ov["J-LOCAL"].estimateLines?.length).toBeGreaterThan(0);
+    // Sheet closes immediately; lines land on the job (QBO may queue in background when docs on).
+    await waitFor(() => expect(srv.state.ov["J-LOCAL"].estimateLines?.length).toBeGreaterThan(0));
+    expect(screen.queryByTestId("doc-action-bar")).not.toBeInTheDocument();
+  });
+
+  it("Save with QuickBooks docs on also queues create in the background", async () => {
+    const srv = mockServer({
+      jobs: [
+        {
+          id: "J-SAVE-QBO",
+          customer: "Qbo Save Co",
+          title: "Rough-in",
+          email: "q@x.com",
+          qboCustomerId: "77",
+          serviceAddress: "22 Court",
+          amount: "$800",
+          paid: false,
+          status: { Lead: { s: "done" }, "Site Visit": { s: "done" } },
+        },
+      ],
+    });
+    const user = userEvent.setup();
+    renderApp("#/job/J-SAVE-QBO?fold=0");
+    const pane = await screen.findByTestId("detail-pane");
+
+    await user.click(within(pane).getByTestId("progress-step-Estimate"));
+    await user.click(within(pane).getByTestId("generate-estimate"));
+    await user.click(await screen.findByTestId("doc-save"));
+
+    await waitFor(() => expect(srv.enqueued("create_estimate").length).toBeGreaterThan(0));
+    expect(srv.state.ov["J-SAVE-QBO"].estimateLines?.length).toBeGreaterThan(0);
   });
 
   it("Save & sync enqueues create_customer when job has no QuickBooks link", async () => {

@@ -25,7 +25,7 @@ import { useStore } from "../state/store.jsx";
 import { productName } from "../lib/tenantBranding.js";
 import { useTenantConfig } from "../state/tenant.jsx";
 
-import { fmt$, parseAmount, todayStr } from "../lib/format.js";
+import { fmt$, fmtAmountField, parseAmount, todayStr } from "../lib/format.js";
 import { docStorePdfUrl, openPdfBlob, openPdfUrl, downloadPdfBlob } from "../lib/pdfOpen.js";
 import { canGenerateLocalDoc, docPdfFilename } from "../lib/jobToQbDoc.js";
 import { buildInvoicePdfFromJob, buildEstimatePdfFromJob } from "../lib/invoicePdf.js";
@@ -49,6 +49,7 @@ import { buildShortPayLandingUrl } from "../lib/payLanding.js";
 import {
   appendPayment,
   canVoidInQbo,
+  findDuplicatePayment,
   fmtPaymentLine,
   movePayment,
   normalizePayments,
@@ -57,7 +58,9 @@ import {
 } from "../lib/payments.js";
 import {
   formatInvoicePayOption,
+  formatPayTargetOption,
   invoicesForCustomerPick,
+  payTargetsForCustomerPick,
 } from "../lib/customerDocLists.js";
 import { findJobByInvoice, reconcileZellePayment } from "../lib/zelleReconcile.js";
 import {
@@ -66,6 +69,9 @@ import {
   invoiceNoFromExtracted,
   hasUsefulPaymentAutofill,
   hasStrongPaymentAutofill,
+  paymentMethodMismatchMessage,
+  methodFromPaymentKind,
+  depositBankFromExtracted,
 } from "../lib/paymentAutofill.js";
 import { buildPaymentVisionLearningEntry } from "../lib/paymentVisionLearning.js";
 import { getDepositBanks } from "../lib/chatPayment.js";
@@ -73,6 +79,7 @@ import {
   analyzePaymentImage,
   analyzePaymentScreenshot,
   compressImageForVision,
+  detectPaymentKind,
   fileToBase64,
   normalizeVisionMime,
 } from "../lib/paymentVision.js";
@@ -363,7 +370,7 @@ export function PaymentIntroSheet({ onClose, onAttachPicture, onPickMethod }) {
       <Opt
         icon="📷"
         title="Attach a picture"
-        note="Check or Zelle screenshot — autofill amount & details"
+        note="Check, Zelle, or ACH screenshot — autofill amount & details"
         onClick={onAttachPicture}
       />
       {["Check", "Zelle", "Credit card", "Cash", "ACH"].map((method) => (
@@ -393,6 +400,7 @@ export function MarkPaidSheet({
     syncNow,
     refreshJobs,
     jobs,
+    effectiveJob,
     appendPaymentVisionFeedback,
     getPaymentVisionLearning,
   } = useStore();
@@ -400,6 +408,8 @@ export function MarkPaidSheet({
   const needsPick = !jobProp;
   const [reassign, setReassign] = useState(false);
   const [activeJob, setActiveJob] = useState(jobProp || null);
+  /** Blocks double/triple tap on Record (main cause of duplicate payments). */
+  const recordLockRef = useRef(false);
   const [pickCust, setPickCust] = useState(() => {
     if (initialCustomerName) return { name: initialCustomerName };
     if (jobProp?.customer) return { name: jobProp.customer };
@@ -415,7 +425,9 @@ export function MarkPaidSheet({
   const [amt, setAmt] = useState(() => {
     if (!jobProp) return "";
     const d = openBalance(jobProp);
-    return d > 0 ? String(d) : String(jobProp.amount || "").replace(/[$,]/g, "");
+    if (d > 0) return fmtAmountField(d);
+    const raw = parseAmount(jobProp.amount);
+    return raw > 0 ? fmtAmountField(raw) : "";
   });
   const [mth, setMth] = useState(initialMethod || "");
   const [ref, setRef] = useState("");
@@ -476,7 +488,11 @@ export function MarkPaidSheet({
     // Autofill may setActiveJob after reading the check — never clobber vision amount with open balance.
     if (!visionAmountLockedRef.current) {
       const d = openBalance(activeJob);
-      setAmt(d > 0 ? String(d) : String(activeJob.amount || "").replace(/[$,]/g, ""));
+      if (d > 0) setAmt(fmtAmountField(d));
+      else {
+        const raw = parseAmount(activeJob.amount);
+        setAmt(raw > 0 ? fmtAmountField(raw) : "");
+      }
     }
     setAchName(activeJob.customer || "");
     setUseSavedCard(Boolean(activeJob.solaCardToken));
@@ -503,9 +519,12 @@ export function MarkPaidSheet({
   const inv = job?.invoiceNo || "";
   const payAmt = parseFloat(String(amt).replace(/[$,]/g, "")) || 0;
   const chargeTotal = isCard ? totalWithFee(payAmt, includeFee) : payAmt;
-  const hasProof = isCheck || isZelle;
-  const proofKind = isCheck ? "check" : "zelle";
-  const processing = payPhase !== "idle" || visionAnalyzing || autofillBusy;
+  const hasProof = isCheck || isZelle || isAch;
+  const proofKind = isCheck ? "check" : isAch ? "ach" : "zelle";
+  // Card charge / vision-on-Record lock the form. Autofill must NOT lock amount/ref —
+  // locking made typing the conf # laggy and dropped MANUAL1 during auto-read (flake).
+  const formLocked = payPhase !== "idle" || visionAnalyzing;
+  const processing = formLocked;
 
   const validateManual = () => {
     if (!job) {
@@ -528,7 +547,9 @@ export function MarkPaidSheet({
   };
 
   const buildPaymentNote = (payRef, proofName, memoText = memo) => {
-    if (isCheck || isZelle) {
+    if (isCheck || isZelle || isAch) {
+      // ACH receive (customer paid us) uses the same deposit/ref note as Zelle.
+      // Optional Sola debit routing fields append when present.
       const note = paymentMemoNote({
         method: mth,
         ref: payRef,
@@ -536,13 +557,17 @@ export function MarkPaidSheet({
         proofName,
         deposit: depositVal || undefined,
       });
+      if (isAch && (achRouting || achAccount)) {
+        const debitBits = [
+          achName,
+          achRouting ? "routing " + achRouting : "",
+          achAccount ? "acct …" + achAccount.slice(-4) : "",
+        ]
+          .filter(Boolean)
+          .join(" · ");
+        return [note, debitBits].filter(Boolean).join(" · ");
+      }
       return note || "";
-    }
-    if (isAch) {
-      const bits = [achName, achRouting ? "routing " + achRouting : "", achAccount ? "acct …" + achAccount.slice(-4) : ""]
-        .filter(Boolean)
-        .join(" · ");
-      return bits;
     }
     return memoText || "";
   };
@@ -550,11 +575,11 @@ export function MarkPaidSheet({
   /** When Levi fixes vision fields (or fills what it missed) and Records, train the reader. */
   const trainFromRecord = (targetJob) => {
     if (!proofFile && !proofB64) return;
-    if (!(isCheck || isZelle)) return;
+    if (!(isCheck || isZelle || isAch)) return;
     try {
       const openDefault = targetJob ? openBalance(targetJob) : 0;
       const entry = buildPaymentVisionLearningEntry({
-        kind: isCheck ? "check" : "zelle",
+        kind: isCheck ? "check" : isAch ? "ach" : "zelle",
         extracted: autofillExtracted,
         finalFields: {
           amount: payAmt,
@@ -580,8 +605,27 @@ export function MarkPaidSheet({
   };
 
   const stagePaymentOnJob = (targetJob, entry) => {
-    const trained = trainFromRecord(targetJob);
-    const patch = appendPayment(targetJob, entry);
+    if (recordLockRef.current) return;
+    // Always stage against the latest job + any already-staged payments.
+    const live =
+      (targetJob?.id && effectiveJob?.(targetJob.id)) ||
+      (jobs || []).find((j) => String(j.id) === String(targetJob?.id)) ||
+      targetJob;
+    const dup = findDuplicatePayment(live, entry);
+    if (dup) {
+      const when = dup.date ? " on " + String(dup.date).slice(0, 10) : "";
+      showToast(
+        "That payment is already on this invoice" +
+          when +
+          " (" +
+          fmt$(parseAmount(dup.amount)) +
+          "). Not recorded again."
+      );
+      return;
+    }
+    recordLockRef.current = true;
+    const trained = trainFromRecord(live);
+    const patch = appendPayment(live, entry);
     const remaining = parseFloat(String(patch.openBalance)) || 0;
     const trainNote = trained ? " · Your fixes train the check reader" : "";
     if (patch.paid) {
@@ -591,7 +635,7 @@ export function MarkPaidSheet({
         "Partial payment applied — " + fmt$(remaining) + " remaining. Save & sync for QuickBooks." + trainNote
       );
     }
-    patchJob(targetJob.id, patch);
+    patchJob(live.id, patch);
     onClose();
   };
 
@@ -632,13 +676,33 @@ export function MarkPaidSheet({
     });
   };
 
-  const applyAutofill = (extracted) => {
+  const applyAutofill = (extracted, opts = {}) => {
     // Always keep the extract (even empty) so Record can train on vision_missed fields.
     setAutofillExtracted(extracted || null);
     if (!hasUsefulPaymentAutofill(extracted)) {
       setAutofillDone(false);
       setPaymentVerified(false);
       return false;
+    }
+    // Method mismatch: photo is Zelle/check/ACH but form was opened on the wrong method.
+    const detected =
+      opts.detectedKind ||
+      detectPaymentKind(extracted, proofFile?.name || "") ||
+      String(extracted?.kind || extracted?.paymentMethod || "").toLowerCase();
+    const selectedKey = isCheck ? "check" : isZelle ? "zelle" : isAch ? "ach" : "";
+    if (detected === "check" || detected === "zelle" || detected === "ach") {
+      if (selectedKey && selectedKey !== detected) {
+        const msg = paymentMethodMismatchMessage(mth, detected);
+        if (msg) showToast(msg);
+        // When certain, jump to the right form (Levi 2026-07-24).
+        if (extracted?.confidence !== "low") {
+          const next = methodFromPaymentKind(detected);
+          if (next) setMth(next);
+        }
+      } else if (!mth) {
+        const next = methodFromPaymentKind(detected);
+        if (next) setMth(next);
+      }
     }
     const patch = paymentAutofillPatch(extracted);
     if (patch.amt) {
@@ -648,6 +712,15 @@ export function MarkPaidSheet({
     if (patch.ref) setRef(patch.ref);
     if (patch.dt) setDt(patch.dt);
     if (patch.memo) setMemo(patch.memo);
+    // ACH → Martin Dorkin (kumer martin) etc.
+    const depHint = depositBankFromExtracted(extracted, depositBanks) || patch.deposit || "";
+    if (depHint) {
+      if (depositBanks.includes(depHint)) setDeposit(depHint);
+      else {
+        setDeposit("Other");
+        setDepositOther(depHint);
+      }
+    }
     // Green Autofilled only when amount or check # actually filled — not name-only.
     const strong = hasStrongPaymentAutofill(extracted);
     setAutofillDone(strong);
@@ -663,9 +736,9 @@ export function MarkPaidSheet({
           setPickCust({ name: matched.customer || "" });
           setCustDraft(matched.customer || "");
           // Vision amount already set + locked — only fall back to open balance if amount was missed.
-          if (!(patch.amt && parseFloat(patch.amt) > 0)) {
+          if (!(patch.amt && parseAmount(patch.amt) > 0)) {
             const d = openBalance(matched);
-            setAmt(d > 0 ? String(d) : String(matched.amount || "").replace(/[$,]/g, ""));
+            setAmt(d > 0 ? fmtAmountField(d) : fmtAmountField(matched.amount) || "");
           }
           showToast("Matched invoice #" + invNo + " — review and tap Record");
           return true;
@@ -727,13 +800,13 @@ export function MarkPaidSheet({
       } catch {
         learningEntries = [];
       }
-      const kindHint = isCheck ? "check" : isZelle ? "zelle" : "check";
-      let { extracted } = await analyzePaymentImage(
+      const kindHint = isCheck ? "check" : isZelle ? "zelle" : isAch ? "ach" : "check";
+      let { extracted, kind: detectedKind } = await analyzePaymentImage(
         visionB64,
         visionMime || "image/jpeg",
         kindHint,
         file?.name || "",
-        { learningEntries }
+        { learningEntries, forceKind: kindHint }
       );
       // Canvas wash path: empty read after compress → retry original bytes (no learning noise).
       if (!hasStrongPaymentAutofill(extracted) && usedCompress && originalB64) {
@@ -743,10 +816,11 @@ export function MarkPaidSheet({
             originalMime,
             kindHint,
             file?.name || "",
-            { learningEntries: [], _retriedClean: true }
+            { learningEntries: [], _retriedClean: true, forceKind: kindHint }
           );
           if (hasStrongPaymentAutofill(retry?.extracted) || hasUsefulPaymentAutofill(retry?.extracted)) {
             extracted = retry.extracted;
+            detectedKind = retry.kind || detectedKind;
           }
         } catch {
           /* keep first extract */
@@ -758,16 +832,19 @@ export function MarkPaidSheet({
           const clean = await analyzePaymentScreenshot(originalB64, originalMime, kindHint, {
             skipLearning: true,
           });
-          if (hasUsefulPaymentAutofill(clean)) extracted = clean;
+          if (hasUsefulPaymentAutofill(clean)) {
+            extracted = clean;
+            detectedKind = detectPaymentKind(clean, file?.name || "") || detectedKind;
+          }
         } catch {
           /* keep empty */
         }
       }
       const invNo = invoiceNoFromExtracted(extracted);
       const matched = invNo && needsPick && !activeJob ? findJobByInvoice(jobs, invNo) : null;
-      const ok = applyAutofill(extracted);
+      const ok = applyAutofill(extracted, { detectedKind });
       if (!ok) {
-        showToast("Couldn't read amount or check # yet — fill what it missed and Record to train the reader");
+        showToast("Couldn't read amount or confirmation yet — fill what it missed and Record to train the reader");
       } else if (!hasStrongPaymentAutofill(extracted) && !matched) {
         showToast("Partial read — fix anything wrong and Record to train the reader");
       } else if (!matched) {
@@ -792,17 +869,48 @@ export function MarkPaidSheet({
 
   const recordWithScreenshot = async () => {
     if (!validateManual()) return;
+    if (recordLockRef.current) return;
+    // Snappy path: Autofill already read the photo — never re-hit vision on Record.
+    const haveExtract = autofillDone && autofillExtracted;
+    if (haveExtract) {
+      const extracted = autofillExtracted;
+      if (isCheck) {
+        const checkRef = String(extracted.confirmationNumber || extracted.checkNumber || ref || "").trim();
+        if (checkRef) setRef(checkRef);
+        commitProofPayment(job, { ref: checkRef || ref, verified: true });
+        return;
+      }
+      // Zelle / ACH: if amount already matches open balance / entered fields, commit now.
+      const conf = String(extracted.confirmationNumber || ref || "").trim();
+      const result = reconcileZellePayment({
+        extracted,
+        entered: { amount: payAmt, ref: conf || ref, date: dt, invoiceNo: inv },
+        job,
+        jobs,
+      });
+      if (result.status === "full_match") {
+        setPaymentVerified(true);
+        if (result.confirmationRef) setRef(result.confirmationRef);
+        commitProofPayment(job, {
+          ref: result.confirmationRef || conf || ref,
+          verified: true,
+        });
+        return;
+      }
+      // Mismatch UI — still no network, just the reconcile sheet.
+      setZelleReconcile(result);
+      return;
+    }
     setVisionAnalyzing(true);
     try {
-      const extracted =
-        autofillDone && autofillExtracted
-          ? autofillExtracted
-          : await analyzePaymentScreenshot(proofB64, proofFile?.type || "image/jpeg", proofKind);
-      if (!autofillDone) {
-        setAutofillExtracted(extracted);
-        // Only mark Autofilled green when amount/ref actually present.
-        setAutofillDone(hasStrongPaymentAutofill(extracted));
-      }
+      const extracted = await analyzePaymentScreenshot(
+        proofB64,
+        proofFile?.type || "image/jpeg",
+        proofKind
+      );
+      setAutofillExtracted(extracted);
+      // Only mark Autofilled green when amount/ref actually present.
+      setAutofillDone(hasStrongPaymentAutofill(extracted));
       if (isCheck) {
         const checkRef = String(extracted.confirmationNumber || extracted.checkNumber || ref || "").trim();
         if (checkRef) setRef(checkRef);
@@ -833,8 +941,9 @@ export function MarkPaidSheet({
   };
 
   const onRecordPayment = () => {
+    if (recordLockRef.current || processing) return;
     if (hasProof && proofB64) {
-      recordWithScreenshot();
+      void recordWithScreenshot();
       return;
     }
     saveManual();
@@ -865,7 +974,7 @@ export function MarkPaidSheet({
     const target = zelleReconcile?.targetJob || job;
     const confRef = String(ex.confirmationNumber || ref || "").trim();
     if (action === "use_screenshot_amount") {
-      setAmt(String(ex.amount));
+      setAmt(fmtAmountField(ex.amount));
       commitProofPayment(job, { amount: ex.amount, ref: confRef, verified: true });
     } else if (action === "keep_amount") {
       commitProofPayment(job, { ref: confRef, verified: Boolean(confRef) });
@@ -963,8 +1072,8 @@ export function MarkPaidSheet({
     setAutofillDone(false);
     setAutofillExtracted(null);
     visionAmountLockedRef.current = false;
-    // Prefer check when a file is attached without a method (Attach path).
-    const treatAsCheck = !mth || mth === "Check" || isCheck;
+    // Auto-read for Check / Zelle / ACH / unchosen method (Attach a picture path).
+    const autoRead = !mth || isCheck || isZelle || isAch;
     if (!mth) setMth("Check");
     const isImage = String(file.type || "").startsWith("image/");
     try {
@@ -975,9 +1084,8 @@ export function MarkPaidSheet({
         showToast("File attached — enter details and tap Record");
         return;
       }
-      if (treatAsCheck) {
-        // Check path: auto-read amount, check #, date, memo, invoice (the old skill).
-        showToast("Reading check photo…");
+      if (autoRead) {
+        showToast("Reading payment photo…");
         await runAutofill(b64, file);
       } else {
         showToast("Image attached — tap Autofill or Record");
@@ -1110,7 +1218,12 @@ export function MarkPaidSheet({
             visionAmountLockedRef.current = false;
             setAmt(e.target.value);
           }}
+          onBlur={() => {
+            if (payAmt > 0) setAmt(fmtAmountField(payAmt));
+          }}
           aria-label="Amount"
+          data-testid="payment-amount"
+          placeholder="$0.00"
           disabled={alreadyPaid || !job}
         />
       </Fld>
@@ -1180,26 +1293,109 @@ export function MarkPaidSheet({
         </>
       ) : isAch ? (
         <>
-          <Fld label="Account holder name">
-            <input className="input" value={achName} onChange={(e) => setAchName(e.target.value)} disabled={processing} />
+          <Fld label="ACH confirmation #" hint="From the bank schedule confirmation — critical when shown">
+            <input
+              className="input"
+              placeholder="Confirmation #"
+              value={ref}
+              onChange={(e) => {
+                setRef(e.target.value);
+                setPaymentVerified(false);
+              }}
+              disabled={processing}
+              data-testid="ach-confirmation"
+            />
+            {paymentVerified ? (
+              <p className="text-[11px] text-emerald-600 mt-1 font-medium" data-testid="ach-verified">
+                ✓ Read from ACH screenshot
+              </p>
+            ) : null}
           </Fld>
-          <Fld label="Routing number">
-            <input className="input" inputMode="numeric" value={achRouting} onChange={(e) => setAchRouting(e.target.value)} disabled={processing} />
+          <Fld label="Memo" hint="Optional note from the transfer">
+            <input
+              className="input"
+              placeholder="Memo"
+              value={memo}
+              onChange={(e) => setMemo(e.target.value)}
+              disabled={processing}
+              aria-label="ACH memo"
+            />
           </Fld>
-          <Fld label="Account number">
-            <input className="input" inputMode="numeric" value={achAccount} onChange={(e) => setAchAccount(e.target.value)} disabled={processing} />
-          </Fld>
-          <Fld label="Reference (optional)">
-            <input className="input" placeholder="Confirmation #" value={ref} onChange={(e) => setRef(e.target.value)} disabled={processing} />
+          <PaymentProofFld
+            label="ACH confirmation screenshot"
+            hint="Bank “Standard ACH” schedule screen — attach then Autofill reads amount, date, conf #"
+            file={proofFile}
+            inputRef={proofInputRef}
+            onFile={onProofFile}
+            onAutofill={() => runAutofill()}
+            autofillBusy={autofillBusy}
+            autofillDone={autofillDone}
+            disabled={processing}
+            testId="ach-screenshot-input"
+            pendingPick={awaitingProof && !proofFile}
+          />
+          <Fld label="Deposit to">
+            <select
+              className="input"
+              value={deposit}
+              onChange={(e) => setDeposit(e.target.value)}
+              aria-label="Deposit to"
+              data-testid="payment-deposit-ach"
+              disabled={processing}
+            >
+              {depositBanks.map((b) => (
+                <option key={b}>{b}</option>
+              ))}
+              <option>Other</option>
+            </select>
+            {deposit === "Other" ? (
+              <input
+                className="input mt-2"
+                value={depositOther}
+                onChange={(e) => setDepositOther(e.target.value)}
+                placeholder="Bank name"
+                aria-label="Other bank"
+                disabled={processing}
+              />
+            ) : null}
           </Fld>
           <Fld label="Date">
             <input className="input" type="date" value={dt} onChange={(e) => setDt(e.target.value)} disabled={processing} />
           </Fld>
-          {!achEnabled ? (
+          {achEnabled ? (
+            <details className="mb-2 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2">
+              <summary className="text-xs font-semibold text-slate-600 cursor-pointer">
+                Optional: debit via Sola (routing / account)
+              </summary>
+              <div className="mt-2 space-y-2">
+                <Fld label="Account holder name">
+                  <input className="input" value={achName} onChange={(e) => setAchName(e.target.value)} disabled={processing} />
+                </Fld>
+                <Fld label="Routing number">
+                  <input
+                    className="input"
+                    inputMode="numeric"
+                    value={achRouting}
+                    onChange={(e) => setAchRouting(e.target.value)}
+                    disabled={processing}
+                  />
+                </Fld>
+                <Fld label="Account number">
+                  <input
+                    className="input"
+                    inputMode="numeric"
+                    value={achAccount}
+                    onChange={(e) => setAchAccount(e.target.value)}
+                    disabled={processing}
+                  />
+                </Fld>
+              </div>
+            </details>
+          ) : (
             <p className="text-[11px] text-slate-400 -mt-1 mb-1">
-              ACH debit via Sola will show Process payment once enabled on your Sola account.
+              Record customer ACH deposits here (often Martin Dorkin). Sola debit is optional when enabled.
             </p>
-          ) : null}
+          )}
         </>
       ) : isZelle ? (
         <>
@@ -1381,30 +1577,21 @@ export function MarkPaidSheet({
               ? "Processing payment…"
               : "💳 Process card payment"}
         </button>
-      ) : isAch && achEnabled ? (
-        <button
-          className="btn bg-emerald-500 text-white w-full"
-          onClick={onRecordPayment}
-          disabled={alreadyPaid || processing || !achRouting || !achAccount}
-          data-testid="process-ach-payment"
-        >
-          🏦 Process ACH payment
-        </button>
       ) : (
         <button
           className="btn bg-emerald-500 text-white w-full"
           onClick={onRecordPayment}
           disabled={alreadyPaid || processing || !job}
-          data-testid="record-payment"
+          data-testid={isAch ? "record-ach-payment" : "record-payment"}
         >
-          {visionAnalyzing ? "Reading screenshot…" : "✓ Record payment"}
+          {visionAnalyzing ? "Reading screenshot…" : isAch ? "✓ Record ACH payment" : "✓ Record payment"}
         </button>
       )}
       <p className="text-[11px] text-slate-400 text-center mt-2">
         {isCard
           ? "Card is charged now. Invoice is marked paid here immediately — QuickBooks updates in the background."
-          : isAch && achEnabled
-            ? "ACH will debit via Sola once processing is wired — staged for now."
+          : isAch
+            ? "ACH deposit is recorded here with conf # and date. QuickBooks catches up on Save & sync."
             : "Paid status updates here right away. QuickBooks is a background step on Save & sync."}
       </p>
     </Sheet>
@@ -1428,8 +1615,12 @@ function PaymentEditForm({
   onDelete,
   onVoid,
   onCancel,
+  onConvertEstimate,
 }) {
-  const [amt, setAmt] = useState(String(payment.amount || "").replace(/[$,]/g, ""));
+  const [amt, setAmt] = useState(() => {
+    const n = parseAmount(payment.amount);
+    return n > 0 ? fmtAmountField(n) : String(payment.amount || "");
+  });
   const [mth, setMth] = useState(payment.method || "");
   const [ref, setRef] = useState(payment.ref || "");
   const [dt, setDt] = useState(payment.date || todayStr());
@@ -1444,31 +1635,56 @@ function PaymentEditForm({
   const [fullEdit, setFullEdit] = useState(false);
   const voidable = canVoidInQbo(payment);
 
-  const invoiceChoices = useMemo(() => {
+  // Prefer live sourceJob (parent re-renders after convert) for the locked label.
+  const lockedTowardLabel = sourceJob?.invoiceNo
+    ? formatInvoicePayOption(sourceJob)
+    : sourceJob?.estimateNo
+      ? "Est #" + sourceJob.estimateNo + " (convert to invoice to apply)"
+      : "No invoice";
+
+  const payTargets = useMemo(() => {
     const name = pickCust?.name || custName;
     if (!name) return [];
-    let list = invoicesForCustomerPick(jobs, name, {
-      openOnly: false,
-      includeJobId: sourceJob?.id,
+    const preferAddress = sourceJob?.serviceAddress || sourceJob?.address || "";
+    let list = payTargetsForCustomerPick(jobs, name, {
+      includeJobId: sourceJob?.id || "",
+      preferAddress,
+      openOnlyInvoices: false,
     });
     const q = invQuery.trim().toLowerCase();
     if (q) {
-      list = list.filter((j) => {
-        const no = String(j.invoiceNo || "").toLowerCase();
-        const addr = formatInvoicePayOption(j).toLowerCase();
-        return no.includes(q) || addr.includes(q);
+      list = list.filter((t) => {
+        const j = t.job;
+        const hay = (
+          formatPayTargetOption(j) +
+          " " +
+          (j.invoiceNo || "") +
+          " " +
+          (j.estimateNo || "")
+        ).toLowerCase();
+        return hay.includes(q);
       });
     }
     return list;
-  }, [jobs, pickCust?.name, custName, invQuery, sourceJob?.id]);
+  }, [jobs, pickCust?.name, custName, invQuery, sourceJob?.id, sourceJob?.serviceAddress, sourceJob?.address]);
 
   const targetJob =
     (jobs || []).find((j) => String(j.id) === String(targetJobId)) ||
     (String(targetJobId) === String(sourceJob?.id) ? sourceJob : null);
 
-  const lockedTowardLabel = sourceJob?.invoiceNo
-    ? formatInvoicePayOption(sourceJob)
-    : "This job (no invoice #)";
+  const pickTarget = (jobId) => {
+    setTargetJobId(jobId);
+    const hit = payTargets.find((t) => String(t.job.id) === String(jobId));
+    if (hit?.kind === "estimate" && typeof onConvertEstimate === "function") {
+      onConvertEstimate(hit.job, {
+        paymentId: payment?.id,
+        amount: amt,
+        method: mth,
+        ref,
+        date: dt,
+      });
+    }
+  };
 
   return (
     <div className="space-y-3 border-t border-slate-100 pt-3 mt-2" data-testid="payment-edit-form">
@@ -1501,7 +1717,7 @@ function PaymentEditForm({
         <div className="space-y-2 rounded-xl border border-brand/20 bg-brand-soft/30 px-3 py-2.5">
           <div className="flex items-center justify-between gap-2 mb-1">
             <div className="text-[10px] font-bold uppercase tracking-wide text-brand">
-              Full edit — customer & invoice
+              Find invoice
             </div>
             <button
               type="button"
@@ -1544,41 +1760,59 @@ function PaymentEditForm({
           />
           {(pickCust || custName) && (
             <>
-              <Fld label="Find invoice #" hint="Type number or street to narrow the list">
+              <Fld label="Find invoice" hint="Invoices for this customer, or open estimates at this address">
                 <input
-                  className="input"
+                  className="input mb-2"
                   value={invQuery}
                   onChange={(e) => setInvQuery(e.target.value)}
-                  placeholder="Invoice # or address…"
-                  aria-label="Filter invoices"
+                  placeholder="Filter by # or street…"
+                  aria-label="Filter invoices and estimates"
                   data-testid="payment-edit-invoice-filter"
                 />
-              </Fld>
-              <Fld label="Invoice" hint="Each line shows service address">
-                <select
-                  className="input"
-                  value={targetJobId || ""}
-                  onChange={(e) => setTargetJobId(e.target.value)}
-                  aria-label="Invoice to apply payment"
-                  data-testid="payment-edit-invoice-select"
+                <div
+                  className="space-y-1.5 max-h-48 overflow-y-auto"
+                  data-testid="payment-edit-invoice-list"
                 >
-                  <option value="">— choose invoice —</option>
-                  {invoiceChoices.map((j) => (
-                    <option key={j.id} value={j.id}>
-                      {formatInvoicePayOption(j)}
-                    </option>
-                  ))}
-                </select>
+                  {payTargets.map((t) => {
+                    const j = t.job;
+                    const selected = String(targetJobId) === String(j.id);
+                    return (
+                      <button
+                        key={j.id}
+                        type="button"
+                        className={
+                          "w-full text-left rounded-lg border px-2.5 py-2 text-xs " +
+                          (selected
+                            ? "border-brand bg-brand-soft/40 text-slate-900"
+                            : "border-slate-200 bg-white text-slate-700 active:bg-slate-50")
+                        }
+                        data-testid={
+                          t.kind === "estimate"
+                            ? "payment-edit-est-" + (j.estimateNo || j.id)
+                            : "payment-edit-inv-" + (j.invoiceNo || j.id)
+                        }
+                        data-kind={t.kind}
+                        onClick={() => pickTarget(j.id)}
+                      >
+                        <span className="font-semibold break-words">{formatPayTargetOption(j)}</span>
+                      </button>
+                    );
+                  })}
+                </div>
               </Fld>
-              {!invoiceChoices.length ? (
+              {!payTargets.length ? (
                 <p className="text-xs text-amber-800 bg-amber-50 border border-amber-100 rounded-xl px-2.5 py-2">
-                  No invoices for this customer — try another name or address.
+                  No invoices or open estimates for this customer — try another name or address.
                 </p>
               ) : null}
-              {targetJob ? (
-                <p className="text-[11px] text-slate-600">
-                  Will apply to <b>#{targetJob.invoiceNo || "—"}</b>
+              {targetJob?.invoiceNo ? (
+                <p className="text-[11px] text-slate-600" data-testid="payment-edit-will-apply">
+                  Will apply to <b>#{targetJob.invoiceNo}</b>
                   {targetJob.id !== sourceJob?.id ? " (moved from current job)" : ""}
+                </p>
+              ) : targetJob && !targetJob.invoiceNo ? (
+                <p className="text-[11px] text-amber-800" data-testid="payment-edit-need-convert">
+                  Tap the estimate above to convert it to an invoice, then you can apply this payment.
                 </p>
               ) : null}
             </>
@@ -1592,6 +1826,11 @@ function PaymentEditForm({
           inputMode="decimal"
           value={amt}
           onChange={(e) => setAmt(e.target.value)}
+          onBlur={() => {
+            const n = parseAmount(amt);
+            if (n > 0) setAmt(fmtAmountField(n));
+          }}
+          placeholder="$0.00"
           aria-label="Edit amount"
         />
       </Fld>
@@ -1653,7 +1892,14 @@ function PaymentEditForm({
   );
 }
 
-export function PaymentHistorySheet({ job, onClose, onAddPayment, initialEditId = null }) {
+export function PaymentHistorySheet({
+  job,
+  onClose,
+  onAddPayment,
+  initialEditId = null,
+  /** Parent opens convert-estimate flow and returns here after Save. */
+  onConvertEstimate,
+}) {
   const {
     patchJob,
     patchAndSave,
@@ -1677,10 +1923,36 @@ export function PaymentHistorySheet({ job, onClose, onAddPayment, initialEditId 
   const due = openBalance(liveJob);
   const paid = amountPaid(liveJob);
   const pct = paidPct(liveJob);
-  const boardJobs = useMemo(
-    () => (jobs || []).map((j) => effectiveJob(j.id) || j),
-    [jobs, effectiveJob]
-  );
+  // Only this customer's jobs — never map the full board (was multi-second freeze).
+  const boardJobs = useMemo(() => {
+    const name = liveJob.customer || liveJob.businessName || "";
+    if (!name) return [liveJob];
+    const list = invoicesForCustomerPick(jobs || [], name, {
+      openOnly: false,
+      includeJobId: liveJob.id,
+    });
+    // Also include open estimates + any job that holds payments for this customer.
+    const keyJobs = payTargetsForCustomerPick(jobs || [], name, {
+      includeJobId: liveJob.id,
+      preferAddress: liveJob.serviceAddress || liveJob.address || "",
+    }).map((t) => t.job);
+    const byId = new Map();
+    for (const j of list.concat(keyJobs).concat([liveJob])) {
+      if (!j?.id) continue;
+      const live = effectiveJob(j.id) || j;
+      byId.set(String(live.id), live);
+    }
+    return Array.from(byId.values());
+  }, [
+    jobs,
+    effectiveJob,
+    liveJob.id,
+    liveJob.customer,
+    liveJob.businessName,
+    liveJob.serviceAddress,
+    liveJob.address,
+    liveJob.invoiceNo,
+  ]);
 
   const fetchCmd = useMemo(() => {
     if (!activeFetchKey) return null;
@@ -1879,6 +2151,15 @@ export function PaymentHistorySheet({ job, onClose, onAddPayment, initialEditId 
                   onDelete={() => deletePay(p.id)}
                   onVoid={() => voidInQbo(p)}
                   onCancel={() => setEditId(null)}
+                  onConvertEstimate={(estJob, payDraft) => {
+                    if (typeof onConvertEstimate === "function") {
+                      onConvertEstimate(estJob || liveJob, {
+                        ...payDraft,
+                        paymentId: p.id,
+                        sourceJobId: job.id,
+                      });
+                    }
+                  }}
                 />
               ) : (
                 <button type="button" className="w-full text-left" onClick={() => setEditId(p.id)}>
@@ -2618,10 +2899,29 @@ export function DocSheet({ job, kind, onClose, onEdit, onConvert, onSync }) {
 
       {no ? <DocPdfViewButtons job={job} kind={kind} no={no} compact /> : null}
 
-      {isDraft && onSync && qboDocsOn ? (
-        <button type="button" className="btn-brand w-full mb-2" onClick={onSync} data-testid="doc-sync-qbo">
-          Sync to QuickBooks
-        </button>
+      {/* Draft: Sync + Edit sit side-by-side (Levi parallel buttons). Sync must not reopen create. */}
+      {isDraft && (onSync || onEdit) ? (
+        <div className="grid grid-cols-2 gap-2 mb-2" data-testid="doc-draft-actions">
+          {onSync && qboDocsOn ? (
+            <button type="button" className="btn-brand w-full !py-2.5 text-sm font-semibold" onClick={onSync} data-testid="doc-sync-qbo">
+              Sync to QuickBooks
+            </button>
+          ) : (
+            <span />
+          )}
+          {onEdit ? (
+            <button
+              type="button"
+              className="btn bg-white border border-slate-200 text-slate-800 w-full !py-2.5 text-sm font-semibold"
+              onClick={onEdit}
+              data-testid="doc-edit"
+            >
+              Edit {label}
+            </button>
+          ) : (
+            <span />
+          )}
+        </div>
       ) : null}
 
       {!isDraft && no && job.email ? (
@@ -2630,7 +2930,7 @@ export function DocSheet({ job, kind, onClose, onEdit, onConvert, onSync }) {
         <p className="text-[11px] text-slate-400 text-center mb-2">Add an email on the customer card to send.</p>
       ) : null}
 
-      {onEdit ? (
+      {!isDraft && onEdit ? (
         <button type="button" className="btn-ghost w-full !py-2.5 mb-1 font-semibold" onClick={onEdit} data-testid="doc-edit">
           Edit {label}
         </button>

@@ -861,10 +861,12 @@ export default function DocBuilderSheet({
       "DRAFT",
   });
 
-  /** @param {{ close?: boolean, printPdf?: boolean, toast?: string }} opts */
+  /** @param {{ close?: boolean, printPdf?: boolean, toast?: string, alsoQbo?: boolean }} opts */
   const submitLocal = async (opts = {}) => {
     const close = opts.close !== false;
     const printPdf = !!opts.printPdf;
+    // When QB docs are on, Save also queues QuickBooks (no wait for confirmation).
+    const alsoQbo = opts.alsoQbo != null ? !!opts.alsoQbo : qboOn;
     const valid = validate(false);
     if (!valid) return null;
 
@@ -872,10 +874,31 @@ export default function DocBuilderSheet({
     try {
       const jobId = await ensureJobId();
       if (!jobId) return null;
-      const activeJob = { ...job, id: jobId };
-      const { jobPatch } = planDocSaveLocal(
-        { ...activeJob, invoiceProgressBilling: progressOn || activeJob.invoiceProgressBilling },
-        {
+      const activeJob = {
+        ...job,
+        id: jobId,
+        invoiceProgressBilling: progressOn || job.invoiceProgressBilling,
+      };
+      let jobPatch;
+      let commands = [];
+      if (alsoQbo) {
+        const planned = planDocSaveSync(activeJob, {
+          kind,
+          mode,
+          lines: valid,
+          serviceAddress,
+          apartment,
+          progressPct: progressPctEdit || progressPct,
+          contractAmount,
+          send: false,
+          recurringState: showRecurring && recurring.enabled ? recurring : null,
+          discountType,
+          discountValue,
+        });
+        jobPatch = planned.jobPatch;
+        commands = planned.commands || [];
+        // Local markDone so the job shows as invoiced/estimated while QBO catches up.
+        const local = planDocSaveLocal(activeJob, {
           kind,
           mode,
           lines: valid,
@@ -885,8 +908,21 @@ export default function DocBuilderSheet({
           contractAmount,
           discountType,
           discountValue,
-        }
-      );
+        });
+        jobPatch = { ...local.jobPatch, ...jobPatch };
+      } else {
+        ({ jobPatch } = planDocSaveLocal(activeJob, {
+          kind,
+          mode,
+          lines: valid,
+          serviceAddress,
+          apartment,
+          progressPct: progressPctEdit,
+          contractAmount,
+          discountType,
+          discountValue,
+        }));
+      }
       Object.assign(jobPatch, coTagsFromJob(activeJob));
       // Persist editable doc # + progress flag from the top toggles.
       if (docNoValue) jobPatch[docNoKey] = String(docNoValue).trim();
@@ -904,17 +940,26 @@ export default function DocBuilderSheet({
       if (attachments.length) {
         jobPatch.attachments = (job.attachments || []).concat(attachments);
       }
-      await patchAndSave(jobId, jobPatch);
+      // Instant continue — do not await network or QBO confirmation (Levi convert→Save flow).
+      void patchAndSave(jobId, jobPatch);
+      for (const cmd of commands) {
+        void enqueue(cmd.type, jobId, cmd.payload, "judgment", cmd.idk);
+      }
       const pdfJob = buildPdfJob(activeJob, jobPatch);
-      if (printPdf) await downloadLocalPdf(pdfJob);
+      if (printPdf) {
+        // PDF generation can stay in background after UI continues.
+        void downloadLocalPdf(pdfJob);
+      }
       showToast(
         opts.toast ||
           (printPdf
             ? "Saved + printed " + (kind === "estimate" ? "estimate" : "invoice") + " PDF"
-            : "Saved on job — sync or email when ready")
+            : alsoQbo
+              ? "Saved — syncing to QuickBooks in the background"
+              : "Saved on job — sync or email when ready")
       );
       resumeFollowUpPrompts();
-      onDone && onDone(activeJob);
+      onDone && onDone({ ...activeJob, ...jobPatch });
       if (close) onClose();
       return pdfJob;
     } finally {
@@ -1630,7 +1675,13 @@ export default function DocBuilderSheet({
           type="button"
           className="btn !py-2 !px-1.5 text-xs sm:text-sm bg-slate-50 text-slate-800 border border-slate-200"
           disabled={saving}
-          onClick={() => submitLocal({ close: false, toast: "Saved" })}
+          onClick={() =>
+            // Close so convert→payment and multi-step flows keep moving (no full confirm wait).
+            submitLocal({
+              close: true,
+              toast: qboOn ? "Saved — syncing to QuickBooks in the background" : "Saved",
+            })
+          }
           data-testid="doc-save"
         >
           Save

@@ -133,7 +133,7 @@ function CompactRow({ row, onOpen, testId }) {
   );
 }
 
-export default function CustomerTransactionHistory({ jobs, fromCust = "" }) {
+export default function CustomerTransactionHistory({ jobs, fromCust = "", onOpenRow }) {
   const nav = useNavigate();
   const [filter, setFilter] = useState("all");
   const [sort, setSort] = useState("new");
@@ -158,6 +158,11 @@ export default function CustomerTransactionHistory({ jobs, fromCust = "" }) {
   }, [allRows, filter, invoiceScope]);
 
   const openRow = (row) => {
+    // Parent can open payment/invoice sheets in-place (snappy — no full job remount).
+    if (typeof onOpenRow === "function") {
+      onOpenRow(row);
+      return;
+    }
     if (!row?.jobId) return;
     const parts = [];
     if (fromCust) parts.push("from=" + encodeURIComponent(fromCust));
