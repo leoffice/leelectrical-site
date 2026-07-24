@@ -56,7 +56,7 @@ export default function CustomerCard({
   const service = String(addr || "").trim();
   const showServiceRow = service && (mapAddress || service !== billing);
 
-  // Service addresses first, billing below (Levi 2026-07-21).
+  // Billing attached to the customer first; service address(es) after (Levi 2026-07-24).
   const contactRows = [
     ...(contact.businessName && contact.businessName !== displayName
       ? [["Business", contact.businessName, null]]
@@ -78,12 +78,12 @@ export default function CustomerCard({
           }
         : null,
     ],
-    ...(showServiceRow ? [["Service address", service, { href: mapHref, newTab: true }]] : []),
     [
       "Billing address",
       contact.billingAddress,
       contact.billingAddress ? { href: googleMapsHref(contact.billingAddress), newTab: true } : null,
     ],
+    ...(showServiceRow ? [["Service address", service, { href: mapHref, newTab: true }]] : []),
   ].filter(([, v]) => v);
 
   const handleCardClick = onCardTap

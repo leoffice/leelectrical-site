@@ -1,7 +1,9 @@
 import { describe, expect, it } from "vitest";
 import {
+  afterSendApprovedClose,
   buildSendDocConfirm,
   canApproveSendConfirm,
+  SEND_CONFIRM_CLOSE_MS,
   defaultDocEmailBody,
   defaultDocEmailSubject,
   docAttachmentName,
@@ -133,6 +135,31 @@ describe("sendDocConfirm", () => {
         "a@x.com"
       )
     ).toBe(true);
+  });
+
+  it("after approve: holds ~1s then closes (backend keeps sending)", async () => {
+    expect(SEND_CONFIRM_CLOSE_MS).toBe(1000);
+    let closed = false;
+    const p = afterSendApprovedClose({
+      ok: true,
+      onClose: () => {
+        closed = true;
+      },
+      delayMs: 20,
+    });
+    expect(closed).toBe(false);
+    await p;
+    expect(closed).toBe(true);
+
+    closed = false;
+    await afterSendApprovedClose({
+      ok: false,
+      onClose: () => {
+        closed = true;
+      },
+      delayMs: 5,
+    });
+    expect(closed).toBe(false);
   });
 });
 

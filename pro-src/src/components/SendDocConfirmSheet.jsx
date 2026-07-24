@@ -185,12 +185,16 @@ export default function SendDocConfirmSheet({
 
       <button
         type="button"
-        className="btn-brand w-full mb-2"
+        className={
+          "btn-brand w-full mb-2 " +
+          (busy && !error ? "!bg-emerald-600 hover:!bg-emerald-600" : "")
+        }
         disabled={!ok || busy}
         onClick={() => onApprove?.(model)}
         data-testid="send-confirm-approve"
+        data-confirmed={busy && !error ? "1" : "0"}
       >
-        {busy ? "Sending…" : "✓ Approve & send"}
+        {busy && !error ? "✓ Approved" : busy ? "Sending…" : "✓ Approve & send"}
       </button>
       <button type="button" className="btn-ghost w-full" onClick={onBack} disabled={busy} data-testid="send-confirm-back">
         Back

@@ -126,6 +126,10 @@ describe("2. quick views — invoice/estimate/calendar sheets", () => {
     expect(await screen.findByTestId("send-confirm-approve")).toBeInTheDocument();
     expect(screen.getByTestId("send-confirm-email")).toHaveValue("p@x.com");
     await user.click(screen.getByTestId("send-confirm-approve"));
+    // Approve shows confirmed immediately; backend send is already kicked off
+    await waitFor(() =>
+      expect(screen.getByTestId("send-confirm-approve")).toHaveAttribute("data-confirmed", "1")
+    );
     await waitFor(() =>
       expect(srv.calls.some((c) => c.path === "send-doc-email" && c.method === "POST")).toBe(true)
     );
@@ -133,6 +137,10 @@ describe("2. quick views — invoice/estimate/calendar sheets", () => {
     expect(sendCall.body.email).toBe("p@x.com");
     expect(sendCall.body.kind).toBe("invoice");
     expect(String(sendCall.body.pdfB64 || "").length).toBeGreaterThan(20);
+    // Sheet holds ~1s on Approved then closes — backend already running
+    await waitFor(() => expect(screen.queryByTestId("send-confirm-approve")).not.toBeInTheDocument(), {
+      timeout: 3000,
+    });
     // Must not leave a phantom unsaved change from the send log
     await waitFor(() => expect(screen.queryByTestId("savebar")).not.toBeInTheDocument());
   });
@@ -147,12 +155,13 @@ describe("2. quick views — invoice/estimate/calendar sheets", () => {
     expect(screen.getByText("View QuickBooks Estimate")).toBeInTheDocument();
 
     await user.click(within(pane).getByTestId("tab-calendar"));
-    expect(screen.getByText("Open Google Calendar")).toBeInTheDocument();
-    expect(screen.getByText("Create appointment")).toBeInTheDocument();
-    expect(screen.getByText("Link existing appointment")).toBeInTheDocument();
+    expect(screen.getByTestId("open-gcal")).toBeInTheDocument();
+    expect(screen.getByTestId("open-in-calendar")).toBeInTheDocument();
+    expect(screen.getByTestId("cal-create")).toBeInTheDocument();
+    expect(screen.getByTestId("cal-link")).toBeInTheDocument();
     expect(screen.getByText(/No linked appointment/)).toBeInTheDocument();
 
-    await user.click(screen.getByText("Create appointment"));
+    await user.click(screen.getByTestId("cal-create"));
     expect(screen.getByLabelText("Appointment title")).toHaveValue("Panel upgrade — Peretz Chein");
     fireEvent.change(screen.getByLabelText("Appointment date and time"), { target: { value: "2026-08-15T14:00" } });
     await user.click(screen.getByText("Save & sync to calendar"));

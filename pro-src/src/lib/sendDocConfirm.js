@@ -181,3 +181,19 @@ export function canApproveSendConfirm(model) {
   }
   return true;
 }
+
+/** How long the confirm sheet stays on “Approved” before closing (backend keeps sending). */
+export const SEND_CONFIRM_CLOSE_MS = 1000;
+
+/**
+ * After a successful queue/kickoff: hold the approved state ~1s, then close.
+ * Failures stay open so the user can fix and retry.
+ */
+export async function afterSendApprovedClose({ ok, onClose, delayMs = SEND_CONFIRM_CLOSE_MS }) {
+  if (!ok) return false;
+  if (delayMs > 0) {
+    await new Promise((r) => setTimeout(r, delayMs));
+  }
+  onClose?.();
+  return true;
+}
