@@ -147,12 +147,13 @@ describe("2. quick views — invoice/estimate/calendar sheets", () => {
     expect(screen.getByText("View QuickBooks Estimate")).toBeInTheDocument();
 
     await user.click(within(pane).getByTestId("tab-calendar"));
-    expect(screen.getByText("Open Google Calendar")).toBeInTheDocument();
-    expect(screen.getByText("Create appointment")).toBeInTheDocument();
-    expect(screen.getByText("Link existing appointment")).toBeInTheDocument();
+    expect(screen.getByTestId("open-gcal")).toBeInTheDocument();
+    expect(screen.getByTestId("open-in-calendar")).toBeInTheDocument();
+    expect(screen.getByTestId("cal-create")).toBeInTheDocument();
+    expect(screen.getByTestId("cal-link")).toBeInTheDocument();
     expect(screen.getByText(/No linked appointment/)).toBeInTheDocument();
 
-    await user.click(screen.getByText("Create appointment"));
+    await user.click(screen.getByTestId("cal-create"));
     expect(screen.getByLabelText("Appointment title")).toHaveValue("Panel upgrade — Peretz Chein");
     fireEvent.change(screen.getByLabelText("Appointment date and time"), { target: { value: "2026-08-15T14:00" } });
     await user.click(screen.getByText("Save & sync to calendar"));

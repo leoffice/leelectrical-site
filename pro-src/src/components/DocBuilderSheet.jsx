@@ -51,17 +51,25 @@ import {
 import { RECUR_INTERVALS, defaultRecurringState } from "../lib/recurringBilling.js";
 import { resumeFollowUpPrompts } from "../lib/calendarNavigate.js";
 
-/** Width that hugs the typed number (not a wide empty rectangle). */
-function numInputStyle(value, { minCh = 3, maxCh = 12, pad = 1 } = {}) {
+/** Width that hugs the typed number — grows with digits so rate/amount never clip. */
+function numInputStyle(value, { minCh = 8, maxCh = 24, pad = 2 } = {}) {
   const s = String(value ?? "").trim();
   const ch = Math.max(minCh, Math.min(maxCh, (s.length || 1) + pad));
-  return { width: ch + "ch", minWidth: minCh + "ch" };
+  return {
+    width: `calc(${ch}ch + 1.25rem)`,
+    minWidth: `calc(${minCh}ch + 1.25rem)`,
+    maxWidth: "100%",
+  };
 }
 
-/** Compact labeled number field. */
-function MetricFld({ label, children, testId }) {
+/** Compact labeled number field — grows with content. */
+function MetricFld({ label, children, testId, minWidth = "6.75rem", className = "" }) {
   return (
-    <div className="flex flex-col gap-0.5 shrink-0" data-testid={testId}>
+    <div
+      className={"flex flex-col gap-0.5 overflow-visible shrink-0 " + className}
+      style={{ minWidth, flex: "1 1 auto" }}
+      data-testid={testId}
+    >
       <span className="text-[9px] font-bold uppercase tracking-wide text-slate-400 leading-none px-0.5">
         {label}
       </span>
@@ -205,29 +213,35 @@ function LineRow({
         placeholder="Description…"
       />
 
-      {/* Row 3: labeled number fields — only as wide as the digits */}
-      <div className="flex flex-wrap items-end gap-1.5" data-testid={"doc-line-metrics-" + (index + 1)}>
+      {/* Row 3: rate / qty|progress / amount — grow with the typed number */}
+      <div className="flex flex-wrap items-end gap-2 w-full overflow-visible" data-testid={"doc-line-metrics-" + (index + 1)}>
         <MetricFld label={progressMode ? "Full rate" : "Rate"} testId={"doc-line-rate-fld-" + (index + 1)}>
           <input
-            className="input !px-1.5 !py-1.5 text-sm text-right tabular-nums"
-            style={numInputStyle(line.unitPrice, { minCh: 4, maxCh: 12 })}
+            className="input !px-2 !py-1.5 text-sm text-right tabular-nums !w-auto max-w-full overflow-visible"
+            style={numInputStyle(line.unitPrice, { minCh: 8, maxCh: 22, pad: 3 })}
             inputMode="decimal"
             value={line.unitPrice}
             onChange={(e) => onChange(index, { unitPrice: e.target.value })}
             aria-label={"Rate line " + (index + 1)}
             title={progressMode ? "Full job rate for this line" : "Rate"}
             placeholder="0"
+            data-testid={"doc-line-rate-" + (index + 1)}
           />
         </MetricFld>
         {progressMode ? (
           <MetricFld
             label={adjustMode === "pct" ? "Progress %" : "This bill $"}
             testId={"doc-line-progress-" + (index + 1)}
+            minWidth="6.5rem"
           >
-            <div className="flex items-center gap-0.5">
+            <div className="flex items-center gap-1 overflow-visible">
               <input
-                className="input !px-1 !py-1.5 text-center text-sm tabular-nums"
-                style={numInputStyle(progressDisplay, { minCh: 3, maxCh: 10 })}
+                className="input !px-1.5 !py-1.5 text-center text-sm tabular-nums !w-auto max-w-full overflow-visible"
+                style={numInputStyle(progressDisplay, {
+                  minCh: adjustMode === "pct" ? 5 : 8,
+                  maxCh: 18,
+                  pad: 3,
+                })}
                 inputMode="decimal"
                 value={progressDisplay}
                 onChange={(e) => onLineProgress && onLineProgress(index, e.target.value)}
@@ -238,7 +252,7 @@ function LineRow({
               />
               <button
                 type="button"
-                className="h-8 min-w-[1.75rem] px-1 rounded-lg border border-slate-200 bg-white text-[11px] font-extrabold text-slate-700"
+                className="h-9 shrink-0 min-w-[2rem] px-1.5 rounded-lg border border-slate-200 bg-white text-[11px] font-extrabold text-slate-700"
                 onClick={() => onAdjustModeChange && onAdjustModeChange(adjustMode === "pct" ? "amount" : "pct")}
                 aria-label={adjustMode === "pct" ? "Switch progress to dollars" : "Switch progress to percent"}
                 data-testid={"progress-mode-toggle-" + (index + 1)}
@@ -249,10 +263,10 @@ function LineRow({
             </div>
           </MetricFld>
         ) : (
-          <MetricFld label="Qty" testId={"doc-line-qty-fld-" + (index + 1)}>
+          <MetricFld label="Qty" testId={"doc-line-qty-fld-" + (index + 1)} minWidth="4.5rem">
             <input
-              className="input !px-1 !py-1.5 text-sm text-center tabular-nums"
-              style={numInputStyle(line.qty, { minCh: 2, maxCh: 8 })}
+              className="input !px-2 !py-1.5 text-sm text-center tabular-nums !w-auto max-w-full overflow-visible"
+              style={numInputStyle(line.qty, { minCh: 3, maxCh: 12, pad: 2 })}
               inputMode="decimal"
               value={line.qty}
               onChange={(e) => onChange(index, { qty: e.target.value })}
@@ -264,8 +278,8 @@ function LineRow({
         )}
         <MetricFld label={progressMode ? "Line total" : "Amount"} testId={"doc-line-amount-fld-" + (index + 1)}>
           <div
-            className="input !px-1.5 !py-1.5 bg-slate-50 text-slate-700 font-semibold text-right text-sm tabular-nums"
-            style={numInputStyle(fmt$(due) || "$0", { minCh: 5, maxCh: 12, pad: 0 })}
+            className="input !px-2 !py-1.5 bg-slate-50 text-slate-700 font-semibold text-right text-sm tabular-nums !w-auto max-w-full overflow-visible whitespace-nowrap"
+            style={numInputStyle(fmt$(due) || "$0", { minCh: 8, maxCh: 22, pad: 3 })}
             aria-label={"Due line " + (index + 1)}
             data-testid={"doc-line-amount-" + (index + 1)}
           >
@@ -276,6 +290,8 @@ function LineRow({
     </div>
   );
 }
+
+const LineRowMemo = React.memo(LineRow);
 
 function CustomerHeaderPanel({ job, allJobs, events, api, onPatch }) {
   const applyCustomer = async (c) => {
@@ -352,7 +368,8 @@ export default function DocBuilderSheet({
   progressPct,
   onClose,
   onDone,
-  editableCustomer = false,
+  /** Always editable — customer info on the document is fair game. */
+  editableCustomer = true,
   draftMode = false,
   allJobs,
   onCustomerPatch,
@@ -367,9 +384,13 @@ export default function DocBuilderSheet({
   const qboOn = isQuickbooksEnabled(tenantConfig);
   const boardJobs = allJobs || storeJobs;
   const [job, setJob] = useState(() => jobProp || {});
+  // Re-seed only when a different job is opened — not on every parent re-render
+  // (that was wiping keystrokes and making the form lag).
+  const jobSeedId = jobProp?.id || "";
   useEffect(() => {
     setJob(jobProp || {});
-  }, [jobProp]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- intentional: id-only reseed
+  }, [jobSeedId]);
 
   const patchJobState = useCallback(
     (patch) => {
@@ -381,14 +402,31 @@ export default function DocBuilderSheet({
     },
     [onCustomerPatch]
   );
-  const [serviceAddress, setServiceAddress] = useState(job.serviceAddress || job.address || "");
-  const [apartment, setApartment] = useState(job.apartment || "");
+  const [serviceAddress, setServiceAddress] = useState(
+    () => jobProp?.serviceAddress || jobProp?.address || ""
+  );
+  const [apartment, setApartment] = useState(() => jobProp?.apartment || "");
   useEffect(() => {
-    const addr = job.serviceAddress || job.address || "";
-    if (addr) setServiceAddress(addr);
-  }, [job.serviceAddress, job.address]);
-  const progressMode = kind === "invoice" && isProgressBillingContext(job, { kind, mode });
-  const [lines, setLines] = useState(() => initialLines(job, { kind, mode, progressPct }));
+    setServiceAddress(jobProp?.serviceAddress || jobProp?.address || "");
+    setApartment(jobProp?.apartment || "");
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [jobSeedId]);
+
+  const autoProgress =
+    kind === "invoice" &&
+    (isProgressBillingContext(jobProp || {}, { kind, mode }) || progressPct != null);
+  // Manual Progress Invoice toggle (like CO) — on for invoices that already look progressive.
+  const [progressOn, setProgressOn] = useState(() => !!autoProgress);
+  useEffect(() => {
+    setProgressOn(!!autoProgress);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [jobSeedId, kind, mode]);
+  const progressMode = kind === "invoice" && progressOn;
+  const [lines, setLines] = useState(() => initialLines(jobProp || {}, { kind, mode, progressPct }));
+  useEffect(() => {
+    setLines(initialLines(jobProp || {}, { kind, mode, progressPct }));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [jobSeedId, kind, mode]);
   const [attachments, setAttachments] = useState([]);
   const [attUploading, setAttUploading] = useState(false);
   // Starts empty and fills in asynchronously: LE's internal catalogue is a
@@ -544,8 +582,32 @@ export default function DocBuilderSheet({
     }));
   }, [job.estimateLines, lines, contractAmount]);
 
+  /** Progress invoice toggle — same idea as CO, next to the doc number. */
+  const applyProgressToggle = (on) => {
+    if (kind !== "invoice" && kind !== "estimate") return;
+    const next = !!on;
+    setProgressOn(next);
+    patchJobState({ invoiceProgressBilling: next });
+    if (kind === "invoice" && next) {
+      const contract = parseAmount(contractAmount) || contractTotalForJob(job) || linesTotal(lines);
+      if (contract > 0 && !parseAmount(contractAmount)) setContractAmount(String(contract));
+      const pct = parseAmount(progressPctEdit) || 100;
+      if (pct < 100) {
+        setLines((rows) => applyProgressPctToLines(rows, contractLines, pct));
+      }
+    }
+  };
+
+  const docNoKey = kind === "estimate" ? "estimateNo" : "invoiceNo";
+  const docNoValue = job[docNoKey] || "";
+  const setDocNo = (v) => patchJobState({ [docNoKey]: v });
+
   const changeLine = useCallback((i, patch) => {
     setLines((rows) => rows.map((ln, idx) => (idx === i ? { ...ln, ...patch } : ln)));
+  }, []);
+
+  const removeLine = useCallback((idx) => {
+    setLines((rows) => rows.filter((_, j) => j !== idx));
   }, []);
 
   const applyProgressPct = useCallback(
@@ -789,7 +851,11 @@ export default function DocBuilderSheet({
     try {
       const jobId = await ensureJobId();
       if (!jobId) return null;
-      const activeJob = { ...job, id: jobId };
+      const activeJob = {
+        ...job,
+        id: jobId,
+        invoiceProgressBilling: progressOn || job.invoiceProgressBilling,
+      };
       const { jobPatch } = planDocSaveLocal(activeJob, {
         kind,
         mode,
@@ -802,6 +868,18 @@ export default function DocBuilderSheet({
         discountValue,
       });
       Object.assign(jobPatch, coTagsFromJob(activeJob));
+      if (docNoValue) jobPatch[docNoKey] = String(docNoValue).trim();
+      jobPatch.invoiceProgressBilling = !!progressOn;
+      if (editableCustomer) {
+        jobPatch.businessName = activeJob.businessName || activeJob.customer || "";
+        jobPatch.customer = activeJob.customer || activeJob.businessName || "";
+        jobPatch.personName = activeJob.personName || "";
+        jobPatch.phone = activeJob.phone || "";
+        jobPatch.email = activeJob.email || "";
+        jobPatch.billingAddress = activeJob.billingAddress || "";
+        jobPatch.title = activeJob.title || "";
+        if (activeJob.qboCustomerId) jobPatch.qboCustomerId = activeJob.qboCustomerId;
+      }
       if (attachments.length) {
         jobPatch.attachments = (job.attachments || []).concat(attachments);
       }
@@ -864,7 +942,12 @@ export default function DocBuilderSheet({
       const differs = sendEmailDiffersFromCustomer(emailTo, job.email);
       const keepOnCustomer = !!(emailTo && (!differs || policy === EMAIL_POLICY_KEEP));
       const savedEmail = keepOnCustomer ? emailTo : job.email || "";
-      const activeJob = { ...job, id: jobId, email: savedEmail };
+      const activeJob = {
+        ...job,
+        id: jobId,
+        email: savedEmail,
+        invoiceProgressBilling: progressOn || job.invoiceProgressBilling,
+      };
       const { jobPatch, commands } = planDocSaveSync(activeJob, {
         kind,
         mode,
@@ -879,8 +962,19 @@ export default function DocBuilderSheet({
         discountValue,
       });
       Object.assign(jobPatch, coTagsFromJob(activeJob));
+      if (docNoValue) jobPatch[docNoKey] = String(docNoValue).trim();
+      jobPatch.invoiceProgressBilling = !!progressOn;
+      if (editableCustomer) {
+        jobPatch.businessName = activeJob.businessName || activeJob.customer || "";
+        jobPatch.customer = activeJob.customer || activeJob.businessName || "";
+        jobPatch.personName = activeJob.personName || "";
+        jobPatch.phone = activeJob.phone || "";
+        jobPatch.billingAddress = activeJob.billingAddress || "";
+        jobPatch.title = activeJob.title || "";
+        if (activeJob.qboCustomerId) jobPatch.qboCustomerId = activeJob.qboCustomerId;
+      }
       if (keepOnCustomer) jobPatch.email = emailTo;
-      else delete jobPatch.email;
+      else if (!editableCustomer) delete jobPatch.email;
 
       await patchAndSave(jobId, jobPatch);
 
@@ -1124,6 +1218,38 @@ export default function DocBuilderSheet({
 
   return (
     <Sheet title={title + (job.customer ? " — " + job.customer : "")} onClose={onClose} wide>
+      {/* Top: doc # + Progress invoice toggle (same pattern as CO) */}
+      <div
+        className="flex flex-wrap items-center gap-2 mb-3 pb-2 border-b border-slate-100"
+        data-testid="doc-header-row"
+      >
+        <label className="flex items-center gap-1.5 min-w-0">
+          <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wide shrink-0">
+            {kind === "estimate" ? "Est #" : "Inv #"}
+          </span>
+          <input
+            className="input !py-1.5 !px-2 text-sm font-bold tabular-nums !w-auto max-w-full"
+            style={numInputStyle(docNoValue || "DRAFT", { minCh: 7, maxCh: 18, pad: 2 })}
+            value={docNoValue}
+            onChange={(e) => setDocNo(e.target.value)}
+            placeholder={mode === "edit" ? "Number" : "Auto"}
+            aria-label={kind === "estimate" ? "Estimate number" : "Invoice number"}
+            data-testid="doc-number-input"
+          />
+        </label>
+        <div className="flex items-center gap-1.5 shrink-0 ml-auto" data-testid="doc-progress-toggle-row">
+          <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wide">
+            Progress invoice
+          </span>
+          <Toggle
+            on={!!progressOn}
+            onChange={applyProgressToggle}
+            label={progressOn ? "Progress invoice on" : "Progress invoice off"}
+            small
+          />
+        </div>
+      </div>
+
       {editableCustomer ? (
         <CustomerHeaderPanel job={job} allJobs={boardJobs} events={events} api={api} onPatch={patchJobState} />
       ) : (
@@ -1216,13 +1342,13 @@ export default function DocBuilderSheet({
         Line items
       </p>
       {lines.map((ln, i) => (
-        <LineRow
+        <LineRowMemo
           key={i}
           line={ln}
           index={i}
           items={items}
           onChange={changeLine}
-          onRemove={(idx) => setLines((rows) => rows.filter((_, j) => j !== idx))}
+          onRemove={removeLine}
           canRemove={lines.length > 1}
           progressMode={progressMode}
           adjustMode={adjustMode}

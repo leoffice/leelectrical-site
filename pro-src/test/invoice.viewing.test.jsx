@@ -39,16 +39,16 @@ const renderNode = (node) =>
   );
 
 describe("#54 calendar opens the office account", () => {
-  it("Open Google Calendar targets office@leelectrical.us via ?authuser and jumps to the date", async () => {
+  it("Open in G-Calendar targets office@leelectrical.us via ?authuser and jumps to the date", async () => {
     mockServer();
-    const openSpy = vi.fn();
+    const openSpy = vi.fn(() => ({ focus() {} }));
     vi.stubGlobal("open", openSpy);
     const user = userEvent.setup();
 
     renderNode(
       <CalSheet job={{ ...JOB, status: { Scheduled: { s: "done", d: "2026-07-10" } } }} onClose={() => {}} />
     );
-    await user.click(await screen.findByText("Open Google Calendar"));
+    await user.click(await screen.findByTestId("open-gcal"));
 
     expect(openSpy).toHaveBeenCalledTimes(1);
     const url = String(openSpy.mock.calls[0][0]);
@@ -58,6 +58,21 @@ describe("#54 calendar opens the office account", () => {
     expect(url).toContain("calendar.google.com");
     expect(url).toContain("authuser=" + encodeURIComponent("office@leelectrical.us")); // office%40leelectrical.us
     expect(url).toContain("2026/07/10"); // date deep-link preserved
+  });
+
+  it("Open in calendar deep-links the in-app schedule", async () => {
+    mockServer();
+    const user = userEvent.setup();
+    const onClose = vi.fn();
+    renderNode(
+      <CalSheet job={{ ...JOB, status: { Scheduled: { s: "done", d: "2026-07-10" } } }} onClose={onClose} />
+    );
+    await user.click(await screen.findByTestId("open-in-calendar"));
+    expect(onClose).toHaveBeenCalled();
+    const raw = sessionStorage.getItem("lepro_calendar_pick");
+    expect(raw).toBeTruthy();
+    const pick = JSON.parse(raw);
+    expect(pick.focusDate).toBe("2026-07-10");
   });
 });
 

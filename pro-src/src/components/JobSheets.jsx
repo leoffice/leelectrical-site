@@ -13,9 +13,10 @@ import {
   jobCalendarLinkState,
   unlinkAppointmentJob,
 } from "../lib/calendarLink.js";
-import AppointmentDetailSheet from "./AppointmentDetailSheet.jsx";
+import EditAppointmentSheet from "./EditAppointmentSheet.jsx";
 import CustomerComposeSheet from "./CustomerComposeSheet.jsx";
 import { evStart } from "../lib/format.js";
+import { stashCalendarPick } from "../lib/calendarNavigate.js";
 import CustomerSearch from "./CustomerSearch.jsx";
 import { enrichAndPatchCustomer } from "./NewJobFlow.jsx";
 import AddressAutocompleteField from "./AddressAutocompleteField.jsx";
@@ -2634,9 +2635,71 @@ export function QuickSendSheet({ job, onClose, onEdit }) {
 export function calAccount() {
   return tenantCalendarAccount();
 }
+
+/** Open a URL outside the app — window.open often fails in installed PWAs. */
+export function openExternalUrl(url) {
+  if (!url) return false;
+  try {
+    const w = window.open(url, "_blank", "noopener,noreferrer");
+    if (w) return true;
+  } catch {
+    /* fall through */
+  }
+  try {
+    const a = document.createElement("a");
+    a.href = url;
+    a.target = "_blank";
+    a.rel = "noopener noreferrer";
+    a.style.display = "none";
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    return true;
+  } catch {
+    try {
+      window.location.assign(url);
+      return true;
+    } catch {
+      return false;
+    }
+  }
+}
+
+/** Compact 1-line action chip for calendar sheet. */
+function CalChip({ children, onClick, danger, testId, className = "" }) {
+  return (
+    <button
+      type="button"
+      className={
+        "min-h-[2.25rem] px-2 py-1.5 rounded-xl border text-[11px] font-bold leading-tight text-center active:bg-slate-50 " +
+        (danger
+          ? "border-red-200 text-red-700 bg-red-50/60"
+          : "border-slate-200 text-slate-800 bg-white") +
+        " " +
+        className
+      }
+      onClick={onClick}
+      data-testid={testId}
+    >
+      {children}
+    </button>
+  );
+}
+
 export function CalSheet({ job, onClose }) {
-  const { events, commands, patchJob, patchAndSave, enqueue, patchLocalEvent, showToast, effectiveJob } = useStore();
-  const [mode, setMode] = useState("menu"); // menu | add | pick | unlink | view
+  const nav = useNavigate();
+  const {
+    events,
+    commands,
+    patchJob,
+    patchAndSave,
+    enqueue,
+    patchLocalEvent,
+    removeLocalEvent,
+    showToast,
+    effectiveJob,
+  } = useStore();
+  const [mode, setMode] = useState("menu"); // menu | add | pick | unlink | edit
   const [unlinking, setUnlinking] = useState(false);
   const liveJob = effectiveJob(job.id) || job;
   const event = useMemo(() => eventForJob(liveJob, events), [liveJob, events]);
@@ -2651,9 +2714,50 @@ export function CalSheet({ job, onClose }) {
     dateYmd: d,
     account: calAccount(),
   });
+  const notes = event ? displayEventNotes(event.description) : "";
+  const whenLabel = event ? evStart(event).replace("T", " ").slice(0, 16) : d || "";
 
-  if (mode === "view" && event) {
-    return <AppointmentDetailSheet event={event} onClose={() => setMode("menu")} />;
+  const openInAppCalendar = () => {
+    if (event?.id) {
+      stashCalendarPick(event.id, { focusDate: evStart(event).slice(0, 10) || d });
+    } else if (d) {
+      stashCalendarPick({ focusDate: d });
+    } else {
+      showToast("No date to open yet");
+      return;
+    }
+    onClose();
+    nav("/today");
+  };
+
+  const openInGCalendar = () => {
+    if (!openExternalUrl(gcalUrl)) {
+      showToast("Couldn't open Google Calendar");
+    }
+  };
+
+  if (mode === "edit" && event) {
+    return (
+      <EditAppointmentSheet
+        event={event}
+        linkedJobId={liveJob.id}
+        onClose={() => setMode("menu")}
+        onSaved={(ev) => patchLocalEvent(ev.id, ev)}
+        onDeleted={async (eid) => {
+          await unlinkAppointmentJob({
+            event: event || { id: eid, description: "" },
+            job: liveJob,
+            jobId: liveJob.id,
+            patchJob,
+            patchAndSave,
+            enqueue,
+            patchLocalEvent,
+          });
+          removeLocalEvent(eid);
+          onClose();
+        }}
+      />
+    );
   }
 
   if (mode === "add") return <AddAppointmentSheet job={liveJob} onClose={() => setMode("menu")} />;
@@ -2698,68 +2802,85 @@ export function CalSheet({ job, onClose }) {
     <Sheet title="Calendar" onClose={onClose}>
       {linked ? (
         <div
-          className={`rounded-xl border px-3 py-2.5 mb-3 text-sm ${
+          className={`rounded-xl border px-3 py-3 mb-3 text-sm space-y-1.5 ${
             cal.confirmed
               ? "border-emerald-200 bg-emerald-50"
               : cal.pending
               ? "border-orange-200 bg-orange-50"
               : "border-red-200 bg-red-50"
           }`}
+          data-testid="cal-linked-appt-info"
         >
           <div
-            className={`font-semibold mb-1 ${
-              cal.confirmed ? "text-emerald-900" : cal.pending ? "text-orange-900" : "text-red-800"
+            className={`text-[10px] font-bold uppercase tracking-wide ${
+              cal.confirmed ? "text-emerald-800" : cal.pending ? "text-orange-800" : "text-red-800"
             }`}
           >
-            {cal.confirmed ? "Linked appointment" : cal.pending ? "Linking appointment…" : "Linked appointment"}
+            {cal.pending ? "Linking…" : "Linked appointment"}
           </div>
           {event ? (
             <>
-              <div className="text-slate-700">{event.summary || "—"}</div>
-              <div className="text-slate-500 text-xs mt-0.5">{evStart(event).replace("T", " ").slice(0, 16)}</div>
-              {displayEventNotes(event.description) ? (
-                <p className="text-slate-600 text-xs mt-1 whitespace-pre-wrap">{displayEventNotes(event.description)}</p>
+              <div className="font-extrabold text-slate-900 text-base leading-snug" data-testid="cal-appt-title">
+                {event.summary || "Appointment"}
+              </div>
+              {whenLabel ? (
+                <div className="text-slate-700">
+                  <span className="font-semibold">When</span>{" "}
+                  <span data-testid="cal-appt-when">{whenLabel}</span>
+                </div>
+              ) : null}
+              {event.location ? (
+                <div className="text-slate-700">
+                  <span className="font-semibold">Where</span>{" "}
+                  <span data-testid="cal-appt-where">{event.location}</span>
+                </div>
+              ) : null}
+              {notes ? (
+                <div className="text-slate-700" data-testid="cal-appt-notes">
+                  <span className="font-semibold">Notes</span>
+                  <p className="text-slate-600 whitespace-pre-wrap mt-0.5 text-xs leading-relaxed">{notes}</p>
+                </div>
               ) : null}
             </>
           ) : (
-            <div className="text-slate-500 text-xs">Pull calendar sync to see details.</div>
+            <div className="text-slate-500 text-xs">Pull calendar sync to see full details.</div>
           )}
         </div>
       ) : (
-        <p className="text-sm text-red-600 font-semibold mb-3">No linked appointment</p>
+        <p className="text-sm text-red-600 font-semibold mb-3" data-testid="cal-no-linked">
+          No linked appointment
+        </p>
       )}
-      <Opt
-        icon="＋"
-        title="Create appointment"
-        note={`Syncs to ${calAccount()} & links to this job`}
-        onClick={() => setMode("add")}
-      />
-      {linked ? (
-        <Opt
-          icon="👁️"
-          title="View linked appointment"
-          note={event ? (event.summary || "Open full details") : "Pull calendar sync to load details"}
-          onClick={() => (event ? setMode("view") : showToast("Pull calendar sync first"))}
-          data-testid="view-linked-appointment"
-        />
-      ) : (
-        <Opt
-          icon="🔗"
-          title="Link existing appointment"
-          note="Search calendar appointments"
-          onClick={() => setMode("pick")}
-        />
-      )}
-      {linked ? (
-        <Opt icon="⛓️‍💥" title="Unlink appointment" note="Keeps the event on Google Calendar" onClick={() => setMode("unlink")} />
+
+      <div className="grid grid-cols-2 gap-1.5 mb-3" data-testid="cal-actions-compact">
+        {linked && event ? (
+          <CalChip testId="cal-edit" onClick={() => setMode("edit")}>
+            ✏️ Edit
+          </CalChip>
+        ) : null}
+        {linked ? (
+          <CalChip testId="cal-unlink" danger onClick={() => setMode("unlink")}>
+            ⛓ Unlink
+          </CalChip>
+        ) : null}
+        <CalChip testId="open-in-calendar" onClick={openInAppCalendar}>
+          📅 Open in calendar
+        </CalChip>
+        <CalChip testId="open-gcal" onClick={openInGCalendar}>
+          🗓 Open in G-Calendar
+        </CalChip>
+      </div>
+
+      {!linked ? (
+        <div className="grid grid-cols-2 gap-1.5" data-testid="cal-link-create-row">
+          <CalChip testId="cal-create" onClick={() => setMode("add")}>
+            ＋ Create
+          </CalChip>
+          <CalChip testId="cal-link" onClick={() => setMode("pick")}>
+            🔗 Link existing
+          </CalChip>
+        </div>
       ) : null}
-      <Opt
-        icon="📅"
-        title={linked ? "Open linked appointment in Google Calendar" : "Open Google Calendar"}
-        note={d ? (linked ? "Opens this appointment · " + d : "Jumps to " + d) : linked ? "Opens linked appointment" : ""}
-        onClick={() => window.open(gcalUrl)}
-        data-testid="open-gcal"
-      />
     </Sheet>
   );
 }
