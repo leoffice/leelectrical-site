@@ -1432,6 +1432,11 @@ function PaymentEditForm({
   const [mth, setMth] = useState(payment.method || "");
   const [ref, setRef] = useState(payment.ref || "");
   const [dt, setDt] = useState(payment.date || todayStr());
+  // Does this payment apply to an invoice (default) or an estimate? An estimate
+  // payment also captures the invoice it maps to plus a quantity.
+  const [appliesTo, setAppliesTo] = useState(payment.appliesTo === "estimate" ? "estimate" : "invoice");
+  const [estInvoiceNo, setEstInvoiceNo] = useState(payment.estimateInvoiceNo || "");
+  const [estQty, setEstQty] = useState(payment.quantity != null ? String(payment.quantity) : "");
   const [custName, setCustName] = useState(sourceJob?.customer || sourceJob?.businessName || "");
   const [pickCust, setPickCust] = useState(() =>
     sourceJob?.customer || sourceJob?.businessName
@@ -1469,9 +1474,69 @@ function PaymentEditForm({
     ? formatInvoicePayOption(sourceJob)
     : "This job (no invoice #)";
 
+  const segBtn = (on) =>
+    "btn flex-1 !px-2 !py-2 text-xs " +
+    (on ? "bg-brand text-white" : "bg-slate-100 text-slate-700 border border-slate-200");
+
   return (
     <div className="space-y-3 border-t border-slate-100 pt-3 mt-2" data-testid="payment-edit-form">
-      {!fullEdit ? (
+      <div>
+        <div className="text-[10px] font-bold uppercase tracking-wide text-slate-500 mb-1">
+          Applies to
+        </div>
+        <div className="flex gap-1.5" data-testid="payment-applies-to">
+          <button
+            type="button"
+            className={segBtn(appliesTo === "invoice")}
+            onClick={() => setAppliesTo("invoice")}
+            data-testid="payment-applies-invoice"
+            aria-pressed={appliesTo === "invoice"}
+          >
+            Invoice
+          </button>
+          <button
+            type="button"
+            className={segBtn(appliesTo === "estimate")}
+            onClick={() => setAppliesTo("estimate")}
+            data-testid="payment-applies-estimate"
+            aria-pressed={appliesTo === "estimate"}
+          >
+            Estimate
+          </button>
+        </div>
+      </div>
+
+      {appliesTo === "estimate" ? (
+        <div
+          className="space-y-2 rounded-xl border border-brand/20 bg-brand-soft/30 px-3 py-2.5"
+          data-testid="payment-estimate-fields"
+        >
+          <div className="text-[10px] font-bold uppercase tracking-wide text-brand">
+            Estimate payment
+          </div>
+          <Fld label="Invoice #" hint="The invoice this estimate payment applies to">
+            <input
+              className="input"
+              value={estInvoiceNo}
+              onChange={(e) => setEstInvoiceNo(e.target.value)}
+              placeholder="Invoice #"
+              aria-label="Invoice number"
+              data-testid="payment-estimate-invoice"
+            />
+          </Fld>
+          <Fld label="Quantity">
+            <input
+              className="input"
+              inputMode="decimal"
+              value={estQty}
+              onChange={(e) => setEstQty(e.target.value)}
+              placeholder="Quantity"
+              aria-label="Quantity"
+              data-testid="payment-estimate-qty"
+            />
+          </Fld>
+        </div>
+      ) : !fullEdit ? (
         <div className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5">
           <div className="flex items-start justify-between gap-2">
             <div className="min-w-0">
@@ -1618,7 +1683,16 @@ function PaymentEditForm({
               method: mth,
               ref,
               date: dt,
-              targetJobId: fullEdit ? targetJobId || sourceJob?.id : sourceJob?.id,
+              appliesTo,
+              estimateInvoiceNo: appliesTo === "estimate" ? estInvoiceNo : "",
+              quantity: appliesTo === "estimate" ? estQty : "",
+              // Estimate payments stay on the current job; invoice edits may move.
+              targetJobId:
+                appliesTo === "estimate"
+                  ? sourceJob?.id
+                  : fullEdit
+                    ? targetJobId || sourceJob?.id
+                    : sourceJob?.id,
             })
           }
         >
@@ -1803,6 +1877,17 @@ export function PaymentHistorySheet({ job, onClose, onAddPayment, initialEditId 
       showToast("Enter a payment amount");
       return;
     }
+    const toEstimate = entry.appliesTo === "estimate";
+    if (toEstimate) {
+      if (!String(entry.estimateInvoiceNo || "").trim()) {
+        showToast("Enter the invoice # for this estimate payment");
+        return;
+      }
+      if (!(parseFloat(String(entry.quantity).replace(/[$,]/g, "")) > 0)) {
+        showToast("Enter a quantity for this estimate payment");
+        return;
+      }
+    }
     const targetId = entry.targetJobId || job.id;
     const targetLive =
       String(targetId) === String(job.id)
@@ -1813,7 +1898,14 @@ export function PaymentHistorySheet({ job, onClose, onAddPayment, initialEditId 
       return;
     }
     const { amount, method, ref, date } = entry;
-    const moved = movePayment(liveJob, targetLive, editId, { amount, method, ref, date });
+    // Persist the invoice/estimate choice on the payment. Clear estimate fields
+    // when it applies to an invoice so switching back doesn't leave stale data.
+    const applyFields = {
+      appliesTo: toEstimate ? "estimate" : "invoice",
+      estimateInvoiceNo: toEstimate ? String(entry.estimateInvoiceNo).trim() : "",
+      quantity: toEstimate ? String(entry.quantity).trim() : "",
+    };
+    const moved = movePayment(liveJob, targetLive, editId, { amount, method, ref, date, ...applyFields });
     if (!moved?.patches?.length) {
       showToast("Could not update that payment");
       return;
@@ -1882,6 +1974,12 @@ export function PaymentHistorySheet({ job, onClose, onAddPayment, initialEditId 
               ) : (
                 <button type="button" className="w-full text-left" onClick={() => setEditId(p.id)}>
                   <div className="text-sm font-semibold text-slate-900">{fmtPaymentLine(p)}</div>
+                  {p.appliesTo === "estimate" ? (
+                    <div className="text-[11px] font-semibold text-brand mt-0.5" data-testid="payment-estimate-tag">
+                      Estimate → Invoice #{p.estimateInvoiceNo || "—"}
+                      {p.quantity ? " · qty " + p.quantity : ""}
+                    </div>
+                  ) : null}
                   <div className="text-[11px] text-slate-400 mt-0.5">Tap to edit or remove</div>
                 </button>
               )}
