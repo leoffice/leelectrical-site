@@ -16,7 +16,7 @@ import {
 import EditAppointmentSheet from "./EditAppointmentSheet.jsx";
 import CustomerComposeSheet from "./CustomerComposeSheet.jsx";
 import { evStart } from "../lib/format.js";
-import { stashCalendarPick } from "../lib/calendarNavigate.js";
+import { CALENDAR_PICK_EVENT, stashCalendarPick } from "../lib/calendarNavigate.js";
 import CustomerSearch from "./CustomerSearch.jsx";
 import { enrichAndPatchCustomer } from "./NewJobFlow.jsx";
 import AddressAutocompleteField from "./AddressAutocompleteField.jsx";
@@ -2718,16 +2718,46 @@ export function CalSheet({ job, onClose }) {
   const whenLabel = event ? evStart(event).replace("T", " ").slice(0, 16) : d || "";
 
   const openInAppCalendar = () => {
-    if (event?.id) {
-      stashCalendarPick(event.id, { focusDate: evStart(event).slice(0, 10) || d });
-    } else if (d) {
-      stashCalendarPick({ focusDate: d });
+    // Prefer the resolved event, then the job's saved calendar id, then the scheduled day.
+    const focusDate = (event ? evStart(event).slice(0, 10) : "") || d || "";
+    const eventId = String(event?.id || liveJob.calEventId || "").trim();
+    if (eventId) {
+      stashCalendarPick(eventId, { focusDate });
+    } else if (focusDate) {
+      stashCalendarPick({ focusDate });
     } else {
       showToast("No date to open yet");
       return;
     }
+    // Close the sheet first. Navigate on the next tick so sheet unmount / scroll-unlock
+    // cannot swallow the route change on mobile WebView / installed PWA.
     onClose();
-    nav("/today");
+    const go = () => {
+      try {
+        nav("/today");
+      } catch {
+        /* fall through to hash */
+      }
+      try {
+        const hash = String(window.location.hash || "");
+        if (!hash.includes("/today")) {
+          window.location.hash = "#/today";
+        }
+      } catch {
+        /* ignore */
+      }
+      // Re-signal so a just-mounted Calendar tab re-reads sessionStorage.
+      try {
+        window.dispatchEvent(new CustomEvent(CALENDAR_PICK_EVENT));
+      } catch {
+        /* ignore */
+      }
+    };
+    if (typeof window !== "undefined" && typeof window.requestAnimationFrame === "function") {
+      window.requestAnimationFrame(() => setTimeout(go, 0));
+    } else {
+      setTimeout(go, 0);
+    }
   };
 
   const openInGCalendar = () => {

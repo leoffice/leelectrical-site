@@ -73,6 +73,10 @@ describe("#54 calendar opens the office account", () => {
     expect(raw).toBeTruthy();
     const pick = JSON.parse(raw);
     expect(pick.focusDate).toBe("2026-07-10");
+    // Deferred nav (rAF + setTimeout) — wait for Calendar hash.
+    await waitFor(() => {
+      expect(String(window.location.hash || "")).toMatch(/today/);
+    });
   });
 });
 

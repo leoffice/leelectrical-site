@@ -99,7 +99,8 @@ export default function Today() {
     const applyPick = () => {
       const raw = peekCalendarPick();
       if (!raw) return;
-      // Still loading events — keep the pick for a later pass.
+      // Events not in memory yet — still jump the week so the tab visibly moves.
+      // Keep the pick so we expand the appointment once the list arrives.
       if (raw.eventId && (!events || !events.length)) {
         if (raw.focusDate) setWeekFocusDate(raw.focusDate);
         return;

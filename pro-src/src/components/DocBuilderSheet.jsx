@@ -52,22 +52,24 @@ import { RECUR_INTERVALS, defaultRecurringState } from "../lib/recurringBilling.
 import { resumeFollowUpPrompts } from "../lib/calendarNavigate.js";
 
 /** Width that hugs the typed number — grows with digits so rate/amount never clip. */
-function numInputStyle(value, { minCh = 8, maxCh = 24, pad = 2 } = {}) {
+function numInputStyle(value, { minCh = 8, maxCh = 28, pad = 3 } = {}) {
   const s = String(value ?? "").trim();
+  // Count display width (commas/$ count); pad so large rates never clip on mobile.
   const ch = Math.max(minCh, Math.min(maxCh, (s.length || 1) + pad));
   return {
-    width: `calc(${ch}ch + 1.25rem)`,
-    minWidth: `calc(${minCh}ch + 1.25rem)`,
-    maxWidth: "100%",
+    width: `calc(${ch}ch + 1.5rem)`,
+    minWidth: `calc(${minCh}ch + 1.5rem)`,
+    maxWidth: "min(100%, 18rem)",
+    fieldSizing: "content",
   };
 }
 
 /** Compact labeled number field — grows with content. */
-function MetricFld({ label, children, testId, minWidth = "6.75rem", className = "" }) {
+function MetricFld({ label, children, testId, minWidth = "7.25rem", className = "" }) {
   return (
     <div
       className={"flex flex-col gap-0.5 overflow-visible shrink-0 " + className}
-      style={{ minWidth, flex: "1 1 auto" }}
+      style={{ minWidth, flex: "1 1 auto", maxWidth: "100%" }}
       data-testid={testId}
     >
       <span className="text-[9px] font-bold uppercase tracking-wide text-slate-400 leading-none px-0.5">
