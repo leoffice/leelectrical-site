@@ -13,7 +13,7 @@ import { useStore } from "../state/store.jsx";
 import { useTenantConfig } from "../state/tenant.jsx";
 import { isModuleEnabled } from "../lib/tenantConfig.js";
 import { buildPermitBoard, isActionNeeded } from "../lib/permitsBoard.js";
-import { computeConedBackfill, applyConedBackfill } from "../lib/permitBackfill.js";
+import { computePermitBackfill, applyPermitBackfill } from "../lib/permitBackfill.js";
 
 /** Health/bucket → pill tone, mirroring the JobDetail Con Ed chip. */
 function stageTone(row) {
@@ -73,9 +73,9 @@ export default function Permits() {
     [jobs, emailInsights, config]
   );
 
-  // How many jobs would gain/refresh a persisted Con Ed record if synced.
+  // How many jobs would gain/refresh a persisted permit record if synced.
   const backfillPlan = useMemo(
-    () => computeConedBackfill({ jobs, insights: emailInsights }),
+    () => computePermitBackfill({ jobs, insights: emailInsights }),
     [jobs, emailInsights]
   );
 
@@ -86,8 +86,8 @@ export default function Permits() {
   const runBackfill = async () => {
     setBusy(true);
     try {
-      const res = await applyConedBackfill({ jobs, insights: emailInsights, patchJob: patchAndSave });
-      showToast(res.changed ? `Synced ${res.changed} Con Ed case${res.changed === 1 ? "" : "s"} to jobs` : "Already up to date");
+      const res = await applyPermitBackfill({ jobs, insights: emailInsights, patchJob: patchAndSave });
+      showToast(res.changed ? `Synced ${res.changed} permit case${res.changed === 1 ? "" : "s"} to jobs` : "Already up to date");
     } catch {
       showToast("Sync failed — try again");
     } finally {
@@ -156,11 +156,6 @@ export default function Permits() {
               {sec.cases.map((row) => (
                 <CaseRow key={row.key} row={row} onOpen={open} />
               ))}
-              {sec.agency === "dob" && sec.cases.some((c) => c.interim) ? (
-                <div className="text-[11px] text-slate-400 px-1">
-                  City / DOB cases are read-only for now — full stage tracking ships in the next update.
-                </div>
-              ) : null}
             </div>
           ) : (
             <div className="card px-4 py-6 text-center text-sm text-slate-400">
@@ -183,9 +178,9 @@ export default function Permits() {
       {confirming ? (
         <div className="fixed inset-0 z-40 flex items-end sm:items-center justify-center bg-black/40 p-4" onClick={() => setConfirming(false)}>
           <div className="card w-full max-w-sm p-4" onClick={(e) => e.stopPropagation()}>
-            <div className="font-bold mb-1">Sync Con Ed cases to jobs?</div>
+            <div className="font-bold mb-1">Sync permit cases to jobs?</div>
             <p className="text-sm text-slate-600 mb-3">
-              Writes {backfillPlan.length} Con Edison case{backfillPlan.length === 1 ? "" : "s"} onto their jobs so the
+              Writes {backfillPlan.length} permit case{backfillPlan.length === 1 ? "" : "s"} onto their jobs so the
               stage also shows on each job&apos;s Paperwork. This just saves what&apos;s already shown here.
             </p>
             <div className="flex gap-2 justify-end">
