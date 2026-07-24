@@ -22,6 +22,7 @@ import { planDocSaveLocal, planDocSaveSync } from "../lib/docSync.js";
 import { enqueueCustomerQboSync } from "../lib/customerQboEnqueue.js";
 import { stashPendingDocSync } from "../lib/docSyncChain.js";
 import { fmt$, parseAmount } from "../lib/format.js";
+import { amountPaid } from "../lib/customers.js";
 import {
   discountInputFromJob,
   docTotalAfterDiscount,
@@ -344,6 +345,11 @@ function CustomerFactsPanel({
   onApartment,
   startEditing,
   coControls,
+  docLabel,
+  docNo,
+  invoicedAmount,
+  dueAmount,
+  progressPct,
 }) {
   const [editing, setEditing] = useState(!!startEditing);
 
@@ -464,11 +470,15 @@ function CustomerFactsPanel({
       ) : (
         <dl className="text-xs space-y-1" data-testid="doc-facts-list">
           <FactRow label="Customer" value={job.businessName || job.customer} />
+          <FactRow label={docLabel || "Invoice"} value={docNo ? "#" + docNo : ""} />
+          <FactRow label="Service" value={svcLine} />
+          <FactRow label="Invoiced" value={invoicedAmount > 0 ? fmt$(invoicedAmount) : ""} />
+          <FactRow label="Due" value={dueAmount > 0 ? fmt$(dueAmount) : ""} />
+          {progressPct != null ? <FactRow label="Progress" value={progressPct + "%"} /> : null}
           <FactRow label="Contact" value={job.personName} />
           <FactRow label="Phone" value={job.phone} />
           <FactRow label="Email" value={job.email} />
           <FactRow label="Billing" value={job.billingAddress} />
-          <FactRow label="Service" value={svcLine} />
           <FactRow label="Scope" value={job.title} />
           {coControls ? <div className="pt-1">{coControls}</div> : null}
         </dl>
@@ -1357,6 +1367,11 @@ export default function DocBuilderSheet({
         apartment={apartment}
         onServiceAddress={setServiceAddress}
         onApartment={setApartment}
+        docLabel={kind === "estimate" ? "Estimate" : "Invoice"}
+        docNo={kind === "estimate" ? job.estimateNo : job.invoiceNo}
+        invoicedAmount={total}
+        dueAmount={Math.max(0, total - amountPaid(job))}
+        progressPct={progressMode ? liveProgressPct : null}
         coControls={
           canToggleCo || alreadyCo || asChangeOrder ? (
             <div className="flex items-center gap-1.5" data-testid="doc-co-toggle-row">
