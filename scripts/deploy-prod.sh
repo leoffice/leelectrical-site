@@ -52,8 +52,27 @@ fi
 
 echo "▸ deploying $(git rev-parse --short HEAD) to prod ($BRANCH) — on the cf-native line ✓"
 
+# --- GUARD 2: no unresolved merge-conflict markers in source ---
+# (le-pro-v224 shipped a broken sw.js with committed `<<<<<<<` markers because a
+#  merge resolution missed it and the SW bump only replaced the first CACHE line.)
+if git grep -lE '^(<<<<<<<|=======|>>>>>>>)' -- 'pro-src/src' 'pro-src/public' 'netlify' 'functions' 'shared' 2>/dev/null | grep -q .; then
+  echo "✗ REFUSING TO DEPLOY: unresolved conflict markers in source:"
+  git grep -lE '^(<<<<<<<|=======|>>>>>>>)' -- 'pro-src/src' 'pro-src/public' 'netlify' 'functions' 'shared' 2>/dev/null | sed 's/^/    /'
+  exit 3
+fi
+
 # --- Build the PWA ---
 ( cd pro-src && npm run build )
+
+# --- GUARD 3: the built service worker must be valid JS (a broken SW breaks PWA updates) ---
+if ! node --check app/pro/sw.js 2>/dev/null; then
+  echo "✗ REFUSING TO DEPLOY: built app/pro/sw.js is not valid JS (conflict markers / syntax error)."
+  exit 4
+fi
+if [ "$(grep -c 'const CACHE' app/pro/sw.js)" -ne 1 ]; then
+  echo "✗ REFUSING TO DEPLOY: app/pro/sw.js has $(grep -c 'const CACHE' app/pro/sw.js) CACHE lines (expected exactly 1)."
+  exit 4
+fi
 
 # --- Stage (root-anchored excludes; deref node_modules; pull gitignored fn wrappers) ---
 STAGE="$(mktemp -d /tmp/prod-stage.XXXXXX)"
