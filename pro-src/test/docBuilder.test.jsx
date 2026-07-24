@@ -37,6 +37,8 @@ describe("Estimate / invoice builder", () => {
     await user.click(within(pane).getByTestId("progress-step-Estimate"));
     await user.click(within(pane).getByTestId("generate-estimate"));
 
+    // Facts box states the service address; Edit reveals the editable field.
+    await user.click(await screen.findByTestId("doc-facts-edit-toggle"));
     const addr = await screen.findByTestId("doc-service-address");
     expect(addr).toHaveValue("10 Broadway");
 
@@ -176,7 +178,7 @@ describe("Estimate / invoice builder", () => {
     expect(srv.enqueued("create_estimate")[0].payload.email).toBe("send@x.com");
   });
 
-  it("condenses address, apt, CO, line metrics, and discount on one row each", async () => {
+  it("states facts up top, edits reveal address/apt, and condenses line metrics + discount", async () => {
     mockServer({
       jobs: [
         {
@@ -200,11 +202,11 @@ describe("Estimate / invoice builder", () => {
     await user.click(within(pane).getByTestId("progress-step-Estimate"));
     await user.click(within(pane).getByTestId("generate-estimate"));
 
-    expect(await screen.findByTestId("doc-address-row")).toBeInTheDocument();
+    // Gray facts box states the info; Edit reveals the address + apt fields.
+    expect(await screen.findByTestId("doc-customer-facts")).toBeInTheDocument();
+    await user.click(screen.getByTestId("doc-facts-edit-toggle"));
     expect(screen.getByTestId("doc-service-address")).toHaveValue("88 Grove");
     expect(screen.getByTestId("doc-apartment")).toHaveValue("3C");
-    // Sites list is a dropdown, not always-visible chips.
-    expect(screen.queryByTestId("doc-service-address-sites-menu")).toBeNull();
     // Discount and total share the footer panel.
     expect(screen.getByTestId("doc-discount-panel")).toContainElement(screen.getByTestId("doc-total"));
     expect(screen.getByTestId("doc-discount-input")).toBeInTheDocument();

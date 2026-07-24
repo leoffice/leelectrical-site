@@ -15,8 +15,8 @@ import {
 } from "../lib/sendDocConfirm.js";
 import DocEmailComposeSheet from "./DocEmailComposeSheet.jsx";
 import { defaultQboItems, filterQboItems } from "../data/qboItems.js";
-import ServiceAddressField from "./ServiceAddressField.jsx";
 import AddressAutocompleteField from "./AddressAutocompleteField.jsx";
+import ServiceAddressField from "./ServiceAddressField.jsx";
 import { emptyLine, initialLines, lineAmount, linesTotal } from "../lib/qboDoc.js";
 import { planDocSaveLocal, planDocSaveSync } from "../lib/docSync.js";
 import { enqueueCustomerQboSync } from "../lib/customerQboEnqueue.js";
@@ -59,6 +59,18 @@ function numInputStyle(value, { minCh = 8, maxCh = 18, pad = 2 } = {}) {
   return { width: ch + "ch", minWidth: minCh + "ch" };
 }
 
+// Flat, underline-style number cell — no pill-in-a-pill. Keeps the row dense on
+// mobile (Levi: "around every text there's a bubble, and around that another bubble").
+const CELL =
+  "w-full bg-transparent border-0 border-b-2 border-slate-200 focus:border-brand rounded-none px-1 py-1.5 text-sm outline-none focus:ring-0 tabular-nums";
+
+/** Is this line billed as progress (fractional % of a full rate) vs plain qty × rate? */
+function lineIsProgress(line, progressMode) {
+  if (line?.progressBilling === true) return true;
+  if (line?.progressBilling === false) return false;
+  return !!progressMode; // default follows the invoice context
+}
+
 /** Labeled money field — hard min width so full rate / % / total never cut off. */
 function MetricFld({ label, children, testId, minWidth = "8.5rem" }) {
   return (
@@ -87,6 +99,8 @@ function LineRow({
   adjustMode,
   onAdjustModeChange,
   onLineProgress,
+  allowProgressToggle,
+  onToggleLineProgress,
 }) {
   const [itemQ, setItemQ] = useState(line.itemName || "");
   const [open, setOpen] = useState(false);
@@ -96,6 +110,7 @@ function LineRow({
   const rate = parseAmount(line.unitPrice) || 0;
   const qty = parseAmount(line.qty) || 0;
   const due = lineAmount(line);
+  const isProg = lineIsProgress(line, progressMode);
   // Progress % from fractional qty (QBO style: full rate × progress qty).
   const linePct = rate > 0 && qty > 0 ? Math.round(qty * 10000) / 100 : qty * 100;
   const progressDisplay = adjustMode === "pct" ? String(linePct || "") : String(due || "");
@@ -120,13 +135,13 @@ function LineRow({
   };
 
   return (
-    <div className="rounded-xl border border-slate-200 bg-white px-2 py-2 mb-2 space-y-1.5" data-testid="doc-line-row">
-      {/* Row 1: product name rectangle (fits the word) + polish + remove */}
-      <div className="flex items-start gap-1.5" data-testid={"doc-line-product-row-" + (index + 1)}>
+    <div className="py-2.5 border-b border-slate-100 last:border-0" data-testid="doc-line-row">
+      {/* Row 1: product name + polish + remove — flat, no card */}
+      <div className="flex items-center gap-1.5" data-testid={"doc-line-product-row-" + (index + 1)}>
         {showChip ? (
           <button
             type="button"
-            className="min-h-[2.5rem] max-w-[min(100%,18rem)] rounded-lg border border-slate-200 bg-slate-50 px-2.5 py-1.5 flex items-center text-left text-xs font-bold leading-snug text-slate-800 break-words"
+            className="flex-1 min-w-0 text-left text-sm font-bold leading-snug text-slate-800 break-words border-b-2 border-transparent hover:border-slate-200 py-1"
             onClick={reOpenItem}
             title={productLabel}
             aria-label={"Product service line " + (index + 1) + " — change"}
@@ -137,7 +152,7 @@ function LineRow({
         ) : (
           <div className="relative flex-1 min-w-0">
             <input
-              className="input !py-2 text-sm"
+              className={CELL + " font-semibold"}
               value={itemQ}
               onChange={(e) => {
                 setItemQ(e.target.value);
@@ -210,39 +225,28 @@ function LineRow({
         placeholder="Description…"
       />
 
-      {/* Row 3: rate / qty|progress / amount — hard min widths so nothing clips */}
-      <div
-        className="grid w-full gap-2 items-end overflow-visible"
-        style={{
-          gridTemplateColumns: "minmax(8.5rem, 1.15fr) minmax(7rem, 1fr) minmax(8.5rem, 1.15fr)",
-        }}
-        data-testid={"doc-line-metrics-" + (index + 1)}
-      >
-        <MetricFld label={progressMode ? "Full rate" : "Rate"} testId={"doc-line-rate-fld-" + (index + 1)}>
+      {/* Row 3: rate + (progress %/$ | qty) + amount — flat underline cells */}
+      <div className="flex items-end gap-2 mt-1 overflow-visible" data-testid={"doc-line-metrics-" + (index + 1)}>
+        <MetricFld label={isProg ? "Full rate" : "Rate"} testId={"doc-line-rate-fld-" + (index + 1)} minWidth="4.5rem">
           <input
-            className="input !px-2 !py-1.5 text-sm text-right tabular-nums w-full overflow-visible"
-            style={numInputStyle(line.unitPrice, { minCh: 9, maxCh: 16 })}
+            className={CELL + " text-right"}
             inputMode="decimal"
             value={line.unitPrice}
             onChange={(e) => onChange(index, { unitPrice: e.target.value })}
             aria-label={"Rate line " + (index + 1)}
-            title={progressMode ? "Full job rate for this line" : "Rate"}
+            title={isProg ? "Full job rate for this line" : "Rate per unit"}
             placeholder="0"
           />
         </MetricFld>
-        {progressMode ? (
+        {isProg ? (
           <MetricFld
             label={adjustMode === "pct" ? "Progress %" : "This bill $"}
             testId={"doc-line-progress-" + (index + 1)}
-            minWidth="7rem"
+            minWidth="6rem"
           >
             <div className="flex items-center gap-1 w-full overflow-visible">
               <input
-                className="input !px-1.5 !py-1.5 text-center text-sm tabular-nums flex-1 overflow-visible"
-                style={numInputStyle(progressDisplay, {
-                  minCh: adjustMode === "pct" ? 6 : 9,
-                  maxCh: 14,
-                })}
+                className={CELL + " text-center flex-1"}
                 inputMode="decimal"
                 value={progressDisplay}
                 onChange={(e) => onLineProgress && onLineProgress(index, e.target.value)}
@@ -253,7 +257,7 @@ function LineRow({
               />
               <button
                 type="button"
-                className="h-9 shrink-0 min-w-[2rem] px-1.5 rounded-lg border border-slate-200 bg-white text-[11px] font-extrabold text-slate-700"
+                className="h-8 shrink-0 min-w-[1.9rem] px-1.5 rounded-md bg-slate-100 text-[11px] font-extrabold text-slate-600"
                 onClick={() => onAdjustModeChange && onAdjustModeChange(adjustMode === "pct" ? "amount" : "pct")}
                 aria-label={adjustMode === "pct" ? "Switch progress to dollars" : "Switch progress to percent"}
                 data-testid={"progress-mode-toggle-" + (index + 1)}
@@ -264,10 +268,9 @@ function LineRow({
             </div>
           </MetricFld>
         ) : (
-          <MetricFld label="Qty" testId={"doc-line-qty-fld-" + (index + 1)} minWidth="5.5rem">
+          <MetricFld label="Qty" testId={"doc-line-qty-fld-" + (index + 1)} minWidth="3rem">
             <input
-              className="input !px-2 !py-1.5 text-sm text-center tabular-nums w-full overflow-visible"
-              style={numInputStyle(line.qty, { minCh: 4, maxCh: 10 })}
+              className={CELL + " text-center"}
               inputMode="decimal"
               value={line.qty}
               onChange={(e) => onChange(index, { qty: e.target.value })}
@@ -277,10 +280,9 @@ function LineRow({
             />
           </MetricFld>
         )}
-        <MetricFld label={progressMode ? "Line total" : "Amount"} testId={"doc-line-amount-fld-" + (index + 1)}>
+        <MetricFld label={isProg ? "Line total" : "Amount"} testId={"doc-line-amount-fld-" + (index + 1)} minWidth="4.5rem">
           <div
-            className="input !px-2 !py-1.5 bg-slate-50 text-slate-700 font-semibold text-right text-sm tabular-nums w-full overflow-visible whitespace-nowrap"
-            style={numInputStyle(fmt$(due) || due, { minCh: 9, maxCh: 16 })}
+            className="px-1 py-1.5 text-slate-900 font-bold text-right text-sm tabular-nums w-full whitespace-nowrap border-b-2 border-transparent"
             aria-label={"Due line " + (index + 1)}
             data-testid={"doc-line-amount-" + (index + 1)}
           >
@@ -288,19 +290,67 @@ function LineRow({
           </div>
         </MetricFld>
       </div>
+
+      {allowProgressToggle ? (
+        <button
+          type="button"
+          className="mt-1.5 inline-flex items-center gap-1 text-[11px] font-semibold text-slate-500"
+          onClick={() => onToggleLineProgress && onToggleLineProgress(index, !isProg)}
+          data-testid={"doc-line-progress-toggle-" + (index + 1)}
+          aria-pressed={isProg}
+          title={isProg ? "This line bills as progress — tap for quantity × rate" : "This line bills quantity × rate — tap for progress"}
+        >
+          <span
+            className={
+              "inline-flex h-4 w-7 items-center rounded-full px-0.5 transition-colors " +
+              (isProg ? "bg-brand justify-end" : "bg-slate-300 justify-start")
+            }
+          >
+            <span className="h-3 w-3 rounded-full bg-white" />
+          </span>
+          {isProg ? "Progress item" : "Quantity item"}
+        </button>
+      ) : null}
     </div>
   );
 }
 
-function CustomerHeaderPanel({ job, allJobs, events, api, onPatch }) {
+/** One read-only fact line inside the gray summary box. */
+function FactRow({ label, value }) {
+  if (!String(value || "").trim()) return null;
+  return (
+    <div className="flex gap-2 items-baseline">
+      <dt className="font-semibold text-slate-500 shrink-0 w-[5.5rem]">{label}</dt>
+      <dd className="text-slate-800 break-words min-w-0">{value}</dd>
+    </div>
+  );
+}
+
+/**
+ * Gray "facts" box: all customer + service-address + basic info stated up top,
+ * read-only, with one Edit button that reveals the fields only when needed
+ * (Levi: condensed; edit customer info only if you have to).
+ */
+function CustomerFactsPanel({
+  job,
+  allJobs,
+  events,
+  api,
+  onPatch,
+  allowCustomerSearch,
+  serviceAddress,
+  apartment,
+  onServiceAddress,
+  onApartment,
+  startEditing,
+  coControls,
+}) {
+  const [editing, setEditing] = useState(!!startEditing);
+
   const applyCustomer = async (c) => {
     if (!c) return;
     if (c._newCustomer) {
-      onPatch({
-        businessName: c.name || "",
-        customer: c.name || "",
-        qboCustomerId: "",
-      });
+      onPatch({ businessName: c.name || "", customer: c.name || "", qboCustomerId: "" });
       return;
     }
     const patch = await enrichAndPatchCustomer(c, allJobs, api);
@@ -318,44 +368,111 @@ function CustomerHeaderPanel({ job, allJobs, events, api, onPatch }) {
   };
 
   const set = (k) => (e) => onPatch({ [k]: e.target.value });
+  const svcLine = [serviceAddress, apartment && "Apt " + apartment].filter(Boolean).join(", ");
 
   return (
-    <div className="mb-4 pb-3 border-b border-slate-200" data-testid="doc-customer-header">
-      <p className="text-[11px] font-bold uppercase tracking-wide text-slate-400 mb-2">Customer</p>
-      <Fld label="Customer name" hint="Search app + QuickBooks — orange = not in QuickBooks yet">
-        <CustomerSearch
-          label="Customer name"
-          testId="doc-customer-search"
-          value={job.businessName || job.customer || ""}
-          onChangeText={(v) => onPatch({ businessName: v, customer: v, qboCustomerId: "" })}
-          onPick={applyCustomer}
-          jobs={allJobs}
-        />
-      </Fld>
-      <Fld label="Person name">
-        <input className="input" value={job.personName || ""} onChange={set("personName")} aria-label="Person name" />
-      </Fld>
-      <Fld label="Phone">
-        <input className="input" value={job.phone || ""} onChange={set("phone")} aria-label="Phone" />
-      </Fld>
-      <Fld label="Email">
-        <input className="input" value={job.email || ""} onChange={set("email")} aria-label="Email" />
-      </Fld>
-      <Fld label="Billing address" hint="Your saved addresses first, then real-world matches as you type">
-        <AddressAutocompleteField
-          label="Billing address"
-          value={job.billingAddress || ""}
-          onChange={(v) => onPatch({ billingAddress: v })}
-          jobs={allJobs}
-          events={events}
-          suggestAddresses={api.suggestAddresses?.bind(api)}
-          testId="doc-billing"
-          ariaLabel="Billing address"
-        />
-      </Fld>
-      <Fld label="Job title / scope" hint="What this invoice is for">
-        <input className="input" value={job.title || ""} onChange={set("title")} aria-label="Job title" />
-      </Fld>
+    <div
+      className="mb-3 rounded-2xl border border-slate-200 bg-slate-50 px-3 py-3"
+      data-testid="doc-customer-facts"
+    >
+      <div className="flex items-center gap-2 mb-1.5">
+        <p className="text-[11px] font-extrabold uppercase tracking-wider text-slate-500 flex-1">
+          Bill to
+        </p>
+        <button
+          type="button"
+          className="text-[11px] font-semibold text-slate-600 hover:text-brand px-2 py-0.5 rounded-md border border-slate-200 bg-white shrink-0"
+          onClick={() => setEditing((v) => !v)}
+          data-testid="doc-facts-edit-toggle"
+          aria-pressed={editing}
+        >
+          {editing ? "Done" : "✏️ Edit"}
+        </button>
+      </div>
+
+      {editing ? (
+        <div className="space-y-2">
+          {allowCustomerSearch ? (
+            <Fld label="Customer name" hint="Search app + QuickBooks — orange = not in QuickBooks yet">
+              <CustomerSearch
+                label="Customer name"
+                testId="doc-customer-search"
+                value={job.businessName || job.customer || ""}
+                onChangeText={(v) => onPatch({ businessName: v, customer: v, qboCustomerId: "" })}
+                onPick={applyCustomer}
+                jobs={allJobs}
+              />
+            </Fld>
+          ) : (
+            <div className="text-sm font-bold text-slate-800 px-0.5">
+              {job.businessName || job.customer || "—"}
+            </div>
+          )}
+          <Fld label="Person name">
+            <input className="input" value={job.personName || ""} onChange={set("personName")} aria-label="Person name" />
+          </Fld>
+          <div className="grid grid-cols-2 gap-2">
+            <Fld label="Phone">
+              <input className="input" value={job.phone || ""} onChange={set("phone")} aria-label="Phone" inputMode="tel" />
+            </Fld>
+            <Fld label="Email">
+              <input className="input" value={job.email || ""} onChange={set("email")} aria-label="Email" inputMode="email" />
+            </Fld>
+          </div>
+          <Fld label="Billing address" hint="Saved addresses first, then real-world matches as you type">
+            <AddressAutocompleteField
+              label="Billing address"
+              value={job.billingAddress || ""}
+              onChange={(v) => onPatch({ billingAddress: v })}
+              jobs={allJobs}
+              events={events}
+              suggestAddresses={api.suggestAddresses?.bind(api)}
+              testId="doc-billing"
+              ariaLabel="Billing address"
+            />
+          </Fld>
+          <Fld label="Service address" hint="Where the work is — pick a saved site or type a new one">
+            <div className="flex items-stretch gap-1.5">
+              <ServiceAddressField
+                job={job}
+                jobs={allJobs}
+                events={events}
+                value={serviceAddress}
+                onChange={onServiceAddress}
+                onApartmentChange={onApartment}
+                suggestAddresses={api.suggestAddresses?.bind(api)}
+                testId="doc-service-address"
+                partialOk={false}
+                sitePicker="dropdown"
+                compact
+              />
+              <input
+                className="input !w-[4.5rem] shrink-0"
+                value={apartment}
+                onChange={(e) => onApartment(e.target.value)}
+                aria-label="Apartment"
+                placeholder="Apt"
+                data-testid="doc-apartment"
+              />
+            </div>
+          </Fld>
+          <Fld label="Job title / scope" hint="What this invoice is for">
+            <input className="input" value={job.title || ""} onChange={set("title")} aria-label="Job title" />
+          </Fld>
+          {coControls}
+        </div>
+      ) : (
+        <dl className="text-xs space-y-1" data-testid="doc-facts-list">
+          <FactRow label="Customer" value={job.businessName || job.customer} />
+          <FactRow label="Contact" value={job.personName} />
+          <FactRow label="Phone" value={job.phone} />
+          <FactRow label="Email" value={job.email} />
+          <FactRow label="Billing" value={job.billingAddress} />
+          <FactRow label="Service" value={svcLine} />
+          <FactRow label="Scope" value={job.title} />
+          {coControls ? <div className="pt-1">{coControls}</div> : null}
+        </dl>
+      )}
     </div>
   );
 }
@@ -560,6 +677,26 @@ export default function DocBuilderSheet({
 
   const changeLine = useCallback((i, patch) => {
     setLines((rows) => rows.map((ln, idx) => (idx === i ? { ...ln, ...patch } : ln)));
+  }, []);
+
+  /**
+   * Flip one line between progress billing (fractional % of a full rate) and
+   * plain quantity × rate. Rewrites qty/unitPrice so the shown Amount stays put:
+   * → progress: full rate = current amount, qty = 1 (100%), then dial % down.
+   * → quantity: rate = full rate, qty reset to a whole 1.
+   */
+  const toggleLineProgress = useCallback((i, on) => {
+    setLines((rows) =>
+      rows.map((ln, idx) => {
+        if (idx !== i) return ln;
+        if (on) {
+          const amt = lineAmount(ln);
+          const full = parseAmount(ln.unitPrice) || amt || 0;
+          return { ...ln, progressBilling: true, unitPrice: full || amt, qty: full ? roundQty(amt / full) : 1 };
+        }
+        return { ...ln, progressBilling: false, qty: parseAmount(ln.qty) >= 0.9999 ? ln.qty : 1 };
+      })
+    );
   }, []);
 
   const applyProgressPct = useCallback(
@@ -797,6 +934,19 @@ export default function DocBuilderSheet({
       "DRAFT",
   });
 
+  // Contact fields the facts box can edit. planDocSave* never touches these, so
+  // merging them onto the save patch is what persists an Edit in the gray box.
+  const contactFieldsPatch = ({ withEmail = true } = {}) => {
+    const p = {};
+    const keys = ["businessName", "customer", "personName", "phone", "billingAddress"];
+    if (withEmail) keys.push("email");
+    for (const k of keys) {
+      const v = job[k];
+      if (v != null && String(v).trim() !== "") p[k] = v;
+    }
+    return p;
+  };
+
   /** @param {{ close?: boolean, printPdf?: boolean, toast?: string }} opts */
   const submitLocal = async (opts = {}) => {
     const close = opts.close !== false;
@@ -820,7 +970,7 @@ export default function DocBuilderSheet({
         discountType,
         discountValue,
       });
-      Object.assign(jobPatch, coTagsFromJob(activeJob));
+      Object.assign(jobPatch, coTagsFromJob(activeJob), contactFieldsPatch());
       if (attachments.length) {
         jobPatch.attachments = (job.attachments || []).concat(attachments);
       }
@@ -903,7 +1053,8 @@ export default function DocBuilderSheet({
         discountType,
         discountValue,
       });
-      Object.assign(jobPatch, coTagsFromJob(activeJob));
+      // Email is resolved by the keep/use-once logic below — exclude it here.
+      Object.assign(jobPatch, coTagsFromJob(activeJob), contactFieldsPatch({ withEmail: false }));
       if (keepOnCustomer) jobPatch.email = emailTo;
       else delete jobPatch.email;
 
@@ -1194,56 +1345,40 @@ export default function DocBuilderSheet({
 
   return (
     <Sheet title={title + (job.customer ? " — " + job.customer : "")} onClose={onClose} wide>
-      {editableCustomer ? (
-        <CustomerHeaderPanel job={job} allJobs={boardJobs} events={events} api={api} onPatch={patchJobState} />
-      ) : (
-        <p className="text-[11px] text-slate-400 -mt-1 mb-3">
-          Pre-filled from job info. Line items use exact QuickBooks Products &amp; Services names.
-        </p>
-      )}
-
-      {/* Address + apt + CO on one condensed row */}
-      <div className="flex flex-wrap items-center gap-1.5 mb-3" data-testid="doc-address-row">
-        <ServiceAddressField
-          job={job}
-          jobs={boardJobs}
-          events={events}
-          value={serviceAddress}
-          onChange={setServiceAddress}
-          onApartmentChange={setApartment}
-          suggestAddresses={api.suggestAddresses?.bind(api)}
-          testId="doc-service-address"
-          partialOk={false}
-          sitePicker="dropdown"
-          compact
-        />
-        <input
-          className="input !w-[4.5rem] !px-2 !py-2 text-sm shrink-0"
-          value={apartment}
-          onChange={(e) => setApartment(e.target.value)}
-          aria-label="Apartment"
-          placeholder="Apt"
-          data-testid="doc-apartment"
-          title="Apartment / unit"
-        />
-        {canToggleCo || alreadyCo || asChangeOrder ? (
-          <div className="flex items-center gap-1.5 shrink-0 ml-auto" data-testid="doc-co-toggle-row">
-            <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wide">CO</span>
-            <Toggle
-              on={!!(asChangeOrder || alreadyCo)}
-              onChange={applyCoToggle}
-              label={
-                asChangeOrder || alreadyCo
-                  ? coPreview
-                    ? "Change order on — " + coPreview
-                    : "Change order on"
-                  : "Change order off"
-              }
-              small
-            />
-          </div>
-        ) : null}
-      </div>
+      <CustomerFactsPanel
+        job={job}
+        allJobs={boardJobs}
+        events={events}
+        api={api}
+        onPatch={patchJobState}
+        allowCustomerSearch={editableCustomer}
+        startEditing={editableCustomer}
+        serviceAddress={serviceAddress}
+        apartment={apartment}
+        onServiceAddress={setServiceAddress}
+        onApartment={setApartment}
+        coControls={
+          canToggleCo || alreadyCo || asChangeOrder ? (
+            <div className="flex items-center gap-1.5" data-testid="doc-co-toggle-row">
+              <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wide">
+                Change order
+              </span>
+              <Toggle
+                on={!!(asChangeOrder || alreadyCo)}
+                onChange={applyCoToggle}
+                label={
+                  asChangeOrder || alreadyCo
+                    ? coPreview
+                      ? "Change order on — " + coPreview
+                      : "Change order on"
+                    : "Change order off"
+                }
+                small
+              />
+            </div>
+          ) : null
+        }
+      />
 
       {progressMode ? (
         <div
@@ -1285,21 +1420,25 @@ export default function DocBuilderSheet({
       <p className="text-[11px] font-bold uppercase tracking-wide text-slate-400 mt-1 mb-1.5">
         Line items
       </p>
-      {lines.map((ln, i) => (
-        <LineRow
-          key={i}
-          line={ln}
-          index={i}
-          items={items}
-          onChange={changeLine}
-          onRemove={(idx) => setLines((rows) => rows.filter((_, j) => j !== idx))}
-          canRemove={lines.length > 1}
-          progressMode={progressMode}
-          adjustMode={adjustMode}
-          onAdjustModeChange={setAdjustMode}
-          onLineProgress={onLineProgress}
-        />
-      ))}
+      <div className="rounded-2xl border border-slate-200 bg-white px-3 mb-3">
+        {lines.map((ln, i) => (
+          <LineRow
+            key={i}
+            line={ln}
+            index={i}
+            items={items}
+            onChange={changeLine}
+            onRemove={(idx) => setLines((rows) => rows.filter((_, j) => j !== idx))}
+            canRemove={lines.length > 1}
+            progressMode={progressMode}
+            adjustMode={adjustMode}
+            onAdjustModeChange={setAdjustMode}
+            onLineProgress={onLineProgress}
+            allowProgressToggle={progressMode || asChangeOrder}
+            onToggleLineProgress={toggleLineProgress}
+          />
+        ))}
+      </div>
       <button
         type="button"
         className="btn-ghost w-full !py-1.5 mb-3 text-sm"

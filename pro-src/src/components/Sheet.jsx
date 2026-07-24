@@ -1,9 +1,12 @@
 // Sheet — bottom sheet on mobile, centered modal on desktop (>=1024px).
-import React, { useEffect } from "react";
+import React, { useEffect, useRef } from "react";
 import { registerSheet } from "../lib/sheetRegistry.js";
 import { lockBodyScroll } from "../lib/scrollLock.js";
 
 export default function Sheet({ title, onClose, children, wide, tall, testId, urgent = false }) {
+  const shellRef = useRef(null);
+  const bodyRef = useRef(null);
+
   useEffect(() => {
     const h = (e) => e.key === "Escape" && onClose && onClose();
     window.addEventListener("keydown", h);
@@ -17,12 +20,75 @@ export default function Sheet({ title, onClose, children, wide, tall, testId, ur
   // close, so content never shifts under the user's cursor.
   useEffect(() => lockBodyScroll(), []);
 
+  // iOS keyboard handling. In a position:fixed modal with the body scroll-locked,
+  // WebKit can't scroll a focused input above the software keyboard — the field
+  // stays hidden ("sometimes it wouldn't") and the keyboard animation stalls for
+  // seconds. We instead pin the sheet shell to the *visual* viewport (the area
+  // above the keyboard) and pull the focused field into the sheet's own scroller.
+  useEffect(() => {
+    const vv = typeof window !== "undefined" ? window.visualViewport : null;
+    const shell = shellRef.current;
+    if (!vv || !shell) return;
+    const apply = () => {
+      const kb = Math.max(0, window.innerHeight - vv.height - vv.offsetTop);
+      if (kb > 80) {
+        // Keyboard is up — constrain the shell to the visible strip above it.
+        shell.style.top = vv.offsetTop + "px";
+        shell.style.height = vv.height + "px";
+        shell.style.bottom = "auto";
+      } else {
+        shell.style.top = "";
+        shell.style.height = "";
+        shell.style.bottom = "";
+      }
+    };
+    apply();
+    vv.addEventListener("resize", apply);
+    vv.addEventListener("scroll", apply);
+    return () => {
+      vv.removeEventListener("resize", apply);
+      vv.removeEventListener("scroll", apply);
+      shell.style.top = "";
+      shell.style.height = "";
+      shell.style.bottom = "";
+    };
+  }, []);
+
+  // Bring the tapped field into view inside the sheet's scroller (not the page).
+  // Touch only — desktop mouse users don't have a keyboard covering the field,
+  // and forcing a scroll on every click would feel jumpy.
+  useEffect(() => {
+    const body = bodyRef.current;
+    const coarse =
+      typeof window !== "undefined" &&
+      (("ontouchstart" in window) ||
+        (window.matchMedia && window.matchMedia("(pointer: coarse)").matches));
+    if (!body || !coarse) return;
+    const onFocusIn = (e) => {
+      const el = e.target;
+      if (!el || !/^(INPUT|TEXTAREA|SELECT)$/.test(el.tagName || "")) return;
+      // Let the keyboard begin resizing the viewport, then center the field.
+      window.setTimeout(() => {
+        try {
+          el.scrollIntoView({ block: "center", behavior: "smooth" });
+        } catch {
+          try {
+            el.scrollIntoView(false);
+          } catch {}
+        }
+      }, 130);
+    };
+    body.addEventListener("focusin", onFocusIn);
+    return () => body.removeEventListener("focusin", onFocusIn);
+  }, []);
+
   const cardShell = urgent
     ? "bg-red-50/95 border border-red-200/60 animate-insp-heartbeat"
     : "bg-white";
 
   return (
     <div
+      ref={shellRef}
       className="fixed inset-0 z-[60] flex items-end lg:items-center justify-center"
       role="dialog"
       aria-modal="true"
@@ -46,7 +112,7 @@ export default function Sheet({ title, onClose, children, wide, tall, testId, ur
             ✕
           </button>
         </div>
-        <div className="overflow-y-auto lg-scroll-hidden px-5 pb-6 lg:pb-5 pb-safe" data-testid="sheet-body">{children}</div>
+        <div ref={bodyRef} className="overflow-y-auto lg-scroll-hidden px-5 pb-6 lg:pb-5 pb-safe" data-testid="sheet-body">{children}</div>
       </div>
     </div>
   );

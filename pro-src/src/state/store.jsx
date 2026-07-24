@@ -43,6 +43,23 @@ import { flushAllDebouncedPatches } from "../lib/useDebouncedPatch.js";
 const DataCtx = createContext(null);
 const EditCtx = createContext(null);
 const DRAFT_KEY = "lepro_draft_v1";
+
+// Background polls fire every 8–60s. When the fetched snapshot is byte-for-byte
+// what we already hold, returning the SAME reference lets React bail out of the
+// render — so idle ticks never re-render the tree (and never stutter typing in
+// an open sheet). The stringify cost is trivial next to a full-tree re-render.
+function sameSnapshot(a, b) {
+  if (a === b) return true;
+  try {
+    return JSON.stringify(a) === JSON.stringify(b);
+  } catch {
+    return false;
+  }
+}
+/** setState that no-ops (keeps identity) when the next value equals the current. */
+function keepIfSame(setter, next) {
+  setter((prev) => (sameSnapshot(prev, next) ? prev : next));
+}
 const DRAFT_PERSIST_MS = 400;
 
 function loadDraft() {
@@ -155,9 +172,12 @@ export function StoreProvider({ children }) {
       // Never wipe the list when the server returns empty during a sync blip.
       if (stale) {
         // Blob lag — keep saved edits, but still show brand-new QBO jobs.
-        setJobs((prev) => mergeJobsStaleGuard(prev, incoming));
+        setJobs((prev) => {
+          const merged = mergeJobsStaleGuard(prev, incoming);
+          return sameSnapshot(prev, merged) ? prev : merged;
+        });
       } else if (incoming.length || !jobsCountRef.current) {
-        setJobs(incoming);
+        keepIfSame(setJobs, incoming);
       }
       setSyncedAt(meta.syncedAt || 0);
       setError("");
@@ -172,7 +192,7 @@ export function StoreProvider({ children }) {
 
   const refreshCommands = useCallback(async () => {
     try {
-      setCommands(await api.listCommands());
+      keepIfSame(setCommands, await api.listCommands());
     } catch {}
   }, []);
 
@@ -184,13 +204,19 @@ export function StoreProvider({ children }) {
   const refreshEvents = useCallback(async ({ pull = false, awaitPull = true } = {}) => {
     try {
       const meta = await api.listEventsMeta();
-      setEvents((prev) => mergePendingEvents(prev, meta.events || []));
+      setEvents((prev) => {
+        const merged = mergePendingEvents(prev, meta.events || []);
+        return sameSnapshot(prev, merged) ? prev : merged;
+      });
       setEventsSyncedAt(meta.syncedAt || 0);
       if (pull && api.pullCalendar) {
         const beforeSync = meta.syncedAt || 0;
         const run = async () => {
           const evs = await api.pullCalendar();
-          setEvents((prev) => mergePendingEvents(prev, evs));
+          setEvents((prev) => {
+            const merged = mergePendingEvents(prev, evs);
+            return sameSnapshot(prev, merged) ? prev : merged;
+          });
           const m = await api.listEventsMeta();
           setEventsSyncedAt(m.syncedAt || 0);
           return (m.syncedAt || 0) > beforeSync;
@@ -230,7 +256,7 @@ export function StoreProvider({ children }) {
 
   const refreshDev = useCallback(async () => {
     try {
-      setDevTasks(await api.listDevTasks());
+      keepIfSame(setDevTasks, await api.listDevTasks());
     } catch {}
   }, []);
 
@@ -238,15 +264,15 @@ export function StoreProvider({ children }) {
   const refreshSas = useCallback(async () => {
     try {
       const [calls, tickets] = await Promise.all([api.listSasCalls(), api.getSasTickets()]);
-      setSasCalls(Array.isArray(calls) ? calls : []);
-      setSasTickets(tickets || {});
+      keepIfSame(setSasCalls, Array.isArray(calls) ? calls : []);
+      keepIfSame(setSasTickets, tickets || {});
     } catch {}
   }, []);
 
   const refreshEmailInsights = useCallback(async () => {
     if (!api.listEmailInsights) return;
     try {
-      setEmailInsights(await api.listEmailInsights());
+      keepIfSame(setEmailInsights, await api.listEmailInsights());
     } catch {}
   }, []);
 
