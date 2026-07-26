@@ -1,6 +1,7 @@
 // Toast when send_invoice / send_estimate commands finish or fail.
 import { useEffect, useRef } from "react";
 import { useStoreData } from "../state/store.jsx";
+import { isSendTracked } from "../lib/sendTracking.js";
 
 const SEEN_KEY = "le-pro-send-seen";
 
@@ -39,6 +40,13 @@ export default function SendInvoiceWatcher() {
       if (c.type !== "send_invoice" && c.type !== "send_estimate") continue;
       if (c.status !== "done" && c.status !== "failed") continue;
       if (seen.current.has(c.id)) continue;
+      // A confirm sheet is awaiting this send and owns the single toast/side-effects
+      // (success confirmation + close, or error + retry). Don't double-toast it.
+      if (isSendTracked(c.id)) {
+        seen.current.add(c.id);
+        persistSeen(seen.current);
+        continue;
+      }
       seen.current.add(c.id);
       persistSeen(seen.current);
       if (c.status === "done") {

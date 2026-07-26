@@ -22,6 +22,11 @@ import { enrichAndPatchCustomer } from "./NewJobFlow.jsx";
 import AddressAutocompleteField from "./AddressAutocompleteField.jsx";
 import { syncBillingFromService } from "../lib/addressSync.js";
 import { useStore } from "../state/store.jsx";
+import {
+  awaitCommandTerminal,
+  markSendTracked,
+  reportSendFailure,
+} from "../lib/sendTracking.js";
 import { productName } from "../lib/tenantBranding.js";
 import { useTenantConfig } from "../state/tenant.jsx";
 
@@ -235,12 +240,7 @@ export function useDoSend() {
                 };
           const idk =
             "send_" + kind + ":local:" + (no || job.id) + ":" + Date.now();
-          await enqueue("send_" + kind, job.id, payload, "deterministic", idk);
-          showToast(
-            noKey
-              ? "Sending via office email — you'll get a toast when it lands"
-              : "Could not send right now (" + detail + "). Queued for retry — check Activity."
-          );
+          const queuedCmd = await enqueue("send_" + kind, job.id, payload, "deterministic", idk);
           // Queued is NOT sent. Reporting ok:true here closed the confirm sheet
           // as if the document had gone out, while the status line still read
           // "Never sent" — the send never actually happened. Surface it as
@@ -249,6 +249,8 @@ export function useDoSend() {
             ok: false,
             queued: true,
             pending: true,
+            commandId: queuedCmd?.id || "",
+            reason: detail,
             error: noKey
               ? "Not sent yet — queued for the office email retry. Check Activity."
               : "Not sent (" + detail + "). Queued for retry — check Activity.",
@@ -280,13 +282,68 @@ export function useDoSend() {
       kind === "invoice" && withPay
         ? "send_invoice_pay:qbo:" + no + ":" + Date.now()
         : "send_" + kind + ":qbo:" + no + ":" + Date.now();
-    await enqueue("send_" + kind, job.id, payload, "deterministic", idk);
-    showToast(
-      withPay
-        ? "Sending " + via + " with payment link — you'll get a toast when it lands"
-        : "Sending " + via + " — you'll get a toast when it lands"
-    );
-    return { ok: true, queued: true };
+    const qboCmd = await enqueue("send_" + kind, job.id, payload, "deterministic", idk);
+    // The confirm sheet awaits this command to its terminal state and owns the
+    // final toast — so we don't fire an optimistic "you'll get a toast" here.
+    return { ok: true, queued: true, commandId: qboCmd?.id || "" };
+  };
+}
+
+/**
+ * Send + confirm the true outcome, so feedback is accurate and never
+ * contradictory. Resolves to { sent: true } only when the send actually
+ * landed (client Resend, or a queued command that reached "done"); otherwise
+ * { sent: false, error } (or { pending: true } if still unconfirmed). While a
+ * queued command is awaited it is marked tracked so the global SendInvoiceWatcher
+ * stays quiet — the sheet owns the single toast. A confirmed failure is
+ * auto-reported to the monitored Dispatch queue.
+ */
+export function useApproveSend() {
+  const doSend = useDoSend();
+  const { api, showToast, logSend, patchAndSave, addDevTask } = useStore();
+  return async (job, kind, opts = {}) => {
+    const no = kind === "invoice" ? job.invoiceNo : job.estimateNo;
+    const email = (opts.email || job.email || "").trim();
+    const label = kind === "estimate" ? "Estimate" : "Invoice";
+    const result = await doSend(job, kind, opts);
+
+    // Client delivered it directly, or it was accepted with no trackable command
+    // (e.g. deduped) — treat ok:true without a command id as done. useDoSend
+    // already toasted the direct-send case; the watcher covers any untracked one.
+    if (result?.ok && !result.commandId) {
+      return { sent: true };
+    }
+
+    const cmdId = result?.commandId;
+    if (cmdId) {
+      markSendTracked(cmdId); // watcher stays quiet — the sheet owns feedback
+      const term = await awaitCommandTerminal(api, cmdId);
+      if (term.status === "done") {
+        logSend(job.id, label + (no ? " #" + no : "") + " emailed", email);
+        patchAndSave(job.id, { _docEmailed: true, _draftChangeOrder: false }).catch(() => {});
+        showToast(label + (no ? " #" + no : "") + " emailed to " + email);
+        return { sent: true };
+      }
+      if (term.status === "failed") {
+        const reason = term.error || result?.reason || "send failed";
+        // Host exhausted its built-in retries — auto-report for triage.
+        reportSendFailure(addDevTask, { kind, no, email, reason, jobId: job.id });
+        return {
+          sent: false,
+          error: label + " did NOT send — " + String(reason).slice(0, 120) + ". Retry, or check Activity.",
+        };
+      }
+      // Still pending after the wait — never claim success; keep the sheet open.
+      return {
+        sent: false,
+        pending: true,
+        error: "Still sending — not confirmed yet. Tap Retry, or check Activity.",
+      };
+    }
+
+    // Hard failure with no queued command (usually user-actionable: no email /
+    // no line items). Surface it; don't spam Dispatch for input problems.
+    return { sent: false, error: result?.error || label + " did NOT send." };
   };
 }
 
@@ -2197,7 +2254,7 @@ export function PaymentLinkSheet({ job, onClose }) {
   const [paySendBusy, setPaySendBusy] = useState(false);
   const [paySendErr, setPaySendErr] = useState("");
   const deadline = useRef(0);
-  const doSend = useDoSend();
+  const approveSend = useApproveSend();
 
   useEffect(() => {
     setLinkAmount(paylinkAmountRaw(openBalance(job)) || "");
@@ -2331,7 +2388,7 @@ export function PaymentLinkSheet({ job, onClose }) {
           setPaySendBusy(true);
           setPaySendErr("");
           beginPromptWorkPause();
-          const result = await doSend(job, "invoice", {
+          const result = await approveSend(job, "invoice", {
             includePaymentLink: true,
             email: model.email,
             docSource: model.docSource,
@@ -2341,7 +2398,7 @@ export function PaymentLinkSheet({ job, onClose }) {
             emailPolicy: model.emailPolicy,
           });
           setPaySendBusy(false);
-          if (result?.ok) {
+          if (result?.sent) {
             onClose();
             return;
           }
@@ -2493,7 +2550,7 @@ export function PaymentLinkSheet({ job, onClose }) {
 
 /* ---------- 2a. Invoice / Estimate quick view ---------- */
 export function DocSheet({ job, kind, onClose, onEdit, onConvert, onSync }) {
-  const doSend = useDoSend();
+  const approveSend = useApproveSend();
   const { commands } = useStore();
   const [sendPick, setSendPick] = useState(null); // { withPay, title }
   const [confirmSend, setConfirmSend] = useState(null); // { withPay, docSource }
@@ -2520,7 +2577,7 @@ export function DocSheet({ job, kind, onClose, onEdit, onConvert, onSync }) {
           setSendBusy(true);
           setSendErr("");
           beginPromptWorkPause();
-          const result = await doSend(job, kind, {
+          const result = await approveSend(job, kind, {
             docSource: model.docSource,
             includePaymentLink: model.withPay,
             email: model.email,
@@ -2529,11 +2586,11 @@ export function DocSheet({ job, kind, onClose, onEdit, onConvert, onSync }) {
             emailPolicy: model.emailPolicy,
           });
           setSendBusy(false);
-          if (result?.ok) {
+          if (result?.sent) {
             onClose();
             return;
           }
-          // Stay open in pending/not-sent state with a loud error.
+          // Stay open in pending/not-sent state with a single loud error.
           setSendErr(result?.error || "Send failed — document was not emailed");
         }}
       />
@@ -2636,7 +2693,7 @@ export function DocSheet({ job, kind, onClose, onEdit, onConvert, onSync }) {
 
 /** Quick invoice actions from the jobs list — View (full-screen PDF) or Send. */
 export function QuickSendSheet({ job, onClose, onEdit }) {
-  const doSend = useDoSend();
+  const approveSend = useApproveSend();
   const [sendPick, setSendPick] = useState(null);
   const [confirmSend, setConfirmSend] = useState(null);
   const [sendBusy, setSendBusy] = useState(false);
@@ -2661,7 +2718,7 @@ export function QuickSendSheet({ job, onClose, onEdit }) {
           setSendBusy(true);
           setSendErr("");
           beginPromptWorkPause();
-          const result = await doSend(job, "invoice", {
+          const result = await approveSend(job, "invoice", {
             docSource: model.docSource,
             includePaymentLink: model.withPay,
             email: model.email,
@@ -2670,7 +2727,7 @@ export function QuickSendSheet({ job, onClose, onEdit }) {
             emailPolicy: model.emailPolicy,
           });
           setSendBusy(false);
-          if (result?.ok) {
+          if (result?.sent) {
             onClose();
             return;
           }

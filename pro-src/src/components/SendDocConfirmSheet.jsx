@@ -185,7 +185,7 @@ export default function SendDocConfirmSheet({
         onClick={() => onApprove?.(model)}
         data-testid="send-confirm-approve"
       >
-        {busy ? "Sending…" : "✓ Approve & send"}
+        {busy ? "Sending…" : error ? "↻ Retry send" : "✓ Approve & send"}
       </button>
       <button type="button" className="btn-ghost w-full" onClick={onBack} disabled={busy} data-testid="send-confirm-back">
         Back
