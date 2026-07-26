@@ -13,6 +13,7 @@
     "rollback": "node scripts/rollback.mjs",
     "verify-live": "node scripts/verify-live.mjs",
     "verify-isolation": "node scripts/verify-tenant-isolation.mjs",
+    "verify-kv-isolation": "node scripts/verify-kv-isolation.mjs",
     "bump-sw": "node scripts/bump-sw-cache.mjs"
   },
   "dependencies": {

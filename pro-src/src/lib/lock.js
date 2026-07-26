@@ -176,6 +176,13 @@ export function markAgentUnlocked(session, now = Date.now()) {
 export async function logOff() {
   clearUnlocked();
   try {
+    // Drop the persisted Supabase session so no token leaks into the next
+    // (possibly different-tenant) sign-in. Lazy import avoids a cycle.
+    localStore()?.removeItem("lepro_sb_session");
+  } catch {
+    /* storage unavailable */
+  }
+  try {
     sessionStore()?.clear();
   } catch {
     /* storage unavailable */

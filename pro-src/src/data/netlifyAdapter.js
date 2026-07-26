@@ -9,17 +9,23 @@
 //   iterate   nudges Dispatch to look at the message
 import { deepMerge, isPlainObject, mergeJobs } from "./merge.js";
 import { functionsBase } from "../lib/functionsBase.js";
+import { authHeader } from "../lib/session.js";
 import { buildInvoicePdfFromJob, buildEstimatePdfFromJob } from "../lib/invoicePdf.js";
 import { downloadPdfBlob } from "../lib/pdfOpen.js";
 import { docPdfFilename } from "../lib/jobToQbDoc.js";
 
 const base = functionsBase;
 
+/** Merge the signed-in user's bearer token into request headers (tenant isolation). */
+async function authedHeaders(extra) {
+  return { ...(extra || {}), ...(await authHeader()) };
+}
+
 async function http(path, body) {
   const res = await fetch(`${base()}/${path}`, {
     method: body ? "POST" : "GET",
     cache: "no-store",
-    headers: body ? { "content-type": "application/json" } : undefined,
+    headers: await authedHeaders(body ? { "content-type": "application/json" } : undefined),
     body: body ? JSON.stringify(body) : undefined,
   });
   if (!res.ok) throw new Error(`${path}: HTTP ${res.status}`);
@@ -31,7 +37,7 @@ async function httpAllowErrorBody(path, body) {
   const res = await fetch(`${base()}/${path}`, {
     method: body ? "POST" : "GET",
     cache: "no-store",
-    headers: body ? { "content-type": "application/json" } : undefined,
+    headers: await authedHeaders(body ? { "content-type": "application/json" } : undefined),
     body: body ? JSON.stringify(body) : undefined,
   });
   let data = null;
@@ -309,6 +315,7 @@ export function createNetlifyAdapter() {
     async getDoc(key) {
       const res = await fetch(`${base()}/docs?key=${encodeURIComponent(key)}&${cb()}`, {
         cache: "no-store",
+        headers: await authedHeaders(),
       });
       if (!res.ok) return null;
       const ct = (res.headers && res.headers.get && res.headers.get("content-type")) || "";

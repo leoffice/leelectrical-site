@@ -1,4 +1,5 @@
 import { getStore } from "./lib/storage/index.mjs";
+import { resolveTenant } from "./lib/tenant.mjs";
 import { searchCustomerIndex } from "./lib/customerSearch.mjs";
 
 // Customer index for the Pro app New Job smart search (task #49) + QB contact
@@ -10,14 +11,15 @@ import { searchCustomerIndex } from "./lib/customerSearch.mjs";
 //   POST {op:"set", customers:[...], updated}   (host push)
 const KEY = "customers-v1";
 
-function json(o) {
+function json(o, status = 200) {
   return new Response(JSON.stringify(o), {
+    status,
     headers: {
       "content-type": "application/json",
       "cache-control": "no-store",
       "access-control-allow-origin": "*",
       "access-control-allow-methods": "GET,POST,OPTIONS",
-      "access-control-allow-headers": "content-type",
+      "access-control-allow-headers": "content-type,authorization",
     },
   });
 }
@@ -28,8 +30,10 @@ async function load(store) {
 }
 
 export default async (req) => {
-  const store = getStore("customers");
   if (req.method === "OPTIONS") return json({ ok: true });
+  const tenant = await resolveTenant(req);
+  if (tenant == null) return json({ ok: false, error: "unauthenticated" }, 401);
+  const store = getStore("customers", tenant);
 
   if (req.method === "POST") {
     let b = {};

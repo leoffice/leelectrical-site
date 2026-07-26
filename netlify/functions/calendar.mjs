@@ -1,4 +1,5 @@
 import { getStore } from "./lib/storage/index.mjs";
+import { resolveTenant } from "./lib/tenant.mjs";
 
 // Calendar events feed for task #16 (New Job "Choose from calendar" + two-way
 // job<->calendar linking). A host/agent sync writes upcoming Google Calendar
@@ -10,14 +11,15 @@ import { getStore } from "./lib/storage/index.mjs";
 //         { op:"request" }             (dashboard asks for a fresh pull)
 const KEY = "calendar-v1";
 
-function json(o) {
+function json(o, status = 200) {
   return new Response(JSON.stringify(o), {
+    status,
     headers: {
       "content-type": "application/json",
       "cache-control": "no-store",
       "access-control-allow-origin": "*",
       "access-control-allow-methods": "GET,POST,OPTIONS",
-      "access-control-allow-headers": "content-type",
+      "access-control-allow-headers": "content-type,authorization",
     },
   });
 }
@@ -28,8 +30,10 @@ async function load(store) {
 }
 
 export default async (req) => {
-  const store = getStore("calendar");
   if (req.method === "OPTIONS") return json({ ok: true });
+  const tenant = await resolveTenant(req);
+  if (tenant == null) return json({ ok: false, error: "unauthenticated" }, 401);
+  const store = getStore("calendar", tenant);
   if (req.method === "POST") {
     let b = {};
     try { b = await req.json(); } catch (e) {}

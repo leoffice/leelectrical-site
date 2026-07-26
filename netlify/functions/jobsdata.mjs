@@ -1,5 +1,6 @@
 import { getStore } from "./lib/storage/index.mjs";
 import { rotateJsonBackup } from "./blob-backup.mjs";
+import { resolveTenant } from "./lib/tenant.mjs";
 
 // Live jobs dataset synced from QuickBooks + Google Calendar by a scheduled
 // Dispatch job (overnight + midday) and on demand. The dashboard GETs this to
@@ -9,14 +10,15 @@ import { rotateJsonBackup } from "./blob-backup.mjs";
 //         { op:"request" }          (dashboard asks for a fresh pull)
 const KEY = "jobsdata-v1";
 
-function json(o) {
+function json(o, status = 200) {
   return new Response(JSON.stringify(o), {
+    status,
     headers: {
       "content-type": "application/json",
       "cache-control": "no-store",
       "access-control-allow-origin": "*",
       "access-control-allow-methods": "GET,POST,OPTIONS",
-      "access-control-allow-headers": "content-type",
+      "access-control-allow-headers": "content-type,authorization",
     },
   });
 }
@@ -27,8 +29,10 @@ async function load(store) {
 }
 
 export default async (req) => {
-  const store = getStore("jobsdata");
   if (req.method === "OPTIONS") return json({ ok: true });
+  const tenant = await resolveTenant(req);
+  if (tenant == null) return json({ ok: false, error: "unauthenticated" }, 401);
+  const store = getStore("jobsdata", tenant);
   if (req.method === "POST") {
     let b = {};
     try { b = await req.json(); } catch (e) {}

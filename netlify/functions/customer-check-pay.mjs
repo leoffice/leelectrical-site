@@ -19,7 +19,7 @@ function corsHeaders() {
     "cache-control": "no-store",
     "access-control-allow-origin": "*",
     "access-control-allow-methods": "POST,OPTIONS",
-    "access-control-allow-headers": "content-type",
+    "access-control-allow-headers": "content-type,authorization",
   };
 }
 

@@ -1,4 +1,5 @@
 import { getStore } from "./lib/storage/index.mjs";
+import { resolveTenant } from "./lib/tenant.mjs";
 
 // Command bus (#17). Every dashboard action becomes a durable command with a
 // live status and an audit trail. Two lanes are decided by command.lane:
@@ -10,14 +11,15 @@ import { getStore } from "./lib/storage/index.mjs";
 //   returned as-is (deduped) so a retry can NEVER double-send.
 const KEY = "commands-v1";
 
-function json(o) {
+function json(o, status = 200) {
   return new Response(JSON.stringify(o), {
+    status,
     headers: {
       "content-type": "application/json",
       "cache-control": "no-store",
       "access-control-allow-origin": "*",
       "access-control-allow-methods": "GET,POST,OPTIONS",
-      "access-control-allow-headers": "content-type",
+      "access-control-allow-headers": "content-type,authorization",
     },
   });
 }
@@ -32,8 +34,10 @@ function audit(c, note) {
 }
 
 export default async (req) => {
-  const store = getStore("commands");
   if (req.method === "OPTIONS") return json({ ok: true });
+  const tenant = await resolveTenant(req);
+  if (tenant == null) return json({ ok: false, error: "unauthenticated" }, 401);
+  const store = getStore("commands", tenant);
 
   const doc = await load(store);
   doc.commands = doc.commands || [];

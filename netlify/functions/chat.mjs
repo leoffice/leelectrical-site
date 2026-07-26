@@ -1,4 +1,5 @@
 import { getStore } from "./lib/storage/index.mjs";
+import { resolveTenant } from "./lib/tenant.mjs";
 
 // Task #6 — return channel for the floating chat bubble. Messages from the bubble
 // and Dispatch's replies live here per conversation id, with per-message status.
@@ -15,14 +16,15 @@ import { getStore } from "./lib/storage/index.mjs";
 //   values are migrated into the map on read and write.
 // Statuses used by the UI: Sent -> Received -> Read -> Working on it (then a reply).
 
-function json(o) {
+function json(o, status = 200) {
   return new Response(JSON.stringify(o), {
+    status,
     headers: {
       "content-type": "application/json",
       "cache-control": "no-store",
       "access-control-allow-origin": "*",
       "access-control-allow-methods": "GET,POST,OPTIONS",
-      "access-control-allow-headers": "content-type",
+      "access-control-allow-headers": "content-type,authorization",
     },
   });
 }
@@ -65,8 +67,10 @@ async function migrate(store, from, to) {
 }
 
 export default async (req) => {
-  const store = getStore("chat");
   if (req.method === "OPTIONS") return json({ ok: true });
+  const tenant = await resolveTenant(req);
+  if (tenant == null) return json({ ok: false, error: "unauthenticated" }, 401);
+  const store = getStore("chat", tenant);
 
   if (req.method === "POST") {
     let b = {};
