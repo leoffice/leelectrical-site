@@ -44,8 +44,11 @@ export function subscribeTextFocus(onChange) {
       hideTimer = null;
     }
   };
+  const inVoiceUi = (el) => !!(el && el.closest && el.closest("[data-voice-ui]"));
   const onFocusIn = (e) => {
-    if (isTextField(e.target)) {
+    // The mic's own review textarea is a text field too — never treat it as
+    // the dictation target or it would insert into itself.
+    if (isTextField(e.target) && !inVoiceUi(e.target)) {
       lastTextTarget = e.target;
       clearHide();
       onChange(e.target);
