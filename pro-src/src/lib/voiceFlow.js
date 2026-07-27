@@ -1,4 +1,5 @@
 // LE Voice Flow — polish transcript and insert into focused field (EN + HE).
+import { functionsBase } from "./functionsBase.js";
 
 const LIST_INTRO =
   /^(first(?:\s+thing)?|second|third|fourth|fifth|next|then|also|finally|number\s+(?:one|two|three|four|five)|\d+)[,:]?\s+/i;
@@ -18,22 +19,131 @@ function isTextField(el) {
   return el.tagName === "TEXTAREA" || !!el.isContentEditable;
 }
 
-/** Track focus globally — call once at app startup. */
-export function trackVoiceFocus() {
-  if (typeof document === "undefined") return () => {};
-  const onFocus = (e) => {
-    if (isTextField(e.target)) lastTextTarget = e.target;
-  };
-  document.addEventListener("focusin", onFocus, true);
-  return () => document.removeEventListener("focusin", onFocus, true);
-}
-
 export function getLastTextTarget() {
   return lastTextTarget;
 }
 
 export function setLastTextTarget(el) {
   if (isTextField(el)) lastTextTarget = el;
+}
+
+/**
+ * Subscribe to text-field focus so the mic can appear ONLY when a field is
+ * active and stay hidden otherwise. Calls `onChange(field|null)`.
+ *
+ * The mic UI opts out of hiding by carrying [data-voice-ui] — clicking it must
+ * not count as "left the field". A short grace period covers the focus hop
+ * between a field and the mic button (or between two fields inside a sheet).
+ */
+export function subscribeTextFocus(onChange) {
+  if (typeof document === "undefined") return () => {};
+  let hideTimer = null;
+  const clearHide = () => {
+    if (hideTimer) {
+      clearTimeout(hideTimer);
+      hideTimer = null;
+    }
+  };
+  const onFocusIn = (e) => {
+    if (isTextField(e.target)) {
+      lastTextTarget = e.target;
+      clearHide();
+      onChange(e.target);
+    }
+  };
+  const onFocusOut = (e) => {
+    const next = e.relatedTarget;
+    if (next && (isTextField(next) || (next.closest && next.closest("[data-voice-ui]")))) return;
+    clearHide();
+    hideTimer = setTimeout(() => {
+      const active = document.activeElement;
+      if (isTextField(active) || (active && active.closest && active.closest("[data-voice-ui]"))) return;
+      onChange(null);
+    }, 180);
+  };
+  document.addEventListener("focusin", onFocusIn, true);
+  document.addEventListener("focusout", onFocusOut, true);
+  return () => {
+    clearHide();
+    document.removeEventListener("focusin", onFocusIn, true);
+    document.removeEventListener("focusout", onFocusOut, true);
+  };
+}
+
+/** Pick the best MediaRecorder audio mime the browser can produce for xAI STT. */
+export function pickAudioMimeType() {
+  if (typeof window === "undefined" || typeof MediaRecorder === "undefined") return "";
+  const candidates = [
+    "audio/webm;codecs=opus",
+    "audio/webm",
+    "audio/mp4", // Safari / iOS
+    "audio/mpeg",
+    "audio/ogg;codecs=opus",
+  ];
+  for (const t of candidates) {
+    try {
+      if (MediaRecorder.isTypeSupported(t)) return t;
+    } catch {
+      /* older engines throw */
+    }
+  }
+  return "";
+}
+
+/** Whether tap-to-dictate (mic capture) is possible in this browser. */
+export function audioCaptureSupported() {
+  return (
+    typeof navigator !== "undefined" &&
+    !!navigator.mediaDevices?.getUserMedia &&
+    typeof window !== "undefined" &&
+    typeof window.MediaRecorder !== "undefined"
+  );
+}
+
+function blobToBase64(blob) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onerror = () => reject(reader.error);
+    reader.onload = () => {
+      const res = String(reader.result || "");
+      const comma = res.indexOf(",");
+      resolve(comma >= 0 ? res.slice(comma + 1) : res);
+    };
+    reader.readAsDataURL(blob);
+  });
+}
+
+/**
+ * Transcribe a recorded audio Blob via the xAI STT proxy (voice-stt function).
+ * Returns { ok, text, dryRun, error }. Never throws.
+ */
+export async function transcribeAudioBlob(blob, { language = "", keyterms = [], apiBase } = {}) {
+  if (!blob || !blob.size) return { ok: false, text: "", error: "empty" };
+  let base = apiBase;
+  if (!base) base = typeof functionsBase === "function" ? functionsBase() : "/.netlify/functions";
+  let audio;
+  try {
+    audio = await blobToBase64(blob);
+  } catch {
+    return { ok: false, text: "", error: "encode failed" };
+  }
+  try {
+    const r = await fetch(`${base}/voice-stt`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ audio, mime: blob.type || "audio/webm", language, keyterms }),
+    });
+    const data = await r.json().catch(() => ({}));
+    if (r.ok && data?.ok) return { ok: true, text: String(data.text || "").trim() };
+    return {
+      ok: false,
+      text: "",
+      dryRun: !!data?.dryRun,
+      error: data?.error || `STT ${r.status}`,
+    };
+  } catch (e) {
+    return { ok: false, text: "", error: String(e?.message || e) };
+  }
 }
 
 function hasHebrew(t) {
@@ -216,13 +326,7 @@ export async function polishVoiceTextSmart(raw, { apiBase } = {}) {
 
   const local = consolidateRepetition(base);
   let baseUrl = apiBase;
-  if (!baseUrl && typeof location !== "undefined") {
-    baseUrl =
-      location.hostname === "leelectrical.us"
-        ? "/.netlify/functions"
-        : "https://leelectrical.us/.netlify/functions";
-  }
-  if (!baseUrl) baseUrl = "https://leelectrical.us/.netlify/functions";
+  if (!baseUrl) baseUrl = typeof functionsBase === "function" ? functionsBase() : "/.netlify/functions";
 
   try {
     const r = await fetch(`${baseUrl}/voice-polish`, {
@@ -300,102 +404,4 @@ export function insertTextAtFocus(text, target) {
     getLastTextTarget();
   if (!isTextField(el)) return false;
   return setFieldValue(el, text);
-}
-
-/** Whether Web Speech API is available. */
-export function speechRecognitionSupported() {
-  if (typeof window === "undefined") return false;
-  return !!(window.SpeechRecognition || window.webkitSpeechRecognition);
-}
-
-/** Create a speech recognizer with silent listen + Android silence-timeout restart. */
-export function createSilentRecognizer({ lang = "en-US", onFinal, onError, onEnd } = {}) {
-  const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
-  if (!SR) return null;
-
-  let rec = null;
-  let finals = "";
-  let stopped = false;
-  let restartTimer = null;
-
-  const clearRestart = () => {
-    if (restartTimer) {
-      clearTimeout(restartTimer);
-      restartTimer = null;
-    }
-  };
-
-  const start = () => {
-    if (stopped) return;
-    rec = new SR();
-    rec.lang = lang;
-    rec.interimResults = true;
-    rec.continuous = true;
-
-    rec.onresult = (ev) => {
-      let interim = "";
-      for (let i = ev.resultIndex; i < ev.results.length; i++) {
-        const r = ev.results[i];
-        if (r.isFinal) finals += r[0].transcript;
-        else interim += r[0].transcript;
-      }
-      onFinal?.(finals + interim, finals);
-      clearRestart();
-      restartTimer = setTimeout(() => {
-        if (!stopped && rec) {
-          try {
-            rec.stop();
-          } catch {}
-        }
-      }, 8000);
-    };
-
-    rec.onerror = (e) => {
-      if (e.error === "no-speech" && !stopped) {
-        try {
-          rec.start();
-        } catch {}
-        return;
-      }
-      onError?.(e);
-    };
-
-    rec.onend = () => {
-      clearRestart();
-      if (!stopped) {
-        try {
-          start();
-        } catch {
-          onEnd?.(finals);
-        }
-      } else {
-        onEnd?.(finals);
-      }
-    };
-
-    try {
-      rec.start();
-    } catch (err) {
-      onError?.(err);
-    }
-  };
-
-  start();
-
-  return {
-    stop() {
-      stopped = true;
-      clearRestart();
-      if (rec) {
-        try {
-          rec.stop();
-        } catch {}
-        rec = null;
-      }
-      return finals;
-    },
-    getTranscript() {
-      return finals;
-    },
-  };
 }
