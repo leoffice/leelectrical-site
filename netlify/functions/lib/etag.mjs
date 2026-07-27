@@ -11,9 +11,10 @@ const BASE_HEADERS = {
   "access-control-allow-origin": "*",
   "access-control-allow-methods": "GET,POST,OPTIONS",
   // If-None-Match is added by clients (and by the browser during revalidation);
-  // allow it so a cross-origin caller (localhost dev, the extension) isn't
-  // blocked by CORS. Same-origin callers ignore these headers entirely.
-  "access-control-allow-headers": "content-type,if-none-match",
+  // authorization carries the tenant's Supabase token. Allow both so a
+  // cross-origin caller (localhost dev, the extension) isn't blocked by CORS.
+  // Same-origin callers ignore these headers entirely.
+  "access-control-allow-headers": "content-type,if-none-match,authorization",
 };
 
 /** CORS preflight response. Advertises if-none-match so a cross-origin caller
@@ -41,20 +42,27 @@ export function jsonResponse(obj, { etag, cache = "no-store" } = {}) {
 /**
  * Conditional GET: return a bodyless 304 when the caller's If-None-Match equals
  * the current tag, otherwise the full document tagged + marked revalidatable.
+ *
+ * TENANT SAFETY: these blobs are per-tenant. The tag is namespaced by `tenant`
+ * ("<prefix>:<tenant>:<ts>") so it can never match another tenant's tag at the
+ * same URL, and the response is `private` so no shared cache stores it
+ * cross-tenant. Callers that pass no tenant keep the original "<prefix><ts>"
+ * tag and behavior (unchanged contract).
  * @param {Request} req
  * @param {object} obj  the document to return on a miss
- * @param {{ prefix?: string, ts?: number }} opts  entity-tag inputs
+ * @param {{ prefix?: string, ts?: number, tenant?: string }} opts
  */
-export function conditionalJson(req, obj, { prefix = "", ts = 0 } = {}) {
-  const etag = etagFor(ts, prefix);
+export function conditionalJson(req, obj, { prefix = "", ts = 0, tenant = "" } = {}) {
+  const etag = etagFor(ts, tenant ? `${prefix}:${tenant}:` : prefix);
+  const cache = tenant ? "private, no-cache" : "no-cache";
   const inm = req && req.headers && typeof req.headers.get === "function"
     ? req.headers.get("if-none-match")
     : null;
   if (inm && inm === etag) {
     return new Response(null, {
       status: 304,
-      headers: { ...BASE_HEADERS, "cache-control": "no-cache", etag },
+      headers: { ...BASE_HEADERS, "cache-control": cache, etag },
     });
   }
-  return jsonResponse(obj, { etag, cache: "no-cache" });
+  return jsonResponse(obj, { etag, cache });
 }

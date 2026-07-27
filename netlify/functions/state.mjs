@@ -1,27 +1,33 @@
 import { getStore } from "./lib/storage/index.mjs";
 import { rotateJsonBackup } from "./blob-backup.mjs";
 import { conditionalJson, optionsResponse } from "./lib/etag.mjs";
+import { resolveTenant } from "./lib/tenant.mjs";
 
 // Cross-device sync for the dashboard's user edits (follow-ups, completed steps,
-// notes, paid flags, paperwork). GET returns the shared state; POST saves it.
-// Single shared business state — every signed-in device reads/writes the same blob.
+// notes, paid flags, paperwork). GET returns the state; POST saves it.
+// Per-tenant: the store is namespaced by the signed-in user's tenant_id
+// (resolveTenant), so every tenant reads/writes its OWN isolated overlay. LE
+// (the incumbent tenant) keeps the legacy "ov-v1" namespace unchanged.
 const KEY = "ov-v1";
 
-function json(o) {
+function json(o, status = 200) {
   return new Response(JSON.stringify(o), {
+    status,
     headers: {
       "content-type": "application/json",
       "cache-control": "no-store",
       "access-control-allow-origin": "*",
       "access-control-allow-methods": "GET,POST,OPTIONS",
-      "access-control-allow-headers": "content-type",
+      "access-control-allow-headers": "content-type,if-none-match,authorization",
     },
   });
 }
 
 export default async (req) => {
-  const store = getStore("jobstate");
   if (req.method === "OPTIONS") return optionsResponse();
+  const tenant = await resolveTenant(req);
+  if (tenant == null) return json({ ok: false, error: "unauthenticated" }, 401);
+  const store = getStore("jobstate", tenant);
   if (req.method === "POST") {
     let body = {};
     try { body = await req.json(); } catch (e) {}
@@ -32,5 +38,7 @@ export default async (req) => {
   }
   const cur = (await store.get(KEY, { type: "json" })) || { ov: {}, ts: 0 };
   // GET: ETag off `ts` (bumped on every overlay write) → unchanged polls 304.
-  return conditionalJson(req, cur, { prefix: "s", ts: cur.ts });
+  // Tenant-namespaced so a device that switches tenants can never 304 across
+  // tenants (see lib/etag.mjs).
+  return conditionalJson(req, cur, { prefix: "s", ts: cur.ts, tenant });
 };

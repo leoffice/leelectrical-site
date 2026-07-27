@@ -1,4 +1,5 @@
 import { getStore } from "./lib/storage/index.mjs";
+import { resolveTenant } from "./lib/tenant.mjs";
 
 // Multi-user employee time tracking — clock in/out, job time, live sync.
 // GET  -> { employees, active, entries, ts }
@@ -14,14 +15,15 @@ const KEY = "timetrack-v1";
 
 const COLORS = ["#2563eb", "#059669", "#d97706", "#7c3aed", "#db2777", "#0891b2", "#4f46e5"];
 
-function json(o) {
+function json(o, status = 200) {
   return new Response(JSON.stringify(o), {
+    status,
     headers: {
       "content-type": "application/json",
       "cache-control": "no-store",
       "access-control-allow-origin": "*",
       "access-control-allow-methods": "GET,POST,OPTIONS",
-      "access-control-allow-headers": "content-type",
+      "access-control-allow-headers": "content-type,authorization",
     },
   });
 }
@@ -71,8 +73,10 @@ function closeActive(doc, employeeId, endedAt = Date.now()) {
 }
 
 export default async (req) => {
-  const store = getStore("timetrack");
   if (req.method === "OPTIONS") return json({ ok: true });
+  const tenant = await resolveTenant(req);
+  if (tenant == null) return json({ ok: false, error: "unauthenticated" }, 401);
+  const store = getStore("timetrack", tenant);
 
   if (req.method === "POST") {
     let b = {};

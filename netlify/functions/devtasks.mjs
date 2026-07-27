@@ -1,4 +1,5 @@
 import { getStore } from "./lib/storage/index.mjs";
+import { resolveTenant } from "./lib/tenant.mjs";
 
 // Development Task List store — ONE shared list shown on both Dashboard and Beta.
 // Each task has target:{beta,dashboard}. Dashboard implies Beta (dashboard build
@@ -7,14 +8,15 @@ import { getStore } from "./lib/storage/index.mjs";
 // POST -> { op, id?, task?, patch? }   ops: add | patch | remove
 const KEY = "devtasks-v2";
 
-function json(o) {
+function json(o, status = 200) {
   return new Response(JSON.stringify(o), {
+    status,
     headers: {
       "content-type": "application/json",
       "cache-control": "no-store",
       "access-control-allow-origin": "*",
       "access-control-allow-methods": "GET,POST,OPTIONS",
-      "access-control-allow-headers": "content-type",
+      "access-control-allow-headers": "content-type,authorization",
     },
   });
 }
@@ -25,8 +27,10 @@ async function load(store) {
 }
 
 export default async (req) => {
-  const store = getStore("devtasks");
   if (req.method === "OPTIONS") return json({ ok: true });
+  const tenant = await resolveTenant(req);
+  if (tenant == null) return json({ ok: false, error: "unauthenticated" }, 401);
+  const store = getStore("devtasks", tenant);
   if (req.method === "POST") {
     let b = {};
     try { b = await req.json(); } catch (e) {}

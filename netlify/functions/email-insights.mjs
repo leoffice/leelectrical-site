@@ -1,4 +1,5 @@
 import { getStore } from "./lib/storage/index.mjs";
+import { resolveTenant, DEFAULT_TENANT } from "./lib/tenant.mjs";
 import {
   isEnergyServicesEmail,
   parseEmailInsight,
@@ -17,15 +18,19 @@ function json(o, status) {
       "cache-control": "no-store",
       "access-control-allow-origin": "*",
       "access-control-allow-methods": "GET,POST,OPTIONS",
-      "access-control-allow-headers": "content-type,x-le-key",
+      "access-control-allow-headers": "content-type,x-le-key,authorization",
     },
   });
 }
 
 export default async (req) => {
-  const store = getStore("email-insights");
-  const doc = (await store.get(KEY, { type: "json", consistency: "strong" })) || { insights: [], ts: 0 };
   if (req.method === "OPTIONS") return json({ ok: true });
+  // Ingest is a server/webhook path (no Supabase token) — never hard-deny it;
+  // the app's GET carries a token and is tenant-scoped. Tenant routing for
+  // inbound webhooks themselves is a later (connector) item.
+  const tenant = (await resolveTenant(req)) || DEFAULT_TENANT;
+  const store = getStore("email-insights", tenant);
+  const doc = (await store.get(KEY, { type: "json", consistency: "strong" })) || { insights: [], ts: 0 };
 
   if (req.method === "POST") {
     let body = {};
