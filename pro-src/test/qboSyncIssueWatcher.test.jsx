@@ -109,6 +109,33 @@ describe("QboSyncIssueWatcher", () => {
     expect(showToast).toHaveBeenCalled();
   });
 
+  it("Try again skips monthly API limit items", async () => {
+    mockCommands = [
+      {
+        id: "fail-monthly",
+        type: "create_invoice",
+        status: "failed",
+        error: "QuickBooks monthly API limit reached (Builder App 500K cap)",
+        payload: { invoiceNo: "25478" },
+        updatedAt: Date.now(),
+      },
+      {
+        id: "fail-dup",
+        type: "create_customer",
+        status: "failed",
+        error: "code=6240: Duplicate Name Exists Error",
+        updatedAt: Date.now() - 1,
+      },
+    ];
+    renderWatcher();
+    await screen.findByTestId("qbo-sync-issue-panel");
+    fireEvent.click(screen.getByTestId("qbo-sync-issue-retry"));
+    await waitFor(() => {
+      expect(retryCommand).toHaveBeenCalledWith("fail-dup");
+    });
+    expect(retryCommand).not.toHaveBeenCalledWith("fail-monthly");
+  });
+
   it("Report to developers enqueues report_qbo_sync_issue", async () => {
     mockCommands = [
       {

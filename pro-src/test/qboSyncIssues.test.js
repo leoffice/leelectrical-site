@@ -8,6 +8,8 @@ import {
   shortErrorBullet,
   typeLabel,
   isRecentFailedQboCommand,
+  isMonthlyLimitError,
+  isRetryableQboIssue,
   collectQboSyncIssues,
   buildReportPayload,
   dismissIssueIds,
@@ -138,5 +140,36 @@ describe("qboSyncIssues", () => {
     expect(out.bullets.length).toBe(1);
     expect(out.commandIds).toContain("c1");
     expect(out.commandIds).toContain("c2");
+  });
+
+  it("monthly limit errors are not retryable; collect separates them", () => {
+    expect(isMonthlyLimitError("monthly_api_limit 500K CorePlus")).toBe(true);
+    expect(isMonthlyLimitError("Duplicate Name 6240")).toBe(false);
+    const now = Date.now();
+    const cmds = [
+      {
+        id: "m1",
+        type: "create_invoice",
+        status: "failed",
+        error: "QuickBooks monthly API limit reached (Builder App 500K cap)",
+        updatedAt: now,
+        payload: { invoiceNo: "25478" },
+      },
+      {
+        id: "d1",
+        type: "create_customer",
+        status: "failed",
+        error: "code=6240: Duplicate Name Exists Error",
+        updatedAt: now - 1,
+      },
+    ];
+    const out = collectQboSyncIssues(cmds, { now });
+    expect(out.commandIds).toContain("m1");
+    expect(out.commandIds).toContain("d1");
+    expect(out.retryableIds).toContain("d1");
+    expect(out.retryableIds).not.toContain("m1");
+    expect(out.blockedMonthly).toBe(1);
+    expect(isRetryableQboIssue(cmds[0])).toBe(false);
+    expect(isRetryableQboIssue(cmds[1])).toBe(true);
   });
 });

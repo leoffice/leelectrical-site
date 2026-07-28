@@ -50,6 +50,31 @@ const TYPE_LABELS = {
   attach_to_estimate: "Attaching to estimate",
 };
 
+/** True when Intuit Builder-App monthly 500K cap is blocking — retries won't help. */
+export function isMonthlyLimitError(err) {
+  const low = String(err || "").toLowerCase();
+  if (!low) return false;
+  return (
+    low.includes("monthly_api_limit")
+    || low.includes("monthly limit")
+    || low.includes("monthly api limit")
+    || low.includes("500k")
+    || low.includes("app partner program")
+    || low.includes("block all coreplus")
+    || low.includes("errorcode=003001")
+    || low.includes("code=3001")
+    || low.includes("code=003001")
+    || (low.includes("throttleexceeded") && (low.includes("500k") || low.includes("monthly")))
+  );
+}
+
+/** Failures safe to re-queue from Try again (skips hard monthly cap). */
+export function isRetryableQboIssue(cmd) {
+  if (!cmd || !cmd.id) return false;
+  if (isMonthlyLimitError(cmd.error)) return false;
+  return true;
+}
+
 /** Short plain-language cause — no raw stack / JSON dumps. */
 export function shortErrorBullet(err) {
   const s = String(err || "").trim();
@@ -69,14 +94,7 @@ export function shortErrorBullet(err) {
   if (low.includes("timeout") || low.includes("timed out")) return "QuickBooks timed out";
   if (low.includes("auth") || low.includes("token") || low.includes("unauthorized") || low.includes("401"))
     return "QuickBooks login needs refresh";
-  if (
-    low.includes("monthly_api_limit")
-    || low.includes("monthly limit")
-    || low.includes("monthly api limit")
-    || low.includes("500k")
-    || low.includes("app partner program")
-    || low.includes("block all coreplus")
-  ) {
+  if (isMonthlyLimitError(s)) {
     return "QuickBooks monthly API limit (needs Intuit upgrade or wait for reset)";
   }
   if (low.includes("rate") || low.includes("throttle") || low.includes("429")) return "QuickBooks rate limit";
@@ -157,11 +175,16 @@ export function collectQboSyncIssues(commands, { now = Date.now(), dismissedIds 
     }
   }
 
+  const retryableIds = kept.filter(isRetryableQboIssue).map((c) => String(c.id));
+  const blockedMonthly = kept.filter((c) => isMonthlyLimitError(c.error)).length;
+
   return {
     bullets,
     commandIds: [...new Set(commandIds)],
     commands: kept,
     totalFailed: failed.length,
+    retryableIds: [...new Set(retryableIds)],
+    blockedMonthly,
   };
 }
 

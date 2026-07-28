@@ -63,18 +63,42 @@ export default function QboSyncIssueWatcher() {
     if (busy) return;
     setBusy(true);
     try {
-      const ids = issues.commandIds;
+      // Skip monthly API-limit items — requeue only burns the cap and re-fails.
+      const ids = issues.retryableIds?.length
+        ? issues.retryableIds
+        : issues.commandIds;
+      const skippedMonthly = Number(issues.blockedMonthly || 0);
+      if (!ids.length) {
+        showToast?.(
+          skippedMonthly
+            ? "QuickBooks monthly limit is still open — can't retry until Intuit upgrades or the month resets"
+            : "Nothing left to retry"
+        );
+        // Keep monthly items dismissed so the popup doesn't loop on Try again
+        if (skippedMonthly) {
+          setDismissed(dismissIssueIds(issues.commandIds, dismissed));
+          close();
+        }
+        return;
+      }
       for (const id of ids) {
         await retryCommand?.(id);
       }
-      // Don't re-show these until they fail again
-      setDismissed(dismissIssueIds(ids, dismissed));
+      // Don't re-show these until they fail again (includes monthly skipped ones)
+      setDismissed(dismissIssueIds(issues.commandIds, dismissed));
       close();
-      showToast?.(
-        ids.length > 1
-          ? "Retrying " + ids.length + " QuickBooks items…"
-          : "Retrying QuickBooks sync…"
-      );
+      if (skippedMonthly && ids.length) {
+        showToast?.(
+          "Retrying " + ids.length + " item" + (ids.length === 1 ? "" : "s")
+            + " — monthly-limit ones left until Intuit resets"
+        );
+      } else {
+        showToast?.(
+          ids.length > 1
+            ? "Retrying " + ids.length + " QuickBooks items…"
+            : "Retrying QuickBooks sync…"
+        );
+      }
       refreshCommands?.();
     } finally {
       setBusy(false);
