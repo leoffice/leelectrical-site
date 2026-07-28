@@ -90,7 +90,15 @@ describe("Zelle screenshot reconciliation flow", () => {
     });
     const user = userEvent.setup();
     await openZellePayment(user);
+    // Keep open-balance amount — don't leave form equal to screenshot $2,200.
+    const amt = screen.getByLabelText("Amount");
+    await user.clear(amt);
+    await user.type(amt, "2300");
     await attachScreenshot(user);
+    // After auto-read, put form amount back so it still differs from the photo.
+    await waitFor(() => expect(screen.getByPlaceholderText("Reference #")).toHaveValue("JPMdiff"));
+    await user.clear(screen.getByLabelText("Amount"));
+    await user.type(screen.getByLabelText("Amount"), "2300");
     await user.click(screen.getByTestId("record-payment"));
 
     await waitFor(() => expect(screen.getByText("Payment reconciliation")).toBeInTheDocument());

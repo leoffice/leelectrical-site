@@ -203,6 +203,48 @@ export function applyPaymentsPatch(job, payments) {
   return patch;
 }
 
+/**
+ * True when entry matches an existing payment closely enough that a second
+ * Record would double-book the same money (same amount + date + method, and
+ * same confirmation/ref when present).
+ */
+export function findDuplicatePayment(jobOrPayments, entry) {
+  const list = Array.isArray(jobOrPayments)
+    ? jobOrPayments
+    : normalizePayments(jobOrPayments);
+  const amt = parseAmount(entry?.amount);
+  if (!(amt > 0)) return null;
+  const date = String(entry?.date || "").trim().slice(0, 10);
+  const method = String(entry?.method || "").trim().toLowerCase();
+  const ref = String(entry?.ref || "")
+    .trim()
+    .replace(/^#/, "")
+    .toLowerCase();
+
+  for (const p of list) {
+    if (Math.abs(parseAmount(p.amount) - amt) > 0.01) continue;
+    const pDate = String(p.date || "").trim().slice(0, 10);
+    if (date && pDate && date !== pDate) continue;
+    const pMethod = String(p.method || "").trim().toLowerCase();
+    if (method && pMethod && method !== pMethod) continue;
+    const pRef = String(p.ref || "")
+      .trim()
+      .replace(/^#/, "")
+      .toLowerCase();
+    // Confirmation / check # match → hard duplicate even if method string differs slightly.
+    if (ref && pRef && ref === pRef) return p;
+    // No refs: same amount + date + method is enough to block a double-tap.
+    if (!ref && !pRef && date && pDate && date === pDate && method && pMethod && method === pMethod) {
+      return p;
+    }
+    // Same amount + date + method with ref empty on one side only — still block.
+    if (date && pDate && date === pDate && method && pMethod && method === pMethod && (!ref || !pRef || ref === pRef)) {
+      return p;
+    }
+  }
+  return null;
+}
+
 export function appendPayment(job, entry) {
   const list = normalizePayments(job);
   const pay = { id: paymentId(), ...entry, amount: String(parseAmount(entry.amount) || entry.amount || "") };

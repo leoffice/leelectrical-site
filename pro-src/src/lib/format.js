@@ -12,6 +12,14 @@ export function fmt$(v) {
   return isNaN(n) ? String(v) : "$" + n.toLocaleString(undefined, { maximumFractionDigits: 0 });
 }
 
+/** Format a typed/autofilled amount for payment inputs: "$2,000". Empty stays empty. */
+export function fmtAmountField(v) {
+  if (v == null || v === "") return "";
+  const n = typeof v === "number" ? v : parseFloat(String(v).replace(/[$,]/g, ""));
+  if (!Number.isFinite(n) || n <= 0) return String(v ?? "");
+  return fmt$(n);
+}
+
 export function ago(ts) {
   // floor, not round — 23.6h must show "23h ago", never jump to "1d ago";
   // 90m is "1h ago", not "2h ago".
