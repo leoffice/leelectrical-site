@@ -2,12 +2,14 @@ import { describe, expect, it } from "vitest";
 import { collectAddressSeeds, filterLocalAddressSuggestions } from "../src/lib/addressComplete.js";
 
 describe("addressComplete", () => {
-  it("collects job and calendar addresses", () => {
+  it("collects job and calendar location fields only (no description scan)", () => {
     const seeds = collectAddressSeeds(
       [{ serviceAddress: "123 Main St", billingAddress: "405 Lefferts Ave" }],
       [{ location: "55 Elm St", description: "visit 9 Kingston Ave" }]
     );
-    expect(seeds).toEqual(expect.arrayContaining(["123 Main St", "405 Lefferts Ave", "55 Elm St", "9 Kingston Ave"]));
+    expect(seeds).toEqual(expect.arrayContaining(["123 Main St", "405 Lefferts Ave", "55 Elm St"]));
+    // Description regex scan removed — was lagging appointment typing on large calendars.
+    expect(seeds).not.toContain("9 Kingston Ave");
   });
 
   it("filters partial queries to full address suggestions", () => {

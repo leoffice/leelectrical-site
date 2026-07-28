@@ -20,7 +20,6 @@ import Today from "./views/Today.jsx";
 import Reminders from "./views/Reminders.jsx";
 import Time from "./views/Time.jsx";
 import Projects from "./views/Projects.jsx";
-import Permits from "./views/Permits.jsx";
 import Company from "./views/Company.jsx";
 import Settings from "./views/Settings.jsx";
 import Archive from "./views/Archive.jsx";
@@ -67,7 +66,6 @@ import Sheet, { Opt } from "./components/Sheet.jsx";
 import { appointmentContextFromRoute } from "./lib/appointmentContext.js";
 import { logOff } from "./lib/lock.js";
 import { useAppSettings } from "./lib/appSettings.js";
-import { pruneSuggestionSnoozes } from "./lib/dismissSnooze.js";
 import { isAssistantEntitledLocally } from "./lib/assistantLicenseClient.js";
 
 
@@ -93,7 +91,6 @@ const ROUTE_ELEMENTS = {
   "/time": <Time />,
   "/projects": <Projects />,
   "/projects/:projectId": <Projects />,
-  "/permits": <Permits />,
   "/company": <Company />,
   "/settings": <Settings />,
   "/progress": <Progress />,
@@ -251,10 +248,6 @@ export default function App() {
   const isDesktop = useIsDesktop();
   const loc = useLocation();
 
-  // Sweep expired "remind me later" entries once per app open so the store
-  // can't grow forever (lib/dismissSnooze.js).
-  useEffect(() => pruneSuggestionSnoozes(), []);
-
   const chrome = useMemo(() => tenantChrome(config), [config]);
   const internal = config.internal === true;
   // Paid AI assistant: LE (seller) always unlocked; other tenants need a license token.
@@ -404,21 +397,10 @@ export default function App() {
         <SaveBar />
 
         {/*
-          Desktop — floating ＋ (always visible, same menu as top-bar Add) + chat.
-          Top-bar Add still exists on non-Jobs routes for placement tests; Jobs
-          list keeps Add next to search. Floating uses a distinct test id so
-          placement tests still see exactly one fab-add.
+          Desktop chat only — floating ＋ removed (Levi). Add lives in the top
+          bar / Jobs search row so there is exactly one Add control, never a
+          second bubble over the page.
         */}
-        {isDesktop && showFab ? (
-          <DesktopFab
-            onClick={openNewJob}
-            ariaLabel="Add"
-            testId="fab-add-desktop"
-            className="fixed z-40 right-24 w-[54px] h-[54px] rounded-2xl bg-slate-900 text-white text-2xl shadow-xl flex items-center justify-center hover:bg-slate-800 active:opacity-90"
-          >
-            ＋
-          </DesktopFab>
-        ) : null}
         {isDesktop && assistantOk ? (
           <DesktopFab
             onClick={toggleChat}
