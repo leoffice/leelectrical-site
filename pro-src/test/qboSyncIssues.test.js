@@ -27,6 +27,8 @@ describe("qboSyncIssues", () => {
     expect(shortErrorBullet("no_customer for job")).toMatch(/not linked/i);
     expect(shortErrorBullet("QBO HTTP 400 code=6240: Duplicate Name")).toMatch(/Duplicate/i);
     expect(shortErrorBullet("Stale Object Error 5010")).toMatch(/busy|stale/i);
+    expect(shortErrorBullet("monthly_api_limit 500K CorePlus App Partner Program")).toMatch(/monthly API limit/i);
+    expect(shortErrorBullet("QBO HTTP 429 ThrottleExceeded")).toMatch(/rate limit/i);
     expect(shortErrorBullet("")).toMatch(/Unknown/i);
   });
 
