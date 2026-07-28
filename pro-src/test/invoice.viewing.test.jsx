@@ -11,13 +11,14 @@ import "@testing-library/jest-dom/vitest";
 import { HashRouter } from "react-router-dom";
 import { StoreProvider } from "../src/state/store.jsx";
 import { CalSheet, QuickSendSheet, PDF_STAGES, calAccount } from "../src/components/JobSheets.jsx";
-import { enableQboDocsForTests, mockServer, stubPdfOpen } from "./helpers.jsx";
+import { enableQboDocsForTests, mockServer } from "./helpers.jsx";
 
 // This harness runs without vitest globals:true, so RTL's afterEach auto-cleanup
 // isn't registered — unmount explicitly to avoid DOM leaking between tests.
 afterEach(() => {
   cleanup();
   vi.unstubAllGlobals();
+  vi.restoreAllMocks();
   localStorage.clear();
   window.location.hash = "#/";
 });
@@ -25,6 +26,16 @@ afterEach(() => {
 // Production defaults send/view-through-QB off; these suites assert the QB view path.
 beforeEach(() => {
   enableQboDocsForTests();
+  if (!URL.createObjectURL) {
+    URL.createObjectURL = vi.fn(() => "blob:test-local-doc");
+  } else {
+    vi.spyOn(URL, "createObjectURL").mockReturnValue("blob:test-local-doc");
+  }
+  if (!URL.revokeObjectURL) {
+    URL.revokeObjectURL = vi.fn();
+  } else {
+    vi.spyOn(URL, "revokeObjectURL").mockImplementation(() => {});
+  }
 });
 
 const JOB = {
@@ -94,22 +105,20 @@ describe("#44 jobs-list Invoice offers View as well as Send", () => {
 
 describe("#44/#45 PDF viewing: local open + background QBO fetch", () => {
   it("generates invoice PDF CLIENT-SIDE (no server fetch) when job has invoice data", async () => {
-    const click = stubPdfOpen();
     const srv = mockServer(); // docs empty -> local gen path
     const user = userEvent.setup();
 
     renderNode(<QuickSendSheet job={JOB} onClose={() => {}} />);
     await user.click(await screen.findByText("View Local Invoice"));
 
-    // Built in the browser — open + optional download (1–2 clicks); generate-doc never hit.
-    await waitFor(() => expect(click.mock.calls.length).toBeGreaterThanOrEqual(1));
+    // In-app viewer — no auto-download; generate-doc never hit.
+    expect(await screen.findByTestId("local-doc-viewer")).toBeInTheDocument();
+    expect(screen.getByTestId("local-doc-download")).toBeInTheDocument();
     expect(screen.queryByText("Generating your PDF — a few seconds…")).toBeNull();
     expect(srv.calls.some((c) => c.path === "generate-doc")).toBe(false);
-    expect(document.querySelector("[data-fullscreen-pdf]")).toBeNull();
   });
 
   it("falls back to QBO fetch stages when job has no billable lines", async () => {
-    const click = stubPdfOpen();
     const bare = { ...JOB, amount: "", invoiceLines: [] };
     const srv = mockServer();
     const user = userEvent.setup();
@@ -123,6 +132,8 @@ describe("#44/#45 PDF viewing: local open + background QBO fetch", () => {
     PDF_STAGES.forEach((s) => expect(bar.textContent).toContain(s));
 
     srv.state.docs["inv-251841"] = "%PDF-1.4 fetched";
-    await waitFor(() => expect(click).toHaveBeenCalledTimes(1), { timeout: 7000 });
+    await waitFor(() => expect(screen.getByTestId("local-doc-viewer")).toBeInTheDocument(), {
+      timeout: 7000,
+    });
   }, 12000);
 });
