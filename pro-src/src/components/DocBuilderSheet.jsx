@@ -19,6 +19,7 @@ import ServiceAddressField from "./ServiceAddressField.jsx";
 import AddressAutocompleteField from "./AddressAutocompleteField.jsx";
 import { emptyLine, initialLines, lineAmount, linesTotal } from "../lib/qboDoc.js";
 import { planDocSaveLocal, planDocSaveSync } from "../lib/docSync.js";
+import { resolveDocNumberOnSave } from "../lib/nextDocNumber.js";
 import { enqueueCustomerQboSync } from "../lib/customerQboEnqueue.js";
 import { stashPendingDocSync } from "../lib/docSyncChain.js";
 import { fmt$, parseAmount } from "../lib/format.js";
@@ -1051,6 +1052,19 @@ export default function DocBuilderSheet({
         discountValue,
       });
       Object.assign(jobPatch, coTagsFromJob(activeJob));
+      // Always stamp a real Inv # / Est # on save (never leave "Inv draft" after Save).
+      const docNoKey = kind === "estimate" ? "estimateNo" : "invoiceNo";
+      const preferredNo =
+        (kind === "invoice" ? jobPatch._preferredInvoiceNo : jobPatch._preferredEstimateNo) ||
+        preferredChangeOrderDocNo(activeJob, kind) ||
+        "";
+      const stampedNo = resolveDocNumberOnSave({
+        kind,
+        existing: activeJob[docNoKey] || jobPatch[docNoKey] || "",
+        preferred: preferredNo,
+        jobs: boardJobs,
+      });
+      if (stampedNo) jobPatch[docNoKey] = stampedNo;
       if (attachments.length) {
         jobPatch.attachments = (job.attachments || []).concat(attachments);
       }
@@ -1061,10 +1075,12 @@ export default function DocBuilderSheet({
         opts.toast ||
           (printPdf
             ? "Saved + printed " + (kind === "estimate" ? "estimate" : "invoice") + " PDF"
-            : "Saved on job — sync or email when ready")
+            : stampedNo
+              ? "Saved — " + (kind === "estimate" ? "Est" : "Inv") + " #" + stampedNo
+              : "Saved on job — sync or email when ready")
       );
       resumeFollowUpPrompts();
-      onDone && onDone(activeJob);
+      onDone && onDone({ ...activeJob, ...jobPatch });
       if (close) onClose();
       return pdfJob;
     } finally {
@@ -1134,6 +1150,24 @@ export default function DocBuilderSheet({
         discountValue,
       });
       Object.assign(jobPatch, coTagsFromJob(activeJob));
+      // Stamp Inv # / Est # on save so the job never stays stuck as "draft".
+      const docNoKey = kind === "estimate" ? "estimateNo" : "invoiceNo";
+      const preferredNo =
+        (kind === "invoice" ? jobPatch._preferredInvoiceNo : jobPatch._preferredEstimateNo) ||
+        preferredChangeOrderDocNo(activeJob, kind) ||
+        "";
+      const stampedNo = resolveDocNumberOnSave({
+        kind,
+        existing: activeJob[docNoKey] || jobPatch[docNoKey] || "",
+        preferred: preferredNo,
+        jobs: boardJobs,
+      });
+      if (stampedNo) {
+        jobPatch[docNoKey] = stampedNo;
+        for (const cmd of commands || []) {
+          if (cmd.payload) cmd.payload[docNoKey] = stampedNo;
+        }
+      }
       if (keepOnCustomer) jobPatch.email = emailTo;
       else delete jobPatch.email;
 

@@ -45,7 +45,11 @@ import {
   amountPaid,
   paidPct,
 } from "../lib/customers.js";
-import { parentCustomerPatch } from "../lib/customerHierarchy.js";
+import {
+  parentCustomerPatch,
+  serviceAddressKey,
+  serviceAddressesForJobs,
+} from "../lib/customerHierarchy.js";
 import { buildPaymentLinkEmail } from "../lib/paymentLinkEmail.js";
 import { buildShortPayLandingUrl } from "../lib/payLanding.js";
 import {
@@ -460,13 +464,46 @@ export function MarkPaidSheet({
     setAwaitingProof(true);
   }, [openProofPicker]);
 
-  const openInvoices = useMemo(() => {
+  const payCustJobs = useMemo(() => {
     if (!showCustomerPick || !pickCust) return [];
-    return invoicesForCustomerPick(jobs, pickCust.name, {
-      openOnly: true,
-      includeJobId: jobProp?.id || "",
-    });
-  }, [showCustomerPick, pickCust, jobs, jobProp?.id]);
+    return jobsForCustomerKey(jobs || [], customerKeyForName(pickCust.name)).filter(
+      (j) => j && !j._archived && !j._deleted
+    );
+  }, [showCustomerPick, pickCust, jobs]);
+
+  const payAddressOptions = useMemo(() => serviceAddressesForJobs(payCustJobs), [payCustJobs]);
+
+  const [payAddrKey, setPayAddrKey] = useState(() => serviceAddressKey(jobProp) || "");
+
+  useEffect(() => {
+    if (!showCustomerPick || !pickCust) return;
+    if (!payAddressOptions.length) {
+      setPayAddrKey("");
+      return;
+    }
+    const seed = serviceAddressKey(jobProp) || "";
+    if (seed && payAddressOptions.some((a) => a.key === seed)) {
+      setPayAddrKey(seed);
+      return;
+    }
+    if (payAddressOptions.length === 1) setPayAddrKey(payAddressOptions[0].key);
+    else setPayAddrKey((prev) => (payAddressOptions.some((a) => a.key === prev) ? prev : ""));
+  }, [showCustomerPick, pickCust, payAddressOptions, jobProp]);
+
+  const openInvoices = useMemo(() => {
+    if (!showCustomerPick || !pickCust || !payAddrKey) return [];
+    const atAddr = payCustJobs.filter((j) => serviceAddressKey(j) === payAddrKey);
+    const open = atAddr.filter((j) => j.invoiceNo && !j.paid && openBalance(j) > 0.01);
+    if (
+      jobProp?.id &&
+      jobProp.invoiceNo &&
+      serviceAddressKey(jobProp) === payAddrKey &&
+      !open.some((j) => j.id === jobProp.id)
+    ) {
+      return [jobProp, ...open];
+    }
+    return open;
+  }, [showCustomerPick, pickCust, payAddrKey, payCustJobs, jobProp]);
 
   useEffect(() => {
     if (!showCustomerPick) return;
@@ -1003,14 +1040,15 @@ export function MarkPaidSheet({
       {showCustomerPick ? (
         <>
           <CustomerSearch
-            label="Customer / service address"
-            placeholder="Name or service address…"
+            label="Customer"
+            placeholder="Customer name…"
             testId="payment-customer-search"
             value={custDraft}
             onChangeText={(t) => {
               setCustDraft(t);
               setPickCust(null);
               setActiveJob(null);
+              setPayAddrKey("");
             }}
             onPick={(c) => {
               if (!c || c._newCustomer) {
@@ -1019,10 +1057,33 @@ export function MarkPaidSheet({
               }
               setPickCust(c);
               setCustDraft(c.name || c.businessName || "");
+              setActiveJob(null);
+              setPayAddrKey("");
             }}
           />
-          {pickCust && openInvoices.length > 1 ? (
-            <Fld label="Invoice" hint="Each line shows the service address">
+          {pickCust ? (
+            <Fld label="Service address" hint="Pick the site, then an open invoice">
+              <select
+                className="input"
+                value={payAddrKey}
+                onChange={(e) => {
+                  setPayAddrKey(e.target.value);
+                  setActiveJob(null);
+                }}
+                aria-label="Service address"
+                data-testid="payment-address-select"
+              >
+                <option value="">— choose service address —</option>
+                {payAddressOptions.map((a) => (
+                  <option key={a.key} value={a.key}>
+                    {a.label}
+                  </option>
+                ))}
+              </select>
+            </Fld>
+          ) : null}
+          {pickCust && payAddrKey && openInvoices.length > 1 ? (
+            <Fld label="Open invoices">
               <select
                 className="input"
                 value={activeJob?.id || ""}
@@ -1030,7 +1091,7 @@ export function MarkPaidSheet({
                   const picked = openInvoices.find((j) => j.id === e.target.value) || null;
                   setActiveJob(picked);
                 }}
-                aria-label="Invoice"
+                aria-label="Open invoice"
                 data-testid="payment-invoice-select"
               >
                 <option value="">— choose invoice —</option>
@@ -1042,13 +1103,13 @@ export function MarkPaidSheet({
               </select>
             </Fld>
           ) : null}
-          {pickCust && openInvoices.length === 1 && activeJob ? (
-            <p className="text-[12px] text-slate-500 mb-2">
+          {pickCust && payAddrKey && openInvoices.length === 1 && activeJob ? (
+            <p className="text-[12px] text-slate-500 mb-2" data-testid="payment-invoice-one">
               {formatInvoicePayOption(activeJob)}
             </p>
           ) : null}
-          {pickCust && !openInvoices.length ? (
-            <p className="text-sm text-slate-400 text-center py-4">No open invoices for this customer.</p>
+          {pickCust && payAddrKey && !openInvoices.length ? (
+            <p className="text-sm text-slate-400 text-center py-4">No open invoices at this service address.</p>
           ) : null}
           {reassign && jobProp ? (
             <button
@@ -1446,27 +1507,55 @@ function PaymentEditForm({
       : null
   );
   const [targetJobId, setTargetJobId] = useState(sourceJob?.id || "");
-  const [invQuery, setInvQuery] = useState("");
+  const seedAddr = serviceAddressKey(sourceJob) || "";
+  const [addrKey, setAddrKey] = useState(seedAddr);
   const [fullEdit, setFullEdit] = useState(false);
   const voidable = canVoidInQbo(payment);
 
-  const invoiceChoices = useMemo(() => {
+  const custJobs = useMemo(() => {
     const name = pickCust?.name || custName;
     if (!name) return [];
-    let list = invoicesForCustomerPick(jobs, name, {
-      openOnly: false,
-      includeJobId: sourceJob?.id,
-    });
-    const q = invQuery.trim().toLowerCase();
-    if (q) {
-      list = list.filter((j) => {
-        const no = String(j.invoiceNo || "").toLowerCase();
-        const addr = formatInvoicePayOption(j).toLowerCase();
-        return no.includes(q) || addr.includes(q);
-      });
+    return jobsForCustomerKey(jobs || [], customerKeyForName(name)).filter(
+      (j) => j && !j._archived && !j._deleted
+    );
+  }, [jobs, pickCust?.name, custName]);
+
+  const addressOptions = useMemo(() => serviceAddressesForJobs(custJobs), [custJobs]);
+
+  useEffect(() => {
+    if (!fullEdit) return;
+    if (!addressOptions.length) {
+      setAddrKey("");
+      return;
     }
-    return list;
-  }, [jobs, pickCust?.name, custName, invQuery, sourceJob?.id]);
+    if (addrKey && addressOptions.some((a) => a.key === addrKey)) return;
+    if (seedAddr && addressOptions.some((a) => a.key === seedAddr)) {
+      setAddrKey(seedAddr);
+      return;
+    }
+    if (addressOptions.length === 1) setAddrKey(addressOptions[0].key);
+    else setAddrKey("");
+  }, [fullEdit, addressOptions, addrKey, seedAddr]);
+
+  // Open invoices at the chosen service address (include current target if paid).
+  const invoiceChoices = useMemo(() => {
+    if (!addrKey) return [];
+    const atAddr = custJobs.filter((j) => serviceAddressKey(j) === addrKey);
+    const open = atAddr.filter((j) => j.invoiceNo && !j.paid && openBalance(j) > 0.01);
+    if (
+      sourceJob?.id &&
+      serviceAddressKey(sourceJob) === addrKey &&
+      sourceJob.invoiceNo &&
+      !open.some((j) => String(j.id) === String(sourceJob.id))
+    ) {
+      return [sourceJob, ...open];
+    }
+    // If nothing open, still list any invoices at this address (redirect paid).
+    if (!open.length) {
+      return atAddr.filter((j) => j.invoiceNo);
+    }
+    return open;
+  }, [custJobs, addrKey, sourceJob]);
 
   const targetJob =
     (jobs || []).find((j) => String(j.id) === String(targetJobId)) ||
@@ -1507,7 +1596,7 @@ function PaymentEditForm({
         <div className="space-y-2 rounded-xl border border-brand/20 bg-brand-soft/30 px-3 py-2.5">
           <div className="flex items-center justify-between gap-2 mb-1">
             <div className="text-[10px] font-bold uppercase tracking-wide text-brand">
-              Full edit — customer & invoice
+              Apply payment
             </div>
             <button
               type="button"
@@ -1521,21 +1610,22 @@ function PaymentEditForm({
                     : null
                 );
                 setTargetJobId(sourceJob?.id || "");
-                setInvQuery("");
+                setAddrKey(seedAddr);
               }}
             >
               Keep original
             </button>
           </div>
           <CustomerSearch
-            label="Customer / service address"
-            placeholder="Name or service address…"
+            label="Customer"
+            placeholder="Customer name…"
             testId="payment-edit-customer-search"
             value={custName}
             onChangeText={(t) => {
               setCustName(t);
               setPickCust(null);
               setTargetJobId("");
+              setAddrKey("");
             }}
             onPick={(c) => {
               if (!c || c._newCustomer) {
@@ -1545,44 +1635,65 @@ function PaymentEditForm({
               setPickCust(c);
               setCustName(c.name || c.businessName || "");
               setTargetJobId("");
-              setInvQuery("");
+              setAddrKey("");
             }}
           />
           {(pickCust || custName) && (
             <>
-              <Fld label="Find invoice #" hint="Type number or street to narrow the list">
-                <input
-                  className="input"
-                  value={invQuery}
-                  onChange={(e) => setInvQuery(e.target.value)}
-                  placeholder="Invoice # or address…"
-                  aria-label="Filter invoices"
-                  data-testid="payment-edit-invoice-filter"
-                />
-              </Fld>
-              <Fld label="Invoice" hint="Each line shows service address">
+              <Fld label="Service address" hint="Pick the site, then an open invoice">
                 <select
                   className="input"
-                  value={targetJobId || ""}
-                  onChange={(e) => setTargetJobId(e.target.value)}
-                  aria-label="Invoice to apply payment"
-                  data-testid="payment-edit-invoice-select"
+                  value={addrKey}
+                  onChange={(e) => {
+                    setAddrKey(e.target.value);
+                    setTargetJobId("");
+                  }}
+                  aria-label="Service address"
+                  data-testid="payment-edit-address-select"
                 >
-                  <option value="">— choose invoice —</option>
-                  {invoiceChoices.map((j) => (
-                    <option key={j.id} value={j.id}>
-                      {formatInvoicePayOption(j)}
+                  <option value="">— choose service address —</option>
+                  {addressOptions.map((a) => (
+                    <option key={a.key} value={a.key}>
+                      {a.label}
                     </option>
                   ))}
                 </select>
               </Fld>
-              {!invoiceChoices.length ? (
+              {addrKey ? (
+                <Fld label="Open invoices">
+                  <div
+                    className="space-y-1.5 max-h-48 overflow-y-auto"
+                    data-testid="payment-edit-invoice-list"
+                  >
+                    {invoiceChoices.map((j) => {
+                      const selected = String(targetJobId) === String(j.id);
+                      return (
+                        <button
+                          key={j.id}
+                          type="button"
+                          className={
+                            "w-full text-left rounded-lg border px-2.5 py-2 text-xs " +
+                            (selected
+                              ? "border-brand bg-brand-soft/40 text-slate-900"
+                              : "border-slate-200 bg-white text-slate-700 active:bg-slate-50")
+                          }
+                          data-testid={"payment-edit-inv-" + (j.invoiceNo || j.id)}
+                          onClick={() => setTargetJobId(j.id)}
+                        >
+                          <span className="font-semibold break-words">{formatInvoicePayOption(j)}</span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </Fld>
+              ) : null}
+              {addrKey && !invoiceChoices.length ? (
                 <p className="text-xs text-amber-800 bg-amber-50 border border-amber-100 rounded-xl px-2.5 py-2">
-                  No invoices for this customer — try another name or address.
+                  No open invoices at this service address.
                 </p>
               ) : null}
               {targetJob ? (
-                <p className="text-[11px] text-slate-600">
+                <p className="text-[11px] text-slate-600" data-testid="payment-edit-will-apply">
                   Will apply to <b>#{targetJob.invoiceNo || "—"}</b>
                   {targetJob.id !== sourceJob?.id ? " (moved from current job)" : ""}
                 </p>

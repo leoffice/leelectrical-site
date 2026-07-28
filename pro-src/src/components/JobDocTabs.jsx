@@ -81,6 +81,10 @@ export default function JobDocTabs({
   const coLabel =
     coNos.length && coNos.length <= 3 ? "COs " + coNos.join(" · ") : "COs · " + coCount;
 
+  // text-xs matches Job information body (Levi: Est/Inv/Payment labels were too small).
+  const tabClass =
+    "rounded-xl border px-1 py-2 text-center text-xs font-bold leading-tight break-words";
+
   return (
     <div
       className={`grid gap-1 mt-3 ${showCoTab ? "grid-cols-5" : "grid-cols-4"}`}
@@ -88,7 +92,7 @@ export default function JobDocTabs({
     >
       <button
         type="button"
-        className={`rounded-xl border px-1 py-2 text-center text-[9px] font-bold leading-tight break-words ${tabTone(hasEst, pending.estimate, failed.estimate)}`}
+        className={`${tabClass} ${tabTone(hasEst, pending.estimate, failed.estimate)}`}
         onClick={onEstimate}
         data-testid="tab-estimate"
       >
@@ -96,7 +100,7 @@ export default function JobDocTabs({
       </button>
       <button
         type="button"
-        className={`rounded-xl border px-1 py-2 text-center text-[9px] font-bold leading-tight break-words ${
+        className={`${tabClass} ${
           agentReview
             ? "bg-red-50 text-red-600 border-red-300 animate-pulse"
             : tabTone(hasInv, pending.invoice, failed.invoice)
@@ -109,7 +113,7 @@ export default function JobDocTabs({
       </button>
       <button
         type="button"
-        className={`rounded-xl border px-1 py-2 text-center text-[9px] font-bold leading-tight ${
+        className={`${tabClass} ${
           canPay ? "bg-emerald-50 text-emerald-800 border-emerald-200" : "bg-slate-50 text-slate-400 border-slate-200"
         }`}
         onClick={onPayment}
@@ -120,7 +124,7 @@ export default function JobDocTabs({
       </button>
       <button
         type="button"
-        className={`rounded-xl border px-1 py-2 text-center text-[9px] font-bold leading-tight ${calTone}`}
+        className={`${tabClass} ${calTone}`}
         onClick={onCalendar}
         data-testid="tab-calendar"
       >
@@ -129,7 +133,7 @@ export default function JobDocTabs({
       {showCoTab ? (
         <button
           type="button"
-          className={`rounded-xl border px-1 py-2 text-center text-[9px] font-bold leading-tight break-words ${
+          className={`${tabClass} ${
             changeOrdersActive
               ? "bg-brand-soft text-brand border-brand/30"
               : "bg-violet-50 text-violet-800 border-violet-200"

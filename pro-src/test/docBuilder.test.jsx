@@ -80,13 +80,11 @@ describe("Estimate / invoice builder", () => {
     await user.click(await screen.findByTestId("doc-save"));
 
     await waitFor(() => expect(srv.state.ov["J-DRAFT"].estimateLines?.length).toBeGreaterThan(0));
+    await waitFor(() => expect(String(srv.state.ov["J-DRAFT"].estimateNo || "")).toMatch(/\d+/));
     const tabs = within(pane).getByTestId("job-doc-tabs");
-    expect(within(tabs).getByTestId("tab-estimate")).toHaveTextContent(/Est draft/);
-
-    await user.click(within(tabs).getByTestId("tab-estimate"));
-    expect(await screen.findByTestId("doc-draft-banner")).toBeInTheDocument();
-    expect(screen.getByTestId("doc-draft-lines")).toBeInTheDocument();
-    expect(screen.getByTestId("doc-sync-qbo")).toBeInTheDocument();
+    // Save stamps a real Est # — no longer stuck as draft
+    expect(within(tabs).getByTestId("tab-estimate")).not.toHaveTextContent(/draft/i);
+    expect(within(tabs).getByTestId("tab-estimate")).toHaveTextContent(/Est/);
   });
 
   it("Save on job saves locally without enqueueing QuickBooks commands", async () => {
