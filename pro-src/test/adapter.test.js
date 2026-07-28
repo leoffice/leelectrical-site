@@ -218,7 +218,8 @@ describe("NetlifyStoreAdapter (mocked fetch)", () => {
     expect(posts).toHaveLength(2);
     // Second POST must keep JP-777 and merge notes/paid from cache + patch.
     expect(posts[1].body.ov["JP-777"]).toEqual({ paid: true });
-    expect(posts[1].body.ov["JP-001"]).toEqual({ notes: "n2", paid: true });
+    expect(posts[1].body.ov["JP-001"]).toMatchObject({ notes: "n2", paid: true });
+    expect(posts[1].body.ov["JP-001"]._savedAt).toEqual(expect.any(Number));
     expect(postCount).toBe(2);
   });
 

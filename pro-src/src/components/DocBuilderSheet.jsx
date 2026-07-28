@@ -418,6 +418,177 @@ function CustomerHeaderPanel({ job, allJobs, events, api, onPatch }) {
   );
 }
 
+/** One read-only fact line inside the gray summary box. */
+function FactRow({ label, value }) {
+  if (!String(value || "").trim()) return null;
+  return (
+    <div className="flex gap-2 items-baseline">
+      <dt className="font-semibold text-slate-500 shrink-0 w-[5.5rem]">{label}</dt>
+      <dd className="text-slate-800 break-words min-w-0">{value}</dd>
+    </div>
+  );
+}
+
+/**
+ * Gray "facts" box: all customer + service-address + basic info stated up top,
+ * read-only, with one Edit button that reveals the fields only when needed
+ * (Levi: condensed; edit customer info only if you have to).
+ */
+function CustomerFactsPanel({
+  job,
+  allJobs,
+  events,
+  api,
+  onPatch,
+  allowCustomerSearch,
+  serviceAddress,
+  apartment,
+  onServiceAddress,
+  onApartment,
+  startEditing,
+  coControls,
+  docLabel,
+  docNo,
+  invoicedAmount,
+  dueAmount,
+  progressPct,
+}) {
+  const [editing, setEditing] = useState(!!startEditing);
+
+  const applyCustomer = async (c) => {
+    if (!c) return;
+    if (c._newCustomer) {
+      onPatch({ businessName: c.name || "", customer: c.name || "", qboCustomerId: "" });
+      return;
+    }
+    const patch = await enrichAndPatchCustomer(c, allJobs, api);
+    onPatch({
+      businessName: patch.businessName || patch.customer || "",
+      customer: patch.businessName || patch.customer || "",
+      personName: patch.personName || "",
+      phone: patch.phone || "",
+      email: patch.email || "",
+      billingAddress: patch.billingAddress || "",
+      qboCustomerId: patch.qboCustomerId || "",
+      parentCustomerName: patch.parentCustomerName || "",
+      parentQboCustomerId: patch.parentQboCustomerId || "",
+    });
+  };
+
+  const set = (k) => (e) => onPatch({ [k]: e.target.value });
+  const svcLine = [serviceAddress, apartment && "Apt " + apartment].filter(Boolean).join(", ");
+
+  return (
+    <div
+      className="mb-3 rounded-2xl border border-slate-200 bg-slate-50 px-3 py-3"
+      data-testid="doc-customer-facts"
+    >
+      <div className="flex items-center gap-2 mb-1.5">
+        <p className="text-[11px] font-extrabold uppercase tracking-wider text-slate-500 flex-1">
+          Bill to
+        </p>
+        <button
+          type="button"
+          className="text-[11px] font-semibold text-slate-600 hover:text-brand px-2 py-0.5 rounded-md border border-slate-200 bg-white shrink-0"
+          onClick={() => setEditing((v) => !v)}
+          data-testid="doc-facts-edit-toggle"
+          aria-pressed={editing}
+        >
+          {editing ? "Done" : "✏️ Edit"}
+        </button>
+      </div>
+
+      {editing ? (
+        <div className="space-y-2">
+          {allowCustomerSearch ? (
+            <Fld label="Customer name" hint="Search app + QuickBooks — orange = not in QuickBooks yet">
+              <CustomerSearch
+                label="Customer name"
+                testId="doc-customer-search"
+                value={job.businessName || job.customer || ""}
+                onChangeText={(v) => onPatch({ businessName: v, customer: v, qboCustomerId: "" })}
+                onPick={applyCustomer}
+                jobs={allJobs}
+              />
+            </Fld>
+          ) : (
+            <div className="text-sm font-bold text-slate-800 px-0.5">
+              {job.businessName || job.customer || "—"}
+            </div>
+          )}
+          <Fld label="Person name">
+            <input className="input" value={job.personName || ""} onChange={set("personName")} aria-label="Person name" />
+          </Fld>
+          <div className="grid grid-cols-2 gap-2">
+            <Fld label="Phone">
+              <input className="input" value={job.phone || ""} onChange={set("phone")} aria-label="Phone" inputMode="tel" />
+            </Fld>
+            <Fld label="Email">
+              <input className="input" value={job.email || ""} onChange={set("email")} aria-label="Email" inputMode="email" />
+            </Fld>
+          </div>
+          <Fld label="Billing address" hint="Saved addresses first, then real-world matches as you type">
+            <AddressAutocompleteField
+              label="Billing address"
+              value={job.billingAddress || ""}
+              onChange={(v) => onPatch({ billingAddress: v })}
+              jobs={allJobs}
+              events={events}
+              suggestAddresses={api.suggestAddresses?.bind(api)}
+              testId="doc-billing"
+              ariaLabel="Billing address"
+            />
+          </Fld>
+          <Fld label="Service address" hint="Where the work is — pick a saved site or type a new one">
+            <div className="flex items-stretch gap-1.5">
+              <ServiceAddressField
+                job={job}
+                jobs={allJobs}
+                events={events}
+                value={serviceAddress}
+                onChange={onServiceAddress}
+                onApartmentChange={onApartment}
+                suggestAddresses={api.suggestAddresses?.bind(api)}
+                testId="doc-service-address"
+                partialOk={false}
+                sitePicker="dropdown"
+                compact
+              />
+              <input
+                className="input !w-[4.5rem] shrink-0"
+                value={apartment}
+                onChange={(e) => onApartment(e.target.value)}
+                aria-label="Apartment"
+                placeholder="Apt"
+                data-testid="doc-apartment"
+              />
+            </div>
+          </Fld>
+          <Fld label="Job title / scope" hint="What this invoice is for">
+            <input className="input" value={job.title || ""} onChange={set("title")} aria-label="Job title" />
+          </Fld>
+          {coControls}
+        </div>
+      ) : (
+        <dl className="text-xs space-y-1" data-testid="doc-facts-list">
+          <FactRow label="Customer" value={job.businessName || job.customer} />
+          <FactRow label={docLabel || "Invoice"} value={docNo ? "#" + docNo : ""} />
+          <FactRow label="Service" value={svcLine} />
+          <FactRow label="Invoiced" value={invoicedAmount > 0 ? fmt$(invoicedAmount) : ""} />
+          <FactRow label="Due" value={dueAmount > 0 ? fmt$(dueAmount) : ""} />
+          {progressPct != null ? <FactRow label="Progress" value={progressPct + "%"} /> : null}
+          <FactRow label="Contact" value={job.personName} />
+          <FactRow label="Phone" value={job.phone} />
+          <FactRow label="Email" value={job.email} />
+          <FactRow label="Billing" value={job.billingAddress} />
+          <FactRow label="Scope" value={job.title} />
+          {coControls ? <div className="pt-1">{coControls}</div> : null}
+        </dl>
+      )}
+    </div>
+  );
+}
+
 export default function DocBuilderSheet({
   job: jobProp,
   kind,
@@ -425,7 +596,7 @@ export default function DocBuilderSheet({
   progressPct,
   onClose,
   onDone,
-  editableCustomer = false,
+  editableCustomer = true,
   draftMode = false,
   allJobs,
   onCustomerPatch,
@@ -1255,56 +1426,43 @@ export default function DocBuilderSheet({
 
   return (
     <Sheet title={title + (job.customer ? " — " + job.customer : "")} onClose={onClose} wide>
-      {editableCustomer ? (
-        <CustomerHeaderPanel job={job} allJobs={boardJobs} events={events} api={api} onPatch={patchJobState} />
-      ) : (
-        <p className="text-[11px] text-slate-400 -mt-1 mb-3">
-          Pre-filled from job info. Line items use exact QuickBooks Products &amp; Services names.
-        </p>
-      )}
+      <CustomerFactsPanel
+        job={job}
+        allJobs={boardJobs}
+        events={events}
+        api={api}
+        onPatch={patchJobState}
+        allowCustomerSearch
+        serviceAddress={serviceAddress}
+        apartment={apartment}
+        onServiceAddress={setServiceAddress}
+        onApartment={setApartment}
+        startEditing={false}
+        docLabel={kind === "estimate" ? "Estimate" : "Invoice"}
+        docNo={kind === "estimate" ? (job.estimateNo || "") : (job.invoiceNo || "")}
+        invoicedAmount={0}
+        dueAmount={0}
+        progressPct={null}
+      />
 
-      {/* Address + apt + CO on one condensed row */}
-      <div className="flex flex-wrap items-center gap-1.5 mb-3" data-testid="doc-address-row">
-        <ServiceAddressField
-          job={job}
-          jobs={boardJobs}
-          events={events}
-          value={serviceAddress}
-          onChange={setServiceAddress}
-          onApartmentChange={setApartment}
-          suggestAddresses={api.suggestAddresses?.bind(api)}
-          testId="doc-service-address"
-          partialOk={false}
-          sitePicker="dropdown"
-          compact
-        />
-        <input
-          className="input !w-[4.5rem] !px-2 !py-2 text-sm shrink-0"
-          value={apartment}
-          onChange={(e) => setApartment(e.target.value)}
-          aria-label="Apartment"
-          placeholder="Apt"
-          data-testid="doc-apartment"
-          title="Apartment / unit"
-        />
-        {canToggleCo || alreadyCo || asChangeOrder ? (
-          <div className="flex items-center gap-1.5 shrink-0 ml-auto" data-testid="doc-co-toggle-row">
-            <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wide">CO</span>
-            <Toggle
-              on={!!(asChangeOrder || alreadyCo)}
-              onChange={applyCoToggle}
-              label={
-                asChangeOrder || alreadyCo
-                  ? coPreview
-                    ? "Change order on — " + coPreview
-                    : "Change order on"
-                  : "Change order off"
-              }
-              small
-            />
-          </div>
-        ) : null}
-      </div>
+      {/* CO toggle only — service address lives in the facts panel Edit view */}
+      {canToggleCo || alreadyCo || asChangeOrder ? (
+        <div className="flex items-center gap-1.5 mb-3" data-testid="doc-co-toggle-row">
+          <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wide">CO</span>
+          <Toggle
+            on={!!(asChangeOrder || alreadyCo)}
+            onChange={applyCoToggle}
+            label={
+              asChangeOrder || alreadyCo
+                ? coPreview
+                  ? "Change order on — " + coPreview
+                  : "Change order on"
+                : "Change order off"
+            }
+            small
+          />
+        </div>
+      ) : null}
 
       {progressMode ? (
         <div

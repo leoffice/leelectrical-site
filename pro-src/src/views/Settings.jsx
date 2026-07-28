@@ -1,15 +1,17 @@
 // Settings — collapsible menu: connections, company profile, features, agent access.
-import React, { useCallback, useEffect, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { useStore } from "../state/store.jsx";
 import { useTenantConfig } from "../state/tenant.jsx";
-import { MODULES, MODULE_LABELS, PLAN_MODULES } from "../lib/tenantConfig.js";
+import { MODULES, MODULE_LABELS } from "../lib/tenantConfig.js";
 import {
   DEFAULT_FEATURES,
   DEFAULT_PROFILE,
   FEATURE_GROUPS,
+  anyQuickbooksDocFeature,
   featureLabel,
   mergeFeatures,
   mergeProfile,
+  quickbooksDocFeature,
 } from "../lib/tenantProfile.js";
 import { probeConnections } from "../lib/connectionHealth.js";
 import { logOff } from "../lib/lock.js";
@@ -18,6 +20,8 @@ import {
   getCompanyLogoSrc,
   readLogoFileAsDataUrl,
   setCompanyLogoDataUrl,
+  setQuickbooksDocFeatureEnabled,
+  setQuickbooksDocsFeatureEnabled,
   setQuickbooksFeatureEnabled,
   setSpeechToTextEnabled,
 } from "../lib/appSettings.js";
@@ -42,6 +46,9 @@ import {
   revokeAssistantLicense,
 } from "../lib/assistantLicenseClient.js";
 import Toggle from "../components/Toggle.jsx";
+
+/** Feature keys for the per-document send-through-QuickBooks switches. */
+const QB_DOC_KEYS = ["quickbooksInvoices", "quickbooksEstimates"];
 
 const inputCls =
   "w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 text-sm font-semibold text-slate-800 outline-none focus:border-brand focus:bg-white";
@@ -107,6 +114,33 @@ function MenuSection({ id, title, summary, open, onToggle, children, badge }) {
   );
 }
 
+const FEATURE_ROW =
+  "flex items-center justify-between gap-3 rounded-xl border border-slate-100 bg-white px-3 py-2.5";
+
+/** Longer explanations for the switches that need one. */
+const FEATURE_HINTS = {
+  speechToText: "On = mic on the field you're typing in. Off = no mic anywhere.",
+};
+
+/** One feature switch — labelled row plus a Toggle. */
+function FeatureRow({ featureKey, features, setF, title, hint, disabled = false, testId }) {
+  const label = title || featureLabel(featureKey);
+  const note = hint === undefined ? FEATURE_HINTS[featureKey] : hint;
+  return (
+    <div className={FEATURE_ROW} data-testid={testId || `settings-feature-${featureKey}`}>
+      <div className="min-w-0">
+        <div className="text-sm font-semibold text-slate-800">{label}</div>
+        {note ? <div className="text-xs text-slate-500 font-semibold mt-0.5">{note}</div> : null}
+      </div>
+      <Toggle
+        on={!disabled && features[featureKey] !== false}
+        onChange={(on) => setF(featureKey, on)}
+        label={label}
+      />
+    </div>
+  );
+}
+
 /** Nested feature category under Features. */
 function FeatureSubmenu({ id, title, hint, open, onToggle, children }) {
   return (
@@ -147,7 +181,6 @@ export default function Settings() {
   const internal = config.internal === true;
   const [profile, setProfile] = useState(() => mergeProfile(DEFAULT_PROFILE));
   const [features, setFeatures] = useState(() => mergeFeatures(DEFAULT_FEATURES));
-  const [moduleOverrides, setModuleOverrides] = useState({});
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [logoBusy, setLogoBusy] = useState(false);
@@ -175,6 +208,7 @@ export default function Settings() {
     connections: false,
     company: false,
     features: false,
+    special: false,
     assistant: false,
     agent: false,
     account: false,
@@ -187,6 +221,21 @@ export default function Settings() {
   const toggleMenu = (key) => setOpenMenu((m) => ({ ...m, [key]: !m[key] }));
   const toggleFeature = (key) => setOpenFeature((m) => ({ ...m, [key]: !m[key] }));
 
+  const qbSyncOn = features.quickbooks !== false;
+  const qbInvoicesOn = qbSyncOn && quickbooksDocFeature(features, "invoice");
+  const qbEstimatesOn = qbSyncOn && quickbooksDocFeature(features, "estimate");
+
+  // Groups after plan/role filtering. A group left with one switch renders as
+  // that switch; one left with none disappears.
+  const featureGroups = useMemo(
+    () =>
+      FEATURE_GROUPS.map((g) => ({
+        ...g,
+        keys: g.keys.filter((key) => internal || key !== "progressDashboard"),
+      })).filter((g) => g.keys.length > 0),
+    [internal]
+  );
+
   const load = useCallback(async () => {
     setLoading(true);
     try {
@@ -196,14 +245,14 @@ export default function Settings() {
         const f = mergeFeatures(doc?.features);
         setProfile(p);
         setFeatures(f);
-        setModuleOverrides({ ...(doc?.tenant?.moduleOverrides || {}) });
-        const brand = p.brandColor || "#0c4a6e";
-        document.documentElement.style.setProperty("--brand", brand);
         // Server logo wins when present. Never wipe a device upload just
         // because the server hasn't stored one yet (demo/local/Company tab).
         if (p.logoDataUrl) setCompanyLogoDataUrl(p.logoDataUrl);
         setSpeechToTextEnabled(f.speechToText !== false);
         setQuickbooksFeatureEnabled(f.quickbooks !== false);
+        setQuickbooksDocsFeatureEnabled(anyQuickbooksDocFeature(doc?.features));
+        setQuickbooksDocFeatureEnabled("invoice", quickbooksDocFeature(doc?.features, "invoice"));
+        setQuickbooksDocFeatureEnabled("estimate", quickbooksDocFeature(doc?.features, "estimate"));
       }
     } catch (e) {
       showToast?.(String(e.message || e));
@@ -435,9 +484,6 @@ export default function Settings() {
       }
       return next;
     });
-    if (key === "brandColor") {
-      document.documentElement.style.setProperty("--brand", val || "#0c4a6e");
-    }
     setDirty(true);
   };
 
@@ -450,10 +496,39 @@ export default function Settings() {
   };
 
   const setF = (key, on) => {
-    setFeatures((f) => ({ ...f, [key]: on }));
+    setFeatures((f) => {
+      const next = { ...f, [key]: on };
+      // Sync off also kills every send-through-QB path (no half-state).
+      if (key === "quickbooks" && !on) {
+        next.quickbooksDocs = false;
+        next.quickbooksInvoices = false;
+        next.quickbooksEstimates = false;
+      }
+      // Sending a doc through QB requires sync on.
+      if (QB_DOC_KEYS.includes(key) && on) next.quickbooks = true;
+      // Keep the legacy umbrella in step so older readers stay correct.
+      if (QB_DOC_KEYS.includes(key)) {
+        next.quickbooksDocs = next.quickbooksInvoices !== false || next.quickbooksEstimates !== false;
+      }
+      return next;
+    });
     if (key === "speechToText") setSpeechToTextEnabled(!!on);
-    // Instant local gate so send/view/sync hide QB paths before Save.
-    if (key === "quickbooks") setQuickbooksFeatureEnabled(!!on);
+    // Instant local gates so UI flips before Save.
+    if (key === "quickbooks") {
+      setQuickbooksFeatureEnabled(!!on);
+      if (!on) {
+        setQuickbooksDocsFeatureEnabled(false);
+        setQuickbooksDocFeatureEnabled("invoice", false);
+        setQuickbooksDocFeatureEnabled("estimate", false);
+      }
+    }
+    if (QB_DOC_KEYS.includes(key)) {
+      setQuickbooksDocFeatureEnabled(key === "quickbooksEstimates" ? "estimate" : "invoice", !!on);
+      if (on) {
+        setQuickbooksFeatureEnabled(true);
+        setQuickbooksDocsFeatureEnabled(true);
+      }
+    }
     setDirty(true);
   };
 
@@ -480,17 +555,7 @@ export default function Settings() {
     }
     setSaving(true);
     try {
-      await saveSettings({
-        profile,
-        features,
-        tenant: {
-          branding: {
-            primaryColor: profile.brandColor,
-            logoUrl: profile.logoDataUrl || "",
-          },
-          moduleOverrides,
-        },
-      });
+      await saveSettings({ profile, features });
       if (profile.logoDataUrl) setCompanyLogoDataUrl(profile.logoDataUrl);
       else clearCompanyLogo();
       // Push the whole company profile into live branding so local printouts
@@ -498,12 +563,22 @@ export default function Settings() {
       // immediately — no reload.
       applyCompanyProfileToActiveConfig(profile);
       setSpeechToTextEnabled(features.speechToText !== false);
-      setQuickbooksFeatureEnabled(features.quickbooks !== false);
+      const qbOn = features.quickbooks !== false;
+      const invOn = qbOn && quickbooksDocFeature(features, "invoice");
+      const estOn = qbOn && quickbooksDocFeature(features, "estimate");
+      setQuickbooksFeatureEnabled(qbOn);
+      setQuickbooksDocsFeatureEnabled(invOn || estOn);
+      setQuickbooksDocFeatureEnabled("invoice", invOn);
+      setQuickbooksDocFeatureEnabled("estimate", estOn);
       setDirty(false);
       showToast?.(
-        features.quickbooks === false
+        !qbOn
           ? "Settings saved — QuickBooks off, local only"
-          : "Settings saved"
+          : !invOn && !estOn
+            ? "Settings saved — QuickBooks still syncing, send/view is local only"
+            : invOn && estOn
+              ? "Settings saved"
+              : `Settings saved — only ${invOn ? "invoices" : "estimates"} send through QuickBooks`
       );
     } catch (e) {
       showToast?.(String(e.message || e));
@@ -559,6 +634,7 @@ export default function Settings() {
           type="button"
           onClick={save}
           disabled={saving || !dirty}
+          data-testid="settings-save"
           className={`shrink-0 rounded-xl px-4 py-2.5 text-sm font-extrabold ${
             dirty && !saving
               ? "bg-brand text-white shadow-sm"
@@ -855,112 +931,115 @@ export default function Settings() {
             ) : null}
           </div>
           <div className="space-y-1.5">
-            {MODULES.map((key) => {
-              const planBase = PLAN_MODULES[config.plan.tier] || PLAN_MODULES.free;
-              const planLocked = !planBase[key] && !internal;
-              const on =
-                moduleOverrides[key] !== undefined
-                  ? moduleOverrides[key]
-                  : config.modules[key];
-              return (
-                <div
-                  key={key}
-                  className={`flex items-center justify-between gap-3 rounded-xl border border-slate-100 bg-white px-3 py-2 ${
-                    planLocked ? "opacity-60" : ""
+            {MODULES.map((key) => (
+              <div
+                key={key}
+                className="flex items-center justify-between gap-3 rounded-xl border border-slate-100 bg-white px-3 py-2"
+                data-testid={`module-${key}`}
+              >
+                <span className="text-sm font-semibold text-slate-800">{MODULE_LABELS[key]}</span>
+                <span
+                  className={`text-xs font-extrabold ${
+                    config.modules[key] ? "text-emerald-600" : "text-slate-400"
                   }`}
-                  data-testid={`module-${key}`}
                 >
-                  <div className="min-w-0">
-                    <span className="text-sm font-semibold text-slate-800">
-                      {MODULE_LABELS[key]}
-                    </span>
-                    {planLocked ? (
-                      <span className="ml-2 text-[10px] font-extrabold uppercase tracking-wide text-amber-600">
-                        Upgrade
-                      </span>
-                    ) : null}
-                  </div>
-                  {planLocked ? (
-                    <span className="text-xs font-extrabold text-slate-400">Off</span>
-                  ) : (
-                    <Toggle
-                      on={!!on}
-                      onChange={(v) => {
-                        setModuleOverrides((m) => ({ ...m, [key]: v }));
-                        setDirty(true);
-                      }}
-                    />
-                  )}
-                </div>
-              );
-            })}
+                  {config.modules[key] ? "On" : "Off"}
+                </span>
+              </div>
+            ))}
           </div>
         </div>
-        {FEATURE_GROUPS.map((group) => (
-          <FeatureSubmenu
-            key={group.id}
-            id={group.id}
-            title={group.title}
-            hint={group.hint}
-            open={!!openFeature[group.id]}
-            onToggle={() => toggleFeature(group.id)}
-          >
-            {group.keys
-              .filter((key) => internal || key !== "progressDashboard")
-              .map((key) =>
-              key === "speechToText" ? (
-                <div
-                  key={key}
-                  className="flex items-center justify-between gap-3 rounded-xl border border-slate-100 bg-white px-3 py-2.5"
-                  data-testid="settings-speech-to-text"
-                >
-                  <div className="min-w-0">
-                    <div className="text-sm font-semibold text-slate-800">Speech to text</div>
-                    <div className="text-xs text-slate-500 font-semibold mt-0.5">
-                      On = voice bubble + chat mic. Off = both hidden.
-                    </div>
-                  </div>
-                  <Toggle
-                    on={features.speechToText !== false}
-                    onChange={(on) => setF("speechToText", on)}
-                    label="Speech to text"
-                  />
-                </div>
-              ) : key === "quickbooks" ? (
-                <div
-                  key={key}
-                  className="flex items-center justify-between gap-3 rounded-xl border border-slate-100 bg-white px-3 py-2.5"
-                  data-testid="settings-quickbooks"
-                >
-                  <div className="min-w-0">
-                    <div className="text-sm font-semibold text-slate-800">QuickBooks</div>
-                    <div className="text-xs text-slate-500 font-semibold mt-0.5">
-                      On = save, send, and sync through QuickBooks. Off = local only (white-label safe).
-                    </div>
-                  </div>
-                  <Toggle
-                    on={features.quickbooks !== false}
-                    onChange={(on) => setF("quickbooks", on)}
-                    label="QuickBooks"
-                  />
-                </div>
-              ) : (
-                <label
-                  key={key}
-                  className="flex items-center justify-between gap-3 rounded-xl border border-slate-100 bg-white px-3 py-2.5"
-                >
-                  <span className="text-sm font-semibold text-slate-800">{featureLabel(key)}</span>
-                  <input
-                    type="checkbox"
-                    checked={features[key] !== false}
-                    onChange={(e) => setF(key, e.target.checked)}
-                    className="h-4 w-4"
-                  />
-                </label>
-              )
-            )}
-          </FeatureSubmenu>
-        ))}
+        {featureGroups.map((group) =>
+          group.keys.length <= 1 ? (
+            // A category with a single switch is just that switch — a submenu
+            // that hides one toggle is pure friction (Levi 2026-07-27).
+            <div key={group.id} className="mb-2" data-testid={`feature-flat-${group.id}`}>
+              {group.keys.map((key) => (
+                <FeatureRow key={key} featureKey={key} features={features} setF={setF} />
+              ))}
+            </div>
+          ) : (
+            <FeatureSubmenu
+              key={group.id}
+              id={group.id}
+              title={group.title}
+              hint={group.hint}
+              open={!!openFeature[group.id]}
+              onToggle={() => toggleFeature(group.id)}
+            >
+              {group.keys.map((key) => (
+                <FeatureRow key={key} featureKey={key} features={features} setF={setF} />
+              ))}
+            </FeatureSubmenu>
+          )
+        )}
+      </MenuSection>
+
+      {/* ── Special features (integrations that own their own sub-switches) ── */}
+      <MenuSection
+        id="special"
+        title="Special features"
+        summary={
+          qbSyncOn
+            ? qbInvoicesOn && qbEstimatesOn
+              ? "QuickBooks — syncing, invoices & estimates send through QB"
+              : qbInvoicesOn || qbEstimatesOn
+                ? `QuickBooks — syncing, only ${qbInvoicesOn ? "invoices" : "estimates"} send through QB`
+                : "QuickBooks — syncing in the background, sending is local"
+            : "QuickBooks — off"
+        }
+        open={openMenu.special}
+        onToggle={() => toggleMenu("special")}
+        badge={<StatusPill ok={qbSyncOn} label={qbSyncOn ? "QuickBooks on" : "QuickBooks off"} />}
+      >
+        <div
+          className="rounded-xl border border-slate-200 bg-slate-50/60 overflow-hidden"
+          data-testid="special-feature-quickbooks"
+        >
+          <div className="px-3 py-2.5 border-b border-slate-200/80">
+            <div className="text-sm font-extrabold text-slate-800">QuickBooks</div>
+            <div className="text-[11px] text-slate-500 font-semibold mt-0.5">
+              Sync runs in the background. Sending each document type through QuickBooks is its
+              own switch.
+            </div>
+          </div>
+          <div className="px-3 py-3 space-y-2">
+            <FeatureRow
+              featureKey="quickbooks"
+              features={features}
+              setF={setF}
+              title="QuickBooks synchronization"
+              hint="On = jobs & customers keep syncing in the background. Off = no QuickBooks at all."
+              testId="settings-quickbooks"
+            />
+            <FeatureRow
+              featureKey="quickbooksInvoices"
+              features={features}
+              setF={setF}
+              title="Send invoices through QuickBooks"
+              hint={
+                qbSyncOn
+                  ? "Off = the send button emails the local PDF instead. Sync keeps running either way."
+                  : "Turning this on switches synchronization back on too."
+              }
+              disabled={!qbSyncOn}
+              testId="settings-quickbooks-invoices"
+            />
+            <FeatureRow
+              featureKey="quickbooksEstimates"
+              features={features}
+              setF={setF}
+              title="Send estimates through QuickBooks"
+              hint={
+                qbSyncOn
+                  ? "Off = the send button emails the local PDF instead. Sync keeps running either way."
+                  : "Turning this on switches synchronization back on too."
+              }
+              disabled={!qbSyncOn}
+              testId="settings-quickbooks-estimates"
+            />
+          </div>
+        </div>
       </MenuSection>
 
       {/* ── AI Assistant licenses (paid feature) ── */}

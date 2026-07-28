@@ -329,6 +329,7 @@ export default function CustomerView() {
       </div>
 
       <CustomerCard
+        showServiceAddress={false}
         contact={contact}
         summary={summary}
         primaryJob={primaryJob}

@@ -54,6 +54,33 @@ async function httpAllowErrorBody(path, body) {
 }
 
 const cb = () => "cb=" + Date.now();
+// ---- Conditional (ETag) GET for the big read-heavy blobs --------------------
+// jobsdata (~20 MB) and state are polled every 60s (plus focus + action
+// refreshes). The server tags each with an ETag off its write-ts; we hold the
+// last {etag, data} per path and send If-None-Match, so an unchanged blob comes
+// back as a bodyless 304 and we reuse the cached parse — turning a repeated
+// multi-MB transfer into a few bytes. NO cache-buster here (a unique URL would
+// defeat revalidation) and NO browser HTTP cache (cache:no-store) — we manage
+// the entity tag ourselves, which stays predictable across browsers and is
+// exercisable in tests. Correctness is unchanged: every poll still revalidates
+// against the server; 304 means the document is byte-identical to what we hold.
+const condCache = new Map(); // path -> { etag, data }
+async function httpConditional(path) {
+  const entry = condCache.get(path);
+  const res = await fetch(`${base()}/${path}`, {
+    method: "GET",
+    cache: "no-store",
+    headers: await authedHeaders(entry && entry.etag ? { "if-none-match": entry.etag } : undefined),
+  });
+  if (res.status === 304 && entry) return entry.data;
+  if (!res.ok) throw new Error(`${path}: HTTP ${res.status}`);
+  const data = await res.json();
+  const etag = res.headers && typeof res.headers.get === "function" ? res.headers.get("etag") : null;
+  if (etag) condCache.set(path, { etag, data });
+  return data;
+}
+
+
 
 /** Fields the send-doc-email server needs — drop heavy history/status blobs. */
 function pickJobForDocEmail(job) {
@@ -147,7 +174,7 @@ export function createNetlifyAdapter() {
 
     /** Merged view + sync metadata: jobsdata.jobs + state.ov (overlay wins). */
     async listJobsMeta() {
-      const [data, state] = await Promise.all([http(`jobsdata?${cb()}`), http(`state?${cb()}`)]);
+      const [data, state] = await Promise.all([httpConditional("jobsdata"), httpConditional("state")]);
       return {
         jobs: mergeJobs(data.jobs || [], (state && state.ov) || {}),
         syncedAt: data.syncedAt || 0,
@@ -196,6 +223,7 @@ export function createNetlifyAdapter() {
         const baseOv = (state && state.ov) || {};
         const ov = { ...baseOv };
         ov[id] = deepMerge(baseOv[id] || {}, patch || {});
+        if (String(id).charAt(0) !== "_") ov[id]._savedAt = Date.now();
         const res = await http("state", { ov });
         if (res && res.ts) {
           lastWriteTs = Math.max(lastWriteTs, res.ts);
@@ -209,7 +237,7 @@ export function createNetlifyAdapter() {
     },
 
     async listCommands(jobId) {
-      const d = await http(`command?${cb()}`);
+      const d = await httpConditional("command");
       const all = d.commands || [];
       return jobId == null ? all : all.filter((c) => String(c.jobId) === String(jobId));
     },
@@ -486,7 +514,7 @@ export function createNetlifyAdapter() {
     },
 
     async listEventsMeta() {
-      const d = await http(`calendar?${cb()}`);
+      const d = await httpConditional("calendar");
       return { events: d.events || [], syncedAt: d.syncedAt || 0, request: d.request || 0 };
     },
 
