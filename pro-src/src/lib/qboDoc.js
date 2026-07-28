@@ -42,12 +42,26 @@ export function scaleLines(lines, progressPct) {
   }));
 }
 
+/** True when invoice is being built from an estimate (both create paths). */
+export function isFromEstimateMode(mode) {
+  return mode === "from_estimate" || mode === "turn_from_estimate";
+}
+
 export function initialLines(job, { kind, mode, progressPct } = {}) {
+  // Convert / invoice-from-estimate: always take full estimate line items first.
+  // turn_from_estimate used to fall through to a single "General electrical work"
+  // line when invoiceLines was empty and job.amount was set (Levi 2026-07-28).
+  if (
+    kind === "invoice" &&
+    isFromEstimateMode(mode) &&
+    job.estimateLines &&
+    job.estimateLines.length
+  ) {
+    return progressBillLines(job.estimateLines, progressPct ?? 100);
+  }
+
   const saved = kind === "estimate" ? job.estimateLines : job.invoiceLines;
   if (saved && saved.length) {
-    if (kind === "invoice" && mode === "from_estimate" && job.estimateLines) {
-      return progressBillLines(job.estimateLines, progressPct ?? 100);
-    }
     const mapped = saved.map((ln) => ({ ...emptyLine(), ...ln }));
     if (kind === "invoice" && isProgressBillingContext(job, { kind, mode })) {
       return normalizeProgressInvoiceLines(mapped, contractTotalForJob(job), job.estimateLines);
@@ -56,9 +70,6 @@ export function initialLines(job, { kind, mode, progressPct } = {}) {
   }
   if (kind === "invoice" && mode === "edit" && isProgressBillingContext(job, { kind, mode })) {
     return inferProgressInvoiceLines(job);
-  }
-  if (kind === "invoice" && mode === "from_estimate" && job.estimateLines && job.estimateLines.length) {
-    return progressBillLines(job.estimateLines, progressPct ?? 50);
   }
   const amt = parseAmount(job.amount);
   if (amt > 0) {
@@ -118,7 +129,7 @@ export function buildDocCommandPayload(job, { kind, lines, serviceAddress, apart
     // Change-order invoices: original invoice # + -CO- + seq (e.g. 251100-CO-01).
     base.invoiceNo =
       String(job.invoiceNo || "").trim() || preferredChangeOrderDocNo(job, "invoice") || "";
-    base.source = mode === "from_estimate" || mode === "turn_from_estimate" ? "estimate" : "new";
+    base.source = isFromEstimateMode(mode) ? "estimate" : "new";
     base.estimateNo = job.estimateNo || "";
     const contract = contractTotalForJob(job);
     base.progressPct =

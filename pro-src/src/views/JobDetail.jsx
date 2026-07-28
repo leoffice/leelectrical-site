@@ -733,7 +733,7 @@ export default function JobDetail() {
                                     onClick={() => setSheet({ kind: "docBuild", docKind: "estimate", mode: "edit" })}
                                     data-testid="edit-estimate-paperwork"
                                   >
-                                    Edit estimate
+                                    Edit Est #{job.estimateNo}
                                   </button>
                                 ) : null}
                                 {(job.estimateNo || (job.estimateLines && job.estimateLines.length)) && !job.invoiceNo ? (
@@ -749,7 +749,7 @@ export default function JobDetail() {
                                     }
                                     data-testid="turn-to-invoice"
                                   >
-                                    Turn to invoice
+                                    {job.estimateNo ? "Turn Est #" + job.estimateNo + " to invoice" : "Turn to invoice"}
                                   </button>
                                 ) : null}
                               </>
@@ -776,7 +776,7 @@ export default function JobDetail() {
                                     onClick={() => setSheet({ kind: "docBuild", docKind: "invoice", mode: "edit" })}
                                     data-testid="edit-invoice-paperwork"
                                   >
-                                    Edit invoice
+                                    Edit Inv #{job.invoiceNo}
                                   </button>
                                 ) : null}
                               </>

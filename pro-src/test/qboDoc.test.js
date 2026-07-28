@@ -43,6 +43,48 @@ describe("qboDoc", () => {
     expect(lines[0].qty).toBe(0.25);
   });
 
+  it("turn_from_estimate keeps all estimate lines (not a single amount line)", () => {
+    const multi = {
+      ...job,
+      amount: "$500",
+      invoiceLines: [],
+      estimateLines: [
+        { itemName: "Service call", qty: 1, unitPrice: 120, description: "Visit" },
+        { itemName: "Labor", qty: 2, unitPrice: 95, description: "Rough-in" },
+        { itemName: "Materials", qty: 1, unitPrice: 200, description: "Wire" },
+      ],
+    };
+    const lines = initialLines(multi, {
+      kind: "invoice",
+      mode: "turn_from_estimate",
+      progressPct: 100,
+    });
+    expect(lines).toHaveLength(3);
+    expect(lines.map((l) => l.itemName)).toEqual(["Service call", "Labor", "Materials"]);
+    expect(lines[1].qty).toBe(2);
+    expect(lines[1].unitPrice).toBe(95);
+  });
+
+  it("turn_from_estimate at partial progress scales every estimate line", () => {
+    const multi = {
+      ...job,
+      amount: "$500",
+      invoiceLines: [],
+      estimateLines: [
+        { itemName: "A", qty: 1, unitPrice: 100 },
+        { itemName: "B", qty: 1, unitPrice: 100 },
+      ],
+    };
+    const lines = initialLines(multi, {
+      kind: "invoice",
+      mode: "turn_from_estimate",
+      progressPct: 50,
+    });
+    expect(lines).toHaveLength(2);
+    expect(lines[0].qty).toBe(0.5);
+    expect(lines[0].unitPrice).toBe(100);
+  });
+
   it("buildDocCommandPayload includes ShipAddr and QBO line shape", () => {
     const lines = [{ itemName: "Installation:Ballast Replacement", qty: 1, unitPrice: 110, description: "Ballast" }];
     const payload = buildDocCommandPayload(job, {

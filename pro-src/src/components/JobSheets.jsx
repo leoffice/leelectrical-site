@@ -47,6 +47,12 @@ import { parentCustomerPatch } from "../lib/customerHierarchy.js";
 import { buildPaymentLinkEmail } from "../lib/paymentLinkEmail.js";
 import { buildShortPayLandingUrl } from "../lib/payLanding.js";
 import {
+  canClearDoc,
+  clearDocLabel,
+  clearEstimatePatch,
+  clearInvoicePatch,
+} from "../lib/deleteDoc.js";
+import {
   appendPayment,
   canVoidInQbo,
   findDuplicatePayment,
@@ -2792,13 +2798,50 @@ export function PaymentLinkSheet({ job, onClose }) {
 /* ---------- 2a. Invoice / Estimate quick view ---------- */
 export function DocSheet({ job, kind, onClose, onEdit, onConvert, onSync }) {
   const doSend = useDoSend();
-  const { commands } = useStore();
+  const { commands, patchAndSave, showToast } = useStore();
   const [sendPick, setSendPick] = useState(null); // { withPay, title }
   const [confirmSend, setConfirmSend] = useState(null); // { withPay, docSource }
   const [sendBusy, setSendBusy] = useState(false);
   const [sendErr, setSendErr] = useState("");
+  const [confirmClear, setConfirmClear] = useState(false);
   const no = kind === "invoice" ? job.invoiceNo : job.estimateNo;
   const label = kind === "invoice" ? "invoice" : "estimate";
+  const linesEarly = kind === "invoice" ? job.invoiceLines : job.estimateLines;
+  const isDraftEarly =
+    !no && (linesEarly || []).some((ln) => String(ln?.itemName || "").trim());
+
+  if (confirmClear) {
+    const clearLabel = clearDocLabel(job, kind);
+    return (
+      <DeleteConfirmSheet
+        title={"Delete " + clearLabel + "?"}
+        note={
+          isDraftEarly
+            ? "Removes this draft from the job in the app only. QuickBooks is not changed."
+            : "Removes this " +
+              label +
+              " from the job in the app only. The job stays. QuickBooks is not changed."
+        }
+        confirmLabel={"Delete " + label}
+        onClose={() => setConfirmClear(false)}
+        onConfirm={() => {
+          if (!job?.id) return;
+          const patch = kind === "estimate" ? clearEstimatePatch() : clearInvoicePatch();
+          // Also clear progress steps when wiping a numbered doc.
+          if (kind === "estimate" && job.status?.Estimate) {
+            patch.status = { ...(job.status || {}), Estimate: { s: null } };
+          }
+          if (kind === "invoice" && job.status?.Invoiced) {
+            patch.status = { ...(job.status || {}), Invoiced: { s: null } };
+          }
+          void patchAndSave(job.id, patch);
+          showToast("Deleted " + clearLabel + " from this job");
+          setConfirmClear(false);
+          onClose && onClose();
+        }}
+      />
+    );
+  }
 
   if (confirmSend) {
     return (
@@ -2938,6 +2981,17 @@ export function DocSheet({ job, kind, onClose, onEdit, onConvert, onSync }) {
 
       {kind === "estimate" && !job.invoiceNo && onConvert && (no || isDraft) ? (
         <Opt icon="🧾" title="Convert to invoice" note="Bill all or part of this estimate" onClick={onConvert} />
+      ) : null}
+
+      {canClearDoc(job, kind) ? (
+        <button
+          type="button"
+          className="btn w-full !py-2.5 mt-2 mb-1 font-semibold bg-red-50 text-red-700 border border-red-200"
+          onClick={() => setConfirmClear(true)}
+          data-testid="doc-delete"
+        >
+          {isDraft ? "Delete draft" : "Delete " + label}
+        </button>
       ) : null}
 
       {!isDraft && no ? (

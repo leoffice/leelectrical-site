@@ -46,8 +46,9 @@ export default function JobDocTabs({
     [commands, job, job.id]
   );
 
+  // Always show the number on the tab when present (Levi: estimate # on job info buttons).
   const estLabel = job.estimateNo
-    ? "Est " + job.estimateNo
+    ? "Est #" + job.estimateNo
     : estDraft
     ? "Est draft"
     : pending.estimate
@@ -56,7 +57,7 @@ export default function JobDocTabs({
     ? "Est!"
     : "Estimate";
   const invLabel = job.invoiceNo
-    ? "Inv " + job.invoiceNo
+    ? "Inv #" + job.invoiceNo
     : invDraft
     ? "Inv draft"
     : pending.invoice

@@ -5,9 +5,10 @@ import { WORK_DESCRIPTION_STYLES, polishWorkDescription } from "../lib/workDescr
 
 const MIN_TEXTAREA_PX = 96;
 const MAX_TEXTAREA_PX = 320;
-/** One-line start height; grows when the description wraps. */
+/** One-line start height; grows with content so full text stays visible (no inner scroll). */
 const COMPACT_MIN_TEXTAREA_PX = 38;
-const COMPACT_MAX_TEXTAREA_PX = 160;
+/** Large enough that long line-item text is rarely clipped; still soft-capped for extreme paste. */
+const COMPACT_MAX_TEXTAREA_PX = 720;
 
 /** Compact polish control — sits next to amount (or anywhere). */
 export function PolishButton({
@@ -125,9 +126,12 @@ export default function DescriptionField({
     const el = taRef.current;
     if (!el || !multiline) return;
     el.style.height = "auto";
-    const next = Math.min(maxPx, Math.max(minPx, el.scrollHeight));
+    // Compact line-item descriptions grow freely so full text is visible (no slide-in box).
+    // Non-compact fields still soft-cap for very long paste.
+    const raw = Math.max(minPx, el.scrollHeight);
+    const next = compact ? raw : Math.min(maxPx, raw);
     el.style.height = next + "px";
-  }, [multiline, minPx, maxPx]);
+  }, [multiline, minPx, maxPx, compact]);
 
   useEffect(() => {
     resize();
@@ -136,7 +140,7 @@ export default function DescriptionField({
   const minH = minRows ? minRows + "px" : minPx + "px";
   const inputProps = {
     className: multiline
-      ? "input resize-y " + (compact ? "leading-snug !py-2 text-sm" : "leading-relaxed")
+      ? "input resize-y overflow-hidden " + (compact ? "leading-snug !py-2 text-sm" : "leading-relaxed")
       : "input",
     value: value || "",
     onChange: (e) => onChange(e.target.value),
@@ -147,7 +151,10 @@ export default function DescriptionField({
       ? {
           ref: taRef,
           rows: compact ? 1 : 4,
-          style: { minHeight: minH, maxHeight: maxPx + "px" },
+          // Grow with content; no inner scroll box for compact line items (Levi 2026-07-28).
+          style: compact
+            ? { minHeight: minH, height: "auto", overflow: "hidden" }
+            : { minHeight: minH, maxHeight: maxPx + "px" },
           onInput: resize,
         }
       : {}),

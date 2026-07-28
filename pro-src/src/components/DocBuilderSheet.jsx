@@ -307,6 +307,9 @@ function LineRow({
 const LineRowMemo = React.memo(LineRow);
 
 function CustomerHeaderPanel({ job, allJobs, events, api, onPatch }) {
+  // Bill To starts collapsed (one line) — expands on tap so it doesn't waste space (Levi 2026-07-28).
+  const [open, setOpen] = useState(false);
+
   const applyCustomer = async (c) => {
     if (!c) return;
     if (c._newCustomer) {
@@ -333,43 +336,76 @@ function CustomerHeaderPanel({ job, allJobs, events, api, onPatch }) {
 
   const set = (k) => (e) => onPatch({ [k]: e.target.value });
 
+  const name = String(job.businessName || job.customer || "").trim() || "Customer";
+  const billBits = [
+    job.personName,
+    job.phone,
+    job.email,
+    job.billingAddress,
+  ]
+    .map((s) => String(s || "").trim())
+    .filter(Boolean);
+  const oneLine =
+    billBits.length > 0 ? name + " · " + billBits.join(" · ") : name + (job.title ? " · " + job.title : "");
+
   return (
-    <div className="mb-4 pb-3 border-b border-slate-200" data-testid="doc-customer-header">
-      <p className="text-[11px] font-bold uppercase tracking-wide text-slate-400 mb-2">Customer</p>
-      <Fld label="Customer name" hint="Search app + QuickBooks — orange = not in QuickBooks yet">
-        <CustomerSearch
-          label="Customer name"
-          testId="doc-customer-search"
-          value={job.businessName || job.customer || ""}
-          onChangeText={(v) => onPatch({ businessName: v, customer: v, qboCustomerId: "" })}
-          onPick={applyCustomer}
-          jobs={allJobs}
-        />
-      </Fld>
-      <Fld label="Person name">
-        <input className="input" value={job.personName || ""} onChange={set("personName")} aria-label="Person name" />
-      </Fld>
-      <Fld label="Phone">
-        <input className="input" value={job.phone || ""} onChange={set("phone")} aria-label="Phone" />
-      </Fld>
-      <Fld label="Email">
-        <input className="input" value={job.email || ""} onChange={set("email")} aria-label="Email" />
-      </Fld>
-      <Fld label="Billing address" hint="Your saved addresses first, then real-world matches as you type">
-        <AddressAutocompleteField
-          label="Billing address"
-          value={job.billingAddress || ""}
-          onChange={(v) => onPatch({ billingAddress: v })}
-          jobs={allJobs}
-          events={events}
-          suggestAddresses={api.suggestAddresses?.bind(api)}
-          testId="doc-billing"
-          ariaLabel="Billing address"
-        />
-      </Fld>
-      <Fld label="Job title / scope" hint="What this invoice is for">
-        <input className="input" value={job.title || ""} onChange={set("title")} aria-label="Job title" />
-      </Fld>
+    <div className="mb-3 pb-2 border-b border-slate-200" data-testid="doc-customer-header">
+      <button
+        type="button"
+        className="w-full flex items-center gap-2 text-left rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 active:bg-slate-100"
+        onClick={() => setOpen((v) => !v)}
+        aria-expanded={open}
+        data-testid="doc-bill-to-toggle"
+      >
+        <span className="text-[10px] font-extrabold uppercase tracking-wide text-slate-400 shrink-0">
+          Bill to
+        </span>
+        <span className="min-w-0 flex-1 text-sm font-semibold text-slate-800 truncate" data-testid="doc-bill-to-summary">
+          {oneLine}
+        </span>
+        <span className="text-xs text-slate-400 shrink-0" aria-hidden>
+          {open ? "▲" : "▼"}
+        </span>
+      </button>
+
+      {open ? (
+        <div className="mt-2 space-y-0" data-testid="doc-bill-to-expanded">
+          <Fld label="Customer name" hint="Search app + QuickBooks — orange = not in QuickBooks yet">
+            <CustomerSearch
+              label="Customer name"
+              testId="doc-customer-search"
+              value={job.businessName || job.customer || ""}
+              onChangeText={(v) => onPatch({ businessName: v, customer: v, qboCustomerId: "" })}
+              onPick={applyCustomer}
+              jobs={allJobs}
+            />
+          </Fld>
+          <Fld label="Person name">
+            <input className="input" value={job.personName || ""} onChange={set("personName")} aria-label="Person name" />
+          </Fld>
+          <Fld label="Phone">
+            <input className="input" value={job.phone || ""} onChange={set("phone")} aria-label="Phone" />
+          </Fld>
+          <Fld label="Email">
+            <input className="input" value={job.email || ""} onChange={set("email")} aria-label="Email" />
+          </Fld>
+          <Fld label="Billing address" hint="Your saved addresses first, then real-world matches as you type">
+            <AddressAutocompleteField
+              label="Billing address"
+              value={job.billingAddress || ""}
+              onChange={(v) => onPatch({ billingAddress: v })}
+              jobs={allJobs}
+              events={events}
+              suggestAddresses={api.suggestAddresses?.bind(api)}
+              testId="doc-billing"
+              ariaLabel="Billing address"
+            />
+          </Fld>
+          <Fld label="Job title / scope" hint="What this invoice is for">
+            <input className="input" value={job.title || ""} onChange={set("title")} aria-label="Job title" />
+          </Fld>
+        </div>
+      ) : null}
     </div>
   );
 }
