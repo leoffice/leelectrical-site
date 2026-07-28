@@ -8,14 +8,39 @@ import { normalizeEmail } from "./customers.js";
 
 const s = (v) => (v == null ? "" : String(v).trim());
 
+/** Split free-typed To field into unique addresses (comma/semicolon). */
+export function parseSendRecipients(raw) {
+  const seen = new Set();
+  const out = [];
+  for (const part of String(raw || "").split(/[,;]+/)) {
+    const e = part.trim();
+    if (!e || !e.includes("@")) continue;
+    const key = normalizeEmail(e);
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(e);
+  }
+  return out;
+}
+
+/** Canonical multi-email key for compare (sorted, lowercased). */
+function emailListKey(raw) {
+  return parseSendRecipients(raw)
+    .map((e) => normalizeEmail(e))
+    .filter(Boolean)
+    .sort()
+    .join(",");
+}
+
 /**
  * True when the typed send-to address differs from the job/customer email.
  * Used to offer Keep this email vs Use it once before send.
+ * Compares full multi-address lists (order-independent).
  */
 export function sendEmailDiffersFromCustomer(typedEmail, jobEmail) {
-  const a = normalizeEmail(typedEmail);
-  const b = normalizeEmail(jobEmail);
-  if (!a || !a.includes("@")) return false;
+  const a = emailListKey(typedEmail);
+  const b = emailListKey(jobEmail);
+  if (!a) return false;
   if (!b) return true;
   return a !== b;
 }

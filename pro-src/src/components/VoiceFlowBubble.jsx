@@ -1,44 +1,96 @@
-// Wispr-style LE voice bubble — floats above the app, inserts polished text into any field.
+// LE contextual voice mic — hidden by default; appears ONLY while a text field
+// is focused. Tap to dictate (record → xAI Grok STT → polish → insert into the
+// field). No always-on floating bubble.
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import { useStoreData } from "../state/store.jsx";
 import { useAppSettings } from "../lib/appSettings.js";
 import {
-  createSilentRecognizer,
+  audioCaptureSupported,
   getLastTextTarget,
   insertTextAtFocus,
+  pickAudioMimeType,
   polishVoiceTextSmart,
   setLastTextTarget,
-  speechRecognitionSupported,
-  trackVoiceFocus,
+  subscribeTextFocus,
+  transcribeAudioBlob,
 } from "../lib/voiceFlow.js";
 
-const REVIEW_STYLE = {
-  unicodeBidi: "plaintext",
-  maxHeight: "min(40vh, 200px)",
-  overflowY: "auto",
-  WebkitOverflowScrolling: "touch",
-};
-
+// Keep the field focused when the mic UI is touched so it stays visible and the
+// transcript lands in the right place.
 function holdFocus(e) {
   e.preventDefault();
 }
 
+// Anchor the mic just above the mobile keyboard (visualViewport) / bottom-right
+// on desktop. Recomputed on viewport + orientation changes.
+function useKeyboardSafeBottom() {
+  const [bottom, setBottom] = useState(24);
+  useEffect(() => {
+    const vv = typeof window !== "undefined" ? window.visualViewport : null;
+    const compute = () => {
+      if (!vv) return setBottom(24);
+      const overlap = window.innerHeight - (vv.height + vv.offsetTop);
+      setBottom(Math.max(16, overlap + 12));
+    };
+    compute();
+    if (vv) {
+      vv.addEventListener("resize", compute);
+      vv.addEventListener("scroll", compute);
+    }
+    window.addEventListener("orientationchange", compute);
+    return () => {
+      if (vv) {
+        vv.removeEventListener("resize", compute);
+        vv.removeEventListener("scroll", compute);
+      }
+      window.removeEventListener("orientationchange", compute);
+    };
+  }, []);
+  return bottom;
+}
+
 export default function VoiceFlowBubble() {
   const { showToast } = useStoreData();
-  const { speechToText, logoSrc } = useAppSettings();
-  const [phase, setPhase] = useState("idle");
+  const { speechToText } = useAppSettings();
+  const [active, setActive] = useState(false); // a text field is focused
+  const [phase, setPhase] = useState("idle"); // idle | listening | processing | review
   const [level, setLevel] = useState(0);
   const [preview, setPreview] = useState("");
+
   const streamRef = useRef(null);
   const animRef = useRef(null);
-  const recognizerRef = useRef(null);
+  const audioCtxRef = useRef(null);
+  const recorderRef = useRef(null);
+  const chunksRef = useRef([]);
   const insertTargetRef = useRef(null);
+  const bottom = useKeyboardSafeBottom();
 
-  useEffect(() => trackVoiceFocus(), []);
+  const supported = speechToText && audioCaptureSupported();
+
+  // Show the mic only when a text field is focused.
+  useEffect(() => {
+    if (!supported) return undefined;
+    return subscribeTextFocus((field) => {
+      setActive(!!field);
+      if (!field) {
+        // Field left — collapse anything except an in-flight review the user
+        // may still want (review keeps focus via data-voice-ui, so field stays).
+        setPhase((p) => (p === "review" ? p : "idle"));
+      }
+    });
+  }, [supported]);
 
   const cleanupAudio = useCallback(() => {
-    cancelAnimationFrame(animRef.current);
+    if (animRef.current) cancelAnimationFrame(animRef.current);
     animRef.current = null;
+    if (audioCtxRef.current) {
+      try {
+        audioCtxRef.current.close();
+      } catch {
+        /* noop */
+      }
+      audioCtxRef.current = null;
+    }
     if (streamRef.current) {
       streamRef.current.getTracks().forEach((t) => t.stop());
       streamRef.current = null;
@@ -46,113 +98,123 @@ export default function VoiceFlowBubble() {
     setLevel(0);
   }, []);
 
-  const stopListening = useCallback(() => {
-    if (recognizerRef.current) {
-      recognizerRef.current.stop();
-      recognizerRef.current = null;
+  const startMeter = useCallback((stream) => {
+    try {
+      const ctx = new (window.AudioContext || window.webkitAudioContext)();
+      audioCtxRef.current = ctx;
+      const src = ctx.createMediaStreamSource(stream);
+      const an = ctx.createAnalyser();
+      an.fftSize = 256;
+      src.connect(an);
+      const buf = new Uint8Array(an.frequencyBinCount);
+      const loop = () => {
+        an.getByteFrequencyData(buf);
+        setLevel(buf.reduce((a, b) => a + b, 0) / buf.length / 255);
+        animRef.current = requestAnimationFrame(loop);
+      };
+      loop();
+    } catch {
+      /* meter is cosmetic */
     }
+  }, []);
+
+  const transcribeAndReview = useCallback(async () => {
+    const chunks = chunksRef.current;
+    chunksRef.current = [];
     cleanupAudio();
-  }, [cleanupAudio]);
+    const mime = recorderRef.current?.mimeType || pickAudioMimeType() || "audio/webm";
+    recorderRef.current = null;
+    if (!chunks.length) {
+      setPhase("idle");
+      return;
+    }
+    setPhase("processing");
+    const blob = new Blob(chunks, { type: mime });
+    const res = await transcribeAudioBlob(blob);
+    if (!res.ok || !res.text) {
+      setPhase("idle");
+      if (res.dryRun) showToast?.("Voice not configured yet (XAI_API_KEY)");
+      else showToast?.(res.error ? "Couldn't transcribe — try again" : "Didn't catch that — try again");
+      return;
+    }
+    let polished = res.text;
+    try {
+      polished = await polishVoiceTextSmart(res.text);
+    } catch {
+      /* keep raw transcript */
+    }
+    setPreview(polished || res.text);
+    setPhase("review");
+  }, [cleanupAudio, showToast]);
 
   const startListening = useCallback(
     (e) => {
       holdFocus(e);
       insertTargetRef.current = getLastTextTarget();
-      if (!speechRecognitionSupported()) {
-        showToast?.("Voice input needs Chrome on Android");
-        return;
-      }
-      if (recognizerRef.current) {
-        stopListening();
-        setPhase("idle");
-        return;
-      }
       setPreview("");
-      setPhase("listening");
-
-      if (navigator.mediaDevices?.getUserMedia) {
-        navigator.mediaDevices
-          .getUserMedia({ audio: true })
-          .then((stream) => {
-            streamRef.current = stream;
-            const ctx = new AudioContext();
-            const src = ctx.createMediaStreamSource(stream);
-            const an = ctx.createAnalyser();
-            an.fftSize = 256;
-            src.connect(an);
-            const buf = new Uint8Array(an.frequencyBinCount);
-            const loop = () => {
-              an.getByteFrequencyData(buf);
-              setLevel(buf.reduce((a, b) => a + b, 0) / buf.length / 255);
-              animRef.current = requestAnimationFrame(loop);
-            };
-            loop();
-          })
-          .catch(() => {});
-      }
-
-      recognizerRef.current = createSilentRecognizer({
-        lang: "en-US",
-        onError: () => {
-          stopListening();
-          setPhase("idle");
-          showToast?.("Microphone error — try again");
-        },
-        onEnd: () => {
+      chunksRef.current = [];
+      navigator.mediaDevices
+        .getUserMedia({ audio: true })
+        .then((stream) => {
+          streamRef.current = stream;
+          const mimeType = pickAudioMimeType();
+          let rec;
+          try {
+            rec = mimeType ? new MediaRecorder(stream, { mimeType }) : new MediaRecorder(stream);
+          } catch {
+            rec = new MediaRecorder(stream);
+          }
+          recorderRef.current = rec;
+          rec.ondataavailable = (ev) => {
+            if (ev.data && ev.data.size) chunksRef.current.push(ev.data);
+          };
+          rec.onstop = () => {
+            transcribeAndReview();
+          };
+          rec.start();
+          setPhase("listening");
+          startMeter(stream);
+        })
+        .catch(() => {
           cleanupAudio();
-        },
-      });
+          setPhase("idle");
+          showToast?.("Microphone blocked — allow mic access");
+        });
     },
-    [cleanupAudio, showToast, stopListening]
+    [cleanupAudio, showToast, startMeter, transcribeAndReview]
   );
 
-  const finishListening = useCallback(
-    async (e) => {
-      holdFocus(e);
-      const raw = recognizerRef.current?.stop() || "";
-      recognizerRef.current = null;
-      cleanupAudio();
-      if (!raw.trim()) {
-        setPhase("idle");
-        showToast?.("Didn't catch that — try again");
-        return;
-      }
-      setPhase("processing");
+  const stopListening = useCallback((e) => {
+    if (e) holdFocus(e);
+    const rec = recorderRef.current;
+    if (rec && rec.state !== "inactive") {
       try {
-        const polished = await polishVoiceTextSmart(raw);
-        setPreview(polished);
-        setPhase("review");
+        rec.stop(); // onstop → transcribeAndReview
       } catch {
-        setPhase("idle");
-        showToast?.("Polish failed — try again");
+        /* noop */
       }
-    },
-    [cleanupAudio, showToast]
-  );
+    }
+  }, []);
 
   const cancelAll = useCallback(
     (e) => {
-      holdFocus(e);
-      stopListening();
-      setPhase("idle");
-      setPreview("");
-    },
-    [stopListening]
-  );
-
-  const copyPreview = useCallback(
-    async (e) => {
-      holdFocus(e);
-      const text = preview.trim();
-      if (!text) return;
-      try {
-        await navigator.clipboard.writeText(text);
-        showToast?.("Copied");
-      } catch {
-        showToast?.("Select text and copy manually");
+      if (e) holdFocus(e);
+      const rec = recorderRef.current;
+      if (rec && rec.state !== "inactive") {
+        rec.onstop = null;
+        try {
+          rec.stop();
+        } catch {
+          /* noop */
+        }
       }
+      recorderRef.current = null;
+      chunksRef.current = [];
+      cleanupAudio();
+      setPreview("");
+      setPhase("idle");
     },
-    [preview, showToast]
+    [cleanupAudio]
   );
 
   const confirmInsert = useCallback(
@@ -163,13 +225,11 @@ export default function VoiceFlowBubble() {
         cancelAll();
         return;
       }
-      setPhase("processing");
-      await new Promise((r) => setTimeout(r, 60));
       const target = insertTargetRef.current || getLastTextTarget();
       if (target) setLastTextTarget(target);
       const ok = insertTextAtFocus(text, target);
-      setPhase("idle");
       setPreview("");
+      setPhase("idle");
       if (ok) showToast?.("Voice text added");
       else {
         try {
@@ -183,30 +243,44 @@ export default function VoiceFlowBubble() {
     [preview, cancelAll, showToast]
   );
 
-  useEffect(() => () => stopListening(), [stopListening]);
+  // Teardown on unmount.
+  useEffect(
+    () => () => {
+      const rec = recorderRef.current;
+      if (rec && rec.state !== "inactive") {
+        rec.onstop = null;
+        try {
+          rec.stop();
+        } catch {
+          /* noop */
+        }
+      }
+      cleanupAudio();
+    },
+    [cleanupAudio]
+  );
 
-  useEffect(() => {
-    if (!speechToText) {
-      stopListening();
-      setPhase("idle");
-      setPreview("");
-    }
-  }, [speechToText, stopListening]);
+  // Disabled or unsupported → render nothing (hard hide).
+  if (!supported) return null;
+  // Hidden by default: only show while a field is focused or a flow is running.
+  if (!active && phase === "idle") return null;
 
-  if (!speechToText || !speechRecognitionSupported()) return null;
-
-  const scale = 1 + level * 0.35;
-  const expanded = phase !== "idle";
+  const scale = 1 + level * 0.3;
+  const expanded = phase === "listening" || phase === "processing" || phase === "review";
 
   return (
     <div
-      className="fixed z-[9999] left-4 bottom-[5.5rem] lg:bottom-6 lg:left-6 flex items-end gap-2 pointer-events-none"
+      data-voice-ui
       data-testid="voice-flow-bubble"
+      className="fixed z-[9999] right-3 lg:right-6 flex flex-col items-end gap-2 pointer-events-none"
+      style={{ bottom }}
+      onPointerDown={holdFocus}
     >
       {expanded ? (
         <div
-          className="pointer-events-auto flex flex-col gap-2 bg-slate-900/95 backdrop-blur-md border border-slate-600 rounded-2xl shadow-2xl px-3 py-2.5 max-w-[min(84vw,320px)] text-white"
+          data-voice-ui
           data-testid="voice-flow-expanded"
+          className="pointer-events-auto flex flex-col gap-2 bg-slate-900/95 backdrop-blur-md border border-slate-600 rounded-2xl shadow-2xl px-3 py-2.5 max-w-[min(84vw,320px)] text-white"
           onPointerDown={holdFocus}
         >
           {phase === "listening" ? (
@@ -224,46 +298,41 @@ export default function VoiceFlowBubble() {
             </>
           ) : null}
 
+          {phase === "processing" ? (
+            <p className="text-xs text-emerald-300" data-testid="voice-flow-polishing">
+              {preview ? "Adding…" : "Transcribing…"}
+            </p>
+          ) : null}
+
           {phase === "review" ? (
             <textarea
               className="w-full min-h-[72px] text-sm bg-slate-800 text-white border border-slate-600 rounded-xl px-2.5 py-2 resize-none focus:outline-none focus:ring-2 focus:ring-emerald-400"
-              style={REVIEW_STYLE}
+              style={{
+                unicodeBidi: "plaintext",
+                maxHeight: "min(40vh, 200px)",
+                overflowY: "auto",
+                WebkitOverflowScrolling: "touch",
+              }}
               value={preview}
               onChange={(e) => setPreview(e.target.value)}
-              aria-label="Polished voice text"
+              aria-label="Transcribed voice text"
               data-testid="voice-flow-preview"
             />
           ) : null}
 
-          {phase === "processing" ? (
-            <p className="text-xs text-emerald-300" data-testid="voice-flow-polishing">
-              {preview ? "Adding…" : "Polishing…"}
-            </p>
-          ) : null}
-
-          <div className="flex gap-2 justify-end flex-wrap">
-            <button
-              type="button"
-              aria-label="Cancel voice"
-              className="px-3 h-8 rounded-full bg-slate-700 text-slate-200 text-xs font-semibold"
-              onPointerDown={holdFocus}
-              onClick={cancelAll}
-              data-testid="voice-flow-cancel"
-            >
-              Cancel
-            </button>
-            {phase === "review" ? (
-              <>
-                <button
-                  type="button"
-                  aria-label="Copy voice text"
-                  className="px-3 h-8 rounded-full bg-slate-600 text-slate-100 text-xs font-semibold"
-                  onPointerDown={holdFocus}
-                  onClick={copyPreview}
-                  data-testid="voice-flow-copy"
-                >
-                  Copy
-                </button>
+          {phase === "listening" || phase === "review" ? (
+            <div className="flex gap-2 justify-end flex-wrap">
+              <button
+                type="button"
+                aria-label="Cancel voice"
+                className="px-3 h-8 rounded-full bg-slate-700 text-slate-200 text-xs font-semibold"
+                onPointerDown={holdFocus}
+                onClick={cancelAll}
+                data-testid="voice-flow-cancel"
+              >
+                Cancel
+              </button>
+              {phase === "review" ? (
                 <button
                   type="button"
                   aria-label="Insert voice text"
@@ -274,33 +343,54 @@ export default function VoiceFlowBubble() {
                 >
                   Insert
                 </button>
-              </>
-            ) : null}
-          </div>
+              ) : null}
+            </div>
+          ) : null}
         </div>
       ) : null}
 
-      <button
-        type="button"
-        aria-label={phase === "listening" ? "Done listening" : "LE voice input"}
-        className="pointer-events-auto w-14 h-14 rounded-full shadow-2xl border-2 border-emerald-400 flex items-center justify-center overflow-hidden transition-transform active:scale-95"
-        style={{
-          transform: phase === "listening" ? `scale(${scale})` : undefined,
-          background: phase === "idle" ? "rgba(15,23,42,0.95)" : "#059669",
-        }}
-        onPointerDown={holdFocus}
-        onClick={phase === "listening" ? finishListening : phase === "idle" ? startListening : undefined}
-        disabled={phase === "processing" || phase === "review"}
-        data-testid="voice-flow-main"
-      >
-        {phase === "listening" || phase === "processing" ? (
-          <span className="text-white text-2xl font-bold" data-testid="voice-flow-check">
-            ✓
-          </span>
-        ) : (
-          <img src={logoSrc} alt="LE" className="w-10 h-10 object-contain" />
-        )}
-      </button>
+      {phase !== "review" ? (
+        <button
+          type="button"
+          aria-label={phase === "listening" ? "Done — transcribe" : "Dictate into this field"}
+          className="pointer-events-auto w-12 h-12 rounded-full shadow-2xl border-2 border-emerald-400 flex items-center justify-center overflow-hidden transition-transform active:scale-95"
+          style={{
+            transform: phase === "listening" ? `scale(${scale})` : undefined,
+            background: phase === "idle" ? "rgba(15,23,42,0.95)" : "#059669",
+          }}
+          onPointerDown={holdFocus}
+          onClick={
+            phase === "listening" ? stopListening : phase === "idle" ? startListening : undefined
+          }
+          disabled={phase === "processing"}
+          data-testid="voice-flow-main"
+        >
+          {phase === "listening" ? (
+            <span className="text-white text-xl font-bold" data-testid="voice-flow-check">
+              ✓
+            </span>
+          ) : phase === "processing" ? (
+            <span className="w-4 h-4 border-2 border-white/40 border-t-white rounded-full animate-spin" />
+          ) : (
+            <MicIcon />
+          )}
+        </button>
+      ) : null}
     </div>
+  );
+}
+
+function MicIcon() {
+  return (
+    <svg viewBox="0 0 24 24" width="22" height="22" fill="none" aria-hidden="true">
+      <rect x="9" y="3" width="6" height="11" rx="3" fill="#34d399" />
+      <path
+        d="M6 11a6 6 0 0 0 12 0M12 17v3.5M8.5 20.5h7"
+        stroke="#34d399"
+        strokeWidth="1.8"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
   );
 }

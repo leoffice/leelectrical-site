@@ -1,24 +1,36 @@
-/** Canonical apex — the fallback origin for hosts that don't bundle functions. */
+/** Canonical apex — customer links and non-app absolute URLs. */
 export const CANONICAL_ORIGIN = "https://leelectrical.us";
 
-/** Hosts that serve the CF Pages Functions bundle at /.netlify/functions on
- *  their OWN origin: every leelectrical.us host (apex + www) and every
- *  leelectrical-cf.pages.dev deployment (prod alias + previews). */
-function servesFunctionsSameOrigin(hostname) {
-  return /(^|\.)leelectrical\.us$/.test(hostname) || /\.leelectrical-cf\.pages\.dev$/.test(hostname);
+/** Local dev hosts (vite) that do NOT co-serve Pages Functions. */
+function isLocalHost(host) {
+  return (
+    host === "localhost" ||
+    host === "127.0.0.1" ||
+    host === "0.0.0.0" ||
+    host === "[::1]" ||
+    host.endsWith(".local")
+  );
 }
 
-/** Base URL for /.netlify/functions API calls.
- *  Same-origin (relative) wherever the functions bundle is co-hosted — since
- *  the 2026-07 CF Pages migration that includes www, not just the apex. Going
- *  same-origin kills the cross-origin CORS preflight (an extra OPTIONS round
- *  trip before every POST) and lets the browser reuse one HTTP cache entry per
- *  endpoint for ETag revalidation. Non-app hosts (localhost dev, the extension)
- *  keep the absolute apex URL. The demo tenant intercepts fetch entirely, so
- *  the value it sees here is moot. */
+/**
+ * Base URL for /.netlify/functions API calls.
+ *
+ * Every CF Pages DEPLOYMENT — the apex, www, AND each *.pages.dev preview —
+ * bundles and serves its own Pages Functions at the same origin. So we prefer
+ * SAME-ORIGIN for any real deployed host. This (a) lets a preview exercise ITS
+ * OWN branch functions instead of silently hitting prod (critical for testing
+ * tenant isolation before it ships), and (b) skips cross-origin CORS on large
+ * Autofill POSTs.
+ *
+ * Only local dev (vite, which serves no functions) falls back to the canonical
+ * apex prod functions — unchanged from before.
+ */
 export function functionsBase() {
-  if (typeof location !== "undefined" && servesFunctionsSameOrigin(location.hostname)) {
-    return "/.netlify/functions";
+  if (typeof location !== "undefined") {
+    const host = String(location.hostname || "");
+    if (host && !isLocalHost(host)) {
+      return "/.netlify/functions";
+    }
   }
   return `${CANONICAL_ORIGIN}/.netlify/functions`;
 }

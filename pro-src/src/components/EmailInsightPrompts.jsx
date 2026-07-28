@@ -6,6 +6,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { useNavigate } from "react-router-dom";
 import { Opt } from "./Sheet.jsx";
 import PromptSurface from "./PromptSurface.jsx";
+import { isSuggestionSnoozed, snoozeSuggestion } from "../lib/dismissSnooze.js";
 import IntelligentSuggestionBadge from "./IntelligentSuggestionBadge.jsx";
 import AddAppointmentSheet from "./AddAppointmentSheet.jsx";
 import { useStoreData } from "../state/store.jsx";
@@ -29,13 +30,22 @@ import {
 } from "../lib/applyEmailInsight.js";
 import { shouldSuppressPrompts, beginPromptWorkPause } from "../lib/followUpReminders.js";
 import { isScreenCovered, subscribeSheets } from "../lib/sheetRegistry.js";
-import { findEventForInsight, stashCalendarPick } from "../lib/calendarNavigate.js";
+import {
+  findEventForInsight,
+  findPriorAppointmentsForInsight,
+  stashCalendarPick,
+} from "../lib/calendarNavigate.js";
 import { evStart } from "../lib/format.js";
 
 const IS_TEST = import.meta.env.MODE === "test" || !!import.meta.env.VITEST;
 const SESSION_KEY = "lepro_email_insight_session";
 /** Per app-open: how many calendar auto-applies already ran this session (paperwork only). */
 let autoApplyCalendarCount = 0;
+
+/** Snooze bucket for one insight — see lib/dismissSnooze.js. */
+function insightSnoozeKey(insight) {
+  return "insight:" + String(insight?.id || "");
+}
 
 function markSessionSeen() {
   try {
@@ -148,6 +158,8 @@ function EmailInsightSheet({
   onIgnore,
   onIgnoreAndCancel,
   onOpenJob,
+  onSnooze,
+  replaces = [],
 }) {
   const [selected, setSelected] = useState(() => {
     const s = new Set();
@@ -169,7 +181,13 @@ function EmailInsightSheet({
   const isCancelled = (insight?.outcome || "") === "cancelled";
 
   return (
-    <PromptSurface title="Email understood" onClose={onIgnore} testId="email-insight-sheet">
+    <PromptSurface
+      title="Email understood"
+      onClose={onIgnore}
+      onSnooze={onSnooze}
+      onNeverRemind={onIgnore}
+      testId="email-insight-sheet"
+    >
       <SourceBadge insight={insight} />
       <InsightWhenBlock insight={insight} />
       <div className="rounded-xl border border-purple-200 bg-purple-50/80 px-3 py-3 mb-3">
@@ -186,6 +204,30 @@ function EmailInsightSheet({
           </p>
         ) : null}
       </div>
+
+      {replaces.length ? (
+        <div
+          className="rounded-xl border border-amber-200 bg-amber-50/80 px-3 py-2.5 mb-3"
+          data-testid="email-insight-replaces"
+        >
+          <div className="text-[11px] font-extrabold uppercase tracking-wider text-amber-700 mb-1">
+            {replaces.length === 1 ? "Replaces this appointment" : "Replaces these appointments"}
+          </div>
+          {replaces.map((e) => (
+            <div key={e.id} className="text-sm text-amber-900/90 leading-snug">
+              {e.summary || "Appointment"}
+              <span className="text-amber-700/80">
+                {" — "}
+                {formatInsightDateLabel(evStart(e)) || evStart(e).replace("T", " ").slice(0, 16)}
+              </span>
+            </div>
+          ))}
+          <p className="text-[11px] text-amber-700/80 font-semibold mt-1">
+            Approving takes {replaces.length === 1 ? "it" : "them"} off your calendar so you keep
+            one appointment, not two.
+          </p>
+        </div>
+      ) : null}
 
       {insight?.emailSnippet ? (
         <p className="text-xs text-slate-500 bg-slate-50 border border-slate-100 rounded-lg p-2 mb-3 whitespace-pre-wrap max-h-24 overflow-y-auto">
@@ -233,7 +275,16 @@ function EmailInsightSheet({
 }
 
 /** Post-auto notice — already on calendar, or paperwork auto-updated. */
-function EmailInsightDoneSheet({ insight, job, event, onAck, onOpenJob, onOpenCalendar, onIgnoreAndCancel }) {
+function EmailInsightDoneSheet({
+  insight,
+  job,
+  event,
+  onAck,
+  onOpenJob,
+  onOpenCalendar,
+  onIgnoreAndCancel,
+  onSnooze,
+}) {
   const lead = insight?.appliedLead || formatAppliedLead(insight, job);
   const outcome = insight?.outcome || "other";
   const hasWhen = !!(event?.start || insight?.dateTime || insight?.exactDateTime);
@@ -247,6 +298,8 @@ function EmailInsightDoneSheet({ insight, job, event, onAck, onOpenJob, onOpenCa
     <PromptSurface
       title={title}
       onClose={onAck}
+      onSnooze={onSnooze}
+      onNeverRemind={onAck}
       testId="email-insight-done-sheet"
       urgent={isInsp}
     >
@@ -357,6 +410,7 @@ export default function EmailInsightPrompts() {
   const pendingNeedsApprove = useMemo(() => {
     return enrichedAll.filter((x) => {
       if (x.status !== "pending" || seen.current.has(x.id)) return false;
+      if (isSuggestionSnoozed(insightSnoozeKey(x))) return false;
       if (!shouldSurfaceInsight(x)) return false;
       const job = x.jobId ? effectiveJob(x.jobId) : null;
       return !canAutoApply(x, job);
@@ -369,6 +423,7 @@ export default function EmailInsightPrompts() {
         (x.status === "auto_applied" || (x.autoApplied && x.notified === false)) &&
         x.notified !== true &&
         !seen.current.has(x.id) &&
+        !isSuggestionSnoozed(insightSnoozeKey(x)) &&
         // Past-day appointments: no "already on calendar" notice either.
         shouldSurfaceInsight(x)
     );
@@ -381,6 +436,15 @@ export default function EmailInsightPrompts() {
     setDoneNotice(null);
     setEditSheet(null);
   }, []);
+
+  // ✕ on an insight is "not now": park it locally and let it come back.
+  const snoozeInsight = useCallback(
+    (insight, minutes) => {
+      if (insight?.id) snoozeSuggestion(insightSnoozeKey(insight), minutes);
+      dismiss();
+    },
+    [dismiss]
+  );
 
   const ignore = useCallback(
     async (insight) => {
@@ -448,6 +512,7 @@ export default function EmailInsightPrompts() {
           patchAndSave,
           patchEmailInsight,
           appendLocalEvent,
+          removeLocalEvent,
           pullCalendarNow,
           showToast,
           autoApply: false,
@@ -467,6 +532,7 @@ export default function EmailInsightPrompts() {
       patchAndSave,
       patchEmailInsight,
       appendLocalEvent,
+      removeLocalEvent,
       pullCalendarNow,
       refreshEmailInsights,
       showToast,
@@ -636,6 +702,7 @@ export default function EmailInsightPrompts() {
             patchAndSave,
             patchEmailInsight,
             appendLocalEvent,
+            removeLocalEvent,
             pullCalendarNow,
             showToast: null,
             autoApply: true,
@@ -663,6 +730,7 @@ export default function EmailInsightPrompts() {
     patchAndSave,
     patchEmailInsight,
     appendLocalEvent,
+    removeLocalEvent,
     pullCalendarNow,
     refreshEmailInsights,
   ]);
@@ -723,6 +791,7 @@ export default function EmailInsightPrompts() {
         job={job}
         event={matchedEvent}
         onAck={() => ackDone(ins)}
+        onSnooze={(minutes) => snoozeInsight(ins, minutes)}
         onIgnoreAndCancel={() => ignoreAndCancel(ins)}
         onOpenJob={() => {
           if (!job?.id) return;
@@ -756,6 +825,12 @@ export default function EmailInsightPrompts() {
       : current
         ? findEventForInsight(current, null, events)
         : null;
+  // A reschedule replaces an earlier booking — show which one before Approve
+  // removes it, so nothing disappears off the calendar unannounced.
+  const currentReplaces =
+    current && (current.outcome || "") === "rescheduled"
+      ? findPriorAppointmentsForInsight(current, job, events)
+      : [];
 
   if (editSheet) {
     const ins = editSheet.insight;
@@ -796,6 +871,7 @@ export default function EmailInsightPrompts() {
       insight={current}
       job={job}
       hasExistingAppointment={!!currentExisting}
+      replaces={currentReplaces}
       onApprove={(keys) => approve(current, keys)}
       onEdit={() => {
         setEditSheet({
@@ -806,6 +882,7 @@ export default function EmailInsightPrompts() {
         dismiss();
       }}
       onIgnore={() => ignore(current)}
+      onSnooze={(minutes) => snoozeInsight(current, minutes)}
       onIgnoreAndCancel={() => ignoreAndCancel(current)}
       onOpenJob={() => {
         if (!job?.id) return;

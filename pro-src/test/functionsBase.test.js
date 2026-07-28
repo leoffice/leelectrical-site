@@ -11,18 +11,23 @@ describe("functionsBase", () => {
     expect(functionsBase()).toBe("/.netlify/functions");
   });
 
-  it("uses same-origin on www (CF Pages bundles the functions there too)", () => {
+  it("uses same-origin on www (CF Pages Functions serve there too)", () => {
     vi.stubGlobal("location", { hostname: "www.leelectrical.us" });
     expect(functionsBase()).toBe("/.netlify/functions");
   });
 
-  it("uses same-origin on a leelectrical-cf.pages.dev deployment", () => {
-    vi.stubGlobal("location", { hostname: "cf-native.leelectrical-cf.pages.dev" });
+  it("uses same-origin on a *.pages.dev preview (so it runs the branch's own functions)", () => {
+    vi.stubGlobal("location", { hostname: "feat-tenant-data-isolation.leelectrical-cf.pages.dev" });
     expect(functionsBase()).toBe("/.netlify/functions");
   });
 
   it("uses canonical apex URL for local dev", () => {
     vi.stubGlobal("location", { hostname: "localhost" });
+    expect(functionsBase()).toBe(`${CANONICAL_ORIGIN}/.netlify/functions`);
+  });
+
+  it("uses canonical apex URL for 127.0.0.1 dev", () => {
+    vi.stubGlobal("location", { hostname: "127.0.0.1" });
     expect(functionsBase()).toBe(`${CANONICAL_ORIGIN}/.netlify/functions`);
   });
 });

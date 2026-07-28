@@ -1,4 +1,5 @@
 import { getStore } from "./lib/storage/index.mjs";
+import { resolveTenant } from "./lib/tenant.mjs";
 
 // QuickBooks Products & Services index for estimate/invoice line items.
 //   GET         -> { items:[{name,type,price,description,id?}], updated, ts }
@@ -6,14 +7,15 @@ import { getStore } from "./lib/storage/index.mjs";
 //   POST {op:"set", items:[...], updated}  (host push from QBO)
 const KEY = "items-v1";
 
-function json(o) {
+function json(o, status = 200) {
   return new Response(JSON.stringify(o), {
+    status,
     headers: {
       "content-type": "application/json",
       "cache-control": "no-store",
       "access-control-allow-origin": "*",
       "access-control-allow-methods": "GET,POST,OPTIONS",
-      "access-control-allow-headers": "content-type",
+      "access-control-allow-headers": "content-type,authorization",
     },
   });
 }
@@ -23,8 +25,10 @@ async function load(store) {
 }
 
 export default async (req) => {
-  const store = getStore("items");
   if (req.method === "OPTIONS") return json({ ok: true });
+  const tenant = await resolveTenant(req);
+  if (tenant == null) return json({ ok: false, error: "unauthenticated" }, 401);
+  const store = getStore("items", tenant);
 
   if (req.method === "POST") {
     let b = {};

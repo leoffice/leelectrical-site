@@ -152,7 +152,43 @@ function AddressJobRows({ list, activeJobId, onOpen }) {
   });
 }
 
-export default function CustomerDocTabs({ jobs, activeJobId, fromCust = "" }) {
+/**
+ * What sits directly under the customer + billing address: the service
+ * addresses and the invoices still owed (Levi 2026-07-27). Before this the
+ * page showed only a row of closed tabs, so the two things you always want
+ * were two taps away.
+ */
+function CustomerOverview({ addresses, jobs, openInv, onPickAddress, onOpenJob }) {
+  if (!addresses.length && !openInv.length) return null;
+  return (
+    <div className="card px-3 py-2" data-testid="cust-overview">
+      <DocSection title="Service addresses" empty={!addresses.length}>
+        {addresses.map(({ key, label }) => {
+          const n = jobs.filter((j) => serviceAddressKey(j) === key).length;
+          return (
+            <button
+              key={key}
+              type="button"
+              className={`${DOC_BTN} bg-slate-50 text-slate-700 border-slate-200`}
+              data-testid={"cust-overview-addr-" + key.slice(0, 12)}
+              onClick={() => onPickAddress(key)}
+            >
+              <span className="min-w-0 flex-1 truncate">{label}</span>
+              <span className="text-xs text-slate-400 shrink-0">
+                {n} job{n === 1 ? "" : "s"}
+              </span>
+            </button>
+          );
+        })}
+      </DocSection>
+      <DocSection title="Open invoices" empty={!openInv.length}>
+        <InvoiceRows list={openInv} onOpen={onOpenJob} />
+      </DocSection>
+    </div>
+  );
+}
+
+export default function CustomerDocTabs({ jobs, activeJobId, fromCust = "", overview = true }) {
   const nav = useNavigate();
   const { createJob, showToast, patchAndSave } = useStore();
   const [tab, setTab] = useState(null); // null | invoices | estimates | addresses
@@ -285,6 +321,19 @@ export default function CustomerDocTabs({ jobs, activeJobId, fromCust = "" }) {
           </button>
         ))}
       </div>
+
+      {overview && !tab ? (
+        <CustomerOverview
+          addresses={addresses}
+          jobs={jobs}
+          openInv={openInv}
+          onPickAddress={(k) => {
+            setAddrKey(k);
+            setTab("addresses");
+          }}
+          onOpenJob={openJob}
+        />
+      ) : null}
 
       {tab === "invoices" ? (
         <div className="card px-3 py-2" data-testid="cust-tab-panel-invoices">

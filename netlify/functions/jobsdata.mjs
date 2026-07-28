@@ -1,5 +1,6 @@
 import { getStore } from "./lib/storage/index.mjs";
 import { rotateJsonBackup } from "./blob-backup.mjs";
+import { resolveTenant } from "./lib/tenant.mjs";
 import { conditionalJson, optionsResponse } from "./lib/etag.mjs";
 
 // Live jobs dataset synced from QuickBooks + Google Calendar by a scheduled
@@ -10,14 +11,15 @@ import { conditionalJson, optionsResponse } from "./lib/etag.mjs";
 //         { op:"request" }          (dashboard asks for a fresh pull)
 const KEY = "jobsdata-v1";
 
-function json(o) {
+function json(o, status = 200) {
   return new Response(JSON.stringify(o), {
+    status,
     headers: {
       "content-type": "application/json",
       "cache-control": "no-store",
       "access-control-allow-origin": "*",
       "access-control-allow-methods": "GET,POST,OPTIONS",
-      "access-control-allow-headers": "content-type",
+      "access-control-allow-headers": "content-type,authorization",
     },
   });
 }
@@ -28,8 +30,10 @@ async function load(store) {
 }
 
 export default async (req) => {
-  const store = getStore("jobsdata");
   if (req.method === "OPTIONS") return optionsResponse();
+  const tenant = await resolveTenant(req);
+  if (tenant == null) return json({ ok: false, error: "unauthenticated" }, 401);
+  const store = getStore("jobsdata", tenant);
   if (req.method === "POST") {
     let b = {};
     try { b = await req.json(); } catch (e) {}
@@ -58,8 +62,5 @@ export default async (req) => {
     await rotateJsonBackup(store, KEY, doc);
     return json(doc);
   }
-  // GET: ETag off `ts` so an unchanged ~20 MB blob revalidates to a bodyless 304
-  // instead of re-transferring on every 60s poll / focus / action refresh.
-  const doc = await load(store);
-  return conditionalJson(req, doc, { prefix: "j", ts: doc.ts });
+  return json(await load(store));
 };

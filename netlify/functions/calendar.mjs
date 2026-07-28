@@ -1,4 +1,5 @@
 import { getStore } from "./lib/storage/index.mjs";
+import { resolveTenant } from "./lib/tenant.mjs";
 import { conditionalJson, optionsResponse } from "./lib/etag.mjs";
 
 // Calendar events feed for task #16 (New Job "Choose from calendar" + two-way
@@ -11,14 +12,15 @@ import { conditionalJson, optionsResponse } from "./lib/etag.mjs";
 //         { op:"request" }             (dashboard asks for a fresh pull)
 const KEY = "calendar-v1";
 
-function json(o) {
+function json(o, status = 200) {
   return new Response(JSON.stringify(o), {
+    status,
     headers: {
       "content-type": "application/json",
       "cache-control": "no-store",
       "access-control-allow-origin": "*",
       "access-control-allow-methods": "GET,POST,OPTIONS",
-      "access-control-allow-headers": "content-type",
+      "access-control-allow-headers": "content-type,authorization",
     },
   });
 }
@@ -29,8 +31,10 @@ async function load(store) {
 }
 
 export default async (req) => {
-  const store = getStore("calendar");
   if (req.method === "OPTIONS") return optionsResponse();
+  const tenant = await resolveTenant(req);
+  if (tenant == null) return json({ ok: false, error: "unauthenticated" }, 401);
+  const store = getStore("calendar", tenant);
   if (req.method === "POST") {
     let b = {};
     try { b = await req.json(); } catch (e) {}
@@ -46,7 +50,6 @@ export default async (req) => {
     await store.setJSON(KEY, doc);
     return json(doc);
   }
-  // GET: ETag off `ts` so the 30s/180s calendar polls 304 when unchanged.
   const doc = await load(store);
   return conditionalJson(req, doc, { prefix: "cal", ts: doc.ts });
 };

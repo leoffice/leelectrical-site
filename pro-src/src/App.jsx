@@ -20,7 +20,6 @@ import Today from "./views/Today.jsx";
 import Reminders from "./views/Reminders.jsx";
 import Time from "./views/Time.jsx";
 import Projects from "./views/Projects.jsx";
-import Permits from "./views/Permits.jsx";
 import Company from "./views/Company.jsx";
 import Settings from "./views/Settings.jsx";
 import Archive from "./views/Archive.jsx";
@@ -50,6 +49,7 @@ import VoiceFlowBubble from "./components/VoiceFlowBubble.jsx";
 import ApprovalWatcher from "./components/ApprovalWatcher.jsx";
 import DocConfirmWatcher from "./components/DocConfirmWatcher.jsx";
 import SendInvoiceWatcher from "./components/SendInvoiceWatcher.jsx";
+import QboSyncIssueWatcher from "./components/QboSyncIssueWatcher.jsx";
 import DedupePrompts from "./components/DedupePrompts.jsx";
 import InvoiceDedupAutoResolver from "./components/InvoiceDedupAutoResolver.jsx";
 import FollowUpPrompts from "./components/FollowUpPrompts.jsx";
@@ -66,6 +66,7 @@ import Sheet, { Opt } from "./components/Sheet.jsx";
 import { appointmentContextFromRoute } from "./lib/appointmentContext.js";
 import { logOff } from "./lib/lock.js";
 import { useAppSettings } from "./lib/appSettings.js";
+import { pruneSuggestionSnoozes } from "./lib/dismissSnooze.js";
 import { isAssistantEntitledLocally } from "./lib/assistantLicenseClient.js";
 
 
@@ -91,7 +92,6 @@ const ROUTE_ELEMENTS = {
   "/time": <Time />,
   "/projects": <Projects />,
   "/projects/:projectId": <Projects />,
-  "/permits": <Permits />,
   "/company": <Company />,
   "/settings": <Settings />,
   "/progress": <Progress />,
@@ -248,6 +248,10 @@ export default function App() {
   const config = useTenantConfig();
   const isDesktop = useIsDesktop();
   const loc = useLocation();
+
+  // Sweep expired "remind me later" entries once per app open so the store
+  // can't grow forever (lib/dismissSnooze.js).
+  useEffect(() => pruneSuggestionSnoozes(), []);
 
   const chrome = useMemo(() => tenantChrome(config), [config]);
   const internal = config.internal === true;
@@ -431,6 +435,7 @@ export default function App() {
         <ApprovalWatcher />
         <DocConfirmWatcher />
         <SendInvoiceWatcher />
+        <QboSyncIssueWatcher />
         <InvoiceDedupAutoResolver />
         <DedupePrompts />
         <FollowUpPrompts />

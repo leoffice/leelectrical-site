@@ -68,6 +68,20 @@ describe("composed invoice email", () => {
     expect(payload.html).toBeTruthy();
   });
 
+  it("splits multi-address To into a Resend array (not one comma string)", async () => {
+    const res = await sendDocEmail({
+      job: JOB,
+      kind: "invoice",
+      to: "Simonsaysb@gmail.com, Ccsmgtllc@gmail.com",
+      includePaymentLink: true,
+      pdfB64: PDF_B64,
+      filename: "Invoice-231595.pdf",
+    });
+    expect(res.ok).toBe(true);
+    expect(sent.to).toEqual(["Simonsaysb@gmail.com", "Ccsmgtllc@gmail.com"]);
+    expect(sent.html).toBeTruthy();
+  });
+
   it("HTML body contains NO raw Cardknox URL or query params", async () => {
     const { payload } = await compose();
     expect(payload.html).not.toContain("secure.cardknox.com");

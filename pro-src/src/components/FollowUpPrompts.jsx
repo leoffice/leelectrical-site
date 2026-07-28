@@ -60,6 +60,8 @@ import { intentDuplicatesSuggestion } from "../lib/followUpDedupe.js";
 import IntelligentSuggestionBlock from "./IntelligentSuggestionBlock.jsx";
 import AppointmentEmailSheet from "./AppointmentEmailSheet.jsx";
 import {
+  dismissUnsentDoc,
+  snoozeUnsentDocMinutes,
   unsentDocCardFields,
   unsentDocLead,
 } from "../lib/followUpStatus.js";
@@ -469,7 +471,11 @@ function MustTodayNudgeSheet({ event, state: st, job, queue, onClose, onDone, on
   };
 
   return (
-    <PromptSurface title={isFirmer ? "⏰ Take care of it today!" : "Reminder — today"} onClose={onClose}>
+    <PromptSurface
+      title={isFirmer ? "⏰ Take care of it today!" : "Reminder — today"}
+      onClose={onClose}
+      onSnooze={snooze}
+    >
       <PauseRemindersInPopup onPaused={onPauseAll} />
       <BatchSnoozeBar queue={queue} onBatchSnooze={onBatchSnooze} />
       <p className={`text-sm mb-4 ${isFirmer ? "text-red-700 font-medium" : "text-slate-600"}`}>{message}</p>
@@ -586,7 +592,7 @@ function ScheduledReminderSheet({
   };
 
   return (
-    <PromptSurface title="🔔 Reminder" onClose={onClose}>
+    <PromptSurface title="🔔 Reminder" onClose={onClose} onSnooze={snooze} onNeverRemind={dismiss}>
       <PauseRemindersInPopup onPaused={onPauseAll} />
       <BatchSnoozeBar queue={queue} onBatchSnooze={onBatchSnooze} />
       <p className="text-sm text-slate-600 mb-4">{message}</p>
@@ -649,13 +655,27 @@ function UnsentDocSheet({ job, docKind, docNo, onClose, onDone, dismissForWork, 
   const label = docKind === "invoice" ? "invoice" : "estimate";
   const card = unsentDocCardFields(job, docKind);
 
+  const close = () => {
+    onDone();
+    onClose();
+  };
+
+  const snooze = (minutes) => {
+    if (job?.id) snoozeUnsentDocMinutes(job.id, docKind, minutes);
+    close();
+  };
+
+  const neverRemind = () => {
+    if (job?.id) dismissUnsentDoc(job.id, docKind);
+    close();
+  };
+
   return (
     <PromptSurface
       title={"📧 Unsent " + label}
-      onClose={() => {
-        onDone();
-        onClose();
-      }}
+      onClose={close}
+      onSnooze={snooze}
+      onNeverRemind={neverRemind}
     >
       <PauseRemindersInPopup onPaused={onPauseAll} />
       <p className="text-sm text-slate-600 mb-4">{lead}</p>
@@ -712,10 +732,17 @@ function InspectionReminderSheet({ event, when, job, onClose, onDone, dismissFor
     });
   };
 
+  // ✕ on an inspection is "not now", not "acknowledged" — it comes back.
+  const snooze = (minutes) => {
+    scheduleReminderSnooze(event.id, minutes);
+    onDone();
+  };
+
   return (
     <PromptSurface
       title={`🔴 Inspection — ${label}`}
       onClose={ack}
+      onSnooze={snooze}
       testId="inspection-reminder-sheet"
       urgent
     >
@@ -807,8 +834,15 @@ function ServiceCallSheet({
     onClose();
   };
 
+  const snooze = (minutes) => {
+    scheduleReminderSnooze(event.id, minutes);
+    showToast("OK — back in " + formatSnoozeDuration(minutes));
+    onDone();
+    onClose();
+  };
+
   return (
-    <PromptSurface title="Follow up?" onClose={skip}>
+    <PromptSurface title="Follow up?" onClose={skip} onSnooze={snooze} onNeverRemind={noReminders}>
       <PauseRemindersInPopup onPaused={onPauseAll} />
       <p className="text-sm text-slate-600 mb-3">{lead}</p>
       <div className="text-sm space-y-2 mb-4 card px-3 py-2.5">

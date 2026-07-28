@@ -5,7 +5,6 @@ import React, { useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import {
   buildCustomerTransactions,
-  txnFilterCounts,
   txnKindStyle,
   txnRowDisplay,
 } from "../lib/customerTransactions.js";
@@ -16,6 +15,18 @@ const FILTERS = [
   { id: "payments", label: "Payments" },
   { id: "estimates", label: "Estimates" },
 ];
+
+function countKinds(rows) {
+  let invoices = 0;
+  let payments = 0;
+  let estimates = 0;
+  for (const r of rows) {
+    if (r.kind === "invoice") invoices += 1;
+    else if (r.kind === "payment") payments += 1;
+    else if (r.kind === "estimate") estimates += 1;
+  }
+  return { all: rows.length, invoices, payments, estimates };
+}
 
 /** Doc # chip: color + shape (pill / square / tag) so invoices stay distinguishable. */
 function DocBubble({ docNo, color, testId }) {
@@ -127,17 +138,33 @@ export default function CustomerTransactionHistory({ jobs, fromCust = "" }) {
   const [filter, setFilter] = useState("all");
   const [sort, setSort] = useState("new");
 
-  const counts = useMemo(() => txnFilterCounts(jobs), [jobs]);
-  const rows = useMemo(
-    () => buildCustomerTransactions(jobs, { filter, sort }),
-    [jobs, filter, sort]
+  // Build full list once per jobs/sort — filter tabs are free after that.
+  const allRows = useMemo(
+    () => buildCustomerTransactions(jobs, { filter: "all", sort }),
+    [jobs, sort]
   );
+  const counts = useMemo(() => countKinds(allRows), [allRows]);
+  const rows = useMemo(() => {
+    if (filter === "all") return allRows;
+    if (filter === "invoices") return allRows.filter((r) => r.kind === "invoice");
+    if (filter === "payments") return allRows.filter((r) => r.kind === "payment");
+    if (filter === "estimates") return allRows.filter((r) => r.kind === "estimate");
+    return allRows;
+  }, [allRows, filter]);
 
   const openRow = (row) => {
     if (!row?.jobId) return;
     const parts = [];
     if (fromCust) parts.push("from=" + encodeURIComponent(fromCust));
+    // fold=1: collapse progress below job info; focus=job scrolls job card into view.
     parts.push("fold=1");
+    parts.push("focus=job");
+    if (row.kind === "payment") {
+      // Open payment card so Levi can edit/delete/reassign invoice or customer.
+      parts.push("payhist=1");
+      const payId = row.payment?.id;
+      if (payId) parts.push("payId=" + encodeURIComponent(String(payId)));
+    }
     nav("/job/" + row.jobId + "?" + parts.join("&"));
   };
 

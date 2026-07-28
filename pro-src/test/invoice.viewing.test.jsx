@@ -4,14 +4,14 @@
 //   #44 jobs-list Invoice offers View (full-screen PDF) as well as Send
 //   #45 document-fetch stage wording (Requesting -> Fetching from QuickBooks -> Ready)
 import React from "react";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { cleanup, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import "@testing-library/jest-dom/vitest";
 import { HashRouter } from "react-router-dom";
 import { StoreProvider } from "../src/state/store.jsx";
 import { CalSheet, QuickSendSheet, PDF_STAGES, calAccount } from "../src/components/JobSheets.jsx";
-import { mockServer, stubPdfOpen } from "./helpers.jsx";
+import { enableQboDocsForTests, mockServer, stubPdfOpen } from "./helpers.jsx";
 
 // This harness runs without vitest globals:true, so RTL's afterEach auto-cleanup
 // isn't registered — unmount explicitly to avoid DOM leaking between tests.
@@ -20,6 +20,11 @@ afterEach(() => {
   vi.unstubAllGlobals();
   localStorage.clear();
   window.location.hash = "#/";
+});
+
+// Production defaults send/view-through-QB off; these suites assert the QB view path.
+beforeEach(() => {
+  enableQboDocsForTests();
 });
 
 const JOB = {

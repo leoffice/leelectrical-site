@@ -1,7 +1,9 @@
 import { describe, expect, it } from "vitest";
 import {
+  audioCaptureSupported,
   consolidateRepetition,
   needsSmartPolish,
+  pickAudioMimeType,
   polishVoiceText,
 } from "../src/lib/voiceFlow.js";
 import { findBaezJob, joyCustomerKey, seedBaezProject } from "../src/lib/requisitionData.js";
@@ -134,6 +136,29 @@ describe("voiceFlow — smart polish helpers", () => {
     expect(out).toContain("1.");
     expect(out).toContain("2.");
     expect(out.split("\n").length).toBe(2);
+  });
+});
+
+describe("voiceFlow — xAI STT capture helpers", () => {
+  it("pickAudioMimeType prefers a supported type or empty", () => {
+    const origMR = globalThis.MediaRecorder;
+    const origWin = globalThis.window;
+    globalThis.window = globalThis.window || {};
+    globalThis.MediaRecorder = { isTypeSupported: (t) => t === "audio/mp4" };
+    expect(pickAudioMimeType()).toBe("audio/mp4");
+    globalThis.MediaRecorder = origMR;
+    globalThis.window = origWin;
+  });
+
+  it("pickAudioMimeType returns '' when MediaRecorder is absent", () => {
+    const orig = globalThis.MediaRecorder;
+    delete globalThis.MediaRecorder;
+    expect(pickAudioMimeType()).toBe("");
+    globalThis.MediaRecorder = orig;
+  });
+
+  it("audioCaptureSupported is false without getUserMedia", () => {
+    expect(audioCaptureSupported()).toBe(false);
   });
 });
 

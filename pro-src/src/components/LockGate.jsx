@@ -17,6 +17,7 @@ import {
   shouldAutoBiometric,
   touchUnlocked,
 } from "../lib/lock.js";
+import { saveSession } from "../lib/session.js";
 import { getCompanyLogoSrc } from "../lib/appSettings.js";
 import { productName, tenantName } from "../lib/tenantBranding.js";
 import { redeemAgentAccess } from "../lib/agentAccessClient.js";
@@ -178,7 +179,10 @@ export default function LockGate({ children }) {
       setErr("");
       setBusy(true);
       try {
-        await passwordUnlock(email, password);
+        const session = await passwordUnlock(email, password);
+        // Persist the Supabase session so data-plane requests carry the user's
+        // token — the server resolves the tenant from it and isolates the store.
+        saveSession(session);
         succeed();
       } catch (e2) {
         setErr(e2?.message || "Invalid email or password");

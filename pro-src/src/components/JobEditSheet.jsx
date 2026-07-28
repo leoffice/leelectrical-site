@@ -21,8 +21,9 @@ export default function JobEditSheet({ job, fromCust = "", onClose }) {
 
   const sameAddr = sortJobs(jobsAtSameAddress(jobs, job).filter((j) => j.id !== job.id));
 
-  const save = async () => {
-    await patchAndSave(job.id, {
+  const save = () => {
+    // Instant UI — local apply + close; network retries in background.
+    void patchAndSave(job.id, {
       title: title.trim(),
       serviceAddress: serviceAddress.trim(),
       address: serviceAddress.trim(),
@@ -37,15 +38,15 @@ export default function JobEditSheet({ job, fromCust = "", onClose }) {
     else nav("/");
   };
 
-  const archive = async () => {
-    await patchAndSave(job.id, { _archived: true });
+  const archive = () => {
+    void patchAndSave(job.id, { _archived: true });
     showToast("Archived");
     onClose();
     goBack();
   };
 
-  const remove = async () => {
-    await patchAndSave(job.id, { _deleted: true });
+  const remove = () => {
+    void patchAndSave(job.id, { _deleted: true });
     showToast("Removed from app");
     onClose();
     goBack();

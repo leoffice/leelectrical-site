@@ -500,6 +500,7 @@ function NewCustomerForm({ prefill = {}, onClose, onCreated }) {
     if (!id) return;
 
     const payload = customerSyncPayload({ ...f, businessName: biz, customer: biz });
+    // Instant close — QuickBooks queue runs in the background.
     if (action === "link" && f.qboCustomerId) {
       const name = biz;
       try {
@@ -513,17 +514,16 @@ function NewCustomerForm({ prefill = {}, onClose, onCreated }) {
           })
         );
       } catch {}
-      await enqueue(
+      void enqueue(
         "import_customer",
         "import-" + f.qboCustomerId,
         { name, qboId: f.qboCustomerId },
         "deterministic",
         "import_customer|" + f.qboCustomerId
-      );
-      refreshJobs?.(true);
+      ).then(() => refreshJobs?.(true));
       showToast("Linked to QuickBooks — importing jobs…");
     } else if (action === "update" && f.qboCustomerId) {
-      await enqueue(
+      void enqueue(
         "update_customer",
         id,
         { id: f.qboCustomerId, ...payload },
@@ -532,7 +532,7 @@ function NewCustomerForm({ prefill = {}, onClose, onCreated }) {
       );
       showToast("Saved & syncing update to QuickBooks…");
     } else if (action === "create") {
-      await enqueue(
+      void enqueue(
         "create_customer",
         id,
         payload,

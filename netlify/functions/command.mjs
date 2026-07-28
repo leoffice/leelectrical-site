@@ -1,4 +1,5 @@
 import { getStore } from "./lib/storage/index.mjs";
+import { resolveTenant } from "./lib/tenant.mjs";
 import { conditionalJson, optionsResponse } from "./lib/etag.mjs";
 
 // Command bus (#17). Every dashboard action becomes a durable command with a
@@ -11,14 +12,15 @@ import { conditionalJson, optionsResponse } from "./lib/etag.mjs";
 //   returned as-is (deduped) so a retry can NEVER double-send.
 const KEY = "commands-v1";
 
-function json(o) {
+function json(o, status = 200) {
   return new Response(JSON.stringify(o), {
+    status,
     headers: {
       "content-type": "application/json",
       "cache-control": "no-store",
       "access-control-allow-origin": "*",
       "access-control-allow-methods": "GET,POST,OPTIONS",
-      "access-control-allow-headers": "content-type",
+      "access-control-allow-headers": "content-type,authorization",
     },
   });
 }
@@ -33,8 +35,10 @@ function audit(c, note) {
 }
 
 export default async (req) => {
-  const store = getStore("commands");
   if (req.method === "OPTIONS") return optionsResponse();
+  const tenant = await resolveTenant(req);
+  if (tenant == null) return json({ ok: false, error: "unauthenticated" }, 401);
+  const store = getStore("commands", tenant);
 
   const doc = await load(store);
   doc.commands = doc.commands || [];
@@ -94,14 +98,9 @@ export default async (req) => {
     return json({ ok: false, error: "unknown op" });
   }
 
-  // GET — optional ?status= filter for the listener/dashboard.
+  // GET — optional ?status= filter for the listener/dashboard
   const url = new URL(req.url);
   const st = url.searchParams.get("status");
-  if (st) {
-    // Filtered view: don't ETag it (its body differs from the full list that
-    // shares the same doc.ts) — only the unfiltered poll is conditional.
-    return json({ commands: doc.commands.filter((c) => c.status === st), seq: doc.seq || 0, ts: doc.ts || 0 });
-  }
-  // Unfiltered poll (every 3–8s in the app): 304 when nothing changed.
-  return conditionalJson(req, { commands: doc.commands, seq: doc.seq || 0, ts: doc.ts || 0 }, { prefix: "c", ts: doc.ts });
+  const out = st ? doc.commands.filter((c) => c.status === st) : doc.commands;
+  return json({ commands: out, seq: doc.seq || 0, ts: doc.ts || 0 });
 };

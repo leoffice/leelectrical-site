@@ -100,4 +100,21 @@ describe("JobDetail — same-address invoices when progress is folded", () => {
     // Estimate E-9 appears in the customer transaction ledger (not in sibling invoices)
     expect(within(ledger).getByText(/E-9|Quoted only/i)).toBeInTheDocument();
   });
+
+  it("tap customer card from job opened via customer returns to customer default", async () => {
+    mockServer({ jobs: jobs() });
+    const user = userEvent.setup();
+    renderApp("#/job/K-1?from=c%3Ameir%20kabakov");
+
+    const pane = await screen.findByTestId("detail-pane");
+    expect(within(pane).getByTestId("job-info-card")).toBeInTheDocument();
+    const card = within(pane).getByTestId("customer-card");
+    // Tap card body (name), not Edit / links / toggle
+    await user.click(within(card).getByText(/Meir Kabakov/i));
+
+    const view = await screen.findByTestId("customer-view");
+    expect(within(view).getByTestId("customer-card")).toBeInTheDocument();
+    expect(within(view).getByTestId("customer-txn-history")).toBeInTheDocument();
+    expect(screen.queryByTestId("detail-pane")).not.toBeInTheDocument();
+  });
 });

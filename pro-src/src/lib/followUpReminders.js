@@ -53,9 +53,11 @@ export const PAUSE_PRESETS = [
   { minutes: 30, label: "30 min" },
 ];
 
-export const SNOOZE_SLIDER_MIN = 30;
+// 5 minutes through 5 hours — same range as the board-wide ✕ picker
+// (lib/dismissSnooze.js), so "remind me later" means one thing everywhere.
+export const SNOOZE_SLIDER_MIN = 5;
 export const SNOOZE_SLIDER_MAX = 300;
-export const SNOOZE_SLIDER_STEP = 30;
+export const SNOOZE_SLIDER_STEP = 5;
 
 export const PAUSE_SLIDER_MIN = 5;
 export const PAUSE_SLIDER_MAX = 120;
@@ -359,7 +361,7 @@ export function serviceCallCandidates(events, jobs, today, now = new Date(), com
 }
 
 /** Inspection reminders: day before + day of (not past end of event day). */
-export function inspectionCandidates(events, today) {
+export function inspectionCandidates(events, today, now = new Date()) {
   const state = loadState();
   const tomorrow = addDays(today, 1);
   return (events || [])
@@ -368,6 +370,8 @@ export function inspectionCandidates(events, today) {
       const ymd = eventYmd(e);
       if (ymd !== today && ymd !== tomorrow) return false;
       if (isEventHandled(state, e.id, e)) return false;
+      // Closing the card is a snooze, not an ack — honour it here too.
+      if (isSnoozed(eventState(state, e.id), now)) return false;
       return true;
     })
     .sort((a, b) => evStart(a).localeCompare(evStart(b)));
@@ -718,7 +722,22 @@ function hasDocish(job, docKind) {
 }
 
 /** All active reminders for the Reminders tab — same sources as popups, sorted by priority. */
-export function buildReminderList(events, jobs, today, now = new Date(), commands = []) {
+/**
+ * @param {object} [opts]
+ * @param {boolean} [opts.withCandidates] — score soft job matches for each
+ *   reminder. Only the rendered cards need them; the nav badge just wants a
+ *   count, and scoring every job against every event was ~0.9s at LE's data
+ *   size (Levi 2026-07-28).
+ */
+export function buildReminderList(
+  events,
+  jobs,
+  today,
+  now = new Date(),
+  commands = [],
+  { withCandidates = true } = {}
+) {
+  const candidatesFor = (e) => (withCandidates ? suggestJobsForEvent(e, jobs) : []);
   cancelStaleUnsentReminders(events, jobs, commands, now);
   cancelPastAppointmentReminders(events, today, now);
   const list = [];
@@ -759,7 +778,7 @@ export function buildReminderList(events, jobs, today, now = new Date(), command
         event: e,
         state: st,
         job: resolveReminderJob(e, jobs, st),
-        candidates: suggestJobsForEvent(e, jobs),
+        candidates: candidatesFor(e),
         dueAt: st.remindAt || st.nextNudgeAt || "",
       });
       continue;
@@ -774,13 +793,13 @@ export function buildReminderList(events, jobs, today, now = new Date(), command
         event: e,
         state: st,
         job: resolveReminderJob(e, jobs, st),
-        candidates: suggestJobsForEvent(e, jobs),
+        candidates: candidatesFor(e),
         dueAt: st.remindAt,
       });
     }
   }
 
-  for (const event of inspectionCandidates(events, today)) {
+  for (const event of inspectionCandidates(events, today, now)) {
     const ymd = eventYmd(event);
     list.push({
       id: "insp:" + event.id,
@@ -807,7 +826,7 @@ export function buildReminderList(events, jobs, today, now = new Date(), command
       event,
       job,
       assessment,
-      suggestions: suggestJobsForEvent(event, jobs),
+      suggestions: candidatesFor(event),
       dueAt: evStart(event),
     });
   }
@@ -818,7 +837,8 @@ export function buildReminderList(events, jobs, today, now = new Date(), command
 
 export function activeReminderCount(events, jobs, today, now = new Date(), commands = []) {
   if (isRemindersPaused(now)) return 0;
-  return buildReminderList(events, jobs, today, now, commands).length;
+  // A count never renders a card, so it never needs the soft job matches.
+  return buildReminderList(events, jobs, today, now, commands, { withCandidates: false }).length;
 }
 
 /** Build the login prompt queue — most pressing first, capped at five + overflow. */
@@ -842,7 +862,7 @@ export function buildPromptQueue(events, jobs, today, now = new Date(), commands
   for (const item of unsentDocCandidates(jobs, commands)) {
     queue.push({ kind: "unsent_doc", priority: "high", ...item });
   }
-  for (const event of inspectionCandidates(events, today)) {
+  for (const event of inspectionCandidates(events, today, now)) {
     const ymd = eventYmd(event);
     queue.push({
       kind: "inspection",

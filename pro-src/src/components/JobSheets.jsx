@@ -13,20 +13,15 @@ import {
   jobCalendarLinkState,
   unlinkAppointmentJob,
 } from "../lib/calendarLink.js";
-import EditAppointmentSheet from "./EditAppointmentSheet.jsx";
+import AppointmentDetailSheet from "./AppointmentDetailSheet.jsx";
 import CustomerComposeSheet from "./CustomerComposeSheet.jsx";
 import { evStart } from "../lib/format.js";
-import { CALENDAR_PICK_EVENT, stashCalendarPick } from "../lib/calendarNavigate.js";
 import CustomerSearch from "./CustomerSearch.jsx";
 import { enrichAndPatchCustomer } from "./NewJobFlow.jsx";
 import AddressAutocompleteField from "./AddressAutocompleteField.jsx";
 import { syncBillingFromService } from "../lib/addressSync.js";
 import { useStore } from "../state/store.jsx";
-import {
-  awaitCommandTerminal,
-  markSendTracked,
-  reportSendFailure,
-} from "../lib/sendTracking.js";
+import { removeDocCopy, removeDocPlan } from "../lib/deleteDoc.js";
 import { productName } from "../lib/tenantBranding.js";
 import { useTenantConfig } from "../state/tenant.jsx";
 
@@ -79,6 +74,7 @@ import {
   analyzePaymentScreenshot,
   compressImageForVision,
   fileToBase64,
+  normalizeVisionMime,
 } from "../lib/paymentVision.js";
 import ZelleReconcileSheet from "./ZelleReconcileSheet.jsx";
 import PaymentProofFld from "./PaymentProofFld.jsx";
@@ -98,7 +94,7 @@ import {
 import { docSendStatusLine } from "../lib/docSendStatus.js";
 import { tenantCalendarAccount, tenantSignOff } from "../lib/tenantBranding.js";
 import { beginPromptWorkPause } from "../lib/followUpReminders.js";
-import { isQuickbooksEnabled, resolveDocSource } from "../lib/qboEnabled.js";
+import { isQuickbooksDocEnabled, resolveDocSource } from "../lib/qboEnabled.js";
 import { useAppSettings } from "../lib/appSettings.js";
 import { EMAIL_POLICY_KEEP } from "../lib/sendDocConfirm.js";
 
@@ -116,9 +112,11 @@ export const PAY_METHODS = [
 
 /**
  * Execute an approved invoice/estimate send.
- * Local path: build PDF in the browser and POST send-doc-email (with pdfB64).
+ * Local path: build PDF once, POST send-doc-email, queue host retry on failure.
  * QuickBooks path: queue send_* on the command bus.
- * Returns { ok, error?, pending? } — never silently reverts.
+ * Default is fire-and-forget (opts.wait=false): UI can close immediately while
+ * PDF + network finish in the background; toasts report the real result.
+ * Returns { ok, error?, pending?, sending? } — never silently reverts.
  */
 export function useDoSend() {
   const { enqueue, logSend, showToast, api, patchAndSave } = useStore();
@@ -144,7 +142,11 @@ export function useDoSend() {
       opts.includePaymentLink !== false;
     // Settings / plan can force local-only (white-label, QuickBooks off).
     const docSource =
-      resolveDocSource(opts.docSource === DOC_SOURCE_QBO ? DOC_SOURCE_QBO : DOC_SOURCE_LOCAL) ===
+      resolveDocSource(
+        opts.docSource === DOC_SOURCE_QBO ? DOC_SOURCE_QBO : DOC_SOURCE_LOCAL,
+        undefined,
+        kind
+      ) ===
       DOC_SOURCE_QBO
         ? DOC_SOURCE_QBO
         : DOC_SOURCE_LOCAL;
@@ -152,16 +154,54 @@ export function useDoSend() {
     const subject = String(opts.subject || "").trim();
     const label = kind === "invoice" ? "Invoice" : "Estimate";
     const via = docSource === DOC_SOURCE_QBO ? "QuickBooks" : "local PDF";
+    const wait = opts.wait === true;
 
-    // LOCAL: send immediately with client PDF — never queue without pdfB64.
-    if (docSource === DOC_SOURCE_LOCAL) {
-      if (!canGenerateLocalDoc(job, kind)) {
-        const err = "Add line items on this job to build a local PDF — or send the QuickBooks file";
-        showToast(err);
-        return { ok: false, error: err, pending: true };
-      }
-      showToast("Sending " + label.toLowerCase() + " to " + email + "…");
+    // QuickBooks path — command bus (host has QBO credentials). Fast queue.
+    if (docSource !== DOC_SOURCE_LOCAL) {
+      const payload =
+        kind === "invoice"
+          ? {
+              email,
+              invoiceNo: no,
+              customer: job.customer || "",
+              amount: String(due || "").replace(/[$,]/g, ""),
+              includePaymentLink: withPay,
+              docSource: DOC_SOURCE_QBO,
+              message,
+              subject,
+              job,
+            }
+          : { email, estimateNo: no, docSource: DOC_SOURCE_QBO, message, subject, job };
+      const idk =
+        kind === "invoice" && withPay
+          ? "send_invoice_pay:qbo:" + no + ":" + Date.now()
+          : "send_" + kind + ":qbo:" + no + ":" + Date.now();
+      await enqueue("send_" + kind, job.id, payload, "deterministic", idk);
+      showToast(
+        withPay
+          ? "Sending " + via + " with payment link — you'll get a toast when it lands"
+          : "Sending " + via + " — you'll get a toast when it lands"
+      );
+      return { ok: true, queued: true };
+    }
+
+    // LOCAL: never queue without pdfB64. Build PDF once; reuse on host retry.
+    if (!canGenerateLocalDoc(job, kind)) {
+      const err = "Add line items on this job to build a local PDF — or send the QuickBooks file";
+      showToast(err);
+      return { ok: false, error: err, pending: true };
+    }
+
+    showToast("Sending " + label.toLowerCase() + " to " + email + "…");
+
+    const runLocalSend = async () => {
       let res = null;
+      let pdfB64 = String(opts.pdfB64 || "").trim();
+      let filename =
+        String(opts.filename || "").trim() ||
+        docPdfFilename(kind, job, no) ||
+        `${kind}-${no || "document"}.pdf`;
+
       try {
         if (typeof api.sendDocEmailNow === "function") {
           res = await api.sendDocEmailNow(job, kind, {
@@ -170,7 +210,11 @@ export function useDoSend() {
             message,
             subject,
             payUrl: opts.payUrl || "",
+            pdfB64: pdfB64 || undefined,
+            filename,
           });
+          if (res?.pdfB64) pdfB64 = res.pdfB64;
+          if (res?.filename) filename = res.filename;
         }
       } catch (err) {
         res = { ok: false, error: String(err?.message || err) };
@@ -190,27 +234,51 @@ export function useDoSend() {
       const noKey = !!(
         res?.dryRun ||
         res?.reason === "no_api_key" ||
-        /HTTP 502|no_api_key|error code:\s*502/i.test(String(res?.error || ""))
+        /no_api_key/i.test(String(res?.error || ""))
       );
       const detail = String(
         res?.error || res?.reason || (noKey ? "email_service_retry" : "Send failed")
       ).slice(0, 120);
-      // Always queue with pdfB64 on failure so the host can finish via office Gmail
-      // (Cloudflare currently 502s without Resend). Never silently drop.
+
+      // Reuse PDF from the first attempt — never rebuild (was the 30s lag).
       try {
-        const blob =
-          kind === "estimate" ? await buildEstimatePdfFromJob(job) : await buildInvoicePdfFromJob(job);
-        if (blob && typeof FileReader !== "undefined") {
-          const pdfB64 = await new Promise((resolve, reject) => {
-            const r = new FileReader();
-            r.onerror = () => reject(r.error || new Error("read failed"));
-            r.onloadend = () => {
-              const s = String(r.result || "");
-              const i = s.indexOf(",");
-              resolve(i >= 0 ? s.slice(i + 1) : s);
-            };
-            r.readAsDataURL(blob);
-          });
+        if (!pdfB64) {
+          const blob =
+            kind === "estimate" ? await buildEstimatePdfFromJob(job) : await buildInvoicePdfFromJob(job);
+          if (blob && typeof FileReader !== "undefined") {
+            pdfB64 = await new Promise((resolve, reject) => {
+              const r = new FileReader();
+              r.onerror = () => reject(r.error || new Error("read failed"));
+              r.onloadend = () => {
+                const s = String(r.result || "");
+                const i = s.indexOf(",");
+                resolve(i >= 0 ? s.slice(i + 1) : s);
+              };
+              r.readAsDataURL(blob);
+            });
+          }
+        }
+        if (pdfB64) {
+          // Slim job for the bus — full history blobs bloat the queue write.
+          const slimJob = {
+            id: job.id,
+            customer: job.customer || "",
+            businessName: job.businessName || "",
+            personName: job.personName || "",
+            email: email || job.email || "",
+            invoiceNo: job.invoiceNo || no || "",
+            estimateNo: job.estimateNo || no || "",
+            amount: job.amount || due || "",
+            openBalance: job.openBalance,
+            dueDate: job.dueDate || "",
+            address: job.address || job.serviceAddress || "",
+            billingAddress: job.billingAddress || "",
+            serviceAddress: job.serviceAddress || job.address || "",
+            title: job.title || "",
+            invoiceLines: job.invoiceLines,
+            estimateLines: job.estimateLines,
+            items: job.items,
+          };
           const payload =
             kind === "invoice"
               ? {
@@ -222,10 +290,21 @@ export function useDoSend() {
                   docSource: DOC_SOURCE_LOCAL,
                   message,
                   subject,
-                  job,
+                  job: slimJob,
                   pdfB64,
-                  filename: docPdfFilename(kind, job, no) || `${kind}-${no || "document"}.pdf`,
-                  clientSend: res || { ok: false, reason: detail },
+                  filename,
+                  viewLink: res?.viewLink || "",
+                  html: res?.html || undefined,
+                  clientSend: res
+                    ? {
+                        ok: res.ok,
+                        sent: res.sent,
+                        error: res.error,
+                        reason: res.reason,
+                        dryRun: res.dryRun,
+                        viewLink: res.viewLink,
+                      }
+                    : { ok: false, reason: detail },
                 }
               : {
                   email,
@@ -233,27 +312,36 @@ export function useDoSend() {
                   docSource: DOC_SOURCE_LOCAL,
                   message,
                   subject,
-                  job,
+                  job: slimJob,
                   pdfB64,
-                  filename: docPdfFilename(kind, job, no) || `${kind}-${no || "document"}.pdf`,
-                  clientSend: res || { ok: false, reason: detail },
+                  filename,
+                  viewLink: res?.viewLink || "",
+                  html: res?.html || undefined,
+                  clientSend: res
+                    ? {
+                        ok: res.ok,
+                        sent: res.sent,
+                        error: res.error,
+                        reason: res.reason,
+                        dryRun: res.dryRun,
+                        viewLink: res.viewLink,
+                      }
+                    : { ok: false, reason: detail },
                 };
-          const idk =
-            "send_" + kind + ":local:" + (no || job.id) + ":" + Date.now();
-          const queuedCmd = await enqueue("send_" + kind, job.id, payload, "deterministic", idk);
-          // Queued is NOT sent. Reporting ok:true here closed the confirm sheet
-          // as if the document had gone out, while the status line still read
-          // "Never sent" — the send never actually happened. Surface it as
-          // not-sent-yet so the sheet stays open and says so.
+          const idk = "send_" + kind + ":local:" + (no || job.id) + ":" + Date.now();
+          await enqueue("send_" + kind, job.id, payload, "deterministic", idk);
+          showToast(
+            noKey
+              ? "Sending via office email — you'll get a toast when it lands"
+              : "Finishing send in the background — you'll get a toast when it lands"
+          );
+          // Background accept: UI can close; SendInvoiceWatcher toasts real result.
           return {
-            ok: false,
+            ok: true,
             queued: true,
             pending: true,
-            commandId: queuedCmd?.id || "",
-            reason: detail,
-            error: noKey
-              ? "Not sent yet — queued for the office email retry. Check Activity."
-              : "Not sent (" + detail + "). Queued for retry — check Activity.",
+            sending: true,
+            error: detail,
           };
         }
       } catch {
@@ -261,89 +349,13 @@ export function useDoSend() {
       }
       showToast(label + " did NOT send — " + detail + ". Still marked not sent.");
       return { ok: false, error: detail, pending: true };
-    }
+    };
 
-    // QuickBooks path — command bus (host has QBO credentials).
-    const payload =
-      kind === "invoice"
-        ? {
-            email,
-            invoiceNo: no,
-            customer: job.customer || "",
-            amount: String(due || "").replace(/[$,]/g, ""),
-            includePaymentLink: withPay,
-            docSource: DOC_SOURCE_QBO,
-            message,
-            subject,
-            job,
-          }
-        : { email, estimateNo: no, docSource: DOC_SOURCE_QBO, message, subject, job };
-    const idk =
-      kind === "invoice" && withPay
-        ? "send_invoice_pay:qbo:" + no + ":" + Date.now()
-        : "send_" + kind + ":qbo:" + no + ":" + Date.now();
-    const qboCmd = await enqueue("send_" + kind, job.id, payload, "deterministic", idk);
-    // The confirm sheet awaits this command to its terminal state and owns the
-    // final toast — so we don't fire an optimistic "you'll get a toast" here.
-    return { ok: true, queued: true, commandId: qboCmd?.id || "" };
-  };
-}
-
-/**
- * Send + confirm the true outcome, so feedback is accurate and never
- * contradictory. Resolves to { sent: true } only when the send actually
- * landed (client Resend, or a queued command that reached "done"); otherwise
- * { sent: false, error } (or { pending: true } if still unconfirmed). While a
- * queued command is awaited it is marked tracked so the global SendInvoiceWatcher
- * stays quiet — the sheet owns the single toast. A confirmed failure is
- * auto-reported to the monitored Dispatch queue.
- */
-export function useApproveSend() {
-  const doSend = useDoSend();
-  const { api, showToast, logSend, patchAndSave, addDevTask } = useStore();
-  return async (job, kind, opts = {}) => {
-    const no = kind === "invoice" ? job.invoiceNo : job.estimateNo;
-    const email = (opts.email || job.email || "").trim();
-    const label = kind === "estimate" ? "Estimate" : "Invoice";
-    const result = await doSend(job, kind, opts);
-
-    // Client delivered it directly, or it was accepted with no trackable command
-    // (e.g. deduped) — treat ok:true without a command id as done. useDoSend
-    // already toasted the direct-send case; the watcher covers any untracked one.
-    if (result?.ok && !result.commandId) {
-      return { sent: true };
-    }
-
-    const cmdId = result?.commandId;
-    if (cmdId) {
-      markSendTracked(cmdId); // watcher stays quiet — the sheet owns feedback
-      const term = await awaitCommandTerminal(api, cmdId);
-      if (term.status === "done") {
-        logSend(job.id, label + (no ? " #" + no : "") + " emailed", email);
-        patchAndSave(job.id, { _docEmailed: true, _draftChangeOrder: false }).catch(() => {});
-        showToast(label + (no ? " #" + no : "") + " emailed to " + email);
-        return { sent: true };
-      }
-      if (term.status === "failed") {
-        const reason = term.error || result?.reason || "send failed";
-        // Host exhausted its built-in retries — auto-report for triage.
-        reportSendFailure(addDevTask, { kind, no, email, reason, jobId: job.id });
-        return {
-          sent: false,
-          error: label + " did NOT send — " + String(reason).slice(0, 120) + ". Retry, or check Activity.",
-        };
-      }
-      // Still pending after the wait — never claim success; keep the sheet open.
-      return {
-        sent: false,
-        pending: true,
-        error: "Still sending — not confirmed yet. Tap Retry, or check Activity.",
-      };
-    }
-
-    // Hard failure with no queued command (usually user-actionable: no email /
-    // no line items). Surface it; don't spam Dispatch for input problems.
-    return { sent: false, error: result?.error || label + " did NOT send." };
+    if (wait) return runLocalSend();
+    // Fire-and-forget so the confirm sheet can close immediately.
+    const p = runLocalSend();
+    p.catch(() => {});
+    return { ok: true, sending: true, pending: true, promise: p };
   };
 }
 
@@ -577,10 +589,10 @@ export function MarkPaidSheet({
     const remaining = parseFloat(String(patch.openBalance)) || 0;
     const trainNote = trained ? " · Your fixes train the check reader" : "";
     if (patch.paid) {
-      showToast("Payment staged — Save & sync to record in QuickBooks" + trainNote);
+      showToast("Marked paid — Save & sync so QuickBooks catches up in the background" + trainNote);
     } else {
       showToast(
-        "Partial payment staged — " + fmt$(remaining) + " remaining. Save & sync for QuickBooks." + trainNote
+        "Partial payment applied — " + fmt$(remaining) + " remaining. Save & sync for QuickBooks." + trainNote
       );
     }
     patchJob(targetJob.id, patch);
@@ -676,38 +688,85 @@ export function MarkPaidSheet({
 
   const runAutofill = async (b64Override, fileOverride) => {
     const file = fileOverride || proofFile;
-    let b64 = b64Override || proofB64;
-    let mime = file?.type || "image/jpeg";
-    if (!b64 && !file) return;
+    // Always keep the original attach bytes for Record/retry — never overwrite with canvas compress.
+    let originalB64 = b64Override || proofB64;
+    let originalMime = normalizeVisionMime(file?.type || "image/jpeg");
+    if (!originalB64 && !file) return;
     setAutofillBusy(true);
     try {
-      // Compress large phone photos so the amount box stays readable and gateway doesn't 502.
+      if (!originalB64 && file) {
+        originalB64 = await fileToBase64(file);
+        setProofB64(originalB64);
+      } else if (originalB64 && !proofB64) {
+        setProofB64(originalB64);
+      }
+      // Vision transport only — prefer original; compress only when file is huge (see paymentVision.js).
+      let visionB64 = originalB64;
+      let visionMime = originalMime;
+      let usedCompress = false;
       if (file && String(file.type || "").startsWith("image/")) {
         try {
-          const compressed = await compressImageForVision(file);
-          if (compressed?.b64) {
-            b64 = compressed.b64;
-            mime = compressed.mime || "image/jpeg";
-            setProofB64(b64);
+          const prepared = await compressImageForVision(file);
+          if (prepared?.b64) {
+            visionB64 = prepared.b64;
+            visionMime = prepared.mime || "image/jpeg";
+            usedCompress = Boolean(prepared.usedCompress);
           }
         } catch {
-          /* keep original b64 */
+          /* keep original */
         }
       }
-      if (!b64) return;
+      if (!visionB64) {
+        showToast("Could not load that photo — re-attach and try Autofill again");
+        return;
+      }
+      // Don't block Autofill on a slow full-state load — race learning vs 1.2s timeout.
       let learningEntries = [];
       try {
-        learningEntries = (await getPaymentVisionLearning?.()) || [];
+        learningEntries =
+          (await Promise.race([
+            getPaymentVisionLearning?.().then((x) => x || []),
+            new Promise((resolve) => setTimeout(() => resolve([]), 1200)),
+          ])) || [];
       } catch {
         learningEntries = [];
       }
-      const { extracted } = await analyzePaymentImage(
-        b64,
-        mime,
-        isCheck ? "check" : isZelle ? "zelle" : "check",
+      const kindHint = isCheck ? "check" : isZelle ? "zelle" : "check";
+      let { extracted } = await analyzePaymentImage(
+        visionB64,
+        visionMime || "image/jpeg",
+        kindHint,
         file?.name || "",
         { learningEntries }
       );
+      // Canvas wash path: empty read after compress → retry original bytes (no learning noise).
+      if (!hasStrongPaymentAutofill(extracted) && usedCompress && originalB64) {
+        try {
+          const retry = await analyzePaymentImage(
+            originalB64,
+            originalMime,
+            kindHint,
+            file?.name || "",
+            { learningEntries: [], _retriedClean: true }
+          );
+          if (hasStrongPaymentAutofill(retry?.extracted) || hasUsefulPaymentAutofill(retry?.extracted)) {
+            extracted = retry.extracted;
+          }
+        } catch {
+          /* keep first extract */
+        }
+      }
+      // Still empty after preferred path — one more clean original attempt.
+      if (!hasUsefulPaymentAutofill(extracted) && originalB64) {
+        try {
+          const clean = await analyzePaymentScreenshot(originalB64, originalMime, kindHint, {
+            skipLearning: true,
+          });
+          if (hasUsefulPaymentAutofill(clean)) extracted = clean;
+        } catch {
+          /* keep empty */
+        }
+      }
       const invNo = invoiceNoFromExtracted(extracted);
       const matched = invNo && needsPick && !activeJob ? findJobByInvoice(jobs, invNo) : null;
       const ok = applyAutofill(extracted);
@@ -1347,10 +1406,10 @@ export function MarkPaidSheet({
       )}
       <p className="text-[11px] text-slate-400 text-center mt-2">
         {isCard
-          ? "Card is charged now via Sola. QuickBooks records automatically — no Save & sync needed."
+          ? "Card is charged now. Invoice is marked paid here immediately — QuickBooks updates in the background."
           : isAch && achEnabled
             ? "ACH will debit via Sola once processing is wired — staged for now."
-            : "Staged now — QuickBooks records it when you hit Save & sync."}
+            : "Paid status updates here right away. QuickBooks is a background step on Save & sync."}
       </p>
     </Sheet>
     {zelleReconcile ? (
@@ -1378,11 +1437,6 @@ function PaymentEditForm({
   const [mth, setMth] = useState(payment.method || "");
   const [ref, setRef] = useState(payment.ref || "");
   const [dt, setDt] = useState(payment.date || todayStr());
-  // Does this payment apply to an invoice (default) or an estimate? An estimate
-  // payment also captures the invoice it maps to plus a quantity.
-  const [appliesTo, setAppliesTo] = useState(payment.appliesTo === "estimate" ? "estimate" : "invoice");
-  const [estInvoiceNo, setEstInvoiceNo] = useState(payment.estimateInvoiceNo || "");
-  const [estQty, setEstQty] = useState(payment.quantity != null ? String(payment.quantity) : "");
   const [custName, setCustName] = useState(sourceJob?.customer || sourceJob?.businessName || "");
   const [pickCust, setPickCust] = useState(() =>
     sourceJob?.customer || sourceJob?.businessName
@@ -1420,69 +1474,9 @@ function PaymentEditForm({
     ? formatInvoicePayOption(sourceJob)
     : "This job (no invoice #)";
 
-  const segBtn = (on) =>
-    "btn flex-1 !px-2 !py-2 text-xs " +
-    (on ? "bg-brand text-white" : "bg-slate-100 text-slate-700 border border-slate-200");
-
   return (
     <div className="space-y-3 border-t border-slate-100 pt-3 mt-2" data-testid="payment-edit-form">
-      <div>
-        <div className="text-[10px] font-bold uppercase tracking-wide text-slate-500 mb-1">
-          Applies to
-        </div>
-        <div className="flex gap-1.5" data-testid="payment-applies-to">
-          <button
-            type="button"
-            className={segBtn(appliesTo === "invoice")}
-            onClick={() => setAppliesTo("invoice")}
-            data-testid="payment-applies-invoice"
-            aria-pressed={appliesTo === "invoice"}
-          >
-            Invoice
-          </button>
-          <button
-            type="button"
-            className={segBtn(appliesTo === "estimate")}
-            onClick={() => setAppliesTo("estimate")}
-            data-testid="payment-applies-estimate"
-            aria-pressed={appliesTo === "estimate"}
-          >
-            Estimate
-          </button>
-        </div>
-      </div>
-
-      {appliesTo === "estimate" ? (
-        <div
-          className="space-y-2 rounded-xl border border-brand/20 bg-brand-soft/30 px-3 py-2.5"
-          data-testid="payment-estimate-fields"
-        >
-          <div className="text-[10px] font-bold uppercase tracking-wide text-brand">
-            Estimate payment
-          </div>
-          <Fld label="Invoice #" hint="The invoice this estimate payment applies to">
-            <input
-              className="input"
-              value={estInvoiceNo}
-              onChange={(e) => setEstInvoiceNo(e.target.value)}
-              placeholder="Invoice #"
-              aria-label="Invoice number"
-              data-testid="payment-estimate-invoice"
-            />
-          </Fld>
-          <Fld label="Quantity">
-            <input
-              className="input"
-              inputMode="decimal"
-              value={estQty}
-              onChange={(e) => setEstQty(e.target.value)}
-              placeholder="Quantity"
-              aria-label="Quantity"
-              data-testid="payment-estimate-qty"
-            />
-          </Fld>
-        </div>
-      ) : !fullEdit ? (
+      {!fullEdit ? (
         <div className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5">
           <div className="flex items-start justify-between gap-2">
             <div className="min-w-0">
@@ -1629,16 +1623,7 @@ function PaymentEditForm({
               method: mth,
               ref,
               date: dt,
-              appliesTo,
-              estimateInvoiceNo: appliesTo === "estimate" ? estInvoiceNo : "",
-              quantity: appliesTo === "estimate" ? estQty : "",
-              // Estimate payments stay on the current job; invoice edits may move.
-              targetJobId:
-                appliesTo === "estimate"
-                  ? sourceJob?.id
-                  : fullEdit
-                    ? targetJobId || sourceJob?.id
-                    : sourceJob?.id,
+              targetJobId: fullEdit ? targetJobId || sourceJob?.id : sourceJob?.id,
             })
           }
         >
@@ -1672,7 +1657,7 @@ function PaymentEditForm({
   );
 }
 
-export function PaymentHistorySheet({ job, onClose, onAddPayment }) {
+export function PaymentHistorySheet({ job, onClose, onAddPayment, initialEditId = null }) {
   const {
     patchJob,
     patchAndSave,
@@ -1684,7 +1669,7 @@ export function PaymentHistorySheet({ job, onClose, onAddPayment }) {
     effectiveJob,
     jobs,
   } = useStore();
-  const [editId, setEditId] = useState(null);
+  const [editId, setEditId] = useState(initialEditId || null);
   const [fetchPhase, setFetchPhase] = useState("idle"); // idle | working | done | failed
   const [fetchErr, setFetchErr] = useState("");
   const [activeFetchKey, setActiveFetchKey] = useState("");
@@ -1823,17 +1808,6 @@ export function PaymentHistorySheet({ job, onClose, onAddPayment }) {
       showToast("Enter a payment amount");
       return;
     }
-    const toEstimate = entry.appliesTo === "estimate";
-    if (toEstimate) {
-      if (!String(entry.estimateInvoiceNo || "").trim()) {
-        showToast("Enter the invoice # for this estimate payment");
-        return;
-      }
-      if (!(parseFloat(String(entry.quantity).replace(/[$,]/g, "")) > 0)) {
-        showToast("Enter a quantity for this estimate payment");
-        return;
-      }
-    }
     const targetId = entry.targetJobId || job.id;
     const targetLive =
       String(targetId) === String(job.id)
@@ -1844,14 +1818,7 @@ export function PaymentHistorySheet({ job, onClose, onAddPayment }) {
       return;
     }
     const { amount, method, ref, date } = entry;
-    // Persist the invoice/estimate choice on the payment. Clear estimate fields
-    // when it applies to an invoice so switching back doesn't leave stale data.
-    const applyFields = {
-      appliesTo: toEstimate ? "estimate" : "invoice",
-      estimateInvoiceNo: toEstimate ? String(entry.estimateInvoiceNo).trim() : "",
-      quantity: toEstimate ? String(entry.quantity).trim() : "",
-    };
-    const moved = movePayment(liveJob, targetLive, editId, { amount, method, ref, date, ...applyFields });
+    const moved = movePayment(liveJob, targetLive, editId, { amount, method, ref, date });
     if (!moved?.patches?.length) {
       showToast("Could not update that payment");
       return;
@@ -1920,12 +1887,6 @@ export function PaymentHistorySheet({ job, onClose, onAddPayment }) {
               ) : (
                 <button type="button" className="w-full text-left" onClick={() => setEditId(p.id)}>
                   <div className="text-sm font-semibold text-slate-900">{fmtPaymentLine(p)}</div>
-                  {p.appliesTo === "estimate" ? (
-                    <div className="text-[11px] font-semibold text-brand mt-0.5" data-testid="payment-estimate-tag">
-                      Estimate → Invoice #{p.estimateInvoiceNo || "—"}
-                      {p.quantity ? " · qty " + p.quantity : ""}
-                    </div>
-                  ) : null}
                   <div className="text-[11px] text-slate-400 mt-0.5">Tap to edit or remove</div>
                 </button>
               )}
@@ -2094,9 +2055,11 @@ export function DocPdfViewButtons({ job, kind, no, compact }) {
   const config = useTenantConfig();
   const appSettings = useAppSettings();
   void appSettings.quickbooks;
-  const qboOn = isQuickbooksEnabled(config);
+  void appSettings.quickbooksInvoices;
+  void appSettings.quickbooksEstimates;
+  const qboDocsOn = isQuickbooksDocEnabled(kind, config);
   const product = productName(config);
-  const retry = () => (st.source === DOC_SOURCE_QBO && qboOn ? viewQbo() : viewLocal());
+  const retry = () => (st.source === DOC_SOURCE_QBO && qboDocsOn ? viewQbo() : viewLocal());
 
   if (st.phase === "checking" || st.phase === "fetching" || st.phase === "timeout") {
     return <DocPdfStatus st={st} onRetry={retry} />;
@@ -2113,7 +2076,7 @@ export function DocPdfViewButtons({ job, kind, no, compact }) {
         >
           {viewLocalLabel(kind)}
         </button>
-        {qboOn ? (
+        {qboDocsOn ? (
           <button
             type="button"
             className="btn flex-1 !py-2.5 bg-slate-100 text-slate-800 font-semibold"
@@ -2136,7 +2099,7 @@ export function DocPdfViewButtons({ job, kind, no, compact }) {
         onClick={viewLocal}
         data-testid="view-local-doc"
       />
-      {qboOn ? (
+      {qboDocsOn ? (
         <Opt
           icon="📗"
           title={viewQboLabel(kind)}
@@ -2161,8 +2124,10 @@ export function DocSendButtons({ job, kind, onPickSend }) {
   const withPay = kind === "invoice" && due > 0.01;
   const appSettings = useAppSettings();
   void appSettings.quickbooks;
-  const qboOn = isQuickbooksEnabled();
-  const sourceNote = qboOn
+  void appSettings.quickbooksInvoices;
+  void appSettings.quickbooksEstimates;
+  const qboDocsOn = isQuickbooksDocEnabled(kind);
+  const sourceNote = qboDocsOn
     ? "Choose local file or QuickBooks file"
     : "Sends the local PDF from this job";
 
@@ -2254,7 +2219,7 @@ export function PaymentLinkSheet({ job, onClose }) {
   const [paySendBusy, setPaySendBusy] = useState(false);
   const [paySendErr, setPaySendErr] = useState("");
   const deadline = useRef(0);
-  const approveSend = useApproveSend();
+  const doSend = useDoSend();
 
   useEffect(() => {
     setLinkAmount(paylinkAmountRaw(openBalance(job)) || "");
@@ -2388,7 +2353,7 @@ export function PaymentLinkSheet({ job, onClose }) {
           setPaySendBusy(true);
           setPaySendErr("");
           beginPromptWorkPause();
-          const result = await approveSend(job, "invoice", {
+          const result = await doSend(job, "invoice", {
             includePaymentLink: true,
             email: model.email,
             docSource: model.docSource,
@@ -2398,7 +2363,7 @@ export function PaymentLinkSheet({ job, onClose }) {
             emailPolicy: model.emailPolicy,
           });
           setPaySendBusy(false);
-          if (result?.sent) {
+          if (result?.ok) {
             onClose();
             return;
           }
@@ -2409,7 +2374,7 @@ export function PaymentLinkSheet({ job, onClose }) {
   }
 
   if (composeChannel) {
-    const qboOn = isQuickbooksEnabled();
+    const qboDocsOn = isQuickbooksDocEnabled("invoice");
     return (
       <CustomerComposeSheet
         job={job}
@@ -2435,7 +2400,7 @@ export function PaymentLinkSheet({ job, onClose }) {
               >
                 Send Local Invoice with Payment Link
               </button>
-              {qboOn ? (
+              {qboDocsOn ? (
                 <button
                   type="button"
                   className="btn w-full !py-2 bg-slate-100 text-slate-800"
@@ -2550,14 +2515,36 @@ export function PaymentLinkSheet({ job, onClose }) {
 
 /* ---------- 2a. Invoice / Estimate quick view ---------- */
 export function DocSheet({ job, kind, onClose, onEdit, onConvert, onSync }) {
-  const approveSend = useApproveSend();
-  const { commands } = useStore();
+  const doSend = useDoSend();
+  const { commands, patchAndSave, showToast } = useStore();
   const [sendPick, setSendPick] = useState(null); // { withPay, title }
   const [confirmSend, setConfirmSend] = useState(null); // { withPay, docSource }
   const [sendBusy, setSendBusy] = useState(false);
   const [sendErr, setSendErr] = useState("");
+  const [confirmDelete, setConfirmDelete] = useState(false);
+  const [deleteBusy, setDeleteBusy] = useState(false);
   const no = kind === "invoice" ? job.invoiceNo : job.estimateNo;
   const label = kind === "invoice" ? "invoice" : "estimate";
+
+  const deletePlan = removeDocPlan(job, kind);
+  const deleteCopy = removeDocCopy(job, kind, deletePlan);
+
+  const runDelete = async () => {
+    if (deleteBusy) return;
+    setDeleteBusy(true);
+    try {
+      await patchAndSave(job.id, deletePlan.patch);
+      showToast?.(
+        deletePlan.mode === "draft"
+          ? "Draft " + label + " deleted"
+          : deleteCopy.confirm.replace(/^Remove/, "Removed")
+      );
+      onClose();
+    } catch (e) {
+      showToast?.(String(e?.message || "Could not delete — try again"));
+      setDeleteBusy(false);
+    }
+  };
 
   if (confirmSend) {
     return (
@@ -2577,7 +2564,7 @@ export function DocSheet({ job, kind, onClose, onEdit, onConvert, onSync }) {
           setSendBusy(true);
           setSendErr("");
           beginPromptWorkPause();
-          const result = await approveSend(job, kind, {
+          const result = await doSend(job, kind, {
             docSource: model.docSource,
             includePaymentLink: model.withPay,
             email: model.email,
@@ -2586,14 +2573,50 @@ export function DocSheet({ job, kind, onClose, onEdit, onConvert, onSync }) {
             emailPolicy: model.emailPolicy,
           });
           setSendBusy(false);
-          if (result?.sent) {
+          if (result?.ok) {
             onClose();
             return;
           }
-          // Stay open in pending/not-sent state with a single loud error.
+          // Stay open in pending/not-sent state with a loud error.
           setSendErr(result?.error || "Send failed — document was not emailed");
         }}
       />
+    );
+  }
+
+  if (confirmDelete) {
+    return (
+      <Sheet title={deleteCopy.title} onClose={() => (deleteBusy ? null : setConfirmDelete(false))}>
+        <p className="text-sm text-slate-600 mb-4" data-testid="doc-delete-body">
+          {deleteCopy.body.replace(/\*\*/g, "")}
+        </p>
+        {deletePlan.warnsQuickbooks ? (
+          <p
+            className="text-xs font-semibold text-amber-900 bg-amber-50 border border-amber-200 rounded-xl px-3 py-2 mb-4"
+            data-testid="doc-delete-qbo-warning"
+          >
+            QuickBooks is not changed — #{deletePlan.syncedNo} still exists there.
+          </p>
+        ) : null}
+        <button
+          type="button"
+          className="btn bg-red-600 text-white w-full mb-2 disabled:opacity-60"
+          onClick={runDelete}
+          disabled={deleteBusy}
+          data-testid="doc-delete-confirm"
+        >
+          {deleteBusy ? "Deleting…" : deleteCopy.confirm}
+        </button>
+        <button
+          type="button"
+          className="btn bg-slate-100 text-slate-800 w-full"
+          onClick={() => setConfirmDelete(false)}
+          disabled={deleteBusy}
+          data-testid="doc-delete-cancel"
+        >
+          Keep it
+        </button>
+      </Sheet>
     );
   }
 
@@ -2613,7 +2636,7 @@ export function DocSheet({ job, kind, onClose, onEdit, onConvert, onSync }) {
   }
   const lines = kind === "invoice" ? job.invoiceLines : job.estimateLines;
   const isDraft = !no && (lines || []).some((ln) => String(ln?.itemName || "").trim());
-  const qboOn = isQuickbooksEnabled();
+  const qboDocsOn = isQuickbooksDocEnabled(kind);
   const title = no
     ? (kind === "invoice" ? "Invoice " : "Estimate ") + no
     : isDraft
@@ -2626,9 +2649,9 @@ export function DocSheet({ job, kind, onClose, onEdit, onConvert, onSync }) {
     <Sheet title={title} onClose={onClose}>
       {isDraft ? (
         <p className="text-xs text-amber-800 bg-amber-50 border border-amber-200 rounded-xl px-3 py-2 mb-3" data-testid="doc-draft-banner">
-          {qboOn
+          {qboDocsOn
             ? "Saved on this job — not in QuickBooks yet. Tap sync when you are ready."
-            : "Saved on this job — local only (QuickBooks is off)."}
+            : "Saved on this job — local only (QuickBooks send/view is off; data still syncs)."}
         </p>
       ) : null}
 
@@ -2657,7 +2680,7 @@ export function DocSheet({ job, kind, onClose, onEdit, onConvert, onSync }) {
 
       {no ? <DocPdfViewButtons job={job} kind={kind} no={no} compact /> : null}
 
-      {isDraft && onSync && qboOn ? (
+      {isDraft && onSync && qboDocsOn ? (
         <button type="button" className="btn-brand w-full mb-2" onClick={onSync} data-testid="doc-sync-qbo">
           Sync to QuickBooks
         </button>
@@ -2687,13 +2710,24 @@ export function DocSheet({ job, kind, onClose, onEdit, onConvert, onSync }) {
           {docSendStatusLine(job, kind, commands).text}
         </p>
       ) : null}
+
+      {no || isDraft ? (
+        <button
+          type="button"
+          className="btn-ghost w-full !py-2.5 mt-1 font-semibold text-red-600"
+          onClick={() => setConfirmDelete(true)}
+          data-testid={"doc-delete-" + kind}
+        >
+          {isDraft ? "Delete draft " + label : "Delete " + label}
+        </button>
+      ) : null}
     </Sheet>
   );
 }
 
 /** Quick invoice actions from the jobs list — View (full-screen PDF) or Send. */
 export function QuickSendSheet({ job, onClose, onEdit }) {
-  const approveSend = useApproveSend();
+  const doSend = useDoSend();
   const [sendPick, setSendPick] = useState(null);
   const [confirmSend, setConfirmSend] = useState(null);
   const [sendBusy, setSendBusy] = useState(false);
@@ -2718,7 +2752,7 @@ export function QuickSendSheet({ job, onClose, onEdit }) {
           setSendBusy(true);
           setSendErr("");
           beginPromptWorkPause();
-          const result = await approveSend(job, "invoice", {
+          const result = await doSend(job, "invoice", {
             docSource: model.docSource,
             includePaymentLink: model.withPay,
             email: model.email,
@@ -2727,7 +2761,7 @@ export function QuickSendSheet({ job, onClose, onEdit }) {
             emailPolicy: model.emailPolicy,
           });
           setSendBusy(false);
-          if (result?.sent) {
+          if (result?.ok) {
             onClose();
             return;
           }
@@ -2790,71 +2824,9 @@ export function QuickSendSheet({ job, onClose, onEdit }) {
 export function calAccount() {
   return tenantCalendarAccount();
 }
-
-/** Open a URL outside the app — window.open often fails in installed PWAs. */
-export function openExternalUrl(url) {
-  if (!url) return false;
-  try {
-    const w = window.open(url, "_blank", "noopener,noreferrer");
-    if (w) return true;
-  } catch {
-    /* fall through */
-  }
-  try {
-    const a = document.createElement("a");
-    a.href = url;
-    a.target = "_blank";
-    a.rel = "noopener noreferrer";
-    a.style.display = "none";
-    document.body.appendChild(a);
-    a.click();
-    a.remove();
-    return true;
-  } catch {
-    try {
-      window.location.assign(url);
-      return true;
-    } catch {
-      return false;
-    }
-  }
-}
-
-/** Compact 1-line action chip for calendar sheet. */
-function CalChip({ children, onClick, danger, testId, className = "" }) {
-  return (
-    <button
-      type="button"
-      className={
-        "min-h-[2.25rem] px-2 py-1.5 rounded-xl border text-[11px] font-bold leading-tight text-center active:bg-slate-50 " +
-        (danger
-          ? "border-red-200 text-red-700 bg-red-50/60"
-          : "border-slate-200 text-slate-800 bg-white") +
-        " " +
-        className
-      }
-      onClick={onClick}
-      data-testid={testId}
-    >
-      {children}
-    </button>
-  );
-}
-
 export function CalSheet({ job, onClose }) {
-  const nav = useNavigate();
-  const {
-    events,
-    commands,
-    patchJob,
-    patchAndSave,
-    enqueue,
-    patchLocalEvent,
-    removeLocalEvent,
-    showToast,
-    effectiveJob,
-  } = useStore();
-  const [mode, setMode] = useState("menu"); // menu | add | pick | unlink | edit
+  const { events, commands, patchJob, patchAndSave, enqueue, patchLocalEvent, showToast, effectiveJob } = useStore();
+  const [mode, setMode] = useState("menu"); // menu | add | pick | unlink | view
   const [unlinking, setUnlinking] = useState(false);
   const liveJob = effectiveJob(job.id) || job;
   const event = useMemo(() => eventForJob(liveJob, events), [liveJob, events]);
@@ -2869,80 +2841,9 @@ export function CalSheet({ job, onClose }) {
     dateYmd: d,
     account: calAccount(),
   });
-  const notes = event ? displayEventNotes(event.description) : "";
-  const whenLabel = event ? evStart(event).replace("T", " ").slice(0, 16) : d || "";
 
-  const openInAppCalendar = () => {
-    // Prefer the resolved event, then the job's saved calendar id, then the scheduled day.
-    const focusDate = (event ? evStart(event).slice(0, 10) : "") || d || "";
-    const eventId = String(event?.id || liveJob.calEventId || "").trim();
-    if (eventId) {
-      stashCalendarPick(eventId, { focusDate });
-    } else if (focusDate) {
-      stashCalendarPick({ focusDate });
-    } else {
-      showToast("No date to open yet");
-      return;
-    }
-    // Close the sheet first. Navigate on the next tick so sheet unmount / scroll-unlock
-    // cannot swallow the route change on mobile WebView / installed PWA.
-    onClose();
-    const go = () => {
-      try {
-        nav("/today");
-      } catch {
-        /* fall through to hash */
-      }
-      try {
-        const hash = String(window.location.hash || "");
-        if (!hash.includes("/today")) {
-          window.location.hash = "#/today";
-        }
-      } catch {
-        /* ignore */
-      }
-      // Re-signal so a just-mounted Calendar tab re-reads sessionStorage.
-      try {
-        window.dispatchEvent(new CustomEvent(CALENDAR_PICK_EVENT));
-      } catch {
-        /* ignore */
-      }
-    };
-    if (typeof window !== "undefined" && typeof window.requestAnimationFrame === "function") {
-      window.requestAnimationFrame(() => setTimeout(go, 0));
-    } else {
-      setTimeout(go, 0);
-    }
-  };
-
-  const openInGCalendar = () => {
-    if (!openExternalUrl(gcalUrl)) {
-      showToast("Couldn't open Google Calendar");
-    }
-  };
-
-  if (mode === "edit" && event) {
-    return (
-      <EditAppointmentSheet
-        event={event}
-        linkedJobId={liveJob.id}
-        onClose={() => setMode("menu")}
-        onSaved={(ev) => patchLocalEvent(ev.id, ev)}
-        onDeleted={async (eid) => {
-          await unlinkAppointmentJob({
-            event: event || { id: eid, description: "" },
-            job: liveJob,
-            jobId: liveJob.id,
-            patchJob,
-            patchAndSave,
-            enqueue,
-            patchLocalEvent,
-          });
-          removeLocalEvent(eid);
-          onClose();
-        }}
-      />
-    );
+  if (mode === "view" && event) {
+    return <AppointmentDetailSheet event={event} onClose={() => setMode("menu")} />;
   }
 
   if (mode === "add") return <AddAppointmentSheet job={liveJob} onClose={() => setMode("menu")} />;
@@ -2987,85 +2888,68 @@ export function CalSheet({ job, onClose }) {
     <Sheet title="Calendar" onClose={onClose}>
       {linked ? (
         <div
-          className={`rounded-xl border px-3 py-3 mb-3 text-sm space-y-1.5 ${
+          className={`rounded-xl border px-3 py-2.5 mb-3 text-sm ${
             cal.confirmed
               ? "border-emerald-200 bg-emerald-50"
               : cal.pending
               ? "border-orange-200 bg-orange-50"
               : "border-red-200 bg-red-50"
           }`}
-          data-testid="cal-linked-appt-info"
         >
           <div
-            className={`text-[10px] font-bold uppercase tracking-wide ${
-              cal.confirmed ? "text-emerald-800" : cal.pending ? "text-orange-800" : "text-red-800"
+            className={`font-semibold mb-1 ${
+              cal.confirmed ? "text-emerald-900" : cal.pending ? "text-orange-900" : "text-red-800"
             }`}
           >
-            {cal.pending ? "Linking…" : "Linked appointment"}
+            {cal.confirmed ? "Linked appointment" : cal.pending ? "Linking appointment…" : "Linked appointment"}
           </div>
           {event ? (
             <>
-              <div className="font-extrabold text-slate-900 text-base leading-snug" data-testid="cal-appt-title">
-                {event.summary || "Appointment"}
-              </div>
-              {whenLabel ? (
-                <div className="text-slate-700">
-                  <span className="font-semibold">When</span>{" "}
-                  <span data-testid="cal-appt-when">{whenLabel}</span>
-                </div>
-              ) : null}
-              {event.location ? (
-                <div className="text-slate-700">
-                  <span className="font-semibold">Where</span>{" "}
-                  <span data-testid="cal-appt-where">{event.location}</span>
-                </div>
-              ) : null}
-              {notes ? (
-                <div className="text-slate-700" data-testid="cal-appt-notes">
-                  <span className="font-semibold">Notes</span>
-                  <p className="text-slate-600 whitespace-pre-wrap mt-0.5 text-xs leading-relaxed">{notes}</p>
-                </div>
+              <div className="text-slate-700">{event.summary || "—"}</div>
+              <div className="text-slate-500 text-xs mt-0.5">{evStart(event).replace("T", " ").slice(0, 16)}</div>
+              {displayEventNotes(event.description) ? (
+                <p className="text-slate-600 text-xs mt-1 whitespace-pre-wrap">{displayEventNotes(event.description)}</p>
               ) : null}
             </>
           ) : (
-            <div className="text-slate-500 text-xs">Pull calendar sync to see full details.</div>
+            <div className="text-slate-500 text-xs">Pull calendar sync to see details.</div>
           )}
         </div>
       ) : (
-        <p className="text-sm text-red-600 font-semibold mb-3" data-testid="cal-no-linked">
-          No linked appointment
-        </p>
+        <p className="text-sm text-red-600 font-semibold mb-3">No linked appointment</p>
       )}
-
-      <div className="grid grid-cols-2 gap-1.5 mb-3" data-testid="cal-actions-compact">
-        {linked && event ? (
-          <CalChip testId="cal-edit" onClick={() => setMode("edit")}>
-            ✏️ Edit
-          </CalChip>
-        ) : null}
-        {linked ? (
-          <CalChip testId="cal-unlink" danger onClick={() => setMode("unlink")}>
-            ⛓ Unlink
-          </CalChip>
-        ) : null}
-        <CalChip testId="open-in-calendar" onClick={openInAppCalendar}>
-          📅 Open in calendar
-        </CalChip>
-        <CalChip testId="open-gcal" onClick={openInGCalendar}>
-          🗓 Open in G-Calendar
-        </CalChip>
-      </div>
-
-      {!linked ? (
-        <div className="grid grid-cols-2 gap-1.5" data-testid="cal-link-create-row">
-          <CalChip testId="cal-create" onClick={() => setMode("add")}>
-            ＋ Create
-          </CalChip>
-          <CalChip testId="cal-link" onClick={() => setMode("pick")}>
-            🔗 Link existing
-          </CalChip>
-        </div>
+      <Opt
+        icon="＋"
+        title="Create appointment"
+        note={`Syncs to ${calAccount()} & links to this job`}
+        onClick={() => setMode("add")}
+      />
+      {linked ? (
+        <Opt
+          icon="👁️"
+          title="View linked appointment"
+          note={event ? (event.summary || "Open full details") : "Pull calendar sync to load details"}
+          onClick={() => (event ? setMode("view") : showToast("Pull calendar sync first"))}
+          data-testid="view-linked-appointment"
+        />
+      ) : (
+        <Opt
+          icon="🔗"
+          title="Link existing appointment"
+          note="Search calendar appointments"
+          onClick={() => setMode("pick")}
+        />
+      )}
+      {linked ? (
+        <Opt icon="⛓️‍💥" title="Unlink appointment" note="Keeps the event on Google Calendar" onClick={() => setMode("unlink")} />
       ) : null}
+      <Opt
+        icon="📅"
+        title={linked ? "Open linked appointment in Google Calendar" : "Open Google Calendar"}
+        note={d ? (linked ? "Opens this appointment · " + d : "Jumps to " + d) : linked ? "Opens linked appointment" : ""}
+        onClick={() => window.open(gcalUrl)}
+        data-testid="open-gcal"
+      />
     </Sheet>
   );
 }
@@ -3214,35 +3098,42 @@ export function CustEditSheet({ job, onClose }) {
     [api, jobs]
   );
 
-  const saveAndSync = async () => {
+  const saveAndSync = () => {
     const patch = buildPatch();
-    try {
-      await patchAndSave(job.id, patch);
-      const updated = { ...job, ...patch };
-      const qid = String(patch.qboCustomerId || "").trim();
-      if (qid) {
-        enqueue(
-          "update_customer",
-          job.id,
-          { id: qid, ...customerSyncPayload(updated) },
-          "deterministic",
-          "update_customer|" + job.id + "|" + Date.now()
-        );
-        showToast("Saved & syncing update to QuickBooks…");
-      } else {
-        enqueue(
-          "create_customer",
-          job.id,
-          customerSyncPayload(updated),
-          "deterministic",
-          "create_customer|" + job.id + "|" + Date.now()
-        );
-        showToast("Saved & creating in QuickBooks…");
+    const updated = { ...job, ...patch };
+    const qid = String(patch.qboCustomerId || "").trim();
+    // Instant UI — local apply + close + toast; network + QuickBooks in background.
+    const bg = (async () => {
+      try {
+        await patchAndSave(job.id, patch);
+      } catch {
+        // patchAndSave already toasts + retries once; keep going so QB still queues.
       }
-      onClose();
-    } catch (e) {
-      showToast("Save failed — " + ((e && e.message) || "try again"));
-    }
+      try {
+        if (qid) {
+          await enqueue(
+            "update_customer",
+            job.id,
+            { id: qid, ...customerSyncPayload(updated) },
+            "deterministic",
+            "update_customer|" + job.id + "|" + Date.now()
+          );
+        } else {
+          await enqueue(
+            "create_customer",
+            job.id,
+            customerSyncPayload(updated),
+            "deterministic",
+            "create_customer|" + job.id + "|" + Date.now()
+          );
+        }
+      } catch {
+        /* enqueue surfaces its own toast */
+      }
+    })();
+    void bg;
+    showToast(qid ? "Saved & syncing update to QuickBooks…" : "Saved & creating in QuickBooks…");
+    onClose();
   };
 
   const toggleSubCompany = (next) => {

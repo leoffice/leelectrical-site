@@ -43,6 +43,24 @@ import { flushAllDebouncedPatches } from "../lib/useDebouncedPatch.js";
 const DataCtx = createContext(null);
 const EditCtx = createContext(null);
 const DRAFT_KEY = "lepro_draft_v1";
+
+// Background polls fire every 8–60s. When the fetched snapshot is byte-for-byte
+// what we already hold, returning the SAME reference lets React bail out of the
+// render — so idle ticks never re-render the tree (and never stutter typing in
+// an open sheet or drag of a floating card). The stringify cost is trivial next
+// to a full-tree re-render.
+function sameSnapshot(a, b) {
+  if (a === b) return true;
+  try {
+    return JSON.stringify(a) === JSON.stringify(b);
+  } catch {
+    return false;
+  }
+}
+/** setState that no-ops (keeps identity) when the next value equals the current. */
+function keepIfSame(setter, next) {
+  setter((prev) => (sameSnapshot(prev, next) ? prev : next));
+}
 const DRAFT_PERSIST_MS = 400;
 
 function loadDraft() {
@@ -143,12 +161,6 @@ export function StoreProvider({ children }) {
 
   /* ---------- pulls ---------- */
   const lastSavedTs = useRef(0); // ts of our latest overlay save (see refreshJobs)
-  // (syncedAt, stateTs) of the last poll we accepted. A background poll that
-  // returns the same pair carries byte-identical data, so replacing `jobs` with
-  // a fresh array would only churn: every consumer re-renders and the Jobs list
-  // re-runs its whole grouping pass over thousands of rows for nothing. Keep the
-  // existing reference in that case (the common one on the 60s idle poll).
-  const lastPollSig = useRef("");
   const refreshJobs = useCallback(async (quiet) => {
     if (!quiet) setLoading(true);
     try {
@@ -158,18 +170,15 @@ export function StoreProvider({ children }) {
       // Keep the local (already saved) state and let the next poll catch up.
       const stale = lastSavedTs.current && meta.stateTs && meta.stateTs < lastSavedTs.current;
       const incoming = meta.jobs || [];
-      const sig = `${meta.syncedAt || 0}:${meta.stateTs || 0}`;
-      const unchanged = sig === lastPollSig.current;
       // Never wipe the list when the server returns empty during a sync blip.
       if (stale) {
         // Blob lag — keep saved edits, but still show brand-new QBO jobs.
-        setJobs((prev) => mergeJobsStaleGuard(prev, incoming));
-      } else if (unchanged && jobsCountRef.current) {
-        // Same sync + overlay stamp as last accepted poll → data is identical.
-        // Skip setJobs so the reference (and the grouping cache) stays warm.
+        setJobs((prev) => {
+          const merged = mergeJobsStaleGuard(prev, incoming);
+          return sameSnapshot(prev, merged) ? prev : merged;
+        });
       } else if (incoming.length || !jobsCountRef.current) {
-        setJobs(incoming);
-        lastPollSig.current = sig;
+        keepIfSame(setJobs, incoming);
       }
       setSyncedAt(meta.syncedAt || 0);
       setError("");
@@ -182,19 +191,9 @@ export function StoreProvider({ children }) {
     }
   }, []);
 
-  // The command history is polled every 3–8s. Handing React a fresh array each
-  // time re-renders every useStore() consumer and re-fires the prompt watchers'
-  // O(events × jobs) scans — even when nothing changed, which is the usual case.
-  // The list is short, so an exact stringify compare is cheap; skip the setState
-  // (keep the reference) when the payload is byte-identical to the last one.
-  const lastCommandsJson = useRef("");
   const refreshCommands = useCallback(async () => {
     try {
-      const next = await api.listCommands();
-      const json = JSON.stringify(next);
-      if (json === lastCommandsJson.current) return;
-      lastCommandsJson.current = json;
-      setCommands(next);
+      keepIfSame(setCommands, await api.listCommands());
     } catch {}
   }, []);
 
@@ -206,13 +205,19 @@ export function StoreProvider({ children }) {
   const refreshEvents = useCallback(async ({ pull = false, awaitPull = true } = {}) => {
     try {
       const meta = await api.listEventsMeta();
-      setEvents((prev) => mergePendingEvents(prev, meta.events || []));
+      setEvents((prev) => {
+        const merged = mergePendingEvents(prev, meta.events || []);
+        return sameSnapshot(prev, merged) ? prev : merged;
+      });
       setEventsSyncedAt(meta.syncedAt || 0);
       if (pull && api.pullCalendar) {
         const beforeSync = meta.syncedAt || 0;
         const run = async () => {
           const evs = await api.pullCalendar();
-          setEvents((prev) => mergePendingEvents(prev, evs));
+          setEvents((prev) => {
+            const merged = mergePendingEvents(prev, evs);
+            return sameSnapshot(prev, merged) ? prev : merged;
+          });
           const m = await api.listEventsMeta();
           setEventsSyncedAt(m.syncedAt || 0);
           return (m.syncedAt || 0) > beforeSync;
@@ -252,7 +257,7 @@ export function StoreProvider({ children }) {
 
   const refreshDev = useCallback(async () => {
     try {
-      setDevTasks(await api.listDevTasks());
+      keepIfSame(setDevTasks, await api.listDevTasks());
     } catch {}
   }, []);
 
@@ -260,15 +265,15 @@ export function StoreProvider({ children }) {
   const refreshSas = useCallback(async () => {
     try {
       const [calls, tickets] = await Promise.all([api.listSasCalls(), api.getSasTickets()]);
-      setSasCalls(Array.isArray(calls) ? calls : []);
-      setSasTickets(tickets || {});
+      keepIfSame(setSasCalls, Array.isArray(calls) ? calls : []);
+      keepIfSame(setSasTickets, tickets || {});
     } catch {}
   }, []);
 
   const refreshEmailInsights = useCallback(async () => {
     if (!api.listEmailInsights) return;
     try {
-      setEmailInsights(await api.listEmailInsights());
+      keepIfSame(setEmailInsights, await api.listEmailInsights());
     } catch {}
   }, []);
 
@@ -514,38 +519,50 @@ export function StoreProvider({ children }) {
     flushAllDebouncedPatches();
     const entries = Object.entries(pendingRef.current);
     if (!entries.length || saving) return;
-    setSaving(true);
-    try {
-      const newPaymentsToSync = [];
-      for (const [id, patch] of entries) {
-        if (!patch?.payments && !patch?.payment) continue;
-        const base = jobs.find((j) => String(j.id) === String(id));
-        if (!base) continue;
-        const after = effectiveJob(id);
-        const beforeIds = new Set(normalizePayments(base).map((p) => p.id));
-        for (const p of normalizePayments(after)) {
-          if (!beforeIds.has(p.id) && parseAmount(p.amount) > 0) {
-            newPaymentsToSync.push({ job: after, payment: p });
-          }
+
+    const newPaymentsToSync = [];
+    for (const [id, patch] of entries) {
+      if (!patch?.payments && !patch?.payment) continue;
+      const base = jobs.find((j) => String(j.id) === String(id));
+      if (!base) continue;
+      const after = effectiveJob(id);
+      const beforeIds = new Set(normalizePayments(base).map((p) => p.id));
+      for (const p of normalizePayments(after)) {
+        if (!beforeIds.has(p.id) && parseAmount(p.amount) > 0) {
+          newPaymentsToSync.push({ job: after, payment: p });
         }
       }
+    }
 
-      const touched = [];
+    // Instant local commit — screen never waits on the network.
+    const patchById = new Map(entries.map(([id, p]) => [String(id), p]));
+    const touched = [];
+    setJobs((js) =>
+      js.map((j) => {
+        const patch = patchById.get(String(j.id));
+        if (!patch) return j;
+        const merged = applyOverlay(j, patch);
+        touched.push(merged);
+        return merged;
+      })
+    );
+    touched.forEach((j) => touchCustomerJob(j));
+    pendingRef.current = {};
+    setPending({});
+    showToast("Saved ✓ syncing…");
+
+    setSaving(true);
+    try {
       for (const [id, patch] of entries) {
-        const r = await api.saveJob(id, patch);
-        if (r && r.ts) lastSavedTs.current = Math.max(lastSavedTs.current, r.ts);
-        setJobs((js) =>
-          js.map((j) => {
-            if (String(j.id) !== String(id)) return j;
-            const merged = applyOverlay(j, patch);
-            touched.push(merged);
-            return merged;
-          })
-        );
+        try {
+          const r = await api.saveJob(id, patch);
+          if (r && r.ts) lastSavedTs.current = Math.max(lastSavedTs.current, r.ts);
+        } catch {
+          await new Promise((res) => setTimeout(res, 400));
+          const r = await api.saveJob(id, patch);
+          if (r && r.ts) lastSavedTs.current = Math.max(lastSavedTs.current, r.ts);
+        }
       }
-      touched.forEach((j) => touchCustomerJob(j));
-      setPending({});
-      showToast("Saved ✓ synced to all devices");
 
       for (const { job: j, payment: pay } of newPaymentsToSync) {
         if (!j.invoiceNo) continue;
@@ -563,7 +580,7 @@ export function StoreProvider({ children }) {
           pay.date || "",
           pay.ref || "",
         ].join(":");
-        await enqueueRef.current(
+        void enqueueRef.current(
           "record_payment",
           j.id,
           {
@@ -588,6 +605,11 @@ export function StoreProvider({ children }) {
       // reconcile via their record_payment/fetch_payments command-completion
       // refresh (below), and cross-device changes arrive on the 60s poll.
     } catch (e) {
+      // Re-stage failed patches so the bar comes back; local job rows already show edits.
+      const restore = {};
+      for (const [id, patch] of entries) restore[id] = patch;
+      pendingRef.current = { ...pendingRef.current, ...restore };
+      setPending((p) => ({ ...p, ...restore }));
       showToast("Save failed — changes kept. " + ((e && e.message) || ""));
     } finally {
       setSaving(false);
@@ -636,6 +658,7 @@ export function StoreProvider({ children }) {
   const patchAndSave = useCallback(
     async (id, patch) => {
       let merged = null;
+      // Local apply first so the screen never waits on the network.
       setJobs((js) =>
         js.map((j) => {
           if (String(j.id) !== String(id)) return j;
@@ -644,11 +667,19 @@ export function StoreProvider({ children }) {
         })
       );
       if (merged) touchCustomerJob(merged);
+      const trySave = () => api.saveJob(id, patch);
       try {
-        const r = await api.saveJob(id, patch);
+        let r = await trySave();
         if (r && r.ts) lastSavedTs.current = Math.max(lastSavedTs.current, r.ts);
-      } catch (e) {
-        showToast("Sync failed — will retry on next save");
+      } catch {
+        // One automatic retry, then surface — agent/host can pick up longer outages.
+        try {
+          await new Promise((res) => setTimeout(res, 400));
+          const r = await trySave();
+          if (r && r.ts) lastSavedTs.current = Math.max(lastSavedTs.current, r.ts);
+        } catch {
+          showToast("Sync failed — will retry on next save");
+        }
       }
     },
     [showToast]

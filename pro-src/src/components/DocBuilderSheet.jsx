@@ -6,13 +6,14 @@ import { DOC_SOURCE_LOCAL, DOC_SOURCE_QBO } from "../lib/docSource.js";
 import CustomerSearch from "./CustomerSearch.jsx";
 import { useStore } from "../state/store.jsx";
 import { useTenantConfig } from "../state/tenant.jsx";
-import { isQuickbooksEnabled, resolveDocSource } from "../lib/qboEnabled.js";
+import { isQuickbooksDocEnabled, resolveDocSource } from "../lib/qboEnabled.js";
 import { useAppSettings } from "../lib/appSettings.js";
 import {
   EMAIL_POLICY_KEEP,
-  EMAIL_POLICY_ONCE,
+  defaultDocEmailBody,
   sendEmailDiffersFromCustomer,
 } from "../lib/sendDocConfirm.js";
+import DocEmailComposeSheet from "./DocEmailComposeSheet.jsx";
 import { defaultQboItems, filterQboItems } from "../data/qboItems.js";
 import ServiceAddressField from "./ServiceAddressField.jsx";
 import AddressAutocompleteField from "./AddressAutocompleteField.jsx";
@@ -21,7 +22,6 @@ import { planDocSaveLocal, planDocSaveSync } from "../lib/docSync.js";
 import { enqueueCustomerQboSync } from "../lib/customerQboEnqueue.js";
 import { stashPendingDocSync } from "../lib/docSyncChain.js";
 import { fmt$, parseAmount } from "../lib/format.js";
-import { amountPaid } from "../lib/customers.js";
 import {
   discountInputFromJob,
   docTotalAfterDiscount,
@@ -52,37 +52,19 @@ import {
 import { RECUR_INTERVALS, defaultRecurringState } from "../lib/recurringBilling.js";
 import { resumeFollowUpPrompts } from "../lib/calendarNavigate.js";
 
-/** Width that hugs the typed number — grows with digits so rate/amount never clip. */
-function numInputStyle(value, { minCh = 8, maxCh = 28, pad = 3 } = {}) {
+/** Width that hugs the typed number — hard floor so money never clips. */
+function numInputStyle(value, { minCh = 8, maxCh = 18, pad = 2 } = {}) {
   const s = String(value ?? "").trim();
-  // Count display width (commas/$ count); pad so large rates never clip on mobile.
   const ch = Math.max(minCh, Math.min(maxCh, (s.length || 1) + pad));
-  return {
-    width: `calc(${ch}ch + 1.5rem)`,
-    minWidth: `calc(${minCh}ch + 1.5rem)`,
-    maxWidth: "min(100%, 18rem)",
-    fieldSizing: "content",
-  };
+  return { width: ch + "ch", minWidth: minCh + "ch" };
 }
 
-// Flat, underline-style number cell — no pill-in-a-pill. Keeps the row dense on
-// mobile (Levi: "around every text there's a bubble, and around that another bubble").
-const CELL =
-  "w-full bg-transparent border-0 border-b-2 border-slate-200 focus:border-brand rounded-none px-1 py-1.5 text-sm outline-none focus:ring-0 tabular-nums";
-
-/** Is this line billed as progress (fractional % of a full rate) vs plain qty × rate? */
-function lineIsProgress(line, progressMode) {
-  if (line?.progressBilling === true) return true;
-  if (line?.progressBilling === false) return false;
-  return !!progressMode; // default follows the invoice context
-}
-
-/** Compact labeled number field — grows with content. */
-function MetricFld({ label, children, testId, minWidth = "7.25rem", className = "" }) {
+/** Labeled money field — hard min width so full rate / % / total never cut off. */
+function MetricFld({ label, children, testId, minWidth = "8.5rem" }) {
   return (
     <div
-      className={"flex flex-col gap-0.5 overflow-visible shrink-0 " + className}
-      style={{ minWidth, flex: "1 1 auto", maxWidth: "100%" }}
+      className="flex flex-col gap-0.5 flex-1 overflow-visible"
+      style={{ minWidth }}
       data-testid={testId}
     >
       <span className="text-[9px] font-bold uppercase tracking-wide text-slate-400 leading-none px-0.5">
@@ -105,18 +87,24 @@ function LineRow({
   adjustMode,
   onAdjustModeChange,
   onLineProgress,
-  allowProgressToggle,
-  onToggleLineProgress,
 }) {
   const [itemQ, setItemQ] = useState(line.itemName || "");
   const [open, setOpen] = useState(false);
+  // The item name is a textarea so a long name wraps into view instead of
+  // scrolling sideways inside the box (Levi 2026-07-28). Grow it to fit.
+  const itemRef = useRef(null);
+  useEffect(() => {
+    const el = itemRef.current;
+    if (!el) return;
+    el.style.height = "auto";
+    el.style.height = el.scrollHeight + "px";
+  }, [itemQ, open]);
   // After a catalog pick, collapse the name into a fitting rectangle until reopened.
   const [itemPicked, setItemPicked] = useState(() => !!(line.itemName || "").trim());
   const picks = useMemo(() => filterQboItems(items, itemQ), [items, itemQ]);
   const rate = parseAmount(line.unitPrice) || 0;
   const qty = parseAmount(line.qty) || 0;
   const due = lineAmount(line);
-  const isProg = lineIsProgress(line, progressMode);
   // Progress % from fractional qty (QBO style: full rate × progress qty).
   const linePct = rate > 0 && qty > 0 ? Math.round(qty * 10000) / 100 : qty * 100;
   const progressDisplay = adjustMode === "pct" ? String(linePct || "") : String(due || "");
@@ -141,13 +129,13 @@ function LineRow({
   };
 
   return (
-    <div className="py-2.5 border-b border-slate-100 last:border-0" data-testid="doc-line-row">
-      {/* Row 1: product name + polish + remove — flat, no card */}
-      <div className="flex items-center gap-1.5" data-testid={"doc-line-product-row-" + (index + 1)}>
+    <div className="rounded-xl border border-slate-200 bg-white px-2 py-2 mb-2 space-y-1.5" data-testid="doc-line-row">
+      {/* Row 1: product name rectangle (fits the word) + polish + remove */}
+      <div className="flex items-start gap-1.5" data-testid={"doc-line-product-row-" + (index + 1)}>
         {showChip ? (
           <button
             type="button"
-            className="flex-1 min-w-0 text-left text-sm font-bold leading-snug text-slate-800 break-words border-b-2 border-transparent hover:border-slate-200 py-1"
+            className="min-h-[2.5rem] flex-1 min-w-0 rounded-lg border border-slate-200 bg-slate-50 px-2.5 py-1.5 text-left text-xs font-bold leading-snug text-slate-800 whitespace-pre-wrap break-words"
             onClick={reOpenItem}
             title={productLabel}
             aria-label={"Product service line " + (index + 1) + " — change"}
@@ -157,9 +145,11 @@ function LineRow({
           </button>
         ) : (
           <div className="relative flex-1 min-w-0">
-            <input
-              className={CELL + " font-semibold"}
+            <textarea
+              rows={1}
+              className="input !py-2 text-sm resize-none leading-snug overflow-hidden"
               value={itemQ}
+              ref={itemRef}
               onChange={(e) => {
                 setItemQ(e.target.value);
                 onChange(index, { itemName: e.target.value });
@@ -189,7 +179,7 @@ function LineRow({
                     className="w-full text-left px-3 py-2 text-sm hover:bg-slate-50 border-b border-slate-100 last:border-0"
                     onClick={() => pick(it)}
                   >
-                    <span className="font-semibold text-slate-800 block truncate">{it.name}</span>
+                    <span className="font-semibold text-slate-800 block break-words">{it.name}</span>
                     <span className="text-xs text-slate-500">
                       {it.price ? fmt$(it.price) : "custom price"}
                       {it.description ? " · " + it.description.slice(0, 40) : ""}
@@ -231,29 +221,39 @@ function LineRow({
         placeholder="Description…"
       />
 
-      {/* Row 3: rate + (progress %/$ | qty) + amount — flat underline cells */}
-      <div className="flex items-end gap-2 mt-1 overflow-visible" data-testid={"doc-line-metrics-" + (index + 1)}>
-        <MetricFld label={isProg ? "Full rate" : "Rate"} testId={"doc-line-rate-fld-" + (index + 1)} minWidth="4.5rem">
+      {/* Row 3: rate / qty|progress / amount — hard min widths so nothing clips */}
+      <div
+        className="grid w-full gap-2 items-end overflow-visible"
+        style={{
+          gridTemplateColumns: "minmax(8.5rem, 1.15fr) minmax(7rem, 1fr) minmax(8.5rem, 1.15fr)",
+        }}
+        data-testid={"doc-line-metrics-" + (index + 1)}
+      >
+        <MetricFld label={progressMode ? "Full rate" : "Rate"} testId={"doc-line-rate-fld-" + (index + 1)}>
           <input
-            className={CELL + " text-right"}
+            className="input !px-2 !py-1.5 text-sm text-right tabular-nums w-full overflow-visible"
+            style={numInputStyle(line.unitPrice, { minCh: 9, maxCh: 16 })}
             inputMode="decimal"
             value={line.unitPrice}
             onChange={(e) => onChange(index, { unitPrice: e.target.value })}
             aria-label={"Rate line " + (index + 1)}
-            title={isProg ? "Full job rate for this line" : "Rate per unit"}
+            title={progressMode ? "Full job rate for this line" : "Rate"}
             placeholder="0"
-            data-testid={"doc-line-rate-" + (index + 1)}
           />
         </MetricFld>
-        {isProg ? (
+        {progressMode ? (
           <MetricFld
             label={adjustMode === "pct" ? "Progress %" : "This bill $"}
             testId={"doc-line-progress-" + (index + 1)}
-            minWidth="6rem"
+            minWidth="7rem"
           >
             <div className="flex items-center gap-1 w-full overflow-visible">
               <input
-                className={CELL + " text-center flex-1"}
+                className="input !px-1.5 !py-1.5 text-center text-sm tabular-nums flex-1 overflow-visible"
+                style={numInputStyle(progressDisplay, {
+                  minCh: adjustMode === "pct" ? 6 : 9,
+                  maxCh: 14,
+                })}
                 inputMode="decimal"
                 value={progressDisplay}
                 onChange={(e) => onLineProgress && onLineProgress(index, e.target.value)}
@@ -264,7 +264,7 @@ function LineRow({
               />
               <button
                 type="button"
-                className="h-8 shrink-0 min-w-[1.9rem] px-1.5 rounded-md bg-slate-100 text-[11px] font-extrabold text-slate-600"
+                className="h-9 shrink-0 min-w-[2rem] px-1.5 rounded-lg border border-slate-200 bg-white text-[11px] font-extrabold text-slate-700"
                 onClick={() => onAdjustModeChange && onAdjustModeChange(adjustMode === "pct" ? "amount" : "pct")}
                 aria-label={adjustMode === "pct" ? "Switch progress to dollars" : "Switch progress to percent"}
                 data-testid={"progress-mode-toggle-" + (index + 1)}
@@ -275,9 +275,10 @@ function LineRow({
             </div>
           </MetricFld>
         ) : (
-          <MetricFld label="Qty" testId={"doc-line-qty-fld-" + (index + 1)} minWidth="3rem">
+          <MetricFld label="Qty" testId={"doc-line-qty-fld-" + (index + 1)} minWidth="5.5rem">
             <input
-              className={CELL + " text-center"}
+              className="input !px-2 !py-1.5 text-sm text-center tabular-nums w-full overflow-visible"
+              style={numInputStyle(line.qty, { minCh: 4, maxCh: 10 })}
               inputMode="decimal"
               value={line.qty}
               onChange={(e) => onChange(index, { qty: e.target.value })}
@@ -287,9 +288,10 @@ function LineRow({
             />
           </MetricFld>
         )}
-        <MetricFld label={isProg ? "Line total" : "Amount"} testId={"doc-line-amount-fld-" + (index + 1)} minWidth="4.5rem">
+        <MetricFld label={progressMode ? "Line total" : "Amount"} testId={"doc-line-amount-fld-" + (index + 1)}>
           <div
-            className="px-1 py-1.5 text-slate-900 font-bold text-right text-sm tabular-nums w-full whitespace-nowrap border-b-2 border-transparent"
+            className="input !px-2 !py-1.5 bg-slate-50 text-slate-700 font-semibold text-right text-sm tabular-nums w-full overflow-visible whitespace-nowrap"
+            style={numInputStyle(fmt$(due) || due, { minCh: 9, maxCh: 16 })}
             aria-label={"Due line " + (index + 1)}
             data-testid={"doc-line-amount-" + (index + 1)}
           >
@@ -297,74 +299,19 @@ function LineRow({
           </div>
         </MetricFld>
       </div>
-
-      {allowProgressToggle ? (
-        <button
-          type="button"
-          className="mt-1.5 inline-flex items-center gap-1 text-[11px] font-semibold text-slate-500"
-          onClick={() => onToggleLineProgress && onToggleLineProgress(index, !isProg)}
-          data-testid={"doc-line-progress-toggle-" + (index + 1)}
-          aria-pressed={isProg}
-          title={isProg ? "This line bills as progress — tap for quantity × rate" : "This line bills quantity × rate — tap for progress"}
-        >
-          <span
-            className={
-              "inline-flex h-4 w-7 items-center rounded-full px-0.5 transition-colors " +
-              (isProg ? "bg-brand justify-end" : "bg-slate-300 justify-start")
-            }
-          >
-            <span className="h-3 w-3 rounded-full bg-white" />
-          </span>
-          {isProg ? "Progress item" : "Quantity item"}
-        </button>
-      ) : null}
     </div>
   );
 }
 
-const LineRowMemo = React.memo(LineRow);
-
-/** One read-only fact line inside the gray summary box. */
-function FactRow({ label, value }) {
-  if (!String(value || "").trim()) return null;
-  return (
-    <div className="flex gap-2 items-baseline">
-      <dt className="font-semibold text-slate-500 shrink-0 w-[5.5rem]">{label}</dt>
-      <dd className="text-slate-800 break-words min-w-0">{value}</dd>
-    </div>
-  );
-}
-
-/**
- * Gray "facts" box: all customer + service-address + basic info stated up top,
- * read-only, with one Edit button that reveals the fields only when needed
- * (Levi: condensed; edit customer info only if you have to).
- */
-function CustomerFactsPanel({
-  job,
-  allJobs,
-  events,
-  api,
-  onPatch,
-  allowCustomerSearch,
-  serviceAddress,
-  apartment,
-  onServiceAddress,
-  onApartment,
-  startEditing,
-  coControls,
-  docLabel,
-  docNo,
-  invoicedAmount,
-  dueAmount,
-  progressPct,
-}) {
-  const [editing, setEditing] = useState(!!startEditing);
-
+function CustomerHeaderPanel({ job, allJobs, events, api, onPatch }) {
   const applyCustomer = async (c) => {
     if (!c) return;
     if (c._newCustomer) {
-      onPatch({ businessName: c.name || "", customer: c.name || "", qboCustomerId: "" });
+      onPatch({
+        businessName: c.name || "",
+        customer: c.name || "",
+        qboCustomerId: "",
+      });
       return;
     }
     const patch = await enrichAndPatchCustomer(c, allJobs, api);
@@ -382,115 +329,91 @@ function CustomerFactsPanel({
   };
 
   const set = (k) => (e) => onPatch({ [k]: e.target.value });
-  const svcLine = [serviceAddress, apartment && "Apt " + apartment].filter(Boolean).join(", ");
 
-  return (
-    <div
-      className="mb-3 rounded-2xl border border-slate-200 bg-slate-50 px-3 py-3"
-      data-testid="doc-customer-facts"
-    >
-      <div className="flex items-center gap-2 mb-1.5">
-        <p className="text-[11px] font-extrabold uppercase tracking-wider text-slate-500 flex-1">
-          Bill to
-        </p>
+  // Six stacked fields ate most of the first screen (Levi 2026-07-28). Collapsed
+  // to a single summary line; tap to open the full editor.
+  const [open, setOpen] = useState(false);
+  const summary = [
+    job.businessName || job.customer,
+    job.personName,
+    job.billingAddress,
+  ]
+    .map((v) => String(v || "").trim())
+    .filter(Boolean)
+    .join(" · ");
+
+  if (!open) {
+    return (
+      <div className="mb-3 pb-2 border-b border-slate-200" data-testid="doc-customer-header">
         <button
           type="button"
-          className="text-[11px] font-semibold text-slate-600 hover:text-brand px-2 py-0.5 rounded-md border border-slate-200 bg-white shrink-0"
-          onClick={() => setEditing((v) => !v)}
-          data-testid="doc-facts-edit-toggle"
-          aria-pressed={editing}
+          className="w-full flex items-center gap-2 text-left rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 active:bg-slate-100"
+          onClick={() => setOpen(true)}
+          aria-expanded={false}
+          data-testid="doc-customer-summary"
         >
-          {editing ? "Done" : "✏️ Edit"}
+          <span className="text-[10px] font-extrabold uppercase tracking-wider text-slate-400 shrink-0">
+            Bill to
+          </span>
+          <span className="flex-1 min-w-0 truncate text-sm font-semibold text-slate-800">
+            {summary || "Add customer details"}
+          </span>
+          <span className="text-slate-400 text-[10px] shrink-0" aria-hidden>
+            ▶
+          </span>
         </button>
       </div>
+    );
+  }
 
-      {editing ? (
-        <div className="space-y-2">
-          {allowCustomerSearch ? (
-            <Fld label="Customer name" hint="Search app + QuickBooks — orange = not in QuickBooks yet">
-              <CustomerSearch
-                label="Customer name"
-                testId="doc-customer-search"
-                value={job.businessName || job.customer || ""}
-                onChangeText={(v) => onPatch({ businessName: v, customer: v, qboCustomerId: "" })}
-                onPick={applyCustomer}
-                jobs={allJobs}
-              />
-            </Fld>
-          ) : (
-            <div className="text-sm font-bold text-slate-800 px-0.5">
-              {job.businessName || job.customer || "—"}
-            </div>
-          )}
-          <Fld label="Person name">
-            <input className="input" value={job.personName || ""} onChange={set("personName")} aria-label="Person name" />
-          </Fld>
-          <div className="grid grid-cols-2 gap-2">
-            <Fld label="Phone">
-              <input className="input" value={job.phone || ""} onChange={set("phone")} aria-label="Phone" inputMode="tel" />
-            </Fld>
-            <Fld label="Email">
-              <input className="input" value={job.email || ""} onChange={set("email")} aria-label="Email" inputMode="email" />
-            </Fld>
-          </div>
-          <Fld label="Billing address" hint="Saved addresses first, then real-world matches as you type">
-            <AddressAutocompleteField
-              label="Billing address"
-              value={job.billingAddress || ""}
-              onChange={(v) => onPatch({ billingAddress: v })}
-              jobs={allJobs}
-              events={events}
-              suggestAddresses={api.suggestAddresses?.bind(api)}
-              testId="doc-billing"
-              ariaLabel="Billing address"
-            />
-          </Fld>
-          <Fld label="Service address" hint="Where the work is — pick a saved site or type a new one">
-            <div className="flex items-stretch gap-1.5">
-              <ServiceAddressField
-                job={job}
-                jobs={allJobs}
-                events={events}
-                value={serviceAddress}
-                onChange={onServiceAddress}
-                onApartmentChange={onApartment}
-                suggestAddresses={api.suggestAddresses?.bind(api)}
-                testId="doc-service-address"
-                partialOk={false}
-                sitePicker="dropdown"
-                compact
-              />
-              <input
-                className="input !w-[4.5rem] shrink-0"
-                value={apartment}
-                onChange={(e) => onApartment(e.target.value)}
-                aria-label="Apartment"
-                placeholder="Apt"
-                data-testid="doc-apartment"
-              />
-            </div>
-          </Fld>
-          <Fld label="Job title / scope" hint="What this invoice is for">
-            <input className="input" value={job.title || ""} onChange={set("title")} aria-label="Job title" />
-          </Fld>
-          {coControls}
-        </div>
-      ) : (
-        <dl className="text-xs space-y-1" data-testid="doc-facts-list">
-          <FactRow label="Customer" value={job.businessName || job.customer} />
-          <FactRow label={docLabel || "Invoice"} value={docNo ? "#" + docNo : ""} />
-          <FactRow label="Service" value={svcLine} />
-          <FactRow label="Invoiced" value={invoicedAmount > 0 ? fmt$(invoicedAmount) : ""} />
-          <FactRow label="Due" value={dueAmount > 0 ? fmt$(dueAmount) : ""} />
-          {progressPct != null ? <FactRow label="Progress" value={progressPct + "%"} /> : null}
-          <FactRow label="Contact" value={job.personName} />
-          <FactRow label="Phone" value={job.phone} />
-          <FactRow label="Email" value={job.email} />
-          <FactRow label="Billing" value={job.billingAddress} />
-          <FactRow label="Scope" value={job.title} />
-          {coControls ? <div className="pt-1">{coControls}</div> : null}
-        </dl>
-      )}
+  return (
+    <div className="mb-4 pb-3 border-b border-slate-200" data-testid="doc-customer-header">
+      <button
+        type="button"
+        className="w-full flex items-center gap-2 text-left mb-2"
+        onClick={() => setOpen(false)}
+        aria-expanded
+        data-testid="doc-customer-collapse"
+      >
+        <p className="text-[11px] font-bold uppercase tracking-wide text-slate-400 flex-1">Bill to</p>
+        <span className="text-slate-400 text-[10px]" aria-hidden>
+          ▼
+        </span>
+      </button>
+      <Fld label="Customer name" hint="Search app + QuickBooks — orange = not in QuickBooks yet">
+        <CustomerSearch
+          label="Customer name"
+          testId="doc-customer-search"
+          value={job.businessName || job.customer || ""}
+          onChangeText={(v) => onPatch({ businessName: v, customer: v, qboCustomerId: "" })}
+          onPick={applyCustomer}
+          jobs={allJobs}
+        />
+      </Fld>
+      <Fld label="Person name">
+        <input className="input" value={job.personName || ""} onChange={set("personName")} aria-label="Person name" />
+      </Fld>
+      <Fld label="Phone">
+        <input className="input" value={job.phone || ""} onChange={set("phone")} aria-label="Phone" />
+      </Fld>
+      <Fld label="Email">
+        <input className="input" value={job.email || ""} onChange={set("email")} aria-label="Email" />
+      </Fld>
+      <Fld label="Billing address" hint="Your saved addresses first, then real-world matches as you type">
+        <AddressAutocompleteField
+          label="Billing address"
+          value={job.billingAddress || ""}
+          onChange={(v) => onPatch({ billingAddress: v })}
+          jobs={allJobs}
+          events={events}
+          suggestAddresses={api.suggestAddresses?.bind(api)}
+          testId="doc-billing"
+          ariaLabel="Billing address"
+        />
+      </Fld>
+      <Fld label="Job title / scope" hint="What this invoice is for">
+        <input className="input" value={job.title || ""} onChange={set("title")} aria-label="Job title" />
+      </Fld>
     </div>
   );
 }
@@ -502,29 +425,24 @@ export default function DocBuilderSheet({
   progressPct,
   onClose,
   onDone,
-  /** Always editable — customer info on the document is fair game. */
-  editableCustomer = true,
+  editableCustomer = false,
   draftMode = false,
   allJobs,
   onCustomerPatch,
 }) {
   const { patchAndSave, enqueue, logSend, showToast, api, createJob, jobs: storeJobs, events } = useStore();
-  // Short trading name for the customer email draft — the legal name lives on
-  // the document itself, not in the covering message.
   const tenantConfig = useTenantConfig();
-  const tenantShortName = tenantConfig.profile?.shortName || "";
   const appSettings = useAppSettings();
   void appSettings.quickbooks;
-  const qboOn = isQuickbooksEnabled(tenantConfig);
+  void appSettings.quickbooksInvoices;
+  void appSettings.quickbooksEstimates;
+  // Send/view through QB for THIS doc kind — sync can stay on for the backend.
+  const qboOn = isQuickbooksDocEnabled(kind, tenantConfig);
   const boardJobs = allJobs || storeJobs;
   const [job, setJob] = useState(() => jobProp || {});
-  // Re-seed only when a different job is opened — not on every parent re-render
-  // (that was wiping keystrokes and making the form lag).
-  const jobSeedId = jobProp?.id || "";
   useEffect(() => {
     setJob(jobProp || {});
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- intentional: id-only reseed
-  }, [jobSeedId]);
+  }, [jobProp]);
 
   const patchJobState = useCallback(
     (patch) => {
@@ -536,31 +454,14 @@ export default function DocBuilderSheet({
     },
     [onCustomerPatch]
   );
-  const [serviceAddress, setServiceAddress] = useState(
-    () => jobProp?.serviceAddress || jobProp?.address || ""
-  );
-  const [apartment, setApartment] = useState(() => jobProp?.apartment || "");
+  const [serviceAddress, setServiceAddress] = useState(job.serviceAddress || job.address || "");
+  const [apartment, setApartment] = useState(job.apartment || "");
   useEffect(() => {
-    setServiceAddress(jobProp?.serviceAddress || jobProp?.address || "");
-    setApartment(jobProp?.apartment || "");
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [jobSeedId]);
-
-  const autoProgress =
-    kind === "invoice" &&
-    (isProgressBillingContext(jobProp || {}, { kind, mode }) || progressPct != null);
-  // Manual Progress Invoice toggle (like CO) — on for invoices that already look progressive.
-  const [progressOn, setProgressOn] = useState(() => !!autoProgress);
-  useEffect(() => {
-    setProgressOn(!!autoProgress);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [jobSeedId, kind, mode]);
-  const progressMode = kind === "invoice" && progressOn;
-  const [lines, setLines] = useState(() => initialLines(jobProp || {}, { kind, mode, progressPct }));
-  useEffect(() => {
-    setLines(initialLines(jobProp || {}, { kind, mode, progressPct }));
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [jobSeedId, kind, mode]);
+    const addr = job.serviceAddress || job.address || "";
+    if (addr) setServiceAddress(addr);
+  }, [job.serviceAddress, job.address]);
+  const progressMode = kind === "invoice" && isProgressBillingContext(job, { kind, mode });
+  const [lines, setLines] = useState(() => initialLines(job, { kind, mode, progressPct }));
   const [attachments, setAttachments] = useState([]);
   const [attUploading, setAttUploading] = useState(false);
   // Starts empty and fills in asynchronously: LE's internal catalogue is a
@@ -570,14 +471,14 @@ export default function DocBuilderSheet({
   const [items, setItems] = useState([]);
   const [saving, setSaving] = useState(false);
   const [emailSheet, setEmailSheet] = useState(false);
-  const [sendEmails, setSendEmails] = useState(() => job.email || "");
-  const [emailPolicy, setEmailPolicy] = useState("");
-  const [sendMessage, setSendMessage] = useState("");
-  const [includePayLink, setIncludePayLink] = useState(false);
+  // Seed only — the open email sheet owns typing state so keystrokes stay snappy.
+  const [sendEmailsSeed, setSendEmailsSeed] = useState(() => job.email || "");
+  const [sendMessageSeed, setSendMessageSeed] = useState("");
+  const [includePayLinkSeed, setIncludePayLinkSeed] = useState(false);
   const fileInputRef = useRef(null);
 
   useEffect(() => {
-    setSendEmails(job.email || "");
+    setSendEmailsSeed(job.email || "");
   }, [job.email]);
   const initialContract = contractTotalForJob(job) || contractTotalFromEstimate(job.estimateLines) || 0;
   const [contractAmount, setContractAmount] = useState(initialContract ? String(initialContract) : "");
@@ -716,52 +617,8 @@ export default function DocBuilderSheet({
     }));
   }, [job.estimateLines, lines, contractAmount]);
 
-  /** Progress invoice toggle — same idea as CO, next to the doc number. */
-  const applyProgressToggle = (on) => {
-    if (kind !== "invoice" && kind !== "estimate") return;
-    const next = !!on;
-    setProgressOn(next);
-    patchJobState({ invoiceProgressBilling: next });
-    if (kind === "invoice" && next) {
-      const contract = parseAmount(contractAmount) || contractTotalForJob(job) || linesTotal(lines);
-      if (contract > 0 && !parseAmount(contractAmount)) setContractAmount(String(contract));
-      const pct = parseAmount(progressPctEdit) || 100;
-      if (pct < 100) {
-        setLines((rows) => applyProgressPctToLines(rows, contractLines, pct));
-      }
-    }
-  };
-
-  const docNoKey = kind === "estimate" ? "estimateNo" : "invoiceNo";
-  const docNoValue = job[docNoKey] || "";
-  const setDocNo = (v) => patchJobState({ [docNoKey]: v });
-
   const changeLine = useCallback((i, patch) => {
     setLines((rows) => rows.map((ln, idx) => (idx === i ? { ...ln, ...patch } : ln)));
-  }, []);
-
-  const removeLine = useCallback((idx) => {
-    setLines((rows) => rows.filter((_, j) => j !== idx));
-  }, []);
-
-  /**
-   * Flip one line between progress billing (fractional % of a full rate) and
-   * plain quantity × rate. Rewrites qty/unitPrice so the shown Amount stays put:
-   * → progress: full rate = current amount, qty = 1 (100%), then dial % down.
-   * → quantity: rate = full rate, qty reset to a whole 1.
-   */
-  const toggleLineProgress = useCallback((i, on) => {
-    setLines((rows) =>
-      rows.map((ln, idx) => {
-        if (idx !== i) return ln;
-        if (on) {
-          const amt = lineAmount(ln);
-          const full = parseAmount(ln.unitPrice) || amt || 0;
-          return { ...ln, progressBilling: true, unitPrice: full || amt, qty: full ? roundQty(amt / full) : 1 };
-        }
-        return { ...ln, progressBilling: false, qty: parseAmount(ln.qty) >= 0.9999 ? ln.qty : 1 };
-      })
-    );
   }, []);
 
   const applyProgressPct = useCallback(
@@ -931,12 +788,17 @@ export default function DocBuilderSheet({
 
   const primaryEmail = (raw) =>
     String(raw || "")
-      .split(/[,;\s]+/)
+      .split(/[,;]+/)
       .map((s) => s.trim())
-      .filter(Boolean)[0] || "";
+      .filter((s) => s.includes("@"))[0] || "";
 
-  const emailDiffers = (raw) =>
-    sendEmailDiffersFromCustomer(primaryEmail(raw != null ? raw : sendEmails), job.email);
+  /** Full multi-recipient string for send (preserve all addresses). */
+  const allEmails = (raw) =>
+    String(raw || "")
+      .split(/[,;]+/)
+      .map((s) => s.trim())
+      .filter((s) => s.includes("@"))
+      .join(", ");
 
   const downloadLocalPdf = async (jobForPdf) => {
     try {
@@ -1005,11 +867,7 @@ export default function DocBuilderSheet({
     try {
       const jobId = await ensureJobId();
       if (!jobId) return null;
-      const activeJob = {
-        ...job,
-        id: jobId,
-        invoiceProgressBilling: progressOn || job.invoiceProgressBilling,
-      };
+      const activeJob = { ...job, id: jobId };
       const { jobPatch } = planDocSaveLocal(activeJob, {
         kind,
         mode,
@@ -1022,18 +880,6 @@ export default function DocBuilderSheet({
         discountValue,
       });
       Object.assign(jobPatch, coTagsFromJob(activeJob));
-      if (docNoValue) jobPatch[docNoKey] = String(docNoValue).trim();
-      jobPatch.invoiceProgressBilling = !!progressOn;
-      if (editableCustomer) {
-        jobPatch.businessName = activeJob.businessName || activeJob.customer || "";
-        jobPatch.customer = activeJob.customer || activeJob.businessName || "";
-        jobPatch.personName = activeJob.personName || "";
-        jobPatch.phone = activeJob.phone || "";
-        jobPatch.email = activeJob.email || "";
-        jobPatch.billingAddress = activeJob.billingAddress || "";
-        jobPatch.title = activeJob.title || "";
-        if (activeJob.qboCustomerId) jobPatch.qboCustomerId = activeJob.qboCustomerId;
-      }
       if (attachments.length) {
         jobPatch.attachments = (job.attachments || []).concat(attachments);
       }
@@ -1080,11 +926,17 @@ export default function DocBuilderSheet({
    * @param {{ email?: string, message?: string, includePaymentLink?: boolean, docSource?: string, close?: boolean }} opts
    */
   const submitSync = async (send, opts = {}) => {
-    const emailTo = primaryEmail(opts.email != null ? opts.email : sendEmails) || job.email || "";
+    const emailTo =
+      allEmails(opts.email != null ? opts.email : sendEmailsSeed) ||
+      primaryEmail(opts.email != null ? opts.email : sendEmailsSeed) ||
+      job.email ||
+      "";
     const valid = validate(send, emailTo);
     if (!valid) return;
 
     setSaving(true);
+    // Close email sheet immediately so typing/send feels snappy; work continues.
+    if (send) setEmailSheet(false);
     try {
       const jobId = await ensureJobId();
       if (!jobId) {
@@ -1092,16 +944,11 @@ export default function DocBuilderSheet({
         return;
       }
       // Keep this email → update customer. Use it once → send only; job/PDF keep saved email.
-      const policy = opts.emailPolicy || emailPolicy || "";
+      const policy = opts.emailPolicy || "";
       const differs = sendEmailDiffersFromCustomer(emailTo, job.email);
       const keepOnCustomer = !!(emailTo && (!differs || policy === EMAIL_POLICY_KEEP));
       const savedEmail = keepOnCustomer ? emailTo : job.email || "";
-      const activeJob = {
-        ...job,
-        id: jobId,
-        email: savedEmail,
-        invoiceProgressBilling: progressOn || job.invoiceProgressBilling,
-      };
+      const activeJob = { ...job, id: jobId, email: savedEmail };
       const { jobPatch, commands } = planDocSaveSync(activeJob, {
         kind,
         mode,
@@ -1116,19 +963,8 @@ export default function DocBuilderSheet({
         discountValue,
       });
       Object.assign(jobPatch, coTagsFromJob(activeJob));
-      if (docNoValue) jobPatch[docNoKey] = String(docNoValue).trim();
-      jobPatch.invoiceProgressBilling = !!progressOn;
-      if (editableCustomer) {
-        jobPatch.businessName = activeJob.businessName || activeJob.customer || "";
-        jobPatch.customer = activeJob.customer || activeJob.businessName || "";
-        jobPatch.personName = activeJob.personName || "";
-        jobPatch.phone = activeJob.phone || "";
-        jobPatch.billingAddress = activeJob.billingAddress || "";
-        jobPatch.title = activeJob.title || "";
-        if (activeJob.qboCustomerId) jobPatch.qboCustomerId = activeJob.qboCustomerId;
-      }
       if (keepOnCustomer) jobPatch.email = emailTo;
-      else if (!editableCustomer) delete jobPatch.email;
+      else delete jobPatch.email;
 
       await patchAndSave(jobId, jobPatch);
 
@@ -1138,10 +974,12 @@ export default function DocBuilderSheet({
       const attsForEmail = send ? emailAttachments() : attachments;
       const attsForQbo = attachments;
       const docSource = resolveDocSource(
-        opts.docSource === DOC_SOURCE_LOCAL ? DOC_SOURCE_LOCAL : DOC_SOURCE_QBO
+        opts.docSource === DOC_SOURCE_LOCAL ? DOC_SOURCE_LOCAL : DOC_SOURCE_QBO,
+        undefined,
+        kind
       );
       const withPay = !!(opts.includePaymentLink && kind === "invoice");
-      const customMsg = String(opts.message || sendMessage || "").trim();
+      const customMsg = String(opts.message || "").trim();
 
       if (needsCustomer && docSource === DOC_SOURCE_QBO) {
         stashPendingDocSync(jobId, {
@@ -1167,7 +1005,7 @@ export default function DocBuilderSheet({
               " will sync"
         );
       } else if (docSource === DOC_SOURCE_LOCAL && send) {
-        // Local PDF + email now (client generates PDF). No QuickBooks create/update.
+        // Local PDF + email: close UI immediately; PDF + Resend + host retry run in background.
         const noKey = kind === "estimate" ? "estimateNo" : "invoiceNo";
         const no =
           jobPatch[noKey] ||
@@ -1180,108 +1018,153 @@ export default function DocBuilderSheet({
           [noKey]: no,
           email: emailTo || activeJob.email || "",
         });
-        showToast("Sending local " + (kind === "estimate" ? "estimate" : "invoice") + " to " + emailTo + "…");
-        let res = null;
-        try {
-          if (typeof api.sendDocEmailNow === "function") {
-            res = await api.sendDocEmailNow(pdfJob, kind, {
-              email: emailTo,
-              includePaymentLink: withPay,
-              message: customMsg,
-            });
-          }
-        } catch (err) {
-          res = { ok: false, error: String(err?.message || err) };
+        const label = kind === "estimate" ? "estimate" : "invoice";
+        const amountStr = String(total || "").replace(/[$,]/g, "");
+        showToast("Sending " + label + " to " + emailTo + "…");
+        // Close sheet + parent before the slow PDF/network work (same pattern as useDoSend).
+        resumeFollowUpPrompts();
+        onDone && onDone(activeJob);
+        if (opts.close !== false) {
+          setEmailSheet(false);
+          onClose();
         }
-        // Always log + enqueue so Activity shows the attempt (and host can retry if needed).
-        const payload =
-          kind === "invoice"
-            ? {
+        setSaving(false);
+
+        const runLocalBg = async () => {
+          let res = null;
+          try {
+            if (typeof api.sendDocEmailNow === "function") {
+              res = await api.sendDocEmailNow(pdfJob, kind, {
                 email: emailTo,
-                invoiceNo: no,
-                customer: activeJob.customer || "",
-                amount: String(total || "").replace(/[$,]/g, ""),
                 includePaymentLink: withPay,
-                docSource: DOC_SOURCE_LOCAL,
                 message: customMsg,
-                attachments: attsForEmail,
-                includeAttachmentsInEmail: attsForEmail.length > 0,
-                job: pdfJob,
-                clientSend: res || undefined,
-              }
-            : {
-                email: emailTo,
-                estimateNo: no,
-                docSource: DOC_SOURCE_LOCAL,
-                message: customMsg,
-                attachments: attsForEmail,
-                includeAttachmentsInEmail: attsForEmail.length > 0,
-                job: pdfJob,
-                clientSend: res || undefined,
-              };
-        if (res?.ok && res.sent) {
-          logSend(
-            jobId,
-            (kind === "estimate" ? "Estimate" : "Invoice") +
-              " emailed (local PDF)" +
-              (withPay ? " + payment link" : ""),
-            emailTo
-          );
-          await downloadLocalPdf(pdfJob);
-          showToast(
-            "Emailed " + (kind === "estimate" ? "estimate" : "invoice") + " to " + emailTo
-          );
-        } else if (res?.dryRun || res?.reason === "no_api_key") {
-          showToast(
-            "Email not set up on the server yet — nothing was sent. Use Send through QB for now."
-          );
-          setSaving(false);
-          return;
-        } else if (res?.skipped || res?.reason === "test_email_unset" || res?.reason === "no_recipient") {
-          showToast("Could not send — check the email address and try again.");
-          setSaving(false);
-          return;
-        } else if (res && !res.ok) {
-          // Fall back to command bus so host/listener can retry.
-          await enqueue(
-            "send_" + kind,
-            jobId,
-            payload,
-            "deterministic",
-            "send_" + kind + ":local:" + (no || jobId) + ":" + Date.now()
-          );
-          logSend(
-            jobId,
-            (kind === "estimate" ? "Estimate" : "Invoice") +
-              " local send queued" +
-              (withPay ? " + payment link" : ""),
-            emailTo
-          );
-          await downloadLocalPdf(pdfJob);
-          showToast(
-            "Queued local email to " +
-              emailTo +
-              (res.error || res.reason ? " (" + String(res.error || res.reason).slice(0, 60) + ")" : "")
-          );
-        } else {
-          // No client API — queue for host listener (legacy).
-          await enqueue(
-            "send_" + kind,
-            jobId,
-            payload,
-            "deterministic",
-            "send_" + kind + ":local:" + (no || jobId)
-          );
-          logSend(
-            jobId,
-            (kind === "estimate" ? "Estimate" : "Invoice") +
-              " local send queued" +
-              (withPay ? " + payment link" : ""),
-            emailTo
-          );
-          await downloadLocalPdf(pdfJob);
-          showToast("Sending local " + (kind === "estimate" ? "estimate" : "invoice") + " to " + emailTo + "…");
-        }
+                subject: opts.subject || "",
+              });
+            }
+          } catch (err) {
+            res = { ok: false, error: String(err?.message || err) };
+          }
+          const pdfB64 = res?.pdfB64 || "";
+          const filename =
+            res?.filename ||
+            `${kind === "estimate" ? "Estimate" : "Invoice"}-${no || "document"}.pdf`;
+          // Strip heavy job history for the command bus — PDF is already attached.
+          const slimJob = {
+            id: pdfJob.id,
+            customer: pdfJob.customer || "",
+            businessName: pdfJob.businessName || "",
+            personName: pdfJob.personName || "",
+            email: emailTo || pdfJob.email || "",
+            invoiceNo: pdfJob.invoiceNo || "",
+            estimateNo: pdfJob.estimateNo || "",
+            amount: pdfJob.amount || amountStr,
+            openBalance: pdfJob.openBalance,
+            dueDate: pdfJob.dueDate || "",
+            address: pdfJob.address || pdfJob.serviceAddress || "",
+            billingAddress: pdfJob.billingAddress || "",
+            serviceAddress: pdfJob.serviceAddress || pdfJob.address || "",
+            title: pdfJob.title || "",
+            invoiceLines: pdfJob.invoiceLines,
+            estimateLines: pdfJob.estimateLines,
+            items: pdfJob.items,
+          };
+          const payload =
+            kind === "invoice"
+              ? {
+                  email: emailTo,
+                  invoiceNo: no,
+                  customer: activeJob.customer || "",
+                  amount: amountStr,
+                  includePaymentLink: withPay,
+                  docSource: DOC_SOURCE_LOCAL,
+                  message: customMsg,
+                  subject: opts.subject || "",
+                  attachments: attsForEmail,
+                  includeAttachmentsInEmail: attsForEmail.length > 0,
+                  job: slimJob,
+                  pdfB64: pdfB64 || undefined,
+                  filename,
+                  viewLink: res?.viewLink || "",
+                  html: res?.html || undefined,
+                  clientSend: res
+                    ? {
+                        ok: res.ok,
+                        sent: res.sent,
+                        error: res.error,
+                        reason: res.reason,
+                        dryRun: res.dryRun,
+                        viewLink: res.viewLink,
+                      }
+                    : undefined,
+                }
+              : {
+                  email: emailTo,
+                  estimateNo: no,
+                  docSource: DOC_SOURCE_LOCAL,
+                  message: customMsg,
+                  subject: opts.subject || "",
+                  attachments: attsForEmail,
+                  includeAttachmentsInEmail: attsForEmail.length > 0,
+                  job: slimJob,
+                  pdfB64: pdfB64 || undefined,
+                  filename,
+                  viewLink: res?.viewLink || "",
+                  html: res?.html || undefined,
+                  clientSend: res
+                    ? {
+                        ok: res.ok,
+                        sent: res.sent,
+                        error: res.error,
+                        reason: res.reason,
+                        dryRun: res.dryRun,
+                        viewLink: res.viewLink,
+                      }
+                    : undefined,
+                };
+          if (res?.ok && res.sent) {
+            logSend(
+              jobId,
+              (kind === "estimate" ? "Estimate" : "Invoice") +
+                " emailed (local PDF)" +
+                (withPay ? " + payment link" : ""),
+              emailTo
+            );
+            showToast("Emailed " + label + " to " + emailTo);
+            return;
+          }
+          if (res?.skipped || res?.reason === "test_email_unset" || res?.reason === "no_recipient") {
+            showToast("Could not send — check the email address and try again.");
+            return;
+          }
+          // Host finishes via Resend retry or office Gmail (full layout when html/viewLink present).
+          if (pdfB64 || !res) {
+            await enqueue(
+              "send_" + kind,
+              jobId,
+              payload,
+              "deterministic",
+              "send_" + kind + ":local:" + (no || jobId) + ":" + Date.now()
+            );
+            logSend(
+              jobId,
+              (kind === "estimate" ? "Estimate" : "Invoice") +
+                " local send queued" +
+                (withPay ? " + payment link" : ""),
+              emailTo
+            );
+            showToast("Finishing send in the background — you'll get a toast when it lands");
+          } else {
+            showToast(
+              (kind === "estimate" ? "Estimate" : "Invoice") +
+                " did NOT send — " +
+                String(res?.error || res?.reason || "failed").slice(0, 80)
+            );
+          }
+        };
+        runLocalBg().catch(() => {
+          showToast("Send hit a snag — open the invoice and try again");
+        });
+        return;
       } else {
         for (let i = 0; i < commands.length; i++) {
           const cmd = commands[i];
@@ -1372,77 +1255,56 @@ export default function DocBuilderSheet({
 
   return (
     <Sheet title={title + (job.customer ? " — " + job.customer : "")} onClose={onClose} wide>
-      {/* Top: doc # + Progress invoice toggle (same pattern as CO) */}
-      <div
-        className="flex flex-wrap items-center gap-2 mb-3 pb-2 border-b border-slate-100"
-        data-testid="doc-header-row"
-      >
-        <label className="flex items-center gap-1.5 min-w-0">
-          <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wide shrink-0">
-            {kind === "estimate" ? "Est #" : "Inv #"}
-          </span>
-          <input
-            className="input !py-1.5 !px-2 text-sm font-bold tabular-nums !w-auto max-w-full"
-            style={numInputStyle(docNoValue || "DRAFT", { minCh: 7, maxCh: 18, pad: 2 })}
-            value={docNoValue}
-            onChange={(e) => setDocNo(e.target.value)}
-            placeholder={mode === "edit" ? "Number" : "Auto"}
-            aria-label={kind === "estimate" ? "Estimate number" : "Invoice number"}
-            data-testid="doc-number-input"
-          />
-        </label>
-        <div className="flex items-center gap-1.5 shrink-0 ml-auto" data-testid="doc-progress-toggle-row">
-          <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wide">
-            Progress invoice
-          </span>
-          <Toggle
-            on={!!progressOn}
-            onChange={applyProgressToggle}
-            label={progressOn ? "Progress invoice on" : "Progress invoice off"}
-            small
-          />
-        </div>
-      </div>
+      {editableCustomer ? (
+        <CustomerHeaderPanel job={job} allJobs={boardJobs} events={events} api={api} onPatch={patchJobState} />
+      ) : (
+        <p className="text-[11px] text-slate-400 -mt-1 mb-3">
+          Pre-filled from job info. Line items use exact QuickBooks Products &amp; Services names.
+        </p>
+      )}
 
-      <CustomerFactsPanel
-        job={job}
-        allJobs={boardJobs}
-        events={events}
-        api={api}
-        onPatch={patchJobState}
-        allowCustomerSearch={editableCustomer}
-        startEditing={editableCustomer && !(job.businessName || job.customer || "").trim()}
-        serviceAddress={serviceAddress}
-        apartment={apartment}
-        onServiceAddress={setServiceAddress}
-        onApartment={setApartment}
-        docLabel={kind === "estimate" ? "Estimate" : "Invoice"}
-        docNo={kind === "estimate" ? job.estimateNo : job.invoiceNo}
-        invoicedAmount={total}
-        dueAmount={Math.max(0, total - amountPaid(job))}
-        progressPct={progressMode ? liveProgressPct : null}
-        coControls={
-          canToggleCo || alreadyCo || asChangeOrder ? (
-            <div className="flex items-center gap-1.5" data-testid="doc-co-toggle-row">
-              <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wide">
-                Change order
-              </span>
-              <Toggle
-                on={!!(asChangeOrder || alreadyCo)}
-                onChange={applyCoToggle}
-                label={
-                  asChangeOrder || alreadyCo
-                    ? coPreview
-                      ? "Change order on — " + coPreview
-                      : "Change order on"
-                    : "Change order off"
-                }
-                small
-              />
-            </div>
-          ) : null
-        }
-      />
+      {/* Address + apt + CO on one condensed row */}
+      <div className="flex flex-wrap items-center gap-1.5 mb-3" data-testid="doc-address-row">
+        <ServiceAddressField
+          job={job}
+          jobs={boardJobs}
+          events={events}
+          value={serviceAddress}
+          onChange={setServiceAddress}
+          onApartmentChange={setApartment}
+          suggestAddresses={api.suggestAddresses?.bind(api)}
+          testId="doc-service-address"
+          partialOk={false}
+          sitePicker="dropdown"
+          compact
+        />
+        <input
+          className="input !w-[4.5rem] !px-2 !py-2 text-sm shrink-0"
+          value={apartment}
+          onChange={(e) => setApartment(e.target.value)}
+          aria-label="Apartment"
+          placeholder="Apt"
+          data-testid="doc-apartment"
+          title="Apartment / unit"
+        />
+        {canToggleCo || alreadyCo || asChangeOrder ? (
+          <div className="flex items-center gap-1.5 shrink-0 ml-auto" data-testid="doc-co-toggle-row">
+            <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wide">CO</span>
+            <Toggle
+              on={!!(asChangeOrder || alreadyCo)}
+              onChange={applyCoToggle}
+              label={
+                asChangeOrder || alreadyCo
+                  ? coPreview
+                    ? "Change order on — " + coPreview
+                    : "Change order on"
+                  : "Change order off"
+              }
+              small
+            />
+          </div>
+        ) : null}
+      </div>
 
       {progressMode ? (
         <div
@@ -1452,8 +1314,8 @@ export default function DocBuilderSheet({
           <label className="flex items-center gap-1.5 text-xs text-slate-700">
             <span className="font-bold text-slate-500 uppercase tracking-wide text-[10px]">Full</span>
             <input
-              className="input !py-1 !px-1.5 !w-auto text-sm font-bold tabular-nums text-slate-900"
-              style={numInputStyle(contractAmount || liveContract || "", { minCh: 5, maxCh: 12 })}
+              className="input !py-1 !px-1.5 !w-auto text-sm font-bold tabular-nums text-slate-900 overflow-visible"
+              style={numInputStyle(contractAmount || liveContract || "", { minCh: 9, maxCh: 18 })}
               inputMode="decimal"
               value={contractAmount}
               onChange={(e) => {
@@ -1484,25 +1346,21 @@ export default function DocBuilderSheet({
       <p className="text-[11px] font-bold uppercase tracking-wide text-slate-400 mt-1 mb-1.5">
         Line items
       </p>
-      <div className="rounded-2xl border border-slate-200 bg-white px-3 mb-3">
-        {lines.map((ln, i) => (
-          <LineRowMemo
-            key={i}
-            line={ln}
-            index={i}
-            items={items}
-            onChange={changeLine}
-            onRemove={removeLine}
-            canRemove={lines.length > 1}
-            progressMode={progressMode}
-            adjustMode={adjustMode}
-            onAdjustModeChange={setAdjustMode}
-            onLineProgress={onLineProgress}
-            allowProgressToggle={progressMode || asChangeOrder}
-            onToggleLineProgress={toggleLineProgress}
-          />
-        ))}
-      </div>
+      {lines.map((ln, i) => (
+        <LineRow
+          key={i}
+          line={ln}
+          index={i}
+          items={items}
+          onChange={changeLine}
+          onRemove={(idx) => setLines((rows) => rows.filter((_, j) => j !== idx))}
+          canRemove={lines.length > 1}
+          progressMode={progressMode}
+          adjustMode={adjustMode}
+          onAdjustModeChange={setAdjustMode}
+          onLineProgress={onLineProgress}
+        />
+      ))}
       <button
         type="button"
         className="btn-ghost w-full !py-1.5 mb-3 text-sm"
@@ -1535,7 +1393,11 @@ export default function DocBuilderSheet({
             {discountType === "percent" ? "%" : "$"}
           </button>
           <input
-            className="input !w-[4.5rem] !px-1.5 !py-2 text-sm"
+            className="input !px-1.5 !py-2 text-sm overflow-visible tabular-nums"
+            style={numInputStyle(discountValue, {
+              minCh: discountType === "percent" ? 5 : 8,
+              maxCh: 14,
+            })}
             inputMode="decimal"
             value={discountValue}
             onChange={(e) => setDiscountValue(e.target.value)}
@@ -1719,14 +1581,12 @@ export default function DocBuilderSheet({
           className="btn-brand !py-2 !px-1.5 text-xs sm:text-sm"
           disabled={saving}
           onClick={() => {
-            setSendEmails(job.email || sendEmails || "");
-            if (!sendMessage) {
-              setSendMessage(
-                "Please find your " +
-                  (kind === "estimate" ? "estimate" : "invoice") +
-                  " attached. Thank you for choosing " +
-                  tenantShortName +
-                  "."
+            setSendEmailsSeed(job.email || sendEmailsSeed || "");
+            if (!sendMessageSeed) {
+              setSendMessageSeed(
+                defaultDocEmailBody(job, kind, {
+                  withPay: includePayLinkSeed && kind === "invoice",
+                })
               );
             }
             setEmailSheet(true);
@@ -1738,149 +1598,31 @@ export default function DocBuilderSheet({
       </div>
 
       {emailSheet ? (
-        <div
-          className="fixed inset-0 z-[80] flex items-end sm:items-center justify-center bg-black/40 p-3"
-          data-testid="doc-email-sheet"
-          role="dialog"
-          aria-label="Sync and email"
-        >
-          <div className="bg-white rounded-2xl shadow-xl w-full max-w-md max-h-[90vh] overflow-y-auto p-4">
-            <div className="flex items-center justify-between mb-3">
-              <h3 className="text-base font-extrabold text-slate-900">Sync &amp; Email</h3>
-              <button
-                type="button"
-                className="text-slate-400 text-xl leading-none px-2"
-                onClick={() => setEmailSheet(false)}
-                aria-label="Close"
-              >
-                ×
-              </button>
-            </div>
-            <Fld label="Send to" hint="Separate multiple emails with a comma">
-              <input
-                className="input"
-                type="email"
-                multiple
-                value={sendEmails}
-                onChange={(e) => {
-                  setSendEmails(e.target.value);
-                  setEmailPolicy("");
-                }}
-                placeholder="customer@email.com"
-                aria-label="Email recipients"
-                data-testid="doc-send-emails"
-              />
-            </Fld>
-            {emailDiffers(sendEmails) ? (
-              <div
-                className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-3 mb-3"
-                data-testid="doc-email-policy"
-              >
-                <p className="text-sm font-semibold text-amber-900 mb-2">
-                  Different from the customer&apos;s saved email. Keep it or use once?
-                </p>
-                <div className="grid grid-cols-2 gap-2">
-                  <button
-                    type="button"
-                    className={`btn !py-2 text-sm ${
-                      emailPolicy === EMAIL_POLICY_KEEP
-                        ? "bg-brand text-white"
-                        : "bg-white border border-amber-200 text-slate-800"
-                    }`}
-                    onClick={() => setEmailPolicy(EMAIL_POLICY_KEEP)}
-                    data-testid="doc-email-keep"
-                  >
-                    Keep this email
-                  </button>
-                  <button
-                    type="button"
-                    className={`btn !py-2 text-sm ${
-                      emailPolicy === EMAIL_POLICY_ONCE
-                        ? "bg-brand text-white"
-                        : "bg-white border border-amber-200 text-slate-800"
-                    }`}
-                    onClick={() => setEmailPolicy(EMAIL_POLICY_ONCE)}
-                    data-testid="doc-email-once"
-                  >
-                    Use it once
-                  </button>
-                </div>
-              </div>
-            ) : null}
-            <Fld label="Message">
-              <textarea
-                className="input min-h-[100px]"
-                value={sendMessage}
-                onChange={(e) => setSendMessage(e.target.value)}
-                aria-label="Email message"
-                data-testid="doc-send-message"
-              />
-            </Fld>
-            {kind === "invoice" ? (
-              <label className="flex items-center gap-2 mb-3 cursor-pointer" data-testid="doc-pay-link-toggle">
-                <input
-                  type="checkbox"
-                  checked={includePayLink}
-                  onChange={(e) => setIncludePayLink(e.target.checked)}
-                />
-                <span className="text-sm font-semibold text-slate-800">For credit card payment</span>
-              </label>
-            ) : null}
-            {(() => {
-              const emailNeedsPolicy =
-                emailDiffers(sendEmails) &&
-                emailPolicy !== EMAIL_POLICY_KEEP &&
-                emailPolicy !== EMAIL_POLICY_ONCE;
-              const sendOpts = {
-                email: sendEmails,
-                message: sendMessage,
-                includePaymentLink: includePayLink,
-                emailPolicy: emailPolicy || (emailDiffers(sendEmails) ? "" : EMAIL_POLICY_ONCE),
-              };
-              if (!qboOn) {
-                return (
-                  <button
-                    type="button"
-                    className="btn-brand w-full !py-2.5 text-sm"
-                    disabled={saving || emailNeedsPolicy}
-                    onClick={() =>
-                      submitSync(true, { ...sendOpts, docSource: DOC_SOURCE_LOCAL })
-                    }
-                    data-testid="doc-send-local"
-                  >
-                    Send locally
-                  </button>
-                );
-              }
-              return (
-                <div className="grid grid-cols-2 gap-2">
-                  <button
-                    type="button"
-                    className="btn-brand !py-2.5 text-sm"
-                    disabled={saving || emailNeedsPolicy}
-                    onClick={() =>
-                      submitSync(true, { ...sendOpts, docSource: DOC_SOURCE_QBO })
-                    }
-                    data-testid="doc-save-sync-send"
-                  >
-                    Send through QB
-                  </button>
-                  <button
-                    type="button"
-                    className="btn !py-2.5 text-sm bg-brand-soft text-brand"
-                    disabled={saving || emailNeedsPolicy}
-                    onClick={() =>
-                      submitSync(true, { ...sendOpts, docSource: DOC_SOURCE_LOCAL })
-                    }
-                    data-testid="doc-send-local"
-                  >
-                    Send locally
-                  </button>
-                </div>
-              );
-            })()}
-          </div>
-        </div>
+        <DocEmailComposeSheet
+          key={"email-sheet-" + (job.id || "draft") + "-" + kind}
+          kind={kind}
+          jobEmail={job.email || ""}
+          initialEmail={sendEmailsSeed || job.email || ""}
+          initialMessage={
+            sendMessageSeed ||
+            defaultDocEmailBody(job, kind, {
+              withPay: includePayLinkSeed && kind === "invoice",
+            })
+          }
+          initialIncludePayLink={includePayLinkSeed}
+          qboOn={qboOn}
+          saving={saving}
+          onClose={() => {
+            if (saving) return;
+            setEmailSheet(false);
+          }}
+          onSend={(model) => {
+            setSendEmailsSeed(model.email || "");
+            setSendMessageSeed(model.message || "");
+            setIncludePayLinkSeed(!!model.includePaymentLink);
+            submitSync(true, model);
+          }}
+        />
       ) : null}
     </Sheet>
   );

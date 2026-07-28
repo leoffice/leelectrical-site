@@ -60,12 +60,31 @@ export function isProgressInvoiceJob(job) {
 /** Frozen baseline before any LE Pro payments, adjusted when invoice total changes. */
 function frozenBaseline(job, payments) {
   if (job?.paymentBaseline != null && job.paymentBaseline !== "") {
-    return parseAmount(job.paymentBaseline);
+    const locked = parseAmount(job.paymentBaseline);
+    // Heal double-counted baselines (openBalance + payment while open still =
+    // full invoice total). Simple invoices never owe more than the invoice.
+    const inv = invoiceTotal(job);
+    if (inv > 0 && locked > inv + 0.009 && !isProgressInvoiceJob(job)) {
+      return inv;
+    }
+    return locked;
   }
-  const paidSum = totalPaid(payments);
   const curOpen =
     job?.openBalance != null && job.openBalance !== "" ? parseAmount(job.openBalance) : null;
-  if (curOpen != null && paidSum > 0) return curOpen + paidSum;
+  // openBalance reflects payments ALREADY on the job — not the candidate list
+  // (which may include newly added rows that have not reduced openBalance yet).
+  // Using totalPaid(payments) here double-counted full pays: open $450 + pay $450 → baseline $900.
+  const prevPaid = totalPaid(normalizePayments(job));
+  if (curOpen != null) {
+    if (prevPaid > 0) {
+      const inv = invoiceTotal(job);
+      // Corrupt: payments on job but openBalance still equals full invoice.
+      if (inv > 0 && Math.abs(curOpen - inv) <= 0.01) return inv;
+      return curOpen + prevPaid;
+    }
+    // No prior ledger rows — open balance IS the owed-at-start.
+    return curOpen;
+  }
   const noteBal = parseBalanceFromNotes(job);
   if (noteBal != null) return noteBal;
   return invoiceTotal(job) || parseAmount(job?.amount) || 0;
@@ -166,16 +185,14 @@ export function applyPaymentsPatch(job, payments) {
       : inv || owed;
   const patch = {
     payments: list,
-    paymentBaseline: job?.paymentBaseline != null && job.paymentBaseline !== "" ? job.paymentBaseline : owed,
+    // Always lock to computed owed (heals double-count + progress raises).
+    paymentBaseline: owed,
     amountWhenBaselined: stamp,
     openBalance: fullPay ? 0 : remaining,
     paid: fullPay,
     payment: latest || null,
   };
-  // If invoice total already exceeds a frozen baseline (legacy progress raise),
-  // lock baseline to the adjusted owed so later payment edits stay correct.
-  if (owed > parseAmount(patch.paymentBaseline) + 0.009) {
-    patch.paymentBaseline = owed;
+  if (inv > 0 && Math.abs((inv || 0) - (stamp || 0)) > 0.009) {
     patch.amountWhenBaselined = inv || owed;
   }
   if (fullPay && latest?.date) {

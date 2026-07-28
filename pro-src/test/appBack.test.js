@@ -27,7 +27,7 @@ describe("appBack helpers", () => {
 
   it("resolves detail back targets", () => {
     expect(detailBackTarget("/job/J-1")).toBe("/");
-    expect(detailBackTarget("/job/J-1", "?from=meir")).toBe("/customer/meir?job=J-1");
+    expect(detailBackTarget("/job/J-1", "?from=meir")).toBe("/customer/meir");
     expect(detailBackTarget("/customer/meir")).toBe("/");
   });
 

@@ -72,10 +72,15 @@ export default function SendDocConfirmSheet({
         Review everything below, then Approve. Nothing goes out until you tap Approve.
       </p>
 
-      <Fld label="To (recipient)">
+      <Fld label="To (recipient)" hint="Separate multiple emails with a comma">
         <input
           className="input"
-          type="email"
+          type="text"
+          inputMode="email"
+          autoComplete="email"
+          autoCorrect="off"
+          autoCapitalize="none"
+          spellCheck={false}
           value={email}
           onChange={(e) => {
             setEmail(e.target.value);

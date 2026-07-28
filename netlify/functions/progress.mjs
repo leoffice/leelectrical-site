@@ -1,4 +1,5 @@
 import { getStore } from "./lib/storage/index.mjs";
+import { resolveTenant } from "./lib/tenant.mjs";
 import defaultSnapshot from "./dev_progress_snapshot.json" with { type: "json" };
 import { PRODUCT_BRAND } from "../../shared/productBrand.mjs";
 
@@ -8,14 +9,15 @@ import { PRODUCT_BRAND } from "../../shared/productBrand.mjs";
 const KEY = "dev-progress-v1";
 const DAY = 24 * 60 * 60 * 1000;
 
-function json(o) {
+function json(o, status = 200) {
   return new Response(JSON.stringify(o), {
+    status,
     headers: {
       "content-type": "application/json",
       "cache-control": "no-store",
       "access-control-allow-origin": "*",
       "access-control-allow-methods": "GET,POST,OPTIONS",
-      "access-control-allow-headers": "content-type",
+      "access-control-allow-headers": "content-type,authorization",
     },
   });
 }
@@ -34,8 +36,10 @@ async function loadProgress(store) {
 }
 
 export default async (req) => {
-  const store = getStore("progress");
   if (req.method === "OPTIONS") return json({ ok: true });
+  const tenant = await resolveTenant(req);
+  if (tenant == null) return json({ ok: false, error: "unauthenticated" }, 401);
+  const store = getStore("progress", tenant);
 
   if (req.method === "POST") {
     let body = {};

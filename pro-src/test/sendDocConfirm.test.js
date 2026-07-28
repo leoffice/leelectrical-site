@@ -119,4 +119,20 @@ describe("sendDocConfirm", () => {
     expect(m.emailDiffers).toBe(false);
     expect(canApproveSendConfirm(m)).toBe(true);
   });
+
+  it("multi-address lists match order-independently", () => {
+    expect(
+      sendEmailDiffersFromCustomer(
+        "a@x.com, b@x.com",
+        "b@x.com, a@x.com"
+      )
+    ).toBe(false);
+    expect(
+      sendEmailDiffersFromCustomer(
+        "a@x.com, b@x.com",
+        "a@x.com"
+      )
+    ).toBe(true);
+  });
 });
+

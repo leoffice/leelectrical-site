@@ -9,17 +9,23 @@
 //   iterate   nudges Dispatch to look at the message
 import { deepMerge, isPlainObject, mergeJobs } from "./merge.js";
 import { functionsBase } from "../lib/functionsBase.js";
+import { authHeader } from "../lib/session.js";
 import { buildInvoicePdfFromJob, buildEstimatePdfFromJob } from "../lib/invoicePdf.js";
 import { downloadPdfBlob } from "../lib/pdfOpen.js";
 import { docPdfFilename } from "../lib/jobToQbDoc.js";
 
 const base = functionsBase;
 
+/** Merge the signed-in user's bearer token into request headers (tenant isolation). */
+async function authedHeaders(extra) {
+  return { ...(extra || {}), ...(await authHeader()) };
+}
+
 async function http(path, body) {
   const res = await fetch(`${base()}/${path}`, {
     method: body ? "POST" : "GET",
     cache: "no-store",
-    headers: body ? { "content-type": "application/json" } : undefined,
+    headers: await authedHeaders(body ? { "content-type": "application/json" } : undefined),
     body: body ? JSON.stringify(body) : undefined,
   });
   if (!res.ok) throw new Error(`${path}: HTTP ${res.status}`);
@@ -31,7 +37,7 @@ async function httpAllowErrorBody(path, body) {
   const res = await fetch(`${base()}/${path}`, {
     method: body ? "POST" : "GET",
     cache: "no-store",
-    headers: body ? { "content-type": "application/json" } : undefined,
+    headers: await authedHeaders(body ? { "content-type": "application/json" } : undefined),
     body: body ? JSON.stringify(body) : undefined,
   });
   let data = null;
@@ -49,30 +55,46 @@ async function httpAllowErrorBody(path, body) {
 
 const cb = () => "cb=" + Date.now();
 
-// ---- Conditional (ETag) GET for the big read-heavy blobs --------------------
-// jobsdata (~20 MB) and state are polled every 60s (plus focus + action
-// refreshes). The server tags each with an ETag off its write-ts; we hold the
-// last {etag, data} per path and send If-None-Match, so an unchanged blob comes
-// back as a bodyless 304 and we reuse the cached parse — turning a repeated
-// multi-MB transfer into a few bytes. NO cache-buster here (a unique URL would
-// defeat revalidation) and NO browser HTTP cache (cache:no-store) — we manage
-// the entity tag ourselves, which stays predictable across browsers and is
-// exercisable in tests. Correctness is unchanged: every poll still revalidates
-// against the server; 304 means the document is byte-identical to what we hold.
-const condCache = new Map(); // path -> { etag, data }
-async function httpConditional(path) {
-  const entry = condCache.get(path);
-  const res = await fetch(`${base()}/${path}`, {
-    method: "GET",
-    cache: "no-store",
-    headers: entry && entry.etag ? { "if-none-match": entry.etag } : undefined,
-  });
-  if (res.status === 304 && entry) return entry.data;
-  if (!res.ok) throw new Error(`${path}: HTTP ${res.status}`);
-  const data = await res.json();
-  const etag = res.headers && typeof res.headers.get === "function" ? res.headers.get("etag") : null;
-  if (etag) condCache.set(path, { etag, data });
-  return data;
+/** Fields the send-doc-email server needs — drop heavy history/status blobs. */
+function pickJobForDocEmail(job) {
+  if (!job || typeof job !== "object") return {};
+  const keys = [
+    "id",
+    "customer",
+    "businessName",
+    "personName",
+    "email",
+    "phone",
+    "invoiceNo",
+    "estimateNo",
+    "amount",
+    "openBalance",
+    "tax",
+    "invoiceDate",
+    "estimateDate",
+    "dueDate",
+    "address",
+    "billingAddress",
+    "serviceAddress",
+    "apartment",
+    "title",
+    "serviceType",
+    "invoiceLines",
+    "estimateLines",
+    "payments",
+    "paid",
+    "changeOrder",
+    "changeOrderSeq",
+    "changeOrderLabel",
+    "changeOrderKind",
+    "changeOrderSourceId",
+    "status",
+  ];
+  const out = {};
+  for (const k of keys) {
+    if (job[k] != null && job[k] !== "") out[k] = job[k];
+  }
+  return out;
 }
 
 /** Blob → bare base64 string (no data-URL prefix) for JSON transport. */
@@ -98,44 +120,34 @@ export function createNetlifyAdapter() {
   // GET right after our own write can return the PREVIOUS snapshot — merging
   // into that (saveJob) or rendering it (refresh) silently reverts edits.
   let lastWriteTs = 0;
-  // The full overlay map from our last successful POST. Used to reconstruct a
-  // correct view WITHOUT blocking when a read comes back stale (see freshState).
-  let lastOv = null;
-  // Return the freshest overlay we can WITHOUT sleeping. The old implementation
-  // re-GET-and-slept (350+700+1050ms ≈ 2.1s) on every save after the first,
-  // waiting for the blob to reflect our own last write — a built-in 1–2s stall
-  // on the save path. Instead: read once, and if that read predates our own last
-  // write (stale blob), re-apply our last-known overlay on top. This is only
-  // done when stale — a read whose ts is current is authoritative and may carry
-  // another device's newer edits, which we must never clobber. Cross-device
-  // safety is unchanged (the retry loop only ever waited for the CALLER'S own
-  // write; other devices' concurrent writes were reconciled by the next poll,
-  // and still are).
+  // Last full ov we POSTed. Used only when a GET is still lagging behind our
+  // write — prefer this over multi-second retry sleeps (keeps Save snappy).
+  let cachedOv = null;
   const freshState = async () => {
+    // Always GET once (picks up other-device writes). If blob is lagging behind
+    // our last POST, return the session cache immediately — no 0.35–2s sleep.
     const state = (await http(`state?${cb()}`)) || { ov: {}, ts: 0 };
-    if (lastWriteTs && (state.ts || 0) < lastWriteTs && lastOv) {
-      const ov = { ...((state && state.ov) || {}) };
-      for (const k of Object.keys(lastOv)) {
-        ov[k] = deepMerge(ov[k] || {}, lastOv[k]);
-      }
-      return { ...state, ov, ts: lastWriteTs };
+    if (!lastWriteTs || (state.ts || 0) >= lastWriteTs) {
+      cachedOv = state.ov || {};
+      if ((state.ts || 0) > lastWriteTs) lastWriteTs = state.ts || lastWriteTs;
+      return state;
     }
-    return state;
-  };
-  // POST the full overlay and remember it, so the next stale read can be
-  // reconstructed from memory instead of waiting for the blob to converge.
-  const postState = async (ov) => {
-    const res = await http("state", { ov });
-    if (res && res.ts) lastWriteTs = Math.max(lastWriteTs, res.ts);
-    lastOv = ov;
-    return res;
+    if (cachedOv) return { ov: cachedOv, ts: lastWriteTs };
+    // No cache yet — one short retry, then accept what we have.
+    await new Promise((r) => setTimeout(r, 120));
+    const again = (await http(`state?${cb()}`)) || { ov: {}, ts: 0 };
+    if ((again.ts || 0) >= lastWriteTs || !cachedOv) {
+      cachedOv = again.ov || {};
+      return again;
+    }
+    return { ov: cachedOv, ts: lastWriteTs };
   };
   return {
     name: "netlify",
 
     /** Merged view + sync metadata: jobsdata.jobs + state.ov (overlay wins). */
     async listJobsMeta() {
-      const [data, state] = await Promise.all([httpConditional("jobsdata"), httpConditional("state")]);
+      const [data, state] = await Promise.all([http(`jobsdata?${cb()}`), http(`state?${cb()}`)]);
       return {
         jobs: mergeJobs(data.jobs || [], (state && state.ov) || {}),
         syncedAt: data.syncedAt || 0,
@@ -181,13 +193,14 @@ export function createNetlifyAdapter() {
     async saveJob(id, patch) {
       const run = async () => {
         const state = await freshState();
-        const ov = (state && state.ov) || {};
-        ov[id] = deepMerge(ov[id] || {}, patch || {});
-        // Stamp when this job's overlay was last written so reconcileStaleDocOverlay
-        // (merge.js) can tell an in-flight edit from a stale pre-sync snapshot. App
-        // metadata keys ("_sasTickets" etc.) are never merged as jobs.
-        if (String(id).charAt(0) !== "_") ov[id]._savedAt = Date.now();
-        const res = await postState(ov);
+        const baseOv = (state && state.ov) || {};
+        const ov = { ...baseOv };
+        ov[id] = deepMerge(baseOv[id] || {}, patch || {});
+        const res = await http("state", { ov });
+        if (res && res.ts) {
+          lastWriteTs = Math.max(lastWriteTs, res.ts);
+          cachedOv = ov;
+        }
         return { ok: true, ts: res && res.ts, ov: ov[id] };
       };
       const p = saveQ.then(run, run);
@@ -196,7 +209,7 @@ export function createNetlifyAdapter() {
     },
 
     async listCommands(jobId) {
-      const d = await httpConditional("command");
+      const d = await http(`command?${cb()}`);
       const all = d.commands || [];
       return jobId == null ? all : all.filter((c) => String(c.jobId) === String(jobId));
     },
@@ -243,14 +256,19 @@ export function createNetlifyAdapter() {
 
     /**
      * Send invoice/estimate email with CLIENT-generated PDF attached.
-     * opts: { email, includePaymentLink, payUrl, probe, officeOnly }
+     * opts: { email, includePaymentLink, payUrl, probe, officeOnly, pdfB64, filename }
+     * Always returns pdfB64 when built so callers can queue a host retry without
+     * rebuilding the PDF (big lag on retry).
      */
     async sendDocEmailNow(job, kind = "invoice", opts = {}) {
+      const no = kind === "invoice" ? job?.invoiceNo : job?.estimateNo;
+      let pdfB64 = String(opts.pdfB64 || "").trim();
+      let filename =
+        String(opts.filename || "").trim() ||
+        docPdfFilename(kind, job, no) ||
+        `${kind}-${String(no || "document")}.pdf`;
       try {
-        const no = kind === "invoice" ? job?.invoiceNo : job?.estimateNo;
-        let pdfB64 = "";
-        let filename = "";
-        if (!opts.probe) {
+        if (!opts.probe && !pdfB64) {
           const overrides = kind === "estimate" ? { kind: "estimate" } : {};
           if (opts.payUrl) overrides.payUrl = opts.payUrl;
           const blob =
@@ -259,11 +277,13 @@ export function createNetlifyAdapter() {
               : await buildInvoicePdfFromJob(job, overrides);
           if (!blob) return { ok: false, error: "no_pdf" };
           pdfB64 = await blobToBase64(blob);
-          filename = docPdfFilename(kind, job, no) || `${kind}-${String(no || "document")}.pdf`;
         }
-        return await httpAllowErrorBody("send-doc-email", {
+        // Slim job payload — full status/history objects bloat the request and
+        // slow mobile sends. Server only needs fields for the email + PDF store.
+        const slimJob = pickJobForDocEmail(job);
+        const result = await httpAllowErrorBody("send-doc-email", {
           kind,
-          job,
+          job: slimJob,
           email: String(opts.email || job?.email || "").trim(),
           includePaymentLink: opts.includePaymentLink !== false,
           pdfB64,
@@ -273,16 +293,19 @@ export function createNetlifyAdapter() {
           probe: !!opts.probe,
           officeOnly: !!opts.officeOnly,
         });
+        return { ...result, pdfB64, filename };
       } catch (err) {
-        // Cloudflare often returns bare "error code: 502" (not JSON) when Resend is
-        // missing — surface a stable reason so the app queues office-Gmail fallback.
+        // Bare "error code: 502" from CF is NOT the same as missing Resend key —
+        // keep the PDF so the host can finish via office Gmail with full layout.
         const msg = String(err?.message || err);
         const is502 = /HTTP 502|502/.test(msg);
         return {
           ok: false,
           error: msg,
-          reason: is502 ? "no_api_key" : "send_failed",
-          dryRun: is502,
+          reason: is502 ? "http_502" : "send_failed",
+          dryRun: false,
+          pdfB64,
+          filename,
         };
       }
     },
@@ -292,6 +315,7 @@ export function createNetlifyAdapter() {
     async getDoc(key) {
       const res = await fetch(`${base()}/docs?key=${encodeURIComponent(key)}&${cb()}`, {
         cache: "no-store",
+        headers: await authedHeaders(),
       });
       if (!res.ok) return null;
       const ct = (res.headers && res.headers.get && res.headers.get("content-type")) || "";
@@ -325,7 +349,7 @@ export function createNetlifyAdapter() {
      *  mergeJobs() skips "_"-prefixed overlay keys, so this never renders
      *  as a phantom job. */
     async getSasTickets() {
-      const state = await httpConditional("state");
+      const state = await http(`state?${cb()}`);
       const ov = (state && state.ov) || {};
       return isPlainObject(ov._sasTickets) ? ov._sasTickets : {};
     },
@@ -333,7 +357,7 @@ export function createNetlifyAdapter() {
     /** Customer pay-page checks + bank Zelle alerts waiting for Levi to approve.
      *  ov._pendingPayments = { items: [...], ts } — reserved key (not a job). */
     async getPendingPayments() {
-      const state = await httpConditional("state");
+      const state = await http(`state?${cb()}`);
       const ov = (state && state.ov) || {};
       const row = ov._pendingPayments;
       if (Array.isArray(row)) return row.filter(Boolean);
@@ -353,7 +377,7 @@ export function createNetlifyAdapter() {
 
     /** Big-project requisitions — ov._projects (reserved key). */
     async getProjects() {
-      const state = await httpConditional("state");
+      const state = await http(`state?${cb()}`);
       const ov = (state && state.ov) || {};
       return isPlainObject(ov._projects) ? ov._projects : { list: [] };
     },
@@ -364,7 +388,7 @@ export function createNetlifyAdapter() {
 
     /** "Separate customers" / parent-sub decisions — ov._nomerge (reserved key). */
     async getNomergePairs() {
-      const state = await httpConditional("state");
+      const state = await http(`state?${cb()}`);
       const ov = (state && state.ov) || {};
       const v = ov._nomerge;
       return Array.isArray(v) ? v.filter(Boolean) : [];
@@ -378,10 +402,14 @@ export function createNetlifyAdapter() {
     /** Agent invoice-edit learning loop — ov._invoiceEditLearning (reserved key). */
     async appendInvoiceEditFeedback(entry) {
       const state = await freshState();
-      const ov = (state && state.ov) || {};
+      const ov = { ...((state && state.ov) || {}) };
       const cur = Array.isArray(ov._invoiceEditLearning) ? ov._invoiceEditLearning : [];
       ov._invoiceEditLearning = cur.concat([{ ...entry, ts: Date.now() }]).slice(-200);
-      await postState(ov);
+      const res = await http("state", { ov });
+      if (res && res.ts) {
+        lastWriteTs = Math.max(lastWriteTs, res.ts);
+        cachedOv = ov;
+      }
       return { ok: true };
     },
 
@@ -395,10 +423,14 @@ export function createNetlifyAdapter() {
     async appendPaymentVisionFeedback(entry) {
       if (!entry || !Array.isArray(entry.deltas) || !entry.deltas.length) return { ok: false };
       const state = await freshState();
-      const ov = (state && state.ov) || {};
+      const ov = { ...((state && state.ov) || {}) };
       const cur = Array.isArray(ov._paymentVisionLearning) ? ov._paymentVisionLearning : [];
       ov._paymentVisionLearning = cur.concat([{ ...entry, ts: Date.now() }]).slice(-200);
-      await postState(ov);
+      const res = await http("state", { ov });
+      if (res && res.ts) {
+        lastWriteTs = Math.max(lastWriteTs, res.ts);
+        cachedOv = ov;
+      }
       return { ok: true };
     },
 
@@ -454,7 +486,7 @@ export function createNetlifyAdapter() {
     },
 
     async listEventsMeta() {
-      const d = await httpConditional("calendar");
+      const d = await http(`calendar?${cb()}`);
       return { events: d.events || [], syncedAt: d.syncedAt || 0, request: d.request || 0 };
     },
 

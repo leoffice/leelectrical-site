@@ -309,34 +309,97 @@ function normToken(s) {
 }
 
 function tokenHits(hay, token) {
-  const t = normToken(token);
+  return tokenHitsNorm(normToken(hay), token);
+}
+
+/**
+ * tokenHits against an ALREADY-normalized haystack.
+ *
+ * The haystack is the event's whole text, and the old tokenHits re-normalized
+ * it on every call — up to five times per job, for every job, for every event.
+ * At LE's data size that was ~2.4M regex passes over the same strings and made
+ * the reminder badge take ~0.9s on each jobs/events/commands change
+ * (Levi 2026-07-28). Callers in a loop must hoist the normalization.
+ */
+function tokenHitsNorm(normHay, token) {
+  return tokenHitsBothNorm(normHay, normToken(token));
+}
+
+/** Both sides pre-normalized — the form the scoring loops use. */
+function tokenHitsBothNorm(normHay, t, words) {
   if (!t || t.length < 3) return false;
-  const h = normToken(hay);
-  if (h.includes(t)) return true;
-  const words = t.split(" ").filter((w) => w.length >= 3);
-  return words.length > 0 && words.every((w) => h.includes(w));
+  if (normHay.includes(t)) return true;
+  const parts = words || t.split(" ").filter((w) => w.length >= 3);
+  return parts.length > 0 && parts.every((w) => normHay.includes(w));
+}
+
+/** Pre-split the multi-word fallback so the loops don't re-split per event. */
+function normEntry(raw) {
+  const t = normToken(raw);
+  return { t, words: t.split(" ").filter((w) => w.length >= 3) };
 }
 
 /** Suggested jobs matching a calendar event (reverse of suggestAppointmentsForJob). */
-export function suggestJobsForEvent(event, jobs, limit = 5) {
-  const hay = [event?.summary, event?.location, displayEventNotes(event?.description)].filter(Boolean).join(" ");
-  const active = (jobs || []).filter((j) => !j._archived && !j._deleted);
-  const scored = [];
-  for (const j of active) {
+/**
+ * Normalized match fields per job, cached against the jobs ARRAY identity.
+ *
+ * Scoring re-normalized every job's name/company/address/title once per event.
+ * Over a reminder build that is jobs × events normalizations of strings that
+ * never changed; caching per array turns it into jobs, once (Levi 2026-07-28).
+ * The store hands out a stable array unless the data really changed, so the
+ * cache hits on every subsequent event in the same pass.
+ */
+const jobMatchIndexCache = new WeakMap();
+
+function jobMatchIndex(jobs) {
+  const list = jobs || [];
+  const hit = jobMatchIndexCache.get(list);
+  if (hit) return hit;
+  const built = [];
+  for (const j of list) {
+    if (j._archived || j._deleted) continue;
     const customer = j.customer || "";
     const company = j.businessName || "";
     const address = j.serviceAddress || j.address || "";
-    const street = address.split(",")[0].trim();
+    const nCustomer = normEntry(customer);
+    const nCompany = normEntry(company);
+    built.push({
+      job: j,
+      nCustomer,
+      nCompany,
+      nAddress: normEntry(address),
+      nStreet: normEntry(address.split(",")[0].trim()),
+      nTitle: normEntry(j.title || ""),
+      streetLen: address.split(",")[0].trim().length,
+      invoiceNo: j.invoiceNo ? String(j.invoiceNo) : "",
+      distinctCompany: !!company && nCompany.t !== nCustomer.t,
+    });
+  }
+  try {
+    jobMatchIndexCache.set(list, built);
+  } catch {
+    /* non-object (frozen/primitive) — just skip caching */
+  }
+  return built;
+}
+
+export function suggestJobsForEvent(event, jobs, limit = 5) {
+  const hay = [event?.summary, event?.location, displayEventNotes(event?.description)].filter(Boolean).join(" ");
+  // Normalize the event text ONCE, not once per job per field.
+  const normHay = normToken(hay);
+  const normLoc = event?.location ? normToken(event.location) : normHay;
+  const scored = [];
+  for (const e of jobMatchIndex(jobs)) {
     let score = 0;
-    if (tokenHits(hay, customer)) score += 4;
-    if (company && normToken(company) !== normToken(customer) && tokenHits(hay, company)) score += 3;
-    if (street.length >= 5) {
-      if (tokenHits(event?.location || hay, street)) score += 5;
-      else if (tokenHits(hay, address)) score += 4;
+    if (tokenHitsBothNorm(normHay, e.nCustomer.t, e.nCustomer.words)) score += 4;
+    if (e.distinctCompany && tokenHitsBothNorm(normHay, e.nCompany.t, e.nCompany.words)) score += 3;
+    if (e.streetLen >= 5) {
+      if (tokenHitsBothNorm(normLoc, e.nStreet.t, e.nStreet.words)) score += 5;
+      else if (tokenHitsBothNorm(normHay, e.nAddress.t, e.nAddress.words)) score += 4;
     }
-    if (j.title && tokenHits(hay, j.title)) score += 2;
-    if (j.invoiceNo && hay.includes(String(j.invoiceNo))) score += 3;
-    if (score > 0) scored.push({ job: j, score });
+    if (e.nTitle.t && tokenHitsBothNorm(normHay, e.nTitle.t, e.nTitle.words)) score += 2;
+    if (e.invoiceNo && hay.includes(e.invoiceNo)) score += 3;
+    if (score > 0) scored.push({ job: e.job, score });
   }
   return scored
     .sort((a, b) => b.score - a.score || (b.job.customer || "").localeCompare(a.job.customer || ""))
@@ -352,14 +415,17 @@ export function suggestAppointmentsForJob(job, events, _year, limit = 8) {
   const street = address.split(",")[0].trim();
   const base = eventsWithinCalendarSearch(events);
   const scored = [];
+  // Job side is fixed here — normalize it once, then walk the events.
+  const sameCompany = company && normToken(company) === normToken(customer);
   for (const e of base) {
     const hay = [e.summary, e.location, displayEventNotes(e.description)].filter(Boolean).join(" ");
+    const normHay = normToken(hay);
     let score = 0;
-    if (tokenHits(hay, customer)) score += 4;
-    if (company && normToken(company) !== normToken(customer) && tokenHits(hay, company)) score += 3;
+    if (tokenHitsNorm(normHay, customer)) score += 4;
+    if (company && !sameCompany && tokenHitsNorm(normHay, company)) score += 3;
     if (street.length >= 5) {
-      if (tokenHits(e.location || hay, street)) score += 5;
-      else if (tokenHits(hay, address)) score += 4;
+      if (tokenHitsNorm(e.location ? normToken(e.location) : normHay, street)) score += 5;
+      else if (tokenHitsNorm(normHay, address)) score += 4;
     }
     if (score > 0) scored.push({ event: e, score });
   }

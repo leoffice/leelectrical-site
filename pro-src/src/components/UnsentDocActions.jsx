@@ -1,10 +1,14 @@
 // Parallel actions for unsent invoice/estimate reminders:
-// Open · Verify · Remind Me Later · Don't Remind Me
+// Open · Verify · Send reminder / Remind Me Later · Don't Remind Me
+//
+// Laid out three-across (Levi 2026-07-27) so the whole set reads in one or two
+// lines under the document facts instead of a five-button vertical stack.
 import React, { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { Fld } from "./Sheet.jsx";
 import ReminderDateTimePicker from "./ReminderDateTimePicker.jsx";
 import VerifyReminderButton from "./VerifyReminderButton.jsx";
+import AppointmentEmailSheet from "./AppointmentEmailSheet.jsx";
 import { useStore } from "../state/store.jsx";
 import { todayStr } from "../lib/format.js";
 import {
@@ -18,6 +22,8 @@ import {
 } from "../lib/followUpStatus.js";
 
 const BTN =
+  "btn bg-slate-100 text-slate-800 w-full border border-slate-200 !px-1.5 !py-2.5 text-[13px] font-bold leading-tight";
+const WIDE_BTN =
   "btn bg-slate-100 text-slate-800 w-full border border-slate-200 !py-2.5 text-sm font-bold";
 
 /**
@@ -46,9 +52,13 @@ export default function UnsentDocActions({
   const nav = useNavigate();
   const { showToast } = useStore();
   const [picking, setPicking] = useState(false);
+  const [emailing, setEmailing] = useState(false);
   const [dt, setDt] = useState(() => defaultRemindDatetime());
   const today = todayStr();
   const label = docKind === "invoice" ? "invoice" : "estimate";
+  // An unsent invoice is chased with a follow-up; an unsent estimate with a
+  // reminder to approve it. Same sheet, kind-appropriate wording.
+  const sendLabel = docKind === "invoice" ? "Send follow-up" : "Send reminder";
 
   const openDoc = () => {
     onOpen && onOpen();
@@ -104,7 +114,7 @@ export default function UnsentDocActions({
         </button>
         <button
           type="button"
-          className={BTN}
+          className={WIDE_BTN}
           onClick={() => setPicking(false)}
           data-testid="unsent-doc-remind-cancel"
         >
@@ -116,7 +126,7 @@ export default function UnsentDocActions({
 
   return (
     <div className={mb ? "mb-2" : ""} data-testid="unsent-doc-actions">
-      <div className="grid grid-cols-1 gap-2">
+      <div className="grid grid-cols-3 gap-2">
         <button type="button" className={BTN} onClick={openDoc} data-testid="unsent-doc-open">
           Open
         </button>
@@ -136,20 +146,41 @@ export default function UnsentDocActions({
         <button
           type="button"
           className={BTN}
-          onClick={() => setPicking(true)}
-          data-testid="unsent-doc-remind-later"
+          onClick={() => {
+            if (!job?.id) return showToast("Link this reminder to a job first");
+            setEmailing(true);
+          }}
+          data-testid="unsent-doc-send-reminder"
         >
-          Remind Me Later
+          {sendLabel}
         </button>
         <button
           type="button"
           className={BTN}
+          onClick={() => setPicking(true)}
+          data-testid="unsent-doc-remind-later"
+        >
+          Remind later
+        </button>
+        <button
+          type="button"
+          className={BTN + " col-span-2"}
           onClick={dontRemind}
           data-testid="unsent-doc-dismiss"
         >
-          Don't Remind Me
+          Don&apos;t remind me
         </button>
       </div>
+
+      {/* Draft the customer email; closing it drops back to the options above. */}
+      {emailing && job?.id ? (
+        <AppointmentEmailSheet
+          job={job}
+          emailKind={docKind === "invoice" ? "invoice" : "estimate"}
+          title={sendLabel}
+          onClose={() => setEmailing(false)}
+        />
+      ) : null}
     </div>
   );
 }
