@@ -60,7 +60,7 @@ import {
 } from "../lib/customers.js";
 import { touchCustomer } from "../lib/customerRecency.js";
 import { GroupJobRow } from "../components/JobCard.jsx";
-import { normalizePayments } from "../lib/payments.js";
+import { movePayment, normalizePayments } from "../lib/payments.js";
 import Toggle from "../components/Toggle.jsx";
 import Jobs from "./Jobs.jsx";
 import JobDocSheets, { openDocTab } from "../components/JobDocSheets.jsx";
@@ -267,17 +267,43 @@ export default function JobDetail() {
   };
 
   const openDocEdit = sp.get("edit") === "1";
+  const fromEst = sp.get("fromEst") === "1";
+  const returnPayId = sp.get("returnPayId") || "";
+  const returnPayJob = sp.get("returnPayJob") || "";
   useEffect(() => {
     if (openPay && job) setSheet({ kind: "paymenu" });
     if (openPayHist && job) {
       setSheet({ kind: "payhist", editPayId: openPayId || null });
     }
     if (openDocCreate && job && (openDoc === "estimate" || openDoc === "invoice")) {
-      setSheet({ kind: "docBuild", docKind: openDoc, mode: "create" });
+      const returnTo = returnPayId
+        ? {
+            kind: "payhist",
+            editPayId: returnPayId,
+            // If payment lived on another job, parent paysheet uses current job after convert.
+            _returnPayJob: returnPayJob || "",
+          }
+        : null;
+      if (fromEst && openDoc === "invoice") {
+        setSheet({
+          kind: "progressPct",
+          title: "Convert estimate to invoice",
+          hint: "What percentage of the estimate should this invoice bill?",
+          next: { kind: "docBuild", docKind: "invoice", mode: "turn_from_estimate" },
+          returnTo,
+        });
+      } else {
+        setSheet({
+          kind: "docBuild",
+          docKind: openDoc,
+          mode: "create",
+          returnTo,
+        });
+      }
     } else if (openDocEdit && job && (openDoc === "estimate" || openDoc === "invoice")) {
       setSheet({ kind: "docBuild", docKind: openDoc, mode: "edit" });
     }
-  }, [openPay, openPayHist, openPayId, openDoc, openDocCreate, openDocEdit, job?.id]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [openPay, openPayHist, openPayId, openDoc, openDocCreate, openDocEdit, fromEst, returnPayId, returnPayJob, job?.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // 5s auto-collapse of the step action row (sleek's stepTimer)
   useEffect(() => {
@@ -410,7 +436,38 @@ export default function JobDetail() {
       />
 
       {shortTxns ? (
-        <CustomerTransactionHistory jobs={customerJobs} fromCust={custKey || fromCust} />
+        <CustomerTransactionHistory
+          jobs={customerJobs}
+          fromCust={custKey || fromCust}
+          onOpenRow={(row) => {
+            // Stay on this job page — payment sheet opens instantly (no full remount hang).
+            if (row?.kind === "payment") {
+              const payJobId = row.jobId;
+              if (payJobId && String(payJobId) !== String(job.id)) {
+                const parts = ["fold=1", "focus=job", "payhist=1"];
+                if (fromCust || custKey) parts.push("from=" + encodeURIComponent(fromCust || custKey));
+                if (row.payment?.id) parts.push("payId=" + encodeURIComponent(String(row.payment.id)));
+                nav("/job/" + payJobId + "?" + parts.join("&"));
+                return;
+              }
+              setSheet({
+                kind: "payhist",
+                editPayId: row.payment?.id || null,
+              });
+              return;
+            }
+            if (row?.kind === "estimate" || row?.kind === "invoice") {
+              const targetId = row.jobId;
+              if (targetId && String(targetId) !== String(job.id)) {
+                const parts = ["fold=1", "focus=job"];
+                if (fromCust || custKey) parts.push("from=" + encodeURIComponent(fromCust || custKey));
+                nav("/job/" + targetId + "?" + parts.join("&"));
+                return;
+              }
+              openDocTab(job, row.kind, setSheet);
+            }
+          }}
+        />
       ) : null}
 
       {pending[id] ? (
@@ -473,6 +530,7 @@ export default function JobDetail() {
           <div className="mt-2" data-testid="job-txn-history-section">
             <JobTransactionHistory
               job={job}
+              customerJobs={customerJobs}
               onOpenFull={() => setSheet({ kind: "payhist" })}
               onOpenRow={(row) => {
                 // Payment rows open the payment card (edit / delete / reassign invoice or customer).
@@ -480,6 +538,9 @@ export default function JobDetail() {
                   setSheet({
                     kind: "payhist",
                     editPayId: row.payment?.id || null,
+                    applyTargetJobId: row.applyTargetJobId || null,
+                    applyTargetDocNo: row.applyTargetDocNo || null,
+                    openApply: !!row.openApply,
                   });
                 }
               }}
@@ -676,7 +737,7 @@ export default function JobDetail() {
                                     onClick={() => setSheet({ kind: "docBuild", docKind: "estimate", mode: "edit" })}
                                     data-testid="edit-estimate-paperwork"
                                   >
-                                    Edit estimate
+                                    Edit Est #{job.estimateNo}
                                   </button>
                                 ) : null}
                                 {(job.estimateNo || (job.estimateLines && job.estimateLines.length)) && !job.invoiceNo ? (
@@ -692,7 +753,7 @@ export default function JobDetail() {
                                     }
                                     data-testid="turn-to-invoice"
                                   >
-                                    Turn to invoice
+                                    {job.estimateNo ? "Turn Est #" + job.estimateNo + " to invoice" : "Turn to invoice"}
                                   </button>
                                 ) : null}
                               </>
@@ -719,7 +780,7 @@ export default function JobDetail() {
                                     onClick={() => setSheet({ kind: "docBuild", docKind: "invoice", mode: "edit" })}
                                     data-testid="edit-invoice-paperwork"
                                   >
-                                    Edit invoice
+                                    Edit Inv #{job.invoiceNo}
                                   </button>
                                 ) : null}
                               </>
@@ -1151,11 +1212,49 @@ export default function JobDetail() {
       )}
       {sheet?.kind === "payhist" && (
         <PaymentHistorySheet
-          key={"payhist-" + (sheet.editPayId || "list")}
+          key={
+            "payhist-" +
+            (sheet.editPayId || "list") +
+            "-" +
+            (sheet.applyTargetJobId || "") +
+            "-" +
+            (sheet.openApply ? "apply" : "")
+          }
           job={job}
           onClose={() => setSheet(null)}
           onAddPayment={() => setSheet({ kind: "paid" })}
           initialEditId={sheet.editPayId || null}
+          applyTargetJobId={sheet.applyTargetJobId || null}
+          applyTargetDocNo={sheet.applyTargetDocNo || null}
+          openApply={!!sheet.openApply}
+          onConvertEstimate={(estJob, draft) => {
+            const targetId = estJob?.id || job.id;
+            const returnTo = {
+              kind: "payhist",
+              editPayId: draft?.paymentId || sheet.editPayId || null,
+            };
+            // Same job: open convert flow and return to this payment after Save.
+            if (String(targetId) === String(job.id)) {
+              setSheet({
+                kind: "progressPct",
+                title: "Convert estimate to invoice",
+                hint: "What percentage of the estimate should this invoice bill?",
+                next: {
+                  kind: "docBuild",
+                  docKind: "invoice",
+                  mode: "turn_from_estimate",
+                },
+                returnTo,
+              });
+              return;
+            }
+            // Different job: jump there with convert + return pay context.
+            const parts = ["fold=1", "focus=job", "doc=invoice", "create=1", "fromEst=1"];
+            if (fromCust) parts.push("from=" + encodeURIComponent(fromCust));
+            if (draft?.paymentId) parts.push("returnPayId=" + encodeURIComponent(String(draft.paymentId)));
+            if (draft?.sourceJobId) parts.push("returnPayJob=" + encodeURIComponent(String(draft.sourceJobId)));
+            nav("/job/" + targetId + "?" + parts.join("&"));
+          }}
         />
       )}
       {sheet?.kind === "paymenu" && (
@@ -1264,7 +1363,30 @@ export default function JobDetail() {
           onClose={() => setSheet(null)}
         />
       ) : null}
-      <JobDocSheets sheet={sheet} setSheet={setSheet} job={job} onDocDone={() => setOpenStep(null)} />
+      <JobDocSheets
+        sheet={sheet}
+        setSheet={setSheet}
+        job={job}
+        onDocDone={(doneJob, meta) => {
+          setOpenStep(null);
+          // After convert-from-payment Save, payment sheet is reopened via returnTo.
+          // Move orphan payment onto this job when convert finished on a different estimate job.
+          const ret = meta?.returnTo;
+          if (ret?.kind === "payhist" && ret.editPayId && ret._returnPayJob && doneJob?.id) {
+            const fromId = ret._returnPayJob;
+            if (String(fromId) !== String(doneJob.id)) {
+              const fromLive = effectiveJob(fromId);
+              const toLive = effectiveJob(doneJob.id) || doneJob;
+              if (fromLive && toLive) {
+                const moved = movePayment(fromLive, toLive, ret.editPayId, {});
+                if (moved?.patches?.length) {
+                  for (const row of moved.patches) patchJob(row.jobId, row.patch);
+                }
+              }
+            }
+          }
+        }}
+      />
     </div>
   );
 

@@ -7,6 +7,7 @@ import {
   txnKindStyle,
   txnRowDisplay,
 } from "../lib/customerTransactions.js";
+import { suggestInvoiceForPayment } from "../lib/paymentApply.js";
 import { amountPaid, openBalance, paidPct } from "../lib/customers.js";
 import { fmt$ } from "../lib/format.js";
 
@@ -29,37 +30,63 @@ function countKinds(rows) {
   return { all: rows.length, invoices, payments, estimates };
 }
 
+function DocBubble({ docNo, color }) {
+  if (!docNo) return null;
+  const c = color || {};
+  const shape = c.shape || "pill";
+  const shapeCls =
+    shape === "square" ? "rounded-md" : shape === "tag" ? "rounded-sm border-l-2" : "rounded-full";
+  return (
+    <span
+      className={
+        "inline-flex items-center px-1.5 py-0.5 text-[10px] font-extrabold tabular-nums ring-1 border shrink-0 " +
+        shapeCls +
+        " " +
+        (c.bg || "bg-slate-100") +
+        " " +
+        (c.text || "text-slate-700") +
+        " " +
+        (c.ring || "ring-slate-200") +
+        " " +
+        (c.border || "border-slate-300")
+      }
+      data-testid={"job-txn-bubble-" + docNo}
+    >
+      {docNo}
+    </span>
+  );
+}
+
 function Row({ row, onOpen }) {
   const kind = txnKindStyle(row.kind);
   const { amount, amountClass, isOpen } = txnRowDisplay(row);
+  const unlinkedPay = row.kind === "payment" && row.unlinked;
+  const suggest = row.kind === "payment" ? row.applySuggestion : null;
   const mid =
     row.kind === "payment"
-      ? [row.method || "Payment", row.docNo ? "#" + row.docNo : ""].filter(Boolean).join(" · ")
-      : row.docNo
-        ? "#" + row.docNo
-        : "";
+      ? [row.method || "Payment"].filter(Boolean).join(" · ")
+      : row.address || "";
   const clickable = typeof onOpen === "function";
-  const Comp = clickable ? "button" : "div";
-  const clickProps = clickable
-    ? { type: "button", onClick: () => onOpen(row) }
-    : {};
+
+  const rowTestId =
+    row.kind === "payment"
+      ? "job-txn-pay-" + (row.payment?.id || row.id)
+      : row.kind === "estimate"
+        ? "job-txn-est-" + row.docNo
+        : "job-txn-inv-" + row.docNo;
 
   return (
-    <Comp
+    <div
       className={
-        "w-full text-left rounded-lg border border-slate-100 bg-white overflow-hidden " +
-        (isOpen ? "flex items-stretch" : "") +
-        (clickable ? " active:bg-slate-50" : "")
+        "w-full text-left rounded-lg border overflow-hidden " +
+        (unlinkedPay
+          ? "border-amber-300 bg-amber-50 ring-1 ring-amber-200"
+          : "border-slate-100 bg-white") +
+        (isOpen ? " flex items-stretch" : "")
       }
-      data-testid={
-        row.kind === "payment"
-          ? "job-txn-pay-" + (row.payment?.id || row.id)
-          : row.kind === "estimate"
-            ? "job-txn-est-" + row.docNo
-            : "job-txn-inv-" + row.docNo
-      }
+      data-testid={rowTestId}
       data-open-invoice={isOpen ? "1" : "0"}
-      {...clickProps}
+      data-unlinked-payment={unlinkedPay ? "1" : "0"}
     >
       {isOpen ? (
         <span
@@ -68,44 +95,128 @@ function Row({ row, onOpen }) {
           aria-hidden
         />
       ) : null}
-      <div className="flex-1 min-w-0 px-2.5 py-1.5">
-        <div className="flex items-center justify-between gap-2 min-w-0">
-          <div className="flex items-center gap-1.5 min-w-0 flex-1 overflow-hidden">
-            <span
-              className={
-                "text-[10px] font-extrabold uppercase tracking-wide shrink-0 " + kind.className
-              }
-              data-testid={"job-txn-kind-" + row.kind}
-            >
-              {kind.label}
-            </span>
-            {row.dateLabel ? (
-              <span className="text-[11px] text-slate-500 tabular-nums shrink-0">{row.dateLabel}</span>
-            ) : null}
-            {mid ? <span className="text-xs text-slate-600 truncate min-w-0">{mid}</span> : null}
+      <div className="flex-1 min-w-0">
+        {clickable ? (
+          <button
+            type="button"
+            className={
+              "w-full text-left px-2.5 py-1.5 " +
+              (unlinkedPay ? "active:bg-amber-100/80" : "active:bg-slate-50")
+            }
+            onClick={() => onOpen(row)}
+          >
+            <RowInner
+              kind={kind}
+              unlinkedPay={unlinkedPay}
+              row={row}
+              mid={mid}
+              amount={amount}
+              amountClass={amountClass}
+            />
+          </button>
+        ) : (
+          <div className="px-2.5 py-1.5">
+            <RowInner
+              kind={kind}
+              unlinkedPay={unlinkedPay}
+              row={row}
+              mid={mid}
+              amount={amount}
+              amountClass={amountClass}
+            />
           </div>
-          {amount ? (
-            <div
-              className={"text-sm font-bold tabular-nums shrink-0 " + amountClass}
-              data-testid="job-txn-amount"
+        )}
+        {clickable && unlinkedPay && suggest?.kind === "invoice" && suggest.docNo ? (
+          <div className="px-2.5 pb-1.5">
+            <button
+              type="button"
+              className="w-full rounded-lg border border-brand/40 bg-white text-brand text-[11px] font-bold py-1.5 px-2 active:bg-brand-soft"
+              data-testid={"job-txn-apply-" + suggest.docNo}
+              onClick={() =>
+                onOpen({
+                  ...row,
+                  applyTargetJobId: suggest.job?.id,
+                  applyTargetDocNo: suggest.docNo,
+                  openApply: true,
+                })
+              }
             >
-              {amount}
-            </div>
-          ) : null}
-        </div>
+              Apply to invoice #{suggest.docNo}
+            </button>
+          </div>
+        ) : null}
       </div>
-    </Comp>
+    </div>
   );
 }
 
-export default function JobTransactionHistory({ job, onOpenFull, onOpenRow }) {
+function RowInner({ kind, unlinkedPay, row, mid, amount, amountClass }) {
+  return (
+    <div className="flex items-center justify-between gap-2 min-w-0">
+      <div className="flex items-center gap-1.5 min-w-0 flex-1 overflow-hidden">
+        <span
+          className={
+            "text-[10px] font-extrabold uppercase tracking-wide shrink-0 " +
+            (unlinkedPay ? "text-amber-800" : kind.className)
+          }
+          data-testid={"job-txn-kind-" + row.kind}
+        >
+          {kind.label}
+        </span>
+        {row.docNo ? (
+          <DocBubble docNo={row.docNo} color={row.color} />
+        ) : unlinkedPay ? (
+          <span
+            className="inline-flex items-center px-1.5 py-0.5 text-[10px] font-extrabold rounded-full bg-amber-200 text-amber-950 ring-1 ring-amber-400 border border-amber-400 shrink-0"
+            data-testid="job-txn-unlinked-badge"
+          >
+            No invoice
+          </span>
+        ) : null}
+        {row.dateLabel ? (
+          <span className="text-[11px] text-slate-500 tabular-nums shrink-0">{row.dateLabel}</span>
+        ) : null}
+        {mid ? <span className="text-xs text-slate-600 truncate min-w-0">{mid}</span> : null}
+      </div>
+      {amount ? (
+        <div
+          className={"text-sm font-bold tabular-nums shrink-0 " + amountClass}
+          data-testid="job-txn-amount"
+        >
+          {amount}
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+export default function JobTransactionHistory({
+  job,
+  /** Full customer job list so unlinked payments can suggest other invoices. */
+  customerJobs,
+  onOpenFull,
+  onOpenRow,
+}) {
   const [filter, setFilter] = useState("all");
+  // Suggest across the customer; still only SHOW this job's rows.
+  const suggestJobs = useMemo(() => {
+    if (Array.isArray(customerJobs) && customerJobs.length) return customerJobs;
+    return job ? [job] : [];
+  }, [customerJobs, job]);
   const jobs = useMemo(() => (job ? [job] : []), [job]);
   // Build once — filter/count from the same list (faster than rebuild per tab).
-  const allRows = useMemo(
-    () => buildCustomerTransactions(jobs, { filter: "all", sort: "new" }),
-    [jobs]
-  );
+  const allRows = useMemo(() => {
+    const rows = buildCustomerTransactions(jobs, { filter: "all", sort: "new" });
+    // Re-suggest using the wider customer list so "Apply to invoice #…" works.
+    if (suggestJobs.length <= 1) return rows;
+    return rows.map((r) => {
+      if (r.kind !== "payment" || !r.unlinked) return r;
+      return {
+        ...r,
+        applySuggestion: suggestInvoiceForPayment(suggestJobs, r.job, r.payment),
+      };
+    });
+  }, [jobs, suggestJobs]);
   const counts = useMemo(() => countKinds(allRows), [allRows]);
   const rows = useMemo(() => {
     if (filter === "all") return allRows;

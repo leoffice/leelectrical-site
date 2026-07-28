@@ -4,6 +4,11 @@ import { openBalance, invoiceTotal } from "./customers.js";
 import { normalizePayments, normalizePaymentMethod, fmtPaymentDate } from "./payments.js";
 import { fmt$ } from "./format.js";
 import { serviceAddressDisplay } from "./customerSync.js";
+import {
+  isPaymentUnlinked,
+  paymentInvoiceDocNo,
+  suggestInvoiceForPayment,
+} from "./paymentApply.js";
 
 /**
  * Soft palette for doc-number bubbles — NO green (payment amount stays green).
@@ -199,6 +204,8 @@ export function buildCustomerTransactions(jobs, { filter = "all", sort = "new" }
 
     for (const p of normalizePayments(j)) {
       const dateRaw = p.date || "";
+      const unlinked = isPaymentUnlinked(j, p);
+      const docNo = paymentInvoiceDocNo(j, p);
       rows.push({
         id: "pay:" + j.id + ":" + (p.id || dateRaw + p.amount),
         kind: "payment",
@@ -208,12 +215,22 @@ export function buildCustomerTransactions(jobs, { filter = "all", sort = "new" }
         payment: p,
         amount: p.amount,
         method: normalizePaymentMethod(p.method, { note: p.note, ref: p.ref }),
-        docNo: j.invoiceNo ? String(j.invoiceNo) : j.linkedInvoiceNo ? String(j.linkedInvoiceNo) : "",
+        docNo,
         address,
         dateLabel: shortTxnDate(dateRaw),
-        color: familyColor,
+        // Unlinked: muted slate so amount green still pops; whole card tinted in UI.
+        color: unlinked ? { bg: "bg-slate-100", text: "text-slate-500", ring: "ring-slate-200", border: "border-slate-300", shape: "pill" } : familyColor,
+        unlinked,
+        // Suggestion filled later for customer-level lists (needs all jobs).
+        applySuggestion: null,
       });
     }
+  }
+
+  // Attach best invoice suggestions for unlinked payments (uses full customer job set).
+  for (const row of rows) {
+    if (row.kind !== "payment" || !row.unlinked) continue;
+    row.applySuggestion = suggestInvoiceForPayment(liveJobs, row.job, row.payment);
   }
 
   let list = rows;

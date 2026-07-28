@@ -18,7 +18,13 @@ import {
   skipAwarenessBubble,
   tapAwarenessBubble,
 } from "../lib/bubbleHandlers.js";
-import { CustEditSheet, PaperworkApptSheet, CustomerMenuSheet } from "../components/JobSheets.jsx";
+import {
+  CustEditSheet,
+  PaperworkApptSheet,
+  CustomerMenuSheet,
+  PaymentHistorySheet,
+  MarkPaidSheet,
+} from "../components/JobSheets.jsx";
 import CustomerComposeSheet from "../components/CustomerComposeSheet.jsx";
 import { sortJobs } from "../lib/stages.js";
 import {
@@ -29,6 +35,7 @@ import {
 } from "../lib/customers.js";
 import { touchCustomer } from "../lib/customerRecency.js";
 import { waitForCommandDone } from "../lib/commandWait.js";
+import { movePayment } from "../lib/payments.js";
 
 // Module cache — avoid re-fetching the full customer index every time you open a card.
 let qboIndexCache = null;
@@ -37,13 +44,10 @@ let qboIndexInflight = null;
 export default function CustomerView() {
   const { key: raw } = useParams();
   const nav = useNavigate();
-  const { jobs, loading, events, commands, patchJob, refreshJobs, api, enqueue, showToast } = useStore();
+  const { jobs, loading, events, commands, patchJob, refreshJobs, api, enqueue, showToast, effectiveJob } =
+    useStore();
   const [qboIndex, setQboIndex] = useState(() => qboIndexCache || []);
-  // Default ON: the customer page opens with its transaction history already
-  // showing (Levi 2026-07-22). This shipped once via a dirty deploy and then
-  // regressed when a clean-tree deploy — built from the committed source, which
-  // still had this defaulting to false — went out; restored here on the source
-  // line so it can't silently revert again.
+  // Default on: customer info + transaction history (Levi 2026-07-22).
   const [shortTxns, setShortTxns] = useState(true);
   // Snappy open (Levi): paint the customer card first; heavy list + history after first paint.
   const testMode = typeof import.meta !== "undefined" && import.meta.env?.MODE === "test";
@@ -307,6 +311,45 @@ export default function CustomerView() {
     openDocTab(j, kind, (s) => setSheetFn({ ...s, job: j }));
   };
 
+  /** Open payment / invoice / estimate without remounting full job page (snappy). */
+  const openTxnRow = (row) => {
+    if (!row?.jobId) return;
+    const j = (effectiveJob && effectiveJob(row.jobId)) || row.job || displayJobs.find((x) => x.id === row.jobId);
+    if (!j) {
+      nav(
+        "/job/" +
+          row.jobId +
+          "?from=" +
+          encodeURIComponent(key) +
+          "&fold=1&focus=job" +
+          (row.kind === "payment" && row.payment?.id
+            ? "&payhist=1&payId=" + encodeURIComponent(String(row.payment.id))
+            : "")
+      );
+      return;
+    }
+    if (row.kind === "payment") {
+      setSheet({
+        kind: "payhist",
+        job: j,
+        editPayId: row.payment?.id || null,
+        applyTargetJobId: row.applyTargetJobId || null,
+        applyTargetDocNo: row.applyTargetDocNo || null,
+        openApply: !!row.openApply,
+      });
+      return;
+    }
+    if (row.kind === "estimate") {
+      openDocFor(j, "estimate");
+      return;
+    }
+    if (row.kind === "invoice") {
+      openDocFor(j, "invoice");
+      return;
+    }
+    nav("/job/" + row.jobId + "?from=" + encodeURIComponent(key) + "&fold=1&focus=job");
+  };
+
   const panel = (
     <div className="space-y-3.5 min-w-0" data-testid="customer-view">
       <div className="flex items-center gap-2">
@@ -329,7 +372,6 @@ export default function CustomerView() {
       </div>
 
       <CustomerCard
-        showServiceAddress={false}
         contact={contact}
         summary={summary}
         primaryJob={primaryJob}
@@ -392,11 +434,19 @@ export default function CustomerView() {
           <>
             <CustomerDocTabs jobs={displayJobs} fromCust={key} />
             {shortTxns ? (
-              <CustomerTransactionHistory jobs={displayJobs} fromCust={key} />
+              <CustomerTransactionHistory
+                jobs={displayJobs}
+                fromCust={key}
+                onOpenRow={openTxnRow}
+              />
             ) : null}
           </>
         ) : shortTxns ? (
-          <CustomerTransactionHistory jobs={displayJobs} fromCust={key} />
+          <CustomerTransactionHistory
+            jobs={displayJobs}
+            fromCust={key}
+            onOpenRow={openTxnRow}
+          />
         ) : null
       ) : (
         <div
@@ -486,11 +536,79 @@ export default function CustomerView() {
           onClose={() => setSheet(null)}
         />
       ) : null}
+      {sheet?.kind === "payhist" && sheet.job ? (
+        <PaymentHistorySheet
+          key={
+            "cust-payhist-" +
+            sheet.job.id +
+            "-" +
+            (sheet.editPayId || "list") +
+            "-" +
+            (sheet.applyTargetJobId || "") +
+            "-" +
+            (sheet.openApply ? "apply" : "")
+          }
+          job={sheet.job}
+          onClose={() => setSheet(null)}
+          onAddPayment={() => setSheet({ kind: "paid", job: sheet.job })}
+          initialEditId={sheet.editPayId || null}
+          applyTargetJobId={sheet.applyTargetJobId || null}
+          applyTargetDocNo={sheet.applyTargetDocNo || null}
+          openApply={!!sheet.openApply}
+          onConvertEstimate={(estJob, draft) => {
+            const target = estJob || sheet.job;
+            setDocSheet({
+              kind: "progressPct",
+              job: target,
+              title: "Convert estimate to invoice",
+              hint: "What percentage of the estimate should this invoice bill?",
+              next: {
+                kind: "docBuild",
+                docKind: "invoice",
+                mode: "turn_from_estimate",
+              },
+              returnTo: {
+                kind: "payhist",
+                job: target,
+                editPayId: draft?.paymentId || sheet.editPayId || null,
+                _returnPayJob: draft?.sourceJobId || sheet.job?.id || "",
+              },
+            });
+          }}
+        />
+      ) : null}
+      {sheet?.kind === "paid" && sheet.job ? (
+        <MarkPaidSheet job={sheet.job} onClose={() => setSheet(null)} />
+      ) : null}
       <JobDocSheets
         sheet={sheet?.job ? sheet : null}
         setSheet={setDocSheet}
         job={sheet?.job}
-        onDocDone={() => setDocSheet(null)}
+        onDocDone={(doneJob, meta) => {
+          const ret = meta?.returnTo;
+          if (ret?.kind === "payhist" && ret.editPayId && ret._returnPayJob && doneJob?.id) {
+            const fromId = ret._returnPayJob;
+            if (String(fromId) !== String(doneJob.id)) {
+              const fromLive = effectiveJob?.(fromId);
+              const toLive = effectiveJob?.(doneJob.id) || doneJob;
+              if (fromLive && toLive) {
+                const moved = movePayment(fromLive, toLive, ret.editPayId, {});
+                if (moved?.patches?.length) {
+                  for (const row of moved.patches) patchJob(row.jobId, row.patch);
+                }
+              }
+            }
+            // returnTo already reopens payhist via JobDocSheets finishDoc → setSheet(returnTo)
+            // but setDocSheet merges job — ensure job is on the return sheet.
+            setSheet({
+              kind: "payhist",
+              job: effectiveJob?.(doneJob.id) || doneJob,
+              editPayId: ret.editPayId,
+            });
+            return;
+          }
+          if (!ret) setDocSheet(null);
+        }}
       />
     </div>
   );

@@ -13,21 +13,19 @@ import {
   jobCalendarLinkState,
   unlinkAppointmentJob,
 } from "../lib/calendarLink.js";
-import AppointmentDetailSheet from "./AppointmentDetailSheet.jsx";
 import EditAppointmentSheet from "./EditAppointmentSheet.jsx";
 import CustomerComposeSheet from "./CustomerComposeSheet.jsx";
 import { evStart } from "../lib/format.js";
-import { stashCalendarPick, CALENDAR_PICK_EVENT } from "../lib/calendarNavigate.js";
+import { stashCalendarPick } from "../lib/calendarNavigate.js";
 import CustomerSearch from "./CustomerSearch.jsx";
 import { enrichAndPatchCustomer } from "./NewJobFlow.jsx";
 import AddressAutocompleteField from "./AddressAutocompleteField.jsx";
 import { syncBillingFromService } from "../lib/addressSync.js";
 import { useStore } from "../state/store.jsx";
-import { removeDocCopy, removeDocPlan } from "../lib/deleteDoc.js";
 import { productName } from "../lib/tenantBranding.js";
 import { useTenantConfig } from "../state/tenant.jsx";
 
-import { fmt$, parseAmount, todayStr } from "../lib/format.js";
+import { fmt$, fmtAmountField, parseAmount, todayStr } from "../lib/format.js";
 import { docStorePdfUrl, openPdfBlob, openPdfUrl, downloadPdfBlob } from "../lib/pdfOpen.js";
 import { canGenerateLocalDoc, docPdfFilename } from "../lib/jobToQbDoc.js";
 import { buildInvoicePdfFromJob, buildEstimatePdfFromJob } from "../lib/invoicePdf.js";
@@ -45,16 +43,19 @@ import {
   amountPaid,
   paidPct,
 } from "../lib/customers.js";
-import {
-  parentCustomerPatch,
-  serviceAddressKey,
-  serviceAddressesForJobs,
-} from "../lib/customerHierarchy.js";
+import { parentCustomerPatch } from "../lib/customerHierarchy.js";
 import { buildPaymentLinkEmail } from "../lib/paymentLinkEmail.js";
 import { buildShortPayLandingUrl } from "../lib/payLanding.js";
 import {
+  canClearDoc,
+  clearDocLabel,
+  clearEstimatePatch,
+  clearInvoicePatch,
+} from "../lib/deleteDoc.js";
+import {
   appendPayment,
   canVoidInQbo,
+  findDuplicatePayment,
   fmtPaymentLine,
   movePayment,
   normalizePayments,
@@ -63,7 +64,9 @@ import {
 } from "../lib/payments.js";
 import {
   formatInvoicePayOption,
+  formatPayTargetOption,
   invoicesForCustomerPick,
+  payTargetsForCustomerPick,
 } from "../lib/customerDocLists.js";
 import { findJobByInvoice, reconcileZellePayment } from "../lib/zelleReconcile.js";
 import {
@@ -72,6 +75,9 @@ import {
   invoiceNoFromExtracted,
   hasUsefulPaymentAutofill,
   hasStrongPaymentAutofill,
+  paymentMethodMismatchMessage,
+  methodFromPaymentKind,
+  depositBankFromExtracted,
 } from "../lib/paymentAutofill.js";
 import { buildPaymentVisionLearningEntry } from "../lib/paymentVisionLearning.js";
 import { getDepositBanks } from "../lib/chatPayment.js";
@@ -79,6 +85,7 @@ import {
   analyzePaymentImage,
   analyzePaymentScreenshot,
   compressImageForVision,
+  detectPaymentKind,
   fileToBase64,
   normalizeVisionMime,
 } from "../lib/paymentVision.js";
@@ -100,9 +107,9 @@ import {
 import { docSendStatusLine } from "../lib/docSendStatus.js";
 import { tenantCalendarAccount, tenantSignOff } from "../lib/tenantBranding.js";
 import { beginPromptWorkPause } from "../lib/followUpReminders.js";
-import { isQuickbooksDocEnabled, resolveDocSource } from "../lib/qboEnabled.js";
+import { isQuickbooksDocsEnabled, resolveDocSource } from "../lib/qboEnabled.js";
 import { useAppSettings } from "../lib/appSettings.js";
-import { EMAIL_POLICY_KEEP } from "../lib/sendDocConfirm.js";
+import { afterSendApprovedClose, EMAIL_POLICY_KEEP } from "../lib/sendDocConfirm.js";
 
 export const PAY_METHODS = [
   "Credit card",
@@ -148,11 +155,7 @@ export function useDoSend() {
       opts.includePaymentLink !== false;
     // Settings / plan can force local-only (white-label, QuickBooks off).
     const docSource =
-      resolveDocSource(
-        opts.docSource === DOC_SOURCE_QBO ? DOC_SOURCE_QBO : DOC_SOURCE_LOCAL,
-        undefined,
-        kind
-      ) ===
+      resolveDocSource(opts.docSource === DOC_SOURCE_QBO ? DOC_SOURCE_QBO : DOC_SOURCE_LOCAL) ===
       DOC_SOURCE_QBO
         ? DOC_SOURCE_QBO
         : DOC_SOURCE_LOCAL;
@@ -373,7 +376,7 @@ export function PaymentIntroSheet({ onClose, onAttachPicture, onPickMethod }) {
       <Opt
         icon="📷"
         title="Attach a picture"
-        note="Check or Zelle screenshot — autofill amount & details"
+        note="Check, Zelle, or ACH screenshot — autofill amount & details"
         onClick={onAttachPicture}
       />
       {["Check", "Zelle", "Credit card", "Cash", "ACH"].map((method) => (
@@ -403,6 +406,7 @@ export function MarkPaidSheet({
     syncNow,
     refreshJobs,
     jobs,
+    effectiveJob,
     appendPaymentVisionFeedback,
     getPaymentVisionLearning,
   } = useStore();
@@ -410,6 +414,8 @@ export function MarkPaidSheet({
   const needsPick = !jobProp;
   const [reassign, setReassign] = useState(false);
   const [activeJob, setActiveJob] = useState(jobProp || null);
+  /** Blocks double/triple tap on Record (main cause of duplicate payments). */
+  const recordLockRef = useRef(false);
   const [pickCust, setPickCust] = useState(() => {
     if (initialCustomerName) return { name: initialCustomerName };
     if (jobProp?.customer) return { name: jobProp.customer };
@@ -425,7 +431,9 @@ export function MarkPaidSheet({
   const [amt, setAmt] = useState(() => {
     if (!jobProp) return "";
     const d = openBalance(jobProp);
-    return d > 0 ? String(d) : String(jobProp.amount || "").replace(/[$,]/g, "");
+    if (d > 0) return fmtAmountField(d);
+    const raw = parseAmount(jobProp.amount);
+    return raw > 0 ? fmtAmountField(raw) : "";
   });
   const [mth, setMth] = useState(initialMethod || "");
   const [ref, setRef] = useState("");
@@ -464,46 +472,13 @@ export function MarkPaidSheet({
     setAwaitingProof(true);
   }, [openProofPicker]);
 
-  const payCustJobs = useMemo(() => {
-    if (!showCustomerPick || !pickCust) return [];
-    return jobsForCustomerKey(jobs || [], customerKeyForName(pickCust.name)).filter(
-      (j) => j && !j._archived && !j._deleted
-    );
-  }, [showCustomerPick, pickCust, jobs]);
-
-  const payAddressOptions = useMemo(() => serviceAddressesForJobs(payCustJobs), [payCustJobs]);
-
-  const [payAddrKey, setPayAddrKey] = useState(() => serviceAddressKey(jobProp) || "");
-
-  useEffect(() => {
-    if (!showCustomerPick || !pickCust) return;
-    if (!payAddressOptions.length) {
-      setPayAddrKey("");
-      return;
-    }
-    const seed = serviceAddressKey(jobProp) || "";
-    if (seed && payAddressOptions.some((a) => a.key === seed)) {
-      setPayAddrKey(seed);
-      return;
-    }
-    if (payAddressOptions.length === 1) setPayAddrKey(payAddressOptions[0].key);
-    else setPayAddrKey((prev) => (payAddressOptions.some((a) => a.key === prev) ? prev : ""));
-  }, [showCustomerPick, pickCust, payAddressOptions, jobProp]);
-
   const openInvoices = useMemo(() => {
-    if (!showCustomerPick || !pickCust || !payAddrKey) return [];
-    const atAddr = payCustJobs.filter((j) => serviceAddressKey(j) === payAddrKey);
-    const open = atAddr.filter((j) => j.invoiceNo && !j.paid && openBalance(j) > 0.01);
-    if (
-      jobProp?.id &&
-      jobProp.invoiceNo &&
-      serviceAddressKey(jobProp) === payAddrKey &&
-      !open.some((j) => j.id === jobProp.id)
-    ) {
-      return [jobProp, ...open];
-    }
-    return open;
-  }, [showCustomerPick, pickCust, payAddrKey, payCustJobs, jobProp]);
+    if (!showCustomerPick || !pickCust) return [];
+    return invoicesForCustomerPick(jobs, pickCust.name, {
+      openOnly: true,
+      includeJobId: jobProp?.id || "",
+    });
+  }, [showCustomerPick, pickCust, jobs, jobProp?.id]);
 
   useEffect(() => {
     if (!showCustomerPick) return;
@@ -519,7 +494,11 @@ export function MarkPaidSheet({
     // Autofill may setActiveJob after reading the check — never clobber vision amount with open balance.
     if (!visionAmountLockedRef.current) {
       const d = openBalance(activeJob);
-      setAmt(d > 0 ? String(d) : String(activeJob.amount || "").replace(/[$,]/g, ""));
+      if (d > 0) setAmt(fmtAmountField(d));
+      else {
+        const raw = parseAmount(activeJob.amount);
+        setAmt(raw > 0 ? fmtAmountField(raw) : "");
+      }
     }
     setAchName(activeJob.customer || "");
     setUseSavedCard(Boolean(activeJob.solaCardToken));
@@ -546,9 +525,12 @@ export function MarkPaidSheet({
   const inv = job?.invoiceNo || "";
   const payAmt = parseFloat(String(amt).replace(/[$,]/g, "")) || 0;
   const chargeTotal = isCard ? totalWithFee(payAmt, includeFee) : payAmt;
-  const hasProof = isCheck || isZelle;
-  const proofKind = isCheck ? "check" : "zelle";
-  const processing = payPhase !== "idle" || visionAnalyzing || autofillBusy;
+  const hasProof = isCheck || isZelle || isAch;
+  const proofKind = isCheck ? "check" : isAch ? "ach" : "zelle";
+  // Card charge / vision-on-Record lock the form. Autofill must NOT lock amount/ref —
+  // locking made typing the conf # laggy and dropped MANUAL1 during auto-read (flake).
+  const formLocked = payPhase !== "idle" || visionAnalyzing;
+  const processing = formLocked;
 
   const validateManual = () => {
     if (!job) {
@@ -571,7 +553,9 @@ export function MarkPaidSheet({
   };
 
   const buildPaymentNote = (payRef, proofName, memoText = memo) => {
-    if (isCheck || isZelle) {
+    if (isCheck || isZelle || isAch) {
+      // ACH receive (customer paid us) uses the same deposit/ref note as Zelle.
+      // Optional Sola debit routing fields append when present.
       const note = paymentMemoNote({
         method: mth,
         ref: payRef,
@@ -579,13 +563,17 @@ export function MarkPaidSheet({
         proofName,
         deposit: depositVal || undefined,
       });
+      if (isAch && (achRouting || achAccount)) {
+        const debitBits = [
+          achName,
+          achRouting ? "routing " + achRouting : "",
+          achAccount ? "acct …" + achAccount.slice(-4) : "",
+        ]
+          .filter(Boolean)
+          .join(" · ");
+        return [note, debitBits].filter(Boolean).join(" · ");
+      }
       return note || "";
-    }
-    if (isAch) {
-      const bits = [achName, achRouting ? "routing " + achRouting : "", achAccount ? "acct …" + achAccount.slice(-4) : ""]
-        .filter(Boolean)
-        .join(" · ");
-      return bits;
     }
     return memoText || "";
   };
@@ -593,11 +581,11 @@ export function MarkPaidSheet({
   /** When Levi fixes vision fields (or fills what it missed) and Records, train the reader. */
   const trainFromRecord = (targetJob) => {
     if (!proofFile && !proofB64) return;
-    if (!(isCheck || isZelle)) return;
+    if (!(isCheck || isZelle || isAch)) return;
     try {
       const openDefault = targetJob ? openBalance(targetJob) : 0;
       const entry = buildPaymentVisionLearningEntry({
-        kind: isCheck ? "check" : "zelle",
+        kind: isCheck ? "check" : isAch ? "ach" : "zelle",
         extracted: autofillExtracted,
         finalFields: {
           amount: payAmt,
@@ -623,8 +611,27 @@ export function MarkPaidSheet({
   };
 
   const stagePaymentOnJob = (targetJob, entry) => {
-    const trained = trainFromRecord(targetJob);
-    const patch = appendPayment(targetJob, entry);
+    if (recordLockRef.current) return;
+    // Always stage against the latest job + any already-staged payments.
+    const live =
+      (targetJob?.id && effectiveJob?.(targetJob.id)) ||
+      (jobs || []).find((j) => String(j.id) === String(targetJob?.id)) ||
+      targetJob;
+    const dup = findDuplicatePayment(live, entry);
+    if (dup) {
+      const when = dup.date ? " on " + String(dup.date).slice(0, 10) : "";
+      showToast(
+        "That payment is already on this invoice" +
+          when +
+          " (" +
+          fmt$(parseAmount(dup.amount)) +
+          "). Not recorded again."
+      );
+      return;
+    }
+    recordLockRef.current = true;
+    const trained = trainFromRecord(live);
+    const patch = appendPayment(live, entry);
     const remaining = parseFloat(String(patch.openBalance)) || 0;
     const trainNote = trained ? " · Your fixes train the check reader" : "";
     if (patch.paid) {
@@ -634,7 +641,7 @@ export function MarkPaidSheet({
         "Partial payment applied — " + fmt$(remaining) + " remaining. Save & sync for QuickBooks." + trainNote
       );
     }
-    patchJob(targetJob.id, patch);
+    patchJob(live.id, patch);
     onClose();
   };
 
@@ -675,13 +682,33 @@ export function MarkPaidSheet({
     });
   };
 
-  const applyAutofill = (extracted) => {
+  const applyAutofill = (extracted, opts = {}) => {
     // Always keep the extract (even empty) so Record can train on vision_missed fields.
     setAutofillExtracted(extracted || null);
     if (!hasUsefulPaymentAutofill(extracted)) {
       setAutofillDone(false);
       setPaymentVerified(false);
       return false;
+    }
+    // Method mismatch: photo is Zelle/check/ACH but form was opened on the wrong method.
+    const detected =
+      opts.detectedKind ||
+      detectPaymentKind(extracted, proofFile?.name || "") ||
+      String(extracted?.kind || extracted?.paymentMethod || "").toLowerCase();
+    const selectedKey = isCheck ? "check" : isZelle ? "zelle" : isAch ? "ach" : "";
+    if (detected === "check" || detected === "zelle" || detected === "ach") {
+      if (selectedKey && selectedKey !== detected) {
+        const msg = paymentMethodMismatchMessage(mth, detected);
+        if (msg) showToast(msg);
+        // When certain, jump to the right form (Levi 2026-07-24).
+        if (extracted?.confidence !== "low") {
+          const next = methodFromPaymentKind(detected);
+          if (next) setMth(next);
+        }
+      } else if (!mth) {
+        const next = methodFromPaymentKind(detected);
+        if (next) setMth(next);
+      }
     }
     const patch = paymentAutofillPatch(extracted);
     if (patch.amt) {
@@ -691,6 +718,15 @@ export function MarkPaidSheet({
     if (patch.ref) setRef(patch.ref);
     if (patch.dt) setDt(patch.dt);
     if (patch.memo) setMemo(patch.memo);
+    // ACH → Martin Dorkin (kumer martin) etc.
+    const depHint = depositBankFromExtracted(extracted, depositBanks) || patch.deposit || "";
+    if (depHint) {
+      if (depositBanks.includes(depHint)) setDeposit(depHint);
+      else {
+        setDeposit("Other");
+        setDepositOther(depHint);
+      }
+    }
     // Green Autofilled only when amount or check # actually filled — not name-only.
     const strong = hasStrongPaymentAutofill(extracted);
     setAutofillDone(strong);
@@ -706,9 +742,9 @@ export function MarkPaidSheet({
           setPickCust({ name: matched.customer || "" });
           setCustDraft(matched.customer || "");
           // Vision amount already set + locked — only fall back to open balance if amount was missed.
-          if (!(patch.amt && parseFloat(patch.amt) > 0)) {
+          if (!(patch.amt && parseAmount(patch.amt) > 0)) {
             const d = openBalance(matched);
-            setAmt(d > 0 ? String(d) : String(matched.amount || "").replace(/[$,]/g, ""));
+            setAmt(d > 0 ? fmtAmountField(d) : fmtAmountField(matched.amount) || "");
           }
           showToast("Matched invoice #" + invNo + " — review and tap Record");
           return true;
@@ -770,13 +806,13 @@ export function MarkPaidSheet({
       } catch {
         learningEntries = [];
       }
-      const kindHint = isCheck ? "check" : isZelle ? "zelle" : "check";
-      let { extracted } = await analyzePaymentImage(
+      const kindHint = isCheck ? "check" : isZelle ? "zelle" : isAch ? "ach" : "check";
+      let { extracted, kind: detectedKind } = await analyzePaymentImage(
         visionB64,
         visionMime || "image/jpeg",
         kindHint,
         file?.name || "",
-        { learningEntries }
+        { learningEntries, forceKind: kindHint }
       );
       // Canvas wash path: empty read after compress → retry original bytes (no learning noise).
       if (!hasStrongPaymentAutofill(extracted) && usedCompress && originalB64) {
@@ -786,10 +822,11 @@ export function MarkPaidSheet({
             originalMime,
             kindHint,
             file?.name || "",
-            { learningEntries: [], _retriedClean: true }
+            { learningEntries: [], _retriedClean: true, forceKind: kindHint }
           );
           if (hasStrongPaymentAutofill(retry?.extracted) || hasUsefulPaymentAutofill(retry?.extracted)) {
             extracted = retry.extracted;
+            detectedKind = retry.kind || detectedKind;
           }
         } catch {
           /* keep first extract */
@@ -801,16 +838,19 @@ export function MarkPaidSheet({
           const clean = await analyzePaymentScreenshot(originalB64, originalMime, kindHint, {
             skipLearning: true,
           });
-          if (hasUsefulPaymentAutofill(clean)) extracted = clean;
+          if (hasUsefulPaymentAutofill(clean)) {
+            extracted = clean;
+            detectedKind = detectPaymentKind(clean, file?.name || "") || detectedKind;
+          }
         } catch {
           /* keep empty */
         }
       }
       const invNo = invoiceNoFromExtracted(extracted);
       const matched = invNo && needsPick && !activeJob ? findJobByInvoice(jobs, invNo) : null;
-      const ok = applyAutofill(extracted);
+      const ok = applyAutofill(extracted, { detectedKind });
       if (!ok) {
-        showToast("Couldn't read amount or check # yet — fill what it missed and Record to train the reader");
+        showToast("Couldn't read amount or confirmation yet — fill what it missed and Record to train the reader");
       } else if (!hasStrongPaymentAutofill(extracted) && !matched) {
         showToast("Partial read — fix anything wrong and Record to train the reader");
       } else if (!matched) {
@@ -835,17 +875,48 @@ export function MarkPaidSheet({
 
   const recordWithScreenshot = async () => {
     if (!validateManual()) return;
+    if (recordLockRef.current) return;
+    // Snappy path: Autofill already read the photo — never re-hit vision on Record.
+    const haveExtract = autofillDone && autofillExtracted;
+    if (haveExtract) {
+      const extracted = autofillExtracted;
+      if (isCheck) {
+        const checkRef = String(extracted.confirmationNumber || extracted.checkNumber || ref || "").trim();
+        if (checkRef) setRef(checkRef);
+        commitProofPayment(job, { ref: checkRef || ref, verified: true });
+        return;
+      }
+      // Zelle / ACH: if amount already matches open balance / entered fields, commit now.
+      const conf = String(extracted.confirmationNumber || ref || "").trim();
+      const result = reconcileZellePayment({
+        extracted,
+        entered: { amount: payAmt, ref: conf || ref, date: dt, invoiceNo: inv },
+        job,
+        jobs,
+      });
+      if (result.status === "full_match") {
+        setPaymentVerified(true);
+        if (result.confirmationRef) setRef(result.confirmationRef);
+        commitProofPayment(job, {
+          ref: result.confirmationRef || conf || ref,
+          verified: true,
+        });
+        return;
+      }
+      // Mismatch UI — still no network, just the reconcile sheet.
+      setZelleReconcile(result);
+      return;
+    }
     setVisionAnalyzing(true);
     try {
-      const extracted =
-        autofillDone && autofillExtracted
-          ? autofillExtracted
-          : await analyzePaymentScreenshot(proofB64, proofFile?.type || "image/jpeg", proofKind);
-      if (!autofillDone) {
-        setAutofillExtracted(extracted);
-        // Only mark Autofilled green when amount/ref actually present.
-        setAutofillDone(hasStrongPaymentAutofill(extracted));
-      }
+      const extracted = await analyzePaymentScreenshot(
+        proofB64,
+        proofFile?.type || "image/jpeg",
+        proofKind
+      );
+      setAutofillExtracted(extracted);
+      // Only mark Autofilled green when amount/ref actually present.
+      setAutofillDone(hasStrongPaymentAutofill(extracted));
       if (isCheck) {
         const checkRef = String(extracted.confirmationNumber || extracted.checkNumber || ref || "").trim();
         if (checkRef) setRef(checkRef);
@@ -876,8 +947,9 @@ export function MarkPaidSheet({
   };
 
   const onRecordPayment = () => {
+    if (recordLockRef.current || processing) return;
     if (hasProof && proofB64) {
-      recordWithScreenshot();
+      void recordWithScreenshot();
       return;
     }
     saveManual();
@@ -908,7 +980,7 @@ export function MarkPaidSheet({
     const target = zelleReconcile?.targetJob || job;
     const confRef = String(ex.confirmationNumber || ref || "").trim();
     if (action === "use_screenshot_amount") {
-      setAmt(String(ex.amount));
+      setAmt(fmtAmountField(ex.amount));
       commitProofPayment(job, { amount: ex.amount, ref: confRef, verified: true });
     } else if (action === "keep_amount") {
       commitProofPayment(job, { ref: confRef, verified: Boolean(confRef) });
@@ -1006,8 +1078,8 @@ export function MarkPaidSheet({
     setAutofillDone(false);
     setAutofillExtracted(null);
     visionAmountLockedRef.current = false;
-    // Prefer check when a file is attached without a method (Attach path).
-    const treatAsCheck = !mth || mth === "Check" || isCheck;
+    // Auto-read for Check / Zelle / ACH / unchosen method (Attach a picture path).
+    const autoRead = !mth || isCheck || isZelle || isAch;
     if (!mth) setMth("Check");
     const isImage = String(file.type || "").startsWith("image/");
     try {
@@ -1018,9 +1090,8 @@ export function MarkPaidSheet({
         showToast("File attached — enter details and tap Record");
         return;
       }
-      if (treatAsCheck) {
-        // Check path: auto-read amount, check #, date, memo, invoice (the old skill).
-        showToast("Reading check photo…");
+      if (autoRead) {
+        showToast("Reading payment photo…");
         await runAutofill(b64, file);
       } else {
         showToast("Image attached — tap Autofill or Record");
@@ -1040,15 +1111,14 @@ export function MarkPaidSheet({
       {showCustomerPick ? (
         <>
           <CustomerSearch
-            label="Customer"
-            placeholder="Customer name…"
+            label="Customer / service address"
+            placeholder="Name or service address…"
             testId="payment-customer-search"
             value={custDraft}
             onChangeText={(t) => {
               setCustDraft(t);
               setPickCust(null);
               setActiveJob(null);
-              setPayAddrKey("");
             }}
             onPick={(c) => {
               if (!c || c._newCustomer) {
@@ -1057,33 +1127,10 @@ export function MarkPaidSheet({
               }
               setPickCust(c);
               setCustDraft(c.name || c.businessName || "");
-              setActiveJob(null);
-              setPayAddrKey("");
             }}
           />
-          {pickCust ? (
-            <Fld label="Service address" hint="Pick the site, then an open invoice">
-              <select
-                className="input"
-                value={payAddrKey}
-                onChange={(e) => {
-                  setPayAddrKey(e.target.value);
-                  setActiveJob(null);
-                }}
-                aria-label="Service address"
-                data-testid="payment-address-select"
-              >
-                <option value="">— choose service address —</option>
-                {payAddressOptions.map((a) => (
-                  <option key={a.key} value={a.key}>
-                    {a.label}
-                  </option>
-                ))}
-              </select>
-            </Fld>
-          ) : null}
-          {pickCust && payAddrKey && openInvoices.length > 1 ? (
-            <Fld label="Open invoices">
+          {pickCust && openInvoices.length > 1 ? (
+            <Fld label="Invoice" hint="Each line shows the service address">
               <select
                 className="input"
                 value={activeJob?.id || ""}
@@ -1091,7 +1138,7 @@ export function MarkPaidSheet({
                   const picked = openInvoices.find((j) => j.id === e.target.value) || null;
                   setActiveJob(picked);
                 }}
-                aria-label="Open invoice"
+                aria-label="Invoice"
                 data-testid="payment-invoice-select"
               >
                 <option value="">— choose invoice —</option>
@@ -1103,13 +1150,13 @@ export function MarkPaidSheet({
               </select>
             </Fld>
           ) : null}
-          {pickCust && payAddrKey && openInvoices.length === 1 && activeJob ? (
-            <p className="text-[12px] text-slate-500 mb-2" data-testid="payment-invoice-one">
+          {pickCust && openInvoices.length === 1 && activeJob ? (
+            <p className="text-[12px] text-slate-500 mb-2">
               {formatInvoicePayOption(activeJob)}
             </p>
           ) : null}
-          {pickCust && payAddrKey && !openInvoices.length ? (
-            <p className="text-sm text-slate-400 text-center py-4">No open invoices at this service address.</p>
+          {pickCust && !openInvoices.length ? (
+            <p className="text-sm text-slate-400 text-center py-4">No open invoices for this customer.</p>
           ) : null}
           {reassign && jobProp ? (
             <button
@@ -1177,7 +1224,12 @@ export function MarkPaidSheet({
             visionAmountLockedRef.current = false;
             setAmt(e.target.value);
           }}
+          onBlur={() => {
+            if (payAmt > 0) setAmt(fmtAmountField(payAmt));
+          }}
           aria-label="Amount"
+          data-testid="payment-amount"
+          placeholder="$0.00"
           disabled={alreadyPaid || !job}
         />
       </Fld>
@@ -1247,26 +1299,109 @@ export function MarkPaidSheet({
         </>
       ) : isAch ? (
         <>
-          <Fld label="Account holder name">
-            <input className="input" value={achName} onChange={(e) => setAchName(e.target.value)} disabled={processing} />
+          <Fld label="ACH confirmation #" hint="From the bank schedule confirmation — critical when shown">
+            <input
+              className="input"
+              placeholder="Confirmation #"
+              value={ref}
+              onChange={(e) => {
+                setRef(e.target.value);
+                setPaymentVerified(false);
+              }}
+              disabled={processing}
+              data-testid="ach-confirmation"
+            />
+            {paymentVerified ? (
+              <p className="text-[11px] text-emerald-600 mt-1 font-medium" data-testid="ach-verified">
+                ✓ Read from ACH screenshot
+              </p>
+            ) : null}
           </Fld>
-          <Fld label="Routing number">
-            <input className="input" inputMode="numeric" value={achRouting} onChange={(e) => setAchRouting(e.target.value)} disabled={processing} />
+          <Fld label="Memo" hint="Optional note from the transfer">
+            <input
+              className="input"
+              placeholder="Memo"
+              value={memo}
+              onChange={(e) => setMemo(e.target.value)}
+              disabled={processing}
+              aria-label="ACH memo"
+            />
           </Fld>
-          <Fld label="Account number">
-            <input className="input" inputMode="numeric" value={achAccount} onChange={(e) => setAchAccount(e.target.value)} disabled={processing} />
-          </Fld>
-          <Fld label="Reference (optional)">
-            <input className="input" placeholder="Confirmation #" value={ref} onChange={(e) => setRef(e.target.value)} disabled={processing} />
+          <PaymentProofFld
+            label="ACH confirmation screenshot"
+            hint="Bank “Standard ACH” schedule screen — attach then Autofill reads amount, date, conf #"
+            file={proofFile}
+            inputRef={proofInputRef}
+            onFile={onProofFile}
+            onAutofill={() => runAutofill()}
+            autofillBusy={autofillBusy}
+            autofillDone={autofillDone}
+            disabled={processing}
+            testId="ach-screenshot-input"
+            pendingPick={awaitingProof && !proofFile}
+          />
+          <Fld label="Deposit to">
+            <select
+              className="input"
+              value={deposit}
+              onChange={(e) => setDeposit(e.target.value)}
+              aria-label="Deposit to"
+              data-testid="payment-deposit-ach"
+              disabled={processing}
+            >
+              {depositBanks.map((b) => (
+                <option key={b}>{b}</option>
+              ))}
+              <option>Other</option>
+            </select>
+            {deposit === "Other" ? (
+              <input
+                className="input mt-2"
+                value={depositOther}
+                onChange={(e) => setDepositOther(e.target.value)}
+                placeholder="Bank name"
+                aria-label="Other bank"
+                disabled={processing}
+              />
+            ) : null}
           </Fld>
           <Fld label="Date">
             <input className="input" type="date" value={dt} onChange={(e) => setDt(e.target.value)} disabled={processing} />
           </Fld>
-          {!achEnabled ? (
+          {achEnabled ? (
+            <details className="mb-2 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2">
+              <summary className="text-xs font-semibold text-slate-600 cursor-pointer">
+                Optional: debit via Sola (routing / account)
+              </summary>
+              <div className="mt-2 space-y-2">
+                <Fld label="Account holder name">
+                  <input className="input" value={achName} onChange={(e) => setAchName(e.target.value)} disabled={processing} />
+                </Fld>
+                <Fld label="Routing number">
+                  <input
+                    className="input"
+                    inputMode="numeric"
+                    value={achRouting}
+                    onChange={(e) => setAchRouting(e.target.value)}
+                    disabled={processing}
+                  />
+                </Fld>
+                <Fld label="Account number">
+                  <input
+                    className="input"
+                    inputMode="numeric"
+                    value={achAccount}
+                    onChange={(e) => setAchAccount(e.target.value)}
+                    disabled={processing}
+                  />
+                </Fld>
+              </div>
+            </details>
+          ) : (
             <p className="text-[11px] text-slate-400 -mt-1 mb-1">
-              ACH debit via Sola will show Process payment once enabled on your Sola account.
+              Record customer ACH deposits here (often Martin Dorkin). Sola debit is optional when enabled.
             </p>
-          ) : null}
+          )}
         </>
       ) : isZelle ? (
         <>
@@ -1448,30 +1583,21 @@ export function MarkPaidSheet({
               ? "Processing payment…"
               : "💳 Process card payment"}
         </button>
-      ) : isAch && achEnabled ? (
-        <button
-          className="btn bg-emerald-500 text-white w-full"
-          onClick={onRecordPayment}
-          disabled={alreadyPaid || processing || !achRouting || !achAccount}
-          data-testid="process-ach-payment"
-        >
-          🏦 Process ACH payment
-        </button>
       ) : (
         <button
           className="btn bg-emerald-500 text-white w-full"
           onClick={onRecordPayment}
           disabled={alreadyPaid || processing || !job}
-          data-testid="record-payment"
+          data-testid={isAch ? "record-ach-payment" : "record-payment"}
         >
-          {visionAnalyzing ? "Reading screenshot…" : "✓ Record payment"}
+          {visionAnalyzing ? "Reading screenshot…" : isAch ? "✓ Record ACH payment" : "✓ Record payment"}
         </button>
       )}
       <p className="text-[11px] text-slate-400 text-center mt-2">
         {isCard
           ? "Card is charged now. Invoice is marked paid here immediately — QuickBooks updates in the background."
-          : isAch && achEnabled
-            ? "ACH will debit via Sola once processing is wired — staged for now."
+          : isAch
+            ? "ACH deposit is recorded here with conf # and date. QuickBooks catches up on Save & sync."
             : "Paid status updates here right away. QuickBooks is a background step on Save & sync."}
       </p>
     </Sheet>
@@ -1495,8 +1621,16 @@ function PaymentEditForm({
   onDelete,
   onVoid,
   onCancel,
+  onConvertEstimate,
+  /** From "Apply to invoice #…" — open editor pre-filled toward that invoice. */
+  applyTargetJobId = null,
+  applyTargetDocNo = null,
+  openApply = false,
 }) {
-  const [amt, setAmt] = useState(String(payment.amount || "").replace(/[$,]/g, ""));
+  const [amt, setAmt] = useState(() => {
+    const n = parseAmount(payment.amount);
+    return n > 0 ? fmtAmountField(n) : String(payment.amount || "");
+  });
   const [mth, setMth] = useState(payment.method || "");
   const [ref, setRef] = useState(payment.ref || "");
   const [dt, setDt] = useState(payment.date || todayStr());
@@ -1506,64 +1640,72 @@ function PaymentEditForm({
       ? { name: sourceJob.customer || sourceJob.businessName }
       : null
   );
-  const [targetJobId, setTargetJobId] = useState(sourceJob?.id || "");
-  const seedAddr = serviceAddressKey(sourceJob) || "";
-  const [addrKey, setAddrKey] = useState(seedAddr);
-  const [fullEdit, setFullEdit] = useState(false);
+  const [targetJobId, setTargetJobId] = useState(
+    () => applyTargetJobId || sourceJob?.id || ""
+  );
+  const [invQuery, setInvQuery] = useState(() =>
+    applyTargetDocNo ? String(applyTargetDocNo) : ""
+  );
+  const [fullEdit, setFullEdit] = useState(() => !!(openApply || applyTargetJobId));
   const voidable = canVoidInQbo(payment);
 
-  const custJobs = useMemo(() => {
+  // Prefer live sourceJob (parent re-renders after convert) for the locked label.
+  const applyTargetLive =
+    applyTargetJobId &&
+    (jobs || []).find((j) => String(j.id) === String(applyTargetJobId));
+  const lockedTowardLabel = applyTargetLive?.invoiceNo
+    ? formatInvoicePayOption(applyTargetLive) + " (suggested)"
+    : sourceJob?.invoiceNo
+      ? formatInvoicePayOption(sourceJob)
+      : sourceJob?.estimateNo
+        ? "Est #" + sourceJob.estimateNo + " (convert to invoice to apply)"
+        : applyTargetDocNo
+          ? "Inv #" + applyTargetDocNo + " (suggested)"
+          : "No invoice";
+
+  const payTargets = useMemo(() => {
     const name = pickCust?.name || custName;
     if (!name) return [];
-    return jobsForCustomerKey(jobs || [], customerKeyForName(name)).filter(
-      (j) => j && !j._archived && !j._deleted
-    );
-  }, [jobs, pickCust?.name, custName]);
-
-  const addressOptions = useMemo(() => serviceAddressesForJobs(custJobs), [custJobs]);
-
-  useEffect(() => {
-    if (!fullEdit) return;
-    if (!addressOptions.length) {
-      setAddrKey("");
-      return;
+    const preferAddress = sourceJob?.serviceAddress || sourceJob?.address || "";
+    let list = payTargetsForCustomerPick(jobs, name, {
+      includeJobId: sourceJob?.id || "",
+      preferAddress,
+      openOnlyInvoices: false,
+    });
+    const q = invQuery.trim().toLowerCase();
+    if (q) {
+      list = list.filter((t) => {
+        const j = t.job;
+        const hay = (
+          formatPayTargetOption(j) +
+          " " +
+          (j.invoiceNo || "") +
+          " " +
+          (j.estimateNo || "")
+        ).toLowerCase();
+        return hay.includes(q);
+      });
     }
-    if (addrKey && addressOptions.some((a) => a.key === addrKey)) return;
-    if (seedAddr && addressOptions.some((a) => a.key === seedAddr)) {
-      setAddrKey(seedAddr);
-      return;
-    }
-    if (addressOptions.length === 1) setAddrKey(addressOptions[0].key);
-    else setAddrKey("");
-  }, [fullEdit, addressOptions, addrKey, seedAddr]);
-
-  // Open invoices at the chosen service address (include current target if paid).
-  const invoiceChoices = useMemo(() => {
-    if (!addrKey) return [];
-    const atAddr = custJobs.filter((j) => serviceAddressKey(j) === addrKey);
-    const open = atAddr.filter((j) => j.invoiceNo && !j.paid && openBalance(j) > 0.01);
-    if (
-      sourceJob?.id &&
-      serviceAddressKey(sourceJob) === addrKey &&
-      sourceJob.invoiceNo &&
-      !open.some((j) => String(j.id) === String(sourceJob.id))
-    ) {
-      return [sourceJob, ...open];
-    }
-    // If nothing open, still list any invoices at this address (redirect paid).
-    if (!open.length) {
-      return atAddr.filter((j) => j.invoiceNo);
-    }
-    return open;
-  }, [custJobs, addrKey, sourceJob]);
+    return list;
+  }, [jobs, pickCust?.name, custName, invQuery, sourceJob?.id, sourceJob?.serviceAddress, sourceJob?.address]);
 
   const targetJob =
     (jobs || []).find((j) => String(j.id) === String(targetJobId)) ||
     (String(targetJobId) === String(sourceJob?.id) ? sourceJob : null);
 
-  const lockedTowardLabel = sourceJob?.invoiceNo
-    ? formatInvoicePayOption(sourceJob)
-    : "This job (no invoice #)";
+  const pickTarget = (jobId) => {
+    setTargetJobId(jobId);
+    const hit = payTargets.find((t) => String(t.job.id) === String(jobId));
+    if (hit?.kind === "estimate" && typeof onConvertEstimate === "function") {
+      onConvertEstimate(hit.job, {
+        paymentId: payment?.id,
+        amount: amt,
+        method: mth,
+        ref,
+        date: dt,
+      });
+    }
+  };
 
   return (
     <div className="space-y-3 border-t border-slate-100 pt-3 mt-2" data-testid="payment-edit-form">
@@ -1596,7 +1738,7 @@ function PaymentEditForm({
         <div className="space-y-2 rounded-xl border border-brand/20 bg-brand-soft/30 px-3 py-2.5">
           <div className="flex items-center justify-between gap-2 mb-1">
             <div className="text-[10px] font-bold uppercase tracking-wide text-brand">
-              Apply payment
+              Find invoice
             </div>
             <button
               type="button"
@@ -1610,22 +1752,21 @@ function PaymentEditForm({
                     : null
                 );
                 setTargetJobId(sourceJob?.id || "");
-                setAddrKey(seedAddr);
+                setInvQuery("");
               }}
             >
               Keep original
             </button>
           </div>
           <CustomerSearch
-            label="Customer"
-            placeholder="Customer name…"
+            label="Customer / service address"
+            placeholder="Name or service address…"
             testId="payment-edit-customer-search"
             value={custName}
             onChangeText={(t) => {
               setCustName(t);
               setPickCust(null);
               setTargetJobId("");
-              setAddrKey("");
             }}
             onPick={(c) => {
               if (!c || c._newCustomer) {
@@ -1635,67 +1776,64 @@ function PaymentEditForm({
               setPickCust(c);
               setCustName(c.name || c.businessName || "");
               setTargetJobId("");
-              setAddrKey("");
+              setInvQuery("");
             }}
           />
           {(pickCust || custName) && (
             <>
-              <Fld label="Service address" hint="Pick the site, then an open invoice">
-                <select
-                  className="input"
-                  value={addrKey}
-                  onChange={(e) => {
-                    setAddrKey(e.target.value);
-                    setTargetJobId("");
-                  }}
-                  aria-label="Service address"
-                  data-testid="payment-edit-address-select"
+              <Fld label="Find invoice" hint="Invoices for this customer, or open estimates at this address">
+                <input
+                  className="input mb-2"
+                  value={invQuery}
+                  onChange={(e) => setInvQuery(e.target.value)}
+                  placeholder="Filter by # or street…"
+                  aria-label="Filter invoices and estimates"
+                  data-testid="payment-edit-invoice-filter"
+                />
+                <div
+                  className="space-y-1.5 max-h-48 overflow-y-auto"
+                  data-testid="payment-edit-invoice-list"
                 >
-                  <option value="">— choose service address —</option>
-                  {addressOptions.map((a) => (
-                    <option key={a.key} value={a.key}>
-                      {a.label}
-                    </option>
-                  ))}
-                </select>
+                  {payTargets.map((t) => {
+                    const j = t.job;
+                    const selected = String(targetJobId) === String(j.id);
+                    return (
+                      <button
+                        key={j.id}
+                        type="button"
+                        className={
+                          "w-full text-left rounded-lg border px-2.5 py-2 text-xs " +
+                          (selected
+                            ? "border-brand bg-brand-soft/40 text-slate-900"
+                            : "border-slate-200 bg-white text-slate-700 active:bg-slate-50")
+                        }
+                        data-testid={
+                          t.kind === "estimate"
+                            ? "payment-edit-est-" + (j.estimateNo || j.id)
+                            : "payment-edit-inv-" + (j.invoiceNo || j.id)
+                        }
+                        data-kind={t.kind}
+                        onClick={() => pickTarget(j.id)}
+                      >
+                        <span className="font-semibold break-words">{formatPayTargetOption(j)}</span>
+                      </button>
+                    );
+                  })}
+                </div>
               </Fld>
-              {addrKey ? (
-                <Fld label="Open invoices">
-                  <div
-                    className="space-y-1.5 max-h-48 overflow-y-auto"
-                    data-testid="payment-edit-invoice-list"
-                  >
-                    {invoiceChoices.map((j) => {
-                      const selected = String(targetJobId) === String(j.id);
-                      return (
-                        <button
-                          key={j.id}
-                          type="button"
-                          className={
-                            "w-full text-left rounded-lg border px-2.5 py-2 text-xs " +
-                            (selected
-                              ? "border-brand bg-brand-soft/40 text-slate-900"
-                              : "border-slate-200 bg-white text-slate-700 active:bg-slate-50")
-                          }
-                          data-testid={"payment-edit-inv-" + (j.invoiceNo || j.id)}
-                          onClick={() => setTargetJobId(j.id)}
-                        >
-                          <span className="font-semibold break-words">{formatInvoicePayOption(j)}</span>
-                        </button>
-                      );
-                    })}
-                  </div>
-                </Fld>
-              ) : null}
-              {addrKey && !invoiceChoices.length ? (
+              {!payTargets.length ? (
                 <p className="text-xs text-amber-800 bg-amber-50 border border-amber-100 rounded-xl px-2.5 py-2">
-                  No open invoices at this service address.
+                  No invoices or open estimates for this customer — try another name or address.
                 </p>
               ) : null}
-              {targetJob ? (
+              {targetJob?.invoiceNo ? (
                 <p className="text-[11px] text-slate-600" data-testid="payment-edit-will-apply">
-                  Will apply to <b>#{targetJob.invoiceNo || "—"}</b>
+                  Will apply to <b>#{targetJob.invoiceNo}</b>
                   {targetJob.id !== sourceJob?.id ? " (moved from current job)" : ""}
+                </p>
+              ) : targetJob && !targetJob.invoiceNo ? (
+                <p className="text-[11px] text-amber-800" data-testid="payment-edit-need-convert">
+                  Tap the estimate above to convert it to an invoice, then you can apply this payment.
                 </p>
               ) : null}
             </>
@@ -1709,6 +1847,11 @@ function PaymentEditForm({
           inputMode="decimal"
           value={amt}
           onChange={(e) => setAmt(e.target.value)}
+          onBlur={() => {
+            const n = parseAmount(amt);
+            if (n > 0) setAmt(fmtAmountField(n));
+          }}
+          placeholder="$0.00"
           aria-label="Edit amount"
         />
       </Fld>
@@ -1770,7 +1913,17 @@ function PaymentEditForm({
   );
 }
 
-export function PaymentHistorySheet({ job, onClose, onAddPayment, initialEditId = null }) {
+export function PaymentHistorySheet({
+  job,
+  onClose,
+  onAddPayment,
+  initialEditId = null,
+  /** Parent opens convert-estimate flow and returns here after Save. */
+  onConvertEstimate,
+  applyTargetJobId = null,
+  applyTargetDocNo = null,
+  openApply = false,
+}) {
   const {
     patchJob,
     patchAndSave,
@@ -1794,10 +1947,37 @@ export function PaymentHistorySheet({ job, onClose, onAddPayment, initialEditId 
   const due = openBalance(liveJob);
   const paid = amountPaid(liveJob);
   const pct = paidPct(liveJob);
-  const boardJobs = useMemo(
-    () => (jobs || []).map((j) => effectiveJob(j.id) || j),
-    [jobs, effectiveJob]
-  );
+  const jobUnlinked = !String(liveJob.invoiceNo || "").trim() && !String(liveJob.linkedInvoiceNo || "").trim();
+  // Only this customer's jobs — never map the full board (was multi-second freeze).
+  const boardJobs = useMemo(() => {
+    const name = liveJob.customer || liveJob.businessName || "";
+    if (!name) return [liveJob];
+    const list = invoicesForCustomerPick(jobs || [], name, {
+      openOnly: false,
+      includeJobId: liveJob.id,
+    });
+    // Also include open estimates + any job that holds payments for this customer.
+    const keyJobs = payTargetsForCustomerPick(jobs || [], name, {
+      includeJobId: liveJob.id,
+      preferAddress: liveJob.serviceAddress || liveJob.address || "",
+    }).map((t) => t.job);
+    const byId = new Map();
+    for (const j of list.concat(keyJobs).concat([liveJob])) {
+      if (!j?.id) continue;
+      const live = effectiveJob(j.id) || j;
+      byId.set(String(live.id), live);
+    }
+    return Array.from(byId.values());
+  }, [
+    jobs,
+    effectiveJob,
+    liveJob.id,
+    liveJob.customer,
+    liveJob.businessName,
+    liveJob.serviceAddress,
+    liveJob.address,
+    liveJob.invoiceNo,
+  ]);
 
   const fetchCmd = useMemo(() => {
     if (!activeFetchKey) return null;
@@ -1985,8 +2165,20 @@ export function PaymentHistorySheet({ job, onClose, onAddPayment, initialEditId 
         <p className="text-sm text-slate-400 text-center py-4">No payments recorded yet.</p>
       ) : (
         <div className="space-y-2" data-testid="payment-history-list">
-          {pays.map((p) => (
-            <div key={p.id} className="card px-3 py-2.5">
+          {pays.map((p) => {
+            const cardUnlinked = jobUnlinked;
+            return (
+            <div
+              key={p.id}
+              className={
+                "card px-3 py-2.5 " +
+                (cardUnlinked
+                  ? "!border-amber-300 !bg-amber-50 ring-1 ring-amber-200"
+                  : "")
+              }
+              data-unlinked-payment={cardUnlinked ? "1" : "0"}
+              data-testid={"payment-card-" + p.id}
+            >
               {editId === p.id ? (
                 <PaymentEditForm
                   payment={p}
@@ -1996,15 +2188,45 @@ export function PaymentHistorySheet({ job, onClose, onAddPayment, initialEditId 
                   onDelete={() => deletePay(p.id)}
                   onVoid={() => voidInQbo(p)}
                   onCancel={() => setEditId(null)}
+                  applyTargetJobId={editId === p.id ? applyTargetJobId : null}
+                  applyTargetDocNo={editId === p.id ? applyTargetDocNo : null}
+                  openApply={editId === p.id && openApply}
+                  onConvertEstimate={(estJob, payDraft) => {
+                    if (typeof onConvertEstimate === "function") {
+                      onConvertEstimate(estJob || liveJob, {
+                        ...payDraft,
+                        paymentId: p.id,
+                        sourceJobId: job.id,
+                      });
+                    }
+                  }}
                 />
               ) : (
                 <button type="button" className="w-full text-left" onClick={() => setEditId(p.id)}>
-                  <div className="text-sm font-semibold text-slate-900">{fmtPaymentLine(p)}</div>
+                  <div className="flex items-center gap-1.5 flex-wrap">
+                    <div className="text-sm font-semibold text-slate-900">{fmtPaymentLine(p)}</div>
+                    {liveJob.invoiceNo ? (
+                      <span
+                        className="inline-flex items-center px-1.5 py-0.5 text-[10px] font-extrabold tabular-nums rounded-full bg-sky-100 text-sky-900 ring-1 ring-sky-400 border border-sky-400"
+                        data-testid={"payment-inv-bubble-" + liveJob.invoiceNo}
+                      >
+                        {liveJob.invoiceNo}
+                      </span>
+                    ) : cardUnlinked ? (
+                      <span
+                        className="inline-flex items-center px-1.5 py-0.5 text-[10px] font-extrabold rounded-full bg-amber-200 text-amber-950 ring-1 ring-amber-400 border border-amber-400"
+                        data-testid="payment-unlinked-badge"
+                      >
+                        No invoice
+                      </span>
+                    ) : null}
+                  </div>
                   <div className="text-[11px] text-slate-400 mt-0.5">Tap to edit or remove</div>
                 </button>
               )}
             </div>
-          ))}
+            );
+          })}
         </div>
       )}
 
@@ -2168,9 +2390,8 @@ export function DocPdfViewButtons({ job, kind, no, compact }) {
   const config = useTenantConfig();
   const appSettings = useAppSettings();
   void appSettings.quickbooks;
-  void appSettings.quickbooksInvoices;
-  void appSettings.quickbooksEstimates;
-  const qboDocsOn = isQuickbooksDocEnabled(kind, config);
+  void appSettings.quickbooksDocs;
+  const qboDocsOn = isQuickbooksDocsEnabled(config);
   const product = productName(config);
   const retry = () => (st.source === DOC_SOURCE_QBO && qboDocsOn ? viewQbo() : viewLocal());
 
@@ -2237,9 +2458,8 @@ export function DocSendButtons({ job, kind, onPickSend }) {
   const withPay = kind === "invoice" && due > 0.01;
   const appSettings = useAppSettings();
   void appSettings.quickbooks;
-  void appSettings.quickbooksInvoices;
-  void appSettings.quickbooksEstimates;
-  const qboDocsOn = isQuickbooksDocEnabled(kind);
+  void appSettings.quickbooksDocs;
+  const qboDocsOn = isQuickbooksDocsEnabled();
   const sourceNote = qboDocsOn
     ? "Choose local file or QuickBooks file"
     : "Sends the local PDF from this job";
@@ -2466,6 +2686,7 @@ export function PaymentLinkSheet({ job, onClose }) {
           setPaySendBusy(true);
           setPaySendErr("");
           beginPromptWorkPause();
+          // Kick send immediately; confirm sheet shows Approved ~1s then closes.
           const result = await doSend(job, "invoice", {
             includePaymentLink: true,
             email: model.email,
@@ -2475,11 +2696,11 @@ export function PaymentLinkSheet({ job, onClose }) {
             payUrl: url,
             emailPolicy: model.emailPolicy,
           });
-          setPaySendBusy(false);
           if (result?.ok) {
-            onClose();
+            await afterSendApprovedClose({ ok: true, onClose });
             return;
           }
+          setPaySendBusy(false);
           setPaySendErr(result?.error || "Send failed — document was not emailed");
         }}
       />
@@ -2487,7 +2708,7 @@ export function PaymentLinkSheet({ job, onClose }) {
   }
 
   if (composeChannel) {
-    const qboDocsOn = isQuickbooksDocEnabled("invoice");
+    const qboDocsOn = isQuickbooksDocsEnabled();
     return (
       <CustomerComposeSheet
         job={job}
@@ -2629,35 +2850,90 @@ export function PaymentLinkSheet({ job, onClose }) {
 /* ---------- 2a. Invoice / Estimate quick view ---------- */
 export function DocSheet({ job, kind, onClose, onEdit, onConvert, onSync }) {
   const doSend = useDoSend();
-  const { commands, patchAndSave, showToast } = useStore();
+  const { commands, patchAndSave, showToast, jobs: storeJobs, effectiveJob } = useStore();
   const [sendPick, setSendPick] = useState(null); // { withPay, title }
   const [confirmSend, setConfirmSend] = useState(null); // { withPay, docSource }
   const [sendBusy, setSendBusy] = useState(false);
   const [sendErr, setSendErr] = useState("");
-  const [confirmDelete, setConfirmDelete] = useState(false);
-  const [deleteBusy, setDeleteBusy] = useState(false);
-  const no = kind === "invoice" ? job.invoiceNo : job.estimateNo;
+  const [confirmClear, setConfirmClear] = useState(false);
+  // Prefer live store job so a just-stamped Inv # shows immediately after Save.
+  const live = (job?.id && effectiveJob ? effectiveJob(job.id) : null) || job;
+  const no = kind === "invoice" ? live.invoiceNo : live.estimateNo;
   const label = kind === "invoice" ? "invoice" : "estimate";
+  const linesEarly = kind === "invoice" ? live.invoiceLines : live.estimateLines;
+  const isDraftEarly =
+    !no && (linesEarly || []).some((ln) => String(ln?.itemName || "").trim());
 
-  const deletePlan = removeDocPlan(job, kind);
-  const deleteCopy = removeDocCopy(job, kind, deletePlan);
+  // Auto-heal: lines saved but no number (older draft or race) → stamp next free # once.
+  const healKey = useRef("");
+  useEffect(() => {
+    if (!live?.id || no) return;
+    if (!(linesEarly || []).some((ln) => String(ln?.itemName || "").trim())) return;
+    const key = live.id + ":" + kind;
+    if (healKey.current === key) return;
+    healKey.current = key;
+    let cancelled = false;
+    (async () => {
+      try {
+        const { resolveDocNumberOnSave } = await import("../lib/nextDocNumber.js");
+        const stamped = resolveDocNumberOnSave({
+          kind,
+          existing: "",
+          preferred: "",
+          jobs: storeJobs || [],
+        });
+        if (!stamped || cancelled) return;
+        const patch =
+          kind === "estimate"
+            ? { estimateNo: stamped, _estimateConfirmed: true }
+            : { invoiceNo: stamped, _invoiceConfirmed: true };
+        await patchAndSave(live.id, patch);
+        showToast(
+          kind === "estimate"
+            ? "Assigned Est #" + stamped
+            : "Assigned Inv #" + stamped
+        );
+      } catch {
+        /* non-fatal */
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [live?.id, no, kind, linesEarly, storeJobs, patchAndSave, showToast]);
 
-  const runDelete = async () => {
-    if (deleteBusy) return;
-    setDeleteBusy(true);
-    try {
-      await patchAndSave(job.id, deletePlan.patch);
-      showToast?.(
-        deletePlan.mode === "draft"
-          ? "Draft " + label + " deleted"
-          : deleteCopy.confirm.replace(/^Remove/, "Removed")
-      );
-      onClose();
-    } catch (e) {
-      showToast?.(String(e?.message || "Could not delete — try again"));
-      setDeleteBusy(false);
-    }
-  };
+  if (confirmClear) {
+    const clearLabel = clearDocLabel(job, kind);
+    return (
+      <DeleteConfirmSheet
+        title={"Delete " + clearLabel + "?"}
+        note={
+          isDraftEarly
+            ? "Removes this draft from the job in the app only. QuickBooks is not changed."
+            : "Removes this " +
+              label +
+              " from the job in the app only. The job stays. QuickBooks is not changed."
+        }
+        confirmLabel={"Delete " + label}
+        onClose={() => setConfirmClear(false)}
+        onConfirm={() => {
+          if (!job?.id) return;
+          const patch = kind === "estimate" ? clearEstimatePatch() : clearInvoicePatch();
+          // Also clear progress steps when wiping a numbered doc.
+          if (kind === "estimate" && job.status?.Estimate) {
+            patch.status = { ...(job.status || {}), Estimate: { s: null } };
+          }
+          if (kind === "invoice" && job.status?.Invoiced) {
+            patch.status = { ...(job.status || {}), Invoiced: { s: null } };
+          }
+          void patchAndSave(job.id, patch);
+          showToast("Deleted " + clearLabel + " from this job");
+          setConfirmClear(false);
+          onClose && onClose();
+        }}
+      />
+    );
+  }
 
   if (confirmSend) {
     return (
@@ -2677,6 +2953,7 @@ export function DocSheet({ job, kind, onClose, onEdit, onConvert, onSync }) {
           setSendBusy(true);
           setSendErr("");
           beginPromptWorkPause();
+          // Kick send immediately; confirm sheet shows Approved ~1s then closes.
           const result = await doSend(job, kind, {
             docSource: model.docSource,
             includePaymentLink: model.withPay,
@@ -2685,51 +2962,15 @@ export function DocSheet({ job, kind, onClose, onEdit, onConvert, onSync }) {
             subject: model.subject,
             emailPolicy: model.emailPolicy,
           });
-          setSendBusy(false);
           if (result?.ok) {
-            onClose();
+            await afterSendApprovedClose({ ok: true, onClose });
             return;
           }
           // Stay open in pending/not-sent state with a loud error.
+          setSendBusy(false);
           setSendErr(result?.error || "Send failed — document was not emailed");
         }}
       />
-    );
-  }
-
-  if (confirmDelete) {
-    return (
-      <Sheet title={deleteCopy.title} onClose={() => (deleteBusy ? null : setConfirmDelete(false))}>
-        <p className="text-sm text-slate-600 mb-4" data-testid="doc-delete-body">
-          {deleteCopy.body.replace(/\*\*/g, "")}
-        </p>
-        {deletePlan.warnsQuickbooks ? (
-          <p
-            className="text-xs font-semibold text-amber-900 bg-amber-50 border border-amber-200 rounded-xl px-3 py-2 mb-4"
-            data-testid="doc-delete-qbo-warning"
-          >
-            QuickBooks is not changed — #{deletePlan.syncedNo} still exists there.
-          </p>
-        ) : null}
-        <button
-          type="button"
-          className="btn bg-red-600 text-white w-full mb-2 disabled:opacity-60"
-          onClick={runDelete}
-          disabled={deleteBusy}
-          data-testid="doc-delete-confirm"
-        >
-          {deleteBusy ? "Deleting…" : deleteCopy.confirm}
-        </button>
-        <button
-          type="button"
-          className="btn bg-slate-100 text-slate-800 w-full"
-          onClick={() => setConfirmDelete(false)}
-          disabled={deleteBusy}
-          data-testid="doc-delete-cancel"
-        >
-          Keep it
-        </button>
-      </Sheet>
     );
   }
 
@@ -2747,9 +2988,10 @@ export function DocSheet({ job, kind, onClose, onEdit, onConvert, onSync }) {
       />
     );
   }
-  const lines = kind === "invoice" ? job.invoiceLines : job.estimateLines;
+  const lines = kind === "invoice" ? live.invoiceLines : live.estimateLines;
+  // Numbered docs are never "draft" — even before QBO sync.
   const isDraft = !no && (lines || []).some((ln) => String(ln?.itemName || "").trim());
-  const qboDocsOn = isQuickbooksDocEnabled(kind);
+  const qboDocsOn = isQuickbooksDocsEnabled();
   const title = no
     ? (kind === "invoice" ? "Invoice " : "Estimate ") + no
     : isDraft
@@ -2761,58 +3003,124 @@ export function DocSheet({ job, kind, onClose, onEdit, onConvert, onSync }) {
   return (
     <Sheet title={title} onClose={onClose}>
       {isDraft ? (
-        <p className="text-xs text-amber-800 bg-amber-50 border border-amber-200 rounded-xl px-3 py-2 mb-3" data-testid="doc-draft-banner">
+        <p
+          className="text-xs text-amber-800 bg-amber-50 border border-amber-200 rounded-xl px-3 py-2 mb-3"
+          data-testid="doc-draft-banner"
+        >
           {qboDocsOn
-            ? "Saved on this job — not in QuickBooks yet. Tap sync when you are ready."
-            : "Saved on this job — local only (QuickBooks send/view is off; data still syncs)."}
+            ? "Saved on this job — assigning a number, then you can sync to QuickBooks."
+            : "Saved on this job — assigning a number…"}
         </p>
       ) : null}
 
       <div className="text-sm space-y-1 mb-3">
-        <div><b className="font-semibold">Customer</b> <span className="text-slate-600">{job.customer || ""}</span></div>
-        <div><b className="font-semibold">Amount</b> <span className="text-slate-600">{fmt$(job.amount)}</span></div>
+        <div>
+          <b className="font-semibold">Customer</b>{" "}
+          <span className="text-slate-600">{live.customer || ""}</span>
+        </div>
+        <div>
+          <b className="font-semibold">Amount</b>{" "}
+          <span className="text-slate-600">{fmt$(live.amount)}</span>
+        </div>
         {kind === "invoice" && no ? (
-          <div><b className="font-semibold">Status</b> <span className="text-slate-600">{job.paid ? "Paid" : "Open"}</span></div>
+          <div>
+            <b className="font-semibold">Status</b>{" "}
+            <span className="text-slate-600">{live.paid ? "Paid" : "Open"}</span>
+          </div>
         ) : null}
-        {(job.serviceAddress || job.address) ? (
-          <div><b className="font-semibold">Service address</b> <span className="text-slate-600">{job.serviceAddress || job.address}</span></div>
+        {live.serviceAddress || live.address ? (
+          <div>
+            <b className="font-semibold">Service address</b>{" "}
+            <span className="text-slate-600">{live.serviceAddress || live.address}</span>
+          </div>
         ) : null}
       </div>
 
-      {isDraft && lines?.length ? (
+      {(isDraft || !no) && lines?.length ? (
         <div className="card px-3 py-2 mb-3" data-testid="doc-draft-lines">
-          <p className="text-[11px] font-bold uppercase tracking-wide text-slate-400 mb-2">Line items</p>
-          {lines.filter((ln) => String(ln?.itemName || "").trim()).map((ln, i) => (
-            <div key={i} className="flex justify-between gap-2 text-sm py-1 border-b border-dashed border-slate-100 last:border-0">
-              <span className="min-w-0 truncate text-slate-700">{ln.itemName}</span>
-              <span className="shrink-0 font-semibold text-slate-800">{fmt$(parseAmount(ln.qty) * parseAmount(ln.unitPrice))}</span>
-            </div>
-          ))}
+          <p className="text-[11px] font-bold uppercase tracking-wide text-slate-400 mb-2">
+            Line items
+          </p>
+          {lines
+            .filter((ln) => String(ln?.itemName || "").trim())
+            .map((ln, i) => (
+              <div
+                key={i}
+                className="flex justify-between gap-2 text-sm py-1 border-b border-dashed border-slate-100 last:border-0"
+              >
+                <span className="min-w-0 truncate text-slate-700">{ln.itemName}</span>
+                <span className="shrink-0 font-semibold text-slate-800">
+                  {fmt$(parseAmount(ln.qty) * parseAmount(ln.unitPrice))}
+                </span>
+              </div>
+            ))}
         </div>
       ) : null}
 
-      {no ? <DocPdfViewButtons job={job} kind={kind} no={no} compact /> : null}
+      {no ? <DocPdfViewButtons job={live} kind={kind} no={no} compact /> : null}
 
-      {isDraft && onSync && qboDocsOn ? (
-        <button type="button" className="btn-brand w-full mb-2" onClick={onSync} data-testid="doc-sync-qbo">
-          Sync to QuickBooks
-        </button>
+      {/* Sync + Edit when QuickBooks send/view is on — must not reopen create. */}
+      {(isDraft || no) && (onSync || onEdit) && qboDocsOn ? (
+        <div className="grid grid-cols-2 gap-2 mb-2" data-testid="doc-draft-actions">
+          {onSync ? (
+            <button
+              type="button"
+              className="btn-brand w-full !py-2.5 text-sm font-semibold"
+              onClick={onSync}
+              data-testid="doc-sync-qbo"
+            >
+              Sync to QuickBooks
+            </button>
+          ) : (
+            <span />
+          )}
+          {onEdit ? (
+            <button
+              type="button"
+              className="btn bg-white border border-slate-200 text-slate-800 w-full !py-2.5 text-sm font-semibold"
+              onClick={onEdit}
+              data-testid="doc-edit"
+            >
+              Edit {label}
+            </button>
+          ) : (
+            <span />
+          )}
+        </div>
       ) : null}
 
-      {!isDraft && no && job.email ? (
-        <DocSendButtons job={job} kind={kind} onPickSend={setSendPick} />
+      {!isDraft && no && live.email ? (
+        <DocSendButtons job={live} kind={kind} onPickSend={setSendPick} />
       ) : !isDraft && no ? (
-        <p className="text-[11px] text-slate-400 text-center mb-2">Add an email on the customer card to send.</p>
+        <p className="text-[11px] text-slate-400 text-center mb-2">
+          Add an email on the customer card to send.
+        </p>
       ) : null}
 
-      {onEdit ? (
-        <button type="button" className="btn-ghost w-full !py-2.5 mb-1 font-semibold" onClick={onEdit} data-testid="doc-edit">
+      {!isDraft && onEdit && !qboDocsOn ? (
+        <button
+          type="button"
+          className="btn-ghost w-full !py-2.5 mb-1 font-semibold"
+          onClick={onEdit}
+          data-testid="doc-edit"
+        >
           Edit {label}
         </button>
       ) : null}
 
-      {kind === "estimate" && !job.invoiceNo && onConvert && (no || isDraft) ? (
+      {kind === "estimate" && !live.invoiceNo && onConvert && (no || isDraft) ? (
         <Opt icon="🧾" title="Convert to invoice" note="Bill all or part of this estimate" onClick={onConvert} />
+      ) : null}
+
+      {canClearDoc(live, kind) ? (
+        <button
+          type="button"
+          className="btn w-full !py-2.5 mt-2 mb-1 font-semibold bg-red-50 text-red-700 border border-red-200"
+          onClick={() => setConfirmClear(true)}
+          data-testid="doc-delete"
+        >
+          {isDraft ? "Delete draft" : "Delete " + label}
+        </button>
       ) : null}
 
       {!isDraft && no ? (
@@ -2820,19 +3128,8 @@ export function DocSheet({ job, kind, onClose, onEdit, onConvert, onSync }) {
           className="text-center text-[11px] text-slate-400 mt-3 mb-1"
           data-testid={"doc-send-status-" + kind}
         >
-          {docSendStatusLine(job, kind, commands).text}
+          {docSendStatusLine(live, kind, commands).text}
         </p>
-      ) : null}
-
-      {no || isDraft ? (
-        <button
-          type="button"
-          className="btn-ghost w-full !py-2.5 mt-1 font-semibold text-red-600"
-          onClick={() => setConfirmDelete(true)}
-          data-testid={"doc-delete-" + kind}
-        >
-          {isDraft ? "Delete draft " + label : "Delete " + label}
-        </button>
       ) : null}
     </Sheet>
   );
@@ -2865,6 +3162,7 @@ export function QuickSendSheet({ job, onClose, onEdit }) {
           setSendBusy(true);
           setSendErr("");
           beginPromptWorkPause();
+          // Kick send immediately; confirm sheet shows Approved ~1s then closes.
           const result = await doSend(job, "invoice", {
             docSource: model.docSource,
             includePaymentLink: model.withPay,
@@ -2873,11 +3171,11 @@ export function QuickSendSheet({ job, onClose, onEdit }) {
             subject: model.subject,
             emailPolicy: model.emailPolicy,
           });
-          setSendBusy(false);
           if (result?.ok) {
-            onClose();
+            await afterSendApprovedClose({ ok: true, onClose });
             return;
           }
+          setSendBusy(false);
           setSendErr(result?.error || "Send failed — document was not emailed");
         }}
       />
@@ -3020,46 +3318,16 @@ export function CalSheet({ job, onClose }) {
   const whenLabel = event ? evStart(event).replace("T", " ").slice(0, 16) : d || "";
 
   const openInAppCalendar = () => {
-    // Prefer the resolved event, then the job's saved calendar id, then the scheduled day.
-    const focusDate = (event ? evStart(event).slice(0, 10) : "") || d || "";
-    const eventId = String(event?.id || liveJob.calEventId || "").trim();
-    if (eventId) {
-      stashCalendarPick(eventId, { focusDate });
-    } else if (focusDate) {
-      stashCalendarPick({ focusDate });
+    if (event?.id) {
+      stashCalendarPick(event.id, { focusDate: evStart(event).slice(0, 10) || d });
+    } else if (d) {
+      stashCalendarPick({ focusDate: d });
     } else {
       showToast("No date to open yet");
       return;
     }
-    // Close the sheet first. Navigate on the next tick so sheet unmount / scroll-unlock
-    // cannot swallow the route change on mobile WebView / installed PWA.
     onClose();
-    const go = () => {
-      try {
-        nav("/today");
-      } catch {
-        /* fall through to hash */
-      }
-      try {
-        const hash = String(window.location.hash || "");
-        if (!hash.includes("/today")) {
-          window.location.hash = "#/today";
-        }
-      } catch {
-        /* ignore */
-      }
-      // Re-signal so a just-mounted Calendar tab re-reads sessionStorage.
-      try {
-        window.dispatchEvent(new CustomEvent(CALENDAR_PICK_EVENT));
-      } catch {
-        /* ignore */
-      }
-    };
-    if (typeof window !== "undefined" && typeof window.requestAnimationFrame === "function") {
-      window.requestAnimationFrame(() => setTimeout(go, 0));
-    } else {
-      setTimeout(go, 0);
-    }
+    nav("/today");
   };
 
   const openInGCalendar = () => {
@@ -3184,7 +3452,11 @@ export function CalSheet({ job, onClose }) {
         </p>
       )}
 
-      <div className="grid grid-cols-2 gap-1.5 mb-3" data-testid="cal-actions-compact">
+      {/* Compact actions — 1–2 lines total (Edit · Unlink · Open in calendar · G-Calendar) */}
+      <div
+        className="grid grid-cols-2 gap-1.5 mb-3"
+        data-testid="cal-actions-compact"
+      >
         {linked && event ? (
           <CalChip testId="cal-edit" onClick={() => setMode("edit")}>
             ✏️ Edit

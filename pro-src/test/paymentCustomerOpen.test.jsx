@@ -1,11 +1,12 @@
 // @vitest-environment jsdom
-// Payment edit: customer → service address → open invoices (no dual Find invoice list).
+// Customer transaction history opens payment sheet in-place (no job remount hang).
 import React from "react";
 import { afterEach, describe, expect, it } from "vitest";
-import { cleanup, screen, waitFor } from "@testing-library/react";
+import { cleanup, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import "@testing-library/jest-dom/vitest";
 import { mockServer, renderApp } from "./helpers.jsx";
+import { setQuickbooksDocsFeatureEnabled } from "../src/lib/appSettings.js";
 
 afterEach(() => {
   cleanup();
@@ -13,13 +14,15 @@ afterEach(() => {
   window.location.hash = "#/";
 });
 
-describe("payment apply by service address", () => {
+describe("customer payment open + find invoice", () => {
   const jobs = [
     {
-      id: "J-pay-orphan",
+      id: "J-ramson",
       customer: "Mendeley Lane",
       qboCustomerId: "88",
       serviceAddress: "157 Ramson Avenue",
+      estimateNo: "E-77",
+      estimateLines: [{ itemName: "Service upgrade", qty: 1, unitPrice: 2000 }],
       amount: "$2000",
       payments: [
         {
@@ -31,60 +34,74 @@ describe("payment apply by service address", () => {
         },
       ],
     },
-    {
-      id: "J-open-inv",
-      customer: "Mendeley Lane",
-      qboCustomerId: "88",
-      serviceAddress: "157 Ramson Avenue",
-      invoiceNo: "251900",
-      amount: "$1500",
-      openBalance: 1500,
-      paid: false,
-      invoiceLines: [{ itemName: "Panel", qty: 1, unitPrice: 1500 }],
-    },
-    {
-      id: "J-other-addr",
-      customer: "Mendeley Lane",
-      qboCustomerId: "88",
-      serviceAddress: "9 Other Street",
-      invoiceNo: "251901",
-      amount: "$800",
-      openBalance: 800,
-      paid: false,
-      invoiceLines: [{ itemName: "Lights", qty: 1, unitPrice: 800 }],
-    },
   ];
 
-  it("edit payment: service address then open invoices — no Find invoice filter", async () => {
+  it("opens payment edit from customer history without leaving customer view", async () => {
     mockServer({ jobs });
     const user = userEvent.setup();
-    // Open job payment history with this payment already in edit
-    renderApp("#/job/J-pay-orphan?payhist=1&payId=pay-zelle-2k");
+    // qboCustomerId → route key q:88
+    renderApp("#/customer/q:88");
+    const view = await screen.findByTestId("customer-view");
+    await waitFor(() => expect(within(view).getByTestId("customer-txn-history")).toBeInTheDocument());
+
+    const payRow = within(view).getByTestId("cust-txn-pay-pay-zelle-2k");
+    await user.click(payRow);
+
+    // Payment sheet opens on customer page — still on /customer, not stuck navigating.
+    expect(await screen.findByTestId("payment-history-list")).toBeInTheDocument();
+    expect(window.location.hash).toMatch(/#\/customer\//);
     expect(await screen.findByTestId("payment-edit-form")).toBeInTheDocument();
-    await user.click(screen.getByTestId("payment-full-edit"));
-
-    expect(await screen.findByTestId("payment-edit-address-select")).toBeInTheDocument();
-    expect(screen.queryByTestId("payment-edit-invoice-filter")).not.toBeInTheDocument();
-    expect(screen.queryByTestId("payment-edit-invoice-select")).not.toBeInTheDocument();
-
-    // Seed address auto-selected → open invoices at that site only
-    expect(await screen.findByTestId("payment-edit-invoice-list")).toBeInTheDocument();
-    expect(screen.getByTestId("payment-edit-inv-251900")).toBeInTheDocument();
-    expect(screen.queryByTestId("payment-edit-inv-251901")).not.toBeInTheDocument();
   });
 
-  it("switching service address swaps the open-invoice list", async () => {
+  it("Find invoice lists open estimate for service address when no invoice", async () => {
     mockServer({ jobs });
     const user = userEvent.setup();
-    renderApp("#/job/J-pay-orphan?payhist=1&payId=pay-zelle-2k");
-    await screen.findByTestId("payment-edit-form");
+    renderApp("#/customer/q:88");
+    const view = await screen.findByTestId("customer-view");
+    await waitFor(() => expect(within(view).getByTestId("customer-txn-history")).toBeInTheDocument());
+    await user.click(within(view).getByTestId("cust-txn-pay-pay-zelle-2k"));
+    await screen.findByTestId("payment-history-list");
+    // Tap payment row → edit form (auto when initialEditId set)
+    expect(await screen.findByTestId("payment-edit-form")).toBeInTheDocument();
     await user.click(screen.getByTestId("payment-full-edit"));
-    const addr = await screen.findByTestId("payment-edit-address-select");
-    // Pick the other address
-    await user.selectOptions(addr, Array.from(addr.options).find((o) => /Other Street/i.test(o.textContent))?.value || "");
-    await waitFor(() => {
-      expect(screen.getByTestId("payment-edit-inv-251901")).toBeInTheDocument();
+    expect(await screen.findByTestId("payment-edit-invoice-list")).toBeInTheDocument();
+    expect(screen.getByTestId("payment-edit-est-E-77")).toBeInTheDocument();
+    // No duplicate "choose invoice" select
+    expect(screen.queryByTestId("payment-edit-invoice-select")).not.toBeInTheDocument();
+  });
+
+  it("draft invoice Sync to QuickBooks does not reopen create builder", async () => {
+    setQuickbooksDocsFeatureEnabled(true);
+    const srv = mockServer({
+      jobs: [
+        {
+          id: "J-draft-inv",
+          customer: "Draft Pay Co",
+          qboCustomerId: "9",
+          email: "d@x.com",
+          serviceAddress: "1 Main",
+          invoiceLines: [{ itemName: "Labor", qty: 1, unitPrice: 500 }],
+          amount: "$500",
+          paid: false,
+        },
+      ],
     });
-    expect(screen.queryByTestId("payment-edit-inv-251900")).not.toBeInTheDocument();
+    const user = userEvent.setup();
+    renderApp("#/job/J-draft-inv");
+    const pane = await screen.findByTestId("detail-pane");
+    await user.click(within(pane).getByTestId("tab-invoice"));
+    // Auto-heal may stamp Inv #; Sync + Edit stay available when QB docs are on.
+    expect(await screen.findByTestId("doc-draft-actions")).toBeInTheDocument();
+    expect(screen.getByTestId("doc-sync-qbo")).toHaveTextContent(/Sync to QuickBooks/i);
+    expect(screen.getByTestId("doc-edit")).toHaveTextContent(/Edit invoice/i);
+    await user.click(screen.getByTestId("doc-sync-qbo"));
+    // Syncs in background — must NOT open create invoice builder
+    await waitFor(() => {
+      expect(screen.queryByTestId("doc-action-bar")).not.toBeInTheDocument();
+    });
+    // After auto-heal stamps Inv #, sync may enqueue create or update — either is fine.
+    const creates = srv.enqueued("create_invoice").length;
+    const updates = srv.enqueued("update_invoice").length;
+    expect(creates + updates).toBeGreaterThan(0);
   });
 });
