@@ -54,7 +54,7 @@ describe("Estimate / invoice builder", () => {
     expect(srv.state.ov["J-EST"].estimateLines?.length).toBeGreaterThan(0);
   });
 
-  it("Save on job shows draft on estimate tab and opens saved view", async () => {
+  it("Save on job assigns estimate number (not stuck as draft) and opens saved view", async () => {
     const srv = mockServer({
       jobs: [
         {
@@ -67,6 +67,8 @@ describe("Estimate / invoice builder", () => {
           paid: false,
           status: { Lead: { s: "done" }, "Site Visit": { s: "done" } },
         },
+        // Seed max so next # is predictable
+        { id: "J-SEED", customer: "Other", estimateNo: "50", serviceAddress: "1 Other" },
       ],
     });
     const user = userEvent.setup();
@@ -78,13 +80,39 @@ describe("Estimate / invoice builder", () => {
     await user.click(await screen.findByTestId("doc-save"));
 
     await waitFor(() => expect(srv.state.ov["J-DRAFT"].estimateLines?.length).toBeGreaterThan(0));
+    await waitFor(() => expect(srv.state.ov["J-DRAFT"].estimateNo).toBe("51"));
     const tabs = within(pane).getByTestId("job-doc-tabs");
-    expect(within(tabs).getByTestId("tab-estimate")).toHaveTextContent(/Est draft/);
+    expect(within(tabs).getByTestId("tab-estimate")).toHaveTextContent(/Est #51/);
+    expect(within(tabs).getByTestId("tab-estimate")).not.toHaveTextContent(/draft/i);
+  });
 
-    await user.click(within(tabs).getByTestId("tab-estimate"));
-    expect(await screen.findByTestId("doc-draft-banner")).toBeInTheDocument();
-    expect(screen.getByTestId("doc-draft-lines")).toBeInTheDocument();
-    expect(screen.getByTestId("doc-sync-qbo")).toBeInTheDocument();
+  it("Save invoice assigns next invoice number so tab leaves Inv draft", async () => {
+    const srv = mockServer({
+      jobs: [
+        {
+          id: "J-INV-NEW",
+          customer: "Inv Co",
+          title: "Panel",
+          email: "i@x.com",
+          serviceAddress: "9 Main",
+          amount: "$500",
+          paid: false,
+          status: { Lead: { s: "done" } },
+        },
+        { id: "J-SEED-INV", customer: "Other", invoiceNo: "251900", serviceAddress: "1 Other" },
+      ],
+    });
+    const user = userEvent.setup();
+    renderApp("#/job/J-INV-NEW?fold=0");
+    const pane = await screen.findByTestId("detail-pane");
+
+    await user.click(within(pane).getByTestId("tab-invoice"));
+    // Gray tab opens create builder; amount seeds a General electrical work line.
+    await user.click(await screen.findByTestId("doc-save"));
+    await waitFor(() => expect(srv.state.ov["J-INV-NEW"].invoiceNo).toBe("251901"));
+    await waitFor(() =>
+      expect(within(pane).getByTestId("tab-invoice")).toHaveTextContent(/Inv #251901/)
+    );
   });
 
   it("Save on job persists lines and continues without waiting for QBO confirm", async () => {

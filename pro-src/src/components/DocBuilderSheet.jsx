@@ -19,6 +19,7 @@ import ServiceAddressField from "./ServiceAddressField.jsx";
 import AddressAutocompleteField from "./AddressAutocompleteField.jsx";
 import { emptyLine, initialLines, lineAmount, linesTotal } from "../lib/qboDoc.js";
 import { planDocSaveLocal, planDocSaveSync } from "../lib/docSync.js";
+import { resolveDocNumberOnSave } from "../lib/nextDocNumber.js";
 import { enqueueCustomerQboSync } from "../lib/customerQboEnqueue.js";
 import { stashPendingDocSync } from "../lib/docSyncChain.js";
 import { fmt$, parseAmount } from "../lib/format.js";
@@ -37,6 +38,14 @@ import {
   tagChangeOrderPatch,
 } from "../lib/changeOrder.js";
 import Toggle from "./Toggle.jsx";
+import LetterQuestionnaireSheet from "./LetterQuestionnaireSheet.jsx";
+import {
+  isLetterProduct,
+  letterAttachmentFromUpload,
+  matchLetterType,
+  upsertJobLetterDraft,
+} from "../lib/letterDraft.js";
+import { buildLetterheadPdfBlob, letterPdfFileName } from "../lib/letterheadPdf.js";
 
 import { enrichAndPatchCustomer } from "./NewJobFlow.jsx";
 import {
@@ -92,6 +101,7 @@ function LineRow({
   adjustMode,
   onAdjustModeChange,
   onLineProgress,
+  onOpenLetter,
 }) {
   const [itemQ, setItemQ] = useState(line.itemName || "");
   const [open, setOpen] = useState(false);
@@ -117,7 +127,11 @@ function LineRow({
     setItemQ(it.name);
     setItemPicked(true);
     setOpen(false);
+    if (isLetterProduct(it.name) && onOpenLetter) {
+      onOpenLetter(index, it.name);
+    }
   };
+  const letterHit = isLetterProduct(line.itemName || productLabel);
 
   const reOpenItem = () => {
     setOpen(true);
@@ -214,6 +228,16 @@ function LineRow({
         bare
         placeholder="Description…"
       />
+      {letterHit && onOpenLetter ? (
+        <button
+          type="button"
+          className="w-full text-left text-xs font-bold text-emerald-800 bg-emerald-50 border border-emerald-200 rounded-lg px-2 py-1.5"
+          onClick={() => onOpenLetter(index, line.itemName || productLabel)}
+          data-testid={"doc-line-letter-btn-" + (index + 1)}
+        >
+          ✏ Letter questionnaire — fill / approve letterhead
+        </button>
+      ) : null}
 
       {/* Row 3: rate / qty|progress / amount — flex so fields grow with the number */}
       <div
@@ -479,6 +503,11 @@ export default function DocBuilderSheet({
   }, [jobSeedId, kind, mode]);
   const [attachments, setAttachments] = useState([]);
   const [attUploading, setAttUploading] = useState(false);
+  // Letterhead drafts linked to letter product lines (load letter, safety, etc.)
+  const [letterDrafts, setLetterDrafts] = useState(() =>
+    Array.isArray(jobProp?.letterDrafts) ? jobProp.letterDrafts : []
+  );
+  const [letterQ, setLetterQ] = useState(null); // { lineIndex, itemName }
   // Starts empty and fills in asynchronously: LE's internal catalogue is a
   // separate chunk (see data/qboItems.js), so it cannot be read synchronously.
   // A non-internal tenant resolves to [] with no fetch at all, and keeps an
@@ -657,6 +686,77 @@ export default function DocBuilderSheet({
   const changeLine = useCallback((i, patch) => {
     setLines((rows) => rows.map((ln, idx) => (idx === i ? { ...ln, ...patch } : ln)));
   }, []);
+
+  const openLetterForLine = useCallback((lineIndex, itemName) => {
+    setLetterQ({ lineIndex, itemName: itemName || "" });
+  }, []);
+
+  const onLetterSaved = useCallback(
+    async ({ draft, description }) => {
+      setLetterQ(null);
+      if (!draft) return;
+      setLetterDrafts((prev) => {
+        const i = prev.findIndex(
+          (d) => d.id === draft.id || (d.lineIndex === draft.lineIndex && d.typeId === draft.typeId)
+        );
+        if (i >= 0) {
+          const next = prev.slice();
+          next[i] = draft;
+          return next;
+        }
+        return prev.concat([draft]);
+      });
+      if (description) {
+        setLines((rows) =>
+          rows.map((ln, idx) =>
+            idx === draft.lineIndex ? { ...ln, description, letterId: draft.id } : ln
+          )
+        );
+      }
+      // Generate PDF + attach so send includes invoice + letter
+      try {
+        setAttUploading(true);
+        const blob = buildLetterheadPdfBlob({ draft });
+        const fileName = letterPdfFileName(draft);
+        const file = new File([blob], fileName, { type: "application/pdf" });
+        const { uploadChatAttachment } = await import("../lib/chatAttach.js");
+        const url = await uploadChatAttachment(file);
+        const att = letterAttachmentFromUpload(draft, { url, name: fileName, mime: "application/pdf" });
+        setAttachments((rows) => {
+          // Replace prior letter attachment for same letter id
+          const filtered = rows.filter((a) => a.letterId !== draft.id);
+          return filtered.concat([att]);
+        });
+        // Also stash photos as attachments (email)
+        for (const p of draft.photos || []) {
+          if (!p?.url) continue;
+          setAttachments((rows) => {
+            if (rows.some((a) => a.url === p.url)) return rows;
+            return rows.concat([
+              {
+                id: p.id || "photo-" + Date.now(),
+                name: p.name || "Letter photo",
+                url: p.url,
+                mime: p.mime || "image/jpeg",
+                attachToEmail: true,
+                letterId: draft.id,
+              },
+            ]);
+          });
+        }
+        showToast(
+          draft.status === "approved"
+            ? "Letter approved — will send with the invoice"
+            : "Letter draft saved"
+        );
+      } catch (err) {
+        showToast("Letter saved, but PDF attach failed — " + (err?.message || "try preview again"));
+      } finally {
+        setAttUploading(false);
+      }
+    },
+    [showToast]
+  );
 
   const removeLine = useCallback((idx) => {
     setLines((rows) => rows.filter((_, j) => j !== idx));
@@ -960,8 +1060,27 @@ export default function DocBuilderSheet({
         }));
       }
       Object.assign(jobPatch, coTagsFromJob(activeJob));
-      // Persist editable doc # + progress flag from the top toggles.
-      if (docNoValue) jobPatch[docNoKey] = String(docNoValue).trim();
+      // Always stamp a real Inv # / Est # on save (never leave "Inv draft" after Save).
+      const preferredNo =
+        (kind === "invoice" ? jobPatch._preferredInvoiceNo : jobPatch._preferredEstimateNo) ||
+        preferredChangeOrderDocNo(activeJob, kind) ||
+        "";
+      const stampedNo = resolveDocNumberOnSave({
+        kind,
+        existing: docNoValue || activeJob[docNoKey] || "",
+        preferred: preferredNo,
+        jobs: boardJobs,
+      });
+      if (stampedNo) {
+        jobPatch[docNoKey] = stampedNo;
+        // Keep the header field in sync so the builder shows the number right away.
+        if (!String(docNoValue || "").trim()) patchJobState({ [docNoKey]: stampedNo });
+        // Carry the same # into QuickBooks create/update so local + office match.
+        commands = (commands || []).map((cmd) => ({
+          ...cmd,
+          payload: { ...(cmd.payload || {}), [docNoKey]: stampedNo },
+        }));
+      }
       jobPatch.invoiceProgressBilling = !!progressOn;
       if (editableCustomer) {
         jobPatch.businessName = activeJob.businessName || activeJob.customer || "";
@@ -975,6 +1094,11 @@ export default function DocBuilderSheet({
       }
       if (attachments.length) {
         jobPatch.attachments = (job.attachments || []).concat(attachments);
+      }
+      if (letterDrafts.length) {
+        let drafts = job.letterDrafts || [];
+        for (const d of letterDrafts) drafts = upsertJobLetterDraft({ letterDrafts: drafts }, d);
+        jobPatch.letterDrafts = drafts;
       }
       // Instant continue — do not await network or QBO confirmation (Levi convert→Save flow).
       void patchAndSave(jobId, jobPatch);
@@ -1070,7 +1194,24 @@ export default function DocBuilderSheet({
         discountValue,
       });
       Object.assign(jobPatch, coTagsFromJob(activeJob));
-      if (docNoValue) jobPatch[docNoKey] = String(docNoValue).trim();
+      // Stamp Inv # / Est # on save so the job never stays stuck as "draft".
+      const preferredNo =
+        (kind === "invoice" ? jobPatch._preferredInvoiceNo : jobPatch._preferredEstimateNo) ||
+        preferredChangeOrderDocNo(activeJob, kind) ||
+        "";
+      const stampedNo = resolveDocNumberOnSave({
+        kind,
+        existing: docNoValue || activeJob[docNoKey] || "",
+        preferred: preferredNo,
+        jobs: boardJobs,
+      });
+      if (stampedNo) {
+        jobPatch[docNoKey] = stampedNo;
+        if (!String(docNoValue || "").trim()) patchJobState({ [docNoKey]: stampedNo });
+        for (const cmd of commands || []) {
+          if (cmd.payload) cmd.payload[docNoKey] = stampedNo;
+        }
+      }
       jobPatch.invoiceProgressBilling = !!progressOn;
       if (editableCustomer) {
         jobPatch.businessName = activeJob.businessName || activeJob.customer || "";
@@ -1508,6 +1649,7 @@ export default function DocBuilderSheet({
           adjustMode={adjustMode}
           onAdjustModeChange={setAdjustMode}
           onLineProgress={onLineProgress}
+          onOpenLetter={kind === "invoice" || kind === "estimate" ? openLetterForLine : undefined}
         />
       ))}
       <button
@@ -1777,6 +1919,22 @@ export default function DocBuilderSheet({
             setIncludePayLinkSeed(!!model.includePaymentLink);
             submitSync(true, model);
           }}
+        />
+      ) : null}
+
+      {letterQ ? (
+        <LetterQuestionnaireSheet
+          job={job}
+          lineIndex={letterQ.lineIndex}
+          itemName={letterQ.itemName}
+          initialTypeId={matchLetterType(letterQ.itemName)?.id || ""}
+          initialDraft={
+            letterDrafts.find(
+              (d) => d.lineIndex === letterQ.lineIndex || d.itemName === letterQ.itemName
+            ) || null
+          }
+          onClose={() => setLetterQ(null)}
+          onSave={onLetterSaved}
         />
       ) : null}
     </Sheet>
