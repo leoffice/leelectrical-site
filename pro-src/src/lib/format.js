@@ -36,3 +36,11 @@ export function evStart(e) {
   if (typeof s === "string") return s;
   return s.dateTime || s.date || "";
 }
+
+export function fmtAmountField(v) {
+  if (v == null || v === "") return "";
+  const n = typeof v === "number" ? v : parseFloat(String(v).replace(/[$,]/g, ""));
+  if (!Number.isFinite(n) || n <= 0) return String(v ?? "");
+  return fmt$(n);
+}
+

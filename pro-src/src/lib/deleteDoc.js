@@ -103,3 +103,52 @@ export function removeDocCopy(job, kind, plan = removeDocPlan(job, kind)) {
     confirm: `Remove ${numbered}`,
   };
 }
+
+export function clearDocLabel(job, kind) {
+  if (kind === "estimate") {
+    if (job?.estimateNo) return "estimate #" + job.estimateNo;
+    return "estimate draft";
+  }
+  if (job?.invoiceNo) return "invoice #" + job.invoiceNo;
+  return "invoice draft";
+}
+
+export function canClearDoc(job, kind) {
+  if (!job) return false;
+  if (kind === "estimate") {
+    return !!(
+      job.estimateNo ||
+      job._estimateConfirmed ||
+      (job.estimateLines || []).some((ln) => String(ln?.itemName || "").trim())
+    );
+  }
+  return !!(
+    job.invoiceNo ||
+    job._invoiceConfirmed ||
+    (job.invoiceLines || []).some((ln) => String(ln?.itemName || "").trim())
+  );
+}
+export function clearEstimatePatch() {
+  return {
+    estimateNo: "",
+    estimateLines: [],
+    _estimateConfirmed: false,
+    estimateQboId: "",
+    estimateSyncedAt: "",
+    estimateDocSource: "",
+  };
+}
+
+export function clearInvoicePatch() {
+  return {
+    invoiceNo: "",
+    invoiceLines: [],
+    _invoiceConfirmed: false,
+    invoiceQboId: "",
+    invoiceSyncedAt: "",
+    invoiceDocSource: "",
+    invoiceProgressBilling: false,
+    paid: false,
+  };
+}
+

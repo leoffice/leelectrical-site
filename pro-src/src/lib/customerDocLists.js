@@ -52,6 +52,89 @@ export function invoicesForCustomerPick(jobs, customerName, { openOnly = false, 
   });
 }
 
+/** Estimate still open (no invoice yet) — can convert when applying a payment. */
+export function isOpenEstimateJob(job) {
+  if (!job || job._archived || job._deleted) return false;
+  if (job.invoiceNo) return false;
+  return !!(job.estimateNo || job._estimateConfirmed || (job.estimateLines || []).some((ln) => String(ln?.itemName || "").trim()));
+}
+
+/** Picker line for invoice or convert-ready estimate. */
+export function formatPayTargetOption(job) {
+  if (!job) return "";
+  if (job.invoiceNo) return formatInvoicePayOption(job);
+  const no = job.estimateNo ? "Est #" + job.estimateNo : "Estimate (no # yet)";
+  const addr = serviceAddressDisplay(job) || "No service address";
+  const total = invoiceTotal(job);
+  const amt = total > 0 ? fmt$(total) : "—";
+  return no + " · " + addr + " · " + amt + " · Convert to invoice";
+}
+
+/**
+ * Payment "Find invoice" targets: customer invoices first, then open estimates
+ * at the same service address (or any estimate for that customer if none match).
+ * Prefer address matches so Levi sees the right estimate for this job.
+ */
+export function payTargetsForCustomerPick(
+  jobs,
+  customerName,
+  { includeJobId = "", preferAddress = "", openOnlyInvoices = false } = {}
+) {
+  const invoices = invoicesForCustomerPick(jobs, customerName, {
+    openOnly: openOnlyInvoices,
+    includeJobId,
+  }).map((j) => ({ job: j, kind: "invoice" }));
+
+  // If this job already has an invoice, still show estimates only when no invoices exist.
+  // When no invoices, surface open estimates so payment can convert + apply.
+  const key = customerKeyForName(customerName);
+  const custJobs = jobsForCustomerKey(jobs || [], key).filter((j) => j && !j._archived && !j._deleted);
+  const estimates = custJobs.filter(isOpenEstimateJob);
+  const addrNorm = String(preferAddress || "")
+    .trim()
+    .toLowerCase()
+    .replace(/\s+/g, " ");
+  let estList = estimates;
+  if (addrNorm) {
+    const sameAddr = estimates.filter((j) => {
+      const a = String(serviceAddressDisplay(j) || "")
+        .trim()
+        .toLowerCase()
+        .replace(/\s+/g, " ");
+      return a && (a.includes(addrNorm) || addrNorm.includes(a));
+    });
+    // Prefer same service address; fall back to all customer estimates if none match.
+    if (sameAddr.length) estList = sameAddr;
+  }
+  // When invoices exist, still include estimates only if includeJobId is an estimate job
+  // with no invoice (so the current unlinked payment's job stays pickable).
+  const estTargets = [];
+  if (!invoices.length) {
+    for (const j of sortJobs(estList)) {
+      estTargets.push({ job: j, kind: "estimate" });
+    }
+  } else if (includeJobId) {
+    const keep = (jobs || []).find((j) => String(j.id) === String(includeJobId));
+    if (keep && isOpenEstimateJob(keep) && !invoices.some((t) => String(t.job.id) === String(keep.id))) {
+      estTargets.unshift({ job: keep, kind: "estimate" });
+    }
+  }
+
+  // Always keep includeJobId visible even without invoice # (orphan payment job).
+  const list = invoices.concat(estTargets);
+  if (includeJobId && !list.some((t) => String(t.job.id) === String(includeJobId))) {
+    const keep = (jobs || []).find((j) => String(j.id) === String(includeJobId));
+    if (keep) {
+      list.unshift({
+        job: keep,
+        kind: keep.invoiceNo ? "invoice" : isOpenEstimateJob(keep) ? "estimate" : "job",
+      });
+    }
+  }
+  return list;
+}
+
+
 /** Jobs with an estimate number, newest first. */
 export function estimateJobs(jobs, { openOnly = false } = {}) {
   let list = (jobs || []).filter((j) => j && !j._archived && !j._deleted && j.estimateNo);

@@ -1167,9 +1167,6 @@ export default function DocBuilderSheet({
       // Local store update is sync inside patchAndSave; still await so the
       // overlay write isn't raced by a concurrent jobs refresh (lost Inv #).
       await patchAndSave(jobId, jobPatch);
-      for (const cmd of commands) {
-        void enqueue(cmd.type, jobId, cmd.payload, "judgment", cmd.idk);
-      }
       const pdfJob = buildPdfJob(activeJob, jobPatch);
       if (printPdf) {
         // PDF generation can stay in background after UI continues.
@@ -1184,9 +1181,7 @@ export default function DocBuilderSheet({
         opts.toast ||
           (printPdf
             ? "Saved + printed " + noLabel + " PDF"
-            : alsoQbo
-              ? "Saved " + noLabel + " — syncing to QuickBooks in the background"
-              : "Saved " + noLabel + " on this job")
+            : "Saved " + noLabel + " on this job")
       );
       resumeFollowUpPrompts();
       onDone && onDone({ ...activeJob, ...jobPatch });
