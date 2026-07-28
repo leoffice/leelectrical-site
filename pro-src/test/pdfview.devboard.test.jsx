@@ -2,16 +2,30 @@
 // Live PDF viewing (docs store + fetch_pdf command) and the Dev-board
 // archived section / Mark complete / Unarchive controls.
 import React from "react";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { cleanup, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import "@testing-library/jest-dom/vitest";
-import { mockServer, renderApp, stubPdfOpen } from "./helpers.jsx";
+import { mockServer, renderApp } from "./helpers.jsx";
 import { todayStr } from "../src/lib/format.js";
+
+beforeEach(() => {
+  if (!URL.createObjectURL) {
+    URL.createObjectURL = vi.fn(() => "blob:test-local-doc");
+  } else {
+    vi.spyOn(URL, "createObjectURL").mockReturnValue("blob:test-local-doc");
+  }
+  if (!URL.revokeObjectURL) {
+    URL.revokeObjectURL = vi.fn();
+  } else {
+    vi.spyOn(URL, "revokeObjectURL").mockImplementation(() => {});
+  }
+});
 
 afterEach(() => {
   cleanup(); // unmount between tests — this harness runs without globals:true,
   vi.unstubAllGlobals(); // so RTL's auto-cleanup isn't registered.
+  vi.restoreAllMocks();
   localStorage.clear();
   window.location.hash = "#/";
 });
@@ -26,33 +40,32 @@ const openInvoiceSheet = async (user) => {
 
 describe("invoice/estimate quick view — View PDF", () => {
   it("regenerates the local QBO-clone PDF even when a cached copy exists", async () => {
-    const click = stubPdfOpen();
     const srv = mockServer({ docs: { "inv-251841": "%PDF-1.4 stored" } });
     const user = userEvent.setup();
     const sheet = await openInvoiceSheet(user);
 
     await user.click(within(sheet).getByText("View Local Invoice"));
-    // Client-side: open blob tab + download fallback (2 anchor clicks), no server generate-doc.
-    await waitFor(() => expect(click.mock.calls.length).toBeGreaterThanOrEqual(1));
+    // In-app viewer — no auto-download / new-tab open.
+    expect(await screen.findByTestId("local-doc-viewer")).toBeInTheDocument();
+    expect(screen.getByTestId("local-doc-frame")).toBeInTheDocument();
+    expect(screen.getByTestId("local-doc-download")).toBeInTheDocument();
     expect(srv.calls.some((c) => c.path === "generate-doc")).toBe(false);
     expect(srv.enqueued("fetch_pdf")).toHaveLength(0);
   });
 
   it("on a miss with invoice data: builds + opens the PDF client-side (no server)", async () => {
-    const click = stubPdfOpen();
     const srv = mockServer(); // docs empty -> 404
     const user = userEvent.setup();
     const sheet = await openInvoiceSheet(user);
 
     await user.click(within(sheet).getByText("View Local Invoice"));
-    await waitFor(() => expect(click.mock.calls.length).toBeGreaterThanOrEqual(1));
+    expect(await screen.findByTestId("local-doc-viewer")).toBeInTheDocument();
     expect(screen.queryByText("Generating your PDF — a few seconds…")).toBeNull();
     expect(srv.calls.some((c) => c.path === "generate-doc")).toBe(false);
     expect(srv.enqueued("fetch_pdf")).toHaveLength(0);
   });
 
   it("on a miss without local data: enqueues fetch_pdf and polls until stored", async () => {
-    const click = stubPdfOpen();
     const bare = {
       id: "J-BARE",
       customer: "No Lines",
@@ -69,7 +82,9 @@ describe("invoice/estimate quick view — View PDF", () => {
     await user.click(within(sheet).getByText("View QuickBooks Invoice"));
     await screen.findByText("Fetching from QuickBooks — a few seconds…");
     srv.state.docs["inv-999001"] = "%PDF-1.4 fetched";
-    await waitFor(() => expect(click).toHaveBeenCalledTimes(1), { timeout: 7000 });
+    await waitFor(() => expect(screen.getByTestId("local-doc-viewer")).toBeInTheDocument(), {
+      timeout: 7000,
+    });
   }, 12000);
 });
 

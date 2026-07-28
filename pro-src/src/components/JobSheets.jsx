@@ -29,6 +29,7 @@ import { fmt$, fmtAmountField, parseAmount, todayStr } from "../lib/format.js";
 import { docStorePdfUrl, openPdfBlob, openPdfUrl, downloadPdfBlob } from "../lib/pdfOpen.js";
 import { canGenerateLocalDoc, docPdfFilename } from "../lib/jobToQbDoc.js";
 import { buildInvoicePdfFromJob, buildEstimatePdfFromJob } from "../lib/invoicePdf.js";
+import LocalDocViewer from "./LocalDocViewer.jsx";
 import { chargeCardInApp, fetchSolaIfieldsConfig } from "../lib/solaCharge.js";
 import SolaCardForm, { tokenizeSolaCard } from "./SolaCardForm.jsx";
 import { fmtMoneyPrecise, totalWithFee } from "../lib/payFees.js";
@@ -2266,16 +2267,41 @@ export function PdfStages({ active }) {
 function useDocPdfView(job, kind, no) {
   const { api, enqueue, showToast } = useStore();
   const [st, setSt] = useState({ phase: "idle", source: null }); // idle|checking|fetching|timeout|error
+  // In-app viewer — view first; download/share only when the user chooses.
+  const [viewer, setViewer] = useState(null); // { blob?, url?, title, filename } | null
   const timer = useRef(null);
   const deadline = useRef(0);
   const docKey = (kind === "invoice" ? "inv-" : "est-") + no;
   const docUrl = docStorePdfUrl(docKey);
+  const label = kind === "estimate" ? "estimate" : "invoice";
 
   useEffect(() => () => clearTimeout(timer.current), []);
 
-  const openStored = () => {
-    openPdfUrl(docUrl);
+  const openInApp = (opts) => {
+    setViewer(opts);
     setSt({ phase: "idle", source: null });
+  };
+
+  const openStored = async () => {
+    // Prefer a real Blob so Share/Download work without leaving the app.
+    try {
+      const stored = await check();
+      if (stored instanceof Blob) {
+        openInApp({
+          blob: stored,
+          title: (kind === "estimate" ? "Estimate" : "Invoice") + (no ? " #" + no : ""),
+          filename: docPdfFilename(kind, job, no) || `${kind}-${no || "document"}.pdf`,
+        });
+        return;
+      }
+    } catch {
+      /* fall through to store URL */
+    }
+    openInApp({
+      url: docUrl,
+      title: (kind === "estimate" ? "Estimate" : "Invoice") + (no ? " #" + no : ""),
+      filename: docPdfFilename(kind, job, no) || `${kind}-${no || "document"}.pdf`,
+    });
   };
 
   const check = async () => {
@@ -2309,8 +2335,7 @@ function useDocPdfView(job, kind, no) {
       return;
     }
     setSt({ phase: "fetching", source: DOC_SOURCE_LOCAL });
-    // Client-side only — open blob URL in a new tab (works where download-only looked dead).
-    // Also trigger a download as a mobile-friendly fallback when popups are blocked.
+    // Build client-side PDF and show in-app (no auto-download).
     try {
       const blob =
         kind === "estimate" ? await buildEstimatePdfFromJob(job) : await buildInvoicePdfFromJob(job);
@@ -2320,15 +2345,12 @@ function useDocPdfView(job, kind, no) {
         return;
       }
       const filename = docPdfFilename(kind, job, no) || `${kind}-${no || "document"}.pdf`;
-      openPdfBlob(blob);
-      // Download as backup so iOS/Android still get a file if the tab is blocked.
-      try {
-        downloadPdfBlob(blob, filename);
-      } catch {
-        /* open is enough */
-      }
-      setSt({ phase: "idle", source: null });
-      showToast("Opening " + (kind === "estimate" ? "estimate" : "invoice") + " PDF");
+      openInApp({
+        blob,
+        title: (kind === "estimate" ? "Estimate" : "Invoice") + (no ? " #" + no : ""),
+        filename,
+      });
+      showToast("Opening " + label);
     } catch (e) {
       setSt({ phase: "error", source: DOC_SOURCE_LOCAL });
       showToast("Couldn't build the PDF on this device — try View QuickBooks");
@@ -2351,7 +2373,7 @@ function useDocPdfView(job, kind, no) {
     timer.current = setTimeout(poll, 4000);
   };
 
-  return { st, viewLocal, viewQbo, docKey };
+  return { st, viewLocal, viewQbo, docKey, viewer, setViewer };
 }
 
 function DocPdfStatus({ st, onRetry }) {
@@ -2386,7 +2408,7 @@ function DocPdfStatus({ st, onRetry }) {
 
 /** Local vs QuickBooks view buttons — explicit source, no auto-mixing. */
 export function DocPdfViewButtons({ job, kind, no, compact }) {
-  const { st, viewLocal, viewQbo } = useDocPdfView(job, kind, no);
+  const { st, viewLocal, viewQbo, viewer, setViewer } = useDocPdfView(job, kind, no);
   const config = useTenantConfig();
   const appSettings = useAppSettings();
   void appSettings.quickbooks;
@@ -2395,32 +2417,50 @@ export function DocPdfViewButtons({ job, kind, no, compact }) {
   const product = productName(config);
   const retry = () => (st.source === DOC_SOURCE_QBO && qboDocsOn ? viewQbo() : viewLocal());
 
+  const viewerEl = viewer ? (
+    <LocalDocViewer
+      blob={viewer.blob || null}
+      url={viewer.url || ""}
+      title={viewer.title || "Document"}
+      filename={viewer.filename || "document.pdf"}
+      onClose={() => setViewer(null)}
+    />
+  ) : null;
+
   if (st.phase === "checking" || st.phase === "fetching" || st.phase === "timeout") {
-    return <DocPdfStatus st={st} onRetry={retry} />;
+    return (
+      <>
+        <DocPdfStatus st={st} onRetry={retry} />
+        {viewerEl}
+      </>
+    );
   }
 
   if (compact) {
     return (
-      <div className="flex gap-2 mb-2 w-full" data-testid="doc-view-row">
-        <button
-          type="button"
-          className="btn flex-1 !py-2.5 bg-brand-soft text-brand font-semibold"
-          onClick={viewLocal}
-          data-testid="view-local-doc"
-        >
-          {viewLocalLabel(kind)}
-        </button>
-        {qboDocsOn ? (
+      <>
+        <div className="flex gap-2 mb-2 w-full" data-testid="doc-view-row">
           <button
             type="button"
-            className="btn flex-1 !py-2.5 bg-slate-100 text-slate-800 font-semibold"
-            onClick={viewQbo}
-            data-testid="view-qbo-doc"
+            className="btn flex-1 !py-2.5 bg-brand-soft text-brand font-semibold"
+            onClick={viewLocal}
+            data-testid="view-local-doc"
           >
-            {viewQboLabel(kind)}
+            {viewLocalLabel(kind)}
           </button>
-        ) : null}
-      </div>
+          {qboDocsOn ? (
+            <button
+              type="button"
+              className="btn flex-1 !py-2.5 bg-slate-100 text-slate-800 font-semibold"
+              onClick={viewQbo}
+              data-testid="view-qbo-doc"
+            >
+              {viewQboLabel(kind)}
+            </button>
+          ) : null}
+        </div>
+        {viewerEl}
+      </>
     );
   }
 
@@ -2429,7 +2469,7 @@ export function DocPdfViewButtons({ job, kind, no, compact }) {
       <Opt
         icon="📄"
         title={viewLocalLabel(kind)}
-        note={`${product} PDF from this job's line items`}
+        note={`${product} PDF from this job's line items — opens in the app`}
         onClick={viewLocal}
         data-testid="view-local-doc"
       />
@@ -2442,6 +2482,7 @@ export function DocPdfViewButtons({ job, kind, no, compact }) {
           data-testid="view-qbo-doc"
         />
       ) : null}
+      {viewerEl}
     </>
   );
 }
