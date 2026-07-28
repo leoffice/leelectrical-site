@@ -7,7 +7,12 @@ const MIN_TEXTAREA_PX = 96;
 const MAX_TEXTAREA_PX = 320;
 /** One-line start height; grows when the description wraps. */
 const COMPACT_MIN_TEXTAREA_PX = 38;
-const COMPACT_MAX_TEXTAREA_PX = 160;
+/**
+ * Line-item descriptions must be readable in full — a 160px cap turned a long
+ * scope note into a tiny scroll box (Levi 2026-07-28). Tall enough for any
+ * real line, still bounded so one line can't take over the sheet.
+ */
+const COMPACT_MAX_TEXTAREA_PX = 480;
 
 /** Compact polish control — sits next to amount (or anywhere). */
 export function PolishButton({

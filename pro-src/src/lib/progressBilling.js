@@ -14,9 +14,19 @@ export function isFractionalProgressQty(qty) {
 }
 
 /** True when invoice should use progress-billing UI (linked estimate / partial invoice). */
+/**
+ * Both spellings mean "this invoice is being built out of the estimate".
+ * `from_estimate` comes from the Create-invoice picker, `turn_from_estimate`
+ * from Convert to invoice — they must behave identically, and not doing so is
+ * what made Convert collapse to one generic line (Levi 2026-07-28).
+ */
+export function isFromEstimateMode(mode) {
+  return mode === "from_estimate" || mode === "turn_from_estimate";
+}
+
 export function isProgressBillingContext(job, { kind, mode } = {}) {
   if (kind !== "invoice") return false;
-  if (mode === "from_estimate" || mode === "turn_from_estimate") return true;
+  if (isFromEstimateMode(mode)) return true;
   if (mode !== "edit") return false;
   if (job.estimateLines?.length) return true;
   if (parseAmount(job.contractAmount) > 0) return true;

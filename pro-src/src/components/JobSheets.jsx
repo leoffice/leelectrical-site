@@ -21,6 +21,7 @@ import { enrichAndPatchCustomer } from "./NewJobFlow.jsx";
 import AddressAutocompleteField from "./AddressAutocompleteField.jsx";
 import { syncBillingFromService } from "../lib/addressSync.js";
 import { useStore } from "../state/store.jsx";
+import { removeDocCopy, removeDocPlan } from "../lib/deleteDoc.js";
 import { productName } from "../lib/tenantBranding.js";
 import { useTenantConfig } from "../state/tenant.jsx";
 
@@ -2515,13 +2516,35 @@ export function PaymentLinkSheet({ job, onClose }) {
 /* ---------- 2a. Invoice / Estimate quick view ---------- */
 export function DocSheet({ job, kind, onClose, onEdit, onConvert, onSync }) {
   const doSend = useDoSend();
-  const { commands } = useStore();
+  const { commands, patchAndSave, showToast } = useStore();
   const [sendPick, setSendPick] = useState(null); // { withPay, title }
   const [confirmSend, setConfirmSend] = useState(null); // { withPay, docSource }
   const [sendBusy, setSendBusy] = useState(false);
   const [sendErr, setSendErr] = useState("");
+  const [confirmDelete, setConfirmDelete] = useState(false);
+  const [deleteBusy, setDeleteBusy] = useState(false);
   const no = kind === "invoice" ? job.invoiceNo : job.estimateNo;
   const label = kind === "invoice" ? "invoice" : "estimate";
+
+  const deletePlan = removeDocPlan(job, kind);
+  const deleteCopy = removeDocCopy(job, kind, deletePlan);
+
+  const runDelete = async () => {
+    if (deleteBusy) return;
+    setDeleteBusy(true);
+    try {
+      await patchAndSave(job.id, deletePlan.patch);
+      showToast?.(
+        deletePlan.mode === "draft"
+          ? "Draft " + label + " deleted"
+          : deleteCopy.confirm.replace(/^Remove/, "Removed")
+      );
+      onClose();
+    } catch (e) {
+      showToast?.(String(e?.message || "Could not delete — try again"));
+      setDeleteBusy(false);
+    }
+  };
 
   if (confirmSend) {
     return (
@@ -2558,6 +2581,42 @@ export function DocSheet({ job, kind, onClose, onEdit, onConvert, onSync }) {
           setSendErr(result?.error || "Send failed — document was not emailed");
         }}
       />
+    );
+  }
+
+  if (confirmDelete) {
+    return (
+      <Sheet title={deleteCopy.title} onClose={() => (deleteBusy ? null : setConfirmDelete(false))}>
+        <p className="text-sm text-slate-600 mb-4" data-testid="doc-delete-body">
+          {deleteCopy.body.replace(/\*\*/g, "")}
+        </p>
+        {deletePlan.warnsQuickbooks ? (
+          <p
+            className="text-xs font-semibold text-amber-900 bg-amber-50 border border-amber-200 rounded-xl px-3 py-2 mb-4"
+            data-testid="doc-delete-qbo-warning"
+          >
+            QuickBooks is not changed — #{deletePlan.syncedNo} still exists there.
+          </p>
+        ) : null}
+        <button
+          type="button"
+          className="btn bg-red-600 text-white w-full mb-2 disabled:opacity-60"
+          onClick={runDelete}
+          disabled={deleteBusy}
+          data-testid="doc-delete-confirm"
+        >
+          {deleteBusy ? "Deleting…" : deleteCopy.confirm}
+        </button>
+        <button
+          type="button"
+          className="btn bg-slate-100 text-slate-800 w-full"
+          onClick={() => setConfirmDelete(false)}
+          disabled={deleteBusy}
+          data-testid="doc-delete-cancel"
+        >
+          Keep it
+        </button>
+      </Sheet>
     );
   }
 
@@ -2650,6 +2709,17 @@ export function DocSheet({ job, kind, onClose, onEdit, onConvert, onSync }) {
         >
           {docSendStatusLine(job, kind, commands).text}
         </p>
+      ) : null}
+
+      {no || isDraft ? (
+        <button
+          type="button"
+          className="btn-ghost w-full !py-2.5 mt-1 font-semibold text-red-600"
+          onClick={() => setConfirmDelete(true)}
+          data-testid={"doc-delete-" + kind}
+        >
+          {isDraft ? "Delete draft " + label : "Delete " + label}
+        </button>
       ) : null}
     </Sheet>
   );

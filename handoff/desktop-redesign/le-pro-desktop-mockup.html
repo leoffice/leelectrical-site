@@ -1,0 +1,869 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>LE Pro — desktop redesign (mockup for approval)</title>
+<style>
+/* ─────────────────────────────────────────────────────────────
+   Tokens — LE Pro's own palette (tailwind.config.js), extended
+   for a dense desktop surface. Semantic colors stay separate
+   from the amber accent so "paid / overdue" never reads as brand.
+   ───────────────────────────────────────────────────────────── */
+:root {
+  --brand: #0c4a6e;
+  --brand-dark: #082f49;
+  --brand-soft: #e0f2fe;
+  --accent: #d97706;
+  --accent-soft: #fffbeb;
+
+  --ok: #059669;
+  --ok-soft: #ecfdf5;
+  --warn: #b45309;
+  --bad: #dc2626;
+  --bad-soft: #fef2f2;
+
+  --ground: #f1f5f9;
+  --panel: #ffffff;
+  --panel-2: #f8fafc;
+  --rule: #e2e8f0;
+  --rule-soft: #eef2f7;
+  --ink: #0f172a;
+  --ink-2: #334155;
+  --muted: #64748b;
+  --faint: #94a3b8;
+
+  --rail-bg: #082f49;
+  --rail-ink: #cbd5e1;
+  --rail-ink-hi: #ffffff;
+  --rail-active: #0c4a6e;
+
+  --shadow: 0 1px 2px rgb(15 23 42 / .06), 0 1px 1px rgb(15 23 42 / .04);
+  --shadow-pop: 0 8px 24px rgb(15 23 42 / .12);
+
+  --r: 8px;
+  --r-sm: 6px;
+  --row: 30px;
+
+  --ui: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --ground: #0b1220;
+    --panel: #111a2b;
+    --panel-2: #0e1728;
+    --rule: #1e293b;
+    --rule-soft: #172033;
+    --ink: #e8eef7;
+    --ink-2: #c2cede;
+    --muted: #8ba0b8;
+    --faint: #64798f;
+    --brand: #38bdf8;
+    --brand-soft: #0b2f45;
+    --rail-bg: #060f1c;
+    --rail-active: #0c4a6e;
+    --accent-soft: #2b1f08;
+    --ok-soft: #062b1f;
+    --bad-soft: #2a1113;
+    --shadow: 0 1px 2px rgb(0 0 0 / .5);
+    --shadow-pop: 0 8px 24px rgb(0 0 0 / .55);
+  }
+}
+/* The viewer's own toggle must win over the OS preference, both ways. */
+:root[data-theme="dark"] {
+  --ground: #0b1220; --panel: #111a2b; --panel-2: #0e1728;
+  --rule: #1e293b; --rule-soft: #172033;
+  --ink: #e8eef7; --ink-2: #c2cede; --muted: #8ba0b8; --faint: #64798f;
+  --brand: #38bdf8; --brand-soft: #0b2f45;
+  --rail-bg: #060f1c; --rail-active: #0c4a6e;
+  --accent-soft: #2b1f08; --ok-soft: #062b1f; --bad-soft: #2a1113;
+  --shadow: 0 1px 2px rgb(0 0 0 / .5);
+  --shadow-pop: 0 8px 24px rgb(0 0 0 / .55);
+}
+:root[data-theme="light"] {
+  --ground: #f1f5f9; --panel: #ffffff; --panel-2: #f8fafc;
+  --rule: #e2e8f0; --rule-soft: #eef2f7;
+  --ink: #0f172a; --ink-2: #334155; --muted: #64748b; --faint: #94a3b8;
+  --brand: #0c4a6e; --brand-soft: #e0f2fe;
+  --rail-bg: #082f49; --rail-active: #0c4a6e;
+  --accent-soft: #fffbeb; --ok-soft: #ecfdf5; --bad-soft: #fef2f2;
+  --shadow: 0 1px 2px rgb(15 23 42 / .06), 0 1px 1px rgb(15 23 42 / .04);
+  --shadow-pop: 0 8px 24px rgb(15 23 42 / .12);
+}
+
+* { box-sizing: border-box; }
+html, body { height: 100%; }
+body {
+  margin: 0;
+  font-family: var(--ui);
+  font-size: 13px;
+  line-height: 1.45;
+  color: var(--ink);
+  background: var(--ground);
+  -webkit-font-smoothing: antialiased;
+}
+button { font: inherit; color: inherit; }
+:where(button, [tabindex], input, select, textarea):focus-visible {
+  outline: 2px solid var(--brand);
+  outline-offset: 1px;
+  border-radius: var(--r-sm);
+}
+@media (prefers-reduced-motion: reduce) {
+  * { transition: none !important; animation: none !important; }
+}
+
+.num { font-variant-numeric: tabular-nums; }
+.lbl {
+  font-size: 10px; font-weight: 800; letter-spacing: .07em;
+  text-transform: uppercase; color: var(--faint);
+}
+
+/* ── Mockup chrome (not part of the product) ───────────────── */
+.mockbar {
+  display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
+  padding: 10px 16px; background: var(--panel); border-bottom: 1px solid var(--rule);
+}
+.mockbar h1 { font-size: 13px; margin: 0; font-weight: 800; letter-spacing: -.01em; }
+.mockbar .tag {
+  font-size: 10px; font-weight: 800; letter-spacing: .06em; text-transform: uppercase;
+  color: var(--accent); background: var(--accent-soft); border: 1px solid color-mix(in srgb, var(--accent) 30%, transparent);
+  padding: 2px 7px; border-radius: 999px;
+}
+.mockbar .spacer { flex: 1; }
+.mockbar button {
+  border: 1px solid var(--rule); background: var(--panel-2); color: var(--ink-2);
+  padding: 5px 10px; border-radius: var(--r-sm); font-size: 12px; font-weight: 600; cursor: pointer;
+}
+.mockbar button:hover { background: var(--brand-soft); border-color: color-mix(in srgb, var(--brand) 35%, var(--rule)); }
+.mocknote { padding: 8px 16px; font-size: 12px; color: var(--muted); background: var(--panel-2); border-bottom: 1px solid var(--rule); }
+.mocknote kbd {
+  font: inherit; font-weight: 700; color: var(--ink-2);
+  background: var(--panel); border: 1px solid var(--rule); border-bottom-width: 2px;
+  border-radius: 4px; padding: 0 5px;
+}
+
+/* ── App shell: rail | customers | work surface ────────────── */
+.app {
+  display: grid;
+  grid-template-columns: 56px 232px minmax(0, 1fr);
+  height: calc(100vh - 84px);
+  min-height: 620px;
+  transition: grid-template-columns .16s ease;
+}
+.app[data-rail="open"] { grid-template-columns: 216px 232px minmax(0, 1fr); }
+.app[data-people="wide"] { grid-template-columns: 56px 300px minmax(0, 1fr); }
+.app[data-rail="open"][data-people="wide"] { grid-template-columns: 216px 300px minmax(0, 1fr); }
+
+/* ── Icon rail ─────────────────────────────────────────────── */
+.rail {
+  background: var(--rail-bg); color: var(--rail-ink);
+  display: flex; flex-direction: column; gap: 2px; padding: 8px 6px;
+  overflow: hidden;
+}
+.rail .brandrow {
+  display: flex; align-items: center; gap: 8px;
+  padding: 4px 6px 10px; color: var(--rail-ink-hi);
+}
+.rail .mark {
+  width: 28px; height: 28px; flex: 0 0 28px; border-radius: 7px;
+  background: linear-gradient(160deg, #0ea5e9, #0c4a6e);
+  display: grid; place-items: center; font-size: 11px; font-weight: 900; letter-spacing: -.03em;
+}
+.rail .wordmark { font-size: 13px; font-weight: 800; white-space: nowrap; }
+.rail button.nav {
+  display: flex; align-items: center; gap: 10px; width: 100%;
+  background: none; border: 0; cursor: pointer;
+  padding: 7px 8px; border-radius: var(--r-sm);
+  color: var(--rail-ink); white-space: nowrap; text-align: left;
+}
+.rail button.nav:hover { background: rgb(255 255 255 / .07); color: var(--rail-ink-hi); }
+.rail button.nav[aria-current="page"] { background: var(--rail-active); color: var(--rail-ink-hi); font-weight: 700; }
+.rail .ico { width: 20px; flex: 0 0 20px; text-align: center; font-size: 14px; }
+.rail .txt { font-size: 12.5px; opacity: 1; transition: opacity .12s ease; }
+.app:not([data-rail="open"]) .rail .txt,
+.app:not([data-rail="open"]) .rail .wordmark { opacity: 0; pointer-events: none; }
+.rail .pill {
+  margin-left: auto; font-size: 10px; font-weight: 800; padding: 0 5px; border-radius: 999px;
+  background: var(--accent); color: #fff;
+}
+.app:not([data-rail="open"]) .rail .pill { display: none; }
+.rail .spacer { flex: 1; }
+.rail .railtoggle {
+  display: flex; align-items: center; gap: 10px; width: 100%;
+  background: none; border: 0; cursor: pointer; color: var(--rail-ink);
+  padding: 7px 8px; border-radius: var(--r-sm); font-size: 12.5px;
+}
+.rail .railtoggle:hover { background: rgb(255 255 255 / .07); }
+
+/* ── Customer column ───────────────────────────────────────── */
+.people { background: var(--panel); border-right: 1px solid var(--rule); display: flex; flex-direction: column; min-width: 0; }
+.people .head {
+  display: flex; align-items: center; gap: 6px; padding: 9px 10px; border-bottom: 1px solid var(--rule);
+}
+.people .head .lbl { flex: 1; }
+.people .head button {
+  border: 1px solid var(--rule); background: var(--panel-2); border-radius: var(--r-sm);
+  padding: 3px 7px; font-size: 11px; font-weight: 700; cursor: pointer; color: var(--ink-2);
+}
+.people .head button:hover { background: var(--brand-soft); }
+.people .search { padding: 8px 10px; border-bottom: 1px solid var(--rule-soft); }
+.people .search input {
+  width: 100%; border: 1px solid var(--rule); background: var(--panel-2); color: var(--ink);
+  border-radius: var(--r-sm); padding: 5px 8px; font-size: 12px;
+}
+.people .list { overflow-y: auto; flex: 1; padding: 4px 0; }
+.prow {
+  display: flex; align-items: center; gap: 8px; width: 100%;
+  min-height: var(--row); padding: 4px 10px; border: 0; background: none;
+  cursor: pointer; text-align: left; border-left: 2px solid transparent;
+}
+.prow:hover { background: var(--panel-2); }
+.prow[aria-current="true"] { background: var(--brand-soft); border-left-color: var(--brand); }
+.prow .av {
+  width: 22px; height: 22px; flex: 0 0 22px; border-radius: 6px;
+  background: var(--panel-2); border: 1px solid var(--rule);
+  display: grid; place-items: center; font-size: 10px; font-weight: 800; color: var(--ink-2);
+}
+.prow[aria-current="true"] .av { background: var(--brand); color: #fff; border-color: var(--brand); }
+.prow .nm { flex: 1; min-width: 0; font-size: 12.5px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.prow .last { color: var(--muted); font-weight: 500; }
+.app:not([data-people="wide"]) .prow .last { display: none; }
+.prow .due { font-size: 11.5px; font-weight: 700; color: var(--bad); }
+.prow .due.zero { color: var(--faint); font-weight: 500; }
+
+/* ── Work surface ──────────────────────────────────────────── */
+.work { overflow-y: auto; padding: 12px 14px 40px; min-width: 0; }
+.stack { display: flex; flex-direction: column; gap: 10px; max-width: 1180px; }
+
+.card { background: var(--panel); border: 1px solid var(--rule); border-radius: var(--r); box-shadow: var(--shadow); }
+.card > .hd {
+  display: flex; align-items: center; gap: 8px; padding: 8px 12px; border-bottom: 1px solid var(--rule-soft);
+}
+.card > .hd h2 { margin: 0; font-size: 12px; font-weight: 800; letter-spacing: -.01em; }
+.card > .bd { padding: 10px 12px; }
+
+.ghost {
+  border: 1px solid var(--rule); background: var(--panel-2); color: var(--ink-2);
+  border-radius: var(--r-sm); padding: 3px 8px; font-size: 11.5px; font-weight: 700; cursor: pointer;
+}
+.ghost:hover { background: var(--brand-soft); border-color: color-mix(in srgb, var(--brand) 35%, var(--rule)); }
+.primary {
+  border: 1px solid var(--brand); background: var(--brand); color: #fff;
+  border-radius: var(--r-sm); padding: 4px 11px; font-size: 12px; font-weight: 700; cursor: pointer;
+}
+.primary:hover { filter: brightness(1.08); }
+.danger { border-color: color-mix(in srgb, var(--bad) 40%, var(--rule)); color: var(--bad); }
+.danger:hover { background: var(--bad-soft); }
+
+/* Customer header — on top, always */
+.custhead { display: flex; align-items: flex-start; gap: 12px; padding: 11px 12px; }
+.custhead .big {
+  width: 38px; height: 38px; flex: 0 0 38px; border-radius: 9px; background: var(--brand); color: #fff;
+  display: grid; place-items: center; font-size: 13px; font-weight: 800;
+}
+.custhead .who { flex: 1; min-width: 0; }
+.custhead .who h1 { margin: 0 0 1px; font-size: 16px; font-weight: 800; letter-spacing: -.015em; }
+.facts { display: flex; flex-wrap: wrap; gap: 2px 16px; font-size: 12px; color: var(--muted); }
+.facts b { color: var(--ink-2); font-weight: 600; }
+.totals { display: flex; gap: 18px; text-align: right; }
+.totals div span { display: block; }
+.totals .v { font-size: 15px; font-weight: 800; letter-spacing: -.02em; }
+.totals .v.due { color: var(--bad); }
+.totals .v.paid { color: var(--ok); }
+
+/* Job information */
+.jobgrid { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 6px 18px; }
+.jobgrid .f { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
+.jobgrid .f span:last-child { font-size: 12.5px; font-weight: 600; color: var(--ink-2); word-break: break-word; }
+
+/* Document chips — the numbers live ON the buttons */
+.docrow { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; }
+.chip {
+  display: inline-flex; align-items: center; gap: 6px;
+  border: 1px solid var(--rule); background: var(--panel-2); color: var(--ink-2);
+  border-radius: 999px; padding: 4px 11px; font-size: 12px; font-weight: 700; cursor: pointer;
+}
+.chip:hover { border-color: color-mix(in srgb, var(--brand) 45%, var(--rule)); background: var(--brand-soft); }
+.chip[aria-pressed="true"] { background: var(--brand); border-color: var(--brand); color: #fff; }
+.chip .dot { width: 6px; height: 6px; border-radius: 50%; background: var(--faint); }
+.chip.paid .dot { background: var(--ok); }
+.chip.open .dot { background: var(--bad); }
+.chip.draft .dot { background: var(--accent); }
+.chip[aria-pressed="true"] .dot { background: #fff; }
+.chip .no { font-variant-numeric: tabular-nums; }
+.chip .amt { color: var(--muted); font-weight: 600; font-variant-numeric: tabular-nums; }
+.chip[aria-pressed="true"] .amt { color: rgb(255 255 255 / .8); }
+
+/* ── The inline document box — opens HERE, never a new page ── */
+.doc { border-color: color-mix(in srgb, var(--brand) 30%, var(--rule)); }
+.doc > .hd { background: var(--brand-soft); border-bottom-color: color-mix(in srgb, var(--brand) 22%, var(--rule)); }
+.doc > .hd .stat {
+  font-size: 10px; font-weight: 800; letter-spacing: .06em; text-transform: uppercase;
+  padding: 2px 7px; border-radius: 999px;
+}
+.stat.open { background: var(--bad-soft); color: var(--bad); }
+.stat.paid { background: var(--ok-soft); color: var(--ok); }
+.stat.draft { background: var(--accent-soft); color: var(--warn); }
+.doc .grow { flex: 1; }
+
+/* Bill-to: one collapsed line that opens */
+.billto { border-bottom: 1px solid var(--rule-soft); }
+.billto .line {
+  display: flex; align-items: center; gap: 9px; width: 100%;
+  background: none; border: 0; cursor: pointer; padding: 7px 12px; text-align: left;
+}
+.billto .line:hover { background: var(--panel-2); }
+.billto .line .v { flex: 1; min-width: 0; font-size: 12.5px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.billto .line .caret { color: var(--faint); font-size: 9px; }
+.billto .open { padding: 2px 12px 10px; display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 8px 14px; }
+.billto .open[hidden] { display: none; }
+.billto .open label { display: flex; flex-direction: column; gap: 3px; }
+.billto .open input {
+  border: 1px solid var(--rule); background: var(--panel-2); color: var(--ink);
+  border-radius: var(--r-sm); padding: 5px 8px; font-size: 12.5px; width: 100%;
+}
+
+/* Line-item table — the QuickBooks part */
+.lines { width: 100%; overflow-x: auto; }
+table.li { width: 100%; border-collapse: collapse; min-width: 640px; }
+table.li th {
+  text-align: left; font-size: 10px; font-weight: 800; letter-spacing: .07em; text-transform: uppercase;
+  color: var(--faint); padding: 6px 8px; border-bottom: 1px solid var(--rule); white-space: nowrap;
+}
+table.li th.r, table.li td.r { text-align: right; }
+table.li td { padding: 3px 8px; border-bottom: 1px solid var(--rule-soft); vertical-align: top; }
+table.li tr:last-child td { border-bottom: 0; }
+table.li .cell {
+  width: 100%; border: 1px solid transparent; background: none; color: var(--ink);
+  border-radius: var(--r-sm); padding: 4px 6px; font-size: 12.5px; font-family: inherit;
+  resize: none; overflow: hidden; line-height: 1.35;
+}
+table.li .cell:hover { border-color: var(--rule); background: var(--panel-2); }
+table.li .cell:focus { border-color: var(--brand); background: var(--panel); outline: none; }
+table.li .cell.r { text-align: right; font-variant-numeric: tabular-nums; }
+table.li .amt { padding: 8px 6px 0; font-size: 12.5px; font-weight: 700; font-variant-numeric: tabular-nums; }
+table.li .kill {
+  border: 0; background: none; color: var(--faint); cursor: pointer; font-size: 13px; padding: 6px 4px 0;
+}
+table.li .kill:hover { color: var(--bad); }
+table.li .idx { color: var(--faint); font-size: 11px; padding-top: 9px; font-variant-numeric: tabular-nums; }
+
+.docfoot { display: flex; align-items: flex-start; gap: 14px; padding: 9px 12px; border-top: 1px solid var(--rule); flex-wrap: wrap; }
+.docfoot .acts { display: flex; gap: 6px; flex-wrap: wrap; flex: 1; }
+.sums { min-width: 210px; margin-left: auto; }
+.sums .r { display: flex; justify-content: space-between; gap: 20px; padding: 2px 0; font-size: 12.5px; color: var(--muted); }
+.sums .r b { color: var(--ink-2); font-weight: 600; font-variant-numeric: tabular-nums; }
+.sums .r.tot { border-top: 1px solid var(--rule); margin-top: 4px; padding-top: 6px; font-size: 14px; }
+.sums .r.tot span { color: var(--ink); font-weight: 800; }
+.sums .r.tot b { color: var(--ink); font-weight: 800; font-size: 15px; }
+
+.empty { padding: 26px 12px; text-align: center; color: var(--muted); font-size: 12.5px; }
+.empty .k { display: block; font-size: 22px; margin-bottom: 6px; opacity: .5; }
+
+/* Activity strip */
+.act { display: flex; flex-direction: column; }
+.act .i { display: flex; gap: 9px; padding: 6px 12px; border-bottom: 1px solid var(--rule-soft); font-size: 12px; }
+.act .i:last-child { border-bottom: 0; }
+.act .i .when { color: var(--faint); white-space: nowrap; font-variant-numeric: tabular-nums; }
+.act .i .what { color: var(--ink-2); }
+
+@media (max-width: 900px) {
+  .app, .app[data-rail="open"], .app[data-people="wide"] { grid-template-columns: 56px 1fr; }
+  .work { display: none; }
+}
+</style>
+</head>
+<body>
+
+<div class="mockbar">
+  <h1>LE Pro — desktop redesign</h1>
+  <span class="tag">Mockup · not wired up</span>
+  <div class="spacer"></div>
+  <button type="button" id="t-rail">Toggle left menu</button>
+  <button type="button" id="t-people">Toggle customer names</button>
+  <button type="button" id="t-theme">Light / dark</button>
+</div>
+<p class="mocknote">
+  Everything below happens on one screen. Click any invoice or estimate chip in <b>Job information</b> —
+  it opens <b>inline underneath</b>, never as a new page and never in a bubble. Line items are editable in
+  place; totals update as you type. Use <kbd>Toggle left menu</kbd> and <kbd>Toggle customer names</kbd> to
+  see the collapsed/expanded states.
+</p>
+
+<div class="app" id="app" data-rail="closed" data-people="narrow">
+
+  <!-- ── Icon rail: collapsed by default, expands to labels ── -->
+  <nav class="rail" aria-label="Main">
+    <div class="brandrow">
+      <div class="mark">LE</div>
+      <div class="wordmark">LE Pro</div>
+    </div>
+    <button type="button" class="nav" aria-current="page"><span class="ico">👥</span><span class="txt">Customers</span></button>
+    <button type="button" class="nav"><span class="ico">🧾</span><span class="txt">Invoices</span></button>
+    <button type="button" class="nav"><span class="ico">📝</span><span class="txt">Estimates</span></button>
+    <button type="button" class="nav"><span class="ico">🔔</span><span class="txt">Reminders</span><span class="pill">6</span></button>
+    <button type="button" class="nav"><span class="ico">📅</span><span class="txt">Calendar</span></button>
+    <button type="button" class="nav"><span class="ico">📋</span><span class="txt">Permits</span></button>
+    <button type="button" class="nav"><span class="ico">⏱️</span><span class="txt">Time</span></button>
+    <button type="button" class="nav"><span class="ico">📊</span><span class="txt">Company</span></button>
+    <div class="spacer"></div>
+    <button type="button" class="nav"><span class="ico">⚙️</span><span class="txt">Settings</span></button>
+    <button type="button" class="railtoggle" id="rail-toggle" aria-expanded="false">
+      <span class="ico">☰</span><span class="txt">Collapse</span>
+    </button>
+  </nav>
+
+  <!-- ── Customer column: first names, expands to full ── -->
+  <aside class="people">
+    <div class="head">
+      <span class="lbl">Customers</span>
+      <button type="button" id="people-toggle" aria-expanded="false">Full names</button>
+    </div>
+    <div class="search"><input type="search" placeholder="Search customers…" aria-label="Search customers" /></div>
+    <div class="list" id="people-list" role="listbox" aria-label="Customers"></div>
+  </aside>
+
+  <!-- ── Work surface ── -->
+  <main class="work">
+    <div class="stack">
+
+      <!-- Customer info on top -->
+      <section class="card">
+        <div class="custhead">
+          <div class="big" id="cust-initials">PC</div>
+          <div class="who">
+            <h1 id="cust-name">Peretz Chein</h1>
+            <div class="facts">
+              <span><b>Billing</b> 405 Lefferts Ave, Brooklyn NY 11225</span>
+              <span><b>Phone</b> (718) 555-1111</span>
+              <span><b>Email</b> p@example.com</span>
+              <span><b>Since</b> Mar 2024</span>
+            </div>
+          </div>
+          <div class="totals">
+            <div><span class="lbl">Open</span><span class="v due num" id="cust-open">$4,412.50</span></div>
+            <div><span class="lbl">Paid ytd</span><span class="v paid num">$18,940.00</span></div>
+            <div><span class="lbl">Jobs</span><span class="v num">7</span></div>
+          </div>
+        </div>
+      </section>
+
+      <!-- Job information + document chips carrying their numbers -->
+      <section class="card">
+        <div class="hd">
+          <h2>Job information</h2>
+          <span class="lbl" style="margin-left:2px">1127 Lincoln Place · Panel upgrade</span>
+          <div style="flex:1"></div>
+          <button type="button" class="ghost">✏️ Edit</button>
+          <button type="button" class="ghost">＋ Add job</button>
+          <button type="button" class="ghost">📋 Change order</button>
+        </div>
+        <div class="bd">
+          <div class="jobgrid">
+            <div class="f"><span class="lbl">Service address</span><span>1127 Lincoln Place, Brooklyn NY 11213</span></div>
+            <div class="f"><span class="lbl">Service date</span><span>Jul 14, 2026</span></div>
+            <div class="f"><span class="lbl">Stage</span><span>Final inspection</span></div>
+            <div class="f"><span class="lbl">Con Ed case</span><span class="num">MC-910413</span></div>
+            <div class="f"><span class="lbl">Contract</span><span class="num">$12,480.00</span></div>
+            <div class="f"><span class="lbl">Balance due</span><span class="num" style="color:var(--bad)">$4,412.50</span></div>
+          </div>
+
+          <div class="docrow" id="docrow" role="group" aria-label="Documents on this job"></div>
+        </div>
+      </section>
+
+      <!-- The inline document box -->
+      <section id="docbox" aria-live="polite"></section>
+
+      <section class="card">
+        <div class="hd"><h2>Activity</h2></div>
+        <div class="act">
+          <div class="i"><span class="when">Jul 27</span><span class="what">Invoice <b>#16664</b> emailed to p@example.com</span></div>
+          <div class="i"><span class="when">Jul 22</span><span class="what">Con Edison inspection rescheduled to Aug 7, 9:30 AM — old appointment removed</span></div>
+          <div class="i"><span class="when">Jul 15</span><span class="what">Estimate <b>#25484</b> approved by customer</span></div>
+          <div class="i"><span class="when">Jul 09</span><span class="what">Deposit $3,000.00 recorded (Zelle)</span></div>
+        </div>
+      </section>
+
+    </div>
+  </main>
+</div>
+
+<script>
+(function () {
+  "use strict";
+
+  /* ── Data — real shapes from the app, not lorem ───────────── */
+  var CUSTOMERS = [
+    { first: "Peretz", last: "Chein", due: 4412.5, cur: true },
+    { first: "Miriam", last: "Rosenberg", due: 0 },
+    { first: "Yossi", last: "Weinstock", due: 1280 },
+    { first: "Winthrop", last: "Owner LLC", due: 22450 },
+    { first: "Devorah", last: "Katz", due: 0 },
+    { first: "Shmuel", last: "Brody", due: 640 },
+    { first: "Rivka", last: "Fein", due: 0 },
+    { first: "Menachem", last: "Stern", due: 3150 },
+    { first: "Baez", last: "Construction", due: 158900 },
+    { first: "Chana", last: "Leib", due: 0 },
+    { first: "Ari", last: "Goldman", due: 875 },
+    { first: "Tzvi", last: "Hersh", due: 0 }
+  ];
+
+  var DOCS = [
+    {
+      id: "inv-16664", kind: "Invoice", no: "16664", state: "open", total: 7412.5,
+      lines: [
+        { item: "Panel upgrade", desc: "Replace 100A fuse box with 200A main breaker panel, new meter pan and service entrance cable", qty: 1, rate: 4200 },
+        { item: "Permit filing", desc: "DOB electrical permit + Con Edison coordination", qty: 1, rate: 850 },
+        { item: "Rough-in", desc: "12 outlets, 4 switch legs, 2 dedicated 20A circuits for kitchen", qty: 12, rate: 95 },
+        { item: "Inspection standby", desc: "On-site for Con Edison initial inspection", qty: 2, rate: 112.5 }
+      ]
+    },
+    {
+      id: "est-25484", kind: "Estimate", no: "25484", state: "open", total: 12480,
+      lines: [
+        { item: "Panel upgrade", desc: "Replace 100A fuse box with 200A main breaker panel, new meter pan and service entrance cable", qty: 1, rate: 4200 },
+        { item: "Permit filing", desc: "DOB electrical permit + Con Edison coordination", qty: 1, rate: 850 },
+        { item: "Rough-in", desc: "12 outlets, 4 switch legs, 2 dedicated 20A circuits for kitchen", qty: 12, rate: 95 },
+        { item: "Fixtures & trim", desc: "Install owner-supplied fixtures throughout, cover plates, final trim-out", qty: 1, rate: 2180 },
+        { item: "Basement subpanel", desc: "60A subpanel with 8 spaces", qty: 1, rate: 3110 }
+      ]
+    },
+    {
+      id: "inv-draft", kind: "Invoice", no: "", state: "draft", total: 1980,
+      lines: [
+        { item: "Service call", desc: "Troubleshoot dead circuit in rear bedroom", qty: 1, rate: 380 },
+        { item: "Fixtures & trim", desc: "Replace 4 failed recessed cans", qty: 4, rate: 400 }
+      ]
+    },
+    { id: "co-25485", kind: "Change order", no: "25485", state: "paid", total: 1620, lines: [
+        { item: "Added circuits", desc: "Two 20A circuits for basement workshop, added after rough-in walkthrough", qty: 2, rate: 810 }
+    ] }
+  ];
+
+  var money = function (n) {
+    return "$" + (Math.round(n * 100) / 100).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  };
+  var el = function (t, c, txt) {
+    var n = document.createElement(t);
+    if (c) n.className = c;
+    if (txt != null) n.textContent = txt;
+    return n;
+  };
+
+  /* ── Customer column ──────────────────────────────────────── */
+  var list = document.getElementById("people-list");
+  CUSTOMERS.forEach(function (c, i) {
+    var b = el("button", "prow");
+    b.type = "button";
+    b.setAttribute("role", "option");
+    b.setAttribute("aria-current", c.cur ? "true" : "false");
+    var initials = (c.first[0] + (c.last ? c.last[0] : "")).toUpperCase();
+    b.appendChild(el("span", "av", initials));
+    var nm = el("span", "nm");
+    nm.appendChild(document.createTextNode(c.first + " "));
+    nm.appendChild(el("span", "last", c.last));
+    b.appendChild(nm);
+    b.appendChild(el("span", "due num" + (c.due ? "" : " zero"), c.due ? money(c.due) : "—"));
+    b.addEventListener("click", function () {
+      Array.prototype.forEach.call(list.children, function (x) { x.setAttribute("aria-current", "false"); });
+      b.setAttribute("aria-current", "true");
+      document.getElementById("cust-name").textContent = c.first + " " + c.last;
+      document.getElementById("cust-initials").textContent = initials;
+      document.getElementById("cust-open").textContent = c.due ? money(c.due) : "$0.00";
+      closeDoc();
+    });
+    list.appendChild(b);
+  });
+
+  /* ── Document chips: the number lives ON the button ───────── */
+  var docrow = document.getElementById("docrow");
+  var openId = null;
+
+  function chipFor(d) {
+    var b = el("button", "chip " + d.state);
+    b.type = "button";
+    b.setAttribute("aria-pressed", "false");
+    b.dataset.id = d.id;
+    b.appendChild(el("span", "dot"));
+    var glyph = d.kind === "Estimate" ? "📝 " : d.kind === "Change order" ? "📋 " : "🧾 ";
+    b.appendChild(document.createTextNode(glyph + d.kind + " "));
+    b.appendChild(el("span", "no", d.no ? "#" + d.no : "draft"));
+    b.appendChild(el("span", "amt", money(d.total)));
+    b.addEventListener("click", function () { toggleDoc(d.id); });
+    return b;
+  }
+  DOCS.forEach(function (d) { docrow.appendChild(chipFor(d)); });
+  var addChip = el("button", "chip");
+  addChip.type = "button";
+  addChip.textContent = "＋ New document";
+  docrow.appendChild(addChip);
+
+  /* ── The inline document box ──────────────────────────────── */
+  var box = document.getElementById("docbox");
+
+  function closeDoc() {
+    openId = null;
+    box.innerHTML = "";
+    Array.prototype.forEach.call(docrow.querySelectorAll(".chip"), function (c) {
+      c.setAttribute("aria-pressed", "false");
+    });
+    var hint = el("div", "card");
+    var e = el("div", "empty");
+    e.appendChild(el("span", "k", "🧾"));
+    e.appendChild(document.createTextNode("Pick a document above — it opens right here, in place."));
+    hint.appendChild(e);
+    box.appendChild(hint);
+  }
+
+  function toggleDoc(id) {
+    if (openId === id) { closeDoc(); return; }
+    openId = id;
+    Array.prototype.forEach.call(docrow.querySelectorAll(".chip"), function (c) {
+      c.setAttribute("aria-pressed", String(c.dataset.id === id));
+    });
+    renderDoc(DOCS.filter(function (d) { return d.id === id; })[0]);
+  }
+
+  function renderDoc(d) {
+    box.innerHTML = "";
+    var card = el("div", "card doc");
+
+    /* header */
+    var hd = el("div", "hd");
+    hd.appendChild(el("h2", null, d.no ? d.kind + " #" + d.no : "Draft " + d.kind.toLowerCase()));
+    var stat = el("span", "stat " + d.state, d.state === "open" ? "Open" : d.state === "paid" ? "Paid" : "Draft");
+    hd.appendChild(stat);
+    hd.appendChild(el("div", "grow"));
+    ["📄 Preview", "✉️ Send", "🖨️ Print"].forEach(function (t) {
+      var b = el("button", "ghost", t); b.type = "button"; hd.appendChild(b);
+    });
+    var close = el("button", "ghost", "✕ Close");
+    close.type = "button";
+    close.addEventListener("click", closeDoc);
+    hd.appendChild(close);
+    card.appendChild(hd);
+
+    /* bill-to: one line, expands */
+    var bt = el("div", "billto");
+    var btLine = el("button", "line");
+    btLine.type = "button";
+    btLine.setAttribute("aria-expanded", "false");
+    btLine.appendChild(el("span", "lbl", "Bill to"));
+    btLine.appendChild(el("span", "v", "Peretz Chein · 405 Lefferts Ave, Brooklyn NY 11225 · p@example.com"));
+    var caret = el("span", "caret", "▶");
+    btLine.appendChild(caret);
+    var btOpen = el("div", "open");
+    btOpen.hidden = true;
+    [["Customer", "Peretz Chein"], ["Person", "Peretz Chein"], ["Phone", "(718) 555-1111"],
+     ["Email", "p@example.com"], ["Billing address", "405 Lefferts Ave, Brooklyn NY 11225"],
+     ["Job title / scope", "Panel upgrade — 1127 Lincoln Place"]].forEach(function (p) {
+      var l = el("label");
+      l.appendChild(el("span", "lbl", p[0]));
+      var i = document.createElement("input");
+      i.value = p[1];
+      l.appendChild(i);
+      btOpen.appendChild(l);
+    });
+    btLine.addEventListener("click", function () {
+      var now = btOpen.hidden;
+      btOpen.hidden = !now;
+      btLine.setAttribute("aria-expanded", String(now));
+      caret.textContent = now ? "▼" : "▶";
+    });
+    bt.appendChild(btLine);
+    bt.appendChild(btOpen);
+    card.appendChild(bt);
+
+    /* line items */
+    var wrap = el("div", "lines");
+    var table = el("table", "li");
+    // Give description the room — it carries the scope text people actually read.
+    var cg = el("colgroup");
+    ["28px", "20%", "46%", "8%", "10%", "13%", "30px"].forEach(function (w) {
+      var c = document.createElement("col");
+      c.style.width = w;
+      cg.appendChild(c);
+    });
+    table.appendChild(cg);
+
+    var thead = el("thead");
+    var htr = el("tr");
+    ["", "Product / service", "Description", "Qty", "Rate", "Amount", ""].forEach(function (h, i) {
+      htr.appendChild(el("th", i >= 3 && i <= 5 ? "r" : null, h));
+    });
+    thead.appendChild(htr);
+    table.appendChild(thead);
+    var tb = el("tbody");
+    table.appendChild(tb);
+    wrap.appendChild(table);
+    card.appendChild(wrap);
+
+    var sub = el("b", null, "$0.00");
+    var tot = el("b", null, "$0.00");
+    var DEPOSIT = d.kind === "Invoice" && d.no ? 3000 : 0;
+
+    function recalc() {
+      var s = 0;
+      Array.prototype.forEach.call(tb.querySelectorAll("tr"), function (tr) {
+        var q = parseFloat(tr.querySelector(".q").value) || 0;
+        var r = parseFloat(tr.querySelector(".rt").value) || 0;
+        var a = Math.round(q * r * 100) / 100;
+        tr.querySelector(".amt").textContent = money(a);
+        s += a;
+      });
+      sub.textContent = money(s);
+      tot.textContent = money(Math.max(0, s - DEPOSIT));
+    }
+
+    /**
+     * Size a cell to its content. Never pin a height from a zero measurement —
+     * before the card is laid out scrollHeight reads 0, and writing that back
+     * collapsed every description to an invisible strip. `rows` carries a
+     * content-derived floor so the text is readable even if we never get to
+     * measure at all.
+     */
+    function grow(ta) {
+      var perLine = Math.max(12, Math.round((ta.clientWidth || 220) / 6.6));
+      ta.rows = Math.max(1, Math.min(6, Math.ceil((ta.value || "").length / perLine)));
+      ta.style.height = "auto";
+      var h = ta.scrollHeight;
+      ta.style.height = h > 0 ? h + "px" : "";
+    }
+
+    function addRow(line) {
+      var tr = el("tr");
+      tr.appendChild(el("td", "idx", String(tb.children.length + 1)));
+
+      var tdItem = el("td");
+      var item = document.createElement("textarea");
+      item.className = "cell"; item.rows = 1; item.value = line.item;
+      item.addEventListener("input", function () { grow(item); });
+      tdItem.appendChild(item);
+      tr.appendChild(tdItem);
+
+      var tdDesc = el("td");
+      var desc = document.createElement("textarea");
+      desc.className = "cell"; desc.rows = 1; desc.value = line.desc;
+      desc.addEventListener("input", function () { grow(desc); });
+      tdDesc.appendChild(desc);
+      tr.appendChild(tdDesc);
+
+      var tdQ = el("td", "r");
+      var q = document.createElement("input");
+      q.className = "cell r q"; q.value = line.qty; q.inputMode = "decimal";
+      q.addEventListener("input", recalc);
+      tdQ.appendChild(q); tr.appendChild(tdQ);
+
+      var tdR = el("td", "r");
+      var rt = document.createElement("input");
+      rt.className = "cell r rt"; rt.value = line.rate; rt.inputMode = "decimal";
+      rt.addEventListener("input", recalc);
+      tdR.appendChild(rt); tr.appendChild(tdR);
+
+      tr.appendChild(el("td", "r amt", "$0.00"));
+
+      var tdK = el("td");
+      var kill = el("button", "kill", "✕");
+      kill.type = "button";
+      kill.title = "Remove line";
+      kill.addEventListener("click", function () {
+        tr.remove();
+        Array.prototype.forEach.call(tb.querySelectorAll(".idx"), function (c, i) { c.textContent = String(i + 1); });
+        recalc();
+      });
+      tdK.appendChild(kill); tr.appendChild(tdK);
+
+      tb.appendChild(tr);
+      grow(item); grow(desc);
+    }
+
+    d.lines.forEach(addRow);
+    recalc();
+
+    /* footer: actions + running totals */
+    var foot = el("div", "docfoot");
+    var acts = el("div", "acts");
+    var add = el("button", "ghost", "＋ Add line");
+    add.type = "button";
+    add.addEventListener("click", function () {
+      addRow({ item: "", desc: "", qty: 1, rate: 0 });
+      recalc();
+      tb.lastChild.querySelector(".cell").focus();
+    });
+    acts.appendChild(add);
+    var save = el("button", "primary", "Save & sync");
+    save.type = "button";
+    acts.appendChild(save);
+    if (d.kind === "Estimate") {
+      var conv = el("button", "ghost", "🧾 Convert to invoice");
+      conv.type = "button";
+      acts.appendChild(conv);
+    }
+    var del = el("button", "ghost danger", d.state === "draft" ? "Delete draft" : "Delete " + d.kind.toLowerCase());
+    del.type = "button";
+    acts.appendChild(del);
+    foot.appendChild(acts);
+
+    var sums = el("div", "sums");
+    function sumRow(label, node, cls) {
+      var r = el("div", "r" + (cls ? " " + cls : ""));
+      r.appendChild(el("span", null, label));
+      r.appendChild(node);
+      return r;
+    }
+    sums.appendChild(sumRow("Subtotal", sub));
+    if (DEPOSIT) sums.appendChild(sumRow("Deposit applied", el("b", null, "−" + money(DEPOSIT))));
+    sums.appendChild(sumRow(DEPOSIT ? "Balance due" : "Total", tot, "tot"));
+    foot.appendChild(sums);
+    card.appendChild(foot);
+
+    box.appendChild(card);
+    // Only measurable once mounted and laid out.
+    var sizeAll = function () {
+      Array.prototype.forEach.call(card.querySelectorAll("textarea.cell"), grow);
+    };
+    sizeAll();
+    requestAnimationFrame(sizeAll);
+  }
+
+  closeDoc();
+
+  /* ── Mockup controls ──────────────────────────────────────── */
+  var app = document.getElementById("app");
+  function setRail(open) {
+    app.dataset.rail = open ? "open" : "closed";
+    var t = document.getElementById("rail-toggle");
+    t.setAttribute("aria-expanded", String(open));
+    t.querySelector(".txt").textContent = open ? "Collapse" : "Expand";
+  }
+  function setPeople(wide) {
+    app.dataset.people = wide ? "wide" : "narrow";
+    var b = document.getElementById("people-toggle");
+    b.setAttribute("aria-expanded", String(wide));
+    b.textContent = wide ? "First names" : "Full names";
+  }
+  document.getElementById("rail-toggle").addEventListener("click", function () {
+    setRail(app.dataset.rail !== "open");
+  });
+  document.getElementById("t-rail").addEventListener("click", function () {
+    setRail(app.dataset.rail !== "open");
+  });
+  document.getElementById("people-toggle").addEventListener("click", function () {
+    setPeople(app.dataset.people !== "wide");
+  });
+  document.getElementById("t-people").addEventListener("click", function () {
+    setPeople(app.dataset.people !== "wide");
+  });
+  document.getElementById("t-theme").addEventListener("click", function () {
+    var cur = document.documentElement.getAttribute("data-theme");
+    if (!cur) {
+      cur = window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
+    }
+    document.documentElement.setAttribute("data-theme", cur === "dark" ? "light" : "dark");
+  });
+})();
+</script>
+</body>
+</html>

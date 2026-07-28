@@ -90,6 +90,15 @@ function LineRow({
 }) {
   const [itemQ, setItemQ] = useState(line.itemName || "");
   const [open, setOpen] = useState(false);
+  // The item name is a textarea so a long name wraps into view instead of
+  // scrolling sideways inside the box (Levi 2026-07-28). Grow it to fit.
+  const itemRef = useRef(null);
+  useEffect(() => {
+    const el = itemRef.current;
+    if (!el) return;
+    el.style.height = "auto";
+    el.style.height = el.scrollHeight + "px";
+  }, [itemQ, open]);
   // After a catalog pick, collapse the name into a fitting rectangle until reopened.
   const [itemPicked, setItemPicked] = useState(() => !!(line.itemName || "").trim());
   const picks = useMemo(() => filterQboItems(items, itemQ), [items, itemQ]);
@@ -126,7 +135,7 @@ function LineRow({
         {showChip ? (
           <button
             type="button"
-            className="min-h-[2.5rem] max-w-[min(100%,18rem)] rounded-lg border border-slate-200 bg-slate-50 px-2.5 py-1.5 flex items-center text-left text-xs font-bold leading-snug text-slate-800 break-words"
+            className="min-h-[2.5rem] flex-1 min-w-0 rounded-lg border border-slate-200 bg-slate-50 px-2.5 py-1.5 text-left text-xs font-bold leading-snug text-slate-800 whitespace-pre-wrap break-words"
             onClick={reOpenItem}
             title={productLabel}
             aria-label={"Product service line " + (index + 1) + " — change"}
@@ -136,9 +145,11 @@ function LineRow({
           </button>
         ) : (
           <div className="relative flex-1 min-w-0">
-            <input
-              className="input !py-2 text-sm"
+            <textarea
+              rows={1}
+              className="input !py-2 text-sm resize-none leading-snug overflow-hidden"
               value={itemQ}
+              ref={itemRef}
               onChange={(e) => {
                 setItemQ(e.target.value);
                 onChange(index, { itemName: e.target.value });
@@ -168,7 +179,7 @@ function LineRow({
                     className="w-full text-left px-3 py-2 text-sm hover:bg-slate-50 border-b border-slate-100 last:border-0"
                     onClick={() => pick(it)}
                   >
-                    <span className="font-semibold text-slate-800 block truncate">{it.name}</span>
+                    <span className="font-semibold text-slate-800 block break-words">{it.name}</span>
                     <span className="text-xs text-slate-500">
                       {it.price ? fmt$(it.price) : "custom price"}
                       {it.description ? " · " + it.description.slice(0, 40) : ""}
@@ -319,9 +330,56 @@ function CustomerHeaderPanel({ job, allJobs, events, api, onPatch }) {
 
   const set = (k) => (e) => onPatch({ [k]: e.target.value });
 
+  // Six stacked fields ate most of the first screen (Levi 2026-07-28). Collapsed
+  // to a single summary line; tap to open the full editor.
+  const [open, setOpen] = useState(false);
+  const summary = [
+    job.businessName || job.customer,
+    job.personName,
+    job.billingAddress,
+  ]
+    .map((v) => String(v || "").trim())
+    .filter(Boolean)
+    .join(" · ");
+
+  if (!open) {
+    return (
+      <div className="mb-3 pb-2 border-b border-slate-200" data-testid="doc-customer-header">
+        <button
+          type="button"
+          className="w-full flex items-center gap-2 text-left rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 active:bg-slate-100"
+          onClick={() => setOpen(true)}
+          aria-expanded={false}
+          data-testid="doc-customer-summary"
+        >
+          <span className="text-[10px] font-extrabold uppercase tracking-wider text-slate-400 shrink-0">
+            Bill to
+          </span>
+          <span className="flex-1 min-w-0 truncate text-sm font-semibold text-slate-800">
+            {summary || "Add customer details"}
+          </span>
+          <span className="text-slate-400 text-[10px] shrink-0" aria-hidden>
+            ▶
+          </span>
+        </button>
+      </div>
+    );
+  }
+
   return (
     <div className="mb-4 pb-3 border-b border-slate-200" data-testid="doc-customer-header">
-      <p className="text-[11px] font-bold uppercase tracking-wide text-slate-400 mb-2">Customer</p>
+      <button
+        type="button"
+        className="w-full flex items-center gap-2 text-left mb-2"
+        onClick={() => setOpen(false)}
+        aria-expanded
+        data-testid="doc-customer-collapse"
+      >
+        <p className="text-[11px] font-bold uppercase tracking-wide text-slate-400 flex-1">Bill to</p>
+        <span className="text-slate-400 text-[10px]" aria-hidden>
+          ▼
+        </span>
+      </button>
       <Fld label="Customer name" hint="Search app + QuickBooks — orange = not in QuickBooks yet">
         <CustomerSearch
           label="Customer name"

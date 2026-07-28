@@ -31,7 +31,8 @@ export default function JobDocTabs({
   const invDraft = hasInvoiceDraft(job);
   const agentReview = hasPendingInvoiceReview(job);
   const canPay = !!(job.invoiceNo || job.amount) && !job.paid;
-  const coCount = useMemo(() => changeOrderTabRows(jobs || [job], job).length, [jobs, job]);
+  const coRows = useMemo(() => changeOrderTabRows(jobs || [job], job), [jobs, job]);
+  const coCount = coRows.length;
 
   const pending = useMemo(() => {
     const syncing = docSyncPendingForJob(commands, job.id);
@@ -72,7 +73,13 @@ export default function JobDocTabs({
     : "bg-red-50 text-red-700 border-red-200";
   // Bottom CO tab only when history already has change orders (create is header "Add change order").
   const showCoTab = coCount > 0;
-  const coLabel = "COs · " + coCount;
+  // Show the actual document numbers, not just a count (Levi 2026-07-28) — the
+  // point of the row is telling you WHICH estimate/invoice each button opens.
+  const coNos = coRows
+    .map((r) => String(r.docNo || "").trim())
+    .filter(Boolean);
+  const coLabel =
+    coNos.length && coNos.length <= 3 ? "COs " + coNos.join(" · ") : "COs · " + coCount;
 
   return (
     <div
@@ -81,7 +88,7 @@ export default function JobDocTabs({
     >
       <button
         type="button"
-        className={`rounded-xl border px-1 py-2 text-center text-[9px] font-bold leading-tight ${tabTone(hasEst, pending.estimate, failed.estimate)}`}
+        className={`rounded-xl border px-1 py-2 text-center text-[9px] font-bold leading-tight break-words ${tabTone(hasEst, pending.estimate, failed.estimate)}`}
         onClick={onEstimate}
         data-testid="tab-estimate"
       >
@@ -89,7 +96,7 @@ export default function JobDocTabs({
       </button>
       <button
         type="button"
-        className={`rounded-xl border px-1 py-2 text-center text-[9px] font-bold leading-tight ${
+        className={`rounded-xl border px-1 py-2 text-center text-[9px] font-bold leading-tight break-words ${
           agentReview
             ? "bg-red-50 text-red-600 border-red-300 animate-pulse"
             : tabTone(hasInv, pending.invoice, failed.invoice)
@@ -122,7 +129,7 @@ export default function JobDocTabs({
       {showCoTab ? (
         <button
           type="button"
-          className={`rounded-xl border px-1 py-2 text-center text-[9px] font-bold leading-tight ${
+          className={`rounded-xl border px-1 py-2 text-center text-[9px] font-bold leading-tight break-words ${
             changeOrdersActive
               ? "bg-brand-soft text-brand border-brand/30"
               : "bg-violet-50 text-violet-800 border-violet-200"

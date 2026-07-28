@@ -4,6 +4,7 @@ import { effectiveServiceAddress } from "./customerSync.js";
 import { preferredChangeOrderDocNo } from "./changeOrder.js";
 import {
   inferProgressInvoiceLines,
+  isFromEstimateMode,
   isProgressBillingContext,
   normalizeProgressInvoiceLines,
   progressBillLines,
@@ -45,7 +46,7 @@ export function scaleLines(lines, progressPct) {
 export function initialLines(job, { kind, mode, progressPct } = {}) {
   const saved = kind === "estimate" ? job.estimateLines : job.invoiceLines;
   if (saved && saved.length) {
-    if (kind === "invoice" && mode === "from_estimate" && job.estimateLines) {
+    if (kind === "invoice" && isFromEstimateMode(mode) && job.estimateLines?.length) {
       return progressBillLines(job.estimateLines, progressPct ?? 100);
     }
     const mapped = saved.map((ln) => ({ ...emptyLine(), ...ln }));
@@ -57,7 +58,7 @@ export function initialLines(job, { kind, mode, progressPct } = {}) {
   if (kind === "invoice" && mode === "edit" && isProgressBillingContext(job, { kind, mode })) {
     return inferProgressInvoiceLines(job);
   }
-  if (kind === "invoice" && mode === "from_estimate" && job.estimateLines && job.estimateLines.length) {
+  if (kind === "invoice" && isFromEstimateMode(mode) && job.estimateLines?.length) {
     return progressBillLines(job.estimateLines, progressPct ?? 50);
   }
   const amt = parseAmount(job.amount);
@@ -118,7 +119,7 @@ export function buildDocCommandPayload(job, { kind, lines, serviceAddress, apart
     // Change-order invoices: original invoice # + -CO- + seq (e.g. 251100-CO-01).
     base.invoiceNo =
       String(job.invoiceNo || "").trim() || preferredChangeOrderDocNo(job, "invoice") || "";
-    base.source = mode === "from_estimate" || mode === "turn_from_estimate" ? "estimate" : "new";
+    base.source = isFromEstimateMode(mode) ? "estimate" : "new";
     base.estimateNo = job.estimateNo || "";
     const contract = contractTotalForJob(job);
     base.progressPct =

@@ -722,7 +722,22 @@ function hasDocish(job, docKind) {
 }
 
 /** All active reminders for the Reminders tab — same sources as popups, sorted by priority. */
-export function buildReminderList(events, jobs, today, now = new Date(), commands = []) {
+/**
+ * @param {object} [opts]
+ * @param {boolean} [opts.withCandidates] — score soft job matches for each
+ *   reminder. Only the rendered cards need them; the nav badge just wants a
+ *   count, and scoring every job against every event was ~0.9s at LE's data
+ *   size (Levi 2026-07-28).
+ */
+export function buildReminderList(
+  events,
+  jobs,
+  today,
+  now = new Date(),
+  commands = [],
+  { withCandidates = true } = {}
+) {
+  const candidatesFor = (e) => (withCandidates ? suggestJobsForEvent(e, jobs) : []);
   cancelStaleUnsentReminders(events, jobs, commands, now);
   cancelPastAppointmentReminders(events, today, now);
   const list = [];
@@ -763,7 +778,7 @@ export function buildReminderList(events, jobs, today, now = new Date(), command
         event: e,
         state: st,
         job: resolveReminderJob(e, jobs, st),
-        candidates: suggestJobsForEvent(e, jobs),
+        candidates: candidatesFor(e),
         dueAt: st.remindAt || st.nextNudgeAt || "",
       });
       continue;
@@ -778,7 +793,7 @@ export function buildReminderList(events, jobs, today, now = new Date(), command
         event: e,
         state: st,
         job: resolveReminderJob(e, jobs, st),
-        candidates: suggestJobsForEvent(e, jobs),
+        candidates: candidatesFor(e),
         dueAt: st.remindAt,
       });
     }
@@ -811,7 +826,7 @@ export function buildReminderList(events, jobs, today, now = new Date(), command
       event,
       job,
       assessment,
-      suggestions: suggestJobsForEvent(event, jobs),
+      suggestions: candidatesFor(event),
       dueAt: evStart(event),
     });
   }
@@ -822,7 +837,8 @@ export function buildReminderList(events, jobs, today, now = new Date(), command
 
 export function activeReminderCount(events, jobs, today, now = new Date(), commands = []) {
   if (isRemindersPaused(now)) return 0;
-  return buildReminderList(events, jobs, today, now, commands).length;
+  // A count never renders a card, so it never needs the soft job matches.
+  return buildReminderList(events, jobs, today, now, commands, { withCandidates: false }).length;
 }
 
 /** Build the login prompt queue — most pressing first, capped at five + overflow. */
