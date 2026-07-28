@@ -333,6 +333,9 @@ export default function CustomerView() {
         kind: "payhist",
         job: j,
         editPayId: row.payment?.id || null,
+        applyTargetJobId: row.applyTargetJobId || null,
+        applyTargetDocNo: row.applyTargetDocNo || null,
+        openApply: !!row.openApply,
       });
       return;
     }
@@ -535,11 +538,23 @@ export default function CustomerView() {
       ) : null}
       {sheet?.kind === "payhist" && sheet.job ? (
         <PaymentHistorySheet
-          key={"cust-payhist-" + sheet.job.id + "-" + (sheet.editPayId || "list")}
+          key={
+            "cust-payhist-" +
+            sheet.job.id +
+            "-" +
+            (sheet.editPayId || "list") +
+            "-" +
+            (sheet.applyTargetJobId || "") +
+            "-" +
+            (sheet.openApply ? "apply" : "")
+          }
           job={sheet.job}
           onClose={() => setSheet(null)}
           onAddPayment={() => setSheet({ kind: "paid", job: sheet.job })}
           initialEditId={sheet.editPayId || null}
+          applyTargetJobId={sheet.applyTargetJobId || null}
+          applyTargetDocNo={sheet.applyTargetDocNo || null}
+          openApply={!!sheet.openApply}
           onConvertEstimate={(estJob, draft) => {
             const target = estJob || sheet.job;
             setDocSheet({

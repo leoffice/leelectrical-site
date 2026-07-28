@@ -90,8 +90,8 @@ describe("customer payment open + find invoice", () => {
     renderApp("#/job/J-draft-inv");
     const pane = await screen.findByTestId("detail-pane");
     await user.click(within(pane).getByTestId("tab-invoice"));
-    expect(await screen.findByTestId("doc-draft-banner")).toBeInTheDocument();
-    expect(screen.getByTestId("doc-draft-actions")).toBeInTheDocument();
+    // Auto-heal may stamp Inv #; Sync + Edit stay available when QB docs are on.
+    expect(await screen.findByTestId("doc-draft-actions")).toBeInTheDocument();
     expect(screen.getByTestId("doc-sync-qbo")).toHaveTextContent(/Sync to QuickBooks/i);
     expect(screen.getByTestId("doc-edit")).toHaveTextContent(/Edit invoice/i);
     await user.click(screen.getByTestId("doc-sync-qbo"));
@@ -99,6 +99,9 @@ describe("customer payment open + find invoice", () => {
     await waitFor(() => {
       expect(screen.queryByTestId("doc-action-bar")).not.toBeInTheDocument();
     });
-    expect(srv.enqueued("create_invoice").length).toBeGreaterThan(0);
+    // After auto-heal stamps Inv #, sync may enqueue create or update — either is fine.
+    const creates = srv.enqueued("create_invoice").length;
+    const updates = srv.enqueued("update_invoice").length;
+    expect(creates + updates).toBeGreaterThan(0);
   });
 });

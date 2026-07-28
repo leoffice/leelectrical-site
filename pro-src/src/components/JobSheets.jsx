@@ -1622,6 +1622,10 @@ function PaymentEditForm({
   onVoid,
   onCancel,
   onConvertEstimate,
+  /** From "Apply to invoice #…" — open editor pre-filled toward that invoice. */
+  applyTargetJobId = null,
+  applyTargetDocNo = null,
+  openApply = false,
 }) {
   const [amt, setAmt] = useState(() => {
     const n = parseAmount(payment.amount);
@@ -1636,17 +1640,28 @@ function PaymentEditForm({
       ? { name: sourceJob.customer || sourceJob.businessName }
       : null
   );
-  const [targetJobId, setTargetJobId] = useState(sourceJob?.id || "");
-  const [invQuery, setInvQuery] = useState("");
-  const [fullEdit, setFullEdit] = useState(false);
+  const [targetJobId, setTargetJobId] = useState(
+    () => applyTargetJobId || sourceJob?.id || ""
+  );
+  const [invQuery, setInvQuery] = useState(() =>
+    applyTargetDocNo ? String(applyTargetDocNo) : ""
+  );
+  const [fullEdit, setFullEdit] = useState(() => !!(openApply || applyTargetJobId));
   const voidable = canVoidInQbo(payment);
 
   // Prefer live sourceJob (parent re-renders after convert) for the locked label.
-  const lockedTowardLabel = sourceJob?.invoiceNo
-    ? formatInvoicePayOption(sourceJob)
-    : sourceJob?.estimateNo
-      ? "Est #" + sourceJob.estimateNo + " (convert to invoice to apply)"
-      : "No invoice";
+  const applyTargetLive =
+    applyTargetJobId &&
+    (jobs || []).find((j) => String(j.id) === String(applyTargetJobId));
+  const lockedTowardLabel = applyTargetLive?.invoiceNo
+    ? formatInvoicePayOption(applyTargetLive) + " (suggested)"
+    : sourceJob?.invoiceNo
+      ? formatInvoicePayOption(sourceJob)
+      : sourceJob?.estimateNo
+        ? "Est #" + sourceJob.estimateNo + " (convert to invoice to apply)"
+        : applyTargetDocNo
+          ? "Inv #" + applyTargetDocNo + " (suggested)"
+          : "No invoice";
 
   const payTargets = useMemo(() => {
     const name = pickCust?.name || custName;
@@ -1905,6 +1920,9 @@ export function PaymentHistorySheet({
   initialEditId = null,
   /** Parent opens convert-estimate flow and returns here after Save. */
   onConvertEstimate,
+  applyTargetJobId = null,
+  applyTargetDocNo = null,
+  openApply = false,
 }) {
   const {
     patchJob,
@@ -1929,6 +1947,7 @@ export function PaymentHistorySheet({
   const due = openBalance(liveJob);
   const paid = amountPaid(liveJob);
   const pct = paidPct(liveJob);
+  const jobUnlinked = !String(liveJob.invoiceNo || "").trim() && !String(liveJob.linkedInvoiceNo || "").trim();
   // Only this customer's jobs — never map the full board (was multi-second freeze).
   const boardJobs = useMemo(() => {
     const name = liveJob.customer || liveJob.businessName || "";
@@ -2146,8 +2165,20 @@ export function PaymentHistorySheet({
         <p className="text-sm text-slate-400 text-center py-4">No payments recorded yet.</p>
       ) : (
         <div className="space-y-2" data-testid="payment-history-list">
-          {pays.map((p) => (
-            <div key={p.id} className="card px-3 py-2.5">
+          {pays.map((p) => {
+            const cardUnlinked = jobUnlinked;
+            return (
+            <div
+              key={p.id}
+              className={
+                "card px-3 py-2.5 " +
+                (cardUnlinked
+                  ? "!border-amber-300 !bg-amber-50 ring-1 ring-amber-200"
+                  : "")
+              }
+              data-unlinked-payment={cardUnlinked ? "1" : "0"}
+              data-testid={"payment-card-" + p.id}
+            >
               {editId === p.id ? (
                 <PaymentEditForm
                   payment={p}
@@ -2157,6 +2188,9 @@ export function PaymentHistorySheet({
                   onDelete={() => deletePay(p.id)}
                   onVoid={() => voidInQbo(p)}
                   onCancel={() => setEditId(null)}
+                  applyTargetJobId={editId === p.id ? applyTargetJobId : null}
+                  applyTargetDocNo={editId === p.id ? applyTargetDocNo : null}
+                  openApply={editId === p.id && openApply}
                   onConvertEstimate={(estJob, payDraft) => {
                     if (typeof onConvertEstimate === "function") {
                       onConvertEstimate(estJob || liveJob, {
@@ -2169,12 +2203,30 @@ export function PaymentHistorySheet({
                 />
               ) : (
                 <button type="button" className="w-full text-left" onClick={() => setEditId(p.id)}>
-                  <div className="text-sm font-semibold text-slate-900">{fmtPaymentLine(p)}</div>
+                  <div className="flex items-center gap-1.5 flex-wrap">
+                    <div className="text-sm font-semibold text-slate-900">{fmtPaymentLine(p)}</div>
+                    {liveJob.invoiceNo ? (
+                      <span
+                        className="inline-flex items-center px-1.5 py-0.5 text-[10px] font-extrabold tabular-nums rounded-full bg-sky-100 text-sky-900 ring-1 ring-sky-400 border border-sky-400"
+                        data-testid={"payment-inv-bubble-" + liveJob.invoiceNo}
+                      >
+                        {liveJob.invoiceNo}
+                      </span>
+                    ) : cardUnlinked ? (
+                      <span
+                        className="inline-flex items-center px-1.5 py-0.5 text-[10px] font-extrabold rounded-full bg-amber-200 text-amber-950 ring-1 ring-amber-400 border border-amber-400"
+                        data-testid="payment-unlinked-badge"
+                      >
+                        No invoice
+                      </span>
+                    ) : null}
+                  </div>
                   <div className="text-[11px] text-slate-400 mt-0.5">Tap to edit or remove</div>
                 </button>
               )}
             </div>
-          ))}
+            );
+          })}
         </div>
       )}
 
@@ -2798,17 +2850,57 @@ export function PaymentLinkSheet({ job, onClose }) {
 /* ---------- 2a. Invoice / Estimate quick view ---------- */
 export function DocSheet({ job, kind, onClose, onEdit, onConvert, onSync }) {
   const doSend = useDoSend();
-  const { commands, patchAndSave, showToast } = useStore();
+  const { commands, patchAndSave, showToast, jobs: storeJobs, effectiveJob } = useStore();
   const [sendPick, setSendPick] = useState(null); // { withPay, title }
   const [confirmSend, setConfirmSend] = useState(null); // { withPay, docSource }
   const [sendBusy, setSendBusy] = useState(false);
   const [sendErr, setSendErr] = useState("");
   const [confirmClear, setConfirmClear] = useState(false);
-  const no = kind === "invoice" ? job.invoiceNo : job.estimateNo;
+  // Prefer live store job so a just-stamped Inv # shows immediately after Save.
+  const live = (job?.id && effectiveJob ? effectiveJob(job.id) : null) || job;
+  const no = kind === "invoice" ? live.invoiceNo : live.estimateNo;
   const label = kind === "invoice" ? "invoice" : "estimate";
-  const linesEarly = kind === "invoice" ? job.invoiceLines : job.estimateLines;
+  const linesEarly = kind === "invoice" ? live.invoiceLines : live.estimateLines;
   const isDraftEarly =
     !no && (linesEarly || []).some((ln) => String(ln?.itemName || "").trim());
+
+  // Auto-heal: lines saved but no number (older draft or race) → stamp next free # once.
+  const healKey = useRef("");
+  useEffect(() => {
+    if (!live?.id || no) return;
+    if (!(linesEarly || []).some((ln) => String(ln?.itemName || "").trim())) return;
+    const key = live.id + ":" + kind;
+    if (healKey.current === key) return;
+    healKey.current = key;
+    let cancelled = false;
+    (async () => {
+      try {
+        const { resolveDocNumberOnSave } = await import("../lib/nextDocNumber.js");
+        const stamped = resolveDocNumberOnSave({
+          kind,
+          existing: "",
+          preferred: "",
+          jobs: storeJobs || [],
+        });
+        if (!stamped || cancelled) return;
+        const patch =
+          kind === "estimate"
+            ? { estimateNo: stamped, _estimateConfirmed: true }
+            : { invoiceNo: stamped, _invoiceConfirmed: true };
+        await patchAndSave(live.id, patch);
+        showToast(
+          kind === "estimate"
+            ? "Assigned Est #" + stamped
+            : "Assigned Inv #" + stamped
+        );
+      } catch {
+        /* non-fatal */
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [live?.id, no, kind, linesEarly, storeJobs, patchAndSave, showToast]);
 
   if (confirmClear) {
     const clearLabel = clearDocLabel(job, kind);
@@ -2896,7 +2988,8 @@ export function DocSheet({ job, kind, onClose, onEdit, onConvert, onSync }) {
       />
     );
   }
-  const lines = kind === "invoice" ? job.invoiceLines : job.estimateLines;
+  const lines = kind === "invoice" ? live.invoiceLines : live.estimateLines;
+  // Numbered docs are never "draft" — even before QBO sync.
   const isDraft = !no && (lines || []).some((ln) => String(ln?.itemName || "").trim());
   const qboDocsOn = isQuickbooksDocsEnabled();
   const title = no
@@ -2910,43 +3003,72 @@ export function DocSheet({ job, kind, onClose, onEdit, onConvert, onSync }) {
   return (
     <Sheet title={title} onClose={onClose}>
       {isDraft ? (
-        <p className="text-xs text-amber-800 bg-amber-50 border border-amber-200 rounded-xl px-3 py-2 mb-3" data-testid="doc-draft-banner">
+        <p
+          className="text-xs text-amber-800 bg-amber-50 border border-amber-200 rounded-xl px-3 py-2 mb-3"
+          data-testid="doc-draft-banner"
+        >
           {qboDocsOn
-            ? "Saved on this job — not in QuickBooks yet. Tap sync when you are ready."
-            : "Saved on this job — local only (QuickBooks send/view is off; data still syncs)."}
+            ? "Saved on this job — assigning a number, then you can sync to QuickBooks."
+            : "Saved on this job — assigning a number…"}
         </p>
       ) : null}
 
       <div className="text-sm space-y-1 mb-3">
-        <div><b className="font-semibold">Customer</b> <span className="text-slate-600">{job.customer || ""}</span></div>
-        <div><b className="font-semibold">Amount</b> <span className="text-slate-600">{fmt$(job.amount)}</span></div>
+        <div>
+          <b className="font-semibold">Customer</b>{" "}
+          <span className="text-slate-600">{live.customer || ""}</span>
+        </div>
+        <div>
+          <b className="font-semibold">Amount</b>{" "}
+          <span className="text-slate-600">{fmt$(live.amount)}</span>
+        </div>
         {kind === "invoice" && no ? (
-          <div><b className="font-semibold">Status</b> <span className="text-slate-600">{job.paid ? "Paid" : "Open"}</span></div>
+          <div>
+            <b className="font-semibold">Status</b>{" "}
+            <span className="text-slate-600">{live.paid ? "Paid" : "Open"}</span>
+          </div>
         ) : null}
-        {(job.serviceAddress || job.address) ? (
-          <div><b className="font-semibold">Service address</b> <span className="text-slate-600">{job.serviceAddress || job.address}</span></div>
+        {live.serviceAddress || live.address ? (
+          <div>
+            <b className="font-semibold">Service address</b>{" "}
+            <span className="text-slate-600">{live.serviceAddress || live.address}</span>
+          </div>
         ) : null}
       </div>
 
-      {isDraft && lines?.length ? (
+      {(isDraft || !no) && lines?.length ? (
         <div className="card px-3 py-2 mb-3" data-testid="doc-draft-lines">
-          <p className="text-[11px] font-bold uppercase tracking-wide text-slate-400 mb-2">Line items</p>
-          {lines.filter((ln) => String(ln?.itemName || "").trim()).map((ln, i) => (
-            <div key={i} className="flex justify-between gap-2 text-sm py-1 border-b border-dashed border-slate-100 last:border-0">
-              <span className="min-w-0 truncate text-slate-700">{ln.itemName}</span>
-              <span className="shrink-0 font-semibold text-slate-800">{fmt$(parseAmount(ln.qty) * parseAmount(ln.unitPrice))}</span>
-            </div>
-          ))}
+          <p className="text-[11px] font-bold uppercase tracking-wide text-slate-400 mb-2">
+            Line items
+          </p>
+          {lines
+            .filter((ln) => String(ln?.itemName || "").trim())
+            .map((ln, i) => (
+              <div
+                key={i}
+                className="flex justify-between gap-2 text-sm py-1 border-b border-dashed border-slate-100 last:border-0"
+              >
+                <span className="min-w-0 truncate text-slate-700">{ln.itemName}</span>
+                <span className="shrink-0 font-semibold text-slate-800">
+                  {fmt$(parseAmount(ln.qty) * parseAmount(ln.unitPrice))}
+                </span>
+              </div>
+            ))}
         </div>
       ) : null}
 
-      {no ? <DocPdfViewButtons job={job} kind={kind} no={no} compact /> : null}
+      {no ? <DocPdfViewButtons job={live} kind={kind} no={no} compact /> : null}
 
-      {/* Draft: Sync + Edit sit side-by-side (Levi parallel buttons). Sync must not reopen create. */}
-      {isDraft && (onSync || onEdit) ? (
+      {/* Sync + Edit when QuickBooks send/view is on — must not reopen create. */}
+      {(isDraft || no) && (onSync || onEdit) && qboDocsOn ? (
         <div className="grid grid-cols-2 gap-2 mb-2" data-testid="doc-draft-actions">
-          {onSync && qboDocsOn ? (
-            <button type="button" className="btn-brand w-full !py-2.5 text-sm font-semibold" onClick={onSync} data-testid="doc-sync-qbo">
+          {onSync ? (
+            <button
+              type="button"
+              className="btn-brand w-full !py-2.5 text-sm font-semibold"
+              onClick={onSync}
+              data-testid="doc-sync-qbo"
+            >
               Sync to QuickBooks
             </button>
           ) : (
@@ -2967,23 +3089,30 @@ export function DocSheet({ job, kind, onClose, onEdit, onConvert, onSync }) {
         </div>
       ) : null}
 
-      {!isDraft && no && job.email ? (
-        <DocSendButtons job={job} kind={kind} onPickSend={setSendPick} />
+      {!isDraft && no && live.email ? (
+        <DocSendButtons job={live} kind={kind} onPickSend={setSendPick} />
       ) : !isDraft && no ? (
-        <p className="text-[11px] text-slate-400 text-center mb-2">Add an email on the customer card to send.</p>
+        <p className="text-[11px] text-slate-400 text-center mb-2">
+          Add an email on the customer card to send.
+        </p>
       ) : null}
 
-      {!isDraft && onEdit ? (
-        <button type="button" className="btn-ghost w-full !py-2.5 mb-1 font-semibold" onClick={onEdit} data-testid="doc-edit">
+      {!isDraft && onEdit && !qboDocsOn ? (
+        <button
+          type="button"
+          className="btn-ghost w-full !py-2.5 mb-1 font-semibold"
+          onClick={onEdit}
+          data-testid="doc-edit"
+        >
           Edit {label}
         </button>
       ) : null}
 
-      {kind === "estimate" && !job.invoiceNo && onConvert && (no || isDraft) ? (
+      {kind === "estimate" && !live.invoiceNo && onConvert && (no || isDraft) ? (
         <Opt icon="🧾" title="Convert to invoice" note="Bill all or part of this estimate" onClick={onConvert} />
       ) : null}
 
-      {canClearDoc(job, kind) ? (
+      {canClearDoc(live, kind) ? (
         <button
           type="button"
           className="btn w-full !py-2.5 mt-2 mb-1 font-semibold bg-red-50 text-red-700 border border-red-200"
@@ -2999,7 +3128,7 @@ export function DocSheet({ job, kind, onClose, onEdit, onConvert, onSync }) {
           className="text-center text-[11px] text-slate-400 mt-3 mb-1"
           data-testid={"doc-send-status-" + kind}
         >
-          {docSendStatusLine(job, kind, commands).text}
+          {docSendStatusLine(live, kind, commands).text}
         </p>
       ) : null}
     </Sheet>

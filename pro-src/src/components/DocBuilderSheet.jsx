@@ -908,14 +908,8 @@ export default function DocBuilderSheet({
       showToast("Service address is required");
       return null;
     }
-    if (mode === "edit" && kind === "invoice" && !job.invoiceNo) {
-      showToast("No invoice number on this job yet — create the invoice first");
-      return null;
-    }
-    if (mode === "edit" && kind === "estimate" && !job.estimateNo) {
-      showToast("No estimate number on this job yet — create the estimate first");
-      return null;
-    }
+    // Edit without a number used to hard-block Save — that left jobs stuck as
+    // "draft". Stamp a number on save instead (resolveDocNumberOnSave).
     const to = String(emailOverride != null ? emailOverride : job.email || "")
       .split(/[,;\s]+/)
       .map((s) => s.trim())
@@ -1100,8 +1094,9 @@ export default function DocBuilderSheet({
         for (const d of letterDrafts) drafts = upsertJobLetterDraft({ letterDrafts: drafts }, d);
         jobPatch.letterDrafts = drafts;
       }
-      // Instant continue — do not await network or QBO confirmation (Levi convert→Save flow).
-      void patchAndSave(jobId, jobPatch);
+      // Local store update is sync inside patchAndSave; still await so the
+      // overlay write isn't raced by a concurrent jobs refresh (lost Inv #).
+      await patchAndSave(jobId, jobPatch);
       for (const cmd of commands) {
         void enqueue(cmd.type, jobId, cmd.payload, "judgment", cmd.idk);
       }
@@ -1110,13 +1105,18 @@ export default function DocBuilderSheet({
         // PDF generation can stay in background after UI continues.
         void downloadLocalPdf(pdfJob);
       }
+      const noLabel = stampedNo
+        ? (kind === "estimate" ? "Est #" : "Inv #") + stampedNo
+        : kind === "estimate"
+          ? "estimate"
+          : "invoice";
       showToast(
         opts.toast ||
           (printPdf
-            ? "Saved + printed " + (kind === "estimate" ? "estimate" : "invoice") + " PDF"
+            ? "Saved + printed " + noLabel + " PDF"
             : alsoQbo
-              ? "Saved — syncing to QuickBooks in the background"
-              : "Saved on job — sync or email when ready")
+              ? "Saved " + noLabel + " — syncing to QuickBooks in the background"
+              : "Saved " + noLabel + " on this job")
       );
       resumeFollowUpPrompts();
       onDone && onDone({ ...activeJob, ...jobPatch });
@@ -1501,7 +1501,7 @@ export default function DocBuilderSheet({
         );
       }
       resumeFollowUpPrompts();
-      onDone && onDone(activeJob);
+      onDone && onDone({ ...activeJob, ...jobPatch });
       if (opts.close !== false) {
         setEmailSheet(false);
         onClose();

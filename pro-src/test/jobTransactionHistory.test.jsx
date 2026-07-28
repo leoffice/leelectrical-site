@@ -59,7 +59,8 @@ describe("JobTransactionHistory", () => {
     const onOpenRow = vi.fn();
     render(<JobTransactionHistory job={job} onOpenRow={onOpenRow} />);
     await user.click(screen.getByTestId("job-txn-filter-payments"));
-    await user.click(screen.getByTestId("job-txn-pay-p1"));
+    // Click the payment label text (button inside the card wrapper).
+    await user.click(within(screen.getByTestId("job-txn-pay-p1")).getByText(/Check/i));
     expect(onOpenRow).toHaveBeenCalledTimes(1);
     expect(onOpenRow.mock.calls[0][0].kind).toBe("payment");
     expect(onOpenRow.mock.calls[0][0].payment?.id).toBe("p1");

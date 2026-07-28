@@ -69,17 +69,20 @@ function CompactRow({ row, onOpen, testId }) {
     row.kind === "payment"
       ? [row.method || "Payment", row.address].filter(Boolean).join(" · ")
       : row.address || "";
+  const unlinkedPay = row.kind === "payment" && row.unlinked;
+  const suggest = row.kind === "payment" ? row.applySuggestion : null;
 
   return (
-    <button
-      type="button"
+    <div
       className={
-        "w-full text-left rounded-lg border border-slate-100 bg-white active:bg-slate-50 overflow-hidden " +
-        (isOpen ? "flex items-stretch" : "")
+        "w-full text-left rounded-lg border overflow-hidden " +
+        (unlinkedPay
+          ? "border-amber-300 bg-amber-50 ring-1 ring-amber-200"
+          : "border-slate-100 bg-white") +
+        (isOpen ? " flex items-stretch" : "")
       }
-      data-testid={testId}
       data-open-invoice={isOpen ? "1" : "0"}
-      onClick={() => onOpen(row)}
+      data-unlinked-payment={unlinkedPay ? "1" : "0"}
     >
       {isOpen ? (
         <span
@@ -88,48 +91,106 @@ function CompactRow({ row, onOpen, testId }) {
           aria-hidden
         />
       ) : null}
-      <div className="flex-1 min-w-0 px-2.5 py-1.5">
-        <div className="flex items-center justify-between gap-2 min-w-0">
-          <div className="flex items-center gap-1.5 min-w-0 flex-1 overflow-hidden">
-            <span
-              className={
-                "text-[10px] font-extrabold uppercase tracking-wide shrink-0 " + kind.className
-              }
-              data-testid={"cust-txn-kind-" + row.kind}
-            >
-              {kind.label}
-            </span>
-            {row.docNo ? (
-              <DocBubble
-                docNo={row.docNo}
-                color={row.color}
-                testId={
-                  row.kind === "payment"
-                    ? "cust-txn-pay-bubble-" + row.docNo
-                    : row.kind === "estimate"
-                      ? "cust-txn-est-bubble-" + row.docNo
-                      : "cust-txn-bubble-" + row.docNo
+      <div className="flex-1 min-w-0">
+        <button
+          type="button"
+          data-testid={testId}
+          className={
+            "w-full text-left px-2.5 py-1.5 " +
+            (unlinkedPay ? "active:bg-amber-100/80" : "active:bg-slate-50")
+          }
+          onClick={() => onOpen(row)}
+        >
+          <div className="flex items-center justify-between gap-2 min-w-0">
+            <div className="flex items-center gap-1.5 min-w-0 flex-1 overflow-hidden">
+              <span
+                className={
+                  "text-[10px] font-extrabold uppercase tracking-wide shrink-0 " +
+                  (unlinkedPay ? "text-amber-800" : kind.className)
                 }
-              />
-            ) : null}
-            {row.dateLabel ? (
-              <span className="text-[11px] text-slate-500 tabular-nums shrink-0">{row.dateLabel}</span>
-            ) : null}
-            {mid ? (
-              <span className="text-xs text-slate-600 truncate min-w-0">{mid}</span>
+                data-testid={"cust-txn-kind-" + row.kind}
+              >
+                {kind.label}
+              </span>
+              {row.docNo ? (
+                <DocBubble
+                  docNo={row.docNo}
+                  color={row.color}
+                  testId={
+                    row.kind === "payment"
+                      ? "cust-txn-pay-bubble-" + row.docNo
+                      : row.kind === "estimate"
+                        ? "cust-txn-est-bubble-" + row.docNo
+                        : "cust-txn-bubble-" + row.docNo
+                  }
+                />
+              ) : unlinkedPay ? (
+                <span
+                  className="inline-flex items-center px-1.5 py-0.5 text-[10px] font-extrabold rounded-full bg-amber-200 text-amber-950 ring-1 ring-amber-400 border border-amber-400 shrink-0"
+                  data-testid="cust-txn-unlinked-badge"
+                >
+                  No invoice
+                </span>
+              ) : null}
+              {row.dateLabel ? (
+                <span className="text-[11px] text-slate-500 tabular-nums shrink-0">{row.dateLabel}</span>
+              ) : null}
+              {mid ? (
+                <span className="text-xs text-slate-600 truncate min-w-0">{mid}</span>
+              ) : null}
+            </div>
+            {amount ? (
+              <div
+                className={"text-sm font-bold tabular-nums shrink-0 " + amountClass}
+                data-testid="cust-txn-amount"
+              >
+                {amount}
+              </div>
             ) : null}
           </div>
-          {amount ? (
-            <div
-              className={"text-sm font-bold tabular-nums shrink-0 " + amountClass}
-              data-testid="cust-txn-amount"
+        </button>
+        {unlinkedPay && suggest?.kind === "invoice" && suggest.docNo ? (
+          <div className="px-2.5 pb-1.5">
+            <button
+              type="button"
+              className="w-full rounded-lg border border-brand/40 bg-white text-brand text-[11px] font-bold py-1.5 px-2 active:bg-brand-soft"
+              data-testid={"cust-txn-apply-" + suggest.docNo}
+              onClick={(e) => {
+                e.stopPropagation();
+                onOpen({
+                  ...row,
+                  applyTargetJobId: suggest.job?.id,
+                  applyTargetDocNo: suggest.docNo,
+                  openApply: true,
+                });
+              }}
             >
-              {amount}
-            </div>
-          ) : null}
-        </div>
+              Apply to invoice #{suggest.docNo}
+            </button>
+          </div>
+        ) : unlinkedPay && suggest?.kind === "estimate" ? (
+          <div className="px-2.5 pb-1.5">
+            <button
+              type="button"
+              className="w-full rounded-lg border border-amber-400 bg-white text-amber-900 text-[11px] font-bold py-1.5 px-2 active:bg-amber-100"
+              data-testid="cust-txn-apply-estimate"
+              onClick={(e) => {
+                e.stopPropagation();
+                onOpen({
+                  ...row,
+                  applyTargetJobId: suggest.job?.id,
+                  applyTargetDocNo: suggest.docNo,
+                  openApply: true,
+                  convertEstimate: true,
+                });
+              }}
+            >
+              {suggest.label || "Convert estimate then apply"}
+            </button>
+          </div>
+        ) : null}
       </div>
-    </button>
+    </div>
   );
 }
 

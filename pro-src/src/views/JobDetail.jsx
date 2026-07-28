@@ -530,6 +530,7 @@ export default function JobDetail() {
           <div className="mt-2" data-testid="job-txn-history-section">
             <JobTransactionHistory
               job={job}
+              customerJobs={customerJobs}
               onOpenFull={() => setSheet({ kind: "payhist" })}
               onOpenRow={(row) => {
                 // Payment rows open the payment card (edit / delete / reassign invoice or customer).
@@ -537,6 +538,9 @@ export default function JobDetail() {
                   setSheet({
                     kind: "payhist",
                     editPayId: row.payment?.id || null,
+                    applyTargetJobId: row.applyTargetJobId || null,
+                    applyTargetDocNo: row.applyTargetDocNo || null,
+                    openApply: !!row.openApply,
                   });
                 }
               }}
@@ -1208,11 +1212,21 @@ export default function JobDetail() {
       )}
       {sheet?.kind === "payhist" && (
         <PaymentHistorySheet
-          key={"payhist-" + (sheet.editPayId || "list")}
+          key={
+            "payhist-" +
+            (sheet.editPayId || "list") +
+            "-" +
+            (sheet.applyTargetJobId || "") +
+            "-" +
+            (sheet.openApply ? "apply" : "")
+          }
           job={job}
           onClose={() => setSheet(null)}
           onAddPayment={() => setSheet({ kind: "paid" })}
           initialEditId={sheet.editPayId || null}
+          applyTargetJobId={sheet.applyTargetJobId || null}
+          applyTargetDocNo={sheet.applyTargetDocNo || null}
+          openApply={!!sheet.openApply}
           onConvertEstimate={(estJob, draft) => {
             const targetId = estJob?.id || job.id;
             const returnTo = {
