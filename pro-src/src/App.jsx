@@ -397,21 +397,10 @@ export default function App() {
         <SaveBar />
 
         {/*
-          Desktop — floating ＋ (always visible, same menu as top-bar Add) + chat.
-          Top-bar Add still exists on non-Jobs routes for placement tests; Jobs
-          list keeps Add next to search. Floating uses a distinct test id so
-          placement tests still see exactly one fab-add.
+          Desktop chat only — floating ＋ removed (Levi). Add lives in the top
+          bar / Jobs search row so there is exactly one Add control, never a
+          second bubble over the page.
         */}
-        {isDesktop && showFab ? (
-          <DesktopFab
-            onClick={openNewJob}
-            ariaLabel="Add"
-            testId="fab-add-desktop"
-            className="fixed z-40 right-24 w-[54px] h-[54px] rounded-2xl bg-slate-900 text-white text-2xl shadow-xl flex items-center justify-center hover:bg-slate-800 active:opacity-90"
-          >
-            ＋
-          </DesktopFab>
-        ) : null}
         {isDesktop && assistantOk ? (
           <DesktopFab
             onClick={toggleChat}

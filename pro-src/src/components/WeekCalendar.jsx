@@ -32,7 +32,7 @@ const saveListHeight = (h) => {
   } catch {}
 };
 
-export default function WeekCalendar({
+function WeekCalendar({
   events,
   onPickEvent,
   embedded,
@@ -268,3 +268,6 @@ export default function WeekCalendar({
     </div>
   );
 }
+
+// Memo — appointment sheet + Today re-render on polls; skip rebuild when props stable.
+export default React.memo(WeekCalendar);

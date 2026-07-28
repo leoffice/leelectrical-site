@@ -20,13 +20,12 @@ export function collectAddressSeeds(jobs = [], events = []) {
       add(`${j.serviceAddress || j.address}, Apt ${j.apartment}`);
     }
   }
+  // Location only — do NOT regex-scan every event description. That was O(events ×
+  // description length) on every jobs/events refresh and made the appointment
+  // sheet lag while typing (Levi report). Remote Places suggestions still cover
+  // free-text addresses.
   for (const e of events || []) {
     add(e.location);
-    const desc = String(e.description || "");
-    const re =
-      /\b(\d{1,6}\s+(?:[NSEW]\.?\s+)?[A-Za-z0-9][\w\s.'-]{1,50}?\s*(?:St\.?|Street|Ave\.?|Avenue|Rd\.?|Road|Blvd\.?|Boulevard|Dr\.?|Drive|Ln\.?|Lane|Ct\.?|Court|Pl\.?|Place|Way|Pkwy)(?:\s*,?\s*[A-Za-z][\w\s-]{0,40})?(?:\s*,?\s*[A-Z]{2})?(?:\s+\d{5}(?:-\d{4})?)?)/gi;
-    let m;
-    while ((m = re.exec(desc))) add(m[1].trim());
   }
   return out;
 }

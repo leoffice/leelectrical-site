@@ -2,7 +2,7 @@
 import React, { useRef, useState } from "react";
 import Sheet, { Fld } from "./Sheet.jsx";
 import WeekCalendar from "./WeekCalendar.jsx";
-import { useStore } from "../state/store.jsx";
+import { useStoreData } from "../state/store.jsx";
 import LocationSuggestField from "./LocationSuggestField.jsx";
 import { calendarServiceLocation } from "../lib/customerSync.js";
 import { displayEventNotes, withJobLink } from "../lib/calendarLink.js";
@@ -89,7 +89,9 @@ export default function AddAppointmentSheet({
   /** When true, render as an in-page card (calendar already above on Today). */
   inline = false,
 }) {
-  const { events, jobs, api, enqueue, showToast, patchAndSave, patchJob, appendLocalEvent, pullCalendarNow } = useStore();
+  // Data-only — typing + save must not re-render on staged job edits / save-bar dirty.
+  const { events, jobs, api, enqueue, showToast, patchAndSave, patchJob, appendLocalEvent, pullCalendarNow } =
+    useStoreData();
   const product = productName(useTenantConfig());
   const isDuplicate = !!duplicateFrom;
   const isEdit = !!editEvent && !isDuplicate;
@@ -156,7 +158,7 @@ export default function AddAppointmentSheet({
     };
   };
 
-  const save = async () => {
+  const save = () => {
     if (savingRef.current) return;
     const title = (summary || "").trim();
     if (!title) return showToast("Add a title for the appointment");
@@ -165,6 +167,9 @@ export default function AddAppointmentSheet({
     setSaving(true);
     const notify = buildNotifyPayload();
 
+    // Snappy path (Levi lag report): paint local calendar + close the sheet
+    // immediately. Network enqueue / job patch / Google pull run in the background
+    // so Save never waits on the command bus or a full calendar re-pull.
     try {
       if (isEdit) {
         const eventId = editEvent.id || "";
@@ -184,13 +189,6 @@ export default function AddAppointmentSheet({
         if (fromInspection) payload.colorId = GCAL_RED_COLOR_ID;
         else if (editEvent.colorId) payload.colorId = editEvent.colorId;
 
-        await enqueue(
-          "calendar_upsert",
-          busId,
-          payload,
-          "judgment",
-          "caledit:" + (eventId || dt) + ":" + title.slice(0, 24)
-        );
         const patch = {
           id: eventId || "pending-" + Date.now(),
           summary: title,
@@ -199,10 +197,18 @@ export default function AddAppointmentSheet({
           description,
         };
         appendLocalEvent({ ...editEvent, ...patch });
-        pullCalendarNow();
         showToast("Appointment updated — syncing to calendar");
         onSaved?.({ ...editEvent, ...patch });
         onClose();
+        void enqueue(
+          "calendar_upsert",
+          busId,
+          payload,
+          "judgment",
+          "caledit:" + (eventId || dt) + ":" + title.slice(0, 24)
+        )
+          .then(() => pullCalendarNow())
+          .catch(() => showToast("Couldn't sync appointment — try again"));
         return;
       }
 
@@ -228,8 +234,6 @@ export default function AddAppointmentSheet({
       if (!isDuplicate && job?.calEventId) payload.calEventId = job.calEventId;
       if (fromInspection) payload.colorId = GCAL_RED_COLOR_ID;
 
-      await enqueue("calendar_upsert", busId, payload, "judgment", key);
-
       const pendingId = "pending-" + Date.now();
       const paperworkPatch =
         fromInspection && job?.id && inspectionPreset?.branch && inspectionPreset?.step
@@ -245,9 +249,10 @@ export default function AddAppointmentSheet({
             }
           : {};
 
+      // Local first — job + calendar show the appointment before the network answers.
       if (job?.id && !isDuplicate && !job._customerContext) {
         const day = dt.slice(0, 10);
-        await patchAndSave(job.id, {
+        void patchAndSave(job.id, {
           calEventId: pendingId,
           status: { Scheduled: { s: "done", d: day } },
           ...paperworkPatch,
@@ -266,7 +271,6 @@ export default function AddAppointmentSheet({
       // Don't deep-link when already editing under the Today calendar — that
       // would swap the open card and kill the post-duplicate chooser.
       if (!inline) stashCalendarPick(pendingId);
-      pullCalendarNow();
       showToast(
         isDuplicate
           ? "Duplicate saved for " + formatApptWhen(dt) + " — syncing to Google Calendar"
@@ -276,6 +280,9 @@ export default function AddAppointmentSheet({
       );
       onSaved?.({ id: pendingId, summary: title, start: dt, location: location || "", description });
       onClose();
+      void enqueue("calendar_upsert", busId, payload, "judgment", key)
+        .then(() => pullCalendarNow())
+        .catch(() => showToast("Couldn't sync appointment — try again"));
     } catch {
       savingRef.current = false;
       setSaving(false);
