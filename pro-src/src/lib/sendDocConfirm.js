@@ -181,3 +181,16 @@ export function canApproveSendConfirm(model) {
   }
   return true;
 }
+
+/** Brief beat after Approve & send before the sheet closes. */
+export const SEND_CONFIRM_CLOSE_MS = 1000;
+
+/** After a successful send: wait briefly then close (approve-and-send UX). */
+export async function afterSendApprovedClose({ ok, onClose, delayMs = SEND_CONFIRM_CLOSE_MS }) {
+  if (!ok) return false;
+  if (delayMs > 0) {
+    await new Promise((r) => setTimeout(r, delayMs));
+  }
+  onClose?.();
+  return true;
+}

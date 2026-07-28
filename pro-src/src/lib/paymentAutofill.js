@@ -104,3 +104,55 @@ export function paymentMemoNote({ method, ref, memo, proofName, deposit }) {
 export function autofillDate(extracted) {
   return extracted?.date || todayStr();
 }
+
+export function paymentMethodMismatchMessage(selectedMethod, detectedKind) {
+  const sel = String(selectedMethod || "").trim().toLowerCase();
+  const det = String(detectedKind || "").trim().toLowerCase();
+  if (!sel || !det) return null;
+  const selKey = sel === "credit card" ? "card" : sel;
+  if (selKey === det) return null;
+  const detLabel =
+    det === "ach" ? "an ACH transfer" : det === "check" ? "a check" : det === "zelle" ? "a Zelle payment" : det;
+  if (selKey === "zelle") return `This is not Zelle, this is ${detLabel}.`;
+  if (selKey === "check") {
+    if (det === "zelle") return "This is a Zelle input.";
+    if (det === "ach") return "This is not a check, this is an ACH transfer.";
+  }
+  if (selKey === "ach") {
+    if (det === "zelle") return "This is a Zelle input.";
+    if (det === "check") return "This is not ACH, this is a check.";
+  }
+  return `This looks like ${detLabel} — switching the form.`;
+}
+
+export function methodFromPaymentKind(kind) {
+  const k = String(kind || "").toLowerCase();
+  if (k === "ach") return "ACH";
+  if (k === "check") return "Check";
+  if (k === "zelle") return "Zelle";
+  return "";
+}
+
+export function depositBankFromExtracted(extracted, depositBanks = []) {
+  const banks = Array.isArray(depositBanks) ? depositBanks : [];
+  const hay = [extracted?.depositBank, extracted?.payee, extracted?.name, extracted?.payer]
+    .map((s) => String(s || "").toLowerCase())
+    .join(" ");
+  if (!hay.trim()) return "";
+  if (/kumer\s*martin|martin\s*dorkin|\bmartin\b/.test(hay)) {
+    const md = banks.find((b) => /martin\s*dorkin/i.test(b));
+    return md || "Martin Dorkin";
+  }
+  if (/wells\s*fargo|\bwf\b/.test(hay)) {
+    const wf = banks.find((b) => /wells/i.test(b));
+    return wf || "Wells Fargo";
+  }
+  if (/blz|chase/.test(hay)) {
+    const ch = banks.find((b) => /blz|chase/i.test(b));
+    return ch || banks.find((b) => /chase/i.test(b)) || "";
+  }
+  const raw = String(extracted?.depositBank || "").trim();
+  if (raw && banks.some((b) => b.toLowerCase() === raw.toLowerCase())) return raw;
+  return raw || "";
+}
+
