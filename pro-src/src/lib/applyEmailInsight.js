@@ -12,7 +12,7 @@ import {
 import { inspectionAppointmentTitle } from "./paperwork.js";
 import { calendarServiceLocation } from "./customerSync.js";
 import { GCAL_RED_COLOR_ID } from "./calendarEventStyle.js";
-import { findEventForInsight } from "./calendarNavigate.js";
+import { findEventForInsight, findPriorAppointmentsForInsight } from "./calendarNavigate.js";
 import { conedPatchFromInsight } from "./conedPermit.js";
 
 /** Local clock label from insight dateTime for short calendar titles. */
@@ -183,6 +183,7 @@ export async function applyEmailInsight({
   patchAndSave,
   patchEmailInsight,
   appendLocalEvent,
+  removeLocalEvent,
   pullCalendarNow,
   showToast,
   autoApply = false,
@@ -199,10 +200,44 @@ export async function applyEmailInsight({
   let appliedEventId = "";
   let skipReason = "";
   let customerEmailed = false;
+  let replacedEventIds = [];
+
+  // A reschedule moves ONE appointment. Take the earlier booking off the calendar
+  // before adding the new time, or the job shows up twice (Levi 2026-07-27).
+  const isReschedule = outcome === "rescheduled";
+  if (isReschedule && selected.has("calendar") && scheduleable) {
+    const priors = findPriorAppointmentsForInsight(insight, job, events);
+    for (const prior of priors) {
+      const id = String(prior?.id || "").trim();
+      if (!id) continue;
+      if (!id.startsWith("pending-")) {
+        await enqueue(
+          "calendar_delete",
+          job?.id || insight?.jobId || "today",
+          { calEventId: id },
+          "judgment",
+          "caldel-resched:" + (insight?.id || "") + ":" + id
+        );
+      }
+      removeLocalEvent?.(id);
+      replacedEventIds.push(id);
+    }
+    // The job's link points at the appointment we just removed; the new event
+    // id replaces it below.
+    if (job?.id && replacedEventIds.includes(String(job.calEventId || ""))) {
+      await patchAndSave(job.id, { calEventId: "" });
+    }
+  }
 
   // Cross-check: already on calendar? Leave it alone (same day + address / same start).
   // Also catches original + forwarded Con Ed emails that would otherwise double-book.
-  const existing = findEventForInsight(insight, job, events);
+  // For a reschedule this only fires when the NEW time is already booked, since
+  // every earlier appointment was just removed.
+  const existing = findEventForInsight(
+    insight,
+    isReschedule ? { ...(job || {}), calEventId: "" } : job,
+    isReschedule ? events.filter((e) => !replacedEventIds.includes(String(e?.id))) : events
+  );
   if (existing && selected.has("calendar") && scheduleable) {
     appliedEventId = existing.id || job?.calEventId || "";
     skipReason = "already_on_calendar";
@@ -287,14 +322,24 @@ export async function applyEmailInsight({
     ...(customerEmailed ? { customerEmailed: true } : {}),
     // So "Open schedule calendar" deep-links to this event.
     ...(appliedEventId ? { appliedEventId } : {}),
+    ...(replacedEventIds.length
+      ? { replacedEventIds, replacedEventCount: replacedEventIds.length }
+      : {}),
   });
   if (!autoApply) {
     showToast?.(
       skipReason === "already_on_calendar"
         ? "Already on your calendar — left it alone"
-        : "Applied — syncing to calendar and job"
+        : replacedEventIds.length
+          ? `Rescheduled — new time added, ${
+              replacedEventIds.length === 1
+                ? "old appointment removed"
+                : `${replacedEventIds.length} old appointments removed`
+            }`
+          : "Applied — syncing to calendar and job"
     );
   }
+  return { appliedEventId, replacedEventIds, skipReason };
 }
 
 /**

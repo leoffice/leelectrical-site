@@ -85,6 +85,95 @@ export function consumeCalendarPick() {
   return p?.eventId || "";
 }
 
+/** Local "YYYY-MM-DDTHH:MM" key for an insight time or an event start. */
+function startKey(value) {
+  return String(value || "").replace(" ", "T").slice(0, 16);
+}
+
+/** Address fingerprints used to tie an event to an insight's location. */
+function locationKeys(insight, job) {
+  const raw = String(insight?.address || job?.serviceAddress || job?.address || "")
+    .toLowerCase()
+    .replace(/\s+/g, " ");
+  return {
+    locKey: raw.replace(/[^a-z0-9]/g, "").slice(0, 14),
+    streetNum: (raw.match(/\b(\d{2,6})\b/) || [])[1] || "",
+  };
+}
+
+/** Looks like an appointment this brain would have created from an email. */
+function isEmailAppointment(e) {
+  return /inspection|con edison|city electrical|meter\s*install|appointment|energy services/i.test(
+    String(e?.summary || "") + " " + String(e?.description || "")
+  );
+}
+
+/**
+ * The appointment(s) a reschedule replaces.
+ *
+ * A reschedule email carries the NEW time, so findEventForInsight (which matches
+ * on that time) can't see the old booking — that's how the same job ended up on
+ * the calendar twice (Levi 2026-07-27: 1127 Lincoln Place kept both tomorrow and
+ * Friday the 7th). Here we look the other way: the job's linked event, or an
+ * email-created appointment at the same address, at any time OTHER than the new
+ * one.
+ *
+ * Only upcoming events are considered — a past visit is history, not a duplicate.
+ *
+ * @param {object} insight
+ * @param {object|null} job
+ * @param {Array} events
+ * @param {{ now?: Date, newStart?: string }} [opts]
+ * @returns {Array} events to remove, most recent first
+ */
+export function findPriorAppointmentsForInsight(insight, job, events, opts = {}) {
+  const list = events || [];
+  if (!list.length) return [];
+  const now = opts.now || new Date();
+  const newKey = startKey(opts.newStart || insight?.dateTime || "");
+  const todayYmd = localYmdFromDate(now);
+
+  const upcoming = list.filter((e) => {
+    const start = evStart(e);
+    if (!start) return false;
+    // Same day counts: an appointment moved from 2pm to 5pm today is still a dup.
+    if (start.slice(0, 10) < todayYmd) return false;
+    return startKey(start) !== newKey;
+  });
+  if (!upcoming.length) return [];
+
+  const linkedIds = new Set(
+    [job?.calEventId, insight?.appliedEventId, insight?.eventId]
+      .map((x) => String(x || "").trim())
+      .filter(Boolean)
+  );
+  const linked = upcoming.filter((e) => linkedIds.has(String(e.id)));
+
+  const { locKey, streetNum } = locationKeys(insight, job);
+  const sameplace = upcoming.filter((e) => {
+    if (linkedIds.has(String(e.id))) return false;
+    if (!isEmailAppointment(e)) return false;
+    if (!locKey && !streetNum) return false;
+    const el = String(e.location || e.summary || "")
+      .toLowerCase()
+      .replace(/[^a-z0-9]/g, "");
+    return (
+      (streetNum && el.includes(streetNum)) || (locKey && el.includes(locKey.slice(0, 10)))
+    );
+  });
+
+  return [...linked, ...sameplaceSorted(sameplace)];
+}
+
+function sameplaceSorted(list) {
+  return list.slice().sort((a, b) => evStart(a).localeCompare(evStart(b)));
+}
+
+function localYmdFromDate(d) {
+  const pad = (n) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+}
+
 /**
  * Resolve which calendar event an email insight created / refers to.
  * Prefer job.calEventId / insight.appliedEventId, then same start time.

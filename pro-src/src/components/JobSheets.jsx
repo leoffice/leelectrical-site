@@ -93,7 +93,7 @@ import {
 import { docSendStatusLine } from "../lib/docSendStatus.js";
 import { tenantCalendarAccount, tenantSignOff } from "../lib/tenantBranding.js";
 import { beginPromptWorkPause } from "../lib/followUpReminders.js";
-import { isQuickbooksDocsEnabled, resolveDocSource } from "../lib/qboEnabled.js";
+import { isQuickbooksDocEnabled, resolveDocSource } from "../lib/qboEnabled.js";
 import { useAppSettings } from "../lib/appSettings.js";
 import { EMAIL_POLICY_KEEP } from "../lib/sendDocConfirm.js";
 
@@ -141,7 +141,11 @@ export function useDoSend() {
       opts.includePaymentLink !== false;
     // Settings / plan can force local-only (white-label, QuickBooks off).
     const docSource =
-      resolveDocSource(opts.docSource === DOC_SOURCE_QBO ? DOC_SOURCE_QBO : DOC_SOURCE_LOCAL) ===
+      resolveDocSource(
+        opts.docSource === DOC_SOURCE_QBO ? DOC_SOURCE_QBO : DOC_SOURCE_LOCAL,
+        undefined,
+        kind
+      ) ===
       DOC_SOURCE_QBO
         ? DOC_SOURCE_QBO
         : DOC_SOURCE_LOCAL;
@@ -2050,8 +2054,9 @@ export function DocPdfViewButtons({ job, kind, no, compact }) {
   const config = useTenantConfig();
   const appSettings = useAppSettings();
   void appSettings.quickbooks;
-  void appSettings.quickbooksDocs;
-  const qboDocsOn = isQuickbooksDocsEnabled(config);
+  void appSettings.quickbooksInvoices;
+  void appSettings.quickbooksEstimates;
+  const qboDocsOn = isQuickbooksDocEnabled(kind, config);
   const product = productName(config);
   const retry = () => (st.source === DOC_SOURCE_QBO && qboDocsOn ? viewQbo() : viewLocal());
 
@@ -2118,8 +2123,9 @@ export function DocSendButtons({ job, kind, onPickSend }) {
   const withPay = kind === "invoice" && due > 0.01;
   const appSettings = useAppSettings();
   void appSettings.quickbooks;
-  void appSettings.quickbooksDocs;
-  const qboDocsOn = isQuickbooksDocsEnabled();
+  void appSettings.quickbooksInvoices;
+  void appSettings.quickbooksEstimates;
+  const qboDocsOn = isQuickbooksDocEnabled(kind);
   const sourceNote = qboDocsOn
     ? "Choose local file or QuickBooks file"
     : "Sends the local PDF from this job";
@@ -2367,7 +2373,7 @@ export function PaymentLinkSheet({ job, onClose }) {
   }
 
   if (composeChannel) {
-    const qboDocsOn = isQuickbooksDocsEnabled();
+    const qboDocsOn = isQuickbooksDocEnabled("invoice");
     return (
       <CustomerComposeSheet
         job={job}
@@ -2571,7 +2577,7 @@ export function DocSheet({ job, kind, onClose, onEdit, onConvert, onSync }) {
   }
   const lines = kind === "invoice" ? job.invoiceLines : job.estimateLines;
   const isDraft = !no && (lines || []).some((ln) => String(ln?.itemName || "").trim());
-  const qboDocsOn = isQuickbooksDocsEnabled();
+  const qboDocsOn = isQuickbooksDocEnabled(kind);
   const title = no
     ? (kind === "invoice" ? "Invoice " : "Estimate ") + no
     : isDraft

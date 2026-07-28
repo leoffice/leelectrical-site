@@ -73,8 +73,16 @@ export const DEFAULT_FEATURES = {
   statements: true,
   letterhead: true,
   quickbooks: true,
-  /** Send/view/create docs through QB. Off = local docs only; sync still runs. */
+  /**
+   * Legacy umbrella for "send & view through QuickBooks". Kept because tenant
+   * configs saved before the invoice/estimate split still carry only this key —
+   * it seeds both of the per-doc toggles below when they are absent.
+   */
   quickbooksDocs: false,
+  /** Send/view invoices through QB. Off = local invoice only; sync still runs. */
+  quickbooksInvoices: false,
+  /** Send/view estimates through QB. Off = local estimate only; sync still runs. */
+  quickbooksEstimates: false,
   calendar: true,
   reminders: true,
   progressDashboard: true,
@@ -90,15 +98,17 @@ export const DEFAULT_FEATURES = {
 
 /** Labels for Settings UI — keep in sync with DEFAULT_FEATURES keys. */
 export const FEATURE_LABELS = [
-  { key: "speechToText", label: "Speech to text (voice bubble + chat mic)" },
+  { key: "speechToText", label: "Speech to text" },
   { key: "requisitions", label: "Requisitions (AIA G702/G703)" },
   { key: "timeTracking", label: "Time tracking / clock-in" },
   { key: "changeOrders", label: "Change orders" },
   { key: "estimates", label: "Estimates" },
   { key: "statements", label: "Statements" },
   { key: "letterhead", label: "Letterhead" },
-  { key: "quickbooks", label: "QuickBooks (keep integrated / sync data)" },
+  { key: "quickbooks", label: "QuickBooks synchronization" },
   { key: "quickbooksDocs", label: "Send & view through QuickBooks" },
+  { key: "quickbooksInvoices", label: "Send invoices through QuickBooks" },
+  { key: "quickbooksEstimates", label: "Send estimates through QuickBooks" },
   { key: "calendar", label: "Calendar" },
   { key: "reminders", label: "Reminders / follow-ups" },
   { key: "progressDashboard", label: "Progress / Build dashboard" },
@@ -130,16 +140,8 @@ export const FEATURE_GROUPS = [
   {
     id: "operations",
     title: "Operations",
-    hint: "Day-to-day job tools · QuickBooks sync vs send/view",
-    keys: [
-      "timeTracking",
-      "calendar",
-      "reminders",
-      "progressDashboard",
-      "subCompanies",
-      "quickbooks",
-      "quickbooksDocs",
-    ],
+    hint: "Day-to-day job tools",
+    keys: ["timeTracking", "calendar", "reminders", "progressDashboard", "subCompanies"],
   },
   {
     id: "payments",
@@ -248,7 +250,18 @@ export function depositBanksFromProfile(profile) {
 }
 
 export function mergeFeatures(raw) {
-  return { ...DEFAULT_FEATURES, ...(raw && typeof raw === "object" ? raw : {}) };
+  const r = raw && typeof raw === "object" ? raw : {};
+  const merged = { ...DEFAULT_FEATURES, ...r };
+  // Configs written before invoices/estimates became separate send switches
+  // carry only the `quickbooksDocs` umbrella — seed both kinds from it so an
+  // existing tenant keeps sending exactly what it sent before.
+  if (!Object.prototype.hasOwnProperty.call(r, "quickbooksInvoices")) {
+    merged.quickbooksInvoices = merged.quickbooksDocs !== false;
+  }
+  if (!Object.prototype.hasOwnProperty.call(r, "quickbooksEstimates")) {
+    merged.quickbooksEstimates = merged.quickbooksDocs !== false;
+  }
+  return merged;
 }
 
 /** COMPANY-shaped object used by invoice/estimate PDF builders. */
@@ -267,4 +280,27 @@ export function companyFromProfile(profile) {
 export function isFeatureOn(features, key) {
   const f = mergeFeatures(features);
   return f[key] !== false;
+}
+
+/** Settings key holding the send-through-QB switch for one document kind. */
+export function quickbooksDocFeatureKey(docKind) {
+  return docKind === "estimate" ? "quickbooksEstimates" : "quickbooksInvoices";
+}
+
+/**
+ * Send/view THIS document kind through QuickBooks?
+ *
+ * Invoices and estimates are separate switches (Levi 2026-07-27) so a tenant can
+ * keep sync on and still send only one of them through QB. Configs written
+ * before the split carry just `quickbooksDocs`; that umbrella seeds both kinds.
+ */
+export function quickbooksDocFeature(features, docKind) {
+  return mergeFeatures(features)[quickbooksDocFeatureKey(docKind)] !== false;
+}
+
+/** True when either document kind may go through QuickBooks. */
+export function anyQuickbooksDocFeature(features) {
+  return (
+    quickbooksDocFeature(features, "invoice") || quickbooksDocFeature(features, "estimate")
+  );
 }

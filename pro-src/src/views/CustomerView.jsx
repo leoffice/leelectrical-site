@@ -265,10 +265,13 @@ export default function CustomerView() {
         </button>
       </div>
 
+      {/* Customer + billing address here; service addresses and open invoices
+          live in the block below it (Levi 2026-07-27). */}
       <CustomerCard
         contact={contact}
         summary={summary}
         primaryJob={primaryJob}
+        showServiceAddress={false}
         shortTxns={shortTxns}
         onShortTxnsChange={setShortTxns}
         onEdit={() => setSheet({ kind: "cust", job: primaryJob })}

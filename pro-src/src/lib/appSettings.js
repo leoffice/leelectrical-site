@@ -6,6 +6,9 @@ export const COMPANY_LOGO_KEY = "lepro_company_logo";
 export const QUICKBOOKS_FEATURE_KEY = "lepro_feature_quickbooks";
 /** Send/view through QB UI — separate from backend sync integration. */
 export const QUICKBOOKS_DOCS_FEATURE_KEY = "lepro_feature_quickbooks_docs";
+/** Per-document send-through-QB switches; unset falls back to the umbrella above. */
+export const QUICKBOOKS_INVOICES_FEATURE_KEY = "lepro_feature_quickbooks_invoices";
+export const QUICKBOOKS_ESTIMATES_FEATURE_KEY = "lepro_feature_quickbooks_estimates";
 export const SETTINGS_EVENT = "lepro-settings";
 
 const DEFAULT_LOGO = () =>
@@ -109,6 +112,38 @@ export function setQuickbooksDocsFeatureEnabled(on) {
   if (!ls) return;
   try {
     ls.setItem(QUICKBOOKS_DOCS_FEATURE_KEY, on ? "1" : "0");
+  } catch {
+    /* ignore */
+  }
+  notify();
+}
+
+function perDocKey(docKind) {
+  return docKind === "estimate" ? QUICKBOOKS_ESTIMATES_FEATURE_KEY : QUICKBOOKS_INVOICES_FEATURE_KEY;
+}
+
+/**
+ * Settings → Special features → QuickBooks → send invoices / send estimates.
+ * Unset on this device means "whatever the umbrella docs switch says", so a
+ * device that never saw the split keeps its old behaviour.
+ */
+export function isQuickbooksDocFeatureEnabled(docKind) {
+  const ls = storage();
+  if (!ls) return false;
+  try {
+    const v = ls.getItem(perDocKey(docKind));
+    if (v === null || v === undefined || v === "") return isQuickbooksDocsFeatureEnabled();
+    return v === "1" || v === "true";
+  } catch {
+    return false;
+  }
+}
+
+export function setQuickbooksDocFeatureEnabled(docKind, on) {
+  const ls = storage();
+  if (!ls) return;
+  try {
+    ls.setItem(perDocKey(docKind), on ? "1" : "0");
   } catch {
     /* ignore */
   }
@@ -220,6 +255,8 @@ export function readAppSettings() {
     speechToText: isSpeechToTextEnabled(),
     quickbooks: isQuickbooksFeatureEnabled(),
     quickbooksDocs: isQuickbooksDocsFeatureEnabled(),
+    quickbooksInvoices: isQuickbooksDocFeatureEnabled("invoice"),
+    quickbooksEstimates: isQuickbooksDocFeatureEnabled("estimate"),
     logoSrc: getCompanyLogoSrc(),
     logoCustom: !!getCompanyLogoDataUrl(),
   };

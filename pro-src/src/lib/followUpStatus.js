@@ -206,6 +206,14 @@ export function snoozeUnsentDoc(jobId, docKind, untilIso) {
   saveUnsentSnoozed(st);
 }
 
+/** Snooze an unsent-doc reminder by a duration instead of a wall-clock slot. */
+export function snoozeUnsentDocMinutes(jobId, docKind, minutes, now = new Date()) {
+  const m = Math.max(1, Math.round(Number(minutes) || 0));
+  const until = new Date(now.getTime() + m * 60_000).toISOString();
+  snoozeUnsentDoc(jobId, docKind, until);
+  return until;
+}
+
 export function clearUnsentSnooze(jobId, docKind) {
   const st = loadUnsentSnoozed();
   const k = unsentKey(jobId, docKind);

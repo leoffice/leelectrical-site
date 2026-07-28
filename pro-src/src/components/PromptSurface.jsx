@@ -1,9 +1,10 @@
 // Notification / reminder shell:
 // - Phone: bottom sheet (same as Sheet)
 // - Tablet/desktop: floating card — drag, close, minimize
-import React, { useEffect, useState } from "react";
+import React, { useCallback, useEffect, useState } from "react";
 import Sheet from "./Sheet.jsx";
 import FloatingPanel from "./FloatingPanel.jsx";
+import DismissSnoozePanel from "./DismissSnoozePanel.jsx";
 
 const TABLET_MQ = "(min-width: 768px)";
 
@@ -39,28 +40,81 @@ function useTabletLayout() {
  * @param {string} [props.testId]
  * @param {boolean} [props.urgent] — light translucent red + heartbeat (inspection)
  * @param {boolean} [props.wide] — force wider floating card
+ * @param {(minutes: number) => void} [props.onSnooze] — board-wide rule: when a
+ *   prompt can come back later, ✕ opens the 5-min–5-hour picker instead of
+ *   silently closing. Omit only for prompts that have nothing to return to.
+ * @param {() => void} [props.onNeverRemind] — optional "don't remind me" escape
+ * @param {string} [props.snoozeLead]
  */
-export default function PromptSurface({ title, onClose, children, testId, urgent = false, wide = false }) {
+export default function PromptSurface({
+  title,
+  onClose,
+  children,
+  testId,
+  urgent = false,
+  wide = false,
+  onSnooze,
+  onNeverRemind,
+  snoozeLead,
+}) {
   const tablet = useTabletLayout();
+  const [snoozing, setSnoozing] = useState(false);
+
+  // ✕ (and Escape, which Sheet/FloatingPanel route to onClose) asks "when
+  // should this come back?" rather than throwing the suggestion away.
+  const handleClose = useCallback(() => {
+    if (!onSnooze) return onClose && onClose();
+    setSnoozing((s) => {
+      if (s && onClose) onClose(); // second ✕ while picking = just close
+      return !s;
+    });
+  }, [onSnooze, onClose]);
+
+  const body =
+    snoozing && onSnooze ? (
+      <DismissSnoozePanel
+        lead={snoozeLead}
+        onSnooze={(minutes) => {
+          setSnoozing(false);
+          onSnooze(minutes);
+        }}
+        onCancel={() => setSnoozing(false)}
+        onDismiss={
+          onNeverRemind
+            ? () => {
+                setSnoozing(false);
+                onNeverRemind();
+              }
+            : undefined
+        }
+      />
+    ) : (
+      children
+    );
 
   if (tablet) {
     return (
       <FloatingPanel
-        title={title}
-        onClose={onClose}
+        title={snoozing ? "Remind me later" : title}
+        onClose={handleClose}
         testId={testId}
         minimizable
-        urgent={urgent}
+        urgent={urgent && !snoozing}
         wide={wide}
       >
-        {children}
+        {body}
       </FloatingPanel>
     );
   }
 
   return (
-    <Sheet title={title} onClose={onClose} testId={testId} urgent={urgent}>
-      {children}
+    <Sheet
+      title={snoozing ? "Remind me later" : title}
+      onClose={handleClose}
+      testId={testId}
+      urgent={urgent && !snoozing}
+    >
+      {body}
     </Sheet>
   );
 }

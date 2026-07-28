@@ -5,17 +5,18 @@ import Sheet, { Opt } from "./Sheet.jsx";
 import { docKindLabel, sourcePickerPrompt } from "../lib/docSource.js";
 import { productName } from "../lib/tenantBranding.js";
 import { useTenantConfig } from "../state/tenant.jsx";
-import { isQuickbooksDocsEnabled } from "../lib/qboEnabled.js";
+import { isQuickbooksDocEnabled } from "../lib/qboEnabled.js";
 import { useAppSettings } from "../lib/appSettings.js";
 
 export default function DocSourcePicker({ title, prompt, kind, onPick, onBack }) {
   const config = useTenantConfig();
   const appSettings = useAppSettings();
-  // Docs path only — integration/sync can stay on while this is off.
-  const qboDocsOn = isQuickbooksDocsEnabled(config);
+  // Docs path only, per document kind — sync can stay on while this is off.
+  const qboDocsOn = isQuickbooksDocEnabled(kind, config);
   // re-read when feature flag flips (useAppSettings triggers re-render)
   void appSettings.quickbooks;
-  void appSettings.quickbooksDocs;
+  void appSettings.quickbooksInvoices;
+  void appSettings.quickbooksEstimates;
   const word = docKindLabel(kind);
   const product = productName(config);
 

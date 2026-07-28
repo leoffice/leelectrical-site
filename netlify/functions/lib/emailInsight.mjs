@@ -533,6 +533,24 @@ export function classifyEmailOutcome(subject = "", body = "") {
   const plain = stripHtml(body).toLowerCase();
   const s = [subj, plain].filter(Boolean).join("\n");
 
+  // Reschedule BEFORE cancel: "your appointment has been cancelled and rescheduled
+  // to Aug 7" is one appointment moving, not a cancellation (Levi 2026-07-27).
+  // Strictly past-tense/actioned forms — the Con Ed footer "Log in to Reschedule
+  // the appointment" and DOB's "to reschedule, call…" must never match.
+  const subjectRescheduled =
+    /\breschedul(?:ed|ing)\b/.test(subj) ||
+    /\b(?:appointment|inspection)\s+(?:date\s+)?chang(?:e|ed)\b/.test(subj) ||
+    /\bnew\s+(?:date|time|appointment\s+(?:date|time))\b/.test(subj);
+  const bodyRescheduled =
+    /\b(?:appointment|inspection|visit)\s+(?:has\s+been\s+|was\s+|is\s+being\s+)?reschedul(?:ed)\b/.test(plain) ||
+    /\bhas\s+been\s+reschedul(?:ed)\b/.test(plain) ||
+    /\bwas\s+reschedul(?:ed)\b/.test(plain) ||
+    /\breschedul(?:ed)\s+(?:to|for|from)\b/.test(plain) ||
+    /\b(?:appointment|inspection)\s+(?:has\s+been\s+|was\s+)?moved\s+to\b/.test(plain);
+  if (subjectRescheduled || bodyRescheduled) {
+    return "rescheduled";
+  }
+
   // Strong cancel signals only — not instructional "to cancel" / "cancellation request" footers.
   const subjectCancelled =
     /\bcancell?ed\b/.test(subj) ||
@@ -624,6 +642,7 @@ export function parseEmailInsight({ from = "", subject = "", body = "", received
   if (outcome === "cancelled") summaryParts.push("(cancelled)");
   if (outcome === "completed") summaryParts.push("(completed)");
   if (outcome === "reminder") summaryParts.push("(reminder only — not a new set)");
+  if (outcome === "rescheduled") summaryParts.push("(rescheduled — replaces the earlier appointment)");
 
   return {
     id: messageId ? "ei-" + messageId : "ei-" + Date.now(),
@@ -785,7 +804,7 @@ export function buildProposedActions(insight, job, now = new Date()) {
   // Only NEW appointment-set emails create calendar events (not pure reminders).
   // Past appointments are never scheduleable — no second calendar add after the day.
   // No date → never offer calendar (junk / incomplete parse — Levi 2026-07-22).
-  const isNewSet = outcome === "scheduled" || outcome === "other";
+  const isNewSet = outcome === "scheduled" || outcome === "rescheduled" || outcome === "other";
   const scheduleable = isNewSet && !past && !!when;
 
   if (scheduleable) {
@@ -901,6 +920,9 @@ export function formatInsightLead(insight, job) {
       : "Inspection marked completed.";
   } else if (outcome === "reminder") {
     jobLine = "This is only a reminder — I won't create a new calendar appointment from it.";
+  } else if (outcome === "rescheduled") {
+    jobLine =
+      "This is a reschedule — I'll book the new time and take the old appointment off your calendar, so you end up with one.";
   }
   const appt = insight?.summary || appointmentTypeLabel(insight?.appointmentType, insight?.agency);
   return `From ${src}: ${appt}. ${jobLine}`;
@@ -1010,6 +1032,15 @@ export function formatAppliedLead(insight, job) {
       ? `From ${src}: reminder only for ${who} — appointment ${when}. No new calendar event.`
       : `From ${src}: reminder only for ${who} — no new calendar appointment.`;
   }
+  if (outcome === "rescheduled") {
+    const removed = Number(insight?.replacedEventCount || 0);
+    const tail = removed
+      ? ` and removed the ${removed === 1 ? "old appointment" : `${removed} old appointments`}`
+      : " — no earlier appointment was on the calendar to remove";
+    return when
+      ? `From ${src}: moved ${type} for ${who} to ${when}${tail}.`
+      : `From ${src}: rescheduled ${type} for ${who}${tail}.`;
+  }
   const emailed = insight?.customerEmailed ? " and emailed the customer the invite" : "";
   return when
     ? `From ${src}: added ${type} for ${who} to your schedule calendar on ${when}${emailed}.`
@@ -1077,7 +1108,12 @@ export function hasRealInsightData(insight) {
 
   const outcome = insight.outcome || "other";
   // New sets / reminders / generic "other" need a real when — otherwise calendar is empty.
-  if (outcome === "scheduled" || outcome === "reminder" || outcome === "other") {
+  if (
+    outcome === "scheduled" ||
+    outcome === "rescheduled" ||
+    outcome === "reminder" ||
+    outcome === "other"
+  ) {
     if (!hasDate) return false;
   }
   // completed / cancelled: address or job (already required) is enough for paperwork/note.

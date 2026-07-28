@@ -6,7 +6,7 @@ import { DOC_SOURCE_LOCAL, DOC_SOURCE_QBO } from "../lib/docSource.js";
 import CustomerSearch from "./CustomerSearch.jsx";
 import { useStore } from "../state/store.jsx";
 import { useTenantConfig } from "../state/tenant.jsx";
-import { isQuickbooksDocsEnabled, resolveDocSource } from "../lib/qboEnabled.js";
+import { isQuickbooksDocEnabled, resolveDocSource } from "../lib/qboEnabled.js";
 import { useAppSettings } from "../lib/appSettings.js";
 import {
   EMAIL_POLICY_KEEP,
@@ -376,9 +376,10 @@ export default function DocBuilderSheet({
   const tenantConfig = useTenantConfig();
   const appSettings = useAppSettings();
   void appSettings.quickbooks;
-  void appSettings.quickbooksDocs;
-  // Send/view through QB only — integration can stay on for backend sync.
-  const qboOn = isQuickbooksDocsEnabled(tenantConfig);
+  void appSettings.quickbooksInvoices;
+  void appSettings.quickbooksEstimates;
+  // Send/view through QB for THIS doc kind — sync can stay on for the backend.
+  const qboOn = isQuickbooksDocEnabled(kind, tenantConfig);
   const boardJobs = allJobs || storeJobs;
   const [job, setJob] = useState(() => jobProp || {});
   useEffect(() => {
@@ -915,7 +916,9 @@ export default function DocBuilderSheet({
       const attsForEmail = send ? emailAttachments() : attachments;
       const attsForQbo = attachments;
       const docSource = resolveDocSource(
-        opts.docSource === DOC_SOURCE_LOCAL ? DOC_SOURCE_LOCAL : DOC_SOURCE_QBO
+        opts.docSource === DOC_SOURCE_LOCAL ? DOC_SOURCE_LOCAL : DOC_SOURCE_QBO,
+        undefined,
+        kind
       );
       const withPay = !!(opts.includePaymentLink && kind === "invoice");
       const customMsg = String(opts.message || "").trim();

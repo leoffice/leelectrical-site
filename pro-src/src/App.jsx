@@ -66,6 +66,7 @@ import Sheet, { Opt } from "./components/Sheet.jsx";
 import { appointmentContextFromRoute } from "./lib/appointmentContext.js";
 import { logOff } from "./lib/lock.js";
 import { useAppSettings } from "./lib/appSettings.js";
+import { pruneSuggestionSnoozes } from "./lib/dismissSnooze.js";
 import { isAssistantEntitledLocally } from "./lib/assistantLicenseClient.js";
 
 
@@ -247,6 +248,10 @@ export default function App() {
   const config = useTenantConfig();
   const isDesktop = useIsDesktop();
   const loc = useLocation();
+
+  // Sweep expired "remind me later" entries once per app open so the store
+  // can't grow forever (lib/dismissSnooze.js).
+  useEffect(() => pruneSuggestionSnoozes(), []);
 
   const chrome = useMemo(() => tenantChrome(config), [config]);
   const internal = config.internal === true;

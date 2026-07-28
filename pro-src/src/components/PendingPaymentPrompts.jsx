@@ -13,9 +13,16 @@ import { buildPaymentVisionLearningEntry } from "../lib/paymentVisionLearning.js
 import { getDepositBanks } from "../lib/chatPayment.js";
 import { fmt$, todayStr } from "../lib/format.js";
 import PaymentImageZoom from "./PaymentImageZoom.jsx";
+import DismissSnoozePanel from "./DismissSnoozePanel.jsx";
 import { Fld } from "./Sheet.jsx";
+import { isSuggestionSnoozed, snoozeSuggestion } from "../lib/dismissSnooze.js";
 
 const IS_TEST = typeof process !== "undefined" && process.env && process.env.NODE_ENV === "test";
+
+/** Snooze bucket for one payment notice — see lib/dismissSnooze.js. */
+function paymentSnoozeKey(item) {
+  return "payment:" + String(item?.id || "");
+}
 
 function collectPending(jobs, systemItems = []) {
   const out = [];
@@ -38,7 +45,8 @@ function collectPending(jobs, systemItems = []) {
   }
   // Newest first
   out.sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
-  return out;
+  // A snoozed notice is still pending — it just isn't due yet.
+  return out.filter((p) => !isSuggestionSnoozed(paymentSnoozeKey(p)));
 }
 
 export default function PendingPaymentPrompts() {
@@ -56,6 +64,7 @@ export default function PendingPaymentPrompts() {
   const [autofillBusy, setAutofillBusy] = useState(false);
   const [autofillDone, setAutofillDone] = useState(false);
   const [autofillExtracted, setAutofillExtracted] = useState(null);
+  const [snoozing, setSnoozing] = useState(false);
   const depositBanks = useMemo(() => getDepositBanks(), []);
 
   // Load system queue (ov._pendingPayments) on boot + poll so bank/pay-page items appear without reload.
@@ -105,6 +114,8 @@ export default function PendingPaymentPrompts() {
     setDt(String(current.date || todayStr()).slice(0, 10));
     setAutofillExtracted(current.extracted || null);
     setAutofillDone(Boolean(current.extracted && hasStrongPaymentAutofill(current.extracted)));
+    // A new notice always opens on the card, never on the snooze picker.
+    setSnoozing(false);
   }, [current?.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const clearPending = useCallback(
@@ -131,7 +142,17 @@ export default function PendingPaymentPrompts() {
     if (!current) return;
     await clearPending(current, "dismissed");
     setCurrent(null);
+    setSnoozing(false);
     showToast("Payment notice dismissed");
+  };
+
+  // Board-wide rule: ✕ / "not now" parks the notice instead of dropping it.
+  const onSnooze = (minutes) => {
+    if (!current) return;
+    snoozeSuggestion(paymentSnoozeKey(current), minutes);
+    setSnoozing(false);
+    setCurrent(null);
+    showToast("OK — I'll bring this payment back up later");
   };
 
   const runAutofill = async () => {
@@ -316,10 +337,21 @@ export default function PendingPaymentPrompts() {
     >
       <div className="w-full max-w-md max-h-[92vh] overflow-y-auto rounded-2xl bg-white shadow-xl border border-slate-200">
         <div className="px-4 pt-4 pb-2 border-b border-slate-100">
+          <button
+            type="button"
+            aria-label="Close"
+            className="float-right w-8 h-8 rounded-full bg-slate-100 text-slate-500 font-bold text-sm"
+            onClick={() => setSnoozing((s) => !s)}
+            data-testid="pending-payment-close"
+          >
+            ✕
+          </button>
           <div className="text-[11px] font-extrabold uppercase tracking-wider text-brand">
             Payment to approve
           </div>
-          <h2 className="text-lg font-extrabold text-slate-900 leading-tight mt-0.5">{title}</h2>
+          <h2 className="text-lg font-extrabold text-slate-900 leading-tight mt-0.5">
+            {snoozing ? "Remind me later" : title}
+          </h2>
           <p className="text-sm text-slate-600 mt-1">
             {cust ? <span className="font-semibold text-slate-800">{cust}</span> : null}
             {cust && inv ? " · " : null}
@@ -331,73 +363,92 @@ export default function PendingPaymentPrompts() {
           </p>
         </div>
 
-        {current.proofUrl ? (
-          <div className="px-4 pt-3">
-            <PaymentImageZoom src={current.proofUrl} alt="Check or payment photo" />
+        {snoozing ? (
+          <div className="px-4 py-4">
+            <DismissSnoozePanel
+              lead="A payment that came in never just goes away — when should I bring it back?"
+              onSnooze={onSnooze}
+              onCancel={() => setSnoozing(false)}
+              onDismiss={onDismiss}
+            />
           </div>
-        ) : null}
+        ) : (
+          <>
+          {current.proofUrl ? (
+            <div className="px-4 pt-3">
+              <PaymentImageZoom src={current.proofUrl} alt="Check or payment photo" />
+            </div>
+          ) : null}
 
-        <div className="px-4 py-3 space-y-2.5">
-          <div className="flex gap-2">
+          <div className="px-4 py-3 space-y-2.5">
+            <div className="flex gap-2">
+              <button
+                type="button"
+                className="btn bg-accent text-white flex-1 text-sm"
+                onClick={runAutofill}
+                disabled={autofillBusy || busy || !current.proofUrl}
+                data-testid="pending-payment-autofill"
+              >
+                {autofillBusy ? "Reading…" : autofillDone ? "✓ Autofilled" : "Autofill from photo"}
+              </button>
+            </div>
+
+            <Fld label="Amount">
+              <input
+                className="input"
+                value={amt}
+                onChange={(e) => setAmt(e.target.value)}
+                inputMode="decimal"
+                disabled={busy}
+                data-testid="pending-payment-amount"
+              />
+            </Fld>
+            <Fld label={current.kind === "zelle" ? "Confirmation #" : "Check number"}>
+              <input
+                className="input"
+                value={ref}
+                onChange={(e) => setRef(e.target.value)}
+                disabled={busy}
+                data-testid="pending-payment-ref"
+              />
+            </Fld>
+            <Fld label="Memo">
+              <input className="input" value={memo} onChange={(e) => setMemo(e.target.value)} disabled={busy} />
+            </Fld>
+            <Fld label="Date">
+              <input className="input" type="date" value={dt} onChange={(e) => setDt(e.target.value)} disabled={busy} />
+            </Fld>
+            <Fld label="Deposit to">
+              <select className="input" value={deposit} onChange={(e) => setDeposit(e.target.value)} disabled={busy}>
+                {depositBanks.map((b) => (
+                  <option key={b}>{b}</option>
+                ))}
+              </select>
+            </Fld>
+          </div>
+
+          <div className="px-4 pb-4 flex flex-col gap-2">
             <button
               type="button"
-              className="btn bg-accent text-white flex-1 text-sm"
-              onClick={runAutofill}
-              disabled={autofillBusy || busy || !current.proofUrl}
-              data-testid="pending-payment-autofill"
+              className="btn bg-brand text-white w-full font-bold"
+              onClick={onApprove}
+              disabled={busy || !job}
+              data-testid="pending-payment-approve"
             >
-              {autofillBusy ? "Reading…" : autofillDone ? "✓ Autofilled" : "Autofill from photo"}
+              {busy ? "Saving…" : "Approve payment"}
+            </button>
+            <button
+              type="button"
+              className="btn-ghost w-full text-sm"
+              onClick={() => setSnoozing(true)}
+              disabled={busy}
+              data-testid="pending-payment-not-now"
+            >
+              Not now — remind me later
             </button>
           </div>
-
-          <Fld label="Amount">
-            <input
-              className="input"
-              value={amt}
-              onChange={(e) => setAmt(e.target.value)}
-              inputMode="decimal"
-              disabled={busy}
-              data-testid="pending-payment-amount"
-            />
-          </Fld>
-          <Fld label={current.kind === "zelle" ? "Confirmation #" : "Check number"}>
-            <input
-              className="input"
-              value={ref}
-              onChange={(e) => setRef(e.target.value)}
-              disabled={busy}
-              data-testid="pending-payment-ref"
-            />
-          </Fld>
-          <Fld label="Memo">
-            <input className="input" value={memo} onChange={(e) => setMemo(e.target.value)} disabled={busy} />
-          </Fld>
-          <Fld label="Date">
-            <input className="input" type="date" value={dt} onChange={(e) => setDt(e.target.value)} disabled={busy} />
-          </Fld>
-          <Fld label="Deposit to">
-            <select className="input" value={deposit} onChange={(e) => setDeposit(e.target.value)} disabled={busy}>
-              {depositBanks.map((b) => (
-                <option key={b}>{b}</option>
-              ))}
-            </select>
-          </Fld>
-        </div>
-
-        <div className="px-4 pb-4 flex flex-col gap-2">
-          <button
-            type="button"
-            className="btn bg-brand text-white w-full font-bold"
-            onClick={onApprove}
-            disabled={busy || !job}
-            data-testid="pending-payment-approve"
-          >
-            {busy ? "Saving…" : "Approve payment"}
-          </button>
-          <button type="button" className="btn-ghost w-full text-sm" onClick={onDismiss} disabled={busy}>
-            Dismiss for now
-          </button>
-        </div>
+          </>
+        )}
       </div>
     </div>
   );

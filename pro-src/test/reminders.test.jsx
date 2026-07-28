@@ -70,10 +70,34 @@ describe("Reminders tab", () => {
     const actions = screen.getByTestId("unsent-doc-actions");
     expect(within(actions).getByTestId("unsent-doc-open")).toHaveTextContent("Open");
     expect(within(actions).getByTestId("reminder-verify")).toHaveTextContent("Verify");
-    expect(within(actions).getByTestId("unsent-doc-remind-later")).toHaveTextContent("Remind Me Later");
-    expect(within(actions).getByTestId("unsent-doc-dismiss")).toHaveTextContent("Don't Remind Me");
+    // Three-across layout (Levi 2026-07-27) — short labels, plus a send option.
+    expect(within(actions).getByTestId("unsent-doc-send-reminder")).toHaveTextContent(
+      "Send follow-up"
+    );
+    expect(within(actions).getByTestId("unsent-doc-remind-later")).toHaveTextContent("Remind later");
+    expect(within(actions).getByTestId("unsent-doc-dismiss")).toHaveTextContent("Don't remind me");
     await user.click(within(actions).getByTestId("unsent-doc-dismiss"));
     await waitFor(() => expect(screen.getByTestId("reminders-empty")).toBeInTheDocument());
+  });
+
+  it("Send follow-up drafts the customer email, and closing returns to the options", async () => {
+    mockServer({ jobs: [unsentJob()], events: [] });
+    const user = userEvent.setup();
+    renderApp("#/reminders");
+    expect(await screen.findByTestId("reminders-view")).toBeInTheDocument();
+    await user.click(screen.getByTestId("reminder-headline-unsent:J-9:invoice"));
+    await user.click(screen.getByTestId("unsent-doc-send-reminder"));
+
+    // Pick what it should say before anything is sent.
+    const moods = await screen.findByTestId("email-mood-grid");
+    expect(moods).toBeInTheDocument();
+    await user.click(within(moods).getByTestId("mood-friendly"));
+
+    // Backing out shows the next option instead of losing the reminder.
+    await user.click(screen.getByLabelText("Close"));
+    await waitFor(() => expect(screen.queryByTestId("email-mood-grid")).not.toBeInTheDocument());
+    expect(screen.getByTestId("unsent-doc-actions")).toBeInTheDocument();
+    expect(screen.getByTestId("reminders-view")).toBeInTheDocument();
   });
 
   it("Verify button checks send status and keeps still-unsent on the list", async () => {

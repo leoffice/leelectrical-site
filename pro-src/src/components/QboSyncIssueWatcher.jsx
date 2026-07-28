@@ -2,6 +2,8 @@
 // bullets + Dismiss / Try again / Report to developers.
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import FloatingPanel from "./FloatingPanel.jsx";
+import DismissSnoozePanel from "./DismissSnoozePanel.jsx";
+import { isSuggestionSnoozed, snoozeSuggestion } from "../lib/dismissSnooze.js";
 import { useStoreData } from "../state/store.jsx";
 import {
   QBO_SYNC_ISSUE_TITLE,
@@ -25,6 +27,7 @@ export default function QboSyncIssueWatcher() {
   const [dismissed, setDismissed] = useState(() => loadDismissedIds());
   const [open, setOpen] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [snoozing, setSnoozing] = useState(false);
   // Avoid flashing the panel on every tiny commands array rebuild
   const lastKey = useRef("");
 
@@ -46,16 +49,26 @@ export default function QboSyncIssueWatcher() {
     const key = issues.commandIds.slice().sort().join(",");
     if (key !== lastKey.current) {
       lastKey.current = key;
-      setOpen(true);
+      // A snoozed batch stays hidden until its time is up.
+      setOpen(!isSuggestionSnoozed("qbo-sync:" + key));
     }
   }, [issues.bullets.length, issues.commandIds, qboOn]);
 
   if (!qboOn || !open || !issues.bullets.length) return null;
 
-  const close = () => setOpen(false);
+  const close = () => {
+    setSnoozing(false);
+    setOpen(false);
+  };
 
   const onDismiss = () => {
     setDismissed(dismissIssueIds(issues.commandIds, dismissed));
+    close();
+  };
+
+  // ✕ = "not now": keep the issue on the books, just out of the way.
+  const onSnooze = (minutes) => {
+    snoozeSuggestion("qbo-sync:" + issues.commandIds.slice().sort().join(","), minutes);
     close();
   };
 
@@ -112,64 +125,74 @@ export default function QboSyncIssueWatcher() {
 
   return (
     <FloatingPanel
-      title="QuickBooks sync issue"
-      onClose={onDismiss}
+      title={snoozing ? "Remind me later" : "QuickBooks sync issue"}
+      onClose={() => setSnoozing((v) => !v)}
       testId="qbo-sync-issue-panel"
-      urgent
+      urgent={!snoozing}
       minimizable
       wide
     >
-      <p className="text-sm text-slate-700 font-semibold mb-2" data-testid="qbo-sync-issue-title">
-        {QBO_SYNC_ISSUE_TITLE}
-      </p>
-      <p className="text-xs text-slate-500 mb-3">
-        Your work is still saved on this device. These items did not finish syncing to QuickBooks:
-      </p>
-      <ul
-        className="text-sm text-slate-800 mb-4 space-y-1.5 list-disc pl-5"
-        data-testid="qbo-sync-issue-bullets"
-      >
-        {issues.bullets.map((b, i) => (
-          <li key={i} className="leading-snug">
-            {b}
-          </li>
-        ))}
-      </ul>
-      {issues.totalFailed > issues.bullets.length ? (
-        <p className="text-xs text-slate-400 mb-3">
-          +{issues.totalFailed - issues.bullets.length} more similar issue
-          {issues.totalFailed - issues.bullets.length === 1 ? "" : "s"}
+      {snoozing ? (
+        <DismissSnoozePanel
+          onSnooze={onSnooze}
+          onCancel={() => setSnoozing(false)}
+          onDismiss={onDismiss}
+        />
+      ) : (
+        <>
+        <p className="text-sm text-slate-700 font-semibold mb-2" data-testid="qbo-sync-issue-title">
+          {QBO_SYNC_ISSUE_TITLE}
         </p>
-      ) : null}
-      <div className="flex flex-col gap-2" data-testid="qbo-sync-issue-actions">
-        <button
-          type="button"
-          className="btn bg-brand text-white w-full"
-          disabled={busy}
-          onClick={onRetry}
-          data-testid="qbo-sync-issue-retry"
+        <p className="text-xs text-slate-500 mb-3">
+          Your work is still saved on this device. These items did not finish syncing to QuickBooks:
+        </p>
+        <ul
+          className="text-sm text-slate-800 mb-4 space-y-1.5 list-disc pl-5"
+          data-testid="qbo-sync-issue-bullets"
         >
-          Try again
-        </button>
-        <button
-          type="button"
-          className="btn bg-amber-100 text-amber-900 w-full border border-amber-200"
-          disabled={busy}
-          onClick={onReport}
-          data-testid="qbo-sync-issue-report"
-        >
-          Report to developers
-        </button>
-        <button
-          type="button"
-          className="btn bg-slate-100 text-slate-600 w-full"
-          disabled={busy}
-          onClick={onDismiss}
-          data-testid="qbo-sync-issue-dismiss"
-        >
-          Dismiss
-        </button>
-      </div>
+          {issues.bullets.map((b, i) => (
+            <li key={i} className="leading-snug">
+              {b}
+            </li>
+          ))}
+        </ul>
+        {issues.totalFailed > issues.bullets.length ? (
+          <p className="text-xs text-slate-400 mb-3">
+            +{issues.totalFailed - issues.bullets.length} more similar issue
+            {issues.totalFailed - issues.bullets.length === 1 ? "" : "s"}
+          </p>
+        ) : null}
+        <div className="flex flex-col gap-2" data-testid="qbo-sync-issue-actions">
+          <button
+            type="button"
+            className="btn bg-brand text-white w-full"
+            disabled={busy}
+            onClick={onRetry}
+            data-testid="qbo-sync-issue-retry"
+          >
+            Try again
+          </button>
+          <button
+            type="button"
+            className="btn bg-amber-100 text-amber-900 w-full border border-amber-200"
+            disabled={busy}
+            onClick={onReport}
+            data-testid="qbo-sync-issue-report"
+          >
+            Report to developers
+          </button>
+          <button
+            type="button"
+            className="btn bg-slate-100 text-slate-600 w-full"
+            disabled={busy}
+            onClick={onDismiss}
+            data-testid="qbo-sync-issue-dismiss"
+          >
+            Dismiss
+          </button>
+        </div>
+        </>
+      )}
     </FloatingPanel>
   );
 }

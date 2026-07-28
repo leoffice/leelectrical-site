@@ -441,6 +441,10 @@ export function jobPatchFromConedPermit(permit, { dateTime = "", existingPaperwo
       dates["Inspection appointment"] = dateTime;
     } else if (eventType.includes("field_crew") || /meter/i.test(eventType)) {
       dates["Meter installation date"] = dateTime.slice(0, 10);
+    } else if (/reschedul/i.test(eventType)) {
+      // A reschedule mail carries the NEW time — overwrite, never keep both
+      // (Levi 2026-07-27: the calendar moved but paperwork still read the old day).
+      dates["Inspection appointment"] = dateTime;
     } else if (!dates["Inspection appointment"] && /inspection/i.test(eventType)) {
       dates["Inspection appointment"] = dateTime;
     }

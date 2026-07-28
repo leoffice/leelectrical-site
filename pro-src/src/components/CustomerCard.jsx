@@ -47,6 +47,7 @@ export default function CustomerCard({
   shortTxns = false,
   onShortTxnsChange,
   onCardTap,
+  showServiceAddress = true,
 }) {
   const displayName = contact.businessName || contact.name;
   const addr = mapAddress || (primaryJob ? effectiveServiceAddress(primaryJob) : "");
@@ -54,9 +55,11 @@ export default function CustomerCard({
 
   const billing = String(contact.billingAddress || "").trim();
   const service = String(addr || "").trim();
-  const showServiceRow = service && (mapAddress || service !== billing);
+  // On the customer page the header is the customer + where they're billed;
+  // service addresses belong to the list below it (Levi 2026-07-27). A job or
+  // project card still shows the site address it's actually about.
+  const showServiceRow = showServiceAddress && service && (mapAddress || service !== billing);
 
-  // Service addresses first, billing below (Levi 2026-07-21).
   const contactRows = [
     ...(contact.businessName && contact.businessName !== displayName
       ? [["Business", contact.businessName, null]]

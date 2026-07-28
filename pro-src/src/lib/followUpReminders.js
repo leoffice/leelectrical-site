@@ -53,9 +53,11 @@ export const PAUSE_PRESETS = [
   { minutes: 30, label: "30 min" },
 ];
 
-export const SNOOZE_SLIDER_MIN = 30;
+// 5 minutes through 5 hours — same range as the board-wide ✕ picker
+// (lib/dismissSnooze.js), so "remind me later" means one thing everywhere.
+export const SNOOZE_SLIDER_MIN = 5;
 export const SNOOZE_SLIDER_MAX = 300;
-export const SNOOZE_SLIDER_STEP = 30;
+export const SNOOZE_SLIDER_STEP = 5;
 
 export const PAUSE_SLIDER_MIN = 5;
 export const PAUSE_SLIDER_MAX = 120;
@@ -359,7 +361,7 @@ export function serviceCallCandidates(events, jobs, today, now = new Date(), com
 }
 
 /** Inspection reminders: day before + day of (not past end of event day). */
-export function inspectionCandidates(events, today) {
+export function inspectionCandidates(events, today, now = new Date()) {
   const state = loadState();
   const tomorrow = addDays(today, 1);
   return (events || [])
@@ -368,6 +370,8 @@ export function inspectionCandidates(events, today) {
       const ymd = eventYmd(e);
       if (ymd !== today && ymd !== tomorrow) return false;
       if (isEventHandled(state, e.id, e)) return false;
+      // Closing the card is a snooze, not an ack — honour it here too.
+      if (isSnoozed(eventState(state, e.id), now)) return false;
       return true;
     })
     .sort((a, b) => evStart(a).localeCompare(evStart(b)));
@@ -780,7 +784,7 @@ export function buildReminderList(events, jobs, today, now = new Date(), command
     }
   }
 
-  for (const event of inspectionCandidates(events, today)) {
+  for (const event of inspectionCandidates(events, today, now)) {
     const ymd = eventYmd(event);
     list.push({
       id: "insp:" + event.id,
@@ -842,7 +846,7 @@ export function buildPromptQueue(events, jobs, today, now = new Date(), commands
   for (const item of unsentDocCandidates(jobs, commands)) {
     queue.push({ kind: "unsent_doc", priority: "high", ...item });
   }
-  for (const event of inspectionCandidates(events, today)) {
+  for (const event of inspectionCandidates(events, today, now)) {
     const ymd = eventYmd(event);
     queue.push({
       kind: "inspection",
