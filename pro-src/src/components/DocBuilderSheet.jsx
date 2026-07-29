@@ -54,7 +54,6 @@ import {
   contractTotalForJob,
   contractTotalFromEstimate,
   dueFromContract,
-  isProgressBillingContext,
   progressPctFromLines,
   roundQty,
 } from "../lib/progressBilling.js";
@@ -239,7 +238,7 @@ function LineRow({
         </button>
       ) : null}
 
-      {/* Row 3: rate / qty|progress / amount — flex so fields grow with the number */}
+      {/* Row 3: always rate + qty; progress % only when progress invoice is on */}
       <div
         className="flex flex-wrap w-full gap-2 items-end overflow-visible"
         data-testid={"doc-line-metrics-" + (index + 1)}
@@ -259,6 +258,19 @@ function LineRow({
             title={progressMode ? "Full job rate for this line" : "Rate"}
             placeholder="0"
             data-testid={"doc-line-rate-" + (index + 1)}
+          />
+        </MetricFld>
+        <MetricFld label="Qty" testId={"doc-line-qty-fld-" + (index + 1)} minWidth="4.5rem">
+          <input
+            className="input !px-2 !py-1.5 text-sm text-center tabular-nums !w-auto max-w-full overflow-visible"
+            style={numInputStyle(line.qty, { minCh: 3, maxCh: 12, pad: 2 })}
+            inputMode="decimal"
+            value={line.qty}
+            onChange={(e) => onChange(index, { qty: e.target.value })}
+            aria-label={"Quantity line " + (index + 1)}
+            title={progressMode ? "Quantity (progress fraction × contract qty)" : "Quantity"}
+            placeholder="1"
+            data-testid={"doc-line-qty-" + (index + 1)}
           />
         </MetricFld>
         {progressMode ? (
@@ -295,20 +307,7 @@ function LineRow({
               </button>
             </div>
           </MetricFld>
-        ) : (
-          <MetricFld label="Qty" testId={"doc-line-qty-fld-" + (index + 1)} minWidth="4.5rem">
-            <input
-              className="input !px-2 !py-1.5 text-sm text-center tabular-nums !w-auto max-w-full overflow-visible"
-              style={numInputStyle(line.qty, { minCh: 3, maxCh: 12, pad: 2 })}
-              inputMode="decimal"
-              value={line.qty}
-              onChange={(e) => onChange(index, { qty: e.target.value })}
-              aria-label={"Quantity line " + (index + 1)}
-              title="Quantity"
-              placeholder="1"
-            />
-          </MetricFld>
-        )}
+        ) : null}
         <MetricFld
           label={progressMode ? "Line total" : "Amount"}
           testId={"doc-line-amount-fld-" + (index + 1)}
@@ -485,16 +484,37 @@ export default function DocBuilderSheet({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [jobSeedId]);
 
+  // Progress invoice is intentional: from-estimate path, explicit flag, partial %, or fractional qty.
+  // Do NOT auto-enable just because the job once had an estimate / Accepted stage.
+  const seed = jobProp || {};
   const autoProgress =
     kind === "invoice" &&
-    (isProgressBillingContext(jobProp || {}, { kind, mode }) || progressPct != null);
-  // Manual Progress Invoice toggle (like CO) — on for invoices that already look progressive.
+    (progressPct != null ||
+      mode === "from_estimate" ||
+      mode === "turn_from_estimate" ||
+      !!seed.invoiceProgressBilling ||
+      (seed.invoiceLines || []).some((ln) => {
+        const q = parseAmount(ln?.qty);
+        return q > 0 && q < 0.9999;
+      }));
+  // Manual Progress Invoice toggle (like CO) — only when estimate-linked or already progressive.
   const [progressOn, setProgressOn] = useState(() => !!autoProgress);
   useEffect(() => {
     setProgressOn(!!autoProgress);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [jobSeedId, kind, mode]);
   const progressMode = kind === "invoice" && progressOn;
+  // Progress controls only after an estimate (or when already a progress invoice).
+  const canShowProgressToggle =
+    kind === "invoice" &&
+    (!!job.estimateLines?.length ||
+      !!job.estimateNo ||
+      mode === "from_estimate" ||
+      mode === "turn_from_estimate" ||
+      !!job.invoiceProgressBilling ||
+      !!progressOn ||
+      progressPct != null ||
+      parseAmount(job.contractAmount) > 0);
   const [lines, setLines] = useState(() => initialLines(jobProp || {}, { kind, mode, progressPct }));
   // Reseed line rows only when opening a different job (not on every store tick).
   useEffect(() => {
@@ -1532,17 +1552,19 @@ export default function DocBuilderSheet({
             data-testid="doc-number-input"
           />
         </label>
-        <div className="flex items-center gap-1.5 shrink-0 ml-auto" data-testid="doc-progress-toggle-row">
-          <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wide">
-            Progress invoice
-          </span>
-          <Toggle
-            on={!!progressOn}
-            onChange={applyProgressToggle}
-            label={progressOn ? "Progress invoice on" : "Progress invoice off"}
-            small
-          />
-        </div>
+        {canShowProgressToggle ? (
+          <div className="flex items-center gap-1.5 shrink-0 ml-auto" data-testid="doc-progress-toggle-row">
+            <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wide">
+              Progress invoice
+            </span>
+            <Toggle
+              on={!!progressOn}
+              onChange={applyProgressToggle}
+              label={progressOn ? "Progress invoice on" : "Progress invoice off"}
+              small
+            />
+          </div>
+        ) : null}
       </div>
 
       {editableCustomer ? (

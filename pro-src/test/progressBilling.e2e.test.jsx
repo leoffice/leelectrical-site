@@ -64,8 +64,9 @@ describe("Progress invoice editor", () => {
     const rows = await screen.findAllByTestId("doc-line-row");
     const rateInput = within(rows[0]).getByLabelText("Rate line 1");
     expect(rateInput).toHaveValue("46000");
-    // Qty is internal in progress mode — driven by progress % field.
-    expect(within(rows[0]).queryByLabelText("Quantity line 1")).toBeNull();
+    // Rate + qty always visible; progress % only when progress invoice is on.
+    const qtyInput = within(rows[0]).getByLabelText("Quantity line 1");
+    expect(qtyInput).toBeInTheDocument();
 
     // Product chip shows full name (not a tiny square snippet).
     const chip = within(rows[0]).getByTestId("doc-line-item-chip-1");
