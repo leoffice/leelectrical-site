@@ -1,6 +1,14 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { docStorePdfUrl, openPdfBlob, openPdfUrl, sharePdfBlob } from "../src/lib/pdfOpen.js";
+import {
+  docStorePdfUrl,
+  ensurePdfBlob,
+  openPdfBlob,
+  openPdfForNativeView,
+  openPdfUrl,
+  pdfInlinePreviewSupported,
+  sharePdfBlob,
+} from "../src/lib/pdfOpen.js";
 import { stubPdfOpen } from "./helpers.jsx";
 
 afterEach(() => {
@@ -27,6 +35,41 @@ describe("pdfOpen", () => {
     const click = stubPdfOpen();
     openPdfBlob(new Blob(["%PDF-1.4"], { type: "application/pdf" }));
     expect(URL.createObjectURL).toHaveBeenCalled();
+    expect(click).toHaveBeenCalledTimes(1);
+  });
+
+  it("ensurePdfBlob stamps application/pdf when type is missing", () => {
+    const raw = new Blob(["%PDF-1.4"], { type: "" });
+    const fixed = ensurePdfBlob(raw);
+    expect(fixed.type).toBe("application/pdf");
+  });
+
+  it("pdfInlinePreviewSupported is false on iPhone user agents", () => {
+    vi.stubGlobal("navigator", {
+      userAgent:
+        "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1",
+      platform: "iPhone",
+      maxTouchPoints: 5,
+    });
+    expect(pdfInlinePreviewSupported()).toBe(false);
+  });
+
+  it("pdfInlinePreviewSupported is true on desktop Chrome", () => {
+    vi.stubGlobal("navigator", {
+      userAgent:
+        "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+      platform: "MacIntel",
+      maxTouchPoints: 0,
+    });
+    expect(pdfInlinePreviewSupported()).toBe(true);
+  });
+
+  it("openPdfForNativeView downloads a named PDF blob (mobile-safe path)", () => {
+    URL.createObjectURL = vi.fn(() => "blob:native-pdf");
+    URL.revokeObjectURL = vi.fn();
+    const click = stubPdfOpen();
+    const blob = new Blob(["%PDF-1.4"], { type: "application/pdf" });
+    expect(openPdfForNativeView({ blob, filename: "Invoice-251825.pdf" })).toBe("download");
     expect(click).toHaveBeenCalledTimes(1);
   });
 

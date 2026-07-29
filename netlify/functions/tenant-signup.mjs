@@ -1,7 +1,7 @@
 /**
- * Signup step 1 — create the auth user + send the LE Pro verification email.
+ * Signup step 1 — create the auth user + send the platform verification email.
  *
- * NEW FLOW (2026-07-23): the first screen is LE Pro-branded signup only — NO
+ * NEW FLOW (2026-07-23): the first screen is product-branded signup only — NO
  * company name. This endpoint creates the UNCONFIRMED user and emails the
  * verification link + code. The tenant/company is created LATER, on the
  * post-verification onboarding step, via tenant-provision.mjs. So there is NO
@@ -10,8 +10,8 @@
  * POST { email, password, ownerName?, cfTurnstileToken }
  *   -> { ok:true, userId, emailSent }
  *
- * The verification email is LE Pro platform-branded (the tenant doesn't exist
- * yet). It carries both the confirm link (action_link) and a 6-digit code
+ * The verification email is platform-branded (the tenant doesn't exist yet).
+ * It carries both the confirm link (action_link) and a 6-digit code
  * (email_otp), and its redirect_to returns the confirmed user to /signup — where
  * signup.html shows the "set up your company" step and calls tenant-provision.
  *
@@ -19,13 +19,15 @@
  * SIGNUP_ENABLED; Turnstile bot gate; email via Resend. Env read at call time.
  */
 
+import { PRODUCT_BRAND } from "../../shared/productBrand.mjs";
+
 const SB_URL = () => process.env.SUPABASE_URL || "https://scgpxbubakfwypycugoa.supabase.co";
 const SVC_KEY = () => process.env.SUPABASE_SERVICE_ROLE_KEY;
 const signupEnabled = () =>
   process.env.SIGNUP_ENABLED === "1" || process.env.SIGNUP_ENABLED === "true";
 // After clicking confirm, land back on the signup page → the company step.
 const SIGNUP_REDIRECT = () => process.env.SIGNUP_REDIRECT_URL || "https://www.leelectrical.us/signup";
-const MAIL_FROM = () => process.env.SIGNUP_FROM || "LE Pro <office@leelectrical.us>";
+const MAIL_FROM = () => process.env.SIGNUP_FROM || `${PRODUCT_BRAND.name} <office@leelectrical.us>`;
 const LOGO_URL = () => process.env.LEPRO_LOGO_URL || "https://www.leelectrical.us/lepro-logo.png";
 const SUPPORT_EMAIL = () => process.env.SUPPORT_EMAIL || "office@leelectrical.us";
 
@@ -75,22 +77,23 @@ async function verifyTurnstile(token, ip) {
   return { ok: d.success === true, reason: (d["error-codes"] || []).join(",") };
 }
 
-// ---- LE Pro verification email (platform-branded) via Resend ---------------
+// ---- Platform verification email (product brand) via Resend ---------------
 function verificationEmailHtml({ ownerName, actionLink, otpCode }) {
   const name = (ownerName && String(ownerName).replace(/[<>]/g, "").trim()) || "there";
   const logo = LOGO_URL();
   const support = SUPPORT_EMAIL();
   const code = String(otpCode || "").replace(/[^0-9]/g, "");
+  const brand = PRODUCT_BRAND.name;
   return `<!doctype html><html><body style="margin:0;padding:0;background:#eef2f6;">
-  <div style="display:none;max-height:0;overflow:hidden;opacity:0;">Welcome to LE Pro — confirm your email to continue, then set up your company.</div>
+  <div style="display:none;max-height:0;overflow:hidden;opacity:0;">Welcome to ${brand} — confirm your email to continue, then set up your company.</div>
   <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#eef2f6;"><tr><td align="center" style="padding:28px 12px;">
     <table role="presentation" width="600" cellpadding="0" cellspacing="0" style="width:600px;max-width:600px;">
       <tr><td align="center" style="background:#f4f8f4;border-radius:16px 16px 0 0;padding:26px 32px 22px;">
-        <img src="${logo}" alt="LE Pro" width="104" style="width:104px;max-width:104px;height:auto;display:block;border:0;outline:none;">
+        <img src="${logo}" alt="${brand}" width="104" style="width:104px;max-width:104px;height:auto;display:block;border:0;outline:none;">
       </td></tr>
       <tr><td style="background:#ffffff;padding:32px 32px 8px;font-family:'Segoe UI',Roboto,Helvetica,Arial,sans-serif;">
-        <h1 style="margin:0 0 8px;font-size:26px;line-height:1.25;font-weight:800;color:#111827;">Welcome to LE Pro 🎉</h1>
-        <p style="margin:0 0 16px;font-size:16px;line-height:1.6;color:#374151;">Hi ${name}, congratulations — your LE Pro account is almost ready. Confirm your email to continue, then you'll add your company details to finish setup.</p>
+        <h1 style="margin:0 0 8px;font-size:26px;line-height:1.25;font-weight:800;color:#111827;">Welcome to ${brand} 🎉</h1>
+        <p style="margin:0 0 16px;font-size:16px;line-height:1.6;color:#374151;">Hi ${name}, congratulations — your ${brand} account is almost ready. Confirm your email to continue, then you'll add your company details to finish setup.</p>
         <table role="presentation" cellpadding="0" cellspacing="0" style="margin:6px 0 20px;"><tr><td align="center" bgcolor="#2d8a3e" style="border-radius:10px;">
           <a href="${actionLink}" style="display:inline-block;padding:14px 34px;font-size:16px;font-weight:700;color:#ffffff;background:#2d8a3e;border-radius:10px;text-decoration:none;">Confirm my email</a>
         </td></tr></table>
@@ -105,10 +108,10 @@ function verificationEmailHtml({ ownerName, actionLink, otpCode }) {
         <p style="margin:0 0 4px;font-size:12px;line-height:1.6;color:#6b7280;">This link and code expire in 24 hours. If the button doesn't work, paste this URL into your browser:</p>
         <p style="margin:0 0 20px;font-size:12px;line-height:1.5;word-break:break-all;"><a href="${actionLink}" style="color:#2d8a3e;">${actionLink}</a></p>
         <hr style="border:0;border-top:1px solid #eceff3;margin:4px 0 16px;">
-        <p style="margin:0 0 20px;font-size:13px;line-height:1.6;color:#6b7280;">Didn't sign up for LE Pro? You can safely ignore this email — no account is activated until it's confirmed. Questions? Contact <a href="mailto:${support}" style="color:#2d8a3e;">${support}</a>.</p>
+        <p style="margin:0 0 20px;font-size:13px;line-height:1.6;color:#6b7280;">Didn't sign up for ${brand}? You can safely ignore this email — no account is activated until it's confirmed. Questions? Contact <a href="mailto:${support}" style="color:#2d8a3e;">${support}</a>.</p>
       </td></tr>
       <tr><td style="background:#ffffff;border-radius:0 0 16px 16px;padding:0 32px 26px;font-family:'Segoe UI',Roboto,Helvetica,Arial,sans-serif;">
-        <div style="border-top:1px solid #eceff3;padding-top:16px;"><p style="margin:0;font-size:12px;line-height:1.6;color:#9aa4b2;">LE Pro · Field &amp; office management for contractors.<br>${support}</p></div>
+        <div style="border-top:1px solid #eceff3;padding-top:16px;"><p style="margin:0;font-size:12px;line-height:1.6;color:#9aa4b2;">${brand} · Field &amp; office management for contractors.<br>${support}</p></div>
       </td></tr>
     </table>
   </td></tr></table></body></html>`;
@@ -124,7 +127,7 @@ async function sendVerificationEmail(to, ownerName, actionLink, otpCode) {
       body: JSON.stringify({
         from: MAIL_FROM(),
         to: [to],
-        subject: "Welcome to LE Pro — confirm your email",
+        subject: `Welcome to ${PRODUCT_BRAND.name} — confirm your email`,
         html: verificationEmailHtml({ ownerName, actionLink, otpCode }),
       }),
     });
