@@ -54,7 +54,6 @@ import {
   contractTotalForJob,
   contractTotalFromEstimate,
   dueFromContract,
-  isProgressBillingContext,
   progressPctFromLines,
   roundQty,
 } from "../lib/progressBilling.js";
@@ -245,17 +244,14 @@ function LineRow({
         </button>
       ) : null}
 
-      {/* Row 3: rate / qty|progress / amount — hard min widths so nothing clips */}
+      {/* Row 3: always rate + qty; progress % only when progress invoice is on */}
       <div
-        className="grid w-full gap-2 items-end overflow-visible"
-        style={{
-          gridTemplateColumns: "minmax(8.5rem, 1.15fr) minmax(7rem, 1fr) minmax(8.5rem, 1.15fr)",
-        }}
+        className="flex flex-wrap w-full gap-2 items-end overflow-visible"
         data-testid={"doc-line-metrics-" + (index + 1)}
       >
-        <MetricFld label={progressMode ? "Full rate" : "Rate"} testId={"doc-line-rate-fld-" + (index + 1)}>
+        <MetricFld label={progressMode ? "Full rate" : "Rate"} testId={"doc-line-rate-fld-" + (index + 1)} minWidth="8.5rem">
           <input
-            className="input !px-2 !py-1.5 text-sm text-right tabular-nums w-full overflow-visible"
+            className="input !px-2 !py-1.5 text-sm text-right tabular-nums !w-auto max-w-full overflow-visible"
             style={numInputStyle(line.unitPrice, { minCh: 9, maxCh: 16 })}
             inputMode="decimal"
             value={line.unitPrice}
@@ -263,6 +259,20 @@ function LineRow({
             aria-label={"Rate line " + (index + 1)}
             title={progressMode ? "Full job rate for this line" : "Rate"}
             placeholder="0"
+            data-testid={"doc-line-rate-" + (index + 1)}
+          />
+        </MetricFld>
+        <MetricFld label="Qty" testId={"doc-line-qty-fld-" + (index + 1)} minWidth="4.5rem">
+          <input
+            className="input !px-2 !py-1.5 text-sm text-center tabular-nums !w-auto max-w-full overflow-visible"
+            style={numInputStyle(line.qty, { minCh: 3, maxCh: 12, pad: 2 })}
+            inputMode="decimal"
+            value={line.qty}
+            onChange={(e) => onChange(index, { qty: e.target.value })}
+            aria-label={"Quantity line " + (index + 1)}
+            title={progressMode ? "Quantity (progress fraction × contract qty)" : "Quantity"}
+            placeholder="1"
+            data-testid={"doc-line-qty-" + (index + 1)}
           />
         </MetricFld>
         {progressMode ? (
@@ -298,21 +308,8 @@ function LineRow({
               </button>
             </div>
           </MetricFld>
-        ) : (
-          <MetricFld label="Qty" testId={"doc-line-qty-fld-" + (index + 1)} minWidth="5.5rem">
-            <input
-              className="input !px-2 !py-1.5 text-sm text-center tabular-nums w-full overflow-visible"
-              style={numInputStyle(line.qty, { minCh: 4, maxCh: 10 })}
-              inputMode="decimal"
-              value={line.qty}
-              onChange={(e) => onChange(index, { qty: e.target.value })}
-              aria-label={"Quantity line " + (index + 1)}
-              title="Quantity"
-              placeholder="1"
-            />
-          </MetricFld>
-        )}
-        <MetricFld label={progressMode ? "Line total" : "Amount"} testId={"doc-line-amount-fld-" + (index + 1)}>
+        ) : null}
+        <MetricFld label={progressMode ? "Line total" : "Amount"} testId={"doc-line-amount-fld-" + (index + 1)} minWidth="8.5rem">
           <div
             className="input !px-2 !py-1.5 bg-slate-50 text-slate-700 font-semibold text-right text-sm tabular-nums w-full overflow-visible whitespace-nowrap"
             style={numInputStyle(fmt$(due) || due, { minCh: 9, maxCh: 16 })}
@@ -655,7 +652,36 @@ export default function DocBuilderSheet({
     const addr = job.serviceAddress || job.address || "";
     if (addr) setServiceAddress(addr);
   }, [job.serviceAddress, job.address]);
-  const progressMode = kind === "invoice" && isProgressBillingContext(job, { kind, mode });
+  // Progress invoice is intentional: from-estimate path, explicit flag, partial %, or fractional qty.
+  // Do NOT auto-enable just because the job once had an estimate / Accepted stage.
+  const seed = jobProp || {};
+  const autoProgress =
+    kind === "invoice" &&
+    (progressPct != null ||
+      mode === "from_estimate" ||
+      mode === "turn_from_estimate" ||
+      !!seed.invoiceProgressBilling ||
+      (seed.invoiceLines || []).some((ln) => {
+        const q = parseAmount(ln?.qty);
+        return q > 0 && q < 0.9999;
+      }));
+  const [progressOn, setProgressOn] = useState(() => !!autoProgress);
+  useEffect(() => {
+    setProgressOn(!!autoProgress);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [job?.id, kind, mode, progressPct]);
+  const progressMode = kind === "invoice" && progressOn;
+  // Progress controls only after an estimate (or when already a progress invoice).
+  const canShowProgressToggle =
+    kind === "invoice" &&
+    (!!job.estimateLines?.length ||
+      !!job.estimateNo ||
+      mode === "from_estimate" ||
+      mode === "turn_from_estimate" ||
+      !!job.invoiceProgressBilling ||
+      !!progressOn ||
+      progressPct != null ||
+      parseAmount(job.contractAmount) > 0);
   const [lines, setLines] = useState(() => initialLines(job, { kind, mode, progressPct }));
   const [attachments, setAttachments] = useState([]);
   const [attUploading, setAttUploading] = useState(false);
@@ -713,6 +739,23 @@ export default function DocBuilderSheet({
   );
   // Always allow flip on/off when we have a job context (create or edit).
   const canToggleCo = !!(job?.id || coSource?.invoiceNo || coSource?.estimateNo || coSource?.id || alreadyCo || asChangeOrder);
+
+  /** Progress invoice toggle — only when estimate-linked or already progressive. */
+  const applyProgressToggle = (on) => {
+    if (kind !== "invoice") return;
+    const next = !!on;
+    setProgressOn(next);
+    patchJobState({ invoiceProgressBilling: next });
+    if (next) {
+      const contract = parseAmount(contractAmount) || contractTotalForJob(job) || linesTotal(lines);
+      if (contract > 0 && !parseAmount(contractAmount)) setContractAmount(String(contract));
+      const pct = parseAmount(progressPctEdit) || 100;
+      if (pct < 100) {
+        setLines((rows) => applyProgressPctToLines(rows, contractLines, pct));
+      }
+    }
+  };
+
   const coPreview =
     asChangeOrder || alreadyCo
       ? preferredChangeOrderDocNo(
@@ -1143,6 +1186,7 @@ export default function DocBuilderSheet({
         discountValue,
       });
       Object.assign(jobPatch, coTagsFromJob(activeJob));
+      if (kind === "invoice") jobPatch.invoiceProgressBilling = !!progressOn;
       // Always stamp a real Inv # / Est # on save (never leave "Inv draft" after Save).
       const docNoKey = kind === "estimate" ? "estimateNo" : "invoiceNo";
       const preferredNo =
@@ -1208,6 +1252,7 @@ export default function DocBuilderSheet({
       discountValue,
     });
     Object.assign(jobPatch, coTagsFromJob(activeJob));
+      if (kind === "invoice") jobPatch.invoiceProgressBilling = !!progressOn;
     await downloadLocalPdf(buildPdfJob(activeJob, jobPatch));
     showToast("Opening " + (kind === "estimate" ? "estimate" : "invoice") + " PDF");
   };
@@ -1254,6 +1299,7 @@ export default function DocBuilderSheet({
         discountValue,
       });
       Object.assign(jobPatch, coTagsFromJob(activeJob));
+      if (kind === "invoice") jobPatch.invoiceProgressBilling = !!progressOn;
       // Stamp Inv # / Est # on save so the job never stays stuck as "draft".
       const docNoKey = kind === "estimate" ? "estimateNo" : "invoiceNo";
       const preferredNo =
@@ -1583,24 +1629,39 @@ export default function DocBuilderSheet({
         progressPct={null}
       />
 
-      {/* CO toggle only — service address lives in the facts panel Edit view */}
-      {canToggleCo || alreadyCo || asChangeOrder ? (
-        <div className="flex items-center gap-1.5 mb-3" data-testid="doc-co-toggle-row">
-          <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wide">CO</span>
-          <Toggle
-            on={!!(asChangeOrder || alreadyCo)}
-            onChange={applyCoToggle}
-            label={
-              asChangeOrder || alreadyCo
-                ? coPreview
-                  ? "Change order on — " + coPreview
-                  : "Change order on"
-                : "Change order off"
-            }
-            small
-          />
-        </div>
-      ) : null}
+      {/* CO + Progress toggles — service address lives in the facts panel Edit view */}
+      <div className="flex flex-wrap items-center gap-x-4 gap-y-2 mb-3">
+        {canToggleCo || alreadyCo || asChangeOrder ? (
+          <div className="flex items-center gap-1.5" data-testid="doc-co-toggle-row">
+            <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wide">CO</span>
+            <Toggle
+              on={!!(asChangeOrder || alreadyCo)}
+              onChange={applyCoToggle}
+              label={
+                asChangeOrder || alreadyCo
+                  ? coPreview
+                    ? "Change order on — " + coPreview
+                    : "Change order on"
+                  : "Change order off"
+              }
+              small
+            />
+          </div>
+        ) : null}
+        {canShowProgressToggle ? (
+          <div className="flex items-center gap-1.5" data-testid="doc-progress-toggle-row">
+            <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wide">
+              Progress invoice
+            </span>
+            <Toggle
+              on={!!progressOn}
+              onChange={applyProgressToggle}
+              label={progressOn ? "Progress invoice on" : "Progress invoice off"}
+              small
+            />
+          </div>
+        ) : null}
+      </div>
 
       {progressMode ? (
         <div

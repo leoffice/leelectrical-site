@@ -207,7 +207,15 @@ export default function CustomerTransactionHistory({ jobs, fromCust = "", onOpen
   const counts = useMemo(() => countKinds(allRows), [allRows]);
   const rows = useMemo(() => {
     if (filter === "all") return allRows;
-    if (filter === "invoices") return allRows.filter((r) => r.kind === "invoice");
+    if (filter === "invoices") {
+      // Levi 2026-07-28: open (still due) first, then closed — keep date order within groups.
+      const list = allRows.filter((r) => r.kind === "invoice");
+      return list.slice().sort((a, b) => {
+        const ao = txnRowDisplay(a).isOpen ? 0 : 1;
+        const bo = txnRowDisplay(b).isOpen ? 0 : 1;
+        return ao - bo;
+      });
+    }
     if (filter === "payments") return allRows.filter((r) => r.kind === "payment");
     if (filter === "estimates") return allRows.filter((r) => r.kind === "estimate");
     return allRows;
