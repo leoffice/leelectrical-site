@@ -46,7 +46,7 @@ describe("JobDetail — same-address invoices when progress is folded", () => {
     }),
   ];
 
-  it("starts folded on job info; shows same-address invoices below; expands on card tap", async () => {
+  it("starts folded on job info; no auto open-invoice list; transaction history on by default", async () => {
     mockServer({ jobs: jobs() });
     const user = userEvent.setup();
     renderApp("#/job/K-1?from=c%3Ameir%20kabakov");
@@ -54,25 +54,18 @@ describe("JobDetail — same-address invoices when progress is folded", () => {
     const pane = await screen.findByTestId("detail-pane");
     const card = within(pane).getByTestId("job-info-card");
 
-    // collapsed by default — job info card only, same-address invoices listed
+    // collapsed by default — job info card only; open invoices at address stay collapsed
     expect(within(card).getByText("Service address")).toBeInTheDocument();
     expect(screen.getByTestId("jobs-at-address-count")).toHaveTextContent(/4 jobs at this address/i);
-    const siblings = await screen.findByTestId("customer-sibling-jobs");
-    expect(within(siblings).getByText("EV charger")).toBeInTheDocument();
-    expect(within(siblings).getByText("Service call")).toBeInTheDocument();
-    expect(within(siblings).queryByText("Panel swap")).not.toBeInTheDocument();
-    // estimates and other-address invoices stay out
-    expect(within(siblings).queryByText("Quoted only")).not.toBeInTheDocument();
-    expect(within(siblings).queryByText("Other site")).not.toBeInTheDocument();
-
-    // expand progress → same-address list hides
-    await user.click(card);
     expect(screen.queryByTestId("customer-sibling-jobs")).not.toBeInTheDocument();
-    expect(within(card).getByText("Service address")).toBeInTheDocument();
 
-    // fold again → list returns
+    // Levi 2026-07-28: customer transaction history is on by default
+    const ledger = await screen.findByTestId("customer-txn-history");
+    expect(ledger).toBeInTheDocument();
+
+    // expand progress still works from the job card
     await user.click(card);
-    expect(await screen.findByTestId("customer-sibling-jobs")).toBeInTheDocument();
+    expect(within(card).getByText("Service address")).toBeInTheDocument();
   });
 
   it("fold=0 opens fully expanded with no sibling list", async () => {
@@ -82,7 +75,7 @@ describe("JobDetail — same-address invoices when progress is folded", () => {
     expect(screen.queryByTestId("customer-sibling-jobs")).not.toBeInTheDocument();
   });
 
-  it("job customer card has Transaction history toggle to reach estimates", async () => {
+  it("job customer card Transaction history toggle can hide ledger; estimates stay in ledger", async () => {
     mockServer({ jobs: jobs() });
     const user = userEvent.setup();
     renderApp("#/job/K-1?from=c%3Ameir%20kabakov");
@@ -90,15 +83,16 @@ describe("JobDetail — same-address invoices when progress is folded", () => {
     const pane = await screen.findByTestId("detail-pane");
     const card = within(pane).getByTestId("customer-card");
     expect(within(card).getByTestId("customer-short-txns-row")).toBeInTheDocument();
-    expect(screen.queryByTestId("customer-txn-history")).not.toBeInTheDocument();
 
-    await user.click(within(card).getByRole("switch", { name: /Transaction/i }));
-
+    // Default on
     const ledger = await screen.findByTestId("customer-txn-history");
     expect(within(ledger).getByTestId("cust-txn-filter-estimates")).toBeInTheDocument();
     await user.click(within(ledger).getByTestId("cust-txn-filter-estimates"));
-    // Estimate E-9 appears in the customer transaction ledger (not in sibling invoices)
     expect(within(ledger).getByText(/E-9|Quoted only/i)).toBeInTheDocument();
+
+    // Toggle off
+    await user.click(within(card).getByRole("switch", { name: /Transaction/i }));
+    expect(screen.queryByTestId("customer-txn-history")).not.toBeInTheDocument();
   });
 
   it("tap customer card from job opened via customer returns to customer default", async () => {

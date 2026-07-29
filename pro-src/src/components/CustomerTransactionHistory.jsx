@@ -215,6 +215,16 @@ export default function CustomerTransactionHistory({ jobs, fromCust = "", onOpen
     if (filter === "invoices" && invoiceScope === "open") {
       list = list.filter((r) => txnRowDisplay(r).isOpen);
     }
+    // Levi 2026-07-28: when browsing invoices, open (still due) first, then closed.
+    if (filter === "invoices" && invoiceScope === "all") {
+      list = list.slice().sort((a, b) => {
+        const ao = txnRowDisplay(a).isOpen ? 0 : 1;
+        const bo = txnRowDisplay(b).isOpen ? 0 : 1;
+        if (ao !== bo) return ao - bo;
+        // Keep date order within open/closed groups (allRows is already date-sorted).
+        return 0;
+      });
+    }
     return list;
   }, [allRows, filter, invoiceScope]);
 

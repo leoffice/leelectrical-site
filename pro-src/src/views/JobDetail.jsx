@@ -53,13 +53,11 @@ import {
   amountPaid,
   clientKey,
   customerContact,
-  isInvoiceJob,
   jobsForCustomerKey,
   openBalance,
   paidPct,
 } from "../lib/customers.js";
 import { touchCustomer } from "../lib/customerRecency.js";
-import { GroupJobRow } from "../components/JobCard.jsx";
 import { movePayment, normalizePayments } from "../lib/payments.js";
 import Toggle from "../components/Toggle.jsx";
 import Jobs from "./Jobs.jsx";
@@ -144,11 +142,6 @@ export default function JobDetail() {
     if (!job) return [];
     return sortJobs(carouselVisibleJobs(jobs, job));
   }, [job, jobs]);
-  // When progress is folded: other invoices at this service address (not estimates, not swipe).
-  const siblingJobs = useMemo(() => {
-    if (!job) return [];
-    return addressJobs.filter((j) => j.id !== job.id && isInvoiceJob(j));
-  }, [addressJobs, job?.id]);
 
   const addJobAtAddress = () => {
     if (!job) return;
@@ -201,8 +194,9 @@ export default function JobDetail() {
   const [sheet, setSheet] = useState(null); // {kind, ...}
   const [showChangeOrders, setShowChangeOrders] = useState(false);
   const [detailSectionsExpanded, setDetailSectionsExpanded] = useState(!foldOnOpen);
-  // Opening from transaction history: keep customer list collapsed so job card is the focus.
-  const [shortTxns, setShortTxns] = useState(false);
+  // Levi 2026-07-28: default = transaction history only. Service-address / open-invoice
+  // lists stay collapsed until the user opens Invoices or Addresses (customer tabs).
+  const [shortTxns, setShortTxns] = useState(true);
   const [jobTxns, setJobTxns] = useState(false);
   // Desktop customer list is heavy (~thousands of jobs) — mount after first paint.
   // Tests need the pane immediately so sidebar assertions don't race idle.
@@ -225,8 +219,8 @@ export default function JobDetail() {
     setDetailSectionsExpanded(foldParam === "0");
     setShowChangeOrders(false);
     setJobTxns(false);
-    // Always collapse customer-wide history when switching jobs (focus job card).
-    setShortTxns(false);
+    // Levi 2026-07-28: keep customer transaction history on by default (not address/invoice lists).
+    setShortTxns(true);
   }, [id, foldParam]);
 
   useEffect(() => {
@@ -597,26 +591,9 @@ export default function JobDetail() {
         ) : null}
       </div>
 
-      {!detailSectionsExpanded && siblingJobs.length > 0 ? (
-        <div className="space-y-2" data-testid="customer-sibling-jobs">
-          <h2 className="text-[11px] font-extrabold text-slate-500 uppercase tracking-wider px-1">
-            Other invoices at this address ({siblingJobs.length})
-          </h2>
-          <div className="space-y-1.5">
-            {siblingJobs.map((j) => {
-              const parts = ["fold=1"];
-              if (fromCust) parts.push("from=" + encodeURIComponent(fromCust));
-              return (
-                <GroupJobRow
-                  key={j.id}
-                  job={j}
-                  to={"/job/" + encodeURIComponent(j.id) + "?" + parts.join("&")}
-                />
-              );
-            })}
-          </div>
-        </div>
-      ) : null}
+      {/* Levi 2026-07-28: do NOT auto-expand open invoices at this address.
+          Open invoices / service addresses live under customer Invoices & Addresses tabs.
+          Default view is job card + transaction history only. */}
 
       {detailSectionsExpanded ? (
       <>

@@ -58,4 +58,15 @@ describe("CustomerTransactionHistory — Invoices Open / All", () => {
     expect(screen.getByTestId("cust-txn-inv-9001")).toBeInTheDocument();
     expect(screen.getByTestId("cust-txn-inv-9002")).toBeInTheDocument();
   });
+
+  it("Invoices All lists open invoices before closed", async () => {
+    const user = userEvent.setup();
+    wrap(<CustomerTransactionHistory jobs={jobs} fromCust="c:acme" />);
+    await user.click(screen.getByTestId("cust-txn-filter-invoices"));
+    // Default All — open (9001) before paid/closed (9002)
+    const list = screen.getByTestId("customer-txn-list");
+    const rows = list.querySelectorAll("[data-testid^='cust-txn-inv-']");
+    expect(rows[0]).toHaveAttribute("data-testid", "cust-txn-inv-9001");
+    expect(rows[1]).toHaveAttribute("data-testid", "cust-txn-inv-9002");
+  });
 });
