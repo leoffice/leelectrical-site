@@ -45,6 +45,12 @@ import {
   uploadChatAttachment,
 } from "../lib/chatAttach.js";
 import { setSpeechToTextEnabled, useAppSettings } from "../lib/appSettings.js";
+import {
+  buildAdminWelcomeMessage,
+  ensureFirstOpenStamp,
+  markAdminWelcomeSent,
+  shouldDeliverAdminWelcome,
+} from "../lib/adminWelcome.js";
 const ONLINE_MS = 4 * 60_000; // israel-heartbeat (or last reply) younger than this = online
 const STUCK_MS = 90_000; // a "Working on it" we've watched longer than this stops looking like a live spinner
 const NEAR_BOTTOM_PX = 48; // within this distance of the bottom we auto-scroll on new messages
@@ -111,9 +117,15 @@ function notifyReply(m) {
   } catch {}
 }
 
-/** Bubble messages are who:"you"; Israel replies who:"israel" (legacy: claude/dispatch). */
+/** Bubble messages are who:"you"; Israel replies who:"israel" (legacy: claude/dispatch).
+ *  who:"admin" = delayed welcome from Levi (developer). */
 const isAgentMsg = (m) =>
-  m.who === "israel" || m.who === "dispatch" || m.who === "claude";
+  m.who === "israel" || m.who === "dispatch" || m.who === "claude" || m.who === "admin";
+
+function agentLabel(m) {
+  if (m && m.who === "admin") return "Levi · Developer";
+  return "Israel";
+}
 
 
 /** Unread badge for chat triggers in the nav bar or desktop FAB. */
@@ -210,14 +222,33 @@ export default function ChatBubble() {
   // Optimistically-rendered messages the server hasn't echoed back yet —
   // poll() keeps them visible instead of blinking them away.
   const localMsgs = useRef([]);
+  // Device-local admin welcome (not shared server convo — multi-device safe).
+  const adminWelcomeRef = useRef(null);
+
+  // Stamp first open so the ~20 min welcome clock starts.
+  useEffect(() => {
+    ensureFirstOpenStamp();
+  }, []);
 
   const poll = useCallback(async () => {
     try {
       const ms = await api.chatList(convo.current);
       localMsgs.current = localMsgs.current.filter((lm) => !ms.some((m) => m.id === lm.id));
+
+      // ~20 min after first open: one-time welcome from Levi (admin/developer).
+      if (!adminWelcomeRef.current && shouldDeliverAdminWelcome()) {
+        adminWelcomeRef.current = buildAdminWelcomeMessage();
+        markAdminWelcomeSent();
+      }
+      const welcomeExtra =
+        adminWelcomeRef.current && !ms.some((m) => m.id === adminWelcomeRef.current.id)
+          ? [adminWelcomeRef.current]
+          : [];
+
       // Unread + notifications track DISPATCH replies only (own sends don't
       // count), and the very first poll just baselines old history.
-      const dispatch = ms.filter(isAgentMsg);
+      // Admin welcome is included so new users see the badge once.
+      const dispatch = ms.filter(isAgentMsg).concat(welcomeExtra.filter(isAgentMsg));
       // NB: capture the delta NOW — the setUnread updater runs after the ref
       // is overwritten below (the old code read the ref inside the updater,
       // which made the delta 0 and the badge never increment).
@@ -228,8 +259,8 @@ export default function ChatBubble() {
           notifyReply(dispatch[dispatch.length - 1]);
       }
       lastDispatchN.current = dispatch.length;
-      lastN.current = ms.length;
-      setMsgs(ms.concat(localMsgs.current));
+      lastN.current = ms.length + welcomeExtra.length;
+      setMsgs(ms.concat(welcomeExtra).concat(localMsgs.current));
     } catch {}
   }, [api]);
 
@@ -1029,7 +1060,7 @@ export default function ChatBubble() {
                       />
                     ) : null}
                     <span className="chat-msg-meta block text-[10px] mt-0.5 text-right" data-testid="msg-meta">
-                      {isAgentMsg(m) ? "Israel" : statusLabel(m.status)}
+                      {isAgentMsg(m) ? agentLabel(m) : statusLabel(m.status)}
                     </span>
                   </div>
                 );

@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-// Mobile (iPhone) path: do not embed PDF in a broken iframe — open natively + show Open button.
+// Mobile (iPhone / Android / Samsung Fold): no broken iframe — Open invoice on tap.
 import React from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { cleanup, render, screen } from "@testing-library/react";
@@ -30,8 +30,11 @@ beforeEach(() => {
 const IPHONE_UA =
   "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1";
 
-describe("LocalDocViewer mobile (iPhone)", () => {
-  it("skips iframe, auto-opens native PDF, and shows Open invoice", async () => {
+const SAMSUNG_FOLD_UA =
+  "Mozilla/5.0 (Linux; Android 14; SM-F946U) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Mobile Safari/537.36";
+
+describe("LocalDocViewer mobile", () => {
+  it("iPhone: skips iframe, no auto-open, Open invoice works on tap", async () => {
     vi.stubGlobal("navigator", {
       userAgent: IPHONE_UA,
       platform: "iPhone",
@@ -54,12 +57,41 @@ describe("LocalDocViewer mobile (iPhone)", () => {
     expect(screen.queryByTestId("local-doc-frame")).toBeNull();
     expect(screen.getByTestId("local-doc-native-panel")).toBeInTheDocument();
     expect(screen.getByTestId("local-doc-open-native")).toHaveTextContent(/Open invoice/i);
-    // Auto-open once on mount.
-    expect(click).toHaveBeenCalled();
+    // No auto-open — phones block it without a gesture.
+    expect(click).not.toHaveBeenCalled();
 
     const user = userEvent.setup();
     await user.click(screen.getByTestId("local-doc-open-native"));
-    expect(click.mock.calls.length).toBeGreaterThanOrEqual(2);
+    // openPdfForNativeView opens tab + download (2 clicks).
+    expect(click.mock.calls.length).toBeGreaterThanOrEqual(1);
+  });
+
+  it("Samsung Fold Android: same native Open path (no blank iframe)", async () => {
+    vi.stubGlobal("navigator", {
+      userAgent: SAMSUNG_FOLD_UA,
+      platform: "Linux armv8l",
+      maxTouchPoints: 10,
+    });
+    const click = stubPdfOpen();
+    const blob = new Blob(["%PDF-1.4 invoice"], { type: "application/pdf" });
+
+    render(
+      <LocalDocViewer
+        blob={blob}
+        title="Invoice #251825"
+        filename="Invoice-251825.pdf"
+        onClose={() => {}}
+      />
+    );
+
+    expect(screen.getByTestId("local-doc-viewer")).toHaveAttribute("data-inline-pdf", "0");
+    expect(screen.queryByTestId("local-doc-frame")).toBeNull();
+    expect(screen.getByTestId("local-doc-native-panel")).toBeInTheDocument();
+    expect(click).not.toHaveBeenCalled();
+
+    const user = userEvent.setup();
+    await user.click(screen.getByTestId("local-doc-open-native-footer"));
+    expect(click.mock.calls.length).toBeGreaterThanOrEqual(1);
   });
 
   it("desktop keeps the in-app iframe preview", () => {

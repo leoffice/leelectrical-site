@@ -64,13 +64,24 @@ describe("pdfOpen", () => {
     expect(pdfInlinePreviewSupported()).toBe(true);
   });
 
-  it("openPdfForNativeView downloads a named PDF blob (mobile-safe path)", () => {
+  it("pdfInlinePreviewSupported is false on Samsung Fold Android", () => {
+    vi.stubGlobal("navigator", {
+      userAgent:
+        "Mozilla/5.0 (Linux; Android 14; SM-F946U) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Mobile Safari/537.36",
+      platform: "Linux armv8l",
+      maxTouchPoints: 10,
+    });
+    expect(pdfInlinePreviewSupported()).toBe(false);
+  });
+
+  it("openPdfForNativeView opens tab + named download (iPhone/Android-safe)", () => {
     URL.createObjectURL = vi.fn(() => "blob:native-pdf");
     URL.revokeObjectURL = vi.fn();
     const click = stubPdfOpen();
     const blob = new Blob(["%PDF-1.4"], { type: "application/pdf" });
     expect(openPdfForNativeView({ blob, filename: "Invoice-251825.pdf" })).toBe("download");
-    expect(click).toHaveBeenCalledTimes(1);
+    // tab open + download anchor
+    expect(click.mock.calls.length).toBeGreaterThanOrEqual(2);
   });
 
   it("sharePdfBlob uses navigator.share with a File when canShare allows files", async () => {

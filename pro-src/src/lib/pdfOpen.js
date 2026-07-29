@@ -10,7 +10,8 @@ export function docStorePdfUrl(key) {
 
 /**
  * True when embedding a PDF (blob or remote) in an iframe will not show pages.
- * iPhone/iPad and many Android WebViews show a blank/UUID placeholder instead.
+ * iPhone/iPad, Android (incl. Samsung Fold), and most mobile WebViews show a
+ * blank/UUID placeholder instead of the real invoice.
  */
 export function pdfInlinePreviewSupported() {
   if (typeof navigator === "undefined") return true;
@@ -19,8 +20,16 @@ export function pdfInlinePreviewSupported() {
     /iphone|ipad|ipod/i.test(ua) ||
     (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
   if (ios) return false;
+  // Android phones/tablets/Fold — Chrome + Samsung Internet iframe PDF is blank.
   if (/android/i.test(ua)) return false;
+  // Other mobile UAs (rare) — treat like phone.
+  if (/mobile/i.test(ua) && !/ipad|tablet/i.test(ua)) return false;
   return true;
+}
+
+/** True on phone/tablet hosts where we prefer native open over iframe. */
+export function isMobilePdfHost() {
+  return !pdfInlinePreviewSupported();
 }
 
 /** Force application/pdf so iOS Quick Look / share treat the file as a real invoice. */
@@ -89,14 +98,28 @@ export function downloadPdfBlob(blob, filename = "document.pdf") {
 
 /**
  * Best-effort “show me the PDF” on the current device.
- * Mobile: download with a real filename (opens native PDF viewer on iOS/Android).
- * Desktop / when only a remote URL is available: open in a new tab.
+ * Mobile (iPhone + Android/Samsung Fold): open a blob tab first (user gesture),
+ * then also fire a named download so the OS PDF reader / Files app can open it.
+ * Desktop / remote URL only: open in a new tab.
+ *
+ * Note: auto-calls without a user gesture are often blocked on Fold/Chrome —
+ * call this from a button tap when possible.
  */
 export function openPdfForNativeView({ blob, url, filename = "document.pdf" } = {}) {
   const pdf = ensurePdfBlob(blob);
   if (pdf) {
-    // Filename download is the path that actually shows pages on phone Safari/Chrome.
-    downloadPdfBlob(pdf, filename);
+    // 1) Open blob URL in a new tab — Samsung/Android Chrome often renders PDF pages here.
+    try {
+      openPdfBlob(pdf);
+    } catch {
+      /* continue to download */
+    }
+    // 2) Named download — iOS Quick Look + Android Downloads/Files open path.
+    try {
+      downloadPdfBlob(pdf, filename);
+    } catch {
+      /* ignore */
+    }
     return "download";
   }
   if (url) {
