@@ -79,6 +79,10 @@ body {
   border-color: #e2e8f0;
   color: #0f172a;
 }
+.chat-panel-expanded {
+  /* Full-feel window: taller log, roomier on phone + desktop */
+  min-height: min(72vh, 640px);
+}
 .chat-msg-you {
   background-color: #0c4a6e; /* deep navy — not purple */
   color: #ffffff;

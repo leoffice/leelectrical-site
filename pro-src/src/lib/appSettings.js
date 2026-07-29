@@ -1,4 +1,5 @@
 // App preferences — speech-to-text + company logo + QuickBooks feature (local device).
+// Also: chat panel size + assistant speak-aloud voice (bubble UI).
 import { useEffect, useState } from "react";
 
 export const SPEECH_TO_TEXT_KEY = "lepro_speech_to_text";
@@ -6,7 +7,22 @@ export const COMPANY_LOGO_KEY = "lepro_company_logo";
 export const QUICKBOOKS_FEATURE_KEY = "lepro_feature_quickbooks";
 /** Send/view through QB UI — separate from backend sync integration. */
 export const QUICKBOOKS_DOCS_FEATURE_KEY = "lepro_feature_quickbooks_docs";
+/** Chat panel size: "normal" | "expanded". X still minimizes (closes) the panel. */
+export const CHAT_PANEL_SIZE_KEY = "lepro_chat_panel_size";
+/** Read Israel replies aloud (browser speech). Default off. */
+export const ASSISTANT_SPEAK_KEY = "lepro_assistant_speak";
+/** Preferred speech voice id (browser speechSynthesis voiceURI or name). */
+export const ASSISTANT_VOICE_KEY = "lepro_assistant_voice";
 export const SETTINGS_EVENT = "lepro-settings";
+
+/** Friendly voice presets shown in Settings (mapped to browser voices when available). */
+export const ASSISTANT_VOICE_PRESETS = [
+  { id: "auto", label: "Auto (device default)" },
+  { id: "clear-male", label: "Clear male" },
+  { id: "clear-female", label: "Clear female" },
+  { id: "warm", label: "Warm" },
+  { id: "crisp", label: "Crisp" },
+];
 
 const DEFAULT_LOGO = () =>
   typeof import.meta !== "undefined" && import.meta.env?.BASE_URL
@@ -53,6 +69,81 @@ export function setSpeechToTextEnabled(on) {
   if (!ls) return;
   try {
     ls.setItem(SPEECH_TO_TEXT_KEY, on ? "1" : "0");
+  } catch {
+    /* ignore */
+  }
+  notify();
+}
+
+/** Chat bubble panel size. Default normal (compact floating window). */
+export function getChatPanelSize() {
+  const ls = storage();
+  if (!ls) return "normal";
+  try {
+    const v = ls.getItem(CHAT_PANEL_SIZE_KEY);
+    if (v === "expanded" || v === "normal") return v;
+    return "normal";
+  } catch {
+    return "normal";
+  }
+}
+
+export function setChatPanelSize(size) {
+  const next = size === "expanded" ? "expanded" : "normal";
+  const ls = storage();
+  if (ls) {
+    try {
+      ls.setItem(CHAT_PANEL_SIZE_KEY, next);
+    } catch {
+      /* ignore */
+    }
+  }
+  notify();
+}
+
+/** Speak Israel replies aloud. Default OFF. */
+export function isAssistantSpeakEnabled() {
+  const ls = storage();
+  if (!ls) return false;
+  try {
+    const v = ls.getItem(ASSISTANT_SPEAK_KEY);
+    return v === "1" || v === "true";
+  } catch {
+    return false;
+  }
+}
+
+export function setAssistantSpeakEnabled(on) {
+  const ls = storage();
+  if (!ls) return;
+  try {
+    ls.setItem(ASSISTANT_SPEAK_KEY, on ? "1" : "0");
+  } catch {
+    /* ignore */
+  }
+  notify();
+}
+
+/** Preferred assistant voice preset id (see ASSISTANT_VOICE_PRESETS). */
+export function getAssistantVoiceId() {
+  const ls = storage();
+  if (!ls) return "auto";
+  try {
+    const v = ls.getItem(ASSISTANT_VOICE_KEY);
+    if (!v) return "auto";
+    if (ASSISTANT_VOICE_PRESETS.some((p) => p.id === v)) return v;
+    return v; // allow raw voiceURI from advanced pickers
+  } catch {
+    return "auto";
+  }
+}
+
+export function setAssistantVoiceId(id) {
+  const next = String(id || "auto");
+  const ls = storage();
+  if (!ls) return;
+  try {
+    ls.setItem(ASSISTANT_VOICE_KEY, next);
   } catch {
     /* ignore */
   }
@@ -220,6 +311,9 @@ export function readAppSettings() {
     speechToText: isSpeechToTextEnabled(),
     quickbooks: isQuickbooksFeatureEnabled(),
     quickbooksDocs: isQuickbooksDocsFeatureEnabled(),
+    chatPanelSize: getChatPanelSize(),
+    assistantSpeak: isAssistantSpeakEnabled(),
+    assistantVoice: getAssistantVoiceId(),
     logoSrc: getCompanyLogoSrc(),
     logoCustom: !!getCompanyLogoDataUrl(),
   };

@@ -6,6 +6,7 @@ Live path: `/app/pro/assistant/`
 | File | What |
 |------|------|
 | COMPANY.md | Who we are, area, tone |
+| SCOPE.md | White-label isolation, change requests, cosmetic vs major |
 | NAVIGATION.md | Tabs and main screens |
 | CALENDAR.md | How to book appointments |
 | JOBS.md | Jobs, stages, job detail rules |

@@ -44,7 +44,12 @@ import {
   readTextExcerpt,
   uploadChatAttachment,
 } from "../lib/chatAttach.js";
-import { setSpeechToTextEnabled, useAppSettings } from "../lib/appSettings.js";
+import {
+  setChatPanelSize,
+  setSpeechToTextEnabled,
+  useAppSettings,
+} from "../lib/appSettings.js";
+import { speakAssistantText, stopAssistantSpeech } from "../lib/assistantSpeak.js";
 import {
   buildAdminWelcomeMessage,
   ensureFirstOpenStamp,
@@ -160,7 +165,7 @@ export default function ChatBubble() {
     chatUnread,
     setChatUnread,
   } = useStoreData();
-  const { speechToText } = useAppSettings();
+  const { speechToText, chatPanelSize, assistantSpeak, assistantVoice } = useAppSettings();
   const product = productName(useTenantConfig());
   const loc = useLocation();
   const [msgs, setMsgs] = useState([]);
@@ -177,6 +182,7 @@ export default function ChatBubble() {
   const [emojiOpen, setEmojiOpen] = useState(false);
   const imageInputRef = useRef(null);
   const convo = useRef(LE_PRO_CONVO);
+  const lastSpokenId = useRef(null);
   // Mirror of the controlled draft so send can clear the box in the same tick
   // without waiting for React to flush — same feel as a normal chat app.
   const textRef = useRef("");
@@ -717,6 +723,26 @@ export default function ChatBubble() {
     poll();
   }, [chatOpen, poll]);
 
+  // Speak new Israel replies when Settings → Speak replies is on.
+  useEffect(() => {
+    if (!assistantSpeak) return;
+    const agents = msgs.filter(isAgentMsg);
+    if (!agents.length) return;
+    const latest = agents[agents.length - 1];
+    if (!latest?.id || latest.id === lastSpokenId.current) return;
+    // First paint of history: baseline without speaking old threads.
+    if (lastSpokenId.current === null) {
+      lastSpokenId.current = latest.id;
+      return;
+    }
+    lastSpokenId.current = latest.id;
+    speakAssistantText(latest.text, { voiceId: assistantVoice });
+  }, [msgs, assistantSpeak, assistantVoice]);
+
+  useEffect(() => {
+    if (!chatOpen) stopAssistantSpeech();
+  }, [chatOpen]);
+
   // Pending payment photo + typed context opens the confirm sheet without tapping send.
   useEffect(() => {
     if (!pendingPaymentImage || !shouldAutoOpenPaymentDraft(text)) return;
@@ -976,11 +1002,17 @@ export default function ChatBubble() {
 
   if (!chatOpen) return null;
 
+  const expanded = chatPanelSize === "expanded";
+  const panelSizeClass = expanded
+    ? "chat-panel chat-panel-expanded fixed z-50 inset-2 bottom-[4.5rem] lg:inset-4 lg:bottom-6 lg:left-auto lg:right-4 lg:w-[min(720px,calc(100vw-2rem))] max-w-none ml-auto rounded-2xl shadow-2xl border flex flex-col max-h-[calc(100vh-5.5rem)] lg:max-h-[calc(100vh-3rem)] overflow-hidden"
+    : "chat-panel fixed z-50 inset-x-2.5 bottom-[4.75rem] lg:inset-x-auto lg:right-6 lg:bottom-20 lg:w-[400px] max-w-[420px] ml-auto rounded-2xl shadow-2xl border flex flex-col max-h-[64vh] overflow-hidden";
+
   return (
     <>
         <div
-          className="chat-panel fixed z-50 inset-x-2.5 bottom-[4.75rem] lg:inset-x-auto lg:right-6 lg:bottom-20 lg:w-[400px] max-w-[420px] ml-auto rounded-2xl shadow-2xl border flex flex-col max-h-[64vh] overflow-hidden"
+          className={panelSizeClass}
           data-testid="chat-panel"
+          data-size={expanded ? "expanded" : "normal"}
         >
           <div className="flex items-center gap-2 px-4 py-2.5 bg-brand text-white">
             <div className="flex-1 min-w-0">
@@ -1015,7 +1047,34 @@ export default function ChatBubble() {
             >
               🎤 {speechToText ? "On" : "Off"}
             </button>
-            <button onClick={() => setChatOpen(false)} className="text-white" aria-label="Close chat">✕</button>
+            <button
+              type="button"
+              onClick={() => {
+                const next = expanded ? "normal" : "expanded";
+                setChatPanelSize(next);
+                showToast(next === "expanded" ? "Chat expanded" : "Chat smaller");
+              }}
+              className="text-white w-8 h-8 rounded-full flex items-center justify-center shrink-0 border border-white/25 bg-white/10"
+              aria-label={expanded ? "Make chat smaller" : "Expand chat"}
+              aria-pressed={expanded}
+              data-testid="chat-size-toggle"
+              title={expanded ? "Smaller" : "Bigger"}
+            >
+              {expanded ? "⤡" : "⤢"}
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                stopAssistantSpeech();
+                setChatOpen(false);
+              }}
+              className="text-white w-8 h-8 rounded-full flex items-center justify-center shrink-0"
+              aria-label="Minimize chat"
+              data-testid="chat-minimize"
+              title="Minimize"
+            >
+              ✕
+            </button>
           </div>
           <div
             ref={logRef}
@@ -1066,8 +1125,9 @@ export default function ChatBubble() {
                 );
               })
             ) : (
-              <div className="chat-empty text-sm text-center py-5">
-                Say hi — I'm listening. Messages include page context automatically.
+              <div className="chat-empty text-sm text-center py-5 px-2">
+                Ask about customers, jobs, invoices, payments, or reports. Photos and voice welcome.
+                Expand for a bigger window; ✕ minimizes.
               </div>
             )}
             {working && (
@@ -1084,7 +1144,7 @@ export default function ChatBubble() {
           </div>
           {!msgs.some(isAgentMsg) && (
             <div className="chat-empty px-3 pb-1 text-[11px] text-center" data-testid="chat-hint">
-              Israel shares the same brain as @LE_Israel_bot — smart tasks welcome
+              Same brain as Telegram Israel · helps in-app (invoices, payments, lookups) · change requests OK · no silent app code changes
             </div>
           )}
           {ctx && (
