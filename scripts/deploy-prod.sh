@@ -80,7 +80,9 @@ cleanup() { rm -rf "$STAGE"; }
 trap cleanup EXIT
 rsync -a --exclude '/.git/' --exclude '/.wrangler/' --exclude '/.netlify/' \
          --exclude '/pro-src/' --exclude '*.zip' --exclude '.DS_Store' \
-         --exclude '/node_modules/' "$REPO/" "$STAGE/"
+         --exclude '/node_modules/' --exclude '/.claude/' --exclude '/.grok/' \
+         --exclude '/handoff/' --exclude 'node_modules' \
+         "$REPO/" "$STAGE/"
 rsync -aL "$REPO/functions/.netlify/" "$STAGE/functions/.netlify/"
 rsync -aL "$REPO/node_modules/"       "$STAGE/node_modules/"
 
