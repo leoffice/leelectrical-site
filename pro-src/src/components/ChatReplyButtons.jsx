@@ -14,7 +14,7 @@ export default function ChatReplyButtons({ buttons, onPick, testIdPrefix = "chat
         <button
           key={b.id || i}
           type="button"
-          className="min-w-0 min-h-[2.75rem] h-full px-1.5 py-1.5 rounded-lg text-[10px] font-semibold leading-snug text-center bg-brand text-white break-words [overflow-wrap:anywhere] flex items-center justify-center"
+          className="chat-msg-you min-w-0 min-h-[2.75rem] h-full px-1.5 py-1.5 rounded-lg text-[10px] font-semibold leading-snug text-center break-words [overflow-wrap:anywhere] flex items-center justify-center"
           onClick={() => onPick(b, i)}
           data-testid={`${testIdPrefix}-${i}`}
         >

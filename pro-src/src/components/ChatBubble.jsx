@@ -948,7 +948,7 @@ export default function ChatBubble() {
   return (
     <>
         <div
-          className="fixed z-50 inset-x-2.5 bottom-[4.75rem] lg:inset-x-auto lg:right-6 lg:bottom-20 lg:w-[400px] max-w-[420px] ml-auto bg-white rounded-2xl shadow-2xl border border-slate-200 flex flex-col max-h-[64vh] overflow-hidden"
+          className="chat-panel fixed z-50 inset-x-2.5 bottom-[4.75rem] lg:inset-x-auto lg:right-6 lg:bottom-20 lg:w-[400px] max-w-[420px] ml-auto rounded-2xl shadow-2xl border flex flex-col max-h-[64vh] overflow-hidden"
           data-testid="chat-panel"
         >
           <div className="flex items-center gap-2 px-4 py-2.5 bg-brand text-white">
@@ -1000,8 +1000,8 @@ export default function ChatBubble() {
                     key={m.id || i}
                     className={`max-w-[82%] min-w-0 rounded-2xl px-3 py-2 text-sm mb-2 ${
                       isAgentMsg(m)
-                        ? "bg-slate-100 rounded-bl-md"
-                        : "bg-brand text-white ml-auto rounded-br-md"
+                        ? "chat-msg-agent rounded-bl-md"
+                        : "chat-msg-you ml-auto rounded-br-md"
                     }`}
                   >
                     {m.imageUrl ? (
@@ -1028,20 +1028,20 @@ export default function ChatBubble() {
                         showLetters={!!parsed.buttons[0]?.letter}
                       />
                     ) : null}
-                    <span className="block text-[10px] opacity-70 mt-0.5 text-right" data-testid="msg-meta">
+                    <span className="chat-msg-meta block text-[10px] mt-0.5 text-right" data-testid="msg-meta">
                       {isAgentMsg(m) ? "Israel" : statusLabel(m.status)}
                     </span>
                   </div>
                 );
               })
             ) : (
-              <div className="text-sm text-slate-400 text-center py-5">
+              <div className="chat-empty text-sm text-center py-5">
                 Say hi — I'm listening. Messages include page context automatically.
               </div>
             )}
             {working && (
               <div
-                className="max-w-[82%] rounded-2xl rounded-bl-md bg-slate-100 px-3 py-2 text-sm text-slate-500 mb-2 flex items-center gap-1.5"
+                className="chat-typing max-w-[82%] rounded-2xl rounded-bl-md px-3 py-2 text-sm mb-2 flex items-center gap-1.5"
                 data-testid="typing-line"
               >
                 <span className={`w-1.5 h-1.5 rounded-full bg-slate-400 ${workingStale ? "" : "animate-pulse"}`} />
@@ -1052,7 +1052,7 @@ export default function ChatBubble() {
             )}
           </div>
           {!msgs.some(isAgentMsg) && (
-            <div className="px-3 pb-1 text-[11px] text-slate-400 text-center" data-testid="chat-hint">
+            <div className="chat-empty px-3 pb-1 text-[11px] text-center" data-testid="chat-hint">
               Israel shares the same brain as @LE_Israel_bot — smart tasks welcome
             </div>
           )}
@@ -1074,7 +1074,7 @@ export default function ChatBubble() {
           <div className="flex gap-1.5 px-3 pb-1 overflow-x-auto" data-testid="chat-actions">
             <button
               type="button"
-              className="shrink-0 text-[11px] font-semibold px-2.5 py-1 rounded-full bg-slate-100 text-slate-700"
+              className="chat-chip shrink-0 text-[11px] font-semibold px-2.5 py-1 rounded-full"
               onClick={() => submitDevTask(text)}
               data-testid="chat-action-task"
             >
@@ -1083,7 +1083,7 @@ export default function ChatBubble() {
             {activeJob && (
               <button
                 type="button"
-                className="shrink-0 text-[11px] font-semibold px-2.5 py-1 rounded-full bg-slate-100 text-slate-700"
+                className="chat-chip shrink-0 text-[11px] font-semibold px-2.5 py-1 rounded-full"
                 onClick={() => setJobSheet(true)}
                 data-testid="chat-action-job"
               >
@@ -1093,7 +1093,7 @@ export default function ChatBubble() {
             {(apptCtx || activeJob) && (
               <button
                 type="button"
-                className="shrink-0 text-[11px] font-semibold px-2.5 py-1 rounded-full bg-slate-100 text-slate-700"
+                className="chat-chip shrink-0 text-[11px] font-semibold px-2.5 py-1 rounded-full"
                 onClick={openAppointment}
                 data-testid="chat-action-appt"
               >
@@ -1102,14 +1102,14 @@ export default function ChatBubble() {
             )}
             <button
               type="button"
-              className="shrink-0 text-[11px] font-semibold px-2.5 py-1 rounded-full bg-slate-100 text-slate-700"
+              className="chat-chip shrink-0 text-[11px] font-semibold px-2.5 py-1 rounded-full"
               onClick={attachContact}
               data-testid="chat-action-contact"
             >
               Contact
             </button>
           </div>
-          <div className="px-3 pb-1 text-[10px] text-slate-400" data-testid="chat-slash-hint">
+          <div className="chat-slash-hint chat-empty px-3 pb-1 text-[10px]" data-testid="chat-slash-hint">
             {CHAT_SLASH_HINT}
           </div>
           <input
@@ -1120,10 +1120,10 @@ export default function ChatBubble() {
             data-testid="chat-file-input"
           />
           {/* Composer: one bubble — text on top, + (left) and send (right) on the bottom row. */}
-          <div className="p-3 border-t border-slate-200" data-testid="chat-composer">
+          <div className="chat-composer-wrap p-3 border-t" data-testid="chat-composer">
             {emojiOpen ? (
               <div
-                className="mb-2 rounded-2xl border border-slate-200 bg-slate-50 p-2 flex flex-wrap gap-1"
+                className="chat-emoji-picker mb-2 rounded-2xl border p-2 flex flex-wrap gap-1"
                 data-testid="chat-emoji-picker"
                 role="listbox"
                 aria-label="Emojis"
@@ -1132,7 +1132,7 @@ export default function ChatBubble() {
                   <button
                     key={em}
                     type="button"
-                    className="w-9 h-9 rounded-xl text-lg hover:bg-white active:scale-95"
+                    className="w-9 h-9 rounded-xl text-lg hover:opacity-80 active:scale-95"
                     onClick={() => insertEmoji(em)}
                     aria-label={`Insert ${em}`}
                   >
@@ -1143,14 +1143,14 @@ export default function ChatBubble() {
             ) : null}
             {plusOpen ? (
               <div
-                className="mb-2 rounded-2xl border border-slate-200 bg-white shadow-sm overflow-hidden"
+                className="chat-plus-menu mb-2 rounded-2xl border shadow-sm overflow-hidden"
                 data-testid="chat-plus-menu"
                 role="menu"
               >
                 <button
                   type="button"
                   role="menuitem"
-                  className="w-full flex items-center gap-2.5 px-3 py-2.5 text-sm font-semibold text-slate-800 hover:bg-slate-50 border-b border-slate-100"
+                  className="w-full flex items-center gap-2.5 px-3 py-2.5 text-sm font-semibold border-b border-slate-100/20"
                   onClick={() => {
                     setPlusOpen(false);
                     setEmojiOpen(true);
@@ -1163,7 +1163,7 @@ export default function ChatBubble() {
                 <button
                   type="button"
                   role="menuitem"
-                  className="w-full flex items-center gap-2.5 px-3 py-2.5 text-sm font-semibold text-slate-800 hover:bg-slate-50 border-b border-slate-100 disabled:opacity-50"
+                  className="w-full flex items-center gap-2.5 px-3 py-2.5 text-sm font-semibold border-b border-slate-100/20 disabled:opacity-50"
                   onClick={() => {
                     setPlusOpen(false);
                     imageInputRef.current?.click();
@@ -1185,7 +1185,7 @@ export default function ChatBubble() {
                   <button
                     type="button"
                     role="menuitem"
-                    className="w-full flex items-center gap-2.5 px-3 py-2.5 text-sm font-semibold text-slate-800 hover:bg-slate-50"
+                    className="w-full flex items-center gap-2.5 px-3 py-2.5 text-sm font-semibold"
                     onClick={() => {
                       setPlusOpen(false);
                       toggleMic();
@@ -1199,7 +1199,7 @@ export default function ChatBubble() {
                   <button
                     type="button"
                     role="menuitem"
-                    className="w-full flex items-center gap-2.5 px-3 py-2.5 text-sm font-semibold text-slate-500"
+                    className="w-full flex items-center gap-2.5 px-3 py-2.5 text-sm font-semibold opacity-70"
                     onClick={() => {
                       setPlusOpen(false);
                       showToast("Turn on speech to text in Company settings");
@@ -1213,12 +1213,12 @@ export default function ChatBubble() {
               </div>
             ) : null}
             <div
-              className="rounded-[22px] border border-slate-200 bg-slate-50 shadow-inner focus-within:border-brand/40 focus-within:ring-2 focus-within:ring-brand/15 transition-shadow"
+              className="chat-composer-bubble rounded-[22px] border shadow-inner focus-within:border-brand/40 focus-within:ring-2 focus-within:ring-brand/15 transition-shadow"
               data-testid="chat-composer-bubble"
             >
               <textarea
                 ref={inputRef}
-                className="w-full bg-transparent border-0 outline-none resize-none overflow-y-auto lg-scroll-hidden leading-snug px-3.5 pt-2.5 pb-1 min-h-[2.5rem] text-sm text-slate-900 placeholder:text-slate-400"
+                className="chat-composer-input w-full bg-transparent border-0 outline-none resize-none overflow-y-auto lg-scroll-hidden leading-snug px-3.5 pt-2.5 pb-1 min-h-[2.5rem] text-sm"
                 rows={1}
                 placeholder="Message Israel…"
                 value={text}
@@ -1242,7 +1242,7 @@ export default function ChatBubble() {
                   aria-label={plusOpen ? "Close attach menu" : "Open attach menu"}
                   aria-expanded={plusOpen}
                   className={`w-9 h-9 rounded-full shrink-0 text-lg font-bold leading-none flex items-center justify-center transition-colors ${
-                    plusOpen ? "bg-brand text-white" : "bg-white text-slate-700 border border-slate-200"
+                    plusOpen ? "chat-msg-you" : "chat-chip border"
                   }`}
                   data-testid="chat-plus"
                 >
@@ -1265,7 +1265,7 @@ export default function ChatBubble() {
                     type="button"
                     onClick={send}
                     aria-label="Send message"
-                    className="w-9 h-9 rounded-full bg-brand text-white shrink-0 text-base flex items-center justify-center disabled:opacity-40"
+                    className="chat-msg-you w-9 h-9 rounded-full shrink-0 text-base flex items-center justify-center disabled:opacity-40"
                     disabled={!text.trim()}
                     data-testid="chat-send"
                   >
