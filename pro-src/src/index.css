@@ -69,6 +69,113 @@ body {
   font-size: 0.75rem;
 }
 
+/* ── Israel chat bubble — high-contrast message colors ────────────────────
+ * Always pair bubble background + text explicitly (never inherit).
+ * Light mode: dark navy “you” + near-black on cool gray for Israel.
+ * Dark mode (system): light text on deep surfaces; never white-on-light-purple.
+ */
+.chat-panel {
+  background-color: #ffffff;
+  border-color: #e2e8f0;
+  color: #0f172a;
+}
+.chat-msg-you {
+  background-color: #0c4a6e; /* deep navy — not purple */
+  color: #ffffff;
+}
+.chat-msg-agent {
+  background-color: #e8eef5;
+  color: #0f172a;
+}
+.chat-msg-meta {
+  color: inherit;
+  opacity: 0.72;
+}
+.chat-typing {
+  background-color: #e8eef5;
+  color: #475569;
+}
+.chat-composer-wrap {
+  border-top-color: #e2e8f0;
+}
+.chat-composer-bubble {
+  background-color: #f8fafc;
+  border-color: #e2e8f0;
+  color: #0f172a;
+}
+.chat-composer-input {
+  color: #0f172a;
+}
+.chat-composer-input::placeholder {
+  color: #94a3b8;
+}
+.chat-chip {
+  background-color: #f1f5f9;
+  color: #334155;
+}
+.chat-empty {
+  color: #64748b;
+}
+
+@media (prefers-color-scheme: dark) {
+  .chat-panel {
+    background-color: #0f172a;
+    border-color: #334155;
+    color: #f1f5f9;
+  }
+  .chat-msg-you {
+    background-color: #1d6fa5; /* brighter navy on dark for legibility */
+    color: #ffffff;
+  }
+  .chat-msg-agent {
+    background-color: #1e293b;
+    color: #f8fafc;
+  }
+  .chat-typing {
+    background-color: #1e293b;
+    color: #cbd5e1;
+  }
+  .chat-composer-wrap {
+    border-top-color: #334155;
+  }
+  .chat-composer-bubble {
+    background-color: #1e293b;
+    border-color: #475569;
+    color: #f8fafc;
+  }
+  .chat-composer-input {
+    color: #f8fafc;
+  }
+  .chat-composer-input::placeholder {
+    color: #94a3b8;
+  }
+  .chat-chip {
+    background-color: #1e293b;
+    color: #e2e8f0;
+  }
+  .chat-empty {
+    color: #94a3b8;
+  }
+  .chat-slash-hint {
+    color: #94a3b8;
+  }
+  .chat-plus-menu {
+    background-color: #1e293b;
+    border-color: #334155;
+    color: #f1f5f9;
+  }
+  .chat-plus-menu button {
+    color: #f1f5f9;
+  }
+  .chat-plus-menu button:hover {
+    background-color: #334155;
+  }
+  .chat-emoji-picker {
+    background-color: #1e293b;
+    border-color: #334155;
+  }
+}
+
 /* Safe-area padding for the iOS home indicator (standalone PWA). */
 .pb-safe {
   padding-bottom: env(safe-area-inset-bottom, 0px);

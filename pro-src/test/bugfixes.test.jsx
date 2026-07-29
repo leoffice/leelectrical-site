@@ -467,11 +467,12 @@ describe("bug 3 — Dispatch chat panel", () => {
 
     const reply = await screen.findByText("On it — checking now");
     expect(reply).toHaveTextContent("Israel"); // labeled as the other side
-    expect(reply.className).toContain("bg-slate-100"); // left/them styling
+    expect(reply.className).toContain("chat-msg-agent"); // left/them high-contrast styling
     expect(reply.className).not.toContain("ml-auto");
 
     const mine = screen.getByText("hello there");
     expect(mine.className).toContain("ml-auto"); // right/me styling
+    expect(mine.className).toContain("chat-msg-you"); // deep navy + white, never light purple
     expect(mine).toHaveTextContent("Sent");
 
     expect(screen.queryByTestId("chat-hint")).not.toBeInTheDocument();
