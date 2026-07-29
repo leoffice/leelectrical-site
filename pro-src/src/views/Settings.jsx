@@ -16,14 +16,18 @@ import {
 import { probeConnections } from "../lib/connectionHealth.js";
 import { logOff } from "../lib/lock.js";
 import {
+  ASSISTANT_VOICE_PRESETS,
   clearCompanyLogo,
   getCompanyLogoSrc,
   readLogoFileAsDataUrl,
+  setAssistantSpeakEnabled,
+  setAssistantVoiceId,
   setCompanyLogoDataUrl,
   setQuickbooksDocFeatureEnabled,
   setQuickbooksDocsFeatureEnabled,
   setQuickbooksFeatureEnabled,
   setSpeechToTextEnabled,
+  useAppSettings,
 } from "../lib/appSettings.js";
 import {
   applyCompanyLogoToActiveConfig,
@@ -176,6 +180,7 @@ function FeatureSubmenu({ id, title, hint, open, onToggle, children }) {
 }
 
 export default function Settings() {
+  const appSettings = useAppSettings();
   const { showToast, pullCalendarNow, getSettings, saveSettings } = useStore();
   const config = useTenantConfig();
   const internal = config.internal === true;
@@ -1071,6 +1076,55 @@ export default function Settings() {
           The in-app assistant is a paid feature. Generate an unlimited token for yourself, or a
           token for anyone who pays. Tokens never expire unless you revoke them.
         </p>
+
+        
+        <div
+          className="rounded-xl border border-slate-200 bg-white px-3 py-3 mb-3 space-y-3"
+          data-testid="asst-voice-settings"
+        >
+          <div className="text-[11px] font-extrabold uppercase tracking-wide text-slate-500">
+            Chat voice
+          </div>
+          <div className="flex items-center justify-between gap-3">
+            <div className="min-w-0">
+              <div className="text-sm font-semibold text-slate-800">Speak replies</div>
+              <div className="text-xs text-slate-500 font-semibold mt-0.5">
+                Read Israel&apos;s answers out loud in the chat bubble
+              </div>
+            </div>
+            <Toggle
+              on={!!appSettings.assistantSpeak}
+              onChange={(on) => {
+                setAssistantSpeakEnabled(on);
+                showToast?.(on ? "Speak replies on" : "Speak replies off");
+              }}
+              label="Speak replies"
+            />
+          </div>
+          <label className="block">
+            <span className="text-xs font-extrabold text-slate-600">Voice</span>
+            <select
+              className={`${inputCls} mt-1`}
+              value={appSettings.assistantVoice || "auto"}
+              onChange={(e) => {
+                setAssistantVoiceId(e.target.value);
+                showToast?.("Voice updated");
+              }}
+              data-testid="asst-voice-select"
+              aria-label="Assistant voice"
+            >
+              {ASSISTANT_VOICE_PRESETS.map((p) => (
+                <option key={p.id} value={p.id}>
+                  {p.label}
+                </option>
+              ))}
+            </select>
+          </label>
+          <p className="text-[11px] text-slate-500 font-semibold">
+            Mic (speech to text) is under Features. Expand / shrink chat from the bubble header; ✕
+            minimizes.
+          </p>
+        </div>
 
         {internal ? (
           <>

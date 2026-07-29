@@ -9,6 +9,22 @@ export const QUICKBOOKS_DOCS_FEATURE_KEY = "lepro_feature_quickbooks_docs";
 /** Per-document send-through-QB switches; unset falls back to the umbrella above. */
 export const QUICKBOOKS_INVOICES_FEATURE_KEY = "lepro_feature_quickbooks_invoices";
 export const QUICKBOOKS_ESTIMATES_FEATURE_KEY = "lepro_feature_quickbooks_estimates";
+
+/** Chat bubble panel size: normal | expanded | minimized */
+export const CHAT_PANEL_SIZE_KEY = "lepro_chat_panel_size";
+/** Assistant speak-aloud replies on/off */
+export const ASSISTANT_SPEAK_KEY = "lepro_assistant_speak";
+/** Preferred TTS voice preset id */
+export const ASSISTANT_VOICE_KEY = "lepro_assistant_voice";
+
+export const ASSISTANT_VOICE_PRESETS = [
+  { id: "auto", label: "Auto (device default)", description: "Browser picks a clear English voice" },
+  { id: "clear-male", label: "Clear male", description: "Steady, easy to follow" },
+  { id: "clear-female", label: "Clear female", description: "Warm and clear" },
+  { id: "warm", label: "Warm", description: "Friendly office tone" },
+  { id: "crisp", label: "Crisp", description: "Short and direct" },
+];
+
 export const SETTINGS_EVENT = "lepro-settings";
 
 const DEFAULT_LOGO = () =>
@@ -250,6 +266,85 @@ export function readLogoFileAsDataUrl(file, maxEdge = 384) {
   });
 }
 
+
+export function getChatPanelSize() {
+  try {
+    const ls = storage();
+    if (!ls) return "normal";
+    const v = ls.getItem(CHAT_PANEL_SIZE_KEY);
+    if (v === "expanded" || v === "minimized" || v === "normal") return v;
+  } catch {
+    /* ignore */
+  }
+  return "normal";
+}
+
+export function setChatPanelSize(size) {
+  const next = size === "expanded" || size === "minimized" ? size : "normal";
+  try {
+    const ls = storage();
+    if (ls) {
+      if (next === "normal") ls.removeItem(CHAT_PANEL_SIZE_KEY);
+      else ls.setItem(CHAT_PANEL_SIZE_KEY, next);
+    }
+  } catch {
+    /* ignore */
+  }
+  notify();
+  return next;
+}
+
+export function isAssistantSpeakEnabled() {
+  try {
+    const ls = storage();
+    if (!ls) return false;
+    return ls.getItem(ASSISTANT_SPEAK_KEY) === "1";
+  } catch {
+    return false;
+  }
+}
+
+export function setAssistantSpeakEnabled(on) {
+  try {
+    const ls = storage();
+    if (ls) {
+      if (on) ls.setItem(ASSISTANT_SPEAK_KEY, "1");
+      else ls.removeItem(ASSISTANT_SPEAK_KEY);
+    }
+  } catch {
+    /* ignore */
+  }
+  notify();
+  return !!on;
+}
+
+export function getAssistantVoiceId() {
+  try {
+    const ls = storage();
+    if (!ls) return "auto";
+    const v = ls.getItem(ASSISTANT_VOICE_KEY);
+    if (v && ASSISTANT_VOICE_PRESETS.some((p) => p.id === v)) return v;
+  } catch {
+    /* ignore */
+  }
+  return "auto";
+}
+
+export function setAssistantVoiceId(id) {
+  const next = ASSISTANT_VOICE_PRESETS.some((p) => p.id === id) ? id : "auto";
+  try {
+    const ls = storage();
+    if (ls) {
+      if (next === "auto") ls.removeItem(ASSISTANT_VOICE_KEY);
+      else ls.setItem(ASSISTANT_VOICE_KEY, next);
+    }
+  } catch {
+    /* ignore */
+  }
+  notify();
+  return next;
+}
+
 export function readAppSettings() {
   return {
     speechToText: isSpeechToTextEnabled(),
@@ -259,6 +354,9 @@ export function readAppSettings() {
     quickbooksEstimates: isQuickbooksDocFeatureEnabled("estimate"),
     logoSrc: getCompanyLogoSrc(),
     logoCustom: !!getCompanyLogoDataUrl(),
+    chatPanelSize: getChatPanelSize(),
+    assistantSpeak: isAssistantSpeakEnabled(),
+    assistantVoice: getAssistantVoiceId(),
   };
 }
 
