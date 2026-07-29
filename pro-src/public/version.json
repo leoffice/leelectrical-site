@@ -1,9 +1,9 @@
 {
   "schema": "le-pro-version/v1",
-  "gitSha": "c351c8590246a1d63aefc4a24ed15da4730b0a2c",
-  "gitShaShort": "c351c85",
+  "gitSha": "1ec6e41d92985aa6b7b23253f5ba32d275798b7c",
+  "gitShaShort": "1ec6e41",
   "netlifyDeployId": null,
-  "builtAt": "2026-07-29T20:15:51.836Z",
-  "task": "",
+  "builtAt": "2026-07-29T20:38:10.000Z",
+  "task": "le-pro-v241 Fold invoice + balance heal + admin welcome",
   "rollbackAvailable": true
 }

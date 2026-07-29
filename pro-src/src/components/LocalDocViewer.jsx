@@ -1,6 +1,7 @@
 // Full-screen in-app PDF viewer — view first, then download / share / close.
-// On iPhone/Android, iframe blob PDFs show a blank page + UUID; use native open instead.
-import React, { useEffect, useMemo, useRef, useState } from "react";
+// On iPhone/Android/Samsung Fold, iframe blob PDFs show a blank page + UUID;
+// use native open on a user tap (auto-open is blocked without a gesture).
+import React, { useEffect, useMemo, useState } from "react";
 import {
   downloadPdfBlob,
   ensurePdfBlob,
@@ -24,7 +25,7 @@ export default function LocalDocViewer({ blob, url, title = "Document", filename
   const [shareBusy, setShareBusy] = useState(false);
   const [shareNote, setShareNote] = useState("");
   const [inlineOk] = useState(() => pdfInlinePreviewSupported());
-  const autoOpened = useRef(false);
+  const [openNote, setOpenNote] = useState("");
 
   const pdfBlob = useMemo(() => ensurePdfBlob(blob), [blob]);
 
@@ -55,13 +56,8 @@ export default function LocalDocViewer({ blob, url, title = "Document", filename
     return () => window.removeEventListener("keydown", h);
   }, [onClose]);
 
-  // Phone: open the real PDF in the device viewer once (iframe is blank there).
-  useEffect(() => {
-    if (inlineOk || autoOpened.current) return;
-    if (!pdfBlob && !url) return;
-    autoOpened.current = true;
-    openPdfForNativeView({ blob: pdfBlob, url: url || "", filename });
-  }, [inlineOk, pdfBlob, url, filename]);
+  // No auto-open on mount — phones (esp. Samsung Fold / Android Chrome) block
+  // downloads and popups without a user tap. The Open button is the reliable path.
 
   const onDownload = () => {
     if (pdfBlob) {
@@ -79,7 +75,13 @@ export default function LocalDocViewer({ blob, url, title = "Document", filename
   };
 
   const onNativeOpen = () => {
-    openPdfForNativeView({ blob: pdfBlob, url: url || src || "", filename });
+    setOpenNote("");
+    const result = openPdfForNativeView({ blob: pdfBlob, url: url || src || "", filename });
+    if (result === "noop") {
+      setOpenNote("Couldn’t open this file — try Download or Share.");
+      return;
+    }
+    setOpenNote("Opening on your device… if nothing appears, tap Download or Share.");
   };
 
   const onShare = async () => {
@@ -156,6 +158,11 @@ export default function LocalDocViewer({ blob, url, title = "Document", filename
           {shareNote}
         </p>
       ) : null}
+      {openNote ? (
+        <p className="text-[11px] text-sky-100 bg-sky-950/80 px-3 py-1.5 shrink-0" data-testid="local-doc-open-note">
+          {openNote}
+        </p>
+      ) : null}
       <div className="flex-1 min-h-0 bg-slate-200 relative">
         {inlineOk && src ? (
           <iframe
@@ -175,7 +182,7 @@ export default function LocalDocViewer({ blob, url, title = "Document", filename
             <div>
               <p className="text-base font-extrabold text-slate-900 mb-1">{title}</p>
               <p className="text-sm text-slate-600 max-w-xs mx-auto">
-                Your phone opens invoices in its built-in PDF reader — tap Open to view the full document.
+                Phones and foldables can&apos;t preview PDFs inside the app — tap Open to view the full invoice on this device (works on iPhone and Android).
               </p>
             </div>
             <button

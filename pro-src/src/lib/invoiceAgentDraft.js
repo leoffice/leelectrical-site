@@ -2,6 +2,7 @@
 import { fmt$, parseAmount } from "./format.js";
 import { emptyLine, initialLines, lineAmount, linesTotal } from "./qboDoc.js";
 import { findLineIndex } from "./invoiceEditIntent.js";
+import { reconcileBalanceOnAmountChange } from "./payments.js";
 
 export function hasPendingInvoiceReview(job) {
   return !!(job && job.invoiceAgentDraft && job.invoiceAgentDraft.pendingReview);
@@ -159,9 +160,14 @@ export function approveAgentDraftPatch(job, approvedLines) {
   const agentLines = job.invoiceAgentDraft?.lines || [];
   const total = linesTotal(approvedLines);
   const learningDelta = computeLearningDelta(agentLines, approvedLines, job.invoiceAgentDraft?.sourceText);
+  // Reconcile open balance / paid when line totals change — same as doc save.
+  // Without this, amount updates while paymentBaseline stays frozen and the job
+  // can show Paid in full after a progress raise (Seewald #231595).
+  const bal = reconcileBalanceOnAmountChange(job, total);
   return {
     invoiceLines: approvedLines,
     amount: fmt$(total),
+    ...bal,
     invoiceAgentDraft: {
       ...job.invoiceAgentDraft,
       pendingReview: false,

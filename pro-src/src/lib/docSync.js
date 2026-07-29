@@ -110,13 +110,11 @@ function buildDocJobPatch(job, { kind, mode, lines, serviceAddress, apartment, m
     Object.assign(jobPatch, progressBillingJobPatch(valid, job, { progressPct, contractAmount }));
   }
 
-  // When invoice total changes (e.g. progress 50% → 80%), recompute balance due
-  // so paymentBaseline / openBalance are not left frozen at the old draw.
-  if (kind === "invoice") {
-    const prevAmt = parseAmount(job?.amount);
-    if (Math.abs(total - prevAmt) > 0.009 || (total > 0 && prevAmt === 0)) {
-      Object.assign(jobPatch, reconcileBalanceOnAmountChange(job, total));
-    }
+  // Always recompute balance due on invoice save (progress % / line edits /
+  // re-save after a corrupt stamp). Skip only when total is empty/zero and the
+  // job already has no amount — otherwise heal openBalance = invoice − paid.
+  if (kind === "invoice" && total >= 0) {
+    Object.assign(jobPatch, reconcileBalanceOnAmountChange(job, total));
   }
 
   // Prefer original#-CO-N for local PDF / display on CO jobs (not confirmed until QBO).
