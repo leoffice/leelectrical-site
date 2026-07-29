@@ -91,6 +91,18 @@ function frozenBaseline(job, payments) {
 }
 
 /**
+ * True when a frozen baseline is below the current invoice total in a way that
+ * means the total was raised after payments (progress draw / line edits), not a
+ * QBO import with an incomplete local payment ledger.
+ */
+function looksLikeRaisedDraw(job, inv, baseline, paidSum) {
+  if (!(inv > baseline + 0.009)) return false;
+  if (isProgressInvoiceJob(job)) return true;
+  // Substantial share of the old baseline already collected → treat as prior draw.
+  return paidSum > 0 && baseline > 0 && paidSum / baseline >= 0.3;
+}
+
+/**
  * Invoice amount owed before recorded payments.
  * When the invoice total is raised after payments (progress bill 50%→80%),
  * owed-at-start tracks the new total so balance due = invoice − paid.
@@ -100,6 +112,7 @@ function frozenBaseline(job, payments) {
 export function amountOwedAtStart(job, payments) {
   const inv = invoiceTotal(job);
   let baseline = frozenBaseline(job, payments);
+  const paidSum = totalPaid(payments);
 
   const stampedRaw = job?.amountWhenBaselined;
   const stamped =
@@ -108,14 +121,21 @@ export function amountOwedAtStart(job, payments) {
   if (stamped != null && inv > 0 && Math.abs(inv - stamped) > 0.009) {
     // Invoice total changed since baseline was set — shift owed by the same delta.
     baseline = Math.max(0, baseline + (inv - stamped));
-  } else if (stamped == null && inv > 0 && baseline > 0 && inv > baseline + 0.009) {
+  } else if (
+    stamped != null &&
+    inv > 0 &&
+    Math.abs(inv - stamped) <= 0.009 &&
+    looksLikeRaisedDraw(job, inv, baseline, paidSum)
+  ) {
+    // Corrupt stamp: amountWhenBaselined was written to the NEW total without
+    // bumping paymentBaseline (agent draft / partial save / race). Promote so
+    // balance due = invoice − paid instead of freezing at the old draw.
+    baseline = inv;
+  } else if (stamped == null && inv > 0 && baseline > 0 && looksLikeRaisedDraw(job, inv, baseline, paidSum)) {
     // Legacy: invoice total raised after paymentBaseline was frozen (progress draw
     // 50%→80%). Promote to invoice total when this looks like a full prior draw,
     // not a QBO import where amount ≫ open balance with little of that baseline paid.
-    const paidSum = totalPaid(payments);
-    const looksLikePriorFullDraw =
-      isProgressInvoiceJob(job) || (paidSum > 0 && paidSum / baseline >= 0.3);
-    if (looksLikePriorFullDraw) baseline = inv;
+    baseline = inv;
   }
 
   return baseline;
@@ -130,6 +150,8 @@ export function remainingBalance(job, payments) {
  * When invoice amount changes (progress % edit, line edits), recompute
  * paymentBaseline / openBalance so balance due stays invoice − paid.
  * Call from doc save with the NEW amount and the job BEFORE the amount patch.
+ * Safe to call on every invoice save even when the total did not change — heals
+ * corrupt baseline stamps left by agent drafts or partial overlays.
  */
 export function reconcileBalanceOnAmountChange(job, newAmount) {
   const inv = parseAmount(newAmount);
@@ -138,15 +160,35 @@ export function reconcileBalanceOnAmountChange(job, newAmount) {
   const paid = totalPaid(pays);
   const oldInv = invoiceTotal(job);
 
-  let baseline = frozenBaseline(job, pays);
+  // Use the same owed-at-start rules as live balance math (includes corrupt-stamp heal).
+  const jobForOwed = { ...job, amount: inv };
+  let baseline = amountOwedAtStart(jobForOwed, pays);
+
   if (oldInv > 0 && Math.abs(inv - oldInv) > 0.009) {
-    baseline = Math.max(0, baseline + (inv - oldInv));
-  } else if (pays.length && inv > baseline + 0.009) {
-    // Amount raised with no prior total to diff — use new invoice total.
+    // Prefer explicit delta from the job as saved (before this amount patch).
+    const fromOld = frozenBaseline(job, pays);
+    baseline = Math.max(0, fromOld + (inv - oldInv));
+    // If frozen baseline was already corrupt (below both old and new totals on a
+    // raised draw), amountOwedAtStart on the new amount is more trustworthy.
+    if (looksLikeRaisedDraw(job, inv, fromOld, paid) && baseline + 0.009 < inv) {
+      baseline = inv;
+    }
+  } else if (pays.length && inv > baseline + 0.009 && looksLikeRaisedDraw(job, inv, baseline, paid)) {
     baseline = inv;
   } else if (!pays.length) {
     // No payment ledger: open balance tracks the full invoice (unless already paid).
     if (job.paid && (job.openBalance == null || parseAmount(job.openBalance) === 0)) {
+      // Still stamp amountWhenBaselined so a later raise can delta correctly.
+      // If amount went UP while marked paid with no ledger, reopen the balance.
+      if (oldInv > 0 && inv > oldInv + 0.009) {
+        return {
+          openBalance: inv - oldInv,
+          paid: false,
+          paymentBaseline: inv,
+          amountWhenBaselined: inv,
+          status: { Paid: { s: "" }, "Follow-up": { s: "" } },
+        };
+      }
       return { amountWhenBaselined: inv };
     }
     const remaining = inv;
@@ -168,6 +210,9 @@ export function reconcileBalanceOnAmountChange(job, newAmount) {
     amountWhenBaselined: inv,
     openBalance: fullPay ? 0 : remaining,
     paid: fullPay,
+    ...(fullPay
+      ? {}
+      : { status: { Paid: { s: "" }, "Follow-up": { s: "" } } }),
   };
 }
 

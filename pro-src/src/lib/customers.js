@@ -32,10 +32,35 @@ export function rawBalance(job) {
   const pays = normalizePayments(job);
   const hasExplicitOpen = job.openBalance != null && job.openBalance !== "";
   const storedOpen = hasExplicitOpen ? parseAmount(job.openBalance) : null;
+  const inv = parseAmount(job.amount);
+  const paidSum = pays.length ? totalPaid(pays) : 0;
+  const baseline =
+    job.paymentBaseline != null && job.paymentBaseline !== ""
+      ? parseAmount(job.paymentBaseline)
+      : null;
 
   // QBO sync often marks paid (openBalance 0) without refreshing the payment
   // ledger. Incomplete payments would still show a remainder — trust zero.
-  if (hasExplicitOpen && storedOpen <= 0.01) return 0;
+  // Exception: invoice total was raised after a full-pay stamp (progress draw /
+  // line edits) — then balance due is invoice − paid, not frozen zero.
+  if (hasExplicitOpen && storedOpen <= 0.01) {
+    if (pays.length) {
+      const fromPays = remainingBalance(job, pays);
+      if (fromPays > 0.01) {
+        const raisedAfterPay =
+          inv > paidSum + 0.01 &&
+          (isProgressInvoiceJob(job) ||
+            (baseline != null && inv > baseline + 0.01) ||
+            (job.amountWhenBaselined != null &&
+              job.amountWhenBaselined !== "" &&
+              Math.abs(parseAmount(job.amountWhenBaselined) - inv) <= 0.01 &&
+              baseline != null &&
+              inv > baseline + 0.01));
+        if (raisedAfterPay) return fromPays;
+      }
+    }
+    return 0;
+  }
 
   if (pays.length) {
     const fromPays = remainingBalance(job, pays);
@@ -44,12 +69,6 @@ export function rawBalance(job) {
     // - Progress draw raised after payments → trust payments (invoice − paid)
     // - QBO already applied a payment the local list missed → trust openBalance
     if (fromPays > storedOpen + 0.009) {
-      const inv = parseAmount(job.amount);
-      const baseline =
-        job.paymentBaseline != null && job.paymentBaseline !== ""
-          ? parseAmount(job.paymentBaseline)
-          : null;
-      const paidSum = totalPaid(pays);
       const progressLike =
         isProgressInvoiceJob(job) ||
         (baseline != null &&
@@ -64,7 +83,6 @@ export function rawBalance(job) {
   if (hasExplicitOpen) {
     // Progress invoice total raised with no payment ledger — balance tracks amount.
     if (isProgressInvoiceJob(job)) {
-      const inv = parseAmount(job.amount);
       if (inv > storedOpen + 0.009) return inv;
     }
     return storedOpen;
@@ -160,21 +178,25 @@ export function amountPaid(job) {
   const total = invoiceTotal(job);
   const hasExplicitOpen = job.openBalance != null && job.openBalance !== "";
   const storedOpen = hasExplicitOpen ? parseAmount(job.openBalance) : null;
+  const pays = normalizePayments(job);
+  const sum = pays.length ? totalPaid(pays) : 0;
+  // Live due (heals raised-after-pay stamps). Prefer ledger when still open.
+  const due = openBalance(job);
+  if (due > 0.01 && pays.length) return sum;
   // Fully paid in QBO/sync even when the local payment list is incomplete.
   if (
-    (job.paid && (!hasExplicitOpen || storedOpen <= 0.01)) ||
-    (hasExplicitOpen && storedOpen <= 0.01)
+    due <= 0.01 &&
+    ((job.paid && (!hasExplicitOpen || storedOpen <= 0.01)) ||
+      (hasExplicitOpen && storedOpen <= 0.01))
   ) {
-    const pays = normalizePayments(job);
-    const sum = pays.length ? totalPaid(pays) : 0;
+    // Incomplete ledger + true full-pay: inflate to invoice total.
+    // Raised-after-pay with open due is handled above (returns sum).
     return Math.max(sum, total || parseAmount(job.payment?.amount) || 0);
   }
-  const pays = normalizePayments(job);
-  if (pays.length) return totalPaid(pays);
+  if (pays.length) return sum;
   if (job.paid && (job.openBalance == null || job.openBalance === "" || parseAmount(job.openBalance) === 0)) {
     return total || parseAmount(job.payment?.amount);
   }
-  const due = openBalance(job);
   if (total > 0 && due >= 0 && due <= total) return total - due;
   return parseAmount(job.payment?.amount);
 }

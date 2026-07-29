@@ -276,4 +276,52 @@ describe("payments ledger", () => {
     };
     expect(openBalance(job)).toBe(16800);
   });
+
+  // Levi 2026-07-29 — Seewald #231595: raised progress/lines after payments, but
+  // amountWhenBaselined was stamped to the new total without bumping paymentBaseline.
+  // Stored openBalance 0 + paid true → UI said Paid in full ($34,700) with only $15k paid.
+  it("corrupt stamp after amount raise reopens balance (invoice − paid)", () => {
+    const seewald = {
+      id: "qbo-231595",
+      invoiceNo: "231595",
+      amount: "$34,700",
+      paid: true,
+      openBalance: 0,
+      paymentBaseline: 14585.1,
+      amountWhenBaselined: 34700,
+      invoiceProgressBilling: true,
+      invoiceProgressPct: 81.07,
+      contractAmount: 42800,
+      payments: [
+        { id: "p1", amount: "$5000", method: "Zelle", date: "2026-07-24" },
+        { id: "p2", amount: "$5000", method: "Zelle", date: "2026-07-18" },
+        { id: "p3", amount: "5000", method: "Zelle", date: "2026-07-06" },
+      ],
+    };
+    expect(amountPaid(seewald)).toBe(15000);
+    expect(openBalance(seewald)).toBe(19700); // 34700 − 15000, not frozen $0
+    expect(remainingBalance(seewald, seewald.payments)).toBe(19700);
+
+    // Re-save with same amount must still heal stored fields (not skip reconcile).
+    const patch = reconcileBalanceOnAmountChange(seewald, 34700);
+    expect(patch.paymentBaseline).toBe(34700);
+    expect(patch.openBalance).toBe(19700);
+    expect(patch.paid).toBe(false);
+    expect(patch.amountWhenBaselined).toBe(34700);
+  });
+
+  it("QBO full-pay with incomplete local ledger still shows paid (no false reopen)", () => {
+    const qboPaid = {
+      id: "qbo-full",
+      invoiceNo: "999",
+      amount: "$25,000",
+      paid: true,
+      openBalance: 0,
+      paymentBaseline: 25000,
+      amountWhenBaselined: 25000,
+      payments: [{ id: "p1", amount: "5000", method: "Check", date: "2026-01-01" }],
+    };
+    expect(openBalance(qboPaid)).toBe(0);
+    expect(amountPaid(qboPaid)).toBe(25000);
+  });
 });

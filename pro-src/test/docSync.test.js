@@ -126,6 +126,43 @@ describe("docSync", () => {
     expect(plan.commands[0].payload.invoiceNo).toBe("251900");
   });
 
+  it("planDocSaveLocal heals corrupt paid stamp when re-saving same invoice total", () => {
+    // Amount already $34,700 on the job; save must still fix openBalance / paid.
+    const seewald = {
+      id: "qbo-231595",
+      customer: "Shneor Seewald",
+      invoiceNo: "231595",
+      amount: "$34,700",
+      paid: true,
+      openBalance: 0,
+      paymentBaseline: 14585.1,
+      amountWhenBaselined: 34700,
+      invoiceProgressBilling: true,
+      serviceAddress: "1445 President St",
+      apartment: "",
+      payments: [
+        { id: "p1", amount: "5000", method: "Zelle", date: "2026-07-24" },
+        { id: "p2", amount: "5000", method: "Zelle", date: "2026-07-18" },
+        { id: "p3", amount: "5000", method: "Zelle", date: "2026-07-06" },
+      ],
+      invoiceLines: [
+        { itemName: "Installation", qty: 0.8, unitPrice: 40000, description: "Wiring" },
+        { itemName: "Tesla Charger", qty: 1, unitPrice: 2700, description: "Permit" },
+      ],
+    };
+    const plan = planDocSaveLocal(seewald, {
+      kind: "invoice",
+      mode: "edit",
+      lines: seewald.invoiceLines,
+      serviceAddress: seewald.serviceAddress,
+      apartment: "",
+    });
+    expect(plan.jobPatch.amount).toMatch(/34,?700/);
+    expect(plan.jobPatch.openBalance).toBe(19700);
+    expect(plan.jobPatch.paid).toBe(false);
+    expect(plan.jobPatch.paymentBaseline).toBe(34700);
+  });
+
   it("planDocSaveSync on estimate edit enqueues linked invoice address update", () => {
     const plan = planDocSaveSync(job, {
       kind: "estimate",
