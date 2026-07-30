@@ -18,7 +18,7 @@ afterEach(() => {
 
 const openConEd = async (user, pane) => {
   await user.click(within(pane).getByRole("button", { name: /📑/ })); // Paperwork phase
-  const sw = within(pane).queryByRole("switch", { name: "🔌 Con Ed paperwork" });
+  const sw = within(pane).queryByRole("switch", { name: "🔌 Con Edison progress" });
   if (sw && sw.getAttribute("aria-checked") === "false") await user.click(sw);
 };
 

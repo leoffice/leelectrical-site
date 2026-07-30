@@ -124,7 +124,7 @@ describe("findPriorAppointmentsForInsight", () => {
   });
 });
 
-describe("Con Ed paperwork follows the move", () => {
+describe("Con Edison progress follows the move", () => {
   it("overwrites the inspection date instead of keeping the old one", () => {
     const permit = {
       currentStage: "no_show_reschedule",

@@ -289,14 +289,17 @@ export function createNetlifyAdapter() {
      * rebuilding the PDF (big lag on retry).
      */
     async sendDocEmailNow(job, kind = "invoice", opts = {}) {
+      const isApplication = kind === "application" || kind === "agency";
       const no = kind === "invoice" ? job?.invoiceNo : job?.estimateNo;
       let pdfB64 = String(opts.pdfB64 || "").trim();
       let filename =
         String(opts.filename || "").trim() ||
-        docPdfFilename(kind, job, no) ||
-        `${kind}-${String(no || "document")}.pdf`;
+        (isApplication
+          ? "application.pdf"
+          : docPdfFilename(kind, job, no) || `${kind}-${String(no || "document")}.pdf`);
       try {
         if (!opts.probe && !pdfB64) {
+          if (isApplication) return { ok: false, error: "pdf_required" };
           const overrides = kind === "estimate" ? { kind: "estimate" } : {};
           if (opts.payUrl) overrides.payUrl = opts.payUrl;
           const blob =
@@ -313,11 +316,13 @@ export function createNetlifyAdapter() {
           kind,
           job: slimJob,
           email: String(opts.email || job?.email || "").trim(),
-          includePaymentLink: opts.includePaymentLink !== false,
+          includePaymentLink: isApplication ? false : opts.includePaymentLink !== false,
           pdfB64,
           filename,
           message: opts.message || opts.topMessage || "",
           subject: opts.subject || "",
+          htmlBody: opts.htmlBody || "",
+          application: opts.application || null,
           probe: !!opts.probe,
           officeOnly: !!opts.officeOnly,
         });

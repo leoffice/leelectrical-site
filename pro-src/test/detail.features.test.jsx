@@ -256,7 +256,7 @@ describe("6. progress — steps, paperwork branches, scheduled date", () => {
     const pane = await openDetail();
 
     await user.click(within(pane).getByRole("button", { name: /📑/ })); // Paperwork phase
-    await user.click(within(pane).getByRole("switch", { name: "🔌 Con Ed paperwork" }));
+    await user.click(within(pane).getByRole("switch", { name: "🔌 Con Edison progress" }));
     expect(within(pane).getByText("POE scheduled")).toBeInTheDocument();
     expect(within(pane).getByText("Meter installation date")).toBeInTheDocument();
     // jobs.html DATE_STEPS: only these two sub-steps carry a date input
