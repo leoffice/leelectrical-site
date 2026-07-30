@@ -73,7 +73,10 @@ describe("typing / working status line", () => {
     });
     renderApp("#/");
     fireEvent.click(screen.getByTestId("chat-fab"));
-    await waitFor(() => expect(screen.getByTestId("typing-line")).toHaveTextContent("Israel is working on it"));
+    await waitFor(() => {
+      expect(screen.getByTestId("typing-line")).toHaveTextContent(/Working/i);
+      expect(screen.getByTestId("typing-dots")).toBeInTheDocument();
+    });
   });
 
   it("no typing line for plain Sent messages", async () => {

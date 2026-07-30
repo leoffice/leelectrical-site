@@ -25,6 +25,13 @@
   "status": {
     "chatsTab": "planned",
     "assistantSettingsToggle": "planned",
-    "knowledgePack": "phase0"
+    "knowledgePack": "phase0",
+    "scopedCurrentContext": "generated"
+  },
+  "currentContext": {
+    "file": "LE_PRO_CURRENT.md",
+    "generatedAt": "2026-07-30T23:13:50.370Z",
+    "versionStamp": "208cd89",
+    "scope": "le-pro-current-only"
   }
 }

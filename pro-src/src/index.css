@@ -99,6 +99,42 @@ body {
   background-color: #e8eef5;
   color: #475569;
 }
+/* A181 — three-dots working indicator while agent processes */
+.chat-typing-dots {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  min-height: 1em;
+}
+.chat-typing-dots > span {
+  width: 6px;
+  height: 6px;
+  border-radius: 9999px;
+  background-color: #94a3b8;
+  animation: chat-typing-bounce 1.2s ease-in-out infinite;
+}
+.chat-typing-dots > span:nth-child(2) {
+  animation-delay: 0.15s;
+}
+.chat-typing-dots > span:nth-child(3) {
+  animation-delay: 0.3s;
+}
+.chat-typing-dots.is-stale > span {
+  animation: none;
+  opacity: 0.55;
+}
+@keyframes chat-typing-bounce {
+  0%,
+  60%,
+  100% {
+    transform: translateY(0);
+    opacity: 0.45;
+  }
+  30% {
+    transform: translateY(-4px);
+    opacity: 1;
+  }
+}
 .chat-composer-wrap {
   border-top-color: #e2e8f0;
 }
@@ -138,6 +174,9 @@ body {
   .chat-typing {
     background-color: #1e293b;
     color: #cbd5e1;
+  }
+  .chat-typing-dots > span {
+    background-color: #64748b;
   }
   .chat-composer-wrap {
     border-top-color: #334155;

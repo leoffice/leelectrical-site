@@ -1132,13 +1132,25 @@ export default function ChatBubble() {
             )}
             {working && (
               <div
-                className="chat-typing max-w-[82%] rounded-2xl rounded-bl-md px-3 py-2 text-sm mb-2 flex items-center gap-1.5"
+                className="chat-typing max-w-[82%] rounded-2xl rounded-bl-md px-3 py-2 text-sm mb-2 flex items-center gap-2"
                 data-testid="typing-line"
+                aria-live="polite"
+                aria-label={workingStale ? "Still working" : "Working"}
               >
-                <span className={`w-1.5 h-1.5 rounded-full bg-slate-400 ${workingStale ? "" : "animate-pulse"}`} />
-                {workingStale
-                  ? "Israel is still on it — this one's taking a little longer."
-                  : "Israel is working on it…"}
+                <span
+                  className={`chat-typing-dots ${workingStale ? "is-stale" : ""}`}
+                  data-testid="typing-dots"
+                  aria-hidden="true"
+                >
+                  <span />
+                  <span />
+                  <span />
+                </span>
+                <span className="text-[13px]">
+                  {workingStale
+                    ? "Still on it — taking a little longer…"
+                    : "Working…"}
+                </span>
               </div>
             )}
           </div>

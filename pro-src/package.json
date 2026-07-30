@@ -6,14 +6,15 @@
   "description": "LE Pro — LE Electric field/office PWA (module 1: Jobs)",
   "scripts": {
     "dev": "vite",
-    "build": "node scripts/make-icons.mjs && node scripts/stamp-version.mjs && vite build",
+    "build": "node scripts/make-icons.mjs && node scripts/stamp-version.mjs && node scripts/regen-le-pro-agent-context.mjs && vite build",
     "preview": "vite preview",
     "test": "vitest run",
     "record-deploy": "node scripts/record-deploy.mjs",
     "rollback": "node scripts/rollback.mjs",
     "verify-live": "node scripts/verify-live.mjs",
     "verify-isolation": "node scripts/verify-tenant-isolation.mjs",
-    "bump-sw": "node scripts/bump-sw-cache.mjs"
+    "bump-sw": "node scripts/bump-sw-cache.mjs",
+    "regen-agent-context": "node scripts/regen-le-pro-agent-context.mjs"
   },
   "dependencies": {
     "pdf-lib": "^1.17.1",
