@@ -115,6 +115,15 @@ if (!existsSync(logoPng)) {
 }
 
 if (!tryPython() && !tryMagickPngOnly()) {
+  // Icons are committed/built already on most machines — don't block deploys
+  // when PIL/ImageMagick is missing (host CI / headless agents).
+  const haveAll = targets.every(([name]) => existsSync(join(iconsDir, name)));
+  if (haveAll && existsSync(svgOut)) {
+    console.warn(
+      "make-icons: need python3+PIL or ImageMagick — keeping existing icons (ok for deploy)"
+    );
+    process.exit(0);
+  }
   console.error("make-icons: need python3+PIL or ImageMagick to build icons from le-logo.png");
   process.exit(1);
 }
