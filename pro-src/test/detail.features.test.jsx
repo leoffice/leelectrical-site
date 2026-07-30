@@ -33,7 +33,7 @@ describe("1. mark-as-paid sheet -> staged -> record_payment on Save", () => {
     await user.click(screen.getByText("Record a payment"));
     await user.click(screen.getByText("Zelle"));
     const amt = screen.getByLabelText("Amount");
-    expect(amt).toHaveValue("2300"); // prefilled, $/commas stripped
+    expect(amt).toHaveValue("$2,300"); // prefilled open balance, formatted for display
     expect(screen.getByLabelText("Payment method")).toHaveValue("Zelle");
     // method dropdown carries the exact list
     expect(
