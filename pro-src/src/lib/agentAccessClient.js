@@ -3,6 +3,12 @@ import { functionsBase } from "./functionsBase.js";
 
 const SESSION_KEY = "lepro_agent_session";
 
+/** Mirrors server MAX_TTL_MS (agentAccess.mjs) — longest grant = 24h. */
+export const AGENT_ACCESS_MAX_TTL_MS = 24 * 60 * 60 * 1000;
+
+/** Label used by the Settings one-tap "24-Hour Agent Access" control. */
+export const AGENT_24H_LABEL = "agent-24h";
+
 function sessionStore() {
   try {
     return globalThis.sessionStorage || null;
@@ -40,6 +46,18 @@ export async function fetchAgentAccessStatus() {
 
 export async function mintAgentAccess({ ttlMs, scope, label } = {}) {
   return post({ op: "mint", ttlMs, scope, label });
+}
+
+/**
+ * One-tap 24h grant: full max TTL, fixed label. Scope defaults to "test"
+ * (narrowest); pass "full" only with explicit owner opt-in.
+ */
+export async function mintAgentAccess24h({ scope = "test" } = {}) {
+  return mintAgentAccess({
+    ttlMs: AGENT_ACCESS_MAX_TTL_MS,
+    scope: scope === "full" ? "full" : "test",
+    label: AGENT_24H_LABEL,
+  });
 }
 
 /** Extend the current grant by +ttlMs (same code). Optionally update scope. */
