@@ -43,9 +43,9 @@ describe("estimate ↔ invoice sync — e2e", () => {
     const tabs = within(pane).getByTestId("job-doc-tabs");
 
     await user.click(within(tabs).getByTestId("tab-invoice"));
-    expect(await screen.findByTestId("doc-edit")).toHaveTextContent(/Edit invoice/i);
+    expect(await screen.findByTestId("doc-edit")).toHaveTextContent(/^Edit$/i);
     await user.click(screen.getByTestId("doc-edit"));
-    expect(await screen.findByText(/Edit invoice/)).toBeInTheDocument();
+    expect(await screen.findByText(/Edit invoice/i)).toBeInTheDocument();
 
     const addr = screen.getByTestId("doc-service-address");
     await user.clear(addr);

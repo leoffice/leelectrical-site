@@ -102,8 +102,11 @@ import {
   DOC_SOURCE_LOCAL,
   DOC_SOURCE_QBO,
   docKindLabel,
-  viewLocalLabel,
-  viewQboLabel,
+  viewExpandLabel,
+  viewDetailsLabel,
+  viewFileLabel,
+  sendPayLinkLabel,
+  sendDocOnlyLabel,
 } from "../lib/docSource.js";
 import { docSendStatusLine } from "../lib/docSendStatus.js";
 import { tenantCalendarAccount, tenantSignOff } from "../lib/tenantBranding.js";
@@ -111,6 +114,7 @@ import { beginPromptWorkPause } from "../lib/followUpReminders.js";
 import { isQuickbooksDocsEnabled, resolveDocSource } from "../lib/qboEnabled.js";
 import { useAppSettings } from "../lib/appSettings.js";
 import { afterSendApprovedClose, EMAIL_POLICY_KEEP } from "../lib/sendDocConfirm.js";
+import { lineAmount } from "../lib/qboDoc.js";
 
 export const PAY_METHODS = [
   "Credit card",
@@ -2406,7 +2410,180 @@ function DocPdfStatus({ st, onRetry }) {
   return null;
 }
 
-/** Local vs QuickBooks view buttons — explicit source, no auto-mixing. */
+/** Compact pill used in the horizontal doc action row. */
+function DocActionBtn({ children, onClick, testId, tone = "soft", danger, active, disabled, className = "" }) {
+  const toneCls = danger
+    ? "bg-red-50 text-red-700 border-red-200"
+    : active
+    ? "bg-brand text-white border-brand"
+    : tone === "brand"
+    ? "bg-brand-soft text-brand border-brand/25"
+    : tone === "ghost"
+    ? "bg-white text-slate-800 border-slate-200"
+    : "bg-slate-100 text-slate-800 border-slate-200";
+  return (
+    <button
+      type="button"
+      className={`btn !py-2 !px-2.5 text-[11px] sm:text-xs font-semibold leading-tight border shrink-0 ${toneCls} ${
+        disabled ? "opacity-40" : ""
+      } ${className}`}
+      onClick={onClick}
+      disabled={disabled}
+      data-testid={testId}
+    >
+      {children}
+    </button>
+  );
+}
+
+/** Condensed invoice/estimate lines — description, qty, amount. */
+export function DocCondensedLines({ job, kind }) {
+  const lines = (kind === "invoice" ? job?.invoiceLines : job?.estimateLines) || [];
+  const rows = lines.filter(
+    (ln) =>
+      ln &&
+      (String(ln.description || "").trim() ||
+        String(ln.itemName || "").trim() ||
+        lineAmount(ln) > 0)
+  );
+  if (!rows.length) {
+    const fallback = job?.title || job?.serviceType || (kind === "invoice" ? "Invoice total" : "Estimate total");
+    const amt = parseAmount(job?.amount);
+    return (
+      <div className="card px-3 py-2 mb-2" data-testid="doc-condensed-lines">
+        <p className="text-[11px] font-bold uppercase tracking-wide text-slate-400 mb-2">
+          {kind === "invoice" ? "Invoice" : "Estimate"} · condensed
+        </p>
+        <div className="grid grid-cols-[1fr_auto_auto] gap-x-2 gap-y-1 text-sm">
+          <span className="text-[10px] font-bold uppercase text-slate-400">Description</span>
+          <span className="text-[10px] font-bold uppercase text-slate-400 text-right">Qty</span>
+          <span className="text-[10px] font-bold uppercase text-slate-400 text-right">Amount</span>
+          <span className="min-w-0 text-slate-700">{fallback}</span>
+          <span className="text-right text-slate-600">1</span>
+          <span className="text-right font-semibold text-slate-800">{fmt$(amt) || "—"}</span>
+        </div>
+      </div>
+    );
+  }
+  return (
+    <div className="card px-3 py-2 mb-2" data-testid="doc-condensed-lines">
+      <p className="text-[11px] font-bold uppercase tracking-wide text-slate-400 mb-2">
+        {kind === "invoice" ? "Invoice" : "Estimate"} · condensed
+      </p>
+      <div className="grid grid-cols-[1fr_auto_auto] gap-x-2 gap-y-1.5 text-sm">
+        <span className="text-[10px] font-bold uppercase text-slate-400">Description</span>
+        <span className="text-[10px] font-bold uppercase text-slate-400 text-right">Qty</span>
+        <span className="text-[10px] font-bold uppercase text-slate-400 text-right">Amount</span>
+        {rows.map((ln, i) => {
+          const desc =
+            String(ln.description || "").trim() || String(ln.itemName || "").trim() || "Line item";
+          const qty =
+            ln.qty != null && ln.qty !== "" ? parseAmount(ln.qty) : 1;
+          const amt = lineAmount(ln);
+          return (
+            <React.Fragment key={i}>
+              <span className="min-w-0 text-slate-700 break-words">{desc}</span>
+              <span className="text-right text-slate-600 tabular-nums">{qty}</span>
+              <span className="text-right font-semibold text-slate-800 tabular-nums">{fmt$(amt)}</span>
+            </React.Fragment>
+          );
+        })}
+      </div>
+      <div className="flex justify-between gap-2 mt-2 pt-2 border-t border-slate-100 text-sm font-bold text-slate-900">
+        <span>Total</span>
+        <span data-testid="doc-condensed-total">{fmt$(job?.amount) || fmt$(rows.reduce((s, ln) => s + lineAmount(ln), 0))}</span>
+      </div>
+    </div>
+  );
+}
+
+/**
+ * Horizontal action row for invoice/estimate:
+ * View Invoice | View Details | [View File] | Send… | Edit | Delete
+ */
+export function DocActionRow({
+  job,
+  kind,
+  no,
+  expanded,
+  onToggleExpand,
+  onViewDetails,
+  onViewFile,
+  showViewFile,
+  onSendPay,
+  onSendOnly,
+  canSend,
+  onSync,
+  onEdit,
+  onDelete,
+  showDelete,
+}) {
+  const withPay = kind === "invoice" && openBalance(job) > 0.01;
+  return (
+    <div
+      className="flex flex-wrap gap-1.5 mb-2 w-full"
+      data-testid="doc-action-row"
+      role="toolbar"
+      aria-label={(kind === "invoice" ? "Invoice" : "Estimate") + " actions"}
+    >
+      {no ? (
+        <DocActionBtn
+          testId="view-expand-doc"
+          tone="brand"
+          active={!!expanded}
+          onClick={onToggleExpand}
+        >
+          {viewExpandLabel(kind)}
+        </DocActionBtn>
+      ) : null}
+      {no ? (
+        <DocActionBtn testId="view-local-doc" tone="ghost" onClick={onViewDetails}>
+          {viewDetailsLabel(kind)}
+        </DocActionBtn>
+      ) : null}
+      {no && showViewFile ? (
+        <DocActionBtn testId="view-qbo-doc" tone="soft" onClick={onViewFile}>
+          {viewFileLabel(kind)}
+        </DocActionBtn>
+      ) : null}
+      {no && canSend && withPay ? (
+        <DocActionBtn
+          testId="send-with-pay"
+          tone="brand"
+          onClick={() => onSendPay?.()}
+        >
+          {sendPayLinkLabel()}
+        </DocActionBtn>
+      ) : null}
+      {no && canSend ? (
+        <DocActionBtn
+          testId="send-doc-only"
+          tone="ghost"
+          onClick={() => onSendOnly?.()}
+        >
+          {sendDocOnlyLabel(kind)}
+        </DocActionBtn>
+      ) : null}
+      {onSync ? (
+        <DocActionBtn testId="doc-sync-qbo" tone="brand" onClick={onSync}>
+          Sync to QuickBooks
+        </DocActionBtn>
+      ) : null}
+      {onEdit ? (
+        <DocActionBtn testId="doc-edit" tone="ghost" onClick={onEdit}>
+          Edit
+        </DocActionBtn>
+      ) : null}
+      {showDelete ? (
+        <DocActionBtn testId="doc-delete" danger onClick={onDelete}>
+          Delete
+        </DocActionBtn>
+      ) : null}
+    </div>
+  );
+}
+
+/** Local vs file view buttons — used when a compact row is not enough. */
 export function DocPdfViewButtons({ job, kind, no, compact }) {
   const { st, viewLocal, viewQbo, viewer, setViewer } = useDocPdfView(job, kind, no);
   const config = useTenantConfig();
@@ -2416,6 +2593,7 @@ export function DocPdfViewButtons({ job, kind, no, compact }) {
   const qboDocsOn = isQuickbooksDocsEnabled(config);
   const product = productName(config);
   const retry = () => (st.source === DOC_SOURCE_QBO && qboDocsOn ? viewQbo() : viewLocal());
+  const [expanded, setExpanded] = useState(false);
 
   const viewerEl = viewer ? (
     <LocalDocViewer
@@ -2439,26 +2617,25 @@ export function DocPdfViewButtons({ job, kind, no, compact }) {
   if (compact) {
     return (
       <>
-        <div className="flex gap-2 mb-2 w-full" data-testid="doc-view-row">
-          <button
-            type="button"
-            className="btn flex-1 !py-2.5 bg-brand-soft text-brand font-semibold"
-            onClick={viewLocal}
-            data-testid="view-local-doc"
+        <div className="flex flex-wrap gap-1.5 mb-2 w-full" data-testid="doc-view-row">
+          <DocActionBtn
+            testId="view-expand-doc"
+            tone="brand"
+            active={expanded}
+            onClick={() => setExpanded((v) => !v)}
           >
-            {viewLocalLabel(kind)}
-          </button>
+            {viewExpandLabel(kind)}
+          </DocActionBtn>
+          <DocActionBtn testId="view-local-doc" tone="ghost" onClick={viewLocal}>
+            {viewDetailsLabel(kind)}
+          </DocActionBtn>
           {qboDocsOn ? (
-            <button
-              type="button"
-              className="btn flex-1 !py-2.5 bg-slate-100 text-slate-800 font-semibold"
-              onClick={viewQbo}
-              data-testid="view-qbo-doc"
-            >
-              {viewQboLabel(kind)}
-            </button>
+            <DocActionBtn testId="view-qbo-doc" tone="soft" onClick={viewQbo}>
+              {viewFileLabel(kind)}
+            </DocActionBtn>
           ) : null}
         </div>
+        {expanded ? <DocCondensedLines job={job} kind={kind} /> : null}
         {viewerEl}
       </>
     );
@@ -2466,70 +2643,101 @@ export function DocPdfViewButtons({ job, kind, no, compact }) {
 
   return (
     <>
-      <Opt
-        icon="📄"
-        title={viewLocalLabel(kind)}
-        note={`${product} PDF from this job's line items — opens in the app`}
-        onClick={viewLocal}
-        data-testid="view-local-doc"
-      />
-      {qboDocsOn ? (
-        <Opt
-          icon="📗"
-          title={viewQboLabel(kind)}
-          note="Pulls the PDF from QuickBooks Online"
-          onClick={viewQbo}
-          data-testid="view-qbo-doc"
-        />
-      ) : null}
+      <div className="flex flex-wrap gap-1.5 mb-2 w-full" data-testid="doc-view-row">
+        <DocActionBtn
+          testId="view-expand-doc"
+          tone="brand"
+          active={expanded}
+          onClick={() => setExpanded((v) => !v)}
+        >
+          {viewExpandLabel(kind)}
+        </DocActionBtn>
+        <DocActionBtn testId="view-local-doc" tone="ghost" onClick={viewLocal}>
+          {viewDetailsLabel(kind)}
+        </DocActionBtn>
+        {qboDocsOn ? (
+          <DocActionBtn testId="view-qbo-doc" tone="soft" onClick={viewQbo}>
+            {viewFileLabel(kind)}
+          </DocActionBtn>
+        ) : null}
+      </div>
+      {expanded ? <DocCondensedLines job={job} kind={kind} /> : null}
+      <p className="text-[11px] text-slate-400 mb-2 px-0.5">
+        {viewDetailsLabel(kind)} opens the {product} layout preview.{" "}
+        {qboDocsOn ? viewFileLabel(kind) + " pulls the stored file." : ""}
+      </p>
       {viewerEl}
     </>
   );
 }
 
-/** Back-compat alias — defaults to local+QuickBooks row when compact. */
+/** Back-compat alias — defaults to local+file row when compact. */
 export function PdfViewer(props) {
   return <DocPdfViewButtons {...props} />;
 }
 
-/** Send invoice/estimate buttons — parent sheet shows DocSourcePicker submenu. */
-export function DocSendButtons({ job, kind, onPickSend }) {
+/** Send invoice/estimate buttons — horizontal pills (parallel with view buttons). */
+export function DocSendButtons({ job, kind, onPickSend, compact }) {
   const due = openBalance(job);
   const label = docKindLabel(kind);
   const withPay = kind === "invoice" && due > 0.01;
   const appSettings = useAppSettings();
   void appSettings.quickbooks;
   void appSettings.quickbooksDocs;
-  const qboDocsOn = isQuickbooksDocsEnabled();
-  const sourceNote = qboDocsOn
-    ? "Choose local file or QuickBooks file"
-    : "Sends the local PDF from this job";
+
+  if (compact) {
+    return (
+      <div className="flex flex-wrap gap-1.5 mb-2" data-testid="doc-send-row">
+        {withPay ? (
+          <DocActionBtn
+            testId="send-with-pay"
+            tone="brand"
+            onClick={() =>
+              onPickSend({ withPay: true, title: sendPayLinkLabel() })
+            }
+          >
+            {sendPayLinkLabel()}
+          </DocActionBtn>
+        ) : null}
+        <DocActionBtn
+          testId="send-doc-only"
+          tone="ghost"
+          onClick={() =>
+            onPickSend({
+              withPay: false,
+              title: sendDocOnlyLabel(kind),
+            })
+          }
+        >
+          {sendDocOnlyLabel(kind)}
+        </DocActionBtn>
+      </div>
+    );
+  }
 
   return (
-    <div data-testid="doc-send-row">
+    <div data-testid="doc-send-row" className="flex flex-wrap gap-1.5 mb-2">
       {withPay ? (
-        <Opt
-          icon="💳"
-          title="Send invoice with payment link"
-          note={sourceNote}
-          onClick={() =>
-            onPickSend({ withPay: true, title: "Send invoice with payment link" })
-          }
-          data-testid="send-with-pay"
-        />
+        <DocActionBtn
+          testId="send-with-pay"
+          tone="brand"
+          onClick={() => onPickSend({ withPay: true, title: sendPayLinkLabel() })}
+        >
+          {sendPayLinkLabel()}
+        </DocActionBtn>
       ) : null}
-      <Opt
-        icon="📤"
-        title={withPay ? "Send invoice only" : "Send " + label}
-        note={sourceNote}
+      <DocActionBtn
+        testId="send-doc-only"
+        tone="ghost"
         onClick={() =>
           onPickSend({
             withPay: false,
-            title: withPay ? "Send invoice only" : "Send " + label,
+            title: withPay ? sendDocOnlyLabel(kind) : "Send " + label,
           })
         }
-        data-testid="send-doc-only"
-      />
+      >
+        {withPay ? sendDocOnlyLabel(kind) : "Send " + label}
+      </DocActionBtn>
     </div>
   );
 }
@@ -2897,6 +3105,7 @@ export function DocSheet({ job, kind, onClose, onEdit, onConvert, onSync }) {
   const [sendBusy, setSendBusy] = useState(false);
   const [sendErr, setSendErr] = useState("");
   const [confirmClear, setConfirmClear] = useState(false);
+  const [expanded, setExpanded] = useState(false);
   // Prefer live store job so a just-stamped Inv # shows immediately after Save.
   const live = (job?.id && effectiveJob ? effectiveJob(job.id) : null) || job;
   const no = kind === "invoice" ? live.invoiceNo : live.estimateNo;
@@ -3098,10 +3307,30 @@ export function DocSheet({ job, kind, onClose, onEdit, onConvert, onSync }) {
         </div>
       ) : null}
 
-      {no ? <DocPdfViewButtons job={live} kind={kind} no={no} compact /> : null}
+      {/* Numbered docs: one parallel action row (View · Details · File · Send · Sync · Edit · Delete). */}
+      {no ? (
+        <DocSheetActions
+          job={live}
+          kind={kind}
+          no={no}
+          expanded={expanded}
+          onToggleExpand={() => setExpanded((v) => !v)}
+          onPickSend={setSendPick}
+          onSync={qboDocsOn && onSync ? onSync : null}
+          onEdit={onEdit}
+          onDelete={canClearDoc(live, kind) ? () => setConfirmClear(true) : null}
+          canSend={!!live.email}
+        />
+      ) : null}
 
-      {/* Sync + Edit when QuickBooks send/view is on — must not reopen create. */}
-      {(isDraft || no) && (onSync || onEdit) && qboDocsOn ? (
+      {!isDraft && no && !live.email ? (
+        <p className="text-[11px] text-slate-400 text-center mb-2">
+          Add an email on the customer card to send.
+        </p>
+      ) : null}
+
+      {/* Draft: Sync + Edit when QuickBooks is on; Delete draft. */}
+      {isDraft && (onSync || onEdit) && qboDocsOn ? (
         <div className="grid grid-cols-2 gap-2 mb-2" data-testid="doc-draft-actions">
           {onSync ? (
             <button
@@ -3130,15 +3359,7 @@ export function DocSheet({ job, kind, onClose, onEdit, onConvert, onSync }) {
         </div>
       ) : null}
 
-      {!isDraft && no && live.email ? (
-        <DocSendButtons job={live} kind={kind} onPickSend={setSendPick} />
-      ) : !isDraft && no ? (
-        <p className="text-[11px] text-slate-400 text-center mb-2">
-          Add an email on the customer card to send.
-        </p>
-      ) : null}
-
-      {!isDraft && onEdit && !qboDocsOn ? (
+      {isDraft && onEdit && !qboDocsOn ? (
         <button
           type="button"
           className="btn-ghost w-full !py-2.5 mb-1 font-semibold"
@@ -3153,14 +3374,14 @@ export function DocSheet({ job, kind, onClose, onEdit, onConvert, onSync }) {
         <Opt icon="🧾" title="Convert to invoice" note="Bill all or part of this estimate" onClick={onConvert} />
       ) : null}
 
-      {canClearDoc(live, kind) ? (
+      {isDraft && canClearDoc(live, kind) ? (
         <button
           type="button"
           className="btn w-full !py-2.5 mt-2 mb-1 font-semibold bg-red-50 text-red-700 border border-red-200"
           onClick={() => setConfirmClear(true)}
           data-testid="doc-delete"
         >
-          {isDraft ? "Delete draft" : "Delete " + label}
+          Delete draft
         </button>
       ) : null}
 
@@ -3173,6 +3394,67 @@ export function DocSheet({ job, kind, onClose, onEdit, onConvert, onSync }) {
         </p>
       ) : null}
     </Sheet>
+  );
+}
+
+/** Wired view/send/edit/delete row for a numbered invoice or estimate. */
+function DocSheetActions({
+  job,
+  kind,
+  no,
+  expanded,
+  onToggleExpand,
+  onPickSend,
+  onSync,
+  onEdit,
+  onDelete,
+  canSend,
+}) {
+  const { st, viewLocal, viewQbo, viewer, setViewer } = useDocPdfView(job, kind, no);
+  const qboDocsOn = isQuickbooksDocsEnabled();
+  const retry = () => (st.source === DOC_SOURCE_QBO && qboDocsOn ? viewQbo() : viewLocal());
+
+  const viewerEl = viewer ? (
+    <LocalDocViewer
+      blob={viewer.blob || null}
+      url={viewer.url || ""}
+      title={viewer.title || "Document"}
+      filename={viewer.filename || "document.pdf"}
+      onClose={() => setViewer(null)}
+    />
+  ) : null;
+
+  if (st.phase === "checking" || st.phase === "fetching" || st.phase === "timeout") {
+    return (
+      <>
+        <DocPdfStatus st={st} onRetry={retry} />
+        {viewerEl}
+      </>
+    );
+  }
+
+  return (
+    <>
+      <DocActionRow
+        job={job}
+        kind={kind}
+        no={no}
+        expanded={expanded}
+        onToggleExpand={onToggleExpand}
+        onViewDetails={viewLocal}
+        onViewFile={viewQbo}
+        showViewFile={qboDocsOn}
+        onSendPay={() => onPickSend({ withPay: true, title: sendPayLinkLabel() })}
+        onSendOnly={() => onPickSend({ withPay: false, title: sendDocOnlyLabel(kind) })}
+        canSend={canSend}
+        onSync={onSync || undefined}
+        onEdit={onEdit || undefined}
+        onDelete={onDelete || undefined}
+        showDelete={!!onDelete}
+      />
+      {expanded ? <DocCondensedLines job={job} kind={kind} /> : null}
+      {viewerEl}
+    </>
   );
 }
 
@@ -3244,24 +3526,27 @@ export function QuickSendSheet({ job, onClose, onEdit }) {
         <div><b className="font-semibold">Customer</b> <span className="text-slate-600">{job.customer || ""}</span></div>
         <div><b className="font-semibold">Amount due</b> <span className="text-slate-600">{fmtAmountDue(job) || fmt$(due) || "—"}</span></div>
       </div>
-      {job.invoiceNo && <DocPdfViewButtons job={job} kind="invoice" no={job.invoiceNo} />}
+      {job.invoiceNo ? (
+        <DocPdfViewButtons job={job} kind="invoice" no={job.invoiceNo} compact />
+      ) : null}
       {job.email ? (
-        <DocSendButtons job={job} kind="invoice" onPickSend={setSendPick} />
+        <DocSendButtons job={job} kind="invoice" onPickSend={setSendPick} compact />
       ) : (
         <p className="text-[11px] text-slate-400 text-center mt-2">Add an email to send this invoice.</p>
       )}
       {onEdit && job.invoiceNo ? (
-        <button
-          type="button"
-          className="btn-ghost w-full !py-2.5 mt-2 font-semibold"
-          onClick={() => {
-            onEdit();
-            onClose();
-          }}
-          data-testid="quick-send-edit-invoice"
-        >
-          Edit invoice
-        </button>
+        <div className="flex flex-wrap gap-1.5 mt-1" data-testid="quick-send-edit-row">
+          <DocActionBtn
+            testId="quick-send-edit-invoice"
+            tone="ghost"
+            onClick={() => {
+              onEdit();
+              onClose();
+            }}
+          >
+            Edit
+          </DocActionBtn>
+        </div>
       ) : null}
     </Sheet>
   );

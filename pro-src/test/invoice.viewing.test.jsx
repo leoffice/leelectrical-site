@@ -93,13 +93,31 @@ describe("#54 calendar opens the office account", () => {
 });
 
 describe("#44 jobs-list Invoice offers View as well as Send", () => {
-  it("QuickSendSheet shows both a View PDF option and a Send option", async () => {
+  it("QuickSendSheet shows View Invoice, View Details, View File, and Send options", async () => {
     mockServer();
     renderNode(<QuickSendSheet job={JOB} onClose={() => {}} />);
 
-    expect(await screen.findByText("View Local Invoice")).toBeInTheDocument();
-    expect(screen.getByText("View QuickBooks Invoice")).toBeInTheDocument();
-    expect(screen.getByText(/Send invoice with payment link/)).toBeInTheDocument();
+    expect(await screen.findByText("View Invoice")).toBeInTheDocument();
+    expect(screen.getByText("View Details")).toBeInTheDocument();
+    expect(screen.getByText("View File")).toBeInTheDocument();
+    expect(screen.getByText(/Send with Payment Link/i)).toBeInTheDocument();
+  });
+
+  it("View Invoice expands condensed line items (description, qty, amount)", async () => {
+    mockServer();
+    const user = userEvent.setup();
+    const job = {
+      ...JOB,
+      invoiceLines: [
+        { description: "Panel upgrade", qty: 1, unitPrice: 2000 },
+        { description: "Permit fee", qty: 1, unitPrice: 300 },
+      ],
+    };
+    renderNode(<QuickSendSheet job={job} onClose={() => {}} />);
+    await user.click(await screen.findByText("View Invoice"));
+    expect(await screen.findByTestId("doc-condensed-lines")).toBeInTheDocument();
+    expect(screen.getByText("Panel upgrade")).toBeInTheDocument();
+    expect(screen.getByText("Permit fee")).toBeInTheDocument();
   });
 });
 
@@ -109,7 +127,7 @@ describe("#44/#45 PDF viewing: local open + background QBO fetch", () => {
     const user = userEvent.setup();
 
     renderNode(<QuickSendSheet job={JOB} onClose={() => {}} />);
-    await user.click(await screen.findByText("View Local Invoice"));
+    await user.click(await screen.findByText("View Details"));
 
     // In-app viewer — no auto-download; generate-doc never hit.
     expect(await screen.findByTestId("local-doc-viewer")).toBeInTheDocument();
@@ -124,7 +142,7 @@ describe("#44/#45 PDF viewing: local open + background QBO fetch", () => {
     const user = userEvent.setup();
 
     renderNode(<QuickSendSheet job={bare} onClose={() => {}} />);
-    await user.click(await screen.findByText("View QuickBooks Invoice"));
+    await user.click(await screen.findByText("View File"));
 
     expect(await screen.findByText("Fetching from QuickBooks — a few seconds…")).toBeInTheDocument();
     const bar = document.querySelector('[aria-label="Document status"]');

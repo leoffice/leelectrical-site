@@ -1,4 +1,5 @@
 // Sheet — bottom sheet on mobile, centered modal on desktop (>=1024px).
+// max-height tracks the visual viewport so the keyboard never hides fields.
 import React, { useEffect } from "react";
 import { registerSheet } from "../lib/sheetRegistry.js";
 import { lockBodyScroll } from "../lib/scrollLock.js";
@@ -21,6 +22,12 @@ export default function Sheet({ title, onClose, children, wide, tall, testId, ur
     ? "bg-red-50/95 border border-red-200/60 animate-insp-heartbeat"
     : "bg-white";
 
+  // Keyboard-safe height: --vv-height is set by keepFocusedVisible.
+  // Mobile sheets use visual viewport so the keyboard never covers fields.
+  const maxHClass = tall
+    ? "max-h-[min(94vh,calc(var(--vv-height,100dvh)-0.5rem))] lg:max-h-[min(90vh,var(--vv-height,100dvh))]"
+    : "max-h-[min(88vh,calc(var(--vv-height,100dvh)-1rem))] lg:max-h-[min(80vh,var(--vv-height,100dvh))]";
+
   return (
     <div
       className="fixed inset-0 z-[60] flex items-end lg:items-center justify-center"
@@ -28,12 +35,14 @@ export default function Sheet({ title, onClose, children, wide, tall, testId, ur
       aria-modal="true"
       data-sheet
       data-testid={testId || undefined}
+      style={{
+        // Sit above the keyboard: pad bottom by keyboard inset on mobile.
+        paddingBottom: "var(--kb-inset, 0px)",
+      }}
     >
       <div className="absolute inset-0 bg-slate-900/45" onClick={onClose} data-sheet-dim />
       <div
-        className={`relative w-full mb-16 lg:mb-0 ${wide ? "lg:max-w-2xl" : "lg:max-w-lg"} ${
-          tall ? "max-h-[94vh] lg:max-h-[90vh]" : "max-h-[88vh] lg:max-h-[80vh]"
-        } ${cardShell} rounded-t-3xl lg:rounded-2xl shadow-2xl flex flex-col animate-[sheetup_.22s_ease-out]`}
+        className={`relative w-full mb-16 lg:mb-0 ${wide ? "lg:max-w-2xl" : "lg:max-w-lg"} ${maxHClass} ${cardShell} rounded-t-3xl lg:rounded-2xl shadow-2xl flex flex-col animate-[sheetup_.22s_ease-out]`}
       >
         <div className="lg:hidden w-10 h-1 rounded-full bg-slate-300 mx-auto mt-2.5" />
         <div className={`flex items-center gap-3 px-5 pt-3 pb-2.5 ${urgent ? "bg-red-500/10" : ""}`}>

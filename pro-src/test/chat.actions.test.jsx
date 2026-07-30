@@ -32,7 +32,7 @@ const mockLogScrollBox = (log, { scrollHeight = 2400, clientHeight = 200 } = {})
 const openChatAtBottom = async (srv) => {
   fireEvent.click(screen.getByTestId("chat-fab"));
   await waitFor(() => expect(screen.getByText("line 23")).toBeInTheDocument());
-  fireEvent.click(screen.getByLabelText("Close chat"));
+  fireEvent.click(screen.getByLabelText("Minimize chat"));
   fireEvent.click(screen.getByTestId("chat-fab"));
   await waitFor(() => expect(screen.getByTestId("chat-log")).toBeInTheDocument());
   const log = screen.getByTestId("chat-log");

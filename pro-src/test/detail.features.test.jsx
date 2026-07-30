@@ -118,9 +118,10 @@ describe("2. quick views — invoice/estimate/calendar sheets", () => {
     const pane = await openDetail();
 
     await user.click(within(pane).getByTestId("tab-invoice"));
-    expect(screen.getByText("View Local Invoice")).toBeInTheDocument();
-    expect(screen.getByText("View QuickBooks Invoice")).toBeInTheDocument();
-    await user.click(screen.getByText(/Send invoice only/));
+    expect(screen.getByText("View Invoice")).toBeInTheDocument();
+    expect(screen.getByText("View Details")).toBeInTheDocument();
+    expect(screen.getByText("View File")).toBeInTheDocument();
+    await user.click(screen.getByText(/Send Invoice Only/i));
     await user.click(await screen.findByTestId("doc-source-local"));
     // Confirm sheet before anything goes out
     expect(await screen.findByTestId("send-confirm-approve")).toBeInTheDocument();
@@ -151,8 +152,9 @@ describe("2. quick views — invoice/estimate/calendar sheets", () => {
     const pane = await openDetail();
 
     await user.click(within(pane).getByTestId("tab-estimate"));
-    expect(screen.getByText("View Local Estimate")).toBeInTheDocument();
-    expect(screen.getByText("View QuickBooks Estimate")).toBeInTheDocument();
+    expect(screen.getByText("View Estimate")).toBeInTheDocument();
+    expect(screen.getByText("View Details")).toBeInTheDocument();
+    expect(screen.getByText("View File")).toBeInTheDocument();
 
     await user.click(within(pane).getByTestId("tab-calendar"));
     expect(screen.getByTestId("open-gcal")).toBeInTheDocument();

@@ -90,10 +90,9 @@ describe("customer payment open + find invoice", () => {
     renderApp("#/job/J-draft-inv");
     const pane = await screen.findByTestId("detail-pane");
     await user.click(within(pane).getByTestId("tab-invoice"));
-    // Auto-heal may stamp Inv #; Sync + Edit stay available when QB docs are on.
-    expect(await screen.findByTestId("doc-draft-actions")).toBeInTheDocument();
-    expect(screen.getByTestId("doc-sync-qbo")).toHaveTextContent(/Sync to QuickBooks/i);
-    expect(screen.getByTestId("doc-edit")).toHaveTextContent(/Edit invoice/i);
+    // Auto-heal may stamp Inv #; Sync + Edit stay on the parallel action row when QB docs are on.
+    expect(await screen.findByTestId("doc-sync-qbo")).toHaveTextContent(/Sync to QuickBooks/i);
+    expect(screen.getByTestId("doc-edit")).toHaveTextContent(/^Edit$/i);
     await user.click(screen.getByTestId("doc-sync-qbo"));
     // Syncs in background — must NOT open create invoice builder
     await waitFor(() => {

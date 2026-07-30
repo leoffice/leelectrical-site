@@ -7,24 +7,48 @@ export function docKindLabel(kind) {
   return kind === "invoice" ? "invoice" : "estimate";
 }
 
+/** Expand condensed line-item summary (description, qty, amount). */
+export function viewExpandLabel(kind) {
+  return kind === "invoice" ? "View Invoice" : "View Estimate";
+}
+
+/** Full layout / PDF-style preview (snappy HTML or PDF). */
+export function viewDetailsLabel(_kind) {
+  return "View Details";
+}
+
+/** @deprecated use viewDetailsLabel — kept for older call sites during rename */
 export function viewLocalLabel(kind) {
-  return kind === "invoice" ? "View Local Invoice" : "View Local Estimate";
+  return viewDetailsLabel(kind);
+}
+
+/** Stored file / QuickBooks PDF. */
+export function viewFileLabel(_kind) {
+  return "View File";
 }
 
 export function viewQboLabel(kind) {
-  return kind === "invoice" ? "View QuickBooks Invoice" : "View QuickBooks Estimate";
+  return viewFileLabel(kind);
 }
 
 export function sendLocalLabel(kind, withPay) {
   const word = docKindLabel(kind);
-  if (kind === "invoice" && withPay) return "Send Local Invoice with Payment Link";
-  return "Send local " + word;
+  if (kind === "invoice" && withPay) return "Send with Payment Link";
+  if (kind === "invoice") return "Send Invoice Only";
+  return "Send " + word.charAt(0).toUpperCase() + word.slice(1);
 }
 
 export function sendQboLabel(kind, withPay) {
-  const word = docKindLabel(kind);
-  if (kind === "invoice" && withPay) return "Send QuickBooks Invoice with Payment Link";
-  return "Send QuickBooks " + word;
+  return sendLocalLabel(kind, withPay);
+}
+
+/** Short action-bar labels for the horizontal doc row. */
+export function sendPayLinkLabel() {
+  return "Send with Payment Link";
+}
+
+export function sendDocOnlyLabel(kind) {
+  return kind === "invoice" ? "Send Invoice Only" : "Send Estimate";
 }
 
 export function sourcePickerPrompt() {

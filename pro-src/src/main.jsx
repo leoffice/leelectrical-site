@@ -9,6 +9,10 @@ import { StoreProvider } from "./state/store.jsx";
 import { TenantProvider } from "./state/tenant.jsx";
 import "./index.css";
 import { checkForAppUpdate, watchServiceWorkerUpdates, watchForegroundUpdates } from "./lib/appUpdate.js";
+import { installKeepFocusedVisible } from "./lib/keepFocusedVisible.js";
+
+// Mobile keyboard: keep the focused email/message field on screen (no lag).
+installKeepFocusedVisible();
 
 /** Public customer pay page — no biometric/password gate. */
 function PayOrApp() {
