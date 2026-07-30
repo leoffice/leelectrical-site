@@ -280,11 +280,12 @@ export function StoreProvider({ children }) {
   const patchEmailInsight = useCallback(
     async (id, patch) => {
       if (!api.patchEmailInsight) return;
+      // Optimistic local patch so "Got it" / Ignore close instantly (Levi 2026-07-30).
+      setEmailInsights((prev) =>
+        (prev || []).map((x) => (String(x.id) === String(id) ? { ...x, ...patch } : x))
+      );
       try {
         await api.patchEmailInsight(id, patch);
-        setEmailInsights((prev) =>
-          (prev || []).map((x) => (String(x.id) === String(id) ? { ...x, ...patch } : x))
-        );
       } catch (e) {
         throw e;
       }
