@@ -230,11 +230,32 @@ function thanksRedirect(params) {
   return Response.redirect(`${THANKS}?${q}`, 302);
 }
 
-export default async (req) => {
+export default async (req, env = {}) => {
   if (req.method === "OPTIONS") {
     return new Response(JSON.stringify({ ok: true }), {
       headers: { "content-type": "application/json" },
     });
+  }
+
+  // Sola customer webhooks have no fleet identity → pass through.
+  // If a fleet agent posts here, enforce payment gate.
+  try {
+    const hasAgent =
+      req.headers?.get?.("x-le-agent-id") ||
+      req.headers?.get?.("X-LE-Agent-Id") ||
+      req.headers?.get?.("x-le-agent-key");
+    if (hasAgent) {
+      const { enforceAgentPaymentGate } = await import("./lib/agentPaymentGate.mjs");
+      const denied = await enforceAgentPaymentGate(req, {}, { op: "sola-payment", env });
+      if (denied) {
+        return new Response(JSON.stringify(denied.body), {
+          status: denied.status,
+          headers: { "content-type": "application/json" },
+        });
+      }
+    }
+  } catch {
+    /* human/webhook path continues */
   }
 
   const p = await parsePayload(req);

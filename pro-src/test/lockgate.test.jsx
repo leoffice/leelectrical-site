@@ -187,19 +187,16 @@ describe("LockGate", () => {
     expect(captured.signal?.aborted).toBe(true);
   });
 
-  it("keeps 'Have an agent code?' clickable while a WebAuthn request is pending and aborts it", async () => {
-    const user = userEvent.setup();
-    const captured = renderWithHangingBiometric();
+  it("no longer offers agent access codes on the lock screen (toggle model)", async () => {
+    renderWithHangingBiometric();
 
     await waitFor(() => expect(lock.biometricUnlock).toHaveBeenCalled());
     await waitFor(() => expect(screen.getByText("Waiting for device…")).toBeInTheDocument());
 
-    const useAgent = screen.getByTestId("lock-use-agent");
-    expect(useAgent).toBeEnabled();
-
-    await user.click(useAgent);
-    await waitFor(() => expect(screen.getByTestId("lock-agent-form")).toBeInTheDocument());
-    expect(captured.signal?.aborted).toBe(true);
+    expect(screen.queryByTestId("lock-use-agent")).toBeNull();
+    expect(screen.queryByTestId("lock-agent-form")).toBeNull();
+    // Password fallback still aborts the pending WebAuthn prompt.
+    expect(screen.getByTestId("lock-use-password")).toBeEnabled();
   });
 
   it("times out a hung 'Waiting for device…' and drops to the password view", async () => {

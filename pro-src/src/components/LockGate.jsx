@@ -2,15 +2,15 @@
 // BEFORE the app content mounts. Primary: device biometric (Face ID /
 // fingerprint) via the WebAuthn platform authenticator — prompted immediately
 // on a cold open only (reload → password first; camera blocked → password only).
-// Fallback: Supabase email + password. Agent access: one-time owner-minted code.
+// Fallback: Supabase email + password.
 // In-session grace keeps mid-session reloads from re-prompting; a fresh launch re-locks.
+// Agent access codes removed (toggle + fleet identity — AGENT_ACCESS_STANDARD).
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import {
   biometricSupported,
   biometricUnlock,
   hasEnrolledCredential,
   isSessionUnlocked,
-  markAgentUnlocked,
   markUnlocked,
   mediaPermissionDenied,
   passwordUnlock,
@@ -20,7 +20,6 @@ import {
 import { saveSession } from "../lib/session.js";
 import { getCompanyLogoSrc } from "../lib/appSettings.js";
 import { productName, tenantName } from "../lib/tenantBranding.js";
-import { redeemAgentAccess } from "../lib/agentAccessClient.js";
 import { DEMO, DEMO_CREDENTIALS } from "../lib/demoMode.js";
 
 // A pending native passkey prompt must never trap the user. If the device
@@ -36,12 +35,11 @@ export default function LockGate({ children }) {
   });
   const [bioAvail, setBioAvail] = useState(false);
   // Demo builds land straight on the password view with the login pre-filled.
-  const [mode, setMode] = useState(DEMO ? "password" : "biometric"); // "biometric" | "password" | "agent"
+  const [mode, setMode] = useState(DEMO ? "password" : "biometric"); // "biometric" | "password"
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState("");
   const [email, setEmail] = useState(DEMO ? DEMO_CREDENTIALS.email : "");
   const [password, setPassword] = useState(DEMO ? DEMO_CREDENTIALS.password : "");
-  const [agentCode, setAgentCode] = useState("");
 
   const enrolled = hasEnrolledCredential();
   const autoBioRan = useRef(false);
@@ -193,30 +191,6 @@ export default function LockGate({ children }) {
     [email, password, succeed]
   );
 
-  const runAgentCode = useCallback(
-    async (e) => {
-      e?.preventDefault?.();
-      setErr("");
-      setBusy(true);
-      try {
-        const result = await redeemAgentAccess(agentCode, { label: "agent" });
-        markAgentUnlocked({
-          token: result.token,
-          grantId: result.session?.grantId,
-          scope: result.session?.scope,
-          startedAt: result.session?.startedAt,
-          expiresAt: result.session?.expiresAt,
-          label: result.session?.label || "agent",
-        });
-        setUnlocked(true);
-      } catch (e2) {
-        setErr(e2?.message || "Code not accepted");
-      } finally {
-        setBusy(false);
-      }
-    },
-    [agentCode]
-  );
 
   if (unlocked) return children;
 
@@ -245,9 +219,7 @@ export default function LockGate({ children }) {
             ? enrolled
               ? "Confirm Face ID / fingerprint…"
               : "Set up Face ID / fingerprint…"
-            : mode === "agent"
-              ? "Agent access · enter the code from Settings"
-              : "Locked · unlock to continue"}
+            : "Locked · unlock to continue"}
         </p>
 
         {mode === "biometric" && bioAvail && (
@@ -279,18 +251,6 @@ export default function LockGate({ children }) {
               data-testid="lock-use-password"
             >
               Use password instead
-            </button>
-            <button
-              type="button"
-              onClick={() => {
-                abortBiometric();
-                setErr("");
-                setMode("agent");
-              }}
-              className="mt-3 text-sm text-white/70 underline underline-offset-2"
-              data-testid="lock-use-agent"
-            >
-              Have an agent code?
             </button>
           </div>
         )}
@@ -347,55 +307,6 @@ export default function LockGate({ children }) {
                 Use {enrolled ? "biometrics" : "Face ID / fingerprint"} instead
               </button>
             )}
-            <button
-              type="button"
-              onClick={() => {
-                setErr("");
-                setMode("agent");
-              }}
-              className="text-sm text-white/70 underline underline-offset-2 mt-1"
-              data-testid="lock-use-agent"
-            >
-              Have an agent code?
-            </button>
-          </form>
-        )}
-
-        {mode === "agent" && (
-          <form onSubmit={runAgentCode} className="w-full flex flex-col gap-3" data-testid="lock-agent-form">
-            <input
-              type="text"
-              inputMode="text"
-              autoComplete="one-time-code"
-              autoCapitalize="characters"
-              spellCheck={false}
-              placeholder="XXXX-XXXX"
-              value={agentCode}
-              onChange={(e) => setAgentCode(e.target.value.toUpperCase())}
-              className="w-full rounded-xl px-4 py-3.5 text-base text-slate-900 outline-none tracking-[0.2em] font-mono text-center"
-              data-testid="lock-agent-code"
-              required
-              maxLength={12}
-            />
-            <button
-              type="submit"
-              disabled={busy || !agentCode.trim()}
-              className="w-full rounded-xl bg-white text-brand font-extrabold px-4 py-3.5 text-base active:bg-white/90 disabled:opacity-50"
-              data-testid="lock-agent-submit"
-            >
-              {busy ? "Checking…" : "Enter with code"}
-            </button>
-            <button
-              type="button"
-              onClick={() => {
-                setErr("");
-                setMode("password");
-              }}
-              className="text-sm text-white/80 underline underline-offset-2 mt-1"
-              data-testid="lock-agent-back"
-            >
-              Back to password
-            </button>
           </form>
         )}
 

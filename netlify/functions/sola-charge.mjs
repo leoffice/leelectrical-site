@@ -108,7 +108,7 @@ async function solaSale(body) {
   return { ok: true, data };
 }
 
-export default async (req) => {
+export default async (req, env = {}) => {
   if (req.method === "OPTIONS") return json({ ok: true });
 
   if (req.method !== "POST") return json({ ok: false, error: "POST only" }, 405);
@@ -118,6 +118,29 @@ export default async (req) => {
     body = await req.json();
   } catch {
     return json({ ok: false, error: "Invalid JSON body" }, 400);
+  }
+
+  // Agent fleet identity: payments toggle + per-action confirm required.
+  // Human/owner (no fleet headers) unchanged. Processor secret never leaves server.
+  try {
+    const { enforceAgentPaymentGate } = await import("./lib/agentPaymentGate.mjs");
+    const denied = await enforceAgentPaymentGate(req, body, {
+      op: "sola-charge",
+      amount: body.principalAmount ?? body.amount,
+      ref: body.invoiceNo || body.jobId || null,
+      env,
+    });
+    if (denied) return json(denied.body, denied.status);
+  } catch {
+    const claim =
+      req.headers?.get?.("x-le-agent-id") ||
+      req.headers?.get?.("X-LE-Agent-Id") ||
+      body?.agentId ||
+      body?.agentToken ||
+      "";
+    if (claim) {
+      return json({ ok: false, error: "Could not verify agent payment access." }, 503);
+    }
   }
 
   const invoiceNo = String(body.invoiceNo || "").trim();
