@@ -6,6 +6,7 @@ import {
   emptyDoc,
   extendGrant,
   formatCode,
+  MAX_TTL_MS,
   mintGrant,
   normalizeCode,
   publicGrant,
@@ -14,6 +15,11 @@ import {
   revokeGrant,
   sha256Hex,
 } from "../../netlify/functions/lib/agentAccess.mjs";
+import {
+  AGENT_24H_LABEL,
+  AGENT_ACCESS_MAX_TTL_MS,
+  formatRemaining,
+} from "../src/lib/agentAccessClient.js";
 
 describe("agent access codes", () => {
   it("normalizes and formats codes", () => {
@@ -110,5 +116,79 @@ describe("agent access codes", () => {
     expect(ext.ok).toBe(true);
     expect(ext.doc.activeGrant.session.expiresAt).toBe(ext.doc.activeGrant.expiresAt);
     expect(ext.doc.activeGrant.expiresAt).toBeGreaterThan(redeemed.doc.activeGrant.expiresAt);
+  });
+
+  it("24h one-tap path mints exactly MAX_TTL_MS with agent-24h label", () => {
+    const now = 7_000_000_000_000;
+    // Client constant must match server MAX_TTL_MS (thin wrapper — no second clock).
+    expect(AGENT_ACCESS_MAX_TTL_MS).toBe(MAX_TTL_MS);
+    expect(AGENT_24H_LABEL).toBe("agent-24h");
+
+    const { doc, code, grant } = mintGrant(
+      emptyDoc(),
+      { ttlMs: MAX_TTL_MS, scope: "test", label: AGENT_24H_LABEL },
+      now
+    );
+    expect(code).toMatch(/^[A-Z0-9]{4}-[A-Z0-9]{4}$/);
+    expect(grant.expiresAt - grant.createdAt).toBe(MAX_TTL_MS);
+    expect(doc.activeGrant.ttlMs).toBe(MAX_TTL_MS);
+    expect(doc.activeGrant.label).toBe(AGENT_24H_LABEL);
+    expect(doc.activeGrant.scope).toBe("test");
+    expect(doc.audit[0].type).toBe("mint");
+    expect(doc.audit[0].note).toMatch(/1440 min/);
+  });
+
+  it("24h STOP (revoke) invalidates code immediately; redeem fails", () => {
+    const now = 8_000_000_000_000;
+    const { doc, code } = mintGrant(
+      emptyDoc(),
+      { ttlMs: MAX_TTL_MS, scope: "test", label: AGENT_24H_LABEL },
+      now
+    );
+    const revoked = revokeGrant(doc, now + 1000);
+    expect(revoked.revoked).toBe(true);
+    expect(revoked.doc.activeGrant).toBe(null);
+    expect(revoked.doc.audit[0].type).toBe("revoke");
+    const after = redeemGrant(revoked.doc, code, { label: "agent" }, now + 2000);
+    expect(after.ok).toBe(false);
+  });
+
+  it("24h auto-expire reports OFF and writes expire audit", () => {
+    const now = 9_000_000_000_000;
+    const { doc } = mintGrant(
+      emptyDoc(),
+      { ttlMs: MAX_TTL_MS, scope: "test", label: AGENT_24H_LABEL },
+      now
+    );
+    const expired = refreshGrantState(doc, now + MAX_TTL_MS + 1);
+    expect(expired.activeGrant).toBe(null);
+    expect(expired.audit[0].type).toBe("expire");
+  });
+
+  it("formatRemaining shows hours for long grants (status line)", () => {
+    expect(formatRemaining(23 * 60 * 60 * 1000 + 41 * 60 * 1000)).toBe("23h 41m");
+    expect(formatRemaining(MAX_TTL_MS)).toBe("24h");
+    expect(formatRemaining(30 * 60 * 1000)).toBe("30 min");
+  });
+
+  it("password safety — grant path never carries password/credential fields", () => {
+    const now = 10_000_000_000_000;
+    const { doc, code, grant } = mintGrant(
+      emptyDoc(),
+      { ttlMs: MAX_TTL_MS, scope: "full", label: AGENT_24H_LABEL },
+      now
+    );
+    const redeemed = redeemGrant(doc, code, { label: "israel" }, now + 1000);
+    expect(redeemed.ok).toBe(true);
+    const blobs = [
+      JSON.stringify(doc),
+      JSON.stringify(grant),
+      JSON.stringify(redeemed.session),
+      JSON.stringify(redeemed.doc),
+      JSON.stringify(publicGrant(redeemed.doc.activeGrant, now + 1000)),
+    ].join("\n");
+    expect(blobs).not.toMatch(/password/i);
+    expect(blobs).not.toMatch(/credential/i);
+    expect(blobs).not.toMatch(/passwd/i);
   });
 });

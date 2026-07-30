@@ -36,10 +36,12 @@ import {
   defaultZelleInstructions,
 } from "../lib/tenantBranding.js";
 import {
+  AGENT_ACCESS_MAX_TTL_MS,
   extendAgentAccess,
   fetchAgentAccessStatus,
   formatRemaining,
   mintAgentAccess,
+  mintAgentAccess24h,
   revokeAgentAccess,
 } from "../lib/agentAccessClient.js";
 import {
@@ -199,7 +201,14 @@ export default function Settings() {
   const [agentAudit, setAgentAudit] = useState([]);
   const [agentCodeShown, setAgentCodeShown] = useState("");
   const [agentTtlMin, setAgentTtlMin] = useState(30);
+  /** Custom mint scope (More options). Default full for power users. */
   const [agentScope, setAgentScope] = useState("full");
+  /**
+   * One-tap 24h scope — default narrowest ("test"). Opt-in to "full"
+   * with live-data warning (flagged to Levi for final default).
+   */
+  const [agent24Scope, setAgent24Scope] = useState("test");
+  const [agentMoreOpen, setAgentMoreOpen] = useState(false);
   const [agentBusy, setAgentBusy] = useState(false);
   const [agentNow, setAgentNow] = useState(Date.now());
   const [asstLicenses, setAsstLicenses] = useState([]);
@@ -427,6 +436,23 @@ export default function Settings() {
     }
   }, [agentScope, agentTtlMin, showToast]);
 
+  /** One-tap 24h ON: mint at server MAX_TTL_MS with label agent-24h. */
+  const grantAgent24h = useCallback(async () => {
+    setAgentBusy(true);
+    setAgentCodeShown("");
+    try {
+      const res = await mintAgentAccess24h({ scope: agent24Scope });
+      setAgentCodeShown(res.code || "");
+      setAgentGrant(res.grant || null);
+      setAgentAudit(Array.isArray(res.audit) ? res.audit : []);
+      showToast?.("24-hour agent code ready — share it once");
+    } catch (e) {
+      showToast?.(String(e.message || e));
+    } finally {
+      setAgentBusy(false);
+    }
+  }, [agent24Scope, showToast]);
+
   /** Refresh = add the chosen duration to the same code (keep code / session). */
   const extendAgent = useCallback(async () => {
     setAgentBusy(true);
@@ -460,6 +486,19 @@ export default function Settings() {
       setAgentBusy(false);
     }
   }, [showToast]);
+
+  /** Toggle ON mints 24h; OFF / STOP revokes immediately server-side. */
+  const onAgent24hToggle = useCallback(
+    async (wantOn) => {
+      if (wantOn) {
+        if (agentGrant) return; // already active
+        await grantAgent24h();
+      } else {
+        await revokeAgent();
+      }
+    },
+    [agentGrant, grantAgent24h, revokeAgent]
+  );
 
   const copyAgentCode = useCallback(async () => {
     if (!agentCodeShown) return;
@@ -617,16 +656,26 @@ export default function Settings() {
 
   const connOk =
     !!health?.calendar?.ok && !!health?.email?.ok && !!health?.cardEntry?.ok;
-  const agentRemain =
-    agentGrant &&
-    formatRemaining(
-      Math.max(
-        0,
-        (agentGrant.hasSession
-          ? agentGrant.sessionExpiresAt || agentGrant.expiresAt
-          : agentGrant.expiresAt || 0) - agentNow
-      )
-    );
+  const agentRemainMs =
+    agentGrant
+      ? Math.max(
+          0,
+          (agentGrant.hasSession
+            ? agentGrant.sessionExpiresAt || agentGrant.expiresAt
+            : agentGrant.expiresAt || 0) - agentNow
+        )
+      : 0;
+  const agentRemain = agentGrant ? formatRemaining(agentRemainMs) : null;
+  const agentAccessOn = !!agentGrant && agentRemainMs > 0 && !agentGrant.revokedAt;
+  const agentStatusLine = agentAccessOn
+    ? `ON · ${agentRemain} remaining${
+        agentGrant.hasSession
+          ? " · agent is in"
+          : agentGrant.used
+            ? " · code used"
+            : " · code waiting"
+      }`
+    : "OFF · no active access";
 
   return (
     <div className="max-w-2xl mx-auto p-3 sm:p-5 pb-28" data-testid="settings-page">
@@ -1315,173 +1364,279 @@ export default function Settings() {
 
       {/* ── Agent access (internal tenants only) ── */}
       {internal ? (
-      <MenuSection
-        id="agent"
-        title="Agent access"
-        summary={
-          agentGrant
-            ? agentGrant.hasSession
-              ? `Agent is in · ${agentRemain} left`
-              : agentGrant.used
-                ? "Code used · session ended"
-                : `Code waiting · ${agentRemain} left`
-            : "Time-boxed codes for agents"
-        }
-        open={openMenu.agent}
-        onToggle={() => toggleMenu("agent")}
-        badge={
-          agentGrant && !agentGrant.used ? (
-            <StatusPill ok label={agentRemain || "Active"} />
-          ) : agentGrant?.hasSession ? (
-            <StatusPill ok label="In" />
-          ) : null
-        }
-      >
-        <p className="text-xs text-slate-500 font-semibold mb-3">
-          One-time codes so an agent can unlock the app. Grant makes a new code. Refresh adds more
-          time to the same code.
-        </p>
-        <div className="flex flex-wrap gap-3 mb-3">
-          <label className="text-sm font-semibold text-slate-700">
-            Duration
-            <select
-              className={`${inputCls} mt-1 w-auto min-w-[7rem]`}
-              value={agentTtlMin}
-              onChange={(e) => setAgentTtlMin(Number(e.target.value))}
-              data-testid="agent-ttl"
+        <>
+          {/* Always-visible STOP strip while a grant is active (not buried in collapsed body) */}
+          {agentAccessOn ? (
+            <div
+              className="rounded-2xl border-2 border-red-200 bg-red-50 px-4 py-3 mb-3 flex flex-wrap items-center justify-between gap-3"
+              data-testid="agent-24h-active-banner"
             >
-              <option value={15}>15 min</option>
-              <option value={30}>30 min</option>
-              <option value={60}>1 hour</option>
-              <option value={120}>2 hours</option>
-              <option value={720}>12 hours</option>
-              <option value={1440}>24 hours</option>
-            </select>
-          </label>
-          <label className="text-sm font-semibold text-slate-700">
-            Scope
-            <select
-              className={`${inputCls} mt-1 w-auto min-w-[7rem]`}
-              value={agentScope}
-              onChange={(e) => setAgentScope(e.target.value)}
-              data-testid="agent-scope"
-            >
-              <option value="full">Full app</option>
-              <option value="test">Test / read</option>
-            </select>
-          </label>
-        </div>
-
-        {agentCodeShown ? (
-          <div
-            className="rounded-xl border-2 border-emerald-200 bg-emerald-50 px-4 py-3 mb-3"
-            data-testid="agent-code-panel"
-          >
-            <div className="text-[11px] font-extrabold uppercase tracking-wide text-emerald-800 mb-1">
-              Show this code once
-            </div>
-            <div className="text-2xl font-mono font-extrabold tracking-[0.2em] text-slate-900 text-center py-1">
-              {agentCodeShown}
-            </div>
-            <button
-              type="button"
-              onClick={copyAgentCode}
-              className="mt-2 w-full rounded-xl bg-emerald-700 text-white px-3 py-2 text-sm font-extrabold"
-            >
-              Copy code
-            </button>
-            <p className="text-xs text-emerald-900/80 font-semibold mt-2 text-center">
-              Agent enters it on the lock screen. Single-use · expires automatically.
-            </p>
-          </div>
-        ) : null}
-
-        {agentGrant && !agentCodeShown ? (
-          <div className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 mb-3 text-sm font-semibold text-slate-700">
-            {agentGrant.hasSession ? (
-              <span data-testid="agent-session-active">
-                Agent is in ·{" "}
-                {formatRemaining(
-                  Math.max(0, (agentGrant.sessionExpiresAt || agentGrant.expiresAt) - agentNow)
-                )}{" "}
-                left
-              </span>
-            ) : agentGrant.used ? (
-              <span>Code used · session ended or expired</span>
-            ) : (
-              <span data-testid="agent-grant-waiting">
-                Code waiting · {formatRemaining(Math.max(0, (agentGrant.expiresAt || 0) - agentNow))}{" "}
-                left
-              </span>
-            )}
-          </div>
-        ) : null}
-
-        <div className="flex flex-wrap gap-2">
-          <button
-            type="button"
-            disabled={agentBusy}
-            onClick={grantAgent}
-            className="rounded-xl bg-brand text-white px-4 py-2.5 text-sm font-extrabold disabled:opacity-50"
-            data-testid="agent-grant-btn"
-          >
-            {agentBusy ? "Working…" : "Grant agent access"}
-          </button>
-          <button
-            type="button"
-            disabled={agentBusy || !agentGrant}
-            onClick={extendAgent}
-            className="rounded-xl bg-sky-600 text-white px-4 py-2.5 text-sm font-extrabold disabled:opacity-40"
-            data-testid="agent-refresh-btn"
-            title="Add the selected duration to the same access code"
-          >
-            {agentBusy ? "Working…" : "Refresh"}
-          </button>
-          <button
-            type="button"
-            disabled={agentBusy || !agentGrant}
-            onClick={revokeAgent}
-            className="rounded-xl bg-slate-100 text-slate-800 px-4 py-2.5 text-sm font-extrabold disabled:opacity-40"
-            data-testid="agent-revoke-btn"
-          >
-            Revoke now
-          </button>
-        </div>
-        <p className="text-[11px] text-slate-500 font-semibold mt-2">
-          Refresh keeps the same code and adds the duration you picked (e.g. 31 min left + 24 hours).
-        </p>
-
-        {agentAudit.length > 0 ? (
-          <div className="mt-4">
-            <div className="text-[11px] font-extrabold uppercase tracking-wide text-slate-500 mb-2">
-              Access log
-            </div>
-            <ul className="space-y-1.5 max-h-40 overflow-y-auto" data-testid="agent-audit">
-              {agentAudit.slice(0, 12).map((row, i) => (
-                <li
-                  key={`${row.at}-${row.type}-${i}`}
-                  className="text-xs font-semibold text-slate-600 flex gap-2"
+              <div className="min-w-0">
+                <div className="text-[11px] font-extrabold uppercase tracking-wide text-red-800">
+                  Agent access
+                </div>
+                <div
+                  className="text-sm font-extrabold text-slate-900 mt-0.5"
+                  data-testid="agent-24h-status-live"
                 >
-                  <span className="text-slate-400 shrink-0 tabular-nums">
-                    {row.at
-                      ? new Date(row.at).toLocaleString(undefined, {
-                          month: "short",
-                          day: "numeric",
-                          hour: "numeric",
-                          minute: "2-digit",
-                        })
-                      : "—"}
+                  {agentStatusLine}
+                </div>
+              </div>
+              <button
+                type="button"
+                disabled={agentBusy}
+                onClick={revokeAgent}
+                className="rounded-xl bg-red-600 text-white px-5 py-2.5 text-sm font-extrabold disabled:opacity-50 shrink-0"
+                data-testid="agent-stop-btn"
+              >
+                {agentBusy ? "Stopping…" : "STOP"}
+              </button>
+            </div>
+          ) : null}
+
+          <MenuSection
+            id="agent"
+            title="Agent access"
+            summary={agentStatusLine}
+            open={openMenu.agent}
+            onToggle={() => toggleMenu("agent")}
+            badge={
+              agentAccessOn ? (
+                <StatusPill ok label={agentRemain || "ON"} />
+              ) : null
+            }
+          >
+            {/* One-tap 24-Hour Agent Access (primary) */}
+            <div
+              className="rounded-xl border border-slate-200 bg-slate-50/80 px-3 py-3 mb-3"
+              data-testid="agent-24h-panel"
+            >
+              <div className="flex items-center justify-between gap-3">
+                <div className="min-w-0">
+                  <div className="text-sm font-extrabold text-slate-900">24-Hour Agent Access</div>
+                  <div
+                    className="text-xs font-semibold text-slate-600 mt-0.5"
+                    data-testid="agent-24h-status"
+                  >
+                    {agentStatusLine}
+                  </div>
+                </div>
+                <Toggle
+                  on={agentAccessOn}
+                  onChange={onAgent24hToggle}
+                  label="24-Hour Agent Access"
+                  data-testid="agent-24h-toggle"
+                />
+              </div>
+              {!agentAccessOn ? (
+                <div className="mt-3 flex flex-wrap items-end gap-3">
+                  <label className="text-sm font-semibold text-slate-700">
+                    Scope for 24h grant
+                    <select
+                      className={`${inputCls} mt-1 w-auto min-w-[9rem]`}
+                      value={agent24Scope}
+                      onChange={(e) => setAgent24Scope(e.target.value)}
+                      data-testid="agent-24h-scope"
+                    >
+                      <option value="test">Test / read (default)</option>
+                      <option value="full">Full app (live data)</option>
+                    </select>
+                  </label>
+                </div>
+              ) : null}
+              {agent24Scope === "full" && !agentAccessOn ? (
+                <p
+                  className="text-[11px] font-semibold text-amber-800 mt-2"
+                  data-testid="agent-24h-full-warn"
+                >
+                  Full grants live-data access as you — only turn on when the agent must act on real
+                  customer/company data.
+                </p>
+              ) : null}
+              {agentAccessOn ? (
+                <button
+                  type="button"
+                  disabled={agentBusy}
+                  onClick={revokeAgent}
+                  className="mt-3 w-full rounded-xl bg-red-600 text-white px-4 py-2.5 text-sm font-extrabold disabled:opacity-50"
+                  data-testid="agent-stop-btn-inline"
+                >
+                  {agentBusy ? "Stopping…" : "STOP · revoke now"}
+                </button>
+              ) : null}
+            </div>
+
+            {agentCodeShown ? (
+              <div
+                className="rounded-xl border-2 border-emerald-200 bg-emerald-50 px-4 py-3 mb-3"
+                data-testid="agent-code-panel"
+              >
+                <div className="text-[11px] font-extrabold uppercase tracking-wide text-emerald-800 mb-1">
+                  Show this code once
+                </div>
+                <div className="text-2xl font-mono font-extrabold tracking-[0.2em] text-slate-900 text-center py-1">
+                  {agentCodeShown}
+                </div>
+                <button
+                  type="button"
+                  onClick={copyAgentCode}
+                  className="mt-2 w-full rounded-xl bg-emerald-700 text-white px-3 py-2 text-sm font-extrabold"
+                >
+                  Copy code
+                </button>
+                <p className="text-xs text-emerald-900/80 font-semibold mt-2 text-center">
+                  Agent enters it on the lock screen. Single-use · expires automatically.
+                </p>
+              </div>
+            ) : null}
+
+            {agentGrant && !agentCodeShown ? (
+              <div className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 mb-3 text-sm font-semibold text-slate-700">
+                {agentGrant.hasSession ? (
+                  <span data-testid="agent-session-active">
+                    Agent is in ·{" "}
+                    {formatRemaining(
+                      Math.max(0, (agentGrant.sessionExpiresAt || agentGrant.expiresAt) - agentNow)
+                    )}{" "}
+                    left
                   </span>
-                  <span>
-                    {row.type}
-                    {row.note ? ` · ${row.note}` : ""}
+                ) : agentGrant.used ? (
+                  <span>Code used · session ended or expired</span>
+                ) : (
+                  <span data-testid="agent-grant-waiting">
+                    Code waiting ·{" "}
+                    {formatRemaining(Math.max(0, (agentGrant.expiresAt || 0) - agentNow))} left
                   </span>
-                </li>
-              ))}
-            </ul>
-          </div>
-        ) : null}
-      </MenuSection>
+                )}
+              </div>
+            ) : null}
+
+            {/* Advanced controls — secondary; no regression */}
+            <div className="rounded-xl border border-slate-200 overflow-hidden mb-1">
+              <button
+                type="button"
+                onClick={() => setAgentMoreOpen((o) => !o)}
+                aria-expanded={agentMoreOpen}
+                className="w-full flex items-center justify-between gap-2 px-3 py-2.5 text-left hover:bg-slate-50"
+                data-testid="agent-more-options"
+              >
+                <span className="text-sm font-extrabold text-slate-800">More options</span>
+                <span
+                  className={`text-slate-400 text-[9px] transition-transform ${
+                    agentMoreOpen ? "rotate-90" : ""
+                  }`}
+                  aria-hidden
+                >
+                  ▶
+                </span>
+              </button>
+              {agentMoreOpen ? (
+                <div className="px-3 pb-3 border-t border-slate-100 pt-3">
+                  <p className="text-xs text-slate-500 font-semibold mb-3">
+                    Custom duration, scope, and extend. Grant makes a new code. Refresh adds more time
+                    to the same code.
+                  </p>
+                  <div className="flex flex-wrap gap-3 mb-3">
+                    <label className="text-sm font-semibold text-slate-700">
+                      Duration
+                      <select
+                        className={`${inputCls} mt-1 w-auto min-w-[7rem]`}
+                        value={agentTtlMin}
+                        onChange={(e) => setAgentTtlMin(Number(e.target.value))}
+                        data-testid="agent-ttl"
+                      >
+                        <option value={15}>15 min</option>
+                        <option value={30}>30 min</option>
+                        <option value={60}>1 hour</option>
+                        <option value={120}>2 hours</option>
+                        <option value={720}>12 hours</option>
+                        <option value={1440}>24 hours</option>
+                      </select>
+                    </label>
+                    <label className="text-sm font-semibold text-slate-700">
+                      Scope
+                      <select
+                        className={`${inputCls} mt-1 w-auto min-w-[7rem]`}
+                        value={agentScope}
+                        onChange={(e) => setAgentScope(e.target.value)}
+                        data-testid="agent-scope"
+                      >
+                        <option value="full">Full app</option>
+                        <option value="test">Test / read</option>
+                      </select>
+                    </label>
+                  </div>
+                  <div className="flex flex-wrap gap-2">
+                    <button
+                      type="button"
+                      disabled={agentBusy}
+                      onClick={grantAgent}
+                      className="rounded-xl bg-brand text-white px-4 py-2.5 text-sm font-extrabold disabled:opacity-50"
+                      data-testid="agent-grant-btn"
+                    >
+                      {agentBusy ? "Working…" : "Grant agent access"}
+                    </button>
+                    <button
+                      type="button"
+                      disabled={agentBusy || !agentGrant}
+                      onClick={extendAgent}
+                      className="rounded-xl bg-sky-600 text-white px-4 py-2.5 text-sm font-extrabold disabled:opacity-40"
+                      data-testid="agent-refresh-btn"
+                      title="Add the selected duration to the same access code"
+                    >
+                      {agentBusy ? "Working…" : "Refresh"}
+                    </button>
+                    <button
+                      type="button"
+                      disabled={agentBusy || !agentGrant}
+                      onClick={revokeAgent}
+                      className="rounded-xl bg-slate-100 text-slate-800 px-4 py-2.5 text-sm font-extrabold disabled:opacity-40"
+                      data-testid="agent-revoke-btn"
+                    >
+                      Revoke now
+                    </button>
+                  </div>
+                  <p className="text-[11px] text-slate-500 font-semibold mt-2">
+                    Refresh keeps the same code and adds the duration you picked (e.g. 31 min left + 24
+                    hours). Max duration is{" "}
+                    {Math.round(AGENT_ACCESS_MAX_TTL_MS / 3600000)}h.
+                  </p>
+                </div>
+              ) : null}
+            </div>
+
+            {agentAudit.length > 0 ? (
+              <div className="mt-4">
+                <div className="text-[11px] font-extrabold uppercase tracking-wide text-slate-500 mb-2">
+                  Access log
+                </div>
+                <ul className="space-y-1.5 max-h-40 overflow-y-auto" data-testid="agent-audit">
+                  {agentAudit.slice(0, 12).map((row, i) => (
+                    <li
+                      key={`${row.at}-${row.type}-${i}`}
+                      className="text-xs font-semibold text-slate-600 flex gap-2"
+                    >
+                      <span className="text-slate-400 shrink-0 tabular-nums">
+                        {row.at
+                          ? new Date(row.at).toLocaleString(undefined, {
+                              month: "short",
+                              day: "numeric",
+                              hour: "numeric",
+                              minute: "2-digit",
+                            })
+                          : "—"}
+                      </span>
+                      <span>
+                        {row.type}
+                        {row.note ? ` · ${row.note}` : ""}
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            ) : null}
+          </MenuSection>
+        </>
       ) : null}
 
       {/* ── Account ── */}
