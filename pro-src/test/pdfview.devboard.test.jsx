@@ -44,7 +44,7 @@ describe("invoice/estimate quick view — View PDF", () => {
     const user = userEvent.setup();
     const sheet = await openInvoiceSheet(user);
 
-    await user.click(within(sheet).getByText("View Local Invoice"));
+    await user.click(within(sheet).getByText("View Details"));
     // In-app viewer — no auto-download / new-tab open.
     expect(await screen.findByTestId("local-doc-viewer")).toBeInTheDocument();
     expect(screen.getByTestId("local-doc-frame")).toBeInTheDocument();
@@ -58,7 +58,7 @@ describe("invoice/estimate quick view — View PDF", () => {
     const user = userEvent.setup();
     const sheet = await openInvoiceSheet(user);
 
-    await user.click(within(sheet).getByText("View Local Invoice"));
+    await user.click(within(sheet).getByText("View Details"));
     expect(await screen.findByTestId("local-doc-viewer")).toBeInTheDocument();
     expect(screen.queryByText("Generating your PDF — a few seconds…")).toBeNull();
     expect(srv.calls.some((c) => c.path === "generate-doc")).toBe(false);
@@ -79,7 +79,7 @@ describe("invoice/estimate quick view — View PDF", () => {
     const pane = await screen.findByTestId("detail-pane");
     await user.click(within(pane).getByTestId("tab-invoice"));
     const sheet = screen.getByRole("dialog");
-    await user.click(within(sheet).getByText("View QuickBooks Invoice"));
+    await user.click(within(sheet).getByText("View File"));
     await screen.findByText("Fetching from QuickBooks — a few seconds…");
     srv.state.docs["inv-999001"] = "%PDF-1.4 fetched";
     await waitFor(() => expect(screen.getByTestId("local-doc-viewer")).toBeInTheDocument(), {

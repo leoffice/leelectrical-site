@@ -180,6 +180,12 @@ body {
   }
 }
 
+/* Keyboard-safe viewport (set by keepFocusedVisible.js; fallback = full height). */
+:root {
+  --vv-height: 100dvh;
+  --kb-inset: 0px;
+}
+
 /* Safe-area padding for the iOS home indicator (standalone PWA). */
 .pb-safe {
   padding-bottom: env(safe-area-inset-bottom, 0px);

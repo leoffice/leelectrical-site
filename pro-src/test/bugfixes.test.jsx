@@ -486,7 +486,7 @@ describe("bug 3 — Dispatch chat panel", () => {
     await user.click(screen.getByTestId("chat-fab"));
     await screen.findByText("anyone home?");
     expect(screen.getByTestId("chat-hint")).toHaveTextContent(
-      "Israel shares the same brain as @LE_Israel_bot"
+      /Same brain as Telegram Israel/i
     );
   });
 

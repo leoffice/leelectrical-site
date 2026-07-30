@@ -11,11 +11,15 @@ import "./index.css";
 import { checkForAppUpdate, watchServiceWorkerUpdates, watchForegroundUpdates } from "./lib/appUpdate.js";
 import { DEMO } from "./lib/demoMode.js";
 import { installDemoBackend } from "./demo/demoBackend.js";
+import { installKeepFocusedVisible } from "./lib/keepFocusedVisible.js";
 
 // DEMO / white-label TEST TENANT: intercept every backend call and serve a
 // synthetic, isolated store BEFORE any provider mounts or any fetch fires.
 // This is what guarantees a demo build can never reach real production data.
 if (DEMO) installDemoBackend();
+
+// Mobile keyboard: keep the focused email/message field on screen (no lag).
+installKeepFocusedVisible();
 
 /** Public customer pay page — no biometric/password gate. */
 function PayOrApp() {

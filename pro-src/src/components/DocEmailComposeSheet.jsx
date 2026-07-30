@@ -42,8 +42,12 @@ export default function DocEmailComposeSheet({
       data-testid="doc-email-sheet"
       role="dialog"
       aria-label="Sync and email"
+      style={{ paddingBottom: "var(--kb-inset, 0px)" }}
     >
-      <div className="bg-white rounded-2xl shadow-xl w-full max-w-md max-h-[90vh] overflow-y-auto p-4">
+      <div
+        className="bg-white rounded-2xl shadow-xl w-full max-w-md overflow-y-auto p-4"
+        style={{ maxHeight: "min(90vh, calc(var(--vv-height, 100dvh) - 1.5rem))" }}
+      >
         <div className="flex items-center justify-between mb-3">
           <h3 className="text-base font-extrabold text-slate-900">Sync &amp; Email</h3>
           <button
