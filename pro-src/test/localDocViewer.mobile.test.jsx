@@ -56,7 +56,7 @@ describe("LocalDocViewer mobile", () => {
     expect(viewer).toHaveAttribute("data-inline-pdf", "0");
     expect(screen.queryByTestId("local-doc-frame")).toBeNull();
     expect(screen.getByTestId("local-doc-native-panel")).toBeInTheDocument();
-    expect(screen.getByTestId("local-doc-open-native")).toHaveTextContent(/Open invoice/i);
+    expect(screen.getByTestId("local-doc-open-native")).toHaveTextContent(/^View$/i);
     // No auto-open — phones block it without a gesture.
     expect(click).not.toHaveBeenCalled();
 
@@ -94,7 +94,7 @@ describe("LocalDocViewer mobile", () => {
     expect(click.mock.calls.length).toBeGreaterThanOrEqual(1);
   });
 
-  it("desktop keeps the in-app iframe preview", () => {
+  it("desktop keeps the in-app iframe preview and portals above sheets", () => {
     vi.stubGlobal("navigator", {
       userAgent:
         "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
@@ -110,8 +110,34 @@ describe("LocalDocViewer mobile", () => {
         onClose={() => {}}
       />
     );
-    expect(screen.getByTestId("local-doc-viewer")).toHaveAttribute("data-inline-pdf", "1");
+    const viewer = screen.getByTestId("local-doc-viewer");
+    expect(viewer).toHaveAttribute("data-inline-pdf", "1");
+    expect(viewer).toHaveAttribute("data-portaled", "1");
+    expect(viewer.parentElement).toBe(document.body);
     expect(screen.getByTestId("local-doc-frame")).toBeInTheDocument();
     expect(screen.queryByTestId("local-doc-native-panel")).toBeNull();
+    expect(screen.getByTestId("local-doc-open-native-desktop")).toHaveTextContent(/View full page/i);
+  });
+
+  it("desktop View full page opens the native PDF path", async () => {
+    vi.stubGlobal("navigator", {
+      userAgent:
+        "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+      platform: "MacIntel",
+      maxTouchPoints: 0,
+    });
+    const click = stubPdfOpen();
+    const blob = new Blob(["%PDF-1.4 invoice"], { type: "application/pdf" });
+    render(
+      <LocalDocViewer
+        blob={blob}
+        title="Invoice #251825"
+        filename="Invoice-251825.pdf"
+        onClose={() => {}}
+      />
+    );
+    const user = userEvent.setup();
+    await user.click(screen.getByTestId("local-doc-open-native-desktop"));
+    expect(click.mock.calls.length).toBeGreaterThanOrEqual(1);
   });
 });

@@ -1,7 +1,10 @@
 // Full-screen in-app PDF viewer — view first, then download / share / close.
 // On iPhone/Android/Samsung Fold, iframe blob PDFs show a blank page + UUID;
 // use native open on a user tap (auto-open is blocked without a gesture).
+// Always portal to document.body so Sheet/modals never clip or undercut the
+// viewer on desktop (overflow + transform stacking contexts).
 import React, { useEffect, useMemo, useState } from "react";
+import { createPortal } from "react-dom";
 import {
   downloadPdfBlob,
   ensurePdfBlob,
@@ -115,14 +118,15 @@ export default function LocalDocViewer({ blob, url, title = "Document", filename
     }
   };
 
-  return (
+  const ui = (
     <div
-      className="fixed inset-0 z-[80] flex flex-col bg-slate-950"
+      className="fixed inset-0 z-[100] flex flex-col bg-slate-950"
       role="dialog"
       aria-modal="true"
       aria-label={title}
       data-testid="local-doc-viewer"
       data-inline-pdf={inlineOk ? "1" : "0"}
+      data-portaled="1"
     >
       <header className="flex items-center gap-2 px-3 pt-[max(0.5rem,env(safe-area-inset-top))] pb-2 bg-slate-900 border-b border-slate-700 shrink-0">
         <h2 className="flex-1 min-w-0 font-extrabold text-white text-sm truncate px-1">{title}</h2>
@@ -165,12 +169,25 @@ export default function LocalDocViewer({ blob, url, title = "Document", filename
       ) : null}
       <div className="flex-1 min-h-0 bg-slate-200 relative">
         {inlineOk && src ? (
-          <iframe
-            title={title}
-            src={src}
-            className="absolute inset-0 w-full h-full border-0 bg-white"
-            data-testid="local-doc-frame"
-          />
+          <>
+            <iframe
+              title={title}
+              src={src}
+              className="absolute inset-0 w-full h-full border-0 bg-white"
+              data-testid="local-doc-frame"
+            />
+            {/* Desktop escape hatch — same center View as phone when iframe is blank/cut off */}
+            <div className="absolute bottom-4 left-0 right-0 flex justify-center pointer-events-none px-4">
+              <button
+                type="button"
+                className="pointer-events-auto btn !py-2.5 px-6 bg-slate-900/90 text-white font-bold text-sm rounded-full shadow-lg"
+                onClick={onNativeOpen}
+                data-testid="local-doc-open-native-desktop"
+              >
+                View full page
+              </button>
+            </div>
+          </>
         ) : src || pdfBlob ? (
           <div
             className="absolute inset-0 flex flex-col items-center justify-center gap-4 p-6 text-center"
@@ -182,7 +199,7 @@ export default function LocalDocViewer({ blob, url, title = "Document", filename
             <div>
               <p className="text-base font-extrabold text-slate-900 mb-1">{title}</p>
               <p className="text-sm text-slate-600 max-w-xs mx-auto">
-                Phones and foldables can&apos;t preview PDFs inside the app — tap Open to view the full invoice on this device (works on iPhone and Android).
+                Phones and foldables can&apos;t preview PDFs inside the app — tap View to open the full document on this device (works on iPhone and Android).
               </p>
             </div>
             <button
@@ -191,7 +208,7 @@ export default function LocalDocViewer({ blob, url, title = "Document", filename
               onClick={onNativeOpen}
               data-testid="local-doc-open-native"
             >
-              Open invoice
+              View
             </button>
             <p className="text-xs text-slate-500">Or use Download / Share above</p>
           </div>
@@ -212,7 +229,7 @@ export default function LocalDocViewer({ blob, url, title = "Document", filename
             onClick={onNativeOpen}
             data-testid="local-doc-open-native-footer"
           >
-            Open invoice
+            View
           </button>
         ) : (
           <button
@@ -227,4 +244,10 @@ export default function LocalDocViewer({ blob, url, title = "Document", filename
       </div>
     </div>
   );
+
+  // Portal out of Sheet/modal trees so desktop never clips the viewer.
+  if (typeof document !== "undefined" && document.body) {
+    return createPortal(ui, document.body);
+  }
+  return ui;
 }
