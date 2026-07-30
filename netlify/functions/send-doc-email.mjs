@@ -1,5 +1,6 @@
 import { sendDocEmail } from "./lib/docEmail.mjs";
 import { sendStatementEmail } from "./lib/statementEmailServer.mjs";
+import { sendApplicationEmail } from "./lib/applicationEmail.mjs";
 
 function json(o, status = 200) {
   return new Response(JSON.stringify(o), {
@@ -9,7 +10,7 @@ function json(o, status = 200) {
       "cache-control": "no-store",
       "access-control-allow-origin": "*",
       "access-control-allow-methods": "POST,OPTIONS",
-      "access-control-allow-headers": "content-type",
+      "access-control-allow-headers": "content-type,authorization",
     },
   });
 }
@@ -27,7 +28,13 @@ export default async (req) => {
   }
 
   const kind = String(body.kind || "invoice").toLowerCase();
-  if (kind !== "invoice" && kind !== "estimate" && kind !== "statement") {
+  if (
+    kind !== "invoice" &&
+    kind !== "estimate" &&
+    kind !== "statement" &&
+    kind !== "application" &&
+    kind !== "agency"
+  ) {
     return json({ ok: false, error: "bad kind" }, 400);
   }
 
@@ -39,6 +46,23 @@ export default async (req) => {
   if (!email && !probe && !officeOnly) return json({ ok: false, error: "missing email" }, 400);
 
   try {
+    // Agency applications (Con Ed Form A, future forms) — full HTML + PDF, not invoice layout.
+    if (kind === "application" || kind === "agency") {
+      const result = await sendApplicationEmail({
+        to: email,
+        officeOnly,
+        probe,
+        pdfB64: body.pdfB64 || body.pdfBase64 || "",
+        filename: body.filename || "application.pdf",
+        subject: body.subject || "",
+        message: body.message || body.topMessage || "",
+        htmlBody: body.htmlBody || body.html || "",
+        job,
+        application: body.application || {},
+      });
+      return json(result, result.ok ? 200 : 502);
+    }
+
     // Statements are customer-level (no single job) — a self-contained branded
     // email carrying the client-generated statement PDF + per-invoice pay links.
     if (kind === "statement") {

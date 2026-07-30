@@ -9,7 +9,8 @@ import { jobCalendarLinkState } from "./calendarLink.js";
 // jobs.html ignores it and so do we; deep-merge saves keep it intact.)
 export const PAPER = {
   coned: {
-    nm: "🔌 Con Ed paperwork",
+    // "Con Edison progress" — enable toggle turns on meter-app fill + checklist (Dispatch 2026-07-30).
+    nm: "🔌 Con Edison progress",
     short: "ConEd",
     steps: [
       "Application submitted",

@@ -84,6 +84,7 @@ import {
   ReminderSheet,
 } from "../components/JobSheets.jsx";
 import CustomerComposeSheet from "../components/CustomerComposeSheet.jsx";
+import AgencyApplicationSheet from "../components/AgencyApplicationSheet.jsx";
 
 const CMD_TONES = {
   queued: "bg-slate-100 text-slate-500",
@@ -142,7 +143,6 @@ export default function JobDetail() {
     if (!job) return [];
     return sortJobs(carouselVisibleJobs(jobs, job));
   }, [job, jobs]);
-
   const addJobAtAddress = () => {
     if (!job) return;
     setSheet({ kind: "addJobAtAddress" });
@@ -845,6 +845,36 @@ export default function JobDetail() {
                                       ) : null}
                                     </div>
                                   )}
+                                  {/* Con Ed Form A fillable application (Phase 1) */}
+                                  {br.enabled && k === "coned" && (
+                                    <div className="py-1.5 space-y-1" data-testid="coned-app-cta">
+                                      <button
+                                        type="button"
+                                        className="btn bg-emerald-700 text-white w-full !py-2.5 text-sm font-bold min-h-[44px]"
+                                        onClick={() => setSheet({ kind: "conedApp" })}
+                                        data-testid="coned-fill-application"
+                                      >
+                                        {(br.application?.status === "submitted"
+                                          ? "View / resend Con Ed application"
+                                          : br.application?.answers
+                                            ? "Continue Con Ed application"
+                                            : "Fill Con Ed application") +
+                                          (br.application?.status === "submitted" ? " ✓" : "")}
+                                      </button>
+                                      {br.application?.status === "submitted" ? (
+                                        <p className="text-[11px] text-emerald-700 font-semibold px-0.5">
+                                          Application submitted
+                                          {br.application?.emailResult?.ok ? " · emailed" : ""}
+                                        </p>
+                                      ) : br.application?.updatedAt ? (
+                                        <p className="text-[11px] text-slate-500 px-0.5">Draft saved — resume anytime</p>
+                                      ) : (
+                                        <p className="text-[11px] text-slate-500 px-0.5">
+                                          Mobile-friendly Form A — emails the full application on submit
+                                        </p>
+                                      )}
+                                    </div>
+                                  )}
                                   {br.enabled &&
                                     PAPER[k].steps
                                       .filter((ps) => !(br.removed && br.removed[ps]))
@@ -1281,6 +1311,14 @@ export default function JobDetail() {
           step={sheet.step}
           initialDt={sheet.initialDt}
           onClose={() => setSheet(null)}
+        />
+      )}
+      {sheet?.kind === "conedApp" && (
+        <AgencyApplicationSheet
+          job={job}
+          agencyId="coned-form-a"
+          onClose={() => setSheet(null)}
+          onSave={(patch) => patchJob(id, patch)}
         />
       )}
       {sheet?.kind === "bubble" && sheet.bubble ? (

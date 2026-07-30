@@ -9,17 +9,23 @@
 //   iterate   nudges Dispatch to look at the message
 import { deepMerge, isPlainObject, mergeJobs } from "./merge.js";
 import { functionsBase } from "../lib/functionsBase.js";
+import { authHeader } from "../lib/session.js";
 import { buildInvoicePdfFromJob, buildEstimatePdfFromJob } from "../lib/invoicePdf.js";
 import { downloadPdfBlob } from "../lib/pdfOpen.js";
 import { docPdfFilename } from "../lib/jobToQbDoc.js";
 
 const base = functionsBase;
 
+/** Merge the signed-in user's bearer token into request headers (tenant isolation). */
+async function authedHeaders(extra) {
+  return { ...(extra || {}), ...(await authHeader()) };
+}
+
 async function http(path, body) {
   const res = await fetch(`${base()}/${path}`, {
     method: body ? "POST" : "GET",
     cache: "no-store",
-    headers: body ? { "content-type": "application/json" } : undefined,
+    headers: await authedHeaders(body ? { "content-type": "application/json" } : undefined),
     body: body ? JSON.stringify(body) : undefined,
   });
   if (!res.ok) throw new Error(`${path}: HTTP ${res.status}`);
@@ -31,7 +37,7 @@ async function httpAllowErrorBody(path, body) {
   const res = await fetch(`${base()}/${path}`, {
     method: body ? "POST" : "GET",
     cache: "no-store",
-    headers: body ? { "content-type": "application/json" } : undefined,
+    headers: await authedHeaders(body ? { "content-type": "application/json" } : undefined),
     body: body ? JSON.stringify(body) : undefined,
   });
   let data = null;
@@ -48,6 +54,33 @@ async function httpAllowErrorBody(path, body) {
 }
 
 const cb = () => "cb=" + Date.now();
+// ---- Conditional (ETag) GET for the big read-heavy blobs --------------------
+// jobsdata (~20 MB) and state are polled every 60s (plus focus + action
+// refreshes). The server tags each with an ETag off its write-ts; we hold the
+// last {etag, data} per path and send If-None-Match, so an unchanged blob comes
+// back as a bodyless 304 and we reuse the cached parse — turning a repeated
+// multi-MB transfer into a few bytes. NO cache-buster here (a unique URL would
+// defeat revalidation) and NO browser HTTP cache (cache:no-store) — we manage
+// the entity tag ourselves, which stays predictable across browsers and is
+// exercisable in tests. Correctness is unchanged: every poll still revalidates
+// against the server; 304 means the document is byte-identical to what we hold.
+const condCache = new Map(); // path -> { etag, data }
+async function httpConditional(path) {
+  const entry = condCache.get(path);
+  const res = await fetch(`${base()}/${path}`, {
+    method: "GET",
+    cache: "no-store",
+    headers: await authedHeaders(entry && entry.etag ? { "if-none-match": entry.etag } : undefined),
+  });
+  if (res.status === 304 && entry) return entry.data;
+  if (!res.ok) throw new Error(`${path}: HTTP ${res.status}`);
+  const data = await res.json();
+  const etag = res.headers && typeof res.headers.get === "function" ? res.headers.get("etag") : null;
+  if (etag) condCache.set(path, { etag, data });
+  return data;
+}
+
+
 
 /** Fields the send-doc-email server needs — drop heavy history/status blobs. */
 function pickJobForDocEmail(job) {
@@ -141,7 +174,7 @@ export function createNetlifyAdapter() {
 
     /** Merged view + sync metadata: jobsdata.jobs + state.ov (overlay wins). */
     async listJobsMeta() {
-      const [data, state] = await Promise.all([http(`jobsdata?${cb()}`), http(`state?${cb()}`)]);
+      const [data, state] = await Promise.all([httpConditional("jobsdata"), httpConditional("state")]);
       return {
         jobs: mergeJobs(data.jobs || [], (state && state.ov) || {}),
         syncedAt: data.syncedAt || 0,
@@ -190,6 +223,7 @@ export function createNetlifyAdapter() {
         const baseOv = (state && state.ov) || {};
         const ov = { ...baseOv };
         ov[id] = deepMerge(baseOv[id] || {}, patch || {});
+        if (String(id).charAt(0) !== "_") ov[id]._savedAt = Date.now();
         const res = await http("state", { ov });
         if (res && res.ts) {
           lastWriteTs = Math.max(lastWriteTs, res.ts);
@@ -203,7 +237,7 @@ export function createNetlifyAdapter() {
     },
 
     async listCommands(jobId) {
-      const d = await http(`command?${cb()}`);
+      const d = await httpConditional("command");
       const all = d.commands || [];
       return jobId == null ? all : all.filter((c) => String(c.jobId) === String(jobId));
     },
@@ -255,14 +289,17 @@ export function createNetlifyAdapter() {
      * rebuilding the PDF (big lag on retry).
      */
     async sendDocEmailNow(job, kind = "invoice", opts = {}) {
+      const isApplication = kind === "application" || kind === "agency";
       const no = kind === "invoice" ? job?.invoiceNo : job?.estimateNo;
       let pdfB64 = String(opts.pdfB64 || "").trim();
       let filename =
         String(opts.filename || "").trim() ||
-        docPdfFilename(kind, job, no) ||
-        `${kind}-${String(no || "document")}.pdf`;
+        (isApplication
+          ? "application.pdf"
+          : docPdfFilename(kind, job, no) || `${kind}-${String(no || "document")}.pdf`);
       try {
         if (!opts.probe && !pdfB64) {
+          if (isApplication) return { ok: false, error: "pdf_required" };
           const overrides = kind === "estimate" ? { kind: "estimate" } : {};
           if (opts.payUrl) overrides.payUrl = opts.payUrl;
           const blob =
@@ -279,11 +316,13 @@ export function createNetlifyAdapter() {
           kind,
           job: slimJob,
           email: String(opts.email || job?.email || "").trim(),
-          includePaymentLink: opts.includePaymentLink !== false,
+          includePaymentLink: isApplication ? false : opts.includePaymentLink !== false,
           pdfB64,
           filename,
           message: opts.message || opts.topMessage || "",
           subject: opts.subject || "",
+          htmlBody: opts.htmlBody || "",
+          application: opts.application || null,
           probe: !!opts.probe,
           officeOnly: !!opts.officeOnly,
         });
@@ -309,6 +348,7 @@ export function createNetlifyAdapter() {
     async getDoc(key) {
       const res = await fetch(`${base()}/docs?key=${encodeURIComponent(key)}&${cb()}`, {
         cache: "no-store",
+        headers: await authedHeaders(),
       });
       if (!res.ok) return null;
       const ct = (res.headers && res.headers.get && res.headers.get("content-type")) || "";
@@ -479,7 +519,7 @@ export function createNetlifyAdapter() {
     },
 
     async listEventsMeta() {
-      const d = await http(`calendar?${cb()}`);
+      const d = await httpConditional("calendar");
       return { events: d.events || [], syncedAt: d.syncedAt || 0, request: d.request || 0 };
     },
 
