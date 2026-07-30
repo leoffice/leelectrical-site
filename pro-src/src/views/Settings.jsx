@@ -13,6 +13,7 @@ import {
   mergeProfile,
   quickbooksDocFeature,
 } from "../lib/tenantProfile.js";
+import SignatureRegisterSheet from "../components/SignatureRegisterSheet.jsx";
 import { probeConnections } from "../lib/connectionHealth.js";
 import { logOff } from "../lib/lock.js";
 import {
@@ -189,6 +190,7 @@ export default function Settings() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [logoBusy, setLogoBusy] = useState(false);
+  const [sigSheetOpen, setSigSheetOpen] = useState(false);
   const [health, setHealth] = useState(null);
   const [healthBusy, setHealthBusy] = useState(false);
   const [calBusy, setCalBusy] = useState(false);
@@ -812,6 +814,19 @@ export default function Settings() {
               </div>
             </div>
           </div>
+        </Fld>
+        <Fld label="Signatures">
+          <p className="text-xs text-slate-500 font-semibold mb-2">
+            Draw or upload once — letters and the Con Ed application use the same signature for each signer.
+          </p>
+          <button
+            type="button"
+            className="rounded-xl bg-emerald-700 px-3 py-2.5 text-xs font-extrabold text-white"
+            onClick={() => setSigSheetOpen(true)}
+            data-testid="settings-signatures-open"
+          >
+            Manage signatures
+          </button>
         </Fld>
         <Fld label="Calendar account">
           <input
@@ -1485,6 +1500,18 @@ export default function Settings() {
           Log off
         </button>
       </MenuSection>
+
+      {sigSheetOpen ? (
+        <SignatureRegisterSheet
+          profile={profile}
+          onClose={() => setSigSheetOpen(false)}
+          onSave={(nextProfile) => {
+            setProfile(mergeProfile(nextProfile));
+            setDirty(true);
+            applyCompanyProfileToActiveConfig?.(mergeProfile(nextProfile));
+          }}
+        />
+      ) : null}
     </div>
   );
 }

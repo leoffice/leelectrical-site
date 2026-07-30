@@ -19,11 +19,19 @@ export {
 export {
   CONED_FORM_A,
   CONED_FORM_A_DEFAULT_EMAILS,
+  CONED_FORM_A_SOURCE_PDF,
   AGENCY_REGISTRY,
   getAgency,
   conedAgency,
   seedConedApplication,
 } from "./conedFormA.js";
+
+export {
+  CONED_UNIT_MAX_LEN,
+  abbreviateConedUnit,
+  clampConedUnit,
+  applyConedUnitInput,
+} from "./conedUnit.js";
 
 export {
   buildApplicationPdfBytes,

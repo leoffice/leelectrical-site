@@ -22,10 +22,11 @@ describe("letter product match", () => {
     expect(matchLetterType("7 Plans and Permits:Load Letter")?.id).toBe("load_letter");
   });
 
-  it("detects safety and equipment safety", () => {
-    expect(matchLetterType("Safety letter")?.id).toBe("safety");
-    expect(matchLetterType("Equipment safety check")?.id).toBe("equipment_safety");
-    expect(matchLetterType("Affidavit of work")?.id).toBe("affidavit");
+  it("detects grounded letter types from product names", () => {
+    expect(matchLetterType("Equipment safety check")?.id).toBe("equipment_safety_inspection");
+    expect(matchLetterType("Shared meter affidavit")?.id).toBe("shared_meter_affidavit");
+    expect(matchLetterType("Owner inspection request")?.id).toBe("owner_inspection_request");
+    expect(matchLetterType("Good standing letter")?.id).toBe("good_standing_request");
   });
 
   it("does not treat normal services as letters", () => {
@@ -41,22 +42,25 @@ describe("letter draft body", () => {
     apartment: "2B",
   };
 
-  it("builds load letter body from answers", () => {
+  it("builds load letter body from answers (amp-probe sample style)", () => {
     const type = LETTER_TYPES.find((t) => t.id === "load_letter");
     const body = buildLetterBody(
       type,
       {
-        ownerName: "Owner Co",
-        existingService: "200 A, 1Ø, 120/240 V",
-        proposedWork: "Add EV charger",
-        conclusion: "Service is adequate.",
+        county: "Brooklyn",
+        state: "New York",
+        address: "100 Main St, Brooklyn, NY",
+        breakerRating: "40Amp double pole fuse per apartment",
+        phaseA: "3.72",
+        phaseB: "3.98",
+        capacityPct: "10%–12%",
       },
       job
     );
     expect(body).toMatch(/100 Main St/);
-    expect(body).toMatch(/200 A/);
-    expect(body).toMatch(/EV charger/);
-    expect(body).toMatch(/Service is adequate/);
+    expect(body).toMatch(/3\.72/);
+    expect(body).toMatch(/40Amp/);
+    expect(body).toMatch(/10%/);
   });
 
   it("createLetterDraft seeds site + RE line", () => {
@@ -67,9 +71,12 @@ describe("letter draft body", () => {
       lineIndex: 0,
       itemName: "7 Plans and Permits:Load Letter",
       answers: {
-        recipient: "Electrical Subcode Official",
-        existingService: "200 A",
-        proposedWork: "Panel upgrade",
+        county: "Kings",
+        state: "New York",
+        address: "100 Main St, Brooklyn, NY",
+        breakerRating: "200 A",
+        phaseA: "10",
+        phaseB: "12",
       },
     });
     expect(d.status).toBe("draft");

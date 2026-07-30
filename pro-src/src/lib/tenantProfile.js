@@ -51,6 +51,29 @@ export const DEFAULT_PROFILE = {
    */
   depositBanks: ["Martin Dorkin", "Wells Fargo", "BLZ Chase"],
 
+  // White-label letter / form surface (letters skill + Con Ed Form A)
+  companyNameVariants: ["BLZ Electric Inc.", "BLZ Electric", "LE Electrical"],
+  county: "Kings",
+  state: "NY",
+  ein: "11-2776676",
+  dosId: "",
+  defaultSignerName: "Levi Kumer",
+  defaultSignerTitle: "President",
+  /** @type {Array<{id:string,fullName:string,title?:string,isDefaultSigner?:boolean,personalEmail?:string,personalPhone?:string,signatureId?:string}>} */
+  owners: [
+    {
+      id: "owner-levi",
+      fullName: "Levi Kumer",
+      title: "President",
+      isDefaultSigner: true,
+      personalEmail: "6140913@gmail.com",
+      personalPhone: "219-2140913",
+      signatureId: "",
+    },
+  ],
+  /** @type {Array<{id:string,ownerId:string,label?:string,dataUrl?:string,r2Key?:string,active?:boolean,createdAt?:number}>} */
+  signatures: [],
+
   /**
    * AIA G702/G703 requisition billing block. Intentionally its own set of
    * values — LE's requisitions go out under "LE Electrical" with a Suite 297
@@ -225,6 +248,39 @@ export function mergeProfile(raw) {
     }
   }
   p.depositBanks = normalizeDepositBanks(p.depositBanks);
+  // Owners + signatures (white-label letters / Con Ed Part E)
+  if (!Array.isArray(p.owners) || !p.owners.length) {
+    p.owners = Array.isArray(DEFAULT_PROFILE.owners) ? DEFAULT_PROFILE.owners.map((o) => ({ ...o })) : [];
+  } else {
+    p.owners = p.owners.map((o, i) => ({
+      id: o?.id || "owner-" + i,
+      fullName: String(o?.fullName || "").trim(),
+      title: o?.title || "President",
+      isDefaultSigner: !!o?.isDefaultSigner,
+      personalEmail: o?.personalEmail || "",
+      personalPhone: o?.personalPhone || "",
+      signatureId: o?.signatureId || "",
+    }));
+  }
+  if (!p.owners.some((o) => o.isDefaultSigner) && p.owners[0]) p.owners[0].isDefaultSigner = true;
+  p.signatures = Array.isArray(p.signatures)
+    ? p.signatures.filter((s) => s && (s.dataUrl || s.r2Key)).map((s, i) => ({
+        id: s.id || "sig-" + i,
+        ownerId: s.ownerId || "",
+        label: s.label || "",
+        dataUrl: s.dataUrl || "",
+        r2Key: s.r2Key || "",
+        active: s.active !== false,
+        createdAt: s.createdAt || 0,
+      }))
+    : [];
+  if (!Array.isArray(p.companyNameVariants)) p.companyNameVariants = [...(DEFAULT_PROFILE.companyNameVariants || [])];
+  if (!p.county) p.county = DEFAULT_PROFILE.county || "";
+  if (!p.state) p.state = DEFAULT_PROFILE.state || "NY";
+  if (p.ein == null) p.ein = DEFAULT_PROFILE.ein || "";
+  if (p.dosId == null) p.dosId = DEFAULT_PROFILE.dosId || "";
+  if (!p.defaultSignerName) p.defaultSignerName = DEFAULT_PROFILE.defaultSignerName || "";
+  if (!p.defaultSignerTitle) p.defaultSignerTitle = DEFAULT_PROFILE.defaultSignerTitle || "President";
   return p;
 }
 

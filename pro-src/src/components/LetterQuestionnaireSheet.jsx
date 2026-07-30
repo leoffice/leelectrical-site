@@ -10,6 +10,8 @@ import {
 } from "../lib/letterDraft.js";
 import { buildLetterheadPdfBlob, letterPdfFileName } from "../lib/letterheadPdf.js";
 import { downloadPdfBlob, openPdfBlob } from "../lib/pdfOpen.js";
+import { ownersFromProfile } from "../lib/signatureService.js";
+import { activeTenantConfig } from "../lib/tenantBranding.js";
 
 export default function LetterQuestionnaireSheet({
   job,
@@ -182,6 +184,30 @@ export default function LetterQuestionnaireSheet({
         </p>
       ) : null}
 
+      {(() => {
+        const owners = ownersFromProfile(activeTenantConfig()?.profile);
+        if (!owners.length) return null;
+        return (
+          <Fld label="Signer">
+            <select
+              className="input"
+              value={draft.ownerId || owners.find((o) => o.isDefaultSigner)?.id || owners[0].id}
+              onChange={(e) =>
+                setDraft((d) => refreshLetterDraft(d, { ownerId: e.target.value, job }))
+              }
+              data-testid="letter-signer"
+            >
+              {owners.map((o) => (
+                <option key={o.id} value={o.id}>
+                  {o.fullName}
+                  {o.title ? ` — ${o.title}` : ""}
+                </option>
+              ))}
+            </select>
+          </Fld>
+        );
+      })()}
+
       <Fld label="RE line">
         <input
           className="input"
@@ -201,9 +227,24 @@ export default function LetterQuestionnaireSheet({
               placeholder={f.placeholder || ""}
               data-testid={"letter-field-" + f.key}
             />
+          ) : f.type === "select" ? (
+            <select
+              className="input"
+              value={draft.answers?.[f.key] || ""}
+              onChange={(e) => setAnswer(f.key, e.target.value)}
+              data-testid={"letter-field-" + f.key}
+            >
+              <option value="">Select…</option>
+              {(f.options || []).map((opt) => (
+                <option key={opt} value={opt}>
+                  {opt}
+                </option>
+              ))}
+            </select>
           ) : (
             <input
               className="input"
+              type={f.type === "email" || f.type === "tel" || f.type === "date" ? f.type : "text"}
               value={draft.answers?.[f.key] || ""}
               onChange={(e) => setAnswer(f.key, e.target.value)}
               placeholder={f.placeholder || ""}

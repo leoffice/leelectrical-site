@@ -33,12 +33,20 @@ describe("agency form engine", () => {
     expect(visibleFields(gasStep, { servicesRequested: ["Electric", "Gas"] }).length).toBeGreaterThan(0);
   });
 
-  it("hides mailing address when same as service", () => {
-    const step = CONED_FORM_A.steps.find((s) => s.id === "part-a-mailing");
-    const hidden = visibleFields(step, { mailingSame: true });
-    expect(hidden.every((f) => f.key === "mailingSame")).toBe(true);
+  it("billing step has service=billing one-tap and hides extra mailing when same", () => {
+    const step = CONED_FORM_A.steps.find((s) => s.id === "part-a-billing");
+    expect(step).toBeTruthy();
+    const keys = visibleFields(step, { serviceSameAsBilling: true, mailingSame: true }).map((f) => f.key);
+    expect(keys).toContain("serviceSameAsBilling");
+    expect(keys).toContain("billingAddress");
+    expect(keys).not.toContain("mailingAddress");
     const shown = visibleFields(step, { mailingSame: false });
     expect(shown.some((f) => f.key === "mailingAddress")).toBe(true);
+  });
+
+  it("points at the real Form A source and office-only submit", () => {
+    expect(String(CONED_FORM_A.sourceForm || "")).toMatch(/coned-application-for-service/);
+    expect(CONED_FORM_A.humanPortalSubmit).toBe(true);
   });
 
   it("toggleMulti updates checkbox groups", () => {
@@ -68,6 +76,10 @@ describe("agency form engine", () => {
       customerType: "Residential",
       idType: "SSN",
       idNumber: "xxx",
+      billingAddress: "1 Test St",
+      billingCity: "Brooklyn",
+      billingZip: "11201",
+      serviceSameAsBilling: true,
       serviceAddress: "1 Test St",
       serviceCity: "Brooklyn",
       serviceZip: "11201",
@@ -76,11 +88,6 @@ describe("agency form engine", () => {
       email: "j@example.com",
       controlsAccess: true,
       servicesRequested: ["Electric"],
-      dateResponsible: "2026-07-30",
-      useMix: "Residence only",
-      electricUse: "residence",
-      publicAssembly: "No",
-      taxStatus: "Taxable",
       submittedByName: "Jane Doe",
       affiliation: "Owner",
       signatureName: "Jane Doe",

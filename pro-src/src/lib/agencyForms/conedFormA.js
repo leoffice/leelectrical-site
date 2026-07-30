@@ -1,12 +1,25 @@
 /**
  * Con Edison Form A — Application for Service
  * (PSC No. 10 – Electricity; residential & nonresidential).
- * Modeled for LE Pro meter application intake. Field list can be tightened
- * when Levi drops the exact PDF he wants mirrored.
+ *
+ * SOURCE FILE (Levi 2026-07-30): BLZ company file
+ *   "application-for-service.pdf" (Form A). Shipped as
+ *   /forms/coned-application-for-service.pdf for reference.
+ * Phase-1 fills FIRST PAGE (Part A — New Account Info) + Part E signature.
+ * Parts B–D stay optional extras. Final Con Ed portal submit is HUMAN-only;
+ * app emails the finished application to the office/contact (NOT Con Ed).
  */
 import { buildApplicationDraft } from "./engine.js";
+import { CONED_UNIT_MAX_LEN } from "./conedUnit.js";
 
-/** Default LE office copy until Levi confirms Con Ed intake address. */
+/** Real Form A PDF packaged with the app (page-1 source). */
+export const CONED_FORM_A_SOURCE_PDF = "/forms/coned-application-for-service.pdf";
+
+/**
+ * Destination for completed applications = office / contact copy only.
+ * There is NO public Con Ed email intake for new applications (Dispatch research).
+ * Portal submit stays a human step. Never auto-login with Levi's password.
+ */
 export const CONED_FORM_A_DEFAULT_EMAILS = ["office@leelectrical.us"];
 
 /**
@@ -16,11 +29,14 @@ export const CONED_FORM_A = {
   id: "coned-form-a",
   label: "Con Edison — Application for Service",
   description:
-    "Form A application for new electric (and optional gas) service. Fill on phone or desktop; we email the full application on submit.",
+    "Form A (application-for-service) — fill the first page (customer + service address), sign, then email the finished application to the office. You still submit in the Con Ed portal by hand — the app never logs into Con Ed for you.",
+  sourceForm: CONED_FORM_A_SOURCE_PDF,
+  firstPageOnly: true,
+  humanPortalSubmit: true,
   formTitle: "Con Edison Form A — Application for Service",
   submitEmailDefault: CONED_FORM_A_DEFAULT_EMAILS,
   seedFromJob(job = {}) {
-    const addr = String(job.serviceAddress || job.address || "").trim();
+    const addr = String(job.serviceAddress || job.address || job.billingAddress || "").trim();
     const parts = addr.split(",").map((s) => s.trim()).filter(Boolean);
     const line1 = parts[0] || addr;
     let city = "";
@@ -31,15 +47,28 @@ export const CONED_FORM_A = {
       if (zm) zip = zm[1];
       city = parts.length >= 3 ? parts[parts.length - 2] : parts[1].replace(/\b\d{5}(?:-\d{4})?\b/, "").trim();
     }
+    const billingLine = String(job.billingAddress || job.billToAddress || line1).trim();
+    const email = String(
+      job.email || job.customerEmail || job.contactEmail || job.primaryEmail || ""
+    ).trim();
     return {
-      accountName: String(job.customer || job.customerName || job.displayName || "").trim(),
+      accountName: String(job.customer || job.customerName || job.displayName || job.personName || "").trim(),
+      // Billing first (customer priority); service copies billing by default
+      billingAddress: billingLine || line1,
+      billingCity: city || "Brooklyn",
+      billingZip: zip,
+      billingUnit: String(job.billingUnit || job.apartment || job.unit || "").trim().slice(0, CONED_UNIT_MAX_LEN),
+      serviceSameAsBilling: true,
       serviceAddress: line1,
       serviceCity: city || "Brooklyn",
       serviceZip: zip,
-      phone: String(job.phone || job.customerPhone || "").trim(),
-      email: String(job.email || job.customerEmail || "").trim(),
+      serviceUnit: String(job.apartment || job.unit || "").trim().slice(0, CONED_UNIT_MAX_LEN),
+      phone: String(job.phone || job.customerPhone || job.primaryPhone || "").trim(),
+      email,
+      emailFromContact: email,
       servicesRequested: ["Electric"],
       electricUse: "residence",
+      mailingSame: true,
     };
   },
   steps: [
@@ -101,28 +130,32 @@ export const CONED_FORM_A = {
       id: "part-a-service-address",
       title: "Part A — Service address",
       shortTitle: "Service addr",
-      intro: "Where the meter / service will be.",
+      intro: "Where the meter / service will be. Leave the one-tap on if it matches billing.",
       fields: [
         {
           key: "serviceAddress",
           label: "Street address",
           type: "text",
           required: true,
+          when: (a) => !a.serviceSameAsBilling,
           placeholder: "Street number and name",
           autoComplete: "street-address",
         },
         {
           key: "serviceUnit",
-          label: "Room / floor / apt",
+          label: "Room / Floor / Office # / Apartment #",
           type: "text",
-          placeholder: "Apt, suite, floor",
+          placeholder: "apt1, fl3, ste2 (max 6)",
           autoComplete: "address-line2",
+          maxLength: CONED_UNIT_MAX_LEN,
+          hint: "Con Ed rejects long unit text — we shorten apartment/floor words the first time; if you retype, we leave it as you wrote it.",
         },
         {
           key: "serviceCity",
           label: "Town / city",
           type: "text",
           required: true,
+          when: (a) => !a.serviceSameAsBilling,
           placeholder: "Brooklyn",
           autoComplete: "address-level2",
         },
@@ -131,6 +164,7 @@ export const CONED_FORM_A = {
           label: "ZIP",
           type: "text",
           required: true,
+          when: (a) => !a.serviceSameAsBilling,
           placeholder: "11201",
           inputMode: "numeric",
           autoComplete: "postal-code",
@@ -138,21 +172,59 @@ export const CONED_FORM_A = {
       ],
     },
     {
-      id: "part-a-mailing",
-      title: "Part A — Mailing address",
-      shortTitle: "Mailing",
+      id: "part-a-billing",
+      title: "Part A — Billing address",
+      shortTitle: "Billing",
+      intro: "Customer billing address is the priority. One tap copies it into the service address.",
       fields: [
         {
+          key: "billingAddress",
+          label: "Billing street",
+          type: "text",
+          required: true,
+          placeholder: "Where bills should go",
+          autoComplete: "street-address",
+        },
+        {
+          key: "billingUnit",
+          label: "Billing unit (Room/Floor/Apt #)",
+          type: "text",
+          placeholder: "apt1, fl3 (max 6)",
+          maxLength: CONED_UNIT_MAX_LEN,
+          hint: "Short form only — Con Ed portal max ~6 characters.",
+        },
+        {
+          key: "billingCity",
+          label: "Billing city",
+          type: "text",
+          required: true,
+          autoComplete: "address-level2",
+        },
+        {
+          key: "billingZip",
+          label: "Billing ZIP",
+          type: "text",
+          required: true,
+          inputMode: "numeric",
+          autoComplete: "postal-code",
+        },
+        {
+          key: "serviceSameAsBilling",
+          label: "Service address = billing address",
+          type: "checkbox",
+          hint: "One tap — copies billing into the service fields.",
+        },
+        {
           key: "mailingSame",
-          label: "Mailing address same as service",
+          label: "Also use billing for Con Ed bill mail",
           type: "checkbox",
         },
         {
           key: "mailingAddress",
-          label: "Mailing street",
+          label: "Mailing street (if different)",
           type: "text",
           when: (a) => !a.mailingSame,
-          placeholder: "If different from service",
+          placeholder: "If Con Ed bills go somewhere else",
         },
         {
           key: "mailingCity",
@@ -200,9 +272,10 @@ export const CONED_FORM_A = {
           label: "Email",
           type: "email",
           required: true,
-          placeholder: "name@example.com",
+          placeholder: "Pulled from contact — change if needed",
           inputMode: "email",
           autoComplete: "email",
+          hint: "Auto-filled from the job/contact. Override anytime.",
         },
       ],
     },
@@ -244,14 +317,13 @@ export const CONED_FORM_A = {
           key: "servicesRequested",
           label: "Service(s) requested",
           type: "checkboxes",
-          required: true,
           options: ["Electric", "Gas"],
+          hint: "Optional extra (not first page). Defaults to Electric.",
         },
         {
           key: "dateResponsible",
           label: "Date responsible for account",
           type: "date",
-          required: true,
         },
       ],
     },
@@ -264,7 +336,6 @@ export const CONED_FORM_A = {
           key: "useMix",
           label: "Use of premises",
           type: "radio",
-          required: true,
           options: ["Residence only", "Business only", "Mixed residence + business"],
         },
         {
@@ -280,7 +351,6 @@ export const CONED_FORM_A = {
           key: "electricUse",
           label: "Electric use best describes",
           type: "select",
-          required: true,
           options: [
             "residence",
             "store",
@@ -324,7 +394,6 @@ export const CONED_FORM_A = {
           key: "publicAssembly",
           label: "Building of public assembly",
           type: "radio",
-          required: true,
           options: ["No", "Yes"],
         },
       ],
@@ -392,7 +461,6 @@ export const CONED_FORM_A = {
           key: "taxStatus",
           label: "Sales-tax status",
           type: "radio",
-          required: true,
           options: ["Taxable", "Exempt"],
         },
         {
@@ -497,7 +565,15 @@ export function seedConedApplication(job, existing) {
     seeded.dateResponsible = new Date().toISOString().slice(0, 10);
   }
   if (seeded.mailingSame == null) seeded.mailingSame = true;
+  if (seeded.serviceSameAsBilling == null) seeded.serviceSameAsBilling = true;
   if (seeded.controlsAccess == null) seeded.controlsAccess = true;
+  // When service = billing, mirror billing into service fields for PDF rows
+  if (seeded.serviceSameAsBilling) {
+    if (seeded.billingAddress) seeded.serviceAddress = seeded.billingAddress;
+    if (seeded.billingCity) seeded.serviceCity = seeded.billingCity;
+    if (seeded.billingZip) seeded.serviceZip = seeded.billingZip;
+    if (seeded.billingUnit != null && seeded.billingUnit !== "") seeded.serviceUnit = seeded.billingUnit;
+  }
   return buildApplicationDraft({
     agencyId: CONED_FORM_A.id,
     answers: seeded,

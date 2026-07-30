@@ -20,6 +20,8 @@ import {
   buildApplicationPdfBlob,
   applicationPdfFileName,
   blobToBase64,
+  applyConedUnitInput,
+  CONED_FORM_A_SOURCE_PDF,
 } from "../lib/agencyForms/index.js";
 import { openPdfBlob, downloadPdfBlob } from "../lib/pdfOpen.js";
 
@@ -73,9 +75,53 @@ export default function AgencyApplicationSheet({ job, agencyId = "coned-form-a",
   useEffect(() => () => saveTimer.current && clearTimeout(saveTimer.current), []);
 
   const updateAnswer = (key, value) => {
+    let nextAnswers = setAns(answers, key, value);
+
+    // Con Ed unit field: first pass auto-abbreviates; second correction is left alone.
+    if (key === "serviceUnit" || key === "billingUnit") {
+      const flagAuto = key + "AutoApplied";
+      const flagUser = key + "UserCorrected";
+      const unit = applyConedUnitInput({
+        prevValue: answers[key] || "",
+        nextValue: value,
+        alreadyAutoApplied: !!answers[flagAuto],
+        userCorrected: !!answers[flagUser],
+      });
+      nextAnswers = {
+        ...nextAnswers,
+        [key]: unit.value,
+        [flagAuto]: unit.autoApplied || !!answers[flagAuto],
+        [flagUser]: unit.userCorrected || !!answers[flagUser],
+      };
+    }
+
+    // One-tap: service address = billing address (copies billing → service).
+    if (key === "serviceSameAsBilling" && value) {
+      nextAnswers = {
+        ...nextAnswers,
+        serviceAddress: nextAnswers.billingAddress || answers.billingAddress || answers.serviceAddress || "",
+        serviceCity: nextAnswers.billingCity || answers.billingCity || answers.serviceCity || "",
+        serviceZip: nextAnswers.billingZip || answers.billingZip || answers.serviceZip || "",
+        serviceUnit: nextAnswers.billingUnit || answers.billingUnit || answers.serviceUnit || "",
+      };
+    }
+    // Keep service mirrored while the one-tap stays on.
+    if (
+      (key === "billingAddress" || key === "billingCity" || key === "billingZip" || key === "billingUnit") &&
+      (nextAnswers.serviceSameAsBilling ?? answers.serviceSameAsBilling)
+    ) {
+      const map = {
+        billingAddress: "serviceAddress",
+        billingCity: "serviceCity",
+        billingZip: "serviceZip",
+        billingUnit: "serviceUnit",
+      };
+      nextAnswers[map[key]] = nextAnswers[key];
+    }
+
     const next = {
       ...draft,
-      answers: setAns(answers, key, value),
+      answers: nextAnswers,
       status: draft.status === "submitted" ? "submitted" : "draft",
       updatedAt: Date.now(),
     };
@@ -368,6 +414,7 @@ export default function AgencyApplicationSheet({ job, agencyId = "coned-form-a",
                   type={f.type === "tel" || f.type === "email" || f.type === "date" ? f.type : "text"}
                   inputMode={f.inputMode}
                   autoComplete={f.autoComplete || "off"}
+                  maxLength={f.maxLength || undefined}
                   value={answers[f.key] || ""}
                   onChange={(e) => updateAnswer(f.key, e.target.value)}
                   placeholder={f.placeholder || ""}
@@ -380,11 +427,21 @@ export default function AgencyApplicationSheet({ job, agencyId = "coned-form-a",
         </>
       ) : (
         <div data-testid="agency-review">
-          <h4 className="font-extrabold text-slate-900 text-sm mb-2">Review full application</h4>
-          <p className="text-xs text-slate-500 mb-3">
-            Everything below is emailed as a complete copy, with a PDF attached.
+          <h4 className="font-extrabold text-slate-900 text-sm mb-2">Review & email office copy</h4>
+          <p className="text-xs text-slate-500 mb-2">
+            First-page Form A fields go out as a finished PDF to the office/contact — not to Con Ed.
+            You still sign in to the Con Ed Energy Services portal yourself to file it. The app never
+            enters your Con Ed password.
           </p>
-          <Fld label="Send completed application to" hint="Office copy by default until Con Ed intake address is confirmed.">
+          {CONED_FORM_A_SOURCE_PDF ? (
+            <p className="text-[11px] text-slate-400 mb-3" data-testid="agency-source-form">
+              Source form: Con Ed Application for Service (Form A) — company file.
+            </p>
+          ) : null}
+          <Fld
+            label="Send completed application to"
+            hint="Office or contact copy only. There is no Con Ed email intake for new applications."
+          >
             <input
               className="input text-base min-h-[44px]"
               type="email"
@@ -441,7 +498,7 @@ export default function AgencyApplicationSheet({ job, agencyId = "coned-form-a",
               disabled={busy || !ready}
               data-testid="agency-submit"
             >
-              {busy ? "Sending…" : "Submit & email full application"}
+              {busy ? "Sending…" : "Email finished application to office"}
             </button>
             <button type="button" className="btn-ghost w-full !py-3" onClick={previewPdf} disabled={busy} data-testid="agency-preview-pdf">
               Preview PDF

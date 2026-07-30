@@ -1,8 +1,9 @@
 // Professional letterhead PDF — company header + body + signature block.
 // Same client-side byte-writer style as descriptionPdf / qbInvoicePdf (no deps).
 import { resolvePdfLogoImageSync } from "./companyLogoPdf.js";
-import { tenantCompany } from "./tenantBranding.js";
+import { tenantCompany, activeTenantConfig } from "./tenantBranding.js";
 import { wrapPrintDescription } from "./printDescription.js";
+import { applySignature, resolveSigner } from "./signatureService.js";
 
 const PAGE_W = 612;
 const PAGE_H = 792;
@@ -158,9 +159,19 @@ function formatDate(d = new Date()) {
  * @param {string} [opts.signerTitle]
  * @returns {Uint8Array}
  */
-export function buildLetterheadPdf({ draft, company: companyOverride, signerName, signerTitle } = {}) {
+export function buildLetterheadPdf({ draft, company: companyOverride, signerName, signerTitle, profile: profileOverride } = {}) {
   const company = companyOverride || tenantCompany();
-  const logo = resolvePdfLogoImageSync();
+  const profile = profileOverride || activeTenantConfig()?.profile || null;
+  const personal = (draft?.letterhead || "") === "personal";
+  const logo = personal ? null : resolvePdfLogoImageSync();
+  const signer = resolveSigner(profile, draft?.ownerId);
+  const sigApply = applySignature({ profile, ownerId: draft?.ownerId || signer?.id });
+  const resolvedSignerName =
+    signerName ||
+    (personal ? draft?.answers?.ownerName || signer?.fullName : signer?.fullName) ||
+    company.name ||
+    "";
+  const resolvedTitle = signerTitle || (personal ? "" : signer?.title || "President");
   const maxBodyW = PAGE_W - M * 2;
   const bodySize = 11;
   const bodyLead = 15;
@@ -173,9 +184,14 @@ export function buildLetterheadPdf({ draft, company: companyOverride, signerName
   // Pre-wrap all body lines for pagination
   const allBodyLines = [];
   for (const para of bodyParas) {
-    const lines = wrap(para, maxBodyW, bodySize, false);
+    // preserve single newlines as soft breaks for address blocks
+    const sub = String(para).split("\n");
+    const wrapped = [];
+    for (const piece of sub) {
+      wrapped.push(...wrap(piece, maxBodyW, bodySize, false));
+    }
     if (allBodyLines.length) allBodyLines.push(""); // blank between paras
-    allBodyLines.push(...lines);
+    allBodyLines.push(...wrapped);
   }
   if (!allBodyLines.length) allBodyLines.push("[No letter body yet]");
 
@@ -188,30 +204,48 @@ export function buildLetterheadPdf({ draft, company: companyOverride, signerName
     const pg = Page();
     let y = 48;
 
-    // Header — company + logo
-    if (logo && logo.name) {
+    // Header — company letterhead OR personal (Type 4)
+    if (!personal && logo && logo.name) {
       const logoH = 42;
       const logoW = Math.min(120, (logo.width / logo.height) * logoH);
       pg.image(logo.name, (PAGE_W - logoW) / 2, y, logoW, logoH);
       y += logoH + 10;
     }
 
-    pg.text(M, y, company.name || "Company", { size: 13, bold: true, color: GREEN });
-    y += 16;
-    if (company.street) {
-      pg.text(M, y, company.street, { size: 9, color: GRAY });
-      y += 12;
-    }
-    if (company.cityStateZip) {
-      pg.text(M, y, company.cityStateZip, { size: 9, color: GRAY });
-      y += 12;
-    }
-    const contact = [company.phone, company.email, company.license ? "Lic. " + company.license : ""]
-      .filter(Boolean)
-      .join("  ·  ");
-    if (contact) {
-      pg.text(M, y, contact, { size: 9, color: GRAY });
-      y += 12;
+    if (personal) {
+      const oname = draft?.answers?.ownerName || signer?.fullName || resolvedSignerName || "";
+      const oemail = draft?.answers?.ownerEmail || signer?.personalEmail || "";
+      const ophone = draft?.answers?.ownerPhone || signer?.personalPhone || "";
+      if (oname) {
+        pg.text(M, y, oname, { size: 13, bold: true, color: BLACK });
+        y += 16;
+      }
+      if (oemail) {
+        pg.text(M, y, oemail, { size: 10, color: GRAY });
+        y += 13;
+      }
+      if (ophone) {
+        pg.text(M, y, ophone, { size: 10, color: GRAY });
+        y += 13;
+      }
+    } else {
+      pg.text(M, y, company.name || "Company", { size: 13, bold: true, color: GREEN });
+      y += 16;
+      if (company.street) {
+        pg.text(M, y, company.street, { size: 9, color: GRAY });
+        y += 12;
+      }
+      if (company.cityStateZip) {
+        pg.text(M, y, company.cityStateZip, { size: 9, color: GRAY });
+        y += 12;
+      }
+      const contact = [company.phone, company.email, company.license ? "Lic. " + company.license : ""]
+        .filter(Boolean)
+        .join("  ·  ");
+      if (contact) {
+        pg.text(M, y, contact, { size: 9, color: GRAY });
+        y += 12;
+      }
     }
     pg.rule(M, PAGE_W - M, y + 4);
     y += 22;
@@ -220,9 +254,22 @@ export function buildLetterheadPdf({ draft, company: companyOverride, signerName
     if (pageNo === 1) {
       pg.text(M, y, formatDate(), { size: 11 });
       y += 20;
-      const recipient = draft?.answers?.recipient || "To Whom It May Concern";
-      pg.text(M, y, recipient, { size: 11, bold: true });
-      y += 14;
+      // Title line for affidavits / load letters
+      if (draft?.typeLabel && draft.typeId !== "general" && draft.typeId !== "owner_inspection_request") {
+        pg.text(M, y, String(draft.typeLabel).toUpperCase(), { size: 12, bold: true, color: GREEN });
+        y += 18;
+      }
+      const recipient =
+        draft?.answers?.recipient ||
+        (draft?.typeId === "good_standing_request"
+          ? "New York State Department of State"
+          : draft?.typeId === "owner_inspection_request"
+            ? "NYC Department of Buildings"
+            : "To Whom It May Concern");
+      if (draft?.typeId !== "owner_inspection_request" && draft?.typeId !== "good_standing_request") {
+        pg.text(M, y, recipient, { size: 11, bold: true });
+        y += 14;
+      }
       if (draft?.answers?.recipientOffice) {
         for (const ln of wrap(draft.answers.recipientOffice, maxBodyW, 10)) {
           pg.text(M, y, ln, { size: 10, color: GRAY });
@@ -230,16 +277,22 @@ export function buildLetterheadPdf({ draft, company: companyOverride, signerName
         }
       }
       y += 8;
-      if (draft?.reLine) {
+      if (draft?.reLine && draft?.typeId !== "owner_inspection_request") {
         pg.text(M, y, "RE: " + draft.reLine, { size: 11, bold: true });
         y += 18;
       }
-      if (draft?.siteAddress) {
+      if (draft?.siteAddress && draft?.typeId !== "good_standing_request") {
         pg.text(M, y, "Site: " + draft.siteAddress, { size: 10, color: GRAY });
         y += 16;
       }
-      pg.text(M, y, "Dear " + (String(recipient).split(",")[0] || "Sir/Madam") + ":", { size: 11 });
-      y += 20;
+      if (draft?.typeId !== "owner_inspection_request" && draft?.typeId !== "good_standing_request") {
+        const dear =
+          recipient === "To Whom It May Concern"
+            ? "To Whom It May Concern,"
+            : "Dear " + (String(recipient).split(",")[0] || "Sir/Madam") + ",";
+        pg.text(M, y, dear, { size: 11 });
+        y += 20;
+      }
     } else {
       pg.text(M, y, (draft?.reLine || draft?.typeLabel || "Letter") + " (continued)", {
         size: 10,
@@ -275,10 +328,14 @@ export function buildLetterheadPdf({ draft, company: companyOverride, signerName
         let y2 = 72;
         pg2.text(M, y2, "Sincerely,", { size: 11 });
         y2 += 48;
-        const signer = signerName || company.name || "";
-        if (signer) pg2.text(M, y2, signer, { size: 11, bold: true });
+        // Signature image reserved: applySignature dataUrl applied when multi-image PDF lands;
+        // Phase 1 places typed signer name (registered image id stored on draft.ownerId).
+        if (sigApply?.dataUrl) {
+          y2 += 4; // spacing for future image
+        }
+        if (resolvedSignerName) pg2.text(M, y2, resolvedSignerName + (resolvedTitle ? ", " + resolvedTitle : ""), { size: 11, bold: true });
         y2 += 14;
-        if (signerTitle) pg2.text(M, y2, signerTitle, { size: 10, color: GRAY });
+        if (resolvedTitle && !resolvedSignerName.includes(resolvedTitle)) pg2.text(M, y2, resolvedTitle, { size: 10, color: GRAY });
         y2 += 14;
         if (company.license) pg2.text(M, y2, "License: " + company.license, { size: 9, color: GRAY });
         if (draft?.status === "draft") {
@@ -290,13 +347,16 @@ export function buildLetterheadPdf({ draft, company: companyOverride, signerName
       }
       y += 18;
       pg.text(M, y, "Sincerely,", { size: 11 });
-      y += 48;
-      const signer = signerName || company.name || "";
-      if (signer) pg.text(M, y, signer, { size: 11, bold: true });
+      y += 40;
+      if (sigApply?.dataUrl) {
+        // Anchor reserved — typed name below is always present for legal clarity
+        y += 8;
+      }
+      if (resolvedSignerName) {
+        pg.text(M, y, resolvedSignerName + (resolvedTitle && !personal ? ", " + resolvedTitle : ""), { size: 11, bold: true });
+      }
       y += 14;
-      if (signerTitle) pg.text(M, y, signerTitle, { size: 10, color: GRAY });
-      y += 14;
-      if (company.license) pg.text(M, y, "License: " + company.license, { size: 9, color: GRAY });
+      if (!personal && company.license) pg.text(M, y, "License: " + company.license, { size: 9, color: GRAY });
       if (draft?.status === "draft") {
         y += 22;
         pg.text(M, y, "DRAFT — pending approval", { size: 10, bold: true, color: [0.7, 0.15, 0.1] });
