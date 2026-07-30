@@ -1,5 +1,4 @@
 import { getStore } from "./lib/storage/index.mjs";
-import { resolveTenant, DEFAULT_TENANT } from "./lib/tenant.mjs";
 import {
   isEnergyServicesEmail,
   parseEmailInsight,
@@ -18,19 +17,15 @@ function json(o, status) {
       "cache-control": "no-store",
       "access-control-allow-origin": "*",
       "access-control-allow-methods": "GET,POST,OPTIONS",
-      "access-control-allow-headers": "content-type,x-le-key,authorization",
+      "access-control-allow-headers": "content-type,x-le-key",
     },
   });
 }
 
 export default async (req) => {
-  if (req.method === "OPTIONS") return json({ ok: true });
-  // Ingest is a server/webhook path (no Supabase token) — never hard-deny it;
-  // the app's GET carries a token and is tenant-scoped. Tenant routing for
-  // inbound webhooks themselves is a later (connector) item.
-  const tenant = (await resolveTenant(req)) || DEFAULT_TENANT;
-  const store = getStore("email-insights", tenant);
+  const store = getStore("email-insights");
   const doc = (await store.get(KEY, { type: "json", consistency: "strong" })) || { insights: [], ts: 0 };
+  if (req.method === "OPTIONS") return json({ ok: true });
 
   if (req.method === "POST") {
     let body = {};
@@ -79,10 +74,45 @@ export default async (req) => {
       const dupe = (doc.insights || []).find(
         (x) => (x.source?.messageId && x.source.messageId === mid) || x.id === insight.id
       );
-      if (dupe && dupe.status !== "pending") {
-        return json({ ok: true, deduped: true, insight: dupe });
-      }
       if (dupe) {
+        const oldDt = String(dupe.dateTime || dupe.exactDateTime || "").trim();
+        const newDt = String(insight.dateTime || insight.exactDateTime || "").trim();
+        const richer =
+          (newDt && !oldDt) ||
+          (!!insight.timeWindow && !dupe.timeWindow) ||
+          (String(insight.emailSnippet || "").length > String(dupe.emailSnippet || "").length + 80);
+        // Heal incomplete parses (empty body → missing date) even after approve.
+        // Re-open as pending so LE Pro can remind when the appointment is still not on calendar.
+        if (richer) {
+          const wasApplied =
+            dupe.status === "approved" || dupe.status === "auto_applied" || !!dupe.appliedEventId;
+          const neverLandedOnCal = wasApplied && !dupe.appliedEventId && !dupe.skipReason;
+          Object.assign(dupe, insight, {
+            id: dupe.id,
+            status: neverLandedOnCal || !wasApplied ? "pending" : dupe.status,
+            createdAt: dupe.createdAt || insight.createdAt,
+            updatedAt: new Date().toISOString(),
+            // Clear false "done" flags so the missing-calendar audit can re-surface.
+            ...(neverLandedOnCal
+              ? {
+                  status: "pending",
+                  notified: false,
+                  autoApplied: false,
+                  skipReason: "missing_from_calendar",
+                  healReason: "reparsed_full_body",
+                  approvedAt: undefined,
+                  appliedAt: undefined,
+                }
+              : {}),
+            appliedEventId: dupe.appliedEventId || insight.appliedEventId,
+          });
+          doc.ts = Date.now();
+          await store.setJSON(KEY, doc);
+          return json({ ok: true, insight: dupe, refreshed: true, healed: true });
+        }
+        if (dupe.status !== "pending") {
+          return json({ ok: true, deduped: true, insight: dupe });
+        }
         Object.assign(dupe, insight, { status: "pending", updatedAt: new Date().toISOString() });
         doc.ts = Date.now();
         await store.setJSON(KEY, doc);

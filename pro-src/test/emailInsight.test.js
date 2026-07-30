@@ -106,6 +106,38 @@ describe("emailInsight", () => {
     expect(classifyEmailOutcome("Initial Inspection Appointment Cancelled", "cancelled due to Cancelled by user")).toBe(
       "cancelled"
     );
+    // Con Ed APPT confirmations are new sets even when the footer says "upcoming service appointment"
+    // (marketing SMS opt-in). Bare "upcoming" used to force reminder → no calendar create (Winthrop Aug 5).
+    expect(
+      classifyEmailOutcome(
+        "Your Con Edison appointment | APPT-722669",
+        `Your appointment is set.
+Dear Abraham Kaminetsky, Your appointment for electric service repair/installation at 417 WINTHROP ST, BROOKLYN 11203 has been scheduled for:
+Wednesday, August 5, 2026
+We will arrive between 8 a.m. and 11 a.m.
+Your Appointment Reference Number is: APPT-722669
+phone calls and/or text messages from the company about your upcoming service appointment.`
+      )
+    ).toBe("scheduled");
+    const winthrop = parseEmailInsight({
+      from: "Con Edison Appointments <Appointments@coned.com>",
+      subject: "Your Con Edison appointment | APPT-722669",
+      body: `Your appointment is set.
+Dear Abraham Kaminetsky, Your appointment for electric service repair/installation at 417 WINTHROP ST, BROOKLYN 11203 has been scheduled for:
+Wednesday, August 5, 2026
+We will arrive between 8 a.m. and 11 a.m.
+Your Appointment Reference Number is: APPT-722669
+If your meter is indoors, a customer (18 years or older) must be present.
+phone calls and/or text messages from the company about your upcoming service appointment.`,
+      messageId: "19f80e4ce97c8474",
+    });
+    expect(winthrop.outcome).toBe("scheduled");
+    expect(winthrop.dateTime).toMatch(/^2026-08-05T08:00/);
+    expect(winthrop.appointmentType).toBe("meter_installation");
+    expect(winthrop.timeWindow?.startHour).toBe(8);
+    expect(winthrop.timeWindow?.endHour).toBe(11);
+    expect(wantsNewCalendarAppointment(winthrop)).toBe(true);
+
     // Con Ed footer "Reschedule the appointment" must NOT mark the email cancelled.
     expect(
       classifyEmailOutcome(
