@@ -1,14 +1,23 @@
-// Calendar event chip styling — inspection = light translucent red (Google colorId 11).
+// Calendar event chip styling — inspection / Con Ed meter install = light translucent red (Google colorId 11).
 
 /** Google Calendar colorId 11 = Tomato (red). */
 export const GCAL_RED_COLOR_ID = "11";
 
-/** Inspection / Con Edison red-marked appointments. */
+/**
+ * Inspection / Con Edison appointments that must show translucent red on the week grid.
+ * Includes meter installs (e.g. Winthrop) — not only titles with the word "inspection".
+ */
 export function isInspectionEvent(ev) {
   if (!ev) return false;
   if (String(ev.colorId || "") === GCAL_RED_COLOR_ID) return true;
   const s = (ev.summary || "").toLowerCase();
-  return /inspection|con edison appointment|city electrical/.test(s);
+  return /inspection|con edison appointment|city electrical|meter installation|meter install/.test(s);
+}
+
+/** Types from email-insight that get Google red (colorId 11) when recommended onto the calendar. */
+export function isRedMarkedAppointmentType(type) {
+  const t = String(type || "").toLowerCase();
+  return t === "inspection" || t === "meter_installation";
 }
 
 /**

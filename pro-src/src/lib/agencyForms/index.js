@@ -35,7 +35,16 @@ export {
 
 export {
   buildApplicationPdfBytes,
+  buildApplicationPdfBytesAsync,
   buildApplicationPdfBlob,
   applicationPdfFileName,
   blobToBase64,
 } from "./applicationPdf.js";
+
+export {
+  CONED_FORM_A_PAGE1_FIELDS,
+  resolveConedPage1Values,
+  loadConedSourcePdfBytes,
+  fillConedFormAPdfBytes,
+} from "./fillConedFormA.js";
+

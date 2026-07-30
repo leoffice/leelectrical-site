@@ -42,6 +42,20 @@ export default async (req) => {
     } catch {
       return json({ ok: false, error: "Invalid JSON" }, 400);
     }
+    // Agent sessions need payment access + confirm; humans pass through.
+    try {
+      const { enforceAgentPaymentGate } = await import("./lib/agentPaymentGate.mjs");
+      const denied = await enforceAgentPaymentGate(req, body, {
+        op: "pay-link",
+        ref: body?.payload?.i || null,
+      });
+      if (denied) return json(denied.body, denied.status);
+    } catch {
+      const auth = req.headers?.get?.("authorization") || body?.agentToken || "";
+      if (auth) {
+        return json({ ok: false, error: "Could not verify agent payment access." }, 503);
+      }
+    }
     const payload = body.payload;
     if (!payload || !payload.i) return json({ ok: false, error: "payload with invoice required" }, 400);
 

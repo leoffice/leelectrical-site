@@ -35,6 +35,7 @@ import {
 import {
   buildCalendarPayload,
   ensureInspectionSelections,
+  ensureMeterInstallSelections,
   calendarTitleForInsight,
   applyEmailInsight,
   cancelEmailInsightAppointment,
@@ -625,6 +626,28 @@ for 503 Schenectady Avenue on August 15, 2026 at 11:15 AM.`;
     expect(payload.notifyCustomer).toBe(true);
     expect(payload.description).toMatch(/11:15/);
     expect(payload.description).toMatch(/inspection|Con Edison|Energy/i);
+    expect(payload.colorId).toBe("11");
+  });
+
+  it("buildCalendarPayload marks meter_installation RED (Winthrop) with colorId 11", () => {
+    const insight = {
+      appointmentType: "meter_installation",
+      agency: "coned",
+      dateTime: "2026-08-05T08:00",
+      endDateTime: "2026-08-05T11:00",
+      address: "417 Winthrop St",
+      outcome: "scheduled",
+    };
+    const job = {
+      id: "J-winthrop",
+      customer: "Winthrop",
+      email: "w@x.com",
+      serviceAddress: "417 Winthrop St, Brooklyn, NY",
+    };
+    const selected = ensureMeterInstallSelections(insight, job, new Set(["calendar"]));
+    const payload = buildCalendarPayload(insight, job, selected);
+    expect(payload.summary).toMatch(/Meter installation/i);
+    expect(payload.colorId).toBe("11");
   });
 
   it("skips calendar create when appointment already on the calendar", async () => {

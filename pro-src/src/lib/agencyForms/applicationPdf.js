@@ -1,8 +1,10 @@
 /**
- * Client-side PDF for a completed agency application (full field dump).
- * Same lightweight byte-writer style as letterheadPdf — no deps.
+ * Client-side PDF for agency applications.
+ * Con Ed Form A → fill the real AcroForm (application-for-service.pdf) page 1.
+ * Other agencies / fallback → lightweight field-dump PDF (no form template).
  */
 import { applicationFieldRows } from "./engine.js";
+import { fillConedFormAPdfBytes } from "./fillConedFormA.js";
 
 const PAGE_W = 612;
 const PAGE_H = 792;
@@ -227,9 +229,41 @@ export function applicationPdfFileName(agency, job = {}) {
   return `${id}-${site || "job"}.pdf`;
 }
 
-export async function buildApplicationPdfBlob(opts) {
+/**
+ * Prefer filled official Form A for Con Ed; otherwise field-dump PDF.
+ * @param {object} opts
+ * @returns {Promise<Blob>}
+ */
+export async function buildApplicationPdfBlob(opts = {}) {
+  const agency = opts.agency;
+  if (agency?.id === "coned-form-a" || agency?.sourceForm) {
+    try {
+      const filled = await fillConedFormAPdfBytes({ answers: opts.answers || {} });
+      return new Blob([filled], { type: "application/pdf" });
+    } catch (err) {
+      // Fall through to field dump so preview/submit never hard-fails offline
+      console.warn("[agencyForms] Form A fill failed, using field dump", err);
+    }
+  }
   const bytes = buildApplicationPdfBytes(opts);
   return new Blob([bytes], { type: "application/pdf" });
+}
+
+/**
+ * Async bytes helper — filled Form A when available.
+ * @param {object} opts
+ * @returns {Promise<Uint8Array>}
+ */
+export async function buildApplicationPdfBytesAsync(opts = {}) {
+  const agency = opts.agency;
+  if (agency?.id === "coned-form-a" || agency?.sourceForm) {
+    try {
+      return await fillConedFormAPdfBytes({ answers: opts.answers || {} });
+    } catch {
+      /* fallback */
+    }
+  }
+  return buildApplicationPdfBytes(opts);
 }
 
 export function blobToBase64(blob) {

@@ -81,6 +81,13 @@ describe("inspection light translucent red", () => {
     expect(isInspectionEvent({ summary: "Estimate — Jane" })).toBe(false);
   });
 
+  it("marks Con Ed meter install titles red (Winthrop-class)", () => {
+    // Live Winthrop title pattern after email-insight recommend
+    expect(isInspectionEvent({ summary: "Meter installation — 8:00 AM" })).toBe(true);
+    expect(isInspectionEvent({ summary: "Meter install · 417 Winthrop" })).toBe(true);
+    expect(isInspectionEvent({ summary: "Service call — Jane" })).toBe(false);
+  });
+
   it("chip class uses translucent red for inspections", () => {
     const cls = eventChipClassName({ summary: "Inspection", colorId: "11" }, { selected: false });
     expect(cls).toMatch(/bg-red-500\/15/);
@@ -91,6 +98,14 @@ describe("inspection light translucent red", () => {
     const cls = eventChipClassName({ summary: "Inspection", colorId: "11" }, { selected: true });
     expect(cls).toMatch(/bg-red-500\/15/);
     expect(cls).toMatch(/ring-2/);
+  });
+
+  it("meter install chip is translucent red when colorId set", () => {
+    const cls = eventChipClassName(
+      { summary: "Meter installation — 8:00 AM", colorId: GCAL_RED_COLOR_ID },
+      { selected: false }
+    );
+    expect(cls).toMatch(/bg-red-500\/15/);
   });
 });
 

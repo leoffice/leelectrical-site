@@ -1,6 +1,9 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, beforeAll } from "vitest";
+import { readFileSync, existsSync } from "node:fs";
+import { resolve } from "node:path";
 import {
   CONED_FORM_A,
+  CONED_FORM_A_PAGE1_FIELDS,
   applicationReady,
   applicationFieldRows,
   incompleteSteps,
@@ -11,9 +14,27 @@ import {
   buildApplicationEmailHtml,
   buildApplicationEmailText,
   buildApplicationPdfBytes,
+  buildApplicationPdfBytesAsync,
   buildApplicationDraft,
   toggleMulti,
+  resolveConedPage1Values,
+  fillConedFormAPdfBytes,
+  clampConedUnit,
 } from "../src/lib/agencyForms/index.js";
+
+beforeAll(() => {
+  const candidates = [
+    resolve(__dirname, "../src/lib/agencyForms/assets/coned-application-for-service.pdf"),
+    resolve(__dirname, "../public/forms/coned-application-for-service.pdf"),
+  ];
+  for (const p of candidates) {
+    if (existsSync(p)) {
+      globalThis.__CONED_FORM_A_PDF_BYTES__ = new Uint8Array(readFileSync(p));
+      return;
+    }
+  }
+  throw new Error("Test setup: packaged coned-application-for-service.pdf not found");
+});
 
 describe("agency form engine", () => {
   it("registers Con Ed Form A with Parts A–E style steps", () => {
@@ -139,6 +160,131 @@ describe("agency form engine", () => {
     expect(d.status).toBe("draft");
     expect(d.answers.a).toBe(1);
   });
+});
+
+describe("paperwork Con Edison progress label", () => {
+  it("uses Con Edison progress toggle name", async () => {
+    const { PAPER } = await import("../src/lib/paperwork.js");
+    expect(PAPER.coned.nm).toMatch(/Con Edison progress/);
+  });
+});
+
+describe("Con Ed Form A real PDF fill (page 1 AcroForm)", () => {
+  it("maps answers onto exact page-1 field names including both Part Supply units", () => {
+    const values = resolveConedPage1Values({
+      accountName: "Levi K",
+      customerType: "Residential",
+      billingAddress: "100 Billing Ave",
+      billingUnit: "apt1",
+      billingCity: "Brooklyn",
+      billingZip: "11230",
+      serviceSameAsBilling: false,
+      serviceAddress: "200 Service St",
+      serviceUnit: "fl3",
+      serviceCity: "Brooklyn",
+      serviceZip: "11218",
+      mailingSame: true,
+      phone: "7185551212",
+      email: "office@leelectrical.us",
+      controlsAccess: true,
+    });
+    expect(values[CONED_FORM_A_PAGE1_FIELDS.accountName]).toBe("Levi K");
+    expect(values[CONED_FORM_A_PAGE1_FIELDS.serviceAddress]).toBe("200 Service St");
+    expect(values[CONED_FORM_A_PAGE1_FIELDS.serviceUnit]).toBe("fl3");
+    // mailingSame + billing differs from service → billing fills mailing block
+    expect(values[CONED_FORM_A_PAGE1_FIELDS.mailingAddress]).toBe("100 Billing Ave");
+    expect(values[CONED_FORM_A_PAGE1_FIELDS.mailingUnit]).toBe("apt1");
+    expect(values[CONED_FORM_A_PAGE1_FIELDS.email]).toMatch(/office@/);
+  });
+
+  it("leaves mailing blank when service equals billing and mailingSame", () => {
+    const values = resolveConedPage1Values({
+      accountName: "Same Place",
+      billingAddress: "1 One St",
+      billingUnit: "u1",
+      billingCity: "Brooklyn",
+      billingZip: "11201",
+      serviceSameAsBilling: true,
+      mailingSame: true,
+      phone: "1",
+      email: "a@b.c",
+      controlsAccess: true,
+    });
+    expect(values[CONED_FORM_A_PAGE1_FIELDS.serviceAddress]).toBe("1 One St");
+    expect(values[CONED_FORM_A_PAGE1_FIELDS.mailingAddress]).toBeUndefined();
+    expect(values[CONED_FORM_A_PAGE1_FIELDS.mailingUnit]).toBeUndefined();
+  });
+
+  it("clamps both Part Supply unit fields", () => {
+    expect(clampConedUnit("apartment one").length).toBeLessThanOrEqual(6);
+    const values = resolveConedPage1Values({
+      accountName: "X",
+      serviceSameAsBilling: false,
+      serviceAddress: "S",
+      serviceUnit: "verylongunittext",
+      serviceCity: "B",
+      serviceZip: "1",
+      billingAddress: "B",
+      billingUnit: "anotherlongunit",
+      billingCity: "B",
+      billingZip: "1",
+      mailingSame: false,
+      mailingAddress: "M",
+      mailingUnit: "mailinglongunit",
+      mailingCity: "B",
+      mailingZip: "1",
+    });
+    expect(values[CONED_FORM_A_PAGE1_FIELDS.serviceUnit].length).toBeLessThanOrEqual(6);
+    expect(values[CONED_FORM_A_PAGE1_FIELDS.mailingUnit].length).toBeLessThanOrEqual(6);
+  });
+
+  it("fills the official source PDF and keeps %PDF + filled field values", async () => {
+    const answers = {
+      accountName: "Fill Test LLC",
+      customerType: "Nonresidential",
+      billingAddress: "50 Office Plaza",
+      billingUnit: "ofc2",
+      billingCity: "Brooklyn",
+      billingZip: "11201",
+      serviceSameAsBilling: true,
+      mailingSame: true,
+      phone: "7185559999",
+      email: "fill@test.example",
+      controlsAccess: true,
+    };
+    const bytes = await fillConedFormAPdfBytes({ answers });
+    const head = String.fromCharCode(...bytes.slice(0, 4));
+    expect(head).toBe("%PDF");
+    // Official form is ~446k; filled should stay in the same ballpark
+    expect(bytes.length).toBeGreaterThan(100000);
+
+    // Round-trip: re-open with pdf-lib and confirm field values
+    const { PDFDocument } = await import("pdf-lib");
+    const doc = await PDFDocument.load(bytes);
+    const form = doc.getForm();
+    expect(form.getTextField(CONED_FORM_A_PAGE1_FIELDS.accountName).getText()).toBe("Fill Test LLC");
+    expect(form.getTextField(CONED_FORM_A_PAGE1_FIELDS.serviceAddress).getText()).toBe("50 Office Plaza");
+    expect(form.getTextField(CONED_FORM_A_PAGE1_FIELDS.serviceUnit).getText()).toBe("ofc2");
+    expect(form.getTextField(CONED_FORM_A_PAGE1_FIELDS.email).getText()).toBe("fill@test.example");
+  }, 20000);
+
+  it("buildApplicationPdfBytesAsync returns filled Form A for coned-form-a", async () => {
+    const bytes = await buildApplicationPdfBytesAsync({
+      agency: CONED_FORM_A,
+      answers: {
+        accountName: "Async Fill",
+        billingAddress: "9 Ave",
+        billingCity: "Brooklyn",
+        billingZip: "11211",
+        serviceSameAsBilling: true,
+        mailingSame: true,
+        phone: "1",
+        email: "a@b.c",
+      },
+    });
+    expect(String.fromCharCode(...bytes.slice(0, 4))).toBe("%PDF");
+    expect(bytes.length).toBeGreaterThan(100000);
+  }, 20000);
 });
 
 describe("paperwork Con Edison progress label", () => {

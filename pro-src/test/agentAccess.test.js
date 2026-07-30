@@ -2,13 +2,17 @@
 import { describe, expect, it } from "vitest";
 import {
   clampTtlMs,
+  clampTtlMsForPayments,
   DEFAULT_TTL_MS,
   emptyDoc,
   extendGrant,
   formatCode,
+  gateAgentPaymentAction,
+  hasPaymentConfirmation,
   MAX_TTL_MS,
   mintGrant,
   normalizeCode,
+  PAYMENT_MAX_TTL_MS,
   publicGrant,
   redeemGrant,
   refreshGrantState,
@@ -118,22 +122,24 @@ describe("agent access codes", () => {
     expect(ext.doc.activeGrant.expiresAt).toBeGreaterThan(redeemed.doc.activeGrant.expiresAt);
   });
 
-  it("24h one-tap path mints exactly MAX_TTL_MS with agent-24h label", () => {
+  it("24h one-tap path mints exactly MAX_TTL_MS with agent-24h label (default full)", () => {
     const now = 7_000_000_000_000;
     // Client constant must match server MAX_TTL_MS (thin wrapper — no second clock).
     expect(AGENT_ACCESS_MAX_TTL_MS).toBe(MAX_TTL_MS);
     expect(AGENT_24H_LABEL).toBe("agent-24h");
 
+    // Levi 2026-07-30: default 24h scope = full
     const { doc, code, grant } = mintGrant(
       emptyDoc(),
-      { ttlMs: MAX_TTL_MS, scope: "test", label: AGENT_24H_LABEL },
+      { ttlMs: MAX_TTL_MS, scope: "full", label: AGENT_24H_LABEL },
       now
     );
     expect(code).toMatch(/^[A-Z0-9]{4}-[A-Z0-9]{4}$/);
     expect(grant.expiresAt - grant.createdAt).toBe(MAX_TTL_MS);
     expect(doc.activeGrant.ttlMs).toBe(MAX_TTL_MS);
     expect(doc.activeGrant.label).toBe(AGENT_24H_LABEL);
-    expect(doc.activeGrant.scope).toBe("test");
+    expect(doc.activeGrant.scope).toBe("full");
+    expect(grant.payments).toBe(false);
     expect(doc.audit[0].type).toBe("mint");
     expect(doc.audit[0].note).toMatch(/1440 min/);
   });
@@ -190,5 +196,84 @@ describe("agent access codes", () => {
     expect(blobs).not.toMatch(/password/i);
     expect(blobs).not.toMatch(/credential/i);
     expect(blobs).not.toMatch(/passwd/i);
+  });
+
+  it("payments defaults OFF and is independent of scope", () => {
+    const now = 11_000_000_000_000;
+    const a = mintGrant(emptyDoc(), { ttlMs: 30 * 60 * 1000, scope: "full" }, now);
+    expect(a.grant.payments).toBe(false);
+    const b = mintGrant(emptyDoc(), { ttlMs: 30 * 60 * 1000, scope: "test", payments: true }, now);
+    expect(b.grant.payments).toBe(true);
+    expect(b.doc.activeGrant.payments).toBe(true);
+    // Payment-enabled grants use tighter TTL cap
+    expect(b.grant.expiresAt - b.grant.createdAt).toBeLessThanOrEqual(PAYMENT_MAX_TTL_MS);
+    expect(clampTtlMsForPayments(MAX_TTL_MS)).toBe(PAYMENT_MAX_TTL_MS);
+  });
+
+  it("agent payment gate: no payments flag → 403 + payment_denied audit", () => {
+    const now = 12_000_000_000_000;
+    const { doc, code } = mintGrant(emptyDoc(), { ttlMs: 60 * 60 * 1000, scope: "full" }, now);
+    const redeemed = redeemGrant(doc, code, { label: "agent" }, now + 1000);
+    expect(redeemed.ok).toBe(true);
+    const gate = gateAgentPaymentAction(
+      redeemed.doc,
+      { token: redeemed.token, confirmed: true, op: "sola-charge", amount: 100, ref: "INV-1" },
+      now + 2000
+    );
+    expect(gate.ok).toBe(false);
+    expect(gate.status).toBe(403);
+    expect(gate.doc.audit[0].type).toBe("payment_denied");
+  });
+
+  it("agent payment gate: payments on but no confirm → denied_no_confirm (no silent charge)", () => {
+    const now = 13_000_000_000_000;
+    const { doc, code } = mintGrant(
+      emptyDoc(),
+      { ttlMs: 60 * 60 * 1000, scope: "full", payments: true },
+      now
+    );
+    const redeemed = redeemGrant(doc, code, { label: "agent" }, now + 1000);
+    const gate = gateAgentPaymentAction(
+      redeemed.doc,
+      { token: redeemed.token, confirmed: false, op: "sola-charge", amount: 50 },
+      now + 2000
+    );
+    expect(gate.ok).toBe(false);
+    expect(gate.needsConfirm).toBe(true);
+    expect(gate.doc.audit[0].type).toBe("payment_denied");
+    expect(gate.doc.audit[0].result).toBe("denied_no_confirm");
+  });
+
+  it("agent payment gate: payments + confirm still scaffold-blocked (no action enabled)", () => {
+    const now = 14_000_000_000_000;
+    const { doc, code } = mintGrant(
+      emptyDoc(),
+      { ttlMs: 60 * 60 * 1000, scope: "full", payments: true },
+      now
+    );
+    const redeemed = redeemGrant(doc, code, { label: "agent" }, now + 1000);
+    expect(redeemed.session.payments).toBe(true);
+    const gate = gateAgentPaymentAction(
+      redeemed.doc,
+      { token: redeemed.token, confirmed: true, op: "sola-charge", amount: 50, ref: "INV-9" },
+      now + 2000
+    );
+    expect(gate.ok).toBe(false);
+    expect(gate.scaffoldOnly).toBe(true);
+    expect(gate.doc.audit[0].type).toBe("payment_attempt");
+  });
+
+  it("human path (no token) is unrestricted by payment gate", () => {
+    const now = 15_000_000_000_000;
+    const gate = gateAgentPaymentAction(emptyDoc(), { token: "", confirmed: false }, now);
+    expect(gate.kind).toBe("human");
+    expect(gate.ok).toBe(true);
+  });
+
+  it("hasPaymentConfirmation recognizes explicit flags / tokens", () => {
+    expect(hasPaymentConfirmation({})).toBe(false);
+    expect(hasPaymentConfirmation({ paymentConfirmed: true })).toBe(true);
+    expect(hasPaymentConfirmation({ confirmToken: "abcdefgh" })).toBe(true);
+    expect(hasPaymentConfirmation({ confirmToken: "short" })).toBe(false);
   });
 });

@@ -375,6 +375,7 @@ export default function CustomerView() {
         contact={contact}
         summary={summary}
         primaryJob={primaryJob}
+        showServiceAddress={false}
         shortTxns={shortTxns}
         onShortTxnsChange={setShortTxns}
         onEdit={() => setSheet({ kind: "cust", job: primaryJob })}

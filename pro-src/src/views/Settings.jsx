@@ -204,10 +204,17 @@ export default function Settings() {
   /** Custom mint scope (More options). Default full for power users. */
   const [agentScope, setAgentScope] = useState("full");
   /**
-   * One-tap 24h scope — default narrowest ("test"). Opt-in to "full"
-   * with live-data warning (flagged to Levi for final default).
+   * One-tap 24h scope — Levi 2026-07-30: default "full".
+   * Test still available under the scope picker.
    */
-  const [agent24Scope, setAgent24Scope] = useState("test");
+  const [agent24Scope, setAgent24Scope] = useState("full");
+  /**
+   * Payment access — orthogonal to test/full. OFF by default.
+   * Turning ON needs an explicit confirm (no silent flip). Scaffold only;
+   * no specific charge action is enabled until Levi defines permitted ops.
+   */
+  const [agentPayments, setAgentPayments] = useState(false);
+  const [agentPaymentsConfirm, setAgentPaymentsConfirm] = useState(false);
   const [agentMoreOpen, setAgentMoreOpen] = useState(false);
   const [agentBusy, setAgentBusy] = useState(false);
   const [agentNow, setAgentNow] = useState(Date.now());
@@ -424,6 +431,7 @@ export default function Settings() {
         ttlMs: agentTtlMin * 60 * 1000,
         scope: agentScope,
         label: "agent",
+        payments: agentPayments === true,
       });
       setAgentCodeShown(res.code || "");
       setAgentGrant(res.grant || null);
@@ -434,14 +442,17 @@ export default function Settings() {
     } finally {
       setAgentBusy(false);
     }
-  }, [agentScope, agentTtlMin, showToast]);
+  }, [agentScope, agentTtlMin, agentPayments, showToast]);
 
   /** One-tap 24h ON: mint at server MAX_TTL_MS with label agent-24h. */
   const grantAgent24h = useCallback(async () => {
     setAgentBusy(true);
     setAgentCodeShown("");
     try {
-      const res = await mintAgentAccess24h({ scope: agent24Scope });
+      const res = await mintAgentAccess24h({
+        scope: agent24Scope,
+        payments: agentPayments === true,
+      });
       setAgentCodeShown(res.code || "");
       setAgentGrant(res.grant || null);
       setAgentAudit(Array.isArray(res.audit) ? res.audit : []);
@@ -451,7 +462,7 @@ export default function Settings() {
     } finally {
       setAgentBusy(false);
     }
-  }, [agent24Scope, showToast]);
+  }, [agent24Scope, agentPayments, showToast]);
 
   /** Refresh = add the chosen duration to the same code (keep code / session). */
   const extendAgent = useCallback(async () => {
@@ -667,6 +678,8 @@ export default function Settings() {
       : 0;
   const agentRemain = agentGrant ? formatRemaining(agentRemainMs) : null;
   const agentAccessOn = !!agentGrant && agentRemainMs > 0 && !agentGrant.revokedAt;
+  const agentPaymentsOnGrant =
+    agentAccessOn && (agentGrant?.payments === true || agentPayments === true);
   const agentStatusLine = agentAccessOn
     ? `ON · ${agentRemain} remaining${
         agentGrant.hasSession
@@ -674,7 +687,7 @@ export default function Settings() {
           : agentGrant.used
             ? " · code used"
             : " · code waiting"
-      }`
+      }${agentGrant?.payments === true ? " · Payments" : ""}`
     : "OFF · no active access";
 
   return (
@@ -1438,8 +1451,8 @@ export default function Settings() {
                       onChange={(e) => setAgent24Scope(e.target.value)}
                       data-testid="agent-24h-scope"
                     >
-                      <option value="test">Test / read (default)</option>
-                      <option value="full">Full app (live data)</option>
+                      <option value="full">Full app (live data) — default</option>
+                      <option value="test">Test / read only</option>
                     </select>
                   </label>
                 </div>
@@ -1449,9 +1462,79 @@ export default function Settings() {
                   className="text-[11px] font-semibold text-amber-800 mt-2"
                   data-testid="agent-24h-full-warn"
                 >
-                  Full grants live-data access as you — only turn on when the agent must act on real
-                  customer/company data.
+                  Full grants live-data access as you — agent can act on real customer/company data.
                 </p>
+              ) : null}
+              {/* Payment access — independent of test/full; OFF by default; explicit opt-in. */}
+              {!agentAccessOn ? (
+                <div
+                  className="mt-3 rounded-xl border border-slate-200 bg-white px-3 py-2.5"
+                  data-testid="agent-payments-panel"
+                >
+                  <div className="flex items-center justify-between gap-3">
+                    <div className="min-w-0">
+                      <div className="text-sm font-extrabold text-slate-900">Payment access</div>
+                      <div className="text-[11px] font-semibold text-slate-500 mt-0.5">
+                        Off by default · every charge still needs your confirm
+                      </div>
+                    </div>
+                    <Toggle
+                      on={agentPayments}
+                      onChange={(next) => {
+                        if (next && !agentPaymentsConfirm) {
+                          setAgentPaymentsConfirm(true);
+                          return;
+                        }
+                        setAgentPayments(!!next);
+                        if (!next) setAgentPaymentsConfirm(false);
+                      }}
+                      label="Payment access"
+                      data-testid="agent-payments-toggle"
+                    />
+                  </div>
+                  {agentPaymentsConfirm && !agentPayments ? (
+                    <div className="mt-2 space-y-2" data-testid="agent-payments-warn">
+                      <p className="text-[11px] font-semibold text-amber-900">
+                        This key can start payment operations in the app. Every charge still needs
+                        your explicit confirmation — nothing charges on the code alone.
+                      </p>
+                      <button
+                        type="button"
+                        className="w-full rounded-xl bg-amber-600 text-white px-3 py-2 text-xs font-extrabold"
+                        data-testid="agent-payments-confirm"
+                        onClick={() => {
+                          setAgentPayments(true);
+                          setAgentPaymentsConfirm(false);
+                        }}
+                      >
+                        Yes — allow payment access on this key
+                      </button>
+                      <button
+                        type="button"
+                        className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs font-extrabold text-slate-700"
+                        onClick={() => setAgentPaymentsConfirm(false)}
+                      >
+                        Cancel
+                      </button>
+                    </div>
+                  ) : null}
+                  {agentPayments ? (
+                    <p
+                      className="text-[11px] font-extrabold text-emerald-800 mt-2"
+                      data-testid="agent-payments-on-note"
+                    >
+                      Payments ON for next grant · STOP revokes instantly · no silent charges
+                    </p>
+                  ) : null}
+                </div>
+              ) : null}
+              {agentAccessOn && agentGrant?.payments === true ? (
+                <div
+                  className="mt-2 inline-flex items-center rounded-full bg-amber-100 text-amber-900 px-2.5 py-1 text-[11px] font-extrabold"
+                  data-testid="agent-payments-chip"
+                >
+                  Payments
+                </div>
               ) : null}
               {agentAccessOn ? (
                 <button
