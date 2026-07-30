@@ -3,12 +3,6 @@ import { functionsBase } from "./functionsBase.js";
 
 const SESSION_KEY = "lepro_agent_session";
 
-/** Mirrors server MAX_TTL_MS (agentAccess.mjs) — longest grant = 24h. */
-export const AGENT_ACCESS_MAX_TTL_MS = 24 * 60 * 60 * 1000;
-
-/** Label used by the Settings one-tap "24-Hour Agent Access" control. */
-export const AGENT_24H_LABEL = "agent-24h";
-
 function sessionStore() {
   try {
     return globalThis.sessionStorage || null;
@@ -44,35 +38,13 @@ export async function fetchAgentAccessStatus() {
   return res.json();
 }
 
-export async function mintAgentAccess({ ttlMs, scope, label, payments } = {}) {
-  return post({
-    op: "mint",
-    ttlMs,
-    scope,
-    label,
-    payments: payments === true,
-  });
+export async function mintAgentAccess({ ttlMs, scope, label } = {}) {
+  return post({ op: "mint", ttlMs, scope, label });
 }
 
-/**
- * One-tap 24h grant: full max TTL, fixed label.
- * Levi 2026-07-30: default scope = full (live data). Test still selectable.
- * payments defaults OFF (orthogonal capability; money still needs per-action confirm).
- */
-export async function mintAgentAccess24h({ scope = "full", payments = false } = {}) {
-  return mintAgentAccess({
-    ttlMs: AGENT_ACCESS_MAX_TTL_MS,
-    scope: scope === "test" ? "test" : "full",
-    label: AGENT_24H_LABEL,
-    payments: payments === true,
-  });
-}
-
-/** Extend the current grant by +ttlMs (same code). Optionally update scope / payments. */
-export async function extendAgentAccess({ ttlMs, scope, payments } = {}) {
-  const body = { op: "extend", ttlMs, scope };
-  if (payments !== undefined) body.payments = payments === true;
-  return post(body);
+/** Extend the current grant by +ttlMs (same code). Optionally update scope. */
+export async function extendAgentAccess({ ttlMs, scope } = {}) {
+  return post({ op: "extend", ttlMs, scope });
 }
 
 export async function redeemAgentAccess(code, { label } = {}) {
@@ -114,8 +86,6 @@ export function setAgentSession(session) {
       token: session.token,
       grantId: session.grantId,
       scope: session.scope || "full",
-      /** Orthogonal money capability — default false; never silent-charge. */
-      payments: session.payments === true,
       startedAt: session.startedAt,
       expiresAt: session.expiresAt,
       label: session.label || "agent",
@@ -136,12 +106,6 @@ export function isAgentSessionActive(now = Date.now()) {
     return false;
   }
   return true;
-}
-
-/** True when the active agent session was minted with payment access. */
-export function agentSessionHasPayments(now = Date.now()) {
-  if (!isAgentSessionActive(now)) return false;
-  return getAgentSession()?.payments === true;
 }
 
 export function agentSessionRemainingMs(now = Date.now()) {

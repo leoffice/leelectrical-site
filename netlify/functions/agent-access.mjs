@@ -74,7 +74,6 @@ export default async (req) => {
       ttlMs: body.ttlMs,
       scope: body.scope,
       label: body.label,
-      payments: body.payments,
     });
     await save(store, next);
     return json({
@@ -90,7 +89,6 @@ export default async (req) => {
     const result = extendGrant(doc, {
       ttlMs: body.ttlMs,
       scope: body.scope,
-      payments: body.payments,
     });
     await save(store, result.doc);
     if (!result.ok) return json({ ok: false, error: result.error }, 400);

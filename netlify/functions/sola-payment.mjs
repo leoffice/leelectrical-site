@@ -231,25 +231,6 @@ function thanksRedirect(params) {
 }
 
 export default async (req) => {
-  // Agent-session token (if any) must carry payments + confirm — humans/Sola webhooks unaffected.
-  try {
-    const peekBody = {};
-    try {
-      const url = new URL(req.url);
-      for (const [k, v] of url.searchParams) peekBody[k] = v;
-    } catch { /* ignore */ }
-    const { enforceAgentPaymentGate } = await import("./lib/agentPaymentGate.mjs");
-    const denied = await enforceAgentPaymentGate(req, peekBody, { op: "sola-payment" });
-    if (denied) {
-      return new Response(JSON.stringify(denied.body), {
-        status: denied.status,
-        headers: { "content-type": "application/json" },
-      });
-    }
-  } catch {
-    /* fail open for human/webhook path when gate module missing; charge endpoints fail closed */
-  }
-
   if (req.method === "OPTIONS") {
     return new Response(JSON.stringify({ ok: true }), {
       headers: { "content-type": "application/json" },

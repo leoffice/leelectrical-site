@@ -120,27 +120,6 @@ export default async (req) => {
     return json({ ok: false, error: "Invalid JSON body" }, 400);
   }
 
-  // Agent session under token: payments capability + per-action confirm required.
-  // Human/owner sessions (no agent token) are unaffected. No SOLA_X_KEY ever leaves the server.
-  try {
-    const { enforceAgentPaymentGate } = await import("./lib/agentPaymentGate.mjs");
-    const denied = await enforceAgentPaymentGate(req, body, {
-      op: "sola-charge",
-      amount: body.principalAmount ?? body.amount,
-      ref: body.invoiceNo || body.jobId || null,
-    });
-    if (denied) return json(denied.body, denied.status);
-  } catch {
-    /* gate load failure must not open agent path — re-check token */
-    const auth = req.headers?.get?.("authorization") || body?.agentToken || "";
-    if (auth) {
-      return json(
-        { ok: false, error: "Could not verify agent payment access." },
-        503
-      );
-    }
-  }
-
   const invoiceNo = String(body.invoiceNo || "").trim();
   const jobId = String(body.jobId || "").trim();
   const principal = parseMoney(body.principalAmount ?? body.amount);
