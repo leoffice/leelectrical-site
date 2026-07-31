@@ -16,8 +16,12 @@ bucket_name = "leoffice-r2"
 
 # Agent Access — strongly-consistent state (Durable Object in le-agent-access-do).
 # Deploy the DO worker first: cd workers/agent-access-do && npx wrangler deploy
-# Then Pages can resolve AGENT_ACCESS via script_name.
+# Prefer direct DO binding; service binding is the reliable Pages→Worker path.
 [[durable_objects.bindings]]
 name = "AGENT_ACCESS"
 class_name = "AgentAccessState"
 script_name = "le-agent-access-do"
+
+[[services]]
+binding = "AGENT_ACCESS_SVC"
+service = "le-agent-access-do"

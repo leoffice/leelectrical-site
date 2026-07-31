@@ -4,7 +4,9 @@
  * One object per app via idFromName(`app:${appId}`).
  *
  * Deploy: cd workers/agent-access-do && npx wrangler deploy
- * Pages binds via script_name = "le-agent-access-do".
+ * Pages binds via:
+ *   - durable_objects.bindings script_name = "le-agent-access-do"  (preferred)
+ *   - services binding AGENT_ACCESS_SVC → this worker's HTTP API   (fallback)
  */
 
 const EMPTY = {
@@ -58,7 +60,6 @@ export class AgentAccessState {
   async putDoc(doc) {
     const fresh = refresh(doc);
     await this.state.storage.put("doc", fresh);
-    // Schedule DO alarm for auto-off when 24h mode is active
     if (fresh.accessOn && fresh.timerMode === "24h" && fresh.autoOffAt) {
       try {
         await this.state.storage.setAlarm(Number(fresh.autoOffAt));
@@ -94,13 +95,10 @@ export class AgentAccessState {
   }
 
   async fetch(request) {
-    const url = new URL(request.url);
-    const path = url.pathname;
-
-    if (request.method === "GET" || path.endsWith("/state") && request.method === "GET") {
+    if (request.method === "GET") {
       const doc = await this.getDoc();
-      // Persist auto-off side effects so next read is stable
-      if (doc !== (await this.state.storage.get("doc"))) {
+      const stored = await this.state.storage.get("doc");
+      if (JSON.stringify(doc) !== JSON.stringify(stored || {})) {
         await this.state.storage.put("doc", doc);
       }
       return Response.json(doc);
@@ -122,11 +120,43 @@ export class AgentAccessState {
   }
 }
 
+function resolveAppId(request, url) {
+  const h = request.headers.get("x-le-app-id") || "";
+  const q = url.searchParams.get("app") || "";
+  const pathParts = url.pathname.split("/").filter(Boolean);
+  // /state, /do/:appId/state, /:appId/state
+  let fromPath = "";
+  if (pathParts[0] === "do" && pathParts[1]) fromPath = pathParts[1];
+  else if (pathParts.length >= 2 && pathParts[pathParts.length - 1] === "state") fromPath = pathParts[0];
+  const raw = (h || q || fromPath || "le-pro").toLowerCase().replace(/[^a-z0-9_-]/g, "").slice(0, 40);
+  return raw || "le-pro";
+}
+
 export default {
-  async fetch() {
-    return new Response("le-agent-access-do · AgentAccessState Durable Object", {
-      status: 200,
-      headers: { "content-type": "text/plain" },
-    });
+  async fetch(request, env) {
+    const url = new URL(request.url);
+    const path = url.pathname;
+
+    if (path === "/" || path === "") {
+      return new Response("le-agent-access-do · AgentAccessState Durable Object", {
+        status: 200,
+        headers: { "content-type": "text/plain" },
+      });
+    }
+
+    // HTTP front door used by Pages via service binding (and local debug).
+    // Always routes through the Durable Object — never memory.
+    if (
+      path === "/state" ||
+      path.endsWith("/state") ||
+      path.startsWith("/do/")
+    ) {
+      const appId = resolveAppId(request, url);
+      const id = env.AGENT_ACCESS.idFromName(`app:${appId}`);
+      const stub = env.AGENT_ACCESS.get(id);
+      return stub.fetch(request);
+    }
+
+    return new Response("not found", { status: 404 });
   },
 };
