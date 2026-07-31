@@ -525,6 +525,11 @@ export function verifyAgentSessionToken(token, env = {}, now = Date.now()) {
   if (!payload?.grantId || !payload?.agentId || !Number.isFinite(exp)) {
     return { ok: false, error: "Invalid agent session token." };
   }
+  // Tenant / app binding — reject tokens minted for another app (cross-tenant replay).
+  const tokenApp = String(payload?.appId || "").trim();
+  if (!tokenApp || tokenApp !== APP_ID) {
+    return { ok: false, error: !tokenApp ? "Invalid agent session token." : "Agent session is not valid for this app." };
+  }
   if (now >= exp) return { ok: false, error: "Agent session expired." };
   return { ok: true, session: payload };
 }

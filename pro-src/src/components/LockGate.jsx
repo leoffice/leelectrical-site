@@ -9,6 +9,7 @@ import React, { useCallback, useEffect, useRef, useState } from "react";
 import {
   biometricSupported,
   biometricUnlock,
+  clearUnlocked,
   hasEnrolledCredential,
   isSessionUnlocked,
   markAgentUnlocked,
@@ -126,10 +127,13 @@ export default function LockGate({ children }) {
   }, [unlocked]);
 
   // Poll agent session expiry + owner STOP so the lock reappears when access ends.
+  // STOP must clear agent session AND unlock grace — otherwise a reload could re-open
+  // the app for up to 8h on the leftover grace key after the agent session is dropped.
   useEffect(() => {
     if (!unlocked) return;
     const id = setInterval(async () => {
       if (!isSessionUnlocked()) {
+        clearUnlocked();
         setUnlocked(false);
         return;
       }
@@ -139,11 +143,7 @@ export default function LockGate({ children }) {
         if (!raw) return;
         const st = await fetchAgentAccessStatus();
         if (st.accessOn === false || st.state?.accessOn === false) {
-          try {
-            globalThis.sessionStorage?.removeItem("lepro_agent_session");
-          } catch {
-            /* ignore */
-          }
+          clearUnlocked();
           setUnlocked(false);
         }
       } catch {

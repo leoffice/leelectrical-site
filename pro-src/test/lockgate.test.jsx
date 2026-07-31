@@ -12,6 +12,7 @@ const lock = vi.hoisted(() => ({
   isSessionUnlocked: vi.fn(() => false),
   markUnlocked: vi.fn(),
   markAgentUnlocked: vi.fn(),
+  clearUnlocked: vi.fn(),
   touchUnlocked: vi.fn(),
   hasEnrolledCredential: vi.fn(() => false),
   biometricSupported: vi.fn(async () => false),

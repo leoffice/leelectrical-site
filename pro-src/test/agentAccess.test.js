@@ -252,12 +252,41 @@ describe("mintAgentSession (lock-screen Enter as agent)", () => {
     expect(verifyAgentSessionToken(r.token, env, r.expiresAt + 1).ok).toBe(false);
   });
 
+  it("rejects tokens bound to a different app (cross-tenant)", () => {
+    const now = 12_500_000_000_000;
+    const { doc } = setAccess(emptyDoc(), { on: true }, now);
+    const r = mintAgentSession(doc, { agentId: "israel" }, env, now);
+    expect(r.ok).toBe(true);
+    const [body] = r.token.split(".");
+    const payload = JSON.parse(Buffer.from(body, "base64url").toString("utf8"));
+    payload.appId = "other-app";
+    const foreignBody = Buffer.from(JSON.stringify(payload), "utf8").toString("base64url");
+    const foreignSig = createHmac("sha256", secret).update(foreignBody).digest("hex");
+    const foreignTok = `${foreignBody}.${foreignSig}`;
+    const v = verifyAgentSessionToken(foreignTok, env, now);
+    expect(v.ok).toBe(false);
+    expect(v.error).toMatch(/not valid for this app/i);
+  });
+
   it("fails closed when fleet secret missing", () => {
     const now = 13_000_000_000_000;
     const { doc } = setAccess(emptyDoc(), { on: true }, now);
     const r = mintAgentSession(doc, { agentId: "israel" }, {}, now);
     expect(r.ok).toBe(false);
     expect(r.code).toBe("identity_config");
+  });
+
+  it("STOP / access off denies mint even if a prior token would still verify by expiry", () => {
+    const now = 14_000_000_000_000;
+    let doc = setAccess(emptyDoc(), { on: true, timerMode: "manual" }, now).doc;
+    const minted = mintAgentSession(doc, { agentId: "dispatch" }, env, now);
+    expect(minted.ok).toBe(true);
+    expect(verifyAgentSessionToken(minted.token, env, now).ok).toBe(true);
+    doc = stopAccess(doc, { actor: "owner-stop" }, now + 1).doc;
+    const again = mintAgentSession(doc, { agentId: "dispatch" }, env, now + 2);
+    expect(again.ok).toBe(false);
+    expect(again.code).toBe("access_off");
+    expect(authorizeAgentAction(doc, { agentId: "dispatch" }, now + 2).ok).toBe(false);
   });
 });
 
