@@ -46,31 +46,148 @@ function parseFetchResult(raw) {
   }
 }
 
-function samePaymentRow(a, b) {
-  if (!a || !b) return false;
-  const aq = String(a.qboPaymentId || "").trim();
-  const bq = String(b.qboPaymentId || "").trim();
-  if (aq && bq && aq === bq) return true;
-  if (a.id && b.id && String(a.id) === String(b.id)) return true;
-  const sameAmt = Math.abs(parseAmount(a.amount) - parseAmount(b.amount)) <= 0.01;
-  if (!sameAmt) return false;
-  const sameDate =
-    !a.date || !b.date || String(a.date).slice(0, 10) === String(b.date).slice(0, 10);
-  const ar = String(a.ref || "").trim().toLowerCase();
-  const br = String(b.ref || "").trim().toLowerCase();
-  const sameRef = !ar || !br || ar === br;
-  return sameDate && sameRef;
+/** Amounts match within a cent. */
+function amountsClose(a, b) {
+  return Math.abs(parseAmount(a?.amount) - parseAmount(b?.amount)) <= 0.01;
+}
+
+function datesCompatible(a, b) {
+  return !a?.date || !b?.date || String(a.date).slice(0, 10) === String(b.date).slice(0, 10);
 }
 
 /**
- * Merge QBO payment rows with local ledger rows that QBO has not absorbed yet
- * (app-recorded check/Zelle/card still syncing).
+ * Match strength for 1:1 pairing (higher = more confident).
+ * 3 = qboPaymentId · 2 = row id · 1 = amount + non-empty matching ref
+ * 0 = weak amount+date only (enrichment 1:1 — NEVER used to drop extras)
+ * null = no match
+ *
+ * P0 (Seewald): blank date/ref must NOT amount-match every identical $5k row.
+ * samePaymentRow used to treat missing ref/date as "same" → all local $5k rows
+ * matched some QBO row → keepLocal emptied → 4th payment deleted.
+ */
+export function paymentMatchStrength(a, b) {
+  if (!a || !b) return null;
+  const aq = String(a.qboPaymentId || "").trim();
+  const bq = String(b.qboPaymentId || "").trim();
+  if (aq && bq && aq === bq) return 3;
+  if (a.id && b.id && String(a.id) === String(b.id)) return 2;
+  if (!amountsClose(a, b)) return null;
+  const ar = String(a.ref || "").trim().toLowerCase();
+  const br = String(b.ref || "").trim().toLowerCase();
+  if (ar && br && ar === br) return 1;
+  // Conflicting non-empty refs → never the same payment.
+  if (ar && br && ar !== br) return null;
+  // Weak amount-only: used ONLY for 1:1 occurrence pairing (enrich / avoid
+  // double-count). Never treats all N local $5k as "matched" by M < N QBO rows.
+  // Prefer same-date pairs when ranking (caller may use datesCompatible).
+  return 0;
+}
+
+/** @deprecated Prefer paymentMatchStrength + occurrence-counted merge. */
+export function samePaymentRow(a, b) {
+  const s = paymentMatchStrength(a, b);
+  // Strong identity only — amount-only (0) is NOT "same row" for deletion.
+  return s != null && s >= 1;
+}
+
+function enrichLocalWithQbo(local, qbo) {
+  const out = { ...local };
+  if (qbo.qboPaymentId) out.qboPaymentId = qbo.qboPaymentId;
+  if (qbo.syncToken != null && qbo.syncToken !== "") out.syncToken = String(qbo.syncToken);
+  if (qbo.method && !out.method) out.method = qbo.method;
+  if (qbo.note && !out.note) out.note = qbo.note;
+  if (qbo.ref && !String(out.ref || "").trim()) out.ref = qbo.ref;
+  if (qbo.date && !out.date) out.date = qbo.date;
+  if (!out.source || out.source === "lepro") out.source = out.qboPaymentId ? "qbo" : out.source || "lepro";
+  // Confident QBO link — clear any prior "not in QBO" flag.
+  if (out.notInQbo) delete out.notInQbo;
+  if (out.syncFlag === "not_in_qbo") delete out.syncFlag;
+  return out;
+}
+
+function flagNotInQbo(p) {
+  return { ...p, notInQbo: true, syncFlag: "not_in_qbo" };
+}
+
+/**
+ * Non-destructive union of local ledger + QBO fetch.
+ *
+ * LE Pro is source of truth for the payments array: never drop a local row
+ * just because QBO returned fewer (or zero) matches. Pair 1:1 by stable id /
+ * ref / occurrence-counted amount so N local identical $5k rows are never
+ * consumed by fewer than N QBO rows. Unmatched locals are retained and
+ * flagged "not in QBO". Unmatched QBO rows are appended.
  */
 export function mergeLocalAndQboPayments(job, qboPayments) {
   const qbo = (qboPayments || []).filter(Boolean);
   const local = normalizePayments(job);
-  const keepLocal = local.filter((p) => !qbo.some((q) => samePaymentRow(p, q)));
-  return [...qbo, ...keepLocal];
+  if (!local.length) return qbo.map((p) => ({ ...p }));
+  if (!qbo.length) return local.map(flagNotInQbo);
+
+  const usedQbo = new Set();
+  const usedLocal = new Set();
+  const result = [];
+
+  // Pass 1 — strong identity (qboPaymentId / id / amount+ref), best match first.
+  for (let li = 0; li < local.length; li++) {
+    let bestQi = -1;
+    let bestS = -1;
+    for (let qi = 0; qi < qbo.length; qi++) {
+      if (usedQbo.has(qi)) continue;
+      const s = paymentMatchStrength(local[li], qbo[qi]);
+      if (s != null && s >= 1 && s > bestS) {
+        bestS = s;
+        bestQi = qi;
+      }
+    }
+    if (bestQi >= 0) {
+      usedQbo.add(bestQi);
+      usedLocal.add(li);
+      result.push(enrichLocalWithQbo(local[li], qbo[bestQi]));
+    }
+  }
+
+  // Pass 2a — weak amount + same calendar date, 1:1 (best signal without id/ref).
+  for (let li = 0; li < local.length; li++) {
+    if (usedLocal.has(li)) continue;
+    for (let qi = 0; qi < qbo.length; qi++) {
+      if (usedQbo.has(qi)) continue;
+      if (paymentMatchStrength(local[li], qbo[qi]) !== 0) continue;
+      if (!(local[li].date && qbo[qi].date)) continue;
+      if (!datesCompatible(local[li], qbo[qi])) continue;
+      usedQbo.add(qi);
+      usedLocal.add(li);
+      result.push(enrichLocalWithQbo(local[li], qbo[qi]));
+      break;
+    }
+  }
+
+  // Pass 2b — remaining weak amount-only 1:1 (occurrence count; never all-to-all).
+  for (let li = 0; li < local.length; li++) {
+    if (usedLocal.has(li)) continue;
+    for (let qi = 0; qi < qbo.length; qi++) {
+      if (usedQbo.has(qi)) continue;
+      if (paymentMatchStrength(local[li], qbo[qi]) !== 0) continue;
+      usedQbo.add(qi);
+      usedLocal.add(li);
+      result.push(enrichLocalWithQbo(local[li], qbo[qi]));
+      break;
+    }
+  }
+
+  // Pass 3 — remaining local: KEEP + flag not in QBO (never hard-delete).
+  for (let li = 0; li < local.length; li++) {
+    if (usedLocal.has(li)) continue;
+    result.push(flagNotInQbo(local[li]));
+  }
+
+  // Pass 4 — remaining QBO rows not already represented locally.
+  for (let qi = 0; qi < qbo.length; qi++) {
+    if (usedQbo.has(qi)) continue;
+    result.push({ ...qbo[qi] });
+  }
+
+  return result;
 }
 
 /** Turn fetch_payments command JSON into a patchJob overlay. */
