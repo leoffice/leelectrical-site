@@ -13,4 +13,5 @@ bindings = [
 
 [[migrations]]
 tag = "v1"
-new_classes = ["AgentAccessState"]
+# SQLite-backed DO (CF account no longer allows new KV-backed classes)
+new_sqlite_classes = ["AgentAccessState"]
