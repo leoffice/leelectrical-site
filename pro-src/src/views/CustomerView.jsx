@@ -8,6 +8,7 @@ import Jobs from "./Jobs.jsx";
 import CustomerCard from "../components/CustomerCard.jsx";
 import CustomerTransactionHistory from "../components/CustomerTransactionHistory.jsx";
 import CustomerDocTabs from "../components/CustomerDocTabs.jsx";
+import StatementSheet from "../components/StatementSheet.jsx";
 import JobDocSheets, { openDocTab } from "../components/JobDocSheets.jsx";
 import { buildQboHierarchyCtx, subsUnderParent } from "../lib/customerHierarchy.js";
 import { fmt$ } from "../lib/format.js";
@@ -433,7 +434,11 @@ export default function CustomerView() {
       {heavyReady ? (
         !(key.startsWith("p:") && subs.length > 0) ? (
           <>
-            <CustomerDocTabs jobs={displayJobs} fromCust={key} />
+            <CustomerDocTabs
+              jobs={displayJobs}
+              fromCust={key}
+              onGenerateStatement={() => setSheet({ kind: "statement" })}
+            />
             {shortTxns ? (
               <CustomerTransactionHistory
                 jobs={displayJobs}
@@ -580,6 +585,19 @@ export default function CustomerView() {
       ) : null}
       {sheet?.kind === "paid" && sheet.job ? (
         <MarkPaidSheet job={sheet.job} onClose={() => setSheet(null)} />
+      ) : null}
+      {sheet?.kind === "statement" ? (
+        <StatementSheet
+          jobs={displayJobs}
+          customerName={contact?.name || ""}
+          customerEmail={contact?.email || displayJobs[0]?.email || ""}
+          billingAddress={
+            displayJobs[0]?.billingAddress || displayJobs[0]?.address || ""
+          }
+          primaryJob={displayJobs[0] || null}
+          scopeLabel="customer"
+          onClose={() => setSheet(null)}
+        />
       ) : null}
       <JobDocSheets
         sheet={sheet?.job ? sheet : null}

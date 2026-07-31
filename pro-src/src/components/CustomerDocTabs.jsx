@@ -1,4 +1,5 @@
 // Invoices / Estimates / Service addresses — create docs, open + closed sections.
+// Generate Statement trigger sits above the tabs (A295 / §1a — always on when feature allows).
 import React, { useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import {
@@ -23,6 +24,7 @@ import {
 } from "../lib/changeOrder.js";
 import { useStore } from "../state/store.jsx";
 import { useLongPress } from "../lib/useLongPress.js";
+import { isFeatureOn } from "../lib/tenantProfile.js";
 import ConnectDocSheet from "./ConnectDocSheet.jsx";
 import ChangeOrdersTabPanel from "./ChangeOrdersTabPanel.jsx";
 import AddJobAtAddressSheet from "./AddJobAtAddressSheet.jsx";
@@ -188,12 +190,21 @@ function CustomerOverview({ addresses, jobs, openInv, onPickAddress, onOpenJob }
   );
 }
 
-export default function CustomerDocTabs({ jobs, activeJobId, fromCust = "", overview = true }) {
+export default function CustomerDocTabs({
+  jobs,
+  activeJobId,
+  fromCust = "",
+  overview = true,
+  /** When set, shows the Generate Statement trigger (A295 — feature on by default). */
+  onGenerateStatement,
+  statementsEnabled = true,
+}) {
   const nav = useNavigate();
   const { createJob, showToast, patchAndSave } = useStore();
   const [tab, setTab] = useState(null); // null | invoices | estimates | addresses
   const [addrKey, setAddrKey] = useState(""); // selected service-address key
   const [connect, setConnect] = useState(null); // { job, kind }
+  const showStatement = !!(onGenerateStatement && statementsEnabled && isFeatureOn({ statements: statementsEnabled }, "statements"));
 
   const templateJob = jobs[0] || null;
   const addresses = useMemo(() => serviceAddressesForJobs(jobs), [jobs]);
@@ -300,6 +311,16 @@ export default function CustomerDocTabs({ jobs, activeJobId, fromCust = "", over
 
   return (
     <div className="space-y-2" data-testid="customer-doc-tabs">
+      {showStatement ? (
+        <button
+          type="button"
+          className={CREATE_BTN}
+          data-testid="cust-generate-statement"
+          onClick={() => onGenerateStatement?.()}
+        >
+          🧾 Generate Statement
+        </button>
+      ) : null}
       <div className="flex gap-1.5 px-0.5">
         {[
           ["invoices", "🧾 Invoices", counts.invoices],

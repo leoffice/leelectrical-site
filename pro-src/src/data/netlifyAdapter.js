@@ -290,16 +290,19 @@ export function createNetlifyAdapter() {
      */
     async sendDocEmailNow(job, kind = "invoice", opts = {}) {
       const isApplication = kind === "application" || kind === "agency";
+      const isStatement = kind === "statement";
       const no = kind === "invoice" ? job?.invoiceNo : job?.estimateNo;
       let pdfB64 = String(opts.pdfB64 || "").trim();
       let filename =
         String(opts.filename || "").trim() ||
         (isApplication
           ? "application.pdf"
-          : docPdfFilename(kind, job, no) || `${kind}-${String(no || "document")}.pdf`);
+          : isStatement
+            ? "Statement.pdf"
+            : docPdfFilename(kind, job, no) || `${kind}-${String(no || "document")}.pdf`);
       try {
         if (!opts.probe && !pdfB64) {
-          if (isApplication) return { ok: false, error: "pdf_required" };
+          if (isApplication || isStatement) return { ok: false, error: "pdf_required" };
           const overrides = kind === "estimate" ? { kind: "estimate" } : {};
           if (opts.payUrl) overrides.payUrl = opts.payUrl;
           const blob =
@@ -316,13 +319,15 @@ export function createNetlifyAdapter() {
           kind,
           job: slimJob,
           email: String(opts.email || job?.email || "").trim(),
-          includePaymentLink: isApplication ? false : opts.includePaymentLink !== false,
+          includePaymentLink: isApplication || isStatement ? false : opts.includePaymentLink !== false,
           pdfB64,
           filename,
           message: opts.message || opts.topMessage || "",
           subject: opts.subject || "",
           htmlBody: opts.htmlBody || "",
           application: opts.application || null,
+          // Statement email carries model meta (pay rows, balance) for the branded template.
+          statement: isStatement ? opts.statement || job?._statementModel || {} : undefined,
           probe: !!opts.probe,
           officeOnly: !!opts.officeOnly,
         });

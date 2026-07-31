@@ -85,8 +85,19 @@ export function docEmailWorkLabel(job) {
   return title || "your electrical work";
 }
 
-/** Default subject for invoice/estimate customer email. */
+/** Default subject for invoice/estimate/statement customer email. */
 export function defaultDocEmailSubject(job, kind, { withPay = false } = {}) {
+  if (kind === "statement") {
+    const model = job?._statementModel;
+    const due = Number(model?.totalDue);
+    const dueStr = Number.isFinite(due)
+      ? due.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+      : "";
+    const name = s(job?.businessName || job?.customer || model?.customerName);
+    return dueStr
+      ? `Statement from ${brand()} — $${dueStr} due${name ? " — " + name : ""}`
+      : `Statement from ${brand()}${name ? " — " + name : ""}`;
+  }
   const no = kind === "invoice" ? s(job?.invoiceNo) : s(job?.estimateNo);
   const label = kind === "estimate" ? "Estimate" : "Invoice";
   const num = no ? ` #${no}` : "";
@@ -105,6 +116,27 @@ export function defaultDocEmailBody(job, kind, { withPay = false, payUrl = "" } 
   // payUrl intentionally unused in the body — never print a long payment URL.
   void payUrl;
   const greet = docEmailGreetingName(job);
+  if (kind === "statement") {
+    const model = job?._statementModel;
+    const due = Number(model?.totalDue);
+    const dueStr = Number.isFinite(due)
+      ? due.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+      : "0.00";
+    const lines = [
+      `Hi ${greet},`,
+      "",
+      `Your account statement is attached. Balance due: $${dueStr}.`,
+      "",
+      "The PDF is attached.",
+      "",
+      "Questions? Reply to this email or call us anytime.",
+      "",
+      "Thank you,",
+      brand(),
+      activeTenantConfig().profile?.website || "",
+    ];
+    return lines.join("\n");
+  }
   const no = kind === "invoice" ? s(job?.invoiceNo) : s(job?.estimateNo);
   const label = kind === "estimate" ? "estimate" : "invoice";
   const num = no ? ` #${no}` : "";
@@ -129,6 +161,15 @@ export function defaultDocEmailBody(job, kind, { withPay = false, payUrl = "" } 
 
 /** Attachment filename shown on the confirm sheet. */
 export function docAttachmentName(job, kind) {
+  if (kind === "statement") {
+    const model = job?._statementModel;
+    const name = s(model?.customerName || job?.businessName || job?.customer)
+      .replace(/[^\w\-]+/g, "-")
+      .replace(/-+/g, "-")
+      .replace(/^-|-$/g, "")
+      .slice(0, 40);
+    return name ? `Statement-${name}.pdf` : "Statement.pdf";
+  }
   const no = kind === "invoice" ? s(job?.invoiceNo) : s(job?.estimateNo);
   const base = kind === "estimate" ? "Estimate" : "Invoice";
   return no ? `${base}-${no}.pdf` : `${base}.pdf`;
@@ -167,7 +208,12 @@ export function buildSendDocConfirm({
     message: body,
     attachmentName: docAttachmentName(job, kind),
     payUrl: s(payUrl),
-    sourceLabel: src === DOC_SOURCE_QBO ? "QuickBooks file" : `Local ${productName()} PDF`,
+    sourceLabel:
+      src === DOC_SOURCE_QBO
+        ? "QuickBooks file"
+        : kind === "statement"
+          ? `Local ${productName()} statement PDF`
+          : `Local ${productName()} PDF`,
     emailDiffers: differs,
     emailPolicy: policy,
   };

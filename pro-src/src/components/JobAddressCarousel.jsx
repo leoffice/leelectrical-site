@@ -19,6 +19,7 @@ export default function JobAddressCarousel({
   onCalendar,
   onChangeOrders,
   changeOrdersActive = false,
+  onStatement,
   onBubbleTap,
   onCardTap,
   onEditJob,
@@ -77,6 +78,7 @@ export default function JobAddressCarousel({
           onCalendar={() => onCalendar?.(active)}
           onChangeOrders={onChangeOrders}
           changeOrdersActive={changeOrdersActive}
+          onStatement={onStatement ? () => onStatement(active) : undefined}
           onBubbleTap={(b) => onBubbleTap?.(active, b)}
           jobTxns={jobTxns}
           onJobTxnsChange={onJobTxnsChange}

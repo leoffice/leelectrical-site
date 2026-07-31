@@ -73,7 +73,7 @@ export default function SendDocConfirmSheet({
     emailPolicy,
   });
   const ok = canApproveSendConfirm(model);
-  const label = kind === "estimate" ? "estimate" : "invoice";
+  const label = kind === "estimate" ? "estimate" : kind === "statement" ? "statement" : "invoice";
 
   return (
     <Sheet title={title || "Confirm send " + label} onClose={onBack} tall>

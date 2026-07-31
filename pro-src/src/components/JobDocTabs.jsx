@@ -24,6 +24,8 @@ export default function JobDocTabs({
   onCalendar,
   onChangeOrders,
   changeOrdersActive = false,
+  /** A295 — Generate Statement on the job (same flow as customer). */
+  onStatement,
 }) {
   const hasEst = hasEstimateOnJob(job);
   const hasInv = hasInvoiceOnJob(job);
@@ -86,63 +88,72 @@ export default function JobDocTabs({
     "rounded-xl border px-1 py-2 text-center text-xs font-bold leading-tight break-words";
 
   return (
-    <div
-      className={`grid gap-1 mt-3 ${showCoTab ? "grid-cols-5" : "grid-cols-4"}`}
-      data-testid="job-doc-tabs"
-    >
-      <button
-        type="button"
-        className={`${tabClass} ${tabTone(hasEst, pending.estimate, failed.estimate)}`}
-        onClick={onEstimate}
-        data-testid="tab-estimate"
-      >
-        📝 {estLabel}
-      </button>
-      <button
-        type="button"
-        className={`${tabClass} ${
-          agentReview
-            ? "bg-red-50 text-red-600 border-red-300 animate-pulse"
-            : tabTone(hasInv, pending.invoice, failed.invoice)
-        }`}
-        onClick={onInvoice}
-        data-testid="tab-invoice"
-        aria-label={agentReview ? "Invoice — agent edits awaiting review" : "Invoice"}
-      >
-        🧾 {agentReview ? "Review" : invLabel}
-      </button>
-      <button
-        type="button"
-        className={`${tabClass} ${
-          canPay ? "bg-emerald-50 text-emerald-800 border-emerald-200" : "bg-slate-50 text-slate-400 border-slate-200"
-        }`}
-        onClick={onPayment}
-        disabled={!canPay && !job.invoiceNo}
-        data-testid="tab-payment"
-      >
-        💳 Payment
-      </button>
-      <button
-        type="button"
-        className={`${tabClass} ${calTone}`}
-        onClick={onCalendar}
-        data-testid="tab-calendar"
-      >
-        📅 Calendar
-      </button>
-      {showCoTab ? (
+    <div className="mt-3 space-y-1" data-testid="job-doc-tabs">
+      <div className={`grid gap-1 ${showCoTab ? "grid-cols-5" : "grid-cols-4"}`}>
+        <button
+          type="button"
+          className={`${tabClass} ${tabTone(hasEst, pending.estimate, failed.estimate)}`}
+          onClick={onEstimate}
+          data-testid="tab-estimate"
+        >
+          📝 {estLabel}
+        </button>
         <button
           type="button"
           className={`${tabClass} ${
-            changeOrdersActive
-              ? "bg-brand-soft text-brand border-brand/30"
-              : "bg-violet-50 text-violet-800 border-violet-200"
+            agentReview
+              ? "bg-red-50 text-red-600 border-red-300 animate-pulse"
+              : tabTone(hasInv, pending.invoice, failed.invoice)
           }`}
-          onClick={onChangeOrders}
-          data-testid="tab-change-orders"
-          title="Show change orders on this job"
+          onClick={onInvoice}
+          data-testid="tab-invoice"
+          aria-label={agentReview ? "Invoice — agent edits awaiting review" : "Invoice"}
         >
-          📋 {coLabel}
+          🧾 {agentReview ? "Review" : invLabel}
+        </button>
+        <button
+          type="button"
+          className={`${tabClass} ${
+            canPay ? "bg-emerald-50 text-emerald-800 border-emerald-200" : "bg-slate-50 text-slate-400 border-slate-200"
+          }`}
+          onClick={onPayment}
+          disabled={!canPay && !job.invoiceNo}
+          data-testid="tab-payment"
+        >
+          💳 Payment
+        </button>
+        <button
+          type="button"
+          className={`${tabClass} ${calTone}`}
+          onClick={onCalendar}
+          data-testid="tab-calendar"
+        >
+          📅 Calendar
+        </button>
+        {showCoTab ? (
+          <button
+            type="button"
+            className={`${tabClass} ${
+              changeOrdersActive
+                ? "bg-brand-soft text-brand border-brand/30"
+                : "bg-violet-50 text-violet-800 border-violet-200"
+            }`}
+            onClick={onChangeOrders}
+            data-testid="tab-change-orders"
+            title="Show change orders on this job"
+          >
+            📋 {coLabel}
+          </button>
+        ) : null}
+      </div>
+      {onStatement ? (
+        <button
+          type="button"
+          className="w-full rounded-xl border border-dashed border-brand/40 bg-brand-soft/50 px-2 py-2 text-center text-[10px] font-bold text-brand active:opacity-80"
+          onClick={onStatement}
+          data-testid="tab-statement"
+        >
+          🧾 Generate Statement
         </button>
       ) : null}
     </div>

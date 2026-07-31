@@ -66,6 +66,7 @@ export default function JobInfoCard({
   onCalendar,
   onChangeOrders,
   changeOrdersActive = false,
+  onStatement,
   jobs,
   onBubbleTap,
   showOpenLink = false,
@@ -276,6 +277,7 @@ export default function JobInfoCard({
             onCalendar={onCalendar}
             onChangeOrders={onChangeOrders}
             changeOrdersActive={changeOrdersActive}
+            onStatement={onStatement}
           />
         </div>
       ) : null}

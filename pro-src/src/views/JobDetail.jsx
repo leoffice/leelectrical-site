@@ -34,6 +34,7 @@ import JobTransactionHistory from "../components/JobTransactionHistory.jsx";
 import ConnectDocSheet from "../components/ConnectDocSheet.jsx";
 import JobInfoCard from "../components/JobInfoCard.jsx";
 import JobAddressCarousel from "../components/JobAddressCarousel.jsx";
+import StatementSheet from "../components/StatementSheet.jsx";
 
 import JobEditSheet from "../components/JobEditSheet.jsx";
 
@@ -509,6 +510,7 @@ export default function JobDetail() {
             onCalendar={(j) => openDocTab(j, "calendar", setSheet)}
             onChangeOrders={() => setShowChangeOrders((v) => !v)}
             changeOrdersActive={showChangeOrders}
+            onStatement={() => setSheet({ kind: "statement" })}
             onBubbleTap={(j, bubble) => tapAwarenessBubble(j, bubble, setSheet, openDocTab)}
             onCardTap={toggleDetailSections}
             jobTxns={jobTxns}
@@ -534,6 +536,7 @@ export default function JobDetail() {
             onCalendar={() => openDocTab(job, "calendar", setSheet)}
             onChangeOrders={() => setShowChangeOrders((v) => !v)}
             changeOrdersActive={showChangeOrders}
+            onStatement={() => setSheet({ kind: "statement" })}
             onBubbleTap={(bubble) => tapAwarenessBubble(job, bubble, setSheet, openDocTab)}
             jobTxns={jobTxns}
             onJobTxnsChange={setJobTxns}
@@ -1303,6 +1306,17 @@ export default function JobDetail() {
           onPickMethod={(method) => setSheet({ kind: "paid", initialMethod: method })}
         />
       )}
+      {sheet?.kind === "statement" && job ? (
+        <StatementSheet
+          jobs={[job]}
+          customerName={customerDisplayName(job) || job.customer || job.businessName || ""}
+          customerEmail={job.email || ""}
+          billingAddress={job.billingAddress || job.address || ""}
+          primaryJob={job}
+          scopeLabel="job"
+          onClose={() => setSheet(null)}
+        />
+      ) : null}
       {sheet?.kind === "paid" && (
         <MarkPaidSheet
           job={job}
