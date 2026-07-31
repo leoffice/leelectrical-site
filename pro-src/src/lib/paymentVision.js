@@ -242,6 +242,8 @@ export function mergePaymentExtracts(primary, secondary) {
   fill("payee");
   fill("invoiceNumber");
   fill("name");
+  fill("routingNumber");
+  fill("accountNumber");
   // Prefer non-low confidence when either side is high.
   if (out.confidence !== "high" && secondary.confidence === "high") out.confidence = "high";
   return out;

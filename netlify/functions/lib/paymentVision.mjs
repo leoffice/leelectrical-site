@@ -59,6 +59,8 @@ Extract these fields carefully and return ONLY valid JSON (no markdown):
 {
   "amount": <number USD, no $ sign — REQUIRED when the $ box or written amount is visible. Read the numeric amount box on the RIGHT first (ignore trailing *** or ** fillers — "$450.00***" → 450). Only use the written-out words line if the box is unreadable. Never leave amount null when any dollar figure is visible on the check>,
   "checkNumber": <printed check number as digits only — upper-right of the check AND/OR the MICR check-number field at the bottom (leftmost MICR group). Do NOT put invoice numbers here>,
+  "routingNumber": <9-digit ABA routing from the MICR line (between transit symbols ⑆…⑆). Digits only. Required when MICR is readable for ACH deposit processing>,
+  "accountNumber": <bank account number from the MICR line (usually after routing, before or after check#). Digits only. Do NOT invent. null if unreadable>,
   "date": <YYYY-MM-DD from the DATE line on the check (usually top-right). Convert "Month DD, YYYY" or MM/DD/YY or MM/DD/YYYY to YYYY-MM-DD>,
   "memo": <memo / For: line text exactly as written, or null>,
   "payee": <"Pay to the order of" name — usually the business being paid (e.g. BLZ Electric Inc.)>,
@@ -68,6 +70,7 @@ Extract these fields carefully and return ONLY valid JSON (no markdown):
 }
 If a field is missing or unreadable use null.
 Critical: amount is the #1 field — never skip a readable $ box. Also get date + checkNumber whenever visible. payer helps match the customer. invoiceNumber matches the right invoice — prefer a bare memo/"For:" number as invoice, not as check number.
+For ACH/process deposit: routingNumber (exactly 9 digits) + accountNumber from MICR are critical when the bottom line is readable.
 
 LAYOUT MAP (standard US business check — read every zone):
 - Top-left: payer company name + mailing address (this is "payer", NOT payee)
@@ -76,12 +79,12 @@ LAYOUT MAP (standard US business check — read every zone):
 - Middle: "Pay to the Order Of" → payee; amount box $###.## on the right (stars after amount are fillers — ignore)
 - Written amount line under payee (use only if $ box unreadable)
 - Bottom-left "For:" / memo line — often the invoice number alone (e.g. 251843)
-- Bottom MICR: ⑆check#⑆ ⑆routing⑆ account — use leftmost group as checkNumber if top-right is blurry
+- Bottom MICR (left→right common order): ⑆check#⑆  ⑆routing(9 digits)⑆  account — use leftmost group as checkNumber if top-right is blurry; middle 9-digit transit group = routingNumber; remaining long digit group = accountNumber
 
 GOLD WORKED EXAMPLE (Chase business check, high confidence):
-Payer top-left "Mendel Drizin LLC", check# top-right 1356, Date July 14, 2026 → 2026-07-14, payee "BLZ Electric Inc.", amount box $450.00 → 450, For: 251843 → memo + invoiceNumber 251843.
+Payer top-left "Mendel Drizin LLC", check# top-right 1356, Date July 14, 2026 → 2026-07-14, payee "BLZ Electric Inc.", amount box $450.00 → 450, For: 251843 → memo + invoiceNumber 251843, MICR routing 021000021 account 123456789.
 Correct JSON:
-{"amount":450,"checkNumber":"1356","date":"2026-07-14","memo":"251843","payee":"BLZ Electric Inc.","payer":"Mendel Drizin LLC","invoiceNumber":"251843","confidence":"high"}`;
+{"amount":450,"checkNumber":"1356","routingNumber":"021000021","accountNumber":"123456789","date":"2026-07-14","memo":"251843","payee":"BLZ Electric Inc.","payer":"Mendel Drizin LLC","invoiceNumber":"251843","confidence":"high"}`;
 
 export const IMAGE_INTENT_PROMPT = `You are reading a photo Levi sent LE Electrical (payment proof, invoice, estimate, job site, document, or screenshot).
 Extract visible clues and return ONLY valid JSON (no markdown):
@@ -132,6 +135,19 @@ export function normalizePaymentExtracted(raw, kind = "zelle") {
   }
   const checkNo = raw.checkNumber ? String(raw.checkNumber).replace(/\D/g, "").trim() : "";
   const confNo = raw.confirmationNumber ? String(raw.confirmationNumber).trim() : "";
+  // MICR bank line — used for ACH process / check deposit (not for record-only ledger).
+  let routing = String(raw.routingNumber || raw.routing || raw.aba || "")
+    .replace(/\D/g, "")
+    .trim();
+  if (routing.length !== 9) routing = routing.length > 9 ? routing.slice(0, 9) : "";
+  if (routing && routing.length !== 9) routing = "";
+  let account = String(raw.accountNumber || raw.account || "")
+    .replace(/\D/g, "")
+    .trim();
+  // Guard: do not treat routing as account when model duplicates the field.
+  if (account && routing && account === routing) account = "";
+  if (account.length > 17) account = account.slice(0, 17);
+  if (account.length < 4) account = "";
   let invNo = String(raw.invoiceNumber || raw.invoiceNo || "")
     .replace(/\D/g, "")
     .trim();
@@ -167,6 +183,8 @@ export function normalizePaymentExtracted(raw, kind = "zelle") {
     amount: Number.isFinite(amt) && amt > 0 ? amt : null,
     confirmationNumber: ref,
     checkNumber: checkNo,
+    routingNumber: routing || "",
+    accountNumber: account || "",
     invoiceNumber: invNo || "",
     date,
     memo,

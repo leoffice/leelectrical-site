@@ -35,7 +35,22 @@ export function paymentAutofillPatch(extracted) {
   if (name) patch.name = name;
   const inv = invoiceNoFromExtracted(extracted);
   if (inv) patch.invoiceNo = inv;
+  // MICR bank line — for Process payment (ACH debit / check deposit), not record-only.
+  const routing = String(extracted.routingNumber || extracted.routing || "")
+    .replace(/\D/g, "")
+    .trim();
+  if (routing.length === 9) patch.routing = routing;
+  const account = String(extracted.accountNumber || extracted.account || "")
+    .replace(/\D/g, "")
+    .trim();
+  if (account.length >= 4) patch.account = account;
   return patch;
+}
+
+/** True when vision has bank routing + account for ACH process. */
+export function hasAchBankFromExtracted(extracted) {
+  const patch = paymentAutofillPatch(extracted);
+  return !!(patch.routing && patch.account);
 }
 
 /**

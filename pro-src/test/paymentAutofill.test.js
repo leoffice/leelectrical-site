@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  hasAchBankFromExtracted,
   hasStrongPaymentAutofill,
   hasUsefulPaymentAutofill,
   invoiceNoFromExtracted,
@@ -40,6 +41,21 @@ describe("paymentAutofill", () => {
     expect(patch.dt).toBe("2026-07-20");
     expect(patch.name).toBe("Shaina Levin");
     expect(patch.invoiceNo).toBe("251841");
+  });
+
+  it("maps MICR routing and account for process payment", () => {
+    const extracted = {
+      amount: 450,
+      checkNumber: "1356",
+      routingNumber: "021000021",
+      accountNumber: "123456789",
+      payer: "Mendel Drizin LLC",
+    };
+    const patch = paymentAutofillPatch(extracted);
+    expect(patch.routing).toBe("021000021");
+    expect(patch.account).toBe("123456789");
+    expect(hasAchBankFromExtracted(extracted)).toBe(true);
+    expect(hasAchBankFromExtracted({ amount: 100, checkNumber: "1" })).toBe(false);
   });
 
   it("pulls invoice # from memo or explicit field", () => {

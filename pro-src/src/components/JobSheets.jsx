@@ -30,7 +30,12 @@ import { docStorePdfUrl, openPdfBlob, openPdfUrl, downloadPdfBlob } from "../lib
 import { canGenerateLocalDoc, docPdfFilename } from "../lib/jobToQbDoc.js";
 import { buildInvoicePdfFromJob, buildEstimatePdfFromJob } from "../lib/invoicePdf.js";
 import LocalDocViewer from "./LocalDocViewer.jsx";
-import { chargeCardInApp, fetchSolaIfieldsConfig } from "../lib/solaCharge.js";
+import {
+  chargeAchInApp,
+  chargeCardInApp,
+  fetchSolaIfieldsConfig,
+  validateAchBankFields,
+} from "../lib/solaCharge.js";
 import SolaCardForm, { tokenizeSolaCard } from "./SolaCardForm.jsx";
 import { fmtMoneyPrecise, totalWithFee } from "../lib/payFees.js";
 import { patchFromQboPaymentFetch } from "../lib/qboPayments.js";
@@ -76,6 +81,7 @@ import {
   invoiceNoFromExtracted,
   hasUsefulPaymentAutofill,
   hasStrongPaymentAutofill,
+  hasAchBankFromExtracted,
   paymentMethodMismatchMessage,
   methodFromPaymentKind,
   depositBankFromExtracted,
@@ -453,6 +459,9 @@ export function MarkPaidSheet({
   const [achAccount, setAchAccount] = useState("");
   const [achName, setAchName] = useState(jobProp?.customer || "");
   const [achEnabled, setAchEnabled] = useState(false);
+  /** "record" = books only; "process" = debit bank / deposit via Sola. */
+  const [payIntent, setPayIntent] = useState("record");
+  const [processConfirm, setProcessConfirm] = useState(false);
   const [proofFile, setProofFile] = useState(null);
   const [proofB64, setProofB64] = useState("");
   const [memo, setMemo] = useState("");
@@ -513,6 +522,8 @@ export function MarkPaidSheet({
   const isCheck = mth === "Check";
   const isAch = mth === "ACH";
   const isZelle = mth === "Zelle";
+  const canProcessBank = isAch || isCheck;
+  const isProcessIntent = canProcessBank && payIntent === "process";
 
   useEffect(() => {
     let cancelled = false;
@@ -732,6 +743,14 @@ export function MarkPaidSheet({
         setDepositOther(depHint);
       }
     }
+    // MICR routing / account for Process payment (ACH debit or check deposit).
+    if (patch.routing) setAchRouting(patch.routing);
+    if (patch.account) setAchAccount(patch.account);
+    if (patch.name && (isAch || isCheck || !mth)) setAchName(patch.name);
+    // If we got bank line from the photo, nudge toward process mode when ACH is on.
+    if (hasAchBankFromExtracted(extracted) && achEnabled && (isCheck || isAch || !mth)) {
+      setPayIntent("process");
+    }
     // Green Autofilled only when amount or check # actually filled — not name-only.
     const strong = hasStrongPaymentAutofill(extracted);
     setAutofillDone(strong);
@@ -811,13 +830,22 @@ export function MarkPaidSheet({
       } catch {
         learningEntries = [];
       }
-      const kindHint = isCheck ? "check" : isZelle ? "zelle" : isAch ? "ach" : "check";
+      // Process mode needs MICR routing/account → check reader. Record ACH uses conf screenshot.
+      const kindHint =
+        isCheck || (isAch && payIntent === "process")
+          ? "check"
+          : isZelle
+            ? "zelle"
+            : isAch
+              ? "ach"
+              : "check";
+      const forceKind = kindHint === "ach" ? undefined : kindHint;
       let { extracted, kind: detectedKind } = await analyzePaymentImage(
         visionB64,
         visionMime || "image/jpeg",
         kindHint,
         file?.name || "",
-        { learningEntries, forceKind: kindHint }
+        { learningEntries, forceKind }
       );
       // Canvas wash path: empty read after compress → retry original bytes (no learning noise).
       if (!hasStrongPaymentAutofill(extracted) && usedCompress && originalB64) {
@@ -1074,6 +1102,64 @@ export function MarkPaidSheet({
       setPayPhase("idle");
     }
   };
+
+  const requestProcessBank = () => {
+    if (!validateManual()) return;
+    if (!inv) {
+      showToast("Invoice # required to process a bank payment");
+      return;
+    }
+    if (!achEnabled) {
+      showToast("ACH processing is not turned on yet — use Record only, or enable SOLA_ACH on the host");
+      return;
+    }
+    const bank = validateAchBankFields({
+      routing: achRouting,
+      account: achAccount,
+      name: achName || job?.customer || "",
+    });
+    if (!bank.ok) {
+      showToast(bank.error);
+      return;
+    }
+    setProcessConfirm(true);
+  };
+
+  const processBankPayment = async () => {
+    if (!job || alreadyPaid) return;
+    setProcessConfirm(false);
+    setPayErr("");
+    setPayPhase("charging");
+    try {
+      const res = await chargeAchInApp({
+        job,
+        principalAmount: payAmt,
+        routing: achRouting,
+        account: achAccount,
+        name: achName || job.customer || "",
+        checkNumber: isCheck ? ref : "",
+        paymentMethod: isCheck ? "Check" : "ACH",
+        imageB64: proofB64 || "",
+      });
+      try {
+        await refreshJobs?.(true);
+      } catch {
+        /* balance refresh best-effort */
+      }
+      showToast(
+        res.ref
+          ? `Payment processing — ${fmt$(res.amount)} (ref ${res.ref}). Confirmation will follow.`
+          : `Payment processing — ${fmt$(res.amount)}. Confirmation will follow.`
+      );
+      onClose();
+    } catch (e) {
+      const msg = String((e && e.message) || "Payment failed");
+      setPayErr(msg);
+      showToast(msg);
+    } finally {
+      setPayPhase("idle");
+    }
+  };
   const onProofFile = async (e) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -1304,109 +1390,174 @@ export function MarkPaidSheet({
         </>
       ) : isAch ? (
         <>
-          <Fld label="ACH confirmation #" hint="From the bank schedule confirmation — critical when shown">
-            <input
-              className="input"
-              placeholder="Confirmation #"
-              value={ref}
-              onChange={(e) => {
-                setRef(e.target.value);
-                setPaymentVerified(false);
-              }}
+          <div
+            className="mb-3 rounded-xl border border-slate-200 bg-slate-50 p-2 flex gap-1"
+            data-testid="ach-intent-toggle"
+            role="group"
+            aria-label="ACH payment intent"
+          >
+            <button
+              type="button"
+              className={`flex-1 rounded-lg px-2 py-2 text-xs font-bold ${
+                payIntent === "record" ? "bg-white text-slate-900 shadow-sm" : "text-slate-500"
+              }`}
+              data-testid="ach-intent-record"
               disabled={processing}
-              data-testid="ach-confirmation"
-            />
-            {paymentVerified ? (
-              <p className="text-[11px] text-emerald-600 mt-1 font-medium" data-testid="ach-verified">
-                ✓ Read from ACH screenshot
-              </p>
-            ) : null}
-          </Fld>
-          <Fld label="Memo" hint="Optional note from the transfer">
-            <input
-              className="input"
-              placeholder="Memo"
-              value={memo}
-              onChange={(e) => setMemo(e.target.value)}
-              disabled={processing}
-              aria-label="ACH memo"
-            />
-          </Fld>
-          <PaymentProofFld
-            label="ACH confirmation screenshot"
-            hint="Bank “Standard ACH” schedule screen — attach then Autofill reads amount, date, conf #"
-            file={proofFile}
-            inputRef={proofInputRef}
-            onFile={onProofFile}
-            onAutofill={() => runAutofill()}
-            autofillBusy={autofillBusy}
-            autofillDone={autofillDone}
-            disabled={processing}
-            testId="ach-screenshot-input"
-            pendingPick={awaitingProof && !proofFile}
-          />
-          <Fld label="Deposit to">
-            <select
-              className="input"
-              value={deposit}
-              onChange={(e) => setDeposit(e.target.value)}
-              aria-label="Deposit to"
-              data-testid="payment-deposit-ach"
-              disabled={processing}
+              onClick={() => setPayIntent("record")}
             >
-              {depositBanks.map((b) => (
-                <option key={b}>{b}</option>
-              ))}
-              <option>Other</option>
-            </select>
-            {deposit === "Other" ? (
-              <input
-                className="input mt-2"
-                value={depositOther}
-                onChange={(e) => setDepositOther(e.target.value)}
-                placeholder="Bank name"
-                aria-label="Other bank"
+              Record only
+            </button>
+            <button
+              type="button"
+              className={`flex-1 rounded-lg px-2 py-2 text-xs font-bold ${
+                payIntent === "process" ? "bg-white text-emerald-800 shadow-sm" : "text-slate-500"
+              }`}
+              data-testid="ach-intent-process"
+              disabled={processing}
+              onClick={() => setPayIntent("process")}
+            >
+              Process payment
+            </button>
+          </div>
+          <p className="text-[11px] text-slate-500 -mt-1 mb-2">
+            {isProcessIntent
+              ? "Debits the customer’s bank — enter routing/account or attach a voided check photo. You’ll confirm before it runs."
+              : "Books only — customer already paid via bank ACH. Conf # + screenshot for the record."}
+          </p>
+          {isProcessIntent ? (
+            <>
+              <PaymentProofFld
+                label="Check or account photo (optional)"
+                hint="Voided check / MICR line — Autofill fills routing, account, amount"
+                file={proofFile}
+                inputRef={proofInputRef}
+                onFile={onProofFile}
+                onAutofill={() => runAutofill()}
+                autofillBusy={autofillBusy}
+                autofillDone={autofillDone}
                 disabled={processing}
+                testId="ach-process-photo-input"
+                emphasize
+                pendingPick={awaitingProof && !proofFile}
               />
-            ) : null}
-          </Fld>
-          <Fld label="Date">
-            <input className="input" type="date" value={dt} onChange={(e) => setDt(e.target.value)} disabled={processing} />
-          </Fld>
-          {achEnabled ? (
-            <details className="mb-2 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2">
-              <summary className="text-xs font-semibold text-slate-600 cursor-pointer">
-                Optional: debit via Sola (routing / account)
-              </summary>
-              <div className="mt-2 space-y-2">
-                <Fld label="Account holder name">
-                  <input className="input" value={achName} onChange={(e) => setAchName(e.target.value)} disabled={processing} />
-                </Fld>
-                <Fld label="Routing number">
-                  <input
-                    className="input"
-                    inputMode="numeric"
-                    value={achRouting}
-                    onChange={(e) => setAchRouting(e.target.value)}
-                    disabled={processing}
-                  />
-                </Fld>
-                <Fld label="Account number">
-                  <input
-                    className="input"
-                    inputMode="numeric"
-                    value={achAccount}
-                    onChange={(e) => setAchAccount(e.target.value)}
-                    disabled={processing}
-                  />
-                </Fld>
-              </div>
-            </details>
+              <Fld label="Account holder name">
+                <input
+                  className="input"
+                  value={achName}
+                  onChange={(e) => setAchName(e.target.value)}
+                  disabled={processing}
+                  data-testid="ach-account-name"
+                />
+              </Fld>
+              <Fld label="Routing number" hint="9 digits from the check MICR line">
+                <input
+                  className="input"
+                  inputMode="numeric"
+                  autoComplete="off"
+                  value={achRouting}
+                  onChange={(e) => setAchRouting(e.target.value.replace(/\D/g, "").slice(0, 9))}
+                  disabled={processing}
+                  data-testid="ach-routing"
+                  placeholder="#########"
+                />
+              </Fld>
+              <Fld label="Account number">
+                <input
+                  className="input"
+                  inputMode="numeric"
+                  autoComplete="off"
+                  value={achAccount}
+                  onChange={(e) => setAchAccount(e.target.value.replace(/\D/g, "").slice(0, 17))}
+                  disabled={processing}
+                  data-testid="ach-account"
+                  placeholder="Account #"
+                />
+              </Fld>
+              <Fld label="Date">
+                <input className="input" type="date" value={dt} onChange={(e) => setDt(e.target.value)} disabled={processing} />
+              </Fld>
+              {!achEnabled ? (
+                <p className="text-[11px] text-amber-800 bg-amber-50 border border-amber-200 rounded-xl px-3 py-2 mb-2">
+                  ACH process is ready in the app — host still needs ACH turned on before the Process button works.
+                </p>
+              ) : null}
+            </>
           ) : (
-            <p className="text-[11px] text-slate-400 -mt-1 mb-1">
-              Record customer ACH deposits here (often Martin Dorkin). Sola debit is optional when enabled.
-            </p>
+            <>
+              <Fld label="ACH confirmation #" hint="From the bank schedule confirmation — critical when shown">
+                <input
+                  className="input"
+                  placeholder="Confirmation #"
+                  value={ref}
+                  onChange={(e) => {
+                    setRef(e.target.value);
+                    setPaymentVerified(false);
+                  }}
+                  disabled={processing}
+                  data-testid="ach-confirmation"
+                />
+                {paymentVerified ? (
+                  <p className="text-[11px] text-emerald-600 mt-1 font-medium" data-testid="ach-verified">
+                    ✓ Read from ACH screenshot
+                  </p>
+                ) : null}
+              </Fld>
+              <Fld label="Memo" hint="Optional note from the transfer">
+                <input
+                  className="input"
+                  placeholder="Memo"
+                  value={memo}
+                  onChange={(e) => setMemo(e.target.value)}
+                  disabled={processing}
+                  aria-label="ACH memo"
+                />
+              </Fld>
+              <PaymentProofFld
+                label="ACH confirmation screenshot"
+                hint="Bank “Standard ACH” schedule screen — attach then Autofill reads amount, date, conf #"
+                file={proofFile}
+                inputRef={proofInputRef}
+                onFile={onProofFile}
+                onAutofill={() => runAutofill()}
+                autofillBusy={autofillBusy}
+                autofillDone={autofillDone}
+                disabled={processing}
+                testId="ach-screenshot-input"
+                pendingPick={awaitingProof && !proofFile}
+              />
+              <Fld label="Deposit to">
+                <select
+                  className="input"
+                  value={deposit}
+                  onChange={(e) => setDeposit(e.target.value)}
+                  aria-label="Deposit to"
+                  data-testid="payment-deposit-ach"
+                  disabled={processing}
+                >
+                  {depositBanks.map((b) => (
+                    <option key={b}>{b}</option>
+                  ))}
+                  <option>Other</option>
+                </select>
+                {deposit === "Other" ? (
+                  <input
+                    className="input mt-2"
+                    value={depositOther}
+                    onChange={(e) => setDepositOther(e.target.value)}
+                    placeholder="Bank name"
+                    aria-label="Other bank"
+                    disabled={processing}
+                  />
+                ) : null}
+              </Fld>
+              <Fld label="Date">
+                <input className="input" type="date" value={dt} onChange={(e) => setDt(e.target.value)} disabled={processing} />
+              </Fld>
+            </>
           )}
+          {payErr && isProcessIntent ? (
+            <p className="text-xs text-red-600 bg-red-50 border border-red-100 rounded-xl px-3 py-2 mt-2">{payErr}</p>
+          ) : null}
         </>
       ) : isZelle ? (
         <>
@@ -1481,9 +1632,47 @@ export function MarkPaidSheet({
         </>
       ) : isCheck ? (
         <>
+          <div
+            className="mb-3 rounded-xl border border-slate-200 bg-slate-50 p-2 flex gap-1"
+            data-testid="check-intent-toggle"
+            role="group"
+            aria-label="Check payment intent"
+          >
+            <button
+              type="button"
+              className={`flex-1 rounded-lg px-2 py-2 text-xs font-bold ${
+                payIntent === "record" ? "bg-white text-slate-900 shadow-sm" : "text-slate-500"
+              }`}
+              data-testid="check-intent-record"
+              disabled={processing}
+              onClick={() => setPayIntent("record")}
+            >
+              Record only
+            </button>
+            <button
+              type="button"
+              className={`flex-1 rounded-lg px-2 py-2 text-xs font-bold ${
+                payIntent === "process" ? "bg-white text-emerald-800 shadow-sm" : "text-slate-500"
+              }`}
+              data-testid="check-intent-process"
+              disabled={processing}
+              onClick={() => setPayIntent("process")}
+            >
+              Process / deposit
+            </button>
+          </div>
+          <p className="text-[11px] text-slate-500 -mt-1 mb-2">
+            {isProcessIntent
+              ? "Debits the check’s bank account — photo fills routing, account, check #. Confirm before processing."
+              : "Books only — you’re logging a check already received, not running a deposit charge."}
+          </p>
           <PaymentProofFld
             label="Check attachment"
-            hint="Photo or PDF of the check — photos fill amount, check #, date, memo, and invoice when readable"
+            hint={
+              isProcessIntent
+                ? "Photo of the check — Autofill reads amount, check #, routing, and account from the MICR line"
+                : "Photo or PDF of the check — fills amount, check #, date, memo, and invoice when readable"
+            }
             file={proofFile}
             inputRef={proofInputRef}
             onFile={onProofFile}
@@ -1512,6 +1701,43 @@ export function MarkPaidSheet({
               </p>
             ) : null}
           </Fld>
+          {isProcessIntent ? (
+            <>
+              <Fld label="Account holder name">
+                <input
+                  className="input"
+                  value={achName}
+                  onChange={(e) => setAchName(e.target.value)}
+                  disabled={processing}
+                  data-testid="check-account-name"
+                />
+              </Fld>
+              <Fld label="Routing number" hint="9 digits from the bottom MICR line">
+                <input
+                  className="input"
+                  inputMode="numeric"
+                  autoComplete="off"
+                  value={achRouting}
+                  onChange={(e) => setAchRouting(e.target.value.replace(/\D/g, "").slice(0, 9))}
+                  disabled={processing}
+                  data-testid="check-routing"
+                  placeholder="#########"
+                />
+              </Fld>
+              <Fld label="Account number">
+                <input
+                  className="input"
+                  inputMode="numeric"
+                  autoComplete="off"
+                  value={achAccount}
+                  onChange={(e) => setAchAccount(e.target.value.replace(/\D/g, "").slice(0, 17))}
+                  disabled={processing}
+                  data-testid="check-account"
+                  placeholder="Account #"
+                />
+              </Fld>
+            </>
+          ) : null}
           <Fld label="Memo" hint="Memo line on the check">
             <input
               className="input"
@@ -1522,34 +1748,39 @@ export function MarkPaidSheet({
               aria-label="Check memo"
             />
           </Fld>
-          <Fld label="Deposit to">
-            <select
-              className="input"
-              value={deposit}
-              onChange={(e) => setDeposit(e.target.value)}
-              aria-label="Deposit to"
-              data-testid="payment-deposit"
-              disabled={processing}
-            >
-              {depositBanks.map((b) => (
-                <option key={b}>{b}</option>
-              ))}
-              <option>Other</option>
-            </select>
-            {deposit === "Other" ? (
-              <input
-                className="input mt-2"
-                value={depositOther}
-                onChange={(e) => setDepositOther(e.target.value)}
-                placeholder="Bank name"
-                aria-label="Other bank"
+          {!isProcessIntent ? (
+            <Fld label="Deposit to">
+              <select
+                className="input"
+                value={deposit}
+                onChange={(e) => setDeposit(e.target.value)}
+                aria-label="Deposit to"
+                data-testid="payment-deposit"
                 disabled={processing}
-              />
-            ) : null}
-          </Fld>
+              >
+                {depositBanks.map((b) => (
+                  <option key={b}>{b}</option>
+                ))}
+                <option>Other</option>
+              </select>
+              {deposit === "Other" ? (
+                <input
+                  className="input mt-2"
+                  value={depositOther}
+                  onChange={(e) => setDepositOther(e.target.value)}
+                  placeholder="Bank name"
+                  aria-label="Other bank"
+                  disabled={processing}
+                />
+              ) : null}
+            </Fld>
+          ) : null}
           <Fld label="Date">
             <input className="input" type="date" value={dt} onChange={(e) => setDt(e.target.value)} disabled={processing} />
           </Fld>
+          {payErr && isProcessIntent ? (
+            <p className="text-xs text-red-600 bg-red-50 border border-red-100 rounded-xl px-3 py-2 mt-2">{payErr}</p>
+          ) : null}
         </>
       ) : (
         <>
@@ -1588,6 +1819,21 @@ export function MarkPaidSheet({
               ? "Processing payment…"
               : "💳 Process card payment"}
         </button>
+      ) : isProcessIntent ? (
+        <button
+          className="btn bg-emerald-500 text-white w-full"
+          onClick={requestProcessBank}
+          disabled={alreadyPaid || processing || !job || !inv}
+          data-testid={isAch ? "process-ach-payment" : "process-check-payment"}
+        >
+          {payPhase === "charging"
+            ? "Processing payment…"
+            : visionAnalyzing
+              ? "Reading photo…"
+              : isAch
+                ? "🏦 Process ACH payment"
+                : "🏦 Process & deposit check"}
+        </button>
       ) : (
         <button
           className="btn bg-emerald-500 text-white w-full"
@@ -1595,17 +1841,62 @@ export function MarkPaidSheet({
           disabled={alreadyPaid || processing || !job}
           data-testid={isAch ? "record-ach-payment" : "record-payment"}
         >
-          {visionAnalyzing ? "Reading screenshot…" : isAch ? "✓ Record ACH payment" : "✓ Record payment"}
+          {visionAnalyzing
+            ? "Reading screenshot…"
+            : isAch
+              ? "✓ Record ACH payment"
+              : "✓ Record payment"}
         </button>
       )}
       <p className="text-[11px] text-slate-400 text-center mt-2">
         {isCard
           ? "Card is charged now. Invoice is marked paid here immediately — QuickBooks updates in the background."
-          : isAch
-            ? "ACH deposit is recorded here with conf # and date. QuickBooks catches up on Save & sync."
-            : "Paid status updates here right away. QuickBooks is a background step on Save & sync."}
+          : isProcessIntent
+            ? "This runs real payment processing and marks the invoice paid after approval — not a books-only note."
+            : isAch
+              ? "ACH deposit is recorded here with conf # and date. QuickBooks catches up on Save & sync."
+              : "Paid status updates here right away. QuickBooks is a background step on Save & sync."}
       </p>
     </Sheet>
+    {processConfirm ? (
+      <Sheet
+        title="Confirm payment processing"
+        onClose={() => setProcessConfirm(false)}
+        testId="process-payment-confirm"
+      >
+        <p className="text-sm text-slate-700 mb-3 leading-relaxed">
+          This will <b>process</b> a bank payment for{" "}
+          <b className="tabular-nums">{fmt$(payAmt)}</b>
+          {inv ? (
+            <>
+              {" "}
+              on invoice <b>#{inv}</b>
+            </>
+          ) : null}
+          . The customer’s account ending in{" "}
+          <b>…{String(achAccount || "").slice(-4)}</b> will be debited.
+        </p>
+        <p className="text-[11px] text-slate-500 mb-4">
+          You will get a confirmation after the gateway accepts it. This is not “record only.”
+        </p>
+        <button
+          type="button"
+          className="btn bg-emerald-500 text-white w-full"
+          data-testid="process-payment-confirm-btn"
+          onClick={() => void processBankPayment()}
+        >
+          Yes — process payment
+        </button>
+        <button
+          type="button"
+          className="btn-ghost w-full mt-2"
+          data-testid="process-payment-cancel-btn"
+          onClick={() => setProcessConfirm(false)}
+        >
+          Cancel
+        </button>
+      </Sheet>
+    ) : null}
     {zelleReconcile ? (
       <ZelleReconcileSheet
         reconcile={zelleReconcile}

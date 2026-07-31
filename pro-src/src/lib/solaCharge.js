@@ -135,3 +135,129 @@ export function chargePreview(principal, includeFee = true) {
   if (!base) return { principal: 0, charge: 0 };
   return { principal: base, charge: totalWithFee(base, includeFee) };
 }
+
+/** Normalize routing (9 digits) / account (4–17 digits) for ACH process. */
+export function normalizeAchRouting(raw) {
+  return String(raw || "")
+    .replace(/\D/g, "")
+    .slice(0, 9);
+}
+
+export function normalizeAchAccount(raw) {
+  return String(raw || "")
+    .replace(/\D/g, "")
+    .slice(0, 17);
+}
+
+export function validateAchBankFields({ routing, account, name } = {}) {
+  const xRouting = normalizeAchRouting(routing);
+  const xAccount = normalizeAchAccount(account);
+  const xName = String(name || "").trim();
+  if (xRouting.length !== 9) return { ok: false, error: "Routing number must be 9 digits" };
+  if (xAccount.length < 4) return { ok: false, error: "Account number required" };
+  if (!xName) return { ok: false, error: "Account holder name required" };
+  return { ok: true, xRouting, xAccount, xName };
+}
+
+/**
+ * Process ACH / check debit (Sola check:sale) from staff Mark-as-paid sheet.
+ * Distinct from "Record only" which only writes the ledger without debiting.
+ */
+export async function chargeAchInApp({
+  job,
+  principalAmount,
+  routing,
+  account,
+  name,
+  checkNumber = "",
+  accountType = "Checking",
+  paymentMethod = "ACH",
+  imageB64 = "",
+}) {
+  const invoiceNo = String(job?.invoiceNo || "").trim();
+  if (!invoiceNo) throw new Error("Invoice # required to process ACH");
+
+  const principal = parseFloat(String(principalAmount).replace(/[$,]/g, "")) || 0;
+  if (principal <= 0) throw new Error("Enter a payment amount");
+
+  const bank = validateAchBankFields({
+    routing,
+    account,
+    name: name || job?.customer || job?.businessName || "",
+  });
+  if (!bank.ok) throw new Error(bank.error);
+
+  const res = await fetch(`${functionsBase()}/sola-charge`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      paymentMethod: paymentMethod === "Check" ? "check" : "ach",
+      invoiceNo,
+      jobId: job?.id || "",
+      principalAmount: principal,
+      includeFee: false,
+      xRouting: bank.xRouting,
+      xAccount: bank.xAccount,
+      xName: bank.xName,
+      xCheckNum: String(checkNumber || "").replace(/\D/g, ""),
+      xAccountType: accountType,
+      imageB64: imageB64 || "",
+      billing: billingFromJob({ ...job, customer: bank.xName }),
+    }),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok || !data.ok) {
+    throw new Error(data.error || "ACH payment could not be processed");
+  }
+  return data;
+}
+
+/** Process ACH / check deposit from the public pay page. */
+export async function chargeAchFromLanding({
+  data,
+  principalAmount,
+  routing,
+  account,
+  name,
+  checkNumber = "",
+  accountType = "Checking",
+  paymentMethod = "Check",
+  imageB64 = "",
+}) {
+  const invoiceNo = String(data?.i || "").trim();
+  if (!invoiceNo) throw new Error("Invoice # required to pay");
+
+  const principal = parseFloat(String(principalAmount).replace(/[$,]/g, "")) || 0;
+  if (principal <= 0) throw new Error("Enter a payment amount");
+
+  const bank = validateAchBankFields({
+    routing,
+    account,
+    name: name || data?.c || "",
+  });
+  if (!bank.ok) throw new Error(bank.error);
+
+  const res = await fetch(`${functionsBase()}/sola-charge`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      paymentMethod: paymentMethod === "ACH" ? "ach" : "check",
+      invoiceNo,
+      jobId: data?.j || "",
+      principalAmount: principal,
+      includeFee: false,
+      xRouting: bank.xRouting,
+      xAccount: bank.xAccount,
+      xName: bank.xName,
+      xCheckNum: String(checkNumber || "").replace(/\D/g, ""),
+      xAccountType: accountType,
+      imageB64: imageB64 || "",
+      billing: billingFromLanding({ ...data, c: bank.xName }),
+    }),
+  });
+  const out = await res.json().catch(() => ({}));
+  if (!res.ok || !out.ok) {
+    throw new Error(out.error || "Could not process bank payment");
+  }
+  return out;
+}

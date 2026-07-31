@@ -22,7 +22,12 @@ import {
   processingFee,
   totalWithFee,
 } from "../lib/payFees.js";
-import { chargeCardFromLanding } from "../lib/solaCharge.js";
+import {
+  chargeAchFromLanding,
+  chargeCardFromLanding,
+  fetchSolaIfieldsConfig,
+  validateAchBankFields,
+} from "../lib/solaCharge.js";
 import {
   buildDepositInvoicePdfB64,
   buildEstimatePdfBlobFromPayload,
@@ -36,6 +41,13 @@ import {
 import { useTenantConfig } from "../state/tenant.jsx";
 import { productName, tenantLocality } from "../lib/tenantBranding.js";
 import { functionsBase } from "../lib/functionsBase.js";
+import {
+  analyzePaymentScreenshot,
+  compressImageForVision,
+  fileToBase64,
+  normalizeVisionMime,
+} from "../lib/paymentVision.js";
+import { paymentAutofillPatch } from "../lib/paymentAutofill.js";
 
 const DEFAULT_LOGO = import.meta.env.BASE_URL + "le-logo.png?v=5";
 
@@ -165,7 +177,29 @@ export default function PayLanding() {
   const [checkNo, setCheckNo] = useState("");
   const [checkBusy, setCheckBusy] = useState(false);
   const [checkErr, setCheckErr] = useState("");
+  const [checkReadBusy, setCheckReadBusy] = useState(false);
+  const [checkReadDone, setCheckReadDone] = useState(false);
+  const [checkRouting, setCheckRouting] = useState("");
+  const [checkAccount, setCheckAccount] = useState("");
+  const [checkName, setCheckName] = useState("");
+  const [checkIntent, setCheckIntent] = useState("record"); // record | process
+  const [checkProcessConfirm, setCheckProcessConfirm] = useState(false);
+  const [achEnabled, setAchEnabled] = useState(false);
   const checkInputRef = useRef(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    fetchSolaIfieldsConfig()
+      .then((cfg) => {
+        if (!cancelled) setAchEnabled(Boolean(cfg.achEnabled));
+      })
+      .catch(() => {
+        if (!cancelled) setAchEnabled(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const isEstimate = isEstimateLanding(data);
   const includeFee = !isEstimate && feeEnabledInPayload(data);
@@ -449,17 +483,52 @@ export default function PayLanding() {
     if (!file) return;
     setCheckErr("");
     setCheckFile(file);
+    setCheckReadDone(false);
+    setCheckRouting("");
+    setCheckAccount("");
     try {
-      const reader = new FileReader();
-      const b64 = await new Promise((resolve, reject) => {
-        reader.onload = () => {
-          const dataUrl = String(reader.result || "");
-          resolve(dataUrl.includes(",") ? dataUrl.split(",")[1] : dataUrl);
-        };
-        reader.onerror = () => reject(reader.error || new Error("read failed"));
-        reader.readAsDataURL(file);
-      });
+      const b64 = await fileToBase64(file);
       setCheckB64(b64);
+      // Auto-read check fields (amount, check #, routing, account) from the photo.
+      setCheckReadBusy(true);
+      try {
+        let visionB64 = b64;
+        let visionMime = normalizeVisionMime(file.type || "image/jpeg");
+        if (String(file.type || "").startsWith("image/")) {
+          try {
+            const prepared = await compressImageForVision(file);
+            if (prepared?.b64) {
+              visionB64 = prepared.b64;
+              visionMime = prepared.mime || visionMime;
+            }
+          } catch {
+            /* keep original */
+          }
+        }
+        const extracted = await analyzePaymentScreenshot(visionB64, visionMime, "check");
+        const patch = paymentAutofillPatch(extracted);
+        if (patch.amt) {
+          const n = parseMoney(patch.amt);
+          if (n > 0) {
+            setPayAmount(n);
+            setDraft(String(n));
+          }
+        }
+        if (patch.ref) setCheckNo(patch.ref);
+        if (patch.routing) setCheckRouting(patch.routing);
+        if (patch.account) setCheckAccount(patch.account);
+        if (patch.name) setCheckName(patch.name);
+        else if (data?.c) setCheckName(data.c);
+        setCheckReadDone(Boolean(patch.amt || patch.ref || patch.routing));
+        if (patch.routing && patch.account && achEnabled) {
+          setCheckIntent("process");
+        }
+      } catch {
+        // Still allow manual submit without vision.
+        setCheckReadDone(false);
+      } finally {
+        setCheckReadBusy(false);
+      }
     } catch {
       setCheckFile(null);
       setCheckB64("");
@@ -488,11 +557,12 @@ export default function PayLanding() {
           jobId: data.j || "",
           amount: payAmount,
           checkNumber: checkNo,
-          customer: data.c || "",
+          customer: data.c || checkName || "",
           email: data.e || "",
           imageB64: checkB64,
           mime: checkFile?.type || "image/jpeg",
           fileName: checkFile?.name || "check.jpg",
+          intent: "record",
         }),
       });
       const body = await res.json().catch(() => ({}));
@@ -509,6 +579,65 @@ export default function PayLanding() {
       navigate(`/pay/thanks?${qs.toString()}`);
     } catch (err) {
       setCheckErr(String((err && err.message) || "Could not submit check — try again"));
+    } finally {
+      setCheckBusy(false);
+    }
+  };
+
+  const requestProcessCheck = () => {
+    if (!checkB64) {
+      setCheckErr("Add a photo of your check first.");
+      return;
+    }
+    if (payAmount <= 0) {
+      setCheckErr("Enter the amount you're paying.");
+      return;
+    }
+    if (!achEnabled) {
+      setCheckErr("Instant check deposit is not available yet — submit for office review instead.");
+      return;
+    }
+    const bank = validateAchBankFields({
+      routing: checkRouting,
+      account: checkAccount,
+      name: checkName || data?.c || "",
+    });
+    if (!bank.ok) {
+      setCheckErr(bank.error + " — fix the fields or re-photo the bottom of the check.");
+      return;
+    }
+    setCheckErr("");
+    setCheckProcessConfirm(true);
+  };
+
+  const processCheckPayment = async () => {
+    if (checkBusy || !data?.i) return;
+    setCheckProcessConfirm(false);
+    setCheckBusy(true);
+    setCheckErr("");
+    try {
+      const res = await chargeAchFromLanding({
+        data,
+        principalAmount: payAmount,
+        routing: checkRouting,
+        account: checkAccount,
+        name: checkName || data.c || "",
+        checkNumber: checkNo,
+        paymentMethod: "Check",
+        imageB64: checkB64,
+      });
+      const qs = new URLSearchParams({
+        ok: "1",
+        inv: String(data.i || ""),
+        amt: String(res.amount || payAmount),
+        bal: String(Math.max(0, balanceDue - (res.amount || payAmount))),
+        method: "check",
+        processed: "1",
+        ref: String(res.ref || ""),
+      });
+      navigate(`/pay/thanks?${qs.toString()}`);
+    } catch (err) {
+      setCheckErr(String((err && err.message) || "Could not process check — try again or submit for office review"));
     } finally {
       setCheckBusy(false);
     }
@@ -1024,7 +1153,7 @@ export default function PayLanding() {
             <div>
               <h2 className="font-bold text-slate-900">Pay with a check</h2>
               <p className="text-[11px] text-slate-500 mt-0.5">
-                Photo of the check — we&apos;ll match it to this invoice.
+                Photo of the check — we read the details and you choose record or process.
               </p>
             </div>
             <span className="text-brand font-bold text-sm shrink-0">{checkOpen ? "Hide ▴" : "Show ▾"}</span>
@@ -1049,14 +1178,53 @@ export default function PayLanding() {
                   className="w-full rounded-xl border border-dashed border-slate-300 bg-slate-50 px-3 py-3 text-sm text-slate-700 font-semibold"
                   data-testid="pay-check-attach"
                   onClick={() => checkInputRef.current?.click()}
-                  disabled={checkBusy}
+                  disabled={checkBusy || checkReadBusy}
                 >
-                  {checkFile ? `📎 ${checkFile.name}` : "📷 Attach check photo"}
+                  {checkReadBusy
+                    ? "Reading check…"
+                    : checkFile
+                      ? `📎 ${checkFile.name}`
+                      : "📷 Attach check photo"}
+                </button>
+                {checkReadDone ? (
+                  <p className="text-[11px] text-emerald-700 mt-1.5 font-medium" data-testid="pay-check-read-ok">
+                    ✓ Details filled from photo — review before submitting
+                  </p>
+                ) : null}
+              </div>
+              <div className="rounded-xl border border-slate-200 bg-slate-50 p-1.5 flex gap-1" data-testid="pay-check-intent">
+                <button
+                  type="button"
+                  className={`flex-1 rounded-lg px-2 py-2 text-xs font-bold ${
+                    checkIntent === "record" ? "bg-white text-slate-900 shadow-sm" : "text-slate-500"
+                  }`}
+                  data-testid="pay-check-intent-record"
+                  disabled={checkBusy}
+                  onClick={() => setCheckIntent("record")}
+                >
+                  Send for record
+                </button>
+                <button
+                  type="button"
+                  className={`flex-1 rounded-lg px-2 py-2 text-xs font-bold ${
+                    checkIntent === "process" ? "bg-white text-emerald-800 shadow-sm" : "text-slate-500"
+                  }`}
+                  data-testid="pay-check-intent-process"
+                  disabled={checkBusy || !achEnabled}
+                  onClick={() => setCheckIntent("process")}
+                  title={!achEnabled ? "Instant deposit not available yet" : undefined}
+                >
+                  Process & deposit
                 </button>
               </div>
+              <p className="text-[11px] text-slate-500 leading-relaxed -mt-1">
+                {checkIntent === "process"
+                  ? "Processes a bank debit from this check — you’ll confirm before it runs."
+                  : "Sends the photo to our office to match and record — not an instant charge."}
+              </p>
               <div>
                 <label className="text-[10px] font-extrabold uppercase tracking-wider text-slate-500 mb-1 block">
-                  Check number (optional)
+                  Check number {checkIntent === "process" ? "" : "(optional)"}
                 </label>
                 <input
                   className="input"
@@ -1067,25 +1235,119 @@ export default function PayLanding() {
                   data-testid="pay-check-number"
                 />
               </div>
+              {checkIntent === "process" ? (
+                <>
+                  <div>
+                    <label className="text-[10px] font-extrabold uppercase tracking-wider text-slate-500 mb-1 block">
+                      Name on account
+                    </label>
+                    <input
+                      className="input"
+                      value={checkName}
+                      onChange={(e) => setCheckName(e.target.value)}
+                      disabled={checkBusy}
+                      data-testid="pay-check-name"
+                      placeholder={data?.c || "Account holder"}
+                    />
+                  </div>
+                  <div>
+                    <label className="text-[10px] font-extrabold uppercase tracking-wider text-slate-500 mb-1 block">
+                      Routing number
+                    </label>
+                    <input
+                      className="input"
+                      inputMode="numeric"
+                      autoComplete="off"
+                      value={checkRouting}
+                      onChange={(e) => setCheckRouting(e.target.value.replace(/\D/g, "").slice(0, 9))}
+                      disabled={checkBusy}
+                      data-testid="pay-check-routing"
+                      placeholder="9 digits"
+                    />
+                  </div>
+                  <div>
+                    <label className="text-[10px] font-extrabold uppercase tracking-wider text-slate-500 mb-1 block">
+                      Account number
+                    </label>
+                    <input
+                      className="input"
+                      inputMode="numeric"
+                      autoComplete="off"
+                      value={checkAccount}
+                      onChange={(e) => setCheckAccount(e.target.value.replace(/\D/g, "").slice(0, 17))}
+                      disabled={checkBusy}
+                      data-testid="pay-check-account"
+                      placeholder="Account #"
+                    />
+                  </div>
+                </>
+              ) : null}
               {checkErr ? (
                 <p className="text-xs text-red-600 bg-red-50 border border-red-100 rounded-xl px-3 py-2">
                   {checkErr}
                 </p>
               ) : null}
-              <button
-                type="button"
-                className={`btn-ghost w-full !py-3 border border-slate-200 ${checkBusy ? "opacity-70" : ""}`}
-                data-testid="pay-check-submit"
-                disabled={checkBusy || payBusy || !checkB64 || payAmount <= 0}
-                onClick={submitCheckPayment}
-              >
-                {checkBusy
-                  ? "Submitting…"
-                  : `Submit check for ${fmtMoneyPrecise(payAmount)}`}
-              </button>
-              <p className="text-[11px] text-slate-500 leading-relaxed">
-                We review the photo in the office and mark the invoice paid — not an instant charge.
-              </p>
+              {checkIntent === "process" ? (
+                <button
+                  type="button"
+                  className={`btn-brand w-full !py-3 ${checkBusy ? "opacity-70" : ""}`}
+                  data-testid="pay-check-process"
+                  disabled={checkBusy || payBusy || checkReadBusy || !checkB64 || payAmount <= 0}
+                  onClick={requestProcessCheck}
+                >
+                  {checkBusy
+                    ? "Processing…"
+                    : `Process & deposit ${fmtMoneyPrecise(payAmount)}`}
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  className={`btn-ghost w-full !py-3 border border-slate-200 ${checkBusy ? "opacity-70" : ""}`}
+                  data-testid="pay-check-submit"
+                  disabled={checkBusy || payBusy || checkReadBusy || !checkB64 || payAmount <= 0}
+                  onClick={submitCheckPayment}
+                >
+                  {checkBusy
+                    ? "Submitting…"
+                    : `Submit for record · ${fmtMoneyPrecise(payAmount)}`}
+                </button>
+              )}
+              {checkProcessConfirm ? (
+                <div
+                  className="rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-3 space-y-2"
+                  data-testid="pay-check-process-confirm"
+                >
+                  <p className="text-sm text-slate-800 leading-snug">
+                    Confirm: process bank payment of{" "}
+                    <b className="tabular-nums">{fmtMoneyPrecise(payAmount)}</b>
+                    {checkAccount ? (
+                      <>
+                        {" "}
+                        from account ending <b>…{String(checkAccount).slice(-4)}</b>
+                      </>
+                    ) : null}
+                    . This is payment processing — not office record only.
+                  </p>
+                  <button
+                    type="button"
+                    className="btn-brand w-full !py-2.5"
+                    data-testid="pay-check-process-yes"
+                    onClick={() => void processCheckPayment()}
+                    disabled={checkBusy}
+                  >
+                    Yes — process payment
+                  </button>
+                  <button
+                    type="button"
+                    className="btn-ghost w-full !py-2 text-sm"
+                    data-testid="pay-check-process-no"
+                    onClick={() => setCheckProcessConfirm(false)}
+                    disabled={checkBusy}
+                  >
+                    Cancel
+                  </button>
+                </div>
+              ) : null}
             </div>
           ) : null}
         </div>

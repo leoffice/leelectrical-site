@@ -3,7 +3,10 @@ import {
   billingFromLanding,
   chargePreview,
   formatCardExpInput,
+  normalizeAchAccount,
+  normalizeAchRouting,
   normalizeCardExp,
+  validateAchBankFields,
 } from "../src/lib/solaCharge.js";
 
 describe("solaCharge", () => {
@@ -42,5 +45,24 @@ describe("solaCharge", () => {
     expect(withFee.charge).toBe(1035);
     const noFee = chargePreview(1000, false);
     expect(noFee.charge).toBe(1000);
+  });
+
+  it("normalizes ACH routing and account digits", () => {
+    expect(normalizeAchRouting("021-000021")).toBe("021000021");
+    expect(normalizeAchRouting("123")).toBe("123");
+    expect(normalizeAchAccount("12 3456 7890")).toBe("1234567890");
+  });
+
+  it("validateAchBankFields requires 9-digit routing, account, and name", () => {
+    expect(validateAchBankFields({ routing: "021000021", account: "123456", name: "Acme LLC" }).ok).toBe(
+      true
+    );
+    expect(validateAchBankFields({ routing: "123", account: "123456", name: "Acme" }).ok).toBe(false);
+    expect(validateAchBankFields({ routing: "021000021", account: "12", name: "Acme" }).error).toMatch(
+      /Account/
+    );
+    expect(validateAchBankFields({ routing: "021000021", account: "123456", name: "" }).error).toMatch(
+      /name/i
+    );
   });
 });
