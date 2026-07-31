@@ -181,6 +181,19 @@ export async function verifyReminderItem(item, opts = {}) {
     };
   }
 
+  // Inspections are calendar notices — no send-status refresh needed (avoids multi-second lag).
+  if (item.kind === "inspection") {
+    if (opts.releaseHold) releaseReminderAfterVerify(item);
+    return {
+      stillNeeded: true,
+      cleared: false,
+      reason: assessment.reason || "inspection_open",
+      detail: assessment.detail || "Inspection still on the calendar",
+      heldUntil,
+      skipLongHold: true,
+    };
+  }
+
   if (typeof opts.refreshJobs === "function") {
     try {
       const meta = await opts.refreshJobs(true);
