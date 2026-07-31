@@ -141,6 +141,12 @@ describe("4. new job flow", () => {
     });
     const cmd = srv.enqueued("calendar_upsert")[0];
     expect(cmd.payload.calEventId).toBe("ev1");
+    // P0: must not clobber Google event notes with "Created in LE Pro".
+    // Fixture EV description is "phone: 917-555-2222 jane@x.com".
+    expect(cmd.payload.description || "").not.toMatch(/Created in LE Pro/i);
+    if (cmd.payload.description != null) {
+      expect(cmd.payload.description).toMatch(/917-555-2222|jane@x\.com/i);
+    }
   });
 
   it("calendar→job COMBINED autofill (#58): customer parse + apt + description + auto QBO match contact fill", async () => {

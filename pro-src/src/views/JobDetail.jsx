@@ -49,6 +49,7 @@ import {
   customerDisplayName,
   calendarServiceLocation,
 } from "../lib/customerSync.js";
+import { calendarUpsertDescription } from "../lib/calendarLink.js";
 import {
   amountPaid,
   clientKey,
@@ -369,19 +370,20 @@ export default function JobDetail() {
 
   const schedDate = (d) => {
     patchJob(id, { status: { Scheduled: { s: "done", d } } });
-    enqueue(
-      "calendar_upsert",
-      id,
-      {
-        calEventId: job.calEventId || "",
-        summary: (job.title || "Job") + " — " + (job.customer || ""),
-        start: d,
-        location: calendarServiceLocation(job),
-        description: `Scheduled from ${productName()}`,
-      },
-      "judgment",
-      "sched:" + id + ":" + d
-    );
+    // Never clobber Google event notes with a product marker on reschedule.
+    const calDesc = calendarUpsertDescription({
+      notes: job.description || job.notes,
+      calEventId: job.calEventId || "",
+      createFallback: `Scheduled from ${productName()}`,
+    });
+    const calPayload = {
+      calEventId: job.calEventId || "",
+      summary: (job.title || "Job") + " — " + (job.customer || ""),
+      start: d,
+      location: calendarServiceLocation(job),
+    };
+    if (calDesc != null) calPayload.description = calDesc;
+    enqueue("calendar_upsert", id, calPayload, "judgment", "sched:" + id + ":" + d);
   };
 
   // Sub-item three-state model (all schema-additive, staged via patchJob):

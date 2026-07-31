@@ -26,6 +26,42 @@ export function displayEventNotes(desc) {
     .trim();
 }
 
+/** Product-stamped markers LE Pro used to write into Google Calendar descriptions. */
+const PRODUCT_MARKER_RE =
+  /^(Created|Linked|Scheduled|Unlinked|Updated)\s+(in|from)\s+.+$/i;
+
+/**
+ * True when the description is empty or only a product stamp
+ * ("Created in LE Pro", "Linked from …", etc.) — not real user notes.
+ */
+export function isProductCalendarMarker(desc) {
+  const s = displayEventNotes(desc);
+  if (!s) return true;
+  // Allow multi-line only if every non-empty line is a marker (rare).
+  const lines = s.split(/\n+/).map((l) => l.trim()).filter(Boolean);
+  return lines.length > 0 && lines.every((l) => PRODUCT_MARKER_RE.test(l));
+}
+
+/**
+ * Description for calendar_upsert — NEVER clobber user Google Calendar notes.
+ *
+ * - Prefer real notes (job / event description), cleaned of legacy leJobId tags.
+ * - When updating an existing Google event (`calEventId`), return null so the
+ *   host PATCH omits `description` unless we have real notes to write.
+ * - Brand-new events may still get a create marker when notes are empty.
+ *
+ * @param {{ notes?: string, calEventId?: string, createFallback?: string }} opts
+ * @returns {string|null} description to send, or null to omit the field
+ */
+export function calendarUpsertDescription({ notes, calEventId, createFallback } = {}) {
+  const cleaned = displayEventNotes(notes);
+  if (cleaned && !isProductCalendarMarker(cleaned)) return cleaned;
+  // Existing Google event: do not send a marker-only overwrite.
+  if (calEventId && !isPendingCalEventId(calEventId)) return null;
+  if (cleaned) return cleaned; // rare: marker text the user somehow typed as only content
+  return createFallback != null ? createFallback : `Created in ${productName()}`;
+}
+
 /** Find a job linked to this calendar event (primary calEventId or leJobId tag). */
 export function linkedJobForEvent(event, jobs) {
   if (!event) return null;
@@ -459,7 +495,12 @@ export async function applyAppointmentJobLink({
   patchLocalEvent,
 }) {
   const eid = event?.id || "";
-  const desc = withJobLink(displayEventNotes(event?.description), job.id);
+  // Preserve real Google notes; never replace them with "Linked from …".
+  const desc = calendarUpsertDescription({
+    notes: event?.description,
+    calEventId: eid,
+    createFallback: `Linked from ${productName()}`,
+  });
   const prior = linkedJobForEvent(event, jobs);
   if (prior && prior.id !== job.id) {
     const d = [...(prior.calDismissedEventIds || [])];
@@ -475,24 +516,21 @@ export async function applyAppointmentJobLink({
     calDismissedEventIds: (job.calDismissedEventIds || []).filter((id) => String(id) !== String(eid)),
   });
   if (eid) {
-    await enqueue(
-      "calendar_upsert",
-      job.id,
-      {
-        calEventId: eid,
-        summary: event.summary || "Appointment",
-        start: evStart(event),
-        location: event.location || "",
-        // Written into the Google Calendar event, i.e. external stored data:
-        // a rename affects only NEW events, and any future reader must
-        // tolerate both the old and new wording.
-        description: desc || `Linked from ${productName()}`,
-      },
-      "judgment",
-      "callink:" + eid + ":" + job.id
-    );
+    const payload = {
+      calEventId: eid,
+      summary: event.summary || "Appointment",
+      start: evStart(event),
+      location: event.location || "",
+    };
+    if (desc != null) payload.description = desc;
+    await enqueue("calendar_upsert", job.id, payload, "judgment", "callink:" + eid + ":" + job.id);
   }
-  if (patchLocalEvent && eid) patchLocalEvent(eid, { description: desc });
+  // Local mirror: keep real notes; only stamp when there were none.
+  if (patchLocalEvent && eid) {
+    patchLocalEvent(eid, {
+      description: desc != null ? desc : displayEventNotes(event?.description),
+    });
+  }
 }
 
 /** Google Calendar day or event deep-link for the tenant's office account. */
@@ -531,19 +569,29 @@ export async function unlinkAppointmentJob({
   const clearPatch = { calEventId: "", _calUnlinked: true, calDismissedEventIds: dismissed };
   if (jobId && patchJob) patchJob(jobId, clearPatch);
   if (jobId) await patchAndSave(jobId, clearPatch);
-  const desc = displayEventNotes(event?.description);
+  // Keep user notes on unlink — do not stamp "Unlinked in …" over them.
+  const desc = calendarUpsertDescription({
+    notes: event?.description,
+    calEventId: eid,
+    createFallback: "", // omit marker entirely when notes empty
+  });
   if (eid) {
-    if (patchLocalEvent) patchLocalEvent(eid, { description: desc });
+    if (patchLocalEvent) {
+      patchLocalEvent(eid, {
+        description: desc != null ? desc : displayEventNotes(event?.description),
+      });
+    }
+    const payload = {
+      calEventId: eid,
+      summary: event.summary || "Appointment",
+      start: evStart(event),
+      location: event.location || "",
+    };
+    if (desc) payload.description = desc;
     await enqueue(
       "calendar_upsert",
       jobId || "today",
-      {
-        calEventId: eid,
-        summary: event.summary || "Appointment",
-        start: evStart(event),
-        location: event.location || "",
-        description: desc || `Unlinked in ${productName()}`,
-      },
+      payload,
       "judgment",
       "calunlink:" + eid + ":" + Date.now()
     );

@@ -29,6 +29,7 @@ import { runDailyDedupeScan } from "../lib/dedupeScan.js";
 import { touchCustomerJob } from "../lib/customerRecency.js";
 import { hydrateDismissed } from "../lib/customers.js";
 import {
+  calendarUpsertDescription,
   calendarUpsertLinksJob,
   isCalendarUnlinkCommand,
   isPendingCalEventId,
@@ -1036,23 +1037,27 @@ export function StoreProvider({ children }) {
         })
         .catch(() => showToast("Offline — job kept locally"));
       if (g.date) {
-        enqueueRef.current(
-          "calendar_upsert",
-          id,
-          {
-            calEventId: calEventId || "",
-            summary: (g.title || "Job") + " — " + (g.customer || ""),
-            start: g.date,
-            location: calendarServiceLocation({ serviceAddress: serviceAddr, apartment: g.apartment, billingAddress: g.billingAddress }),
-            // Lands in the Google Calendar event body — EXTERNAL stored data,
-            // not just UI. A rename therefore only affects events created
-            // after it; events already on the calendar keep the old wording.
-            // Nothing reads this string back, so no parser is needed.
-            description: `Created in ${productName()}`,
-          },
-          "judgment",
-          "njcal:" + id
-        );
+        // P0 data-loss fix (2026-07-31): never replace Google event notes with
+        // "Created in LE Pro". Prefer job/event description; when updating an
+        // existing calEventId with no real notes, omit description so the host
+        // PATCH leaves the user's text alone (gcal_upsert only writes if set).
+        const calDesc = calendarUpsertDescription({
+          notes: g.description,
+          calEventId: calEventId || "",
+          createFallback: `Created in ${productName()}`,
+        });
+        const calPayload = {
+          calEventId: calEventId || "",
+          summary: (g.title || "Job") + " — " + (g.customer || ""),
+          start: g.date,
+          location: calendarServiceLocation({
+            serviceAddress: serviceAddr,
+            apartment: g.apartment,
+            billingAddress: g.billingAddress,
+          }),
+        };
+        if (calDesc != null) calPayload.description = calDesc;
+        enqueueRef.current("calendar_upsert", id, calPayload, "judgment", "njcal:" + id);
       }
       showToast("Job created");
       return id;

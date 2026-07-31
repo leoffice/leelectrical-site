@@ -1,8 +1,10 @@
 import { describe, expect, it } from "vitest";
 import {
+  calendarUpsertDescription,
   eventForJob,
   googleCalendarOpenUrl,
   isCalendarUnlinkCommand,
+  isProductCalendarMarker,
   jobCalendarLinkState,
   mergePendingCalendarEvents,
   parseCalendarUpsertResult,
@@ -13,6 +15,75 @@ import {
   withJobLink,
 } from "../src/lib/calendarLink.js";
 import { paperworkPillTone } from "../src/lib/paperwork.js";
+
+describe("calendar description preserve (P0 data-loss)", () => {
+  it("detects product markers vs real user notes", () => {
+    expect(isProductCalendarMarker("Created in LE Pro")).toBe(true);
+    expect(isProductCalendarMarker("Linked from LE Pro")).toBe(true);
+    expect(isProductCalendarMarker("Scheduled from LE Pro")).toBe(true);
+    expect(isProductCalendarMarker("")).toBe(true);
+    expect(
+      isProductCalendarMarker(
+        "Emergency service\nBilling: 12 Main\n$225\nleJobId:J-1"
+      )
+    ).toBe(false);
+  });
+
+  it("preserves user notes when updating an existing Google event", () => {
+    const desc = calendarUpsertDescription({
+      notes: "Emergency service call — bill 12 Main St — $225",
+      calEventId: "gcal-real-event-1",
+      createFallback: "Created in LE Pro",
+    });
+    expect(desc).toBe("Emergency service call — bill 12 Main St — $225");
+    expect(desc).not.toMatch(/Created in LE Pro/i);
+  });
+
+  it("omits description (null) when linking existing event with no notes — no clobber", () => {
+    expect(
+      calendarUpsertDescription({
+        notes: "",
+        calEventId: "gcal-real-event-1",
+        createFallback: "Created in LE Pro",
+      })
+    ).toBeNull();
+    // Marker-only notes against an existing event must also be omitted.
+    expect(
+      calendarUpsertDescription({
+        notes: "Created in LE Pro\nleJobId:J-1",
+        calEventId: "gcal-real-event-1",
+        createFallback: "Created in LE Pro",
+      })
+    ).toBeNull();
+  });
+
+  it("new events may still use create fallback when notes empty", () => {
+    expect(
+      calendarUpsertDescription({
+        notes: "",
+        calEventId: "",
+        createFallback: "Created in LE Pro",
+      })
+    ).toBe("Created in LE Pro");
+    // Pending optimistic ids are treated as new (not yet on Google).
+    expect(
+      calendarUpsertDescription({
+        notes: "",
+        calEventId: "pending-99",
+        createFallback: "Created in LE Pro",
+      })
+    ).toBe("Created in LE Pro");
+  });
+
+  it("strips legacy leJobId tags but keeps the real notes", () => {
+    expect(
+      calendarUpsertDescription({
+        notes: "Bill to: 9 Oak Ave\nleJobId:J-1",
+        calEventId: "ev-abc",
+      })
+    ).toBe("Bill to: 9 Oak Ave");
+  });
+});
 
 describe("calendar link state", () => {
   const job = { id: "J-1", calEventId: "" };
@@ -30,6 +101,7 @@ describe("calendar link state", () => {
           id: "pending-99",
           summary: "Inspection",
           start: "2099-01-01T09:00",
+          // Legacy shape may still appear on old pending rows; link state must tolerate it.
           description: "Created in LE Pro\nleJobId:J-1",
         },
       ],

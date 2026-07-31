@@ -1,6 +1,7 @@
 // Parse calendar appointment description + location into job/customer prefill.
 import { cloneJobAtAddressPatch } from "./customerHierarchy.js";
 import { serviceAddressKey } from "./customerHierarchy.js";
+import { isProductCalendarMarker } from "./calendarLink.js";
 import { evStart } from "./format.js";
 
 const EMAIL_RE = /[\w.+-]+@[\w-]+\.[\w.]+/i;
@@ -223,7 +224,14 @@ export function prefillFromEvent(e) {
 
   let customer = businessName || personName || summaryCustomer(e?.summary);
 
-  const description = stripApartmentFromDesc(desc, apartment);
+  // Spec §5: LE Pro job note gets REAL Google description (labeled), never a product stamp.
+  const rawDesc = stripApartmentFromDesc(desc, apartment) || desc;
+  const description = formatLabeledJobNote({
+    rawDesc,
+    customer: businessName || personName || customer,
+    billingAddress,
+    serviceAddress,
+  });
 
   return {
     customer,
@@ -238,8 +246,47 @@ export function prefillFromEvent(e) {
     date: evStart(e).slice(0, 10),
     calEventId: e?.id || "",
     apartment,
-    description: description || desc,
+    description,
   };
+}
+
+/**
+ * Build the LE Pro job note from a Google event description.
+ * Keeps real Google notes (spec §5); drops product stamps.
+ * Only prepends Billing address / Customer name labels when they add info
+ * not already present in the text (and billing ≠ service location echo).
+ */
+export function formatLabeledJobNote({ rawDesc, customer, billingAddress, serviceAddress } = {}) {
+  const cleaned = String(rawDesc || "")
+    .split(/\n+/)
+    .filter((ln) => !isProductCalendarMarker(ln))
+    .join("\n")
+    .trim();
+  if (!cleaned || isProductCalendarMarker(cleaned)) {
+    // No real notes — surface structured fields for invoice later.
+    const lines = [];
+    if (customer) lines.push("Customer name: " + customer);
+    const bill =
+      billingAddress &&
+      (!serviceAddress || addressesDiffer(billingAddress, serviceAddress))
+        ? billingAddress
+        : billingAddress || serviceAddress || "";
+    if (bill) lines.push("Billing address: " + bill);
+    return lines.join("\n");
+  }
+  // Real notes exist — keep them. Only prepend a *distinct* billing address
+  // (not the same as service location already on the appointment).
+  const lines = [];
+  if (
+    billingAddress &&
+    serviceAddress &&
+    addressesDiffer(billingAddress, serviceAddress) &&
+    !new RegExp(escapeRegex(billingAddress), "i").test(cleaned)
+  ) {
+    lines.push("Billing address: " + billingAddress);
+  }
+  lines.push(cleaned);
+  return lines.join("\n");
 }
 
 /** Merge calendar prefill with an existing customer's service address (new job at that site). */
