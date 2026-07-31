@@ -4,6 +4,19 @@ http://leelectrical.us/*   https://www.leelectrical.us/:splat  301!
 
 # Public LE Pro demo tester button (share this with people trying the app)
 
+# NEC Study School short path (primary)
+/nec   https://46-224-228-176.sslip.io/  302
+/nec/  https://46-224-228-176.sslip.io/  302
+/nec/* https://46-224-228-176.sslip.io/:splat  302
+
+# NEC Study School (Electrical Code) — public short path
+/ec   https://46-224-228-176.sslip.io/  302
+/ec/  https://46-224-228-176.sslip.io/  302
+/ec/* https://46-224-228-176.sslip.io/:splat  302
+/nec-school   https://46-224-228-176.sslip.io/  302
+/nec-school/  https://46-224-228-176.sslip.io/  302
+/nec-school/* https://46-224-228-176.sslip.io/:splat  302
+
 # Abba app — old /app/gematria preview retired; live app on Cloudflare
 /app/gematria   https://gematria-sorter.pages.dev/  301!
 /app/gematria/  https://gematria-sorter.pages.dev/  301!

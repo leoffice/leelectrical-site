@@ -386,14 +386,15 @@ export default function EmailInsightPrompts() {
     async (insight) => {
       if (!insight?.id) return dismiss();
       seen.current.add(insight.id);
+      // Snappy: close the sheet first — never wait on the network (Levi 2026-07-30).
+      setCurrent(null);
+      setDoneNotice(null);
       try {
         await patchEmailInsight(insight.id, { status: "ignored" });
       } catch {
         showToast("Couldn't save — dismissed locally");
       }
-      setCurrent(null);
-      setDoneNotice(null);
-      await refreshEmailInsights();
+      void refreshEmailInsights();
     },
     [dismiss, patchEmailInsight, refreshEmailInsights, showToast]
   );
@@ -403,6 +404,9 @@ export default function EmailInsightPrompts() {
       if (!insight?.id) return dismiss();
       const job = insight?.jobId ? effectiveJob(insight.jobId) : null;
       seen.current.add(insight.id);
+      // Close first so Cancel never feels stuck waiting on calendar delete.
+      setCurrent(null);
+      setDoneNotice(null);
       try {
         await cancelEmailInsightAppointment({
           insight,
@@ -418,9 +422,7 @@ export default function EmailInsightPrompts() {
       } catch (e) {
         showToast(String(e?.message || "Couldn't cancel appointment"));
       }
-      setCurrent(null);
-      setDoneNotice(null);
-      await refreshEmailInsights();
+      void refreshEmailInsights();
     },
     [
       dismiss,
@@ -455,7 +457,7 @@ export default function EmailInsightPrompts() {
         });
         seen.current.add(insight.id);
         setCurrent(null);
-        await refreshEmailInsights();
+        void refreshEmailInsights();
       } catch (e) {
         showToast(String(e?.message || "Couldn't apply"));
       }
@@ -473,17 +475,26 @@ export default function EmailInsightPrompts() {
     ]
   );
 
+  /** "Got it" on auto-done notice — must feel instant (Levi 2026-07-30: 30s lag). */
   const ackDone = useCallback(
     async (insight) => {
-      if (!insight?.id) return;
-      seen.current.add(insight.id);
-      try {
-        await patchEmailInsight(insight.id, { notified: true, status: insight.status || "auto_applied" });
-      } catch {
-        /* local dismiss is fine */
+      if (!insight?.id) {
+        setDoneNotice(null);
+        return;
       }
+      seen.current.add(insight.id);
+      // Close the sheet on the same tap — network save runs in the background.
       setDoneNotice(null);
-      await refreshEmailInsights();
+      setCurrent(null);
+      try {
+        await patchEmailInsight(insight.id, {
+          notified: true,
+          status: insight.status || "auto_applied",
+        });
+      } catch {
+        /* local dismiss is fine — sheet already closed */
+      }
+      void refreshEmailInsights();
     },
     [patchEmailInsight, refreshEmailInsights]
   );
@@ -695,13 +706,16 @@ export default function EmailInsightPrompts() {
     if (current || doneNotice) return;
     if (isScreenCovered()) return;
     // Prefer "done" notices so Levi sees what already landed.
-    if (doneQueue.length) {
-      setDoneNotice(doneQueue[0]);
+    // Re-check seen.current here — useMemo cache may still hold just-acked ids.
+    const nextDone = doneQueue.find((x) => x?.id && !seen.current.has(x.id));
+    if (nextDone) {
+      setDoneNotice(nextDone);
       if (!sessionAlreadySeen()) markSessionSeen();
       return;
     }
-    if (pendingNeedsApprove.length) {
-      setCurrent(pendingNeedsApprove[0]);
+    const nextPending = pendingNeedsApprove.find((x) => x?.id && !seen.current.has(x.id));
+    if (nextPending) {
+      setCurrent(nextPending);
       if (!sessionAlreadySeen()) markSessionSeen();
     }
   }, [pendingNeedsApprove, doneQueue, current, doneNotice, hidden, editSheet, sheetTick]);

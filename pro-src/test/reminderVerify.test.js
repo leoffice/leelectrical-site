@@ -105,6 +105,25 @@ describe("reminderVerify", () => {
     expect(isUnsentDismissed("J-2", "invoice")).toBe(false);
   });
 
+  it("inspection verify skips jobs refresh (snappy — no network wait)", async () => {
+    const refreshJobs = vi.fn(async () => ({ jobs: [] }));
+    const item = {
+      id: "insp:ev-insp",
+      kind: "inspection",
+      event: { id: "ev-insp", summary: "Inspection", start: "2026-08-07T10:00:00" },
+      when: "tomorrow",
+    };
+    const result = await verifyReminderItem(item, {
+      jobs: [],
+      events: [item.event],
+      refreshJobs,
+      releaseHold: true,
+    });
+    expect(result.stillNeeded).toBe(true);
+    expect(result.skipLongHold).toBe(true);
+    expect(refreshJobs).not.toHaveBeenCalled();
+  });
+
   it("clearReminderAfterVerify marks event noReminders", () => {
     const item = {
       id: "sched:ev1",

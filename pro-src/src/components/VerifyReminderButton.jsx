@@ -52,8 +52,12 @@ export default function VerifyReminderButton({
         refreshJobs,
       });
       // Still needed → keep hidden for ~10s, then release so it can pop back.
+      // Inspections / skipLongHold: no artificial wait (Levi snappy rule).
       if (result.stillNeeded) {
-        const wait = IS_TEST ? 0 : Math.max(0, VERIFY_HOLD_MS - (Date.now() - started));
+        const wait =
+          IS_TEST || result.skipLongHold || item?.kind === "inspection"
+            ? 0
+            : Math.max(0, VERIFY_HOLD_MS - (Date.now() - started));
         if (wait > 0) await new Promise((r) => setTimeout(r, wait));
         releaseReminderAfterVerify(item);
       }
