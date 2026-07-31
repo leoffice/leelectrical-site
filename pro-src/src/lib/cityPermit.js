@@ -13,6 +13,11 @@
  * conservative default as the Con Ed brain.
  */
 
+import {
+  jobStatusPatchFromPermitStage,
+  dobPaperworkStepsForStage,
+} from "./permitProgressBridge.js";
+
 /** Canonical DOB NOW: Electrical stages, filing → sign-off. */
 export const CITY_STAGES = [
   "filing_submitted",
@@ -265,7 +270,58 @@ export function mergeCityPermitList(existingList = [], permit) {
   return list;
 }
 
-/** Full pipeline: insight → city permit + merged permits list. */
+/**
+ * Job patch from a City permit: paperwork.dob steps + bridge to job.status.
+ * Mirrors jobPatchFromConedPermit so both agencies write Progress the same way.
+ */
+export function jobPatchFromCityPermit(
+  permit,
+  { dateTime = "", existingPaperwork = {}, existingStatus = {} } = {}
+) {
+  if (!permit) return {};
+  const stage = permit.currentStage;
+  const steps = dobPaperworkStepsForStage(stage);
+  const dates = { ...(existingPaperwork?.dob?.dates || {}) };
+  if (dateTime) {
+    if (
+      stage === "inspection_scheduled" ||
+      stage === "inspection_passed" ||
+      stage === "inspection_failed" ||
+      stage === "signed_off"
+    ) {
+      dates["Inspection scheduled"] = dateTime;
+    }
+  }
+  const dobPw = {
+    enabled: true,
+    steps: { ...(existingPaperwork?.dob?.steps || {}), ...steps },
+    dates,
+    jobNumber: permit.primaryKey || existingPaperwork?.dob?.jobNumber || "",
+    currentStage: stage,
+    stageLabel: CITY_STAGE_LABELS[stage] || stage,
+    stageBucket: permit.stageBucket,
+    health: permit.health,
+    nextAction: permit.nextAction,
+    nextActionDate: permit.nextActionDate,
+  };
+
+  const milestoneDate =
+    (dateTime || "").slice(0, 10) ||
+    (permit.nextActionDate || "").slice(0, 10) ||
+    "";
+  const statusPiece = jobStatusPatchFromPermitStage(stage, {
+    date: milestoneDate,
+    existingStatus,
+  });
+
+  return {
+    paperwork: { dob: dobPw },
+    permitRecord: permit,
+    ...statusPiece,
+  };
+}
+
+/** Full pipeline: insight → city permit + paperwork + job.status + merged permits. */
 export function cityPatchFromInsight(insight, job = null) {
   if (!isCityAgencyInsight(insight)) return null;
   const existingList = job?.permits || [];
@@ -291,8 +347,16 @@ export function cityPatchFromInsight(insight, job = null) {
     dobJobNumber: key,
   });
 
+  const piece = jobPatchFromCityPermit(permit, {
+    dateTime: insight?.dateTime || "",
+    existingPaperwork: job?.paperwork || {},
+    existingStatus: job?.status || {},
+  });
+
   return {
     permit,
+    paperwork: piece.paperwork,
     permits: mergeCityPermitList(existingList, permit),
+    ...(piece.status ? { status: piece.status } : {}),
   };
 }

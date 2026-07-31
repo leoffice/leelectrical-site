@@ -12,6 +12,10 @@
 import { foldConedForJob, foldCityForJob, isAppliedInsight, canonAgency } from "./permitsBoard.js";
 import { isConedAgencyInsight } from "./conedPermit.js";
 import { isCityAgencyInsight } from "./cityPermit.js";
+import {
+  jobStatusPatchFromJobPermits,
+  leadingPermitStage,
+} from "./permitProgressBridge.js";
 
 /** The fields that decide whether a Con Ed permit is "the same" for idempotency. */
 function permitFingerprint(list) {
@@ -95,12 +99,24 @@ function allPermitsFingerprint(list) {
     .join("~~");
 }
 
+/** Fingerprint job.status for Progress-bridge idempotency. */
+function statusFingerprint(status) {
+  if (!status || typeof status !== "object") return "";
+  return ["Paperwork", "Scheduled", "Done"]
+    .map((k) => {
+      const st = status[k] || {};
+      return `${k}:${st.s || ""}:${st.d || ""}`;
+    })
+    .join("|");
+}
+
 /**
  * Combined Con Ed + City/DOB backfill. Folds BOTH agencies into ONE unified
  * `permits[]` per job (city fold chained on top of the coned fold) so the two
  * never clobber each other when saved (arrays replace, not merge). Also keeps
- * `paperwork.coned` for the JobDetail chip. Pure — no writes.
- * @returns Array<{ jobId, jobName, patch, coned, city }>
+ * `paperwork.coned` for the JobDetail chip AND bridges permit.currentStage →
+ * top-level job.status (Progress checklist) idempotently. Pure — no writes.
+ * @returns Array<{ jobId, jobName, patch, coned, city, statusFlipped }>
  */
 export function computePermitBackfill({ jobs = [], insights = [] } = {}) {
   const applied = (insights || []).filter(isAppliedInsight).filter((i) => i.jobId);
@@ -119,7 +135,20 @@ export function computePermitBackfill({ jobs = [], insights = [] } = {}) {
   const jobById = new Map();
   for (const j of jobs) if (j && j.id) jobById.set(j.id, j);
 
+  // Also include jobs that already have permits[] / paperwork stages but no
+  // matching insights — Progress bridge still needs to backfill job.status.
   const jobIds = new Set([...conedByJob.keys(), ...cityByJob.keys()]);
+  for (const j of jobs) {
+    if (!j?.id) continue;
+    const hasPermit =
+      (Array.isArray(j.permits) && j.permits.length > 0) ||
+      j.paperwork?.coned?.currentStage ||
+      j.paperwork?.dob?.currentStage ||
+      j.paperwork?.coned?.enabled ||
+      j.paperwork?.dob?.enabled;
+    if (hasPermit) jobIds.add(j.id);
+  }
+
   const out = [];
   for (const jobId of jobIds) {
     const job = jobById.get(jobId);
@@ -127,26 +156,59 @@ export function computePermitBackfill({ jobs = [], insights = [] } = {}) {
     const conedFold = foldConedForJob(job, conedByJob.get(jobId) || []);
     // Chain: city fold starts from the coned-folded permits so both survive.
     const cityFold = foldCityForJob({ ...job, permits: conedFold.permits }, cityByJob.get(jobId) || []);
-    const unified = cityFold.permits || conedFold.permits || [];
+    const unified = cityFold.permits || conedFold.permits || job.permits || [];
 
     const hasConed = unified.some((p) => canonAgency(p.agency) === "coned") || conedFold.paperConed;
-    const hasCity = unified.some((p) => canonAgency(p.agency) === "dob");
+    const hasCity = unified.some((p) => canonAgency(p.agency) === "dob" || p.agency === "city");
     if (!hasConed && !hasCity) continue;
 
-    if (
-      allPermitsFingerprint(job.permits) === allPermitsFingerprint(unified) &&
-      paperFingerprint(job.paperwork?.coned) === paperFingerprint(conedFold.paperConed)
-    ) {
+    // Bridge: leading permit stage → job.status (non-destructive)
+    const syntheticJob = {
+      ...job,
+      permits: unified,
+      paperwork: {
+        ...(job.paperwork || {}),
+        ...(conedFold.paperConed ? { coned: conedFold.paperConed } : {}),
+      },
+    };
+    const statusPiece = jobStatusPatchFromJobPermits(syntheticJob);
+    const afterStatus = {
+      ...(job.status || {}),
+      ...(statusPiece.status || {}),
+    };
+
+    const permitsSame = allPermitsFingerprint(job.permits) === allPermitsFingerprint(unified);
+    const paperSame = paperFingerprint(job.paperwork?.coned) === paperFingerprint(conedFold.paperConed);
+    const statusSame = statusFingerprint(job.status) === statusFingerprint(afterStatus);
+    if (permitsSame && paperSame && statusSame) {
       continue; // idempotent no-op
     }
 
-    const patch = { permits: unified };
-    if (conedFold.paperConed) patch.paperwork = { coned: conedFold.paperConed };
+    const patch = {};
+    if (!permitsSame) patch.permits = unified;
+    if (!paperSame && conedFold.paperConed) {
+      patch.paperwork = { ...(patch.paperwork || {}), coned: conedFold.paperConed };
+    }
+    if (!statusSame && statusPiece.status) {
+      patch.status = statusPiece.status;
+    }
+    // Always include permits when status flips so a later read has stages
+    if (patch.status && !patch.permits && unified.length) {
+      patch.permits = unified;
+    }
+
+    const flipped = statusPiece.status ? Object.keys(statusPiece.status) : [];
     out.push({
       jobId,
       jobName: job.customer || job.title || jobId,
       coned: conedFold.paperConed?.caseNumber || "",
-      city: unified.filter((p) => canonAgency(p.agency) === "dob").map((p) => p.primaryKey).filter(Boolean)[0] || "",
+      city:
+        unified
+          .filter((p) => canonAgency(p.agency) === "dob" || p.agency === "city")
+          .map((p) => p.primaryKey)
+          .filter(Boolean)[0] || "",
+      statusFlipped: flipped,
+      leadStage: leadingPermitStage(unified),
       patch,
     });
   }

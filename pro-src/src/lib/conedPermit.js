@@ -5,6 +5,8 @@
  * Pure functions only — no network. Email → event type → stage → job patch.
  */
 
+import { jobStatusPatchFromPermitStage } from "./permitProgressBridge.js";
+
 /** Canonical ConEd stages (spec §2.2 pills). */
 export const CONED_STAGES = [
   "application_filed",
@@ -414,10 +416,14 @@ export function nextActionForStage(stage, dateTime = "") {
 }
 
 /**
- * Job patch: enable Con Ed branch, advance paperwork steps, store permit record.
- * Merges with existing job.paperwork / job.permits.
+ * Job patch: enable Con Ed branch, advance paperwork steps, store permit record,
+ * AND bridge permit.currentStage → top-level job.status (Progress checklist).
+ * Merges with existing job.paperwork / job.permits / job.status.
  */
-export function jobPatchFromConedPermit(permit, { dateTime = "", existingPaperwork = {} } = {}) {
+export function jobPatchFromConedPermit(
+  permit,
+  { dateTime = "", existingPaperwork = {}, existingStatus = {} } = {}
+) {
   if (!permit) return {};
   const stage = permit.currentStage;
   const steps = paperworkStepsForStage(stage);
@@ -464,9 +470,20 @@ export function jobPatchFromConedPermit(permit, { dateTime = "", existingPaperwo
     nextActionDate: permit.nextActionDate,
   };
 
+  // Bridge: permit milestone → Job Information Progress checklist
+  const milestoneDate =
+    (dateTime || "").slice(0, 10) ||
+    (permit.nextActionDate || "").slice(0, 10) ||
+    "";
+  const statusPiece = jobStatusPatchFromPermitStage(stage, {
+    date: milestoneDate,
+    existingStatus,
+  });
+
   return {
     paperwork: { coned: conedPw },
     permitRecord: permit, // caller merges into job.permits[]
+    ...statusPiece,
   };
 }
 
@@ -547,11 +564,13 @@ export function conedPatchFromInsight(insight, job = null) {
   const piece = jobPatchFromConedPermit(permit, {
     dateTime: insight?.dateTime || "",
     existingPaperwork: job?.paperwork || {},
+    existingStatus: job?.status || {},
   });
 
   return {
     permit,
     paperwork: piece.paperwork,
     permits: mergePermitList(existingList, permit),
+    ...(piece.status ? { status: piece.status } : {}),
   };
 }

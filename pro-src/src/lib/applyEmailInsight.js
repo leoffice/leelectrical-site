@@ -14,6 +14,8 @@ import { calendarServiceLocation } from "./customerSync.js";
 import { GCAL_RED_COLOR_ID } from "./calendarEventStyle.js";
 import { findEventForInsight, findPriorAppointmentsForInsight } from "./calendarNavigate.js";
 import { conedPatchFromInsight } from "./conedPermit.js";
+import { cityPatchFromInsight } from "./cityPermit.js";
+import { mergeStatusPatches } from "./permitProgressBridge.js";
 
 /** Local clock label from insight dateTime for short calendar titles. */
 function titleTimeFromInsight(insight) {
@@ -138,7 +140,7 @@ export function buildCalendarPayload(insight, job, selected) {
 
 /**
  * Merge classic paperwork date patch with ConEd open-case brain
- * (stage, case #, final-checklist auto-complete, permit record).
+ * (stage, case #, final-checklist auto-complete, permit record, job.status bridge).
  */
 export function mergeConedIntoJobPatch(basePatch, insight, job) {
   const coned = conedPatchFromInsight(insight, job);
@@ -153,10 +155,48 @@ export function mergeConedIntoJobPatch(basePatch, insight, job) {
     steps: { ...(baseConed.steps || {}), ...(fromBrain.steps || {}) },
     dates: { ...(baseConed.dates || {}), ...(fromBrain.dates || {}) },
   };
+  const status = mergeStatusPatches(
+    basePatch?.status ? { status: basePatch.status } : {},
+    coned.status ? { status: coned.status } : {}
+  );
   return {
     ...(basePatch || {}),
     paperwork: paper,
     permits: coned.permits,
+    ...(status.status ? { status: status.status } : {}),
+  };
+}
+
+/**
+ * Merge City/DOB NOW brain into the job patch (permit record + paperwork.dob
+ * + job.status bridge). Safe no-op when the insight is not City.
+ */
+export function mergeCityIntoJobPatch(basePatch, insight, job) {
+  const city = cityPatchFromInsight(insight, job);
+  if (!city) return basePatch || {};
+  const paper = { ...(basePatch?.paperwork || {}) };
+  const baseDob = paper.dob || {};
+  const fromBrain = city.paperwork?.dob || {};
+  if (fromBrain && Object.keys(fromBrain).length) {
+    paper.dob = {
+      ...baseDob,
+      ...fromBrain,
+      enabled: true,
+      steps: { ...(baseDob.steps || {}), ...(fromBrain.steps || {}) },
+      dates: { ...(baseDob.dates || {}), ...(fromBrain.dates || {}) },
+    };
+  }
+  // Prefer city permits when both brains ran; city fold starts from job.permits
+  // which already may include Con Ed from a prior merge.
+  const status = mergeStatusPatches(
+    basePatch?.status ? { status: basePatch.status } : {},
+    city.status ? { status: city.status } : {}
+  );
+  return {
+    ...(basePatch || {}),
+    paperwork: paper,
+    permits: city.permits || basePatch?.permits,
+    ...(status.status ? { status: status.status } : {}),
   };
 }
 
@@ -169,9 +209,12 @@ export function jobPatchForInsight(insight, selected, job = null) {
   ) {
     base = paperworkPatchForInsight(insight, insight?.dateTime) || {};
   }
-  // Always run ConEd brain when this is a Con Ed / Energy Services mail —
+  // Always run ConEd + City brains when the mail matches —
   // stages advance even on "already on calendar" / completed / no calendar select.
-  return mergeConedIntoJobPatch(base, insight, job);
+  // Bridge also flips top-level job.status so Progress matches Permits.
+  let patch = mergeConedIntoJobPatch(base, insight, job);
+  patch = mergeCityIntoJobPatch(patch, insight, job);
+  return patch;
 }
 
 /**
@@ -311,10 +354,21 @@ export async function applyEmailInsight({
     const pendingId = "pending-" + Date.now();
     appliedEventId = pendingId;
     if (job?.id) {
+      const paper = jobPatchForInsight(insight, selected, job) || {};
+      // Calendar set always marks Scheduled; bridge may add Paperwork/Done —
+      // deep-merge status so neither side clobbers the other.
+      const status = {
+        Scheduled: { s: "done", d: insight.dateTime.slice(0, 10) },
+        ...(paper.status || {}),
+      };
+      // If bridge already set Scheduled done with a date, keep its date.
+      if (paper.status?.Scheduled?.s === "done") {
+        status.Scheduled = paper.status.Scheduled;
+      }
       const patch = {
+        ...paper,
         calEventId: pendingId,
-        status: { Scheduled: { s: "done", d: insight.dateTime.slice(0, 10) } },
-        ...jobPatchForInsight(insight, selected, job),
+        status,
       };
       await patchAndSave(job.id, patch);
     }
