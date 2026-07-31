@@ -102,8 +102,13 @@ export function classifyCityMessageType(subject = "", body = "") {
   }
   if (/inspection\s+(cancell?ed|rescheduled)/.test(s)) return "city.inspection_reschedule";
 
-  // Sign-off / completion.
-  if (/letter\s+of\s+completion|\bloc\b|signed?\s*-?\s*off|final\s+sign\s*off/.test(s)) {
+  // Sign-off / terminal Work Complete (DOB NOW) — DISTINCT from inspection_passed.
+  // Example: "Work Complete for M01228312/I1/149 EAST 116 STREET … status updated to Complete"
+  if (
+    /\bwork\s+complete\b/.test(s) ||
+    /\bstatus\s+updated\s+to\s+complete\b/.test(s) ||
+    /letter\s+of\s+completion|\bloc\b|signed?\s*-?\s*off|final\s+sign\s*off/.test(s)
+  ) {
     return "city.signed_off";
   }
 

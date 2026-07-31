@@ -27,6 +27,16 @@ describe("classifyCityMessageType + stageForCityEvent", () => {
     ["Objection raised — additional information required", "city.objections", "objections"],
     ["Electrical Work Permit Issued", "city.permit_issued", "permit_issued"],
     ["Letter of Completion issued", "city.signed_off", "signed_off"],
+    [
+      "Work Complete for M01228312/I1/149 EAST 116 STREET",
+      "city.signed_off",
+      "signed_off",
+    ],
+    [
+      "Job M01228312/I1 status updated to Complete",
+      "city.signed_off",
+      "signed_off",
+    ],
     ["Filing submitted — job number created", "city.filing_submitted", "filing_submitted"],
     ["Filing withdrawn", "city.cancelled", "cancelled"],
     ["Some unrelated DOB newsletter", "city.other", null],
@@ -94,5 +104,59 @@ describe("cityPatchFromInsight", () => {
     const city = p2.permits.filter((p) => p.agency === "city");
     expect(city).toHaveLength(1);
     expect(city[0].currentStage).toBe("inspection_scheduled");
+  });
+
+  it("DOB Work Complete advances inspection_passed → signed_off + job Progress Done (149 E 116th)", () => {
+    const job = {
+      id: "qbo-est-25435",
+      customer: "149 E 116",
+      serviceAddress: "149 East 116 Street, Manhattan, NY 10029",
+      status: {
+        Paperwork: { s: "done", d: "2026-07-30" },
+        Scheduled: { s: "done", d: "2026-07-30" },
+        Done: { s: "done", d: "2026-07-30" },
+      },
+      permits: [
+        {
+          agency: "city",
+          primaryKey: "M01228312/I1",
+          currentStage: "inspection_passed",
+          events: [],
+        },
+      ],
+    };
+    const advanced = cityPatchFromInsight(
+      {
+        ...insight({
+          subject: "Work Complete for M01228312/I1/149 EAST 116 STREET",
+          dateTime: "2026-07-31T09:00",
+          receivedAt: "Thu, 31 Jul 2026 09:00:00 -0400",
+        }),
+        emailSnippet:
+          "Work Complete for M01228312/I1/149 EAST 116 STREET. Job status updated to Complete.",
+      },
+      job
+    );
+    expect(advanced.permit.currentStage).toBe("signed_off");
+    expect(advanced.permit.stageBucket).toBe("Terminal");
+    expect(advanced.permit.primaryKey).toBe("M01228312/I1");
+    // Progress already done — non-destructive, no clobber of existing dates
+    expect(advanced.status).toBeUndefined();
+    // Fresh job with empty status still gets Done via bridge
+    const fresh = cityPatchFromInsight(
+      {
+        ...insight({
+          subject: "Work Complete for M01228312/I1/149 EAST 116 STREET",
+          dateTime: "2026-07-31T09:00",
+        }),
+        emailSnippet: "status updated to Complete Job Number M01228312/I1",
+      },
+      { id: "qbo-est-25435", status: {}, permits: [] }
+    );
+    expect(fresh.permit.currentStage).toBe("signed_off");
+    expect(fresh.status.Paperwork.s).toBe("done");
+    expect(fresh.status.Scheduled.s).toBe("done");
+    expect(fresh.status.Done.s).toBe("done");
+    expect(fresh.status.Done.d).toBe("2026-07-31");
   });
 });

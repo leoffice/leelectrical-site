@@ -105,6 +105,16 @@ describe("emailInsight", () => {
 
   it("classifies completed vs cancelled outcomes", () => {
     expect(classifyEmailOutcome("Final Inspection Appointment Completed", CONED_COMPLETED)).toBe("completed");
+    // DOB NOW terminal Work Complete (word is "Complete", not "completed")
+    expect(
+      classifyEmailOutcome(
+        "Work Complete for M01228312/I1/149 EAST 116 STREET",
+        "Work Complete for M01228312/I1/149 EAST 116 STREET. Job status updated to Complete."
+      )
+    ).toBe("completed");
+    expect(
+      classifyEmailOutcome("DOB NOW update", "Job status updated to Complete for M01228312/I1")
+    ).toBe("completed");
     expect(classifyEmailOutcome("Initial Inspection Appointment Cancelled", "cancelled due to Cancelled by user")).toBe(
       "cancelled"
     );

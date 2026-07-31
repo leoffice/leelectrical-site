@@ -567,6 +567,9 @@ export function classifyEmailOutcome(subject = "", body = "") {
     return "cancelled";
   }
 
+  // DOB NOW terminal "Work Complete" / "status updated to Complete" (not the word "completed").
+  // Maps to completed outcome so paperwork + city brain auto-apply; city classifier → signed_off.
+  if (/\bwork\s+complete\b|\bstatus\s+updated\s+to\s+complete\b/.test(s)) return "completed";
   if (/\bcompleted\b|\bpassed\b|\bpassed on\b|\binspection\s+passed\b/.test(s)) return "completed";
 
   // True new appointment sets FIRST (Con Ed APPT confirmations + DOB city).

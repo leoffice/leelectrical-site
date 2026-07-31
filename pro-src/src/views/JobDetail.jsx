@@ -82,9 +82,18 @@ import {
   PaymentLinkSheet,
   PaymentMenuSheet,
   ReminderSheet,
+  useDoSend,
 } from "../components/JobSheets.jsx";
 import CustomerComposeSheet from "../components/CustomerComposeSheet.jsx";
 import AgencyApplicationSheet from "../components/AgencyApplicationSheet.jsx";
+import SendDocConfirmSheet from "../components/SendDocConfirmSheet.jsx";
+import {
+  buildWorkCompleteCustomerEmail,
+  jobHasWorkCompleteMilestone,
+} from "../lib/workCompleteNotify.js";
+import { afterSendApprovedClose } from "../lib/sendDocConfirm.js";
+import { beginPromptWorkPause } from "../lib/followUpReminders.js";
+import { DOC_SOURCE_LOCAL } from "../lib/docSource.js";
 
 const CMD_TONES = {
   queued: "bg-slate-100 text-slate-500",
@@ -126,6 +135,14 @@ export default function JobDetail() {
     sasCalls,
   } = useStore();
   const job = effectiveJob(id);
+  const doSend = useDoSend();
+  const [workCompleteSendBusy, setWorkCompleteSendBusy] = useState(false);
+  const [workCompleteSendErr, setWorkCompleteSendErr] = useState("");
+  const showWorkCompleteNotify = job ? jobHasWorkCompleteMilestone(job) : false;
+  const workCompleteEmail = useMemo(
+    () => (job && showWorkCompleteNotify ? buildWorkCompleteCustomerEmail(job) : null),
+    [job, showWorkCompleteNotify]
+  );
   const custKey = job ? (fromCust || clientKey(job)) : "";
   const customerJobs = useMemo(() => {
     if (!job || !custKey) return job ? [job] : [];
@@ -654,6 +671,35 @@ export default function JobDetail() {
             <div className="h-full bg-gradient-to-r from-brand to-accent" style={{ width: `${progressPct(job)}%` }} />
           </div>
         </div>
+        {/* §5 Work Complete — opt-in customer notify (never auto-sends) */}
+        {showWorkCompleteNotify ? (
+          <div
+            className="card mb-2 px-3 py-3 border border-emerald-200 bg-emerald-50/80"
+            data-testid="work-complete-notify-card"
+          >
+            <p className="text-sm font-bold text-emerald-900 mb-1">Work complete — permit signed off</p>
+            <p className="text-[12px] text-emerald-800/90 mb-2.5">
+              Optionally email the customer that work is done and attach their invoice. You confirm before anything
+              sends.
+            </p>
+            <button
+              type="button"
+              className="btn bg-emerald-700 text-white w-full !py-2.5 text-sm font-bold min-h-[44px]"
+              data-testid="work-complete-notify-btn"
+              onClick={() => {
+                setWorkCompleteSendErr("");
+                setSheet({ kind: "workCompleteNotify" });
+              }}
+            >
+              Notify customer (work complete + invoice)
+            </button>
+            {job.workCompleteCustomerNotifiedAt ? (
+              <p className="text-[11px] text-emerald-700 font-semibold mt-1.5 px-0.5">
+                Customer notified · {String(job.workCompleteCustomerNotifiedAt).slice(0, 10)}
+              </p>
+            ) : null}
+          </div>
+        ) : null}
         {PHASES.map((ph, pi) => {
           const done = ph.steps.filter((s) => isCleared(job, s)).length;
           const isOpen = openIdx === pi;
@@ -1186,6 +1232,52 @@ export default function JobDetail() {
       ) : null}
 
       {/* Sheets */}
+      {sheet?.kind === "workCompleteNotify" && job && workCompleteEmail ? (
+        <SendDocConfirmSheet
+          job={job}
+          kind="invoice"
+          docSource={DOC_SOURCE_LOCAL}
+          withPay={!!job.invoiceNo && openBalance(job) > 0.01}
+          initialSubject={workCompleteEmail.subject}
+          initialMessage={workCompleteEmail.body}
+          title="Notify customer — work complete"
+          intro="Review the note and invoice attachment, then Approve. Nothing sends until you confirm."
+          busy={workCompleteSendBusy}
+          error={workCompleteSendErr}
+          onBack={() => {
+            if (workCompleteSendBusy) return;
+            setSheet(null);
+            setWorkCompleteSendErr("");
+          }}
+          onApprove={async (model) => {
+            setWorkCompleteSendBusy(true);
+            setWorkCompleteSendErr("");
+            beginPromptWorkPause();
+            const result = await doSend(job, "invoice", {
+              includePaymentLink: model.withPay,
+              email: model.email,
+              docSource: model.docSource,
+              message: model.message,
+              subject: model.subject,
+              emailPolicy: model.emailPolicy,
+            });
+            if (result?.ok) {
+              try {
+                await patchAndSave(job.id, {
+                  workCompleteCustomerNotifiedAt: new Date().toISOString(),
+                });
+              } catch {
+                /* non-fatal */
+              }
+              await afterSendApprovedClose({ ok: true, onClose: () => setSheet(null) });
+              setWorkCompleteSendBusy(false);
+              return;
+            }
+            setWorkCompleteSendBusy(false);
+            setWorkCompleteSendErr(result?.error || "Send failed — nothing was emailed");
+          }}
+        />
+      ) : null}
       {sheet?.kind === "menu" && (
         <MenuSheet
           job={job}

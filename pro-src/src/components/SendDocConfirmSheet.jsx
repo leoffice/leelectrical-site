@@ -19,6 +19,11 @@ export default function SendDocConfirmSheet({
   withPay = false,
   payUrl = "",
   initialEmail,
+  /** Optional prefill (e.g. work-complete + invoice customer note). */
+  initialSubject,
+  initialMessage,
+  title,
+  intro,
   onBack,
   onApprove,
   busy = false,
@@ -30,6 +35,8 @@ export default function SendDocConfirmSheet({
     docSource,
     withPay,
     email: initialEmail || job?.email,
+    subject: initialSubject,
+    message: initialMessage,
     payUrl,
   });
   const [email, setEmail] = useState(seed.email);
@@ -44,13 +51,15 @@ export default function SendDocConfirmSheet({
       docSource,
       withPay,
       email: initialEmail || job?.email,
+      subject: initialSubject,
+      message: initialMessage,
       payUrl,
     });
     setEmail(next.email);
     setSubject(next.subject);
     setMessage(next.message);
     setEmailPolicy(next.emailPolicy || "");
-  }, [job?.id, kind, docSource, withPay, payUrl, initialEmail]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [job?.id, kind, docSource, withPay, payUrl, initialEmail, initialSubject, initialMessage]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const model = buildSendDocConfirm({
     job,
@@ -67,9 +76,10 @@ export default function SendDocConfirmSheet({
   const label = kind === "estimate" ? "estimate" : "invoice";
 
   return (
-    <Sheet title={"Confirm send " + label} onClose={onBack} tall>
+    <Sheet title={title || "Confirm send " + label} onClose={onBack} tall>
       <p className="text-sm text-slate-500 mb-3" data-testid="send-confirm-intro">
-        Review everything below, then Approve. Nothing goes out until you tap Approve.
+        {intro ||
+          "Review everything below, then Approve. Nothing goes out until you tap Approve."}
       </p>
 
       <Fld label="To (recipient)" hint="Separate multiple emails with a comma">
