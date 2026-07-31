@@ -88,7 +88,9 @@ describe("deleting a document", () => {
     const job = { id: "J-1", invoiceNo: "16664", invoiceLines: ESTIMATE_LINES };
     const plan = removeDocPlan(job, "invoice");
     expect(plan.mode).toBe("row");
-    expect(plan.patch).toEqual({ _deleted: true });
+    // Soft-delete tombstone (universal archive) — never hard-erases the row.
+    expect(plan.patch).toMatchObject({ _deleted: true, _archived: true });
+    expect(plan.patch.deletedAt).toEqual(expect.any(String));
     expect(plan.syncedNo).toBe("16664");
     expect(plan.warnsQuickbooks).toBe(true);
     expect(removeDocCopy(job, "invoice", plan).body).toMatch(/QuickBooks is not changed/);
