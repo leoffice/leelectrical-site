@@ -1,15 +1,9 @@
-// Client for agent access grants (time-boxed one-time codes).
+// Client for Agent Access — toggle + fleet identity (no codes).
+// Canonical: AGENT_ACCESS_STANDARD.md
 import { functionsBase } from "./functionsBase.js";
 
-const SESSION_KEY = "lepro_agent_session";
-
-function sessionStore() {
-  try {
-    return globalThis.sessionStorage || null;
-  } catch {
-    return null;
-  }
-}
+/** 24h auto-off window (mirrors server AUTO_OFF_MS). */
+export const AGENT_ACCESS_AUTO_OFF_MS = 24 * 60 * 60 * 1000;
 
 async function post(body) {
   const res = await fetch(`${functionsBase()}/agent-access`, {
@@ -38,83 +32,46 @@ export async function fetchAgentAccessStatus() {
   return res.json();
 }
 
-export async function mintAgentAccess({ ttlMs, scope, label } = {}) {
-  return post({ op: "mint", ttlMs, scope, label });
+/** Turn main agent access on/off. timerMode: "24h" | "manual". */
+export async function setAgentAccess({ on, timerMode } = {}) {
+  return post({
+    op: "set_access",
+    on: on === true,
+    timerMode: timerMode === "24h" ? "24h" : timerMode === "manual" ? "manual" : undefined,
+    actor: "owner",
+  });
 }
 
-/** Extend the current grant by +ttlMs (same code). Optionally update scope. */
-export async function extendAgentAccess({ ttlMs, scope } = {}) {
-  return post({ op: "extend", ttlMs, scope });
+/** Prefer 24h auto-off vs manual (stays on until STOP). */
+export async function setAgentAccessTimer(timerMode) {
+  return post({
+    op: "set_timer",
+    timerMode: timerMode === "24h" ? "24h" : "manual",
+    actor: "owner",
+  });
 }
 
-export async function redeemAgentAccess(code, { label } = {}) {
-  return post({ op: "redeem", code, label: label || "agent" });
+/** Payment management access — OFF by default. */
+export async function setAgentPayments({ on } = {}) {
+  return post({
+    op: "set_payments",
+    on: on === true,
+    actor: "owner",
+  });
 }
 
+/** STOP — primary safeguard. Instant off. */
+export async function stopAgentAccess() {
+  return post({ op: "stop", actor: "owner-stop" });
+}
+
+/** @deprecated use stopAgentAccess */
 export async function revokeAgentAccess() {
-  return post({ op: "revoke" });
-}
-
-export async function endAgentAccess(token) {
-  return post({ op: "end", token });
-}
-
-export function getAgentSession() {
-  const s = sessionStore();
-  if (!s) return null;
-  try {
-    const raw = s.getItem(SESSION_KEY);
-    if (!raw) return null;
-    const obj = JSON.parse(raw);
-    if (!obj || typeof obj !== "object") return null;
-    return obj;
-  } catch {
-    return null;
-  }
-}
-
-export function setAgentSession(session) {
-  const s = sessionStore();
-  if (!s) return;
-  if (!session) {
-    s.removeItem(SESSION_KEY);
-    return;
-  }
-  s.setItem(
-    SESSION_KEY,
-    JSON.stringify({
-      token: session.token,
-      grantId: session.grantId,
-      scope: session.scope || "full",
-      startedAt: session.startedAt,
-      expiresAt: session.expiresAt,
-      label: session.label || "agent",
-    })
-  );
-}
-
-export function clearAgentSession() {
-  setAgentSession(null);
-}
-
-/** True when a non-expired agent session is stored. */
-export function isAgentSessionActive(now = Date.now()) {
-  const sess = getAgentSession();
-  if (!sess?.token || !sess.expiresAt) return false;
-  if (now >= Number(sess.expiresAt)) {
-    clearAgentSession();
-    return false;
-  }
-  return true;
-}
-
-export function agentSessionRemainingMs(now = Date.now()) {
-  const sess = getAgentSession();
-  if (!sess?.expiresAt) return 0;
-  return Math.max(0, Number(sess.expiresAt) - now);
+  return stopAgentAccess();
 }
 
 export function formatRemaining(ms) {
+  if (ms == null || !Number.isFinite(Number(ms))) return "";
   const m = Math.max(0, Math.ceil(Number(ms) / 60000));
   if (m >= 60) {
     const h = Math.floor(m / 60);
@@ -122,4 +79,38 @@ export function formatRemaining(ms) {
     return rm ? `${h}h ${rm}m` : `${h}h`;
   }
   return `${m} min`;
+}
+
+/** Status line for Settings summary. */
+export function formatAccessStatusLine(state, now = Date.now()) {
+  if (!state?.accessOn) return "OFF · no active access";
+  const pay = state.paymentsOn ? " · Payments" : "";
+  if (state.standing || state.timerMode === "manual") {
+    return `ON · standing (until you stop)${pay}`;
+  }
+  const rem =
+    state.remainingMs != null
+      ? state.remainingMs
+      : state.autoOffAt
+        ? Math.max(0, Number(state.autoOffAt) - now)
+        : null;
+  if (rem != null) return `ON · ${formatRemaining(rem)} remaining${pay}`;
+  return `ON · 24h auto-off${pay}`;
+}
+
+/* ── Removed code-era API (stubs throw if anything still calls them) ── */
+export async function mintAgentAccess() {
+  throw new Error("Access codes removed — use setAgentAccess toggle.");
+}
+export async function mintAgentAccess24h() {
+  throw new Error("Access codes removed — use setAgentAccess({ on: true, timerMode: '24h' }).");
+}
+export async function extendAgentAccess() {
+  throw new Error("Access codes removed — use setAgentAccess / setAgentAccessTimer.");
+}
+export async function redeemAgentAccess() {
+  throw new Error("Access codes removed — fleet identity + access toggle only.");
+}
+export async function endAgentAccess() {
+  throw new Error("Access codes removed.");
 }

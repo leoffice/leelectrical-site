@@ -30,7 +30,7 @@ function makeCode(invoiceNo) {
   return `${base}-${randomSuffix()}`;
 }
 
-export default async (req) => {
+export default async (req, env = {}) => {
   if (req.method === "OPTIONS") return json({ ok: true });
 
   const store = getStore("paylinks");
@@ -41,6 +41,26 @@ export default async (req) => {
       body = await req.json();
     } catch {
       return json({ ok: false, error: "Invalid JSON" }, 400);
+    }
+    // Agent may stage pay-links only with payment management access + confirm.
+    try {
+      const { enforceAgentPaymentGate } = await import("./lib/agentPaymentGate.mjs");
+      const denied = await enforceAgentPaymentGate(req, body, {
+        op: "pay-link",
+        amount: body.payload?.a ?? body.amount ?? null,
+        ref: body.payload?.i || null,
+        env,
+      });
+      if (denied) return json(denied.body, denied.status);
+    } catch {
+      const claim =
+        req.headers?.get?.("x-le-agent-id") ||
+        req.headers?.get?.("X-LE-Agent-Id") ||
+        body?.agentId ||
+        "";
+      if (claim) {
+        return json({ ok: false, error: "Could not verify agent payment access." }, 503);
+      }
     }
     const payload = body.payload;
     if (!payload || !payload.i) return json({ ok: false, error: "payload with invoice required" }, 400);

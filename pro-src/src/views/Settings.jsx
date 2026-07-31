@@ -36,11 +36,13 @@ import {
   defaultZelleInstructions,
 } from "../lib/tenantBranding.js";
 import {
-  extendAgentAccess,
   fetchAgentAccessStatus,
+  formatAccessStatusLine,
   formatRemaining,
-  mintAgentAccess,
-  revokeAgentAccess,
+  setAgentAccess,
+  setAgentAccessTimer,
+  setAgentPayments,
+  stopAgentAccess,
 } from "../lib/agentAccessClient.js";
 import {
   activateAssistantLicense,
@@ -195,13 +197,11 @@ export default function Settings() {
   const [healthBusy, setHealthBusy] = useState(false);
   const [calBusy, setCalBusy] = useState(false);
   const [dirty, setDirty] = useState(false);
-  const [agentGrant, setAgentGrant] = useState(null);
+  const [agentState, setAgentState] = useState(null);
   const [agentAudit, setAgentAudit] = useState([]);
-  const [agentCodeShown, setAgentCodeShown] = useState("");
-  const [agentTtlMin, setAgentTtlMin] = useState(30);
-  const [agentScope, setAgentScope] = useState("full");
   const [agentBusy, setAgentBusy] = useState(false);
   const [agentNow, setAgentNow] = useState(Date.now());
+  const [agentPayWarn, setAgentPayWarn] = useState(false);
   const [asstLicenses, setAsstLicenses] = useState([]);
   const [asstAudit, setAsstAudit] = useState([]);
   const [asstBusy, setAsstBusy] = useState(false);
@@ -283,7 +283,7 @@ export default function Settings() {
   const loadAgentAccess = useCallback(async () => {
     try {
       const st = await fetchAgentAccessStatus();
-      setAgentGrant(st.grant || null);
+      setAgentState(st.state || null);
       setAgentAudit(Array.isArray(st.audit) ? st.audit : []);
     } catch {
       /* offline / function not live yet */
@@ -407,69 +407,80 @@ export default function Settings() {
     }
   }, [asstTokenShown, showToast]);
 
-  const grantAgent = useCallback(async () => {
-    setAgentBusy(true);
-    setAgentCodeShown("");
-    try {
-      const res = await mintAgentAccess({
-        ttlMs: agentTtlMin * 60 * 1000,
-        scope: agentScope,
-        label: "agent",
-      });
-      setAgentCodeShown(res.code || "");
-      setAgentGrant(res.grant || null);
-      setAgentAudit(Array.isArray(res.audit) ? res.audit : []);
-      showToast?.("Agent code ready — share it once");
-    } catch (e) {
-      showToast?.(String(e.message || e));
-    } finally {
-      setAgentBusy(false);
-    }
-  }, [agentScope, agentTtlMin, showToast]);
+  const toggleAgentAccess = useCallback(
+    async (on) => {
+      setAgentBusy(true);
+      try {
+        const timerMode = agentState?.timerMode === "24h" ? "24h" : "manual";
+        const res = await setAgentAccess({ on: !!on, timerMode });
+        setAgentState(res.state || null);
+        setAgentAudit(Array.isArray(res.audit) ? res.audit : []);
+        showToast?.(res.message || (on ? "Agent access ON" : "Agent access OFF"));
+      } catch (e) {
+        showToast?.(String(e.message || e));
+      } finally {
+        setAgentBusy(false);
+      }
+    },
+    [agentState?.timerMode, showToast]
+  );
 
-  /** Refresh = add the chosen duration to the same code (keep code / session). */
-  const extendAgent = useCallback(async () => {
-    setAgentBusy(true);
-    try {
-      const res = await extendAgentAccess({
-        ttlMs: agentTtlMin * 60 * 1000,
-        scope: agentScope,
-      });
-      setAgentGrant(res.grant || null);
-      setAgentAudit(Array.isArray(res.audit) ? res.audit : []);
-      // Don't clear a just-shown code — same code, more time.
-      showToast?.("Access extended — same code, more time");
-    } catch (e) {
-      showToast?.(String(e.message || e));
-    } finally {
-      setAgentBusy(false);
-    }
-  }, [agentScope, agentTtlMin, showToast]);
+  const changeAgentTimer = useCallback(
+    async (timerMode) => {
+      setAgentBusy(true);
+      try {
+        const res = await setAgentAccessTimer(timerMode);
+        setAgentState(res.state || null);
+        setAgentAudit(Array.isArray(res.audit) ? res.audit : []);
+        showToast?.(
+          timerMode === "24h" ? "24-hour auto turn-off" : "Stays on until you stop it"
+        );
+      } catch (e) {
+        showToast?.(String(e.message || e));
+      } finally {
+        setAgentBusy(false);
+      }
+    },
+    [showToast]
+  );
 
-  const revokeAgent = useCallback(async () => {
+  const toggleAgentPayments = useCallback(
+    async (on, { confirmed = false } = {}) => {
+      // First ON tap only shows the warning; confirm button passes confirmed:true.
+      if (on && !confirmed) {
+        setAgentPayWarn(true);
+        return;
+      }
+      setAgentBusy(true);
+      try {
+        const res = await setAgentPayments({ on: !!on });
+        setAgentState(res.state || null);
+        setAgentAudit(Array.isArray(res.audit) ? res.audit : []);
+        setAgentPayWarn(false);
+        showToast?.(res.message || (on ? "Payment access ON" : "Payment access OFF"));
+      } catch (e) {
+        showToast?.(String(e.message || e));
+      } finally {
+        setAgentBusy(false);
+      }
+    },
+    [showToast]
+  );
+
+  const stopAgent = useCallback(async () => {
     setAgentBusy(true);
     try {
-      const res = await revokeAgentAccess();
-      setAgentGrant(null);
-      setAgentCodeShown("");
+      const res = await stopAgentAccess();
+      setAgentState(res.state || null);
       setAgentAudit(Array.isArray(res.audit) ? res.audit : []);
-      showToast?.(res.revoked ? "Agent access revoked" : "No active grant");
+      setAgentPayWarn(false);
+      showToast?.(res.message || "Agent access stopped");
     } catch (e) {
       showToast?.(String(e.message || e));
     } finally {
       setAgentBusy(false);
     }
   }, [showToast]);
-
-  const copyAgentCode = useCallback(async () => {
-    if (!agentCodeShown) return;
-    try {
-      await navigator.clipboard?.writeText?.(agentCodeShown);
-      showToast?.("Code copied");
-    } catch {
-      showToast?.("Could not copy — select the code manually");
-    }
-  }, [agentCodeShown, showToast]);
 
   useEffect(() => {
     load();
@@ -617,16 +628,20 @@ export default function Settings() {
 
   const connOk =
     !!health?.calendar?.ok && !!health?.email?.ok && !!health?.cardEntry?.ok;
-  const agentRemain =
-    agentGrant &&
-    formatRemaining(
-      Math.max(
-        0,
-        (agentGrant.hasSession
-          ? agentGrant.sessionExpiresAt || agentGrant.expiresAt
-          : agentGrant.expiresAt || 0) - agentNow
-      )
-    );
+  const agentStatusLine = formatAccessStatusLine(
+    agentState
+      ? {
+          ...agentState,
+          remainingMs:
+            agentState.accessOn &&
+            agentState.timerMode === "24h" &&
+            agentState.autoOffAt
+              ? Math.max(0, Number(agentState.autoOffAt) - agentNow)
+              : agentState.remainingMs,
+        }
+      : null,
+    agentNow
+  );
 
   return (
     <div className="max-w-2xl mx-auto p-3 sm:p-5 pb-28" data-testid="settings-page">
@@ -1313,146 +1328,160 @@ export default function Settings() {
         ) : null}
       </MenuSection>
 
-      {/* ── Agent access (internal tenants only) ── */}
+      {/* ── Agent Access (internal tenants only) — toggle + fleet identity ── */}
       {internal ? (
       <MenuSection
         id="agent"
-        title="Agent access"
-        summary={
-          agentGrant
-            ? agentGrant.hasSession
-              ? `Agent is in · ${agentRemain} left`
-              : agentGrant.used
-                ? "Code used · session ended"
-                : `Code waiting · ${agentRemain} left`
-            : "Time-boxed codes for agents"
-        }
+        title="Agent Access"
+        summary={agentStatusLine}
         open={openMenu.agent}
         onToggle={() => toggleMenu("agent")}
         badge={
-          agentGrant && !agentGrant.used ? (
-            <StatusPill ok label={agentRemain || "Active"} />
-          ) : agentGrant?.hasSession ? (
-            <StatusPill ok label="In" />
-          ) : null
+          agentState?.accessOn ? (
+            <StatusPill
+              ok
+              label={
+                agentState.paymentsOn
+                  ? "ON · Pay"
+                  : agentState.standing || agentState.timerMode === "manual"
+                    ? "ON"
+                    : formatRemaining(
+                        Math.max(0, Number(agentState.autoOffAt || 0) - agentNow)
+                      ) || "ON"
+              }
+            />
+          ) : (
+            <StatusPill ok={false} label="OFF" />
+          )
         }
       >
         <p className="text-xs text-slate-500 font-semibold mb-3">
-          One-time codes so an agent can unlock the app. Grant makes a new code. Refresh adds more
-          time to the same code.
+          Flip access on for the fleet. No codes to copy — agents use their known identity.
+          When access is off, they&apos;ll tell you to turn it back on.
         </p>
-        <div className="flex flex-wrap gap-3 mb-3">
-          <label className="text-sm font-semibold text-slate-700">
-            Duration
-            <select
-              className={`${inputCls} mt-1 w-auto min-w-[7rem]`}
-              value={agentTtlMin}
-              onChange={(e) => setAgentTtlMin(Number(e.target.value))}
-              data-testid="agent-ttl"
-            >
-              <option value={15}>15 min</option>
-              <option value={30}>30 min</option>
-              <option value={60}>1 hour</option>
-              <option value={120}>2 hours</option>
-              <option value={720}>12 hours</option>
-              <option value={1440}>24 hours</option>
-            </select>
-          </label>
-          <label className="text-sm font-semibold text-slate-700">
-            Scope
-            <select
-              className={`${inputCls} mt-1 w-auto min-w-[7rem]`}
-              value={agentScope}
-              onChange={(e) => setAgentScope(e.target.value)}
-              data-testid="agent-scope"
-            >
-              <option value="full">Full app</option>
-              <option value="test">Test / read</option>
-            </select>
-          </label>
-        </div>
 
-        {agentCodeShown ? (
+        {agentState?.accessOn ? (
           <div
-            className="rounded-xl border-2 border-emerald-200 bg-emerald-50 px-4 py-3 mb-3"
-            data-testid="agent-code-panel"
+            className="rounded-xl border-2 border-red-200 bg-red-50 px-3 py-2.5 mb-3 flex items-center justify-between gap-2"
+            data-testid="agent-stop-strip"
           >
-            <div className="text-[11px] font-extrabold uppercase tracking-wide text-emerald-800 mb-1">
-              Show this code once
-            </div>
-            <div className="text-2xl font-mono font-extrabold tracking-[0.2em] text-slate-900 text-center py-1">
-              {agentCodeShown}
+            <div className="text-sm font-extrabold text-red-900" data-testid="agent-status-line">
+              {agentStatusLine}
             </div>
             <button
               type="button"
-              onClick={copyAgentCode}
-              className="mt-2 w-full rounded-xl bg-emerald-700 text-white px-3 py-2 text-sm font-extrabold"
+              disabled={agentBusy}
+              onClick={stopAgent}
+              className="shrink-0 rounded-xl bg-red-600 text-white px-4 py-2 text-sm font-extrabold disabled:opacity-50"
+              data-testid="agent-stop-btn"
             >
-              Copy code
+              STOP
             </button>
-            <p className="text-xs text-emerald-900/80 font-semibold mt-2 text-center">
-              Agent enters it on the lock screen. Single-use · expires automatically.
-            </p>
           </div>
-        ) : null}
-
-        {agentGrant && !agentCodeShown ? (
-          <div className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 mb-3 text-sm font-semibold text-slate-700">
-            {agentGrant.hasSession ? (
-              <span data-testid="agent-session-active">
-                Agent is in ·{" "}
-                {formatRemaining(
-                  Math.max(0, (agentGrant.sessionExpiresAt || agentGrant.expiresAt) - agentNow)
-                )}{" "}
-                left
-              </span>
-            ) : agentGrant.used ? (
-              <span>Code used · session ended or expired</span>
-            ) : (
-              <span data-testid="agent-grant-waiting">
-                Code waiting · {formatRemaining(Math.max(0, (agentGrant.expiresAt || 0) - agentNow))}{" "}
-                left
-              </span>
-            )}
+        ) : (
+          <div
+            className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 mb-3 text-sm font-semibold text-slate-700"
+            data-testid="agent-status-line"
+          >
+            {agentStatusLine}
           </div>
-        ) : null}
+        )}
 
-        <div className="flex flex-wrap gap-2">
-          <button
-            type="button"
-            disabled={agentBusy}
-            onClick={grantAgent}
-            className="rounded-xl bg-brand text-white px-4 py-2.5 text-sm font-extrabold disabled:opacity-50"
-            data-testid="agent-grant-btn"
-          >
-            {agentBusy ? "Working…" : "Grant agent access"}
-          </button>
-          <button
-            type="button"
-            disabled={agentBusy || !agentGrant}
-            onClick={extendAgent}
-            className="rounded-xl bg-sky-600 text-white px-4 py-2.5 text-sm font-extrabold disabled:opacity-40"
-            data-testid="agent-refresh-btn"
-            title="Add the selected duration to the same access code"
-          >
-            {agentBusy ? "Working…" : "Refresh"}
-          </button>
-          <button
-            type="button"
-            disabled={agentBusy || !agentGrant}
-            onClick={revokeAgent}
-            className="rounded-xl bg-slate-100 text-slate-800 px-4 py-2.5 text-sm font-extrabold disabled:opacity-40"
-            data-testid="agent-revoke-btn"
-          >
-            Revoke now
-          </button>
+        <div
+          className="flex items-center justify-between gap-3 py-2 border-b border-slate-100"
+          data-testid="agent-access-row"
+        >
+          <div className="min-w-0">
+            <div className="text-sm font-extrabold text-slate-800">Agent access</div>
+            <div className="text-xs text-slate-500 font-semibold">
+              Standing backend access for the known fleet identity
+            </div>
+          </div>
+          <Toggle
+            on={!!agentState?.accessOn}
+            onChange={(v) => toggleAgentAccess(v)}
+            label="Agent access"
+          />
         </div>
-        <p className="text-[11px] text-slate-500 font-semibold mt-2">
-          Refresh keeps the same code and adds the duration you picked (e.g. 31 min left + 24 hours).
-        </p>
+
+        <div
+          className="flex items-center justify-between gap-3 py-3 border-b border-slate-100"
+          data-testid="agent-timer-row"
+        >
+          <div className="min-w-0">
+            <div className="text-sm font-extrabold text-slate-800">Auto turn-off</div>
+            <div className="text-xs text-slate-500 font-semibold">
+              24-hour automatic off, or stay on until you stop it
+            </div>
+          </div>
+          <select
+            className={`${inputCls} w-auto min-w-[9rem]`}
+            value={agentState?.timerMode === "24h" ? "24h" : "manual"}
+            disabled={agentBusy}
+            onChange={(e) => changeAgentTimer(e.target.value)}
+            data-testid="agent-timer-select"
+          >
+            <option value="manual">Manual (until STOP)</option>
+            <option value="24h">24-hour auto-off</option>
+          </select>
+        </div>
+
+        <div className="py-3" data-testid="agent-payments-row">
+          <div className="flex items-center justify-between gap-3">
+            <div className="min-w-0">
+              <div className="text-sm font-extrabold text-slate-800">Payment management</div>
+              <div className="text-xs text-slate-500 font-semibold">
+                Off by default · agent may stage invoice payments only
+              </div>
+            </div>
+            <Toggle
+              on={!!agentState?.paymentsOn}
+              onChange={(v) => toggleAgentPayments(v)}
+              label="Payment management"
+            />
+          </div>
+          {agentPayWarn ? (
+            <div
+              className="mt-2 rounded-xl border border-amber-300 bg-amber-50 px-3 py-2.5 text-xs font-semibold text-amber-950"
+              data-testid="agent-payments-warning"
+            >
+              <p className="mb-2">
+                This lets the agent <strong>stage</strong> a customer invoice payment. Every actual
+                charge still needs your explicit confirm in the app — never silent. Agent never sees
+                card processor keys or your password.
+              </p>
+              <div className="flex flex-wrap gap-2">
+                <button
+                  type="button"
+                  disabled={agentBusy}
+                  onClick={() => toggleAgentPayments(true, { confirmed: true })}
+                  className="rounded-lg bg-amber-700 text-white px-3 py-1.5 text-xs font-extrabold"
+                  data-testid="agent-payments-confirm"
+                >
+                  Turn payment access on
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setAgentPayWarn(false)}
+                  className="rounded-lg bg-white border border-amber-300 text-amber-950 px-3 py-1.5 text-xs font-extrabold"
+                >
+                  Cancel
+                </button>
+              </div>
+            </div>
+          ) : null}
+          {agentState?.paymentsOn ? (
+            <p
+              className="mt-2 text-[11px] font-semibold text-emerald-800"
+              data-testid="agent-payments-chip"
+            >
+              Payments · stage only · per-charge confirm required
+            </p>
+          ) : null}
+        </div>
 
         {agentAudit.length > 0 ? (
-          <div className="mt-4">
+          <div className="mt-2">
             <div className="text-[11px] font-extrabold uppercase tracking-wide text-slate-500 mb-2">
               Access log
             </div>

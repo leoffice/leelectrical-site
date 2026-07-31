@@ -13,3 +13,11 @@ id = "81063e3fc8504dd998a644add2ac9935"
 [[r2_buckets]]
 binding = "LE_R2"
 bucket_name = "leoffice-r2"
+
+# Agent Access — strongly-consistent state (Durable Object in le-agent-access-do).
+# Deploy the DO worker first: cd workers/agent-access-do && npx wrangler deploy
+# Then Pages can resolve AGENT_ACCESS via script_name.
+[[durable_objects.bindings]]
+name = "AGENT_ACCESS"
+class_name = "AgentAccessState"
+script_name = "le-agent-access-do"

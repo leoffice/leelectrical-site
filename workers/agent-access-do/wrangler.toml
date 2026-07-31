@@ -1,0 +1,16 @@
+# Durable Object worker — strongly-consistent Agent Access state.
+# Deploy BEFORE (or with) Pages when shipping toggle-based agent access:
+#   cd workers/agent-access-do && npx wrangler deploy
+name = "le-agent-access-do"
+main = "src/index.mjs"
+compatibility_date = "2024-10-01"
+compatibility_flags = ["nodejs_compat"]
+
+[durable_objects]
+bindings = [
+  { name = "AGENT_ACCESS", class_name = "AgentAccessState" }
+]
+
+[[migrations]]
+tag = "v1"
+new_classes = ["AgentAccessState"]

@@ -1,114 +1,224 @@
-// Agent access grant pure logic (mint / redeem / revoke / expire).
+// Agent Access — toggle + fleet identity (AGENT_ACCESS_STANDARD).
+import { createHmac } from "crypto";
 import { describe, expect, it } from "vitest";
 import {
-  clampTtlMs,
-  DEFAULT_TTL_MS,
+  AUTO_OFF_MS,
+  authenticateFleetIdentity,
+  authorizeAgentAction,
   emptyDoc,
-  extendGrant,
-  formatCode,
-  mintGrant,
-  normalizeCode,
-  publicGrant,
-  redeemGrant,
-  refreshGrantState,
-  revokeGrant,
-  sha256Hex,
+  gateAgentPaymentAction,
+  hasPaymentConfirmation,
+  publicAccessState,
+  refreshAccessState,
+  setAccess,
+  setPayments,
+  setTimerMode,
+  statusPayload,
+  stopAccess,
 } from "../../netlify/functions/lib/agentAccess.mjs";
+import { formatAccessStatusLine, formatRemaining } from "../src/lib/agentAccessClient.js";
 
-describe("agent access codes", () => {
-  it("normalizes and formats codes", () => {
-    expect(normalizeCode("ab3k-9mp2")).toBe("AB3K9MP2");
-    expect(formatCode("AB3K9MP2")).toBe("AB3K-9MP2");
+describe("agent access toggle model", () => {
+  it("starts OFF with payments OFF", () => {
+    const st = publicAccessState(emptyDoc());
+    expect(st.accessOn).toBe(false);
+    expect(st.paymentsOn).toBe(false);
+    expect(st.standing).toBe(false);
   });
 
-  it("clamps TTL", () => {
-    expect(clampTtlMs(1000)).toBe(5 * 60 * 1000);
-    expect(clampTtlMs(undefined)).toBe(DEFAULT_TTL_MS);
-    expect(clampTtlMs(12 * 60 * 60 * 1000)).toBe(12 * 60 * 60 * 1000);
-    expect(clampTtlMs(24 * 60 * 60 * 1000)).toBe(24 * 60 * 60 * 1000);
-    expect(clampTtlMs(99 * 60 * 60 * 1000)).toBe(24 * 60 * 60 * 1000);
-  });
-
-  it("mints a single-use code that redeems into a session", () => {
+  it("turns access ON in manual (standing) mode", () => {
     const now = 1_700_000_000_000;
-    const { doc, code, grant } = mintGrant(emptyDoc(), { ttlMs: 30 * 60 * 1000, scope: "full" }, now);
-    expect(code).toMatch(/^[A-Z0-9]{4}-[A-Z0-9]{4}$/);
-    expect(grant.expiresAt).toBe(now + 30 * 60 * 1000);
-    expect(doc.activeGrant.codeHash).toBe(sha256Hex(normalizeCode(code)));
-
-    const bad = redeemGrant(doc, "WRONG-CODE", {}, now + 1000);
-    expect(bad.ok).toBe(false);
-
-    const ok = redeemGrant(doc, code, { label: "israel" }, now + 2000);
-    expect(ok.ok).toBe(true);
-    expect(ok.token).toHaveLength(48);
-    expect(ok.session.scope).toBe("full");
-    expect(ok.session.label).toBe("israel");
-
-    const reuse = redeemGrant(ok.doc, code, {}, now + 3000);
-    expect(reuse.ok).toBe(false);
+    const { doc, state } = setAccess(emptyDoc(), { on: true, timerMode: "manual" }, now);
+    expect(state.accessOn).toBe(true);
+    expect(state.standing).toBe(true);
+    expect(state.autoOffAt).toBe(null);
+    expect(doc.audit[0].type).toBe("access_on");
   });
 
-  it("revokes and expires grants", () => {
+  it("turns access ON with 24h auto-off", () => {
+    const now = 1_700_000_000_000;
+    const { state } = setAccess(emptyDoc(), { on: true, timerMode: "24h" }, now);
+    expect(state.accessOn).toBe(true);
+    expect(state.timerMode).toBe("24h");
+    expect(state.autoOffAt).toBe(now + AUTO_OFF_MS);
+    expect(state.remainingMs).toBe(AUTO_OFF_MS);
+    expect(state.standing).toBe(false);
+  });
+
+  it("auto-offs after 24h window", () => {
     const now = 2_000_000_000_000;
-    const { doc, code } = mintGrant(emptyDoc(), { ttlMs: 15 * 60 * 1000 }, now);
-    const revoked = revokeGrant(doc, now + 1000);
-    expect(revoked.revoked).toBe(true);
-    expect(revoked.doc.activeGrant).toBe(null);
-    const after = redeemGrant(revoked.doc, code, {}, now + 2000);
-    expect(after.ok).toBe(false);
-
-    const { doc: d2 } = mintGrant(emptyDoc(), { ttlMs: 15 * 60 * 1000 }, now);
-    const expired = refreshGrantState(d2, now + 16 * 60 * 1000);
-    expect(expired.activeGrant).toBe(null);
-    expect(expired.audit[0].type).toBe("expire");
+    const { doc } = setAccess(emptyDoc(), { on: true, timerMode: "24h" }, now);
+    const expired = refreshAccessState(doc, now + AUTO_OFF_MS + 1);
+    expect(expired.accessOn).toBe(false);
+    expect(expired.paymentsOn).toBe(false);
+    expect(expired.audit[0].type).toBe("auto_off");
   });
 
-  it("publicGrant hides secrets", () => {
+  it("manual mode never auto-expires", () => {
     const now = 3_000_000_000_000;
-    const { doc } = mintGrant(emptyDoc(), {}, now);
-    const pub = publicGrant(doc.activeGrant, now);
-    expect(pub.codeHash).toBeUndefined();
-    expect(pub.id).toBeTruthy();
-    expect(pub.remainingMs).toBeGreaterThan(0);
+    const { doc } = setAccess(emptyDoc(), { on: true, timerMode: "manual" }, now);
+    const later = refreshAccessState(doc, now + 30 * AUTO_OFF_MS);
+    expect(later.accessOn).toBe(true);
   });
 
-  it("extends the same grant by adding duration (keeps code hash)", () => {
+  it("STOP clears access and payments instantly", () => {
     const now = 4_000_000_000_000;
-    const { doc, code } = mintGrant(emptyDoc(), { ttlMs: 30 * 60 * 1000, scope: "full" }, now);
-    const hashBefore = doc.activeGrant.codeHash;
-    const expiresBefore = doc.activeGrant.expiresAt;
-    // 1 min later: 29 min left; add 24h → ~24h 29m remaining
-    const t1 = now + 60 * 1000;
-    const ext = extendGrant(doc, { ttlMs: 24 * 60 * 60 * 1000, scope: "test" }, t1);
-    expect(ext.ok).toBe(true);
-    expect(ext.doc.activeGrant.codeHash).toBe(hashBefore);
-    expect(ext.doc.activeGrant.id).toBe(doc.activeGrant.id);
-    expect(ext.doc.activeGrant.scope).toBe("test");
-    expect(ext.doc.activeGrant.expiresAt).toBe(expiresBefore + 24 * 60 * 60 * 1000);
-    expect(ext.grant.remainingMs).toBeGreaterThan(24 * 60 * 60 * 1000 - 2 * 60 * 1000);
-    // Same code still redeems
-    const ok = redeemGrant(ext.doc, code, { label: "agent" }, t1 + 1000);
-    expect(ok.ok).toBe(true);
-    expect(ok.session.expiresAt).toBe(ext.doc.activeGrant.expiresAt);
+    let doc = setAccess(emptyDoc(), { on: true, timerMode: "manual" }, now).doc;
+    doc = setPayments(doc, { on: true }, now + 1).doc;
+    expect(doc.paymentsOn).toBe(true);
+    const stopped = stopAccess(doc, { actor: "owner-stop" }, now + 2);
+    expect(stopped.state.accessOn).toBe(false);
+    expect(stopped.state.paymentsOn).toBe(false);
+    expect(stopped.doc.audit[0].type).toBe("access_off");
   });
 
-  it("extend fails when no active grant", () => {
+  it("payments defaults OFF and requires explicit opt-in", () => {
     const now = 5_000_000_000_000;
-    const res = extendGrant(emptyDoc(), { ttlMs: 60 * 60 * 1000 }, now);
-    expect(res.ok).toBe(false);
-    expect(res.error).toMatch(/no active/i);
+    let doc = setAccess(emptyDoc(), { on: true }, now).doc;
+    expect(doc.paymentsOn).toBe(false);
+    doc = setPayments(doc, { on: true }, now + 1).doc;
+    expect(doc.paymentsOn).toBe(true);
+    expect(doc.audit[0].type).toBe("payments_on");
   });
 
-  it("extend lengthens an active agent session", () => {
+  it("setTimerMode switches between 24h and manual while on", () => {
     const now = 6_000_000_000_000;
-    const { doc, code } = mintGrant(emptyDoc(), { ttlMs: 30 * 60 * 1000 }, now);
-    const redeemed = redeemGrant(doc, code, { label: "israel" }, now + 1000);
-    expect(redeemed.ok).toBe(true);
-    const t1 = now + 5 * 60 * 1000;
-    const ext = extendGrant(redeemed.doc, { ttlMs: 60 * 60 * 1000 }, t1);
-    expect(ext.ok).toBe(true);
-    expect(ext.doc.activeGrant.session.expiresAt).toBe(ext.doc.activeGrant.expiresAt);
-    expect(ext.doc.activeGrant.expiresAt).toBeGreaterThan(redeemed.doc.activeGrant.expiresAt);
+    let doc = setAccess(emptyDoc(), { on: true, timerMode: "manual" }, now).doc;
+    const to24 = setTimerMode(doc, { timerMode: "24h" }, now + 1000);
+    expect(to24.state.timerMode).toBe("24h");
+    expect(to24.state.autoOffAt).toBe(now + 1000 + AUTO_OFF_MS);
+    const toMan = setTimerMode(to24.doc, { timerMode: "manual" }, now + 2000);
+    expect(toMan.state.standing).toBe(true);
+    expect(toMan.state.autoOffAt).toBe(null);
+  });
+
+  it("statusPayload exposes defaults and no codes", () => {
+    const p = statusPayload(emptyDoc());
+    expect(p.ok).toBe(true);
+    expect(p.defaults.codes).toBe(false);
+    expect(p.defaults.model).toMatch(/toggle/);
+    expect(p.grant).toBe(null);
+  });
+});
+
+describe("fleet identity", () => {
+  const secret = "test-fleet-secret-do-not-use-prod";
+  const env = { LE_FLEET_AGENT_SECRET: secret };
+
+  it("accepts known agent with shared secret", () => {
+    const r = authenticateFleetIdentity({ agentId: "israel", key: secret }, env);
+    expect(r.ok).toBe(true);
+    expect(r.agentId).toBe("israel");
+  });
+
+  it("rejects unknown agent id", () => {
+    const r = authenticateFleetIdentity({ agentId: "hacker", key: secret }, env);
+    expect(r.ok).toBe(false);
+  });
+
+  it("rejects wrong secret", () => {
+    const r = authenticateFleetIdentity({ agentId: "israel", key: "nope" }, env);
+    expect(r.ok).toBe(false);
+  });
+
+  it("accepts HMAC signature with fresh ts", () => {
+    const now = Date.now();
+    const sig = createHmac("sha256", secret).update(`eved:${now}`).digest("hex");
+    const r = authenticateFleetIdentity({ agentId: "eved", ts: String(now), sig }, env, now);
+    expect(r.ok).toBe(true);
+    expect(r.method).toBe("hmac");
+  });
+
+  it("rejects stale HMAC", () => {
+    const now = Date.now();
+    const old = now - 10 * 60 * 1000;
+    const sig = createHmac("sha256", secret).update(`israel:${old}`).digest("hex");
+    const r = authenticateFleetIdentity({ agentId: "israel", ts: String(old), sig }, env, now);
+    expect(r.ok).toBe(false);
+  });
+});
+
+describe("authorize + payment gate", () => {
+  it("denies when access is off with plain message", () => {
+    const r = authorizeAgentAction(emptyDoc(), { agentId: "israel" });
+    expect(r.ok).toBe(false);
+    expect(r.error).toMatch(/access is off/i);
+  });
+
+  it("allows when access is on", () => {
+    const now = 7_000_000_000_000;
+    const { doc } = setAccess(emptyDoc(), { on: true, timerMode: "manual" }, now);
+    const r = authorizeAgentAction(doc, { agentId: "israel" }, now);
+    expect(r.ok).toBe(true);
+  });
+
+  it("payment gate: human passes; agent without payments denied; confirm required", () => {
+    const now = 8_000_000_000_000;
+    let doc = setAccess(emptyDoc(), { on: true }, now).doc;
+
+    const human = gateAgentPaymentAction(doc, { fleetOk: false }, now);
+    expect(human.kind).toBe("human");
+    expect(human.ok).toBe(true);
+
+    const noPay = gateAgentPaymentAction(
+      doc,
+      { agentId: "israel", fleetOk: true, confirmed: true, op: "sola-charge" },
+      now
+    );
+    expect(noPay.ok).toBe(false);
+    expect(noPay.error).toMatch(/payment/i);
+
+    doc = setPayments(doc, { on: true }, now + 1).doc;
+    const noConfirm = gateAgentPaymentAction(
+      doc,
+      { agentId: "israel", fleetOk: true, confirmed: false, op: "sola-charge" },
+      now + 2
+    );
+    expect(noConfirm.ok).toBe(false);
+    expect(noConfirm.needsConfirm).toBe(true);
+
+    const staged = gateAgentPaymentAction(
+      doc,
+      { agentId: "israel", fleetOk: true, confirmed: true, op: "sola-charge", amount: 100 },
+      now + 3
+    );
+    expect(staged.ok).toBe(true);
+    expect(staged.staged).toBe(true);
+  });
+
+  it("hasPaymentConfirmation reads common flags", () => {
+    expect(hasPaymentConfirmation({})).toBe(false);
+    expect(hasPaymentConfirmation({ paymentConfirmed: true })).toBe(true);
+    expect(hasPaymentConfirmation({ confirmToken: "abcdefgh" })).toBe(true);
+  });
+
+  it("password / processor secrets never appear in public state or audit notes from helpers", () => {
+    const now = 9_000_000_000_000;
+    const { doc, state } = setAccess(emptyDoc(), { on: true }, now);
+    const blob = JSON.stringify({ state, audit: doc.audit });
+    expect(blob.toLowerCase()).not.toMatch(/password|sola_x_key|resolvexkey/);
+  });
+});
+
+describe("client status formatting", () => {
+  it("formatRemaining", () => {
+    expect(formatRemaining(30 * 60 * 1000)).toBe("30 min");
+    expect(formatRemaining(90 * 60 * 1000)).toBe("1h 30m");
+    expect(formatRemaining(2 * 60 * 60 * 1000)).toBe("2h");
+  });
+
+  it("formatAccessStatusLine", () => {
+    expect(formatAccessStatusLine({ accessOn: false })).toMatch(/OFF/i);
+    expect(formatAccessStatusLine({ accessOn: true, standing: true, timerMode: "manual" })).toMatch(
+      /standing/i
+    );
+    expect(
+      formatAccessStatusLine({
+        accessOn: true,
+        timerMode: "24h",
+        remainingMs: 60 * 60 * 1000,
+        paymentsOn: true,
+      })
+    ).toMatch(/Payments/i);
   });
 });
