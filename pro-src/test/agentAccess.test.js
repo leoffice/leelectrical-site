@@ -8,6 +8,7 @@ import {
   emptyDoc,
   gateAgentPaymentAction,
   hasPaymentConfirmation,
+  mintAgentSession,
   publicAccessState,
   refreshAccessState,
   setAccess,
@@ -15,6 +16,7 @@ import {
   setTimerMode,
   statusPayload,
   stopAccess,
+  verifyAgentSessionToken,
 } from "../../netlify/functions/lib/agentAccess.mjs";
 import { formatAccessStatusLine, formatRemaining } from "../src/lib/agentAccessClient.js";
 
@@ -197,6 +199,65 @@ describe("authorize + payment gate", () => {
     const { doc, state } = setAccess(emptyDoc(), { on: true }, now);
     const blob = JSON.stringify({ state, audit: doc.audit });
     expect(blob.toLowerCase()).not.toMatch(/password|sola_x_key|resolvexkey/);
+  });
+});
+
+describe("mintAgentSession (lock-screen Enter as agent)", () => {
+  const secret = "test-fleet-secret-do-not-use-prod";
+  const env = { LE_FLEET_AGENT_SECRET: secret };
+
+  it("denies when access is off", () => {
+    const r = mintAgentSession(emptyDoc(), { agentId: "israel" }, env, Date.now());
+    expect(r.ok).toBe(false);
+    expect(r.code).toBe("access_off");
+    expect(r.error).toMatch(/access is off/i);
+  });
+
+  it("mints signed token when access on (manual standing)", () => {
+    const now = 10_000_000_000_000;
+    const { doc } = setAccess(emptyDoc(), { on: true, timerMode: "manual" }, now);
+    const r = mintAgentSession(doc, { agentId: "dispatch" }, env, now);
+    expect(r.ok).toBe(true);
+    expect(r.token).toMatch(/\./);
+    expect(r.grantId).toMatch(/^ags_/);
+    expect(r.scope).toBe("full-nopay");
+    expect(r.paymentsOn).toBe(false);
+    expect(r.expiresAt).toBeGreaterThan(now);
+    expect(r.doc.audit[0].type).toBe("ui_enter");
+    const v = verifyAgentSessionToken(r.token, env, now);
+    expect(v.ok).toBe(true);
+    expect(v.session.agentId).toBe("dispatch");
+    expect(v.session.grantId).toBe(r.grantId);
+  });
+
+  it("scope full when payments on; expires at autoOffAt in 24h mode", () => {
+    const now = 11_000_000_000_000;
+    let doc = setAccess(emptyDoc(), { on: true, timerMode: "24h" }, now).doc;
+    doc = setPayments(doc, { on: true }, now + 1).doc;
+    const r = mintAgentSession(doc, { agentId: "israel" }, env, now + 2);
+    expect(r.ok).toBe(true);
+    expect(r.paymentsOn).toBe(true);
+    expect(r.scope).toBe("full");
+    expect(r.expiresAt).toBe(now + AUTO_OFF_MS);
+  });
+
+  it("rejects forged or expired tokens", () => {
+    const now = 12_000_000_000_000;
+    const { doc } = setAccess(emptyDoc(), { on: true }, now);
+    const r = mintAgentSession(doc, { agentId: "eved" }, env, now);
+    expect(r.ok).toBe(true);
+    const [body] = r.token.split(".");
+    const forged = `${body}.${"00".repeat(32)}`;
+    expect(verifyAgentSessionToken(forged, env, now).ok).toBe(false);
+    expect(verifyAgentSessionToken(r.token, env, r.expiresAt + 1).ok).toBe(false);
+  });
+
+  it("fails closed when fleet secret missing", () => {
+    const now = 13_000_000_000_000;
+    const { doc } = setAccess(emptyDoc(), { on: true }, now);
+    const r = mintAgentSession(doc, { agentId: "israel" }, {}, now);
+    expect(r.ok).toBe(false);
+    expect(r.code).toBe("identity_config");
   });
 });
 

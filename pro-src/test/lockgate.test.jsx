@@ -11,6 +11,7 @@ import "@testing-library/jest-dom/vitest";
 const lock = vi.hoisted(() => ({
   isSessionUnlocked: vi.fn(() => false),
   markUnlocked: vi.fn(),
+  markAgentUnlocked: vi.fn(),
   touchUnlocked: vi.fn(),
   hasEnrolledCredential: vi.fn(() => false),
   biometricSupported: vi.fn(async () => false),
@@ -20,6 +21,19 @@ const lock = vi.hoisted(() => ({
   shouldAutoBiometric: vi.fn(async () => false),
 }));
 vi.mock("../src/lib/lock.js", () => lock);
+
+const agentClient = vi.hoisted(() => ({
+  fetchAgentAccessStatus: vi.fn(async () => ({ accessOn: false, state: { accessOn: false } })),
+  enterAsAgent: vi.fn(async () => ({
+    token: "agt.tok",
+    grantId: "ags_1",
+    scope: "full-nopay",
+    expiresAt: Date.now() + 60_000,
+    startedAt: Date.now(),
+    label: "dispatch",
+  })),
+}));
+vi.mock("../src/lib/agentAccessClient.js", () => agentClient);
 
 import LockGate, { BIOMETRIC_TIMEOUT_MS } from "../src/components/LockGate.jsx";
 
@@ -31,6 +45,18 @@ afterEach(() => {
   lock.mediaPermissionDenied.mockResolvedValue(false);
   lock.hasEnrolledCredential.mockReturnValue(false);
   lock.biometricUnlock.mockImplementation(async () => true);
+  agentClient.fetchAgentAccessStatus.mockResolvedValue({
+    accessOn: false,
+    state: { accessOn: false },
+  });
+  agentClient.enterAsAgent.mockResolvedValue({
+    token: "agt.tok",
+    grantId: "ags_1",
+    scope: "full-nopay",
+    expiresAt: Date.now() + 60_000,
+    startedAt: Date.now(),
+    label: "dispatch",
+  });
 });
 
 describe("LockGate", () => {
@@ -195,8 +221,58 @@ describe("LockGate", () => {
 
     expect(screen.queryByTestId("lock-use-agent")).toBeNull();
     expect(screen.queryByTestId("lock-agent-form")).toBeNull();
+    expect(screen.queryByTestId("lock-agent-code")).toBeNull();
     // Password fallback still aborts the pending WebAuthn prompt.
     expect(screen.getByTestId("lock-use-password")).toBeEnabled();
+  });
+
+  it("hides Enter as agent when agent access is off", async () => {
+    render(
+      <LockGate>
+        <div data-testid="app">SECRET APP</div>
+      </LockGate>
+    );
+    await waitFor(() => expect(screen.getByTestId("lock-password-form")).toBeInTheDocument());
+    expect(screen.queryByTestId("lock-enter-as-agent")).toBeNull();
+  });
+
+  it("shows Enter as agent when access is on and unlocks via markAgentUnlocked", async () => {
+    agentClient.fetchAgentAccessStatus.mockResolvedValue({
+      accessOn: true,
+      state: { accessOn: true, standing: true, paymentsOn: false },
+    });
+    const user = userEvent.setup();
+    render(
+      <LockGate>
+        <div data-testid="app">SECRET APP</div>
+      </LockGate>
+    );
+    await waitFor(() => expect(screen.getByTestId("lock-enter-as-agent")).toBeInTheDocument());
+    await user.click(screen.getByTestId("lock-enter-as-agent"));
+    await waitFor(() => expect(screen.getByTestId("app")).toBeInTheDocument());
+    expect(agentClient.enterAsAgent).toHaveBeenCalled();
+    expect(lock.markAgentUnlocked).toHaveBeenCalledWith(
+      expect.objectContaining({ token: "agt.tok", grantId: "ags_1" })
+    );
+  });
+
+  it("shows agent access is off when mint is denied", async () => {
+    agentClient.fetchAgentAccessStatus
+      .mockResolvedValueOnce({ accessOn: true, state: { accessOn: true } })
+      .mockResolvedValue({ accessOn: false, state: { accessOn: false } });
+    const user = userEvent.setup();
+    render(
+      <LockGate>
+        <div data-testid="app">SECRET APP</div>
+      </LockGate>
+    );
+    await waitFor(() => expect(screen.getByTestId("lock-enter-as-agent")).toBeInTheDocument());
+    await user.click(screen.getByTestId("lock-enter-as-agent"));
+    await waitFor(() =>
+      expect(screen.getByTestId("lock-error")).toHaveTextContent(/agent access is off/i)
+    );
+    expect(screen.queryByTestId("app")).not.toBeInTheDocument();
+    expect(lock.markAgentUnlocked).not.toHaveBeenCalled();
   });
 
   it("times out a hung 'Waiting for device…' and drops to the password view", async () => {

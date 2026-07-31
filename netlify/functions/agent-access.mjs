@@ -1,10 +1,13 @@
 /**
  * Agent Access API — toggle + fleet identity (AGENT_ACCESS_STANDARD).
  * GET  → status
- * POST → { op: status | set_access | set_timer | set_payments | stop | authorize | record_action }
+ * POST → { op: status | set_access | set_timer | set_payments | stop | authorize |
+ *          mint_session | enter_session | record_action }
  *
  * Codes (mint/redeem/extend) are removed. Access-state lives in Durable Object
  * when AGENT_ACCESS binding is present (required in prod).
+ * mint_session / enter_session: lock-screen "Enter as agent" — requires genuine
+ * fleet identity + access ON; returns signed UI session for markAgentUnlocked.
  */
 import {
   APP_ID,
@@ -12,6 +15,7 @@ import {
   authorizeAgentAction,
   emptyDoc,
   extractFleetIdentityFromRequest,
+  mintAgentSession,
   publicAccessState,
   recordAction,
   setAccess,
@@ -193,6 +197,61 @@ export default async (req, env = {}) => {
       state: auth.state,
       paymentsOn: auth.paymentsOn,
       storeMode: store.mode,
+    });
+  }
+
+  // Lock-screen "Enter as agent" — mint signed UI session (fleet identity required)
+  if (op === "mint_session" || op === "enter_session" || op === "ui_enter") {
+    const claim = extractFleetIdentityFromRequest(req, body);
+    const id = authenticateFleetIdentity(claim, env);
+    if (!id.ok) {
+      return json(
+        {
+          ok: false,
+          error: id.error,
+          code: "identity_fail",
+          message: "Genuine fleet identity required to enter as agent.",
+        },
+        401
+      );
+    }
+    const minted = mintAgentSession(
+      doc,
+      { agentId: id.agentId, label: body.label || id.agentId },
+      env
+    );
+    if (minted.doc) {
+      try {
+        await store.put(minted.doc);
+      } catch {
+        /* best-effort audit persist */
+      }
+    }
+    if (!minted.ok) {
+      return json(
+        {
+          ok: false,
+          error: minted.error || "agent access is off",
+          code: minted.code || "access_off",
+          state: minted.state || publicAccessState(doc),
+          storeMode: store.mode,
+        },
+        minted.status || 403
+      );
+    }
+    return json({
+      ok: true,
+      token: minted.token,
+      grantId: minted.grantId,
+      scope: minted.scope,
+      expiresAt: minted.expiresAt,
+      startedAt: minted.startedAt,
+      paymentsOn: minted.paymentsOn,
+      label: minted.label,
+      agentId: minted.agentId,
+      state: minted.state,
+      storeMode: store.mode,
+      message: "Agent UI session minted — use markAgentUnlocked on the lock screen.",
     });
   }
 

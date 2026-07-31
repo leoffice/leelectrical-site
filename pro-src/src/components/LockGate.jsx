@@ -3,14 +3,15 @@
 // fingerprint) via the WebAuthn platform authenticator — prompted immediately
 // on a cold open only (reload → password first; camera blocked → password only).
 // Fallback: Supabase email + password.
+// Agent: "Enter as agent" when Agent Access toggle is ON (no codes — fleet identity).
 // In-session grace keeps mid-session reloads from re-prompting; a fresh launch re-locks.
-// Agent access codes removed (toggle + fleet identity — AGENT_ACCESS_STANDARD).
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import {
   biometricSupported,
   biometricUnlock,
   hasEnrolledCredential,
   isSessionUnlocked,
+  markAgentUnlocked,
   markUnlocked,
   mediaPermissionDenied,
   passwordUnlock,
@@ -21,6 +22,7 @@ import { saveSession } from "../lib/session.js";
 import { getCompanyLogoSrc } from "../lib/appSettings.js";
 import { productName, tenantName } from "../lib/tenantBranding.js";
 import { DEMO, DEMO_CREDENTIALS } from "../lib/demoMode.js";
+import { enterAsAgent, fetchAgentAccessStatus } from "../lib/agentAccessClient.js";
 
 // A pending native passkey prompt must never trap the user. If the device
 // never answers (no platform authenticator, unenrolled, hung WebAuthn call),
@@ -37,9 +39,12 @@ export default function LockGate({ children }) {
   // Demo builds land straight on the password view with the login pre-filled.
   const [mode, setMode] = useState(DEMO ? "password" : "biometric"); // "biometric" | "password"
   const [busy, setBusy] = useState(false);
+  const [agentBusy, setAgentBusy] = useState(false);
   const [err, setErr] = useState("");
   const [email, setEmail] = useState(DEMO ? DEMO_CREDENTIALS.email : "");
   const [password, setPassword] = useState(DEMO ? DEMO_CREDENTIALS.password : "");
+  /** Agent Access toggle ON → show "Enter as agent" (unauth status GET). */
+  const [agentAccessOn, setAgentAccessOn] = useState(false);
 
   const enrolled = hasEnrolledCredential();
   const autoBioRan = useRef(false);
@@ -102,11 +107,48 @@ export default function LockGate({ children }) {
     };
   }, [unlocked]);
 
-  // Poll agent session expiry so the lock reappears when the grant ends.
+  // Pre-unlock: show "Enter as agent" when the owner toggle is ON.
+  useEffect(() => {
+    if (unlocked || DEMO) return;
+    let alive = true;
+    (async () => {
+      try {
+        const st = await fetchAgentAccessStatus();
+        if (!alive) return;
+        setAgentAccessOn(st.accessOn === true || st.state?.accessOn === true);
+      } catch {
+        if (alive) setAgentAccessOn(false);
+      }
+    })();
+    return () => {
+      alive = false;
+    };
+  }, [unlocked]);
+
+  // Poll agent session expiry + owner STOP so the lock reappears when access ends.
   useEffect(() => {
     if (!unlocked) return;
-    const id = setInterval(() => {
-      if (!isSessionUnlocked()) setUnlocked(false);
+    const id = setInterval(async () => {
+      if (!isSessionUnlocked()) {
+        setUnlocked(false);
+        return;
+      }
+      // If an agent UI session is active, re-check toggle (STOP / auto-off).
+      try {
+        const raw = globalThis.sessionStorage?.getItem("lepro_agent_session");
+        if (!raw) return;
+        const st = await fetchAgentAccessStatus();
+        if (st.accessOn === false || st.state?.accessOn === false) {
+          try {
+            globalThis.sessionStorage?.removeItem("lepro_agent_session");
+          } catch {
+            /* ignore */
+          }
+          setUnlocked(false);
+        }
+      } catch {
+        /* network blip — keep session until expiresAt */
+      }
     }, 15000);
     return () => clearInterval(id);
   }, [unlocked]);
@@ -191,8 +233,57 @@ export default function LockGate({ children }) {
     [email, password, succeed]
   );
 
+  /** Enter as agent — bypass biometric/password; mint signed session via fleet identity. */
+  const runEnterAsAgent = useCallback(async () => {
+    setErr("");
+    setAgentBusy(true);
+    abortBiometric();
+    try {
+      // Re-check toggle so we never enter when Levi already turned it off.
+      try {
+        const st = await fetchAgentAccessStatus();
+        if (st.accessOn !== true && st.state?.accessOn !== true) {
+          setAgentAccessOn(false);
+          setErr("agent access is off");
+          return;
+        }
+      } catch {
+        /* mint path will enforce */
+      }
+      const session = await enterAsAgent();
+      markAgentUnlocked(session);
+      setUnlocked(true);
+    } catch (e2) {
+      const code = e2?.code || "";
+      if (code === "access_off") {
+        setAgentAccessOn(false);
+        setErr("agent access is off");
+      } else if (code === "identity_missing" || code === "identity_fail") {
+        setErr(e2?.message || "Agent identity required.");
+      } else {
+        setErr(e2?.message || "Could not enter as agent");
+      }
+    } finally {
+      setAgentBusy(false);
+    }
+  }, [abortBiometric]);
 
   if (unlocked) return children;
+
+  const agentEntryButton = agentAccessOn ? (
+    <button
+      type="button"
+      onClick={() => {
+        abortBiometric();
+        runEnterAsAgent();
+      }}
+      disabled={agentBusy || busy}
+      className="mt-3 w-full rounded-xl bg-emerald-500/90 text-white font-extrabold px-4 py-3 text-base active:bg-emerald-500 disabled:opacity-50"
+      data-testid="lock-enter-as-agent"
+    >
+      {agentBusy ? "Entering…" : "Enter as agent"}
+    </button>
+  ) : null;
 
   return (
     <div
@@ -252,6 +343,7 @@ export default function LockGate({ children }) {
             >
               Use password instead
             </button>
+            {agentEntryButton}
           </div>
         )}
 
@@ -307,6 +399,7 @@ export default function LockGate({ children }) {
                 Use {enrolled ? "biometrics" : "Face ID / fingerprint"} instead
               </button>
             )}
+            {agentEntryButton}
           </form>
         )}
 

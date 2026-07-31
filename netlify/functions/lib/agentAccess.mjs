@@ -487,6 +487,127 @@ export function hasPaymentConfirmation(body = {}) {
   return !!(tok && String(tok).trim().length >= 8);
 }
 
+/* ── UI agent session (lock-screen "Enter as agent") ─────────────────────── */
+
+/** Manual/standing UI session ceiling (STOP still ends access server-side). */
+export const STANDING_SESSION_MS = 30 * 24 * 60 * 60 * 1000;
+
+/**
+ * Build a signed agent UI session token.
+ * Format: base64url(payloadJson).hexHmac — payload is not secret; HMAC binds it.
+ */
+export function signAgentSessionPayload(payload, env = {}) {
+  const secret = resolveFleetSecret(env);
+  if (!secret) throw new Error("Fleet identity is not configured on the server.");
+  const body = Buffer.from(JSON.stringify(payload), "utf8").toString("base64url");
+  const sig = createHmac("sha256", secret).update(body).digest("hex");
+  return `${body}.${sig}`;
+}
+
+/** Verify + parse a session token from markAgentUnlocked / x-agent-token. */
+export function verifyAgentSessionToken(token, env = {}, now = Date.now()) {
+  const secret = resolveFleetSecret(env);
+  if (!secret) return { ok: false, error: "Fleet identity is not configured on the server." };
+  const raw = String(token || "").trim();
+  const dot = raw.lastIndexOf(".");
+  if (dot < 1) return { ok: false, error: "Invalid agent session token." };
+  const body = raw.slice(0, dot);
+  const sig = raw.slice(dot + 1);
+  const expected = createHmac("sha256", secret).update(body).digest("hex");
+  if (!safeEqualHex(sig, expected)) return { ok: false, error: "Invalid agent session token." };
+  let payload;
+  try {
+    payload = JSON.parse(Buffer.from(body, "base64url").toString("utf8"));
+  } catch {
+    return { ok: false, error: "Invalid agent session token." };
+  }
+  const exp = Number(payload?.expiresAt);
+  if (!payload?.grantId || !payload?.agentId || !Number.isFinite(exp)) {
+    return { ok: false, error: "Invalid agent session token." };
+  }
+  if (now >= exp) return { ok: false, error: "Agent session expired." };
+  return { ok: true, session: payload };
+}
+
+/**
+ * Mint a UI agent session for a verified fleet identity while access is ON.
+ * Bypasses biometric/password — identity + toggle are the boundary.
+ * Payments stay off in scope unless the payment sub-toggle is on.
+ *
+ * @returns {{ ok, token, grantId, scope, expiresAt, startedAt, paymentsOn, label, state, doc } | deny}
+ */
+export function mintAgentSession(doc, { agentId, label } = {}, env = {}, now = Date.now()) {
+  const auth = authorizeAgentAction(doc, { agentId, requirePayments: false }, now);
+  if (!auth.ok) {
+    return {
+      ok: false,
+      status: auth.status || 403,
+      code: auth.code || "access_off",
+      error: auth.error || "agent access is off",
+      state: auth.state,
+      doc: auth.doc,
+    };
+  }
+  const state = auth.state;
+  const paymentsOn = !!state.paymentsOn;
+  const scope = paymentsOn ? "full" : "full-nopay";
+  // 24h → expire at autoOffAt; manual → standing ceiling (STOP ends access server-side).
+  let expiresAt =
+    state.timerMode === "24h" && state.autoOffAt
+      ? Number(state.autoOffAt)
+      : now + STANDING_SESSION_MS;
+  if (!Number.isFinite(expiresAt) || expiresAt <= now) {
+    expiresAt = now + Math.min(AUTO_OFF_MS, STANDING_SESSION_MS);
+  }
+  const grantId = generateId("ags");
+  const startedAt = now;
+  const who = String(agentId || "fleet").slice(0, 40);
+  const payload = {
+    v: 1,
+    appId: APP_ID,
+    grantId,
+    agentId: who,
+    scope,
+    paymentsOn,
+    startedAt,
+    expiresAt,
+    label: String(label || who || "agent").slice(0, 40),
+  };
+  let token;
+  try {
+    token = signAgentSessionPayload(payload, env);
+  } catch (e) {
+    return {
+      ok: false,
+      status: 503,
+      code: "identity_config",
+      error: String(e?.message || e),
+      state,
+      doc: auth.doc,
+    };
+  }
+  const next = pushAudit(auth.doc, {
+    type: "ui_enter",
+    agentId: who,
+    note: `UI Enter as agent · ${scope} · ${state.standing || state.timerMode === "manual" ? "standing" : "24h"}`,
+    grantId,
+    result: "minted",
+  });
+  return {
+    ok: true,
+    token,
+    grantId,
+    scope,
+    expiresAt,
+    startedAt,
+    paymentsOn,
+    label: payload.label,
+    agentId: who,
+    state: publicAccessState(next, now),
+    doc: next,
+  };
+}
+
 /** @deprecated code-era helpers — stubs so old imports fail clearly if any remain */
 export function mintGrant() {
   throw new Error("Agent access codes removed — use setAccess toggle (AGENT_ACCESS_STANDARD).");

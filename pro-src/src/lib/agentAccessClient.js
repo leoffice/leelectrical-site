@@ -1,15 +1,116 @@
 // Client for Agent Access — toggle + fleet identity (no codes).
 // Canonical: AGENT_ACCESS_STANDARD.md
+// Lock-screen entry: plant fleet identity (automation / host) then mint_session.
 import { functionsBase } from "./functionsBase.js";
 
 /** 24h auto-off window (mirrors server AUTO_OFF_MS). */
 export const AGENT_ACCESS_AUTO_OFF_MS = 24 * 60 * 60 * 1000;
 
-async function post(body) {
+/** sessionStorage key automation plants before "Enter as agent". */
+export const FLEET_IDENTITY_KEY = "lepro_fleet_identity";
+
+function sessionStore() {
+  try {
+    return globalThis.sessionStorage || null;
+  } catch {
+    return null;
+  }
+}
+
+function localStore() {
+  try {
+    return globalThis.localStorage || null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Fleet claim planted by host automation (never bundled).
+ * Shape: { agentId, key }  OR  { agentId, ts, sig } (HMAC)
+ */
+export function getPlantedFleetIdentity() {
+  try {
+    if (globalThis.__LE_FLEET_IDENTITY__ && typeof globalThis.__LE_FLEET_IDENTITY__ === "object") {
+      return normalizeClaim(globalThis.__LE_FLEET_IDENTITY__);
+    }
+  } catch {
+    /* ignore */
+  }
+  for (const store of [sessionStore(), localStore()]) {
+    if (!store) continue;
+    try {
+      const raw = store.getItem(FLEET_IDENTITY_KEY);
+      if (!raw) continue;
+      const obj = JSON.parse(raw);
+      const claim = normalizeClaim(obj);
+      if (claim) return claim;
+    } catch {
+      /* continue */
+    }
+  }
+  return null;
+}
+
+function normalizeClaim(obj) {
+  if (!obj || typeof obj !== "object") return null;
+  const agentId = String(obj.agentId || obj.agent || "")
+    .toLowerCase()
+    .replace(/[^a-z0-9_-]/g, "")
+    .slice(0, 40);
+  if (!agentId) return null;
+  const key = String(obj.key || obj.secret || "").trim();
+  const ts = String(obj.ts || "").trim();
+  const sig = String(obj.sig || obj.signature || "").trim();
+  if (!key && !(ts && sig)) return null;
+  return { agentId, key, ts, sig };
+}
+
+/** Plant identity for this browser session (host / Playwright / Dispatch). */
+export function plantFleetIdentity(claim) {
+  const n = normalizeClaim(claim);
+  if (!n) throw new Error("Invalid fleet identity claim");
+  const payload = JSON.stringify(n);
+  try {
+    sessionStore()?.setItem(FLEET_IDENTITY_KEY, payload);
+  } catch {
+    /* storage unavailable */
+  }
+  return n;
+}
+
+export function clearPlantedFleetIdentity() {
+  try {
+    sessionStore()?.removeItem(FLEET_IDENTITY_KEY);
+  } catch {
+    /* ignore */
+  }
+  try {
+    localStore()?.removeItem(FLEET_IDENTITY_KEY);
+  } catch {
+    /* ignore */
+  }
+}
+
+function fleetHeaders(claim) {
+  const h = { "content-type": "application/json" };
+  if (!claim?.agentId) return h;
+  h["x-le-agent-id"] = claim.agentId;
+  if (claim.key) h["x-le-agent-key"] = claim.key;
+  if (claim.ts) h["x-le-agent-ts"] = claim.ts;
+  if (claim.sig) h["x-le-agent-sig"] = claim.sig;
+  if (claim.key && !claim.sig) {
+    h.authorization = `Bearer fleet:${claim.agentId}:${claim.key}`;
+  }
+  return h;
+}
+
+async function post(body, { claim } = {}) {
+  const identity = claim || getPlantedFleetIdentity();
   const res = await fetch(`${functionsBase()}/agent-access`, {
     method: "POST",
     cache: "no-store",
-    headers: { "content-type": "application/json" },
+    headers: fleetHeaders(identity),
     body: JSON.stringify(body || {}),
   });
   let data = {};
@@ -19,7 +120,11 @@ async function post(body) {
     data = {};
   }
   if (!res.ok || data.ok === false) {
-    throw new Error(data.error || `agent-access: HTTP ${res.status}`);
+    const err = new Error(data.error || data.message || `agent-access: HTTP ${res.status}`);
+    err.code = data.code;
+    err.status = res.status;
+    err.state = data.state;
+    throw err;
   }
   return data;
 }
@@ -29,7 +134,18 @@ export async function fetchAgentAccessStatus() {
     cache: "no-store",
   });
   if (!res.ok) throw new Error(`agent-access: HTTP ${res.status}`);
-  return res.json();
+  const data = await res.json();
+  // Flatten state fields for lock-screen convenience (Settings still uses .state).
+  const st = data?.state || {};
+  return {
+    ...data,
+    accessOn: st.accessOn ?? data.accessOn,
+    standing: st.standing ?? data.standing,
+    timerMode: st.timerMode ?? data.timerMode,
+    autoOffAt: st.autoOffAt ?? data.autoOffAt,
+    paymentsOn: st.paymentsOn ?? data.paymentsOn,
+    remainingMs: st.remainingMs ?? data.remainingMs,
+  };
 }
 
 /** Turn main agent access on/off. timerMode: "24h" | "manual". */
@@ -68,6 +184,42 @@ export async function stopAgentAccess() {
 /** @deprecated use stopAgentAccess */
 export async function revokeAgentAccess() {
   return stopAgentAccess();
+}
+
+/**
+ * Mint a signed UI agent session (lock-screen Enter as agent).
+ * Requires planted fleet identity + access toggle ON.
+ * Returns { token, grantId, scope, expiresAt, startedAt, paymentsOn, label }.
+ */
+export async function mintAgentSession({ label } = {}) {
+  const claim = getPlantedFleetIdentity();
+  if (!claim) {
+    const err = new Error(
+      "Agent identity required — plant fleet identity before Enter as agent."
+    );
+    err.code = "identity_missing";
+    throw err;
+  }
+  return post({ op: "mint_session", label: label || claim.agentId }, { claim });
+}
+
+/**
+ * High-level lock-screen entry: mint session shape for markAgentUnlocked.
+ */
+export async function enterAsAgent({ label } = {}) {
+  const data = await mintAgentSession({ label });
+  if (!data?.token || !data?.expiresAt) {
+    throw new Error(data?.error || "Could not start agent session");
+  }
+  return {
+    token: data.token,
+    grantId: data.grantId,
+    scope: data.scope || "full",
+    startedAt: data.startedAt || Date.now(),
+    expiresAt: data.expiresAt,
+    label: data.label || "agent",
+    paymentsOn: !!data.paymentsOn,
+  };
 }
 
 export function formatRemaining(ms) {
