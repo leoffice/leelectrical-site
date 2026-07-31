@@ -18,12 +18,25 @@ const freeTenant = {
   tenant: { tenantId: "starter", internal: false, plan: { tier: "free", crewAddon: false }, branding: { companyName: "Starter Co" } },
 };
 
-// Full tier turns the permits module on without needing `internal`.
+// White-label full stays permits OFF; enable only via explicit override (LE path).
 const fullTenant = {
   profile: {},
   features: {},
   tenant: {
     tenantId: "acme",
+    internal: false,
+    plan: { tier: "full", crewAddon: false },
+    moduleOverrides: { permits: true },
+    branding: { companyName: "Acme Electric" },
+    agencies: [{ id: "coned", label: "Con Edison" }, { id: "dob", label: "DOB" }],
+  },
+};
+
+const whiteLabelFullNoPermits = {
+  profile: {},
+  features: {},
+  tenant: {
+    tenantId: "acme-wl",
     internal: false,
     plan: { tier: "full", crewAddon: false },
     branding: { companyName: "Acme Electric" },
@@ -53,10 +66,16 @@ describe("Permits tab gating", () => {
     renderAppAsTenant("#/permits");
     expect(await screen.findByText("That page doesn’t exist.")).toBeInTheDocument();
   });
+
+  it("White-label full without override has permits off", async () => {
+    mockServer({ settings: whiteLabelFullNoPermits });
+    renderAppAsTenant("#/permits");
+    expect(await screen.findByText("That page doesn’t exist.")).toBeInTheDocument();
+  });
 });
 
 describe("Permits tab renders derived Con Ed cases", () => {
-  it("Full-tier tenant sees a Con Ed case row derived from an applied email", async () => {
+  it("Permits-enabled tenant sees a Con Ed case row derived from an applied email", async () => {
     mockServer({ settings: fullTenant, jobs: [JOB], emailInsights: [conedInsight] });
     renderAppAsTenant("#/permits");
     // Case row shows the customer and the MC case number.
@@ -64,5 +83,8 @@ describe("Permits tab renders derived Con Ed cases", () => {
     expect(await screen.findByText("MC-910413")).toBeInTheDocument();
     // The Con Ed section header is present.
     expect(await screen.findByTestId("permit-section-coned")).toBeInTheDocument();
+    // Functionalities lock-in checklist is visible
+    expect(await screen.findByTestId("functionalities-lock-in")).toBeInTheDocument();
+    expect(screen.getByTestId("functionalities-lock-in-count")).toHaveTextContent("1/14");
   });
 });

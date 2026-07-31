@@ -69,11 +69,13 @@ export const PLAN_MODULES = {
     documents: false,
     reports: true,
   },
+  // permits stays OFF on all plan tiers until white-label ship.
+  // LE flagship enables via moduleOverrides + internal (see LE_TENANT_SEED).
   full: {
     invoicing: true,
     estimates: true,
     requisitions: true,
-    permits: true,
+    permits: false,
     crew: false,
     quickbooks: true,
     documents: true,
@@ -140,7 +142,9 @@ export const LE_TENANT_SEED = {
     letterheadTemplate: "default",
     supportEmail: "Office@LeElectrical.us",
   },
-  moduleOverrides: {},
+  // Permits: ON for Levi (LE) only. White-label stays off via PLAN_MODULES.
+  // internal:true also forces every module on for LE; override documents the intent.
+  moduleOverrides: { permits: true },
   agencies: NYC_AGENCY_PRESETS.map((a) => ({ ...a })),
   profile: { ...DEFAULT_PROFILE },
 };

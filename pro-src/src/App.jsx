@@ -23,6 +23,7 @@ import Projects from "./views/Projects.jsx";
 import Company from "./views/Company.jsx";
 import Settings from "./views/Settings.jsx";
 import Archive from "./views/Archive.jsx";
+import Permits from "./views/Permits.jsx";
 
 // Internal-only views (Dev, and Build = /progress) are lazy so they are
 // code-split out of the main chunk. A non-internal tenant never registers
@@ -93,6 +94,7 @@ const ROUTE_ELEMENTS = {
   "/projects/:projectId": <Projects />,
   "/company": <Company />,
   "/settings": <Settings />,
+  "/permits": <Permits />,
   "/progress": <Progress />,
   "/dev": <Dev />,
   "/archive": <Archive />,

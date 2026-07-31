@@ -36,10 +36,18 @@ describe("plan tiers", () => {
     expect(m.documents).toBe(false);
   });
 
-  it("full adds permits and documents", () => {
+  it("full adds documents; permits stay off on plan tiers (LE-only until white-label)", () => {
     const m = resolveModules({ plan: { tier: "full" } });
-    expect(m.permits).toBe(true);
+    // White-label full tier does not get Permits yet — LE enables via override + internal.
+    expect(m.permits).toBe(false);
     expect(m.documents).toBe(true);
+  });
+
+  it("LE seed enables permits (override + internal)", () => {
+    const le = resolveTenantConfig(LE_TENANT_SEED);
+    expect(isModuleEnabled(le, "permits")).toBe(true);
+    const whiteLabelFull = tenant({ plan: { tier: "full" } });
+    expect(isModuleEnabled(whiteLabelFull, "permits")).toBe(false);
   });
 
   it("an unknown tier falls back to free rather than opening everything", () => {

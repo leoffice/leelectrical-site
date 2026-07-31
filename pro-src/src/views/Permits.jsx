@@ -6,6 +6,8 @@
 //
 // Gating: the route is only mounted when tenant_config.modules.permits is on
 // (see tenantNav.js / App.jsx). The guard below is belt-and-suspenders.
+//
+// Module boundary: src/modules/permits (meter application + lock-in checklist).
 
 import React, { useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
@@ -14,6 +16,13 @@ import { useTenantConfig } from "../state/tenant.jsx";
 import { isModuleEnabled } from "../lib/tenantConfig.js";
 import { buildPermitBoard, isActionNeeded } from "../lib/permitsBoard.js";
 import { computePermitBackfill, applyPermitBackfill } from "../lib/permitBackfill.js";
+import MeterApplicationField from "../modules/permits/MeterApplicationField.jsx";
+import FunctionalitiesLockIn from "../modules/permits/FunctionalitiesLockIn.jsx";
+import {
+  getMeterApplication,
+  jobPatchMeterApplication,
+  meterApplicationLabel,
+} from "../modules/permits/meterApplication.js";
 
 /** Health/bucket → pill tone, mirroring the JobDetail Con Ed chip. */
 function stageTone(row) {
@@ -31,33 +40,78 @@ function fmtWhen(iso) {
   return s.slice(0, 10);
 }
 
-function CaseRow({ row, onOpen }) {
+function CaseRow({ row, job, onOpen, onMeterApplication }) {
+  const [expanded, setExpanded] = useState(false);
+  const isConed = row.agency === "coned";
+  const meter = job ? getMeterApplication(job) : null;
+
   return (
-    <button
-      type="button"
-      onClick={() => onOpen(row.jobId)}
+    <div
+      className="card overflow-hidden"
       data-testid="permit-case-row"
-      className="card w-full text-left px-4 py-3 flex items-start gap-3"
+      data-agency={row.agency || ""}
+      data-job-id={row.jobId || ""}
     >
-      <div className="min-w-0 flex-1">
-        <div className="flex items-center gap-2">
-          <b className="truncate">{row.jobName}</b>
-          {row.caseNumber ? (
-            <span className="text-[11px] font-semibold text-slate-500 shrink-0">{row.caseNumber}</span>
+      <button
+        type="button"
+        onClick={() => {
+          if (isConed) setExpanded((v) => !v);
+          else onOpen(row.jobId);
+        }}
+        className="w-full text-left px-4 py-3 flex items-start gap-3"
+        data-testid="permit-row-toggle"
+      >
+        <div className="min-w-0 flex-1">
+          <div className="flex items-center gap-2">
+            <b className="truncate">{row.jobName}</b>
+            {row.caseNumber ? (
+              <span className="text-[11px] font-semibold text-slate-500 shrink-0">{row.caseNumber}</span>
+            ) : null}
+          </div>
+          {row.address ? <div className="text-xs text-slate-500 truncate">{row.address}</div> : null}
+          {row.nextAction ? (
+            <div className={`text-xs mt-0.5 ${isActionNeeded(row) ? "text-red-700 font-medium" : "text-slate-500"}`}>
+              {row.nextAction}
+              {row.nextActionDate && !row.nextAction.includes(fmtWhen(row.nextActionDate))
+                ? ` · ${fmtWhen(row.nextActionDate)}`
+                : ""}
+            </div>
+          ) : null}
+          {meter?.label ? (
+            <div className="text-[11px] text-brand font-semibold mt-0.5" data-testid="meter-app-chip">
+              Meter app: {meter.label}
+            </div>
           ) : null}
         </div>
-        {row.address ? <div className="text-xs text-slate-500 truncate">{row.address}</div> : null}
-        {row.nextAction ? (
-          <div className={`text-xs mt-0.5 ${isActionNeeded(row) ? "text-red-700 font-medium" : "text-slate-500"}`}>
-            {row.nextAction}
-            {row.nextActionDate && !row.nextAction.includes(fmtWhen(row.nextActionDate))
-              ? ` · ${fmtWhen(row.nextActionDate)}`
-              : ""}
-          </div>
-        ) : null}
-      </div>
-      <span className={`pill shrink-0 ${stageTone(row)}`}>{row.stageLabel}</span>
-    </button>
+        <div className="flex flex-col items-end gap-1 shrink-0">
+          <span className={`pill ${stageTone(row)}`}>{row.stageLabel}</span>
+          {isConed ? (
+            <span className="text-slate-400 text-xs">{expanded ? "▾" : "▸"}</span>
+          ) : null}
+        </div>
+      </button>
+
+      {expanded && isConed ? (
+        <div className="px-4 pb-4 border-t border-slate-100 pt-3 space-y-3">
+          {row.jobId ? (
+            <button
+              type="button"
+              className="pill bg-brand-soft text-brand font-semibold text-xs"
+              onClick={() => onOpen(row.jobId)}
+              data-testid="permit-open-job"
+            >
+              Open job →
+            </button>
+          ) : null}
+          {job && onMeterApplication ? (
+            <MeterApplicationField
+              job={job}
+              onSelect={(value) => onMeterApplication(row.jobId, value)}
+            />
+          ) : null}
+        </div>
+      ) : null}
+    </div>
   );
 }
 
@@ -79,9 +133,36 @@ export default function Permits() {
     [jobs, emailInsights]
   );
 
+  const jobsById = useMemo(() => {
+    const m = new Map();
+    for (const j of jobs || []) {
+      if (j?.id) m.set(j.id, j);
+    }
+    return m;
+  }, [jobs]);
+
   if (!isModuleEnabled(config, "permits")) return null;
 
   const open = (jobId) => jobId && nav(`/job/${jobId}`);
+
+  const handleMeterApplication = async (jobId, value) => {
+    if (!jobId || !value) return;
+    const job = jobsById.get(jobId);
+    if (!job) {
+      showToast("Job not found for this case");
+      return;
+    }
+    try {
+      const patch = jobPatchMeterApplication(job, value);
+      await patchAndSave(jobId, patch);
+      showToast(
+        "Meter application saved — " +
+          (patch.paperwork?.coned?.meterApplication?.label || meterApplicationLabel(value) || value)
+      );
+    } catch {
+      showToast("Couldn't save meter application");
+    }
+  };
 
   const runBackfill = async () => {
     setBusy(true);
@@ -100,7 +181,7 @@ export default function Permits() {
   const hasAny = counts.total > 0;
 
   return (
-    <div className="pb-24">
+    <div className="pb-24" data-testid="permits-tab">
       <div className="flex items-center justify-between mb-3 px-1">
         <h2 className="text-[11px] font-extrabold text-slate-500 uppercase tracking-wider">
           Permits · {counts.total} open case{counts.total === 1 ? "" : "s"}
@@ -115,6 +196,11 @@ export default function Permits() {
             Sync {backfillPlan.length} to jobs
           </button>
         ) : null}
+      </div>
+
+      {/* Working tracker — Con Ed sub-workflows (item 8 = meter app DONE) */}
+      <div className="mb-4">
+        <FunctionalitiesLockIn />
       </div>
 
       {/* Count chips */}
@@ -139,7 +225,13 @@ export default function Permits() {
           </div>
           <div className="space-y-2">
             {actionNeeded.map((row) => (
-              <CaseRow key={`an:${row.key}`} row={row} onOpen={open} />
+              <CaseRow
+                key={`an:${row.key}`}
+                row={row}
+                job={jobsById.get(row.jobId)}
+                onOpen={open}
+                onMeterApplication={handleMeterApplication}
+              />
             ))}
           </div>
         </div>
@@ -154,7 +246,13 @@ export default function Permits() {
           {sec.cases.length ? (
             <div className="space-y-2">
               {sec.cases.map((row) => (
-                <CaseRow key={row.key} row={row} onOpen={open} />
+                <CaseRow
+                  key={row.key}
+                  row={row}
+                  job={jobsById.get(row.jobId)}
+                  onOpen={open}
+                  onMeterApplication={handleMeterApplication}
+                />
               ))}
             </div>
           ) : (

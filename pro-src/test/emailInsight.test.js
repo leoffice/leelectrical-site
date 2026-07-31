@@ -57,7 +57,8 @@ const CONED_COMPLETED = `Service Address
 BROOKLYN , NY 11203
 Your Final Inspection passed on Tuesday, July 21, 2026.`;
 
-const DOB_CITY_BODY = `The Department of Buildings has scheduled an Electrical Inspection on 7/30/2026 10:15 AM at 149,EAST 116 STREET,Manhattan,10029 for Job Number M01228312.
+// Date kept in the future so past-day calendar filter does not drop the action.
+const DOB_CITY_BODY = `The Department of Buildings has scheduled an Electrical Inspection on 8/20/2026 10:15 AM at 149,EAST 116 STREET,Manhattan,10029 for Job Number M01228312.
 If there is an immediate need to cancel this scheduled inspection, log into DOB NOW: Inspections.`;
 
 describe("emailInsight", () => {
@@ -478,8 +479,8 @@ phone calls and/or text messages from the company about your upcoming service ap
     expect(raw.address).toMatch(/149/i);
     expect(raw.address).toMatch(/116/i);
     expect(raw.address).toMatch(/10029|Manhattan/i);
-    expect(raw.dateTime).toBe("2026-07-30T10:00"); // floored from 10:15
-    expect(raw.exactDateTime).toBe("2026-07-30T10:15");
+    expect(raw.dateTime).toBe("2026-08-20T10:00"); // floored from 10:15
+    expect(raw.exactDateTime).toBe("2026-08-20T10:15");
     expect(extractDobJobNumber(DOB_CITY_BODY)).toMatch(/M01228312/i);
     expect(raw.dobJobNumber).toMatch(/M01228312/i);
     expect(raw.source.fromLabel).toMatch(/DOB|City/i);
@@ -493,7 +494,7 @@ phone calls and/or text messages from the company about your upcoming service ap
     const title = calendarTitleForInsight(enriched);
     expect(title).toMatch(/City electrical/i);
     expect(title).toMatch(/10:00/);
-    expect(title).not.toMatch(/Jul|July|30/);
+    expect(title).not.toMatch(/Aug|August|20/);
 
     const desc = buildAppointmentDescription(enriched, jobs[0]);
     expect(desc).toMatch(/10:15/);
