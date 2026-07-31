@@ -1,5 +1,8 @@
 // Job payment ledger — supports multiple payments per invoice (partial pay).
+// Soft-delete (tombstone) keeps the same payment id so history / QBO void
+// metadata stay linked — never hard-erases a recorded payment.
 import { fmt$, parseAmount } from "./format.js";
+import { softDeletePayment } from "./auditTrail.js";
 
 function invoiceTotal(job) {
   return parseAmount(job?.amount);
@@ -16,8 +19,14 @@ export function parseBalanceFromNotes(job) {
   return m ? parseAmount(m[1]) : null;
 }
 
-/** All payments on a job (migrates legacy single job.payment). */
-export function normalizePayments(job) {
+/**
+ * All payments on a job (migrates legacy single job.payment).
+ * By default tombstoned rows (`_deleted` / `deletedAt`) are excluded so
+ * balances and UI ledgers stay live-only. Pass `{ includeDeleted: true }`
+ * to reverse/restore or audit.
+ */
+export function normalizePayments(job, opts = {}) {
+  const includeDeleted = !!opts.includeDeleted;
   const list = Array.isArray(job?.payments) ? job.payments.map((p) => ({ ...p })) : [];
   const legacy = job?.payment;
   if (legacy && (legacy.amount || legacy.method || legacy.ref)) {
@@ -27,7 +36,10 @@ export function normalizePayments(job) {
     }
   }
   return list
-    .filter((p) => parseAmount(p.amount) > 0 || p.method || p.ref)
+    .filter((p) => {
+      if (!includeDeleted && (p._deleted || p.deletedAt)) return false;
+      return parseAmount(p.amount) > 0 || p.method || p.ref;
+    })
     .map((p) => ({ ...p, id: p.id || paymentId() }))
     .sort((a, b) => String(b.date || "").localeCompare(String(a.date || "")));
 }
@@ -303,9 +315,24 @@ export function updatePayment(job, payId, entry) {
   return applyPaymentsPatch(job, list);
 }
 
-export function removePayment(job, payId) {
-  const list = normalizePayments(job).filter((p) => p.id !== payId);
-  return applyPaymentsPatch(job, list);
+/**
+ * Soft-delete a payment (tombstone). Same id retained; row stays on the job
+ * for audit/restore and is excluded from live balances via normalizePayments.
+ * Never hard-erases — universal archive rule.
+ */
+export function removePayment(job, payId, opts = {}) {
+  const all = normalizePayments(job, { includeDeleted: true });
+  const target = all.find((p) => p.id === payId);
+  if (!target) {
+    // Nothing to tombstone — return live ledger unchanged.
+    return applyPaymentsPatch(job, normalizePayments(job));
+  }
+  const list = all.map((p) => (p.id === payId ? softDeletePayment(p, opts) : p));
+  const live = list.filter((p) => !p._deleted && !p.deletedAt);
+  const patch = applyPaymentsPatch(job, live);
+  // Persist tombstones alongside live rows.
+  patch.payments = list;
+  return patch;
 }
 
 /**

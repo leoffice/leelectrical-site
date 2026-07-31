@@ -120,7 +120,11 @@ describe("payments ledger", () => {
     const merged2 = { ...merged, ...patch };
     patch = removePayment(merged2, patch.payments[0].id);
     expect(patch.openBalance).toBe(11000);
-    expect(patch.payments).toHaveLength(0);
+    // Soft-delete keeps a tombstone (same id) for the universal audit trail;
+    // live ledger (normalizePayments) is empty.
+    expect(patch.payments).toHaveLength(1);
+    expect(patch.payments[0]._deleted).toBe(true);
+    expect(normalizePayments({ ...merged2, ...patch })).toHaveLength(0);
   });
 
   it("movePayment updates in place on the same job", () => {

@@ -1,9 +1,12 @@
 // Soft-delete helpers — dashboard only, never touches QuickBooks.
+// Tombstone + deletedAt + archive flag so the universal audit trail can
+// reverse/restore (see src/lib/auditTrail.js). Never hard-deletes.
 import { clientKey, jobsForCustomerKey } from "./customers.js";
+import { softDeletePatch } from "./auditTrail.js";
 
-/** Overlay patch to hide a job from the dashboard. */
-export function deleteJobPatch() {
-  return { _deleted: true };
+/** Overlay patch to hide a job from the dashboard (tombstone, not destroy). */
+export function deleteJobPatch(before, opts = {}) {
+  return softDeletePatch(before || {}, opts);
 }
 
 /** Job ids for every active job under a customer board key. */

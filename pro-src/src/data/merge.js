@@ -6,6 +6,9 @@
 //   state.ov       = { [jobId]: overlayPatch } — user edits, ALWAYS win
 //   overlay-only jobs carry _new:true; _deleted hides a job; _archived keeps
 //   it around (flagged) so the Archive tab can restore it.
+//   Soft-delete is a TOMBSTONE (deletedAt + _archived), never a hard erase —
+//   prior state lives in the universal audit log (ov._auditLog / audit_commands).
+//   Reserved "_"-prefixed ov keys are app metadata (e.g. _auditLog, _sasTickets).
 //
 // Merge semantics MUST match sleek's merge2(): objects merge recursively,
 // arrays and scalars are REPLACED by the patch (the overlay stores the full

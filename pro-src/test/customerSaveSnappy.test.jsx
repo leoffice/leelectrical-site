@@ -46,8 +46,9 @@ describe("customer Save & sync is snappy", () => {
 
     // Background: create_customer still lands (no QB id on this job).
     await waitFor(() => expect(srv.enqueued("create_customer")).toHaveLength(1));
+    // Job save + companion audit write both POST full ov (universal archive).
     await waitFor(() =>
-      expect(srv.posts("state", (b) => !!b.ov && !!b.ov["J-SNAP"])).toHaveLength(1)
+      expect(srv.posts("state", (b) => !!b.ov && !!b.ov["J-SNAP"]).length).toBeGreaterThanOrEqual(1)
     );
   });
 

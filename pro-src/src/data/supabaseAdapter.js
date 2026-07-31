@@ -51,14 +51,25 @@ export function createSupabaseAdapter() {
     },
 
     async listCommands(jobId) {
-      // TODO: activity table plays the audit role; a dedicated commands table
-      // (or Supabase Edge Function + pg queue) replaces the Netlify bus.
+      // TODO: command bus. Universal mutation audit lives in audit_commands
+      // (migration 005) — append-only, per-tenant; see src/lib/auditTrail.js.
+      // Activity remains the lighter job-scoped feed; do not conflate the two.
       throw new Error(NOT_READY);
     },
 
     async enqueueCommand(type, jobId, payload, lane, idempotencyKey) {
       // TODO: insert into a commands table with a UNIQUE(idempotency_key)
       // constraint — ON CONFLICT DO NOTHING gives idempotency for free.
+      throw new Error(NOT_READY);
+    },
+
+    /**
+     * Append an immutable audit row (create/edit/delete/archive/restore/flag).
+     * Shape: src/lib/auditTrail.js makeAuditEntry → audit_commands table.
+     */
+    async appendAudit(_entry) {
+      // TODO: .from("audit_commands").insert({...entry, tenant_id: app_tenant})
+      // Client blob path uses ov._auditLog via saveJob until this lands.
       throw new Error(NOT_READY);
     },
 

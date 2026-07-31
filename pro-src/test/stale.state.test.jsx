@@ -31,8 +31,9 @@ describe("stale overlay snapshots never clobber saved edits", () => {
     await user.clear(phone);
     await user.type(phone, "718-555-0199");
     await user.click(screen.getByTestId("cust-save-sync"));
+    // Job save + companion audit write both POST full ov (universal archive).
     await waitFor(() =>
-      expect(srv.posts("state", (b) => !!b.ov)).toHaveLength(1)
+      expect(srv.posts("state", (b) => !!b.ov).length).toBeGreaterThanOrEqual(1)
     );
     await screen.findByText("718-555-0199");
 

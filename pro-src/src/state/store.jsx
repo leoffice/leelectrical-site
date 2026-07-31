@@ -40,6 +40,12 @@ import {
 } from "../lib/calendarLink.js";
 import { productName } from "../lib/tenantBranding.js";
 import { flushAllDebouncedPatches } from "../lib/useDebouncedPatch.js";
+import {
+  AUDIT_OV_KEY,
+  planMutation,
+  auditPatchOnly,
+} from "../lib/auditTrail.js";
+import { readSession } from "../lib/session.js";
 
 const DataCtx = createContext(null);
 const EditCtx = createContext(null);
@@ -516,6 +522,32 @@ export function StoreProvider({ children }) {
   const dirtyCount = useMemo(() => countLeaves(pending), [pending]);
   const dirtyJobs = Object.keys(pending).length;
 
+  /** Resolve actor for the universal audit trail (session uid or local). */
+  const auditActor = useCallback(() => {
+    try {
+      const s = readSession();
+      return (s && (s.uid || s.access_token?.slice?.(0, 8))) || "local";
+    } catch {
+      return "local";
+    }
+  }, []);
+
+  /**
+   * Append immutable audit row(s) to ov._auditLog via the same saveJob path.
+   * Uses byId keys so deepMerge keeps prior rows (arrays would be replaced).
+   * Fire-and-forget relative to the entity save — never blocks the UI.
+   * Non-destructive sync flags resolve through this same layer.
+   */
+  const appendAuditEntries = useCallback(async (entries) => {
+    const list = (Array.isArray(entries) ? entries : [entries]).filter(Boolean);
+    if (!list.length) return;
+    try {
+      await api.saveJob(AUDIT_OV_KEY, auditPatchOnly(list));
+    } catch {
+      // Audit must not break the user save path.
+    }
+  }, []);
+
   const saveAll = useCallback(async () => {
     // Pull any still-debounced text fields into pending before we read it.
     flushAllDebouncedPatches();
@@ -537,7 +569,25 @@ export function StoreProvider({ children }) {
     }
 
     // Instant local commit — screen never waits on the network.
-    const patchById = new Map(entries.map(([id, p]) => [String(id), p]));
+    // Plan audit rows (immutable prior-state snapshots) before applying.
+    const plannedById = new Map();
+    const auditBatch = [];
+    for (const [id, patch] of entries) {
+      const base = jobs.find((j) => String(j.id) === String(id)) || null;
+      const planned = planMutation(base, patch, {
+        actor: auditActor(),
+        entityId: id,
+        entityHint: "job",
+      });
+      plannedById.set(String(id), planned);
+      if (planned.entry && String(id).charAt(0) !== "_") auditBatch.push(planned.entry);
+    }
+    const patchById = new Map(
+      entries.map(([id]) => {
+        const planned = plannedById.get(String(id));
+        return [String(id), planned?.patch || entries.find(([i]) => String(i) === String(id))?.[1]];
+      })
+    );
     const touched = [];
     setJobs((js) =>
       js.map((j) => {
@@ -555,7 +605,9 @@ export function StoreProvider({ children }) {
 
     setSaving(true);
     try {
-      for (const [id, patch] of entries) {
+      for (const [id] of entries) {
+        const planned = plannedById.get(String(id));
+        const patch = planned?.patch || patchById.get(String(id));
         try {
           const r = await api.saveJob(id, patch);
           if (r && r.ts) lastSavedTs.current = Math.max(lastSavedTs.current, r.ts);
@@ -565,6 +617,7 @@ export function StoreProvider({ children }) {
           if (r && r.ts) lastSavedTs.current = Math.max(lastSavedTs.current, r.ts);
         }
       }
+      if (auditBatch.length) void appendAuditEntries(auditBatch);
 
       for (const { job: j, payment: pay } of newPaymentsToSync) {
         if (!j.invoiceNo) continue;
@@ -616,7 +669,7 @@ export function StoreProvider({ children }) {
     } finally {
       setSaving(false);
     }
-  }, [saving, jobs, effectiveJob, refreshJobs, showToast]);
+  }, [saving, jobs, effectiveJob, refreshJobs, showToast, auditActor, appendAuditEntries]);
 
   const discardAll = useCallback(() => {
     pendingRef.current = {};
@@ -656,35 +709,60 @@ export function StoreProvider({ children }) {
     });
   }, [showToast]);
 
-  /** Patch + save immediately (archive / restore / delete / combine). */
+  /** Patch + save immediately (archive / restore / delete / combine).
+   *  Every mutation writes an immutable audit row (universal archive). */
   const patchAndSave = useCallback(
     async (id, patch) => {
       let merged = null;
+      let before = null;
+      let planned = null;
       // Local apply first so the screen never waits on the network.
       setJobs((js) =>
         js.map((j) => {
           if (String(j.id) !== String(id)) return j;
-          merged = applyOverlay(j, patch);
+          before = j;
+          planned = planMutation(j, patch, {
+            actor: auditActor(),
+            entityId: id,
+            entityHint: "job",
+          });
+          merged = applyOverlay(j, planned.patch);
           return merged;
         })
       );
-      if (merged) touchCustomerJob(merged);
-      const trySave = () => api.saveJob(id, patch);
+      // Overlay-only / metadata keys (e.g. _projects) may not be in jobs[].
+      if (!planned && patch) {
+        planned = planMutation(null, patch, {
+          actor: auditActor(),
+          entityId: id,
+          entityHint: String(id).charAt(0) === "_" ? "unknown" : "job",
+        });
+        merged = planned.patch;
+      }
+      if (merged && String(id).charAt(0) !== "_") touchCustomerJob(merged);
+      const toSave = planned?.patch || patch;
+      const trySave = () => api.saveJob(id, toSave);
       try {
         let r = await trySave();
         if (r && r.ts) lastSavedTs.current = Math.max(lastSavedTs.current, r.ts);
+        if (planned?.entry && String(id).charAt(0) !== "_") {
+          void appendAuditEntries(planned.entry);
+        }
       } catch {
         // One automatic retry, then surface — agent/host can pick up longer outages.
         try {
           await new Promise((res) => setTimeout(res, 400));
           const r = await trySave();
           if (r && r.ts) lastSavedTs.current = Math.max(lastSavedTs.current, r.ts);
+          if (planned?.entry && String(id).charAt(0) !== "_") {
+            void appendAuditEntries(planned.entry);
+          }
         } catch {
           showToast("Sync failed — will retry on next save");
         }
       }
     },
-    [showToast]
+    [showToast, auditActor, appendAuditEntries]
   );
 
   const promotePendingCalendarEvent = useCallback(
