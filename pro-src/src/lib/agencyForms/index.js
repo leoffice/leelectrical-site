@@ -70,3 +70,42 @@ export {
   listConedCompletedFiles,
 } from "./completeDestinations.js";
 
+// S23 — Submit a Case questionnaire + create-case execution
+export {
+  REQUEST_TYPES,
+  REQUEST_TYPE_LABELS,
+  REQUEST_TYPE_PORTAL,
+  DEFAULT_LOAD_ITEMS,
+  AUTO_HANDLED,
+  toPlainAscii,
+  sumLoadKw,
+  questionnaireSteps,
+  portalWizardStepCount,
+  isFullBranch,
+  normalizeRequestType,
+  seedCreateCaseAnswers,
+  defaultAnswers as defaultCreateCaseAnswers,
+  sanitizeAnswers as sanitizeCreateCaseAnswers,
+  missingCreateCaseFields,
+  createCaseReady,
+  buildCreateCasePayload,
+  buildCreateCaseDraft,
+  createCaseReviewRows,
+} from "./createCaseQuestionnaire.js";
+
+export {
+  CONED_CREATE_CASE_CMD,
+  queueConedCreateCase,
+  getCreateCaseState,
+} from "./createCaseExecution.js";
+
+// S24 — upload Form A to case Documents
+export {
+  CONED_UPLOAD_DOCUMENT_CMD,
+  DOCUMENT_TYPE as CONED_UPLOAD_DOCUMENT_TYPE,
+  MAX_PDF_BYTES as CONED_UPLOAD_MAX_PDF_BYTES,
+  resolveFormAForUpload,
+  buildUploadToCasePayload,
+  queueConedUploadDocument,
+} from "./uploadToCase.js";
+

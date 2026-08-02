@@ -1,0 +1,123 @@
+/**
+ * S23 — create-case EXECUTION handoff.
+ *
+ * Queues host command `coned_create_case` with the branched payload.
+ * Host auto-fills Energy Services wizard UP TO REVIEW; human confirms submit.
+ * Never stores Con Ed passwords. Session-only on host.
+ */
+import {
+  buildCreateCaseDraft,
+  buildCreateCasePayload,
+  createCaseReady,
+  sanitizeAnswers,
+} from "./createCaseQuestionnaire.js";
+
+export const CONED_CREATE_CASE_CMD = "coned_create_case";
+
+/**
+ * Queue create-case for host automation.
+ * @returns {{ ok: boolean, draft: object, error?: string, queued?: boolean }}
+ */
+export async function queueConedCreateCase({
+  answers = {},
+  job = {},
+  enqueue = null,
+  onSave = null,
+} = {}) {
+  const sanitized = sanitizeAnswers(answers);
+  if (!createCaseReady(sanitized)) {
+    return {
+      ok: false,
+      error: "questionnaire_incomplete",
+      draft: buildCreateCaseDraft(sanitized, job, { status: "draft" }),
+    };
+  }
+  const payload = buildCreateCasePayload(sanitized, job);
+  const execution = {
+    status: "queued",
+    queuedAt: new Date().toISOString(),
+    stopAt: "review",
+    autoSubmit: false,
+    branch: payload.branch,
+    requestType: payload.requestType,
+    error: "",
+  };
+  const draft = buildCreateCaseDraft(sanitized, job, {
+    status: "ready_to_fill",
+    execution,
+    payload,
+  });
+
+  if (typeof onSave === "function") {
+    onSave({
+      paperwork: {
+        coned: {
+          enabled: true,
+          createCase: draft,
+          // keep branch active for stage tracking
+          active: { "Application submitted": true },
+        },
+      },
+    });
+  }
+
+  if (typeof enqueue !== "function") {
+    return {
+      ok: false,
+      queued: false,
+      error:
+        "enqueue_not_wired: host command_listener must handle coned_create_case (session-only, stop at Review)",
+      draft: {
+        ...draft,
+        execution: {
+          ...execution,
+          status: "blocked",
+          error: "enqueue_not_wired",
+        },
+      },
+    };
+  }
+
+  try {
+    const idk = `coned-create-case:${job.id || "job"}:${payload.requestType}:${Date.now()}`;
+    await enqueue(
+      CONED_CREATE_CASE_CMD,
+      job.id || "coned",
+      {
+        ...payload,
+        // host needs job context for status write-back
+        jobId: job.id || "",
+        answers: sanitized,
+      },
+      "deterministic",
+      idk
+    );
+    return {
+      ok: true,
+      queued: true,
+      draft: {
+        ...draft,
+        execution: { ...execution, status: "queued", note: "awaiting_host_fill_to_review" },
+      },
+    };
+  } catch (err) {
+    return {
+      ok: false,
+      queued: false,
+      error: String(err?.message || err),
+      draft: {
+        ...draft,
+        execution: {
+          ...execution,
+          status: "error",
+          error: String(err?.message || err),
+        },
+      },
+    };
+  }
+}
+
+/** Read create-case state from job. */
+export function getCreateCaseState(job = {}) {
+  return job?.paperwork?.coned?.createCase || null;
+}

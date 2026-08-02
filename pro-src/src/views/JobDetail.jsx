@@ -88,6 +88,7 @@ import {
 } from "../components/JobSheets.jsx";
 import CustomerComposeSheet from "../components/CustomerComposeSheet.jsx";
 import AgencyApplicationSheet from "../components/AgencyApplicationSheet.jsx";
+import ConedCreateCaseSheet from "../components/ConedCreateCaseSheet.jsx";
 import SendDocConfirmSheet from "../components/SendDocConfirmSheet.jsx";
 import {
   buildWorkCompleteCustomerEmail,
@@ -783,6 +784,16 @@ export default function JobDetail() {
               )}
               <button
                 type="button"
+                className="btn bg-violet-700 text-white w-full !py-2.5 text-sm font-bold min-h-[44px]"
+                onClick={() => setSheet({ kind: "conedCreateCase" })}
+                data-testid="coned-tab-submit-a-case"
+              >
+                {job?.paperwork?.coned?.createCase?.answers
+                  ? "Continue Submit a Case"
+                  : "Submit a Case"}
+              </button>
+              <button
+                type="button"
                 className="btn bg-emerald-700 text-white w-full !py-2.5 text-sm font-bold min-h-[44px]"
                 onClick={() => setSheet({ kind: "conedApp" })}
                 data-testid="coned-tab-fill-application"
@@ -987,9 +998,24 @@ export default function JobDetail() {
                                       ) : null}
                                     </div>
                                   )}
-                                  {/* Con Ed Form A fillable application (Phase 1) */}
+                                  {/* S23 Submit a Case + Form A (Levi-tenant Con Ed apps) */}
                                   {br.enabled && k === "coned" && (
                                     <div className="py-1.5 space-y-1" data-testid="coned-app-cta">
+                                      {conedAppsOn ? (
+                                        <button
+                                          type="button"
+                                          className="btn bg-violet-700 text-white w-full !py-2.5 text-sm font-bold min-h-[44px]"
+                                          onClick={() => setSheet({ kind: "conedCreateCase" })}
+                                          data-testid="coned-submit-a-case"
+                                        >
+                                          {br.createCase?.status === "ready_to_fill" ||
+                                          br.createCase?.execution?.status === "queued"
+                                            ? "Submit a Case · queued / continue"
+                                            : br.createCase?.answers
+                                              ? "Continue Submit a Case"
+                                              : "Submit a Case"}
+                                        </button>
+                                      ) : null}
                                       <button
                                         type="button"
                                         className="btn bg-emerald-700 text-white w-full !py-2.5 text-sm font-bold min-h-[44px]"
@@ -1003,6 +1029,11 @@ export default function JobDetail() {
                                             : "Fill Con Ed application") +
                                           (br.application?.status === "submitted" ? " ✓" : "")}
                                       </button>
+                                      {br.createCase?.execution?.status === "queued" ? (
+                                        <p className="text-[11px] text-violet-700 font-semibold px-0.5">
+                                          Create-case fill queued · stops at Review for your confirm
+                                        </p>
+                                      ) : null}
                                       {br.application?.status === "submitted" ? (
                                         <p className="text-[11px] text-emerald-700 font-semibold px-0.5">
                                           Application submitted
@@ -1516,6 +1547,13 @@ export default function JobDetail() {
         <AgencyApplicationSheet
           job={job}
           agencyId="coned-form-a"
+          onClose={() => setSheet(null)}
+          onSave={(patch) => patchJob(id, patch)}
+        />
+      )}
+      {sheet?.kind === "conedCreateCase" && (
+        <ConedCreateCaseSheet
+          job={job}
           onClose={() => setSheet(null)}
           onSave={(patch) => patchJob(id, patch)}
         />
