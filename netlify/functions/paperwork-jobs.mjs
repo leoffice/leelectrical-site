@@ -236,6 +236,20 @@ export default async (req) => {
       }
       await store.setJSON(queueKey, queue);
     }
+    // Queue lists are an optimization and can lose entries to KV last-writer
+    // races (create appending while a claim writes back). The job records are
+    // the source of truth — fall back to scanning recent for queued work.
+    const recent = await readList(store, "recent");
+    for (const id of recent) {
+      const job = await readJob(store, id);
+      if (!job || job.status !== "queued" || !types.includes(job.type)) continue;
+      job.status = "in_progress";
+      job.claimedBy = agent;
+      job.claimedAt = now();
+      pushHistory(job, { status: "in_progress", by: agent, note: "claimed via recent-scan" });
+      await writeJob(store, job);
+      return json({ ok: true, job });
+    }
     return json({ ok: true, job: null });
   }
 
