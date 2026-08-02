@@ -91,6 +91,13 @@ import CustomerComposeSheet from "../components/CustomerComposeSheet.jsx";
 import AgencyApplicationSheet from "../components/AgencyApplicationSheet.jsx";
 import ConedApplicationStartSheet from "../components/ConedApplicationStartSheet.jsx";
 import ConedCreateCaseSheet from "../components/ConedCreateCaseSheet.jsx";
+import PaperworkApprovalSheet from "../components/PaperworkApprovalSheet.jsx";
+import {
+  getPaperworkJob,
+  paperworkJobStatusLabel,
+  paperworkJobStatusTone,
+  ACTIVE_PAPERWORK_JOB_STATUSES,
+} from "../lib/paperworkJobs.js";
 import SendDocConfirmSheet from "../components/SendDocConfirmSheet.jsx";
 import {
   buildWorkCompleteCustomerEmail,
@@ -170,6 +177,42 @@ export default function JobDetail() {
     ? "conedApp"
     : "conedAppStart";
   const conedIntakeRequest = job?.paperwork?.coned?.applicationRequest || null;
+
+  // Create-case run lifecycle (paperwork-jobs bridge): poll while active so
+  // Levi sees queued -> running -> awaiting YOUR approval -> submitted here.
+  const createCasePwId =
+    job?.paperwork?.coned?.createCase?.execution?.paperworkJobId || "";
+  const [casePwJob, setCasePwJob] = useState(null);
+  useEffect(() => {
+    if (!createCasePwId) {
+      setCasePwJob(null);
+      return undefined;
+    }
+    let alive = true;
+    let timer = null;
+    const tick = async () => {
+      const r = await getPaperworkJob(createCasePwId);
+      if (!alive) return;
+      if (r.ok && r.job) {
+        setCasePwJob(r.job);
+        if (ACTIVE_PAPERWORK_JOB_STATUSES.has(r.job.status)) {
+          timer = setTimeout(tick, 20000);
+        }
+        // A submitted run carries the case number back onto the job record.
+        if (r.job.caseNumber && !job?.paperwork?.coned?.caseNumber) {
+          patchJob(id, { paperwork: { coned: { caseNumber: r.job.caseNumber } } });
+        }
+      } else {
+        timer = setTimeout(tick, 30000);
+      }
+    };
+    tick();
+    return () => {
+      alive = false;
+      if (timer) clearTimeout(timer);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [id, createCasePwId]);
 
   // Levi dedupe: an existing application / completed Form A auto-enables the
   // Con Ed paperwork branch so it shows once, in the paperwork menu.
@@ -1117,9 +1160,48 @@ export default function JobDetail() {
                                             {n.text || n.type}
                                           </p>
                                         ))}
-                                      {br.createCase?.execution?.status === "queued" ? (
+                                      {casePwJob ? (
+                                        <div
+                                          className="flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-2.5 py-2"
+                                          data-testid="coned-case-run"
+                                        >
+                                          <div className="min-w-0 flex-1">
+                                            <div className="text-[12px] font-bold text-slate-800">
+                                              Create case run
+                                              {casePwJob.caseNumber
+                                                ? ` · ${casePwJob.caseNumber}`
+                                                : ""}
+                                            </div>
+                                            <span
+                                              className={`inline-block rounded-full px-2 py-0.5 text-[11px] font-bold ${paperworkJobStatusTone(
+                                                casePwJob.status
+                                              )}`}
+                                            >
+                                              {paperworkJobStatusLabel(casePwJob.status)}
+                                            </span>
+                                            {casePwJob.error ? (
+                                              <div className="text-[11px] text-red-600">
+                                                {casePwJob.error}
+                                              </div>
+                                            ) : null}
+                                          </div>
+                                          {casePwJob.status === "awaiting_approval" ? (
+                                            <button
+                                              type="button"
+                                              className="btn bg-red-600 text-white !py-1.5 !px-2.5 text-xs font-extrabold shrink-0 animate-pulse"
+                                              onClick={() =>
+                                                setSheet({ kind: "pwApproval", pwJob: casePwJob })
+                                              }
+                                              data-testid="coned-case-review"
+                                            >
+                                              Review &amp; approve
+                                            </button>
+                                          ) : null}
+                                        </div>
+                                      ) : br.createCase?.execution?.status === "queued" ? (
                                         <p className="text-[11px] text-violet-700 font-semibold px-0.5">
-                                          Create-case fill queued · stops at Review for your confirm
+                                          Create-case queued for the browser agent · stops at Review
+                                          for your approval
                                         </p>
                                       ) : null}
                                       {br.application?.status === "submitted" ? (
@@ -1772,6 +1854,13 @@ export default function JobDetail() {
           job={job}
           onClose={() => setSheet(null)}
           onSave={(patch) => patchJob(id, patch)}
+        />
+      )}
+      {sheet?.kind === "pwApproval" && sheet.pwJob && (
+        <PaperworkApprovalSheet
+          pwJob={sheet.pwJob}
+          onClose={() => setSheet(null)}
+          onDecided={(updated) => setCasePwJob(updated)}
         />
       )}
       {sheet?.kind === "bubble" && sheet.bubble ? (

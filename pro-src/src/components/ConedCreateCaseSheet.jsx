@@ -19,7 +19,7 @@ import {
   sumLoadKw,
   toPlainAscii,
 } from "../lib/agencyForms/createCaseQuestionnaire.js";
-import { queueConedCreateCase } from "../lib/agencyForms/createCaseExecution.js";
+import { createCasePaperworkJob } from "../lib/agencyForms/createCaseExecution.js";
 import {
   queueConedUploadDocument,
   resolveFormAForUpload,
@@ -172,12 +172,12 @@ export default function ConedCreateCaseSheet({ job, onClose, onSave }) {
     }
     setBusy(true);
     try {
-      const r = await queueConedCreateCase({ answers, job, enqueue, onSave });
-      if (r.ok && r.queued) {
+      const r = await createCasePaperworkJob({ answers, job, onSave });
+      if (r.ok) {
         setOkMsg(
-          `Case fill queued (${REQUEST_TYPE_LABELS[answers.requestType]} · ${portalWizardStepCount(
+          `Case queued for the browser agent (${REQUEST_TYPE_LABELS[answers.requestType]} · ${portalWizardStepCount(
             answers.requestType
-          )} portal steps). Host fills up to Review — you confirm submit. No auto-submit.`
+          )} portal steps). It fills to Review, sends you a screenshot, and waits for YOUR approval — nothing submits without it.`
         );
       } else {
         setErr(r.error || "Could not queue create-case");

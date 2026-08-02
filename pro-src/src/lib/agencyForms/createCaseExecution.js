@@ -14,6 +14,67 @@ import {
 
 export const CONED_CREATE_CASE_CMD = "coned_create_case";
 
+import { createPaperworkJob } from "../paperworkJobs.js";
+
+/**
+ * The app->backend BRIDGE (Levi 2026-08-02): Submit a Case writes a
+ * `create_case` paperwork job (status=queued) that the local fleet agent
+ * claims and drives in the browser. The fleet parks at Review with a
+ * screenshot (awaiting_approval); Levi approves IN THE APP before any submit.
+ * Replaces the host command-bus enqueue as the execution path.
+ */
+export async function createCasePaperworkJob({ answers = {}, job = {}, onSave = null } = {}) {
+  const sanitized = sanitizeAnswers(answers);
+  if (!createCaseReady(sanitized)) {
+    return {
+      ok: false,
+      error: "questionnaire_incomplete",
+      draft: buildCreateCaseDraft(sanitized, job, { status: "draft" }),
+    };
+  }
+  const payload = buildCreateCasePayload(sanitized, job);
+  const r = await createPaperworkJob({
+    type: "create_case",
+    jobId: job.id || "",
+    payload: {
+      ...payload,
+      jobId: job.id || "",
+      answers: sanitized,
+      skill: "coned-create-case",
+      stopAt: "review",
+      autoSubmit: false,
+    },
+  });
+  const execution = {
+    status: r.ok ? "queued" : "error",
+    queuedAt: new Date().toISOString(),
+    stopAt: "review",
+    autoSubmit: false,
+    branch: payload.branch,
+    requestType: payload.requestType,
+    paperworkJobId: r.ok ? r.job?.id || "" : "",
+    backend: true,
+    error: r.ok ? "" : r.error || "backend_create_failed",
+  };
+  const draft = buildCreateCaseDraft(sanitized, job, {
+    status: r.ok ? "ready_to_fill" : "draft",
+    execution,
+    payload,
+  });
+  if (typeof onSave === "function") {
+    onSave({
+      paperwork: {
+        coned: {
+          enabled: true,
+          createCase: draft,
+          active: { "Application submitted": true },
+        },
+      },
+    });
+  }
+  return { ok: r.ok, error: r.ok ? "" : r.error, draft, paperworkJobId: execution.paperworkJobId };
+}
+
 /**
  * Queue create-case for host automation.
  * @returns {{ ok: boolean, draft: object, error?: string, queued?: boolean }}

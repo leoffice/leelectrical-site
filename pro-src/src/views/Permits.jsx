@@ -9,7 +9,7 @@
 //
 // Module boundary: src/modules/permits (meter application + lock-in checklist).
 
-import React, { useMemo, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useStore } from "../state/store.jsx";
 import { useTenantConfig } from "../state/tenant.jsx";
@@ -29,6 +29,13 @@ import {
   readyToGoTodo,
   updatePaperworkTodoPatch,
 } from "../lib/agencyForms/index.js";
+import {
+  listPaperworkJobsServer,
+  paperworkJobStatusLabel,
+  paperworkJobStatusTone,
+  ACTIVE_PAPERWORK_JOB_STATUSES,
+} from "../lib/paperworkJobs.js";
+import PaperworkApprovalSheet from "../components/PaperworkApprovalSheet.jsx";
 
 /** Health/bucket → pill tone, mirroring the JobDetail Con Ed chip. */
 function stageTone(row) {
@@ -127,6 +134,32 @@ export default function Permits() {
   const nav = useNavigate();
   const [busy, setBusy] = useState(false);
   const [confirming, setConfirming] = useState(false);
+  // Browser-agent case runs (paperwork-jobs bridge): the lifecycle Levi
+  // verifies here — queued -> running -> awaiting approval -> submitted.
+  const [caseRuns, setCaseRuns] = useState([]);
+  const [approvalJob, setApprovalJob] = useState(null);
+  useEffect(() => {
+    let alive = true;
+    let timer = null;
+    const tick = async () => {
+      const r = await listPaperworkJobsServer({ limit: 20 });
+      if (!alive) return;
+      if (r.ok) {
+        setCaseRuns(r.jobs || []);
+        const anyActive = (r.jobs || []).some((j) =>
+          ACTIVE_PAPERWORK_JOB_STATUSES.has(j.status)
+        );
+        timer = setTimeout(tick, anyActive ? 20000 : 60000);
+      } else {
+        timer = setTimeout(tick, 60000);
+      }
+    };
+    tick();
+    return () => {
+      alive = false;
+      if (timer) clearTimeout(timer);
+    };
+  }, []);
 
   const board = useMemo(
     () => buildPermitBoard({ jobs, insights: emailInsights, config }),
@@ -203,6 +236,74 @@ export default function Permits() {
           </button>
         ) : null}
       </div>
+
+      {/* CASE RUNS (browser agent) — lifecycle + the red-line approval. */}
+      {caseRuns.length ? (
+        <div
+          className="card overflow-hidden mb-4 border border-slate-200"
+          data-testid="permits-case-runs"
+        >
+          <div className="px-4 py-3 border-b border-slate-100 bg-slate-50/80">
+            <h2 className="font-extrabold text-sm text-slate-900 uppercase tracking-wide">
+              Case runs
+            </h2>
+            <p className="text-xs text-slate-500 mt-0.5">
+              Submit a Case → browser agent → your approval → submitted
+            </p>
+          </div>
+          <div className="divide-y divide-slate-100">
+            {caseRuns.map((run) => {
+              const runJob = jobsById.get(run.jobId);
+              return (
+                <div
+                  key={run.id}
+                  className="px-3.5 py-2.5 flex items-center gap-2"
+                  data-testid="permits-case-run-row"
+                >
+                  <div className="min-w-0 flex-1">
+                    <div className="text-[13px] font-semibold text-slate-800 truncate">
+                      {run.payload?.requestType
+                        ? String(run.payload.requestType).replace(/_/g, " ")
+                        : "Create case"}
+                      {run.caseNumber ? ` · ${run.caseNumber}` : ""}
+                    </div>
+                    <button
+                      type="button"
+                      className="text-[11px] text-brand underline underline-offset-2"
+                      onClick={() => open(run.jobId)}
+                    >
+                      {runJob?.customer || runJob?.customerName || run.jobId}
+                      {runJob?.serviceAddress || runJob?.address
+                        ? " · " + (runJob.serviceAddress || runJob.address)
+                        : ""}
+                    </button>
+                    {run.error ? (
+                      <div className="text-[11px] text-red-600">{run.error}</div>
+                    ) : null}
+                  </div>
+                  <span
+                    className={`rounded-full px-2 py-0.5 text-[11px] font-bold shrink-0 ${paperworkJobStatusTone(
+                      run.status
+                    )}`}
+                  >
+                    {paperworkJobStatusLabel(run.status)}
+                  </span>
+                  {run.status === "awaiting_approval" ? (
+                    <button
+                      type="button"
+                      className="btn bg-red-600 text-white !py-1.5 !px-2.5 text-xs font-extrabold shrink-0 animate-pulse"
+                      onClick={() => setApprovalJob(run)}
+                      data-testid="permits-case-review"
+                    >
+                      Review &amp; approve
+                    </button>
+                  ) : null}
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      ) : null}
 
       {/* PAPERWORK TO-DO LIST (Levi) — the prominent thing on this tab.
           Items are created when applications complete (and by future flows);
@@ -392,6 +493,16 @@ export default function Permits() {
             </div>
           </div>
         </div>
+      ) : null}
+      {approvalJob ? (
+        <PaperworkApprovalSheet
+          pwJob={approvalJob}
+          onClose={() => setApprovalJob(null)}
+          onDecided={(updated) => {
+            setApprovalJob(null);
+            setCaseRuns((prev) => prev.map((r) => (r.id === updated.id ? updated : r)));
+          }}
+        />
       ) : null}
     </div>
   );
