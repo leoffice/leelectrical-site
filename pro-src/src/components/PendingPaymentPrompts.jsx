@@ -327,6 +327,19 @@ export default function PendingPaymentPrompts() {
     current.kind === "zelle" ? "Zelle payment received" : "Check photo from pay page";
   const inv = current.invoiceNo || job?.invoiceNo || "";
   const cust = current.customer || job?.customer || "";
+  const confLine = String(
+    current.confirmationNumber || current.ref || current.checkNumber || ""
+  ).trim();
+  const payAmtLine = String(current.amount || current.extracted?.amount || "").trim();
+  const openDue =
+    job?.openBalance != null && job?.openBalance !== ""
+      ? fmt$(job.openBalance)
+      : job?.amount
+        ? fmt$(job.amount)
+        : "";
+  const fromLine = String(current.fromName || current.payer || "").trim();
+  const memoLine = String(current.memo || current.extracted?.memo || "").trim();
+  const dateLine = String(current.date || "").slice(0, 10);
 
   return (
     <div
@@ -352,13 +365,68 @@ export default function PendingPaymentPrompts() {
           <h2 className="text-lg font-extrabold text-slate-900 leading-tight mt-0.5">
             {snoozing ? "Remind me later" : title}
           </h2>
-          <p className="text-sm text-slate-600 mt-1">
-            {cust ? <span className="font-semibold text-slate-800">{cust}</span> : null}
-            {cust && inv ? " · " : null}
-            {inv ? <>Invoice #{inv}</> : null}
-            {!cust && !inv ? "Review the photo, Autofill, then Approve." : null}
-          </p>
-          <p className="text-[11px] text-slate-500 mt-1">
+          {/* Condensed summary — invoice + amount due + conf on separate lines (Levi 2026-08-02) */}
+          <div
+            className="mt-2 rounded-xl bg-slate-50 border border-slate-100 px-3 py-2 text-sm text-slate-800 space-y-1 leading-snug"
+            data-testid="pending-payment-summary"
+          >
+            {cust ? (
+              <div>
+                <span className="text-[11px] font-bold uppercase tracking-wide text-slate-500">Customer</span>
+                <div className="font-semibold text-slate-900">{cust}</div>
+              </div>
+            ) : null}
+            {inv ? (
+              <div className="border-t border-slate-200/80 pt-1">
+                <span className="text-[11px] font-bold uppercase tracking-wide text-slate-500">Invoice</span>
+                <div className="font-semibold">#{inv}</div>
+              </div>
+            ) : null}
+            {openDue ? (
+              <div className="border-t border-slate-200/80 pt-1">
+                <span className="text-[11px] font-bold uppercase tracking-wide text-slate-500">Amount due</span>
+                <div className="font-semibold">{openDue}</div>
+              </div>
+            ) : null}
+            {payAmtLine ? (
+              <div className="border-t border-slate-200/80 pt-1">
+                <span className="text-[11px] font-bold uppercase tracking-wide text-slate-500">This payment</span>
+                <div className="font-semibold text-emerald-700">
+                  {payAmtLine.startsWith("$") ? payAmtLine : `$${payAmtLine}`}
+                </div>
+              </div>
+            ) : null}
+            {confLine ? (
+              <div className="border-t border-slate-200/80 pt-1">
+                <span className="text-[11px] font-bold uppercase tracking-wide text-slate-500">
+                  {current.kind === "zelle" ? "Confirmation" : "Check #"}
+                </span>
+                <div className="font-mono text-[13px] font-semibold break-all">{confLine}</div>
+              </div>
+            ) : null}
+            {fromLine ? (
+              <div className="border-t border-slate-200/80 pt-1">
+                <span className="text-[11px] font-bold uppercase tracking-wide text-slate-500">From</span>
+                <div className="font-semibold">{fromLine}</div>
+              </div>
+            ) : null}
+            {dateLine ? (
+              <div className="border-t border-slate-200/80 pt-1">
+                <span className="text-[11px] font-bold uppercase tracking-wide text-slate-500">Date</span>
+                <div className="font-semibold">{dateLine}</div>
+              </div>
+            ) : null}
+            {memoLine ? (
+              <div className="border-t border-slate-200/80 pt-1">
+                <span className="text-[11px] font-bold uppercase tracking-wide text-slate-500">Memo</span>
+                <div className="font-semibold">{memoLine}</div>
+              </div>
+            ) : null}
+            {!cust && !inv && !payAmtLine && !confLine ? (
+              <div className="text-slate-600">Review the photo, Autofill, then Approve.</div>
+            ) : null}
+          </div>
+          <p className="text-[11px] text-slate-500 mt-1.5">
             Source: {current.source === "pay_page" ? "Customer pay link" : current.source || "Bank / email"}
           </p>
         </div>
