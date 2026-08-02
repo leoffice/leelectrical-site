@@ -23,8 +23,14 @@ describe("buildPaymentConfirmEmail", () => {
     expect(html).toContain("$652");
     expect(html).toContain("Paid in full");
     expect(html).toContain("July 9, 2026");
+    // APPROVED STANDARD shell markers
+    expect(html).toContain("Licensed Electrical Contractor");
+    expect(html).toContain("Levi Kumer");
+    expect(html).toContain("Powered by");
+    expect(html).toContain("cid:companylogo");
     expect(text).toContain("Hi Moshe");
     expect(text).toContain("Paid in full");
+    expect(text).toContain("Levi Kumer");
   });
 
   it("shows remaining balance when not paid in full", () => {

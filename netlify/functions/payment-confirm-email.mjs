@@ -8,6 +8,7 @@ import {
   resolveFromAddress,
   resolveRecipient,
 } from "./lib/paymentConfirmEnv.mjs";
+import { leLogoAttachment } from "./lib/emailBranding.mjs";
 
 export { isEmailTestMode, resolveFromAddress, resolveRecipient };
 
@@ -137,6 +138,8 @@ export async function sendPaymentConfirmEmail({
     subject: testMode ? `[TEST] ${subject}` : subject,
     html,
     text,
+    // Inline CID logo so letterhead + signature render without "display images".
+    attachments: [leLogoAttachment()],
   };
   if (testMode && customerEmail && customerEmail !== to) {
     payload.headers = { "X-Intended-Recipient": customerEmail };

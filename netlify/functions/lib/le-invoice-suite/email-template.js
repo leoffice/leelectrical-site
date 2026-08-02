@@ -55,6 +55,150 @@ function buildPayLink(o, cfg = {}) {
 }
 
 /**
+ * Shared doc body pieces (invoice/estimate). Used by the full legacy layout
+ * and by the APPROVED STANDARD shell path (body-only → buildBrandedEmailHtml).
+ */
+function prepareDoc(d) {
+  const docType = (d.docType || 'INVOICE').toUpperCase();
+  const lines = Array.isArray(d.lines) ? d.lines : [];
+  const subtotal = d.subtotal != null ? d.subtotal
+    : lines.reduce((s, l) => s + Number(l.amount), 0);
+  const tax = d.tax || 0;
+  const total = d.total != null ? d.total : subtotal + tax;
+  const balanceDue = d.balanceDue != null ? d.balanceDue : d.amountDue;
+  const isEstimate = docType === 'ESTIMATE';
+  return { docType, lines, subtotal, tax, total, balanceDue, isEstimate };
+}
+
+function btnCell(label, href, bg) {
+  return `
+      <td style="border-radius:4px;background-color:${bg};text-align:center;">
+        <a href="${esc(href)}" style="display:inline-block;font-weight:bold;color:#ffffff;
+           text-decoration:none;padding:10px 40px;font-size:16px;white-space:nowrap;">${esc(label)}</a>
+      </td>`;
+}
+
+function btnRow(d, isEstimate) {
+  const cells = [];
+  const viewLabel = d.viewLabel || (isEstimate ? 'View estimate' : 'View invoice');
+  if (d.viewLink) cells.push(btnCell(viewLabel, d.viewLink, T.buttonBg));
+  if (d.payLink) cells.push(btnCell(d.payLabel || 'View and Pay', d.payLink, T.payButtonBg));
+  if (!cells.length) return '';
+  return `
+    <table cellpadding="0" cellspacing="0" border="0" style="margin:auto;">
+      <tr>${cells.join('<td style="width:16px;font-size:0;">&nbsp;</td>')}</tr>
+    </table>`;
+}
+
+/**
+ * BODY-ONLY invoice/estimate content for the standard branded shell.
+ * No letterhead, no signature, no Powered-by — those come from
+ * emailBranding.buildBrandedEmailHtml (APPROVED STANDARD).
+ */
+function buildEmailBodyHTML(d) {
+  const { docType, lines, subtotal, tax, total, balanceDue, isEstimate } = prepareDoc(d);
+
+  const customFieldRows = (d.customFields || [])
+    .filter((c) => c && c.value)
+    .map((c) => `
+      <tr class="le-fieldrow">
+        <td class="le-fieldlabel" style="font-size:16px;font-weight:bold;vertical-align:top;padding:8px 5px 0 0;width:100px;white-space:nowrap;">${esc(c.label)}</td>
+        <td class="le-fieldvalue" style="font-size:16px;padding:8px 5px 0 5px;overflow-wrap:anywhere;word-break:normal;">${esc(c.value)}</td>
+      </tr>`).join('');
+
+  const lineItems = lines.map((l) => `
+    <table width="100%" cellpadding="0" cellspacing="0" border="0"
+           style="font-family:${T.font};color:${T.text};padding-top:14px;">
+      <tr><td style="font-size:14px;padding:8px 0 0 0;line-height:1.35;color:${T.muted};">${nl2br(l.description)}</td></tr>
+      <tr><td style="font-size:14px;padding:6px 0 0 0;">
+        <table width="100%" cellpadding="0" cellspacing="0" border="0" style="font-family:${T.font};color:${T.text};">
+          <tr>
+            <td style="padding:0 20px 0 0;">${esc(l.qty)} X ${money(l.rate)}</td>
+            <td align="right" style="text-align:right;color:${T.text};font-size:14px;">${money(l.amount)}</td>
+          </tr>
+        </table>
+      </td></tr>
+    </table>`).join('');
+
+  const totalsRow = (label, value) => `
+    <tr>
+      <td style="padding:0 24px 12px 0;color:${T.text};font-size:14px;">${esc(label)}</td>
+      <td style="text-align:right;padding:0 0 12px 0;font-size:14px;">${esc(value)}</td>
+    </tr>`;
+
+  return `
+<style>
+  .le-fieldrow td { word-break: normal; overflow-wrap: anywhere; }
+  @media only screen and (max-width:480px) {
+    .le-fieldrow td { display:block !important; width:100% !important; }
+    .le-fieldlabel { padding:8px 0 0 0 !important; }
+    .le-fieldvalue { padding:2px 0 8px 0 !important; }
+  }
+</style>
+<div style="font-family:${T.font};color:${T.text};">
+  <div style="font-size:12px;text-align:center;color:${T.muted};margin-bottom:12px;letter-spacing:.04em;">
+    ${docType}&nbsp;&nbsp; ${esc(d.docNumber)} DETAILS</div>
+
+  <!-- amount banner + CTA -->
+  <table width="100%" cellpadding="0" cellspacing="0" border="0"
+         style="font-family:${T.font};width:100%;background-color:${T.bannerBg};text-align:center;border-radius:8px;">
+    <tr><td style="padding:24px 12px 18px 12px;">
+      <div style="font-size:14px;font-weight:bold;color:${T.text};">${isEstimate ? 'TOTAL' : 'DUE ' + esc(d.dueDate)}</div>
+      <div style="font-size:40px;font-weight:bold;color:${T.text};padding:8px 0 12px 0;">${money(d.amountDue)}</div>
+      <div style="padding:0 0 6px 0;">${btnRow(d, isEstimate)}</div>
+    </td></tr>
+  </table>
+
+  ${d.topMessage ? `
+  <div style="font-size:15px;line-height:1.5;text-align:left;padding:16px 0 0 0;">
+    <p style="margin:12px 0;">${nl2br(d.topMessage)}</p>
+  </div>` : ''}
+
+  <!-- bill to -->
+  <div style="background-color:${T.sectionBg};padding:16px 14px;margin:16px 0 0 0;border-radius:8px;">
+    <table width="100%" style="font-family:${T.font};color:${T.text};table-layout:auto;">
+      <tr class="le-fieldrow">
+        <td class="le-fieldlabel" style="vertical-align:top;font-weight:bold;font-size:15px;padding:6px 5px;width:90px;white-space:nowrap;">Bill to</td>
+        <td class="le-fieldvalue" style="font-size:15px;padding:6px 5px;overflow-wrap:anywhere;word-break:normal;">
+          ${esc(d.billTo && d.billTo.name)}<br>${((d.billTo && d.billTo.addressLines) || []).map(esc).join('<br>')}</td>
+      </tr>
+      ${customFieldRows}
+    </table>
+  </div>
+
+  <!-- line items -->
+  <div style="border-bottom:${T.rule};padding:18px 0;">
+    ${d.serviceDate ? `<div style="font-size:14px;color:${T.muted};padding:4px 0 0 0;">${esc(d.serviceDate)}</div>` : ''}
+    ${lineItems}
+  </div>
+
+  <!-- totals -->
+  <div style="text-align:right;padding:18px 0 8px 0;">
+    <table cellpadding="0" cellspacing="0" border="0" align="right" style="font-family:${T.font};color:${T.text};font-size:14px;">
+      ${totalsRow('Subtotal', money(subtotal))}
+      ${totalsRow('Tax', money(tax))}
+      ${totalsRow('Total', money(total))}
+      ${isEstimate ? '' : totalsRow('Balance due', money(balanceDue))}
+    </table>
+  </div>
+  <div style="clear:both;"></div>
+
+  ${(d.paymentMessageHtml || d.paymentMessage) ? `
+  <div style="font-size:14px;padding:14px 0;text-align:left;border-bottom:${T.rule};color:${T.muted};line-height:1.5;">
+    ${d.paymentMessageHtml || nl2br(d.paymentMessage)}</div>` : ''}
+
+  <div style="font-size:14px;padding:14px 0 0 0;color:${T.muted};text-align:left;line-height:1.5;">
+    Thank you for your business!<br><br>
+    If you have any questions concerning this ${docType.toLowerCase()} please contact us.
+  </div>
+
+  <div style="border-top:${T.rule};text-align:center;padding:18px 0 4px 0;font-size:12px;color:${T.muted};">
+    If you receive an email that seems fraudulent, please check with the business owner before paying.
+  </div>
+</div>`;
+}
+
+/**
  * @param {object} d
  * @param {'INVOICE'|'ESTIMATE'} [d.docType='INVOICE']
  * @param {string} d.docNumber
@@ -73,39 +217,14 @@ function buildPayLink(o, cfg = {}) {
  * @param {string} [d.paymentMessageHtml] pre-built HTML payment block (e.g. clickable Link)
  * @param {string} [d.logoSrc='cid:companylogo']  tenant logo (header brand)
  * @param {string} [d.poweredByHtml]   constant 'Powered by LE' footer block
+ * @param {boolean} [d.bodyOnly=false] when true, return body fragment only (for shell wrap)
  */
 function buildEmailHTML(d) {
-  const docType = (d.docType || 'INVOICE').toUpperCase();
-  const subtotal = d.subtotal != null ? d.subtotal
-    : d.lines.reduce((s, l) => s + Number(l.amount), 0);
-  const tax = d.tax || 0;
-  const total = d.total != null ? d.total : subtotal + tax;
-  const balanceDue = d.balanceDue != null ? d.balanceDue : d.amountDue;
+  // Prefer body-only when the caller will wrap with the standard branded shell.
+  if (d && d.bodyOnly) return buildEmailBodyHTML(d);
+
+  const { docType, lines, subtotal, tax, total, balanceDue, isEstimate } = prepareDoc(d);
   const logoSrc = d.logoSrc || 'cid:companylogo';
-
-  const btnCell = (label, href, bg) => `
-      <td style="border-radius:4px;background-color:${bg};text-align:center;">
-        <a href="${esc(href)}" style="display:inline-block;font-weight:bold;color:#ffffff;
-           text-decoration:none;padding:10px 40px;font-size:16px;white-space:nowrap;">${esc(label)}</a>
-      </td>`;
-
-  const isEstimate = docType === 'ESTIMATE';
-
-  // Button row: "View invoice/estimate" (dark) + "View and Pay" (green).
-  // Renders whichever links exist; nothing if neither is set.
-  // Estimates have no payment, so the pay button only renders if you
-  // explicitly pass payLink (e.g. for a deposit request).
-  const btnRow = () => {
-    const cells = [];
-    const viewLabel = d.viewLabel || (isEstimate ? 'View estimate' : 'View invoice');
-    if (d.viewLink) cells.push(btnCell(viewLabel, d.viewLink, T.buttonBg));
-    if (d.payLink) cells.push(btnCell(d.payLabel || 'View and Pay', d.payLink, T.payButtonBg));
-    if (!cells.length) return '';
-    return `
-    <table cellpadding="0" cellspacing="0" border="0" style="margin:auto;">
-      <tr>${cells.join('<td style="width:16px;font-size:0;">&nbsp;</td>')}</tr>
-    </table>`;
-  };
 
   const customFieldRows = (d.customFields || [])
     .filter((c) => c && c.value)
@@ -115,7 +234,7 @@ function buildEmailHTML(d) {
         <td class="le-fieldvalue" style="font-size:18px;padding:10px 5px 0 5px;overflow-wrap:anywhere;word-break:normal;min-width:200px;">${esc(c.value)}</td>
       </tr>`).join('');
 
-  const lineItems = d.lines.map((l) => `
+  const lineItems = lines.map((l) => `
     <table width="100%" cellpadding="0" cellspacing="0" border="0"
            style="font-family:${T.font};color:${T.text};padding-top:20px;">
       <tr><td style="font-size:16px;padding:10px 0 0 0;line-height:1.35;color:${T.muted};width:75%;">${nl2br(l.description)}</td></tr>
@@ -179,7 +298,7 @@ function buildEmailHTML(d) {
     <tr><td style="padding:31px 0 20px 0;">
       <div style="font-size:16px;font-weight:bold;color:${T.text};">${isEstimate ? 'TOTAL' : 'DUE ' + esc(d.dueDate)}</div>
       <div style="font-size:48px;font-weight:bold;color:${T.text};padding:9px 0 12px 0;">${money(d.amountDue)}</div>
-      <div style="padding:0 0 10px 0;">${btnRow()}</div>
+      <div style="padding:0 0 10px 0;">${btnRow(d, isEstimate)}</div>
     </td></tr>
   </table>
 
@@ -265,4 +384,4 @@ ${d.poweredByHtml ? `<tr><td style="padding:0;">${d.poweredByHtml}</td></tr>` : 
 </html>`;
 }
 
-module.exports = { buildEmailHTML, buildPayLink };
+module.exports = { buildEmailHTML, buildEmailBodyHTML, buildPayLink };

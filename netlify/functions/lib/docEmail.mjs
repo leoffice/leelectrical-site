@@ -9,13 +9,17 @@ import { docPdfFilename, docStoreKey, mapJobToQbDocData } from "./jobToQbDoc.mjs
 // Static ESM default-import of the CJS template (esbuild/Node interop) — no
 // createRequire, which isn't available on Cloudflare's V8 isolate.
 import emailTemplate from "./le-invoice-suite/email-template.js";
-// Logo inlined as base64 — Cloudflare/V8 has no filesystem for readFileSync.
-import { LOGO_PNG_BASE64 } from "./le-invoice-suite/logoBase64.mjs";
-import { POWERED_BY_LE_TEXT, poweredByLeHtml, resolveEmailBrand, signatureBlockHtml } from "./emailBranding.mjs";
+import {
+  POWERED_BY_LE_TEXT,
+  buildBrandedEmailHtml,
+  leLogoAttachment,
+  resolveEmailBrand,
+  signatureText,
+} from "./emailBranding.mjs";
 import { buildEmailPayLandingPayload, mintShortPayLink } from "./payLandingLink.mjs";
 import { getStore } from "./storage/index.mjs";
 
-const { buildEmailHTML, buildPayLink } = emailTemplate;
+const { buildEmailBodyHTML, buildPayLink } = emailTemplate;
 
 const RESEND_URL = "https://api.resend.com/emails";
 const SITE = "https://leelectrical.us";
@@ -161,7 +165,7 @@ export async function sendDocEmail({
   if (shortLink) viewLink = shortLink;
 
   const customTop = String(message || "").trim();
-  // Header brand = tenant (company name + logo). Footer = constant Powered by LE.
+  // Header brand = tenant (company name + logo). Shell = APPROVED STANDARD.
   const brand = resolveEmailBrand({ name: docData.company?.name, logoUrl: docData.company?.logoUrl });
   // Payment methods: Zelle, then credit-card Link (same short pay page), then Check.
   // "Link" is a real <a> to viewLink — never the raw Cardknox URL.
@@ -191,16 +195,20 @@ export async function sendDocEmail({
       paymentMessage = "Other ways to pay:\n\n-" + zelle + "\n-" + check;
     }
   }
-  const html = buildEmailHTML({
+  // ONE shell for all customer emails: letterhead + body + Gmail signature + Powered by LE.
+  const bodyHtml = buildEmailBodyHTML({
     ...docData,
     viewLink,
     // payLink intentionally omitted: one primary CTA only (View Invoice / View and Approve).
-    logoSrc: brand.logoSrc,
     viewLabel: isInvoice ? "View Invoice" : "View and Approve",
-    poweredByHtml: `${signatureBlockHtml()}${poweredByLeHtml()}`,
     topMessage: customTop || undefined,
     paymentMessage,
     paymentMessageHtml,
+  });
+  const html = buildBrandedEmailHtml({
+    bodyHtml,
+    tenant: { name: brand.name, logoUrl: brand.usesDefaultLogo ? "" : brand.logoSrc },
+    preheader: `${docWord} #${docData.docNumber} from ${docData.company?.name || brand.name}`,
   });
 
   // officeOnly hard-pins the recipient to office@ and refuses anything else —
@@ -243,7 +251,7 @@ export async function sendDocEmail({
         ? `View your invoice and pay: ${viewLink}`
         : `View and approve your estimate: ${viewLink}`
       : "") +
-    `\n\n${POWERED_BY_LE_TEXT}`;
+    `\n\n${signatureText()}\n\n${POWERED_BY_LE_TEXT}`;
 
   if (!apiKey) {
     console.log("[doc-email] DRY-RUN (no RESEND_API_KEY)", JSON.stringify(meta));
@@ -269,7 +277,7 @@ export async function sendDocEmail({
     text,
     attachments: [
       { filename, content: pdfAttachB64 },
-      { filename: "logo.png", content: LOGO_PNG_BASE64, content_id: "companylogo" },
+      leLogoAttachment(),
     ],
   };
   // Levi 2026-07-22: silent office copy of every real customer invoice/estimate

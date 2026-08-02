@@ -3,13 +3,20 @@
 // Resend. Mirrors docEmail.mjs's safety model (probe / officeOnly / testMode /
 // dry-run when RESEND_API_KEY is unset). Statements are customer-level, so this
 // does NOT go through mapJobToQbDocData.
+//
+// Shell: ONE standard branded template (emailBranding.buildBrandedEmailHtml) —
+// green letterhead + body + Gmail-style signature. Body content only swaps.
 import {
   isEmailTestMode,
   resolveFromAddress,
   resolveRecipient,
 } from "./paymentConfirmEnv.mjs";
-import { LOGO_PNG_BASE64 } from "./le-invoice-suite/logoBase64.mjs";
-import { poweredByLeHtml, resolveEmailBrand, signatureBlockHtml } from "./emailBranding.mjs";
+import {
+  POWERED_BY_LE_TEXT,
+  buildBrandedEmailHtml,
+  leLogoAttachment,
+  signatureText,
+} from "./emailBranding.mjs";
 
 const RESEND_URL = "https://api.resend.com/emails";
 const OFFICE_EMAIL = "office@leelectrical.us";
@@ -33,8 +40,8 @@ function decodePdfB64(b64) {
   return buf.length > 4 && buf.slice(0, 4).toString("latin1") === "%PDF" ? buf : null;
 }
 
-export function buildStatementHtml(st) {
-  const companyName = esc(st.company?.name || "BLZ Electric");
+/** Body-only content for the statement (swaps inside the standard shell). */
+function buildStatementBodyHtml(st) {
   const rows = (st.payRows || [])
     .map(
       (r) =>
@@ -47,25 +54,16 @@ export function buildStatementHtml(st) {
          </tr>`
     )
     .join("");
-  // Header brand = tenant; footer = constant Powered by LE.
-  const brand = resolveEmailBrand({ name: companyName, logoUrl: st.company?.logoUrl });
-  return `<!doctype html><html><body style="margin:0;background:#f6f7f8;font-family:Arial,Helvetica,sans-serif;color:#1f2937;">
-  <div style="max-width:600px;margin:0 auto;background:#fff;">
-    <div style="background:${GREEN};padding:16px 24px;">
-      <img src="${brand.logoSrc}" alt="${companyName}" height="40" style="vertical-align:middle;" />
-      <span style="color:#fff;font-weight:bold;font-size:16px;margin-left:10px;vertical-align:middle;">${companyName}</span>
-    </div>
-    <div style="padding:24px;">
-      <h2 style="color:${GREEN};margin:0 0 4px;font-size:20px;">Account Statement</h2>
-      <p style="margin:0 0 16px;color:#6b7280;font-size:13px;">${esc(st.typeLabel || "")}${
-        st.periodLabel ? " · " + esc(st.periodLabel) : ""
-      }</p>
-      <p style="font-size:14px;">Dear ${esc(st.billToName || "Customer")},</p>
-      <p style="font-size:14px;">Your account statement is attached. Balance due:
-        <b style="color:${GREEN};">$${money(st.totalDue || 0)}</b>.</p>
-      ${
-        rows
-          ? `<table style="width:100%;border-collapse:collapse;margin:16px 0;">
+  return (
+    `<h2 style="color:${GREEN};margin:0 0 4px;font-size:20px;">Account Statement</h2>` +
+    `<p style="margin:0 0 16px;color:#6b7280;font-size:13px;">${esc(st.typeLabel || "")}${
+      st.periodLabel ? " · " + esc(st.periodLabel) : ""
+    }</p>` +
+    `<p style="font-size:14px;">Dear ${esc(st.billToName || "Customer")},</p>` +
+    `<p style="font-size:14px;">Your account statement is attached. Balance due: ` +
+    `<b style="color:${GREEN};">$${money(st.totalDue || 0)}</b>.</p>` +
+    (rows
+      ? `<table style="width:100%;border-collapse:collapse;margin:16px 0;">
                <thead><tr>
                  <th style="text-align:left;font-size:11px;color:#9ca3af;border-bottom:2px solid ${GREEN};padding-bottom:4px;">INVOICE</th>
                  <th style="text-align:right;font-size:11px;color:#9ca3af;border-bottom:2px solid ${GREEN};padding-bottom:4px;">BALANCE</th>
@@ -74,13 +72,22 @@ export function buildStatementHtml(st) {
                <tbody>${rows}</tbody>
              </table>
              <p style="font-size:12px;color:#6b7280;">Each invoice in the attached PDF is also individually clickable to view and pay.</p>`
-          : `<p style="font-size:13px;color:#6b7280;">See the attached PDF for full details.</p>`
-      }
-      <p style="font-size:13px;color:#6b7280;margin-top:20px;">Questions? Reply to this email or call us anytime.</p>
-    </div>
-    ${signatureBlockHtml()}
-    ${poweredByLeHtml()}
-  </div></body></html>`;
+      : `<p style="font-size:13px;color:#6b7280;">See the attached PDF for full details.</p>`) +
+    `<p style="font-size:13px;color:#6b7280;margin-top:20px;">Questions? Reply to this email or call us anytime.</p>`
+  );
+}
+
+/**
+ * Full statement email HTML = standard branded shell + statement body.
+ * Letterhead header + signature come from buildBrandedEmailHtml (APPROVED STANDARD).
+ */
+export function buildStatementHtml(st) {
+  const companyName = String(st.company?.name || "BLZ Electric Inc.").trim() || "BLZ Electric Inc.";
+  return buildBrandedEmailHtml({
+    bodyHtml: buildStatementBodyHtml(st),
+    tenant: { name: companyName, logoUrl: st.company?.logoUrl },
+    preheader: `Account Statement — $${money(st.totalDue || 0)} due`,
+  });
 }
 
 /**
@@ -131,7 +138,8 @@ export async function sendStatementEmail({ to, officeOnly = false, probe = false
   const text =
     `Account statement from ${companyName}\n` +
     `Balance due: $${money(statement.totalDue || 0)}\n\n` +
-    (statement.payRows || []).map((r) => `Invoice #${r.inv}: $${money(r.amount)} — ${r.url}`).join("\n");
+    (statement.payRows || []).map((r) => `Invoice #${r.inv}: $${money(r.amount)} — ${r.url}`).join("\n") +
+    `\n\n${signatureText()}\n\n${POWERED_BY_LE_TEXT}`;
 
   if (!apiKey) {
     console.log("[statement-email] DRY-RUN (no RESEND_API_KEY)", JSON.stringify(meta));
@@ -146,7 +154,7 @@ export async function sendStatementEmail({ to, officeOnly = false, probe = false
     text,
     attachments: [
       { filename: filename || "Statement.pdf", content: pdfBuffer.toString("base64") },
-      { filename: "logo.png", content: LOGO_PNG_BASE64, content_id: "companylogo" },
+      leLogoAttachment(),
     ],
   };
   if (testMode && email && email !== recipient) payload.headers = { "X-Intended-Recipient": email };
