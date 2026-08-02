@@ -1,6 +1,6 @@
 // S23 — "Submit a Case" questionnaire + create-case queue (branched).
 // Add-Load = full (meters+load); No-Additional-Load = short (skips load/meters).
-import React, { useMemo, useRef, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import Sheet, { Fld } from "./Sheet.jsx";
 import { useStore } from "../state/store.jsx";
 import {
@@ -10,15 +10,21 @@ import {
   REQUEST_TYPE_LABELS,
   createCaseReady,
   createCaseReviewRows,
+  isAcItem,
   isFullBranch,
+  isLightingItem,
   missingCreateCaseFields,
   portalWizardStepCount,
   questionnaireSteps,
+  resolveLoadEntryMode,
   sanitizeAnswers,
   seedCreateCaseAnswers,
   sumLoadKw,
-  toPlainAscii,
 } from "../lib/agencyForms/createCaseQuestionnaire.js";
+import {
+  applyNycLookupToAnswers,
+  lookupNycProperty,
+} from "../lib/agencyForms/nycPropertyLookup.js";
 import { createCasePaperworkJob } from "../lib/agencyForms/createCaseExecution.js";
 import {
   queueConedUploadDocument,
@@ -61,13 +67,19 @@ export default function ConedCreateCaseSheet({ job, onClose, onSave }) {
   const { enqueue } = useStore();
   const existing = job?.paperwork?.coned?.createCase;
   const [answers, setAnswers] = useState(() => seedCreateCaseAnswers(job, existing));
+  const answersRef = useRef(answers);
+  answersRef.current = answers;
   const steps = useMemo(() => questionnaireSteps(answers.requestType), [answers.requestType]);
   const [stepIndex, setStepIndex] = useState(() =>
     Math.min(Number(existing?.stepIndex) || 0, Math.max(0, steps.length - 1))
   );
+  const stepIndexRef = useRef(stepIndex);
+  stepIndexRef.current = stepIndex;
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState("");
   const [okMsg, setOkMsg] = useState("");
+  const [lookupBusy, setLookupBusy] = useState(false);
+  const [lookupNote, setLookupNote] = useState("");
   const [caseNumber, setCaseNumber] = useState(
     () =>
       job?.paperwork?.coned?.caseNumber ||
@@ -75,6 +87,7 @@ export default function ConedCreateCaseSheet({ job, onClose, onSave }) {
       ""
   );
   const saveTimer = useRef(null);
+  const lookupOnce = useRef(false);
 
   const step = steps[stepIndex] || steps[0];
   const missing = missingCreateCaseFields(step?.id, answers);
@@ -102,55 +115,154 @@ export default function ConedCreateCaseSheet({ job, onClose, onSave }) {
     });
   };
 
-  const scheduleSave = (next, idx = stepIndex) => {
-    setAnswers(next);
-    if (saveTimer.current) clearTimeout(saveTimer.current);
-    saveTimer.current = setTimeout(() => persist(next, idx), 400);
+  /**
+   * Functional updates so rapid typing / multi-field edits never drop keystrokes
+   * (stale-closure was the "can only paste" bug). Live typing is NOT ASCII-stripped —
+   * sanitizeAnswers runs on persist only so the caret stays put.
+   */
+  const scheduleSave = (updater, idx = stepIndexRef.current) => {
+    setAnswers((prev) => {
+      const next = typeof updater === "function" ? updater(prev) : updater;
+      answersRef.current = next;
+      if (saveTimer.current) clearTimeout(saveTimer.current);
+      saveTimer.current = setTimeout(() => persist(answersRef.current, idx), 400);
+      return next;
+    });
   };
 
   const set = (key, value) => {
-    const v =
-      typeof value === "string" &&
-      ["ownerFirst", "ownerLast", "serviceAddress", "streetName", "scopeOfWork", "bin"].includes(
-        key
-      )
-        ? toPlainAscii(value)
-        : value;
-    scheduleSave({ ...answers, [key]: v });
+    if (key === "serviceAddress") {
+      // Keep house/street in sync with freeform address edits (payload prefers these)
+      scheduleSave((prev) => {
+        const addr = String(value || "").trim();
+        const m = addr.match(/^(\d+[A-Za-z]?)\s+(.+)$/);
+        let houseNumber = prev.houseNumber;
+        let streetName = prev.streetName;
+        if (m) {
+          houseNumber = m[1];
+          streetName = m[2]
+            .replace(/,?\s*(brooklyn|queens|manhattan|bronx|staten island).*$/i, "")
+            .replace(/,?\s*new york.*$/i, "")
+            .replace(/,?\s*ny\b.*$/i, "")
+            .replace(/,?\s*\d{5}(?:-\d{4})?\s*$/i, "")
+            .replace(/,\s*$/, "")
+            .trim();
+        }
+        return { ...prev, serviceAddress: value, houseNumber, streetName };
+      });
+      return;
+    }
+    scheduleSave((prev) => ({ ...prev, [key]: value }));
   };
 
+  /** Public NYC BIN (+ property owner when customer person name is blank). */
+  const runPublicLookup = async ({ force = false } = {}) => {
+    const addr =
+      answersRef.current.serviceAddress || job?.serviceAddress || job?.address || "";
+    if (!String(addr).trim()) {
+      setLookupNote("Need a street address first.");
+      return;
+    }
+    setLookupBusy(true);
+    setLookupNote("");
+    try {
+      const hit = await lookupNycProperty(addr);
+      if (!hit.ok) {
+        setLookupNote(
+          hit.error === "not_found"
+            ? "No public match for that address — type the BIN."
+            : `Public lookup failed (${hit.error || "error"}). Type the BIN.`
+        );
+        return;
+      }
+      setAnswers((prev) => {
+        const next = applyNycLookupToAnswers(prev, hit, {
+          forceBin: force,
+          forceOwner: false,
+        });
+        answersRef.current = next;
+        if (saveTimer.current) clearTimeout(saveTimer.current);
+        saveTimer.current = setTimeout(
+          () => persist(answersRef.current, stepIndexRef.current),
+          400
+        );
+        return next;
+      });
+      const parts = [];
+      if (hit.bin) parts.push(`BIN ${hit.bin}`);
+      if (hit.ownerRaw) parts.push(`property owner ${hit.ownerRaw}`);
+      setLookupNote(
+        parts.length
+          ? `Public records: ${parts.join(" · ")}. Confirm owner first/last match the customer card.`
+          : "Public records returned — confirm fields."
+      );
+    } catch (e) {
+      setLookupNote(String(e?.message || e || "lookup failed"));
+    } finally {
+      setLookupBusy(false);
+    }
+  };
+
+  // Auto-pull public BIN once when the property step opens and BIN is empty
+  useEffect(() => {
+    if (lookupOnce.current) return;
+    if (step?.id !== "property") return;
+    if (String(answers.bin || "").trim()) return;
+    lookupOnce.current = true;
+    runPublicLookup({ force: false });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [step?.id]);
+
   const setMeter = (i, key, value) => {
-    const meters = (answers.meters || []).slice();
-    meters[i] = { ...(meters[i] || {}), [key]: key === "name" ? toPlainAscii(value) : value };
-    const next = {
-      ...answers,
-      meters,
-      numberOfNewMeters: meters.filter((m) => m?.name).length || answers.numberOfNewMeters,
-    };
-    scheduleSave(next);
+    scheduleSave((prev) => {
+      const meters = (prev.meters || []).slice();
+      meters[i] = { ...(meters[i] || {}), [key]: value };
+      return {
+        ...prev,
+        meters,
+        numberOfNewMeters: meters.filter((m) => m?.name).length || prev.numberOfNewMeters,
+      };
+    });
   };
 
   const setLoad = (i, key, value) => {
-    const loadItems = (answers.loadItems || []).slice();
-    loadItems[i] = {
-      ...(loadItems[i] || {}),
-      [key]: key === "name" ? toPlainAscii(value) : value,
-    };
-    scheduleSave({ ...answers, loadItems });
+    scheduleSave((prev) => {
+      const loadItems = (prev.loadItems || DEFAULT_LOAD_ITEMS.map((x) => ({ ...x }))).slice();
+      const row = { ...(loadItems[i] || {}), [key]: value };
+      if (key === "name") {
+        if (isLightingItem(value)) row.entryMode = "totalKw";
+        else if (isAcItem(value)) row.entryMode = row.unit === "hp" ? "hp" : "kw";
+        else if (
+          !row.entryMode ||
+          row.entryMode === "totalKw" ||
+          row.entryMode === "hp" ||
+          row.entryMode === "kw"
+        ) {
+          row.entryMode = "qtyKw";
+        }
+      }
+      if (key === "unit") {
+        row.entryMode = value === "hp" ? "hp" : "kw";
+      }
+      loadItems[i] = row;
+      return { ...prev, loadItems };
+    });
   };
 
   const goNext = () => {
     setErr("");
-    if (missing.length) {
-      setErr("Fill required: " + missing.map((m) => m.label).join(", "));
+    const latest = answersRef.current;
+    const miss = missingCreateCaseFields(step?.id, latest);
+    if (miss.length) {
+      setErr("Fill required: " + miss.map((m) => m.label).join(", "));
       return;
     }
     if (stepIndex < steps.length - 1) {
       // When request type changes, re-resolve steps length
-      const nextSteps = questionnaireSteps(answers.requestType);
+      const nextSteps = questionnaireSteps(latest.requestType);
       const nextIdx = Math.min(stepIndex + 1, nextSteps.length - 1);
       setStepIndex(nextIdx);
-      persist(answers, nextIdx);
+      persist(latest, nextIdx);
     }
   };
 
@@ -159,29 +271,30 @@ export default function ConedCreateCaseSheet({ job, onClose, onSave }) {
     if (stepIndex > 0) {
       const nextIdx = stepIndex - 1;
       setStepIndex(nextIdx);
-      persist(answers, nextIdx);
+      persist(answersRef.current, nextIdx);
     }
   };
 
   const onCreateCase = async () => {
     setErr("");
     setOkMsg("");
-    if (!createCaseReady(answers)) {
+    const latest = answersRef.current;
+    if (!createCaseReady(latest)) {
       setErr("Still missing required fields — go back and complete each step.");
       return;
     }
     setBusy(true);
     try {
-      const r = await createCasePaperworkJob({ answers, job, onSave });
+      const r = await createCasePaperworkJob({ answers: latest, job, onSave });
       if (r.ok) {
         setOkMsg(
-          `Case queued for the browser agent (${REQUEST_TYPE_LABELS[answers.requestType]} · ${portalWizardStepCount(
-            answers.requestType
+          `Case queued for the browser agent (${REQUEST_TYPE_LABELS[latest.requestType]} · ${portalWizardStepCount(
+            latest.requestType
           )} portal steps). It fills to Review, sends you a screenshot, and waits for YOUR approval — nothing submits without it.`
         );
       } else {
         setErr(r.error || "Could not queue create-case");
-        if (r.draft) persist(answers, stepIndex, { status: r.draft.status, execution: r.draft.execution });
+        if (r.draft) persist(latest, stepIndexRef.current, { status: r.draft.status, execution: r.draft.execution });
       }
     } catch (e) {
       setErr(String(e?.message || e));
@@ -197,7 +310,7 @@ export default function ConedCreateCaseSheet({ job, onClose, onSave }) {
     try {
       const r = await queueConedUploadDocument({
         job,
-        answers,
+        answers: answersRef.current,
         caseNumber,
         enqueue,
         onSave,
@@ -265,7 +378,7 @@ export default function ConedCreateCaseSheet({ job, onClose, onSave }) {
               }
               onClick={() => {
                 setStepIndex(i);
-                persist(answers, i);
+                persist(answersRef.current, i);
               }}
             >
               {s.short}
@@ -284,8 +397,10 @@ export default function ConedCreateCaseSheet({ job, onClose, onSave }) {
             testId="coned-request-type-seg"
             value={answers.requestType}
             onChange={(v) => {
-              const next = sanitizeAnswers({ ...answers, requestType: v });
-              scheduleSave(next, 0);
+              scheduleSave(
+                (prev) => sanitizeAnswers({ ...prev, requestType: v }),
+                0
+              );
               setStepIndex(0);
             }}
             options={[
@@ -353,13 +468,30 @@ export default function ConedCreateCaseSheet({ job, onClose, onSave }) {
               ))}
             </select>
           </Fld>
-          <Fld label="BIN" hint="required">
-            <input
-              className="input text-base min-h-[44px]"
-              value={answers.bin || ""}
-              onChange={(e) => set("bin", e.target.value)}
-              data-testid="coned-field-bin"
-            />
+          <Fld label="BIN" hint="public NYC lookup — you don't type this">
+            <div className="flex gap-2">
+              <input
+                className="input text-base min-h-[44px] flex-1"
+                value={answers.bin || ""}
+                onChange={(e) => set("bin", e.target.value)}
+                data-testid="coned-field-bin"
+                placeholder={lookupBusy ? "Looking up…" : "Auto from public records"}
+              />
+              <button
+                type="button"
+                className="btn-ghost shrink-0 border border-emerald-300 text-emerald-900 font-bold px-3 min-h-[44px]"
+                onClick={() => runPublicLookup({ force: true })}
+                disabled={lookupBusy}
+                data-testid="coned-lookup-bin"
+              >
+                {lookupBusy ? "…" : "Look up"}
+              </button>
+            </div>
+            {lookupNote ? (
+              <p className="text-[11px] text-emerald-800 mt-1 font-semibold" data-testid="coned-lookup-note">
+                {lookupNote}
+              </p>
+            ) : null}
           </Fld>
           <Fld label="Building type">
             <Seg
@@ -387,6 +519,9 @@ export default function ConedCreateCaseSheet({ job, onClose, onSave }) {
       {step?.id === "owner" && (
         <div className="space-y-2" data-testid="coned-step-owner">
           <h4 className="font-extrabold text-slate-900 text-sm">Who owns the property?</h4>
+          <p className="text-xs text-slate-500">
+            Pulled from the customer card (person name). Company names stay off this line.
+          </p>
           <div className="grid grid-cols-2 gap-2">
             <Fld label="First name">
               <input
@@ -405,6 +540,17 @@ export default function ConedCreateCaseSheet({ job, onClose, onSave }) {
               />
             </Fld>
           </div>
+          {!answers.ownerFirst && !answers.ownerLast ? (
+            <button
+              type="button"
+              className="btn-ghost w-full border border-slate-200 text-slate-700 font-bold min-h-[44px]"
+              onClick={() => runPublicLookup({ force: false })}
+              disabled={lookupBusy}
+              data-testid="coned-lookup-owner"
+            >
+              {lookupBusy ? "Looking up…" : "Fill owner from public property records"}
+            </button>
+          ) : null}
           <Fld label="Phone">
             <input
               className="input text-base min-h-[44px]"
@@ -534,11 +680,9 @@ export default function ConedCreateCaseSheet({ job, onClose, onSave }) {
                   type="button"
                   className="btn-ghost !py-2 !px-2 text-red-600 font-bold"
                   onClick={() => {
-                    const meters = (answers.meters || []).filter((_, j) => j !== i);
-                    scheduleSave({
-                      ...answers,
-                      meters,
-                      numberOfNewMeters: meters.length,
+                    scheduleSave((prev) => {
+                      const meters = (prev.meters || []).filter((_, j) => j !== i);
+                      return { ...prev, meters, numberOfNewMeters: meters.length };
                     });
                   }}
                 >
@@ -565,10 +709,12 @@ export default function ConedCreateCaseSheet({ job, onClose, onSave }) {
             type="button"
             className="btn-ghost w-full border border-dashed border-emerald-300 text-emerald-800 font-bold"
             onClick={() => {
-              const meters = (answers.meters || []).concat([
-                { name: "", unitType: "Apartment", sqFt: "" },
-              ]);
-              scheduleSave({ ...answers, meters, numberOfNewMeters: meters.length });
+              scheduleSave((prev) => {
+                const meters = (prev.meters || []).concat([
+                  { name: "", unitType: "Apartment", sqFt: "" },
+                ]);
+                return { ...prev, meters, numberOfNewMeters: meters.length };
+              });
             }}
           >
             + Add meter
@@ -596,8 +742,12 @@ export default function ConedCreateCaseSheet({ job, onClose, onSave }) {
       {step?.id === "load" && full && (
         <div className="space-y-2" data-testid="coned-step-load">
           <h4 className="font-extrabold text-slate-900 text-sm">What&apos;s the electrical load?</h4>
-          <p className="text-xs text-slate-500">Seeded 2-family pattern — edit freely. Single-phase defaults.</p>
-          {(answers.loadItems || DEFAULT_LOAD_ITEMS).map((it, i) => (
+          <p className="text-xs text-slate-500">
+            Lighting = total kW · other devices = units × kW each · AC = kW or HP. Single-phase defaults.
+          </p>
+          {(answers.loadItems || DEFAULT_LOAD_ITEMS).map((it, i) => {
+            const mode = resolveLoadEntryMode(it);
+            return (
             <div key={i} className="rounded-xl border border-slate-200 p-3 bg-slate-50 space-y-2">
               <div className="flex gap-2">
                 <input
@@ -609,45 +759,105 @@ export default function ConedCreateCaseSheet({ job, onClose, onSave }) {
                   type="button"
                   className="btn-ghost !py-1 !px-2 text-red-600 font-bold"
                   onClick={() => {
-                    const loadItems = (answers.loadItems || []).filter((_, j) => j !== i);
-                    scheduleSave({ ...answers, loadItems });
+                    scheduleSave((prev) => ({
+                      ...prev,
+                      loadItems: (prev.loadItems || []).filter((_, j) => j !== i),
+                    }));
                   }}
                 >
                   ×
                 </button>
               </div>
-              <div className="grid grid-cols-3 gap-2">
-                <input
-                  className="input text-sm min-h-[40px]"
-                  type="number"
-                  value={it.qty ?? 0}
-                  onChange={(e) => setLoad(i, "qty", Number(e.target.value) || 0)}
-                  placeholder="Qty"
-                />
-                <input
-                  className="input text-sm min-h-[40px]"
-                  type="number"
-                  value={it.kwEach ?? 0}
-                  onChange={(e) => setLoad(i, "kwEach", Number(e.target.value) || 0)}
-                  placeholder="kW each"
-                />
-                <input
-                  className="input text-sm min-h-[40px]"
-                  value={it.phase || "Single"}
-                  onChange={(e) => setLoad(i, "phase", e.target.value)}
-                  placeholder="Phase"
-                />
-              </div>
+              {mode === "totalKw" ? (
+                <div className="grid grid-cols-2 gap-2">
+                  <input
+                    className="input text-sm min-h-[40px]"
+                    type="number"
+                    value={it.totalKw ?? it.kwEach ?? 0}
+                    onChange={(e) => setLoad(i, "totalKw", Number(e.target.value) || 0)}
+                    placeholder="Total kW"
+                    data-testid={`coned-load-totalKw-${i}`}
+                  />
+                  <input
+                    className="input text-sm min-h-[40px]"
+                    value={it.phase || "Single"}
+                    onChange={(e) => setLoad(i, "phase", e.target.value)}
+                    placeholder="Phase"
+                  />
+                </div>
+              ) : mode === "hp" || mode === "kw" ? (
+                <div className="grid grid-cols-3 gap-2">
+                  <input
+                    className="input text-sm min-h-[40px]"
+                    type="number"
+                    value={it.qty ?? 0}
+                    onChange={(e) => setLoad(i, "qty", Number(e.target.value) || 0)}
+                    placeholder="Qty"
+                  />
+                  {mode === "hp" ? (
+                    <input
+                      className="input text-sm min-h-[40px]"
+                      type="number"
+                      value={it.hpEach ?? 0}
+                      onChange={(e) => setLoad(i, "hpEach", Number(e.target.value) || 0)}
+                      placeholder="HP each"
+                    />
+                  ) : (
+                    <input
+                      className="input text-sm min-h-[40px]"
+                      type="number"
+                      value={it.kwEach ?? 0}
+                      onChange={(e) => setLoad(i, "kwEach", Number(e.target.value) || 0)}
+                      placeholder="kW each"
+                    />
+                  )}
+                  <select
+                    className="input text-sm min-h-[40px]"
+                    value={it.unit === "hp" ? "hp" : "kw"}
+                    onChange={(e) => setLoad(i, "unit", e.target.value)}
+                    data-testid={`coned-load-unit-${i}`}
+                  >
+                    <option value="kw">kW</option>
+                    <option value="hp">HP</option>
+                  </select>
+                </div>
+              ) : (
+                <div className="grid grid-cols-3 gap-2">
+                  <input
+                    className="input text-sm min-h-[40px]"
+                    type="number"
+                    value={it.qty ?? 0}
+                    onChange={(e) => setLoad(i, "qty", Number(e.target.value) || 0)}
+                    placeholder="Qty"
+                  />
+                  <input
+                    className="input text-sm min-h-[40px]"
+                    type="number"
+                    value={it.kwEach ?? 0}
+                    onChange={(e) => setLoad(i, "kwEach", Number(e.target.value) || 0)}
+                    placeholder="kW each"
+                  />
+                  <input
+                    className="input text-sm min-h-[40px]"
+                    value={it.phase || "Single"}
+                    onChange={(e) => setLoad(i, "phase", e.target.value)}
+                    placeholder="Phase"
+                  />
+                </div>
+              )}
             </div>
-          ))}
+            );
+          })}
           <button
             type="button"
             className="btn-ghost w-full border border-dashed border-emerald-300 text-emerald-800 font-bold"
             onClick={() => {
-              const loadItems = (answers.loadItems || []).concat([
-                { name: "", qty: 1, kwEach: 1, phase: "Single" },
-              ]);
-              scheduleSave({ ...answers, loadItems });
+              scheduleSave((prev) => ({
+                ...prev,
+                loadItems: (prev.loadItems || []).concat([
+                  { name: "", entryMode: "qtyKw", qty: 1, kwEach: 1, phase: "Single" },
+                ]),
+              }));
             }}
           >
             + Add load item
@@ -778,7 +988,8 @@ export default function ConedCreateCaseSheet({ job, onClose, onSave }) {
         type="button"
         className="btn-ghost w-full !py-2 text-slate-500 mt-1"
         onClick={() => {
-          persist(answers, stepIndex);
+          if (saveTimer.current) clearTimeout(saveTimer.current);
+          persist(answersRef.current, stepIndexRef.current);
           onClose?.();
         }}
         disabled={busy}

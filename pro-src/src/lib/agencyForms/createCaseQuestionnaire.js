@@ -28,13 +28,66 @@ export const REQUEST_TYPE_PORTAL = {
     "Performing Work on Customer Equipment - No Additional Load",
 };
 
-/** Default 2-family load seed (from questionnaire spec). */
+/**
+ * Load-item entry modes (Levi 2026-08-02 portal match):
+ * - totalKw  — Lighting / common lighting: one total kW (not qty × each)
+ * - qtyKw    — other devices: units × kW per unit + phase
+ * - kw / hp  — AC / space cooling: pick horsepower or kilowatts per unit
+ */
+export const HP_TO_KW = 0.746;
+
+export function isLightingItem(name = "") {
+  return /light/i.test(String(name || ""));
+}
+
+export function isAcItem(name = "") {
+  return /cool|a\/?c\b|air.?cond|space.?cool|central.?ac/i.test(String(name || ""));
+}
+
+export function resolveLoadEntryMode(it = {}) {
+  if (it.entryMode) return it.entryMode;
+  if (isLightingItem(it.name)) return "totalKw";
+  if (isAcItem(it.name)) return it.unit === "hp" ? "hp" : "kw";
+  return "qtyKw";
+}
+
+/** kW contribution of one load row (portal-facing). */
+export function loadItemKw(it = {}) {
+  const mode = resolveLoadEntryMode(it);
+  let kw = 0;
+  if (mode === "totalKw") {
+    const t = it.totalKw != null && it.totalKw !== "" ? it.totalKw : it.kwEach;
+    kw = Number(t) || 0;
+  } else {
+    const qty = Number(it.qty) || 0;
+    if (mode === "hp" || it.unit === "hp") {
+      kw = qty * (Number(it.hpEach) || 0) * HP_TO_KW;
+    } else {
+      kw = qty * (Number(it.kwEach) || 0);
+    }
+  }
+  // Host/payload rows may only carry lineKw — don't zero the sum
+  if (!kw && it.lineKw != null && it.lineKw !== "") {
+    return Number(it.lineKw) || 0;
+  }
+  return kw;
+}
+
+/** Default 2-family load seed (portal field shapes). */
 export const DEFAULT_LOAD_ITEMS = [
-  { name: "Kitchen Equipment", qty: 6, kwEach: 1, phase: "Single" },
-  { name: "Lighting", qty: 1, kwEach: 2, phase: "Single" },
-  { name: "Electric Stoves", qty: 2, kwEach: 3, phase: "Single" },
-  { name: "Space Cooling / Central AC (cooling-only)", qty: 2, kwEach: 2, phase: "Single" },
-  { name: "Common-area Lighting", qty: 1, kwEach: 2, phase: "Single" },
+  { name: "Kitchen Equipment", entryMode: "qtyKw", qty: 6, kwEach: 1, phase: "Single" },
+  { name: "Lighting", entryMode: "totalKw", totalKw: 2, phase: "Single" },
+  { name: "Electric Stoves", entryMode: "qtyKw", qty: 2, kwEach: 3, phase: "Single" },
+  {
+    name: "Space Cooling / Central AC (cooling-only)",
+    entryMode: "kw",
+    unit: "kw",
+    qty: 2,
+    kwEach: 2,
+    hpEach: "",
+    phase: "Single",
+  },
+  { name: "Common-area Lighting", entryMode: "totalKw", totalKw: 2, phase: "Single" },
 ];
 
 /** Values never asked — auto, shown once in "Already handled". */
@@ -70,11 +123,56 @@ export function toPlainAscii(s) {
 }
 
 export function sumLoadKw(items = []) {
-  return (items || []).reduce((acc, it) => {
-    const q = Number(it.qty) || 0;
-    const k = Number(it.kwEach) || 0;
-    return acc + q * k;
-  }, 0);
+  return (items || []).reduce((acc, it) => acc + loadItemKw(it), 0);
+}
+
+/**
+ * Prefer a real person name over a company display name
+ * (e.g. "Goodness and kindness" must not become owner first/last).
+ */
+export function resolveOwnerPersonName(job = {}) {
+  const candidates = [
+    job.personName,
+    job.ownerName,
+    job.contactName,
+    job.customerPersonName,
+    job.ownerFirst && job.ownerLast ? `${job.ownerFirst} ${job.ownerLast}` : "",
+    job.ownerFirst || job.ownerLast
+      ? `${job.ownerFirst || ""} ${job.ownerLast || ""}`.trim()
+      : "",
+  ]
+    .map((s) => String(s || "").trim())
+    .filter(Boolean);
+
+  for (const c of candidates) {
+    if (!looksLikeCompanyName(c)) return c;
+  }
+
+  const customer = String(job.customer || job.customerName || "").trim();
+  const business = String(job.businessName || "").trim();
+  if (customer && customer !== business && !looksLikeCompanyName(customer)) {
+    return customer;
+  }
+  if (customer && !business && !looksLikeCompanyName(customer)) {
+    return customer;
+  }
+  return "";
+}
+
+/** Heuristic: company / org labels should not become owner first/last. */
+export function looksLikeCompanyName(name = "") {
+  const s = String(name || "").trim();
+  if (!s) return false;
+  if (
+    /\b(llc|inc|corp|ltd|co\.|company|associates|realty|electric|inc\.|services|foundation|synagogue|school|church)\b/i.test(
+      s
+    )
+  ) {
+    return true;
+  }
+  // "X and Y" trade names (e.g. Goodness and kindness) — not a person
+  if (/\band\b/i.test(s) && s.split(/\s+/).length >= 3) return true;
+  return false;
 }
 
 /**
@@ -143,7 +241,8 @@ function splitName(full) {
     .filter(Boolean);
   if (!parts.length) return { first: "", last: "" };
   if (parts.length === 1) return { first: parts[0], last: "" };
-  return { first: parts[0], last: parts.slice(1).join(" ") };
+  // Last token = last name; everything before = first (+ middle) — fits "Yitzchok Dovid Rubashkin"
+  return { first: parts.slice(0, -1).join(" "), last: parts[parts.length - 1] };
 }
 
 function parseAddressLine(addr) {
@@ -151,6 +250,19 @@ function parseAddressLine(addr) {
   const m = s.match(/^(\d+[A-Za-z]?)\s+(.+)$/);
   if (m) return { houseNumber: m[1], streetName: m[2] };
   return { houseNumber: "", streetName: s };
+}
+
+/** Strip city/state/zip tail so portal house/street stay clean. */
+function cleanStreetName(streetName = "") {
+  let cleanStreet = String(streetName || "").trim();
+  if (!cleanStreet) return "";
+  return cleanStreet
+    .replace(/,?\s*(brooklyn|queens|manhattan|bronx|staten island).*$/i, "")
+    .replace(/,?\s*new york.*$/i, "")
+    .replace(/,?\s*ny\b.*$/i, "")
+    .replace(/,?\s*\d{5}(?:-\d{4})?\s*$/i, "")
+    .replace(/,\s*$/, "")
+    .trim();
 }
 
 /**
@@ -166,18 +278,32 @@ export function seedCreateCaseAnswers(job = {}, existing = null) {
 export function defaultAnswers(job = {}) {
   const addr = String(job.serviceAddress || job.address || "").trim();
   const { houseNumber, streetName } = parseAddressLine(addr);
-  const { first, last } = splitName(job.customer || job.customerName || job.ownerName || "");
+  // Prefer person name over company trade name (customer card personName / owner fields).
+  const person = resolveOwnerPersonName(job);
+  const { first, last } = splitName(person);
   const phone = String(job.phone || job.customerPhone || "").replace(/\D/g, "").slice(0, 10);
   const email = String(job.email || job.customerEmail || "").trim();
+  let city = String(job.city || "").trim();
+  let state = String(job.state || "").trim() || "NY";
+  let zip = String(job.zip || job.postalCode || "").trim();
+  const addrLower = addr.toLowerCase();
+  if (!city && /brooklyn/.test(addrLower)) city = "Brooklyn";
+  if (!city && /queens/.test(addrLower)) city = "Queens";
+  if (!city) city = "Brooklyn";
+  if (!zip) {
+    const zm = addr.match(/\b(\d{5})(?:-\d{4})?\b/);
+    if (zm) zip = zm[1];
+  }
+  const cleanStreet = cleanStreetName(streetName);
   return sanitizeAnswers({
     requestType: REQUEST_TYPES.NO_ADD_LOAD, // Levi's most common
     serviceAddress: addr,
     houseNumber,
-    streetName,
-    city: String(job.city || "Brooklyn").trim() || "Brooklyn",
-    state: String(job.state || "NY").trim() || "NY",
-    zip: String(job.zip || job.postalCode || "").trim(),
-    borough: String(job.borough || "Brooklyn").trim() || "Brooklyn",
+    streetName: cleanStreet || streetName,
+    city,
+    state,
+    zip,
+    borough: String(job.borough || city || "Brooklyn").trim() || "Brooklyn",
     bin: String(job.bin || job.BIN || "").trim(),
     buildingType: "Residential",
     is1to3Family: true,
@@ -337,17 +463,50 @@ export function buildCreateCasePayload(answers = {}, job = {}) {
       }))
     : [];
   const loadItems = full
-    ? (a.loadItems || []).map((it) => ({
-        name: toPlainAscii(it.name),
-        qty: Number(it.qty) || 0,
-        kwEach: Number(it.kwEach) || 0,
-        phase: toPlainAscii(it.phase || "Single"),
-      }))
+    ? (a.loadItems || []).map((it) => {
+        const name = toPlainAscii(it.name);
+        const entryMode = resolveLoadEntryMode({ ...it, name });
+        const phase = toPlainAscii(it.phase || "Single");
+        const kwLine = loadItemKw({ ...it, name, entryMode });
+        if (entryMode === "totalKw") {
+          return {
+            name,
+            entryMode: "totalKw",
+            qty: 1,
+            kwEach: kwLine,
+            totalKw: kwLine,
+            phase,
+            lineKw: kwLine,
+          };
+        }
+        if (entryMode === "hp") {
+          return {
+            name,
+            entryMode: "hp",
+            unit: "hp",
+            qty: Number(it.qty) || 0,
+            hpEach: Number(it.hpEach) || 0,
+            kwEach:
+              Math.round((kwLine * 1000) / Math.max(1, Number(it.qty) || 0)) / 1000,
+            phase,
+            lineKw: Math.round(kwLine * 1000) / 1000,
+          };
+        }
+        return {
+          name,
+          entryMode: entryMode === "kw" ? "kw" : "qtyKw",
+          unit: entryMode === "kw" ? "kw" : undefined,
+          qty: Number(it.qty) || 0,
+          kwEach: Number(it.kwEach) || 0,
+          phase,
+          lineKw: kwLine,
+        };
+      })
     : [];
   const kw =
     a.requiredTotalKw !== "" && a.requiredTotalKw != null
       ? Number(a.requiredTotalKw)
-      : sumLoadKw(loadItems);
+      : sumLoadKw(a.loadItems || []);
 
   return {
     skill: "coned-create-case",
@@ -362,8 +521,17 @@ export function buildCreateCasePayload(answers = {}, job = {}) {
     jobId: job.id || job.jobId || "",
     jobName: toPlainAscii(job.customer || job.customerName || job.name || ""),
     property: {
-      houseNumber: toPlainAscii(a.houseNumber || parseAddressLine(a.serviceAddress).houseNumber),
-      streetName: toPlainAscii(a.streetName || parseAddressLine(a.serviceAddress).streetName),
+      // Prefer re-parse of serviceAddress so a later address edit can't leave stale house/street
+      houseNumber: toPlainAscii(
+        (a.serviceAddress
+          ? parseAddressLine(a.serviceAddress).houseNumber
+          : "") || a.houseNumber || ""
+      ),
+      streetName: toPlainAscii(
+        cleanStreetName(
+          (a.serviceAddress ? parseAddressLine(a.serviceAddress).streetName : "") || a.streetName
+        ) || a.streetName || ""
+      ),
       serviceAddress: toPlainAscii(a.serviceAddress || ""),
       city: toPlainAscii(a.city || "Brooklyn"),
       state: toPlainAscii(a.state || "NY"),
@@ -468,12 +636,21 @@ export function createCaseReviewRows(answers = {}) {
       label: "Meter capacity increase",
       value: a.meterCapacityIncrease ? "Yes" : "No",
     });
-    const kw = a.requiredTotalKw !== "" ? a.requiredTotalKw : sumLoadKw(a.loadItems);
+    const kw =
+      a.requiredTotalKw !== "" && a.requiredTotalKw != null
+        ? a.requiredTotalKw
+        : sumLoadKw(a.loadItems);
     rows.push({ label: "Required total kW", value: String(kw) });
     rows.push({
       label: "Load items",
       value: (a.loadItems || [])
-        .map((it) => `${it.name} ×${it.qty} @ ${it.kwEach}kW`)
+        .map((it) => {
+          const mode = resolveLoadEntryMode(it);
+          const line = loadItemKw(it);
+          if (mode === "totalKw") return `${it.name}: ${line}kW total`;
+          if (mode === "hp") return `${it.name} ×${it.qty || 0} @ ${it.hpEach || 0}HP (${line}kW)`;
+          return `${it.name} ×${it.qty || 0} @ ${it.kwEach || 0}kW`;
+        })
         .join("; "),
     });
   } else {

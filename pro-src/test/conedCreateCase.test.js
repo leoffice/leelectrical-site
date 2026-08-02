@@ -12,6 +12,9 @@ import {
   createCaseReady,
   buildCreateCasePayload,
   sumLoadKw,
+  loadItemKw,
+  resolveLoadEntryMode,
+  HP_TO_KW,
   DEFAULT_LOAD_ITEMS,
 } from "../src/lib/agencyForms/createCaseQuestionnaire.js";
 import { queueConedCreateCase, CONED_CREATE_CASE_CMD } from "../src/lib/agencyForms/createCaseExecution.js";
@@ -143,6 +146,104 @@ describe("seedCreateCaseAnswers", () => {
     expect(a.serviceAddress).toContain("Lincoln");
     expect(a.ownerFirst).toBe("Izzy");
     expect(a.ownerEmail).toBe("izzy@example.com");
+  });
+
+  it("uses personName for owner, not company trade name", () => {
+    const a = seedCreateCaseAnswers({
+      serviceAddress: "1349 President St, Brooklyn NY 11213",
+      customer: "Goodness and kindness",
+      businessName: "Goodness and kindness",
+      personName: "Yitzchok Dovid Rubashkin",
+      email: "Goodnessandkindnessinc@gmail.com",
+      phone: "9177552477",
+    });
+    expect(a.ownerFirst).toBe("Yitzchok Dovid");
+    expect(a.ownerLast).toBe("Rubashkin");
+    expect(a.ownerEmail).toMatch(/goodness/i);
+  });
+
+  it("does not treat company label as owner first/last", () => {
+    const a = seedCreateCaseAnswers({
+      serviceAddress: "1349 President St",
+      customer: "Goodness and kindness",
+      businessName: "Goodness and kindness",
+      personName: "",
+      email: "x@y.com",
+      phone: "9177552477",
+    });
+    expect(a.ownerFirst).toBe("");
+    expect(a.ownerLast).toBe("");
+  });
+});
+
+describe("load item entry modes (Levi 2026-08-02)", () => {
+  it("lighting uses total kW only", () => {
+    const light = { name: "Lighting", entryMode: "totalKw", totalKw: 5, phase: "Single" };
+    expect(resolveLoadEntryMode(light)).toBe("totalKw");
+    expect(loadItemKw(light)).toBe(5);
+    expect(sumLoadKw([light])).toBe(5);
+  });
+
+  it("other devices = qty × kW each", () => {
+    const stove = { name: "Electric Stoves", entryMode: "qtyKw", qty: 2, kwEach: 3, phase: "Single" };
+    expect(loadItemKw(stove)).toBe(6);
+  });
+
+  it("AC accepts HP and converts to kW", () => {
+    const ac = {
+      name: "Space Cooling / Central AC (cooling-only)",
+      entryMode: "hp",
+      unit: "hp",
+      qty: 2,
+      hpEach: 1,
+      phase: "Single",
+    };
+    expect(resolveLoadEntryMode(ac)).toBe("hp");
+    expect(loadItemKw(ac)).toBeCloseTo(2 * HP_TO_KW, 5);
+  });
+
+  it("payload includes entryMode + lineKw for host fill", () => {
+    const fullAns = {
+      ...completeAnswers,
+      requestType: REQUEST_TYPES.ADD_LOAD,
+      meters: [{ name: "Apartment 1", unitType: "Apartment" }],
+      loadItems: [
+        { name: "Lighting", entryMode: "totalKw", totalKw: 4, phase: "Single" },
+        { name: "Kitchen Equipment", entryMode: "qtyKw", qty: 2, kwEach: 1, phase: "Single" },
+      ],
+      numberOfNewMeters: 1,
+    };
+    const full = buildCreateCasePayload(fullAns, { id: "j1" });
+    const lighting = full.loadItems.find((x) => x.name === "Lighting");
+    expect(lighting.entryMode).toBe("totalKw");
+    expect(lighting.totalKw).toBe(4);
+    expect(lighting.lineKw).toBe(4);
+    expect(full.service.requiredTotalKw).toBe(6);
+  });
+
+  it("sumLoadKw falls back to lineKw-only payload rows", () => {
+    expect(
+      sumLoadKw([
+        { name: "Lighting", entryMode: "totalKw", lineKw: 4 },
+        { name: "Stoves", entryMode: "qtyKw", lineKw: 6 },
+      ])
+    ).toBe(10);
+    expect(loadItemKw({ lineKw: 3.5 })).toBe(3.5);
+  });
+
+  it("payload re-parses house/street from edited serviceAddress", () => {
+    const p = buildCreateCasePayload(
+      {
+        ...completeAnswers,
+        serviceAddress: "1349 President St, Brooklyn NY 11213",
+        houseNumber: "555", // stale
+        streetName: "Kingston Avenue", // stale
+      },
+      { id: "j1" }
+    );
+    expect(p.property.houseNumber).toBe("1349");
+    expect(p.property.streetName.toLowerCase()).toContain("president");
+    expect(p.property.streetName.toLowerCase()).not.toMatch(/brooklyn/);
   });
 });
 

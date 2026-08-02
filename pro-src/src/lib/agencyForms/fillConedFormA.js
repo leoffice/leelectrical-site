@@ -7,9 +7,12 @@
  *   "Part Supply FloorOffice Apartment"  / tooltip "Part Supply: Floor/Office #/Apartment"
  *   "Part Supply FloorOffice Apartment_2" (mailing)
  */
-import { PDFDocument } from "pdf-lib";
+import { PDFDocument, StandardFonts } from "pdf-lib";
 import { CONED_FORM_A_SOURCE_PDF } from "./conedFormA.js";
 import { clampConedUnit } from "./conedUnit.js";
+
+/** Productization §9 — force readable text size on every filled Form A field. */
+export const CONED_FORM_A_TEXT_SIZE = 11;
 
 /** AcroForm field names on page 1 of the official PDF. */
 export const CONED_FORM_A_PAGE1_FIELDS = {
@@ -186,6 +189,13 @@ export async function fillConedFormAPdfBytes({ answers = {}, sourceBytes } = {})
   const form = doc.getForm();
   const values = resolveConedPage1Values(answers);
 
+  let font = null;
+  try {
+    font = await doc.embedFont(StandardFonts.Helvetica);
+  } catch {
+    font = null;
+  }
+
   for (const [fieldName, value] of Object.entries(values)) {
     try {
       const field = form.getTextField(fieldName);
@@ -195,13 +205,27 @@ export async function fillConedFormAPdfBytes({ answers = {}, sourceBytes } = {})
         v = clampConedUnit(v);
       }
       field.setText(v);
+      try {
+        field.setFontSize(CONED_FORM_A_TEXT_SIZE);
+      } catch {
+        /* some fields reject size — keep value */
+      }
     } catch {
       // Field missing or not a text field — skip
     }
   }
 
-  // Flatten optional? Keep editable so office can tweak before portal submit.
-  form.updateFieldAppearances();
+  // Keep editable so office can tweak before portal submit.
+  try {
+    if (font) form.updateFieldAppearances(font);
+    else form.updateFieldAppearances();
+  } catch {
+    try {
+      form.updateFieldAppearances();
+    } catch {
+      /* appearance update best-effort */
+    }
+  }
   const saved = await doc.save({ updateFieldAppearances: true });
   return saved instanceof Uint8Array ? saved : new Uint8Array(saved);
 }

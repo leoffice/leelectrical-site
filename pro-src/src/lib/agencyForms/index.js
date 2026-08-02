@@ -43,6 +43,7 @@ export {
 
 export {
   CONED_FORM_A_PAGE1_FIELDS,
+  CONED_FORM_A_TEXT_SIZE,
   resolveConedPage1Values,
   loadConedSourcePdfBytes,
   fillConedFormAPdfBytes,
@@ -129,7 +130,21 @@ export {
   buildCreateCasePayload,
   buildCreateCaseDraft,
   createCaseReviewRows,
+  resolveOwnerPersonName,
+  looksLikeCompanyName,
+  isLightingItem,
+  isAcItem,
+  resolveLoadEntryMode,
+  loadItemKw,
+  HP_TO_KW,
 } from "./createCaseQuestionnaire.js";
+
+export {
+  lookupNycProperty,
+  applyNycLookupToAnswers,
+  parseNycAddressParts,
+  parsePlutoOwnerName,
+} from "./nycPropertyLookup.js";
 
 export {
   CONED_CREATE_CASE_CMD,
