@@ -87,13 +87,26 @@ export {
   intakeSubmissionToCompletedFiles,
 } from "./conedIntake.js";
 
-// S28 — auto upload-to-case on completion + LE Pro notification
+// Kept as manual/Ready-to-go primitives — no longer auto-fired on completion
+// (Levi redirect 2026-08-02: completion creates a paperwork TO-DO instead).
 export {
   autoUploadOnComplete,
   autoUploadIfWaiting,
   resolveConedCaseNumber,
   conedNotification,
 } from "./autoUploadOnComplete.js";
+
+// Paperwork TO-DO model + Ready-to-go trigger
+export {
+  PAPERWORK_TODO_KINDS,
+  paperworkTodoLabel,
+  listPaperworkTodos,
+  openPaperworkTodos,
+  addPaperworkTodoPatch,
+  updatePaperworkTodoPatch,
+  readyToGoTodo,
+  completionTodoPatch,
+} from "./paperworkTodos.js";
 
 // S23 — Submit a Case questionnaire + create-case execution
 export {

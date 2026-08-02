@@ -311,17 +311,18 @@ export default function CustomerDocTabs({
 
   return (
     <div className="space-y-2" data-testid="customer-doc-tabs">
-      {showStatement ? (
-        <button
-          type="button"
-          className={CREATE_BTN}
-          data-testid="cust-generate-statement"
-          onClick={() => onGenerateStatement?.()}
-        >
-          🧾 Generate Statement
-        </button>
-      ) : null}
+      {/* Levi: Statement rides the same row as Invoices/Estimates — no extra line. */}
       <div className="flex gap-1.5 px-0.5">
+        {showStatement ? (
+          <button
+            type="button"
+            className={`${TAB_BTN} bg-brand-soft/50 text-brand border-brand/40`}
+            data-testid="cust-generate-statement"
+            onClick={() => onGenerateStatement?.()}
+          >
+            🧾 Statement
+          </button>
+        ) : null}
         {[
           ["invoices", "🧾 Invoices", counts.invoices],
           ["estimates", "📝 Estimates", counts.estimates],

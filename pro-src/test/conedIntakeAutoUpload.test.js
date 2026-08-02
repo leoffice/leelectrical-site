@@ -23,6 +23,7 @@ import {
 import {
   CONED_FORM_A,
   completeConedApplicationDestinations,
+  readyToGoTodo,
 } from "../src/lib/agencyForms/index.js";
 
 const INTAKE_ANSWERS = {
@@ -80,9 +81,7 @@ describe("buildApplyLink", () => {
       },
       meters: [{ name: "Test 2", unit: "2B" }, { name: "PLP" }],
     });
-    expect(link).toMatch(
-      /^https:\/\/www\.leelectrical\.us\/app\/coned\/apply\.html#/
-    );
+    expect(link).toMatch(/^https:\/\/www\.leelectrical\.us\/app\/coned\/apply#/);
     const cfg = decodeHash(link);
     expect(cfg.t).toBe("tok123");
     expect(cfg.jobId).toBe("job-9");
@@ -228,8 +227,8 @@ describe("autoUploadOnComplete (S28)", () => {
   });
 });
 
-describe("completion runs the auto-upload (office fill)", () => {
-  it("waits for case when none, without gating success", async () => {
+describe("completion creates the upload TO-DO (Levi redirect — no auto-upload)", () => {
+  it("adds the upload_application to-do + notification; never queues the upload", async () => {
     const patches = [];
     const enqueued = [];
     vi.stubGlobal(
@@ -264,12 +263,20 @@ describe("completion runs the auto-upload (office fill)", () => {
       emailCustomerCopy: false,
     });
     expect(result.success).toBe(true);
-    expect(result.autoUpload.waitingForCase).toBe(true);
-    // No case number -> no upload command; Drive best-effort may still queue.
+    expect(result.completionTodo.added).toBe(true);
+    // Redirect: completion NEVER queues the upload command.
     expect(enqueued.some((e) => e.type === "coned_upload_document")).toBe(false);
+    const todoPatch = patches.find((p) => p?.paperwork?.todos);
+    expect(todoPatch).toBeTruthy();
+    const todo = todoPatch.paperwork.todos.find((t) => t.kind === "upload_application");
+    expect(todo).toBeTruthy();
+    expect(todo.status).toBe("pending");
+    expect(
+      todoPatch.paperwork.coned.notifications.some((n) => n.type === "todo_created")
+    ).toBe(true);
   });
 
-  it("queues upload when the job already has a case number", async () => {
+  it("even with a case number present, completion only creates the to-do", async () => {
     const enqueued = [];
     vi.stubGlobal(
       "fetch",
@@ -308,11 +315,89 @@ describe("completion runs the auto-upload (office fill)", () => {
       emailCustomerCopy: false,
     });
     expect(result.success).toBe(true);
-    expect(result.autoUpload.queued).toBe(true);
+    expect(result.completionTodo.added).toBe(true);
+    expect(enqueued.some((e) => e.type === "coned_upload_document")).toBe(false);
+  });
+});
+
+describe("readyToGoTodo fires the skill on Levi's tap", () => {
+  it("upload_application -> queues the real S24 upload with the tab docKey", async () => {
+    const enqueued = [];
+    const saves = [];
+    const job = {
+      id: "job-9",
+      customer: "Test 2",
+      serviceAddress: "555 Kingston Avenue",
+      paperwork: {
+        coned: {
+          enabled: true,
+          caseNumber: "MC-424242",
+          completedFiles: [
+            {
+              name: "555 Kingston Avenue - PLP - Test 2.pdf",
+              docKey: "coned-job9-plp-x",
+              meterLabel: "PLP",
+              status: "submitted",
+            },
+          ],
+        },
+        todos: [
+          {
+            id: "upload_application:PLP",
+            kind: "upload_application",
+            meterLabel: "PLP",
+            status: "pending",
+            title: "Upload application to the Con Ed case",
+          },
+        ],
+      },
+    };
+    const r = await readyToGoTodo({
+      job,
+      todo: job.paperwork.todos[0],
+      enqueue: async (type, jobId, payload) => enqueued.push({ type, payload }),
+      onSave: (p) => saves.push(p),
+    });
+    expect(r.queued).toBe(true);
     const cmd = enqueued.find((e) => e.type === "coned_upload_document");
-    expect(cmd).toBeTruthy();
     expect(cmd.payload.caseNumber).toBe("MC-424242");
-    // docKey is the client-generated docs key for this job+meter
-    expect(cmd.payload.docKey).toMatch(/^coned-job-9-PLP-/);
+    expect(cmd.payload.docKey).toBe("coned-job9-plp-x");
+    expect(cmd.payload.autoSubmit).toBe(false);
+    const patched = saves.find((p) => p?.paperwork?.todos);
+    expect(patched.paperwork.todos[0].status).toBe("queued");
+  });
+
+  it("upload without a case number refuses with a clear reason", async () => {
+    const r = await readyToGoTodo({
+      job: { id: "j", paperwork: { todos: [{ id: "upload_application:PLP", kind: "upload_application", status: "pending" }] } },
+      todo: { id: "upload_application:PLP", kind: "upload_application", meterLabel: "PLP", status: "pending" },
+      enqueue: async () => {},
+      onSave: () => {},
+    });
+    expect(r.queued).toBe(false);
+    expect(r.error).toMatch(/needs_case_number/);
+  });
+
+  it("other kinds queue their host command as a clean stub hook", async () => {
+    const enqueued = [];
+    const job = {
+      id: "job-9",
+      paperwork: {
+        todos: [
+          { id: "create_case:job", kind: "create_case", status: "pending", title: "Create a new Con Ed case" },
+        ],
+      },
+    };
+    const r = await readyToGoTodo({
+      job,
+      todo: job.paperwork.todos[0],
+      enqueue: async (type, jobId, payload) => enqueued.push({ type, payload }),
+      onSave: () => {},
+    });
+    expect(r.queued).toBe(true);
+    expect(enqueued[0].type).toBe("coned_create_case");
+    expect(enqueued[0].payload.skill).toBe("coned-create-case");
+    expect(enqueued[0].payload.stopAt).toBe("review");
+    expect(enqueued[0].payload.autoSubmit).toBe(false);
   });
 });

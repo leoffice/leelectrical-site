@@ -23,6 +23,12 @@ import {
   jobPatchMeterApplication,
   meterApplicationLabel,
 } from "../modules/permits/meterApplication.js";
+import {
+  listPaperworkTodos,
+  paperworkTodoLabel,
+  readyToGoTodo,
+  updatePaperworkTodoPatch,
+} from "../lib/agencyForms/index.js";
 
 /** Health/bucket → pill tone, mirroring the JobDetail Con Ed chip. */
 function stageTone(row) {
@@ -116,7 +122,7 @@ function CaseRow({ row, job, onOpen, onMeterApplication }) {
 }
 
 export default function Permits() {
-  const { jobs, emailInsights, patchAndSave, showToast } = useStore();
+  const { jobs, emailInsights, patchAndSave, showToast, enqueue } = useStore();
   const config = useTenantConfig();
   const nav = useNavigate();
   const [busy, setBusy] = useState(false);
@@ -198,7 +204,102 @@ export default function Permits() {
         ) : null}
       </div>
 
-      {/* Working tracker — Con Ed sub-workflows (item 8 = meter app DONE) */}
+      {/* PAPERWORK TO-DO LIST (Levi) — the prominent thing on this tab.
+          Items are created when applications complete (and by future flows);
+          Ready to go fires the matching skill once access is unlocked. */}
+      {(() => {
+        const rows = (jobs || [])
+          .flatMap((j) =>
+            listPaperworkTodos(j).map((t) => ({ job: j, todo: t }))
+          )
+          .sort((a, b) =>
+            String(b.todo.createdAt || "").localeCompare(String(a.todo.createdAt || ""))
+          );
+        if (!rows.length) return null;
+        return (
+          <div
+            className="card overflow-hidden mb-4 border border-violet-200"
+            data-testid="permits-todo-list"
+          >
+            <div className="px-4 py-3 border-b border-violet-100 bg-violet-50/70">
+              <h2 className="font-extrabold text-sm text-violet-900 uppercase tracking-wide">
+                Paperwork to-do list
+              </h2>
+              <p className="text-xs text-slate-500 mt-0.5">
+                Tap Ready to go when Energy Services / DOB access is unlocked
+              </p>
+            </div>
+            <div className="divide-y divide-slate-100">
+              {rows.map(({ job, todo }) => (
+                <div
+                  key={job.id + ":" + todo.id}
+                  className="px-3.5 py-2.5 flex items-center gap-2"
+                  data-testid="permits-todo-row"
+                >
+                  <div className="min-w-0 flex-1">
+                    <div className="text-[13px] font-semibold text-slate-800 truncate">
+                      {todo.title || paperworkTodoLabel(todo.kind)}
+                      {todo.meterLabel ? ` · ${todo.meterLabel}` : ""}
+                    </div>
+                    <button
+                      type="button"
+                      className="text-[11px] text-brand underline underline-offset-2"
+                      onClick={() => open(job.id)}
+                    >
+                      {job.customer || job.customerName || "Job"}
+                      {job.serviceAddress || job.address
+                        ? " · " + (job.serviceAddress || job.address)
+                        : ""}
+                    </button>
+                    {todo.error ? (
+                      <div className="text-[11px] text-red-600">{todo.error}</div>
+                    ) : null}
+                  </div>
+                  {todo.status === "queued" ? (
+                    <span className="pill bg-emerald-100 text-emerald-800 shrink-0">
+                      queued
+                    </span>
+                  ) : (
+                    <button
+                      type="button"
+                      className="btn bg-violet-700 text-white !py-1.5 !px-2.5 text-xs font-bold shrink-0"
+                      data-testid="permits-todo-ready"
+                      onClick={async () => {
+                        const r = await readyToGoTodo({
+                          job,
+                          todo,
+                          enqueue,
+                          onSave: (p) => patchAndSave(job.id, p),
+                        });
+                        showToast(
+                          r.queued
+                            ? "Queued — stops at review for your confirm"
+                            : "Not fired: " + (r.error || "unknown")
+                        );
+                      }}
+                    >
+                      Ready to go
+                    </button>
+                  )}
+                  <button
+                    type="button"
+                    className="btn-ghost !py-0.5 !px-1.5 text-slate-400 shrink-0"
+                    aria-label={`Remove to-do ${todo.title || todo.kind}`}
+                    onClick={() => {
+                      const p = updatePaperworkTodoPatch(job, todo.id, "removed");
+                      if (p) patchAndSave(job.id, p);
+                    }}
+                  >
+                    ✕
+                  </button>
+                </div>
+              ))}
+            </div>
+          </div>
+        );
+      })()}
+
+      {/* Skill list — collapsible, collapsed by default (Levi: waste of space) */}
       <div className="mb-4">
         <FunctionalitiesLockIn />
       </div>

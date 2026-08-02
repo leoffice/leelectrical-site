@@ -29,7 +29,7 @@ import {
 } from "./completedFileName.js";
 import { CONED_FORM_A_DEFAULT_EMAILS } from "./conedFormA.js";
 import { saveConedToDriveApi } from "./gdriveSave.js";
-import { autoUploadOnComplete } from "./autoUploadOnComplete.js";
+import { completionTodoPatch } from "./paperworkTodos.js";
 
 const OFFICE_DEFAULT = CONED_FORM_A_DEFAULT_EMAILS[0] || "office@leelectrical.us";
 
@@ -528,37 +528,24 @@ export async function completeConedApplicationDestinations({
   // Ship gate: TAB always. Customer email optional (opt-in). Drive (S25) never gates.
   const success = tabOk;
 
-  // —— 4) Auto upload-to-case (S28) — completion triggers the S24 skill ——
-  // Queues the Energy Services upload (or records waiting_case) + a job
-  // notification. Downstream of the tab record; never gates completion.
-  let autoUpload = { ok: false, skipped: true };
+  // —— 4) Completion TO-DO (Levi redirect) — no auto-upload for now ——
+  // A finished application adds "Upload application to the Con Ed case" to
+  // the paperwork to-do list + a notification. Levi fires it with Ready to go
+  // once Energy Services access is unlocked. Never gates completion.
+  let completionTodo = { added: false };
   if (tabOk) {
     try {
-      const jobWithFiles = {
-        ...job,
-        paperwork: {
-          ...(job.paperwork || {}),
-          coned: {
-            ...(job.paperwork?.coned || {}),
-            completedFiles: withoutSame,
-          },
-        },
-      };
-      autoUpload = await autoUploadOnComplete({
-        job: jobWithFiles,
-        answers,
-        meterLabel: meter,
-        source: "office",
-        enqueue,
-        onSave,
-      });
+      completionTodo = completionTodoPatch(job, { meterLabel: meter, source: "office" });
+      if (completionTodo.patch && typeof onSave === "function") {
+        onSave(completionTodo.patch);
+      }
     } catch (err) {
-      autoUpload = { ok: false, queued: false, error: String(err?.message || err) };
+      completionTodo = { added: false, error: String(err?.message || err) };
     }
   }
 
   return {
-    autoUpload,
+    completionTodo,
     filename,
     pdfB64,
     meterLabel: meter,

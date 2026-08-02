@@ -257,17 +257,25 @@ describe("6. progress — steps, paperwork branches, scheduled date", () => {
 
     await user.click(within(pane).getByRole("button", { name: /📑/ })); // Paperwork phase
     await user.click(within(pane).getByRole("switch", { name: "🔌 Con Edison progress" }));
-    expect(within(pane).getByText("POE scheduled")).toBeInTheDocument();
-    expect(within(pane).getByText("Meter installation date")).toBeInTheDocument();
-    // jobs.html DATE_STEPS: only these two sub-steps carry a date input
+    // Steps render as flow chips (short labels, green/gray status)
+    expect(within(pane).getByRole("button", { name: "Schedule POE" })).toBeInTheDocument();
+    expect(
+      within(pane).getByRole("button", { name: "Set meter installation date" })
+    ).toBeInTheDocument();
+    // jobs.html DATE_STEPS: the date input appears in the tapped chip's controls
+    await user.click(within(pane).getByRole("button", { name: "Set meter installation date" }));
     expect(screen.getByLabelText("Meter installation date date")).toBeInTheDocument();
-    expect(screen.getByLabelText("Inspection appointment date")).toBeInTheDocument();
+    await user.click(within(pane).getByRole("button", { name: /Schedule POE/ }));
     expect(screen.queryByLabelText("POE scheduled date")).toBeNull();
 
     await user.click(within(pane).getByRole("switch", { name: "🏙️ DOB / City permit" }));
-    expect(within(pane).getByText("Permit issued")).toBeInTheDocument();
-    // DOB list matches jobs.html: no "Application submitted" in the DOB branch
-    expect(within(pane).getAllByText("Application submitted")).toHaveLength(1); // Con Ed only
+    expect(within(pane).getByRole("button", { name: "Obtain permit" })).toBeInTheDocument();
+    // DOB list matches jobs.html: no submit-application chip in the DOB branch
+    const conedFlow = within(pane).getByTestId("paper-flow-coned");
+    const dobFlow = within(pane).getByTestId("paper-flow-dob");
+    expect(within(conedFlow).getByRole("button", { name: /Submit application/ })).toBeInTheDocument();
+    expect(within(dobFlow).queryByRole("button", { name: /Submit application/ })).toBeNull();
+    await user.click(within(pane).getByRole("button", { name: "Schedule inspection" }));
     await user.click(within(pane).getByRole("switch", { name: "Inspection scheduled" }));
     await user.click(await screen.findByTestId("paper-appt-create"));
     const dtIn = await screen.findByLabelText("Appointment date and time");

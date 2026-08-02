@@ -29,28 +29,28 @@ const openDetail = async () => {
   return pane;
 };
 
-describe("sub-item enable flow", () => {
-  it("enabling Con Ed auto-activates first step; tap greyed step enables immediately", async () => {
+describe("sub-item enable flow (chip flow strip)", () => {
+  it("enabling Con Ed auto-activates first step; tap gray chip enables immediately", async () => {
     const srv = mockServer();
     const user = userEvent.setup();
     const pane = await openDetail();
     await openConEd(user, pane);
 
-    const first = () => within(pane).getByRole("button", { name: /^(✓ )?Application submitted$/ });
-    const second = () => within(pane).getByRole("button", { name: /^POE scheduled$/ });
+    const first = () => within(pane).getByRole("button", { name: /^(✓ )?Submit application$/ });
+    const second = () => within(pane).getByRole("button", { name: /^(✓ )?Schedule POE$/ });
 
-    // first step auto-enabled when branch turns on
-    expect(first().closest("div").className).not.toContain("opacity-50");
-    expect(second().closest("div").className).toContain("opacity-50");
+    // first step auto-enabled when branch turns on: amber "active" chip
+    expect(first().dataset.status).toBe("active");
+    expect(second().dataset.status).toBe("todo");
 
-    // tap greyed step -> enables immediately (no Enable button)
+    // tap gray chip -> enables immediately (no Enable button) + opens controls
     await user.click(second());
     expect(within(pane).queryByText("Enable")).toBeNull();
-    expect(second().closest("div").className).not.toContain("opacity-50");
+    await waitFor(() => expect(second().dataset.status).toBe("active"));
 
-    await user.click(second());
     await user.click(within(pane).getByText("✓ Complete"));
-    expect(within(pane).getByText(/✓ POE scheduled/)).toBeInTheDocument();
+    await waitFor(() => expect(second().dataset.status).toBe("done"));
+    expect(second()).toHaveTextContent("✓ Schedule POE");
 
     await user.click(screen.getByText("Save & sync"));
     await waitFor(() => {
@@ -61,7 +61,7 @@ describe("sub-item enable flow", () => {
     });
   });
 
-  it("existing saved data renders unchanged: a done step shows ✓ + Undo, never Enable", async () => {
+  it("existing saved data renders unchanged: a done chip shows ✓ + Undo, never Enable", async () => {
     mockServer({
       ov: {
         "J-1": {
@@ -73,10 +73,9 @@ describe("sub-item enable flow", () => {
     const pane = await openDetail();
     await user.click(within(pane).getByRole("button", { name: /📑/ }));
 
-    const row = within(pane).getByRole("button", { name: /^✓ POE scheduled$/ });
-    expect(row).toHaveTextContent("✓ POE scheduled");
-    expect(row.closest("div").className).not.toContain("opacity-50");
-    await user.click(row);
+    const chip = within(pane).getByRole("button", { name: /^✓ Schedule POE$/ });
+    expect(chip.dataset.status).toBe("done");
+    await user.click(chip);
     expect(within(pane).getByText("↩ Undo")).toBeInTheDocument();
     expect(within(pane).queryByText("Enable")).toBeNull();
     // the completion toggle is still there, as before
@@ -91,12 +90,16 @@ describe("sub-item remove / restore", () => {
     const pane = await openDetail();
     await openConEd(user, pane);
 
-    // every sub-item has its own ✕
-    expect(within(pane).getAllByLabelText(/from list$/).length).toBe(8); // Con Ed has 8 steps
+    // open the chip -> its controls carry the ✕ remove
+    await user.click(
+      within(pane).getByRole("button", { name: "Complete interim checklist" })
+    );
     await user.click(within(pane).getByLabelText("Remove Interim checklist from list"));
 
-    // gone from the list, collapsed removed-row appears
-    expect(within(pane).queryByText("Interim checklist")).toBeNull();
+    // chip gone from the flow, collapsed removed-row appears
+    expect(
+      within(pane).queryByRole("button", { name: /Complete interim checklist/ })
+    ).toBeNull();
     const removedRow = within(pane).getByText("Removed items (1)");
     await user.click(screen.getByText("Save & sync"));
     await waitFor(() =>
@@ -108,7 +111,9 @@ describe("sub-item remove / restore", () => {
     expect(within(pane).getByText("Interim checklist")).toBeInTheDocument(); // shown in removed list
     await user.click(within(pane).getByText("Restore"));
     expect(within(pane).queryByText(/Removed items/)).toBeNull();
-    expect(within(pane).getByRole("switch", { name: "Interim checklist" })).toBeInTheDocument();
+    expect(
+      within(pane).getByRole("button", { name: /Complete interim checklist/ })
+    ).toBeInTheDocument();
     await user.click(screen.getByText("Save & sync"));
     await waitFor(() =>
       expect(srv.state.ov["J-1"].paperwork.coned.removed["Interim checklist"]).toBe(false)
@@ -132,8 +137,12 @@ describe("sub-item remove / restore", () => {
     const pane = await openDetail();
     await user.click(within(pane).getByRole("button", { name: /📑/ }));
     expect(within(pane).getByText("Removed items (2)")).toBeInTheDocument(); // DOB only
-    expect(within(pane).queryByText("Self certification")).toBeNull();
-    expect(within(pane).getByText("Final checklist")).toBeInTheDocument(); // Con Ed intact
+    expect(
+      within(pane).queryByRole("button", { name: /Self certification/ })
+    ).toBeNull();
+    expect(
+      within(pane).getByRole("button", { name: /Complete final checklist/ })
+    ).toBeInTheDocument(); // Con Ed intact
   });
 });
 
@@ -144,8 +153,8 @@ describe("auto follow-up on paperwork check", () => {
     const pane = await openDetail();
     await openConEd(user, pane);
 
-    const label = () => within(pane).getByRole("button", { name: /^(✓ )?Application submitted$/ });
-    await user.click(label());
+    const chip = () => within(pane).getByRole("button", { name: /^(✓ )?Submit application$/ });
+    await user.click(chip());
     await user.click(within(pane).getByText("✓ Complete"));
 
     await user.click(screen.getByText("Save & sync"));

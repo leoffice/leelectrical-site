@@ -87,9 +87,14 @@ export default function JobDocTabs({
   const tabClass =
     "rounded-xl border px-1 py-2 text-center text-xs font-bold leading-tight break-words";
 
+  // Levi: Statement is a peer of Invoice/Estimate — same row, never its own line.
+  const colCount = 4 + (onStatement ? 1 : 0) + (showCoTab ? 1 : 0);
+  const gridCols =
+    colCount === 6 ? "grid-cols-6" : colCount === 5 ? "grid-cols-5" : "grid-cols-4";
+
   return (
     <div className="mt-3 space-y-1" data-testid="job-doc-tabs">
-      <div className={`grid gap-1 ${showCoTab ? "grid-cols-5" : "grid-cols-4"}`}>
+      <div className={`grid gap-1 ${gridCols}`}>
         <button
           type="button"
           className={`${tabClass} ${tabTone(hasEst, pending.estimate, failed.estimate)}`}
@@ -111,6 +116,17 @@ export default function JobDocTabs({
         >
           🧾 {agentReview ? "Review" : invLabel}
         </button>
+        {onStatement ? (
+          <button
+            type="button"
+            className={`${tabClass} bg-brand-soft/50 text-brand border-brand/40`}
+            onClick={onStatement}
+            data-testid="tab-statement"
+            title="Generate a statement for this customer"
+          >
+            🧾 Statement
+          </button>
+        ) : null}
         <button
           type="button"
           className={`${tabClass} ${
@@ -146,16 +162,6 @@ export default function JobDocTabs({
           </button>
         ) : null}
       </div>
-      {onStatement ? (
-        <button
-          type="button"
-          className="w-full rounded-xl border border-dashed border-brand/40 bg-brand-soft/50 px-2 py-2 text-center text-[10px] font-bold text-brand active:opacity-80"
-          onClick={onStatement}
-          data-testid="tab-statement"
-        >
-          🧾 Generate Statement
-        </button>
-      ) : null}
     </div>
   );
 }

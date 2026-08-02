@@ -1,7 +1,7 @@
 /**
  * Visible "FUNCTIONALITIES TO LOCK IN" checklist inside the Permits tab.
  */
-import React, { useMemo } from "react";
+import React, { useMemo, useState } from "react";
 import {
   functionalitiesLockInSeed,
   isLockInDone,
@@ -13,6 +13,9 @@ export default function FunctionalitiesLockIn() {
   const items = useMemo(() => functionalitiesLockInSeed(), []);
   const done = lockInDoneCount(items);
   const total = lockInTotalCount(items);
+  // Levi: the skill list wastes space — collapsed by default so the to-do
+  // list stays the visible thing on the Permits tab.
+  const [open, setOpen] = useState(false);
 
   return (
     <section
@@ -20,27 +23,41 @@ export default function FunctionalitiesLockIn() {
       data-testid="functionalities-lock-in"
       aria-labelledby="functionalities-lock-in-title"
     >
-      <div className="px-4 py-3 border-b border-slate-100 bg-slate-50/80">
+      <button
+        type="button"
+        className="w-full px-4 py-3 border-b border-slate-100 bg-slate-50/80 text-left"
+        onClick={() => setOpen((o) => !o)}
+        aria-expanded={open}
+        data-testid="functionalities-lock-in-toggle"
+      >
         <div className="flex items-start justify-between gap-2">
           <div className="min-w-0">
             <h2
               id="functionalities-lock-in-title"
               className="font-extrabold text-sm text-slate-900 uppercase tracking-wide"
             >
-              Functionalities to lock in
+              Paperwork skills
             </h2>
             <p className="text-xs text-slate-500 mt-0.5">
-              Con Ed sub-workflows — checked off as each ships
+              Con Ed / DOB sub-workflows — tap to {open ? "hide" : "review"}
             </p>
           </div>
-          <span
-            className="pill bg-slate-200 text-slate-700 text-[10px] font-bold shrink-0"
-            data-testid="functionalities-lock-in-count"
-          >
-            {done}/{total} live
+          <span className="flex items-center gap-1.5 shrink-0">
+            <span
+              className="pill bg-slate-200 text-slate-700 text-[10px] font-bold"
+              data-testid="functionalities-lock-in-count"
+            >
+              {done}/{total} live
+            </span>
+            <span
+              className={`text-slate-400 transition-transform ${open ? "rotate-90" : ""}`}
+            >
+              ›
+            </span>
           </span>
         </div>
-      </div>
+      </button>
+      {open ? (
       <ul className="divide-y divide-slate-100" data-testid="functionalities-lock-in-list">
         {items.map((item) => {
           const doneItem = isLockInDone(item);
@@ -93,6 +110,7 @@ export default function FunctionalitiesLockIn() {
           );
         })}
       </ul>
+      ) : null}
     </section>
   );
 }

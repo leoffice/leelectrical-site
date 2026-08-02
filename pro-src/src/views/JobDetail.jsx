@@ -23,6 +23,7 @@ import {
   DATE_STEPS,
   INSPECTION_STEPS,
   PAPER,
+  STEP_SHORT,
   firstVisiblePaperStep,
   isDatedStep,
 } from "../lib/paperwork.js";
@@ -105,10 +106,12 @@ import {
   checkCustomerIntake,
   mapIntakeAnswersToConed,
   intakeSubmissionToCompletedFiles,
-  autoUploadOnComplete,
-  autoUploadIfWaiting,
-  resolveConedCaseNumber,
   conedNotification,
+  completionTodoPatch,
+  listPaperworkTodos,
+  readyToGoTodo,
+  paperworkTodoLabel,
+  updatePaperworkTodoPatch,
 } from "../lib/agencyForms/index.js";
 
 const CMD_TONES = {
@@ -161,17 +164,29 @@ export default function JobDetail() {
     () => (job && conedAppsOn ? listConedCompletedFiles(job) : []),
     [job, conedAppsOn]
   );
-  const showConedAppTab =
-    conedAppsOn &&
-    (conedCompletedFiles.length > 0 ||
-      !!(job?.paperwork?.coned?.enabled || job?.paperwork?.coned?.application));
   // S27 gate: a FRESH application press asks meters + fill-vs-send first;
   // an in-progress / submitted application goes straight to the form.
   const conedApplyKind = job?.paperwork?.coned?.application?.answers
     ? "conedApp"
     : "conedAppStart";
   const conedIntakeRequest = job?.paperwork?.coned?.applicationRequest || null;
-  const conedCaseNumberForUpload = job ? resolveConedCaseNumber(job) : "";
+
+  // Levi dedupe: an existing application / completed Form A auto-enables the
+  // Con Ed paperwork branch so it shows once, in the paperwork menu.
+  useEffect(() => {
+    if (!conedAppsOn || !job) return;
+    const c = job.paperwork?.coned;
+    if ((conedCompletedFiles.length || c?.application) && c?.enabled !== true) {
+      patchJob(id, { paperwork: { coned: { enabled: true } } });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [
+    id,
+    conedAppsOn,
+    conedCompletedFiles.length,
+    !!job?.paperwork?.coned?.application,
+    job?.paperwork?.coned?.enabled,
+  ]);
 
   // S27 — poll once per job open for a customer-completed application; import
   // the files + answers onto the tab, then S28 auto-queues the case upload.
@@ -223,8 +238,9 @@ export default function JobDetail() {
         },
       });
       showToast?.("Customer completed the Con Ed application — saved to the tab");
-      // S28: completion (customer-filled) auto-queues the case upload per meter.
-      const jobWithFiles = {
+      // Levi redirect: no auto-upload. Each completed meter adds an
+      // "Upload application to the Con Ed case" to-do (Ready to go fires it).
+      let todoJob = {
         ...job,
         paperwork: {
           ...(job.paperwork || {}),
@@ -232,14 +248,24 @@ export default function JobDetail() {
         },
       };
       for (const f of files) {
-        // eslint-disable-next-line no-await-in-loop
-        await autoUploadOnComplete({
-          job: jobWithFiles,
+        const t = completionTodoPatch(todoJob, {
           meterLabel: f.meterLabel,
           source: "customer",
-          enqueue,
-          onSave: (p) => patchJob(id, p),
         });
+        if (t.patch) {
+          patchJob(id, t.patch);
+          todoJob = {
+            ...todoJob,
+            paperwork: {
+              ...todoJob.paperwork,
+              todos: t.patch.paperwork.todos || todoJob.paperwork.todos,
+              coned: {
+                ...todoJob.paperwork.coned,
+                notifications: t.patch.paperwork.coned.notifications,
+              },
+            },
+          };
+        }
       }
     })();
     return () => {
@@ -247,14 +273,6 @@ export default function JobDetail() {
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [id, conedAppsOn, !!conedIntakeRequest]);
-
-  // S28 — a completion that predated the case number fires once it lands.
-  useEffect(() => {
-    if (!conedAppsOn || !job || !conedCaseNumberForUpload) return;
-    if (job?.paperwork?.coned?.uploadDocument?.status !== "waiting_case") return;
-    autoUploadIfWaiting({ job, enqueue, onSave: (p) => patchJob(id, p) });
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [id, conedAppsOn, conedCaseNumberForUpload]);
   const workCompleteEmail = useMemo(
     () => (job && showWorkCompleteNotify ? buildWorkCompleteCustomerEmail(job) : null),
     [job, showWorkCompleteNotify]
@@ -819,113 +837,9 @@ export default function JobDetail() {
             ) : null}
           </div>
         ) : null}
-        {/* Con Edison Application tab — next to Paperwork (Levi-tenant only) */}
-        {showConedAppTab ? (
-          <div
-            className="card overflow-hidden mb-2 border border-emerald-100"
-            data-testid="coned-application-tab"
-          >
-            <div className="flex items-center gap-2.5 px-4 py-3">
-              <span>⚡</span>
-              <span className="font-bold text-sm text-slate-800 flex-1">Con Edison Application</span>
-              <span className="pill bg-emerald-100 text-emerald-800">
-                {conedCompletedFiles.length || 0} file{conedCompletedFiles.length === 1 ? "" : "s"}
-              </span>
-            </div>
-            <div className="px-3 pb-3 space-y-2">
-              {conedCompletedFiles.length ? (
-                conedCompletedFiles.map((f, i) => (
-                  <div
-                    key={(f.docKey || f.name || "f") + i}
-                    className="flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm"
-                    data-testid="coned-completed-file"
-                  >
-                    <span className="shrink-0">📄</span>
-                    <div className="min-w-0 flex-1">
-                      {f.url ? (
-                        <a
-                          href={f.url}
-                          target="_blank"
-                          rel="noreferrer"
-                          className="text-brand font-semibold truncate block"
-                          download={f.name || undefined}
-                        >
-                          {f.name || "Completed Form A.pdf"}
-                        </a>
-                      ) : (
-                        <span className="font-semibold text-slate-800 truncate block">
-                          {f.name || "Completed Form A.pdf"}
-                        </span>
-                      )}
-                      <div className="text-[11px] text-slate-500">
-                        {(f.meterLabel ? f.meterLabel + " · " : "") +
-                          (f.status || "submitted") +
-                          (f.submittedAt ? " · " + String(f.submittedAt).slice(0, 10) : "")}
-                      </div>
-                    </div>
-                    {f.url ? (
-                      <a
-                        href={f.url}
-                        target="_blank"
-                        rel="noreferrer"
-                        className="btn-ghost !py-1.5 !px-2.5 text-xs font-bold shrink-0"
-                      >
-                        Open
-                      </a>
-                    ) : null}
-                  </div>
-                ))
-              ) : (
-                <p className="text-xs text-slate-500 px-1">
-                  Completed Form A PDFs land here after submit — one file per meter.
-                </p>
-              )}
-              <button
-                type="button"
-                className="btn bg-violet-700 text-white w-full !py-2.5 text-sm font-bold min-h-[44px]"
-                onClick={() => setSheet({ kind: "conedCreateCase" })}
-                data-testid="coned-tab-submit-a-case"
-              >
-                {job?.paperwork?.coned?.createCase?.answers
-                  ? "Continue Submit a Case"
-                  : "Submit a Case"}
-              </button>
-              <button
-                type="button"
-                className="btn bg-emerald-700 text-white w-full !py-2.5 text-sm font-bold min-h-[44px]"
-                onClick={() => setSheet({ kind: conedApplyKind })}
-                data-testid="coned-tab-fill-application"
-              >
-                {job?.paperwork?.coned?.application?.status === "submitted"
-                  ? "View / resubmit application"
-                  : job?.paperwork?.coned?.application?.status === "customer_submitted"
-                    ? "Review customer application"
-                    : job?.paperwork?.coned?.application?.answers
-                      ? "Continue application"
-                      : "Application"}
-              </button>
-              {conedIntakeRequest && !job?.paperwork?.coned?.customerIntakeImportedAt ? (
-                <p className="text-[11px] text-slate-500 px-1">
-                  Sent to customer
-                  {conedIntakeRequest.to ? ` (${conedIntakeRequest.to})` : ""} ·{" "}
-                  {String(conedIntakeRequest.sentAt || "").slice(0, 10)} — waiting for
-                  them to fill it out.
-                </p>
-              ) : null}
-              {(job?.paperwork?.coned?.notifications || [])
-                .slice(-3)
-                .map((n, ni) => (
-                  <p
-                    key={(n.at || "") + ni}
-                    className="text-[11px] text-emerald-800 bg-emerald-50 border border-emerald-100 rounded-lg px-2 py-1.5"
-                    data-testid="coned-notification"
-                  >
-                    {n.text || n.type}
-                  </p>
-                ))}
-            </div>
-          </div>
-        ) : null}
+        {/* Levi dedupe: Con Ed application lives ONCE — inside the Paperwork
+            phase below (auto-enabled when an application exists), never as a
+            separate card at the top of the page. */}
         {PHASES.map((ph, pi) => {
           const done = ph.steps.filter((s) => isCleared(job, s)).length;
           const isOpen = openIdx === pi;
@@ -1120,6 +1034,39 @@ export default function JobDetail() {
                                   {/* S23 Submit a Case + Form A (Levi-tenant Con Ed apps) */}
                                   {br.enabled && k === "coned" && (
                                     <div className="py-1.5 space-y-1" data-testid="coned-app-cta">
+                                      {conedCompletedFiles.map((f, fi) => (
+                                        <div
+                                          key={(f.docKey || f.name || "f") + fi}
+                                          className="flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-2.5 py-2 text-sm"
+                                          data-testid="coned-completed-file"
+                                        >
+                                          <span className="shrink-0">📄</span>
+                                          <div className="min-w-0 flex-1">
+                                            {f.url ? (
+                                              <a
+                                                href={f.url}
+                                                target="_blank"
+                                                rel="noreferrer"
+                                                className="text-brand font-semibold truncate block"
+                                                download={f.name || undefined}
+                                              >
+                                                {f.name || "Completed Form A.pdf"}
+                                              </a>
+                                            ) : (
+                                              <span className="font-semibold text-slate-800 truncate block">
+                                                {f.name || "Completed Form A.pdf"}
+                                              </span>
+                                            )}
+                                            <div className="text-[11px] text-slate-500">
+                                              {(f.meterLabel ? f.meterLabel + " · " : "") +
+                                                (f.status || "submitted") +
+                                                (f.submittedAt
+                                                  ? " · " + String(f.submittedAt).slice(0, 10)
+                                                  : "")}
+                                            </div>
+                                          </div>
+                                        </div>
+                                      ))}
                                       {conedAppsOn ? (
                                         <button
                                           type="button"
@@ -1150,6 +1097,26 @@ export default function JobDetail() {
                                               : "Con Ed application") +
                                           (br.application?.status === "submitted" ? " ✓" : "")}
                                       </button>
+                                      {conedIntakeRequest &&
+                                      !job?.paperwork?.coned?.customerIntakeImportedAt ? (
+                                        <p className="text-[11px] text-slate-500 px-0.5">
+                                          Sent to customer
+                                          {conedIntakeRequest.to ? ` (${conedIntakeRequest.to})` : ""} ·{" "}
+                                          {String(conedIntakeRequest.sentAt || "").slice(0, 10)} — waiting
+                                          for them to fill it out.
+                                        </p>
+                                      ) : null}
+                                      {(job?.paperwork?.coned?.notifications || [])
+                                        .slice(-3)
+                                        .map((n, ni) => (
+                                          <p
+                                            key={(n.at || "") + ni}
+                                            className="text-[11px] text-emerald-800 bg-emerald-50 border border-emerald-100 rounded-lg px-2 py-1.5"
+                                            data-testid="coned-notification"
+                                          >
+                                            {n.text || n.type}
+                                          </p>
+                                        ))}
                                       {br.createCase?.execution?.status === "queued" ? (
                                         <p className="text-[11px] text-violet-700 font-semibold px-0.5">
                                           Create-case fill queued · stops at Review for your confirm
@@ -1169,9 +1136,61 @@ export default function JobDetail() {
                                       )}
                                     </div>
                                   )}
+                                  {/* Levi: visual step FLOW — parallel chips, green=done,
+                                      amber=in progress, gray=not yet. Tap a chip to open
+                                      that step's controls (incl. remove). */}
+                                  {br.enabled && (
+                                    <div
+                                      className="flex flex-wrap items-center gap-1 py-1.5"
+                                      data-testid={`paper-flow-${k}`}
+                                    >
+                                      {PAPER[k].steps
+                                        .filter((ps) => !(br.removed && br.removed[ps]))
+                                        .map((ps, si, arr) => {
+                                          const on = !!(br.steps && br.steps[ps]);
+                                          const active = !on && !!(br.active && br.active[ps]);
+                                          const rowKey = "pp:" + k + ":" + ps;
+                                          return (
+                                            <React.Fragment key={ps}>
+                                              <button
+                                                type="button"
+                                                className={`rounded-full px-2 py-1 text-[11px] font-bold border leading-tight ${
+                                                  on
+                                                    ? "bg-emerald-600 text-white border-emerald-600"
+                                                    : active
+                                                      ? "bg-amber-50 text-amber-800 border-amber-300"
+                                                      : "bg-slate-100 text-slate-400 border-slate-200"
+                                                }`}
+                                                data-status={on ? "done" : active ? "active" : "todo"}
+                                                onClick={() => {
+                                                  // Gray chip = not yet enabled: tapping enables
+                                                  // immediately (fast path kept from the row UX)
+                                                  // and opens its controls.
+                                                  if (!on && !active) enablePaper(k, ps);
+                                                  setOpenStep(openStep === rowKey ? null : rowKey);
+                                                }}
+                                                title={ps}
+                                              >
+                                                {on ? "✓ " : ""}
+                                                {STEP_SHORT[ps] || ps}
+                                              </button>
+                                              {si < arr.length - 1 ? (
+                                                <span className="text-slate-300 text-[10px]">›</span>
+                                              ) : null}
+                                            </React.Fragment>
+                                          );
+                                        })}
+                                    </div>
+                                  )}
+                                  {/* Detail controls only for the tapped chip — the flow
+                                      strip above is the scannable view of every step. */}
                                   {br.enabled &&
                                     PAPER[k].steps
-                                      .filter((ps) => !(br.removed && br.removed[ps]))
+                                      .filter(
+                                        (ps) =>
+                                          !(br.removed && br.removed[ps]) &&
+                                          openStep === "pp:" + k + ":" + ps
+                                      )
                                       .map((ps) => {
                                         const on = !!(br.steps && br.steps[ps]);
                                         const enabledItem = on || !!(br.active && br.active[ps]);
@@ -1307,6 +1326,74 @@ export default function JobDetail() {
                                 </div>
                               );
                             })}
+                            {/* Paperwork TO-DOS (Levi) — created on completion, fired
+                                manually with Ready to go once access is unlocked. */}
+                            {listPaperworkTodos(job).length ? (
+                              <div
+                                className="mt-2 rounded-xl border border-violet-200 bg-violet-50/60 p-2.5 space-y-1.5"
+                                data-testid="paperwork-todos"
+                              >
+                                <div className="text-[11px] font-extrabold uppercase tracking-wide text-violet-800">
+                                  Paperwork to-do list
+                                </div>
+                                {listPaperworkTodos(job).map((t) => (
+                                  <div
+                                    key={t.id}
+                                    className="flex items-center gap-2 rounded-lg bg-white border border-slate-200 px-2.5 py-2"
+                                    data-testid="paperwork-todo-row"
+                                  >
+                                    <div className="min-w-0 flex-1">
+                                      <div className="text-[13px] font-semibold text-slate-800 truncate">
+                                        {t.title || paperworkTodoLabel(t.kind)}
+                                        {t.meterLabel ? ` · ${t.meterLabel}` : ""}
+                                      </div>
+                                      {t.error ? (
+                                        <div className="text-[11px] text-red-600">{t.error}</div>
+                                      ) : t.status === "queued" ? (
+                                        <div className="text-[11px] text-emerald-700">
+                                          Fired · stops at review for your confirm
+                                        </div>
+                                      ) : null}
+                                    </div>
+                                    {t.status === "queued" ? (
+                                      <span className="pill bg-emerald-100 text-emerald-800">queued</span>
+                                    ) : (
+                                      <button
+                                        type="button"
+                                        className="btn bg-violet-700 text-white !py-1.5 !px-2.5 text-xs font-bold shrink-0"
+                                        onClick={async () => {
+                                          const r = await readyToGoTodo({
+                                            job,
+                                            todo: t,
+                                            enqueue,
+                                            onSave: (p) => patchJob(id, p),
+                                          });
+                                          showToast?.(
+                                            r.queued
+                                              ? "Queued — stops at review for your confirm"
+                                              : "Not fired: " + (r.error || "unknown")
+                                          );
+                                        }}
+                                        data-testid="todo-ready-to-go"
+                                      >
+                                        Ready to go
+                                      </button>
+                                    )}
+                                    <button
+                                      type="button"
+                                      className="btn-ghost !py-0.5 !px-1.5 text-slate-400"
+                                      aria-label={`Remove to-do ${t.title || t.kind}`}
+                                      onClick={() => {
+                                        const p = updatePaperworkTodoPatch(job, t.id, "removed");
+                                        if (p) patchJob(id, p);
+                                      }}
+                                    >
+                                      ✕
+                                    </button>
+                                  </div>
+                                ))}
+                              </div>
+                            ) : null}
                           </div>
                         )}
                         {/* Scheduled job-date */}
