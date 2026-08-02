@@ -1,9 +1,11 @@
 /**
  * Build Slice 1 — 3 completion destinations for a finished Con Ed Form A.
  *
- * 1) Email CUSTOMER (branded) + keep office@ copy
- * 2) Save into job "Con Edison Application" tab (docs store + job record)
- * 3) Save copy to Google Drive (host command → Drive folder)
+ * Routing (Levi refinement 2026-08-02):
+ * 1) Google Drive — ALWAYS (CRITICAL must-pass): dedicated folder
+ *    BLZ Electric Inc/Con Edison Applications/ (create if missing)
+ * 2) "Con Edison Application" tab — ALWAYS (docs store + job record)
+ * 3) Customer email — OPT-IN only (customer chooses). Office@ copy always kept.
  *
  * Reuses proven fill: buildApplicationPdfBlob → fillConedFormAPdfBytes.
  */
@@ -133,7 +135,28 @@ export function buildCustomerConedEmailHtml({ answers = {}, job = {}, filename =
 }
 
 /**
- * Run all three destinations. Never throws for partial failure — returns per-destination results.
+ * Whether the customer opted in to receive the completed Form A by email.
+ * OPT-IN only — missing / false / "no" / 0 all mean skip customer email.
+ * Explicit true / "yes" / "1" / "on" mean send.
+ */
+export function isCustomerEmailOptIn(answers = {}, opts = {}) {
+  if (typeof opts.emailCustomerCopy === "boolean") return opts.emailCustomerCopy;
+  if (typeof opts.customerEmailOptIn === "boolean") return opts.customerEmailOptIn;
+  const raw =
+    answers.emailCustomerCopy ??
+    answers.customerEmailOptIn ??
+    answers.emailCopyOptIn ??
+    null;
+  if (raw === true || raw === 1 || raw === "1" || raw === "yes" || raw === "on") return true;
+  if (raw === false || raw === 0 || raw === "0" || raw === "no" || raw === "off") return false;
+  // Default: opt-OUT (customer must choose)
+  return false;
+}
+
+/**
+ * Run destinations. Never throws for partial failure — returns per-destination results.
+ *
+ * Drive + tab ALWAYS. Customer email only when emailCustomerCopy / answers.emailCustomerCopy is true.
  *
  * @param {object} opts
  * @param {object} opts.agency
@@ -144,6 +167,7 @@ export function buildCustomerConedEmailHtml({ answers = {}, job = {}, filename =
  * @param {Function} [opts.enqueue] command bus enqueue
  * @param {string} [opts.meterLabel]
  * @param {string} [opts.destEmailOverride] office override from review field
+ * @param {boolean} [opts.emailCustomerCopy] customer email opt-in (default false)
  */
 export async function completeConedApplicationDestinations({
   agency,
@@ -154,6 +178,8 @@ export async function completeConedApplicationDestinations({
   enqueue = null,
   meterLabel = "",
   destEmailOverride = "",
+  emailCustomerCopy,
+  customerEmailOptIn,
 } = {}) {
   const meter = resolveConedMeterLabel({ answers, job, meterLabel });
   const filename = buildConedCompletedFileName({ answers, job, meterLabel: meter });
@@ -171,14 +197,38 @@ export async function completeConedApplicationDestinations({
   const officeEmails = resolveSubmitEmails(agency, destEmailOverride);
   const officeTo = officeEmails[0] || OFFICE_DEFAULT;
 
-  // —— 1a) Customer email ——
+  const wantCustomerEmail = isCustomerEmailOptIn(answers, {
+    emailCustomerCopy,
+    customerEmailOptIn,
+  });
+
+  // —— 1a) Customer email (OPT-IN only) ——
   let customerEmailResult = {
     ok: false,
-    skipped: !customerEmail,
+    skipped: true,
+    optIn: wantCustomerEmail,
     to: customerEmail,
-    error: customerEmail ? "" : "no_customer_email",
+    error: "",
   };
-  if (customerEmail && api && typeof api.sendDocEmailNow === "function") {
+  if (!wantCustomerEmail) {
+    customerEmailResult = {
+      ok: false,
+      skipped: true,
+      optIn: false,
+      to: customerEmail,
+      error: "",
+      reason: "customer_opted_out",
+    };
+  } else if (!customerEmail) {
+    customerEmailResult = {
+      ok: false,
+      skipped: true,
+      optIn: true,
+      to: "",
+      error: "no_customer_email",
+      reason: "opt_in_but_no_email",
+    };
+  } else if (api && typeof api.sendDocEmailNow === "function") {
     try {
       const r = await api.sendDocEmailNow(job, "application", {
         email: customerEmail,
@@ -197,6 +247,8 @@ export async function completeConedApplicationDestinations({
       });
       customerEmailResult = {
         ok: !!r?.ok,
+        skipped: false,
+        optIn: true,
         to: customerEmail,
         at: Date.now(),
         error: r?.error || r?.reason || "",
@@ -206,14 +258,18 @@ export async function completeConedApplicationDestinations({
     } catch (err) {
       customerEmailResult = {
         ok: false,
+        skipped: false,
+        optIn: true,
         to: customerEmail,
         at: Date.now(),
         error: String(err?.message || err),
       };
     }
-  } else if (customerEmail) {
+  } else {
     customerEmailResult = {
       ok: false,
+      skipped: false,
+      optIn: true,
       to: customerEmail,
       error: "no_send_api",
     };
@@ -277,27 +333,36 @@ export async function completeConedApplicationDestinations({
     storeError: docPut.ok ? "" : docPut.error || "",
   };
 
+  const emailOk =
+    !!officeEmailResult.ok &&
+    (customerEmailResult.skipped || !!customerEmailResult.ok);
   const submitted = buildApplicationDraft({
     agencyId: agency?.id,
-    answers,
+    answers: {
+      ...answers,
+      emailCustomerCopy: wantCustomerEmail,
+    },
     status: "submitted",
     stepIndex: (agency?.steps?.length || 1) - 1,
     submittedAt: fileRecord.submittedAt,
     emailResult: {
-      ok: !!(customerEmailResult.ok || officeEmailResult.ok),
+      ok: emailOk,
       customer: customerEmailResult,
       office: officeEmailResult,
-      to: customerEmail || officeTo,
+      to: wantCustomerEmail && customerEmail ? customerEmail : officeTo,
       at: Date.now(),
       error:
-        customerEmailResult.ok || officeEmailResult.ok
+        officeEmailResult.ok && (customerEmailResult.skipped || customerEmailResult.ok)
           ? ""
-          : customerEmailResult.error || officeEmailResult.error || "",
+          : customerEmailResult.skipped
+            ? officeEmailResult.error || ""
+            : customerEmailResult.error || officeEmailResult.error || "",
     },
   });
   // Attach destinations snapshot on the draft for audit / Test-2
   submitted.completedFile = fileRecord;
   submitted.filename = filename;
+  submitted.emailCustomerCopy = wantCustomerEmail;
 
   const existingFiles = Array.isArray(job?.paperwork?.coned?.completedFiles)
     ? job.paperwork.coned.completedFiles.slice()
@@ -322,12 +387,19 @@ export async function completeConedApplicationDestinations({
     });
   }
 
-  // —— 3) Google Drive (host command) ——
+  // —— 3) Google Drive ALWAYS (CRITICAL) — dedicated known folder ——
+  // Path: BLZ Electric Inc/Con Edison Applications/<filename>
+  // Host helper creates the folder if missing (mount mkdir -p or Drive API).
+  const DRIVE_COMPANY = "BLZ Electric Inc";
+  const DRIVE_FOLDER = "Con Edison Applications";
+  const dedicatedFolder = `${DRIVE_COMPANY}/${DRIVE_FOLDER}`;
   let driveResult = {
     ok: false,
     filename,
+    folder: dedicatedFolder,
     error: "drive_not_attempted",
     queued: false,
+    critical: true,
   };
   if (typeof enqueue === "function") {
     try {
@@ -338,11 +410,12 @@ export async function completeConedApplicationDestinations({
         {
           pdfB64,
           filename,
-          folderName: "Con Edison Applications",
-          companyRoot: "BLZ Electric Inc",
+          folderName: DRIVE_FOLDER,
+          companyRoot: DRIVE_COMPANY,
           jobId: job.id || "",
           meterLabel: meter,
           serviceAddress: fileRecord.serviceAddress,
+          createFolderIfMissing: true,
         },
         "deterministic",
         idk
@@ -351,15 +424,19 @@ export async function completeConedApplicationDestinations({
         ok: true, // queued — host must land the file; Test-2 verifies presence
         queued: true,
         filename,
+        folder: dedicatedFolder,
         error: "",
         note: "queued_drive_save_coned",
+        critical: true,
       };
     } catch (err) {
       driveResult = {
         ok: false,
         queued: false,
         filename,
+        folder: dedicatedFolder,
         error: String(err?.message || err),
+        critical: true,
       };
     }
   } else if (api && typeof api.saveConedToDrive === "function") {
@@ -367,32 +444,45 @@ export async function completeConedApplicationDestinations({
       const r = await api.saveConedToDrive({
         pdfB64,
         filename,
-        folderName: "Con Edison Applications",
+        folderName: DRIVE_FOLDER,
+        companyRoot: DRIVE_COMPANY,
+        createFolderIfMissing: true,
       });
       driveResult = {
         ok: !!r?.ok,
         filename,
+        folder: dedicatedFolder,
         path: r?.path || r?.webViewLink || "",
         error: r?.error || r?.reason || "",
         queued: false,
+        critical: true,
       };
     } catch (err) {
       driveResult = {
         ok: false,
         filename,
+        folder: dedicatedFolder,
         error: String(err?.message || err),
         queued: false,
+        critical: true,
       };
     }
   } else {
     driveResult = {
       ok: false,
       filename,
+      folder: dedicatedFolder,
       error:
-        "drive_host_not_wired: no enqueue + no api.saveConedToDrive — host command_listener must handle drive_save_coned or mount BLZ Electric Inc/Con Edison Applications",
+        "drive_host_not_wired: no enqueue + no api.saveConedToDrive — host command_listener must handle drive_save_coned and create BLZ Electric Inc/Con Edison Applications if missing",
       queued: false,
+      critical: true,
     };
   }
+
+  const driveOk = !!(driveResult.ok || driveResult.queued);
+  const tabOk = !!docPut.ok && !!fileRecord.name;
+  // CRITICAL gate: Drive dedicated folder + tab always. Customer email is optional (opt-in).
+  const success = driveOk && tabOk;
 
   return {
     filename,
@@ -402,12 +492,15 @@ export async function completeConedApplicationDestinations({
       customerEmail: customerEmailResult,
       officeEmail: officeEmailResult,
       jobTab: {
-        ok: !!docPut.ok && !!fileRecord.name,
+        ok: tabOk,
         file: fileRecord,
         error: docPut.ok ? "" : docPut.error || "docs_put_failed",
       },
       drive: driveResult,
     },
+    /** Gate for ship/report: Drive dedicated folder + tab must land. */
+    success,
+    driveCriticalFailed: !driveOk,
     submitted,
     completedFiles: withoutSame,
   };

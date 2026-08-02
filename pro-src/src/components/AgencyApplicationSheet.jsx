@@ -41,6 +41,11 @@ export default function AgencyApplicationSheet({ job, agencyId = "coned-form-a",
   const [err, setErr] = useState("");
   const [okMsg, setOkMsg] = useState("");
   const [destEmail, setDestEmail] = useState(() => resolveSubmitEmails(agency).join(", "));
+  // Customer email is OPT-IN (default off). Customer chooses on Review.
+  const [emailCustomerCopy, setEmailCustomerCopy] = useState(() => {
+    const a = existing?.answers || {};
+    return a.emailCustomerCopy === true || a.customerEmailOptIn === true;
+  });
   const saveTimer = useRef(null);
 
   const steps = agency.steps || [];
@@ -178,44 +183,54 @@ export default function AgencyApplicationSheet({ job, agencyId = "coned-form-a",
     }
     setBusy(true);
     try {
-      // Slice 1: same proven fill → customer email + office copy + job tab + Drive.
+      // Drive ALWAYS + tab ALWAYS + customer email only if they opted in.
       const result = await completeConedApplicationDestinations({
         agency,
-        answers,
+        answers: { ...answers, emailCustomerCopy },
         job,
         api,
         onSave,
         enqueue,
         destEmailOverride: destEmail,
+        emailCustomerCopy,
       });
       setDraft(result.submitted);
 
       const d = result.destinations || {};
       const parts = [];
       if (d.customerEmail?.ok) parts.push("customer emailed");
-      else if (d.customerEmail?.skipped) parts.push("no customer email on form");
+      else if (d.customerEmail?.skipped && d.customerEmail?.reason === "customer_opted_out")
+        parts.push("customer email skipped (opted out)");
+      else if (d.customerEmail?.skipped) parts.push("customer email skipped");
       else if (d.customerEmail?.error) parts.push("customer email issue");
       if (d.officeEmail?.ok) parts.push("office copy sent");
       if (d.jobTab?.ok) parts.push("saved on Con Edison Application tab");
-      if (d.drive?.queued || d.drive?.ok) parts.push("Drive save queued");
-      else if (d.drive?.error) parts.push("Drive: " + String(d.drive.error).slice(0, 80));
+      if (d.drive?.queued || d.drive?.ok) parts.push("saved to Drive (Con Edison Applications)");
+      else if (d.drive?.error) parts.push("Drive failed: " + String(d.drive.error).slice(0, 100));
 
-      const anyEmail = !!(d.customerEmail?.ok || d.officeEmail?.ok);
-      if (anyEmail || d.jobTab?.ok) {
+      // Drive is CRITICAL — do not report full success if dedicated folder save failed.
+      if (result.driveCriticalFailed || (!d.drive?.ok && !d.drive?.queued)) {
         setOkMsg(
-          `Application complete — ${result.filename}. ${parts.filter(Boolean).join(" · ") || "Saved on job."}`
+          `Saved on the job${d.jobTab?.ok ? " tab" : ""}, but Drive folder save failed — do not treat as complete.`
         );
+        setErr(
+          d.drive?.error ||
+            "Drive save to BLZ Electric Inc/Con Edison Applications failed — check host credentials / folder access."
+        );
+      } else if (d.jobTab?.ok || d.officeEmail?.ok) {
+        setOkMsg(
+          `Application complete — ${result.filename}. ${parts.filter(Boolean).join(" · ") || "Saved."}`
+        );
+        setErr("");
       } else {
-        setOkMsg("Application saved on the job. Delivery had a problem — check the details below.");
+        setOkMsg("Application saved. Delivery had a problem — check the details below.");
+        const errs = [
+          !d.customerEmail?.ok && !d.customerEmail?.skipped ? d.customerEmail?.error : "",
+          !d.officeEmail?.ok ? d.officeEmail?.error : "",
+          !d.jobTab?.ok ? d.jobTab?.error : "",
+        ].filter(Boolean);
+        if (errs.length) setErr(errs[0]);
       }
-      const errs = [
-        !d.customerEmail?.ok && !d.customerEmail?.skipped ? d.customerEmail?.error : "",
-        !d.officeEmail?.ok ? d.officeEmail?.error : "",
-        !d.jobTab?.ok ? d.jobTab?.error : "",
-        !d.drive?.ok && !d.drive?.queued ? d.drive?.error : "",
-      ].filter(Boolean);
-      if (errs.length && !anyEmail) setErr(errs[0]);
-      else if (errs.length) setErr(""); // soft: partial success already in okMsg
     } catch (ex) {
       setErr(ex?.message || "Submit failed");
     } finally {
@@ -401,27 +416,46 @@ export default function AgencyApplicationSheet({ job, agencyId = "coned-form-a",
         <div data-testid="agency-review">
           <h4 className="font-extrabold text-slate-900 text-sm mb-2">Review & complete</h4>
           <p className="text-xs text-slate-500 mb-2">
-            Finishing sends the filled Form A PDF to the customer (form contact email), keeps the
-            office copy, saves it on the Con Edison Application tab, and files a Drive copy. Portal
-            submit to Con Ed stays a human step — the app never enters your Con Ed password.
+            Finishing always saves the filled Form A to the Con Edison Application tab and to the
+            company Drive folder (BLZ Electric Inc / Con Edison Applications). Office keeps a copy.
+            Customer email is optional — choose below. Portal submit to Con Ed stays a human step.
           </p>
           {CONED_FORM_A_SOURCE_PDF ? (
             <p className="text-[11px] text-slate-400 mb-3" data-testid="agency-source-form">
               Source form: Con Ed Application for Service (Form A) — company file.
             </p>
           ) : null}
-          {answers.email ? (
-            <p className="text-xs text-slate-600 mb-2" data-testid="agency-customer-email-hint">
-              Customer copy → <b>{answers.email}</b>
-            </p>
-          ) : (
-            <p className="text-xs text-amber-700 mb-2" data-testid="agency-customer-email-missing">
-              No contact email on the form — only the office copy will be emailed.
-            </p>
-          )}
+          <label
+            className="flex items-start gap-3 py-3 mb-2 min-h-[44px] cursor-pointer border border-slate-200 rounded-xl px-3 bg-slate-50"
+            data-testid="agency-customer-email-optin"
+          >
+            <input
+              type="checkbox"
+              className="w-5 h-5 mt-0.5 shrink-0"
+              checked={emailCustomerCopy}
+              onChange={(e) => setEmailCustomerCopy(e.target.checked)}
+              data-testid="agency-email-customer-copy"
+            />
+            <span className="text-sm text-slate-800">
+              <span className="font-bold">Email me a copy of the completed application</span>
+              <span className="block text-xs font-normal text-slate-500 mt-0.5">
+                Optional. If checked, we email the filled Form A to the contact email on this form.
+                Unchecked = no customer email (Drive + tab still always save).
+              </span>
+              {answers.email ? (
+                <span className="block text-xs text-slate-600 mt-1" data-testid="agency-customer-email-hint">
+                  Sends to: <b>{answers.email}</b>
+                </span>
+              ) : (
+                <span className="block text-xs text-amber-700 mt-1" data-testid="agency-customer-email-missing">
+                  No contact email on the form — turn this on only after adding an email on the contact step.
+                </span>
+              )}
+            </span>
+          </label>
           <Fld
             label="Office / extra copy"
-            hint="Office keeps a copy. Change only if you need a different office mailbox."
+            hint="Office always gets a copy. Change only if you need a different office mailbox."
           >
             <input
               className="input text-base min-h-[44px]"

@@ -66,6 +66,7 @@ export {
   buildCustomerConedEmailText,
   buildCustomerConedEmailHtml,
   completeConedApplicationDestinations,
+  isCustomerEmailOptIn,
   listConedCompletedFiles,
 } from "./completeDestinations.js";
 

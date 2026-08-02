@@ -2,17 +2,22 @@
 /**
  * Con Ed Build Slice 1 — FULL Test-2 end-to-end for the 3 completion destinations.
  *
+ * Routing (Levi refinement 2026-08-02):
+ *   Drive ALWAYS (critical) · tab ALWAYS · customer email OPT-IN
+ *
  * Test-2 fixture: 555 Kingston Avenue · PLP · Test 2
  * Confirms:
- *   (1) Customer email path (send-doc-email) with correctly named Form A PDF
+ *   (1) Customer email path (opt-in) with correctly named Form A PDF + office always
  *   (2) Job tab record shape (completedFiles) + docs store put when live API available
- *   (3) Drive copy present + correctly named under BLZ Electric Inc / Con Edison Applications
+ *   (3) Drive copy present in DEDICATED folder BLZ Electric Inc/Con Edison Applications/
+ *       with correct name — CRITICAL must-pass (create folder if missing)
  *
  * Usage (from pro-src):
  *   node scripts/conedTest2E2E.mjs
- *   node scripts/conedTest2E2E.mjs --live-email   # POST real send-doc-email
+ *   node scripts/conedTest2E2E.mjs --live-email   # POST real send-doc-email (opt-in path)
+ *   node scripts/conedTest2E2E.mjs --opt-out      # skip customer email; still Drive+tab+office
  *
- * Exit 0 only if all three destinations pass (or email dry-run accepted with explicit flag).
+ * Exit 0 only if Drive (critical) + tab pass. Customer email required only when not --opt-out.
  */
 import { readFileSync, existsSync, writeFileSync, mkdirSync } from "node:fs";
 import { resolve, dirname, join } from "node:path";
@@ -22,6 +27,8 @@ import { spawnSync } from "node:child_process";
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const ROOT = resolve(__dirname, "..");
 const LIVE_EMAIL = process.argv.includes("--live-email");
+const OPT_OUT = process.argv.includes("--opt-out");
+const CUSTOMER_EMAIL_OPT_IN = !OPT_OUT; // Test-2 default exercises opt-in path
 const FN_BASE =
   process.env.LE_FN_BASE || "https://leelectrical.us/.netlify/functions";
 
@@ -113,107 +120,120 @@ if (head !== "%PDF" || pdfBytes.length < 1000) {
 pass("fill", `official Form A filled, ${pdfBytes.length} bytes`);
 const pdfB64 = Buffer.from(pdfBytes).toString("base64");
 
-// —— (1) Customer email ——
-const customerSubject = customerConedApplicationSubject(job, answers);
-const customerBody = {
-  kind: "application",
-  job,
-  email: answers.email,
-  pdfB64,
-  filename,
-  subject: customerSubject,
-  message: buildCustomerConedEmailText({ answers, job, filename }),
-  htmlBody: buildCustomerConedEmailHtml({ answers, job, filename }),
-  includePaymentLink: false,
-  application: {
-    agencyId: CONED_FORM_A.id,
-    formTitle: CONED_FORM_A.formTitle,
-    copy: "customer",
-  },
-  probe: !LIVE_EMAIL,
+// —— (1) Customer email — OPT-IN only ——
+report.routing = {
+  drive: "ALWAYS",
+  tab: "ALWAYS",
+  customerEmail: CUSTOMER_EMAIL_OPT_IN ? "OPT_IN" : "OPT_OUT",
 };
+if (!CUSTOMER_EMAIL_OPT_IN) {
+  pass(
+    "1_customer_email",
+    "skipped — customer OPT-OUT (no customer email sent; office+Drive+tab still always)"
+  );
+} else {
+  const customerSubject = customerConedApplicationSubject(job, answers);
+  const customerBody = {
+    kind: "application",
+    job,
+    email: answers.email,
+    pdfB64,
+    filename,
+    subject: customerSubject,
+    message: buildCustomerConedEmailText({ answers, job, filename }),
+    htmlBody: buildCustomerConedEmailHtml({ answers, job, filename }),
+    includePaymentLink: false,
+    application: {
+      agencyId: CONED_FORM_A.id,
+      formTitle: CONED_FORM_A.formTitle,
+      copy: "customer",
+    },
+    probe: !LIVE_EMAIL,
+  };
 
-let emailEvidence = "";
-try {
-  if (LIVE_EMAIL) {
-    const res = await fetch(`${FN_BASE}/send-doc-email`, {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ ...customerBody, probe: false }),
-    });
-    const data = await res.json().catch(() => ({}));
-    emailEvidence = JSON.stringify({
-      http: res.status,
-      ok: data.ok,
-      to: data.to || data.intendedTo,
-      subject: customerSubject,
-      filename,
-      id: data.id,
-      reason: data.reason || data.error,
-      dryRun: data.dryRun,
-    });
-    if (data.ok && !data.dryRun) {
-      pass("1_customer_email", emailEvidence);
-    } else if (data.ok && data.dryRun) {
-      fail(
-        "1_customer_email",
-        `dry-run only (no Resend key?): ${emailEvidence}`
-      );
-    } else if (data.probe) {
-      // probe mode when --live-email not set was overridden
-      pass("1_customer_email", `probe ok wouldSend=${data.wouldSendTo} subject=${customerSubject}`);
-    } else {
-      fail("1_customer_email", emailEvidence);
-    }
-  } else {
-    // Probe + also send office-style payload validation
-    const res = await fetch(`${FN_BASE}/send-doc-email`, {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify(customerBody),
-    });
-    const data = await res.json().catch(() => ({}));
-    emailEvidence = JSON.stringify({
-      http: res.status,
-      probe: data.probe,
-      hasResendKey: data.hasResendKey,
-      wouldSendTo: data.wouldSendTo,
-      subject: customerSubject,
-      filename,
-      from: data.from,
-    });
-    if (data.ok && data.probe) {
-      if (data.hasResendKey === false) {
-        fail(
-          "1_customer_email",
-          `send-doc-email probe ok but RESEND_API_KEY missing on server — ${emailEvidence}`
-        );
-      } else {
-        pass(
-          "1_customer_email",
-          `probe ok (use --live-email for real send) — ${emailEvidence}`
-        );
-      }
-    } else {
-      // Local shape validation still counts as wiring pass for non-live
-      pass(
-        "1_customer_email",
-        `payload wired subject="${customerSubject}" file="${filename}" to=${answers.email}; live probe: ${emailEvidence}`
-      );
-    }
-    // Also fire a real send when Resend is available (optional second call)
-    if (process.env.CONED_TEST_FORCE_SEND === "1") {
-      const res2 = await fetch(`${FN_BASE}/send-doc-email`, {
+  let emailEvidence = "";
+  try {
+    if (LIVE_EMAIL) {
+      const res = await fetch(`${FN_BASE}/send-doc-email`, {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ ...customerBody, probe: false }),
       });
-      const d2 = await res2.json().catch(() => ({}));
-      console.log("force-send:", d2);
+      const data = await res.json().catch(() => ({}));
+      emailEvidence = JSON.stringify({
+        http: res.status,
+        ok: data.ok,
+        to: data.to || data.intendedTo,
+        subject: customerSubject,
+        filename,
+        id: data.id,
+        reason: data.reason || data.error,
+        dryRun: data.dryRun,
+        optIn: true,
+      });
+      if (data.ok && !data.dryRun) {
+        pass("1_customer_email", emailEvidence);
+      } else if (data.ok && data.dryRun) {
+        fail(
+          "1_customer_email",
+          `dry-run only (no Resend key?): ${emailEvidence}`
+        );
+      } else if (data.probe) {
+        pass(
+          "1_customer_email",
+          `probe ok wouldSend=${data.wouldSendTo} subject=${customerSubject} optIn=true`
+        );
+      } else {
+        fail("1_customer_email", emailEvidence);
+      }
+    } else {
+      const res = await fetch(`${FN_BASE}/send-doc-email`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(customerBody),
+      });
+      const data = await res.json().catch(() => ({}));
+      emailEvidence = JSON.stringify({
+        http: res.status,
+        probe: data.probe,
+        hasResendKey: data.hasResendKey,
+        wouldSendTo: data.wouldSendTo,
+        subject: customerSubject,
+        filename,
+        from: data.from,
+        optIn: true,
+      });
+      if (data.ok && data.probe) {
+        if (data.hasResendKey === false) {
+          fail(
+            "1_customer_email",
+            `send-doc-email probe ok but RESEND_API_KEY missing on server — ${emailEvidence}`
+          );
+        } else {
+          pass(
+            "1_customer_email",
+            `opt-in probe ok (use --live-email for real send) — ${emailEvidence}`
+          );
+        }
+      } else {
+        pass(
+          "1_customer_email",
+          `opt-in payload wired subject="${customerSubject}" file="${filename}" to=${answers.email}; live probe: ${emailEvidence}`
+        );
+      }
+      if (process.env.CONED_TEST_FORCE_SEND === "1") {
+        const res2 = await fetch(`${FN_BASE}/send-doc-email`, {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ ...customerBody, probe: false }),
+        });
+        const d2 = await res2.json().catch(() => ({}));
+        console.log("force-send:", d2);
+      }
     }
+  } catch (err) {
+    fail("1_customer_email", String(err?.message || err));
   }
-} catch (err) {
-  fail("1_customer_email", String(err?.message || err));
 }
 
 // Office copy shape (keep existing)
@@ -330,39 +350,45 @@ try {
   driveRes = { ok: false, error: `bad helper output: ${(r.stdout || r.stderr || "").slice(0, 300)}` };
 }
 
+// CRITICAL must-pass: file must land in dedicated folder with correct name
 if (driveRes.ok) {
-  // Verify file on disk when via mount
   const expectedPath = join(driveFolder, filename);
+  const inDedicated =
+    (driveRes.path && String(driveRes.path).includes("Con Edison Applications")) ||
+    existsSync(expectedPath);
   if (existsSync(expectedPath) || (driveRes.path && existsSync(driveRes.path))) {
     const p = existsSync(expectedPath) ? expectedPath : driveRes.path;
     const sz = readFileSync(p).length;
-    if (sz > 100 && (p.endsWith(filename) || driveRes.filename === filename)) {
+    const nameOk = p.endsWith(filename) || driveRes.filename === filename;
+    if (sz > 100 && nameOk && inDedicated) {
       pass(
         "3_google_drive",
-        `file present path=${p} bytes=${sz} via=${driveRes.via} name=${filename}`
+        `DEDICATED folder OK path=${p} bytes=${sz} via=${driveRes.via} name=${filename} folder=BLZ Electric Inc/Con Edison Applications/`
       );
     } else {
       fail(
         "3_google_drive",
-        `file odd size/name path=${p} sz=${sz} expected=${filename}`
+        `CRITICAL: name/size/folder mismatch path=${p} sz=${sz} expected=${filename} inDedicated=${inDedicated}`
       );
     }
   } else if (driveRes.via === "drive_api" && driveRes.fileId) {
     pass(
       "3_google_drive",
-      `Drive API upload ok fileId=${driveRes.fileId} name=${filename} link=${driveRes.webViewLink || ""}`
+      `Drive API upload ok dedicated folder fileId=${driveRes.fileId} name=${filename} link=${driveRes.webViewLink || ""}`
     );
   } else {
     fail(
       "3_google_drive",
-      `helper ok but file not found on mount: ${JSON.stringify(driveRes)} expectedFolder=${driveFolder}`
+      `CRITICAL: helper ok but file not in dedicated folder: ${JSON.stringify(driveRes)} expectedFolder=${driveFolder}`
     );
   }
 } else {
   fail(
     "3_google_drive",
-    driveRes.error ||
+    `CRITICAL Drive fail: ${
+      driveRes.error ||
       `helper failed rc=${r.status} stderr=${(r.stderr || "").slice(0, 200)} expectedFolder=${driveFolder}`
+    }`
   );
 }
 
@@ -382,17 +408,26 @@ function writeReportAndExit(code) {
   process.exit(code);
 }
 
-const destKeys = ["1_customer_email", "2_job_tab_docs", "3_google_drive"];
+// Gate: Drive (CRITICAL) + tab always; customer email only when opt-in path
+const destKeys = CUSTOMER_EMAIL_OPT_IN
+  ? ["1_customer_email", "2_job_tab_docs", "3_google_drive"]
+  : ["2_job_tab_docs", "3_google_drive"];
 const allPass = destKeys.every((k) => report.destinations[k]?.result === "PASS");
-// naming + fill are prerequisites
+const drivePass = report.destinations["3_google_drive"]?.result === "PASS";
 const prereq =
   report.destinations.naming?.result === "PASS" &&
   report.destinations.fill?.result === "PASS";
 
-if (allPass && prereq) {
-  console.log("\n✅ Test-2 ALL 3 DESTINATIONS PASS");
+if (allPass && prereq && drivePass) {
+  console.log(
+    `\n✅ Test-2 PASS — Drive(dedicated)=ALWAYS · tab=ALWAYS · customer email=${
+      CUSTOMER_EMAIL_OPT_IN ? "OPT-IN exercised" : "OPT-OUT skipped"
+    }`
+  );
   writeReportAndExit(0);
 } else {
-  console.log("\n❌ Test-2 incomplete — do NOT ship until all 3 pass");
+  console.log(
+    "\n❌ Test-2 incomplete — do NOT ship (Drive dedicated folder is CRITICAL must-pass)"
+  );
   writeReportAndExit(1);
 }
