@@ -9,7 +9,7 @@ import {
   resolveRecipient,
 } from "./paymentConfirmEnv.mjs";
 import { LOGO_PNG_BASE64 } from "./le-invoice-suite/logoBase64.mjs";
-import { poweredByLeHtml, resolveEmailBrand } from "./emailBranding.mjs";
+import { poweredByLeHtml, resolveEmailBrand, signatureBlockHtml } from "./emailBranding.mjs";
 
 const RESEND_URL = "https://api.resend.com/emails";
 const OFFICE_EMAIL = "office@leelectrical.us";
@@ -76,8 +76,9 @@ export function buildStatementHtml(st) {
              <p style="font-size:12px;color:#6b7280;">Each invoice in the attached PDF is also individually clickable to view and pay.</p>`
           : `<p style="font-size:13px;color:#6b7280;">See the attached PDF for full details.</p>`
       }
-      <p style="font-size:13px;color:#6b7280;margin-top:20px;">Questions? Reply to this email or call us anytime.<br/>Thank you — ${companyName}</p>
+      <p style="font-size:13px;color:#6b7280;margin-top:20px;">Questions? Reply to this email or call us anytime.</p>
     </div>
+    ${signatureBlockHtml()}
     ${poweredByLeHtml()}
   </div></body></html>`;
 }

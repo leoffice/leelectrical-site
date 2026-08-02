@@ -11,7 +11,7 @@ import { docPdfFilename, docStoreKey, mapJobToQbDocData } from "./jobToQbDoc.mjs
 import emailTemplate from "./le-invoice-suite/email-template.js";
 // Logo inlined as base64 — Cloudflare/V8 has no filesystem for readFileSync.
 import { LOGO_PNG_BASE64 } from "./le-invoice-suite/logoBase64.mjs";
-import { POWERED_BY_LE_TEXT, poweredByLeHtml, resolveEmailBrand } from "./emailBranding.mjs";
+import { POWERED_BY_LE_TEXT, poweredByLeHtml, resolveEmailBrand, signatureBlockHtml } from "./emailBranding.mjs";
 import { buildEmailPayLandingPayload, mintShortPayLink } from "./payLandingLink.mjs";
 import { getStore } from "./storage/index.mjs";
 
@@ -197,7 +197,7 @@ export async function sendDocEmail({
     // payLink intentionally omitted: one primary CTA only (View Invoice / View and Approve).
     logoSrc: brand.logoSrc,
     viewLabel: isInvoice ? "View Invoice" : "View and Approve",
-    poweredByHtml: poweredByLeHtml(),
+    poweredByHtml: `${signatureBlockHtml()}${poweredByLeHtml()}`,
     topMessage: customTop || undefined,
     paymentMessage,
     paymentMessageHtml,

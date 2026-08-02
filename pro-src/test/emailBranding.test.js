@@ -4,11 +4,16 @@
 import { describe, expect, it } from "vitest";
 import {
   DEFAULT_BRAND_NAME,
+  DEFAULT_SIGNER,
+  COMPANY_INFO,
   LE_LOGO_CID,
   POWERED_BY_LE_TEXT,
+  buildBrandedEmailHtml,
   leLogoAttachment,
   poweredByLeHtml,
   resolveEmailBrand,
+  signatureBlockHtml,
+  signatureText,
 } from "../../netlify/functions/lib/emailBranding.mjs";
 import emailTemplate from "../../netlify/functions/lib/le-invoice-suite/email-template.js";
 import { buildPaymentConfirmEmail } from "../../netlify/functions/lib/paymentConfirmEmail.mjs";
@@ -172,6 +177,58 @@ describe("customer email shell", () => {
     });
     expect(html).toContain('src="https://tenant.example.com/x.png"');
     expect(html).toContain("Other Co");
+    expect(html).toContain("Powered by");
+  });
+
+  it("includes the Gmail-style signature (Levi / President) by default", () => {
+    const html = buildCustomerEmailHtml("Body");
+    expect(html).toContain(DEFAULT_SIGNER.name);
+    expect(html).toContain(DEFAULT_SIGNER.title);
+    expect(html).toContain(COMPANY_INFO.license);
+    expect(html).toContain(COMPANY_INFO.email);
+  });
+});
+
+describe("standard branded shell (§10)", () => {
+  it("buildBrandedEmailHtml = header + body + signature + Powered by LE", () => {
+    const html = buildBrandedEmailHtml({
+      bodyHtml: "<p>Your application is complete.</p>",
+      preheader: "Con Ed app ready",
+    });
+    expect(html).toContain("BLZ Electric Inc.");
+    expect(html).toContain("Licensed Electrical Contractor");
+    expect(html).toContain(COMPANY_INFO.license);
+    expect(html).toContain("Your application is complete.");
+    expect(html).toContain(DEFAULT_SIGNER.name);
+    expect(html).toContain("Powered by");
+    expect(html).toContain(`src="cid:${LE_LOGO_CID}"`);
+    expect(html).toContain("Con Ed app ready"); // preheader
+  });
+
+  it("signatureBlockHtml is overridable per signer", () => {
+    const html = signatureBlockHtml({ signer: { name: "Office Team", title: "Office" } });
+    expect(html).toContain("Office Team");
+    expect(html).toContain("Office");
+    expect(html).not.toContain(DEFAULT_SIGNER.name);
+  });
+
+  it("signatureText is plain and includes company + contact", () => {
+    const t = signatureText();
+    expect(t).toContain(DEFAULT_SIGNER.name);
+    expect(t).toContain(COMPANY_INFO.phone);
+    expect(t).toContain(COMPANY_INFO.website);
+  });
+
+  it("statement email includes the signature block", () => {
+    const html = buildStatementHtml({
+      company: { name: "BLZ Electric Inc." },
+      billToName: "Shneor Seewald",
+      typeLabel: "Open invoices",
+      periodLabel: "July 2026",
+      totalDue: 16000,
+      invoices: [],
+    });
+    expect(html).toContain(DEFAULT_SIGNER.name);
     expect(html).toContain("Powered by");
   });
 });

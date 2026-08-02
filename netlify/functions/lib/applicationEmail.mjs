@@ -8,7 +8,21 @@ import {
   resolveRecipients,
   parseEmailRecipients,
 } from "./paymentConfirmEnv.mjs";
-import { POWERED_BY_LE_TEXT } from "./emailBranding.mjs";
+import {
+  POWERED_BY_LE_TEXT,
+  buildBrandedEmailHtml,
+  signatureText,
+  leLogoAttachment,
+} from "./emailBranding.mjs";
+
+function nl2brEsc(s) {
+  return String(s || "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .split("\n")
+    .join("<br>");
+}
 
 const RESEND_URL = "https://api.resend.com/emails";
 const OFFICE_EMAIL = "office@leelectrical.us";
@@ -78,15 +92,27 @@ export async function sendApplicationEmail({
     String(subjectIn || "").trim() ||
     `${formTitle}${cust || site ? " — " + [cust, site].filter(Boolean).join(" · ") : ""}`;
 
-  const text =
-    String(message || "").trim() ||
-    `${formTitle}\n${cust}\n${site}\n\nSee attached PDF for the complete application.\n\n${POWERED_BY_LE_TEXT}`;
+  // Friendly customer-facing body (branded shell + signature wraps this).
+  const firstName = String(cust || "").trim().split(/\s+/)[0] || "";
+  const defaultBody =
+    `Hi${firstName ? " " + firstName : ""},\n\n` +
+    `Your Con Edison Application for Service${site ? " at " + site : ""} is complete. ` +
+    `Your signed application (Form A) is attached to this email as a PDF for your records.\n\n` +
+    `We'll take it from here and submit it to Con Edison. If we need anything else from you, we'll be in touch.\n\n` +
+    `Thank you!`;
+  const bodyText = String(message || "").trim() || defaultBody;
 
-  const html =
-    String(htmlBody || "").trim() ||
-    `<pre style="font-family:system-ui,sans-serif;white-space:pre-wrap">${text
-      .replace(/&/g, "&amp;")
-      .replace(/</g, "&lt;")}</pre>`;
+  const text = `${bodyText}\n\n${signatureText()}\n\n${POWERED_BY_LE_TEXT}`;
+
+  // Use the provided htmlBody as INNER body only if it's not a full document;
+  // otherwise render the friendly text. Either way it gets the branded header +
+  // Gmail-style signature + Powered-by footer.
+  const providedInner =
+    String(htmlBody || "").trim() && !/<html[\s>]/i.test(htmlBody) ? htmlBody : "";
+  const html = buildBrandedEmailHtml({
+    bodyHtml: providedInner || nl2brEsc(bodyText),
+    preheader: `${formTitle}${site ? " — " + site : ""}`,
+  });
 
   const meta = {
     testMode: isEmailTestMode(),
@@ -124,6 +150,7 @@ export async function sendApplicationEmail({
     html,
     text,
     attachments: [
+      leLogoAttachment(), // inline CID logo for the header + signature
       {
         filename: String(filename || "application.pdf").replace(/[^\w .-]/g, "_"),
         content: pdfBuffer.toString("base64"),
