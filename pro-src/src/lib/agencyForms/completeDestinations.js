@@ -29,6 +29,7 @@ import {
 } from "./completedFileName.js";
 import { CONED_FORM_A_DEFAULT_EMAILS } from "./conedFormA.js";
 import { saveConedToDriveApi } from "./gdriveSave.js";
+import { autoUploadOnComplete } from "./autoUploadOnComplete.js";
 
 const OFFICE_DEFAULT = CONED_FORM_A_DEFAULT_EMAILS[0] || "office@leelectrical.us";
 
@@ -527,7 +528,37 @@ export async function completeConedApplicationDestinations({
   // Ship gate: TAB always. Customer email optional (opt-in). Drive (S25) never gates.
   const success = tabOk;
 
+  // —— 4) Auto upload-to-case (S28) — completion triggers the S24 skill ——
+  // Queues the Energy Services upload (or records waiting_case) + a job
+  // notification. Downstream of the tab record; never gates completion.
+  let autoUpload = { ok: false, skipped: true };
+  if (tabOk) {
+    try {
+      const jobWithFiles = {
+        ...job,
+        paperwork: {
+          ...(job.paperwork || {}),
+          coned: {
+            ...(job.paperwork?.coned || {}),
+            completedFiles: withoutSame,
+          },
+        },
+      };
+      autoUpload = await autoUploadOnComplete({
+        job: jobWithFiles,
+        answers,
+        meterLabel: meter,
+        source: "office",
+        enqueue,
+        onSave,
+      });
+    } catch (err) {
+      autoUpload = { ok: false, queued: false, error: String(err?.message || err) };
+    }
+  }
+
   return {
+    autoUpload,
     filename,
     pdfB64,
     meterLabel: meter,

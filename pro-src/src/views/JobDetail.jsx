@@ -88,6 +88,7 @@ import {
 } from "../components/JobSheets.jsx";
 import CustomerComposeSheet from "../components/CustomerComposeSheet.jsx";
 import AgencyApplicationSheet from "../components/AgencyApplicationSheet.jsx";
+import ConedApplicationStartSheet from "../components/ConedApplicationStartSheet.jsx";
 import ConedCreateCaseSheet from "../components/ConedCreateCaseSheet.jsx";
 import SendDocConfirmSheet from "../components/SendDocConfirmSheet.jsx";
 import {
@@ -101,6 +102,13 @@ import { useTenantConfig } from "../state/tenant.jsx";
 import {
   isConedApplicationsEnabled,
   listConedCompletedFiles,
+  checkCustomerIntake,
+  mapIntakeAnswersToConed,
+  intakeSubmissionToCompletedFiles,
+  autoUploadOnComplete,
+  autoUploadIfWaiting,
+  resolveConedCaseNumber,
+  conedNotification,
 } from "../lib/agencyForms/index.js";
 
 const CMD_TONES = {
@@ -157,6 +165,96 @@ export default function JobDetail() {
     conedAppsOn &&
     (conedCompletedFiles.length > 0 ||
       !!(job?.paperwork?.coned?.enabled || job?.paperwork?.coned?.application));
+  // S27 gate: a FRESH application press asks meters + fill-vs-send first;
+  // an in-progress / submitted application goes straight to the form.
+  const conedApplyKind = job?.paperwork?.coned?.application?.answers
+    ? "conedApp"
+    : "conedAppStart";
+  const conedIntakeRequest = job?.paperwork?.coned?.applicationRequest || null;
+  const conedCaseNumberForUpload = job ? resolveConedCaseNumber(job) : "";
+
+  // S27 — poll once per job open for a customer-completed application; import
+  // the files + answers onto the tab, then S28 auto-queues the case upload.
+  useEffect(() => {
+    if (!conedAppsOn || !job || !conedIntakeRequest) return undefined;
+    let alive = true;
+    (async () => {
+      const r = await checkCustomerIntake(id);
+      if (!alive || !r.ok || !r.submission) return;
+      const sub = r.submission;
+      const importedAt = job?.paperwork?.coned?.customerIntakeImportedAt || "";
+      if (!sub.updatedAt || sub.updatedAt <= importedAt) return;
+      const files = intakeSubmissionToCompletedFiles(sub);
+      if (!files.length) return;
+      const existing = Array.isArray(job.paperwork?.coned?.completedFiles)
+        ? job.paperwork.coned.completedFiles
+        : [];
+      const seen = new Set(existing.map((f) => f.docKey));
+      const merged = [...existing, ...files.filter((f) => !seen.has(f.docKey))];
+      const meterEntries = Object.values(sub.meters || {});
+      const firstMeter = meterEntries[0];
+      const mapped = firstMeter
+        ? mapIntakeAnswersToConed(firstMeter.answers, job)
+        : null;
+      patchJob(id, {
+        paperwork: {
+          coned: {
+            completedFiles: merged,
+            customerIntakeImportedAt: sub.updatedAt,
+            ...(mapped
+              ? {
+                  application: {
+                    agencyId: "coned-form-a",
+                    answers: mapped,
+                    status: "customer_submitted",
+                    submittedAt: firstMeter.submittedAt || sub.updatedAt,
+                  },
+                }
+              : {}),
+            steps: { "Application submitted": true },
+            enabled: true,
+            notifications: conedNotification(job, {
+              type: "customer_submitted",
+              text: `Customer completed the Con Ed application (${files.length} file${
+                files.length === 1 ? "" : "s"
+              }) - saved on the Con Edison Application tab.`,
+            }),
+          },
+        },
+      });
+      showToast?.("Customer completed the Con Ed application — saved to the tab");
+      // S28: completion (customer-filled) auto-queues the case upload per meter.
+      const jobWithFiles = {
+        ...job,
+        paperwork: {
+          ...(job.paperwork || {}),
+          coned: { ...(job.paperwork?.coned || {}), completedFiles: merged },
+        },
+      };
+      for (const f of files) {
+        // eslint-disable-next-line no-await-in-loop
+        await autoUploadOnComplete({
+          job: jobWithFiles,
+          meterLabel: f.meterLabel,
+          source: "customer",
+          enqueue,
+          onSave: (p) => patchJob(id, p),
+        });
+      }
+    })();
+    return () => {
+      alive = false;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [id, conedAppsOn, !!conedIntakeRequest]);
+
+  // S28 — a completion that predated the case number fires once it lands.
+  useEffect(() => {
+    if (!conedAppsOn || !job || !conedCaseNumberForUpload) return;
+    if (job?.paperwork?.coned?.uploadDocument?.status !== "waiting_case") return;
+    autoUploadIfWaiting({ job, enqueue, onSave: (p) => patchJob(id, p) });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [id, conedAppsOn, conedCaseNumberForUpload]);
   const workCompleteEmail = useMemo(
     () => (job && showWorkCompleteNotify ? buildWorkCompleteCustomerEmail(job) : null),
     [job, showWorkCompleteNotify]
@@ -795,15 +893,36 @@ export default function JobDetail() {
               <button
                 type="button"
                 className="btn bg-emerald-700 text-white w-full !py-2.5 text-sm font-bold min-h-[44px]"
-                onClick={() => setSheet({ kind: "conedApp" })}
+                onClick={() => setSheet({ kind: conedApplyKind })}
                 data-testid="coned-tab-fill-application"
               >
                 {job?.paperwork?.coned?.application?.status === "submitted"
                   ? "View / resubmit application"
-                  : job?.paperwork?.coned?.application?.answers
-                    ? "Continue application"
-                    : "Fill Con Ed application"}
+                  : job?.paperwork?.coned?.application?.status === "customer_submitted"
+                    ? "Review customer application"
+                    : job?.paperwork?.coned?.application?.answers
+                      ? "Continue application"
+                      : "Application"}
               </button>
+              {conedIntakeRequest && !job?.paperwork?.coned?.customerIntakeImportedAt ? (
+                <p className="text-[11px] text-slate-500 px-1">
+                  Sent to customer
+                  {conedIntakeRequest.to ? ` (${conedIntakeRequest.to})` : ""} ·{" "}
+                  {String(conedIntakeRequest.sentAt || "").slice(0, 10)} — waiting for
+                  them to fill it out.
+                </p>
+              ) : null}
+              {(job?.paperwork?.coned?.notifications || [])
+                .slice(-3)
+                .map((n, ni) => (
+                  <p
+                    key={(n.at || "") + ni}
+                    className="text-[11px] text-emerald-800 bg-emerald-50 border border-emerald-100 rounded-lg px-2 py-1.5"
+                    data-testid="coned-notification"
+                  >
+                    {n.text || n.type}
+                  </p>
+                ))}
             </div>
           </div>
         ) : null}
@@ -1019,14 +1138,16 @@ export default function JobDetail() {
                                       <button
                                         type="button"
                                         className="btn bg-emerald-700 text-white w-full !py-2.5 text-sm font-bold min-h-[44px]"
-                                        onClick={() => setSheet({ kind: "conedApp" })}
+                                        onClick={() => setSheet({ kind: conedApplyKind })}
                                         data-testid="coned-fill-application"
                                       >
                                         {(br.application?.status === "submitted"
                                           ? "View / resend Con Ed application"
-                                          : br.application?.answers
-                                            ? "Continue Con Ed application"
-                                            : "Fill Con Ed application") +
+                                          : br.application?.status === "customer_submitted"
+                                            ? "Review customer application"
+                                            : br.application?.answers
+                                              ? "Continue Con Ed application"
+                                              : "Con Ed application") +
                                           (br.application?.status === "submitted" ? " ✓" : "")}
                                       </button>
                                       {br.createCase?.execution?.status === "queued" ? (
@@ -1541,6 +1662,14 @@ export default function JobDetail() {
           step={sheet.step}
           initialDt={sheet.initialDt}
           onClose={() => setSheet(null)}
+        />
+      )}
+      {sheet?.kind === "conedAppStart" && (
+        <ConedApplicationStartSheet
+          job={job}
+          onClose={() => setSheet(null)}
+          onFill={() => setSheet({ kind: "conedApp" })}
+          onSave={(patch) => patchJob(id, patch)}
         />
       )}
       {sheet?.kind === "conedApp" && (

@@ -77,6 +77,24 @@ export {
   tenantGdriveFolderId,
 } from "./gdriveSave.js";
 
+// S27 — customer-fill intake (meter gate + personal link + import)
+export {
+  suggestMeters,
+  intakePrefillFromJob,
+  requestCustomerFill,
+  checkCustomerIntake,
+  mapIntakeAnswersToConed,
+  intakeSubmissionToCompletedFiles,
+} from "./conedIntake.js";
+
+// S28 — auto upload-to-case on completion + LE Pro notification
+export {
+  autoUploadOnComplete,
+  autoUploadIfWaiting,
+  resolveConedCaseNumber,
+  conedNotification,
+} from "./autoUploadOnComplete.js";
+
 // S23 — Submit a Case questionnaire + create-case execution
 export {
   REQUEST_TYPES,
