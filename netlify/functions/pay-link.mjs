@@ -1,8 +1,10 @@
 import { getStore } from "./lib/storage/index.mjs";
+import { buildEmailPayLandingPayload } from "./lib/payLandingLink.mjs";
 
 const SITE = "https://leelectrical.us";
 const TTL_MS = 90 * 24 * 60 * 60 * 1000; // 90 days
 const CODE_RE = /^[0-9]{5,8}-[a-z0-9]{4}$/i;
+const JOBS_KEY = "jobsdata-v1";
 
 function corsHeaders() {
   return {
@@ -18,16 +20,97 @@ function json(body, status = 200) {
   return new Response(JSON.stringify(body), { status, headers: corsHeaders() });
 }
 
-function randomSuffix() {
-  return Math.random().toString(36).slice(2, 6);
+/** Always 4 chars so codes match CODE_RE (Math.random can yield shorter slices). */
+export function randomSuffix(rand = Math.random) {
+  return rand().toString(36).slice(2, 6).padEnd(4, "0").slice(0, 4);
 }
 
-function makeCode(invoiceNo) {
+export function makeCode(invoiceNo, rand = Math.random) {
   const inv = String(invoiceNo || "").trim().replace(/\D/g, "");
   // Always 5–8 digits so short codes still match CODE_RE / short-link resolver.
   let base = (inv || String(Date.now()).slice(-6)).slice(0, 8);
   if (base.length < 5) base = base.padStart(5, "0");
-  return `${base}-${randomSuffix()}`;
+  return `${base}-${randomSuffix(rand)}`;
+}
+
+function invoiceDigitsFromCode(code) {
+  const m = String(code || "").match(/^([0-9]{5,8})-[a-z0-9]{4}$/i);
+  return m ? m[1] : "";
+}
+
+function moneyNum(raw) {
+  const n = parseFloat(String(raw ?? "").replace(/[$,]/g, ""));
+  return Number.isFinite(n) ? n : 0;
+}
+
+/**
+ * Rebuild a missing short-link payload from jobsdata (CF/Netlify store loss,
+ * or a memo that kept a code after storage rotated). Writes under the same code
+ * so already-emailed URLs keep working.
+ */
+export async function healMissingPayLink(store, code) {
+  const invNo = invoiceDigitsFromCode(code);
+  if (!invNo) return null;
+  let doc;
+  try {
+    const jobsStore = getStore("jobsdata");
+    doc = await jobsStore.get(JOBS_KEY, { type: "json" });
+  } catch (err) {
+    console.error("[pay-link] heal: jobsdata read failed", err);
+    return null;
+  }
+  const jobs = Array.isArray(doc?.jobs) ? doc.jobs : [];
+  const job =
+    jobs.find((j) => String(j?.invoiceNo || "").trim() === invNo) ||
+    jobs.find((j) => String(j?.id || "").includes(invNo));
+  if (!job) return null;
+
+  const due = moneyNum(job.openBalance) || moneyNum(job.amount);
+  if (due <= 0 && job.paid) return null;
+
+  const payload = buildEmailPayLandingPayload({
+    job,
+    docData: {
+      docNumber: invNo,
+      amountDue: due || moneyNum(job.amount),
+      billTo: { name: job.customer || "" },
+    },
+    email: job.email || "",
+    kind: "invoice",
+  });
+  if (!payload?.i) return null;
+
+  const record = {
+    payload,
+    createdAt: Date.now(),
+    invoiceNo: String(invNo),
+    healed: true,
+    healedAt: Date.now(),
+  };
+  try {
+    await store.set(`pl-${code}`, JSON.stringify(record), {
+      metadata: { invoiceNo: String(invNo), ts: Date.now(), healed: "1" },
+    });
+  } catch (err) {
+    console.error("[pay-link] heal: store write failed", err);
+    return null;
+  }
+  return record;
+}
+
+function respondResolved(req, code, record) {
+  if (record.createdAt && Date.now() - record.createdAt > TTL_MS) {
+    return json({ ok: false, error: "link expired" }, 410);
+  }
+  // Browser hit from /pay/:code redirect — send customer to the pay page.
+  if (req.headers.get("accept")?.includes("text/html")) {
+    const target = `${SITE}/app/pro/#/pay/${encodeURIComponent(code)}`;
+    return new Response(
+      `<!DOCTYPE html><html><head><meta charset="utf-8"><meta http-equiv="refresh" content="0;url=${target}"><title>Pay invoice</title></head><body><p><a href="${target}">Continue to payment page</a></p></body></html>`,
+      { status: 302, headers: { Location: target, "content-type": "text/html; charset=utf-8" } }
+    );
+  }
+  return json({ ok: true, code, payload: record.payload, healed: !!record.healed });
 }
 
 export default async (req, env = {}) => {
@@ -65,7 +148,20 @@ export default async (req, env = {}) => {
     const payload = body.payload;
     if (!payload || !payload.i) return json({ ok: false, error: "payload with invoice required" }, 400);
 
-    const code = makeCode(payload.i);
+    // Optional preferred code (heal / re-bind the URL already printed on a PDF).
+    let code = String(body.code || "").trim();
+    if (code) {
+      if (!CODE_RE.test(code)) return json({ ok: false, error: "invalid code" }, 400);
+      const digits = invoiceDigitsFromCode(code);
+      const invDigits = String(payload.i || "").replace(/\D/g, "");
+      // Code prefix must match the invoice DocNumber digits.
+      if (digits !== invDigits) {
+        return json({ ok: false, error: "code does not match invoice" }, 400);
+      }
+    } else {
+      code = makeCode(payload.i);
+    }
+
     const record = { payload, createdAt: Date.now(), invoiceNo: String(payload.i) };
     await store.set(`pl-${code}`, JSON.stringify(record), {
       metadata: { invoiceNo: String(payload.i), ts: Date.now() },
@@ -79,28 +175,19 @@ export default async (req, env = {}) => {
   if (!code) return json({ ok: false, error: "code required" }, 400);
   if (!CODE_RE.test(code)) return json({ ok: false, error: "invalid code" }, 404);
 
-  const raw = await store.get(`pl-${code}`, { type: "text" });
-  if (!raw) return json({ ok: false, error: "link not found" }, 404);
-
-  let record;
-  try {
-    record = JSON.parse(raw);
-  } catch {
-    return json({ ok: false, error: "corrupt link data" }, 500);
+  let raw = await store.get(`pl-${code}`, { type: "text" });
+  let record = null;
+  if (raw) {
+    try {
+      record = JSON.parse(raw);
+    } catch {
+      return json({ ok: false, error: "corrupt link data" }, 500);
+    }
+  } else {
+    // Self-heal: short code was emailed but missing from KV (migration / wipe).
+    record = await healMissingPayLink(store, code);
+    if (!record) return json({ ok: false, error: "link not found" }, 404);
   }
 
-  if (record.createdAt && Date.now() - record.createdAt > TTL_MS) {
-    return json({ ok: false, error: "link expired" }, 410);
-  }
-
-  // Browser hit from /pay/:code redirect — send customer to the pay page.
-  if (req.headers.get("accept")?.includes("text/html")) {
-    const target = `${SITE}/app/pro/#/pay/${encodeURIComponent(code)}`;
-    return new Response(
-      `<!DOCTYPE html><html><head><meta charset="utf-8"><meta http-equiv="refresh" content="0;url=${target}"><title>Pay invoice</title></head><body><p><a href="${target}">Continue to payment page</a></p></body></html>`,
-      { status: 302, headers: { Location: target, "content-type": "text/html; charset=utf-8" } }
-    );
-  }
-
-  return json({ ok: true, code, payload: record.payload });
+  return respondResolved(req, code, record);
 };
