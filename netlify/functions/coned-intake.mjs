@@ -27,7 +27,7 @@ import {
 } from "./lib/emailBranding.mjs";
 
 const PUBLIC_BASE = "https://www.leelectrical.us";
-const APPLY_PATH = "/app/coned/apply.html";
+const APPLY_PATH = "/app/coned/apply"; // Pages clean-URL (apply.html 308s here)
 const RESEND_URL = "https://api.resend.com/emails";
 const MAX_PDF_BYTES = 10 * 1024 * 1024;
 
