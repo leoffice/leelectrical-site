@@ -249,7 +249,8 @@ export function buildQbStatementPdf(model, overrides = {}) {
       ["TYPE", model?.typeLabel || "Open items"],
     ];
     if (model?.dateFrom || model?.dateTo) {
-      rightRows.push(["RANGE", `${model.dateFrom || "…"} – ${model.dateTo || "…"}`]);
+      // Plain ASCII only — the base-font esc() turns fancy dashes into "?".
+      rightRows.push(["RANGE", `${model.dateFrom || "start"} - ${model.dateTo || "today"}`]);
     }
     const firstLetter = docType.charAt(0);
     const letterW = textWidth(firstLetter, TITLE_SIZE, true);
@@ -295,17 +296,30 @@ export function buildQbStatementPdf(model, overrides = {}) {
   }
   y += 10;
 
+  // Table columns — right-aligned money columns end flush with the band's
+  // right edge (M+540-6), matching the invoice family. Description gets the
+  // space left of where a worst-case $999,999.99 charge starts.
+  const COL_DATE = M + 4;
+  const COL_INV = M + 64;
+  const COL_DESC = M + 124;
+  const COL_CHARGE_R = M + 360;
+  const COL_PAID_R = M + 444;
+  const COL_BAL_R = M + 534;
+  const DESC_MAX_W = COL_CHARGE_R - 56 - COL_DESC - 6;
+
   // Table header band
   const drawTableHead = (page, top) => {
     page.fillRect(M, top, 540, 20, HEADERBG);
     const hb = top + 13.5;
-    page.text(M + 4, hb, "DATE", { size: 8.5, color: GREEN });
-    page.text(M + 64, hb, "INVOICE", { size: 8.5, color: GREEN });
-    page.text(M + 124, hb, "DESCRIPTION", { size: 8.5, color: GREEN });
-    page.text(M + 340, hb, "CHARGES", { size: 8.5, color: GREEN, align: "right" });
-    page.text(M + 420, hb, "PAYMENTS", { size: 8.5, color: GREEN, align: "right" });
-    page.text(M + 520, hb, "BALANCE", { size: 8.5, color: GREEN, align: "right" });
-    return top + 22;
+    page.text(COL_DATE, hb, "DATE", { size: 8.5, color: GREEN });
+    page.text(COL_INV, hb, "INVOICE", { size: 8.5, color: GREEN });
+    page.text(COL_DESC, hb, "DESCRIPTION", { size: 8.5, color: GREEN });
+    page.text(COL_CHARGE_R, hb, "CHARGES", { size: 8.5, color: GREEN, align: "right" });
+    page.text(COL_PAID_R, hb, "PAYMENTS", { size: 8.5, color: GREEN, align: "right" });
+    page.text(COL_BAL_R, hb, "BALANCE", { size: 8.5, color: GREEN, align: "right" });
+    // First row baseline clears the band (band is 20 tall; 8.5pt text ascends
+    // ~6pt above its baseline — returning top+22 drew row 1 INTO the band).
+    return top + 34;
   };
   y = drawTableHead(pg, y);
 
@@ -323,18 +337,18 @@ export function buildQbStatementPdf(model, overrides = {}) {
     const desc = r.progressLabel
       ? `${r.description} (${r.progressLabel})`
       : r.description;
-    pg.text(M + 4, y, r.date || "-", { size: 8.5, color: BLACK });
-    pg.text(M + 64, y, r.invoiceNo || "", { size: 8.5, color: BLACK });
-    pg.text(M + 124, y, clip(desc, 200, 8.5), { size: 8.5, color: BLACK });
-    pg.text(M + 340, y, "$" + qbMoney(r.charge), { size: 8.5, color: BLACK, align: "right" });
-    pg.text(M + 420, y, r.paid ? "$" + qbMoney(r.paid) : "-", { size: 8.5, color: BLACK, align: "right" });
+    pg.text(COL_DATE, y, r.date || "-", { size: 8.5, color: BLACK });
+    pg.text(COL_INV, y, r.invoiceNo || "", { size: 8.5, color: BLACK });
+    pg.text(COL_DESC, y, clip(desc, DESC_MAX_W, 8.5), { size: 8.5, color: BLACK });
+    pg.text(COL_CHARGE_R, y, "$" + qbMoney(r.charge), { size: 8.5, color: BLACK, align: "right" });
+    pg.text(COL_PAID_R, y, r.paid ? "$" + qbMoney(r.paid) : "-", { size: 8.5, color: BLACK, align: "right" });
     const bal = r.runningBalance != null ? r.runningBalance : r.balance;
-    pg.text(M + 520, y, "$" + qbMoney(bal), { size: 8.5, color: BLACK, align: "right" });
+    pg.text(COL_BAL_R, y, "$" + qbMoney(bal), { size: 8.5, color: BLACK, align: "right" });
 
     // Pay link annotation on the invoice # cell when open + url present
     const pay = payByInv.get(String(r.invoiceNo));
     if (pay?.url && r.isOpen) {
-      pg.link(M + 64, y - 10, 56, 14, pay.url);
+      pg.link(COL_INV, y - 10, 56, 14, pay.url);
     }
     y += rowH;
   }
@@ -352,7 +366,7 @@ export function buildQbStatementPdf(model, overrides = {}) {
 
   ensureSpace(80);
   const lblX = M + 320;
-  const valX = M + 520;
+  const valX = COL_BAL_R;
   if (model?.type === "balance_forward" && model.priorBalance) {
     pg.text(lblX, y, "Prior balance", { size: 9, color: GRAY });
     pg.text(valX, y, "$" + qbMoney(model.priorBalance), { size: 9, color: BLACK, align: "right" });
@@ -370,7 +384,7 @@ export function buildQbStatementPdf(model, overrides = {}) {
 
   if (model?.payRows?.length) {
     ensureSpace(40);
-    pg.text(M, y, "Pay online — tap an invoice number above (open items).", { size: 8, color: GRAY });
+    pg.text(M, y, "Pay online - tap an invoice number above (open items).", { size: 8, color: GRAY });
     y += 12;
   }
 
