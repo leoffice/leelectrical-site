@@ -324,12 +324,15 @@ export function buildQbStatementPdf(model, overrides = {}) {
   y = drawTableHead(pg, y);
 
   const rowH = 16;
-  const ensureSpace = (need) => {
+  // withTableHead=false for totals / notes overflow — a continuation page
+  // that carries no rows must not start with an empty table-header band.
+  const ensureSpace = (need, withTableHead = true) => {
     if (y + need < PAGE_H - FOOTER_ZONE) return;
     pg = Page();
     pages.push(pg);
     y = drawHeader(pg);
-    y = drawTableHead(pg, y + 8);
+    if (withTableHead) y = drawTableHead(pg, y + 8);
+    else y += 10;
   };
 
   for (const r of rows) {
@@ -364,7 +367,16 @@ export function buildQbStatementPdf(model, overrides = {}) {
   pg.rule(M, M + 540, y);
   y += 18;
 
-  ensureSpace(80);
+  // Pay-online hint rides directly under the rows (same page as the links),
+  // before the totals — never alone on a fresh page.
+  if (model?.payRows?.length && rows.length) {
+    ensureSpace(20, false);
+    pg.text(M, y, "Pay online - tap an invoice number above (open items).", { size: 8, color: GRAY });
+    y += 16;
+  }
+
+  // Totals block — overflow starts a clean page WITHOUT an empty table band.
+  ensureSpace(80, false);
   const lblX = M + 320;
   const valX = COL_BAL_R;
   if (model?.type === "balance_forward" && model.priorBalance) {
@@ -381,12 +393,6 @@ export function buildQbStatementPdf(model, overrides = {}) {
   pg.text(lblX, y, "BALANCE DUE", { size: 11, bold: true, color: BLACK });
   pg.text(valX, y, "$" + qbMoney(model?.totalDue || 0), { size: 12, bold: true, color: BLACK, align: "right" });
   y += 24;
-
-  if (model?.payRows?.length) {
-    ensureSpace(40);
-    pg.text(M, y, "Pay online - tap an invoice number above (open items).", { size: 8, color: GRAY });
-    y += 12;
-  }
 
   // Footers (same family as invoice/estimate)
   const tenant = tenantCompany();

@@ -22,7 +22,8 @@ import {
   EMAIL_POLICY_KEEP,
 } from "../lib/sendDocConfirm.js";
 import { fmt$ } from "../lib/format.js";
-import { downloadPdfBlob, openPdfBlob } from "../lib/pdfOpen.js";
+import { downloadPdfBlob } from "../lib/pdfOpen.js";
+import LocalDocViewer from "./LocalDocViewer.jsx";
 import { useStore } from "../state/store.jsx";
 import { DOC_SOURCE_LOCAL } from "../lib/docSource.js";
 
@@ -59,6 +60,7 @@ export default function StatementSheet({
     defaultSelectedIds(allItems, DEFAULT_STATEMENT_TYPE)
   );
   const [busy, setBusy] = useState(false);
+  const [previewBlob, setPreviewBlob] = useState(null);
   const [emailOpen, setEmailOpen] = useState(false);
   const [sendBusy, setSendBusy] = useState(false);
   const [sendError, setSendError] = useState("");
@@ -131,7 +133,10 @@ export default function StatementSheet({
     setBusy(true);
     try {
       const blob = await buildPdf();
-      openPdfBlob(blob);
+      // In-app viewer — a blob new-tab open is silently blocked in the
+      // installed PWA / popup-blocked browsers (audit finding: Preview did
+      // nothing). LocalDocViewer always renders, with download/share/native.
+      setPreviewBlob(blob);
     } catch (err) {
       showToast("Could not build statement — try again");
       console.error("[statement] preview", err);
@@ -438,6 +443,14 @@ export default function StatementSheet({
       <button type="button" className="btn-ghost w-full" onClick={onClose} data-testid="statement-close">
         Close
       </button>
+      {previewBlob ? (
+        <LocalDocViewer
+          blob={previewBlob}
+          title={`Statement — ${model.customerName || "Customer"}`}
+          filename={statementFilename(model)}
+          onClose={() => setPreviewBlob(null)}
+        />
+      ) : null}
     </Sheet>
   );
 }
