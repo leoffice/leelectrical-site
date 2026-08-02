@@ -705,10 +705,17 @@ function NewJobForm({ prefill, onClose, onCreated, vendorMode = false, sasCallId
   });
   const [titlePick, setTitlePick] = useState("new");
   const [subPick, setSubPick] = useState("");
+  // New customer (no QB id) can be nested under an existing parent (Levi 2026-08-02 —
+  // same toggle as Add customer; was missing on calendar→job / new job).
+  const [isSubCompany, setIsSubCompany] = useState(
+    () =>
+      !!(String(prefill.parentCustomerName || "").trim() || String(prefill.parentQboCustomerId || "").trim())
+  );
 
   const autoFilledRef = useRef("");
   const fRef = useRef(f);
   fRef.current = f;
+  const isNewCustomer = !String(f.qboCustomerId || "").trim();
 
   const titleOptions = useMemo(
     () =>
@@ -792,6 +799,7 @@ function NewJobForm({ prefill, onClose, onCreated, vendorMode = false, sasCallId
     setSubPick("");
     if (c && c._newCustomer) {
       setTitlePick("new");
+      setIsSubCompany(false);
       setF((o) => ({
         ...o,
         businessName: c.name || "",
@@ -802,13 +810,35 @@ function NewJobForm({ prefill, onClose, onCreated, vendorMode = false, sasCallId
       }));
       return;
     }
+    setIsSubCompany(false);
     if (c.parentId) {
+      setIsSubCompany(true);
       setF((o) => ({
         ...o,
         ...parentCustomerPatch({ id: c.parentId, name: c.parentName || "" }),
       }));
+    } else {
+      setF((o) => ({ ...o, parentCustomerName: "", parentQboCustomerId: "" }));
     }
     applyCustomer(c, { keepServiceAddress: true });
+  };
+
+  const pickParentCo = useCallback(
+    async (c) => {
+      if (!c) return;
+      if (c._newCustomer) {
+        setF((o) => ({ ...o, parentCustomerName: c.name || "", parentQboCustomerId: "" }));
+        return;
+      }
+      const patch = await enrichAndPatchCustomer(c, jobs, api);
+      setF((o) => ({ ...o, ...parentCustomerPatch({ ...c, ...patch, id: patch.qboCustomerId || c.id }) }));
+    },
+    [api, jobs]
+  );
+
+  const toggleSubCompany = (next) => {
+    setIsSubCompany(next);
+    if (!next) setF((o) => ({ ...o, parentCustomerName: "", parentQboCustomerId: "" }));
   };
 
   const onTitlePick = (e) => {
@@ -871,11 +901,31 @@ function NewJobForm({ prefill, onClose, onCreated, vendorMode = false, sasCallId
           value={f.businessName || f.customer}
           onChangeText={(v) => {
             setTitlePick("new");
-            setF((o) => ({ ...o, businessName: v, customer: v, qboCustomerId: "", invoiceNo: "", estimateNo: "" }));
+            setIsSubCompany(false);
+            setF((o) => ({
+              ...o,
+              businessName: v,
+              customer: v,
+              qboCustomerId: "",
+              invoiceNo: "",
+              estimateNo: "",
+              parentCustomerName: "",
+              parentQboCustomerId: "",
+            }));
           }}
           onPick={pickCustomer}
         />
       </Fld>
+      {isNewCustomer ? (
+        <SubCompanySection
+          testId="newjob"
+          on={isSubCompany}
+          onToggle={toggleSubCompany}
+          parentName={f.parentCustomerName}
+          onParentNameChange={(v) => setF((o) => ({ ...o, parentCustomerName: v, parentQboCustomerId: "" }))}
+          onParentPick={pickParentCo}
+        />
+      ) : null}
       <Fld label="Person name" hint="Contact person from QuickBooks (optional)">
         <input className="input" value={f.personName} onChange={set("personName")} aria-label="Person name" />
       </Fld>

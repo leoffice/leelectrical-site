@@ -89,12 +89,20 @@ export default function CustomerCard({
     ],
   ].filter(([, v]) => v);
 
-  const handleCardClick = onCardTap
-    ? (e) => {
-        if (e.target.closest("[data-no-card-open]")) return;
-        onCardTap();
-      }
-    : undefined;
+  // Card body tap: explicit onCardTap (e.g. back to customer on job detail), else
+  // toggle transaction history when that control is on the card (Levi 2026-08-02).
+  const canToggleTxns = typeof onShortTxnsChange === "function";
+  const handleCardClick =
+    onCardTap || canToggleTxns
+      ? (e) => {
+          if (e.target.closest("[data-no-card-open]")) return;
+          if (onCardTap) {
+            onCardTap();
+            return;
+          }
+          onShortTxnsChange(!shortTxns);
+        }
+      : undefined;
 
   return (
     <div
@@ -105,7 +113,16 @@ export default function CustomerCard({
       data-testid="customer-card"
       onClick={handleCardClick}
       role={handleCardClick ? "button" : undefined}
-      aria-label={handleCardClick ? "Back to customer overview" : undefined}
+      aria-label={
+        handleCardClick
+          ? onCardTap
+            ? "Back to customer overview"
+            : shortTxns
+              ? "Hide transaction history"
+              : "Show transaction history"
+          : undefined
+      }
+      aria-pressed={canToggleTxns && !onCardTap ? !!shortTxns : undefined}
     >
       {onEdit ? (
         <button
@@ -183,19 +200,22 @@ export default function CustomerCard({
         </dl>
       )}
 
-      {typeof onShortTxnsChange === "function" ? (
+      {canToggleTxns ? (
         <div
-          className="mt-3 pt-2 border-t border-slate-100 flex items-center justify-end gap-2"
+          className="mt-3 pt-2 border-t border-slate-100 flex items-center justify-between gap-2"
           data-testid="customer-short-txns-row"
           data-no-card-open
         >
-          <span className="text-[11px] font-semibold text-slate-600">Transaction history</span>
-          <Toggle
-            on={!!shortTxns}
-            onChange={onShortTxnsChange}
-            small
-            label="Transaction history"
-          />
+          <span className="text-[11px] text-slate-500">Tap card to show or hide</span>
+          <div className="flex items-center gap-2">
+            <span className="text-[11px] font-semibold text-slate-600">Transaction history</span>
+            <Toggle
+              on={!!shortTxns}
+              onChange={onShortTxnsChange}
+              small
+              label="Transaction history"
+            />
+          </div>
         </div>
       ) : null}
     </div>

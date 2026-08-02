@@ -153,6 +153,42 @@ describe("#55 picking an existing customer prefills their details", () => {
   });
 });
 
+describe("new job — sub company for new customers (Levi 2026-08-02)", () => {
+  it("shows sub-company toggle when the customer is new, not when linked to QB", async () => {
+    mockServer({
+      customers: [
+        {
+          name: "Parent Mgmt",
+          id: "500",
+          businessName: "Parent Mgmt",
+          phone: "718-555-9999",
+          email: "p@mgmt.com",
+          billingAddress: "1 Parent Ave",
+        },
+      ],
+    });
+    const user = userEvent.setup();
+    renderApp("#/");
+    await screen.findByText("Peretz Chein");
+    await openManual(user);
+    const dialog = screen.getByRole("dialog");
+
+    // New name → sub-company toggle available
+    await user.type(within(dialog).getByTestId("newjob-business-name"), "Brand New LLC");
+    expect(within(dialog).getByTestId("newjob-toggle-row")).toBeInTheDocument();
+    await user.click(within(dialog).getByRole("switch", { name: "Sub company" }));
+    expect(within(dialog).getByTestId("newjob-parent")).toBeInTheDocument();
+
+    // Pick existing QB customer → toggle goes away (parent lives on QB)
+    await user.clear(within(dialog).getByTestId("newjob-business-name"));
+    await user.type(within(dialog).getByTestId("newjob-business-name"), "Parent");
+    await user.click(await within(dialog).findByTestId("customer-match"));
+    await waitFor(() =>
+      expect(within(dialog).queryByTestId("newjob-toggle-row")).not.toBeInTheDocument()
+    );
+  });
+});
+
 describe("#49 four-field customer search — business, person, phone, email", () => {
   const customers = [
     {
