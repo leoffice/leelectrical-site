@@ -4,3 +4,4 @@ vite.config.js.timestamp-*.mjs
 vite.config.ts.timestamp-*.mjs
 
 node_modules/
+pro-src/tmp/

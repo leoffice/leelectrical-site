@@ -142,9 +142,9 @@ export const LE_TENANT_SEED = {
     letterheadTemplate: "default",
     supportEmail: "Office@LeElectrical.us",
   },
-  // Permits: ON for Levi (LE) only. White-label stays off via PLAN_MODULES.
-  // internal:true also forces every module on for LE; override documents the intent.
-  moduleOverrides: { permits: true },
+  // Permits + Con Ed Application tab: ON for Levi (LE) only. White-label stays off.
+  // internal:true also forces every PLAN_MODULES key on for LE; these document intent.
+  moduleOverrides: { permits: true, conedApplications: true },
   agencies: NYC_AGENCY_PRESETS.map((a) => ({ ...a })),
   profile: { ...DEFAULT_PROFILE },
 };

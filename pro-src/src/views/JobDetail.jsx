@@ -96,6 +96,11 @@ import {
 import { afterSendApprovedClose } from "../lib/sendDocConfirm.js";
 import { beginPromptWorkPause } from "../lib/followUpReminders.js";
 import { DOC_SOURCE_LOCAL } from "../lib/docSource.js";
+import { useTenantConfig } from "../state/tenant.jsx";
+import {
+  isConedApplicationsEnabled,
+  listConedCompletedFiles,
+} from "../lib/agencyForms/index.js";
 
 const CMD_TONES = {
   queued: "bg-slate-100 text-slate-500",
@@ -136,11 +141,21 @@ export default function JobDetail() {
     jobs,
     sasCalls,
   } = useStore();
+  const tenantConfig = useTenantConfig();
   const job = effectiveJob(id);
   const doSend = useDoSend();
   const [workCompleteSendBusy, setWorkCompleteSendBusy] = useState(false);
   const [workCompleteSendErr, setWorkCompleteSendErr] = useState("");
   const showWorkCompleteNotify = job ? jobHasWorkCompleteMilestone(job) : false;
+  const conedAppsOn = isConedApplicationsEnabled(tenantConfig);
+  const conedCompletedFiles = useMemo(
+    () => (job && conedAppsOn ? listConedCompletedFiles(job) : []),
+    [job, conedAppsOn]
+  );
+  const showConedAppTab =
+    conedAppsOn &&
+    (conedCompletedFiles.length > 0 ||
+      !!(job?.paperwork?.coned?.enabled || job?.paperwork?.coned?.application));
   const workCompleteEmail = useMemo(
     () => (job && showWorkCompleteNotify ? buildWorkCompleteCustomerEmail(job) : null),
     [job, showWorkCompleteNotify]
@@ -703,6 +718,82 @@ export default function JobDetail() {
                 Customer notified · {String(job.workCompleteCustomerNotifiedAt).slice(0, 10)}
               </p>
             ) : null}
+          </div>
+        ) : null}
+        {/* Con Edison Application tab — next to Paperwork (Levi-tenant only) */}
+        {showConedAppTab ? (
+          <div
+            className="card overflow-hidden mb-2 border border-emerald-100"
+            data-testid="coned-application-tab"
+          >
+            <div className="flex items-center gap-2.5 px-4 py-3">
+              <span>⚡</span>
+              <span className="font-bold text-sm text-slate-800 flex-1">Con Edison Application</span>
+              <span className="pill bg-emerald-100 text-emerald-800">
+                {conedCompletedFiles.length || 0} file{conedCompletedFiles.length === 1 ? "" : "s"}
+              </span>
+            </div>
+            <div className="px-3 pb-3 space-y-2">
+              {conedCompletedFiles.length ? (
+                conedCompletedFiles.map((f, i) => (
+                  <div
+                    key={(f.docKey || f.name || "f") + i}
+                    className="flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm"
+                    data-testid="coned-completed-file"
+                  >
+                    <span className="shrink-0">📄</span>
+                    <div className="min-w-0 flex-1">
+                      {f.url ? (
+                        <a
+                          href={f.url}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="text-brand font-semibold truncate block"
+                          download={f.name || undefined}
+                        >
+                          {f.name || "Completed Form A.pdf"}
+                        </a>
+                      ) : (
+                        <span className="font-semibold text-slate-800 truncate block">
+                          {f.name || "Completed Form A.pdf"}
+                        </span>
+                      )}
+                      <div className="text-[11px] text-slate-500">
+                        {(f.meterLabel ? f.meterLabel + " · " : "") +
+                          (f.status || "submitted") +
+                          (f.submittedAt ? " · " + String(f.submittedAt).slice(0, 10) : "")}
+                      </div>
+                    </div>
+                    {f.url ? (
+                      <a
+                        href={f.url}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="btn-ghost !py-1.5 !px-2.5 text-xs font-bold shrink-0"
+                      >
+                        Open
+                      </a>
+                    ) : null}
+                  </div>
+                ))
+              ) : (
+                <p className="text-xs text-slate-500 px-1">
+                  Completed Form A PDFs land here after submit — one file per meter.
+                </p>
+              )}
+              <button
+                type="button"
+                className="btn bg-emerald-700 text-white w-full !py-2.5 text-sm font-bold min-h-[44px]"
+                onClick={() => setSheet({ kind: "conedApp" })}
+                data-testid="coned-tab-fill-application"
+              >
+                {job?.paperwork?.coned?.application?.status === "submitted"
+                  ? "View / resubmit application"
+                  : job?.paperwork?.coned?.application?.answers
+                    ? "Continue application"
+                    : "Fill Con Ed application"}
+              </button>
+            </div>
           </div>
         ) : null}
         {PHASES.map((ph, pi) => {

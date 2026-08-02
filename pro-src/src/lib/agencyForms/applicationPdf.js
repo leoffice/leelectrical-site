@@ -5,6 +5,7 @@
  */
 import { applicationFieldRows } from "./engine.js";
 import { fillConedFormAPdfBytes } from "./fillConedFormA.js";
+import { buildConedCompletedFileName } from "./completedFileName.js";
 
 const PAGE_W = 612;
 const PAGE_H = 792;
@@ -220,7 +221,11 @@ export function buildApplicationPdfBytes({ agency, answers, job = {} } = {}) {
   return assemblePdf(pages);
 }
 
-export function applicationPdfFileName(agency, job = {}) {
+export function applicationPdfFileName(agency, job = {}, answers = {}) {
+  // Con Ed completed apps use the productization §3 searchable name.
+  if (agency?.id === "coned-form-a" || agency?.sourceForm) {
+    return buildConedCompletedFileName({ answers, job });
+  }
   const id = agency?.id || "application";
   const site = String(job.serviceAddress || job.address || "job")
     .replace(/[^\w]+/g, "-")
@@ -266,7 +271,18 @@ export async function buildApplicationPdfBytesAsync(opts = {}) {
   return buildApplicationPdfBytes(opts);
 }
 
-export function blobToBase64(blob) {
+export async function blobToBase64(blob) {
+  // Node / vitest (no FileReader): use arrayBuffer + Buffer when available.
+  if (typeof FileReader === "undefined") {
+    const ab = await blob.arrayBuffer();
+    if (typeof Buffer !== "undefined") {
+      return Buffer.from(ab).toString("base64");
+    }
+    const bytes = new Uint8Array(ab);
+    let binary = "";
+    for (let i = 0; i < bytes.length; i++) binary += String.fromCharCode(bytes[i]);
+    return btoa(binary);
+  }
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
     reader.onload = () => {

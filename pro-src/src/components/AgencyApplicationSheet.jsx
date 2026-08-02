@@ -6,9 +6,6 @@ import { useStore } from "../state/store.jsx";
 import {
   applicationReady,
   applicationFieldRows,
-  buildApplicationDraft,
-  buildApplicationEmailHtml,
-  buildApplicationEmailText,
   conedAgency,
   getAgency,
   missingRequired,
@@ -19,8 +16,8 @@ import {
   visibleFields,
   buildApplicationPdfBlob,
   applicationPdfFileName,
-  blobToBase64,
   applyConedUnitInput,
+  completeConedApplicationDestinations,
   CONED_FORM_A_SOURCE_PDF,
 } from "../lib/agencyForms/index.js";
 import { openPdfBlob, downloadPdfBlob } from "../lib/pdfOpen.js";
@@ -33,7 +30,7 @@ import { openPdfBlob, downloadPdfBlob } from "../lib/pdfOpen.js";
  * @param {(patch: object) => void} props.onSave — receives paperwork.coned.application patch piece
  */
 export default function AgencyApplicationSheet({ job, agencyId = "coned-form-a", onClose, onSave }) {
-  const { api } = useStore();
+  const { api, enqueue } = useStore();
   const agency = useMemo(() => getAgency(agencyId) || conedAgency(), [agencyId]);
   const existing = job?.paperwork?.coned?.application;
   const [draft, setDraft] = useState(() => seedConedApplication(job, existing));
@@ -181,69 +178,44 @@ export default function AgencyApplicationSheet({ job, agencyId = "coned-form-a",
     }
     setBusy(true);
     try {
-      const blob = await buildApplicationPdfBlob({ agency, answers, job });
-      const pdfB64 = await blobToBase64(blob);
-      const filename = applicationPdfFileName(agency, job);
-      const emails = resolveSubmitEmails(agency, destEmail);
-      const to = emails[0] || "office@leelectrical.us";
-      const subject = `${agency.formTitle} — ${job?.customer || job?.customerName || "Job"} ${
-        job?.serviceAddress || job?.address || ""
-      }`.trim();
-      const html = buildApplicationEmailHtml(agency, answers, job);
-      const text = buildApplicationEmailText(agency, answers, job);
-
-      let result = { ok: false, error: "no_send_api" };
-      if (api && typeof api.sendDocEmailNow === "function") {
-        result = await api.sendDocEmailNow(job, "application", {
-          email: to,
-          pdfB64,
-          filename,
-          subject,
-          message: text,
-          htmlBody: html,
-          includePaymentLink: false,
-          application: {
-            agencyId: agency.id,
-            formTitle: agency.formTitle,
-            rows: applicationFieldRows(agency, answers),
-          },
-        });
-      }
-
-      const emailResult = {
-        ok: !!result?.ok,
-        to,
-        at: Date.now(),
-        error: result?.error || result?.reason || "",
-      };
-
-      const submitted = buildApplicationDraft({
-        agencyId: agency.id,
+      // Slice 1: same proven fill → customer email + office copy + job tab + Drive.
+      const result = await completeConedApplicationDestinations({
+        agency,
         answers,
-        status: "submitted",
-        stepIndex: steps.length - 1,
-        submittedAt: new Date().toISOString(),
-        emailResult,
+        job,
+        api,
+        onSave,
+        enqueue,
+        destEmailOverride: destEmail,
       });
-      setDraft(submitted);
+      setDraft(result.submitted);
 
-      // Mark Application submitted + store draft on the job
-      onSave?.({
-        paperwork: {
-          coned: {
-            application: submitted,
-            steps: { "Application submitted": true },
-            active: { "Application submitted": true },
-          },
-        },
-      });
+      const d = result.destinations || {};
+      const parts = [];
+      if (d.customerEmail?.ok) parts.push("customer emailed");
+      else if (d.customerEmail?.skipped) parts.push("no customer email on form");
+      else if (d.customerEmail?.error) parts.push("customer email issue");
+      if (d.officeEmail?.ok) parts.push("office copy sent");
+      if (d.jobTab?.ok) parts.push("saved on Con Edison Application tab");
+      if (d.drive?.queued || d.drive?.ok) parts.push("Drive save queued");
+      else if (d.drive?.error) parts.push("Drive: " + String(d.drive.error).slice(0, 80));
 
-      if (result?.ok) {
-        setOkMsg("Application emailed with the full form attached.");
+      const anyEmail = !!(d.customerEmail?.ok || d.officeEmail?.ok);
+      if (anyEmail || d.jobTab?.ok) {
+        setOkMsg(
+          `Application complete — ${result.filename}. ${parts.filter(Boolean).join(" · ") || "Saved on job."}`
+        );
       } else {
-        setOkMsg("Application saved on the job. Email had a problem — try again or check office email settings.");
-        setErr(result?.error || result?.reason || "Email send issue");
+        setOkMsg("Application saved on the job. Delivery had a problem — check the details below.");
       }
+      const errs = [
+        !d.customerEmail?.ok && !d.customerEmail?.skipped ? d.customerEmail?.error : "",
+        !d.officeEmail?.ok ? d.officeEmail?.error : "",
+        !d.jobTab?.ok ? d.jobTab?.error : "",
+        !d.drive?.ok && !d.drive?.queued ? d.drive?.error : "",
+      ].filter(Boolean);
+      if (errs.length && !anyEmail) setErr(errs[0]);
+      else if (errs.length) setErr(""); // soft: partial success already in okMsg
     } catch (ex) {
       setErr(ex?.message || "Submit failed");
     } finally {
@@ -427,20 +399,29 @@ export default function AgencyApplicationSheet({ job, agencyId = "coned-form-a",
         </>
       ) : (
         <div data-testid="agency-review">
-          <h4 className="font-extrabold text-slate-900 text-sm mb-2">Review & email office copy</h4>
+          <h4 className="font-extrabold text-slate-900 text-sm mb-2">Review & complete</h4>
           <p className="text-xs text-slate-500 mb-2">
-            First-page Form A fields go out as a finished PDF to the office/contact — not to Con Ed.
-            You still sign in to the Con Ed Energy Services portal yourself to file it. The app never
-            enters your Con Ed password.
+            Finishing sends the filled Form A PDF to the customer (form contact email), keeps the
+            office copy, saves it on the Con Edison Application tab, and files a Drive copy. Portal
+            submit to Con Ed stays a human step — the app never enters your Con Ed password.
           </p>
           {CONED_FORM_A_SOURCE_PDF ? (
             <p className="text-[11px] text-slate-400 mb-3" data-testid="agency-source-form">
               Source form: Con Ed Application for Service (Form A) — company file.
             </p>
           ) : null}
+          {answers.email ? (
+            <p className="text-xs text-slate-600 mb-2" data-testid="agency-customer-email-hint">
+              Customer copy → <b>{answers.email}</b>
+            </p>
+          ) : (
+            <p className="text-xs text-amber-700 mb-2" data-testid="agency-customer-email-missing">
+              No contact email on the form — only the office copy will be emailed.
+            </p>
+          )}
           <Fld
-            label="Send completed application to"
-            hint="Office or contact copy only. There is no Con Ed email intake for new applications."
+            label="Office / extra copy"
+            hint="Office keeps a copy. Change only if you need a different office mailbox."
           >
             <input
               className="input text-base min-h-[44px]"
@@ -498,7 +479,7 @@ export default function AgencyApplicationSheet({ job, agencyId = "coned-form-a",
               disabled={busy || !ready}
               data-testid="agency-submit"
             >
-              {busy ? "Sending…" : "Email finished application to office"}
+              {busy ? "Completing…" : "Complete application (email + save)"}
             </button>
             <button type="button" className="btn-ghost w-full !py-3" onClick={previewPdf} disabled={busy} data-testid="agency-preview-pdf">
               Preview PDF
