@@ -105,3 +105,10 @@ curl -s -X POST $B -H 'content-type: application/json' -H "x-fleet-token: $T" \
 - Con Ed portal text: plain ASCII only (the payload is pre-sanitized, keep it that way).
 - Session/login stays fleet-side and session-only — the backend never stores Con Ed credentials.
 - App-side surfaces reading this data: JobDetail Con Ed block (per-run chip + Review & approve) and the Permits tab "Case runs" card.
+
+## Consistency + retries (verified live 2026-08-02)
+- Storage is Cloudflare KV: **reads can lag writes by up to ~60s across edge POPs.** The full lifecycle was E2E-verified on prod (create → claim → screenshot/awaiting_approval → 409 red-line refusal → approve → submitted MC → done; screenshot serves 200 image/png).
+- Practical rules for the consumer: poll `get` every 30–60s (never assume the first read after your own write is fresh); if an `update` returns `409 bad_transition` right after a state you KNOW you reached (e.g. `done` right after `submitted`), wait 30s and retry once — that is read-lag, not a logic error. `409` on `submitted` while status still reads `awaiting_approval` means Levi has not approved yet: keep waiting, never retry your way past it.
+- CF WAF may block default script user-agents (`python-urllib` got 403 on GETs). Send a real `user-agent` header.
+- `claim` self-heals dropped queue entries by scanning recent jobs, so a job is never lost to the queue-list race; claiming is safe to repeat.
+- Smoke history: job `pj-msc785el4eedp8` (jobId `e2e-pw-smoke2`) ran the whole lifecycle to `done` with dummy case MC-000000 — ignore it in listings.
