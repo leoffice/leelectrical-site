@@ -87,7 +87,7 @@ describe("isCustomerEmailOptIn", () => {
 });
 
 describe("completeConedApplicationDestinations (3 destinations)", () => {
-  it("opt-in: emails customer + office, records job tab, queues Drive with §3 name", async () => {
+  it("opt-in: emails customer + office, records job tab; Drive best-effort only", async () => {
     const sends = [];
     const patches = [];
     const enqueued = [];
@@ -140,7 +140,7 @@ describe("completeConedApplicationDestinations (3 destinations)", () => {
     expect(coned.application.status).toBe("submitted");
     expect(coned.steps["Application submitted"]).toBe(true);
 
-    // Destination 3: Drive ALWAYS — dedicated folder + create-if-missing flag
+    // Destination 3: Drive S25 best-effort — may queue but never gates success
     expect(enqueued.some((e) => e.type === "drive_save_coned")).toBe(true);
     const driveCmd = enqueued.find((e) => e.type === "drive_save_coned");
     expect(driveCmd.payload.filename).toBe(expectedName);
@@ -148,8 +148,9 @@ describe("completeConedApplicationDestinations (3 destinations)", () => {
     expect(driveCmd.payload.folderName).toMatch(/Con Edison Applications/i);
     expect(driveCmd.payload.companyRoot).toMatch(/BLZ Electric Inc/i);
     expect(driveCmd.payload.createFolderIfMissing).toBe(true);
+    expect(driveCmd.payload.bestEffort).toBe(true);
     expect(result.destinations.drive.folder).toMatch(/BLZ Electric Inc\/Con Edison Applications/);
-    expect(result.destinations.drive.critical).toBe(true);
+    expect(result.destinations.drive.critical).toBe(false);
     expect(result.success).toBe(true);
     expect(result.driveCriticalFailed).toBe(false);
 
@@ -161,7 +162,7 @@ describe("completeConedApplicationDestinations (3 destinations)", () => {
     vi.unstubAllGlobals();
   });
 
-  it("opt-out: skips customer email, still office + tab + Drive always", async () => {
+  it("opt-out: skips customer email, still office + tab; Drive optional", async () => {
     const sends = [];
     const enqueued = [];
     const api = {
@@ -193,16 +194,17 @@ describe("completeConedApplicationDestinations (3 destinations)", () => {
     expect(result.destinations.customerEmail.reason).toBe("customer_opted_out");
     expect(result.destinations.customerEmail.ok).toBe(false);
 
-    // Tab + Drive still ALWAYS
+    // Tab ALWAYS; Drive may queue but is non-gating
     expect(result.destinations.jobTab.ok).toBe(true);
     expect(enqueued.some((e) => e.type === "drive_save_coned")).toBe(true);
     expect(result.destinations.drive.ok).toBe(true);
+    expect(result.destinations.drive.critical).toBe(false);
     expect(result.success).toBe(true);
 
     vi.unstubAllGlobals();
   });
 
-  it("Drive critical fail when no enqueue and no saveConedToDrive", async () => {
+  it("success when tab lands even if Drive is parked (no credential / no enqueue)", async () => {
     const api = {
       sendDocEmailNow: vi.fn(async () => ({ ok: true, id: "o" })),
     };
@@ -215,13 +217,16 @@ describe("completeConedApplicationDestinations (3 destinations)", () => {
       api,
       onSave: () => {},
       emailCustomerCopy: false,
-      // no enqueue
+      // no enqueue — Drive S25 parked
     });
 
-    expect(result.driveCriticalFailed).toBe(true);
-    expect(result.success).toBe(false);
-    expect(result.destinations.drive.error).toMatch(/drive_host_not_wired|Con Edison Applications/i);
-    // tab still attempted
+    expect(result.driveCriticalFailed).toBe(false);
+    expect(result.success).toBe(true);
+    expect(result.driveParked).toBe(true);
+    expect(result.destinations.drive.critical).toBe(false);
+    expect(result.destinations.drive.parked).toBe(true);
+    expect(result.destinations.drive.error).toMatch(/s25_parked|GDRIVE/i);
+    // tab is the durable always-save
     expect(result.destinations.jobTab.ok).toBe(true);
 
     vi.unstubAllGlobals();

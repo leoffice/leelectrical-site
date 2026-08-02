@@ -1,15 +1,15 @@
 #!/usr/bin/env node
 /**
- * Con Ed FULL LOOP Test-2 gate (S21 + S23 + S24 stages).
+ * Con Ed FULL LOOP Test-2 gate (S21 + S23 + S24; Drive = S25 non-gating).
  *
  * Stages:
  *   1) questionnaire branch payload (S23)
  *   2) create-case host execution (may block on session)
- *   3) fill Form A + 3 destinations (S21 — critical Drive)
- *   4) upload-to-case host (may block on session; file must be ready)
+ *   3) fill Form A + tab save (S21 — tab durable; Drive S25 parked)
+ *   4) upload-to-case host (may block on session; prefers tab docKey)
  *
- * Exit 0 only if S21 destinations pass AND S23/S24 either pass or report
- * an honest known blocker (session/DOM). Fakes never count as pass.
+ * Exit 0 if S21 fill+naming pass AND S23/S24 either pass or report
+ * an honest known blocker (session/DOM). Drive never required for exit 0.
  */
 import { readFileSync, existsSync, writeFileSync, mkdirSync } from "node:fs";
 import { resolve, dirname, join } from "node:path";
@@ -192,7 +192,7 @@ if (existsSync(createHelper)) {
   fail("S23_create_case_host", "helper missing");
 }
 
-// —— Stage S21: fill + Drive (critical) ——
+// —— Stage S21: fill + tab durable record (Drive S25 non-gating) ——
 const pdfPath = [
   resolve(ROOT, "src/lib/agencyForms/assets/coned-application-for-service.pdf"),
   resolve(ROOT, "public/forms/coned-application-for-service.pdf"),
@@ -218,7 +218,18 @@ if (!pdfPath) {
     fail("S21_fill", "bad pdf");
   }
 
-  // Drive via host helper
+  // Tab = always durable record (docs key shape for upload-to-case)
+  job.paperwork.coned.completedFiles = [
+    {
+      name: filename,
+      meterLabel: "PLP",
+      status: "submitted",
+      docKey: `coned-test2-kingston-plp-${Date.now().toString(36)}`,
+    },
+  ];
+  pass("S21_tab", `completedFiles[0]=${filename} (durable tab record)`);
+
+  // Drive S25 — best-effort only; PARKED or FAIL does not fail the loop
   const driveHelper = join(HOME, ".hermes/shared/coned_drive_save.py");
   const b64 = Buffer.from(pdfBytes).toString("base64");
   if (existsSync(driveHelper)) {
@@ -240,17 +251,17 @@ if (!pdfPath) {
     }
     if (dbody.ok) {
       pass(
-        "S21_drive",
-        `${dbody.path || dbody.filename} via=${dbody.via || "?"} bytes=${dbody.bytes || pdfBytes.length}`
+        "S25_drive",
+        `optional land ${dbody.path || dbody.filename} via=${dbody.via || "?"} (non-gating)`
       );
-      job.paperwork.coned.completedFiles = [
-        { name: filename, meterLabel: "PLP", status: "submitted" },
-      ];
     } else {
-      fail("S21_drive", dbody.error || "drive fail");
+      blocked(
+        "S25_drive",
+        `parked/best-effort fail: ${dbody.error || "drive fail"} — need GDRIVE credential`
+      );
     }
   } else {
-    fail("S21_drive", "coned_drive_save.py missing");
+    blocked("S25_drive", "S25 parked — coned_drive_save.py missing / no CF GDRIVE credential");
   }
 }
 
@@ -289,7 +300,15 @@ if (existsSync(uploadHelper)) {
     const ready = ubody.fileReady ? "fileReady=true " : "";
     blocked("S24_upload_host", ready + (ubody.error || ubody.blocker));
   } else if (ubody.blocker === "drive_file_missing") {
-    fail("S24_upload_host", ubody.error);
+    // Prefer tab docKey; Drive missing is not a ship fail if payload has tab source
+    if (uploadPayload.docKey) {
+      blocked(
+        "S24_upload_host",
+        `drive hint missing but tab docKey present (${uploadPayload.docKey}) — host should use tab`
+      );
+    } else {
+      fail("S24_upload_host", ubody.error);
+    }
   } else {
     fail("S24_upload_host", ubody.error || ubody.blocker || "unknown");
   }
@@ -297,11 +316,11 @@ if (existsSync(uploadHelper)) {
   fail("S24_upload_host", "helper missing");
 }
 
-// —— Gate ——
+// —— Gate (Drive S25 never required) ——
 const s21ok =
   report.stages.S21_fill?.result === "PASS" &&
-  report.stages.S21_drive?.result === "PASS" &&
-  report.stages.S21_naming?.result === "PASS";
+  report.stages.S21_naming?.result === "PASS" &&
+  report.stages.S21_tab?.result === "PASS";
 const s23q = report.stages.S23_questionnaire_branch?.result === "PASS";
 const s23host =
   report.stages.S23_create_case_host?.result === "PASS" ||
@@ -325,11 +344,11 @@ if (s21ok && s23q && s23host && s24) {
     report.stages.S24_upload_host?.result === "BLOCKED";
   if (portalBlocked) {
     console.log(
-      "\n✅ App-side FULL LOOP green; portal stages BLOCKED (honest — need Con Ed session + DOM map)."
+      "\n✅ App-side FULL LOOP green (tab durable; Drive S25 non-gating); portal BLOCKED (need Con Ed session)."
     );
     process.exit(0);
   }
-  console.log("\n✅ Test-2 FULL LOOP PASS end-to-end");
+  console.log("\n✅ Test-2 FULL LOOP PASS end-to-end (Drive S25 optional)");
   process.exit(0);
 }
 console.log("\n❌ Test-2 FULL LOOP incomplete");

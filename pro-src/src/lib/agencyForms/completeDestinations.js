@@ -1,11 +1,11 @@
 /**
- * Build Slice 1 — 3 completion destinations for a finished Con Ed Form A.
+ * Build Slice 1 — completion destinations for a finished Con Ed Form A.
  *
- * Routing (Levi refinement 2026-08-02):
- * 1) Google Drive — ALWAYS (CRITICAL must-pass): dedicated folder
- *    BLZ Electric Inc/Con Edison Applications/ (create if missing)
- * 2) "Con Edison Application" tab — ALWAYS (docs store + job record)
- * 3) Customer email — OPT-IN only (customer chooses). Office@ copy always kept.
+ * Routing (PLAN CORRECTION 2026-08-02 — Drive decoupled from ship gate):
+ * 1) "Con Edison Application" tab — ALWAYS (docs store + job record) = durable record
+ * 2) Customer email — OPT-IN only (customer chooses). Office@ copy always kept.
+ * 3) Google Drive (S25) — best-effort / PARKED until CF Drive API credential exists.
+ *    Never gates success or Test-2. Host may queue drive_save_coned; fail is non-fatal.
  *
  * Reuses proven fill: buildApplicationPdfBlob → fillConedFormAPdfBytes.
  */
@@ -387,9 +387,9 @@ export async function completeConedApplicationDestinations({
     });
   }
 
-  // —— 3) Google Drive ALWAYS (CRITICAL) — dedicated known folder ——
-  // Path: BLZ Electric Inc/Con Edison Applications/<filename>
-  // Host helper creates the folder if missing (mount mkdir -p or Drive API).
+  // —— 3) Google Drive (S25) — BEST-EFFORT only, never gates ship ——
+  // Parked until CF has GDRIVE_SA_JSON / GDRIVE_OAUTH_TOKEN + folder ID.
+  // Durable record is the Con Edison Application tab above (docs store).
   const DRIVE_COMPANY = "BLZ Electric Inc";
   const DRIVE_FOLDER = "Con Edison Applications";
   const dedicatedFolder = `${DRIVE_COMPANY}/${DRIVE_FOLDER}`;
@@ -397,9 +397,11 @@ export async function completeConedApplicationDestinations({
     ok: false,
     filename,
     folder: dedicatedFolder,
-    error: "drive_not_attempted",
+    error: "s25_parked_no_drive_credential",
     queued: false,
-    critical: true,
+    critical: false,
+    slice: "S25",
+    parked: true,
   };
   if (typeof enqueue === "function") {
     try {
@@ -416,18 +418,22 @@ export async function completeConedApplicationDestinations({
           meterLabel: meter,
           serviceAddress: fileRecord.serviceAddress,
           createFolderIfMissing: true,
+          bestEffort: true,
+          slice: "S25",
         },
         "deterministic",
         idk
       );
       driveResult = {
-        ok: true, // queued — host must land the file; Test-2 verifies presence
+        ok: true, // queued — optional host land; does not gate success
         queued: true,
         filename,
         folder: dedicatedFolder,
         error: "",
-        note: "queued_drive_save_coned",
-        critical: true,
+        note: "queued_drive_save_coned_best_effort",
+        critical: false,
+        slice: "S25",
+        parked: false,
       };
     } catch (err) {
       driveResult = {
@@ -436,7 +442,9 @@ export async function completeConedApplicationDestinations({
         filename,
         folder: dedicatedFolder,
         error: String(err?.message || err),
-        critical: true,
+        critical: false,
+        slice: "S25",
+        parked: true,
       };
     }
   } else if (api && typeof api.saveConedToDrive === "function") {
@@ -455,7 +463,9 @@ export async function completeConedApplicationDestinations({
         path: r?.path || r?.webViewLink || "",
         error: r?.error || r?.reason || "",
         queued: false,
-        critical: true,
+        critical: false,
+        slice: "S25",
+        parked: !r?.ok,
       };
     } catch (err) {
       driveResult = {
@@ -464,7 +474,9 @@ export async function completeConedApplicationDestinations({
         folder: dedicatedFolder,
         error: String(err?.message || err),
         queued: false,
-        critical: true,
+        critical: false,
+        slice: "S25",
+        parked: true,
       };
     }
   } else {
@@ -473,16 +485,18 @@ export async function completeConedApplicationDestinations({
       filename,
       folder: dedicatedFolder,
       error:
-        "drive_host_not_wired: no enqueue + no api.saveConedToDrive — host command_listener must handle drive_save_coned and create BLZ Electric Inc/Con Edison Applications if missing",
+        "s25_parked: no GDRIVE credential on CF — tab is durable record; need GDRIVE_SA_JSON or GDRIVE_OAUTH_TOKEN + folder ID to unpark Drive",
       queued: false,
-      critical: true,
+      critical: false,
+      slice: "S25",
+      parked: true,
     };
   }
 
   const driveOk = !!(driveResult.ok || driveResult.queued);
   const tabOk = !!docPut.ok && !!fileRecord.name;
-  // CRITICAL gate: Drive dedicated folder + tab always. Customer email is optional (opt-in).
-  const success = driveOk && tabOk;
+  // Ship gate: TAB always. Customer email optional (opt-in). Drive (S25) never gates.
+  const success = tabOk;
 
   return {
     filename,
@@ -498,9 +512,11 @@ export async function completeConedApplicationDestinations({
       },
       drive: driveResult,
     },
-    /** Gate for ship/report: Drive dedicated folder + tab must land. */
+    /** Gate for ship/report: Con Edison Application tab must land. Drive is S25 optional. */
     success,
-    driveCriticalFailed: !driveOk,
+    /** @deprecated always false after plan correction — Drive never critical */
+    driveCriticalFailed: false,
+    driveParked: !driveOk,
     submitted,
     completedFiles: withoutSame,
   };

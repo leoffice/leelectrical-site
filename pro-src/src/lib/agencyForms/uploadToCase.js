@@ -1,10 +1,11 @@
 /**
- * S24 — upload completed Form A from Drive (or job tab) to Con Ed case Documents.
+ * S24 — upload completed Form A from the Con Edison Application TAB (docs store)
+ * to Con Ed case Documents. Drive is S25 optional — not required for upload.
  *
  * Flow (mapped): case → Documents → "+ Add a Document" → type "Application for Service"
  * → SELECT FILE (PDF ≤10MB) → submit (human-confirmed). Session-only, no stored password.
  *
- * Source file: BLZ Electric Inc/Con Edison Applications/<correct name>.pdf
+ * Source of truth: job tab completedFiles (docKey / docs URL). Drive path is a hint only.
  */
 import { buildConedCompletedFileName, resolveConedMeterLabel } from "./completedFileName.js";
 import { listConedCompletedFiles } from "./completeDestinations.js";
@@ -74,7 +75,8 @@ export function buildUploadToCasePayload({
 }
 
 /**
- * Queue upload-to-case on host (needs authenticated Con Ed session + Drive file present).
+ * Queue upload-to-case on host (needs authenticated Con Ed session + tab Form A).
+ * Prefer docKey from the Con Edison Application tab; Drive is optional S25.
  */
 export async function queueConedUploadDocument({
   job = {},
@@ -92,10 +94,10 @@ export async function queueConedUploadDocument({
       payload,
     };
   }
-  if (!payload.filename) {
+  if (!payload.filename && !payload.docKey) {
     return {
       ok: false,
-      error: "missing_form_a: complete Form A so it lands in Drive + tab first",
+      error: "missing_form_a: complete Form A so it lands in the Con Edison Application tab first",
       payload,
     };
   }

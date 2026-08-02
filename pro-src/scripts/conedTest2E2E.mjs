@@ -1,23 +1,22 @@
 #!/usr/bin/env node
 /**
- * Con Ed Build Slice 1 — FULL Test-2 end-to-end for the 3 completion destinations.
+ * Con Ed Build Slice 1 — FULL Test-2 end-to-end (non-Drive ship gate).
  *
- * Routing (Levi refinement 2026-08-02):
- *   Drive ALWAYS (critical) · tab ALWAYS · customer email OPT-IN
+ * Routing (PLAN CORRECTION 2026-08-02):
+ *   tab ALWAYS (durable) · customer email OPT-IN · Drive S25 PARKED (never gates)
  *
  * Test-2 fixture: 555 Kingston Avenue · PLP · Test 2
  * Confirms:
  *   (1) Customer email path (opt-in) with correctly named Form A PDF + office always
  *   (2) Job tab record shape (completedFiles) + docs store put when live API available
- *   (3) Drive copy present in DEDICATED folder BLZ Electric Inc/Con Edison Applications/
- *       with correct name — CRITICAL must-pass (create folder if missing)
+ *   (3) Drive attempted only as best-effort / S25 — FAIL or PARKED does NOT fail the gate
  *
  * Usage (from pro-src):
  *   node scripts/conedTest2E2E.mjs
  *   node scripts/conedTest2E2E.mjs --live-email   # POST real send-doc-email (opt-in path)
- *   node scripts/conedTest2E2E.mjs --opt-out      # skip customer email; still Drive+tab+office
+ *   node scripts/conedTest2E2E.mjs --opt-out      # skip customer email; still tab+office
  *
- * Exit 0 only if Drive (critical) + tab pass. Customer email required only when not --opt-out.
+ * Exit 0 if tab (+ customer email when opt-in) pass. Drive never required.
  */
 import { readFileSync, existsSync, writeFileSync, mkdirSync } from "node:fs";
 import { resolve, dirname, join } from "node:path";
@@ -122,14 +121,14 @@ const pdfB64 = Buffer.from(pdfBytes).toString("base64");
 
 // —— (1) Customer email — OPT-IN only ——
 report.routing = {
-  drive: "ALWAYS",
+  drive: "S25_PARKED_BEST_EFFORT",
   tab: "ALWAYS",
   customerEmail: CUSTOMER_EMAIL_OPT_IN ? "OPT_IN" : "OPT_OUT",
 };
 if (!CUSTOMER_EMAIL_OPT_IN) {
   pass(
     "1_customer_email",
-    "skipped — customer OPT-OUT (no customer email sent; office+Drive+tab still always)"
+    "skipped — customer OPT-OUT (no customer email; office+tab always; Drive S25 non-gating)"
   );
 } else {
   const customerSubject = customerConedApplicationSubject(job, answers);
@@ -350,7 +349,7 @@ try {
   driveRes = { ok: false, error: `bad helper output: ${(r.stdout || r.stderr || "").slice(0, 300)}` };
 }
 
-// CRITICAL must-pass: file must land in dedicated folder with correct name
+// S25 best-effort only — never gates ship (tab is durable record)
 if (driveRes.ok) {
   const expectedPath = join(driveFolder, filename);
   const inDedicated =
@@ -408,26 +407,26 @@ function writeReportAndExit(code) {
   process.exit(code);
 }
 
-// Gate: Drive (CRITICAL) + tab always; customer email only when opt-in path
+// Gate: TAB always (durable record). Customer email only when opt-in. Drive = S25 never gates.
 const destKeys = CUSTOMER_EMAIL_OPT_IN
-  ? ["1_customer_email", "2_job_tab_docs", "3_google_drive"]
-  : ["2_job_tab_docs", "3_google_drive"];
+  ? ["1_customer_email", "2_job_tab_docs"]
+  : ["2_job_tab_docs"];
 const allPass = destKeys.every((k) => report.destinations[k]?.result === "PASS");
-const drivePass = report.destinations["3_google_drive"]?.result === "PASS";
 const prereq =
   report.destinations.naming?.result === "PASS" &&
   report.destinations.fill?.result === "PASS";
+const driveStatus = report.destinations["3_google_drive"]?.result || "SKIP";
 
-if (allPass && prereq && drivePass) {
+if (allPass && prereq) {
   console.log(
-    `\n✅ Test-2 PASS — Drive(dedicated)=ALWAYS · tab=ALWAYS · customer email=${
+    `\n✅ Test-2 PASS — tab=ALWAYS · customer email=${
       CUSTOMER_EMAIL_OPT_IN ? "OPT-IN exercised" : "OPT-OUT skipped"
-    }`
+    } · Drive S25=${driveStatus} (non-gating)`
   );
   writeReportAndExit(0);
 } else {
   console.log(
-    "\n❌ Test-2 incomplete — do NOT ship (Drive dedicated folder is CRITICAL must-pass)"
+    "\n❌ Test-2 incomplete — tab (and opt-in email if required) must pass; Drive never blocks ship"
   );
   writeReportAndExit(1);
 }
