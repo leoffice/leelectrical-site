@@ -35,6 +35,14 @@ export const DEFAULT_PROFILE = {
   invoiceStart: "",
   estimateStart: "",
   calendarAccount: "office@leelectrical.us",
+  /**
+   * Optional Google Drive folder id for the tenant's copy of completed agency
+   * applications (Con Ed Form A). Empty = no Drive copy; the in-app
+   * Con Edison Application tab is always the durable record. The folder must
+   * be shared with the platform's Drive service account (Settings shows the
+   * address when a credential is configured).
+   */
+  gdriveFolderId: "",
 
   // Short trading name used in email/SMS sign-offs ("— BLZ Electric").
   // Distinct from companyName, which carries the legal "Inc.".

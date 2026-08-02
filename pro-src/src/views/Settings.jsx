@@ -15,6 +15,7 @@ import {
 } from "../lib/tenantProfile.js";
 import SignatureRegisterSheet from "../components/SignatureRegisterSheet.jsx";
 import { probeConnections } from "../lib/connectionHealth.js";
+import { gdriveStatus } from "../lib/agencyForms/gdriveSave.js";
 import { logOff } from "../lib/lock.js";
 import {
   ASSISTANT_VOICE_PRESETS,
@@ -197,6 +198,7 @@ export default function Settings() {
   const [healthBusy, setHealthBusy] = useState(false);
   const [calBusy, setCalBusy] = useState(false);
   const [dirty, setDirty] = useState(false);
+  const [gdriveInfo, setGdriveInfo] = useState(null);
   const [agentState, setAgentState] = useState(null);
   const [agentAudit, setAgentAudit] = useState([]);
   const [agentBusy, setAgentBusy] = useState(false);
@@ -268,6 +270,21 @@ export default function Settings() {
       setDirty(false);
     }
   }, [getSettings, showToast]);
+
+  // One-time probe: is a platform Drive credential configured? Drives the
+  // helper text under the Google Drive folder field (which SA email to share
+  // with). Failure just leaves the neutral copy — Drive is always optional.
+  useEffect(() => {
+    let alive = true;
+    gdriveStatus()
+      .then((s) => {
+        if (alive && s && s.ok) setGdriveInfo(s);
+      })
+      .catch(() => {});
+    return () => {
+      alive = false;
+    };
+  }, []);
 
   const runHealth = useCallback(async () => {
     setHealthBusy(true);
@@ -885,6 +902,26 @@ export default function Settings() {
             value={profile.website || ""}
             onChange={(e) => setP("website", e.target.value)}
           />
+        </Fld>
+        <Fld label="Google Drive folder ID (agency applications copy)">
+          <input
+            className={inputCls}
+            value={profile.gdriveFolderId || ""}
+            onChange={(e) => setP("gdriveFolderId", e.target.value.trim())}
+            placeholder="Optional — Drive folder id for completed applications"
+            data-testid="settings-gdrive-folder"
+          />
+          <div className="text-[11px] text-slate-500 mt-1">
+            {gdriveInfo === null
+              ? "Optional. Completed applications always save to the in-app Con Edison Application tab; add a folder id to also copy them to your Google Drive."
+              : gdriveInfo.configured
+                ? `Drive connected (${gdriveInfo.mode === "sa" ? "service account" : "OAuth"}). ${
+                    gdriveInfo.saEmail
+                      ? `Share your folder with ${gdriveInfo.saEmail} (Editor) so uploads land.`
+                      : ""
+                  }`
+                : "Drive credential not configured on the server yet — files still save to the in-app tab. Ask support to enable the Drive integration."}
+          </div>
         </Fld>
         <Fld label="Zelle payment line (on invoices)">
           <input

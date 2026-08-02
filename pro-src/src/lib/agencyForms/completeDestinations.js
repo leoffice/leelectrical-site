@@ -28,6 +28,7 @@ import {
   resolveConedMeterLabel,
 } from "./completedFileName.js";
 import { CONED_FORM_A_DEFAULT_EMAILS } from "./conedFormA.js";
+import { saveConedToDriveApi } from "./gdriveSave.js";
 
 const OFFICE_DEFAULT = CONED_FORM_A_DEFAULT_EMAILS[0] || "office@leelectrical.us";
 
@@ -387,9 +388,10 @@ export async function completeConedApplicationDestinations({
     });
   }
 
-  // —— 3) Google Drive (S25) — BEST-EFFORT only, never gates ship ——
-  // Parked until CF has GDRIVE_SA_JSON / GDRIVE_OAUTH_TOKEN + folder ID.
-  // Durable record is the Con Edison Application tab above (docs store).
+  // —— 3) Google Drive (S25/S26) — BEST-EFFORT only, never gates ship ——
+  // Per-tenant Drive API first (gdrive-save function + profile gdriveFolderId,
+  // skips silently when unconfigured), then the LE host command bus, else
+  // parked. Durable record is the Con Edison Application tab above.
   const DRIVE_COMPANY = "BLZ Electric Inc";
   const DRIVE_FOLDER = "Con Edison Applications";
   const dedicatedFolder = `${DRIVE_COMPANY}/${DRIVE_FOLDER}`;
@@ -403,7 +405,34 @@ export async function completeConedApplicationDestinations({
     slice: "S25",
     parked: true,
   };
-  if (typeof enqueue === "function") {
+  let apiDriveLanded = false;
+  // S26: white-label Drive API — attempted for every tenant; the function
+  // answers { skipped:true } when no GDRIVE credential/folder is configured.
+  try {
+    const r = await saveConedToDriveApi({ pdfB64, filename });
+    if (r?.ok) {
+      apiDriveLanded = true;
+      driveResult = {
+        ok: true,
+        queued: false,
+        filename,
+        folder: dedicatedFolder,
+        path: r.webViewLink || "",
+        webViewLink: r.webViewLink || "",
+        driveFileId: r.id || "",
+        error: "",
+        note: "gdrive_api",
+        critical: false,
+        slice: "S26",
+        parked: false,
+      };
+    }
+  } catch {
+    /* saveConedToDriveApi never throws; belt and suspenders */
+  }
+  if (apiDriveLanded) {
+    // done — tenant Drive API landed the copy
+  } else if (typeof enqueue === "function") {
     try {
       const idk = `drive-coned:${job.id || "job"}:${meter}:${filename}`;
       await enqueue(

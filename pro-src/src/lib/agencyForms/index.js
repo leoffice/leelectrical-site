@@ -70,6 +70,13 @@ export {
   listConedCompletedFiles,
 } from "./completeDestinations.js";
 
+// S26 — optional per-tenant Google Drive copy (white-label API)
+export {
+  saveConedToDriveApi,
+  gdriveStatus,
+  tenantGdriveFolderId,
+} from "./gdriveSave.js";
+
 // S23 — Submit a Case questionnaire + create-case execution
 export {
   REQUEST_TYPES,
