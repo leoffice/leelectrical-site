@@ -68,6 +68,8 @@ export function buildApplyLink({ token, jobId, prefill = {}, meters = [] } = {})
     serviceZip: s(prefill.serviceZip),
     phone: s(prefill.phone),
     email: s(prefill.email),
+    contactName: s(prefill.contactName) || s(prefill.customer),
+    businessName: s(prefill.businessName),
     meters: (Array.isArray(meters) ? meters : [])
       .slice(0, 12)
       .map((m) => ({
@@ -80,8 +82,8 @@ export function buildApplyLink({ token, jobId, prefill = {}, meters = [] } = {})
   return `${PUBLIC_BASE}${APPLY_PATH}#${b64urlEncodeJson(payload)}`;
 }
 
-async function emailCustomerLink({ to, link, prefill = {}, meters = [] }) {
-  const apiKey = s(process.env.RESEND_API_KEY);
+/** Pure builders — unit-testable; button only (no raw URL / "copy this link" fallback). */
+export function buildCustomerLinkEmailBodies({ link, prefill = {}, meters = [] } = {}) {
   const first = s(prefill.customer).split(/\s+/)[0] || "there";
   const address = s(prefill.serviceStreet);
   const meterCount = Array.isArray(meters) && meters.length ? meters.length : 1;
@@ -89,25 +91,66 @@ async function emailCustomerLink({ to, link, prefill = {}, meters = [] }) {
     `Hi ${first},\n\n` +
     `BLZ Electric is handling your Con Edison application for service` +
     (address ? ` at ${address}` : "") +
-    `. Please use your personal link below to fill it out - it takes about 5 minutes` +
+    `. Please use the button in this email to fill it out — it takes about 5 minutes` +
     (meterCount > 1 ? ` per meter (${meterCount} meters)` : "") +
     ` and most of it is already filled in for you.\n\n` +
-    `Fill out your application here:\n${link}\n\n` +
+    `Open your application:\n${link}\n\n` +
     `When you finish, your completed application comes straight back to us and we file it with Con Edison for you.\n\n` +
     `Thank you!`;
   const esc = (x) =>
     String(x).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+  // Button only — Levi 2026-08-02: no "copy this link" / raw URL under the button.
   const bodyHtml =
     `<p>Hi ${esc(first)},</p>` +
     `<p>BLZ Electric is handling your <b>Con Edison application for service</b>` +
     (address ? ` at <b>${esc(address)}</b>` : "") +
-    `. Use your personal link below to fill it out - it takes about 5 minutes` +
+    `. Tap the button below to fill it out — it takes about 5 minutes` +
     (meterCount > 1 ? ` per meter (${meterCount} meters)` : "") +
     ` and most of it is already filled in for you.</p>` +
     `<p style="margin:22px 0"><a href="${esc(link)}" style="background:#2d8a3e;color:#ffffff;text-decoration:none;font-weight:700;padding:13px 22px;border-radius:10px;display:inline-block">Fill out your Con Edison application</a></p>` +
-    `<p style="font-size:13px;color:#5b6b82">Button not working? Copy this link into your browser:<br><a href="${esc(link)}">${esc(link)}</a></p>` +
     `<p>When you finish, your completed application comes straight back to us and we file it with Con Edison for you.</p>` +
     `<p>Thank you!</p>`;
+  return { bodyText, bodyHtml, first, address };
+}
+
+/** Filename: address + apt/PLP; multi-meter adds "1 of 2". */
+export function buildIntakeCompletedFileName({
+  address = "",
+  unit = "",
+  meterIndex = 0,
+  meterTotal = 1,
+  fallback = "",
+} = {}) {
+  const clean = (v, max = 80) =>
+    s(v)
+      .replace(/[<>:"/\\|?*\u0000-\u001f]/g, " ")
+      .replace(/\s+/g, " ")
+      .slice(0, max);
+  if (fallback && !address && !unit) {
+    const f = clean(fallback, 180);
+    return f.endsWith(".pdf") ? f : `${f || "Con-Ed-Form-A"}.pdf`;
+  }
+  const street = clean(address, 80) || "Service address";
+  let unitBit = clean(unit, 40);
+  if (/^plp$/i.test(unitBit)) unitBit = "PLP";
+  const parts = [street];
+  if (unitBit) parts.push(unitBit);
+  const total = Math.max(1, Number(meterTotal) || 1);
+  if (total > 1) {
+    const n = Math.min(total, Math.max(1, (Number(meterIndex) || 0) + 1));
+    parts.push(`${n} of ${total}`);
+  }
+  const base = parts.join(" - ") || "Con-Ed-Form-A";
+  return base.endsWith(".pdf") ? base : `${base}.pdf`;
+}
+
+async function emailCustomerLink({ to, link, prefill = {}, meters = [] }) {
+  const apiKey = s(process.env.RESEND_API_KEY);
+  const { bodyText, bodyHtml, address } = buildCustomerLinkEmailBodies({
+    link,
+    prefill,
+    meters,
+  });
   const html = buildBrandedEmailHtml({
     bodyHtml,
     preheader: `Your Con Edison application${address ? " - " + address : ""} - personal fill link`,
@@ -139,6 +182,34 @@ async function emailCustomerLink({ to, link, prefill = {}, meters = [] }) {
     return { ok: false, error: data?.message || `resend HTTP ${res.status}` };
   }
   return { ok: true, id: data?.id || "" };
+}
+
+/** Best-effort Drive copy into existing BLZ Electric Inc / Con Edison Applications. */
+async function saveToBlzDrive({ pdfB64, filename }) {
+  try {
+    // Same-origin Pages Function — optional; never gates success.
+    const base =
+      typeof process !== "undefined" && process.env.URL
+        ? String(process.env.URL).replace(/\/$/, "")
+        : PUBLIC_BASE;
+    const res = await fetch(`${base}/.netlify/functions/gdrive-save`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        op: "save",
+        filename,
+        pdfB64,
+        // Use existing company folder tree — do not invent a new root.
+        subfolder: "Con Edison Applications",
+        // Prefer configured platform folder (shared BLZ root) when present.
+      }),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (data && (data.ok || data.skipped)) return data;
+    return { ok: false, error: data?.error || `gdrive HTTP ${res.status}` };
+  } catch (err) {
+    return { ok: false, error: String(err?.message || err) };
+  }
 }
 
 export default async (req) => {
@@ -173,6 +244,8 @@ export default async (req) => {
         serviceZip: s(prefill.serviceZip),
         phone: s(prefill.phone),
         email: s(prefill.email),
+        contactName: s(prefill.contactName) || s(prefill.customer),
+        businessName: s(prefill.businessName),
       },
       meters,
       to,
@@ -205,7 +278,31 @@ export default async (req) => {
     }
     const jobId = reqRec.jobId;
     const meterLabel = s(body.meterLabel) || "meter";
-    const filename = s(body.filename).replace(/[^\w .()&'-]/g, "_") || "Con Ed Form A.pdf";
+    const answersIn =
+      body.answers && typeof body.answers === "object" ? { ...body.answers } : {};
+    const unit =
+      s(answersIn.unit) ||
+      s(body.unit) ||
+      s(meterLabel) ||
+      "";
+    const address =
+      s(answersIn.serviceStreet) ||
+      s(reqRec.prefill?.serviceStreet) ||
+      "";
+    const meterTotal = Math.max(
+      1,
+      Number(body.meterTotal) ||
+        (Array.isArray(reqRec.meters) && reqRec.meters.length) ||
+        1
+    );
+    const meterIndex = Math.max(0, Number(body.meterIndex) || 0);
+    const filename = buildIntakeCompletedFileName({
+      address,
+      unit,
+      meterIndex,
+      meterTotal,
+      fallback: s(body.filename).replace(/[^\w .()&'-]/g, "_") || "Con Ed Form A.pdf",
+    });
     const pdfB64 = s(body.pdfB64).replace(/\s+/g, "");
     if (!pdfB64) return json({ ok: false, error: "missing pdfB64" }, 400);
     let pdfBytes;
@@ -230,8 +327,7 @@ export default async (req) => {
     });
 
     // Record the submission for the app to import (answers minus signature image).
-    const answers =
-      body.answers && typeof body.answers === "object" ? { ...body.answers } : {};
+    const answers = { ...answersIn };
     delete answers.signImage;
     const subKey = `sub:${jobId}`;
     const existing = (await store.get(subKey, { type: "json" }).catch(() => null)) || {
@@ -244,10 +340,18 @@ export default async (req) => {
       docKey,
       filename,
       submittedAt: new Date().toISOString(),
+      meterIndex,
+      meterTotal,
     };
     existing.updatedAt = new Date().toISOString();
     existing.token = token;
     await store.setJSON(subKey, existing);
+
+    const jobStub = {
+      customer: s(reqRec.prefill?.customer) || s(answers.accountName),
+      serviceAddress: address,
+      email: s(reqRec.prefill?.email) || s(answers.email) || s(reqRec.to),
+    };
 
     // Office copy — branded email with the filled Form A attached.
     let officeEmail = { ok: false };
@@ -258,25 +362,66 @@ export default async (req) => {
         filename,
         subject:
           `Customer completed Con Ed application - ` +
-          `${s(reqRec.prefill?.customer) || "customer"} - ` +
-          `${s(reqRec.prefill?.serviceStreet)} (${meterLabel})`,
+          `${jobStub.customer || "customer"} - ` +
+          `${address} (${meterLabel})`,
         message:
           `The customer just completed their Con Edison application` +
           ` (${meterLabel}) through their fill link.\n\n` +
+          `File name: ${filename}\n` +
+          `Saved under BLZ Electric Inc → Con Edison Applications (when Drive is available).\n\n` +
           `The filled Form A PDF is attached and is already saved on the job's ` +
           `Con Edison Application tab in ${PRODUCT_BRAND.name}. Open the job to review and ` +
           `submit it in the Con Edison portal.`,
-        job: {
-          customer: s(reqRec.prefill?.customer),
-          serviceAddress: s(reqRec.prefill?.serviceStreet),
-        },
+        job: jobStub,
         application: { formTitle: "Con Edison Form A", copy: "office-intake" },
       });
     } catch (err) {
       officeEmail = { ok: false, error: String(err?.message || err) };
     }
 
-    return json({ ok: true, docKey, officeEmailed: !!officeEmail.ok });
+    // Customer confirmation — office + customer both get a copy (Levi 2026-08-02).
+    let customerEmail = { ok: false, skipped: true };
+    const customerTo = s(jobStub.email);
+    if (customerTo) {
+      try {
+        const first = s(jobStub.customer).split(/\s+/)[0] || "there";
+        customerEmail = await sendApplicationEmail({
+          to: customerTo,
+          pdfB64,
+          filename,
+          subject: `Your Con Edison application - ${address || "service address"}`,
+          message:
+            `Hi ${first},\n\n` +
+            `Your Con Edison application for service` +
+            (address ? ` at ${address}` : "") +
+            (unit ? ` (${unit})` : "") +
+            ` is complete. Your signed application (Form A) is attached for your records.\n\n` +
+            `BLZ Electric received a copy too and will file it with Con Edison for you.\n\n` +
+            `Questions? Reply to this email or call (718) 594-1850.\n\nThank you!`,
+          job: jobStub,
+          application: { formTitle: "Con Edison Form A", copy: "customer-intake" },
+        });
+      } catch (err) {
+        customerEmail = { ok: false, error: String(err?.message || err) };
+      }
+    }
+
+    // Drive: existing BLZ Electric Inc / Con Edison Applications only — never invent a new root.
+    let drive = { ok: false, skipped: true };
+    try {
+      drive = await saveToBlzDrive({ pdfB64, filename });
+    } catch (err) {
+      drive = { ok: false, error: String(err?.message || err) };
+    }
+
+    return json({
+      ok: true,
+      docKey,
+      filename,
+      officeEmailed: !!officeEmail.ok,
+      customerEmailed: !!customerEmail.ok,
+      drive,
+    });
   }
 
   if (op === "check") {

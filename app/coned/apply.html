@@ -300,7 +300,9 @@ var JOB = {
   serviceState: String(CFG.serviceState || "NY"),
   serviceZip: String(CFG.serviceZip || ""),
   phone: String(CFG.phone || ""),
-  email: String(CFG.email || "")
+  email: String(CFG.email || ""),
+  contactName: String(CFG.contactName || CFG.customer || ""),
+  businessName: String(CFG.businessName || "")
 };
 /* Each meter: { name (label), unit, account, type } — all optional except name. */
 var INITIAL_METERS = (CFG.meters && CFG.meters.length)
@@ -320,13 +322,18 @@ function initMeters(){
   });
 }
 
+/* Office already set meters + customer info → customer only confirms unit + signs. */
+var OFFICE_PREFILLED = !!(JOB.customer || JOB.serviceStreet) &&
+  INITIAL_METERS.some(function(m){ return !!(m.name || m.unit || m.account); });
+var RICH_PREFILL = !!(JOB.customer && JOB.serviceStreet && (JOB.phone || JOB.email));
+
 /* ---- App state ---- */
 var state = {
-  phase: "meters",            // meters | form | done
+  phase: OFFICE_PREFILLED ? "form" : "meters",  // meters | form | done
   meters: initMeters(),       // upfront meter setup
   mi: 0,                      // current meter index
   step: 0,                    // current step within meter form
-  data: []                   // per-meter answers
+  data: OFFICE_PREFILLED ? initMeters().map(function(m){ return blankAnswers(m); }) : []
 };
 
 /* Auto-detect residential vs commercial from account name + unit */
@@ -340,35 +347,46 @@ function detectType(name, unit){
 
 /* ---- Step definitions (per meter). Each returns {title, render, validate, collect} ---- */
 function blankAnswers(meter){
+  var accountSeed = meter.account != null && String(meter.account).trim()
+    ? String(meter.account).trim()
+    : (meter.name && meter.name !== "PLP" && !/^(apt|fl|u|#)/i.test(meter.name)
+        ? meter.name
+        : JOB.customer);
+  var unitSeed = meter.unit != null && String(meter.unit).trim()
+    ? String(meter.unit).trim()
+    : (meter.name === "PLP" || /^plp$/i.test(meter.name || "") ? "PLP"
+      : (/^(apt|fl|u|#|store)/i.test(meter.name || "") ? meter.name : ""));
   return {
-    accountName: meter.account != null ? meter.account
-                 : (meter.name && meter.name !== "PLP" ? meter.name : (meter.name==="PLP" ? "" : JOB.customer)),
-    businessName: "",
+    accountName: accountSeed || JOB.customer || "",
+    businessName: JOB.businessName || "",
     customerType: meter.type || null,      // auto-detected unless preset
     typeConfirmed: !!meter.type,
     serviceStreet: JOB.serviceStreet,
     serviceCity: JOB.serviceCity,
     serviceState: JOB.serviceState,
     serviceZip: JOB.serviceZip,
-    unit: meter.unit != null ? meter.unit : (meter.name === "PLP" ? "PLP" : ""),
+    unit: unitSeed,
     mailingSame: true,
     mailStreet:"", mailCity:"", mailState:"NY", mailZip:"",
-    contactName: "", phone: JOB.phone || "", email: JOB.email || "",
+    contactName: JOB.contactName || JOB.customer || accountSeed || "",
+    phone: JOB.phone || "", email: JOB.email || "",
     accessOk: true, accessName:"", accessPhone:"",
     taxExempt:false, taxCert:"",
     religiousExempt:false,
     signName:"", signAffil:"Owner", signAffilOther:"",
-    signMode:"type", signImage:"", printName:"",
+    signMode:"type", signImage:"", printName: JOB.contactName || JOB.customer || accountSeed || "",
     signDate: TODAY,
     // auto-answers (not asked)
     serviceType:"Electric", dateResponsible: TODAY, pctSpace:"100"
   };
 }
 
-/* The streamlined per-meter flow */
-var STEPS = [
+/* Full flow for bare links; short confirm→sign→review when office prefilled (Levi 2026-08-02). */
+var STEPS_FULL = [
   "account", "service", "mailing", "contact", "access", "extras", "sign", "review"
 ];
+var STEPS_SHORT = ["confirm", "sign", "review"];
+var STEPS = RICH_PREFILL || OFFICE_PREFILLED ? STEPS_SHORT.slice() : STEPS_FULL.slice();
 
 /* ------------------------------------------------------------------ */
 var app = document.getElementById("app");
@@ -469,11 +487,57 @@ function renderStep(){
   nextBtn.classList.remove("go");
 
   var fn = ({
+    confirm: stepConfirm,
     account: stepAccount, service: stepService, mailing: stepMailing,
     contact: stepContact, access: stepAccess, extras: stepExtras,
     sign: stepSign, review: stepReview
   })[name];
   fn();
+}
+
+/* Short path — confirm prefilled customer info + meter name (PLP / apt). Customer can edit. */
+function stepConfirm(){
+  var a = cur();
+  if(!a.customerType) a.customerType = detectType(a.accountName, a.unit);
+  var isComm = a.customerType === "Commercial";
+  card(
+    head("Confirm", "Check your info, then confirm the meter",
+      "We filled this from your electrician. Change anything that looks wrong — then confirm the apartment / PLP name on the meter.")+
+    '<div class="prefill-box">'+
+      '<div class="adr">'+esc(a.accountName || JOB.customer)+
+        '<small>'+esc((a.serviceStreet||JOB.serviceStreet)+", "+(a.serviceCity||JOB.serviceCity)+" "+(a.serviceState||JOB.serviceState)+" "+(a.serviceZip||JOB.serviceZip))+'</small>'+
+        '<small style="margin-top:6px">'+esc(a.phone||JOB.phone||"")+(a.email||JOB.email ? " · "+esc(a.email||JOB.email) : "")+'</small>'+
+      '</div>'+
+    '</div>'+
+    '<button class="linkbtn" id="editPrefill">Change name, address, phone, or email</button>'+
+    '<div id="prefillEdit" class="hide" style="margin-top:8px">'+
+      '<label class="fl">Account name</label><input type="text" id="cAccount" value="'+esc(a.accountName)+'">'+
+      '<label class="fl">Street</label><input type="text" id="cStreet" value="'+esc(a.serviceStreet)+'">'+
+      '<div class="rowline"><div><label class="fl">City</label><input type="text" id="cCity" value="'+esc(a.serviceCity)+'"></div>'+
+      '<div style="flex:0 0 70px"><label class="fl">State</label><input type="text" id="cState" value="'+esc(a.serviceState)+'"></div>'+
+      '<div style="flex:0 0 96px"><label class="fl">ZIP</label><input type="text" id="cZip" inputmode="numeric" value="'+esc(a.serviceZip)+'"></div></div>'+
+      '<label class="fl">Phone</label><input type="tel" id="cPhone" value="'+esc(a.phone)+'">'+
+      '<label class="fl">Email</label><input type="email" id="cEmail" value="'+esc(a.email)+'">'+
+    '</div>'+
+    '<label class="fl" style="margin-top:18px">'+(isComm?"Store / unit on the meter":"Apartment or PLP on the meter")+star(a.unit)+'</label>'+
+    '<input type="text" id="unit" maxlength="6" value="'+esc(a.unit)+'" placeholder="'+(isComm?'store':'apt2, fl3, or PLP')+'">'+
+    help("unit", "Confirm the name at the top of the meter (apartment # or PLP)")+
+    '<div class="infobox"><span class="lead">This is the main check:</span>Look at the meter and make sure the unit matches — <b>PLP</b> for the house / common meter, or your apartment number.</div>'+
+    errBox()
+  );
+  document.getElementById("editPrefill").onclick=function(){
+    document.getElementById("prefillEdit").classList.toggle("hide");
+  };
+  ["cAccount","cStreet","cCity","cState","cZip","cPhone","cEmail"].forEach(function(id){
+    var el=document.getElementById(id); if(!el) return;
+    el.oninput=function(){
+      a.accountName=v("cAccount"); a.serviceStreet=v("cStreet"); a.serviceCity=v("cCity");
+      a.serviceState=v("cState"); a.serviceZip=v("cZip"); a.phone=v("cPhone"); a.email=v("cEmail");
+      if(!a.contactName) a.contactName=a.accountName;
+      if(!a.printName) a.printName=a.accountName;
+    };
+  });
+  document.getElementById("unit").oninput=function(e){ a.unit=e.target.value.slice(0,6); };
 }
 
 function card(inner){ app.innerHTML = '<div class="card">'+inner+'</div>'; }
@@ -797,6 +861,15 @@ function renderDone(){
 function validateStep(){
   clearInvalid(); _firstInvalid=null;
   var a = cur(); var name = STEPS[state.step];
+  if(name==="confirm"){
+    var okc=true;
+    if(!(a.accountName||"").trim()){ markInvalid("cAccount","Account name is required"); okc=false; }
+    if(!(a.unit||"").trim()){
+      markInvalid("unit", "Confirm the apartment / PLP name on the meter"); okc=false;
+    }
+    if(!(a.phone||"").trim()){ /* phone optional on confirm if office left it blank — still prefer it */ }
+    return okc;
+  }
   if(name==="account"){ if(!a.accountName.trim()){ markInvalid("accountName","Account name is required"); return false; } }
   if(name==="service"){
     var okv=true;
@@ -959,10 +1032,16 @@ var CONED_PDF_URL = "/app/pro/forms/coned-application-for-service.pdf"; // real 
 var PDF_FILL_SIZE = 11; // STANDARD fill size — matches/slightly exceeds the form's own font (form fields are auto-size 0 Tf, which renders too small)
 var _conedPdfBytes = null;
 function sanitizeName(s){ return String(s||"").replace(/[\\/:*?"<>|]+/g," ").replace(/\s+/g," ").trim(); }
+/** Address + apt/PLP; multi-meter adds "1 of 2" (Levi 2026-08-02). */
 function pdfFileName(a){
-  var unit = a.unit ? " - "+a.unit : "";
-  var who = a.accountName || a.contactName || "applicant";
-  return sanitizeName((a.serviceStreet||JOB.serviceStreet)+unit+" - "+who)+" — Con Ed Form A.pdf";
+  var street = sanitizeName(a.serviceStreet || JOB.serviceStreet || "Service address");
+  var unit = sanitizeName(a.unit || "");
+  if(/^plp$/i.test(unit)) unit = "PLP";
+  var parts = [street];
+  if(unit) parts.push(unit);
+  var total = state.meters.length || 1;
+  if(total > 1) parts.push((state.mi + 1) + " of " + total);
+  return sanitizeName(parts.join(" - ")) + ".pdf";
 }
 function fmtUS(iso){ if(!iso) return ""; var p=String(iso).split("-"); return p.length===3 ? (p[1]+"/"+p[2]+"/"+p[0]) : iso; }
 function setTF(form, name, val){ try{ if(val==null||val==="") return; var f=form.getTextField(name); f.setText(String(val).slice(0,200)); f.setFontSize(PDF_FILL_SIZE); }catch(e){} }
@@ -1122,6 +1201,9 @@ async function submitToOffice(a){
         token: INTAKE.token,
         jobId: INTAKE.jobId,
         meterLabel: state.meters[state.mi].name || a.unit || ("meter "+(state.mi+1)),
+        meterIndex: state.mi,
+        meterTotal: state.meters.length || 1,
+        unit: a.unit || "",
         filename: pdfFileName(a),
         answers: payload,
         pdfB64: bytesToB64(out)
@@ -1130,7 +1212,10 @@ async function submitToOffice(a){
     var data = null; try{ data = await res.json(); }catch(e){}
     if(res.ok && data && data.ok){
       _sentMeters[meterKey] = "ok";
-      if(el) el.innerHTML = "✓ Your completed application was sent to <b>BLZ Electric</b>. Nothing else to do for this meter.";
+      var bits = ["✓ Sent to <b>BLZ Electric</b>"];
+      if(data.customerEmailed) bits.push("and a confirmation was emailed to you");
+      bits.push("— nothing else to do for this meter.");
+      if(el) el.innerHTML = bits.join(" ");
     } else {
       throw new Error((data && (data.error||data.reason)) || ("send failed ("+res.status+")"));
     }
