@@ -1,9 +1,9 @@
 {
   "schema": "le-pro-version/v1",
-  "gitSha": "af2eb2d0d808252b8eea3c50fb1fd40deec1c41d",
-  "gitShaShort": "af2eb2d",
+  "gitSha": "1d2584e2ed75cac905e03f207a5dfe517fa88553",
+  "gitShaShort": "1d2584e",
   "netlifyDeployId": null,
-  "builtAt": "2026-08-03T23:51:46.000Z",
-  "task": "BCC office on customer emails + BLZ brand",
+  "builtAt": "2026-08-03T23:59:13.704Z",
+  "task": "",
   "rollbackAvailable": true
 }
