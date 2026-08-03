@@ -202,6 +202,17 @@ export default function JobDetail() {
         if (r.job.caseNumber && !job?.paperwork?.coned?.caseNumber) {
           patchJob(id, { paperwork: { coned: { caseNumber: r.job.caseNumber } } });
         }
+        // Auto-page Israel when fleet marks create-case failed (troubleshoot + fix).
+        if (r.job.status === "failed" && r.job.error) {
+          const { reportPaperworkFailOnce, fieldsFromPaperworkJob } = await import(
+            "../lib/paperworkFailReport.js"
+          );
+          const fields = fieldsFromPaperworkJob(r.job, job);
+          void reportPaperworkFailOnce(
+            { ...fields, phase: "fleet_failed", error: fields.error || r.job.error },
+            enqueue
+          );
+        }
       } else {
         timer = setTimeout(tick, 30000);
       }
@@ -1182,6 +1193,11 @@ export default function JobDetail() {
                                             {casePwJob.error ? (
                                               <div className="text-[11px] text-red-600">
                                                 {casePwJob.error}
+                                                {casePwJob.status === "failed" ? (
+                                                  <span className="block text-slate-500 font-semibold mt-0.5">
+                                                    Developers notified — fixing in the background
+                                                  </span>
+                                                ) : null}
                                               </div>
                                             ) : null}
                                           </div>

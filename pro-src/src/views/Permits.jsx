@@ -358,6 +358,21 @@ export default function Permits() {
         setCaseRuns(list);
         const anyActive = list.some((j) => ACTIVE_PAPERWORK_JOB_STATUSES.has(j.status));
         if (anyActive) setQueueOpen(true);
+        // Auto-page Israel on any newly-seen fleet fail (create-case etc.)
+        const failed = list.filter((j) => j.status === "failed" && j.error);
+        if (failed.length && enqueue) {
+          const { reportPaperworkFailOnce, fieldsFromPaperworkJob } = await import(
+            "../lib/paperworkFailReport.js"
+          );
+          const byId = new Map((jobs || []).filter((x) => x?.id).map((x) => [x.id, x]));
+          for (const j of failed.slice(0, 5)) {
+            const fields = fieldsFromPaperworkJob(j, byId.get(j.jobId));
+            void reportPaperworkFailOnce(
+              { ...fields, phase: "permits_poll", error: fields.error || j.error },
+              enqueue
+            );
+          }
+        }
         timer = setTimeout(tick, anyActive ? 20000 : 60000);
       } else {
         timer = setTimeout(tick, 60000);
@@ -368,7 +383,8 @@ export default function Permits() {
       alive = false;
       if (timer) clearTimeout(timer);
     };
-  }, []);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [enqueue]);
 
   const board = useMemo(
     () => buildPermitBoard({ jobs, insights: emailInsights, config }),
@@ -555,11 +571,28 @@ export default function Permits() {
           showToast("Deploying… fills up to Review for your confirm");
           await refreshRuns();
         } else {
+          const errMsg = r.error || "try again";
           showToast(
-            r.error === "questionnaire_incomplete"
+            errMsg === "questionnaire_incomplete"
               ? "Fill the application first — tap Edit"
-              : "Couldn't deploy: " + (r.error || "try again")
+              : "Couldn't deploy: " + errMsg
           );
+          if (errMsg !== "questionnaire_incomplete") {
+            const { reportPaperworkFailOnce } = await import("../lib/paperworkFailReport.js");
+            void reportPaperworkFailOnce(
+              {
+                kind: "create_case",
+                error: errMsg,
+                jobId: item.jobId || job?.id || "",
+                paperworkJobId: r.paperworkJobId || "",
+                address: item.serviceAddress || job?.serviceAddress || "",
+                phase: "permits_deploy",
+              },
+              enqueue
+            ).then((rep) => {
+              if (rep?.queued) showToast("Developers notified — they'll fix this");
+            });
+          }
         }
         return;
       }

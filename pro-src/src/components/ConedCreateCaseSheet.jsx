@@ -39,6 +39,7 @@ import {
   resolveFormAForUpload,
 } from "../lib/agencyForms/uploadToCase.js";
 import { listConedCompletedFiles } from "../lib/agencyForms/completeDestinations.js";
+import { reportPaperworkFailOnce } from "../lib/paperworkFailReport.js";
 
 function Seg({ value, options, onChange, testId }) {
   return (
@@ -349,11 +350,44 @@ export default function ConedCreateCaseSheet({ job, onClose, onSave }) {
           )} portal steps). It fills to Review, sends you a screenshot, and waits for YOUR approval — nothing submits without it.`
         );
       } else {
-        setErr(r.error || "Could not queue create-case");
+        const errMsg = r.error || "Could not queue create-case";
+        setErr(errMsg);
         if (r.draft) persist(latest, stepIndexRef.current, { status: r.draft.status, execution: r.draft.execution });
+        // Auto-page Israel to troubleshoot + fix (skip incomplete questionnaire — user fixable)
+        if (errMsg !== "questionnaire_incomplete") {
+          void reportPaperworkFailOnce(
+            {
+              kind: "create_case",
+              error: errMsg,
+              jobId: job?.id || "",
+              paperworkJobId: r.paperworkJobId || r.draft?.execution?.paperworkJobId || "",
+              address: latest.serviceAddress || job?.serviceAddress || job?.address || "",
+              requestType: latest.requestType || "",
+              phase: "app_queue",
+              customer: [latest.ownerFirst, latest.ownerLast].filter(Boolean).join(" "),
+            },
+            enqueue
+          ).then((rep) => {
+            if (rep?.queued) {
+              setOkMsg("Developers notified — they'll troubleshoot and fix this.");
+            }
+          });
+        }
       }
     } catch (e) {
-      setErr(String(e?.message || e));
+      const msg = String(e?.message || e);
+      setErr(msg);
+      void reportPaperworkFailOnce(
+        {
+          kind: "create_case",
+          error: msg,
+          jobId: job?.id || "",
+          address: answersRef.current?.serviceAddress || "",
+          requestType: answersRef.current?.requestType || "",
+          phase: "app_exception",
+        },
+        enqueue
+      );
     } finally {
       setBusy(false);
     }
@@ -376,10 +410,37 @@ export default function ConedCreateCaseSheet({ job, onClose, onSave }) {
           `Upload queued: ${r.payload.filename} → ${r.payload.caseNumber} as "${r.payload.documentType}". Human confirms submit.`
         );
       } else {
-        setErr(r.error || "Could not queue upload");
+        const errMsg = r.error || "Could not queue upload";
+        setErr(errMsg);
+        void reportPaperworkFailOnce(
+          {
+            kind: "upload_document",
+            error: errMsg,
+            jobId: job?.id || "",
+            caseNumber: caseNumber || "",
+            phase: "app_queue",
+            address: answersRef.current?.serviceAddress || job?.serviceAddress || "",
+          },
+          enqueue
+        ).then((rep) => {
+          if (rep?.queued) {
+            setOkMsg("Developers notified — they'll troubleshoot and fix this.");
+          }
+        });
       }
     } catch (e) {
-      setErr(String(e?.message || e));
+      const msg = String(e?.message || e);
+      setErr(msg);
+      void reportPaperworkFailOnce(
+        {
+          kind: "upload_document",
+          error: msg,
+          jobId: job?.id || "",
+          caseNumber: caseNumber || "",
+          phase: "app_exception",
+        },
+        enqueue
+      );
     } finally {
       setBusy(false);
     }
