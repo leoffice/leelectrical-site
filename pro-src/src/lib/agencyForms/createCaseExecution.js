@@ -96,12 +96,38 @@ export async function createCasePaperworkJob({ answers = {}, job = {}, onSave = 
     payload,
   });
   if (typeof onSave === "function") {
+    // Promote any pending meter selection into Deploy queue once the case is submitted
+    const priorMeter = job?.paperwork?.coned?.meterDeploy;
+    const meterPromote =
+      r.ok &&
+      priorMeter &&
+      (priorMeter.status === "pending_info" || priorMeter.status === "deploy_queued")
+        ? {
+            meterDeploy: {
+              ...priorMeter,
+              status: "deploy_queued",
+              queuedAt: priorMeter.queuedAt || new Date().toISOString(),
+              caseNumber:
+                priorMeter.caseNumber ||
+                draft?.execution?.caseNumber ||
+                job?.paperwork?.coned?.caseNumber ||
+                "",
+              attached: !!(
+                priorMeter.caseNumber ||
+                draft?.execution?.caseNumber ||
+                job?.paperwork?.coned?.caseNumber
+              ),
+              note: "Queued with case submit — deploying",
+            },
+          }
+        : {};
     onSave({
       paperwork: {
         coned: {
           enabled: true,
           createCase: draft,
           active: { "Application submitted": true },
+          ...meterPromote,
         },
       },
     });

@@ -533,13 +533,18 @@ export default function Permits() {
     try {
       const patch = jobPatchMeterApplication(job, value);
       await patchAndSave(jobId, patch);
-      const queued =
-        value === "new_meter" || value === "new_application"
-          ? " — added to Deploy queue" +
-            (patch.paperwork?.coned?.meterDeploy?.attached
-              ? " (attached to case " + patch.paperwork.coned.meterDeploy.caseNumber + ")"
-              : "")
-          : "";
+      const md = patch.paperwork?.coned?.meterDeploy;
+      let queued = "";
+      if (value === "new_meter" || value === "new_application") {
+        if (md?.status === "deploy_queued") {
+          queued =
+            " — added to Deploy queue" +
+            (md.attached ? " (attached to case " + md.caseNumber + ")" : "");
+        } else {
+          queued =
+            " — not in Deploy queue yet (need case / Form A / address first)";
+        }
+      }
       showToast(
         "Meter application saved — " +
           (patch.paperwork?.coned?.meterApplication?.label || meterApplicationLabel(value) || value) +
@@ -805,8 +810,18 @@ export default function Permits() {
           onSave: (p) => patchAndSave(item.jobId, p),
         });
         if (r.ok) {
+          // Submit case → already queued fleet job; queue shows Deploying… until done
           showToast("Deploying… fills up to Review for your confirm");
+          setDeployingIds((m) => ({ ...m, [item.id]: true }));
           await refreshRuns();
+          // Clear local deploying flag once fleet list owns the row
+          setTimeout(() => {
+            setDeployingIds((m) => {
+              const next = { ...m };
+              delete next[item.id];
+              return next;
+            });
+          }, 1500);
         } else {
           const errMsg = r.error || "try again";
           showToast(

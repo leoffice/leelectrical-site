@@ -178,13 +178,26 @@ describe("new meter → deploy queue + case attach", () => {
     expect(patch.paperwork.todos.some((t) => t.kind === "new_meter")).toBe(true);
   });
 
-  it("queues without attach when no case number", () => {
+  it("does not put bare new_meter in Deploy queue without case/Form A", () => {
     const patch = jobPatchMeterApplication(
       { id: "j2", serviceAddress: "10 Main" },
       "new_application"
     );
+    expect(patch.paperwork.coned.meterDeploy.status).toBe("pending_info");
     expect(patch.paperwork.coned.meterDeploy.attached).toBe(false);
-    expect(patch.paperwork.coned.meterDeploy.caseNumber).toBe("");
+    expect(patch.paperwork.todos || []).toEqual([]);
+  });
+
+  it("queues when case number exists", () => {
+    const patch = jobPatchMeterApplication(
+      {
+        id: "j3",
+        serviceAddress: "10 Main",
+        paperwork: { coned: { caseNumber: "MC-1" } },
+      },
+      "new_meter"
+    );
+    expect(patch.paperwork.coned.meterDeploy.status).toBe("deploy_queued");
   });
 });
 

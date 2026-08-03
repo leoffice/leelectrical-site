@@ -43,6 +43,37 @@ export function jobHasConedFormA(job = {}) {
   return false;
 }
 
+/**
+ * Levi 2026-08-03: only put something in Deploy queue when we actually have
+ * enough info to deploy — not merely because "Electric / New Meter" was tapped.
+ *
+ * Ready when:
+ * - service address present, and
+ * - Con Ed case number on job, or Form A completed, or create-case draft is ready_to_fill / queued
+ *   with a request type chosen.
+ */
+export function isReadyToEnqueueDeploy(job = {}, { kind = "new_meter" } = {}) {
+  const addr = s(job?.serviceAddress || job?.address);
+  if (!addr) return false;
+  const caseNumber =
+    s(job?.paperwork?.coned?.caseNumber) ||
+    s(job?.paperwork?.coned?.createCase?.execution?.caseNumber) ||
+    s(job?.paperwork?.coned?.meterDeploy?.caseNumber);
+  if (caseNumber) return true;
+  if (jobHasConedFormA(job)) return true;
+  const draft = getCreateCaseState(job);
+  const st = s(draft?.status).toLowerCase();
+  if (st === "ready_to_fill" || st === "queued" || st === "in_progress") return true;
+  const rt = s(draft?.answers?.requestType || draft?.payload?.requestType);
+  // New Case can enqueue once request type + address exist (Deploy will still
+  // validate full questionnaire via createCaseReady).
+  if (kind === "new_case" || kind === "create_case") {
+    return !!rt;
+  }
+  // New meter / new application: need case or Form A — bare meter pick is not enough
+  return false;
+}
+
 /** Short UI labels (Levi) — portal still uses the long Energy Services strings. */
 export const REQUEST_TYPE_SHORT_LABELS = Object.freeze({
   [REQUEST_TYPES.ADD_LOAD]: "Additional Load",
@@ -398,7 +429,9 @@ export function buildDeployQueueItems({ jobs = [], caseRuns = [] } = {}) {
     }
     const st = s(draft.status);
     if (!st || st === "submitted" || st === "done" || st === "removed") continue;
-    // Show draft / ready_to_fill / queued / error
+    // Only show when we can actually deploy (not empty electric pick)
+    if (st === "draft" && !isReadyToEnqueueDeploy(job, { kind: "new_case" })) continue;
+    // Show ready_to_fill / queued / error / draft-with-request-type
     const row = createCaseDraftDisplay(job);
     if (row) items.push(row);
   }
@@ -406,7 +439,13 @@ export function buildDeployQueueItems({ jobs = [], caseRuns = [] } = {}) {
   for (const job of jobs || []) {
     for (const todo of listPaperworkTodos(job)) {
       if (!todo || todo.status === "done" || todo.status === "removed") continue;
-      // create_case todos that only mirror a draft — still useful for remove UX
+      // New-meter todos only when ready to deploy
+      if (
+        (todo.kind === "new_meter" || todo.source === "meter_application") &&
+        !isReadyToEnqueueDeploy(job, { kind: "new_meter" })
+      ) {
+        continue;
+      }
       const title =
         s(todo.title) ||
         formatDeployTitle({
@@ -438,13 +477,14 @@ export function buildDeployQueueItems({ jobs = [], caseRuns = [] } = {}) {
       });
     }
 
-    // Meter deploy holding state without a todo
+    // Meter deploy holding state without a todo — only if ready
     const meter = getMeterApplication(job);
     const meterDeploy = job?.paperwork?.coned?.meterDeploy;
     if (
       meter &&
       (meter.value === "new_meter" || meter.value === "new_application") &&
-      meterDeploy?.status === "deploy_queued"
+      meterDeploy?.status === "deploy_queued" &&
+      isReadyToEnqueueDeploy(job, { kind: "new_meter" })
     ) {
       const already = items.some(
         (it) =>

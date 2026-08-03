@@ -126,7 +126,8 @@ export function jobPatchMeterApplication(job, value, opts = {}) {
     if (hasConed) patch.permits = list;
   }
 
-  // Deploy queue: new meter / new application holds for Deploy + attaches case
+  // Deploy queue: only when we have enough info to actually deploy (Levi 2026-08-03).
+  // Tapping Electric / New Meter alone must NOT fill the Deploy queue.
   if (value === "new_meter" || value === "new_application") {
     const caseNumber = String(
       job?.paperwork?.coned?.caseNumber ||
@@ -134,30 +135,46 @@ export function jobPatchMeterApplication(job, value, opts = {}) {
         ""
     ).trim();
     const addr = String(job?.serviceAddress || job?.address || "").trim();
-    const title = ["New Meter", "Con Edison", addr].filter(Boolean).join(" · ");
-    const { patch: todoPatch } = addPaperworkTodoPatch(job, {
-      kind: "new_meter",
-      meterLabel: value === "new_meter" ? "New Meter" : "New Application",
-      title,
-      note: caseNumber
-        ? `Attach to active case ${caseNumber}`
-        : "No case number yet — will attach when a case is active",
-      source: "meter_application",
-    });
+    const formA =
+      Array.isArray(job?.paperwork?.coned?.completedFiles) &&
+      job.paperwork.coned.completedFiles.length > 0;
+    const ready =
+      !!addr &&
+      (!!caseNumber ||
+        formA ||
+        job?.paperwork?.coned?.application?.status === "submitted" ||
+        job?.paperwork?.coned?.meterDeploy?.formAReady === true);
     patch.paperwork.coned = {
       ...patch.paperwork.coned,
       meterApplication: rec,
       meterDeploy: {
         value,
-        status: "deploy_queued",
+        status: ready ? "deploy_queued" : "pending_info",
         caseNumber: caseNumber || "",
         attached: !!caseNumber,
-        queuedAt: new Date().toISOString(),
+        queuedAt: ready ? new Date().toISOString() : "",
+        note: ready
+          ? caseNumber
+            ? `Attach to active case ${caseNumber}`
+            : "Ready to deploy"
+          : "Waiting for case / Form A / address before Deploy queue",
       },
       ...(caseNumber ? { caseNumber } : {}),
     };
-    if (todoPatch?.paperwork?.todos) {
-      patch.paperwork.todos = todoPatch.paperwork.todos;
+    if (ready) {
+      const title = ["New Meter", "Con Edison", addr].filter(Boolean).join(" · ");
+      const { patch: todoPatch } = addPaperworkTodoPatch(job, {
+        kind: "new_meter",
+        meterLabel: value === "new_meter" ? "New Meter" : "New Application",
+        title,
+        note: caseNumber
+          ? `Attach to active case ${caseNumber}`
+          : "Ready for Deploy",
+        source: "meter_application",
+      });
+      if (todoPatch?.paperwork?.todos) {
+        patch.paperwork.todos = todoPatch.paperwork.todos;
+      }
     }
   }
 
