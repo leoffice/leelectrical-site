@@ -1,10 +1,11 @@
 // Estimate generator — Service upgrade questionnaire + live total + takeoff.
 // Levi 2026-08-03: itemized meters/amps/phases, toggles, save → job + estimate.
-import React, { useMemo, useState, useCallback } from "react";
+import React, { useEffect, useMemo, useState, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
 import Sheet, { Fld } from "./Sheet.jsx";
 import CustomerSearch from "./CustomerSearch.jsx";
 import ServiceAddressField from "./ServiceAddressField.jsx";
+import LineToggle from "./Toggle.jsx";
 import { useStore } from "../state/store.jsx";
 import { fmt$ } from "../lib/format.js";
 import {
@@ -14,10 +15,12 @@ import {
   coerceMetersForMainPhase,
   defaultAnswers,
   emptyMeter,
+  filterEnabledEstimateLines,
   validateAnswers,
 } from "../lib/serviceUpgradeEstimator.js";
 import { defaultTakeoffItems, searchMaterials } from "../lib/materialCatalog.js";
 import { customerKeyForName } from "../lib/customers.js";
+import { productName } from "../lib/tenantBranding.js";
 
 function Toggle({ label, on, setOn, testId }) {
   return (
@@ -54,9 +57,33 @@ export default function ServiceUpgradeEstimatorSheet({ onClose, prefill = {} }) 
   const [takeoff, setTakeoff] = useState([]);
   const [matQ, setMatQ] = useState("");
   const [shareNote, setShareNote] = useState("");
+  // Per-line on/off on Review — true/undefined = include, false = drop from total & save
+  const [lineOn, setLineOn] = useState([]);
 
-  const built = useMemo(() => buildServiceUpgradeEstimate(answers), [answers]);
-  const errors = built.errors || validateAnswers(answers);
+  const builtAll = useMemo(() => buildServiceUpgradeEstimate(answers), [answers]);
+  useEffect(() => {
+    setLineOn((prev) => {
+      const n = builtAll.lines.length;
+      const next = Array.from({ length: n }, (_, i) => (prev[i] === false ? false : true));
+      if (next.length === prev.length && next.every((v, i) => v === (prev[i] !== false))) return prev;
+      return next;
+    });
+  }, [builtAll.lines.length, builtAll.total, answers]);
+
+  const built = useMemo(
+    () => filterEnabledEstimateLines(builtAll, lineOn),
+    [builtAll, lineOn]
+  );
+  const errors = builtAll.errors || validateAnswers(answers);
+
+  const toggleLine = (i, on) => {
+    setLineOn((prev) => {
+      const next = prev.slice();
+      while (next.length <= i) next.push(true);
+      next[i] = !!on;
+      return next;
+    });
+  };
 
   const set = useCallback((patch) => setAnswers((a) => ({ ...a, ...patch })), []);
 
@@ -76,7 +103,7 @@ export default function ServiceUpgradeEstimatorSheet({ onClose, prefill = {} }) 
   };
 
   const openTakeoff = () => {
-    setTakeoff(defaultTakeoffItems(built.materialsHint));
+    setTakeoff(defaultTakeoffItems(builtAll.materialsHint));
     setStep(5);
   };
 
@@ -136,7 +163,8 @@ export default function ServiceUpgradeEstimatorSheet({ onClose, prefill = {} }) 
           _estimator: {
             kind: "service_upgrade",
             answers,
-            takeoff: takeoff.length ? takeoff : defaultTakeoffItems(built.materialsHint),
+            lineOn,
+            takeoff: takeoff.length ? takeoff : defaultTakeoffItems(builtAll.materialsHint),
             builtAt: Date.now(),
           },
         },
@@ -154,7 +182,8 @@ export default function ServiceUpgradeEstimatorSheet({ onClose, prefill = {} }) 
         _estimator: {
           kind: "service_upgrade",
           answers,
-          takeoff: takeoff.length ? takeoff : defaultTakeoffItems(built.materialsHint),
+          lineOn,
+          takeoff: takeoff.length ? takeoff : defaultTakeoffItems(builtAll.materialsHint),
           builtAt: Date.now(),
         },
       });
@@ -429,16 +458,43 @@ export default function ServiceUpgradeEstimatorSheet({ onClose, prefill = {} }) 
             <p className="text-sm text-red-700 bg-red-50 border border-red-200 rounded-xl px-3 py-2">{errors.join(" ")}</p>
           ) : null}
           <div className="rounded-xl bg-slate-50 border border-slate-200 px-3 py-2">
-            <p className="text-xs text-slate-500">Total</p>
-            <p className="text-2xl font-extrabold text-slate-900">{fmt$(built.total) || "$0"}</p>
+            <p className="text-xs text-slate-500">Total (on lines)</p>
+            <p className="text-2xl font-extrabold text-slate-900" data-testid="est-gen-review-total">
+              {fmt$(built.total) || "$0"}
+            </p>
           </div>
-          <div className="max-h-48 overflow-y-auto space-y-2">
-            {built.lines.map((ln, i) => (
-              <div key={i} className="text-sm border-b border-slate-100 pb-2">
-                <p className="font-semibold">{fmt$(ln.amount)}</p>
-                <p className="text-xs text-slate-600 whitespace-pre-wrap">{ln.description}</p>
-              </div>
-            ))}
+          <p className="text-xs text-slate-500">
+            Toggle lines off if you don’t want them on this estimate — total updates live.
+          </p>
+          <div className="max-h-56 overflow-y-auto space-y-2" data-testid="est-gen-review-lines">
+            {builtAll.lines.map((ln, i) => {
+              const on = lineOn[i] !== false;
+              return (
+                <div
+                  key={i}
+                  className={`text-sm border-b border-slate-100 pb-2 flex gap-2 items-start ${
+                    on ? "" : "opacity-45"
+                  }`}
+                  data-testid={`est-gen-review-line-${i}`}
+                >
+                  <LineToggle
+                    on={on}
+                    onChange={(v) => toggleLine(i, v)}
+                    label={on ? "On" : "Off"}
+                    small
+                  />
+                  <div className="min-w-0 flex-1">
+                    <p className={`font-semibold ${on ? "" : "line-through text-slate-400"}`}>
+                      {fmt$(ln.amount)}
+                      {ln.itemName ? (
+                        <span className="ml-1 font-bold text-slate-700">{ln.itemName}</span>
+                      ) : null}
+                    </p>
+                    <p className="text-xs text-slate-600 whitespace-pre-wrap">{ln.description}</p>
+                  </div>
+                </div>
+              );
+            })}
           </div>
           <button type="button" className="btn w-full bg-slate-100 font-bold" onClick={openTakeoff}>
             Takeoff / materials list
@@ -507,7 +563,7 @@ export default function ServiceUpgradeEstimatorSheet({ onClose, prefill = {} }) 
             onClick={() => {
               const key = customerKeyForName(answers.customerName || answers.serviceAddress || "job");
               setShareNote(
-                `After save, open the job and share LE Pro link / takeoff with crew. Materials: ${takeoff.filter((t) => t.checked).length} checked. Ref: ${key}`
+                `After save, open the job and share ${productName()} link / takeoff with crew. Materials: ${takeoff.filter((t) => t.checked).length} checked. Ref: ${key}`
               );
             }}
           >

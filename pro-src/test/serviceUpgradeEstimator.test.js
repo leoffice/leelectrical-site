@@ -4,6 +4,7 @@ import {
   defaultAnswers,
   validateAnswers,
   coerceMetersForMainPhase,
+  filterEnabledEstimateLines,
 } from "../src/lib/serviceUpgradeEstimator.js";
 import { searchMaterials } from "../src/lib/materialCatalog.js";
 
@@ -54,6 +55,19 @@ describe("serviceUpgradeEstimator", () => {
       defaultAnswers({ includeFiling: true, includeRemoval: true })
     );
     expect(withOpt.total).toBeGreaterThan(base.total);
+  });
+
+  it("filterEnabledEstimateLines drops off lines and recalculates total", () => {
+    const full = buildServiceUpgradeEstimate(
+      defaultAnswers({ includeAlways: true, includeFiling: true, includeRemoval: true })
+    );
+    expect(full.lines.length).toBeGreaterThan(2);
+    const enabled = full.lines.map((_, i) => i !== 0); // drop first line
+    const filtered = filterEnabledEstimateLines(full, enabled);
+    expect(filtered.lines.length).toBe(full.lines.length - 1);
+    expect(filtered.total).toBeLessThan(full.total);
+    const sum = filtered.lines.reduce((s, ln) => s + Number(ln.amount || 0), 0);
+    expect(filtered.total).toBeCloseTo(sum, 2);
   });
 });
 

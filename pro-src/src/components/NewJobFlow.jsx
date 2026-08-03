@@ -206,8 +206,8 @@ export default function NewJobFlow() {
         <Opt
           icon="⚡"
           title="Estimate generator"
-          note="Service upgrade — meters, amps, phases, toggles, live price → job + estimate"
-          onClick={() => setNewJob({ step: "estimateGenerator", context, prefill: context || {} })}
+          note="Service upgrade — customer, calendar, or blank → live price → job + estimate"
+          onClick={() => setNewJob({ step: "estimateGenMenu", context })}
           data-testid="estimate-generator-entry"
         />
         <Opt icon="🏗️" title="Add a job with vendor" note="Track subcontractor / vendor on the job" onClick={() => setNewJob({ step: "form", prefill: {}, context, vendorMode: true })} />
@@ -275,18 +275,92 @@ export default function NewJobFlow() {
       </Sheet>
     );
 
+  if (newJob.step === "estimateGenMenu")
+    return (
+      <Sheet title="Estimate generator" onClose={close}>
+        <p className="text-sm text-slate-500 mb-3">
+          Service upgrade pricing. Save creates the job and estimate, ready to send.
+        </p>
+        <Opt
+          icon="👤"
+          title="Existing customer / type name"
+          note="Search customers in the generator — or type a new name"
+          onClick={() => {
+            const ctx = context || {};
+            setNewJob({
+              step: "estimateGenerator",
+              context,
+              prefill: {
+                customer: ctx.customer || ctx.businessName || ctx._customerContext?.name || "",
+                businessName: ctx.businessName || ctx.customer || "",
+                personName: ctx.personName || "",
+                email: ctx.email || "",
+                phone: ctx.phone || "",
+                serviceAddress: ctx.serviceAddress || ctx.address || "",
+                billingAddress: ctx.billingAddress || "",
+              },
+            });
+          }}
+          data-testid="estimate-gen-customer"
+        />
+        <Opt
+          icon="📅"
+          title="From calendar"
+          note="Pick an appointment — customer and address prefilled"
+          onClick={() => setNewJob({ step: "estimateGenCal", context })}
+          data-testid="estimate-gen-calendar"
+        />
+        <Opt
+          icon="✍️"
+          title="Start blank"
+          note="No customer yet — fill everything in the generator"
+          onClick={() => setNewJob({ step: "estimateGenerator", context, prefill: {} })}
+          data-testid="estimate-gen-blank"
+        />
+      </Sheet>
+    );
+
+  if (newJob.step === "estimateGenCal") {
+    return (
+      <CalendarSearchSheet
+        events={events}
+        title="Estimate from calendar"
+        hint="Search appointments — we prefill the generator with customer and address."
+        onClose={close}
+        onPick={(e) => {
+          const pre = prefillFromEvent(e) || {};
+          setNewJob({
+            step: "estimateGenerator",
+            context,
+            prefill: {
+              customer: pre.customer || pre.businessName || "",
+              businessName: pre.businessName || pre.customer || "",
+              personName: pre.personName || "",
+              phone: pre.phone || "",
+              email: pre.email || "",
+              billingAddress: pre.billingAddress || "",
+              serviceAddress: pre.serviceAddress || pre.address || "",
+              address: pre.serviceAddress || pre.address || "",
+              calEventId: pre.calEventId || e?.id || "",
+            },
+          });
+        }}
+      />
+    );
+  }
+
   if (newJob.step === "estimateGenerator") {
     const ctx = newJob.context || newJob.prefill || {};
     const prefill = {
       ...(newJob.prefill || {}),
-      customer: ctx.customer || ctx.businessName || ctx._customerContext?.name,
-      businessName: ctx.businessName || ctx.customer,
-      personName: ctx.personName,
-      email: ctx.email,
-      phone: ctx.phone,
-      serviceAddress: ctx.serviceAddress || ctx.address,
-      billingAddress: ctx.billingAddress,
-      calEventId: ctx.calEventId || "",
+      customer: newJob.prefill?.customer || ctx.customer || ctx.businessName || ctx._customerContext?.name,
+      businessName: newJob.prefill?.businessName || ctx.businessName || ctx.customer,
+      personName: newJob.prefill?.personName || ctx.personName,
+      email: newJob.prefill?.email || ctx.email,
+      phone: newJob.prefill?.phone || ctx.phone,
+      serviceAddress: newJob.prefill?.serviceAddress || ctx.serviceAddress || ctx.address,
+      billingAddress: newJob.prefill?.billingAddress || ctx.billingAddress,
+      calEventId: newJob.prefill?.calEventId || ctx.calEventId || "",
     };
     return <ServiceUpgradeEstimatorSheet onClose={close} prefill={prefill} />;
   }

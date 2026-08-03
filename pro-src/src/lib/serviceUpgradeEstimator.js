@@ -269,6 +269,24 @@ export function buildServiceUpgradeEstimate(answers) {
   };
 }
 
+/**
+ * Apply review-step on/off toggles. `enabled` is a bool array aligned to line index
+ * (missing/undefined = on). Recalculates total from remaining lines only.
+ */
+export function filterEnabledEstimateLines(built, enabled) {
+  const lines = Array.isArray(built?.lines) ? built.lines : [];
+  const flags = Array.isArray(enabled) ? enabled : [];
+  const kept = lines.filter((_, i) => flags[i] !== false);
+  const total = money(
+    kept.reduce((s, ln) => s + (parseAmount(ln.amount) || 0), 0)
+  );
+  return {
+    ...built,
+    lines: kept,
+    total,
+  };
+}
+
 /** Apply main-phase defaults when switching main phase. */
 export function coerceMetersForMainPhase(meters, mainPhase) {
   const phase = Number(mainPhase) === 3 ? 3 : 1;
