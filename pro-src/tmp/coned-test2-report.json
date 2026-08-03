@@ -1,0 +1,44 @@
+{
+  "test": "Con Ed Test-2 — 3 completion destinations",
+  "when": "2026-08-02T08:34:42.702Z",
+  "destinations": {
+    "naming": {
+      "result": "PASS",
+      "evidence": "555 Kingston Avenue - PLP - Test 2.pdf"
+    },
+    "fill": {
+      "result": "PASS",
+      "evidence": "official Form A filled, 458740 bytes"
+    },
+    "1_customer_email": {
+      "result": "PASS",
+      "evidence": "opt-in probe ok (use --live-email for real send) — {\"http\":200,\"probe\":true,\"hasResendKey\":true,\"wouldSendTo\":\"office@leelectrical.us\",\"subject\":\"Your Con Edison application - 555 Kingston Avenue\",\"filename\":\"555 Kingston Avenue - PLP - Test 2.pdf\",\"from\":\"office@leelectrical.us\",\"optIn\":true}"
+    },
+    "1b_office_email": {
+      "result": "PASS",
+      "evidence": "office copy wired — {\"ok\":true,\"probe\":true,\"to\":\"office@leelectrical.us\"}"
+    },
+    "2_job_tab_docs": {
+      "result": "PASS",
+      "evidence": "docs put+get ok key=coned-test2-msbjo5u9 name=555 Kingston Avenue - PLP - Test 2.pdf bytes=458740"
+    },
+    "3_google_drive": {
+      "result": "PASS",
+      "evidence": "DEDICATED folder OK path=/Users/levik/Library/CloudStorage/GoogleDrive-office@leelectrical.us/My Drive/BLZ Electric Inc/Con Edison Applications/555 Kingston Avenue - PLP - Test 2.pdf bytes=458740 via=mount name=555 Kingston Avenue - PLP - Test 2.pdf folder=BLZ Electric Inc/Con Edison Applications/"
+    }
+  },
+  "routing": {
+    "drive": "ALWAYS",
+    "tab": "ALWAYS",
+    "customerEmail": "OPT_IN"
+  },
+  "jobTabRecord": {
+    "name": "555 Kingston Avenue - PLP - Test 2.pdf",
+    "docKey": "coned-test2-msbjo5u9",
+    "meterLabel": "PLP",
+    "status": "submitted",
+    "submittedAt": "2026-08-02T08:34:43.473Z",
+    "url": "https://leelectrical.us/.netlify/functions/docs?key=coned-test2-msbjo5u9",
+    "storeOk": true
+  }
+}

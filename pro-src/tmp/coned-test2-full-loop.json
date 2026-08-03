@@ -1,0 +1,38 @@
+{
+  "test": "Con Ed Test-2 FULL LOOP",
+  "when": "2026-08-02T15:24:36.632Z",
+  "stages": {
+    "S23_questionnaire_branch": {
+      "result": "PASS",
+      "evidence": "short=5 full=6 stopAt=review autoSubmit=false"
+    },
+    "S23_create_case_host": {
+      "result": "BLOCKED",
+      "evidence": "BLOCKER no_authenticated_session: Con Ed Energy Services create-case needs Levi's already-logged-in browser session (session-only; no stored password). Provide CONED_CDP_URL or ~/.hermes/coned_session.json then re-queue. Fill package written for assist: /Users/levik/.hermes/shared/coned_runs/create_case_20260802T152436Z_test2-kingston-full.json"
+    },
+    "S21_naming": {
+      "result": "PASS",
+      "evidence": "555 Kingston Avenue - PLP - Test 2.pdf"
+    },
+    "S21_fill": {
+      "result": "PASS",
+      "evidence": "458740 bytes"
+    },
+    "S21_tab": {
+      "result": "PASS",
+      "evidence": "completedFiles[0]=555 Kingston Avenue - PLP - Test 2.pdf (durable tab record)"
+    },
+    "S25_drive": {
+      "result": "PASS",
+      "evidence": "optional land /Users/levik/Library/CloudStorage/GoogleDrive-office@leelectrical.us/My Drive/BLZ Electric Inc/Con Edison Applications/555 Kingston Avenue - PLP - Test 2.pdf via=mount (non-gating)"
+    },
+    "S24_payload": {
+      "result": "PASS",
+      "evidence": "555 Kingston Avenue - PLP - Test 2.pdf → MC-TEST2"
+    },
+    "S24_upload_host": {
+      "result": "BLOCKED",
+      "evidence": "fileReady=true BLOCKER no_authenticated_session: file READY via drive_optional (/Users/levik/Library/CloudStorage/GoogleDrive-office@leelectrical.us/My Drive/BLZ Electric Inc/Con Edison Applications/555 Kingston Avenue - PLP - Test 2.pdf, 458740 bytes) for case MC-TEST2 as Application for Service, but Con Ed portal upload needs Levi's already-logged-in session (session-only; no stored password). Upload package: /Users/levik/.hermes/shared/coned_runs/upload_20260802T152437Z_MC-TEST2.json"
+    }
+  }
+}
