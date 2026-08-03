@@ -78,6 +78,9 @@ export async function sendCustomerEmail({ to, subject, message, customerEmail, c
 
   const html = buildCustomerEmailHtml(text, { name: company });
 
+  // Levi 2026-08-03: always keep an office copy of outbound customer mail
+  // so Gmail can file it under LE Pro labels (Messages / Case / etc.).
+  const officeCopy = String(from || "office@leelectrical.us").trim().toLowerCase();
   const payload = {
     from: `${company} <${from}>`,
     to: [recipient],
@@ -87,6 +90,9 @@ export async function sendCustomerEmail({ to, subject, message, customerEmail, c
     // Inline CID logo so the header mark renders without "display images".
     attachments: [leLogoAttachment()],
   };
+  if (officeCopy && officeCopy !== String(recipient).toLowerCase()) {
+    payload.bcc = [officeCopy];
+  }
   if (testMode && intended && intended !== recipient) {
     payload.headers = { "X-Intended-Recipient": intended };
   }
