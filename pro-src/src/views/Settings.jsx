@@ -40,6 +40,8 @@ import {
   fetchAgentAccessStatus,
   formatAccessStatusLine,
   formatRemaining,
+  revealStandingAgentCode,
+  rotateStandingAgentCode,
   setAgentAccess,
   setAgentAccessTimer,
   setAgentPayments,
@@ -204,6 +206,7 @@ export default function Settings() {
   const [agentBusy, setAgentBusy] = useState(false);
   const [agentNow, setAgentNow] = useState(Date.now());
   const [agentPayWarn, setAgentPayWarn] = useState(false);
+  const [agentStandingCode, setAgentStandingCode] = useState("");
   const [asstLicenses, setAsstLicenses] = useState([]);
   const [asstAudit, setAsstAudit] = useState([]);
   const [asstBusy, setAsstBusy] = useState(false);
@@ -432,6 +435,8 @@ export default function Settings() {
         const res = await setAgentAccess({ on: !!on, timerMode });
         setAgentState(res.state || null);
         setAgentAudit(Array.isArray(res.audit) ? res.audit : []);
+        if (on && res.standingCode) setAgentStandingCode(res.standingCode);
+        if (!on) setAgentStandingCode("");
         showToast?.(res.message || (on ? "Agent access ON" : "Agent access OFF"));
       } catch (e) {
         showToast?.(String(e.message || e));
@@ -441,6 +446,45 @@ export default function Settings() {
     },
     [agentState?.timerMode, showToast]
   );
+
+  const revealAgentCode = useCallback(async () => {
+    setAgentBusy(true);
+    try {
+      const res = await revealStandingAgentCode();
+      if (res.standingCode) setAgentStandingCode(res.standingCode);
+      if (res.state) setAgentState(res.state);
+      showToast?.(res.message || "Standing agent code ready");
+    } catch (e) {
+      showToast?.(String(e.message || e));
+    } finally {
+      setAgentBusy(false);
+    }
+  }, [showToast]);
+
+  const rotateAgentCode = useCallback(async () => {
+    setAgentBusy(true);
+    try {
+      const res = await rotateStandingAgentCode();
+      if (res.standingCode) setAgentStandingCode(res.standingCode);
+      if (res.state) setAgentState(res.state);
+      setAgentAudit(Array.isArray(res.audit) ? res.audit : []);
+      showToast?.(res.message || "New agent code");
+    } catch (e) {
+      showToast?.(String(e.message || e));
+    } finally {
+      setAgentBusy(false);
+    }
+  }, [showToast]);
+
+  const copyAgentCode = useCallback(async () => {
+    if (!agentStandingCode) return;
+    try {
+      await navigator.clipboard?.writeText?.(agentStandingCode);
+      showToast?.("Agent code copied");
+    } catch {
+      showToast?.("Could not copy — select the code manually");
+    }
+  }, [agentStandingCode, showToast]);
 
   const changeAgentTimer = useCallback(
     async (timerMode) => {
@@ -491,6 +535,7 @@ export default function Settings() {
       setAgentState(res.state || null);
       setAgentAudit(Array.isArray(res.audit) ? res.audit : []);
       setAgentPayWarn(false);
+      setAgentStandingCode("");
       showToast?.(res.message || "Agent access stopped");
     } catch (e) {
       showToast?.(String(e.message || e));
@@ -1393,8 +1438,8 @@ export default function Settings() {
         }
       >
         <p className="text-xs text-slate-500 font-semibold mb-3">
-          Flip access on for the fleet. No codes to copy — agents use their known identity.
-          When access is off, they&apos;ll tell you to turn it back on.
+          Flip access on. Agents enter with the standing agent code on the lock screen.
+          Turn access off and the code stops working immediately.
         </p>
 
         {agentState?.accessOn ? (
@@ -1431,7 +1476,7 @@ export default function Settings() {
           <div className="min-w-0">
             <div className="text-sm font-extrabold text-slate-800">Agent access</div>
             <div className="text-xs text-slate-500 font-semibold">
-              Standing backend access for the known fleet identity
+              When on, agents use the standing code below to open the app
             </div>
           </div>
           <Toggle
@@ -1440,6 +1485,55 @@ export default function Settings() {
             label="Agent access"
           />
         </div>
+
+        {agentState?.accessOn ? (
+          <div
+            className="py-3 border-b border-slate-100 space-y-2"
+            data-testid="agent-standing-code-row"
+          >
+            <div className="text-sm font-extrabold text-slate-800">Standing agent code</div>
+            <div className="text-xs text-slate-500 font-semibold">
+              Always works while access is ON. Stops the second you turn access off or rotate.
+            </div>
+            {agentStandingCode ? (
+              <div className="flex flex-wrap items-center gap-2">
+                <code
+                  className="font-mono text-base font-extrabold tracking-wider text-emerald-900 bg-emerald-50 border border-emerald-200 rounded-xl px-3 py-2"
+                  data-testid="agent-standing-code"
+                >
+                  {agentStandingCode}
+                </code>
+                <button
+                  type="button"
+                  className="rounded-lg bg-slate-800 text-white px-3 py-1.5 text-xs font-extrabold"
+                  onClick={copyAgentCode}
+                  data-testid="agent-code-copy"
+                >
+                  Copy
+                </button>
+                <button
+                  type="button"
+                  disabled={agentBusy}
+                  className="rounded-lg bg-white border border-slate-300 text-slate-800 px-3 py-1.5 text-xs font-extrabold disabled:opacity-50"
+                  onClick={rotateAgentCode}
+                  data-testid="agent-code-rotate"
+                >
+                  Rotate
+                </button>
+              </div>
+            ) : (
+              <button
+                type="button"
+                disabled={agentBusy}
+                className="rounded-xl bg-emerald-700 text-white px-4 py-2 text-sm font-extrabold disabled:opacity-50"
+                onClick={revealAgentCode}
+                data-testid="agent-code-reveal"
+              >
+                Show agent code
+              </button>
+            )}
+          </div>
+        ) : null}
 
         <div
           className="flex items-center justify-between gap-3 py-3 border-b border-slate-100"

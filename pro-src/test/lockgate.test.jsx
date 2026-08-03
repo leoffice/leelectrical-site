@@ -27,6 +27,7 @@ vi.mock("../src/lib/lock.js", () => lock);
 
 const agentClient = vi.hoisted(() => ({
   fetchAgentAccessStatus: vi.fn(async () => ({ accessOn: false, state: { accessOn: false } })),
+  getPlantedFleetIdentity: vi.fn(() => null),
   enterAsAgent: vi.fn(async () => ({
     token: "agt.tok",
     grantId: "ags_1",
@@ -54,6 +55,7 @@ afterEach(() => {
     accessOn: false,
     state: { accessOn: false },
   });
+  agentClient.getPlantedFleetIdentity.mockReturnValue(null);
   agentClient.enterAsAgent.mockResolvedValue({
     token: "agt.tok",
     grantId: "ags_1",
@@ -319,7 +321,7 @@ describe("LockGate", () => {
     expect(screen.queryByTestId("lock-enter-as-agent")).toBeNull();
   });
 
-  it("shows Enter as agent when access is on and unlocks via markAgentUnlocked", async () => {
+  it("shows agent code entry when access is on and unlocks via markAgentUnlocked", async () => {
     agentClient.fetchAgentAccessStatus.mockResolvedValue({
       accessOn: true,
       state: { accessOn: true, standing: true, paymentsOn: false },
@@ -331,12 +333,36 @@ describe("LockGate", () => {
       </LockGate>
     );
     await waitFor(() => expect(screen.getByTestId("lock-enter-as-agent")).toBeInTheDocument());
+    expect(screen.getByTestId("lock-agent-code")).toBeInTheDocument();
+    await user.type(screen.getByTestId("lock-agent-code"), "LE-TEST-CODE");
     await user.click(screen.getByTestId("lock-enter-as-agent"));
     await waitFor(() => expect(screen.getByTestId("app")).toBeInTheDocument());
-    expect(agentClient.enterAsAgent).toHaveBeenCalled();
+    expect(agentClient.enterAsAgent).toHaveBeenCalledWith(
+      expect.objectContaining({ unlockCode: "LE-TEST-CODE" })
+    );
     expect(lock.markAgentUnlocked).toHaveBeenCalledWith(
       expect.objectContaining({ token: "agt.tok", grantId: "ags_1" })
     );
+  });
+
+  it("prompts for agent code when access on and no code typed", async () => {
+    agentClient.fetchAgentAccessStatus.mockResolvedValue({
+      accessOn: true,
+      state: { accessOn: true },
+    });
+    const user = userEvent.setup();
+    render(
+      <LockGate>
+        <div data-testid="app">SECRET APP</div>
+      </LockGate>
+    );
+    await waitFor(() => expect(screen.getByTestId("lock-enter-as-agent")).toBeInTheDocument());
+    await user.click(screen.getByTestId("lock-enter-as-agent"));
+    await waitFor(() =>
+      expect(screen.getByTestId("lock-error")).toHaveTextContent(/agent code/i)
+    );
+    expect(screen.queryByTestId("app")).not.toBeInTheDocument();
+    expect(agentClient.enterAsAgent).not.toHaveBeenCalled();
   });
 
   it("shows agent access is off when mint is denied", async () => {
@@ -350,6 +376,7 @@ describe("LockGate", () => {
       </LockGate>
     );
     await waitFor(() => expect(screen.getByTestId("lock-enter-as-agent")).toBeInTheDocument());
+    await user.type(screen.getByTestId("lock-agent-code"), "LE-TEST-CODE");
     await user.click(screen.getByTestId("lock-enter-as-agent"));
     await waitFor(() =>
       expect(screen.getByTestId("lock-error")).toHaveTextContent(/agent access is off/i)

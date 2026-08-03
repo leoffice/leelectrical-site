@@ -1,6 +1,6 @@
-// Client for Agent Access — toggle + fleet identity (no codes).
+// Client for Agent Access — toggle + fleet identity + standing unlock code.
 // Canonical: AGENT_ACCESS_STANDARD.md
-// Lock-screen entry: plant fleet identity (automation / host) then mint_session.
+// Lock-screen entry: standing code (Settings) OR plant fleet identity then mint_session.
 import { functionsBase } from "./functionsBase.js";
 
 /** 24h auto-off window (mirrors server AUTO_OFF_MS). */
@@ -188,14 +188,18 @@ export async function revokeAgentAccess() {
 
 /**
  * Mint a signed UI agent session (lock-screen Enter as agent).
- * Requires planted fleet identity + access toggle ON.
- * Returns { token, grantId, scope, expiresAt, startedAt, paymentsOn, label }.
+ * Prefer standing unlockCode (works for any agent while access ON).
+ * Falls back to planted fleet identity for host automation.
  */
-export async function mintAgentSession({ label } = {}) {
+export async function mintAgentSession({ label, unlockCode } = {}) {
+  const code = String(unlockCode || "").trim();
+  if (code) {
+    return post({ op: "mint_session", unlockCode: code, label: label || "agent-code" });
+  }
   const claim = getPlantedFleetIdentity();
   if (!claim) {
     const err = new Error(
-      "Agent identity required — plant fleet identity before Enter as agent."
+      "Enter the standing agent code from Settings → Agent Access."
     );
     err.code = "identity_missing";
     throw err;
@@ -203,11 +207,22 @@ export async function mintAgentSession({ label } = {}) {
   return post({ op: "mint_session", label: label || claim.agentId }, { claim });
 }
 
+/** Owner: reveal standing unlock code (Settings). */
+export async function revealStandingAgentCode() {
+  return post({ op: "reveal_code", actor: "owner" });
+}
+
+/** Owner: rotate standing unlock code (old code dies immediately). */
+export async function rotateStandingAgentCode() {
+  return post({ op: "rotate_code", actor: "owner" });
+}
+
 /**
  * High-level lock-screen entry: mint session shape for markAgentUnlocked.
+ * Pass unlockCode for the standing door key (recommended).
  */
-export async function enterAsAgent({ label } = {}) {
-  const data = await mintAgentSession({ label });
+export async function enterAsAgent({ label, unlockCode } = {}) {
+  const data = await mintAgentSession({ label, unlockCode });
   if (!data?.token || !data?.expiresAt) {
     throw new Error(data?.error || "Could not start agent session");
   }
@@ -250,19 +265,19 @@ export function formatAccessStatusLine(state, now = Date.now()) {
   return `ON · 24h auto-off${pay}`;
 }
 
-/* ── Removed code-era API (stubs throw if anything still calls them) ── */
+/* ── Legacy aliases → standing code / toggle ── */
 export async function mintAgentAccess() {
-  throw new Error("Access codes removed — use setAgentAccess toggle.");
+  return revealStandingAgentCode();
 }
 export async function mintAgentAccess24h() {
-  throw new Error("Access codes removed — use setAgentAccess({ on: true, timerMode: '24h' }).");
+  return revealStandingAgentCode();
 }
 export async function extendAgentAccess() {
-  throw new Error("Access codes removed — use setAgentAccess / setAgentAccessTimer.");
+  throw new Error("Standing code does not expire — use setAgentAccess / setAgentAccessTimer.");
 }
-export async function redeemAgentAccess() {
-  throw new Error("Access codes removed — fleet identity + access toggle only.");
+export async function redeemAgentAccess(code) {
+  return mintAgentSession({ unlockCode: code });
 }
 export async function endAgentAccess() {
-  throw new Error("Access codes removed.");
+  return stopAgentAccess();
 }

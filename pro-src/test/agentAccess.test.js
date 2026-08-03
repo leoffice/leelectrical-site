@@ -6,9 +6,11 @@ import {
   authenticateFleetIdentity,
   authorizeAgentAction,
   emptyDoc,
+  ensureStandingCode,
   gateAgentPaymentAction,
   hasPaymentConfirmation,
   mintAgentSession,
+  mintAgentSessionByCode,
   publicAccessState,
   refreshAccessState,
   setAccess,
@@ -17,6 +19,7 @@ import {
   statusPayload,
   stopAccess,
   verifyAgentSessionToken,
+  verifyStandingCode,
 } from "../../netlify/functions/lib/agentAccess.mjs";
 import { formatAccessStatusLine, formatRemaining } from "../src/lib/agentAccessClient.js";
 
@@ -94,12 +97,76 @@ describe("agent access toggle model", () => {
     expect(toMan.state.autoOffAt).toBe(null);
   });
 
-  it("statusPayload exposes defaults and no codes", () => {
+  it("statusPayload exposes standing-code model (no plain code on status)", () => {
     const p = statusPayload(emptyDoc());
     expect(p.ok).toBe(true);
-    expect(p.defaults.codes).toBe(false);
-    expect(p.defaults.model).toMatch(/toggle/);
+    expect(p.defaults.standingCode).toBe(true);
+    expect(p.defaults.model).toMatch(/standing-code|toggle/);
     expect(p.grant).toBe(null);
+    expect(p.state.hasStandingCode).toBe(false);
+  });
+
+  it("setAccess ON creates a standing unlock code", () => {
+    const now = 1_710_000_000_000;
+    const { doc, state, standingCode } = setAccess(emptyDoc(), { on: true, timerMode: "manual" }, now);
+    expect(state.accessOn).toBe(true);
+    expect(standingCode).toMatch(/^LE-[A-Z0-9]{4}-[A-Z0-9]{4}$/);
+    expect(doc.standingCodeHash).toBeTruthy();
+    expect(doc.standingCode).toBe(standingCode);
+  });
+});
+
+describe("standing unlock code", () => {
+  const secret = "test-fleet-secret-do-not-use-prod";
+  const env = { LE_FLEET_AGENT_SECRET: secret };
+
+  it("verifyStandingCode fails when access off", () => {
+    const { doc, code } = ensureStandingCode(emptyDoc(), { forceRotate: true });
+    const r = verifyStandingCode(doc, code);
+    expect(r.ok).toBe(false);
+    expect(r.code).toBe("access_off");
+  });
+
+  it("mints UI session with standing code while access ON", () => {
+    const now = 1_720_000_000_000;
+    let doc = setAccess(emptyDoc(), { on: true, timerMode: "manual" }, now).doc;
+    const code = doc.standingCode;
+    expect(code).toBeTruthy();
+    const r = mintAgentSessionByCode(doc, { unlockCode: code }, env, now + 1);
+    expect(r.ok).toBe(true);
+    expect(r.token).toBeTruthy();
+    expect(r.agentId).toBe("standing-code");
+    const v = verifyAgentSessionToken(r.token, env, now + 2);
+    expect(v.ok).toBe(true);
+  });
+
+  it("rejects wrong standing code", () => {
+    const now = 1_730_000_000_000;
+    const doc = setAccess(emptyDoc(), { on: true }, now).doc;
+    const r = mintAgentSessionByCode(doc, { unlockCode: "LE-WRONG-CODE" }, env, now + 1);
+    expect(r.ok).toBe(false);
+    expect(r.code).toBe("bad_code");
+  });
+
+  it("stops working when access is turned OFF", () => {
+    const now = 1_740_000_000_000;
+    let doc = setAccess(emptyDoc(), { on: true }, now).doc;
+    const code = doc.standingCode;
+    doc = stopAccess(doc, {}, now + 1).doc;
+    const r = mintAgentSessionByCode(doc, { unlockCode: code }, env, now + 2);
+    expect(r.ok).toBe(false);
+    expect(r.code).toBe("access_off");
+  });
+
+  it("rotate invalidates prior code", () => {
+    const now = 1_750_000_000_000;
+    let doc = setAccess(emptyDoc(), { on: true }, now).doc;
+    const oldCode = doc.standingCode;
+    const rotated = ensureStandingCode(doc, { forceRotate: true }, now + 1);
+    doc = rotated.doc;
+    expect(rotated.code).not.toBe(oldCode);
+    expect(mintAgentSessionByCode(doc, { unlockCode: oldCode }, env, now + 2).ok).toBe(false);
+    expect(mintAgentSessionByCode(doc, { unlockCode: rotated.code }, env, now + 3).ok).toBe(true);
   });
 });
 

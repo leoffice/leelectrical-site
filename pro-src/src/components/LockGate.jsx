@@ -3,7 +3,7 @@
 // fingerprint) via the WebAuthn platform authenticator — prompted immediately
 // on a cold open only (reload → password first; camera blocked → password only).
 // Fallback: Supabase email + password.
-// Agent: "Enter as agent" when Agent Access toggle is ON (no codes — fleet identity).
+// Agent: when Agent Access is ON — standing agent code (or planted fleet identity).
 // In-session grace keeps mid-session reloads from re-prompting; a fresh launch re-locks.
 //
 // Password autofill (browser manager): username + password often land in the
@@ -30,7 +30,7 @@ import { saveSession } from "../lib/session.js";
 import { getCompanyLogoSrc } from "../lib/appSettings.js";
 import { productName, tenantName } from "../lib/tenantBranding.js";
 import { DEMO, DEMO_CREDENTIALS } from "../lib/demoMode.js";
-import { enterAsAgent, fetchAgentAccessStatus } from "../lib/agentAccessClient.js";
+import { enterAsAgent, fetchAgentAccessStatus, getPlantedFleetIdentity } from "../lib/agentAccessClient.js";
 
 // A pending native passkey prompt must never trap the user. If the device
 // never answers (no platform authenticator, unenrolled, hung WebAuthn call),
@@ -64,8 +64,9 @@ export default function LockGate({ children }) {
   const [err, setErr] = useState("");
   const [email, setEmail] = useState(initialEmail);
   const [password, setPassword] = useState(initialPassword);
-  /** Agent Access toggle ON → show "Enter as agent" (unauth status GET). */
+  /** Agent Access toggle ON → show standing-code entry (unauth status GET). */
   const [agentAccessOn, setAgentAccessOn] = useState(false);
+  const [agentCode, setAgentCode] = useState("");
 
   const enrolled = hasEnrolledCredential();
   const autoBioRan = useRef(false);
@@ -356,13 +357,12 @@ export default function LockGate({ children }) {
     };
   }, [unlocked, mode]);
 
-  /** Enter as agent — bypass biometric/password; mint signed session via fleet identity. */
+  /** Enter as agent — standing code (preferred) or planted fleet identity. */
   const runEnterAsAgent = useCallback(async () => {
     setErr("");
     setAgentBusy(true);
     abortBiometric();
     try {
-      // Re-check toggle so we never enter when Levi already turned it off.
       try {
         const st = await fetchAgentAccessStatus();
         if (st.accessOn !== true && st.state?.accessOn !== true) {
@@ -373,7 +373,13 @@ export default function LockGate({ children }) {
       } catch {
         /* mint path will enforce */
       }
-      const session = await enterAsAgent();
+      const code = String(agentCode || "").trim();
+      const hasFleet = !!getPlantedFleetIdentity();
+      if (!code && !hasFleet) {
+        setErr("Enter the agent code from Settings → Agent Access.");
+        return;
+      }
+      const session = await enterAsAgent({ unlockCode: code || undefined });
       markAgentUnlocked(session);
       setUnlocked(true);
     } catch (e2) {
@@ -381,31 +387,48 @@ export default function LockGate({ children }) {
       if (code === "access_off") {
         setAgentAccessOn(false);
         setErr("agent access is off");
+      } else if (code === "bad_code") {
+        setErr("Wrong agent code.");
       } else if (code === "identity_missing" || code === "identity_fail") {
-        setErr(e2?.message || "Agent identity required.");
+        setErr(e2?.message || "Enter the agent code from Settings.");
       } else {
         setErr(e2?.message || "Could not enter as agent");
       }
     } finally {
       setAgentBusy(false);
     }
-  }, [abortBiometric]);
+  }, [abortBiometric, agentCode]);
 
   if (unlocked) return children;
 
-  const agentEntryButton = agentAccessOn ? (
-    <button
-      type="button"
-      onClick={() => {
-        abortBiometric();
-        runEnterAsAgent();
-      }}
-      disabled={agentBusy || busy}
-      className="mt-3 w-full rounded-xl bg-emerald-500/90 text-white font-extrabold px-4 py-3 text-base active:bg-emerald-500 disabled:opacity-50"
-      data-testid="lock-enter-as-agent"
-    >
-      {agentBusy ? "Entering…" : "Enter as agent"}
-    </button>
+  const agentEntryBlock = agentAccessOn ? (
+    <div className="mt-3 w-full space-y-2" data-testid="lock-agent-entry">
+      <input
+        type="text"
+        inputMode="text"
+        autoComplete="one-time-code"
+        autoCapitalize="characters"
+        spellCheck={false}
+        placeholder="Agent code (LE-XXXX-XXXX)"
+        value={agentCode}
+        onChange={(e) => setAgentCode(e.target.value)}
+        className="w-full rounded-xl px-4 py-3 text-base text-slate-900 outline-none font-mono tracking-wide"
+        data-testid="lock-agent-code"
+        disabled={agentBusy || busy}
+      />
+      <button
+        type="button"
+        onClick={() => {
+          abortBiometric();
+          runEnterAsAgent();
+        }}
+        disabled={agentBusy || busy}
+        className="w-full rounded-xl bg-emerald-500/90 text-white font-extrabold px-4 py-3 text-base active:bg-emerald-500 disabled:opacity-50"
+        data-testid="lock-enter-as-agent"
+      >
+        {agentBusy ? "Entering…" : "Enter as agent"}
+      </button>
+    </div>
   ) : null;
 
   return (
@@ -466,7 +489,7 @@ export default function LockGate({ children }) {
             >
               Use password instead
             </button>
-            {agentEntryButton}
+            {agentEntryBlock}
           </div>
         )}
 
@@ -553,7 +576,7 @@ export default function LockGate({ children }) {
                 Use {enrolled ? "biometrics" : "Face ID / fingerprint"} instead
               </button>
             )}
-            {agentEntryButton}
+            {agentEntryBlock}
           </form>
         )}
 

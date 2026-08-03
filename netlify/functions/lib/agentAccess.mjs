@@ -1,6 +1,7 @@
 /**
- * Agent Access — toggle + known fleet identity model (CROSS-APP STANDARD).
- * Supersedes generate-code / redeem-code. Pure helpers for unit tests + DO store.
+ * Agent Access — toggle + fleet identity + standing unlock code.
+ * Toggle OFF = no entry. Toggle ON = fleet identity OR standing code works.
+ * Standing code always works until Levi turns access off (or rotates the code).
  *
  * Canonical: ~/.hermes/shared/handoff/AGENT_ACCESS_STANDARD.md
  */
@@ -14,6 +15,9 @@ export const SECRET_KEY = "agent-access-signing-secret";
 /** 24h auto-off window. */
 export const AUTO_OFF_MS = 24 * 60 * 60 * 1000;
 export const MAX_AUDIT = 80;
+
+/** Human-readable standing unlock code: LE-XXXX-XXXX (X = A-Z2-9 no ambiguous chars). */
+const CODE_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
 
 /** Timer modes: 24h auto-off, or manual (stays on until STOP). */
 export const TIMER_MODES = new Set(["24h", "manual"]);
@@ -80,8 +84,88 @@ export function emptyDoc() {
     turnedOnAt: null,
     turnedOffAt: null,
     lastChangedAt: null,
+    /** SHA-256 hex of standing unlock code (never returned on public status). */
+    standingCodeHash: null,
+    /** Plain standing code — owner reveal only (Settings). Cleared when access OFF optional keep. */
+    standingCode: null,
     audit: [],
   };
+}
+
+/** Generate a standing agent unlock code (LE-XXXX-XXXX). */
+export function generateStandingCode() {
+  const part = (n) => {
+    let s = "";
+    for (let i = 0; i < n; i++) {
+      s += CODE_ALPHABET[randomBytes(1)[0] % CODE_ALPHABET.length];
+    }
+    return s;
+  };
+  return `LE-${part(4)}-${part(4)}`;
+}
+
+export function normalizeStandingCode(raw) {
+  return String(raw || "")
+    .toUpperCase()
+    .replace(/[^A-Z0-9]/g, "")
+    .replace(/^LE/, "LE");
+}
+
+/** Normalize to compare form without dashes: LEXXXXXXXX */
+export function standingCodeCompareKey(raw) {
+  const u = String(raw || "")
+    .toUpperCase()
+    .replace(/[^A-Z0-9]/g, "");
+  return u;
+}
+
+export function hashStandingCode(raw) {
+  return sha256Hex(standingCodeCompareKey(raw));
+}
+
+/**
+ * Ensure a standing code exists on the doc. Returns { doc, code, created }.
+ * Code is only returned when newly created or forceRotate.
+ */
+export function ensureStandingCode(doc, { forceRotate = false } = {}, now = Date.now()) {
+  let next = { ...emptyDoc(), ...doc, audit: Array.isArray(doc?.audit) ? doc.audit : [] };
+  if (!forceRotate && next.standingCode && next.standingCodeHash) {
+    return { doc: next, code: next.standingCode, created: false };
+  }
+  const code = generateStandingCode();
+  next = {
+    ...next,
+    standingCode: code,
+    standingCodeHash: hashStandingCode(code),
+    lastChangedAt: now,
+  };
+  next = pushAudit(next, {
+    type: forceRotate ? "standing_code_rotated" : "standing_code_minted",
+    note: forceRotate ? "Standing agent code rotated" : "Standing agent code created",
+  });
+  return { doc: next, code, created: true };
+}
+
+/** Validate standing unlock code against doc. Access must be ON. */
+export function verifyStandingCode(doc, rawCode, now = Date.now()) {
+  const fresh = refreshAccessState(doc, now);
+  if (!fresh.accessOn) {
+    return { ok: false, code: "access_off", error: "agent access is off", doc: fresh };
+  }
+  const hash = fresh.standingCodeHash;
+  if (!hash) {
+    return { ok: false, code: "no_standing_code", error: "No standing agent code — turn access ON in Settings.", doc: fresh };
+  }
+  const got = hashStandingCode(rawCode);
+  if (!safeEqualHex(got, hash) && !safeEqualString(got, hash)) {
+    // Also accept exact plain match if stored (timing-safe via hash path preferred)
+    const plain = standingCodeCompareKey(fresh.standingCode || "");
+    const tryKey = standingCodeCompareKey(rawCode);
+    if (!plain || !safeEqualString(plain, tryKey)) {
+      return { ok: false, code: "bad_code", error: "Wrong agent code.", doc: fresh };
+    }
+  }
+  return { ok: true, doc: fresh };
 }
 
 export function pushAudit(doc, entry) {
@@ -147,6 +231,7 @@ export function setAccess(doc, { on, timerMode, actor } = {}, now = Date.now()) 
   const wantOn = on === true;
   const mode = timerMode != null ? normalizeTimerMode(timerMode) : next.timerMode || "manual";
   const who = String(actor || "owner").slice(0, 40);
+  let standingCode = null;
 
   if (wantOn) {
     const autoOffAt = mode === "24h" ? now + AUTO_OFF_MS : null;
@@ -159,6 +244,10 @@ export function setAccess(doc, { on, timerMode, actor } = {}, now = Date.now()) 
       turnedOffAt: null,
       lastChangedAt: now,
     };
+    // Ensure a standing unlock code exists while access is ON (agents without fleet plant).
+    const ensured = ensureStandingCode(next, {}, now);
+    next = ensured.doc;
+    standingCode = ensured.code;
     next = pushAudit(next, {
       type: "access_on",
       note: mode === "24h" ? `Access ON · 24h auto-off · ${who}` : `Access ON · manual (until STOP) · ${who}`,
@@ -174,6 +263,7 @@ export function setAccess(doc, { on, timerMode, actor } = {}, now = Date.now()) 
       autoOffAt: null,
       turnedOffAt: now,
       lastChangedAt: now,
+      // Keep standing code so turning back ON reuses the same door key.
     };
     if (wasOn) {
       next = pushAudit(next, {
@@ -183,7 +273,7 @@ export function setAccess(doc, { on, timerMode, actor } = {}, now = Date.now()) 
       });
     }
   }
-  return { doc: next, state: publicAccessState(next, now) };
+  return { doc: next, state: publicAccessState(next, now), standingCode };
 }
 
 /** Change timer mode while access is on (or set preferred mode while off). */
@@ -257,7 +347,10 @@ export function statusPayload(doc, now = Date.now()) {
   const fresh = refreshAccessState(doc, now);
   return {
     ok: true,
-    state: publicAccessState(fresh, now),
+    state: {
+      ...publicAccessState(fresh, now),
+      hasStandingCode: !!(fresh.standingCodeHash || fresh.standingCode),
+    },
     /** @deprecated alias — prefer state */
     grant: null,
     audit: (fresh.audit || []).slice(0, 40),
@@ -266,8 +359,10 @@ export function statusPayload(doc, now = Date.now()) {
       autoOffMs: AUTO_OFF_MS,
       paymentsDefault: false,
       appId: APP_ID,
-      model: "toggle+fleet-identity",
-      codes: false,
+      model: "toggle+fleet-identity+standing-code",
+      /** Standing unlock code works while access ON (not temporary mint codes). */
+      standingCode: true,
+      codes: true,
     },
     _doc: fresh,
   };
@@ -553,10 +648,44 @@ export function mintAgentSession(doc, { agentId, label } = {}, env = {}, now = D
       doc: auth.doc,
     };
   }
-  const state = auth.state;
+  return _issueUiSession(auth.doc, {
+    agentId: agentId || "fleet",
+    label,
+    via: "fleet_identity",
+    env,
+    now,
+  });
+}
+
+/**
+ * Mint UI session via standing unlock code (no fleet plant required).
+ * Only works while access is ON.
+ */
+export function mintAgentSessionByCode(doc, { unlockCode, label } = {}, env = {}, now = Date.now()) {
+  const checked = verifyStandingCode(doc, unlockCode, now);
+  if (!checked.ok) {
+    return {
+      ok: false,
+      status: checked.code === "access_off" ? 403 : 401,
+      code: checked.code || "bad_code",
+      error: checked.error || "Wrong agent code.",
+      state: publicAccessState(checked.doc || doc, now),
+      doc: checked.doc || doc,
+    };
+  }
+  return _issueUiSession(checked.doc, {
+    agentId: "standing-code",
+    label: label || "agent-code",
+    via: "standing_code",
+    env,
+    now,
+  });
+}
+
+function _issueUiSession(doc, { agentId, label, via, env, now }) {
+  const state = publicAccessState(doc, now);
   const paymentsOn = !!state.paymentsOn;
   const scope = paymentsOn ? "full" : "full-nopay";
-  // 24h → expire at autoOffAt; manual → standing ceiling (STOP ends access server-side).
   let expiresAt =
     state.timerMode === "24h" && state.autoOffAt
       ? Number(state.autoOffAt)
@@ -577,6 +706,7 @@ export function mintAgentSession(doc, { agentId, label } = {}, env = {}, now = D
     startedAt,
     expiresAt,
     label: String(label || who || "agent").slice(0, 40),
+    via: String(via || "fleet_identity").slice(0, 40),
   };
   let token;
   try {
@@ -588,13 +718,15 @@ export function mintAgentSession(doc, { agentId, label } = {}, env = {}, now = D
       code: "identity_config",
       error: String(e?.message || e),
       state,
-      doc: auth.doc,
+      doc,
     };
   }
-  const next = pushAudit(auth.doc, {
+  const next = pushAudit(doc, {
     type: "ui_enter",
     agentId: who,
-    note: `UI Enter as agent · ${scope} · ${state.standing || state.timerMode === "manual" ? "standing" : "24h"}`,
+    note: `UI Enter as agent · ${via || "fleet"} · ${scope} · ${
+      state.standing || state.timerMode === "manual" ? "standing" : "24h"
+    }`,
     grantId,
     result: "minted",
   });
@@ -613,15 +745,15 @@ export function mintAgentSession(doc, { agentId, label } = {}, env = {}, now = D
   };
 }
 
-/** @deprecated code-era helpers — stubs so old imports fail clearly if any remain */
+/** @deprecated temporary mint-code era */
 export function mintGrant() {
-  throw new Error("Agent access codes removed — use setAccess toggle (AGENT_ACCESS_STANDARD).");
+  throw new Error("Temporary access codes removed — use standing code + access toggle.");
 }
 export function redeemGrant() {
-  throw new Error("Agent access codes removed — use fleet identity + access toggle.");
+  throw new Error("Use mintAgentSessionByCode with the standing agent code while access is ON.");
 }
 export function extendGrant() {
-  throw new Error("Agent access codes removed — use setAccess / setTimerMode.");
+  throw new Error("Standing code does not expire — use setAccess / setTimerMode for the toggle.");
 }
 export function revokeGrant(doc, now = Date.now()) {
   return stopAccess(doc, { actor: "revoke" }, now);

@@ -1,21 +1,21 @@
 /**
- * Agent Access API — toggle + fleet identity (AGENT_ACCESS_STANDARD).
- * GET  → status
+ * Agent Access API — toggle + fleet identity + standing unlock code.
+ * GET  → status (no plain code)
  * POST → { op: status | set_access | set_timer | set_payments | stop | authorize |
- *          mint_session | enter_session | record_action }
+ *          mint_session | enter_session | reveal_code | rotate_code | record_action }
  *
- * Codes (mint/redeem/extend) are removed. Access-state lives in Durable Object
- * when AGENT_ACCESS binding is present (required in prod).
- * mint_session / enter_session: lock-screen "Enter as agent" — requires genuine
- * fleet identity + access ON; returns signed UI session for markAgentUnlocked.
+ * Standing code works while access ON (no fleet plant). Temporary mint/redeem codes stay gone.
+ * Access-state lives in Durable Object when AGENT_ACCESS binding is present.
  */
 import {
   APP_ID,
   authenticateFleetIdentity,
   authorizeAgentAction,
   emptyDoc,
+  ensureStandingCode,
   extractFleetIdentityFromRequest,
   mintAgentSession,
+  mintAgentSessionByCode,
   publicAccessState,
   recordAction,
   setAccess,
@@ -104,9 +104,12 @@ export default async (req, env = {}) => {
       actor: body.actor || "owner",
     });
     await store.put(result.doc);
-    return json({
+    const out = {
       ok: true,
-      state: result.state,
+      state: {
+        ...result.state,
+        hasStandingCode: !!(result.doc.standingCodeHash || result.doc.standingCode),
+      },
       audit: (result.doc.audit || []).slice(0, 40),
       storeMode: store.mode,
       message: result.state.accessOn
@@ -114,6 +117,51 @@ export default async (req, env = {}) => {
           ? "Agent access ON · standing until you stop it"
           : "Agent access ON · 24h auto-off"
         : "Agent access OFF",
+    };
+    // Return standing code when turning ON so Settings can show it.
+    if (result.state.accessOn && result.standingCode) {
+      out.standingCode = result.standingCode;
+    }
+    return json(out);
+  }
+
+  // Owner: reveal current standing code (only useful while access ON)
+  if (op === "reveal_code" || op === "show_code") {
+    const ensured = ensureStandingCode(doc, {}, Date.now());
+    if (ensured.doc !== doc) {
+      try {
+        await store.put(ensured.doc);
+      } catch {
+        /* ignore */
+      }
+    }
+    const state = publicAccessState(ensured.doc);
+    return json({
+      ok: true,
+      standingCode: ensured.code,
+      state: {
+        ...state,
+        hasStandingCode: true,
+      },
+      storeMode: store.mode,
+      message: state.accessOn
+        ? "Standing agent code (works while access is ON)"
+        : "Code exists but access is OFF — agents cannot enter until you turn access on",
+    });
+  }
+
+  // Owner: rotate standing code (invalidates prior code immediately)
+  if (op === "rotate_code") {
+    const rotated = ensureStandingCode(doc, { forceRotate: true }, Date.now());
+    await store.put(rotated.doc);
+    const state = publicAccessState(rotated.doc);
+    return json({
+      ok: true,
+      standingCode: rotated.code,
+      state: { ...state, hasStandingCode: true },
+      audit: (rotated.doc.audit || []).slice(0, 40),
+      storeMode: store.mode,
+      message: "New standing agent code — old code no longer works",
     });
   }
 
@@ -200,26 +248,37 @@ export default async (req, env = {}) => {
     });
   }
 
-  // Lock-screen "Enter as agent" — mint signed UI session (fleet identity required)
+  // Lock-screen "Enter as agent" — standing code OR fleet identity (while access ON)
   if (op === "mint_session" || op === "enter_session" || op === "ui_enter") {
-    const claim = extractFleetIdentityFromRequest(req, body);
-    const id = authenticateFleetIdentity(claim, env);
-    if (!id.ok) {
-      return json(
-        {
-          ok: false,
-          error: id.error,
-          code: "identity_fail",
-          message: "Genuine fleet identity required to enter as agent.",
-        },
-        401
+    const unlockCode = String(body.unlockCode || body.code || body.standingCode || "").trim();
+    let minted;
+    if (unlockCode) {
+      minted = mintAgentSessionByCode(
+        doc,
+        { unlockCode, label: body.label || "agent-code" },
+        env
+      );
+    } else {
+      const claim = extractFleetIdentityFromRequest(req, body);
+      const id = authenticateFleetIdentity(claim, env);
+      if (!id.ok) {
+        return json(
+          {
+            ok: false,
+            error: id.error || "Enter the standing agent code, or plant fleet identity.",
+            code: "identity_fail",
+            message:
+              "Use the standing agent code from Settings → Agent Access, or plant fleet identity.",
+          },
+          401
+        );
+      }
+      minted = mintAgentSession(
+        doc,
+        { agentId: id.agentId, label: body.label || id.agentId },
+        env
       );
     }
-    const minted = mintAgentSession(
-      doc,
-      { agentId: id.agentId, label: body.label || id.agentId },
-      env
-    );
     if (minted.doc) {
       try {
         await store.put(minted.doc);
@@ -281,14 +340,14 @@ export default async (req, env = {}) => {
     });
   }
 
-  // Reject obsolete code ops explicitly
+  // Reject obsolete temporary mint/redeem ops (standing code uses mint_session + unlockCode)
   if (["mint", "redeem", "extend", "refresh", "end"].includes(op)) {
     return json(
       {
         ok: false,
         error:
-          "Access codes are removed. Use Settings toggles (access / timer / payments) and fleet identity. See AGENT_ACCESS_STANDARD.",
-        code: "codes_removed",
+          "Temporary codes removed. Use standing agent code: mint_session with unlockCode while access is ON, or Settings → reveal_code / rotate_code.",
+        code: "temp_codes_removed",
       },
       410
     );
