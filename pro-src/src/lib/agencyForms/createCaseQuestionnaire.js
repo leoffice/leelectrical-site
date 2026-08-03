@@ -3,11 +3,61 @@
  *
  * Step 0 = Request Type → branches:
  *   A add_load   = FULL 6 wizard groups (includes meters + load items)
- *   B no_add_load = SHORT 5 groups (skips meters + load)
+ *   B no_add_load = SHORT 5 groups (skips full residential load step;
+ *                   still has basic meter questions on portal Project step)
  *
  * Specs: LEPRO_CONED_CREATE_CASE_QUESTIONNAIRE.md
  *         LEPRO_CONED_ADD_LOAD_AUTOMATION_SPEC.md § REQUEST-TYPE BRANCHES
+ * Portal request types + short Review fields confirmed live CDP 2026-08-03.
  */
+
+import {
+  HP_TO_KW,
+  LOAD_CATALOG,
+  buildLoadItemsPayload,
+  defaultLoadItemsFromCatalog,
+  isAcItem,
+  isLightingItem,
+  isMotorItem,
+  loadItemKw,
+  makeLoadItemFromCatalog,
+  matchCatalogId,
+  normalizeLoadRow,
+  resolveLoadEntryMode,
+  sumLoadKw,
+} from "./loadItemCatalog.js";
+import {
+  appendLoadLearning,
+  buildLoadLearningEntry,
+  clearGlobalLoadLearning,
+  mergeLoadLearningHistories,
+  readGlobalLoadLearning,
+  recordLoadLearning,
+  suggestLoadItemsFromLearning,
+} from "./loadLearning.js";
+
+export {
+  HP_TO_KW,
+  LOAD_CATALOG,
+  isLightingItem,
+  isAcItem,
+  isMotorItem,
+  resolveLoadEntryMode,
+  loadItemKw,
+  sumLoadKw,
+  makeLoadItemFromCatalog,
+  matchCatalogId,
+  normalizeLoadRow,
+  buildLoadItemsPayload,
+  defaultLoadItemsFromCatalog,
+  appendLoadLearning,
+  buildLoadLearningEntry,
+  suggestLoadItemsFromLearning,
+  mergeLoadLearningHistories,
+  readGlobalLoadLearning,
+  recordLoadLearning,
+  clearGlobalLoadLearning,
+};
 
 /** Request type ids used in app + host automation. */
 export const REQUEST_TYPES = {
@@ -29,66 +79,32 @@ export const REQUEST_TYPE_PORTAL = {
 };
 
 /**
- * Load-item entry modes (Levi 2026-08-02 portal match):
- * - totalKw  — Lighting / common lighting: one total kW (not qty × each)
- * - qtyKw    — other devices: units × kW per unit + phase
- * - kw / hp  — AC / space cooling: pick horsepower or kilowatts per unit
+ * Full Energy Services Request Type list (live portal 2026-08-03).
+ * Primary app branches remain Add Load + No Additional Load; others flagged TBD.
  */
-export const HP_TO_KW = 0.746;
+export const PORTAL_REQUEST_TYPES = Object.freeze([
+  "Add Additional Con Ed Service from Street (usually requires additional cost)",
+  "Add Load to Existing Service",
+  "Customer Requested Outage",
+  "Demolition",
+  "Electric Vehicle Supply Equipment (Charging Station/Equipment)",
+  "Emergency Backup Generator",
+  "Gut Rehab",
+  "Meter Unlock Only",
+  "New Service",
+  "Other",
+  "Overhead Facilities Protection",
+  "Performing Work Due to Storm Damage - Flooded Equipment",
+  "Performing Work Due to Storm Damage - NonFlooded Equipment",
+  "Performing Work on Customer Equipment - No Additional Load",
+  "Temporary Service",
+  "Third Party Attachment - Removal Request",
+  "Third Party Attachment Installation - New Request",
+  "Third Party Attachment Installation - Power Only (Pole License Received and Make Ready Work Completed)",
+]);
 
-export function isLightingItem(name = "") {
-  return /light/i.test(String(name || ""));
-}
-
-export function isAcItem(name = "") {
-  return /cool|a\/?c\b|air.?cond|space.?cool|central.?ac/i.test(String(name || ""));
-}
-
-export function resolveLoadEntryMode(it = {}) {
-  if (it.entryMode) return it.entryMode;
-  if (isLightingItem(it.name)) return "totalKw";
-  if (isAcItem(it.name)) return it.unit === "hp" ? "hp" : "kw";
-  return "qtyKw";
-}
-
-/** kW contribution of one load row (portal-facing). */
-export function loadItemKw(it = {}) {
-  const mode = resolveLoadEntryMode(it);
-  let kw = 0;
-  if (mode === "totalKw") {
-    const t = it.totalKw != null && it.totalKw !== "" ? it.totalKw : it.kwEach;
-    kw = Number(t) || 0;
-  } else {
-    const qty = Number(it.qty) || 0;
-    if (mode === "hp" || it.unit === "hp") {
-      kw = qty * (Number(it.hpEach) || 0) * HP_TO_KW;
-    } else {
-      kw = qty * (Number(it.kwEach) || 0);
-    }
-  }
-  // Host/payload rows may only carry lineKw — don't zero the sum
-  if (!kw && it.lineKw != null && it.lineKw !== "") {
-    return Number(it.lineKw) || 0;
-  }
-  return kw;
-}
-
-/** Default 2-family load seed (portal field shapes). */
-export const DEFAULT_LOAD_ITEMS = [
-  { name: "Kitchen Equipment", entryMode: "qtyKw", qty: 6, kwEach: 1, phase: "Single" },
-  { name: "Lighting", entryMode: "totalKw", totalKw: 2, phase: "Single" },
-  { name: "Electric Stoves", entryMode: "qtyKw", qty: 2, kwEach: 3, phase: "Single" },
-  {
-    name: "Space Cooling / Central AC (cooling-only)",
-    entryMode: "kw",
-    unit: "kw",
-    qty: 2,
-    kwEach: 2,
-    hpEach: "",
-    phase: "Single",
-  },
-  { name: "Common-area Lighting", entryMode: "totalKw", totalKw: 2, phase: "Single" },
-];
+/** Default 2-family load seed (catalog-backed). */
+export const DEFAULT_LOAD_ITEMS = defaultLoadItemsFromCatalog();
 
 /** Values never asked — auto, shown once in "Already handled". */
 export const AUTO_HANDLED = {
@@ -120,10 +136,6 @@ export function toPlainAscii(s) {
     .replace(/[^\x20-\x7E\n\r\t]/g, "")
     .replace(/[ \t]+\n/g, "\n")
     .trim();
-}
-
-export function sumLoadKw(items = []) {
-  return (items || []).reduce((acc, it) => acc + loadItemKw(it), 0);
 }
 
 /**
@@ -266,16 +278,50 @@ function cleanStreetName(streetName = "") {
 }
 
 /**
- * Seed answers from job + optional existing createCase draft.
+ * Build plain-ASCII scope seed from estimate lines / job notes.
+ * Used so Create Case can file from the estimate without retyping.
  */
-export function seedCreateCaseAnswers(job = {}, existing = null) {
-  if (existing?.answers && typeof existing.answers === "object") {
-    return sanitizeAnswers({ ...defaultAnswers(job), ...existing.answers });
+export function seedScopeOfWorkFromJob(job = {}) {
+  const existing = String(job.scopeOfWork || job.workDescription || job.description || "").trim();
+  if (existing && !/placeholder|restored after missing/i.test(existing)) {
+    return toPlainAscii(existing).slice(0, 800);
   }
-  return defaultAnswers(job);
+  const lines = Array.isArray(job.estimateLines)
+    ? job.estimateLines
+    : Array.isArray(job.lines)
+      ? job.lines
+      : [];
+  const parts = [];
+  for (const ln of lines) {
+    const name = String(ln?.itemName || ln?.name || "").trim();
+    const desc = String(ln?.description || ln?.desc || "").trim();
+    const chunk = [name, desc].filter(Boolean).join(" - ");
+    if (!chunk) continue;
+    if (/placeholder|restored after missing/i.test(chunk)) continue;
+    parts.push(chunk);
+  }
+  if (parts.length) return toPlainAscii(parts.join("; ")).slice(0, 800);
+  const title = String(job.title || job.notes || "").trim();
+  if (title && !/placeholder|restored after missing/i.test(title)) {
+    return toPlainAscii(title).slice(0, 800);
+  }
+  return "";
 }
 
-export function defaultAnswers(job = {}) {
+/**
+ * Seed answers from job + optional existing createCase draft.
+ * @param {object} job
+ * @param {object|null} existing
+ * @param {{ loadHistory?: object[] }} [opts] — prior load fills for smarter prefill
+ */
+export function seedCreateCaseAnswers(job = {}, existing = null, opts = {}) {
+  if (existing?.answers && typeof existing.answers === "object") {
+    return sanitizeAnswers({ ...defaultAnswers(job, opts), ...existing.answers });
+  }
+  return defaultAnswers(job, opts);
+}
+
+export function defaultAnswers(job = {}, opts = {}) {
   const addr = String(job.serviceAddress || job.address || "").trim();
   const { houseNumber, streetName } = parseAddressLine(addr);
   // Prefer person name over company trade name (customer card personName / owner fields).
@@ -295,7 +341,7 @@ export function defaultAnswers(job = {}) {
     if (zm) zip = zm[1];
   }
   const cleanStreet = cleanStreetName(streetName);
-  return sanitizeAnswers({
+  const base = {
     requestType: REQUEST_TYPES.NO_ADD_LOAD, // Levi's most common
     serviceAddress: addr,
     houseNumber,
@@ -327,7 +373,9 @@ export function defaultAnswers(job = {}) {
     numberOfNewMeters: 3,
     loadItems: DEFAULT_LOAD_ITEMS.map((x) => ({ ...x })),
     plannedConstructionStart: todayIsoDate(),
-    scopeOfWork: "",
+    scopeOfWork: seedScopeOfWorkFromJob(job),
+    equipmentName: "",
+    replaceUpgradeEquipment: false,
     totalBuildings: 1,
     totalUnits: 2,
     numberOfFloors: 2,
@@ -336,7 +384,24 @@ export function defaultAnswers(job = {}) {
     metersNeedUnlock: false,
     electricHeat: false,
     elevator: false,
-  });
+  };
+  // Prefer learned load pattern when we have history (job + device-global)
+  const history =
+    opts.loadHistory ||
+    mergeLoadLearningHistories(
+      job?.paperwork?.coned?.loadLearningHistory || [],
+      typeof opts.skipGlobalLearning === "boolean" && opts.skipGlobalLearning
+        ? []
+        : readGlobalLoadLearning()
+    );
+  const learned = suggestLoadItemsFromLearning(history, base);
+  if (learned && learned.length) {
+    base.loadItems = learned.map((x) => normalizeLoadRow(x));
+    base._loadPrefillSource = "learning";
+  } else {
+    base._loadPrefillSource = "catalog_defaults";
+  }
+  return sanitizeAnswers(base);
 }
 
 export function sanitizeAnswers(answers = {}) {
@@ -369,13 +434,16 @@ export function sanitizeAnswers(answers = {}) {
     }));
   }
   if (Array.isArray(a.loadItems)) {
-    a.loadItems = a.loadItems.map((it) => ({
-      ...it,
-      name: toPlainAscii(it.name),
-      phase: toPlainAscii(it.phase || "Single"),
-    }));
+    a.loadItems = a.loadItems.map((it) =>
+      normalizeLoadRow({
+        ...it,
+        name: toPlainAscii(it.name),
+        phase: toPlainAscii(it.phase || "Single"),
+      })
+    );
   }
   a.requestType = normalizeRequestType(a.requestType);
+  if (a.equipmentName != null) a.equipmentName = toPlainAscii(a.equipmentName);
   return a;
 }
 
@@ -462,55 +530,22 @@ export function buildCreateCasePayload(answers = {}, job = {}) {
         sqFt: m.sqFt || "",
       }))
     : [];
-  const loadItems = full
-    ? (a.loadItems || []).map((it) => {
-        const name = toPlainAscii(it.name);
-        const entryMode = resolveLoadEntryMode({ ...it, name });
-        const phase = toPlainAscii(it.phase || "Single");
-        const kwLine = loadItemKw({ ...it, name, entryMode });
-        if (entryMode === "totalKw") {
-          return {
-            name,
-            entryMode: "totalKw",
-            qty: 1,
-            kwEach: kwLine,
-            totalKw: kwLine,
-            phase,
-            lineKw: kwLine,
-          };
-        }
-        if (entryMode === "hp") {
-          return {
-            name,
-            entryMode: "hp",
-            unit: "hp",
-            qty: Number(it.qty) || 0,
-            hpEach: Number(it.hpEach) || 0,
-            kwEach:
-              Math.round((kwLine * 1000) / Math.max(1, Number(it.qty) || 0)) / 1000,
-            phase,
-            lineKw: Math.round(kwLine * 1000) / 1000,
-          };
-        }
-        return {
-          name,
-          entryMode: entryMode === "kw" ? "kw" : "qtyKw",
-          unit: entryMode === "kw" ? "kw" : undefined,
-          qty: Number(it.qty) || 0,
-          kwEach: Number(it.kwEach) || 0,
-          phase,
-          lineKw: kwLine,
-        };
-      })
-    : [];
+  const loadItems = full ? buildLoadItemsPayload(a.loadItems || []) : [];
   const kw =
     a.requiredTotalKw !== "" && a.requiredTotalKw != null
       ? Number(a.requiredTotalKw)
       : sumLoadKw(a.loadItems || []);
 
+  // Short branch still carries basic meter fields on portal Project Information
+  // (live Review 2026-08-03: relocate / capacity increase / # new meters / unlock).
+  const numberOfNewMeters =
+    Number(a.numberOfNewMeters) ||
+    (full ? meters.length : 0) ||
+    0;
+
   return {
     skill: "coned-create-case",
-    version: 1,
+    version: 2,
     requestType: rt,
     requestTypePortal: REQUEST_TYPE_PORTAL[rt],
     branch: full ? "A_full" : "B_short",
@@ -555,11 +590,13 @@ export function buildCreateCasePayload(answers = {}, job = {}) {
       useExistingService: a.useExistingService !== false,
       facilityServicedBy: toPlainAscii(a.facilityServicedBy || "Underground"),
       changePoe: !!a.changePoe,
-      scopeOfWork: toPlainAscii(a.scopeOfWork || ""),
+      scopeOfWork: toPlainAscii(a.scopeOfWork || seedScopeOfWorkFromJob(job) || ""),
       totalBuildings: Number(a.totalBuildings) || 1,
       totalUnits: Number(a.totalUnits) || (meters.length || 1),
       electricHeat: !!a.electricHeat,
       elevator: !!a.elevator,
+      replaceUpgradeEquipment: !!a.replaceUpgradeEquipment,
+      equipmentName: toPlainAscii(a.equipmentName || ""),
     },
     project: {
       numberOfFloors: Number(a.numberOfFloors) || 2,
@@ -567,10 +604,9 @@ export function buildCreateCasePayload(answers = {}, job = {}) {
       plannedConstructionStart: a.plannedConstructionStart || todayIsoDate(),
       metersRelocatedOutdoors: !!a.metersRelocatedOutdoors,
       metersNeedUnlock: !!a.metersNeedUnlock,
-      meterCapacityIncrease: full ? !!a.meterCapacityIncrease : undefined,
-      numberOfNewMeters: full
-        ? Number(a.numberOfNewMeters) || meters.length || 0
-        : undefined,
+      // Both branches show these on portal Review Meter Information
+      meterCapacityIncrease: !!a.meterCapacityIncrease,
+      numberOfNewMeters: numberOfNewMeters || undefined,
     },
     meters: full ? meters : undefined,
     loadItems: full ? loadItems : undefined,
@@ -647,7 +683,13 @@ export function createCaseReviewRows(answers = {}) {
         .map((it) => {
           const mode = resolveLoadEntryMode(it);
           const line = loadItemKw(it);
-          if (mode === "totalKw") return `${it.name}: ${line}kW total`;
+          if (mode === "totalKw") {
+            const sp = Number(it.singlePhaseCount) || 0;
+            const tp = Number(it.threePhaseCount) || 0;
+            const phaseNote =
+              sp || tp ? ` · ${sp} single / ${tp} three-phase` : "";
+            return `${it.name}: ${line}kW total${phaseNote}`;
+          }
           if (mode === "hp") return `${it.name} ×${it.qty || 0} @ ${it.hpEach || 0}HP (${line}kW)`;
           return `${it.name} ×${it.qty || 0} @ ${it.kwEach || 0}kW`;
         })
@@ -655,7 +697,17 @@ export function createCaseReviewRows(answers = {}) {
     });
   } else {
     rows.push({ label: "Load section", value: "Skipped (no additional load)" });
+    rows.push({
+      label: "New meters (total)",
+      value: String(a.numberOfNewMeters || ""),
+    });
+    rows.push({
+      label: "Meter capacity increase",
+      value: a.meterCapacityIncrease ? "Yes" : "No",
+    });
   }
+  if (a.scopeOfWork) rows.push({ label: "Scope of work", value: a.scopeOfWork });
+  if (a.equipmentName) rows.push({ label: "Equipment", value: a.equipmentName });
   rows.push({
     label: "Portal steps",
     value: `${portalWizardStepCount(a.requestType)} (stop at Review — you confirm submit)`,

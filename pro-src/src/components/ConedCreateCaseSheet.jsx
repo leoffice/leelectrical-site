@@ -6,16 +6,24 @@ import { useStore } from "../state/store.jsx";
 import {
   AUTO_HANDLED,
   DEFAULT_LOAD_ITEMS,
+  LOAD_CATALOG,
   REQUEST_TYPES,
   REQUEST_TYPE_LABELS,
+  buildLoadLearningEntry,
   createCaseReady,
   createCaseReviewRows,
   isAcItem,
   isFullBranch,
   isLightingItem,
+  isMotorItem,
+  makeLoadItemFromCatalog,
+  mergeLoadLearningHistories,
   missingCreateCaseFields,
+  normalizeLoadRow,
   portalWizardStepCount,
   questionnaireSteps,
+  readGlobalLoadLearning,
+  recordLoadLearning,
   resolveLoadEntryMode,
   sanitizeAnswers,
   seedCreateCaseAnswers,
@@ -66,7 +74,13 @@ function Seg({ value, options, onChange, testId }) {
 export default function ConedCreateCaseSheet({ job, onClose, onSave }) {
   const { enqueue } = useStore();
   const existing = job?.paperwork?.coned?.createCase;
-  const [answers, setAnswers] = useState(() => seedCreateCaseAnswers(job, existing));
+  const loadHistory = mergeLoadLearningHistories(
+    job?.paperwork?.coned?.loadLearningHistory || [],
+    readGlobalLoadLearning()
+  );
+  const [answers, setAnswers] = useState(() =>
+    seedCreateCaseAnswers(job, existing, { loadHistory })
+  );
   const answersRef = useRef(answers);
   answersRef.current = answers;
   const steps = useMemo(() => questionnaireSteps(answers.requestType), [answers.requestType]);
@@ -80,6 +94,7 @@ export default function ConedCreateCaseSheet({ job, onClose, onSave }) {
   const [okMsg, setOkMsg] = useState("");
   const [lookupBusy, setLookupBusy] = useState(false);
   const [lookupNote, setLookupNote] = useState("");
+  const [showLoadPicker, setShowLoadPicker] = useState(false);
   const [caseNumber, setCaseNumber] = useState(
     () =>
       job?.paperwork?.coned?.caseNumber ||
@@ -231,8 +246,9 @@ export default function ConedCreateCaseSheet({ job, onClose, onSave }) {
       const row = { ...(loadItems[i] || {}), [key]: value };
       if (key === "name") {
         if (isLightingItem(value)) row.entryMode = "totalKw";
-        else if (isAcItem(value)) row.entryMode = row.unit === "hp" ? "hp" : "kw";
-        else if (
+        else if (isAcItem(value) || isMotorItem(value)) {
+          row.entryMode = row.unit === "hp" ? "hp" : "kw";
+        } else if (
           !row.entryMode ||
           row.entryMode === "totalKw" ||
           row.entryMode === "hp" ||
@@ -244,9 +260,20 @@ export default function ConedCreateCaseSheet({ job, onClose, onSave }) {
       if (key === "unit") {
         row.entryMode = value === "hp" ? "hp" : "kw";
       }
-      loadItems[i] = row;
+      loadItems[i] = normalizeLoadRow(row);
       return { ...prev, loadItems };
     });
+  };
+
+  const addLoadFromCatalog = (catalogId) => {
+    scheduleSave((prev) => {
+      const next = makeLoadItemFromCatalog(catalogId);
+      return {
+        ...prev,
+        loadItems: (prev.loadItems || []).concat([next]),
+      };
+    });
+    setShowLoadPicker(false);
   };
 
   const goNext = () => {
@@ -285,7 +312,36 @@ export default function ConedCreateCaseSheet({ job, onClose, onSave }) {
     }
     setBusy(true);
     try {
-      const r = await createCasePaperworkJob({ answers: latest, job, onSave });
+      // Learn from this fill so the next similar job pre-fills better (job + device)
+      const learnEntry = isFullBranch(latest.requestType)
+        ? buildLoadLearningEntry(latest.loadItems, latest, {
+            jobId: job?.id || "",
+            source: "create_case_queue",
+          })
+        : null;
+      const nextHistory = learnEntry
+        ? recordLoadLearning(job?.paperwork?.coned?.loadLearningHistory || [], learnEntry)
+        : job?.paperwork?.coned?.loadLearningHistory || [];
+
+      const wrappedSave = (patch) => {
+        const coned = patch?.paperwork?.coned || {};
+        onSave?.({
+          ...patch,
+          paperwork: {
+            ...(patch.paperwork || {}),
+            coned: {
+              ...coned,
+              loadLearningHistory: nextHistory,
+            },
+          },
+        });
+      };
+
+      const r = await createCasePaperworkJob({
+        answers: latest,
+        job,
+        onSave: wrappedSave,
+      });
       if (r.ok) {
         setOkMsg(
           `Case queued for the browser agent (${REQUEST_TYPE_LABELS[latest.requestType]} · ${portalWizardStepCount(
@@ -647,13 +703,56 @@ export default function ConedCreateCaseSheet({ job, onClose, onSave }) {
             />
             Change point of entry (POE)?
           </label>
-          <Fld label="Scope of work" hint="plain ASCII">
+          <Fld label="Scope of work" hint="from estimate when available · plain ASCII">
             <textarea
               className="input text-base min-h-[80px]"
               value={answers.scopeOfWork || ""}
               onChange={(e) => set("scopeOfWork", e.target.value)}
+              data-testid="coned-field-scopeOfWork"
             />
           </Fld>
+          <label className="flex items-center gap-3 p-3 rounded-xl border border-slate-200 bg-slate-50 font-semibold text-sm">
+            <input
+              type="checkbox"
+              className="w-5 h-5 accent-emerald-700"
+              checked={!!answers.replaceUpgradeEquipment}
+              onChange={(e) => set("replaceUpgradeEquipment", e.target.checked)}
+            />
+            Replacing / upgrading other equipment?
+          </label>
+          {answers.replaceUpgradeEquipment ? (
+            <Fld label="Name of equipment">
+              <input
+                className="input text-base min-h-[44px]"
+                value={answers.equipmentName || ""}
+                onChange={(e) => set("equipmentName", e.target.value)}
+                placeholder="Electric meters"
+                data-testid="coned-field-equipmentName"
+              />
+            </Fld>
+          ) : null}
+          {!full ? (
+            <>
+              <Fld label="Number of new meters (total installed)">
+                <input
+                  className="input text-base min-h-[44px]"
+                  type="number"
+                  value={answers.numberOfNewMeters ?? 0}
+                  onChange={(e) => set("numberOfNewMeters", Number(e.target.value) || 0)}
+                  data-testid="coned-field-numberOfNewMeters-short"
+                />
+              </Fld>
+              <label className="flex items-center gap-3 p-3 rounded-xl border border-slate-200 bg-white font-semibold text-sm">
+                <input
+                  type="checkbox"
+                  className="w-5 h-5 accent-emerald-700"
+                  checked={!!answers.meterCapacityIncrease}
+                  onChange={(e) => set("meterCapacityIncrease", e.target.checked)}
+                />
+                Meter capacity increase? (default No)
+              </label>
+            </>
+          ) : null}
         </div>
       )}
 
@@ -743,125 +842,234 @@ export default function ConedCreateCaseSheet({ job, onClose, onSave }) {
         <div className="space-y-2" data-testid="coned-step-load">
           <h4 className="font-extrabold text-slate-900 text-sm">What&apos;s the electrical load?</h4>
           <p className="text-xs text-slate-500">
-            Lighting = total kW · other devices = units × kW each · AC = kW or HP. Single-phase defaults.
+            Pick equipment from the list (same idea as the meter application form). Lighting = total
+            kW + single/three-phase counts · devices = qty × kW · motors/AC = kW or HP. Each fill
+            teaches the next job.
           </p>
+          {answers._loadPrefillSource === "learning" ? (
+            <p className="text-[11px] font-semibold text-emerald-800 bg-emerald-50 border border-emerald-100 rounded-lg px-2 py-1">
+              Prefill from your past additional-load fills — review and adjust.
+            </p>
+          ) : null}
+
           {(answers.loadItems || DEFAULT_LOAD_ITEMS).map((it, i) => {
             const mode = resolveLoadEntryMode(it);
             return (
-            <div key={i} className="rounded-xl border border-slate-200 p-3 bg-slate-50 space-y-2">
-              <div className="flex gap-2">
-                <input
-                  className="input text-sm min-h-[40px] flex-1"
-                  value={it.name || ""}
-                  onChange={(e) => setLoad(i, "name", e.target.value)}
-                />
-                <button
-                  type="button"
-                  className="btn-ghost !py-1 !px-2 text-red-600 font-bold"
-                  onClick={() => {
-                    scheduleSave((prev) => ({
-                      ...prev,
-                      loadItems: (prev.loadItems || []).filter((_, j) => j !== i),
-                    }));
-                  }}
-                >
-                  ×
-                </button>
-              </div>
-              {mode === "totalKw" ? (
-                <div className="grid grid-cols-2 gap-2">
+              <div
+                key={i}
+                className="rounded-xl border border-slate-200 p-3 bg-slate-50 space-y-2"
+                data-testid={`coned-load-row-${i}`}
+              >
+                <div className="flex gap-2">
                   <input
-                    className="input text-sm min-h-[40px]"
-                    type="number"
-                    value={it.totalKw ?? it.kwEach ?? 0}
-                    onChange={(e) => setLoad(i, "totalKw", Number(e.target.value) || 0)}
-                    placeholder="Total kW"
-                    data-testid={`coned-load-totalKw-${i}`}
+                    className="input text-sm min-h-[40px] flex-1 font-semibold"
+                    value={it.name || ""}
+                    onChange={(e) => setLoad(i, "name", e.target.value)}
+                    placeholder="Equipment name"
+                    data-testid={`coned-load-name-${i}`}
                   />
-                  <input
-                    className="input text-sm min-h-[40px]"
-                    value={it.phase || "Single"}
-                    onChange={(e) => setLoad(i, "phase", e.target.value)}
-                    placeholder="Phase"
-                  />
-                </div>
-              ) : mode === "hp" || mode === "kw" ? (
-                <div className="grid grid-cols-3 gap-2">
-                  <input
-                    className="input text-sm min-h-[40px]"
-                    type="number"
-                    value={it.qty ?? 0}
-                    onChange={(e) => setLoad(i, "qty", Number(e.target.value) || 0)}
-                    placeholder="Qty"
-                  />
-                  {mode === "hp" ? (
-                    <input
-                      className="input text-sm min-h-[40px]"
-                      type="number"
-                      value={it.hpEach ?? 0}
-                      onChange={(e) => setLoad(i, "hpEach", Number(e.target.value) || 0)}
-                      placeholder="HP each"
-                    />
-                  ) : (
-                    <input
-                      className="input text-sm min-h-[40px]"
-                      type="number"
-                      value={it.kwEach ?? 0}
-                      onChange={(e) => setLoad(i, "kwEach", Number(e.target.value) || 0)}
-                      placeholder="kW each"
-                    />
-                  )}
-                  <select
-                    className="input text-sm min-h-[40px]"
-                    value={it.unit === "hp" ? "hp" : "kw"}
-                    onChange={(e) => setLoad(i, "unit", e.target.value)}
-                    data-testid={`coned-load-unit-${i}`}
+                  <button
+                    type="button"
+                    className="btn-ghost !py-1 !px-2 text-red-600 font-bold"
+                    onClick={() => {
+                      scheduleSave((prev) => ({
+                        ...prev,
+                        loadItems: (prev.loadItems || []).filter((_, j) => j !== i),
+                      }));
+                    }}
+                    aria-label="Remove load item"
                   >
-                    <option value="kw">kW</option>
-                    <option value="hp">HP</option>
-                  </select>
+                    ×
+                  </button>
                 </div>
-              ) : (
-                <div className="grid grid-cols-3 gap-2">
-                  <input
-                    className="input text-sm min-h-[40px]"
-                    type="number"
-                    value={it.qty ?? 0}
-                    onChange={(e) => setLoad(i, "qty", Number(e.target.value) || 0)}
-                    placeholder="Qty"
-                  />
-                  <input
-                    className="input text-sm min-h-[40px]"
-                    type="number"
-                    value={it.kwEach ?? 0}
-                    onChange={(e) => setLoad(i, "kwEach", Number(e.target.value) || 0)}
-                    placeholder="kW each"
-                  />
-                  <input
-                    className="input text-sm min-h-[40px]"
-                    value={it.phase || "Single"}
-                    onChange={(e) => setLoad(i, "phase", e.target.value)}
-                    placeholder="Phase"
-                  />
-                </div>
-              )}
-            </div>
+
+                {mode === "totalKw" ? (
+                  <div className="space-y-2">
+                    <div className="grid grid-cols-1 gap-2">
+                      <Fld label="Total kW">
+                        <input
+                          className="input text-sm min-h-[40px]"
+                          type="number"
+                          value={it.totalKw ?? it.kwEach ?? 0}
+                          onChange={(e) => setLoad(i, "totalKw", Number(e.target.value) || 0)}
+                          placeholder="Total kW"
+                          data-testid={`coned-load-totalKw-${i}`}
+                        />
+                      </Fld>
+                    </div>
+                    <div className="grid grid-cols-2 gap-2">
+                      <Fld label="Single-phase count">
+                        <input
+                          className="input text-sm min-h-[40px]"
+                          type="number"
+                          value={it.singlePhaseCount ?? 1}
+                          onChange={(e) =>
+                            setLoad(i, "singlePhaseCount", Number(e.target.value) || 0)
+                          }
+                          data-testid={`coned-load-singlePhase-${i}`}
+                        />
+                      </Fld>
+                      <Fld label="Three-phase count">
+                        <input
+                          className="input text-sm min-h-[40px]"
+                          type="number"
+                          value={it.threePhaseCount ?? 0}
+                          onChange={(e) =>
+                            setLoad(i, "threePhaseCount", Number(e.target.value) || 0)
+                          }
+                          data-testid={`coned-load-threePhase-${i}`}
+                        />
+                      </Fld>
+                    </div>
+                    <Seg
+                      testId={`coned-load-phase-${i}`}
+                      value={/three/i.test(it.phase || "") ? "Three" : "Single"}
+                      onChange={(v) => setLoad(i, "phase", v)}
+                      options={[
+                        { value: "Single", label: "Single phase" },
+                        { value: "Three", label: "Three phase" },
+                      ]}
+                    />
+                  </div>
+                ) : mode === "hp" || mode === "kw" ? (
+                  <div className="space-y-2">
+                    <div className="grid grid-cols-3 gap-2">
+                      <Fld label="Qty">
+                        <input
+                          className="input text-sm min-h-[40px]"
+                          type="number"
+                          value={it.qty ?? 0}
+                          onChange={(e) => setLoad(i, "qty", Number(e.target.value) || 0)}
+                          placeholder="Qty"
+                        />
+                      </Fld>
+                      {mode === "hp" ? (
+                        <Fld label="HP each">
+                          <input
+                            className="input text-sm min-h-[40px]"
+                            type="number"
+                            value={it.hpEach ?? 0}
+                            onChange={(e) => setLoad(i, "hpEach", Number(e.target.value) || 0)}
+                            placeholder="HP each"
+                          />
+                        </Fld>
+                      ) : (
+                        <Fld label="kW each">
+                          <input
+                            className="input text-sm min-h-[40px]"
+                            type="number"
+                            value={it.kwEach ?? 0}
+                            onChange={(e) => setLoad(i, "kwEach", Number(e.target.value) || 0)}
+                            placeholder="kW each"
+                          />
+                        </Fld>
+                      )}
+                      <Fld label="Unit">
+                        <select
+                          className="input text-sm min-h-[40px]"
+                          value={it.unit === "hp" ? "hp" : "kw"}
+                          onChange={(e) => setLoad(i, "unit", e.target.value)}
+                          data-testid={`coned-load-unit-${i}`}
+                        >
+                          <option value="kw">kW</option>
+                          <option value="hp">HP</option>
+                        </select>
+                      </Fld>
+                    </div>
+                    <Seg
+                      testId={`coned-load-phase-${i}`}
+                      value={/three/i.test(it.phase || "") ? "Three" : "Single"}
+                      onChange={(v) => setLoad(i, "phase", v)}
+                      options={[
+                        { value: "Single", label: "Single phase" },
+                        { value: "Three", label: "Three phase" },
+                      ]}
+                    />
+                  </div>
+                ) : (
+                  <div className="space-y-2">
+                    <div className="grid grid-cols-2 gap-2">
+                      <Fld label="Quantity">
+                        <input
+                          className="input text-sm min-h-[40px]"
+                          type="number"
+                          value={it.qty ?? 0}
+                          onChange={(e) => setLoad(i, "qty", Number(e.target.value) || 0)}
+                          placeholder="Qty"
+                          data-testid={`coned-load-qty-${i}`}
+                        />
+                      </Fld>
+                      <Fld label="kW each">
+                        <input
+                          className="input text-sm min-h-[40px]"
+                          type="number"
+                          value={it.kwEach ?? 0}
+                          onChange={(e) => setLoad(i, "kwEach", Number(e.target.value) || 0)}
+                          placeholder="kW each"
+                          data-testid={`coned-load-kwEach-${i}`}
+                        />
+                      </Fld>
+                    </div>
+                    <Seg
+                      testId={`coned-load-phase-${i}`}
+                      value={/three/i.test(it.phase || "") ? "Three" : "Single"}
+                      onChange={(v) => setLoad(i, "phase", v)}
+                      options={[
+                        { value: "Single", label: "Single phase" },
+                        { value: "Three", label: "Three phase" },
+                      ]}
+                    />
+                  </div>
+                )}
+                <p className="text-[11px] text-slate-500 font-semibold">
+                  Line = {sumLoadKw([it]).toFixed(2)} kW
+                </p>
+              </div>
             );
           })}
-          <button
-            type="button"
-            className="btn-ghost w-full border border-dashed border-emerald-300 text-emerald-800 font-bold"
-            onClick={() => {
-              scheduleSave((prev) => ({
-                ...prev,
-                loadItems: (prev.loadItems || []).concat([
-                  { name: "", entryMode: "qtyKw", qty: 1, kwEach: 1, phase: "Single" },
-                ]),
-              }));
-            }}
-          >
-            + Add load item
-          </button>
+
+          {showLoadPicker ? (
+            <div
+              className="rounded-xl border border-emerald-200 bg-white p-3 space-y-1.5"
+              data-testid="coned-load-catalog-picker"
+              role="listbox"
+              aria-label="Add load equipment"
+            >
+              <div className="text-xs font-bold text-slate-500 uppercase tracking-wide mb-1">
+                Add equipment
+              </div>
+              {LOAD_CATALOG.map((opt) => (
+                <button
+                  key={opt.id}
+                  type="button"
+                  role="option"
+                  data-testid={"coned-load-catalog-" + opt.id}
+                  className="w-full text-left rounded-xl border border-slate-200 px-3 py-2.5 text-sm font-semibold hover:border-emerald-400 hover:bg-emerald-50 transition-colors"
+                  onClick={() => addLoadFromCatalog(opt.id)}
+                >
+                  <div>{opt.name}</div>
+                  <div className="text-[11px] text-slate-500 font-normal">{opt.hint}</div>
+                </button>
+              ))}
+              <button
+                type="button"
+                className="btn-ghost w-full text-slate-600 font-bold mt-1"
+                onClick={() => setShowLoadPicker(false)}
+              >
+                Cancel
+              </button>
+            </div>
+          ) : (
+            <button
+              type="button"
+              className="btn-ghost w-full border border-dashed border-emerald-300 text-emerald-800 font-bold min-h-[48px]"
+              onClick={() => setShowLoadPicker(true)}
+              data-testid="coned-load-add"
+            >
+              + Add load item
+            </button>
+          )}
+
           <div className="flex justify-between items-center p-3 rounded-xl bg-emerald-50 border border-emerald-100 font-extrabold text-sm">
             <span>Required total kW</span>
             <span data-testid="coned-kw-sum">{kwDisplay}</span>

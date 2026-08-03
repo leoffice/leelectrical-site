@@ -2,12 +2,14 @@ import { describe, it, expect, vi } from "vitest";
 import {
   REQUEST_TYPES,
   REQUEST_TYPE_LABELS,
+  PORTAL_REQUEST_TYPES,
   toPlainAscii,
   questionnaireSteps,
   portalWizardStepCount,
   isFullBranch,
   normalizeRequestType,
   seedCreateCaseAnswers,
+  seedScopeOfWorkFromJob,
   missingCreateCaseFields,
   createCaseReady,
   buildCreateCasePayload,
@@ -16,6 +18,15 @@ import {
   resolveLoadEntryMode,
   HP_TO_KW,
   DEFAULT_LOAD_ITEMS,
+  LOAD_CATALOG,
+  makeLoadItemFromCatalog,
+  buildLoadLearningEntry,
+  appendLoadLearning,
+  suggestLoadItemsFromLearning,
+  recordLoadLearning,
+  readGlobalLoadLearning,
+  mergeLoadLearningHistories,
+  clearGlobalLoadLearning,
 } from "../src/lib/agencyForms/createCaseQuestionnaire.js";
 import { queueConedCreateCase, CONED_CREATE_CASE_CMD } from "../src/lib/agencyForms/createCaseExecution.js";
 import {
@@ -244,6 +255,145 @@ describe("load item entry modes (Levi 2026-08-02)", () => {
     expect(p.property.houseNumber).toBe("1349");
     expect(p.property.streetName.toLowerCase()).toContain("president");
     expect(p.property.streetName.toLowerCase()).not.toMatch(/brooklyn/);
+  });
+
+  it("short branch still carries basic meter project fields", () => {
+    const short = buildCreateCasePayload(
+      {
+        ...completeAnswers,
+        numberOfNewMeters: 3,
+        meterCapacityIncrease: false,
+        metersRelocatedOutdoors: false,
+      },
+      { id: "j1" }
+    );
+    expect(short.branch).toBe("B_short");
+    expect(short.project.numberOfNewMeters).toBe(3);
+    expect(short.project.meterCapacityIncrease).toBe(false);
+    expect(short.loadItems).toBeUndefined();
+  });
+});
+
+describe("load catalog + learning (Levi 2026-08-03)", () => {
+  it("catalog includes Levi's common equipment", () => {
+    const ids = LOAD_CATALOG.map((c) => c.id);
+    expect(ids).toEqual(
+      expect.arrayContaining([
+        "lighting",
+        "computers",
+        "electric_stoves",
+        "kitchen_appliances",
+        "freezers",
+        "ev_unit",
+        "ev_charger",
+        "motors",
+      ])
+    );
+    expect(PORTAL_REQUEST_TYPES).toContain("Add Load to Existing Service");
+    expect(PORTAL_REQUEST_TYPES).toContain(
+      "Performing Work on Customer Equipment - No Additional Load"
+    );
+  });
+
+  it("makeLoadItemFromCatalog sets correct entry modes", () => {
+    const light = makeLoadItemFromCatalog("lighting");
+    expect(light.entryMode).toBe("totalKw");
+    expect(light.totalKw).toBe(2);
+    const stove = makeLoadItemFromCatalog("electric_stoves");
+    expect(stove.entryMode).toBe("qtyKw");
+    expect(loadItemKw(stove)).toBe(6);
+    const motor = makeLoadItemFromCatalog("motors");
+    expect(motor.entryMode).toBe("hp");
+  });
+
+  it("learning averages prior fills for next prefill", () => {
+    const a1 = {
+      buildingType: "Residential",
+      totalUnits: 2,
+      is1to3Family: true,
+      loadItems: [
+        { name: "Lighting", entryMode: "totalKw", totalKw: 4, phase: "Single" },
+        { name: "Electric Stoves", entryMode: "qtyKw", qty: 2, kwEach: 3, phase: "Single" },
+      ],
+    };
+    const e1 = buildLoadLearningEntry(a1.loadItems, a1, { jobId: "j1" });
+    const a2 = {
+      ...a1,
+      loadItems: [
+        { name: "Lighting", entryMode: "totalKw", totalKw: 6, phase: "Single" },
+        { name: "Electric Stoves", entryMode: "qtyKw", qty: 2, kwEach: 5, phase: "Single" },
+      ],
+    };
+    const e2 = buildLoadLearningEntry(a2.loadItems, a2, { jobId: "j2" });
+    const hist = appendLoadLearning(appendLoadLearning([], e1), e2);
+    const suggested = suggestLoadItemsFromLearning(hist, {
+      buildingType: "Residential",
+      totalUnits: 2,
+      is1to3Family: true,
+    });
+    expect(suggested).toBeTruthy();
+    const light = suggested.find((x) => /light/i.test(x.name));
+    expect(light.totalKw).toBe(5); // avg 4 and 6
+    const stove = suggested.find((x) => /stove/i.test(x.name));
+    expect(stove.kwEach).toBe(4); // avg 3 and 5
+  });
+
+  it("seedScopeOfWorkFromJob uses estimate lines (skips placeholder)", () => {
+    const scope = seedScopeOfWorkFromJob({
+      estimateLines: [
+        {
+          itemName: "Service Upgrade:3 Meters",
+          description: "Estimate placeholder — replace with actual scope (restored after missing doc).",
+        },
+        { itemName: "Service Upgrade:3 Meters", description: "3 meter upgrade" },
+      ],
+    });
+    expect(scope).toMatch(/3 meter upgrade/i);
+    expect(scope).not.toMatch(/placeholder/i);
+  });
+
+  it("seedCreateCaseAnswers uses load history when present", () => {
+    const hist = [
+      buildLoadLearningEntry(
+        [
+          {
+            name: "Freezers",
+            catalogId: "freezers",
+            entryMode: "qtyKw",
+            qty: 3,
+            kwEach: 2,
+            phase: "Single",
+          },
+        ],
+        { buildingType: "Residential", totalUnits: 2, is1to3Family: true },
+        { jobId: "prior" }
+      ),
+    ];
+    const a = seedCreateCaseAnswers(
+      { serviceAddress: "100 Test St", personName: "Shalom Rubashkin" },
+      null,
+      { loadHistory: hist, skipGlobalLearning: true }
+    );
+    expect(a.ownerFirst).toBe("Shalom");
+    expect(a.ownerLast).toBe("Rubashkin");
+    expect(a._loadPrefillSource).toBe("learning");
+    expect(a.loadItems.some((x) => /freezer/i.test(x.name))).toBe(true);
+  });
+
+  it("recordLoadLearning writes device-global bag for next job", () => {
+    clearGlobalLoadLearning();
+    const entry = buildLoadLearningEntry(
+      [{ name: "Lighting", entryMode: "totalKw", totalKw: 3, phase: "Single" }],
+      { buildingType: "Residential", totalUnits: 2, is1to3Family: true },
+      { jobId: "j-global" }
+    );
+    recordLoadLearning([], entry);
+    const global = readGlobalLoadLearning();
+    expect(global.length).toBeGreaterThanOrEqual(1);
+    expect(global[global.length - 1].items[0].name).toMatch(/light/i);
+    const merged = mergeLoadLearningHistories([], global);
+    expect(merged.length).toBeGreaterThanOrEqual(1);
+    clearGlobalLoadLearning();
   });
 });
 
