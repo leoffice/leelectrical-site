@@ -14,10 +14,35 @@
 // (test/tenantBundle.test.js) asserts these strings stay out of the main chunk.
 
 export const DEFAULT_QBO_ITEMS = [
-  { name: "Service call:Service call", type: "Service", price: 180, description: "Service call — includes up to 45 minutes of troubleshooting and repairs, plus materials." },
-  { name: "Service call:Standard service call", type: "Service", price: 225, description: "Standard service call — includes up to 45 minutes of troubleshooting and repairs, plus materials." },
-  { name: "Service call:Emergency call", type: "Service", price: 265, description: "Emergency service call — includes up to 45 minutes of troubleshooting and repairs, plus materials." },
-  { name: "Service call:Emergency after hours call", type: "Service", price: 260, description: "Emergency after hours" },
+  // Descriptions: Levi 2026-08-03 — troubleshooting wording + travel time on all.
+  {
+    name: "Service call:Service call",
+    type: "Service",
+    price: 180,
+    description:
+      "Troubleshooting and repair of electrical issue. Price includes travel time to the service address, up to 45 minutes of service, plus the cost of materials.",
+  },
+  {
+    name: "Service call:Standard service call",
+    type: "Service",
+    price: 225,
+    description:
+      "Troubleshooting and repair of electrical issue. Price includes travel time to the service address, up to 45 minutes of service, plus the cost of materials.",
+  },
+  {
+    name: "Service call:Emergency call",
+    type: "Service",
+    price: 265,
+    description:
+      "Emergency troubleshooting and repair of electrical issue. Price includes travel time to the service address, up to 45 minutes of service, plus the cost of materials.",
+  },
+  {
+    name: "Service call:Emergency after hours call",
+    type: "Service",
+    price: 260,
+    description:
+      "Emergency after-hours troubleshooting and repair of electrical issue. Price includes travel time to the service address, up to 45 minutes of service, plus the cost of materials.",
+  },
   { name: "Installation:Ballast Replacement", type: "Service", price: 110, description: "Ballast Replacement" },
   { name: "8 Coned Service:8 Coned Service", type: "Service", price: 210, description: "Coned ticket — main service entrance" },
   { name: "8 Coned Service:Followup visit", type: "Service", price: 210, description: "Follow-up visit" },
