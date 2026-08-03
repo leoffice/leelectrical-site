@@ -38,6 +38,7 @@ import JobAddressCarousel from "../components/JobAddressCarousel.jsx";
 import StatementSheet from "../components/StatementSheet.jsx";
 
 import JobEditSheet from "../components/JobEditSheet.jsx";
+import ServiceUpgradeEstimatorSheet from "../components/ServiceUpgradeEstimatorSheet.jsx";
 
 import {
   canAddChangeOrder,
@@ -955,6 +956,24 @@ export default function JobDetail() {
                                     data-testid="edit-estimate-paperwork"
                                   >
                                     Edit Est #{job.estimateNo}
+                                  </button>
+                                ) : null}
+                                {(job.estimateLines?.length || job._estimator?.kind === "service_upgrade") ? (
+                                  <button
+                                    className="btn bg-brand-soft text-brand !py-1.5"
+                                    onClick={() => setSheet({ kind: "docBuild", docKind: "estimate", mode: "edit" })}
+                                    data-testid="edit-estimate-manual"
+                                  >
+                                    Edit lines
+                                  </button>
+                                ) : null}
+                                {job._estimator?.kind === "service_upgrade" ? (
+                                  <button
+                                    className="btn bg-emerald-100 text-emerald-800 !py-1.5"
+                                    onClick={() => setSheet({ kind: "serviceUpgradeGen" })}
+                                    data-testid="edit-estimate-generator"
+                                  >
+                                    Edit with estimate generator
                                   </button>
                                 ) : null}
                                 {(job.estimateNo || (job.estimateLines && job.estimateLines.length)) && !job.invoiceNo ? (
@@ -1928,8 +1947,24 @@ export default function JobDetail() {
           onClose={() => setSheet(null)}
         />
       ) : null}
-      {sheet?.kind === "addJobAtAddress" ? (
-        <AddJobAtAddressSheet
+      {sheet?.kind === "serviceUpgradeGen" && job ? (
+        <ServiceUpgradeEstimatorSheet
+          onClose={() => setSheet(null)}
+          prefill={{
+            jobId: job.id,
+            id: job.id,
+            customer: job.businessName || job.customer || "",
+            businessName: job.businessName || job.customer || "",
+            personName: job.personName || "",
+            email: job.email || "",
+            phone: job.phone || "",
+            serviceAddress: job.serviceAddress || job.address || "",
+            billingAddress: job.billingAddress || "",
+            _estimator: job._estimator,
+          }}
+        />
+      ) : null}
+      {sheet?.kind === "addJobAtAddress" ? (        <AddJobAtAddressSheet
           sourceJob={job}
           jobs={jobs}
           onCreate={confirmAddJobAtAddress}

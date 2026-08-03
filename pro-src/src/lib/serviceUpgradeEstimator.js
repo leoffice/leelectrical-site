@@ -24,9 +24,11 @@ export const DEFAULT_FEES = {
   freeFeetMeterPanel: 10,
   freeFeetPlp: 10,
   freeFeetGround: 15,
+  freeFeetEndLine: 10,
   perFootMeterPanel: 12,
   perFootPlp: 12,
   perFootGround: 8,
+  perFootEndLine: 10,
   conduitPerFoot: 85, // 2" or 4" same band v1
   overheadBase: 1200, // 10–15 ft typical
   overheadPerFootExtra: 40,
@@ -57,8 +59,12 @@ export function defaultAnswers(partial = {}) {
     meters: [
       { role: "residential", sizeId: "100-1", includePanel: true, feetToPanel: 10 },
     ],
+    /** Shared run: panels ↔ meter (one question after meters). Applied per meter with a panel. */
+    feetPanelsToMeter: 10,
     feetPlp: 10,
     feetGround: 15,
+    /** Service end-line box → metering equipment (grounding step). */
+    feetEndLineBox: 10,
     includeAlways: true, // outlet + ground + light
     includeRemoval: false,
     includeFiling: false,
@@ -165,15 +171,21 @@ export function buildServiceUpgradeEstimate(answers) {
         `Panel for meter ${i + 1} (${s.amps}A${s.phase === 3 ? " 3-phase" : " single-phase"}).`,
         pFee
       );
-    }
-
-    const d = distCost(m.feetToPanel, f.freeFeetMeterPanel, f.perFootMeterPanel);
-    if (d > 0) {
-      push(
-        "Installation:Installation",
-        `Extra distance meter↔panel (meter ${i + 1}): ${m.feetToPanel} ft (first ${f.freeFeetMeterPanel} ft included).`,
-        d
-      );
+      // Shared panels↔meter feet (one questionnaire answer), charged per panel.
+      const feet =
+        a.feetPanelsToMeter != null
+          ? a.feetPanelsToMeter
+          : m.feetToPanel != null
+            ? m.feetToPanel
+            : f.freeFeetMeterPanel;
+      const d = distCost(feet, f.freeFeetMeterPanel, f.perFootMeterPanel);
+      if (d > 0) {
+        push(
+          "Installation:Installation",
+          `Extra distance panels↔meter (meter ${i + 1}): ${feet} ft (first ${f.freeFeetMeterPanel} ft included).`,
+          d
+        );
+      }
     }
   });
 
@@ -193,8 +205,17 @@ export function buildServiceUpgradeEstimate(answers) {
   if (gd > 0) {
     push(
       "Installation:Installation",
-      `Extra distance equipment↔ground: ${a.feetGround} ft (first ${f.freeFeetGround} ft included).`,
+      `Extra grounding run from metering equipment: ${a.feetGround} ft (first ${f.freeFeetGround} ft included).`,
       gd
+    );
+  }
+
+  const el = distCost(a.feetEndLineBox, f.freeFeetEndLine, f.perFootEndLine);
+  if (el > 0) {
+    push(
+      "Installation:Installation",
+      `Extra distance service end-line box → metering equipment: ${a.feetEndLineBox} ft (first ${f.freeFeetEndLine} ft included).`,
+      el
     );
   }
 
@@ -329,13 +350,20 @@ export function meterSummaryLine(meter) {
  * Used on collapsed accordion summary only — full estimate still uses buildServiceUpgradeEstimate.
  */
 export function meterSuggestedAmount(meter, answers) {
-  const f = feesFor(answers || defaultAnswers());
+  const a = answers || defaultAnswers();
+  const f = feesFor(a);
   const m = meter || emptyMeter();
   const s = sizeById(m.sizeId);
   let total = f.meter[s.id] ?? f.meter["100-1"];
   if (m.includePanel !== false) {
     total += f.panel[s.amps] ?? f.panel[100];
+    const feet =
+      a.feetPanelsToMeter != null
+        ? a.feetPanelsToMeter
+        : m.feetToPanel != null
+          ? m.feetToPanel
+          : f.freeFeetMeterPanel;
+    total += distCost(feet, f.freeFeetMeterPanel, f.perFootMeterPanel);
   }
-  total += distCost(m.feetToPanel, f.freeFeetMeterPanel, f.perFootMeterPanel);
   return money(total);
 }

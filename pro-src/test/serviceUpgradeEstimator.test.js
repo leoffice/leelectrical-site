@@ -95,8 +95,18 @@ describe("meter accordion helpers", () => {
     expect(amt).toBe(2350);
     const noPanel = meterSuggestedAmount({ ...m, includePanel: false }, defaultAnswers());
     expect(noPanel).toBe(1900);
-    const extraFeet = meterSuggestedAmount({ ...m, feetToPanel: 20 }, defaultAnswers());
+    const extraFeet = meterSuggestedAmount(m, defaultAnswers({ feetPanelsToMeter: 20 }));
     // 10 free + 10 * $12
     expect(extraFeet).toBe(2350 + 120);
+  });
+
+  it("end-line box feet and shared panels distance price correctly", () => {
+    const base = buildServiceUpgradeEstimate(defaultAnswers({ feetPanelsToMeter: 10, feetEndLineBox: 10 }));
+    const more = buildServiceUpgradeEstimate(
+      defaultAnswers({ feetPanelsToMeter: 20, feetEndLineBox: 25, feetGround: 15 })
+    );
+    expect(more.total).toBeGreaterThan(base.total);
+    expect(more.lines.some((l) => /end-line box/i.test(l.description))).toBe(true);
+    expect(more.lines.some((l) => /panels↔meter/i.test(l.description))).toBe(true);
   });
 });
