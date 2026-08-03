@@ -1,9 +1,9 @@
 {
   "schema": "le-pro-version/v1",
-  "gitSha": "b3232ba9cb53dbfc9355983fc93c993becd73a7c",
-  "gitShaShort": "b3232ba",
+  "gitSha": "e34c64092006f7c323cb7e0246136b01afc04062",
+  "gitShaShort": "e34c640",
   "netlifyDeployId": null,
-  "builtAt": "2026-08-03T21:04:42.951Z",
-  "task": "",
+  "builtAt": "2026-08-03T23:44:47.000Z",
+  "task": "BLZ company name on standard customer emails (not LE Electrical)",
   "rollbackAvailable": true
 }

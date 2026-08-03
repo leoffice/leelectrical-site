@@ -10,10 +10,13 @@ import {
   resolveEmailBrand,
   buildBrandedEmailHtml,
   signatureText,
+  COMPANY_INFO,
+  DEFAULT_BRAND_NAME,
 } from "./emailBranding.mjs";
 
 const RESEND_URL = "https://api.resend.com/emails";
-const COMPANY = "LE Electrical";
+/** Account company on the letterhead — Levi's BLZ Electric, not the LE product name. */
+const COMPANY = COMPANY_INFO?.name || DEFAULT_BRAND_NAME || "BLZ Electric Inc.";
 
 /**
  * Send a customer-facing email composed in LE Pro (Resend).
@@ -31,16 +34,26 @@ export function buildCustomerEmailHtml(text, tenant = {}, signer = {}) {
     .split("\n")
     .join("<br>\n");
   // Standard branded shell: letterhead header + body + Gmail-style signature + Powered-by.
-  return buildBrandedEmailHtml({ bodyHtml: body, tenant, signer });
+  // Tenant name defaults to BLZ Electric Inc. (account company), not "LE Electrical".
+  const brand = resolveEmailBrand({
+    name: tenant.name || tenant.companyName || COMPANY,
+    ...tenant,
+  });
+  return buildBrandedEmailHtml({
+    bodyHtml: body,
+    tenant: { name: brand.name, logoSrc: brand.logoSrc },
+    signer,
+  });
 }
 
-export async function sendCustomerEmail({ to, subject, message, customerEmail }) {
+export async function sendCustomerEmail({ to, subject, message, customerEmail, companyName }) {
   const intended = String(customerEmail || to || "").trim();
   const recipient = resolveRecipient(intended || to);
   const testMode = isEmailTestMode();
   const apiKey = String(process.env.RESEND_API_KEY || "").trim();
   const from = resolveFromAddress();
-  const subj = String(subject || "Message from LE Electrical").trim();
+  const company = String(companyName || COMPANY).trim() || COMPANY;
+  const subj = String(subject || `Message from ${company}`).trim();
   const text = String(message || "").trim();
 
   const meta = {
@@ -48,6 +61,7 @@ export async function sendCustomerEmail({ to, subject, message, customerEmail })
     intendedTo: intended || "(unset)",
     to: recipient || "(unset)",
     from,
+    company,
     subject: subj,
   };
 
@@ -62,10 +76,10 @@ export async function sendCustomerEmail({ to, subject, message, customerEmail })
     return { ok: true, dryRun: true, reason: "no_api_key", ...meta };
   }
 
-  const html = buildCustomerEmailHtml(text, { name: COMPANY });
+  const html = buildCustomerEmailHtml(text, { name: company });
 
   const payload = {
-    from: `${COMPANY} <${from}>`,
+    from: `${company} <${from}>`,
     to: [recipient],
     subject: testMode ? `[TEST] ${subj}` : subj,
     html,
