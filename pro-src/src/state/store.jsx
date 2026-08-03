@@ -191,7 +191,9 @@ export function StoreProvider({ children }) {
       setError("");
       return meta;
     } catch (e) {
-      setError(String((e && e.message) || e));
+      const msg = String((e && e.message) || e);
+      // Prefer a plain phrase for timeouts (shown in the red retry banner).
+      setError(msg.includes("timed out") ? "Jobs took too long to load — tap Retry" : msg);
       return null;
     } finally {
       setLoading(false);

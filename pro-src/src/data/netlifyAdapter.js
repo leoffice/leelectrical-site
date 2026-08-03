@@ -16,30 +16,79 @@ import { docPdfFilename } from "../lib/jobToQbDoc.js";
 
 const base = functionsBase;
 
+/** Default cap for ordinary API calls (commands, settings, chat…). */
+const FETCH_TIMEOUT_MS = 30_000;
+/**
+ * jobsdata is multi-MB on first load — allow longer on slow cellular, but never
+ * hang forever (the "Loading jobs… / 0 of 0" freeze Levi hit).
+ */
+const BIG_BLOB_TIMEOUT_MS = 90_000;
+
+/** Abort a hung fetch so the UI can leave Loading and show Retry. */
+async function fetchWithTimeout(url, init = {}, timeoutMs = FETCH_TIMEOUT_MS) {
+  const ac = typeof AbortController === "function" ? new AbortController() : null;
+  const parent = init.signal;
+  let onParentAbort;
+  if (ac && parent) {
+    if (parent.aborted) ac.abort();
+    else {
+      onParentAbort = () => ac.abort();
+      parent.addEventListener("abort", onParentAbort);
+    }
+  }
+  const timer = ac ? setTimeout(() => ac.abort(), timeoutMs) : null;
+  try {
+    return await fetch(url, { ...init, ...(ac ? { signal: ac.signal } : {}) });
+  } catch (e) {
+    const name = e && e.name;
+    if (name === "AbortError" || (ac && ac.signal.aborted && !parent?.aborted)) {
+      throw new Error("Request timed out — check your connection and try again");
+    }
+    throw e;
+  } finally {
+    if (timer) clearTimeout(timer);
+    if (parent && onParentAbort) parent.removeEventListener("abort", onParentAbort);
+  }
+}
+
+function timeoutForPath(path) {
+  const p = String(path || "").split("?")[0];
+  if (p === "jobsdata" || p === "state") return BIG_BLOB_TIMEOUT_MS;
+  return FETCH_TIMEOUT_MS;
+}
+
 /** Merge the signed-in user's bearer token into request headers (tenant isolation). */
 async function authedHeaders(extra) {
   return { ...(extra || {}), ...(await authHeader()) };
 }
 
 async function http(path, body) {
-  const res = await fetch(`${base()}/${path}`, {
-    method: body ? "POST" : "GET",
-    cache: "no-store",
-    headers: await authedHeaders(body ? { "content-type": "application/json" } : undefined),
-    body: body ? JSON.stringify(body) : undefined,
-  });
+  const res = await fetchWithTimeout(
+    `${base()}/${path}`,
+    {
+      method: body ? "POST" : "GET",
+      cache: "no-store",
+      headers: await authedHeaders(body ? { "content-type": "application/json" } : undefined),
+      body: body ? JSON.stringify(body) : undefined,
+    },
+    timeoutForPath(path)
+  );
   if (!res.ok) throw new Error(`${path}: HTTP ${res.status}`);
   return res.json();
 }
 
 /** Like http(), but keeps JSON bodies on 4xx/5xx (send-doc-email dry-run / no_api_key). */
 async function httpAllowErrorBody(path, body) {
-  const res = await fetch(`${base()}/${path}`, {
-    method: body ? "POST" : "GET",
-    cache: "no-store",
-    headers: await authedHeaders(body ? { "content-type": "application/json" } : undefined),
-    body: body ? JSON.stringify(body) : undefined,
-  });
+  const res = await fetchWithTimeout(
+    `${base()}/${path}`,
+    {
+      method: body ? "POST" : "GET",
+      cache: "no-store",
+      headers: await authedHeaders(body ? { "content-type": "application/json" } : undefined),
+      body: body ? JSON.stringify(body) : undefined,
+    },
+    timeoutForPath(path)
+  );
   let data = null;
   try {
     data = await res.json();
@@ -67,11 +116,15 @@ const cb = () => "cb=" + Date.now();
 const condCache = new Map(); // path -> { etag, data }
 async function httpConditional(path) {
   const entry = condCache.get(path);
-  const res = await fetch(`${base()}/${path}`, {
-    method: "GET",
-    cache: "no-store",
-    headers: await authedHeaders(entry && entry.etag ? { "if-none-match": entry.etag } : undefined),
-  });
+  const res = await fetchWithTimeout(
+    `${base()}/${path}`,
+    {
+      method: "GET",
+      cache: "no-store",
+      headers: await authedHeaders(entry && entry.etag ? { "if-none-match": entry.etag } : undefined),
+    },
+    timeoutForPath(path)
+  );
   if (res.status === 304 && entry) return entry.data;
   if (!res.ok) throw new Error(`${path}: HTTP ${res.status}`);
   const data = await res.json();

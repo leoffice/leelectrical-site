@@ -62,5 +62,7 @@ export default async (req) => {
     await rotateJsonBackup(store, KEY, doc);
     return json(doc);
   }
-  return json(await load(store));
+  // Conditional GET: multi-MB blob — 304 when the client already holds this ts.
+  const doc = await load(store);
+  return conditionalJson(req, doc, { prefix: "j", ts: doc.ts || doc.syncedAt || 0 });
 };

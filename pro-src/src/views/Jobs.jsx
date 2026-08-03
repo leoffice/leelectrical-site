@@ -394,6 +394,35 @@ function SortSheet({ value, onPick, onSetDefault, onClose }) {
   );
 }
 
+/** First-load spinner — after a few seconds offer Retry so a hung fetch isn't silent. */
+function JobsLoadingCard({ onRetry }) {
+  const [slow, setSlow] = useState(false);
+  useEffect(() => {
+    const t = setTimeout(() => setSlow(true), 12_000);
+    return () => clearTimeout(t);
+  }, []);
+  return (
+    <div className="card px-4 py-8 text-center text-slate-400 text-sm" data-testid="jobs-loading">
+      <div>{slow ? "Still loading jobs…" : "Loading jobs…"}</div>
+      {slow ? (
+        <p className="mt-2 text-xs text-slate-400 max-w-xs mx-auto leading-relaxed">
+          Large list on a slow connection can take a minute. Stay on Wi‑Fi if you can.
+        </p>
+      ) : null}
+      {slow && typeof onRetry === "function" ? (
+        <button
+          type="button"
+          className="btn mt-4 !py-2 px-4 bg-slate-900 text-white text-sm font-semibold"
+          data-testid="jobs-loading-retry"
+          onClick={() => onRetry()}
+        >
+          ↻ Try again
+        </button>
+      ) : null}
+    </div>
+  );
+}
+
 export default function Jobs({ embedded, collapseGroups = false, activeJobId = "" }) {
   const { jobs, loading, showToast, api, enqueue, refreshJobs, setNewJob } = useStore();
   const nav = useNavigate();
@@ -942,7 +971,7 @@ export default function Jobs({ embedded, collapseGroups = false, activeJobId = "
       )}
 
       {loading && !jobs.length ? (
-        <div className="card px-4 py-8 text-center text-slate-400 text-sm">Loading jobs…</div>
+        <JobsLoadingCard onRetry={refreshList} />
       ) : !shown.length ? (
         <div className="card px-4 py-8 text-center text-slate-400 text-sm">
           <span className="block text-3xl mb-2">🗂️</span>

@@ -13,7 +13,8 @@ const BASE_HEADERS = {
   // If-None-Match is added by clients (and by the browser during revalidation);
   // allow it so a cross-origin caller (localhost dev, the extension) isn't
   // blocked by CORS. Same-origin callers ignore these headers entirely.
-  "access-control-allow-headers": "content-type,if-none-match",
+  // authorization = tenant session; if-none-match = conditional GET revalidation
+  "access-control-allow-headers": "content-type,authorization,if-none-match",
 };
 
 /** CORS preflight response. Advertises if-none-match so a cross-origin caller

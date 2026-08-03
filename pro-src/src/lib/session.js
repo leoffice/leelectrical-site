@@ -83,19 +83,27 @@ function expiresInMs(sess, now = Date.now()) {
   return at * 1000 - now;
 }
 
+/** Cap session refresh so a hung GoTrue call cannot block the whole data plane. */
+const REFRESH_TIMEOUT_MS = 8_000;
+
 async function refresh(sess, { fetchImpl = globalThis.fetch, url = SUPABASE_URL, anonKey = SUPABASE_ANON_KEY } = {}) {
   if (!sess?.refresh_token || !fetchImpl) return null;
+  const ac = typeof AbortController === "function" ? new AbortController() : null;
+  const timer = ac ? setTimeout(() => ac.abort(), REFRESH_TIMEOUT_MS) : null;
   try {
     const res = await fetchImpl(`${url}/auth/v1/token?grant_type=refresh_token`, {
       method: "POST",
       headers: { "Content-Type": "application/json", apikey: anonKey },
       body: JSON.stringify({ refresh_token: sess.refresh_token }),
+      ...(ac ? { signal: ac.signal } : {}),
     });
     if (!res.ok) return null;
     const data = await res.json();
     return saveSession(data);
   } catch {
     return null;
+  } finally {
+    if (timer) clearTimeout(timer);
   }
 }
 

@@ -37,5 +37,5 @@ export default async (req) => {
     return json({ ok: true, ts });
   }
   const cur = (await store.get(KEY, { type: "json" })) || { ov: {}, ts: 0 };
-  return json(cur);
+  return conditionalJson(req, cur, { prefix: "s", ts: cur.ts || 0 });
 };
