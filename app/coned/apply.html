@@ -381,12 +381,12 @@ function blankAnswers(meter){
   };
 }
 
-/* Full flow for bare links; short confirm→sign→review when office prefilled (Levi 2026-08-02). */
-var STEPS_FULL = [
+/* Full new-account flow ALWAYS (Levi 2026-08-02 reverse).
+   Short confirm→sign path shipped in v264 skipped required questions
+   (phone, contact, mailing, access) and let blanks through review. */
+var STEPS = [
   "account", "service", "mailing", "contact", "access", "extras", "sign", "review"
 ];
-var STEPS_SHORT = ["confirm", "sign", "review"];
-var STEPS = RICH_PREFILL || OFFICE_PREFILLED ? STEPS_SHORT.slice() : STEPS_FULL.slice();
 
 /* ------------------------------------------------------------------ */
 var app = document.getElementById("app");
@@ -862,12 +862,14 @@ function validateStep(){
   clearInvalid(); _firstInvalid=null;
   var a = cur(); var name = STEPS[state.step];
   if(name==="confirm"){
+    // Kept for safety if short path is re-enabled later — still require core fields.
     var okc=true;
     if(!(a.accountName||"").trim()){ markInvalid("cAccount","Account name is required"); okc=false; }
     if(!(a.unit||"").trim()){
       markInvalid("unit", "Confirm the apartment / PLP name on the meter"); okc=false;
     }
-    if(!(a.phone||"").trim()){ /* phone optional on confirm if office left it blank — still prefer it */ }
+    if(!(a.phone||"").trim()){ markInvalid("cPhone","A phone number is required"); okc=false; }
+    if(!(a.email||"").trim() || a.email.indexOf("@")<1){ markInvalid("cEmail","A valid email is required"); okc=false; }
     return okc;
   }
   if(name==="account"){ if(!a.accountName.trim()){ markInvalid("accountName","Account name is required"); return false; } }
@@ -918,6 +920,22 @@ function validateStep(){
   if(name==="review"){
     var chk=document.getElementById("approveChk");
     if(!chk||!chk.checked){ showErr("Please check the box to approve and submit."); return false; }
+    // Final gate: never submit with missing required info (even if someone Edit-jumped past a step).
+    var gaps=[];
+    if(!(a.accountName||"").trim()) gaps.push("account name");
+    if(!(a.serviceStreet||"").trim()) gaps.push("service address");
+    if(!(a.unit||"").trim()) gaps.push("apartment / PLP on the meter");
+    if(!(a.contactName||a.accountName||"").trim()) gaps.push("contact name");
+    if(!(a.phone||"").trim()) gaps.push("phone number");
+    if(!(a.email||"").trim() || a.email.indexOf("@")<1) gaps.push("email");
+    if(!(a.printName||"").trim()) gaps.push("print name");
+    var hasType = a.signMode==="type" && a.signName && a.signName.trim();
+    var hasDraw = a.signMode==="draw" && a.signImage;
+    if(!hasType && !hasDraw) gaps.push("signature");
+    if(gaps.length){
+      showErr("Still missing: "+gaps.join(", ")+". Tap Edit on those sections and fill them in.");
+      return false;
+    }
   }
   return true;
 }
