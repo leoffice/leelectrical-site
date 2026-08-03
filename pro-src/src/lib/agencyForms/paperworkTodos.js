@@ -39,6 +39,13 @@ export const PAPERWORK_TODO_KINDS = {
     skill: "coned-create-case",
     needsCase: false,
   },
+  new_meter: {
+    label: "New meter application",
+    agency: "coned",
+    cmd: "coned_meter_application",
+    skill: "coned-meter-application",
+    needsCase: false, // attaches when a case exists; still queueable without
+  },
   send_application: {
     label: "Send application",
     agency: "coned",

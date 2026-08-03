@@ -9,7 +9,10 @@
  *
  * Stored on job.paperwork.coned.meterApplication and mirrored onto the linked
  * Con Ed permit record when present (one-to-one job ↔ permit).
+ * New meter / new application also enter the Permits Deploy queue and attach
+ * to an active case number when one already exists on the job.
  */
+import { addPaperworkTodoPatch } from "../../lib/agencyForms/paperworkTodos.js";
 
 /** Canonical value keys (stable for storage + tests). */
 export const METER_APPLICATION_VALUES = Object.freeze([
@@ -93,6 +96,8 @@ export function recordMeterApplication(value, opts = {}) {
 /**
  * Job patch: record meter application on Con Ed paperwork + linked permit list.
  * Safe to merge with existing patchJob deep-merge of paperwork.coned.
+ * New meter / new application also enters the Permits Deploy queue and attaches
+ * to an active Con Ed case number when one is already on the job.
  *
  * @param {object|null} job - existing job (for permits list merge)
  * @param {string} value - option key
@@ -119,6 +124,41 @@ export function jobPatchMeterApplication(job, value, opts = {}) {
     // If no coned permit yet, leave list as-is (paperwork carries the field)
     const hasConed = list.some((p) => p && p.agency === "coned");
     if (hasConed) patch.permits = list;
+  }
+
+  // Deploy queue: new meter / new application holds for Deploy + attaches case
+  if (value === "new_meter" || value === "new_application") {
+    const caseNumber = String(
+      job?.paperwork?.coned?.caseNumber ||
+        job?.paperwork?.coned?.createCase?.execution?.caseNumber ||
+        ""
+    ).trim();
+    const addr = String(job?.serviceAddress || job?.address || "").trim();
+    const title = ["New Meter", "Con Edison", addr].filter(Boolean).join(" · ");
+    const { patch: todoPatch } = addPaperworkTodoPatch(job, {
+      kind: "new_meter",
+      meterLabel: value === "new_meter" ? "New Meter" : "New Application",
+      title,
+      note: caseNumber
+        ? `Attach to active case ${caseNumber}`
+        : "No case number yet — will attach when a case is active",
+      source: "meter_application",
+    });
+    patch.paperwork.coned = {
+      ...patch.paperwork.coned,
+      meterApplication: rec,
+      meterDeploy: {
+        value,
+        status: "deploy_queued",
+        caseNumber: caseNumber || "",
+        attached: !!caseNumber,
+        queuedAt: new Date().toISOString(),
+      },
+      ...(caseNumber ? { caseNumber } : {}),
+    };
+    if (todoPatch?.paperwork?.todos) {
+      patch.paperwork.todos = todoPatch.paperwork.todos;
+    }
   }
 
   return patch;

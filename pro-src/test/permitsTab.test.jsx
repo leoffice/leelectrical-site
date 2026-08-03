@@ -86,7 +86,14 @@ describe("Permits tab renders derived Con Ed cases", () => {
     // Functionalities lock-in checklist is visible (remaining only; learned removed)
     expect(await screen.findByTestId("functionalities-lock-in")).toBeInTheDocument();
     expect(screen.getByTestId("functionalities-lock-in-count")).toHaveTextContent("12 left");
-    // Deploy CTA for rules-based case fill
+    // Deploy CTA for rules-based case fill (opens kind chooser)
     expect(screen.getByTestId("permits-deploy-btn")).toBeInTheDocument();
+  });
+
+  it("Deploy button is green path entry for kind chooser", async () => {
+    mockServer({ settings: fullTenant, jobs: [JOB], emailInsights: [conedInsight] });
+    renderAppAsTenant("#/permits");
+    const btn = await screen.findByTestId("permits-deploy-btn");
+    expect(btn).toHaveTextContent("Deploy");
   });
 });

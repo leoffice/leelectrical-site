@@ -10,11 +10,36 @@ import {
   buildCreateCasePayload,
   createCaseReady,
   sanitizeAnswers,
+  REQUEST_TYPE_LABELS,
+  normalizeRequestType,
 } from "./createCaseQuestionnaire.js";
 
 export const CONED_CREATE_CASE_CMD = "coned_create_case";
 
 import { createPaperworkJob } from "../paperworkJobs.js";
+
+/** Display fields for Permits Deploy queue (keep free of permitsDeploy import cycle). */
+function withDeployDisplayFields(payload = {}, job = {}) {
+  const s = (v) => (v == null ? "" : String(v).trim());
+  const serviceAddress =
+    s(payload.property?.serviceAddress) ||
+    s(payload.answers?.serviceAddress) ||
+    s(job.serviceAddress) ||
+    s(job.address);
+  const rt = normalizeRequestType(payload.requestType || payload.answers?.requestType);
+  const requestTypeShort =
+    rt === "add_load" ? "Additional Load" : rt === "no_add_load" ? "No Additional Load" : s(rt);
+  const title = ["New Case", "Con Edison", serviceAddress].filter(Boolean).join(" · ");
+  return {
+    ...payload,
+    deployKind: "new_case",
+    displayTitle: title,
+    displayServiceAddress: serviceAddress,
+    requestTypeShort,
+    requestTypePortal:
+      payload.requestTypePortal || REQUEST_TYPE_LABELS[rt] || "",
+  };
+}
 
 /**
  * The app->backend BRIDGE (Levi 2026-08-02): Submit a Case writes a
@@ -32,7 +57,7 @@ export async function createCasePaperworkJob({ answers = {}, job = {}, onSave = 
       draft: buildCreateCaseDraft(sanitized, job, { status: "draft" }),
     };
   }
-  const payload = buildCreateCasePayload(sanitized, job);
+  const payload = withDeployDisplayFields(buildCreateCasePayload(sanitized, job), job);
   const r = await createPaperworkJob({
     type: "create_case",
     jobId: job.id || "",
