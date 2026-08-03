@@ -1,9 +1,10 @@
 // Service / meter upgrade estimate generator — pure model + line builder.
-// Levi 2026-08-03: itemized (not 1/2/3 package SKUs). Toggles, distances, always-on scope.
+// Levi 2026-08-03: itemized meters, per-meter feet (default 1 ft), tiered 2nd+ meter pricing.
 import { parseAmount } from "./format.js";
 
 /** Default unit fees (sell-side starters; editable via answers.feeOverrides). */
 export const DEFAULT_FEES = {
+  /** First meter by size */
   meter: {
     "100-1": 1900,
     "100-3": 2300,
@@ -12,25 +13,44 @@ export const DEFAULT_FEES = {
     "350-3": 3900,
     "400-3": 4500,
   },
+  /**
+   * Additional meters (2nd+) — less labor than first.
+   * Levi: $1,650 every additional meter (100A 1φ band); scale others proportionally.
+   */
+  meterAdditional: {
+    "100-1": 1650,
+    "100-3": 2000,
+    "200-1": 2200,
+    "200-3": 2600,
+    "350-3": 3400,
+    "400-3": 3900,
+  },
+  /** First panel by amp (when only one panel / first included panel). */
   panel: {
     100: 450,
     200: 650,
     350: 1100,
     400: 1200,
   },
+  /** Every additional panel (2nd+) — Levi $450. */
+  panelAdditional: 450,
   alwaysIncluded: 650, // outlet + grounding + service light
-  removalDisposal: 750,
+  removalDisposal: 400, // Levi 2026-08-03: $400 not $750
   filing: 1800,
-  freeFeetMeterPanel: 10,
-  freeFeetPlp: 10,
+  /** Standard included feet meter→panel — Levi: 1 ft */
+  freeFeetMeterPanel: 1,
+  freeFeetPlp: 1,
   freeFeetGround: 15,
   freeFeetEndLine: 10,
-  perFootMeterPanel: 12,
-  perFootPlp: 12,
+  freeFeetMainService: 10,
+  /** Labor+materials per extra foot beyond free */
+  perFootMeterPanel: 35,
+  perFootPlp: 35,
   perFootGround: 8,
   perFootEndLine: 10,
-  conduitPerFoot: 85, // 2" or 4" same band v1
-  overheadBase: 1200, // 10–15 ft typical
+  perFootMainService: 40,
+  conduitPerFoot: 85,
+  overheadBase: 1200,
   overheadPerFootExtra: 40,
   overheadDefaultFeet: 12,
 };
@@ -46,6 +66,11 @@ export const METER_SIZES = [
   { id: "400-3", amps: 400, phase: 3, label: "400 A three-phase" },
 ];
 
+const ITEM_SERVICE_UPGRADE = "Service Upgrade:Service Upgrade";
+const ITEM_FILING = "Service Upgrade:Filing permit";
+const ITEM_REMOVAL = "Service Upgrade:Removal & disposal";
+const ITEM_CONDUIT = "Service Upgrade:Conduit / overhead";
+
 export function defaultAnswers(partial = {}) {
   return {
     customerName: "",
@@ -57,20 +82,22 @@ export function defaultAnswers(partial = {}) {
     mainAmps: 200,
     mainPhase: 1, // 1 | 3
     meters: [
-      { role: "residential", sizeId: "100-1", includePanel: true, feetToPanel: 10 },
+      { role: "residential", sizeId: "100-1", includePanel: true, feetToPanel: 1 },
     ],
-    /** Shared run: panels ↔ meter (one question after meters). Applied per meter with a panel. */
-    feetPanelsToMeter: 10,
-    feetPlp: 10,
+    /** Shared fallback if per-meter feet missing (legacy). */
+    feetPanelsToMeter: 1,
+    feetPlp: 1,
     feetGround: 15,
-    /** Service end-line box → metering equipment (grounding step). */
+    /** Service end-line box → metering equipment */
     feetEndLineBox: 10,
-    includeAlways: true, // outlet + ground + light
+    /** Main service line distance (street/pole/riser path) */
+    feetMainService: 10,
+    includeAlways: true,
     includeRemoval: false,
     includeFiling: false,
     includeConduit: false,
-    conduitInch: 2, // 2 | 4
-    conduitPath: "underground", // underground | overhead
+    conduitInch: 2,
+    conduitPath: "underground",
     conduitFeet: 20,
     overheadFeet: 12,
     notes: "",
@@ -87,7 +114,6 @@ export function sizeById(id) {
   return METER_SIZES.find((s) => s.id === id) || METER_SIZES[0];
 }
 
-/** Validation errors (empty = ok). */
 export function validateAnswers(answers) {
   const errs = [];
   const a = answers || defaultAnswers();
@@ -116,16 +142,50 @@ function distCost(feet, free, rate) {
   return money(over * rate);
 }
 
+export function roleLabel(role) {
+  const r = String(role || "residential");
+  if (r === "plp") return "PLP / common";
+  if (r === "commercial") return "Commercial";
+  return "Residential";
+}
+
+/** Meter fee by index: first full price, 2nd+ discounted. */
+export function meterFeeForIndex(sizeId, index, fees) {
+  const f = fees || DEFAULT_FEES;
+  if (index <= 0) return f.meter[sizeId] ?? f.meter["100-1"];
+  return f.meterAdditional?.[sizeId] ?? f.meterAdditional?.["100-1"] ?? 1650;
+}
+
+/** Panel fee: first panel by amp; every additional panel $450. */
+export function panelFeeForIndex(amps, panelIndex, fees) {
+  const f = fees || DEFAULT_FEES;
+  if (panelIndex <= 0) return f.panel[amps] ?? f.panel[100];
+  return f.panelAdditional ?? 450;
+}
+
+function feetForMeter(m, answers, f) {
+  if (m?.feetToPanel != null && m.feetToPanel !== "") return Number(m.feetToPanel) || 0;
+  if (answers?.feetPanelsToMeter != null) return Number(answers.feetPanelsToMeter) || 0;
+  return f.freeFeetMeterPanel;
+}
+
 /**
  * Build priced line items + totals from questionnaire answers.
- * @returns {{ lines: object[], total: number, materialsHint: object[], errors: string[] }}
+ * Main work uses item "Service Upgrade"; filing & removal are separate lines.
  */
 export function buildServiceUpgradeEstimate(answers) {
-  const a = { ...defaultAnswers(), ...answers, meters: answers?.meters?.length ? answers.meters : defaultAnswers().meters };
+  const a = {
+    ...defaultAnswers(),
+    ...answers,
+    meters: answers?.meters?.length ? answers.meters : defaultAnswers().meters,
+  };
   const f = feesFor(a);
   const errors = validateAnswers(a);
   const lines = [];
   const materialsHint = [];
+  const workBullets = [];
+  const included = [];
+  const notIncluded = [];
 
   const push = (itemName, description, amount, opts = {}) => {
     const amt = money(amount);
@@ -142,99 +202,112 @@ export function buildServiceUpgradeEstimate(answers) {
     });
   };
 
-  // Meters + panels
+  let panelCount = 0;
+  let metersSubtotal = 0;
+
   a.meters.forEach((m, i) => {
     const s = sizeById(m.sizeId);
-    const role = String(m.role || "residential");
-    const roleLabel = role === "plp" ? "PLP / common" : role === "commercial" ? "Commercial" : "Residential";
-    const meterFee = f.meter[s.id] ?? f.meter["100-1"];
-    push(
-      "Installation:Installation",
-      `${roleLabel} meter ${i + 1}: ${s.label}.\nIncludes meter pan/position and service connection materials.`,
-      meterFee
+    const role = roleLabel(m.role);
+    const feet = feetForMeter(m, a, f);
+    const mFee = meterFeeForIndex(s.id, i, f);
+    metersSubtotal += mFee;
+
+    const extraRun = distCost(feet, f.freeFeetMeterPanel, f.perFootMeterPanel);
+    metersSubtotal += extraRun;
+
+    let pFee = 0;
+    if (m.includePanel !== false) {
+      pFee = panelFeeForIndex(s.amps, panelCount, f);
+      panelCount += 1;
+      metersSubtotal += pFee;
+    }
+
+    workBullets.push(
+      `Meter ${i + 1} (${role}, ${s.label})${i > 0 ? " — additional meter rate" : ""}` +
+        (m.includePanel !== false ? ` + panel` : " · no panel") +
+        ` · ${feet} ft meter→panel` +
+        (extraRun > 0 ? ` (+$${extraRun} labor/materials beyond ${f.freeFeetMeterPanel} ft)` : "")
     );
+
     materialsHint.push({
-      group: `Meter ${i + 1} (${s.label})`,
+      group: `Meter ${i + 1} (${s.label}) · ${feet} ft`,
       items: [
-        "End-line box (NYC) if first service position",
+        i === 0 ? "End-line box (NYC) if first service position" : "Tap / continuation as needed",
         `Meter pan ${s.label}`,
         "Connectors / lugs",
-        "Wire meter ↔ panel",
+        `Wire meter ↔ panel (${feet} ft)`,
         "Bonding",
-      ],
+        m.includePanel !== false ? `Panel ${s.amps}A` : null,
+      ].filter(Boolean),
     });
-
-    if (m.includePanel !== false) {
-      const pFee = f.panel[s.amps] ?? f.panel[100];
-      push(
-        "Installation:Installation",
-        `Panel for meter ${i + 1} (${s.amps}A${s.phase === 3 ? " 3-phase" : " single-phase"}).`,
-        pFee
-      );
-      // Shared panels↔meter feet (one questionnaire answer), charged per panel.
-      const feet =
-        a.feetPanelsToMeter != null
-          ? a.feetPanelsToMeter
-          : m.feetToPanel != null
-            ? m.feetToPanel
-            : f.freeFeetMeterPanel;
-      const d = distCost(feet, f.freeFeetMeterPanel, f.perFootMeterPanel);
-      if (d > 0) {
-        push(
-          "Installation:Installation",
-          `Extra distance panels↔meter (meter ${i + 1}): ${feet} ft (first ${f.freeFeetMeterPanel} ft included).`,
-          d
-        );
-      }
-    }
   });
 
   const hasPlp = a.meters.some((m) => m.role === "plp");
   if (hasPlp) {
     const d = distCost(a.feetPlp, f.freeFeetPlp, f.perFootPlp);
     if (d > 0) {
-      push(
-        "Installation:Installation",
-        `Extra distance PLP meter↔PLP equipment: ${a.feetPlp} ft (first ${f.freeFeetPlp} ft included).`,
-        d
-      );
+      metersSubtotal += d;
+      workBullets.push(`PLP meter → PLP equipment: ${a.feetPlp} ft (+$${d})`);
+    } else {
+      workBullets.push(`PLP meter → PLP equipment: ${a.feetPlp} ft (within included)`);
     }
   }
 
   const gd = distCost(a.feetGround, f.freeFeetGround, f.perFootGround);
   if (gd > 0) {
-    push(
-      "Installation:Installation",
-      `Extra grounding run from metering equipment: ${a.feetGround} ft (first ${f.freeFeetGround} ft included).`,
-      gd
-    );
+    metersSubtotal += gd;
+    workBullets.push(`Grounding from metering equipment: ${a.feetGround} ft (+$${gd})`);
+  } else {
+    workBullets.push(`Grounding from metering equipment: ${a.feetGround} ft`);
   }
 
   const el = distCost(a.feetEndLineBox, f.freeFeetEndLine, f.perFootEndLine);
   if (el > 0) {
-    push(
-      "Installation:Installation",
-      `Extra distance service end-line box → metering equipment: ${a.feetEndLineBox} ft (first ${f.freeFeetEndLine} ft included).`,
-      el
-    );
+    metersSubtotal += el;
+    workBullets.push(`End-line box → metering equipment: ${a.feetEndLineBox} ft (+$${el})`);
+  }
+
+  const ms = distCost(a.feetMainService, f.freeFeetMainService, f.perFootMainService);
+  if (ms > 0) {
+    metersSubtotal += ms;
+    workBullets.push(`Main service line distance: ${a.feetMainService} ft (+$${ms})`);
+  } else {
+    workBullets.push(`Main service line distance: ${a.feetMainService} ft`);
   }
 
   if (a.includeAlways !== false) {
-    push(
-      "Installation:Installation",
-      "Included with every service upgrade: service outlet, grounding system, and service light.",
-      f.alwaysIncluded
-    );
+    metersSubtotal += f.alwaysIncluded;
+    included.push("Service outlet", "Grounding system", "Service light");
+    workBullets.push("Always included: service outlet, grounding system, service light");
     materialsHint.push({
       group: "Always included",
       items: ["Service outlet", "Grounding system", "Service light"],
     });
   }
 
+  // Combined Service Upgrade description (main line)
+  const includedTxt = included.length ? included.join("; ") : "See scope below";
+  const notInc = ["Filing permit (if not selected)", "Removal of existing equipment (if not selected)"];
+  if (!a.includeConduit) notInc.push("Conduit / overhead pipe to street");
+  const desc = [
+    `Service upgrade — main ${a.mainAmps}A ${a.mainPhase === 3 ? "3-phase" : "1-phase"}, ${a.meters.length} meter(s).`,
+    "",
+    "SCOPE:",
+    ...workBullets.map((b) => `• ${b}`),
+    "",
+    `INCLUDED: ${includedTxt}.`,
+    `NOT INCLUDED (unless separate line below): ${notInc.join("; ")}.`,
+    a.notes ? `\nNotes: ${a.notes}` : "",
+  ]
+    .filter(Boolean)
+    .join("\n");
+
+  push(ITEM_SERVICE_UPGRADE, desc, metersSubtotal);
+
   if (a.includeRemoval) {
     push(
-      "Installation:Installation",
-      "Removal and disposal of existing metering / service equipment.",
+      ITEM_REMOVAL,
+      "Removal and disposal of existing metering / service equipment (separate line).",
       f.removalDisposal
     );
   }
@@ -244,7 +317,7 @@ export function buildServiceUpgradeEstimate(answers) {
       const feet = Number(a.overheadFeet) || f.overheadDefaultFeet;
       const extra = Math.max(0, feet - f.overheadDefaultFeet) * f.overheadPerFootExtra;
       push(
-        "Service Upgrade:Over head pipe",
+        ITEM_CONDUIT,
         `Overhead service pipe / riser (~${feet} ft; base covers typical 10–15 ft).`,
         f.overheadBase + extra
       );
@@ -252,7 +325,7 @@ export function buildServiceUpgradeEstimate(answers) {
       const feet = Number(a.conduitFeet) || 0;
       const inch = a.conduitInch === 4 ? 4 : 2;
       push(
-        "Installation:Installation",
+        ITEM_CONDUIT,
         `Underground conduit to street — ${inch}" — ${feet} ft.`,
         money(feet * f.conduitPerFoot)
       );
@@ -261,13 +334,12 @@ export function buildServiceUpgradeEstimate(answers) {
 
   if (a.includeFiling) {
     push(
-      "Tesla Charger:Filing permit:Filing permit",
+      ITEM_FILING,
       "Filing electrical permit with the city (separate fee).",
       f.filing
     );
   }
 
-  // Summary description for job title
   const meterSummary = a.meters
     .map((m) => {
       const s = sizeById(m.sizeId);
@@ -290,17 +362,11 @@ export function buildServiceUpgradeEstimate(answers) {
   };
 }
 
-/**
- * Apply review-step on/off toggles. `enabled` is a bool array aligned to line index
- * (missing/undefined = on). Recalculates total from remaining lines only.
- */
 export function filterEnabledEstimateLines(built, enabled) {
   const lines = Array.isArray(built?.lines) ? built.lines : [];
   const flags = Array.isArray(enabled) ? enabled : [];
   const kept = lines.filter((_, i) => flags[i] !== false);
-  const total = money(
-    kept.reduce((s, ln) => s + (parseAmount(ln.amount) || 0), 0)
-  );
+  const total = money(kept.reduce((s, ln) => s + (parseAmount(ln.amount) || 0), 0));
   return {
     ...built,
     lines: kept,
@@ -308,19 +374,13 @@ export function filterEnabledEstimateLines(built, enabled) {
   };
 }
 
-/** Apply main-phase defaults when switching main phase. */
 export function coerceMetersForMainPhase(meters, mainPhase) {
   const phase = Number(mainPhase) === 3 ? 3 : 1;
   return (meters || []).map((m) => {
     const s = sizeById(m.sizeId);
     if (phase === 1 && s.phase === 3) {
-      // force matching amp single-phase if possible
       const id = s.amps === 200 ? "200-1" : "100-1";
       return { ...m, sizeId: id };
-    }
-    if (phase === 3 && s.phase === 1 && (s.amps === 100 || s.amps === 200)) {
-      // optional: keep single-phase meters allowed on 3ph main
-      return m;
     }
     return m;
   });
@@ -331,7 +391,7 @@ export function emptyMeter(mainPhase = 1) {
     role: "residential",
     sizeId: Number(mainPhase) === 3 ? "100-3" : "100-1",
     includePanel: true,
-    feetToPanel: 10,
+    feetToPanel: 1,
   };
 }
 
@@ -342,28 +402,27 @@ export function meterSummaryLine(meter) {
   const role =
     m.role === "plp" ? "PLP" : m.role === "commercial" ? "Commercial" : "Residential";
   const phase = s.phase === 3 ? "3φ" : "1φ";
-  return `${s.amps}A ${phase} · ${role}`;
+  const feet = m.feetToPanel != null ? Number(m.feetToPanel) : 1;
+  return `${s.amps}A ${phase} · ${role} · ${feet} ft`;
 }
 
-/**
- * Suggested sell $ for one meter row (meter + optional panel + extra feet).
- * Used on collapsed accordion summary only — full estimate still uses buildServiceUpgradeEstimate.
- */
-export function meterSuggestedAmount(meter, answers) {
+/** Suggested sell $ for one meter row (meter + optional panel + extra feet). */
+export function meterSuggestedAmount(meter, answers, index = 0) {
   const a = answers || defaultAnswers();
   const f = feesFor(a);
   const m = meter || emptyMeter();
   const s = sizeById(m.sizeId);
-  let total = f.meter[s.id] ?? f.meter["100-1"];
-  if (m.includePanel !== false) {
-    total += f.panel[s.amps] ?? f.panel[100];
-    const feet =
-      a.feetPanelsToMeter != null
-        ? a.feetPanelsToMeter
-        : m.feetToPanel != null
-          ? m.feetToPanel
-          : f.freeFeetMeterPanel;
-    total += distCost(feet, f.freeFeetMeterPanel, f.perFootMeterPanel);
+  let total = meterFeeForIndex(s.id, index, f);
+  let panelIdx = 0;
+  // Count panels before this index
+  for (let i = 0; i < index; i++) {
+    const prev = a.meters?.[i];
+    if (prev && prev.includePanel !== false) panelIdx += 1;
   }
+  if (m.includePanel !== false) {
+    total += panelFeeForIndex(s.amps, panelIdx, f);
+  }
+  const feet = feetForMeter(m, a, f);
+  total += distCost(feet, f.freeFeetMeterPanel, f.perFootMeterPanel);
   return money(total);
 }

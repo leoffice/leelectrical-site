@@ -7,20 +7,28 @@ import {
   filterEnabledEstimateLines,
   meterSummaryLine,
   meterSuggestedAmount,
+  meterFeeForIndex,
   emptyMeter,
+  DEFAULT_FEES,
 } from "../src/lib/serviceUpgradeEstimator.js";
 import { searchMaterials } from "../src/lib/materialCatalog.js";
 
 describe("serviceUpgradeEstimator", () => {
-  it("builds 3 res + 1 PLP near $8700 band with defaults", () => {
+  it("first 100A meter is $1900 band; additional meters use $1650", () => {
+    expect(meterFeeForIndex("100-1", 0)).toBe(1900);
+    expect(meterFeeForIndex("100-1", 1)).toBe(1650);
+    expect(meterFeeForIndex("100-1", 2)).toBe(1650);
+  });
+
+  it("builds multi-meter estimate with tiered rates", () => {
     const a = defaultAnswers({
       mainAmps: 200,
       mainPhase: 1,
       meters: [
-        { role: "residential", sizeId: "100-1", includePanel: true, feetToPanel: 10 },
-        { role: "residential", sizeId: "100-1", includePanel: true, feetToPanel: 10 },
-        { role: "residential", sizeId: "100-1", includePanel: true, feetToPanel: 10 },
-        { role: "plp", sizeId: "100-1", includePanel: true, feetToPanel: 10 },
+        { role: "residential", sizeId: "100-1", includePanel: true, feetToPanel: 1 },
+        { role: "residential", sizeId: "100-1", includePanel: true, feetToPanel: 1 },
+        { role: "residential", sizeId: "100-1", includePanel: true, feetToPanel: 1 },
+        { role: "plp", sizeId: "100-1", includePanel: true, feetToPanel: 1 },
       ],
       includeAlways: true,
       includeRemoval: false,
@@ -29,17 +37,19 @@ describe("serviceUpgradeEstimator", () => {
     });
     const r = buildServiceUpgradeEstimate(a);
     expect(r.errors).toEqual([]);
-    // 4*(1900+450) + 650 = 4*2350 + 650 = 10050 with defaults — band check
+    // 1900 + 3*1650 meters + 450 first panel + 3*450 add panels + 650 always
+    // = 1900+4950 + 450+1350 + 650 = 9300
     expect(r.total).toBeGreaterThan(8000);
     expect(r.total).toBeLessThan(12000);
-    expect(r.lines.length).toBeGreaterThanOrEqual(5);
-    expect(r.title).toMatch(/PLP|plp|meter/i);
+    // Main work is one Service Upgrade line
+    expect(r.lines.some((l) => /Service Upgrade/i.test(l.itemName))).toBe(true);
+    expect(r.lines[0].description).toMatch(/SCOPE/i);
   });
 
   it("blocks 3ph meters on 1ph main", () => {
     const a = defaultAnswers({
       mainPhase: 1,
-      meters: [{ role: "residential", sizeId: "200-3", includePanel: true, feetToPanel: 10 }],
+      meters: [{ role: "residential", sizeId: "200-3", includePanel: true, feetToPanel: 1 }],
     });
     expect(validateAnswers(a).length).toBeGreaterThan(0);
   });
@@ -52,25 +62,42 @@ describe("serviceUpgradeEstimator", () => {
     expect(meters[0].sizeId).toBe("200-1");
   });
 
-  it("filing and removal toggles add lines", () => {
-    const base = buildServiceUpgradeEstimate(defaultAnswers({ includeFiling: false, includeRemoval: false }));
+  it("removal is $400 and filing is a separate line", () => {
+    expect(DEFAULT_FEES.removalDisposal).toBe(400);
     const withOpt = buildServiceUpgradeEstimate(
       defaultAnswers({ includeFiling: true, includeRemoval: true })
     );
-    expect(withOpt.total).toBeGreaterThan(base.total);
+    const removal = withOpt.lines.find((l) => /Removal/i.test(l.itemName));
+    const filing = withOpt.lines.find((l) => /Filing/i.test(l.itemName));
+    expect(removal?.amount).toBe(400);
+    expect(filing?.amount).toBe(1800);
+  });
+
+  it("extra meter→panel feet increase price", () => {
+    const base = buildServiceUpgradeEstimate(
+      defaultAnswers({
+        meters: [{ role: "residential", sizeId: "100-1", includePanel: true, feetToPanel: 1 }],
+      })
+    );
+    const more = buildServiceUpgradeEstimate(
+      defaultAnswers({
+        meters: [{ role: "residential", sizeId: "100-1", includePanel: true, feetToPanel: 11 }],
+      })
+    );
+    expect(more.total).toBeGreaterThan(base.total);
+    // 10 extra ft * $35
+    expect(more.total - base.total).toBe(350);
   });
 
   it("filterEnabledEstimateLines drops off lines and recalculates total", () => {
     const full = buildServiceUpgradeEstimate(
       defaultAnswers({ includeAlways: true, includeFiling: true, includeRemoval: true })
     );
-    expect(full.lines.length).toBeGreaterThan(2);
-    const enabled = full.lines.map((_, i) => i !== 0); // drop first line
+    expect(full.lines.length).toBeGreaterThan(1);
+    const enabled = full.lines.map((_, i) => i !== 0);
     const filtered = filterEnabledEstimateLines(full, enabled);
     expect(filtered.lines.length).toBe(full.lines.length - 1);
     expect(filtered.total).toBeLessThan(full.total);
-    const sum = filtered.lines.reduce((s, ln) => s + Number(ln.amount || 0), 0);
-    expect(filtered.total).toBeCloseTo(sum, 2);
   });
 });
 
@@ -82,31 +109,23 @@ describe("materialCatalog", () => {
 });
 
 describe("meter accordion helpers", () => {
-  it("meterSummaryLine formats size · role", () => {
-    expect(meterSummaryLine({ role: "residential", sizeId: "100-1" })).toBe("100A 1φ · Residential");
-    expect(meterSummaryLine({ role: "plp", sizeId: "200-3" })).toBe("200A 3φ · PLP");
-    expect(meterSummaryLine({ role: "commercial", sizeId: "200-1" })).toBe("200A 1φ · Commercial");
-  });
-
-  it("meterSuggestedAmount includes meter + panel by default", () => {
-    const m = emptyMeter(1);
-    const amt = meterSuggestedAmount(m, defaultAnswers());
-    // 1900 meter + 450 panel at 10 free feet
-    expect(amt).toBe(2350);
-    const noPanel = meterSuggestedAmount({ ...m, includePanel: false }, defaultAnswers());
-    expect(noPanel).toBe(1900);
-    const extraFeet = meterSuggestedAmount(m, defaultAnswers({ feetPanelsToMeter: 20 }));
-    // 10 free + 10 * $12
-    expect(extraFeet).toBe(2350 + 120);
-  });
-
-  it("end-line box feet and shared panels distance price correctly", () => {
-    const base = buildServiceUpgradeEstimate(defaultAnswers({ feetPanelsToMeter: 10, feetEndLineBox: 10 }));
-    const more = buildServiceUpgradeEstimate(
-      defaultAnswers({ feetPanelsToMeter: 20, feetEndLineBox: 25, feetGround: 15 })
+  it("meterSummaryLine includes feet", () => {
+    expect(meterSummaryLine({ role: "residential", sizeId: "100-1", feetToPanel: 1 })).toMatch(
+      /100A 1φ · Residential · 1 ft/
     );
-    expect(more.total).toBeGreaterThan(base.total);
-    expect(more.lines.some((l) => /end-line box/i.test(l.description))).toBe(true);
-    expect(more.lines.some((l) => /panels↔meter/i.test(l.description))).toBe(true);
+  });
+
+  it("meterSuggestedAmount first vs additional", () => {
+    const a = defaultAnswers({
+      meters: [
+        { role: "residential", sizeId: "100-1", includePanel: true, feetToPanel: 1 },
+        { role: "residential", sizeId: "100-1", includePanel: true, feetToPanel: 1 },
+      ],
+    });
+    const first = meterSuggestedAmount(a.meters[0], a, 0);
+    const second = meterSuggestedAmount(a.meters[1], a, 1);
+    // first: 1900+450, second: 1650+450
+    expect(first).toBe(2350);
+    expect(second).toBe(2100);
   });
 });

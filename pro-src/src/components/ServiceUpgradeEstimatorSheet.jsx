@@ -361,7 +361,8 @@ export default function ServiceUpgradeEstimatorSheet({ onClose, prefill = {} }) 
           {answers.meters.map((m, i) => {
             const open = openMeterIdx === i;
             const chip = meterSummaryLine(m);
-            const suggested = meterSuggestedAmount(m, answers);
+            const suggested = meterSuggestedAmount(m, answers, i);
+            const feet = m.feetToPanel != null ? Number(m.feetToPanel) : 1;
             return (
               <div
                 key={i}
@@ -369,23 +370,67 @@ export default function ServiceUpgradeEstimatorSheet({ onClose, prefill = {} }) 
                 data-testid={`est-gen-meter-${i}`}
                 data-open={open ? "1" : "0"}
               >
-                <button
-                  type="button"
-                  className="w-full flex items-center gap-2 px-3 py-3 text-left active:bg-slate-50"
-                  onClick={() => setOpenMeterIdx(open ? null : i)}
-                  aria-expanded={open}
-                >
-                  <span className="text-sm font-extrabold text-slate-900 shrink-0">Meter {i + 1}</span>
-                  <span className="text-[11px] font-bold px-2 py-0.5 rounded-full bg-brand-soft text-brand border border-brand/20 truncate">
-                    {chip}
-                  </span>
-                  <span className="ml-auto text-sm font-bold text-slate-700 tabular-nums shrink-0">
-                    {fmt$(suggested)}
-                  </span>
-                  <span className="text-slate-400 text-xs shrink-0" aria-hidden>
-                    {open ? "▲" : "▼"}
-                  </span>
-                </button>
+                {/* Collapsed: meter line + feet parallel */}
+                <div className="flex items-stretch gap-0">
+                  <button
+                    type="button"
+                    className="min-w-0 flex-1 flex items-center gap-2 px-3 py-3 text-left active:bg-slate-50"
+                    onClick={() => setOpenMeterIdx(open ? null : i)}
+                    aria-expanded={open}
+                  >
+                    <span className="text-sm font-extrabold text-slate-900 shrink-0">
+                      Meter {i + 1}
+                      {i > 0 ? (
+                        <span className="ml-1 text-[10px] font-bold text-slate-400">+add</span>
+                      ) : null}
+                    </span>
+                    <span className="text-[11px] font-bold px-2 py-0.5 rounded-full bg-brand-soft text-brand border border-brand/20 truncate">
+                      {chip}
+                    </span>
+                    <span className="ml-auto text-sm font-bold text-slate-700 tabular-nums shrink-0">
+                      {fmt$(suggested)}
+                    </span>
+                    <span className="text-slate-400 text-xs shrink-0" aria-hidden>
+                      {open ? "▲" : "▼"}
+                    </span>
+                  </button>
+                  {/* Feet parallel to meter line — always visible */}
+                  <div
+                    className="flex items-center gap-0.5 border-l border-slate-200 px-1.5 bg-slate-50/80 shrink-0"
+                    data-testid={`est-gen-feet-inline-${i}`}
+                    onClick={(e) => e.stopPropagation()}
+                  >
+                    <button
+                      type="button"
+                      className="h-8 w-8 rounded-lg border border-slate-200 bg-white text-base font-bold text-slate-700"
+                      aria-label="Decrease feet"
+                      onClick={() => updateMeter(i, { feetToPanel: Math.max(0, feet - 1) })}
+                    >
+                      −
+                    </button>
+                    <div className="w-10 text-center">
+                      <input
+                        className="w-full text-center text-sm font-extrabold tabular-nums bg-transparent outline-none"
+                        type="number"
+                        min={0}
+                        value={feet}
+                        onChange={(e) =>
+                          updateMeter(i, { feetToPanel: Math.max(0, Number(e.target.value) || 0) })
+                        }
+                        aria-label="Feet meter to panel"
+                      />
+                      <p className="text-[9px] font-bold text-slate-400 -mt-0.5">ft</p>
+                    </div>
+                    <button
+                      type="button"
+                      className="h-8 w-8 rounded-lg border border-slate-200 bg-white text-base font-bold text-slate-700"
+                      aria-label="Increase feet"
+                      onClick={() => updateMeter(i, { feetToPanel: feet + 1 })}
+                    >
+                      +
+                    </button>
+                  </div>
+                </div>
                 {open ? (
                   <div className="px-3 pb-3 space-y-2 border-t border-slate-100 pt-2">
                     <div className="flex justify-end">
@@ -441,8 +486,12 @@ export default function ServiceUpgradeEstimatorSheet({ onClose, prefill = {} }) 
                         checked={m.includePanel !== false}
                         onChange={(e) => updateMeter(i, { includePanel: e.target.checked })}
                       />
-                      Include new panel
+                      Include new panel{i > 0 ? " ($450 additional panel rate)" : ""}
                     </label>
+                    <p className="text-[11px] text-slate-500">
+                      Meter→panel distance is on the right (standard <b>1 ft</b> included). Extra feet add labor + materials to the price.
+                      {i > 0 ? " Additional meters use the reduced rate ($1,650 band)." : ""}
+                    </p>
                     <button
                       type="button"
                       className="btn w-full bg-slate-100 font-bold text-sm"
@@ -486,20 +535,8 @@ export default function ServiceUpgradeEstimatorSheet({ onClose, prefill = {} }) 
       {step === 3 && (
         <div className="space-y-3" data-testid="est-gen-panels">
           <p className="text-xs text-slate-500">
-            One distance for panels ↔ meter. Same length is used for every meter that includes a panel.
+            Meter→panel feet are set on each meter row (standard 1 ft). Here: PLP run if you have a PLP meter.
           </p>
-          <FeetStepper
-            label="Feet between panels and the meter"
-            value={answers.feetPanelsToMeter ?? 10}
-            onChange={(v) =>
-              set({
-                feetPanelsToMeter: v,
-                // keep legacy per-meter field in sync for old takeoffs
-                meters: answers.meters.map((m) => ({ ...m, feetToPanel: v })),
-              })
-            }
-            testId="est-gen-feet-panels"
-          />
           {answers.meters.some((m) => m.role === "plp") ? (
             <FeetStepper
               label="Feet PLP meter → PLP equipment"
@@ -508,7 +545,9 @@ export default function ServiceUpgradeEstimatorSheet({ onClose, prefill = {} }) 
               testId="est-gen-feet-plp"
             />
           ) : (
-            <p className="text-xs text-slate-400">PLP run appears only when a meter is marked PLP.</p>
+            <p className="text-sm text-slate-600 rounded-xl border border-slate-200 bg-slate-50 px-3 py-3">
+              No PLP meter selected — skip this step or go back and mark a meter as <b>plp</b>.
+            </p>
           )}
           <div className="flex gap-2">
             <button type="button" className="btn flex-1 bg-slate-100 font-bold" onClick={() => setStep(2)}>
@@ -523,12 +562,20 @@ export default function ServiceUpgradeEstimatorSheet({ onClose, prefill = {} }) 
 
       {step === 4 && (
         <div className="space-y-3" data-testid="est-gen-grounding">
-          <p className="text-xs text-slate-500">Grounding runs from the metering equipment.</p>
+          <p className="text-xs text-slate-500">
+            Grounding + main service line distances. Extra feet beyond included add labor and materials.
+          </p>
           <FeetStepper
             label="Grounding — feet from metering equipment"
             value={answers.feetGround}
             onChange={(v) => set({ feetGround: v })}
             testId="est-gen-feet-ground"
+          />
+          <FeetStepper
+            label="Main service line distance (ft)"
+            value={answers.feetMainService ?? 10}
+            onChange={(v) => set({ feetMainService: v })}
+            testId="est-gen-feet-main"
           />
           <FeetStepper
             label="Service end-line box → metering equipment (ft)"
