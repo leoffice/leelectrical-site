@@ -144,3 +144,93 @@ describe("buildPermitBoard attaches recommendations", () => {
     expect(board.actionNeeded.some((r) => r.caseNumber === "MC-941580")).toBe(true);
   });
 });
+
+describe("case walk 2026-08-03 — Lincoln / Kingston / 37th", () => {
+  it("Lincoln: existing accounts → due Add PLP, then electrical permit blocked until PLP", () => {
+    const job = {
+      id: "qbo-19949",
+      customer: "izzy",
+      serviceAddress: "1127 Lincoln Pl",
+      paperwork: {
+        coned: {
+          enabled: true,
+          caseNumber: "MC-941412",
+          currentStage: "application_filed",
+          existingAccount: true,
+          accountActive: true,
+          existingAccounts: 2,
+          targetAccounts: 3,
+          needsPlpAccount: true,
+          needsAdditionalAccount: true,
+          additionalAccountLabel: "PLP",
+        },
+      },
+    };
+    const rec = recommendCaseNextSteps(job);
+    const byId = Object.fromEntries(rec.steps.map((s) => [s.id, s]));
+    expect(byId.add_plp_account.status).toBe("due");
+    expect(byId.add_plp_account.required).toBe(true);
+    expect(byId.electrical_permit.status).toBe("blocked");
+    expect(byId.electrical_permit.gate).toBe("add_plp_account");
+    expect(rec.recommended?.id).toBe("add_plp_account");
+    expect(rec.summary).toMatch(/PLP/i);
+    expect(byId.deposit?.status).toBe("done");
+  });
+
+  it("Kingston: inquiry response → email customer next", () => {
+    const job = {
+      id: "qbo-251798",
+      customer: "Itzchak Dayan",
+      serviceAddress: "564 Kingston Ave",
+      email: "itzikdayan1@gmail.com",
+      paperwork: {
+        coned: {
+          enabled: true,
+          caseNumber: "MC-913358",
+          currentStage: "docs_pending",
+          inquiry: {
+            id: "CI-1309319",
+            responseReceived: true,
+            customerFollowUpNeeded: true,
+          },
+        },
+      },
+    };
+    const rec = recommendCaseNextSteps(job);
+    expect(rec.recommended?.id).toBe("inquiry_customer_followup");
+    expect(rec.summary).toMatch(/inquiry|Email customer/i);
+  });
+
+  it("146 E 37th: ready to close after final pass", () => {
+    const job = {
+      id: "qbo-231575",
+      customer: "Sholom Piekarski",
+      serviceAddress: "146 E 37th St",
+      paperwork: {
+        coned: {
+          enabled: true,
+          caseNumber: "MC-803966",
+          currentStage: "passed_complete",
+          readyToClose: true,
+          finalInspection: { result: "passed", passedAt: "2026-07-15T12:00:00.000Z" },
+        },
+      },
+    };
+    const rec = recommendCaseNextSteps(job);
+    expect(rec.recommended?.id).toBe("close_case");
+    expect(rec.summary).toMatch(/Close case/i);
+  });
+
+  it("service done, no permits → request inspection blocked until skill learned", () => {
+    const job = {
+      id: "local-service-only",
+      paperwork: {
+        coned: { serviceCompleteNoPermit: true },
+      },
+    };
+    const rec = recommendCaseNextSteps(job);
+    expect(rec.steps[0]?.id).toBe("request_inspection_after_service");
+    expect(rec.steps[0]?.status).toBe("blocked");
+    expect(rec.steps[0]?.gate).toBe("skill_not_learned");
+  });
+});

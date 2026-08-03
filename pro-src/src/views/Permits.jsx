@@ -45,6 +45,7 @@ import {
   queueItemCanDeploy,
   queueItemIsDeploying,
 } from "../lib/permitsDeploy.js";
+import { caseStepCompletePatch } from "../lib/caseNextSteps.js";
 import PaperworkApprovalSheet from "../components/PaperworkApprovalSheet.jsx";
 import ConedCreateCaseSheet from "../components/ConedCreateCaseSheet.jsx";
 
@@ -64,7 +65,7 @@ function fmtWhen(iso) {
   return s.slice(0, 10);
 }
 
-function CaseStepChips({ steps = [] }) {
+function CaseStepChips({ steps = [], onStepTap }) {
   if (!steps.length) return null;
   return (
     <ul className="mt-1.5 space-y-1" data-testid="permit-case-steps">
@@ -72,38 +73,62 @@ function CaseStepChips({ steps = [] }) {
         const due = st.status === "due";
         const blocked = st.status === "blocked";
         const done = st.status === "done";
-        return (
-          <li
-            key={st.id}
-            className={
-              "flex items-start gap-1.5 text-[11px] leading-snug " +
-              (done
-                ? "text-emerald-700"
-                : due
-                  ? "text-red-800 font-semibold"
-                  : blocked
-                    ? "text-slate-400"
-                    : "text-slate-600")
-            }
-            data-testid="permit-case-step"
-            data-step-id={st.id}
-            data-step-status={st.status}
-            data-required={st.required ? "1" : "0"}
-          >
+        const tappable = due && typeof onStepTap === "function";
+        const body = (
+          <>
             <span className="shrink-0 mt-px" aria-hidden>
               {done ? "✓" : due ? "→" : blocked ? "○" : "·"}
             </span>
-            <span className="min-w-0">
+            <span className="min-w-0 text-left">
               <span>{st.title}</span>
               {!st.required ? (
                 <span className="ml-1 text-[10px] font-bold uppercase tracking-wide text-slate-400">
                   optional
                 </span>
               ) : null}
+              {tappable ? (
+                <span className="ml-1 text-[10px] font-bold text-brand">Tap →</span>
+              ) : null}
               {st.note ? (
                 <span className="block text-[10px] font-normal text-slate-500">{st.note}</span>
               ) : null}
             </span>
+          </>
+        );
+        const cls =
+          "flex items-start gap-1.5 text-[11px] leading-snug w-full " +
+          (done
+            ? "text-emerald-700"
+            : due
+              ? "text-red-800 font-semibold"
+              : blocked
+                ? "text-slate-400"
+                : "text-slate-600") +
+          (tappable ? " rounded-md -mx-1 px-1 py-0.5 hover:bg-red-50 active:bg-red-100" : "");
+        return (
+          <li
+            key={st.id}
+            className="list-none"
+            data-testid="permit-case-step"
+            data-step-id={st.id}
+            data-step-status={st.status}
+            data-required={st.required ? "1" : "0"}
+          >
+            {tappable ? (
+              <button
+                type="button"
+                className={cls}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onStepTap(st);
+                }}
+                data-testid="permit-step-run"
+              >
+                {body}
+              </button>
+            ) : (
+              <div className={cls}>{body}</div>
+            )}
           </li>
         );
       })}
@@ -111,7 +136,7 @@ function CaseStepChips({ steps = [] }) {
   );
 }
 
-function CaseRow({ row, job, onOpen, onMeterApplication }) {
+function CaseRow({ row, job, onOpen, onMeterApplication, onStepAction }) {
   const [expanded, setExpanded] = useState(false);
   const isConed = row.agency === "coned";
   const meter = job ? getMeterApplication(job) : null;
@@ -119,6 +144,9 @@ function CaseRow({ row, job, onOpen, onMeterApplication }) {
   const caseSteps = Array.isArray(row.caseSteps) ? row.caseSteps : [];
   // Collapsed: only due-now chips; expanded: full flow with gates
   const showSteps = expanded ? caseSteps : dueNow;
+  const handleStep = (st) => {
+    if (onStepAction) onStepAction(st, row, job);
+  };
 
   return (
     <div
@@ -152,7 +180,7 @@ function CaseRow({ row, job, onOpen, onMeterApplication }) {
                 : ""}
             </div>
           ) : null}
-          {showSteps.length ? <CaseStepChips steps={showSteps} /> : null}
+          {showSteps.length ? <CaseStepChips steps={showSteps} onStepTap={handleStep} /> : null}
           {meter?.label ? (
             <div className="text-[11px] text-brand font-semibold mt-0.5" data-testid="meter-app-chip">
               Meter app: {meter.label}
@@ -177,6 +205,16 @@ function CaseRow({ row, job, onOpen, onMeterApplication }) {
 
       {expanded && isConed ? (
         <div className="px-4 pb-4 border-t border-slate-100 pt-3 space-y-3">
+          {row.recommended?.status === "due" ? (
+            <button
+              type="button"
+              className="w-full pill bg-brand text-white font-semibold text-xs py-2"
+              onClick={() => handleStep(row.recommended)}
+              data-testid="permit-run-next"
+            >
+              Do next: {row.recommended.title}
+            </button>
+          ) : null}
           {row.jobId ? (
             <button
               type="button"
@@ -502,6 +540,138 @@ export default function Permits() {
       );
     } catch {
       showToast("Couldn't save meter application");
+    }
+  };
+
+  /** Tap a due next-step → execute the action for that case type. */
+  const handleStepAction = async (step, row, job) => {
+    if (!step || !job?.id) {
+      if (row?.jobId) open(row.jobId);
+      return;
+    }
+    const action = step.action || step.id;
+    try {
+      if (action === "meter_application" || step.id === "add_plp_account" || step.id === "new_meter") {
+        // Expand row path: set meter app for PLP when that's the step
+        if (step.id === "add_plp_account") {
+          const patch = jobPatchMeterApplication(job, "new_meter");
+          const withPlp = {
+            ...patch,
+            paperwork: {
+              ...(patch.paperwork || {}),
+              coned: {
+                ...(patch.paperwork?.coned || {}),
+                meterApplication: {
+                  ...(patch.paperwork?.coned?.meterApplication || {}),
+                  title: "PLP",
+                  label: "PLP",
+                },
+                needsPlpAccount: true,
+                needsAdditionalAccount: true,
+                additionalAccountLabel: "PLP",
+              },
+            },
+          };
+          await patchAndSave(job.id, withPlp);
+          showToast("PLP meter application queued — open Deploy when ready");
+          return;
+        }
+        await handleMeterApplication(job.id, "new_meter");
+        return;
+      }
+      if (action === "email_inquiry_followup" || step.id === "inquiry_customer_followup") {
+        const inq = job.paperwork?.coned?.inquiry || {};
+        const inqId = inq.id || inq.inquiryId || "";
+        const email = job.email || "";
+        const name = job.customer || job.personName || "there";
+        const addr = job.serviceAddress || job.address || "";
+        const subject = inqId
+          ? `Follow-up on Con Edison inquiry ${inqId}${addr ? " — " + addr : ""}`
+          : `Follow-up on your Con Edison inquiry${addr ? " — " + addr : ""}`;
+        const body =
+          `Hi ${name},\n\n` +
+          `We reviewed the Con Edison inquiry results for ${addr || "your project"}${inqId ? ` (${inqId})` : ""}.\n\n` +
+          `Please complete any items Con Ed asked for on your side, then reply to this email when you're done so we can continue.\n\n` +
+          `If anything is unclear, reply here and we'll walk you through it.\n\n` +
+          `Thank you,\nLE Electrical`;
+        // Open system mail if we have an address; always mark step ready to complete after open
+        if (email && typeof window !== "undefined") {
+          const href = `mailto:${encodeURIComponent(email)}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
+          window.location.href = href;
+        }
+        const donePatch = caseStepCompletePatch("inquiry_customer_followup", {
+          id: inqId || undefined,
+          inquiryId: inqId || undefined,
+        });
+        if (donePatch) await patchAndSave(job.id, donePatch);
+        showToast(
+          email
+            ? "Opened email to customer — marked follow-up sent"
+            : "No email on job — marked follow-up; add email and resend if needed"
+        );
+        return;
+      }
+      if (action === "close_case" || step.id === "close_case") {
+        const donePatch = caseStepCompletePatch("close_case");
+        // Also stamp closed on permit record if present
+        let permits = Array.isArray(job.permits) ? job.permits.map((p) => ({ ...p })) : [];
+        permits = permits.map((p) => {
+          if (String(p?.agency || "").toLowerCase() !== "coned") return p;
+          return {
+            ...p,
+            currentStage: "closed",
+            stageLabel: "Closed",
+            stageBucket: "Terminal",
+            health: "ok",
+            nextAction: "Closed",
+          };
+        });
+        await patchAndSave(job.id, {
+          ...donePatch,
+          permits,
+        });
+        showToast("Case closed — last inspection passed");
+        return;
+      }
+      if (action === "electrical_permit" || step.id === "electrical_permit") {
+        open(job.id);
+        showToast("Open job → Paperwork → file electrical permit (L1 / EL)");
+        return;
+      }
+      if (action === "email_deposit_reminder" || step.id === "deposit_customer_followup") {
+        const email = job.email || "";
+        const name = job.customer || job.personName || "there";
+        const addr = job.serviceAddress || job.address || "";
+        const subject = `Con Edison deposit — ${addr || "your account"}`;
+        const body =
+          `Hi ${name},\n\n` +
+          `Con Edison is asking for the service deposit for ${addr || "your project"}. ` +
+          `Please pay it in their portal when you can, then email us confirmation so we can request inspection.\n\n` +
+          `Thank you,\nLE Electrical`;
+        if (email && typeof window !== "undefined") {
+          window.location.href = `mailto:${encodeURIComponent(email)}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
+        }
+        const donePatch = caseStepCompletePatch("deposit_customer_followup");
+        if (donePatch) await patchAndSave(job.id, donePatch);
+        showToast("Deposit reminder opened — marked sent");
+        return;
+      }
+      if (
+        action === "request_inspection" ||
+        action === "skill_learn" ||
+        step.id === "request_inspection_after_service"
+      ) {
+        showToast("Request inspection skill not learned yet — teach portal steps first");
+        return;
+      }
+      if (action === "final_checklist" || action === "coned_todos" || action === "submit_inquiry") {
+        open(job.id);
+        showToast("Open the job / Project Center to finish: " + (step.title || action));
+        return;
+      }
+      open(job.id);
+    } catch {
+      showToast("Couldn't run that step — try again");
     }
   };
 
@@ -877,6 +1047,7 @@ export default function Permits() {
                 job={jobsById.get(row.jobId)}
                 onOpen={open}
                 onMeterApplication={handleMeterApplication}
+                onStepAction={handleStepAction}
               />
             ))}
           </div>
@@ -898,6 +1069,7 @@ export default function Permits() {
                   job={jobsById.get(row.jobId)}
                   onOpen={open}
                   onMeterApplication={handleMeterApplication}
+                  onStepAction={handleStepAction}
                 />
               ))}
             </div>
