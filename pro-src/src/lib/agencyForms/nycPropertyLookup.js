@@ -33,7 +33,8 @@ export function parseNycAddressParts(addr = "") {
 
   const m = cleaned.match(/^(\d+[A-Za-z]?)\s+(.+)$/);
   if (!m) return { house: "", street: cleaned, boroughHint };
-  // PLUTO uses full street types: STREET, AVENUE, etc.
+  // PLUTO uses full street types + full cardinals + bare ordinals
+  // e.g. "E 53rd St" → "EAST 53 STREET" (not "E 53RD STREET")
   let street = m[2]
     .replace(/\bst\b\.?/gi, "STREET")
     .replace(/\bave\b\.?/gi, "AVENUE")
@@ -43,8 +44,16 @@ export function parseNycAddressParts(addr = "") {
     .replace(/\bpl\b\.?/gi, "PLACE")
     .replace(/\bpkwy\b\.?/gi, "PARKWAY")
     .replace(/\bdr\b\.?/gi, "DRIVE")
+    // Leading / token cardinals (word-boundary so "EAST" stays put)
+    .replace(/(^|\s)E\b\.?/gi, "$1EAST")
+    .replace(/(^|\s)W\b\.?/gi, "$1WEST")
+    .replace(/(^|\s)N\b\.?/gi, "$1NORTH")
+    .replace(/(^|\s)S\b\.?/gi, "$1SOUTH")
+    // 53rd / 1st / 2nd / 3rd → bare number (PLUTO: "EAST 53 STREET")
+    .replace(/\b(\d+)(?:ST|ND|RD|TH)\b/gi, "$1")
     .trim()
-    .toUpperCase();
+    .toUpperCase()
+    .replace(/\s+/g, " ");
   return { house: m[1], street, boroughHint };
 }
 
@@ -160,10 +169,20 @@ export async function lookupNycProperty(address, opts = {}) {
     if (!pr.ok) return { ok: false, error: `pluto_http_${pr.status}` };
     const rows = await pr.json();
     if (!Array.isArray(rows) || !rows.length) {
-      // Fuzzy: house + street startswith
-      const streetTok = String(street.split(" ")[0] || "").replace(/'/g, "''");
+      // Fuzzy: house + first *significant* street token (skip EAST/WEST alone —
+      // "607 E%" used to match Manhattan 607 EAST 11 before Brooklyn 607 EAST 53).
+      const streetWords = String(street)
+        .split(/\s+/)
+        .filter(Boolean)
+        .filter((w) => !/^(EAST|WEST|NORTH|SOUTH)$/i.test(w));
+      const streetTok = String(streetWords[0] || street.split(" ")[0] || "").replace(
+        /'/g,
+        "''"
+      );
       const houseEsc = String(house).replace(/'/g, "''");
-      const fuzzyWhere = `upper(address) like '${houseEsc} ${streetTok}%'`;
+      const fuzzyParts = [`upper(address) like '${houseEsc} %${streetTok}%'`];
+      if (boroughHint) fuzzyParts.push(`borough='${boroughHint}'`);
+      const fuzzyWhere = fuzzyParts.join(" AND ");
       const fuzzyUrl = `${PLUTO}?$where=${encodeURIComponent(fuzzyWhere)}&$limit=5`;
       const fr = await fetchImpl(fuzzyUrl, { signal: opts.signal });
       if (!fr.ok) return { ok: false, error: `pluto_http_${fr.status}` };
@@ -171,9 +190,15 @@ export async function lookupNycProperty(address, opts = {}) {
       if (!Array.isArray(fuzzy) || !fuzzy.length) {
         return { ok: false, error: "not_found" };
       }
-      // Prefer exact house number match
+      // Prefer exact house number + borough match
+      const upperHouse = `${house} `;
       const hit =
-        fuzzy.find((r) => String(r.address || "").toUpperCase().startsWith(`${house} `)) ||
+        fuzzy.find(
+          (r) =>
+            String(r.address || "").toUpperCase().startsWith(upperHouse) &&
+            (!boroughHint || String(r.borough || "") === boroughHint)
+        ) ||
+        fuzzy.find((r) => String(r.address || "").toUpperCase().startsWith(upperHouse)) ||
         fuzzy[0];
       return await enrichWithBin(hit, fetchImpl, opts.signal);
     }

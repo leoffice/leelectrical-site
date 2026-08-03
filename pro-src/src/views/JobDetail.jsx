@@ -1113,6 +1113,43 @@ export default function JobDetail() {
                                       ) : null}
                                     </div>
                                   )}
+                                  {/* Big case-number confirmation when submitted (Levi: show MC as proof) */}
+                                  {br.enabled &&
+                                    k === "coned" &&
+                                    (() => {
+                                      const mc =
+                                        br.caseNumber ||
+                                        br.createCase?.execution?.caseNumber ||
+                                        br.application?.caseNumber ||
+                                        casePwJob?.caseNumber ||
+                                        "";
+                                      const submitted =
+                                        !!mc &&
+                                        (br.createCase?.status === "submitted" ||
+                                          br.createCase?.execution?.status === "submitted" ||
+                                          br.createCase?.execution?.status === "done" ||
+                                          br.currentStage === "case_submitted" ||
+                                          br.stageBucket === "submitted" ||
+                                          casePwJob?.status === "submitted" ||
+                                          casePwJob?.status === "done");
+                                      if (!submitted || !mc) return null;
+                                      return (
+                                        <div
+                                          className="rounded-xl border-2 border-emerald-400 bg-emerald-50 px-3 py-2.5 space-y-0.5"
+                                          data-testid="coned-case-confirmation"
+                                        >
+                                          <div className="text-[11px] font-bold uppercase tracking-wide text-emerald-800">
+                                            Case submitted
+                                          </div>
+                                          <div className="text-lg font-extrabold text-emerald-950 tracking-tight">
+                                            {mc}
+                                          </div>
+                                          <div className="text-[11px] text-emerald-800">
+                                            Confirmation · save this number
+                                          </div>
+                                        </div>
+                                      );
+                                    })()}
                                   {/* S23 Submit a Case + Form A (Levi-tenant Con Ed apps) */}
                                   {br.enabled && k === "coned" && (
                                     <div className="py-1.5 space-y-1" data-testid="coned-app-cta">
@@ -1156,12 +1193,31 @@ export default function JobDetail() {
                                           onClick={() => setSheet({ kind: "conedCreateCase" })}
                                           data-testid="coned-submit-a-case"
                                         >
-                                          {br.createCase?.status === "ready_to_fill" ||
-                                          br.createCase?.execution?.status === "queued"
-                                            ? "Submit a Case · queued / continue"
-                                            : br.createCase?.answers
+                                          {(() => {
+                                            const mc =
+                                              br.caseNumber ||
+                                              br.createCase?.execution?.caseNumber ||
+                                              "";
+                                            const done =
+                                              !!mc ||
+                                              br.createCase?.status === "submitted" ||
+                                              br.createCase?.execution?.status === "submitted" ||
+                                              br.createCase?.execution?.status === "done";
+                                            if (done) {
+                                              return mc
+                                                ? `Case ${mc} · view / update`
+                                                : "Case submitted · view / update";
+                                            }
+                                            if (
+                                              br.createCase?.status === "ready_to_fill" ||
+                                              br.createCase?.execution?.status === "queued"
+                                            ) {
+                                              return "Submit a Case · queued / continue";
+                                            }
+                                            return br.createCase?.answers
                                               ? "Continue Submit a Case"
-                                              : "Submit a Case"}
+                                              : "Submit a Case";
+                                          })()}
                                         </button>
                                       ) : null}
                                       <button
@@ -1199,55 +1255,91 @@ export default function JobDetail() {
                                             {n.text || n.type}
                                           </p>
                                         ))}
-                                      {casePwJob ? (
-                                        <div
-                                          className="flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-2.5 py-2"
-                                          data-testid="coned-case-run"
-                                        >
-                                          <div className="min-w-0 flex-1">
-                                            <div className="text-[12px] font-bold text-slate-800">
-                                              Create case run
-                                              {casePwJob.caseNumber
-                                                ? ` · ${casePwJob.caseNumber}`
-                                                : ""}
-                                            </div>
-                                            <span
-                                              className={`inline-block rounded-full px-2 py-0.5 text-[11px] font-bold ${paperworkJobStatusTone(
-                                                casePwJob.status
-                                              )}`}
-                                            >
-                                              {paperworkJobStatusLabel(casePwJob.status)}
-                                            </span>
-                                            {casePwJob.error ? (
-                                              <div className="text-[11px] text-red-600">
-                                                {casePwJob.error}
-                                                {casePwJob.status === "failed" ? (
-                                                  <span className="block text-slate-500 font-semibold mt-0.5">
-                                                    Developers notified — fixing in the background
-                                                  </span>
-                                                ) : null}
+                                      {(() => {
+                                        // Prefer job-level success over a stale failed fleet poll
+                                        // so Levi always sees the MC number as confirmation.
+                                        const jobMc =
+                                          br.caseNumber ||
+                                          br.createCase?.execution?.caseNumber ||
+                                          "";
+                                        const jobOk =
+                                          br.createCase?.status === "submitted" ||
+                                          br.createCase?.execution?.status === "submitted" ||
+                                          br.createCase?.execution?.status === "done" ||
+                                          br.currentStage === "case_submitted";
+                                        const run = casePwJob
+                                          ? jobOk &&
+                                            jobMc &&
+                                            (casePwJob.status === "failed" ||
+                                              !casePwJob.caseNumber)
+                                            ? {
+                                                ...casePwJob,
+                                                status:
+                                                  casePwJob.status === "failed"
+                                                    ? "submitted"
+                                                    : casePwJob.status,
+                                                caseNumber: jobMc || casePwJob.caseNumber,
+                                                error: "",
+                                              }
+                                            : casePwJob
+                                          : jobOk && jobMc
+                                            ? {
+                                                status: "submitted",
+                                                caseNumber: jobMc,
+                                                error: "",
+                                              }
+                                            : null;
+                                        if (!run) {
+                                          return br.createCase?.execution?.status === "queued" ? (
+                                            <p className="text-[11px] text-violet-700 font-semibold px-0.5">
+                                              Create-case queued for the browser agent · stops at Review
+                                              for your approval
+                                            </p>
+                                          ) : null;
+                                        }
+                                        return (
+                                          <div
+                                            className="flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-2.5 py-2"
+                                            data-testid="coned-case-run"
+                                          >
+                                            <div className="min-w-0 flex-1">
+                                              <div className="text-[12px] font-bold text-slate-800">
+                                                Create case run
+                                                {run.caseNumber ? ` · ${run.caseNumber}` : ""}
                                               </div>
+                                              <span
+                                                className={`inline-block rounded-full px-2 py-0.5 text-[11px] font-bold ${paperworkJobStatusTone(
+                                                  run.status
+                                                )}`}
+                                              >
+                                                {paperworkJobStatusLabel(run.status)}
+                                              </span>
+                                              {run.error ? (
+                                                <div className="text-[11px] text-red-600">
+                                                  {run.error}
+                                                  {run.status === "failed" ? (
+                                                    <span className="block text-slate-500 font-semibold mt-0.5">
+                                                      Developers notified — fixing in the background
+                                                    </span>
+                                                  ) : null}
+                                                </div>
+                                              ) : null}
+                                            </div>
+                                            {run.status === "awaiting_approval" ? (
+                                              <button
+                                                type="button"
+                                                className="btn bg-red-600 text-white !py-1.5 !px-2.5 text-xs font-extrabold shrink-0 animate-pulse"
+                                                onClick={() =>
+                                                  setSheet({ kind: "pwApproval", pwJob: casePwJob || run })
+                                                }
+                                                data-testid="coned-case-review"
+                                              >
+                                                Review &amp; approve
+                                              </button>
                                             ) : null}
                                           </div>
-                                          {casePwJob.status === "awaiting_approval" ? (
-                                            <button
-                                              type="button"
-                                              className="btn bg-red-600 text-white !py-1.5 !px-2.5 text-xs font-extrabold shrink-0 animate-pulse"
-                                              onClick={() =>
-                                                setSheet({ kind: "pwApproval", pwJob: casePwJob })
-                                              }
-                                              data-testid="coned-case-review"
-                                            >
-                                              Review &amp; approve
-                                            </button>
-                                          ) : null}
-                                        </div>
-                                      ) : br.createCase?.execution?.status === "queued" ? (
-                                        <p className="text-[11px] text-violet-700 font-semibold px-0.5">
-                                          Create-case queued for the browser agent · stops at Review
-                                          for your approval
-                                        </p>
-                                      ) : null}
+                                        );
+                                      })()}
                                       {br.application?.status === "submitted" ? (
                                         <p className="text-[11px] text-emerald-700 font-semibold px-0.5">
                                           Application submitted
