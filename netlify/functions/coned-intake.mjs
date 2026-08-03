@@ -87,14 +87,19 @@ export function buildCustomerLinkEmailBodies({ link, prefill = {}, meters = [] }
   const first = s(prefill.customer).split(/\s+/)[0] || "there";
   const address = s(prefill.serviceStreet);
   const meterCount = Array.isArray(meters) && meters.length ? meters.length : 1;
+  // Levi 2026-08-03: not "5 minutes" / blank form — prefilled; customer reviews, approves, signs.
+  const meterBit =
+    meterCount > 1
+      ? ` for your new meters (${meterCount})`
+      : ` for your new meter`;
   const bodyText =
     `Hi ${first},\n\n` +
     `BLZ Electric is handling your Con Edison application for service` +
     (address ? ` at ${address}` : "") +
-    `. Please use the button in this email to fill it out — it takes about 5 minutes` +
-    (meterCount > 1 ? ` per meter (${meterCount} meters)` : "") +
-    ` and most of it is already filled in for you.\n\n` +
-    `Open your application:\n${link}\n\n` +
+    `.\n\n` +
+    `If you can, please review, approve, and sign the application${meterBit}. ` +
+    `All the information is already filled in for you — you just need to review it and submit.\n\n` +
+    `Please review the information and submit:\n${link}\n\n` +
     `When you finish, your completed application comes straight back to us and we file it with Con Edison for you.\n\n` +
     `Thank you!`;
   const esc = (x) =>
@@ -104,10 +109,10 @@ export function buildCustomerLinkEmailBodies({ link, prefill = {}, meters = [] }
     `<p>Hi ${esc(first)},</p>` +
     `<p>BLZ Electric is handling your <b>Con Edison application for service</b>` +
     (address ? ` at <b>${esc(address)}</b>` : "") +
-    `. Tap the button below to fill it out — it takes about 5 minutes` +
-    (meterCount > 1 ? ` per meter (${meterCount} meters)` : "") +
-    ` and most of it is already filled in for you.</p>` +
-    `<p style="margin:22px 0"><a href="${esc(link)}" style="background:#2d8a3e;color:#ffffff;text-decoration:none;font-weight:700;padding:13px 22px;border-radius:10px;display:inline-block">Fill out your Con Edison application</a></p>` +
+    `.</p>` +
+    `<p>If you can, please <b>review, approve, and sign</b> the application${esc(meterBit)}. ` +
+    `All the information is already filled in for you — you just need to review it and submit.</p>` +
+    `<p style="margin:22px 0"><a href="${esc(link)}" style="background:#2d8a3e;color:#ffffff;text-decoration:none;font-weight:700;padding:13px 22px;border-radius:10px;display:inline-block">Please review the information and submit</a></p>` +
     `<p>When you finish, your completed application comes straight back to us and we file it with Con Edison for you.</p>` +
     `<p>Thank you!</p>`;
   return { bodyText, bodyHtml, first, address };
@@ -166,7 +171,7 @@ async function emailCustomerLink({ to, link, prefill = {}, meters = [] }) {
     body: JSON.stringify({
       from: "BLZ Electric <office@leelectrical.us>",
       to: [s(to)],
-      subject: `Your Con Edison application${address ? " - " + address : ""} (5-minute fill link)`,
+      subject: `Your Con Edison application${address ? " - " + address : ""} — please review and submit`,
       html,
       text,
       attachments: [leLogoAttachment()],
