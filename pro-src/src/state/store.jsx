@@ -744,25 +744,29 @@ export function StoreProvider({ children }) {
       if (merged && String(id).charAt(0) !== "_") touchCustomerJob(merged);
       const toSave = planned?.patch || patch;
       const trySave = () => api.saveJob(id, toSave);
-      try {
-        let r = await trySave();
-        if (r && r.ts) lastSavedTs.current = Math.max(lastSavedTs.current, r.ts);
-        if (planned?.entry && String(id).charAt(0) !== "_") {
-          void appendAuditEntries(planned.entry);
-        }
-      } catch {
-        // One automatic retry, then surface — agent/host can pick up longer outages.
+      // Network in the background so Save never freezes the UI (SNAPPY rule #1).
+      // Local setJobs above already applied the Inv/Est # and lines.
+      void (async () => {
         try {
-          await new Promise((res) => setTimeout(res, 400));
-          const r = await trySave();
+          let r = await trySave();
           if (r && r.ts) lastSavedTs.current = Math.max(lastSavedTs.current, r.ts);
           if (planned?.entry && String(id).charAt(0) !== "_") {
             void appendAuditEntries(planned.entry);
           }
         } catch {
-          showToast("Sync failed — will retry on next save");
+          // One automatic retry, then surface — agent/host can pick up longer outages.
+          try {
+            await new Promise((res) => setTimeout(res, 400));
+            const r = await trySave();
+            if (r && r.ts) lastSavedTs.current = Math.max(lastSavedTs.current, r.ts);
+            if (planned?.entry && String(id).charAt(0) !== "_") {
+              void appendAuditEntries(planned.entry);
+            }
+          } catch {
+            showToast("Sync failed — will retry on next save");
+          }
         }
-      }
+      })();
     },
     [showToast, auditActor, appendAuditEntries]
   );

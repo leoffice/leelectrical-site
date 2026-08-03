@@ -80,8 +80,8 @@ export default function JobDocSheets({ sheet, setSheet, job, onDocDone }) {
       onDocDone && onDocDone(doneJob, { returnTo });
       return;
     }
-    // After Save, open the numbered doc card so Levi sees Inv # / Est # —
-    // not a blank close that looked like the draft never got a number.
+    // After Save: stay on this job under the customer — open the estimate/invoice
+    // card immediately (no navigation, no wait). Snappy close of the builder.
     const kind = sheet.docKind || (doneJob?.invoiceNo ? "invoice" : doneJob?.estimateNo ? "estimate" : "");
     if (kind === "invoice" && (doneJob?.invoiceNo || doneJob?.invoiceLines?.length)) {
       setSheet({ kind: "invoiceDoc" });

@@ -1172,7 +1172,10 @@ export default function DocBuilderSheet({
     setSaving(true);
     try {
       const jobId = await ensureJobId();
-      if (!jobId) return null;
+      if (!jobId) {
+        setSaving(false);
+        return null;
+      }
       const activeJob = { ...job, id: jobId };
       const { jobPatch } = planDocSaveLocal(activeJob, {
         kind,
@@ -1208,9 +1211,8 @@ export default function DocBuilderSheet({
         for (const d of letterDrafts) drafts = upsertJobLetterDraft({ letterDrafts: drafts }, d);
         jobPatch.letterDrafts = drafts;
       }
-      // Local store update is sync inside patchAndSave; still await so the
-      // overlay write isn't raced by a concurrent jobs refresh (lost Inv #).
-      await patchAndSave(jobId, jobPatch);
+      // Local apply is instant inside patchAndSave; network continues in background.
+      void patchAndSave(jobId, jobPatch);
       const pdfJob = buildPdfJob(activeJob, jobPatch);
       if (printPdf) {
         // PDF generation can stay in background after UI continues.
@@ -1221,6 +1223,8 @@ export default function DocBuilderSheet({
         : kind === "estimate"
           ? "estimate"
           : "invoice";
+      // SNAPPY: toast + close builder immediately so we land on the job's
+      // estimate/invoice card under the customer — never wait on cloud save.
       showToast(
         opts.toast ||
           (printPdf
@@ -1230,9 +1234,12 @@ export default function DocBuilderSheet({
       resumeFollowUpPrompts();
       onDone && onDone({ ...activeJob, ...jobPatch });
       if (close) onClose();
-      return pdfJob;
-    } finally {
       setSaving(false);
+      return pdfJob;
+    } catch (e) {
+      setSaving(false);
+      showToast(String(e?.message || e || "Save failed"));
+      return null;
     }
   };
 
@@ -1321,7 +1328,8 @@ export default function DocBuilderSheet({
       if (keepOnCustomer) jobPatch.email = emailTo;
       else delete jobPatch.email;
 
-      await patchAndSave(jobId, jobPatch);
+      // Local first / network background — never block Save on cloud
+      void patchAndSave(jobId, jobPatch);
 
       const needsCustomer =
         mode !== "edit" && !String(activeJob.qboCustomerId || "").trim();
