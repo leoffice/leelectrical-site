@@ -193,6 +193,20 @@ phone calls and/or text messages from the company about your upcoming service ap
     expect(classifyEmailOutcome("Your appointment is cancelled", "Your appointment is cancelled.")).toBe("cancelled");
   });
 
+  it("Con Ed Customer To-Do status updates are not appointments (Levi MC-941580 2026-08-03)", () => {
+    const subj = "Status Update for Customer To-Do List-  1337 PRESIDENT ST, BROOKLYN, NY 11213 [MC-941580]";
+    const body = `Date: August 3, 2026
+Service At: 1337 President St Brooklyn, NY 11213
+Case Number: MC-941580
+Dear Sholom Rubashkin, The following documentation has been 'Reviewed'
+Document Name Status
+You may receive phone calls about your upcoming service appointment.`;
+    expect(classifyEmailOutcome(subj, body)).toBe("other");
+    const insight = parseEmailInsight({ from: "CPMS.noreply@coned.com", subject: subj, body });
+    expect(insight.outcome).toBe("other");
+    expect(wantsNewCalendarAppointment(insight)).toBe(false);
+  });
+
   it("re-enriches wrong stored cancelled outcome from DOB footer text", () => {
     const jobs = [
       {

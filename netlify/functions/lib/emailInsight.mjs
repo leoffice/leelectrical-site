@@ -548,6 +548,21 @@ export function classifyEmailOutcome(subject = "", body = "") {
     return "acknowledgment";
   }
 
+  // Customer To-Do / case status updates (Levi 2026-08-03 MC-941580 false 8pm appt).
+  // Subject "Status Update for Customer To-Do List" + letterhead "Date:" is NOT a visit.
+  if (
+    /\bto-?do\s+list\b/.test(subj) ||
+    /\bstatus\s+update\s+for\s+customer\b/.test(subj) ||
+    /\bcustomer\s+to-?do\b/.test(s) ||
+    (/\bdocumentation\s+has\s+been\b/.test(plain) &&
+      /\breviewed\b/.test(plain) &&
+      !/\bappointment\s+is\s+set\b/.test(s) &&
+      !/\binspection\s+scheduled\b/.test(s) &&
+      !/\bappt-\d+/.test(s))
+  ) {
+    return "other";
+  }
+
   // Reschedule BEFORE cancel: "cancelled and rescheduled to…" is a move, not a cancel
   // (Levi 2026-07-27). Past-tense only — footer "Log in to Reschedule" must not match.
   const subjectRescheduled =
@@ -613,7 +628,7 @@ export function classifyEmailOutcome(subject = "", body = "") {
   ) {
     return "reminder";
   }
-  if (/\bappointment\b/.test(s) && !/\breminder\b/.test(s)) return "scheduled";
+  // Bare "appointment" in footers/marketing/To-Do letters must NOT create calendar events.
   return "other";
 }
 
