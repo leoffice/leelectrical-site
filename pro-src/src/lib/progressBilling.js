@@ -64,11 +64,17 @@ export function progressBillLines(estimateLines, progressPct) {
   return (estimateLines || []).map((ln) => {
     const baseQty = parseAmount(ln.qty) || 1;
     const rate = lineUnitPrice(ln);
+    const qty = pct >= 1 ? baseQty : roundQty(baseQty * pct);
+    // Always keep amount in lockstep with qty × rate (Seewald 231595: qty 0.63 with
+    // amount/rate out of sync produced a $16k invoice total).
+    const amount = Math.round(qty * rate * 100) / 100;
     return {
       ...emptyLine(),
       ...ln,
-      qty: pct >= 1 ? baseQty : roundQty(baseQty * pct),
+      qty,
       unitPrice: rate,
+      rate,
+      amount,
       progressBilling: pct < 1,
     };
   });
