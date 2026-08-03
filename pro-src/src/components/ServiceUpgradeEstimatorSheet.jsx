@@ -80,7 +80,7 @@ export default function ServiceUpgradeEstimatorSheet({ onClose, prefill = {} }) 
   const { createJob, showToast, patchAndSave } = useStore();
   const nav = useNavigate();
   const editingJobId = prefill.jobId || prefill.id || null;
-  // 0 customer · 1 service · 2 meters · 3 panels distance · 4 grounding · 5 extras · 6 review · 7 takeoff
+  // 0 customer · 1 service · 2 meters · 3 additional · 4 extras · 5 review · 6 takeoff
   const [step, setStep] = useState(0);
   const [answers, setAnswers] = useState(() =>
     defaultAnswers({
@@ -155,7 +155,7 @@ export default function ServiceUpgradeEstimatorSheet({ onClose, prefill = {} }) 
 
   const openTakeoff = () => {
     setTakeoff(defaultTakeoffItems(builtAll.materialsHint));
-    setStep(7);
+    setStep(6);
   };
 
   const addMaterial = (m) => {
@@ -258,7 +258,7 @@ export default function ServiceUpgradeEstimatorSheet({ onClose, prefill = {} }) 
 
   const matResults = useMemo(() => searchMaterials(matQ, 8), [matQ]);
 
-  const steps = ["Customer", "Service", "Meters", "Panels", "Ground", "Extras", "Review", "Takeoff"];
+  const steps = ["Customer", "Service", "Meters", "Additional", "Extras", "Review", "Takeoff"];
 
   return (
     <Sheet title="Estimate generator" onClose={onClose} tall testId="service-upgrade-estimator">
@@ -533,68 +533,45 @@ export default function ServiceUpgradeEstimatorSheet({ onClose, prefill = {} }) 
       )}
 
       {step === 3 && (
-        <div className="space-y-3" data-testid="est-gen-panels">
+        <div className="space-y-3" data-testid="est-gen-additional">
           <p className="text-xs text-slate-500">
-            Meter→panel feet are set on each meter row (standard 1 ft). Here: PLP run if you have a PLP meter.
-          </p>
-          {answers.meters.some((m) => m.role === "plp") ? (
-            <FeetStepper
-              label="Feet PLP meter → PLP equipment"
-              value={answers.feetPlp}
-              onChange={(v) => set({ feetPlp: v })}
-              testId="est-gen-feet-plp"
-            />
-          ) : (
-            <p className="text-sm text-slate-600 rounded-xl border border-slate-200 bg-slate-50 px-3 py-3">
-              No PLP meter selected — skip this step or go back and mark a meter as <b>plp</b>.
-            </p>
-          )}
-          <div className="flex gap-2">
-            <button type="button" className="btn flex-1 bg-slate-100 font-bold" onClick={() => setStep(2)}>
-              Back
-            </button>
-            <button type="button" className="btn-brand flex-1" onClick={() => setStep(4)}>
-              Next — grounding
-            </button>
-          </div>
-        </div>
-      )}
-
-      {step === 4 && (
-        <div className="space-y-3" data-testid="est-gen-grounding">
-          <p className="text-xs text-slate-500">
-            Grounding + main service line distances. Extra feet beyond included add labor and materials.
+            Additional details — main service line to the metering equipment, end-line box run, and PLP if used.
+            Meter→panel feet stay on each meter row (standard 1 ft; only noted in scope if over 3 ft).
           </p>
           <FeetStepper
-            label="Grounding — feet from metering equipment"
-            value={answers.feetGround}
-            onChange={(v) => set({ feetGround: v })}
-            testId="est-gen-feet-ground"
-          />
-          <FeetStepper
-            label="Main service line distance (ft)"
-            value={answers.feetMainService ?? 10}
+            label={`Main service line to metering equipment ($${
+              answers.mainAmps <= 100 ? 200 : answers.mainAmps <= 200 ? 260 : answers.mainAmps <= 350 ? 320 : 360
+            }/ft for ${answers.mainAmps || 100}A main)`}
+            value={answers.feetMainService ?? 0}
             onChange={(v) => set({ feetMainService: v })}
             testId="est-gen-feet-main"
           />
           <FeetStepper
             label="Service end-line box → metering equipment (ft)"
-            value={answers.feetEndLineBox ?? 10}
+            value={answers.feetEndLineBox ?? 0}
             onChange={(v) => set({ feetEndLineBox: v })}
             testId="est-gen-feet-endline"
           />
+          {answers.meters.some((m) => m.role === "plp") ? (
+            <FeetStepper
+              label="PLP meter → PLP equipment (ft)"
+              value={answers.feetPlp}
+              onChange={(v) => set({ feetPlp: v })}
+              testId="est-gen-feet-plp"
+            />
+          ) : null}
           <div className="flex gap-2">
-            <button type="button" className="btn flex-1 bg-slate-100 font-bold" onClick={() => setStep(3)}>
+            <button type="button" className="btn flex-1 bg-slate-100 font-bold" onClick={() => setStep(2)}>
               Back
             </button>
-            <button type="button" className="btn-brand flex-1" onClick={() => setStep(5)}>
+            <button type="button" className="btn-brand flex-1" onClick={() => setStep(4)}>
               Next — extras
             </button>
           </div>
         </div>
       )}
 
-      {step === 5 && (
+      {step === 4 && (
         <div className="space-y-1" data-testid="est-gen-extras">
           <Toggle label="Always included (outlet + ground + service light)" on={answers.includeAlways !== false} setOn={(v) => set({ includeAlways: v })} />
           <Toggle label="Removal & disposal of old equipment" on={!!answers.includeRemoval} setOn={(v) => set({ includeRemoval: v })} />
@@ -653,17 +630,17 @@ export default function ServiceUpgradeEstimatorSheet({ onClose, prefill = {} }) 
             <textarea className="input min-h-[4rem]" value={answers.notes} onChange={(e) => set({ notes: e.target.value })} />
           </Fld>
           <div className="flex gap-2 mt-3">
-            <button type="button" className="btn flex-1 bg-slate-100 font-bold" onClick={() => setStep(4)}>
+            <button type="button" className="btn flex-1 bg-slate-100 font-bold" onClick={() => setStep(3)}>
               Back
             </button>
-            <button type="button" className="btn-brand flex-1" onClick={() => setStep(6)}>
+            <button type="button" className="btn-brand flex-1" onClick={() => setStep(5)}>
               Next — review
             </button>
           </div>
         </div>
       )}
 
-      {step === 6 && (
+      {step === 5 && (
         <div className="space-y-3" data-testid="est-gen-review">
           {errors.length ? (
             <p className="text-sm text-red-700 bg-red-50 border border-red-200 rounded-xl px-3 py-2">{errors.join(" ")}</p>
@@ -719,7 +696,7 @@ export default function ServiceUpgradeEstimatorSheet({ onClose, prefill = {} }) 
         </div>
       )}
 
-      {step === 7 && (
+      {step === 6 && (
         <div className="space-y-3" data-testid="est-gen-takeoff">
           <p className="text-sm text-slate-600">
             Field checklist. Search common names or type your own. Share this job after save so the crew can complete the list.
@@ -783,7 +760,7 @@ export default function ServiceUpgradeEstimatorSheet({ onClose, prefill = {} }) 
           <button type="button" className="btn-brand w-full" disabled={busy || errors.length} onClick={saveEstimate}>
             {busy ? "Saving…" : "Save job + estimate + takeoff"}
           </button>
-          <button type="button" className="btn-ghost w-full text-sm" onClick={() => setStep(6)}>
+          <button type="button" className="btn-ghost w-full text-sm" onClick={() => setStep(5)}>
             Back to review
           </button>
         </div>

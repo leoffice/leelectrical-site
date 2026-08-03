@@ -41,14 +41,23 @@ export const DEFAULT_FEES = {
   freeFeetMeterPanel: 1,
   freeFeetPlp: 1,
   freeFeetGround: 15,
-  freeFeetEndLine: 10,
-  freeFeetMainService: 10,
+  freeFeetEndLine: 0,
+  freeFeetMainService: 0,
   /** Labor+materials per extra foot beyond free */
   perFootMeterPanel: 35,
   perFootPlp: 35,
   perFootGround: 8,
-  perFootEndLine: 10,
-  perFootMainService: 40,
+  perFootEndLine: 40,
+  /**
+   * Main service line (utility/street path → metering equipment) $/ft by main amp.
+   * Levi: ~$200/ft for 100A — scales up for larger copper/conduit labor.
+   */
+  perFootMainServiceByAmp: {
+    100: 200,
+    200: 260,
+    350: 320,
+    400: 360,
+  },
   conduitPerFoot: 85,
   overheadBase: 1200,
   overheadPerFootExtra: 40,
@@ -88,10 +97,13 @@ export function defaultAnswers(partial = {}) {
     feetPanelsToMeter: 1,
     feetPlp: 1,
     feetGround: 15,
-    /** Service end-line box → metering equipment */
-    feetEndLineBox: 10,
-    /** Main service line distance (street/pole/riser path) */
-    feetMainService: 10,
+    /** Service end-line box → metering equipment (NYC) */
+    feetEndLineBox: 0,
+    /**
+     * Main service line distance — utility / street path to metering equipment.
+     * Priced per foot by main service amp size.
+     */
+    feetMainService: 0,
     includeAlways: true,
     includeRemoval: false,
     includeFiling: false,
@@ -140,6 +152,17 @@ function money(n) {
 function distCost(feet, free, rate) {
   const over = Math.max(0, (Number(feet) || 0) - free);
   return money(over * rate);
+}
+
+/** $/ft for main service line by main disconnect amp size. */
+export function mainServicePerFoot(mainAmps, fees) {
+  const f = fees || DEFAULT_FEES;
+  const table = f.perFootMainServiceByAmp || DEFAULT_FEES.perFootMainServiceByAmp;
+  const a = Number(mainAmps) || 100;
+  if (a <= 100) return table[100] ?? 200;
+  if (a <= 200) return table[200] ?? 260;
+  if (a <= 350) return table[350] ?? 320;
+  return table[400] ?? 360;
 }
 
 export function roleLabel(role) {
@@ -222,11 +245,16 @@ export function buildServiceUpgradeEstimate(answers) {
       metersSubtotal += pFee;
     }
 
+    // Scope: only call out meter→panel distance when over 3 ft (Levi)
+    const distNote =
+      feet > 3
+        ? ` · ${feet} ft meter→panel` +
+          (extraRun > 0 ? ` (+$${extraRun} labor/materials)` : "")
+        : "";
     workBullets.push(
       `Meter ${i + 1} (${role}, ${s.label})${i > 0 ? " — additional meter rate" : ""}` +
         (m.includePanel !== false ? ` + panel` : " · no panel") +
-        ` · ${feet} ft meter→panel` +
-        (extraRun > 0 ? ` (+$${extraRun} labor/materials beyond ${f.freeFeetMeterPanel} ft)` : "")
+        distNote
     );
 
     materialsHint.push({
@@ -253,26 +281,33 @@ export function buildServiceUpgradeEstimate(answers) {
     }
   }
 
+  // Main service line = path to metering / service equipment (priced by main amp)
+  const mainRate = mainServicePerFoot(a.mainAmps, f);
+  const ms = distCost(a.feetMainService, f.freeFeetMainService ?? 0, mainRate);
+  if (Number(a.feetMainService) > 0) {
+    metersSubtotal += ms;
+    workBullets.push(
+      `Main service line to metering equipment: ${a.feetMainService} ft × $${mainRate}/ft` +
+        (ms > 0 ? ` = $${ms}` : "") +
+        ` (${a.mainAmps}A main)`
+    );
+  }
+
+  // End-line box → metering (NYC) — only if entered
+  const el = distCost(a.feetEndLineBox, f.freeFeetEndLine ?? 0, f.perFootEndLine);
+  if (Number(a.feetEndLineBox) > 0) {
+    metersSubtotal += el;
+    workBullets.push(
+      `Service end-line box → metering equipment: ${a.feetEndLineBox} ft` +
+        (el > 0 ? ` (+$${el})` : "")
+    );
+  }
+
+  // Grounding run only when over free included length (always-included covers standard ground)
   const gd = distCost(a.feetGround, f.freeFeetGround, f.perFootGround);
   if (gd > 0) {
     metersSubtotal += gd;
-    workBullets.push(`Grounding from metering equipment: ${a.feetGround} ft (+$${gd})`);
-  } else {
-    workBullets.push(`Grounding from metering equipment: ${a.feetGround} ft`);
-  }
-
-  const el = distCost(a.feetEndLineBox, f.freeFeetEndLine, f.perFootEndLine);
-  if (el > 0) {
-    metersSubtotal += el;
-    workBullets.push(`End-line box → metering equipment: ${a.feetEndLineBox} ft (+$${el})`);
-  }
-
-  const ms = distCost(a.feetMainService, f.freeFeetMainService, f.perFootMainService);
-  if (ms > 0) {
-    metersSubtotal += ms;
-    workBullets.push(`Main service line distance: ${a.feetMainService} ft (+$${ms})`);
-  } else {
-    workBullets.push(`Main service line distance: ${a.feetMainService} ft`);
+    workBullets.push(`Extra grounding run from metering equipment: ${a.feetGround} ft (+$${gd})`);
   }
 
   if (a.includeAlways !== false) {

@@ -10,6 +10,7 @@ import {
   meterFeeForIndex,
   emptyMeter,
   DEFAULT_FEES,
+  mainServicePerFoot,
 } from "../src/lib/serviceUpgradeEstimator.js";
 import { searchMaterials } from "../src/lib/materialCatalog.js";
 
@@ -87,6 +88,30 @@ describe("serviceUpgradeEstimator", () => {
     expect(more.total).toBeGreaterThan(base.total);
     // 10 extra ft * $35
     expect(more.total - base.total).toBe(350);
+  });
+
+  it("main service line is $200/ft at 100A and scales with main amp", () => {
+    expect(mainServicePerFoot(100)).toBe(200);
+    expect(mainServicePerFoot(200)).toBe(260);
+    const zero = buildServiceUpgradeEstimate(defaultAnswers({ mainAmps: 100, feetMainService: 0 }));
+    const ten = buildServiceUpgradeEstimate(defaultAnswers({ mainAmps: 100, feetMainService: 10 }));
+    expect(ten.total - zero.total).toBe(2000);
+    expect(ten.lines[0].description).toMatch(/Main service line to metering equipment: 10 ft/);
+  });
+
+  it("scope omits meter→panel distance when 3 ft or less", () => {
+    const short = buildServiceUpgradeEstimate(
+      defaultAnswers({
+        meters: [{ role: "residential", sizeId: "100-1", includePanel: true, feetToPanel: 2 }],
+      })
+    );
+    expect(short.lines[0].description).not.toMatch(/ft meter→panel/);
+    const long = buildServiceUpgradeEstimate(
+      defaultAnswers({
+        meters: [{ role: "residential", sizeId: "100-1", includePanel: true, feetToPanel: 5 }],
+      })
+    );
+    expect(long.lines[0].description).toMatch(/5 ft meter→panel/);
   });
 
   it("filterEnabledEstimateLines drops off lines and recalculates total", () => {
