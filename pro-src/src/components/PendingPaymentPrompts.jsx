@@ -11,13 +11,74 @@ import {
 } from "../lib/paymentAutofill.js";
 import { buildPaymentVisionLearningEntry } from "../lib/paymentVisionLearning.js";
 import { getDepositBanks } from "../lib/chatPayment.js";
-import { fmt$, todayStr } from "../lib/format.js";
+import { fmt$, parseAmount, todayStr } from "../lib/format.js";
 import PaymentImageZoom from "./PaymentImageZoom.jsx";
 import DismissSnoozePanel from "./DismissSnoozePanel.jsx";
 import { Fld } from "./Sheet.jsx";
 import { isSuggestionSnoozed, snoozeSuggestion } from "../lib/dismissSnooze.js";
 
 const IS_TEST = typeof process !== "undefined" && process.env && process.env.NODE_ENV === "test";
+
+/** Score open invoices for "Where does it go?" shortlist (Levi 2026-08-03). */
+function scoreJobForPayment(job, { amount, memo, fromName, query }) {
+  if (!job) return -1;
+  const open = parseAmount(job.openBalance);
+  const paid = job.paid === true || (job.status?.Paid && job.status.Paid.s === "done");
+  if (paid && open <= 0.01) return -1;
+  // Prefer jobs with some balance or an invoice #
+  const inv = String(job.invoiceNo || "").trim();
+  if (!inv && open <= 0) return -1;
+  let score = 0;
+  const payAmt = parseAmount(amount);
+  if (payAmt > 0 && open > 0) {
+    if (Math.abs(open - payAmt) < 0.02) score += 100;
+    else if (Math.abs(open - payAmt) <= 1) score += 60;
+    else if (payAmt <= open + 0.02) score += 25;
+  }
+  const blob = [
+    job.customer,
+    job.customerName,
+    job.serviceAddress,
+    job.address,
+    job.billingAddress,
+    inv,
+    job.memo,
+  ]
+    .filter(Boolean)
+    .join(" ")
+    .toLowerCase();
+  const memoL = String(memo || "").toLowerCase();
+  const fromL = String(fromName || "").toLowerCase();
+  const q = String(query || "").toLowerCase().trim();
+  if (memoL) {
+    for (const tok of memoL.split(/[^a-z0-9]+/).filter((t) => t.length >= 3)) {
+      if (blob.includes(tok)) score += 20;
+    }
+  }
+  if (fromL) {
+    for (const tok of fromL.split(/[^a-z0-9]+/).filter((t) => t.length >= 3)) {
+      if (blob.includes(tok)) score += 12;
+    }
+  }
+  if (q) {
+    if (blob.includes(q)) score += 50;
+    for (const tok of q.split(/[^a-z0-9.$]+/).filter((t) => t.length >= 2)) {
+      if (blob.includes(tok)) score += 15;
+      const n = parseAmount(tok);
+      if (n > 0 && (Math.abs(open - n) < 0.02 || String(inv) === tok.replace(/^#/, ""))) score += 40;
+    }
+  }
+  if (open > 0) score += 5;
+  return score;
+}
+
+function rankJobsForPayment(jobs, opts, limit = 12) {
+  return (jobs || [])
+    .map((j) => ({ job: j, score: scoreJobForPayment(j, opts) }))
+    .filter((x) => x.score >= 0)
+    .sort((a, b) => b.score - a.score || parseAmount(a.job.openBalance) - parseAmount(b.job.openBalance))
+    .slice(0, limit);
+}
 
 /** Snooze bucket for one payment notice — see lib/dismissSnooze.js. */
 function paymentSnoozeKey(item) {
@@ -81,6 +142,9 @@ export default function PendingPaymentPrompts() {
   const [editMode, setEditMode] = useState(false);
   /** Session-local closed ids/confs so poll/save lag cannot re-show after Got it (Levi 2026-08-03). */
   const [closedKeys, setClosedKeys] = useState(() => new Set());
+  /** Levi picks job for unmatched payments. */
+  const [pickJobId, setPickJobId] = useState("");
+  const [pickQuery, setPickQuery] = useState("");
   const depositBanks = useMemo(() => getDepositBanks(), []);
 
   const noticeKey = useCallback((p) => {
@@ -146,6 +210,8 @@ export default function PendingPaymentPrompts() {
     // A new notice always opens on the card, never on the snooze picker.
     setSnoozing(false);
     setEditMode(false);
+    setPickJobId(current.jobId || "");
+    setPickQuery("");
   }, [current?.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const clearPending = useCallback(
@@ -313,9 +379,20 @@ export default function PendingPaymentPrompts() {
     }
   };
 
+  const matchCandidates = useMemo(() => {
+    if (!current) return [];
+    return rankJobsForPayment(jobs, {
+      amount: amt || current.amount,
+      memo: memo || current.memo,
+      fromName: current.fromName || current.payer,
+      query: pickQuery,
+    });
+  }, [jobs, current, amt, memo, pickQuery]);
+
   const onApprove = async () => {
     if (!current) return;
     let job =
+      (pickJobId && (jobs || []).find((j) => String(j.id) === String(pickJobId))) ||
       current.job ||
       (jobs || []).find((j) => String(j.id) === String(current.jobId));
     // Fall back: match invoice # when the system queue has no hard job id.
@@ -328,7 +405,7 @@ export default function PendingPaymentPrompts() {
       );
     }
     if (!job) {
-      showToast("Couldn’t find that job — open the invoice, then Approve again");
+      showToast("Pick a customer / invoice first — search below");
       return;
     }
     const payAmt = parseFloat(String(amt).replace(/[$,]/g, "")) || 0;
@@ -415,7 +492,8 @@ export default function PendingPaymentPrompts() {
     Boolean(current.autoApplied) || String(current.status || "") === "auto_applied";
   const needsMatch =
     String(current.status || "") === "needs_match" ||
-    (!job && !current.invoiceNo && !current.customer);
+    (!current.invoiceNo && !current.customer) ||
+    (!job && String(current.status || "") === "pending");
   const showAckCard = isAutoApplied && !editMode;
   const title = showAckCard
     ? "Payment applied — confirm"
@@ -594,11 +672,54 @@ export default function PendingPaymentPrompts() {
           </div>
         ) : (
           <>
-          {needsMatch ? (
-            <p className="px-4 pt-3 text-sm text-slate-700 leading-snug" data-testid="pending-payment-where">
-              A payment came in — pick which invoice / customer it belongs to (short list from amount +
-              memo), then Approve.
-            </p>
+          {needsMatch || !job ? (
+            <div className="px-4 pt-3 space-y-2" data-testid="pending-payment-where">
+              <p className="text-sm text-slate-700 leading-snug">
+                A payment came in — choose the customer / open invoice. Search by name, service address,
+                invoice #, or amount due.
+              </p>
+              <input
+                className="input w-full"
+                placeholder="Search customer, address, invoice #, or amount…"
+                value={pickQuery}
+                onChange={(e) => setPickQuery(e.target.value)}
+                disabled={busy}
+                data-testid="pending-payment-job-search"
+              />
+              <div
+                className="max-h-48 overflow-y-auto rounded-xl border border-slate-200 divide-y divide-slate-100"
+                data-testid="pending-payment-job-list"
+              >
+                {matchCandidates.length === 0 ? (
+                  <div className="px-3 py-3 text-sm text-slate-500">No open invoices matched — try another search.</div>
+                ) : (
+                  matchCandidates.map(({ job: j, score }) => {
+                    const selected = String(pickJobId) === String(j.id);
+                    return (
+                      <button
+                        type="button"
+                        key={j.id}
+                        className={`w-full text-left px-3 py-2.5 text-sm ${
+                          selected ? "bg-brand/10 ring-inset ring-2 ring-brand" : "bg-white active:bg-slate-50"
+                        }`}
+                        onClick={() => setPickJobId(j.id)}
+                        data-testid={"pending-payment-job-" + j.id}
+                      >
+                        <div className="font-extrabold text-slate-900">{j.customer || j.customerName || "Customer"}</div>
+                        <div className="text-slate-600 text-xs mt-0.5">
+                          {j.invoiceNo ? `#${j.invoiceNo}` : "No inv #"}
+                          {j.openBalance != null && j.openBalance !== "" ? ` · due ${fmt$(j.openBalance)}` : ""}
+                        </div>
+                        <div className="text-slate-500 text-xs truncate">
+                          {j.serviceAddress || j.address || ""}
+                          {score >= 40 ? " · likely match" : ""}
+                        </div>
+                      </button>
+                    );
+                  })
+                )}
+              </div>
+            </div>
           ) : null}
           {current.proofUrl ? (
             <div className="px-4 pt-3">
@@ -607,6 +728,7 @@ export default function PendingPaymentPrompts() {
           ) : null}
 
           <div className="px-4 py-3 space-y-2.5">
+            {current.proofUrl ? (
             <div className="flex gap-2">
               <button
                 type="button"
@@ -618,6 +740,7 @@ export default function PendingPaymentPrompts() {
                 {autofillBusy ? "Reading…" : autofillDone ? "✓ Autofilled" : "Autofill from photo"}
               </button>
             </div>
+            ) : null}
 
             <Fld label="Amount">
               <input
@@ -658,10 +781,10 @@ export default function PendingPaymentPrompts() {
               type="button"
               className="btn bg-brand text-white w-full font-bold"
               onClick={onApprove}
-              disabled={busy || !job}
+              disabled={busy || (!job && !pickJobId)}
               data-testid="pending-payment-approve"
             >
-              {busy ? "Saving…" : needsMatch ? "Apply to this invoice" : "Approve payment"}
+              {busy ? "Saving…" : needsMatch || !job ? "Apply to selected invoice" : "Approve payment"}
             </button>
             <button
               type="button"
