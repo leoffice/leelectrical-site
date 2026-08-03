@@ -95,38 +95,45 @@ export default function InvoiceReviewSheet({ job, onClose, kind: kindProp }) {
     setLines((rows) => rows.map((ln, idx) => (idx === i ? { ...ln, ...patch } : ln)));
   }, []);
 
-  const approve = async () => {
+  // Snappy (Levi): close + toast immediately; network in background.
+  const approve = () => {
     const valid = lines.filter((ln) => (ln.itemName || "").trim() || (ln.description || "").trim());
     if (!valid.length) return showToast("Keep at least one line");
+    if (saving) return;
     setSaving(true);
-    try {
-      const patch = approveAgentDraftPatch(job, valid, kind);
-      await patchAndSave(job.id, patch);
-      const delta = patch[kind === "estimate" ? "estimateAgentDraft" : "invoiceAgentDraft"]?.learningDelta || [];
-      if (delta.length && kind === "invoice") {
-        await appendInvoiceEditFeedback({ jobId: job.id, delta, sourceText: draft.sourceText });
+    const patch = approveAgentDraftPatch(job, valid, kind);
+    const delta = patch[kind === "estimate" ? "estimateAgentDraft" : "invoiceAgentDraft"]?.learningDelta || [];
+    void (async () => {
+      try {
+        await patchAndSave(job.id, patch);
+        if (delta.length && kind === "invoice") {
+          await appendInvoiceEditFeedback({ jobId: job.id, delta, sourceText: draft.sourceText });
+        }
+      } finally {
+        setSaving(false);
       }
-      showToast(
-        kind === "estimate"
-          ? "Estimate approved — use Save & sync when ready for QuickBooks"
-          : "Invoice approved — use Save & sync when ready for QuickBooks"
-      );
-      onClose();
-    } finally {
-      setSaving(false);
-    }
+    })();
+    showToast(
+      kind === "estimate"
+        ? "Estimate approved — use Save & sync when ready for QuickBooks"
+        : "Invoice approved — use Save & sync when ready for QuickBooks"
+    );
+    onClose();
   };
 
-  const deny = async () => {
+  const deny = () => {
+    if (saving) return;
     setSaving(true);
-    try {
-      const patch = denyAgentDraftPatch(job, kind);
-      if (patch) await patchAndSave(job.id, patch);
-      showToast(kind === "estimate" ? "Estimate changes denied" : "Invoice changes denied");
-      onClose();
-    } finally {
-      setSaving(false);
-    }
+    const patch = denyAgentDraftPatch(job, kind);
+    void (async () => {
+      try {
+        if (patch) await patchAndSave(job.id, patch);
+      } finally {
+        setSaving(false);
+      }
+    })();
+    showToast(kind === "estimate" ? "Estimate changes denied" : "Invoice changes denied");
+    onClose();
   };
 
   const title =

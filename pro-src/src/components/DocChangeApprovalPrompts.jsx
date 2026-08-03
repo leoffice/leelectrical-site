@@ -21,7 +21,7 @@ function dueReviews(jobs) {
 
 export default function DocChangeApprovalPrompts() {
   const { jobs, loading } = useStoreData();
-  const { patchAndSave, showToast, saveAll } = useStore();
+  const { patchAndSave, showToast } = useStore();
   const navigate = useNavigate();
   const [tick, setTick] = useState(0);
   const [editing, setEditing] = useState(null); // { job, kind }
@@ -71,38 +71,31 @@ export default function DocChangeApprovalPrompts() {
     showToast(`I'll ask again in ${minutes} min`);
   };
 
-  const approveAsProposed = async () => {
-    setBusy(true);
-    try {
-      const lines = draft?.lines || [];
-      if (!lines.length) {
-        showToast("Nothing to approve — open Edit");
-        return;
-      }
-      const patch = approveAgentDraftPatch(job, lines, kind);
-      await patchAndSave(job.id, patch);
-      try {
-        await saveAll?.();
-      } catch {
-        /* optional */
-      }
-      showToast(kind === "estimate" ? "Estimate change approved" : "Invoice change approved");
-      setTick((n) => n + 1);
-    } finally {
-      setBusy(false);
+  // Snappy rule (Levi 2026-08-03): never hold Approve/Deny on network.
+  // patchAndSave applies setJobs first, then persists in background.
+  const approveAsProposed = () => {
+    const lines = draft?.lines || [];
+    if (!lines.length) {
+      showToast("Nothing to approve — open Edit");
+      return;
     }
+    if (busy) return;
+    setBusy(true);
+    const patch = approveAgentDraftPatch(job, lines, kind);
+    // Fire-and-forget network — card dismisses from local apply.
+    void patchAndSave(job.id, patch).finally(() => setBusy(false));
+    showToast(kind === "estimate" ? "Estimate change approved" : "Invoice change approved");
+    setTick((n) => n + 1);
   };
 
-  const deny = async () => {
+  const deny = () => {
+    if (busy) return;
     setBusy(true);
-    try {
-      const patch = denyAgentDraftPatch(job, kind);
-      if (patch) await patchAndSave(job.id, patch);
-      showToast("Denied — original kept");
-      setTick((n) => n + 1);
-    } finally {
-      setBusy(false);
-    }
+    const patch = denyAgentDraftPatch(job, kind);
+    if (patch) void patchAndSave(job.id, patch).finally(() => setBusy(false));
+    else setBusy(false);
+    showToast("Denied — original kept");
+    setTick((n) => n + 1);
   };
 
   const openJob = () => {
