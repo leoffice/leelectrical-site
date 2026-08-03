@@ -26,6 +26,7 @@ export {
 export {
   FUNCTIONALITIES_LOCK_IN,
   LEARNED_SKILLS_REMOVED,
+  lockInProgressPct,
   functionalitiesLockInSeed,
   lockInDoneCount,
   lockInTotalCount,

@@ -2,15 +2,14 @@
  * "FUNCTIONALITIES TO LOCK IN" — remaining Con Ed / DOB sub-workflows to teach.
  * Learned / already-shipped skills are REMOVED from the list (clean slate).
  * Seeded from LEPRO_PERMITS_DEPLOY_METER_APP_SPEC.md §2 (ids preserved).
+ * Scale = learned / total — update LEARNED_SKILLS_REMOVED when a skill is verified working.
  */
 
 /** @typedef {'done'|'to_build'|'learned'} LockInStatus */
 
 /**
  * Skills still on the board (not yet locked in / still to teach).
- * Removed (learned):
- *   1 — Create an application (new service application) — LIVE
- *   8 — Submit meter application (4 options) — LIVE
+ * Removed (learned) — see LEARNED_SKILLS_REMOVED.
  *
  * @type {ReadonlyArray<{
  *   id: number,
@@ -90,10 +89,19 @@ export const FUNCTIONALITIES_LOCK_IN = Object.freeze([
   },
 ]);
 
-/** Skills already learned and removed from the visible board (audit only). */
+/**
+ * Skills already learned and removed from the visible board (audit + scale).
+ * id 15 = Submit a Case (Energy Services create-case) — verified to Review
+ * (Goodness #201963 + Rubashkin 1337 President Add Load); never auto-submit.
+ */
 export const LEARNED_SKILLS_REMOVED = Object.freeze([
   { id: 1, title: "Create an application (new service application)" },
   { id: 8, title: "Submit meter application (4 options)" },
+  {
+    id: 15,
+    title: "Submit a Case (Energy Services create-case → Review)",
+    notes: "Fill to Review only; Levi confirms before submit",
+  },
 ]);
 
 /** Fresh array copy of the seed (UI-safe). Done/learned never appear. */
@@ -126,4 +134,11 @@ export function lockInTotalCount(list = FUNCTIONALITIES_LOCK_IN) {
 export function lockInRemainingCount(list) {
   const seed = list || FUNCTIONALITIES_LOCK_IN;
   return (seed || []).filter((i) => i && i.status === "to_build").length;
+}
+
+/** 0–100 progress for the skills scale (learned / total). */
+export function lockInProgressPct(list) {
+  const total = lockInTotalCount(list);
+  if (!total) return 0;
+  return Math.round((lockInDoneCount(list) / total) * 100);
 }

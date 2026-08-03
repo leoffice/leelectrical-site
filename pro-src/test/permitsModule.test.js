@@ -13,9 +13,11 @@ import {
   recordMeterApplication,
   jobPatchMeterApplication,
   FUNCTIONALITIES_LOCK_IN,
+  LEARNED_SKILLS_REMOVED,
   functionalitiesLockInSeed,
   lockInDoneCount,
   lockInTotalCount,
+  lockInProgressPct,
   isLockInDone,
 } from "../src/modules/permits/index.js";
 import {
@@ -139,17 +141,24 @@ describe("meter application (4 options)", () => {
 });
 
 describe("functionalities to lock in checklist", () => {
-  it("seeds remaining skills only — learned (1, 8) removed from the board", () => {
+  it("seeds remaining skills only — learned removed from the board", () => {
     const seed = functionalitiesLockInSeed();
-    // 12 remaining to-teach skills (14 original − 2 learned)
+    // 12 remaining to-teach · 3 learned (app, meter, create-case)
     expect(seed).toHaveLength(12);
     expect(seed.every((i) => i.status === "to_build")).toBe(true);
     expect(seed.find((i) => i.id === 1)).toBeUndefined();
     expect(seed.find((i) => i.id === 8)).toBeUndefined();
+    expect(seed.find((i) => i.id === 15)).toBeUndefined();
     expect(seed.find((i) => i.id === 2)).toBeTruthy();
-    // Totals include learned for progress context
-    expect(lockInTotalCount()).toBe(14);
-    expect(lockInDoneCount()).toBe(2);
+    // Totals include learned for progress scale
+    expect(lockInTotalCount()).toBe(15);
+    expect(lockInDoneCount()).toBe(3);
+  });
+
+  it("scale reflects what's working (create-case verified to Review)", () => {
+    expect(LEARNED_SKILLS_REMOVED.map((s) => s.id).sort((a, b) => a - b)).toEqual([1, 8, 15]);
+    expect(LEARNED_SKILLS_REMOVED.find((s) => s.id === 15)?.title).toMatch(/Submit a Case/i);
+    expect(lockInProgressPct()).toBe(20); // 3/15
   });
 
   it("preserves L1 / POE / Con Edison notes on key remaining items", () => {
