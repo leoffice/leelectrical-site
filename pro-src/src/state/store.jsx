@@ -1102,6 +1102,8 @@ export function StoreProvider({ children }) {
           : {}),
         ...(Array.isArray(g.invoiceLines) && g.invoiceLines.length ? { invoiceLines: g.invoiceLines } : {}),
         ...(g._estimator ? { _estimator: g._estimator } : {}),
+        ...(g._fromEstimateGenerator ? { _fromEstimateGenerator: true } : {}),
+        ...(g._estimateConfirmed ? { _estimateConfirmed: true } : {}),
         // Change-order fields (must survive create — Discard removes draft COs).
         ...(g.changeOrder
           ? {

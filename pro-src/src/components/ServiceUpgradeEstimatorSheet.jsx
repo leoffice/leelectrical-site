@@ -81,7 +81,9 @@ export default function ServiceUpgradeEstimatorSheet({ onClose, prefill = {} }) 
   const nav = useNavigate();
   const editingJobId = prefill.jobId || prefill.id || null;
   // 0 customer · 1 service · 2 meters · 3 additional · 4 extras · 5 review · 6 takeoff
-  const [step, setStep] = useState(0);
+  const [step, setStep] = useState(() =>
+    Number.isFinite(prefill.startStep) ? Math.max(0, Math.min(6, prefill.startStep)) : 0
+  );
   const [answers, setAnswers] = useState(() =>
     defaultAnswers({
       ...(prefill._estimator?.answers || {}),
@@ -103,7 +105,16 @@ export default function ServiceUpgradeEstimatorSheet({ onClose, prefill = {} }) 
     })
   );
   const [busy, setBusy] = useState(false);
-  const [takeoff, setTakeoff] = useState([]);
+  const [takeoff, setTakeoff] = useState(() => {
+    const prior = prefill._estimator?.takeoff;
+    if (Array.isArray(prior) && prior.length) return prior;
+    if (Number.isFinite(prefill.startStep) && prefill.startStep >= 6) {
+      return defaultTakeoffItems(
+        buildServiceUpgradeEstimate(prefill._estimator?.answers || {}).materialsHint
+      );
+    }
+    return [];
+  });
   const [matQ, setMatQ] = useState("");
   const [shareNote, setShareNote] = useState("");
   // Per-line on/off on Review — true/undefined = include, false = drop from total & save
@@ -184,7 +195,11 @@ export default function ServiceUpgradeEstimatorSheet({ onClose, prefill = {} }) 
     setMatQ("");
   };
 
-  const saveEstimate = async () => {
+  /**
+   * Create/update job + estimate from generator.
+   * @param {"job"|"estimate"} open — after save, open job detail or estimate viewer
+   */
+  const saveEstimate = async (open = "job") => {
     if (errors.length) {
       showToast(errors[0]);
       return;
@@ -204,22 +219,30 @@ export default function ServiceUpgradeEstimatorSheet({ onClose, prefill = {} }) 
         takeoff: takeoff.length ? takeoff : defaultTakeoffItems(builtAll.materialsHint),
         builtAt: Date.now(),
       };
-      const patch = {
+      // Flags so list UI can mark generator jobs + estimate stage is real
+      const generatorFlags = {
+        _estimator: estimatorPayload,
+        _fromEstimateGenerator: true,
+        _estimateConfirmed: true,
         estimateLines: built.lines,
         amount: fmt$(built.total) || String(built.total),
         title: built.title,
+        description: built.title,
         serviceAddress: answers.serviceAddress || "",
         address: answers.serviceAddress || "",
         notes: answers.notes || "",
-        _estimator: estimatorPayload,
       };
 
       // Re-run generator on an existing job (Edit with estimate generator)
       if (editingJobId) {
-        await patchAndSave?.(editingJobId, patch);
+        await patchAndSave?.(editingJobId, generatorFlags);
         showToast("Estimate updated from generator");
         onClose?.();
-        nav("/job/" + encodeURIComponent(editingJobId) + "?fold=0");
+        const q =
+          open === "estimate"
+            ? `?doc=estimate&fold=0`
+            : `?fold=0`;
+        nav("/job/" + encodeURIComponent(editingJobId) + q);
         return;
       }
 
@@ -237,7 +260,10 @@ export default function ServiceUpgradeEstimatorSheet({ onClose, prefill = {} }) 
           amount: fmt$(built.total) || String(built.total),
           estimateLines: built.lines,
           notes: answers.notes || "",
+          description: built.title,
           _estimator: estimatorPayload,
+          _fromEstimateGenerator: true,
+          _estimateConfirmed: true,
         },
         prefill.calEventId || ""
       );
@@ -245,10 +271,14 @@ export default function ServiceUpgradeEstimatorSheet({ onClose, prefill = {} }) 
         showToast("Could not create job");
         return;
       }
-      await patchAndSave?.(jobId, patch);
-      showToast("Estimate created — viewing job");
+      // Persist flags (createJob already wrote lines; reinforce generator mark)
+      await patchAndSave?.(jobId, generatorFlags);
+      showToast(
+        open === "estimate" ? "Job + estimate created — viewing estimate" : "Job + estimate created"
+      );
       onClose?.();
-      nav("/job/" + encodeURIComponent(jobId) + "?fold=0");
+      const q = open === "estimate" ? `?doc=estimate&fold=0` : `?fold=0`;
+      nav("/job/" + encodeURIComponent(jobId) + q);
     } catch (e) {
       showToast(String(e?.message || e || "Save failed"));
     } finally {
@@ -687,11 +717,26 @@ export default function ServiceUpgradeEstimatorSheet({ onClose, prefill = {} }) 
           <button type="button" className="btn w-full bg-slate-100 font-bold" onClick={openTakeoff}>
             Takeoff / materials list
           </button>
-          <button type="button" className="btn-brand w-full" disabled={busy || errors.length} onClick={saveEstimate}>
-            {busy ? "Saving…" : "Save — create job + estimate"}
+          <button
+            type="button"
+            className="btn-brand w-full"
+            disabled={busy || errors.length}
+            data-testid="est-gen-save-create-job"
+            onClick={() => saveEstimate("job")}
+          >
+            {busy ? "Saving…" : "Save and Create a Job"}
+          </button>
+          <button
+            type="button"
+            className="btn w-full bg-emerald-100 text-emerald-900 font-bold border border-emerald-200"
+            disabled={busy || errors.length}
+            data-testid="est-gen-view-estimate"
+            onClick={() => saveEstimate("estimate")}
+          >
+            {busy ? "Saving…" : "View Estimate"}
           </button>
           <p className="text-[11px] text-slate-500 text-center">
-            Creates a job with estimate lines ready to send. Invoice when you convert the estimate.
+            Both create a job with estimate lines. View Estimate opens the estimate right away.
           </p>
         </div>
       )}
@@ -757,8 +802,21 @@ export default function ServiceUpgradeEstimatorSheet({ onClose, prefill = {} }) 
           >
             Prepare share note
           </button>
-          <button type="button" className="btn-brand w-full" disabled={busy || errors.length} onClick={saveEstimate}>
-            {busy ? "Saving…" : "Save job + estimate + takeoff"}
+          <button
+            type="button"
+            className="btn-brand w-full"
+            disabled={busy || errors.length}
+            onClick={() => saveEstimate("job")}
+          >
+            {busy ? "Saving…" : "Save and Create a Job"}
+          </button>
+          <button
+            type="button"
+            className="btn w-full bg-emerald-100 text-emerald-900 font-bold border border-emerald-200"
+            disabled={busy || errors.length}
+            onClick={() => saveEstimate("estimate")}
+          >
+            {busy ? "Saving…" : "View Estimate"}
           </button>
           <button type="button" className="btn-ghost w-full text-sm" onClick={() => setStep(5)}>
             Back to review

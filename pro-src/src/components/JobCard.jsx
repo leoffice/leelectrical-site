@@ -84,7 +84,9 @@ export function GroupJobRow({ job, openInvoiceOnly = false, to }) {
   return (
     <Link
       to={href}
-      className="flex items-stretch gap-0 rounded-xl bg-white border border-slate-100 overflow-hidden active:bg-slate-50"
+      className={`flex items-stretch gap-0 rounded-xl bg-white border border-slate-100 overflow-hidden active:bg-slate-50 relative ${
+        job._fromEstimateGenerator || job._estimator?.kind ? "ring-1 ring-emerald-200/80" : ""
+      }`}
       data-testid="group-job-row"
       data-open-invoice={isOpenInv ? "1" : "0"}
       data-age-days={isOpenInv ? String(age) : undefined}
@@ -113,6 +115,13 @@ export default function JobCard({ job, compact, stackN, onQuickSend, onMarkPaid 
   const href = `/job/${encodeURIComponent(job.id)}`;
   return (
     <Link to={href} className="block card px-3 py-2.5 lg:px-4 lg:py-3.5 active:scale-[0.99] transition-transform relative">
+      {job._fromEstimateGenerator || job._estimator?.kind ? (
+        <span
+          className="absolute inset-x-0 top-0 h-1 bg-gradient-to-r from-emerald-300/80 via-emerald-400/70 to-emerald-300/50 rounded-t-[inherit]"
+          data-testid="job-estimator-stripe"
+          title="Created with estimate generator"
+        />
+      ) : null}
       {stackN ? (
         <span className="absolute -top-2 right-3 pill bg-accent text-white shadow">{stackN} jobs</span>
       ) : null}

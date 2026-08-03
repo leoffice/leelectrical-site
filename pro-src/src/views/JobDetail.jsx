@@ -967,14 +967,23 @@ export default function JobDetail() {
                                     Edit lines
                                   </button>
                                 ) : null}
-                                {job._estimator?.kind === "service_upgrade" ? (
-                                  <button
-                                    className="btn bg-emerald-100 text-emerald-800 !py-1.5"
-                                    onClick={() => setSheet({ kind: "serviceUpgradeGen" })}
-                                    data-testid="edit-estimate-generator"
-                                  >
-                                    Edit with estimate generator
-                                  </button>
+                                {job._estimator?.kind === "service_upgrade" || job._fromEstimateGenerator ? (
+                                  <>
+                                    <button
+                                      className="btn bg-emerald-100 text-emerald-800 !py-1.5"
+                                      onClick={() => setSheet({ kind: "serviceUpgradeGen" })}
+                                      data-testid="edit-estimate-generator"
+                                    >
+                                      Edit with estimate generator
+                                    </button>
+                                    <button
+                                      className="btn bg-emerald-50 text-emerald-900 !py-1.5 border border-emerald-200"
+                                      onClick={() => setSheet({ kind: "serviceUpgradeGen", startStep: 6 })}
+                                      data-testid="job-takeoff-materials"
+                                    >
+                                      Take Off Materials
+                                    </button>
+                                  </>
                                 ) : null}
                                 {(job.estimateNo || (job.estimateLines && job.estimateLines.length)) && !job.invoiceNo ? (
                                   <button
@@ -1961,6 +1970,7 @@ export default function JobDetail() {
             serviceAddress: job.serviceAddress || job.address || "",
             billingAddress: job.billingAddress || "",
             _estimator: job._estimator,
+            startStep: sheet.startStep,
           }}
         />
       ) : null}
