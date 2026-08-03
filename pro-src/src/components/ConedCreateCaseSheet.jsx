@@ -1088,9 +1088,10 @@ export default function ConedCreateCaseSheet({ job, onClose, onSave }) {
               Already handled for you
             </summary>
             <p className="text-[12px] text-indigo-800 mt-2">
-              Electric · RTVI Yes · Contractor Levi/BLZ · Start date today · Heating incentives No ·
-              Micromobility No · NY route No · Rear-yard Neither · Generator/welding/short-circuit No ·
-              Skip optional Block/Lot · Mailing=service · Plain ASCII enforced
+              Electric · RTVI Yes (inspection) · Contractor Levi/BLZ (required only) · Start date today ·
+              Heating incentives No · Micromobility No · NY route No · Rear-yard Neither ·
+              Generator/welding/short-circuit No · Skip ALL optional boxes (Block/Lot, customer company,
+              contractor extras) · Mailing=service · Plain ASCII enforced
             </p>
             <p className="text-[11px] text-indigo-700 mt-1">
               {JSON.stringify(AUTO_HANDLED).slice(0, 120)}…

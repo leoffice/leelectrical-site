@@ -3,6 +3,8 @@ import {
   REQUEST_TYPES,
   REQUEST_TYPE_LABELS,
   PORTAL_REQUEST_TYPES,
+  AUTO_HANDLED,
+  SKIP_OPTIONAL_KEYS,
   toPlainAscii,
   questionnaireSteps,
   portalWizardStepCount,
@@ -271,6 +273,62 @@ describe("load item entry modes (Levi 2026-08-02)", () => {
     expect(short.project.numberOfNewMeters).toBe(3);
     expect(short.project.meterCapacityIncrease).toBe(false);
     expect(short.loadItems).toBeUndefined();
+  });
+});
+
+describe("Levi create-case defaults (RTVI + skip optional)", () => {
+  it("AUTO_HANDLED locks RTVI Yes and skipOptional", () => {
+    expect(AUTO_HANDLED.rtvi).toBe("Yes");
+    expect(AUTO_HANDLED.skipOptional).toBe(true);
+    expect(AUTO_HANDLED.fillOptionalContractorFields).toBe(false);
+    expect(AUTO_HANDLED.fillOptionalCustomerCompany).toBe(false);
+    expect(AUTO_HANDLED.contractor).toMatch(/Levi|BLZ/i);
+    expect(SKIP_OPTIONAL_KEYS).toContain("companyOptional");
+    expect(SKIP_OPTIONAL_KEYS).toContain("block");
+  });
+
+  it("payload fillRules + contractor required-only; never companyOptional", () => {
+    const p = buildCreateCasePayload(
+      {
+        ...completeAnswers,
+        companyOptional: "Goodness and kindness",
+        block: "1234",
+        lot: "56",
+        nearestCrossStreet: "Kingston",
+      },
+      { id: "j1" }
+    );
+    expect(p.autoHandled.rtvi).toBe("Yes");
+    expect(p.autoHandled.skipOptional).toBe(true);
+    expect(p.fillRules.rtvi).toBe("Yes");
+    expect(p.fillRules.skipOptional).toBe(true);
+    expect(p.fillRules.skipOptionalContractor).toBe(true);
+    expect(p.fillRules.skipOptionalCustomerCompany).toBe(true);
+    expect(p.owner.companyOptional).toBe("");
+    expect(p.property.block).toBe("");
+    expect(p.property.lot).toBe("");
+    expect(p.contractor.name).toMatch(/Levi|BLZ/i);
+    expect(p.contractor.fillOptional).toBe(false);
+    expect(p.contractor.companyOptional).toBe("");
+  });
+
+  it("sanitizeAnswers strips optional company even if provided", () => {
+    const a = seedCreateCaseAnswers(
+      { serviceAddress: "1349 President St", personName: "Shalom Rubashkin", phone: "9177552477", email: "a@b.com" },
+      {
+        answers: {
+          ...completeAnswers,
+          companyOptional: "Goodness and kindness",
+          ownerCompany: "Should blank",
+          block: "999",
+        },
+      }
+    );
+    expect(a.companyOptional).toBe("");
+    expect(a.ownerCompany).toBe("");
+    expect(a.block).toBe("");
+    expect(a.rtvi).toBe(true);
+    expect(a.skipOptional).toBe(true);
   });
 });
 

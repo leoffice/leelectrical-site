@@ -106,10 +106,18 @@ export const PORTAL_REQUEST_TYPES = Object.freeze([
 /** Default 2-family load seed (catalog-backed). */
 export const DEFAULT_LOAD_ITEMS = defaultLoadItemsFromCatalog();
 
-/** Values never asked — auto, shown once in "Already handled". */
+/**
+ * Values never asked — auto, shown once in "Already handled".
+ * Levi 2026-08-03 (create-case walkthrough):
+ *  - RTVI = Yes (standard for inspection)
+ *  - Skip ALL optional boxes — required fields only (incl. contractor + customer company)
+ *  - Contractor of record = Levi / BLZ (required only; no optional contractor extras)
+ */
 export const AUTO_HANDLED = {
   energyServiceType: "Electric",
+  /** Inspection RTVI — Levi always Yes */
   rtvi: "Yes",
+  /** Required contractor of record only */
   contractor: "Levi / BLZ",
   heatingElectrification: "No",
   micromobilityPowerReady: "No",
@@ -119,9 +127,31 @@ export const AUTO_HANDLED = {
   installingGenerator: "No",
   weldingEquipment: "No",
   shortCircuitInfo: "No",
+  /** Never fill portal fields marked Optional (Block/Lot, company optional, contractor extras) */
   skipOptional: true,
+  fillOptionalContractorFields: false,
+  fillOptionalCustomerCompany: false,
+  companyOptional: "",
   mailingSameAsService: true,
 };
+
+/** Optional portal keys that must stay blank when skipOptional is on. */
+export const SKIP_OPTIONAL_KEYS = Object.freeze([
+  "companyOptional",
+  "customerCompany",
+  "ownerCompany",
+  "block",
+  "lot",
+  "blockLot",
+  "nearestCrossStreet",
+  "crossStreet",
+  "conEdAccountNumber",
+  "accountNumber",
+  "contractorCompanyOptional",
+  "contractorPhoneOptional",
+  "contractorEmailOptional",
+  "contractorAddressOptional",
+]);
 
 /**
  * Strip non-ASCII / fancy punctuation Con Ed rejects.
@@ -444,6 +474,16 @@ export function sanitizeAnswers(answers = {}) {
   }
   a.requestType = normalizeRequestType(a.requestType);
   if (a.equipmentName != null) a.equipmentName = toPlainAscii(a.equipmentName);
+
+  // Levi standing rule: RTVI always Yes (inspection)
+  a.rtvi = true;
+  a.skipOptional = true;
+
+  // Strip optional portal boxes — never carry company/block/lot/cross-street extras
+  for (const k of SKIP_OPTIONAL_KEYS) {
+    if (k in a) a[k] = "";
+  }
+
   return a;
 }
 
@@ -553,6 +593,16 @@ export function buildCreateCasePayload(answers = {}, job = {}) {
     stopAt: "review", // human confirms submit — never auto-submit
     autoSubmit: false,
     autoHandled: { ...AUTO_HANDLED },
+    /** Host fill rules — required only; RTVI Yes; no optional boxes */
+    fillRules: {
+      rtvi: "Yes",
+      skipOptional: true,
+      skipOptionalContractor: true,
+      skipOptionalCustomerCompany: true,
+      skipBlockLot: true,
+      skipCrossStreet: true,
+      plainAscii: true,
+    },
     jobId: job.id || job.jobId || "",
     jobName: toPlainAscii(job.customer || job.customerName || job.name || ""),
     property: {
@@ -575,6 +625,10 @@ export function buildCreateCasePayload(answers = {}, job = {}) {
       bin: toPlainAscii(a.bin || ""),
       buildingType: toPlainAscii(a.buildingType || "Residential"),
       is1to3Family: a.is1to3Family !== false,
+      // optional — intentionally blank (Levi skip-optional)
+      block: "",
+      lot: "",
+      nearestCrossStreet: "",
     },
     owner: {
       firstName: toPlainAscii(a.ownerFirst || ""),
@@ -582,6 +636,17 @@ export function buildCreateCasePayload(answers = {}, job = {}) {
       phone: String(a.ownerPhone || "").replace(/\D/g, ""),
       email: toPlainAscii(a.ownerEmail || ""),
       mailingSameAsService: a.mailingSameAsService !== false,
+      /** Optional customer company — leave blank (Levi 2026-08-03) */
+      companyOptional: "",
+    },
+    /** Contractor of record — required name only; no optional contractor boxes */
+    contractor: {
+      name: AUTO_HANDLED.contractor,
+      fillOptional: false,
+      companyOptional: "",
+      phoneOptional: "",
+      emailOptional: "",
+      addressOptional: "",
     },
     service: {
       panelAmps: Number(a.servicePanelAmps) || 100,
@@ -650,12 +715,15 @@ export function createCaseReviewRows(answers = {}) {
     { label: "Borough", value: a.borough },
     { label: "BIN", value: a.bin },
     { label: "Building", value: `${a.buildingType}${a.is1to3Family ? " · 1-3 family" : ""}` },
+    { label: "RTVI (inspection)", value: "Yes" },
     {
       label: "Owner",
       value: `${a.ownerFirst || ""} ${a.ownerLast || ""}`.trim(),
     },
     { label: "Owner phone", value: a.ownerPhone },
     { label: "Owner email", value: a.ownerEmail },
+    { label: "Contractor", value: AUTO_HANDLED.contractor },
+    { label: "Optional fields", value: "Skipped (required only)" },
     { label: "Panel", value: `${a.servicePanelAmps}A · ${a.phase}` },
     { label: "Facility", value: a.facilityServicedBy },
     { label: "Use existing service", value: a.useExistingService ? "Yes" : "No" },

@@ -116,6 +116,7 @@ export {
   REQUEST_TYPE_PORTAL,
   DEFAULT_LOAD_ITEMS,
   AUTO_HANDLED,
+  SKIP_OPTIONAL_KEYS,
   toPlainAscii,
   sumLoadKw,
   questionnaireSteps,
