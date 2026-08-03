@@ -313,3 +313,29 @@ export function emptyMeter(mainPhase = 1) {
     feetToPanel: 10,
   };
 }
+
+/** Compact chip for collapsed accordion row, e.g. "100A 1φ · Residential". */
+export function meterSummaryLine(meter) {
+  const m = meter || {};
+  const s = sizeById(m.sizeId);
+  const role =
+    m.role === "plp" ? "PLP" : m.role === "commercial" ? "Commercial" : "Residential";
+  const phase = s.phase === 3 ? "3φ" : "1φ";
+  return `${s.amps}A ${phase} · ${role}`;
+}
+
+/**
+ * Suggested sell $ for one meter row (meter + optional panel + extra feet).
+ * Used on collapsed accordion summary only — full estimate still uses buildServiceUpgradeEstimate.
+ */
+export function meterSuggestedAmount(meter, answers) {
+  const f = feesFor(answers || defaultAnswers());
+  const m = meter || emptyMeter();
+  const s = sizeById(m.sizeId);
+  let total = f.meter[s.id] ?? f.meter["100-1"];
+  if (m.includePanel !== false) {
+    total += f.panel[s.amps] ?? f.panel[100];
+  }
+  total += distCost(m.feetToPanel, f.freeFeetMeterPanel, f.perFootMeterPanel);
+  return money(total);
+}

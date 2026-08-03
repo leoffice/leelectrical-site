@@ -16,6 +16,8 @@ import {
   defaultAnswers,
   emptyMeter,
   filterEnabledEstimateLines,
+  meterSuggestedAmount,
+  meterSummaryLine,
   validateAnswers,
 } from "../lib/serviceUpgradeEstimator.js";
 import { defaultTakeoffItems, searchMaterials } from "../lib/materialCatalog.js";
@@ -39,6 +41,41 @@ function Toggle({ label, on, setOn, testId }) {
   );
 }
 
+/** Feet field with − / + one foot; value still typeable. */
+function FeetStepper({ label, value, onChange, testId }) {
+  const n = Number(value) || 0;
+  return (
+    <Fld label={label}>
+      <div className="flex items-center gap-2" data-testid={testId}>
+        <button
+          type="button"
+          className="h-10 w-10 shrink-0 rounded-xl border border-slate-200 bg-white text-lg font-bold text-slate-700 active:bg-slate-50"
+          aria-label="Decrease one foot"
+          onClick={() => onChange(Math.max(0, n - 1))}
+        >
+          −
+        </button>
+        <input
+          className="input text-center font-semibold"
+          type="number"
+          min={0}
+          value={n}
+          onChange={(e) => onChange(Math.max(0, Number(e.target.value) || 0))}
+        />
+        <button
+          type="button"
+          className="h-10 w-10 shrink-0 rounded-xl border border-slate-200 bg-white text-lg font-bold text-slate-700 active:bg-slate-50"
+          aria-label="Increase one foot"
+          onClick={() => onChange(n + 1)}
+        >
+          +
+        </button>
+        <span className="text-xs font-semibold text-slate-400 shrink-0">ft</span>
+      </div>
+    </Fld>
+  );
+}
+
 export default function ServiceUpgradeEstimatorSheet({ onClose, prefill = {} }) {
   const { createJob, showToast, patchAndSave } = useStore();
   const nav = useNavigate();
@@ -59,6 +96,8 @@ export default function ServiceUpgradeEstimatorSheet({ onClose, prefill = {} }) 
   const [shareNote, setShareNote] = useState("");
   // Per-line on/off on Review — true/undefined = include, false = drop from total & save
   const [lineOn, setLineOn] = useState([]);
+  /** Which meter accordion is expanded; null = all collapsed. Only one open at a time. */
+  const [openMeterIdx, setOpenMeterIdx] = useState(0);
 
   const builtAll = useMemo(() => buildServiceUpgradeEstimate(answers), [answers]);
   useEffect(() => {
@@ -295,90 +334,150 @@ export default function ServiceUpgradeEstimatorSheet({ onClose, prefill = {} }) 
       )}
 
       {step === 2 && (
-        <div className="space-y-4" data-testid="est-gen-meters">
-          {answers.meters.map((m, i) => (
-            <div key={i} className="rounded-xl border border-slate-200 p-3 space-y-2">
-              <div className="flex justify-between items-center">
-                <p className="text-sm font-extrabold">Meter {i + 1}</p>
-                {answers.meters.length > 1 ? (
-                  <button
-                    type="button"
-                    className="text-xs font-bold text-red-600"
-                    onClick={() => setAnswers((a) => ({ ...a, meters: a.meters.filter((_, j) => j !== i) }))}
-                  >
-                    Remove
-                  </button>
+        <div className="space-y-3" data-testid="est-gen-meters">
+          <p className="text-xs text-slate-500">
+            Fill a meter, then collapse it for space. Only one meter is open at a time — tap a row to edit.
+          </p>
+          {answers.meters.map((m, i) => {
+            const open = openMeterIdx === i;
+            const chip = meterSummaryLine(m);
+            const suggested = meterSuggestedAmount(m, answers);
+            return (
+              <div
+                key={i}
+                className="rounded-xl border border-slate-200 overflow-hidden bg-white"
+                data-testid={`est-gen-meter-${i}`}
+                data-open={open ? "1" : "0"}
+              >
+                <button
+                  type="button"
+                  className="w-full flex items-center gap-2 px-3 py-3 text-left active:bg-slate-50"
+                  onClick={() => setOpenMeterIdx(open ? null : i)}
+                  aria-expanded={open}
+                >
+                  <span className="text-sm font-extrabold text-slate-900 shrink-0">Meter {i + 1}</span>
+                  <span className="text-[11px] font-bold px-2 py-0.5 rounded-full bg-brand-soft text-brand border border-brand/20 truncate">
+                    {chip}
+                  </span>
+                  <span className="ml-auto text-sm font-bold text-slate-700 tabular-nums shrink-0">
+                    {fmt$(suggested)}
+                  </span>
+                  <span className="text-slate-400 text-xs shrink-0" aria-hidden>
+                    {open ? "▲" : "▼"}
+                  </span>
+                </button>
+                {open ? (
+                  <div className="px-3 pb-3 space-y-2 border-t border-slate-100 pt-2">
+                    <div className="flex justify-end">
+                      {answers.meters.length > 1 ? (
+                        <button
+                          type="button"
+                          className="text-xs font-bold text-red-600"
+                          onClick={() => {
+                            setAnswers((a) => {
+                              const meters = a.meters.filter((_, j) => j !== i);
+                              return { ...a, meters };
+                            });
+                            setOpenMeterIdx((cur) => {
+                              if (cur == null) return null;
+                              if (cur === i) return Math.max(0, i - 1);
+                              if (cur > i) return cur - 1;
+                              return cur;
+                            });
+                          }}
+                        >
+                          Remove
+                        </button>
+                      ) : null}
+                    </div>
+                    <div className="flex flex-wrap gap-1">
+                      {METER_ROLES.map((r) => (
+                        <button
+                          key={r}
+                          type="button"
+                          className={`text-xs font-bold px-2 py-1 rounded-lg border ${
+                            m.role === r ? "bg-brand-soft border-brand text-brand" : "border-slate-200"
+                          }`}
+                          onClick={() => updateMeter(i, { role: r })}
+                        >
+                          {r}
+                        </button>
+                      ))}
+                    </div>
+                    <select
+                      className="input"
+                      value={m.sizeId}
+                      onChange={(e) => updateMeter(i, { sizeId: e.target.value })}
+                    >
+                      {METER_SIZES.filter((s) => answers.mainPhase !== 1 || s.phase === 1).map((s) => (
+                        <option key={s.id} value={s.id}>
+                          {s.label}
+                        </option>
+                      ))}
+                    </select>
+                    <label className="flex items-center gap-2 text-sm">
+                      <input
+                        type="checkbox"
+                        checked={m.includePanel !== false}
+                        onChange={(e) => updateMeter(i, { includePanel: e.target.checked })}
+                      />
+                      Include new panel
+                    </label>
+                    <FeetStepper
+                      label="Feet meter → panel"
+                      value={m.feetToPanel ?? 10}
+                      onChange={(v) => updateMeter(i, { feetToPanel: v })}
+                      testId={`est-gen-feet-panel-${i}`}
+                    />
+                    <button
+                      type="button"
+                      className="btn w-full bg-slate-100 font-bold text-sm"
+                      onClick={() => setOpenMeterIdx(null)}
+                      data-testid={`est-gen-meter-done-${i}`}
+                    >
+                      Done — collapse
+                    </button>
+                  </div>
                 ) : null}
               </div>
-              <div className="flex flex-wrap gap-1">
-                {METER_ROLES.map((r) => (
-                  <button
-                    key={r}
-                    type="button"
-                    className={`text-xs font-bold px-2 py-1 rounded-lg border ${
-                      m.role === r ? "bg-brand-soft border-brand text-brand" : "border-slate-200"
-                    }`}
-                    onClick={() => updateMeter(i, { role: r })}
-                  >
-                    {r}
-                  </button>
-                ))}
-              </div>
-              <select
-                className="input"
-                value={m.sizeId}
-                onChange={(e) => updateMeter(i, { sizeId: e.target.value })}
-              >
-                {METER_SIZES.filter((s) => answers.mainPhase !== 1 || s.phase === 1).map((s) => (
-                  <option key={s.id} value={s.id}>
-                    {s.label}
-                  </option>
-                ))}
-              </select>
-              <label className="flex items-center gap-2 text-sm">
-                <input
-                  type="checkbox"
-                  checked={m.includePanel !== false}
-                  onChange={(e) => updateMeter(i, { includePanel: e.target.checked })}
-                />
-                Include new panel
-              </label>
-              <Fld label="Feet meter → panel">
-                <input
-                  className="input"
-                  type="number"
-                  value={m.feetToPanel ?? 10}
-                  onChange={(e) => updateMeter(i, { feetToPanel: Number(e.target.value) || 0 })}
-                />
-              </Fld>
-            </div>
-          ))}
+            );
+          })}
           <button
             type="button"
             className="btn w-full bg-slate-100 font-bold"
-            onClick={() => setAnswers((a) => ({ ...a, meters: [...a.meters, emptyMeter(a.mainPhase)] }))}
+            data-testid="est-gen-add-meter"
+            onClick={() => {
+              setAnswers((a) => {
+                const meters = [...a.meters, emptyMeter(a.mainPhase)];
+                return { ...a, meters };
+              });
+              setOpenMeterIdx(answers.meters.length); // new index after append
+            }}
           >
             + Add meter
           </button>
           {answers.meters.some((m) => m.role === "plp") ? (
-            <Fld label="Feet PLP meter → PLP equipment">
-              <input
-                className="input"
-                type="number"
-                value={answers.feetPlp}
-                onChange={(e) => set({ feetPlp: Number(e.target.value) || 0 })}
-              />
-            </Fld>
-          ) : null}
-          <Fld label="Feet equipment → ground">
-            <input
-              className="input"
-              type="number"
-              value={answers.feetGround}
-              onChange={(e) => set({ feetGround: Number(e.target.value) || 0 })}
+            <FeetStepper
+              label="Feet PLP meter → PLP equipment"
+              value={answers.feetPlp}
+              onChange={(v) => set({ feetPlp: v })}
+              testId="est-gen-feet-plp"
             />
-          </Fld>
-          <button type="button" className="btn-brand w-full" onClick={() => setStep(3)}>
+          ) : null}
+          <FeetStepper
+            label="Feet equipment → ground"
+            value={answers.feetGround}
+            onChange={(v) => set({ feetGround: v })}
+            testId="est-gen-feet-ground"
+          />
+          <button
+            type="button"
+            className="btn-brand w-full"
+            onClick={() => {
+              setOpenMeterIdx(null);
+              setStep(3);
+            }}
+          >
             Next — extras
           </button>
         </div>
@@ -422,24 +521,20 @@ export default function ServiceUpgradeEstimatorSheet({ onClose, prefill = {} }) 
                       </button>
                     ))}
                   </div>
-                  <Fld label="Underground length (ft)">
-                    <input
-                      className="input"
-                      type="number"
-                      value={answers.conduitFeet}
-                      onChange={(e) => set({ conduitFeet: Number(e.target.value) || 0 })}
-                    />
-                  </Fld>
+                  <FeetStepper
+                    label="Underground length"
+                    value={answers.conduitFeet}
+                    onChange={(v) => set({ conduitFeet: v })}
+                    testId="est-gen-feet-conduit"
+                  />
                 </>
               ) : (
-                <Fld label="Overhead pipe length (ft, typical 10–15)">
-                  <input
-                    className="input"
-                    type="number"
-                    value={answers.overheadFeet}
-                    onChange={(e) => set({ overheadFeet: Number(e.target.value) || 0 })}
-                  />
-                </Fld>
+                <FeetStepper
+                  label="Overhead pipe length (typical 10–15)"
+                  value={answers.overheadFeet}
+                  onChange={(v) => set({ overheadFeet: v })}
+                  testId="est-gen-feet-overhead"
+                />
               )}
             </div>
           ) : null}

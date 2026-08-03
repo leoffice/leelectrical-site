@@ -5,6 +5,9 @@ import {
   validateAnswers,
   coerceMetersForMainPhase,
   filterEnabledEstimateLines,
+  meterSummaryLine,
+  meterSuggestedAmount,
+  emptyMeter,
 } from "../src/lib/serviceUpgradeEstimator.js";
 import { searchMaterials } from "../src/lib/materialCatalog.js";
 
@@ -75,5 +78,25 @@ describe("materialCatalog", () => {
   it("finds meter pan by alias", () => {
     const hits = searchMaterials("meter socket");
     expect(hits.some((m) => /meter pan|socket/i.test(m.name))).toBe(true);
+  });
+});
+
+describe("meter accordion helpers", () => {
+  it("meterSummaryLine formats size · role", () => {
+    expect(meterSummaryLine({ role: "residential", sizeId: "100-1" })).toBe("100A 1φ · Residential");
+    expect(meterSummaryLine({ role: "plp", sizeId: "200-3" })).toBe("200A 3φ · PLP");
+    expect(meterSummaryLine({ role: "commercial", sizeId: "200-1" })).toBe("200A 1φ · Commercial");
+  });
+
+  it("meterSuggestedAmount includes meter + panel by default", () => {
+    const m = emptyMeter(1);
+    const amt = meterSuggestedAmount(m, defaultAnswers());
+    // 1900 meter + 450 panel at 10 free feet
+    expect(amt).toBe(2350);
+    const noPanel = meterSuggestedAmount({ ...m, includePanel: false }, defaultAnswers());
+    expect(noPanel).toBe(1900);
+    const extraFeet = meterSuggestedAmount({ ...m, feetToPanel: 20 }, defaultAnswers());
+    // 10 free + 10 * $12
+    expect(extraFeet).toBe(2350 + 120);
   });
 });
