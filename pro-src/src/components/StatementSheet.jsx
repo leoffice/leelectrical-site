@@ -367,7 +367,10 @@ export default function StatementSheet({
                     <span className="font-semibold block">
                       #{r.invoiceNo} · {r.date || "—"}
                     </span>
-                    <span className="text-[11px] text-slate-500 block truncate">{r.description}</span>
+                    <span className="text-[11px] text-slate-500 block truncate">
+                      {r.description}
+                      {r.progressLabel ? ` · ${r.progressLabel}` : ""}
+                    </span>
                   </span>
                   <span
                     className={`text-xs tabular-nums shrink-0 font-bold ${

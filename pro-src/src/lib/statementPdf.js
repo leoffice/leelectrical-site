@@ -337,23 +337,54 @@ export function buildQbStatementPdf(model, overrides = {}) {
 
   for (const r of rows) {
     ensureSpace(rowH + 8);
-    const desc = r.progressLabel
-      ? `${r.description} (${r.progressLabel})`
-      : r.description;
+    const isPayment = r.kind === "payment";
+    // Activity/balance-forward already fold progress (first) into description; open_items prepend.
+    const desc =
+      isPayment || !r.progressLabel || (r.description || "").includes(r.progressLabel)
+        ? r.description
+        : `${r.progressLabel} · ${r.description}`;
     pg.text(COL_DATE, y, r.date || "-", { size: 8.5, color: BLACK });
     pg.text(COL_INV, y, r.invoiceNo || "", { size: 8.5, color: BLACK });
-    pg.text(COL_DESC, y, clip(desc, DESC_MAX_W, 8.5), { size: 8.5, color: BLACK });
-    pg.text(COL_CHARGE_R, y, "$" + qbMoney(r.charge), { size: 8.5, color: BLACK, align: "right" });
-    pg.text(COL_PAID_R, y, r.paid ? "$" + qbMoney(r.paid) : "-", { size: 8.5, color: BLACK, align: "right" });
+    pg.text(COL_DESC, y, clip(desc, DESC_MAX_W, 8.5), { size: 8.5, color: isPayment ? GRAY : BLACK });
+    if (isPayment) {
+      pg.text(COL_CHARGE_R, y, "-", { size: 8.5, color: GRAY, align: "right" });
+      pg.text(COL_PAID_R, y, r.paid ? "$" + qbMoney(r.paid) : "-", { size: 8.5, color: BLACK, align: "right" });
+    } else {
+      pg.text(COL_CHARGE_R, y, "$" + qbMoney(r.charge), { size: 8.5, color: BLACK, align: "right" });
+      // Invoice rows on ledger types show charge only; payments are separate lines.
+      // Open-items (no kind) still show amount paid on the invoice row.
+      const showPaidOnInv = !r.kind && r.paid;
+      pg.text(COL_PAID_R, y, showPaidOnInv ? "$" + qbMoney(r.paid) : "-", { size: 8.5, color: BLACK, align: "right" });
+    }
     const bal = r.runningBalance != null ? r.runningBalance : r.balance;
     pg.text(COL_BAL_R, y, "$" + qbMoney(bal), { size: 8.5, color: BLACK, align: "right" });
 
-    // Pay link annotation on the invoice # cell when open + url present
+    // Pay link annotation on the invoice # cell when open + url present (charge rows only)
     const pay = payByInv.get(String(r.invoiceNo));
-    if (pay?.url && r.isOpen) {
+    if (pay?.url && r.isOpen && !isPayment) {
       pg.link(COL_INV, y - 10, 56, 14, pay.url);
     }
     y += rowH;
+  }
+
+  // Open-items: if payments exist but weren't expanded into ledger rows, add a compact history.
+  if (model?.type === "open_items" && (model?.paymentLines || []).length) {
+    ensureSpace(rowH + 12, false);
+    y += 4;
+    pg.text(M, y, "Payment history (on open invoices)", { size: 8.5, bold: true, color: GRAY });
+    y += 14;
+    for (const p of model.paymentLines) {
+      ensureSpace(rowH + 4, false);
+      const refBit = p.ref ? ` · ${p.ref}` : "";
+      const desc = `Payment · ${p.method || "Payment"}${refBit}`;
+      pg.text(COL_DATE, y, p.date || "-", { size: 8.5, color: BLACK });
+      pg.text(COL_INV, y, p.invoiceNo || "", { size: 8.5, color: BLACK });
+      pg.text(COL_DESC, y, clip(desc, DESC_MAX_W, 8.5), { size: 8.5, color: GRAY });
+      pg.text(COL_CHARGE_R, y, "-", { size: 8.5, color: GRAY, align: "right" });
+      pg.text(COL_PAID_R, y, "$" + qbMoney(p.amount), { size: 8.5, color: BLACK, align: "right" });
+      pg.text(COL_BAL_R, y, "-", { size: 8.5, color: GRAY, align: "right" });
+      y += rowH;
+    }
   }
 
   // Empty state

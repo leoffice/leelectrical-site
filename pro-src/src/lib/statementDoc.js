@@ -63,11 +63,80 @@ function serviceAddressLabel(job) {
   return s(job?.serviceAddress || job?.address || job?.location) || "No service address";
 }
 
-function progressLabel(job) {
+/** First non-empty line of multi-line text, trimmed of boilerplate tails. */
+function firstContentLine(text) {
+  const lines = String(text || "")
+    .split(/\r?\n/)
+    .map((ln) => ln.trim())
+    .filter(Boolean);
+  for (const ln of lines) {
+    // Skip pure section headers that make statements look "choppy"
+    if (/^(price\s+includes|price\s+excludes|includes|excludes)\s*:?\s*$/i.test(ln)) continue;
+    let out = ln.replace(/\s*Price Includes:?\s*$/i, "").trim();
+    if (out) return out;
+  }
+  return "";
+}
+
+/**
+ * Human statement description — prefer invoice line copy over job.title,
+ * keep progress + change-order hints, avoid dumping multi-paragraph text.
+ */
+export function statementDescription(job) {
+  const lines = Array.isArray(job?.invoiceLines) ? job.invoiceLines : [];
+  let desc = "";
+  if (lines.length) {
+    desc = firstContentLine(lines[0]?.description || lines[0]?.desc || "");
+  }
+  if (!desc) {
+    desc = firstContentLine(job?.title || job?.serviceType || "") || "Electrical services";
+  }
+  // Fold a short CO / second-line hint when present
+  if (lines.length > 1) {
+    const second = firstContentLine(lines[1]?.description || lines[1]?.desc || "");
+    const co = second.match(/Change Order\s*#?\s*\d+/i);
+    if (co) {
+      const head = desc.length > 70 ? desc.slice(0, 67).trimEnd() + "…" : desc;
+      desc = `${head} · ${co[0]}`;
+    } else if (lines.length === 2 && second && second.length <= 48) {
+      const head = desc.length > 55 ? desc.slice(0, 52).trimEnd() + "…" : desc;
+      desc = `${head} · ${second}`;
+    } else if (lines.length > 1) {
+      const head = desc.length > 75 ? desc.slice(0, 72).trimEnd() + "…" : desc;
+      desc = `${head} · +${lines.length - 1} line${lines.length > 2 ? "s" : ""}`;
+    }
+  }
+  // Soft cap for table column (PDF clips further by width)
+  return desc.length > 120 ? desc.slice(0, 117).trimEnd() + "…" : desc;
+}
+
+/**
+ * Progress label from line qty / progressPct first, then job.invoiceProgressPct.
+ * Seewald-style: qty 0.75 × $40k → "Progress 75%".
+ */
+export function progressLabel(job) {
   if (!isProgressInvoiceJob(job)) return "";
+  const lines = Array.isArray(job?.invoiceLines) ? job.invoiceLines : [];
+  const pcts = [];
+  for (const ln of lines) {
+    if (ln?.progressPct != null && ln.progressPct !== "") {
+      const p = parseAmount(ln.progressPct);
+      if (p > 0 && p < 99.99) pcts.push(Math.round(p * 10) / 10);
+      continue;
+    }
+    if (ln?.progressBilling || (parseAmount(ln?.qty) > 0 && parseAmount(ln?.qty) < 0.9999)) {
+      const q = parseAmount(ln?.qty);
+      if (q > 0 && q < 0.9999) pcts.push(Math.round(q * 1000) / 10); // 0.75 → 75
+    }
+  }
+  if (pcts.length === 1) return `Progress ${pcts[0]}%`;
+  if (pcts.length > 1) {
+    const uniq = [...new Set(pcts)];
+    return uniq.length === 1 ? `Progress ${uniq[0]}%` : `Progress ${uniq.join(" / ")}%`;
+  }
   const pct = parseAmount(job?.invoiceProgressPct);
-  if (pct > 0 && pct < 99.99) return `Progress request · ${pct}%`;
-  return "Progress / installment request";
+  if (pct > 0 && pct < 99.99) return `Progress ${Math.round(pct * 10) / 10}%`;
+  return "Progress / installment";
 }
 
 /**
@@ -82,19 +151,20 @@ export function statementItemFromJob(job) {
   const dateRaw = invoiceDateRaw(job);
   const iso = dateKey(dateRaw);
   const inv = s(job.invoiceNo);
+  const prog = progressLabel(job);
   return {
     id: String(job.id || inv || Math.random()),
     jobId: job.id,
     invoiceNo: inv,
     date: fmtInvoiceDate(dateRaw),
     dateIso: iso,
-    description: s(job.title || job.serviceType || "Electrical services").split("\n")[0].slice(0, 80),
+    description: statementDescription(job),
     address: serviceAddressLabel(job),
     charge,
     paid,
     balance,
     isOpen: balance > 0.009,
-    progressLabel: progressLabel(job),
+    progressLabel: prog,
     job,
   };
 }
@@ -170,7 +240,7 @@ export function buildStatementModel({
     rows = rows.length ? rows : ranged.filter((r) => r.isOpen);
   }
 
-  // Balance-forward: prior balance = sum of balances for invoices BEFORE dateFrom (not selected body).
+  // Balance-forward: prior balance = sum of open balances for invoices BEFORE dateFrom.
   let priorBalance = 0;
   if (typeId === "balance_forward" && dateFrom) {
     priorBalance = allItems
@@ -178,19 +248,113 @@ export function buildStatementModel({
       .reduce((sum, r) => sum + (Number(r.balance) || 0), 0);
   }
 
-  // Activity / open: chronological; attach running balance for activity.
-  let running = priorBalance;
-  const activityRows = rows.map((r) => {
-    running += Number(r.balance) || 0;
-    return { ...r, runningBalance: Math.round(running * 100) / 100 };
-  });
+  // Payment activity lines (chronological) — used for PDF history + firstPaymentDate.
+  const paymentLines = [];
+  if (typeId === "activity" || typeId === "balance_forward" || typeId === "open_items") {
+    for (const r of rows) {
+      const pays = normalizePayments(r.job);
+      for (const p of pays) {
+        const pIso = dateKey(p.date || p.paidAt || p.createdAt);
+        // Open items: always show payments on selected invoices.
+        // Activity / balance-forward: respect date range when set.
+        if (useRange && (dateFrom || dateTo) && !inDateRange(pIso, dateFrom, dateTo)) continue;
+        paymentLines.push({
+          date: fmtInvoiceDate(p.date || p.paidAt || pIso),
+          dateIso: pIso,
+          invoiceNo: r.invoiceNo,
+          method: s(p.method || p.type || "Payment"),
+          amount: parseAmount(p.amount),
+          ref: s(p.ref || p.confirmation || p.txnId),
+          unverified: !!(p.unverified || p.pending || p.status === "unverified"),
+          jobId: r.jobId,
+        });
+      }
+    }
+    paymentLines.sort((a, b) => {
+      if (a.dateIso && b.dateIso && a.dateIso !== b.dateIso) return a.dateIso < b.dateIso ? -1 : 1;
+      return 0;
+    });
+  }
+
+  /**
+   * Activity + balance-forward PDF rows: true ledger —
+   * invoice charge rows + one row per payment (transaction history).
+   * Open items stays invoice-centric (balance due) but still exposes paymentLines.
+   */
+  let displayRows = rows;
+  if (typeId === "activity" || typeId === "balance_forward") {
+    const events = [];
+    for (const r of rows) {
+      // Progress first so PDF width-clip never drops the progress %.
+      const desc = r.progressLabel ? `${r.progressLabel} · ${r.description}` : r.description;
+      events.push({
+        id: `${r.id}:inv`,
+        kind: "invoice",
+        jobId: r.jobId,
+        invoiceNo: r.invoiceNo,
+        date: r.date,
+        dateIso: r.dateIso,
+        description: desc,
+        address: r.address,
+        charge: r.charge,
+        paid: 0,
+        balance: r.balance,
+        isOpen: r.isOpen,
+        progressLabel: r.progressLabel,
+        job: r.job,
+      });
+    }
+    for (const p of paymentLines) {
+      const method = p.method || "Payment";
+      const refBit = p.ref ? ` · ${p.ref}` : "";
+      events.push({
+        id: `${p.invoiceNo}:pay:${p.dateIso}:${p.amount}:${p.ref || ""}`,
+        kind: "payment",
+        jobId: p.jobId,
+        invoiceNo: p.invoiceNo,
+        date: p.date,
+        dateIso: p.dateIso,
+        description: `Payment · ${method}${refBit}`,
+        address: "",
+        charge: 0,
+        paid: p.amount,
+        balance: 0,
+        isOpen: false,
+        progressLabel: "",
+        unverified: p.unverified,
+        job: null,
+      });
+    }
+    events.sort((a, b) => {
+      if (a.dateIso && b.dateIso && a.dateIso !== b.dateIso) return a.dateIso < b.dateIso ? -1 : 1;
+      // Same day: invoices before payments; then by invoice #
+      if (a.kind !== b.kind) return a.kind === "invoice" ? -1 : 1;
+      return String(a.invoiceNo).localeCompare(String(b.invoiceNo));
+    });
+    let running = priorBalance;
+    displayRows = events.map((e) => {
+      if (e.kind === "invoice") running += Number(e.charge) || 0;
+      else running -= Number(e.paid) || 0;
+      return { ...e, runningBalance: Math.round(running * 100) / 100 };
+    });
+  }
 
   const totalCharge = rows.reduce((sum, r) => sum + (Number(r.charge) || 0), 0);
-  const totalPaid = rows.reduce((sum, r) => sum + (Number(r.paid) || 0), 0);
+  const totalPaidFromLines =
+    paymentLines.length > 0
+      ? paymentLines.reduce((sum, p) => sum + (Number(p.amount) || 0), 0)
+      : rows.reduce((sum, r) => sum + (Number(r.paid) || 0), 0);
+  // Prefer ledger-derived payments when we expanded them; else invoice paid totals.
+  const totalPaid =
+    typeId === "activity" || typeId === "balance_forward"
+      ? totalPaidFromLines
+      : rows.reduce((sum, r) => sum + (Number(r.paid) || 0), 0);
   const totalBalance =
     typeId === "balance_forward"
       ? Math.round((priorBalance + rows.reduce((sum, r) => sum + (Number(r.balance) || 0), 0)) * 100) / 100
-      : rows.reduce((sum, r) => sum + (Number(r.balance) || 0), 0);
+      : typeId === "activity" && displayRows.length
+        ? displayRows[displayRows.length - 1].runningBalance
+        : rows.reduce((sum, r) => sum + (Number(r.balance) || 0), 0);
 
   // Per-invoice pay rows (open only) for PDF annotations + email.
   const payRows = includePayLinks
@@ -225,31 +389,6 @@ export function buildStatementModel({
     "";
   const email = s(customerEmail) || s(jobs[0]?.email) || "";
 
-  // Payment activity lines (for activity type detail — chronological payments).
-  const paymentLines = [];
-  if (typeId === "activity" || typeId === "balance_forward") {
-    for (const r of rows) {
-      const pays = normalizePayments(r.job);
-      for (const p of pays) {
-        const pIso = dateKey(p.date || p.paidAt || p.createdAt);
-        if (useRange && !inDateRange(pIso, dateFrom, dateTo)) continue;
-        paymentLines.push({
-          date: fmtInvoiceDate(p.date || p.paidAt || pIso),
-          dateIso: pIso,
-          invoiceNo: r.invoiceNo,
-          method: s(p.method || p.type || "Payment"),
-          amount: parseAmount(p.amount),
-          ref: s(p.ref || p.confirmation || p.txnId),
-          unverified: !!(p.unverified || p.pending || p.status === "unverified"),
-        });
-      }
-    }
-    paymentLines.sort((a, b) => {
-      if (a.dateIso && b.dateIso && a.dateIso !== b.dateIso) return a.dateIso < b.dateIso ? -1 : 1;
-      return 0;
-    });
-  }
-
   const firstPaymentDate =
     paymentLines.length > 0
       ? paymentLines[0].date
@@ -268,7 +407,10 @@ export function buildStatementModel({
     customerEmail: email,
     billingAddress: bill,
     allItems,
-    rows: typeId === "activity" ? activityRows : rows,
+    /** Invoice-level rows (selection source). */
+    invoiceRows: rows,
+    /** PDF/table rows — ledger for activity/balance-forward. */
+    rows: displayRows,
     paymentLines,
     payRows,
     priorBalance: Math.round(priorBalance * 100) / 100,
