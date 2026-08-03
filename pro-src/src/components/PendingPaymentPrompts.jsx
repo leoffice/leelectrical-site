@@ -79,7 +79,15 @@ export default function PendingPaymentPrompts() {
   const [snoozing, setSnoozing] = useState(false);
   /** When true, show full edit form even if notice was auto-applied (Levi Edit). */
   const [editMode, setEditMode] = useState(false);
+  /** Session-local closed ids/confs so poll/save lag cannot re-show after Got it (Levi 2026-08-03). */
+  const [closedKeys, setClosedKeys] = useState(() => new Set());
   const depositBanks = useMemo(() => getDepositBanks(), []);
+
+  const noticeKey = useCallback((p) => {
+    if (!p) return "";
+    const conf = String(p.confirmationNumber || p.ref || p.checkNumber || "").trim();
+    return conf || String(p.id || "");
+  }, []);
 
   // Load system queue (ov._pendingPayments) on boot + poll so bank/pay-page items appear without reload.
   useEffect(() => {
@@ -108,7 +116,14 @@ export default function PendingPaymentPrompts() {
     };
   }, []);
 
-  const queue = useMemo(() => collectPending(jobs, systemItems), [jobs, systemItems]);
+  const queue = useMemo(() => {
+    const raw = collectPending(jobs, systemItems);
+    if (!closedKeys.size) return raw;
+    return raw.filter((p) => {
+      const k = noticeKey(p);
+      return !k || !closedKeys.has(k);
+    });
+  }, [jobs, systemItems, closedKeys, noticeKey]);
 
   useEffect(() => {
     if (loading) return;
@@ -135,52 +150,88 @@ export default function PendingPaymentPrompts() {
 
   const clearPending = useCallback(
     async (item, status) => {
+      const k = noticeKey(item);
+      if (k) setClosedKeys((prev) => new Set([...prev, k]));
+      const now = Date.now();
+      const done = status === "acked" || status === "dismissed";
       if (item.jobId) {
         const key = item.kind === "zelle" ? "pendingZellePayment" : "pendingCheckPayment";
-        patchJob(item.jobId, {
-          [key]: {
-            ...(item.job?.[key] || item),
-            status,
-            resolvedAt: Date.now(),
-            ackedAt: status === "acked" || status === "dismissed" ? Date.now() : item.ackedAt,
-          },
-        });
+        // Clear the field on Got it/dismiss so overlay merge cannot resurrect auto_applied.
+        if (done) {
+          patchJob(item.jobId, { [key]: null });
+        } else {
+          patchJob(item.jobId, {
+            [key]: {
+              ...(item.job?.[key] || item),
+              status,
+              resolvedAt: now,
+              ackedAt: done ? now : item.ackedAt,
+            },
+          });
+        }
       }
+      const conf = String(item.confirmationNumber || item.ref || "").trim();
+      const drop = (list) =>
+        (list || []).filter((x) => {
+          if (x.id === item.id) return false;
+          if (conf && String(x.confirmationNumber || x.ref || "").trim() === conf) return false;
+          return isOpenPaymentNotice({ ...x, status: x.status === "acked" ? "acked" : x.status });
+        });
+      let openList = [];
       setSystemItems((prev) => {
-        const next = (prev || []).map((x) =>
-          x.id === item.id
-            ? {
-                ...x,
-                status,
-                resolvedAt: Date.now(),
-                ackedAt: status === "acked" || status === "dismissed" ? Date.now() : x.ackedAt,
-              }
-            : x
-        );
-        // Persist open notices only (pending / needs_match / auto_applied until acked)
-        const stillOpen = next.filter((x) => isOpenPaymentNotice(x));
-        import("../data/adapter.js")
-          .then(({ default: api }) => api.savePendingPayments?.(stillOpen))
-          .catch(() => {});
-        return stillOpen;
+        openList = drop(prev);
+        return openList;
       });
+      // Persist system queue + job overlay (Got it must stick — Levi 2026-08-03 bounce bug).
+      try {
+        const { default: api } = await import("../data/adapter.js");
+        // Re-read latest system list if possible so we don't clobber concurrent items.
+        let base = openList;
+        try {
+          const remote = await api.getPendingPayments?.();
+          if (Array.isArray(remote)) base = drop(remote);
+        } catch {
+          /* use openList */
+        }
+        await api.savePendingPayments?.(base);
+        setSystemItems(base);
+      } catch {
+        /* optional */
+      }
+      if (done) {
+        try {
+          await saveAll?.();
+        } catch {
+          /* toast below */
+        }
+      }
     },
-    [patchJob]
+    [patchJob, saveAll, noticeKey]
   );
 
   const onGotIt = async () => {
     if (!current) return;
-    await clearPending(current, "acked");
-    setCurrent(null);
-    showToast("Got it — payment notice closed");
+    setBusy(true);
+    try {
+      await clearPending(current, "acked");
+      setCurrent(null);
+      showToast("Got it — payment notice closed");
+    } finally {
+      setBusy(false);
+    }
   };
 
   const onDismiss = async () => {
     if (!current) return;
-    await clearPending(current, "dismissed");
-    setCurrent(null);
-    setSnoozing(false);
-    showToast("Payment notice dismissed");
+    setBusy(true);
+    try {
+      await clearPending(current, "dismissed");
+      setCurrent(null);
+      setSnoozing(false);
+      showToast("Payment notice dismissed");
+    } finally {
+      setBusy(false);
+    }
   };
 
   // Board-wide rule: ✕ / "not now" parks the notice instead of dropping it.
