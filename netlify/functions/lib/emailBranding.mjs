@@ -110,6 +110,9 @@ export const COMPANY_INFO = {
   email: "Office@LeElectrical.us",
   cityState: "Brooklyn, NY",
   website: "leelectrical.us",
+  /** Billing / office street — shown on every letterhead (Levi 2026-08-03). */
+  billingAddress: "383 Kingston Ave",
+  billingCityStateZip: "Brooklyn, NY 11213",
 };
 
 /** Default signer for the Gmail-style signature. Override per-email as needed. */
@@ -188,14 +191,23 @@ export function buildBrandedEmailHtml({
     `<body style="margin:0;padding:0;background:#f4f5f7;font-family:Arial,Helvetica,sans-serif;color:#1f2937;">` +
     pre +
     `<div style="max-width:600px;margin:0 auto;background:#ffffff;border:1px solid #e6e9ee;border-radius:10px;overflow:hidden;">` +
-    // HEADER — letterhead banner
+    // HEADER — centered letterhead (logo + company + billing address) on every email (Levi 2026-08-03)
     `<table width="100%" cellpadding="0" cellspacing="0" role="presentation"><tr>` +
-    `<td style="padding:20px 24px 14px 24px;border-bottom:3px solid ${BRAND_GREEN};">` +
-    `<img src="${brand.logoSrc}" alt="${coName}" width="52" style="width:52px;height:auto;vertical-align:middle;display:inline-block;" />` +
-    `<span style="display:inline-block;vertical-align:middle;margin-left:14px;">` +
-    `<span style="font-size:20px;font-weight:800;color:#0f3d24;letter-spacing:.2px;">${coName}</span><br>` +
-    `<span style="font-size:11.5px;color:#5b6b82;">Licensed Electrical Contractor · ${escapeHtml(co.license)} · ${escapeHtml(co.cityState)} · ${escapeHtml(co.phone)}</span>` +
-    `</span></td></tr></table>` +
+    `<td align="center" style="padding:22px 24px 16px 24px;border-bottom:3px solid ${BRAND_GREEN};text-align:center;">` +
+    `<img src="${brand.logoSrc}" alt="${coName}" width="64" style="width:64px;height:auto;display:block;margin:0 auto 10px auto;" />` +
+    `<div style="font-size:20px;font-weight:800;color:#0f3d24;letter-spacing:.2px;line-height:1.3;">${coName}</div>` +
+    `<div style="font-size:12px;color:#5b6b82;line-height:1.45;margin-top:6px;">` +
+    `Licensed Electrical Contractor · ${escapeHtml(co.license)}` +
+    `</div>` +
+    `<div style="font-size:12px;color:#5b6b82;line-height:1.45;margin-top:2px;">` +
+    `${escapeHtml(co.billingAddress || "")}` +
+    (co.billingAddress ? `<br>` : "") +
+    `${escapeHtml(co.billingCityStateZip || co.cityState)} · ${escapeHtml(co.phone)}` +
+    `</div>` +
+    `<div style="font-size:12px;color:#5b6b82;line-height:1.45;margin-top:2px;">` +
+    `${escapeHtml(co.email)}` +
+    `</div>` +
+    `</td></tr></table>` +
     // BODY
     `<div style="padding:24px 26px 6px 26px;font-size:14px;line-height:1.6;color:#1f2937;">${bodyHtml}</div>` +
     // SIGNATURE

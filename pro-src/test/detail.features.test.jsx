@@ -118,7 +118,7 @@ describe("2. quick views — invoice/estimate/calendar sheets", () => {
     const pane = await openDetail();
 
     await user.click(within(pane).getByTestId("tab-invoice"));
-    expect(screen.getByText("View Invoice")).toBeInTheDocument();
+    expect(screen.getByText("View/Pay Invoice")).toBeInTheDocument();
     expect(screen.getByText("View Details")).toBeInTheDocument();
     expect(screen.getByText("View File")).toBeInTheDocument();
     await user.click(screen.getByText(/Send Invoice Only/i));
@@ -144,7 +144,7 @@ describe("2. quick views — invoice/estimate/calendar sheets", () => {
     const pane = await openDetail();
 
     await user.click(within(pane).getByTestId("tab-estimate"));
-    expect(screen.getByText("View Estimate")).toBeInTheDocument();
+    expect(screen.getByText("View/Accept Estimate")).toBeInTheDocument();
     expect(screen.getByText("View Details")).toBeInTheDocument();
     expect(screen.getByText("View File")).toBeInTheDocument();
 

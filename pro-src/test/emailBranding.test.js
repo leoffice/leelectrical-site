@@ -68,7 +68,7 @@ function buildDocShellHtml(extra = {}) {
   const bodyHtml = buildEmailBodyHTML({
     ...DOC,
     viewLink: "https://leelectrical.us/pay/231595-a1b2",
-    viewLabel: "View Invoice",
+    viewLabel: "View/Pay Invoice",
     ...extra,
   });
   return buildBrandedEmailHtml({
@@ -132,9 +132,20 @@ describe("invoice/estimate — standard shell path (docEmail)", () => {
     const html = buildDocShellHtml();
     expect(html).toContain("16,000.00");
     expect(html).toContain("231595");
-    expect(html).toContain("View Invoice");
+    expect(html).toContain("View/Pay Invoice");
     expect(html).toContain("Bill to");
     expect(html).toContain("Shneor Seewald");
+  });
+
+  it("centers logo + company + billing address on every letterhead (Levi 2026-08-03)", () => {
+    const html = buildDocShellHtml();
+    expect(html).toContain("text-align:center");
+    expect(html).toContain("align=\"center\"");
+    expect(html).toContain("383 Kingston Ave");
+    expect(html).toContain("Brooklyn, NY 11213");
+    expect(html).toContain(COMPANY_INFO.email);
+    // Logo is block-centered, not inline next to company name
+    expect(html).toMatch(/display:block;margin:0 auto/);
   });
 
   it("swaps the header for a tenant logo", () => {

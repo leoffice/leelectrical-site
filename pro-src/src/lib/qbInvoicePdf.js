@@ -241,7 +241,7 @@ export function buildQbDocPdf(data) {
     const tenant = tenantCompany();
     const zelle = tenantZelleInstructions();
     const defaultMsg = [
-      'Online Payment: Click the "View Invoice" tab in the email and pay',
+      'Online Payment: Click the "View/Pay Invoice" tab in the email and pay',
       "via the provided credit card payment link.",
       zelle ? `-${zelle}` : null,
       `-Check: Make checks payable to "${tenant.name}" and either: Mail`,

@@ -93,17 +93,17 @@ describe("#54 calendar opens the office account", () => {
 });
 
 describe("#44 jobs-list Invoice offers View as well as Send", () => {
-  it("QuickSendSheet shows View Invoice, View Details, View File, and Send options", async () => {
+  it("QuickSendSheet shows View/Pay Invoice, View Details, View File, and Send options", async () => {
     mockServer();
     renderNode(<QuickSendSheet job={JOB} onClose={() => {}} />);
 
-    expect(await screen.findByText("View Invoice")).toBeInTheDocument();
+    expect(await screen.findByText("View/Pay Invoice")).toBeInTheDocument();
     expect(screen.getByText("View Details")).toBeInTheDocument();
     expect(screen.getByText("View File")).toBeInTheDocument();
     expect(screen.getByText(/Send with Payment Link/i)).toBeInTheDocument();
   });
 
-  it("View Invoice expands condensed line items (description, qty, amount)", async () => {
+  it("View/Pay Invoice expands condensed line items (description, qty, amount)", async () => {
     mockServer();
     const user = userEvent.setup();
     const job = {
@@ -114,7 +114,7 @@ describe("#44 jobs-list Invoice offers View as well as Send", () => {
       ],
     };
     renderNode(<QuickSendSheet job={job} onClose={() => {}} />);
-    await user.click(await screen.findByText("View Invoice"));
+    await user.click(await screen.findByText("View/Pay Invoice"));
     expect(await screen.findByTestId("doc-condensed-lines")).toBeInTheDocument();
     expect(screen.getByText("Panel upgrade")).toBeInTheDocument();
     expect(screen.getByText("Permit fee")).toBeInTheDocument();

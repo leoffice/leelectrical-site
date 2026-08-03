@@ -533,6 +533,21 @@ export function classifyEmailOutcome(subject = "", body = "") {
   const plain = stripHtml(body).toLowerCase();
   const s = [subj, plain].filter(Boolean).join("\n");
 
+  // Acknowledgment / "we received your request" is case-open confirmation only.
+  // Letter "Date:" must NOT become a calendar appointment (Levi 2026-08-03 —
+  // MC-941580 Acknowledgment Letter was wrongly offered as Energy Services appt).
+  // Real appointment emails say appointment / inspection scheduled / APPT- / etc.
+  if (
+    /\backnowledg(?:e)?ment\s+letter\b/.test(s) ||
+    /\backnowledg(?:e)?ment\b/.test(subj) ||
+    (/\bwe have received your request\b/.test(plain) &&
+      !/\bappointment\b/.test(s) &&
+      !/\binspection\s+scheduled\b/.test(s) &&
+      !/\bappt-\d+/.test(s))
+  ) {
+    return "acknowledgment";
+  }
+
   // Reschedule BEFORE cancel: "cancelled and rescheduled to…" is a move, not a cancel
   // (Levi 2026-07-27). Past-tense only — footer "Log in to Reschedule" must not match.
   const subjectRescheduled =
@@ -632,11 +647,16 @@ export function parseEmailInsight({ from = "", subject = "", body = "", received
   const plainBody = stripHtml(body);
   const blob = [subject, plainBody].filter(Boolean).join("\n");
   const address = extractAddress(blob);
-  const schedule = resolveScheduleTimes(blob);
+  const outcome = classifyEmailOutcome(subject, plainBody);
+  // Acknowledgments are not appointments — ignore letter "Date:" / service-at clocks.
+  const schedule =
+    outcome === "acknowledgment"
+      ? { dateTime: "", exactDateTime: "", endDateTime: "", timeWindow: null }
+      : resolveScheduleTimes(blob);
   const dateTime = schedule.dateTime;
   // Pass window so a 3-hour slot classifies as meter install even without "meter" in text.
-  const appointmentType = classifyAppointmentType(blob, schedule.timeWindow);
-  const outcome = classifyEmailOutcome(subject, plainBody);
+  const appointmentType =
+    outcome === "acknowledgment" ? "other" : classifyAppointmentType(blob, schedule.timeWindow);
   const agency = classifyAgency(from, subject, plainBody);
   const dobJobNumber = extractDobJobNumber(blob);
   const fromLabel =
@@ -658,6 +678,7 @@ export function parseEmailInsight({ from = "", subject = "", body = "", received
   if (outcome === "completed") summaryParts.push("(completed)");
   if (outcome === "reminder") summaryParts.push("(reminder only — not a new set)");
   if (outcome === "rescheduled") summaryParts.push("(rescheduled — replaces the earlier appointment)");
+  if (outcome === "acknowledgment") summaryParts.push("(acknowledgment only — not an appointment)");
 
   return {
     id: messageId ? "ei-" + messageId : "ei-" + Date.now(),
@@ -819,7 +840,9 @@ export function buildProposedActions(insight, job, now = new Date()) {
   // Only NEW appointment-set emails create calendar events (not pure reminders).
   // Past appointments are never scheduleable — no second calendar add after the day.
   // No date → never offer calendar (junk / incomplete parse — Levi 2026-07-22).
-  const isNewSet = outcome === "scheduled" || outcome === "rescheduled" || outcome === "other";
+  // Acknowledgments are case-open only — never calendar (Levi 2026-08-03).
+  // "other" alone used to schedule from letter "Date:" — too loose; require real set language via scheduled/rescheduled only.
+  const isNewSet = outcome === "scheduled" || outcome === "rescheduled";
   const scheduleable = isNewSet && !past && !!when;
 
   if (scheduleable) {
@@ -852,6 +875,13 @@ export function buildProposedActions(insight, job, now = new Date()) {
     actions.push({
       key: "note_completed",
       label: "Note inspection completed (update paperwork)",
+      enabled: true,
+      defaultOn: true,
+    });
+  } else if (outcome === "acknowledgment") {
+    actions.push({
+      key: "note_acknowledgment",
+      label: "Case acknowledgment only — open Con Edison case (no calendar appointment)",
       enabled: true,
       defaultOn: true,
     });
@@ -1119,6 +1149,10 @@ export function hasRealInsightData(insight) {
   if (!hasAddress && !hasJob && !hasDobJob) return false;
 
   const outcome = insight.outcome || "other";
+  // Acknowledgments: case open confirmation — address or MC# is enough; no appointment date required.
+  if (outcome === "acknowledgment") {
+    return hasAddress || hasJob || hasDobJob || /\bMC[-\s]?\d{5,8}\b/i.test(content);
+  }
   // New sets / reschedules / reminders / generic "other" need a real when — otherwise calendar is empty.
   if (
     outcome === "scheduled" ||
@@ -1139,6 +1173,8 @@ export function hasRealInsightData(insight) {
 export function shouldSurfaceInsight(insight, now = new Date()) {
   if (!insight) return false;
   if (!hasRealInsightData(insight)) return false;
+  // Pure acknowledgments never open the appointment sheet — paperwork/case path only.
+  if ((insight.outcome || "") === "acknowledgment") return false;
   if (isPastAppointmentInsight(insight, now)) return false;
   return true;
 }
@@ -1168,7 +1204,17 @@ export function canAutoApply(insight, job, now = new Date()) {
  */
 export function wantsNewCalendarAppointment(insight, now = new Date()) {
   const outcome = insight?.outcome || "other";
-  if (outcome === "reminder" || outcome === "cancelled" || outcome === "completed") return false;
+  if (
+    outcome === "reminder" ||
+    outcome === "cancelled" ||
+    outcome === "completed" ||
+    outcome === "acknowledgment" ||
+    outcome === "other"
+  ) {
+    return false;
+  }
+  // Only true new sets / reschedules create calendar events (Levi 2026-08-03).
+  if (outcome !== "scheduled" && outcome !== "rescheduled") return false;
   if (!insight?.dateTime) return false;
   // Never create calendar events for appointments that already happened.
   return isDateTimeActionable(insight.dateTime, now);

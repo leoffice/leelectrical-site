@@ -1,6 +1,6 @@
 // LEPRO_EMAIL_DESIGN_FIXES spec — invoice/estimate email design.
 //   1. no raw payment URL as body text; short link behind a button only
-//   2. one primary CTA "View Invoice" at the top, pointing at the landing page
+//   2. one primary CTA "View/Pay Invoice" at the top, pointing at the landing page
 //   3. Bill-to must not wrap one letter per line on a phone
 //   4. paying happens on the landing page, not from the email
 import { describe, expect, it } from "vitest";
@@ -40,7 +40,7 @@ function render(extra = {}) {
   return buildEmailHTML({
     ...DOC,
     viewLink: SHORT,
-    viewLabel: "View Invoice",
+    viewLabel: "View/Pay Invoice",
     poweredByHtml: poweredByLeHtml(),
     ...extra,
   });
@@ -77,9 +77,9 @@ describe("1 — no raw payment URL leaks into the email", () => {
 });
 
 describe("2 — one primary CTA at the top", () => {
-  it("renders exactly one View Invoice button", () => {
+  it("renders exactly one View/Pay Invoice button", () => {
     const html = render();
-    const matches = html.match(/View Invoice/g) || [];
+    const matches = html.match(/View\/Pay Invoice/g) || [];
     expect(matches).toHaveLength(1);
   });
 
@@ -91,7 +91,7 @@ describe("2 — one primary CTA at the top", () => {
 
   it("the CTA sits above the line items (top of the email)", () => {
     const html = render();
-    expect(html.indexOf("View Invoice")).toBeLessThan(html.indexOf("Electrical service"));
+    expect(html.indexOf("View/Pay Invoice")).toBeLessThan(html.indexOf("Electrical service"));
   });
 
   it("drops the redundant 'pay securely online' line", () => {

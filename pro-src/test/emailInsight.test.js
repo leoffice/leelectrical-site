@@ -103,6 +103,30 @@ describe("emailInsight", () => {
     expect(classifyEmailOutcome("Initial Inspection Reminder", CONED_HTML_REMINDER)).toBe("reminder");
   });
 
+  it("does not treat Con Ed acknowledgment letters as appointments (Levi 2026-08-03)", () => {
+    const subj = "ConEdison Case Number MC-941580 - Acknowledgment Letter";
+    const body = `ConEdison Case Number MC-941580 - Acknowledgment Letter
+Date: August 3, 2026
+Service At: 1337 President St Brooklyn, NY 11213
+Case No: MC-941580
+Dear Sholom Rubashkin,
+We have received your request for the above referenced location and look forward to working with you and/or your contractor.
+Please use the case number shown above when making inquiries about this service.`;
+    expect(classifyEmailOutcome(subj, body)).toBe("acknowledgment");
+    const raw = parseEmailInsight({
+      from: "CPMS.noreply@coned.com",
+      subject: subj,
+      body,
+      messageId: "ack-mc-941580",
+    });
+    expect(raw.outcome).toBe("acknowledgment");
+    expect(raw.dateTime || "").toBe("");
+    expect(wantsNewCalendarAppointment(raw)).toBe(false);
+    expect(shouldSurfaceInsight(raw)).toBe(false);
+    expect(buildProposedActions(raw, null).some((a) => a.key === "calendar")).toBe(false);
+    expect(buildProposedActions(raw, null).some((a) => a.key === "note_acknowledgment")).toBe(true);
+  });
+
   it("classifies completed vs cancelled outcomes", () => {
     expect(classifyEmailOutcome("Final Inspection Appointment Completed", CONED_COMPLETED)).toBe("completed");
     // DOB NOW terminal Work Complete (word is "Complete", not "completed")

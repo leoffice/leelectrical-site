@@ -11,7 +11,7 @@ export const QB_COMPANY = {
 
 /** Payment options block — same wording on every invoice PDF (gray message area). */
 export const INVOICE_PAYMENT_LINES = [
-  'Online Payment: Click the "View Invoice" tab in the email and pay',
+  'Online Payment: Click the "View/Pay Invoice" tab in the email and pay',
   "via the provided credit card payment link.",
   "-Zelle: Send payment to Office@LeElectrical.us.",
   '-Check: Make checks payable to "BLZ Electric Inc." and either: Mail',

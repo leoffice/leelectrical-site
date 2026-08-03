@@ -96,9 +96,9 @@ describe("composed invoice email", () => {
     expect(payload.text).not.toContain("xBillLastName");
   });
 
-  it("renders exactly one View Invoice CTA, pointing at a short /pay/ link", async () => {
+  it("renders exactly one View/Pay Invoice CTA, pointing at a short /pay/ link", async () => {
     const { payload } = await compose();
-    expect((payload.html.match(/View Invoice/g) || [])).toHaveLength(1);
+    expect((payload.html.match(/View\/Pay Invoice/g) || [])).toHaveLength(1);
     expect(payload.html).toMatch(/href="https:\/\/leelectrical\.us\/pay\/[0-9]{5,8}-[a-z0-9]{4}"/i);
   });
 
@@ -182,7 +182,7 @@ const EST_JOB = {
 };
 
 describe("composed estimate email", () => {
-  it('uses "View and Approve" CTA and a short /pay/ landing link', async () => {
+  it('uses "View/Accept Estimate" CTA and a short /pay/ landing link', async () => {
     const res = await sendDocEmail({
       job: EST_JOB,
       kind: "estimate",
@@ -191,7 +191,7 @@ describe("composed estimate email", () => {
       filename: "Estimate-25499.pdf",
     });
     expect(res.ok).toBe(true);
-    expect(sent.html).toContain("View and Approve");
+    expect(sent.html).toContain("View/Accept Estimate");
     expect(sent.html).not.toContain("View Estimate");
     expect(sent.html).toMatch(/href="https:\/\/leelectrical\.us\/pay\/[0-9]{5,8}-[a-z0-9]{4}"/i);
     expect(sent.text).toMatch(/View and approve/i);

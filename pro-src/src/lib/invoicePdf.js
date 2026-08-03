@@ -38,7 +38,7 @@ export function paymentInstructions() {
   const c = tenantCompany();
   const zelle = tenantZelleInstructions();
   return [
-    'Online Payment: Click the "View Invoice" tab in the email and pay',
+    'Online Payment: Click the "View/Pay Invoice" tab in the email and pay',
     "via the provided credit card payment link.",
     zelle ? `-${zelle}` : null,
     `-Check: Make checks payable to "${c.name}" and either: Mail`,

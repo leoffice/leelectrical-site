@@ -9,7 +9,7 @@ export function docKindLabel(kind) {
 
 /** Expand condensed line-item summary (description, qty, amount). */
 export function viewExpandLabel(kind) {
-  return kind === "invoice" ? "View Invoice" : "View Estimate";
+  return kind === "invoice" ? "View/Pay Invoice" : "View/Accept Estimate";
 }
 
 /** Full layout / PDF-style preview (snappy HTML or PDF). */

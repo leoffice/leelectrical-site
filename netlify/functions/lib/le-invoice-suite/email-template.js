@@ -80,7 +80,7 @@ function btnCell(label, href, bg) {
 
 function btnRow(d, isEstimate) {
   const cells = [];
-  const viewLabel = d.viewLabel || (isEstimate ? 'View estimate' : 'View invoice');
+  const viewLabel = d.viewLabel || (isEstimate ? 'View/Accept Estimate' : 'View/Pay Invoice');
   if (d.viewLink) cells.push(btnCell(viewLabel, d.viewLink, T.buttonBg));
   if (d.payLink) cells.push(btnCell(d.payLabel || 'View and Pay', d.payLink, T.payButtonBg));
   if (!cells.length) return '';

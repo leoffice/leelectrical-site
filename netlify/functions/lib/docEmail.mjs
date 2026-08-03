@@ -199,8 +199,8 @@ export async function sendDocEmail({
   const bodyHtml = buildEmailBodyHTML({
     ...docData,
     viewLink,
-    // payLink intentionally omitted: one primary CTA only (View Invoice / View and Approve).
-    viewLabel: isInvoice ? "View Invoice" : "View and Approve",
+    // payLink intentionally omitted: one primary CTA only (View/Pay Invoice / View/Accept Estimate).
+    viewLabel: isInvoice ? "View/Pay Invoice" : "View/Accept Estimate",
     topMessage: customTop || undefined,
     paymentMessage,
     paymentMessageHtml,
