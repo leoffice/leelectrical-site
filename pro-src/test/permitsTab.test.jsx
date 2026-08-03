@@ -86,14 +86,16 @@ describe("Permits tab renders derived Con Ed cases", () => {
     // Functionalities lock-in checklist is visible (remaining only; learned removed)
     expect(await screen.findByTestId("functionalities-lock-in")).toBeInTheDocument();
     expect(screen.getByTestId("functionalities-lock-in-count")).toHaveTextContent("12 left");
-    // Deploy CTA for rules-based case fill (opens kind chooser)
-    expect(screen.getByTestId("permits-deploy-btn")).toBeInTheDocument();
+    // Top-level Deploy chooser removed (Levi 2026-08-03) — Deploy lives on queue rows
+    expect(screen.queryByTestId("permits-deploy-btn")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("permits-deploy-card")).not.toBeInTheDocument();
   });
 
-  it("Deploy button is green path entry for kind chooser", async () => {
+  it("no top Deploy chooser menu on Permits tab", async () => {
     mockServer({ settings: fullTenant, jobs: [JOB], emailInsights: [conedInsight] });
     renderAppAsTenant("#/permits");
-    const btn = await screen.findByTestId("permits-deploy-btn");
-    expect(btn).toHaveTextContent("Deploy");
+    await screen.findByTestId("permits-tab");
+    expect(screen.queryByTestId("permits-deploy-btn")).not.toBeInTheDocument();
+    expect(screen.queryByText(/what are you deploying/i)).not.toBeInTheDocument();
   });
 });

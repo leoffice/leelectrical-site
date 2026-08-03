@@ -1,8 +1,8 @@
 // Permits — cross-job Con Edison + City/DOB open-case tracker.
 //
-// Surface: green Deploy (choose what → customer → fill → queue), Deploy queue
-// (titled New Case · Con Edison · address, expand to edit, remove always),
-// case progress sections, skills still to teach.
+// Surface: Deploy queue (titled New Case · Con Edison · address). Expand a row
+// for Open / Job / Edit + green Deploy → Deploying… → completed rows leave the
+// queue. Case progress sections + skills still to teach.
 //
 // Gating: the route is only mounted when tenant_config.modules.permits is on
 // (see tenantNav.js / App.jsx). The guard below is belt-and-suspenders.
@@ -29,6 +29,7 @@ import {
   updatePaperworkTodoPatch,
   addPaperworkTodoPatch,
 } from "../lib/agencyForms/index.js";
+import { createCasePaperworkJob } from "../lib/agencyForms/createCaseExecution.js";
 import {
   listPaperworkJobsServer,
   paperworkJobStatusLabel,
@@ -39,24 +40,13 @@ import {
   clearPaperworkJobsSlate,
 } from "../lib/paperworkJobs.js";
 import {
-  DEPLOY_KINDS,
-  DEPLOY_KIND_OPTIONS,
   buildDeployQueueItems,
-  formatDeployTitle,
   processCompletedProgressPatch,
-  requestTypeShortLabel,
+  queueItemCanDeploy,
+  queueItemIsDeploying,
 } from "../lib/permitsDeploy.js";
-import {
-  REQUEST_TYPES as CC_REQUEST_TYPES,
-  seedCreateCaseAnswers,
-} from "../lib/agencyForms/createCaseQuestionnaire.js";
 import PaperworkApprovalSheet from "../components/PaperworkApprovalSheet.jsx";
 import ConedCreateCaseSheet from "../components/ConedCreateCaseSheet.jsx";
-import LetterQuestionnaireSheet from "../components/LetterQuestionnaireSheet.jsx";
-import { upsertJobLetterDraft } from "../lib/letterDraft.js";
-import Sheet, { Opt } from "../components/Sheet.jsx";
-import { customerJobGroups } from "../lib/calendarLink.js";
-import { CustomerAvatar } from "../components/JobCard.jsx";
 
 /** Health/bucket → pill tone, mirroring the JobDetail Con Ed chip. */
 function stageTone(row) {
@@ -149,166 +139,18 @@ function CaseRow({ row, job, onOpen, onMeterApplication }) {
   );
 }
 
-/** Step 1 of Deploy — pick WHAT to deploy. */
-function DeployKindPicker({ onPick, onClose }) {
-  return (
-    <Sheet title="Deploy — what are you deploying?" onClose={onClose} testId="permits-deploy-kind">
-      <p className="text-sm text-slate-500 mb-3" data-testid="permits-deploy-kind-note">
-        Choose the work type. Then pick the customer and fill or queue it.
-      </p>
-      <div className="space-y-2">
-        {DEPLOY_KIND_OPTIONS.map((opt) => (
-          <Opt
-            key={opt.id}
-            icon={opt.id === DEPLOY_KINDS.ELECTRICAL_PERMIT ? "🏛" : "⚡"}
-            title={opt.title}
-            note={`${opt.agency} · ${opt.subtitle}`}
-            onClick={() => onPick(opt)}
-            data-testid={`permits-deploy-kind-${opt.id}`}
-          />
-        ))}
-      </div>
-    </Sheet>
-  );
-}
-
-/** New Case branch — Additional Load vs No Additional Load. */
-function DeployRequestTypePicker({ onPick, onClose }) {
-  return (
-    <Sheet title="New Case — load type" onClose={onClose} testId="permits-deploy-request-type">
-      <p className="text-sm text-slate-500 mb-3">
-        Con Edison case for the service address.
-      </p>
-      <div className="space-y-2">
-        <Opt
-          icon="➕"
-          title="Additional Load"
-          note="Add load to existing service — full questionnaire"
-          onClick={() => onPick(CC_REQUEST_TYPES.ADD_LOAD)}
-          data-testid="permits-deploy-rt-add-load"
-        />
-        <Opt
-          icon="🔧"
-          title="No Additional Load"
-          note="Work on customer equipment — short path (most common)"
-          onClick={() => onPick(CC_REQUEST_TYPES.NO_ADD_LOAD)}
-          data-testid="permits-deploy-rt-no-add-load"
-        />
-      </div>
-    </Sheet>
-  );
-}
-
-/** Pick customer → job for Deploy (rules seed from job; no hand-typing field names). */
-function DeployJobPicker({ jobs, onPick, onClose, title = "Deploy — pick customer", note }) {
-  const [q, setQ] = useState("");
-  const [expanded, setExpanded] = useState({});
-  const groups = useMemo(() => customerJobGroups(jobs), [jobs]);
-  const filtered = useMemo(() => {
-    const needle = q.trim().toLowerCase();
-    if (!needle) return groups;
-    return groups.filter(([key, list]) => {
-      const name = String(list[0]?.customer || list[0]?.customerName || key || "").toLowerCase();
-      const hitJob = list.some((j) => {
-        const blob = [
-          j.customer,
-          j.customerName,
-          j.title,
-          j.serviceAddress,
-          j.address,
-          j.estimateNo,
-          j.invoiceNo,
-        ]
-          .filter(Boolean)
-          .join(" ")
-          .toLowerCase();
-        return blob.includes(needle);
-      });
-      return name.includes(needle) || hitJob;
-    });
-  }, [groups, q]);
-
-  return (
-    <Sheet title={title} onClose={onClose} testId="permits-deploy-picker">
-      <p className="text-sm text-slate-500 mb-3" data-testid="permits-deploy-rules-note">
-        {note ||
-          "Choose a customer. We pull name, address, building info, and estimate scope — then you fill the application and Deploy queues it."}
-      </p>
-      <input
-        type="search"
-        className="w-full mb-3 px-3 py-2.5 rounded-xl border border-slate-200 text-sm"
-        placeholder="Search customer, address, estimate…"
-        value={q}
-        onChange={(e) => setQ(e.target.value)}
-        data-testid="permits-deploy-search"
-        autoFocus
-      />
-      {filtered.length ? (
-        <div className="space-y-2">
-          {filtered.map(([key, list]) => {
-            const name = list[0].customer || list[0].customerName || "(no customer)";
-            const open = !!expanded[key] || !!q.trim();
-            return (
-              <div key={key} className="card overflow-hidden" data-testid="permits-deploy-customer">
-                <button
-                  type="button"
-                  className="w-full flex items-center gap-3 px-4 py-3 text-left"
-                  onClick={() => setExpanded((o) => ({ ...o, [key]: !o[key] }))}
-                >
-                  <CustomerAvatar name={name} />
-                  <span className="min-w-0 flex-1">
-                    <span className="block font-bold text-slate-900 truncate">{name}</span>
-                    <span className="block text-xs text-slate-500">
-                      {list.length} job{list.length === 1 ? "" : "s"}
-                    </span>
-                  </span>
-                  <span className={`text-slate-400 transition-transform ${open ? "rotate-180" : ""}`}>
-                    ▾
-                  </span>
-                </button>
-                {open ? (
-                  <div className="px-3 pb-3 space-y-1.5 bg-slate-50/60 border-t border-slate-100 pt-3">
-                    {list.map((j) => (
-                      <Opt
-                        key={j.id}
-                        icon="📄"
-                        title={j.title || j.serviceAddress || j.address || "Job"}
-                        note={
-                          [
-                            j.serviceAddress || j.address,
-                            j.estimateNo ? `Est ${j.estimateNo}` : "",
-                            j.invoiceNo ? `Inv ${j.invoiceNo}` : "",
-                          ]
-                            .filter(Boolean)
-                            .join(" · ") || j.id
-                        }
-                        onClick={() => onPick(j)}
-                        data-testid="permits-deploy-job"
-                      />
-                    ))}
-                  </div>
-                ) : null}
-              </div>
-            );
-          })}
-        </div>
-      ) : (
-        <div className="text-sm text-slate-400 text-center py-8">No matching customers.</div>
-      )}
-    </Sheet>
-  );
-}
-
-/** One Deploy queue row — tap expands application details; remove always on. */
+/** One Deploy queue row — expand for Open / Job / Edit + green Deploy. */
 function DeployQueueRow({
   item,
   expanded,
+  deploying,
   onToggle,
   onRemove,
+  onOpen,
   onEdit,
   onReview,
   onOpenJob,
-  onReadyTodo,
+  onDeploy,
 }) {
   const status = item.status || "";
   const terminal =
@@ -326,6 +168,13 @@ function DeployQueueRow({
     item.requestShort || "",
     item.serviceAddress || "",
   ].filter(Boolean);
+  const canEdit =
+    (item.source === "fleet" && item.run?.type === "create_case") ||
+    item.source === "draft" ||
+    item.kind === "New Case";
+  const isDeploying = deploying || queueItemIsDeploying(item);
+  const canDeploy = !isDeploying && queueItemCanDeploy(item);
+  const needsReview = item.source === "fleet" && status === "awaiting_approval";
 
   return (
     <div
@@ -353,16 +202,20 @@ function DeployQueueRow({
             className={`rounded-full px-2 py-0.5 text-[11px] font-bold ${
               item.source === "fleet"
                 ? paperworkJobStatusTone(status)
-                : status === "queued" || status === "deploy_queued"
-                  ? "bg-emerald-100 text-emerald-800"
-                  : "bg-slate-100 text-slate-600"
+                : isDeploying
+                  ? "bg-amber-100 text-amber-900"
+                  : status === "queued" || status === "deploy_queued"
+                    ? "bg-emerald-100 text-emerald-800"
+                    : "bg-slate-100 text-slate-600"
             }`}
           >
-            {item.source === "fleet"
-              ? paperworkJobStatusLabel(status)
-              : status === "deploy_queued"
-                ? "Deploy queue"
-                : status || "pending"}
+            {isDeploying && item.source !== "fleet"
+              ? "Deploying…"
+              : item.source === "fleet"
+                ? paperworkJobStatusLabel(status)
+                : status === "deploy_queued"
+                  ? "Ready"
+                  : status || "pending"}
           </span>
           {item.expandable !== false ? (
             <span className="text-slate-400 text-xs">{expanded ? "▾" : "▸"}</span>
@@ -382,31 +235,50 @@ function DeployQueueRow({
               ))}
             </ul>
           ) : (
-            <p className="text-[12px] text-slate-500">No application details yet — edit to fill.</p>
+            <p className="text-[12px] text-slate-500">No application details yet — Edit to fill.</p>
           )}
-          <div className="flex flex-wrap gap-2 pt-1">
+          <div className="flex flex-wrap gap-2 pt-1 items-center">
+            {canEdit ? (
+              <button
+                type="button"
+                className="pill bg-white border border-slate-200 text-slate-700 text-xs font-semibold"
+                data-testid="permits-queue-open"
+                onClick={() => onOpen(item)}
+              >
+                Open
+              </button>
+            ) : null}
             {item.jobId ? (
               <button
                 type="button"
                 className="pill bg-white border border-slate-200 text-slate-700 text-xs font-semibold"
+                data-testid="permits-queue-job"
                 onClick={() => onOpenJob(item.jobId)}
               >
-                Open job
+                Job
               </button>
             ) : null}
-            {(item.source === "fleet" && item.run?.type === "create_case") ||
-            item.source === "draft" ||
-            item.kind === "New Case" ? (
+            {canEdit ? (
               <button
                 type="button"
                 className="pill bg-brand-soft text-brand text-xs font-bold"
                 data-testid="permits-queue-edit"
                 onClick={() => onEdit(item)}
               >
-                Edit &amp; save
+                Edit
               </button>
             ) : null}
-            {item.source === "fleet" && status === "awaiting_approval" ? (
+            {canEdit ? (
+              <button
+                type="button"
+                className="pill bg-white border border-slate-200 text-slate-700 text-xs font-semibold"
+                data-testid="permits-queue-save"
+                onClick={() => onEdit(item)}
+              >
+                Save
+              </button>
+            ) : null}
+            {needsReview ? (
               <button
                 type="button"
                 className="btn bg-red-600 text-white !py-1.5 !px-2.5 text-xs font-extrabold animate-pulse"
@@ -416,14 +288,24 @@ function DeployQueueRow({
                 Review &amp; approve
               </button>
             ) : null}
-            {item.source === "todo" && item.todo?.status !== "queued" ? (
+            {isDeploying ? (
               <button
                 type="button"
-                className="btn bg-violet-700 text-white !py-1.5 !px-2.5 text-xs font-bold"
-                data-testid="permits-todo-ready"
-                onClick={() => onReadyTodo(item)}
+                className="btn bg-emerald-600/80 text-white !py-1.5 !px-3 text-xs font-extrabold"
+                disabled
+                data-testid="permits-queue-deploy"
+                aria-busy="true"
               >
-                Ready to go
+                Deploying…
+              </button>
+            ) : canDeploy ? (
+              <button
+                type="button"
+                className="btn bg-emerald-700 text-white !py-1.5 !px-3 text-xs font-extrabold"
+                data-testid="permits-queue-deploy"
+                onClick={() => onDeploy(item)}
+              >
+                Deploy
               </button>
             ) : null}
           </div>
@@ -456,15 +338,7 @@ export default function Permits() {
   const [queueOpen, setQueueOpen] = useState(true);
   const [clearing, setClearing] = useState(false);
   const [expandedIds, setExpandedIds] = useState({});
-
-  // Deploy wizard: kind → (request type) → job → sheet
-  const [pickingKind, setPickingKind] = useState(false);
-  const [pickingRequestType, setPickingRequestType] = useState(false);
-  const [pickingJob, setPickingJob] = useState(false);
-  const [deployKind, setDeployKind] = useState(null);
-  const [deployRequestType, setDeployRequestType] = useState(null);
-  const [deployJob, setDeployJob] = useState(null);
-  const [letterJob, setLetterJob] = useState(null);
+  const [deployingIds, setDeployingIds] = useState({});
   const [editJob, setEditJob] = useState(null);
 
   const refreshRuns = async () => {
@@ -651,65 +525,107 @@ export default function Permits() {
     setEditJob(job);
   };
 
-  const startDeployFromKind = (opt) => {
-    setDeployKind(opt.id);
-    setPickingKind(false);
-    if (opt.id === DEPLOY_KINDS.NEW_CASE) {
-      setPickingRequestType(true);
+  /** Green Deploy on a queue row — fire skill; button shows Deploying… */
+  const deployQueueItem = async (item) => {
+    if (!item?.id || deployingIds[item.id]) return;
+    if (item.source === "fleet" && item.status === "awaiting_approval") {
+      setApprovalJob(item.run);
       return;
     }
-    setPickingJob(true);
-  };
+    setDeployingIds((m) => ({ ...m, [item.id]: true }));
+    setQueueOpen(true);
+    try {
+      const job = jobsById.get(item.jobId) || item.job;
+      if (!job && item.source !== "fleet") {
+        showToast("Job not found");
+        return;
+      }
 
-  const afterJobPicked = async (j) => {
-    setPickingJob(false);
-    const kind = deployKind;
-    if (kind === DEPLOY_KINDS.NEW_CASE) {
-      // Seed request type onto a draft so the sheet opens on the right branch
-      const rt = deployRequestType || CC_REQUEST_TYPES.NO_ADD_LOAD;
-      const seeded = seedCreateCaseAnswers(j, j?.paperwork?.coned?.createCase, {});
-      seeded.requestType = rt;
-      await patchAndSave(j.id, {
-        paperwork: {
-          coned: {
-            enabled: true,
-            createCase: {
-              status: "draft",
-              answers: seeded,
-              stepIndex: 0,
-              updatedAt: Date.now(),
-            },
-          },
-        },
+      if (item.source === "draft" || (item.kind === "New Case" && item.draft)) {
+        const answers =
+          item.draft?.answers ||
+          job?.paperwork?.coned?.createCase?.answers ||
+          {};
+        const r = await createCasePaperworkJob({
+          answers,
+          job,
+          onSave: (p) => patchAndSave(item.jobId, p),
+        });
+        if (r.ok) {
+          showToast("Deploying… fills up to Review for your confirm");
+          await refreshRuns();
+        } else {
+          showToast(
+            r.error === "questionnaire_incomplete"
+              ? "Fill the application first — tap Edit"
+              : "Couldn't deploy: " + (r.error || "try again")
+          );
+        }
+        return;
+      }
+
+      if (item.source === "todo" && item.todo) {
+        const r = await readyToGoTodo({
+          job,
+          todo: item.todo,
+          enqueue,
+          onSave: (p) => patchAndSave(item.jobId, p),
+        });
+        showToast(
+          r.queued
+            ? "Deploying… stops at review for your confirm"
+            : "Not deployed: " + (r.error || "unknown")
+        );
+        await refreshRuns();
+        return;
+      }
+
+      if (item.source === "meter") {
+        const todos = listPaperworkTodos(job);
+        let todo = todos.find(
+          (t) => t.kind === "new_meter" || t.source === "meter_application"
+        );
+        if (!todo) {
+          const { patch, todo: t } = addPaperworkTodoPatch(job, {
+            kind: "new_meter",
+            meterLabel: "New Meter",
+            title: item.title,
+            source: "meter_application",
+          });
+          if (patch) await patchAndSave(item.jobId, patch);
+          todo = t;
+        }
+        if (todo) {
+          const r = await readyToGoTodo({
+            job: jobsById.get(item.jobId) || job,
+            todo,
+            enqueue,
+            onSave: (p) => patchAndSave(item.jobId, p),
+          });
+          showToast(
+            r.queued
+              ? "Deploying new meter…"
+              : "Not deployed: " + (r.error || "unknown")
+          );
+        } else {
+          showToast("Couldn't queue meter deploy");
+        }
+        await refreshRuns();
+        return;
+      }
+
+      if (item.source === "fleet") {
+        await refreshRuns();
+        return;
+      }
+
+      showToast("Nothing to deploy on this row");
+    } finally {
+      setDeployingIds((m) => {
+        const next = { ...m };
+        delete next[item.id];
+        return next;
       });
-      setDeployJob(j);
-      return;
-    }
-    if (kind === DEPLOY_KINDS.LOAD_LETTER) {
-      setLetterJob(j);
-      return;
-    }
-    if (kind === DEPLOY_KINDS.NEW_METER) {
-      await handleMeterApplication(j.id, "new_meter");
-      setQueueOpen(true);
-      showToast("New meter is in the Deploy queue");
-      return;
-    }
-    if (kind === DEPLOY_KINDS.ELECTRICAL_PERMIT) {
-      const { patch, added } = addPaperworkTodoPatch(j, {
-        kind: "file_electrical_permit",
-        title: formatDeployTitle({
-          kind: "Electrical Permit",
-          agency: "DOB",
-          serviceAddress: j.serviceAddress || j.address || "",
-        }),
-        note: "DOB login + permit details — skill when Submitted",
-        source: "deploy_chooser",
-      });
-      if (patch) await patchAndSave(j.id, patch);
-      setQueueOpen(true);
-      showToast(added ? "Electrical Permit queued for Deploy" : "Already on the queue");
-      return;
     }
   };
 
@@ -739,17 +655,6 @@ export default function Permits() {
   const { counts, actionNeeded, sections } = board;
   const hasAny = counts.total > 0;
 
-  const jobPickerTitle =
-    deployKind === DEPLOY_KINDS.LOAD_LETTER
-      ? "Load Letter — pick customer"
-      : deployKind === DEPLOY_KINDS.NEW_METER
-        ? "New Meter — pick customer"
-        : deployKind === DEPLOY_KINDS.ELECTRICAL_PERMIT
-          ? "Electrical Permit — pick customer"
-          : deployKind === DEPLOY_KINDS.NEW_CASE
-            ? `New Case · ${requestTypeShortLabel(deployRequestType)} — pick customer`
-            : "Deploy — pick customer";
-
   return (
     <div className="pb-24" data-testid="permits-tab">
       <div className="flex items-center justify-between mb-3 px-1">
@@ -768,32 +673,7 @@ export default function Permits() {
         ) : null}
       </div>
 
-      {/* DEPLOY — green top button → choose what → customer → fill/queue */}
-      <div className="card overflow-hidden mb-4 border border-emerald-200" data-testid="permits-deploy-card">
-        <div className="px-4 py-3 bg-emerald-50/70">
-          <h2 className="font-extrabold text-sm text-emerald-900 uppercase tracking-wide">
-            Deploy
-          </h2>
-          <p className="text-xs text-slate-600 mt-0.5">
-            Choose what you&apos;re deploying (New Case, Load Letter, New Meter, Electrical Permit),
-            pick the customer, fill, then it lands in the queue below.
-          </p>
-          <button
-            type="button"
-            className="btn bg-emerald-700 text-white w-full mt-3 font-extrabold"
-            data-testid="permits-deploy-btn"
-            onClick={() => {
-              setDeployKind(null);
-              setDeployRequestType(null);
-              setPickingKind(true);
-            }}
-          >
-            Deploy
-          </button>
-        </div>
-      </div>
-
-      {/* DEPLOY QUEUE — titled rows, expand/edit, remove always */}
+      {/* DEPLOY QUEUE — expand → Open / Job / Edit / Save + green Deploy */}
       {queueItems.length ? (
         <div
           className="card overflow-hidden mb-4 border border-slate-200"
@@ -812,8 +692,8 @@ export default function Permits() {
                   Deploy queue
                 </h2>
                 <p className="text-xs text-slate-500 mt-0.5">
-                  {queueItems.length} item{queueItems.length === 1 ? "" : "s"} · tap a row to{" "}
-                  {queueOpen ? "edit or collapse" : "expand"}
+                  {queueItems.length} item{queueItems.length === 1 ? "" : "s"} · expand → Deploy
+                  when ready
                 </p>
               </div>
               <span className="flex items-center gap-1.5 shrink-0">
@@ -853,26 +733,16 @@ export default function Permits() {
                     key={item.id}
                     item={item}
                     expanded={!!expandedIds[item.id]}
+                    deploying={!!deployingIds[item.id]}
                     onToggle={(id) =>
                       setExpandedIds((m) => ({ ...m, [id]: !m[id] }))
                     }
                     onRemove={removeQueueItem}
+                    onOpen={onEditQueueItem}
                     onEdit={onEditQueueItem}
                     onReview={setApprovalJob}
                     onOpenJob={open}
-                    onReadyTodo={async (it) => {
-                      const r = await readyToGoTodo({
-                        job: it.job,
-                        todo: it.todo,
-                        enqueue,
-                        onSave: (p) => patchAndSave(it.jobId, p),
-                      });
-                      showToast(
-                        r.queued
-                          ? "Queued — stops at review for your confirm"
-                          : "Not fired: " + (r.error || "unknown")
-                      );
-                    }}
+                    onDeploy={deployQueueItem}
                   />
                 ))}
               </div>
@@ -951,7 +821,7 @@ export default function Permits() {
           <span className="block text-3xl mb-2">📄</span>
           No permit cases yet.
           <br />
-          Tap Deploy to start a New Case, Load Letter, or New Meter.
+          Start a case from a job&apos;s Paperwork — it lands in the Deploy queue here.
         </div>
       ) : null}
 
@@ -998,54 +868,6 @@ export default function Permits() {
         />
       ) : null}
 
-      {pickingKind ? (
-        <DeployKindPicker
-          onClose={() => setPickingKind(false)}
-          onPick={startDeployFromKind}
-        />
-      ) : null}
-
-      {pickingRequestType ? (
-        <DeployRequestTypePicker
-          onClose={() => {
-            setPickingRequestType(false);
-            setDeployKind(null);
-          }}
-          onPick={(rt) => {
-            setDeployRequestType(rt);
-            setPickingRequestType(false);
-            setPickingJob(true);
-          }}
-        />
-      ) : null}
-
-      {pickingJob ? (
-        <DeployJobPicker
-          jobs={jobs}
-          title={jobPickerTitle}
-          onClose={() => {
-            setPickingJob(false);
-            setDeployKind(null);
-            setDeployRequestType(null);
-          }}
-          onPick={afterJobPicked}
-        />
-      ) : null}
-
-      {deployJob ? (
-        <ConedCreateCaseSheet
-          job={jobsById.get(deployJob.id) || deployJob}
-          onClose={() => {
-            setDeployJob(null);
-            setDeployKind(null);
-            setDeployRequestType(null);
-          }}
-          onSave={async (patch) => {
-            await onCreateCaseSaved(patch, deployJob.id);
-          }}
-        />
-      ) : null}
-
       {editJob ? (
         <ConedCreateCaseSheet
           job={jobsById.get(editJob.id) || editJob}
@@ -1053,40 +875,6 @@ export default function Permits() {
           onSave={async (patch) => {
             await onCreateCaseSaved(patch, editJob.id);
             showToast("Application saved");
-          }}
-        />
-      ) : null}
-
-      {letterJob ? (
-        <LetterQuestionnaireSheet
-          job={jobsById.get(letterJob.id) || letterJob}
-          initialTypeId="load_letter"
-          itemName="Load Letter"
-          onClose={() => {
-            setLetterJob(null);
-            setDeployKind(null);
-          }}
-          onSave={async ({ draft }) => {
-            if (!draft) return;
-            const job = jobsById.get(letterJob.id) || letterJob;
-            const letterDrafts = upsertJobLetterDraft(job, draft);
-            await patchAndSave(letterJob.id, { letterDrafts });
-            // Also put a titled item on the Deploy queue via todo for visibility
-            const { patch: todoPatch } = addPaperworkTodoPatch(job, {
-              kind: "send_application",
-              meterLabel: "Load Letter",
-              title: formatDeployTitle({
-                kind: "Load Letter",
-                agency: "Con Edison",
-                serviceAddress: job.serviceAddress || job.address || draft.siteAddress || "",
-              }),
-              note: "Load letter drafted — ready to send / attach",
-              source: "deploy_load_letter",
-            });
-            if (todoPatch) await patchAndSave(letterJob.id, todoPatch);
-            showToast("Load Letter saved — in Deploy queue");
-            setLetterJob(null);
-            setQueueOpen(true);
           }}
         />
       ) : null}

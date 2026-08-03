@@ -1,12 +1,11 @@
 /**
  * Permits Deploy queue — titles, deploy types, and next-step wiring.
  *
- * Levi (2026-08-03): After submit, applications land in the Permits queue.
- * Green Deploy picks WHAT to deploy (New Case / Load Letter / New Meter / …).
- * Queue rows title as: New Case · Con Edison · Service Address, plus
- * Additional Load / No Additional Load. Tap expands edit; tap again collapses.
- * Remove is always available. Completed steps update job + paperwork and ready
- * the next step (Electrical Permit when due).
+ * Levi (2026-08-03 evening): No top-level Deploy chooser. Applications land in
+ * the Deploy queue (from job paperwork / questionnaires). Expand a row → Open /
+ * Job / Edit + green Deploy. Deploy → "Deploying…" → when complete the row is
+ * removed. Completed steps update job + paperwork and ready next step
+ * (Electrical Permit when due).
  */
 import {
   REQUEST_TYPES,
@@ -37,7 +36,7 @@ export function requestTypeShortLabel(requestType) {
   return REQUEST_TYPE_SHORT_LABELS[rt] || REQUEST_TYPE_LABELS[rt] || s(requestType).replace(/_/g, " ");
 }
 
-/** Deploy action kinds shown when Levi taps the green Deploy button. */
+/** Deploy action kind ids (queue items / progress — no top-level chooser). */
 export const DEPLOY_KINDS = Object.freeze({
   NEW_CASE: "new_case",
   LOAD_LETTER: "load_letter",
@@ -46,7 +45,7 @@ export const DEPLOY_KINDS = Object.freeze({
 });
 
 /**
- * Options for the Deploy chooser sheet.
+ * Labels for deploy kinds (kept for titles / progress; chooser UI removed).
  * @type {ReadonlyArray<{ id: string, title: string, subtitle: string, agency: string, ready: boolean }>}
  */
 export const DEPLOY_KIND_OPTIONS = Object.freeze([
@@ -79,6 +78,38 @@ export const DEPLOY_KIND_OPTIONS = Object.freeze([
     ready: true,
   },
 ]);
+
+/** Fleet statuses that mean "done" — drop from Deploy queue automatically. */
+export const DEPLOY_QUEUE_COMPLETED_STATUSES = new Set(["done", "submitted"]);
+
+/** Whether a queue row should show green Deploy (vs Review / Deploying…). */
+export function queueItemCanDeploy(item = {}) {
+  const status = s(item.status).toLowerCase();
+  if (DEPLOY_QUEUE_COMPLETED_STATUSES.has(status)) return false;
+  if (status === "awaiting_approval") return false;
+  if (item.source === "fleet") {
+    // Already handed to fleet — show Deploying…, not a second Deploy
+    if (status === "queued" || status === "in_progress" || status === "approved") {
+      return false;
+    }
+    return false;
+  }
+  if (item.source === "draft" || item.source === "todo" || item.source === "meter") {
+    if (status === "queued" || status === "deploying") return false;
+    return true;
+  }
+  return false;
+}
+
+/** True while Deploy is in flight or fleet is actively working. */
+export function queueItemIsDeploying(item = {}, deployingIds = {}) {
+  if (deployingIds && item.id && deployingIds[item.id]) return true;
+  const status = s(item.status).toLowerCase();
+  if (item.source === "fleet") {
+    return status === "queued" || status === "in_progress" || status === "approved";
+  }
+  return status === "queued" || status === "deploying";
+}
 
 /**
  * Human title for a deploy/queue row.
@@ -316,6 +347,8 @@ export function buildDeployQueueItems({ jobs = [], caseRuns = [] } = {}) {
 
   for (const run of caseRuns || []) {
     if (!run || run.dismissed) continue;
+    // Completed runs leave the Deploy queue automatically (Levi 2026-08-03)
+    if (DEPLOY_QUEUE_COMPLETED_STATUSES.has(s(run.status).toLowerCase())) continue;
     const job = jobsById.get(run.jobId) || null;
     const disp = caseRunDisplay(run, job);
     items.push({
@@ -383,7 +416,7 @@ export function buildDeployQueueItems({ jobs = [], caseRuns = [] } = {}) {
         agency: todo.agency === "dob" ? "DOB" : "Con Edison",
         status: todo.status || "pending",
         removable: true,
-        expandable: false,
+        expandable: true,
       });
     }
 
@@ -425,7 +458,7 @@ export function buildDeployQueueItems({ jobs = [], caseRuns = [] } = {}) {
           agency: "Con Edison",
           status: "deploy_queued",
           removable: true,
-          expandable: false,
+          expandable: true,
         });
       }
     }

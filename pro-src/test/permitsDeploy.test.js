@@ -9,6 +9,9 @@ import {
   buildDeployQueueItems,
   processCompletedProgressPatch,
   withDeployDisplayFields,
+  queueItemCanDeploy,
+  queueItemIsDeploying,
+  DEPLOY_QUEUE_COMPLETED_STATUSES,
 } from "../src/lib/permitsDeploy.js";
 import { jobPatchMeterApplication } from "../src/modules/permits/meterApplication.js";
 import { REQUEST_TYPES } from "../src/lib/agencyForms/createCaseQuestionnaire.js";
@@ -30,7 +33,7 @@ describe("Deploy titles + short load labels", () => {
     expect(requestTypeShortLabel("No Additional Load")).toBe("No Additional Load");
   });
 
-  it("Deploy chooser lists New Case, Load Letter, New Meter, Electrical Permit", () => {
+  it("kind labels still cover New Case, Load Letter, New Meter, Electrical Permit", () => {
     const ids = DEPLOY_KIND_OPTIONS.map((o) => o.id);
     expect(ids).toEqual([
       DEPLOY_KINDS.NEW_CASE,
@@ -38,6 +41,22 @@ describe("Deploy titles + short load labels", () => {
       DEPLOY_KINDS.NEW_METER,
       DEPLOY_KINDS.ELECTRICAL_PERMIT,
     ]);
+  });
+});
+
+describe("queue Deploy button state", () => {
+  it("draft/todo/meter can Deploy; fleet running shows Deploying", () => {
+    expect(queueItemCanDeploy({ source: "draft", status: "draft", id: "d1" })).toBe(true);
+    expect(queueItemCanDeploy({ source: "todo", status: "pending", id: "t1" })).toBe(true);
+    expect(queueItemCanDeploy({ source: "meter", status: "deploy_queued", id: "m1" })).toBe(true);
+    expect(queueItemCanDeploy({ source: "fleet", status: "queued", id: "f1" })).toBe(false);
+    expect(queueItemCanDeploy({ source: "fleet", status: "awaiting_approval", id: "f2" })).toBe(
+      false
+    );
+    expect(queueItemIsDeploying({ source: "fleet", status: "in_progress", id: "f3" })).toBe(true);
+    expect(queueItemIsDeploying({ source: "draft", status: "draft", id: "d2" }, { d2: true })).toBe(
+      true
+    );
   });
 });
 
@@ -106,8 +125,40 @@ describe("buildDeployQueueItems", () => {
     expect(items.some((i) => i.source === "fleet" && i.id === "pj-1")).toBe(true);
     expect(items.some((i) => i.source === "todo")).toBe(true);
     expect(items.every((i) => i.removable)).toBe(true);
+    expect(items.filter((i) => i.source === "todo").every((i) => i.expandable)).toBe(true);
     const fleet = items.find((i) => i.id === "pj-1");
     expect(fleet.title).toMatch(/New Case/);
+  });
+
+  it("drops completed fleet runs from the Deploy queue", () => {
+    const items = buildDeployQueueItems({
+      jobs: [],
+      caseRuns: [
+        {
+          id: "done-1",
+          type: "create_case",
+          jobId: "j1",
+          status: "done",
+          payload: { displayTitle: "New Case · Con Edison · Done St" },
+        },
+        {
+          id: "sub-1",
+          type: "create_case",
+          jobId: "j1",
+          status: "submitted",
+          payload: { displayTitle: "New Case · Con Edison · Sub St" },
+        },
+        {
+          id: "live-1",
+          type: "create_case",
+          jobId: "j1",
+          status: "in_progress",
+          payload: { displayTitle: "New Case · Con Edison · Live St" },
+        },
+      ],
+    });
+    expect(DEPLOY_QUEUE_COMPLETED_STATUSES.has("done")).toBe(true);
+    expect(items.map((i) => i.id)).toEqual(["live-1"]);
   });
 });
 
