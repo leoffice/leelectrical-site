@@ -47,6 +47,7 @@ import { syncBillingFromService } from "../lib/addressSync.js";
 import { draftJobFromFabContext, paymentFabStep } from "../lib/fabPrefill.js";
 import PageNoteSheet from "./PageNoteSheet.jsx";
 import { useLiveEdit } from "./LiveEditProvider.jsx";
+import ServiceUpgradeEstimatorSheet from "./ServiceUpgradeEstimatorSheet.jsx";
 
 export { prefillFromEvent };
 
@@ -202,6 +203,13 @@ export default function NewJobFlow() {
     return (
       <Sheet title="Add" onClose={close}>
         <Opt icon="🔧" title="Add a job" note="New scope for a customer — type details or pick from calendar" onClick={() => setNewJob({ step: "jobMenu", context })} />
+        <Opt
+          icon="⚡"
+          title="Estimate generator"
+          note="Service upgrade — meters, amps, phases, toggles, live price → job + estimate"
+          onClick={() => setNewJob({ step: "estimateGenerator", context, prefill: context || {} })}
+          data-testid="estimate-generator-entry"
+        />
         <Opt icon="🏗️" title="Add a job with vendor" note="Track subcontractor / vendor on the job" onClick={() => setNewJob({ step: "form", prefill: {}, context, vendorMode: true })} />
         <Opt
           icon="🧾"
@@ -266,6 +274,22 @@ export default function NewJobFlow() {
         />
       </Sheet>
     );
+
+  if (newJob.step === "estimateGenerator") {
+    const ctx = newJob.context || newJob.prefill || {};
+    const prefill = {
+      ...(newJob.prefill || {}),
+      customer: ctx.customer || ctx.businessName || ctx._customerContext?.name,
+      businessName: ctx.businessName || ctx.customer,
+      personName: ctx.personName,
+      email: ctx.email,
+      phone: ctx.phone,
+      serviceAddress: ctx.serviceAddress || ctx.address,
+      billingAddress: ctx.billingAddress,
+      calEventId: ctx.calEventId || "",
+    };
+    return <ServiceUpgradeEstimatorSheet onClose={close} prefill={prefill} />;
+  }
 
   if (newJob.step === "newCustomer")
     return (

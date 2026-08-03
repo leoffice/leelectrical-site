@@ -1066,7 +1066,9 @@ export function StoreProvider({ children }) {
       const status = {};
       STAGES.forEach((s) => (status[s] = { s: "" }));
       status.Lead = { s: "done", d: todayStr() };
-      if (g.estimateNo) status.Estimate = { s: "done" };
+      if (g.estimateNo || (Array.isArray(g.estimateLines) && g.estimateLines.length)) {
+        status.Estimate = { s: "done", d: todayStr() };
+      }
       if (g.invoiceNo) status.Invoiced = { s: "done", d: todayStr() };
       if (g.date) status.Scheduled = { s: "done", d: g.date };
       const serviceAddr = g.serviceAddress || g.address || "";
@@ -1088,12 +1090,18 @@ export function StoreProvider({ children }) {
         estimateNo: g.estimateNo || "",
         invoiceNo: g.invoiceNo || "",
         paid: false,
-        notes: "",
+        notes: g.notes || "",
         followUp: { text: "", date: "" },
         status,
         calEventId: calEventId || "",
         _sasCallId: g.sasCallId || "",
         _sasRecordingUrl: g.sasRecordingUrl || "",
+        // Estimate generator / line prefill (service upgrade, etc.)
+        ...(Array.isArray(g.estimateLines) && g.estimateLines.length
+          ? { estimateLines: g.estimateLines, _estimateConfirmed: false }
+          : {}),
+        ...(Array.isArray(g.invoiceLines) && g.invoiceLines.length ? { invoiceLines: g.invoiceLines } : {}),
+        ...(g._estimator ? { _estimator: g._estimator } : {}),
         // Change-order fields (must survive create — Discard removes draft COs).
         ...(g.changeOrder
           ? {
