@@ -3,7 +3,7 @@ import React, { useMemo } from "react";
 import { jobCalendarLinkState } from "../lib/calendarLink.js";
 import { docSyncFailedForJob, docSyncPendingForJob } from "../lib/docSync.js";
 import { hasEstimateDraft, hasEstimateOnJob, hasInvoiceDraft, hasInvoiceOnJob } from "../lib/docDraft.js";
-import { hasPendingInvoiceReview } from "../lib/invoiceAgentDraft.js";
+import { hasPendingEstimateReview, hasPendingInvoiceReview } from "../lib/invoiceAgentDraft.js";
 import { changeOrderTabRows } from "../lib/changeOrder.js";
 
 function tabTone(active, pending, failed) {
@@ -32,6 +32,7 @@ export default function JobDocTabs({
   const estDraft = hasEstimateDraft(job);
   const invDraft = hasInvoiceDraft(job);
   const agentReview = hasPendingInvoiceReview(job);
+  const estAgentReview = hasPendingEstimateReview(job);
   const canPay = !!(job.invoiceNo || job.amount) && !job.paid;
   const coRows = useMemo(() => changeOrderTabRows(jobs || [job], job), [jobs, job]);
   const coCount = coRows.length;
@@ -97,11 +98,16 @@ export default function JobDocTabs({
       <div className={`grid gap-1 ${gridCols}`}>
         <button
           type="button"
-          className={`${tabClass} ${tabTone(hasEst, pending.estimate, failed.estimate)}`}
+          className={`${tabClass} ${
+            estAgentReview
+              ? "bg-red-50 text-red-600 border-red-300 animate-pulse"
+              : tabTone(hasEst, pending.estimate, failed.estimate)
+          }`}
           onClick={onEstimate}
           data-testid="tab-estimate"
+          aria-label={estAgentReview ? "Estimate — agent edits awaiting review" : "Estimate"}
         >
-          📝 {estLabel}
+          📝 {estAgentReview ? "Review" : estLabel}
         </button>
         <button
           type="button"

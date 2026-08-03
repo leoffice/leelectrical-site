@@ -6,7 +6,7 @@ import EstimateDocSheet from "./EstimateDocSheet.jsx";
 import InvoiceDocSheet from "./InvoiceDocSheet.jsx";
 import InvoiceReviewSheet from "./InvoiceReviewSheet.jsx";
 import { hasEstimateOnJob, hasInvoiceOnJob } from "../lib/docDraft.js";
-import { hasPendingInvoiceReview } from "../lib/invoiceAgentDraft.js";
+import { hasPendingEstimateReview, hasPendingInvoiceReview } from "../lib/invoiceAgentDraft.js";
 import { planDocSaveSync } from "../lib/docSync.js";
 import { isQuickbooksDocsEnabled } from "../lib/qboEnabled.js";
 import { useStore } from "../state/store.jsx";
@@ -209,8 +209,14 @@ export default function JobDocSheets({ sheet, setSheet, job, onDocDone }) {
     );
   }
 
-  if (sheet.kind === "invoiceReview") {
-    return <InvoiceReviewSheet job={job} onClose={() => setSheet(null)} />;
+  if (sheet.kind === "invoiceReview" || sheet.kind === "estimateReview") {
+    return (
+      <InvoiceReviewSheet
+        job={job}
+        kind={sheet.kind === "estimateReview" ? "estimate" : "invoice"}
+        onClose={() => setSheet(null)}
+      />
+    );
   }
 
   return null;
@@ -218,6 +224,10 @@ export default function JobDocSheets({ sheet, setSheet, job, onDocDone }) {
 
 export function openDocTab(job, kind, setSheet) {
   if (kind === "estimate") {
+    if (hasPendingEstimateReview(job)) {
+      setSheet({ kind: "estimateReview" });
+      return;
+    }
     if (hasEstimateOnJob(job)) setSheet({ kind: "estimateDoc" });
     else setSheet({ kind: "docBuild", docKind: "estimate", mode: "create" });
     return;

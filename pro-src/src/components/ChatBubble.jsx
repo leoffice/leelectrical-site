@@ -776,9 +776,9 @@ export default function ChatBubble() {
         id: "m-inv-" + Date.now(),
         who: "israel",
         text:
-          "Applied invoice edits: " +
+          "Proposed invoice edits (pending approval): " +
           (intent.summary || t) +
-          ". Invoice tab is pulsing — open it to review and approve before QuickBooks sync.",
+          ". Live total unchanged until you approve. Invoice tab is pulsing — or use the approval card.",
         status: "",
         ts: Date.now(),
         _local: true,

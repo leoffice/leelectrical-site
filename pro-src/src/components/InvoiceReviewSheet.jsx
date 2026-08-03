@@ -1,10 +1,16 @@
-// Review agent-applied invoice edits — diff highlight + approve gate.
+// Review agent-applied invoice / estimate edits — diff highlight + approve / deny gate.
 import React, { useCallback, useMemo, useState } from "react";
 import Sheet, { Fld } from "./Sheet.jsx";
 import DescriptionField from "./DescriptionField.jsx";
 import { useStore } from "../state/store.jsx";
 import { fmt$ } from "../lib/format.js";
-import { approveAgentDraftPatch, invoiceLineDiff } from "../lib/invoiceAgentDraft.js";
+import {
+  approveAgentDraftPatch,
+  buildDocChangeSummary,
+  denyAgentDraftPatch,
+  getDocAgentDraft,
+  invoiceLineDiff,
+} from "../lib/invoiceAgentDraft.js";
 import { emptyLine, lineAmount, linesTotal } from "../lib/qboDoc.js";
 
 function DiffLineRow({ line, index, marks, onChange, onRemove, canRemove }) {
@@ -68,15 +74,20 @@ function DiffLineRow({ line, index, marks, onChange, onRemove, canRemove }) {
   );
 }
 
-export default function InvoiceReviewSheet({ job, onClose }) {
+export default function InvoiceReviewSheet({ job, onClose, kind: kindProp }) {
   const { patchAndSave, appendInvoiceEditFeedback, showToast } = useStore();
-  const draft = job.invoiceAgentDraft || {};
+  const kind =
+    kindProp === "estimate" || job?.estimateAgentDraft?.pendingReview
+      ? "estimate"
+      : "invoice";
+  const draft = getDocAgentDraft(job, kind) || {};
   const [lines, setLines] = useState(() => (draft.lines || []).map((ln) => ({ ...emptyLine(), ...ln })));
   const [saving, setSaving] = useState(false);
+  const summary = useMemo(() => buildDocChangeSummary(job, draft, kind), [job, draft, kind]);
 
   const marks = useMemo(
-    () => invoiceLineDiff(draft.baselineLines || job.invoiceLines || [], lines),
-    [draft.baselineLines, job.invoiceLines, lines]
+    () => invoiceLineDiff(draft.baselineLines || (kind === "estimate" ? job.estimateLines : job.invoiceLines) || [], lines),
+    [draft.baselineLines, job.invoiceLines, job.estimateLines, lines, kind]
   );
   const total = useMemo(() => linesTotal(lines), [lines]);
 
@@ -85,30 +96,87 @@ export default function InvoiceReviewSheet({ job, onClose }) {
   }, []);
 
   const approve = async () => {
-    const valid = lines.filter((ln) => (ln.itemName || "").trim());
+    const valid = lines.filter((ln) => (ln.itemName || "").trim() || (ln.description || "").trim());
     if (!valid.length) return showToast("Keep at least one line");
     setSaving(true);
     try {
-      const patch = approveAgentDraftPatch(job, valid);
+      const patch = approveAgentDraftPatch(job, valid, kind);
       await patchAndSave(job.id, patch);
-      const delta = patch.invoiceAgentDraft?.learningDelta || [];
-      if (delta.length) await appendInvoiceEditFeedback({ jobId: job.id, delta, sourceText: draft.sourceText });
-      showToast("Invoice approved — use Save & sync when ready for QuickBooks");
+      const delta = patch[kind === "estimate" ? "estimateAgentDraft" : "invoiceAgentDraft"]?.learningDelta || [];
+      if (delta.length && kind === "invoice") {
+        await appendInvoiceEditFeedback({ jobId: job.id, delta, sourceText: draft.sourceText });
+      }
+      showToast(
+        kind === "estimate"
+          ? "Estimate approved — use Save & sync when ready for QuickBooks"
+          : "Invoice approved — use Save & sync when ready for QuickBooks"
+      );
       onClose();
     } finally {
       setSaving(false);
     }
   };
 
+  const deny = async () => {
+    setSaving(true);
+    try {
+      const patch = denyAgentDraftPatch(job, kind);
+      if (patch) await patchAndSave(job.id, patch);
+      showToast(kind === "estimate" ? "Estimate changes denied" : "Invoice changes denied");
+      onClose();
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const title =
+    kind === "estimate"
+      ? "Review estimate " + (job.estimateNo || "")
+      : "Review invoice " + (job.invoiceNo || "");
+
   return (
-    <Sheet title={"Review invoice " + (job.invoiceNo || "")} onClose={onClose} wide>
+    <Sheet title={title} onClose={onClose} wide>
       <div
         className="rounded-xl border border-red-200 bg-red-50 px-3 py-2 mb-3 text-sm text-red-800"
         data-testid="invoice-review-banner"
       >
         <p className="font-bold">Agent edits awaiting your review</p>
-        {draft.sourceText ? <p className="text-xs mt-1 opacity-90">From chat: “{draft.sourceText}”</p> : null}
-        <p className="text-[11px] mt-1 opacity-80">Highlighted fields are what the agent changed. Adjust if needed, then Approve.</p>
+        {draft.sourceText ? <p className="text-xs mt-1 opacity-90">From: “{draft.sourceText}”</p> : null}
+        {draft.agent ? <p className="text-[11px] mt-0.5 opacity-70">By {draft.agent}</p> : null}
+        <p className="text-[11px] mt-1 opacity-80">
+          Live total stays {summary.beforeFmt} until you approve. Highlighted fields are what changed.
+        </p>
+        {summary.dangerous ? (
+          <p className="text-xs mt-1 font-bold text-red-700" data-testid="review-dangerous-zero">
+            ⚠ This would zero out a non-zero {kind}. Double-check before approving.
+          </p>
+        ) : null}
+      </div>
+
+      <div className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 mb-3 text-xs text-slate-700 space-y-1" data-testid="review-condensed">
+        <p>
+          <span className="font-bold text-slate-500">Customer</span> {summary.customer}
+          {summary.person ? ` · ${summary.person}` : ""}
+        </p>
+        {summary.address ? (
+          <p>
+            <span className="font-bold text-slate-500">Address</span> {summary.address}
+          </p>
+        ) : null}
+        <p>
+          <span className="font-bold text-slate-500">Total</span>{" "}
+          <span className="line-through text-slate-400">{summary.beforeFmt}</span>
+          {" → "}
+          <span className="font-extrabold text-red-700">{fmt$(total) || summary.afterFmt}</span>
+        </p>
+        {summary.beforeDesc || summary.afterDesc ? (
+          <p>
+            <span className="font-bold text-slate-500">Lines</span>{" "}
+            <span className="text-slate-400">{summary.beforeDesc || "—"}</span>
+            {" → "}
+            <span className="font-semibold">{summary.afterDesc || "—"}</span>
+          </p>
+        ) : null}
       </div>
 
       <p className="text-[11px] font-bold uppercase tracking-wide text-slate-400 mb-2">Line items</p>
@@ -132,7 +200,7 @@ export default function InvoiceReviewSheet({ job, onClose }) {
       </button>
 
       <div className="flex justify-between items-center px-1 mb-4">
-        <span className="text-sm font-bold text-slate-600">Total</span>
+        <span className="text-sm font-bold text-slate-600">Proposed total</span>
         <span className="text-lg font-extrabold text-slate-900" data-testid="review-total">
           {fmt$(total) || "$0"}
         </span>
@@ -140,12 +208,21 @@ export default function InvoiceReviewSheet({ job, onClose }) {
 
       <button
         type="button"
-        className="btn-brand w-full"
+        className="btn-brand w-full mb-2"
         disabled={saving}
         onClick={approve}
         data-testid="invoice-approve"
       >
         Approve changes
+      </button>
+      <button
+        type="button"
+        className="btn w-full border border-red-200 text-red-700 bg-red-50"
+        disabled={saving}
+        onClick={deny}
+        data-testid="invoice-deny"
+      >
+        Deny — keep original
       </button>
     </Sheet>
   );
