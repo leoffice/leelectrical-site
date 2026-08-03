@@ -40,9 +40,18 @@ export async function createCasePaperworkJob({ answers = {}, job = {}, onSave = 
       ...payload,
       jobId: job.id || "",
       answers: sanitized,
+      // Teach-the-skill: rules pull customer / address / building / estimate scope.
+      // Deploy from Permits queues the fleet (Grok 4.5 path) to fill up to Review.
       skill: "coned-create-case",
+      engine: "grok-4.5",
       stopAt: "review",
       autoSubmit: false,
+      seedRules: {
+        fromCustomer: true,
+        fromAddress: true,
+        fromBuilding: true,
+        fromEstimateScope: true,
+      },
     },
   });
   const execution = {

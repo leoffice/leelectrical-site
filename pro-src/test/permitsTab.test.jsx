@@ -83,8 +83,10 @@ describe("Permits tab renders derived Con Ed cases", () => {
     expect(await screen.findByText("MC-910413")).toBeInTheDocument();
     // The Con Ed section header is present.
     expect(await screen.findByTestId("permit-section-coned")).toBeInTheDocument();
-    // Functionalities lock-in checklist is visible
+    // Functionalities lock-in checklist is visible (remaining only; learned removed)
     expect(await screen.findByTestId("functionalities-lock-in")).toBeInTheDocument();
-    expect(screen.getByTestId("functionalities-lock-in-count")).toHaveTextContent("1/14");
+    expect(screen.getByTestId("functionalities-lock-in-count")).toHaveTextContent("12 left");
+    // Deploy CTA for rules-based case fill
+    expect(screen.getByTestId("permits-deploy-btn")).toBeInTheDocument();
   });
 });

@@ -139,23 +139,25 @@ describe("meter application (4 options)", () => {
 });
 
 describe("functionalities to lock in checklist", () => {
-  it("seeds 14 items with item 8 done", () => {
+  it("seeds remaining skills only — learned (1, 8) removed from the board", () => {
     const seed = functionalitiesLockInSeed();
-    expect(seed).toHaveLength(14);
-    expect(lockInTotalCount(seed)).toBe(14);
-    expect(lockInDoneCount(seed)).toBe(1);
-    const item8 = seed.find((i) => i.id === 8);
-    expect(item8).toBeTruthy();
-    expect(isLockInDone(item8)).toBe(true);
-    expect(item8.title).toMatch(/meter application/i);
-    const others = seed.filter((i) => i.id !== 8);
-    expect(others.every((i) => i.status === "to_build")).toBe(true);
+    // 12 remaining to-teach skills (14 original − 2 learned)
+    expect(seed).toHaveLength(12);
+    expect(seed.every((i) => i.status === "to_build")).toBe(true);
+    expect(seed.find((i) => i.id === 1)).toBeUndefined();
+    expect(seed.find((i) => i.id === 8)).toBeUndefined();
+    expect(seed.find((i) => i.id === 2)).toBeTruthy();
+    // Totals include learned for progress context
+    expect(lockInTotalCount()).toBe(14);
+    expect(lockInDoneCount()).toBe(2);
   });
 
-  it("preserves L1 / POE / Con Edison notes on key items", () => {
+  it("preserves L1 / POE / Con Edison notes on key remaining items", () => {
     const byId = Object.fromEntries(FUNCTIONALITIES_LOCK_IN.map((i) => [i.id, i]));
     expect(byId[3].notes).toMatch(/L1/);
     expect(byId[10].notes).toMatch(/10:00/);
     expect(byId[14].notes).toMatch(/Con Edison/);
+    expect(byId[1]).toBeUndefined();
+    expect(byId[8]).toBeUndefined();
   });
 });

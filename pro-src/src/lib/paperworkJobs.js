@@ -66,18 +66,55 @@ export function createPaperworkJob({ type = "create_case", jobId, payload, tenan
   return call({ op: "create", type, jobId: s(jobId), payload, tenant }, opts);
 }
 
-export function listPaperworkJobsServer({ jobId, status, type, limit } = {}, opts) {
-  return call({ op: "list", jobId: s(jobId), status: s(status), type: s(type), limit }, opts);
+export function listPaperworkJobsServer({ jobId, status, type, limit, includeDismissed } = {}, opts) {
+  return call(
+    {
+      op: "list",
+      jobId: s(jobId),
+      status: s(status),
+      type: s(type),
+      limit,
+      includeDismissed: includeDismissed === true,
+    },
+    opts
+  );
 }
 
 export function getPaperworkJob(id, opts) {
   return call({ op: "get", id: s(id) }, opts);
 }
 
+/** Hide one finished / bad practice run from the Permits board. */
+export function dismissPaperworkJob(id, opts) {
+  return call({ op: "dismiss", id: s(id) }, opts);
+}
+
+/**
+ * Clean slate — dismiss terminal runs (failed/rejected/done/submitted by default)
+ * so the Case runs list starts fresh. Active work is never cleared.
+ */
+export function clearPaperworkJobsSlate({ statuses } = {}, opts) {
+  return call(
+    {
+      op: "clear_slate",
+      ...(Array.isArray(statuses) && statuses.length ? { statuses } : {}),
+    },
+    opts
+  );
+}
+
 /** Levi's decision on the awaiting_approval screenshot. */
 export function approvePaperworkJob(id, approve, note = "", opts) {
   return call({ op: "approve", id: s(id), approve: approve === true, note: s(note) }, opts);
 }
+
+/** Terminal / practice statuses safe to clear on a clean slate. */
+export const TERMINAL_PAPERWORK_JOB_STATUSES = new Set([
+  "failed",
+  "rejected",
+  "done",
+  "submitted",
+]);
 
 /** Absolute screenshot URL (server stores a relative /docs path). */
 export function paperworkScreenshotUrl(job, { base = functionsBase } = {}) {

@@ -25,8 +25,10 @@ export {
 } from "./meterApplication.js";
 export {
   FUNCTIONALITIES_LOCK_IN,
+  LEARNED_SKILLS_REMOVED,
   functionalitiesLockInSeed,
   lockInDoneCount,
   lockInTotalCount,
+  lockInRemainingCount,
   isLockInDone,
 } from "./functionalitiesLockIn.js";

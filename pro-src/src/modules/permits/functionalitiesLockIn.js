@@ -1,12 +1,17 @@
 /**
- * "FUNCTIONALITIES TO LOCK IN" — visible Con Ed sub-workflow checklist.
- * Seeded from LEPRO_PERMITS_DEPLOY_METER_APP_SPEC.md §2.
- * Flip status to "done" when each item is built + verified.
+ * "FUNCTIONALITIES TO LOCK IN" — remaining Con Ed / DOB sub-workflows to teach.
+ * Learned / already-shipped skills are REMOVED from the list (clean slate).
+ * Seeded from LEPRO_PERMITS_DEPLOY_METER_APP_SPEC.md §2 (ids preserved).
  */
 
-/** @typedef {'done'|'to_build'} LockInStatus */
+/** @typedef {'done'|'to_build'|'learned'} LockInStatus */
 
 /**
+ * Skills still on the board (not yet locked in / still to teach).
+ * Removed (learned):
+ *   1 — Create an application (new service application) — LIVE
+ *   8 — Submit meter application (4 options) — LIVE
+ *
  * @type {ReadonlyArray<{
  *   id: number,
  *   title: string,
@@ -15,11 +20,6 @@
  * }>}
  */
 export const FUNCTIONALITIES_LOCK_IN = Object.freeze([
-  {
-    id: 1,
-    title: "Create an application (new service application)",
-    status: "to_build",
-  },
   {
     id: 2,
     title: "Submit the electrical application",
@@ -52,12 +52,6 @@ export const FUNCTIONALITIES_LOCK_IN = Object.freeze([
     id: 7,
     title: "Submit an inquiry",
     status: "to_build",
-  },
-  {
-    id: 8,
-    title: "Submit meter application (4 options)",
-    status: "done",
-    notes: "Not required · Not needed for this job · A new meter · A new application",
   },
   {
     id: 9,
@@ -96,19 +90,40 @@ export const FUNCTIONALITIES_LOCK_IN = Object.freeze([
   },
 ]);
 
-/** Fresh array copy of the seed (UI-safe). */
+/** Skills already learned and removed from the visible board (audit only). */
+export const LEARNED_SKILLS_REMOVED = Object.freeze([
+  { id: 1, title: "Create an application (new service application)" },
+  { id: 8, title: "Submit meter application (4 options)" },
+]);
+
+/** Fresh array copy of the seed (UI-safe). Done/learned never appear. */
 export function functionalitiesLockInSeed() {
-  return FUNCTIONALITIES_LOCK_IN.map((item) => ({ ...item }));
+  return FUNCTIONALITIES_LOCK_IN.filter((item) => item.status === "to_build").map((item) => ({
+    ...item,
+  }));
 }
 
 export function isLockInDone(item) {
-  return item && item.status === "done";
+  return item && (item.status === "done" || item.status === "learned");
 }
 
 export function lockInDoneCount(list = FUNCTIONALITIES_LOCK_IN) {
+  // Board is remaining-only; "done" count is learned skills already removed.
+  if (list === FUNCTIONALITIES_LOCK_IN || !list?.length) {
+    return LEARNED_SKILLS_REMOVED.length;
+  }
   return (list || []).filter(isLockInDone).length;
 }
 
 export function lockInTotalCount(list = FUNCTIONALITIES_LOCK_IN) {
-  return (list || []).length;
+  if (list === FUNCTIONALITIES_LOCK_IN || list === undefined) {
+    return FUNCTIONALITIES_LOCK_IN.length + LEARNED_SKILLS_REMOVED.length;
+  }
+  return (list || []).length + LEARNED_SKILLS_REMOVED.length;
+}
+
+/** Remaining skills still to teach (visible list length). */
+export function lockInRemainingCount(list) {
+  const seed = list || FUNCTIONALITIES_LOCK_IN;
+  return (seed || []).filter((i) => i && i.status === "to_build").length;
 }

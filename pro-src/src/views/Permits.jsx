@@ -2,7 +2,8 @@
 //
 // This is the visible surface for the permit module. It reads every job's
 // permit data (persisted or derived in-memory from applied Con Ed emails) and
-// lays it out as: an action-needed strip up top, then one section per agency.
+// lays it out as: Deploy (pick customer → rules seed → fill → queue Grok),
+// case runs (collapsible; clean slate for bad practice runs), then sections.
 //
 // Gating: the route is only mounted when tenant_config.modules.permits is on
 // (see tenantNav.js / App.jsx). The guard below is belt-and-suspenders.
@@ -34,8 +35,15 @@ import {
   paperworkJobStatusLabel,
   paperworkJobStatusTone,
   ACTIVE_PAPERWORK_JOB_STATUSES,
+  TERMINAL_PAPERWORK_JOB_STATUSES,
+  dismissPaperworkJob,
+  clearPaperworkJobsSlate,
 } from "../lib/paperworkJobs.js";
 import PaperworkApprovalSheet from "../components/PaperworkApprovalSheet.jsx";
+import ConedCreateCaseSheet from "../components/ConedCreateCaseSheet.jsx";
+import Sheet, { Opt } from "../components/Sheet.jsx";
+import { customerJobGroups } from "../lib/calendarLink.js";
+import { CustomerAvatar } from "../components/JobCard.jsx";
 
 /** Health/bucket → pill tone, mirroring the JobDetail Con Ed chip. */
 function stageTone(row) {
@@ -128,6 +136,106 @@ function CaseRow({ row, job, onOpen, onMeterApplication }) {
   );
 }
 
+/** Pick customer → job for Deploy (rules seed from job; no hand-typing field names). */
+function DeployJobPicker({ jobs, onPick, onClose }) {
+  const [q, setQ] = useState("");
+  const [expanded, setExpanded] = useState({});
+  const groups = useMemo(() => customerJobGroups(jobs), [jobs]);
+  const filtered = useMemo(() => {
+    const needle = q.trim().toLowerCase();
+    if (!needle) return groups;
+    return groups.filter(([key, list]) => {
+      const name = String(list[0]?.customer || list[0]?.customerName || key || "").toLowerCase();
+      const hitJob = list.some((j) => {
+        const blob = [
+          j.customer,
+          j.customerName,
+          j.title,
+          j.serviceAddress,
+          j.address,
+          j.estimateNo,
+          j.invoiceNo,
+        ]
+          .filter(Boolean)
+          .join(" ")
+          .toLowerCase();
+        return blob.includes(needle);
+      });
+      return name.includes(needle) || hitJob;
+    });
+  }, [groups, q]);
+
+  return (
+    <Sheet title="Deploy — pick customer" onClose={onClose} testId="permits-deploy-picker">
+      <p className="text-sm text-slate-500 mb-3" data-testid="permits-deploy-rules-note">
+        Choose a customer. We pull name, address, building info, and estimate scope — then you fill
+        the application and Deploy queues Grok to run it.
+      </p>
+      <input
+        type="search"
+        className="w-full mb-3 px-3 py-2.5 rounded-xl border border-slate-200 text-sm"
+        placeholder="Search customer, address, estimate…"
+        value={q}
+        onChange={(e) => setQ(e.target.value)}
+        data-testid="permits-deploy-search"
+        autoFocus
+      />
+      {filtered.length ? (
+        <div className="space-y-2">
+          {filtered.map(([key, list]) => {
+            const name = list[0].customer || list[0].customerName || "(no customer)";
+            const open = !!expanded[key] || !!q.trim();
+            return (
+              <div key={key} className="card overflow-hidden" data-testid="permits-deploy-customer">
+                <button
+                  type="button"
+                  className="w-full flex items-center gap-3 px-4 py-3 text-left"
+                  onClick={() => setExpanded((o) => ({ ...o, [key]: !o[key] }))}
+                >
+                  <CustomerAvatar name={name} />
+                  <span className="min-w-0 flex-1">
+                    <span className="block font-bold text-slate-900 truncate">{name}</span>
+                    <span className="block text-xs text-slate-500">
+                      {list.length} job{list.length === 1 ? "" : "s"}
+                    </span>
+                  </span>
+                  <span className={`text-slate-400 transition-transform ${open ? "rotate-180" : ""}`}>
+                    ▾
+                  </span>
+                </button>
+                {open ? (
+                  <div className="px-3 pb-3 space-y-1.5 bg-slate-50/60 border-t border-slate-100 pt-3">
+                    {list.map((j) => (
+                      <Opt
+                        key={j.id}
+                        icon="📄"
+                        title={j.title || j.serviceAddress || j.address || "Job"}
+                        note={
+                          [
+                            j.serviceAddress || j.address,
+                            j.estimateNo ? `Est ${j.estimateNo}` : "",
+                            j.invoiceNo ? `Inv ${j.invoiceNo}` : "",
+                          ]
+                            .filter(Boolean)
+                            .join(" · ") || j.id
+                        }
+                        onClick={() => onPick(j)}
+                        data-testid="permits-deploy-job"
+                      />
+                    ))}
+                  </div>
+                ) : null}
+              </div>
+            );
+          })}
+        </div>
+      ) : (
+        <div className="text-sm text-slate-400 text-center py-8">No matching customers.</div>
+      )}
+    </Sheet>
+  );
+}
+
 export default function Permits() {
   const { jobs, emailInsights, patchAndSave, showToast, enqueue } = useStore();
   const config = useTenantConfig();
@@ -138,6 +246,13 @@ export default function Permits() {
   // verifies here — queued -> running -> awaiting approval -> submitted.
   const [caseRuns, setCaseRuns] = useState([]);
   const [approvalJob, setApprovalJob] = useState(null);
+  // Case runs collapsible — open when any active work needs attention.
+  const [caseRunsOpen, setCaseRunsOpen] = useState(true);
+  const [clearing, setClearing] = useState(false);
+  // Deploy flow: pick customer/job → fill Create Case (rules-seeded) → queue Grok.
+  const [pickingDeploy, setPickingDeploy] = useState(false);
+  const [deployJob, setDeployJob] = useState(null);
+
   useEffect(() => {
     let alive = true;
     let timer = null;
@@ -145,10 +260,11 @@ export default function Permits() {
       const r = await listPaperworkJobsServer({ limit: 20 });
       if (!alive) return;
       if (r.ok) {
-        setCaseRuns(r.jobs || []);
-        const anyActive = (r.jobs || []).some((j) =>
-          ACTIVE_PAPERWORK_JOB_STATUSES.has(j.status)
-        );
+        const list = r.jobs || [];
+        setCaseRuns(list);
+        const anyActive = list.some((j) => ACTIVE_PAPERWORK_JOB_STATUSES.has(j.status));
+        // Keep open when work is active; leave collapsed if only history (or empty after clear).
+        if (anyActive) setCaseRunsOpen(true);
         timer = setTimeout(tick, anyActive ? 20000 : 60000);
       } else {
         timer = setTimeout(tick, 60000);
@@ -179,6 +295,19 @@ export default function Permits() {
     }
     return m;
   }, [jobs]);
+
+  const activeRuns = useMemo(
+    () => caseRuns.filter((r) => ACTIVE_PAPERWORK_JOB_STATUSES.has(r.status)),
+    [caseRuns]
+  );
+  const historyRuns = useMemo(
+    () => caseRuns.filter((r) => !ACTIVE_PAPERWORK_JOB_STATUSES.has(r.status)),
+    [caseRuns]
+  );
+  const clearableCount = useMemo(
+    () => caseRuns.filter((r) => TERMINAL_PAPERWORK_JOB_STATUSES.has(r.status)).length,
+    [caseRuns]
+  );
 
   if (!isModuleEnabled(config, "permits")) return null;
 
@@ -216,6 +345,37 @@ export default function Permits() {
     }
   };
 
+  const runClearSlate = async () => {
+    setClearing(true);
+    try {
+      const r = await clearPaperworkJobsSlate();
+      if (r.ok) {
+        setCaseRuns((prev) =>
+          prev.filter((j) => !TERMINAL_PAPERWORK_JOB_STATUSES.has(j.status))
+        );
+        showToast(
+          r.cleared
+            ? `Clean slate — removed ${r.cleared} finished/failed run${r.cleared === 1 ? "" : "s"}`
+            : "Already clean"
+        );
+      } else {
+        showToast("Couldn't clear: " + (r.error || "try again"));
+      }
+    } finally {
+      setClearing(false);
+    }
+  };
+
+  const dismissOne = async (run) => {
+    const r = await dismissPaperworkJob(run.id);
+    if (r.ok) {
+      setCaseRuns((prev) => prev.filter((j) => j.id !== run.id));
+      showToast("Removed from list");
+    } else {
+      showToast("Couldn't remove: " + (r.error || "try again"));
+    }
+  };
+
   const { counts, actionNeeded, sections } = board;
   const hasAny = counts.total > 0;
 
@@ -237,71 +397,150 @@ export default function Permits() {
         ) : null}
       </div>
 
-      {/* CASE RUNS (browser agent) — lifecycle + the red-line approval. */}
+      {/* DEPLOY — pick customer, rules seed the app, fill, queue Grok 4.5 */}
+      <div className="card overflow-hidden mb-4 border border-emerald-200" data-testid="permits-deploy-card">
+        <div className="px-4 py-3 bg-emerald-50/70">
+          <h2 className="font-extrabold text-sm text-emerald-900 uppercase tracking-wide">
+            Deploy a case
+          </h2>
+          <p className="text-xs text-slate-600 mt-0.5">
+            Pick a customer → we pull their info, address, building, and estimate scope. Fill the
+            application, then Deploy sends it to Grok to run (stops at Review for you).
+          </p>
+          <button
+            type="button"
+            className="btn bg-emerald-700 text-white w-full mt-3 font-extrabold"
+            data-testid="permits-deploy-btn"
+            onClick={() => setPickingDeploy(true)}
+          >
+            Deploy
+          </button>
+        </div>
+      </div>
+
+      {/* CASE RUNS (browser agent) — collapsible lifecycle + red-line approval. */}
       {caseRuns.length ? (
         <div
           className="card overflow-hidden mb-4 border border-slate-200"
           data-testid="permits-case-runs"
         >
-          <div className="px-4 py-3 border-b border-slate-100 bg-slate-50/80">
-            <h2 className="font-extrabold text-sm text-slate-900 uppercase tracking-wide">
-              Case runs
-            </h2>
-            <p className="text-xs text-slate-500 mt-0.5">
-              Submit a Case → browser agent → your approval → submitted
-            </p>
-          </div>
-          <div className="divide-y divide-slate-100">
-            {caseRuns.map((run) => {
-              const runJob = jobsById.get(run.jobId);
-              return (
-                <div
-                  key={run.id}
-                  className="px-3.5 py-2.5 flex items-center gap-2"
-                  data-testid="permits-case-run-row"
-                >
-                  <div className="min-w-0 flex-1">
-                    <div className="text-[13px] font-semibold text-slate-800 truncate">
-                      {run.payload?.requestType
-                        ? String(run.payload.requestType).replace(/_/g, " ")
-                        : "Create case"}
-                      {run.caseNumber ? ` · ${run.caseNumber}` : ""}
-                    </div>
-                    <button
-                      type="button"
-                      className="text-[11px] text-brand underline underline-offset-2"
-                      onClick={() => open(run.jobId)}
-                    >
-                      {runJob?.customer || runJob?.customerName || run.jobId}
-                      {runJob?.serviceAddress || runJob?.address
-                        ? " · " + (runJob.serviceAddress || runJob.address)
-                        : ""}
-                    </button>
-                    {run.error ? (
-                      <div className="text-[11px] text-red-600">{run.error}</div>
-                    ) : null}
-                  </div>
-                  <span
-                    className={`rounded-full px-2 py-0.5 text-[11px] font-bold shrink-0 ${paperworkJobStatusTone(
-                      run.status
-                    )}`}
-                  >
-                    {paperworkJobStatusLabel(run.status)}
+          <button
+            type="button"
+            className="w-full px-4 py-3 border-b border-slate-100 bg-slate-50/80 text-left"
+            onClick={() => setCaseRunsOpen((o) => !o)}
+            aria-expanded={caseRunsOpen}
+            data-testid="permits-case-runs-toggle"
+          >
+            <div className="flex items-start justify-between gap-2">
+              <div className="min-w-0">
+                <h2 className="font-extrabold text-sm text-slate-900 uppercase tracking-wide">
+                  Case runs
+                </h2>
+                <p className="text-xs text-slate-500 mt-0.5">
+                  {activeRuns.length
+                    ? `${activeRuns.length} active · tap to ${caseRunsOpen ? "collapse" : "expand"}`
+                    : `${historyRuns.length} finished · tap to ${caseRunsOpen ? "collapse" : "expand"}`}
+                </p>
+              </div>
+              <span className="flex items-center gap-1.5 shrink-0">
+                {activeRuns.length ? (
+                  <span className="pill bg-amber-100 text-amber-900 text-[10px] font-bold">
+                    {activeRuns.length} live
                   </span>
-                  {run.status === "awaiting_approval" ? (
-                    <button
-                      type="button"
-                      className="btn bg-red-600 text-white !py-1.5 !px-2.5 text-xs font-extrabold shrink-0 animate-pulse"
-                      onClick={() => setApprovalJob(run)}
-                      data-testid="permits-case-review"
-                    >
-                      Review &amp; approve
-                    </button>
-                  ) : null}
+                ) : null}
+                <span
+                  className={`text-slate-400 transition-transform ${caseRunsOpen ? "rotate-90" : ""}`}
+                >
+                  ›
+                </span>
+              </span>
+            </div>
+          </button>
+          {caseRunsOpen ? (
+            <>
+              {clearableCount ? (
+                <div className="px-3.5 py-2 border-b border-slate-100 flex items-center justify-between gap-2 bg-white">
+                  <span className="text-[11px] text-slate-500">
+                    {clearableCount} finished/failed practice run
+                    {clearableCount === 1 ? "" : "s"}
+                  </span>
+                  <button
+                    type="button"
+                    className="text-[11px] font-bold text-red-700 underline underline-offset-2"
+                    data-testid="permits-case-clear-slate"
+                    disabled={clearing}
+                    onClick={runClearSlate}
+                  >
+                    {clearing ? "Clearing…" : "Clean slate"}
+                  </button>
                 </div>
-              );
-            })}
-          </div>
+              ) : null}
+              <div className="divide-y divide-slate-100">
+                {caseRuns.map((run) => {
+                  const runJob = jobsById.get(run.jobId);
+                  const terminal = TERMINAL_PAPERWORK_JOB_STATUSES.has(run.status);
+                  return (
+                    <div
+                      key={run.id}
+                      className="px-3.5 py-2.5 flex items-center gap-2"
+                      data-testid="permits-case-run-row"
+                      data-status={run.status}
+                    >
+                      <div className="min-w-0 flex-1">
+                        <div className="text-[13px] font-semibold text-slate-800 truncate">
+                          {run.payload?.requestType
+                            ? String(run.payload.requestType).replace(/_/g, " ")
+                            : "Create case"}
+                          {run.caseNumber ? ` · ${run.caseNumber}` : ""}
+                        </div>
+                        <button
+                          type="button"
+                          className="text-[11px] text-brand underline underline-offset-2"
+                          onClick={() => open(run.jobId)}
+                        >
+                          {runJob?.customer || runJob?.customerName || run.jobId}
+                          {runJob?.serviceAddress || runJob?.address
+                            ? " · " + (runJob.serviceAddress || runJob.address)
+                            : ""}
+                        </button>
+                        {run.error ? (
+                          <div className="text-[11px] text-red-600">{run.error}</div>
+                        ) : null}
+                      </div>
+                      <span
+                        className={`rounded-full px-2 py-0.5 text-[11px] font-bold shrink-0 ${paperworkJobStatusTone(
+                          run.status
+                        )}`}
+                      >
+                        {paperworkJobStatusLabel(run.status)}
+                      </span>
+                      {run.status === "awaiting_approval" ? (
+                        <button
+                          type="button"
+                          className="btn bg-red-600 text-white !py-1.5 !px-2.5 text-xs font-extrabold shrink-0 animate-pulse"
+                          onClick={() => setApprovalJob(run)}
+                          data-testid="permits-case-review"
+                        >
+                          Review &amp; approve
+                        </button>
+                      ) : null}
+                      {terminal ? (
+                        <button
+                          type="button"
+                          className="btn-ghost !py-0.5 !px-1.5 text-slate-400 shrink-0"
+                          aria-label="Remove this run"
+                          data-testid="permits-case-dismiss"
+                          onClick={() => dismissOne(run)}
+                        >
+                          ✕
+                        </button>
+                      ) : null}
+                    </div>
+                  );
+                })}
+              </div>
+            </>
+          ) : null}
         </div>
       ) : null}
 
@@ -400,7 +639,7 @@ export default function Permits() {
         );
       })()}
 
-      {/* Skill list — collapsible, collapsed by default (Levi: waste of space) */}
+      {/* Skill list — remaining only; learned removed (Levi clean slate) */}
       <div className="mb-4">
         <FunctionalitiesLockIn />
       </div>
@@ -501,6 +740,30 @@ export default function Permits() {
           onDecided={(updated) => {
             setApprovalJob(null);
             setCaseRuns((prev) => prev.map((r) => (r.id === updated.id ? updated : r)));
+          }}
+        />
+      ) : null}
+      {pickingDeploy ? (
+        <DeployJobPicker
+          jobs={jobs}
+          onClose={() => setPickingDeploy(false)}
+          onPick={(j) => {
+            setPickingDeploy(false);
+            setDeployJob(j);
+          }}
+        />
+      ) : null}
+      {deployJob ? (
+        <ConedCreateCaseSheet
+          job={jobsById.get(deployJob.id) || deployJob}
+          onClose={() => setDeployJob(null)}
+          onSave={async (patch) => {
+            await patchAndSave(deployJob.id, patch);
+            // Refresh case runs shortly after queue so Deploy appears in the list.
+            setTimeout(async () => {
+              const r = await listPaperworkJobsServer({ limit: 20 });
+              if (r.ok) setCaseRuns(r.jobs || []);
+            }, 800);
           }}
         />
       ) : null}

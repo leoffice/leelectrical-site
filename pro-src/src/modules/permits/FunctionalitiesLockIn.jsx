@@ -3,19 +3,22 @@
  */
 import React, { useMemo, useState } from "react";
 import {
+  LEARNED_SKILLS_REMOVED,
   functionalitiesLockInSeed,
   isLockInDone,
-  lockInDoneCount,
-  lockInTotalCount,
+  lockInRemainingCount,
 } from "./functionalitiesLockIn.js";
 
 export default function FunctionalitiesLockIn() {
+  // Only remaining skills — learned ones are gone from the board (clean slate).
   const items = useMemo(() => functionalitiesLockInSeed(), []);
-  const done = lockInDoneCount(items);
-  const total = lockInTotalCount(items);
+  const remaining = lockInRemainingCount(items);
+  const learned = LEARNED_SKILLS_REMOVED.length;
   // Levi: the skill list wastes space — collapsed by default so the to-do
   // list stays the visible thing on the Permits tab.
   const [open, setOpen] = useState(false);
+
+  if (!items.length) return null;
 
   return (
     <section
@@ -39,7 +42,7 @@ export default function FunctionalitiesLockIn() {
               Paperwork skills
             </h2>
             <p className="text-xs text-slate-500 mt-0.5">
-              Con Ed / DOB sub-workflows — tap to {open ? "hide" : "review"}
+              Still to teach · {learned} already learned (removed)
             </p>
           </div>
           <span className="flex items-center gap-1.5 shrink-0">
@@ -47,7 +50,7 @@ export default function FunctionalitiesLockIn() {
               className="pill bg-slate-200 text-slate-700 text-[10px] font-bold"
               data-testid="functionalities-lock-in-count"
             >
-              {done}/{total} live
+              {remaining} left
             </span>
             <span
               className={`text-slate-400 transition-transform ${open ? "rotate-90" : ""}`}
@@ -104,7 +107,7 @@ export default function FunctionalitiesLockIn() {
                     : "bg-amber-50 text-amber-800")
                 }
               >
-                {doneItem ? "Done" : "To build"}
+                {doneItem ? "Done" : "To teach"}
               </span>
             </li>
           );

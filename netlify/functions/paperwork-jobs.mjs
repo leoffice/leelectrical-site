@@ -15,9 +15,11 @@
 // Ops (POST JSON):
 //   App side (same-origin app, open like the other app endpoints):
 //     { op:"create", type:"create_case", jobId, tenant?, payload } -> { ok, job }
-//     { op:"list", jobId?, status?, type?, limit? }                -> { ok, jobs }
+//     { op:"list", jobId?, status?, type?, limit?, includeDismissed? } -> { ok, jobs }
 //     { op:"get", id }                                             -> { ok, job }
 //     { op:"approve", id, approve:true|false, note? }              -> { ok, job }
+//     { op:"dismiss", id }                                         -> { ok, job }  (hide one terminal run)
+//     { op:"clear_slate", statuses? }                              -> { ok, cleared } (hide failed/bad history)
 //   Fleet side (requires header x-fleet-token == env PAPERWORK_FLEET_TOKEN):
 //     { op:"claim", types?:["create_case"], agent }                -> { ok, job|null }
 //     { op:"update", id, status?, screenshotB64?, screenshotMime?,
@@ -182,18 +184,53 @@ export default async (req) => {
     const jobId = s(body.jobId);
     const status = s(body.status);
     const type = s(body.type);
+    const includeDismissed = body.includeDismissed === true;
     const recent = await readList(store, "recent");
     const out = [];
     for (const id of recent) {
       if (out.length >= limit) break;
       const job = await readJob(store, id);
       if (!job) continue;
+      if (!includeDismissed && job.dismissed) continue;
       if (jobId && job.jobId !== jobId) continue;
       if (status && job.status !== status) continue;
       if (type && job.type !== type) continue;
       out.push(job);
     }
     return json({ ok: true, jobs: out });
+  }
+
+  // Hide one run from the Permits board (failed practice runs, rejected, etc.).
+  if (op === "dismiss") {
+    const job = await readJob(store, s(body.id));
+    if (!job) return json({ ok: false, error: "not_found" }, 404);
+    job.dismissed = true;
+    job.dismissedAt = now();
+    pushHistory(job, { status: job.status, by: "app", note: "dismissed" });
+    await writeJob(store, job);
+    return json({ ok: true, job });
+  }
+
+  // Clean slate: dismiss terminal / bad practice runs so the board starts fresh.
+  // Default statuses = failed, rejected, done, submitted (active work stays).
+  if (op === "clear_slate") {
+    const statuses = Array.isArray(body.statuses) && body.statuses.length
+      ? body.statuses.map(s)
+      : ["failed", "rejected", "done", "submitted"];
+    const want = new Set(statuses);
+    const recent = await readList(store, "recent");
+    let cleared = 0;
+    for (const id of recent) {
+      const job = await readJob(store, id);
+      if (!job || job.dismissed) continue;
+      if (!want.has(job.status)) continue;
+      job.dismissed = true;
+      job.dismissedAt = now();
+      pushHistory(job, { status: job.status, by: "app", note: "clear_slate" });
+      await writeJob(store, job);
+      cleared += 1;
+    }
+    return json({ ok: true, cleared });
   }
 
   if (op === "approve") {

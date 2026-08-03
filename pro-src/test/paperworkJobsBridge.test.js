@@ -11,6 +11,8 @@ import {
   createPaperworkJob,
   approvePaperworkJob,
   listPaperworkJobsServer,
+  dismissPaperworkJob,
+  clearPaperworkJobsSlate,
   paperworkScreenshotUrl,
   paperworkJobStatusLabel,
 } from "../src/lib/paperworkJobs.js";
@@ -92,6 +94,32 @@ describe("client lib", () => {
     );
     expect(url).toBe("https://leelectrical.us/.netlify/functions/docs?key=pwshot-a-b");
     expect(paperworkJobStatusLabel("awaiting_approval")).toMatch(/approval/i);
+  });
+
+  it("dismissPaperworkJob posts op:dismiss", async () => {
+    const fetchMock = vi.fn(async () => ({
+      ok: true,
+      json: async () => ({ ok: true, job: { id: "pj-9", dismissed: true } }),
+    }));
+    vi.stubGlobal("fetch", fetchMock);
+    const r = await dismissPaperworkJob("pj-9");
+    expect(r.ok).toBe(true);
+    expect(JSON.parse(fetchMock.mock.calls[0][1].body)).toMatchObject({
+      op: "dismiss",
+      id: "pj-9",
+    });
+  });
+
+  it("clearPaperworkJobsSlate posts op:clear_slate", async () => {
+    const fetchMock = vi.fn(async () => ({
+      ok: true,
+      json: async () => ({ ok: true, cleared: 3 }),
+    }));
+    vi.stubGlobal("fetch", fetchMock);
+    const r = await clearPaperworkJobsSlate();
+    expect(r.ok).toBe(true);
+    expect(r.cleared).toBe(3);
+    expect(JSON.parse(fetchMock.mock.calls[0][1].body).op).toBe("clear_slate");
   });
 });
 
