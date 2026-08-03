@@ -85,7 +85,7 @@ describe("Permits tab renders derived Con Ed cases", () => {
     expect(await screen.findByTestId("permit-section-coned")).toBeInTheDocument();
     // Functionalities lock-in checklist is visible (remaining only; learned removed)
     expect(await screen.findByTestId("functionalities-lock-in")).toBeInTheDocument();
-    expect(screen.getByTestId("functionalities-lock-in-count")).toHaveTextContent("12 left");
+    expect(screen.getByTestId("functionalities-lock-in-count")).toHaveTextContent("11 left");
     // Top-level Deploy chooser removed (Levi 2026-08-03) — Deploy lives on queue rows
     expect(screen.queryByTestId("permits-deploy-btn")).not.toBeInTheDocument();
     expect(screen.queryByTestId("permits-deploy-card")).not.toBeInTheDocument();

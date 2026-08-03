@@ -143,22 +143,24 @@ describe("meter application (4 options)", () => {
 describe("functionalities to lock in checklist", () => {
   it("seeds remaining skills only — learned removed from the board", () => {
     const seed = functionalitiesLockInSeed();
-    // 12 remaining to-teach · 3 learned (app, meter, create-case)
-    expect(seed).toHaveLength(12);
+    // 11 remaining to-teach · 4 learned (app, inquiry, meter, create-case)
+    expect(seed).toHaveLength(11);
     expect(seed.every((i) => i.status === "to_build")).toBe(true);
     expect(seed.find((i) => i.id === 1)).toBeUndefined();
+    expect(seed.find((i) => i.id === 7)).toBeUndefined();
     expect(seed.find((i) => i.id === 8)).toBeUndefined();
     expect(seed.find((i) => i.id === 15)).toBeUndefined();
     expect(seed.find((i) => i.id === 2)).toBeTruthy();
     // Totals include learned for progress scale
     expect(lockInTotalCount()).toBe(15);
-    expect(lockInDoneCount()).toBe(3);
+    expect(lockInDoneCount()).toBe(4);
   });
 
-  it("scale reflects what's working (create-case verified to Review)", () => {
-    expect(LEARNED_SKILLS_REMOVED.map((s) => s.id).sort((a, b) => a - b)).toEqual([1, 8, 15]);
+  it("scale reflects what's working (create-case + inquiry learned)", () => {
+    expect(LEARNED_SKILLS_REMOVED.map((s) => s.id).sort((a, b) => a - b)).toEqual([1, 7, 8, 15]);
     expect(LEARNED_SKILLS_REMOVED.find((s) => s.id === 15)?.title).toMatch(/Submit a Case/i);
-    expect(lockInProgressPct()).toBe(20); // 3/15
+    expect(LEARNED_SKILLS_REMOVED.find((s) => s.id === 7)?.title).toMatch(/inquiry/i);
+    expect(lockInProgressPct()).toBe(27); // 4/15
   });
 
   it("preserves L1 / POE / Con Edison notes on key remaining items", () => {
@@ -167,6 +169,7 @@ describe("functionalities to lock in checklist", () => {
     expect(byId[10].notes).toMatch(/10:00/);
     expect(byId[14].notes).toMatch(/Con Edison/);
     expect(byId[1]).toBeUndefined();
+    expect(byId[7]).toBeUndefined();
     expect(byId[8]).toBeUndefined();
   });
 });

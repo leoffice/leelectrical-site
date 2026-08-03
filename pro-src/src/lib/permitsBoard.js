@@ -30,6 +30,7 @@ import {
   CITY_STAGE_BUCKET,
   cityStageHealth,
 } from "./cityPermit.js";
+import { recommendCaseNextSteps } from "./caseNextSteps.js";
 
 /** An insight counts as "on the job" once it was approved or auto-applied. */
 export function isAppliedInsight(insight) {
@@ -118,10 +119,34 @@ export function foldConedForJob(job, insights) {
   return { permits, paperConed };
 }
 
+/** Attach case next-step recommendations (Levi 2026-08-03 redesign). */
+function withCaseRecommendations(row, job) {
+  if (!job || !row || row.agency !== "coned") return row;
+  const rec = recommendCaseNextSteps(job);
+  if (!rec || !rec.steps?.length) return row;
+  const nextAction =
+    rec.summary ||
+    row.nextAction ||
+    "";
+  // Elevate health when we have required due steps (ball with us).
+  let health = row.health;
+  if (rec.dueNow.some((s) => s.required) && health === "ok") {
+    health = "blocked-by-us";
+  }
+  return {
+    ...row,
+    nextAction,
+    health,
+    recommended: rec.recommended,
+    dueNow: rec.dueNow,
+    caseSteps: rec.steps,
+  };
+}
+
 /** Build a display row from a persisted/derived Con Ed permit record. */
 function rowFromConedPermit(job, permit) {
   const stage = permit.currentStage || "";
-  return {
+  const row = {
     key: `coned:${permit.primaryKey || permit.id || job.id}`,
     agency: "coned",
     jobId: job.id,
@@ -137,12 +162,13 @@ function rowFromConedPermit(job, permit) {
     updatedAt: permit.updatedAt || "",
     source: "coned",
   };
+  return withCaseRecommendations(row, job);
 }
 
 /** Row from a paperwork.coned summary when there's no structured permit record. */
 function rowFromConedPaperwork(job, coned) {
   const stage = coned.currentStage || "";
-  return {
+  const row = {
     key: `coned:${coned.caseNumber || job.id}`,
     agency: "coned",
     jobId: job.id,
@@ -158,6 +184,7 @@ function rowFromConedPaperwork(job, coned) {
     updatedAt: "",
     source: "coned",
   };
+  return withCaseRecommendations(row, job);
 }
 
 /**

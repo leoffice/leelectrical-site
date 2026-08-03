@@ -388,12 +388,21 @@ export function buildConedPermitFromEmail({
 export function nextActionForStage(stage, dateTime = "") {
   const label = CONED_STAGE_LABELS[stage] || "Open case";
   switch (stage) {
+    case "application_filed":
+      // Levi 2026-08-03: just-opened → electrical permit + optional meter
+      return {
+        label: "Next: Electrical permit (DOB) · optional new meter",
+        date: "",
+      };
     case "final_checklist_wait":
       return { label: "Final checklist due — ball with us", date: "" };
     case "docs_pending":
       return { label: "Customer to-do list — docs pending", date: "" };
     case "deposit_due":
-      return { label: "Deposit payment required", date: "" };
+      return {
+        label: "Email customer — pay Con Ed deposit (remind only)",
+        date: "",
+      };
     case "at_risk":
       return { label: "Case inactivity — act soon", date: "" };
     case "layout_issued":
@@ -407,7 +416,10 @@ export function nextActionForStage(stage, dateTime = "") {
     case "ready_for_final":
       return { label: "Book final inspection", date: "" };
     case "passed_complete":
-      return { label: "Passed — closeout eligible", date: dateTime || "" };
+      return {
+        label: "Passed — watch 1 week for install date, then inquire",
+        date: dateTime || "",
+      };
     case "failed_rework":
       return { label: "Failed final — rework + resubmit checklist", date: "" };
     default:

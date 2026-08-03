@@ -48,11 +48,6 @@ export const FUNCTIONALITIES_LOCK_IN = Object.freeze([
     status: "to_build",
   },
   {
-    id: 7,
-    title: "Submit an inquiry",
-    status: "to_build",
-  },
-  {
     id: 9,
     title: "Read service-layout result + flag when new conduit required",
     status: "to_build",
@@ -80,6 +75,7 @@ export const FUNCTIONALITIES_LOCK_IN = Object.freeze([
     id: 13,
     title: "Post-final follow-up 1-week timer → inquiry for meter-install date",
     status: "to_build",
+    notes: "Levi reaffirmed 2026-08-03 — after final pass, wait 1 week then inquire",
   },
   {
     id: 14,
@@ -91,12 +87,19 @@ export const FUNCTIONALITIES_LOCK_IN = Object.freeze([
 
 /**
  * Skills already learned and removed from the visible board (audit + scale).
+ * id 7  = Submit an inquiry — Dispatch E2E 2026-07-31 (Inquiries → Add → Submit)
  * id 15 = Submit a Case (Energy Services create-case) — verified end-to-end:
  * fill → Review → View/Print Summary PDF → human submit (MC-941580 1337 President).
  * Never auto-submit. View/Print → Con Edison Applications is mandatory before Save/Submit.
  */
 export const LEARNED_SKILLS_REMOVED = Object.freeze([
   { id: 1, title: "Create an application (new service application)" },
+  {
+    id: 7,
+    title: "Submit an inquiry",
+    notes:
+      "Open case → Inquiries → Add inquiry → subject/message → optional doc → Submit (learned 2026-07-31)",
+  },
   { id: 8, title: "Submit meter application (4 options)" },
   {
     id: 15,

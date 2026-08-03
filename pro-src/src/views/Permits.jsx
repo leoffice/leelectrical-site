@@ -64,10 +64,61 @@ function fmtWhen(iso) {
   return s.slice(0, 10);
 }
 
+function CaseStepChips({ steps = [] }) {
+  if (!steps.length) return null;
+  return (
+    <ul className="mt-1.5 space-y-1" data-testid="permit-case-steps">
+      {steps.map((st) => {
+        const due = st.status === "due";
+        const blocked = st.status === "blocked";
+        const done = st.status === "done";
+        return (
+          <li
+            key={st.id}
+            className={
+              "flex items-start gap-1.5 text-[11px] leading-snug " +
+              (done
+                ? "text-emerald-700"
+                : due
+                  ? "text-red-800 font-semibold"
+                  : blocked
+                    ? "text-slate-400"
+                    : "text-slate-600")
+            }
+            data-testid="permit-case-step"
+            data-step-id={st.id}
+            data-step-status={st.status}
+            data-required={st.required ? "1" : "0"}
+          >
+            <span className="shrink-0 mt-px" aria-hidden>
+              {done ? "✓" : due ? "→" : blocked ? "○" : "·"}
+            </span>
+            <span className="min-w-0">
+              <span>{st.title}</span>
+              {!st.required ? (
+                <span className="ml-1 text-[10px] font-bold uppercase tracking-wide text-slate-400">
+                  optional
+                </span>
+              ) : null}
+              {st.note ? (
+                <span className="block text-[10px] font-normal text-slate-500">{st.note}</span>
+              ) : null}
+            </span>
+          </li>
+        );
+      })}
+    </ul>
+  );
+}
+
 function CaseRow({ row, job, onOpen, onMeterApplication }) {
   const [expanded, setExpanded] = useState(false);
   const isConed = row.agency === "coned";
   const meter = job ? getMeterApplication(job) : null;
+  const dueNow = Array.isArray(row.dueNow) ? row.dueNow : [];
+  const caseSteps = Array.isArray(row.caseSteps) ? row.caseSteps : [];
+  // Collapsed: only due-now chips; expanded: full flow with gates
+  const showSteps = expanded ? caseSteps : dueNow;
 
   return (
     <div
@@ -101,6 +152,7 @@ function CaseRow({ row, job, onOpen, onMeterApplication }) {
                 : ""}
             </div>
           ) : null}
+          {showSteps.length ? <CaseStepChips steps={showSteps} /> : null}
           {meter?.label ? (
             <div className="text-[11px] text-brand font-semibold mt-0.5" data-testid="meter-app-chip">
               Meter app: {meter.label}
@@ -109,6 +161,14 @@ function CaseRow({ row, job, onOpen, onMeterApplication }) {
         </div>
         <div className="flex flex-col items-end gap-1 shrink-0">
           <span className={`pill ${stageTone(row)}`}>{row.stageLabel}</span>
+          {dueNow.length ? (
+            <span
+              className="text-[10px] font-bold text-red-700 bg-red-50 px-1.5 py-0.5 rounded-full"
+              data-testid="permit-due-count"
+            >
+              {dueNow.length} due
+            </span>
+          ) : null}
           {isConed ? (
             <span className="text-slate-400 text-xs">{expanded ? "▾" : "▸"}</span>
           ) : null}
