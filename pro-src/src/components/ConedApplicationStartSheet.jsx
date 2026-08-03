@@ -1,9 +1,8 @@
 // Con Ed application START flow (S27) — the gate BEFORE the fill form.
 //
-// Levi 2026-08-02: Create Application =
-//  1) Meter setup only — Apartment / Part Supply # + Purpose / designated for
-//  2) Create Application → Fill up yourself | Send to customer to fill up
-//  3) After email → only "Sent email, done." (no long link, no Copy link)
+// Levi 2026-08-02 (refine): meter setup = ONE field (meter title).
+// Then Create Application → Fill up yourself | Email application to customer.
+// After email → only "Sent email, done." (no long link, no Copy link)
 import React, { useState } from "react";
 import Sheet from "./Sheet.jsx";
 import { requestCustomerFill } from "../lib/agencyForms/conedIntake.js";
@@ -11,16 +10,21 @@ import { requestCustomerFill } from "../lib/agencyForms/conedIntake.js";
 const inputCls =
   "w-full rounded-xl border border-slate-300 px-3 py-2.5 text-[15px] focus:outline-none focus:ring-2 focus:ring-emerald-500";
 
+/** One display title per meter. Prefer name, then unit (legacy two-field rows). */
+function meterTitle(m) {
+  return String(m?.name || m?.purpose || m?.unit || m?.partSupply || m?.title || "").trim();
+}
+
 function seedMeters(job) {
   const existing = job?.paperwork?.coned?.meters;
   if (Array.isArray(existing) && existing.length) {
-    return existing.map((m) => ({
-      name: String(m.name || m.purpose || "").trim(),
-      unit: String(m.unit || m.partSupply || "").trim(),
-    }));
+    return existing.map((m) => {
+      const title = meterTitle(m);
+      return { name: title, unit: title };
+    });
   }
-  const name = String(job?.customer || "").trim();
-  return [{ name: name || "", unit: "" }];
+  // Empty first row — user types the meter title (apt, PLP, person, etc.)
+  return [{ name: "", unit: "" }];
 }
 
 export default function ConedApplicationStartSheet({ job, onClose, onFill, onSave }) {
@@ -32,26 +36,22 @@ export default function ConedApplicationStartSheet({ job, onClose, onFill, onSav
 
   const customerEmail = String(job?.email || job?.customerEmail || "").trim();
 
-  const setMeter = (i, key, value) => {
-    setMeters((prev) => prev.map((m, mi) => (mi === i ? { ...m, [key]: value } : m)));
+  const setMeterTitle = (i, value) => {
+    const title = value;
+    setMeters((prev) => prev.map((m, mi) => (mi === i ? { name: title, unit: title } : m)));
   };
   const addMeter = () => setMeters((prev) => [...prev, { name: "", unit: "" }]);
   const removeMeter = (i) => setMeters((prev) => prev.filter((_, mi) => mi !== i));
 
   const cleanMeters = () =>
     meters
-      .map((m) => ({
-        name: String(m.name || "").trim(),
-        unit: String(m.unit || "").trim(),
-      }))
-      .filter((m) => m.name || m.unit);
+      .map((m) => {
+        const title = meterTitle(m);
+        return title ? { name: title, unit: title } : null;
+      })
+      .filter(Boolean);
 
-  const metersReady = () => {
-    const list = cleanMeters();
-    if (!list.length) return false;
-    // Each meter needs Part Supply/apt OR purpose (at least one real field)
-    return list.every((m) => m.unit || m.name);
-  };
+  const metersReady = () => cleanMeters().length > 0 && meters.every((m) => meterTitle(m));
 
   const persistMeters = (list) => {
     onSave?.({ paperwork: { coned: { meters: list, enabled: true } } });
@@ -59,7 +59,7 @@ export default function ConedApplicationStartSheet({ job, onClose, onFill, onSav
 
   const chooseFill = () => {
     if (!metersReady()) {
-      setErr("Add apartment / Part Supply # or purpose for each meter.");
+      setErr("Add a meter title for each meter.");
       return;
     }
     const list = cleanMeters();
@@ -69,7 +69,7 @@ export default function ConedApplicationStartSheet({ job, onClose, onFill, onSav
 
   const chooseSend = async () => {
     if (!metersReady()) {
-      setErr("Add apartment / Part Supply # or purpose for each meter first.");
+      setErr("Add a meter title for each meter first.");
       return;
     }
     if (!customerEmail) {
@@ -135,7 +135,7 @@ export default function ConedApplicationStartSheet({ job, onClose, onFill, onSav
       ) : step === 0 ? (
         <div className="space-y-3 p-1" data-testid="coned-start-meters">
           <p className="text-sm text-slate-600">
-            Meter setup — one application per meter. Apartment number and Part Supply are the same Con Ed field.
+            One application per meter. Name each meter (apartment, PLP, person, etc.).
           </p>
           {meters.map((m, i) => (
             <div
@@ -157,24 +157,15 @@ export default function ConedApplicationStartSheet({ job, onClose, onFill, onSav
                 ) : null}
               </div>
               <label className="block text-[11px] font-bold text-slate-500 uppercase tracking-wide">
-                Apartment / Part Supply #
+                Meter title
               </label>
               <input
                 className={inputCls}
-                value={m.unit || ""}
-                onChange={(e) => setMeter(i, "unit", e.target.value)}
-                placeholder="e.g. 2B — or PLP for house meter"
-                data-testid="coned-start-part-supply"
-              />
-              <label className="block text-[11px] font-bold text-slate-500 uppercase tracking-wide">
-                Purpose / designated for
-              </label>
-              <input
-                className={inputCls}
-                value={m.name || ""}
-                onChange={(e) => setMeter(i, "name", e.target.value)}
-                placeholder="Who or what this meter is for"
-                data-testid="coned-start-purpose"
+                value={meterTitle(m)}
+                onChange={(e) => setMeterTitle(i, e.target.value)}
+                placeholder="e.g. 2B, PLP, or house meter"
+                data-testid="coned-start-meter-title"
+                autoFocus={i === 0}
               />
             </div>
           ))}
@@ -192,7 +183,7 @@ export default function ConedApplicationStartSheet({ job, onClose, onFill, onSav
             className="btn bg-emerald-700 text-white w-full !py-3 text-sm font-extrabold min-h-[44px]"
             onClick={() => {
               if (!metersReady()) {
-                setErr("Add apartment / Part Supply # or purpose for each meter.");
+                setErr("Add a meter title for each meter.");
                 return;
               }
               setErr("");
@@ -206,8 +197,8 @@ export default function ConedApplicationStartSheet({ job, onClose, onFill, onSav
       ) : (
         <div className="space-y-3 p-1" data-testid="coned-start-choice">
           <p className="text-sm text-slate-600">
-            {cleanMeters().length === 1 ? "1 meter." : `${cleanMeters().length} meters.`} Who fills out the
-            application?
+            {cleanMeters().length === 1 ? "1 meter." : `${cleanMeters().length} meters.`} How do you want
+            to complete the application?
           </p>
           <button
             type="button"
@@ -226,7 +217,7 @@ export default function ConedApplicationStartSheet({ job, onClose, onFill, onSav
             data-testid="coned-start-send"
           >
             <div className="font-extrabold text-slate-800 text-[15px]">
-              {busy ? "Sending…" : "Send to customer to fill up"}
+              {busy ? "Sending…" : "Email application to customer"}
             </div>
             <div className="text-xs text-slate-600 mt-0.5">
               {customerEmail
