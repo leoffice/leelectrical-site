@@ -22,8 +22,26 @@ import {
 import {
   jobStatusPatchFromPermitStage,
 } from "./permitProgressBridge.js";
+import { listConedCompletedFiles } from "./agencyForms/completeDestinations.js";
 
 const s = (v) => (v == null ? "" : String(v).trim());
+
+/**
+ * Whether the job already has a completed Con Ed Form A (application) on the
+ * Con Edison Application tab — required before Deploying a PLP / new meter
+ * into Project Center (Levi 2026-08-03).
+ */
+export function jobHasConedFormA(job = {}) {
+  const files = listConedCompletedFiles(job);
+  if (files.length > 0) return true;
+  const ma = getMeterApplication(job);
+  // Explicit "application completed" flag on meter app flow
+  if (job?.paperwork?.coned?.meterDeploy?.formAReady === true) return true;
+  if (job?.paperwork?.coned?.application?.status === "submitted") return true;
+  // Draft create-case answers alone are NOT a finished Form A
+  void ma;
+  return false;
+}
 
 /** Short UI labels (Levi) — portal still uses the long Energy Services strings. */
 export const REQUEST_TYPE_SHORT_LABELS = Object.freeze({

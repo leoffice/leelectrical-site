@@ -44,10 +44,13 @@ import {
   processCompletedProgressPatch,
   queueItemCanDeploy,
   queueItemIsDeploying,
+  jobHasConedFormA,
 } from "../lib/permitsDeploy.js";
 import { caseStepCompletePatch } from "../lib/caseNextSteps.js";
 import PaperworkApprovalSheet from "../components/PaperworkApprovalSheet.jsx";
 import ConedCreateCaseSheet from "../components/ConedCreateCaseSheet.jsx";
+import AgencyApplicationSheet from "../components/AgencyApplicationSheet.jsx";
+import ConedApplicationStartSheet from "../components/ConedApplicationStartSheet.jsx";
 
 /** Health/bucket → pill tone, mirroring the JobDetail Con Ed chip. */
 function stageTone(row) {
@@ -437,6 +440,10 @@ export default function Permits() {
   const [clearing, setClearing] = useState(false);
   const [expandedIds, setExpandedIds] = useState({});
   const [deployingIds, setDeployingIds] = useState({});
+  /** When Deploy is tapped without Form A — choose fill or email (Levi 2026-08-03). */
+  const [needAppPrompt, setNeedAppPrompt] = useState(null); // { job, item }
+  const [agencyAppJob, setAgencyAppJob] = useState(null);
+  const [conedStartJob, setConedStartJob] = useState(null);
   const [editJob, setEditJob] = useState(null);
 
   const refreshRuns = async () => {
@@ -844,6 +851,12 @@ export default function Permits() {
       }
 
       if (item.source === "meter") {
+        // Gate: PLP / new meter Deploy needs a completed Form A on the job first.
+        if (!jobHasConedFormA(job)) {
+          setNeedAppPrompt({ job, item });
+          showToast("No application on this job yet — create one first");
+          return;
+        }
         const todos = listPaperworkTodos(job);
         let todo = todos.find(
           (t) => t.kind === "new_meter" || t.source === "meter_application"
@@ -1140,6 +1153,87 @@ export default function Permits() {
           onSave={async (patch) => {
             await onCreateCaseSaved(patch, editJob.id);
             showToast("Application saved");
+          }}
+        />
+      ) : null}
+
+      {/* PLP / new meter Deploy without Form A — create application first (Levi 2026-08-03) */}
+      {needAppPrompt ? (
+        <div
+          className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/40 p-4"
+          data-testid="permits-need-form-a"
+          onClick={() => setNeedAppPrompt(null)}
+        >
+          <div
+            className="card w-full max-w-sm p-4 space-y-3"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="font-extrabold text-slate-900 text-base">Need an application first</div>
+            <p className="text-sm text-slate-600 leading-snug">
+              Deploy for a PLP / new meter needs a completed Con Edison application (Form A) on this job.
+              Choose how to create it:
+            </p>
+            <button
+              type="button"
+              className="btn bg-brand text-white w-full font-bold"
+              data-testid="permits-need-form-a-fill"
+              onClick={() => {
+                const j = needAppPrompt.job;
+                setNeedAppPrompt(null);
+                setConedStartJob(j);
+              }}
+            >
+              Fill application myself
+            </button>
+            <button
+              type="button"
+              className="btn bg-slate-800 text-white w-full font-bold"
+              data-testid="permits-need-form-a-email"
+              onClick={() => {
+                const j = needAppPrompt.job;
+                setNeedAppPrompt(null);
+                setConedStartJob(j);
+              }}
+            >
+              Email application to customer
+            </button>
+            <button
+              type="button"
+              className="btn-ghost w-full text-sm"
+              onClick={() => setNeedAppPrompt(null)}
+            >
+              Cancel
+            </button>
+          </div>
+        </div>
+      ) : null}
+
+      {conedStartJob ? (
+        <ConedApplicationStartSheet
+          job={jobsById.get(conedStartJob.id) || conedStartJob}
+          onClose={() => setConedStartJob(null)}
+          onFill={() => {
+            const j = jobsById.get(conedStartJob.id) || conedStartJob;
+            setConedStartJob(null);
+            setAgencyAppJob(j);
+          }}
+          onSave={async (patch) => {
+            if (patch && conedStartJob?.id) {
+              await patchAndSave(conedStartJob.id, patch);
+            }
+          }}
+        />
+      ) : null}
+
+      {agencyAppJob ? (
+        <AgencyApplicationSheet
+          job={jobsById.get(agencyAppJob.id) || agencyAppJob}
+          onClose={() => setAgencyAppJob(null)}
+          onSave={async (patch) => {
+            if (patch && agencyAppJob?.id) {
+              await patchAndSave(agencyAppJob.id, patch);
+              showToast("Application saved — complete Form A, then Deploy again");
+            }
           }}
         />
       ) : null}
