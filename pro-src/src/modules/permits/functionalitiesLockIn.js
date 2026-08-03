@@ -91,16 +91,18 @@ export const FUNCTIONALITIES_LOCK_IN = Object.freeze([
 
 /**
  * Skills already learned and removed from the visible board (audit + scale).
- * id 15 = Submit a Case (Energy Services create-case) — verified to Review
- * (Goodness #201963 + Rubashkin 1337 President Add Load); never auto-submit.
+ * id 15 = Submit a Case (Energy Services create-case) — verified end-to-end:
+ * fill → Review → View/Print Summary PDF → human submit (MC-941580 1337 President).
+ * Never auto-submit. View/Print → Con Edison Applications is mandatory before Save/Submit.
  */
 export const LEARNED_SKILLS_REMOVED = Object.freeze([
   { id: 1, title: "Create an application (new service application)" },
   { id: 8, title: "Submit meter application (4 options)" },
   {
     id: 15,
-    title: "Submit a Case (Energy Services create-case → Review)",
-    notes: "Fill to Review only; Levi confirms before submit",
+    title: "Submit a Case (Energy Services create-case → Review + View/Print)",
+    notes:
+      "Fill to Review; View/Print Summary → Con Edison Applications PDF (address - customer); Levi confirms before submit",
   },
 ]);
 
