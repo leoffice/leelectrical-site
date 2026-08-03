@@ -23,6 +23,9 @@ export const GRACE_MS = 8 * 60 * 60 * 1000; // 8 hours — field day + reloads
 export const CRED_KEY = "lepro_lock_cred_id"; // localStorage (persists across launches)
 export const GRACE_KEY = "lepro_lock_unlocked_at"; // sessionStorage (cleared on fresh open)
 export const GRACE_BACKUP_KEY = "lepro_lock_unlocked_at_reload"; // localStorage, reload-only fallback
+// Last successful password login email — pre-fills the lock form on next open.
+// Password is NEVER stored here; the browser password manager fills that.
+export const LAST_EMAIL_KEY = "lepro_lock_last_email";
 
 // Supabase — same project/keys as app/index.html's landing gate.
 export const SUPABASE_URL = "https://scgpxbubakfwypycugoa.supabase.co";
@@ -205,6 +208,27 @@ export async function logOff() {
     /* SW unavailable */
   }
   globalThis.location?.reload();
+}
+
+// ---- remembered login email (username only — never store password) ----------
+export function getLastLoginEmail() {
+  try {
+    return String(localStore()?.getItem(LAST_EMAIL_KEY) || "").trim();
+  } catch {
+    return "";
+  }
+}
+
+export function setLastLoginEmail(email) {
+  const v = String(email || "").trim();
+  try {
+    const s = localStore();
+    if (!s) return;
+    if (v) s.setItem(LAST_EMAIL_KEY, v);
+    else s.removeItem(LAST_EMAIL_KEY);
+  } catch {
+    /* storage unavailable */
+  }
 }
 
 // ---- stored credential id ---------------------------------------------------

@@ -5,17 +5,24 @@
 // Fallback: Supabase email + password.
 // Agent: "Enter as agent" when Agent Access toggle is ON (no codes — fleet identity).
 // In-session grace keeps mid-session reloads from re-prompting; a fresh launch re-locks.
+//
+// Password autofill (browser manager): username + password often land in the
+// DOM after paint, while React state is still empty. We sync DOM → state, keep
+// Unlock gray until both fields are ready, and auto-login once ready (or when
+// Levi already tapped Unlock while it was still gray).
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import {
   biometricSupported,
   biometricUnlock,
   clearUnlocked,
+  getLastLoginEmail,
   hasEnrolledCredential,
   isSessionUnlocked,
   markAgentUnlocked,
   markUnlocked,
   mediaPermissionDenied,
   passwordUnlock,
+  setLastLoginEmail,
   shouldAutoBiometric,
   touchUnlocked,
 } from "../lib/lock.js";
@@ -29,6 +36,19 @@ import { enterAsAgent, fetchAgentAccessStatus } from "../lib/agentAccessClient.j
 // never answers (no platform authenticator, unenrolled, hung WebAuthn call),
 // auto-abort and drop to the password view instead of spinning forever.
 export const BIOMETRIC_TIMEOUT_MS = 25000;
+/** How long we watch the inputs for browser password-manager autofill. */
+export const AUTOFILL_WATCH_MS = 4000;
+export const AUTOFILL_POLL_MS = 120;
+
+function initialEmail() {
+  if (DEMO) return DEMO_CREDENTIALS.email;
+  return getLastLoginEmail() || "";
+}
+
+function initialPassword() {
+  if (DEMO) return DEMO_CREDENTIALS.password;
+  return "";
+}
 
 export default function LockGate({ children }) {
   const [unlocked, setUnlocked] = useState(() => {
@@ -42,8 +62,8 @@ export default function LockGate({ children }) {
   const [busy, setBusy] = useState(false);
   const [agentBusy, setAgentBusy] = useState(false);
   const [err, setErr] = useState("");
-  const [email, setEmail] = useState(DEMO ? DEMO_CREDENTIALS.email : "");
-  const [password, setPassword] = useState(DEMO ? DEMO_CREDENTIALS.password : "");
+  const [email, setEmail] = useState(initialEmail);
+  const [password, setPassword] = useState(initialPassword);
   /** Agent Access toggle ON → show "Enter as agent" (unauth status GET). */
   const [agentAccessOn, setAgentAccessOn] = useState(false);
 
@@ -54,11 +74,34 @@ export default function LockGate({ children }) {
   // fallback tap or the watchdog timeout can dismiss the native prompt.
   const abortRef = useRef(null);
   const bioTimerRef = useRef(null);
+  const emailRef = useRef(null);
+  const passRef = useRef(null);
+  /** User tapped Unlock while fields were still empty/gray — login when ready. */
+  const pendingUnlockRef = useRef(false);
+  /** Auto-submit once when browser autofill fills both fields. */
+  const autoLoginFiredRef = useRef(false);
+  /** True once Levi typed in either field — do not auto-login mid-typing. */
+  const userEditedRef = useRef(false);
+  const runPasswordRef = useRef(null);
 
   const succeed = useCallback(() => {
     markUnlocked();
     setUnlocked(true);
   }, []);
+
+  /** Live field values — prefer React state, fall back to DOM (browser autofill). */
+  const readLiveCredentials = useCallback(() => {
+    const domEmail = String(emailRef.current?.value || "").trim();
+    const domPass = String(passRef.current?.value || "");
+    const liveEmail = String(email || "").trim() || domEmail;
+    const livePass = password || domPass;
+    return { liveEmail, livePass };
+  }, [email, password]);
+
+  const credentialsReady = useCallback(() => {
+    const { liveEmail, livePass } = readLiveCredentials();
+    return Boolean(liveEmail && livePass);
+  }, [readLiveCredentials]);
 
   // Cancel any pending WebAuthn call and clear its watchdog. Safe to call any
   // number of times; leaves the chosen view intact for the caller to set.
@@ -216,22 +259,102 @@ export default function LockGate({ children }) {
   const runPassword = useCallback(
     async (e) => {
       e?.preventDefault?.();
+      // Browser password managers often fill the DOM without firing React
+      // onChange — always prefer live DOM values so the first Unlock works.
+      const { liveEmail, livePass } = readLiveCredentials();
+      if (!liveEmail || !livePass) {
+        // Unlock still gray — remember the tap and login the moment fields fill.
+        pendingUnlockRef.current = true;
+        setErr("");
+        return;
+      }
+      if (liveEmail !== email) setEmail(liveEmail);
+      if (livePass !== password) setPassword(livePass);
       setErr("");
       setBusy(true);
+      pendingUnlockRef.current = false;
       try {
-        const session = await passwordUnlock(email, password);
+        const session = await passwordUnlock(liveEmail, livePass);
         // Persist the Supabase session so data-plane requests carry the user's
         // token — the server resolves the tenant from it and isolates the store.
         saveSession(session);
+        setLastLoginEmail(liveEmail);
         succeed();
       } catch (e2) {
         setErr(e2?.message || "Invalid email or password");
+        // Allow another auto-try if the user fixes autofill / re-taps.
+        autoLoginFiredRef.current = false;
       } finally {
         setBusy(false);
       }
     },
-    [email, password, succeed]
+    [email, password, readLiveCredentials, succeed]
   );
+  runPasswordRef.current = runPassword;
+
+  // Sync browser password-manager autofill into React state, and auto-login
+  // once both fields are ready (or after an early Unlock tap while still gray).
+  // Deps are only unlocked/mode — setState from sync must NOT restart this
+  // effect (that used to cancel the deferred auto-login).
+  useEffect(() => {
+    if (unlocked || mode !== "password") return;
+    let cancelled = false;
+    const started = Date.now();
+
+    const syncFromDom = () => {
+      if (cancelled) return false;
+      const domEmail = String(emailRef.current?.value || "").trim();
+      const domPass = String(passRef.current?.value || "");
+      if (domEmail) setEmail((prev) => (prev === domEmail ? prev : domEmail));
+      if (domPass) setPassword((prev) => (prev === domPass ? prev : domPass));
+      const ready = Boolean(domEmail && domPass);
+      if (!ready) return false;
+      // Auto-login when:
+      //  1) browser password manager filled both fields (no manual typing), or
+      //  2) Levi already tapped Unlock while the button was still gray.
+      // Demo stays "tap Unlock" (hint on screen). Never auto mid-typing.
+      const fromAutofill = Boolean(domEmail && domPass && !userEditedRef.current && !DEMO);
+      const shouldAuto = pendingUnlockRef.current || fromAutofill;
+      if (!shouldAuto || autoLoginFiredRef.current) return true;
+      autoLoginFiredRef.current = true;
+      // Fire unlock even if this effect later cleans up — setState from sync
+      // used to remount the effect and drop a gated Promise.
+      queueMicrotask(() => {
+        runPasswordRef.current?.();
+      });
+      return true;
+    };
+
+    // Chrome/Safari paint autofill asynchronously; poll briefly after mount.
+    const iv = setInterval(() => {
+      if (cancelled) return;
+      if (Date.now() - started > AUTOFILL_WATCH_MS) {
+        clearInterval(iv);
+        return;
+      }
+      syncFromDom();
+    }, AUTOFILL_POLL_MS);
+
+    // WebKit fires animationstart on autofilled inputs (chrome/safari).
+    const onAnim = () => {
+      syncFromDom();
+    };
+    // Form may not be mounted on the first paint of password mode — poll will
+    // still catch autofill; bind animation listener on next tick when refs exist.
+    const bindTimer = setTimeout(() => {
+      const form = emailRef.current?.form || passRef.current?.form;
+      form?.addEventListener?.("animationstart", onAnim, true);
+      syncFromDom();
+    }, 0);
+
+    return () => {
+      cancelled = true;
+      clearInterval(iv);
+      clearTimeout(bindTimer);
+      const form = emailRef.current?.form || passRef.current?.form;
+      form?.removeEventListener?.("animationstart", onAnim, true);
+    };
+  }, [unlocked, mode]);
 
   /** Enter as agent — bypass biometric/password; mint signed session via fleet identity. */
   const runEnterAsAgent = useCallback(async () => {
@@ -361,34 +484,65 @@ export default function LockGate({ children }) {
         {mode === "password" && (
           <form onSubmit={runPassword} className="w-full flex flex-col gap-3" data-testid="lock-password-form">
             <input
+              ref={emailRef}
               type="email"
               inputMode="email"
               autoComplete="username"
+              name="username"
               placeholder="Email"
               value={email}
-              onChange={(e) => setEmail(e.target.value)}
+              onChange={(e) => {
+                userEditedRef.current = true;
+                setEmail(e.target.value);
+              }}
               className="w-full rounded-xl px-4 py-3.5 text-base text-slate-900 outline-none"
               data-testid="lock-email"
               required
             />
             <input
+              ref={passRef}
               type="password"
               autoComplete="current-password"
+              name="password"
               placeholder="Password"
               value={password}
-              onChange={(e) => setPassword(e.target.value)}
+              onChange={(e) => {
+                userEditedRef.current = true;
+                setPassword(e.target.value);
+              }}
               className="w-full rounded-xl px-4 py-3.5 text-base text-slate-900 outline-none"
               data-testid="lock-pass"
               required
             />
-            <button
-              type="submit"
-              disabled={busy}
-              className="w-full rounded-xl bg-white text-brand font-extrabold px-4 py-3.5 text-base active:bg-white/90 disabled:opacity-50"
-              data-testid="lock-submit"
-            >
-              {busy ? "Unlocking…" : "Unlock"}
-            </button>
+            {(() => {
+              const ready = credentialsReady();
+              // Gray until username+password are present; blue when ready to unlock.
+              const unlockClass =
+                ready && !busy
+                  ? "w-full rounded-xl bg-sky-500 text-white font-extrabold px-4 py-3.5 text-base active:bg-sky-600"
+                  : "w-full rounded-xl bg-white/35 text-white/70 font-extrabold px-4 py-3.5 text-base";
+              return (
+                <button
+                  type="submit"
+                  disabled={busy}
+                  aria-disabled={!ready || busy}
+                  data-ready={ready ? "1" : "0"}
+                  className={unlockClass}
+                  data-testid="lock-submit"
+                  onClick={(e) => {
+                    // Early tap while still gray (autofill not in yet): queue
+                    // auto-login so a second tap is not required when it turns blue.
+                    if (!credentialsReady()) {
+                      e.preventDefault();
+                      pendingUnlockRef.current = true;
+                      setErr("");
+                    }
+                  }}
+                >
+                  {busy ? "Unlocking…" : "Unlock"}
+                </button>
+              );
+            })()}
             {bioAvail && (
               <button
                 type="button"

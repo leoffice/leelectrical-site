@@ -20,6 +20,8 @@ const lock = vi.hoisted(() => ({
   passwordUnlock: vi.fn(async () => ({ access_token: "tok" })),
   mediaPermissionDenied: vi.fn(async () => false),
   shouldAutoBiometric: vi.fn(async () => false),
+  getLastLoginEmail: vi.fn(() => ""),
+  setLastLoginEmail: vi.fn(),
 }));
 vi.mock("../src/lib/lock.js", () => lock);
 
@@ -46,6 +48,8 @@ afterEach(() => {
   lock.mediaPermissionDenied.mockResolvedValue(false);
   lock.hasEnrolledCredential.mockReturnValue(false);
   lock.biometricUnlock.mockImplementation(async () => true);
+  lock.getLastLoginEmail.mockReturnValue("");
+  lock.setLastLoginEmail.mockClear();
   agentClient.fetchAgentAccessStatus.mockResolvedValue({
     accessOn: false,
     state: { accessOn: false },
@@ -99,6 +103,84 @@ describe("LockGate", () => {
     await waitFor(() => expect(screen.getByTestId("app")).toBeInTheDocument());
     expect(lock.passwordUnlock).toHaveBeenCalledWith("me@le.us", "pw");
     expect(lock.markUnlocked).toHaveBeenCalled();
+    expect(lock.setLastLoginEmail).toHaveBeenCalledWith("me@le.us");
+  });
+
+  it("prefills the remembered email on open", async () => {
+    lock.getLastLoginEmail.mockReturnValue("saved@le.us");
+    render(
+      <LockGate>
+        <div data-testid="app">SECRET APP</div>
+      </LockGate>
+    );
+    await waitFor(() => expect(screen.getByTestId("lock-password-form")).toBeInTheDocument());
+    expect(screen.getByTestId("lock-email")).toHaveValue("saved@le.us");
+    // Password is never stored — only the browser manager fills it.
+    expect(screen.getByTestId("lock-pass")).toHaveValue("");
+    expect(screen.getByTestId("lock-submit")).toHaveAttribute("data-ready", "0");
+  });
+
+  it("auto-logs in when browser autofill fills username + password (no second tap)", async () => {
+    render(
+      <LockGate>
+        <div data-testid="app">SECRET APP</div>
+      </LockGate>
+    );
+    await waitFor(() => expect(screen.getByTestId("lock-password-form")).toBeInTheDocument());
+    expect(screen.getByTestId("lock-submit")).toHaveAttribute("data-ready", "0");
+
+    // Simulate password-manager autofill: set native value without React onChange
+    // (userEdited stays false → auto-login path). Do NOT fire input/change —
+    // those would mark a manual edit and skip auto-login.
+    await act(async () => {
+      const emailEl = screen.getByTestId("lock-email");
+      const passEl = screen.getByTestId("lock-pass");
+      const setNative = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value")?.set;
+      setNative?.call(emailEl, "auto@le.us");
+      setNative?.call(passEl, "secretpw");
+    });
+
+    await waitFor(
+      () => {
+        expect(lock.passwordUnlock).toHaveBeenCalledWith("auto@le.us", "secretpw");
+      },
+      { timeout: 3000 }
+    );
+    await waitFor(() => expect(screen.getByTestId("app")).toBeInTheDocument());
+    expect(lock.markUnlocked).toHaveBeenCalled();
+  });
+
+  it("early Unlock tap while gray queues auto-login once autofill arrives", async () => {
+    const user = userEvent.setup();
+    render(
+      <LockGate>
+        <div data-testid="app">SECRET APP</div>
+      </LockGate>
+    );
+    await waitFor(() => expect(screen.getByTestId("lock-password-form")).toBeInTheDocument());
+    expect(screen.getByTestId("lock-submit")).toHaveAttribute("data-ready", "0");
+
+    // First tap while gray — credentials not ready yet.
+    await user.click(screen.getByTestId("lock-submit"));
+    expect(lock.passwordUnlock).not.toHaveBeenCalled();
+    expect(screen.queryByTestId("app")).not.toBeInTheDocument();
+
+    // Autofill lands after the early tap → should log in without a second tap.
+    await act(async () => {
+      const emailEl = screen.getByTestId("lock-email");
+      const passEl = screen.getByTestId("lock-pass");
+      const setNative = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value")?.set;
+      setNative?.call(emailEl, "queued@le.us");
+      setNative?.call(passEl, "queuedpw");
+    });
+
+    await waitFor(
+      () => {
+        expect(lock.passwordUnlock).toHaveBeenCalledWith("queued@le.us", "queuedpw");
+      },
+      { timeout: 3000 }
+    );
+    await waitFor(() => expect(screen.getByTestId("app")).toBeInTheDocument());
   });
 
   it("shows an error and stays locked on a bad password", async () => {

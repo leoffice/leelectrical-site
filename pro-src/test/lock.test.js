@@ -5,10 +5,12 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   GRACE_BACKUP_KEY,
   GRACE_MS,
+  LAST_EMAIL_KEY,
   biometricSupported,
   clearCredentialId,
   clearUnlocked,
   getCredentialId,
+  getLastLoginEmail,
   hasEnrolledCredential,
   isPageReload,
   isSessionUnlocked,
@@ -20,6 +22,7 @@ import {
   markUnlocked,
   passwordUnlock,
   setCredentialId,
+  setLastLoginEmail,
 } from "../src/lib/lock.js";
 
 // Minimal Storage shim.
@@ -137,6 +140,18 @@ describe("stored credential id (localStorage, survives launches)", () => {
     expect(hasEnrolledCredential()).toBe(true);
     clearCredentialId();
     expect(hasEnrolledCredential()).toBe(false);
+  });
+});
+
+describe("remembered login email (username only)", () => {
+  it("round-trips trimmed email and never stores blanks", () => {
+    expect(getLastLoginEmail()).toBe("");
+    setLastLoginEmail("  me@le.us  ");
+    expect(getLastLoginEmail()).toBe("me@le.us");
+    expect(globalThis.localStorage.getItem(LAST_EMAIL_KEY)).toBe("me@le.us");
+    setLastLoginEmail("");
+    expect(getLastLoginEmail()).toBe("");
+    expect(globalThis.localStorage.getItem(LAST_EMAIL_KEY)).toBe(null);
   });
 });
 
