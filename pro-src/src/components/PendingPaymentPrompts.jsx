@@ -24,19 +24,31 @@ function paymentSnoozeKey(item) {
   return "payment:" + String(item?.id || "");
 }
 
+/** Statuses that still need Levi to see a card (Levi 2026-08-03 sticky notice). */
+function isOpenPaymentNotice(p) {
+  if (!p) return false;
+  const s = String(p.status || "pending");
+  if (s === "dismissed" || s === "acked") return false;
+  // Host auto-apply used to set approved+autoApplied and the card vanished — keep sticky until Got it.
+  if (p.autoApplied && !p.ackedAt && (s === "approved" || s === "auto_applied")) return true;
+  if (s === "approved") return false;
+  if (s === "pending" || s === "auto_applied" || s === "needs_match") return true;
+  return false;
+}
+
 function collectPending(jobs, systemItems = []) {
   const out = [];
   const seen = new Set();
   for (const j of jobs || []) {
     const p = j?.pendingCheckPayment || j?.pendingZellePayment;
-    if (!p || p.status === "dismissed" || p.status === "approved") continue;
+    if (!isOpenPaymentNotice(p)) continue;
     const id = p.id || `${j.id}-${p.proofKey || p.confirmationNumber || p.amount}`;
     if (seen.has(id)) continue;
     seen.add(id);
     out.push({ ...p, jobId: j.id, job: j, id });
   }
   for (const p of systemItems || []) {
-    if (!p || p.status === "dismissed" || p.status === "approved") continue;
+    if (!isOpenPaymentNotice(p)) continue;
     const id = p.id || `sys-${p.proofKey || p.confirmationNumber || p.amount}`;
     if (seen.has(id)) continue;
     seen.add(id);
@@ -65,6 +77,8 @@ export default function PendingPaymentPrompts() {
   const [autofillDone, setAutofillDone] = useState(false);
   const [autofillExtracted, setAutofillExtracted] = useState(null);
   const [snoozing, setSnoozing] = useState(false);
+  /** When true, show full edit form even if notice was auto-applied (Levi Edit). */
+  const [editMode, setEditMode] = useState(false);
   const depositBanks = useMemo(() => getDepositBanks(), []);
 
   // Load system queue (ov._pendingPayments) on boot + poll so bank/pay-page items appear without reload.
@@ -116,27 +130,50 @@ export default function PendingPaymentPrompts() {
     setAutofillDone(Boolean(current.extracted && hasStrongPaymentAutofill(current.extracted)));
     // A new notice always opens on the card, never on the snooze picker.
     setSnoozing(false);
+    setEditMode(false);
   }, [current?.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const clearPending = useCallback(
     async (item, status) => {
       if (item.jobId) {
         const key = item.kind === "zelle" ? "pendingZellePayment" : "pendingCheckPayment";
-        patchJob(item.jobId, { [key]: { ...(item.job?.[key] || item), status, resolvedAt: Date.now() } });
+        patchJob(item.jobId, {
+          [key]: {
+            ...(item.job?.[key] || item),
+            status,
+            resolvedAt: Date.now(),
+            ackedAt: status === "acked" || status === "dismissed" ? Date.now() : item.ackedAt,
+          },
+        });
       }
       setSystemItems((prev) => {
         const next = (prev || []).map((x) =>
-          x.id === item.id ? { ...x, status, resolvedAt: Date.now() } : x
+          x.id === item.id
+            ? {
+                ...x,
+                status,
+                resolvedAt: Date.now(),
+                ackedAt: status === "acked" || status === "dismissed" ? Date.now() : x.ackedAt,
+              }
+            : x
         );
-        // Persist system queue best-effort
+        // Persist open notices only (pending / needs_match / auto_applied until acked)
+        const stillOpen = next.filter((x) => isOpenPaymentNotice(x));
         import("../data/adapter.js")
-          .then(({ default: api }) => api.savePendingPayments?.(next.filter((x) => x.status === "pending")))
+          .then(({ default: api }) => api.savePendingPayments?.(stillOpen))
           .catch(() => {});
-        return next.filter((x) => x.status === "pending");
+        return stillOpen;
       });
     },
     [patchJob]
   );
+
+  const onGotIt = async () => {
+    if (!current) return;
+    await clearPending(current, "acked");
+    setCurrent(null);
+    showToast("Got it — payment notice closed");
+  };
 
   const onDismiss = async () => {
     if (!current) return;
@@ -323,8 +360,19 @@ export default function PendingPaymentPrompts() {
   if (IS_TEST || loading || !current) return null;
 
   const job = current.job;
-  const title =
-    current.kind === "zelle" ? "Zelle payment received" : "Check photo from pay page";
+  const isAutoApplied =
+    Boolean(current.autoApplied) || String(current.status || "") === "auto_applied";
+  const needsMatch =
+    String(current.status || "") === "needs_match" ||
+    (!job && !current.invoiceNo && !current.customer);
+  const showAckCard = isAutoApplied && !editMode;
+  const title = showAckCard
+    ? "Payment applied — confirm"
+    : needsMatch
+      ? "A payment came in"
+      : current.kind === "zelle"
+        ? "Zelle payment received"
+        : "Check photo from pay page";
   const inv = current.invoiceNo || job?.invoiceNo || "";
   const cust = current.customer || job?.customer || "";
   const confLine = String(
@@ -360,7 +408,7 @@ export default function PendingPaymentPrompts() {
             ✕
           </button>
           <div className="text-[11px] font-extrabold uppercase tracking-wider text-brand">
-            Payment to approve
+            {showAckCard ? "Applied — needs your OK" : needsMatch ? "Where does it go?" : "Payment to approve"}
           </div>
           <h2 className="text-lg font-extrabold text-slate-900 leading-tight mt-0.5">
             {snoozing ? "Remind me later" : title}
@@ -440,8 +488,67 @@ export default function PendingPaymentPrompts() {
               onDismiss={onDismiss}
             />
           </div>
+        ) : showAckCard ? (
+          /* Auto-applied Zelle: sticky until Got it / Edit / more info (Levi 2026-08-03) */
+          <div className="px-4 py-4 flex flex-col gap-2" data-testid="pending-payment-auto-ack">
+            <p className="text-sm text-slate-700 leading-snug">
+              We matched this payment and applied it on the job. It stays here until you say Got it,
+              Edit, or Get more information.
+            </p>
+            <button
+              type="button"
+              className="btn bg-brand text-white w-full font-bold"
+              onClick={onGotIt}
+              data-testid="pending-payment-got-it"
+            >
+              Got it
+            </button>
+            <button
+              type="button"
+              className="btn bg-slate-800 text-white w-full font-bold"
+              onClick={() => setEditMode(true)}
+              data-testid="pending-payment-edit"
+            >
+              Edit
+            </button>
+            <button
+              type="button"
+              className="btn-ghost w-full text-sm"
+              onClick={() =>
+                showToast(
+                  [
+                    confLine ? `Conf ${confLine}` : null,
+                    fromLine ? `From ${fromLine}` : null,
+                    memoLine ? `Memo ${memoLine}` : null,
+                    current.source ? `Source ${current.source}` : null,
+                    current.matchScore != null ? `Match score ${current.matchScore}` : null,
+                    job?.id ? `Job ${job.id}` : null,
+                  ]
+                    .filter(Boolean)
+                    .join(" · ") || "No extra detail on this notice"
+                )
+              }
+              data-testid="pending-payment-more-info"
+            >
+              Get more information
+            </button>
+            <button
+              type="button"
+              className="btn-ghost w-full text-sm"
+              onClick={() => setSnoozing(true)}
+              data-testid="pending-payment-not-now"
+            >
+              Not now — remind me later
+            </button>
+          </div>
         ) : (
           <>
+          {needsMatch ? (
+            <p className="px-4 pt-3 text-sm text-slate-700 leading-snug" data-testid="pending-payment-where">
+              A payment came in — pick which invoice / customer it belongs to (short list from amount +
+              memo), then Approve.
+            </p>
+          ) : null}
           {current.proofUrl ? (
             <div className="px-4 pt-3">
               <PaymentImageZoom src={current.proofUrl} alt="Check or payment photo" />
@@ -503,7 +610,7 @@ export default function PendingPaymentPrompts() {
               disabled={busy || !job}
               data-testid="pending-payment-approve"
             >
-              {busy ? "Saving…" : "Approve payment"}
+              {busy ? "Saving…" : needsMatch ? "Apply to this invoice" : "Approve payment"}
             </button>
             <button
               type="button"
