@@ -90,7 +90,15 @@ export function watchServiceWorkerUpdates() {
   let reloaded = false;
   navigator.serviceWorker.addEventListener("controllerchange", () => {
     if (reloaded) return;
+    // Share the version-check loop guard so SW claim + version.json don't
+    // double-reload (looks like "twitching" unstyled chrome).
+    const lastReload = Number(sessionStorage.getItem(LOOP_GUARD_KEY) || 0);
+    if (lastReload && Date.now() - lastReload < LOOP_GUARD_MS) {
+      reloaded = true;
+      return;
+    }
     reloaded = true;
+    sessionStorage.setItem(LOOP_GUARD_KEY, String(Date.now()));
     window.location.reload();
   });
 
