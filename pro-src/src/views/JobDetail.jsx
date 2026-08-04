@@ -161,9 +161,46 @@ export default function JobDetail() {
     events,
     jobs,
     sasCalls,
+    api,
   } = useStore();
   const tenantConfig = useTenantConfig();
   const job = effectiveJob(id);
+  // List is a slim projection — hydrate full invoice/estimate lines on open
+  const hydratedJobRef = useRef(new Set());
+  useEffect(() => {
+    if (!id || !api?.getJob || hydratedJobRef.current.has(id)) return undefined;
+    const needsLines =
+      job?._listProjection ||
+      (!Array.isArray(job?.invoiceLines) && !Array.isArray(job?.estimateLines));
+    if (!needsLines) {
+      hydratedJobRef.current.add(id);
+      return undefined;
+    }
+    let alive = true;
+    (async () => {
+      try {
+        const full = await api.getJob(id);
+        if (!alive || !full) return;
+        hydratedJobRef.current.add(id);
+        const patch = {};
+        if (Array.isArray(full.invoiceLines) && full.invoiceLines.length) {
+          patch.invoiceLines = full.invoiceLines;
+        }
+        if (Array.isArray(full.estimateLines) && full.estimateLines.length) {
+          patch.estimateLines = full.estimateLines;
+        }
+        if (Array.isArray(full.payments) && full.payments.length) {
+          patch.payments = full.payments;
+        }
+        if (Object.keys(patch).length) patchJob(id, patch);
+      } catch {
+        /* keep slim */
+      }
+    })();
+    return () => {
+      alive = false;
+    };
+  }, [id, job?._listProjection, job?.invoiceLines, job?.estimateLines, api, patchJob]);
   const doSend = useDoSend();
   const [workCompleteSendBusy, setWorkCompleteSendBusy] = useState(false);
   const [workCompleteSendErr, setWorkCompleteSendErr] = useState("");
