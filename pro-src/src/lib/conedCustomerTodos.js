@@ -342,3 +342,88 @@ export function listConedCustomerTodos(job = {}) {
     : [];
   return arr.filter((t) => t && t.status !== "removed");
 }
+
+/**
+ * Mark customer-todo items done when Con Ed email says Reviewed/Received/Approved
+ * (not still Pending your Submission).
+ */
+export function markTodosFromEmailStatus(items = [], body = "", subject = "") {
+  const text = `${subject}\n${body}`;
+  return (items || []).map((it) => {
+    if (!it || it.status === "done") return it;
+    const name = it.rawName || it.title || "";
+    if (!name) return it;
+    // If body says this document was Reviewed/Received/Complete
+    const re = new RegExp(
+      name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&") +
+        "[\\s\\S]{0,80}(Reviewed|Received|Complete|Submitted|Approved)",
+      "i"
+    );
+    const re2 = new RegExp(
+      "(Reviewed|Received|Complete|Submitted|Approved)[\\s\\S]{0,40}" +
+        name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"),
+      "i"
+    );
+    if (re.test(text) || re2.test(text)) {
+      return { ...it, status: "done", updatedAt: new Date().toISOString(), doneSource: "email_status" };
+    }
+    // Global "Pending your Submission" without this name done → keep pending
+    return it;
+  });
+}
+
+/** True if email is a low-noise acknowledgment (no LE Pro notification). */
+export function isConedAcknowledgmentOnly(subject = "", body = "") {
+  const t = `${subject}\n${body}`;
+  if (/acknowledgment\s+letter/i.test(t)) return true;
+  if (/we have received your request/i.test(t) && !/pending your submission|to-?do list/i.test(t)) {
+    return true;
+  }
+  return false;
+}
+
+/** True if email is an inquiry that needs Levi's attention (notify). */
+export function isConedInquiryNeedsAttention(subject = "", body = "") {
+  const t = `${subject}\n${body}`;
+  if (/inquiry\s+id\s*ci-|con edison inquiry/i.test(t)) return true;
+  if (/we have responded to the message/i.test(t) && /inquiry/i.test(t)) return true;
+  return false;
+}
+
+/**
+ * Scan stored email insights for To-Do List updates matching this job's case/address.
+ * Returns a job patch or null.
+ */
+export function updateTodoListFromInsights(job = {}, insights = []) {
+  const caseNum = s(job?.paperwork?.coned?.caseNumber);
+  const addr = s(job?.serviceAddress || job?.address).toLowerCase();
+  const matches = [];
+  for (const ins of insights || []) {
+    const subj = s(ins?.source?.subject || ins?.subject || "");
+    const body = s(ins?.emailSnippet || ins?.summary || ins?.body || "");
+    const blob = `${subj}\n${body}\n${s(ins?.address)}`.toLowerCase();
+    if (!/to-?do\s*list/i.test(subj) && !/pending your submission/i.test(body)) continue;
+    const caseHit = caseNum && blob.includes(caseNum.toLowerCase());
+    const addrHit =
+      addr &&
+      (blob.includes(addr.slice(0, 12)) ||
+        s(ins?.address || "")
+          .toLowerCase()
+          .includes(addr.slice(0, 12)));
+    if (!caseHit && !addrHit) continue;
+    let items = parseConedTodoListFromEmail({ subject: subj, body });
+    if (!items.length && caseHit) {
+      // Image-only email — keep existing; only apply status marks
+      items = listConedCustomerTodos(job).map((t) => ({ ...t }));
+    }
+    items = markTodosFromEmailStatus(items, body, subj);
+    if (items.length) matches.push({ items, caseNumber: caseNum });
+  }
+  if (!matches.length) return null;
+  // Use the last (most recent) match set
+  const last = matches[matches.length - 1];
+  return jobPatchFromConedCustomerTodos(job, last.items, {
+    caseNumber: last.caseNumber || caseNum,
+    source: "email_insight_update",
+  });
+}

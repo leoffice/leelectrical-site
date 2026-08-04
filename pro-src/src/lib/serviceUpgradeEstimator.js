@@ -129,20 +129,17 @@ const ITEM_REMOVAL = "Service Upgrade:Removal & disposal";
 const ITEM_CONDUIT = "Service Upgrade:Conduit / overhead";
 const ITEM_TRENCHING = "Service Upgrade:Trenching";
 
-/** True when this job was (or looks like it was) built by the estimate generator. */
+/**
+ * True only when this job was created/saved via the estimate generator.
+ * Levi 2026-08-04: do NOT infer from Service Upgrade line names alone —
+ * "Edit with estimate generator" must not appear on ordinary jobs.
+ */
 export function isEstimateGeneratorJob(job) {
   if (!job) return false;
-  if (job._fromEstimateGenerator) return true;
+  if (job._fromEstimateGenerator === true) return true;
   if (job._estimator?.kind === "service_upgrade") return true;
-  const lines = job.estimateLines || job.invoiceLines || [];
-  return lines.some((ln) => {
-    const name = String(ln?.itemName || ln?.item || "");
-    const desc = String(ln?.description || "");
-    return (
-      /Service Upgrade/i.test(name) ||
-      (/SCOPE:/i.test(desc) && /meter/i.test(desc) && /main\s+\d+A/i.test(desc))
-    );
-  });
+  if (job._estimator?.source === "service_upgrade_generator") return true;
+  return false;
 }
 
 export function defaultAnswers(partial = {}) {

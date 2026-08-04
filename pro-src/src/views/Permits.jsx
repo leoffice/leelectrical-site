@@ -55,6 +55,7 @@ import {
   conedTodoTapResult,
   jobPatchFromConedCustomerTodos,
   seedConedCustomerTodos,
+  updateTodoListFromInsights,
 } from "../lib/conedCustomerTodos.js";
 import PaperworkApprovalSheet from "../components/PaperworkApprovalSheet.jsx";
 import ConedCreateCaseSheet from "../components/ConedCreateCaseSheet.jsx";
@@ -218,7 +219,16 @@ function CustomerTodoList({ todos = [], onTap }) {
   );
 }
 
-function CaseRow({ row, job, onOpen, onMeterApplication, onStepAction, onCustomerTodo }) {
+function CaseRow({
+  row,
+  job,
+  onOpen,
+  onMeterApplication,
+  onStepAction,
+  onCustomerTodo,
+  onUpdateTodoList,
+  updatingTodo,
+}) {
   const [expanded, setExpanded] = useState(false);
   const isConed = row.agency === "coned";
   const meter = job ? getMeterApplication(job) : null;
@@ -319,6 +329,17 @@ function CaseRow({ row, job, onOpen, onMeterApplication, onStepAction, onCustome
               data-testid="permit-run-next"
             >
               Do next: {row.recommended.title}
+            </button>
+          ) : null}
+          {isConed && onUpdateTodoList ? (
+            <button
+              type="button"
+              className="w-full btn bg-slate-800 text-white font-bold text-xs !py-2.5"
+              disabled={!!updatingTodo}
+              onClick={() => onUpdateTodoList(job, row)}
+              data-testid="permit-update-todo-list"
+            >
+              {updatingTodo ? "Updating to-do list…" : "Update To-do List from email"}
             </button>
           ) : null}
           {row.jobId ? (
@@ -807,6 +828,31 @@ export default function Permits() {
       );
     } catch {
       showToast("Couldn't save meter application");
+    }
+  };
+
+  const [updatingTodoId, setUpdatingTodoId] = useState(null);
+
+  /** Pull latest Con Ed To-Do List from email insights → job customerTodos. */
+  const handleUpdateTodoList = async (job) => {
+    if (!job?.id) return;
+    setUpdatingTodoId(job.id);
+    try {
+      const patch = updateTodoListFromInsights(job, emailInsights || []);
+      if (patch) {
+        await patchAndSave(job.id, patch);
+        const n = patch.paperwork?.coned?.customerTodos?.length || 0;
+        showToast(`To-do list updated · ${n} item${n === 1 ? "" : "s"}`);
+      } else {
+        // No insight body — keep Levi's seeded list; toast how to refresh
+        showToast(
+          "No To-Do email body in app yet — open the Con Ed To-Do email or wait for daily sync"
+        );
+      }
+    } catch {
+      showToast("Couldn't update to-do list");
+    } finally {
+      setUpdatingTodoId(null);
     }
   };
 
@@ -1442,6 +1488,8 @@ export default function Permits() {
                 onMeterApplication={handleMeterApplication}
                 onStepAction={handleStepAction}
                 onCustomerTodo={handleCustomerTodo}
+                onUpdateTodoList={handleUpdateTodoList}
+                updatingTodo={updatingTodoId === row.jobId}
               />
             ))}
           </div>
@@ -1467,6 +1515,8 @@ export default function Permits() {
                   onMeterApplication={handleMeterApplication}
                   onStepAction={handleStepAction}
                   onCustomerTodo={handleCustomerTodo}
+                  onUpdateTodoList={handleUpdateTodoList}
+                  updatingTodo={updatingTodoId === row.jobId}
                 />
               ))}
             </div>

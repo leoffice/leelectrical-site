@@ -31,10 +31,11 @@ import { isInternal, isModuleEnabled } from "./tenantConfig.js";
 export const NAV_ITEMS = [
   { to: "/", label: "Customers", ic: "🗂️", end: true, primary: true },
   { to: "/today", label: "Calendar", ic: "📅", primary: true },
+  // Levi 2026-08-04: Permits between Calendar and Reminders; Requisition → More
+  { to: "/permits", label: "Permits", ic: "📄", module: "permits", primary: true },
   { to: "/reminders", label: "Reminders", ic: "🔔", primary: true },
   { to: "/time", label: "Time", ic: "⏱️", module: "crew" },
-  { to: "/projects", label: "Requisition", ic: "📋", module: "requisitions", primary: true },
-  { to: "/permits", label: "Permits", ic: "📄", module: "permits" },
+  { to: "/projects", label: "Requisition", ic: "📋", module: "requisitions" },
   { to: "/company", label: "Company", ic: "📊", module: "reports" },
   { to: "/settings", label: "Settings", ic: "⚙️" },
   { to: "/progress", label: "Build", ic: "⚡", internal: true },

@@ -171,9 +171,10 @@ describe("serviceUpgradeEstimator", () => {
     expect(removal.description).not.toMatch(/separate line/i);
   });
 
-  it("isEstimateGeneratorJob detects flags and service-upgrade lines", () => {
+  it("isEstimateGeneratorJob only for explicit generator flags (not bare Service Upgrade lines)", () => {
     expect(isEstimateGeneratorJob({ _fromEstimateGenerator: true })).toBe(true);
     expect(isEstimateGeneratorJob({ _estimator: { kind: "service_upgrade" } })).toBe(true);
+    // Levi 2026-08-04: ordinary jobs with upgrade lines must NOT get Edit Generator
     expect(
       isEstimateGeneratorJob({
         estimateLines: [
@@ -183,7 +184,7 @@ describe("serviceUpgradeEstimator", () => {
           },
         ],
       })
-    ).toBe(true);
+    ).toBe(false);
     expect(isEstimateGeneratorJob({ title: "Random job" })).toBe(false);
   });
 
