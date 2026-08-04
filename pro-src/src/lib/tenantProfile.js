@@ -24,10 +24,28 @@ export const DEFAULT_PROFILE = {
   email: "Office@LeElectrical.us",
   brandColor: "#2d8a3e",
   logoDataUrl: "",
-  paymentMethods: { card: true, zelle: true, check: true },
+  /**
+   * White-label payment toggles (Settings → Company). When on, the method
+   * appears on the customer pay landing, invoice PDFs, and invoice emails.
+   * Card / ACH still need processor flags on the host; these are product UX gates.
+   */
+  paymentMethods: {
+    card: true,
+    ach: true,
+    zelle: true,
+    check: true,
+    venmo: false,
+    cashapp: false,
+  },
   zelleInstructions: "Zelle: Send payment to Office@LeElectrical.us.",
+  /** Optional Zelle destination override (email or phone). Empty = company email. */
+  zelleHandle: "",
+  /** Venmo @username or phone when paymentMethods.venmo is on. */
+  venmoHandle: "",
+  /** Cash App $cashtag when paymentMethods.cashapp is on. */
+  cashAppHandle: "",
   checkInstructions:
-    'Check: Make checks payable to "BLZ Electric Inc." and either mail it or email a clear picture to Office@LeElectrical.us.',
+    'Check: Make checks payable to "BLZ Electric Inc." Mail it, or process a check photo in the secure payment link on this invoice.',
   payLinkBase: "https://secure.cardknox.com/blzelectric",
   emailFrom: "payments@leelectrical.us",
   defaultTerms: "Net 30",
@@ -43,6 +61,13 @@ export const DEFAULT_PROFILE = {
    * address when a credential is configured).
    */
   gdriveFolderId: "",
+
+  /**
+   * Letter PDF signature block.
+   * - "company" (default): sign-off is short trading name only (e.g. BLZ Electric) — no person name / President.
+   * - "signer": classic personal name + title from owners / defaultSigner*.
+   */
+  letterSignatureMode: "company",
 
   // Short trading name used in email/SMS sign-offs ("— BLZ Electric").
   // Distinct from companyName, which carries the legal "Inc.".
@@ -289,8 +314,24 @@ export function mergeProfile(raw) {
   if (p.dosId == null) p.dosId = DEFAULT_PROFILE.dosId || "";
   if (!p.defaultSignerName) p.defaultSignerName = DEFAULT_PROFILE.defaultSignerName || "";
   if (!p.defaultSignerTitle) p.defaultSignerTitle = DEFAULT_PROFILE.defaultSignerTitle || "President";
+  if (p.letterSignatureMode !== "signer" && p.letterSignatureMode !== "company") {
+    p.letterSignatureMode = DEFAULT_PROFILE.letterSignatureMode || "company";
+  }
+  p.zelleHandle = String(p.zelleHandle || "").trim();
+  p.venmoHandle = String(p.venmoHandle || "").trim();
+  p.cashAppHandle = String(p.cashAppHandle || "").trim();
   return p;
 }
+
+/** Stable labels for Settings checkboxes + pay UI. */
+export const PAYMENT_METHOD_OPTIONS = [
+  { key: "card", label: "Credit card", hint: "Card on the secure pay page (+ processing fee when enabled)" },
+  { key: "ach", label: "ACH (bank / check)", hint: "Bank debit on the pay page — photo of check or manual routing/account" },
+  { key: "zelle", label: "Zelle", hint: "Show Zelle destination on invoices, email, and pay page" },
+  { key: "check", label: "Check (mail)", hint: "Mail-a-check instructions on invoices and email" },
+  { key: "venmo", label: "Venmo", hint: "Show Venmo handle when set" },
+  { key: "cashapp", label: "Cash App", hint: "Show Cash App $cashtag when set" },
+];
 
 /** Normalize deposit bank list from array or newline/comma text. */
 export function normalizeDepositBanks(raw) {

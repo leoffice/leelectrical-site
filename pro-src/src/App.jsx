@@ -24,6 +24,7 @@ import Company from "./views/Company.jsx";
 import Settings from "./views/Settings.jsx";
 import Archive from "./views/Archive.jsx";
 import Permits from "./views/Permits.jsx";
+import TransactionHistory from "./views/TransactionHistory.jsx";
 
 // Internal-only views (Dev, and Build = /progress) are lazy so they are
 // code-split out of the main chunk. A non-internal tenant never registers
@@ -90,6 +91,7 @@ const ROUTE_ELEMENTS = {
   "/customer/:key": <CustomerView />,
   "/today": <Today />,
   "/reminders": <Reminders />,
+  "/history": <TransactionHistory />,
   "/time": <Time />,
   "/projects": <Projects />,
   "/projects/:projectId": <Projects />,

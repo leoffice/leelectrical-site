@@ -165,32 +165,41 @@ export async function sendDocEmail({
   const customTop = String(message || "").trim();
   // Header brand = tenant (company name + logo). Shell = APPROVED STANDARD.
   const brand = resolveEmailBrand({ name: docData.company?.name, logoUrl: docData.company?.logoUrl });
-  // Payment methods: Zelle, then credit-card Link (same short pay page), then Check.
+  // Payment methods (white-label language): secure link for card / ACH / check photo,
+  // plus Zelle (and optional Venmo / Cash App when set on company profile later).
   // "Link" is a real <a> to viewLink — never the raw Cardknox URL.
   let paymentMessage;
   let paymentMessageHtml;
   if (isInvoice) {
-    const zelle = "Zelle: Send payment to Office@LeElectrical.us.";
+    const coName = String(docData.company?.name || brand.name || "BLZ Electric Inc.").trim();
+    const coEmail = String(docData.company?.email || "Office@LeElectrical.us").trim();
+    const zelle = `Zelle: Send payment to ${coEmail}.`;
     const check =
-      'Check: Make checks payable to "BLZ Electric Inc." and either mail it or email a clear picture of the check to Office@LeElectrical.us.';
+      `Check: Make checks payable to "${coName}". Mail it, or process a check photo in the secure payment link (no need to email a picture of the check).`;
+    const achLine =
+      "ACH / bank: Open the secure link — pay from checking. You can take a picture of a check to auto-fill routing and account, or enter them yourself. No card fee.";
+    const linkHref = String(viewLink || "")
+      .replace(/&/g, "&amp;")
+      .replace(/"/g, "&quot;");
     if (viewLink) {
       paymentMessage =
-        "Other ways to pay:\n\n-" +
-        zelle +
-        "\n-Credit card: Pay with credit card by pressing the following Link\n-" +
-        check;
+        "Ways to pay:\n\n" +
+        "-Card or ACH: Open the secure View/Pay link below.\n" +
+        `-${achLine}\n` +
+        `-${zelle}\n` +
+        `-Credit card: Pay with credit card via the secure Link\n` +
+        `-${check}`;
       paymentMessageHtml =
-        "Other ways to pay:<br><br>" +
-        "-" +
-        zelle +
-        "<br>" +
+        "Ways to pay:<br><br>" +
+        "-Card or ACH: Open the secure View/Pay link below.<br>" +
+        `-${achLine}<br>` +
+        `-${zelle}<br>` +
         '-Credit card: Pay with credit card by pressing the following <a href="' +
-        String(viewLink).replace(/&/g, "&amp;").replace(/"/g, "&quot;") +
+        linkHref +
         '" style="color:#066a34;font-weight:bold;text-decoration:underline;">Link</a><br>' +
-        "-" +
-        check;
+        `-${check}`;
     } else {
-      paymentMessage = "Other ways to pay:\n\n-" + zelle + "\n-" + check;
+      paymentMessage = "Ways to pay:\n\n-" + zelle + "\n-" + check;
     }
   }
   // ONE shell for all customer emails: letterhead + body + Gmail signature + Powered by LE.

@@ -6,7 +6,7 @@ import { effectiveServiceAddress } from "./customerSync.js";
 import { buildQbDocPdf } from "./qbInvoicePdf.js";
 import { POWERED_BY_LE, POWERED_BY_LE_PDF_COLOR, POWERED_BY_LE_PDF_SIZE } from "./brand.js";
 import { mapJobToQbDocData } from "./jobToQbDoc.js";
-import { tenantCompany, tenantZelleInstructions } from "./tenantBranding.js";
+import { tenantCompany, tenantPaymentLines, tenantZelleInstructions } from "./tenantBranding.js";
 import { formatPrintDescription, wrapPrintDescription } from "./printDescription.js";
 import { changeOrderPrintDocNumber, isChangeOrderJob } from "./changeOrder.js";
 
@@ -35,14 +35,22 @@ export function company() {
  * the company name and mailbox swapped in.
  */
 export function paymentInstructions() {
+  const fromProfile = tenantPaymentLines();
+  if (fromProfile.length) {
+    return [
+      'Online Payment: Open the "View/Pay Invoice" link in the email for card or ACH.',
+      "If you have a check, you can process a photo of it in that secure link.",
+      ...fromProfile,
+    ];
+  }
   const c = tenantCompany();
   const zelle = tenantZelleInstructions();
   return [
     'Online Payment: Click the "View/Pay Invoice" tab in the email and pay',
-    "via the provided credit card payment link.",
+    "via the provided secure payment link.",
     zelle ? `-${zelle}` : null,
     `-Check: Make checks payable to "${c.name}" and either: Mail`,
-    `it or Email a clear picture of the check to ${c.email}.`,
+    `it or process a check photo in the secure payment link.`,
   ].filter((ln) => ln != null);
 }
 

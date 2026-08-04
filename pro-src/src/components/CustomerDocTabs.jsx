@@ -327,7 +327,7 @@ export default function CustomerDocTabs({
           </button>
         ) : null}
         {[
-          ["txns", "📜 History", null],
+          // Company-wide History lives in left nav (Levi 2026-08-04) — not here.
           ["invoices", "🧾 Invoices", counts.invoices],
           ["estimates", "📝 Estimates", counts.estimates],
           ["changes", "📋 Change orders", counts.changes],
@@ -359,19 +359,6 @@ export default function CustomerDocTabs({
           }}
           onOpenJob={openJob}
         />
-      ) : null}
-
-      {tab === "txns" ? (
-        <div data-testid="cust-tab-panel-txns">
-          <CustomerTransactionHistory
-            jobs={jobs}
-            fromCust={fromCust}
-            onOpenRow={(row) => {
-              if (typeof onOpenTxnRow === "function") onOpenTxnRow(row);
-              else if (row?.jobId) openJob({ id: row.jobId });
-            }}
-          />
-        </div>
       ) : null}
 
       {tab === "invoices" ? (

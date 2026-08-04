@@ -166,12 +166,26 @@ export function buildLetterheadPdf({ draft, company: companyOverride, signerName
   const logo = personal ? null : resolvePdfLogoImageSync();
   const signer = resolveSigner(profile, draft?.ownerId);
   const sigApply = applySignature({ profile, ownerId: draft?.ownerId || signer?.id });
+  // Levi 2026-08-04: default company-only sign-off (short name, no President).
+  // Personal letterheads and explicit "signer" mode keep a person + title.
+  const letterSigMode = personal
+    ? "signer"
+    : String(profile?.letterSignatureMode || "company").toLowerCase() === "signer"
+      ? "signer"
+      : "company";
+  const companySignName =
+    String(profile?.shortName || "").trim() || company.name || "";
   const resolvedSignerName =
-    signerName ||
-    (personal ? draft?.answers?.ownerName || signer?.fullName : signer?.fullName) ||
-    company.name ||
-    "";
-  const resolvedTitle = signerTitle || (personal ? "" : signer?.title || "President");
+    letterSigMode === "company" && !personal
+      ? companySignName
+      : signerName ||
+        (personal ? draft?.answers?.ownerName || signer?.fullName : signer?.fullName) ||
+        company.name ||
+        "";
+  const resolvedTitle =
+    letterSigMode === "company" && !personal
+      ? ""
+      : signerTitle || (personal ? "" : signer?.title || "President");
   const maxBodyW = PAGE_W - M * 2;
   const bodySize = 11;
   const bodyLead = 15;
@@ -333,10 +347,19 @@ export function buildLetterheadPdf({ draft, company: companyOverride, signerName
         if (sigApply?.dataUrl) {
           y2 += 4; // spacing for future image
         }
-        if (resolvedSignerName) pg2.text(M, y2, resolvedSignerName + (resolvedTitle ? ", " + resolvedTitle : ""), { size: 11, bold: true });
+        if (resolvedSignerName) {
+          pg2.text(
+            M,
+            y2,
+            resolvedSignerName + (resolvedTitle ? ", " + resolvedTitle : ""),
+            { size: 11, bold: true }
+          );
+        }
         y2 += 14;
-        if (resolvedTitle && !resolvedSignerName.includes(resolvedTitle)) pg2.text(M, y2, resolvedTitle, { size: 10, color: GRAY });
-        y2 += 14;
+        if (resolvedTitle && resolvedSignerName && !resolvedSignerName.includes(resolvedTitle)) {
+          pg2.text(M, y2, resolvedTitle, { size: 10, color: GRAY });
+          y2 += 14;
+        }
         if (company.license) pg2.text(M, y2, "License: " + company.license, { size: 9, color: GRAY });
         if (draft?.status === "draft") {
           y2 += 24;
@@ -348,12 +371,17 @@ export function buildLetterheadPdf({ draft, company: companyOverride, signerName
       y += 18;
       pg.text(M, y, "Sincerely,", { size: 11 });
       y += 40;
-      if (sigApply?.dataUrl) {
+      if (sigApply?.dataUrl && letterSigMode === "signer") {
         // Anchor reserved — typed name below is always present for legal clarity
         y += 8;
       }
       if (resolvedSignerName) {
-        pg.text(M, y, resolvedSignerName + (resolvedTitle && !personal ? ", " + resolvedTitle : ""), { size: 11, bold: true });
+        pg.text(
+          M,
+          y,
+          resolvedSignerName + (resolvedTitle && !personal ? ", " + resolvedTitle : ""),
+          { size: 11, bold: true }
+        );
       }
       y += 14;
       if (!personal && company.license) pg.text(M, y, "License: " + company.license, { size: 9, color: GRAY });

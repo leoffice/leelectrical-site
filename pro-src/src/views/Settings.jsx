@@ -7,6 +7,7 @@ import {
   DEFAULT_FEATURES,
   DEFAULT_PROFILE,
   FEATURE_GROUPS,
+  PAYMENT_METHOD_OPTIONS,
   anyQuickbooksDocFeature,
   featureLabel,
   mergeFeatures,
@@ -968,19 +969,106 @@ export default function Settings() {
                 : "Drive credential not configured on the server yet — files still save to the in-app tab. Ask support to enable the Drive integration."}
           </div>
         </Fld>
-        <Fld label="Zelle payment line (on invoices)">
-          <input
+        <div
+          className="rounded-2xl border border-slate-200 bg-slate-50/80 p-3 mb-3"
+          data-testid="settings-payment-methods"
+        >
+          <div className="text-[11px] font-extrabold uppercase tracking-wide text-slate-500 mb-1">
+            Payment methods (white-label)
+          </div>
+          <p className="text-[11px] text-slate-500 font-semibold mb-3 leading-relaxed">
+            Turn on what customers can use. Enabled methods show on the secure pay page, invoice PDFs, and
+            invoice emails. Card and ACH still use your payment processor; Zelle / Venmo / Cash App show the
+            handles you set below.
+          </p>
+          <div className="space-y-2.5 mb-3">
+            {PAYMENT_METHOD_OPTIONS.map((opt) => (
+              <label
+                key={opt.key}
+                className="flex items-start gap-2.5 rounded-xl border border-slate-100 bg-white px-3 py-2.5 cursor-pointer"
+                data-testid={`settings-pay-method-${opt.key}`}
+              >
+                <input
+                  type="checkbox"
+                  className="mt-0.5 h-4 w-4 rounded border-slate-300 text-brand focus:ring-brand"
+                  checked={!!profile.paymentMethods?.[opt.key]}
+                  onChange={(e) => setPayMethod(opt.key, e.target.checked)}
+                />
+                <span className="min-w-0">
+                  <span className="block text-sm font-bold text-slate-800">{opt.label}</span>
+                  <span className="block text-[11px] text-slate-500 font-semibold leading-snug">{opt.hint}</span>
+                </span>
+              </label>
+            ))}
+          </div>
+          {profile.paymentMethods?.zelle ? (
+            <Fld label="Zelle handle (email or phone)">
+              <input
+                className={inputCls}
+                value={profile.zelleHandle || ""}
+                onChange={(e) => setP("zelleHandle", e.target.value)}
+                placeholder={profile.email || "office@company.com"}
+                data-testid="settings-zelle-handle"
+              />
+              <p className="text-[11px] text-slate-500 font-semibold mt-1">
+                Empty = company email. Full invoice line below can still be customized.
+              </p>
+            </Fld>
+          ) : null}
+          {profile.paymentMethods?.venmo ? (
+            <Fld label="Venmo username or phone">
+              <input
+                className={inputCls}
+                value={profile.venmoHandle || ""}
+                onChange={(e) => setP("venmoHandle", e.target.value)}
+                placeholder="@yourbusiness"
+                data-testid="settings-venmo-handle"
+              />
+            </Fld>
+          ) : null}
+          {profile.paymentMethods?.cashapp ? (
+            <Fld label="Cash App $cashtag">
+              <input
+                className={inputCls}
+                value={profile.cashAppHandle || ""}
+                onChange={(e) => setP("cashAppHandle", e.target.value)}
+                placeholder="$YourBusiness"
+                data-testid="settings-cashapp-handle"
+              />
+            </Fld>
+          ) : null}
+          <Fld label="Zelle payment line (on invoices)">
+            <input
+              className={inputCls}
+              value={profile.zelleInstructions || ""}
+              onChange={(e) => setP("zelleInstructions", e.target.value)}
+            />
+          </Fld>
+          <Fld label="Check payment line (on invoices)">
+            <textarea
+              className={inputCls + " min-h-[4.5rem]"}
+              value={profile.checkInstructions || ""}
+              onChange={(e) => setP("checkInstructions", e.target.value)}
+            />
+            <p className="text-[11px] text-slate-500 font-semibold mt-1">
+              Standard language points customers to the secure link to process a check photo (not email a
+              picture of the check).
+            </p>
+          </Fld>
+        </div>
+        <Fld label="Letter signature">
+          <select
             className={inputCls}
-            value={profile.zelleInstructions || ""}
-            onChange={(e) => setP("zelleInstructions", e.target.value)}
-          />
-        </Fld>
-        <Fld label="Check payment line (on invoices)">
-          <textarea
-            className={inputCls + " min-h-[4.5rem]"}
-            value={profile.checkInstructions || ""}
-            onChange={(e) => setP("checkInstructions", e.target.value)}
-          />
+            value={profile.letterSignatureMode || "company"}
+            onChange={(e) => setP("letterSignatureMode", e.target.value)}
+            data-testid="settings-letter-signature-mode"
+          >
+            <option value="company">Company only (e.g. BLZ Electric — no name / President)</option>
+            <option value="signer">Signer name + title (classic)</option>
+          </select>
+          <p className="text-[11px] text-slate-500 font-semibold mt-1">
+            Applies to load letters and other letterhead PDFs. Company mode uses the short name above.
+          </p>
         </Fld>
         <Fld label="Deposit-to banks (one per line)">
           <textarea
@@ -1002,21 +1090,6 @@ export default function Settings() {
             Shown when you record a check or Zelle — which bank the money goes into.
           </p>
         </Fld>
-        <div className="text-[11px] font-extrabold uppercase tracking-wide text-slate-500 mb-2">
-          Payment methods (profile)
-        </div>
-        <div className="flex flex-wrap gap-3 mb-2">
-          {["card", "zelle", "check"].map((k) => (
-            <label key={k} className="flex items-center gap-2 text-sm font-semibold text-slate-700">
-              <input
-                type="checkbox"
-                checked={!!profile.paymentMethods?.[k]}
-                onChange={(e) => setPayMethod(k, e.target.checked)}
-              />
-              {k.charAt(0).toUpperCase() + k.slice(1)}
-            </label>
-          ))}
-        </div>
       </MenuSection>
 
       {/* ── Features (plans & toggles, categorized) ── */}

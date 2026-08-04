@@ -87,8 +87,9 @@ describe("PayLanding view", () => {
     expect(screen.getByTestId("view-invoice")).toHaveTextContent("View invoice");
     expect(screen.getByText("Rae Klein")).toBeInTheDocument();
     expect(screen.getByTestId("pay-method-tabs")).toBeInTheDocument();
-    // Customer ACH on → default ACH tab (no card fee until Card is selected)
+    // Customer ACH on → default ACH tab (compact form + optional photo)
     await waitFor(() => expect(screen.getByTestId("pay-by-ach")).toBeInTheDocument());
+    expect(screen.getByTestId("pay-ach-form")).toBeInTheDocument();
     expect(screen.getByText(/Please review and confirm the checking account/i)).toBeInTheDocument();
     // Switch to card → fee + form
     await userEvent.setup().click(screen.getByTestId("pay-method-card"));
@@ -195,7 +196,7 @@ describe("PayLanding view", () => {
     expect(screen.getByTestId("pay-cta")).toHaveTextContent("Pay $258.75");
   });
 
-  it("Check tab has no processing fee on total charge", async () => {
+  it("ACH tab has no processing fee on total charge", async () => {
     vi.stubGlobal(
       "fetch",
       vi.fn(async (url) => {
@@ -226,9 +227,9 @@ describe("PayLanding view", () => {
     );
     renderPay(token);
     await waitForPayLoaded();
-    await waitFor(() => expect(screen.getByTestId("pay-method-check")).toBeInTheDocument());
-    await user.click(screen.getByTestId("pay-method-check"));
-    expect(screen.getByTestId("pay-by-check")).toBeInTheDocument();
+    await waitFor(() => expect(screen.getByTestId("pay-method-ach")).toBeInTheDocument());
+    await user.click(screen.getByTestId("pay-method-ach"));
+    expect(screen.getByTestId("pay-by-ach")).toBeInTheDocument();
     // Fee row is card-only; helper copy may still mention 3.5%
     expect(screen.queryByText("Processing fee (3.5%)")).not.toBeInTheDocument();
     expect(screen.getByText("Total charge").parentElement).toHaveTextContent("$500");

@@ -70,10 +70,20 @@ const DEFAULT_PROFILE = {
   email: "Office@LeElectrical.us",
   brandColor: "#2d8a3e",
   logoDataUrl: "",
-  paymentMethods: { card: true, zelle: true, check: true },
+  paymentMethods: {
+    card: true,
+    ach: true,
+    zelle: true,
+    check: true,
+    venmo: false,
+    cashapp: false,
+  },
   zelleInstructions: "Zelle: Send payment to Office@LeElectrical.us.",
+  zelleHandle: "",
+  venmoHandle: "",
+  cashAppHandle: "",
   checkInstructions:
-    'Check: Make checks payable to "BLZ Electric Inc." and either mail it or email a clear picture to Office@LeElectrical.us.',
+    'Check: Make checks payable to "BLZ Electric Inc." Mail it, or process a check photo in the secure payment link on this invoice.',
   payLinkBase: "https://secure.cardknox.com/blzelectric",
   emailFrom: "payments@leelectrical.us",
   defaultTerms: "Net 30",
@@ -81,6 +91,8 @@ const DEFAULT_PROFILE = {
   invoiceStart: "",
   estimateStart: "",
   calendarAccount: "office@leelectrical.us",
+  letterSignatureMode: "company",
+  shortName: "BLZ Electric",
 };
 
 const DEFAULT_FEATURES = {
@@ -121,6 +133,12 @@ function normalizeProfile(raw) {
     ...DEFAULT_PROFILE.paymentMethods,
     ...(p.paymentMethods && typeof p.paymentMethods === "object" ? p.paymentMethods : {}),
   };
+  p.zelleHandle = String(p.zelleHandle || "").trim();
+  p.venmoHandle = String(p.venmoHandle || "").trim();
+  p.cashAppHandle = String(p.cashAppHandle || "").trim();
+  if (p.letterSignatureMode !== "signer" && p.letterSignatureMode !== "company") {
+    p.letterSignatureMode = DEFAULT_PROFILE.letterSignatureMode || "company";
+  }
   return p;
 }
 

@@ -127,17 +127,8 @@ import { useAppSettings } from "../lib/appSettings.js";
 import { afterSendApprovedClose, EMAIL_POLICY_KEEP } from "../lib/sendDocConfirm.js";
 import { lineAmount } from "../lib/qboDoc.js";
 
-export const PAY_METHODS = [
-  "Credit card",
-  "Check",
-  "Cash",
-  "Zelle",
-  "Wells Fargo",
-  "Martin Dorkin",
-  "Barder",
-  "ACH",
-  "Other",
-];
+/** Staff mark-as-paid methods (Levi 2026-08-04). Check is ACH; bank names are Deposit-to, not methods. */
+export const PAY_METHODS = ["Cash", "Credit card", "Zelle", "ACH", "Other"];
 
 /**
  * Execute an approved invoice/estimate send.
@@ -384,26 +375,40 @@ export function useDoSend() {
   };
 }
 
-/* ---------- 1a. Payment type intro (picture or method) ---------- */
+/* ---------- 1a. Payment type intro (method first; photo lives on Zelle / ACH) ---------- */
 export function PaymentIntroSheet({ onClose, onAttachPicture, onPickMethod }) {
   return (
     <Sheet title="Add a payment" onClose={onClose}>
-      <p className="text-sm text-slate-500 mb-3">Attach a payment picture or choose how they paid — then fill in the details.</p>
-      <Opt
-        icon="📷"
-        title="Attach a picture"
-        note="Check, Zelle, or ACH screenshot — autofill amount & details"
-        onClick={onAttachPicture}
-      />
-      {["Check", "Zelle", "Credit card", "Cash", "ACH"].map((method) => (
+      <p className="text-sm text-slate-500 mb-3">
+        Choose how they paid. On Zelle or ACH you can attach a screenshot or check photo to autofill.
+      </p>
+      {["Cash", "Credit card", "Zelle", "ACH"].map((method) => (
         <Opt
           key={method}
-          icon={method === "Credit card" ? "💳" : method === "Cash" ? "💵" : "🧾"}
+          icon={
+            method === "Credit card"
+              ? "💳"
+              : method === "Cash"
+                ? "💵"
+                : method === "Zelle"
+                  ? "📱"
+                  : "🏦"
+          }
           title={method}
-          note="Opens the full payment form"
+          note={
+            method === "Zelle" || method === "ACH"
+              ? "Form + optional photo for autofill"
+              : "Opens the payment form"
+          }
           onClick={() => onPickMethod(method)}
         />
       ))}
+      <Opt
+        icon="📷"
+        title="Start from a picture"
+        note="Zelle screenshot or check photo — picks method and autofills"
+        onClick={onAttachPicture}
+      />
     </Sheet>
   );
 }
@@ -1212,8 +1217,9 @@ export function MarkPaidSheet({
     setAutofillExtracted(null);
     visionAmountLockedRef.current = false;
     // Auto-read for Check / Zelle / ACH / unchosen method (Attach a picture path).
-    const autoRead = !mth || isCheck || isZelle || isAch;
-    if (!mth) setMth("Check");
+    const autoRead = isZelle || isAch || isCheck;
+    // Photo path defaults to ACH (paper check is ACH now).
+    if (!mth) setMth("ACH");
     const isImage = String(file.type || "").startsWith("image/");
     try {
       const b64 = await fileToBase64(file);

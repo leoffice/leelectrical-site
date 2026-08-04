@@ -5,7 +5,7 @@ import { amountPaid, invoiceTotal, openBalance } from "./customers.js";
 import { effectiveServiceAddress } from "./customerSync.js";
 import { fmtInvoiceDate } from "./invoicePdf.js";
 import { changeOrderPrintDocNumber, isChangeOrderJob } from "./changeOrder.js";
-import { tenantCompany, tenantZelleInstructions } from "./tenantBranding.js";
+import { tenantCompany, tenantPaymentLines, tenantZelleInstructions } from "./tenantBranding.js";
 import { formatPrintDescription } from "./printDescription.js";
 
 /**
@@ -33,14 +33,24 @@ export function qbCompany() {
  * mailbox swapped in, so existing invoices render unchanged.
  */
 export function invoicePaymentLines() {
+  // Prefer the white-label generator (Settings payment methods + handles).
+  // Fall back to the classic online + Zelle + check block if generator is empty.
+  const fromProfile = tenantPaymentLines();
+  if (fromProfile.length) {
+    return [
+      'Online Payment: Open the "View/Pay Invoice" link in the email for card or ACH.',
+      "If you have a check, you can process a photo of it in that secure link.",
+      ...fromProfile,
+    ];
+  }
   const c = tenantCompany();
   const zelle = tenantZelleInstructions();
   return [
     'Online Payment: Click the "View/Pay Invoice" tab in the email and pay',
-    "via the provided credit card payment link.",
+    "via the provided secure payment link.",
     zelle ? `-${zelle}` : null,
     `-Check: Make checks payable to "${c.name}" and either: Mail`,
-    `it or Email a clear picture of the check to ${c.email}.`,
+    `it or process a check photo in the secure payment link.`,
   ].filter((ln) => ln != null);
 }
 

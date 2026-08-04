@@ -38,18 +38,7 @@ describe("1. mark-as-paid sheet -> staged -> record_payment on Save", () => {
     // method dropdown carries the exact list
     expect(
       within(screen.getByLabelText("Payment method")).getAllByRole("option").map((o) => o.textContent)
-    ).toEqual([
-      "— choose —",
-      "Credit card",
-      "Check",
-      "Cash",
-      "Zelle",
-      "Wells Fargo",
-      "Martin Dorkin",
-      "Barder",
-      "ACH",
-      "Other",
-    ]);
+    ).toEqual(["— choose —", "Cash", "Credit card", "Zelle", "ACH", "Other"]);
     await user.click(screen.getByText("✓ Record payment"));
 
     // staged, not sent: savebar appears, no command yet
@@ -63,7 +52,7 @@ describe("1. mark-as-paid sheet -> staged -> record_payment on Save", () => {
     expect(cmd.idempotencyKey).toMatch(/^record_payment:J-1:251841:/);
     expect(cmd.payload).toMatchObject({
       invoiceNo: "251841",
-      amount: "2300",
+      amount: 2300,
       method: "Zelle",
       sendReceipt: true,
     });
@@ -105,9 +94,10 @@ describe("1. mark-as-paid sheet -> staged -> record_payment on Save", () => {
     expect(ov.paid).toBe(false);
     expect(ov.openBalance).toBe(10000);
     expect(ov.payments).toHaveLength(1);
-    expect(ov.payments[0].amount).toBe("1000");
+    // Local ledger may keep amount as typed string; host enqueue is numeric.
+    expect(Number(ov.payments[0].amount)).toBe(1000);
     expect(ov.status.Paid.s).toBe("");
-    expect(srv.enqueued("record_payment")[0].payload.amount).toBe("1000");
+    expect(Number(srv.enqueued("record_payment")[0].payload.amount)).toBe(1000);
   });
 });
 

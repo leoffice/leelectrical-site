@@ -34,6 +34,8 @@ export const NAV_ITEMS = [
   // Levi 2026-08-04: Permits between Calendar and Reminders; Requisition → More
   { to: "/permits", label: "Permits", ic: "📄", module: "permits", primary: true },
   { to: "/reminders", label: "Reminders", ic: "🔔", primary: true },
+  // Company-wide ledger — desktop sidebar + More (not mobile primary; bar is full)
+  { to: "/history", label: "History", ic: "📜" },
   { to: "/time", label: "Time", ic: "⏱️", module: "crew" },
   { to: "/projects", label: "Requisition", ic: "📋", module: "requisitions" },
   { to: "/company", label: "Company", ic: "📊", module: "reports" },
@@ -55,6 +57,7 @@ export const ROUTE_PATHS = {
   "/": ["/"],
   "/today": ["/today"],
   "/reminders": ["/reminders"],
+  "/history": ["/history"],
   "/time": ["/time"],
   "/projects": ["/projects", "/projects/:projectId"],
   "/permits": ["/permits"],

@@ -157,22 +157,81 @@ export function tenantAddressLines(config = current) {
 /**
  * Payment instruction lines, built from the tenant's enabled methods.
  * One generator replacing the four hand-maintained copies.
+ * Used by invoice/estimate PDFs, email "ways to pay", and pay-page side notes.
  */
 export function tenantPaymentLines(config = current) {
   const p = config.profile || {};
   const methods = p.paymentMethods || {};
+  const company = tenantCompany(config);
+  const short = p.shortName || company.name || "us";
   const lines = [];
-  if (methods.card !== false && p.payLinkBase) {
-    lines.push("-Card: Pay online with the secure link on this invoice.");
+  if (methods.card !== false) {
+    lines.push("-Card: Pay online with the secure link on this invoice (card processing fee may apply).");
+  }
+  if (methods.ach !== false) {
+    lines.push(
+      "-ACH / bank: Open the secure payment link — pay from checking (photo of a check auto-fills routing & account, or enter them yourself). No card fee."
+    );
   }
   if (methods.zelle !== false) {
     const zelle = tenantZelleInstructions(config);
     if (zelle) lines.push(`-${zelle}`);
   }
-  if (methods.check !== false && p.checkInstructions) {
-    lines.push(`-${p.checkInstructions}`);
+  if (methods.venmo === true) {
+    const h = String(p.venmoHandle || "").trim();
+    if (h) lines.push(`-Venmo: Send payment to ${h}.`);
+  }
+  if (methods.cashapp === true) {
+    const h = String(p.cashAppHandle || "").trim();
+    if (h) {
+      const tag = h.startsWith("$") ? h : `$${h.replace(/^\$/, "")}`;
+      lines.push(`-Cash App: Send payment to ${tag}.`);
+    }
+  }
+  if (methods.check !== false) {
+    if (p.checkInstructions) {
+      lines.push(`-${p.checkInstructions}`);
+    } else {
+      lines.push(
+        `-Check: Make checks payable to "${company.name || short}" and mail them, or process a check photo in the secure payment link on this invoice.`
+      );
+    }
   }
   return lines;
+}
+
+/**
+ * Whether a payment method is enabled on the profile (default true for legacy keys).
+ * Venmo / Cash App default off until the tenant turns them on and sets a handle.
+ */
+export function paymentMethodEnabled(key, config = current) {
+  const methods = (config.profile || {}).paymentMethods || {};
+  if (key === "venmo" || key === "cashapp") return methods[key] === true;
+  return methods[key] !== false;
+}
+
+/** Destination strings for alternate rails (Zelle / Venmo / Cash App). */
+export function tenantAltPayHandles(config = current) {
+  const p = config.profile || {};
+  const company = tenantCompany(config);
+  const methods = p.paymentMethods || {};
+  const out = [];
+  if (methods.zelle !== false) {
+    const handle = String(p.zelleHandle || "").trim() || company.email || "";
+    if (handle) out.push({ id: "zelle", label: "Zelle", handle, line: `Send payment to ${handle}` });
+  }
+  if (methods.venmo === true) {
+    const handle = String(p.venmoHandle || "").trim();
+    if (handle) out.push({ id: "venmo", label: "Venmo", handle, line: `Send to ${handle}` });
+  }
+  if (methods.cashapp === true) {
+    const raw = String(p.cashAppHandle || "").trim();
+    if (raw) {
+      const handle = raw.startsWith("$") ? raw : `$${raw.replace(/^\$/, "")}`;
+      out.push({ id: "cashapp", label: "Cash App", handle, line: `Send to ${handle}` });
+    }
+  }
+  return out;
 }
 
 /**

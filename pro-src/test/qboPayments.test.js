@@ -13,7 +13,7 @@ describe("qboPayments", () => {
     expect(patch.paid).toBe(false);
     expect(patch.openBalance).toBe(9998);
     expect(patch.payments).toHaveLength(1);
-    expect(patch.payments[0].amount).toBe("$1");
+    expect(patch.payments[0].amount).toBe(1);
     expect(patch.payments[0].method).toBe("Credit card");
     expect(patch.payments[0].ref).toBe("10964146594");
   });

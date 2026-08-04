@@ -158,4 +158,37 @@ describe("letterhead PDF", () => {
     for (let i = 0; i < bytes.length; i++) asText += String.fromCharCode(bytes[i]);
     expect(asText).toMatch(/DRAFT/);
   });
+
+  it("company signature mode signs with short name only (no President)", () => {
+    setActiveTenantConfig({
+      profile: {
+        companyName: "BLZ Electric Inc.",
+        shortName: "BLZ Electric",
+        street: "123 Test Ave",
+        cityStateZip: "Brooklyn, NY 11213",
+        phone: "718-555-0100",
+        email: "office@test.com",
+        license: "LIC-99",
+        letterSignatureMode: "company",
+        defaultSignerName: "Levi Kumer",
+        defaultSignerTitle: "President",
+        owners: [{ id: "o1", fullName: "Levi Kumer", title: "President", isDefaultSigner: true }],
+      },
+      branding: { companyName: "BLZ Electric Inc." },
+      internal: true,
+    });
+    const type = LETTER_TYPES.find((t) => t.id === "general");
+    const draft = createLetterDraft({
+      type,
+      job: { serviceAddress: "1 A St" },
+      answers: { recipient: "Board", body: "Hello from the field." },
+    });
+    draft.status = "approved";
+    const bytes = buildLetterheadPdf({ draft });
+    let asText = "";
+    for (let i = 0; i < bytes.length; i++) asText += String.fromCharCode(bytes[i]);
+    expect(asText).toMatch(/BLZ Electric/);
+    expect(asText).not.toMatch(/President/);
+    expect(asText).not.toMatch(/Levi Kumer/);
+  });
 });

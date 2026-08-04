@@ -101,6 +101,35 @@ describe("default / tenant Zelle from company email", () => {
     expect(blob).toContain("office@aceplumbing.example");
     expect(blob).not.toMatch(/Office@LeElectrical\.us/i);
   });
+
+  it("tenantPaymentLines includes ACH and optional Venmo/Cash App when enabled", () => {
+    setActiveTenantConfig(
+      resolveTenantConfig({
+        tenantId: "ace",
+        internal: false,
+        plan: { tier: "full" },
+        profile: {
+          companyName: "Ace Plumbing Co.",
+          email: "office@aceplumbing.example",
+          paymentMethods: {
+            card: true,
+            ach: true,
+            zelle: false,
+            check: false,
+            venmo: true,
+            cashapp: true,
+          },
+          venmoHandle: "@aceplumb",
+          cashAppHandle: "AcePlumb",
+        },
+      })
+    );
+    const blob = tenantPaymentLines().join("\n");
+    expect(blob).toMatch(/ACH/i);
+    expect(blob).toMatch(/@aceplumb/);
+    expect(blob).toMatch(/\$AcePlumb/);
+    expect(blob).not.toMatch(/Zelle/i);
+  });
 });
 
 describe("requisitions inherit company contact when requisition email is missing", () => {
