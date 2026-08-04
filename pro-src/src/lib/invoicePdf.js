@@ -178,9 +178,25 @@ export function mapJobToInvoicePdfData(job, overrides = {}) {
   const balanceDue =
     overrides.balanceDue != null ? parseAmount(overrides.balanceDue) : Math.max(0, total - paid);
 
+  // Existing docs must keep their real date (never silently print "today").
+  // New invoice/estimate (no doc # yet) → today. Levi 2026-08-04 EZZ #231409.
+  const histDate = Array.isArray(j.invoiceHistory)
+    ? String(j.invoiceHistory.find((h) => h && h.date)?.date || "").trim()
+    : "";
+  const existingInvDate =
+    j.invoiceDate ||
+    j.status?.Invoiced?.d ||
+    j.status?.Invoice?.d ||
+    j.txnDate ||
+    histDate ||
+    j.invoiceEmailedAt ||
+    "";
+  const existingEstDate = j.estimateDate || j.status?.Estimate?.d || "";
+  const hasInvNo = !!String(j.invoiceNo || overrides.invoiceNo || "").trim();
+  const hasEstNo = !!String(j.estimateNo || "").trim();
   const invoiceDateRaw = isEstimate
-    ? overrides.invoiceDate || j.estimateDate || j.status?.Estimate?.d || todayStr()
-    : overrides.invoiceDate || j.invoiceDate || j.status?.Invoiced?.d || j.status?.Invoice?.d || todayStr();
+    ? overrides.invoiceDate || existingEstDate || (!hasEstNo ? todayStr() : existingEstDate || todayStr())
+    : overrides.invoiceDate || existingInvDate || (!hasInvNo ? todayStr() : existingInvDate || todayStr());
   const dueDateRaw = isEstimate ? "" : overrides.dueDate || j.dueDate || addDays(invoiceDateRaw, 1);
 
   const billName = (j.customer || j.businessName || j.personName || "").trim();

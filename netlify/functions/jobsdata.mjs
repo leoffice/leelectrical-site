@@ -32,6 +32,13 @@ const SLIM_KEYS = [
   "paid",
   "invoiceNo",
   "estimateNo",
+  // Dates stay on list — cheap strings; without them Job Info + PDF fall back
+  // to "today" for old invoices (EZZ #231409 / 2023-11-27). Levi 2026-08-04.
+  "invoiceDate",
+  "estimateDate",
+  "dueDate",
+  "txnDate",
+  "invoiceEmailedAt",
   "status",
   "followUp",
   "calEventId",

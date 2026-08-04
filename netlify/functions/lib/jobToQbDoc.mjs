@@ -192,13 +192,24 @@ export function mapJobToQbDocData(job, kind = "invoice") {
   const paid = isInvoice ? amountPaid(job) : 0;
   const balanceDue = isInvoice ? openBalance(job) : total;
 
-  const invoiceDateRaw =
+  // Existing docs keep stored date; only brand-new docs use today.
+  const histDate = Array.isArray(job.invoiceHistory)
+    ? String(job.invoiceHistory.find((h) => h && h.date)?.date || "").trim()
+    : "";
+  const existingDate =
     job.invoiceDate ||
     job.estimateDate ||
     job.status?.Invoiced?.d ||
     job.status?.Invoice?.d ||
     job.status?.Estimate?.d ||
-    todayStr();
+    job.txnDate ||
+    histDate ||
+    job.invoiceEmailedAt ||
+    "";
+  const hasDocNo = !!String(
+    isInvoice ? job.invoiceNo : job.estimateNo || job.invoiceNo
+  ).trim();
+  const invoiceDateRaw = existingDate || (!hasDocNo ? todayStr() : existingDate || todayStr());
   const dueDateRaw = job.dueDate || (isInvoice ? addDays(invoiceDateRaw, 1) : "");
 
   const billName = (job.customer || job.businessName || job.personName || "").trim();

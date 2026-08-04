@@ -288,12 +288,18 @@ export function addressJobToneClass(tone) {
 }
 
 export function jobInvoiceDateDisplay(job) {
+  const histDate = Array.isArray(job?.invoiceHistory)
+    ? String(job.invoiceHistory.find((h) => h && h.date)?.date || "").trim()
+    : "";
   const raw =
     job?.invoiceDate ||
     job?.estimateDate ||
     job?.status?.Invoiced?.d ||
     job?.status?.Invoice?.d ||
     job?.status?.Estimate?.d ||
+    job?.txnDate ||
+    histDate ||
+    job?.invoiceEmailedAt ||
     "";
   return raw ? fmtInvoiceDate(raw) : "";
 }

@@ -44,6 +44,29 @@ describe("invoicePdf field mapping", () => {
     expect(d.serviceAddress).toBe("");
   });
 
+  it("existing invoice keeps stored date (never invents today)", () => {
+    const d = mapJobToInvoicePdfData({
+      ...job,
+      invoiceNo: "231409",
+      invoiceDate: "2023-11-27",
+      paid: false,
+      openBalance: 2200,
+    });
+    expect(d.invoiceDate).toBe("11/27/2023");
+  });
+
+  it("existing invoice uses status.Invoiced.d when invoiceDate missing", () => {
+    const d = mapJobToInvoicePdfData({
+      ...job,
+      invoiceNo: "231409",
+      invoiceDate: "",
+      status: { Invoiced: { s: "done", d: "2023-11-27" } },
+      paid: false,
+      openBalance: 2200,
+    });
+    expect(d.invoiceDate).toBe("11/27/2023");
+  });
+
   it("shows service address when different from bill-to", () => {
     const d = mapJobToInvoicePdfData({
       ...job,

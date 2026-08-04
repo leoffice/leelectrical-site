@@ -166,14 +166,19 @@ export default function JobDetail() {
   } = useStore();
   const tenantConfig = useTenantConfig();
   const job = effectiveJob(id);
-  // List is a slim projection — hydrate full invoice/estimate lines on open
+  // List is a slim projection — hydrate full lines + dates/addresses on open.
+  // Dates must fill in or Job Info / PDF use "today" for old invoices.
   const hydratedJobRef = useRef(new Set());
   useEffect(() => {
     if (!id || !api?.getJob || hydratedJobRef.current.has(id)) return undefined;
-    const needsLines =
+    const missingDate =
+      !!String(job?.invoiceNo || "").trim() &&
+      !String(job?.invoiceDate || job?.status?.Invoiced?.d || job?.status?.Invoice?.d || "").trim();
+    const needsHydrate =
       job?._listProjection ||
+      missingDate ||
       (!Array.isArray(job?.invoiceLines) && !Array.isArray(job?.estimateLines));
-    if (!needsLines) {
+    if (!needsHydrate) {
       hydratedJobRef.current.add(id);
       return undefined;
     }
@@ -185,14 +190,51 @@ export default function JobDetail() {
         hydratedJobRef.current.add(id);
         const patch = {};
         if (Array.isArray(full.invoiceLines) && full.invoiceLines.length) {
-          patch.invoiceLines = full.invoiceLines;
+          if (!Array.isArray(job?.invoiceLines) || !job.invoiceLines.length) {
+            patch.invoiceLines = full.invoiceLines;
+          }
         }
         if (Array.isArray(full.estimateLines) && full.estimateLines.length) {
-          patch.estimateLines = full.estimateLines;
+          if (!Array.isArray(job?.estimateLines) || !job.estimateLines.length) {
+            patch.estimateLines = full.estimateLines;
+          }
         }
         if (Array.isArray(full.payments) && full.payments.length) {
-          patch.payments = full.payments;
+          if (!Array.isArray(job?.payments) || !job.payments.length) {
+            patch.payments = full.payments;
+          }
         }
+        // Fill missing scalar fields only — never clobber local unsaved edits.
+        for (const k of [
+          "invoiceDate",
+          "estimateDate",
+          "dueDate",
+          "txnDate",
+          "serviceDate",
+          "billingAddress",
+          "serviceAddress",
+          "invoiceEmailedAt",
+          "invoiceEmailStatus",
+        ]) {
+          const fv = full[k];
+          const cur = job?.[k];
+          if (fv != null && fv !== "" && (cur == null || cur === "")) patch[k] = fv;
+        }
+        // Restore stage dates (Invoiced.d etc.) when list projection stripped them.
+        if (full.status && typeof full.status === "object") {
+          const st = { ...(job?.status || {}) };
+          let statusChanged = false;
+          for (const [phase, val] of Object.entries(full.status)) {
+            if (!val || typeof val !== "object") continue;
+            const cur = st[phase] && typeof st[phase] === "object" ? st[phase] : {};
+            if (val.d && !cur.d) {
+              st[phase] = { ...cur, s: cur.s || val.s || "", d: val.d };
+              statusChanged = true;
+            }
+          }
+          if (statusChanged) patch.status = st;
+        }
+        if (job?._listProjection) patch._listProjection = false;
         if (Object.keys(patch).length) patchJob(id, patch);
       } catch {
         /* keep slim */
@@ -201,7 +243,7 @@ export default function JobDetail() {
     return () => {
       alive = false;
     };
-  }, [id, job?._listProjection, job?.invoiceLines, job?.estimateLines, api, patchJob]);
+  }, [id, job?._listProjection, job?.invoiceLines, job?.estimateLines, job?.invoiceDate, job?.invoiceNo, api, patchJob]);
   const doSend = useDoSend();
   const [workCompleteSendBusy, setWorkCompleteSendBusy] = useState(false);
   const [workCompleteSendErr, setWorkCompleteSendErr] = useState("");

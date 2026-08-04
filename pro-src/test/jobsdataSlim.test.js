@@ -15,6 +15,10 @@ describe("jobsdata slim projection", () => {
       address: "1 Main",
       serviceAddress: "1 Main",
       billingAddress: "PO Box",
+      invoiceNo: "231409",
+      invoiceDate: "2023-11-27",
+      estimateDate: "2023-11-01",
+      dueDate: "2023-11-28",
       invoiceLines: [{ itemName: "X", amount: 50 }, { itemName: "Y", amount: 50 }],
       estimateLines: [{ itemName: "E", amount: 10 }],
       payments: Array.from({ length: 20 }, (_, i) => ({ id: "p" + i, amount: 1 })),
@@ -29,6 +33,10 @@ describe("jobsdata slim projection", () => {
     const s = slimJob(fat);
     expect(s.id).toBe("qbo-1");
     expect(s.customer).toBe("Test");
+    // Dates stay on list so Job Info / aging / PDF never invent "today"
+    expect(s.invoiceDate).toBe("2023-11-27");
+    expect(s.estimateDate).toBe("2023-11-01");
+    expect(s.dueDate).toBe("2023-11-28");
     expect(s.invoiceLines).toBeUndefined();
     expect(s.estimateLines).toBeUndefined();
     expect(s.payments).toBeUndefined();

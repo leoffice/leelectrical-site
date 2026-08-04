@@ -1,14 +1,31 @@
 // Allocate the next invoice / estimate number from the board (local-first).
 // Used when Save is pressed with an empty Inv # / Est # field so the job
 // leaves "draft" and shows a real number immediately.
+//
+// Levi 2026-08-04: NEW LE Pro invoices use LE-2700, LE-2701, … so staff can
+// tell LE-created docs from older QBO-only numbers (231xxx / 251xxx). Existing
+// numbers are never rewritten.
 
 const COUNTER_KEY = "le-pro-doc-no-counter";
 
-/** Leading numeric core of a doc number (251841, 251100-CO-01 → 251100). */
+/** New LE Pro invoice series — LE-2700, LE-2701, … (Levi 2026-08-04). */
+export const LE_INVOICE_PREFIX = "LE-";
+export const LE_INVOICE_START = 2700;
+
+/** Leading numeric core of a doc number.
+ *  251841, 251100-CO-01 → 251100; LE-2700, LE-2701-CO-01 → 2700. */
 export function numericDocCore(raw) {
   const s = String(raw || "").trim();
+  if (!s) return 0;
+  const le = s.match(/^LE-(\d+)/i);
+  if (le) return parseInt(le[1], 10);
   const m = s.match(/^(\d+)/);
   return m ? parseInt(m[1], 10) : 0;
+}
+
+/** True when this is an LE-prefixed LE Pro invoice number. */
+export function isLeInvoiceNo(raw) {
+  return /^LE-\d+/i.test(String(raw || "").trim());
 }
 
 function counterFloor(kind) {
@@ -37,25 +54,42 @@ function bumpCounter(kind, value) {
 /**
  * Highest known number on the board + local counter floor.
  * Estimates and invoices use separate sequences.
+ * For invoices: only LE-#### numbers count toward the new series max
+ * (legacy 251xxx must not push past LE-2700).
  */
 export function maxDocNumberOnBoard(jobs, kind) {
   const key = kind === "estimate" ? "estimateNo" : "invoiceNo";
   let max = 0;
   for (const j of jobs || []) {
-    const n = numericDocCore(j?.[key]);
-    if (n > max) max = n;
+    const raw = String(j?.[key] || "").trim();
+    if (kind === "invoice") {
+      // New series: only LE-#### (ignore pure legacy QBO numbers for next-LE).
+      if (!isLeInvoiceNo(raw)) continue;
+      const n = numericDocCore(raw);
+      if (n > max) max = n;
+    } else {
+      const n = numericDocCore(raw);
+      if (n > max) max = n;
+    }
   }
   const floor = counterFloor(kind);
+  if (kind === "invoice") {
+    // Counter only applies if already in LE series range (avoid 251902 floor).
+    const leFloor = floor >= LE_INVOICE_START ? floor : 0;
+    return Math.max(max, leFloor, LE_INVOICE_START - 1);
+  }
   return Math.max(max, floor);
 }
 
 /**
  * Next free doc number as a string. Bumps the local counter so back-to-back
  * creates on a partial job list don't reissue the same number.
+ * Invoices → LE-2700, LE-2701, … Estimates stay plain numeric.
  */
 export function nextDocNumberFromJobs(jobs, kind = "invoice") {
   const next = maxDocNumberOnBoard(jobs, kind) + 1;
   bumpCounter(kind, next);
+  if (kind === "invoice") return `${LE_INVOICE_PREFIX}${next}`;
   return String(next);
 }
 

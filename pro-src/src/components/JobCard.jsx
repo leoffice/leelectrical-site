@@ -2,6 +2,7 @@ import React from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { isPaid, nextAction, progressPct, stageOf } from "../lib/stages.js";
 import { agingStripeColor, invoiceAgeDays, openBalance } from "../lib/customers.js";
+import { jobInvoiceDateDisplay } from "../lib/customerDocLists.js";
 import { fmt$ } from "../lib/format.js";
 import AmountDisplay from "./AmountDisplay.jsx";
 
@@ -66,8 +67,11 @@ export function GroupJobRow({ job, openInvoiceOnly = false, to }) {
       : job.estimateNo
         ? `Est #${job.estimateNo}`
         : "";
+  // Show invoice date on glance rows when known (not "today" for old invoices).
+  const invDate = jobInvoiceDateDisplay(job);
   const sub = openInvoiceOnly
     ? [
+        invDate || null,
         job.title && job.title !== invLabel ? job.title : null,
         `${fmt$(due)} due`,
         age >= 30 ? `${age}d` : null,
@@ -75,6 +79,7 @@ export function GroupJobRow({ job, openInvoiceOnly = false, to }) {
         .filter(Boolean)
         .join(" · ")
     : [
+        invDate || null,
         isOpenInv ? `${fmt$(due)} due` : null,
         isOpenInv && age >= 30 ? `${age}d` : cur,
         docBit,
