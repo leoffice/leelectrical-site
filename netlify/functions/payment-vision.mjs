@@ -30,7 +30,14 @@ export default async (req) => {
   const image = String(body.image || "").trim();
   const mime = String(body.mime || "image/jpeg").trim();
   const rawKind = String(body.kind || "zelle").trim().toLowerCase();
-  const kind = rawKind === "check" ? "check" : rawKind === "intent" ? "intent" : "zelle";
+  const kind =
+    rawKind === "check"
+      ? "check"
+      : rawKind === "intent"
+        ? "intent"
+        : rawKind === "card"
+          ? "card"
+          : "zelle";
   // Levi's field corrections from prior photos — few-shot training for the reader.
   const learningHint = String(body.learningHint || "").slice(0, 4000);
   if (!image) return json({ ok: false, error: "image required" }, 400);

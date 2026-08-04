@@ -31,12 +31,16 @@ import { canGenerateLocalDoc, docPdfFilename } from "../lib/jobToQbDoc.js";
 import { buildInvoicePdfFromJob, buildEstimatePdfFromJob } from "../lib/invoicePdf.js";
 import LocalDocViewer from "./LocalDocViewer.jsx";
 import {
-  ACH_AUTH_LETTER,
   chargeAchInApp,
   chargeCardInApp,
   fetchSolaIfieldsConfig,
   validateAchBankFields,
 } from "../lib/solaCharge.js";
+import {
+  buildAchAuthLetter,
+  validateAchAuthorization,
+} from "../lib/achAuth.js";
+import { tenantCompany, tenantShortName } from "../lib/tenantBranding.js";
 import SolaCardForm, { tokenizeSolaCard } from "./SolaCardForm.jsx";
 import { fmtMoneyPrecise, totalWithFee } from "../lib/payFees.js";
 import { patchFromQboPaymentFetch } from "../lib/qboPayments.js";
@@ -422,7 +426,10 @@ export function MarkPaidSheet({
     appendPaymentVisionFeedback,
     getPaymentVisionLearning,
   } = useStore();
-  const product = productName(useTenantConfig());
+  const tenantCfg = useTenantConfig();
+  const product = productName(tenantCfg);
+  const companyLegal =
+    tenantCompany(tenantCfg).name || tenantShortName(tenantCfg) || "BLZ Electric Inc.";
   const needsPick = !jobProp;
   const [reassign, setReassign] = useState(false);
   const [activeJob, setActiveJob] = useState(jobProp || null);
@@ -462,8 +469,8 @@ export function MarkPaidSheet({
   const [achEnabled, setAchEnabled] = useState(false);
   /** "record" = books only; "process" = debit bank / deposit via Sola. */
   const [payIntent, setPayIntent] = useState("record");
-  /** Staff attests customer authorized this debit (letter / email / recorded consent). */
-  const [achAuthorized, setAchAuthorized] = useState(false);
+  /** Staff must confirm customer authorized the ACH debit (NACHA-style). */
+  const [achAuthChecked, setAchAuthChecked] = useState(false);
   const [processConfirm, setProcessConfirm] = useState(false);
   const [proofFile, setProofFile] = useState(null);
   const [proofB64, setProofB64] = useState("");
@@ -532,6 +539,8 @@ export function MarkPaidSheet({
     let cancelled = false;
     fetchSolaIfieldsConfig()
       .then((cfg) => {
+        // Staff Process uses achEnabled. Customer pay page uses achCustomerEnabled
+        // (separate flag — stays off until Levi opens that lane).
         if (!cancelled) setAchEnabled(Boolean(cfg.achEnabled));
       })
       .catch(() => {
@@ -541,8 +550,26 @@ export function MarkPaidSheet({
       cancelled = true;
     };
   }, []);
+
+  // Leaving Process intent clears the auth box so staff re-confirm each time.
+  useEffect(() => {
+    if (!isProcessIntent) setAchAuthChecked(false);
+  }, [isProcessIntent]);
+
   const inv = job?.invoiceNo || "";
   const payAmt = parseFloat(String(amt).replace(/[$,]/g, "")) || 0;
+  const achAuthLetter = useMemo(
+    () =>
+      buildAchAuthLetter({
+        companyName: companyLegal,
+        customerName: achName || job?.customer || "",
+        amountLabel: payAmt > 0 ? fmt$(payAmt) : "",
+        invoiceNo: inv,
+        accountLast4: String(achAccount || "").replace(/\D/g, "").slice(-4),
+        dateLabel: dt || todayStr(),
+      }),
+    [companyLegal, achName, job?.customer, payAmt, inv, achAccount, dt]
+  );
   const chargeTotal = isCard ? totalWithFee(payAmt, includeFee) : payAmt;
   const hasProof = isCheck || isZelle || isAch;
   const proofKind = isCheck ? "check" : isAch ? "ach" : "zelle";
@@ -1116,10 +1143,6 @@ export function MarkPaidSheet({
       showToast("ACH processing is not turned on yet — use Record only, or enable SOLA_ACH on the host");
       return;
     }
-    if (!achAuthorized) {
-      showToast("Check the customer authorization box first (auth letter / consent on file)");
-      return;
-    }
     const bank = validateAchBankFields({
       routing: achRouting,
       account: achAccount,
@@ -1127,6 +1150,14 @@ export function MarkPaidSheet({
     });
     if (!bank.ok) {
       showToast(bank.error);
+      return;
+    }
+    const auth = validateAchAuthorization({
+      authorized: achAuthChecked,
+      letterText: achAuthLetter,
+    });
+    if (!auth.ok) {
+      showToast(auth.error);
       return;
     }
     setProcessConfirm(true);
@@ -1147,9 +1178,10 @@ export function MarkPaidSheet({
         checkNumber: isCheck ? ref : "",
         paymentMethod: isCheck ? "Check" : "ACH",
         imageB64: proofB64 || "",
-        authorized: achAuthorized,
-        authLetter: ACH_AUTH_LETTER.body,
-        achSource: "staff",
+        achAuthorized: achAuthChecked,
+        achAuthLetter,
+        achAuthorizedAt: new Date().toISOString(),
+        source: "staff",
       });
       try {
         await refreshJobs?.(true);
@@ -1487,26 +1519,35 @@ export function MarkPaidSheet({
                 <input className="input" type="date" value={dt} onChange={(e) => setDt(e.target.value)} disabled={processing} />
               </Fld>
               <div
-                className="mb-3 rounded-xl border border-slate-200 bg-white px-3 py-2.5"
-                data-testid="ach-auth-letter"
+                className="mb-3 rounded-xl border border-emerald-200 bg-emerald-50/60 px-3 py-2.5"
+                data-testid="ach-auth-block"
               >
-                <p className="text-[11px] font-bold text-slate-800 mb-1">{ACH_AUTH_LETTER.title}</p>
-                <p className="text-[11px] text-slate-600 leading-relaxed mb-2">{ACH_AUTH_LETTER.body}</p>
-                <label className="flex items-start gap-2 cursor-pointer">
+                <p className="text-[11px] font-bold text-emerald-900 uppercase tracking-wide mb-1.5">
+                  Customer ACH authorization
+                </p>
+                <p className="text-[11px] text-slate-700 leading-relaxed mb-2" data-testid="ach-auth-letter">
+                  {achAuthLetter}
+                </p>
+                <p className="text-[10px] text-slate-500 mb-2">
+                  Staff Process path — attach a signed letter or voided check photo when you have it. Customers can also ACH from the email View & Pay link.
+                </p>
+                <label className="flex items-start gap-2 cursor-pointer select-none">
                   <input
                     type="checkbox"
-                    className="mt-0.5"
-                    checked={achAuthorized}
+                    className="mt-0.5 shrink-0"
+                    checked={achAuthChecked}
+                    onChange={(e) => setAchAuthChecked(e.target.checked)}
                     disabled={processing}
-                    onChange={(e) => setAchAuthorized(e.target.checked)}
                     data-testid="ach-auth-checkbox"
                   />
-                  <span className="text-[11px] text-slate-700 leading-snug">{ACH_AUTH_LETTER.checkboxLabel}</span>
+                  <span className="text-[12px] text-slate-800 font-medium leading-snug">
+                    I confirm the customer authorized this bank debit (phone, email, or signed letter)
+                  </span>
                 </label>
               </div>
               {!achEnabled ? (
                 <p className="text-[11px] text-amber-800 bg-amber-50 border border-amber-200 rounded-xl px-3 py-2 mb-2">
-                  ACH process is ready in the app (staff LE Pro only) — host still needs ACH turned on before Process works. Customer pay-page ACH stays off until staff tests pass.
+                  ACH process is ready in the app — host still needs ACH turned on before the Process button works.
                 </p>
               ) : null}
             </>
@@ -1765,21 +1806,30 @@ export function MarkPaidSheet({
                 />
               </Fld>
               <div
-                className="mb-3 rounded-xl border border-slate-200 bg-white px-3 py-2.5"
-                data-testid="check-auth-letter"
+                className="mb-3 rounded-xl border border-emerald-200 bg-emerald-50/60 px-3 py-2.5"
+                data-testid="check-auth-block"
               >
-                <p className="text-[11px] font-bold text-slate-800 mb-1">{ACH_AUTH_LETTER.title}</p>
-                <p className="text-[11px] text-slate-600 leading-relaxed mb-2">{ACH_AUTH_LETTER.body}</p>
-                <label className="flex items-start gap-2 cursor-pointer">
+                <p className="text-[11px] font-bold text-emerald-900 uppercase tracking-wide mb-1.5">
+                  Customer ACH authorization
+                </p>
+                <p className="text-[11px] text-slate-700 leading-relaxed mb-2" data-testid="check-auth-letter">
+                  {achAuthLetter}
+                </p>
+                <p className="text-[10px] text-slate-500 mb-2">
+                  Staff Process — attach the check photo above when you have it. Customers can also ACH from View & Pay.
+                </p>
+                <label className="flex items-start gap-2 cursor-pointer select-none">
                   <input
                     type="checkbox"
-                    className="mt-0.5"
-                    checked={achAuthorized}
+                    className="mt-0.5 shrink-0"
+                    checked={achAuthChecked}
+                    onChange={(e) => setAchAuthChecked(e.target.checked)}
                     disabled={processing}
-                    onChange={(e) => setAchAuthorized(e.target.checked)}
                     data-testid="check-auth-checkbox"
                   />
-                  <span className="text-[11px] text-slate-700 leading-snug">{ACH_AUTH_LETTER.checkboxLabel}</span>
+                  <span className="text-[12px] text-slate-800 font-medium leading-snug">
+                    I confirm the customer authorized this bank debit (signed check or written OK)
+                  </span>
                 </label>
               </div>
             </>
@@ -1869,7 +1919,7 @@ export function MarkPaidSheet({
         <button
           className="btn bg-emerald-500 text-white w-full"
           onClick={requestProcessBank}
-          disabled={alreadyPaid || processing || !job || !inv}
+          disabled={alreadyPaid || processing || !job || !inv || !achAuthChecked}
           data-testid={isAch ? "process-ach-payment" : "process-check-payment"}
         >
           {payPhase === "charging"
@@ -1923,15 +1973,16 @@ export function MarkPaidSheet({
           <b>…{String(achAccount || "").slice(-4)}</b> will be debited.
         </p>
         <p className="text-[11px] text-slate-600 bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 mb-3 leading-relaxed">
-          {ACH_AUTH_LETTER.body}
+          {achAuthLetter}
         </p>
         <p className="text-[11px] text-slate-500 mb-4">
-          You attested customer authorization is on file. You will get a confirmation after the gateway accepts it. This is not “record only.”
+          Staff-only path. You already confirmed customer authorization. This is not “record only.”
         </p>
         <button
           type="button"
           className="btn bg-emerald-500 text-white w-full"
           data-testid="process-payment-confirm-btn"
+          disabled={!achAuthChecked}
           onClick={() => void processBankPayment()}
         >
           Yes — process payment

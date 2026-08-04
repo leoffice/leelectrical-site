@@ -99,10 +99,28 @@ Extract visible clues and return ONLY valid JSON (no markdown):
 }
 If a field is missing use null or []. invoiceNumbers and addresses are critical for job lookup.`;
 
+export const CARD_VISION_PROMPT = `You are reading a photo of a payment card (credit or debit) for LE Electrical pay-page assist.
+Extract ONLY what is clearly printed on the card and return ONLY valid JSON (no markdown):
+{
+  "cardNumber": <digits only, full PAN if fully readable — no spaces>,
+  "last4": <last 4 digits of the card, always when any PAN digits are readable>,
+  "exp": <expiration as MM/YY>,
+  "name": <cardholder name as printed, or null>,
+  "brand": <"visa"|"mastercard"|"amex"|"discover"|"other"|null>,
+  "confidence": <"high" or "low">
+}
+Rules:
+- Never invent a card number. If partial/blurry, set cardNumber null and still return last4 if visible.
+- CVV/CID on the back is NEVER required and must always be null/omitted — do not read or return CVV.
+- Prefer the embossed/printed PAN on the front. Ignore holograms and network logos for digits.
+- exp: convert 08/27 or 08/2027 → 08/27.
+If a field is missing or unreadable use null.`;
+
 const PROMPTS = {
   zelle: ZELLE_VISION_PROMPT,
   check: CHECK_VISION_PROMPT,
   intent: IMAGE_INTENT_PROMPT,
+  card: CARD_VISION_PROMPT,
 };
 
 /** Parse amount from vision (handles $ , *** fillers, 450.00/100). Shared with client parse spirit. */
@@ -195,6 +213,43 @@ export function normalizePaymentExtracted(raw, kind = "zelle") {
     name: payer || payee || "",
     confidence: conf,
     kind,
+  };
+}
+
+/** Normalize card-photo vision output (pay-page assist only). */
+export function normalizeCardExtracted(raw) {
+  if (!raw || typeof raw !== "object") return null;
+  const pan = String(raw.cardNumber || raw.pan || raw.number || "")
+    .replace(/\D/g, "")
+    .trim();
+  let last4 = String(raw.last4 || raw.cardLast4 || "").replace(/\D/g, "").trim();
+  if (!last4 && pan.length >= 4) last4 = pan.slice(-4);
+  if (last4.length !== 4) last4 = "";
+  let exp = String(raw.exp || raw.expiry || raw.expiration || "").trim();
+  const em = exp.match(/^(\d{1,2})\s*[\/\-]?\s*(\d{2,4})$/);
+  if (em) {
+    const mm = em[1].padStart(2, "0").slice(-2);
+    let yy = em[2];
+    if (yy.length === 4) yy = yy.slice(2);
+    exp = `${mm}/${yy}`;
+  } else if (/^\d{4}$/.test(exp.replace(/\D/g, ""))) {
+    const d = exp.replace(/\D/g, "");
+    exp = `${d.slice(0, 2)}/${d.slice(2)}`;
+  } else {
+    exp = "";
+  }
+  const name = String(raw.name || raw.cardholder || raw.cardholderName || "").trim();
+  let brand = String(raw.brand || raw.network || "").trim().toLowerCase();
+  if (!["visa", "mastercard", "amex", "discover", "other"].includes(brand)) brand = "";
+  const conf = String(raw.confidence || "").toLowerCase() === "low" ? "low" : "high";
+  return {
+    cardNumber: pan.length >= 12 ? pan : "",
+    last4,
+    exp,
+    name,
+    brand: brand || null,
+    confidence: conf,
+    kind: "card",
   };
 }
 
@@ -311,7 +366,7 @@ async function callVision({ imageBase64, mime, prompt, model, apiKey }) {
 
 /**
  * Call xAI vision API. Returns normalized extracted fields or throws.
- * kind: "zelle" | "check" | "intent"
+ * kind: "zelle" | "check" | "intent" | "card"
  * learningHint: optional few-shot text from Levi's field corrections (trains the reader).
  */
 export async function extractPaymentFromImage({
@@ -325,13 +380,25 @@ export async function extractPaymentFromImage({
     return { dryRun: true, extracted: null, error: "XAI_API_KEY not set" };
   }
   const model = process.env.XAI_VISION_MODEL || "grok-4.5";
-  const k = kind === "check" ? "check" : kind === "intent" ? "intent" : "zelle";
+  const k =
+    kind === "check"
+      ? "check"
+      : kind === "intent"
+        ? "intent"
+        : kind === "card"
+          ? "card"
+          : "zelle";
   const hint = String(learningHint || "").trim();
-  const prompt = hint ? `${PROMPTS[k]}\n\n${hint}` : PROMPTS[k];
+  // Card assist never mixes Levi training hints (avoid leaking PANs into prompts).
+  const prompt = k === "card" ? PROMPTS.card : hint ? `${PROMPTS[k]}\n\n${hint}` : PROMPTS[k];
   const text = await callVision({ imageBase64, mime, prompt, model, apiKey });
   const parsed = parseVisionJson(text);
   const extracted =
-    k === "intent" ? normalizeIntentExtracted(parsed) : normalizePaymentExtracted(parsed, k);
+    k === "intent"
+      ? normalizeIntentExtracted(parsed)
+      : k === "card"
+        ? normalizeCardExtracted(parsed)
+        : normalizePaymentExtracted(parsed, k);
   if (!extracted) throw new Error("Could not parse vision response");
   return { dryRun: false, extracted, model, kind: k };
 }

@@ -40,8 +40,24 @@ async function waitForPayLoaded() {
 }
 
 describe("PayLanding view", () => {
-  it("shows invoice details, in-page card form, and Pay button", async () => {
-    vi.stubGlobal("fetch", vi.fn(async () => ({ ok: true })));
+  it("shows invoice details, method tabs, card form, and Pay button", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url) => {
+        if (String(url).includes("sola-ifields-config")) {
+          return {
+            ok: true,
+            json: async () => ({
+              ok: true,
+              ifieldsKey: "test",
+              achEnabled: true,
+              achCustomerEnabled: true,
+            }),
+          };
+        }
+        return { ok: true, json: async () => ({}) };
+      })
+    );
 
     const token = encodePayLanding(
       buildPayLandingPayload({
@@ -70,6 +86,12 @@ describe("PayLanding view", () => {
     expect(screen.getByText("Panel upgrade")).toBeInTheDocument();
     expect(screen.getByTestId("view-invoice")).toHaveTextContent("View invoice");
     expect(screen.getByText("Rae Klein")).toBeInTheDocument();
+    expect(screen.getByTestId("pay-method-tabs")).toBeInTheDocument();
+    // Customer ACH on → default ACH tab (no card fee until Card is selected)
+    await waitFor(() => expect(screen.getByTestId("pay-by-ach")).toBeInTheDocument());
+    expect(screen.getByText(/Please review and confirm the checking account/i)).toBeInTheDocument();
+    // Switch to card → fee + form
+    await userEvent.setup().click(screen.getByTestId("pay-method-card"));
     expect(screen.getByTestId("sola-card-form")).toBeInTheDocument();
     expect(screen.getByText("Pay by card")).toBeInTheDocument();
     const cta = await waitFor(() => {
@@ -139,8 +161,9 @@ describe("PayLanding view", () => {
     await waitForPayLoaded();
     const paidBtn = screen.getByRole("button", { name: /Paid to date.*31,000/ });
     await user.click(paidBtn);
-    expect(screen.getByText(/Check/)).toBeInTheDocument();
-    expect(screen.getByText(/Wire/)).toBeInTheDocument();
+    // Payment history lines (not the method tab labeled "Check")
+    expect(screen.getByText(/Check · 2026-01-10/)).toBeInTheDocument();
+    expect(screen.getByText(/Wire · 2026-02-01/)).toBeInTheDocument();
   });
 
   it("lets the customer edit paying-today amount", async () => {
@@ -163,12 +186,52 @@ describe("PayLanding view", () => {
     );
     renderPay(token);
     await waitForPayLoaded();
+    // ACH off → card tab is default (with 3.5% fee)
     await user.click(screen.getByTestId("edit-amount"));
     const input = screen.getByLabelText("Payment amount");
     await user.clear(input);
     await user.type(input, "250");
     await user.click(screen.getByText("Done"));
     expect(screen.getByTestId("pay-cta")).toHaveTextContent("Pay $258.75");
+  });
+
+  it("Check tab has no processing fee on total charge", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url) => {
+        if (String(url).includes("sola-ifields-config")) {
+          return {
+            ok: true,
+            json: async () => ({ ok: true, achCustomerEnabled: true, achEnabled: true }),
+          };
+        }
+        return { ok: true, json: async () => ({}) };
+      })
+    );
+    const user = userEvent.setup();
+    const token = encodePayLanding(
+      buildPayLandingPayload({
+        job: {
+          customer: "Ann",
+          amount: "$500",
+          invoiceNo: "9",
+          billingAddress: "1 St, Brooklyn, NY 11201",
+          serviceAddress: "1 St, Brooklyn, NY 11201",
+        },
+        cardknoxUrl: "https://secure.cardknox.com/blzelectric?xAmount=500&xinvoice=9",
+        linkAmount: "500",
+        inv: "9",
+        siteSlug: "blzelectric",
+      })
+    );
+    renderPay(token);
+    await waitForPayLoaded();
+    await waitFor(() => expect(screen.getByTestId("pay-method-check")).toBeInTheDocument());
+    await user.click(screen.getByTestId("pay-method-check"));
+    expect(screen.getByTestId("pay-by-check")).toBeInTheDocument();
+    // Fee row is card-only; helper copy may still mention 3.5%
+    expect(screen.queryByText("Processing fee (3.5%)")).not.toBeInTheDocument();
+    expect(screen.getByText("Total charge").parentElement).toHaveTextContent("$500");
   });
 
   it("shows invalid state for bad token", async () => {

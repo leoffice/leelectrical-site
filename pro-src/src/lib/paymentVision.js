@@ -138,15 +138,22 @@ export async function compressImageForVision(file, maxEdge = 1600, quality = 0.8
  * Analyze a payment screenshot via backend vision.
  * @param {string} imageBase64 — raw base64, no data: prefix
  * @param {string} mime — e.g. image/png
- * @param {"zelle"|"check"|"intent"} kind
+ * @param {"zelle"|"check"|"intent"|"card"} kind
  * @param {{ learningEntries?: object[] }} [opts] — Levi corrections for few-shot training
  */
 export async function analyzePaymentScreenshot(imageBase64, mime = "image/jpeg", kind = "zelle", opts = {}) {
-  const k = kind === "check" ? "check" : kind === "intent" ? "intent" : "zelle";
+  const k =
+    kind === "check"
+      ? "check"
+      : kind === "intent"
+        ? "intent"
+        : kind === "card"
+          ? "card"
+          : "zelle";
   const learningEntries = Array.isArray(opts.learningEntries) ? opts.learningEntries : [];
   const skipLearning = opts.skipLearning === true;
   const learningHint =
-    k === "intent" || skipLearning
+    k === "intent" || k === "card" || skipLearning
       ? ""
       : formatLearningForPrompt(learningEntries, k === "zelle" ? "zelle" : "check");
   const image = normalizeImageBase64(imageBase64);
@@ -195,6 +202,11 @@ export async function analyzeZelleScreenshot(imageBase64, mime = "image/jpeg", o
 /** General image intent — invoice #, address, document type (shared Telegram + bubble). */
 export async function analyzeImageIntent(imageBase64, mime = "image/jpeg") {
   return analyzePaymentScreenshot(imageBase64, mime, "intent");
+}
+
+/** Credit-card photo assist (last4 / exp / name — no CVV). */
+export async function analyzeCardPhoto(imageBase64, mime = "image/jpeg") {
+  return analyzePaymentScreenshot(imageBase64, mime, "card", { skipLearning: true });
 }
 
 /** Guess payment kind from vision output or filename hint. */

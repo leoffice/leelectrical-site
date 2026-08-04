@@ -204,16 +204,25 @@ async function patchJobPayment(jobId, amount, ref, method) {
     source: "sola",
   };
   const list = [...existing, entry];
-  const owed = owedAtStart(merged, list);
+  // Baseline uses payments BEFORE the new entry (avoid open + all-pays double-count).
+  const owed = owedAtStart(merged, existing);
   const paidSum = list.reduce((s, p) => s + parseMoney(p.amount), 0);
-  const remaining = Math.max(0, owed - paidSum);
+  let baseline =
+    prev.paymentBaseline != null && prev.paymentBaseline !== ""
+      ? parseMoney(prev.paymentBaseline)
+      : owed;
+  const invAmt = parseMoney(merged.amount);
+  if (invAmt > 0 && baseline > invAmt * 1.5 && paidSum <= invAmt + 0.01) {
+    baseline = invAmt;
+  }
+  const remaining = Math.max(0, baseline - paidSum);
   const fullPay = remaining <= 0.01;
   const latest = list.slice().sort((a, b) => String(a.date || "").localeCompare(String(b.date || ""))).pop();
 
   ov[jobId] = {
     ...prev,
     payments: list,
-    paymentBaseline: prev.paymentBaseline != null ? prev.paymentBaseline : owed,
+    paymentBaseline: baseline,
     openBalance: fullPay ? 0 : remaining,
     paid: fullPay,
     payment: latest || null,

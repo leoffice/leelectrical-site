@@ -4,12 +4,29 @@ import {
   isValidAbaRouting,
   validateAchBankFields,
 } from "../src/lib/solaCharge.js";
+import { buildAchAuthLetter, validateAchAuthorization } from "../src/lib/achAuth.js";
 
 describe("Sola ACH staff path helpers", () => {
   it("exports authorization letter language for Process UI", () => {
     expect(ACH_AUTH_LETTER.title).toMatch(/authorization/i);
     expect(ACH_AUTH_LETTER.body.length).toBeGreaterThan(40);
     expect(ACH_AUTH_LETTER.checkboxLabel).toMatch(/authoriz/i);
+  });
+
+  it("buildAchAuthLetter fills amount, invoice, last4 for customer confirm", () => {
+    const letter = buildAchAuthLetter({
+      companyName: "BLZ Electric Inc.",
+      customerName: "Jane Doe",
+      amountLabel: "$100.00",
+      invoiceNo: "251844",
+      accountLast4: "8654",
+    });
+    expect(letter).toMatch(/Jane Doe/);
+    expect(letter).toMatch(/\$100\.00/);
+    expect(letter).toMatch(/251844/);
+    expect(letter).toMatch(/8654/);
+    expect(validateAchAuthorization({ authorized: true, letterText: letter }).ok).toBe(true);
+    expect(validateAchAuthorization({ authorized: false, letterText: letter }).ok).toBe(false);
   });
 
   it("ABA routing checksum accepts known-good and rejects bad", () => {

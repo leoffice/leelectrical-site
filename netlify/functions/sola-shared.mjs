@@ -168,16 +168,28 @@ export async function patchJobPayment(jobId, amount, ref, method) {
     source: "sola",
   };
   const list = [...existing, entry];
-  const owed = owedAtStart(merged, list);
+  // Baseline must use payments BEFORE the new entry. Including the new payment in
+  // paidSum while openBalance is still pre-payment double-counts (open + all pays).
+  const owed = owedAtStart(merged, existing);
   const paidSum = list.reduce((s, p) => s + parseMoney(p.amount), 0);
-  const remaining = Math.max(0, owed - paidSum);
-  const fullPay = remaining <= 0.01;
   const latest = list.slice().sort((a, b) => String(a.date || "").localeCompare(String(b.date || ""))).pop();
+
+  // If a prior bad baseline was 2× invoice (double-count bug), prefer invoice amount.
+  let baseline =
+    prev.paymentBaseline != null && prev.paymentBaseline !== ""
+      ? parseMoney(prev.paymentBaseline)
+      : owed;
+  const invAmt = parseMoney(merged.amount);
+  if (invAmt > 0 && baseline > invAmt * 1.5 && paidSum <= invAmt + 0.01) {
+    baseline = invAmt;
+  }
+  const remaining = Math.max(0, baseline - paidSum);
+  const fullPay = remaining <= 0.01;
 
   const patch = {
     ...prev,
     payments: list,
-    paymentBaseline: prev.paymentBaseline != null ? prev.paymentBaseline : owed,
+    paymentBaseline: baseline,
     openBalance: fullPay ? 0 : remaining,
     paid: fullPay,
     payment: latest || null,

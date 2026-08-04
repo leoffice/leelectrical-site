@@ -23,12 +23,15 @@ import {
   totalWithFee,
 } from "../lib/payFees.js";
 import {
-  ACH_AUTH_LETTER,
   chargeAchFromLanding,
   chargeCardFromLanding,
   fetchSolaIfieldsConfig,
   validateAchBankFields,
 } from "../lib/solaCharge.js";
+import {
+  buildAchAuthLetter,
+  validateAchAuthorization,
+} from "../lib/achAuth.js";
 import {
   buildDepositInvoicePdfB64,
   buildEstimatePdfBlobFromPayload,
@@ -43,12 +46,18 @@ import { useTenantConfig } from "../state/tenant.jsx";
 import { productName, tenantLocality } from "../lib/tenantBranding.js";
 import { functionsBase } from "../lib/functionsBase.js";
 import {
+  analyzeCardPhoto,
   analyzePaymentScreenshot,
   compressImageForVision,
   fileToBase64,
   normalizeVisionMime,
 } from "../lib/paymentVision.js";
 import { paymentAutofillPatch } from "../lib/paymentAutofill.js";
+import {
+  cardPhotoAutofillPatch,
+  hasUsefulCardAutofill,
+} from "../lib/cardPhotoAutofill.js";
+import CheckPhotoCapture from "../components/CheckPhotoCapture.jsx";
 
 const DEFAULT_LOGO = import.meta.env.BASE_URL + "le-logo.png?v=5";
 
@@ -172,9 +181,9 @@ export default function PayLanding() {
   /** Client-built estimate PDF object URL when docs store has no file yet. */
   const [localEstPdfUrl, setLocalEstPdfUrl] = useState("");
   const localEstPdfUrlRef = useRef("");
-  const [checkOpen, setCheckOpen] = useState(false);
   const [checkFile, setCheckFile] = useState(null);
   const [checkB64, setCheckB64] = useState("");
+  const [checkPreviewUrl, setCheckPreviewUrl] = useState("");
   const [checkNo, setCheckNo] = useState("");
   const [checkBusy, setCheckBusy] = useState(false);
   const [checkErr, setCheckErr] = useState("");
@@ -183,21 +192,29 @@ export default function PayLanding() {
   const [checkRouting, setCheckRouting] = useState("");
   const [checkAccount, setCheckAccount] = useState("");
   const [checkName, setCheckName] = useState("");
-  const [checkIntent, setCheckIntent] = useState("process"); // record | process
   const [checkProcessConfirm, setCheckProcessConfirm] = useState(false);
-  /** Customer View & Pay bank debit — SOLA_ACH_CUSTOMER_ENABLED. */
+  const [achAuthChecked, setAchAuthChecked] = useState(false);
+  /** Customer self-serve ACH only — separate from staff Mark-as-paid (achEnabled). */
   const [achEnabled, setAchEnabled] = useState(false);
-  const [customerAuthOk, setCustomerAuthOk] = useState(false);
-  /** card | bank */
-  const [payTab, setPayTab] = useState("card");
-  const checkInputRef = useRef(null);
+  /** pay method tabs: ach | check | card */
+  const [payMethod, setPayMethod] = useState("card");
+  const [cardPhotoBusy, setCardPhotoBusy] = useState(false);
+  const [cardPhotoDone, setCardPhotoDone] = useState(false);
+  const [cardPhotoHint, setCardPhotoHint] = useState("");
+  const [cardExpPrefill, setCardExpPrefill] = useState("");
+  const cardPhotoRef = useRef(null);
 
   useEffect(() => {
     let cancelled = false;
     fetchSolaIfieldsConfig()
       .then((cfg) => {
-        if (cancelled) return;
-        setAchEnabled(Boolean(cfg.achCustomerEnabled));
+        // Staff can Process when SOLA_ACH_ENABLED is on; customer page needs SOLA_ACH_CUSTOMER_ENABLED.
+        if (!cancelled) {
+          const on = Boolean(cfg.achCustomerEnabled);
+          setAchEnabled(on);
+          // Prefer bank tabs when customer ACH is live; card always available.
+          if (on) setPayMethod((m) => (m === "card" ? "ach" : m));
+        }
       })
       .catch(() => {
         if (!cancelled) setAchEnabled(false);
@@ -207,8 +224,22 @@ export default function PayLanding() {
     };
   }, []);
 
+  useEffect(() => {
+    return () => {
+      if (checkPreviewUrl) {
+        try {
+          URL.revokeObjectURL(checkPreviewUrl);
+        } catch {
+          /* ignore */
+        }
+      }
+    };
+  }, [checkPreviewUrl]);
+
   const isEstimate = isEstimateLanding(data);
-  const includeFee = !isEstimate && feeEnabledInPayload(data);
+  /** Card processing fee only when paying by card (ACH/check never add 3.5%). */
+  const feeOnPayload = !isEstimate && feeEnabledInPayload(data);
+  const includeFee = feeOnPayload && payMethod === "card";
 
   // Public page: renders OUTSIDE TenantProvider (see main.jsx — /pay bypasses
   // LockGate and StoreProvider), so this is the BUILD seed rather than the
@@ -484,14 +515,30 @@ export default function PayLanding() {
     );
   };
 
-  const onCheckFile = async (e) => {
-    const file = e.target.files?.[0];
+  const applyCheckFile = async (file) => {
     if (!file) return;
     setCheckErr("");
     setCheckFile(file);
     setCheckReadDone(false);
     setCheckRouting("");
     setCheckAccount("");
+    setAchAuthChecked(false);
+    if (checkPreviewUrl) {
+      try {
+        URL.revokeObjectURL(checkPreviewUrl);
+      } catch {
+        /* ignore */
+      }
+    }
+    try {
+      if (String(file.type || "").startsWith("image/")) {
+        setCheckPreviewUrl(URL.createObjectURL(file));
+      } else {
+        setCheckPreviewUrl("");
+      }
+    } catch {
+      setCheckPreviewUrl("");
+    }
     try {
       const b64 = await fileToBase64(file);
       setCheckB64(b64);
@@ -525,10 +572,7 @@ export default function PayLanding() {
         if (patch.account) setCheckAccount(patch.account);
         if (patch.name) setCheckName(patch.name);
         else if (data?.c) setCheckName(data.c);
-        setCheckReadDone(Boolean(patch.amt || patch.ref || patch.routing));
-        if (patch.routing && patch.account && achEnabled) {
-          setCheckIntent("process");
-        }
+        setCheckReadDone(Boolean(patch.amt || patch.ref || patch.routing || patch.account));
       } catch {
         // Still allow manual submit without vision.
         setCheckReadDone(false);
@@ -539,6 +583,50 @@ export default function PayLanding() {
       setCheckFile(null);
       setCheckB64("");
       setCheckErr("Could not read that photo — try another.");
+    }
+  };
+
+  const onCardPhoto = async (e) => {
+    const file = e.target.files?.[0];
+    e.target.value = "";
+    if (!file) return;
+    setCardPhotoBusy(true);
+    setCardPhotoDone(false);
+    setCardPhotoHint("");
+    try {
+      let visionB64 = await fileToBase64(file);
+      let visionMime = normalizeVisionMime(file.type || "image/jpeg");
+      if (String(file.type || "").startsWith("image/")) {
+        try {
+          const prepared = await compressImageForVision(file);
+          if (prepared?.b64) {
+            visionB64 = prepared.b64;
+            visionMime = prepared.mime || visionMime;
+          }
+        } catch {
+          /* keep original */
+        }
+      }
+      const extracted = await analyzeCardPhoto(visionB64, visionMime);
+      const patch = cardPhotoAutofillPatch(extracted);
+      if (!hasUsefulCardAutofill(patch)) {
+        setCardPhotoHint("Could not read that card — try a clearer photo, or enter the card below.");
+        return;
+      }
+      if (patch.exp) setCardExpPrefill(patch.exp);
+      const bits = [];
+      if (patch.masked || patch.last4) bits.push(patch.masked || `•••• ${patch.last4}`);
+      if (patch.exp) bits.push(`exp ${patch.exp}`);
+      if (patch.name) bits.push(patch.name);
+      if (patch.brand) bits.push(patch.brand);
+      setCardPhotoHint(
+        `Photo assist: ${bits.join(" · ")}. Enter the full card number and CVV in the secure fields below (we never store the photo digits).`
+      );
+      setCardPhotoDone(true);
+    } catch (err) {
+      setCardPhotoHint(String((err && err.message) || "Could not read card photo"));
+    } finally {
+      setCardPhotoBusy(false);
     }
   };
 
@@ -590,17 +678,23 @@ export default function PayLanding() {
     }
   };
 
-  const requestProcessCheck = () => {
-    if (!checkB64) {
-      setCheckErr("Add a photo of your check first.");
-      return;
-    }
+  const achAuthLetter = buildAchAuthLetter({
+    companyName: brandName || profile.legalName || "BLZ Electric Inc.",
+    customerName: checkName || data?.c || "",
+    amountLabel: fmtMoneyPrecise(payAmount) || String(payAmount),
+    invoiceNo: data?.i || "",
+    accountLast4: checkAccount ? String(checkAccount).slice(-4) : "",
+    accountType: "checking",
+    dateLabel: new Date().toLocaleDateString(),
+  });
+
+  const requestProcessAch = () => {
     if (payAmount <= 0) {
       setCheckErr("Enter the amount you're paying.");
       return;
     }
     if (!achEnabled) {
-      setCheckErr("Instant bank pay is not available yet — submit for office review instead.");
+      setCheckErr("Bank pay is not available yet — choose Check to send a photo for our office, or pay by card.");
       return;
     }
     const bank = validateAchBankFields({
@@ -609,18 +703,27 @@ export default function PayLanding() {
       name: checkName || data?.c || "",
     });
     if (!bank.ok) {
-      setCheckErr(bank.error + " — fix the fields or re-photo the bottom of the check.");
+      setCheckErr(
+        bank.error +
+          (checkB64
+            ? " — fix the fields or re-photo the bottom of the check."
+            : " — enter routing and account, or attach a check photo to auto-fill.")
+      );
       return;
     }
-    if (!customerAuthOk) {
-      setCheckErr("Please review and confirm the checking account and routing number (authorization).");
+    const auth = validateAchAuthorization({
+      authorized: achAuthChecked,
+      letterText: achAuthLetter,
+    });
+    if (!auth.ok) {
+      setCheckErr(auth.error);
       return;
     }
     setCheckErr("");
     setCheckProcessConfirm(true);
   };
 
-  const processCheckPayment = async () => {
+  const processAchPayment = async () => {
     if (checkBusy || !data?.i) return;
     setCheckProcessConfirm(false);
     setCheckBusy(true);
@@ -633,23 +736,26 @@ export default function PayLanding() {
         account: checkAccount,
         name: checkName || data.c || "",
         checkNumber: checkNo,
-        paymentMethod: "Check",
+        paymentMethod: payMethod === "check" ? "Check" : "ACH",
         imageB64: checkB64,
-        authorized: customerAuthOk,
-        authLetter: ACH_AUTH_LETTER.body,
+        achAuthorized: true,
+        achAuthLetter,
+        achAuthorizedAt: new Date().toISOString(),
       });
       const qs = new URLSearchParams({
         ok: "1",
         inv: String(data.i || ""),
         amt: String(res.amount || payAmount),
         bal: String(Math.max(0, balanceDue - (res.amount || payAmount))),
-        method: "check",
+        method: payMethod === "check" ? "check" : "ach",
         processed: "1",
         ref: String(res.ref || ""),
       });
       navigate(`/pay/thanks?${qs.toString()}`);
     } catch (err) {
-      setCheckErr(String((err && err.message) || "Could not process check — try again or submit for office review"));
+      setCheckErr(
+        String((err && err.message) || "Could not process bank payment — try again or submit a check photo for office review")
+      );
     } finally {
       setCheckBusy(false);
     }
@@ -1102,174 +1208,207 @@ export default function PayLanding() {
           )}
         </div>
 
-        {includeFee ? (
-          <p className="text-[11px] text-slate-500 mb-4 px-1 leading-relaxed">
-            Tap ✏️ to change the amount before paying. A 3.5% processing fee is added on top.
-          </p>
-        ) : null}
+        <p className="text-[11px] text-slate-500 mb-3 px-1 leading-relaxed">
+          Tap ✏️ to change the amount. Card adds a 3.5% processing fee. ACH and Check have no fee.
+        </p>
 
+        {/* Method tabs: ACH · Check · Card */}
         <div
-          className="mb-3 rounded-xl border border-slate-200 bg-slate-50 p-1.5 flex gap-1"
+          className="rounded-xl border border-slate-200 bg-slate-50 p-1.5 flex gap-1 mb-4"
+          data-testid="pay-method-tabs"
           role="tablist"
           aria-label="Payment method"
-          data-testid="pay-method-tabs"
         >
-          <button
-            type="button"
-            role="tab"
-            aria-selected={payTab === "card"}
-            className={`flex-1 rounded-lg px-2 py-2.5 text-xs font-bold ${
-              payTab === "card" ? "bg-white text-slate-900 shadow-sm" : "text-slate-500"
-            }`}
-            data-testid="pay-tab-card"
-            onClick={() => setPayTab("card")}
-          >
-            Credit card
-            {includeFee ? <span className="block text-[10px] font-semibold text-slate-500">+3.5% fee</span> : null}
-          </button>
-          <button
-            type="button"
-            role="tab"
-            aria-selected={payTab === "bank"}
-            className={`flex-1 rounded-lg px-2 py-2.5 text-xs font-bold ${
-              payTab === "bank" ? "bg-white text-emerald-800 shadow-sm" : "text-slate-500"
-            }`}
-            data-testid="pay-tab-bank"
-            onClick={() => {
-              setPayTab("bank");
-              setCheckOpen(true);
-            }}
-          >
-            ACH / Check
-            <span className="block text-[10px] font-semibold text-slate-500">No card fee</span>
-          </button>
+          {[
+            { id: "ach", label: "ACH", disabled: !achEnabled, title: !achEnabled ? "Coming soon" : undefined },
+            { id: "check", label: "Check" },
+            { id: "card", label: "Card" },
+          ].map((tab) => (
+            <button
+              key={tab.id}
+              type="button"
+              role="tab"
+              aria-selected={payMethod === tab.id}
+              disabled={tab.disabled || payBusy || checkBusy}
+              title={tab.title}
+              data-testid={`pay-method-${tab.id}`}
+              className={`flex-1 rounded-lg px-2 py-2.5 text-sm font-bold ${
+                payMethod === tab.id
+                  ? "bg-white text-slate-900 shadow-sm"
+                  : tab.disabled
+                    ? "text-slate-300"
+                    : "text-slate-500"
+              }`}
+              onClick={() => {
+                if (tab.disabled) return;
+                setPayMethod(tab.id);
+                setCheckErr("");
+                setPayErr("");
+                setCheckProcessConfirm(false);
+              }}
+            >
+              {tab.label}
+            </button>
+          ))}
         </div>
 
-        {payTab === "card" ? (
-        <div className="card p-5 mb-4">
-          <h2 className="font-bold text-slate-900 mb-1">Pay by card</h2>
-          <p className="text-[11px] text-slate-500 mb-4">
-            Secure payment — your card details stay on our encrypted form, not a third-party page.
-          </p>
-          <SolaCardForm disabled={payBusy || checkBusy} onReadyChange={setCardReady} />
-          <label
-            className="flex items-start gap-2.5 mt-4 cursor-pointer select-none"
-            data-testid="save-card-for-future"
-          >
-            <input
-              type="checkbox"
-              className="mt-0.5 h-4 w-4 rounded border-slate-300 text-brand focus:ring-brand"
-              checked={saveOnFile}
-              disabled={payBusy || checkBusy}
-              onChange={(e) => setSaveOnFile(e.target.checked)}
-            />
-            <span className="text-sm text-slate-700 leading-snug">
-              <span className="font-semibold">Save this card for future payments</span>
-              <span className="block text-[11px] text-slate-500 mt-0.5">
-                Securely store your card for this customer so the next invoice is one tap.
-              </span>
-            </span>
-          </label>
-          {payErr ? (
-            <p className="text-xs text-red-600 bg-red-50 border border-red-100 rounded-xl px-3 py-2 mt-3">
-              {payErr}
+        {payMethod === "card" ? (
+          <div className="card p-5 mb-4" data-testid="pay-by-card">
+            <h2 className="font-bold text-slate-900 mb-1">Pay by card</h2>
+            <p className="text-[11px] text-slate-500 mb-3">
+              3.5% processing fee · secure encrypted fields
             </p>
-          ) : null}
-        </div>
-        ) : null}
-
-        {payTab === "card" ? (
-        <>
-        <button
-          type="button"
-          className={`btn-brand w-full !py-4 text-base shadow-md mb-2 ${
-            payBusy || !cardReady ? "opacity-70" : ""
-          }`}
-          data-testid="pay-cta"
-          disabled={payBusy || checkBusy || !cardReady || payAmount <= 0}
-          onClick={submitPayment}
-        >
-          {payBusy ? "Processing…" : `Pay ${fmtMoneyPrecise(includeFee ? chargeTotal : payAmount)}`}
-        </button>
-        <p className="text-center text-[11px] text-slate-500 px-2 mb-4">
-          You&apos;ll get a confirmation on this page right after payment.
-        </p>
-        </>
-        ) : null}
-
-        <div className={`card p-5 mb-4 ${payTab === "bank" ? "" : "hidden"}`} data-testid="pay-by-check">
-          <div className="mb-3">
-              <h2 className="font-bold text-slate-900">Pay with ACH / check</h2>
-              <p className="text-[11px] text-slate-500 mt-0.5">
-                Photo of the check autofills routing &amp; account — review, confirm, then process. No card fee.
+            <div className="mb-3">
+              <input
+                ref={cardPhotoRef}
+                type="file"
+                accept="image/*"
+                capture="environment"
+                className="sr-only"
+                data-testid="pay-card-photo-input"
+                onChange={(e) => void onCardPhoto(e)}
+                disabled={payBusy || cardPhotoBusy}
+              />
+              <button
+                type="button"
+                className="w-full rounded-xl border border-dashed border-slate-300 bg-slate-50 px-3 py-2.5 text-sm text-slate-700 font-semibold"
+                data-testid="pay-card-photo"
+                onClick={() => cardPhotoRef.current?.click()}
+                disabled={payBusy || cardPhotoBusy}
+              >
+                {cardPhotoBusy ? "Reading card…" : "📷 Photo of card (optional assist)"}
+              </button>
+              {cardPhotoHint ? (
+                <p
+                  className={`text-[11px] mt-1.5 font-medium ${
+                    cardPhotoDone ? "text-emerald-700" : "text-amber-800"
+                  }`}
+                  data-testid="pay-card-photo-hint"
+                >
+                  {cardPhotoHint}
+                </p>
+              ) : null}
+            </div>
+            <SolaCardForm
+              disabled={payBusy || checkBusy}
+              onReadyChange={setCardReady}
+              initialExp={cardExpPrefill}
+            />
+            <label
+              className="flex items-start gap-2.5 mt-4 cursor-pointer select-none"
+              data-testid="save-card-for-future"
+            >
+              <input
+                type="checkbox"
+                className="mt-0.5 h-4 w-4 rounded border-slate-300 text-brand focus:ring-brand"
+                checked={saveOnFile}
+                disabled={payBusy || checkBusy}
+                onChange={(e) => setSaveOnFile(e.target.checked)}
+              />
+              <span className="text-sm text-slate-700 leading-snug">
+                <span className="font-semibold">Save this card for future payments</span>
+                <span className="block text-[11px] text-slate-500 mt-0.5">
+                  Securely store your card for this customer so the next invoice is one tap.
+                </span>
+              </span>
+            </label>
+            {payErr ? (
+              <p className="text-xs text-red-600 bg-red-50 border border-red-100 rounded-xl px-3 py-2 mt-3">
+                {payErr}
               </p>
+            ) : null}
+            <button
+              type="button"
+              className={`btn-brand w-full !py-4 text-base shadow-md mt-4 ${
+                payBusy || !cardReady ? "opacity-70" : ""
+              }`}
+              data-testid="pay-cta"
+              disabled={payBusy || checkBusy || !cardReady || payAmount <= 0}
+              onClick={submitPayment}
+            >
+              {payBusy ? "Processing…" : `Pay ${fmtMoneyPrecise(includeFee ? chargeTotal : payAmount)}`}
+            </button>
           </div>
-          <div className="mt-4 space-y-3">
+        ) : null}
+
+        {payMethod === "ach" ? (
+          <div className="card p-5 mb-4" data-testid="pay-by-ach">
+            <h2 className="font-bold text-slate-900 mb-1">Pay by ACH (bank)</h2>
+            <p className="text-[11px] text-slate-500 mb-3">
+              No processing fee · debit your checking account
+            </p>
+            <div className="mb-3">
+              <label className="text-[10px] font-extrabold uppercase tracking-wider text-slate-500 mb-1 block">
+                Check photo (optional — auto-fills bank info)
+              </label>
+              <CheckPhotoCapture
+                disabled={checkBusy || checkReadBusy}
+                busy={checkReadBusy}
+                file={checkFile}
+                previewUrl={checkPreviewUrl}
+                onFile={(f) => void applyCheckFile(f)}
+                testId="pay-ach"
+              />
+              {checkReadBusy ? (
+                <p className="text-[11px] text-slate-500 mt-1.5">Reading check…</p>
+              ) : null}
+              {checkReadDone ? (
+                <p className="text-[11px] text-emerald-700 mt-1.5 font-medium" data-testid="pay-ach-read-ok">
+                  ✓ Details filled from photo — please review and confirm the checking account and routing number
+                </p>
+              ) : (
+                <p className="text-[11px] text-slate-500 mt-1.5">
+                  Please review and confirm the checking account and routing number
+                </p>
+              )}
+            </div>
+            <div className="space-y-3">
               <div>
                 <label className="text-[10px] font-extrabold uppercase tracking-wider text-slate-500 mb-1 block">
-                  Check photo
+                  Name on account
                 </label>
                 <input
-                  ref={checkInputRef}
-                  type="file"
-                  accept="image/*,application/pdf"
-                  capture="environment"
-                  className="sr-only"
-                  data-testid="pay-check-file"
-                  onChange={onCheckFile}
-                />
-                <button
-                  type="button"
-                  className="w-full rounded-xl border border-dashed border-slate-300 bg-slate-50 px-3 py-3 text-sm text-slate-700 font-semibold"
-                  data-testid="pay-check-attach"
-                  onClick={() => checkInputRef.current?.click()}
-                  disabled={checkBusy || checkReadBusy}
-                >
-                  {checkReadBusy
-                    ? "Reading check…"
-                    : checkFile
-                      ? `📎 ${checkFile.name}`
-                      : "📷 Attach check photo"}
-                </button>
-                {checkReadDone ? (
-                  <p className="text-[11px] text-emerald-700 mt-1.5 font-medium" data-testid="pay-check-read-ok">
-                    ✓ Details filled from photo — review before submitting
-                  </p>
-                ) : null}
-              </div>
-              <div className="rounded-xl border border-slate-200 bg-slate-50 p-1.5 flex gap-1" data-testid="pay-check-intent">
-                <button
-                  type="button"
-                  className={`flex-1 rounded-lg px-2 py-2 text-xs font-bold ${
-                    checkIntent === "record" ? "bg-white text-slate-900 shadow-sm" : "text-slate-500"
-                  }`}
-                  data-testid="pay-check-intent-record"
+                  className="input"
+                  value={checkName}
+                  onChange={(e) => setCheckName(e.target.value)}
                   disabled={checkBusy}
-                  onClick={() => setCheckIntent("record")}
-                >
-                  Send for record
-                </button>
-                <button
-                  type="button"
-                  className={`flex-1 rounded-lg px-2 py-2 text-xs font-bold ${
-                    checkIntent === "process" ? "bg-white text-emerald-800 shadow-sm" : "text-slate-500"
-                  }`}
-                  data-testid="pay-check-intent-process"
-                  disabled={checkBusy || !achEnabled}
-                  onClick={() => setCheckIntent("process")}
-                  title={!achEnabled ? "Instant deposit not available yet" : undefined}
-                >
-                  Process & deposit
-                </button>
+                  data-testid="pay-ach-name"
+                  placeholder={data?.c || "Account holder"}
+                />
               </div>
-              <p className="text-[11px] text-slate-500 leading-relaxed -mt-1">
-                {checkIntent === "process"
-                  ? "Processes a bank debit from this check — you’ll confirm before it runs."
-                  : "Sends the photo to our office to match and record — not an instant charge."}
-              </p>
               <div>
                 <label className="text-[10px] font-extrabold uppercase tracking-wider text-slate-500 mb-1 block">
-                  Check number {checkIntent === "process" ? "" : "(optional)"}
+                  Routing number
+                </label>
+                <input
+                  className="input"
+                  inputMode="numeric"
+                  autoComplete="off"
+                  value={checkRouting}
+                  onChange={(e) => setCheckRouting(e.target.value.replace(/\D/g, "").slice(0, 9))}
+                  disabled={checkBusy}
+                  data-testid="pay-ach-routing"
+                  placeholder="9 digits"
+                />
+              </div>
+              <div>
+                <label className="text-[10px] font-extrabold uppercase tracking-wider text-slate-500 mb-1 block">
+                  Account number
+                </label>
+                <input
+                  className="input"
+                  inputMode="numeric"
+                  autoComplete="off"
+                  value={checkAccount}
+                  onChange={(e) => setCheckAccount(e.target.value.replace(/\D/g, "").slice(0, 17))}
+                  disabled={checkBusy}
+                  data-testid="pay-ach-account"
+                  placeholder="Account #"
+                />
+              </div>
+              <div>
+                <label className="text-[10px] font-extrabold uppercase tracking-wider text-slate-500 mb-1 block">
+                  Check number (optional)
                 </label>
                 <input
                   className="input"
@@ -1277,105 +1416,42 @@ export default function PayLanding() {
                   value={checkNo}
                   onChange={(e) => setCheckNo(e.target.value)}
                   disabled={checkBusy}
-                  data-testid="pay-check-number"
+                  data-testid="pay-ach-check-number"
                 />
               </div>
-              {checkIntent === "process" ? (
-                <>
-                  <div>
-                    <label className="text-[10px] font-extrabold uppercase tracking-wider text-slate-500 mb-1 block">
-                      Name on account
-                    </label>
-                    <input
-                      className="input"
-                      value={checkName}
-                      onChange={(e) => setCheckName(e.target.value)}
-                      disabled={checkBusy}
-                      data-testid="pay-check-name"
-                      placeholder={data?.c || "Account holder"}
-                    />
-                  </div>
-                  <div>
-                    <label className="text-[10px] font-extrabold uppercase tracking-wider text-slate-500 mb-1 block">
-                      Routing number
-                    </label>
-                    <input
-                      className="input"
-                      inputMode="numeric"
-                      autoComplete="off"
-                      value={checkRouting}
-                      onChange={(e) => setCheckRouting(e.target.value.replace(/\D/g, "").slice(0, 9))}
-                      disabled={checkBusy}
-                      data-testid="pay-check-routing"
-                      placeholder="9 digits"
-                    />
-                  </div>
-                  <div>
-                    <label className="text-[10px] font-extrabold uppercase tracking-wider text-slate-500 mb-1 block">
-                      Account number
-                    </label>
-                    <input
-                      className="input"
-                      inputMode="numeric"
-                      autoComplete="off"
-                      value={checkAccount}
-                      onChange={(e) => setCheckAccount(e.target.value.replace(/\D/g, "").slice(0, 17))}
-                      disabled={checkBusy}
-                      data-testid="pay-check-account"
-                      placeholder="Account #"
-                    />
-                  </div>
-                  <p className="text-[11px] text-slate-600 bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 leading-relaxed">
-                    Please review and confirm the checking account and routing number above before you pay.
-                  </p>
-                  <label className="flex items-start gap-2 cursor-pointer" data-testid="pay-check-auth">
-                    <input
-                      type="checkbox"
-                      className="mt-0.5"
-                      checked={customerAuthOk}
-                      disabled={checkBusy}
-                      onChange={(e) => setCustomerAuthOk(e.target.checked)}
-                    />
-                    <span className="text-[11px] text-slate-700 leading-snug">{ACH_AUTH_LETTER.checkboxLabel}</span>
-                  </label>
-                </>
-              ) : null}
+              <div className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-3 text-xs text-slate-700 leading-relaxed">
+                {achAuthLetter}
+              </div>
+              <label className="flex items-start gap-2.5 cursor-pointer select-none" data-testid="pay-ach-auth">
+                <input
+                  type="checkbox"
+                  className="mt-0.5 h-4 w-4 rounded border-slate-300 text-brand focus:ring-brand"
+                  checked={achAuthChecked}
+                  disabled={checkBusy}
+                  onChange={(e) => setAchAuthChecked(e.target.checked)}
+                />
+                <span className="text-sm text-slate-800 leading-snug">
+                  I authorize this one-time bank debit and confirm the routing and account numbers above are correct.
+                </span>
+              </label>
               {checkErr ? (
                 <p className="text-xs text-red-600 bg-red-50 border border-red-100 rounded-xl px-3 py-2">
                   {checkErr}
                 </p>
               ) : null}
-              {checkIntent === "process" ? (
-                <button
-                  type="button"
-                  className={`btn-brand w-full !py-3 ${checkBusy ? "opacity-70" : ""}`}
-                  data-testid="pay-check-process"
-                  disabled={
-                    checkBusy || payBusy || checkReadBusy || !checkB64 || payAmount <= 0 || !customerAuthOk
-                  }
-                  onClick={requestProcessCheck}
-                >
-                  {checkBusy
-                    ? "Processing…"
-                    : `Process & deposit ${fmtMoneyPrecise(payAmount)}`}
-                </button>
-              ) : (
-                <button
-                  type="button"
-                  className={`btn-ghost w-full !py-3 border border-slate-200 ${checkBusy ? "opacity-70" : ""}`}
-                  data-testid="pay-check-submit"
-                  disabled={checkBusy || payBusy || checkReadBusy || !checkB64 || payAmount <= 0}
-                  onClick={submitCheckPayment}
-                >
-                  {checkBusy
-                    ? "Submitting…"
-                    : `Submit for record · ${fmtMoneyPrecise(payAmount)}`}
-                </button>
-              )}
+              <button
+                type="button"
+                className={`btn-brand w-full !py-3 ${checkBusy ? "opacity-70" : ""}`}
+                data-testid="pay-ach-process"
+                disabled={checkBusy || payBusy || checkReadBusy || payAmount <= 0 || !achEnabled}
+                onClick={requestProcessAch}
+              >
+                {checkBusy ? "Processing…" : `Pay ${fmtMoneyPrecise(payAmount)} by ACH`}
+              </button>
               {checkProcessConfirm ? (
                 <div
                   className="rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-3 space-y-2"
-                  data-testid="pay-check-process-confirm"
+                  data-testid="pay-ach-process-confirm"
                 >
                   <p className="text-sm text-slate-800 leading-snug">
                     Confirm: process bank payment of{" "}
@@ -1386,13 +1462,13 @@ export default function PayLanding() {
                         from account ending <b>…{String(checkAccount).slice(-4)}</b>
                       </>
                     ) : null}
-                    . This is payment processing — not office record only.
+                    . No card fee.
                   </p>
                   <button
                     type="button"
                     className="btn-brand w-full !py-2.5"
-                    data-testid="pay-check-process-yes"
-                    onClick={() => void processCheckPayment()}
+                    data-testid="pay-ach-process-yes"
+                    onClick={() => void processAchPayment()}
                     disabled={checkBusy}
                   >
                     Yes — process payment
@@ -1400,7 +1476,7 @@ export default function PayLanding() {
                   <button
                     type="button"
                     className="btn-ghost w-full !py-2 text-sm"
-                    data-testid="pay-check-process-no"
+                    data-testid="pay-ach-process-no"
                     onClick={() => setCheckProcessConfirm(false)}
                     disabled={checkBusy}
                   >
@@ -1409,7 +1485,71 @@ export default function PayLanding() {
                 </div>
               ) : null}
             </div>
-        </div>
+          </div>
+        ) : null}
+
+        {payMethod === "check" ? (
+          <div className="card p-5 mb-4" data-testid="pay-by-check">
+            <h2 className="font-bold text-slate-900 mb-1">Pay with a check</h2>
+            <p className="text-[11px] text-slate-500 mb-3">
+              No processing fee · photo of your check for our office
+            </p>
+            <div className="space-y-3">
+              <CheckPhotoCapture
+                disabled={checkBusy || checkReadBusy}
+                busy={checkReadBusy}
+                file={checkFile}
+                previewUrl={checkPreviewUrl}
+                onFile={(f) => void applyCheckFile(f)}
+                testId="pay-check"
+              />
+              {checkReadBusy ? (
+                <p className="text-[11px] text-slate-500">Reading check…</p>
+              ) : null}
+              {checkReadDone ? (
+                <p className="text-[11px] text-emerald-700 font-medium" data-testid="pay-check-read-ok">
+                  ✓ Details filled from photo — review before submitting
+                </p>
+              ) : null}
+              <div>
+                <label className="text-[10px] font-extrabold uppercase tracking-wider text-slate-500 mb-1 block">
+                  Check number (optional)
+                </label>
+                <input
+                  className="input"
+                  placeholder="Check #"
+                  value={checkNo}
+                  onChange={(e) => setCheckNo(e.target.value)}
+                  disabled={checkBusy}
+                  data-testid="pay-check-number"
+                />
+              </div>
+              {checkErr ? (
+                <p className="text-xs text-red-600 bg-red-50 border border-red-100 rounded-xl px-3 py-2">
+                  {checkErr}
+                </p>
+              ) : null}
+              <button
+                type="button"
+                className={`btn-brand w-full !py-3 ${checkBusy ? "opacity-70" : ""}`}
+                data-testid="pay-check-submit"
+                disabled={checkBusy || payBusy || checkReadBusy || !checkB64 || payAmount <= 0}
+                onClick={submitCheckPayment}
+              >
+                {checkBusy
+                  ? "Submitting…"
+                  : `Submit check · ${fmtMoneyPrecise(payAmount)}`}
+              </button>
+              <p className="text-[11px] text-slate-500 leading-relaxed">
+                We keep a copy of the check photo and match it on our end — not an instant bank debit.
+              </p>
+            </div>
+          </div>
+        ) : null}
+
+        <p className="text-center text-[11px] text-slate-500 px-2 mb-4">
+          You&apos;ll get a confirmation on this page right after payment.
+        </p>
       </main>
 
       <footer className="text-center text-[11px] text-slate-500 pb-8 px-4">

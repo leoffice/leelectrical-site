@@ -35,12 +35,16 @@ function loadScript(src) {
 const IFRAME_H = 44;
 
 /** PCI-safe card fields via Sola iFields (card number + CVV iframes). */
-export default function SolaCardForm({ disabled, onReadyChange, savedMasked }) {
+export default function SolaCardForm({ disabled, onReadyChange, savedMasked, initialExp = "" }) {
   const [phase, setPhase] = useState("loading"); // loading | ready | error
   const [err, setErr] = useState("");
-  const [exp, setExp] = useState("");
+  const [exp, setExp] = useState(() => formatCardExpInput(initialExp || ""));
   const configRef = useRef(null);
   const formRef = useRef(null);
+
+  useEffect(() => {
+    if (initialExp) setExp(formatCardExpInput(initialExp));
+  }, [initialExp]);
 
   useEffect(() => {
     let cancelled = false;
