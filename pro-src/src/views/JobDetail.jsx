@@ -136,6 +136,7 @@ export default function JobDetail() {
   const nav = useNavigate();
   const [sp] = useSearchParams();
   const fromCust = sp.get("from") || ""; // customer-group key when opened from CustomerView
+  const hlInv = sp.get("hlInv") || ""; // soft-highlight invoice # from History
   const foldParam = sp.get("fold");
   // Levi: open any job on the job info card only; tap card again to expand progress.
   // fold=0 forces expanded (rare deep links); fold=1 or omitted → collapsed.
@@ -739,6 +740,7 @@ export default function JobDetail() {
             onBubbleTap={(j, bubble) => tapAwarenessBubble(j, bubble, setSheet, openDocTab)}
             onCardTap={toggleDetailSections}
             jobTxns={jobTxns}
+            highlightInvoiceNo={hlInv}
             onJobTxnsChange={setJobTxns}
           />
         ) : (
@@ -764,6 +766,7 @@ export default function JobDetail() {
             onStatement={() => setSheet({ kind: "statement" })}
             onBubbleTap={(bubble) => tapAwarenessBubble(job, bubble, setSheet, openDocTab)}
             jobTxns={jobTxns}
+            highlightInvoiceNo={hlInv}
             onJobTxnsChange={setJobTxns}
           />
         )}

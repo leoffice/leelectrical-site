@@ -79,6 +79,8 @@ export default function JobInfoCard({
   /** Job-only transaction history (this invoice), not customer-wide. */
   jobTxns = false,
   onJobTxnsChange,
+  /** When opened from History, soft-highlight this invoice # (Levi 2026-08-04). */
+  highlightInvoiceNo = "",
 }) {
   const total = invoiceTotal(job);
   const paid = amountPaid(job);
@@ -220,12 +222,31 @@ export default function JobInfoCard({
 
       {(rows.length > 0 || showPctRow) && (
         <dl className="mt-2 space-y-1 text-xs lg:text-sm min-w-0 w-full">
-          {rows.map(([k, v]) => (
-            <div key={k} className="flex gap-2 items-baseline">
-              <dt className="font-semibold text-slate-800 shrink-0 w-[5.5rem] lg:w-32">{k}</dt>
-              <dd className="text-slate-500 break-words min-w-0">{v}</dd>
-            </div>
-          ))}
+          {rows.map(([k, v]) => {
+            const hl =
+              highlightInvoiceNo &&
+              (k === "Invoice" || k === "Linked invoice") &&
+              String(v).replace(/^#/, "") === String(highlightInvoiceNo).replace(/^#/, "");
+            return (
+              <div
+                key={k}
+                className={
+                  "flex gap-2 items-baseline rounded-md px-1 -mx-1 " +
+                  (hl ? "bg-sky-100/70 ring-1 ring-sky-200/80" : "")
+                }
+                data-hl-invoice={hl ? "1" : undefined}
+              >
+                <dt className="font-semibold text-slate-800 shrink-0 w-[5.5rem] lg:w-32">{k}</dt>
+                <dd
+                  className={
+                    "break-words min-w-0 " + (hl ? "text-sky-900 font-semibold text-sm" : "text-slate-500")
+                  }
+                >
+                  {v}
+                </dd>
+              </div>
+            );
+          })}
           {showPctRow ? (
             <div
               className="flex gap-2 items-center min-w-0"

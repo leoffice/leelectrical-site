@@ -24,7 +24,8 @@ export default function TransactionHistory() {
         return;
       }
       if (row.jobId) {
-        nav("/job/" + row.jobId + "?fold=1&focus=job");
+        const inv = row.docNo ? "&hlInv=" + encodeURIComponent(String(row.docNo)) : "";
+        nav("/job/" + row.jobId + "?fold=1&focus=job" + inv);
       }
     },
     [nav]

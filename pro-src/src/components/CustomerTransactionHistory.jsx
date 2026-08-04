@@ -56,19 +56,20 @@ function DocBubble({ docNo, color, testId }) {
       : shape === "tag"
         ? "rounded-sm border-l-2"
         : "rounded-full";
+  // Levi 2026-08-04: larger chip, not heavy bold — translucent tint from palette
   return (
     <span
       className={
-        "inline-flex items-center px-1.5 py-0.5 text-[10px] font-extrabold tabular-nums ring-1 border shrink-0 " +
+        "inline-flex items-center px-2 py-1 text-[13px] font-semibold tabular-nums ring-1 border shrink-0 opacity-90 " +
         shapeCls +
         " " +
         (c.bg || "bg-slate-100") +
         " " +
         (c.text || "text-slate-700") +
         " " +
-        (c.ring || "ring-slate-200") +
+        (c.ring || "ring-slate-200/60") +
         " " +
-        (c.border || "border-slate-300")
+        (c.border || "border-slate-300/50")
       }
       data-testid={testId}
       data-shape={shape}

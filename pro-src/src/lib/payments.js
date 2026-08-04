@@ -304,7 +304,13 @@ export function findDuplicatePayment(jobOrPayments, entry) {
 
 export function appendPayment(job, entry) {
   const list = normalizePayments(job);
-  const pay = { id: paymentId(), ...entry, amount: String(parseAmount(entry.amount) || entry.amount || "") };
+  const pay = {
+    id: paymentId(),
+    ...entry,
+    amount: String(parseAmount(entry.amount) || entry.amount || ""),
+    // Clock time for History "Today · 5:30 p.m." (Levi 2026-08-04)
+    recordedAt: entry.recordedAt || new Date().toISOString(),
+  };
   return applyPaymentsPatch(job, [...list, pay]);
 }
 

@@ -41,11 +41,7 @@ describe("1. mark-as-paid sheet -> staged -> record_payment on Save", () => {
     ).toEqual(["— choose —", "Cash", "Credit card", "Zelle", "ACH", "Other"]);
     await user.click(screen.getByText("✓ Record payment"));
 
-    // staged, not sent: savebar appears, no command yet
-    expect(await screen.findByTestId("savebar")).toBeInTheDocument();
-    expect(srv.enqueued("record_payment")).toHaveLength(0);
-
-    await user.click(screen.getByText("Save & sync"));
+    // Levi 2026-08-04: record saves immediately — no Save & Sync bar required.
     await waitFor(() => expect(srv.enqueued("record_payment")).toHaveLength(1));
     const cmd = srv.enqueued("record_payment")[0];
     expect(cmd.lane).toBe("deterministic");
@@ -54,7 +50,8 @@ describe("1. mark-as-paid sheet -> staged -> record_payment on Save", () => {
       invoiceNo: "251841",
       amount: 2300,
       method: "Zelle",
-      sendReceipt: true,
+      // Host uses LE Pro mailer; QBO receipt flag off
+      sendReceipt: false,
     });
     // overlay got paid + payment + Paid/Follow-up statuses
     const ov = srv.state.ov["J-1"];
@@ -88,8 +85,7 @@ describe("1. mark-as-paid sheet -> staged -> record_payment on Save", () => {
     await user.clear(amt);
     await user.type(amt, "1000");
     await user.click(screen.getByText("✓ Record payment"));
-    await user.click(await screen.findByText("Save & sync"));
-    await waitFor(() => expect(screen.queryByTestId("savebar")).not.toBeInTheDocument());
+    await waitFor(() => expect(srv.enqueued("record_payment")).toHaveLength(1));
     const ov = srv.state.ov["J-partial"];
     expect(ov.paid).toBe(false);
     expect(ov.openBalance).toBe(10000);

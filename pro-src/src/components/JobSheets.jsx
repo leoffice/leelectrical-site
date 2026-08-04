@@ -122,7 +122,8 @@ import {
 import { docSendStatusLine } from "../lib/docSendStatus.js";
 import { tenantCalendarAccount, tenantSignOff } from "../lib/tenantBranding.js";
 import { beginPromptWorkPause } from "../lib/followUpReminders.js";
-import { isQuickbooksDocsEnabled, resolveDocSource } from "../lib/qboEnabled.js";
+import { isQuickbooksDocsEnabled, isQuickbooksEnabled, resolveDocSource } from "../lib/qboEnabled.js";
+import { functionsBase } from "../lib/functionsBase.js";
 import { useAppSettings } from "../lib/appSettings.js";
 import { afterSendApprovedClose, EMAIL_POLICY_KEEP } from "../lib/sendDocConfirm.js";
 import { lineAmount } from "../lib/qboDoc.js";
@@ -423,6 +424,8 @@ export function MarkPaidSheet({
 }) {
   const {
     patchJob,
+    patchAndSave,
+    enqueue,
     showToast,
     syncNow,
     refreshJobs,
@@ -682,17 +685,110 @@ export function MarkPaidSheet({
     }
     recordLockRef.current = true;
     const trained = trainFromRecord(live);
-    const patch = appendPayment(live, entry);
+    const withStamp = {
+      ...entry,
+      recordedAt: entry.recordedAt || new Date().toISOString(),
+    };
+    const patch = appendPayment(live, withStamp);
     const remaining = parseFloat(String(patch.openBalance)) || 0;
     const trainNote = trained ? " · Your fixes train the check reader" : "";
-    if (patch.paid) {
-      showToast("Marked paid — Save & sync so QuickBooks catches up in the background" + trainNote);
-    } else {
-      showToast(
-        "Partial payment applied — " + fmt$(remaining) + " remaining. Save & sync for QuickBooks." + trainNote
-      );
-    }
-    patchJob(live.id, patch);
+    const payAmtN = parseAmount(withStamp.amount);
+    const payList = Array.isArray(patch.payments) ? patch.payments : [];
+    const lastPay = payList[payList.length - 1] || withStamp;
+
+    // Levi 2026-08-04: save immediately — no Save & Sync bar required for cash/Zelle/ACH record.
+    // Receipt goes out now; QBO record_payment is background-only when QuickBooks is on.
+    const saveFn = typeof patchAndSave === "function" ? patchAndSave : null;
+    const persist = saveFn
+      ? saveFn(live.id, patch).catch(() => {
+          patchJob(live.id, patch);
+        })
+      : Promise.resolve(patchJob(live.id, patch));
+
+    void persist.then(() => {
+      // LE Pro payment confirmation (not QuickBooks).
+      const email = String(live.email || "").trim();
+      if (email && payAmtN > 0) {
+        const body = {
+          jobId: live.id,
+          invoiceNo: String(live.invoiceNo || "").trim(),
+          amount: payAmtN,
+          balance: remaining,
+          ref: String(withStamp.ref || lastPay.ref || "").trim(),
+          payDate: String(withStamp.date || todayStr()).slice(0, 10),
+          force: true,
+        };
+        fetch(functionsBase() + "/payment-confirm-email", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify(body),
+        })
+          .then((r) => r.json().catch(() => ({})))
+          .then((res) => {
+            if (res?.sent || res?.ok) {
+              showToast("Payment saved · receipt emailed to " + email + trainNote);
+            } else if (res?.skipped) {
+              showToast(
+                (patch.paid ? "Paid" : "Payment saved") +
+                  " · receipt skipped (" +
+                  (res.reason || "deduped") +
+                  ")" +
+                  trainNote
+              );
+            } else {
+              showToast(
+                (patch.paid ? "Paid" : "Payment of " + fmt$(payAmtN) + " saved") +
+                  " · receipt not sent — check customer email" +
+                  trainNote
+              );
+            }
+          })
+          .catch(() => {
+            showToast(
+              (patch.paid ? "Paid" : "Payment saved") + " · could not reach receipt mailer" + trainNote
+            );
+          });
+      } else {
+        showToast(
+          (patch.paid ? "Marked paid" : "Payment of " + fmt$(payAmtN) + " saved") +
+            (email ? "" : " · no email on job for receipt") +
+            trainNote
+        );
+      }
+
+      // Optional background QuickBooks — only if sync feature is on.
+      if (isQuickbooksEnabled(tenantCfg) && live.invoiceNo && typeof enqueue === "function" && payAmtN > 0) {
+        const idem = [
+          "record_payment",
+          live.id,
+          live.invoiceNo || "",
+          lastPay.id || "",
+          payAmtN,
+          withStamp.date || "",
+          withStamp.ref || "",
+        ].join(":");
+        void enqueue(
+          "record_payment",
+          live.id,
+          {
+            invoiceNo: live.invoiceNo,
+            amount: payAmtN,
+            method: withStamp.method || "",
+            ref: withStamp.ref || "",
+            date: withStamp.date || todayStr(),
+            note: withStamp.note || "",
+            depositTo: withStamp.depositTo || "",
+            email: live.email || "",
+            // Host sends LE receipt; do not also fire QBO email (listener ignores this for QBO).
+            sendReceipt: false,
+            openBalance: remaining,
+          },
+          "deterministic",
+          idem
+        );
+      }
+    });
+
     onClose();
   };
 
