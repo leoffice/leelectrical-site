@@ -8,7 +8,8 @@
  * reload loop while the client chased a new SW. Hashed filenames are still
  * cacheable after a successful network hit.
  */
-const CACHE = "le-pro-v314";
+const CACHE = "le-pro-v315";
+// Do not pre-cache index.html — a stale shell + new CSS hash = unstyled raw links.
 const CORE = ["/app/pro/manifest.json"];
 
 self.addEventListener("install", (e) => {
@@ -24,8 +25,21 @@ self.addEventListener("activate", (e) => {
   e.waitUntil(
     caches
       .keys()
+      // Drop ALL prior LE Pro caches on activate (unstyled-shell recovery)
       .then((keys) => Promise.all(keys.filter((k) => k !== CACHE).map((k) => caches.delete(k))))
-      .then(() => self.clients.claim()),
+      .then(() => self.clients.claim())
+      .then(() => {
+        // Nudge open tabs to reload once so they pick up the new CSS/JS pair
+        return self.clients.matchAll({ type: "window" }).then((clients) => {
+          for (const c of clients) {
+            try {
+              c.postMessage({ type: "SW_ACTIVATED", cache: CACHE });
+            } catch {
+              /* ignore */
+            }
+          }
+        });
+      }),
   );
 });
 

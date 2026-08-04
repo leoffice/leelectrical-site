@@ -88,7 +88,7 @@ export function watchServiceWorkerUpdates() {
   if (!("serviceWorker" in navigator) || location.hostname.includes("localhost")) return;
 
   let reloaded = false;
-  navigator.serviceWorker.addEventListener("controllerchange", () => {
+  const safeReload = () => {
     if (reloaded) return;
     // Share the version-check loop guard so SW claim + version.json don't
     // double-reload (looks like "twitching" unstyled chrome).
@@ -100,6 +100,23 @@ export function watchServiceWorkerUpdates() {
     reloaded = true;
     sessionStorage.setItem(LOOP_GUARD_KEY, String(Date.now()));
     window.location.reload();
+  };
+
+  navigator.serviceWorker.addEventListener("controllerchange", safeReload);
+
+  // New SW activate may post SW_ACTIVATED — clear old caches then reload once
+  navigator.serviceWorker.addEventListener("message", (ev) => {
+    if (ev?.data?.type === "SW_ACTIVATED") {
+      const ctl = navigator.serviceWorker.controller;
+      if (ctl) {
+        try {
+          ctl.postMessage({ type: "CLEAR_CACHES" });
+        } catch {
+          /* ignore */
+        }
+      }
+      safeReload();
+    }
   });
 
   navigator.serviceWorker.ready
