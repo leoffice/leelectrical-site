@@ -322,8 +322,11 @@ export function buildServiceUpgradeEstimate(answers) {
   }
 
   // Combined Service Upgrade description (main line)
+  // NOT INCLUDED only lists options that were NOT turned on (no "if not selected" lies)
   const includedTxt = included.length ? included.join("; ") : "See scope below";
-  const notInc = ["Filing permit (if not selected)", "Removal of existing equipment (if not selected)"];
+  const notInc = [];
+  if (!a.includeFiling) notInc.push("Filing permit");
+  if (!a.includeRemoval) notInc.push("Removal of existing equipment");
   if (!a.includeConduit) notInc.push("Conduit / overhead pipe to street");
   const desc = [
     `Service upgrade - main ${a.mainAmps}A ${a.mainPhase === 3 ? "3-phase" : "1-phase"}, ${a.meters.length} meter(s).`,
@@ -332,7 +335,7 @@ export function buildServiceUpgradeEstimate(answers) {
     ...workBullets.map((b) => `- ${b}`),
     "",
     `INCLUDED: ${includedTxt}.`,
-    `NOT INCLUDED (unless separate line below): ${notInc.join("; ")}.`,
+    notInc.length ? `NOT INCLUDED: ${notInc.join("; ")}.` : "",
     a.notes ? `\nNotes: ${a.notes}` : "",
   ]
     .filter(Boolean)

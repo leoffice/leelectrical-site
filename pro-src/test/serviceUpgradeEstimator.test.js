@@ -99,6 +99,9 @@ describe("serviceUpgradeEstimator", () => {
     expect(main.description).toMatch(/PLP meter to PLP equipment/);
     expect(main.description).toMatch(/ft x \$/);
     expect(main.description).toMatch(/end-line box to metering/);
+    // Selected add-ons are separate lines — do not list them as NOT INCLUDED
+    expect(main.description).not.toMatch(/Filing permit/);
+    expect(main.description).toMatch(/NOT INCLUDED: Removal of existing equipment/);
   });
 
   it("extra meter→panel feet increase price", () => {
