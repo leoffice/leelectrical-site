@@ -1,7 +1,7 @@
 // Per-job summary — awareness bubbles under title, then service address + doc tabs.
 import React, { useMemo } from "react";
 import AmountDisplay from "./AmountDisplay.jsx";
-import { amountPaid, invoiceTotal, openBalance, paidPct } from "../lib/customers.js";
+import { amountPaid, invoiceTotal, isJobFullyPaid, openBalance, paidPct } from "../lib/customers.js";
 import { serviceAddressDisplay } from "../lib/customerSync.js";
 import { jobInvoiceDateDisplay, jobServiceDateDisplay } from "../lib/customerDocLists.js";
 import { fmt$ } from "../lib/format.js";
@@ -91,9 +91,11 @@ export default function JobInfoCard({
   const invoiceDate = jobInvoiceDateDisplay(job);
   const bubbles = useMemo(() => jobAwarenessBubbles(job, events, commands), [job, events, commands]);
 
+  // Balance is truth — never "Paid in full" while openBalance > 0 (Beth Rivkah #251825).
+  const fullyPaid = isJobFullyPaid(job);
   // % paid / paid status row hosts the Transaction History toggle (Levi: condensed).
-  const pctLabel = total > 0 && !job.paid ? pct + "%" : job.paid ? "Paid in full" : null;
-  const pctKey = total > 0 && !job.paid ? "% paid" : job.paid ? "Status" : null;
+  const pctLabel = total > 0 && !fullyPaid ? pct + "%" : fullyPaid ? "Paid in full" : null;
+  const pctKey = total > 0 && !fullyPaid ? "% paid" : fullyPaid ? "Status" : null;
 
   const rows = [
     svc ? ["Service address", svc] : null,
@@ -105,7 +107,7 @@ export default function JobInfoCard({
     job.linkedInvoiceNo && !job.invoiceNo ? ["Linked invoice", "#" + job.linkedInvoiceNo] : null,
     total > 0 ? ["Invoice amount", fmt$(total)] : null,
     paid > 0 ? ["Paid", fmt$(paid)] : null,
-    !job.paid && balance > 0 ? ["Balance due", fmt$(balance)] : null,
+    balance > 0.01 ? ["Balance due", fmt$(balance)] : null,
   ].filter(Boolean);
 
   const showTxnToggle = typeof onJobTxnsChange === "function";

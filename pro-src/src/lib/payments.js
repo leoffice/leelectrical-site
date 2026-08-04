@@ -207,7 +207,8 @@ export function reconcileBalanceOnAmountChange(job, newAmount) {
     const fullPay = remaining <= 0.01;
     return {
       openBalance: fullPay ? 0 : remaining,
-      paid: fullPay || !!job.paid,
+      // Never keep paid=true when invoice total is still open (truth = balance).
+      paid: fullPay,
       amountWhenBaselined: inv,
       ...(job.paymentBaseline != null && job.paymentBaseline !== ""
         ? { paymentBaseline: inv }

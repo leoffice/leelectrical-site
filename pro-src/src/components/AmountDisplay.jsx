@@ -1,6 +1,13 @@
 // Balance due (prominent) + invoiced / paid sub-line (small gray).
 import React from "react";
-import { amountPaid, fmtAmountDue, invoiceTotal, openBalance, paidPct } from "../lib/customers.js";
+import {
+  amountPaid,
+  fmtAmountDue,
+  invoiceTotal,
+  isJobFullyPaid,
+  openBalance,
+  paidPct,
+} from "../lib/customers.js";
 import { fmt$ } from "../lib/format.js";
 
 const SIZE = {
@@ -14,7 +21,8 @@ export function AmountSubline({ job, className = "" }) {
   if (!total) return null;
   const paid = amountPaid(job);
   const pct = paidPct(job);
-  if (job.paid) {
+  const fullyPaid = isJobFullyPaid(job);
+  if (fullyPaid) {
     return <div className={`text-slate-400 leading-tight mt-0.5 ${className}`}>{fmt$(total)} invoiced</div>;
   }
   const paidPart = paid > 0 ? ` · ${fmt$(paid)} paid (${pct}%)` : "";
@@ -43,7 +51,7 @@ export default function AmountDisplay({ job, size = "md", showSub = true, highli
   const main = fmtAmountDue(job) || "—";
   const due = job ? openBalance(job) : 0;
   const showDueStack = highlightDue && label;
-  const showDueRing = showDueStack && job && !job.paid && due > 0.01;
+  const showDueRing = showDueStack && job && !isJobFullyPaid(job) && due > 0.01;
   const hideSub = showDueStack;
   return (
     <div

@@ -156,10 +156,28 @@ export function totalBalanceDue(jobs) {
 }
 
 /** Formatted amount still owed on a job (never the invoice total). */
+/**
+ * True only when nothing is owed. Never trust job.paid alone — QBO/sync can
+ * leave paid=true with a positive openBalance (Beth Rivkah #251825, 2026-08-04).
+ */
+export function isJobFullyPaid(job) {
+  if (!job || !isInvoiceJob(job)) return false;
+  const due = openBalance(job);
+  if (due > 0.01) return false;
+  if (job.paid) return true;
+  // Explicit open balance zero / tiny
+  if (job.openBalance != null && job.openBalance !== "" && parseAmount(job.openBalance) <= 0.01) {
+    return true;
+  }
+  return due <= 0.01 && invoiceTotal(job) > 0 && amountPaid(job) >= invoiceTotal(job) - 0.01;
+}
+
 export function fmtAmountDue(job) {
   if (!job) return "";
-  if (job.paid) return "Paid";
+  // Balance is truth — never show "Paid" while money is still open.
   const n = openBalance(job);
+  if (n > 0.01) return fmt$(n);
+  if (isJobFullyPaid(job) || job.paid) return "Paid";
   return n > 0 ? fmt$(n) : "";
 }
 
