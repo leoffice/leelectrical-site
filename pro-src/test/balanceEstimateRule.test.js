@@ -60,4 +60,17 @@ describe("balance rule — estimates never count toward due", () => {
     expect(s.invoiced).toBe(0);
     expect(totalBalanceDue([estimateOnly])).toBe(0);
   });
+
+  it("local+qbo twin of same invoice # counts once in due/invoiced", () => {
+    const twins = [
+      { id: "local-251719", invoiceNo: "251719", amount: 400, openBalance: 400, paid: false },
+      { id: "qbo-251719", invoiceNo: "251719", amount: 400, openBalance: 400, paid: false },
+    ];
+    expect(totalBalanceDue(twins)).toBe(400);
+    const s = customerAmountSummary(twins);
+    expect(s.due).toBe(400);
+    expect(s.invoiced).toBe(400);
+    expect(s.openInvoices).toBe(1);
+    expect(s.jobCount).toBe(1);
+  });
 });

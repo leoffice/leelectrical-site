@@ -1,6 +1,6 @@
 // Customer-level transaction ledger — invoices, estimates, payments across
 // all job addresses for one company (not sub-companies).
-import { openBalance, invoiceTotal } from "./customers.js";
+import { openBalance, invoiceTotal, dedupeJobsByInvoiceNo } from "./customers.js";
 import { normalizePayments, normalizePaymentMethod, fmtPaymentDate } from "./payments.js";
 import { fmt$ } from "./format.js";
 import { serviceAddressDisplay } from "./customerSync.js";
@@ -262,35 +262,16 @@ export function txnStoryLine(row) {
 /**
  * Prefer one job per invoice # (local + qbo clones were doubling History rows —
  * e.g. 251850 $4,500 twice). Prefer qbo-* id, then more payments, then newer.
+ * Shared core: customers.dedupeJobsByInvoiceNo (also used on Customers list expand).
  */
 export function dedupeJobsForTransactions(jobs) {
-  const live = (jobs || []).filter((j) => j && !j._archived && !j._deleted);
-  const byInv = new Map();
-  const noInv = [];
-  for (const j of live) {
-    const inv = String(j.invoiceNo || "").trim();
-    if (!inv) {
-      noInv.push(j);
-      continue;
-    }
-    const prev = byInv.get(inv);
-    if (!prev) {
-      byInv.set(inv, j);
-      continue;
-    }
-    const score = (x) => {
-      let s = 0;
-      if (String(x.id || "").startsWith("qbo-")) s += 100;
-      s += (Array.isArray(x.payments) ? x.payments.length : 0) * 10;
-      if (x.paid) s += 5;
-      if (x.invoiceDate) s += 1;
-      return s;
-    };
-    if (score(j) > score(prev)) byInv.set(inv, j);
-  }
-  // Estimates-only jobs (no invoice) still included
-  const estOnly = noInv.filter((j) => j.estimateNo || (j.payments && j.payments.length));
-  return [...byInv.values(), ...estOnly];
+  // History only surfaces invoice/estimate/payment rows — drop bare leads.
+  return dedupeJobsByInvoiceNo(jobs).filter(
+    (j) =>
+      String(j.invoiceNo || "").trim() ||
+      j.estimateNo ||
+      (Array.isArray(j.payments) && j.payments.length)
+  );
 }
 
 export function buildCustomerTransactions(jobs, { filter = "all", sort = "new" } = {}) {

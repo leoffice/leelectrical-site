@@ -54,4 +54,45 @@ describe("groupJobsByServiceAddress", () => {
     expect(groups).toHaveLength(2);
     expect(groups.find((g) => g.address === "10 Main").jobs).toHaveLength(2);
   });
+
+  it("collapses local+qbo twins of the same invoice # under one SERVICE row", () => {
+    // Shaina Levin pattern: Inv #251719 and #251812 each twice under SERVICE.
+    const groups = groupJobsByServiceAddress([
+      {
+        id: "local-1",
+        serviceAddress: "419 Kingston Avenue",
+        invoiceNo: "251719",
+        amount: 400,
+        openBalance: 400,
+      },
+      {
+        id: "qbo-251719",
+        serviceAddress: "419 Kingston Avenue",
+        invoiceNo: "251719",
+        amount: 400,
+        openBalance: 400,
+      },
+      {
+        id: "local-2",
+        serviceAddress: "109 E 59th Street",
+        invoiceNo: "251812",
+        amount: 450,
+        openBalance: 450,
+      },
+      {
+        id: "qbo-251812",
+        serviceAddress: "109 E 59th Street",
+        invoiceNo: "251812",
+        amount: 450,
+        openBalance: 450,
+        payments: [{ amount: 0 }],
+      },
+    ]);
+    const kingston = groups.find((g) => g.address.includes("Kingston"));
+    const e59 = groups.find((g) => g.address.includes("59th"));
+    expect(kingston.jobs).toHaveLength(1);
+    expect(kingston.jobs[0].id).toBe("qbo-251719");
+    expect(e59.jobs).toHaveLength(1);
+    expect(e59.jobs[0].id).toBe("qbo-251812");
+  });
 });

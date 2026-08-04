@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   assignLinkStyles,
   buildCustomerTransactions,
+  dedupeJobsForTransactions,
   formatTxnAmount,
   linkColorForDoc,
   linkColorKeyForJob,
@@ -193,5 +194,19 @@ describe("customerTransactions", () => {
     expect(payDisp.amount).toBeTruthy();
     expect(payDisp.isOpen).toBe(false);
     expect(payDisp.amountClass).toMatch(/emerald/);
+  });
+
+  it("dedupeJobsForTransactions keeps one job per invoice # (prefer qbo-*)", () => {
+    const twins = [
+      { id: "local-a", invoiceNo: "251850", amount: 4500, openBalance: 4500 },
+      { id: "qbo-251850", invoiceNo: "251850", amount: 4500, openBalance: 4500 },
+      { id: "est-only", estimateNo: "E-1", amount: 100 },
+    ];
+    const out = dedupeJobsForTransactions(twins);
+    expect(out.filter((j) => j.invoiceNo === "251850")).toHaveLength(1);
+    expect(out.find((j) => j.invoiceNo === "251850").id).toBe("qbo-251850");
+    expect(out.some((j) => j.estimateNo === "E-1")).toBe(true);
+    const invRows = buildCustomerTransactions(twins, { filter: "invoices" });
+    expect(invRows.filter((r) => r.docNo === "251850")).toHaveLength(1);
   });
 });

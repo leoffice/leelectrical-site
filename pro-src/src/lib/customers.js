@@ -138,10 +138,53 @@ export function oldestOpenInvoiceAgeDays(jobs, nowMs = Date.now()) {
   return any ? max : null;
 }
 
+/**
+ * Score for keeping one job when several share the same invoice #.
+ * Prefer QBO-linked rows, richer payment ledgers, paid stamp, then dated invoices.
+ */
+export function scoreJobForInvoiceDedupe(job) {
+  if (!job) return -1;
+  let s = 0;
+  if (String(job.id || "").startsWith("qbo-")) s += 100;
+  if (job.qboCustomerId || job.qboInvoiceId) s += 20;
+  s += (Array.isArray(job.payments) ? job.payments.length : 0) * 10;
+  if (job.paid) s += 5;
+  if (job.invoiceDate || job.txnDate) s += 1;
+  if (job.openBalance != null && job.openBalance !== "") s += 1;
+  return s;
+}
+
+/**
+ * One live job per invoice # (local + qbo clones were doubling customer list
+ * rows — e.g. Shaina Levin Inv #251719 / #251812 twice under SERVICE).
+ * Jobs without an invoice # are kept as-is (estimates, leads).
+ * Prefer qbo-* id, then more payments / richer row.
+ */
+export function dedupeJobsByInvoiceNo(jobs) {
+  const live = (jobs || []).filter((j) => j && !j._archived && !j._deleted);
+  const byInv = new Map();
+  const noInv = [];
+  for (const j of live) {
+    const inv = String(j.invoiceNo || "").trim();
+    if (!inv) {
+      noInv.push(j);
+      continue;
+    }
+    const prev = byInv.get(inv);
+    if (!prev) {
+      byInv.set(inv, j);
+      continue;
+    }
+    if (scoreJobForInvoiceDedupe(j) > scoreJobForInvoiceDedupe(prev)) byInv.set(inv, j);
+  }
+  return [...byInv.values(), ...noInv];
+}
+
 /** Group jobs by service address for list expand. */
 export function groupJobsByServiceAddress(jobs) {
   const map = new Map();
-  for (const j of jobs || []) {
+  // Collapse local+qbo twins so SERVICE blocks show one row per invoice #.
+  for (const j of dedupeJobsByInvoiceNo(jobs)) {
     const addr =
       String(j.serviceAddress || j.address || j.location || "").trim() || "No service address";
     if (!map.has(addr)) map.set(addr, []);
@@ -152,7 +195,8 @@ export function groupJobsByServiceAddress(jobs) {
 
 /** Sum of open balances across a customer's jobs. */
 export function totalBalanceDue(jobs) {
-  return (jobs || []).reduce((s, j) => s + openBalance(j), 0);
+  // Dedupe first so twin invoice rows do not double the due amount.
+  return dedupeJobsByInvoiceNo(jobs).reduce((s, j) => s + openBalance(j), 0);
 }
 
 /** Formatted amount still owed on a job (never the invoice total). */
@@ -228,7 +272,8 @@ export function paidPct(job) {
 
 /** Customer-group totals for the Jobs list header. */
 export function customerAmountSummary(jobs) {
-  const list = jobs || [];
+  // One row per invoice # so local+qbo clones do not inflate due/invoiced/count.
+  const list = dedupeJobsByInvoiceNo(jobs);
   // Estimates are never counted in any form: invoiced/paid/due sum over
   // actual invoices only. (Estimate rows still show their own amount on their
   // row, but they contribute $0 to a customer's money totals.)
@@ -236,7 +281,7 @@ export function customerAmountSummary(jobs) {
   const invoiced = invoices.reduce((s, j) => s + invoiceTotal(j), 0);
   const paid = invoices.reduce((s, j) => s + amountPaid(j), 0);
   const due = totalBalanceDue(list);
-  const openInvoices = list.filter((j) => !j.paid && openBalance(j) > 0).length;
+  const openInvoices = list.filter((j) => openBalance(j) > 0).length;
   return { due, invoiced, paid, openInvoices, jobCount: list.length };
 }
 
