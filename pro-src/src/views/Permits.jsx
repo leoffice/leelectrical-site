@@ -50,6 +50,12 @@ import {
   healCaseProgressPatch,
 } from "../lib/permitsDeploy.js";
 import { caseStepCompletePatch } from "../lib/caseNextSteps.js";
+import {
+  listConedCustomerTodos,
+  conedTodoTapResult,
+  jobPatchFromConedCustomerTodos,
+  seedConedCustomerTodos,
+} from "../lib/conedCustomerTodos.js";
 import PaperworkApprovalSheet from "../components/PaperworkApprovalSheet.jsx";
 import ConedCreateCaseSheet from "../components/ConedCreateCaseSheet.jsx";
 import AgencyApplicationSheet from "../components/AgencyApplicationSheet.jsx";
@@ -69,6 +75,27 @@ function fmtWhen(iso) {
   const s = String(iso);
   if (s.includes("T")) return s.replace("T", " ").slice(0, 16);
   return s.slice(0, 10);
+}
+
+/** Collapsible section wrapper — everything from the top can collapse (Levi). */
+function CollapsibleSection({ title, children, defaultOpen = true, testId }) {
+  const [open, setOpen] = useState(defaultOpen);
+  return (
+    <div className="mb-4" data-testid={testId || "permits-collapsible"}>
+      <button
+        type="button"
+        className="w-full flex items-center justify-between gap-2 px-1 mb-1.5 text-left"
+        onClick={() => setOpen((o) => !o)}
+        aria-expanded={open}
+      >
+        <span className="text-[11px] font-extrabold text-slate-500 uppercase tracking-wider">
+          {title}
+        </span>
+        <span className="text-slate-400 text-xs">{open ? "▾" : "▸"}</span>
+      </button>
+      {open ? children : null}
+    </div>
+  );
 }
 
 function CaseStepChips({ steps = [], onStepTap }) {
@@ -142,10 +169,60 @@ function CaseStepChips({ steps = [], onStepTap }) {
   );
 }
 
-function CaseRow({ row, job, onOpen, onMeterApplication, onStepAction }) {
+function CustomerTodoList({ todos = [], onTap }) {
+  if (!todos.length) return null;
+  return (
+    <ul className="mt-2 space-y-1.5" data-testid="coned-customer-todos">
+      {todos.map((t) => {
+        const done = t.status === "done";
+        const blocked = t.status === "blocked";
+        return (
+          <li key={t.id || t.kind}>
+            <button
+              type="button"
+              className={
+                "w-full flex items-start gap-2 text-left text-[12px] rounded-lg px-2 py-1.5 border " +
+                (done
+                  ? "border-emerald-100 bg-emerald-50/50 text-emerald-900"
+                  : blocked
+                    ? "border-slate-100 bg-slate-50 text-slate-400"
+                    : "border-amber-100 bg-amber-50/60 text-amber-950")
+              }
+              onClick={(e) => {
+                e.stopPropagation();
+                onTap?.(t);
+              }}
+              data-testid="coned-customer-todo"
+              data-kind={t.kind}
+              data-status={t.status}
+            >
+              <span className="shrink-0 font-bold" aria-hidden>
+                {done ? "☑" : blocked ? "○" : "☐"}
+              </span>
+              <span className="min-w-0 flex-1">
+                <span className="font-semibold">{t.title}</span>
+                {t.note ? (
+                  <span className="block text-[10px] text-slate-500">{t.note}</span>
+                ) : null}
+                {t.skillReady === false ? (
+                  <span className="block text-[10px] font-bold text-slate-500">
+                    Skill not built yet
+                  </span>
+                ) : null}
+              </span>
+            </button>
+          </li>
+        );
+      })}
+    </ul>
+  );
+}
+
+function CaseRow({ row, job, onOpen, onMeterApplication, onStepAction, onCustomerTodo }) {
   const [expanded, setExpanded] = useState(false);
   const isConed = row.agency === "coned";
   const meter = job ? getMeterApplication(job) : null;
+  const customerTodos = job ? listConedCustomerTodos(job) : [];
   const dueNow = Array.isArray(row.dueNow) ? row.dueNow : [];
   const caseSteps = Array.isArray(row.caseSteps) ? row.caseSteps : [];
   // Collapsed: only due-now chips; expanded: full flow with gates
@@ -163,19 +240,25 @@ function CaseRow({ row, job, onOpen, onMeterApplication, onStepAction }) {
     >
       <button
         type="button"
-        onClick={() => {
-          if (isConed) setExpanded((v) => !v);
-          else onOpen(row.jobId);
-        }}
+        onClick={() => setExpanded((v) => !v)}
         className="w-full text-left px-4 py-3 flex items-start gap-3"
         data-testid="permit-row-toggle"
       >
         <div className="min-w-0 flex-1">
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 flex-wrap">
             <b className="truncate">{row.jobName}</b>
             {row.caseNumber ? (
               <span className="text-[11px] font-semibold text-slate-500 shrink-0">{row.caseNumber}</span>
             ) : null}
+            {isConed ? (
+              <span className="text-[10px] font-bold uppercase tracking-wide text-violet-700 bg-violet-50 px-1.5 py-0.5 rounded">
+                Con Ed
+              </span>
+            ) : (
+              <span className="text-[10px] font-bold uppercase tracking-wide text-slate-600 bg-slate-100 px-1.5 py-0.5 rounded">
+                {row.agency === "city" || row.agency === "dob" ? "DOB / City" : row.agency || "Permit"}
+              </span>
+            )}
           </div>
           {row.address ? <div className="text-xs text-slate-500 truncate">{row.address}</div> : null}
           {row.nextAction ? (
@@ -184,6 +267,13 @@ function CaseRow({ row, job, onOpen, onMeterApplication, onStepAction }) {
               {row.nextActionDate && !row.nextAction.includes(fmtWhen(row.nextActionDate))
                 ? ` · ${fmtWhen(row.nextActionDate)}`
                 : ""}
+            </div>
+          ) : null}
+          {/* Collapsed: show customer to-do checkboxes summary */}
+          {!expanded && customerTodos.length ? (
+            <div className="text-[11px] text-slate-600 mt-1">
+              To-do: {customerTodos.filter((t) => t.status === "done").length}/{customerTodos.length}{" "}
+              checked
             </div>
           ) : null}
           {showSteps.length ? <CaseStepChips steps={showSteps} onStepTap={handleStep} /> : null}
@@ -203,14 +293,24 @@ function CaseRow({ row, job, onOpen, onMeterApplication, onStepAction }) {
               {dueNow.length} due
             </span>
           ) : null}
-          {isConed ? (
-            <span className="text-slate-400 text-xs">{expanded ? "▾" : "▸"}</span>
-          ) : null}
+          <span className="text-slate-400 text-xs">{expanded ? "▾" : "▸"}</span>
         </div>
       </button>
 
-      {expanded && isConed ? (
+      {expanded ? (
         <div className="px-4 pb-4 border-t border-slate-100 pt-3 space-y-3">
+          {/* Combined Con Ed + electrical + customer to-do in one card body */}
+          {customerTodos.length ? (
+            <div>
+              <div className="text-[11px] font-extrabold text-slate-500 uppercase tracking-wide mb-1">
+                Con Ed to-do list
+              </div>
+              <CustomerTodoList
+                todos={customerTodos}
+                onTap={(t) => onCustomerTodo?.(t, job, row)}
+              />
+            </div>
+          ) : null}
           {row.recommended?.status === "due" ? (
             <button
               type="button"
@@ -231,7 +331,7 @@ function CaseRow({ row, job, onOpen, onMeterApplication, onStepAction }) {
               Open job →
             </button>
           ) : null}
-          {job && onMeterApplication ? (
+          {job && onMeterApplication && isConed ? (
             <MeterApplicationField
               job={job}
               onSelect={(value) => onMeterApplication(row.jobId, value)}
@@ -710,6 +810,26 @@ export default function Permits() {
     }
   };
 
+  /** Con Ed customer to-do checkbox tap (application / certificate / checklist). */
+  const handleCustomerTodo = async (todo, job) => {
+    if (!job?.id || !todo) return;
+    const r = conedTodoTapResult(todo, job);
+    if (!r.ok) {
+      showToast(r.message);
+      if (r.action === "skill_not_built") return;
+      if (r.action === "gated") return;
+    }
+    if (r.action === "create_application") {
+      setConedStartJob(job);
+      return;
+    }
+    if (todo.status !== "done" && todo.kind === "application_for_service") {
+      setConedStartJob(job);
+      return;
+    }
+    showToast(r.message || "OK");
+  };
+
   /** Tap a due next-step → execute the action for that case type. */
   const handleStepAction = async (step, row, job) => {
     if (!step || !job?.id) {
@@ -717,6 +837,16 @@ export default function Permits() {
       return;
     }
     const action = step.action || step.id;
+    // Electrical permit / certificate skill not built yet (Levi 2026-08-04)
+    if (
+      action === "electrical_permit" ||
+      step.id === "electrical_permit" ||
+      action === "file_electrical_permit"
+    ) {
+      const r = conedTodoTapResult({ kind: "electric_certificate", skillReady: false }, job);
+      showToast(r.message);
+      return;
+    }
     try {
       if (action === "meter_application" || step.id === "add_plp_account" || step.id === "new_meter") {
         // Expand row path: set meter app for PLP when that's the step
@@ -1254,12 +1384,13 @@ export default function Permits() {
         ) : null}
       </div>
 
-      {/* Success strip — live cases already submitted */}
+      {/* Success strip — collapsible */}
       {recentSuccesses.length ? (
-        <div className="mb-4" data-testid="permits-success-strip">
-          <div className="text-[11px] font-extrabold text-emerald-800 uppercase tracking-wider mb-1.5 px-1">
-            Cases on record
-          </div>
+        <CollapsibleSection
+          testId="permits-success-strip"
+          title={`Cases on record (${recentSuccesses.length})`}
+          defaultOpen={false}
+        >
           <div className="space-y-2">
             {recentSuccesses.map((row) => (
               <button
@@ -1278,13 +1409,8 @@ export default function Permits() {
               </button>
             ))}
           </div>
-        </div>
+        </CollapsibleSection>
       ) : null}
-
-      {/* Skill list — remaining only; learned removed (Levi clean slate) */}
-      <div className="mb-4">
-        <FunctionalitiesLockIn />
-      </div>
 
       {/* Count chips */}
       {hasAny ? (
@@ -1300,7 +1426,7 @@ export default function Permits() {
         </div>
       ) : null}
 
-      {/* Action-needed strip */}
+      {/* Open cases — combined cards (Con Ed + DOB + customer to-dos). Skills list is at bottom. */}
       {actionNeeded.length ? (
         <div className="mb-4" data-testid="permit-action-strip">
           <div className="text-[11px] font-extrabold text-red-700 uppercase tracking-wider mb-1.5 px-1">
@@ -1315,18 +1441,21 @@ export default function Permits() {
                 onOpen={open}
                 onMeterApplication={handleMeterApplication}
                 onStepAction={handleStepAction}
+                onCustomerTodo={handleCustomerTodo}
               />
             ))}
           </div>
         </div>
       ) : null}
 
-      {/* Per-agency sections */}
+      {/* Per-agency sections — collapsible headers */}
       {sections.map((sec) => (
-        <div key={sec.agency} className="mb-4" data-testid={`permit-section-${sec.agency}`}>
-          <div className="text-[11px] font-extrabold text-slate-500 uppercase tracking-wider mb-1.5 px-1">
-            {sec.label} ({sec.cases.length})
-          </div>
+        <CollapsibleSection
+          key={sec.agency}
+          testId={`permit-section-${sec.agency}`}
+          title={`${sec.label} (${sec.cases.length})`}
+          defaultOpen={sec.cases.length > 0}
+        >
           {sec.cases.length ? (
             <div className="space-y-2">
               {sec.cases.map((row) => (
@@ -1337,6 +1466,7 @@ export default function Permits() {
                   onOpen={open}
                   onMeterApplication={handleMeterApplication}
                   onStepAction={handleStepAction}
+                  onCustomerTodo={handleCustomerTodo}
                 />
               ))}
             </div>
@@ -1345,7 +1475,7 @@ export default function Permits() {
               No open {sec.label} cases.
             </div>
           )}
-        </div>
+        </CollapsibleSection>
       ))}
 
       {!hasAny && !sections.length && !queueItems.length ? (
@@ -1356,6 +1486,11 @@ export default function Permits() {
           Start a case from a job&apos;s Paperwork — it lands in the Deploy queue here.
         </div>
       ) : null}
+
+      {/* Skills list — bottom only (Levi 2026-08-04: not mid-page) */}
+      <div className="mb-4 mt-6" data-testid="permits-skills-bottom">
+        <FunctionalitiesLockIn />
+      </div>
 
       {/* Backfill confirm */}
       {confirming ? (
