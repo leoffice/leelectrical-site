@@ -7,29 +7,42 @@ import {
   buildCustomerTransactions,
   txnKindStyle,
   txnRowDisplay,
+  txnStoryLine,
 } from "../lib/customerTransactions.js";
 
 const FILTERS = [
-  { id: "open", label: "Open" },
   { id: "all", label: "All" },
+  { id: "open", label: "Open" },
   { id: "payments", label: "Payments" },
   { id: "invoices", label: "Invoices" },
   { id: "estimates", label: "Estimates" },
-  { id: "jobs", label: "Jobs" },
+  { id: "jobs", label: "Addresses" },
 ];
 
 function countKinds(rows) {
   let invoices = 0;
   let payments = 0;
   let estimates = 0;
+  let open = 0;
   const jobIds = new Set();
+  const addresses = new Set();
   for (const r of rows) {
-    if (r.kind === "invoice") invoices += 1;
-    else if (r.kind === "payment") payments += 1;
+    if (r.kind === "invoice") {
+      invoices += 1;
+      if (txnRowDisplay(r).isOpen) open += 1;
+    } else if (r.kind === "payment") payments += 1;
     else if (r.kind === "estimate") estimates += 1;
     if (r.jobId) jobIds.add(String(r.jobId));
+    if (r.address) addresses.add(String(r.address));
   }
-  return { all: rows.length, invoices, payments, estimates, jobs: jobIds.size };
+  return {
+    all: rows.length,
+    open: open + payments, // open filter includes payments
+    invoices,
+    payments,
+    estimates,
+    jobs: addresses.size || jobIds.size,
+  };
 }
 
 /** Doc # chip: color + shape (pill / square / tag) so invoices stay distinguishable. */
@@ -65,28 +78,44 @@ function DocBubble({ docNo, color, testId }) {
   );
 }
 
-/** One-line row: type · # · date · place · amount (invoice = due only). */
-function CompactRow({ row, onOpen, testId }) {
+/**
+ * Glanceable activity row (ADHD-friendly):
+ *   WHEN          STORY                         AMOUNT / status
+ *   Today         Name · paid Zelle on #123      $2,000
+ *   # bubble opens job; rest of row opens payment/detail.
+ */
+function CompactRow({ row, onOpen, onOpenJob, testId }) {
   const kind = txnKindStyle(row.kind);
   const { amount, amountClass, isOpen } = txnRowDisplay(row);
-  const mid =
-    row.kind === "payment"
-      ? [row.method || "Payment", row.address].filter(Boolean).join(" · ")
-      : row.address || "";
   const unlinkedPay = row.kind === "payment" && row.unlinked;
   const suggest = row.kind === "payment" ? row.applySuggestion : null;
+  const when = row.whenLabel || row.dateLabel || "";
+  const story = txnStoryLine(row);
+  const place = row.address || "";
+
+  const statusPill =
+    row.kind === "payment"
+      ? { text: "Paid", cls: "bg-emerald-100 text-emerald-800" }
+      : row.kind === "estimate"
+        ? { text: "Estimate", cls: "bg-amber-100 text-amber-900" }
+        : isOpen
+          ? { text: "Open", cls: "bg-red-100 text-red-800" }
+          : { text: "Paid", cls: "bg-emerald-100 text-emerald-800" };
 
   return (
     <div
       className={
-        "w-full text-left rounded-lg border overflow-hidden " +
+        "w-full text-left rounded-xl border overflow-hidden " +
         (unlinkedPay
           ? "border-amber-300 bg-amber-50 ring-1 ring-amber-200"
-          : "border-slate-100 bg-white") +
-        (isOpen ? " flex items-stretch" : "")
+          : isOpen
+            ? "border-red-100 bg-white"
+            : "border-slate-100 bg-white") +
+        " flex items-stretch"
       }
       data-open-invoice={isOpen ? "1" : "0"}
       data-unlinked-payment={unlinkedPay ? "1" : "0"}
+      data-legacy-web={row.legacyWeb ? "1" : "0"}
     >
       {isOpen ? (
         <span
@@ -94,67 +123,94 @@ function CompactRow({ row, onOpen, testId }) {
           data-testid="cust-txn-open-rail"
           aria-hidden
         />
-      ) : null}
-      <div className="flex-1 min-w-0">
-        <button
-          type="button"
-          data-testid={testId}
+      ) : (
+        <span
           className={
-            "w-full text-left px-2.5 py-1.5 " +
-            (unlinkedPay ? "active:bg-amber-100/80" : "active:bg-slate-50")
+            "w-1.5 shrink-0 self-stretch " +
+            (row.kind === "payment" ? "bg-emerald-400" : "bg-slate-200")
           }
-          onClick={() => onOpen(row)}
-        >
-          <div className="flex items-center justify-between gap-2 min-w-0">
-            <div className="flex items-center gap-1.5 min-w-0 flex-1 overflow-hidden">
-              <span
-                className={
-                  "text-[10px] font-extrabold uppercase tracking-wide shrink-0 " +
-                  (unlinkedPay ? "text-amber-800" : kind.className)
-                }
-                data-testid={"cust-txn-kind-" + row.kind}
-              >
-                {kind.label}
-              </span>
-              {row.docNo ? (
-                <DocBubble
-                  docNo={row.docNo}
-                  color={row.color}
-                  testId={
-                    row.kind === "payment"
-                      ? "cust-txn-pay-bubble-" + row.docNo
-                      : row.kind === "estimate"
-                        ? "cust-txn-est-bubble-" + row.docNo
-                        : "cust-txn-bubble-" + row.docNo
+          aria-hidden
+        />
+      )}
+      <div className="flex-1 min-w-0">
+        <div className="flex items-stretch min-w-0">
+          {/* Doc # chip → job page (Levi: colored box goes to full job) */}
+          {row.docNo ? (
+            <button
+              type="button"
+              className="shrink-0 px-2 py-2 self-center"
+              data-testid={
+                row.kind === "payment"
+                  ? "cust-txn-pay-bubble-" + row.docNo
+                  : row.kind === "estimate"
+                    ? "cust-txn-est-bubble-" + row.docNo
+                    : "cust-txn-bubble-" + row.docNo
+              }
+              title="Open job"
+              onClick={(e) => {
+                e.stopPropagation();
+                if (typeof onOpenJob === "function") onOpenJob(row);
+                else onOpen(row);
+              }}
+            >
+              <DocBubble docNo={row.docNo} color={row.color} testId={undefined} />
+            </button>
+          ) : null}
+          <button
+            type="button"
+            data-testid={testId}
+            className={
+              "flex-1 min-w-0 text-left px-2 py-2 " +
+              (unlinkedPay ? "active:bg-amber-100/80" : "active:bg-slate-50")
+            }
+            onClick={() => onOpen(row)}
+          >
+            <div className="flex items-start justify-between gap-2 min-w-0">
+              <div className="min-w-0 flex-1">
+                <div className="flex items-center gap-1.5 flex-wrap">
+                  <span
+                    className={
+                      "inline-flex items-center rounded-md px-1.5 py-0.5 text-[10px] font-extrabold " +
+                      statusPill.cls
+                    }
+                    data-testid={"cust-txn-kind-" + row.kind}
+                  >
+                    {statusPill.text}
+                  </span>
+                  {when ? (
+                    <span className="text-[11px] font-bold text-slate-500 tabular-nums shrink-0">
+                      {when}
+                    </span>
+                  ) : null}
+                  {row.legacyWeb ? (
+                    <span className="text-[9px] font-bold uppercase tracking-wide text-slate-400">
+                      Legacy
+                    </span>
+                  ) : null}
+                </div>
+                <p className="text-sm font-semibold text-slate-900 truncate mt-0.5 leading-snug">
+                  {story || kind.label}
+                </p>
+                {place ? (
+                  <p className="text-[11px] text-slate-500 truncate mt-0.5">{place}</p>
+                ) : null}
+              </div>
+              {amount ? (
+                <div
+                  className={
+                    "text-base font-extrabold tabular-nums shrink-0 leading-none pt-0.5 " +
+                    amountClass
                   }
-                />
-              ) : unlinkedPay ? (
-                <span
-                  className="inline-flex items-center px-1.5 py-0.5 text-[10px] font-extrabold rounded-full bg-amber-200 text-amber-950 ring-1 ring-amber-400 border border-amber-400 shrink-0"
-                  data-testid="cust-txn-unlinked-badge"
+                  data-testid="cust-txn-amount"
                 >
-                  No invoice
-                </span>
-              ) : null}
-              {row.dateLabel ? (
-                <span className="text-[11px] text-slate-500 tabular-nums shrink-0">{row.dateLabel}</span>
-              ) : null}
-              {mid ? (
-                <span className="text-xs text-slate-600 truncate min-w-0">{mid}</span>
+                  {amount}
+                </div>
               ) : null}
             </div>
-            {amount ? (
-              <div
-                className={"text-sm font-bold tabular-nums shrink-0 " + amountClass}
-                data-testid="cust-txn-amount"
-              >
-                {amount}
-              </div>
-            ) : null}
-          </div>
-        </button>
+          </button>
+        </div>
         {unlinkedPay && suggest?.kind === "invoice" && suggest.docNo ? (
-          <div className="px-2.5 pb-1.5">
+          <div className="px-2.5 pb-2">
             <button
               type="button"
               className="w-full rounded-lg border border-brand/40 bg-white text-brand text-[11px] font-bold py-1.5 px-2 active:bg-brand-soft"
@@ -173,7 +229,7 @@ function CompactRow({ row, onOpen, testId }) {
             </button>
           </div>
         ) : unlinkedPay && suggest?.kind === "estimate" ? (
-          <div className="px-2.5 pb-1.5">
+          <div className="px-2.5 pb-2">
             <button
               type="button"
               className="w-full rounded-lg border border-amber-400 bg-white text-amber-900 text-[11px] font-bold py-1.5 px-2 active:bg-amber-100"
@@ -202,57 +258,74 @@ export default function CustomerTransactionHistory({
   jobs,
   fromCust = "",
   onOpenRow,
-  /** Company-wide History defaults to Open so paid $0 walls don't look like fake data. */
+  /** Company-wide uses "all" (Levi 2026-08-04) — full feed, not open-only. */
   defaultFilter = "all",
+  /** Hide legacy WEB##### paid invoices from ~2014 unless turned on. */
+  hideLegacyWebDefault = true,
 }) {
   const nav = useNavigate();
   const [filter, setFilter] = useState(defaultFilter || "all");
   const [sort, setSort] = useState("new");
+  const [showLegacyWeb, setShowLegacyWeb] = useState(!hideLegacyWebDefault);
 
   // Build full list once per jobs/sort — filter tabs are free after that.
   const allRows = useMemo(
     () => buildCustomerTransactions(jobs, { filter: "all", sort }),
     [jobs, sort]
   );
-  const counts = useMemo(() => countKinds(allRows), [allRows]);
+  const scopedRows = useMemo(() => {
+    if (showLegacyWeb) return allRows;
+    return allRows.filter((r) => !r.legacyWeb);
+  }, [allRows, showLegacyWeb]);
+  const legacyCount = useMemo(
+    () => allRows.filter((r) => r.legacyWeb).length,
+    [allRows]
+  );
+  const counts = useMemo(() => countKinds(scopedRows), [scopedRows]);
   const rows = useMemo(() => {
     if (filter === "open") {
-      // Open invoices (due > 0) + recent payments — hide paid-in-full $0 noise.
-      return allRows.filter((r) => {
+      return scopedRows.filter((r) => {
         if (r.kind === "payment") return true;
         if (r.kind === "invoice") return txnRowDisplay(r).isOpen;
         return false;
       });
     }
-    if (filter === "all") return allRows;
+    if (filter === "all") return scopedRows;
     if (filter === "invoices") {
-      // Levi 2026-07-28: open (still due) first, then closed — keep date order within groups.
-      const list = allRows.filter((r) => r.kind === "invoice");
+      const list = scopedRows.filter((r) => r.kind === "invoice");
       return list.slice().sort((a, b) => {
         const ao = txnRowDisplay(a).isOpen ? 0 : 1;
         const bo = txnRowDisplay(b).isOpen ? 0 : 1;
         return ao - bo;
       });
     }
-    if (filter === "payments") return allRows.filter((r) => r.kind === "payment");
-    if (filter === "estimates") return allRows.filter((r) => r.kind === "estimate");
+    if (filter === "payments") return scopedRows.filter((r) => r.kind === "payment");
+    if (filter === "estimates") return scopedRows.filter((r) => r.kind === "estimate");
     if (filter === "jobs") {
-      // One latest activity row per job (invoices/estimates preferred over payments).
-      const byJob = new Map();
-      for (const r of allRows) {
-        if (!r.jobId) continue;
-        const prev = byJob.get(r.jobId);
+      // One latest activity row per service address (Levi: addresses, not inv dump).
+      const byAddr = new Map();
+      for (const r of scopedRows) {
+        const key = String(r.address || r.customer || r.jobId || r.id);
+        const prev = byAddr.get(key);
         if (!prev) {
-          byJob.set(r.jobId, r);
+          byAddr.set(key, r);
           continue;
         }
-        const rank = (x) => (x.kind === "invoice" ? 0 : x.kind === "estimate" ? 1 : 2);
-        if (rank(r) < rank(prev)) byJob.set(r.jobId, r);
+        const rank = (x) => (x.kind === "payment" ? 0 : x.kind === "invoice" ? 1 : 2);
+        if (rank(r) < rank(prev)) byAddr.set(key, r);
+        else if (String(r.sortDate) > String(prev.sortDate)) byAddr.set(key, r);
       }
-      return Array.from(byJob.values());
+      return Array.from(byAddr.values());
     }
-    return allRows;
-  }, [allRows, filter]);
+    return scopedRows;
+  }, [scopedRows, filter]);
+
+  const openJob = (row) => {
+    if (!row?.jobId) return;
+    const parts = ["fold=1", "focus=job"];
+    if (fromCust) parts.push("from=" + encodeURIComponent(fromCust));
+    nav("/job/" + row.jobId + "?" + parts.join("&"));
+  };
 
   const openRow = (row) => {
     // Parent can open payment/invoice sheets in-place (snappy — no full job remount).
@@ -263,11 +336,9 @@ export default function CustomerTransactionHistory({
     if (!row?.jobId) return;
     const parts = [];
     if (fromCust) parts.push("from=" + encodeURIComponent(fromCust));
-    // fold=1: collapse progress below job info; focus=job scrolls job card into view.
     parts.push("fold=1");
     parts.push("focus=job");
     if (row.kind === "payment") {
-      // Open payment card so Levi can edit/delete/reassign invoice or customer.
       parts.push("payhist=1");
       const payId = row.payment?.id;
       if (payId) parts.push("payId=" + encodeURIComponent(String(payId)));
@@ -279,10 +350,10 @@ export default function CustomerTransactionHistory({
     <div className="card px-3 py-2.5 space-y-2" data-testid="customer-txn-history">
       <div className="space-y-2" data-testid="customer-txn-panel">
         <p className="text-[11px] font-extrabold text-slate-500 uppercase tracking-wider px-0.5">
-          Transaction history
+          What happened
         </p>
-        <p className="text-[10px] text-slate-400 px-0.5 -mt-1">
-          Tap a payment to open its card — edit, reassign invoice/customer, or delete.
+        <p className="text-[10px] text-slate-400 px-0.5 -mt-1 leading-snug">
+          Newest first. Tap the colored # for the full job. Tap the rest for the payment or invoice card.
         </p>
         <div className="flex flex-wrap items-center gap-1.5">
           {FILTERS.map((f) => {
@@ -331,13 +402,25 @@ export default function CustomerTransactionHistory({
             </button>
           </div>
         </div>
+        {legacyCount > 0 ? (
+          <label className="flex items-center gap-2 text-[11px] text-slate-500 font-semibold px-0.5 cursor-pointer">
+            <input
+              type="checkbox"
+              className="rounded border-slate-300"
+              checked={showLegacyWeb}
+              onChange={(e) => setShowLegacyWeb(e.target.checked)}
+              data-testid="cust-txn-show-legacy-web"
+            />
+            Show old WEB# invoices ({legacyCount}) — paid 2014 QBO web numbers
+          </label>
+        ) : null}
 
         {rows.length === 0 ? (
           <p className="text-xs text-slate-400 text-center py-3" data-testid="customer-txn-empty">
             No transactions match this filter.
           </p>
         ) : (
-          <div className="space-y-1" data-testid="customer-txn-list">
+          <div className="space-y-1.5" data-testid="customer-txn-list">
             {rows.map((row) => {
               const testId =
                 row.kind === "invoice"
@@ -347,7 +430,15 @@ export default function CustomerTransactionHistory({
                     : row.kind === "estimate"
                       ? "cust-txn-est-" + row.docNo
                       : "cust-txn-" + row.id;
-              return <CompactRow key={row.id} row={row} onOpen={openRow} testId={testId} />;
+              return (
+                <CompactRow
+                  key={row.id}
+                  row={row}
+                  onOpen={openRow}
+                  onOpenJob={openJob}
+                  testId={testId}
+                />
+              );
             })}
           </div>
         )}

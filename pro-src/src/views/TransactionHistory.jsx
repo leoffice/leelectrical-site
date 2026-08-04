@@ -38,16 +38,17 @@ export default function TransactionHistory() {
   return (
     <div className="space-y-3" data-testid="company-txn-history-page">
       <div>
-        <h1 className="text-xl font-extrabold text-slate-900 tracking-tight">Transaction history</h1>
-        <p className="text-sm text-slate-500 font-semibold mt-0.5">
-          Every payment, invoice, and estimate across the company. Filter and open a row for details.
+        <h1 className="text-xl font-extrabold text-slate-900 tracking-tight">What just happened</h1>
+        <p className="text-sm text-slate-500 font-semibold mt-0.5 leading-snug">
+          All company activity — newest first. Colored # opens the job. Row opens the payment or invoice.
         </p>
       </div>
       <CustomerTransactionHistory
         jobs={allJobs}
         fromCust=""
         onOpenRow={openTxnRow}
-        defaultFilter="open"
+        defaultFilter="all"
+        hideLegacyWebDefault
       />
       {paySheet && payJob ? (
         <PaymentHistorySheet

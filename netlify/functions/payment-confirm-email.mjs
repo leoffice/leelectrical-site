@@ -79,6 +79,7 @@ export async function sendPaymentConfirmEmail({
   balance,
   ref,
   payDate,
+  viewLink: viewLinkIn,
 }) {
   const idk = ref
     ? `pay-confirm:${invoiceNo}:${ref}`
@@ -98,12 +99,42 @@ export async function sendPaymentConfirmEmail({
   const apiKey = String(process.env.RESEND_API_KEY || "").trim();
   const from = resolveFromAddress();
 
+  // Prefer caller-supplied pay landing link; else mint from live job when possible.
+  let viewLink = String(viewLinkIn || "").trim();
+  if (!viewLink && jobId) {
+    try {
+      const { buildEmailPayLandingPayload, mintShortPayLink } = await import("./lib/payLandingLink.mjs");
+      const job = (await loadJob(jobId)) || {};
+      const inv = String(invoiceNo || job.invoiceNo || "").trim();
+      const bal =
+        balanceNow != null && Number.isFinite(Number(balanceNow))
+          ? Number(balanceNow)
+          : 0;
+      const payload = buildEmailPayLandingPayload({
+        job: { ...job, invoiceNo: inv, openBalance: bal },
+        docData: {
+          docNumber: inv,
+          amountDue: bal,
+          billTo: { name: job.customer || "", email: customerEmail },
+          company: { name: job.companyName || "BLZ Electric Inc." },
+        },
+        email: customerEmail,
+        cardknoxUrl: "",
+        kind: "invoice",
+      });
+      viewLink = (await mintShortPayLink(payload)) || "";
+    } catch (err) {
+      console.warn("[payment-confirm-email] pay link mint failed", err?.message || err);
+    }
+  }
+
   const { subject, html, text } = buildPaymentConfirmEmail({
     firstName: first,
     invoiceNo,
     amountPaid: amount,
     balanceNow,
     payDate,
+    viewLink,
   });
 
   const meta = {

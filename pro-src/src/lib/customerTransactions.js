@@ -125,24 +125,102 @@ export function shortTxnDate(raw) {
   return s;
 }
 
+/** Normalize any date-ish value to sortable YYYY-MM-DD (or empty). */
+export function normalizeSortDate(raw) {
+  const s = String(raw || "").trim();
+  if (!s) return "";
+  // ISO or ISO-ish
+  const iso = s.match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if (iso) return `${iso[1]}-${iso[2]}-${iso[3]}`;
+  // US m/d/yyyy
+  const us = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{2,4})$/);
+  if (us) {
+    let y = us[3];
+    if (y.length === 2) y = (Number(y) > 50 ? "19" : "20") + y;
+    return `${y}-${us[1].padStart(2, "0")}-${us[2].padStart(2, "0")}`;
+  }
+  // epoch ms / seconds
+  const n = Number(s);
+  if (Number.isFinite(n) && n > 1e11) {
+    try {
+      return new Date(n).toISOString().slice(0, 10);
+    } catch {
+      return "";
+    }
+  }
+  if (Number.isFinite(n) && n > 1e9 && n < 1e11) {
+    try {
+      return new Date(n * 1000).toISOString().slice(0, 10);
+    } catch {
+      return "";
+    }
+  }
+  return "";
+}
+
 function invoiceSortDate(job) {
   return (
-    job?.invoiceDate ||
-    job?.status?.Invoiced?.d ||
-    job?.status?.Invoice?.d ||
-    job?.updatedAt ||
+    normalizeSortDate(job?.invoiceDate) ||
+    normalizeSortDate(job?.status?.Invoiced?.d) ||
+    normalizeSortDate(job?.status?.Invoice?.d) ||
+    normalizeSortDate(job?.status?.Paid?.d) ||
+    normalizeSortDate(job?.updatedAt) ||
     ""
   );
 }
 
 function estimateSortDate(job) {
   return (
-    job?.estimateDate ||
-    job?.status?.Estimate?.d ||
-    job?.status?.Estimated?.d ||
-    job?.updatedAt ||
+    normalizeSortDate(job?.estimateDate) ||
+    normalizeSortDate(job?.status?.Estimate?.d) ||
+    normalizeSortDate(job?.status?.Estimated?.d) ||
+    normalizeSortDate(job?.updatedAt) ||
     ""
   );
+}
+
+/** True for legacy QBO web-form doc numbers (WEB000024) — real paid history from ~2014. */
+export function isLegacyWebDoc(docNo) {
+  return /^WEB\d+/i.test(String(docNo || "").trim());
+}
+
+/** Relative time for ADHD glance: "today", "3d ago", "Jul 22", "2014". */
+export function relativeTxnWhen(sortDate, now = new Date()) {
+  const d = normalizeSortDate(sortDate);
+  if (!d) return "";
+  try {
+    const then = new Date(d + "T12:00:00");
+    const ms = now.getTime() - then.getTime();
+    const days = Math.floor(ms / 86400000);
+    if (days <= 0) return "Today";
+    if (days === 1) return "Yesterday";
+    if (days < 14) return days + "d ago";
+    if (then.getFullYear() === now.getFullYear()) {
+      return then.toLocaleDateString("en-US", { month: "short", day: "numeric" });
+    }
+    return then.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
+  } catch {
+    return shortTxnDate(d);
+  }
+}
+
+/** One-line story for the row: what happened (ADHD-friendly). */
+export function txnStoryLine(row) {
+  if (!row) return "";
+  const cust = String(row.customer || row.job?.customer || "").trim();
+  if (row.kind === "payment") {
+    const method = row.method || "Payment";
+    const inv = row.docNo ? ` on #${row.docNo}` : "";
+    return [cust, `paid ${method}${inv}`].filter(Boolean).join(" · ");
+  }
+  if (row.kind === "invoice") {
+    const { isOpen } = txnRowDisplay(row);
+    return [cust, isOpen ? "invoice open" : "invoice paid"].filter(Boolean).join(" · ");
+  }
+  if (row.kind === "estimate") {
+    return [cust, "estimate"].filter(Boolean).join(" · ");
+  }
+  return cust;
 }
 
 /**
@@ -165,6 +243,8 @@ export function buildCustomerTransactions(jobs, { filter = "all", sort = "new" }
       ? styleMap.get(familyKey) || linkColorForDoc(familyKey)
       : defaultStyle;
 
+    const customer = String(j.customer || j.businessName || "").trim();
+
     if (j.invoiceNo) {
       const total = invoiceTotal(j);
       const due = openBalance(j);
@@ -175,11 +255,14 @@ export function buildCustomerTransactions(jobs, { filter = "all", sort = "new" }
         sortDate: String(dateRaw || ""),
         jobId: j.id,
         job: j,
+        customer,
         docNo: String(j.invoiceNo),
         address,
         total,
         due,
         dateLabel: shortTxnDate(dateRaw),
+        whenLabel: relativeTxnWhen(dateRaw),
+        legacyWeb: isLegacyWebDoc(j.invoiceNo),
         color: familyColor,
       });
     }
@@ -192,18 +275,21 @@ export function buildCustomerTransactions(jobs, { filter = "all", sort = "new" }
         sortDate: String(dateRaw || ""),
         jobId: j.id,
         job: j,
+        customer,
         docNo: String(j.estimateNo),
         address,
         total: invoiceTotal(j),
         due: 0,
         dateLabel: shortTxnDate(dateRaw),
+        whenLabel: relativeTxnWhen(dateRaw),
+        legacyWeb: isLegacyWebDoc(j.estimateNo),
         // Same bubble color+shape as the invoice when linked
         color: familyColor,
       });
     }
 
     for (const p of normalizePayments(j)) {
-      const dateRaw = p.date || "";
+      const dateRaw = normalizeSortDate(p.date) || String(p.date || "").trim();
       const unlinked = isPaymentUnlinked(j, p);
       const docNo = paymentInvoiceDocNo(j, p);
       rows.push({
@@ -212,12 +298,15 @@ export function buildCustomerTransactions(jobs, { filter = "all", sort = "new" }
         sortDate: String(dateRaw || ""),
         jobId: j.id,
         job: j,
+        customer,
         payment: p,
         amount: p.amount,
         method: normalizePaymentMethod(p.method, { note: p.note, ref: p.ref }),
         docNo,
         address,
         dateLabel: shortTxnDate(dateRaw),
+        whenLabel: relativeTxnWhen(dateRaw),
+        legacyWeb: false,
         // Unlinked: muted slate so amount green still pops; whole card tinted in UI.
         color: unlinked ? { bg: "bg-slate-100", text: "text-slate-500", ring: "ring-slate-200", border: "border-slate-300", shape: "pill" } : familyColor,
         unlinked,
@@ -239,16 +328,26 @@ export function buildCustomerTransactions(jobs, { filter = "all", sort = "new" }
   else if (filter === "estimates") list = rows.filter((r) => r.kind === "estimate");
 
   list = list.slice().sort((a, b) => {
-    const da = String(a.sortDate || "");
-    const db = String(b.sortDate || "");
+    const da = normalizeSortDate(a.sortDate) || String(a.sortDate || "");
+    const db = normalizeSortDate(b.sortDate) || String(b.sortDate || "");
+    // Dated rows always beat undated; undated sink to the bottom on "newest"
+    // (was floating undated + WEB# to the top — looked like fake new invoices).
     if (da && db && da !== db) {
       return sort === "old" ? da.localeCompare(db) : db.localeCompare(da);
     }
-    if (da && !db) return sort === "old" ? -1 : 1;
-    if (!da && db) return sort === "old" ? 1 : -1;
-    // Stable secondary: kind then doc #
-    const ka = a.kind + ":" + (a.docNo || a.id);
-    const kb = b.kind + ":" + (b.docNo || b.id);
+    if (da && !db) return -1; // dated before undated
+    if (!da && db) return 1;
+    // Prefer modern numeric doc #s over legacy WEB##### when dates tie / missing
+    const legA = a.legacyWeb ? 1 : 0;
+    const legB = b.legacyWeb ? 1 : 0;
+    if (legA !== legB) return legA - legB;
+    // Payments slightly before invoices on same day (activity feed feel)
+    const rank = (k) => (k === "payment" ? 0 : k === "invoice" ? 1 : 2);
+    const ra = rank(a.kind);
+    const rb = rank(b.kind);
+    if (ra !== rb) return ra - rb;
+    const ka = String(a.docNo || a.id);
+    const kb = String(b.docNo || b.id);
     return sort === "old" ? ka.localeCompare(kb) : kb.localeCompare(ka);
   });
 
