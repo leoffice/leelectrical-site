@@ -1211,7 +1211,21 @@ export function canAutoApply(insight, job, now = new Date()) {
   if (isPastAppointmentInsight(insight, now)) return false;
   // Completed inspections: auto-update paperwork only (still notify).
   // New appointment sets require Levi's Approve — no silent calendar create.
-  return outcome === "completed";
+  if (outcome === "completed") return true;
+  // Levi 2026-08-04: open Con Ed cases must auto-link to the matched job
+  // (case number on paperwork) without waiting for Approve — no calendar.
+  if (
+    (insight.agency === "coned" || outcome === "acknowledgment") &&
+    (outcome === "acknowledgment" ||
+      outcome === "other" ||
+      /acknowledgment|status update|to-?do list|service layout|service date/i.test(
+        insight?.source?.subject || insight?.summary || ""
+      ))
+  ) {
+    // High-confidence address match only — never silent-link weak matches.
+    return (insight.jobMatchScore || 0) >= AUTO_APPLY_MIN_SCORE;
+  }
+  return false;
 }
 
 /**

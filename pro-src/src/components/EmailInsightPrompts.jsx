@@ -27,6 +27,10 @@ import {
   buildCalendarPayload,
   cancelEmailInsightAppointment,
 } from "../lib/applyEmailInsight.js";
+import {
+  collectOpenConedCasesFromInsights,
+  planConedCaseJobLinks,
+} from "../lib/conedCaseLink.js";
 import { shouldSuppressPrompts, beginPromptWorkPause } from "../lib/followUpReminders.js";
 import { isScreenCovered, subscribeSheets } from "../lib/sheetRegistry.js";
 import { findEventForInsight, stashCalendarPick } from "../lib/calendarNavigate.js";
@@ -344,6 +348,7 @@ export default function EmailInsightPrompts() {
     patchEmailInsight,
     enqueue,
     patchAndSave,
+    createJob,
     appendLocalEvent,
     removeLocalEvent,
     pullCalendarNow,
@@ -747,6 +752,51 @@ export default function EmailInsightPrompts() {
     pullCalendarNow,
     refreshEmailInsights,
   ]);
+
+  // Levi 2026-08-04: open Con Ed MC cases auto-link to matched jobs by address
+  // (e.g. 1127 Lincoln Pl). If no job exists, create one and attach the case.
+  const caseLinkRan = useRef(false);
+  useEffect(() => {
+    if (IS_TEST || loading || !jobs?.length || !patchAndSave) return;
+    if (caseLinkRan.current) return;
+    if (!emailInsights?.length) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const cases = collectOpenConedCasesFromInsights(emailInsights);
+        if (!cases.length) return;
+        const plan = planConedCaseJobLinks({ jobs, cases });
+        if (!plan.links.length && !plan.creates.length) return;
+        caseLinkRan.current = true;
+        for (const link of plan.links) {
+          if (cancelled) break;
+          await patchAndSave(link.jobId, link.patch);
+        }
+        if (typeof createJob === "function") {
+          for (const c of plan.creates) {
+            if (cancelled) break;
+            try {
+              await createJob(c.fields);
+            } catch {
+              /* leave unlinked — next open retries */
+            }
+          }
+        }
+        if (plan.links.length || plan.creates.length) {
+          showToast?.(
+            plan.links.length
+              ? `Linked ${plan.links.length} Con Ed case${plan.links.length === 1 ? "" : "s"} to jobs`
+              : `Created job for open Con Ed case`
+          );
+        }
+      } catch {
+        caseLinkRan.current = false;
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [loading, jobs, emailInsights, patchAndSave, createJob, showToast]);
 
   useEffect(() => {
     if (IS_TEST || loading) return;
