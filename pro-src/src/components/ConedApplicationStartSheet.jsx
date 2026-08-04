@@ -3,9 +3,16 @@
 // Levi 2026-08-02 (refine): meter setup = ONE field (meter title).
 // Then Create Application → Fill up yourself | Email application to customer.
 // After email → only "Sent email, done." (no long link, no Copy link)
+//
+// Levi 2026-08-04: email to field + keep/once policy (same as invoice/estimate send).
 import React, { useState } from "react";
 import Sheet from "./Sheet.jsx";
 import { requestCustomerFill } from "../lib/agencyForms/conedIntake.js";
+import {
+  EMAIL_POLICY_KEEP,
+  EMAIL_POLICY_ONCE,
+  sendEmailDiffersFromCustomer,
+} from "../lib/sendDocConfirm.js";
 
 const inputCls =
   "w-full rounded-xl border border-slate-300 px-3 py-2.5 text-[15px] focus:outline-none focus:ring-2 focus:ring-emerald-500";
@@ -34,7 +41,14 @@ export default function ConedApplicationStartSheet({ job, onClose, onFill, onSav
   const [err, setErr] = useState("");
   const [sentOk, setSentOk] = useState(false);
 
-  const customerEmail = String(job?.email || job?.customerEmail || "").trim();
+  const jobEmail = String(job?.email || job?.customerEmail || "").trim();
+  // Editable send-to (default job email). Policy when different from saved job email.
+  const [sendTo, setSendTo] = useState(jobEmail);
+  const [emailPolicy, setEmailPolicy] = useState("");
+
+  const differs = sendEmailDiffersFromCustomer(sendTo, jobEmail);
+  const emailNeedsPolicy =
+    differs && emailPolicy !== EMAIL_POLICY_KEEP && emailPolicy !== EMAIL_POLICY_ONCE;
 
   const setMeterTitle = (i, value) => {
     const title = value;
@@ -72,37 +86,49 @@ export default function ConedApplicationStartSheet({ job, onClose, onFill, onSav
       setErr("Add a meter title for each meter first.");
       return;
     }
-    if (!customerEmail) {
-      setErr("This job needs a customer email before you can send the application.");
+    const to = String(sendTo || "").trim();
+    if (!to || !to.includes("@")) {
+      setErr("Enter a customer email before you can send the application.");
+      return;
+    }
+    if (emailNeedsPolicy) {
+      setErr("Choose whether to keep this email on the job or use it once.");
       return;
     }
     const list = cleanMeters();
     setBusy(true);
     setErr("");
     try {
-      const r = await requestCustomerFill({ job, meters: list, to: customerEmail });
+      const r = await requestCustomerFill({ job, meters: list, to });
       if (!r.ok) {
         setErr("Could not email the customer: " + (r.error || "unknown error"));
         return;
       }
       if (!r.emailed) {
         setErr(
-          customerEmail
+          to
             ? `Email didn't go out (${r.emailError || "no email service"}). Try again or fill it yourself.`
             : "This job has no customer email."
         );
         return;
       }
-      persistMeters(list);
+      // Keep on job/customer when same as saved OR user chose Keep this email.
+      const keepEmail =
+        !sendEmailDiffersFromCustomer(to, jobEmail) || emailPolicy === EMAIL_POLICY_KEEP;
+      const jobPatch = keepEmail ? { email: to } : {};
       onSave?.({
+        ...jobPatch,
         paperwork: {
           coned: {
+            meters: list,
+            enabled: true,
             applicationRequest: {
               sentAt: new Date().toISOString(),
-              to: customerEmail,
+              to,
               link: r.link,
               emailed: true,
               meters: list,
+              emailPolicy: keepEmail ? EMAIL_POLICY_KEEP : EMAIL_POLICY_ONCE,
             },
           },
         },
@@ -209,22 +235,84 @@ export default function ConedApplicationStartSheet({ job, onClose, onFill, onSav
             <div className="font-extrabold text-emerald-800 text-[15px]">Fill up yourself</div>
             <div className="text-xs text-slate-600 mt-0.5">Fill the application here now.</div>
           </button>
-          <button
-            type="button"
-            className="w-full rounded-2xl border-2 border-slate-300 bg-white p-4 text-left disabled:opacity-60"
-            onClick={chooseSend}
-            disabled={busy}
-            data-testid="coned-start-send"
+
+          <div
+            className="w-full rounded-2xl border-2 border-slate-300 bg-white p-4 space-y-3"
+            data-testid="coned-start-send-panel"
           >
-            <div className="font-extrabold text-slate-800 text-[15px]">
-              {busy ? "Sending…" : "Email application to customer"}
+            <div>
+              <div className="font-extrabold text-slate-800 text-[15px]">Email application to customer</div>
+              <div className="text-xs text-slate-600 mt-0.5">
+                Sends a personal prefilled link. Choose the address below.
+              </div>
             </div>
-            <div className="text-xs text-slate-600 mt-0.5">
-              {customerEmail
-                ? `Emails ${customerEmail} a personal prefilled link.`
-                : "Needs a customer email on this job."}
-            </div>
-          </button>
+            <label className="block text-[11px] font-bold text-slate-500 uppercase tracking-wide">
+              Send to
+            </label>
+            <input
+              className={inputCls}
+              type="email"
+              inputMode="email"
+              autoComplete="email"
+              autoCorrect="off"
+              autoCapitalize="none"
+              spellCheck={false}
+              value={sendTo}
+              onChange={(e) => {
+                setSendTo(e.target.value);
+                setEmailPolicy("");
+                setErr("");
+              }}
+              placeholder="customer@email.com"
+              data-testid="coned-start-send-email"
+            />
+            {differs ? (
+              <div
+                className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-3"
+                data-testid="coned-start-email-policy"
+              >
+                <p className="text-sm font-semibold text-amber-900 mb-2">
+                  Different from the customer&apos;s saved email. Keep it or use once?
+                </p>
+                <div className="grid grid-cols-2 gap-2">
+                  <button
+                    type="button"
+                    className={`btn !py-2 text-sm ${
+                      emailPolicy === EMAIL_POLICY_KEEP
+                        ? "bg-brand text-white"
+                        : "bg-white border border-amber-200 text-slate-800"
+                    }`}
+                    onClick={() => setEmailPolicy(EMAIL_POLICY_KEEP)}
+                    data-testid="coned-start-email-keep"
+                  >
+                    Keep this email
+                  </button>
+                  <button
+                    type="button"
+                    className={`btn !py-2 text-sm ${
+                      emailPolicy === EMAIL_POLICY_ONCE
+                        ? "bg-brand text-white"
+                        : "bg-white border border-amber-200 text-slate-800"
+                    }`}
+                    onClick={() => setEmailPolicy(EMAIL_POLICY_ONCE)}
+                    data-testid="coned-start-email-once"
+                  >
+                    Use it once
+                  </button>
+                </div>
+              </div>
+            ) : null}
+            <button
+              type="button"
+              className="btn bg-slate-800 text-white w-full !py-2.5 text-sm font-extrabold disabled:opacity-60"
+              onClick={chooseSend}
+              disabled={busy}
+              data-testid="coned-start-send"
+            >
+              {busy ? "Sending…" : "Send application email"}
+            </button>
+          </div>
+
           {err ? <p className="text-xs font-bold text-red-600">{err}</p> : null}
           <button
             type="button"

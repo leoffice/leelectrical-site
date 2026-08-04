@@ -2002,7 +2002,12 @@ export default function JobDetail() {
           job={job}
           onClose={() => setSheet(null)}
           onFill={() => setSheet({ kind: "conedApp" })}
-          onSave={(patch) => patchJob(id, patch)}
+          onSave={(patch) => {
+            // Keep email / applicationRequest immediately so Keep-this-email sticks
+            // and a refresh does not lose the send record.
+            if (patchAndSave) patchAndSave(id, patch);
+            else patchJob(id, patch);
+          }}
         />
       )}
       {sheet?.kind === "conedApp" && (
