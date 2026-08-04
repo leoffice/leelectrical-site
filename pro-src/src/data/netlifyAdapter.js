@@ -240,6 +240,18 @@ export function createNetlifyAdapter() {
     },
 
     async getJob(id) {
+      // Prefer full record from store (list is a slim projection — PERFORMANCE_RULES)
+      try {
+        const full = await http("jobsdata", { op: "get", id: String(id || "") });
+        if (full?.job) {
+          const state = await httpConditional("state").catch(() => ({ ov: {} }));
+          const ov = (state && state.ov) || {};
+          const merged = mergeJobs([full.job], ov);
+          return merged.find((j) => String(j.id) === String(id)) || full.job;
+        }
+      } catch {
+        /* fall through */
+      }
       const jobs = await this.listJobs();
       return jobs.find((j) => String(j.id) === String(id)) || null;
     },

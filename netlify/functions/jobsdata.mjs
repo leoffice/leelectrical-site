@@ -6,10 +6,84 @@ import { conditionalJson, optionsResponse } from "./lib/etag.mjs";
 // Live jobs dataset synced from QuickBooks + Google Calendar by a scheduled
 // Dispatch job (overnight + midday) and on demand. The dashboard GETs this to
 // render real jobs; "Sync now" POSTs op:"request" which the sync job fulfills.
-// GET  -> { jobs:[...], syncedAt, request, ts }
+// GET  -> { jobs:[...], syncedAt, request, ts, view:"list"|"full" }
+//         Default view=list: slim projection (Levi 2026-08-04 lag guardrails).
+//         ?view=full for the full blob (sync tools / emergency).
 // POST -> { op:"set", jobs:[...] }  (sync job writes the dataset)
-//         { op:"request" }          (dashboard asks for a fresh pull)
+//         { op:"merge", jobs:[...] }
+//         { op:"request" }
+//         { op:"get", id } → { ok, job } full single job for detail hydrate
 const KEY = "jobsdata-v1";
+
+/** Fields kept on the list projection — no multi-MB line arrays. */
+const SLIM_KEYS = [
+  "id",
+  "customer",
+  "customerName",
+  "personName",
+  "businessName",
+  "email",
+  "phone",
+  "address",
+  "serviceAddress",
+  "billingAddress",
+  "title",
+  "description",
+  "amount",
+  "openBalance",
+  "paid",
+  "invoiceNo",
+  "estimateNo",
+  "status",
+  "followUp",
+  "calEventId",
+  "customerId",
+  "qboCustomerId",
+  "parentCustomerId",
+  "paymentBaseline",
+  "amountWhenBaselined",
+  "_fromEstimateGenerator",
+  "_estimator",
+  "_savedAt",
+  "_version",
+  "version",
+  "estimateQboId",
+  "estimateSyncedAt",
+  "estimateDocSource",
+  "paperwork",
+  "permits",
+  "payment",
+];
+
+/**
+ * Project a job for list/poll payloads. Strips invoice/estimate line arrays and
+ * caps payment history so 4k jobs stay under ~1–2 MB instead of ~7–20 MB.
+ * Full lines hydrate via POST op:get on job detail (PERFORMANCE_RULES §1).
+ */
+export function slimJob(job) {
+  if (!job || typeof job !== "object") return job;
+  const out = {};
+  for (const k of SLIM_KEYS) {
+    if (job[k] !== undefined) out[k] = job[k];
+  }
+  // Keep last few payments for list chips; not the full ledger
+  if (Array.isArray(job.payments) && job.payments.length) {
+    out.payments = job.payments.slice(0, 4);
+    out._paymentsTruncated = job.payments.length > 4;
+  }
+  // Mark slim so client can re-hydrate detail
+  out._listProjection = true;
+  return out;
+}
+
+export function slimJobsDoc(doc) {
+  if (!doc || !Array.isArray(doc.jobs)) return doc;
+  return {
+    ...doc,
+    view: "list",
+    jobs: doc.jobs.map(slimJob),
+  };
+}
 
 function json(o, status = 200) {
   return new Response(JSON.stringify(o), {
@@ -38,6 +112,10 @@ export default async (req) => {
     let b = {};
     try { b = await req.json(); } catch (e) {}
     const doc = await load(store);
+    if (b.op === "get" && b.id) {
+      const job = (doc.jobs || []).find((j) => j && String(j.id) === String(b.id)) || null;
+      return json({ ok: true, job, ts: doc.ts || 0 });
+    }
     if (b.op === "set" && Array.isArray(b.jobs)) {
       doc.jobs = b.jobs;
       doc.syncedAt = Date.now();
@@ -62,7 +140,12 @@ export default async (req) => {
     await rotateJsonBackup(store, KEY, doc);
     return json(doc);
   }
-  // Conditional GET: multi-MB blob — 304 when the client already holds this ts.
+  // Conditional GET: list projection by default (lag guardrails, Levi 2026-08-04)
   const doc = await load(store);
-  return conditionalJson(req, doc, { prefix: "j", ts: doc.ts || doc.syncedAt || 0 });
+  const url = new URL(req.url || "https://local/jobsdata");
+  const view = (url.searchParams.get("view") || "list").toLowerCase();
+  const payload = view === "full" ? { ...doc, view: "full" } : slimJobsDoc(doc);
+  // Separate ETag prefix for list vs full so clients don't mix caches
+  const prefix = view === "full" ? "jf" : "jl";
+  return conditionalJson(req, payload, { prefix, ts: doc.ts || doc.syncedAt || 0 });
 };
