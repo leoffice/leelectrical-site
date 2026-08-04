@@ -110,11 +110,20 @@ export function getDeployReadiness(job = {}, { kind = "new_meter" } = {}) {
       }
     }
   } else if (k === "new_meter" || k === "new_application" || k === "meter") {
-    if (!caseNumber && !hasFormA) {
+    // Levi 2026-08-04: Ready only when Form A file is actually ready (not case alone).
+    // 1337 New Meter must not show Ready without completed application in group/tab.
+    if (!hasFormA) {
       missing.push({
-        id: "form_a_or_case",
-        label: "Con Ed case number or completed Form A application",
+        id: "form_a",
+        label: "Completed Form A application (file ready / saved)",
         fix: "create_application",
+      });
+    }
+    if (!caseNumber) {
+      missing.push({
+        id: "case_number",
+        label: "Con Ed case number to attach the meter",
+        fix: "job",
       });
     }
   } else if (k === "load_letter") {
@@ -267,10 +276,12 @@ export function queueItemCanDeploy(item = {}) {
   if (status === "awaiting_approval" || status === "need_info" || status === "failed") {
     return false;
   }
-  // Hard blockers (address / Form A) — soft draft missing fields still allow Deploy
+  // Hard blockers (address / Form A / case) — soft draft missing fields still allow Deploy
   // so createCaseReady can surface the full questionnaire list.
   const hardMissing = (item.missing || item.readiness?.missing || []).filter((m) =>
-    ["service_address", "form_a_or_case", "case_or_address"].includes(m.id)
+    ["service_address", "form_a", "form_a_or_case", "case_number", "case_or_address"].includes(
+      m.id
+    )
   );
   if (hardMissing.length) return false;
   if (item.source === "fleet") {
@@ -530,6 +541,8 @@ export function buildDeployQueueItems({ jobs = [], caseRuns = [] } = {}) {
   }
 
   const items = [];
+  /** One fleet row per job+kind (never stack three fails for same address). */
+  const fleetSeenKey = new Set();
 
   for (const run of caseRuns || []) {
     if (!run || run.dismissed) continue;
@@ -538,9 +551,18 @@ export function buildDeployQueueItems({ jobs = [], caseRuns = [] } = {}) {
     const job = jobsById.get(run.jobId) || null;
     // Failed-when-case-exists (607 ×3 Failed MC-941793) — hide noise
     if (fleetRunIsSupersededSuccess(run, job, caseRuns)) continue;
+    const kindKey = s(run.type || "create_case").toLowerCase();
+    const dedupeKey = `${s(run.jobId)}|${kindKey}|${s(run.status).toLowerCase()}`;
+    // Prefer live/active over failed when multiple remain
+    if (fleetSeenKey.has(dedupeKey)) continue;
+    // Also collapse any second row for same job+kind regardless of status noise
+    const jobKindKey = `${s(run.jobId)}|${kindKey}`;
+    if (fleetSeenKey.has(jobKindKey) && s(run.status).toLowerCase() === "failed") continue;
+    fleetSeenKey.add(dedupeKey);
+    fleetSeenKey.add(jobKindKey);
     const disp = caseRunDisplay(run, job);
     const readiness = getDeployReadiness(job || {}, {
-      kind: s(run.type) === "create_case" ? "new_case" : s(run.type) || "new_case",
+      kind: kindKey === "create_case" ? "new_case" : kindKey || "new_case",
     });
     items.push({
       id: run.id,
@@ -586,20 +608,48 @@ export function buildDeployQueueItems({ jobs = [], caseRuns = [] } = {}) {
   for (const job of jobs || []) {
     for (const todo of listPaperworkTodos(job)) {
       if (!todo || todo.status === "done" || todo.status === "removed") continue;
-      // New-meter todos only when hard-ready to deploy (no silent Ready without Form A/case)
-      if (
-        (todo.kind === "new_meter" || todo.source === "meter_application") &&
-        !isReadyToEnqueueDeploy(job, { kind: "new_meter" })
-      ) {
+      const isMeterTodo =
+        todo.kind === "new_meter" || todo.source === "meter_application";
+      const todoKind = isMeterTodo
+        ? "new_meter"
+        : todo.kind === "file_electrical_permit"
+          ? "electrical_permit"
+          : s(todo.kind) || "new_meter";
+      const readiness = getDeployReadiness(job, { kind: todoKind });
+      // New-meter: if not Ready, still show Need info (don't silent-drop with false Ready)
+      if (isMeterTodo && !readiness.ready) {
+        const title =
+          s(todo.title) ||
+          formatDeployTitle({
+            kind: "New Meter",
+            agency: "Con Edison",
+            serviceAddress: s(job.serviceAddress || job.address),
+          });
+        items.push({
+          id: `todo:${job.id}:${todo.id}`,
+          source: "todo",
+          jobId: job.id,
+          job,
+          todo,
+          title,
+          subtitle:
+            "Missing: " +
+            readiness.missing.map((m) => m.label).join(", "),
+          requestShort: "",
+          serviceAddress: s(job.serviceAddress || job.address),
+          kind: "New Meter",
+          agency: "Con Edison",
+          status: "need_info",
+          readiness,
+          missing: readiness.missing,
+          removable: true,
+          expandable: true,
+        });
         continue;
       }
-      const todoKind =
-        todo.kind === "new_meter" || todo.source === "meter_application"
-          ? "new_meter"
-          : todo.kind === "file_electrical_permit"
-            ? "electrical_permit"
-            : s(todo.kind) || "new_meter";
-      const readiness = getDeployReadiness(job, { kind: todoKind });
+      if (isMeterTodo && !isReadyToEnqueueDeploy(job, { kind: "new_meter" })) {
+        continue;
+      }
       const title =
         s(todo.title) ||
         formatDeployTitle({
@@ -633,15 +683,15 @@ export function buildDeployQueueItems({ jobs = [], caseRuns = [] } = {}) {
       });
     }
 
-    // Meter deploy holding state without a todo — only if ready
+    // Meter deploy holding — Ready only with Form A; else Need info when pending
     const meter = getMeterApplication(job);
     const meterDeploy = job?.paperwork?.coned?.meterDeploy;
     if (
       meter &&
       (meter.value === "new_meter" || meter.value === "new_application") &&
-      meterDeploy?.status === "deploy_queued" &&
-      isReadyToEnqueueDeploy(job, { kind: "new_meter" })
+      (meterDeploy?.status === "deploy_queued" || meterDeploy?.status === "pending_info")
     ) {
+      const readiness = getDeployReadiness(job, { kind: "new_meter" });
       const already = items.some(
         (it) =>
           it.jobId === job.id &&
@@ -649,7 +699,7 @@ export function buildDeployQueueItems({ jobs = [], caseRuns = [] } = {}) {
       );
       if (!already) {
         const caseNumber = s(meterDeploy.caseNumber || job?.paperwork?.coned?.caseNumber);
-        const readiness = getDeployReadiness(job, { kind: "new_meter" });
+        const ready = readiness.ready;
         items.push({
           id: `meter:${job.id}`,
           source: "meter",
@@ -660,18 +710,20 @@ export function buildDeployQueueItems({ jobs = [], caseRuns = [] } = {}) {
             agency: "Con Edison",
             serviceAddress: s(job.serviceAddress || job.address),
           }),
-          subtitle: [
-            meter.label || "New meter",
-            s(job.customer || job.customerName),
-            caseNumber ? `Case ${caseNumber}` : "No case yet",
-          ]
-            .filter(Boolean)
-            .join(" · "),
+          subtitle: ready
+            ? [
+                meter.label || "New meter",
+                s(job.customer || job.customerName),
+                caseNumber ? `Case ${caseNumber}` : "No case yet",
+              ]
+                .filter(Boolean)
+                .join(" · ")
+            : "Missing: " + readiness.missing.map((m) => m.label).join(", "),
           requestShort: "",
           serviceAddress: s(job.serviceAddress || job.address),
           kind: "New Meter",
           agency: "Con Edison",
-          status: "deploy_queued",
+          status: ready ? "deploy_queued" : "need_info",
           readiness,
           missing: readiness.missing,
           removable: true,
@@ -681,18 +733,198 @@ export function buildDeployQueueItems({ jobs = [], caseRuns = [] } = {}) {
     }
   }
 
-  // Sort: active fleet first, then pending, by updated/created desc when available
+  // Sort: Awaiting approval → Running → Ready → Need info → Failed (real)
   const rank = (it) => {
-    if (it.source === "fleet") {
-      if (it.status === "awaiting_approval") return 0;
-      if (it.status === "in_progress" || it.status === "queued") return 1;
-      return 3;
+    const st = s(it.status).toLowerCase();
+    if (st === "awaiting_approval") return 0;
+    if (st === "in_progress" || st === "approved") return 1;
+    if (st === "queued" || st === "deploy_queued") return 2;
+    if (it.source === "fleet" && (st === "queued" || st === "in_progress")) return 1;
+    if (st === "need_info") return 4;
+    if (st === "failed" || st === "rejected") return 5;
+    if (st === "pending" || st === "draft") {
+      return (it.missing || []).length ? 4 : 3;
     }
-    if (it.status === "queued" || it.status === "deploy_queued" || it.status === "pending") return 2;
-    return 4;
+    if (it.source === "draft" || it.source === "todo" || it.source === "meter") return 3;
+    return 6;
   };
   items.sort((a, b) => rank(a) - rank(b));
   return items;
+}
+
+/**
+ * Recent successful cases for the green success strip (not in Deploy queue).
+ */
+export function buildRecentCaseSuccesses({ jobs = [], caseRuns = [], limit = 5 } = {}) {
+  const jobsById = new Map((jobs || []).filter((j) => j?.id).map((j) => [j.id, j]));
+  const out = [];
+  for (const j of jobs || []) {
+    const cn = jobConedCaseNumber(j);
+    if (!cn) continue;
+    const st = s(j?.paperwork?.coned?.createCase?.execution?.status || j?.paperwork?.coned?.currentStage);
+    out.push({
+      id: `ok:${j.id}`,
+      jobId: j.id,
+      caseNumber: cn,
+      title: formatDeployTitle({
+        kind: "Case",
+        agency: "Con Edison",
+        serviceAddress: s(j.serviceAddress || j.address),
+      }),
+      subtitle: [
+        s(j.customer || j.customerName),
+        `Case ${cn}`,
+        st || "submitted",
+      ]
+        .filter(Boolean)
+        .join(" · "),
+      nextHint: jobHasConedFormA(j)
+        ? "Next: New Meter or Electrical Permit when due"
+        : "Next: complete Form A / electrical permit",
+    });
+  }
+  for (const run of caseRuns || []) {
+    if (!DEPLOY_QUEUE_COMPLETED_STATUSES.has(s(run.status).toLowerCase())) continue;
+    const job = jobsById.get(run.jobId);
+    const cn = s(run.caseNumber || run.payload?.caseNumber || jobConedCaseNumber(job));
+    if (!cn) continue;
+    if (out.some((o) => o.caseNumber === cn || o.jobId === run.jobId)) continue;
+    const disp = caseRunDisplay(run, job);
+    out.push({
+      id: `ok-run:${run.id}`,
+      jobId: run.jobId,
+      caseNumber: cn,
+      title: disp.title,
+      subtitle: disp.subtitle || `Case ${cn}`,
+      nextHint: "Case submitted",
+    });
+  }
+  return out.slice(0, limit);
+}
+
+/**
+ * Heal case progress when email/appointments prove a step is already done.
+ * Pure patch generator — caller writes via patchAndSave.
+ */
+export function healCaseProgressPatch(job = {}, { events = [], insights = [] } = {}) {
+  if (!job?.id) return null;
+  const patch = { paperwork: { coned: {}, dob: {}, todos: null } };
+  let changed = false;
+  const coned = { ...(job.paperwork?.coned || {}) };
+  const dob = { ...(job.paperwork?.dob || {}) };
+  let todos = Array.isArray(job.paperwork?.todos) ? [...job.paperwork.todos] : null;
+
+  // DOB job # present + done stage → electrical permit complete
+  if (dob.jobNumber || dob.permitNumber) {
+    const stage = s(dob.currentStage).toLowerCase();
+    if (
+      stage.includes("signed") ||
+      stage.includes("complete") ||
+      stage === "permit_issued" ||
+      dob.electricalPermit?.status === "done"
+    ) {
+      if (dob.electricalPermit?.status !== "done") {
+        dob.electricalPermit = {
+          ...(dob.electricalPermit || {}),
+          status: "done",
+          jobNumber: dob.jobNumber || dob.permitNumber,
+        };
+        dob.enabled = true;
+        changed = true;
+      }
+      if (todos) {
+        const next = todos.map((t) =>
+          t && t.kind === "file_electrical_permit" && t.status !== "done"
+            ? { ...t, status: "done", doneAt: new Date().toISOString(), doneSource: "heal" }
+            : t
+        );
+        if (JSON.stringify(next) !== JSON.stringify(todos)) {
+          todos = next;
+          changed = true;
+        }
+      }
+    }
+  }
+
+  // Meter already attached to case → mark meter todo done
+  if (coned.meterDeploy?.attached || coned.meterDeploy?.status === "done") {
+    if (todos) {
+      const next = todos.map((t) =>
+        t &&
+        (t.kind === "new_meter" || t.source === "meter_application") &&
+        t.status !== "done"
+          ? { ...t, status: "done", doneAt: new Date().toISOString(), doneSource: "heal" }
+          : t
+      );
+      if (JSON.stringify(next) !== JSON.stringify(todos)) {
+        todos = next;
+        changed = true;
+      }
+    }
+  }
+
+  // Past inspection appointments linked to this job → mark inspection-related
+  const jobId = s(job.id);
+  const addr = s(job.serviceAddress || job.address).toLowerCase();
+  const now = Date.now();
+  for (const ev of events || []) {
+    const linked =
+      s(ev.jobId) === jobId ||
+      s(ev.extendedProps?.jobId) === jobId ||
+      (addr && s(ev.location || ev.title || "").toLowerCase().includes(addr.slice(0, 12)));
+    if (!linked) continue;
+    const title = s(ev.title || ev.summary || "").toLowerCase();
+    const endMs = Date.parse(ev.end || ev.start || "") || 0;
+    if (!endMs || endMs > now + 3600000) continue; // still upcoming
+    if (title.includes("inspection") || title.includes("final")) {
+      if (coned.inspection?.status !== "done") {
+        coned.inspection = {
+          ...(coned.inspection || {}),
+          status: "done",
+          completedAt: new Date(endMs).toISOString(),
+          source: "appointment_heal",
+        };
+        changed = true;
+      }
+    }
+    if (title.includes("meter") && (title.includes("install") || title.includes("turn"))) {
+      if (coned.meterInstall?.status !== "done") {
+        coned.meterInstall = {
+          ...(coned.meterInstall || {}),
+          status: "done",
+          completedAt: new Date(endMs).toISOString(),
+          source: "appointment_heal",
+        };
+        changed = true;
+      }
+    }
+  }
+
+  // Insights already applied with work_complete / pass
+  for (const ins of insights || []) {
+    if (s(ins.jobId) !== jobId && !s(ins.address || "").toLowerCase().includes(addr.slice(0, 10))) {
+      continue;
+    }
+    const stage = s(ins.permitStage || ins.stage || ins.kind).toLowerCase();
+    if (stage.includes("work_complete") || stage.includes("pass") || stage.includes("signed")) {
+      if (dob.electricalPermit?.status !== "done" && (dob.jobNumber || ins.dobJobNumber)) {
+        dob.enabled = true;
+        dob.jobNumber = dob.jobNumber || ins.dobJobNumber || "";
+        dob.electricalPermit = { status: "done", jobNumber: dob.jobNumber };
+        dob.currentStage = "signed_off";
+        changed = true;
+      }
+    }
+  }
+
+  if (!changed) return null;
+  const out = { paperwork: {} };
+  if (Object.keys(coned).length) out.paperwork.coned = { ...coned, enabled: coned.enabled !== false };
+  if (Object.keys(dob).length && (dob.jobNumber || dob.enabled || dob.electricalPermit)) {
+    out.paperwork.dob = dob;
+  }
+  if (todos) out.paperwork.todos = todos;
+  return out;
 }
 
 /**

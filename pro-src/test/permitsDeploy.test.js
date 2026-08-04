@@ -231,23 +231,39 @@ describe("buildDeployQueueItems", () => {
 });
 
 describe("getDeployReadiness", () => {
-  it("blocks new meter without case or Form A", () => {
+  it("blocks new meter without Form A even if case exists (1337 Ready gate)", () => {
     const r = getDeployReadiness(
-      { id: "j", serviceAddress: "10 Main St" },
+      {
+        id: "j",
+        serviceAddress: "1337 President Street",
+        paperwork: { coned: { caseNumber: "MC-941580" } },
+      },
       { kind: "new_meter" }
     );
     expect(r.ready).toBe(false);
-    expect(r.missing.some((m) => m.id === "form_a_or_case")).toBe(true);
-    expect(isReadyToEnqueueDeploy({ id: "j", serviceAddress: "10 Main St" }, { kind: "new_meter" })).toBe(
-      false
-    );
+    expect(r.missing.some((m) => m.id === "form_a")).toBe(true);
+    expect(
+      isReadyToEnqueueDeploy(
+        {
+          id: "j",
+          serviceAddress: "1337 President Street",
+          paperwork: { coned: { caseNumber: "MC-941580" } },
+        },
+        { kind: "new_meter" }
+      )
+    ).toBe(false);
   });
 
-  it("ready when case number present", () => {
+  it("ready when Form A + case present", () => {
     const job = {
       id: "j",
       serviceAddress: "10 Main St",
-      paperwork: { coned: { caseNumber: "MC-1" } },
+      paperwork: {
+        coned: {
+          caseNumber: "MC-1",
+          application: { status: "submitted" },
+        },
+      },
     };
     expect(jobConedCaseNumber(job)).toBe("MC-1");
     expect(getDeployReadiness(job, { kind: "new_meter" }).ready).toBe(true);
@@ -262,11 +278,16 @@ describe("getDeployReadiness", () => {
 });
 
 describe("new meter → deploy queue + case attach", () => {
-  it("queues new meter and attaches existing case number", () => {
+  it("queues new meter when Form A ready and attaches existing case number", () => {
     const job = {
       id: "j-m",
       serviceAddress: "555 Kingston Avenue",
-      paperwork: { coned: { caseNumber: "MC-941412" } },
+      paperwork: {
+        coned: {
+          caseNumber: "MC-941412",
+          application: { status: "submitted" },
+        },
+      },
     };
     const patch = jobPatchMeterApplication(job, "new_meter");
     expect(patch.paperwork.coned.meterApplication.value).toBe("new_meter");
@@ -287,12 +308,29 @@ describe("new meter → deploy queue + case attach", () => {
     expect(patch.paperwork.todos || []).toEqual([]);
   });
 
-  it("queues when case number exists", () => {
+  it("case alone is pending_info — Ready needs Form A file", () => {
     const patch = jobPatchMeterApplication(
       {
         id: "j3",
         serviceAddress: "10 Main",
         paperwork: { coned: { caseNumber: "MC-1" } },
+      },
+      "new_meter"
+    );
+    expect(patch.paperwork.coned.meterDeploy.status).toBe("pending_info");
+  });
+
+  it("queues when Form A submitted + address", () => {
+    const patch = jobPatchMeterApplication(
+      {
+        id: "j4",
+        serviceAddress: "10 Main",
+        paperwork: {
+          coned: {
+            caseNumber: "MC-1",
+            application: { status: "submitted" },
+          },
+        },
       },
       "new_meter"
     );

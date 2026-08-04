@@ -41,10 +41,13 @@ import {
 } from "../lib/paperworkJobs.js";
 import {
   buildDeployQueueItems,
+  buildRecentCaseSuccesses,
   processCompletedProgressPatch,
   queueItemCanDeploy,
   queueItemIsDeploying,
   jobHasConedFormA,
+  fleetRunIsSupersededSuccess,
+  healCaseProgressPatch,
 } from "../lib/permitsDeploy.js";
 import { caseStepCompletePatch } from "../lib/caseNextSteps.js";
 import PaperworkApprovalSheet from "../components/PaperworkApprovalSheet.jsx";
@@ -211,7 +214,7 @@ function CaseRow({ row, job, onOpen, onMeterApplication, onStepAction }) {
           {row.recommended?.status === "due" ? (
             <button
               type="button"
-              className="w-full pill bg-brand text-white font-semibold text-xs py-2"
+              className="w-full btn bg-brand text-white font-extrabold text-sm !py-3"
               onClick={() => handleStep(row.recommended)}
               data-testid="permit-run-next"
             >
@@ -257,7 +260,9 @@ function DeployQueueRow({
   const status = item.status || "";
   const missing = item.missing || item.readiness?.missing || [];
   const hardMissing = missing.filter((m) =>
-    ["service_address", "form_a_or_case", "case_or_address"].includes(m.id)
+    ["service_address", "form_a", "form_a_or_case", "case_number", "case_or_address"].includes(
+      m.id
+    )
   );
   const softMissing = missing.filter((m) => !hardMissing.includes(m));
   const terminal =
@@ -334,10 +339,54 @@ function DeployQueueRow({
             </div>
           ) : null}
         </button>
-        <div className="flex flex-col items-end gap-1 shrink-0">
+        <div className="flex flex-col items-end gap-1.5 shrink-0">
           <span className={`rounded-full px-2 py-0.5 text-[11px] font-bold ${statusTone}`}>
             {statusLabel}
           </span>
+          {/* Sticky primary action on collapsed row (Levi UI audit) */}
+          {!expanded ? (
+            isDeploying ? (
+              <span className="text-[11px] font-bold text-amber-800">Deploying…</span>
+            ) : canDeploy ? (
+              <button
+                type="button"
+                className="btn bg-emerald-700 text-white !py-1 !px-2.5 text-[11px] font-extrabold"
+                data-testid="permits-queue-deploy-sticky"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onDeploy(item);
+                }}
+              >
+                Deploy
+              </button>
+            ) : needsInfo ? (
+              <button
+                type="button"
+                className="btn bg-amber-600 text-white !py-1 !px-2.5 text-[11px] font-extrabold"
+                data-testid="permits-queue-fix-sticky"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onFixMissing?.(
+                    item,
+                    hardMissing[0] || missing[0] || { fix: "create_application" }
+                  );
+                }}
+              >
+                Fix
+              </button>
+            ) : needsReview ? (
+              <button
+                type="button"
+                className="btn bg-red-600 text-white !py-1 !px-2 text-[11px] font-extrabold"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onReview(item.run);
+                }}
+              >
+                Review
+              </button>
+            ) : null
+          ) : null}
           {item.expandable !== false ? (
             <span className="text-slate-400 text-xs">{expanded ? "▾" : "▸"}</span>
           ) : null}
@@ -389,16 +438,6 @@ function DeployQueueRow({
             <p className="text-[12px] text-slate-500">No application details yet — Edit to fill.</p>
           )}
           <div className="flex flex-wrap gap-2 pt-1 items-center">
-            {canEdit ? (
-              <button
-                type="button"
-                className="pill bg-white border border-slate-200 text-slate-700 text-xs font-semibold"
-                data-testid="permits-queue-open"
-                onClick={() => onOpen(item)}
-              >
-                Open
-              </button>
-            ) : null}
             {item.jobId ? (
               <button
                 type="button"
@@ -480,7 +519,7 @@ function DeployQueueRow({
 }
 
 export default function Permits() {
-  const { jobs, emailInsights, patchAndSave, showToast, enqueue } = useStore();
+  const { jobs, emailInsights, events, patchAndSave, showToast, enqueue } = useStore();
   const config = useTenantConfig();
   const nav = useNavigate();
   const [busy, setBusy] = useState(false);
@@ -496,6 +535,8 @@ export default function Permits() {
   const [agencyAppJob, setAgencyAppJob] = useState(null);
   const [conedStartJob, setConedStartJob] = useState(null);
   const [editJob, setEditJob] = useState(null);
+  const [lastSyncedAt, setLastSyncedAt] = useState(null);
+  const healedRef = React.useRef(new Set());
 
   const refreshRuns = async () => {
     const r = await listPaperworkJobsServer({ limit: 30 });
@@ -512,15 +553,38 @@ export default function Permits() {
       if (r.ok) {
         const list = r.jobs || [];
         setCaseRuns(list);
+        setLastSyncedAt(new Date().toISOString());
         const anyActive = list.some((j) => ACTIVE_PAPERWORK_JOB_STATUSES.has(j.status));
         if (anyActive) setQueueOpen(true);
-        // Auto-page Israel on any newly-seen fleet fail (create-case etc.)
-        const failed = list.filter((j) => j.status === "failed" && j.error);
+        const byId = new Map((jobs || []).filter((x) => x?.id).map((x) => [x.id, x]));
+        // Auto clean-slate: dismiss superseded fails so banner noise drops (P0)
+        const superseded = list.filter(
+          (j) =>
+            (j.status === "failed" || j.status === "rejected") &&
+            fleetRunIsSupersededSuccess(j, byId.get(j.jobId), list)
+        );
+        for (const j of superseded.slice(0, 8)) {
+          try {
+            await dismissPaperworkJob(j.id);
+          } catch {
+            /* ignore */
+          }
+        }
+        if (superseded.length) {
+          const r2 = await listPaperworkJobsServer({ limit: 30 });
+          if (alive && r2.ok) setCaseRuns(r2.jobs || []);
+        }
+        // Auto-page Israel on real fails only (not superseded)
+        const failed = list.filter(
+          (j) =>
+            j.status === "failed" &&
+            j.error &&
+            !fleetRunIsSupersededSuccess(j, byId.get(j.jobId), list)
+        );
         if (failed.length && enqueue) {
           const { reportPaperworkFailOnce, fieldsFromPaperworkJob } = await import(
             "../lib/paperworkFailReport.js"
           );
-          const byId = new Map((jobs || []).filter((x) => x?.id).map((x) => [x.id, x]));
           for (const j of failed.slice(0, 5)) {
             const fields = fieldsFromPaperworkJob(j, byId.get(j.jobId));
             void reportPaperworkFailOnce(
@@ -540,7 +604,33 @@ export default function Permits() {
       if (timer) clearTimeout(timer);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [enqueue]);
+  }, [enqueue, jobs]);
+
+  // Heal open-case steps when appointments / email / DOB evidence prove done
+  useEffect(() => {
+    if (!patchAndSave || !jobs?.length) return;
+    let cancelled = false;
+    (async () => {
+      for (const job of jobs.slice(0, 40)) {
+        if (!job?.id || healedRef.current.has(job.id)) continue;
+        const patch = healCaseProgressPatch(job, {
+          events: events || [],
+          insights: emailInsights || [],
+        });
+        if (!patch) continue;
+        healedRef.current.add(job.id);
+        if (cancelled) return;
+        try {
+          await patchAndSave(job.id, patch);
+        } catch {
+          healedRef.current.delete(job.id);
+        }
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [jobs, events, emailInsights, patchAndSave]);
 
   const board = useMemo(
     () => buildPermitBoard({ jobs, insights: emailInsights, config }),
@@ -565,9 +655,23 @@ export default function Permits() {
     [jobs, caseRuns]
   );
 
+  const recentSuccesses = useMemo(
+    () => buildRecentCaseSuccesses({ jobs, caseRuns, limit: 4 }),
+    [jobs, caseRuns]
+  );
+
   const clearableCount = useMemo(
-    () => caseRuns.filter((r) => TERMINAL_PAPERWORK_JOB_STATUSES.has(r.status)).length,
-    [caseRuns]
+    () =>
+      caseRuns.filter(
+        (r) =>
+          TERMINAL_PAPERWORK_JOB_STATUSES.has(r.status) &&
+          !fleetRunIsSupersededSuccess(
+            r,
+            (jobs || []).find((j) => j.id === r.jobId),
+            caseRuns
+          )
+      ).length,
+    [caseRuns, jobs]
   );
 
   if (!isModuleEnabled(config, "permits")) return null;
@@ -866,7 +970,9 @@ export default function Permits() {
       return;
     }
     const hardMissing = (item.missing || item.readiness?.missing || []).filter((m) =>
-      ["service_address", "form_a_or_case", "case_or_address"].includes(m.id)
+      ["service_address", "form_a", "form_a_or_case", "case_number", "case_or_address"].includes(
+        m.id
+      )
     );
     if (hardMissing.length) {
       showToast("Missing: " + hardMissing.map((m) => m.label).join(", "));
@@ -1047,63 +1153,70 @@ export default function Permits() {
         ) : null}
       </div>
 
-      {/* DEPLOY QUEUE — expand → Open / Job / Edit / Save + green Deploy */}
-      {queueItems.length ? (
-        <div
-          className="card overflow-hidden mb-4 border border-slate-200"
-          data-testid="permits-deploy-queue"
+      {/* DEPLOY QUEUE — sticky Deploy/Fix · Ready only with Form A for meters */}
+      <div
+        className="card overflow-hidden mb-4 border border-slate-200"
+        data-testid="permits-deploy-queue"
+      >
+        <button
+          type="button"
+          className="w-full px-4 py-3 border-b border-slate-100 bg-slate-50/80 text-left"
+          onClick={() => setQueueOpen((o) => !o)}
+          aria-expanded={queueOpen}
+          data-testid="permits-queue-toggle-all"
         >
-          <button
-            type="button"
-            className="w-full px-4 py-3 border-b border-slate-100 bg-slate-50/80 text-left"
-            onClick={() => setQueueOpen((o) => !o)}
-            aria-expanded={queueOpen}
-            data-testid="permits-queue-toggle-all"
-          >
-            <div className="flex items-start justify-between gap-2">
-              <div className="min-w-0">
-                <h2 className="font-extrabold text-sm text-slate-900 uppercase tracking-wide">
-                  Deploy queue
-                </h2>
-                <p className="text-xs text-slate-500 mt-0.5">
-                  {queueItems.length} item{queueItems.length === 1 ? "" : "s"} · expand → Deploy
-                  when ready
-                  {queueItems.some((i) => (i.missing || []).length)
-                    ? " · amber = fill missing first"
-                    : ""}
-                </p>
-              </div>
-              <span className="flex items-center gap-1.5 shrink-0">
-                <span className="pill bg-emerald-100 text-emerald-900 text-[10px] font-bold">
-                  {queueItems.length}
-                </span>
-                <span
-                  className={`text-slate-400 transition-transform ${queueOpen ? "rotate-90" : ""}`}
-                >
-                  ›
-                </span>
-              </span>
-            </div>
-          </button>
-          {queueOpen ? (
-            <>
-              {clearableCount ? (
-                <div className="px-3.5 py-2 border-b border-slate-100 flex items-center justify-between gap-2 bg-white">
-                  <span className="text-[11px] text-slate-500">
-                    {clearableCount} finished/failed practice run
-                    {clearableCount === 1 ? "" : "s"}
+          <div className="flex items-start justify-between gap-2">
+            <div className="min-w-0">
+              <h2 className="font-extrabold text-sm text-slate-900 uppercase tracking-wide">
+                Deploy queue
+              </h2>
+              <p className="text-xs text-slate-500 mt-0.5">
+                {queueItems.length
+                  ? `${queueItems.length} item${queueItems.length === 1 ? "" : "s"} · Deploy when Ready`
+                  : "Nothing to deploy"}
+                {queueItems.some((i) => (i.missing || []).length)
+                  ? " · amber = fill missing first"
+                  : ""}
+                {lastSyncedAt ? (
+                  <span className="text-slate-400">
+                    {" "}
+                    · synced {fmtWhen(lastSyncedAt) || "just now"}
                   </span>
-                  <button
-                    type="button"
-                    className="text-[11px] font-bold text-red-700 underline underline-offset-2"
-                    data-testid="permits-case-clear-slate"
-                    disabled={clearing}
-                    onClick={runClearSlate}
-                  >
-                    {clearing ? "Clearing…" : "Clean slate"}
-                  </button>
-                </div>
-              ) : null}
+                ) : null}
+              </p>
+            </div>
+            <span className="flex items-center gap-1.5 shrink-0">
+              <span className="pill bg-emerald-100 text-emerald-900 text-[10px] font-bold">
+                {queueItems.length}
+              </span>
+              <span
+                className={`text-slate-400 transition-transform ${queueOpen ? "rotate-90" : ""}`}
+              >
+                ›
+              </span>
+            </span>
+          </div>
+        </button>
+        {queueOpen ? (
+          <>
+            {clearableCount ? (
+              <div className="px-3.5 py-2 border-b border-slate-100 flex items-center justify-between gap-2 bg-white">
+                <span className="text-[11px] text-slate-500">
+                  {clearableCount} finished/failed practice run
+                  {clearableCount === 1 ? "" : "s"}
+                </span>
+                <button
+                  type="button"
+                  className="text-[11px] font-bold text-red-700 underline underline-offset-2"
+                  data-testid="permits-case-clear-slate"
+                  disabled={clearing}
+                  onClick={runClearSlate}
+                >
+                  {clearing ? "Clearing…" : "Clean slate"}
+                </button>
+              </div>
+            ) : null}
+            {queueItems.length ? (
               <div>
                 {queueItems.map((item) => (
                   <DeployQueueRow
@@ -1124,8 +1237,47 @@ export default function Permits() {
                   />
                 ))}
               </div>
-            </>
-          ) : null}
+            ) : (
+              <div
+                className="px-4 py-8 text-center text-sm text-slate-500"
+                data-testid="permits-queue-empty"
+              >
+                <span className="block text-2xl mb-1">✓</span>
+                Nothing to deploy — open cases are below.
+                <br />
+                <span className="text-xs text-slate-400">
+                  New Meter only shows Ready when Form A is saved.
+                </span>
+              </div>
+            )}
+          </>
+        ) : null}
+      </div>
+
+      {/* Success strip — live cases already submitted */}
+      {recentSuccesses.length ? (
+        <div className="mb-4" data-testid="permits-success-strip">
+          <div className="text-[11px] font-extrabold text-emerald-800 uppercase tracking-wider mb-1.5 px-1">
+            Cases on record
+          </div>
+          <div className="space-y-2">
+            {recentSuccesses.map((row) => (
+              <button
+                key={row.id}
+                type="button"
+                className="card w-full text-left px-3.5 py-2.5 border border-emerald-100 bg-emerald-50/40"
+                onClick={() => row.jobId && open(row.jobId)}
+              >
+                <div className="text-[13px] font-extrabold text-slate-900">{row.title}</div>
+                <div className="text-[11px] text-emerald-900 font-semibold mt-0.5">
+                  Case {row.caseNumber} submitted
+                </div>
+                {row.nextHint ? (
+                  <div className="text-[11px] text-slate-500 mt-0.5">{row.nextHint}</div>
+                ) : null}
+              </button>
+            ))}
+          </div>
         </div>
       ) : null}
 

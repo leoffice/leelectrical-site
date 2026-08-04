@@ -126,8 +126,8 @@ export function jobPatchMeterApplication(job, value, opts = {}) {
     if (hasConed) patch.permits = list;
   }
 
-  // Deploy queue: only when we have enough info to actually deploy (Levi 2026-08-03).
-  // Tapping Electric / New Meter alone must NOT fill the Deploy queue.
+  // Deploy queue: only when Form A file is ready + address (Levi 2026-08-04).
+  // Case alone is NOT Ready — must have completed application file in group/tab.
   if (value === "new_meter" || value === "new_application") {
     const caseNumber = String(
       job?.paperwork?.coned?.caseNumber ||
@@ -136,14 +136,13 @@ export function jobPatchMeterApplication(job, value, opts = {}) {
     ).trim();
     const addr = String(job?.serviceAddress || job?.address || "").trim();
     const formA =
-      Array.isArray(job?.paperwork?.coned?.completedFiles) &&
-      job.paperwork.coned.completedFiles.length > 0;
-    const ready =
-      !!addr &&
-      (!!caseNumber ||
-        formA ||
-        job?.paperwork?.coned?.application?.status === "submitted" ||
-        job?.paperwork?.coned?.meterDeploy?.formAReady === true);
+      (Array.isArray(job?.paperwork?.coned?.completedFiles) &&
+        job.paperwork.coned.completedFiles.length > 0) ||
+      job?.paperwork?.coned?.application?.status === "submitted" ||
+      job?.paperwork?.coned?.meterDeploy?.formAReady === true ||
+      job?.paperwork?.coned?.createCase?.status === "submitted";
+    // Ready = address + Form A file; case preferred for attach but not a substitute for Form A
+    const ready = !!addr && !!formA;
     patch.paperwork.coned = {
       ...patch.paperwork.coned,
       meterApplication: rec,
@@ -156,8 +155,10 @@ export function jobPatchMeterApplication(job, value, opts = {}) {
         note: ready
           ? caseNumber
             ? `Attach to active case ${caseNumber}`
-            : "Ready to deploy"
-          : "Waiting for case / Form A / address before Deploy queue",
+            : "Form A ready — deploy when case is open"
+          : !formA
+            ? "Need completed Form A application file before Ready"
+            : "Waiting for address before Deploy queue",
       },
       ...(caseNumber ? { caseNumber } : {}),
     };
