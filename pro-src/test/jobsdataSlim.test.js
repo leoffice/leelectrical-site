@@ -26,39 +26,54 @@ describe("jobsdata slim projection", () => {
     expect(s._paymentsTruncated).toBe(true);
   });
 
-  it("4k synthetic fat jobs compress dramatically when slimmed", () => {
-    const fatJob = () => ({
-      id: "j-" + Math.random().toString(36).slice(2),
-      customer: "Customer Name LLC",
-      address: "123 Main Street Brooklyn NY",
+  it("4k synthetic fat jobs compress dramatically when slimmed (pre-deploy gate)", () => {
+    // Real benefit: fails the build if list projection ever re-grows fat.
+    // Mirrors production scale (~4181 jobs) with heavy line arrays.
+    const fatJob = (i) => ({
+      id: "qbo-" + (16000 + i),
+      customer: "Customer Name LLC " + i,
+      address: "123 Main Street Brooklyn NY 11213",
+      serviceAddress: "123 Main Street Brooklyn NY 11213",
       amount: "$25000",
-      invoiceNo: "251800",
-      status: { Lead: { s: "done" }, Estimate: { s: "done" }, Invoiced: { s: "done" } },
-      invoiceLines: Array.from({ length: 30 }, (_, i) => ({
+      openBalance: "$5000",
+      invoiceNo: String(251800 + i),
+      status: {
+        Lead: { s: "done", d: "2024-01-01", note: "extra" },
+        Estimate: { s: "done", d: "2024-01-02" },
+        Invoiced: { s: "done", d: "2024-01-03" },
+        Paid: { s: "upcoming" },
+      },
+      invoiceLines: Array.from({ length: 25 }, (_, k) => ({
         itemName: "Installation:Installation",
-        description: "Long description of work item number " + i + " with scope and exclusions",
+        description: "Long description of work item number " + k + " with scope and exclusions " + i,
         amount: 100,
         quantity: 1,
         rate: 100,
       })),
-      estimateLines: Array.from({ length: 20 }, (_, i) => ({
+      estimateLines: Array.from({ length: 15 }, (_, k) => ({
         itemName: "Service Upgrade",
-        description: "SCOPE: meter " + i,
+        description: "SCOPE: meter " + k,
         amount: 200,
       })),
-      payments: Array.from({ length: 15 }, (_, i) => ({
-        id: "pay-" + i,
+      payments: Array.from({ length: 12 }, (_, k) => ({
+        id: "pay-" + i + "-" + k,
         amount: 500,
         method: "Zelle",
-        note: "payment note " + i,
+        note: "payment note with memo and deposit bank " + k,
+        ref: "JPM" + i + k,
       })),
+      payment: { id: "p0", amount: 500, method: "Zelle", note: "latest" },
+      title: "Installation of wiring switches outlets lights and panels ".repeat(3),
     });
-    const jobs = Array.from({ length: 200 }, fatJob);
+    const N = 4000;
+    const jobs = Array.from({ length: N }, (_, i) => fatJob(i));
     const fatBytes = JSON.stringify({ jobs }).length;
     const slimBytes = JSON.stringify(slimJobsDoc({ jobs, ts: 1 })).length;
-    // Slim must be under half of fat for this synthetic shape
-    expect(slimBytes).toBeLessThan(fatBytes * 0.5);
-    expect(slimBytes / jobs.length).toBeLessThan(2500); // < ~2.5KB/job target
+    // Must crush fat payloads; and stay under ~1.2KB/job average for this shape
+    expect(slimBytes).toBeLessThan(fatBytes * 0.25);
+    expect(slimBytes / N).toBeLessThan(1200);
+    // Absolute ceiling: list payload for 4k must stay under 5 MB in this harness
+    expect(slimBytes).toBeLessThan(5_000_000);
   });
 });
 

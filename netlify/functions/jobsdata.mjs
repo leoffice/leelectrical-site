@@ -66,10 +66,42 @@ export function slimJob(job) {
   for (const k of SLIM_KEYS) {
     if (job[k] !== undefined) out[k] = job[k];
   }
-  // Keep last few payments for list chips; not the full ledger
+  // Status: keep stage keys + s/d only (drop bloated nested notes)
+  if (job.status && typeof job.status === "object") {
+    const st = {};
+    for (const [phase, val] of Object.entries(job.status)) {
+      if (!val || typeof val !== "object") {
+        st[phase] = val;
+        continue;
+      }
+      st[phase] = { s: val.s || "", ...(val.d ? { d: val.d } : {}) };
+    }
+    out.status = st;
+  }
+  // List chips need amount paid signal, not full payment ledger
   if (Array.isArray(job.payments) && job.payments.length) {
-    out.payments = job.payments.slice(0, 4);
-    out._paymentsTruncated = job.payments.length > 4;
+    out.payments = job.payments.slice(0, 2).map((p) => ({
+      id: p?.id,
+      amount: p?.amount,
+      method: p?.method,
+      date: p?.date,
+    }));
+    out._paymentsTruncated = job.payments.length > 2;
+  }
+  if (job.payment && typeof job.payment === "object") {
+    out.payment = {
+      id: job.payment.id,
+      amount: job.payment.amount,
+      method: job.payment.method,
+      date: job.payment.date,
+    };
+  }
+  // Truncate long titles for list
+  if (typeof out.title === "string" && out.title.length > 160) {
+    out.title = out.title.slice(0, 160) + "…";
+  }
+  if (typeof out.followUp === "object" && out.followUp?.text && String(out.followUp.text).length > 120) {
+    out.followUp = { ...out.followUp, text: String(out.followUp.text).slice(0, 120) + "…" };
   }
   // Mark slim so client can re-hydrate detail
   out._listProjection = true;
