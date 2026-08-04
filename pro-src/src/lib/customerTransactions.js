@@ -271,8 +271,8 @@ export function formatTxnAmount(n) {
 
 /**
  * Right-side amount + open-invoice flag for a transaction row.
- * Invoices always show due (including $0 when paid). Estimates show total.
- * Payments show the payment amount. Open invoices (due > 0) get a left rail.
+ * Open invoices show due (red). Paid invoices show "Paid · $total" (not bare $0 —
+ * that looked like fake empty docs on company History). Payments show amount green.
  */
 export function txnRowDisplay(row) {
   if (!row) return { amount: "", amountClass: "text-slate-800", isOpen: false };
@@ -285,11 +285,19 @@ export function txnRowDisplay(row) {
   }
   if (row.kind === "invoice") {
     const due = Number(row.due) || 0;
+    const total = Number(row.total) || 0;
     const isOpen = due > 0.01;
+    if (!isOpen) {
+      return {
+        amount: total > 0.01 ? `Paid · ${formatTxnAmount(total)}` : "Paid",
+        amountClass: "text-emerald-700",
+        isOpen: false,
+      };
+    }
     return {
       amount: formatTxnAmount(due),
-      amountClass: isOpen ? "text-red-600" : "text-slate-800",
-      isOpen,
+      amountClass: "text-red-600",
+      isOpen: true,
     };
   }
   // estimate — keep total; show $0 when empty

@@ -43,7 +43,12 @@ export default function TransactionHistory() {
           Every payment, invoice, and estimate across the company. Filter and open a row for details.
         </p>
       </div>
-      <CustomerTransactionHistory jobs={allJobs} fromCust="" onOpenRow={openTxnRow} />
+      <CustomerTransactionHistory
+        jobs={allJobs}
+        fromCust=""
+        onOpenRow={openTxnRow}
+        defaultFilter="open"
+      />
       {paySheet && payJob ? (
         <PaymentHistorySheet
           job={payJob}

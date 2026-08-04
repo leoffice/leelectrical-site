@@ -10,6 +10,7 @@ import {
 } from "../lib/customerTransactions.js";
 
 const FILTERS = [
+  { id: "open", label: "Open" },
   { id: "all", label: "All" },
   { id: "payments", label: "Payments" },
   { id: "invoices", label: "Invoices" },
@@ -197,9 +198,15 @@ function CompactRow({ row, onOpen, testId }) {
   );
 }
 
-export default function CustomerTransactionHistory({ jobs, fromCust = "", onOpenRow }) {
+export default function CustomerTransactionHistory({
+  jobs,
+  fromCust = "",
+  onOpenRow,
+  /** Company-wide History defaults to Open so paid $0 walls don't look like fake data. */
+  defaultFilter = "all",
+}) {
   const nav = useNavigate();
-  const [filter, setFilter] = useState("all");
+  const [filter, setFilter] = useState(defaultFilter || "all");
   const [sort, setSort] = useState("new");
 
   // Build full list once per jobs/sort — filter tabs are free after that.
@@ -209,6 +216,14 @@ export default function CustomerTransactionHistory({ jobs, fromCust = "", onOpen
   );
   const counts = useMemo(() => countKinds(allRows), [allRows]);
   const rows = useMemo(() => {
+    if (filter === "open") {
+      // Open invoices (due > 0) + recent payments — hide paid-in-full $0 noise.
+      return allRows.filter((r) => {
+        if (r.kind === "payment") return true;
+        if (r.kind === "invoice") return txnRowDisplay(r).isOpen;
+        return false;
+      });
+    }
     if (filter === "all") return allRows;
     if (filter === "invoices") {
       // Levi 2026-07-28: open (still due) first, then closed — keep date order within groups.

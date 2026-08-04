@@ -181,7 +181,8 @@ describe("customerTransactions", () => {
     expect(openDisp.amountClass).toMatch(/red/);
 
     const paidDisp = txnRowDisplay(paid);
-    expect(paidDisp.amount).toBe("$0");
+    // Paid invoices show Paid · total (not bare $0 — looks like fake empty docs).
+    expect(paidDisp.amount).toMatch(/Paid/);
     expect(paidDisp.isOpen).toBe(false);
 
     const estDisp = txnRowDisplay(est);
