@@ -77,13 +77,14 @@ function buildPaymentConfirmBodyHtml({
   const href = String(viewLink || "")
     .replace(/&/g, "&amp;")
     .replace(/"/g, "&quot;");
+  // One CTA only (Levi 2026-08-04) — two lines in one button, not a second link.
   const linkBlock = href
-    ? `<div style="margin:20px 0 8px;text-align:center;">` +
-      `<a href="${href}" style="display:inline-block;background:#066a34;color:#ffffff;font-weight:700;font-size:15px;text-decoration:none;padding:12px 22px;border-radius:10px;">View invoice</a>` +
-      `</div>` +
-      `<p style="margin:0 0 12px;text-align:center;font-size:13px;line-height:1.5;">` +
-      `<a href="${href}" style="color:#066a34;font-weight:600;text-decoration:underline;">Updated balance &amp; transaction history</a>` +
-      `</p>`
+    ? `<div style="margin:20px 0 16px;text-align:center;">` +
+      `<a href="${href}" style="display:inline-block;background:#066a34;color:#ffffff;font-weight:700;text-decoration:none;padding:14px 28px;border-radius:12px;line-height:1.35;min-width:220px;">` +
+      `<span style="display:block;font-size:16px;">View invoice</span>` +
+      `<span style="display:block;font-size:12px;font-weight:600;opacity:0.92;margin-top:4px;">Updated balance &amp; transaction history</span>` +
+      `</a>` +
+      `</div>`
     : "";
 
   return (
@@ -148,8 +149,7 @@ export function buildPaymentConfirmEmail({
     amt ? `Amount paid: ${amt}` : "",
     `Date: ${dateStr}`,
     balance ? `Updated balance: ${balance}` : "",
-    link ? `View invoice: ${link}` : "",
-    link ? `Updated balance & transaction history: ${link}` : "",
+    link ? `View invoice / updated balance & transaction history: ${link}` : "",
     "",
     "Your payment is applied to your invoice.",
     "",
