@@ -257,6 +257,17 @@ export default async (req, env = {}) => {
     if (xRouting.length !== 9) {
       return json({ ok: false, error: "Routing number must be 9 digits" }, 400);
     }
+    // ABA routing checksum (reject transposed MICR before gateway)
+    {
+      const d = xRouting.split("").map((c) => c.charCodeAt(0) - 48);
+      const sum = 3 * (d[0] + d[3] + d[6]) + 7 * (d[1] + d[4] + d[7]) + (d[2] + d[5] + d[8]);
+      if (sum % 10 !== 0) {
+        return json(
+          { ok: false, error: "Routing number failed bank checksum — re-check the MICR line" },
+          400
+        );
+      }
+    }
     if (xAccount.length < 4) {
       return json({ ok: false, error: "Account number required" }, 400);
     }

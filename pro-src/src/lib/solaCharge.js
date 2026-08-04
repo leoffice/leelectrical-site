@@ -149,11 +149,38 @@ export function normalizeAchAccount(raw) {
     .slice(0, 17);
 }
 
+/** ABA routing checksum (mod-10). Rejects transposed/fake 9-digit strings early. */
+export function isValidAbaRouting(routing) {
+  const r = normalizeAchRouting(routing);
+  if (r.length !== 9) return false;
+  const d = r.split("").map((c) => c.charCodeAt(0) - 48);
+  const sum = 3 * (d[0] + d[3] + d[6]) + 7 * (d[1] + d[4] + d[7]) + (d[2] + d[5] + d[8]);
+  return sum % 10 === 0;
+}
+
+/**
+ * Staff authorization language for ACH/check Process (NACHA-style WEB/PPD consent).
+ * Customer must have authorized BLZ Electric to debit the account for this invoice amount.
+ */
+export const ACH_AUTH_LETTER = {
+  title: "Customer ACH authorization",
+  body:
+    "The customer (or their agent) authorizes BLZ Electric Inc. to initiate a one-time electronic debit " +
+    "from the bank account identified below for the invoice amount shown. This is not a card charge. " +
+    "Authorization is given by signed letter, email, voided check, or recorded verbal consent on file " +
+    "for this job. The customer may contact the office to dispute an unauthorized debit.",
+  checkboxLabel:
+    "I confirm the customer authorized this bank debit (auth letter, email, or recorded consent is on file for this job).",
+};
+
 export function validateAchBankFields({ routing, account, name } = {}) {
   const xRouting = normalizeAchRouting(routing);
   const xAccount = normalizeAchAccount(account);
   const xName = String(name || "").trim();
   if (xRouting.length !== 9) return { ok: false, error: "Routing number must be 9 digits" };
+  if (!isValidAbaRouting(xRouting)) {
+    return { ok: false, error: "Routing number failed bank checksum — re-check the MICR line" };
+  }
   if (xAccount.length < 4) return { ok: false, error: "Account number required" };
   if (!xName) return { ok: false, error: "Account holder name required" };
   return { ok: true, xRouting, xAccount, xName };
