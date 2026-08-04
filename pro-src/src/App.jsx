@@ -3,7 +3,7 @@
 // sheet, sticky SaveBar and toast. Hash routing.
 import React, { Suspense, useEffect, useMemo, useState } from "react";
 import { NavLink, Route, Routes, useLocation, useNavigate } from "react-router-dom";
-import { useStore, useStoreData, useStoreEdit } from "./state/store.jsx";
+import { useStore, useStoreData, useStoreEdit, useStoreToast } from "./state/store.jsx";
 import { useTenantConfig } from "./state/tenant.jsx";
 import {
   allowedRoutePaths,
@@ -233,10 +233,23 @@ function MoreNavOpt({ t, onClose, pathname, navigate }) {
   );
 }
 
+/** Toast host — isolated so flash messages don't re-render Routes / Jobs. */
+function ToastHost() {
+  const { toast } = useStoreToast();
+  if (!toast) return null;
+  return (
+    <div
+      className="fixed bottom-20 lg:bottom-8 left-1/2 -translate-x-1/2 z-[70] bg-slate-900 text-white text-sm font-medium px-4 py-2.5 rounded-full shadow-lg max-w-[86vw] text-center"
+      data-testid="toast"
+    >
+      {toast}
+    </div>
+  );
+}
+
 export default function App() {
   // Data-only shell: typing staged edits must NOT re-render the whole app tree.
   const {
-    toast,
     docConfirm,
     error,
     setNewJob,
@@ -276,6 +289,13 @@ export default function App() {
   // so it is always visible at the top of the screen and never squeezed into a
   // bottom-nav corner. Exactly one `fab-add` exists per route.
   const isJobsRoute = loc.pathname === "/";
+  // Keep the Jobs list mounted after first visit. With ~4k jobs, remounting
+  // regroups + paints the whole board (~1.5s). Hiding it instead makes tab
+  // switches feel instant while search/filter state survives.
+  const [jobsKeepAlive, setJobsKeepAlive] = useState(true);
+  useEffect(() => {
+    if (isJobsRoute) setJobsKeepAlive(true);
+  }, [isJobsRoute]);
   // Base jobs are enough for FAB context; staged notes don't change appointment context.
   const fabContext = appointmentContextFromRoute(loc.pathname, {
     effectiveJob: (id) => jobs.find((j) => String(j.id) === String(id)) || null,
@@ -386,13 +406,30 @@ export default function App() {
             URL matches nothing and falls through to the catch-all below —
             typing /dev on a non-internal tenant lands on Not found, the same
             as any nonexistent page. Nav-link hiding alone would not do this.
+
+            Jobs stays mounted (hidden) so returning to the home list does not
+            pay the multi-second regroup cost again.
           */}
+          {jobsKeepAlive && routePaths.includes("/") ? (
+            <div
+              hidden={!isJobsRoute}
+              style={isJobsRoute ? undefined : { display: "none" }}
+              data-testid="jobs-keepalive"
+              aria-hidden={!isJobsRoute}
+            >
+              <Jobs listActive={isJobsRoute} />
+            </div>
+          ) : null}
           <Suspense fallback={<div className="p-4 text-sm font-semibold text-slate-400">Loading…</div>}>
             <Routes>
-              {routePaths.map((path) => (
-                <Route key={path} path={path} element={ROUTE_ELEMENTS[path]} />
-              ))}
-              <Route path="*" element={<NotFound />} />
+              {routePaths
+                .filter((path) => path !== "/")
+                .map((path) => (
+                  <Route key={path} path={path} element={ROUTE_ELEMENTS[path]} />
+                ))}
+              {/* Home is keep-alive above; only 404 when Jobs is not registered. */}
+              {routePaths.includes("/") ? null : <Route path="/" element={<NotFound />} />}
+              <Route path="*" element={isJobsRoute ? null : <NotFound />} />
             </Routes>
           </Suspense>
         </main>
@@ -511,11 +548,7 @@ export default function App() {
             ✓ {docConfirmMessage(docConfirm)}
           </div>
         )}
-        {toast && (
-          <div className="fixed bottom-20 lg:bottom-8 left-1/2 -translate-x-1/2 z-[70] bg-slate-900 text-white text-sm font-medium px-4 py-2.5 rounded-full shadow-lg max-w-[86vw] text-center" data-testid="toast">
-            {toast}
-          </div>
-        )}
+        <ToastHost />
       </div>
     </div>
     </LiveEditProvider>

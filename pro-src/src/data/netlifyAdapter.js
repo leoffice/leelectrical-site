@@ -222,17 +222,31 @@ export function createNetlifyAdapter() {
     }
     return { ov: cachedOv, ts: lastWriteTs };
   };
+  // When both jobsdata and state 304 (same object refs as last poll), return the
+  // prior merge result with the SAME jobs array identity. That lets React bail
+  // out of the whole tree instead of re-merge + re-stringify ~4k jobs every 60s.
+  let lastJobsMeta = null; // { data, state, result }
+
   return {
     name: "netlify",
 
     /** Merged view + sync metadata: jobsdata.jobs + state.ov (overlay wins). */
     async listJobsMeta() {
       const [data, state] = await Promise.all([httpConditional("jobsdata"), httpConditional("state")]);
-      return {
+      if (
+        lastJobsMeta &&
+        lastJobsMeta.data === data &&
+        lastJobsMeta.state === state
+      ) {
+        return lastJobsMeta.result;
+      }
+      const result = {
         jobs: mergeJobs(data.jobs || [], (state && state.ov) || {}),
         syncedAt: data.syncedAt || 0,
         stateTs: (state && state.ts) || 0,
       };
+      lastJobsMeta = { data, state, result };
+      return result;
     },
 
     async listJobs() {

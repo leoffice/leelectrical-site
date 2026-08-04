@@ -55,6 +55,9 @@ test("client: httpConditional reuses cached data on a 304 (no re-parse)", async 
   expect(a.jobs.length).toBe(2);
   expect(b.jobs.length).toBe(2); // identical, served from the conditional cache
   expect(b.stateTs).toBe(55);
+  // Same array identity on 304 — React can bail out of the Jobs tree entirely.
+  expect(b.jobs).toBe(a.jobs);
+  expect(b).toBe(a);
   vi.unstubAllGlobals();
 });
 

@@ -285,7 +285,11 @@ const loadSort = () => {
 };
 
 /** How many customer rows to paint first — rest load as you scroll (keeps open snappy). */
-const LIST_PAGE = 48;
+const LIST_PAGE = 24;
+
+/** Cross-mount cache for the heavy customer regroup (keyed by jobs array identity). */
+let baseGroupsCache = { jobs: null, sort: null, value: null };
+let boardBaseCache = { jobs: null, sort: null, qboIndex: null, qboHierarchy: null, value: null };
 
 /**
  * Expanded balance card — billing first, then open invoices only (no estimates /
@@ -313,10 +317,13 @@ function BalanceCardDetail({ row, onOpen, onInteract }) {
  * the detail open in place; it never navigates and never moves the row.
  * Expanded rows auto-fold after ~10s idle (re-armed on touch inside).
  */
-function BalanceCard({ row, expanded, onToggle, onOpen, onInteract }) {
+const BalanceCard = React.memo(function BalanceCard({ row, expanded, onToggle, onOpen, onInteract }) {
   const due = row.summary?.due || 0;
   return (
-    <div className="card relative overflow-hidden flex items-stretch" data-testid="balance-card">
+    <div
+      className="card relative overflow-hidden flex items-stretch job-list-row"
+      data-testid="balance-card"
+    >
       <AgingSideRail jobs={row.jobs} />
       <div className="min-w-0 flex-1">
         <button
@@ -353,7 +360,7 @@ function BalanceCard({ row, expanded, onToggle, onOpen, onInteract }) {
       </div>
     </div>
   );
-}
+});
 
 /** Sort picker — pick for now, or "Set as default" to persist it per user. */
 function SortSheet({ value, onPick, onSetDefault, onClose }) {
@@ -423,7 +430,13 @@ function JobsLoadingCard({ onRetry }) {
   );
 }
 
-export default function Jobs({ embedded, collapseGroups = false, activeJobId = "" }) {
+export default function Jobs({
+  embedded,
+  collapseGroups = false,
+  activeJobId = "",
+  /** False when keep-alive hidden off-route — freeze heavy work, paint nothing. */
+  listActive = true,
+}) {
   const { jobs, loading, showToast, api, enqueue, refreshJobs, setNewJob } = useStore();
   const nav = useNavigate();
   /** Input value stays instant; heavy list filter uses the deferred copy. */
@@ -505,21 +518,43 @@ export default function Jobs({ embedded, collapseGroups = false, activeJobId = "
     setListLimit(LIST_PAGE);
   }, [effFilter, deferredQ, sort, view, custSort]);
 
-  const active = useMemo(() => jobs.filter((j) => !j._archived && !j._deleted), [jobs]);
+  // Keep-alive: leaving and returning used to remount (fresh stable order). Now the
+  // list stays mounted, so bump the sort epoch when we become active again so a
+  // just-opened customer rises to the top on Active.
+  const wasListActive = useRef(listActive);
+  useEffect(() => {
+    if (listActive && !wasListActive.current) {
+      setResortNonce((n) => n + 1);
+      setListLimit(LIST_PAGE);
+    }
+    wasListActive.current = listActive;
+  }, [listActive]);
+
+  // When keep-alive hides this list, freeze the last active-job set so background
+  // store polls don't regroup thousands of rows under a screen you can't see.
+  const activeLive = useMemo(() => jobs.filter((j) => !j._archived && !j._deleted), [jobs]);
+  const frozenActiveRef = useRef(activeLive);
+  if (listActive) frozenActiveRef.current = activeLive;
+  const active = listActive ? activeLive : frozenActiveRef.current;
   const matchesChip = useCallback(
     (j) => matchesFilter(j, effFilter) && matchesQuery(j, deferredQ),
     [effFilter, deferredQ]
   );
   const shown = useMemo(() => {
+    if (!listActive) return [];
     const list = active.filter(matchesChip);
     if (effFilter === "To Do" || effFilter === "Upcoming") return sortByNextAction(list);
     return sortJobs(list, sort);
-  }, [active, matchesChip, sort, effFilter]);
+  }, [active, matchesChip, sort, effFilter, listActive]);
 
   // Bug #1: group ALL jobs for a customer together (paid + unpaid). Base merge
   // is independent of the search box — only the final chip/search filter re-runs
   // while typing (keeps the input snappy with 4k+ jobs).
+  // Module-level cache: remount / keep-alive with the same jobs ref reuses the
+  // prior board instead of regrouping ~4k rows (~50–100ms) every visit.
   const baseGroups = useMemo(() => {
+    const hit = baseGroupsCache;
+    if (hit.jobs === active && hit.sort === sort) return hit.value;
     const map = new Map();
     for (const j of active) {
       const k = clientKey(j);
@@ -574,7 +609,9 @@ export default function Jobs({ embedded, collapseGroups = false, activeJobId = "
         map.delete(k);
       }
     }
-    return [...map.entries()].map(([k, list]) => [k, sortJobs(list, sort)]);
+    const value = [...map.entries()].map(([k, list]) => [k, sortJobs(list, sort)]);
+    baseGroupsCache = { jobs: active, sort, value };
+    return value;
   }, [active, sort]);
 
   const groups = useMemo(() => {
@@ -594,6 +631,15 @@ export default function Jobs({ embedded, collapseGroups = false, activeJobId = "
 
   /** Board layout (parents + flats) without search — rebuilt only when jobs/QBO change. */
   const boardBase = useMemo(() => {
+    const hit = boardBaseCache;
+    if (
+      hit.jobs === active &&
+      hit.sort === sort &&
+      hit.qboIndex === qboIndex &&
+      hit.qboHierarchy === qboHierarchy
+    ) {
+      return hit.value;
+    }
     const board = buildCustomerBoardGroups(active, (list) => sortJobs(list, sort), qboIndex);
     const parentJobIds = new Set();
     const parents = board
@@ -608,7 +654,9 @@ export default function Jobs({ embedded, collapseGroups = false, activeJobId = "
           })),
         };
       });
-    return { parents, parentJobIds };
+    const value = { parents, parentJobIds };
+    boardBaseCache = { jobs: active, sort, qboIndex, qboHierarchy, value };
+    return value;
   }, [active, sort, qboIndex, qboHierarchy]);
 
   /** Parent companies with sub-entities — separate from flat customer groups. */
@@ -752,16 +800,20 @@ export default function Jobs({ embedded, collapseGroups = false, activeJobId = "
   }, []);
 
   // Progressive list: paint top rows first, grow as the sentinel nears the viewport.
+  // When keep-alive is hidden, freeze the painted page size so a hidden sentinel
+  // never auto-loads the whole board under Job Detail.
   const totalListRows = balanceView
     ? balanceRows.length + otherRows.length
     : stableParentRows.length + stableFlatGroups.length;
-  const visibleParentRows = stableParentRows.slice(0, listLimit);
-  const flatRoom = Math.max(0, listLimit - stableParentRows.length);
+  const paintLimit = listActive ? listLimit : Math.min(listLimit, LIST_PAGE);
+  const visibleParentRows = stableParentRows.slice(0, paintLimit);
+  const flatRoom = Math.max(0, paintLimit - stableParentRows.length);
   const visibleFlatGroups = stableFlatGroups.slice(0, flatRoom);
-  const visibleBalanceRows = balanceRows.slice(0, listLimit);
-  const otherRoom = Math.max(0, listLimit - balanceRows.length);
+  const visibleBalanceRows = balanceRows.slice(0, paintLimit);
+  const otherRoom = Math.max(0, paintLimit - balanceRows.length);
   const visibleOtherRows = otherRows.slice(0, otherRoom);
   useEffect(() => {
+    if (!listActive) return;
     const el = listMoreRef.current;
     if (!el || listLimit >= totalListRows) return;
     if (typeof IntersectionObserver !== "function") {
@@ -779,7 +831,7 @@ export default function Jobs({ embedded, collapseGroups = false, activeJobId = "
     );
     io.observe(el);
     return () => io.disconnect();
-  }, [listLimit, totalListRows, effFilter, deferredQ, sort, view, custSort]);
+  }, [listLimit, totalListRows, effFilter, deferredQ, sort, view, custSort, listActive]);
 
   const quickSend = (job) => {
     if (!job.email) return showToast("No email on file — add one first");
@@ -870,7 +922,7 @@ export default function Jobs({ embedded, collapseGroups = false, activeJobId = "
           onBlur={armSearchIdle}
           aria-label="Search jobs"
         />
-        {!embedded ? (
+        {!embedded && listActive ? (
           <button
             type="button"
             onClick={() => setNewJob({ step: "choose", context: null })}
@@ -1037,7 +1089,7 @@ export default function Jobs({ embedded, collapseGroups = false, activeJobId = "
             const needsAttention = row.jobs.some(needsAttentionJob);
             const syncCardClass = customerSyncCardClass(customerContact(row.jobs), { qboIndex });
             return (
-              <div key={row.key} className={`card relative overflow-hidden flex items-stretch ${syncCardClass}`} data-testid="parent-customer-group">
+              <div key={row.key} className={`card relative overflow-hidden flex items-stretch job-list-row ${syncCardClass}`} data-testid="parent-customer-group">
                 <AgingSideRail jobs={row.jobs} />
                 <div className="min-w-0 flex-1 relative">
                 <AttentionGradient show={needsAttention} />
@@ -1152,7 +1204,7 @@ export default function Jobs({ embedded, collapseGroups = false, activeJobId = "
               return (
                 <div
                   key={key}
-                  className={`card relative overflow-hidden flex items-stretch ${syncCardClass}`}
+                  className={`card relative overflow-hidden flex items-stretch job-list-row ${syncCardClass}`}
                   data-testid="client-single"
                 >
                   <AgingSideRail jobs={list} />
@@ -1190,7 +1242,7 @@ export default function Jobs({ embedded, collapseGroups = false, activeJobId = "
             }
 
             return (
-              <div key={key} className={`card relative overflow-hidden flex items-stretch ${syncCardClass}`} data-testid="client-group">
+              <div key={key} className={`card relative overflow-hidden flex items-stretch job-list-row ${syncCardClass}`} data-testid="client-group">
                 <AgingSideRail jobs={list} />
                 <div className="min-w-0 flex-1 relative">
                 <AttentionGradient show={needsAttention} />

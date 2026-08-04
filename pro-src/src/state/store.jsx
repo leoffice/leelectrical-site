@@ -49,6 +49,8 @@ import { readSession } from "../lib/session.js";
 
 const DataCtx = createContext(null);
 const EditCtx = createContext(null);
+/** Toast only — a flash message must NOT invalidate DataCtx (Jobs, chat, prompts). */
+const ToastCtx = createContext(null);
 const DRAFT_KEY = "lepro_draft_v1";
 
 // Background polls fire every 8–60s. When the fetched snapshot is byte-for-byte
@@ -183,6 +185,10 @@ export function StoreProvider({ children }) {
       // and showing "Job local-… not found" right after Save + Create.
       if (stale || incoming.length || !jobsCountRef.current) {
         setJobs((prev) => {
+          // Adapter returns the same array ref when jobsdata+state are unchanged
+          // (304 polls). Keep identity so the Jobs list and badge memos bail out
+          // without re-stringifying multi-MB snapshots.
+          if (!stale && incoming.length && incoming === prev) return prev;
           const merged = mergeJobsStaleGuard(prev, incoming.length ? incoming : prev);
           // When not stale and server has data, prefer server fields but keep
           // any local-only _new rows the snapshot has not caught up with yet.
@@ -1309,7 +1315,7 @@ export function StoreProvider({ children }) {
       dedupeScan,
       loading,
       error,
-      toast,
+      // toast lives in ToastCtx — flash messages must not re-render the tree
       docConfirm,
       showDocConfirm,
       newJob,
@@ -1372,7 +1378,6 @@ export function StoreProvider({ children }) {
       dedupeScan,
       loading,
       error,
-      toast,
       docConfirm,
       showDocConfirm,
       newJob,
@@ -1407,6 +1412,8 @@ export function StoreProvider({ children }) {
       discardAll,
     ]
   );
+
+  const toastValue = useMemo(() => ({ toast }), [toast]);
 
   const editValue = useMemo(
     () => ({
@@ -1446,7 +1453,9 @@ export function StoreProvider({ children }) {
 
   return (
     <DataCtx.Provider value={dataValue}>
-      <EditCtx.Provider value={editValue}>{children}</EditCtx.Provider>
+      <EditCtx.Provider value={editValue}>
+        <ToastCtx.Provider value={toastValue}>{children}</ToastCtx.Provider>
+      </EditCtx.Provider>
     </DataCtx.Provider>
   );
 }
@@ -1465,19 +1474,28 @@ export function useStoreEdit() {
   return v;
 }
 
+/** Toast flash only — subscribe here so banners don't re-render Jobs/chat/prompts. */
+export function useStoreToast() {
+  const v = useContext(ToastCtx);
+  if (!v) throw new Error("useStoreToast outside StoreProvider");
+  return v;
+}
+
 /** Full store (data + edits). Re-renders on either side — prefer the split hooks in shell widgets. */
 export function useStore() {
   const data = useContext(DataCtx);
   const edit = useContext(EditCtx);
+  const toastBag = useContext(ToastCtx);
   if (!data || !edit) throw new Error("useStore outside StoreProvider");
   // edit.jobs is the overlay-applied list (matches historical useStore().jobs).
   return useMemo(
     () => ({
       ...data,
       ...edit,
+      ...(toastBag || {}),
       jobs: edit.jobs,
       rawJobs: edit.rawJobs,
     }),
-    [data, edit]
+    [data, edit, toastBag]
   );
 }

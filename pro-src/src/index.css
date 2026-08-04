@@ -54,6 +54,16 @@ body {
   }
 }
 
+/*
+ * Jobs list rows: skip layout/paint for off-screen cards (big win with
+ * hundreds of customers). Intrinsic size ≈ one compact row so scrollbars
+ * don't jump as rows enter the viewport.
+ */
+.job-list-row {
+  content-visibility: auto;
+  contain-intrinsic-size: auto 72px;
+}
+
 /* Narrow customer list (dragged thin / collapsed): hide secondary lines. */
 .desktop-list-compact .desktop-list-hide-when-compact {
   display: none !important;
