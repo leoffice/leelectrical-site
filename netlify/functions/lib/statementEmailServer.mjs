@@ -17,9 +17,9 @@ import {
   leLogoAttachment,
   signatureText,
 } from "./emailBranding.mjs";
+import { OFFICE_EMAIL, applyOfficeBcc } from "./officeCopy.mjs";
 
 const RESEND_URL = "https://api.resend.com/emails";
-const OFFICE_EMAIL = "office@leelectrical.us";
 const GREEN = "#066a34";
 
 function money(n) {
@@ -158,6 +158,8 @@ export async function sendStatementEmail({ to, officeOnly = false, probe = false
     ],
   };
   if (testMode && email && email !== recipient) payload.headers = { "X-Intended-Recipient": email };
+  // Levi 2026-08-03: statement → office@ copy → LE Pro Invoices tab.
+  applyOfficeBcc(payload, { recipients: [recipient], officeOnly, testMode });
 
   try {
     const res = await fetch(RESEND_URL, {

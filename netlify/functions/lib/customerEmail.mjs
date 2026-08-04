@@ -13,6 +13,7 @@ import {
   COMPANY_INFO,
   DEFAULT_BRAND_NAME,
 } from "./emailBranding.mjs";
+import { applyOfficeBcc } from "./officeCopy.mjs";
 
 const RESEND_URL = "https://api.resend.com/emails";
 /** Account company on the letterhead — Levi's BLZ Electric, not the LE product name. */
@@ -96,6 +97,8 @@ export async function sendCustomerEmail({ to, subject, message, customerEmail, c
   if (testMode && intended && intended !== recipient) {
     payload.headers = { "X-Intended-Recipient": intended };
   }
+  // Levi 2026-08-03: every LE Pro message leaves a silent office@ copy for Gmail tabs.
+  applyOfficeBcc(payload, { recipients: [recipient], testMode });
 
   try {
     const res = await fetch(RESEND_URL, {

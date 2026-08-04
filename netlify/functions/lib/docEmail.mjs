@@ -18,14 +18,12 @@ import {
 } from "./emailBranding.mjs";
 import { buildEmailPayLandingPayload, mintShortPayLink } from "./payLandingLink.mjs";
 import { getStore } from "./storage/index.mjs";
+import { OFFICE_EMAIL, applyOfficeBcc } from "./officeCopy.mjs";
 
 const { buildEmailBodyHTML, buildPayLink } = emailTemplate;
 
 const RESEND_URL = "https://api.resend.com/emails";
 const SITE = "https://leelectrical.us";
-
-/** During the test phase, the ONLY address a testSend/officeOnly call may reach. */
-const OFFICE_EMAIL = "office@leelectrical.us";
 
 function docsUrl(key) {
   return `${SITE}/.netlify/functions/docs?key=${encodeURIComponent(key)}`;
@@ -280,15 +278,8 @@ export async function sendDocEmail({
       leLogoAttachment(),
     ],
   };
-  // Levi 2026-07-22: silent office copy of every real customer invoice/estimate
-  // so Gmail can file it under the "LE Pro" tab (host labeler + optional filter).
-  // Skip when already sending only to office / test redirect / officeOnly.
-  const officeLc = OFFICE_EMAIL.toLowerCase();
-  const sendingToOfficeOnly =
-    recipients.length === 1 && String(recipients[0] || "").toLowerCase() === officeLc;
-  if (!officeOnly && !testMode && recipients.length && !sendingToOfficeOnly) {
-    payload.bcc = [OFFICE_EMAIL];
-  }
+  // Levi 2026-07-22 / 2026-08-03: silent office copy → Gmail LE Pro tabs.
+  applyOfficeBcc(payload, { recipients, officeOnly, testMode });
   if (testMode && email && recipients[0] && email.toLowerCase() !== String(recipients[0]).toLowerCase()) {
     payload.headers = { "X-Intended-Recipient": email };
   }

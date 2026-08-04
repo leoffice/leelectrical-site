@@ -14,6 +14,7 @@ import {
   signatureText,
   leLogoAttachment,
 } from "./emailBranding.mjs";
+import { OFFICE_EMAIL, applyOfficeBcc } from "./officeCopy.mjs";
 
 function nl2brEsc(s) {
   return String(s || "")
@@ -25,7 +26,6 @@ function nl2brEsc(s) {
 }
 
 const RESEND_URL = "https://api.resend.com/emails";
-const OFFICE_EMAIL = "office@leelectrical.us";
 
 function decodePdfB64(b64) {
   const raw = String(b64 || "").replace(/^data:[^;]*;base64,/, "").trim();
@@ -157,6 +157,12 @@ export async function sendApplicationEmail({
       },
     ],
   };
+  // Levi 2026-08-03: customer Form A / application emails → office@ copy → Case tab.
+  applyOfficeBcc(payload, {
+    recipients,
+    officeOnly,
+    testMode: isEmailTestMode(),
+  });
 
   const res = await fetch(RESEND_URL, {
     method: "POST",

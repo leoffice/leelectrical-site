@@ -9,6 +9,7 @@ import {
   resolveRecipient,
 } from "./lib/paymentConfirmEnv.mjs";
 import { leLogoAttachment } from "./lib/emailBranding.mjs";
+import { applyOfficeBcc } from "./lib/officeCopy.mjs";
 
 export { isEmailTestMode, resolveFromAddress, resolveRecipient };
 
@@ -144,6 +145,8 @@ export async function sendPaymentConfirmEmail({
   if (testMode && customerEmail && customerEmail !== to) {
     payload.headers = { "X-Intended-Recipient": customerEmail };
   }
+  // Levi 2026-08-03: payment confirm → office@ copy → LE Pro Invoices tab.
+  applyOfficeBcc(payload, { recipients: [to], testMode });
 
   try {
     const res = await fetch(RESEND_URL, {
