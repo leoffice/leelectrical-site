@@ -184,16 +184,48 @@ export function isLegacyWebDoc(docNo) {
   return /^WEB\d+/i.test(String(docNo || "").trim());
 }
 
-/** Relative time for ADHD glance: "today", "3d ago", "Jul 22", "2014". */
-export function relativeTxnWhen(sortDate, now = new Date()) {
+/**
+ * Format a clock time like "5:30 p.m." (Levi 2026-08-04 — today/yesterday want the hour).
+ * Accepts Date or ISO/time-ish strings; empty if no usable time.
+ */
+export function formatClockTime(raw, now = new Date()) {
+  if (raw == null || raw === "") return "";
+  let dt = null;
+  if (raw instanceof Date) {
+    dt = raw;
+  } else {
+    const s = String(raw).trim();
+    // Full ISO with time
+    if (/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}/.test(s) || /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}/.test(s)) {
+      const t = Date.parse(s);
+      if (Number.isFinite(t)) dt = new Date(t);
+    } else if (/^\d{10,13}$/.test(s)) {
+      const n = Number(s);
+      dt = new Date(n > 1e12 ? n : n * 1000);
+    }
+  }
+  if (!dt || Number.isNaN(dt.getTime())) return "";
+  // Only show clock if it's a real time-of-day (not noon placeholder-only date)
+  let h = dt.getHours();
+  const m = dt.getMinutes();
+  const ampm = h >= 12 ? "p.m." : "a.m.";
+  h = h % 12;
+  if (h === 0) h = 12;
+  const mm = String(m).padStart(2, "0");
+  return `${h}:${mm} ${ampm}`;
+}
+
+/** Relative time for ADHD glance: "Today · 5:30 p.m.", "3d ago", "Jul 22". */
+export function relativeTxnWhen(sortDate, now = new Date(), timeRaw = "") {
   const d = normalizeSortDate(sortDate);
   if (!d) return "";
   try {
     const then = new Date(d + "T12:00:00");
     const ms = now.getTime() - then.getTime();
     const days = Math.floor(ms / 86400000);
-    if (days <= 0) return "Today";
-    if (days === 1) return "Yesterday";
+    const clock = formatClockTime(timeRaw || sortDate, now);
+    if (days <= 0) return clock ? `Today · ${clock}` : "Today";
+    if (days === 1) return clock ? `Yesterday · ${clock}` : "Yesterday";
     if (days < 14) return days + "d ago";
     if (then.getFullYear() === now.getFullYear()) {
       return then.toLocaleDateString("en-US", { month: "short", day: "numeric" });
@@ -227,8 +259,42 @@ export function txnStoryLine(row) {
  * Flat transaction rows for a customer (all job addresses, same company).
  * kind: invoice | payment | estimate
  */
+/**
+ * Prefer one job per invoice # (local + qbo clones were doubling History rows —
+ * e.g. 251850 $4,500 twice). Prefer qbo-* id, then more payments, then newer.
+ */
+export function dedupeJobsForTransactions(jobs) {
+  const live = (jobs || []).filter((j) => j && !j._archived && !j._deleted);
+  const byInv = new Map();
+  const noInv = [];
+  for (const j of live) {
+    const inv = String(j.invoiceNo || "").trim();
+    if (!inv) {
+      noInv.push(j);
+      continue;
+    }
+    const prev = byInv.get(inv);
+    if (!prev) {
+      byInv.set(inv, j);
+      continue;
+    }
+    const score = (x) => {
+      let s = 0;
+      if (String(x.id || "").startsWith("qbo-")) s += 100;
+      s += (Array.isArray(x.payments) ? x.payments.length : 0) * 10;
+      if (x.paid) s += 5;
+      if (x.invoiceDate) s += 1;
+      return s;
+    };
+    if (score(j) > score(prev)) byInv.set(inv, j);
+  }
+  // Estimates-only jobs (no invoice) still included
+  const estOnly = noInv.filter((j) => j.estimateNo || (j.payments && j.payments.length));
+  return [...byInv.values(), ...estOnly];
+}
+
 export function buildCustomerTransactions(jobs, { filter = "all", sort = "new" } = {}) {
-  const liveJobs = (jobs || []).filter((j) => j && !j._archived && !j._deleted);
+  const liveJobs = dedupeJobsForTransactions(jobs);
   // Pre-assign unique-ish color+shape per invoice family across this list
   const familyKeys = liveJobs.map((j) => linkColorKeyForJob(j)).filter(Boolean);
   const styleMap = assignLinkStyles(familyKeys);
@@ -249,6 +315,7 @@ export function buildCustomerTransactions(jobs, { filter = "all", sort = "new" }
       const total = invoiceTotal(j);
       const due = openBalance(j);
       const dateRaw = invoiceSortDate(j);
+      const timeRaw = j.invoiceEmailedAt || j.updatedAt || j.status?.Invoiced?.d || dateRaw;
       rows.push({
         id: "inv:" + j.id + ":" + j.invoiceNo,
         kind: "invoice",
@@ -261,7 +328,7 @@ export function buildCustomerTransactions(jobs, { filter = "all", sort = "new" }
         total,
         due,
         dateLabel: shortTxnDate(dateRaw),
-        whenLabel: relativeTxnWhen(dateRaw),
+        whenLabel: relativeTxnWhen(dateRaw, new Date(), timeRaw),
         legacyWeb: isLegacyWebDoc(j.invoiceNo),
         color: familyColor,
       });
@@ -269,6 +336,7 @@ export function buildCustomerTransactions(jobs, { filter = "all", sort = "new" }
 
     if (j.estimateNo) {
       const dateRaw = estimateSortDate(j);
+      const timeRaw = j.updatedAt || dateRaw;
       rows.push({
         id: "est:" + j.id + ":" + j.estimateNo,
         kind: "estimate",
@@ -281,17 +349,29 @@ export function buildCustomerTransactions(jobs, { filter = "all", sort = "new" }
         total: invoiceTotal(j),
         due: 0,
         dateLabel: shortTxnDate(dateRaw),
-        whenLabel: relativeTxnWhen(dateRaw),
+        whenLabel: relativeTxnWhen(dateRaw, new Date(), timeRaw),
         legacyWeb: isLegacyWebDoc(j.estimateNo),
         // Same bubble color+shape as the invoice when linked
         color: familyColor,
       });
     }
 
+    // Dedupe payments on same job (same amount+ref+date) — QBO + local twin entries.
+    const seenPay = new Set();
     for (const p of normalizePayments(j)) {
       const dateRaw = normalizeSortDate(p.date) || String(p.date || "").trim();
       const unlinked = isPaymentUnlinked(j, p);
       const docNo = paymentInvoiceDocNo(j, p);
+      const payKey = [
+        String(docNo || j.invoiceNo || ""),
+        String(p.amount || ""),
+        String(p.ref || ""),
+        dateRaw,
+        normalizePaymentMethod(p.method, { note: p.note, ref: p.ref }),
+      ].join("|");
+      if (seenPay.has(payKey)) continue;
+      seenPay.add(payKey);
+      const timeRaw = p.recordedAt || p.createdAt || p.ts || p.date || dateRaw;
       rows.push({
         id: "pay:" + j.id + ":" + (p.id || dateRaw + p.amount),
         kind: "payment",
@@ -305,7 +385,7 @@ export function buildCustomerTransactions(jobs, { filter = "all", sort = "new" }
         docNo,
         address,
         dateLabel: shortTxnDate(dateRaw),
-        whenLabel: relativeTxnWhen(dateRaw),
+        whenLabel: relativeTxnWhen(dateRaw, new Date(), timeRaw),
         legacyWeb: false,
         // Unlinked: muted slate so amount green still pops; whole card tinted in UI.
         color: unlinked ? { bg: "bg-slate-100", text: "text-slate-500", ring: "ring-slate-200", border: "border-slate-300", shape: "pill" } : familyColor,
@@ -322,7 +402,30 @@ export function buildCustomerTransactions(jobs, { filter = "all", sort = "new" }
     row.applySuggestion = suggestInvoiceForPayment(liveJobs, row.job, row.payment);
   }
 
-  let list = rows;
+  // Global payment dedupe (same inv + amount + ref + date across job clones).
+  const paySeen = new Set();
+  const invSeen = new Set();
+  const deduped = [];
+  for (const row of rows) {
+    if (row.kind === "invoice" && row.docNo) {
+      if (invSeen.has(row.docNo)) continue;
+      invSeen.add(row.docNo);
+    }
+    if (row.kind === "payment") {
+      const k = [
+        String(row.docNo || ""),
+        String(row.amount || ""),
+        String(row.payment?.ref || ""),
+        String(row.sortDate || ""),
+        String(row.method || ""),
+      ].join("|");
+      if (paySeen.has(k)) continue;
+      paySeen.add(k);
+    }
+    deduped.push(row);
+  }
+
+  let list = deduped;
   if (filter === "invoices") list = rows.filter((r) => r.kind === "invoice");
   else if (filter === "payments") list = rows.filter((r) => r.kind === "payment");
   else if (filter === "estimates") list = rows.filter((r) => r.kind === "estimate");

@@ -84,8 +84,9 @@ describe("followUpStatus", () => {
 
   it("scans for unsent docs across active jobs", () => {
     // Estimates need a recent document date (30-day window); undated estimates are suppressed.
+    // Invoices: ~31-day window (Levi 2026-08-04).
     const jobs = [
-      { id: "J-1", invoiceNo: "100", invoiceHistory: [], invoiceDate: "2026-06-01" },
+      { id: "J-1", invoiceNo: "100", invoiceHistory: [], invoiceDate: "2026-07-10" },
       { id: "J-2", estimateNo: "55", estimateDate: "2026-07-10", invoiceHistory: [] },
       { id: "J-3", paid: true, invoiceNo: "9", invoiceHistory: [] },
     ];
@@ -94,10 +95,10 @@ describe("followUpStatus", () => {
     expect(hits.map((h) => h.job.id).sort()).toEqual(["J-1", "J-2"]);
   });
 
-  it("skips unsent invoices older than one year", () => {
+  it("skips unsent invoices older than ~1 month", () => {
     const jobs = [
       { id: "J-old", invoiceNo: "100", invoiceHistory: [], invoiceDate: "2024-01-15" },
-      { id: "J-new", invoiceNo: "200", invoiceHistory: [], invoiceDate: "2026-06-01" },
+      { id: "J-new", invoiceNo: "200", invoiceHistory: [], invoiceDate: "2026-07-10" },
       { id: "J-nodate", invoiceNo: "300", invoiceHistory: [] }, // no date → still eligible
     ];
     const hits = unsentDocCandidates(jobs, [], { now: new Date("2026-07-16T12:00:00") });
@@ -232,8 +233,9 @@ describe("estimateDateYmd", () => {
   });
 });
 
-describe("unsent estimate 30-day + invoice 1-year windows", () => {
+describe("unsent estimate 30-day + invoice ~1-month windows", () => {
   // Inclusive boundary: daysBetween(estYmd, todayYmd) <= 30 keeps the estimate.
+  // Invoices: Levi 2026-08-04 cut from 365 → 31 days (278-reminder flood).
   const NOW = new Date(2026, 6, 20, 12, 0, 0); // 2026-07-20 local noon
   const TODAY = "2026-07-20";
   const opts = { now: NOW };
@@ -277,8 +279,8 @@ describe("unsent estimate 30-day + invoice 1-year windows", () => {
     expect(unsentDocCandidates([estJob("E-30", ymd)], [], opts)).toHaveLength(1);
   });
 
-  it("invoice older than one year is NOT a candidate", () => {
-    expect(UNSENT_INVOICE_MAX_AGE_DAYS).toBe(365);
+  it("invoice older than ~1 month is NOT a candidate", () => {
+    expect(UNSENT_INVOICE_MAX_AGE_DAYS).toBe(31);
     const job = {
       id: "INV-2016",
       invoiceNo: "2016-1",
@@ -288,16 +290,26 @@ describe("unsent estimate 30-day + invoice 1-year windows", () => {
     expect(unsentDocCandidates([job], [], opts)).toHaveLength(0);
   });
 
-  it("invoice within one year IS a candidate", () => {
+  it("invoice within ~1 month IS a candidate", () => {
     const job = {
       id: "INV-new",
       invoiceNo: "251900",
-      invoiceDate: "2026-01-15",
+      invoiceDate: ymdOffset(TODAY, -10),
       invoiceHistory: [],
     };
     const hits = unsentDocCandidates([job], [], opts);
     expect(hits).toHaveLength(1);
     expect(hits[0].docKind).toBe("invoice");
+  });
+
+  it("invoice exactly 32 days old is NOT a candidate", () => {
+    const job = {
+      id: "INV-32",
+      invoiceNo: "32",
+      invoiceDate: ymdOffset(TODAY, -32),
+      invoiceHistory: [],
+    };
+    expect(unsentDocCandidates([job], [], opts)).toHaveLength(0);
   });
 
   it("undated estimate is NOT a candidate and is counted", () => {
@@ -311,7 +323,7 @@ describe("unsent estimate 30-day + invoice 1-year windows", () => {
       estJob("E-2016", "2016-06-01"),
       estJob("E-fresh", TODAY),
       { id: "INV-old", invoiceNo: "1", invoiceDate: "2016-01-01", invoiceHistory: [] },
-      { id: "INV-new", invoiceNo: "2", invoiceDate: "2026-06-01", invoiceHistory: [] },
+      { id: "INV-new", invoiceNo: "2", invoiceDate: ymdOffset(TODAY, -5), invoiceHistory: [] },
     ];
     const q = buildPromptQueue([], jobs, TODAY, NOW, []);
     const list = buildReminderList([], jobs, TODAY, NOW, []);

@@ -9,7 +9,11 @@ import { fmt$ } from "./format.js";
 import { daysBetween, localYmd } from "./dateUtils.js";
 
 /** Don't nag on unsent invoices older than this (Levi 2026-07-22). */
-export const UNSENT_INVOICE_MAX_AGE_DAYS = 365;
+/**
+ * Unsent invoice reminders older than this many days are suppressed.
+ * Was 365 (flooded Reminders with ~278 nags). Levi 2026-08-04: ~1 month lookback.
+ */
+export const UNSENT_INVOICE_MAX_AGE_DAYS = 31;
 /** Unsent estimate reminders older than this many days are suppressed (Levi 2026-07-22). */
 export const UNSENT_ESTIMATE_MAX_AGE_DAYS = 30;
 
@@ -271,7 +275,7 @@ export function unsentDocCandidates(
       if (!docNeverSent(job, kind, commands)) continue;
       if (dismissed[unsentKey(job.id, kind)]) continue;
       if (isUnsentSnoozed(job.id, kind, now)) continue;
-      // Invoices: skip older than 1 year. Estimates: only last ~month; undated suppressed.
+      // Invoices: last ~month (Levi 2026-08-04). Estimates: last ~month; undated suppressed.
       if (kind === "invoice") {
         const age = invoiceAgeDays(job, nowMs);
         if (age > UNSENT_INVOICE_MAX_AGE_DAYS) continue;
