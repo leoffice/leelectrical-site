@@ -200,6 +200,9 @@ export async function chargeAchInApp({
   accountType = "Checking",
   paymentMethod = "ACH",
   imageB64 = "",
+  authorized = true,
+  authLetter = ACH_AUTH_LETTER.body,
+  achSource = "staff",
 }) {
   const invoiceNo = String(job?.invoiceNo || "").trim();
   if (!invoiceNo) throw new Error("Invoice # required to process ACH");
@@ -213,12 +216,17 @@ export async function chargeAchInApp({
     name: name || job?.customer || job?.businessName || "",
   });
   if (!bank.ok) throw new Error(bank.error);
+  if (!authorized) throw new Error("Customer ACH authorization is required before processing");
 
   const res = await fetch(`${functionsBase()}/sola-charge`, {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify({
       paymentMethod: paymentMethod === "Check" ? "check" : "ach",
+      achSource,
+      achAuthorized: true,
+      achAuthLetter: String(authLetter || ACH_AUTH_LETTER.body).slice(0, 2000),
+      achAuthorizedAt: new Date().toISOString(),
       invoiceNo,
       jobId: job?.id || "",
       principalAmount: principal,

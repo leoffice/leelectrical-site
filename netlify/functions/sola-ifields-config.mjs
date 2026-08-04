@@ -33,9 +33,14 @@ export default async (req) => {
       { status: 503, headers: corsHeaders() }
     );
   }
+  // Staff Mark-as-paid Process (LE Pro). Does NOT open customer pay-page ACH.
   const achEnabled =
     String(process.env.SOLA_ACH_ENABLED || "").trim() === "1" ||
     String(process.env.SOLA_ACH_ENABLED || "").trim().toLowerCase() === "true";
+  // Customer View & Pay bank debit — separate flag; stays off until Levi opens that lane.
+  const achCustomerEnabled =
+    String(process.env.SOLA_ACH_CUSTOMER_ENABLED || "").trim() === "1" ||
+    String(process.env.SOLA_ACH_CUSTOMER_ENABLED || "").trim().toLowerCase() === "true";
 
   return new Response(
     JSON.stringify({
@@ -46,6 +51,7 @@ export default async (req) => {
       softwareName: PRODUCT_BRAND.name,
       softwareVersion: "1.0.0",
       achEnabled,
+      achCustomerEnabled,
     }),
     { headers: corsHeaders() }
   );

@@ -1147,6 +1147,9 @@ export function MarkPaidSheet({
         checkNumber: isCheck ? ref : "",
         paymentMethod: isCheck ? "Check" : "ACH",
         imageB64: proofB64 || "",
+        authorized: achAuthorized,
+        authLetter: ACH_AUTH_LETTER.body,
+        achSource: "staff",
       });
       try {
         await refreshJobs?.(true);

@@ -113,6 +113,25 @@ function achEnabledEnv() {
   return v === "1" || v === "true" || v === "yes";
 }
 
+function achCustomerEnabledEnv() {
+  const v = String(process.env.SOLA_ACH_CUSTOMER_ENABLED || "").trim().toLowerCase();
+  return v === "1" || v === "true" || v === "yes";
+}
+
+/** ABA routing checksum — reject bad RTNs before gateway. */
+function isValidAbaRouting(raw) {
+  const r = String(raw || "").replace(/\D/g, "");
+  if (r.length !== 9 || /^0+$/.test(r)) return false;
+  const d = r.split("").map((c) => parseInt(c, 10));
+  const sum =
+    3 * (d[0] + d[3] + d[6]) + 7 * (d[1] + d[4] + d[7]) + 1 * (d[2] + d[5] + d[8]);
+  return sum % 10 === 0;
+}
+
+function truthyAuth(v) {
+  return v === true || v === 1 || v === "1" || String(v || "").toLowerCase() === "true";
+}
+
 /** ACH / check debit via Sola check:sale (routing + account). */
 async function solaCheckSale(body) {
   const xKey = resolveXKey();
@@ -234,6 +253,44 @@ export default async (req, env = {}) => {
         503
       );
     }
+    const achSource = String(body.achSource || body.source || "staff")
+      .trim()
+      .toLowerCase();
+    // Customer pay page needs a second flag so staff can test Process first.
+    if (achSource === "customer" && !achCustomerEnabledEnv()) {
+      return json(
+        {
+          ok: false,
+          error:
+            "Customer bank pay is not open yet — staff Process only. Set SOLA_ACH_CUSTOMER_ENABLED after staff tests pass.",
+        },
+        403
+      );
+    }
+    if (!truthyAuth(body.achAuthorized ?? body.authorized ?? body.achAuthAccepted)) {
+      return json(
+        {
+          ok: false,
+          error: "Customer ACH authorization is required before processing",
+        },
+        400
+      );
+    }
+    const authLetter = String(body.achAuthLetter || body.authLetter || "").trim().slice(0, 2000);
+    if (!authLetter) {
+      return json(
+        {
+          ok: false,
+          error: "Authorization language is required before processing",
+        },
+        400
+      );
+    }
+    const authAt = String(body.achAuthorizedAt || body.authorizedAt || new Date().toISOString()).slice(
+      0,
+      40
+    );
+
     const xRouting = String(body.xRouting || body.routingNumber || body.routing || "")
       .replace(/\D/g, "")
       .trim();
@@ -257,16 +314,11 @@ export default async (req, env = {}) => {
     if (xRouting.length !== 9) {
       return json({ ok: false, error: "Routing number must be 9 digits" }, 400);
     }
-    // ABA routing checksum (reject transposed MICR before gateway)
-    {
-      const d = xRouting.split("").map((c) => c.charCodeAt(0) - 48);
-      const sum = 3 * (d[0] + d[3] + d[6]) + 7 * (d[1] + d[4] + d[7]) + (d[2] + d[5] + d[8]);
-      if (sum % 10 !== 0) {
-        return json(
-          { ok: false, error: "Routing number failed bank checksum — re-check the MICR line" },
-          400
-        );
-      }
+    if (!isValidAbaRouting(xRouting)) {
+      return json(
+        { ok: false, error: "Routing number failed bank checksum — check the MICR line" },
+        400
+      );
     }
     if (xAccount.length < 4) {
       return json({ ok: false, error: "Account number required" }, 400);
@@ -302,13 +354,14 @@ export default async (req, env = {}) => {
     const ref = String(data.xRefNum || "").trim();
     const methodLabel =
       String(body.paymentMethod || body.method || "").toLowerCase() === "check" ? "Check" : "ACH";
+    const authNote = ` · auth ${authAt.slice(0, 10)} · ${achSource}`;
     const appliedJobId = await applyApprovedSolaPayment({
       jobId,
       invoiceNo,
       amount: principal,
       ref,
       method: methodLabel,
-      note: `${PRODUCT_BRAND.name} in-app ${methodLabel} process · acct …${xAccount.slice(-4)}`,
+      note: `${PRODUCT_BRAND.name} in-app ${methodLabel} process · acct …${xAccount.slice(-4)}${authNote}`,
       cardToken: "",
       cardMasked: "",
     });
