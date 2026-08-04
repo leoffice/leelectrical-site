@@ -258,6 +258,8 @@ export async function chargeAchFromLanding({
   accountType = "Checking",
   paymentMethod = "Check",
   imageB64 = "",
+  authorized = true,
+  authLetter = ACH_AUTH_LETTER.body,
 }) {
   const invoiceNo = String(data?.i || "").trim();
   if (!invoiceNo) throw new Error("Invoice # required to pay");
@@ -271,12 +273,17 @@ export async function chargeAchFromLanding({
     name: name || data?.c || "",
   });
   if (!bank.ok) throw new Error(bank.error);
+  if (!authorized) throw new Error("Please confirm the ACH authorization before paying");
 
   const res = await fetch(`${functionsBase()}/sola-charge`, {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify({
       paymentMethod: paymentMethod === "ACH" ? "ach" : "check",
+      achSource: "customer",
+      achAuthorized: true,
+      achAuthLetter: String(authLetter || ACH_AUTH_LETTER.body).slice(0, 2000),
+      achAuthorizedAt: new Date().toISOString(),
       invoiceNo,
       jobId: data?.j || "",
       principalAmount: principal,
