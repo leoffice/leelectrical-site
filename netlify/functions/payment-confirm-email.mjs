@@ -170,3 +170,55 @@ export async function sendPaymentConfirmEmail({
     return { ok: false, reason: "fetch_failed", error: String(err?.message || err), ...meta };
   }
 }
+
+function json(o, status = 200) {
+  return new Response(JSON.stringify(o), {
+    status,
+    headers: {
+      "content-type": "application/json",
+      "cache-control": "no-store",
+      "access-control-allow-origin": "*",
+      "access-control-allow-methods": "POST,OPTIONS",
+      "access-control-allow-headers": "content-type,authorization",
+    },
+  });
+}
+
+/**
+ * HTTP entry — staff / agents can re-send receipts for recorded payments.
+ * POST { jobId, invoiceNo, amount, balance?, ref?, payDate?, force? }
+ * force:true skips the dedupe store (manual resend).
+ */
+export default async (req) => {
+  if (req.method === "OPTIONS") return json({ ok: true });
+  if (req.method !== "POST") return json({ ok: false, error: "POST only" }, 405);
+  let body = {};
+  try {
+    body = await req.json();
+  } catch {
+    return json({ ok: false, error: "invalid json" }, 400);
+  }
+  const jobId = String(body.jobId || body.job_id || "").trim();
+  const invoiceNo = String(body.invoiceNo || body.invoice || "").trim();
+  const amount = body.amount;
+  if (!invoiceNo && !jobId) {
+    return json({ ok: false, error: "jobId or invoiceNo required" }, 400);
+  }
+  if (amount == null || amount === "") {
+    return json({ ok: false, error: "amount required" }, 400);
+  }
+  // Optional force resend: unique idempotency by appending -force-ts
+  let ref = String(body.ref || "").trim();
+  if (body.force === true || body.force === "1") {
+    ref = (ref || "manual") + "-force-" + Date.now();
+  }
+  const result = await sendPaymentConfirmEmail({
+    jobId,
+    invoiceNo,
+    amount,
+    balance: body.balance,
+    ref,
+    payDate: body.payDate || body.date || "",
+  });
+  return json(result, result.ok ? 200 : 502);
+};
