@@ -11,21 +11,24 @@ import {
 
 const FILTERS = [
   { id: "all", label: "All" },
-  { id: "invoices", label: "Invoices" },
   { id: "payments", label: "Payments" },
+  { id: "invoices", label: "Invoices" },
   { id: "estimates", label: "Estimates" },
+  { id: "jobs", label: "Jobs" },
 ];
 
 function countKinds(rows) {
   let invoices = 0;
   let payments = 0;
   let estimates = 0;
+  const jobIds = new Set();
   for (const r of rows) {
     if (r.kind === "invoice") invoices += 1;
     else if (r.kind === "payment") payments += 1;
     else if (r.kind === "estimate") estimates += 1;
+    if (r.jobId) jobIds.add(String(r.jobId));
   }
-  return { all: rows.length, invoices, payments, estimates };
+  return { all: rows.length, invoices, payments, estimates, jobs: jobIds.size };
 }
 
 /** Doc # chip: color + shape (pill / square / tag) so invoices stay distinguishable. */
@@ -218,6 +221,21 @@ export default function CustomerTransactionHistory({ jobs, fromCust = "", onOpen
     }
     if (filter === "payments") return allRows.filter((r) => r.kind === "payment");
     if (filter === "estimates") return allRows.filter((r) => r.kind === "estimate");
+    if (filter === "jobs") {
+      // One latest activity row per job (invoices/estimates preferred over payments).
+      const byJob = new Map();
+      for (const r of allRows) {
+        if (!r.jobId) continue;
+        const prev = byJob.get(r.jobId);
+        if (!prev) {
+          byJob.set(r.jobId, r);
+          continue;
+        }
+        const rank = (x) => (x.kind === "invoice" ? 0 : x.kind === "estimate" ? 1 : 2);
+        if (rank(r) < rank(prev)) byJob.set(r.jobId, r);
+      }
+      return Array.from(byJob.values());
+    }
     return allRows;
   }, [allRows, filter]);
 
@@ -245,6 +263,12 @@ export default function CustomerTransactionHistory({ jobs, fromCust = "", onOpen
   return (
     <div className="card px-3 py-2.5 space-y-2" data-testid="customer-txn-history">
       <div className="space-y-2" data-testid="customer-txn-panel">
+        <p className="text-[11px] font-extrabold text-slate-500 uppercase tracking-wider px-0.5">
+          Transaction history
+        </p>
+        <p className="text-[10px] text-slate-400 px-0.5 -mt-1">
+          Tap a payment to open its card — edit, reassign invoice/customer, or delete.
+        </p>
         <div className="flex flex-wrap items-center gap-1.5">
           {FILTERS.map((f) => {
             const n = counts[f.id] ?? 0;

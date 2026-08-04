@@ -438,6 +438,7 @@ export default function CustomerView() {
               jobs={displayJobs}
               fromCust={key}
               onGenerateStatement={() => setSheet({ kind: "statement" })}
+              onOpenTxnRow={openTxnRow}
             />
             {shortTxns ? (
               <CustomerTransactionHistory

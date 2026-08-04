@@ -28,6 +28,7 @@ import { isFeatureOn } from "../lib/tenantProfile.js";
 import ConnectDocSheet from "./ConnectDocSheet.jsx";
 import ChangeOrdersTabPanel from "./ChangeOrdersTabPanel.jsx";
 import AddJobAtAddressSheet from "./AddJobAtAddressSheet.jsx";
+import CustomerTransactionHistory from "./CustomerTransactionHistory.jsx";
 
 const TAB_BTN =
   "flex-1 rounded-xl border px-2 py-2 text-center text-[10px] font-bold leading-tight transition-colors";
@@ -198,10 +199,12 @@ export default function CustomerDocTabs({
   /** When set, shows the Generate Statement trigger (A295 — feature on by default). */
   onGenerateStatement,
   statementsEnabled = true,
+  /** Open a transaction row (payment → PaymentHistorySheet, invoice → job, etc.). */
+  onOpenTxnRow,
 }) {
   const nav = useNavigate();
   const { createJob, showToast, patchAndSave } = useStore();
-  const [tab, setTab] = useState(null); // null | invoices | estimates | addresses
+  const [tab, setTab] = useState(null); // null | invoices | estimates | addresses | txns
   const [addrKey, setAddrKey] = useState(""); // selected service-address key
   const [connect, setConnect] = useState(null); // { job, kind }
   const showStatement = !!(onGenerateStatement && statementsEnabled && isFeatureOn({ statements: statementsEnabled }, "statements"));
@@ -324,6 +327,7 @@ export default function CustomerDocTabs({
           </button>
         ) : null}
         {[
+          ["txns", "📜 History", null],
           ["invoices", "🧾 Invoices", counts.invoices],
           ["estimates", "📝 Estimates", counts.estimates],
           ["changes", "📋 Change orders", counts.changes],
@@ -355,6 +359,19 @@ export default function CustomerDocTabs({
           }}
           onOpenJob={openJob}
         />
+      ) : null}
+
+      {tab === "txns" ? (
+        <div data-testid="cust-tab-panel-txns">
+          <CustomerTransactionHistory
+            jobs={jobs}
+            fromCust={fromCust}
+            onOpenRow={(row) => {
+              if (typeof onOpenTxnRow === "function") onOpenTxnRow(row);
+              else if (row?.jobId) openJob({ id: row.jobId });
+            }}
+          />
+        </div>
       ) : null}
 
       {tab === "invoices" ? (
