@@ -5,8 +5,6 @@ compatibility_flags = ["nodejs_compat"]
 
 [vars]
 STORAGE_BACKEND = "cloudflare"
-# Staff ACH Process (LE Pro Mark-as-paid). Customer pay-page ACH uses SOLA_ACH_CUSTOMER_ENABLED secret.
-SOLA_ACH_ENABLED = "true"
 
 [[kv_namespaces]]
 binding = "LE_KV"
