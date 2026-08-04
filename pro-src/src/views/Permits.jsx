@@ -252,8 +252,14 @@ function DeployQueueRow({
   onReview,
   onOpenJob,
   onDeploy,
+  onFixMissing,
 }) {
   const status = item.status || "";
+  const missing = item.missing || item.readiness?.missing || [];
+  const hardMissing = missing.filter((m) =>
+    ["service_address", "form_a_or_case", "case_or_address"].includes(m.id)
+  );
+  const softMissing = missing.filter((m) => !hardMissing.includes(m));
   const terminal =
     TERMINAL_PAPERWORK_JOB_STATUSES.has(status) ||
     status === "done" ||
@@ -276,6 +282,28 @@ function DeployQueueRow({
   const isDeploying = deploying || queueItemIsDeploying(item);
   const canDeploy = !isDeploying && queueItemCanDeploy(item);
   const needsReview = item.source === "fleet" && status === "awaiting_approval";
+  const needsInfo = hardMissing.length > 0 || status === "need_info";
+
+  let statusLabel = status || "pending";
+  let statusTone = "bg-slate-100 text-slate-600";
+  if (isDeploying && item.source !== "fleet") {
+    statusLabel = "Deploying…";
+    statusTone = "bg-amber-100 text-amber-900";
+  } else if (needsInfo) {
+    statusLabel = "Need info";
+    statusTone = "bg-amber-100 text-amber-900 border border-amber-200";
+  } else if (item.source === "fleet") {
+    statusLabel = paperworkJobStatusLabel(status);
+    statusTone = paperworkJobStatusTone(status);
+  } else if (status === "deploy_queued" || status === "queued") {
+    statusLabel = "Ready";
+    statusTone = "bg-emerald-100 text-emerald-800";
+  } else if (status === "pending" || status === "draft") {
+    statusLabel = softMissing.length ? "Almost ready" : "Ready";
+    statusTone = softMissing.length
+      ? "bg-amber-50 text-amber-800 border border-amber-100"
+      : "bg-emerald-100 text-emerald-800";
+  }
 
   return (
     <div
@@ -297,26 +325,18 @@ function DeployQueueRow({
           {item.subtitle ? (
             <div className="text-[11px] text-slate-500 mt-0.5">{item.subtitle}</div>
           ) : null}
+          {needsInfo && !expanded ? (
+            <div
+              className="text-[11px] text-amber-800 font-semibold mt-1"
+              data-testid="permits-queue-missing-hint"
+            >
+              Missing: {hardMissing.map((m) => m.label).join(", ") || "details"}
+            </div>
+          ) : null}
         </button>
         <div className="flex flex-col items-end gap-1 shrink-0">
-          <span
-            className={`rounded-full px-2 py-0.5 text-[11px] font-bold ${
-              item.source === "fleet"
-                ? paperworkJobStatusTone(status)
-                : isDeploying
-                  ? "bg-amber-100 text-amber-900"
-                  : status === "queued" || status === "deploy_queued"
-                    ? "bg-emerald-100 text-emerald-800"
-                    : "bg-slate-100 text-slate-600"
-            }`}
-          >
-            {isDeploying && item.source !== "fleet"
-              ? "Deploying…"
-              : item.source === "fleet"
-                ? paperworkJobStatusLabel(status)
-                : status === "deploy_queued"
-                  ? "Ready"
-                  : status || "pending"}
+          <span className={`rounded-full px-2 py-0.5 text-[11px] font-bold ${statusTone}`}>
+            {statusLabel}
           </span>
           {item.expandable !== false ? (
             <span className="text-slate-400 text-xs">{expanded ? "▾" : "▸"}</span>
@@ -329,7 +349,37 @@ function DeployQueueRow({
           className="px-3.5 pb-3 space-y-2 bg-slate-50/70 border-t border-slate-100"
           data-testid="permits-queue-details"
         >
-          {reviewBits.length ? (
+          {missing.length ? (
+            <div
+              className="rounded-lg border border-amber-200 bg-amber-50/80 px-3 py-2"
+              data-testid="permits-queue-missing"
+            >
+              <div className="text-[11px] font-extrabold text-amber-900 uppercase tracking-wide mb-1">
+                Missing to Deploy
+              </div>
+              <ul className="text-[12px] text-amber-950 space-y-1.5">
+                {missing.map((m) => (
+                  <li key={m.id} className="flex items-start justify-between gap-2">
+                    <span>· {m.label}</span>
+                    {onFixMissing ? (
+                      <button
+                        type="button"
+                        className="shrink-0 text-[11px] font-bold text-brand underline underline-offset-2"
+                        data-testid={`permits-fix-${m.id}`}
+                        onClick={() => onFixMissing(item, m)}
+                      >
+                        {m.fix === "job"
+                          ? "Open job"
+                          : m.fix === "create_application"
+                            ? "Create application"
+                            : "Fill details"}
+                      </button>
+                    ) : null}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          ) : reviewBits.length ? (
             <ul className="text-[12px] text-slate-700 space-y-0.5">
               {reviewBits.map((b) => (
                 <li key={b}>· {b}</li>
@@ -369,16 +419,6 @@ function DeployQueueRow({
                 Edit
               </button>
             ) : null}
-            {canEdit ? (
-              <button
-                type="button"
-                className="pill bg-white border border-slate-200 text-slate-700 text-xs font-semibold"
-                data-testid="permits-queue-save"
-                onClick={() => onEdit(item)}
-              >
-                Save
-              </button>
-            ) : null}
             {needsReview ? (
               <button
                 type="button"
@@ -407,6 +447,17 @@ function DeployQueueRow({
                 onClick={() => onDeploy(item)}
               >
                 Deploy
+              </button>
+            ) : needsInfo ? (
+              <button
+                type="button"
+                className="btn bg-amber-600 text-white !py-1.5 !px-3 text-xs font-extrabold"
+                data-testid="permits-queue-fix"
+                onClick={() =>
+                  onFixMissing?.(item, hardMissing[0] || missing[0] || { fix: "edit_application" })
+                }
+              >
+                Fix missing
               </button>
             ) : null}
           </div>
@@ -783,11 +834,43 @@ export default function Permits() {
     setEditJob(job);
   };
 
+  /** Deep-link from Missing to Deploy → fill Form A / open job / edit. */
+  const fixMissingOnItem = (item, blocker) => {
+    const fix = blocker?.fix || "edit_application";
+    if (fix === "job" && item?.jobId) {
+      open(item.jobId);
+      return;
+    }
+    const job = jobsById.get(item?.jobId) || item?.job;
+    if (fix === "create_application" && job) {
+      setConedStartJob(job);
+      return;
+    }
+    // edit_application / default
+    if (job) {
+      if (item?.kind === "New Case" || item?.source === "draft" || item?.source === "fleet") {
+        setEditJob(job);
+      } else {
+        setConedStartJob(job);
+      }
+    } else if (item?.jobId) {
+      open(item.jobId);
+    }
+  };
+
   /** Green Deploy on a queue row — fire skill; button shows Deploying… */
   const deployQueueItem = async (item) => {
     if (!item?.id || deployingIds[item.id]) return;
     if (item.source === "fleet" && item.status === "awaiting_approval") {
       setApprovalJob(item.run);
+      return;
+    }
+    const hardMissing = (item.missing || item.readiness?.missing || []).filter((m) =>
+      ["service_address", "form_a_or_case", "case_or_address"].includes(m.id)
+    );
+    if (hardMissing.length) {
+      showToast("Missing: " + hardMissing.map((m) => m.label).join(", "));
+      setExpandedIds((m) => ({ ...m, [item.id]: true }));
       return;
     }
     setDeployingIds((m) => ({ ...m, [item.id]: true }));
@@ -985,6 +1068,9 @@ export default function Permits() {
                 <p className="text-xs text-slate-500 mt-0.5">
                   {queueItems.length} item{queueItems.length === 1 ? "" : "s"} · expand → Deploy
                   when ready
+                  {queueItems.some((i) => (i.missing || []).length)
+                    ? " · amber = fill missing first"
+                    : ""}
                 </p>
               </div>
               <span className="flex items-center gap-1.5 shrink-0">
@@ -1034,6 +1120,7 @@ export default function Permits() {
                     onReview={setApprovalJob}
                     onOpenJob={open}
                     onDeploy={deployQueueItem}
+                    onFixMissing={fixMissingOnItem}
                   />
                 ))}
               </div>

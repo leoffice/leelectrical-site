@@ -12,6 +12,10 @@ import {
   queueItemCanDeploy,
   queueItemIsDeploying,
   DEPLOY_QUEUE_COMPLETED_STATUSES,
+  getDeployReadiness,
+  isReadyToEnqueueDeploy,
+  fleetRunIsSupersededSuccess,
+  jobConedCaseNumber,
 } from "../src/lib/permitsDeploy.js";
 import { jobPatchMeterApplication } from "../src/modules/permits/meterApplication.js";
 import { REQUEST_TYPES } from "../src/lib/agencyForms/createCaseQuestionnaire.js";
@@ -159,6 +163,101 @@ describe("buildDeployQueueItems", () => {
     });
     expect(DEPLOY_QUEUE_COMPLETED_STATUSES.has("done")).toBe(true);
     expect(items.map((i) => i.id)).toEqual(["live-1"]);
+  });
+
+  it("hides failed fleet runs when job already has matching Con Ed case (607 MC-941793)", () => {
+    const jobs = [
+      {
+        id: "local-607",
+        customer: "Dovber Lipsker",
+        serviceAddress: "607 E 53rd St, Brooklyn, NY",
+        paperwork: { coned: { caseNumber: "MC-941793" } },
+      },
+    ];
+    const caseRuns = [
+      {
+        id: "fail-a",
+        type: "create_case",
+        jobId: "local-607",
+        status: "failed",
+        caseNumber: "MC-941793",
+        error: "superseded — 607 case staged with corrected BIN on newer run",
+        payload: {
+          displayTitle: "New Case · Con Edison · 607 E 53rd St, Brooklyn, NY",
+          requestTypeShort: "No Additional Load",
+        },
+      },
+      {
+        id: "fail-b",
+        type: "create_case",
+        jobId: "local-607",
+        status: "failed",
+        caseNumber: "MC-941793",
+        payload: {
+          displayTitle: "New Case · Con Edison · 607 E 53rd St, Brooklyn, NY",
+        },
+      },
+      {
+        id: "fail-c",
+        type: "create_case",
+        jobId: "local-607",
+        status: "failed",
+        payload: {
+          displayTitle: "New Case · Con Edison · 607 E 53rd St, Brooklyn, NY",
+        },
+      },
+    ];
+    const items = buildDeployQueueItems({ jobs, caseRuns });
+    expect(items.filter((i) => i.source === "fleet")).toEqual([]);
+    expect(fleetRunIsSupersededSuccess(caseRuns[0], jobs[0], caseRuns)).toBe(true);
+  });
+
+  it("keeps real failed runs when job has no case", () => {
+    const items = buildDeployQueueItems({
+      jobs: [{ id: "j-bad", serviceAddress: "1 Nowhere" }],
+      caseRuns: [
+        {
+          id: "real-fail",
+          type: "create_case",
+          jobId: "j-bad",
+          status: "failed",
+          error: "session_expired",
+          payload: { displayTitle: "New Case · Con Edison · 1 Nowhere" },
+        },
+      ],
+    });
+    expect(items.map((i) => i.id)).toEqual(["real-fail"]);
+  });
+});
+
+describe("getDeployReadiness", () => {
+  it("blocks new meter without case or Form A", () => {
+    const r = getDeployReadiness(
+      { id: "j", serviceAddress: "10 Main St" },
+      { kind: "new_meter" }
+    );
+    expect(r.ready).toBe(false);
+    expect(r.missing.some((m) => m.id === "form_a_or_case")).toBe(true);
+    expect(isReadyToEnqueueDeploy({ id: "j", serviceAddress: "10 Main St" }, { kind: "new_meter" })).toBe(
+      false
+    );
+  });
+
+  it("ready when case number present", () => {
+    const job = {
+      id: "j",
+      serviceAddress: "10 Main St",
+      paperwork: { coned: { caseNumber: "MC-1" } },
+    };
+    expect(jobConedCaseNumber(job)).toBe("MC-1");
+    expect(getDeployReadiness(job, { kind: "new_meter" }).ready).toBe(true);
+    expect(isReadyToEnqueueDeploy(job, { kind: "new_meter" })).toBe(true);
+  });
+
+  it("requires address", () => {
+    const r = getDeployReadiness({ id: "j" }, { kind: "new_meter" });
+    expect(r.ready).toBe(false);
+    expect(r.missing.some((m) => m.id === "service_address")).toBe(true);
   });
 });
 

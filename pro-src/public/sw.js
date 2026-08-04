@@ -8,7 +8,7 @@
  * reload loop while the client chased a new SW. Hashed filenames are still
  * cacheable after a successful network hit.
  */
-const CACHE = "le-pro-v306";
+const CACHE = "le-pro-v307";
 const CORE = ["/app/pro/manifest.json"];
 
 self.addEventListener("install", (e) => {

@@ -43,34 +43,159 @@ export function jobHasConedFormA(job = {}) {
   return false;
 }
 
+/** Canonical Con Ed case number on a job (any paperwork slot). */
+export function jobConedCaseNumber(job = {}) {
+  return (
+    s(job?.paperwork?.coned?.caseNumber) ||
+    s(job?.paperwork?.coned?.createCase?.execution?.caseNumber) ||
+    s(job?.paperwork?.coned?.meterDeploy?.caseNumber) ||
+    s(job?.paperwork?.coned?.createCase?.caseNumber) ||
+    ""
+  );
+}
+
+/**
+ * What is still missing before Deploy is honest about readiness.
+ * Levi 2026-08-04: never put a row in queue as "Ready" without this; surface
+ * missing Form A / address / details with a fix path.
+ *
+ * @returns {{ ready: boolean, missing: Array<{ id: string, label: string, fix: string }> }}
+ */
+export function getDeployReadiness(job = {}, { kind = "new_meter" } = {}) {
+  const missing = [];
+  const k = s(kind).toLowerCase() || "new_meter";
+  const addr = s(job?.serviceAddress || job?.address);
+  if (!addr) {
+    missing.push({
+      id: "service_address",
+      label: "Service address",
+      fix: "job",
+    });
+  }
+  const caseNumber = jobConedCaseNumber(job);
+  const hasFormA = jobHasConedFormA(job);
+  const draft = getCreateCaseState(job);
+  const rt = s(draft?.answers?.requestType || draft?.payload?.requestType);
+  const st = s(draft?.status).toLowerCase();
+
+  if (k === "new_case" || k === "create_case") {
+    if (!rt && st !== "ready_to_fill" && st !== "queued" && st !== "in_progress") {
+      missing.push({
+        id: "request_type",
+        label: "Request type (Additional Load / No Additional Load)",
+        fix: "edit_application",
+      });
+    }
+    // Soft: full questionnaire validated at Deploy; list top blockers when draft exists
+    if (rt && draft?.answers) {
+      try {
+        // Dynamic import avoided — use createCaseReady via getCreateCaseState fields only
+        const a = draft.answers || {};
+        if (!s(a.bin) && !s(a.borough)) {
+          missing.push({
+            id: "property_details",
+            label: "Property details (BIN / borough)",
+            fix: "edit_application",
+          });
+        }
+        if (!s(a.ownerFirst) || !s(a.ownerLast) || !s(a.ownerPhone)) {
+          missing.push({
+            id: "owner_contact",
+            label: "Owner / customer contact",
+            fix: "edit_application",
+          });
+        }
+      } catch {
+        /* ignore */
+      }
+    }
+  } else if (k === "new_meter" || k === "new_application" || k === "meter") {
+    if (!caseNumber && !hasFormA) {
+      missing.push({
+        id: "form_a_or_case",
+        label: "Con Ed case number or completed Form A application",
+        fix: "create_application",
+      });
+    }
+  } else if (k === "load_letter") {
+    if (!caseNumber && !addr) {
+      missing.push({
+        id: "case_or_address",
+        label: "Case number or service address",
+        fix: "job",
+      });
+    }
+  } else if (k === "electrical_permit" || k === "file_electrical_permit") {
+    if (!addr) {
+      /* already pushed */
+    }
+  }
+
+  // Hard gate shared by enqueue: address + kind-specific
+  const ready = missing.length === 0;
+  return { ready, missing, caseNumber, hasFormA };
+}
+
 /**
  * Levi 2026-08-03: only put something in Deploy queue when we actually have
  * enough info to deploy — not merely because "Electric / New Meter" was tapped.
  *
- * Ready when:
- * - service address present, and
- * - Con Ed case number on job, or Form A completed, or create-case draft is ready_to_fill / queued
- *   with a request type chosen.
+ * Ready when getDeployReadiness says so (address + case/Form A / request type).
  */
 export function isReadyToEnqueueDeploy(job = {}, { kind = "new_meter" } = {}) {
-  const addr = s(job?.serviceAddress || job?.address);
-  if (!addr) return false;
-  const caseNumber =
-    s(job?.paperwork?.coned?.caseNumber) ||
-    s(job?.paperwork?.coned?.createCase?.execution?.caseNumber) ||
-    s(job?.paperwork?.coned?.meterDeploy?.caseNumber);
-  if (caseNumber) return true;
-  if (jobHasConedFormA(job)) return true;
-  const draft = getCreateCaseState(job);
-  const st = s(draft?.status).toLowerCase();
-  if (st === "ready_to_fill" || st === "queued" || st === "in_progress") return true;
-  const rt = s(draft?.answers?.requestType || draft?.payload?.requestType);
-  // New Case can enqueue once request type + address exist (Deploy will still
-  // validate full questionnaire via createCaseReady).
-  if (kind === "new_case" || kind === "create_case") {
+  const k = s(kind).toLowerCase() || "new_meter";
+  // New Case can enqueue once address + request type exist (Deploy still
+  // validates full questionnaire via createCaseReady). Don't block on soft
+  // owner/BIN until Deploy.
+  if (k === "new_case" || k === "create_case") {
+    const addr = s(job?.serviceAddress || job?.address);
+    if (!addr) return false;
+    const draft = getCreateCaseState(job);
+    const st = s(draft?.status).toLowerCase();
+    if (st === "ready_to_fill" || st === "queued" || st === "in_progress") return true;
+    const rt = s(draft?.answers?.requestType || draft?.payload?.requestType);
     return !!rt;
   }
-  // New meter / new application: need case or Form A — bare meter pick is not enough
+  const { ready } = getDeployReadiness(job, { kind: k });
+  return ready;
+}
+
+/**
+ * Failed / rejected fleet runs leave the Deploy queue when the job already
+ * has a live case (or a newer success). Stops triple-Failed noise after
+ * MC-… success (Levi 2026-08-04 screenshot: 607 ×3 Failed with MC-941793).
+ */
+export function fleetRunIsSupersededSuccess(run = {}, job = null, allRuns = []) {
+  const status = s(run.status).toLowerCase();
+  if (status !== "failed" && status !== "rejected") return false;
+
+  const err = s(run.error || run.payload?.error || "").toLowerCase();
+  if (err.includes("superseded") || err.includes("newer run") || err.includes("already has")) {
+    return true;
+  }
+
+  const jobCase =
+    jobConedCaseNumber(job) ||
+    s(job?.paperwork?.coned?.createCase?.execution?.caseNumber);
+  const runCase = s(run.caseNumber || run.payload?.caseNumber || run.result?.caseNumber);
+  if (jobCase) {
+    // Job already holds a case — failed retries are historical noise
+    if (!runCase || runCase.toUpperCase() === jobCase.toUpperCase()) return true;
+    // Failed run but job has *any* MC- case for create_case
+    if (s(run.type).toLowerCase() === "create_case" && /^MC-/i.test(jobCase)) return true;
+  }
+
+  // Another run for same job already done/submitted
+  const jobId = s(run.jobId);
+  if (jobId && Array.isArray(allRuns)) {
+    const siblingOk = allRuns.some((r) => {
+      if (!r || r.id === run.id || s(r.jobId) !== jobId) return false;
+      const st = s(r.status).toLowerCase();
+      return st === "done" || st === "submitted";
+    });
+    if (siblingOk) return true;
+  }
+
   return false;
 }
 
@@ -128,14 +253,26 @@ export const DEPLOY_KIND_OPTIONS = Object.freeze([
   },
 ]);
 
-/** Fleet statuses that mean "done" — drop from Deploy queue automatically. */
+/**
+ * Fleet statuses that mean "done" — drop from Deploy queue automatically.
+ * Note: "failed" is intentionally NOT completed — but fleetRunIsSupersededSuccess
+ * still hides failed rows once the job has a live case.
+ */
 export const DEPLOY_QUEUE_COMPLETED_STATUSES = new Set(["done", "submitted"]);
 
 /** Whether a queue row should show green Deploy (vs Review / Deploying…). */
 export function queueItemCanDeploy(item = {}) {
   const status = s(item.status).toLowerCase();
   if (DEPLOY_QUEUE_COMPLETED_STATUSES.has(status)) return false;
-  if (status === "awaiting_approval") return false;
+  if (status === "awaiting_approval" || status === "need_info" || status === "failed") {
+    return false;
+  }
+  // Hard blockers (address / Form A) — soft draft missing fields still allow Deploy
+  // so createCaseReady can surface the full questionnaire list.
+  const hardMissing = (item.missing || item.readiness?.missing || []).filter((m) =>
+    ["service_address", "form_a_or_case", "case_or_address"].includes(m.id)
+  );
+  if (hardMissing.length) return false;
   if (item.source === "fleet") {
     // Already handed to fleet — show Deploying…, not a second Deploy
     if (status === "queued" || status === "in_progress" || status === "approved") {
@@ -399,7 +536,12 @@ export function buildDeployQueueItems({ jobs = [], caseRuns = [] } = {}) {
     // Completed runs leave the Deploy queue automatically (Levi 2026-08-03)
     if (DEPLOY_QUEUE_COMPLETED_STATUSES.has(s(run.status).toLowerCase())) continue;
     const job = jobsById.get(run.jobId) || null;
+    // Failed-when-case-exists (607 ×3 Failed MC-941793) — hide noise
+    if (fleetRunIsSupersededSuccess(run, job, caseRuns)) continue;
     const disp = caseRunDisplay(run, job);
+    const readiness = getDeployReadiness(job || {}, {
+      kind: s(run.type) === "create_case" ? "new_case" : s(run.type) || "new_case",
+    });
     items.push({
       id: run.id,
       source: "fleet",
@@ -413,6 +555,8 @@ export function buildDeployQueueItems({ jobs = [], caseRuns = [] } = {}) {
       kind: disp.kind,
       agency: disp.agency,
       status: run.status,
+      readiness,
+      missing: readiness.missing,
       removable: true,
       expandable: true,
     });
@@ -433,19 +577,29 @@ export function buildDeployQueueItems({ jobs = [], caseRuns = [] } = {}) {
     if (st === "draft" && !isReadyToEnqueueDeploy(job, { kind: "new_case" })) continue;
     // Show ready_to_fill / queued / error / draft-with-request-type
     const row = createCaseDraftDisplay(job);
-    if (row) items.push(row);
+    if (row) {
+      const readiness = getDeployReadiness(job, { kind: "new_case" });
+      items.push({ ...row, readiness, missing: readiness.missing });
+    }
   }
 
   for (const job of jobs || []) {
     for (const todo of listPaperworkTodos(job)) {
       if (!todo || todo.status === "done" || todo.status === "removed") continue;
-      // New-meter todos only when ready to deploy
+      // New-meter todos only when hard-ready to deploy (no silent Ready without Form A/case)
       if (
         (todo.kind === "new_meter" || todo.source === "meter_application") &&
         !isReadyToEnqueueDeploy(job, { kind: "new_meter" })
       ) {
         continue;
       }
+      const todoKind =
+        todo.kind === "new_meter" || todo.source === "meter_application"
+          ? "new_meter"
+          : todo.kind === "file_electrical_permit"
+            ? "electrical_permit"
+            : s(todo.kind) || "new_meter";
+      const readiness = getDeployReadiness(job, { kind: todoKind });
       const title =
         s(todo.title) ||
         formatDeployTitle({
@@ -472,6 +626,8 @@ export function buildDeployQueueItems({ jobs = [], caseRuns = [] } = {}) {
         kind: deployKindLabel(todo.kind),
         agency: todo.agency === "dob" ? "DOB" : "Con Edison",
         status: todo.status || "pending",
+        readiness,
+        missing: readiness.missing,
         removable: true,
         expandable: true,
       });
@@ -493,6 +649,7 @@ export function buildDeployQueueItems({ jobs = [], caseRuns = [] } = {}) {
       );
       if (!already) {
         const caseNumber = s(meterDeploy.caseNumber || job?.paperwork?.coned?.caseNumber);
+        const readiness = getDeployReadiness(job, { kind: "new_meter" });
         items.push({
           id: `meter:${job.id}`,
           source: "meter",
@@ -515,6 +672,8 @@ export function buildDeployQueueItems({ jobs = [], caseRuns = [] } = {}) {
           kind: "New Meter",
           agency: "Con Edison",
           status: "deploy_queued",
+          readiness,
+          missing: readiness.missing,
           removable: true,
           expandable: true,
         });
