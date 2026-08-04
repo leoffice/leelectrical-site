@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildQbDocPdf } from "../src/lib/qbInvoicePdf.js";
+import { buildQbDocPdf, pdfSafeAscii } from "../src/lib/qbInvoicePdf.js";
 import { mapJobToQbDocData } from "../src/lib/jobToQbDoc.js";
 
 const baseJob = {
@@ -61,6 +61,38 @@ function parseTextOps(pdfStr) {
 }
 
 describe("qbInvoicePdf layout (Levi 2026-07-22)", () => {
+  it("pdfSafeAscii maps arrows/× so Helvetica never prints question marks", () => {
+    expect(pdfSafeAscii("PLP meter → PLP equipment")).toMatch(/PLP meter to PLP equipment/);
+    expect(pdfSafeAscii("4 ft × $200/ft")).toMatch(/4 ft x \$200\/ft/);
+    expect(pdfSafeAscii("end-line box → metering — 4 ft")).toMatch(/end-line box to metering - 4 ft/);
+    expect(pdfSafeAscii("a → b × c")).not.toMatch(/\?/);
+  });
+
+  it("estimate description with arrows renders without ? in PDF stream", async () => {
+    const job = {
+      ...baseJob,
+      estimateLines: [
+        {
+          itemName: "Service Upgrade",
+          description:
+            "SCOPE:\n- PLP meter → PLP equipment: 1 ft (within included)\n- Main service line: 4 ft × $200/ft = $800\n- Service end-line box → metering equipment: 4 ft",
+          qty: 1,
+          unitPrice: 8160,
+        },
+      ],
+    };
+    const data = mapJobToQbDocData(job, "estimate");
+    const blob = buildQbDocPdf(data);
+    const text = await pdfText(blob);
+    expect(text).toContain("PLP meter to PLP equipment");
+    expect(text).toMatch(/4 ft x \$200/);
+    expect(text).toContain("end-line box to metering");
+    // Old bug: Unicode became "?" in the PDF body
+    expect(text).not.toMatch(/meter \? PLP/);
+    expect(text).not.toMatch(/ft \? \$/);
+    expect(text).not.toMatch(/box \? metering/);
+  });
+
   it("puts ESTIMATE title and BILLING/SERVICE ADDRESS labels on the PDF", async () => {
     const data = mapJobToQbDocData(baseJob, "estimate");
     const blob = buildQbDocPdf(data);

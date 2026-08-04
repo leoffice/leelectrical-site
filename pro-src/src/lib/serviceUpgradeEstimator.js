@@ -245,14 +245,15 @@ export function buildServiceUpgradeEstimate(answers) {
       metersSubtotal += pFee;
     }
 
-    // Scope: only call out meter→panel distance when over 3 ft (Levi)
+    // Scope: only call out meter-to-panel distance when over 3 ft (Levi)
+    // ASCII only in customer-facing text — PDF fonts map arrows/× to "?"
     const distNote =
       feet > 3
-        ? ` · ${feet} ft meter→panel` +
+        ? ` · ${feet} ft meter-to-panel` +
           (extraRun > 0 ? ` (+$${extraRun} labor/materials)` : "")
         : "";
     workBullets.push(
-      `Meter ${i + 1} (${role}, ${s.label})${i > 0 ? " — additional meter rate" : ""}` +
+      `Meter ${i + 1} (${role}, ${s.label})${i > 0 ? " - additional meter rate" : ""}` +
         (m.includePanel !== false ? ` + panel` : " · no panel") +
         distNote
     );
@@ -263,7 +264,7 @@ export function buildServiceUpgradeEstimate(answers) {
         i === 0 ? "End-line box (NYC) if first service position" : "Tap / continuation as needed",
         `Meter pan ${s.label}`,
         "Connectors / lugs",
-        `Wire meter ↔ panel (${feet} ft)`,
+        `Wire meter to panel (${feet} ft)`,
         "Bonding",
         m.includePanel !== false ? `Panel ${s.amps}A` : null,
       ].filter(Boolean),
@@ -275,9 +276,9 @@ export function buildServiceUpgradeEstimate(answers) {
     const d = distCost(a.feetPlp, f.freeFeetPlp, f.perFootPlp);
     if (d > 0) {
       metersSubtotal += d;
-      workBullets.push(`PLP meter → PLP equipment: ${a.feetPlp} ft (+$${d})`);
+      workBullets.push(`PLP meter to PLP equipment: ${a.feetPlp} ft (+$${d})`);
     } else {
-      workBullets.push(`PLP meter → PLP equipment: ${a.feetPlp} ft (within included)`);
+      workBullets.push(`PLP meter to PLP equipment: ${a.feetPlp} ft (within included)`);
     }
   }
 
@@ -287,18 +288,18 @@ export function buildServiceUpgradeEstimate(answers) {
   if (Number(a.feetMainService) > 0) {
     metersSubtotal += ms;
     workBullets.push(
-      `Main service line to metering equipment: ${a.feetMainService} ft × $${mainRate}/ft` +
+      `Main service line to metering equipment: ${a.feetMainService} ft x $${mainRate}/ft` +
         (ms > 0 ? ` = $${ms}` : "") +
         ` (${a.mainAmps}A main)`
     );
   }
 
-  // End-line box → metering (NYC) — only if entered
+  // End-line box to metering (NYC) — only if entered
   const el = distCost(a.feetEndLineBox, f.freeFeetEndLine ?? 0, f.perFootEndLine);
   if (Number(a.feetEndLineBox) > 0) {
     metersSubtotal += el;
     workBullets.push(
-      `Service end-line box → metering equipment: ${a.feetEndLineBox} ft` +
+      `Service end-line box to metering equipment: ${a.feetEndLineBox} ft` +
         (el > 0 ? ` (+$${el})` : "")
     );
   }
@@ -325,10 +326,10 @@ export function buildServiceUpgradeEstimate(answers) {
   const notInc = ["Filing permit (if not selected)", "Removal of existing equipment (if not selected)"];
   if (!a.includeConduit) notInc.push("Conduit / overhead pipe to street");
   const desc = [
-    `Service upgrade — main ${a.mainAmps}A ${a.mainPhase === 3 ? "3-phase" : "1-phase"}, ${a.meters.length} meter(s).`,
+    `Service upgrade - main ${a.mainAmps}A ${a.mainPhase === 3 ? "3-phase" : "1-phase"}, ${a.meters.length} meter(s).`,
     "",
     "SCOPE:",
-    ...workBullets.map((b) => `• ${b}`),
+    ...workBullets.map((b) => `- ${b}`),
     "",
     `INCLUDED: ${includedTxt}.`,
     `NOT INCLUDED (unless separate line below): ${notInc.join("; ")}.`,
@@ -353,7 +354,7 @@ export function buildServiceUpgradeEstimate(answers) {
       const extra = Math.max(0, feet - f.overheadDefaultFeet) * f.overheadPerFootExtra;
       push(
         ITEM_CONDUIT,
-        `Overhead service pipe / riser (~${feet} ft; base covers typical 10–15 ft).`,
+        `Overhead service pipe / riser (~${feet} ft; base covers typical 10-15 ft).`,
         f.overheadBase + extra
       );
     } else {
@@ -361,7 +362,7 @@ export function buildServiceUpgradeEstimate(answers) {
       const inch = a.conduitInch === 4 ? 4 : 2;
       push(
         ITEM_CONDUIT,
-        `Underground conduit to street — ${inch}" — ${feet} ft.`,
+        `Underground conduit to street - ${inch}" - ${feet} ft.`,
         money(feet * f.conduitPerFoot)
       );
     }
@@ -382,7 +383,7 @@ export function buildServiceUpgradeEstimate(answers) {
     })
     .join("; ");
   const title =
-    `Service upgrade — ${a.meters.length} meter(s): ${meterSummary}. Main ${a.mainAmps}A ${a.mainPhase === 3 ? "3-phase" : "1-phase"}.` +
+    `Service upgrade - ${a.meters.length} meter(s): ${meterSummary}. Main ${a.mainAmps}A ${a.mainPhase === 3 ? "3-phase" : "1-phase"}.` +
     (a.notes ? `\n\n${a.notes}` : "");
 
   const total = money(lines.reduce((s, ln) => s + parseAmount(ln.amount), 0));

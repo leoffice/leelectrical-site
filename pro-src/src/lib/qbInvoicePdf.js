@@ -32,23 +32,46 @@ const FOOTER_LIMIT = 700;
 // Helvetica AFM advance widths (/1000 em, ASCII 32..126)
 const HELV = [278,278,355,556,556,889,667,191,333,333,389,584,278,333,278,278,556,556,556,556,556,556,556,556,556,556,278,278,584,584,584,556,1015,667,667,722,722,667,611,778,722,278,500,667,556,833,722,778,667,778,722,667,611,722,667,944,667,667,611,278,278,278,469,556,333,556,556,500,556,556,278,556,556,222,222,500,222,833,556,556,556,556,333,500,278,556,500,722,500,500,500,334,260,334,584];
 const HELVB = [278,333,474,556,556,889,722,238,333,333,389,584,278,333,278,278,556,556,556,556,556,556,556,556,556,556,333,333,584,584,584,611,975,722,722,722,722,667,611,778,722,278,556,722,611,833,722,778,667,778,722,667,611,722,667,944,667,667,611,333,278,333,584,556,333,556,611,556,611,556,333,611,611,278,278,556,278,889,611,611,611,611,389,556,333,611,556,778,556,556,500,389,280,389,584];
+
+/**
+ * Map common Unicode (arrows, dashes, multiply) to ASCII so Helvetica PDF
+ * never prints "?" for estimate scope lines (→ × — ↔ etc.).
+ */
+export function pdfSafeAscii(str) {
+  return String(str == null ? "" : str)
+    // Arrows may already have spaces on either side — collapse later
+    .replace(/[→⇒➔➜]/g, " to ")
+    .replace(/[←⇐]/g, " from ")
+    .replace(/[↔⇄]/g, " to ")
+    .replace(/[×✕✖]/g, "x")
+    .replace(/[–—―]/g, "-")
+    .replace(/[•·]/g, "-")
+    .replace(/[“”]/g, '"')
+    .replace(/[‘’]/g, "'")
+    .replace(/…/g, "...")
+    .replace(/°/g, " deg")
+    .replace(/±/g, "+/-")
+    .replace(/\u00a0/g, " ")
+    .replace(/[^\x20-\x7e\n\r\t]/g, "")
+    .replace(/[ \t]{2,}/g, " ");
+}
+
 function textWidth(str, size, bold) {
   const t = bold ? HELVB : HELV;
   let w = 0;
-  const s = String(str);
+  const s = pdfSafeAscii(str);
   for (let i = 0; i < s.length; i++) {
     let c = s.charCodeAt(i);
-    if (c < 32 || c > 126) c = 63;
+    if (c < 32 || c > 126) c = 32; // space, never "?"
     w += t[c - 32];
   }
   return (w / 1000) * size;
 }
 function esc(s) {
-  return String(s == null ? "" : s)
+  return pdfSafeAscii(s)
     .replace(/\\/g, "\\\\")
     .replace(/\(/g, "\\(")
-    .replace(/\)/g, "\\)")
-    .replace(/[^\x20-\x7e]/g, "?");
+    .replace(/\)/g, "\\)");
 }
 const r2 = (n) => Math.round(n * 100) / 100;
 export const qbMoney = (n) =>

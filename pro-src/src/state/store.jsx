@@ -178,14 +178,23 @@ export function StoreProvider({ children }) {
       const stale = lastSavedTs.current && meta.stateTs && meta.stateTs < lastSavedTs.current;
       const incoming = meta.jobs || [];
       // Never wipe the list when the server returns empty during a sync blip.
-      if (stale) {
-        // Blob lag — keep saved edits, but still show brand-new QBO jobs.
+      // Always keep local _new jobs (estimate generator just created) until the
+      // server snapshot includes them — a mid-save refresh was dropping the job
+      // and showing "Job local-… not found" right after Save + Create.
+      if (stale || incoming.length || !jobsCountRef.current) {
         setJobs((prev) => {
-          const merged = mergeJobsStaleGuard(prev, incoming);
-          return sameSnapshot(prev, merged) ? prev : merged;
+          const merged = mergeJobsStaleGuard(prev, incoming.length ? incoming : prev);
+          // When not stale and server has data, prefer server fields but keep
+          // any local-only _new rows the snapshot has not caught up with yet.
+          if (!stale && incoming.length) {
+            return sameSnapshot(prev, merged) ? prev : merged;
+          }
+          if (stale) {
+            return sameSnapshot(prev, merged) ? prev : merged;
+          }
+          // Empty incoming blip — keep prev
+          return prev;
         });
-      } else if (incoming.length || !jobsCountRef.current) {
-        keepIfSame(setJobs, incoming);
       }
       setSyncedAt(meta.syncedAt || 0);
       setError("");
@@ -1124,12 +1133,15 @@ export function StoreProvider({ children }) {
           : {}),
       };
       setJobs((js) => [...js, { id, ...JSON.parse(JSON.stringify(ov)) }]);
-      api
-        .saveJob(id, ov)
-        .then((r) => {
-          if (r && r.ts) lastSavedTs.current = Math.max(lastSavedTs.current, r.ts);
-        })
-        .catch(() => showToast("Offline — job kept locally"));
+      // Optimistic stamp so a concurrent refreshJobs does not treat the blob
+      // as fresher and wipe this brand-new local job before save lands.
+      lastSavedTs.current = Math.max(lastSavedTs.current, Date.now());
+      try {
+        const r = await api.saveJob(id, ov);
+        if (r && r.ts) lastSavedTs.current = Math.max(lastSavedTs.current, r.ts);
+      } catch {
+        showToast("Offline — job kept locally");
+      }
       if (g.date) {
         // P0 data-loss fix (2026-07-31): never replace Google event notes with
         // "Created in LE Pro". Prefer job/event description; when updating an

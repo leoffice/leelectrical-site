@@ -74,6 +74,33 @@ describe("serviceUpgradeEstimator", () => {
     expect(filing?.amount).toBe(1800);
   });
 
+  it("scope text uses ASCII (no arrows/× that PDF turns into ?)", () => {
+    const r = buildServiceUpgradeEstimate(
+      defaultAnswers({
+        mainAmps: 100,
+        meters: [
+          { role: "residential", sizeId: "100-1", includePanel: true, feetToPanel: 1 },
+          { role: "residential", sizeId: "100-1", includePanel: true, feetToPanel: 1 },
+          { role: "plp", sizeId: "100-1", includePanel: true, feetToPanel: 1 },
+        ],
+        feetPlp: 1,
+        feetMainService: 4,
+        feetEndLineBox: 4,
+        includeFiling: true,
+        includeConduit: true,
+        conduitPath: "underground",
+        conduitFeet: 12,
+      })
+    );
+    const main = r.lines.find((l) => /Service Upgrade/i.test(l.itemName));
+    expect(main?.description).toBeTruthy();
+    // No Unicode arrows / multiply / bullets that Helvetica PDF maps to "?"
+    expect(main.description).not.toMatch(/[→×•↔—–]/);
+    expect(main.description).toMatch(/PLP meter to PLP equipment/);
+    expect(main.description).toMatch(/ft x \$/);
+    expect(main.description).toMatch(/end-line box to metering/);
+  });
+
   it("extra meter→panel feet increase price", () => {
     const base = buildServiceUpgradeEstimate(
       defaultAnswers({
@@ -111,7 +138,7 @@ describe("serviceUpgradeEstimator", () => {
         meters: [{ role: "residential", sizeId: "100-1", includePanel: true, feetToPanel: 5 }],
       })
     );
-    expect(long.lines[0].description).toMatch(/5 ft meter→panel/);
+    expect(long.lines[0].description).toMatch(/5 ft meter-to-panel/);
   });
 
   it("filterEnabledEstimateLines drops off lines and recalculates total", () => {
