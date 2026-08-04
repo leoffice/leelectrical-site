@@ -25,10 +25,8 @@ const SLIM_KEYS = [
   "email",
   "phone",
   "address",
-  "serviceAddress",
-  "billingAddress",
+  // serviceAddress / billingAddress hydrate on detail (list uses address)
   "title",
-  "description",
   "amount",
   "openBalance",
   "paid",
@@ -44,21 +42,19 @@ const SLIM_KEYS = [
   "amountWhenBaselined",
   "_fromEstimateGenerator",
   "_estimator",
-  "_savedAt",
-  "_version",
-  "version",
-  "estimateQboId",
-  "estimateSyncedAt",
-  "estimateDocSource",
-  "paperwork",
-  "permits",
-  "payment",
+  // payment ledger + paperwork hydrate on detail (openBalance/paid for list chips)
 ];
 
 /**
  * Project a job for list/poll payloads. Strips invoice/estimate line arrays and
- * caps payment history so 4k jobs stay under ~1–2 MB instead of ~7–20 MB.
- * Full lines hydrate via POST op:get on job detail (PERFORMANCE_RULES §1).
+ * trims stage maps so ~4k jobs stay under ~3 MB (was ~4.3 MB list / ~20 MB full).
+ * Full lines + payment history hydrate via POST op:get on job detail
+ * (PERFORMANCE_RULES §1).
+ *
+ * Status semantics for stageOf/progressPct:
+ * - empty stage omitted ≡ not cleared (same as `{s:""}`)
+ * - done/skipped kept so progress % and StagePill stay correct
+ * - dates dropped on list (detail hydrate restores them)
  */
 export function slimJob(job) {
   if (!job || typeof job !== "object") return job;
@@ -66,42 +62,36 @@ export function slimJob(job) {
   for (const k of SLIM_KEYS) {
     if (job[k] !== undefined) out[k] = job[k];
   }
-  // Status: keep stage keys + s/d only (drop bloated nested notes)
+  // Status: only non-empty stages, s only (no dates/notes) — biggest list savings
   if (job.status && typeof job.status === "object") {
     const st = {};
     for (const [phase, val] of Object.entries(job.status)) {
-      if (!val || typeof val !== "object") {
-        st[phase] = val;
-        continue;
-      }
-      st[phase] = { s: val.s || "", ...(val.d ? { d: val.d } : {}) };
+      if (!val || typeof val !== "object") continue;
+      const s = val.s || "";
+      if (!s) continue;
+      st[phase] = { s };
     }
-    out.status = st;
+    if (Object.keys(st).length) out.status = st;
+    else delete out.status;
   }
-  // List chips need amount paid signal, not full payment ledger
-  if (Array.isArray(job.payments) && job.payments.length) {
-    out.payments = job.payments.slice(0, 2).map((p) => ({
-      id: p?.id,
-      amount: p?.amount,
-      method: p?.method,
-      date: p?.date,
-    }));
-    out._paymentsTruncated = job.payments.length > 2;
-  }
-  if (job.payment && typeof job.payment === "object") {
-    out.payment = {
-      id: job.payment.id,
-      amount: job.payment.amount,
-      method: job.payment.method,
-      date: job.payment.date,
-    };
-  }
+  // No payments[] / payment on list — openBalance + paid drive list chips;
+  // full ledger hydrates on job open.
   // Truncate long titles for list
-  if (typeof out.title === "string" && out.title.length > 160) {
-    out.title = out.title.slice(0, 160) + "…";
+  if (typeof out.title === "string" && out.title.length > 120) {
+    out.title = out.title.slice(0, 120) + "…";
   }
-  if (typeof out.followUp === "object" && out.followUp?.text && String(out.followUp.text).length > 120) {
-    out.followUp = { ...out.followUp, text: String(out.followUp.text).slice(0, 120) + "…" };
+  if (typeof out.followUp === "object" && out.followUp) {
+    const rawText = out.followUp.text != null ? String(out.followUp.text) : "";
+    const date = out.followUp.date || "";
+    const text = rawText.length > 80 ? rawText.slice(0, 80) + "…" : rawText;
+    if (text || date) {
+      out.followUp = {
+        ...(text ? { text } : {}),
+        ...(date ? { date } : {}),
+      };
+    } else {
+      delete out.followUp;
+    }
   }
   // Mark slim so client can re-hydrate detail
   out._listProjection = true;

@@ -6,41 +6,64 @@ import { describe, it, expect } from "vitest";
 import { slimJob, slimJobsDoc } from "../../netlify/functions/jobsdata.mjs";
 
 describe("jobsdata slim projection", () => {
-  it("strips invoiceLines and estimateLines from list jobs", () => {
+  it("strips invoiceLines, payments, empty stages, and addresses from list jobs", () => {
     const fat = {
       id: "qbo-1",
       customer: "Test",
       amount: "$100",
+      openBalance: "$50",
+      address: "1 Main",
+      serviceAddress: "1 Main",
+      billingAddress: "PO Box",
       invoiceLines: [{ itemName: "X", amount: 50 }, { itemName: "Y", amount: 50 }],
       estimateLines: [{ itemName: "E", amount: 10 }],
       payments: Array.from({ length: 20 }, (_, i) => ({ id: "p" + i, amount: 1 })),
-      status: { Lead: { s: "done" } },
+      payment: { id: "p0", amount: 1, method: "Zelle" },
+      status: {
+        Lead: { s: "done", d: "2024-01-01", note: "x" },
+        Estimate: { s: "skipped" },
+        Invoiced: { s: "" },
+        Paid: { s: "" },
+      },
     };
     const s = slimJob(fat);
     expect(s.id).toBe("qbo-1");
     expect(s.customer).toBe("Test");
     expect(s.invoiceLines).toBeUndefined();
     expect(s.estimateLines).toBeUndefined();
-    expect(s.payments.length).toBeLessThanOrEqual(4);
+    expect(s.payments).toBeUndefined();
+    expect(s.payment).toBeUndefined();
+    expect(s.serviceAddress).toBeUndefined();
+    expect(s.billingAddress).toBeUndefined();
+    expect(s.status.Lead).toEqual({ s: "done" });
+    expect(s.status.Estimate).toEqual({ s: "skipped" });
+    expect(s.status.Invoiced).toBeUndefined();
     expect(s._listProjection).toBe(true);
-    expect(s._paymentsTruncated).toBe(true);
   });
 
   it("4k synthetic fat jobs compress dramatically when slimmed (pre-deploy gate)", () => {
     // Real benefit: fails the build if list projection ever re-grows fat.
-    // Mirrors production scale (~4181 jobs) with heavy line arrays.
+    // Mirrors production scale (~4181 jobs) with heavy line arrays + full status maps.
     const fatJob = (i) => ({
       id: "qbo-" + (16000 + i),
       customer: "Customer Name LLC " + i,
       address: "123 Main Street Brooklyn NY 11213",
       serviceAddress: "123 Main Street Brooklyn NY 11213",
+      billingAddress: "123 Main Street Brooklyn NY 11213",
       amount: "$25000",
       openBalance: "$5000",
       invoiceNo: String(251800 + i),
       status: {
         Lead: { s: "done", d: "2024-01-01", note: "extra" },
+        "Site Visit": { s: "skipped" },
         Estimate: { s: "done", d: "2024-01-02" },
+        Accepted: { s: "done" },
         Invoiced: { s: "done", d: "2024-01-03" },
+        "Deposit Receipt": { s: "skipped" },
+        Paperwork: { s: "skipped" },
+        Scheduled: { s: "skipped" },
+        Done: { s: "" },
+        "Follow-up": { s: "" },
         Paid: { s: "upcoming" },
       },
       invoiceLines: Array.from({ length: 25 }, (_, k) => ({
@@ -69,11 +92,12 @@ describe("jobsdata slim projection", () => {
     const jobs = Array.from({ length: N }, (_, i) => fatJob(i));
     const fatBytes = JSON.stringify({ jobs }).length;
     const slimBytes = JSON.stringify(slimJobsDoc({ jobs, ts: 1 })).length;
-    // Must crush fat payloads; and stay under ~1.2KB/job average for this shape
-    expect(slimBytes).toBeLessThan(fatBytes * 0.25);
-    expect(slimBytes / N).toBeLessThan(1200);
-    // Absolute ceiling: list payload for 4k must stay under 5 MB in this harness
-    expect(slimBytes).toBeLessThan(5_000_000);
+    // Must crush fat payloads; stay under ~0.8KB/job average for this shape
+    expect(slimBytes).toBeLessThan(fatBytes * 0.15);
+    expect(slimBytes / N).toBeLessThan(800);
+    // Absolute ceiling: list payload for 4k must stay under 3.2 MB in this harness
+    // (live was ~4.3 MB before v316 status/payments trim)
+    expect(slimBytes).toBeLessThan(3_200_000);
   });
 });
 
