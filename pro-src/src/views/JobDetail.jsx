@@ -39,6 +39,7 @@ import StatementSheet from "../components/StatementSheet.jsx";
 
 import JobEditSheet from "../components/JobEditSheet.jsx";
 import ServiceUpgradeEstimatorSheet from "../components/ServiceUpgradeEstimatorSheet.jsx";
+import { isEstimateGeneratorJob } from "../lib/serviceUpgradeEstimator.js";
 
 import {
   canAddChangeOrder,
@@ -729,6 +730,33 @@ export default function JobDetail() {
             onJobTxnsChange={setJobTxns}
           />
         )}
+        {/* Takeoff always visible on generator jobs — not buried only under Estimate step */}
+        {isEstimateGeneratorJob(job) ? (
+          <div
+            className="mt-2 rounded-xl border border-emerald-200 bg-emerald-50/80 px-3 py-2 flex flex-wrap items-center gap-2"
+            data-testid="job-generator-takeoff-bar"
+          >
+            <p className="text-xs font-semibold text-emerald-900 flex-1 min-w-[10rem]">
+              Materials takeoff for this service-upgrade job
+            </p>
+            <button
+              type="button"
+              className="btn bg-emerald-100 text-emerald-900 !py-1.5 border border-emerald-300 font-bold"
+              onClick={() => setSheet({ kind: "serviceUpgradeGen", startStep: 6 })}
+              data-testid="job-takeoff-materials-top"
+            >
+              Take Off Materials
+            </button>
+            <button
+              type="button"
+              className="btn bg-white text-emerald-800 !py-1.5 border border-emerald-200 font-bold"
+              onClick={() => setSheet({ kind: "serviceUpgradeGen" })}
+              data-testid="job-edit-generator-top"
+            >
+              Edit generator
+            </button>
+          </div>
+        ) : null}
         {jobTxns ? (
           <div className="mt-2" data-testid="job-txn-history-section">
             <JobTransactionHistory
@@ -967,7 +995,7 @@ export default function JobDetail() {
                                     Edit lines
                                   </button>
                                 ) : null}
-                                {job._estimator?.kind === "service_upgrade" || job._fromEstimateGenerator ? (
+                                {isEstimateGeneratorJob(job) ? (
                                   <>
                                     <button
                                       className="btn bg-emerald-100 text-emerald-800 !py-1.5"

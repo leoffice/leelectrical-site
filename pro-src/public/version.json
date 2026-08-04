@@ -1,9 +1,9 @@
 {
   "schema": "le-pro-version/v1",
-  "gitSha": "5875850988243fc8aafe01a8d72bcfb4dff1d92d",
-  "gitShaShort": "5875850",
+  "gitSha": "4761d9615fb0131a3540d8e84a47066099f12640",
+  "gitShaShort": "4761d96",
   "netlifyDeployId": null,
-  "builtAt": "2026-08-04T01:10:16.356Z",
-  "task": "estimate generator scope polish v300",
+  "builtAt": "2026-08-04T02:12:48.824Z",
+  "task": "",
   "rollbackAvailable": true
 }

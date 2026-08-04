@@ -85,7 +85,7 @@ export function GroupJobRow({ job, openInvoiceOnly = false, to }) {
     <Link
       to={href}
       className={`flex items-stretch gap-0 rounded-xl bg-white border border-slate-100 overflow-hidden active:bg-slate-50 relative ${
-        job._fromEstimateGenerator || job._estimator?.kind ? "ring-1 ring-emerald-200/80" : ""
+        job._fromEstimateGenerator || job._estimator?.kind === "service_upgrade" ? "ring-1 ring-emerald-200/80" : ""
       }`}
       data-testid="group-job-row"
       data-open-invoice={isOpenInv ? "1" : "0"}

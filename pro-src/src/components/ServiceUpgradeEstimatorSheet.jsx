@@ -605,8 +605,18 @@ export default function ServiceUpgradeEstimatorSheet({ onClose, prefill = {} }) 
         <div className="space-y-1" data-testid="est-gen-extras">
           <Toggle label="Always included (outlet + ground + service light)" on={answers.includeAlways !== false} setOn={(v) => set({ includeAlways: v })} />
           <Toggle label="Removal & disposal of old equipment" on={!!answers.includeRemoval} setOn={(v) => set({ includeRemoval: v })} />
-          <Toggle label="City filing (separate fee)" on={!!answers.includeFiling} setOn={(v) => set({ includeFiling: v })} />
-          <Toggle label="Conduit / pipe to street or overhead" on={!!answers.includeConduit} setOn={(v) => set({ includeConduit: v })} />
+          <Toggle
+            label="Filing (DOB permit + utility case + inspections)"
+            on={!!answers.includeFiling}
+            setOn={(v) => set({ includeFiling: v })}
+            testId="est-gen-toggle-filing"
+          />
+          <Toggle
+            label="Conduit / pipe to street or overhead"
+            on={!!answers.includeConduit}
+            setOn={(v) => set({ includeConduit: v })}
+            testId="est-gen-toggle-conduit"
+          />
           {answers.includeConduit ? (
             <div className="pt-2 space-y-2">
               <div className="flex gap-2">
@@ -625,6 +635,9 @@ export default function ServiceUpgradeEstimatorSheet({ onClose, prefill = {} }) 
               </div>
               {answers.conduitPath === "underground" ? (
                 <>
+                  <p className="text-[11px] text-slate-500">
+                    Conduit for the utility company to connect to the building. Does not include dig — add trenching below if needed.
+                  </p>
                   <div className="flex gap-2">
                     {[2, 4].map((inch) => (
                       <button
@@ -640,11 +653,36 @@ export default function ServiceUpgradeEstimatorSheet({ onClose, prefill = {} }) 
                     ))}
                   </div>
                   <FeetStepper
-                    label="Underground length"
+                    label="Underground conduit length"
                     value={answers.conduitFeet}
                     onChange={(v) => set({ conduitFeet: v })}
                     testId="est-gen-feet-conduit"
                   />
+                  <Toggle
+                    label="Add digging / trenching (per foot)"
+                    on={!!answers.includeTrenching}
+                    setOn={(v) => set({ includeTrenching: v })}
+                    testId="est-gen-toggle-trenching"
+                  />
+                  {answers.includeTrenching ? (
+                    <div className="space-y-2 pl-1 border-l-2 border-amber-200">
+                      <p className="text-[11px] text-slate-500">
+                        Dirt cover only — does not include pouring cement or sealing pavement. Enter feet of dirt trench and/or hard-surface trench.
+                      </p>
+                      <FeetStepper
+                        label={`Trench in dirt ($${answers.feeOverrides?.trenchDirtPerFoot ?? 45}/ft)`}
+                        value={answers.trenchFeetDirt ?? 0}
+                        onChange={(v) => set({ trenchFeetDirt: v })}
+                        testId="est-gen-feet-trench-dirt"
+                      />
+                      <FeetStepper
+                        label={`Trench through concrete / pavement ($${answers.feeOverrides?.trenchConcretePerFoot ?? 95}/ft)`}
+                        value={answers.trenchFeetConcrete ?? 0}
+                        onChange={(v) => set({ trenchFeetConcrete: v })}
+                        testId="est-gen-feet-trench-concrete"
+                      />
+                    </div>
+                  ) : null}
                 </>
               ) : (
                 <FeetStepper

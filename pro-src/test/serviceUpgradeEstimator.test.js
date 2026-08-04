@@ -10,7 +10,12 @@ import {
   meterFeeForIndex,
   emptyMeter,
   DEFAULT_FEES,
+  MATERIAL_COST_BASIS,
   mainServicePerFoot,
+  isEstimateGeneratorJob,
+  describeUndergroundConduit,
+  describeFiling,
+  describeRemoval,
 } from "../src/lib/serviceUpgradeEstimator.js";
 import { searchMaterials } from "../src/lib/materialCatalog.js";
 
@@ -74,7 +79,7 @@ describe("serviceUpgradeEstimator", () => {
     expect(filing?.amount).toBe(1800);
   });
 
-  it("scope text uses ASCII (no arrows/× that PDF turns into ?)", () => {
+  it("scope text uses ASCII (no arrows/× that PDF turns into ?) and work-only wording", () => {
     const r = buildServiceUpgradeEstimate(
       defaultAnswers({
         mainAmps: 100,
@@ -92,16 +97,110 @@ describe("serviceUpgradeEstimator", () => {
         conduitFeet: 12,
       })
     );
-    const main = r.lines.find((l) => /Service Upgrade/i.test(l.itemName));
+    const main = r.lines.find((l) => /Service Upgrade:Service Upgrade/i.test(l.itemName));
     expect(main?.description).toBeTruthy();
     // No Unicode arrows / multiply / bullets that Helvetica PDF maps to "?"
     expect(main.description).not.toMatch(/[→×•↔—–]/);
     expect(main.description).toMatch(/PLP meter to PLP equipment/);
-    expect(main.description).toMatch(/ft x \$/);
+    // Scope describes work — no internal $ math (white-label process)
+    expect(main.description).not.toMatch(/\$\d/);
     expect(main.description).toMatch(/end-line box to metering/);
+    expect(main.description).toMatch(/Install meter 1/);
     // Selected add-ons are separate lines — do not list them as NOT INCLUDED
-    expect(main.description).not.toMatch(/Filing permit/);
+    expect(main.description).not.toMatch(/Filing permit and utility/);
     expect(main.description).toMatch(/NOT INCLUDED: Removal of existing equipment/);
+    // Dig called out when conduit on without trenching
+    expect(main.description).toMatch(/Digging and trenching/);
+  });
+
+  it("underground conduit describes utility path and excludes dig / cement", () => {
+    const r = buildServiceUpgradeEstimate(
+      defaultAnswers({
+        includeConduit: true,
+        conduitPath: "underground",
+        conduitFeet: 20,
+        conduitInch: 2,
+      })
+    );
+    const conduit = r.lines.find((l) => /Conduit/i.test(l.itemName));
+    expect(conduit?.amount).toBe(20 * 85);
+    expect(conduit.description).toMatch(/utility company connection/i);
+    expect(conduit.description).toMatch(/does not include the cost of digging/i);
+    expect(conduit.description).toMatch(/pouring cement/i);
+    expect(conduit.description).not.toMatch(/\(separate line\)/i);
+    expect(describeUndergroundConduit(defaultAnswers({ conduitFeet: 10, conduitInch: 4 }))).toMatch(
+      /4"/
+    );
+  });
+
+  it("optional trenching is per-foot dirt and concrete without cement pour", () => {
+    const r = buildServiceUpgradeEstimate(
+      defaultAnswers({
+        includeConduit: true,
+        conduitPath: "underground",
+        conduitFeet: 10,
+        includeTrenching: true,
+        trenchFeetDirt: 8,
+        trenchFeetConcrete: 2,
+      })
+    );
+    const trench = r.lines.find((l) => /Trenching/i.test(l.itemName));
+    expect(trench?.amount).toBe(8 * 45 + 2 * 95);
+    expect(trench.description).toMatch(/Dirt trench: 8 ft/);
+    expect(trench.description).toMatch(/Concrete \/ pavement trench: 2 ft/);
+    expect(trench.description).toMatch(/does not include pouring cement/i);
+    expect(trench.description).toMatch(/cover.*dirt/i);
+  });
+
+  it("filing covers DOB + utility case + inspections and excludes extra scope", () => {
+    const r = buildServiceUpgradeEstimate(defaultAnswers({ includeFiling: true }));
+    const filing = r.lines.find((l) => /Filing/i.test(l.itemName));
+    expect(filing?.amount).toBe(1800);
+    expect(filing.description).toMatch(/DOB/i);
+    expect(filing.description).toMatch(/Con Edison|utility/i);
+    expect(filing.description).toMatch(/inspection/i);
+    expect(filing.description).toMatch(/additional work not described/i);
+    expect(filing.description).not.toMatch(/\(separate/i);
+    expect(describeFiling()).toMatch(/scope of work/);
+  });
+
+  it("removal line has no meta separate-line wording", () => {
+    const r = buildServiceUpgradeEstimate(defaultAnswers({ includeRemoval: true }));
+    const removal = r.lines.find((l) => /Removal/i.test(l.itemName));
+    expect(removal.description).toBe(describeRemoval());
+    expect(removal.description).not.toMatch(/separate line/i);
+  });
+
+  it("isEstimateGeneratorJob detects flags and service-upgrade lines", () => {
+    expect(isEstimateGeneratorJob({ _fromEstimateGenerator: true })).toBe(true);
+    expect(isEstimateGeneratorJob({ _estimator: { kind: "service_upgrade" } })).toBe(true);
+    expect(
+      isEstimateGeneratorJob({
+        estimateLines: [
+          {
+            itemName: "Service Upgrade:Service Upgrade",
+            description: "Service upgrade - main 200A 1-phase, 1 meter(s).\n\nSCOPE:\n- Install meter 1",
+          },
+        ],
+      })
+    ).toBe(true);
+    expect(isEstimateGeneratorJob({ title: "Random job" })).toBe(false);
+  });
+
+  it("sell fees clear rough material cost basis for common sizes", () => {
+    // First 100A meter sell >> pan material; panel sell >> panel material
+    expect(DEFAULT_FEES.meter["100-1"]).toBeGreaterThan(MATERIAL_COST_BASIS.meterPan["100-1"] * 3);
+    expect(DEFAULT_FEES.panel[200]).toBeGreaterThan(MATERIAL_COST_BASIS.panel[200] * 1.5);
+    expect(DEFAULT_FEES.conduitPerFoot).toBeGreaterThan(MATERIAL_COST_BASIS.conduit2MaterialPerFt * 3);
+    expect(DEFAULT_FEES.trenchDirtPerFoot).toBeGreaterThan(MATERIAL_COST_BASIS.trenchDirtLaborPerFt);
+    const r = buildServiceUpgradeEstimate(
+      defaultAnswers({
+        meters: [{ role: "residential", sizeId: "100-1", includePanel: true, feetToPanel: 1 }],
+        includeAlways: true,
+      })
+    );
+    expect(r.materialBudget).toBeGreaterThan(0);
+    expect(r.total).toBeGreaterThan(r.materialBudget);
   });
 
   it("extra meter→panel feet increase price", () => {

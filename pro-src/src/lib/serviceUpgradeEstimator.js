@@ -1,6 +1,43 @@
 // Service / meter upgrade estimate generator — pure model + line builder.
 // Levi 2026-08-03: itemized meters, per-meter feet (default 1 ft), tiered 2nd+ meter pricing.
+// Levi 2026-08-04: white-label description process, conduit/trenching wording, filing scope,
+// material-cost basis so sell prices stay above rough material+labor budget.
 import { parseAmount } from "./format.js";
+
+/**
+ * Rough material cost basis (supply-house ballpark, NYC metro 2024–2026).
+ * Used to keep sell fees above materials so the builder has room for labor + markup.
+ * Not customer-facing — white-label safe (no brand names).
+ */
+export const MATERIAL_COST_BASIS = {
+  /** $/ft PVC Sch 40 material only */
+  conduit2MaterialPerFt: 3.5,
+  conduit4MaterialPerFt: 12,
+  /** $/ft feeder/service wire material (avg copper/AL mix) */
+  wireMeterPanelPerFt: 8,
+  wireMainServicePerFtByAmp: { 100: 12, 200: 18, 350: 28, 400: 36 },
+  /** Each */
+  meterPan: {
+    "100-1": 180,
+    "100-3": 280,
+    "200-1": 260,
+    "200-3": 420,
+    "350-3": 900,
+    "400-3": 1200,
+  },
+  panel: { 100: 160, 200: 280, 350: 650, 400: 850 },
+  endLineBox: 220,
+  serviceOutlet: 45,
+  serviceLight: 85,
+  groundingKit: 90,
+  lugsConnectors: 75,
+  /**
+   * Labor-only rough for dig (excavation/backfill dirt; saw-cut concrete trench).
+   * Sell rates below must clear material+labor before markup.
+   */
+  trenchDirtLaborPerFt: 28,
+  trenchConcreteLaborPerFt: 70,
+};
 
 /** Default unit fees (sell-side starters; editable via answers.feeOverrides). */
 export const DEFAULT_FEES = {
@@ -58,10 +95,21 @@ export const DEFAULT_FEES = {
     350: 320,
     400: 360,
   },
+  /**
+   * Underground conduit install (pipe + pull for utility connection) — NO dig.
+   * ~2" material ~$3.50/ft; sell covers labor + material + markup.
+   */
   conduitPerFoot: 85,
+  conduitPerFootByInch: { 2: 85, 4: 120 },
   overheadBase: 1200,
   overheadPerFootExtra: 40,
   overheadDefaultFeet: 12,
+  /**
+   * Optional trenching (builder add-on). Dirt cover only — no cement pour / pavement seal.
+   * Concrete = cut/trench through pavement or hard surface (still no re-pour).
+   */
+  trenchDirtPerFoot: 45,
+  trenchConcretePerFoot: 95,
 };
 
 export const METER_ROLES = ["residential", "commercial", "plp"];
@@ -79,6 +127,23 @@ const ITEM_SERVICE_UPGRADE = "Service Upgrade:Service Upgrade";
 const ITEM_FILING = "Service Upgrade:Filing permit";
 const ITEM_REMOVAL = "Service Upgrade:Removal & disposal";
 const ITEM_CONDUIT = "Service Upgrade:Conduit / overhead";
+const ITEM_TRENCHING = "Service Upgrade:Trenching";
+
+/** True when this job was (or looks like it was) built by the estimate generator. */
+export function isEstimateGeneratorJob(job) {
+  if (!job) return false;
+  if (job._fromEstimateGenerator) return true;
+  if (job._estimator?.kind === "service_upgrade") return true;
+  const lines = job.estimateLines || job.invoiceLines || [];
+  return lines.some((ln) => {
+    const name = String(ln?.itemName || ln?.item || "");
+    const desc = String(ln?.description || "");
+    return (
+      /Service Upgrade/i.test(name) ||
+      (/SCOPE:/i.test(desc) && /meter/i.test(desc) && /main\s+\d+A/i.test(desc))
+    );
+  });
+}
 
 export function defaultAnswers(partial = {}) {
   return {
@@ -112,10 +177,144 @@ export function defaultAnswers(partial = {}) {
     conduitPath: "underground",
     conduitFeet: 20,
     overheadFeet: 12,
+    /**
+     * Optional dig/trenching when underground conduit is on.
+     * Dirt = earth trench + dirt cover. Concrete = through pavement/hard surface.
+     * Neither includes pouring cement or sealing pavement.
+     */
+    includeTrenching: false,
+    trenchFeetDirt: 0,
+    trenchFeetConcrete: 0,
     notes: "",
     feeOverrides: {},
     ...partial,
   };
+}
+
+/** Sell $/ft for conduit by inch, with budget floor from material basis. */
+export function conduitSellPerFoot(inch, fees) {
+  const f = fees || DEFAULT_FEES;
+  const i = Number(inch) === 4 ? 4 : 2;
+  const table = f.conduitPerFootByInch || DEFAULT_FEES.conduitPerFootByInch;
+  const sell = table[i] ?? f.conduitPerFoot ?? 85;
+  const mat =
+    i === 4
+      ? MATERIAL_COST_BASIS.conduit4MaterialPerFt
+      : MATERIAL_COST_BASIS.conduit2MaterialPerFt;
+  // Keep at least ~3x material so labor + markup fit white-label budgets
+  return Math.max(sell, Math.ceil(mat * 3));
+}
+
+/**
+ * Build customer-facing scope bullets (white-label process).
+ * Describes work only — no internal "$ math" or meta notes like "(separate line)".
+ */
+export function buildScopeBullets(answers, fees) {
+  const a = {
+    ...defaultAnswers(),
+    ...answers,
+    meters: answers?.meters?.length ? answers.meters : defaultAnswers().meters,
+  };
+  const f = fees || feesFor(a);
+  const bullets = [];
+
+  a.meters.forEach((m, i) => {
+    const s = sizeById(m.sizeId);
+    const role = roleLabel(m.role);
+    const feet = feetForMeter(m, a, f);
+    const parts = [
+      `Install meter ${i + 1} (${role}, ${s.label})`,
+      m.includePanel !== false ? "with new panel" : "without new panel",
+    ];
+    if (i > 0) parts.push("at additional-meter rate");
+    // Only call out long meter-to-panel runs (over 3 ft) — Levi
+    if (feet > 3) parts.push(`${feet} ft meter-to-panel run`);
+    bullets.push(parts.join(" "));
+  });
+
+  const hasPlp = a.meters.some((m) => m.role === "plp");
+  if (hasPlp) {
+    bullets.push(
+      `PLP meter to PLP equipment run: ${Number(a.feetPlp) || 0} ft`
+    );
+  }
+
+  if (Number(a.feetMainService) > 0) {
+    bullets.push(
+      `Main service line to metering equipment: ${a.feetMainService} ft (${a.mainAmps}A main)`
+    );
+  }
+
+  if (Number(a.feetEndLineBox) > 0) {
+    bullets.push(
+      `Service end-line box to metering equipment: ${a.feetEndLineBox} ft`
+    );
+  }
+
+  if (distCost(a.feetGround, f.freeFeetGround, f.perFootGround) > 0) {
+    bullets.push(
+      `Extra grounding run from metering equipment: ${a.feetGround} ft`
+    );
+  }
+
+  if (a.includeAlways !== false) {
+    bullets.push("Service outlet, grounding system, and service light");
+  }
+
+  return bullets;
+}
+
+/** Customer-facing description for underground utility conduit (no dig). */
+export function describeUndergroundConduit(answers, fees) {
+  const a = answers || defaultAnswers();
+  const feet = Number(a.conduitFeet) || 0;
+  const inch = a.conduitInch === 4 ? 4 : 2;
+  return [
+    `Underground conduit to the street for the utility company connection to the building - ${inch}" conduit, ${feet} ft.`,
+    "Price includes conduit material and installation for the utility path to the building.",
+    "Price does not include the cost of digging or trenching.",
+    "Price does not include pouring cement or sealing pavement.",
+  ].join("\n");
+}
+
+/** Customer-facing description for optional trenching (dirt and/or concrete). */
+export function describeTrenching(answers, fees) {
+  const a = answers || defaultAnswers();
+  const f = fees || feesFor(a);
+  const dirt = Number(a.trenchFeetDirt) || 0;
+  const conc = Number(a.trenchFeetConcrete) || 0;
+  const lines = [
+    "Trenching for underground conduit path to the street (builder option).",
+  ];
+  if (dirt > 0) {
+    lines.push(
+      `Dirt trench: ${dirt} ft at $${f.trenchDirtPerFoot ?? 45}/ft - dig and cover conduit with dirt only.`
+    );
+  }
+  if (conc > 0) {
+    lines.push(
+      `Concrete / pavement trench: ${conc} ft at $${f.trenchConcretePerFoot ?? 95}/ft - cut and trench through hard surface.`
+    );
+  }
+  lines.push(
+    "Price includes covering the conduit with dirt where applicable.",
+    "Price does not include pouring cement or sealing pavement."
+  );
+  return lines.join("\n");
+}
+
+/** Customer-facing filing line: DOB + utility paperwork + inspections. */
+export function describeFiling(answers) {
+  return [
+    "Filing electrical permit with the DOB, filing paperwork with the utility company (Con Edison), opening a case, and inspection fees.",
+    "Price includes filing fees, inspection appointments, and paperwork for the scope of work described on this estimate.",
+    "Price does not include the cost of filing any additional work not described in this estimate or not part of the scope of work.",
+  ].join("\n");
+}
+
+/** Customer-facing removal line (own item when selected — no meta "separate line" wording). */
+export function describeRemoval() {
+  return "Removal and disposal of existing metering and service equipment.";
 }
 
 export function feesFor(answers) {
@@ -194,7 +393,8 @@ function feetForMeter(m, answers, f) {
 
 /**
  * Build priced line items + totals from questionnaire answers.
- * Main work uses item "Service Upgrade"; filing & removal are separate lines.
+ * Main work uses item "Service Upgrade"; filing, conduit, trenching & removal are own lines.
+ * Description process is white-label: work-only scope, no internal $ math or meta labels.
  */
 export function buildServiceUpgradeEstimate(answers) {
   const a = {
@@ -206,9 +406,7 @@ export function buildServiceUpgradeEstimate(answers) {
   const errors = validateAnswers(a);
   const lines = [];
   const materialsHint = [];
-  const workBullets = [];
   const included = [];
-  const notIncluded = [];
 
   const push = (itemName, description, amount, opts = {}) => {
     const amt = money(amount);
@@ -230,7 +428,6 @@ export function buildServiceUpgradeEstimate(answers) {
 
   a.meters.forEach((m, i) => {
     const s = sizeById(m.sizeId);
-    const role = roleLabel(m.role);
     const feet = feetForMeter(m, a, f);
     const mFee = meterFeeForIndex(s.id, i, f);
     metersSubtotal += mFee;
@@ -238,26 +435,14 @@ export function buildServiceUpgradeEstimate(answers) {
     const extraRun = distCost(feet, f.freeFeetMeterPanel, f.perFootMeterPanel);
     metersSubtotal += extraRun;
 
-    let pFee = 0;
     if (m.includePanel !== false) {
-      pFee = panelFeeForIndex(s.amps, panelCount, f);
+      metersSubtotal += panelFeeForIndex(s.amps, panelCount, f);
       panelCount += 1;
-      metersSubtotal += pFee;
     }
 
-    // Scope: only call out meter-to-panel distance when over 3 ft (Levi)
-    // ASCII only in customer-facing text — PDF fonts map arrows/× to "?"
-    const distNote =
-      feet > 3
-        ? ` · ${feet} ft meter-to-panel` +
-          (extraRun > 0 ? ` (+$${extraRun} labor/materials)` : "")
-        : "";
-    workBullets.push(
-      `Meter ${i + 1} (${role}, ${s.label})${i > 0 ? " - additional meter rate" : ""}` +
-        (m.includePanel !== false ? ` + panel` : " · no panel") +
-        distNote
-    );
-
+    // Materials takeoff hints (with rough cost basis for budget check)
+    const panCost = MATERIAL_COST_BASIS.meterPan[s.id] ?? 200;
+    const panelCost = MATERIAL_COST_BASIS.panel[s.amps] ?? 200;
     materialsHint.push({
       group: `Meter ${i + 1} (${s.label}) · ${feet} ft`,
       items: [
@@ -268,66 +453,57 @@ export function buildServiceUpgradeEstimate(answers) {
         "Bonding",
         m.includePanel !== false ? `Panel ${s.amps}A` : null,
       ].filter(Boolean),
+      costBasis: {
+        meterPan: panCost,
+        panel: m.includePanel !== false ? panelCost : 0,
+        wireFt: feet * MATERIAL_COST_BASIS.wireMeterPanelPerFt,
+      },
     });
   });
 
   const hasPlp = a.meters.some((m) => m.role === "plp");
   if (hasPlp) {
-    const d = distCost(a.feetPlp, f.freeFeetPlp, f.perFootPlp);
-    if (d > 0) {
-      metersSubtotal += d;
-      workBullets.push(`PLP meter to PLP equipment: ${a.feetPlp} ft (+$${d})`);
-    } else {
-      workBullets.push(`PLP meter to PLP equipment: ${a.feetPlp} ft (within included)`);
-    }
+    metersSubtotal += distCost(a.feetPlp, f.freeFeetPlp, f.perFootPlp);
   }
 
   // Main service line = path to metering / service equipment (priced by main amp)
   const mainRate = mainServicePerFoot(a.mainAmps, f);
-  const ms = distCost(a.feetMainService, f.freeFeetMainService ?? 0, mainRate);
-  if (Number(a.feetMainService) > 0) {
-    metersSubtotal += ms;
-    workBullets.push(
-      `Main service line to metering equipment: ${a.feetMainService} ft x $${mainRate}/ft` +
-        (ms > 0 ? ` = $${ms}` : "") +
-        ` (${a.mainAmps}A main)`
-    );
-  }
+  metersSubtotal += distCost(a.feetMainService, f.freeFeetMainService ?? 0, mainRate);
 
   // End-line box to metering (NYC) — only if entered
-  const el = distCost(a.feetEndLineBox, f.freeFeetEndLine ?? 0, f.perFootEndLine);
-  if (Number(a.feetEndLineBox) > 0) {
-    metersSubtotal += el;
-    workBullets.push(
-      `Service end-line box to metering equipment: ${a.feetEndLineBox} ft` +
-        (el > 0 ? ` (+$${el})` : "")
-    );
-  }
+  metersSubtotal += distCost(a.feetEndLineBox, f.freeFeetEndLine ?? 0, f.perFootEndLine);
 
-  // Grounding run only when over free included length (always-included covers standard ground)
-  const gd = distCost(a.feetGround, f.freeFeetGround, f.perFootGround);
-  if (gd > 0) {
-    metersSubtotal += gd;
-    workBullets.push(`Extra grounding run from metering equipment: ${a.feetGround} ft (+$${gd})`);
-  }
+  // Grounding run only when over free included length
+  metersSubtotal += distCost(a.feetGround, f.freeFeetGround, f.perFootGround);
 
   if (a.includeAlways !== false) {
     metersSubtotal += f.alwaysIncluded;
     included.push("Service outlet", "Grounding system", "Service light");
-    workBullets.push("Always included: service outlet, grounding system, service light");
     materialsHint.push({
       group: "Always included",
       items: ["Service outlet", "Grounding system", "Service light"],
+      costBasis: {
+        outlet: MATERIAL_COST_BASIS.serviceOutlet,
+        light: MATERIAL_COST_BASIS.serviceLight,
+        ground: MATERIAL_COST_BASIS.groundingKit,
+      },
     });
   }
 
-  // Combined Service Upgrade description (main line)
+  const workBullets = buildScopeBullets(a, f);
+
   // NOT INCLUDED only lists options that were NOT turned on (no "if not selected" lies)
   const includedTxt = included.length ? included.join("; ") : "See scope below";
   const notInc = [];
-  if (!a.includeFiling) notInc.push("Filing permit");
+  if (!a.includeFiling) notInc.push("Filing permit and utility case paperwork");
   if (!a.includeRemoval) notInc.push("Removal of existing equipment");
   if (!a.includeConduit) notInc.push("Conduit / overhead pipe to street");
+  if (!a.includeTrenching) notInc.push("Digging and trenching");
+  // When conduit is on but trenching off, still call out dig not included on main scope
+  if (a.includeConduit && a.conduitPath !== "overhead" && !a.includeTrenching) {
+    if (!notInc.includes("Digging and trenching")) notInc.push("Digging and trenching");
+  }
+
   const desc = [
     `Service upgrade - main ${a.mainAmps}A ${a.mainPhase === 3 ? "3-phase" : "1-phase"}, ${a.meters.length} meter(s).`,
     "",
@@ -341,14 +517,11 @@ export function buildServiceUpgradeEstimate(answers) {
     .filter(Boolean)
     .join("\n");
 
+  // ASCII only in customer-facing text — PDF fonts map arrows/×/bullets to "?"
   push(ITEM_SERVICE_UPGRADE, desc, metersSubtotal);
 
   if (a.includeRemoval) {
-    push(
-      ITEM_REMOVAL,
-      "Removal and disposal of existing metering / service equipment (separate line).",
-      f.removalDisposal
-    );
+    push(ITEM_REMOVAL, describeRemoval(), f.removalDisposal);
   }
 
   if (a.includeConduit) {
@@ -357,26 +530,55 @@ export function buildServiceUpgradeEstimate(answers) {
       const extra = Math.max(0, feet - f.overheadDefaultFeet) * f.overheadPerFootExtra;
       push(
         ITEM_CONDUIT,
-        `Overhead service pipe / riser (~${feet} ft; base covers typical 10-15 ft).`,
+        [
+          `Overhead service pipe / riser (~${feet} ft; base covers typical 10-15 ft).`,
+          "Price includes pipe material and installation for the overhead utility path.",
+        ].join("\n"),
         f.overheadBase + extra
       );
     } else {
       const feet = Number(a.conduitFeet) || 0;
       const inch = a.conduitInch === 4 ? 4 : 2;
-      push(
-        ITEM_CONDUIT,
-        `Underground conduit to street - ${inch}" - ${feet} ft.`,
-        money(feet * f.conduitPerFoot)
-      );
+      const rate = conduitSellPerFoot(inch, f);
+      push(ITEM_CONDUIT, describeUndergroundConduit(a, f), money(feet * rate));
+      materialsHint.push({
+        group: `Underground conduit ${inch}"`,
+        items: [`Underground conduit ${inch}" (${feet} ft)`, "Couplings / hubs for utility path"],
+        costBasis: {
+          materialPerFt:
+            inch === 4
+              ? MATERIAL_COST_BASIS.conduit4MaterialPerFt
+              : MATERIAL_COST_BASIS.conduit2MaterialPerFt,
+          feet,
+          sellPerFt: rate,
+        },
+      });
     }
   }
 
-  if (a.includeFiling) {
-    push(
-      ITEM_FILING,
-      "Filing electrical permit with the city (separate fee).",
-      f.filing
+  // Optional trenching — only when feet entered (dirt and/or concrete)
+  const dirtFt = Number(a.trenchFeetDirt) || 0;
+  const concFt = Number(a.trenchFeetConcrete) || 0;
+  if (a.includeTrenching && (dirtFt > 0 || concFt > 0)) {
+    const trenchAmt = money(
+      dirtFt * (f.trenchDirtPerFoot ?? 45) + concFt * (f.trenchConcretePerFoot ?? 95)
     );
+    push(ITEM_TRENCHING, describeTrenching(a, f), trenchAmt);
+    materialsHint.push({
+      group: "Trenching",
+      items: [
+        dirtFt > 0 ? `Dirt trench ${dirtFt} ft` : null,
+        concFt > 0 ? `Concrete / pavement trench ${concFt} ft` : null,
+      ].filter(Boolean),
+      costBasis: {
+        dirtLabor: dirtFt * MATERIAL_COST_BASIS.trenchDirtLaborPerFt,
+        concreteLabor: concFt * MATERIAL_COST_BASIS.trenchConcreteLaborPerFt,
+      },
+    });
+  }
+
+  if (a.includeFiling) {
+    push(ITEM_FILING, describeFiling(a), f.filing);
   }
 
   const meterSummary = a.meters
@@ -391,14 +593,30 @@ export function buildServiceUpgradeEstimate(answers) {
 
   const total = money(lines.reduce((s, ln) => s + parseAmount(ln.amount), 0));
 
+  // Budget check: sell total should clear rough material basis (white-label price builder)
+  const materialBudget = estimateMaterialBudget(a, materialsHint);
+
   return {
     lines,
     total,
     title,
     materialsHint,
+    materialBudget,
     errors,
     answers: a,
   };
+}
+
+/** Sum rough material/labor floor from takeoff cost basis (not customer-facing). */
+export function estimateMaterialBudget(answers, materialsHint = []) {
+  let materials = 0;
+  for (const g of materialsHint) {
+    const c = g.costBasis || {};
+    for (const v of Object.values(c)) {
+      if (typeof v === "number" && Number.isFinite(v)) materials += v;
+    }
+  }
+  return money(materials);
 }
 
 export function filterEnabledEstimateLines(built, enabled) {
