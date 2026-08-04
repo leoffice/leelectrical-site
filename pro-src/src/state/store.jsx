@@ -657,7 +657,8 @@ export function StoreProvider({ children }) {
           j.id,
           {
             invoiceNo: j.invoiceNo,
-            amount: pay.amount,
+            // Always enqueue a plain number — host rejects / crashed on "$20000" (2026-08-04).
+            amount: payAmt,
             method: pay.method || "",
             ref: pay.ref || "",
             date: pay.date || todayStr(),

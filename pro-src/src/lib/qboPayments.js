@@ -264,7 +264,8 @@ export function patchFromSolaPayment(job, { amount, ref, method, date }) {
         : parseAmount(job.openBalance) || parseBalanceFromNotes(job) || parseAmount(job.amount);
   const entry = {
     id: payId,
-    amount: payAmt % 1 ? "$" + payAmt.toFixed(2) : "$" + Math.round(payAmt),
+    // Numeric amount only — never "$…" (record_payment enqueue + host parse).
+    amount: payAmt,
     method: normalizePaymentMethod(method, { ref }),
     ref: ref || "",
     date: date || todayStr(),
