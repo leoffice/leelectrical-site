@@ -658,6 +658,11 @@ export default function Permits() {
   const [editJob, setEditJob] = useState(null);
   const [lastSyncedAt, setLastSyncedAt] = useState(null);
   const healedRef = React.useRef(new Set());
+  /** Keep latest jobs for fleet poll without restarting the timer on every save. */
+  const jobsRef = React.useRef(jobs);
+  jobsRef.current = jobs;
+  const dismissOnceRef = React.useRef(new Set());
+  const healStartedRef = React.useRef(false);
 
   const refreshRuns = async () => {
     const r = await listPaperworkJobsServer({ limit: 30 });
@@ -677,23 +682,21 @@ export default function Permits() {
         setLastSyncedAt(new Date().toISOString());
         const anyActive = list.some((j) => ACTIVE_PAPERWORK_JOB_STATUSES.has(j.status));
         if (anyActive) setQueueOpen(true);
-        const byId = new Map((jobs || []).filter((x) => x?.id).map((x) => [x.id, x]));
-        // Auto clean-slate: dismiss superseded fails so banner noise drops (P0)
+        const liveJobs = jobsRef.current || [];
+        const byId = new Map(liveJobs.filter((x) => x?.id).map((x) => [x.id, x]));
+        // Auto clean-slate superseded fails — fire-and-forget, never block poll (lag fix)
         const superseded = list.filter(
           (j) =>
+            j?.id &&
+            !dismissOnceRef.current.has(j.id) &&
             (j.status === "failed" || j.status === "rejected") &&
             fleetRunIsSupersededSuccess(j, byId.get(j.jobId), list)
         );
-        for (const j of superseded.slice(0, 8)) {
-          try {
-            await dismissPaperworkJob(j.id);
-          } catch {
-            /* ignore */
-          }
-        }
-        if (superseded.length) {
-          const r2 = await listPaperworkJobsServer({ limit: 30 });
-          if (alive && r2.ok) setCaseRuns(r2.jobs || []);
+        for (const j of superseded.slice(0, 5)) {
+          dismissOnceRef.current.add(j.id);
+          void dismissPaperworkJob(j.id).catch(() => {
+            dismissOnceRef.current.delete(j.id);
+          });
         }
         // Auto-page Israel on real fails only (not superseded)
         const failed = list.filter(
@@ -706,7 +709,7 @@ export default function Permits() {
           const { reportPaperworkFailOnce, fieldsFromPaperworkJob } = await import(
             "../lib/paperworkFailReport.js"
           );
-          for (const j of failed.slice(0, 5)) {
+          for (const j of failed.slice(0, 3)) {
             const fields = fieldsFromPaperworkJob(j, byId.get(j.jobId));
             void reportPaperworkFailOnce(
               { ...fields, phase: "permits_poll", error: fields.error || j.error },
@@ -714,9 +717,10 @@ export default function Permits() {
             );
           }
         }
-        timer = setTimeout(tick, anyActive ? 20000 : 60000);
+        // Poll less often when quiet — lag fix (Levi 2026-08-04)
+        timer = setTimeout(tick, anyActive ? 30000 : 90000);
       } else {
-        timer = setTimeout(tick, 60000);
+        timer = setTimeout(tick, 90000);
       }
     };
     tick();
@@ -724,34 +728,52 @@ export default function Permits() {
       alive = false;
       if (timer) clearTimeout(timer);
     };
+    // Intentionally NOT depending on jobs — that restarted the poll every save (main lag).
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [enqueue, jobs]);
+  }, [enqueue]);
 
-  // Heal open-case steps when appointments / email / DOB evidence prove done
+  // Heal open-case steps once per session (idle, limited) — not on every jobs write
   useEffect(() => {
-    if (!patchAndSave || !jobs?.length) return;
+    if (!patchAndSave || !jobs?.length || healStartedRef.current) return;
+    healStartedRef.current = true;
     let cancelled = false;
-    (async () => {
-      for (const job of jobs.slice(0, 40)) {
-        if (!job?.id || healedRef.current.has(job.id)) continue;
+    const run = async () => {
+      // Yield so first paint / navigation is not blocked
+      await new Promise((r) => setTimeout(r, 2500));
+      if (cancelled) return;
+      const candidates = (jobs || []).filter(
+        (j) =>
+          j?.id &&
+          !healedRef.current.has(j.id) &&
+          (j.paperwork?.coned?.caseNumber ||
+            j.paperwork?.dob?.jobNumber ||
+            j.paperwork?.coned?.customerTodos?.length)
+      );
+      for (const job of candidates.slice(0, 12)) {
+        if (cancelled) return;
+        if (healedRef.current.has(job.id)) continue;
         const patch = healCaseProgressPatch(job, {
           events: events || [],
           insights: emailInsights || [],
         });
-        if (!patch) continue;
         healedRef.current.add(job.id);
-        if (cancelled) return;
+        if (!patch) continue;
         try {
           await patchAndSave(job.id, patch);
+          // stagger writes so UI stays responsive
+          await new Promise((r) => setTimeout(r, 200));
         } catch {
           healedRef.current.delete(job.id);
         }
       }
-    })();
+    };
+    void run();
     return () => {
       cancelled = true;
     };
-  }, [jobs, events, emailInsights, patchAndSave]);
+    // Run once when jobs first available — do not re-bind to jobs array updates
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [!!jobs?.length, patchAndSave]);
 
   const board = useMemo(
     () => buildPermitBoard({ jobs, insights: emailInsights, config }),
