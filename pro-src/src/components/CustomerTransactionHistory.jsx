@@ -283,7 +283,13 @@ export default function CustomerTransactionHistory({
     () => allRows.filter((r) => r.legacyWeb).length,
     [allRows]
   );
-  const counts = useMemo(() => countKinds(scopedRows), [scopedRows]);
+  const counts = useMemo(() => {
+    const base = countKinds(scopedRows);
+    // Addresses tab count = real service addresses on jobs (not txn-row addresses).
+    const addrN = serviceAddressesForJobs(jobs || []).length;
+    if (addrN > 0) return { ...base, jobs: addrN };
+    return base;
+  }, [scopedRows, jobs]);
   const rows = useMemo(() => {
     if (filter === "open") {
       return scopedRows.filter((r) => {

@@ -858,6 +858,53 @@ export default function Settings() {
             </Fld>
           ))}
         </div>
+        <div className="text-[11px] font-extrabold text-slate-500 uppercase tracking-wider mb-1.5">
+          Extra meter (2nd+)
+        </div>
+        <div className="grid grid-cols-2 gap-2 mb-3">
+          {Object.keys(DEFAULT_FEES.meterAdditional || {}).map((sizeId) => (
+            <Fld key={"add-" + sizeId} label={sizeId}>
+              <input
+                className={inputCls}
+                inputMode="decimal"
+                value={estFees.meterAdditional?.[sizeId] ?? DEFAULT_FEES.meterAdditional[sizeId]}
+                data-testid={"est-fee-meter-add-" + sizeId}
+                onChange={(e) => {
+                  const n = Number(e.target.value);
+                  setEstFees((f) => ({
+                    ...f,
+                    meterAdditional: {
+                      ...(f.meterAdditional || DEFAULT_FEES.meterAdditional),
+                      [sizeId]: Number.isFinite(n) ? n : e.target.value,
+                    },
+                  }));
+                }}
+              />
+            </Fld>
+          ))}
+        </div>
+        <div className="text-[11px] font-extrabold text-slate-500 uppercase tracking-wider mb-1.5">
+          First panel (by amp)
+        </div>
+        <div className="grid grid-cols-2 gap-2 mb-3">
+          {Object.keys(DEFAULT_FEES.panel || {}).map((amp) => (
+            <Fld key={"panel-" + amp} label={amp + "A"}>
+              <input
+                className={inputCls}
+                inputMode="decimal"
+                value={estFees.panel?.[amp] ?? DEFAULT_FEES.panel[amp]}
+                data-testid={"est-fee-panel-" + amp}
+                onChange={(e) => {
+                  const n = Number(e.target.value);
+                  setEstFees((f) => ({
+                    ...f,
+                    panel: { ...(f.panel || DEFAULT_FEES.panel), [amp]: Number.isFinite(n) ? n : e.target.value },
+                  }));
+                }}
+              />
+            </Fld>
+          ))}
+        </div>
         <button
           type="button"
           className="rounded-xl bg-brand px-4 py-2.5 text-sm font-extrabold text-white w-full"
@@ -873,6 +920,8 @@ export default function Settings() {
               trenchDirtPerFoot: Number(estFees.trenchDirtPerFoot),
               trenchConcretePerFoot: Number(estFees.trenchConcretePerFoot),
               meter: { ...(estFees.meter || {}) },
+              meterAdditional: { ...(estFees.meterAdditional || {}) },
+              panel: { ...(estFees.panel || {}) },
             };
             setEstimateGeneratorFees(payload);
             showToast?.("Estimate Generator prices saved");
