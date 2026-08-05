@@ -77,6 +77,7 @@ import {
   formatInvoicePayOption,
   formatPayTargetOption,
   invoicesForCustomerPick,
+  isOpenEstimateJob,
   payTargetsForCustomerPick,
 } from "../lib/customerDocLists.js";
 import { findJobByInvoice, reconcileZellePayment } from "../lib/zelleReconcile.js";
@@ -2162,16 +2163,74 @@ function PaymentEditForm({
           : "No invoice";
 
   const payTargets = useMemo(() => {
-    const name = pickCust?.name || custName;
-    if (!name) return [];
+    const name = pickCust?.name || pickCust?.businessName || custName;
     const preferAddress = sourceJob?.serviceAddress || sourceJob?.address || "";
-    let list = payTargetsForCustomerPick(jobs, name, {
-      includeJobId: sourceJob?.id || "",
-      preferAddress,
-      openOnlyInvoices: false,
-    });
+    // Levi 2026-08-05: when reassigning to a *different* customer, do not force the
+    // original (wrong) invoice into the picker — that locked #251741 under Sima Expediter.
+    const srcName = String(sourceJob?.customer || sourceJob?.businessName || "").trim().toLowerCase();
+    const tgtName = String(name || "").trim().toLowerCase();
+    const sameCustomer =
+      !!srcName &&
+      !!tgtName &&
+      (srcName === tgtName || srcName.includes(tgtName) || tgtName.includes(srcName));
+    let list = name
+      ? payTargetsForCustomerPick(jobs, name, {
+          includeJobId: sameCustomer ? sourceJob?.id || "" : "",
+          preferAddress: sameCustomer ? preferAddress : "",
+          openOnlyInvoices: false,
+        })
+      : [];
+    // Also collect by QBO customer id when the picker provided one (stable across renames).
+    const qid = String(pickCust?.id || pickCust?.qboCustomerId || "").trim();
+    if (qid) {
+      const byId = (jobs || []).filter(
+        (j) =>
+          j &&
+          !j._archived &&
+          !j._deleted &&
+          j.invoiceNo &&
+          String(j.qboCustomerId || "").trim() === qid
+      );
+      const seen = new Set(list.map((t) => String(t.job.id)));
+      for (const j of byId) {
+        if (!seen.has(String(j.id))) {
+          list.push({ job: j, kind: "invoice" });
+          seen.add(String(j.id));
+        }
+      }
+    }
     const q = invQuery.trim().toLowerCase();
     if (q) {
+      // Global invoice # / street filter across the board when reassigning —
+      // finds Sima (or any) invoices even if the name search was thin.
+      const global = (jobs || [])
+        .filter((j) => j && !j._archived && !j._deleted && (j.invoiceNo || isOpenEstimateJob(j)))
+        .filter((j) => {
+          const hay = (
+            formatPayTargetOption(j) +
+            " " +
+            (j.invoiceNo || "") +
+            " " +
+            (j.estimateNo || "") +
+            " " +
+            (j.customer || "") +
+            " " +
+            (j.businessName || "") +
+            " " +
+            (j.address || "") +
+            " " +
+            (j.serviceAddress || "")
+          ).toLowerCase();
+          return hay.includes(q);
+        })
+        .map((j) => ({ job: j, kind: j.invoiceNo ? "invoice" : "estimate" }));
+      const seen = new Set(list.map((t) => String(t.job.id)));
+      for (const t of global) {
+        if (!seen.has(String(t.job.id))) {
+          list.push(t);
+          seen.add(String(t.job.id));
+        }
+      }
       list = list.filter((t) => {
         const j = t.job;
         const hay = (
@@ -2179,13 +2238,30 @@ function PaymentEditForm({
           " " +
           (j.invoiceNo || "") +
           " " +
-          (j.estimateNo || "")
+          (j.estimateNo || "") +
+          " " +
+          (j.customer || "") +
+          " " +
+          (j.businessName || "")
         ).toLowerCase();
         return hay.includes(q);
       });
     }
     return list;
-  }, [jobs, pickCust?.name, custName, invQuery, sourceJob?.id, sourceJob?.serviceAddress, sourceJob?.address]);
+  }, [
+    jobs,
+    pickCust?.name,
+    pickCust?.businessName,
+    pickCust?.id,
+    pickCust?.qboCustomerId,
+    custName,
+    invQuery,
+    sourceJob?.id,
+    sourceJob?.customer,
+    sourceJob?.businessName,
+    sourceJob?.serviceAddress,
+    sourceJob?.address,
+  ]);
 
   const targetJob =
     (jobs || []).find((j) => String(j.id) === String(targetJobId)) ||
@@ -2268,7 +2344,10 @@ function PaymentEditForm({
             }}
             onPick={(c) => {
               if (!c || c._newCustomer) {
-                setPickCust(null);
+                // Keep the typed name so invoice list can still resolve by name
+                // (Levi 2026-08-05: Sima Expediter existed but "new customer" blocked pick).
+                setPickCust(custName.trim() ? { name: custName.trim() } : null);
+                setTargetJobId("");
                 return;
               }
               setPickCust(c);
@@ -2279,7 +2358,7 @@ function PaymentEditForm({
           />
           {(pickCust || custName) && (
             <>
-              <Fld label="Find invoice" hint="Invoices for this customer, or open estimates at this address">
+              <Fld label="Find invoice" hint="Invoices for this customer (open first, then paid). Tap one to move the payment.">
                 <input
                   className="input mb-2"
                   value={invQuery}
@@ -2321,7 +2400,9 @@ function PaymentEditForm({
               </Fld>
               {!payTargets.length ? (
                 <p className="text-xs text-amber-800 bg-amber-50 border border-amber-100 rounded-xl px-2.5 py-2">
-                  No invoices or open estimates for this customer — try another name or address.
+                  No invoices found for <b>{pickCust?.name || custName}</b> in the app list.
+                  Type the invoice # in the filter, or open that customer’s job first so it loads.
+                  Paid invoices still work for reassignment once they appear.
                 </p>
               ) : null}
               {targetJob?.invoiceNo ? (
@@ -2600,10 +2681,15 @@ export function PaymentHistorySheet({
       return;
     }
     const targetId = entry.targetJobId || job.id;
+    // Resolve target across the full board (not just this customer's boardJobs) so a
+    // misapplied payment can move to another customer (Levi 2026-08-05 · Sima Expediter).
     const targetLive =
       String(targetId) === String(job.id)
         ? liveJob
-        : boardJobs.find((j) => String(j.id) === String(targetId)) || null;
+        : effectiveJob?.(targetId) ||
+          boardJobs.find((j) => String(j.id) === String(targetId)) ||
+          (jobs || []).find((j) => String(j.id) === String(targetId)) ||
+          null;
     if (!targetLive) {
       showToast("Pick an invoice to apply this payment to");
       return;
@@ -2620,7 +2706,11 @@ export function PaymentHistorySheet({
     showToast(
       moved.same
         ? "Payment updated — Save & sync"
-        : "Payment moved to invoice #" + (targetLive.invoiceNo || "—") + " — Save & sync"
+        : "Payment moved to " +
+            (targetLive.customer || "customer") +
+            " · invoice #" +
+            (targetLive.invoiceNo || "—") +
+            " — Save & sync"
     );
     setEditId(null);
   };
@@ -2681,7 +2771,9 @@ export function PaymentHistorySheet({
                 <PaymentEditForm
                   payment={p}
                   sourceJob={liveJob}
-                  jobs={boardJobs}
+                  // Full board so reassignment can find another customer’s invoices
+                  // (boardJobs is same-customer only — that locked wrong-invoice moves).
+                  jobs={jobs || boardJobs}
                   onSave={saveEdit}
                   onDelete={() => deletePay(p.id)}
                   onVoid={() => voidInQbo(p)}

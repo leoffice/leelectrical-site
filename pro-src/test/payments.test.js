@@ -171,6 +171,48 @@ describe("payments ledger", () => {
     expect(toPatch.openBalance).toBe(3500);
   });
 
+  // Levi 2026-08-05 — misapplied Zelle on Marozov must move to Sima Expediter (other customer).
+  it("movePayment redirects payment to a different customer invoice", () => {
+    const from = {
+      id: "qbo-251741",
+      customer: "Yechiel marozov",
+      amount: "$4,200",
+      openBalance: "$1,800",
+      invoiceNo: "251741",
+      serviceAddress: "166 Carol St.",
+      paid: false,
+    };
+    const to = {
+      id: "qbo-201973",
+      customer: "Sima Expediter",
+      amount: "$1,000",
+      invoiceNo: "201973",
+      serviceAddress: "1111 Park Ave",
+      paid: false,
+    };
+    const staged = appendPayment(from, {
+      amount: 1800,
+      method: "Zelle",
+      ref: "JPM99crx431u",
+      date: "2026-08-05",
+    });
+    const fromLive = { ...from, ...staged };
+    const payId = fromLive.payments[0].id;
+    const moved = movePayment(fromLive, to, payId, {
+      amount: 1800,
+      method: "Zelle",
+      ref: "JPM99crx431u",
+      date: "2026-08-05",
+    });
+    expect(moved.same).toBe(false);
+    const fromPatch = moved.patches.find((p) => p.jobId === "qbo-251741").patch;
+    const toPatch = moved.patches.find((p) => p.jobId === "qbo-201973").patch;
+    expect(fromPatch.payments).toHaveLength(0);
+    expect(toPatch.payments).toHaveLength(1);
+    expect(toPatch.payments[0].ref).toBe("JPM99crx431u");
+    expect(toPatch.payments[0].amount).toBe("1800");
+  });
+
   it("formatInvoicePayOption includes service address", () => {
     const label = formatInvoicePayOption({
       invoiceNo: "231595",
