@@ -105,9 +105,38 @@ function isOpenPaymentNotice(p) {
   // Explicit Approve (incl. reassignment to Sima etc.) always closes — Levi 2026-08-05 bounce bug.
   // Must check before autoApplied sticky, or "approved" + autoApplied keeps popping forever.
   if (s === "approved") return false;
+  if (p.ackedAt) return false;
   // Host auto-apply: sticky until Got it / Edit+Approve (status stays auto_applied until then).
-  if (p.autoApplied && !p.ackedAt && s === "auto_applied") return true;
+  if (p.autoApplied && s === "auto_applied") return true;
   if (s === "pending" || s === "auto_applied" || s === "needs_match") return true;
+  return false;
+}
+
+/** Active (non-tombstone) payment refs on a job. */
+function activePaymentRefs(job) {
+  const refs = new Set();
+  for (const p of normalizePayments(job) || []) {
+    const r = String(p?.ref || p?.confirmationNumber || p?.checkNumber || "").trim();
+    if (r) refs.add(r);
+  }
+  return refs;
+}
+
+/**
+ * Conf already recorded on some job (after reassign/approve) — suppress sticky on the
+ * *wrong* job so Marozov doesn't keep popping when Sima already has the payment.
+ * Still shows auto_applied sticky when conf lives on the same suggested job (Got it).
+ */
+function noticeConfAlreadyOnOtherJob(p, jobs) {
+  if (!p || !jobs?.length) return false;
+  const conf = String(p.confirmationNumber || p.ref || p.checkNumber || "").trim();
+  if (!conf) return false;
+  const noticeJob = String(p.jobId || "").trim();
+  for (const j of jobs) {
+    if (!activePaymentRefs(j).has(conf)) continue;
+    // Payment lives here — if notice still points elsewhere (or has no job), hide it.
+    if (!noticeJob || String(j.id) !== noticeJob) return true;
+  }
   return false;
 }
 
@@ -117,6 +146,7 @@ function collectPending(jobs, systemItems = []) {
   for (const j of jobs || []) {
     const p = j?.pendingCheckPayment || j?.pendingZellePayment;
     if (!isOpenPaymentNotice(p)) continue;
+    if (noticeConfAlreadyOnOtherJob({ ...p, jobId: j.id }, jobs)) continue;
     const id = p.id || `${j.id}-${p.proofKey || p.confirmationNumber || p.amount}`;
     if (seen.has(id)) continue;
     seen.add(id);
@@ -124,6 +154,7 @@ function collectPending(jobs, systemItems = []) {
   }
   for (const p of systemItems || []) {
     if (!isOpenPaymentNotice(p)) continue;
+    if (noticeConfAlreadyOnOtherJob(p, jobs)) continue;
     const id = p.id || `sys-${p.proofKey || p.confirmationNumber || p.amount}`;
     if (seen.has(id)) continue;
     seen.add(id);
@@ -134,6 +165,29 @@ function collectPending(jobs, systemItems = []) {
   out.sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
   // A snoozed notice is still pending — it just isn't due yet.
   return out.filter((p) => !isSuggestionSnoozed(paymentSnoozeKey(p)));
+}
+
+/** Clear pendingZelle/Check on every job that still carries this notice id/conf. */
+function clearNoticeFromAllJobs(jobs, item, patchJob) {
+  if (!item || !patchJob) return;
+  const conf = String(item.confirmationNumber || item.ref || item.checkNumber || "").trim();
+  const nid = String(item.id || "").trim();
+  for (const j of jobs || []) {
+    for (const key of ["pendingZellePayment", "pendingCheckPayment"]) {
+      const p = j?.[key];
+      if (!p || typeof p !== "object") continue;
+      const pConf = String(p.confirmationNumber || p.ref || p.checkNumber || "").trim();
+      const pId = String(p.id || "").trim();
+      if ((nid && pId === nid) || (conf && pConf === conf)) {
+        patchJob(j.id, { [key]: null });
+      }
+    }
+  }
+  // Always null the original jobId even if jobs list is stale.
+  if (item.jobId) {
+    const key = item.kind === "zelle" ? "pendingZellePayment" : "pendingCheckPayment";
+    patchJob(item.jobId, { [key]: null });
+  }
 }
 
 export default function PendingPaymentPrompts() {
@@ -279,48 +333,83 @@ export default function PendingPaymentPrompts() {
       const now = Date.now();
       // Approve counts as done so reassignment + save cannot bounce back (Levi 2026-08-05 Sima).
       const done = status === "acked" || status === "dismissed" || status === "approved";
-      if (item.jobId) {
+      const conf = String(item.confirmationNumber || item.ref || item.checkNumber || "").trim();
+      if (done) {
+        // Null on *every* job that still has this notice — Sima reassign left a copy on Marozov.
+        clearNoticeFromAllJobs(jobs, item, patchJob);
+      } else if (item.jobId) {
         const key = item.kind === "zelle" ? "pendingZellePayment" : "pendingCheckPayment";
-        // Clear the field on Got it / dismiss / approve so overlay merge cannot resurrect.
-        if (done) {
-          patchJob(item.jobId, { [key]: null });
-        } else {
-          patchJob(item.jobId, {
-            [key]: {
-              ...(item.job?.[key] || item),
-              status,
-              resolvedAt: now,
-              ackedAt: done ? now : item.ackedAt,
-            },
+        patchJob(item.jobId, {
+          [key]: {
+            ...(item.job?.[key] || item),
+            status,
+            resolvedAt: now,
+          },
+        });
+      }
+      // Prefer an acked/dismissed tombstone over pure drop so a raced full-ov write
+      // that re-injects the old open item still loses on status when we re-save.
+      const matches = (x) => {
+        if (!x) return false;
+        if (x.id && item.id && x.id === item.id) return true;
+        if (conf && String(x.confirmationNumber || x.ref || "").trim() === conf) return true;
+        return false;
+      };
+      const seal = (list) => {
+        const out = [];
+        let sealed = false;
+        for (const x of list || []) {
+          if (!x) continue;
+          if (!matches(x)) {
+            out.push(x);
+            continue;
+          }
+          // Collapse duplicate confs into one sealed row.
+          if (sealed) continue;
+          out.push({
+            ...x,
+            status: done ? (status === "dismissed" ? "dismissed" : "acked") : status,
+            ackedAt: done ? now : x.ackedAt || null,
+            resolvedAt: now,
+            autoApplied: false,
+          });
+          sealed = true;
+        }
+        if (done && !sealed) {
+          out.push({
+            id: item.id,
+            kind: item.kind || "zelle",
+            confirmationNumber: conf || item.confirmationNumber || "",
+            ref: conf || item.ref || "",
+            amount: item.amount,
+            status: status === "dismissed" ? "dismissed" : "acked",
+            ackedAt: now,
+            resolvedAt: now,
+            autoApplied: false,
+            jobId: item.jobId || "",
+            source: item.source || "",
           });
         }
-      }
-      const conf = String(item.confirmationNumber || item.ref || "").trim();
-      const drop = (list) =>
-        (list || []).filter((x) => {
-          if (x.id === item.id) return false;
-          // Drop every notice with same confirmation (system queue + job merge bounce).
-          if (conf && String(x.confirmationNumber || x.ref || "").trim() === conf) return false;
-          return isOpenPaymentNotice(x);
-        });
-      let openList = [];
+        return out.slice(-40);
+      };
+      let sealedList = [];
       setSystemItems((prev) => {
-        openList = drop(prev);
-        return openList;
+        sealedList = seal(prev);
+        // UI only keeps open notices; tombstones stay on disk.
+        return sealedList.filter((x) => isOpenPaymentNotice(x));
       });
       // Persist system queue + job overlay (Got it must stick — Levi 2026-08-03 bounce bug).
       try {
         const { default: api } = await import("../data/adapter.js");
-        // Re-read latest system list if possible so we don't clobber concurrent items.
-        let base = openList;
+        let base = sealedList;
         try {
           const remote = await api.getPendingPayments?.();
-          if (Array.isArray(remote)) base = drop(remote);
+          if (Array.isArray(remote)) base = seal(remote);
         } catch {
-          /* use openList */
+          /* use sealedList */
         }
         await api.savePendingPayments?.(base);
-        setSystemItems(base);
+        setSystemItems(base.filter((x) => isOpenPaymentNotice(x)));
       } catch {
         /* optional */
       }
@@ -332,7 +421,7 @@ export default function PendingPaymentPrompts() {
         }
       }
     },
-    [patchJob, saveAll, noticeKey]
+    [patchJob, saveAll, noticeKey, jobs]
   );
 
   const onGotIt = async () => {
