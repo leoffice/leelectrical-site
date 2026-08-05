@@ -219,7 +219,7 @@ export default function PayLanding() {
   const [cardPhotoDone, setCardPhotoDone] = useState(false);
   const [cardPhotoHint, setCardPhotoHint] = useState("");
   const [cardExpPrefill, setCardExpPrefill] = useState("");
-  /** { masked, last4, pan?, name? } for SolaCardForm stars + iframe fill */
+  /** { pan?, exp?, cvv?, name? } for SolaCardForm iframe fill (no stars UI) */
   const [cardPhotoAssist, setCardPhotoAssist] = useState(null);
   const cardPhotoRef = useRef(null);
 
@@ -599,20 +599,21 @@ export default function PayLanding() {
         return;
       }
       if (patch.exp) setCardExpPrefill(patch.exp);
-      // Levi 2026-08-05: fill card number as stars (+ try secure iframe) + exp for review.
+      // Levi 2026-08-05: no green "photo assist" / stars — fill real fields only.
       setCardPhotoAssist({
-        masked: patch.masked || (patch.last4 ? `••••••••••••${patch.last4}` : ""),
-        last4: patch.last4 || "",
         pan: patch.pan || "",
+        exp: patch.exp || "",
+        cvv: patch.cvv || "",
         name: patch.name || "",
       });
-      const bits = [];
-      if (patch.masked || patch.last4) bits.push(patch.masked || `•••• ${patch.last4}`);
-      if (patch.exp) bits.push(`exp ${patch.exp}`);
-      if (patch.name) bits.push(patch.name);
-      if (patch.brand) bits.push(patch.brand);
+      const filled = [];
+      if (patch.pan) filled.push("card number");
+      if (patch.exp) filled.push("exp");
+      if (patch.cvv) filled.push("CVV");
       setCardPhotoHint(
-        `Photo assist: ${bits.join(" · ")}. Review the card number (stars), enter CVV, then pay.`
+        filled.length
+          ? `Filled ${filled.join(", ")} from photo. Check the fields, then pay.`
+          : "Could not read the card number — enter it below."
       );
       setCardPhotoDone(true);
     } catch (err) {
@@ -1356,8 +1357,8 @@ export default function PayLanding() {
               </button>
               {cardPhotoHint ? (
                 <p
-                  className={`text-[11px] mt-1 font-medium ${
-                    cardPhotoDone ? "text-emerald-700" : "text-amber-800"
+                  className={`text-[11px] mt-1 ${
+                    cardPhotoDone ? "text-slate-500" : "text-amber-800 font-medium"
                   }`}
                   data-testid="pay-card-photo-hint"
                 >

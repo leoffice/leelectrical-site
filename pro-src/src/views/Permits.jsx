@@ -114,7 +114,7 @@ function CollapsibleSection({
         onClick={() => setOpen((o) => !o)}
         aria-expanded={open}
       >
-        <span className="text-[11px] font-extrabold text-slate-500 uppercase tracking-wider">
+        <span className="text-[11px] font-semibold text-slate-500 uppercase tracking-wider">
           {title}
         </span>
         <span className="text-slate-400 text-xs">{open ? "▾" : "▸"}</span>
@@ -468,7 +468,7 @@ function CaseRow({
           {row.recommended?.status === "due" ? (
             <button
               type="button"
-              className="w-full btn bg-brand text-white font-extrabold text-sm !py-3"
+              className="w-full btn bg-brand text-white font-semibold text-sm !py-3"
               onClick={() => handleStep(row.recommended)}
               data-testid="permit-run-next"
             >
@@ -593,7 +593,7 @@ function DeployQueueRow({
           onClick={() => item.expandable !== false && onToggle(item.id)}
           data-testid="permits-queue-toggle"
         >
-          <div className="text-[13px] font-extrabold text-slate-900 leading-snug">
+          <div className="text-[13px] font-semibold text-slate-900 leading-snug">
             {item.title}
           </div>
           {item.subtitle ? (
@@ -1503,7 +1503,7 @@ export default function Permits() {
   return (
     <div className="pb-24" data-testid="permits-tab">
       <div className="flex items-center justify-between mb-3 px-1">
-        <h2 className="text-[11px] font-extrabold text-slate-500 uppercase tracking-wider">
+        <h2 className="text-[11px] font-semibold text-slate-500 uppercase tracking-wider">
           Permits · {counts.total} open case{counts.total === 1 ? "" : "s"}
         </h2>
         {backfillPlan.length ? (
@@ -1517,18 +1517,6 @@ export default function Permits() {
           </button>
         ) : null}
       </div>
-
-      {appsReadyTotal > 0 ? (
-        <div
-          className="mb-3 mx-1 rounded-xl border border-emerald-300 bg-emerald-50 text-emerald-900 px-3 py-2.5 text-sm font-extrabold"
-          data-testid="permits-apps-ready-banner"
-        >
-          📄 {appsReadyTotal} application{appsReadyTotal === 1 ? "" : "s"} ready to upload
-          <span className="block text-[11px] font-normal text-emerald-800 mt-0.5">
-            Customer Form A on the job — open the job Paperwork tab or Deploy queue when Energy Services is logged in
-          </span>
-        </div>
-      ) : null}
 
       {/* DEPLOY QUEUE — sticky Deploy/Fix · Ready only with Form A for meters */}
       <div
@@ -1544,13 +1532,18 @@ export default function Permits() {
         >
           <div className="flex items-start justify-between gap-2">
             <div className="min-w-0">
-              <h2 className="font-extrabold text-sm text-slate-900 uppercase tracking-wide">
+              <h2 className="font-semibold text-sm text-slate-900 tracking-wide">
                 Deploy queue
               </h2>
               <p className="text-xs text-slate-500 mt-0.5">
                 {queueItems.length
-                  ? `${queueItems.length} item${queueItems.length === 1 ? "" : "s"} · Deploy when Ready`
-                  : "Nothing to deploy"}
+                  ? `${queueItems.length} item${queueItems.length === 1 ? "" : "s"}` +
+                    (appsReadyTotal > 0
+                      ? ` · ${appsReadyTotal} application${appsReadyTotal === 1 ? "" : "s"} ready to upload`
+                      : " · Deploy when Ready")
+                  : appsReadyTotal > 0
+                    ? `${appsReadyTotal} application${appsReadyTotal === 1 ? "" : "s"} ready — open queue after sync`
+                    : "Nothing to deploy"}
                 {queueItems.some((i) => (i.missing || []).length)
                   ? " · amber = fill missing first"
                   : ""}
@@ -1646,7 +1639,7 @@ export default function Permits() {
                 className="card w-full text-left px-3.5 py-2.5 border border-emerald-100 bg-emerald-50/40"
                 onClick={() => row.jobId && open(row.jobId)}
               >
-                <div className="text-[13px] font-extrabold text-slate-900">{row.title}</div>
+                <div className="text-[13px] font-semibold text-slate-900">{row.title}</div>
                 <div className="text-[11px] text-emerald-900 font-semibold mt-0.5">
                   Case {row.caseNumber} submitted
                 </div>
@@ -1821,7 +1814,7 @@ export default function Permits() {
             className="card w-full max-w-sm p-4 space-y-3"
             onClick={(e) => e.stopPropagation()}
           >
-            <div className="font-extrabold text-slate-900 text-base">Need an application first</div>
+            <div className="font-semibold text-slate-900 text-base">Need an application first</div>
             <p className="text-sm text-slate-600 leading-snug">
               Deploy for a PLP / new meter needs a completed Con Edison application (Form A) on this job.
               Choose how to create it:

@@ -22,7 +22,11 @@ import {
 import {
   jobStatusPatchFromPermitStage,
 } from "./permitProgressBridge.js";
-import { listConedCompletedFiles } from "./agencyForms/completeDestinations.js";
+import {
+  listConedCompletedFiles,
+  listReadyConedApplications,
+  countReadyConedApplications,
+} from "./agencyForms/completeDestinations.js";
 
 const s = (v) => (v == null ? "" : String(v).trim());
 
@@ -681,6 +685,55 @@ export function buildDeployQueueItems({ jobs = [], caseRuns = [] } = {}) {
         removable: true,
         expandable: true,
       });
+    }
+
+    // Levi 2026-08-05: customer Form A ready to upload → Deploy queue row (not a separate banner).
+    // Review → Deploy → agent opens Energy Services and uploads.
+    const readyFiles = listReadyConedApplications(job);
+    if (readyFiles.length > 0) {
+      const alreadyUpload = items.some(
+        (it) =>
+          it.jobId === job.id &&
+          (it.kind === "Upload Form A" ||
+            it.todo?.kind === "upload_application" ||
+            String(it.id || "").startsWith(`upload:${job.id}`))
+      );
+      if (!alreadyUpload) {
+        const addr = s(job.serviceAddress || job.address);
+        const cust = s(job.customer || job.customerName);
+        const f0 = readyFiles[0] || {};
+        items.push({
+          id: `upload:${job.id}:${f0.docKey || "form-a"}`,
+          source: "upload_application",
+          jobId: job.id,
+          job,
+          title: formatDeployTitle({
+            kind: "Upload Form A",
+            agency: "Con Edison",
+            serviceAddress: addr,
+          }),
+          subtitle: [
+            cust,
+            readyFiles.length > 1
+              ? `${readyFiles.length} applications ready`
+              : f0.name || f0.filename || f0.meterLabel || "Customer Form A ready",
+            "Review then Deploy",
+          ]
+            .filter(Boolean)
+            .join(" · "),
+          requestShort: "Upload",
+          serviceAddress: addr,
+          kind: "Upload Form A",
+          agency: "Con Edison",
+          status: "ready",
+          readiness: { ready: true, missing: [] },
+          missing: [],
+          removable: true,
+          expandable: true,
+          appsReady: readyFiles.length,
+          completedFiles: readyFiles,
+        });
+      }
     }
 
     // Meter deploy holding — Ready only with Form A; else Need info when pending

@@ -105,15 +105,16 @@ Extract ONLY what is clearly printed on the card and return ONLY valid JSON (no 
   "cardNumber": <digits only, full PAN if fully readable — no spaces>,
   "last4": <last 4 digits of the card, always when any PAN digits are readable>,
   "exp": <expiration as MM/YY>,
+  "cvv": <3 or 4 digit security code ONLY if clearly printed and fully readable in this photo, else null>,
   "name": <cardholder name as printed, or null>,
   "brand": <"visa"|"mastercard"|"amex"|"discover"|"other"|null>,
   "confidence": <"high" or "low">
 }
 Rules:
 - Never invent a card number. If partial/blurry, set cardNumber null and still return last4 if visible.
-- CVV/CID on the back is NEVER required and must always be null/omitted — do not read or return CVV.
 - Prefer the embossed/printed PAN on the front. Ignore holograms and network logos for digits.
 - exp: convert 08/27 or 08/2027 → 08/27.
+- cvv: include only when the 3–4 digit code is clearly visible (back signature strip or Amex front CID). Never invent CVV.
 If a field is missing or unreadable use null.`;
 
 const PROMPTS = {
@@ -242,10 +243,15 @@ export function normalizeCardExtracted(raw) {
   let brand = String(raw.brand || raw.network || "").trim().toLowerCase();
   if (!["visa", "mastercard", "amex", "discover", "other"].includes(brand)) brand = "";
   const conf = String(raw.confidence || "").toLowerCase() === "low" ? "low" : "high";
+  let cvv = String(raw.cvv || raw.cvc || raw.cid || raw.securityCode || "")
+    .replace(/\D/g, "")
+    .trim();
+  if (cvv.length < 3 || cvv.length > 4) cvv = "";
   return {
     cardNumber: pan.length >= 12 ? pan : "",
     last4,
     exp,
+    cvv: cvv || "",
     name,
     brand: brand || null,
     confidence: conf,

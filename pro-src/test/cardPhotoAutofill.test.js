@@ -69,7 +69,7 @@ describe("cardPhotoAutofill", () => {
 });
 
 describe("scoreCheckFrame", () => {
-  function mockCtx(pixels /* Uint8ClampedArray-like RGBA */) {
+  function mockCtx(pixels) {
     const w = 80;
     const h = 50;
     return {
@@ -96,7 +96,6 @@ describe("scoreCheckFrame", () => {
       data[i + 2] = 235;
       data[i + 3] = 255;
     }
-    // dark horizontal lines for edges/ink
     for (let y = 10; y < 40; y += 4) {
       for (let x = 0; x < 80; x += 1) {
         const i = (y * 80 + x) * 4;
