@@ -88,7 +88,7 @@ export async function autoUploadOnComplete({
     caseNumber,
     source,
     text: r.queued
-      ? `Application completed - upload to Con Ed case ${caseNumber} queued (Document Type: Application for Service). It stops at review for a human confirm.`
+      ? `Application completed - upload to Con Ed case ${caseNumber} queued (Document Type: Application for Service). Host submits — no confirm needed.`
       : `Application completed but the automatic upload could not be queued: ${r.error || "unknown error"}`,
   });
 

@@ -186,7 +186,8 @@ describe("autoUploadOnComplete (S28)", () => {
     expect(enqueued[0].type).toBe("coned_upload_document");
     expect(enqueued[0].payload.caseNumber).toBe("MC-123456");
     expect(enqueued[0].payload.documentType).toBe("Application for Service");
-    expect(enqueued[0].payload.autoSubmit).toBe(false);
+    // Levi 2026-08-05: Form A document upload auto-submits (no human confirm).
+    expect(enqueued[0].payload.autoSubmit).toBe(true);
     const notif = patches[0].paperwork.coned.notifications;
     expect(notif.some((n) => n.type === "upload_queued")).toBe(true);
   });
@@ -362,7 +363,7 @@ describe("readyToGoTodo fires the skill on Levi's tap", () => {
     const cmd = enqueued.find((e) => e.type === "coned_upload_document");
     expect(cmd.payload.caseNumber).toBe("MC-424242");
     expect(cmd.payload.docKey).toBe("coned-job9-plp-x");
-    expect(cmd.payload.autoSubmit).toBe(false);
+    expect(cmd.payload.autoSubmit).toBe(true);
     const patched = saves.find((p) => p?.paperwork?.todos);
     expect(patched.paperwork.todos[0].status).toBe("queued");
   });

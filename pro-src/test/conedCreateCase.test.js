@@ -513,11 +513,12 @@ describe("upload-to-case (S24)", () => {
     expect(r.documentType).toBe(DOCUMENT_TYPE);
   });
 
-  it("buildUpload payload includes Application for Service + no auto-submit", () => {
+  it("buildUpload payload includes Application for Service + auto-submit", () => {
     const p = buildUploadToCasePayload({ job: jobWithFile });
     expect(p.caseNumber).toBe("MC-941412");
     expect(p.documentType).toBe("Application for Service");
-    expect(p.autoSubmit).toBe(false);
+    // Levi 2026-08-05: Form A document upload auto-submits (no human confirm).
+    expect(p.autoSubmit).toBe(true);
     expect(p.skill).toBe("coned-upload-document");
   });
 

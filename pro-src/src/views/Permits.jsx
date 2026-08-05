@@ -524,20 +524,29 @@ function DeployProgressButton({ pct = 0, label = "Deploying…", testId, compact
       type="button"
       disabled
       aria-busy="true"
+      aria-valuemin={0}
+      aria-valuemax={100}
+      aria-valuenow={p}
       data-testid={testId}
       className={
         compact
-          ? "relative overflow-hidden rounded-lg border border-emerald-800/30 min-w-[5.5rem] !py-1 !px-2.5 text-[11px] font-extrabold text-white"
-          : "relative overflow-hidden rounded-xl border border-emerald-800/30 min-w-[7.5rem] !py-1.5 !px-3 text-xs font-extrabold text-white"
+          ? "relative overflow-hidden rounded-lg border border-emerald-800/40 min-w-[6.5rem] !py-1 !px-2.5 text-[11px] font-extrabold text-white shadow-inner"
+          : "relative overflow-hidden rounded-xl border border-emerald-800/40 min-w-[8.5rem] !py-1.5 !px-3 text-xs font-extrabold text-white shadow-inner"
       }
-      style={{ background: "#065f46" }}
+      style={{ background: "#064e3b" }}
     >
+      {/* Battery charge fill */}
       <span
-        className="absolute inset-y-0 left-0 bg-emerald-400/95 transition-[width] duration-500 ease-out"
+        className="absolute inset-y-0 left-0 bg-gradient-to-r from-emerald-600 via-emerald-400 to-lime-300 transition-[width] duration-700 ease-out"
         style={{ width: `${p}%` }}
         aria-hidden
       />
-      <span className="relative z-10 tabular-nums drop-shadow-sm">
+      {/* Soft pulse so it never looks frozen while holding */}
+      <span
+        className="absolute inset-0 animate-pulse bg-emerald-300/10"
+        aria-hidden
+      />
+      <span className="relative z-10 tabular-nums drop-shadow-sm whitespace-nowrap">
         {label} {p}%
       </span>
     </button>
@@ -590,8 +599,8 @@ function DeployQueueRow({
   const needsReview = item.source === "fleet" && status === "awaiting_approval";
   const needsInfo = hardMissing.length > 0 || status === "need_info";
 
-  // Simulated battery progress while Deploying (fleet may not stream real %).
-  // Caps at 92% until row leaves the queue as done.
+  // Battery charge while Deploying (fleet rarely streams real %).
+  // Keeps moving + holds at 94% until the row leaves the queue.
   const [deployPct, setDeployPct] = useState(0);
   const [deployPhaseLabel, setDeployPhaseLabel] = useState("Deploying…");
   useEffect(() => {
@@ -600,27 +609,30 @@ function DeployQueueRow({
       setDeployPhaseLabel("Deploying…");
       return undefined;
     }
-    setDeployPct((p) => (p > 0 ? p : 8));
+    setDeployPct((p) => (p > 0 ? p : 6));
     setDeployPhaseLabel("Deploying…");
     const phases = [
-      [18, "Queuing…"],
-      [35, "Opening portal…"],
-      [55, "Uploading…"],
-      [72, "Confirming…"],
+      [12, "Deploying…"],
+      [28, "Queuing…"],
+      [42, "Opening…"],
+      [58, "Uploading…"],
+      [74, "Working…"],
       [88, "Holding…"],
-      [92, "Almost…"],
+      [94, "Almost…"],
     ];
     let i = 0;
     const t = setInterval(() => {
       setDeployPct((prev) => {
-        const next = Math.min(92, prev + (prev < 40 ? 6 : prev < 70 ? 3 : 1));
+        // Faster early, then crawl so the green fill is visible for a long run.
+        const step = prev < 30 ? 5 : prev < 55 ? 3 : prev < 80 ? 2 : 1;
+        const next = Math.min(94, prev + step);
         while (i < phases.length && next >= phases[i][0]) {
           setDeployPhaseLabel(phases[i][1]);
           i += 1;
         }
         return next;
       });
-    }, 900);
+    }, 700);
     return () => clearInterval(t);
   }, [isDeploying, item.id]);
 
@@ -1515,14 +1527,15 @@ export default function Permits() {
           showToast(
             r.queued
               ? caseNumber
-                ? `Deploying upload to ${caseNumber}… stops for your confirm`
-                : "Deploying Form A upload… stops for your confirm"
+                ? `Deploying upload to ${caseNumber}…`
+                : "Deploying Form A upload…"
               : "Not deployed: " + (r.error || "unknown")
           );
         } else {
           showToast("Couldn't queue Form A upload");
         }
         await refreshRuns();
+        // Keep battery fill visible while host works — finally also holds min time.
         return;
       }
 
@@ -1573,11 +1586,16 @@ export default function Permits() {
 
       showToast("Nothing to deploy on this row");
     } finally {
-      setDeployingIds((m) => {
-        const next = { ...m };
-        delete next[item.id];
-        return next;
-      });
+      // Levi 2026-08-05: keep the green Deploy battery filling (not a flash).
+      // Fleet rows keep Deploying via queueItemIsDeploying; local flag holds ≥12s.
+      const holdMs = item.source === "fleet" ? 1200 : 12000;
+      setTimeout(() => {
+        setDeployingIds((m) => {
+          const next = { ...m };
+          delete next[item.id];
+          return next;
+        });
+      }, holdMs);
     }
   };
 

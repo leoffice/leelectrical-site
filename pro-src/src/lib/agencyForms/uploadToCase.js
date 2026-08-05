@@ -3,7 +3,9 @@
  * to Con Ed case Documents. Drive is S25 optional — not required for upload.
  *
  * Flow (mapped): case → Documents → "+ Add a Document" → type "Application for Service"
- * → SELECT FILE (PDF ≤10MB) → submit (human-confirmed). Session-only, no stored password.
+ * → SELECT FILE (PDF ≤10MB) → Submit. Levi 2026-08-05: document upload does NOT need a
+ * human confirm (Con Ed takes a day+ to show it). Create-case still stops at Review.
+ * Session-only, no stored password.
  *
  * Source of truth: job tab completedFiles (docKey / docs URL). Drive path is a hint only.
  */
@@ -67,8 +69,9 @@ export function buildUploadToCasePayload({
     drivePathHint: resolved.drivePathHint,
     documentType: DOCUMENT_TYPE,
     maxBytes: MAX_PDF_BYTES,
-    stopAt: "confirm_submit",
-    autoSubmit: false,
+    // Levi 2026-08-05: Form A upload submit does not need human confirm.
+    stopAt: "submitted",
+    autoSubmit: true,
     docKey: resolved.docKey,
     meterLabel: resolved.meterLabel,
   };
@@ -124,7 +127,7 @@ export async function queueConedUploadDocument({
       ok: false,
       queued: false,
       error:
-        "enqueue_not_wired: host command_listener must handle coned_upload_document (session-only, human-confirm submit)",
+        "enqueue_not_wired: host command_listener must handle coned_upload_document (session-only)",
       payload,
       uploadState: { ...uploadState, status: "blocked", error: "enqueue_not_wired" },
     };
@@ -137,7 +140,7 @@ export async function queueConedUploadDocument({
       ok: true,
       queued: true,
       payload,
-      uploadState: { ...uploadState, status: "queued", note: "awaiting_host_upload_to_review" },
+      uploadState: { ...uploadState, status: "queued", note: "awaiting_host_upload_submit" },
     };
   } catch (err) {
     return {
