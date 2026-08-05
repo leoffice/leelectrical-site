@@ -647,7 +647,8 @@ export default function Permits() {
   const [confirming, setConfirming] = useState(false);
   const [caseRuns, setCaseRuns] = useState([]);
   const [approvalJob, setApprovalJob] = useState(null);
-  const [queueOpen, setQueueOpen] = useState(true);
+  // Collapsed by default so the tab is scannable; expand what you need (Levi 2026-08-05).
+  const [queueOpen, setQueueOpen] = useState(false);
   const [clearing, setClearing] = useState(false);
   const [expandedIds, setExpandedIds] = useState({});
   const [deployingIds, setDeployingIds] = useState({});
@@ -1496,10 +1497,11 @@ export default function Permits() {
 
       {/* Open cases — combined cards (Con Ed + DOB + customer to-dos). Skills list is at bottom. */}
       {actionNeeded.length ? (
-        <div className="mb-4" data-testid="permit-action-strip">
-          <div className="text-[11px] font-extrabold text-red-700 uppercase tracking-wider mb-1.5 px-1">
-            Action needed ({actionNeeded.length})
-          </div>
+        <CollapsibleSection
+          testId="permit-action-strip"
+          title={`Action needed (${actionNeeded.length})`}
+          defaultOpen={true}
+        >
           <div className="space-y-2">
             {actionNeeded.map((row) => (
               <CaseRow
@@ -1515,16 +1517,16 @@ export default function Permits() {
               />
             ))}
           </div>
-        </div>
+        </CollapsibleSection>
       ) : null}
 
-      {/* Per-agency sections — collapsible headers */}
+      {/* Per-agency sections — all collapsible, start collapsed (Levi 2026-08-05). */}
       {sections.map((sec) => (
         <CollapsibleSection
           key={sec.agency}
           testId={`permit-section-${sec.agency}`}
           title={`${sec.label} (${sec.cases.length})`}
-          defaultOpen={sec.cases.length > 0}
+          defaultOpen={false}
         >
           {sec.cases.length ? (
             <div className="space-y-2">
@@ -1559,10 +1561,16 @@ export default function Permits() {
         </div>
       ) : null}
 
-      {/* Skills list — bottom only (Levi 2026-08-04: not mid-page) */}
-      <div className="mb-4 mt-6" data-testid="permits-skills-bottom">
-        <FunctionalitiesLockIn />
-      </div>
+      {/* Skills list — bottom only, collapsible (Levi 2026-08-04 / 2026-08-05) */}
+      <CollapsibleSection
+        testId="permits-skills-bottom"
+        title="Skills & lock-in checklist"
+        defaultOpen={false}
+      >
+        <div className="mb-4">
+          <FunctionalitiesLockIn />
+        </div>
+      </CollapsibleSection>
 
       {/* Backfill confirm */}
       {confirming ? (

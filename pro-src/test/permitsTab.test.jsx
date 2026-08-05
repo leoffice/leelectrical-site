@@ -78,12 +78,19 @@ describe("Permits tab renders derived Con Ed cases", () => {
   it("Permits-enabled tenant sees a Con Ed case row derived from an applied email", async () => {
     mockServer({ settings: fullTenant, jobs: [JOB], emailInsights: [conedInsight] });
     renderAppAsTenant("#/permits");
+    // Sections start collapsed (Levi 2026-08-05) — expand Con Ed + skills to assert rows.
+    const conedSec = await screen.findByTestId("permit-section-coned");
+    expect(conedSec).toBeInTheDocument();
+    // Header button is first clickable in the collapsible section.
+    const conedToggle = conedSec.querySelector("button");
+    expect(conedToggle).toBeTruthy();
+    conedToggle.click();
     // Case row shows the customer and the MC case number.
     expect(await screen.findByText("Winthrop Owner")).toBeInTheDocument();
     expect(await screen.findByText("MC-910413")).toBeInTheDocument();
-    // The Con Ed section header is present.
-    expect(await screen.findByTestId("permit-section-coned")).toBeInTheDocument();
-    // Functionalities lock-in checklist is visible (remaining only; learned removed)
+    // Functionalities lock-in checklist is under Skills (collapsed by default).
+    const skillsSec = await screen.findByTestId("permits-skills-bottom");
+    skillsSec.querySelector("button")?.click();
     expect(await screen.findByTestId("functionalities-lock-in")).toBeInTheDocument();
     expect(screen.getByTestId("functionalities-lock-in-count")).toHaveTextContent("11 left");
     // Top-level Deploy chooser removed (Levi 2026-08-03) — Deploy lives on queue rows
