@@ -540,6 +540,10 @@ export function classifyEmailOutcome(subject = "", body = "") {
   if (
     /\backnowledg(?:e)?ment\s+letter\b/.test(s) ||
     /\backnowledg(?:e)?ment\b/.test(subj) ||
+    // Inquiry / case open confirmations are not field appointments (Levi 2026-08-05 CI-1310863).
+    /\binquiry\s+id\b/.test(subj) ||
+    /\bcon\s*edison\s+inquiry\b/.test(subj) ||
+    /\bci-\d+/i.test(subj) ||
     (/\bwe have received your request\b/.test(plain) &&
       !/\bappointment\b/.test(s) &&
       !/\binspection\s+scheduled\b/.test(s) &&
