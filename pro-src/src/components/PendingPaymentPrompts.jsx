@@ -2,7 +2,7 @@
 // Levi: see picture → zoom → Autofill → correct → Approve → stages payment on the job.
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { useStore, useStoreData } from "../state/store.jsx";
-import { appendPayment } from "../lib/payments.js";
+import { appendPayment, normalizePayments, removePayment } from "../lib/payments.js";
 import { analyzePaymentImage, compressImageForVision, fileToBase64 } from "../lib/paymentVision.js";
 import {
   hasStrongPaymentAutofill,
@@ -381,13 +381,20 @@ export default function PendingPaymentPrompts() {
 
   const matchCandidates = useMemo(() => {
     if (!current) return [];
-    return rankJobsForPayment(jobs, {
+    const ranked = rankJobsForPayment(jobs, {
       amount: amt || current.amount,
       memo: memo || current.memo,
       fromName: current.fromName || current.payer,
       query: pickQuery,
     });
-  }, [jobs, current, amt, memo, pickQuery]);
+    // Keep the current suggestion visible even if score is weak / list is short.
+    const pinnedId = String(pickJobId || current.jobId || "").trim();
+    if (pinnedId && !ranked.some((x) => String(x.job.id) === pinnedId)) {
+      const pinned = (jobs || []).find((j) => String(j.id) === pinnedId);
+      if (pinned) ranked.unshift({ job: pinned, score: 0 });
+    }
+    return ranked;
+  }, [jobs, current, amt, memo, pickQuery, pickJobId]);
 
   const onApprove = async () => {
     if (!current) return;
@@ -417,6 +424,35 @@ export default function PendingPaymentPrompts() {
     try {
       const method = current.kind === "zelle" ? "Zelle" : "Check";
       const payRef = String(ref || "").trim();
+      // If suggestion pointed at the wrong job (auto-apply / weak match), pull that payment off first.
+      const prevJobId = String(current.jobId || current.job?.id || "").trim();
+      if (prevJobId && String(prevJobId) !== String(job.id)) {
+        const prevJob =
+          (jobs || []).find((j) => String(j.id) === prevJobId) || current.job || null;
+        if (prevJob) {
+          const confs = new Set(
+            [payRef, current.confirmationNumber, current.ref, current.checkNumber]
+              .map((x) => String(x || "").trim())
+              .filter(Boolean)
+          );
+          const existing = normalizePayments(prevJob).find((p) => {
+            const r = String(p.ref || p.confirmationNumber || p.checkNumber || "").trim();
+            return r && confs.has(r);
+          });
+          if (existing?.id) {
+            const cleared = removePayment(prevJob, existing.id, {
+              reason: "Reassigned from payment notice",
+            });
+            const clearKey =
+              method === "Zelle" ? "pendingZellePayment" : "pendingCheckPayment";
+            patchJob(prevJob.id, { ...cleared, [clearKey]: null });
+          } else {
+            const clearKey =
+              method === "Zelle" ? "pendingZellePayment" : "pendingCheckPayment";
+            patchJob(prevJob.id, { [clearKey]: null });
+          }
+        }
+      }
       // Train the reader from Levi's fixes before saving payment.
       try {
         const entry = buildPaymentVisionLearningEntry({
@@ -439,6 +475,12 @@ export default function PendingPaymentPrompts() {
       } catch {
         /* never block approve */
       }
+      // Already on the chosen job from a correct auto-apply — don't double-book the same conf.
+      const alreadyOnJob =
+        payRef &&
+        normalizePayments(job).some(
+          (p) => String(p.ref || p.confirmationNumber || "").trim() === payRef
+        );
       const noteBits = [
         method,
         payRef ? (method === "Check" ? `Check #${payRef}` : `ref ${payRef}`) : "",
@@ -447,17 +489,22 @@ export default function PendingPaymentPrompts() {
         deposit ? `Deposit: ${deposit}` : "",
         "Approved from pay-page notice",
       ].filter(Boolean);
-      const patch = appendPayment(job, {
-        amount: payAmt,
-        method,
-        ref: payRef,
-        date: dt || todayStr(),
-        note: noteBits.join(" · "),
-        depositTo: deposit || undefined,
-        paymentProofName: current.fileName || current.proofKey || undefined,
-        paymentAutofilled: Boolean(autofillDone),
-        zelleVerified: method === "Zelle" ? Boolean(payRef) : undefined,
-      });
+      const patch = alreadyOnJob
+        ? {
+            paid: job.paid,
+            openBalance: job.openBalance,
+          }
+        : appendPayment(job, {
+            amount: payAmt,
+            method,
+            ref: payRef,
+            date: dt || todayStr(),
+            note: noteBits.join(" · "),
+            depositTo: deposit || undefined,
+            paymentProofName: current.fileName || current.proofKey || undefined,
+            paymentAutofilled: Boolean(autofillDone),
+            zelleVerified: method === "Zelle" ? Boolean(payRef) : undefined,
+          });
       const clearKey = method === "Zelle" ? "pendingZellePayment" : "pendingCheckPayment";
       patchJob(job.id, {
         ...patch,
@@ -488,35 +535,46 @@ export default function PendingPaymentPrompts() {
   if (IS_TEST || loading || !current) return null;
 
   const job = current.job;
+  // Always honor Levi's pick over the suggestion (suggestions can be wrong).
+  const selectedJob =
+    (pickJobId && (jobs || []).find((j) => String(j.id) === String(pickJobId))) ||
+    job ||
+    null;
   const isAutoApplied =
     Boolean(current.autoApplied) || String(current.status || "") === "auto_applied";
   const needsMatch =
     String(current.status || "") === "needs_match" ||
     (!current.invoiceNo && !current.customer) ||
     (!job && String(current.status || "") === "pending");
+  // Suggestion always editable — show picker even when a job was pre-matched (Levi 2026-08-05).
+  const showJobPicker = true;
   const showAckCard = isAutoApplied && !editMode;
   const title = showAckCard
     ? "Payment applied — confirm"
-    : needsMatch
+    : needsMatch || !selectedJob
       ? "A payment came in"
       : current.kind === "zelle"
         ? "Zelle payment received"
         : "Check photo from pay page";
-  const inv = current.invoiceNo || job?.invoiceNo || "";
-  const cust = current.customer || job?.customer || "";
+  const inv = selectedJob?.invoiceNo || current.invoiceNo || "";
+  const cust = selectedJob?.customer || selectedJob?.customerName || current.customer || "";
   const confLine = String(
     current.confirmationNumber || current.ref || current.checkNumber || ""
   ).trim();
   const payAmtLine = String(current.amount || current.extracted?.amount || "").trim();
   const openDue =
-    job?.openBalance != null && job?.openBalance !== ""
-      ? fmt$(job.openBalance)
-      : job?.amount
-        ? fmt$(job.amount)
+    selectedJob?.openBalance != null && selectedJob?.openBalance !== ""
+      ? fmt$(selectedJob.openBalance)
+      : selectedJob?.amount
+        ? fmt$(selectedJob.amount)
         : "";
   const fromLine = String(current.fromName || current.payer || "").trim();
   const memoLine = String(current.memo || current.extracted?.memo || "").trim();
   const dateLine = String(current.date || "").slice(0, 10);
+  const suggestionChanged =
+    Boolean(pickJobId) &&
+    Boolean(current.jobId) &&
+    String(pickJobId) !== String(current.jobId);
 
   return (
     <div
@@ -537,7 +595,11 @@ export default function PendingPaymentPrompts() {
             ✕
           </button>
           <div className="text-[11px] font-extrabold uppercase tracking-wider text-brand">
-            {showAckCard ? "Applied — needs your OK" : needsMatch ? "Where does it go?" : "Payment to approve"}
+            {showAckCard
+              ? "Applied — needs your OK"
+              : needsMatch || !selectedJob
+                ? "Where does it go?"
+                : "Payment to approve"}
           </div>
           <h2 className="text-lg font-extrabold text-slate-900 leading-tight mt-0.5">
             {snoozing ? "Remind me later" : title}
@@ -642,6 +704,18 @@ export default function PendingPaymentPrompts() {
             </button>
             <button
               type="button"
+              className="btn bg-amber-700 text-white w-full font-bold"
+              onClick={() => {
+                setEditMode(true);
+                setPickJobId("");
+                setPickQuery(String(fromLine || "").trim());
+              }}
+              data-testid="pending-payment-wrong-match"
+            >
+              Wrong customer / invoice
+            </button>
+            <button
+              type="button"
               className="btn-ghost w-full text-sm"
               onClick={() =>
                 showToast(
@@ -651,7 +725,7 @@ export default function PendingPaymentPrompts() {
                     memoLine ? `Memo ${memoLine}` : null,
                     current.source ? `Source ${current.source}` : null,
                     current.matchScore != null ? `Match score ${current.matchScore}` : null,
-                    job?.id ? `Job ${job.id}` : null,
+                    selectedJob?.id ? `Job ${selectedJob.id}` : null,
                   ]
                     .filter(Boolean)
                     .join(" · ") || "No extra detail on this notice"
@@ -672,12 +746,32 @@ export default function PendingPaymentPrompts() {
           </div>
         ) : (
           <>
-          {needsMatch || !job ? (
+          {showJobPicker ? (
             <div className="px-4 pt-3 space-y-2" data-testid="pending-payment-where">
               <p className="text-sm text-slate-700 leading-snug">
-                A payment came in — choose the customer / open invoice. Search by name, service address,
-                invoice #, or amount due.
+                {selectedJob
+                  ? "Suggested customer / invoice below — change it anytime if it's wrong. Search by name, address, invoice #, or amount."
+                  : "Choose the customer / open invoice. Search by name, service address, invoice #, or amount due."}
               </p>
+              {selectedJob ? (
+                <div
+                  className="rounded-xl border border-brand/30 bg-brand/5 px-3 py-2 text-sm"
+                  data-testid="pending-payment-selected"
+                >
+                  <div className="text-[11px] font-bold uppercase tracking-wide text-brand">
+                    {suggestionChanged ? "Applying to" : "Suggested"}
+                  </div>
+                  <div className="font-extrabold text-slate-900">
+                    {selectedJob.customer || selectedJob.customerName || "Customer"}
+                  </div>
+                  <div className="text-slate-600 text-xs mt-0.5">
+                    {selectedJob.invoiceNo ? `#${selectedJob.invoiceNo}` : "No inv #"}
+                    {selectedJob.openBalance != null && selectedJob.openBalance !== ""
+                      ? ` · due ${fmt$(selectedJob.openBalance)}`
+                      : ""}
+                  </div>
+                </div>
+              ) : null}
               <input
                 className="input w-full"
                 placeholder="Search customer, address, invoice #, or amount…"
@@ -694,7 +788,7 @@ export default function PendingPaymentPrompts() {
                   <div className="px-3 py-3 text-sm text-slate-500">No open invoices matched — try another search.</div>
                 ) : (
                   matchCandidates.map(({ job: j, score }) => {
-                    const selected = String(pickJobId) === String(j.id);
+                    const selected = String(pickJobId || selectedJob?.id || "") === String(j.id);
                     return (
                       <button
                         type="button"
@@ -781,10 +875,16 @@ export default function PendingPaymentPrompts() {
               type="button"
               className="btn bg-brand text-white w-full font-bold"
               onClick={onApprove}
-              disabled={busy || (!job && !pickJobId)}
+              disabled={busy || (!selectedJob && !pickJobId)}
               data-testid="pending-payment-approve"
             >
-              {busy ? "Saving…" : needsMatch || !job ? "Apply to selected invoice" : "Approve payment"}
+              {busy
+                ? "Saving…"
+                : !selectedJob && !pickJobId
+                  ? "Apply to selected invoice"
+                  : suggestionChanged
+                    ? "Approve on selected invoice"
+                    : "Approve payment"}
             </button>
             <button
               type="button"
