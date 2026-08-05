@@ -295,7 +295,12 @@ export function queueItemCanDeploy(item = {}) {
     }
     return false;
   }
-  if (item.source === "draft" || item.source === "todo" || item.source === "meter") {
+  if (
+    item.source === "draft" ||
+    item.source === "todo" ||
+    item.source === "meter" ||
+    item.source === "upload_application"
+  ) {
     if (status === "queued" || status === "deploying") return false;
     return true;
   }

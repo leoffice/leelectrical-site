@@ -29,6 +29,7 @@ import {
   updatePaperworkTodoPatch,
   addPaperworkTodoPatch,
   countReadyConedApplications,
+  listConedCompletedFiles,
 } from "../lib/agencyForms/index.js";
 import { createCasePaperworkJob } from "../lib/agencyForms/createCaseExecution.js";
 import {
@@ -1409,6 +1410,52 @@ export default function Permits() {
             ? "Deploying… stops at review for your confirm"
             : "Not deployed: " + (r.error || "unknown")
         );
+        await refreshRuns();
+        return;
+      }
+
+      // Levi 2026-08-05: customer Form A ready → Deploy queues Con Ed Documents upload.
+      if (item.source === "upload_application") {
+        const files = item.completedFiles || listConedCompletedFiles(job) || [];
+        const f0 = files[0] || {};
+        const caseNumber =
+          String(job?.paperwork?.coned?.caseNumber || item.caseNumber || "").trim();
+        let todo = listPaperworkTodos(job).find(
+          (t) =>
+            t &&
+            (t.kind === "upload_application" ||
+              t.kind === "upload_document" ||
+              /upload application/i.test(String(t.title || "")))
+        );
+        if (!todo) {
+          const { patch, todo: t } = addPaperworkTodoPatch(job, {
+            kind: "upload_application",
+            agency: "coned",
+            meterLabel: f0.meterLabel || "PLP",
+            title: "Upload application to the Con Ed case",
+            note: "FILE READY — " + (f0.name || f0.filename || "Form A"),
+            source: "customer",
+          });
+          if (patch) await patchAndSave(item.jobId, patch);
+          todo = t;
+        }
+        if (todo) {
+          const r = await readyToGoTodo({
+            job: jobsById.get(item.jobId) || job,
+            todo,
+            enqueue,
+            onSave: (p) => patchAndSave(item.jobId, p),
+          });
+          showToast(
+            r.queued
+              ? caseNumber
+                ? `Deploying upload to ${caseNumber}… stops for your confirm`
+                : "Deploying Form A upload… stops for your confirm"
+              : "Not deployed: " + (r.error || "unknown")
+          );
+        } else {
+          showToast("Couldn't queue Form A upload");
+        }
         await refreshRuns();
         return;
       }
