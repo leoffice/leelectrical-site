@@ -5,6 +5,7 @@ import {
   PHASES,
   STAGES,
   clientKey,
+  jobMatchesDocNumber,
   matchesFilter,
   matchesQuery,
   nextAction,
@@ -109,6 +110,22 @@ describe("grouping + sorting", () => {
     expect(matchesQuery(est, "99901")).toBe(true);
     expect(matchesQuery(est, "est 99901")).toBe(true);
     expect(matchesQuery(paid, "99901")).toBe(false);
+  });
+  it("customer number is not a doc hit; payment ref is", () => {
+    const job = {
+      customer: "Sima",
+      qboCustomerId: "12345",
+      invoiceNo: "251854",
+      paid: true,
+      payments: [{ amount: "100", ref: "JPM99crx431u" }],
+    };
+    // Customer # alone must not unlock paid history as a "doc" match
+    expect(jobMatchesDocNumber(job, "12345")).toBe(false);
+    expect(matchesQuery(job, "12345")).toBe(true); // still finds customer via hay
+    // Invoice + payment still match as docs
+    expect(jobMatchesDocNumber(job, "251854")).toBe(true);
+    expect(jobMatchesDocNumber(job, "JPM99crx431u")).toBe(true);
+    expect(jobMatchesDocNumber(job, "pay JPM99crx431u")).toBe(true);
   });
 });
 

@@ -289,4 +289,49 @@ describe("Balance view", () => {
     expect(rows.some((r) => r.getAttribute("data-invoice-no") === "9100")).toBe(true);
     expect(rows.some((r) => r.getAttribute("data-invoice-no") === "8001")).toBe(false);
   });
+
+  it("customer number search does NOT dump full paid history under Service", async () => {
+    // Levi 2026-08-05: only inv/est/payment # unlock paid; customer # stays open-only.
+    mockServer({
+      jobs: [
+        {
+          id: "openC",
+          customer: "Cust Num Co",
+          qboCustomerId: "77801",
+          title: "Open work",
+          amount: "$1,200",
+          invoiceNo: "9102",
+          paid: false,
+          serviceAddress: "20 River Rd",
+          status: {},
+        },
+        {
+          id: "paidC",
+          customer: "Cust Num Co",
+          qboCustomerId: "77801",
+          title: "Old paid",
+          amount: "$500",
+          invoiceNo: "8002",
+          paid: true,
+          serviceAddress: "20 River Rd",
+          status: {},
+        },
+      ],
+    });
+    const user = userEvent.setup();
+    renderApp("#/");
+    await screen.findByTestId("balance-list");
+
+    await user.clear(screen.getByLabelText("Search jobs"));
+    await user.type(screen.getByLabelText("Search jobs"), "77801");
+    const taps = screen.getAllByTestId("balance-card-tap");
+    const card = taps.find((t) => within(t).queryByText("Cust Num Co"));
+    if (card && !screen.queryByTestId("balance-card-detail")) {
+      await user.click(card);
+    }
+    const detail = await screen.findByTestId("balance-card-detail");
+    const rows = within(detail).getAllByTestId("group-job-row");
+    expect(rows.some((r) => r.getAttribute("data-invoice-no") === "9102")).toBe(true);
+    expect(rows.some((r) => r.getAttribute("data-invoice-no") === "8002")).toBe(false);
+  });
 });

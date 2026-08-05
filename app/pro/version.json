@@ -1,9 +1,9 @@
 {
   "schema": "le-pro-version/v1",
-  "gitSha": "30fd40d38b62df6c54fd0c8a2d44bb7e65adda79",
-  "gitShaShort": "30fd40d",
+  "gitSha": "cceac3ef1d1bb2e3ccd207dfb9ce556c44e73319",
+  "gitShaShort": "cceac3e",
   "netlifyDeployId": null,
-  "builtAt": "2026-08-05T22:04:34.566Z",
-  "task": "",
+  "builtAt": "2026-08-05T22:10:23.070Z",
+  "task": "customer-number search open-only; doc# still finds paid",
   "rollbackAvailable": true
 }

@@ -12,7 +12,6 @@ import {
   FILTER_NAMES,
   SORT_OPTIONS,
   clientKey,
-  isDocNumberQuery,
   jobMatchesDocNumber,
   matchesFilter,
   matchesQuery,
@@ -129,7 +128,7 @@ function AgingSideRail({ jobs }) {
 }
 
 /** Expanded customer body: billing first (tap → customer info), then each
- *  service address. Search shows closed/paid invoice+estimate hits (Levi 2026-08-05). */
+ *  service address. Paid/closed rows only when the query hits inv/est/payment #. */
 function CustomerExpandPanel({
   jobs,
   onOpenCustomer,
@@ -140,16 +139,28 @@ function CustomerExpandPanel({
   const contact = customerContact(jobs);
   const billing = String(contact.billingAddress || "").trim();
   const q = String(searchQuery || "").trim();
-  const docSearch = isDocNumberQuery(q);
-  // Only invoice/estimate/payment # search expands closed/paid under Service.
-  // Customer-name search keeps open-only (yesterday's behavior) — Levi 2026-08-05.
-  const onlyOpen = openInvoicesOnly && !docSearch;
+  // Unlock paid/closed ONLY for real invoice / estimate / payment # hits —
+  // not customer name or customer number (those look numeric too). Levi 2026-08-05.
+  const hasDocHit = !!q && (jobs || []).some((j) => jobMatchesDocNumber(j, q));
+  const onlyOpen = openInvoicesOnly && !hasDocHit;
   const groups = groupJobsByServiceAddress(jobs);
   const openGroups = groups
     .map((g) => {
       let list = g.jobs || [];
-      if (q) {
-        // Prefer query hits; keep open balances too so expand still useful.
+      if (hasDocHit) {
+        // Matching docs (incl. paid) + any still-open invoices at this address.
+        const hits = list.filter((j) => jobMatchesDocNumber(j, q));
+        const opens = list.filter((j) => openBalance(j) > 0);
+        const ids = new Set();
+        list = [];
+        for (const j of hits.concat(opens)) {
+          if (ids.has(j.id)) continue;
+          ids.add(j.id);
+          list.push(j);
+        }
+      } else if (onlyOpen) {
+        list = list.filter((j) => openBalance(j) > 0);
+      } else if (q) {
         const hits = list.filter((j) => matchesQuery(j, q));
         const opens = list.filter((j) => openBalance(j) > 0);
         const ids = new Set();
@@ -159,8 +170,6 @@ function CustomerExpandPanel({
           ids.add(j.id);
           list.push(j);
         }
-        // Doc search with no open balance: only hits (closed inv/est).
-        if (docSearch && hits.length) list = hits;
       }
       const openJobs = list.filter((j) => openBalance(j) > 0);
       const otherJobs = onlyOpen ? [] : list.filter((j) => !(openBalance(j) > 0));
@@ -171,7 +180,7 @@ function CustomerExpandPanel({
   const jobHref = (j) => {
     if (!customerKey) return undefined;
     const parts = ["from=" + encodeURIComponent(customerKey), "fold=1"];
-    if (j.invoiceNo && (!q || jobMatchesDocNumber(j, q) || String(j.invoiceNo).includes(q))) {
+    if (j.invoiceNo && (!q || jobMatchesDocNumber(j, q))) {
       parts.push("hlInv=" + encodeURIComponent(String(j.invoiceNo)));
     }
     if (j.estimateNo && q && jobMatchesDocNumber(j, q) && !j.invoiceNo) {
@@ -212,7 +221,7 @@ function CustomerExpandPanel({
                   <GroupJobRow
                     key={j.id}
                     job={j}
-                    leadWithDoc={!!q}
+                    leadWithDoc={hasDocHit}
                     to={jobHref(j)}
                   />
                 ))}
@@ -583,11 +592,12 @@ export default function Jobs({
   const frozenActiveRef = useRef(activeLive);
   if (listActive) frozenActiveRef.current = activeLive;
   const active = listActive ? activeLive : frozenActiveRef.current;
-  // Doc # search (invoice / estimate) ignores Active/Unpaid chips so closed jobs still hit.
+  // Invoice / estimate / payment # hits always surface (even fully paid).
+  // Customer number/name search keeps normal chips (open-only expand) — Levi 2026-08-05.
   const matchesChip = useCallback(
     (j) => {
       const q = deferredQ.trim();
-      if (q && isDocNumberQuery(q)) return matchesQuery(j, q);
+      if (q && jobMatchesDocNumber(j, q)) return true;
       return matchesFilter(j, effFilter) && matchesQuery(j, deferredQ);
     },
     [effFilter, deferredQ]
@@ -780,7 +790,9 @@ export default function Jobs({
    * bottom of the list leaves it exactly where the finger landed.
    */
   const searching = !!deferredQ.trim();
-  const docSearching = searching && isDocNumberQuery(deferredQ);
+  // Real inv/est/payment hits only — not “looks numeric” (customer # is numeric too).
+  const docSearching =
+    searching && active.some((j) => jobMatchesDocNumber(j, deferredQ.trim()));
   // Doc-number search: pin matching customers first so closed inv/est aren't buried.
   const balanceSorted = useMemo(() => {
     const base = sortCustomerRows(customerRows, custSort);
@@ -828,10 +840,11 @@ export default function Jobs({
     [armBalanceCollapse]
   );
 
-  /** Invoice/estimate # search: auto-expand the matching customer so Service + doc show. */
+  /** Invoice/estimate/payment # search: auto-expand the matching customer so Service + doc show. */
   useEffect(() => {
     const q = deferredQ.trim();
-    if (!q || !isDocNumberQuery(q) || !listActive) return;
+    if (!q || !listActive) return;
+    // Only when a real doc hits — customer # alone must not expand full history.
     const expandBal = {};
     const openGroups = {};
     for (const row of customerRows) {
@@ -926,12 +939,12 @@ export default function Jobs({
     }
   }, [deferredQ, parentRows, matchesChip]);
 
-  /** Doc # search: auto-expand customer groups that own the invoice/estimate (incl. paid). */
+  /** Doc # search: auto-expand customer groups that own the invoice/estimate/payment (incl. paid). */
   useEffect(() => {
     const query = deferredQ.trim();
-    if (!query || !isDocNumberQuery(query)) return;
+    if (!query) return;
     for (const [key, list] of flatGroups) {
-      if (!list.some((j) => jobMatchesDocNumber(j, query) || matchesQuery(j, query))) continue;
+      if (!list.some((j) => jobMatchesDocNumber(j, query))) continue;
       setOpen((o) => (o[key] ? o : { ...o, [key]: true }));
       armCollapse(key, PARENT_SUB_COLLAPSE_MS);
     }
@@ -1004,11 +1017,10 @@ export default function Jobs({
   useEffect(() => () => clearTimeout(custTimer.current), []);
 
   const openCustomer = (key, jobsList = []) => {
-    // Doc # search: jump straight to the matching invoice/estimate job (Levi 2026-08-05).
+    // Only jump on real inv/est/payment # — never on customer number matches.
     const q = deferredQ.trim();
     if (q && jobsList?.length) {
-      const hits = jobsList.filter((j) => jobMatchesDocNumber(j, q));
-      const job = hits[0] || (isDocNumberQuery(q) ? jobsList.find((j) => matchesQuery(j, q)) : null);
+      const job = jobsList.find((j) => jobMatchesDocNumber(j, q));
       if (job?.id) {
         const parts = ["from=" + encodeURIComponent(key), "fold=1"];
         if (job.invoiceNo) parts.push("hlInv=" + encodeURIComponent(String(job.invoiceNo)));
@@ -1331,7 +1343,7 @@ export default function Jobs({
                             <div onPointerDown={() => armCollapse(sub.key, PARENT_SUB_COLLAPSE_MS)}>
                               <CustomerExpandPanel
                                 jobs={sub.jobs}
-                                openInvoicesOnly={!isDocNumberQuery(deferredQ)}
+                                openInvoicesOnly
                                 searchQuery={deferredQ}
                                 customerKey={sub.key}
                                 onOpenCustomer={() => openCustomer(sub.key, sub.jobs)}
@@ -1451,7 +1463,7 @@ export default function Jobs({
                   <div onPointerDown={() => armCollapse(key)}>
                     <CustomerExpandPanel
                       jobs={expandJobs(list)}
-                      openInvoicesOnly={!isDocNumberQuery(deferredQ)}
+                      openInvoicesOnly
                       searchQuery={deferredQ}
                       customerKey={key}
                       onOpenCustomer={() => openCustomer(key, list)}
