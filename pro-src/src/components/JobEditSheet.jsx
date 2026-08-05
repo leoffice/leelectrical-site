@@ -10,6 +10,8 @@ import { sortJobs } from "../lib/stages.js";
 import { fmtAmountDue, openBalance } from "../lib/customers.js";
 import { fmt$ } from "../lib/format.js";
 import { deleteDocLabel } from "../lib/deleteDoc.js";
+import Toggle from "./Toggle.jsx";
+import { isOnPermitTracker, setPermitTrackerPatch } from "../lib/permitTrackerSeed.js";
 
 export default function JobEditSheet({ job, fromCust = "", onClose }) {
   const { jobs, events, api, patchAndSave, showToast } = useStore();
@@ -17,19 +19,37 @@ export default function JobEditSheet({ job, fromCust = "", onClose }) {
   const [title, setTitle] = useState(job.title || "");
   const [serviceAddress, setServiceAddress] = useState(job.serviceAddress || job.address || "");
   const [apartment, setApartment] = useState(job.apartment || "");
+  const [permitTracker, setPermitTracker] = useState(
+    () => !!(job.permitTracker === true || isOnPermitTracker(job))
+  );
   const [confirm, setConfirm] = useState(null); // 'archive' | 'delete'
 
   const sameAddr = sortJobs(jobsAtSameAddress(jobs, job).filter((j) => j.id !== job.id));
 
   const save = () => {
     // Instant UI — local apply + close; network retries in background.
-    void patchAndSave(job.id, {
+    const base = {
       title: title.trim(),
       serviceAddress: serviceAddress.trim(),
       address: serviceAddress.trim(),
       apartment: apartment.trim(),
+      permitTracker: !!permitTracker,
+    };
+    // Save + turn on permit tracker → job appears on Permits tab (Levi 2026-08-05).
+    const mid = { ...job, ...base };
+    const trackerPatch = permitTracker
+      ? setPermitTrackerPatch(mid, true)
+      : { paperwork: { coned: { enabled: false }, dob: { enabled: false } } };
+    void patchAndSave(job.id, {
+      ...base,
+      ...trackerPatch,
+      paperwork: {
+        ...(trackerPatch.paperwork || {}),
+      },
     });
-    showToast("Job info saved");
+    showToast(
+      permitTracker ? "Job info saved — on permit tracker" : "Job info saved"
+    );
     onClose();
   };
 
@@ -103,6 +123,26 @@ export default function JobEditSheet({ job, fromCust = "", onClose }) {
       <Fld label="Apartment / unit">
         <input className="input" aria-label="Apartment / unit" value={apartment} onChange={(e) => setApartment(e.target.value)} placeholder="Optional" />
       </Fld>
+
+      <div
+        className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 mb-3"
+        data-testid="job-edit-permit-tracker"
+        data-no-card-open
+      >
+        <div className="flex items-center justify-between gap-3">
+          <div className="min-w-0">
+            <div className="text-sm font-bold text-slate-800">Permit tracker</div>
+            <p className="text-[11px] text-slate-500 font-semibold leading-snug mt-0.5">
+              On Save, add this job to the Permits tab with the service address. Email updates fill in later.
+            </p>
+          </div>
+          <Toggle
+            on={permitTracker}
+            label="Permit tracker"
+            onChange={setPermitTracker}
+          />
+        </div>
+      </div>
 
       {sameAddr.length ? (
         <div className="mt-4 mb-3">

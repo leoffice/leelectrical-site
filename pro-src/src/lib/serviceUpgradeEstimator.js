@@ -40,7 +40,45 @@ export const MATERIAL_COST_BASIS = {
   trenchConcreteLaborPerFt: 70,
 };
 
-/** Default unit fees (sell-side starters; editable via answers.feeOverrides). */
+/**
+ * Editable fee rows for Settings → Estimate Generator → Service Upgrade.
+ * path: dotted path into DEFAULT_FEES (e.g. "meter.100-1", "filing").
+ */
+export const SERVICE_UPGRADE_FEE_FIELDS = [
+  { path: "meter.100-1", label: "First meter · 100A 1φ", group: "Meters" },
+  { path: "meter.100-3", label: "First meter · 100A 3φ", group: "Meters" },
+  { path: "meter.200-1", label: "First meter · 200A 1φ", group: "Meters" },
+  { path: "meter.200-3", label: "First meter · 200A 3φ", group: "Meters" },
+  { path: "meter.350-3", label: "First meter · 350A 3φ", group: "Meters" },
+  { path: "meter.400-3", label: "First meter · 400A 3φ", group: "Meters" },
+  { path: "meterAdditional.100-1", label: "Extra meter · 100A 1φ", group: "Extra meters" },
+  { path: "meterAdditional.100-3", label: "Extra meter · 100A 3φ", group: "Extra meters" },
+  { path: "meterAdditional.200-1", label: "Extra meter · 200A 1φ", group: "Extra meters" },
+  { path: "meterAdditional.200-3", label: "Extra meter · 200A 3φ", group: "Extra meters" },
+  { path: "meterAdditional.350-3", label: "Extra meter · 350A 3φ", group: "Extra meters" },
+  { path: "meterAdditional.400-3", label: "Extra meter · 400A 3φ", group: "Extra meters" },
+  { path: "panel.100", label: "First panel · 100A", group: "Panels" },
+  { path: "panel.200", label: "First panel · 200A", group: "Panels" },
+  { path: "panel.350", label: "First panel · 350A", group: "Panels" },
+  { path: "panel.400", label: "First panel · 400A", group: "Panels" },
+  { path: "panelAdditional", label: "Each extra panel", group: "Panels" },
+  { path: "alwaysIncluded", label: "Outlet + grounding + light", group: "Always included" },
+  { path: "removalDisposal", label: "Removal & disposal", group: "Add-ons" },
+  { path: "filing", label: "Filing (DOB + utility)", group: "Add-ons" },
+  { path: "perFootMeterPanel", label: "Extra ft · meter to panel", group: "Per foot" },
+  { path: "perFootMainServiceByAmp.100", label: "Main service line · 100A /ft", group: "Per foot" },
+  { path: "perFootMainServiceByAmp.200", label: "Main service line · 200A /ft", group: "Per foot" },
+  { path: "perFootMainServiceByAmp.350", label: "Main service line · 350A /ft", group: "Per foot" },
+  { path: "perFootMainServiceByAmp.400", label: "Main service line · 400A /ft", group: "Per foot" },
+  { path: "conduitPerFootByInch.2", label: "Underground conduit · 2\" /ft", group: "Conduit / overhead" },
+  { path: "conduitPerFootByInch.4", label: "Underground conduit · 4\" /ft", group: "Conduit / overhead" },
+  { path: "overheadBase", label: "Overhead base", group: "Conduit / overhead" },
+  { path: "overheadPerFootExtra", label: "Overhead extra /ft", group: "Conduit / overhead" },
+  { path: "trenchDirtPerFoot", label: "Trench dirt /ft", group: "Trenching" },
+  { path: "trenchConcretePerFoot", label: "Trench concrete /ft", group: "Trenching" },
+];
+
+/** Default unit fees (sell-side starters; editable via answers.feeOverrides + Settings). */
 export const DEFAULT_FEES = {
   /** First meter by size */
   meter: {
@@ -315,15 +353,72 @@ export function describeRemoval() {
   return "Removal and disposal of existing metering and service equipment.";
 }
 
+/** Deep-merge fee layers so nested tables (meter, panel, …) stack correctly. */
+export function mergeFees(...layers) {
+  let out = {};
+  for (const layer of layers) {
+    if (!layer || typeof layer !== "object") continue;
+    const next = { ...out };
+    for (const [k, v] of Object.entries(layer)) {
+      if (
+        v &&
+        typeof v === "object" &&
+        !Array.isArray(v) &&
+        next[k] &&
+        typeof next[k] === "object" &&
+        !Array.isArray(next[k])
+      ) {
+        next[k] = { ...next[k], ...v };
+      } else if (v !== undefined) {
+        next[k] = v;
+      }
+    }
+    out = next;
+  }
+  return out;
+}
+
+/** Read a dotted path from a fees object (e.g. "meter.100-1"). */
+export function getFeeAtPath(fees, path) {
+  if (!path) return undefined;
+  const parts = String(path).split(".");
+  let cur = fees;
+  for (const p of parts) {
+    if (cur == null || typeof cur !== "object") return undefined;
+    cur = cur[p];
+  }
+  return cur;
+}
+
+/** Write a dotted path into a feeOverrides-shaped object (immutable). */
+export function setFeeAtPath(overrides, path, value) {
+  const parts = String(path).split(".");
+  const root = { ...(overrides || {}) };
+  let cur = root;
+  for (let i = 0; i < parts.length - 1; i++) {
+    const p = parts[i];
+    const next = cur[p] && typeof cur[p] === "object" ? { ...cur[p] } : {};
+    cur[p] = next;
+    cur = next;
+  }
+  const last = parts[parts.length - 1];
+  const n = Number(value);
+  cur[last] = Number.isFinite(n) ? n : 0;
+  return root;
+}
+
+/**
+ * Resolve sell fees for an estimate.
+ * Layers: DEFAULT_FEES ← Settings Estimate Generator ← per-estimate feeOverrides.
+ */
 export function feesFor(answers) {
-  // Global Settings → Estimate Generator fees, then per-estimate overrides.
   let global = {};
   try {
     global = getEstimateGeneratorFees() || {};
   } catch {
     global = {};
   }
-  return { ...DEFAULT_FEES, ...global, ...(answers?.feeOverrides || {}) };
+  return mergeFees(DEFAULT_FEES, global, answers?.feeOverrides || {});
 }
 
 export function sizeById(id) {

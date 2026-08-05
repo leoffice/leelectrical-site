@@ -9,6 +9,7 @@ import {
   txnRowDisplay,
   txnStoryLine,
 } from "../lib/customerTransactions.js";
+import { serviceAddressKey, serviceAddressesForJobs } from "../lib/customerHierarchy.js";
 
 const FILTERS = [
   { id: "all", label: "All" },
@@ -303,15 +304,31 @@ export default function CustomerTransactionHistory({
     if (filter === "payments") return scopedRows.filter((r) => r.kind === "payment");
     if (filter === "estimates") return scopedRows.filter((r) => r.kind === "estimate");
     if (filter === "jobs") {
-      // Pure address list only — not activity rows (Levi 2026-08-05 screenshot/voice).
+      // Real service addresses from jobs — not activity rows (Levi 2026-08-05).
+      // Use the job list so addresses with no invoice/estimate still appear.
+      const fromJobs = serviceAddressesForJobs(jobs || []);
+      if (fromJobs.length) {
+        return fromJobs
+          .map(({ key, label }) => {
+            const at = (jobs || []).filter((j) => serviceAddressKey(j) === key);
+            return {
+              _addressOnly: true,
+              address: label,
+              jobId: at[0]?.id,
+              jobCount: at.length,
+            };
+          })
+          .sort((a, b) => String(a.address).localeCompare(String(b.address)));
+      }
+      // Fallback: addresses seen on transaction rows only
       const byAddr = new Map();
       for (const r of scopedRows) {
         const label = String(r.address || "").trim();
         if (!label) continue;
-        const key = label.toLowerCase();
-        const prev = byAddr.get(key);
+        const k = label.toLowerCase();
+        const prev = byAddr.get(k);
         if (!prev) {
-          byAddr.set(key, {
+          byAddr.set(k, {
             _addressOnly: true,
             address: label,
             jobId: r.jobId,
@@ -323,13 +340,12 @@ export default function CustomerTransactionHistory({
           prev.jobCount = prev.jobIds.size;
         }
       }
-      // Also count from raw jobs when rows lack address
       return Array.from(byAddr.values()).sort((a, b) =>
         String(a.address).localeCompare(String(b.address))
       );
     }
     return scopedRows;
-  }, [scopedRows, filter]);
+  }, [scopedRows, filter, jobs]);
 
   const openJob = (row) => {
     if (!row?.jobId) return;

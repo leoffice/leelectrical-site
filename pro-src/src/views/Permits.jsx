@@ -377,6 +377,9 @@ function CaseRow({
   const caseSteps = Array.isArray(row.caseSteps) ? row.caseSteps : [];
   // Collapsed: only due-now chips; expanded: full flow with gates
   const showSteps = expanded ? caseSteps : dueNow;
+  // Levi 2026-08-05: button says Updating while work runs, then Last Updated.
+  const lastTodoUpdatedAt =
+    job?.paperwork?.coned?.todoListUpdatedAt || job?.paperwork?.coned?.todoListLastUpdatedAt || "";
   const handleStep = (st) => {
     if (onStepAction) onStepAction(st, row, job);
   };
@@ -479,7 +482,11 @@ function CaseRow({
               onClick={() => onUpdateTodoList(job, row)}
               data-testid="permit-update-todo-list"
             >
-              {updatingTodo ? "Updating to-do list…" : "Update To-do List from email"}
+              {updatingTodo
+                ? "Updating"
+                : lastTodoUpdatedAt
+                  ? "Last Updated"
+                  : "Update To-do List"}
             </button>
           ) : null}
           {row.jobId ? (
@@ -1002,12 +1009,24 @@ export default function Permits() {
     setUpdatingTodoId(job.id);
     try {
       const patch = updateTodoListFromInsights(job, emailInsights || []);
+      const stamped = {
+        ...(patch || {}),
+        paperwork: {
+          ...(patch?.paperwork || {}),
+          coned: {
+            ...(patch?.paperwork?.coned || {}),
+            // Button flips to "Last Updated" after a successful pass (Levi 2026-08-05).
+            todoListUpdatedAt: new Date().toISOString(),
+          },
+        },
+      };
       if (patch) {
-        await patchAndSave(job.id, patch);
+        await patchAndSave(job.id, stamped);
         const n = patch.paperwork?.coned?.customerTodos?.length || 0;
         showToast(`To-do list updated · ${n} item${n === 1 ? "" : "s"}`);
       } else {
-        // No insight body — keep Levi's seeded list; toast how to refresh
+        // Still stamp "Last Updated" so the button reflects the attempt finished.
+        await patchAndSave(job.id, stamped);
         showToast(
           "No To-Do email body in app yet — open the Con Ed To-Do email or wait for daily sync"
         );

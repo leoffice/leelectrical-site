@@ -337,14 +337,32 @@ export function buildPermitBoard({ jobs = [], insights = [], config = null } = {
   for (const j of jobs) {
     if (!j || !j.id) continue;
     if (Array.isArray(j.permits) && j.permits.some((p) => canonAgency(p.agency) === "dob")) cityCandidates.add(j.id);
+    // Job Info / Edit "Permit tracker" also lists DOB side when no filing # yet.
+    if (j.permitTracker === true || j.paperwork?.dob?.enabled === true) cityCandidates.add(j.id);
   }
   const cityByKey = new Map();
   for (const jobId of cityCandidates) {
     const job = jobById.get(jobId);
     if (!job) continue;
     const folded = foldCityForJob(job, cityByJob.get(jobId) || []);
-    for (const permit of (folded.permits || []).filter((p) => canonAgency(p.agency) === "dob")) {
-      const row = rowFromCityPermit(job, permit);
+    const cityPermits = (folded.permits || []).filter((p) => canonAgency(p.agency) === "dob");
+    if (cityPermits.length) {
+      for (const permit of cityPermits) {
+        const row = rowFromCityPermit(job, permit);
+        cityByKey.set(row.key, row);
+      }
+    } else if (job.permitTracker === true || job.paperwork?.dob?.enabled === true) {
+      // Tracker on, no DOB filing yet — still show on Permits (mirrors Con Ed seed).
+      const row = rowFromCityPermit(job, {
+        agency: "city",
+        primaryKey: "",
+        addressNormalized: jobAddress(job),
+        currentStage: "filing_submitted",
+        stageLabel: "On permit tracker",
+        stageBucket: "Open",
+        health: "ok",
+        nextAction: "File electrical permit or add DOB job #",
+      });
       cityByKey.set(row.key, row);
     }
   }

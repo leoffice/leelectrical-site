@@ -46,6 +46,9 @@ export default function CustomerCard({
   showSummary = true,
   shortTxns = false,
   onShortTxnsChange,
+  /** Paperwork / permit tracker enable (Levi 2026-08-05 — above Transaction history). */
+  paperworkOn = false,
+  onPaperworkChange,
   onCardTap,
   showServiceAddress = true,
 }) {
@@ -200,22 +203,43 @@ export default function CustomerCard({
         </dl>
       )}
 
-      {canToggleTxns ? (
+      {typeof onPaperworkChange === "function" || canToggleTxns ? (
         <div
-          className="mt-3 pt-2 border-t border-slate-100 flex items-center justify-between gap-2"
-          data-testid="customer-short-txns-row"
+          className="mt-3 pt-2 border-t border-slate-100 space-y-2"
+          data-testid="customer-card-toggles"
           data-no-card-open
         >
-          <span className="text-[11px] text-slate-500">Tap card to show or hide</span>
-          <div className="flex items-center gap-2">
-            <span className="text-[11px] font-semibold text-slate-600">Transaction history</span>
-            <Toggle
-              on={!!shortTxns}
-              onChange={onShortTxnsChange}
-              small
-              label="Transaction history"
-            />
-          </div>
+          {typeof onPaperworkChange === "function" ? (
+            <div
+              className="flex items-center justify-between gap-2"
+              data-testid="customer-paperwork-toggle-row"
+            >
+              <span className="text-[11px] font-semibold text-slate-600">Paperwork</span>
+              <Toggle
+                on={!!paperworkOn}
+                onChange={onPaperworkChange}
+                small
+                label="Enable paperwork / permit tracker"
+              />
+            </div>
+          ) : null}
+          {canToggleTxns ? (
+            <div
+              className="flex items-center justify-between gap-2"
+              data-testid="customer-short-txns-row"
+            >
+              <span className="text-[11px] text-slate-500">Tap card to show or hide</span>
+              <div className="flex items-center gap-2">
+                <span className="text-[11px] font-semibold text-slate-600">Transaction history</span>
+                <Toggle
+                  on={!!shortTxns}
+                  onChange={onShortTxnsChange}
+                  small
+                  label="Transaction history"
+                />
+              </div>
+            </div>
+          ) : null}
         </div>
       ) : null}
     </div>

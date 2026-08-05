@@ -711,6 +711,28 @@ export default function JobDetail() {
         primaryJob={job}
         shortTxns={shortTxns}
         onShortTxnsChange={setShortTxns}
+        paperworkOn={
+          !!(
+            job.permitTracker ||
+            job.paperwork?.coned?.enabled ||
+            job.paperwork?.permitTracker ||
+            job.paperwork?.dob?.enabled ||
+            job.paperwork?.city?.enabled
+          )
+        }
+        onPaperworkChange={(on) => {
+          // Above Transaction history — enables permit tracker + Con Ed/DOB cards (Levi 2026-08-05).
+          patchJob(id, {
+            permitTracker: !!on,
+            paperwork: {
+              coned: { enabled: !!on },
+              dob: { enabled: !!on },
+              city: { enabled: !!on },
+              permitTracker: !!on,
+            },
+          });
+          if (on) showToast?.("Paperwork on — Con Edison & DOB cards below · Permits tab updated");
+        }}
         onCardTap={fromCust ? () => guardNav(goBack) : undefined}
         onEdit={() => setSheet({ kind: "cust" })}
         onText={() => setSheet({ kind: "compose", channel: "sms" })}
@@ -738,18 +760,82 @@ export default function JobDetail() {
               });
               return;
             }
-            if (row?.kind === "estimate" || row?.kind === "invoice") {
-              const targetId = row.jobId;
-              if (targetId && String(targetId) !== String(job.id)) {
-                const parts = ["fold=1", "focus=job"];
-                if (fromCust || custKey) parts.push("from=" + encodeURIComponent(fromCust || custKey));
-                nav("/job/" + targetId + "?" + parts.join("&"));
-                return;
-              }
-              openDocTab(job, row.kind, setSheet);
+            // Invoice / estimate / anything else → Job Information, history collapsed (Levi 2026-08-05).
+            const targetId = row?.jobId;
+            if (targetId && String(targetId) !== String(job.id)) {
+              const parts = ["fold=1", "focus=job"];
+              if (fromCust || custKey) parts.push("from=" + encodeURIComponent(fromCust || custKey));
+              if (row.docNo) parts.push("hlInv=" + encodeURIComponent(String(row.docNo)));
+              nav("/job/" + targetId + "?" + parts.join("&"));
+              return;
             }
+            setJobTxns(false);
+            setShortTxns(false);
+            requestAnimationFrame(scrollToJobInfo);
           }}
         />
+      ) : null}
+
+      {/* Paperwork tracks under history — Con Edison + DOB (Levi 2026-08-05). */}
+      {job.permitTracker ||
+      job.paperwork?.coned?.enabled ||
+      job.paperwork?.permitTracker ||
+      job.paperwork?.dob?.enabled ||
+      job.paperwork?.city?.enabled ? (
+        <div className="space-y-2" data-testid="job-paperwork-tracks">
+          <p className="text-[11px] font-extrabold text-slate-500 uppercase tracking-wider px-0.5">
+            Paperwork · linked to Permits tab
+          </p>
+          {[
+            {
+              id: "coned",
+              title: "Con Edison",
+              stage:
+                job.paperwork?.coned?.stageLabel ||
+                job.paperwork?.coned?.caseNumber ||
+                (job.paperwork?.coned?.enabled ? "On tracker" : ""),
+              next: job.paperwork?.coned?.nextAction || "",
+            },
+            {
+              id: "dob",
+              title: "DOB / City",
+              stage:
+                job.paperwork?.dob?.stageLabel ||
+                job.paperwork?.city?.stageLabel ||
+                (job.paperwork?.dob?.enabled || job.paperwork?.city?.enabled || job.permitTracker
+                  ? "On tracker"
+                  : ""),
+              next: job.paperwork?.dob?.nextAction || job.paperwork?.city?.nextAction || "",
+            },
+          ].map((track) => (
+            <details
+              key={track.id}
+              className="card overflow-hidden"
+              data-testid={"job-paperwork-track-" + track.id}
+            >
+              <summary className="px-3 py-2.5 cursor-pointer list-none flex items-center justify-between gap-2">
+                <span className="text-sm font-extrabold text-slate-900">{track.title}</span>
+                <span className="text-[11px] text-slate-500 font-semibold truncate">
+                  {track.stage || "Tap to expand"}
+                </span>
+              </summary>
+              <div className="px-3 pb-3 border-t border-slate-100 text-sm text-slate-600 space-y-1">
+                {track.stage ? <div>Status: {track.stage}</div> : null}
+                {track.next ? <div>Next: {track.next}</div> : null}
+                <div className="text-[11px] text-slate-400">
+                  Same job appears on the Permits tab. Open Permits for the full queue.
+                </div>
+                <button
+                  type="button"
+                  className="text-xs font-bold text-brand mt-1"
+                  onClick={() => nav("/permits")}
+                >
+                  Open Permits tab →
+                </button>
+              </div>
+            </details>
+          ))}
+        </div>
       ) : null}
 
       {pending[id] ? (
@@ -855,7 +941,12 @@ export default function JobDetail() {
                     applyTargetDocNo: row.applyTargetDocNo || null,
                     openApply: !!row.openApply,
                   });
+                  return;
                 }
+                // Estimate / invoice / anything else → Job Information, collapse history (Levi 2026-08-05).
+                setJobTxns(false);
+                setShortTxns(false);
+                requestAnimationFrame(scrollToJobInfo);
               }}
             />
           </div>
@@ -1196,8 +1287,26 @@ export default function JobDetail() {
                                           if (first) {
                                             patch.paperwork[k].active = { [first]: true };
                                           }
+                                          // Seed stage so the Permits board has a real row + address.
+                                          if (k === "coned" && !br.currentStage && !br.caseNumber) {
+                                            patch.paperwork[k].currentStage = "application_filed";
+                                            patch.paperwork[k].stageLabel = "On permit tracker";
+                                            patch.paperwork[k].stageBucket = "Open";
+                                            patch.paperwork[k].nextAction =
+                                              "Submit application or link a case number";
+                                          }
+                                          if (k === "dob" && !br.currentStage) {
+                                            patch.paperwork[k].currentStage = "filing_submitted";
+                                            patch.paperwork[k].stageLabel = "On permit tracker";
+                                            patch.paperwork[k].stageBucket = "Open";
+                                            patch.paperwork[k].nextAction =
+                                              "File electrical permit or add DOB job #";
+                                          }
                                         }
                                         patchJob(id, patch);
+                                        if (on && (k === "coned" || k === "dob" || k === "city")) {
+                                          showToast?.("Added to permit tracker");
+                                        }
                                       }}
                                     />
                                   </div>
