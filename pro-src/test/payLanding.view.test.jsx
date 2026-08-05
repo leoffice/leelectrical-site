@@ -87,10 +87,11 @@ describe("PayLanding view", () => {
     expect(screen.getByTestId("view-invoice")).toHaveTextContent("View invoice");
     expect(screen.getByText("Rae Klein")).toBeInTheDocument();
     expect(screen.getByTestId("pay-method-tabs")).toBeInTheDocument();
-    // Customer ACH on → default ACH tab (compact form + optional photo)
+    // Customer ACH on → default ACH tab (compact form; photo collapsed until chosen)
     await waitFor(() => expect(screen.getByTestId("pay-by-ach")).toBeInTheDocument());
     expect(screen.getByTestId("pay-ach-form")).toBeInTheDocument();
-    expect(screen.getByText(/Please review and confirm the checking account/i)).toBeInTheDocument();
+    expect(screen.getByTestId("pay-ach-photo-expand")).toBeInTheDocument();
+    expect(screen.getByTestId("pay-ach-process")).toBeInTheDocument();
     // Switch to card → fee + form
     await userEvent.setup().click(screen.getByTestId("pay-method-card"));
     expect(screen.getByTestId("sola-card-form")).toBeInTheDocument();
@@ -233,6 +234,48 @@ describe("PayLanding view", () => {
     // Fee row is card-only; helper copy may still mention 3.5%
     expect(screen.queryByText("Processing fee (3.5%)")).not.toBeInTheDocument();
     expect(screen.getByText("Total charge").parentElement).toHaveTextContent("$500");
+  });
+
+  it("ACH process with empty bank opens photo vs manual popup", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url) => {
+        if (String(url).includes("sola-ifields-config")) {
+          return {
+            ok: true,
+            json: async () => ({ ok: true, achCustomerEnabled: true, achEnabled: true }),
+          };
+        }
+        return { ok: true, json: async () => ({}) };
+      })
+    );
+    const user = userEvent.setup();
+    const token = encodePayLanding(
+      buildPayLandingPayload({
+        job: {
+          customer: "Ann",
+          amount: "$500",
+          invoiceNo: "9",
+          billingAddress: "1 St, Brooklyn, NY 11201",
+          serviceAddress: "1 St, Brooklyn, NY 11201",
+        },
+        cardknoxUrl: "https://secure.cardknox.com/blzelectric?xAmount=500&xinvoice=9",
+        linkAmount: "500",
+        inv: "9",
+        siteSlug: "blzelectric",
+      })
+    );
+    renderPay(token);
+    await waitForPayLoaded();
+    await waitFor(() => expect(screen.getByTestId("pay-ach-process")).toBeInTheDocument());
+    await user.click(screen.getByTestId("pay-ach-process"));
+    expect(screen.getByTestId("pay-ach-path-pick")).toBeInTheDocument();
+    expect(screen.getByTestId("pay-ach-path-photo")).toHaveTextContent(/Take a picture of the check/i);
+    expect(screen.getByTestId("pay-ach-path-manual")).toHaveTextContent(/don.t have a physical check/i);
+    await user.click(screen.getByTestId("pay-ach-path-photo"));
+    expect(screen.queryByTestId("pay-ach-path-pick")).not.toBeInTheDocument();
+    // Photo path expands capture (Autofill only after a photo is attached)
+    expect(screen.getByTestId("pay-ach-photo")).toBeInTheDocument();
   });
 
   it("shows invalid state for bad token", async () => {

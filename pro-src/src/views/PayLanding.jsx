@@ -69,7 +69,7 @@ const DEFAULT_LOGO = import.meta.env.BASE_URL + "le-logo.png?v=5";
 function Row({ label, value, bold, children, onClick, expandable }) {
   if (children) {
     return (
-      <div className="flex justify-between items-center gap-4 py-2.5 border-b border-slate-100 last:border-0">
+      <div className="flex justify-between items-center gap-3 py-1.5 border-b border-slate-100 last:border-0">
         <span className="text-slate-500 text-sm shrink-0">{label}</span>
         <div className="text-sm text-right min-w-0">{children}</div>
       </div>
@@ -93,14 +93,14 @@ function Row({ label, value, bold, children, onClick, expandable }) {
     return (
       <button
         type="button"
-        className="w-full flex justify-between gap-4 py-2.5 border-b border-slate-100 last:border-0 text-left"
+        className="w-full flex justify-between gap-3 py-1.5 border-b border-slate-100 last:border-0 text-left"
         onClick={onClick}
       >
         {inner}
       </button>
     );
   }
-  return <div className="flex justify-between gap-4 py-2.5 border-b border-slate-100 last:border-0">{inner}</div>;
+  return <div className="flex justify-between gap-3 py-1.5 border-b border-slate-100 last:border-0">{inner}</div>;
 }
 
 function PdfRetrieveOverlay({ phase, invoiceNo, onClose }) {
@@ -1088,38 +1088,40 @@ export default function PayLanding() {
         />
       ) : null}
 
-      <header className="bg-white border-b border-slate-200 px-4 py-6 pt-safe shadow-sm">
-        <div className="max-w-lg mx-auto flex flex-col items-center text-center gap-2">
+      <header className="bg-white border-b border-slate-200 px-4 py-3 pt-safe shadow-sm">
+        <div className="max-w-lg mx-auto flex flex-col items-center text-center gap-1">
           <img
             src={logo}
             alt={brandName}
-            className="h-36 sm:h-40 w-auto max-w-[min(100%,380px)] object-contain"
+            className="h-16 sm:h-20 w-auto max-w-[min(100%,220px)] object-contain"
             data-testid="pay-logo"
           />
           <div>
-            <div className="font-extrabold text-xl tracking-tight text-slate-900">{brandName}</div>
-            <div className="text-slate-500 text-sm">{subline}</div>
+            <div className="font-extrabold text-lg tracking-tight text-slate-900 leading-tight">
+              {brandName}
+            </div>
+            {subline ? <div className="text-slate-500 text-xs leading-tight">{subline}</div> : null}
           </div>
         </div>
       </header>
 
-      <main className="max-w-lg mx-auto px-4 py-6 pb-10">
-        <div className="card p-5 mb-4">
-          <div className="flex items-start justify-between gap-3 mb-4">
+      <main className="max-w-lg mx-auto px-4 py-4 pb-10">
+        <div className="card p-4 mb-3">
+          <div className="flex items-start justify-between gap-3 mb-2">
             <div className="min-w-0">
-              <h1 className="text-2xl sm:text-3xl font-extrabold text-slate-900 leading-tight">
+              <h1 className="text-xl sm:text-2xl font-extrabold text-slate-900 leading-tight">
                 <span className="text-brand">Invoice</span>{" "}
                 <span className="tabular-nums">#{data.i}</span>
               </h1>
               {data.c ? (
-                <p className="text-lg font-semibold text-slate-800 mt-2 leading-snug">{data.c}</p>
+                <p className="text-base font-semibold text-slate-800 mt-1 leading-snug">{data.c}</p>
               ) : null}
             </div>
             <a
               href={pdfReady ? pdfSrc : pdfSrc || "#"}
               target="_blank"
               rel="noopener noreferrer"
-              className={`text-sm font-bold rounded-xl px-3.5 py-2 shrink-0 ${
+              className={`text-sm font-bold rounded-xl px-3 py-1.5 shrink-0 ${
                 pdfBusy
                   ? "bg-brand-soft text-brand pointer-events-none opacity-70"
                   : "bg-brand-soft text-brand hover:bg-slate-50"
@@ -1131,10 +1133,10 @@ export default function PayLanding() {
             </a>
           </div>
 
-          <div className={`grid gap-4 text-sm ${showService ? "sm:grid-cols-2" : ""}`}>
+          <div className={`grid gap-2 text-sm ${showService ? "sm:grid-cols-2" : ""}`}>
             {data.ba ? (
               <div>
-                <div className="text-[10px] font-extrabold uppercase tracking-wider text-slate-500 mb-1">
+                <div className="text-[10px] font-extrabold uppercase tracking-wider text-slate-500 mb-0.5">
                   Billing address
                 </div>
                 <div className="text-slate-900 leading-snug">{data.ba}</div>
@@ -1142,7 +1144,7 @@ export default function PayLanding() {
             ) : null}
             {showService && data.sa ? (
               <div>
-                <div className="text-[10px] font-extrabold uppercase tracking-wider text-slate-500 mb-1">
+                <div className="text-[10px] font-extrabold uppercase tracking-wider text-slate-500 mb-0.5">
                   Service address
                 </div>
                 <div className="text-slate-900 leading-snug">{data.sa}</div>
@@ -1151,8 +1153,8 @@ export default function PayLanding() {
           </div>
 
           {data.w ? (
-            <div className="mt-4 text-sm">
-              <div className="text-[10px] font-extrabold uppercase tracking-wider text-slate-500 mb-1 flex items-center justify-between gap-2">
+            <div className="mt-2 text-sm">
+              <div className="text-[10px] font-extrabold uppercase tracking-wider text-slate-500 mb-0.5 flex items-center justify-between gap-2">
                 <span>Work</span>
                 <button
                   type="button"
@@ -1178,15 +1180,17 @@ export default function PayLanding() {
           ) : null}
 
           {pdfErr ? (
-            <p className="text-xs text-amber-800 bg-amber-50 border border-amber-200 rounded-xl px-3 py-2 mt-4">
+            <p className="text-xs text-amber-800 bg-amber-50 border border-amber-200 rounded-xl px-3 py-2 mt-2">
               {pdfErr}
             </p>
           ) : null}
         </div>
 
-        <div className="card p-5 mb-4">
-          <h2 className="font-bold text-slate-900 mb-2">Payment summary</h2>
-          <p className="text-[11px] text-slate-500 mb-3">As of {asOf}</p>
+        <div className="card p-4 mb-3">
+          <div className="flex items-baseline justify-between gap-2 mb-1">
+            <h2 className="font-bold text-slate-900 text-base">Payment summary</h2>
+            <span className="text-[10px] text-slate-400">As of {asOf}</span>
+          </div>
           <Row label="Invoice total" value={data.t} />
           <Row
             label="Paid to date"
@@ -1195,7 +1199,7 @@ export default function PayLanding() {
             onClick={paidLines.length ? () => setShowPaidHist((v) => !v) : undefined}
           />
           {showPaidHist && paidLines.length ? (
-            <div className="mb-2 -mt-1 rounded-xl bg-slate-50 border border-slate-100 px-3 py-2 text-xs text-slate-600 space-y-1.5">
+            <div className="mb-1 -mt-0.5 rounded-lg bg-slate-50 border border-slate-100 px-2.5 py-1.5 text-xs text-slate-600 space-y-1">
               {paidLines.map((p, i) => (
                 <div key={i} className="flex justify-between gap-2">
                   <span>
@@ -1215,21 +1219,21 @@ export default function PayLanding() {
                 <input
                   type="text"
                   inputMode="decimal"
-                  className="input !py-2 !px-3 w-32 text-right text-base font-semibold"
+                  className="input !py-1.5 !px-2.5 w-28 text-right text-base font-semibold"
                   aria-label="Payment amount"
                   autoFocus
                   value={draft}
                   onChange={(e) => setDraft(e.target.value)}
                   onKeyDown={(e) => e.key === "Enter" && saveAmount()}
                 />
-                <button type="button" className="btn-brand !py-2 !px-3 text-xs" onClick={saveAmount}>
+                <button type="button" className="btn-brand !py-1.5 !px-2.5 text-xs" onClick={saveAmount}>
                   Done
                 </button>
               </div>
             ) : (
               <button
                 type="button"
-                className="flex items-center gap-2 justify-end group"
+                className="flex items-center gap-1.5 justify-end group"
                 aria-label="Edit payment amount"
                 data-testid="edit-amount"
                 onClick={() => {
@@ -1238,7 +1242,7 @@ export default function PayLanding() {
                 }}
               >
                 <span className="font-bold text-slate-900 text-base">{fmtMoneyPrecise(payAmount)}</span>
-                <span className="grid place-items-center w-8 h-8 rounded-full bg-brand-soft text-brand text-sm">
+                <span className="grid place-items-center w-7 h-7 rounded-full bg-brand-soft text-brand text-sm">
                   ✏️
                 </span>
               </button>
@@ -1254,13 +1258,9 @@ export default function PayLanding() {
           )}
         </div>
 
-        <p className="text-[11px] text-slate-500 mb-3 px-1 leading-relaxed">
-          Tap ✏️ to change the amount. Card adds a 3.5% processing fee. ACH has no card fee.
-        </p>
-
         {/* Method tabs: only methods enabled in Settings (profile.paymentMethods) */}
         <div
-          className="rounded-xl border border-slate-200 bg-slate-50 p-1.5 flex gap-1 mb-4"
+          className="rounded-xl border border-slate-200 bg-slate-50 p-1 flex gap-1 mb-3"
           data-testid="pay-method-tabs"
           role="tablist"
           aria-label="Payment method"
@@ -1270,13 +1270,13 @@ export default function PayLanding() {
               ? {
                   id: "ach",
                   label: "ACH",
-                  sub: "No card fee",
+                  sub: "No fee",
                   disabled: !achEnabled,
                   title: !achEnabled ? "Coming soon" : undefined,
                 }
               : null,
             paymentMethodEnabled("card", config)
-              ? { id: "card", label: "Card", sub: includeFee ? "+3.5% fee" : "" }
+              ? { id: "card", label: "Card", sub: feeOnPayload ? "+3.5%" : "" }
               : null,
           ]
             .filter(Boolean)
@@ -1289,7 +1289,7 @@ export default function PayLanding() {
               disabled={tab.disabled || payBusy || checkBusy}
               title={tab.title}
               data-testid={`pay-method-${tab.id}`}
-              className={`flex-1 rounded-lg px-2 py-2.5 text-sm font-bold ${
+              className={`flex-1 rounded-lg px-2 py-2 text-sm font-bold ${
                 payMethod === tab.id
                   ? "bg-white text-slate-900 shadow-sm"
                   : tab.disabled
@@ -1314,12 +1314,14 @@ export default function PayLanding() {
         </div>
 
         {payMethod === "card" && paymentMethodEnabled("card", config) ? (
-          <div className="card p-5 mb-4" data-testid="pay-by-card">
-            <h2 className="font-bold text-slate-900 mb-1">Pay by card</h2>
-            <p className="text-[11px] text-slate-500 mb-3">
-              3.5% processing fee · secure encrypted fields
-            </p>
-            <div className="mb-3">
+          <div className="card p-4 mb-3" data-testid="pay-by-card">
+            <div className="flex items-baseline justify-between gap-2 mb-2">
+              <h2 className="font-bold text-slate-900 text-base leading-tight">Pay by card</h2>
+              {feeOnPayload ? (
+                <span className="text-[10px] font-bold uppercase tracking-wide text-slate-500">+3.5% fee</span>
+              ) : null}
+            </div>
+            <div className="mb-2">
               <input
                 ref={cardPhotoRef}
                 type="file"
@@ -1332,16 +1334,16 @@ export default function PayLanding() {
               />
               <button
                 type="button"
-                className="w-full rounded-xl border border-dashed border-slate-300 bg-slate-50 px-3 py-2.5 text-sm text-slate-700 font-semibold"
+                className="w-full rounded-xl border border-dashed border-slate-300 bg-slate-50 px-3 py-2 text-sm text-slate-700 font-semibold"
                 data-testid="pay-card-photo"
                 onClick={() => cardPhotoRef.current?.click()}
                 disabled={payBusy || cardPhotoBusy}
               >
-                {cardPhotoBusy ? "Reading card…" : "📷 Photo of card (optional assist)"}
+                {cardPhotoBusy ? "Reading card…" : "📷 Card photo (optional)"}
               </button>
               {cardPhotoHint ? (
                 <p
-                  className={`text-[11px] mt-1.5 font-medium ${
+                  className={`text-[11px] mt-1 font-medium ${
                     cardPhotoDone ? "text-emerald-700" : "text-amber-800"
                   }`}
                   data-testid="pay-card-photo-hint"
@@ -1356,31 +1358,26 @@ export default function PayLanding() {
               initialExp={cardExpPrefill}
             />
             <label
-              className="flex items-start gap-2.5 mt-4 cursor-pointer select-none"
+              className="flex items-center gap-2 mt-3 cursor-pointer select-none"
               data-testid="save-card-for-future"
             >
               <input
                 type="checkbox"
-                className="mt-0.5 h-4 w-4 rounded border-slate-300 text-brand focus:ring-brand"
+                className="h-4 w-4 rounded border-slate-300 text-brand focus:ring-brand"
                 checked={saveOnFile}
                 disabled={payBusy || checkBusy}
                 onChange={(e) => setSaveOnFile(e.target.checked)}
               />
-              <span className="text-sm text-slate-700 leading-snug">
-                <span className="font-semibold">Save this card for future payments</span>
-                <span className="block text-[11px] text-slate-500 mt-0.5">
-                  Securely store your card for this customer so the next invoice is one tap.
-                </span>
-              </span>
+              <span className="text-sm text-slate-700 font-semibold">Save card for next time</span>
             </label>
             {payErr ? (
-              <p className="text-xs text-red-600 bg-red-50 border border-red-100 rounded-xl px-3 py-2 mt-3">
+              <p className="text-xs text-red-600 bg-red-50 border border-red-100 rounded-xl px-3 py-2 mt-2">
                 {payErr}
               </p>
             ) : null}
             <button
               type="button"
-              className={`btn-brand w-full !py-4 text-base shadow-md mt-4 ${
+              className={`btn-brand w-full !py-3.5 text-base shadow-md mt-3 ${
                 payBusy || !cardReady ? "opacity-70" : ""
               }`}
               data-testid="pay-cta"
@@ -1393,19 +1390,19 @@ export default function PayLanding() {
         ) : null}
 
         {payMethod === "ach" && paymentMethodEnabled("ach", config) ? (
-          <div className="card p-4 mb-4" data-testid="pay-by-ach">
-            <div className="flex items-baseline justify-between gap-2 mb-2">
+          <div className="card p-3.5 mb-3" data-testid="pay-by-ach">
+            <div className="flex items-baseline justify-between gap-2 mb-1.5">
               <h2 className="font-bold text-slate-900 text-base leading-tight">Pay by ACH</h2>
-              <span className="text-[10px] font-bold uppercase tracking-wide text-emerald-700">No card fee</span>
+              <span className="text-[10px] font-bold uppercase tracking-wide text-emerald-700">No fee</span>
             </div>
 
-            <div className="space-y-2" data-testid="pay-ach-form">
+            <div className="space-y-1.5" data-testid="pay-ach-form">
               <div>
                 <label className="text-[10px] font-extrabold uppercase tracking-wider text-slate-500 mb-0.5 block">
                   Name on account
                 </label>
                 <input
-                  className="input !py-2"
+                  className="input !py-1.5"
                   value={checkName}
                   onChange={(e) => setCheckName(e.target.value)}
                   disabled={checkBusy}
@@ -1413,13 +1410,13 @@ export default function PayLanding() {
                   placeholder={data?.c || "Account holder"}
                 />
               </div>
-              <div className="grid grid-cols-2 gap-2">
+              <div className="grid grid-cols-2 gap-1.5">
                 <div>
                   <label className="text-[10px] font-extrabold uppercase tracking-wider text-slate-500 mb-0.5 block">
                     Routing
                   </label>
                   <input
-                    className="input !py-2"
+                    className="input !py-1.5"
                     inputMode="numeric"
                     autoComplete="off"
                     value={checkRouting}
@@ -1434,7 +1431,7 @@ export default function PayLanding() {
                     Account
                   </label>
                   <input
-                    className="input !py-2"
+                    className="input !py-1.5"
                     inputMode="numeric"
                     autoComplete="off"
                     value={checkAccount}
@@ -1450,7 +1447,7 @@ export default function PayLanding() {
                   Check # (optional)
                 </label>
                 <input
-                  className="input !py-2"
+                  className="input !py-1.5"
                   placeholder="Check #"
                   value={checkNo}
                   onChange={(e) => setCheckNo(e.target.value)}
@@ -1459,43 +1456,61 @@ export default function PayLanding() {
                 />
               </div>
 
-              <div className="rounded-xl border border-dashed border-slate-200 bg-slate-50/80 px-2.5 py-2">
-                <div className="flex items-center justify-between gap-2 mb-1">
-                  <span className="text-[10px] font-extrabold uppercase tracking-wider text-slate-500">
-                    Check photo (optional)
-                  </span>
-                  {checkB64 ? (
-                    <button
-                      type="button"
-                      className="text-[11px] font-bold text-brand"
-                      data-testid="pay-ach-autofill"
-                      disabled={checkBusy || checkReadBusy}
-                      onClick={() => void runAchPhotoAutofill()}
+              {/* Photo stays collapsed until they pick photo path, attach, or expand */}
+              {achPath === "photo" || checkB64 ? (
+                <div className="rounded-xl border border-dashed border-slate-200 bg-slate-50/80 px-2.5 py-2">
+                  <div className="flex items-center justify-between gap-2 mb-1">
+                    <span className="text-[10px] font-extrabold uppercase tracking-wider text-slate-500">
+                      Check photo
+                    </span>
+                    {checkB64 ? (
+                      <button
+                        type="button"
+                        className="text-[11px] font-bold text-brand"
+                        data-testid="pay-ach-autofill"
+                        disabled={checkBusy || checkReadBusy}
+                        onClick={() => void runAchPhotoAutofill()}
+                      >
+                        {checkReadBusy ? "Reading…" : "Autofill"}
+                      </button>
+                    ) : null}
+                  </div>
+                  <CheckPhotoCapture
+                    disabled={checkBusy || checkReadBusy}
+                    busy={checkReadBusy}
+                    file={checkFile}
+                    previewUrl={checkPreviewUrl}
+                    onFile={(f) => void applyCheckFile(f)}
+                    testId="pay-ach"
+                  />
+                  {checkReadDone ? (
+                    <p
+                      className="text-[11px] text-emerald-700 mt-1 font-medium leading-snug"
+                      data-testid="pay-ach-read-ok"
                     >
-                      {checkReadBusy ? "Reading…" : "Autofill"}
-                    </button>
+                      ✓ Filled from photo — review numbers
+                    </p>
+                  ) : checkB64 ? (
+                    <p className="text-[11px] text-slate-500 mt-1 leading-snug">
+                      Tap Autofill to read the check, or type the numbers above
+                    </p>
                   ) : null}
                 </div>
-                <CheckPhotoCapture
-                  disabled={checkBusy || checkReadBusy}
-                  busy={checkReadBusy}
-                  file={checkFile}
-                  previewUrl={checkPreviewUrl}
-                  onFile={(f) => void applyCheckFile(f)}
-                  testId="pay-ach"
-                />
-                {checkReadDone ? (
-                  <p className="text-[11px] text-emerald-700 mt-1 font-medium leading-snug" data-testid="pay-ach-read-ok">
-                    ✓ Filled from photo — review routing &amp; account
-                  </p>
-                ) : (
-                  <p className="text-[11px] text-slate-500 mt-1 leading-snug">
-                    Please review and confirm the checking account and routing number
-                  </p>
-                )}
-              </div>
+              ) : (
+                <button
+                  type="button"
+                  className="w-full rounded-xl border border-dashed border-slate-200 bg-slate-50 px-3 py-2 text-left text-sm font-semibold text-slate-700"
+                  data-testid="pay-ach-photo-expand"
+                  disabled={checkBusy}
+                  onClick={() => {
+                    setAchPath("photo");
+                  }}
+                >
+                  📷 Check photo (optional) — then Autofill
+                </button>
+              )}
 
-              <div className="rounded-lg border border-slate-200 bg-slate-50 px-2.5 py-2 text-[11px] text-slate-600 leading-snug max-h-20 overflow-y-auto">
+              <div className="rounded-lg border border-slate-200 bg-slate-50 px-2.5 py-1.5 text-[11px] text-slate-600 leading-snug max-h-14 overflow-y-auto">
                 {achAuthLetter}
               </div>
               <label className="flex items-start gap-2 cursor-pointer select-none" data-testid="pay-ach-auth">
@@ -1507,7 +1522,7 @@ export default function PayLanding() {
                   onChange={(e) => setAchAuthChecked(e.target.checked)}
                 />
                 <span className="text-[13px] text-slate-800 leading-snug">
-                  I authorize this one-time bank debit and confirm the numbers above are correct.
+                  I authorize this one-time bank debit
                 </span>
               </label>
               <label className="flex items-start gap-2 cursor-pointer select-none" data-testid="pay-ach-save-bank">
@@ -1518,9 +1533,7 @@ export default function PayLanding() {
                   disabled={checkBusy}
                   onChange={(e) => setSaveBankForFuture(e.target.checked)}
                 />
-                <span className="text-[13px] text-slate-800 leading-snug">
-                  Remember this account for future payments (last four only)
-                </span>
+                <span className="text-[13px] text-slate-800 leading-snug">Remember this account</span>
               </label>
               {checkErr ? (
                 <p className="text-xs text-red-600 bg-red-50 border border-red-100 rounded-xl px-3 py-2">
@@ -1538,19 +1551,19 @@ export default function PayLanding() {
               </button>
               {checkProcessConfirm ? (
                 <div
-                  className="rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-3 space-y-2"
+                  className="rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2.5 space-y-2"
                   data-testid="pay-ach-process-confirm"
                 >
                   <p className="text-sm text-slate-800 leading-snug">
-                    Confirm: process bank payment of{" "}
+                    Confirm{" "}
                     <b className="tabular-nums">{fmtMoneyPrecise(payAmount)}</b>
                     {checkAccount ? (
                       <>
                         {" "}
-                        from account ending <b>…{String(checkAccount).slice(-4)}</b>
+                        from …<b>{String(checkAccount).slice(-4)}</b>
                       </>
                     ) : null}
-                    . No card fee.
+                    ?
                   </p>
                   <button
                     type="button"
@@ -1563,7 +1576,7 @@ export default function PayLanding() {
                   </button>
                   <button
                     type="button"
-                    className="btn-ghost w-full !py-2 text-sm"
+                    className="btn-ghost w-full !py-1.5 text-sm"
                     data-testid="pay-ach-process-no"
                     onClick={() => setCheckProcessConfirm(false)}
                     disabled={checkBusy}
@@ -1588,9 +1601,6 @@ export default function PayLanding() {
                   onClick={(e) => e.stopPropagation()}
                 >
                   <h3 className="font-extrabold text-slate-900 text-base">Bank details</h3>
-                  <p className="text-[12px] text-slate-500 leading-snug">
-                    Take a picture of a check, or enter routing and account yourself.
-                  </p>
                   <button
                     type="button"
                     className="w-full rounded-xl border border-slate-200 bg-white px-3 py-3 text-left active:bg-slate-50"
@@ -1601,7 +1611,9 @@ export default function PayLanding() {
                     }}
                   >
                     <span className="font-bold text-slate-900">📷 Take a picture of the check</span>
-                    <span className="block text-[11px] text-slate-500 mt-0.5">Then tap Autofill to fill the fields</span>
+                    <span className="block text-[11px] text-slate-500 mt-0.5">
+                      Then tap Autofill (not automatic)
+                    </span>
                   </button>
                   <button
                     type="button"
@@ -1610,11 +1622,12 @@ export default function PayLanding() {
                     onClick={() => {
                       setAchPath("manual");
                       setAchPathPickOpen(false);
-                      // Focus stays on the form fields above
                     }}
                   >
                     <span className="font-bold text-slate-900">I don&apos;t have a physical check</span>
-                    <span className="block text-[11px] text-slate-500 mt-0.5">Enter routing and account above</span>
+                    <span className="block text-[11px] text-slate-500 mt-0.5">
+                      Type routing and account yourself
+                    </span>
                   </button>
                   <button
                     type="button"
@@ -1629,39 +1642,32 @@ export default function PayLanding() {
           </div>
         ) : null}
 
-        {/* Alternate rails from Settings (Zelle / Venmo / Cash App) — show handles when enabled */}
+        {/* Alternate rails from Settings (Zelle / Venmo / Cash App) — handles only */}
         {(() => {
           const alts = tenantAltPayHandles(config);
           if (!alts.length) return null;
           return (
-            <div className="card p-4 mb-4" data-testid="pay-alt-methods">
-              <h3 className="text-sm font-extrabold text-slate-900 mb-1">Other ways to pay</h3>
-              <p className="text-[11px] text-slate-500 mb-3 leading-relaxed">
-                Prefer bank transfer apps? Use the details below and include your invoice number in the
-                memo. Or stay on this page for card / ACH.
-              </p>
-              <ul className="space-y-2">
+            <div className="card p-3 mb-3" data-testid="pay-alt-methods">
+              <h3 className="text-xs font-extrabold uppercase tracking-wide text-slate-500 mb-1.5">
+                Other ways to pay
+              </h3>
+              <ul className="space-y-1">
                 {alts.map((a) => (
                   <li
                     key={a.id}
-                    className="rounded-xl border border-slate-100 bg-slate-50 px-3 py-2.5"
+                    className="flex items-baseline justify-between gap-2 rounded-lg bg-slate-50 px-2.5 py-1.5"
                     data-testid={`pay-alt-${a.id}`}
                   >
                     <span className="text-xs font-extrabold uppercase tracking-wide text-slate-500">
                       {a.label}
                     </span>
-                    <span className="block text-sm font-bold text-slate-900 mt-0.5">{a.handle}</span>
-                    <span className="block text-[11px] text-slate-500">{a.line}</span>
+                    <span className="text-sm font-bold text-slate-900 text-right truncate">{a.handle}</span>
                   </li>
                 ))}
               </ul>
             </div>
           );
         })()}
-
-        <p className="text-center text-[11px] text-slate-500 px-2 mb-4">
-          You&apos;ll get a confirmation on this page right after payment.
-        </p>
       </main>
 
       <footer className="text-center text-[11px] text-slate-500 pb-8 px-4">
