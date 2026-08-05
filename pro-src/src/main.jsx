@@ -21,6 +21,36 @@ if (DEMO) installDemoBackend();
 // Mobile keyboard: keep the focused email/message field on screen (no lag).
 installKeepFocusedVisible();
 
+/**
+ * Bootstrap public pay route from ?pay=CODE (survives 302 Location headers).
+ * Email "View invoice" links redirect here so hash is not lost mid-redirect
+ * (Levi 2026-08-05 — blank page after receipt CTA).
+ */
+function bootstrapPayQueryToHash() {
+  if (typeof window === "undefined") return;
+  try {
+    const u = new URL(window.location.href);
+    const code = String(u.searchParams.get("pay") || u.searchParams.get("t") || "").trim();
+    if (!code) return;
+    // Already on the hash pay route with this token — just strip query.
+    const hash = String(u.hash || "");
+    if (hash.includes(`/pay/${code}`) || hash.includes(`/pay/${encodeURIComponent(code)}`)) {
+      u.searchParams.delete("pay");
+      u.searchParams.delete("t");
+      window.history.replaceState(null, "", u.pathname + u.search + u.hash);
+      return;
+    }
+    u.searchParams.delete("pay");
+    u.searchParams.delete("t");
+    const qs = u.searchParams.toString();
+    const next = `${u.pathname}${qs ? `?${qs}` : ""}#/pay/${encodeURIComponent(code)}`;
+    window.history.replaceState(null, "", next);
+  } catch {
+    /* ignore */
+  }
+}
+bootstrapPayQueryToHash();
+
 /** Public customer pay page — no biometric/password gate. */
 function PayOrApp() {
   const { pathname } = useLocation();

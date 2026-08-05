@@ -589,3 +589,40 @@ export function listConedCompletedFiles(job = {}) {
   }
   return [];
 }
+
+/** True when a completed Form A is on the tab but not yet uploaded to the case. */
+export function isConedFileReadyToUpload(f) {
+  if (!f) return false;
+  if (f.uploadedAt || f.uploadedToCase) return false;
+  if (String(f.status || "").toLowerCase() === "uploaded") return false;
+  return true;
+}
+
+/** Completed Form A files waiting to upload to the Con Ed case. */
+export function listReadyConedApplications(job = {}) {
+  return listConedCompletedFiles(job).filter(isConedFileReadyToUpload);
+}
+
+/**
+ * How many customer applications are ready to upload (for Job Info + Permits).
+ * Prefers slim-list `appsReady` when full files are not on the client yet.
+ */
+export function countReadyConedApplications(job = {}) {
+  if (job && Number.isFinite(Number(job.appsReady)) && Number(job.appsReady) > 0) {
+    return Math.floor(Number(job.appsReady));
+  }
+  let n = listReadyConedApplications(job).length;
+  if (n > 0) return n;
+  const todos = Array.isArray(job?.paperwork?.todos) ? job.paperwork.todos : [];
+  for (const t of todos) {
+    if (!t || t.status === "done" || t.status === "removed" || t.status === "queued") continue;
+    if (t.kind === "upload_application" || t.kind === "send_application") n += 1;
+  }
+  if (
+    n === 0 &&
+    String(job?.paperwork?.coned?.uploadDocument?.status || "").toLowerCase() === "file_ready"
+  ) {
+    n = 1;
+  }
+  return n;
+}

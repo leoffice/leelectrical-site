@@ -49,6 +49,39 @@ describe("jobsdata slim projection", () => {
     expect(s._listProjection).toBe(true);
   });
 
+  it("keeps cheap appsReady + case number on list without shipping full Form A files", () => {
+    const fat = {
+      id: "local-apps",
+      customer: "Goodness",
+      address: "1337 President",
+      paperwork: {
+        coned: {
+          enabled: true,
+          caseNumber: "MC-941580",
+          completedFiles: [
+            { name: "1337 PLP.pdf", status: "customer_submitted", docKey: "x" },
+            { name: "done.pdf", status: "uploaded", uploadedAt: "2026-08-01" },
+          ],
+        },
+        todos: [
+          {
+            id: "upload_application:PLP",
+            kind: "upload_application",
+            status: "pending",
+            note: "FILE READY",
+          },
+        ],
+      },
+      permitTracker: true,
+    };
+    const s = slimJob(fat);
+    expect(s.appsReady).toBe(1);
+    expect(s.conedCaseNumber).toBe("MC-941580");
+    expect(s.permitTracker).toBe(true);
+    expect(s.paperwork).toBeUndefined();
+    expect(s._listProjection).toBe(true);
+  });
+
   it("4k synthetic fat jobs compress dramatically when slimmed (pre-deploy gate)", () => {
     // Real benefit: fails the build if list projection ever re-grows fat.
     // Mirrors production scale (~4181 jobs) with heavy line arrays + full status maps.

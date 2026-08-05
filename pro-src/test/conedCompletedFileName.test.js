@@ -126,3 +126,32 @@ describe("listConedCompletedFiles", () => {
     expect(files[0].name).toBe("legacy.pdf");
   });
 });
+
+describe("countReadyConedApplications", () => {
+  it("counts unuploaded completed files and prefers slim appsReady", async () => {
+    const { countReadyConedApplications } = await import(
+      "../src/lib/agencyForms/completeDestinations.js"
+    );
+    expect(
+      countReadyConedApplications({
+        paperwork: {
+          coned: {
+            completedFiles: [
+              { name: "a.pdf" },
+              { name: "b.pdf", uploadedAt: "2026-08-01" },
+            ],
+          },
+        },
+      })
+    ).toBe(1);
+    expect(countReadyConedApplications({ appsReady: 3 })).toBe(3);
+    expect(
+      countReadyConedApplications({
+        paperwork: {
+          todos: [{ kind: "upload_application", status: "pending" }],
+          coned: { uploadDocument: { status: "file_ready" } },
+        },
+      })
+    ).toBe(1);
+  });
+});

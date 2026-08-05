@@ -113,6 +113,7 @@ import { useTenantConfig } from "../state/tenant.jsx";
 import {
   isConedApplicationsEnabled,
   listConedCompletedFiles,
+  countReadyConedApplications,
   checkCustomerIntake,
   mapIntakeAnswersToConed,
   intakeSubmissionToCompletedFiles,
@@ -168,17 +169,23 @@ export default function JobDetail() {
   } = useStore();
   const tenantConfig = useTenantConfig();
   const job = effectiveJob(id);
-  // List is a slim projection — hydrate full lines + dates/addresses on open.
+  // List is a slim projection — hydrate full lines + dates/addresses/paperwork on open.
   // Dates must fill in or Job Info / PDF use "today" for old invoices.
+  // Levi 2026-08-05: ALWAYS patchAndSave (never patchJob) — hydrate is not a user edit
+  // and must never open the "Unsaved changes" leave sheet.
   const hydratedJobRef = useRef(new Set());
   useEffect(() => {
     if (!id || !api?.getJob || hydratedJobRef.current.has(id)) return undefined;
     const missingDate =
       !!String(job?.invoiceNo || "").trim() &&
       !String(job?.invoiceDate || job?.status?.Invoiced?.d || job?.status?.Invoice?.d || "").trim();
+    const missingApps =
+      Number(job?.appsReady || 0) > 0 &&
+      !(Array.isArray(job?.paperwork?.coned?.completedFiles) && job.paperwork.coned.completedFiles.length);
     const needsHydrate =
       job?._listProjection ||
       missingDate ||
+      missingApps ||
       (!Array.isArray(job?.invoiceLines) && !Array.isArray(job?.estimateLines));
     if (!needsHydrate) {
       hydratedJobRef.current.add(id);
@@ -215,12 +222,46 @@ export default function JobDetail() {
           "serviceDate",
           "billingAddress",
           "serviceAddress",
+          "address",
           "invoiceEmailedAt",
           "invoiceEmailStatus",
         ]) {
           const fv = full[k];
           const cur = job?.[k];
           if (fv != null && fv !== "" && (cur == null || cur === "")) patch[k] = fv;
+        }
+        // permitTracker only when never set on client (do not re-enable after user off).
+        if (full.permitTracker === true && job?.permitTracker == null) {
+          patch.permitTracker = true;
+        }
+        // Paperwork (completed Form A, upload to-dos, case #) lives on full record only.
+        if (full.paperwork && typeof full.paperwork === "object") {
+          const curPw = job?.paperwork || {};
+          const fullConed = full.paperwork.coned || {};
+          const curConed = curPw.coned || {};
+          const fullFiles = Array.isArray(fullConed.completedFiles) ? fullConed.completedFiles : [];
+          const curFiles = Array.isArray(curConed.completedFiles) ? curConed.completedFiles : [];
+          const fullTodos = Array.isArray(full.paperwork.todos) ? full.paperwork.todos : [];
+          const curTodos = Array.isArray(curPw.todos) ? curPw.todos : [];
+          const needPaper =
+            fullFiles.length > curFiles.length ||
+            fullTodos.length > curTodos.length ||
+            (!!fullConed.caseNumber && !curConed.caseNumber) ||
+            (!!fullConed.uploadDocument && !curConed.uploadDocument) ||
+            (!!fullConed.application && !curConed.application) ||
+            (fullConed.enabled === true && curConed.enabled !== true);
+          if (needPaper) {
+            patch.paperwork = {
+              ...curPw,
+              ...full.paperwork,
+              coned: {
+                ...curConed,
+                ...fullConed,
+                completedFiles: fullFiles.length >= curFiles.length ? fullFiles : curFiles,
+              },
+              todos: fullTodos.length >= curTodos.length ? fullTodos : curTodos,
+            };
+          }
         }
         // Restore stage dates (Invoiced.d etc.) when list projection stripped them.
         if (full.status && typeof full.status === "object") {
@@ -237,7 +278,10 @@ export default function JobDetail() {
           if (statusChanged) patch.status = st;
         }
         if (job?._listProjection) patch._listProjection = false;
-        if (Object.keys(patch).length) patchJob(id, patch);
+        if (Object.keys(patch).length) {
+          // Silent save — never stage as dirty leave-guard.
+          (patchAndSave || patchJob)(id, patch);
+        }
       } catch {
         /* keep slim */
       }
@@ -245,7 +289,18 @@ export default function JobDetail() {
     return () => {
       alive = false;
     };
-  }, [id, job?._listProjection, job?.invoiceLines, job?.estimateLines, job?.invoiceDate, job?.invoiceNo, api, patchJob]);
+  }, [
+    id,
+    job?._listProjection,
+    job?.invoiceLines,
+    job?.estimateLines,
+    job?.invoiceDate,
+    job?.invoiceNo,
+    job?.appsReady,
+    api,
+    patchJob,
+    patchAndSave,
+  ]);
   const doSend = useDoSend();
   const [workCompleteSendBusy, setWorkCompleteSendBusy] = useState(false);
   const [workCompleteSendErr, setWorkCompleteSendErr] = useState("");
@@ -254,6 +309,10 @@ export default function JobDetail() {
   const conedCompletedFiles = useMemo(
     () => (job && conedAppsOn ? listConedCompletedFiles(job) : []),
     [job, conedAppsOn]
+  );
+  const conedAppsReadyCount = useMemo(
+    () => (job ? countReadyConedApplications(job) : 0),
+    [job]
   );
   // S27 gate: a FRESH application press asks meters + fill-vs-send first;
   // an in-progress / submitted application goes straight to the form.
@@ -283,8 +342,11 @@ export default function JobDetail() {
           timer = setTimeout(tick, 20000);
         }
         // A submitted run carries the case number back onto the job record.
+        // patchAndSave — never phantom "unsaved" from fleet poll (Levi 2026-08-05).
         if (r.job.caseNumber && !job?.paperwork?.coned?.caseNumber) {
-          patchJob(id, { paperwork: { coned: { caseNumber: r.job.caseNumber } } });
+          (patchAndSave || patchJob)(id, {
+            paperwork: { coned: { caseNumber: r.job.caseNumber } },
+          });
         }
         // Auto-page Israel when fleet marks create-case failed (troubleshoot + fix).
         if (r.job.status === "failed" && r.job.error) {
@@ -311,11 +373,13 @@ export default function JobDetail() {
 
   // Levi dedupe: an existing application / completed Form A auto-enables the
   // Con Ed paperwork branch so it shows once, in the paperwork menu.
+  // Levi 2026-08-05: use patchAndSave (not patchJob) — opening paperwork must NOT
+  // stage a phantom "Unsaved changes" leave guard.
   useEffect(() => {
     if (!conedAppsOn || !job) return;
     const c = job.paperwork?.coned;
     if ((conedCompletedFiles.length || c?.application) && c?.enabled !== true) {
-      patchJob(id, { paperwork: { coned: { enabled: true } } });
+      (patchAndSave || patchJob)(id, { paperwork: { coned: { enabled: true } } });
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [
@@ -349,7 +413,9 @@ export default function JobDetail() {
       const mapped = firstMeter
         ? mapIntakeAnswersToConed(firstMeter.answers, job)
         : null;
-      patchJob(id, {
+      // Auto-import must not leave phantom unsaved (Levi 2026-08-05) — save immediately.
+      const save = patchAndSave || patchJob;
+      save(id, {
         paperwork: {
           coned: {
             completedFiles: merged,
@@ -391,7 +457,7 @@ export default function JobDetail() {
           source: "customer",
         });
         if (t.patch) {
-          patchJob(id, t.patch);
+          save(id, t.patch);
           todoJob = {
             ...todoJob,
             paperwork: {
@@ -997,35 +1063,70 @@ export default function JobDetail() {
                   {track.caseNo ? (
                     <div className="text-xs font-semibold text-slate-800 mb-1">{track.caseNo}</div>
                   ) : null}
+                  {track.id === "coned" && conedAppsReadyCount > 0 ? (
+                    <div
+                      className="rounded-xl border border-emerald-300 bg-emerald-50 text-emerald-900 px-2.5 py-2 text-sm font-semibold mb-2"
+                      data-testid="job-apps-ready-banner"
+                    >
+                      📄 {conedAppsReadyCount} application
+                      {conedAppsReadyCount === 1 ? "" : "s"} ready to upload
+                    </div>
+                  ) : null}
                   {track.stage ? <div className="text-[11px] text-slate-600 mb-1">{track.stage}</div> : null}
                   {track.next ? <div className="text-[11px] text-slate-600 mb-2">Next: {track.next}</div> : null}
                   <div className="text-[10px] font-extrabold uppercase tracking-wide text-slate-400 mb-1">
                     To-do list
                   </div>
-                  {(track.todos || []).length ? (
-                    <ul className="space-y-1" data-testid={"job-paperwork-todos-" + track.id}>
-                      {track.todos.map((t) => (
-                        <li
-                          key={t.id || t.kind || t.title}
-                          className="flex items-start gap-1.5 text-[11px] leading-snug"
-                        >
-                          <span className="shrink-0">{t.status === "done" || t.done ? "☑" : "☐"}</span>
-                          <span className="min-w-0">
-                            {t.title || t.label || t.kind || "Item"}
-                            {t.skillReady === false ? (
-                              <span className="block text-[10px] text-slate-400">Skill not ready</span>
-                            ) : t.skillReady ? (
-                              <span className="block text-[10px] text-brand font-semibold">Skill ready</span>
-                            ) : null}
-                          </span>
-                        </li>
-                      ))}
-                    </ul>
-                  ) : (
-                    <p className="text-[11px] text-slate-400">
-                      No to-dos yet — updates from Energy Services emails. Open Progress → Paperwork for the full checklist.
-                    </p>
-                  )}
+                  {(() => {
+                    const paperTodos =
+                      track.id === "coned"
+                        ? listPaperworkTodos(job).filter(
+                            (t) =>
+                              t &&
+                              t.status !== "done" &&
+                              (t.agency === "coned" ||
+                                /upload|application|meter|case|coned/i.test(
+                                  String(t.kind || "") + String(t.title || "")
+                                ))
+                          )
+                        : [];
+                    const todos = [...(track.todos || [])];
+                    for (const t of paperTodos) {
+                      if (!todos.some((x) => (x.id || x.kind) === (t.id || t.kind))) todos.push(t);
+                    }
+                    if (!todos.length) {
+                      return (
+                        <p className="text-[11px] text-slate-400">
+                          No to-dos yet — updates from Energy Services emails. Open Progress → Paperwork for the full checklist.
+                        </p>
+                      );
+                    }
+                    return (
+                      <ul className="space-y-1" data-testid={"job-paperwork-todos-" + track.id}>
+                        {todos.map((t) => (
+                          <li
+                            key={t.id || t.kind || t.title}
+                            className="flex items-start gap-1.5 text-[11px] leading-snug"
+                          >
+                            <span className="shrink-0">{t.status === "done" || t.done ? "☑" : "☐"}</span>
+                            <span className="min-w-0">
+                              {t.title || t.label || t.kind || "Item"}
+                              {t.note && /FILE READY|ready to upload/i.test(String(t.note)) ? (
+                                <span className="block text-[10px] text-emerald-800 font-semibold">
+                                  File ready
+                                </span>
+                              ) : null}
+                              {t.skillReady === false ? (
+                                <span className="block text-[10px] text-slate-400">Skill not ready</span>
+                              ) : t.skillReady ? (
+                                <span className="block text-[10px] text-brand font-semibold">Skill ready</span>
+                              ) : null}
+                            </span>
+                          </li>
+                        ))}
+                      </ul>
+                    );
+                  })()}
                 </>
               );
             })()}
@@ -1459,6 +1560,35 @@ export default function JobDetail() {
                                   {/* S23 Submit a Case + Form A (Levi-tenant Con Ed apps) */}
                                   {br.enabled && k === "coned" && (
                                     <div className="py-1.5 space-y-1" data-testid="coned-app-cta">
+                                      {(() => {
+                                        // Levi 2026-08-05: clear “X applications ready to upload”
+                                        // on job paperwork (Form A files not yet uploaded to case).
+                                        const readyN = conedAppsReadyCount;
+                                        const total = (conedCompletedFiles || []).length;
+                                        if (!total && !readyN) return null;
+                                        return (
+                                          <div
+                                            className={
+                                              "rounded-xl border px-2.5 py-2 text-sm font-semibold " +
+                                              (readyN
+                                                ? "border-emerald-300 bg-emerald-50 text-emerald-900"
+                                                : "border-slate-200 bg-slate-50 text-slate-700")
+                                            }
+                                            data-testid="coned-apps-ready-banner"
+                                          >
+                                            {readyN
+                                              ? `📄 ${readyN} application${readyN === 1 ? "" : "s"} ready to upload`
+                                              : total
+                                                ? `📄 ${total} application${total === 1 ? "" : "s"} on file`
+                                                : null}
+                                            {readyN && total > readyN ? (
+                                              <span className="block text-[11px] font-normal text-emerald-800 mt-0.5">
+                                                {total - readyN} already uploaded · {readyN} waiting
+                                              </span>
+                                            ) : null}
+                                          </div>
+                                        );
+                                      })()}
                                       {conedCompletedFiles.map((f, fi) => (
                                         <div
                                           key={(f.docKey || f.name || "f") + fi}

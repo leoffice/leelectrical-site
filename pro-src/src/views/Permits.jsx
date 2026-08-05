@@ -28,6 +28,7 @@ import {
   readyToGoTodo,
   updatePaperworkTodoPatch,
   addPaperworkTodoPatch,
+  countReadyConedApplications,
 } from "../lib/agencyForms/index.js";
 import { createCasePaperworkJob } from "../lib/agencyForms/createCaseExecution.js";
 import {
@@ -1492,6 +1493,12 @@ export default function Permits() {
 
   const { counts, actionNeeded, sections } = board;
   const hasAny = counts.total > 0;
+  // Levi 2026-08-05: clear count of customer applications ready to upload (not yet on case).
+  const appsReadyTotal = useMemo(() => {
+    let n = 0;
+    for (const j of jobs || []) n += countReadyConedApplications(j);
+    return n;
+  }, [jobs]);
 
   return (
     <div className="pb-24" data-testid="permits-tab">
@@ -1510,6 +1517,18 @@ export default function Permits() {
           </button>
         ) : null}
       </div>
+
+      {appsReadyTotal > 0 ? (
+        <div
+          className="mb-3 mx-1 rounded-xl border border-emerald-300 bg-emerald-50 text-emerald-900 px-3 py-2.5 text-sm font-extrabold"
+          data-testid="permits-apps-ready-banner"
+        >
+          📄 {appsReadyTotal} application{appsReadyTotal === 1 ? "" : "s"} ready to upload
+          <span className="block text-[11px] font-normal text-emerald-800 mt-0.5">
+            Customer Form A on the job — open the job Paperwork tab or Deploy queue when Energy Services is logged in
+          </span>
+        </div>
+      ) : null}
 
       {/* DEPLOY QUEUE — sticky Deploy/Fix · Ready only with Form A for meters */}
       <div

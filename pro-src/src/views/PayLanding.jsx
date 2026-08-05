@@ -216,6 +216,8 @@ export default function PayLanding() {
   const [cardPhotoDone, setCardPhotoDone] = useState(false);
   const [cardPhotoHint, setCardPhotoHint] = useState("");
   const [cardExpPrefill, setCardExpPrefill] = useState("");
+  /** { masked, last4, pan?, name? } for SolaCardForm stars + iframe fill */
+  const [cardPhotoAssist, setCardPhotoAssist] = useState(null);
   const cardPhotoRef = useRef(null);
 
   // Load processor ACH flag once — do not re-default the tab when profile object identity changes
@@ -593,13 +595,20 @@ export default function PayLanding() {
         return;
       }
       if (patch.exp) setCardExpPrefill(patch.exp);
+      // Levi 2026-08-05: fill card number as stars (+ try secure iframe) + exp for review.
+      setCardPhotoAssist({
+        masked: patch.masked || (patch.last4 ? `••••••••••••${patch.last4}` : ""),
+        last4: patch.last4 || "",
+        pan: patch.pan || "",
+        name: patch.name || "",
+      });
       const bits = [];
       if (patch.masked || patch.last4) bits.push(patch.masked || `•••• ${patch.last4}`);
       if (patch.exp) bits.push(`exp ${patch.exp}`);
       if (patch.name) bits.push(patch.name);
       if (patch.brand) bits.push(patch.brand);
       setCardPhotoHint(
-        `Photo assist: ${bits.join(" · ")}. Enter the full card number and CVV in the secure fields below (we never store the photo digits).`
+        `Photo assist: ${bits.join(" · ")}. Review the card number (stars), enter CVV, then pay.`
       );
       setCardPhotoDone(true);
     } catch (err) {
@@ -1356,6 +1365,7 @@ export default function PayLanding() {
               disabled={payBusy || checkBusy}
               onReadyChange={setCardReady}
               initialExp={cardExpPrefill}
+              photoAssist={cardPhotoAssist}
             />
             <label
               className="flex items-center gap-2 mt-3 cursor-pointer select-none"

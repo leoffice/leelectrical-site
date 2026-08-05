@@ -76,10 +76,16 @@ export async function sendPaymentConfirmEmail({
   jobId,
   invoiceNo,
   amount,
+  /** Amount applied to invoice (before card fee). Defaults to amount. */
+  amountApplied,
+  /** Total charged including processing fee. */
+  totalCharged,
+  processingFee,
   balance,
   ref,
   payDate,
   viewLink: viewLinkIn,
+  isDeposit,
 }) {
   const idk = ref
     ? `pay-confirm:${invoiceNo}:${ref}`
@@ -128,13 +134,28 @@ export async function sendPaymentConfirmEmail({
     }
   }
 
+  let job = null;
+  try {
+    job = await loadJob(jobId);
+  } catch {
+    job = null;
+  }
+  const lineQtys = Array.isArray(job?.invoiceLines)
+    ? job.invoiceLines.map((ln) => ln?.qty)
+    : [];
   const { subject, html, text } = buildPaymentConfirmEmail({
     firstName: first,
     invoiceNo,
     amountPaid: amount,
+    amountApplied: amountApplied != null ? amountApplied : amount,
+    totalCharged,
+    processingFee,
     balanceNow,
     payDate,
     viewLink,
+    isDeposit,
+    invoiceProgressPct: job?.invoiceProgressPct,
+    lineQtys,
   });
 
   const meta = {
@@ -247,9 +268,13 @@ export default async (req) => {
     jobId,
     invoiceNo,
     amount,
+    amountApplied: body.amountApplied != null ? body.amountApplied : body.appliedAmount,
+    totalCharged: body.totalCharged != null ? body.totalCharged : body.totalPaid,
+    processingFee: body.processingFee != null ? body.processingFee : body.fee,
     balance: body.balance,
     ref,
     payDate: body.payDate || body.date || "",
+    isDeposit: body.isDeposit,
   });
   return json(result, result.ok ? 200 : 502);
 };

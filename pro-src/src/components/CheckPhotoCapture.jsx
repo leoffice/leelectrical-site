@@ -165,7 +165,13 @@ export default function CheckPhotoCapture({
       }
       // ~5 consecutive good samples at 250ms ≈ 1.25s of clear view
       if (goodFrames.current >= 5 && !frozenBlob) {
-        canvas.toBlob(
+        // Capture at full resolution for OCR quality
+        const full = document.createElement("canvas");
+        full.width = w;
+        full.height = h;
+        const fctx = full.getContext("2d");
+        if (fctx) fctx.drawImage(v, 0, 0, w, h);
+        (fctx ? full : canvas).toBlob(
           (blob) => {
             if (!alive || !blob) return;
             const url = URL.createObjectURL(blob);
@@ -173,6 +179,32 @@ export default function CheckPhotoCapture({
             setFrozenUrl(url);
             setAutoReady(true);
             stopStream();
+            // Levi 2026-08-05: auto-capture — accept as soon as frame is clear (no extra tap).
+            const f = new File([blob], `check-${Date.now()}.jpg`, { type: "image/jpeg" });
+            // brief freeze feedback, then hand off
+            setTimeout(() => {
+              if (!alive) return;
+              onFile?.(f);
+              // close without clearing the handed-off file
+              try {
+                streamRef.current?.getTracks?.().forEach((t) => t.stop());
+              } catch {
+                /* ignore */
+              }
+              streamRef.current = null;
+              setCameraOpen(false);
+              setCamErr("");
+              setReadyScore(0);
+              setAutoReady(false);
+              goodFrames.current = 0;
+              try {
+                URL.revokeObjectURL(url);
+              } catch {
+                /* ignore */
+              }
+              setFrozenUrl("");
+              setFrozenBlob(null);
+            }, 350);
           },
           "image/jpeg",
           0.92
@@ -184,7 +216,7 @@ export default function CheckPhotoCapture({
       alive = false;
       clearInterval(id);
     };
-  }, [cameraOpen, frozenBlob]);
+  }, [cameraOpen, frozenBlob, onFile]);
 
   const acceptFrozen = () => {
     if (!frozenBlob) return;

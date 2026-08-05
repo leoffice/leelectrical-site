@@ -65,20 +65,32 @@ export async function healMissingPayLink(store, code) {
     jobs.find((j) => String(j?.id || "").includes(invNo));
   if (!job) return null;
 
-  const due = moneyNum(job.openBalance) || moneyNum(job.amount);
-  if (due <= 0 && job.paid) return null;
+  // Levi 2026-08-05: receipt emails still link here after pay-in-full.
+  // Heal paid / $0 invoices too so "View invoice / updated balance" works.
+  const due = moneyNum(job.openBalance);
+  const total = moneyNum(job.amount) || due;
+  const amountDue = due > 0 ? due : 0;
 
   const payload = buildEmailPayLandingPayload({
-    job,
+    job: { ...job, openBalance: amountDue },
     docData: {
       docNumber: invNo,
-      amountDue: due || moneyNum(job.amount),
+      amountDue,
       billTo: { name: job.customer || "" },
     },
     email: job.email || "",
     kind: "invoice",
   });
   if (!payload?.i) return null;
+  // Ensure paid history still shows a sensible total when balance is $0.
+  if (!payload.t && total > 0) {
+    payload.t =
+      "$" + total.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  }
+  if (amountDue <= 0) {
+    payload.d = "Paid in full";
+    payload.a = 0;
+  }
 
   const record = {
     payload,
@@ -102,11 +114,19 @@ function respondResolved(req, code, record) {
   if (record.createdAt && Date.now() - record.createdAt > TTL_MS) {
     return json({ ok: false, error: "link expired" }, 410);
   }
-  // Browser hit from /pay/:code redirect — send customer to the pay page.
+  // Browser hit from /pay/:code — send customer to the pay page.
+  // IMPORTANT: do NOT put the route only in a URL hash on Location.
+  // Many email clients / in-app browsers drop #fragments on 302, so the
+  // customer lands on /app/pro/ (LockGate) → looks like a blank page.
+  // Query ?pay= survives Location; main.jsx bootstraps #/pay/<code>.
   if (req.headers.get("accept")?.includes("text/html")) {
-    const target = `${SITE}/app/pro/#/pay/${encodeURIComponent(code)}`;
+    const safe = encodeURIComponent(code);
+    const target = `${SITE}/app/pro/?pay=${safe}`;
+    const hashTarget = `${SITE}/app/pro/#/pay/${safe}`;
     return new Response(
-      `<!DOCTYPE html><html><head><meta charset="utf-8"><meta http-equiv="refresh" content="0;url=${target}"><title>Pay invoice</title></head><body><p><a href="${target}">Continue to payment page</a></p></body></html>`,
+      `<!DOCTYPE html><html><head><meta charset="utf-8"><meta http-equiv="refresh" content="0;url=${target}"><title>Pay invoice</title>` +
+        `<script>location.replace(${JSON.stringify(target)});</script></head>` +
+        `<body><p><a href="${target}">Continue to invoice</a> · <a href="${hashTarget}">direct</a></p></body></html>`,
       { status: 302, headers: { Location: target, "content-type": "text/html; charset=utf-8" } }
     );
   }

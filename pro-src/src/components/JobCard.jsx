@@ -4,6 +4,7 @@ import { isPaid, nextAction, progressPct, stageOf } from "../lib/stages.js";
 import { agingStripeColor, invoiceAgeDays, openBalance } from "../lib/customers.js";
 import { jobInvoiceDateDisplay } from "../lib/customerDocLists.js";
 import { fmt$ } from "../lib/format.js";
+import { isProgressInvoiceJob, totalPaid, normalizePayments } from "../lib/payments.js";
 import AmountDisplay from "./AmountDisplay.jsx";
 
 export function StagePill({ job }) {
@@ -25,12 +26,45 @@ export function StagePill({ job }) {
   return <span className={`pill ${tone}`}>{cur}</span>;
 }
 
+/**
+ * Levi 2026-08-05: progress invoices (qty 0.5 / 50%) must not show solid Paid.
+ * Use Partially paid (amber) when progress billing or money is still on the contract.
+ */
+export function paymentStatusKind(job) {
+  if (!job) return "unpaid";
+  const due = openBalance(job);
+  const paidAmt = totalPaid(normalizePayments(job));
+  const progress = isProgressInvoiceJob(job);
+  const pct = Number(job.invoiceProgressPct);
+  const partialQty = (job.invoiceLines || []).some((ln) => {
+    const q = Number(ln?.qty);
+    return Number.isFinite(q) && q > 0 && q < 0.999;
+  });
+  const isProgressDraw =
+    progress || partialQty || (Number.isFinite(pct) && pct > 0 && pct < 99.99);
+  // Progress draw settled for this invoice, or any open balance with money received.
+  if (isProgressDraw) {
+    if (paidAmt > 0.01 || job.paid || due <= 0.01) return "partial";
+    return "unpaid";
+  }
+  if (isPaid(job) || due <= 0.01) return "paid";
+  if (paidAmt > 0.01 && due > 0.01) return "partial";
+  return "unpaid";
+}
+
 export function PaidPill({ job }) {
-  return isPaid(job) ? (
-    <span className="pill bg-emerald-500 text-white">Paid ✓</span>
-  ) : (
-    <span className="pill bg-slate-100 text-slate-500">Unpaid</span>
-  );
+  const kind = paymentStatusKind(job);
+  if (kind === "paid") {
+    return <span className="pill bg-emerald-500 text-white">Paid ✓</span>;
+  }
+  if (kind === "partial") {
+    return (
+      <span className="pill bg-amber-100 text-amber-800 border border-amber-200" data-testid="partially-paid-pill">
+        Partially paid
+      </span>
+    );
+  }
+  return <span className="pill bg-slate-100 text-slate-500">Unpaid</span>;
 }
 
 /** Customer initial badge — fixed square, never stretches with wrapped text. */
@@ -84,7 +118,13 @@ export function GroupJobRow({ job, openInvoiceOnly = false, to, leadWithDoc = fa
     : [
         invDate || null,
         isOpenInv ? `${fmt$(due)} due` : null,
-        isOpenInv && age >= 30 ? `${age}d` : job.paid ? "Paid" : cur,
+        isOpenInv && age >= 30
+          ? `${age}d`
+          : paymentStatusKind(job) === "paid"
+            ? "Paid"
+            : paymentStatusKind(job) === "partial"
+              ? "Partially paid"
+              : cur,
         docBit,
         leadWithDoc && job.title && job.title !== invLabel && job.title !== estLabel ? job.title : null,
       ]

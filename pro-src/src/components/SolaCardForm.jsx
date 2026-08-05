@@ -34,17 +34,73 @@ function loadScript(src) {
 
 const IFRAME_H = 44;
 
+/**
+ * Best-effort fill of Cardknox/Sola iFields when photo OCR returns a Luhn-valid PAN.
+ * SDKs differ by version — try known hooks; never throw if missing (PCI iframes).
+ */
+function tryFillIfieldCardNumber(pan) {
+  const digits = String(pan || "").replace(/\D/g, "");
+  if (digits.length < 12) return false;
+  try {
+    if (typeof window.setIfieldValue === "function") {
+      window.setIfieldValue("card-number", digits);
+      return true;
+    }
+  } catch {
+    /* ignore */
+  }
+  try {
+    // Some builds expose loadIfields / ifields API on the global
+    if (typeof window.ifields?.setValue === "function") {
+      window.ifields.setValue("card-number", digits);
+      return true;
+    }
+  } catch {
+    /* ignore */
+  }
+  return false;
+}
+
 /** PCI-safe card fields via Sola iFields (card number + CVV iframes). */
-export default function SolaCardForm({ disabled, onReadyChange, savedMasked, initialExp = "" }) {
+export default function SolaCardForm({
+  disabled,
+  onReadyChange,
+  savedMasked,
+  initialExp = "",
+  /** From card photo: { masked, last4, pan?, name? } — pan only used briefly to fill iframe */
+  photoAssist = null,
+}) {
   const [phase, setPhase] = useState("loading"); // loading | ready | error
   const [err, setErr] = useState("");
   const [exp, setExp] = useState(() => formatCardExpInput(initialExp || ""));
+  const [photoMasked, setPhotoMasked] = useState("");
+  const [photoFilledIfield, setPhotoFilledIfield] = useState(false);
   const configRef = useRef(null);
   const formRef = useRef(null);
+  const photoPanRef = useRef("");
 
   useEffect(() => {
     if (initialExp) setExp(formatCardExpInput(initialExp));
   }, [initialExp]);
+
+  // Levi 2026-08-05: card photo should fill number (stars) + exp for review before save/pay.
+  useEffect(() => {
+    if (!photoAssist) return;
+    const masked =
+      photoAssist.masked ||
+      (photoAssist.last4 ? `${"•".repeat(12)}${photoAssist.last4}` : "");
+    if (masked) setPhotoMasked(masked);
+    const pan = String(photoAssist.pan || "").replace(/\D/g, "");
+    photoPanRef.current = pan;
+    if (phase === "ready" && pan.length >= 12) {
+      const ok = tryFillIfieldCardNumber(pan);
+      setPhotoFilledIfield(ok);
+      // Drop full digits from memory after a tick — masked display remains.
+      setTimeout(() => {
+        photoPanRef.current = "";
+      }, 50);
+    }
+  }, [photoAssist, phase]);
 
   useEffect(() => {
     let cancelled = false;
@@ -75,6 +131,13 @@ export default function SolaCardForm({ disabled, onReadyChange, savedMasked, ini
         setPhase("ready");
         setErr("");
         onReadyChange?.(true);
+        // If photo already ran before iframe ready, fill now.
+        const pending = photoPanRef.current;
+        if (pending.length >= 12) {
+          const ok = tryFillIfieldCardNumber(pending);
+          setPhotoFilledIfield(ok);
+          photoPanRef.current = "";
+        }
       } catch (e) {
         if (cancelled) return;
         setPhase("error");
@@ -98,6 +161,18 @@ export default function SolaCardForm({ disabled, onReadyChange, savedMasked, ini
           Card on file: <b>{savedMasked}</b> — enter a new card below to replace it.
         </p>
       ) : null}
+      {photoMasked ? (
+        <p
+          className="text-xs text-emerald-900 bg-emerald-50 border border-emerald-200 rounded-xl px-3 py-2"
+          data-testid="card-photo-masked-banner"
+        >
+          From photo: <b className="tracking-wider font-mono text-sm">{photoMasked}</b>
+          {photoAssist?.name ? ` · ${photoAssist.name}` : ""}
+          {photoFilledIfield
+            ? " — loaded into the card field (review, enter CVV, pay)."
+            : " — confirm digits in the secure field below if needed, enter CVV, then pay."}
+        </p>
+      ) : null}
       {phase === "loading" ? (
         <p className="text-xs text-slate-500">Loading secure card fields…</p>
       ) : null}
@@ -109,6 +184,15 @@ export default function SolaCardForm({ disabled, onReadyChange, savedMasked, ini
         <form ref={formRef} onSubmit={(e) => e.preventDefault()} className="space-y-2.5">
           <div>
             <label className="block text-xs font-bold text-slate-500 mb-1">Card number</label>
+            {photoMasked ? (
+              <div
+                className="input mb-1.5 font-mono tracking-widest text-slate-800 bg-slate-50"
+                data-testid="card-photo-stars-field"
+                aria-label="Card number from photo (masked)"
+              >
+                {photoMasked}
+              </div>
+            ) : null}
             <div
               className="overflow-hidden rounded-xl"
               style={{ height: IFRAME_H }}

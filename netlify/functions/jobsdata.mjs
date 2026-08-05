@@ -100,6 +100,36 @@ export function slimJob(job) {
       delete out.followUp;
     }
   }
+  // Cheap apps-ready counters for Permits / Job Info (Levi 2026-08-05).
+  // Full completedFiles stay off the list; only a number + case # travel.
+  const pw = job.paperwork;
+  if (pw && typeof pw === "object") {
+    const c = pw.coned && typeof pw.coned === "object" ? pw.coned : {};
+    const files = Array.isArray(c.completedFiles) ? c.completedFiles : [];
+    let ready = 0;
+    for (const f of files) {
+      if (!f) continue;
+      if (f.uploadedAt || f.uploadedToCase) continue;
+      if (String(f.status || "").toLowerCase() === "uploaded") continue;
+      ready += 1;
+    }
+    if (!ready && Array.isArray(pw.todos)) {
+      for (const t of pw.todos) {
+        if (!t || t.status === "done" || t.status === "removed" || t.status === "queued") continue;
+        if (t.kind === "upload_application" || t.kind === "send_application") ready += 1;
+      }
+    }
+    if (
+      !ready &&
+      c.uploadDocument &&
+      String(c.uploadDocument.status || "").toLowerCase() === "file_ready"
+    ) {
+      ready = 1;
+    }
+    if (ready > 0) out.appsReady = ready;
+    if (c.caseNumber) out.conedCaseNumber = String(c.caseNumber);
+  }
+  if (job.permitTracker) out.permitTracker = true;
   // Mark slim so client can re-hydrate detail
   out._listProjection = true;
   return out;

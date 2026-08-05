@@ -710,11 +710,29 @@ export function MarkPaidSheet({
       // LE Pro payment confirmation (not QuickBooks).
       const email = String(live.email || "").trim();
       if (email && payAmtN > 0) {
+        // Levi 2026-08-05: receipt shows applied-to-invoice vs total (with fee) + deposit wording.
+        const feeN = parseAmount(withStamp.fee || withStamp.processingFee || 0);
+        const totalN =
+          parseAmount(withStamp.totalCharged || withStamp.chargedTotal || 0) ||
+          (feeN > 0 ? payAmtN + feeN : payAmtN);
+        const progressPct = Number(live.invoiceProgressPct);
+        const partialQty = (live.invoiceLines || []).some((ln) => {
+          const q = parseAmount(ln?.qty);
+          return q > 0 && q < 0.999;
+        });
+        const isDeposit =
+          remaining > 0.01 ||
+          (Number.isFinite(progressPct) && progressPct > 0 && progressPct < 99.99) ||
+          partialQty;
         const body = {
           jobId: live.id,
           invoiceNo: String(live.invoiceNo || "").trim(),
           amount: payAmtN,
+          amountApplied: payAmtN,
+          totalCharged: totalN,
+          processingFee: feeN > 0 ? feeN : undefined,
           balance: remaining,
+          isDeposit: !!isDeposit,
           ref: String(withStamp.ref || lastPay.ref || "").trim(),
           payDate: String(withStamp.date || todayStr()).slice(0, 10),
           force: true,
