@@ -56,9 +56,21 @@ function scoreJobForPayment(job, { amount, memo, fromName, query }) {
     }
   }
   if (fromL) {
-    for (const tok of fromL.split(/[^a-z0-9]+/).filter((t) => t.length >= 3)) {
+    // Levi 2026-08-05: payer name beats pure amount match (SIMA JOUDEH → Sima Expediter,
+    // not "open $1800" on an unrelated invoice). First token match is strong.
+    const fromToks = fromL.split(/[^a-z0-9]+/).filter((t) => t.length >= 3);
+    const custL = String(job.customer || job.customerName || "")
+      .toLowerCase()
+      .trim();
+    for (const tok of fromToks) {
       if (blob.includes(tok)) score += 12;
+      if (custL && (custL.includes(tok) || tok.includes(custL.split(/\s+/)[0] || ""))) {
+        score += 80;
+      }
     }
+    // Full first-word of payer equals start of customer (SIMA ↔ Sima …)
+    const firstFrom = fromToks[0] || "";
+    if (firstFrom && custL.startsWith(firstFrom)) score += 40;
   }
   if (q) {
     if (blob.includes(q)) score += 50;
