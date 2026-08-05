@@ -91,23 +91,20 @@ export function statementDescription(job) {
   if (!desc) {
     desc = firstContentLine(job?.title || job?.serviceType || "") || "Electrical services";
   }
-  // Fold a short CO / second-line hint when present
+  // Fold a short CO / second-line hint when present (ASCII only — no … / · for PDF)
   if (lines.length > 1) {
     const second = firstContentLine(lines[1]?.description || lines[1]?.desc || "");
     const co = second.match(/Change Order\s*#?\s*\d+/i);
     if (co) {
-      const head = desc.length > 70 ? desc.slice(0, 67).trimEnd() + "…" : desc;
-      desc = `${head} · ${co[0]}`;
+      desc = `${desc} - ${co[0]}`;
     } else if (lines.length === 2 && second && second.length <= 48) {
-      const head = desc.length > 55 ? desc.slice(0, 52).trimEnd() + "…" : desc;
-      desc = `${head} · ${second}`;
+      desc = `${desc} - ${second}`;
     } else if (lines.length > 1) {
-      const head = desc.length > 75 ? desc.slice(0, 72).trimEnd() + "…" : desc;
-      desc = `${head} · +${lines.length - 1} line${lines.length > 2 ? "s" : ""}`;
+      desc = `${desc} - +${lines.length - 1} line${lines.length > 2 ? "s" : ""}`;
     }
   }
-  // Soft cap for table column (PDF clips further by width)
-  return desc.length > 120 ? desc.slice(0, 117).trimEnd() + "…" : desc;
+  // Soft cap; PDF wraps without three-dot ellipsis (Levi 2026-08-05)
+  return desc.length > 160 ? desc.slice(0, 160).trimEnd() : desc;
 }
 
 /**
@@ -286,7 +283,7 @@ export function buildStatementModel({
     const events = [];
     for (const r of rows) {
       // Progress first so PDF width-clip never drops the progress %.
-      const desc = r.progressLabel ? `${r.progressLabel} · ${r.description}` : r.description;
+      const desc = r.progressLabel ? `${r.progressLabel} - ${r.description}` : r.description;
       events.push({
         id: `${r.id}:inv`,
         kind: "invoice",
@@ -306,7 +303,12 @@ export function buildStatementModel({
     }
     for (const p of paymentLines) {
       const method = p.method || "Payment";
-      const refBit = p.ref ? ` · ${p.ref}` : "";
+      // Prefer clean Zelle wording; never use middle-dot (PDF turns · into ?)
+      const refBit = p.ref && !/^\d+$/.test(String(p.ref)) ? ` ${p.ref}` : "";
+      const payLabel =
+        /zelle/i.test(method) || /zelle/i.test(p.note || "")
+          ? `Payment - Zelle${refBit}`
+          : `Payment - ${method}${refBit ? ` -${refBit}` : ""}`;
       events.push({
         id: `${p.invoiceNo}:pay:${p.dateIso}:${p.amount}:${p.ref || ""}`,
         kind: "payment",
@@ -314,7 +316,7 @@ export function buildStatementModel({
         invoiceNo: p.invoiceNo,
         date: p.date,
         dateIso: p.dateIso,
-        description: `Payment · ${method}${refBit}`,
+        description: payLabel,
         address: "",
         charge: 0,
         paid: p.amount,

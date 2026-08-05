@@ -45,11 +45,36 @@ function esc(s) {
 
 const r2 = (n) => Math.round(n * 100) / 100;
 
+/** Fit text to width without ellipsis (Levi 2026-08-05 — no three dots on statements). */
 function clip(str, maxW, size, bold = false) {
   let s = String(str || "");
   if (textWidth(s, size, bold) <= maxW) return s;
-  while (s.length > 1 && textWidth(s + "...", size, bold) > maxW) s = s.slice(0, -1);
-  return s + "...";
+  while (s.length > 1 && textWidth(s, size, bold) > maxW) s = s.slice(0, -1);
+  return s;
+}
+
+/** Word-wrap into up to maxLines lines; no "..." (Levi statement description). */
+function wrapLines(str, maxW, size, maxLines = 2, bold = false) {
+  const words = String(str || "").split(/\s+/).filter(Boolean);
+  if (!words.length) return [""];
+  const lines = [];
+  let cur = "";
+  for (const w of words) {
+    const trial = cur ? `${cur} ${w}` : w;
+    if (textWidth(trial, size, bold) <= maxW) {
+      cur = trial;
+    } else {
+      if (cur) lines.push(cur);
+      else lines.push(clip(w, maxW, size, bold));
+      cur = textWidth(w, size, bold) <= maxW ? w : clip(w, maxW, size, bold);
+      if (lines.length >= maxLines) {
+        cur = "";
+        break;
+      }
+    }
+  }
+  if (cur && lines.length < maxLines) lines.push(cur);
+  return lines.length ? lines : [""];
 }
 
 function latin1(s) {
@@ -336,16 +361,20 @@ export function buildQbStatementPdf(model, overrides = {}) {
   };
 
   for (const r of rows) {
-    ensureSpace(rowH + 8);
     const isPayment = r.kind === "payment";
-    // Activity/balance-forward already fold progress (first) into description; open_items prepend.
-    const desc =
+    // ASCII " - " only — middle-dot · becomes "?" in PDF esc() (Levi: no junk marks).
+    const descRaw =
       isPayment || !r.progressLabel || (r.description || "").includes(r.progressLabel)
         ? r.description
-        : `${r.progressLabel} · ${r.description}`;
+        : `${r.progressLabel} - ${r.description}`;
+    const descLines = wrapLines(descRaw, DESC_MAX_W, 8.5, isPayment ? 1 : 2);
+    const thisRowH = rowH + (descLines.length > 1 ? 11 : 0);
+    ensureSpace(thisRowH + 8);
     pg.text(COL_DATE, y, r.date || "-", { size: 8.5, color: BLACK });
     pg.text(COL_INV, y, r.invoiceNo || "", { size: 8.5, color: BLACK });
-    pg.text(COL_DESC, y, clip(desc, DESC_MAX_W, 8.5), { size: 8.5, color: isPayment ? GRAY : BLACK });
+    descLines.forEach((ln, i) => {
+      pg.text(COL_DESC, y + i * 11, ln, { size: 8.5, color: isPayment ? GRAY : BLACK });
+    });
     if (isPayment) {
       pg.text(COL_CHARGE_R, y, "-", { size: 8.5, color: GRAY, align: "right" });
       pg.text(COL_PAID_R, y, r.paid ? "$" + qbMoney(r.paid) : "-", { size: 8.5, color: BLACK, align: "right" });
@@ -364,7 +393,7 @@ export function buildQbStatementPdf(model, overrides = {}) {
     if (pay?.url && r.isOpen && !isPayment) {
       pg.link(COL_INV, y - 10, 56, 14, pay.url);
     }
-    y += rowH;
+    y += thisRowH;
   }
 
   // Open-items: if payments exist but weren't expanded into ledger rows, add a compact history.
@@ -376,7 +405,7 @@ export function buildQbStatementPdf(model, overrides = {}) {
     for (const p of model.paymentLines) {
       ensureSpace(rowH + 4, false);
       const refBit = p.ref ? ` · ${p.ref}` : "";
-      const desc = `Payment · ${p.method || "Payment"}${refBit}`;
+      const desc = `Payment - ${p.method || "Payment"}${refBit}`;
       pg.text(COL_DATE, y, p.date || "-", { size: 8.5, color: BLACK });
       pg.text(COL_INV, y, p.invoiceNo || "", { size: 8.5, color: BLACK });
       pg.text(COL_DESC, y, clip(desc, DESC_MAX_W, 8.5), { size: 8.5, color: GRAY });
