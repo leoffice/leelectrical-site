@@ -79,6 +79,9 @@ export default function JobInfoCard({
   /** Job-only transaction history (this invoice), not customer-wide. */
   jobTxns = false,
   onJobTxnsChange,
+  /** Paperwork / permit tracker enable — same style as Transaction history, above it (Levi 2026-08-05). */
+  paperworkOn = false,
+  onPaperworkChange,
   /** When opened from History, soft-highlight this invoice # (Levi 2026-08-04). */
   highlightInvoiceNo = "",
 }) {
@@ -111,8 +114,10 @@ export default function JobInfoCard({
   ].filter(Boolean);
 
   const showTxnToggle = typeof onJobTxnsChange === "function";
+  const showPaperworkToggle = typeof onPaperworkChange === "function";
   // When there's no %/status line, still show the toggle on its own condensed row.
   const showPctRow = pctKey || showTxnToggle;
+  const showToggleBlock = showPaperworkToggle || showPctRow;
 
   const bubbleStrip = bubbles.length ? (
     <div
@@ -222,7 +227,7 @@ export default function JobInfoCard({
 
       <SasRecordingLink job={job} sasCalls={sasCalls} />
 
-      {(rows.length > 0 || showPctRow) && (
+      {(rows.length > 0 || showToggleBlock) && (
         <dl className="mt-2 space-y-1 text-xs lg:text-sm min-w-0 w-full">
           {rows.map(([k, v]) => {
             const hl =
@@ -249,6 +254,25 @@ export default function JobInfoCard({
               </div>
             );
           })}
+          {/* Paperwork enable sits above Transaction history (Levi 2026-08-05). */}
+          {showPaperworkToggle ? (
+            <div
+              className="flex items-center justify-between gap-2 min-w-0 pt-0.5"
+              data-testid="job-paperwork-toggle-row"
+              data-no-card-open
+              onClick={stopBubble}
+            >
+              <span className="text-[11px] font-semibold text-slate-600 whitespace-nowrap">
+                Paperwork
+              </span>
+              <Toggle
+                small
+                on={!!paperworkOn}
+                onChange={onPaperworkChange}
+                label="Enable paperwork / permit tracker"
+              />
+            </div>
+          ) : null}
           {showPctRow ? (
             <div
               className="flex gap-2 items-center min-w-0"

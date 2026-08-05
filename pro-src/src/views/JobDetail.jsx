@@ -28,6 +28,7 @@ import {
   isDatedStep,
 } from "../lib/paperwork.js";
 import { followUpFromPaperworkStep } from "../lib/calendarDue.js";
+import { isOnPermitTracker, setPermitTrackerPatch } from "../lib/permitTrackerSeed.js";
 import { fmt$, ago } from "../lib/format.js";
 import CustomerCard from "../components/CustomerCard.jsx";
 import CustomerTransactionHistory from "../components/CustomerTransactionHistory.jsx";
@@ -623,6 +624,40 @@ export default function JobDetail() {
   }
 
   const cur = stageOf(job);
+  // Paperwork enable (Job Information) — same idea as Transaction history toggle (Levi 2026-08-05).
+  const paperworkOn = !!(
+    job.permitTracker ||
+    isOnPermitTracker(job) ||
+    job.paperwork?.coned?.enabled ||
+    job.paperwork?.permitTracker ||
+    job.paperwork?.dob?.enabled ||
+    job.paperwork?.city?.enabled
+  );
+  const setPaperworkOn = (on) => {
+    if (on) {
+      const seed = setPermitTrackerPatch(job, true);
+      patchJob(id, {
+        permitTracker: true,
+        ...seed,
+        paperwork: {
+          ...(seed.paperwork || {}),
+          city: { enabled: true },
+          permitTracker: true,
+        },
+      });
+      showToast?.("Paperwork on — Con Edison & DOB cards below · Permits tab updated");
+    } else {
+      patchJob(id, {
+        permitTracker: false,
+        paperwork: {
+          coned: { enabled: false },
+          dob: { enabled: false },
+          city: { enabled: false },
+          permitTracker: false,
+        },
+      });
+    }
+  };
   const setStep = (stage, val) => {
     clearTimeout(stepTimer.current);
     setOpenStep(null);
@@ -700,8 +735,8 @@ export default function JobDetail() {
         </button>
       </div>
 
-      {/* Customer card — contact on top; Transaction history toggle (estimates live here).
-          From customer: tap card body collapses job info and returns to customer default. */}
+      {/* Customer card — contact + Transaction history (customer-wide).
+          Paperwork enable lives on Job Information (Levi 2026-08-05). */}
       <CustomerCard
         contact={{
           ...customerContact(customerJobs),
@@ -711,28 +746,6 @@ export default function JobDetail() {
         primaryJob={job}
         shortTxns={shortTxns}
         onShortTxnsChange={setShortTxns}
-        paperworkOn={
-          !!(
-            job.permitTracker ||
-            job.paperwork?.coned?.enabled ||
-            job.paperwork?.permitTracker ||
-            job.paperwork?.dob?.enabled ||
-            job.paperwork?.city?.enabled
-          )
-        }
-        onPaperworkChange={(on) => {
-          // Above Transaction history — enables permit tracker + Con Ed/DOB cards (Levi 2026-08-05).
-          patchJob(id, {
-            permitTracker: !!on,
-            paperwork: {
-              coned: { enabled: !!on },
-              dob: { enabled: !!on },
-              city: { enabled: !!on },
-              permitTracker: !!on,
-            },
-          });
-          if (on) showToast?.("Paperwork on — Con Edison & DOB cards below · Permits tab updated");
-        }}
         onCardTap={fromCust ? () => guardNav(goBack) : undefined}
         onEdit={() => setSheet({ kind: "cust" })}
         onText={() => setSheet({ kind: "compose", channel: "sms" })}
@@ -776,68 +789,6 @@ export default function JobDetail() {
         />
       ) : null}
 
-      {/* Paperwork tracks under history — Con Edison + DOB (Levi 2026-08-05). */}
-      {job.permitTracker ||
-      job.paperwork?.coned?.enabled ||
-      job.paperwork?.permitTracker ||
-      job.paperwork?.dob?.enabled ||
-      job.paperwork?.city?.enabled ? (
-        <div className="space-y-2" data-testid="job-paperwork-tracks">
-          <p className="text-[11px] font-extrabold text-slate-500 uppercase tracking-wider px-0.5">
-            Paperwork · linked to Permits tab
-          </p>
-          {[
-            {
-              id: "coned",
-              title: "Con Edison",
-              stage:
-                job.paperwork?.coned?.stageLabel ||
-                job.paperwork?.coned?.caseNumber ||
-                (job.paperwork?.coned?.enabled ? "On tracker" : ""),
-              next: job.paperwork?.coned?.nextAction || "",
-            },
-            {
-              id: "dob",
-              title: "DOB / City",
-              stage:
-                job.paperwork?.dob?.stageLabel ||
-                job.paperwork?.city?.stageLabel ||
-                (job.paperwork?.dob?.enabled || job.paperwork?.city?.enabled || job.permitTracker
-                  ? "On tracker"
-                  : ""),
-              next: job.paperwork?.dob?.nextAction || job.paperwork?.city?.nextAction || "",
-            },
-          ].map((track) => (
-            <details
-              key={track.id}
-              className="card overflow-hidden"
-              data-testid={"job-paperwork-track-" + track.id}
-            >
-              <summary className="px-3 py-2.5 cursor-pointer list-none flex items-center justify-between gap-2">
-                <span className="text-sm font-extrabold text-slate-900">{track.title}</span>
-                <span className="text-[11px] text-slate-500 font-semibold truncate">
-                  {track.stage || "Tap to expand"}
-                </span>
-              </summary>
-              <div className="px-3 pb-3 border-t border-slate-100 text-sm text-slate-600 space-y-1">
-                {track.stage ? <div>Status: {track.stage}</div> : null}
-                {track.next ? <div>Next: {track.next}</div> : null}
-                <div className="text-[11px] text-slate-400">
-                  Same job appears on the Permits tab. Open Permits for the full queue.
-                </div>
-                <button
-                  type="button"
-                  className="text-xs font-bold text-brand mt-1"
-                  onClick={() => nav("/permits")}
-                >
-                  Open Permits tab →
-                </button>
-              </div>
-            </details>
-          ))}
-        </div>
-      ) : null}
-
       {pending[id] ? (
         <div className="px-1 -mt-2">
           <span className="pill bg-amber-100 text-amber-700 text-xs">unsaved changes</span>
@@ -870,6 +821,8 @@ export default function JobDetail() {
             jobTxns={jobTxns}
             highlightInvoiceNo={hlInv}
             onJobTxnsChange={setJobTxns}
+            paperworkOn={paperworkOn}
+            onPaperworkChange={setPaperworkOn}
           />
         ) : (
           <JobInfoCard
@@ -896,6 +849,8 @@ export default function JobDetail() {
             jobTxns={jobTxns}
             highlightInvoiceNo={hlInv}
             onJobTxnsChange={setJobTxns}
+            paperworkOn={paperworkOn}
+            onPaperworkChange={setPaperworkOn}
           />
         )}
         {/* Takeoff always visible on generator jobs — not buried only under Estimate step */}
@@ -951,6 +906,72 @@ export default function JobDetail() {
             />
           </div>
         ) : null}
+
+        {/* Con Edison + DOB cards under payment history when Paperwork is on (Levi 2026-08-05). */}
+        {paperworkOn ? (
+          <div className="mt-2 space-y-2" data-testid="job-paperwork-tracks">
+            <p className="text-[11px] font-extrabold text-slate-500 uppercase tracking-wider px-0.5">
+              Paperwork · linked to Permits tab
+            </p>
+            {[
+              {
+                id: "coned",
+                title: "Con Edison",
+                caseNo: job.paperwork?.coned?.caseNumber || "",
+                stage:
+                  job.paperwork?.coned?.stageLabel ||
+                  job.paperwork?.coned?.caseNumber ||
+                  (job.paperwork?.coned?.enabled || paperworkOn ? "On tracker" : ""),
+                next: job.paperwork?.coned?.nextAction || "",
+              },
+              {
+                id: "dob",
+                title: "DOB / City",
+                caseNo:
+                  job.paperwork?.dob?.jobNumber ||
+                  job.paperwork?.dob?.caseNumber ||
+                  job.paperwork?.city?.jobNumber ||
+                  "",
+                stage:
+                  job.paperwork?.dob?.stageLabel ||
+                  job.paperwork?.city?.stageLabel ||
+                  (job.paperwork?.dob?.enabled || job.paperwork?.city?.enabled || paperworkOn
+                    ? "On tracker"
+                    : ""),
+                next: job.paperwork?.dob?.nextAction || job.paperwork?.city?.nextAction || "",
+              },
+            ].map((track) => (
+              <details
+                key={track.id}
+                className="card overflow-hidden"
+                data-testid={"job-paperwork-track-" + track.id}
+              >
+                <summary className="px-3 py-2.5 cursor-pointer list-none flex items-center justify-between gap-2">
+                  <span className="text-sm font-extrabold text-slate-900">{track.title}</span>
+                  <span className="text-[11px] text-slate-500 font-semibold truncate">
+                    {track.stage || "Tap to expand"}
+                  </span>
+                </summary>
+                <div className="px-3 pb-3 border-t border-slate-100 text-sm text-slate-600 space-y-1">
+                  {track.caseNo ? <div className="font-semibold text-slate-800">{track.caseNo}</div> : null}
+                  {track.stage ? <div>Status: {track.stage}</div> : null}
+                  {track.next ? <div>Next: {track.next}</div> : null}
+                  <div className="text-[11px] text-slate-400">
+                    Same job on the Permits tab — open there for the full queue and to-dos.
+                  </div>
+                  <button
+                    type="button"
+                    className="text-xs font-bold text-brand mt-1"
+                    onClick={() => nav("/permits")}
+                  >
+                    Open Permits tab →
+                  </button>
+                </div>
+              </details>
+            ))}
+          </div>
+        ) : null}
+
         {showChangeOrders ? (
           <div className="mt-2" data-testid="job-change-orders-section">
             <ChangeOrdersTabPanel

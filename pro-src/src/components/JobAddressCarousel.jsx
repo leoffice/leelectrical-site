@@ -26,6 +26,8 @@ export default function JobAddressCarousel({
   onAddJob,
   jobTxns = false,
   onJobTxnsChange,
+  paperworkOn = false,
+  onPaperworkChange,
 }) {
   const list = jobs || [];
   if (!list.length) return null;
@@ -82,6 +84,8 @@ export default function JobAddressCarousel({
           onBubbleTap={(b) => onBubbleTap?.(active, b)}
           jobTxns={jobTxns}
           onJobTxnsChange={onJobTxnsChange}
+          paperworkOn={paperworkOn}
+          onPaperworkChange={onPaperworkChange}
         />
       </div>
     </div>
