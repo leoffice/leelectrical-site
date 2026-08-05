@@ -575,15 +575,25 @@ export async function completeConedApplicationDestinations({
 export function listConedCompletedFiles(job = {}) {
   const files = job?.paperwork?.coned?.completedFiles;
   if (Array.isArray(files) && files.length) return files;
-  // Legacy: single submitted application without completedFiles array
+  // Legacy / customer portal: single application without completedFiles array
   const app = job?.paperwork?.coned?.application;
-  if (app?.status === "submitted" && (app.completedFile || app.filename)) {
+  const st = String(app?.status || "").toLowerCase();
+  const doneish =
+    st === "submitted" ||
+    st === "customer_submitted" ||
+    st === "complete" ||
+    st === "completed" ||
+    st === "file_ready" ||
+    st === "ready";
+  if (app && doneish && (app.completedFile || app.filename || app.docKey || app.answers)) {
     return [
       app.completedFile || {
-        name: app.filename,
-        status: "submitted",
+        name: app.filename || "Form A application",
+        status: app.status || "submitted",
         submittedAt: app.submittedAt || "",
-        url: "",
+        docKey: app.docKey || "",
+        url: app.url || "",
+        meterLabel: app.meterLabel || "",
       },
     ];
   }

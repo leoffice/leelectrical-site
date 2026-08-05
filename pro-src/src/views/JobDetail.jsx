@@ -845,7 +845,9 @@ export default function JobDetail() {
         onEmail={() => setSheet({ kind: "compose", channel: "email" })}
       />
 
-      {shortTxns ? (
+      {/* When Con Ed / DOB paperwork is open, hide customer payment history
+          so the paperwork panel sits right under customer + job info (Levi 2026-08-05). */}
+      {shortTxns && !paperTrackOpen ? (
         <CustomerTransactionHistory
           jobs={customerJobs}
           fromCust={custKey || fromCust}
@@ -916,8 +918,27 @@ export default function JobDetail() {
             onJobTxnsChange={setJobTxns}
             paperworkOn={paperworkOn}
             onPaperworkChange={setPaperworkOn}
-            onConed={() => setPaperTrackOpen((o) => (o === "coned" ? null : "coned"))}
-            onDob={() => setPaperTrackOpen((o) => (o === "dob" ? null : "dob"))}
+            onConed={() => {
+              // Levi 2026-08-05: Con Ed opens paperwork panel; payments collapse.
+              setPaperTrackOpen((o) => {
+                const next = o === "coned" ? null : "coned";
+                if (next) {
+                  setShortTxns(false);
+                  setJobTxns(false);
+                }
+                return next;
+              });
+            }}
+            onDob={() => {
+              setPaperTrackOpen((o) => {
+                const next = o === "dob" ? null : "dob";
+                if (next) {
+                  setShortTxns(false);
+                  setJobTxns(false);
+                }
+                return next;
+              });
+            }}
             paperTrackOpen={paperTrackOpen}
           />
         ) : (
@@ -947,8 +968,26 @@ export default function JobDetail() {
             onJobTxnsChange={setJobTxns}
             paperworkOn={paperworkOn}
             onPaperworkChange={setPaperworkOn}
-            onConed={() => setPaperTrackOpen((o) => (o === "coned" ? null : "coned"))}
-            onDob={() => setPaperTrackOpen((o) => (o === "dob" ? null : "dob"))}
+            onConed={() => {
+              setPaperTrackOpen((o) => {
+                const next = o === "coned" ? null : "coned";
+                if (next) {
+                  setShortTxns(false);
+                  setJobTxns(false);
+                }
+                return next;
+              });
+            }}
+            onDob={() => {
+              setPaperTrackOpen((o) => {
+                const next = o === "dob" ? null : "dob";
+                if (next) {
+                  setShortTxns(false);
+                  setJobTxns(false);
+                }
+                return next;
+              });
+            }}
             paperTrackOpen={paperTrackOpen}
           />
         )}
@@ -979,34 +1018,8 @@ export default function JobDetail() {
             </button>
           </div>
         ) : null}
-        {jobTxns ? (
-          <div className="mt-2" data-testid="job-txn-history-section">
-            <JobTransactionHistory
-              job={job}
-              customerJobs={customerJobs}
-              onOpenFull={() => setSheet({ kind: "payhist" })}
-              onOpenRow={(row) => {
-                // Payment rows open the payment card (edit / delete / reassign invoice or customer).
-                if (row?.kind === "payment") {
-                  setSheet({
-                    kind: "payhist",
-                    editPayId: row.payment?.id || null,
-                    applyTargetJobId: row.applyTargetJobId || null,
-                    applyTargetDocNo: row.applyTargetDocNo || null,
-                    openApply: !!row.openApply,
-                  });
-                  return;
-                }
-                // Estimate / invoice / anything else → Job Information, collapse history (Levi 2026-08-05).
-                setJobTxns(false);
-                setShortTxns(false);
-                requestAnimationFrame(scrollToJobInfo);
-              }}
-            />
-          </div>
-        ) : null}
 
-        {/* Expand panel for Con Edison / DOB tab buttons (inside job-info flow, not orphan cards). */}
+        {/* Paperwork panel FIRST (right under Job Info) — payments stay collapsed while open (Levi 2026-08-05). */}
         {paperworkOn && paperTrackOpen ? (
           <div className="mt-2 card px-3 py-2.5" data-testid="job-paperwork-track-panel">
             {(() => {
@@ -1039,6 +1052,8 @@ export default function JobDetail() {
                       next: job.paperwork?.coned?.nextAction || "",
                       todos: listConedCustomerTodos(job),
                     };
+              const files =
+                track.id === "coned" ? conedCompletedFiles : [];
               return (
                 <>
                   <div className="flex items-center justify-between gap-2 mb-2">
@@ -1063,14 +1078,47 @@ export default function JobDetail() {
                   {track.caseNo ? (
                     <div className="text-xs font-semibold text-slate-800 mb-1">{track.caseNo}</div>
                   ) : null}
-                  {track.id === "coned" && conedAppsReadyCount > 0 ? (
+                  {track.id === "coned" && (conedAppsReadyCount > 0 || files.length > 0) ? (
                     <div
                       className="rounded-xl border border-emerald-300 bg-emerald-50 text-emerald-900 px-2.5 py-2 text-sm font-semibold mb-2"
                       data-testid="job-apps-ready-banner"
                     >
-                      📄 {conedAppsReadyCount} application
-                      {conedAppsReadyCount === 1 ? "" : "s"} ready to upload
+                      📄 {conedAppsReadyCount > 0 ? conedAppsReadyCount : files.length} application
+                      {(conedAppsReadyCount || files.length) === 1 ? "" : "s"} ready
+                      {files.length ? " on this job" : " to upload"}
                     </div>
+                  ) : null}
+                  {files.length > 0 ? (
+                    <ul className="space-y-1.5 mb-2" data-testid="job-coned-completed-files">
+                      {files.map((f, i) => (
+                        <li
+                          key={f.docKey || f.name || i}
+                          className="rounded-lg border border-slate-200 bg-white px-2.5 py-2 text-[11px]"
+                        >
+                          <div className="font-bold text-slate-900">
+                            {f.name || f.filename || f.meterLabel || "Form A application"}
+                          </div>
+                          <div className="text-slate-500">
+                            {[f.meterLabel, f.status || "file ready", f.submittedAt || f.savedAt]
+                              .filter(Boolean)
+                              .join(" · ")}
+                          </div>
+                          {f.url || f.docKey ? (
+                            <a
+                              className="text-brand font-semibold"
+                              href={
+                                f.url ||
+                                `https://leelectrical.us/.netlify/functions/docs?key=${encodeURIComponent(f.docKey)}`
+                              }
+                              target="_blank"
+                              rel="noreferrer"
+                            >
+                              Open PDF
+                            </a>
+                          ) : null}
+                        </li>
+                      ))}
+                    </ul>
                   ) : null}
                   {track.stage ? <div className="text-[11px] text-slate-600 mb-1">{track.stage}</div> : null}
                   {track.next ? <div className="text-[11px] text-slate-600 mb-2">Next: {track.next}</div> : null}
@@ -1094,10 +1142,17 @@ export default function JobDetail() {
                     for (const t of paperTodos) {
                       if (!todos.some((x) => (x.id || x.kind) === (t.id || t.kind))) todos.push(t);
                     }
-                    if (!todos.length) {
+                    if (!todos.length && !files.length) {
                       return (
                         <p className="text-[11px] text-slate-400">
-                          No to-dos yet — updates from Energy Services emails. Open Progress → Paperwork for the full checklist.
+                          No applications on this job yet. Customer Form A saves here automatically when submitted.
+                        </p>
+                      );
+                    }
+                    if (!todos.length) {
+                      return (
+                        <p className="text-[11px] text-slate-500">
+                          Application on file — upload to the Con Ed case when ready.
                         </p>
                       );
                     }
@@ -1130,6 +1185,34 @@ export default function JobDetail() {
                 </>
               );
             })()}
+          </div>
+        ) : null}
+
+        {/* Job payment history only when paperwork panel is closed (Levi 2026-08-05). */}
+        {jobTxns && !paperTrackOpen ? (
+          <div className="mt-2" data-testid="job-txn-history-section">
+            <JobTransactionHistory
+              job={job}
+              customerJobs={customerJobs}
+              onOpenFull={() => setSheet({ kind: "payhist" })}
+              onOpenRow={(row) => {
+                // Payment rows open the payment card (edit / delete / reassign invoice or customer).
+                if (row?.kind === "payment") {
+                  setSheet({
+                    kind: "payhist",
+                    editPayId: row.payment?.id || null,
+                    applyTargetJobId: row.applyTargetJobId || null,
+                    applyTargetDocNo: row.applyTargetDocNo || null,
+                    openApply: !!row.openApply,
+                  });
+                  return;
+                }
+                // Estimate / invoice / anything else → Job Information, collapse history (Levi 2026-08-05).
+                setJobTxns(false);
+                setShortTxns(false);
+                requestAnimationFrame(scrollToJobInfo);
+              }}
+            />
           </div>
         ) : null}
 
