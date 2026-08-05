@@ -12,6 +12,8 @@ import {
   FILTER_NAMES,
   SORT_OPTIONS,
   clientKey,
+  isDocNumberQuery,
+  jobMatchesDocNumber,
   matchesFilter,
   matchesQuery,
   sortByNextAction,
@@ -127,28 +129,53 @@ function AgingSideRail({ jobs }) {
 }
 
 /** Expanded customer body: billing first (tap → customer info), then each
- *  service address with its open invoices only. */
-function CustomerExpandPanel({ jobs, onOpenCustomer, openInvoicesOnly = false, customerKey = "" }) {
+ *  service address. Search shows closed/paid invoice+estimate hits (Levi 2026-08-05). */
+function CustomerExpandPanel({
+  jobs,
+  onOpenCustomer,
+  openInvoicesOnly = false,
+  customerKey = "",
+  searchQuery = "",
+}) {
   const contact = customerContact(jobs);
   const billing = String(contact.billingAddress || "").trim();
+  const q = String(searchQuery || "").trim();
+  // Searching a doc # / any text: show closed invoices + estimates under service (not only open).
+  const onlyOpen = openInvoicesOnly && !q;
   const groups = groupJobsByServiceAddress(jobs);
   const openGroups = groups
-    .map((g) => ({
-      ...g,
-      openJobs: g.jobs.filter((j) => openBalance(j) > 0),
-      otherJobs: openInvoicesOnly ? [] : g.jobs.filter((j) => !(openBalance(j) > 0)),
-    }))
-    .filter((g) => (openInvoicesOnly ? g.openJobs.length : g.jobs.length));
+    .map((g) => {
+      let list = g.jobs || [];
+      if (q) {
+        // Prefer query hits; keep open balances too so expand still useful.
+        const hits = list.filter((j) => matchesQuery(j, q));
+        const opens = list.filter((j) => openBalance(j) > 0);
+        const ids = new Set();
+        list = [];
+        for (const j of hits.concat(opens)) {
+          if (ids.has(j.id)) continue;
+          ids.add(j.id);
+          list.push(j);
+        }
+        // Doc search with no open balance: only hits (closed inv/est).
+        if (isDocNumberQuery(q) && hits.length) list = hits;
+      }
+      const openJobs = list.filter((j) => openBalance(j) > 0);
+      const otherJobs = onlyOpen ? [] : list.filter((j) => !(openBalance(j) > 0));
+      return { ...g, jobs: list, openJobs, otherJobs };
+    })
+    .filter((g) => (onlyOpen ? g.openJobs.length : g.openJobs.length + g.otherJobs.length));
 
   const jobHref = (j) => {
     if (!customerKey) return undefined;
-    return (
-      "/job/" +
-      encodeURIComponent(j.id) +
-      "?from=" +
-      encodeURIComponent(customerKey) +
-      "&fold=1"
-    );
+    const parts = ["from=" + encodeURIComponent(customerKey), "fold=1"];
+    if (j.invoiceNo && (!q || jobMatchesDocNumber(j, q) || String(j.invoiceNo).includes(q))) {
+      parts.push("hlInv=" + encodeURIComponent(String(j.invoiceNo)));
+    }
+    if (j.estimateNo && q && jobMatchesDocNumber(j, q) && !j.invoiceNo) {
+      parts.push("doc=estimate");
+    }
+    return "/job/" + encodeURIComponent(j.id) + "?" + parts.join("&");
   };
 
   return (
@@ -178,7 +205,7 @@ function CustomerExpandPanel({ jobs, onOpenCustomer, openInvoicesOnly = false, c
               {g.openJobs.map((j) => (
                 <GroupJobRow key={j.id} job={j} openInvoiceOnly to={jobHref(j)} />
               ))}
-              {!openInvoicesOnly &&
+              {!onlyOpen &&
                 g.otherJobs.map((j) => (
                   <GroupJobRow key={j.id} job={j} to={jobHref(j)} />
                 ))}
@@ -187,7 +214,7 @@ function CustomerExpandPanel({ jobs, onOpenCustomer, openInvoicesOnly = false, c
         ))
       ) : (
         <div className="text-[11px] text-slate-400 px-0.5" data-testid="expand-no-open">
-          {openInvoicesOnly ? "No open invoices" : "No jobs at this address"}
+          {onlyOpen ? "No open invoices" : "No jobs at this address"}
         </div>
       )}
     </div>
@@ -536,8 +563,13 @@ export default function Jobs({
   const frozenActiveRef = useRef(activeLive);
   if (listActive) frozenActiveRef.current = activeLive;
   const active = listActive ? activeLive : frozenActiveRef.current;
+  // Doc # search (invoice / estimate) ignores Active/Unpaid chips so closed jobs still hit.
   const matchesChip = useCallback(
-    (j) => matchesFilter(j, effFilter) && matchesQuery(j, deferredQ),
+    (j) => {
+      const q = deferredQ.trim();
+      if (q && isDocNumberQuery(q)) return matchesQuery(j, q);
+      return matchesFilter(j, effFilter) && matchesQuery(j, deferredQ);
+    },
     [effFilter, deferredQ]
   );
   const shown = useMemo(() => {
@@ -668,15 +700,40 @@ export default function Jobs({
         list.filter((j) => !boardBase.parentJobIds.has(j.id) && !effectiveHasParentCustomer(j, qboHierarchy)),
       ])
       .filter(([, list]) => list.length && list.some(matchesChip));
-    if (effFilter === "Active") {
-      const parentJobs = (row) => row.jobs.concat((row.subs || []).flatMap((s) => s.jobs));
+    const parentJobs = (row) => row.jobs.concat((row.subs || []).flatMap((s) => s.jobs));
+    // Search: rank doc-number / query hits first so closed invoices aren't buried past listLimit.
+    if (deferredQ.trim()) {
+      const q = deferredQ.trim();
+      const scoreJobs = (list) => {
+        let s = 0;
+        for (const j of list) {
+          if (jobMatchesDocNumber(j, q)) s += 100;
+          else if (matchesQuery(j, q)) s += 10;
+        }
+        return s;
+      };
+      parents = parents
+        .slice()
+        .sort(
+          (a, b) =>
+            scoreJobs(parentJobs(b)) - scoreJobs(parentJobs(a)) ||
+            compareCustomerRecency(a.key, parentJobs(a), b.key, parentJobs(b))
+        );
+      flat = flat
+        .slice()
+        .sort(
+          (A, B) =>
+            scoreJobs(B[1]) - scoreJobs(A[1]) ||
+            compareCustomerRecency(A[0], A[1], B[0], B[1])
+        );
+    } else if (effFilter === "Active") {
       parents = parents
         .slice()
         .sort((a, b) => compareCustomerRecency(a.key, parentJobs(a), b.key, parentJobs(b)));
       flat = flat.slice().sort((A, B) => compareCustomerRecency(A[0], A[1], B[0], B[1]));
     }
     return { parentRows: parents, flatGroups: flat };
-  }, [boardBase, groups, matchesChip, qboHierarchy, effFilter, recencyTick]);
+  }, [boardBase, groups, matchesChip, qboHierarchy, effFilter, recencyTick, deferredQ]);
 
   /** One flat row per customer (parent companies + plain groups) for the Balance view. */
   const customerRows = useMemo(() => {
@@ -793,6 +850,17 @@ export default function Jobs({
     }
   }, [deferredQ, parentRows, matchesChip]);
 
+  /** Doc # search: auto-expand customer groups that own the invoice/estimate (incl. paid). */
+  useEffect(() => {
+    const query = deferredQ.trim();
+    if (!query || !isDocNumberQuery(query)) return;
+    for (const [key, list] of flatGroups) {
+      if (!list.some((j) => jobMatchesDocNumber(j, query) || matchesQuery(j, query))) continue;
+      setOpen((o) => (o[key] ? o : { ...o, [key]: true }));
+      armCollapse(key, PARENT_SUB_COLLAPSE_MS);
+    }
+  }, [deferredQ, flatGroups]);
+
   const groupExpanded = (key) => (isParentBoardKey(key) || !collapseGroups) && open[key];
   useEffect(() => {
     const t = timers.current;
@@ -860,6 +928,20 @@ export default function Jobs({
   useEffect(() => () => clearTimeout(custTimer.current), []);
 
   const openCustomer = (key, jobsList = []) => {
+    // Doc # search: jump straight to the matching invoice/estimate job (Levi 2026-08-05).
+    const q = deferredQ.trim();
+    if (q && jobsList?.length) {
+      const hits = jobsList.filter((j) => jobMatchesDocNumber(j, q));
+      const job = hits[0] || (isDocNumberQuery(q) ? jobsList.find((j) => matchesQuery(j, q)) : null);
+      if (job?.id) {
+        const parts = ["from=" + encodeURIComponent(key), "fold=1"];
+        if (job.invoiceNo) parts.push("hlInv=" + encodeURIComponent(String(job.invoiceNo)));
+        if (job.estimateNo && !job.invoiceNo) parts.push("doc=estimate");
+        nav("/job/" + encodeURIComponent(job.id) + "?" + parts.join("&"));
+        setTimeout(() => touchCustomer(key, jobsList), 0);
+        return;
+      }
+    }
     // Navigate first — recording recency used to re-sort the whole list under the
     // finger (multi-second lag) before the customer screen opened.
     nav("/customer/" + encodeURIComponent(key));
@@ -1171,7 +1253,8 @@ export default function Jobs({
                             <div onPointerDown={() => armCollapse(sub.key, PARENT_SUB_COLLAPSE_MS)}>
                               <CustomerExpandPanel
                                 jobs={sub.jobs}
-                                openInvoicesOnly
+                                openInvoicesOnly={!searchOn}
+                                searchQuery={deferredQ}
                                 customerKey={sub.key}
                                 onOpenCustomer={() => openCustomer(sub.key, sub.jobs)}
                               />
@@ -1273,7 +1356,8 @@ export default function Jobs({
                   <div onPointerDown={() => armCollapse(key)}>
                     <CustomerExpandPanel
                       jobs={expandJobs(list)}
-                      openInvoicesOnly
+                      openInvoicesOnly={!deferredQ.trim()}
+                      searchQuery={deferredQ}
                       customerKey={key}
                       onOpenCustomer={() => openCustomer(key, list)}
                     />

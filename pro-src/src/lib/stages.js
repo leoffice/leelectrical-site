@@ -148,13 +148,51 @@ export function jobSearchHay(job) {
   return hay;
 }
 
+/** Strip Inv#/Est# noise so "inv 251854" and "#251854" match invoiceNo. */
+export function normalizeDocSearchToken(raw) {
+  return String(raw || "")
+    .toLowerCase()
+    .trim()
+    .replace(/^(inv|invoice|est|estimate)\s*#?\s*/i, "")
+    .replace(/^#/, "")
+    .trim();
+}
+
+/** True when query looks like an invoice / estimate number search (Levi 2026-08-05). */
+export function isDocNumberQuery(q) {
+  const t = normalizeDocSearchToken(q);
+  if (!t) return false;
+  // Digits with optional letter suffix (251854, WEB000024, LE-123) — not a multi-word name.
+  if (/\s/.test(String(q || "").trim()) && !/^(inv|invoice|est|estimate)\b/i.test(String(q || "").trim())) {
+    return false;
+  }
+  return /^(?:[a-z]{0,6}-?)?\d{3,}[a-z0-9-]*$/i.test(t) || /^web\d+/i.test(t);
+}
+
+/** Exact-ish match on invoice or estimate # for deep-link search hits. */
+export function jobMatchesDocNumber(job, q) {
+  if (!job || !q) return false;
+  const t = normalizeDocSearchToken(q);
+  if (!t) return false;
+  const inv = String(job.invoiceNo || "").toLowerCase();
+  const est = String(job.estimateNo || "").toLowerCase();
+  if (inv && (inv === t || inv.includes(t) || t.includes(inv))) return true;
+  if (est && (est === t || est.includes(t) || t.includes(est))) return true;
+  return false;
+}
+
 export function matchesQuery(job, q) {
   if (!q) return true;
+  const raw = String(q).toLowerCase().trim();
+  if (!raw) return true;
   const hay = jobSearchHay(job);
-  return q
-    .toLowerCase()
-    .split(/\s+/)
-    .every((w) => hay.includes(w));
+  const words = raw.split(/\s+/).filter(Boolean);
+  if (words.every((w) => hay.includes(w))) return true;
+  // Doc-number path: closed/paid invoices must still hit (Levi 2026-08-05).
+  if (isDocNumberQuery(raw) || jobMatchesDocNumber(job, raw)) {
+    return jobMatchesDocNumber(job, raw);
+  }
+  return false;
 }
 
 /** Grouping key — clientGroup, else normalized customer name (bug #1 fix).

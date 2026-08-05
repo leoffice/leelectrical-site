@@ -100,6 +100,16 @@ describe("grouping + sorting", () => {
     expect(matchesQuery(j, "251841")).toBe(true);
     expect(matchesQuery(j, "nope")).toBe(false);
   });
+  it("doc number search finds paid/closed invoices and estimates", () => {
+    const paid = { customer: "Goodness", invoiceNo: "251854", paid: true, amount: 100 };
+    const est = { customer: "X", estimateNo: "99901", title: "Meter" };
+    expect(matchesQuery(paid, "251854")).toBe(true);
+    expect(matchesQuery(paid, "#251854")).toBe(true);
+    expect(matchesQuery(paid, "inv 251854")).toBe(true);
+    expect(matchesQuery(est, "99901")).toBe(true);
+    expect(matchesQuery(est, "est 99901")).toBe(true);
+    expect(matchesQuery(paid, "99901")).toBe(false);
+  });
 });
 
 describe("paperwork branch definitions (exact app/jobs.html lists — the authoritative old dashboard)", () => {
