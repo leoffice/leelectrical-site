@@ -513,6 +513,37 @@ function CaseRow({
   );
 }
 
+/**
+ * Levi 2026-08-05: green Deploy stays visible while working — battery fill + %
+ * so the row never looks idle during a long Con Ed / fleet deploy.
+ */
+function DeployProgressButton({ pct = 0, label = "Deploying…", testId, compact }) {
+  const p = Math.max(0, Math.min(100, Math.round(Number(pct) || 0)));
+  return (
+    <button
+      type="button"
+      disabled
+      aria-busy="true"
+      data-testid={testId}
+      className={
+        compact
+          ? "relative overflow-hidden rounded-lg border border-emerald-800/30 min-w-[5.5rem] !py-1 !px-2.5 text-[11px] font-extrabold text-white"
+          : "relative overflow-hidden rounded-xl border border-emerald-800/30 min-w-[7.5rem] !py-1.5 !px-3 text-xs font-extrabold text-white"
+      }
+      style={{ background: "#065f46" }}
+    >
+      <span
+        className="absolute inset-y-0 left-0 bg-emerald-400/95 transition-[width] duration-500 ease-out"
+        style={{ width: `${p}%` }}
+        aria-hidden
+      />
+      <span className="relative z-10 tabular-nums drop-shadow-sm">
+        {label} {p}%
+      </span>
+    </button>
+  );
+}
+
 /** One Deploy queue row — expand for Open / Job / Edit + green Deploy. */
 function DeployQueueRow({
   item,
@@ -558,6 +589,40 @@ function DeployQueueRow({
   const canDeploy = !isDeploying && queueItemCanDeploy(item);
   const needsReview = item.source === "fleet" && status === "awaiting_approval";
   const needsInfo = hardMissing.length > 0 || status === "need_info";
+
+  // Simulated battery progress while Deploying (fleet may not stream real %).
+  // Caps at 92% until row leaves the queue as done.
+  const [deployPct, setDeployPct] = useState(0);
+  const [deployPhaseLabel, setDeployPhaseLabel] = useState("Deploying…");
+  useEffect(() => {
+    if (!isDeploying) {
+      setDeployPct(0);
+      setDeployPhaseLabel("Deploying…");
+      return undefined;
+    }
+    setDeployPct((p) => (p > 0 ? p : 8));
+    setDeployPhaseLabel("Deploying…");
+    const phases = [
+      [18, "Queuing…"],
+      [35, "Opening portal…"],
+      [55, "Uploading…"],
+      [72, "Confirming…"],
+      [88, "Holding…"],
+      [92, "Almost…"],
+    ];
+    let i = 0;
+    const t = setInterval(() => {
+      setDeployPct((prev) => {
+        const next = Math.min(92, prev + (prev < 40 ? 6 : prev < 70 ? 3 : 1));
+        while (i < phases.length && next >= phases[i][0]) {
+          setDeployPhaseLabel(phases[i][1]);
+          i += 1;
+        }
+        return next;
+      });
+    }, 900);
+    return () => clearInterval(t);
+  }, [isDeploying, item.id]);
 
   let statusLabel = status || "pending";
   let statusTone = "bg-slate-100 text-slate-600";
@@ -616,7 +681,12 @@ function DeployQueueRow({
           {/* Sticky primary action on collapsed row (Levi UI audit) */}
           {!expanded ? (
             isDeploying ? (
-              <span className="text-[11px] font-bold text-amber-800">Deploying…</span>
+              <DeployProgressButton
+                pct={deployPct}
+                label={deployPhaseLabel}
+                testId="permits-queue-deploy-sticky"
+                compact
+              />
             ) : canDeploy ? (
               <button
                 type="button"
@@ -739,15 +809,11 @@ function DeployQueueRow({
               </button>
             ) : null}
             {isDeploying ? (
-              <button
-                type="button"
-                className="btn bg-emerald-600/80 text-white !py-1.5 !px-3 text-xs font-extrabold"
-                disabled
-                data-testid="permits-queue-deploy"
-                aria-busy="true"
-              >
-                Deploying…
-              </button>
+              <DeployProgressButton
+                pct={deployPct}
+                label={deployPhaseLabel}
+                testId="permits-queue-deploy"
+              />
             ) : canDeploy ? (
               <button
                 type="button"
