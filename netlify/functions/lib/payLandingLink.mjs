@@ -12,9 +12,15 @@
 // Key/format/TTL deliberately mirror pay-link.mjs so either can mint or read.
 
 import { getStore } from "./storage/index.mjs";
+import { parseEmailRecipients } from "./paymentConfirmEnv.mjs";
 
 const SITE = "https://leelectrical.us";
 const TTL_MS = 90 * 24 * 60 * 60 * 1000; // 90 days — matches pay-link.mjs
+
+/** Cardknox xEmail allows one address only (E40). */
+function primaryEmail(raw) {
+  return parseEmailRecipients(raw)[0] || "";
+}
 
 /** Same shape pay-link.mjs mints and PayLanding accepts: 5-8 digits + "-" + 4. */
 export function makePayCode(invoiceNo, rand = Math.random) {
@@ -121,7 +127,7 @@ export function buildEmailPayLandingPayload({
     d: money(due),
     p: money(paid),
     ps: isEstimate ? [] : paymentsFor(job),
-    e: String(email || job.email || "").trim(),
+    e: primaryEmail(email || job.email || ""),
     ph: String(job.phone || "").trim(),
     sa: serviceAddr,
     ba: billAddr,

@@ -7,9 +7,15 @@ import {
 } from "./sola-shared.mjs";
 import { sendPaymentConfirmEmail } from "./payment-confirm-email.mjs";
 import { resolveXKey, sutMismatchHint } from "./sola-keys.mjs";
+import { parseEmailRecipients } from "./lib/paymentConfirmEnv.mjs";
 import { PRODUCT_BRAND } from "../../shared/productBrand.mjs";
 
 const GATEWAY = "https://x1.cardknox.com/gatewayjson";
+
+/** Cardknox xEmail rejects multi-address strings (E40). Use first only. */
+function singleEmail(raw) {
+  return parseEmailRecipients(raw)[0] || "";
+}
 
 function corsHeaders() {
   return {
@@ -48,7 +54,8 @@ async function solaSave(body) {
   };
   const bill = body.billing || {};
   if (bill.name) payload.xBillLastName = bill.name;
-  if (bill.email) payload.xEmail = bill.email;
+  const saveEmail = singleEmail(bill.email);
+  if (saveEmail) payload.xEmail = saveEmail;
   if (bill.street) payload.xBillStreet = bill.street;
   if (bill.zip) payload.xBillZip = bill.zip;
   const res = await fetch(GATEWAY, {
@@ -87,7 +94,8 @@ async function solaSale(body) {
   else payload.xCardNum = body.xCardNum;
   const bill = body.billing || {};
   if (bill.name) payload.xBillLastName = bill.name;
-  if (bill.email) payload.xEmail = bill.email;
+  const saleEmail = singleEmail(bill.email);
+  if (saleEmail) payload.xEmail = saleEmail;
   if (bill.phone) payload.xBillPhone = bill.phone;
   if (bill.street) payload.xBillStreet = bill.street;
   if (bill.city) payload.xBillCity = bill.city;
@@ -158,7 +166,8 @@ async function solaCheckSale(body) {
   if (body.xCheckImageFront) payload.xCheckImageFront = body.xCheckImageFront;
   const bill = body.billing || {};
   if (bill.name) payload.xBillLastName = bill.name;
-  if (bill.email) payload.xEmail = bill.email;
+  const checkEmail = singleEmail(bill.email);
+  if (checkEmail) payload.xEmail = checkEmail;
   if (bill.phone) payload.xBillPhone = bill.phone;
   if (bill.street) payload.xBillStreet = bill.street;
   if (bill.city) payload.xBillCity = bill.city;

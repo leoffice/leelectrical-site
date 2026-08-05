@@ -110,7 +110,17 @@ function respondResolved(req, code, record) {
       { status: 302, headers: { Location: target, "content-type": "text/html; charset=utf-8" } }
     );
   }
-  return json({ ok: true, code, payload: record.payload, healed: !!record.healed });
+  // Sanitize multi-email payloads stored before Cardknox E40 fix (one address only).
+  const payload =
+    record.payload && typeof record.payload === "object" ? { ...record.payload } : record.payload;
+  if (payload && typeof payload.e === "string" && /[,;]/.test(payload.e)) {
+    const one = String(payload.e)
+      .split(/[,;]+/)
+      .map((s) => s.trim())
+      .find((s) => s.includes("@"));
+    if (one) payload.e = one;
+  }
+  return json({ ok: true, code, payload, healed: !!record.healed });
 }
 
 export default async (req, env = {}) => {

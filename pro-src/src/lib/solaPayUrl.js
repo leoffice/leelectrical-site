@@ -1,4 +1,5 @@
 import { solaAmount } from "./payFees.js";
+import { primaryEmailForPayment } from "./primaryEmail.js";
 
 const DEFAULT_BASE = "https://secure.cardknox.com";
 const DEFAULT_REDIRECT = "https://leelectrical.us/.netlify/functions/sola-payment";
@@ -89,7 +90,9 @@ export function buildSolaPayUrl({
   if (jid) params.xCustom02 = jid;
   const name = String(customer || "").trim();
   if (name) params.xBillLastName = name;
-  if (email) params.xEmail = String(email).trim();
+  // Cardknox E40 — only one email allowed (multi-email jobs are common in QBO)
+  const oneEmail = primaryEmailForPayment(email);
+  if (oneEmail) params.xEmail = oneEmail;
   if (phone) params.xBillPhone = String(phone).trim();
   if (bill.street) params.xBillStreet = bill.street;
   if (bill.city) params.xBillCity = bill.city;
@@ -98,8 +101,8 @@ export function buildSolaPayUrl({
     params.xBillZip = zipCode;
     params.xZip = zipCode;
   }
-  if (email) params.xCustReceipt = "1";
-  if (savePayment && email) params.xAllowDuplicate = "1";
+  if (oneEmail) params.xCustReceipt = "1";
+  if (savePayment && oneEmail) params.xAllowDuplicate = "1";
 
   const qs = new URLSearchParams(params).toString();
   return `${String(baseUrl).replace(/\/$/, "")}/${slug}?${qs}`;

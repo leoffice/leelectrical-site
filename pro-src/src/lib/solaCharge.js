@@ -1,6 +1,7 @@
 import { parseUSAddress } from "./solaPayUrl.js";
 import { totalWithFee } from "./payFees.js";
 import { functionsBase } from "./functionsBase.js";
+import { primaryEmailForPayment } from "./primaryEmail.js";
 
 export async function fetchSolaIfieldsConfig() {
   const res = await fetch(`${functionsBase()}/sola-ifields-config`, { cache: "no-store" });
@@ -30,7 +31,8 @@ export function billingFromJob(job) {
   const bill = parseUSAddress(job?.billingAddress || job?.address || "");
   return {
     name: job?.customer || job?.businessName || "",
-    email: job?.email || "",
+    // Cardknox E40: only one email — jobs often store "a@x.com, b@y.com"
+    email: primaryEmailForPayment(job?.email),
     phone: job?.phone || "",
     street: bill.street || "",
     city: bill.city || "",
@@ -44,7 +46,7 @@ export function billingFromLanding(data) {
   const bill = parseUSAddress(data?.ba || data?.sa || "");
   return {
     name: data?.c || "",
-    email: data?.e || "",
+    email: primaryEmailForPayment(data?.e),
     phone: data?.ph || "",
     street: bill.street || "",
     city: bill.city || "",

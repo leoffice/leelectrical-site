@@ -4,6 +4,7 @@ import { normalizePayments } from "./payments.js";
 import { parseAmount } from "./format.js";
 import { parseUSAddress, extractZip } from "./solaPayUrl.js";
 import { functionsBase, siteOrigin } from "./functionsBase.js";
+import { primaryEmailForPayment } from "./primaryEmail.js";
 
 const SHORT_CODE_RE = /^[0-9]{5,8}-[a-z0-9]{4}$/i;
 
@@ -95,7 +96,7 @@ export function buildPayLandingPayload({
       d: (pay.date || "").trim(),
       r: (pay.ref || "").trim(),
     })),
-    e: (job?.email || "").trim(),
+    e: primaryEmailForPayment(job?.email),
     ph: (job?.phone || "").trim(),
     sa: serviceAddr,
     ba: billAddr,
