@@ -209,27 +209,21 @@ export default function CustomerCard({
           data-testid="customer-card-toggles"
           data-no-card-open
         >
-          {typeof onPaperworkChange === "function" ? (
-            <div
-              className="flex items-center justify-between gap-2"
-              data-testid="customer-paperwork-toggle-row"
-            >
-              <span className="text-[11px] font-semibold text-slate-600">Paperwork</span>
-              <Toggle
-                on={!!paperworkOn}
-                onChange={onPaperworkChange}
-                small
-                label="Enable paperwork / permit tracker"
-              />
-            </div>
-          ) : null}
-          {canToggleTxns ? (
-            <div
-              className="flex items-center justify-between gap-2"
-              data-testid="customer-short-txns-row"
-            >
-              <span className="text-[11px] text-slate-500">Tap card to show or hide</span>
-              <div className="flex items-center gap-2">
+          {/* One row: Paperwork | Transaction history (Levi 2026-08-05 — named, parallel). */}
+          <div className="flex items-center justify-end gap-4 flex-wrap" data-testid="customer-short-txns-row">
+            {typeof onPaperworkChange === "function" ? (
+              <div className="flex items-center gap-1.5" data-testid="customer-paperwork-toggle-row">
+                <span className="text-[11px] font-semibold text-slate-600">Paperwork</span>
+                <Toggle
+                  on={!!paperworkOn}
+                  onChange={onPaperworkChange}
+                  small
+                  label="Paperwork"
+                />
+              </div>
+            ) : null}
+            {canToggleTxns ? (
+              <div className="flex items-center gap-1.5">
                 <span className="text-[11px] font-semibold text-slate-600">Transaction history</span>
                 <Toggle
                   on={!!shortTxns}
@@ -238,8 +232,8 @@ export default function CustomerCard({
                   label="Transaction history"
                 />
               </div>
-            </div>
-          ) : null}
+            ) : null}
+          </div>
         </div>
       ) : null}
     </div>

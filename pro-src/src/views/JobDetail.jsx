@@ -123,6 +123,7 @@ import {
   paperworkTodoLabel,
   updatePaperworkTodoPatch,
 } from "../lib/agencyForms/index.js";
+import { listConedCustomerTodos } from "../lib/conedCustomerTodos.js";
 
 const CMD_TONES = {
   queued: "bg-slate-100 text-slate-500",
@@ -907,68 +908,98 @@ export default function JobDetail() {
           </div>
         ) : null}
 
-        {/* Con Edison + DOB cards under payment history when Paperwork is on (Levi 2026-08-05). */}
+        {/* Paperwork on: one line Con Edison | DOB, expand for to-do list (Levi 2026-08-05). */}
         {paperworkOn ? (
-          <div className="mt-2 space-y-2" data-testid="job-paperwork-tracks">
-            <p className="text-[11px] font-extrabold text-slate-500 uppercase tracking-wider px-0.5">
-              Paperwork · linked to Permits tab
-            </p>
-            {[
-              {
-                id: "coned",
-                title: "Con Edison",
-                caseNo: job.paperwork?.coned?.caseNumber || "",
-                stage:
-                  job.paperwork?.coned?.stageLabel ||
-                  job.paperwork?.coned?.caseNumber ||
-                  (job.paperwork?.coned?.enabled || paperworkOn ? "On tracker" : ""),
-                next: job.paperwork?.coned?.nextAction || "",
-              },
-              {
-                id: "dob",
-                title: "DOB / City",
-                caseNo:
-                  job.paperwork?.dob?.jobNumber ||
-                  job.paperwork?.dob?.caseNumber ||
-                  job.paperwork?.city?.jobNumber ||
-                  "",
-                stage:
-                  job.paperwork?.dob?.stageLabel ||
-                  job.paperwork?.city?.stageLabel ||
-                  (job.paperwork?.dob?.enabled || job.paperwork?.city?.enabled || paperworkOn
-                    ? "On tracker"
-                    : ""),
-                next: job.paperwork?.dob?.nextAction || job.paperwork?.city?.nextAction || "",
-              },
-            ].map((track) => (
-              <details
-                key={track.id}
-                className="card overflow-hidden"
-                data-testid={"job-paperwork-track-" + track.id}
+          <div className="mt-2" data-testid="job-paperwork-tracks">
+            <div className="flex items-center justify-between gap-2 px-0.5 mb-1.5">
+              <p className="text-[11px] font-extrabold text-slate-500 uppercase tracking-wider">
+                Paperwork
+              </p>
+              <button
+                type="button"
+                className="text-[10px] font-bold text-brand"
+                onClick={() => nav("/permits")}
               >
-                <summary className="px-3 py-2.5 cursor-pointer list-none flex items-center justify-between gap-2">
-                  <span className="text-sm font-extrabold text-slate-900">{track.title}</span>
-                  <span className="text-[11px] text-slate-500 font-semibold truncate">
-                    {track.stage || "Tap to expand"}
-                  </span>
-                </summary>
-                <div className="px-3 pb-3 border-t border-slate-100 text-sm text-slate-600 space-y-1">
-                  {track.caseNo ? <div className="font-semibold text-slate-800">{track.caseNo}</div> : null}
-                  {track.stage ? <div>Status: {track.stage}</div> : null}
-                  {track.next ? <div>Next: {track.next}</div> : null}
-                  <div className="text-[11px] text-slate-400">
-                    Same job on the Permits tab — open there for the full queue and to-dos.
+                Permits tab →
+              </button>
+            </div>
+            <div className="grid grid-cols-2 gap-2">
+              {[
+                {
+                  id: "coned",
+                  title: "Con Edison",
+                  caseNo: job.paperwork?.coned?.caseNumber || "",
+                  stage:
+                    job.paperwork?.coned?.stageLabel ||
+                    (job.paperwork?.coned?.caseNumber ? "" : "On tracker"),
+                  next: job.paperwork?.coned?.nextAction || "",
+                  todos: listConedCustomerTodos(job),
+                },
+                {
+                  id: "dob",
+                  title: "DOB",
+                  caseNo:
+                    job.paperwork?.dob?.jobNumber ||
+                    job.paperwork?.dob?.caseNumber ||
+                    job.paperwork?.city?.jobNumber ||
+                    "",
+                  stage:
+                    job.paperwork?.dob?.stageLabel ||
+                    job.paperwork?.city?.stageLabel ||
+                    "On tracker",
+                  next: job.paperwork?.dob?.nextAction || job.paperwork?.city?.nextAction || "",
+                  todos: listPaperworkTodos(job).filter(
+                    (t) =>
+                      /dob|electrical|permit|certificate/i.test(String(t.kind || t.title || ""))
+                  ),
+                },
+              ].map((track) => (
+                <details
+                  key={track.id}
+                  className="card overflow-hidden min-w-0"
+                  data-testid={"job-paperwork-track-" + track.id}
+                >
+                  <summary className="px-2.5 py-2 cursor-pointer list-none text-center">
+                    <span className="block text-xs font-extrabold text-slate-900">{track.title}</span>
+                    <span className="block text-[10px] text-slate-500 font-semibold truncate mt-0.5">
+                      {track.caseNo || track.stage || "Tap for to-dos"}
+                    </span>
+                  </summary>
+                  <div className="px-2.5 pb-2.5 border-t border-slate-100 text-[12px] text-slate-600 space-y-1.5">
+                    {track.caseNo ? (
+                      <div className="font-semibold text-slate-800">{track.caseNo}</div>
+                    ) : null}
+                    {track.stage ? <div className="text-[11px]">{track.stage}</div> : null}
+                    {track.next ? <div className="text-[11px]">Next: {track.next}</div> : null}
+                    <div className="text-[10px] font-extrabold uppercase tracking-wide text-slate-400 pt-1">
+                      To-do list
+                    </div>
+                    {(track.todos || []).length ? (
+                      <ul className="space-y-1" data-testid={"job-paperwork-todos-" + track.id}>
+                        {track.todos.map((t) => (
+                          <li
+                            key={t.id || t.kind || t.title}
+                            className="flex items-start gap-1.5 text-[11px] leading-snug"
+                          >
+                            <span className="shrink-0">{t.status === "done" || t.done ? "☑" : "☐"}</span>
+                            <span className="min-w-0">
+                              {t.title || t.label || t.kind || "Item"}
+                              {t.skillReady === false ? (
+                                <span className="block text-[10px] text-slate-400">Skill not ready</span>
+                              ) : t.skillReady ? (
+                                <span className="block text-[10px] text-brand font-semibold">Skill ready</span>
+                              ) : null}
+                            </span>
+                          </li>
+                        ))}
+                      </ul>
+                    ) : (
+                      <p className="text-[11px] text-slate-400">No to-dos yet — updates from Energy Services emails.</p>
+                    )}
                   </div>
-                  <button
-                    type="button"
-                    className="text-xs font-bold text-brand mt-1"
-                    onClick={() => nav("/permits")}
-                  >
-                    Open Permits tab →
-                  </button>
-                </div>
-              </details>
-            ))}
+                </details>
+              ))}
+            </div>
           </div>
         ) : null}
 
