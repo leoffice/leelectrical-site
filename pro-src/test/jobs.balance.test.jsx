@@ -182,4 +182,66 @@ describe("Balance view", () => {
     expect(screen.queryByTestId("balance-card-detail")).toBeNull();
     vi.useRealTimers();
   });
+
+  it("search invoice # finds closed/paid under customer → service, tap opens job", async () => {
+    mockServer({
+      jobs: [
+        {
+          id: "open1",
+          customer: "Zeta Inc",
+          title: "Panel upgrade",
+          amount: "$9,000",
+          invoiceNo: "9001",
+          paid: false,
+          serviceAddress: "10 Main St",
+          status: {},
+        },
+        {
+          id: "paid1",
+          customer: "Paid Pete",
+          title: "Old paid job",
+          amount: "$400",
+          invoiceNo: "8000",
+          paid: true,
+          serviceAddress: "55 Oak Ave",
+          status: {},
+        },
+        {
+          id: "est1",
+          customer: "Est Only Co",
+          title: "Meter work",
+          amount: "$2,000",
+          estimateNo: "99901",
+          paid: false,
+          serviceAddress: "12 Elm",
+          status: {},
+        },
+      ],
+    });
+    const user = userEvent.setup();
+    renderApp("#/");
+    await screen.findByTestId("balance-list");
+
+    // Closed paid invoice
+    await user.clear(screen.getByLabelText("Search jobs"));
+    await user.type(screen.getByLabelText("Search jobs"), "8000");
+    const detail = await screen.findByTestId("balance-card-detail");
+    expect(screen.getByText("Paid Pete")).toBeInTheDocument();
+    const service = within(detail).getByTestId("expand-service-block");
+    expect(service).toHaveTextContent("55 Oak Ave");
+    const rows = within(detail).getAllByTestId("group-job-row");
+    expect(rows.some((r) => r.getAttribute("data-invoice-no") === "8000")).toBe(true);
+    expect(rows[0]).toHaveTextContent(/Inv #8000/);
+    expect(rows[0].getAttribute("href")).toMatch(/\/job\/paid1/);
+
+    // Estimate number
+    await user.clear(screen.getByLabelText("Search jobs"));
+    await user.type(screen.getByLabelText("Search jobs"), "99901");
+    const estDetail = await screen.findByTestId("balance-card-detail");
+    expect(screen.getByText("Est Only Co")).toBeInTheDocument();
+    expect(within(estDetail).getByTestId("expand-service-block")).toHaveTextContent("12 Elm");
+    const estRows = within(estDetail).getAllByTestId("group-job-row");
+    expect(estRows[0]).toHaveTextContent(/Est #99901/);
+    expect(estRows[0].getAttribute("href")).toMatch(/\/job\/est1/);
+  });
 });

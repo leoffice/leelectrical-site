@@ -207,7 +207,12 @@ function CustomerExpandPanel({
               ))}
               {!onlyOpen &&
                 g.otherJobs.map((j) => (
-                  <GroupJobRow key={j.id} job={j} to={jobHref(j)} />
+                  <GroupJobRow
+                    key={j.id}
+                    job={j}
+                    leadWithDoc={!!q}
+                    to={jobHref(j)}
+                  />
                 ))}
             </div>
           </div>
@@ -319,11 +324,10 @@ let baseGroupsCache = { jobs: null, sort: null, value: null };
 let boardBaseCache = { jobs: null, sort: null, qboIndex: null, qboHierarchy: null, value: null };
 
 /**
- * Expanded balance card — billing first, then open invoices only (no estimates /
- * paid / payment history). Grouped by service address; invoice # on each row.
- * Billing box opens full customer info.
+ * Expanded balance card — open invoices by default; when searching, closed
+ * invoices + estimates show under Service too (Levi 2026-08-05).
  */
-function BalanceCardDetail({ row, onOpen, onInteract }) {
+function BalanceCardDetail({ row, onOpen, onInteract, searchQuery = "" }) {
   return (
     <div
       data-testid="balance-card-detail"
@@ -334,6 +338,7 @@ function BalanceCardDetail({ row, onOpen, onInteract }) {
         openInvoicesOnly
         customerKey={row.key}
         onOpenCustomer={onOpen}
+        searchQuery={searchQuery}
       />
     </div>
   );
@@ -344,7 +349,14 @@ function BalanceCardDetail({ row, onOpen, onInteract }) {
  * the detail open in place; it never navigates and never moves the row.
  * Expanded rows auto-fold after ~10s idle (re-armed on touch inside).
  */
-const BalanceCard = React.memo(function BalanceCard({ row, expanded, onToggle, onOpen, onInteract }) {
+const BalanceCard = React.memo(function BalanceCard({
+  row,
+  expanded,
+  onToggle,
+  onOpen,
+  onInteract,
+  searchQuery = "",
+}) {
   const due = row.summary?.due || 0;
   return (
     <div
@@ -382,7 +394,12 @@ const BalanceCard = React.memo(function BalanceCard({ row, expanded, onToggle, o
           </div>
         </button>
         {expanded ? (
-          <BalanceCardDetail row={row} onOpen={onOpen} onInteract={onInteract} />
+          <BalanceCardDetail
+            row={row}
+            onOpen={onOpen}
+            onInteract={onInteract}
+            searchQuery={searchQuery}
+          />
         ) : null}
       </div>
     </div>
@@ -760,7 +777,23 @@ export default function Jobs({
    * bottom of the list leaves it exactly where the finger landed.
    */
   const searching = !!deferredQ.trim();
-  const { owing, other } = partitionBalanceSearch(sortCustomerRows(customerRows, custSort));
+  const docSearching = searching && isDocNumberQuery(deferredQ);
+  // Doc-number search: pin matching customers first so closed inv/est aren't buried.
+  const balanceSorted = useMemo(() => {
+    const base = sortCustomerRows(customerRows, custSort);
+    if (!docSearching) return base;
+    const q = deferredQ.trim();
+    const score = (row) => {
+      let s = 0;
+      for (const j of row.jobs || []) {
+        if (jobMatchesDocNumber(j, q)) s += 100;
+        else if (matchesQuery(j, q)) s += 10;
+      }
+      return s;
+    };
+    return base.slice().sort((a, b) => score(b) - score(a));
+  }, [customerRows, custSort, deferredQ, docSearching]);
+  const { owing, other } = partitionBalanceSearch(balanceSorted);
   const balanceRows = applyStableOrder(owing, balanceOrder.current, epoch);
   const otherRows = searching ? applyStableOrder(other, otherOrder.current, epoch) : [];
 
@@ -792,6 +825,45 @@ export default function Jobs({
     [armBalanceCollapse]
   );
 
+  /** Invoice/estimate # search: auto-expand the matching customer so Service + doc show. */
+  useEffect(() => {
+    const q = deferredQ.trim();
+    if (!q || !isDocNumberQuery(q) || !listActive) return;
+    const expandBal = {};
+    const openGroups = {};
+    for (const row of customerRows) {
+      if ((row.jobs || []).some((j) => jobMatchesDocNumber(j, q))) {
+        expandBal[row.key] = true;
+        openGroups[row.key] = true;
+      }
+    }
+    for (const row of parentRows) {
+      let parentHit = false;
+      for (const sub of row.subs || []) {
+        if ((sub.jobs || []).some((j) => jobMatchesDocNumber(j, q))) {
+          openGroups[sub.key] = true;
+          parentHit = true;
+        }
+      }
+      if (parentHit || (row.jobs || []).some((j) => jobMatchesDocNumber(j, q))) {
+        openGroups[row.key] = true;
+        expandBal[row.key] = true;
+      }
+    }
+    if (Object.keys(expandBal).length) {
+      setExpanded((o) => ({ ...o, ...expandBal }));
+      for (const k of Object.keys(expandBal)) armBalanceCollapse(k);
+    }
+    if (Object.keys(openGroups).length) {
+      setOpen((o) => ({ ...o, ...openGroups }));
+      for (const k of Object.keys(openGroups)) {
+        armCollapse(k, isParentBoardKey(k) ? PARENT_SUB_COLLAPSE_MS : IDLE_COLLAPSE_MS);
+      }
+    }
+    // armCollapse is defined below; effect re-runs on query — intentional.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [deferredQ, customerRows, parentRows, listActive, armBalanceCollapse]);
+
   /** Jobs shown inside an expanded group — full customer when Active/All + no search. */
   const expandJobs = useCallback(
     (list) => {
@@ -809,6 +881,7 @@ export default function Jobs({
       setQ("");
       setCustMatches([]);
       setOpen({});
+      setExpanded({});
       Object.values(timers.current).forEach(clearTimeout);
     }, SEARCH_IDLE_MS);
   }, [q]);
@@ -1129,6 +1202,7 @@ export default function Jobs({
               onToggle={() => toggleExpanded(row.key)}
               onOpen={() => openCustomer(row.key, row.jobs)}
               onInteract={() => armBalanceCollapse(row.key)}
+              searchQuery={deferredQ}
             />
           ))}
           {visibleOtherRows.length ? (
@@ -1149,6 +1223,7 @@ export default function Jobs({
               onToggle={() => toggleExpanded(row.key)}
               onOpen={() => openCustomer(row.key, row.jobs)}
               onInteract={() => armBalanceCollapse(row.key)}
+              searchQuery={deferredQ}
             />
           ))}
           {listLimit < totalListRows ? (
@@ -1283,7 +1358,16 @@ export default function Jobs({
               const pct = progressPct(job);
               const due = fmtAmountDue(job) || fmt$(openBalance(job)) || "—";
               const title = job.title || "(untitled job)";
+              const docHit =
+                docSearching && jobMatchesDocNumber(job, deferredQ.trim());
               const goCustomer = () => openCustomer(key, list);
+              const goJob = () => {
+                const parts = ["from=" + encodeURIComponent(key), "fold=1"];
+                if (job.invoiceNo) parts.push("hlInv=" + encodeURIComponent(String(job.invoiceNo)));
+                if (job.estimateNo && !job.invoiceNo) parts.push("doc=estimate");
+                nav("/job/" + encodeURIComponent(job.id) + "?" + parts.join("&"));
+                setTimeout(() => touchCustomer(key, list), 0);
+              };
               return (
                 <div
                   key={key}
@@ -1294,7 +1378,7 @@ export default function Jobs({
                   <button
                     type="button"
                     className={`min-w-0 flex-1 relative text-left active:opacity-90 ${embedded ? "px-2.5 py-2" : "px-3 py-2.5 lg:px-4 lg:py-3"}`}
-                    onClick={goCustomer}
+                    onClick={docHit ? goJob : goCustomer}
                   >
                     <AttentionGradient show={needsAttention} />
                     <ClientListHeader
@@ -1302,7 +1386,15 @@ export default function Jobs({
                       name={customerName}
                       amount={due}
                       meta={singleJobMetaLine(job)}
-                      hint={title}
+                      hint={
+                        docHit
+                          ? job.invoiceNo
+                            ? `Inv #${job.invoiceNo}`
+                            : job.estimateNo
+                              ? `Est #${job.estimateNo}`
+                              : title
+                          : title
+                      }
                       avatar={<CustomerAvatar name={customerName} />}
                     />
                     {!embedded && (
