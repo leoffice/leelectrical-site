@@ -244,4 +244,49 @@ describe("Balance view", () => {
     expect(estRows[0]).toHaveTextContent(/Est #99901/);
     expect(estRows[0].getAttribute("href")).toMatch(/\/job\/est1/);
   });
+
+  it("customer name search does NOT dump full paid history under Service", async () => {
+    // Levi 2026-08-05: doc # search includes paid; customer name keeps open-only expand.
+    mockServer({
+      jobs: [
+        {
+          id: "openZ",
+          customer: "Zeta Inc",
+          title: "Open panel",
+          amount: "$9,000",
+          invoiceNo: "9100",
+          paid: false,
+          serviceAddress: "10 Main St",
+          status: {},
+        },
+        {
+          id: "paidZ",
+          customer: "Zeta Inc",
+          title: "Old paid",
+          amount: "$400",
+          invoiceNo: "8001",
+          paid: true,
+          serviceAddress: "10 Main St",
+          status: {},
+        },
+      ],
+    });
+    const user = userEvent.setup();
+    renderApp("#/");
+    await screen.findByTestId("balance-list");
+
+    await user.clear(screen.getByLabelText("Search jobs"));
+    await user.type(screen.getByLabelText("Search jobs"), "Zeta");
+    // Expand the customer card if not auto-expanded
+    const taps = screen.getAllByTestId("balance-card-tap");
+    const zeta = taps.find((t) => within(t).queryByText("Zeta Inc"));
+    if (zeta && !screen.queryByTestId("balance-card-detail")) {
+      await user.click(zeta);
+    }
+    const detail = await screen.findByTestId("balance-card-detail");
+    const rows = within(detail).getAllByTestId("group-job-row");
+    // Open invoice only — paid #8001 must not appear under Service for name search
+    expect(rows.some((r) => r.getAttribute("data-invoice-no") === "9100")).toBe(true);
+    expect(rows.some((r) => r.getAttribute("data-invoice-no") === "8001")).toBe(false);
+  });
 });

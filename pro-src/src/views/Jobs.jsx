@@ -140,8 +140,10 @@ function CustomerExpandPanel({
   const contact = customerContact(jobs);
   const billing = String(contact.billingAddress || "").trim();
   const q = String(searchQuery || "").trim();
-  // Searching a doc # / any text: show closed invoices + estimates under service (not only open).
-  const onlyOpen = openInvoicesOnly && !q;
+  const docSearch = isDocNumberQuery(q);
+  // Only invoice/estimate/payment # search expands closed/paid under Service.
+  // Customer-name search keeps open-only (yesterday's behavior) — Levi 2026-08-05.
+  const onlyOpen = openInvoicesOnly && !docSearch;
   const groups = groupJobsByServiceAddress(jobs);
   const openGroups = groups
     .map((g) => {
@@ -158,7 +160,7 @@ function CustomerExpandPanel({
           list.push(j);
         }
         // Doc search with no open balance: only hits (closed inv/est).
-        if (isDocNumberQuery(q) && hits.length) list = hits;
+        if (docSearch && hits.length) list = hits;
       }
       const openJobs = list.filter((j) => openBalance(j) > 0);
       const otherJobs = onlyOpen ? [] : list.filter((j) => !(openBalance(j) > 0));
@@ -324,8 +326,9 @@ let baseGroupsCache = { jobs: null, sort: null, value: null };
 let boardBaseCache = { jobs: null, sort: null, qboIndex: null, qboHierarchy: null, value: null };
 
 /**
- * Expanded balance card — open invoices by default; when searching, closed
- * invoices + estimates show under Service too (Levi 2026-08-05).
+ * Expanded balance card — open invoices by default; when searching a doc #,
+ * closed invoices + estimates show under Service too (Levi 2026-08-05).
+ * Customer-name search does NOT dump full paid history.
  */
 function BalanceCardDetail({ row, onOpen, onInteract, searchQuery = "" }) {
   return (
@@ -1328,7 +1331,7 @@ export default function Jobs({
                             <div onPointerDown={() => armCollapse(sub.key, PARENT_SUB_COLLAPSE_MS)}>
                               <CustomerExpandPanel
                                 jobs={sub.jobs}
-                                openInvoicesOnly={!searchOn}
+                                openInvoicesOnly={!isDocNumberQuery(deferredQ)}
                                 searchQuery={deferredQ}
                                 customerKey={sub.key}
                                 onOpenCustomer={() => openCustomer(sub.key, sub.jobs)}
@@ -1448,7 +1451,7 @@ export default function Jobs({
                   <div onPointerDown={() => armCollapse(key)}>
                     <CustomerExpandPanel
                       jobs={expandJobs(list)}
-                      openInvoicesOnly={!deferredQ.trim()}
+                      openInvoicesOnly={!isDocNumberQuery(deferredQ)}
                       searchQuery={deferredQ}
                       customerKey={key}
                       onOpenCustomer={() => openCustomer(key, list)}
