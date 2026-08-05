@@ -201,10 +201,11 @@ Case Number: MC-941580
 Dear Sholom Rubashkin, The following documentation has been 'Reviewed'
 Document Name Status
 You may receive phone calls about your upcoming service appointment.`;
-    expect(classifyEmailOutcome(subj, body)).toBe("other");
+    expect(classifyEmailOutcome(subj, body)).toBe("todo_update");
     const insight = parseEmailInsight({ from: "CPMS.noreply@coned.com", subject: subj, body });
-    expect(insight.outcome).toBe("other");
+    expect(insight.outcome).toBe("todo_update");
     expect(wantsNewCalendarAppointment(insight)).toBe(false);
+    expect(shouldSurfaceInsight(insight)).toBe(false);
   });
 
   it("re-enriches wrong stored cancelled outcome from DOB footer text", () => {

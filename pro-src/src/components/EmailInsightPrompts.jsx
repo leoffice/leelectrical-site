@@ -591,9 +591,53 @@ export default function EmailInsightPrompts() {
           continue;
         }
 
+        // To-Do list / status updates: silent refresh of permit todos — never calendar popup
+        // (Levi 2026-08-05: no notification every Energy Services email).
+        if (outcome === "todo_update" || outcome === "acknowledgment") {
+          autoRunning.current.add(raw.id);
+          try {
+            if (job && canAutoApply(enriched, job)) {
+              await applyEmailInsight({
+                insight: enriched,
+                job,
+                selectedActionKeys: defaultActionKeys(enriched, job),
+                enqueue,
+                patchAndSave,
+                patchEmailInsight,
+                appendLocalEvent,
+                pullCalendarNow,
+                showToast: null,
+                autoApply: true,
+                events,
+              });
+              await patchEmailInsight(raw.id, {
+                notified: true,
+                status: "auto_applied",
+                autoApplied: true,
+                skipReason: "todo_or_ack_silent",
+                appliedAt: new Date().toISOString(),
+              });
+            } else {
+              await patchEmailInsight(raw.id, {
+                status: "ignored",
+                ignoreReason: outcome === "todo_update" ? "todo_list_no_popup" : "acknowledgment_no_popup",
+                notified: true,
+                appliedAt: new Date().toISOString(),
+              });
+            }
+            seen.current.add(raw.id);
+          } catch {
+            /* leave */
+          } finally {
+            autoRunning.current.delete(raw.id);
+          }
+          continue;
+        }
+
         // New appointment set that is already on the calendar → "already on calendar"
         // notice (no second create). Still never auto-create when missing.
-        if (outcome === "scheduled" || outcome === "other") {
+        // Only real scheduled/rescheduled — NOT "other" (was false-matching To-Do mail).
+        if (outcome === "scheduled" || outcome === "rescheduled") {
           const existing = findEventForInsight(enriched, job, events);
           if (existing) {
             autoRunning.current.add(raw.id);

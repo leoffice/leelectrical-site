@@ -550,6 +550,7 @@ export function classifyEmailOutcome(subject = "", body = "") {
 
   // Customer To-Do / case status updates (Levi 2026-08-03 MC-941580 false 8pm appt).
   // Subject "Status Update for Customer To-Do List" + letterhead "Date:" is NOT a visit.
+  // Levi 2026-08-05: never notify / never calendar — silent todo refresh only.
   if (
     /\bto-?do\s+list\b/.test(subj) ||
     /\bstatus\s+update\s+for\s+customer\b/.test(subj) ||
@@ -560,7 +561,7 @@ export function classifyEmailOutcome(subject = "", body = "") {
       !/\binspection\s+scheduled\b/.test(s) &&
       !/\bappt-\d+/.test(s))
   ) {
-    return "other";
+    return "todo_update";
   }
 
   // Reschedule BEFORE cancel: "cancelled and rescheduled to…" is a move, not a cancel
@@ -606,18 +607,27 @@ export function classifyEmailOutcome(subject = "", body = "") {
   // Con Ed footers say "upcoming service appointment" for SMS marketing — that must
   // NOT demote a real "Your appointment is set" / APPT-* email to reminder-only
   // (Winthrop APPT-722669 lost its calendar slot because of this — Levi 2026-07-30).
+  // Never treat To-Do / status-update mail as a new set (even if body says "scheduled").
+  const isTodoMail =
+    /\bto-?do\s+list\b/.test(subj) ||
+    /\bstatus\s+update\s+for\s+customer\b/.test(subj) ||
+    /\bcustomer\s+to-?do\b/.test(s);
   const isNewSet =
-    /\bappointment\s+is\s+set\b/.test(s) ||
-    /\byour\s+con\s*edison\s+appointment\b/.test(subj) ||
-    /\bappt-\d+/i.test(subj) ||
-    /\bhas\s+scheduled\b/.test(s) ||
-    /\bhas\s+been\s+scheduled\b/.test(s) ||
-    /\binspection\s+scheduled\b/.test(s) ||
-    /\bscheduled\s+an?\s+(?:electrical\s+)?inspection\b/.test(s) ||
-    /\bscheduled\s+a\s+con\s*edison\b/.test(s) ||
-    /\bappointment\s+set\s+between\b/.test(s) ||
-    /\bwe\s+will\s+arrive\s+between\b/.test(s) ||
-    (/\bscheduled\b/.test(s) && !/\breminder\b/.test(s));
+    !isTodoMail &&
+    (/\bappointment\s+is\s+set\b/.test(s) ||
+      /\byour\s+con\s*edison\s+appointment\b/.test(subj) ||
+      /\bappt-\d+/i.test(subj) ||
+      /\bhas\s+scheduled\b/.test(s) ||
+      /\bhas\s+been\s+scheduled\b/.test(s) ||
+      /\binspection\s+scheduled\b/.test(s) ||
+      /\bscheduled\s+an?\s+(?:electrical\s+)?inspection\b/.test(s) ||
+      /\bscheduled\s+a\s+con\s*edison\b/.test(s) ||
+      /\bappointment\s+set\s+between\b/.test(s) ||
+      /\bwe\s+will\s+arrive\s+between\b/.test(s) ||
+      // Require appointment/inspection context — bare "scheduled" in footers is not a set.
+      (/\bscheduled\b/.test(s) &&
+        !/\breminder\b/.test(s) &&
+        /\b(appointment|inspection|visit|meter\s+install)\b/.test(s)));
   if (isNewSet) return "scheduled";
 
   // Reminder only when the mail is actually a reminder — not bare "upcoming" in footers.
@@ -1188,8 +1198,10 @@ export function hasRealInsightData(insight) {
 export function shouldSurfaceInsight(insight, now = new Date()) {
   if (!insight) return false;
   if (!hasRealInsightData(insight)) return false;
-  // Pure acknowledgments never open the appointment sheet — paperwork/case path only.
-  if ((insight.outcome || "") === "acknowledgment") return false;
+  // Pure acknowledgments / To-Do list updates never open the appointment sheet
+  // (Levi 2026-08-05: no popup every Energy Services email).
+  const outcome = insight.outcome || "";
+  if (outcome === "acknowledgment" || outcome === "todo_update") return false;
   if (isPastAppointmentInsight(insight, now)) return false;
   return true;
 }
@@ -1238,6 +1250,7 @@ export function wantsNewCalendarAppointment(insight, now = new Date()) {
     outcome === "cancelled" ||
     outcome === "completed" ||
     outcome === "acknowledgment" ||
+    outcome === "todo_update" ||
     outcome === "other"
   ) {
     return false;
