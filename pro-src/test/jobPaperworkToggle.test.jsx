@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 // Job Information: Paperwork enable above Transaction history; Con Ed + DOB
-// cards under payment history when on (Levi 2026-08-05).
+// peer tabs under Job Information when on (Levi 2026-08-05).
 import React from "react";
 import { afterEach, describe, expect, it } from "vitest";
 import { cleanup, screen, waitFor, within } from "@testing-library/react";
@@ -39,29 +39,31 @@ describe("job detail — Paperwork enable on Job Information", () => {
     expect(within(paperRow).getByRole("switch", { name: /Enable paperwork/i })).toBeInTheDocument();
     // Not on the customer card
     expect(screen.queryByTestId("customer-paperwork-toggle-row")).not.toBeInTheDocument();
+    // Label sits tight next to the toggle (not a full-width solo row)
+    expect(within(paperRow).getByText("Paperwork")).toBeInTheDocument();
   });
 
-  it("turning Paperwork on shows Con Edison + DOB cards under job history area", async () => {
+  it("turning Paperwork on shows Con Edison + DOB peer tabs on Job Information", async () => {
     mockServer({ jobs });
     const user = userEvent.setup();
     renderApp("#/job/J-pw");
     const card = await screen.findByTestId("job-info-card");
-    expect(screen.queryByTestId("job-paperwork-tracks")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("job-doc-tabs-paperwork")).not.toBeInTheDocument();
 
     await user.click(within(card).getByRole("switch", { name: /Enable paperwork/i }));
 
-    const tracks = await screen.findByTestId("job-paperwork-tracks");
-    expect(within(tracks).getByTestId("job-paperwork-track-coned")).toBeInTheDocument();
-    expect(within(tracks).getByTestId("job-paperwork-track-dob")).toBeInTheDocument();
-    expect(within(tracks).getByTestId("job-paperwork-track-coned")).toHaveTextContent(/Con Edison/i);
-    expect(within(tracks).getByTestId("job-paperwork-track-dob")).toHaveTextContent(/DOB/i);
+    const paperTabs = await screen.findByTestId("job-doc-tabs-paperwork");
+    expect(within(paperTabs).getByTestId("tab-coned")).toBeInTheDocument();
+    expect(within(paperTabs).getByTestId("tab-dob")).toBeInTheDocument();
+    expect(within(paperTabs).getByTestId("tab-coned")).toHaveTextContent(/Con Edison/i);
+    expect(within(paperTabs).getByTestId("tab-dob")).toHaveTextContent(/DOB/i);
 
-    // Cards sit after Job Information (and payment history when open).
-    const jobInfo = screen.getByTestId("job-info-anchor");
-    expect(jobInfo.compareDocumentPosition(tracks) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    // Peer tabs live on the Job Information card.
+    const jobInfo = screen.getByTestId("job-info-card");
+    expect(jobInfo.contains(paperTabs)).toBe(true);
   });
 
-  it("expanding a track shows to-dos; Permits link on the row", async () => {
+  it("opening Con Edison tab shows to-dos panel with Permits link", async () => {
     mockServer({
       jobs: [
         {
@@ -76,12 +78,12 @@ describe("job detail — Paperwork enable on Job Information", () => {
     });
     const user = userEvent.setup();
     renderApp("#/job/J-pw");
-    const tracks = await screen.findByTestId("job-paperwork-tracks");
-    expect(within(tracks).getByText(/Permits tab/i)).toBeInTheDocument();
-    const coned = within(tracks).getByTestId("job-paperwork-track-coned");
-    await user.click(within(coned).getByText("Con Edison"));
+    const paperTabs = await screen.findByTestId("job-doc-tabs-paperwork");
+    await user.click(within(paperTabs).getByTestId("tab-coned"));
+    const panel = await screen.findByTestId("job-paperwork-track-panel");
+    expect(within(panel).getByText(/Permits tab/i)).toBeInTheDocument();
     await waitFor(() => {
-      expect(within(coned).getByText(/To-do list/i)).toBeInTheDocument();
+      expect(within(panel).getByText(/To-do list/i)).toBeInTheDocument();
     });
   });
 });

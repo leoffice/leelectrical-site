@@ -54,6 +54,7 @@ import {
   contractTotalForJob,
   contractTotalFromEstimate,
   dueFromContract,
+  fullLineQty,
   progressPctFromLines,
   roundQty,
 } from "../lib/progressBilling.js";
@@ -661,6 +662,9 @@ export default function DocBuilderSheet({
       mode === "from_estimate" ||
       mode === "turn_from_estimate" ||
       !!seed.invoiceProgressBilling ||
+      (seed.invoiceProgressPct != null &&
+        seed.invoiceProgressPct !== "" &&
+        parseAmount(seed.invoiceProgressPct) < 99.99) ||
       (seed.invoiceLines || []).some((ln) => {
         const q = parseAmount(ln?.qty);
         return q > 0 && q < 0.9999;
@@ -712,6 +716,10 @@ export default function DocBuilderSheet({
   const [adjustMode, setAdjustMode] = useState("pct");
   const [progressPctEdit, setProgressPctEdit] = useState(() => {
     if (progressPct != null) return String(progressPct);
+    // Re-open edit: prefer last saved progress % so 100% does not fall back to old 75%.
+    if (job?.invoiceProgressPct != null && job.invoiceProgressPct !== "") {
+      return String(job.invoiceProgressPct);
+    }
     const init = initialLines(job, { kind, mode, progressPct });
     return String(initialContract ? progressPctFromLines(init, initialContract) : 100);
   });
@@ -966,9 +974,13 @@ export default function DocBuilderSheet({
         setLines((rows) =>
           rows.map((ln, i) => {
             if (i !== index) return ln;
+            // Scale from full line qty (not already-fractional qty) so 75→100 sticks.
+            const base = fullLineQty(ln);
+            const q = pct >= 99.99 ? base : roundQty(base * (pct / 100));
             return {
               ...ln,
-              qty: roundQty(pct / 100),
+              qty: q,
+              contractQty: base,
               progressBilling: pct < 99.99,
             };
           })
@@ -980,9 +992,15 @@ export default function DocBuilderSheet({
         const next = rows.map((ln, i) => {
           if (i !== index) return ln;
           const rate = parseAmount(ln.unitPrice) || 0;
-          if (!rate) return { ...ln, unitPrice: val, qty: 1, progressBilling: true };
+          if (!rate) return { ...ln, unitPrice: val, qty: 1, progressBilling: true, contractQty: 1 };
+          const base = fullLineQty(ln);
           const q = roundQty(val / rate);
-          return { ...ln, qty: q, progressBilling: q < 0.9999 };
+          return {
+            ...ln,
+            qty: q,
+            contractQty: base,
+            progressBilling: q < base * 0.9999,
+          };
         });
         return next;
       });

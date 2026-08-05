@@ -111,7 +111,15 @@ export function applyProgressPctToLines(lines, contractLines, progressPct) {
   const billed = progressBillLines(template, progressPct);
   return (lines || []).map((ln, i) => {
     const ref = billed[i] || billed[0] || ln;
-    return { ...ln, qty: ref.qty, unitPrice: ref.unitPrice, progressBilling: ref.progressBilling };
+    // Keep contractQty so 75%→100% never compounds on re-open / re-edit (Levi).
+    return {
+      ...ln,
+      qty: ref.qty,
+      unitPrice: ref.unitPrice,
+      amount: ref.amount,
+      progressBilling: ref.progressBilling,
+      contractQty: ref.contractQty ?? ln.contractQty,
+    };
   });
 }
 
@@ -121,7 +129,14 @@ export function applyDueAmountToLines(lines, contractLines, amountDue, contractT
   const billed = progressBillByAmount(template, amountDue, contractTotal);
   return (lines || []).map((ln, i) => {
     const ref = billed[i] || billed[0] || ln;
-    return { ...ln, qty: ref.qty, unitPrice: ref.unitPrice, progressBilling: ref.progressBilling };
+    return {
+      ...ln,
+      qty: ref.qty,
+      unitPrice: ref.unitPrice,
+      amount: ref.amount,
+      progressBilling: ref.progressBilling,
+      contractQty: ref.contractQty ?? ln.contractQty,
+    };
   });
 }
 

@@ -89,6 +89,17 @@ describe("progressBilling", () => {
     expect(progressPctFromLines(at100, 46000)).toBe(100);
   });
 
+  it("applyProgressPctToLines keeps contractQty so 75→100 survives re-edit", async () => {
+    const { applyProgressPctToLines } = await import("../src/lib/progressBilling.js");
+    const at75 = progressBillLines(estimateLines, 75);
+    const mid = applyProgressPctToLines(at75, estimateLines, 75);
+    expect(mid[0].contractQty).toBe(1);
+    const at100 = applyProgressPctToLines(mid, estimateLines, 100);
+    expect(at100[0].qty).toBe(1);
+    expect(at100[0].contractQty).toBe(1);
+    expect(progressPctFromLines(at100, 46000)).toBe(100);
+  });
+
   it("inferProgressInvoiceLines from multi-line QBO progress invoice (Seawald-style)", () => {
     const job = {
       id: "qbo-231595",
