@@ -1173,7 +1173,6 @@ export default function DocBuilderSheet({
     try {
       const jobId = await ensureJobId();
       if (!jobId) {
-        setSaving(false);
         return null;
       }
       const activeJob = { ...job, id: jobId };
@@ -1203,6 +1202,9 @@ export default function DocBuilderSheet({
         jobs: boardJobs,
       });
       if (stampedNo) jobPatch[docNoKey] = stampedNo;
+      // Confirm flags so the invoice card never waits on a heal pass (Levi 2026-08-05).
+      if (kind === "invoice" && stampedNo) jobPatch._invoiceConfirmed = true;
+      if (kind === "estimate" && stampedNo) jobPatch._estimateConfirmed = true;
       if (attachments.length) {
         jobPatch.attachments = (job.attachments || []).concat(attachments);
       }
@@ -1213,6 +1215,8 @@ export default function DocBuilderSheet({
       }
       // Local apply is instant inside patchAndSave; network continues in background.
       void patchAndSave(jobId, jobPatch);
+      // Keep builder fields in sync so a re-open does not look empty.
+      setJob((o) => ({ ...o, id: jobId, ...jobPatch }));
       const pdfJob = buildPdfJob(activeJob, jobPatch);
       if (printPdf) {
         // PDF generation can stay in background after UI continues.
@@ -1234,12 +1238,13 @@ export default function DocBuilderSheet({
       resumeFollowUpPrompts();
       onDone && onDone({ ...activeJob, ...jobPatch });
       if (close) onClose();
-      setSaving(false);
       return pdfJob;
     } catch (e) {
-      setSaving(false);
       showToast(String(e?.message || e || "Save failed"));
       return null;
+    } finally {
+      // Always clear Saving… so the button never sticks (Levi 2026-08-05).
+      setSaving(false);
     }
   };
 

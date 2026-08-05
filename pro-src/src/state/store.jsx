@@ -1143,12 +1143,15 @@ export function StoreProvider({ children }) {
       // Optimistic stamp so a concurrent refreshJobs does not treat the blob
       // as fresher and wipe this brand-new local job before save lands.
       lastSavedTs.current = Math.max(lastSavedTs.current, Date.now());
-      try {
-        const r = await api.saveJob(id, ov);
-        if (r && r.ts) lastSavedTs.current = Math.max(lastSavedTs.current, r.ts);
-      } catch {
-        showToast("Offline — job kept locally");
-      }
+      // Network in background — never block invoice/job Save on cloud (Levi 2026-08-05 stuck Save).
+      void (async () => {
+        try {
+          const r = await api.saveJob(id, ov);
+          if (r && r.ts) lastSavedTs.current = Math.max(lastSavedTs.current, r.ts);
+        } catch {
+          showToast("Offline — job kept locally");
+        }
+      })();
       if (g.date) {
         // P0 data-loss fix (2026-07-31): never replace Google event notes with
         // "Created in LE Pro". Prefer job/event description; when updating an

@@ -73,10 +73,14 @@ export default function JobDocSheets({ sheet, setSheet, job, onDocDone }) {
   const syncDoc = useSyncDocToQbo();
   if (!sheet || !job) return null;
 
+  // Prefer just-saved fields (Inv # / lines) so Save never lands on a blank
+  // "assigning a number…" card while the store re-render catches up (Levi 2026-08-05).
+  const viewJob = sheet.optimisticJob ? { ...job, ...sheet.optimisticJob } : job;
+
   const returnTo = sheet.returnTo || null;
   const finishDoc = (doneJob) => {
     if (returnTo) {
-      setSheet(returnTo);
+      setSheet({ ...returnTo, optimisticJob: doneJob || undefined });
       onDocDone && onDocDone(doneJob, { returnTo });
       return;
     }
@@ -84,12 +88,12 @@ export default function JobDocSheets({ sheet, setSheet, job, onDocDone }) {
     // card immediately (no navigation, no wait). Snappy close of the builder.
     const kind = sheet.docKind || (doneJob?.invoiceNo ? "invoice" : doneJob?.estimateNo ? "estimate" : "");
     if (kind === "invoice" && (doneJob?.invoiceNo || doneJob?.invoiceLines?.length)) {
-      setSheet({ kind: "invoiceDoc" });
+      setSheet({ kind: "invoiceDoc", optimisticJob: doneJob || null });
       onDocDone && onDocDone(doneJob);
       return;
     }
     if (kind === "estimate" && (doneJob?.estimateNo || doneJob?.estimateLines?.length)) {
-      setSheet({ kind: "estimateDoc" });
+      setSheet({ kind: "estimateDoc", optimisticJob: doneJob || null });
       onDocDone && onDocDone(doneJob);
       return;
     }
@@ -97,12 +101,12 @@ export default function JobDocSheets({ sheet, setSheet, job, onDocDone }) {
     onDocDone && onDocDone(doneJob);
   };
 
-  if (sheet.kind === "cal") return <CalSheet job={job} onClose={() => setSheet(null)} />;
+  if (sheet.kind === "cal") return <CalSheet job={viewJob} onClose={() => setSheet(null)} />;
 
   if (sheet.kind === "doc") {
     return (
       <DocSheet
-        job={job}
+        job={viewJob}
         kind={sheet.doc}
         onClose={() => setSheet(null)}
         onEdit={() => setSheet({ kind: "docBuild", docKind: sheet.doc, mode: "edit" })}
@@ -111,14 +115,14 @@ export default function JobDocSheets({ sheet, setSheet, job, onDocDone }) {
   }
 
   if (sheet.kind === "estimateDoc") {
-    const estMode = job.estimateNo ? "edit" : "create";
+    const estMode = viewJob.estimateNo ? "edit" : "create";
     return (
       <EstimateDocSheet
-        job={job}
+        job={viewJob}
         onClose={() => setSheet(null)}
         onEdit={() => setSheet({ kind: "docBuild", docKind: "estimate", mode: estMode })}
         onSync={() =>
-          syncDoc(job, "estimate", {
+          syncDoc(viewJob, "estimate", {
             onClose: () => setSheet(null),
             onDone: onDocDone,
           })
@@ -137,14 +141,14 @@ export default function JobDocSheets({ sheet, setSheet, job, onDocDone }) {
   }
 
   if (sheet.kind === "invoiceDoc") {
-    const invMode = job.invoiceNo ? "edit" : "create";
+    const invMode = viewJob.invoiceNo ? "edit" : "create";
     return (
       <InvoiceDocSheet
-        job={job}
+        job={viewJob}
         onClose={() => setSheet(null)}
         onEdit={() => setSheet({ kind: "docBuild", docKind: "invoice", mode: invMode })}
         onSync={() =>
-          syncDoc(job, "invoice", {
+          syncDoc(viewJob, "invoice", {
             onClose: () => setSheet(null),
             onDone: onDocDone,
           })
@@ -156,7 +160,7 @@ export default function JobDocSheets({ sheet, setSheet, job, onDocDone }) {
   if (sheet.kind === "invoiceCreate") {
     return (
       <InvoiceCreateSheet
-        job={job}
+        job={viewJob}
         onClose={() => setSheet(null)}
         onPick={({ mode }) => {
           if (mode === "from_estimate") {
@@ -195,7 +199,7 @@ export default function JobDocSheets({ sheet, setSheet, job, onDocDone }) {
   if (sheet.kind === "docBuild") {
     return (
       <DocBuilderSheet
-        job={job}
+        job={viewJob}
         kind={sheet.docKind}
         mode={sheet.mode || "create"}
         progressPct={sheet.progressPct}
@@ -212,7 +216,7 @@ export default function JobDocSheets({ sheet, setSheet, job, onDocDone }) {
   if (sheet.kind === "invoiceReview" || sheet.kind === "estimateReview") {
     return (
       <InvoiceReviewSheet
-        job={job}
+        job={viewJob}
         kind={sheet.kind === "estimateReview" ? "estimate" : "invoice"}
         onClose={() => setSheet(null)}
       />
