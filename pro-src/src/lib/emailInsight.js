@@ -2,6 +2,9 @@
 export {
   isEnergyServicesEmail,
   isCityDobEmail,
+  isOfficeOutboundEmail,
+  isOfficeConversationBody,
+  isAgencySender,
   classifyAgency,
   extractAddress,
   extractDateTime,

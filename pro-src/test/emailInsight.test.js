@@ -103,6 +103,57 @@ describe("emailInsight", () => {
     expect(classifyEmailOutcome("Initial Inspection Reminder", CONED_HTML_REMINDER)).toBe("reminder");
   });
 
+  it("does not surface office Re: Inspection Scheduled replies as new City inspections (Levi 2026-08-05)", () => {
+    const subj = "Re: Inspection Scheduled for BLZ Electric Inc. - 003 for 462 36th Street";
+    const body = `Hi Rhett, Thank you for the note. To clarify the current status, the two objections were originally certifiable, but a system change has blocked the normal close-out path.`;
+    expect(classifyEmailOutcome(subj, body, "Levi Kumer <office@leelectrical.us>")).toBe("other");
+    const raw = parseEmailInsight({
+      from: "Levi Kumer <office@leelectrical.us>",
+      subject: subj,
+      body,
+      messageId: "office-re-insp-462",
+    });
+    expect(raw.outcome).toBe("other");
+    expect(isCityDobEmail(raw.source.from, subj, body)).toBe(false);
+    expect(wantsNewCalendarAppointment(raw)).toBe(false);
+    expect(shouldSurfaceInsight(raw)).toBe(false);
+  });
+
+  it("never surfaces office reply even when quoted original has date/address/job (Levi 2026-08-05 bloat)", () => {
+    const subj = "Re: Re: Inspection Scheduled for BLZ Electric Inc. - 003 for 462 36th Street";
+    // Real failure mode: reply body + quoted City notice still has 3:13–4:00 + B01334914I1EL.
+    const body = `Hi Rhett, Thank you for the note. To clarify the current status, the two objections were originally certifiable, but a system change has blocked the normal close-out path. After we were required to call for a new inspection under the new DOB system, the inspector stated that the application could not be closed.
+
+-----Original Message-----
+From: dobnowdonotreply@buildings.nyc.gov
+Subject: Inspection Scheduled for BLZ Electric Inc.
+Electrical inspection scheduled at 462 36th Street on 2026-08-05 15:00 for job B01334914I1EL.
+Hours: 3:13 PM – 4:00 PM.`;
+    // From office
+    const fromOffice = parseEmailInsight({
+      from: "Levi Kumer <office@leelectrical.us>",
+      subject: subj,
+      body,
+      messageId: "office-re-quoted-462",
+    });
+    expect(fromOffice.outcome).toBe("other");
+    expect(shouldSurfaceInsight(fromOffice)).toBe(false);
+    expect(wantsNewCalendarAppointment(fromOffice)).toBe(false);
+    // Even if From is missing/wrong — body is clearly our conversation
+    const fromUnknown = parseEmailInsight({
+      from: "Levi <levi@example.com>",
+      subject: subj,
+      body,
+      messageId: "unknown-re-quoted-462",
+    });
+    expect(fromUnknown.outcome).toBe("other");
+    expect(shouldSurfaceInsight(fromUnknown)).toBe(false);
+    // Double Re: + discussion opener, no agency From
+    expect(
+      classifyEmailOutcome(subj, body, "someone@gmail.com")
+    ).toBe("other");
+  });
+
   it("does not treat Con Ed acknowledgment letters as appointments (Levi 2026-08-03)", () => {
     const subj = "ConEdison Case Number MC-941580 - Acknowledgment Letter";
     const body = `ConEdison Case Number MC-941580 - Acknowledgment Letter

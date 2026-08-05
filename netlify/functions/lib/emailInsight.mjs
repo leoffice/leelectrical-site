@@ -78,6 +78,73 @@ const ENERGY_SENDER_RE =
 const CITY_DOB_SENDER_RE =
   /buildings\.nyc\.gov|dobnow|@buildings\.nyc\.gov|department\s+of\s+buildings|nyc\s+dob|electrical\s+inspection\s+scheduled|dob\s*now/i;
 
+/** Our own outbound mail — never treat as agency schedule notifications (Levi 2026-08-05). */
+const OFFICE_OUTBOUND_RE =
+  /office@leelectrical\.us|office@amraelectrical\.com|office@levielectric\.com|filing\.blznyc@gmail\.com|@leelectrical\.us\b|@amraelectrical\.com\b|bmmkumer@gmail\.com|levi\.?kumer|lefkowitz/i;
+
+export function isOfficeOutboundEmail(from = "") {
+  return OFFICE_OUTBOUND_RE.test(String(from || ""));
+}
+
+/**
+ * Body looks like our office writing a reply (discussion), not City/Con Ed notifying us.
+ * Catches threads where From is missing/wrong but the wording is clearly ours
+ * (Levi 2026-08-05: "Email understood" on a plain email response = bloat).
+ */
+export function isOfficeConversationBody(body = "", subject = "") {
+  const plain = stripHtml(body).trim();
+  const subj = stripHtml(subject).trim();
+  if (!plain && !subj) return false;
+  // Classic office openers / status discussion (not "your inspection is scheduled").
+  if (
+    /^(hi|hello|hey|good\s+(morning|afternoon|evening))\s+[A-Z][a-z]+[,.]?\s/i.test(plain) ||
+    /\bthank you for the note\b/i.test(plain) ||
+    /\bto clarify the current status\b/i.test(plain) ||
+    /\bthe two objections\b/i.test(plain) ||
+    /\bwe were required to call for a new inspection\b/i.test(plain) ||
+    /\bas discussed\b/i.test(plain) ||
+    /\bplease advise\b/i.test(plain) ||
+    /\bper our (call|conversation|email)\b/i.test(plain)
+  ) {
+    return true;
+  }
+  // Re:/Fw: with no agency schedule language in the visible reply text → discussion.
+  if (/^(re|fw|fwd)\s*:/i.test(subj)) {
+    const head = plain.slice(0, 500);
+    const hasAgencySetLang =
+      /\bappointment\s+is\s+set\b/i.test(head) ||
+      /\bhas\s+(?:been\s+)?scheduled\b/i.test(head) ||
+      /\bwe\s+have\s+scheduled\b/i.test(head) ||
+      /\binspection\s+is\s+scheduled\s+for\b/i.test(head) ||
+      /\byour\s+(?:con\s*edison|electrical)\s+appointment\b/i.test(head);
+    // Quoted original often still has the old "Inspection Scheduled" line — ignore that.
+    // If the first ~500 chars read like a human reply, treat as conversation.
+    if (!hasAgencySetLang && plain.length > 40) {
+      if (
+        /\b(thank you|thanks|to clarify|please|we (?:are|were|have|will)|i (?:am|have|will)|the (?:two |current )?status|objection|close-?out)\b/i.test(
+          head
+        )
+      ) {
+        return true;
+      }
+    }
+  }
+  return false;
+}
+
+/** Real City / Con Ed sender (not our office, not empty). */
+export function isAgencySender(from = "") {
+  const f = String(from || "");
+  if (!f.trim()) return false;
+  if (isOfficeOutboundEmail(f)) return false;
+  return (
+    ENERGY_SENDER_RE.test(f) ||
+    /buildings\.nyc\.gov|dobnow|@buildings\.nyc\.gov|cpms\.noreply|@coned\.com|@conedison\.com|energy-services/i.test(
+      f
+    )
+  );
+}
+
 const STREET_RE =
   /\d+\s+[\w\s.'-]+(?:\b(?:st|street|ave|avenue|rd|road|blvd|boulevard|ln|lane|dr|drive|ct|court|pl|place|pkwy|parkway)\b)[^,;\n]*/i;
 
@@ -126,14 +193,25 @@ export const EMAIL_INSIGHT_TEST_AUTO_APPLY_LIMIT = 1;
 export const APPOINTMENT_DURATION_MINUTES = 60;
 
 export function isEnergyServicesEmail(from, subject = "", body = "") {
+  // Our own Re:/reply threads often keep "Con Edison" / "Inspection Scheduled" in the subject —
+  // that must not re-trigger agency email handling (Levi 2026-08-05 bloatware popup).
+  if (isOfficeOutboundEmail(from)) return false;
   const blob = [from, subject, body].join(" ");
   return ENERGY_SENDER_RE.test(blob) || CITY_DOB_SENDER_RE.test(blob);
 }
 
 /** True when mail is from NYC DOB / City electrical (not Con Ed). */
 export function isCityDobEmail(from, subject = "", body = "") {
+  if (isOfficeOutboundEmail(from)) return false;
+  const fromS = String(from || "");
+  // Prefer real DOB senders — subject alone ("Re: Inspection Scheduled…") is not enough.
+  if (/buildings\.nyc\.gov|dobnow|@buildings\.nyc\.gov/i.test(fromS)) {
+    return !ENERGY_SENDER_RE.test(fromS);
+  }
   const blob = [from, subject, body].join(" ");
-  return CITY_DOB_SENDER_RE.test(blob) && !ENERGY_SENDER_RE.test(from || "");
+  // Allow body/letterhead matches only when From is not us and not pure Re: office noise.
+  if (/^(re|fw|fwd)\s*:/i.test(String(subject || "").trim())) return false;
+  return CITY_DOB_SENDER_RE.test(blob) && !ENERGY_SENDER_RE.test(fromS);
 }
 
 /** Agency for titles / notes: coned | city | other */
@@ -546,10 +624,27 @@ export function classifyAppointmentType(text, timeWindow = null) {
  * "Reschedule the appointment" links must NOT mark a real scheduled email as cancelled
  * (that left the Smart Suggestion sheet looping every login).
  */
-export function classifyEmailOutcome(subject = "", body = "") {
+export function classifyEmailOutcome(subject = "", body = "", from = "") {
   const subj = stripHtml(subject).toLowerCase();
   const plain = stripHtml(body).toLowerCase();
   const s = [subj, plain].filter(Boolean).join("\n");
+  // Levi 2026-08-05: office replies / conversation threads are discussion, not new sets.
+  // Subject "Re: Inspection Scheduled for BLZ…" was falsely opening "Email understood" + calendar.
+  if (isOfficeOutboundEmail(from)) return "other";
+  if (isOfficeConversationBody(body, subject)) return "other";
+  // Any reply-thread subject: do not treat the subject line alone as a new schedule.
+  // Agency re-sends usually restate "has scheduled" / "appointment is set" in the body.
+  const isReplySubject = /^(re|fw|fwd)\s*:/i.test(subj);
+  // Reply without a real agency From — never a new set from subject alone.
+  if (isReplySubject && !isAgencySender(from)) {
+    // Only allow scheduled if the reply body itself is agency language (rare forward).
+    const head = plain.slice(0, 600);
+    const bodyIsAgencySet =
+      /\bappointment\s+is\s+set\b/.test(head) ||
+      /\bhas\s+(?:been\s+)?scheduled\b/.test(head) ||
+      /\bwe\s+have\s+scheduled\b/.test(head);
+    if (!bodyIsAgencySet) return "other";
+  }
 
   // Acknowledgment / "we received your request" is case-open confirmation only.
   // Letter "Date:" must NOT become a calendar appointment (Levi 2026-08-03 —
@@ -634,20 +729,26 @@ export function classifyEmailOutcome(subject = "", body = "") {
     /\bto-?do\s+list\b/.test(subj) ||
     /\bstatus\s+update\s+for\s+customer\b/.test(subj) ||
     /\bcustomer\s+to-?do\b/.test(s);
+  // Reply subjects: only body language counts (subject already says "Inspection Scheduled").
+  const setBlob = isReplySubject ? plain : s;
   const isNewSet =
     !isTodoMail &&
-    (/\bappointment\s+is\s+set\b/.test(s) ||
-      /\byour\s+con\s*edison\s+appointment\b/.test(subj) ||
-      /\bappt-\d+/i.test(subj) ||
-      /\bhas\s+scheduled\b/.test(s) ||
-      /\bhas\s+been\s+scheduled\b/.test(s) ||
-      /\binspection\s+scheduled\b/.test(s) ||
-      /\bscheduled\s+an?\s+(?:electrical\s+)?inspection\b/.test(s) ||
-      /\bscheduled\s+a\s+con\s*edison\b/.test(s) ||
-      /\bappointment\s+set\s+between\b/.test(s) ||
-      /\bwe\s+will\s+arrive\s+between\b/.test(s) ||
+    (/\bappointment\s+is\s+set\b/.test(setBlob) ||
+      (!isReplySubject && /\byour\s+con\s*edison\s+appointment\b/.test(subj)) ||
+      (!isReplySubject && /\bappt-\d+/i.test(subj)) ||
+      /\bhas\s+scheduled\b/.test(setBlob) ||
+      /\bhas\s+been\s+scheduled\b/.test(setBlob) ||
+      (!isReplySubject && /\binspection\s+scheduled\b/.test(s)) ||
+      (isReplySubject &&
+        /\binspection\s+scheduled\b/.test(plain) &&
+        /\b(has\s+been\s+scheduled|is\s+scheduled\s+for|we\s+have\s+scheduled)\b/.test(plain)) ||
+      /\bscheduled\s+an?\s+(?:electrical\s+)?inspection\b/.test(setBlob) ||
+      /\bscheduled\s+a\s+con\s*edison\b/.test(setBlob) ||
+      /\bappointment\s+set\s+between\b/.test(setBlob) ||
+      /\bwe\s+will\s+arrive\s+between\b/.test(setBlob) ||
       // Require appointment/inspection context — bare "scheduled" in footers is not a set.
-      (/\bscheduled\b/.test(s) &&
+      (!isReplySubject &&
+        /\bscheduled\b/.test(s) &&
         !/\breminder\b/.test(s) &&
         /\b(appointment|inspection|visit|meter\s+install)\b/.test(s)));
   if (isNewSet) return "scheduled";
@@ -694,7 +795,7 @@ export function parseEmailInsight({ from = "", subject = "", body = "", received
   const plainBody = stripHtml(body);
   const blob = [subject, plainBody].filter(Boolean).join("\n");
   const address = extractAddress(blob);
-  const outcome = classifyEmailOutcome(subject, plainBody);
+  const outcome = classifyEmailOutcome(subject, plainBody, from);
   // Acknowledgments + To-Do list updates are not appointments — ignore letter "Date:"
   // and inquiry comment clocks (Levi 2026-08-05: no fake Energy Services appt).
   const noSchedule = outcome === "acknowledgment" || outcome === "todo_update";
@@ -1228,10 +1329,21 @@ export function hasRealInsightData(insight) {
 export function shouldSurfaceInsight(insight, now = new Date()) {
   if (!insight) return false;
   if (!hasRealInsightData(insight)) return false;
+  const from = insight.source?.from || "";
+  const subject = insight.source?.subject || "";
+  const body = insight.emailSnippet || insight.source?.body || "";
+  // Office outbound / office conversation never opens the sheet (Levi 2026-08-05 bloat).
+  if (isOfficeOutboundEmail(from)) return false;
+  if (isOfficeConversationBody(body, subject)) return false;
   // Pure acknowledgments / To-Do list updates never open the appointment sheet
   // (Levi 2026-08-05: no popup every Energy Services email).
   const outcome = insight.outcome || "";
   if (outcome === "acknowledgment" || outcome === "todo_update") return false;
+  // "other" = discussion / unclassifiable — never the Email understood sheet.
+  // (Quoted originals still carry address+date; that is not a new set.)
+  if (outcome === "other" || !outcome) return false;
+  // Reply threads without a real City/Con Ed sender stay silent.
+  if (/^(re|fw|fwd)\s*:/i.test(String(subject).trim()) && !isAgencySender(from)) return false;
   if (isPastAppointmentInsight(insight, now)) return false;
   return true;
 }
@@ -1308,7 +1420,7 @@ export function enrichInsight(raw, jobs) {
   const subject = insight.source?.subject || "";
   const bodyText = insight.emailSnippet || insight.source?.body || "";
   const blob = [subject, bodyText].filter(Boolean).join("\n");
-  insight.outcome = classifyEmailOutcome(subject, bodyText);
+  insight.outcome = classifyEmailOutcome(subject, bodyText, insight.source?.from || "");
   if (!insight.agency) {
     insight.agency = classifyAgency(
       insight.source?.from || "",
