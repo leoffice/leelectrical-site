@@ -382,11 +382,23 @@ export function isConedAcknowledgmentOnly(subject = "", body = "") {
   return false;
 }
 
-/** True if email is an inquiry that needs Levi's attention (notify). */
+/**
+ * True if inquiry mail needs Levi's attention (notify).
+ * Levi 2026-08-05: plain Inquiry Id / "we sent you a message" / tech-reply
+ * threads are NOT actionable — only real field appointments notify.
+ * Kept for callers that still want to tag inquiry mail; defaults to quiet.
+ */
 export function isConedInquiryNeedsAttention(subject = "", body = "") {
   const t = `${subject}\n${body}`;
-  if (/inquiry\s+id\s*ci-|con edison inquiry/i.test(t)) return true;
-  if (/we have responded to the message/i.test(t) && /inquiry/i.test(t)) return true;
+  // Passive case-open / reply-thread noise — never notify.
+  if (/inquiry\s+id\s*ci-|con edison inquiry/i.test(t)) return false;
+  if (/we have (?:sent you a message|responded to the message)/i.test(t) && /inquiry/i.test(t)) {
+    return false;
+  }
+  // Explicit action ask from Con Ed (rare) — keep a narrow path open.
+  if (/action\s+required|please\s+respond|response\s+required|upload\s+required/i.test(t)) {
+    return /inquiry/i.test(t);
+  }
   return false;
 }
 

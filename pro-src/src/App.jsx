@@ -270,6 +270,41 @@ export default function App() {
   const internal = config.internal === true;
   // Paid AI assistant: LE (seller) always unlocked; other tenants need a license token.
   const assistantOk = isAssistantEntitledLocally({ internal });
+  // Live build stamp under Log off (Levi 2026-08-05: "V341" next to full parity build).
+  const [appVersionLabel, setAppVersionLabel] = useState("");
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const base = import.meta.env.BASE_URL || "/";
+        let label = "";
+        try {
+          const swRes = await fetch(`${base}sw.js?cb=${Date.now()}`, { cache: "no-store" });
+          if (swRes.ok) {
+            const txt = await swRes.text();
+            const m = txt.match(/const\s+CACHE\s*=\s*["']le-pro-v(\d+)["']/);
+            if (m) label = `V${m[1]}`;
+          }
+        } catch {
+          /* offline */
+        }
+        if (!label) {
+          const res = await fetch(`${base}version.json?cb=${Date.now()}`, { cache: "no-store" });
+          if (res.ok) {
+            const data = await res.json();
+            const sha = String(data.gitShaShort || data.gitSha || "").trim().slice(0, 7);
+            if (sha) label = sha;
+          }
+        }
+        if (!cancelled && label) setAppVersionLabel(label);
+      } catch {
+        /* keep empty */
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   // Nav links and registered routes are derived from the SAME allow-list, so
   // a disabled module cannot be hidden-but-reachable. See lib/tenantNav.js.
@@ -347,7 +382,10 @@ export default function App() {
             Log off
           </button>
           {internal ? (
-            <div className="text-[11px] text-slate-400">{chrome.product} · full parity build</div>
+            <div className="text-[11px] text-slate-400" data-testid="sidebar-app-version">
+              {chrome.product}
+              {appVersionLabel ? ` · ${appVersionLabel}` : ""} · full parity build
+            </div>
           ) : null}
         </div>
       </aside>

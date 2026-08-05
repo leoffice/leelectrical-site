@@ -204,8 +204,32 @@ You may receive phone calls about your upcoming service appointment.`;
     expect(classifyEmailOutcome(subj, body)).toBe("todo_update");
     const insight = parseEmailInsight({ from: "CPMS.noreply@coned.com", subject: subj, body });
     expect(insight.outcome).toBe("todo_update");
+    expect(insight.dateTime || "").toBe("");
     expect(wantsNewCalendarAppointment(insight)).toBe(false);
     expect(shouldSurfaceInsight(insight)).toBe(false);
+  });
+
+  it("Con Ed Inquiry Id emails never notify or calendar (Levi CI-1310863 2026-08-05)", () => {
+    const subj =
+      "Con Edison Inquiry Id CI-1310863 - Inquiry - Technical Questions for 1337 PRESIDENT ST, BROOKLYN, NY 11213 MC-941580";
+    const body = `Con Edison Customer Inquiries Dear Sholom Rubashkin , We have sent you a message CI-1310863 for Service Address 1337 PRESIDENT ST, BROOKLYN, NY 11213. Please see the latest update to our discussion. Date Time Comment By Comment Aug 5, 2026 1:33:29 PM Anna Calderon-Garcia Perez (ConEdison) Good afternoon, You sta`;
+    expect(classifyEmailOutcome(subj, body)).toBe("acknowledgment");
+    const insight = parseEmailInsight({
+      from: "CPMS.noreply@coned.com",
+      subject: subj,
+      body,
+      messageId: "ci-1310863",
+    });
+    expect(insight.outcome).toBe("acknowledgment");
+    expect(insight.dateTime || "").toBe("");
+    expect(wantsNewCalendarAppointment(insight)).toBe(false);
+    expect(shouldSurfaceInsight(insight)).toBe(false);
+  });
+
+  it("parses Con Ed comment timestamps with seconds + PM (not 1:33 AM)", () => {
+    expect(extractDateTime("Aug 5, 2026 1:33:29 PM")).toBe("2026-08-05T13:33");
+    expect(extractDateTime("Aug 5, 2026 at 1:33:29 PM")).toBe("2026-08-05T13:33");
+    expect(extractDateTime("Aug 5, 2026 1:33 PM")).toBe("2026-08-05T13:33");
   });
 
   it("re-enriches wrong stored cancelled outcome from DOB footer text", () => {

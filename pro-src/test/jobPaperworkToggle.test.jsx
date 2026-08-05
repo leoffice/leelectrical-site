@@ -61,7 +61,7 @@ describe("job detail — Paperwork enable on Job Information", () => {
     expect(jobInfo.compareDocumentPosition(tracks) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });
 
-  it("expanding a track shows Permits link", async () => {
+  it("expanding a track shows to-dos; Permits link on the row", async () => {
     mockServer({
       jobs: [
         {
@@ -76,10 +76,12 @@ describe("job detail — Paperwork enable on Job Information", () => {
     });
     const user = userEvent.setup();
     renderApp("#/job/J-pw");
-    const coned = await screen.findByTestId("job-paperwork-track-coned");
+    const tracks = await screen.findByTestId("job-paperwork-tracks");
+    expect(within(tracks).getByText(/Permits tab/i)).toBeInTheDocument();
+    const coned = within(tracks).getByTestId("job-paperwork-track-coned");
     await user.click(within(coned).getByText("Con Edison"));
     await waitFor(() => {
-      expect(within(coned).getByText(/Open Permits tab/i)).toBeInTheDocument();
+      expect(within(coned).getByText(/To-do list/i)).toBeInTheDocument();
     });
   });
 });

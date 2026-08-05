@@ -31,6 +31,7 @@ import {
   collectOpenConedCasesFromInsights,
   planConedCaseJobLinks,
 } from "../lib/conedCaseLink.js";
+import { updateTodoListFromInsights } from "../lib/conedCustomerTodos.js";
 import { shouldSuppressPrompts, beginPromptWorkPause } from "../lib/followUpReminders.js";
 import { isScreenCovered, subscribeSheets } from "../lib/sheetRegistry.js";
 import { findEventForInsight, stashCalendarPick } from "../lib/calendarNavigate.js";
@@ -591,8 +592,8 @@ export default function EmailInsightPrompts() {
           continue;
         }
 
-        // To-Do list / status updates: silent refresh of permit todos — never calendar popup
-        // (Levi 2026-08-05: no notification every Energy Services email).
+        // To-Do list / status updates / inquiry acks: silent only — never calendar popup
+        // (Levi 2026-08-05: notify only real appointments; to-do → Permits tab + last updated).
         if (outcome === "todo_update" || outcome === "acknowledgment") {
           autoRunning.current.add(raw.id);
           try {
@@ -610,6 +611,38 @@ export default function EmailInsightPrompts() {
                 autoApply: true,
                 events,
               });
+              // To-Do list emails: refresh permit tab todos + last-updated stamp.
+              if (outcome === "todo_update") {
+                const todoPatch = updateTodoListFromInsights(job, [enriched, ...(emailInsights || [])]);
+                if (todoPatch && Object.keys(todoPatch).length) {
+                  await patchAndSave(job.id, {
+                    ...todoPatch,
+                    paperwork: {
+                      ...(job.paperwork || {}),
+                      ...(todoPatch.paperwork || {}),
+                      coned: {
+                        ...(job.paperwork?.coned || {}),
+                        ...(todoPatch.paperwork?.coned || {}),
+                        customerTodosSyncedAt: new Date().toISOString(),
+                        todosLastUpdatedAt: new Date().toISOString(),
+                      },
+                    },
+                  });
+                } else {
+                  // Still stamp last-updated so Levi sees when we last looked.
+                  await patchAndSave(job.id, {
+                    paperwork: {
+                      ...(job.paperwork || {}),
+                      coned: {
+                        ...(job.paperwork?.coned || {}),
+                        enabled: true,
+                        todosLastUpdatedAt: new Date().toISOString(),
+                        customerTodosSyncedAt: new Date().toISOString(),
+                      },
+                    },
+                  });
+                }
+              }
               await patchEmailInsight(raw.id, {
                 notified: true,
                 status: "auto_applied",
@@ -728,7 +761,17 @@ export default function EmailInsightPrompts() {
         if (autoRunning.current.has(raw.id) || seen.current.has(raw.id)) continue;
         const enriched = enrichInsight(raw, jobs);
         const outcome = enriched.outcome || "other";
-        if (outcome === "reminder" || outcome === "cancelled" || outcome === "completed") continue;
+        // Never re-open silence classes as missing appointments (Levi 2026-08-05).
+        if (
+          outcome === "reminder" ||
+          outcome === "cancelled" ||
+          outcome === "completed" ||
+          outcome === "acknowledgment" ||
+          outcome === "todo_update" ||
+          outcome === "other"
+        ) {
+          continue;
+        }
         if (!shouldSurfaceInsight(enriched)) continue;
         const job = enriched.jobId ? effectiveJob(enriched.jobId) : null;
         const existing = findEventForInsight(enriched, job, events);

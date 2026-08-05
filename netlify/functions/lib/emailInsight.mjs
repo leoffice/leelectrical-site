@@ -437,9 +437,11 @@ function extractDateTimeRaw(text, refYear = new Date().getFullYear()) {
     const { hour, min } = parseClock(slashTime[4], slashTime[5], slashTime[6]);
     return toIsoLocal(year, mo, day, hour, min);
   }
-  // "Jul 28, 2026 at 9:30 AM" / "July 15, 2026 at 2:00 PM"
+  // "Jul 28, 2026 at 9:30 AM" / "July 15, 2026 at 2:00 PM" / "Aug 5, 2026 1:33:29 PM"
+  // Seconds optional — Con Ed inquiry comment stamps include :SS and used to drop PM
+  // (CI-1310863 false 1:33 AM slot — Levi 2026-08-05).
   const coned = s.match(
-    /\b((?:jan|feb|mar|apr|may|jun|jul|aug|sep|sept|oct|nov|dec)[a-z]*)\s+(\d{1,2})(?:,?\s+(\d{4}))?\s*(?:at\s+)?(\d{1,2})(?::(\d{2}))?\s*(am|pm)\b/i
+    /\b((?:jan|feb|mar|apr|may|jun|jul|aug|sep|sept|oct|nov|dec)[a-z]*)\s+(\d{1,2})(?:,?\s+(\d{4}))?\s*(?:at\s+)?(\d{1,2})(?::(\d{2}))?(?::\d{2})?\s*(am|pm)\b/i
   );
   if (coned) {
     const mo = MONTHS[coned[1].toLowerCase()];
@@ -462,11 +464,27 @@ function extractDateTimeRaw(text, refYear = new Date().getFullYear()) {
       return toIsoLocal(year, mo, day, 9, 0);
     }
   }
+  // Also allow seconds before am/pm so "1:33:29 PM" keeps PM (not 1:33 AM).
+  const dtWithSecs = s.match(
+    /(?:on\s+)?(?:(?:monday|tuesday|wednesday|thursday|friday|saturday|sunday)[,\s]+)?(\w+\s+\d{1,2}(?:,?\s+\d{4})?)[\s,]+(?:at\s+)?(\d{1,2}):(\d{2}):\d{2}\s*(am|pm)\b/i
+  );
+  if (dtWithSecs) {
+    const md = dtWithSecs[1].trim().match(/(\w+)\s+(\d{1,2})(?:,?\s+(\d{4}))?/i);
+    if (md) {
+      const mo = MONTHS[md[1].toLowerCase()];
+      if (mo != null) {
+        const day = parseInt(md[2], 10);
+        const year = md[3] ? parseInt(md[3], 10) : refYear;
+        const { hour, min } = parseClock(dtWithSecs[2], dtWithSecs[3], dtWithSecs[4]);
+        return toIsoLocal(year, mo, day, hour, min);
+      }
+    }
+  }
   const dt = s.match(DATE_TIME_RE);
   if (dt) {
     const datePart = dt[1].trim();
     const timePart = dt[2].trim();
-    const tm = timePart.match(/(\d{1,2})(?::(\d{2}))?\s*(am|pm)?/i);
+    const tm = timePart.match(/(\d{1,2})(?::(\d{2}))?(?::\d{2})?\s*(am|pm)?/i);
     if (!tm) return "";
     const { hour, min } = parseClock(tm[1], tm[2], tm[3]);
     const md = datePart.match(/(\w+)\s+(\d{1,2})(?:,?\s+(\d{4}))?/i);
@@ -677,15 +695,15 @@ export function parseEmailInsight({ from = "", subject = "", body = "", received
   const blob = [subject, plainBody].filter(Boolean).join("\n");
   const address = extractAddress(blob);
   const outcome = classifyEmailOutcome(subject, plainBody);
-  // Acknowledgments are not appointments — ignore letter "Date:" / service-at clocks.
-  const schedule =
-    outcome === "acknowledgment"
-      ? { dateTime: "", exactDateTime: "", endDateTime: "", timeWindow: null }
-      : resolveScheduleTimes(blob);
+  // Acknowledgments + To-Do list updates are not appointments — ignore letter "Date:"
+  // and inquiry comment clocks (Levi 2026-08-05: no fake Energy Services appt).
+  const noSchedule = outcome === "acknowledgment" || outcome === "todo_update";
+  const schedule = noSchedule
+    ? { dateTime: "", exactDateTime: "", endDateTime: "", timeWindow: null }
+    : resolveScheduleTimes(blob);
   const dateTime = schedule.dateTime;
   // Pass window so a 3-hour slot classifies as meter install even without "meter" in text.
-  const appointmentType =
-    outcome === "acknowledgment" ? "other" : classifyAppointmentType(blob, schedule.timeWindow);
+  const appointmentType = noSchedule ? "other" : classifyAppointmentType(blob, schedule.timeWindow);
   const agency = classifyAgency(from, subject, plainBody);
   const dobJobNumber = extractDobJobNumber(blob);
   const fromLabel =
@@ -708,6 +726,7 @@ export function parseEmailInsight({ from = "", subject = "", body = "", received
   if (outcome === "reminder") summaryParts.push("(reminder only — not a new set)");
   if (outcome === "rescheduled") summaryParts.push("(rescheduled — replaces the earlier appointment)");
   if (outcome === "acknowledgment") summaryParts.push("(acknowledgment only — not an appointment)");
+  if (outcome === "todo_update") summaryParts.push("(to-do list update — paperwork only)");
 
   return {
     id: messageId ? "ei-" + messageId : "ei-" + Date.now(),
@@ -1112,6 +1131,13 @@ export function formatAppliedLead(insight, job) {
       ? `From ${src}: moved ${type} for ${who} to ${when}${tail}.`
       : `From ${src}: rescheduled ${type} for ${who}${tail}.`;
   }
+  // Never claim "added to calendar" for silence paths (Levi 2026-08-05 inquiry/to-do popups).
+  if (outcome === "acknowledgment" || insight?.skipReason === "todo_or_ack_silent") {
+    return `From ${src}: case update for ${who} filed quietly — no calendar change.`;
+  }
+  if (outcome === "todo_update") {
+    return `From ${src}: to-do list for ${who} updated on the Permits tab — no calendar change.`;
+  }
   const emailed = insight?.customerEmailed ? " and emailed the customer the invite" : "";
   return when
     ? `From ${src}: added ${type} for ${who} to your schedule calendar on ${when}${emailed}.`
@@ -1230,11 +1256,13 @@ export function canAutoApply(insight, job, now = new Date()) {
   if (outcome === "completed") return true;
   // Levi 2026-08-04: open Con Ed cases must auto-link to the matched job
   // (case number on paperwork) without waiting for Approve — no calendar.
+  // To-Do list + ack + case status: silent paperwork link (no calendar, no popup).
   if (
-    (insight.agency === "coned" || outcome === "acknowledgment") &&
+    (insight.agency === "coned" || outcome === "acknowledgment" || outcome === "todo_update") &&
     (outcome === "acknowledgment" ||
+      outcome === "todo_update" ||
       outcome === "other" ||
-      /acknowledgment|status update|to-?do list|service layout|service date/i.test(
+      /acknowledgment|status update|to-?do list|service layout|service date|inquiry\s+id|ci-\d+/i.test(
         insight?.source?.subject || insight?.summary || ""
       ))
   ) {
