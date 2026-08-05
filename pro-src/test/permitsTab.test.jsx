@@ -78,13 +78,12 @@ describe("Permits tab renders derived Con Ed cases", () => {
   it("Permits-enabled tenant sees a Con Ed case row derived from an applied email", async () => {
     mockServer({ settings: fullTenant, jobs: [JOB], emailInsights: [conedInsight] });
     renderAppAsTenant("#/permits");
-    // Sections start collapsed (Levi 2026-08-05) — expand Con Ed + skills to assert rows.
-    const conedSec = await screen.findByTestId("permit-section-coned");
-    expect(conedSec).toBeInTheDocument();
-    // Header button is first clickable in the collapsible section.
-    const conedToggle = conedSec.querySelector("button");
-    expect(conedToggle).toBeTruthy();
-    conedToggle.click();
+    // Jobs group starts collapsed — expand to see Con Ed case rows (Levi 2026-08-05).
+    const jobsSec = await screen.findByTestId("permit-section-jobs");
+    expect(jobsSec).toBeInTheDocument();
+    jobsSec.querySelector("button")?.click();
+    const jobGroup = await screen.findByTestId("permit-job-group");
+    jobGroup.querySelector('[data-testid="permit-job-group-toggle"]')?.click();
     // Case row shows the customer and the MC case number.
     expect(await screen.findByText("Winthrop Owner")).toBeInTheDocument();
     expect(await screen.findByText("MC-910413")).toBeInTheDocument();

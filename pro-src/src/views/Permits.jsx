@@ -9,7 +9,7 @@
 //
 // Module boundary: src/modules/permits (meter application + lock-in checklist).
 
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useStore } from "../state/store.jsx";
 import { useTenantConfig } from "../state/tenant.jsx";
@@ -78,11 +78,35 @@ function fmtWhen(iso) {
   return s.slice(0, 10);
 }
 
-/** Collapsible section wrapper — everything from the top can collapse (Levi). */
-function CollapsibleSection({ title, children, defaultOpen = true, testId }) {
+/** Collapsible section — auto-closes after idle if not actively used (Levi 2026-08-05). */
+function CollapsibleSection({
+  title,
+  children,
+  defaultOpen = true,
+  testId,
+  /** Auto-collapse after this many ms of no interaction while open (0 = off). */
+  autoCollapseMs = 30_000,
+}) {
   const [open, setOpen] = useState(defaultOpen);
+  const idleRef = useRef(null);
+  const bumpIdle = useCallback(() => {
+    if (idleRef.current) clearTimeout(idleRef.current);
+    if (!open || !autoCollapseMs) return;
+    idleRef.current = setTimeout(() => setOpen(false), autoCollapseMs);
+  }, [open, autoCollapseMs]);
+  useEffect(() => {
+    bumpIdle();
+    return () => {
+      if (idleRef.current) clearTimeout(idleRef.current);
+    };
+  }, [bumpIdle]);
   return (
-    <div className="mb-4" data-testid={testId || "permits-collapsible"}>
+    <div
+      className="mb-4"
+      data-testid={testId || "permits-collapsible"}
+      onPointerDown={bumpIdle}
+      onKeyDown={bumpIdle}
+    >
       <button
         type="button"
         className="w-full flex items-center justify-between gap-2 px-1 mb-1.5 text-left"
@@ -95,6 +119,122 @@ function CollapsibleSection({ title, children, defaultOpen = true, testId }) {
         <span className="text-slate-400 text-xs">{open ? "▾" : "▸"}</span>
       </button>
       {open ? children : null}
+    </div>
+  );
+}
+
+/** Group board cases by job so Con Ed + DOB share one card when idle (Levi 2026-08-05). */
+function groupCasesByJob(sections) {
+  const map = new Map();
+  for (const sec of sections || []) {
+    for (const row of sec.cases || []) {
+      const id = String(row.jobId || row.key || "");
+      if (!id) continue;
+      if (!map.has(id)) {
+        map.set(id, {
+          jobId: row.jobId,
+          jobName: row.jobName,
+          address: row.address,
+          rows: [],
+        });
+      }
+      const g = map.get(id);
+      if (!g.jobName && row.jobName) g.jobName = row.jobName;
+      if (!g.address && row.address) g.address = row.address;
+      g.rows.push({ ...row, sectionLabel: sec.label });
+    }
+  }
+  return [...map.values()];
+}
+
+/** One job card with nested Con Ed / DOB (Permit) expanders. */
+function JobPermitGroupCard({
+  group,
+  jobsById,
+  onOpen,
+  onMeterApplication,
+  onStepAction,
+  onCustomerTodo,
+  onUpdateTodoList,
+  updatingTodoId,
+}) {
+  const [open, setOpen] = useState(false);
+  const idleRef = useRef(null);
+  useEffect(() => {
+    if (!open) return undefined;
+    if (idleRef.current) clearTimeout(idleRef.current);
+    idleRef.current = setTimeout(() => setOpen(false), 30_000);
+    return () => {
+      if (idleRef.current) clearTimeout(idleRef.current);
+    };
+  }, [open]);
+  const agencies = group.rows.map((r) => {
+    const a = String(r.agency || "");
+    if (a === "coned") return "Con Edison";
+    if (a === "dob" || a === "city") return "Permit / DOB";
+    return r.sectionLabel || a || "Permit";
+  });
+  const uniqueLabels = [...new Set(agencies)];
+  const needsAny = group.rows.some((r) => isActionNeeded(r));
+
+  return (
+    <div
+      className="card overflow-hidden"
+      data-testid="permit-job-group"
+      data-job-id={group.jobId || ""}
+    >
+      <button
+        type="button"
+        className="w-full text-left px-4 py-3 flex items-start gap-3"
+        onClick={() => setOpen((v) => !v)}
+        aria-expanded={open}
+        data-testid="permit-job-group-toggle"
+      >
+        <div className="min-w-0 flex-1">
+          <div className="flex items-center gap-2 flex-wrap">
+            <b className="truncate">{group.jobName || "Job"}</b>
+            {uniqueLabels.map((lab) => (
+              <span
+                key={lab}
+                className="text-[10px] font-bold uppercase tracking-wide text-slate-600 bg-slate-100 px-1.5 py-0.5 rounded"
+              >
+                {lab}
+              </span>
+            ))}
+            {needsAny ? (
+              <span className="text-[10px] font-bold uppercase tracking-wide text-red-700 bg-red-50 px-1.5 py-0.5 rounded">
+                Action
+              </span>
+            ) : null}
+          </div>
+          {group.address ? (
+            <div className="text-xs text-slate-500 truncate">{group.address}</div>
+          ) : null}
+          {!open ? (
+            <div className="text-[11px] text-slate-400 mt-0.5">
+              {group.rows.length} track{group.rows.length === 1 ? "" : "s"} · tap to expand
+            </div>
+          ) : null}
+        </div>
+        <span className="text-slate-400 text-xs shrink-0">{open ? "▾" : "▸"}</span>
+      </button>
+      {open ? (
+        <div className="px-2 pb-2 space-y-2 border-t border-slate-100" data-testid="permit-job-group-body">
+          {group.rows.map((row) => (
+            <CaseRow
+              key={row.key}
+              row={row}
+              job={jobsById.get(row.jobId)}
+              onOpen={onOpen}
+              onMeterApplication={onMeterApplication}
+              onStepAction={onStepAction}
+              onCustomerTodo={onCustomerTodo}
+              onUpdateTodoList={onUpdateTodoList}
+              updatingTodo={updatingTodoId === row.jobId}
+            />
+          ))}
+        </div>
+      ) : null}
     </div>
   );
 }
@@ -1501,6 +1641,7 @@ export default function Permits() {
           testId="permit-action-strip"
           title={`Action needed (${actionNeeded.length})`}
           defaultOpen={true}
+          autoCollapseMs={30_000}
         >
           <div className="space-y-2">
             {actionNeeded.map((row) => (
@@ -1520,37 +1661,42 @@ export default function Permits() {
         </CollapsibleSection>
       ) : null}
 
-      {/* Per-agency sections — all collapsible, start collapsed (Levi 2026-08-05). */}
-      {sections.map((sec) => (
-        <CollapsibleSection
-          key={sec.agency}
-          testId={`permit-section-${sec.agency}`}
-          title={`${sec.label} (${sec.cases.length})`}
-          defaultOpen={false}
-        >
-          {sec.cases.length ? (
-            <div className="space-y-2">
-              {sec.cases.map((row) => (
-                <CaseRow
-                  key={row.key}
-                  row={row}
-                  job={jobsById.get(row.jobId)}
+      {/* Jobs combined (Con Ed + DOB on one card when idle) — collapsible, start collapsed. */}
+      {(() => {
+        const jobGroups = groupCasesByJob(sections);
+        if (!jobGroups.length) return null;
+        return (
+          <CollapsibleSection
+            testId="permit-section-jobs"
+            title={`Jobs (${jobGroups.length})`}
+            defaultOpen={false}
+            autoCollapseMs={30_000}
+          >
+            <div className="space-y-2" data-testid="permit-job-groups">
+              {jobGroups.map((g) => (
+                <JobPermitGroupCard
+                  key={String(g.jobId || g.jobName)}
+                  group={g}
+                  jobsById={jobsById}
                   onOpen={open}
                   onMeterApplication={handleMeterApplication}
                   onStepAction={handleStepAction}
                   onCustomerTodo={handleCustomerTodo}
                   onUpdateTodoList={handleUpdateTodoList}
-                  updatingTodo={updatingTodoId === row.jobId}
+                  updatingTodoId={updatingTodoId}
                 />
               ))}
             </div>
-          ) : (
-            <div className="card px-4 py-6 text-center text-sm text-slate-400">
-              No open {sec.label} cases.
-            </div>
-          )}
-        </CollapsibleSection>
-      ))}
+          </CollapsibleSection>
+        );
+      })()}
+
+      {/* Empty agency labels still listed for empty tenants */}
+      {sections.every((s) => !(s.cases || []).length) && sections.length ? (
+        <div className="card px-4 py-6 text-center text-sm text-slate-400 mb-4">
+          No open Con Edison or DOB cases yet.
+        </div>
+      ) : null}
 
       {!hasAny && !sections.length && !queueItems.length ? (
         <div className="card px-4 py-10 text-center text-sm text-slate-400">
