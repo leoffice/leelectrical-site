@@ -136,7 +136,9 @@ describe("Feature 2 — customer group total due + Customer view", () => {
     expect(within(view).getByTestId("customer-total-due")).toHaveTextContent("$1,300");
     expect(within(view).getByText(/3 jobs · 2 open invoices/)).toBeInTheDocument();
     expect(within(view).getByTestId("customer-card")).toBeInTheDocument();
-    expect(within(view).getByTestId("customer-doc-tabs")).toBeInTheDocument();
+    // Default = What happened only (Levi 2026-08-05)
+    expect(within(view).getByTestId("customer-txn-history")).toBeInTheDocument();
+    expect(within(view).queryByTestId("customer-doc-tabs")).not.toBeInTheDocument();
     expect(within(view).queryByTestId("customer-jobs-section")).not.toBeInTheDocument();
   });
 
@@ -147,7 +149,9 @@ describe("Feature 2 — customer group total due + Customer view", () => {
     await user.click(screen.getByTestId("client-group-card"));
 
     const view = await screen.findByTestId("customer-view");
-    await user.click(within(view).getByTestId("cust-tab-invoices"));
+    // History off → Statement / Invoices tabs appear
+    await user.click(within(view).getByTestId("customer-card"));
+    await user.click(await within(view).findByTestId("cust-tab-invoices"));
     const panel = await within(view).findByTestId("cust-tab-panel-invoices");
     await user.click(within(panel).getByText("Invoice #1001"));
 
@@ -163,7 +167,8 @@ describe("Feature 2 — customer group total due + Customer view", () => {
     await user.click(screen.getByTestId("client-group-amount"));
 
     const view = await screen.findByTestId("customer-view");
-    await user.click(within(view).getByTestId("cust-tab-invoices"));
+    await user.click(within(view).getByTestId("customer-card"));
+    await user.click(await within(view).findByTestId("cust-tab-invoices"));
     const panel = await within(view).findByTestId("cust-tab-panel-invoices");
     await user.click(within(panel).getByText("Invoice #1001"));
 
@@ -173,6 +178,7 @@ describe("Feature 2 — customer group total due + Customer view", () => {
     await user.click(back);
     const view2 = await screen.findByTestId("customer-view");
     expect(view2).toBeInTheDocument();
-    expect(within(view2).getByTestId("customer-doc-tabs")).toBeInTheDocument();
+    // Default history on again after remount
+    expect(within(view2).getByTestId("customer-txn-history")).toBeInTheDocument();
   });
 });

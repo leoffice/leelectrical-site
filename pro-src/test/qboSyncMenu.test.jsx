@@ -116,8 +116,9 @@ describe("QB sync menu on header chip", () => {
     const user = userEvent.setup();
     renderApp("#/customer/c:test%20co");
     const view = await screen.findByTestId("customer-view");
+    await user.click(within(view).getByTestId("customer-card")); // history off → tabs
 
-    await user.click(within(view).getByTestId("cust-tab-invoices"));
+    await user.click(await within(view).findByTestId("cust-tab-invoices"));
     const panel = await within(view).findByTestId("cust-tab-panel-invoices");
     expect(within(panel).getByText("Open invoices")).toBeInTheDocument();
     expect(within(panel).getByText("Closed invoices")).toBeInTheDocument();
@@ -133,7 +134,8 @@ describe("QB sync menu on header chip", () => {
     const user = userEvent.setup();
     renderApp("#/customer/c:test%20co");
     const view = await screen.findByTestId("customer-view");
-    await user.click(within(view).getByTestId("cust-tab-invoices"));
+    await user.click(within(view).getByTestId("customer-card")); // history off → tabs
+    await user.click(await within(view).findByTestId("cust-tab-invoices"));
     const panel = await within(view).findByTestId("cust-tab-panel-invoices");
     await user.click(within(panel).getByTestId("cust-inv-251900"));
 
@@ -197,7 +199,7 @@ describe("QB sync on customer view", () => {
     expect(screen.getByTestId("doc-sync-email")).toBeInTheDocument();
   });
 
-  it("shows doc tabs on customer page; sync chip has customer context", async () => {
+  it("shows What happened on customer page by default; sync chip has customer context", async () => {
     mockServer({
       jobs: [
         { ...J_OPEN, customer: "View Co", qboCustomerId: "12" },
@@ -207,7 +209,8 @@ describe("QB sync on customer view", () => {
     const user = userEvent.setup();
     renderApp("#/customer/c:view%20co");
     const view = await screen.findByTestId("customer-view");
-    expect(within(view).getByTestId("customer-doc-tabs")).toBeInTheDocument();
+    expect(within(view).getByTestId("customer-txn-history")).toBeInTheDocument();
+    expect(within(view).queryByTestId("customer-doc-tabs")).not.toBeInTheDocument();
     await user.click(screen.getAllByTestId("sync-chip")[0]);
     expect(await screen.findByTestId("qbo-sync-context")).toHaveTextContent("View Co");
   });

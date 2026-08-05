@@ -49,7 +49,8 @@ describe("customer doc tabs — create + service addresses", () => {
     const user = userEvent.setup();
     renderApp("#/customer/c:addr%20co");
     const view = await screen.findByTestId("customer-view");
-    await user.click(within(view).getByTestId("cust-tab-invoices"));
+    await user.click(within(view).getByTestId("customer-card")); // history off → tabs
+    await user.click(await within(view).findByTestId("cust-tab-invoices"));
     await user.click(within(view).getByTestId("cust-create-invoice"));
     await waitFor(() => expect(window.location.hash).toMatch(/#\/job\/local-/));
     expect(await screen.findByText(/Create invoice — Addr Co/)).toBeInTheDocument();
@@ -60,7 +61,8 @@ describe("customer doc tabs — create + service addresses", () => {
     const user = userEvent.setup();
     renderApp("#/customer/c:addr%20co");
     const view = await screen.findByTestId("customer-view");
-    await user.click(within(view).getByTestId("cust-tab-addresses"));
+    await user.click(within(view).getByTestId("customer-card")); // history off → tabs
+    await user.click(await within(view).findByTestId("cust-tab-addresses"));
     const panel = await within(view).findByTestId("cust-tab-panel-addresses");
     expect(within(panel).getByText("55 Elm St")).toBeInTheDocument();
     expect(within(panel).getByText("20 Pine Rd")).toBeInTheDocument();
@@ -83,20 +85,26 @@ describe("customer doc tabs — create + service addresses", () => {
     expect(await screen.findByTestId("co-pick-invoice")).toBeInTheDocument();
   });
 
-  it("transaction history is on by default under customer card and tabs", async () => {
+  it("transaction history on by default: What happened only (no Statement/tabs)", async () => {
     mockServer({ jobs });
     renderApp("#/customer/c:addr%20co");
     const view = await screen.findByTestId("customer-view");
-    expect(within(view).getByTestId("customer-doc-tabs")).toBeInTheDocument();
-    expect(within(view).getByTestId("customer-txn-history")).toBeInTheDocument();
-
     const card = within(view).getByTestId("customer-card");
-    const tabs = within(view).getByTestId("customer-doc-tabs");
-    const ledger = within(view).getByTestId("customer-txn-history");
-    // DOM order: customer card → tabs → short transaction history
-    expect(card.compareDocumentPosition(tabs) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-    expect(tabs.compareDocumentPosition(ledger) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-    expect(within(view).getByTestId("cust-tab-invoices")).toBeInTheDocument();
-    expect(within(view).getByTestId("cust-tab-changes")).toBeInTheDocument();
+    const ledger = await within(view).findByTestId("customer-txn-history");
+    expect(within(view).queryByTestId("customer-doc-tabs")).not.toBeInTheDocument();
+    // DOM order: customer card → What happened only
+    expect(card.compareDocumentPosition(ledger) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
+  it("history off shows Statement / Invoices / Changes tabs under the card", async () => {
+    mockServer({ jobs });
+    const user = userEvent.setup();
+    renderApp("#/customer/c:addr%20co");
+    const view = await screen.findByTestId("customer-view");
+    await user.click(within(view).getByTestId("customer-card"));
+    const tabs = await within(view).findByTestId("customer-doc-tabs");
+    expect(within(view).queryByTestId("customer-txn-history")).not.toBeInTheDocument();
+    expect(within(tabs).getByTestId("cust-tab-invoices")).toBeInTheDocument();
+    expect(within(tabs).getByTestId("cust-tab-changes")).toBeInTheDocument();
   });
 });

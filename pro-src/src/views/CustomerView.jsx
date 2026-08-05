@@ -429,30 +429,22 @@ export default function CustomerView() {
         </div>
       ) : null}
 
-      {/* Order: customer card → Invoice/Estimates/CO/Addresses tabs → transactions when on.
-          Heavy tabs/history wait one frame so the card feels instant (Levi snappy feedback). */}
+      {/* Order when history on: customer card → What happened only (Levi 2026-08-05).
+          Statement / Invoices / Estimates / Addresses sit only when history is off —
+          same as job detail. Heavy panel waits one frame so the card feels instant. */}
       {heavyReady ? (
-        !(key.startsWith("p:") && subs.length > 0) ? (
-          <>
-            <CustomerDocTabs
-              jobs={displayJobs}
-              fromCust={key}
-              onGenerateStatement={() => setSheet({ kind: "statement" })}
-              onOpenTxnRow={openTxnRow}
-            />
-            {shortTxns ? (
-              <CustomerTransactionHistory
-                jobs={displayJobs}
-                fromCust={key}
-                onOpenRow={openTxnRow}
-              />
-            ) : null}
-          </>
-        ) : shortTxns ? (
+        shortTxns ? (
           <CustomerTransactionHistory
             jobs={displayJobs}
             fromCust={key}
             onOpenRow={openTxnRow}
+          />
+        ) : !(key.startsWith("p:") && subs.length > 0) ? (
+          <CustomerDocTabs
+            jobs={displayJobs}
+            fromCust={key}
+            onGenerateStatement={() => setSheet({ kind: "statement" })}
+            onOpenTxnRow={openTxnRow}
           />
         ) : null
       ) : (
