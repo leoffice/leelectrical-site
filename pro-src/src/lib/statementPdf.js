@@ -404,7 +404,8 @@ export function buildQbStatementPdf(model, overrides = {}) {
     y += 14;
     for (const p of model.paymentLines) {
       ensureSpace(rowH + 4, false);
-      const refBit = p.ref ? ` · ${p.ref}` : "";
+      // ASCII only — middle-dot · becomes "?" in PDF esc()
+      const refBit = p.ref && !/^\d+$/.test(String(p.ref)) ? ` - ${p.ref}` : "";
       const desc = `Payment - ${p.method || "Payment"}${refBit}`;
       pg.text(COL_DATE, y, p.date || "-", { size: 8.5, color: BLACK });
       pg.text(COL_INV, y, p.invoiceNo || "", { size: 8.5, color: BLACK });

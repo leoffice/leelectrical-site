@@ -245,6 +245,51 @@ describe("statementPdf", () => {
     expect(text).toContain("Zelle");
     expect(text).toContain("Progress 75%");
   });
+
+  it("Dayan-style: no three-dot ellipsis, no Payment ? junk, full wrap", async () => {
+    const dayan = {
+      id: "qbo-251798",
+      invoiceNo: "251798",
+      invoiceDate: "2026-02-17",
+      customer: "Itzchak Dayan",
+      amount: 10200,
+      openBalance: 6000,
+      invoiceLines: [
+        {
+          description:
+            "Installation of 3 New residential 100A meters service upgrade with panel and conduit…",
+          qty: 1,
+          rate: 10200,
+          amount: 10200,
+        },
+      ],
+      payments: [
+        { amount: 1000, date: "2026-02-17", method: "Other" },
+        { amount: 1000, date: "2026-03-10", method: "Other", ref: "JPM99c7ziuhu" },
+      ],
+    };
+    const m = buildStatementModel({ jobs: [dayan], type: "activity", customerName: "Itzchak Dayan" });
+    // Model labels are clean ASCII (no · which PDF would turn into ?)
+    const payRows = m.rows.filter((r) => r.kind === "payment");
+    expect(payRows.every((r) => /^Payment - /.test(r.description))).toBe(true);
+    expect(payRows.every((r) => !/[·…]|\.\.\./.test(r.description))).toBe(true);
+    expect(m.rows.find((r) => r.kind === "invoice")?.description).not.toMatch(/\.\.\.|…$/);
+
+    const blob = buildQbStatementPdf(m);
+    const text = new TextDecoder("latin1").decode(new Uint8Array(await blob.arrayBuffer()));
+    const strings = [...text.matchAll(/\(([^)\\]*(?:\\.[^)\\]*)*)\)\s*Tj/g)].map((mm) =>
+      mm[1].replace(/\\(.)/g, "$1")
+    );
+    const joined = strings.join(" | ");
+    // No width-clip three-dots, no middle-dot → ?
+    expect(strings.some((s) => /\.\.\.\s*$/.test(s))).toBe(false);
+    expect(joined).not.toMatch(/Payment \?/);
+    expect(joined).toContain("Payment - Other");
+    expect(joined).toContain("JPM99c7ziuhu");
+    // Long work line wraps across two PDF lines (no silent total loss of "conduit")
+    expect(joined).toMatch(/Installation of 3 New residential/);
+    expect(joined).toMatch(/conduit|panel|service upgrade/);
+  });
 });
 
 describe("statement send confirm parity", () => {

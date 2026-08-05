@@ -73,6 +73,15 @@ function firstContentLine(text) {
     // Skip pure section headers that make statements look "choppy"
     if (/^(price\s+includes|price\s+excludes|includes|excludes)\s*:?\s*$/i.test(ln)) continue;
     let out = ln.replace(/\s*Price Includes:?\s*$/i, "").trim();
+    // Drop trailing ellipsis junk (… or ...) so the PDF never inherits three dots
+    out = out.replace(/(?:\u2026|\.{3,})\s*$/g, "").trim();
+    // PDF esc() turns non-ASCII into "?" — normalize common punctuation first
+    out = out
+      .replace(/[·•]/g, " - ")
+      .replace(/[–—]/g, "-")
+      .replace(/\u2026/g, "")
+      .replace(/\s{2,}/g, " ")
+      .trim();
     if (out) return out;
   }
   return "";
