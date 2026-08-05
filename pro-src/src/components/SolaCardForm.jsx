@@ -37,13 +37,14 @@ const IFRAME_H = 44;
 /**
  * Best-effort fill of Cardknox/Sola iFields (card-number or cvv).
  * SDKs differ by version — try known hooks; never throw if missing (PCI iframes).
+ * Retries matter: iframes often aren't ready on first tick after setAccount.
  */
 function tryFillIfield(fieldId, value) {
   const digits = String(value || "").replace(/\D/g, "");
   if (!digits) return false;
   if (fieldId === "card-number" && digits.length < 12) return false;
   if (fieldId === "cvv" && (digits.length < 3 || digits.length > 4)) return false;
-  const ids = fieldId === "cvv" ? ["cvv", "card-cvv"] : ["card-number"];
+  const ids = fieldId === "cvv" ? ["cvv", "card-cvv"] : ["card-number", "card-number-field"];
   try {
     if (typeof window.setIfieldValue === "function") {
       for (const id of ids) {
@@ -60,13 +61,34 @@ function tryFillIfield(fieldId, value) {
   }
   try {
     if (typeof window.ifields?.setValue === "function") {
-      window.ifields.setValue(fieldId, digits);
+      window.ifields.setValue(fieldId === "cvv" ? "cvv" : "card-number", digits);
       return true;
     }
   } catch {
     /* ignore */
   }
+  // Some builds accept space-grouped PAN for auto-format.
+  if (fieldId === "card-number" && digits.length >= 15 && typeof window.setIfieldValue === "function") {
+    try {
+      const spaced = digits.replace(/(\d{4})(?=\d)/g, "$1 ").trim();
+      window.setIfieldValue("card-number", spaced);
+      return true;
+    } catch {
+      /* ignore */
+    }
+  }
   return false;
+}
+
+function scheduleIfieldFills(fieldId, value, delays = [0, 120, 350, 700, 1200, 2000]) {
+  const digits = String(value || "").replace(/\D/g, "");
+  if (!digits) return () => {};
+  const timers = delays.map((ms) =>
+    setTimeout(() => {
+      tryFillIfield(fieldId, digits);
+    }, ms)
+  );
+  return () => timers.forEach(clearTimeout);
 }
 
 /** PCI-safe card fields via Sola iFields (card number + CVV iframes). */
@@ -85,6 +107,7 @@ export default function SolaCardForm({
   const formRef = useRef(null);
   const photoPanRef = useRef("");
   const photoCvvRef = useRef("");
+  const clearFillsRef = useRef(() => {});
 
   useEffect(() => {
     if (initialExp) setExp(formatCardExpInput(initialExp));
@@ -99,20 +122,25 @@ export default function SolaCardForm({
     photoCvvRef.current = cvv;
     if (photoAssist.exp) setExp(formatCardExpInput(photoAssist.exp));
     if (phase !== "ready") return;
+
+    clearFillsRef.current();
+    const clearers = [];
     if (pan.length >= 12) {
-      tryFillIfield("card-number", pan);
-      setTimeout(() => tryFillIfield("card-number", pan), 200);
-      setTimeout(() => {
-        photoPanRef.current = "";
-      }, 400);
+      clearers.push(scheduleIfieldFills("card-number", pan));
     }
     if (cvv.length >= 3) {
-      tryFillIfield("cvv", cvv);
-      setTimeout(() => tryFillIfield("cvv", cvv), 200);
-      setTimeout(() => {
-        photoCvvRef.current = "";
-      }, 400);
+      clearers.push(scheduleIfieldFills("cvv", cvv));
     }
+    clearFillsRef.current = () => clearers.forEach((c) => c());
+    // Drop full digits from our memory after fill attempts (iframe keeps its own copy).
+    const drop = setTimeout(() => {
+      photoPanRef.current = "";
+      photoCvvRef.current = "";
+    }, 2500);
+    return () => {
+      clearFillsRef.current();
+      clearTimeout(drop);
+    };
   }, [photoAssist, phase]);
 
   useEffect(() => {
@@ -144,18 +172,14 @@ export default function SolaCardForm({
         setPhase("ready");
         setErr("");
         onReadyChange?.(true);
-        // If photo already ran before iframe ready, fill now.
+        // If photo already ran before iframe ready, fill now (with retries).
         const pendingPan = photoPanRef.current;
         const pendingCvv = photoCvvRef.current;
         if (pendingPan.length >= 12) {
-          tryFillIfield("card-number", pendingPan);
-          setTimeout(() => tryFillIfield("card-number", pendingPan), 200);
-          photoPanRef.current = "";
+          scheduleIfieldFills("card-number", pendingPan);
         }
         if (pendingCvv.length >= 3) {
-          tryFillIfield("cvv", pendingCvv);
-          setTimeout(() => tryFillIfield("cvv", pendingCvv), 200);
-          photoCvvRef.current = "";
+          scheduleIfieldFills("cvv", pendingCvv);
         }
       } catch (e) {
         if (cancelled) return;
@@ -170,6 +194,30 @@ export default function SolaCardForm({
     };
   }, [onReadyChange]);
 
+  // When iframes finish loading, re-push any pending photo digits.
+  useEffect(() => {
+    if (phase !== "ready") return;
+    const onLoad = () => {
+      const pan = photoPanRef.current;
+      const cvv = photoCvvRef.current;
+      if (pan.length >= 12) tryFillIfield("card-number", pan);
+      if (cvv.length >= 3) tryFillIfield("cvv", cvv);
+    };
+    const iframes = formRef.current?.querySelectorAll?.("iframe") || [];
+    iframes.forEach((el) => {
+      el.addEventListener("load", onLoad);
+      try {
+        // Already complete?
+        if (el.contentDocument?.readyState === "complete") onLoad();
+      } catch {
+        /* cross-origin — load event only */
+      }
+    });
+    return () => {
+      iframes.forEach((el) => el.removeEventListener("load", onLoad));
+    };
+  }, [phase, photoAssist]);
+
   const ver = configRef.current?.version || "2.15.2409.2601";
   const iframeSrc = `https://cdn.cardknox.com/ifields/${ver}/ifield.htm`;
 
@@ -180,7 +228,7 @@ export default function SolaCardForm({
           Card on file: <b>{savedMasked}</b> — enter a new card below to replace it.
         </p>
       ) : null}
-      
+
       {phase === "loading" ? (
         <p className="text-xs text-slate-500">Loading secure card fields…</p>
       ) : null}
@@ -189,57 +237,18 @@ export default function SolaCardForm({
       ) : null}
       {phase === "ready" ? (
         <div className={disabled ? "pointer-events-none opacity-60" : undefined} aria-disabled={disabled || undefined}>
-        <form ref={formRef} onSubmit={(e) => e.preventDefault()} className="space-y-2.5">
-          <div>
-            <label className="block text-xs font-bold text-slate-500 mb-1">Card number</label>
-            
-            {/* Secure iframe still required for charge; when stars filled, keep it
-                available to edit/correct digits after review. */}
-            <div
-              className="overflow-hidden rounded-xl"
-              style={{ height: IFRAME_H }}
-              data-testid="sola-ifield-card-number"
-            >
-              <iframe
-                title="Card number"
-                data-ifields-id="card-number"
-                data-ifields-placeholder="Card number"
-                src={iframeSrc}
-                scrolling="no"
-                className="w-full border-0 block overflow-hidden"
-                style={{ height: IFRAME_H, minHeight: IFRAME_H, overflow: "hidden" }}
-              />
-            </div>
-            
-          </div>
-          <div className="grid grid-cols-2 gap-2">
+          <form ref={formRef} onSubmit={(e) => e.preventDefault()} className="space-y-2.5">
             <div>
-              <label className="block text-xs font-bold text-slate-500 mb-1" htmlFor="card-exp">
-                Exp (MM/YY)
-              </label>
-              <input
-                id="card-exp"
-                className="input"
-                inputMode="numeric"
-                autoComplete="cc-exp"
-                placeholder="MM/YY"
-                maxLength={5}
-                value={exp}
-                onChange={(e) => setExp(formatCardExpInput(e.target.value))}
-                aria-label="Expiration MM/YY"
-              />
-            </div>
-            <div>
-              <label className="block text-xs font-bold text-slate-500 mb-1">CVV</label>
+              <label className="block text-xs font-bold text-slate-500 mb-1">Card number</label>
               <div
                 className="overflow-hidden rounded-xl"
                 style={{ height: IFRAME_H }}
-                data-testid="sola-ifield-cvv"
+                data-testid="sola-ifield-card-number"
               >
                 <iframe
-                  title="CVV"
-                  data-ifields-id="cvv"
-                  data-ifields-placeholder="CVV"
+                  title="Card number"
+                  data-ifields-id="card-number"
+                  data-ifields-placeholder="Card number"
                   src={iframeSrc}
                   scrolling="no"
                   className="w-full border-0 block overflow-hidden"
@@ -247,11 +256,46 @@ export default function SolaCardForm({
                 />
               </div>
             </div>
-          </div>
-          <input type="hidden" data-ifields-id="card-number-token" name="xCardNum" />
-          <input type="hidden" data-ifields-id="cvv-token" name="xCVV" />
-          <label data-ifields-id="card-data-error" className="block text-xs text-red-600 min-h-[0.75rem]" />
-        </form>
+            <div className="grid grid-cols-2 gap-2">
+              <div>
+                <label className="block text-xs font-bold text-slate-500 mb-1" htmlFor="card-exp">
+                  Exp (MM/YY)
+                </label>
+                <input
+                  id="card-exp"
+                  className="input"
+                  inputMode="numeric"
+                  autoComplete="cc-exp"
+                  placeholder="MM/YY"
+                  maxLength={5}
+                  value={exp}
+                  onChange={(e) => setExp(formatCardExpInput(e.target.value))}
+                  aria-label="Expiration MM/YY"
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-bold text-slate-500 mb-1">CVV</label>
+                <div
+                  className="overflow-hidden rounded-xl"
+                  style={{ height: IFRAME_H }}
+                  data-testid="sola-ifield-cvv"
+                >
+                  <iframe
+                    title="CVV"
+                    data-ifields-id="cvv"
+                    data-ifields-placeholder="CVV"
+                    src={iframeSrc}
+                    scrolling="no"
+                    className="w-full border-0 block overflow-hidden"
+                    style={{ height: IFRAME_H, minHeight: IFRAME_H, overflow: "hidden" }}
+                  />
+                </div>
+              </div>
+            </div>
+            <input type="hidden" data-ifields-id="card-number-token" name="xCardNum" />
+            <input type="hidden" data-ifields-id="cvv-token" name="xCVV" />
+            <label data-ifields-id="card-data-error" className="block text-xs text-red-600 min-h-[0.75rem]" />
+          </form>
         </div>
       ) : null}
     </div>
@@ -279,8 +323,8 @@ export function tokenizeSolaCard({ timeoutMs = 45000 } = {}) {
       () => {
         const msg =
           document.querySelector('[data-ifields-id="card-data-error"]')?.textContent ||
-          "Check card number, expiration, and CVV";
-        reject(new Error(msg.trim() || "Card validation failed"));
+          "Card could not be verified";
+        reject(new Error(msg));
       },
       timeoutMs
     );

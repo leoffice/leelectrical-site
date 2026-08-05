@@ -610,11 +610,15 @@ export default function PayLanding() {
       if (patch.pan) filled.push("card number");
       if (patch.exp) filled.push("exp");
       if (patch.cvv) filled.push("CVV");
-      setCardPhotoHint(
-        filled.length
-          ? `Filled ${filled.join(", ")} from photo. Check the fields, then pay.`
-          : "Could not read the card number — enter it below."
-      );
+      let hint;
+      if (patch.pan) {
+        hint = `Filled ${filled.join(", ")} from photo. Check the fields, then pay.`;
+      } else if (patch.exp || patch.cvv) {
+        hint = `Filled ${filled.join(", ") || "what we could read"} — type the full card number in the field above (photo only caught the last digits).`;
+      } else {
+        hint = "Could not read the card number — enter it below.";
+      }
+      setCardPhotoHint(hint);
       setCardPhotoDone(true);
     } catch (err) {
       setCardPhotoHint(String((err && err.message) || "Could not read card photo"));

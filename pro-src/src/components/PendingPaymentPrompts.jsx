@@ -145,8 +145,8 @@ export default function PendingPaymentPrompts() {
   /** Levi picks job for unmatched payments. */
   const [pickJobId, setPickJobId] = useState("");
   const [pickQuery, setPickQuery] = useState("");
-  /** After Levi taps a match, collapse other suggestions (Levi 2026-08-05). */
-  const [pickLocked, setPickLocked] = useState(false);
+  /** After Levi taps a match (or suggestion is already applied), collapse other suggestions (Levi 2026-08-05). */
+  const [pickLocked, setPickLocked] = useState(true);
   /** Focus search when he taps Change on suggested customer/invoice (Levi 2026-08-05). */
   const jobSearchRef = useRef(null);
   const jobPickerRef = useRef(null);
@@ -154,10 +154,12 @@ export default function PendingPaymentPrompts() {
   const depositBanks = useMemo(() => getDepositBanks(), []);
 
   const focusJobPicker = useCallback((opts = {}) => {
-    const { clearPick = false, seedQuery = "" } = opts;
+    const { clearPick = false, seedQuery = "", expandList = true } = opts;
     setEditMode(true);
     if (clearPick) setPickJobId("");
     if (seedQuery != null && seedQuery !== "") setPickQuery(String(seedQuery));
+    // Change → expand full list; row pick locks (Levi 2026-08-05).
+    setPickLocked(!expandList);
     // Picker may not be mounted yet (auto-applied card) — focus after paint via effect.
     focusSearchAfterEdit.current = true;
   }, []);
@@ -179,6 +181,13 @@ export default function PendingPaymentPrompts() {
     }, 50);
     return () => clearTimeout(t);
   }, [editMode, current?.id, pickJobId]);
+
+  // New notice → lock list to the suggested/applied customer so leftovers disappear (Levi 2026-08-05).
+  useEffect(() => {
+    setPickLocked(true);
+    setPickJobId("");
+    setPickQuery("");
+  }, [current?.id]);
 
   const noticeKey = useCallback((p) => {
     if (!p) return "";
@@ -648,7 +657,9 @@ export default function PendingPaymentPrompts() {
                 onClick={() =>
                   focusJobPicker({
                     clearPick: false,
-                    seedQuery: pickQuery || fromLine || "",
+                    // Open search to change — show full list until they tap one (Levi 2026-08-05).
+                    expandList: true,
+                    seedQuery: "",
                   })
                 }
                 data-testid="pending-payment-change-match"

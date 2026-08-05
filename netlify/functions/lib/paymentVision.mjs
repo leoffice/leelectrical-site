@@ -102,7 +102,7 @@ If a field is missing use null or []. invoiceNumbers and addresses are critical 
 export const CARD_VISION_PROMPT = `You are reading a photo of a payment card (credit or debit) for LE Electrical pay-page assist.
 Extract ONLY what is clearly printed on the card and return ONLY valid JSON (no markdown):
 {
-  "cardNumber": <digits only, full PAN if fully readable — no spaces>,
+  "cardNumber": <digits only, FULL pan when fully readable — no spaces or dashes>,
   "last4": <last 4 digits of the card, always when any PAN digits are readable>,
   "exp": <expiration as MM/YY>,
   "cvv": <3 or 4 digit security code ONLY if clearly printed and fully readable in this photo, else null>,
@@ -111,10 +111,12 @@ Extract ONLY what is clearly printed on the card and return ONLY valid JSON (no 
   "confidence": <"high" or "low">
 }
 Rules:
+- cardNumber is the #1 field. Read the FULL embossed/printed PAN on the front (Visa/MC/Discover 16 digits in 4-4-4-4 groups; Amex 15 digits 4-6-5). Return digits only, no spaces.
 - Never invent a card number. If partial/blurry, set cardNumber null and still return last4 if visible.
 - Prefer the embossed/printed PAN on the front. Ignore holograms and network logos for digits.
-- exp: convert 08/27 or 08/2027 → 08/27.
-- cvv: include only when the 3–4 digit code is clearly visible (back signature strip or Amex front CID). Never invent CVV.
+- exp: convert 08/27 or 08/2027 → 08/27. Usually bottom-right near the chip.
+- cvv: include only when the 3–4 digit code is clearly visible (back signature strip or Amex front 4-digit CID). Never invent CVV. Front-of-card photos usually have no CVV — null is fine.
+- Example (fake test card only): {"cardNumber":"4111111111111111","last4":"1111","exp":"08/28","cvv":null,"name":"JANE TEST","brand":"visa","confidence":"high"}
 If a field is missing or unreadable use null.`;
 
 const PROMPTS = {

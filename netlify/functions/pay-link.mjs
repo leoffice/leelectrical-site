@@ -201,8 +201,30 @@ export default async (req, env = {}) => {
   }
 
   const url = new URL(req.url);
-  const code = String(url.searchParams.get("code") || "").trim();
+  let code = String(url.searchParams.get("code") || "").trim();
   if (!code) return json({ ok: false, error: "code required" }, 400);
+
+  // Bare invoice digits (e.g. /pay/251854) — heal from jobsdata so View & Pay never blanks.
+  // Stable code: <invoice>-view (matches CODE_RE).
+  const bareInv = /^[0-9]{5,8}$/.test(code) ? code : "";
+  if (bareInv) {
+    const fixedCode = `${bareInv}-view`;
+    let bareRaw = await store.get(`pl-${fixedCode}`, { type: "text" });
+    let bareRecord = null;
+    if (bareRaw) {
+      try {
+        bareRecord = JSON.parse(bareRaw);
+      } catch {
+        bareRecord = null;
+      }
+    }
+    if (!bareRecord) {
+      bareRecord = await healMissingPayLink(store, fixedCode);
+    }
+    if (!bareRecord) return json({ ok: false, error: "invoice not found" }, 404);
+    return respondResolved(req, fixedCode, bareRecord);
+  }
+
   if (!CODE_RE.test(code)) return json({ ok: false, error: "invalid code" }, 404);
 
   let raw = await store.get(`pl-${code}`, { type: "text" });

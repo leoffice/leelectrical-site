@@ -1655,33 +1655,24 @@ export default function JobDetail() {
                                   {br.enabled && k === "coned" && (
                                     <div className="py-1.5 space-y-1" data-testid="coned-app-cta">
                                       {(() => {
-                                        // Levi 2026-08-05: clear “X applications ready to upload”
-                                        // on job paperwork (Form A files not yet uploaded to case).
+                                        // Levi 2026-08-05: no standalone green "ready to upload" box —
+                                        // count lives in Permits Deploy queue. Here: compact file line only.
                                         const readyN = conedAppsReadyCount;
                                         const total = (conedCompletedFiles || []).length;
                                         if (!total && !readyN) return null;
-                                        return (
-                                          <div
-                                            className={
-                                              "rounded-xl border px-2.5 py-2 text-sm font-semibold " +
-                                              (readyN
-                                                ? "border-emerald-300 bg-emerald-50 text-emerald-900"
-                                                : "border-slate-200 bg-slate-50 text-slate-700")
-                                            }
-                                            data-testid="coned-apps-ready-banner"
-                                          >
-                                            {readyN
-                                              ? `📄 ${readyN} application${readyN === 1 ? "" : "s"} ready to upload`
-                                              : total
-                                                ? `📄 ${total} application${total === 1 ? "" : "s"} on file`
-                                                : null}
-                                            {readyN && total > readyN ? (
-                                              <span className="block text-[11px] font-normal text-emerald-800 mt-0.5">
-                                                {total - readyN} already uploaded · {readyN} waiting
-                                              </span>
-                                            ) : null}
-                                          </div>
-                                        );
+                                        if (!total && readyN) {
+                                          return (
+                                            <p
+                                              className="text-xs text-slate-600 px-0.5"
+                                              data-testid="coned-apps-ready-banner"
+                                            >
+                                              {readyN} application{readyN === 1 ? "" : "s"} ready — open{" "}
+                                              <span className="font-semibold">Permits → Deploy queue</span> to
+                                              review &amp; deploy
+                                            </p>
+                                          );
+                                        }
+                                        return null;
                                       })()}
                                       {conedCompletedFiles.map((f, fi) => (
                                         <div

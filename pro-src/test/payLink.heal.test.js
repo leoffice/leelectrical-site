@@ -159,4 +159,27 @@ describe("pay-link self-heal", () => {
     const body = await res.json();
     expect(body.error).toMatch(/match/i);
   });
+
+  it("GET bare invoice digits heals to pay page (View & Pay #251854 blank fix)", async () => {
+    const req = new Request("https://leelectrical.us/.netlify/functions/pay-link?code=251849", {
+      method: "GET",
+      headers: { accept: "application/json" },
+    });
+    const res = await handler(req, {});
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.ok).toBe(true);
+    expect(body.code).toBe("251849-view");
+    expect(body.payload.i).toBe("251849");
+    expect(body.payload.c).toBe("Avi Loschak");
+  });
+
+  it("GET bare unknown invoice 404s", async () => {
+    const req = new Request("https://leelectrical.us/.netlify/functions/pay-link?code=999991", {
+      method: "GET",
+      headers: { accept: "application/json" },
+    });
+    const res = await handler(req, {});
+    expect(res.status).toBe(404);
+  });
 });
