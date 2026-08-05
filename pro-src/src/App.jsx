@@ -146,20 +146,21 @@ function Tab({ t, sidebar }) {
 }
 
 function LeaveSheet() {
-  const { leaveReq, setLeaveReq, saveAll, discardAll, dirtyJobs } = useStoreEdit();
+  // Levi 2026-08-05: only three choices — no "2 items / 145 changes" framing.
+  // Backend-only writes use patchAndSave and never stage, so they never open this.
+  const { leaveReq, setLeaveReq, saveAll, discardAll } = useStoreEdit();
   if (!leaveReq) return null;
   const close = () => setLeaveReq(null);
   const go = leaveReq.cb;
-  const n = dirtyJobs > 0 ? dirtyJobs : 1;
   return (
     <Sheet title="Unsaved changes" onClose={close}>
       <p className="text-sm text-slate-500 mb-3">
-        You have unsaved edits on <b>{n}</b> job{n === 1 ? "" : "s"}. Save, discard, or stay.
+        You have unsaved edits. Choose one:
       </p>
       <Opt
         icon="💾"
-        title="Save & continue"
-        note="Save, then leave"
+        title="Save"
+        note="Save your changes, then leave"
         onClick={async () => {
           close();
           await saveAll();
@@ -169,14 +170,19 @@ function LeaveSheet() {
       <Opt
         icon="🗑️"
         title="Discard"
-        note="Throw away the edits"
+        note="Throw away the edits, then leave"
         onClick={() => {
           close();
           discardAll();
           go && go();
         }}
       />
-      <Opt icon="↩️" title="Continue editing" onClick={close} />
+      <Opt
+        icon="✏️"
+        title="Continue editing"
+        note="Stay here — keep editing"
+        onClick={close}
+      />
     </Sheet>
   );
 }
