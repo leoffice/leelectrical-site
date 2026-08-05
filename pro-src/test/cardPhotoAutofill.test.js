@@ -39,6 +39,24 @@ describe("cardPhotoAutofill", () => {
     const patch = cardPhotoAutofillPatch({ cardNumber: "1234567890123456", last4: "3456" });
     expect(patch.pan).toBeUndefined();
     expect(patch.last4).toBe("3456");
+    expect(patch.masked).toMatch(/3456$/);
+    expect(patch.masked).toMatch(/•/);
+  });
+
+  it("fills stars from last4 alone (exp-only was the miss Levi hit)", () => {
+    const patch = cardPhotoAutofillPatch({ last4: "4242", exp: "08/28" });
+    expect(patch.last4).toBe("4242");
+    expect(patch.masked).toMatch(/4242$/);
+    expect(patch.masked).toMatch(/•/);
+    expect(patch.exp).toBe("08/28");
+    expect(hasUsefulCardAutofill(patch)).toBe(true);
+  });
+
+  it("masks short PAN fragments with stars + last4", () => {
+    expect(maskCardPan("1111")).toBe("••••••••••••1111");
+    const patch = cardPhotoAutofillPatch({ cardNumber: "4111" });
+    expect(patch.last4).toBe("4111");
+    expect(patch.masked).toBe("••••••••••••4111");
   });
 });
 

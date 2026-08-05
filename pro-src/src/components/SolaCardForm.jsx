@@ -83,12 +83,13 @@ export default function SolaCardForm({
     if (initialExp) setExp(formatCardExpInput(initialExp));
   }, [initialExp]);
 
-  // Levi 2026-08-05: card photo should fill number (stars) + exp for review before save/pay.
+  // Levi 2026-08-05: card photo fills card number field with stars (+ exp) for review.
   useEffect(() => {
     if (!photoAssist) return;
+    const last4 = String(photoAssist.last4 || "").replace(/\D/g, "").slice(-4);
     const masked =
       photoAssist.masked ||
-      (photoAssist.last4 ? `${"•".repeat(12)}${photoAssist.last4}` : "");
+      (last4 ? `${"•".repeat(12)}${last4}` : "");
     if (masked) setPhotoMasked(masked);
     const pan = String(photoAssist.pan || "").replace(/\D/g, "");
     photoPanRef.current = pan;
@@ -186,28 +187,35 @@ export default function SolaCardForm({
             <label className="block text-xs font-bold text-slate-500 mb-1">Card number</label>
             {photoMasked ? (
               <div
-                className="input mb-1.5 font-mono tracking-widest text-slate-800 bg-slate-50"
+                className="input mb-1.5 font-mono tracking-widest text-slate-800 bg-slate-50 border-emerald-200"
                 data-testid="card-photo-stars-field"
                 aria-label="Card number from photo (masked)"
               >
                 {photoMasked}
               </div>
             ) : null}
+            {/* Secure iframe still required for charge; when stars filled, keep it
+                available to edit/correct digits after review. */}
             <div
-              className="overflow-hidden rounded-xl"
+              className={`overflow-hidden rounded-xl ${photoMasked ? "opacity-90" : ""}`}
               style={{ height: IFRAME_H }}
               data-testid="sola-ifield-card-number"
             >
               <iframe
                 title="Card number"
                 data-ifields-id="card-number"
-                data-ifields-placeholder="Card number"
+                data-ifields-placeholder={photoMasked ? "Confirm or re-type card number" : "Card number"}
                 src={iframeSrc}
                 scrolling="no"
                 className="w-full border-0 block overflow-hidden"
                 style={{ height: IFRAME_H, minHeight: IFRAME_H, overflow: "hidden" }}
               />
             </div>
+            {photoMasked ? (
+              <p className="text-[11px] text-slate-500 mt-1">
+                Stars from photo — review, fix digits if needed, enter CVV, then pay.
+              </p>
+            ) : null}
           </div>
           <div className="grid grid-cols-2 gap-2">
             <div>

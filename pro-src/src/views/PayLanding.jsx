@@ -156,7 +156,10 @@ function PdfRetrieveOverlay({ phase, invoiceNo, onClose }) {
 function usePayToken() {
   const { token: pathToken } = useParams();
   const [search] = useSearchParams();
-  return (pathToken || search.get("t") || "").trim();
+  // ?pay=CODE is what /pay/:code redirects to (email receipt CTAs). main.jsx
+  // usually moves it into the hash route; keep a query fallback so a missed
+  // bootstrap never lands on a blank "Link not valid" page (Levi 2026-08-05).
+  return (pathToken || search.get("pay") || search.get("t") || "").trim();
 }
 
 export default function PayLanding() {
@@ -265,9 +268,10 @@ export default function PayLanding() {
   const logo = config.branding?.logoUrl || DEFAULT_LOGO;
   // Short trading name — this page has always shown "BLZ Electric", not the
   // legal "… Inc." carried on the invoice PDF.
-  const brandName = profile.shortName || "";
+  const brandName =
+    profile.shortName || profile.legalName || profile.companyName || "BLZ Electric";
   const subline = [tenantLocality(config), profile.tagline].filter(Boolean).join(" · ");
-  const website = profile.website || "";
+  const website = profile.website || "leelectrical.us";
 
   useEffect(() => {
     if (!token) {

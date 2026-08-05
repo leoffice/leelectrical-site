@@ -28,21 +28,23 @@ export function StagePill({ job }) {
 
 /**
  * Levi 2026-08-05: progress invoices (qty 0.5 / 50%) must not show solid Paid.
- * Use Partially paid (amber) when progress billing or money is still on the contract.
+ * Use Partially paid (amber). Only true progress draws — not every invoice that
+ * once had estimate lines (that was painting full pays as partial).
  */
 export function paymentStatusKind(job) {
   if (!job) return "unpaid";
   const due = openBalance(job);
   const paidAmt = totalPaid(normalizePayments(job));
-  const progress = isProgressInvoiceJob(job);
   const pct = Number(job.invoiceProgressPct);
   const partialQty = (job.invoiceLines || []).some((ln) => {
     const q = Number(ln?.qty);
     return Number.isFinite(q) && q > 0 && q < 0.999;
   });
   const isProgressDraw =
-    progress || partialQty || (Number.isFinite(pct) && pct > 0 && pct < 99.99);
-  // Progress draw settled for this invoice, or any open balance with money received.
+    !!job.invoiceProgressBilling ||
+    partialQty ||
+    (Number.isFinite(pct) && pct > 0 && pct < 99.99);
+  // Progress draw settled for this invoice → still "partially paid" (not full contract).
   if (isProgressDraw) {
     if (paidAmt > 0.01 || job.paid || due <= 0.01) return "partial";
     return "unpaid";

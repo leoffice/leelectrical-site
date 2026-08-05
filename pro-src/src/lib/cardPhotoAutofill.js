@@ -6,7 +6,10 @@
 
 export function maskCardPan(pan) {
   const d = String(pan || "").replace(/\D/g, "");
-  if (d.length < 12) return "";
+  if (d.length < 4) return "";
+  // Full PAN → stars + last4. Short / last4-only OCR still shows stars so the
+  // card number field is never left empty when we know digits (Levi 2026-08-05).
+  if (d.length < 12) return `${"•".repeat(12)}${d.slice(-4)}`;
   return `${"•".repeat(Math.max(0, d.length - 4))}${d.slice(-4)}`;
 }
 
@@ -64,14 +67,18 @@ export function cardPhotoAutofillPatch(extracted) {
     patch.last4 = pan.slice(-4);
     patch.masked = maskCardPan(pan);
   } else if (pan && pan.length >= 4) {
-    // Weak OCR — still expose last4 for assist, no full pan
+    // Weak OCR — still expose last4 + stars for the number field, no full pan
     patch.last4 = pan.slice(-4);
     patch.masked = maskCardPan(pan);
   }
   const last4 = String(extracted.last4 || extracted.cardLast4 || "").replace(/\D/g, "");
   if (!patch.last4 && last4.length === 4) {
     patch.last4 = last4;
-    patch.masked = `•••• ${last4}`;
+    patch.masked = maskCardPan(last4);
+  }
+  // Always keep a stars display when we know last4 (exp-only was the old miss).
+  if (patch.last4 && !patch.masked) {
+    patch.masked = maskCardPan(patch.last4);
   }
   const exp = normalizeCardExp(extracted.exp || extracted.expiry || extracted.expiration || "");
   if (exp) patch.exp = exp;
