@@ -1874,6 +1874,9 @@ export default function Settings() {
         >
           Log off
         </button>
+        <p className="text-[11px] text-slate-400 mt-2 font-semibold" data-testid="settings-app-version">
+          App version loads on open from /app/pro/sw.js (e.g. le-pro-v344) — see sidebar under Log off.
+        </p>
       </MenuSection>
 
       {sigSheetOpen ? (
