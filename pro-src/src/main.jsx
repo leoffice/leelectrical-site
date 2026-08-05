@@ -24,7 +24,10 @@ installKeepFocusedVisible();
 /**
  * Bootstrap public pay route from ?pay=CODE (survives 302 Location headers).
  * Email "View invoice" links redirect here so hash is not lost mid-redirect
- * (Levi 2026-08-05 — blank page after receipt CTA).
+ * (Levi 2026-08-05 — blank page / LockGate when #fragment is dropped).
+ *
+ * Use location.replace (not only history.replaceState) so HashRouter never
+ * boots once on "/" (staff lock) before the hash is applied.
  */
 function bootstrapPayQueryToHash() {
   if (typeof window === "undefined") return;
@@ -32,19 +35,28 @@ function bootstrapPayQueryToHash() {
     const u = new URL(window.location.href);
     const code = String(u.searchParams.get("pay") || u.searchParams.get("t") || "").trim();
     if (!code) return;
-    // Already on the hash pay route with this token — just strip query.
+    const enc = encodeURIComponent(code);
+    const wantHash = `#/pay/${enc}`;
     const hash = String(u.hash || "");
-    if (hash.includes(`/pay/${code}`) || hash.includes(`/pay/${encodeURIComponent(code)}`)) {
-      u.searchParams.delete("pay");
-      u.searchParams.delete("t");
-      window.history.replaceState(null, "", u.pathname + u.search + u.hash);
-      return;
-    }
+    const already =
+      hash === wantHash ||
+      hash === `#/pay/${code}` ||
+      hash.startsWith(`#/pay/${enc}`) ||
+      hash.startsWith(`#/pay/${code}`);
     u.searchParams.delete("pay");
     u.searchParams.delete("t");
     const qs = u.searchParams.toString();
-    const next = `${u.pathname}${qs ? `?${qs}` : ""}#/pay/${encodeURIComponent(code)}`;
-    window.history.replaceState(null, "", next);
+    const base = `${u.pathname}${qs ? `?${qs}` : ""}`;
+    if (already) {
+      // Drop query only — stay on pay route.
+      const clean = `${base}${hash.startsWith("#") ? hash : wantHash}`;
+      if (clean !== `${u.pathname}${u.search}${u.hash}`) {
+        window.history.replaceState(null, "", clean);
+      }
+      return;
+    }
+    // Hard navigation into the public pay route (no LockGate flash).
+    window.location.replace(`${base}${wantHash}`);
   } catch {
     /* ignore */
   }

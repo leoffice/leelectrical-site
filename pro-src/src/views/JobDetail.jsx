@@ -391,23 +391,32 @@ export default function JobDetail() {
   ]);
 
   // S27 — poll once per job open for a customer-completed application; import
-  // the files + answers onto the tab, then S28 auto-queues the case upload.
+  // the files + answers onto the tab. Always check intake store when Con Ed is
+  // on — do not require applicationRequest on the job (Goodness Form A was
+  // submitted but never imported because that flag was missing — Levi 2026-08-05).
   useEffect(() => {
-    if (!conedAppsOn || !job || !conedIntakeRequest) return undefined;
+    if (!conedAppsOn || !job || !id) return undefined;
     let alive = true;
     (async () => {
       const r = await checkCustomerIntake(id);
       if (!alive || !r.ok || !r.submission) return;
       const sub = r.submission;
       const importedAt = job?.paperwork?.coned?.customerIntakeImportedAt || "";
-      if (!sub.updatedAt || sub.updatedAt <= importedAt) return;
-      const files = intakeSubmissionToCompletedFiles(sub);
-      if (!files.length) return;
       const existing = Array.isArray(job.paperwork?.coned?.completedFiles)
         ? job.paperwork.coned.completedFiles
         : [];
-      const seen = new Set(existing.map((f) => f.docKey));
-      const merged = [...existing, ...files.filter((f) => !seen.has(f.docKey))];
+      const files = intakeSubmissionToCompletedFiles(sub);
+      if (!files.length) return;
+      // Import when never imported, or when intake has new files not on the tab.
+      const seen = new Set(existing.map((f) => f.docKey).filter(Boolean));
+      const missing = files.filter((f) => f.docKey && !seen.has(f.docKey));
+      if (!missing.length && importedAt && sub.updatedAt && sub.updatedAt <= importedAt) {
+        return;
+      }
+      const toMerge = missing.length ? missing : files.filter((f) => !seen.has(f.docKey));
+      if (!toMerge.length && existing.length) return;
+      const merged = [...existing, ...toMerge.filter((f) => f.docKey && !seen.has(f.docKey))];
+      if (!merged.length) return;
       const meterEntries = Object.values(sub.meters || {});
       const firstMeter = meterEntries[0];
       const mapped = firstMeter
@@ -419,7 +428,7 @@ export default function JobDetail() {
         paperwork: {
           coned: {
             completedFiles: merged,
-            customerIntakeImportedAt: sub.updatedAt,
+            customerIntakeImportedAt: sub.updatedAt || new Date().toISOString(),
             ...(mapped
               ? {
                   application: {
@@ -427,6 +436,8 @@ export default function JobDetail() {
                     answers: mapped,
                     status: "customer_submitted",
                     submittedAt: firstMeter.submittedAt || sub.updatedAt,
+                    filename: firstMeter.filename || "",
+                    docKey: firstMeter.docKey || "",
                   },
                 }
               : {}),
@@ -476,7 +487,7 @@ export default function JobDetail() {
       alive = false;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [id, conedAppsOn, !!conedIntakeRequest]);
+  }, [id, conedAppsOn]);
   const workCompleteEmail = useMemo(
     () => (job && showWorkCompleteNotify ? buildWorkCompleteCustomerEmail(job) : null),
     [job, showWorkCompleteNotify]

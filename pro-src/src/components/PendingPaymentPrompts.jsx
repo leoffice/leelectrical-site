@@ -145,6 +145,8 @@ export default function PendingPaymentPrompts() {
   /** Levi picks job for unmatched payments. */
   const [pickJobId, setPickJobId] = useState("");
   const [pickQuery, setPickQuery] = useState("");
+  /** After Levi taps a match, collapse other suggestions (Levi 2026-08-05). */
+  const [pickLocked, setPickLocked] = useState(false);
   /** Focus search when he taps Change on suggested customer/invoice (Levi 2026-08-05). */
   const jobSearchRef = useRef(null);
   const jobPickerRef = useRef(null);
@@ -243,6 +245,8 @@ export default function PendingPaymentPrompts() {
     setEditMode(false);
     setPickJobId(current.jobId || "");
     setPickQuery("");
+    // Pre-matched job: show only that row until Levi searches again.
+    setPickLocked(Boolean(current.jobId));
   }, [current?.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const clearPending = useCallback(
@@ -815,7 +819,14 @@ export default function PendingPaymentPrompts() {
                 className="input w-full"
                 placeholder="Search customer, address, invoice #, or amount…"
                 value={pickQuery}
-                onChange={(e) => setPickQuery(e.target.value)}
+                onChange={(e) => {
+                  // Typing again re-opens the full suggestion list (Levi 2026-08-05).
+                  setPickQuery(e.target.value);
+                  setPickLocked(false);
+                }}
+                onFocus={() => {
+                  // Focus alone does not expand if already locked — type to change.
+                }}
                 disabled={busy}
                 data-testid="pending-payment-job-search"
                 autoComplete="off"
@@ -824,11 +835,27 @@ export default function PendingPaymentPrompts() {
                 className="max-h-44 overflow-y-auto rounded-xl border border-slate-200 divide-y divide-slate-100"
                 data-testid="pending-payment-job-list"
               >
-                {matchCandidates.length === 0 ? (
-                  <div className="px-3 py-3 text-sm text-slate-500">No open invoices matched — try another search.</div>
-                ) : (
-                  matchCandidates.map(({ job: j, score }) => {
-                    const selected = String(pickJobId || selectedJob?.id || "") === String(j.id);
+                {(() => {
+                  // Once Levi taps a customer/invoice, collapse the list to that
+                  // pick only so leftover "likely match" rows disappear.
+                  const selectedId = String(pickJobId || selectedJob?.id || "");
+                  const rows =
+                    pickLocked && selectedId
+                      ? matchCandidates.filter(({ job: j }) => String(j.id) === selectedId)
+                      : matchCandidates;
+                  const showRows =
+                    pickLocked && selectedId && rows.length === 0 && selectedJob
+                      ? [{ job: selectedJob, score: 100 }]
+                      : rows;
+                  if (showRows.length === 0) {
+                    return (
+                      <div className="px-3 py-3 text-sm text-slate-500">
+                        No open invoices matched — try another search.
+                      </div>
+                    );
+                  }
+                  return showRows.map(({ job: j, score }) => {
+                    const selected = selectedId === String(j.id);
                     return (
                       <button
                         type="button"
@@ -836,23 +863,39 @@ export default function PendingPaymentPrompts() {
                         className={`w-full text-left px-3 py-2.5 text-sm ${
                           selected ? "bg-brand/10 ring-inset ring-2 ring-brand" : "bg-white active:bg-slate-50"
                         }`}
-                        onClick={() => setPickJobId(j.id)}
+                        onClick={() => {
+                          setPickJobId(j.id);
+                          setPickQuery(
+                            String(j.customer || j.customerName || j.invoiceNo || "").trim()
+                          );
+                          setPickLocked(true);
+                        }}
                         data-testid={"pending-payment-job-" + j.id}
                       >
-                        <div className="font-extrabold text-slate-900">{j.customer || j.customerName || "Customer"}</div>
+                        <div className="font-extrabold text-slate-900">
+                          {j.customer || j.customerName || "Customer"}
+                          {selected && pickLocked ? " ✓" : ""}
+                        </div>
                         <div className="text-slate-600 text-xs mt-0.5">
                           {j.invoiceNo ? `#${j.invoiceNo}` : "No inv #"}
-                          {j.openBalance != null && j.openBalance !== "" ? ` · due ${fmt$(j.openBalance)}` : ""}
+                          {j.openBalance != null && j.openBalance !== ""
+                            ? ` · due ${fmt$(j.openBalance)}`
+                            : ""}
                         </div>
                         <div className="text-slate-500 text-xs truncate">
                           {j.serviceAddress || j.address || ""}
-                          {score >= 40 ? " · likely match" : ""}
+                          {!pickLocked && score >= 40 ? " · likely match" : ""}
                         </div>
                       </button>
                     );
-                  })
-                )}
+                  });
+                })()}
               </div>
+              {pickLocked ? (
+                <p className="text-[11px] text-slate-500">
+                  Selected — type in the search box to pick a different customer.
+                </p>
+              ) : null}
             </div>
           ) : null}
           {current.proofUrl ? (
