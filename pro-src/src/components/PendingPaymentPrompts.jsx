@@ -1,6 +1,6 @@
 // Login notices for customer pay-page check photos (and bank Zelle alerts).
 // Levi: see picture → zoom → Autofill → correct → Approve → stages payment on the job.
-import React, { useCallback, useEffect, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useStore, useStoreData } from "../state/store.jsx";
 import { appendPayment, normalizePayments, removePayment } from "../lib/payments.js";
 import { analyzePaymentImage, compressImageForVision, fileToBase64 } from "../lib/paymentVision.js";
@@ -145,7 +145,38 @@ export default function PendingPaymentPrompts() {
   /** Levi picks job for unmatched payments. */
   const [pickJobId, setPickJobId] = useState("");
   const [pickQuery, setPickQuery] = useState("");
+  /** Focus search when he taps Change on suggested customer/invoice (Levi 2026-08-05). */
+  const jobSearchRef = useRef(null);
+  const jobPickerRef = useRef(null);
+  const focusSearchAfterEdit = useRef(false);
   const depositBanks = useMemo(() => getDepositBanks(), []);
+
+  const focusJobPicker = useCallback((opts = {}) => {
+    const { clearPick = false, seedQuery = "" } = opts;
+    setEditMode(true);
+    if (clearPick) setPickJobId("");
+    if (seedQuery != null && seedQuery !== "") setPickQuery(String(seedQuery));
+    // Picker may not be mounted yet (auto-applied card) — focus after paint via effect.
+    focusSearchAfterEdit.current = true;
+  }, []);
+
+  useEffect(() => {
+    if (!focusSearchAfterEdit.current) return;
+    if (!editMode && !current) return;
+    // Wait for job picker DOM after leaving auto-ack / opening Change.
+    const t = setTimeout(() => {
+      if (!focusSearchAfterEdit.current) return;
+      focusSearchAfterEdit.current = false;
+      try {
+        jobPickerRef.current?.scrollIntoView?.({ behavior: "smooth", block: "nearest" });
+        jobSearchRef.current?.focus?.();
+        jobSearchRef.current?.select?.();
+      } catch {
+        /* ignore */
+      }
+    }, 50);
+    return () => clearTimeout(t);
+  }, [editMode, current?.id, pickJobId]);
 
   const noticeKey = useCallback((p) => {
     if (!p) return "";
@@ -604,66 +635,82 @@ export default function PendingPaymentPrompts() {
           <h2 className="text-lg font-extrabold text-slate-900 leading-tight mt-0.5">
             {snoozing ? "Remind me later" : title}
           </h2>
-          {/* Condensed summary — invoice + amount due + conf on separate lines (Levi 2026-08-02) */}
-          <div
-            className="mt-2 rounded-xl bg-slate-50 border border-slate-100 px-3 py-2 text-sm text-slate-800 space-y-1 leading-snug"
-            data-testid="pending-payment-summary"
-          >
-            {cust ? (
-              <div>
-                <span className="text-[11px] font-bold uppercase tracking-wide text-slate-500">Customer</span>
-                <div className="font-semibold text-slate-900">{cust}</div>
-              </div>
-            ) : null}
-            {inv ? (
-              <div className="border-t border-slate-200/80 pt-1">
-                <span className="text-[11px] font-bold uppercase tracking-wide text-slate-500">Invoice</span>
-                <div className="font-semibold">#{inv}</div>
-              </div>
-            ) : null}
-            {openDue ? (
-              <div className="border-t border-slate-200/80 pt-1">
-                <span className="text-[11px] font-bold uppercase tracking-wide text-slate-500">Amount due</span>
-                <div className="font-semibold">{openDue}</div>
-              </div>
-            ) : null}
-            {payAmtLine ? (
-              <div className="border-t border-slate-200/80 pt-1">
-                <span className="text-[11px] font-bold uppercase tracking-wide text-slate-500">This payment</span>
-                <div className="font-semibold text-emerald-700">
-                  {payAmtLine.startsWith("$") ? payAmtLine : `$${payAmtLine}`}
+          {/* Match always editable — Change is first/tappable (Levi 2026-08-05 wrong Marozov #251741) */}
+          <div className="mt-2 space-y-2" data-testid="pending-payment-summary">
+            {cust || inv || !showAckCard ? (
+              <button
+                type="button"
+                className="w-full text-left rounded-xl border-2 border-brand/35 bg-brand/5 px-3 py-2.5 active:bg-brand/10"
+                onClick={() =>
+                  focusJobPicker({
+                    clearPick: false,
+                    seedQuery: pickQuery || fromLine || "",
+                  })
+                }
+                data-testid="pending-payment-change-match"
+                disabled={busy}
+                aria-label="Change customer or invoice"
+              >
+                <div className="flex items-start justify-between gap-2">
+                  <div className="min-w-0 flex-1">
+                    <span className="text-[11px] font-extrabold uppercase tracking-wide text-brand">
+                      {suggestionChanged ? "Applying to" : cust || inv ? "Suggested — tap to change" : "Customer / invoice"}
+                    </span>
+                    <div className="font-extrabold text-slate-900 truncate mt-0.5">
+                      {cust || "Tap to pick customer"}
+                    </div>
+                    {inv || openDue ? (
+                      <div className="text-slate-700 text-xs mt-0.5 font-semibold">
+                        {inv ? `#${inv}` : "No inv #"}
+                        {openDue ? ` · due ${openDue}` : ""}
+                      </div>
+                    ) : null}
+                  </div>
+                  <span className="shrink-0 mt-0.5 text-[12px] font-extrabold uppercase tracking-wide text-white bg-brand rounded-full px-3 py-1">
+                    Change
+                  </span>
                 </div>
-              </div>
+              </button>
             ) : null}
-            {confLine ? (
-              <div className="border-t border-slate-200/80 pt-1">
-                <span className="text-[11px] font-bold uppercase tracking-wide text-slate-500">
-                  {current.kind === "zelle" ? "Confirmation" : "Check #"}
-                </span>
-                <div className="font-mono text-[13px] font-semibold break-all">{confLine}</div>
-              </div>
-            ) : null}
-            {fromLine ? (
-              <div className="border-t border-slate-200/80 pt-1">
-                <span className="text-[11px] font-bold uppercase tracking-wide text-slate-500">From</span>
-                <div className="font-semibold">{fromLine}</div>
-              </div>
-            ) : null}
-            {dateLine ? (
-              <div className="border-t border-slate-200/80 pt-1">
-                <span className="text-[11px] font-bold uppercase tracking-wide text-slate-500">Date</span>
-                <div className="font-semibold">{dateLine}</div>
-              </div>
-            ) : null}
-            {memoLine ? (
-              <div className="border-t border-slate-200/80 pt-1">
-                <span className="text-[11px] font-bold uppercase tracking-wide text-slate-500">Memo</span>
-                <div className="font-semibold">{memoLine}</div>
-              </div>
-            ) : null}
-            {!cust && !inv && !payAmtLine && !confLine ? (
-              <div className="text-slate-600">Review the photo, Autofill, then Approve.</div>
-            ) : null}
+            <div className="rounded-xl bg-slate-50 border border-slate-100 px-3 py-2 text-sm text-slate-800 space-y-1 leading-snug">
+              {payAmtLine ? (
+                <div>
+                  <span className="text-[11px] font-bold uppercase tracking-wide text-slate-500">This payment</span>
+                  <div className="font-semibold text-emerald-700">
+                    {payAmtLine.startsWith("$") ? payAmtLine : `$${payAmtLine}`}
+                  </div>
+                </div>
+              ) : null}
+              {confLine ? (
+                <div className={payAmtLine ? "border-t border-slate-200/80 pt-1" : ""}>
+                  <span className="text-[11px] font-bold uppercase tracking-wide text-slate-500">
+                    {current.kind === "zelle" ? "Confirmation" : "Check #"}
+                  </span>
+                  <div className="font-mono text-[13px] font-semibold break-all">{confLine}</div>
+                </div>
+              ) : null}
+              {fromLine ? (
+                <div className={payAmtLine || confLine ? "border-t border-slate-200/80 pt-1" : ""}>
+                  <span className="text-[11px] font-bold uppercase tracking-wide text-slate-500">From</span>
+                  <div className="font-semibold">{fromLine}</div>
+                </div>
+              ) : null}
+              {dateLine ? (
+                <div className={payAmtLine || confLine || fromLine ? "border-t border-slate-200/80 pt-1" : ""}>
+                  <span className="text-[11px] font-bold uppercase tracking-wide text-slate-500">Date</span>
+                  <div className="font-semibold">{dateLine}</div>
+                </div>
+              ) : null}
+              {memoLine ? (
+                <div className="border-t border-slate-200/80 pt-1">
+                  <span className="text-[11px] font-bold uppercase tracking-wide text-slate-500">Memo</span>
+                  <div className="font-semibold">{memoLine}</div>
+                </div>
+              ) : null}
+              {!cust && !inv && !payAmtLine && !confLine ? (
+                <div className="text-slate-600">Review the photo, Autofill, then Approve.</div>
+              ) : null}
+            </div>
           </div>
           <p className="text-[11px] text-slate-500 mt-1.5">
             Source: {current.source === "pay_page" ? "Customer pay link" : current.source || "Bank / email"}
@@ -705,11 +752,12 @@ export default function PendingPaymentPrompts() {
             <button
               type="button"
               className="btn bg-amber-700 text-white w-full font-bold"
-              onClick={() => {
-                setEditMode(true);
-                setPickJobId("");
-                setPickQuery(String(fromLine || "").trim());
-              }}
+              onClick={() =>
+                focusJobPicker({
+                  clearPick: true,
+                  seedQuery: String(fromLine || "").trim(),
+                })
+              }
               data-testid="pending-payment-wrong-match"
             >
               Wrong customer / invoice
@@ -747,41 +795,33 @@ export default function PendingPaymentPrompts() {
         ) : (
           <>
           {showJobPicker ? (
-            <div className="px-4 pt-3 space-y-2" data-testid="pending-payment-where">
-              <p className="text-sm text-slate-700 leading-snug">
-                {selectedJob
-                  ? "Suggested customer / invoice below — change it anytime if it's wrong. Search by name, address, invoice #, or amount."
-                  : "Choose the customer / open invoice. Search by name, service address, invoice #, or amount due."}
+            <div
+              ref={jobPickerRef}
+              className="px-4 pt-3 space-y-2 border-b border-slate-100 pb-3"
+              data-testid="pending-payment-where"
+            >
+              <div className="flex items-center justify-between gap-2">
+                <p className="text-sm font-semibold text-slate-800 leading-snug">
+                  {selectedJob
+                    ? "Wrong customer or invoice? Search and pick the right one."
+                    : "Pick the customer / open invoice."}
+                </p>
+              </div>
+              <p className="text-xs text-slate-500 -mt-1">
+                Search by name, address, invoice #, or amount due. Suggestions are always editable.
               </p>
-              {selectedJob ? (
-                <div
-                  className="rounded-xl border border-brand/30 bg-brand/5 px-3 py-2 text-sm"
-                  data-testid="pending-payment-selected"
-                >
-                  <div className="text-[11px] font-bold uppercase tracking-wide text-brand">
-                    {suggestionChanged ? "Applying to" : "Suggested"}
-                  </div>
-                  <div className="font-extrabold text-slate-900">
-                    {selectedJob.customer || selectedJob.customerName || "Customer"}
-                  </div>
-                  <div className="text-slate-600 text-xs mt-0.5">
-                    {selectedJob.invoiceNo ? `#${selectedJob.invoiceNo}` : "No inv #"}
-                    {selectedJob.openBalance != null && selectedJob.openBalance !== ""
-                      ? ` · due ${fmt$(selectedJob.openBalance)}`
-                      : ""}
-                  </div>
-                </div>
-              ) : null}
               <input
+                ref={jobSearchRef}
                 className="input w-full"
                 placeholder="Search customer, address, invoice #, or amount…"
                 value={pickQuery}
                 onChange={(e) => setPickQuery(e.target.value)}
                 disabled={busy}
                 data-testid="pending-payment-job-search"
+                autoComplete="off"
               />
               <div
-                className="max-h-48 overflow-y-auto rounded-xl border border-slate-200 divide-y divide-slate-100"
+                className="max-h-44 overflow-y-auto rounded-xl border border-slate-200 divide-y divide-slate-100"
                 data-testid="pending-payment-job-list"
               >
                 {matchCandidates.length === 0 ? (
