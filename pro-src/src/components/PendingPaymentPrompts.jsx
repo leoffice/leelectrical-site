@@ -102,9 +102,11 @@ function isOpenPaymentNotice(p) {
   if (!p) return false;
   const s = String(p.status || "pending");
   if (s === "dismissed" || s === "acked") return false;
-  // Host auto-apply used to set approved+autoApplied and the card vanished — keep sticky until Got it.
-  if (p.autoApplied && !p.ackedAt && (s === "approved" || s === "auto_applied")) return true;
+  // Explicit Approve (incl. reassignment to Sima etc.) always closes — Levi 2026-08-05 bounce bug.
+  // Must check before autoApplied sticky, or "approved" + autoApplied keeps popping forever.
   if (s === "approved") return false;
+  // Host auto-apply: sticky until Got it / Edit+Approve (status stays auto_applied until then).
+  if (p.autoApplied && !p.ackedAt && s === "auto_applied") return true;
   if (s === "pending" || s === "auto_applied" || s === "needs_match") return true;
   return false;
 }
@@ -275,10 +277,11 @@ export default function PendingPaymentPrompts() {
       const k = noticeKey(item);
       if (k) setClosedKeys((prev) => new Set([...prev, k]));
       const now = Date.now();
-      const done = status === "acked" || status === "dismissed";
+      // Approve counts as done so reassignment + save cannot bounce back (Levi 2026-08-05 Sima).
+      const done = status === "acked" || status === "dismissed" || status === "approved";
       if (item.jobId) {
         const key = item.kind === "zelle" ? "pendingZellePayment" : "pendingCheckPayment";
-        // Clear the field on Got it/dismiss so overlay merge cannot resurrect auto_applied.
+        // Clear the field on Got it / dismiss / approve so overlay merge cannot resurrect.
         if (done) {
           patchJob(item.jobId, { [key]: null });
         } else {
@@ -296,8 +299,9 @@ export default function PendingPaymentPrompts() {
       const drop = (list) =>
         (list || []).filter((x) => {
           if (x.id === item.id) return false;
+          // Drop every notice with same confirmation (system queue + job merge bounce).
           if (conf && String(x.confirmationNumber || x.ref || "").trim() === conf) return false;
-          return isOpenPaymentNotice({ ...x, status: x.status === "acked" ? "acked" : x.status });
+          return isOpenPaymentNotice(x);
         });
       let openList = [];
       setSystemItems((prev) => {
@@ -562,11 +566,12 @@ export default function PendingPaymentPrompts() {
             zelleVerified: method === "Zelle" ? Boolean(payRef) : undefined,
           });
       const clearKey = method === "Zelle" ? "pendingZellePayment" : "pendingCheckPayment";
+      // Clear pending field entirely — do not leave approved+autoApplied sticky (Sima bounce).
       patchJob(job.id, {
         ...patch,
-        [clearKey]: { ...(job[clearKey] || current), status: "approved", resolvedAt: Date.now() },
+        [clearKey]: null,
       });
-      await clearPending(current, "approved");
+      await clearPending(current, "acked");
       setCurrent(null);
       // Persist + queue record_payment (same path as job Payment tab Save & sync).
       try {
