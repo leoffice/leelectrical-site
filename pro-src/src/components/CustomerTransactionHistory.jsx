@@ -303,20 +303,30 @@ export default function CustomerTransactionHistory({
     if (filter === "payments") return scopedRows.filter((r) => r.kind === "payment");
     if (filter === "estimates") return scopedRows.filter((r) => r.kind === "estimate");
     if (filter === "jobs") {
-      // One latest activity row per service address (Levi: addresses, not inv dump).
+      // Pure address list only — not activity rows (Levi 2026-08-05 screenshot/voice).
       const byAddr = new Map();
       for (const r of scopedRows) {
-        const key = String(r.address || r.customer || r.jobId || r.id);
+        const label = String(r.address || "").trim();
+        if (!label) continue;
+        const key = label.toLowerCase();
         const prev = byAddr.get(key);
         if (!prev) {
-          byAddr.set(key, r);
-          continue;
+          byAddr.set(key, {
+            _addressOnly: true,
+            address: label,
+            jobId: r.jobId,
+            jobCount: 1,
+            jobIds: new Set([String(r.jobId || "")]),
+          });
+        } else {
+          prev.jobIds.add(String(r.jobId || ""));
+          prev.jobCount = prev.jobIds.size;
         }
-        const rank = (x) => (x.kind === "payment" ? 0 : x.kind === "invoice" ? 1 : 2);
-        if (rank(r) < rank(prev)) byAddr.set(key, r);
-        else if (String(r.sortDate) > String(prev.sortDate)) byAddr.set(key, r);
       }
-      return Array.from(byAddr.values());
+      // Also count from raw jobs when rows lack address
+      return Array.from(byAddr.values()).sort((a, b) =>
+        String(a.address).localeCompare(String(b.address))
+      );
     }
     return scopedRows;
   }, [scopedRows, filter]);
@@ -418,8 +428,30 @@ export default function CustomerTransactionHistory({
 
         {rows.length === 0 ? (
           <p className="text-xs text-slate-400 text-center py-3" data-testid="customer-txn-empty">
-            No transactions match this filter.
+            {filter === "jobs" ? "No service addresses on file." : "No transactions match this filter."}
           </p>
+        ) : filter === "jobs" ? (
+          <div className="space-y-1.5" data-testid="customer-txn-addresses">
+            <p className="text-[10px] text-slate-400 px-0.5 leading-snug">
+              Service addresses only. Tap to open a job at that address.
+            </p>
+            {rows.map((row) => (
+              <button
+                key={row.address}
+                type="button"
+                className="w-full text-left rounded-xl border border-slate-100 bg-white px-3 py-2.5 active:bg-slate-50"
+                data-testid="cust-txn-addr-row"
+                onClick={() => {
+                  if (row.jobId) openJob({ jobId: row.jobId });
+                }}
+              >
+                <div className="text-sm font-semibold text-slate-800 truncate">{row.address}</div>
+                <div className="text-[11px] text-slate-400 mt-0.5">
+                  {row.jobCount || 1} job{(row.jobCount || 1) === 1 ? "" : "s"}
+                </div>
+              </button>
+            ))}
+          </div>
         ) : (
           <div className="space-y-1.5" data-testid="customer-txn-list">
             {rows.map((row) => {

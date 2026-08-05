@@ -329,6 +329,8 @@ export default function CustomerView() {
       );
       return;
     }
+    // Payments open the payment sheet. Everything else (invoice / estimate / etc.)
+    // opens job information with transaction history collapsed (Levi 2026-08-05).
     if (row.kind === "payment") {
       setSheet({
         kind: "payhist",
@@ -340,15 +342,13 @@ export default function CustomerView() {
       });
       return;
     }
-    if (row.kind === "estimate") {
-      openDocFor(j, "estimate");
-      return;
-    }
-    if (row.kind === "invoice") {
-      openDocFor(j, "invoice");
-      return;
-    }
-    nav("/job/" + row.jobId + "?from=" + encodeURIComponent(key) + "&fold=1&focus=job");
+    nav(
+      "/job/" +
+        row.jobId +
+        "?from=" +
+        encodeURIComponent(key) +
+        "&fold=1&focus=job"
+    );
   };
 
   const panel = (

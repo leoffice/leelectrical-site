@@ -1184,7 +1184,13 @@ export default function JobDetail() {
                                       on={br.enabled}
                                       label={PAPER[k].nm}
                                       onChange={(on) => {
-                                        const patch = { paperwork: { [k]: { enabled: on } } };
+                                        const patch = {
+                                          paperwork: { [k]: { enabled: on } },
+                                          // Con Ed / permit branch on → appear on Permits tab (Levi 2026-08-05).
+                                          ...(k === "coned" || k === "dob" || k === "city"
+                                            ? { permitTracker: on }
+                                            : {}),
+                                        };
                                         if (on) {
                                           const first = firstVisiblePaperStep(k, br);
                                           if (first) {

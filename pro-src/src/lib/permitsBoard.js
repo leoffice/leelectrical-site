@@ -285,7 +285,12 @@ export function buildPermitBoard({ jobs = [], insights = [], config = null } = {
     if (!j || !j.id) continue;
     const hasPermit = Array.isArray(j.permits) && j.permits.some((p) => canonAgency(p.agency) === "coned");
     const hasPaper = j.paperwork?.coned && (j.paperwork.coned.caseNumber || j.paperwork.coned.currentStage);
-    if (hasPermit || hasPaper) candidateJobIds.add(j.id);
+    // Opted into permit tracker on the job (Levi 2026-08-05: 1202 Carroll — toggle must list here).
+    const trackerOn =
+      j.permitTracker === true ||
+      j.paperwork?.coned?.enabled === true ||
+      j.paperwork?.permitTracker === true;
+    if (hasPermit || hasPaper || trackerOn) candidateJobIds.add(j.id);
   }
 
   const conedByKey = new Map();
@@ -301,6 +306,20 @@ export function buildPermitBoard({ jobs = [], insights = [], config = null } = {
       }
     } else if (folded.paperConed && (folded.paperConed.caseNumber || folded.paperConed.currentStage)) {
       const row = rowFromConedPaperwork(job, folded.paperConed);
+      conedByKey.set(row.key, row);
+    } else if (
+      job.permitTracker === true ||
+      job.paperwork?.coned?.enabled === true ||
+      job.paperwork?.permitTracker === true
+    ) {
+      // Tracker on, no case yet — still show so Save + toggle is not a no-op.
+      const row = rowFromConedPaperwork(job, {
+        ...(folded.paperConed || {}),
+        currentStage: folded.paperConed?.currentStage || "tracked",
+        stageLabel: "On permit tracker",
+        stageBucket: "Open",
+        nextAction: "Start application or wait for email updates",
+      });
       conedByKey.set(row.key, row);
     }
   }

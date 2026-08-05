@@ -3,6 +3,7 @@
 // Levi 2026-08-04: white-label description process, conduit/trenching wording, filing scope,
 // material-cost basis so sell prices stay above rough material+labor budget.
 import { parseAmount } from "./format.js";
+import { getEstimateGeneratorFees } from "./appSettings.js";
 
 /**
  * Rough material cost basis (supply-house ballpark, NYC metro 2024–2026).
@@ -315,7 +316,14 @@ export function describeRemoval() {
 }
 
 export function feesFor(answers) {
-  return { ...DEFAULT_FEES, ...(answers?.feeOverrides || {}) };
+  // Global Settings → Estimate Generator fees, then per-estimate overrides.
+  let global = {};
+  try {
+    global = getEstimateGeneratorFees() || {};
+  } catch {
+    global = {};
+  }
+  return { ...DEFAULT_FEES, ...global, ...(answers?.feeOverrides || {}) };
 }
 
 export function sizeById(id) {

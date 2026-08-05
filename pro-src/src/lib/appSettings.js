@@ -345,6 +345,44 @@ export function setAssistantVoiceId(id) {
   return next;
 }
 
+/** Global sell fees for Service Upgrade estimate generator (device-local). */
+export const ESTIMATE_GENERATOR_FEES_KEY = "lepro_estimate_generator_fees";
+
+export function getEstimateGeneratorFees() {
+  try {
+    const ls = storage();
+    if (!ls) return {};
+    const raw = ls.getItem(ESTIMATE_GENERATOR_FEES_KEY);
+    if (!raw) return {};
+    const parsed = JSON.parse(raw);
+    return parsed && typeof parsed === "object" ? parsed : {};
+  } catch {
+    return {};
+  }
+}
+
+/** Deep-merge partial fee overrides into stored estimate-generator fees. */
+export function setEstimateGeneratorFees(partial) {
+  try {
+    const ls = storage();
+    if (!ls) return getEstimateGeneratorFees();
+    const prev = getEstimateGeneratorFees();
+    const next = { ...prev, ...(partial && typeof partial === "object" ? partial : {}) };
+    // Nested tables (meter, panel, …) merge one level deep.
+    for (const key of Object.keys(partial || {})) {
+      const p = partial[key];
+      if (p && typeof p === "object" && !Array.isArray(p) && prev[key] && typeof prev[key] === "object") {
+        next[key] = { ...prev[key], ...p };
+      }
+    }
+    ls.setItem(ESTIMATE_GENERATOR_FEES_KEY, JSON.stringify(next));
+  } catch {
+    /* ignore */
+  }
+  notify();
+  return getEstimateGeneratorFees();
+}
+
 export function readAppSettings() {
   return {
     speechToText: isSpeechToTextEnabled(),
@@ -357,6 +395,7 @@ export function readAppSettings() {
     chatPanelSize: getChatPanelSize(),
     assistantSpeak: isAssistantSpeakEnabled(),
     assistantVoice: getAssistantVoiceId(),
+    estimateGeneratorFees: getEstimateGeneratorFees(),
   };
 }
 

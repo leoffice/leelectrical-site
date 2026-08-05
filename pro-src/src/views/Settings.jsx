@@ -30,8 +30,11 @@ import {
   setQuickbooksDocsFeatureEnabled,
   setQuickbooksFeatureEnabled,
   setSpeechToTextEnabled,
+  setEstimateGeneratorFees,
+  getEstimateGeneratorFees,
   useAppSettings,
 } from "../lib/appSettings.js";
+import { DEFAULT_FEES } from "../lib/serviceUpgradeEstimator.js";
 import {
   applyCompanyLogoToActiveConfig,
   applyCompanyProfileToActiveConfig,
@@ -220,12 +223,17 @@ export default function Settings() {
   const [openMenu, setOpenMenu] = useState({
     connections: false,
     company: false,
+    estimateGen: false,
     features: false,
     special: false,
     assistant: false,
     agent: false,
     account: false,
   });
+  const [estFees, setEstFees] = useState(() => ({
+    ...DEFAULT_FEES,
+    ...getEstimateGeneratorFees(),
+  }));
   // Feature subcategories start collapsed.
   const [openFeature, setOpenFeature] = useState(() =>
     Object.fromEntries(FEATURE_GROUPS.map((g) => [g.id, false]))
@@ -787,6 +795,91 @@ export default function Settings() {
           Payment links use the host link builder. Card typing needs the server card key. Email needs
           the send key on the server.
         </p>
+      </MenuSection>
+
+      {/* ── Estimate Generator pricing ── */}
+      <MenuSection
+        id="estimateGen"
+        title="Estimate Generator"
+        summary="Service Upgrade pricing — meters, panels, filing, conduit"
+        open={openMenu.estimateGen}
+        onToggle={() => toggleMenu("estimateGen")}
+      >
+        <p className="text-xs text-slate-500 font-semibold mb-3">
+          Adjust sell prices used by the Service Upgrade generator. Saved on this device.
+        </p>
+        <div className="text-[11px] font-extrabold text-slate-500 uppercase tracking-wider mb-1.5">
+          Service Upgrade Generator
+        </div>
+        <div className="grid grid-cols-2 gap-2 mb-3">
+          {[
+            ["filing", "Filing (permit + utility)", "filing"],
+            ["removalDisposal", "Removal & disposal", "removalDisposal"],
+            ["alwaysIncluded", "Always included (outlet/ground/light)", "alwaysIncluded"],
+            ["panelAdditional", "Each extra panel", "panelAdditional"],
+            ["perFootMeterPanel", "$/ft meter→panel (extra)", "perFootMeterPanel"],
+            ["conduitPerFoot", "$/ft conduit (2\")", "conduitPerFoot"],
+            ["trenchDirtPerFoot", "$/ft trench dirt", "trenchDirtPerFoot"],
+            ["trenchConcretePerFoot", "$/ft trench concrete", "trenchConcretePerFoot"],
+          ].map(([key, label]) => (
+            <Fld key={key} label={label}>
+              <input
+                className={inputCls}
+                inputMode="decimal"
+                value={estFees[key] ?? ""}
+                data-testid={"est-fee-" + key}
+                onChange={(e) => {
+                  const n = Number(e.target.value);
+                  setEstFees((f) => ({ ...f, [key]: Number.isFinite(n) ? n : e.target.value }));
+                }}
+              />
+            </Fld>
+          ))}
+        </div>
+        <div className="text-[11px] font-extrabold text-slate-500 uppercase tracking-wider mb-1.5">
+          First meter (by size)
+        </div>
+        <div className="grid grid-cols-2 gap-2 mb-3">
+          {Object.keys(DEFAULT_FEES.meter || {}).map((sizeId) => (
+            <Fld key={sizeId} label={sizeId}>
+              <input
+                className={inputCls}
+                inputMode="decimal"
+                value={estFees.meter?.[sizeId] ?? DEFAULT_FEES.meter[sizeId]}
+                data-testid={"est-fee-meter-" + sizeId}
+                onChange={(e) => {
+                  const n = Number(e.target.value);
+                  setEstFees((f) => ({
+                    ...f,
+                    meter: { ...(f.meter || DEFAULT_FEES.meter), [sizeId]: Number.isFinite(n) ? n : e.target.value },
+                  }));
+                }}
+              />
+            </Fld>
+          ))}
+        </div>
+        <button
+          type="button"
+          className="rounded-xl bg-brand px-4 py-2.5 text-sm font-extrabold text-white w-full"
+          data-testid="est-fee-save"
+          onClick={() => {
+            const payload = {
+              filing: Number(estFees.filing),
+              removalDisposal: Number(estFees.removalDisposal),
+              alwaysIncluded: Number(estFees.alwaysIncluded),
+              panelAdditional: Number(estFees.panelAdditional),
+              perFootMeterPanel: Number(estFees.perFootMeterPanel),
+              conduitPerFoot: Number(estFees.conduitPerFoot),
+              trenchDirtPerFoot: Number(estFees.trenchDirtPerFoot),
+              trenchConcretePerFoot: Number(estFees.trenchConcretePerFoot),
+              meter: { ...(estFees.meter || {}) },
+            };
+            setEstimateGeneratorFees(payload);
+            showToast?.("Estimate Generator prices saved");
+          }}
+        >
+          Save Estimate Generator prices
+        </button>
       </MenuSection>
 
       {/* ── Company profile ── */}
