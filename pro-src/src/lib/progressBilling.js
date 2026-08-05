@@ -59,10 +59,25 @@ export function lineUnitPrice(ln) {
   return parseAmount(ln?.unitPrice) || parseAmount(ln?.rate) || 0;
 }
 
+/**
+ * Full (100%) line quantity for progress math.
+ * Never use an already-progress-scaled qty as the base — setting 100% after 75%
+ * used to keep qty 0.75 (Levi 2026-08-05: still shows 75% after Save).
+ */
+export function fullLineQty(ln) {
+  const orig = parseAmount(ln?.contractQty ?? ln?.originalQty ?? ln?.fullQty);
+  if (orig > 0) return orig;
+  const q = parseAmount(ln?.qty) || 1;
+  // Progress-billed fractional qty (0.75) means 75% of one unit of work.
+  if (ln?.progressBilling && q > 0 && q < 1) return 1;
+  if (q > 0 && q < 1) return 1;
+  return q || 1;
+}
+
 export function progressBillLines(estimateLines, progressPct) {
   const pct = Math.min(100, Math.max(0, parseAmount(progressPct))) / 100;
   return (estimateLines || []).map((ln) => {
-    const baseQty = parseAmount(ln.qty) || 1;
+    const baseQty = fullLineQty(ln);
     const rate = lineUnitPrice(ln);
     const qty = pct >= 1 ? baseQty : roundQty(baseQty * pct);
     // Always keep amount in lockstep with qty × rate (Seewald 231595: qty 0.63 with
@@ -76,6 +91,8 @@ export function progressBillLines(estimateLines, progressPct) {
       rate,
       amount,
       progressBilling: pct < 1,
+      // Remember full qty so a later 50%→100% edit does not compound.
+      contractQty: baseQty,
     };
   });
 }

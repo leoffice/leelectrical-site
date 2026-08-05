@@ -79,6 +79,16 @@ describe("progressBilling", () => {
     expect(lines[0].qty).toBeCloseTo(0.5, 5);
   });
 
+  it("75% then 100% does not stick at 0.75 qty (Levi progress save)", () => {
+    const at75 = progressBillLines(estimateLines, 75);
+    expect(at75[0].qty).toBeCloseTo(0.75, 5);
+    // Re-apply 100% from the already-progressed lines (what the editor does).
+    const at100 = progressBillLines(at75, 100);
+    expect(at100[0].qty).toBe(1);
+    expect(at100[0].unitPrice).toBe(46000);
+    expect(progressPctFromLines(at100, 46000)).toBe(100);
+  });
+
   it("inferProgressInvoiceLines from multi-line QBO progress invoice (Seawald-style)", () => {
     const job = {
       id: "qbo-231595",

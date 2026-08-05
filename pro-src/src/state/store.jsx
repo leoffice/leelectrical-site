@@ -758,6 +758,15 @@ export function StoreProvider({ children }) {
         merged = planned.patch;
       }
       if (merged && String(id).charAt(0) !== "_") touchCustomerJob(merged);
+      // Invoice/estimate Save is authoritative — drop staged leaves for this job so
+      // the bottom bar does not still say "Unsaved on N jobs" (Levi 2026-08-05).
+      setPending((p) => {
+        if (!p || !(id in p)) return p;
+        const next = { ...p };
+        delete next[id];
+        pendingRef.current = next;
+        return next;
+      });
       const toSave = planned?.patch || patch;
       const trySave = () => api.saveJob(id, toSave);
       // Network in the background so Save never freezes the UI (SNAPPY rule #1).

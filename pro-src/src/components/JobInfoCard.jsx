@@ -258,26 +258,9 @@ export default function JobInfoCard({
               </div>
             );
           })}
-          {/* Paperwork enable sits above Transaction history (Levi 2026-08-05). */}
-          {showPaperworkToggle ? (
-            <div
-              className="flex items-center justify-between gap-2 min-w-0 pt-0.5"
-              data-testid="job-paperwork-toggle-row"
-              data-no-card-open
-              onClick={stopBubble}
-            >
-              <span className="text-[11px] font-semibold text-slate-600 whitespace-nowrap">
-                Paperwork
-              </span>
-              <Toggle
-                small
-                on={!!paperworkOn}
-                onChange={onPaperworkChange}
-                label="Enable paperwork / permit tracker"
-              />
-            </div>
-          ) : null}
-          {showPctRow ? (
+          {/* Paperwork + Transaction history: compact right stack (not a full-width
+              Paperwork line). Label sits tight next to each toggle (Levi 2026-08-05). */}
+          {showToggleBlock ? (
             <div
               className="flex gap-2 items-center min-w-0"
               data-testid="job-info-pct-row"
@@ -289,25 +272,47 @@ export default function JobInfoCard({
               ) : null}
               {pctKey ? (
                 <dd className="text-slate-500 break-words min-w-0 flex-1">{pctLabel}</dd>
-              ) : null}
-              {showTxnToggle ? (
+              ) : (
+                <div className="flex-1 min-w-0" />
+              )}
+              {(showPaperworkToggle || showTxnToggle) ? (
                 <div
-                  className={
-                    "flex items-center gap-1.5 shrink-0 " + (pctKey ? "ml-auto" : "ml-auto")
-                  }
+                  className="flex flex-col items-end gap-0.5 shrink-0 ml-auto"
                   data-no-card-open
-                  data-testid="job-txn-history-toggle"
                   onClick={stopBubble}
                 >
-                  <span className="text-[11px] font-semibold text-slate-600 whitespace-nowrap">
-                    Transaction history
-                  </span>
-                  <Toggle
-                    small
-                    on={!!jobTxns}
-                    onChange={onJobTxnsChange}
-                    label="Transaction history for this job"
-                  />
+                  {showPaperworkToggle ? (
+                    <div
+                      className="flex items-center gap-1.5"
+                      data-testid="job-paperwork-toggle-row"
+                    >
+                      <span className="text-[11px] font-semibold text-slate-600 whitespace-nowrap">
+                        Paperwork
+                      </span>
+                      <Toggle
+                        small
+                        on={!!paperworkOn}
+                        onChange={onPaperworkChange}
+                        label="Enable paperwork / permit tracker"
+                      />
+                    </div>
+                  ) : null}
+                  {showTxnToggle ? (
+                    <div
+                      className="flex items-center gap-1.5"
+                      data-testid="job-txn-history-toggle"
+                    >
+                      <span className="text-[11px] font-semibold text-slate-600 whitespace-nowrap">
+                        Transaction history
+                      </span>
+                      <Toggle
+                        small
+                        on={!!jobTxns}
+                        onChange={onJobTxnsChange}
+                        label="Transaction history for this job"
+                      />
+                    </div>
+                  ) : null}
                 </div>
               ) : null}
             </div>
