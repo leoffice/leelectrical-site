@@ -28,6 +28,9 @@ export default function JobAddressCarousel({
   onJobTxnsChange,
   paperworkOn = false,
   onPaperworkChange,
+  onConed,
+  onDob,
+  paperTrackOpen = null,
 }) {
   const list = jobs || [];
   if (!list.length) return null;
@@ -86,6 +89,9 @@ export default function JobAddressCarousel({
           onJobTxnsChange={onJobTxnsChange}
           paperworkOn={paperworkOn}
           onPaperworkChange={onPaperworkChange}
+          onConed={onConed}
+          onDob={onDob}
+          paperTrackOpen={paperTrackOpen}
         />
       </div>
     </div>

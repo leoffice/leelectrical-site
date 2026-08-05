@@ -82,6 +82,10 @@ export default function JobInfoCard({
   /** Paperwork / permit tracker enable — same style as Transaction history, above it (Levi 2026-08-05). */
   paperworkOn = false,
   onPaperworkChange,
+  /** Open Con Edison / DOB expand panel (peer tabs when paperwork on). */
+  onConed,
+  onDob,
+  paperTrackOpen = null,
   /** When opened from History, soft-highlight this invoice # (Levi 2026-08-04). */
   highlightInvoiceNo = "",
 }) {
@@ -325,6 +329,10 @@ export default function JobInfoCard({
             onChangeOrders={onChangeOrders}
             changeOrdersActive={changeOrdersActive}
             onStatement={onStatement}
+            paperworkOn={paperworkOn}
+            onConed={onConed}
+            onDob={onDob}
+            paperTrackOpen={paperTrackOpen}
           />
         </div>
       ) : null}

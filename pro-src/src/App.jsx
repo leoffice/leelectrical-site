@@ -146,19 +146,20 @@ function Tab({ t, sidebar }) {
 }
 
 function LeaveSheet() {
-  const { leaveReq, setLeaveReq, saveAll, discardAll, dirtyCount } = useStoreEdit();
+  const { leaveReq, setLeaveReq, saveAll, discardAll, dirtyJobs } = useStoreEdit();
   if (!leaveReq) return null;
   const close = () => setLeaveReq(null);
   const go = leaveReq.cb;
+  const n = dirtyJobs > 0 ? dirtyJobs : 1;
   return (
     <Sheet title="Unsaved changes" onClose={close}>
       <p className="text-sm text-slate-500 mb-3">
-        You have <b>{dirtyCount}</b> unsaved change{dirtyCount > 1 ? "s" : ""} on this job.
+        You have unsaved edits on <b>{n}</b> job{n === 1 ? "" : "s"}. Save, discard, or stay.
       </p>
       <Opt
         icon="💾"
         title="Save & continue"
-        note="Apply changes, sync, then leave"
+        note="Save, then leave"
         onClick={async () => {
           close();
           await saveAll();
@@ -175,7 +176,7 @@ function LeaveSheet() {
           go && go();
         }}
       />
-      <Opt icon="↩️" title="Stay here" onClick={close} />
+      <Opt icon="↩️" title="Continue editing" onClick={close} />
     </Sheet>
   );
 }

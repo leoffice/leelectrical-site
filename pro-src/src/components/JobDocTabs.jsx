@@ -26,6 +26,11 @@ export default function JobDocTabs({
   changeOrdersActive = false,
   /** A295 — Generate Statement on the job (same flow as customer). */
   onStatement,
+  /** When Paperwork is on — Con Edison + DOB peer buttons (Levi 2026-08-05). */
+  paperworkOn = false,
+  onConed,
+  onDob,
+  paperTrackOpen = null, // null | "coned" | "dob"
 }) {
   const hasEst = hasEstimateOnJob(job);
   const hasInv = hasInvoiceOnJob(job);
@@ -92,6 +97,8 @@ export default function JobDocTabs({
   const colCount = 4 + (onStatement ? 1 : 0) + (showCoTab ? 1 : 0);
   const gridCols =
     colCount === 6 ? "grid-cols-6" : colCount === 5 ? "grid-cols-5" : "grid-cols-4";
+  // Paperwork on → Con Edison + DOB peer buttons on same card (Levi 2026-08-05).
+  const showPaperTabs = !!(paperworkOn && (onConed || onDob));
 
   return (
     <div className="mt-3 space-y-1" data-testid="job-doc-tabs">
@@ -168,6 +175,40 @@ export default function JobDocTabs({
           </button>
         ) : null}
       </div>
+      {showPaperTabs ? (
+        <div className="grid grid-cols-2 gap-1" data-testid="job-doc-tabs-paperwork">
+          {onConed ? (
+            <button
+              type="button"
+              className={`${tabClass} ${
+                paperTrackOpen === "coned"
+                  ? "bg-violet-100 text-violet-900 border-violet-300"
+                  : "bg-violet-50 text-violet-800 border-violet-200"
+              }`}
+              onClick={onConed}
+              data-testid="tab-coned"
+              title="Con Edison paperwork & to-dos"
+            >
+              ⚡ Con Edison
+            </button>
+          ) : null}
+          {onDob ? (
+            <button
+              type="button"
+              className={`${tabClass} ${
+                paperTrackOpen === "dob"
+                  ? "bg-sky-100 text-sky-900 border-sky-300"
+                  : "bg-sky-50 text-sky-800 border-sky-200"
+              }`}
+              onClick={onDob}
+              data-testid="tab-dob"
+              title="DOB / City permit paperwork & to-dos"
+            >
+              🏙️ DOB
+            </button>
+          ) : null}
+        </div>
+      ) : null}
     </div>
   );
 }
