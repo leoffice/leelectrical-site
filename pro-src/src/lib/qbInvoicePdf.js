@@ -477,6 +477,11 @@ export function buildQbDocPdf(data) {
   const totalsTop = cursor + 11.25;
   pg.dottedRule(M, M + 540, totalsTop);
 
+  // Left payment block + right totals share the same horizontal band.
+  // Track payment bottom so "Thank you / Sincerely" never stacks on top of
+  // long white-label methods (Card/ACH/Zelle/Check) — that collision was
+  // garbling the signature on View full details (Levi 2026-08-05).
+  let paymentEndY = totalsTop + 22.5;
   if (paymentMsg) {
     let my = totalsTop + 22.5;
     for (const lineTxt of paymentMsg) {
@@ -489,6 +494,7 @@ export function buildQbDocPdf(data) {
         my += 10.5;
       }
     }
+    paymentEndY = my;
   }
 
   let ty = totalsTop + 22.5;
@@ -509,7 +515,8 @@ export function buildQbDocPdf(data) {
   pg.text(572.6, ty, "$" + qbMoney(bigAmount), { size: 14.09, bold: true, color: BLACK, align: "right" });
 
   if (closingMsg && closingMsg.length) {
-    let my = ty + 28;
+    // Below BOTH the left payment instructions and the right totals block.
+    let my = Math.max(ty + 28, paymentEndY + 14);
     for (const lineTxt of closingMsg) {
       if (lineTxt === "") {
         my += 10.5;

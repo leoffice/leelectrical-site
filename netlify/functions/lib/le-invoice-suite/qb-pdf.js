@@ -492,9 +492,11 @@ function generateDocument(data, outPath) {
     dottedRule(M, M + S.table.w, totalsTop);
 
     // gray message block — payment options left of totals; thank-you / sincerely
-    // drawn BELOW Balance Due with breathing room (Levi 2026-07-21).
+    // drawn BELOW the taller of (left payment block, Balance Due) so long
+    // white-label methods never scramble the signature (Levi 2026-08-05).
     let paymentMsg = null;
     let closingMsg = null;
+    let paymentEndY = totalsTop + 22.5;
     if (data.messageLines !== null) {
       const msg = [...(data.messageLines || [
         `Your ${docType.toLowerCase()} is attached.`,
@@ -511,6 +513,8 @@ function generateDocument(data, outPath) {
         paymentMsg = msg;
         closingMsg = [];
       }
+      // Track bottom of left payment block so closing never draws over it
+      // when white-label methods (Card/ACH/Zelle/Check) make a tall column.
       doc.font('reg').fontSize(S.message.size).fillColor(S.colors.gray);
       const msgGap = S.message.leading - doc.currentLineHeight(true);
       let my = totalsTop + 22.5;
@@ -523,6 +527,7 @@ function generateDocument(data, outPath) {
           { width: S.message.maxW, lineGap: msgGap });
         my += nLines * S.message.leading;
       }
+      paymentEndY = my;
     }
 
     // SUBTOTAL / TAX / optional PAYMENT
@@ -553,11 +558,11 @@ function generateDocument(data, outPath) {
     rightText('$' + fmtMoney(bigAmount), S.totals.amtRightX, ty);
     doc.font('reg');
 
-    // Thank-you / sincerely — below Balance Due with a clear gap
+    // Thank-you / sincerely — below BOTH left payment block and Balance Due
     if (closingMsg && closingMsg.length) {
       doc.font('reg').fontSize(S.message.size).fillColor(S.colors.gray);
       const msgGap = S.message.leading - doc.currentLineHeight(true);
-      let my = ty + 28;
+      let my = Math.max(ty + 28, paymentEndY + 14);
       for (const lineTxt of closingMsg) {
         if (lineTxt === '') { my += S.message.leading; continue; }
         const h = doc.heightOfString(lineTxt, { width: S.message.maxW, lineGap: msgGap });

@@ -233,4 +233,33 @@ describe("qbInvoicePdf layout (Levi 2026-07-22)", () => {
     expect(text).toContain("BILLING ADDRESS");
     expect(text).not.toContain("SERVICE ADDRESS");
   });
+
+  it("keeps Thank you / Sincerely below long payment methods (no signature scramble)", async () => {
+    // White-label Card+ACH+Zelle+Check makes a tall left column; previously the
+    // closing block was pinned to totals height and drew over Check/Zelle.
+    const data = mapJobToQbDocData(baseJob, "invoice");
+    expect(data.messageLines?.some((l) => /Thank you for your business/i.test(l))).toBe(true);
+    const blob = buildQbDocPdf(data);
+    const text = await pdfText(blob);
+    const ops = parseTextOps(text);
+    // Left gray body (~7.62) — payment + closing share margin x ≈ 36
+    const left = ops.filter((o) => o.x < 50 && o.size > 7 && o.size < 9);
+    const thanks = left.find((o) => /Thank you for your business/i.test(o.str));
+    const sincerely = left.find((o) => /^Sincerely/i.test(o.str));
+    expect(thanks).toBeTruthy();
+    expect(sincerely).toBeTruthy();
+    // Every payment-instruction draw must sit above the thank-you line.
+    // (Do not match company name alone — Check lines also say "BLZ Electric Inc.")
+    const payOps = left.filter(
+      (o) =>
+        /Online Payment|View\/Pay|Card:|ACH\s*\/|Zelle:|Check:|Make checks|secure link|process a check photo|card processing fee/i.test(
+          o.str
+        ) && !/Thank you for your business|Sincerely/i.test(o.str)
+    );
+    expect(payOps.length).toBeGreaterThan(3);
+    // PDF y is from the bottom — lower y = further down the sheet.
+    const payBottom = Math.min(...payOps.map((o) => o.y));
+    expect(thanks.y).toBeLessThan(payBottom - 6);
+    expect(sincerely.y).toBeLessThan(thanks.y);
+  });
 });
