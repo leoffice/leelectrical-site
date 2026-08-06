@@ -1101,11 +1101,24 @@ export function StoreProvider({ children }) {
       if (g.invoiceNo) status.Invoiced = { s: "done", d: todayStr() };
       if (g.date) status.Scheduled = { s: "done", d: g.date };
       const serviceAddr = g.serviceAddress || g.address || "";
+      // Calendar/form sometimes puts first name in customer and last name in personName.
+      // Never drop the last name on save — join single-token personal pairs.
+      const rawBiz = String(g.businessName || g.customer || "").trim();
+      const rawPerson = String(g.personName || "").trim();
+      const single = (s) => s && s.split(/\s+/).length === 1 && /^[A-Za-z][A-Za-z.'-]{0,40}$/.test(s);
+      let customerName = rawBiz || rawPerson;
+      let personName = rawPerson;
+      if (single(rawBiz) && single(rawPerson) && rawBiz.toLowerCase() !== rawPerson.toLowerCase()) {
+        customerName = `${rawBiz} ${rawPerson}`;
+        personName = customerName;
+      } else if (!personName && customerName) {
+        personName = customerName;
+      }
       const ov = {
         _new: true,
-        customer: g.businessName || g.customer || "",
-        businessName: g.businessName || g.customer || "",
-        personName: g.personName || "",
+        customer: customerName,
+        businessName: customerName,
+        personName,
         title: g.title || "",
         amount: g.amount ? fmt$(g.amount) : "",
         phone: g.phone || "",

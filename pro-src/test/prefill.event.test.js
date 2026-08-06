@@ -62,6 +62,47 @@ describe("prefillFromEvent", () => {
     expect(p.serviceAddress).toBe("55 Elm St, Brooklyn, NY");
     expect(p.billingAddress).toBe("55 Elm St, Brooklyn, NY");
   });
+
+  it("joins first + last name when calendar puts them on separate lines (Numan)", () => {
+    const p = prefillFromEvent({
+      id: "ev-numan",
+      summary: "Service call",
+      start: "2026-08-06T10:00",
+      location: "100 Main St, Brooklyn, NY",
+      description: "Numan\nCohen\n718-555-1234\nnuman@x.com",
+    });
+    expect(p.customer).toBe("Numan Cohen");
+    expect(p.businessName).toBe("Numan Cohen");
+    expect(p.personName).toBe("Numan Cohen");
+    expect(p.phone).toBe("718-555-1234");
+    expect(p.email).toBe("numan@x.com");
+  });
+
+  it("strips Service call dash from summary when notes have no name", () => {
+    const p = prefillFromEvent({
+      id: "ev-sum",
+      summary: "Service call — Numan Cohen",
+      start: "2026-08-06T10:00",
+      location: "100 Main St",
+      description: "718-555-9999",
+    });
+    expect(p.customer).toBe("Numan Cohen");
+    expect(p.businessName).toBe("Numan Cohen");
+  });
+
+  it("strips Google HTML wrappers from description", () => {
+    const p = prefillFromEvent({
+      id: "ev-html",
+      summary: "Estimate",
+      start: "2026-08-06T10:00",
+      location: "10 Oak St",
+      description:
+        'Dovber Lipsker<br><br>7186873540<br><br><a href="mailto:Lipskier@gmail.com">Lipskier@gmail.com</a>',
+    });
+    expect(p.customer).toBe("Dovber Lipsker");
+    expect(p.phone).toBe("718-687-3540");
+    expect(p.email).toBe("Lipskier@gmail.com");
+  });
 });
 
 describe("prefillAtServiceAddress", () => {

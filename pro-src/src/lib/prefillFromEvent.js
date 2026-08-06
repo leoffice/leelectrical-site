@@ -146,6 +146,34 @@ function looksLikeContactLine(line) {
   return /[A-Za-z]{2,}/.test(s);
 }
 
+function isCompanyLine(line) {
+  return /\b(LLC|Inc\.?|Corp\.?|Co\.?|Company|Electric|Plumbing|Properties|Realty|Management|Holdings)\b/i.test(
+    String(line || "")
+  );
+}
+
+function isSingleTokenName(s) {
+  const t = String(s || "").trim();
+  if (!t) return false;
+  return t.split(/\s+/).length === 1 && /^[A-Za-z][A-Za-z.'-]{0,40}$/.test(t);
+}
+
+/** Strip Google Calendar HTML so name/phone lines parse cleanly. */
+export function stripCalendarHtml(raw) {
+  return String(raw || "")
+    .replace(/<br\s*\/?>/gi, "\n")
+    .replace(/<\/p>/gi, "\n")
+    .replace(/<[^>]+>/g, " ")
+    .replace(/&nbsp;/gi, " ")
+    .replace(/&amp;/gi, "&")
+    .replace(/&lt;/gi, "<")
+    .replace(/&gt;/gi, ">")
+    .replace(/[ \t]+\n/g, "\n")
+    .replace(/\n{3,}/g, "\n\n")
+    .replace(/[ \t]{2,}/g, " ")
+    .trim();
+}
+
 function parseNames(desc) {
   let businessName = "";
   let personName = "";
@@ -169,15 +197,36 @@ function parseNames(desc) {
   for (const line of lines) {
     if (EMAIL_RE.test(line) || PHONE_LOOSE_RE.test(line) || looksLikeAddressLine(line)) continue;
     if (/^(customer|contact|bill)\b/i.test(line)) continue;
-    if (/\b(LLC|Inc\.?|Corp\.?|Co\.?|Company|Electric|Plumbing|Properties)\b/i.test(line)) {
+    if (isCompanyLine(line)) {
       if (!businessName) businessName = line.replace(/[,.;]+$/, "");
       continue;
     }
     if (looksLikeContactLine(line)) {
-      if (!businessName) businessName = line.replace(/[,.;]+$/, "");
-      else if (!personName) personName = line.replace(/[,.;]+$/, "");
+      const clean = line.replace(/[,.;]+$/, "");
+      // Residential: personal name lines go to personName first (not "business").
+      // First + last on separate lines → join ("Numan" + "Cohen" → "Numan Cohen").
+      if (!personName) {
+        personName = clean;
+      } else if (isSingleTokenName(personName) && isSingleTokenName(clean)) {
+        personName = `${personName} ${clean}`;
+      }
+      // Extra personal lines (second full name, super, etc.) are ignored once we have a full person.
     }
   }
+
+  // First/last landed as business+person under older path or company mis-detect:
+  // join single-token personal pair into one full name.
+  if (
+    isSingleTokenName(businessName) &&
+    isSingleTokenName(personName) &&
+    !isCompanyLine(businessName) &&
+    !isCompanyLine(personName)
+  ) {
+    personName = `${businessName} ${personName}`;
+    businessName = "";
+  }
+
+  if (!businessName && personName) businessName = personName;
 
   return { businessName, personName };
 }
@@ -185,8 +234,11 @@ function parseNames(desc) {
 function summaryCustomer(summary) {
   return (
     (summary || "")
-      .replace(/(service call|estimate|install.*?)[—\-:]/i, "")
-      .trim() || summary || ""
+      // Allow spaces around dash/colon: "Service call — Numan Cohen"
+      .replace(/^\s*(service call|estimate|install(?:ation)?|site visit|inspection)\s*[—–\-:]\s*/i, "")
+      .trim() ||
+    summary ||
+    ""
   );
 }
 
@@ -194,7 +246,7 @@ function summaryCustomer(summary) {
 
 /** Prefill parser — calendar description + location → job/customer fields. */
 export function prefillFromEvent(e) {
-  const desc = String(e?.description || "");
+  const desc = stripCalendarHtml(e?.description || "");
   const location = String(e?.location || "").trim();
 
   const apartment = extractApartment(desc, location);
@@ -223,6 +275,9 @@ export function prefillFromEvent(e) {
   if (!businessName && personName) businessName = personName;
 
   let customer = businessName || personName || summaryCustomer(e?.summary);
+  // Summary-only names (no description lines) must still fill person + business.
+  if (!businessName && customer) businessName = customer;
+  if (!personName && customer && !isCompanyLine(customer)) personName = customer;
 
   // Spec §5: LE Pro job note gets REAL Google description (labeled), never a product stamp.
   const rawDesc = stripApartmentFromDesc(desc, apartment) || desc;
