@@ -121,6 +121,8 @@ export default function ConedApplicationStartSheet({ job, onClose, onFill, onSav
         paperwork: {
           coned: {
             meters: list,
+            // One application per meter — sticky expected count for queue/submit.
+            appsExpected: list.length,
             enabled: true,
             applicationRequest: {
               sentAt: new Date().toISOString(),
@@ -128,6 +130,7 @@ export default function ConedApplicationStartSheet({ job, onClose, onFill, onSav
               link: r.link,
               emailed: true,
               meters: list,
+              expectedCount: list.length,
               emailPolicy: keepEmail ? EMAIL_POLICY_KEEP : EMAIL_POLICY_ONCE,
             },
           },

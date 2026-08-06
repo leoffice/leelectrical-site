@@ -30,6 +30,8 @@ import {
   addPaperworkTodoPatch,
   countReadyConedApplications,
   listConedCompletedFiles,
+  listReadyConedApplications,
+  queueAllReadyConedUploads,
 } from "../lib/agencyForms/index.js";
 import { createCasePaperworkJob } from "../lib/agencyForms/createCaseExecution.js";
 import {
@@ -1492,50 +1494,67 @@ export default function Permits() {
         return;
       }
 
-      // Levi 2026-08-05: customer Form A ready → Deploy queues Con Ed Documents upload.
+      // Levi 2026-08-05/06: customer Form A ready → Deploy queues ALL ready uploads.
+      // Multi-meter: never queue only the first and call it complete.
       if (item.source === "upload_application") {
-        const files = item.completedFiles || listConedCompletedFiles(job) || [];
-        const f0 = files[0] || {};
-        const caseNumber =
-          String(job?.paperwork?.coned?.caseNumber || item.caseNumber || "").trim();
-        let todo = listPaperworkTodos(job).find(
+        const liveJob = jobsById.get(item.jobId) || job;
+        const files =
+          item.completedFiles ||
+          listReadyConedApplications(liveJob) ||
+          listConedCompletedFiles(liveJob) ||
+          [];
+        const caseNumber = String(
+          liveJob?.paperwork?.coned?.caseNumber || item.caseNumber || ""
+        ).trim();
+        const r = await queueAllReadyConedUploads({
+          job: liveJob,
+          caseNumber,
+          enqueue,
+          onSave: (p) => patchAndSave(item.jobId, p),
+        });
+        // Mark every open upload to-do as queued (batch), not done.
+        const todos = listPaperworkTodos(liveJob).filter(
           (t) =>
             t &&
             (t.kind === "upload_application" ||
               t.kind === "upload_document" ||
-              /upload application/i.test(String(t.title || "")))
+              /upload application/i.test(String(t.title || ""))) &&
+            t.status !== "done" &&
+            t.status !== "removed"
         );
-        if (!todo) {
-          const { patch, todo: t } = addPaperworkTodoPatch(job, {
+        if (!todos.length && files[0]) {
+          const { patch } = addPaperworkTodoPatch(liveJob, {
             kind: "upload_application",
             agency: "coned",
-            meterLabel: f0.meterLabel || "PLP",
+            meterLabel: files[0].meterLabel || "",
             title: "Upload application to the Con Ed case",
-            note: "FILE READY — " + (f0.name || f0.filename || "Form A"),
+            note:
+              files.length > 1
+                ? `FILE READY — ${files.length} applications (batch)`
+                : "FILE READY — " + (files[0].name || files[0].filename || "Form A"),
             source: "customer",
           });
           if (patch) await patchAndSave(item.jobId, patch);
-          todo = t;
+        } else if (r.queued) {
+          for (const t of todos) {
+            const p = updatePaperworkTodoPatch(liveJob, t.id, "queued", {
+              firedAt: new Date().toISOString(),
+              caseNumber,
+              batchTotal: r.total || files.length,
+              error: "",
+            });
+            if (p) await patchAndSave(item.jobId, p);
+          }
         }
-        if (todo) {
-          const r = await readyToGoTodo({
-            job: jobsById.get(item.jobId) || job,
-            todo,
-            enqueue,
-            onSave: (p) => patchAndSave(item.jobId, p),
-          });
-          showToast(
-            r.queued
-              ? caseNumber
-                ? `Deploying upload to ${caseNumber}…`
-                : "Deploying Form A upload…"
-              : "Not deployed: " + (r.error || "unknown")
-          );
-        } else {
-          showToast("Couldn't queue Form A upload");
-        }
+        showToast(
+          r.queued
+            ? r.message ||
+                (caseNumber
+                  ? `Deploying ${r.count || files.length} upload(s) to ${caseNumber}…`
+                  : `Deploying ${r.count || files.length} Form A upload(s)…`)
+            : "Not deployed: " + (r.error || "unknown")
+        );
         await refreshRuns();
-        // Keep battery fill visible while host works — finally also holds min time.
         return;
       }
 
@@ -1624,7 +1643,7 @@ export default function Permits() {
 
   const { counts, actionNeeded, sections } = board;
   const hasAny = counts.total > 0;
-  // Levi 2026-08-05: clear count of customer applications ready to upload (not yet on case).
+  // Levi 2026-08-05/06: clear count of applications ready to upload (+ expected batch).
   const appsReadyTotal = useMemo(() => {
     let n = 0;
     for (const j of jobs || []) n += countReadyConedApplications(j);
@@ -1670,10 +1689,13 @@ export default function Permits() {
                 {queueItems.length
                   ? `${queueItems.length} item${queueItems.length === 1 ? "" : "s"}` +
                     (appsReadyTotal > 0
-                      ? ` · ${appsReadyTotal} application${appsReadyTotal === 1 ? "" : "s"} ready to upload`
+                      ? ` · ${appsReadyTotal} application${appsReadyTotal === 1 ? "" : "s"} ready to queue` +
+                        (appsReadyTotal > 1
+                          ? " · Deploy submits the full batch (not done after one)"
+                          : "")
                       : " · Deploy when Ready")
                   : appsReadyTotal > 0
-                    ? `${appsReadyTotal} application${appsReadyTotal === 1 ? "" : "s"} ready — open queue after sync`
+                    ? `${appsReadyTotal} application${appsReadyTotal === 1 ? "" : "s"} ready to queue — open after sync`
                     : "Nothing to deploy"}
                 {queueItems.some((i) => (i.missing || []).length)
                   ? " · amber = fill missing first"

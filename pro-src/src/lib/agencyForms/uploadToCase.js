@@ -10,7 +10,11 @@
  * Source of truth: job tab completedFiles (docKey / docs URL). Drive path is a hint only.
  */
 import { buildConedCompletedFileName, resolveConedMeterLabel } from "./completedFileName.js";
-import { listConedCompletedFiles } from "./completeDestinations.js";
+import {
+  listConedCompletedFiles,
+  listReadyConedApplications,
+  getConedApplicationBatch,
+} from "./completeDestinations.js";
 
 export const CONED_UPLOAD_DOCUMENT_CMD = "coned_upload_document";
 export const DOCUMENT_TYPE = "Application for Service";
@@ -88,8 +92,15 @@ export async function queueConedUploadDocument({
   caseNumber = "",
   enqueue = null,
   onSave = null,
+  batchIndex = 0,
+  batchTotal = 0,
 } = {}) {
   const payload = buildUploadToCasePayload({ job, answers, meterLabel, caseNumber });
+  if (batchTotal > 0) {
+    payload.batchIndex = batchIndex || 1;
+    payload.batchTotal = batchTotal;
+    payload.batchNote = `Application ${payload.batchIndex} of ${payload.batchTotal} — do not mark job complete until all are uploaded`;
+  }
   if (!payload.caseNumber) {
     return {
       ok: false,
@@ -110,6 +121,8 @@ export async function queueConedUploadDocument({
     queuedAt: new Date().toISOString(),
     payload,
     error: "",
+    batchIndex: payload.batchIndex || 0,
+    batchTotal: payload.batchTotal || 0,
   };
 
   if (typeof onSave === "function") {
@@ -134,7 +147,7 @@ export async function queueConedUploadDocument({
   }
 
   try {
-    const idk = `coned-upload:${job.id || "job"}:${payload.caseNumber}:${payload.filename}`;
+    const idk = `coned-upload:${job.id || "job"}:${payload.caseNumber}:${payload.filename}:${payload.meterLabel || ""}`;
     await enqueue(CONED_UPLOAD_DOCUMENT_CMD, job.id || "coned", payload, "deterministic", idk);
     return {
       ok: true,
@@ -155,4 +168,118 @@ export async function queueConedUploadDocument({
       },
     };
   }
+}
+
+/**
+ * Queue every ready Form A on the job (one host upload per meter).
+ * Levi 2026-08-06: Deploy must know the full count — never queue only the first
+ * and call the job complete.
+ */
+export async function queueAllReadyConedUploads({
+  job = {},
+  caseNumber = "",
+  enqueue = null,
+  onSave = null,
+  meterLabel = "",
+} = {}) {
+  let ready = listReadyConedApplications(job);
+  if (meterLabel) {
+    const only = ready.filter(
+      (f) => String(f.meterLabel || "").toLowerCase() === String(meterLabel).toLowerCase()
+    );
+    if (only.length) ready = only;
+  }
+  if (!ready.length) {
+    // Single-file legacy path (no completedFiles array yet)
+    const one = await queueConedUploadDocument({
+      job,
+      meterLabel,
+      caseNumber,
+      enqueue,
+      onSave,
+      batchIndex: 1,
+      batchTotal: 1,
+    });
+    return {
+      ...one,
+      count: one.queued ? 1 : 0,
+      total: 1,
+      results: [one],
+      message: one.queued
+        ? "Queued 1 application upload"
+        : one.error || "Could not queue upload",
+    };
+  }
+
+  const batch = getConedApplicationBatch(job);
+  const total = ready.length;
+  const results = [];
+  for (let i = 0; i < ready.length; i++) {
+    const f = ready[i];
+    const r = await queueConedUploadDocument({
+      job,
+      meterLabel: f.meterLabel || "",
+      caseNumber,
+      enqueue,
+      onSave: null,
+      batchIndex: i + 1,
+      batchTotal: total,
+    });
+    results.push({
+      ...r,
+      meterLabel: f.meterLabel || f.name || "",
+      filename: f.name || f.filename || "",
+    });
+  }
+  const queued = results.filter((r) => r.queued).length;
+  const expected = Math.max(batch.expected, total);
+  if (typeof onSave === "function") {
+    onSave({
+      paperwork: {
+        coned: {
+          appsExpected: expected,
+          uploadBatch: {
+            status: queued > 0 ? "queued" : "error",
+            total: expected,
+            readyAtQueue: total,
+            queued,
+            remaining: total,
+            // Complete only when remaining hits 0 after host marks each file uploaded.
+            completeWhen: "all_uploaded",
+            queuedAt: new Date().toISOString(),
+            meters: ready.map((f) => f.meterLabel || f.name || f.filename || ""),
+            note:
+              expected > 1
+                ? `Submitting ${queued} of ${expected} — do not mark complete until all ${expected} upload`
+                : "Single application upload queued",
+          },
+          uploadDocument: {
+            status: queued > 0 ? "queued" : "error",
+            queuedAt: new Date().toISOString(),
+            batchTotal: total,
+            batchQueued: queued,
+            error: queued > 0 ? "" : results[0]?.error || "queue_failed",
+          },
+        },
+      },
+    });
+  }
+  const message =
+    queued === 0
+      ? results[0]?.error || "Could not queue uploads"
+      : expected > queued
+        ? `Queued ${queued} of ${expected} — ${expected - queued} still expected; not complete yet`
+        : total > 1
+          ? `Queued all ${total} applications — complete only after every one uploads`
+          : "Queued 1 application upload";
+  return {
+    ok: queued > 0,
+    queued: queued > 0,
+    count: queued,
+    total,
+    expected,
+    results,
+    error: queued === 0 ? results[0]?.error || "queue_failed" : "",
+    message,
+  };
 }

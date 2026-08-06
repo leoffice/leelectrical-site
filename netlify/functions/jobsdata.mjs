@@ -100,17 +100,24 @@ export function slimJob(job) {
       delete out.followUp;
     }
   }
-  // Cheap apps-ready counters for Permits / Job Info (Levi 2026-08-05).
-  // Full completedFiles stay off the list; only a number + case # travel.
+  // Cheap apps-ready counters for Permits / Job Info (Levi 2026-08-05/06).
+  // Full completedFiles stay off the list; numbers + case # travel (batch-aware).
   const pw = job.paperwork;
   if (pw && typeof pw === "object") {
     const c = pw.coned && typeof pw.coned === "object" ? pw.coned : {};
     const files = Array.isArray(c.completedFiles) ? c.completedFiles : [];
     let ready = 0;
+    let uploaded = 0;
     for (const f of files) {
       if (!f) continue;
-      if (f.uploadedAt || f.uploadedToCase) continue;
-      if (String(f.status || "").toLowerCase() === "uploaded") continue;
+      if (
+        f.uploadedAt ||
+        f.uploadedToCase ||
+        String(f.status || "").toLowerCase() === "uploaded"
+      ) {
+        uploaded += 1;
+        continue;
+      }
       ready += 1;
     }
     if (!ready && Array.isArray(pw.todos)) {
@@ -126,7 +133,28 @@ export function slimJob(job) {
     ) {
       ready = 1;
     }
+    const reqMeters = Array.isArray(c.applicationRequest?.meters)
+      ? c.applicationRequest.meters.length
+      : 0;
+    const listedMeters = Array.isArray(c.meters) ? c.meters.length : 0;
+    const createMeters = Array.isArray(c.createCase?.answers?.meters)
+      ? c.createCase.answers.meters.length
+      : 0;
+    const numberOfNew = Number(c.createCase?.answers?.numberOfNewMeters) || 0;
+    const expected = Math.max(
+      Number(c.appsExpected) || 0,
+      Number(c.applicationRequest?.expectedCount) || 0,
+      Number(c.uploadBatch?.total) || 0,
+      files.length,
+      reqMeters,
+      listedMeters,
+      createMeters,
+      numberOfNew,
+      ready + uploaded
+    );
     if (ready > 0) out.appsReady = ready;
+    if (uploaded > 0) out.appsUploaded = uploaded;
+    if (expected > 0) out.appsExpected = expected;
     if (c.caseNumber) out.conedCaseNumber = String(c.caseNumber);
   }
   if (job.permitTracker) out.permitTracker = true;

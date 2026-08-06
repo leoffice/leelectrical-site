@@ -155,3 +155,65 @@ describe("countReadyConedApplications", () => {
     ).toBe(1);
   });
 });
+
+describe("getConedApplicationBatch", () => {
+  it("tracks expected vs ready vs uploaded so one of N is not complete", async () => {
+    const {
+      getConedApplicationBatch,
+      formatConedApplicationBatchLine,
+      countExpectedConedApplications,
+    } = await import("../src/lib/agencyForms/completeDestinations.js");
+    const job = {
+      paperwork: {
+        coned: {
+          applicationRequest: {
+            meters: [
+              { name: "Apt 1" },
+              { name: "Apt 2" },
+              { name: "Apt 3" },
+              { name: "PLP" },
+            ],
+            expectedCount: 4,
+          },
+          appsExpected: 4,
+          completedFiles: [
+            { name: "a.pdf", meterLabel: "Apt 1" },
+            { name: "b.pdf", meterLabel: "PLP", uploadedAt: "2026-08-01" },
+          ],
+        },
+      },
+    };
+    expect(countExpectedConedApplications(job)).toBe(4);
+    const b = getConedApplicationBatch(job);
+    expect(b.expected).toBe(4);
+    expect(b.ready).toBe(1);
+    expect(b.uploaded).toBe(1);
+    expect(b.filled).toBe(2);
+    expect(b.remainingToFill).toBe(2);
+    expect(b.allSubmitted).toBe(false);
+    const line = formatConedApplicationBatchLine(job);
+    expect(line).toMatch(/1 of 4 ready/);
+    expect(line).toMatch(/not complete/i);
+  });
+
+  it("marks allSubmitted only when every expected app is uploaded", async () => {
+    const { getConedApplicationBatch } = await import(
+      "../src/lib/agencyForms/completeDestinations.js"
+    );
+    const job = {
+      paperwork: {
+        coned: {
+          appsExpected: 2,
+          completedFiles: [
+            { name: "a.pdf", meterLabel: "A", uploadedAt: "2026-08-01" },
+            { name: "b.pdf", meterLabel: "B", status: "uploaded" },
+          ],
+        },
+      },
+    };
+    const b = getConedApplicationBatch(job);
+    expect(b.ready).toBe(0);
+    expect(b.uploaded).toBe(2);
+    expect(b.allSubmitted).toBe(true);
+  });
+});

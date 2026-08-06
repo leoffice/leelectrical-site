@@ -72,6 +72,10 @@ export {
   isConedFileReadyToUpload,
   listReadyConedApplications,
   countReadyConedApplications,
+  countUploadedConedApplications,
+  countExpectedConedApplications,
+  getConedApplicationBatch,
+  formatConedApplicationBatchLine,
 } from "./completeDestinations.js";
 
 // S26 — optional per-tenant Google Drive copy (white-label API)
@@ -156,7 +160,7 @@ export {
   getCreateCaseState,
 } from "./createCaseExecution.js";
 
-// S24 — upload Form A to case Documents
+// S24 — upload Form A to case Documents (batch-aware Levi 2026-08-06)
 export {
   CONED_UPLOAD_DOCUMENT_CMD,
   DOCUMENT_TYPE as CONED_UPLOAD_DOCUMENT_TYPE,
@@ -164,5 +168,6 @@ export {
   resolveFormAForUpload,
   buildUploadToCasePayload,
   queueConedUploadDocument,
+  queueAllReadyConedUploads,
 } from "./uploadToCase.js";
 

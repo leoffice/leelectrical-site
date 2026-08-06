@@ -1094,9 +1094,17 @@ export default function JobDetail() {
                       className="rounded-xl border border-emerald-300 bg-emerald-50 text-emerald-900 px-2.5 py-2 text-sm font-semibold mb-2"
                       data-testid="job-apps-ready-banner"
                     >
-                      📄 {conedAppsReadyCount > 0 ? conedAppsReadyCount : files.length} application
-                      {(conedAppsReadyCount || files.length) === 1 ? "" : "s"} ready
-                      {files.length ? " on this job" : " to upload"}
+                      📄{" "}
+                      {(() => {
+                        const exp = Number(job?.appsExpected) || files.length || conedAppsReadyCount;
+                        const ready = conedAppsReadyCount > 0 ? conedAppsReadyCount : files.length;
+                        if (exp > 1 && ready > 0) {
+                          return `${ready} of ${exp} application${exp === 1 ? "" : "s"} ready to queue — Deploy submits all ready (not complete until every one uploads)`;
+                        }
+                        return `${ready} application${ready === 1 ? "" : "s"} ready${
+                          files.length ? " on this job" : " to upload"
+                        }`;
+                      })()}
                     </div>
                   ) : null}
                   {files.length > 0 ? (
@@ -1661,16 +1669,57 @@ export default function JobDetail() {
                                         const total = (conedCompletedFiles || []).length;
                                         if (!total && !readyN) return null;
                                         if (!total && readyN) {
+                                          const exp =
+                                            Number(job?.appsExpected) ||
+                                            Number(job?.paperwork?.coned?.appsExpected) ||
+                                            readyN;
                                           return (
                                             <p
                                               className="text-xs text-slate-600 px-0.5"
                                               data-testid="coned-apps-ready-banner"
                                             >
-                                              {readyN} application{readyN === 1 ? "" : "s"} ready — open{" "}
-                                              <span className="font-semibold">Permits → Deploy queue</span> to
-                                              review &amp; deploy
+                                              {exp > 1
+                                                ? `${readyN} of ${exp} applications ready to queue`
+                                                : `${readyN} application${readyN === 1 ? "" : "s"} ready`}{" "}
+                                              — open{" "}
+                                              <span className="font-semibold">Permits → Deploy queue</span>
+                                              {exp > 1
+                                                ? " · Deploy submits the full batch"
+                                                : " to review & deploy"}
                                             </p>
                                           );
+                                        }
+                                        if (total > 0) {
+                                          const ready =
+                                            readyN ||
+                                            (conedCompletedFiles || []).filter(
+                                              (f) =>
+                                                f &&
+                                                !f.uploadedAt &&
+                                                !f.uploadedToCase &&
+                                                String(f.status || "").toLowerCase() !== "uploaded"
+                                            ).length;
+                                          const exp =
+                                            Number(job?.appsExpected) ||
+                                            Number(job?.paperwork?.coned?.appsExpected) ||
+                                            Math.max(total, ready);
+                                          if (ready > 0 || exp > total) {
+                                            return (
+                                              <p
+                                                className="text-xs text-slate-600 px-0.5"
+                                                data-testid="coned-apps-ready-banner"
+                                              >
+                                                {ready > 0
+                                                  ? `${ready} of ${exp} ready to queue`
+                                                  : `${total} of ${exp} on tab`}
+                                                {ready > 0
+                                                  ? " · Deploy submits all ready — not done after one"
+                                                  : exp > total
+                                                    ? ` · ${exp - total} still expected`
+                                                    : ""}
+                                              </p>
+                                            );
+                                          }
                                         }
                                         return null;
                                       })()}

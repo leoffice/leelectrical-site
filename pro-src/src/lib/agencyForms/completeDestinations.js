@@ -636,3 +636,102 @@ export function countReadyConedApplications(job = {}) {
   }
   return n;
 }
+
+/** How many Form A files are already uploaded to the Con Ed case. */
+export function countUploadedConedApplications(job = {}) {
+  if (job && Number.isFinite(Number(job.appsUploaded)) && Number(job.appsUploaded) > 0) {
+    return Math.floor(Number(job.appsUploaded));
+  }
+  return listConedCompletedFiles(job).filter((f) => !isConedFileReadyToUpload(f)).length;
+}
+
+/**
+ * How many applications this job is supposed to have (one per meter / new account).
+ * Sources (max): explicit appsExpected, customer-fill meters, office meters list,
+ * create-case meter rows, files already on the tab.
+ * Levi 2026-08-06: never treat "1 submitted" as the whole job when N were expected.
+ */
+export function countExpectedConedApplications(job = {}) {
+  if (job && Number.isFinite(Number(job.appsExpected)) && Number(job.appsExpected) > 0) {
+    return Math.floor(Number(job.appsExpected));
+  }
+  const c = job?.paperwork?.coned || {};
+  if (Number.isFinite(Number(c.appsExpected)) && Number(c.appsExpected) > 0) {
+    return Math.floor(Number(c.appsExpected));
+  }
+  const files = listConedCompletedFiles(job).length;
+  const reqMeters = Array.isArray(c.applicationRequest?.meters)
+    ? c.applicationRequest.meters.length
+    : 0;
+  const listedMeters = Array.isArray(c.meters) ? c.meters.length : 0;
+  const createMeters = Array.isArray(c.createCase?.answers?.meters)
+    ? c.createCase.answers.meters.length
+    : 0;
+  const numberOfNew = Number(c.createCase?.answers?.numberOfNewMeters) || 0;
+  const batchTotal = Number(c.uploadBatch?.total) || 0;
+  return Math.max(files, reqMeters, listedMeters, createMeters, numberOfNew, batchTotal, 0);
+}
+
+/**
+ * Batch summary for queue + submit UI.
+ * @returns {{
+ *   expected: number,
+ *   filled: number,
+ *   ready: number,
+ *   uploaded: number,
+ *   remainingToSubmit: number,
+ *   remainingToFill: number,
+ *   allSubmitted: boolean,
+ *   labels: string[],
+ * }}
+ */
+export function getConedApplicationBatch(job = {}) {
+  const files = listConedCompletedFiles(job);
+  const readyList = listReadyConedApplications(job);
+  const ready = countReadyConedApplications(job);
+  const uploaded = countUploadedConedApplications(job);
+  // Slim list may only carry counts — treat ready+uploaded as filled floor.
+  const filled = Math.max(files.length, ready + uploaded);
+  const expected = Math.max(countExpectedConedApplications(job), filled);
+  const remainingToSubmit = ready;
+  const remainingToFill = Math.max(0, expected - filled);
+  return {
+    expected,
+    filled,
+    ready,
+    uploaded,
+    remainingToSubmit,
+    remainingToFill,
+    allSubmitted: expected > 0 && remainingToSubmit === 0 && uploaded >= expected,
+    labels: readyList
+      .map((f) => String(f.meterLabel || f.name || f.filename || "").trim())
+      .filter(Boolean),
+  };
+}
+
+/** Plain line for queue / toast: "3 of 4 ready — Deploy submits all 3". */
+export function formatConedApplicationBatchLine(job = {}) {
+  const b = getConedApplicationBatch(job);
+  if (!b.expected && !b.ready && !b.filled) return "";
+  if (b.ready > 0) {
+    if (b.expected > b.ready) {
+      return `${b.ready} of ${b.expected} ready — Deploy submits all ${b.ready} (not complete until every one uploads)`;
+    }
+    if (b.ready > 1) {
+      return `${b.ready} applications ready — Deploy submits all ${b.ready}`;
+    }
+    return b.expected > 1
+      ? `1 of ${b.expected} ready — more still expected`
+      : "1 application ready";
+  }
+  if (b.remainingToFill > 0) {
+    return `${b.filled} of ${b.expected} filled — ${b.remainingToFill} still expected from customer`;
+  }
+  if (b.allSubmitted) {
+    return `All ${b.expected} application${b.expected === 1 ? "" : "s"} uploaded`;
+  }
+  if (b.uploaded > 0 && b.expected > b.uploaded) {
+    return `${b.uploaded} of ${b.expected} uploaded — not complete yet`;
+  }
+  return b.expected > 0 ? `${b.expected} application${b.expected === 1 ? "" : "s"} expected` : "";
+}

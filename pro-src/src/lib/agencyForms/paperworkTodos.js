@@ -13,8 +13,9 @@
  * To-dos live at job.paperwork.todos (array). The Permits tab aggregates them
  * across all jobs.
  */
-import { CONED_UPLOAD_DOCUMENT_CMD, queueConedUploadDocument } from "./uploadToCase.js";
+import { CONED_UPLOAD_DOCUMENT_CMD, queueAllReadyConedUploads } from "./uploadToCase.js";
 import { resolveConedCaseNumber } from "./autoUploadOnComplete.js";
+import { listReadyConedApplications } from "./completeDestinations.js";
 
 const now = () => new Date().toISOString();
 const s = (v) => (v == null ? "" : String(v).trim());
@@ -174,13 +175,29 @@ export async function readyToGoTodo({ job = {}, todo = {}, enqueue = null, onSav
 
   let result;
   if (todo.kind === "upload_application" || todo.kind === "send_application") {
-    result = await queueConedUploadDocument({
+    // Levi 2026-08-06: Deploy / Ready-to-go queues every ready Form A (or one
+    // meter when the to-do is meter-scoped). Never "complete" after 1 of N.
+    const meter = s(todo.meterLabel);
+    const ready = listReadyConedApplications(job);
+    // No meter on the to-do → submit the whole ready batch.
+    result = await queueAllReadyConedUploads({
       job,
-      meterLabel: todo.meterLabel || "",
       caseNumber,
       enqueue,
       onSave: null,
+      meterLabel: meter && ready.length > 1 ? meter : "",
     });
+    if (meter && ready.length > 1 && result.ok) {
+      const still = ready.filter(
+        (f) => String(f.meterLabel || "").toLowerCase() !== meter.toLowerCase()
+      ).length;
+      if (still > 0) {
+        result.message =
+          (result.message || `Queued ${meter}`) +
+          ` — ${still} other application${still === 1 ? "" : "s"} still ready (not complete yet)`;
+        result.remainingSiblings = still;
+      }
+    }
   } else if (typeof enqueue === "function") {
     try {
       const payload = {

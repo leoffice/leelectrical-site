@@ -76,10 +76,40 @@ describe("jobsdata slim projection", () => {
     };
     const s = slimJob(fat);
     expect(s.appsReady).toBe(1);
+    expect(s.appsUploaded).toBe(1);
+    expect(s.appsExpected).toBe(2);
     expect(s.conedCaseNumber).toBe("MC-941580");
     expect(s.permitTracker).toBe(true);
     expect(s.paperwork).toBeUndefined();
     expect(s._listProjection).toBe(true);
+  });
+
+  it("carries appsExpected from customer-fill meters even with no files yet", () => {
+    const fat = {
+      id: "local-lipsker",
+      customer: "Dovber Lipsker",
+      address: "607 E 53rd",
+      paperwork: {
+        coned: {
+          enabled: true,
+          caseNumber: "MC-941793",
+          appsExpected: 4,
+          applicationRequest: {
+            meters: [
+              { name: "Apt 1" },
+              { name: "Apt 2" },
+              { name: "Apt 3" },
+              { name: "PLP" },
+            ],
+            expectedCount: 4,
+          },
+        },
+      },
+    };
+    const s = slimJob(fat);
+    expect(s.appsExpected).toBe(4);
+    expect(s.appsReady).toBeUndefined();
+    expect(s.conedCaseNumber).toBe("MC-941793");
   });
 
   it("4k synthetic fat jobs compress dramatically when slimmed (pre-deploy gate)", () => {

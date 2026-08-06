@@ -26,6 +26,8 @@ import {
   listConedCompletedFiles,
   listReadyConedApplications,
   countReadyConedApplications,
+  getConedApplicationBatch,
+  formatConedApplicationBatchLine,
 } from "./agencyForms/completeDestinations.js";
 
 const s = (v) => (v == null ? "" : String(v).trim());
@@ -707,6 +709,12 @@ export function buildDeployQueueItems({ jobs = [], caseRuns = [] } = {}) {
         const addr = s(job.serviceAddress || job.address);
         const cust = s(job.customer || job.customerName);
         const f0 = readyFiles[0] || {};
+        const batch = getConedApplicationBatch(job);
+        const batchLine = formatConedApplicationBatchLine(job);
+        const meterBits = readyFiles
+          .map((f) => f.meterLabel || f.name || f.filename)
+          .filter(Boolean)
+          .slice(0, 6);
         items.push({
           id: `upload:${job.id}:${f0.docKey || "form-a"}`,
           source: "upload_application",
@@ -719,10 +727,12 @@ export function buildDeployQueueItems({ jobs = [], caseRuns = [] } = {}) {
           }),
           subtitle: [
             cust,
-            readyFiles.length > 1
-              ? `${readyFiles.length} applications ready`
-              : f0.name || f0.filename || f0.meterLabel || "Customer Form A ready",
-            "Review then Deploy",
+            batchLine ||
+              (readyFiles.length > 1
+                ? `${readyFiles.length} applications ready`
+                : f0.name || f0.filename || f0.meterLabel || "Customer Form A ready"),
+            meterBits.length > 1 ? meterBits.join(", ") : "",
+            "Deploy submits all ready — not complete until every one uploads",
           ]
             .filter(Boolean)
             .join(" · "),
@@ -736,7 +746,10 @@ export function buildDeployQueueItems({ jobs = [], caseRuns = [] } = {}) {
           removable: true,
           expandable: true,
           appsReady: readyFiles.length,
+          appsExpected: batch.expected,
+          appsUploaded: batch.uploaded,
           completedFiles: readyFiles,
+          batch,
         });
       }
     }
