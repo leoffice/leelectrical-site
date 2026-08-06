@@ -56,7 +56,50 @@ describe("openBalance", () => {
     expect(openBalance(job)).toBe(0);
     expect(amountPaid(job)).toBe(7200);
   });
-  it("prefers lower of payment-remainder vs explicit openBalance", () => {
+  it("Amos Cohen / stale zero openBalance + notes still open → show remainder", () => {
+    // Live bug: openBalance stamped 0 / paid total inflated while QBO still
+    // has $5k open and notes say "Open balance $5,000 of $30,000".
+    const job = {
+      invoiceNo: "231504",
+      amount: "$30,000",
+      openBalance: 0,
+      paid: false,
+      notes: "Open balance $5,000.00 of $30,000.00 (QBO)",
+      followUp: { type: "Payment / collect", text: "Collect $5,000 (of $30,000)" },
+      payments: [
+        { id: "p1", amount: "$5,000", date: "2025-11-21" },
+        { id: "p2", amount: "$5,000", date: "2024-09-17" },
+        { id: "p3", amount: "$3,000", date: "2024-08-23" },
+        { id: "p4", amount: "$3,000", date: "2024-07-22" },
+        { id: "p5", amount: "$4,000", date: "2024-06-28" },
+        { id: "p6", amount: "$5,000", date: "2024-06-17" },
+      ],
+    };
+    expect(openBalance(job)).toBe(5000);
+    expect(amountPaid(job)).toBe(25000);
+    const other = {
+      invoiceNo: "251757",
+      amount: "$4,600",
+      openBalance: "$4,600",
+      paid: false,
+    };
+    const s = customerAmountSummary([job, other]);
+    expect(s.due).toBe(9600);
+    expect(s.openInvoices).toBe(2);
+    expect(s.paid).toBe(25000);
+  });
+  it("stale zero openBalance + notes only (no payment ledger) → notes balance", () => {
+    const job = {
+      invoiceNo: "231504",
+      amount: "$30,000",
+      openBalance: 0,
+      paid: false,
+      notes: "Open balance $5,000.00 of $30,000.00 (QBO)",
+    };
+    expect(openBalance(job)).toBe(5000);
+    expect(amountPaid(job)).toBe(25000);
+  });
+    it("prefers lower of payment-remainder vs explicit openBalance", () => {
     const job = {
       invoiceNo: "1",
       amount: "$1,000",

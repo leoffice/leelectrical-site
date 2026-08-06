@@ -18,6 +18,7 @@ import {
   totalPaid,
   amountOwedAtStart,
   isProgressInvoiceJob,
+  parseBalanceFromNotes,
 } from "./payments.js";
 
 /** True when a job is an actual invoice (has an invoice #). Estimates/leads are not. */
@@ -57,6 +58,28 @@ export function rawBalance(job) {
               baseline != null &&
               inv > baseline + 0.01));
         if (raisedAfterPay) return fromPays;
+        // Stale zero openBalance while ledger still shows a remainder and the
+        // job is not marked paid (Amos Cohen / 231504: $25k paid of $30k).
+        if (!job.paid && inv > 0.01 && paidSum + 0.01 < inv) return fromPays;
+      }
+    }
+    // Stale openBalance:0 while notes/follow-up still say money is owed.
+    // Do not invent balance when job.paid (true QBO paid mark).
+    if (!job.paid) {
+      const noteBal = parseBalanceFromNotes(job);
+      if (noteBal != null && noteBal > 0.01) {
+        if (pays.length && inv > 0.01 && paidSum + 0.01 < inv) {
+          return Math.max(0, inv - paidSum);
+        }
+        return noteBal;
+      }
+      const hay = [job.notes, job.followUp && job.followUp.text].filter(Boolean).join(" ");
+      const cm = hay.match(
+        /(?:collect|open\s*balance|still\s*owes?|balance\s*due)\D{0,12}\$?\s*([\d,]+(?:\.\d+)?)/i
+      );
+      if (cm) {
+        const n = parseAmount(cm[1]);
+        if (n > 0.01 && inv > 0.01 && n + 0.01 < inv) return n;
       }
     }
     return 0;
