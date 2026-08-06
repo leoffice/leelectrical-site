@@ -16,6 +16,7 @@ import {
   jobStatusPatchFromJobPermits,
   leadingPermitStage,
 } from "./permitProgressBridge.js";
+import { openApplicationPipePatch } from "./permitThreeSurfacePipe.js";
 
 /** The fields that decide whether a Con Ed permit is "the same" for idempotency. */
 function permitFingerprint(list) {
@@ -180,7 +181,21 @@ export function computePermitBackfill({ jobs = [], insights = [] } = {}) {
     const permitsSame = allPermitsFingerprint(job.permits) === allPermitsFingerprint(unified);
     const paperSame = paperFingerprint(job.paperwork?.coned) === paperFingerprint(conedFold.paperConed);
     const statusSame = statusFingerprint(job.status) === statusFingerprint(afterStatus);
-    if (permitsSame && paperSame && statusSame) {
+
+    // Three-surface pipe: open apps must enable Job Info toggle + Paperwork panel
+    // so Permits / job detail stay on the same conduit (Levi 2026-08-06).
+    const midForPipe = {
+      ...job,
+      permits: unified,
+      paperwork: {
+        ...(job.paperwork || {}),
+        ...(conedFold.paperConed ? { coned: conedFold.paperConed } : {}),
+      },
+      status: afterStatus,
+    };
+    const pipe = openApplicationPipePatch(midForPipe);
+
+    if (permitsSame && paperSame && statusSame && !pipe) {
       continue; // idempotent no-op
     }
 
@@ -195,6 +210,21 @@ export function computePermitBackfill({ jobs = [], insights = [] } = {}) {
     // Always include permits when status flips so a later read has stages
     if (patch.status && !patch.permits && unified.length) {
       patch.permits = unified;
+    }
+    if (pipe) {
+      if (pipe.permitTracker != null) patch.permitTracker = pipe.permitTracker;
+      if (pipe.status) patch.status = { ...(patch.status || {}), ...pipe.status };
+      if (pipe.permits && !patch.permits) patch.permits = pipe.permits;
+      if (pipe.paperwork) {
+        patch.paperwork = { ...(patch.paperwork || {}) };
+        for (const [k, v] of Object.entries(pipe.paperwork)) {
+          if (v && typeof v === "object" && !Array.isArray(v)) {
+            patch.paperwork[k] = { ...(patch.paperwork[k] || {}), ...v };
+          } else {
+            patch.paperwork[k] = v;
+          }
+        }
+      }
     }
 
     const flipped = statusPiece.status ? Object.keys(statusPiece.status) : [];

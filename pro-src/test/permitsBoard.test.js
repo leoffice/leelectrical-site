@@ -147,13 +147,15 @@ describe("computePermitBackfill — combined Con Ed + City, one unified permits[
     expect(plan).toHaveLength(1);
     const agencies = plan[0].patch.permits.map((p) => p.agency).sort();
     expect(agencies).toEqual(["city", "coned"]); // both survive in one list
-    // Idempotent: persist full patch (permits + paperwork + status bridge) then re-plan → no-op.
+    // Idempotent: persist full patch (permits + paperwork + status + pipe valve) then re-plan → no-op.
+    const p0 = plan[0].patch;
     const persisted = JOB("J-1", {
-      permits: plan[0].patch.permits,
-      paperwork: plan[0].patch.paperwork,
+      ...(p0.permitTracker != null ? { permitTracker: p0.permitTracker } : {}),
+      permits: p0.permits,
+      paperwork: p0.paperwork,
       status: {
         ...(JOB("J-1").status || {}),
-        ...(plan[0].patch.status || {}),
+        ...(p0.status || {}),
       },
     });
     expect(computePermitBackfill({ jobs: [persisted], insights })).toHaveLength(0);

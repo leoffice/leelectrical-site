@@ -28,7 +28,14 @@ import {
   isDatedStep,
 } from "../lib/paperwork.js";
 import { followUpFromPaperworkStep } from "../lib/calendarDue.js";
-import { isOnPermitTracker, setPermitTrackerPatch } from "../lib/permitTrackerSeed.js";
+import {
+  isPaperworkPipeOn,
+  masterPipeTogglePatch,
+  branchEnablePipePatch,
+  openApplicationPipePatch,
+  renewSchedulePatch,
+  getRenewSchedule,
+} from "../lib/permitThreeSurfacePipe.js";
 import { fmt$, ago } from "../lib/format.js";
 import CustomerCard from "../components/CustomerCard.jsx";
 import CustomerTransactionHistory from "../components/CustomerTransactionHistory.jsx";
@@ -371,23 +378,54 @@ export default function JobDetail() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [id, createCasePwId]);
 
-  // Levi dedupe: an existing application / completed Form A auto-enables the
-  // Con Ed paperwork branch so it shows once, in the paperwork menu.
-  // Levi 2026-08-05: use patchAndSave (not patchJob) — opening paperwork must NOT
-  // stage a phantom "Unsaved changes" leave guard.
+  // Open Con Ed / DOB application → open the shared pipe so Job Info toggle,
+  // Paperwork panel, and Permits tab all show the same data (Levi 2026-08-06).
+  // Use patchAndSave (not patchJob) — must NOT stage a phantom leave guard.
+  // Merge any staged pending first so auto-save cannot wipe in-progress step toggles.
   useEffect(() => {
-    if (!conedAppsOn || !job) return;
-    const c = job.paperwork?.coned;
-    if ((conedCompletedFiles.length || c?.application) && c?.enabled !== true) {
-      (patchAndSave || patchJob)(id, { paperwork: { coned: { enabled: true } } });
-    }
+    if (!job || !id) return;
+    const pipe = openApplicationPipePatch(job);
+    if (!pipe) return;
+    const staged = pending?.[id];
+    const combined =
+      staged && typeof staged === "object"
+        ? {
+            ...staged,
+            ...pipe,
+            paperwork: {
+              ...(staged.paperwork || {}),
+              ...(pipe.paperwork || {}),
+              coned: {
+                ...(staged.paperwork?.coned || {}),
+                ...(pipe.paperwork?.coned || {}),
+              },
+              dob: {
+                ...(staged.paperwork?.dob || {}),
+                ...(pipe.paperwork?.dob || {}),
+              },
+              city: {
+                ...(staged.paperwork?.city || {}),
+                ...(pipe.paperwork?.city || {}),
+              },
+            },
+            status: { ...(staged.status || {}), ...(pipe.status || {}) },
+            permits: pipe.permits || staged.permits,
+          }
+        : pipe;
+    (patchAndSave || patchJob)(id, combined);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [
     id,
-    conedAppsOn,
+    job?.paperwork?.coned?.caseNumber,
+    job?.paperwork?.coned?.application,
+    job?.paperwork?.dob?.jobNumber,
+    job?.paperwork?.dob?.caseNumber,
+    job?.permitTracker,
     conedCompletedFiles.length,
-    !!job?.paperwork?.coned?.application,
-    job?.paperwork?.coned?.enabled,
+    // primaryKey on permits = real case/job # landed
+    Array.isArray(job?.permits)
+      ? job.permits.map((p) => p?.primaryKey || p?.caseNumber || "").join("|")
+      : "",
   ]);
 
   // S27 — poll once per job open for a customer-completed application; import
@@ -704,62 +742,20 @@ export default function JobDetail() {
   }
 
   const cur = stageOf(job);
-  // Paperwork enable (Job Information) — same idea as Transaction history toggle (Levi 2026-08-05).
-  const paperworkOn = !!(
-    job.permitTracker ||
-    isOnPermitTracker(job) ||
-    job.paperwork?.coned?.enabled ||
-    job.paperwork?.permitTracker ||
-    job.paperwork?.dob?.enabled ||
-    job.paperwork?.city?.enabled
-  );
+  // Paperwork enable (Job Information) — master valve for the three-surface pipe
+  // (Job Info toggle · job Paperwork panel · Permits tab share job.paperwork + permits[]).
+  const paperworkOn = isPaperworkPipeOn(job);
   const setPaperworkOn = (on) => {
     if (on) {
-      const seed = setPermitTrackerPatch(job, true);
-      // Link Job Info toggle → Progress Paperwork + branch enables + Permits tab
-      // (Levi 2026-08-05: green toggle was not turning Progress on / seeding board).
-      const prevPaper = job.status?.Paperwork?.s;
-      const paperStatus =
-        prevPaper === "done" || prevPaper === "skipped"
-          ? job.status.Paperwork
-          : { s: "done", d: todayStr() };
-      patchJob(id, {
-        permitTracker: true,
-        ...seed,
-        status: { Paperwork: paperStatus },
-        paperwork: {
-          ...(job.paperwork || {}),
-          ...(seed.paperwork || {}),
-          coned: {
-            ...(job.paperwork?.coned || {}),
-            ...(seed.paperwork?.coned || {}),
-            enabled: true,
-          },
-          dob: {
-            ...(job.paperwork?.dob || {}),
-            ...(seed.paperwork?.dob || {}),
-            enabled: true,
-          },
-          city: { ...(job.paperwork?.city || {}), enabled: true },
-          permitTracker: true,
-        },
-      });
+      patchJob(id, masterPipeTogglePatch(job, true));
       // Open Progress → Paperwork so branches are visible immediately.
       const paperPhaseIdx = PHASES.findIndex((p) => p.nm === "Paperwork");
       if (paperPhaseIdx >= 0) setOpenPhase(paperPhaseIdx);
       setOpenStep("Paperwork");
-      showToast?.("Paperwork on — Progress linked · Con Ed & DOB on job · Permits tab");
+      showToast?.("Paperwork on — same info on job, Progress, and Permits tab");
     } else {
       setPaperTrackOpen(null);
-      patchJob(id, {
-        permitTracker: false,
-        paperwork: {
-          coned: { enabled: false },
-          dob: { enabled: false },
-          city: { enabled: false },
-          permitTracker: false,
-        },
-      });
+      patchJob(id, masterPipeTogglePatch(job, false));
     }
   };
   const setStep = (stage, val) => {
@@ -1141,6 +1137,32 @@ export default function JobDetail() {
                   ) : null}
                   {track.stage ? <div className="text-[11px] text-slate-600 mb-1">{track.stage}</div> : null}
                   {track.next ? <div className="text-[11px] text-slate-600 mb-2">Next: {track.next}</div> : null}
+                  {track.id === "dob" ? (
+                    <div
+                      className="flex items-center justify-between gap-2 mb-2 rounded-lg border border-slate-200 bg-slate-50 px-2.5 py-2"
+                      data-testid="job-renew-schedule-row"
+                    >
+                      <div className="min-w-0">
+                        <div className="text-[11px] font-bold text-slate-800">Yearly permit renew</div>
+                        <div className="text-[10px] text-slate-500">
+                          Same flag as Permits tab · auto email off until you launch
+                        </div>
+                      </div>
+                      <Toggle
+                        small
+                        on={getRenewSchedule(job, "dob")}
+                        label="Yearly permit renew schedule"
+                        onChange={(on) => {
+                          patchJob(id, renewSchedulePatch(job, { on, agency: "dob" }));
+                          showToast?.(
+                            on
+                              ? "Yearly renew on — same on Permits tab"
+                              : "Yearly renew off"
+                          );
+                        }}
+                      />
+                    </div>
+                  ) : null}
                   <div className="text-[10px] font-extrabold uppercase tracking-wide text-slate-400 mb-1">
                     To-do list
                   </div>
@@ -1559,32 +1581,16 @@ export default function JobDetail() {
                                       on={br.enabled}
                                       label={PAPER[k].nm}
                                       onChange={(on) => {
-                                        const patch = {
-                                          paperwork: { [k]: { enabled: on } },
-                                          // Con Ed / permit branch on → appear on Permits tab (Levi 2026-08-05).
-                                          ...(k === "coned" || k === "dob" || k === "city"
-                                            ? { permitTracker: on }
-                                            : {}),
-                                        };
+                                        // Same pipe as Job Info toggle + Permits tab (Levi 2026-08-06).
+                                        const patch = branchEnablePipePatch(job, k, on);
                                         if (on) {
                                           const first = firstVisiblePaperStep(k, br);
                                           if (first) {
-                                            patch.paperwork[k].active = { [first]: true };
-                                          }
-                                          // Seed stage so the Permits board has a real row + address.
-                                          if (k === "coned" && !br.currentStage && !br.caseNumber) {
-                                            patch.paperwork[k].currentStage = "application_filed";
-                                            patch.paperwork[k].stageLabel = "On permit tracker";
-                                            patch.paperwork[k].stageBucket = "Open";
-                                            patch.paperwork[k].nextAction =
-                                              "Submit application or link a case number";
-                                          }
-                                          if (k === "dob" && !br.currentStage) {
-                                            patch.paperwork[k].currentStage = "filing_submitted";
-                                            patch.paperwork[k].stageLabel = "On permit tracker";
-                                            patch.paperwork[k].stageBucket = "Open";
-                                            patch.paperwork[k].nextAction =
-                                              "File electrical permit or add DOB job #";
+                                            patch.paperwork = patch.paperwork || {};
+                                            patch.paperwork[k] = {
+                                              ...(patch.paperwork[k] || {}),
+                                              active: { [first]: true },
+                                            };
                                           }
                                         }
                                         patchJob(id, patch);

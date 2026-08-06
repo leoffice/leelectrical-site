@@ -65,6 +65,12 @@ import PaperworkApprovalSheet from "../components/PaperworkApprovalSheet.jsx";
 import ConedCreateCaseSheet from "../components/ConedCreateCaseSheet.jsx";
 import AgencyApplicationSheet from "../components/AgencyApplicationSheet.jsx";
 import ConedApplicationStartSheet from "../components/ConedApplicationStartSheet.jsx";
+import Toggle from "../components/Toggle.jsx";
+import {
+  openApplicationPipePatch,
+  renewSchedulePatch,
+  getRenewSchedule,
+} from "../lib/permitThreeSurfacePipe.js";
 
 /** Health/bucket → pill tone, mirroring the JobDetail Con Ed chip. */
 function stageTone(row) {
@@ -161,6 +167,7 @@ function JobPermitGroupCard({
   onCustomerTodo,
   onUpdateTodoList,
   updatingTodoId,
+  onRenewSchedule,
 }) {
   const [open, setOpen] = useState(false);
   const idleRef = useRef(null);
@@ -235,6 +242,7 @@ function JobPermitGroupCard({
               onCustomerTodo={onCustomerTodo}
               onUpdateTodoList={onUpdateTodoList}
               updatingTodo={updatingTodoId === row.jobId}
+              onRenewSchedule={onRenewSchedule}
             />
           ))}
         </div>
@@ -372,6 +380,7 @@ function CaseRow({
   onCustomerTodo,
   onUpdateTodoList,
   updatingTodo,
+  onRenewSchedule,
 }) {
   const [expanded, setExpanded] = useState(false);
   const isConed = row.agency === "coned";
@@ -508,6 +517,26 @@ function CaseRow({
               job={job}
               onSelect={(value) => onMeterApplication(row.jobId, value)}
             />
+          ) : null}
+          {/* Yearly city permit renew — same flag as Job Paperwork panel (Levi 2026-08-06). Auto email OFF. */}
+          {job && !isConed && onRenewSchedule ? (
+            <div
+              className="flex items-center justify-between gap-2 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2"
+              data-testid="permit-renew-schedule-row"
+            >
+              <div className="min-w-0">
+                <div className="text-xs font-bold text-slate-800">Yearly permit renew</div>
+                <div className="text-[10px] text-slate-500">
+                  12-mo schedule · auto email off until launch
+                </div>
+              </div>
+              <Toggle
+                small
+                on={getRenewSchedule(job, "dob")}
+                label="Yearly permit renew schedule"
+                onChange={(on) => onRenewSchedule(row.jobId, on)}
+              />
+            </div>
           ) : null}
         </div>
       ) : null}
@@ -962,7 +991,7 @@ export default function Permits() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [enqueue]);
 
-  // Heal open-case steps once per session (idle, limited) — not on every jobs write
+  // Heal open-case steps + open the three-surface pipe once per session (idle, limited)
   useEffect(() => {
     if (!patchAndSave || !jobs?.length || healStartedRef.current) return;
     healStartedRef.current = true;
@@ -977,17 +1006,38 @@ export default function Permits() {
           !healedRef.current.has(j.id) &&
           (j.paperwork?.coned?.caseNumber ||
             j.paperwork?.dob?.jobNumber ||
-            j.paperwork?.coned?.customerTodos?.length)
+            j.paperwork?.coned?.customerTodos?.length ||
+            j.paperwork?.coned?.currentStage ||
+            j.paperwork?.dob?.currentStage ||
+            (Array.isArray(j.permits) && j.permits.length > 0))
       );
       for (const job of candidates.slice(0, 12)) {
         if (cancelled) return;
         if (healedRef.current.has(job.id)) continue;
-        const patch = healCaseProgressPatch(job, {
+        const heal = healCaseProgressPatch(job, {
           events: events || [],
           insights: emailInsights || [],
         });
+        // Open applications → Job Info toggle + Paperwork panel + this tab (one pipe)
+        const pipe = openApplicationPipePatch(job);
+        const patch =
+          heal || pipe
+            ? {
+                ...(heal || {}),
+                ...(pipe || {}),
+                paperwork: {
+                  ...((heal && heal.paperwork) || {}),
+                  ...((pipe && pipe.paperwork) || {}),
+                },
+                ...(pipe?.permits ? { permits: pipe.permits } : heal?.permits ? { permits: heal.permits } : {}),
+                ...(pipe?.status || heal?.status
+                  ? { status: { ...(heal?.status || {}), ...(pipe?.status || {}) } }
+                  : {}),
+                ...(pipe?.permitTracker != null ? { permitTracker: pipe.permitTracker } : {}),
+              }
+            : null;
         healedRef.current.add(job.id);
-        if (!patch) continue;
+        if (!patch || !Object.keys(patch).length) continue;
         try {
           await patchAndSave(job.id, patch);
           // stagger writes so UI stays responsive
@@ -1050,6 +1100,21 @@ export default function Permits() {
   if (!isModuleEnabled(config, "permits")) return null;
 
   const open = (jobId) => jobId && nav(`/job/${jobId}`);
+
+  const handleRenewSchedule = async (jobId, on) => {
+    if (!jobId) return;
+    const job = jobsById.get(jobId);
+    if (!job) {
+      showToast("Job not found for this case");
+      return;
+    }
+    await patchAndSave(jobId, renewSchedulePatch(job, { on, agency: "dob" }));
+    showToast(
+      on
+        ? "Yearly renew on — same flag on the job Paperwork panel"
+        : "Yearly renew off"
+    );
+  };
 
   const handleMeterApplication = async (jobId, value) => {
     if (!jobId || !value) return;
@@ -1839,6 +1904,7 @@ export default function Permits() {
                 onCustomerTodo={handleCustomerTodo}
                 onUpdateTodoList={handleUpdateTodoList}
                 updatingTodo={updatingTodoId === row.jobId}
+                onRenewSchedule={handleRenewSchedule}
               />
             ))}
           </div>
@@ -1868,6 +1934,7 @@ export default function Permits() {
                   onCustomerTodo={handleCustomerTodo}
                   onUpdateTodoList={handleUpdateTodoList}
                   updatingTodoId={updatingTodoId}
+                  onRenewSchedule={handleRenewSchedule}
                 />
               ))}
             </div>
