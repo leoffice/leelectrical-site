@@ -79,6 +79,56 @@ describe("recommendCaseNextSteps — just-opened case (1337)", () => {
     expect(rec.steps.find((s) => s.id === "electrical_permit").status).toBe("done");
   });
 
+  it("after DOB permit done on open case → Full Detailed → Energy Services due", () => {
+    const job = {
+      ...JOB_1337,
+      paperwork: {
+        coned: { ...JOB_1337.paperwork.coned },
+        todos: [
+          {
+            id: "file_electrical_permit:job",
+            kind: "file_electrical_permit",
+            status: "done",
+          },
+        ],
+      },
+    };
+    const rec = recommendCaseNextSteps(job, {
+      now: Date.parse("2026-08-03T15:00:00.000Z"),
+    });
+    const upload = rec.steps.find((s) => s.id === "coned_submit_electrical_permit");
+    expect(upload).toBeTruthy();
+    expect(upload.status).toBe("due");
+    expect(upload.required).toBe(true);
+    expect(upload.note).toMatch(/Full Detailed/i);
+    expect(rec.recommended?.id).toBe("coned_submit_electrical_permit");
+  });
+
+  it("Full Detailed on Energy Services marked done after upload flag", () => {
+    const job = {
+      ...JOB_1337,
+      paperwork: {
+        coned: {
+          ...JOB_1337.paperwork.coned,
+          electricalPermitOnCase: true,
+        },
+        todos: [
+          {
+            id: "file_electrical_permit:job",
+            kind: "file_electrical_permit",
+            status: "done",
+          },
+        ],
+      },
+    };
+    const rec = recommendCaseNextSteps(job, {
+      now: Date.parse("2026-08-03T15:00:00.000Z"),
+    });
+    const upload = rec.steps.find((s) => s.id === "coned_submit_electrical_permit");
+    expect(upload.status).toBe("done");
+    expect(rec.recommended?.id).not.toBe("coned_submit_electrical_permit");
+  });
+
   it("on deposit email: remind customer only (no card capture)", () => {
     const job = {
       ...JOB_1337,

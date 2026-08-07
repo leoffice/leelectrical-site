@@ -1310,6 +1310,18 @@ export default function Permits() {
         showToast("Open job → Paperwork → file electrical permit (L1 / EL)");
         return;
       }
+      if (
+        action === "coned_submit_electrical_permit" ||
+        step.id === "coned_submit_electrical_permit"
+      ) {
+        // Levi 2026-08-06: DOB issued → Full Detailed PDF → Energy Services upload on open case.
+        // Ops skill does the portal work; mark complete when upload is done (or after agent confirms).
+        open(job.id);
+        showToast(
+          "DOB done — download Full Detailed, then upload on Energy Services (city electrical permit)"
+        );
+        return;
+      }
       if (action === "email_deposit_reminder" || step.id === "deposit_customer_followup") {
         const email = job.email || "";
         const name = job.customer || job.personName || "there";

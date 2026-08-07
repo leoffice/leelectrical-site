@@ -76,6 +76,35 @@ function electricalPermitDone(job) {
   return false;
 }
 
+/**
+ * Full Detailed PDF already uploaded / entered on the open Energy Services case
+ * (Levi 2026-08-06 — after DOB issued on existing case).
+ */
+function conedElectricalPermitSubmitted(job) {
+  const c = job?.paperwork?.coned || {};
+  const ep = c.electricalPermit || c.cityPermitOnCase || {};
+  if (c.electricalPermitOnCase === true) return true;
+  if (todoDone(job, ["coned_submit_electrical_permit", "submit_electrical_permit"])) return true;
+  return !!(
+    ep.uploaded ||
+    ep.submitted ||
+    ep.status === "done" ||
+    ep.status === "submitted" ||
+    ep.status === "on_case"
+  );
+}
+
+function hasOpenConedCase(job) {
+  const c = job?.paperwork?.coned || {};
+  if (c.caseClosed === true) return false;
+  if (s(c.caseNumber) || s(c.mcNumber)) return true;
+  if (c.enabled === true) return true;
+  const conedPermit = Array.isArray(job?.permits)
+    ? job.permits.find((p) => String(p?.agency || "").toLowerCase() === "coned")
+    : null;
+  return !!(conedPermit && (s(conedPermit.caseNumber) || s(conedPermit.currentStage)));
+}
+
 function accountActive(job, stage) {
   // Explicit flag, deposit confirmed, or stages past money gate
   if (job?.paperwork?.coned?.accountActive === true) return true;
@@ -408,6 +437,31 @@ export function recommendCaseNextSteps(job = {}, { now = Date.now() } = {}) {
     });
   }
 
+  // —— 2b. DOB issued on open Con Ed case → Full Detailed → Energy Services (Levi 2026-08-06)
+  // As soon as city permit is complete: download Full Detailed, then upload/update on the case.
+  if (electricalPermitDone(job) && hasOpenConedCase(job) && stage !== "cancelled") {
+    if (conedElectricalPermitSubmitted(job)) {
+      steps.push({
+        id: "coned_submit_electrical_permit",
+        title: "Full Detailed on Energy Services",
+        required: true,
+        status: "done",
+        note: "City permit uploaded / entered on the Con Ed case",
+        action: "coned_submit_electrical_permit",
+      });
+    } else {
+      steps.push({
+        id: "coned_submit_electrical_permit",
+        title: "Upload Full Detailed to Energy Services",
+        required: true,
+        status: "due",
+        note:
+          "DOB done → save Full Detailed PDF → open the case → upload city electrical permit",
+        action: "coned_submit_electrical_permit",
+      });
+    }
+  }
+
   // —— 3. Deposit watch / customer reminder ——
   // Skip deposit path when account already active (Lincoln-style existing service)
   const depEmail = depositEmailReceived(job, stage);
@@ -579,6 +633,7 @@ function finalize(steps, stage) {
     "inquiry_customer_followup",
     "coned_todos",
     "deposit_customer_followup",
+    "coned_submit_electrical_permit",
     "deposit_watch",
     "add_plp_account",
     "post_pass_inquiry",
@@ -684,6 +739,22 @@ export function caseStepCompletePatch(stepId, extra = {}) {
             followUpSent: true,
             status: "reminded",
             remindedAt: now,
+            ...extra,
+          },
+        },
+      },
+    };
+  }
+  if (id === "coned_submit_electrical_permit") {
+    return {
+      paperwork: {
+        coned: {
+          electricalPermitOnCase: true,
+          electricalPermit: {
+            uploaded: true,
+            submitted: true,
+            status: "on_case",
+            submittedAt: now,
             ...extra,
           },
         },
