@@ -345,7 +345,10 @@ export function setAssistantVoiceId(id) {
   return next;
 }
 
-/** Global sell fees for Service Upgrade estimate generator (device-local). */
+/**
+ * Global sell fees for Service Upgrade estimate generator.
+ * Device cache + cloud (settings profile.estimateGeneratorFees) so phone ↔ computer stay linked.
+ */
 export const ESTIMATE_GENERATOR_FEES_KEY = "lepro_estimate_generator_fees";
 
 export function getEstimateGeneratorFees() {
@@ -361,21 +364,49 @@ export function getEstimateGeneratorFees() {
   }
 }
 
-/** Deep-merge partial fee overrides into stored estimate-generator fees. */
+/** Deep-merge two fee objects one level for nested tables (meter, panel, …). */
+export function mergeEstimateGeneratorFees(base, partial) {
+  const prev = base && typeof base === "object" ? base : {};
+  const patch = partial && typeof partial === "object" ? partial : {};
+  const next = { ...prev, ...patch };
+  for (const key of Object.keys(patch)) {
+    const p = patch[key];
+    if (p && typeof p === "object" && !Array.isArray(p) && prev[key] && typeof prev[key] === "object") {
+      next[key] = { ...prev[key], ...p };
+    }
+  }
+  return next;
+}
+
+/** Deep-merge partial fee overrides into stored estimate-generator fees (local cache). */
 export function setEstimateGeneratorFees(partial) {
   try {
     const ls = storage();
     if (!ls) return getEstimateGeneratorFees();
-    const prev = getEstimateGeneratorFees();
-    const next = { ...prev, ...(partial && typeof partial === "object" ? partial : {}) };
-    // Nested tables (meter, panel, …) merge one level deep.
-    for (const key of Object.keys(partial || {})) {
-      const p = partial[key];
-      if (p && typeof p === "object" && !Array.isArray(p) && prev[key] && typeof prev[key] === "object") {
-        next[key] = { ...prev[key], ...p };
-      }
-    }
+    const next = mergeEstimateGeneratorFees(getEstimateGeneratorFees(), partial);
     ls.setItem(ESTIMATE_GENERATOR_FEES_KEY, JSON.stringify(next));
+  } catch {
+    /* ignore */
+  }
+  notify();
+  return getEstimateGeneratorFees();
+}
+
+/**
+ * Replace local estimate-generator fees from cloud settings (phone ↔ computer link).
+ * Empty/missing cloud leaves the device cache alone so a first-time blank server
+ * never wipes prices you already set on this device.
+ */
+export function hydrateEstimateGeneratorFeesFromCloud(cloudFees) {
+  if (!cloudFees || typeof cloudFees !== "object" || Array.isArray(cloudFees)) {
+    return getEstimateGeneratorFees();
+  }
+  if (!Object.keys(cloudFees).length) return getEstimateGeneratorFees();
+  try {
+    const ls = storage();
+    if (!ls) return getEstimateGeneratorFees();
+    // Cloud wins when present — last save from either device is the source of truth.
+    ls.setItem(ESTIMATE_GENERATOR_FEES_KEY, JSON.stringify(cloudFees));
   } catch {
     /* ignore */
   }

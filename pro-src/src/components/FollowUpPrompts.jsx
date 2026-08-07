@@ -160,12 +160,18 @@ function openCalendarKeepingReminder({ event, kind, state, dismissForWork, nav }
 }
 
 const SESSION_KEY = "lepro_followup_session";
-const DISMISSED_KEY = "lepro_followup_dismissed";
+/** Durable (localStorage) — sessionStorage was wiped on many SW/deploy reloads and re-showed every card. */
+const DISMISSED_KEY = "lepro_followup_dismissed_v2";
+const DISMISSED_LEGACY_SESSION_KEY = "lepro_followup_dismissed";
+/** Keep soft-dismissed popup ids for 48h so an update doesn't re-open the same stack. */
+const DISMISSED_TTL_MS = 48 * 60 * 60 * 1000;
 const IS_TEST = import.meta.env.MODE === "test" || !!import.meta.env.VITEST;
 
 function markSessionPrompted() {
   try {
-    sessionStorage.setItem(SESSION_KEY, "1");
+    // Day-stamped so a deploy mid-day does not re-fire the full login stack.
+    const day = new Date().toISOString().slice(0, 10);
+    localStorage.setItem(SESSION_KEY, day);
   } catch {
     /* ignore */
   }
@@ -173,25 +179,53 @@ function markSessionPrompted() {
 
 function sessionAlreadyPrompted() {
   try {
-    return sessionStorage.getItem(SESSION_KEY) === "1";
+    const day = new Date().toISOString().slice(0, 10);
+    return localStorage.getItem(SESSION_KEY) === day;
   } catch {
     return false;
   }
 }
 
 function loadDismissedIds() {
+  const now = Date.now();
+  const out = new Set();
   try {
-    const raw = sessionStorage.getItem(DISMISSED_KEY);
-    const arr = raw ? JSON.parse(raw) : [];
-    return new Set(Array.isArray(arr) ? arr.map(String) : []);
+    const raw = localStorage.getItem(DISMISSED_KEY);
+    const parsed = raw ? JSON.parse(raw) : null;
+    // Shape: { [id]: expiresAtMs } or legacy string[]
+    if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+      for (const [k, exp] of Object.entries(parsed)) {
+        const t = Number(exp);
+        if (k && Number.isFinite(t) && t > now) out.add(String(k));
+      }
+    } else if (Array.isArray(parsed)) {
+      for (const k of parsed) if (k) out.add(String(k));
+    }
   } catch {
-    return new Set();
+    /* ignore */
   }
+  // One-time migrate any leftover session dismisses from before the durable key.
+  try {
+    const legacy = sessionStorage.getItem(DISMISSED_LEGACY_SESSION_KEY);
+    if (legacy) {
+      const arr = JSON.parse(legacy);
+      if (Array.isArray(arr)) for (const k of arr) if (k) out.add(String(k));
+      sessionStorage.removeItem(DISMISSED_LEGACY_SESSION_KEY);
+    }
+  } catch {
+    /* ignore */
+  }
+  return out;
 }
 
 function persistDismissedIds(set) {
   try {
-    sessionStorage.setItem(DISMISSED_KEY, JSON.stringify([...set].slice(-80)));
+    const exp = Date.now() + DISMISSED_TTL_MS;
+    const map = {};
+    for (const k of [...set].slice(-120)) {
+      if (k) map[String(k)] = exp;
+    }
+    localStorage.setItem(DISMISSED_KEY, JSON.stringify(map));
   } catch {
     /* ignore */
   }
@@ -254,12 +288,17 @@ function RemindMeSheet({ event, job, onClose, onSaved, dismissForWork }) {
       return;
     }
     const nudge = generateReminderNudge({ event, job, userNote: note, today });
-    allocateReminderTime(event.id, dt, {
-      note,
-      nudge,
-      priority,
-      ...(job?.id ? { jobId: job.id } : {}),
-    });
+    allocateReminderTime(
+      event.id,
+      dt,
+      {
+        note,
+        nudge,
+        priority,
+        ...(job?.id ? { jobId: job.id } : {}),
+      },
+      event
+    );
     if (job?.id) {
       await patchAndSave(job.id, {
         followUp: {
@@ -456,7 +495,7 @@ function MustTodayNudgeSheet({ event, state: st, job, queue, onClose, onDone, on
   };
 
   const snooze = (minutes) => {
-    scheduleReminderSnooze(event.id, minutes);
+    scheduleReminderSnooze(event.id, minutes, new Date(), event);
     showToast("OK — I'll ping you again in " + formatSnoozeDuration(minutes));
     onSnooze && onSnooze();
     onDone();
@@ -464,7 +503,7 @@ function MustTodayNudgeSheet({ event, state: st, job, queue, onClose, onDone, on
   };
 
   const pushTomorrow = () => {
-    scheduleNextBusinessDayReminder(event.id, st.note, todayStr());
+    scheduleNextBusinessDayReminder(event.id, st.note, todayStr(), event);
     showToast("Moved to next business day");
     onDone();
     onClose();
@@ -574,7 +613,7 @@ function ScheduledReminderSheet({
   };
 
   const snooze = (minutes) => {
-    scheduleReminderSnooze(event.id, minutes);
+    scheduleReminderSnooze(event.id, minutes, new Date(), event);
     showToast("Snoozed for " + formatSnoozeDuration(minutes));
     onSnooze && onSnooze();
     onDone();
@@ -582,7 +621,7 @@ function ScheduledReminderSheet({
   };
 
   const dismiss = () => {
-    dismissEventReminders(event.id);
+    dismissEventReminders(event.id, { event });
     onDone();
     onClose();
   };
@@ -734,7 +773,7 @@ function InspectionReminderSheet({ event, when, job, onClose, onDone, dismissFor
 
   // ✕ on an inspection is "not now", not "acknowledged" — it comes back.
   const snooze = (minutes) => {
-    scheduleReminderSnooze(event.id, minutes);
+    scheduleReminderSnooze(event.id, minutes, new Date(), event);
     onDone();
   };
 
@@ -828,14 +867,14 @@ function ServiceCallSheet({
   };
 
   const noReminders = () => {
-    dismissEventReminders(event.id, { noReminders: true });
+    dismissEventReminders(event.id, { noReminders: true, event });
     showToast("OK — won't ask about this one again");
     onDone();
     onClose();
   };
 
   const snooze = (minutes) => {
-    scheduleReminderSnooze(event.id, minutes);
+    scheduleReminderSnooze(event.id, minutes, new Date(), event);
     showToast("OK — back in " + formatSnoozeDuration(minutes));
     onDone();
     onClose();

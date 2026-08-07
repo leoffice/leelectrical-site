@@ -82,6 +82,16 @@ export function TenantProvider({ children }) {
         const next = { ...(doc?.tenant || {}), profile: doc?.profile };
         setRaw(next);
         writeCache(next);
+        // Estimate Generator prices — hydrate device cache from cloud so phone
+        // and computer stay in sync without opening Settings first.
+        try {
+          const { hydrateEstimateGeneratorFeesFromCloud } = await import("../lib/appSettings.js");
+          if (doc?.profile?.estimateGeneratorFees) {
+            hydrateEstimateGeneratorFeesFromCloud(doc.profile.estimateGeneratorFees);
+          }
+        } catch {
+          /* non-fatal — fees stay on device cache */
+        }
       } catch {
         if (!alive) return;
         setRaw(readCache()); // null -> seed, which is fail-closed

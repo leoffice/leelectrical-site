@@ -194,6 +194,32 @@ describe("followUpReminders", () => {
     expect(inspectionCandidates([live], today).map((e) => e.id)).toEqual([]);
   });
 
+  it("postpone/snooze survives calendar id change after deploy-style reload", () => {
+    const pending = {
+      id: "pending-snooze",
+      summary: "Service call — 12 Oak — estimate",
+      start: "2026-07-08T10:00",
+    };
+    const live = {
+      id: "google-snooze",
+      summary: "Service call — 12 Oak — estimate",
+      start: "2026-07-08T10:00",
+    };
+    const now = new Date("2026-07-13T09:00:00");
+    scheduleReminderSnooze(pending.id, 120, now, pending);
+    const state = JSON.parse(localStorage.getItem(STATE_KEY));
+    expect(state["pending-snooze"].fingerprint).toBe(eventFingerprint(pending));
+    expect(state["pending-snooze"].snoozeUntil).toBe(new Date("2026-07-13T11:00:00").toISOString());
+    // After "reload", only the new calendar id is present — postpone still holds.
+    expect(isEventAllocated(state, live.id, now, live)).toBe(true);
+    expect(
+      serviceCallCandidates([live], [], "2026-07-13", now).map((e) => e.id)
+    ).toEqual([]);
+    expect(
+      dueScheduledReminders([live], [], "2026-07-13", now).map((x) => x.event.id)
+    ).toEqual([]);
+  });
+
   it("validateRemindDatetime enforces weekdays and work hours", () => {
     expect(validateRemindDatetime("2026-07-11T10:00")).toBe("Weekdays only (Mon–Fri)");
     expect(validateRemindDatetime("2026-07-10T08:00")).toBe("Work hours only (9:00 AM – 5:00 PM)");

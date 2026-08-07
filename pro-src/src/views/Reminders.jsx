@@ -39,7 +39,7 @@ function ReminderRow({ item, expanded, onToggle, onAction, onHide }) {
 
   const dontRemind = () => {
     if (item.event?.id) {
-      dismissEventReminders(item.event.id, { noReminders: true });
+      dismissEventReminders(item.event.id, { noReminders: true, event: item.event });
       showToast("OK — won't remind you about this one");
       hideNow();
     }
@@ -47,7 +47,7 @@ function ReminderRow({ item, expanded, onToggle, onAction, onHide }) {
 
   const snooze = (minutes) => {
     if (item.event?.id) {
-      scheduleReminderSnooze(item.event.id, minutes);
+      scheduleReminderSnooze(item.event.id, minutes, new Date(), item.event);
       showToast("Snoozed " + minutes + " min");
       hideNow();
     }

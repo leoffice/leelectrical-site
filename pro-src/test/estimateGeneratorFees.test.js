@@ -12,6 +12,7 @@ import {
 import {
   getEstimateGeneratorFees,
   setEstimateGeneratorFees,
+  hydrateEstimateGeneratorFeesFromCloud,
   ESTIMATE_GENERATOR_FEES_KEY,
 } from "../src/lib/appSettings.js";
 
@@ -51,5 +52,20 @@ describe("estimate generator fees (Settings)", () => {
     expect(filingLine?.unitPrice).toBe(5000);
     // feesFor deep-merges so other meter sizes still resolve
     expect(feesFor(a).meter["200-1"]).toBe(DEFAULT_FEES.meter["200-1"]);
+  });
+
+  it("cloud hydrate links phone and computer (cloud fees replace device cache)", () => {
+    setEstimateGeneratorFees({ filing: 1111 });
+    expect(getEstimateGeneratorFees().filing).toBe(1111);
+    hydrateEstimateGeneratorFeesFromCloud({ filing: 7777, meter: { "100-1": 4000 } });
+    expect(getEstimateGeneratorFees().filing).toBe(7777);
+    expect(getEstimateGeneratorFees().meter["100-1"]).toBe(4000);
+  });
+
+  it("empty cloud hydrate does not wipe device prices", () => {
+    setEstimateGeneratorFees({ filing: 2222 });
+    hydrateEstimateGeneratorFeesFromCloud({});
+    hydrateEstimateGeneratorFeesFromCloud(null);
+    expect(getEstimateGeneratorFees().filing).toBe(2222);
   });
 });

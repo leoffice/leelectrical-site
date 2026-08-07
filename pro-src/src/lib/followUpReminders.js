@@ -114,10 +114,53 @@ export function eventState(state, eventId) {
   return (state && state[id]) || {};
 }
 
-export function patchEventState(eventId, patch) {
+/**
+ * Resolve reminder state by event id, then by fingerprint.
+ * Survives calendar id swaps (pending-* → Google) and SW/deploy reloads so
+ * postpone / snooze / "don't remind" never re-fire after an update.
+ */
+export function resolveEventState(state, eventId, event = null) {
+  const id = String(eventId || event?.id || "");
+  if (id && state && state[id] && typeof state[id] === "object") return state[id];
+  const fp = (event && (event.fingerprint || eventFingerprint(event))) || "";
+  if (!fp || !state || typeof state !== "object") return {};
+  for (const v of Object.values(state)) {
+    if (v && typeof v === "object" && v.fingerprint === fp) return v;
+  }
+  return {};
+}
+
+/**
+ * Write reminder state for an event. Always stamps fingerprint when known so
+ * later id changes still honor snooze / postpone / dismiss.
+ * Optional 3rd arg: calendar event (for fingerprint) — or pass fingerprint in patch.
+ */
+export function patchEventState(eventId, patch, event = null) {
   const state = loadState();
   const id = String(eventId || "");
-  state[id] = { ...eventState(state, id), ...patch, eventId: id };
+  if (!id) return {};
+  const fp =
+    (patch && patch.fingerprint) ||
+    eventFingerprint(event) ||
+    eventState(state, id).fingerprint ||
+    "";
+  // Prefer existing row for this id; else adopt any row with the same fingerprint
+  // (calendar reassigned the id after deploy/sync).
+  let base = eventState(state, id);
+  if ((!base || !Object.keys(base).length) && fp) {
+    for (const v of Object.values(state)) {
+      if (v && typeof v === "object" && v.fingerprint === fp) {
+        base = v;
+        break;
+      }
+    }
+  }
+  state[id] = {
+    ...base,
+    ...(patch && typeof patch === "object" ? patch : {}),
+    eventId: id,
+    ...(fp ? { fingerprint: fp } : {}),
+  };
   saveState(state);
   return state[id];
 }
@@ -270,7 +313,7 @@ function stateHasHandledFingerprint(state, fingerprint) {
 }
 
 export function isEventHandled(state, eventId, event = null) {
-  const st = eventState(state, eventId);
+  const st = resolveEventState(state, eventId, event);
   if (st.handledAt || st.inspectionAcked || st.noReminders) return true;
   // Survive calendar id changes (pending-* → Google id) after "Got it".
   const fp = event?.fingerprint || eventFingerprint(event);
@@ -279,10 +322,12 @@ export function isEventHandled(state, eventId, event = null) {
 }
 
 /** True when Levi picked a next step or set a future reminder — skip the past-week popup. */
-export function isEventAllocated(state, eventId, now = new Date()) {
-  const st = eventState(state, eventId);
+export function isEventAllocated(state, eventId, now = new Date(), event = null) {
+  const st = resolveEventState(state, eventId, event);
   if (st.noReminders) return true;
   if (st.nextStepAt) return true;
+  // Active snooze counts as allocated so a deploy/reload cannot re-open the card.
+  if (isSnoozed(st, now)) return true;
   if (st.remindAt) {
     if (new Date(st.remindAt) > now) return true;
     return true;
@@ -291,30 +336,38 @@ export function isEventAllocated(state, eventId, now = new Date()) {
 }
 
 /** Levi chose an action (create job, estimate, email…) — don't re-prompt until reminder fires. */
-export function allocateNextStep(eventId, stepKey, now = Date.now()) {
-  return patchEventState(eventId, {
-    nextStepAt: now,
-    nextStepKey: String(stepKey || ""),
-    remindAt: "",
-    reminderAllocatedAt: "",
-    pushOffCount: 0,
-    nextNudgeAt: "",
-    handledAt: "",
-  });
+export function allocateNextStep(eventId, stepKey, now = Date.now(), event = null) {
+  return patchEventState(
+    eventId,
+    {
+      nextStepAt: now,
+      nextStepKey: String(stepKey || ""),
+      remindAt: "",
+      reminderAllocatedAt: "",
+      pushOffCount: 0,
+      nextNudgeAt: "",
+      handledAt: "",
+    },
+    event
+  );
 }
 
 /** Levi set a remind-me time — fires via scheduled_reminder when due. */
-export function allocateReminderTime(eventId, remindAt, extras = {}) {
-  return patchEventState(eventId, {
-    remindAt,
-    reminderAllocatedAt: Date.now(),
-    nextStepAt: "",
-    nextStepKey: "",
-    pushOffCount: 0,
-    nextNudgeAt: "",
-    handledAt: "",
-    ...extras,
-  });
+export function allocateReminderTime(eventId, remindAt, extras = {}, event = null) {
+  return patchEventState(
+    eventId,
+    {
+      remindAt,
+      reminderAllocatedAt: Date.now(),
+      nextStepAt: "",
+      nextStepKey: "",
+      pushOffCount: 0,
+      nextNudgeAt: "",
+      handledAt: "",
+      ...extras,
+    },
+    event
+  );
 }
 
 function maybeAutoPostponeSendCooldown(eventId, assessment, state) {
@@ -346,8 +399,8 @@ export function serviceCallCandidates(events, jobs, today, now = new Date(), com
       if (!isPastWeekFollowUpEvent(e, jobs)) return false;
       if (shouldHoldSameDayEstimateReminder(e, today, now)) return false;
       if (isEventHandled(state, e.id, e)) return false;
-      if (isEventAllocated(state, e.id, now)) return false;
-      const st = eventState(state, e.id);
+      if (isEventAllocated(state, e.id, now, e)) return false;
+      const st = resolveEventState(state, e.id, e);
       if (isSnoozed(st, now)) return false;
       const job = linkedJobForEvent(e, jobs);
       const assessment = assessJobFollowUp(job, today, commands);
@@ -371,7 +424,7 @@ export function inspectionCandidates(events, today, now = new Date()) {
       if (ymd !== today && ymd !== tomorrow) return false;
       if (isEventHandled(state, e.id, e)) return false;
       // Closing the card is a snooze, not an ack — honour it here too.
-      if (isSnoozed(eventState(state, e.id), now)) return false;
+      if (isSnoozed(resolveEventState(state, e.id, e), now)) return false;
       return true;
     })
     .sort((a, b) => evStart(a).localeCompare(evStart(b)));
@@ -398,7 +451,7 @@ export function dueMustTodayNudges(events, jobs, today, now = new Date()) {
   const state = loadState();
   const out = [];
   for (const e of events || []) {
-    const st = eventState(state, e.id);
+    const st = resolveEventState(state, e.id, e);
     if (st.priority !== "must_today") continue;
     if (isEventHandled(state, e.id, e)) continue;
     if (isSnoozed(st, now)) continue;
@@ -433,14 +486,14 @@ export function pickFirmerNudge(pushOffCount = 0, seed = "") {
   return pool[idx];
 }
 
-export function scheduleSameDayPushOff(eventId, now = new Date(), minutes = SAME_DAY_NUDGE_HOURS * 60) {
-  patchEventState(eventId, { priority: "must_today" });
-  return scheduleReminderSnooze(eventId, minutes, now);
+export function scheduleSameDayPushOff(eventId, now = new Date(), minutes = SAME_DAY_NUDGE_HOURS * 60, event = null) {
+  patchEventState(eventId, { priority: "must_today" }, event);
+  return scheduleReminderSnooze(eventId, minutes, now, event);
 }
 
-/** Snooze one reminder — presets or slider minutes (max 5h). */
-export function scheduleReminderSnooze(eventId, minutes, now = new Date()) {
-  const st = eventState(loadState(), eventId);
+/** Snooze one reminder — presets or slider minutes (max 5h). Optional event stamps fingerprint so deploy/reload keeps the postpone. */
+export function scheduleReminderSnooze(eventId, minutes, now = new Date(), event = null) {
+  const st = resolveEventState(loadState(), eventId, event);
   const mins = Math.min(SNOOZE_SLIDER_MAX, Math.max(1, Math.round(Number(minutes) || 0)));
   const next = new Date(now);
   next.setMinutes(next.getMinutes() + mins);
@@ -456,10 +509,10 @@ export function scheduleReminderSnooze(eventId, minutes, now = new Date()) {
     patch.remindAt = localDatetime(next);
     patch.pushOffCount = 0;
   }
-  return patchEventState(eventId, patch);
+  return patchEventState(eventId, patch, event);
 }
 
-/** Snooze every reminder in the list by the same amount. */
+/** Snooze every reminder in the list by the same amount. items may be ids or {id,event}. */
 export function batchSnoozeReminders(eventIds, minutes, now = new Date()) {
   const ids = [...new Set((eventIds || []).map((id) => String(id || "")).filter(Boolean))];
   return ids.map((id) => scheduleReminderSnooze(id, minutes, now));
@@ -470,7 +523,7 @@ export function dueScheduledReminders(events, jobs, today, now = new Date()) {
   const state = loadState();
   const out = [];
   for (const e of events || []) {
-    const st = eventState(state, e.id);
+    const st = resolveEventState(state, e.id, e);
     if (!st.remindAt || isEventHandled(state, e.id, e)) continue;
     if (isSnoozed(st, now)) continue;
     if (st.priority === "must_today" && st.remindAt.slice(0, 10) === today) continue;
@@ -539,37 +592,43 @@ export function applyPromptQueueCap(queue, cap = PROMPT_QUEUE_CAP) {
   ];
 }
 
-export function scheduleNextBusinessDayReminder(eventId, note, today) {
+export function scheduleNextBusinessDayReminder(eventId, note, today, event = null) {
   const nextDay = nextBusinessDay(today);
   const remindAt = nextDay + "T10:00";
-  return patchEventState(eventId, {
-    remindAt,
-    note: note || stNote(eventId),
-    priority: "medium",
-    pushOffCount: 0,
-    nextNudgeAt: "",
-  });
+  return patchEventState(
+    eventId,
+    {
+      remindAt,
+      note: note || stNote(eventId, event),
+      priority: "medium",
+      pushOffCount: 0,
+      nextNudgeAt: "",
+      snoozeUntil: "",
+    },
+    event
+  );
 }
 
 /** Reschedule a reminder to a specific weekday + work-hour slot. */
-export function rescheduleEventReminder(eventId, remindAt, { note, priority } = {}) {
-  const st = eventState(loadState(), eventId);
+export function rescheduleEventReminder(eventId, remindAt, { note, priority } = {}, event = null) {
+  const st = resolveEventState(loadState(), eventId, event);
   const patch = {
     remindAt,
     pushOffCount: 0,
     nextNudgeAt: "",
     handledAt: "",
+    snoozeUntil: "",
   };
   if (note !== undefined) patch.note = note;
   if (priority !== undefined) patch.priority = priority;
   else if (st.priority === "must_today" && remindAt.slice(0, 10) !== (st.remindAt || "").slice(0, 10)) {
     patch.priority = "medium";
   }
-  return patchEventState(eventId, patch);
+  return patchEventState(eventId, patch, event);
 }
 
-function stNote(eventId) {
-  return eventState(loadState(), eventId).note || "";
+function stNote(eventId, event = null) {
+  return resolveEventState(loadState(), eventId, event).note || "";
 }
 
 export function remindersPausedUntil(now = new Date()) {
@@ -766,8 +825,11 @@ export function buildReminderList(
   }
 
   for (const e of events || []) {
-    const st = eventState(state, e.id);
+    const st = resolveEventState(state, e.id, e);
     if (isEventHandled(state, e.id, e)) continue;
+    // Active postpone/snooze stays out of the tab + popups until it expires
+    // (deploy/reload must not re-surface postponed cards — Levi 2026-08-07).
+    if (isSnoozed(st, now)) continue;
     if (st.priority === "must_today" && (st.remindAt || "").slice(0, 10) === today) {
       list.push({
         id: "must:" + e.id,

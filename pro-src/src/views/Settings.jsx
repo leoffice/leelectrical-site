@@ -32,6 +32,7 @@ import {
   setSpeechToTextEnabled,
   setEstimateGeneratorFees,
   getEstimateGeneratorFees,
+  hydrateEstimateGeneratorFeesFromCloud,
   useAppSettings,
 } from "../lib/appSettings.js";
 import { DEFAULT_FEES } from "../lib/serviceUpgradeEstimator.js";
@@ -274,6 +275,14 @@ export default function Settings() {
         setQuickbooksDocsFeatureEnabled(anyQuickbooksDocFeature(doc?.features));
         setQuickbooksDocFeatureEnabled("invoice", quickbooksDocFeature(doc?.features, "invoice"));
         setQuickbooksDocFeatureEnabled("estimate", quickbooksDocFeature(doc?.features, "estimate"));
+        // Estimate Generator prices — cloud is shared phone ↔ computer.
+        if (doc?.profile?.estimateGeneratorFees && typeof doc.profile.estimateGeneratorFees === "object") {
+          hydrateEstimateGeneratorFeesFromCloud(doc.profile.estimateGeneratorFees);
+          setEstFees({
+            ...DEFAULT_FEES,
+            ...getEstimateGeneratorFees(),
+          });
+        }
       }
     } catch (e) {
       showToast?.(String(e.message || e));
@@ -644,7 +653,15 @@ export default function Settings() {
     }
     setSaving(true);
     try {
-      await saveSettings({ profile, features });
+      // Keep estimate-generator prices on the same cloud profile so phone + computer match.
+      const fees = getEstimateGeneratorFees();
+      await saveSettings({
+        profile: {
+          ...profile,
+          ...(fees && Object.keys(fees).length ? { estimateGeneratorFees: fees } : {}),
+        },
+        features,
+      });
       if (profile.logoDataUrl) setCompanyLogoDataUrl(profile.logoDataUrl);
       else clearCompanyLogo();
       // Push the whole company profile into live branding so local printouts
@@ -909,7 +926,7 @@ export default function Settings() {
           type="button"
           className="rounded-xl bg-brand px-4 py-2.5 text-sm font-extrabold text-white w-full"
           data-testid="est-fee-save"
-          onClick={() => {
+          onClick={async () => {
             const payload = {
               filing: Number(estFees.filing),
               removalDisposal: Number(estFees.removalDisposal),
@@ -924,7 +941,24 @@ export default function Settings() {
               panel: { ...(estFees.panel || {}) },
             };
             setEstimateGeneratorFees(payload);
-            showToast?.("Estimate Generator prices saved");
+            // Cloud link — phone and computer both read/write the same prices.
+            if (typeof saveSettings === "function") {
+              try {
+                const doc = typeof getSettings === "function" ? await getSettings() : null;
+                const baseProfile = mergeProfile(doc?.profile || profile);
+                await saveSettings({
+                  profile: { ...baseProfile, estimateGeneratorFees: payload },
+                  features: mergeFeatures(doc?.features || features),
+                });
+                showToast?.("Estimate Generator prices saved — linked on all your devices");
+              } catch (e) {
+                showToast?.(
+                  "Saved on this device — cloud link failed: " + String(e?.message || e)
+                );
+              }
+            } else {
+              showToast?.("Estimate Generator prices saved on this device");
+            }
           }}
         >
           Save Estimate Generator prices
