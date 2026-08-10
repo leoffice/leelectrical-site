@@ -44,6 +44,7 @@ export function loadCompletedPermitsSeedEntries() {
       phone: String(p.phone || "").trim(),
       qboCustomerId: p.qboCustomerId ? String(p.qboCustomerId) : "",
       matchedCustomer: !!p.matchedCustomer,
+      multiMatchNeedsConfirm: !!p.multiMatchNeedsConfirm,
       source: p.source || "drive:completed",
       fee: DEFAULT_FEE,
     }));
@@ -79,6 +80,11 @@ function expiresFromIssued(issuedDate) {
   return d.toISOString().slice(0, 10);
 }
 
+/** Cache key shapes — never treat these as human scenario ids. */
+function looksLikePermitCacheKey(id = "") {
+  return /^(sc:|p:|a:)/i.test(String(id || "").trim());
+}
+
 /** Normalize a scenario / raw object into a cache entry. */
 export function toPermitCacheEntry(sc) {
   if (!sc || typeof sc !== "object") return null;
@@ -86,11 +92,20 @@ export function toPermitCacheEntry(sc) {
   const expires =
     String(sc.expiresDate || "").trim().slice(0, 10) ||
     (issued ? expiresFromIssued(issued) : "");
-  const scenarioId = String(sc.id || sc.scenarioId || "").trim();
+  // Prefer explicit scenarioId. Only fall back to sc.id when it is a real
+  // scenario slug (hampton-yossi), not a re-upserted cache key (p:… / sc:…).
+  const rawId = String(sc.id || "").trim();
+  const scenarioId =
+    String(sc.scenarioId || "").trim() ||
+    (rawId && !looksLikePermitCacheKey(rawId) ? rawId : "");
   const permitNo = String(sc.permitNo || "").trim();
   const address = String(sc.address || "").trim();
+  // Keep a stable cache id on re-upsert (don't bounce p: → sc:p:)
+  const existingCacheId = String(sc.cacheId || "").trim();
+  const priorId = looksLikePermitCacheKey(rawId) ? rawId : "";
   const id =
-    String(sc.cacheId || "").trim() ||
+    existingCacheId ||
+    priorId ||
     permitCacheKey({ permitNo, address, scenarioId }) ||
     `row-${Date.now()}`;
   return {
@@ -107,6 +122,7 @@ export function toPermitCacheEntry(sc) {
     fee: sc.fee != null && Number(sc.fee) > 0 ? Number(sc.fee) : DEFAULT_FEE,
     qboCustomerId: sc.qboCustomerId ? String(sc.qboCustomerId) : "",
     matchedCustomer: !!(sc.matchedCustomer || sc.real || sc.realTest),
+    multiMatchNeedsConfirm: !!sc.multiMatchNeedsConfirm,
     source: sc.source || "scenario",
     updatedAt: new Date().toISOString(),
   };

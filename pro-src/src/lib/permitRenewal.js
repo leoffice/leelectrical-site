@@ -17,6 +17,7 @@ import {
   listRenewSendHistory,
   formatSendHistoryWhen,
   getPermitCacheEntry,
+  loadPermitCache,
   scenarioFromCacheEntry,
   toPermitCacheEntry,
 } from "./permitCache.js";
@@ -57,19 +58,16 @@ export const RENEW_HAMPTON_SCENARIO = {
 export const PHASE_A_HAMPTON_SCENARIO = RENEW_HAMPTON_SCENARIO;
 
 /**
- * Yossi Hackner · 234 Schenectady LLC · 364 Schenectady Avenue.
- * Sub-company of Hackner (qbo 336). City permit # must be a real DOB filing
- * (B#####-L#-EL etc.) — never the LLC name (Levi 2026-08-10).
- * Open Data had no hit for 364 Schenectady as of ship; fill via DOB lookup before send.
+ * LEGACY only — Yossi Hackner · 364 Schenectady Avenue.
+ * Levi 2026-08-10: **not our permit** — kept so old history / tests resolve,
+ * but never listed under Renewal Application pending send.
  */
 export const RENEW_HACKNER_SCENARIO = {
   id: "schenectady-hackner",
   displayCustomer: "Yossi Hackner",
   greetingName: "Yossi",
-  /** Sub-customer under Yossi Hackner (QBO 1610, parent 336) */
   businessName: "234 Schenectady Avenue LLC",
   address: "364 Schenectady Avenue",
-  /** Empty until real DOB filing # is in the permit cache / cash file. */
   permitNo: "",
   issuedDate: "",
   fee: PERMIT_RENEW_FEE,
@@ -78,13 +76,33 @@ export const RENEW_HACKNER_SCENARIO = {
   matchedCustomer: true,
   real: true,
   realTest: true,
-  /** Invoice under the LLC, not the parent person */
   qboCustomerId: "1610",
   parentCustomerName: "Yossi Hackner",
   parentQboCustomerId: "336",
-  /** Block Send Email until a real city permit # is on the cache row */
   needsDobLookup: true,
+  /** Never surface in pending renew notifications */
+  notOurPermit: true,
+  excludedFromReady: true,
 };
+
+/** True when this service address must never get a renew notification. */
+export function isExcludedRenewAddress(address = "") {
+  const a = String(address || "")
+    .toLowerCase()
+    .replace(/\s+/g, " ")
+    .trim();
+  // Levi 2026-08-10: 364 Schenectady Avenue is not BLZ's permit
+  if (/\b364\b/.test(a) && /schenectady/.test(a)) return true;
+  return false;
+}
+
+function normalizeRenewAddrKey(address = "") {
+  return String(address || "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
 
 /**
  * Real NYC DOB electrical permit / filing # (not a company name).
@@ -108,6 +126,9 @@ export function canSendRenewNotice(scenario = {}) {
   const address = String(sc.address || "").trim();
   const permitNo = String(sc.permitNo || "").trim();
   if (!address) return { ok: false, reason: "Missing service address" };
+  if (isExcludedRenewAddress(address) || sc.notOurPermit || sc.excludedFromReady) {
+    return { ok: false, reason: "Not our permit — removed from renew list" };
+  }
   if (!isRealCityPermitNo(permitNo)) {
     return {
       ok: false,
@@ -892,98 +913,205 @@ export function findRenewJobForScenario(jobs = [], scenarioId = "") {
 
 /**
  * Pending Send Email cards for Renewal Notifications.
- * Always surfaces ready matched-customer addresses from the permit cache
- * until notice is sent; after full pay they move to the update-permit box.
+ * Surfaces: (1) hard-ready scenarios (Hampton) + (2) Drive completed-permit
+ * cache rows that are matched + have email + real permit #.
+ * Levi 2026-08-10: never include 364 Schenectady (not our permit).
  */
 /** True if a notice email was already sent for this scenario (job or local history). */
-export function scenarioNoticeAlreadySent(jobs = [], scenarioId = "") {
+export function scenarioNoticeAlreadySent(jobs = [], scenarioId = "", extra = {}) {
   const want = String(scenarioId || "").trim();
-  if (!want) return false;
-  const job = findRenewJobForScenario(jobs, want);
-  if (job) {
-    const pr = job.permitRenew || job.permitRenewMock || {};
-    if (pr.noticeSent || pr.emailSentAt || pr.noticeSentAt) return true;
+  if (want) {
+    const job = findRenewJobForScenario(jobs, want);
+    if (job) {
+      const pr = job.permitRenew || job.permitRenewMock || {};
+      if (pr.noticeSent || pr.emailSentAt || pr.noticeSentAt) return true;
+    }
   }
   try {
     const hist = loadLocalRenewSendHistory();
-    return hist.some((h) => String(h.scenarioId || "").trim() === want);
+    const no = String(extra.permitNo || "")
+      .trim()
+      .toUpperCase();
+    const addr = normalizeRenewAddrKey(extra.address || "");
+    return hist.some((h) => {
+      if (want && String(h.scenarioId || "").trim() === want) return true;
+      const hNo = String(h.permitNo || "")
+        .trim()
+        .toUpperCase();
+      if (no && hNo && hNo === no) return true;
+      if (addr && no && hNo === no && normalizeRenewAddrKey(h.address) === addr) {
+        return true;
+      }
+      return false;
+    });
   } catch {
     return false;
   }
 }
 
+/**
+ * Drive completed-permit rows ready for staff Send Email (matched + email + permit #).
+ * Excludes 364 Schenectady and multi-match "ask Levi" rows.
+ */
+export function listDriveReadyRenewScenarios() {
+  ensurePermitCacheSeeded(READY_RENEW_SCENARIOS);
+  const entries = loadPermitCache();
+  const readyIds = new Set(READY_RENEW_SCENARIOS.map((s) => s.id));
+  const readyPermitNos = new Set(
+    READY_RENEW_SCENARIOS.map((s) => String(s.permitNo || "").trim().toUpperCase()).filter(
+      Boolean
+    )
+  );
+  const readyAddrs = new Set(
+    READY_RENEW_SCENARIOS.map((s) => normalizeRenewAddrKey(s.address)).filter(Boolean)
+  );
+  const out = [];
+  const seen = new Set();
+  for (const e of entries) {
+    if (!e || typeof e !== "object") continue;
+    const address = String(e.address || "").trim();
+    const permitNo = String(e.permitNo || "").trim();
+    const email = String(e.email || "").trim();
+    const sid = String(e.scenarioId || "").trim();
+    if (!address || !email || !isRealCityPermitNo(permitNo)) continue;
+    if (isExcludedRenewAddress(address)) continue;
+    if (e.multiMatchNeedsConfirm) continue;
+    if (e.matchedCustomer === false) continue;
+    // Hard-ready scenarios are added separately with authoritative facts
+    if (sid && readyIds.has(sid)) continue;
+    const pKey = permitNo.toUpperCase();
+    if (readyPermitNos.has(pKey)) continue;
+    if (readyAddrs.has(normalizeRenewAddrKey(address))) continue;
+    const dedupe = `${pKey}|${normalizeRenewAddrKey(address)}`;
+    if (seen.has(dedupe)) continue;
+    seen.add(dedupe);
+    // Stable send/history id — never reuse cache keys (p:… / sc:…)
+    const id =
+      sid && !/^(sc:|p:|a:|drive:)/i.test(sid) ? sid : `drive:${pKey}`;
+    const sc = scenarioFromCacheEntry(
+      { ...e, scenarioId: id },
+      {
+        id,
+        fee: e.fee != null ? e.fee : PERMIT_RENEW_FEE,
+        source: e.source || "drive:completed",
+        real: true,
+        realTest: true,
+        matchedCustomer: true,
+      }
+    );
+    out.push({ ...sc, id, scenarioId: id });
+  }
+  // Urgency: near_abandon → expired → soon → abandoned → upcoming
+  const rank = (sc) => {
+    const exp =
+      String(sc.expiresDate || "").trim().slice(0, 10) ||
+      permitExpiresFromIssued(sc.issuedDate);
+    const tone = exp ? permitRenewStatusTone(exp) : "upcoming";
+    return (
+      { near_abandon: 0, expired: 1, soon: 2, abandoned: 3, upcoming: 4 }[tone] ?? 5
+    );
+  };
+  out.sort(
+    (a, b) =>
+      rank(a) - rank(b) ||
+      String(a.address || "").localeCompare(String(b.address || ""))
+  );
+  return out;
+}
+
+function cardFromReadyScenario(sc, jobs, apps) {
+  if (!sc || sc.notOurPermit || sc.excludedFromReady) return null;
+  if (isExcludedRenewAddress(sc.address)) return null;
+
+  const scIssued = String(sc.issuedDate || "").trim().slice(0, 10);
+  const scExpires =
+    String(sc.expiresDate || "").trim().slice(0, 10) ||
+    permitExpiresFromIssued(scIssued);
+
+  const fillFromScenario = (row = {}) => {
+    const issued =
+      String(row.issuedDate || row.gradedDate || scIssued || "").trim().slice(0, 10) ||
+      scIssued;
+    const expires =
+      String(row.expiresDate || "").trim().slice(0, 10) ||
+      scExpires ||
+      permitExpiresFromIssued(issued);
+    const stageTone = expires ? permitRenewStatusTone(expires) : "upcoming";
+    return {
+      ...row,
+      scenarioId: sc.id,
+      scenario: sc,
+      customer: row.customer || sc.displayCustomer,
+      businessName: row.businessName || sc.businessName || "",
+      address: row.address || sc.address,
+      permitNo: String(row.permitNo || sc.permitNo || "").trim(),
+      issuedDate: issued,
+      gradedDate: row.gradedDate || issued,
+      expiresDate: expires,
+      fee: row.fee != null ? row.fee : renewFeeFromScenario(sc),
+      email: row.email || sc.realEmail || "",
+      stageTone: row.stageTone || stageTone,
+      stageLabel: row.stageLabel || permitRenewStageLabel(stageTone),
+    };
+  };
+
+  const job = findRenewJobForScenario(jobs, sc.id);
+  if (job) {
+    const row = apps.find((r) => r.id === job.id);
+    if (row?.pendingSend) {
+      return fillFromScenario({
+        ...row,
+        email: row.email || sc.realEmail || "",
+      });
+    }
+    if (row?.deployUpdate || row?.paid) return null;
+    const pr = job.permitRenew || {};
+    if (pr.noticeSent || pr.emailSentAt) return null;
+  }
+  if (
+    scenarioNoticeAlreadySent(jobs, sc.id, {
+      permitNo: sc.permitNo,
+      address: sc.address,
+    })
+  ) {
+    return null;
+  }
+  return fillFromScenario({
+    id: job?.id || `ready-${sc.id}`,
+    jobId: job?.id || "",
+    status: job?.invoiceNo ? "Pending send" : "Ready",
+    pendingSend: true,
+    paid: false,
+    deployUpdate: false,
+    noticeSent: false,
+    invoiceNo: String(job?.invoiceNo || "").trim(),
+    mock: false,
+    realTest: true,
+    email: String(job?.email || sc.realEmail || "").trim(),
+  });
+}
+
 export function listPendingRenewCards(jobs = []) {
   const apps = listRenewApplications(jobs);
   const cards = [];
-  for (const sc of READY_RENEW_SCENARIOS) {
-    const scIssued = String(sc.issuedDate || "").trim().slice(0, 10);
-    const scExpires =
-      String(sc.expiresDate || "").trim().slice(0, 10) ||
-      permitExpiresFromIssued(scIssued);
-    // Always fill permit # + expiration from ready scenario when job row is thin
-    // (Levi 2026-08-10 — half-empty cards were missing both).
-    const fillFromScenario = (row = {}) => {
-      const issued =
-        String(row.issuedDate || row.gradedDate || scIssued || "").trim().slice(0, 10) ||
-        scIssued;
-      const expires =
-        String(row.expiresDate || "").trim().slice(0, 10) ||
-        scExpires ||
-        permitExpiresFromIssued(issued);
-      const stageTone = expires ? permitRenewStatusTone(expires) : "upcoming";
-      return {
-        ...row,
-        scenarioId: sc.id,
-        scenario: sc,
-        customer: row.customer || sc.displayCustomer,
-        businessName: row.businessName || sc.businessName || "",
-        address: row.address || sc.address,
-        permitNo: String(row.permitNo || sc.permitNo || "").trim(),
-        issuedDate: issued,
-        gradedDate: row.gradedDate || issued,
-        expiresDate: expires,
-        fee: row.fee != null ? row.fee : renewFeeFromScenario(sc),
-        email: row.email || sc.realEmail || "",
-        stageTone: row.stageTone || stageTone,
-        stageLabel: row.stageLabel || permitRenewStageLabel(stageTone),
-      };
-    };
+  const seenKeys = new Set();
 
-    const job = findRenewJobForScenario(jobs, sc.id);
-    if (job) {
-      const row = apps.find((r) => r.id === job.id);
-      if (row?.pendingSend) {
-        cards.push(
-          fillFromScenario({
-            ...row,
-            email: row.email || sc.realEmail || "",
-          })
-        );
-        continue;
-      }
-      // Emailed unpaid or paid/deploy — not in pending box
-      if (row?.deployUpdate || row?.paid) continue;
-      const pr = job.permitRenew || {};
-      if (pr.noticeSent || pr.emailSentAt) continue;
-      // Job exists but not yet in apps (edge) — still pending
-    }
-    // Notice-only send (no invoice job) still drops from pending via local history
-    if (scenarioNoticeAlreadySent(jobs, sc.id)) continue;
-    cards.push(
-      fillFromScenario({
-        id: job?.id || `ready-${sc.id}`,
-        jobId: job?.id || "",
-        status: job?.invoiceNo ? "Pending send" : "Ready",
-        pendingSend: true,
-        paid: false,
-        deployUpdate: false,
-        noticeSent: false,
-        invoiceNo: String(job?.invoiceNo || "").trim(),
-        mock: false,
-        realTest: true,
-        email: String(job?.email || sc.realEmail || "").trim(),
-      })
-    );
+  const pushCard = (card) => {
+    if (!card) return;
+    if (isExcludedRenewAddress(card.address)) return;
+    const key =
+      `${String(card.permitNo || "").trim().toUpperCase()}|` +
+      normalizeRenewAddrKey(card.address);
+    if (seenKeys.has(key) && key !== "|") return;
+    if (key !== "|") seenKeys.add(key);
+    cards.push(card);
+  };
+
+  for (const sc of READY_RENEW_SCENARIOS) {
+    pushCard(cardFromReadyScenario(sc, jobs, apps));
+  }
+  for (const sc of listDriveReadyRenewScenarios()) {
+    pushCard(cardFromReadyScenario(sc, jobs, apps));
   }
   return cards;
 }
@@ -1027,14 +1155,33 @@ export function buildRenewNoticeCtaUrl({
 export function renewScenarioById(scenarioId = "") {
   const want = String(scenarioId || "").trim();
   if (!want) return RENEW_HAMPTON_SCENARIO;
-  return (
-    READY_RENEW_SCENARIOS.find((s) => s.id === want) ||
-    (want === "hampton-yossi" || /hampton/i.test(want)
-      ? RENEW_HAMPTON_SCENARIO
-      : want === "schenectady-hackner" || /schenectady/i.test(want)
-        ? RENEW_HACKNER_SCENARIO
-        : RENEW_HAMPTON_SCENARIO)
-  );
+  const ready = READY_RENEW_SCENARIOS.find((s) => s.id === want);
+  if (ready) return ready;
+  if (want === "hampton-yossi" || /^hampton/i.test(want)) return RENEW_HAMPTON_SCENARIO;
+  // Legacy history only — not in ready list
+  if (want === "schenectady-hackner" || /schenectady/i.test(want)) {
+    return RENEW_HACKNER_SCENARIO;
+  }
+  try {
+    const driveHit = listDriveReadyRenewScenarios().find((s) => s.id === want);
+    if (driveHit) return driveHit;
+    const entry =
+      getPermitCacheEntry({ scenarioId: want }) ||
+      (want.startsWith("drive:")
+        ? getPermitCacheEntry({ permitNo: want.slice(6) })
+        : getPermitCacheEntry({ permitNo: want }));
+    if (entry && !isExcludedRenewAddress(entry.address)) {
+      return scenarioFromCacheEntry(entry, {
+        id: entry.scenarioId || entry.id || want,
+        fee: PERMIT_RENEW_FEE,
+        real: true,
+        realTest: true,
+      });
+    }
+  } catch {
+    /* ignore */
+  }
+  return RENEW_HAMPTON_SCENARIO;
 }
 
 /**

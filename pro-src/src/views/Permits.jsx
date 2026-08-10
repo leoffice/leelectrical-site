@@ -73,7 +73,6 @@ import {
 } from "../lib/permitThreeSurfacePipe.js";
 import {
   RENEW_HAMPTON_SCENARIO,
-  RENEW_HACKNER_SCENARIO,
   READY_RENEW_SCENARIOS,
   assertRenewComposeRecipient,
   buildPermitRenewEmail,
@@ -2500,12 +2499,11 @@ export default function Permits() {
         historyTick={historyTick}
         onSendForRow={(row) => {
           if (!row) return;
+          // Prefer card scenario (Drive cache / ready list); never re-bind 364 Schenectady
           const sc =
             row.scenario ||
             renewScenarioById(row.scenarioId) ||
-            (row.address && /Schenectady/i.test(row.address)
-              ? RENEW_HACKNER_SCENARIO
-              : RENEW_HAMPTON_SCENARIO);
+            RENEW_HAMPTON_SCENARIO;
           void runRenewNotice("email", sc);
         }}
         onResendFromHistory={(h) => {
@@ -2516,11 +2514,7 @@ export default function Permits() {
             address: h.address || RENEW_HAMPTON_SCENARIO.address,
             permitNo: h.permitNo || "",
             displayCustomer: h.customer || RENEW_HAMPTON_SCENARIO.displayCustomer,
-            realEmail:
-              // Prefer on-file customer email, not last one-off To (Levi)
-              (h.scenarioId === "schenectady-hackner"
-                ? RENEW_HACKNER_SCENARIO.realEmail
-                : RENEW_HAMPTON_SCENARIO.realEmail) || "",
+            realEmail: h.to || RENEW_HAMPTON_SCENARIO.realEmail || "",
           };
           void runRenewNotice("email", sc, {
             // On-file only — never pre-fill last custom To

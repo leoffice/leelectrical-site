@@ -37,6 +37,8 @@ import {
   buildRenewNoticeSentPatch,
   materializeRenewInvoicePatch,
   listRenewSendHistory,
+  isRealCityPermitNo,
+  isExcludedRenewAddress,
 } from "../src/lib/permitRenewal.js";
 import {
   ensurePermitCacheSeeded,
@@ -498,8 +500,22 @@ describe("permitRenewal Phase A mock", () => {
     expect(READY_RENEW_SCENARIOS.find((s) => /schenectady/i.test(s.id || ""))).toBeUndefined();
 
     const empty = listPendingRenewCards([]);
-    expect(empty).toHaveLength(1);
-    expect(empty.map((c) => c.scenarioId)).toEqual(["hampton-yossi"]);
+    // Hampton + Drive completed seed (matched + email + permit #)
+    expect(empty.length).toBeGreaterThan(1);
+    expect(empty.some((c) => c.scenarioId === "hampton-yossi")).toBe(true);
+    expect(empty.every((c) => !/364/.test(c.address || "") || !/schenectady/i.test(c.address || ""))).toBe(
+      true
+    );
+    expect(empty.find((c) => c.scenarioId === "schenectady-hackner")).toBeUndefined();
+    // Drive completed-permit rows carry real city permit #s so Send Email works
+    const driveRow = empty.find(
+      (c) =>
+        String(c.scenarioId || "").startsWith("drive:") ||
+        (c.scenarioId !== "hampton-yossi" && isRealCityPermitNo(c.permitNo))
+    );
+    expect(driveRow).toBeTruthy();
+    expect(driveRow.permitNo).toMatch(/^[A-Z]\d/i);
+    expect(driveRow.email).toMatch(/@/);
 
     const open = {
       id: "r-ham",
@@ -535,11 +551,15 @@ describe("permitRenewal Phase A mock", () => {
     const mid = listPendingRenewCards([open]);
     expect(mid.find((c) => c.scenarioId === "hampton-yossi")?.pendingSend).toBe(true);
     expect(mid.find((c) => c.scenarioId === "schenectady-hackner")).toBeUndefined();
+    expect(mid.some((c) => /364/.test(c.address || "") && /schenectady/i.test(c.address || ""))).toBe(
+      false
+    );
 
-    // After email, Hampton drops
+    // After email, Hampton drops; Drive completed permits stay pending
     const after = listPendingRenewCards([sent]);
     expect(after.find((c) => c.scenarioId === "hampton-yossi")).toBeUndefined();
-    expect(after).toHaveLength(0);
+    expect(after.length).toBeGreaterThan(0);
+    expect(after.every((c) => c.scenarioId !== "schenectady-hackner")).toBe(true);
 
     // Paid → update permit box
     const paidBox = listPaidUpdatePermitCards([paid]);
