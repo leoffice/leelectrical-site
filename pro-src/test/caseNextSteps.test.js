@@ -168,7 +168,23 @@ describe("recommendCaseNextSteps — just-opened case (1337)", () => {
   });
 
   it("caseNextActionLabel prefers recommendation summary", () => {
-    expect(caseNextActionLabel(JOB_1337)).toMatch(/Electrical permit/i);
+    // Freeze clock to just after case open so deposit_watch is not yet "due"
+    // (weekAfterSubmit flips after CASE_FOLLOWUP_MS and ranks above permit).
+    const label = caseNextActionLabel(
+      {
+        ...JOB_1337,
+        // recommendCaseNextSteps reads Date.now unless caller freezes via options —
+        // caseNextActionLabel has no now arg; use a job that still needs permit
+        // and has no deposit gate yet (submittedAt = "now" for week check).
+        paperwork: {
+          coned: {
+            ...JOB_1337.paperwork.coned,
+            submittedAt: new Date().toISOString(),
+          },
+        },
+      }
+    );
+    expect(label).toMatch(/Electrical permit/i);
   });
 });
 

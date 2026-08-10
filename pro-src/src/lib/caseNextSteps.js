@@ -761,5 +761,31 @@ export function caseStepCompletePatch(stepId, extra = {}) {
       },
     };
   }
+  // DOB electrical permit skill finished (create / update / pay / issue) — Levi 2026-08-10
+  if (id === "electrical_permit" || id === "file_electrical_permit") {
+    const permitNumber = s(extra.permitNumber || extra.jobNumber);
+    const jobNumber =
+      s(extra.jobNumber) ||
+      (permitNumber ? permitNumber.replace(/-I\d.*$/i, "") : "");
+    return {
+      paperwork: {
+        dob: {
+          enabled: true,
+          currentStage: s(extra.currentStage) || "permit_issued",
+          stageLabel: s(extra.stageLabel) || "Permit Issued",
+          permitNumber: permitNumber || undefined,
+          jobNumber: jobNumber || permitNumber || undefined,
+          electricalPermit: {
+            status: "done",
+            completedAt: now,
+            action: s(extra.action) || "completed",
+            permitNumber: permitNumber || undefined,
+            jobNumber: jobNumber || undefined,
+            ...extra.electricalPermit,
+          },
+        },
+      },
+    };
+  }
   return null;
 }
