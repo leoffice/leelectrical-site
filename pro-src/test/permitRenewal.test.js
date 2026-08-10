@@ -32,6 +32,7 @@ import {
   preparePhaseAMock,
   prepareRenewNotice,
   prepareRenewScenario,
+  canSendRenewNotice,
   buildRenewNoticeCtaUrl,
   buildRenewNoticeSentPatch,
   materializeRenewInvoicePatch,
@@ -599,15 +600,19 @@ describe("permitRenewal Phase A mock", () => {
   it("Hackner real-test seeds 364 Schenectady service address + compose gate", () => {
     expect(REAL_TEST_HACKNER_SCENARIO.displayCustomer).toMatch(/Hackner/i);
     expect(REAL_TEST_HACKNER_SCENARIO.address).toMatch(/364 Schenectady/i);
-    expect(REAL_TEST_HACKNER_SCENARIO.businessName).toMatch(/234 Schenectady LLC/i);
+    expect(REAL_TEST_HACKNER_SCENARIO.businessName).toMatch(/234 Schenectady/i);
     expect(REAL_TEST_HACKNER_SCENARIO.realEmail).toBe("yhackner@gmail.com");
 
     const fields = buildPermitRenewJobFields({
       jobs: [],
       scenario: REAL_TEST_HACKNER_SCENARIO,
     });
-    expect(fields.customer).toMatch(/Yossi Hackner/i);
-    expect(fields.businessName).toMatch(/234 Schenectady LLC/i);
+    // Sub-company is the job customer; parent Hackner is linked for billing
+    expect(fields.customer).toMatch(/234 Schenectady/i);
+    expect(fields.businessName).toMatch(/234 Schenectady/i);
+    expect(fields.personName).toMatch(/Yossi Hackner/i);
+    expect(fields.parentCustomerName).toMatch(/Yossi Hackner/i);
+    expect(fields.parentQboCustomerId).toBe("336");
     expect(fields.serviceAddress).toMatch(/364 Schenectady/i);
     expect(fields.email).toBe("yhackner@gmail.com");
     expect(fields.billingAddress).toMatch(/yhackner@gmail\.com/);
@@ -651,14 +656,17 @@ describe("permitRenewal Phase A mock", () => {
         id: "hack-1",
         ...fields,
         ...meta,
-        openBalance: 365,
+        openBalance: 0,
       },
     ]);
     expect(rows).toHaveLength(1);
-    expect(rows[0].customer).toMatch(/Hackner/i);
-    expect(rows[0].permitNo).toMatch(/234 Schenectady/i);
+    expect(rows[0].customer).toMatch(/Hackner|Schenectady/i);
+    // Real DOB # required for send — empty until cache lookup fills it
+    expect(rows[0].permitNo || "").not.toMatch(/LLC/i);
     expect(rows[0].address).toMatch(/364/);
     expect(rows[0].realTest).toBe(true);
+    expect(canSendRenewNotice(REAL_TEST_HACKNER_SCENARIO).ok).toBe(false);
+    expect(canSendRenewNotice(RENEW_HAMPTON_SCENARIO).ok).toBe(true);
   });
 
   it("notice-only: reserves placeholder, no real invoice until materialize", () => {

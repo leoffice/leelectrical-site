@@ -625,13 +625,20 @@ function NewCustomerForm({ prefill = {}, fromCalendar = false, onClose, onCreate
       showToast("Customer name is required");
       return;
     }
-    const action = resolveAddCustomerAction({
-      baseline,
-      matchedQboId: f.qboCustomerId,
-      formChanged,
-      syncAction,
-    });
-    if (action === "create" && createDisabled) {
+    // Sub-company under a parent always creates a NEW QBO job customer — never
+    // link by shared phone/email to the parent or a "Void …" twin (Levi 2026-08-10).
+    const forceSubCreate =
+      isSubCompany &&
+      !!(String(f.parentQboCustomerId || "").trim() || String(f.parentCustomerName || "").trim());
+    const action = forceSubCreate
+      ? "create"
+      : resolveAddCustomerAction({
+          baseline,
+          matchedQboId: f.qboCustomerId,
+          formChanged,
+          syncAction,
+        });
+    if (action === "create" && createDisabled && !forceSubCreate) {
       showToast("That business name already exists in QuickBooks");
       return;
     }

@@ -1142,6 +1142,9 @@ export function StoreProvider({ children }) {
         apartment: g.apartment || "",
         billingAddress: g.billingAddress || "",
         qboCustomerId: g.qboCustomerId || "",
+        // Sub-company / parent (Levi 2026-08-10 — was dropped so 234 Schenectady LLC under Hackner never stuck)
+        parentCustomerName: g.parentCustomerName || "",
+        parentQboCustomerId: g.parentQboCustomerId || "",
         description: g.description || "",
         estimateNo: g.estimateNo || "",
         invoiceNo: g.invoiceNo || "",

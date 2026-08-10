@@ -80,14 +80,18 @@ import {
   buildPermitRenewPayUrl,
   buildRenewNoticeCtaUrl,
   buildRenewNoticeSentPatch,
+  canSendRenewNotice,
   formatPermitDateMdY,
   isLeviTesterMockRenewJob,
+  isPermitRenewJob,
+  isRealCityPermitNo,
   listPendingRenewCards,
   listPaidUpdatePermitCards,
   materializeRenewInvoicePatch,
   prepareRenewNotice,
   prepareRenewScenario,
   renewFeeFromScenario,
+  renewScenarioById,
 } from "../lib/permitRenewal.js";
 import {
   ensurePermitCacheSeeded,
@@ -165,6 +169,7 @@ function RenewalNotificationsCard({
   phaseABusy,
   onSendForRow,
   onOpenJob,
+  onResendFromHistory,
   historyTick = 0,
 }) {
   const pending = useMemo(() => listPendingRenewCards(jobs), [jobs, historyTick]);
@@ -262,6 +267,8 @@ function RenewalNotificationsCard({
                     ? formatPermitDateMdY(r.issuedDate || r.gradedDate) ||
                       (r.issuedDate || r.gradedDate)
                     : "";
+                const sendGate = canSendRenewNotice(r.scenario || r);
+                const canSend = sendGate.ok;
                 return (
                   <div
                     key={r.id}
@@ -278,9 +285,15 @@ function RenewalNotificationsCard({
                       </div>
                       <div className="text-[12px] font-semibold text-slate-700 truncate">
                         {r.customer || "—"}
+                        {r.businessName && r.businessName !== r.customer ? (
+                          <span className="font-normal text-slate-500">
+                            {" "}
+                            · {r.businessName}
+                          </span>
+                        ) : null}
                       </div>
                       <div className="flex flex-wrap gap-1 mt-1.5">
-                        {r.permitNo ? (
+                        {isRealCityPermitNo(r.permitNo) ? (
                           <span
                             className="inline-flex items-center rounded-full bg-violet-100 text-violet-900 text-[10px] font-bold px-1.5 py-0.5"
                             data-testid="permit-renew-permit-no"
@@ -288,7 +301,12 @@ function RenewalNotificationsCard({
                             {r.permitNo}
                           </span>
                         ) : (
-                          <span className="text-[10px] text-slate-400 font-semibold">No permit #</span>
+                          <span
+                            className="text-[10px] text-amber-800 font-bold bg-amber-50 rounded-full px-1.5 py-0.5"
+                            data-testid="permit-renew-needs-dob"
+                          >
+                            Needs DOB permit #
+                          </span>
                         )}
                         {expLabel ? (
                           <span
@@ -316,12 +334,13 @@ function RenewalNotificationsCard({
                     <div className="px-2.5 pb-2 flex gap-1.5">
                       <button
                         type="button"
-                        className="btn flex-1 bg-violet-700 text-white !py-1.5 text-[11px] font-bold rounded-lg"
-                        disabled={phaseABusy}
+                        className="btn flex-1 bg-violet-700 text-white !py-1.5 text-[11px] font-bold rounded-lg disabled:opacity-50"
+                        disabled={phaseABusy || !canSend}
+                        title={canSend ? "Send renew notice" : sendGate.reason}
                         data-testid="permit-renew-row-send"
                         onClick={() => onSendForRow?.(r)}
                       >
-                        Send Email
+                        {canSend ? "Send Email" : "Need permit #"}
                       </button>
                       <button
                         type="button"
@@ -420,7 +439,7 @@ function RenewalNotificationsCard({
                         {h.customer || "—"}
                         {h.to ? ` · ${h.to}` : ""}
                       </div>
-                      <div className="text-slate-500 mt-0.5 flex flex-wrap gap-x-2">
+                      <div className="text-slate-500 mt-0.5 flex flex-wrap gap-x-2 items-center">
                         <span>{formatSendHistoryWhen(h.at)}</span>
                         {h.placeholderInvoiceNo ? (
                           <span className="font-semibold text-slate-700">
@@ -428,6 +447,15 @@ function RenewalNotificationsCard({
                             {!h.invoiceMaterialized ? " (placeholder)" : ""}
                           </span>
                         ) : null}
+                        <button
+                          type="button"
+                          className="ml-auto text-[11px] font-bold text-violet-800 underline"
+                          disabled={phaseABusy}
+                          data-testid="permit-renew-history-resend"
+                          onClick={() => onResendFromHistory?.(h)}
+                        >
+                          Resend
+                        </button>
                       </div>
                     </li>
                   ))
@@ -1614,10 +1642,22 @@ export default function Permits() {
     }
   }, []);
 
-  const runRenewNotice = async (mode = "email", scenario = RENEW_HAMPTON_SCENARIO) => {
+  const runRenewNotice = async (
+    mode = "email",
+    scenario = RENEW_HAMPTON_SCENARIO,
+    { defaultTo = "", resend = false } = {}
+  ) => {
     if (phaseABusy) return;
-    setPhaseABusy(true);
     const sc = scenario || RENEW_HAMPTON_SCENARIO;
+    // Cache-first: no notice email without a real city permit # (Levi 2026-08-10)
+    if (mode === "email") {
+      const gate = canSendRenewNotice(sc);
+      if (!gate.ok) {
+        showToast(gate.reason || "Need real DOB permit # in the cache first");
+        return;
+      }
+    }
+    setPhaseABusy(true);
     try {
       // Notice email path: notice-only job + placeholder (not a real invoice)
       if (mode === "email") {
@@ -1647,7 +1687,10 @@ export default function Permits() {
           invoiceNo: refNo,
           noticeOnly: true,
         });
-        draft.to = String(sc.realEmail || job?.email || "").trim();
+        // Resend / compose: prefer on-file customer email, not last one-off (Levi)
+        draft.to = String(
+          defaultTo || sc.realEmail || job?.email || ""
+        ).trim();
         setRenewCompose({
           draft,
           payUrl,
@@ -1657,6 +1700,7 @@ export default function Permits() {
           realTest: true,
           noticeOnly: true,
           placeholderInvoiceNo: refNo,
+          resend: !!resend,
         });
         return;
       }
@@ -1760,10 +1804,31 @@ export default function Permits() {
     }
   };
 
-  /** Quietly drop leftover Levi-Tester draft renews (test phase over). */
+  /**
+   * Quietly drop leftover Levi-Tester mocks + phantom $365 renew invoices
+   * that had no real DOB permit # / resurrected after delete (Levi 2026-08-10).
+   */
   useEffect(() => {
     if (!jobs?.length || typeof patchAndSave !== "function") return;
-    const leftovers = (jobs || []).filter((j) => isLeviTesterMockRenewJob(j));
+    const leftovers = (jobs || []).filter((j) => {
+      if (!j || j._deleted || j.paid) return false;
+      if (isLeviTesterMockRenewJob(j)) return true;
+      if (!isPermitRenewJob(j)) return false;
+      const pr = j.permitRenew || j.permitRenewMock || {};
+      const permit = String(pr.permitNo || "").trim();
+      // Fake permit (company name) — never a real books invoice
+      if (permit && !isRealCityPermitNo(permit)) return true;
+      // Notice-only row that incorrectly still has a confirmed open invoice
+      if (
+        (pr.noticeOnly || pr.placeholderInvoiceNo) &&
+        !pr.invoiceMaterialized &&
+        j.invoiceNo &&
+        j._invoiceConfirmed
+      ) {
+        return true;
+      }
+      return false;
+    });
     if (!leftovers.length) return;
     let cancelled = false;
     (async () => {
@@ -2421,11 +2486,31 @@ export default function Permits() {
           if (!row) return;
           const sc =
             row.scenario ||
-            (row.scenarioId === "schenectady-hackner" ||
-            (row.address && /Schenectady/i.test(row.address))
+            renewScenarioById(row.scenarioId) ||
+            (row.address && /Schenectady/i.test(row.address)
               ? RENEW_HACKNER_SCENARIO
               : RENEW_HAMPTON_SCENARIO);
           void runRenewNotice("email", sc);
+        }}
+        onResendFromHistory={(h) => {
+          if (!h) return;
+          const sc = renewScenarioById(h.scenarioId) || {
+            ...RENEW_HAMPTON_SCENARIO,
+            id: h.scenarioId || RENEW_HAMPTON_SCENARIO.id,
+            address: h.address || RENEW_HAMPTON_SCENARIO.address,
+            permitNo: h.permitNo || "",
+            displayCustomer: h.customer || RENEW_HAMPTON_SCENARIO.displayCustomer,
+            realEmail:
+              // Prefer on-file customer email, not last one-off To (Levi)
+              (h.scenarioId === "schenectady-hackner"
+                ? RENEW_HACKNER_SCENARIO.realEmail
+                : RENEW_HAMPTON_SCENARIO.realEmail) || "",
+          };
+          void runRenewNotice("email", sc, {
+            // On-file only — never pre-fill last custom To
+            defaultTo: sc.realEmail || "",
+            resend: true,
+          });
         }}
         onOpenJob={(id) => id && nav(`/job/${id}?doc=invoice&create=1`)}
       />

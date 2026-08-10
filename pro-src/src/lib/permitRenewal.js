@@ -58,16 +58,19 @@ export const PHASE_A_HAMPTON_SCENARIO = RENEW_HAMPTON_SCENARIO;
 
 /**
  * Yossi Hackner · 234 Schenectady LLC · 364 Schenectady Avenue.
- * Seeding the renew job creates the service address on the customer if missing.
+ * Sub-company of Hackner (qbo 336). City permit # must be a real DOB filing
+ * (B#####-L#-EL etc.) — never the LLC name (Levi 2026-08-10).
+ * Open Data had no hit for 364 Schenectady as of ship; fill via DOB lookup before send.
  */
 export const RENEW_HACKNER_SCENARIO = {
   id: "schenectady-hackner",
   displayCustomer: "Yossi Hackner",
   greetingName: "Yossi",
-  businessName: "234 Schenectady LLC",
+  /** Sub-customer under Yossi Hackner (QBO 1610, parent 336) */
+  businessName: "234 Schenectady Avenue LLC",
   address: "364 Schenectady Avenue",
-  /** City filing # unknown until DOB pull — entity label until then. */
-  permitNo: "234 Schenectady LLC",
+  /** Empty until real DOB filing # is in the permit cache / cash file. */
+  permitNo: "",
   issuedDate: "",
   fee: PERMIT_RENEW_FEE,
   realEmail: "yhackner@gmail.com",
@@ -75,8 +78,44 @@ export const RENEW_HACKNER_SCENARIO = {
   matchedCustomer: true,
   real: true,
   realTest: true,
-  qboCustomerId: "336",
+  /** Invoice under the LLC, not the parent person */
+  qboCustomerId: "1610",
+  parentCustomerName: "Yossi Hackner",
+  parentQboCustomerId: "336",
+  /** Block Send Email until a real city permit # is on the cache row */
+  needsDobLookup: true,
 };
+
+/**
+ * Real NYC DOB electrical permit / filing # (not a company name).
+ * e.g. B01126007-L1-EL, M01442411-I1
+ */
+export function isRealCityPermitNo(permitNo = "") {
+  const s = String(permitNo || "").trim().toUpperCase();
+  if (!s || s.length < 6) return false;
+  // Company / address masquerading as permit
+  if (/LLC|INC|CORP|AVENUE|STREET|PLACE|ROAD|HACKNER|BESHARI/i.test(s)) return false;
+  // DOB NOW style: letter + digits + optional -segment
+  return /^[A-Z]\d{5,}(-[A-Z0-9]+)*(-EL)?$/i.test(s.replace(/\s+/g, ""));
+}
+
+/**
+ * May staff send a renew notice for this scenario/cache row?
+ * Requires real permit # (+ address). Issued date preferred but not required if permit known.
+ */
+export function canSendRenewNotice(scenario = {}) {
+  const sc = scenario || {};
+  const address = String(sc.address || "").trim();
+  const permitNo = String(sc.permitNo || "").trim();
+  if (!address) return { ok: false, reason: "Missing service address" };
+  if (!isRealCityPermitNo(permitNo)) {
+    return {
+      ok: false,
+      reason: "Need real city permit # from DOB cache (not company name)",
+    };
+  }
+  return { ok: true, reason: "" };
+}
 
 /** @deprecated use RENEW_HACKNER_SCENARIO */
 export const REAL_TEST_HACKNER_SCENARIO = RENEW_HACKNER_SCENARIO;
@@ -383,8 +422,9 @@ export function buildPermitRenewJobFields({
     serviceAddress: serviceAddr,
   });
   return {
-    customer: person,
-    businessName: biz,
+    // Sub-company LLC as customer when set (e.g. 234 Schenectady LLC under Hackner)
+    customer: biz || person,
+    businessName: biz || person,
     personName: person,
     email,
     phone,
@@ -409,6 +449,13 @@ export function buildPermitRenewJobFields({
     invoiceDate: noticeOnly ? "" : new Date().toISOString().slice(0, 10),
     _invoiceConfirmed: noticeOnly ? false : true,
     ...(sc.qboCustomerId ? { qboCustomerId: String(sc.qboCustomerId) } : {}),
+    // Sub under parent (Yossi Hackner) — createJob must persist these
+    ...(sc.parentCustomerName
+      ? { parentCustomerName: String(sc.parentCustomerName).trim() }
+      : {}),
+    ...(sc.parentQboCustomerId
+      ? { parentQboCustomerId: String(sc.parentQboCustomerId).trim() }
+      : {}),
     // Always carry the reserved # for email + later materialize
     _placeholderInvoiceNo: reserved,
   };
