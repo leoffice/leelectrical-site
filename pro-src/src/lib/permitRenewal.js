@@ -127,7 +127,12 @@ export const REAL_RENEW_SCHENECTADY_SCENARIO = RENEW_HACKNER_SCENARIO;
  * Expand from host permits cache + QBO match later.
  * One scenario = one permit/address = its own invoice when renewed.
  */
-export const READY_RENEW_SCENARIOS = [RENEW_HAMPTON_SCENARIO, RENEW_HACKNER_SCENARIO];
+/**
+ * Ready renew addresses (staff can Send Email once real permit # is known).
+ * Levi 2026-08-10: **remove 364 Schenectady / Hackner** — not our permit.
+ * Future rows come from BLZ Permits/Completed cash-file cache, not hardcodes.
+ */
+export const READY_RENEW_SCENARIOS = [RENEW_HAMPTON_SCENARIO];
 
 /** Seed / refresh the local DOB permit cache from ready scenarios. */
 export function seedReadyPermitCache() {

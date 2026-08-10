@@ -81,7 +81,8 @@ describe("permitCache + notice-only renew", () => {
   });
 
   it("send history + drops pending after notice-only send", () => {
-    expect(listPendingRenewCards([])).toHaveLength(2);
+    // Hampton only in READY_RENEW (Schenectady removed — not our permit)
+    expect(listPendingRenewCards([])).toHaveLength(1);
     appendRenewSendHistory({
       scenarioId: "hampton-yossi",
       address: "40 Hampton Pl",
@@ -93,7 +94,7 @@ describe("permitCache + notice-only renew", () => {
     expect(scenarioNoticeAlreadySent([], "hampton-yossi")).toBe(true);
     const pending = listPendingRenewCards([]);
     expect(pending.find((c) => c.scenarioId === "hampton-yossi")).toBeUndefined();
-    expect(pending.find((c) => c.scenarioId === "schenectady-hackner")).toBeTruthy();
+    expect(pending).toHaveLength(0);
     const hist = listRenewSendHistory([]);
     expect(hist.length).toBeGreaterThanOrEqual(1);
     expect(hist[0].placeholderInvoiceNo).toBe("LE-7777");

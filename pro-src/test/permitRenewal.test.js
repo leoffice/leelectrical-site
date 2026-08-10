@@ -491,17 +491,15 @@ describe("permitRenewal Phase A mock", () => {
     expect(empty.email).toMatch(/yossi6886/);
   });
 
-  it("listPendingRenewCards always shows Hampton + Schenectady until emailed", () => {
-    expect(READY_RENEW_SCENARIOS).toHaveLength(2);
+  it("listPendingRenewCards shows ready scenarios until emailed (no 364 Schenectady)", () => {
+    // Levi 2026-08-10: Hackner/364 removed — not our permit
+    expect(READY_RENEW_SCENARIOS.map((s) => s.id)).toEqual(["hampton-yossi"]);
     expect(RENEW_HAMPTON_SCENARIO.address).toMatch(/Hampton/i);
-    expect(RENEW_HACKNER_SCENARIO.address).toMatch(/Schenectady/i);
+    expect(READY_RENEW_SCENARIOS.find((s) => /schenectady/i.test(s.id || ""))).toBeUndefined();
 
     const empty = listPendingRenewCards([]);
-    expect(empty).toHaveLength(2);
-    expect(empty.map((c) => c.scenarioId).sort()).toEqual([
-      "hampton-yossi",
-      "schenectady-hackner",
-    ]);
+    expect(empty).toHaveLength(1);
+    expect(empty.map((c) => c.scenarioId)).toEqual(["hampton-yossi"]);
 
     const open = {
       id: "r-ham",
@@ -534,15 +532,14 @@ describe("permitRenewal Phase A mock", () => {
       permitRenew: { ...open.permitRenew, noticeSent: true },
     };
 
-    // Open Hampton still pending; Schenectady still ready from cache
     const mid = listPendingRenewCards([open]);
     expect(mid.find((c) => c.scenarioId === "hampton-yossi")?.pendingSend).toBe(true);
-    expect(mid.find((c) => c.scenarioId === "schenectady-hackner")?.pendingSend).toBe(true);
+    expect(mid.find((c) => c.scenarioId === "schenectady-hackner")).toBeUndefined();
 
-    // After email, Hampton drops; Schenectady remains
+    // After email, Hampton drops
     const after = listPendingRenewCards([sent]);
     expect(after.find((c) => c.scenarioId === "hampton-yossi")).toBeUndefined();
-    expect(after.find((c) => c.scenarioId === "schenectady-hackner")).toBeTruthy();
+    expect(after).toHaveLength(0);
 
     // Paid → update permit box
     const paidBox = listPaidUpdatePermitCards([paid]);
