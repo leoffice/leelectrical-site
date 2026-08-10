@@ -1,9 +1,11 @@
 import { describe, expect, it } from "vitest";
 import {
   PHASE_A_HAMPTON_SCENARIO,
+  REAL_TEST_HACKNER_SCENARIO,
   LEVI_TESTER,
   PERMIT_RENEW_FEE,
   assertPhaseARecipient,
+  assertRenewComposeRecipient,
   buildPermitRenewEmail,
   buildPermitRenewInvoiceLines,
   buildPermitRenewJobFields,
@@ -23,6 +25,7 @@ import {
   permitRenewStatusSentence,
   permitRenewStatusTone,
   preparePhaseAMock,
+  prepareRenewScenario,
 } from "../src/lib/permitRenewal.js";
 import {
   isBalanceExemptOffer,
@@ -455,5 +458,64 @@ describe("permitRenewal Phase A mock", () => {
     expect(fresh.reuse).toBe(false);
     expect(fresh.fields.invoiceNo).toMatch(/^LE-/);
     expect(fresh.meta.permitRenew.mock).toBe(true);
+  });
+
+  it("Hackner real-test seeds 364 Schenectady service address + compose gate", () => {
+    expect(REAL_TEST_HACKNER_SCENARIO.displayCustomer).toMatch(/Hackner/i);
+    expect(REAL_TEST_HACKNER_SCENARIO.address).toMatch(/364 Schenectady/i);
+    expect(REAL_TEST_HACKNER_SCENARIO.businessName).toMatch(/234 Schenectady LLC/i);
+    expect(REAL_TEST_HACKNER_SCENARIO.realEmail).toBe("yhackner@gmail.com");
+
+    const fields = buildPermitRenewJobFields({
+      jobs: [],
+      scenario: REAL_TEST_HACKNER_SCENARIO,
+    });
+    expect(fields.customer).toMatch(/Yossi Hackner/i);
+    expect(fields.businessName).toMatch(/234 Schenectady LLC/i);
+    expect(fields.serviceAddress).toMatch(/364 Schenectady/i);
+    expect(fields.email).toBe("yhackner@gmail.com");
+    expect(fields.billingAddress).toBe("");
+
+    const meta = buildPermitRenewMetaPatch(REAL_TEST_HACKNER_SCENARIO);
+    expect(meta.permitRenew.realTest).toBe(true);
+    expect(meta.permitRenew.mock).toBe(false);
+    expect(meta.permitRenew.scenarioId).toBe("schenectady-hackner");
+
+    const draft = buildPermitRenewEmail({
+      scenario: REAL_TEST_HACKNER_SCENARIO,
+      invoiceNo: "LE-2800",
+      payUrl: "https://example.com/pay",
+    });
+    expect(draft.to).toBe("yhackner@gmail.com");
+    expect(draft.subject).toMatch(/364 Schenectady/i);
+    expect(draft.body).toMatch(/Yossi/i);
+
+    expect(assertRenewComposeRecipient("yhackner@gmail.com", { realTest: true }).ok).toBe(
+      true
+    );
+    expect(assertRenewComposeRecipient("yhackner@gmail.com", { realTest: false }).ok).toBe(
+      false
+    );
+    expect(assertRenewComposeRecipient("levikumer@gmail.com", { realTest: true }).ok).toBe(
+      true
+    );
+
+    const prep = prepareRenewScenario({ jobs: [], scenario: REAL_TEST_HACKNER_SCENARIO });
+    expect(prep.reuse).toBe(false);
+    expect(prep.fields.serviceAddress).toMatch(/364/);
+
+    const rows = listRenewApplications([
+      {
+        id: "hack-1",
+        ...fields,
+        ...meta,
+        openBalance: 365,
+      },
+    ]);
+    expect(rows).toHaveLength(1);
+    expect(rows[0].customer).toMatch(/Hackner/i);
+    expect(rows[0].permitNo).toMatch(/234 Schenectady/i);
+    expect(rows[0].address).toMatch(/364/);
+    expect(rows[0].realTest).toBe(true);
   });
 });

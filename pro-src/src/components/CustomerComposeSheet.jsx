@@ -23,6 +23,9 @@ export default function CustomerComposeSheet({
   paymentUrl,
   onClose,
   extraActions,
+  /** Optional custom send (e.g. renew branded email). Return false to keep sheet open. */
+  onSendOverride,
+  hint,
 }) {
   const { enqueue, logSend, showToast } = useStore();
   const isEmail = channel === "email";
@@ -36,6 +39,7 @@ export default function CustomerComposeSheet({
   );
   const [moodOpen, setMoodOpen] = useState(false);
   const [lastMood, setLastMood] = useState(null);
+  const [sending, setSending] = useState(false);
 
   const moodLabel = useMemo(() => EMAIL_MOODS.find((m) => m.key === lastMood)?.label || "", [lastMood]);
 
@@ -54,24 +58,39 @@ export default function CustomerComposeSheet({
     setMoodOpen(false);
   };
 
-  const send = () => {
+  const send = async () => {
     const message = msg.trim();
     if (!message) return showToast("Write a message first");
     if (isEmail) {
       const email = (to || "").trim();
       if (!email) return showToast("Enter an email address");
+      const payload = {
+        email,
+        subject: (subject || "").trim() || defaultEmailSubject(job, context),
+        message,
+        mood: lastMood || "friendly",
+        customer: job?.customer || "",
+        invoiceNo: job?.invoiceNo || "",
+        estimateNo: job?.estimateNo || "",
+        paymentUrl: paymentUrl || "",
+      };
+      if (typeof onSendOverride === "function") {
+        setSending(true);
+        try {
+          const ok = await onSendOverride(payload);
+          if (ok === false) return;
+          onClose();
+        } catch (e) {
+          showToast(String(e?.message || e || "Send failed"));
+        } finally {
+          setSending(false);
+        }
+        return;
+      }
       enqueue(
         "send_customer_email",
         job?.id || "customer",
-        {
-          email,
-          subject: (subject || "").trim() || defaultEmailSubject(job, context),
-          message,
-          mood: lastMood || "friendly",
-          customer: job?.customer || "",
-          invoiceNo: job?.invoiceNo || "",
-          estimateNo: job?.estimateNo || "",
-        },
+        payload,
         "deterministic",
         "cust-email:" + (job?.id || "x") + ":" + todayStr() + ":" + Date.now()
       );
@@ -105,9 +124,10 @@ export default function CustomerComposeSheet({
   return (
     <Sheet title={sheetTitle} onClose={onClose}>
       <p className="text-sm text-slate-500 mb-3">
-        {isEmail
-          ? "Write your message, polish the tone if you want, then send — stays in the app."
-          : "Write your text, polish the tone, then send from here."}
+        {hint ||
+          (isEmail
+            ? "Write your message, polish the tone if you want, then send — stays in the app."
+            : "Write your text, polish the tone, then send from here.")}
       </p>
 
       {isEmail ? (
@@ -191,8 +211,14 @@ export default function CustomerComposeSheet({
         ) : null}
       </div>
 
-      <button type="button" className="btn-brand w-full" onClick={send} data-testid="compose-send-btn">
-        {isEmail ? "✉️ Send email" : "💬 Send text"}
+      <button
+        type="button"
+        className="btn-brand w-full"
+        onClick={send}
+        disabled={sending}
+        data-testid="compose-send-btn"
+      >
+        {sending ? "Sending…" : isEmail ? "✉️ Send email" : "💬 Send text"}
       </button>
 
       {extraActions ? <div className="mt-2 space-y-2">{extraActions}</div> : null}
