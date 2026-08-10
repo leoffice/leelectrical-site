@@ -9,6 +9,7 @@ import {
   buildPermitRenewJobFields,
   buildPermitRenewMailto,
   buildPermitRenewMetaPatch,
+  buildPhaseACtaPayPayload,
   findOpenMockRenewJob,
   isBlockedRenewRecipient,
   isLeviTesterEmail,
@@ -117,22 +118,34 @@ describe("permitRenewal Phase A mock", () => {
     expect(rows.find((r) => r.id === "r1").gradedDate).toBe("2026-02-06");
   });
 
-  it("email has address, permit details, and Update or Renew Permit CTA", () => {
-    const { subject, body, to, ctaLabel } = buildPermitRenewEmail({
-      payUrl: "https://leelectrical.us/app/pro/#/pay/demo",
-      invoiceNo: "LE-2701",
+  it("email has address, permit details, and Renew Permit CTA (no invoice yet)", () => {
+    const { subject, body, to, ctaLabel, ctaUrl } = buildPermitRenewEmail({
+      noticeOnly: true,
     });
     expect(to).toBe(LEVI_TESTER.email);
-    expect(ctaLabel).toBe("Update or Renew Permit");
-    expect(subject).toMatch(/Update or renew|permit/i);
+    expect(ctaLabel).toBe("Renew Permit");
+    expect(ctaLabel).not.toMatch(/View\/Pay|View and Pay/i);
+    expect(ctaUrl).toMatch(/renewCta=phaseA/);
+    expect(subject).toMatch(/Renew|permit/i);
     expect(body).toMatch(/40 Hampton/i);
     expect(body).toMatch(/B01126007/);
     expect(body).toMatch(/\$365\.00|365/);
-    expect(body).toContain("Update or Renew Permit:");
-    expect(body).toContain("https://leelectrical.us/app/pro/#/pay/demo");
-    expect(body).toMatch(/invoice page/i);
-    // Must not address-send to real customer in the draft headers
+    // No plain-text "Update or Renew Permit:" link block; invoice only after CTA
+    expect(body).not.toContain("Update or Renew Permit:");
+    expect(body).not.toMatch(/View\/Pay Invoice/i);
+    expect(body).toMatch(/Press Renew Permit/i);
     expect(body).not.toMatch(/yossi6886@gmail\.com/i);
+  });
+
+  it("Phase A CTA pay payload opens renew invoice on tap (no pre-create)", () => {
+    const p = buildPhaseACtaPayPayload();
+    expect(p.a).toBe(365);
+    expect(p.c).toMatch(/Yosef|Beshari/i);
+    expect(p.sa).toMatch(/Hampton/i);
+    expect(p.k).toBe("i");
+    expect(p.renewCta).toBe("phaseA");
+    expect(p.i).toBeTruthy();
+    expect(Array.isArray(p.lines) && p.lines.length).toBeTruthy();
   });
 
   it("mailto only builds for Levi Tester", () => {

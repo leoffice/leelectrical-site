@@ -76,7 +76,6 @@ import {
   PHASE_A_HAMPTON_SCENARIO,
   PERMIT_RENEW_FEE,
   buildPermitRenewEmail,
-  buildPermitRenewMailto,
   buildPermitRenewPayUrl,
   listRenewApplications,
   preparePhaseAMock,
@@ -156,7 +155,6 @@ function MacRenewPhase1Card({
   phaseABusy,
   onPreview,
   onEmail,
-  onBoth,
   onOpenJob,
 }) {
   const rows = useMemo(() => listRenewApplications(jobs), [jobs]);
@@ -174,41 +172,36 @@ function MacRenewPhase1Card({
           </div>
           <p className="text-[11px] text-violet-800/90 mt-0.5 leading-snug">
             All renewal applications, wants-to-renew notices, and paid renewals live here.
-            Mock: {PHASE_A_HAMPTON_SCENARIO.address} / {PHASE_A_HAMPTON_SCENARIO.displayCustomer}{" "}
-            ({PHASE_A_HAMPTON_SCENARIO.permitNo}) · ${PERMIT_RENEW_FEE} · email only to{" "}
-            {LEVI_TESTER.email} via Resend.
+            Tap a row for issued / expires. Mock: {PHASE_A_HAMPTON_SCENARIO.address} /{" "}
+            {PHASE_A_HAMPTON_SCENARIO.displayCustomer} ({PHASE_A_HAMPTON_SCENARIO.permitNo}) · $
+            {PERMIT_RENEW_FEE} · email only to {LEVI_TESTER.email}.
           </p>
         </div>
       </div>
-      <div className="flex flex-wrap gap-2 mb-2">
+      <div className="grid grid-cols-2 gap-2 mb-2">
         <button
           type="button"
-          className="btn bg-violet-700 text-white !py-2 !px-3 text-xs font-bold"
+          className="btn bg-violet-700 text-white !py-2.5 !px-3 text-xs font-bold shadow-sm"
           disabled={phaseABusy}
           data-testid="permit-renew-mock-preview"
           onClick={onPreview}
         >
-          {phaseABusy ? "Working…" : "Open renew invoice page"}
+          {phaseABusy ? "Working…" : "Open renew invoice"}
         </button>
         <button
           type="button"
-          className="btn bg-white border border-violet-300 text-violet-900 !py-2 !px-3 text-xs font-bold"
+          className="btn bg-white border-2 border-violet-400 text-violet-900 !py-2.5 !px-3 text-xs font-bold shadow-sm"
           disabled={phaseABusy}
           data-testid="permit-renew-mock-email"
           onClick={onEmail}
         >
-          Send mock email to Levi Tester
-        </button>
-        <button
-          type="button"
-          className="btn bg-white border border-violet-300 text-violet-900 !py-2 !px-3 text-xs font-bold"
-          disabled={phaseABusy}
-          data-testid="permit-renew-mock-both"
-          onClick={onBoth}
-        >
-          Invoice page + email
+          Send email
         </button>
       </div>
+      <p className="text-[10px] text-violet-800/90 mb-2 leading-snug rounded-md bg-white/70 border border-violet-100 px-2 py-1.5">
+        <b>Send email</b> = notice only (no invoice yet). Customer taps <b>Renew Permit</b> → invoice
+        + pay page. <b>Open renew invoice</b> = staff only.
+      </p>
       {!rows.length ? (
         <p className="text-[10px] text-violet-700/80 leading-snug">
           No renew applications yet — use the buttons above for the Hampton mock (Levi Tester
@@ -1301,164 +1294,106 @@ export default function Permits() {
     );
   };
 
+  /** Create/reuse Phase A renew invoice (staff Open renew invoice, or customer Renew Permit CTA). */
+  const ensurePhaseAInvoice = async () => {
+    const prep = preparePhaseAMock({ jobs, scenario: PHASE_A_HAMPTON_SCENARIO });
+    let job = prep.job;
+    if (job) {
+      job = jobsById.get(job.id) || job;
+      return { job, fee: prep.fee, created: false };
+    }
+    if (typeof createJob !== "function") {
+      throw new Error("Couldn't create mock invoice — try again");
+    }
+    const id = await createJob(prep.fields);
+    if (!id) throw new Error("Couldn't create mock invoice");
+    if (prep.meta) {
+      await patchAndSave(id, {
+        ...prep.meta,
+        customer: prep.fields.customer,
+        personName: prep.fields.personName,
+        businessName: prep.fields.businessName,
+        serviceAddress: prep.fields.serviceAddress,
+        address: prep.fields.address,
+        billingAddress: prep.fields.billingAddress,
+        invoiceLines: prep.fields.invoiceLines,
+        invoiceNo: prep.fields.invoiceNo,
+        invoiceDate: prep.fields.invoiceDate,
+        _invoiceConfirmed: true,
+        openBalance: prep.fee,
+        amount: prep.fee,
+      });
+    }
+    job = {
+      id,
+      ...prep.fields,
+      ...prep.meta,
+      amount: prep.fields.amount,
+      openBalance: prep.fee,
+      email: LEVI_TESTER.email,
+    };
+    return { job, fee: prep.fee, created: true };
+  };
+
   /**
-   * Phase A mock (Levi 2026-08-10): create $365 renew invoice on Levi Tester,
-   * open regular View & Pay invoice page, send branded Resend email (not mailto).
-   * Never sends to the real Hampton / Yossi address.
+   * Phase A (Levi notes 2026-08-10):
+   * - preview: staff opens/creates renew invoice + pay page
+   * - email: branded notice only — invoice is created when customer taps Renew Permit
    */
   const runPhaseAMock = async (mode = "preview") => {
     if (phaseABusy) return;
     setPhaseABusy(true);
     try {
-      const prep = preparePhaseAMock({ jobs, scenario: PHASE_A_HAMPTON_SCENARIO });
-      let job = prep.job;
-      if (!job) {
-        if (typeof createJob !== "function") {
-          showToast("Couldn't create mock invoice — try again");
-          return;
-        }
-        // LE-#### invoice # + person name + service address stamped on create
-        const id = await createJob(prep.fields);
-        if (!id) {
-          showToast("Couldn't create mock invoice");
-          return;
-        }
-        if (prep.meta) {
-          await patchAndSave(id, {
-            ...prep.meta,
-            customer: prep.fields.customer,
-            personName: prep.fields.personName,
-            businessName: prep.fields.businessName,
-            serviceAddress: prep.fields.serviceAddress,
-            address: prep.fields.address,
-            billingAddress: prep.fields.billingAddress,
-            invoiceLines: prep.fields.invoiceLines,
-            invoiceNo: prep.fields.invoiceNo,
-            invoiceDate: prep.fields.invoiceDate,
-            _invoiceConfirmed: true,
-            openBalance: prep.fee,
-            amount: prep.fee,
-          });
-        }
-        job = {
-          id,
-          ...prep.fields,
-          ...prep.meta,
-          amount: prep.fields.amount,
-          openBalance: prep.fee,
-          email: LEVI_TESTER.email,
-        };
-      } else {
-        // Refresh live job from store so invoiceNo / person / service stay correct
-        job = jobsById.get(job.id) || job;
-        const svc =
-          job.serviceAddress ||
-          job.address ||
-          job.permitRenew?.address ||
-          PHASE_A_HAMPTON_SCENARIO.address;
-        const person =
-          job.permitRenew?.displayCustomer ||
-          job.customer ||
-          PHASE_A_HAMPTON_SCENARIO.displayCustomer;
-        if (!job.serviceAddress || !job.invoiceNo || job.customer === LEVI_TESTER.customer) {
-          const heal = {
-            serviceAddress: svc,
-            address: svc,
-            billingAddress: person,
-            customer: person,
-            personName: person,
-            businessName: person,
+      if (mode === "email") {
+        const draft = buildPermitRenewEmail({
+          scenario: PHASE_A_HAMPTON_SCENARIO,
+          fee: PERMIT_RENEW_FEE,
+          noticeOnly: true,
+        });
+        const base =
+          typeof window !== "undefined" && window.location?.origin
+            ? window.location.origin
+            : "https://leelectrical.us";
+        const res = await fetch(`${base}/.netlify/functions/customer-email`, {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({
             email: LEVI_TESTER.email,
-          };
-          if (job.invoiceNo) heal.invoiceNo = job.invoiceNo;
-          await patchAndSave(job.id, heal);
-          job = { ...job, ...heal };
+            to: LEVI_TESTER.email,
+            subject: draft.subject,
+            message: draft.body,
+            ctaLabel: "Renew Permit",
+            ctaUrl: draft.ctaUrl,
+          }),
+        }).then((r) => r.json().catch(() => ({})));
+        if (res?.ok || res?.sent || res?.dryRun) {
+          showToast(
+            res?.dryRun
+              ? `Dry-run OK — would email ${LEVI_TESTER.email} with Renew Permit CTA`
+              : `Email sent to ${LEVI_TESTER.email} — Renew Permit creates the invoice (not before)`
+          );
+        } else {
+          showToast(String(res?.error || res?.reason || "Email send failed"));
         }
+        return;
       }
+
+      const { job, fee, created } = await ensurePhaseAInvoice();
       let payUrl = "";
       try {
-        payUrl = await buildPermitRenewPayUrl(job, { fee: prep.fee });
+        payUrl = await buildPermitRenewPayUrl(job, { fee });
       } catch (e) {
         showToast(String(e?.message || "Couldn't build pay link"));
         return;
       }
-      if (mode === "preview" || mode === "both") {
-        if (typeof window !== "undefined" && payUrl) {
-          window.open(payUrl, "_blank", "noopener,noreferrer");
-        }
+      if (typeof window !== "undefined" && payUrl) {
+        window.open(payUrl, "_blank", "noopener,noreferrer");
       }
-      if (mode === "email" || mode === "both") {
-        const draft = buildPermitRenewEmail({
-          scenario: PHASE_A_HAMPTON_SCENARIO,
-          fee: prep.fee,
-          payUrl,
-          invoiceNo: job.invoiceNo,
-        });
-        // Branded Resend path (standard invoice banner + PDF) — never real Yossi
-        const sendApi = api?.sendDocEmailNow ? api : null;
-        if (sendApi) {
-          const person =
-            job.permitRenew?.displayCustomer ||
-            job.customer ||
-            PHASE_A_HAMPTON_SCENARIO.displayCustomer;
-          const svc =
-            job.serviceAddress ||
-            job.address ||
-            job.permitRenew?.address ||
-            PHASE_A_HAMPTON_SCENARIO.address;
-          const res = await sendApi.sendDocEmailNow(
-            {
-              ...job,
-              email: LEVI_TESTER.email,
-              customer: person,
-              personName: person,
-              businessName: person,
-              serviceAddress: svc,
-              address: svc,
-              billingAddress: person,
-              invoiceNo: job.invoiceNo,
-              invoiceLines: job.invoiceLines,
-              permitRenew: job.permitRenew || { mock: true, phase: "A" },
-            },
-            "invoice",
-            {
-              email: LEVI_TESTER.email,
-              includePaymentLink: true,
-              payUrl,
-              subject: draft.subject,
-              message: draft.body,
-            }
-          );
-          if (res?.ok || res?.sent) {
-            showToast(
-              `Mock renew emailed to ${LEVI_TESTER.email} via Resend (branded) — not the real customer`
-            );
-          } else {
-            showToast(
-              String(res?.error || res?.reason || "Email send failed — check Resend / try again")
-            );
-          }
-        } else {
-          // Fallback mailto if adapter missing
-          const mail = buildPermitRenewMailto({
-            to: draft.to,
-            subject: draft.subject,
-            body: draft.body,
-          });
-          if (!mail.ok) {
-            showToast(mail.error || "Mock email blocked");
-            return;
-          }
-          if (typeof window !== "undefined") window.location.href = mail.href;
-          showToast("Mock renew email opened (mailto fallback) — Levi Tester only");
-        }
-      } else {
-        showToast(
-          prep.reuse
-            ? "Opened renew invoice pay page (mock · Levi Tester)"
-            : "Created $365 renew invoice — pay page opened (mock · Levi Tester)"
-        );
-      }
+      showToast(
+        created
+          ? `Invoice #${job.invoiceNo || "—"} created · pay page opened`
+          : `Opened invoice #${job.invoiceNo || "—"} pay page`
+      );
     } catch (e) {
       showToast(String(e?.message || e || "Mock renew failed"));
     } finally {
@@ -2138,7 +2073,6 @@ export default function Permits() {
         phaseABusy={phaseABusy}
         onPreview={() => runPhaseAMock("preview")}
         onEmail={() => runPhaseAMock("email")}
-        onBoth={() => runPhaseAMock("both")}
         onOpenJob={(id) => id && nav(`/job/${id}?doc=invoice&create=1`)}
       />
 

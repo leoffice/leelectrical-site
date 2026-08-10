@@ -12,6 +12,8 @@ import { checkForAppUpdate, watchServiceWorkerUpdates, watchForegroundUpdates } 
 import { DEMO } from "./lib/demoMode.js";
 import { installDemoBackend } from "./demo/demoBackend.js";
 import { installKeepFocusedVisible } from "./lib/keepFocusedVisible.js";
+import { buildPhaseACtaPayPayload } from "./lib/permitRenewal.js";
+import { encodePayLanding } from "./lib/payLanding.js";
 
 // DEMO / white-label TEST TENANT: intercept every backend call and serve a
 // synthetic, isolated store BEFORE any provider mounts or any fetch fires.
@@ -62,6 +64,29 @@ function bootstrapPayQueryToHash() {
   }
 }
 bootstrapPayQueryToHash();
+
+/**
+ * Email "Renew Permit" CTA — public, no staff lock.
+ * Builds the renew invoice pay landing only when the customer taps the button
+ * (invoice is not generated when staff sends the notice email).
+ */
+function bootstrapRenewCtaQueryToPay() {
+  if (typeof window === "undefined") return;
+  try {
+    const u = new URL(window.location.href);
+    if (String(u.searchParams.get("renewCta") || "").trim() !== "phaseA") return;
+    const payload = buildPhaseACtaPayPayload();
+    const token = encodePayLanding(payload);
+    if (!token) return;
+    u.searchParams.delete("renewCta");
+    const qs = u.searchParams.toString();
+    const base = `${u.pathname}${qs ? `?${qs}` : ""}`;
+    window.location.replace(`${base}#/pay/${token}`);
+  } catch {
+    /* ignore */
+  }
+}
+bootstrapRenewCtaQueryToPay();
 
 /** Public customer pay page — no biometric/password gate. */
 function PayOrApp() {

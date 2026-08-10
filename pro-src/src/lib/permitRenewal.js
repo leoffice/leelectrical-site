@@ -352,7 +352,80 @@ export function listRenewApplications(jobs = []) {
 }
 
 /**
- * Customer-style email: address + permit details + CTA "Update or Renew Permit".
+ * Public entry for the email "Renew Permit" button.
+ * Query survives redirects; main.jsx bootstraps it to a public pay landing
+ * (no staff login) and marks that the invoice is generated on that tap.
+ */
+export const PHASE_A_RENEW_CTA_URL =
+  "https://leelectrical.us/app/pro/?renewCta=phaseA";
+
+/**
+ * Pay-landing payload for Phase A CTA — customer sees the renew invoice when
+ * they press Renew Permit. Does not require a saved job (generated on tap).
+ */
+export function buildPhaseACtaPayPayload({
+  scenario = PHASE_A_HAMPTON_SCENARIO,
+  fee,
+  invoiceNo = "",
+  siteSlug = "blzelectric",
+} = {}) {
+  const sc = scenario || PHASE_A_HAMPTON_SCENARIO;
+  const amount = fee != null ? parseAmount(fee) || PERMIT_RENEW_FEE : renewFeeFromScenario(sc);
+  const inv =
+    String(invoiceNo || "").trim() ||
+    `LE-RENEW-${String(sc.permitNo || "mock").replace(/[^A-Za-z0-9]/g, "").slice(0, 10)}`;
+  const person = String(sc.displayCustomer || "").trim() || "Customer";
+  const addr = String(sc.address || "").trim();
+  const feeStr = amount.toLocaleString("en-US", {
+    style: "currency",
+    currency: "USD",
+    minimumFractionDigits: 2,
+  });
+  return {
+    j: "",
+    i: inv,
+    a: amount,
+    fe: 1,
+    c: person,
+    w:
+      `City electrical permit renewal for ${addr}` +
+      (sc.permitNo ? ` (permit ${sc.permitNo})` : "") +
+      `. Renew fee ${feeStr}.`,
+    t: feeStr,
+    d: feeStr,
+    p: "",
+    ps: [],
+    e: LEVI_TESTER.email,
+    ph: "",
+    sa: addr,
+    ba: person,
+    z: "",
+    sl: siteSlug,
+    pay: "",
+    as: new Date().toISOString().slice(0, 10),
+    k: "i",
+    lines: [
+      {
+        itemName: "City electrical permit renewal",
+        description:
+          `Renew / update city electrical permit for ${addr}` +
+          (sc.permitNo ? ` (permit ${sc.permitNo})` : "") +
+          ". Includes filing coordination for a new application year.",
+        qty: 1,
+        unitPrice: amount,
+      },
+    ],
+    // Marker so PayLanding / staff can recognize a renew-generated invoice
+    renewCta: "phaseA",
+    renewScenarioId: sc.id || "hampton-yossi",
+  };
+}
+
+/**
+ * Customer-style notice email (Phase A).
+ * - Does NOT assume an invoice exists yet.
+ * - Single CTA label: "Renew Permit" (not View/Pay Invoice).
+ * - No extra plain-text "Update or Renew Permit" link block in the body.
  * Greeting uses display name (Yossi); send-to is always Levi Tester.
  */
 export function buildPermitRenewEmail({
@@ -360,6 +433,8 @@ export function buildPermitRenewEmail({
   fee,
   payUrl = "",
   invoiceNo = "",
+  /** When true (default for notice): invoice is created only after CTA click. */
+  noticeOnly = true,
 } = {}) {
   const sc = scenario || PHASE_A_HAMPTON_SCENARIO;
   const amount = fee != null ? parseAmount(fee) || PERMIT_RENEW_FEE : renewFeeFromScenario(sc);
@@ -370,9 +445,7 @@ export function buildPermitRenewEmail({
   });
   const inv = String(invoiceNo || "").trim();
   const company = brand();
-  const subject = inv
-    ? `Update or renew your city permit — invoice #${inv} — ${company}`
-    : `Update or renew your city permit — ${sc.address} — ${company}`;
+  const subject = `Renew your city electrical permit — ${sc.address} — ${company}`;
 
   const lines = [
     `Hi ${sc.greetingName || sc.displayCustomer || "there"},`,
@@ -384,14 +457,13 @@ export function buildPermitRenewEmail({
     sc.issuedDate ? `  Issued: ${sc.issuedDate}` : null,
     `  Renew fee: ${feeStr}`,
     "",
-    "Your permit year is coming up. You can update or renew through us — we handle the city filing after payment.",
+    "Your permit year is coming up. You can renew through us — we handle the city filing after payment.",
     "",
-    inv ? `Invoice #${inv} is ready to view and pay online.` : "Your renew invoice is ready to view and pay online.",
-    "",
-    "Update or Renew Permit:",
-    payUrl || "(payment link)",
-    "",
-    "That link opens your invoice page — pay there when you're ready.",
+    noticeOnly && !inv
+      ? "Press Renew Permit below to open your renew application. Your invoice is created when you press that button — not before."
+      : inv
+        ? `Invoice #${inv} is ready. Press Renew Permit below to open it and pay.`
+        : "Press Renew Permit below to continue.",
     "",
     "Questions? Reply to this email or call us anytime.",
     "",
@@ -404,7 +476,9 @@ export function buildPermitRenewEmail({
     subject,
     body: lines.join("\n"),
     to: LEVI_TESTER.email,
-    ctaLabel: "Update or Renew Permit",
+    /** Primary button label — never "View/Pay Invoice" for this flow. */
+    ctaLabel: "Renew Permit",
+    ctaUrl: String(payUrl || PHASE_A_RENEW_CTA_URL).trim() || PHASE_A_RENEW_CTA_URL,
     fee: amount,
   };
 }

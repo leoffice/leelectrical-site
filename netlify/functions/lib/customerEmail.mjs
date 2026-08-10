@@ -27,13 +27,31 @@ const COMPANY = COMPANY_INFO?.name || DEFAULT_BRAND_NAME || "BLZ Electric Inc.";
  * Branded shell for a plain-text customer email: tenant logo + name on top,
  * constant "Powered by LE" at the bottom. Body copy is untouched.
  */
-export function buildCustomerEmailHtml(text, tenant = {}, signer = {}) {
+export function buildCustomerEmailHtml(text, tenant = {}, signer = {}, cta = null) {
   const body = String(text || "")
     .replace(/&/g, "&amp;")
     .replace(/</g, "&lt;")
     .replace(/>/g, "&gt;")
     .split("\n")
     .join("<br>\n");
+  let ctaHtml = "";
+  const label = String(cta?.label || "").trim();
+  const href = String(cta?.url || "").trim();
+  if (label && href) {
+    const safeHref = href
+      .replace(/&/g, "&amp;")
+      .replace(/"/g, "&quot;")
+      .replace(/</g, "&lt;");
+    const safeLabel = label
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;");
+    ctaHtml =
+      `<div style="margin:24px 0 8px;text-align:center;">` +
+      `<a href="${safeHref}" style="display:inline-block;background:#066a34;color:#ffffff;` +
+      `font-family:Arial,Helvetica,sans-serif;font-size:16px;font-weight:bold;` +
+      `text-decoration:none;padding:14px 28px;border-radius:8px;">${safeLabel}</a></div>`;
+  }
   // Standard branded shell: letterhead header + body + Gmail-style signature + Powered-by.
   // Tenant name defaults to BLZ Electric Inc. (account company), not "LE Electrical".
   const brand = resolveEmailBrand({
@@ -41,13 +59,21 @@ export function buildCustomerEmailHtml(text, tenant = {}, signer = {}) {
     ...tenant,
   });
   return buildBrandedEmailHtml({
-    bodyHtml: body,
+    bodyHtml: body + ctaHtml,
     tenant: { name: brand.name, logoSrc: brand.logoSrc },
     signer,
   });
 }
 
-export async function sendCustomerEmail({ to, subject, message, customerEmail, companyName }) {
+export async function sendCustomerEmail({
+  to,
+  subject,
+  message,
+  customerEmail,
+  companyName,
+  ctaLabel,
+  ctaUrl,
+}) {
   const intended = String(customerEmail || to || "").trim();
   const recipient = resolveRecipient(intended || to);
   const testMode = isEmailTestMode();
@@ -77,7 +103,12 @@ export async function sendCustomerEmail({ to, subject, message, customerEmail, c
     return { ok: true, dryRun: true, reason: "no_api_key", ...meta };
   }
 
-  const html = buildCustomerEmailHtml(text, { name: company });
+  const html = buildCustomerEmailHtml(
+    text,
+    { name: company },
+    {},
+    ctaLabel && ctaUrl ? { label: ctaLabel, url: ctaUrl } : null
+  );
 
   // Levi 2026-08-03: always keep an office copy of outbound customer mail
   // so Gmail can file it under LE Pro labels (Messages / Case / etc.).

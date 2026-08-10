@@ -23,6 +23,8 @@ export default async (req) => {
     subject: body.subject,
     message: body.message,
     customerEmail: email,
+    ctaLabel: body.ctaLabel || body.cta_label || "",
+    ctaUrl: body.ctaUrl || body.cta_url || body.ctaHref || "",
   });
   return json(result, result.ok ? 200 : 502);
 };
