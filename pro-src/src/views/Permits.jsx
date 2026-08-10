@@ -74,15 +74,25 @@ import {
 import {
   RENEW_HAMPTON_SCENARIO,
   RENEW_HACKNER_SCENARIO,
+  READY_RENEW_SCENARIOS,
   assertRenewComposeRecipient,
   buildPermitRenewEmail,
   buildPermitRenewPayUrl,
+  buildRenewNoticeCtaUrl,
   formatPermitDateMdY,
   isLeviTesterMockRenewJob,
   listPendingRenewCards,
   listPaidUpdatePermitCards,
   prepareRenewScenario,
+  renewFeeFromScenario,
 } from "../lib/permitRenewal.js";
+import {
+  appendRenewSendHistory,
+  ensurePermitCacheSeeded,
+  formatSendHistoryWhen,
+  listRenewSendHistory,
+  reservePlaceholderInvoiceNo,
+} from "../lib/permitCache.js";
 /** Health/bucket → pill tone, mirroring the JobDetail Con Ed chip. */
 function stageTone(row) {
   if (row.health === "blocked-by-us") return "bg-red-100 text-red-800";
@@ -149,11 +159,22 @@ function CollapsibleSection({
  * Previous card design restored + tightened: address, name, permit #, exp always visible.
  * Expand is pure state toggle (snappy — no network on open).
  */
-function RenewalNotificationsCard({ jobs, phaseABusy, onSendForRow, onOpenJob }) {
-  const pending = useMemo(() => listPendingRenewCards(jobs), [jobs]);
+function RenewalNotificationsCard({
+  jobs,
+  phaseABusy,
+  onSendForRow,
+  onOpenJob,
+  historyTick = 0,
+}) {
+  const pending = useMemo(() => listPendingRenewCards(jobs), [jobs, historyTick]);
   const paidDeploy = useMemo(() => listPaidUpdatePermitCards(jobs), [jobs]);
+  const sendHistory = useMemo(
+    () => listRenewSendHistory(jobs),
+    [jobs, historyTick]
+  );
   // Open by default — no extra tap / lag to see permit # + exp (Levi 2026-08-10).
   const [sectionOpen, setSectionOpen] = useState(true);
+  const [historyOpen, setHistoryOpen] = useState(false);
   const [expandedId, setExpandedId] = useState("");
 
   return (
@@ -341,6 +362,76 @@ function RenewalNotificationsCard({ jobs, phaseABusy, onSendForRow, onOpenJob })
                 );
               })
             )}
+          </div>
+
+          {/* Send history — every notice send, last + prior (Levi 2026-08-10) */}
+          <div
+            className="border-t border-violet-100 mx-0"
+            data-testid="permit-renew-send-history"
+          >
+            <button
+              type="button"
+              className="w-full px-3 py-2 flex items-center justify-between gap-2 text-left"
+              onClick={() => setHistoryOpen((o) => !o)}
+              aria-expanded={historyOpen}
+              data-testid="permit-renew-history-toggle"
+            >
+              <span className="text-[11px] font-extrabold text-slate-700 uppercase tracking-wide">
+                Send history
+              </span>
+              <span className="flex items-center gap-1.5">
+                <span className="text-[11px] font-bold text-violet-800">
+                  {sendHistory.length}
+                </span>
+                <span
+                  className={`text-violet-400 text-sm leading-none ${
+                    historyOpen ? "rotate-90" : ""
+                  }`}
+                >
+                  ›
+                </span>
+              </span>
+            </button>
+            {historyOpen ? (
+              <ul className="px-2.5 pb-2.5 space-y-1.5 max-h-48 overflow-y-auto">
+                {!sendHistory.length ? (
+                  <li className="text-[11px] text-slate-500 text-center py-2">
+                    No notices sent yet
+                  </li>
+                ) : (
+                  sendHistory.map((h) => (
+                    <li
+                      key={h.id}
+                      className="rounded-lg border border-slate-100 bg-slate-50/80 px-2 py-1.5 text-[11px]"
+                      data-testid="permit-renew-history-row"
+                    >
+                      <div className="font-bold text-slate-900 truncate">
+                        {h.address || "—"}
+                        {h.permitNo ? (
+                          <span className="font-semibold text-violet-800">
+                            {" "}
+                            · {h.permitNo}
+                          </span>
+                        ) : null}
+                      </div>
+                      <div className="text-slate-600 truncate">
+                        {h.customer || "—"}
+                        {h.to ? ` · ${h.to}` : ""}
+                      </div>
+                      <div className="text-slate-500 mt-0.5 flex flex-wrap gap-x-2">
+                        <span>{formatSendHistoryWhen(h.at)}</span>
+                        {h.placeholderInvoiceNo ? (
+                          <span className="font-semibold text-slate-700">
+                            Ref {h.placeholderInvoiceNo}
+                            {!h.invoiceMaterialized ? " (placeholder)" : ""}
+                          </span>
+                        ) : null}
+                      </div>
+                    </li>
+                  ))
+                )}
+              </ul>
+            ) : null}
           </div>
         </div>
       ) : null}
@@ -1463,37 +1554,74 @@ export default function Permits() {
   };
 
   /**
-   * Renew notifications:
-   * - email: create invoice + pay link, open compose (edit To + body, then send)
-   * Unpaid renew invoices stay on file but do not count as balance due.
+   * Renew notifications (Levi 2026-08-10):
+   * - email: reserve placeholder invoice # only — NO real invoice job.
+   *   CTA opens pay page and generates invoice when customer taps Renew.
+   * - pay: materialize real invoice (staff preview) via ensureRenewInvoice.
    */
+  const [historyTick, setHistoryTick] = useState(0);
+
+  useEffect(() => {
+    try {
+      ensurePermitCacheSeeded(READY_RENEW_SCENARIOS);
+    } catch {
+      /* ignore */
+    }
+  }, []);
+
   const runRenewNotice = async (mode = "email", scenario = RENEW_HAMPTON_SCENARIO) => {
     if (phaseABusy) return;
     setPhaseABusy(true);
     const sc = scenario || RENEW_HAMPTON_SCENARIO;
     try {
-      const { job, fee, created } = await ensureRenewInvoice(sc);
-      let payUrl = "";
-      try {
-        payUrl = await buildPermitRenewPayUrl(job, { fee });
-      } catch (e) {
-        showToast(String(e?.message || "Couldn't build pay link"));
-        return;
-      }
+      const fee = renewFeeFromScenario(sc);
 
+      // Notice email path: placeholder only — never createJob / real invoice
       if (mode === "email") {
+        const placeholderNo = reservePlaceholderInvoiceNo(jobs, {
+          scenarioId: sc.id,
+          permitNo: sc.permitNo,
+          address: sc.address,
+        });
+        const origin =
+          typeof window !== "undefined" && window.location?.origin
+            ? window.location.origin
+            : "https://leelectrical.us";
+        const payUrl = buildRenewNoticeCtaUrl({
+          scenarioId: sc.id,
+          invoiceNo: placeholderNo,
+          origin,
+        });
         const draft = buildPermitRenewEmail({
           scenario: sc,
           fee,
           payUrl,
-          invoiceNo: job.invoiceNo || "",
-          noticeOnly: false,
+          invoiceNo: placeholderNo,
+          noticeOnly: true,
         });
-        draft.to = String(sc.realEmail || job.email || "").trim();
-        setRenewCompose({ draft, payUrl, job, created, scenario: sc, realTest: true });
+        draft.to = String(sc.realEmail || "").trim();
+        setRenewCompose({
+          draft,
+          payUrl,
+          job: null,
+          created: false,
+          scenario: sc,
+          realTest: true,
+          noticeOnly: true,
+          placeholderInvoiceNo: placeholderNo,
+        });
         return;
       }
 
+      // Staff "open pay page" — materialize real invoice
+      const { job, fee: invFee, created } = await ensureRenewInvoice(sc);
+      let payUrl = "";
+      try {
+        payUrl = await buildPermitRenewPayUrl(job, { fee: invFee });
+      } catch (e) {
+        showToast(String(e?.message || "Couldn't build pay link"));
+        return;
+      }
       if (typeof window !== "undefined" && payUrl) {
         window.open(payUrl, "_blank", "noopener,noreferrer");
       }
@@ -1520,7 +1648,15 @@ export default function Permits() {
     const to = gate.email;
     setPhaseABusy(true);
     try {
-      const { draft, payUrl, job, created } = renewCompose;
+      const {
+        draft,
+        payUrl,
+        job,
+        created,
+        scenario: sc,
+        noticeOnly,
+        placeholderInvoiceNo,
+      } = renewCompose;
       const bodyChanged =
         String(message || "").trim() !== String(draft.body || "").trim();
       const base =
@@ -1542,24 +1678,56 @@ export default function Permits() {
         }),
       }).then((r) => r.json().catch(() => ({})));
       if (res?.ok || res?.sent || res?.dryRun) {
-        // After send: leave pending-send list until full pay
+        const sentAt = new Date().toISOString();
+        const refNo =
+          placeholderInvoiceNo ||
+          (noticeOnly ? "" : job?.invoiceNo || "") ||
+          "";
+        // Local + job history (every send)
+        appendRenewSendHistory({
+          at: sentAt,
+          to,
+          subject: subject || draft.subject || "",
+          scenarioId: sc?.id || "",
+          address: sc?.address || job?.serviceAddress || job?.address || "",
+          customer: sc?.displayCustomer || job?.customer || "",
+          permitNo: sc?.permitNo || "",
+          placeholderInvoiceNo: refNo,
+          jobId: job?.id || "",
+          invoiceMaterialized: !noticeOnly && !!job?.invoiceNo,
+        });
         if (job?.id) {
           const pr = job.permitRenew || {};
+          const hist = Array.isArray(pr.sendHistory) ? pr.sendHistory : [];
           await patchAndSave(job.id, {
             permitRenew: {
               ...pr,
               noticeSent: true,
-              noticeSentAt: new Date().toISOString(),
-              emailSentAt: new Date().toISOString(),
+              noticeSentAt: sentAt,
+              emailSentAt: sentAt,
               noticeTo: to,
+              placeholderInvoiceNo: refNo || pr.placeholderInvoiceNo || "",
+              invoiceMaterialized: !noticeOnly,
+              sendHistory: [
+                {
+                  id: `send-${Date.now()}`,
+                  at: sentAt,
+                  to,
+                  subject: subject || draft.subject || "",
+                  placeholderInvoiceNo: refNo,
+                },
+                ...hist,
+              ].slice(0, 50),
             },
           });
         }
+        setHistoryTick((n) => n + 1);
         showToast(
           res?.dryRun
-            ? `Queued — invoice #${job?.invoiceNo || "—"} to ${to}`
-            : `Email sent to ${to} · invoice #${job?.invoiceNo || "—"}` +
-                (created ? " (new)" : "")
+            ? `Queued — notice to ${to}` + (refNo ? ` · ref ${refNo}` : "")
+            : `Email sent to ${to}` +
+                (refNo ? ` · ref ${refNo}` : "") +
+                (noticeOnly ? " (invoice opens when they tap Renew)" : created ? " (new inv)" : "")
         );
         setRenewCompose(null);
       } else {
@@ -2228,6 +2396,7 @@ export default function Permits() {
       <RenewalNotificationsCard
         jobs={jobs}
         phaseABusy={phaseABusy}
+        historyTick={historyTick}
         onSendForRow={(row) => {
           if (!row) return;
           const sc =

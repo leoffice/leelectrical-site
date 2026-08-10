@@ -1,5 +1,5 @@
 // Permit renew — real Renewal Notifications (Levi 2026-08-10).
-// Ready addresses → Send Email (compose To + body) → pay full amount → update permit.
+// Ready addresses → Send Email (placeholder inv only) → customer Renew → real invoice.
 // Auto schedule OFF. Phase B (pay → file DOB) is intentionally NOT here.
 
 import { nextDocNumberFromJobs } from "./nextDocNumber.js";
@@ -8,6 +8,28 @@ import { parseAmount } from "./format.js";
 import { activeTenantConfig } from "./tenantBranding.js";
 import { buildPayLandingUrl, buildShortPayLandingUrl } from "./payLanding.js";
 import { buildContactBillingAddress } from "./docBillTo.js";
+import { loadLocalRenewSendHistory } from "./permitCache.js";
+import {
+  ensurePermitCacheSeeded,
+  reservePlaceholderInvoiceNo,
+  markPlaceholderMaterialized,
+  appendRenewSendHistory,
+  listRenewSendHistory,
+  formatSendHistoryWhen,
+  getPermitCacheEntry,
+  scenarioFromCacheEntry,
+  toPermitCacheEntry,
+} from "./permitCache.js";
+
+export {
+  listRenewSendHistory,
+  formatSendHistoryWhen,
+  ensurePermitCacheSeeded,
+  markPlaceholderMaterialized,
+  getPermitCacheEntry,
+  scenarioFromCacheEntry,
+  toPermitCacheEntry,
+};
 
 /** Default city electrical permit renew fee (editable before send later). */
 export const PERMIT_RENEW_FEE = 365;
@@ -64,8 +86,14 @@ export const REAL_RENEW_SCHENECTADY_SCENARIO = RENEW_HACKNER_SCENARIO;
 /**
  * Ready renew addresses (cache). Matched customers only for now.
  * Expand from host permits cache + QBO match later.
+ * One scenario = one permit/address = its own invoice when renewed.
  */
 export const READY_RENEW_SCENARIOS = [RENEW_HAMPTON_SCENARIO, RENEW_HACKNER_SCENARIO];
+
+/** Seed / refresh the local DOB permit cache from ready scenarios. */
+export function seedReadyPermitCache() {
+  return ensurePermitCacheSeeded(READY_RENEW_SCENARIOS);
+}
 
 /** Safe mock recipient — only this customer for Phase A sends. */
 export const LEVI_TESTER = {
@@ -242,22 +270,31 @@ export function isPermitRenewJob(job) {
 
 /**
  * Open (unpaid) renew invoice still on the board — reuse instead of spam.
+ * Notice-only jobs (placeholder reserved, not yet materialized) also match
+ * so we don't create a second row for the same permit/address.
  * @param {object[]} jobs
- * @param {{ scenarioId?: string }} [opts] when set, only reuse matching scenario
+ * @param {{ scenarioId?: string, allowNoticeOnly?: boolean }} [opts]
  */
 export function findOpenMockRenewJob(jobs, opts = {}) {
   const wantScenario = String(opts?.scenarioId || "").trim();
+  const allowNoticeOnly = opts?.allowNoticeOnly !== false;
   const list = Array.isArray(jobs) ? jobs : [];
   for (const j of list) {
     if (!isPermitRenewJob(j)) continue;
-    if (!String(j.invoiceNo || "").trim()) continue;
     if (j.paid) continue;
-    const due =
-      j.openBalance != null && j.openBalance !== ""
-        ? parseAmount(j.openBalance)
-        : parseAmount(j.amount);
-    if (due <= 0.01) continue;
     const pr = j.permitRenew || j.permitRenewMock || {};
+    const noticeOnly = !!(pr.noticeOnly || (pr.placeholderInvoiceNo && !pr.invoiceMaterialized));
+    const hasInv = !!String(j.invoiceNo || "").trim();
+    const hasPlaceholder = !!String(pr.placeholderInvoiceNo || "").trim();
+    // Real open invoice OR notice-only with reserved placeholder
+    if (!hasInv && !(allowNoticeOnly && (noticeOnly || hasPlaceholder))) continue;
+    if (hasInv && !noticeOnly) {
+      const due =
+        j.openBalance != null && j.openBalance !== ""
+          ? parseAmount(j.openBalance)
+          : parseAmount(j.amount);
+      if (due <= 0.01) continue;
+    }
     if (wantScenario) {
       const sid = String(pr.scenarioId || "").trim();
       // Legacy Phase A mocks without scenarioId count as hampton-yossi
@@ -270,7 +307,8 @@ export function findOpenMockRenewJob(jobs, opts = {}) {
       isLeviTesterCustomer(j.businessName) ||
       isLeviTesterEmail(j.email) ||
       pr.mock ||
-      pr.realTest
+      pr.realTest ||
+      pr.noticeOnly
     ) {
       return j;
     }
@@ -292,18 +330,31 @@ export function permitExpiresFromIssued(issuedDate) {
 }
 
 /**
- * Fields for createJob — bill-to shows the real person's name (Hampton mock),
- * service address is the permit site, email stays Levi Tester only.
- * Invoice # is a normal LE-#### (not a local id / random token).
+ * Fields for createJob — bill-to shows the real person's name,
+ * service address is the permit site.
+ *
+ * @param {{ noticeOnly?: boolean, placeholderInvoiceNo?: string }} [opts]
+ * noticeOnly: reserve a placeholder # for the email but do NOT generate a real
+ * invoice (no invoiceNo / _invoiceConfirmed) until the customer taps Renew.
  */
 export function buildPermitRenewJobFields({
   jobs = [],
   scenario = PHASE_A_HAMPTON_SCENARIO,
   fee,
+  noticeOnly = false,
+  placeholderInvoiceNo = "",
 } = {}) {
   const sc = scenario || PHASE_A_HAMPTON_SCENARIO;
   const amount = fee != null ? parseAmount(fee) || PERMIT_RENEW_FEE : renewFeeFromScenario(sc);
-  const invoiceNo = nextDocNumberFromJobs(jobs, "invoice");
+  const reserved =
+    String(placeholderInvoiceNo || "").trim() ||
+    (noticeOnly
+      ? reservePlaceholderInvoiceNo(jobs, {
+          scenarioId: sc.id,
+          permitNo: sc.permitNo,
+          address: sc.address,
+        })
+      : nextDocNumberFromJobs(jobs, "invoice"));
   const lines = buildPermitRenewInvoiceLines({
     fee: amount,
     address: sc.address,
@@ -349,12 +400,15 @@ export function buildPermitRenewJobFields({
     address: serviceAddr,
     serviceAddress: serviceAddr,
     billingAddress,
-    amount,
-    invoiceNo,
-    invoiceLines: lines,
-    invoiceDate: new Date().toISOString().slice(0, 10),
-    _invoiceConfirmed: true,
+    amount: noticeOnly ? 0 : amount,
+    // Notice-only: no real invoice # on the job until customer taps Renew
+    invoiceNo: noticeOnly ? "" : reserved,
+    invoiceLines: noticeOnly ? [] : lines,
+    invoiceDate: noticeOnly ? "" : new Date().toISOString().slice(0, 10),
+    _invoiceConfirmed: noticeOnly ? false : true,
     ...(sc.qboCustomerId ? { qboCustomerId: String(sc.qboCustomerId) } : {}),
+    // Always carry the reserved # for email + later materialize
+    _placeholderInvoiceNo: reserved,
   };
 }
 
@@ -522,8 +576,13 @@ function escHtml(s) {
     .replace(/"/g, "&quot;");
 }
 
-/** Patch applied after createJob so renew metadata survives. */
-export function buildPermitRenewMetaPatch(scenario = PHASE_A_HAMPTON_SCENARIO, fee) {
+/**
+ * Patch applied after createJob so renew metadata survives.
+ * @param {object} [scenario]
+ * @param {number} [fee]
+ * @param {{ noticeOnly?: boolean, placeholderInvoiceNo?: string }} [opts]
+ */
+export function buildPermitRenewMetaPatch(scenario = PHASE_A_HAMPTON_SCENARIO, fee, opts = {}) {
   const sc = scenario || PHASE_A_HAMPTON_SCENARIO;
   const amount = fee != null ? parseAmount(fee) || PERMIT_RENEW_FEE : renewFeeFromScenario(sc);
   const issued = String(sc.issuedDate || "").trim().slice(0, 10);
@@ -531,9 +590,12 @@ export function buildPermitRenewMetaPatch(scenario = PHASE_A_HAMPTON_SCENARIO, f
     ? permitExpiresFromIssued(issued)
     : String(sc.expiresDate || "").trim().slice(0, 10);
   const isReal = !!sc.realTest;
+  const noticeOnly = !!opts.noticeOnly;
+  const placeholder = String(opts.placeholderInvoiceNo || "").trim();
   return {
-    openBalance: amount,
-    _invoiceConfirmed: true,
+    // Notice-only: nothing owed until customer taps Renew and we materialize
+    openBalance: noticeOnly ? 0 : amount,
+    _invoiceConfirmed: noticeOnly ? false : true,
     email: isReal
       ? String(sc.realEmail || "").trim() || LEVI_TESTER.email
       : LEVI_TESTER.email,
@@ -558,6 +620,10 @@ export function buildPermitRenewMetaPatch(scenario = PHASE_A_HAMPTON_SCENARIO, f
       excludeFromBalanceDue: true,
       // Levi 2026-08-10: real path = one amount only (no partials on pay page)
       fullPayOnly: true,
+      // Notice path: email may show a reserved #; real invoice only on Renew tap
+      noticeOnly,
+      invoiceMaterialized: noticeOnly ? false : true,
+      placeholderInvoiceNo: placeholder,
       scenarioId: sc.id || "hampton-yossi",
       displayCustomer: sc.displayCustomer,
       businessName: sc.businessName || "",
@@ -570,6 +636,7 @@ export function buildPermitRenewMetaPatch(scenario = PHASE_A_HAMPTON_SCENARIO, f
       createdAt: new Date().toISOString(),
       autoEmail: false,
       noticeSent: false,
+      sendHistory: [],
     },
     paperwork: {
       dob: {
@@ -644,8 +711,15 @@ export function listRenewApplications(jobs = [], { includeMock = false } = {}) {
       pr.nextStep || (paid && (phaseA || realTest) ? "update_permit" : "")
     ).trim();
     const noticeSent = !!(pr.noticeSent || pr.emailSentAt || pr.noticeSentAt);
+    const noticeOnly = !!(pr.noticeOnly || (pr.placeholderInvoiceNo && !pr.invoiceMaterialized));
+    const invoiceMaterialized = !!(pr.invoiceMaterialized || (j.invoiceNo && !noticeOnly));
+    const placeholderInvoiceNo = String(
+      pr.placeholderInvoiceNo || (!invoiceMaterialized ? j.invoiceNo : "") || ""
+    ).trim();
     let status = "Pending send";
     if (paid) status = nextStep === "update_permit" ? "Paid — update permit" : "Paid";
+    else if (noticeSent && !invoiceMaterialized)
+      status = "Notice sent · invoice on Renew";
     else if (noticeSent) status = "Notice sent · awaiting pay";
     else if (j.invoiceNo) status = "Pending send";
     else if (realTest) status = "Pending send";
@@ -663,6 +737,7 @@ export function listRenewApplications(jobs = [], { includeMock = false } = {}) {
     const deployUpdate = paid && nextStep === "update_permit";
     // Hide emailed-but-unpaid from both boxes (only returns when paid)
     if (!pendingSend && !deployUpdate && !paid) return;
+    const sendHistory = Array.isArray(pr.sendHistory) ? pr.sendHistory : [];
     rows.push({
       id: j.id,
       jobId: j.id,
@@ -672,7 +747,8 @@ export function listRenewApplications(jobs = [], { includeMock = false } = {}) {
       customer,
       businessName: businessName && businessName !== customer ? businessName : "",
       permitNo: String(pr.permitNo || pr.filing || extra.permitNo || "").trim(),
-      invoiceNo: String(j.invoiceNo || "").trim(),
+      invoiceNo: invoiceMaterialized ? String(j.invoiceNo || "").trim() : "",
+      placeholderInvoiceNo,
       fee: pr.fee != null ? parseAmount(pr.fee) : parseAmount(j.amount) || PERMIT_RENEW_FEE,
       issuedDate: issued,
       gradedDate: graded,
@@ -691,6 +767,10 @@ export function listRenewApplications(jobs = [], { includeMock = false } = {}) {
       realTest,
       email: String(j.email || pr.realEmail || "").trim(),
       noticeSent,
+      noticeOnly,
+      invoiceMaterialized,
+      sendHistory,
+      lastSentAt: pr.emailSentAt || pr.noticeSentAt || sendHistory[0]?.at || "",
       pendingSend,
       /** Paid renews go to Deploy queue for permit update (Levi 2026-08-10). */
       deployUpdate,
@@ -761,6 +841,23 @@ export function findRenewJobForScenario(jobs = [], scenarioId = "") {
  * Always surfaces ready matched-customer addresses from the permit cache
  * until notice is sent; after full pay they move to the update-permit box.
  */
+/** True if a notice email was already sent for this scenario (job or local history). */
+export function scenarioNoticeAlreadySent(jobs = [], scenarioId = "") {
+  const want = String(scenarioId || "").trim();
+  if (!want) return false;
+  const job = findRenewJobForScenario(jobs, want);
+  if (job) {
+    const pr = job.permitRenew || job.permitRenewMock || {};
+    if (pr.noticeSent || pr.emailSentAt || pr.noticeSentAt) return true;
+  }
+  try {
+    const hist = loadLocalRenewSendHistory();
+    return hist.some((h) => String(h.scenarioId || "").trim() === want);
+  } catch {
+    return false;
+  }
+}
+
 export function listPendingRenewCards(jobs = []) {
   const apps = listRenewApplications(jobs);
   const cards = [];
@@ -816,6 +913,8 @@ export function listPendingRenewCards(jobs = []) {
       if (pr.noticeSent || pr.emailSentAt) continue;
       // Job exists but not yet in apps (edge) — still pending
     }
+    // Notice-only send (no invoice job) still drops from pending via local history
+    if (scenarioNoticeAlreadySent(jobs, sc.id)) continue;
     cards.push(
       fillFromScenario({
         id: job?.id || `ready-${sc.id}`,
@@ -851,6 +950,40 @@ export const PHASE_A_RENEW_CTA_URL =
   "https://leelectrical.us/app/pro/?renewCta=phaseA";
 
 /**
+ * Staff notice email CTA — invoice is NOT created until the customer taps
+ * Renew Permit (Levi 2026-08-10). Placeholder inv is reserved only.
+ * @param {{ scenarioId?: string, invoiceNo?: string, origin?: string }} opts
+ */
+export function buildRenewNoticeCtaUrl({
+  scenarioId = "",
+  invoiceNo = "",
+  origin = "https://leelectrical.us",
+} = {}) {
+  const base = String(origin || "https://leelectrical.us").replace(/\/$/, "");
+  const u = new URL(`${base}/app/pro/`);
+  u.searchParams.set("renewCta", "phaseA");
+  const sid = String(scenarioId || "").trim();
+  const inv = String(invoiceNo || "").trim();
+  if (sid) u.searchParams.set("scenario", sid);
+  if (inv) u.searchParams.set("inv", inv);
+  return u.toString();
+}
+
+/** Resolve ready scenario by id (CTA query / history). */
+export function renewScenarioById(scenarioId = "") {
+  const want = String(scenarioId || "").trim();
+  if (!want) return RENEW_HAMPTON_SCENARIO;
+  return (
+    READY_RENEW_SCENARIOS.find((s) => s.id === want) ||
+    (want === "hampton-yossi" || /hampton/i.test(want)
+      ? RENEW_HAMPTON_SCENARIO
+      : want === "schenectady-hackner" || /schenectady/i.test(want)
+        ? RENEW_HACKNER_SCENARIO
+        : RENEW_HAMPTON_SCENARIO)
+  );
+}
+
+/**
  * Pay-landing payload for Phase A CTA — customer sees the renew invoice when
  * they press Renew Permit. Does not require a saved job (generated on tap).
  */
@@ -862,9 +995,17 @@ export function buildPhaseACtaPayPayload({
 } = {}) {
   const sc = scenario || PHASE_A_HAMPTON_SCENARIO;
   const amount = fee != null ? parseAmount(fee) || PERMIT_RENEW_FEE : renewFeeFromScenario(sc);
+  // Use reserved placeholder from the notice email when present
   const inv =
     String(invoiceNo || "").trim() ||
     `LE-RENEW-${String(sc.permitNo || "mock").replace(/[^A-Za-z0-9]/g, "").slice(0, 10)}`;
+  if (String(invoiceNo || "").trim()) {
+    try {
+      markPlaceholderMaterialized(invoiceNo);
+    } catch {
+      /* ignore */
+    }
+  }
   const person = String(sc.displayCustomer || "").trim() || "Customer";
   const addr = String(sc.address || "").trim();
   const isReal = !!(sc.realTest || sc.real);
@@ -915,7 +1056,18 @@ export function buildPhaseACtaPayPayload({
     // Marker so PayLanding / staff can recognize a renew-generated invoice
     renewCta: "phaseA",
     renewScenarioId: sc.id || "hampton-yossi",
-    permitRenew: { cta: true, fullPayOnly: true, phase: isReal ? "real" : "A" },
+    /** Show "Loading invoice" briefly on public pay (customer just tapped Renew). */
+    renewLoading: true,
+    permitRenew: {
+      cta: true,
+      fullPayOnly: true,
+      phase: isReal ? "real" : "A",
+      invoiceMaterialized: true,
+      placeholderInvoiceNo: inv,
+      scenarioId: sc.id || "hampton-yossi",
+      permitNo: sc.permitNo,
+      address: addr,
+    },
     // One amount only — pay page shows invoice total (Levi 2026-08-10)
     fo: 1,
     fullPayOnly: true,
@@ -937,7 +1089,10 @@ export function buildPermitRenewEmail({
   fee,
   payUrl = "",
   invoiceNo = "",
-  /** @deprecated Prefer creating invoice on send; kept for callers. */
+  /**
+   * Notice email only — placeholder invoice # may be shown, but no real
+   * invoice job was created (materializes when customer taps Renew).
+   */
   noticeOnly = false,
   /** Override "today" for tests (YYYY-MM-DD). */
   todayIso = "",
@@ -1018,12 +1173,18 @@ export function buildPermitRenewEmail({
 
   const payBlock = isAbandoned
     ? inv
-      ? `Invoice ${invLabel} is ready if you want us to start the new filing — click ${ctaLabel} below and we'll take it from there.`
+      ? noticeOnly
+        ? `Reference ${invLabel} is reserved for you — click ${ctaLabel} below when you're ready and we'll open the invoice then.`
+        : `Invoice ${invLabel} is ready if you want us to start the new filing — click ${ctaLabel} below and we'll take it from there.`
       : `Click ${ctaLabel} below and we'll help you file a brand-new permit application.`
     : inv
-      ? pastExpire
-        ? `Invoice ${invLabel} is ready — click Renew Permit below to pay, and we'll handle the city filing for you. To stay safely ahead of the abandoned deadline (${abandonedUs || "12 months after expire"}), please renew by ${renewByUs || "soon"}.`
-        : `Invoice ${invLabel} is ready — click Renew Permit below to pay, and we'll handle the city filing for you. Please renew by ${renewByUs || expiresUs} to keep everything current.`
+      ? noticeOnly
+        ? pastExpire
+          ? `Reference ${invLabel} is reserved — click Renew Permit below when you're ready to pay (invoice opens then), and we'll handle the city filing. To stay ahead of the abandoned deadline (${abandonedUs || "12 months after expire"}), please renew by ${renewByUs || "soon"}.`
+          : `Reference ${invLabel} is reserved — click Renew Permit below when you're ready to pay (invoice opens then), and we'll handle the city filing. Please renew by ${renewByUs || expiresUs} to keep everything current.`
+        : pastExpire
+          ? `Invoice ${invLabel} is ready — click Renew Permit below to pay, and we'll handle the city filing for you. To stay safely ahead of the abandoned deadline (${abandonedUs || "12 months after expire"}), please renew by ${renewByUs || "soon"}.`
+          : `Invoice ${invLabel} is ready — click Renew Permit below to pay, and we'll handle the city filing for you. Please renew by ${renewByUs || expiresUs} to keep everything current.`
       : "Click Renew Permit below to open the payment page, and we'll handle the city filing for you.";
 
   // Light HTML emphasis on key facts (addresses/dates/fees already bold in table rows)
@@ -1072,18 +1233,30 @@ export function buildPermitRenewEmail({
         : `If a permit lapses and stays unrenewed for <strong>12 months</strong>, the city marks it <strong>&quot;abandoned,&quot;</strong> and reinstating it means filing a brand-new permit — which typically costs <strong>$2,300 plus filing fees</strong>. Renewing now avoids that entirely.`;
   const payBlockHtml = isAbandoned
     ? inv
-      ? `Invoice <strong>${escHtml(invLabel)}</strong> is ready if you want us to start the new filing — click <strong>${escHtml(
-          ctaLabel
-        )}</strong> below and we&rsquo;ll take it from there.`
+      ? noticeOnly
+        ? `Reference <strong>${escHtml(invLabel)}</strong> is reserved for you — click <strong>${escHtml(
+            ctaLabel
+          )}</strong> below when you&rsquo;re ready and we&rsquo;ll open the invoice then.`
+        : `Invoice <strong>${escHtml(invLabel)}</strong> is ready if you want us to start the new filing — click <strong>${escHtml(
+            ctaLabel
+          )}</strong> below and we&rsquo;ll take it from there.`
       : `Click <strong>${escHtml(ctaLabel)}</strong> below and we&rsquo;ll help you file a brand-new permit application.`
     : inv
-      ? pastExpire
-        ? `Invoice <strong>${escHtml(invLabel)}</strong> is ready — click <strong>Renew Permit</strong> below to pay, and we&rsquo;ll handle the city filing for you. To stay safely ahead of the abandoned deadline (${escHtml(
-            abandonedUs || "12 months after expire"
-          )}), please renew by <strong>${escHtml(renewByUs || "soon")}</strong>.`
-        : `Invoice <strong>${escHtml(invLabel)}</strong> is ready — click <strong>Renew Permit</strong> below to pay, and we&rsquo;ll handle the city filing for you. Please renew by <strong>${escHtml(
-            renewByUs || expiresUs
-          )}</strong> to keep everything current.`
+      ? noticeOnly
+        ? pastExpire
+          ? `Reference <strong>${escHtml(invLabel)}</strong> is reserved — click <strong>Renew Permit</strong> below when you&rsquo;re ready to pay (invoice opens then), and we&rsquo;ll handle the city filing. To stay ahead of the abandoned deadline (${escHtml(
+              abandonedUs || "12 months after expire"
+            )}), please renew by <strong>${escHtml(renewByUs || "soon")}</strong>.`
+          : `Reference <strong>${escHtml(invLabel)}</strong> is reserved — click <strong>Renew Permit</strong> below when you&rsquo;re ready to pay (invoice opens then), and we&rsquo;ll handle the city filing. Please renew by <strong>${escHtml(
+              renewByUs || expiresUs
+            )}</strong> to keep everything current.`
+        : pastExpire
+          ? `Invoice <strong>${escHtml(invLabel)}</strong> is ready — click <strong>Renew Permit</strong> below to pay, and we&rsquo;ll handle the city filing for you. To stay safely ahead of the abandoned deadline (${escHtml(
+              abandonedUs || "12 months after expire"
+            )}), please renew by <strong>${escHtml(renewByUs || "soon")}</strong>.`
+          : `Invoice <strong>${escHtml(invLabel)}</strong> is ready — click <strong>Renew Permit</strong> below to pay, and we&rsquo;ll handle the city filing for you. Please renew by <strong>${escHtml(
+              renewByUs || expiresUs
+            )}</strong> to keep everything current.`
       : `Click <strong>Renew Permit</strong> below to open the payment page, and we&rsquo;ll handle the city filing for you.`;
 
   const lines = [
@@ -1096,7 +1269,7 @@ export function buildPermitRenewEmail({
     issuedUs ? `${issuedLabel}: ${issuedUs}` : null,
     expiresUs ? `${expLabel}: ${expiresUs}` : null,
     `Renewal fee: ${feeStr}`,
-    invLabel ? `Invoice: ${invLabel}` : null,
+    invLabel ? (noticeOnly ? `Reference: ${invLabel}` : `Invoice: ${invLabel}`) : null,
     "",
     statusLine,
     "",
@@ -1141,24 +1314,28 @@ export function buildPermitRenewEmail({
     (issuedUs ? row(issuedLabel, issuedUs) : "") +
     (expiresUs ? row(expLabel, expiresUs) : "") +
     row("Renewal fee", feeStr) +
-    (invLabel ? row("Invoice", invLabel) : "") +
+    (invLabel ? row(noticeOnly ? "Reference" : "Invoice", invLabel) : "") +
     `</table>` +
     `<p style="margin:0 0 12px;font-family:Arial,Helvetica,sans-serif;font-size:15px;line-height:1.55;color:#0f172a">${statusLineHtml}</p>` +
     `<p style="margin:0 0 12px;font-family:Arial,Helvetica,sans-serif;font-size:15px;line-height:1.55;color:#0f172a">${abandonBlockHtml}</p>` +
     `<p style="margin:0 0 12px;font-family:Arial,Helvetica,sans-serif;font-size:15px;line-height:1.55;color:#0f172a">${payBlockHtml}</p>` +
     `<p style="margin:0 0 4px;font-family:Arial,Helvetica,sans-serif;font-size:15px;line-height:1.55;color:#0f172a">Questions? Just reply to this email or call us anytime.</p>`;
 
-  void noticeOnly;
   const defaultTo = sc.realTest
     ? String(sc.realEmail || "").trim() || LEVI_TESTER.email
     : LEVI_TESTER.email;
+  // Default CTA: renew notice link (invoice materializes on tap)
+  const defaultCta = buildRenewNoticeCtaUrl({
+    scenarioId: sc.id || "hampton-yossi",
+    invoiceNo: inv,
+  });
   return {
     subject,
     body: lines.join("\n"),
     htmlBody,
     to: defaultTo,
     ctaLabel,
-    ctaUrl: String(payUrl || PHASE_A_RENEW_CTA_URL).trim() || PHASE_A_RENEW_CTA_URL,
+    ctaUrl: String(payUrl || defaultCta || PHASE_A_RENEW_CTA_URL).trim() || PHASE_A_RENEW_CTA_URL,
     fee: amount,
     tone,
     stageLabel: permitRenewStageLabel(tone),
@@ -1166,6 +1343,8 @@ export function buildPermitRenewEmail({
     abandonedDate: abandonedIso,
     renewByDate: renewByIso,
     realTest: !!sc.realTest,
+    noticeOnly: !!noticeOnly,
+    placeholderInvoiceNo: inv,
   };
 }
 
@@ -1215,33 +1394,194 @@ export async function buildPermitRenewPayUrl(job, { fee, siteSlug = "blzelectric
 /**
  * Orchestrate Phase A: ensure mock invoice job fields are ready.
  * Caller creates/patches the job via store; this only builds pure data.
+ * Prefer prepareRenewNotice for staff email (no real invoice until Renew).
  */
-export function preparePhaseAMock({ jobs, scenario = PHASE_A_HAMPTON_SCENARIO, fee } = {}) {
+export function preparePhaseAMock({
+  jobs,
+  scenario = PHASE_A_HAMPTON_SCENARIO,
+  fee,
+  noticeOnly = false,
+} = {}) {
   const sc = scenario || PHASE_A_HAMPTON_SCENARIO;
-  const existing = findOpenMockRenewJob(jobs, { scenarioId: sc.id });
+  try {
+    ensurePermitCacheSeeded(READY_RENEW_SCENARIOS);
+  } catch {
+    /* ignore */
+  }
+  const existing = findOpenMockRenewJob(jobs, {
+    scenarioId: sc.id,
+    allowNoticeOnly: true,
+  });
   if (existing) {
+    const pr = existing.permitRenew || {};
+    const placeholder = String(
+      pr.placeholderInvoiceNo || existing.invoiceNo || ""
+    ).trim();
+    const amt =
+      pr.fee != null
+        ? parseAmount(pr.fee)
+        : parseAmount(existing.amount) || renewFeeFromScenario(sc);
     return {
       reuse: true,
       job: existing,
       fields: null,
       meta: null,
-      fee: parseAmount(existing.amount) || renewFeeFromScenario(sc),
+      fee: amt,
       scenario: sc,
+      noticeOnly: !!(pr.noticeOnly || !pr.invoiceMaterialized),
+      placeholderInvoiceNo: placeholder,
     };
   }
-  const fields = buildPermitRenewJobFields({ jobs, scenario: sc, fee });
-  const meta = buildPermitRenewMetaPatch(sc, fields.amount);
-  return { reuse: false, job: null, fields, meta, fee: fields.amount, scenario: sc };
+  const fields = buildPermitRenewJobFields({
+    jobs,
+    scenario: sc,
+    fee,
+    noticeOnly,
+  });
+  const amount =
+    fee != null ? parseAmount(fee) || PERMIT_RENEW_FEE : renewFeeFromScenario(sc);
+  const placeholder = String(fields._placeholderInvoiceNo || fields.invoiceNo || "").trim();
+  const meta = buildPermitRenewMetaPatch(sc, amount, {
+    noticeOnly,
+    placeholderInvoiceNo: placeholder,
+  });
+  const { _placeholderInvoiceNo, ...cleanFields } = fields;
+  void _placeholderInvoiceNo;
+  return {
+    reuse: false,
+    job: null,
+    fields: cleanFields,
+    meta,
+    fee: amount,
+    scenario: sc,
+    noticeOnly: !!noticeOnly,
+    placeholderInvoiceNo: placeholder,
+  };
+}
+
+/**
+ * Staff "Send Email" path — reserve placeholder, no real invoice.
+ * Pure data — caller createJob / patchAndSave.
+ */
+export function prepareRenewNotice({ jobs, scenario, fee } = {}) {
+  return preparePhaseAMock({
+    jobs,
+    scenario: scenario || RENEW_HAMPTON_SCENARIO,
+    fee,
+    noticeOnly: true,
+  });
 }
 
 /**
  * Ensure a renew notice row exists for a scenario (creates service address via job).
  * Pure data — caller createJob / patchAndSave.
+ * Defaults to notice-only (Levi 2026-08-10 — invoice only on Renew tap).
  */
-export function prepareRenewScenario({ jobs, scenario, fee } = {}) {
+export function prepareRenewScenario({ jobs, scenario, fee, noticeOnly = true } = {}) {
   return preparePhaseAMock({
     jobs,
     scenario: scenario || RENEW_HACKNER_SCENARIO,
     fee,
+    noticeOnly,
   });
+}
+
+/**
+ * Patch that turns a notice-only row into a real open invoice
+ * (customer tapped Renew, or staff force-materialize).
+ */
+export function materializeRenewInvoicePatch(job, { fee } = {}) {
+  const pr = (job && job.permitRenew) || {};
+  const sc = renewScenarioById(pr.scenarioId || "hampton-yossi");
+  const amount =
+    fee != null
+      ? parseAmount(fee) || PERMIT_RENEW_FEE
+      : pr.fee != null
+        ? parseAmount(pr.fee) || PERMIT_RENEW_FEE
+        : renewFeeFromScenario(sc);
+  const inv = String(
+    pr.placeholderInvoiceNo || job?.invoiceNo || ""
+  ).trim();
+  if (inv) {
+    try {
+      markPlaceholderMaterialized(inv);
+    } catch {
+      /* ignore */
+    }
+  }
+  const lines = buildPermitRenewInvoiceLines({
+    fee: amount,
+    address: pr.address || sc.address || job?.serviceAddress || job?.address,
+    permitNo: pr.permitNo || sc.permitNo,
+  });
+  return {
+    invoiceNo: inv,
+    amount,
+    openBalance: amount,
+    invoiceLines: lines,
+    invoiceDate: new Date().toISOString().slice(0, 10),
+    _invoiceConfirmed: true,
+    excludeFromBalanceDue: true,
+    permitRenew: {
+      ...pr,
+      noticeOnly: false,
+      invoiceMaterialized: true,
+      provisional: true,
+      excludeFromBalanceDue: true,
+      fullPayOnly: true,
+      placeholderInvoiceNo: inv,
+      fee: amount,
+      materializedAt: new Date().toISOString(),
+    },
+  };
+}
+
+/**
+ * Patch after staff successfully sends the renew notice email.
+ * Appends send history; does not materialize the invoice.
+ */
+export function buildRenewNoticeSentPatch(job, { to, subject, placeholderInvoiceNo } = {}) {
+  const pr = (job && job.permitRenew) || {};
+  const at = new Date().toISOString();
+  const inv = String(
+    placeholderInvoiceNo || pr.placeholderInvoiceNo || job?.invoiceNo || ""
+  ).trim();
+  const entry = {
+    id: `send-${Date.now()}`,
+    at,
+    to: String(to || "").trim(),
+    subject: String(subject || "").trim(),
+    placeholderInvoiceNo: inv,
+  };
+  const sendHistory = [entry, ...(Array.isArray(pr.sendHistory) ? pr.sendHistory : [])].slice(
+    0,
+    50
+  );
+  try {
+    appendRenewSendHistory({
+      jobId: job?.id || "",
+      to: entry.to,
+      subject: entry.subject,
+      placeholderInvoiceNo: inv,
+      address: pr.address || job?.serviceAddress || job?.address || "",
+      customer: pr.displayCustomer || job?.customer || "",
+      permitNo: pr.permitNo || "",
+      scenarioId: pr.scenarioId || "",
+    });
+  } catch {
+    /* ignore */
+  }
+  return {
+    permitRenew: {
+      ...pr,
+      noticeOnly: pr.invoiceMaterialized ? false : true,
+      invoiceMaterialized: !!pr.invoiceMaterialized,
+      placeholderInvoiceNo: inv || pr.placeholderInvoiceNo || "",
+      noticeSent: true,
+      noticeSentAt: at,
+      emailSentAt: at,
+      noticeTo: entry.to,
+      sendHistory,
+    },
+  };
 }
