@@ -231,9 +231,50 @@ describe("PayLanding view", () => {
     await waitFor(() => expect(screen.getByTestId("pay-method-ach")).toBeInTheDocument());
     await user.click(screen.getByTestId("pay-method-ach"));
     expect(screen.getByTestId("pay-by-ach")).toBeInTheDocument();
-    // Fee row is card-only; helper copy may still mention 3.5%
+    // ACH has no processing fee — Total charge only shows when fee applies (Levi 2026-08-10)
     expect(screen.queryByText("Processing fee (3.5%)")).not.toBeInTheDocument();
-    expect(screen.getByText("Total charge").parentElement).toHaveTextContent("$500");
+    expect(screen.queryByText("Total charge")).not.toBeInTheDocument();
+    expect(screen.getByText("Invoice total").parentElement).toHaveTextContent("$500");
+  });
+
+  it("one-payment renew shows invoice total only (no paid/paying rows)", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url) => {
+        if (String(url).includes("sola-ifields-config")) {
+          return {
+            ok: true,
+            json: async () => ({ ok: true, achCustomerEnabled: true, achEnabled: true }),
+          };
+        }
+        return { ok: true, json: async () => ({}) };
+      })
+    );
+    const token = encodePayLanding(
+      buildPayLandingPayload({
+        job: {
+          customer: "Yosef Beshari",
+          amount: "$365",
+          invoiceNo: "LE-2701",
+          serviceAddress: "40 Hampton Pl",
+          billingAddress: "",
+          permitRenew: { fullPayOnly: true, phase: "real" },
+          fullPayOnly: true,
+        },
+        cardknoxUrl: "https://secure.cardknox.com/blzelectric?xAmount=365&xinvoice=LE-2701",
+        linkAmount: "365",
+        inv: "LE-2701",
+        siteSlug: "blzelectric",
+      })
+    );
+    renderPay(token);
+    await waitForPayLoaded();
+    expect(screen.getByText("Invoice total").parentElement).toHaveTextContent("$365");
+    expect(screen.queryByText("Paid to date")).not.toBeInTheDocument();
+    expect(screen.queryByText("Balance due")).not.toBeInTheDocument();
+    expect(screen.queryByText("Paying today")).not.toBeInTheDocument();
+    // ACH default → no processing fee row / total charge
+    expect(screen.queryByText("Total charge")).not.toBeInTheDocument();
   });
 
   it("ACH process with empty bank opens photo vs manual popup", async () => {
