@@ -5,19 +5,49 @@
  * business, address. One cache row per permit (or per address+permit) so
  * multi-address / multi-permit customers each get their own renew invoice.
  *
- * Seeded from ready renew scenarios via upsertPermitCacheEntries; expandable
- * from host DOB pulls later. Send history + reserved placeholders live in
- * localStorage so notice emails can reserve an invoice number without
- * generating a real invoice yet.
+ * Seeded from:
+ *  - ready renew scenarios (Hampton / Schenectady)
+ *  - completedPermitsSeed.json (Drive BLZ Permits / Completed + Jose + Full Detailed)
+ *
+ * Host rebuild: ~/.hermes/shared/scripts/build_completed_permits_cache.py
+ * Host DB: ~/.hermes/shared/completed_permits_cache.json
+ *
+ * Send history + reserved placeholders live in localStorage so notice emails
+ * can reserve an invoice number without generating a real invoice yet.
  */
 
 import { nextDocNumberFromJobs, isLeInvoiceNo, numericDocCore } from "./nextDocNumber.js";
+import completedPermitsSeed from "../data/completedPermitsSeed.json";
 
 const CACHE_KEY = "le-pro-dob-permit-cache";
 const RESERVED_KEY = "le-pro-renew-reserved-inv";
 const HISTORY_KEY = "le-pro-renew-send-history";
 
 const DEFAULT_FEE = 365;
+
+/** Drive completed-permits seed (permit #, issue/exp, customer, email when matched). */
+export function loadCompletedPermitsSeedEntries() {
+  const raw = completedPermitsSeed?.permits;
+  if (!Array.isArray(raw)) return [];
+  return raw
+    .filter((p) => p && (p.permitNo || p.address))
+    .map((p) => ({
+      permitNo: String(p.permitNo || "").trim(),
+      issuedDate: String(p.issuedDate || "").trim().slice(0, 10),
+      expiresDate: String(p.expiresDate || "").trim().slice(0, 10),
+      address: String(p.address || "").trim(),
+      customer: String(p.customer || "").trim(),
+      displayCustomer: String(p.customer || "").trim(),
+      businessName: String(p.businessName || "").trim(),
+      email: String(p.email || "").trim(),
+      realEmail: String(p.email || "").trim(),
+      phone: String(p.phone || "").trim(),
+      qboCustomerId: p.qboCustomerId ? String(p.qboCustomerId) : "",
+      matchedCustomer: !!p.matchedCustomer,
+      source: p.source || "drive:completed",
+      fee: DEFAULT_FEE,
+    }));
+}
 
 /** In-memory fallback when localStorage is missing (Node tests / private mode). */
 const memoryStore = new Map();
@@ -165,17 +195,22 @@ export function loadPermitCache() {
 }
 
 /**
- * Merge scenario seeds + any extra entries into the cache file.
+ * Merge scenario seeds + Drive completed seed + any extra entries into the cache.
  * Safe to call often — upserts by id.
+ * Ready scenarios win over drive rows for the same address/permit when both set.
  */
 export function ensurePermitCacheSeeded(scenarios = [], extras = []) {
+  const fromDrive = loadCompletedPermitsSeedEntries()
+    .map(toPermitCacheEntry)
+    .filter(Boolean);
   const fromSc = (Array.isArray(scenarios) ? scenarios : [])
     .map(toPermitCacheEntry)
     .filter(Boolean);
   const fromEx = (Array.isArray(extras) ? extras : [])
     .map(toPermitCacheEntry)
     .filter(Boolean);
-  return upsertPermitCacheEntries([...fromSc, ...fromEx]);
+  // Drive first, then scenarios/extras overwrite so ready renew facts stay authoritative
+  return upsertPermitCacheEntries([...fromDrive, ...fromSc, ...fromEx]);
 }
 
 /** Upsert one or more cache rows (merge by id / permit+address). */

@@ -31,6 +31,17 @@ describe("permitCache + notice-only renew", () => {
     expect(loadPermitCache().length).toBeGreaterThanOrEqual(2);
   });
 
+  it("loads Drive completed permits seed into cache (many rows)", () => {
+    const list = ensurePermitCacheSeeded(READY_RENEW_SCENARIOS);
+    // Host Drive scan seeds dozens of completed permits (Levi 2026-08-10)
+    expect(list.length).toBeGreaterThanOrEqual(20);
+    const withNo = list.filter((e) => e.permitNo);
+    expect(withNo.length).toBeGreaterThanOrEqual(10);
+    // Scenario email still wins for Hampton
+    const ham = list.find((e) => /Hampton/i.test(e.address || ""));
+    expect(ham?.email).toMatch(/yossi6886|beshari/i);
+  });
+
   it("reserves placeholder invoice without creating a job", () => {
     const inv = reservePlaceholderInvoiceNo([], {
       scenarioId: "hampton-yossi",
