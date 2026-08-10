@@ -224,7 +224,7 @@ export default function NewJobFlow() {
             })
           }
         />
-        <Opt icon="👤" title="Add a customer" note="One form — live QuickBooks match as you type" onClick={() => setNewJob({ step: "newCustomer" })} />
+        <Opt icon="👤" title="Add a customer" note="Form or pick from calendar" onClick={() => setNewJob({ step: "customerMenu", context })} />
         <Opt
           icon="💵"
           title="Add a payment"
@@ -252,16 +252,54 @@ export default function NewJobFlow() {
       </Sheet>
     );
 
+  if (newJob.step === "customerMenu")
+    return (
+      <Sheet title="Add a customer" onClose={close}>
+        <Opt
+          icon="📅"
+          title="Choose from calendar"
+          note="Pick an appointment — prefill name, phone, address"
+          onClick={() => setNewJob({ step: "calCustomer", context })}
+          data-testid="customer-from-calendar"
+        />
+        <Opt
+          icon="✍️"
+          title="Enter manually"
+          note="One form — live QuickBooks match as you type"
+          onClick={() => setNewJob({ step: "newCustomer", context })}
+        />
+      </Sheet>
+    );
+
+  if (newJob.step === "calCustomer") {
+    return (
+      <CalendarSearchSheet
+        events={events}
+        title="Customer from calendar"
+        hint="Pick an appointment to prefill a new customer."
+        onClose={close}
+        onPick={(e) =>
+          setNewJob({
+            step: "newCustomer",
+            prefill: prefillFromEvent(e) || {},
+            context,
+          })
+        }
+      />
+    );
+  }
+
   if (newJob.step === "jobMenu")
     return (
       <Sheet title="Add a job" onClose={close}>
-        <Opt icon="✍️" title="Enter manually" note="Type the customer & job details" onClick={() => setNewJob({ step: "form", prefill: {}, context })} />
         <Opt
           icon="📅"
           title="Choose from calendar"
           note="Search appointments since Jan 1 — prefill a new job"
           onClick={() => setNewJob({ step: "cal", context })}
+          data-testid="job-from-calendar"
         />
+        <Opt icon="✍️" title="Enter manually" note="Type the customer & job details" onClick={() => setNewJob({ step: "form", prefill: {}, context })} />
         <Opt
           icon="🗓️"
           title="Add an appointment"
@@ -483,8 +521,20 @@ export default function NewJobFlow() {
         const pendingDoc = consumePendingDocAfterJob();
         if (pendingDoc) {
           nav("/job/" + encodeURIComponent(id) + "?doc=" + pendingDoc + "&create=1");
+          return;
+        }
+        resumeFollowUpPrompts();
+        // Calendar-prefilled create: land on customer so the new card is visible immediately
+        // (Levi 2026-08-10 — Mordechai Nemne disappeared after add).
+        const fromCal = !!(newJob.prefill?.calEventId || newJob.prefill?.customer);
+        const name =
+          newJob.prefill?.customer ||
+          newJob.prefill?.businessName ||
+          newJob.prefill?.personName ||
+          "";
+        if (fromCal && name) {
+          nav("/customer/" + encodeURIComponent(customerKeyForName(name) || id));
         } else {
-          resumeFollowUpPrompts();
           nav("/job/" + encodeURIComponent(id));
         }
       }}

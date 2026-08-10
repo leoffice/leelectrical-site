@@ -145,166 +145,167 @@ function CollapsibleSection({
 }
 
 /**
- * Renewal Notifications — ready matched-customer addresses.
- * Each card: address · customer · permit/exp · Send Email.
- * After email: leaves list until full pay → Paid — update permit.
+ * Renewal Application — collapsible like Deploy queue (Levi 2026-08-10).
+ * Header shows pending-approval count. Expand: cards with address · person · permit.
+ * Tap card: exp, issued, customer · Send Email (compose once/keep).
+ * After send: leaves pending. Paid → Paid — update permit box.
+ */
+/**
+ * Renewal Application — collapsible like Deploy queue (Levi 2026-08-10).
+ * Collapsed: title + pending count. Open: one-line cards (address · person · permit · Send).
  */
 function RenewalNotificationsCard({ jobs, phaseABusy, onSendForRow, onOpenJob }) {
   const pending = useMemo(() => listPendingRenewCards(jobs), [jobs]);
   const paidDeploy = useMemo(() => listPaidUpdatePermitCards(jobs), [jobs]);
+  const [sectionOpen, setSectionOpen] = useState(false);
   const [expandedId, setExpandedId] = useState("");
 
   return (
     <div
-      className="mb-4 overflow-hidden rounded-2xl border border-violet-200/80 shadow-md"
-      style={{ background: "linear-gradient(180deg, #f3e8ff 0%, #ffffff 42%)" }}
+      className="card overflow-hidden mb-4 border border-violet-200"
       data-testid="permit-renew-phase-a-mock"
     >
-      <div className="px-4 pt-4 pb-2">
-        <div
-          className="text-[15px] font-extrabold text-violet-950 tracking-tight"
-          data-testid="renewal-notifications-title"
-        >
-          Renewal Notifications
-        </div>
-      </div>
-
-      {paidDeploy.length > 0 ? (
-        <div
-          className="mx-4 mb-3 rounded-2xl border border-emerald-200 bg-emerald-50 px-3.5 py-3 shadow-sm"
-          data-testid="permit-renew-paid-deploy-box"
-        >
-          <div className="text-xs font-extrabold text-emerald-900 mb-2">
-            Paid — update permit
+      <button
+        type="button"
+        className="w-full px-4 py-3 border-b border-violet-100 bg-violet-50/90 text-left"
+        onClick={() => setSectionOpen((o) => !o)}
+        aria-expanded={sectionOpen}
+        data-testid="renewal-application-toggle"
+      >
+        <div className="flex items-center justify-between gap-2">
+          <div className="min-w-0">
+            <h2
+              className="font-semibold text-sm text-violet-950 tracking-wide"
+              data-testid="renewal-notifications-title"
+            >
+              Renewal Application
+            </h2>
+            <p className="text-xs text-violet-800/70 mt-0.5">
+              Pending approval to send
+            </p>
           </div>
-          <ul className="space-y-2">
-            {paidDeploy.map((r) => (
-              <li
-                key={r.id}
-                className="flex items-center justify-between gap-2 rounded-xl bg-white/80 border border-emerald-100 px-3 py-2"
-              >
-                <div className="min-w-0">
-                  <div className="text-[12px] font-bold text-emerald-950 truncate">
-                    {r.address || "—"}
-                  </div>
-                  <div className="text-[11px] text-emerald-900/80 truncate">
-                    {r.customer}
-                    {r.permitNo ? ` · ${r.permitNo}` : ""}
-                  </div>
-                </div>
-                <button
-                  type="button"
-                  className="btn shrink-0 bg-emerald-700 hover:bg-emerald-800 text-white !py-2 !px-3 text-[11px] font-bold rounded-xl"
-                  onClick={() => onOpenJob?.(r.jobId)}
-                >
-                  Update
-                </button>
-              </li>
-            ))}
-          </ul>
+          <span className="flex items-center gap-1.5 shrink-0">
+            <span className="pill bg-violet-200 text-violet-950 text-[11px] font-extrabold min-w-[1.5rem] justify-center">
+              {pending.length}
+            </span>
+            <span
+              className={`text-violet-400 transition-transform text-lg leading-none ${
+                sectionOpen ? "rotate-90" : ""
+              }`}
+            >
+              ›
+            </span>
+          </span>
         </div>
-      ) : null}
+      </button>
 
-      <div className="px-4 pb-4 space-y-3" data-testid="permit-renew-app-list">
-        {!pending.length ? (
-          <p className="text-[12px] text-violet-900/60 text-center py-3">
-            No renewals waiting to send
-          </p>
-        ) : (
-          pending.map((r) => {
-            const open = expandedId === r.id;
-            const expLabel = r.expiresDate
-              ? formatPermitDateMdY(r.expiresDate) || r.expiresDate
-              : "";
-            return (
-              <div
-                key={r.id}
-                className="rounded-2xl border border-violet-100 bg-white shadow-sm overflow-hidden"
-                data-testid="permit-renew-app-row"
-              >
-                <button
-                  type="button"
-                  className="w-full text-left px-4 pt-3.5 pb-2"
-                  onClick={() => setExpandedId(open ? "" : r.id)}
-                >
-                  <div className="text-[15px] font-extrabold text-slate-900 leading-snug">
-                    {r.address || "—"}
-                  </div>
-                  <div className="text-[13px] font-semibold text-slate-700 mt-0.5">
-                    {r.customer || "—"}
-                  </div>
-                  {r.businessName ? (
-                    <div className="text-[11px] text-slate-500 mt-0.5">{r.businessName}</div>
-                  ) : null}
-                  <div className="flex flex-wrap gap-1.5 mt-2">
-                    {r.permitNo ? (
-                      <span className="inline-flex items-center rounded-full bg-violet-100 text-violet-900 text-[10px] font-bold px-2 py-0.5">
-                        {r.permitNo}
-                      </span>
-                    ) : null}
-                    {expLabel ? (
-                      <span className="inline-flex items-center rounded-full bg-slate-100 text-slate-700 text-[10px] font-bold px-2 py-0.5">
-                        Exp {expLabel}
-                      </span>
-                    ) : null}
-                    {r.stageLabel ? (
-                      <span
-                        className="inline-flex items-center rounded-full bg-amber-100 text-amber-900 text-[10px] font-bold px-2 py-0.5"
-                        data-testid="permit-renew-status"
-                      >
-                        {r.stageLabel}
-                      </span>
-                    ) : null}
-                    {r.fee != null ? (
-                      <span className="inline-flex items-center rounded-full bg-slate-100 text-slate-700 text-[10px] font-bold px-2 py-0.5">
-                        ${r.fee}
-                      </span>
-                    ) : null}
-                  </div>
-                </button>
-                <div className="px-4 pb-3.5">
-                  <button
-                    type="button"
-                    className="btn w-full bg-violet-700 hover:bg-violet-800 text-white !py-3 text-sm font-extrabold rounded-xl shadow-sm"
-                    disabled={phaseABusy}
-                    data-testid="permit-renew-row-send"
-                    onClick={() => onSendForRow?.(r)}
-                  >
-                    {phaseABusy ? "Working…" : "Send Email"}
-                  </button>
-                </div>
-                {open ? (
+      {sectionOpen ? (
+        <div className="bg-white">
+          {paidDeploy.length > 0 ? (
+            <div
+              className="mx-3 mt-3 rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2"
+              data-testid="permit-renew-paid-deploy-box"
+            >
+              <div className="text-[11px] font-extrabold text-emerald-900 mb-1">
+                Paid — update permit ({paidDeploy.length})
+              </div>
+              <ul className="space-y-1">
+                {paidDeploy.map((r) => (
+                  <li key={r.id} className="flex items-center justify-between gap-2 text-[12px]">
+                    <span className="truncate font-semibold text-emerald-950">
+                      {r.address} · {r.customer}
+                      {r.permitNo ? ` · ${r.permitNo}` : ""}
+                    </span>
+                    <button
+                      type="button"
+                      className="shrink-0 text-[11px] font-bold text-emerald-800 underline"
+                      onClick={() => onOpenJob?.(r.jobId)}
+                    >
+                      Update
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          ) : null}
+
+          <div className="p-2.5 space-y-1.5" data-testid="permit-renew-app-list">
+            {!pending.length ? (
+              <p className="text-[12px] text-slate-500 text-center py-3">0 pending</p>
+            ) : (
+              pending.map((r) => {
+                const open = expandedId === r.id;
+                const expLabel = r.expiresDate
+                  ? formatPermitDateMdY(r.expiresDate) || r.expiresDate
+                  : "";
+                const issuedLabel =
+                  r.issuedDate || r.gradedDate
+                    ? formatPermitDateMdY(r.issuedDate || r.gradedDate) ||
+                      (r.issuedDate || r.gradedDate)
+                    : "";
+                return (
                   <div
-                    className="px-4 pb-3.5 border-t border-violet-50 text-[11px] text-slate-600 space-y-1 pt-2"
-                    data-testid="permit-renew-app-detail"
+                    key={r.id}
+                    className="rounded-xl border border-slate-200 bg-slate-50/40 overflow-hidden"
+                    data-testid="permit-renew-app-row"
                   >
-                    {r.email ? (
-                      <div>
-                        <span className="font-semibold text-slate-700">Email on file: </span>
-                        {r.email}
-                      </div>
-                    ) : null}
-                    {r.invoiceNo ? (
-                      <div>
-                        <span className="font-semibold text-slate-700">Invoice: </span>#{r.invoiceNo}
-                      </div>
-                    ) : null}
-                    {r.jobId ? (
+                    <div className="flex items-center gap-2 px-2.5 py-2">
                       <button
                         type="button"
-                        className="mt-1 text-[11px] font-bold text-violet-800 underline underline-offset-2"
-                        onClick={() => onOpenJob?.(r.jobId)}
+                        className="min-w-0 flex-1 text-left"
+                        onClick={() => setExpandedId(open ? "" : r.id)}
                       >
-                        Open invoice
+                        <div className="text-[13px] font-extrabold text-slate-900 truncate leading-tight">
+                          {r.address || "—"}
+                          <span className="font-semibold text-slate-600">
+                            {" "}
+                            · {r.customer || "—"}
+                          </span>
+                          {r.permitNo ? (
+                            <span className="font-bold text-violet-800">
+                              {" "}
+                              · {r.permitNo}
+                            </span>
+                          ) : null}
+                        </div>
                       </button>
+                      <button
+                        type="button"
+                        className="btn shrink-0 bg-violet-700 text-white !py-1.5 !px-2.5 text-[11px] font-bold rounded-lg"
+                        disabled={phaseABusy}
+                        data-testid="permit-renew-row-send"
+                        onClick={() => onSendForRow?.(r)}
+                      >
+                        Send
+                      </button>
+                    </div>
+                    {open ? (
+                      <div
+                        className="px-2.5 pb-2 border-t border-slate-100 bg-white text-[11px] text-slate-600 space-y-0.5 pt-1.5"
+                        data-testid="permit-renew-app-detail"
+                      >
+                        <div>
+                          <span className="font-semibold text-slate-700">Expires: </span>
+                          {expLabel || "—"}
+                          <span className="mx-1.5 text-slate-300">·</span>
+                          <span className="font-semibold text-slate-700">Issued: </span>
+                          {issuedLabel || "—"}
+                        </div>
+                        {r.email ? (
+                          <div>
+                            <span className="font-semibold text-slate-700">Email: </span>
+                            {r.email}
+                          </div>
+                        ) : null}
+                      </div>
                     ) : null}
                   </div>
-                ) : null}
-              </div>
-            );
-          })
-        )}
-      </div>
+                );
+              })
+            )}
+          </div>
+        </div>
+      ) : null}
     </div>
   );
 }
