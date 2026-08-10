@@ -652,6 +652,11 @@ export function StoreProvider({ children }) {
           pay.date || "",
           pay.ref || "",
         ].join(":");
+        // Permit-renew mock invoices stay LE Pro-only (no QBO Doc). Flag localOnly
+        // so the host keeps the payment without "Document not found" (LE-2701).
+        // Real LE- invoices still try QBO; host falls back to local if not found.
+        const pr = j.permitRenew || j.permitRenewMock || {};
+        const localOnly = !!(pr.mock || pr.phase === "A" || pr.phase === 1);
         void enqueueRef.current(
           "record_payment",
           j.id,
@@ -666,6 +671,7 @@ export function StoreProvider({ children }) {
             depositTo: pay.depositTo || "",
             email: j.email || "",
             sendReceipt: true,
+            ...(localOnly ? { localOnly: true } : {}),
           },
           "deterministic",
           idem

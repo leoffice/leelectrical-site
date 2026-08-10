@@ -69,11 +69,27 @@ function owedAtStart(job, payments) {
 export async function findJobId(invoiceNo, jobHint) {
   const hint = String(jobHint || "").trim();
   if (hint) return hint;
+  const inv = String(invoiceNo || "").trim();
+  if (!inv) return "";
   const store = getStore("jobsdata");
   const doc = (await store.get(JOBS_KEY, { type: "json", consistency: "strong" })) || {};
-  const inv = String(invoiceNo || "").trim();
   const job = (doc.jobs || []).find((j) => String(j.invoiceNo || "").trim() === inv);
-  return job?.id || "";
+  if (job?.id) return job.id;
+  // LE- / local renew invoices often live only in jobstate.ov (_new) — search overlay
+  try {
+    const stateStore = getStore("jobstate");
+    const state =
+      (await stateStore.get(STATE_KEY, { type: "json", consistency: "strong" })) || {};
+    const ov = state.ov || {};
+    for (const [id, patch] of Object.entries(ov)) {
+      if (String(id).charAt(0) === "_") continue;
+      if (!patch || typeof patch !== "object") continue;
+      if (String(patch.invoiceNo || "").trim() === inv) return id;
+    }
+  } catch {
+    /* overlay optional */
+  }
+  return "";
 }
 
 async function loadJobEmail(jobId, invoiceNo) {
@@ -107,6 +123,12 @@ export async function enqueueRecordPayment({ jobId, invoiceNo, amount, ref, meth
   const email = await loadJobEmail(jobId, invoiceNo);
   const now = Date.now();
   doc.seq = (doc.seq || 0) + 1;
+  // LE- on a local-* job = LE Pro-only until (or unless) create_invoice. Host also
+  // recovers any not_found by keeping payment local.
+  const invStr = String(invoiceNo || "");
+  const localOnly =
+    invStr.toUpperCase().startsWith("LE-") &&
+    String(jobId || "").startsWith("local-");
   const command = {
     id: "c" + now + Math.random().toString(36).slice(2, 6),
     num: doc.seq,
@@ -125,6 +147,7 @@ export async function enqueueRecordPayment({ jobId, invoiceNo, amount, ref, meth
       note: note || "Sola card payment",
       email,
       sendReceipt: true,
+      ...(localOnly ? { localOnly: true } : {}),
     },
     idempotencyKey: idk,
     createdAt: now,

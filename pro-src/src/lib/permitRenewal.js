@@ -298,8 +298,14 @@ export function permitRenewByDate(expiresIso, { todayIso } = {}) {
 }
 
 /**
- * Auto status tone from today vs expiration (Levi 2026-08-10 yearly template).
- * @returns {"upcoming"|"soon"|"expired"}
+ * Auto status tone from today vs expiration (Levi 2026-08-10 stages).
+ * @returns {"upcoming"|"soon"|"expired"|"near_abandon"}
+ *
+ * Stages:
+ * 1. upcoming — more than ~2 months before expire (warning / coming up)
+ * 2. soon — within ~2 months, not yet expired
+ * 3. expired — on/after expire, not yet near abandoned
+ * 4. near_abandon — within ~2 months of abandoned date (exp+12mo) — “banned” risk
  */
 export function permitRenewStatusTone(expiresIso, { todayIso } = {}) {
   const exp = String(expiresIso || "").trim().slice(0, 10);
@@ -307,19 +313,35 @@ export function permitRenewStatusTone(expiresIso, { todayIso } = {}) {
   const today =
     String(todayIso || "").trim().slice(0, 10) ||
     new Date().toISOString().slice(0, 10);
-  if (today >= exp) return "expired";
-  const soonCutoff = addDaysIso(exp, -60); // ~2 months before
-  if (soonCutoff && today >= soonCutoff) return "soon";
-  return "upcoming";
+  if (today < exp) {
+    const soonCutoff = addDaysIso(exp, -60); // ~2 months before expire
+    if (soonCutoff && today >= soonCutoff) return "soon";
+    return "upcoming";
+  }
+  // Past expiration
+  const abandoned = permitAbandonedFromExpires(exp);
+  const nearAbandonCutoff = addDaysIso(abandoned, -60); // ~2 months before abandoned
+  if (abandoned && nearAbandonCutoff && today >= nearAbandonCutoff) {
+    return "near_abandon";
+  }
+  return "expired";
 }
 
 /**
  * Single status sentence that auto-switches (never wrong for the date).
- * Levi 2026-08-10: exact yearly-template wording.
+ * Levi 2026-08-10: yearly-template stages including near-abandon.
  */
-export function permitRenewStatusSentence(address, expiresUs, tone) {
+export function permitRenewStatusSentence(address, expiresUs, tone, abandonedUs = "") {
   const addr = String(address || "").trim() || "this address";
   const exp = String(expiresUs || "").trim() || "the expiration date";
+  const abd = String(abandonedUs || "").trim();
+  if (tone === "near_abandon") {
+    return (
+      `Your electrical permit at ${addr} expired on ${exp}` +
+      (abd ? ` and is about to go into abandoned status on ${abd}` : " and is about to go into abandoned status") +
+      `. Renew now — once abandoned, reinstating means filing a brand-new permit.`
+    );
+  }
   if (tone === "expired") {
     return `Your electrical permit at ${addr} expired on ${exp}. It can still be renewed now, but the 12-month abandoned clock has started.`;
   }
@@ -590,7 +612,13 @@ export function buildPermitRenewEmail({
   const renewByIso = permitRenewByDate(expiresIso, { todayIso });
   const renewByUs = formatPermitDateUs(renewByIso);
   const tone = permitRenewStatusTone(expiresIso, { todayIso });
-  const statusLine = permitRenewStatusSentence(sc.address, expiresUs, tone);
+  const pastExpire = tone === "expired" || tone === "near_abandon";
+  const statusLine = permitRenewStatusSentence(
+    sc.address,
+    expiresUs,
+    tone,
+    abandonedUs
+  );
   const website = profile.website || "";
   const phone = profile.phone || "(718) 594-1850";
   const fromEmail = profile.email || "Office@LeElectrical.us";
@@ -599,25 +627,33 @@ export function buildPermitRenewEmail({
   const companyLong = profile.legalName || profile.name || company;
 
   const subject =
-    tone === "expired"
-      ? `Your electrical permit has expired — ${sc.address} (renew before it's abandoned)`
-      : `Time to renew your electrical permit — ${sc.address}`;
+    tone === "near_abandon"
+      ? `Your electrical permit is about to be abandoned — ${sc.address} (renew now)`
+      : tone === "expired"
+        ? `Your electrical permit has expired — ${sc.address} (renew before it's abandoned)`
+        : `Time to renew your electrical permit — ${sc.address}`;
 
   const detailsHeader =
-    tone === "expired"
-      ? "Here are the details for your expired electrical permit:"
-      : "Here are the details for your upcoming permit renewal:";
+    tone === "near_abandon"
+      ? "Here are the details for your electrical permit — abandoned status is approaching:"
+      : pastExpire
+        ? "Here are the details for your expired electrical permit:"
+        : "Here are the details for your upcoming permit renewal:";
 
   const issuedLabel = "Issued";
-  const expLabel = tone === "expired" ? "Expired" : "Expires";
+  const expLabel = pastExpire ? "Expired" : "Expires";
 
   const abandonBlock =
-    tone === "expired"
-      ? `Once a permit stays unrenewed for 12 months after it expires, the city marks it "abandoned." Reinstating an abandoned permit means filing a brand-new one — which typically costs at least $1,800 more than a straight renewal. Renewing now avoids that cost and keeps your work on record.`
-      : `If a permit lapses and stays unrenewed for 12 months, the city marks it "abandoned," and reinstating it means filing a brand-new permit — which typically costs at least $1,800 more than renewing on time. Renewing now avoids that entirely.`;
+    tone === "near_abandon"
+      ? `The city marks a permit "abandoned" 12 months after it expires` +
+        (abandonedUs ? ` (that date is ${abandonedUs})` : "") +
+        `. Once abandoned, reinstating means filing a brand-new permit — typically at least $1,800 more than a straight renewal. Act now so you do not have to re-apply from scratch.`
+      : pastExpire
+        ? `Once a permit stays unrenewed for 12 months after it expires, the city marks it "abandoned." Reinstating an abandoned permit means filing a brand-new one — which typically costs at least $1,800 more than a straight renewal. Renewing now avoids that cost and keeps your work on record.`
+        : `If a permit lapses and stays unrenewed for 12 months, the city marks it "abandoned," and reinstating it means filing a brand-new permit — which typically costs at least $1,800 more than renewing on time. Renewing now avoids that entirely.`;
 
   const payBlock = inv
-    ? tone === "expired"
+    ? pastExpire
       ? `Invoice ${invLabel} is ready — click Renew Permit below to pay, and we'll handle the city filing for you. To stay safely ahead of the abandoned deadline (${abandonedUs || "12 months after expire"}), please renew by ${renewByUs || "soon"}.`
       : `Invoice ${invLabel} is ready — click Renew Permit below to pay, and we'll handle the city filing for you. Please renew by ${renewByUs || expiresUs} to keep everything current.`
     : "Click Renew Permit below to open the payment page, and we'll handle the city filing for you.";
@@ -626,6 +662,16 @@ export function buildPermitRenewEmail({
   const statusLineHtml = (() => {
     const addr = escHtml(sc.address || "this address");
     const exp = escHtml(expiresUs || "the expiration date");
+    const abd = escHtml(abandonedUs || "");
+    if (tone === "near_abandon") {
+      return (
+        `Your electrical permit at <strong>${addr}</strong> expired on <strong>${exp}</strong>` +
+        (abd
+          ? ` and is about to go into abandoned status on <strong>${abd}</strong>`
+          : " and is about to go into abandoned status") +
+        `. Renew now — once abandoned, reinstating means filing a brand-new permit.`
+      );
+    }
     if (tone === "expired") {
       return `Your electrical permit at <strong>${addr}</strong> expired on <strong>${exp}</strong>. It can still be renewed now, but the 12-month abandoned clock has started.`;
     }
@@ -635,11 +681,15 @@ export function buildPermitRenewEmail({
     return `Your electrical permit at <strong>${addr}</strong> is coming up for renewal — it expires on <strong>${exp}</strong>. Renewing on time keeps it active and continuous, with no re-inspection or refiling needed.`;
   })();
   const abandonBlockHtml =
-    tone === "expired"
-      ? `Once a permit stays unrenewed for <strong>12 months</strong> after it expires, the city marks it <strong>&quot;abandoned.&quot;</strong> Reinstating an abandoned permit means filing a brand-new one — which typically costs <strong>at least $1,800</strong> more than a straight renewal. Renewing now avoids that cost and keeps your work on record.`
-      : `If a permit lapses and stays unrenewed for <strong>12 months</strong>, the city marks it <strong>&quot;abandoned,&quot;</strong> and reinstating it means filing a brand-new permit — which typically costs <strong>at least $1,800</strong> more than renewing on time. Renewing now avoids that entirely.`;
+    tone === "near_abandon"
+      ? `The city marks a permit <strong>&quot;abandoned&quot;</strong> 12 months after it expires` +
+        (abandonedUs ? ` (that date is <strong>${escHtml(abandonedUs)}</strong>)` : "") +
+        `. Once abandoned, reinstating means filing a brand-new permit — typically <strong>at least $1,800</strong> more than a straight renewal. Act now so you do not have to re-apply from scratch.`
+      : pastExpire
+        ? `Once a permit stays unrenewed for <strong>12 months</strong> after it expires, the city marks it <strong>&quot;abandoned.&quot;</strong> Reinstating an abandoned permit means filing a brand-new one — which typically costs <strong>at least $1,800</strong> more than a straight renewal. Renewing now avoids that cost and keeps your work on record.`
+        : `If a permit lapses and stays unrenewed for <strong>12 months</strong>, the city marks it <strong>&quot;abandoned,&quot;</strong> and reinstating it means filing a brand-new permit — which typically costs <strong>at least $1,800</strong> more than renewing on time. Renewing now avoids that entirely.`;
   const payBlockHtml = inv
-    ? tone === "expired"
+    ? pastExpire
       ? `Invoice <strong>${escHtml(invLabel)}</strong> is ready — click <strong>Renew Permit</strong> below to pay, and we&rsquo;ll handle the city filing for you. To stay safely ahead of the abandoned deadline (${escHtml(
           abandonedUs || "12 months after expire"
         )}), please renew by <strong>${escHtml(renewByUs || "soon")}</strong>.`

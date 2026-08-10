@@ -120,9 +120,15 @@ export function rawBalance(job) {
  * Unpaid permit-renew offers are NOT money owed (Levi 2026-08-10).
  * Keep the invoice on file for the pay link; do not inflate TOTAL DUE / open
  * invoices until the customer actually pays (or we void it later).
+ *
+ * Once any real payment lands on the ledger, the invoice is live in the books
+ * (partial or full) — show it under the customer and apply the payment.
  */
 export function isBalanceExemptOffer(job) {
   if (!job || job.paid) return false;
+  // Customer paid something → stop hiding the invoice from records / open list
+  const pays = normalizePayments(job);
+  if (pays.some((p) => parseAmount(p?.amount) > 0.009)) return false;
   if (job.excludeFromBalanceDue || job._balanceExempt) return true;
   const pr = job.permitRenew || job.permitRenewMock;
   if (!pr || typeof pr !== "object") return false;

@@ -64,11 +64,27 @@ function principalAmount(p) {
 async function findJobId(invoiceNo, jobHint) {
   const hint = String(jobHint || "").trim();
   if (hint) return hint;
+  const inv = String(invoiceNo || "").trim();
+  if (!inv) return "";
   const store = getStore("jobsdata");
   const doc = (await store.get(JOBS_KEY, { type: "json", consistency: "strong" })) || {};
-  const inv = String(invoiceNo || "").trim();
   const job = (doc.jobs || []).find((j) => String(j.invoiceNo || "").trim() === inv);
-  return job?.id || "";
+  if (job?.id) return job.id;
+  // LE- / local renew invoices often live only in jobstate.ov (_new)
+  try {
+    const stateStore = getStore("jobstate");
+    const state =
+      (await stateStore.get(STATE_KEY, { type: "json", consistency: "strong" })) || {};
+    const ov = state.ov || {};
+    for (const [id, patch] of Object.entries(ov)) {
+      if (String(id).charAt(0) === "_") continue;
+      if (!patch || typeof patch !== "object") continue;
+      if (String(patch.invoiceNo || "").trim() === inv) return id;
+    }
+  } catch {
+    /* overlay optional */
+  }
+  return "";
 }
 
 async function loadJobEmail(jobId, invoiceNo) {
@@ -102,6 +118,13 @@ async function enqueueRecordPayment({ jobId, invoiceNo, amount, ref, method }) {
   const email = await loadJobEmail(jobId, invoiceNo);
   const now = Date.now();
   doc.seq = (doc.seq || 0) + 1;
+  // LE- DocNumbers without a QBO twin (renew mock / not yet create_invoice) are
+  // recovered by the host on not_found. Prefer try-QBO first for real invoices;
+  // only force localOnly when the job id is a brand-new local-* with LE- number.
+  const invStr = String(invoiceNo || "");
+  const localOnly =
+    invStr.toUpperCase().startsWith("LE-") &&
+    String(jobId || "").startsWith("local-");
   const command = {
     id: "c" + now + Math.random().toString(36).slice(2, 6),
     num: doc.seq,
@@ -120,6 +143,7 @@ async function enqueueRecordPayment({ jobId, invoiceNo, amount, ref, method }) {
       note: "Sola online payment",
       email,
       sendReceipt: true,
+      ...(localOnly ? { localOnly: true } : {}),
     },
     idempotencyKey: idk,
     createdAt: now,

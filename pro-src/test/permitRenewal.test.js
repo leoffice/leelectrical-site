@@ -109,7 +109,7 @@ describe("permitRenewal Phase A mock", () => {
     expect(formatPermitDateUs("")).toBe("");
   });
 
-  it("status tone auto-switches by date vs expiry", () => {
+  it("status tone auto-switches by date vs expiry (4 stages)", () => {
     expect(permitRenewStatusTone("2027-02-06", { todayIso: "2026-08-10" })).toBe(
       "upcoming"
     );
@@ -121,6 +121,10 @@ describe("permitRenewal Phase A mock", () => {
     );
     expect(permitRenewStatusTone("2025-10-11", { todayIso: "2025-10-11" })).toBe(
       "expired"
+    );
+    // Abandoned 2026-10-11 → near_abandon ~within 2 months before that
+    expect(permitRenewStatusTone("2025-10-11", { todayIso: "2026-09-01" })).toBe(
+      "near_abandon"
     );
   });
 
@@ -137,6 +141,14 @@ describe("permitRenewal Phase A mock", () => {
     expect(
       permitRenewStatusSentence("40 Hampton Pl", "October 11, 2025", "expired")
     ).toMatch(/12-month abandoned clock/);
+    expect(
+      permitRenewStatusSentence(
+        "40 Hampton Pl",
+        "October 11, 2025",
+        "near_abandon",
+        "October 11, 2026"
+      )
+    ).toMatch(/about to go into abandoned status on October 11, 2026/);
   });
 
   it("abandoned date is expiration + 12 months", () => {
@@ -167,6 +179,33 @@ describe("permitRenewal Phase A mock", () => {
     // Paid renew starts counting again
     const paid = { ...open, paid: true, openBalance: 0 };
     expect(isBalanceExemptOffer(paid)).toBe(false);
+  });
+
+  it("partial payment on renew stops balance-exempt so invoice + pay show in records", () => {
+    const partial = {
+      id: "r-partial",
+      invoiceNo: "LE-2701",
+      amount: 365,
+      openBalance: 364,
+      paid: false,
+      excludeFromBalanceDue: true,
+      permitRenew: { mock: true, phase: "A", provisional: true, excludeFromBalanceDue: true },
+      payments: [
+        {
+          id: "sola-11005049154",
+          amount: "$1",
+          method: "Credit card",
+          ref: "11005049154",
+          date: "2026-08-10",
+          source: "sola",
+        },
+      ],
+    };
+    expect(isBalanceExemptOffer(partial)).toBe(false);
+    expect(openBalance(partial)).toBe(364);
+    const sum = customerAmountSummary([partial]);
+    expect(sum.due).toBe(364);
+    expect(sum.openInvoices).toBe(1);
   });
 
   it("listRenewApplications lists open / paid / wants-renew with dates", () => {
