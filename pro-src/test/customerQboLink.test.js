@@ -12,8 +12,36 @@ describe("customerQboLink", () => {
     expect(r.customerId).toBe("99");
   });
 
-  it("returns job patch with qboCustomerId", () => {
-    expect(customerQboJobPatch({ customerId: "42" })).toEqual({ qboCustomerId: "42" });
+  it("returns job patch with qboCustomerId and keeps shell visible", () => {
+    expect(customerQboJobPatch({ customerId: "42" })).toEqual({
+      qboCustomerId: "42",
+      _new: true,
+    });
+  });
+
+  it("fills identity from create_customer command payload", () => {
+    const patch = customerQboJobPatch(
+      { customerId: "1608", name: "Mordechai Nemni" },
+      {
+        payload: {
+          name: "Mordechai Nemni",
+          phone: "718-809-0687",
+          email: "nemnifam@gmail.com",
+          billingAddr: "1254 sterling pl brooklyn",
+          addr: "1254 sterling pl brooklyn",
+        },
+      }
+    );
+    expect(patch).toMatchObject({
+      qboCustomerId: "1608",
+      _new: true,
+      customer: "Mordechai Nemni",
+      businessName: "Mordechai Nemni",
+      phone: "718-809-0687",
+      email: "nemnifam@gmail.com",
+      billingAddress: "1254 sterling pl brooklyn",
+      serviceAddress: "1254 sterling pl brooklyn",
+    });
   });
 
   it("returns null for bad result", () => {

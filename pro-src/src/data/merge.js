@@ -146,9 +146,26 @@ export function mergeJobs(baseJobs, ov) {
     // metadata, never jobs — skip them even if they carry _new-looking data.
     if (String(id).charAt(0) === "_") continue;
     const o = overlay[id];
-    if (!o || seen.has(id) || !o._new || deleted(id)) continue;
+    if (!o || seen.has(id) || deleted(id)) continue;
+    // Overlay-only rows need _new. Exception: local-* jobs can lose _new when a
+    // thin create_customer patch (qboCustomerId only) races ahead of the first
+    // full save — still surface them so the customer doesn't vanish.
+    const isLocalId = String(id).startsWith("local-");
+    if (!o._new && !isLocalId) continue;
+    if (!o._new && isLocalId) {
+      const hasSignal =
+        o.customer ||
+        o.businessName ||
+        o.qboCustomerId ||
+        o.title ||
+        o.invoiceNo ||
+        o.estimateNo;
+      if (!hasSignal) continue;
+    }
     const j = applyOverlay(blankJob(id), o);
     j.id = id;
+    // Recover visibility flag so later thin patches don't drop the row again.
+    if (isLocalId && !j._new) j._new = true;
     out.push(j);
   }
   return out;

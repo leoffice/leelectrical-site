@@ -63,19 +63,24 @@ describe("mergeJobs", () => {
     "LOCAL-9": { _new: true, customer: "New Guy", title: "Outlet swap" },
     "JP-002": { _deleted: true },
     "JP-003": { _archived: true },
-    "GHOST-1": { customer: "Not new, not base" }, // no _new -> ignored
+    "GHOST-1": { customer: "Not new, not base" }, // no _new, not local-* -> ignored
+    "local-thin": { qboCustomerId: "1608", customer: "Mordechai Nemni" }, // thin local survives
   };
   const base = [BASE_JOB, { id: "JP-002", customer: "Gone" }, { id: "JP-003", customer: "Archived" }];
 
   it("overlay wins, _new jobs included, _deleted dropped, _archived kept+flagged", () => {
     const out = mergeJobs(base, ov);
     const ids = out.map((j) => j.id).sort();
-    expect(ids).toEqual(["JP-001", "JP-003", "LOCAL-9"]);
+    expect(ids).toEqual(["JP-001", "JP-003", "LOCAL-9", "local-thin"]);
     expect(out.find((j) => j.id === "JP-001").amount).toBe("$2,500");
     expect(out.find((j) => j.id === "JP-003")._archived).toBe(true); // Archive tab needs it
     const local = out.find((j) => j.id === "LOCAL-9");
     expect(local.customer).toBe("New Guy");
     expect(local.status).toEqual(blankJob("LOCAL-9").status); // scaffolded from blank
+    const thin = out.find((j) => j.id === "local-thin");
+    expect(thin.customer).toBe("Mordechai Nemni");
+    expect(thin.qboCustomerId).toBe("1608");
+    expect(thin._new).toBe(true); // recovered so later thin patches still show
   });
   it("handles empty overlay and empty base", () => {
     expect(mergeJobs([BASE_JOB], null)).toHaveLength(1);

@@ -258,30 +258,32 @@ export default function NewJobFlow() {
         <Opt
           icon="📅"
           title="Choose from calendar"
-          note="Pick an appointment — prefill name, phone, address"
-          onClick={() => setNewJob({ step: "calCustomer", context })}
-          data-testid="customer-from-calendar"
+          note="Pick an appointment — creates the customer and opens it"
+          onClick={() => setNewJob({ step: "customerCal", context })}
+          data-testid="addcustomer-from-calendar"
         />
         <Opt
           icon="✍️"
           title="Enter manually"
           note="One form — live QuickBooks match as you type"
           onClick={() => setNewJob({ step: "newCustomer", context })}
+          data-testid="addcustomer-manual"
         />
       </Sheet>
     );
 
-  if (newJob.step === "calCustomer") {
+  if (newJob.step === "customerCal") {
     return (
       <CalendarSearchSheet
         events={events}
         title="Customer from calendar"
-        hint="Pick an appointment to prefill a new customer."
+        hint="Pick an appointment — we create the customer from it and open their card."
         onClose={close}
         onPick={(e) =>
           setNewJob({
             step: "newCustomer",
             prefill: prefillFromEvent(e) || {},
+            fromCalendar: true,
             context,
           })
         }
@@ -407,8 +409,15 @@ export default function NewJobFlow() {
     return (
       <NewCustomerForm
         prefill={newJob.prefill || {}}
+        fromCalendar={Boolean(newJob.fromCalendar)}
         onClose={close}
-        onCreated={(id, name) => nav("/customer/" + encodeURIComponent(customerKeyForName(name) || id))}
+        onCreated={(id, name, meta) => {
+          const qid = meta?.qboCustomerId;
+          const key = qid
+            ? "q:" + qid
+            : customerKeyForName(name) || (id ? "j:" + id : "");
+          if (key) nav("/customer/" + encodeURIComponent(key));
+        }}
       />
     );
 
@@ -516,7 +525,7 @@ export default function NewJobFlow() {
       sasCallId={newJob.sasCallId || ""}
       sasRecordingUrl={newJob.sasRecordingUrl || ""}
       onClose={close}
-      onCreated={(id) => {
+      onCreated={(id, meta) => {
         if (newJob.sasCallId) markSasHandled(newJob.sasCallId, { handled: true, jobId: id });
         const pendingDoc = consumePendingDocAfterJob();
         if (pendingDoc) {
@@ -524,16 +533,10 @@ export default function NewJobFlow() {
           return;
         }
         resumeFollowUpPrompts();
-        // Calendar-prefilled create: land on customer so the new card is visible immediately
+        // Calendar → job: open customer card so the new person is visible right away
         // (Levi 2026-08-10 — Mordechai Nemne disappeared after add).
-        const fromCal = !!(newJob.prefill?.calEventId || newJob.prefill?.customer);
-        const name =
-          newJob.prefill?.customer ||
-          newJob.prefill?.businessName ||
-          newJob.prefill?.personName ||
-          "";
-        if (fromCal && name) {
-          nav("/customer/" + encodeURIComponent(customerKeyForName(name) || id));
+        if (newJob.prefill?.calEventId && meta?.customerKey) {
+          nav("/customer/" + encodeURIComponent(meta.customerKey));
         } else {
           nav("/job/" + encodeURIComponent(id));
         }
@@ -542,7 +545,7 @@ export default function NewJobFlow() {
   );
 }
 
-function NewCustomerForm({ prefill = {}, onClose, onCreated }) {
+function NewCustomerForm({ prefill = {}, fromCalendar = false, onClose, onCreated }) {
   const { createJob, jobs, events, api, enqueue, showToast, refreshJobs } = useStore();
   const [f, setF] = useState(() => ({
     businessName: prefill.businessName || prefill.customer || "",
@@ -559,6 +562,8 @@ function NewCustomerForm({ prefill = {}, onClose, onCreated }) {
   const [baseline, setBaseline] = useState(null);
   const [syncAction, setSyncAction] = useState("update");
   const [qboIndex, setQboIndex] = useState([]);
+  const [saving, setSaving] = useState(false);
+  const autoSavedRef = useRef(false);
   const [isSubCompany, setIsSubCompany] = useState(
     () => !!(String(prefill.parentCustomerName || "").trim() || String(prefill.parentQboCustomerId || "").trim())
   );
@@ -613,7 +618,8 @@ function NewCustomerForm({ prefill = {}, onClose, onCreated }) {
   const formChanged = customerFormDiffersFromBaseline(f, baseline);
   const createDisabled = formChanged && createNewCustomerDisabled(f.businessName, qboIndex);
 
-  const save = async () => {
+  const save = useCallback(async () => {
+    if (saving) return;
     const biz = (f.businessName || "").trim();
     if (!biz) {
       showToast("Customer name is required");
@@ -630,69 +636,106 @@ function NewCustomerForm({ prefill = {}, onClose, onCreated }) {
       return;
     }
 
-    const id = await createJob({
-      businessName: biz,
-      personName: f.personName || "",
-      customer: biz,
-      title: "New customer",
-      phone: f.phone || "",
-      email: f.email || "",
-      billingAddress: f.billingAddress || "",
-      serviceAddress: f.serviceAddress || "",
-      address: f.serviceAddress || "",
-      apartment: f.apartment || "",
-      qboCustomerId: action === "create" ? "" : f.qboCustomerId || "",
-      parentCustomerName: f.parentCustomerName || "",
-      parentQboCustomerId: f.parentQboCustomerId || "",
-    });
-    if (!id) return;
+    setSaving(true);
+    try {
+      const id = await createJob({
+        businessName: biz,
+        personName: f.personName || "",
+        customer: biz,
+        title: fromCalendar ? prefill.title || "From calendar" : "New customer",
+        phone: f.phone || "",
+        email: f.email || "",
+        billingAddress: f.billingAddress || "",
+        serviceAddress: f.serviceAddress || "",
+        address: f.serviceAddress || "",
+        apartment: f.apartment || "",
+        qboCustomerId: action === "create" ? "" : f.qboCustomerId || "",
+        parentCustomerName: f.parentCustomerName || "",
+        parentQboCustomerId: f.parentQboCustomerId || "",
+        date: fromCalendar ? prefill.date || "" : "",
+        description: fromCalendar ? prefill.description || "" : "",
+        calEventId: fromCalendar ? prefill.calEventId || "" : "",
+      }, fromCalendar ? prefill.calEventId || "" : "");
+      if (!id) return;
 
-    const payload = customerSyncPayload({ ...f, businessName: biz, customer: biz });
-    // Instant close — QuickBooks queue runs in the background.
-    if (action === "link" && f.qboCustomerId) {
-      const name = biz;
-      try {
-        sessionStorage.setItem(
-          PENDING_IMPORT_LS,
-          JSON.stringify({
-            key: customerKeyForImport({ id: f.qboCustomerId, name }),
-            name,
-            qboId: f.qboCustomerId,
-            started: Date.now(),
-          })
+      const payload = customerSyncPayload({ ...f, businessName: biz, customer: biz });
+      // Instant close — QuickBooks queue runs in the background.
+      if (action === "link" && f.qboCustomerId) {
+        const name = biz;
+        try {
+          sessionStorage.setItem(
+            PENDING_IMPORT_LS,
+            JSON.stringify({
+              key: customerKeyForImport({ id: f.qboCustomerId, name }),
+              name,
+              qboId: f.qboCustomerId,
+              started: Date.now(),
+            })
+          );
+        } catch {}
+        void enqueue(
+          "import_customer",
+          "import-" + f.qboCustomerId,
+          { name, qboId: f.qboCustomerId },
+          "deterministic",
+          "import_customer|" + f.qboCustomerId
+        ).then(() => refreshJobs?.(true));
+        showToast("Linked to QuickBooks — importing jobs…");
+      } else if (action === "update" && f.qboCustomerId) {
+        void enqueue(
+          "update_customer",
+          id,
+          { id: f.qboCustomerId, ...payload },
+          "deterministic",
+          "update_customer|" + id + "|" + Date.now()
         );
-      } catch {}
-      void enqueue(
-        "import_customer",
-        "import-" + f.qboCustomerId,
-        { name, qboId: f.qboCustomerId },
-        "deterministic",
-        "import_customer|" + f.qboCustomerId
-      ).then(() => refreshJobs?.(true));
-      showToast("Linked to QuickBooks — importing jobs…");
-    } else if (action === "update" && f.qboCustomerId) {
-      void enqueue(
-        "update_customer",
-        id,
-        { id: f.qboCustomerId, ...payload },
-        "deterministic",
-        "update_customer|" + id + "|" + Date.now()
-      );
-      showToast("Saved & syncing update to QuickBooks…");
-    } else if (action === "create") {
-      void enqueue(
-        "create_customer",
-        id,
-        payload,
-        "deterministic",
-        "create_customer|" + id + "|" + Date.now()
-      );
-      showToast("Saved & creating in QuickBooks…");
-    }
+        showToast("Saved & syncing update to QuickBooks…");
+      } else if (action === "create") {
+        void enqueue(
+          "create_customer",
+          id,
+          payload,
+          "deterministic",
+          "create_customer|" + id + "|" + Date.now()
+        );
+        showToast(fromCalendar ? "Customer created from calendar" : "Saved & creating in QuickBooks…");
+      } else {
+        showToast("Customer saved");
+      }
 
-    onClose();
-    onCreated?.(id, biz);
-  };
+      onClose();
+      const meta = {
+        qboCustomerId: action === "create" ? "" : f.qboCustomerId || "",
+      };
+      onCreated?.(id, biz, meta);
+    } finally {
+      setSaving(false);
+    }
+  }, [
+    saving,
+    f,
+    baseline,
+    formChanged,
+    syncAction,
+    createDisabled,
+    createJob,
+    fromCalendar,
+    prefill,
+    enqueue,
+    refreshJobs,
+    showToast,
+    onClose,
+    onCreated,
+  ]);
+
+  // Calendar pick already is the choice — save once the form is filled (no second deliberate "Save").
+  useEffect(() => {
+    if (!fromCalendar || autoSavedRef.current || saving) return;
+    const biz = (f.businessName || f.customer || "").trim();
+    if (!biz) return;
+    autoSavedRef.current = true;
+    void save();
+  }, [fromCalendar, f.businessName, f.customer, saving, save]);
 
   const pickParentCo = useCallback(
     async (c) => {
@@ -825,8 +868,13 @@ function NewCustomerForm({ prefill = {}, onClose, onCreated }) {
         </div>
       ) : null}
 
-      <button className="btn-brand w-full" onClick={save} data-testid="addcustomer-save-sync">
-        Save &amp; sync
+      <button
+        className="btn-brand w-full"
+        onClick={save}
+        disabled={saving}
+        data-testid="addcustomer-save-sync"
+      >
+        {saving ? "Saving…" : fromCalendar ? "Add customer" : "Save & sync"}
       </button>
     </Sheet>
   );
@@ -1036,7 +1084,10 @@ function NewJobForm({ prefill, onClose, onCreated, vendorMode = false, sasCallId
         enqueueCustomerQboSync(enqueue, id, payload, "");
       }
       onClose();
-      onCreated && onCreated(id);
+      const custName = cur.businessName || cur.customer || "";
+      const customerKey =
+        (cur.qboCustomerId && "q:" + cur.qboCustomerId) || customerKeyForName(custName) || "";
+      onCreated && onCreated(id, { customerKey, customerName: custName, qboCustomerId: cur.qboCustomerId || "" });
     }
   };
 

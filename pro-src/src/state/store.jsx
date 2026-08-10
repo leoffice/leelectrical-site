@@ -1054,10 +1054,16 @@ export function StoreProvider({ children }) {
       if (cmd.status !== "done") continue;
       const mark = String(cmd.idempotencyKey || cmd.id || "");
       if (!mark || appliedCustomerQbo.current.has(mark)) continue;
-      const patch = customerQboJobPatch(cmd.result);
+      const patch = customerQboJobPatch(cmd.result, cmd);
       if (!patch || !cmd.jobId) continue;
       const job = effectiveJob(cmd.jobId);
-      if (job && String(job.qboCustomerId || "") === patch.qboCustomerId) {
+      // Already fully linked with matching id — skip re-save unless name missing
+      // (thin race left qboCustomerId only; re-apply identity fields).
+      if (
+        job &&
+        String(job.qboCustomerId || "") === patch.qboCustomerId &&
+        (job.customer || job.businessName)
+      ) {
         appliedCustomerQbo.current.add(mark);
         continue;
       }
@@ -1171,15 +1177,14 @@ export function StoreProvider({ children }) {
       // Optimistic stamp so a concurrent refreshJobs does not treat the blob
       // as fresher and wipe this brand-new local job before save lands.
       lastSavedTs.current = Math.max(lastSavedTs.current, Date.now());
-      // Network in background — never block invoice/job Save on cloud (Levi 2026-08-05 stuck Save).
-      void (async () => {
-        try {
-          const r = await api.saveJob(id, ov);
-          if (r && r.ts) lastSavedTs.current = Math.max(lastSavedTs.current, r.ts);
-        } catch {
-          showToast("Offline — job kept locally");
-        }
-      })();
+      // Await first overlay write before create_customer / other thin patches can
+      // race (thin qboCustomerId-only write was wiping full local customer shells).
+      try {
+        const r = await api.saveJob(id, ov);
+        if (r && r.ts) lastSavedTs.current = Math.max(lastSavedTs.current, r.ts);
+      } catch {
+        showToast("Offline — job kept locally");
+      }
       if (g.date) {
         // P0 data-loss fix (2026-07-31): never replace Google event notes with
         // "Created in LE Pro". Prefer job/event description; when updating an

@@ -16,9 +16,37 @@ export function parseCustomerQboResult(result) {
   return { customerId: id, name: String(res.name || "").trim() };
 }
 
-/** Job overlay patch when a customer command succeeded. */
-export function customerQboJobPatch(result) {
+/**
+ * Job overlay patch when a customer command succeeded.
+ * Includes identity fields from the command payload so a thin qboCustomerId-only
+ * write cannot leave a nameless local job that vanishes from the customer list.
+ * @param {unknown} result
+ * @param {{ payload?: Record<string, unknown> } | null} [cmd]
+ */
+export function customerQboJobPatch(result, cmd) {
   const parsed = parseCustomerQboResult(result);
   if (!parsed) return null;
-  return { qboCustomerId: parsed.customerId };
+  const pl = (cmd && cmd.payload) || {};
+  const name = String(pl.name || pl.businessName || pl.customer || parsed.name || "").trim();
+  const person = String(pl.personName || "").trim();
+  const patch = {
+    qboCustomerId: parsed.customerId,
+    // Keep local shell jobs visible after link (mergeJobs + list grouping).
+    _new: true,
+  };
+  if (name) {
+    patch.customer = name;
+    patch.businessName = name;
+  }
+  if (person) patch.personName = person;
+  if (pl.email != null && String(pl.email).trim()) patch.email = String(pl.email).trim();
+  if (pl.phone != null && String(pl.phone).trim()) patch.phone = String(pl.phone).trim();
+  const bill = pl.billingAddr || pl.billingAddress;
+  if (bill != null && String(bill).trim()) patch.billingAddress = String(bill).trim();
+  const addr = pl.addr || pl.serviceAddress || pl.address;
+  if (addr != null && String(addr).trim()) {
+    patch.serviceAddress = String(addr).trim();
+    patch.address = String(addr).trim();
+  }
+  return patch;
 }

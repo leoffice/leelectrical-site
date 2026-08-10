@@ -39,21 +39,27 @@ const customers = [
 const openAddCustomer = async (user) => {
   await user.click(screen.getByTestId("fab-add"));
   await user.click(screen.getByText("Add a customer"));
+  // Menu: calendar first, then manual form
+  const manual = screen.queryByTestId("addcustomer-manual") || screen.queryByText("Enter manually");
+  if (manual) await user.click(manual);
   await screen.findByTestId("newcustomer-search");
 };
 
 describe("Add customer — unified flow", () => {
-  it("opens single form directly (no import/create chooser)", async () => {
+  it("Add a customer menu: calendar first, then manual form", async () => {
     mockServer({ customers });
     const user = userEvent.setup();
     renderApp("#/");
     await screen.findByText("Peretz Chein");
-    await openAddCustomer(user);
+    await user.click(screen.getByTestId("fab-add"));
+    await user.click(screen.getByText("Add a customer"));
+    expect(screen.getByTestId("addcustomer-from-calendar")).toBeInTheDocument();
+    expect(screen.getByTestId("addcustomer-manual")).toBeInTheDocument();
+    await user.click(screen.getByTestId("addcustomer-manual"));
     expect(screen.getByText("Add customer")).toBeInTheDocument();
     expect(screen.getByLabelText("Billing address")).toBeInTheDocument();
     expect(screen.getByLabelText("Service address")).toBeInTheDocument();
     expect(screen.queryByText("Import from QuickBooks")).not.toBeInTheDocument();
-    expect(screen.queryByText("Create new customer")).not.toBeInTheDocument();
   });
 
   it("brand-new customer enqueues create_customer on Save & sync", async () => {
