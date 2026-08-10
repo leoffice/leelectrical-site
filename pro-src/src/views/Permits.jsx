@@ -1176,7 +1176,7 @@ function DeployQueueRow({
 }
 
 export default function Permits() {
-  const { jobs, emailInsights, events, patchAndSave, showToast, enqueue, createJob, api } =
+  const { jobs, emailInsights, events, patchAndSave, showToast, enqueue, createJob, whenJobSaved, api } =
     useStore();
   const [phaseABusy, setPhaseABusy] = useState(false);
   /** { draft, payUrl, job, created } — open compose before send (Levi 2026-08-10). */
@@ -1415,6 +1415,8 @@ export default function Permits() {
     }
     const id = await createJob(prep.fields);
     if (!id) throw new Error("Couldn't create renew invoice");
+    // Wait for full shell save before thin meta patch (createJob is snappy/local-first).
+    if (typeof whenJobSaved === "function") await whenJobSaved(id);
     if (prep.meta) {
       await patchAndSave(id, {
         ...prep.meta,
