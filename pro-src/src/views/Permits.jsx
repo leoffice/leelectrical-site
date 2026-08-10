@@ -242,6 +242,25 @@ function MacRenewPhase1Card({
                     {r.invoiceNo ? ` · Inv #${r.invoiceNo}` : ""}
                     {r.permitNo ? ` · ${r.permitNo}` : ""} · ${r.fee}
                   </div>
+                  {r.stageLabel ? (
+                    <div
+                      className={
+                        "text-[10px] font-bold mt-0.5 " +
+                        (r.stageTone === "abandoned"
+                          ? "text-red-700"
+                          : r.stageTone === "near_abandon"
+                            ? "text-orange-700"
+                            : r.stageTone === "expired"
+                              ? "text-amber-800"
+                              : r.stageTone === "soon"
+                                ? "text-amber-700"
+                                : "text-violet-700")
+                      }
+                      data-testid="permit-renew-stage"
+                    >
+                      Notice stage: {r.stageLabel}
+                    </div>
+                  ) : null}
                   {open ? (
                     <div
                       className="mt-1.5 pt-1.5 border-t border-violet-100 text-[10px] text-slate-600 space-y-0.5"
@@ -254,6 +273,10 @@ function MacRenewPhase1Card({
                       <div>
                         <span className="font-semibold text-slate-700">Expires: </span>
                         {r.expiresDate || "—"}
+                      </div>
+                      <div>
+                        <span className="font-semibold text-slate-700">Notice stage: </span>
+                        {r.stageLabel || "—"}
                       </div>
                       <div>
                         <span className="font-semibold text-slate-700">Service address: </span>

@@ -19,6 +19,7 @@ import {
   permitAbandonedFromExpires,
   permitExpiresFromIssued,
   permitRenewByDate,
+  permitRenewStageLabel,
   permitRenewStatusSentence,
   permitRenewStatusTone,
   preparePhaseAMock,
@@ -109,7 +110,7 @@ describe("permitRenewal Phase A mock", () => {
     expect(formatPermitDateUs("")).toBe("");
   });
 
-  it("status tone auto-switches by date vs expiry (4 stages)", () => {
+  it("status tone auto-switches by date vs expiry (5 stages)", () => {
     expect(permitRenewStatusTone("2027-02-06", { todayIso: "2026-08-10" })).toBe(
       "upcoming"
     );
@@ -126,6 +127,15 @@ describe("permitRenewal Phase A mock", () => {
     expect(permitRenewStatusTone("2025-10-11", { todayIso: "2026-09-01" })).toBe(
       "near_abandon"
     );
+    // On/after abandoned date → must re-apply
+    expect(permitRenewStatusTone("2025-10-11", { todayIso: "2026-10-11" })).toBe(
+      "abandoned"
+    );
+    expect(permitRenewStatusTone("2025-10-11", { todayIso: "2027-01-01" })).toBe(
+      "abandoned"
+    );
+    expect(permitRenewStageLabel("near_abandon")).toMatch(/Near abandoned/i);
+    expect(permitRenewStageLabel("abandoned")).toMatch(/re-apply/i);
   });
 
   it("status sentence uses Permit wording for each tone", () => {
@@ -149,6 +159,22 @@ describe("permitRenewal Phase A mock", () => {
         "October 11, 2026"
       )
     ).toMatch(/about to go into abandoned status on October 11, 2026/);
+    expect(
+      permitRenewStatusSentence(
+        "40 Hampton Pl",
+        "October 11, 2025",
+        "abandoned",
+        "October 11, 2026"
+      )
+    ).toMatch(/is now abandoned \(as of October 11, 2026\)/);
+    expect(
+      permitRenewStatusSentence(
+        "40 Hampton Pl",
+        "October 11, 2025",
+        "abandoned",
+        "October 11, 2026"
+      )
+    ).toMatch(/apply for a brand-new permit/);
   });
 
   it("abandoned date is expiration + 12 months", () => {
@@ -305,6 +331,29 @@ describe("permitRenewal Phase A mock", () => {
     expect(body).toMatch(/February 6, 2026/);
     expect(body).toMatch(/February 6, 2027/);
     expect(body).toMatch(/Please renew by January 30, 2027/i);
+  });
+
+  it("email near_abandon + abandoned stages use re-apply wording", () => {
+    const near = buildPermitRenewEmail({
+      invoiceNo: "LE-2701",
+      todayIso: "2026-09-01", // expires 2025-10-11 → abandon 2026-10-11
+    });
+    expect(near.tone).toBe("near_abandon");
+    expect(near.subject).toMatch(/about to be abandoned/i);
+    expect(near.ctaLabel).toBe("Renew Permit");
+    expect(near.body).toMatch(/about to go into abandoned status/i);
+    expect(near.body).toMatch(/brand-new permit/i);
+
+    const gone = buildPermitRenewEmail({
+      invoiceNo: "LE-2701",
+      todayIso: "2026-10-12",
+    });
+    expect(gone.tone).toBe("abandoned");
+    expect(gone.subject).toMatch(/is abandoned/i);
+    expect(gone.ctaLabel).toBe("Apply for new permit");
+    expect(gone.body).toMatch(/is now abandoned/i);
+    expect(gone.body).toMatch(/can no longer be renewed|brand-new permit/i);
+    expect(gone.stageLabel).toMatch(/re-apply/i);
   });
 
   it("Phase A CTA pay payload opens renew invoice on tap (service address only)", () => {
