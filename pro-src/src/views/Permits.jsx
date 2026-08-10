@@ -152,7 +152,8 @@ function CollapsibleSection({
 function RenewalNotificationsCard({ jobs, phaseABusy, onSendForRow, onOpenJob }) {
   const pending = useMemo(() => listPendingRenewCards(jobs), [jobs]);
   const paidDeploy = useMemo(() => listPaidUpdatePermitCards(jobs), [jobs]);
-  const [sectionOpen, setSectionOpen] = useState(false);
+  // Open by default — no extra tap / lag to see permit # + exp (Levi 2026-08-10).
+  const [sectionOpen, setSectionOpen] = useState(true);
   const [expandedId, setExpandedId] = useState("");
 
   return (
@@ -255,23 +256,37 @@ function RenewalNotificationsCard({ jobs, phaseABusy, onSendForRow, onOpenJob })
                       <div className="text-[12px] font-semibold text-slate-700 truncate">
                         {r.customer || "—"}
                       </div>
-                      <div className="text-[11px] text-slate-600 mt-0.5 truncate">
+                      <div className="flex flex-wrap gap-1 mt-1.5">
                         {r.permitNo ? (
-                          <span className="font-bold text-violet-800">{r.permitNo}</span>
+                          <span
+                            className="inline-flex items-center rounded-full bg-violet-100 text-violet-900 text-[10px] font-bold px-1.5 py-0.5"
+                            data-testid="permit-renew-permit-no"
+                          >
+                            {r.permitNo}
+                          </span>
                         ) : (
-                          <span className="text-slate-400">No permit #</span>
+                          <span className="text-[10px] text-slate-400 font-semibold">No permit #</span>
                         )}
                         {expLabel ? (
-                          <span>
-                            {" "}
-                            · Exp {expLabel}
+                          <span
+                            className="inline-flex items-center rounded-full bg-slate-100 text-slate-700 text-[10px] font-bold px-1.5 py-0.5"
+                            data-testid="permit-renew-exp"
+                          >
+                            Exp {expLabel}
+                          </span>
+                        ) : null}
+                        {r.stageLabel ? (
+                          <span
+                            className="inline-flex items-center rounded-full bg-amber-100 text-amber-900 text-[10px] font-bold px-1.5 py-0.5"
+                            data-testid="permit-renew-status"
+                          >
+                            {r.stageLabel}
                           </span>
                         ) : null}
                         {r.fee != null ? (
-                          <span className="text-slate-500"> · ${r.fee}</span>
-                        ) : null}
-                        {r.stageLabel ? (
-                          <span className="text-amber-800 font-semibold"> · {r.stageLabel}</span>
+                          <span className="inline-flex items-center rounded-full bg-slate-100 text-slate-700 text-[10px] font-bold px-1.5 py-0.5">
+                            ${r.fee}
+                          </span>
                         ) : null}
                       </div>
                     </button>

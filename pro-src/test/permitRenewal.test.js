@@ -535,6 +535,27 @@ describe("permitRenewal Phase A mock", () => {
     const paidBox = listPaidUpdatePermitCards([paid]);
     expect(paidBox.length).toBe(1);
     expect(paidBox[0].deployUpdate).toBe(true);
+
+    // Cache always carries permit # + expiration (never blank main card)
+    const fromCache = listPendingRenewCards([]);
+    const ham = fromCache.find((c) => c.scenarioId === "hampton-yossi");
+    expect(ham?.permitNo).toMatch(/B01126007/);
+    expect(ham?.expiresDate).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+    expect(ham?.expiresDate).toBe("2025-10-11");
+
+    // Thin job row (missing permitRenew facts) still fills from scenario
+    const thin = {
+      id: "r-thin",
+      customer: "Yosef Beshari",
+      serviceAddress: "40 Hampton Pl",
+      invoiceNo: "LE-2799",
+      amount: 365,
+      openBalance: 365,
+      permitRenew: { realTest: true, scenarioId: "hampton-yossi" },
+    };
+    const filled = listPendingRenewCards([thin]).find((c) => c.scenarioId === "hampton-yossi");
+    expect(filled?.permitNo).toMatch(/B01126007/);
+    expect(filled?.expiresDate).toBe("2025-10-11");
   });
 
   it("detects renew jobs and reuses open Bashari invoice", () => {

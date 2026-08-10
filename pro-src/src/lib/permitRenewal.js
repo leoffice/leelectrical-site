@@ -765,16 +765,49 @@ export function listPendingRenewCards(jobs = []) {
   const apps = listRenewApplications(jobs);
   const cards = [];
   for (const sc of READY_RENEW_SCENARIOS) {
+    const scIssued = String(sc.issuedDate || "").trim().slice(0, 10);
+    const scExpires =
+      String(sc.expiresDate || "").trim().slice(0, 10) ||
+      permitExpiresFromIssued(scIssued);
+    // Always fill permit # + expiration from ready scenario when job row is thin
+    // (Levi 2026-08-10 — half-empty cards were missing both).
+    const fillFromScenario = (row = {}) => {
+      const issued =
+        String(row.issuedDate || row.gradedDate || scIssued || "").trim().slice(0, 10) ||
+        scIssued;
+      const expires =
+        String(row.expiresDate || "").trim().slice(0, 10) ||
+        scExpires ||
+        permitExpiresFromIssued(issued);
+      const stageTone = expires ? permitRenewStatusTone(expires) : "upcoming";
+      return {
+        ...row,
+        scenarioId: sc.id,
+        scenario: sc,
+        customer: row.customer || sc.displayCustomer,
+        businessName: row.businessName || sc.businessName || "",
+        address: row.address || sc.address,
+        permitNo: String(row.permitNo || sc.permitNo || "").trim(),
+        issuedDate: issued,
+        gradedDate: row.gradedDate || issued,
+        expiresDate: expires,
+        fee: row.fee != null ? row.fee : renewFeeFromScenario(sc),
+        email: row.email || sc.realEmail || "",
+        stageTone: row.stageTone || stageTone,
+        stageLabel: row.stageLabel || permitRenewStageLabel(stageTone),
+      };
+    };
+
     const job = findRenewJobForScenario(jobs, sc.id);
     if (job) {
       const row = apps.find((r) => r.id === job.id);
       if (row?.pendingSend) {
-        cards.push({
-          ...row,
-          scenarioId: sc.id,
-          scenario: sc,
-          email: row.email || sc.realEmail || "",
-        });
+        cards.push(
+          fillFromScenario({
+            ...row,
+            email: row.email || sc.realEmail || "",
+          })
+        );
         continue;
       }
       // Emailed unpaid or paid/deploy — not in pending box
@@ -783,36 +816,21 @@ export function listPendingRenewCards(jobs = []) {
       if (pr.noticeSent || pr.emailSentAt) continue;
       // Job exists but not yet in apps (edge) — still pending
     }
-    const issued = String(sc.issuedDate || "").trim().slice(0, 10);
-    const expires =
-      String(sc.expiresDate || "").trim().slice(0, 10) ||
-      permitExpiresFromIssued(issued);
-    const stageTone = expires ? permitRenewStatusTone(expires) : "upcoming";
-    cards.push({
-      id: job?.id || `ready-${sc.id}`,
-      jobId: job?.id || "",
-      scenarioId: sc.id,
-      scenario: sc,
-      customer: sc.displayCustomer,
-      businessName: sc.businessName || "",
-      address: sc.address,
-      permitNo: sc.permitNo || "",
-      issuedDate: issued,
-      gradedDate: issued,
-      expiresDate: expires,
-      fee: renewFeeFromScenario(sc),
-      email: String(job?.email || sc.realEmail || "").trim(),
-      status: job?.invoiceNo ? "Pending send" : "Ready",
-      pendingSend: true,
-      paid: false,
-      deployUpdate: false,
-      noticeSent: false,
-      stageTone,
-      stageLabel: permitRenewStageLabel(stageTone),
-      invoiceNo: String(job?.invoiceNo || "").trim(),
-      mock: false,
-      realTest: true,
-    });
+    cards.push(
+      fillFromScenario({
+        id: job?.id || `ready-${sc.id}`,
+        jobId: job?.id || "",
+        status: job?.invoiceNo ? "Pending send" : "Ready",
+        pendingSend: true,
+        paid: false,
+        deployUpdate: false,
+        noticeSent: false,
+        invoiceNo: String(job?.invoiceNo || "").trim(),
+        mock: false,
+        realTest: true,
+        email: String(job?.email || sc.realEmail || "").trim(),
+      })
+    );
   }
   return cards;
 }
