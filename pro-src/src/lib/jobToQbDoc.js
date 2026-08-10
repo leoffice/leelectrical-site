@@ -236,9 +236,13 @@ export function mapJobToQbDocData(job, kind = "invoice") {
     .replace(/^#/, "");
   const customFields = [];
   // Show when street differs from bill-to, or apartment is set (even if street matches).
+  // Permit renew invoices always print Service Address (Levi 2026-08-10).
   const billCmp = billAddr.toLowerCase();
   const hasApt = !!apartment;
-  if (svcStreet && (svcStreet.toLowerCase() !== billCmp || hasApt)) {
+  const forceService =
+    !!(job?.permitRenew || job?.permitRenewMock) ||
+    /permit\s+renew/i.test(String(job?.title || ""));
+  if (svcStreet && (svcStreet.toLowerCase() !== billCmp || hasApt || forceService)) {
     customFields.push({ label: "Service Address", value: svcStreet });
   }
 

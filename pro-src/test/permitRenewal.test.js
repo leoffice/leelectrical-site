@@ -13,6 +13,8 @@ import {
   isBlockedRenewRecipient,
   isLeviTesterEmail,
   isPermitRenewJob,
+  listRenewApplications,
+  permitExpiresFromIssued,
   preparePhaseAMock,
 } from "../src/lib/permitRenewal.js";
 
@@ -41,15 +43,23 @@ describe("permitRenewal Phase A mock", () => {
     expect(lines[0].description).toMatch(/B01126007/);
   });
 
-  it("createJob fields target Levi Tester with Hampton content", () => {
+  it("createJob fields use person name + LE-#### + service address (email stays tester)", () => {
     const fields = buildPermitRenewJobFields({ jobs: [] });
-    expect(fields.customer.toLowerCase()).toContain("tester");
+    // Bill-to is the real person's name on the invoice (not "levi tester")
+    expect(fields.customer).toMatch(/Yosef|Beshari/i);
+    expect(fields.personName).toMatch(/Yosef|Beshari/i);
+    // Delivery still Levi Tester only
     expect(fields.email).toBe(LEVI_TESTER.email);
     expect(fields.serviceAddress).toMatch(/Hampton/i);
+    expect(fields.address).toMatch(/Hampton/i);
+    // Billing distinct so Service Address prints on PDF
+    expect(fields.billingAddress).not.toBe(fields.serviceAddress);
     expect(fields.amount).toBe(365);
     expect(fields.invoiceNo).toMatch(/^LE-\d+/);
     expect(fields.invoiceLines[0].unitPrice).toBe(365);
+    expect(fields.invoiceLines[0].description).toMatch(/B01126007/);
     expect(fields.title).toMatch(/permit renewal/i);
+    expect(fields._invoiceConfirmed).toBe(true);
   });
 
   it("meta patch marks mock Phase A and keeps autoEmail off", () => {
@@ -60,6 +70,51 @@ describe("permitRenewal Phase A mock", () => {
     expect(meta.paperwork.dob.renewSchedule.autoEmail).toBe(false);
     expect(meta.email).toBe(LEVI_TESTER.email);
     expect(meta.openBalance).toBe(365);
+    expect(meta.permitRenew.gradedDate).toBe(PHASE_A_HAMPTON_SCENARIO.issuedDate);
+    expect(meta.permitRenew.expiresDate).toBe(
+      permitExpiresFromIssued(PHASE_A_HAMPTON_SCENARIO.issuedDate)
+    );
+    expect(meta.serviceAddress).toMatch(/Hampton/i);
+  });
+
+  it("permitExpiresFromIssued adds one year", () => {
+    expect(permitExpiresFromIssued("2026-02-06")).toBe("2027-02-06");
+    expect(permitExpiresFromIssued("")).toBe("");
+  });
+
+  it("listRenewApplications lists open / paid / wants-renew with dates", () => {
+    const open = {
+      id: "r1",
+      customer: "Yosef Beshari",
+      invoiceNo: "LE-2710",
+      amount: 365,
+      openBalance: 365,
+      serviceAddress: "40 Hampton Pl",
+      permitRenew: {
+        mock: true,
+        phase: "A",
+        address: "40 Hampton Pl",
+        permitNo: "B01126007-S1-EL",
+        issuedDate: "2026-02-06",
+        gradedDate: "2026-02-06",
+        expiresDate: "2027-02-06",
+        fee: 365,
+      },
+    };
+    const paid = { ...open, id: "r2", paid: true, openBalance: 0 };
+    const notice = {
+      id: "r3",
+      customer: "Other",
+      serviceAddress: "99 Test St",
+      paperwork: { dob: { renewSchedule: { on: true } } },
+    };
+    const rows = listRenewApplications([open, paid, notice]);
+    expect(rows.length).toBe(3);
+    expect(rows.find((r) => r.id === "r1").status).toBe("Invoice open");
+    expect(rows.find((r) => r.id === "r2").status).toBe("Paid");
+    expect(rows.find((r) => r.id === "r3").status).toBe("Wants renew");
+    expect(rows.find((r) => r.id === "r1").expiresDate).toBe("2027-02-06");
+    expect(rows.find((r) => r.id === "r1").gradedDate).toBe("2026-02-06");
   });
 
   it("email has address, permit details, and Update or Renew Permit CTA", () => {

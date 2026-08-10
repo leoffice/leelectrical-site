@@ -161,7 +161,22 @@ export function findOpenMockRenewJob(jobs) {
 }
 
 /**
- * Fields for createJob — Levi Tester as customer, Hampton content on the invoice.
+ * City electrical permits are typically valid ~1 year from issue/grade.
+ * Returns YYYY-MM-DD or "".
+ */
+export function permitExpiresFromIssued(issuedDate) {
+  const raw = String(issuedDate || "").trim().slice(0, 10);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(raw)) return "";
+  const d = new Date(raw + "T12:00:00");
+  if (Number.isNaN(d.getTime())) return "";
+  d.setFullYear(d.getFullYear() + 1);
+  return d.toISOString().slice(0, 10);
+}
+
+/**
+ * Fields for createJob — bill-to shows the real person's name (Hampton mock),
+ * service address is the permit site, email stays Levi Tester only.
+ * Invoice # is a normal LE-#### (not a local id / random token).
  */
 export function buildPermitRenewJobFields({
   jobs = [],
@@ -176,22 +191,29 @@ export function buildPermitRenewJobFields({
     address: sc.address,
     permitNo: sc.permitNo,
   });
+  // Person on the invoice (not "levi tester") — matches a normal customer invoice.
+  const person = String(sc.displayCustomer || "").trim() || LEVI_TESTER.customer;
+  const serviceAddr = String(sc.address || "").trim();
   return {
-    customer: LEVI_TESTER.customer,
-    businessName: LEVI_TESTER.customer,
-    personName: LEVI_TESTER.customer,
+    customer: person,
+    businessName: person,
+    personName: person,
+    // Delivery only — gate still blocks real Yossi
     email: LEVI_TESTER.email,
     phone: "",
     title: `City electrical permit renewal — ${sc.permitNo}`,
-    description:
-      `Mock Phase A renew for ${sc.displayCustomer} · ${sc.address} · ${sc.permitNo}. ` +
-      `Invoice to Levi Tester only — not the real customer.`,
-    address: sc.address,
-    serviceAddress: sc.address,
-    billingAddress: sc.address,
+    // Job notes (not printed as line item). Line description carries permit #.
+    description: `City electrical permit renewal for ${serviceAddr} · permit ${sc.permitNo}`,
+    // Service site on the invoice Service Address field
+    address: serviceAddr,
+    serviceAddress: serviceAddr,
+    // Distinct from service so the PDF always prints a Service Address column
+    billingAddress: person,
     amount,
     invoiceNo,
     invoiceLines: lines,
+    invoiceDate: new Date().toISOString().slice(0, 10),
+    _invoiceConfirmed: true,
   };
 }
 
@@ -199,10 +221,16 @@ export function buildPermitRenewJobFields({
 export function buildPermitRenewMetaPatch(scenario = PHASE_A_HAMPTON_SCENARIO, fee) {
   const sc = scenario || PHASE_A_HAMPTON_SCENARIO;
   const amount = fee != null ? parseAmount(fee) || PERMIT_RENEW_FEE : renewFeeFromScenario(sc);
+  const issued = String(sc.issuedDate || "").trim().slice(0, 10);
+  const expires = permitExpiresFromIssued(issued);
   return {
     openBalance: amount,
     _invoiceConfirmed: true,
     email: LEVI_TESTER.email,
+    serviceAddress: sc.address,
+    address: sc.address,
+    // Keep bill-to name as the person; service street on serviceAddress
+    billingAddress: String(sc.displayCustomer || "").trim() || LEVI_TESTER.customer,
     permitRenew: {
       mock: true,
       phase: "A",
@@ -210,7 +238,9 @@ export function buildPermitRenewMetaPatch(scenario = PHASE_A_HAMPTON_SCENARIO, f
       displayCustomer: sc.displayCustomer,
       address: sc.address,
       permitNo: sc.permitNo,
-      issuedDate: sc.issuedDate,
+      issuedDate: issued,
+      gradedDate: issued,
+      expiresDate: expires,
       fee: amount,
       createdAt: new Date().toISOString(),
       autoEmail: false,
@@ -236,6 +266,89 @@ export function buildPermitRenewMetaPatch(scenario = PHASE_A_HAMPTON_SCENARIO, f
       },
     },
   };
+}
+
+/**
+ * Rows for the purple MAC Renew box — mock invoices, wants-to-renew flags, paid.
+ * Sorted: unpaid/open first, then paid, then draft notices.
+ */
+export function listRenewApplications(jobs = []) {
+  const list = Array.isArray(jobs) ? jobs : [];
+  const rows = [];
+  const seen = new Set();
+
+  const pushFromJob = (j, extra = {}) => {
+    if (!j?.id || seen.has(j.id)) return;
+    seen.add(j.id);
+    const pr = j.permitRenew || j.permitRenewMock || {};
+    const issued = String(
+      pr.issuedDate || pr.gradedDate || extra.issuedDate || ""
+    )
+      .trim()
+      .slice(0, 10);
+    const graded = String(pr.gradedDate || issued || "").trim().slice(0, 10);
+    const expires =
+      String(pr.expiresDate || "").trim().slice(0, 10) ||
+      permitExpiresFromIssued(issued);
+    const due =
+      j.openBalance != null && j.openBalance !== ""
+        ? parseAmount(j.openBalance)
+        : parseAmount(j.amount);
+    const paid = !!(j.paid || (j.invoiceNo && due <= 0.01));
+    let status = "Wants renew";
+    if (paid) status = "Paid";
+    else if (j.invoiceNo) status = "Invoice open";
+    else if (pr.mock || pr.phase === "A" || pr.phase === 1) status = "Mock draft";
+    rows.push({
+      id: j.id,
+      jobId: j.id,
+      address: String(
+        j.serviceAddress || j.address || pr.address || extra.address || "—"
+      ).trim(),
+      customer: String(
+        pr.displayCustomer || j.customer || j.personName || j.businessName || "—"
+      ).trim(),
+      permitNo: String(pr.permitNo || pr.filing || extra.permitNo || "").trim(),
+      invoiceNo: String(j.invoiceNo || "").trim(),
+      fee: pr.fee != null ? parseAmount(pr.fee) : parseAmount(j.amount) || PERMIT_RENEW_FEE,
+      issuedDate: issued,
+      gradedDate: graded,
+      expiresDate: expires,
+      paid,
+      status,
+      mock: !!(pr.mock || pr.phase === "A" || pr.phase === 1),
+    });
+  };
+
+  for (const j of list) {
+    if (isPermitRenewJob(j)) pushFromJob(j);
+  }
+  // Also surface jobs with renew schedule ON but no mock invoice yet
+  for (const j of list) {
+    if (seen.has(j?.id)) continue;
+    const on =
+      j?.paperwork?.dob?.renewSchedule?.on ||
+      j?.paperwork?.city?.renewSchedule?.on ||
+      false;
+    if (!on) continue;
+    pushFromJob(j, {
+      address: j.serviceAddress || j.address,
+      permitNo:
+        j?.paperwork?.dob?.filingNumber ||
+        j?.paperwork?.dob?.permitNumber ||
+        j?.paperwork?.city?.filingNumber ||
+        "",
+    });
+  }
+
+  const rank = (r) => {
+    if (r.status === "Invoice open") return 0;
+    if (r.status === "Wants renew" || r.status === "Mock draft") return 1;
+    if (r.status === "Paid") return 2;
+    return 3;
+  };
+  rows.sort((a, b) => rank(a) - rank(b) || String(a.address).localeCompare(String(b.address)));
+  return rows;
 }
 
 /**

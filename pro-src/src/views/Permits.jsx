@@ -78,6 +78,7 @@ import {
   buildPermitRenewEmail,
   buildPermitRenewMailto,
   buildPermitRenewPayUrl,
+  listRenewApplications,
   preparePhaseAMock,
 } from "../lib/permitRenewal.js";
 import {
@@ -142,6 +143,154 @@ function CollapsibleSection({
         <span className="text-slate-400 text-xs">{open ? "▾" : "▸"}</span>
       </button>
       {open ? children : null}
+    </div>
+  );
+}
+
+/**
+ * Purple MAC Renew Phase 1 hub — all renew applications, wants-to-renew notices,
+ * and paid renewals. Tap an address for graded + expiration dates.
+ */
+function MacRenewPhase1Card({
+  jobs,
+  phaseABusy,
+  onPreview,
+  onEmail,
+  onBoth,
+  onOpenJob,
+}) {
+  const rows = useMemo(() => listRenewApplications(jobs), [jobs]);
+  const [expandedId, setExpandedId] = useState("");
+
+  return (
+    <div
+      className="card mb-4 border border-violet-200 bg-violet-50/60 p-3.5"
+      data-testid="permit-renew-phase-a-mock"
+    >
+      <div className="flex items-start justify-between gap-2 mb-2">
+        <div className="min-w-0">
+          <div className="text-xs font-extrabold text-violet-900 tracking-wide">
+            MAC Renew Phase 1
+          </div>
+          <p className="text-[11px] text-violet-800/90 mt-0.5 leading-snug">
+            All renewal applications, wants-to-renew notices, and paid renewals live here.
+            Mock: {PHASE_A_HAMPTON_SCENARIO.address} / {PHASE_A_HAMPTON_SCENARIO.displayCustomer}{" "}
+            ({PHASE_A_HAMPTON_SCENARIO.permitNo}) · ${PERMIT_RENEW_FEE} · email only to{" "}
+            {LEVI_TESTER.email} via Resend.
+          </p>
+        </div>
+      </div>
+      <div className="flex flex-wrap gap-2 mb-2">
+        <button
+          type="button"
+          className="btn bg-violet-700 text-white !py-2 !px-3 text-xs font-bold"
+          disabled={phaseABusy}
+          data-testid="permit-renew-mock-preview"
+          onClick={onPreview}
+        >
+          {phaseABusy ? "Working…" : "Open renew invoice page"}
+        </button>
+        <button
+          type="button"
+          className="btn bg-white border border-violet-300 text-violet-900 !py-2 !px-3 text-xs font-bold"
+          disabled={phaseABusy}
+          data-testid="permit-renew-mock-email"
+          onClick={onEmail}
+        >
+          Send mock email to Levi Tester
+        </button>
+        <button
+          type="button"
+          className="btn bg-white border border-violet-300 text-violet-900 !py-2 !px-3 text-xs font-bold"
+          disabled={phaseABusy}
+          data-testid="permit-renew-mock-both"
+          onClick={onBoth}
+        >
+          Invoice page + email
+        </button>
+      </div>
+      {!rows.length ? (
+        <p className="text-[10px] text-violet-700/80 leading-snug">
+          No renew applications yet — use the buttons above for the Hampton mock (Levi Tester
+          only).
+        </p>
+      ) : (
+        <ul className="space-y-1.5 mt-1" data-testid="permit-renew-app-list">
+          {rows.map((r) => {
+            const open = expandedId === r.id;
+            return (
+              <li key={r.id}>
+                <button
+                  type="button"
+                  className="w-full text-left rounded-lg border border-violet-200 bg-white px-2.5 py-2"
+                  data-testid="permit-renew-app-row"
+                  onClick={() => setExpandedId(open ? "" : r.id)}
+                >
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="text-[11px] font-bold text-slate-800 truncate">
+                      {r.address}
+                    </span>
+                    <span
+                      className={
+                        "text-[10px] font-extrabold uppercase shrink-0 " +
+                        (r.paid
+                          ? "text-emerald-700"
+                          : r.status === "Invoice open"
+                            ? "text-amber-800"
+                            : "text-violet-800")
+                      }
+                    >
+                      {r.status}
+                    </span>
+                  </div>
+                  <div className="text-[10px] text-slate-500 mt-0.5">
+                    {r.customer}
+                    {r.invoiceNo ? ` · Inv #${r.invoiceNo}` : ""}
+                    {r.permitNo ? ` · ${r.permitNo}` : ""} · ${r.fee}
+                  </div>
+                  {open ? (
+                    <div
+                      className="mt-1.5 pt-1.5 border-t border-violet-100 text-[10px] text-slate-600 space-y-0.5"
+                      data-testid="permit-renew-app-detail"
+                    >
+                      <div>
+                        <span className="font-semibold text-slate-700">Graded / issued: </span>
+                        {r.gradedDate || r.issuedDate || "—"}
+                      </div>
+                      <div>
+                        <span className="font-semibold text-slate-700">Expires: </span>
+                        {r.expiresDate || "—"}
+                      </div>
+                      <div>
+                        <span className="font-semibold text-slate-700">Service address: </span>
+                        {r.address}
+                      </div>
+                      <button
+                        type="button"
+                        className="mt-1 text-[11px] font-bold text-violet-800 underline underline-offset-2"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          onOpenJob?.(r.jobId);
+                        }}
+                      >
+                        Open invoice
+                      </button>
+                    </div>
+                  ) : (
+                    <div className="text-[10px] text-violet-600/80 mt-0.5">
+                      Tap for graded + expiration dates
+                    </div>
+                  )}
+                </button>
+              </li>
+            );
+          })}
+        </ul>
+      )}
+      <p className="text-[10px] text-violet-700/80 mt-2 leading-snug">
+        Invoice shows the person’s name, LE-#### number, permit in description, and service
+        address. Email goes through Resend with the standard banner — not plain text.
+      </p>
     </div>
   );
 }
@@ -932,7 +1081,8 @@ function DeployQueueRow({
 }
 
 export default function Permits() {
-  const { jobs, emailInsights, events, patchAndSave, showToast, enqueue, createJob } = useStore();
+  const { jobs, emailInsights, events, patchAndSave, showToast, enqueue, createJob, api } =
+    useStore();
   const [phaseABusy, setPhaseABusy] = useState(false);
   const config = useTenantConfig();
   const nav = useNavigate();
@@ -1153,7 +1303,7 @@ export default function Permits() {
 
   /**
    * Phase A mock (Levi 2026-08-10): create $365 renew invoice on Levi Tester,
-   * open regular View & Pay invoice page, optionally mailto mock email.
+   * open regular View & Pay invoice page, send branded Resend email (not mailto).
    * Never sends to the real Hampton / Yossi address.
    */
   const runPhaseAMock = async (mode = "preview") => {
@@ -1167,13 +1317,28 @@ export default function Permits() {
           showToast("Couldn't create mock invoice — try again");
           return;
         }
+        // LE-#### invoice # + person name + service address stamped on create
         const id = await createJob(prep.fields);
         if (!id) {
           showToast("Couldn't create mock invoice");
           return;
         }
         if (prep.meta) {
-          await patchAndSave(id, prep.meta);
+          await patchAndSave(id, {
+            ...prep.meta,
+            customer: prep.fields.customer,
+            personName: prep.fields.personName,
+            businessName: prep.fields.businessName,
+            serviceAddress: prep.fields.serviceAddress,
+            address: prep.fields.address,
+            billingAddress: prep.fields.billingAddress,
+            invoiceLines: prep.fields.invoiceLines,
+            invoiceNo: prep.fields.invoiceNo,
+            invoiceDate: prep.fields.invoiceDate,
+            _invoiceConfirmed: true,
+            openBalance: prep.fee,
+            amount: prep.fee,
+          });
         }
         job = {
           id,
@@ -1181,7 +1346,34 @@ export default function Permits() {
           ...prep.meta,
           amount: prep.fields.amount,
           openBalance: prep.fee,
+          email: LEVI_TESTER.email,
         };
+      } else {
+        // Refresh live job from store so invoiceNo / person / service stay correct
+        job = jobsById.get(job.id) || job;
+        const svc =
+          job.serviceAddress ||
+          job.address ||
+          job.permitRenew?.address ||
+          PHASE_A_HAMPTON_SCENARIO.address;
+        const person =
+          job.permitRenew?.displayCustomer ||
+          job.customer ||
+          PHASE_A_HAMPTON_SCENARIO.displayCustomer;
+        if (!job.serviceAddress || !job.invoiceNo || job.customer === LEVI_TESTER.customer) {
+          const heal = {
+            serviceAddress: svc,
+            address: svc,
+            billingAddress: person,
+            customer: person,
+            personName: person,
+            businessName: person,
+            email: LEVI_TESTER.email,
+          };
+          if (job.invoiceNo) heal.invoiceNo = job.invoiceNo;
+          await patchAndSave(job.id, heal);
+          job = { ...job, ...heal };
+        }
       }
       let payUrl = "";
       try {
@@ -1202,21 +1394,64 @@ export default function Permits() {
           payUrl,
           invoiceNo: job.invoiceNo,
         });
-        const mail = buildPermitRenewMailto({
-          to: draft.to,
-          subject: draft.subject,
-          body: draft.body,
-        });
-        if (!mail.ok) {
-          showToast(mail.error || "Mock email blocked");
-          return;
+        // Branded Resend path (standard invoice banner + PDF) — never real Yossi
+        const sendApi = api?.sendDocEmailNow ? api : null;
+        if (sendApi) {
+          const person =
+            job.permitRenew?.displayCustomer ||
+            job.customer ||
+            PHASE_A_HAMPTON_SCENARIO.displayCustomer;
+          const svc =
+            job.serviceAddress ||
+            job.address ||
+            job.permitRenew?.address ||
+            PHASE_A_HAMPTON_SCENARIO.address;
+          const res = await sendApi.sendDocEmailNow(
+            {
+              ...job,
+              email: LEVI_TESTER.email,
+              customer: person,
+              personName: person,
+              businessName: person,
+              serviceAddress: svc,
+              address: svc,
+              billingAddress: person,
+              invoiceNo: job.invoiceNo,
+              invoiceLines: job.invoiceLines,
+              permitRenew: job.permitRenew || { mock: true, phase: "A" },
+            },
+            "invoice",
+            {
+              email: LEVI_TESTER.email,
+              includePaymentLink: true,
+              payUrl,
+              subject: draft.subject,
+              message: draft.body,
+            }
+          );
+          if (res?.ok || res?.sent) {
+            showToast(
+              `Mock renew emailed to ${LEVI_TESTER.email} via Resend (branded) — not the real customer`
+            );
+          } else {
+            showToast(
+              String(res?.error || res?.reason || "Email send failed — check Resend / try again")
+            );
+          }
+        } else {
+          // Fallback mailto if adapter missing
+          const mail = buildPermitRenewMailto({
+            to: draft.to,
+            subject: draft.subject,
+            body: draft.body,
+          });
+          if (!mail.ok) {
+            showToast(mail.error || "Mock email blocked");
+            return;
+          }
+          if (typeof window !== "undefined") window.location.href = mail.href;
+          showToast("Mock renew email opened (mailto fallback) — Levi Tester only");
         }
-        if (typeof window !== "undefined") {
-          window.location.href = mail.href;
-        }
-        showToast(
-          "Mock renew email opened to Levi Tester only — not the real customer"
-        );
       } else {
         showToast(
           prep.reuse
@@ -1897,48 +2132,15 @@ export default function Permits() {
         ) : null}
       </div>
 
-      {/* Phase A mock — permit renew email + invoice + pay (Levi Tester only) */}
-      <div
-        className="card mb-4 border border-violet-200 bg-violet-50/60 p-3.5"
-        data-testid="permit-renew-phase-a-mock"
-      >
-        <div className="flex items-start justify-between gap-2 mb-2">
-          <div className="min-w-0">
-            <div className="text-xs font-extrabold text-violet-900 tracking-wide">
-              Mock renew · Phase A
-            </div>
-            <p className="text-[11px] text-violet-800/90 mt-0.5 leading-snug">
-              Pretend {PHASE_A_HAMPTON_SCENARIO.address} / {PHASE_A_HAMPTON_SCENARIO.displayCustomer}{" "}
-              ({PHASE_A_HAMPTON_SCENARIO.permitNo}) · ${PERMIT_RENEW_FEE} invoice · send only to{" "}
-              {LEVI_TESTER.customer} ({LEVI_TESTER.email}). Auto schedule still off.
-            </p>
-          </div>
-        </div>
-        <div className="flex flex-wrap gap-2">
-          <button
-            type="button"
-            className="btn bg-violet-700 text-white !py-2 !px-3 text-xs font-bold"
-            disabled={phaseABusy}
-            data-testid="permit-renew-mock-preview"
-            onClick={() => runPhaseAMock("preview")}
-          >
-            {phaseABusy ? "Working…" : "Open renew invoice page"}
-          </button>
-          <button
-            type="button"
-            className="btn bg-white border border-violet-300 text-violet-900 !py-2 !px-3 text-xs font-bold"
-            disabled={phaseABusy}
-            data-testid="permit-renew-mock-email"
-            onClick={() => runPhaseAMock("email")}
-          >
-            Send mock email to Levi Tester
-          </button>
-        </div>
-        <p className="text-[10px] text-violet-700/80 mt-2 leading-snug">
-          Email CTA “Update or Renew Permit” opens the regular pay page. No real customer send.
-          Phase B (pay → file DOB) waits until this works.
-        </p>
-      </div>
+      {/* MAC Renew Phase 1 — all renew applications, notices, paid live here */}
+      <MacRenewPhase1Card
+        jobs={jobs}
+        phaseABusy={phaseABusy}
+        onPreview={() => runPhaseAMock("preview")}
+        onEmail={() => runPhaseAMock("email")}
+        onBoth={() => runPhaseAMock("both")}
+        onOpenJob={(id) => id && nav(`/job/${id}?doc=invoice&create=1`)}
+      />
 
       {/* DEPLOY QUEUE — sticky Deploy/Fix · Ready only with Form A for meters */}
       <div

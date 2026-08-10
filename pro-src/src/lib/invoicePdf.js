@@ -210,9 +210,15 @@ export function mapJobToInvoicePdfData(job, overrides = {}) {
       new RegExp(`\\b#\\s*${aptEsc}\\b`, "i").test(svcAddr);
     if (!already) svcAddr = `${svcAddr}, Apt ${apt}`;
   }
+  // Permit renew always shows Service Address (Levi 2026-08-10).
+  const forceService =
+    !!(j?.permitRenew || j?.permitRenewMock) ||
+    /permit\s+renew/i.test(String(j?.title || ""));
   const showService =
     !!svcAddr &&
-    (!!apt || (billAddr && svcAddr.toLowerCase() !== billAddr.toLowerCase()));
+    (forceService ||
+      !!apt ||
+      (billAddr && svcAddr.toLowerCase() !== billAddr.toLowerCase()));
 
   let invoiceNo = String(overrides.invoiceNo || (isEstimate ? j.estimateNo : j.invoiceNo) || "").trim();
   // Change order: short CO-## only — full "Change Order" overflows the printed header.
