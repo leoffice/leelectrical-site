@@ -1232,7 +1232,15 @@ export default function PayLanding() {
           ) : null}
           <Row label="Balance due" value={data.d} bold />
           <Row label="Paying today">
-            {editing ? (
+            {data.fo === 1 || data.fo === true || data.fullPayOnly ? (
+              // Full amount only — no partials (permit renew real path, Levi 2026-08-10)
+              <span
+                className="font-bold text-slate-900 text-base"
+                data-testid="pay-amount-locked"
+              >
+                {fmtMoneyPrecise(payAmount)}
+              </span>
+            ) : editing ? (
               <div className="flex items-center gap-2 justify-end">
                 <input
                   type="text"

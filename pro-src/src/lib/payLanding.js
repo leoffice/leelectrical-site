@@ -89,6 +89,16 @@ export function buildPayLandingPayload({
     parseUSAddress(serviceAddr).zip ||
     "";
   const lines = compactPayLines(job);
+  const fullPayOnly = !!(
+    job?.permitRenew?.fullPayOnly ||
+    job?.fullPayOnly ||
+    // Renew invoices: one amount only once testing phase ends (Levi 2026-08-10)
+    (job?.permitRenew &&
+      (job.permitRenew.realTest ||
+        job.permitRenew.phase === "real" ||
+        job.permitRenew.phase === "A" ||
+        job.permitRenew.mock))
+  );
   const payload = {
     j: (job?.id || "").trim(),
     i: invoiceNo,
@@ -115,6 +125,8 @@ export function buildPayLandingPayload({
     as: todayStr(),
     k: "i", // invoice — not estimate (lines alone must not flip View & Pay)
   };
+  // fo=1 → pay page locks amount (no edit / no partial)
+  if (fullPayOnly) payload.fo = 1;
   if (lines.length) payload.lines = lines;
   return payload;
 }
