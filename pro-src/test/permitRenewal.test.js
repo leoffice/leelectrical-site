@@ -171,7 +171,9 @@ describe("permitRenewal Phase A mock", () => {
     expect(body).toMatch(/\$365\.00|365/);
     expect(body).toMatch(/has expired/i);
     expect(body).not.toMatch(/year is coming up/i);
-    expect(body).toMatch(/abandoned/i);
+    // Levi 2026-08-10: abandoned = twelve months after expire (not vague "can go")
+    expect(body).toMatch(/twelve months after it has expired/i);
+    expect(body).toMatch(/goes into an abandoned status/i);
     expect(body).toMatch(/\$1,800|1800/);
     expect(body).toMatch(/February 6, 2026/);
     expect(body).toMatch(/February 6, 2027/);
@@ -184,6 +186,8 @@ describe("permitRenewal Phase A mock", () => {
     expect(htmlBody).toMatch(/Application \/ issue number/i);
     expect(htmlBody).toMatch(/<strong[^>]*>B01126007/);
     expect(htmlBody).toMatch(/has expired/i);
+    expect(htmlBody).toMatch(/Twelve months/i);
+    expect(htmlBody).toMatch(/abandoned/i);
     expect(htmlBody).toMatch(/at least \$1,800/i);
     expect(htmlBody).toMatch(/February 6, 2026/);
   });

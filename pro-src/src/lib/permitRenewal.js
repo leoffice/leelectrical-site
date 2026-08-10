@@ -470,7 +470,7 @@ export function buildPhaseACtaPayPayload({
  * - Bold application / issue # / issue date / expiration date
  * - Dates Month D, YYYY
  * - Has already expired (not "year coming up")
- * - Abandoned risk + ~$1,800 savings vs new filing
+ * - Twelve months after expire → abandoned status; ~$1,800 savings vs new filing
  * - CTA: Renew Permit → real payment link (invoice created on Send email)
  */
 export function buildPermitRenewEmail({
@@ -511,7 +511,7 @@ export function buildPermitRenewEmail({
     expiresUs ? `Expiration date: ${expiresUs}` : null,
     `Renew fee: ${feeStr}`,
     "",
-    "This permit has expired. If it is not renewed, it can go into an abandoned status. Closing an abandoned application means filing a brand-new application.",
+    "This permit has expired. Twelve months after it has expired, it goes into an abandoned status. Closing an abandoned application means filing a brand-new application.",
     "",
     "Renewing now can save you at least $1,800 compared with creating a new permit to reinstate an abandoned one.",
     "",
@@ -557,7 +557,7 @@ export function buildPermitRenewEmail({
     row("Renew fee", feeStr) +
     (inv ? row("Invoice", `#${inv}`) : "") +
     `</table>` +
-    `<p style="margin:0 0 12px;font-family:Arial,Helvetica,sans-serif;font-size:15px;line-height:1.55;color:#0f172a">This permit <strong>has expired</strong>. If it is not renewed, it can go into an <strong>abandoned</strong> status. Closing an abandoned application means filing a brand-new application.</p>` +
+    `<p style="margin:0 0 12px;font-family:Arial,Helvetica,sans-serif;font-size:15px;line-height:1.55;color:#0f172a">This permit <strong>has expired</strong>. <strong>Twelve months</strong> after it has expired, it goes into an <strong>abandoned</strong> status. Closing an abandoned application means filing a brand-new application.</p>` +
     `<p style="margin:0 0 12px;font-family:Arial,Helvetica,sans-serif;font-size:15px;line-height:1.55;color:#0f172a">Renewing now can save you <strong>at least $1,800</strong> compared with creating a new permit to reinstate an abandoned one.</p>` +
     `<p style="margin:0 0 12px;font-family:Arial,Helvetica,sans-serif;font-size:15px;line-height:1.55;color:#0f172a">${
       inv
