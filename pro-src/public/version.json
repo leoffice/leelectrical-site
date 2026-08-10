@@ -1,9 +1,9 @@
 {
   "schema": "le-pro-version/v1",
-  "gitSha": "3bb63fe139a242e9f19574a5352249bfd8710517",
-  "gitShaShort": "3bb63fe",
+  "gitSha": "c68cf42b7889d366c4ae1dc783490205f6b3a48d",
+  "gitShaShort": "c68cf42",
   "netlifyDeployId": null,
-  "builtAt": "2026-08-10T18:44:33.999Z",
-  "task": "renew email L1 + skill completion v382",
+  "builtAt": "2026-08-10T18:59:15.527Z",
+  "task": "",
   "rollbackAvailable": true
 }
