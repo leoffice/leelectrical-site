@@ -1209,79 +1209,98 @@ export default function PayLanding() {
             <h2 className="font-bold text-slate-900 text-base">Payment summary</h2>
             <span className="text-[10px] text-slate-400">As of {asOf}</span>
           </div>
-          <Row label="Invoice total" value={data.t} />
-          <Row
-            label="Paid to date"
-            value={data.p}
-            expandable={paidLines.length > 0}
-            onClick={paidLines.length ? () => setShowPaidHist((v) => !v) : undefined}
-          />
-          {showPaidHist && paidLines.length ? (
-            <div className="mb-1 -mt-0.5 rounded-lg bg-slate-50 border border-slate-100 px-2.5 py-1.5 text-xs text-slate-600 space-y-1">
-              {paidLines.map((p, i) => (
-                <div key={i} className="flex justify-between gap-2">
-                  <span>
-                    {p.a}
-                    {p.m ? ` · ${p.m}` : ""}
-                    {p.d ? ` · ${p.d}` : ""}
-                  </span>
-                  {p.r ? <span className="text-slate-400 shrink-0">#{p.r}</span> : null}
-                </div>
-              ))}
-            </div>
-          ) : null}
-          <Row label="Balance due" value={data.d} bold />
-          <Row label="Paying today">
-            {data.fo === 1 || data.fo === true || data.fullPayOnly ? (
-              // Full amount only — no partials (permit renew real path, Levi 2026-08-10)
-              <span
-                className="font-bold text-slate-900 text-base"
-                data-testid="pay-amount-locked"
-              >
-                {fmtMoneyPrecise(payAmount)}
-              </span>
-            ) : editing ? (
-              <div className="flex items-center gap-2 justify-end">
-                <input
-                  type="text"
-                  inputMode="decimal"
-                  className="input !py-1.5 !px-2.5 w-28 text-right text-base font-semibold"
-                  aria-label="Payment amount"
-                  autoFocus
-                  value={draft}
-                  onChange={(e) => setDraft(e.target.value)}
-                  onKeyDown={(e) => e.key === "Enter" && saveAmount()}
+          {(() => {
+            // One-payment renew invoices (Levi 2026-08-10): invoice total only.
+            // Paid to date only if prior payments exist; Paying today only when amount is adjustable;
+            // Total charge only when processing fee applies.
+            const fullOnly = data.fo === 1 || data.fo === true || data.fullPayOnly;
+            const hasPriorPays = paidLines.length > 0 || parseMoney(data.p) > 0.009;
+            return (
+              <>
+                <Row
+                  label="Invoice total"
+                  value={data.t || fmtMoneyPrecise(payAmount)}
+                  bold={fullOnly && !includeFee}
                 />
-                <button type="button" className="btn-brand !py-1.5 !px-2.5 text-xs" onClick={saveAmount}>
-                  Done
-                </button>
-              </div>
-            ) : (
-              <button
-                type="button"
-                className="flex items-center gap-1.5 justify-end group"
-                aria-label="Edit payment amount"
-                data-testid="edit-amount"
-                onClick={() => {
-                  setDraft(String(payAmount));
-                  setEditing(true);
-                }}
-              >
-                <span className="font-bold text-slate-900 text-base">{fmtMoneyPrecise(payAmount)}</span>
-                <span className="grid place-items-center w-7 h-7 rounded-full bg-brand-soft text-brand text-sm">
-                  ✏️
-                </span>
-              </button>
-            )}
-          </Row>
-          {includeFee ? (
-            <>
-              <Row label="Processing fee (3.5%)" value={fmtMoneyPrecise(fee)} />
-              <Row label="Total charge" value={fmtMoneyPrecise(chargeTotal)} bold />
-            </>
-          ) : (
-            <Row label="Total charge" value={fmtMoneyPrecise(payAmount)} bold />
-          )}
+                {hasPriorPays ? (
+                  <>
+                    <Row
+                      label="Paid to date"
+                      value={data.p}
+                      expandable={paidLines.length > 0}
+                      onClick={paidLines.length ? () => setShowPaidHist((v) => !v) : undefined}
+                    />
+                    {showPaidHist && paidLines.length ? (
+                      <div className="mb-1 -mt-0.5 rounded-lg bg-slate-50 border border-slate-100 px-2.5 py-1.5 text-xs text-slate-600 space-y-1">
+                        {paidLines.map((p, i) => (
+                          <div key={i} className="flex justify-between gap-2">
+                            <span>
+                              {p.a}
+                              {p.m ? ` · ${p.m}` : ""}
+                              {p.d ? ` · ${p.d}` : ""}
+                            </span>
+                            {p.r ? <span className="text-slate-400 shrink-0">#{p.r}</span> : null}
+                          </div>
+                        ))}
+                      </div>
+                    ) : null}
+                  </>
+                ) : null}
+                {!fullOnly ? (
+                  <>
+                    <Row label="Balance due" value={data.d} bold />
+                    <Row label="Paying today">
+                      {editing ? (
+                        <div className="flex items-center gap-2 justify-end">
+                          <input
+                            type="text"
+                            inputMode="decimal"
+                            className="input !py-1.5 !px-2.5 w-28 text-right text-base font-semibold"
+                            aria-label="Payment amount"
+                            autoFocus
+                            value={draft}
+                            onChange={(e) => setDraft(e.target.value)}
+                            onKeyDown={(e) => e.key === "Enter" && saveAmount()}
+                          />
+                          <button
+                            type="button"
+                            className="btn-brand !py-1.5 !px-2.5 text-xs"
+                            onClick={saveAmount}
+                          >
+                            Done
+                          </button>
+                        </div>
+                      ) : (
+                        <button
+                          type="button"
+                          className="flex items-center gap-1.5 justify-end group"
+                          aria-label="Edit payment amount"
+                          data-testid="edit-amount"
+                          onClick={() => {
+                            setDraft(String(payAmount));
+                            setEditing(true);
+                          }}
+                        >
+                          <span className="font-bold text-slate-900 text-base">
+                            {fmtMoneyPrecise(payAmount)}
+                          </span>
+                          <span className="grid place-items-center w-7 h-7 rounded-full bg-brand-soft text-brand text-sm">
+                            ✏️
+                          </span>
+                        </button>
+                      )}
+                    </Row>
+                  </>
+                ) : null}
+                {includeFee ? (
+                  <>
+                    <Row label="Processing fee (3.5%)" value={fmtMoneyPrecise(fee)} />
+                    <Row label="Total charge" value={fmtMoneyPrecise(chargeTotal)} bold />
+                  </>
+                ) : null}
+              </>
+            );
+          })()}
         </div>
 
         {/* Method tabs: only methods enabled in Settings (profile.paymentMethods) */}

@@ -852,6 +852,9 @@ export function buildPhaseACtaPayPayload({
     // Marker so PayLanding / staff can recognize a renew-generated invoice
     renewCta: "phaseA",
     renewScenarioId: sc.id || "hampton-yossi",
+    // One amount only — pay page shows invoice total (Levi 2026-08-10)
+    fo: 1,
+    fullPayOnly: true,
   };
 }
 
