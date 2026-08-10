@@ -163,9 +163,10 @@ function MacRenewPhase1Card({
   onOpenJob,
 }) {
   const rows = useMemo(() => listRenewApplications(jobs), [jobs]);
-  const pending = useMemo(() => rows.filter((r) => !r.paid), [rows]);
+  // pendingSend only — emailed notices drop off until full pay (Levi 2026-08-10)
+  const pending = useMemo(() => rows.filter((r) => r.pendingSend), [rows]);
   const paidDeploy = useMemo(
-    () => rows.filter((r) => r.deployUpdate || r.nextStep === "update_permit"),
+    () => rows.filter((r) => r.deployUpdate || (r.paid && r.nextStep === "update_permit")),
     [rows]
   );
   const [expandedId, setExpandedId] = useState("");
