@@ -44,13 +44,14 @@ describe("permitRenewal Phase A mock", () => {
     expect(LEVI_TESTER.email).toMatch(/levikumer@gmail\.com/i);
   });
 
-  it("blocks real Yossi email and only allows Levi Tester", () => {
-    expect(isBlockedRenewRecipient("yossi6886@gmail.com")).toBe(true);
+  it("allows Bashari + Levi Tester; blocks random emails", () => {
+    // Real path (Levi 2026-08-10): Bashari is approved for renew send
+    expect(isBlockedRenewRecipient("yossi6886@gmail.com")).toBe(false);
     expect(isLeviTesterEmail("levikumer@gmail.com")).toBe(true);
-    expect(assertPhaseARecipient("yossi6886@gmail.com").ok).toBe(false);
+    expect(assertPhaseARecipient("yossi6886@gmail.com").ok).toBe(true);
     expect(assertPhaseARecipient("random@example.com").ok).toBe(false);
     expect(assertPhaseARecipient("levikumer@gmail.com").ok).toBe(true);
-    expect(assertPhaseARecipient("").email).toBe(LEVI_TESTER.email);
+    expect(assertPhaseARecipient("").email).toMatch(/yossi6886|levikumer/);
   });
 
   it("builds $365 renew invoice lines with address + permit", () => {
@@ -66,8 +67,8 @@ describe("permitRenewal Phase A mock", () => {
     // Bill-to is the real person's name on the invoice (not "levi tester")
     expect(fields.customer).toMatch(/Yosef|Beshari/i);
     expect(fields.personName).toMatch(/Yosef|Beshari/i);
-    // Delivery still Levi Tester only
-    expect(fields.email).toBe(LEVI_TESTER.email);
+    // Real Bashari path — email is the customer
+    expect(fields.email).toMatch(/yossi6886@gmail\.com/i);
     expect(fields.serviceAddress).toMatch(/Hampton/i);
     expect(fields.address).toMatch(/Hampton/i);
     // Service street must NOT sit in billing (Levi 2026-08-10)
@@ -81,16 +82,16 @@ describe("permitRenewal Phase A mock", () => {
     expect(fields._invoiceConfirmed).toBe(true);
   });
 
-  it("meta patch marks mock Phase A and keeps autoEmail off", () => {
+  it("meta patch marks real Bashari renew and keeps autoEmail off", () => {
     const meta = buildPermitRenewMetaPatch();
-    expect(meta.permitRenew.mock).toBe(true);
-    expect(meta.permitRenew.phase).toBe("A");
+    expect(meta.permitRenew.realTest).toBe(true);
+    expect(meta.permitRenew.mock).toBe(false);
     expect(meta.permitRenew.autoEmail).toBe(false);
     expect(meta.permitRenew.provisional).toBe(true);
     expect(meta.permitRenew.excludeFromBalanceDue).toBe(true);
     expect(meta.excludeFromBalanceDue).toBe(true);
     expect(meta.paperwork.dob.renewSchedule.autoEmail).toBe(false);
-    expect(meta.email).toBe(LEVI_TESTER.email);
+    expect(meta.email).toMatch(/yossi6886@gmail\.com/i);
     expect(meta.openBalance).toBe(365);
     expect(meta.permitRenew.gradedDate).toBe(PHASE_A_HAMPTON_SCENARIO.issuedDate);
     expect(meta.permitRenew.expiresDate).toBe(
@@ -241,13 +242,14 @@ describe("permitRenewal Phase A mock", () => {
     const open = {
       id: "r1",
       customer: "Yosef Beshari",
+      email: "yossi6886@gmail.com",
       invoiceNo: "LE-2710",
       amount: 365,
       openBalance: 365,
       serviceAddress: "40 Hampton Pl",
       permitRenew: {
-        mock: true,
-        phase: "A",
+        realTest: true,
+        scenarioId: "hampton-yossi",
         address: "40 Hampton Pl",
         permitNo: "B01126007-L1-EL",
         issuedDate: "2024-10-11",
@@ -271,19 +273,20 @@ describe("permitRenewal Phase A mock", () => {
     };
     const rows = listRenewApplications([open, paid, notice]);
     expect(rows.length).toBe(3);
-    expect(rows.find((r) => r.id === "r1").status).toBe("Invoice open");
+    expect(rows.find((r) => r.id === "r1").status).toBe("Pending pay");
     expect(rows.find((r) => r.id === "r2").status).toBe("Paid — update permit");
     expect(rows.find((r) => r.id === "r2").nextStep).toBe("update_permit");
     expect(rows.find((r) => r.id === "r2").nextStepLabel).toMatch(/update/i);
-    expect(rows.find((r) => r.id === "r3").status).toBe("Wants renew");
+    expect(rows.find((r) => r.id === "r3").status).toMatch(/Pending send|Wants renew/i);
     expect(rows.find((r) => r.id === "r1").expiresDate).toBe("2025-10-11");
     expect(rows.find((r) => r.id === "r1").gradedDate).toBe("2024-10-11");
   });
 
-  it("Phase A $1 card pay shows Paid + update-permit next step on renew list", () => {
+  it("real Bashari $1 card pay shows Paid + update-permit next step on renew list", () => {
     const dollar = {
       id: "r-dollar",
-      customer: "levi tester",
+      customer: "Yosef Beshari",
+      email: "yossi6886@gmail.com",
       invoiceNo: "LE-2701",
       amount: 365,
       openBalance: 0,
@@ -300,8 +303,8 @@ describe("permitRenewal Phase A mock", () => {
         },
       ],
       permitRenew: {
-        mock: true,
-        phase: "A",
+        realTest: true,
+        scenarioId: "hampton-yossi",
         paid: true,
         nextStep: "update_permit",
         permitNo: "B01126007-L1-EL",
@@ -314,7 +317,7 @@ describe("permitRenewal Phase A mock", () => {
     expect(rows).toHaveLength(1);
     expect(rows[0].paid).toBe(true);
     expect(rows[0].status).toBe("Paid — update permit");
-    expect(rows[0].nextStepLabel).toMatch(/Payment received/i);
+    expect(rows[0].nextStepLabel).toMatch(/Payment received|Deploy queue/i);
   });
 
   it("email matches Levi draft: Permit only, L1 facts, auto status, pay CTA", () => {
@@ -324,7 +327,7 @@ describe("permitRenewal Phase A mock", () => {
       invoiceNo: "LE-2701",
       todayIso: "2026-08-10",
     });
-    expect(to).toBe(LEVI_TESTER.email);
+    expect(to).toMatch(/yossi6886@gmail\.com/i);
     expect(ctaLabel).toBe("Renew Permit");
     expect(ctaLabel).not.toMatch(/View\/Pay|View and Pay/i);
     expect(ctaUrl).toBe(payUrl);
@@ -416,7 +419,7 @@ describe("permitRenewal Phase A mock", () => {
     expect(Array.isArray(p.lines) && p.lines.length).toBeTruthy();
   });
 
-  it("mailto only builds for Levi Tester", () => {
+  it("mailto builds for Bashari and Levi Tester", () => {
     const ok = buildPermitRenewMailto({
       to: LEVI_TESTER.email,
       subject: "hi",
@@ -426,8 +429,16 @@ describe("permitRenewal Phase A mock", () => {
     expect(ok.href).toMatch(/^mailto:/);
     expect(ok.href).toContain(encodeURIComponent(LEVI_TESTER.email));
 
-    const bad = buildPermitRenewMailto({
+    const real = buildPermitRenewMailto({
       to: "yossi6886@gmail.com",
+      subject: "hi",
+      body: "body",
+    });
+    expect(real.ok).toBe(true);
+    expect(real.href).toMatch(/^mailto:/);
+
+    const bad = buildPermitRenewMailto({
+      to: "random@example.com",
       subject: "hi",
       body: "body",
     });
@@ -435,15 +446,15 @@ describe("permitRenewal Phase A mock", () => {
     expect(bad.href).toBe("");
   });
 
-  it("detects renew jobs and reuses open mock invoice", () => {
+  it("detects renew jobs and reuses open Bashari invoice", () => {
     const open = {
       id: "local-1",
-      customer: "levi tester",
-      email: LEVI_TESTER.email,
+      customer: "Yosef Beshari",
+      email: "yossi6886@gmail.com",
       invoiceNo: "LE-2705",
       amount: 365,
       openBalance: 365,
-      permitRenew: { mock: true, phase: "A" },
+      permitRenew: { realTest: true, phase: "A", scenarioId: "hampton-yossi" },
       title: "City electrical permit renewal — B01126007-L1-EL",
     };
     const paid = { ...open, id: "local-2", paid: true, openBalance: 0 };
@@ -457,7 +468,8 @@ describe("permitRenewal Phase A mock", () => {
     const fresh = preparePhaseAMock({ jobs: [] });
     expect(fresh.reuse).toBe(false);
     expect(fresh.fields.invoiceNo).toMatch(/^LE-/);
-    expect(fresh.meta.permitRenew.mock).toBe(true);
+    expect(fresh.meta.permitRenew.realTest).toBe(true);
+    expect(fresh.meta.permitRenew.mock).toBe(false);
   });
 
   it("Hackner real-test seeds 364 Schenectady service address + compose gate", () => {
@@ -493,8 +505,9 @@ describe("permitRenewal Phase A mock", () => {
     expect(assertRenewComposeRecipient("yhackner@gmail.com", { realTest: true }).ok).toBe(
       true
     );
+    // Real customers allowed even when realTest flag is false (allow-list)
     expect(assertRenewComposeRecipient("yhackner@gmail.com", { realTest: false }).ok).toBe(
-      false
+      true
     );
     expect(assertRenewComposeRecipient("levikumer@gmail.com", { realTest: true }).ok).toBe(
       true

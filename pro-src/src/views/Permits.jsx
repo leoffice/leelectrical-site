@@ -79,6 +79,7 @@ import {
   assertRenewComposeRecipient,
   buildPermitRenewEmail,
   buildPermitRenewPayUrl,
+  isLeviTesterMockRenewJob,
   listRenewApplications,
   preparePhaseAMock,
   prepareRenewScenario,
@@ -158,10 +159,17 @@ function MacRenewPhase1Card({
   onPreview,
   onEmail,
   onPrepHackner,
+  onDeleteMocks,
   onOpenJob,
 }) {
   const rows = useMemo(() => listRenewApplications(jobs), [jobs]);
+  const pending = useMemo(() => rows.filter((r) => !r.paid), [rows]);
+  const paidDeploy = useMemo(() => rows.filter((r) => r.deployUpdate || r.nextStep === "update_permit"), [rows]);
   const [expandedId, setExpandedId] = useState("");
+  const mockCount = useMemo(
+    () => (jobs || []).filter((j) => isLeviTesterMockRenewJob(j)).length,
+    [jobs]
+  );
 
   return (
     <div
@@ -177,8 +185,8 @@ function MacRenewPhase1Card({
             Renewal Notifications
           </div>
           <p className="text-[11px] text-violet-800/90 mt-0.5 leading-snug">
-            Customer name, permit numbers, and address. Tap for more. Send Email opens a draft you
-            can edit (text + To) then send — one-time style.
+            Real renews only. Expand a pending address to review, then Send Email (compose + To).
+            Fully paid rows move to <b>update permit</b> (Deploy queue next).
           </p>
         </div>
       </div>
@@ -190,7 +198,7 @@ function MacRenewPhase1Card({
           data-testid="permit-renew-mock-preview"
           onClick={onPreview}
         >
-          {phaseABusy ? "Working…" : "Open renew invoice"}
+          {phaseABusy ? "Working…" : "Stage Bashari · Hampton"}
         </button>
         <button
           type="button"
@@ -209,11 +217,22 @@ function MacRenewPhase1Card({
         data-testid="permit-renew-prep-hackner"
         onClick={onPrepHackner}
       >
-        Prep real test · Yossi Hackner · 364 Schenectady
+        Stage Yossi Hackner · 364 Schenectady
       </button>
+      {mockCount > 0 ? (
+        <button
+          type="button"
+          className="btn w-full mb-2 bg-red-50 border border-red-200 text-red-800 !py-2 !px-3 text-[11px] font-bold"
+          disabled={phaseABusy}
+          data-testid="permit-renew-delete-mocks"
+          onClick={onDeleteMocks}
+        >
+          Delete {mockCount} Levi Tester mock renew{mockCount === 1 ? "" : "s"}
+        </button>
+      ) : null}
       <p className="text-[10px] text-violet-800/90 mb-2 leading-snug rounded-md bg-white/70 border border-violet-100 px-2 py-1.5">
-        <b>Send Email</b> opens compose — review the text, change the email if you want, then
-        Send. Creates invoice + payment link. Unpaid renews do not count as money owed.
+        <b>Pending send:</b> {pending.length} · <b>Paid → update permit:</b> {paidDeploy.length}.
+        Unpaid renews do not count as money owed until paid.
       </p>
       {!rows.length ? (
         <p className="text-[10px] text-violet-700/80 leading-snug">
@@ -2299,16 +2318,38 @@ export default function Permits() {
         phaseABusy={phaseABusy}
         onPreview={() => runPhaseAMock("preview", PHASE_A_HAMPTON_SCENARIO)}
         onEmail={() => {
-          // Prefer prepared real-test (Hackner) when present; else Hampton mock.
+          // Prefer open real renew (Hampton Bashari or Hackner); default Bashari.
           const rows = listRenewApplications(jobs || []);
-          const real = rows.find((r) => r.realTest && !r.paid);
-          if (real) {
+          const open = rows.find((r) => r.realTest && !r.paid);
+          if (open?.address && /Schenectady/i.test(open.address)) {
             void runPhaseAMock("email", REAL_TEST_HACKNER_SCENARIO);
           } else {
             void runPhaseAMock("email", PHASE_A_HAMPTON_SCENARIO);
           }
         }}
         onPrepHackner={() => prepHacknerRealTest()}
+        onDeleteMocks={async () => {
+          if (phaseABusy) return;
+          setPhaseABusy(true);
+          try {
+            const mocks = (jobs || []).filter((j) => isLeviTesterMockRenewJob(j));
+            let n = 0;
+            for (const j of mocks) {
+              if (!j?.id) continue;
+              await patchAndSave(j.id, { _deleted: true });
+              n += 1;
+            }
+            showToast(
+              n
+                ? `Deleted ${n} Levi Tester mock renew${n === 1 ? "" : "s"}`
+                : "No mock renews left"
+            );
+          } catch (e) {
+            showToast(String(e?.message || e || "Couldn't delete mocks"));
+          } finally {
+            setPhaseABusy(false);
+          }
+        }}
         onOpenJob={(id) => id && nav(`/job/${id}?doc=invoice&create=1`)}
       />
       {renewCompose?.draft ? (
