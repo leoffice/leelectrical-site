@@ -1,7 +1,10 @@
 import { describe, expect, it } from "vitest";
 import {
   PHASE_A_HAMPTON_SCENARIO,
+  RENEW_HAMPTON_SCENARIO,
+  RENEW_HACKNER_SCENARIO,
   REAL_TEST_HACKNER_SCENARIO,
+  READY_RENEW_SCENARIOS,
   LEVI_TESTER,
   PERMIT_RENEW_FEE,
   assertPhaseARecipient,
@@ -17,6 +20,8 @@ import {
   isBlockedRenewRecipient,
   isLeviTesterEmail,
   isPermitRenewJob,
+  listPendingRenewCards,
+  listPaidUpdatePermitCards,
   listRenewApplications,
   permitAbandonedFromExpires,
   permitExpiresFromIssued,
@@ -44,14 +49,14 @@ describe("permitRenewal Phase A mock", () => {
     expect(LEVI_TESTER.email).toMatch(/levikumer@gmail\.com/i);
   });
 
-  it("allows Bashari + Levi Tester; blocks random emails", () => {
-    // Real path (Levi 2026-08-10): Bashari is approved for renew send
+  it("allows any real To address for renew send (on-file or new)", () => {
     expect(isBlockedRenewRecipient("yossi6886@gmail.com")).toBe(false);
     expect(isLeviTesterEmail("levikumer@gmail.com")).toBe(true);
     expect(assertPhaseARecipient("yossi6886@gmail.com").ok).toBe(true);
-    expect(assertPhaseARecipient("random@example.com").ok).toBe(false);
+    expect(assertPhaseARecipient("random@example.com").ok).toBe(true);
     expect(assertPhaseARecipient("levikumer@gmail.com").ok).toBe(true);
-    expect(assertPhaseARecipient("").email).toMatch(/yossi6886|levikumer/);
+    expect(assertPhaseARecipient("").email).toMatch(/yossi6886/);
+    expect(assertRenewComposeRecipient("new-owner@example.com").ok).toBe(true);
   });
 
   it("builds $365 renew invoice lines with address + permit", () => {
@@ -432,7 +437,7 @@ describe("permitRenewal Phase A mock", () => {
     expect(Array.isArray(p.lines) && p.lines.length).toBeTruthy();
   });
 
-  it("mailto builds for Bashari and Levi Tester", () => {
+  it("mailto builds for any real To address", () => {
     const ok = buildPermitRenewMailto({
       to: LEVI_TESTER.email,
       subject: "hi",
@@ -450,13 +455,77 @@ describe("permitRenewal Phase A mock", () => {
     expect(real.ok).toBe(true);
     expect(real.href).toMatch(/^mailto:/);
 
-    const bad = buildPermitRenewMailto({
+    const any = buildPermitRenewMailto({
       to: "random@example.com",
       subject: "hi",
       body: "body",
     });
-    expect(bad.ok).toBe(false);
-    expect(bad.href).toBe("");
+    expect(any.ok).toBe(true);
+    expect(any.href).toMatch(/^mailto:/);
+
+    // Empty To falls back to Hampton on-file email
+    const empty = buildPermitRenewMailto({ to: "", subject: "hi", body: "body" });
+    expect(empty.ok).toBe(true);
+    expect(empty.email).toMatch(/yossi6886/);
+  });
+
+  it("listPendingRenewCards always shows Hampton + Schenectady until emailed", () => {
+    expect(READY_RENEW_SCENARIOS).toHaveLength(2);
+    expect(RENEW_HAMPTON_SCENARIO.address).toMatch(/Hampton/i);
+    expect(RENEW_HACKNER_SCENARIO.address).toMatch(/Schenectady/i);
+
+    const empty = listPendingRenewCards([]);
+    expect(empty).toHaveLength(2);
+    expect(empty.map((c) => c.scenarioId).sort()).toEqual([
+      "hampton-yossi",
+      "schenectady-hackner",
+    ]);
+
+    const open = {
+      id: "r-ham",
+      customer: "Yosef Beshari",
+      email: "yossi6886@gmail.com",
+      invoiceNo: "LE-2710",
+      amount: 365,
+      openBalance: 365,
+      serviceAddress: "40 Hampton Pl",
+      permitRenew: {
+        realTest: true,
+        scenarioId: "hampton-yossi",
+        address: "40 Hampton Pl",
+        permitNo: "B01126007-L1-EL",
+        issuedDate: "2024-10-11",
+        expiresDate: "2025-10-11",
+        fee: 365,
+      },
+    };
+    const paid = {
+      ...open,
+      id: "r-paid",
+      paid: true,
+      openBalance: 0,
+      permitRenew: { ...open.permitRenew, paid: true, nextStep: "update_permit" },
+    };
+    const sent = {
+      ...open,
+      id: "r-sent",
+      permitRenew: { ...open.permitRenew, noticeSent: true },
+    };
+
+    // Open Hampton still pending; Schenectady still ready from cache
+    const mid = listPendingRenewCards([open]);
+    expect(mid.find((c) => c.scenarioId === "hampton-yossi")?.pendingSend).toBe(true);
+    expect(mid.find((c) => c.scenarioId === "schenectady-hackner")?.pendingSend).toBe(true);
+
+    // After email, Hampton drops; Schenectady remains
+    const after = listPendingRenewCards([sent]);
+    expect(after.find((c) => c.scenarioId === "hampton-yossi")).toBeUndefined();
+    expect(after.find((c) => c.scenarioId === "schenectady-hackner")).toBeTruthy();
+
+    // Paid → update permit box
+    const paidBox = listPaidUpdatePermitCards([paid]);
+    expect(paidBox.length).toBe(1);
+    expect(paidBox[0].deployUpdate).toBe(true);
   });
 
   it("detects renew jobs and reuses open Bashari invoice", () => {

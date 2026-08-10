@@ -1,7 +1,6 @@
-// Phase A — permit renew mock (Levi 2026-08-10).
-// Email (address + permit details) → "Update or Renew Permit" → regular invoice
-// pay page → $365 renew invoice + pay. Mock only on Levi Tester. Auto schedule OFF.
-// Phase B (pay → notify → file DOB) is intentionally NOT here.
+// Permit renew — real Renewal Notifications (Levi 2026-08-10).
+// Ready addresses → Send Email (compose To + body) → pay full amount → update permit.
+// Auto schedule OFF. Phase B (pay → file DOB) is intentionally NOT here.
 
 import { nextDocNumberFromJobs } from "./nextDocNumber.js";
 import { normalizeEmail } from "./customers.js";
@@ -13,47 +12,59 @@ import { buildPayLandingUrl, buildShortPayLandingUrl } from "./payLanding.js";
 export const PERMIT_RENEW_FEE = 365;
 
 /**
- * Real Bashari renew (Levi 2026-08-10 end of test phase):
- * 40 Hampton Pl · Yosef Beshari · L1 expired 10/11/2024.
- * Stage invoice + send him to pay (not Levi Tester mock).
+ * 40 Hampton Pl · Yosef Beshari · L1 issued 10/11/2024 (expired).
+ * S1 is a different open permit — do not use for renew.
  */
-export const PHASE_A_HAMPTON_SCENARIO = {
+export const RENEW_HAMPTON_SCENARIO = {
   id: "hampton-yossi",
   displayCustomer: "Yosef Beshari",
   greetingName: "Yossi",
   address: "40 Hampton Pl",
-  /** Expired city permit (L1). S1 is a different open permit — do not use for renew. */
   permitNo: "B01126007-L1-EL",
   issuedDate: "2024-10-11",
   fee: PERMIT_RENEW_FEE,
   realEmail: "yossi6886@gmail.com",
-  /** Real customer send — no longer mock-only (Levi 2026-08-10). */
+  matchedCustomer: true,
+  real: true,
+  /** @deprecated use real — kept so older jobs / tests still match */
   realTest: true,
 };
 
+/** @deprecated use RENEW_HAMPTON_SCENARIO */
+export const PHASE_A_HAMPTON_SCENARIO = RENEW_HAMPTON_SCENARIO;
+
 /**
- * First real-world renew test (Levi 2026-08-10):
- * Yossi Hackner · 234 Schenectady LLC · service site 364 Schenectady Avenue.
+ * Yossi Hackner · 234 Schenectady LLC · 364 Schenectady Avenue.
  * Seeding the renew job creates the service address on the customer if missing.
  */
-export const REAL_TEST_HACKNER_SCENARIO = {
+export const RENEW_HACKNER_SCENARIO = {
   id: "schenectady-hackner",
   displayCustomer: "Yossi Hackner",
   greetingName: "Yossi",
   businessName: "234 Schenectady LLC",
   address: "364 Schenectady Avenue",
-  /** City filing # unknown until DOB pull — show LLC as permit entity label. */
+  /** City filing # unknown until DOB pull — entity label until then. */
   permitNo: "234 Schenectady LLC",
   issuedDate: "",
   fee: PERMIT_RENEW_FEE,
   realEmail: "yhackner@gmail.com",
   phone: "3476935123",
+  matchedCustomer: true,
+  real: true,
   realTest: true,
   qboCustomerId: "336",
 };
 
-/** @deprecated use REAL_TEST_HACKNER_SCENARIO */
-export const REAL_RENEW_SCHENECTADY_SCENARIO = REAL_TEST_HACKNER_SCENARIO;
+/** @deprecated use RENEW_HACKNER_SCENARIO */
+export const REAL_TEST_HACKNER_SCENARIO = RENEW_HACKNER_SCENARIO;
+/** @deprecated use RENEW_HACKNER_SCENARIO */
+export const REAL_RENEW_SCHENECTADY_SCENARIO = RENEW_HACKNER_SCENARIO;
+
+/**
+ * Ready renew addresses (cache). Matched customers only for now.
+ * Expand from host permits cache + QBO match later.
+ */
+export const READY_RENEW_SCENARIOS = [RENEW_HAMPTON_SCENARIO, RENEW_HACKNER_SCENARIO];
 
 /** Safe mock recipient — only this customer for Phase A sends. */
 export const LEVI_TESTER = {
@@ -68,11 +79,11 @@ export const LEVI_TESTER = {
  */
 export const PHASE_A_BLOCKED_EMAILS = [];
 
-/** Emails allowed for real renew sends (compose still editable). */
+/** Known customer emails on file for ready renews (compose can use or override). */
 export const REAL_TEST_ALLOWED_EMAILS = [
-  PHASE_A_HAMPTON_SCENARIO.realEmail,
+  RENEW_HAMPTON_SCENARIO.realEmail,
   "yossi6886@gmail.com",
-  REAL_TEST_HACKNER_SCENARIO.realEmail,
+  RENEW_HACKNER_SCENARIO.realEmail,
   "yhackner@gmail.com",
 ];
 
@@ -108,32 +119,24 @@ export function isRealTestAllowedEmail(email) {
 }
 
 /**
- * Recipient gate for renew notices (Levi 2026-08-10 real path).
- * Allows Levi Tester (legacy) OR approved real customers (Bashari / Hackner).
+ * Recipient gate for renew notices.
+ * Staff may send to any real email (on-file or newly entered).
  * @returns {{ ok: true, email: string } | { ok: false, error: string }}
  */
 export function assertPhaseARecipient(email) {
   const raw = String(email || "").trim();
-  const resolved = raw || PHASE_A_HAMPTON_SCENARIO.realEmail || LEVI_TESTER.email;
+  const resolved = raw || RENEW_HAMPTON_SCENARIO.realEmail || "";
   if (!resolved.includes("@")) {
     return { ok: false, error: "Need a real email address" };
-  }
-  if (isLeviTesterEmail(resolved) || isRealTestAllowedEmail(resolved)) {
-    return { ok: true, email: resolved };
   }
   if (isBlockedRenewRecipient(resolved)) {
     return { ok: false, error: "That address is blocked for renew send" };
   }
-  return {
-    ok: false,
-    error:
-      "Renew send is only for approved customers (Bashari / Hackner) or Levi Tester",
-  };
+  return { ok: true, email: resolved };
 }
 
 /**
- * Compose send gate for renew notices.
- * Real customers (Bashari, Hackner) + Levi Tester allowed.
+ * Compose send gate — any valid To address (existing on file or new).
  * @returns {{ ok: true, email: string, realTest: boolean } | { ok: false, error: string }}
  */
 export function assertRenewComposeRecipient(email, { realTest = false } = {}) {
@@ -141,25 +144,13 @@ export function assertRenewComposeRecipient(email, { realTest = false } = {}) {
   if (!raw || !raw.includes("@")) {
     return { ok: false, error: "Enter an email address" };
   }
-  if (isLeviTesterEmail(raw)) {
-    return { ok: true, email: raw, realTest: false };
-  }
-  if (isRealTestAllowedEmail(raw)) {
-    return { ok: true, email: raw, realTest: true };
-  }
   if (isBlockedRenewRecipient(raw)) {
     return { ok: false, error: "That address is blocked for renew send" };
   }
-  // When compose is opened for a real scenario, still require allow-list
-  if (realTest) {
-    return {
-      ok: false,
-      error: "Real renew send is only for approved customers (Bashari / Hackner)",
-    };
-  }
   return {
-    ok: false,
-    error: "Use an approved customer email (Bashari / Hackner) or Levi Tester",
+    ok: true,
+    email: raw,
+    realTest: !isLeviTesterEmail(raw) || !!realTest,
   };
 }
 
@@ -699,6 +690,100 @@ export function listRenewApplications(jobs = [], { includeMock = false } = {}) {
   return rows;
 }
 
+/** Find renew job for a ready scenario (open, sent, or paid). */
+export function findRenewJobForScenario(jobs = [], scenarioId = "") {
+  const want = String(scenarioId || "").trim();
+  if (!want) return null;
+  const list = Array.isArray(jobs) ? jobs : [];
+  let best = null;
+  for (const j of list) {
+    if (!j || j._deleted) continue;
+    if (!isPermitRenewJob(j)) continue;
+    const pr = j.permitRenew || j.permitRenewMock || {};
+    const sid = String(pr.scenarioId || "").trim();
+    const addr = String(j.serviceAddress || j.address || pr.address || "").toLowerCase();
+    const match =
+      sid === want ||
+      (want === "hampton-yossi" && /hampton/i.test(addr)) ||
+      (want === "schenectady-hackner" && /schenectady/i.test(addr));
+    if (!match) continue;
+    if (!best) best = j;
+    // Prefer unpaid open / latest notice job over old paid
+    const prB = best.permitRenew || {};
+    if (!j.paid && best.paid) best = j;
+    else if (!pr.noticeSent && prB.noticeSent && !j.paid) best = j;
+  }
+  return best;
+}
+
+/**
+ * Pending Send Email cards for Renewal Notifications.
+ * Always surfaces ready matched-customer addresses from the permit cache
+ * until notice is sent; after full pay they move to the update-permit box.
+ */
+export function listPendingRenewCards(jobs = []) {
+  const apps = listRenewApplications(jobs);
+  const cards = [];
+  for (const sc of READY_RENEW_SCENARIOS) {
+    const job = findRenewJobForScenario(jobs, sc.id);
+    if (job) {
+      const row = apps.find((r) => r.id === job.id);
+      if (row?.pendingSend) {
+        cards.push({
+          ...row,
+          scenarioId: sc.id,
+          scenario: sc,
+          email: row.email || sc.realEmail || "",
+        });
+        continue;
+      }
+      // Emailed unpaid or paid/deploy — not in pending box
+      if (row?.deployUpdate || row?.paid) continue;
+      const pr = job.permitRenew || {};
+      if (pr.noticeSent || pr.emailSentAt) continue;
+      // Job exists but not yet in apps (edge) — still pending
+    }
+    const issued = String(sc.issuedDate || "").trim().slice(0, 10);
+    const expires =
+      String(sc.expiresDate || "").trim().slice(0, 10) ||
+      permitExpiresFromIssued(issued);
+    const stageTone = expires ? permitRenewStatusTone(expires) : "upcoming";
+    cards.push({
+      id: job?.id || `ready-${sc.id}`,
+      jobId: job?.id || "",
+      scenarioId: sc.id,
+      scenario: sc,
+      customer: sc.displayCustomer,
+      businessName: sc.businessName || "",
+      address: sc.address,
+      permitNo: sc.permitNo || "",
+      issuedDate: issued,
+      gradedDate: issued,
+      expiresDate: expires,
+      fee: renewFeeFromScenario(sc),
+      email: String(job?.email || sc.realEmail || "").trim(),
+      status: job?.invoiceNo ? "Pending send" : "Ready",
+      pendingSend: true,
+      paid: false,
+      deployUpdate: false,
+      noticeSent: false,
+      stageTone,
+      stageLabel: permitRenewStageLabel(stageTone),
+      invoiceNo: String(job?.invoiceNo || "").trim(),
+      mock: false,
+      realTest: true,
+    });
+  }
+  return cards;
+}
+
+/** Paid renews ready for Deploy → update permit. */
+export function listPaidUpdatePermitCards(jobs = []) {
+  return listRenewApplications(jobs).filter(
+    (r) => r.deployUpdate || (r.paid && r.nextStep === "update_permit")
+  );
+}
+
 /**
  * Public entry for the email "Renew Permit" button.
  * Query survives redirects; main.jsx bootstraps it to a public pay landing
@@ -1089,7 +1174,7 @@ export function preparePhaseAMock({ jobs, scenario = PHASE_A_HAMPTON_SCENARIO, f
 export function prepareRenewScenario({ jobs, scenario, fee } = {}) {
   return preparePhaseAMock({
     jobs,
-    scenario: scenario || REAL_TEST_HACKNER_SCENARIO,
+    scenario: scenario || RENEW_HACKNER_SCENARIO,
     fee,
   });
 }

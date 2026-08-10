@@ -36,10 +36,6 @@ import {
   renewSchedulePatch,
   getRenewSchedule,
 } from "../lib/permitThreeSurfacePipe.js";
-import {
-  PERMIT_RENEW_FEE_DEFAULT,
-  permitRenewMockPatch,
-} from "../lib/permitRenewInvoice.js";
 import { fmt$, ago } from "../lib/format.js";
 import CustomerCard from "../components/CustomerCard.jsx";
 import CustomerTransactionHistory from "../components/CustomerTransactionHistory.jsx";
@@ -1167,39 +1163,6 @@ export default function JobDetail() {
                           }}
                         />
                       </div>
-                      <button
-                        type="button"
-                        className="w-full text-left rounded-md border border-amber-200 bg-amber-50 px-2 py-1.5 text-[11px] font-bold text-amber-950"
-                        data-testid="job-mock-renew-invoice"
-                        onClick={async () => {
-                          const hay = [job?.customer, job?.businessName, job?.email]
-                            .map((s) => String(s || "").toLowerCase())
-                            .join(" ");
-                          const isTester =
-                            hay.includes("levi tester") ||
-                            hay.includes("levikumer@gmail") ||
-                            hay.includes("tester 2");
-                          if (!isTester) {
-                            // Never seed real-customer jobs — full mock lives on Permits tab
-                            showToast?.(
-                              "Mock renew is Levi Tester only — open Permits → Mock renew Phase A"
-                            );
-                            nav("/permits");
-                            return;
-                          }
-                          const save = patchAndSave || patchJob;
-                          await save(id, permitRenewMockPatch(job, { mock: true }));
-                          showToast?.(
-                            `Mock renew seeded — $${PERMIT_RENEW_FEE_DEFAULT}. Invoice page opening; send only to Levi Tester.`
-                          );
-                          nav(`/job/${id}?doc=invoice&create=1`);
-                        }}
-                      >
-                        Mock renew invoice ${PERMIT_RENEW_FEE_DEFAULT}
-                        <span className="block font-semibold text-[10px] text-amber-800/90">
-                          Levi Tester only · invoice + pay · or use Permits Phase A card
-                        </span>
-                      </button>
                     </div>
                   ) : null}
                   <div className="text-[10px] font-extrabold uppercase tracking-wide text-slate-400 mb-1">
