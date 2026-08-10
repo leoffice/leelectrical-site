@@ -175,7 +175,8 @@ function RenewalNotificationsCard({
   );
   // Open by default — no extra tap / lag to see permit # + exp (Levi 2026-08-10).
   const [sectionOpen, setSectionOpen] = useState(true);
-  const [historyOpen, setHistoryOpen] = useState(false);
+  // History open by default so staff sees every send without an extra tap
+  const [historyOpen, setHistoryOpen] = useState(true);
   const [expandedId, setExpandedId] = useState("");
 
   return (
