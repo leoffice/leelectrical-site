@@ -39,6 +39,9 @@ import {
   listRenewSendHistory,
   isRealCityPermitNo,
   isExcludedRenewAddress,
+  listDriveReadyRenewScenarios,
+  isDriveCompletedSource,
+  isDobRenewableForNotify,
 } from "../src/lib/permitRenewal.js";
 import {
   ensurePermitCacheSeeded,
@@ -46,6 +49,7 @@ import {
   reservePlaceholderInvoiceNo,
   listRenewSendHistory as listCacheHistory,
   permitCacheKey,
+  upsertPermitCacheEntries,
 } from "../src/lib/permitCache.js";
 import {
   isBalanceExemptOffer,
@@ -500,22 +504,24 @@ describe("permitRenewal Phase A mock", () => {
     expect(READY_RENEW_SCENARIOS.find((s) => /schenectady/i.test(s.id || ""))).toBeUndefined();
 
     const empty = listPendingRenewCards([]);
-    // Hampton + Drive completed seed (matched + email + permit #)
-    expect(empty.length).toBeGreaterThan(1);
+    // Hampton always; Drive seed only after DOB NOW "Renew application" (Levi 2026-08-10)
+    expect(empty.length).toBeGreaterThanOrEqual(1);
     expect(empty.some((c) => c.scenarioId === "hampton-yossi")).toBe(true);
     expect(empty.every((c) => !/364/.test(c.address || "") || !/schenectady/i.test(c.address || ""))).toBe(
       true
     );
     expect(empty.find((c) => c.scenarioId === "schenectady-hackner")).toBeUndefined();
-    // Drive completed-permit rows carry real city permit #s so Send Email works
-    const driveRow = empty.find(
-      (c) =>
-        String(c.scenarioId || "").startsWith("drive:") ||
-        (c.scenarioId !== "hampton-yossi" && isRealCityPermitNo(c.permitNo))
-    );
-    expect(driveRow).toBeTruthy();
-    expect(driveRow.permitNo).toMatch(/^[A-Z]\d/i);
-    expect(driveRow.email).toMatch(/@/);
+    // Jose / Sima / unverified Drive rows must NOT appear as notify candidates
+    expect(
+      empty.every(
+        (c) =>
+          c.scenarioId === "hampton-yossi" ||
+          isDobRenewableForNotify(c.scenario || c) ||
+          c.scenario?.dobRenewable === true
+      )
+    ).toBe(true);
+    // Unverified drive seed is held back until DOB renew check
+    expect(listDriveReadyRenewScenarios().every((s) => isDobRenewableForNotify(s))).toBe(true);
 
     const open = {
       id: "r-ham",
@@ -555,11 +561,11 @@ describe("permitRenewal Phase A mock", () => {
       false
     );
 
-    // After email, Hampton drops; Drive completed permits stay pending
+    // After email, Hampton drops; no unverified Drive spam
     const after = listPendingRenewCards([sent]);
     expect(after.find((c) => c.scenarioId === "hampton-yossi")).toBeUndefined();
-    expect(after.length).toBeGreaterThan(0);
     expect(after.every((c) => c.scenarioId !== "schenectady-hackner")).toBe(true);
+    expect(after.every((c) => !String(c.scenarioId || "").startsWith("drive:") || isDobRenewableForNotify(c.scenario || c))).toBe(true);
 
     // Paid → update permit box
     const paidBox = listPaidUpdatePermitCards([paid]);
@@ -586,6 +592,48 @@ describe("permitRenewal Phase A mock", () => {
     const filled = listPendingRenewCards([thin]).find((c) => c.scenarioId === "hampton-yossi");
     expect(filled?.permitNo).toMatch(/B01126007/);
     expect(filled?.expiresDate).toBe("2025-10-11");
+  });
+
+  it("Drive notify only Completed folder + DOB Renew application (not Jose/Sima)", () => {
+    expect(isDriveCompletedSource("drive:completed", "completed")).toBe(true);
+    expect(isDriveCompletedSource("drive:jose", "jose")).toBe(false);
+    expect(isDriveCompletedSource("drive:sima", "sima_cima")).toBe(false);
+    expect(isDobRenewableForNotify({ dobRenewable: false })).toBe(false);
+    expect(isDobRenewableForNotify({ dobRenewCheckStatus: "pending" })).toBe(false);
+    expect(isDobRenewableForNotify({ dobRenewable: true })).toBe(true);
+
+    // Jose-like seed must never become a Drive notify candidate
+    upsertPermitCacheEntries([
+      {
+        permitNo: "M09999999-I1-EL",
+        address: "999 JOSE TEST AVE",
+        email: "jose-test@example.com",
+        customer: "Jose Test",
+        matchedCustomer: true,
+        source: "drive:jose",
+        sourceFolder: "jose",
+        dobRenewable: true,
+        dobRenewCheckStatus: "renewable",
+        expiresDate: "2025-01-01",
+        issuedDate: "2024-01-01",
+      },
+      {
+        permitNo: "B09999999-I1-EL",
+        address: "888 COMPLETED RENEW AVE",
+        email: "completed-renew@example.com",
+        customer: "Completed Renew Co",
+        matchedCustomer: true,
+        source: "drive:completed",
+        sourceFolder: "completed",
+        dobRenewable: true,
+        dobRenewCheckStatus: "renewable",
+        expiresDate: "2025-01-01",
+        issuedDate: "2024-01-01",
+      },
+    ]);
+    const drive = listDriveReadyRenewScenarios();
+    expect(drive.some((s) => /JOSE TEST/i.test(s.address || ""))).toBe(false);
+    expect(drive.some((s) => /COMPLETED RENEW/i.test(s.address || ""))).toBe(true);
   });
 
   it("detects renew jobs and reuses open Bashari invoice", () => {

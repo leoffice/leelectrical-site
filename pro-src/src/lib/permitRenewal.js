@@ -20,6 +20,8 @@ import {
   loadPermitCache,
   scenarioFromCacheEntry,
   toPermitCacheEntry,
+  isDriveCompletedSource,
+  isDobRenewableForNotify,
 } from "./permitCache.js";
 
 export {
@@ -30,6 +32,8 @@ export {
   getPermitCacheEntry,
   scenarioFromCacheEntry,
   toPermitCacheEntry,
+  isDriveCompletedSource,
+  isDobRenewableForNotify,
 };
 
 /** Default city electrical permit renew fee (editable before send later). */
@@ -950,8 +954,13 @@ export function scenarioNoticeAlreadySent(jobs = [], scenarioId = "", extra = {}
 }
 
 /**
- * Drive completed-permit rows ready for staff Send Email (matched + email + permit #).
- * Excludes 364 Schenectady and multi-match "ask Levi" rows.
+ * Drive completed-permit rows ready for staff Send Email.
+ *
+ * Levi 2026-08-10 gates:
+ *  - Only **Completed** folder (not Jose / Sima-CIMA / Full Detailed / Eli / Smith)
+ *  - Only after DOB NOW shows **Renew application** (PAA → subsequent)
+ *  - Matched + email + real city permit #
+ *  - Excludes 364 Schenectady and multi-match "ask Levi" rows
  */
 export function listDriveReadyRenewScenarios() {
   ensurePermitCacheSeeded(READY_RENEW_SCENARIOS);
@@ -977,6 +986,10 @@ export function listDriveReadyRenewScenarios() {
     if (isExcludedRenewAddress(address)) continue;
     if (e.multiMatchNeedsConfirm) continue;
     if (e.matchedCustomer === false) continue;
+    // Jose / Sima / other named folders never auto-notify from Drive seed
+    if (!isDriveCompletedSource(e.source, e.sourceFolder)) continue;
+    // Do not charge or notify until DOB NOW confirms Renew application
+    if (!isDobRenewableForNotify(e)) continue;
     // Hard-ready scenarios are added separately with authoritative facts
     if (sid && readyIds.has(sid)) continue;
     const pKey = permitNo.toUpperCase();
@@ -994,6 +1007,9 @@ export function listDriveReadyRenewScenarios() {
         id,
         fee: e.fee != null ? e.fee : PERMIT_RENEW_FEE,
         source: e.source || "drive:completed",
+        sourceFolder: e.sourceFolder || "completed",
+        dobRenewable: true,
+        dobRenewCheckStatus: e.dobRenewCheckStatus || "renewable",
         real: true,
         realTest: true,
         matchedCustomer: true,

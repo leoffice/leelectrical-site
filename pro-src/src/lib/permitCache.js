@@ -25,6 +25,24 @@ const HISTORY_KEY = "le-pro-renew-send-history";
 
 const DEFAULT_FEE = 365;
 
+/** True only for BLZ Permits / Completed folder rows (not Jose / Sima / Full Detailed). */
+export function isDriveCompletedSource(source = "", sourceFolder = "") {
+  const s = String(source || "").trim().toLowerCase();
+  const f = String(sourceFolder || "").trim().toLowerCase();
+  if (f) return f === "completed" || f === "drive:completed";
+  return s === "drive:completed" || s === "completed";
+}
+
+/** DOB NOW confirmed "Renew application" — only then may we notify the customer. */
+export function isDobRenewableForNotify(entry = {}) {
+  if (!entry || typeof entry !== "object") return false;
+  if (entry.dobRenewable === true) return true;
+  const st = String(entry.dobRenewCheckStatus || entry.dobRenewStatus || "")
+    .trim()
+    .toLowerCase();
+  return st === "renewable" || st === "renew_application";
+}
+
 /** Drive completed-permits seed (permit #, issue/exp, customer, email when matched). */
 export function loadCompletedPermitsSeedEntries() {
   const raw = completedPermitsSeed?.permits;
@@ -46,6 +64,9 @@ export function loadCompletedPermitsSeedEntries() {
       matchedCustomer: !!p.matchedCustomer,
       multiMatchNeedsConfirm: !!p.multiMatchNeedsConfirm,
       source: p.source || "drive:completed",
+      sourceFolder: String(p.sourceFolder || "").trim(),
+      dobRenewable: p.dobRenewable === true,
+      dobRenewCheckStatus: String(p.dobRenewCheckStatus || "pending").trim() || "pending",
       fee: DEFAULT_FEE,
     }));
 }
@@ -124,6 +145,9 @@ export function toPermitCacheEntry(sc) {
     matchedCustomer: !!(sc.matchedCustomer || sc.real || sc.realTest),
     multiMatchNeedsConfirm: !!sc.multiMatchNeedsConfirm,
     source: sc.source || "scenario",
+    sourceFolder: String(sc.sourceFolder || "").trim(),
+    dobRenewable: sc.dobRenewable === true,
+    dobRenewCheckStatus: String(sc.dobRenewCheckStatus || sc.dobRenewStatus || "").trim(),
     updatedAt: new Date().toISOString(),
   };
 }
