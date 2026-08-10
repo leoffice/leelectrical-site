@@ -8,7 +8,7 @@
  * reload loop while the client chased a new SW. Hashed filenames are still
  * cacheable after a successful network hit.
  */
-const CACHE = "le-pro-v400";
+const CACHE = "le-pro-v401";
 // Do not pre-cache index.html — a stale shell + new CSS hash = unstyled raw links.
 const CORE = ["/app/pro/manifest.json"];
 
