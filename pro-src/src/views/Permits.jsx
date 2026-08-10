@@ -1640,7 +1640,23 @@ export default function Permits() {
     } catch {
       /* ignore */
     }
-  }, []);
+    // Backend cash file: BLZ Electric Inc / Permits / Completed
+    let cancelled = false;
+    (async () => {
+      try {
+        if (typeof api?.listCompletedPermits !== "function") return;
+        const cat = await api.listCompletedPermits();
+        if (cancelled || !cat?.cacheEntries?.length) return;
+        const { upsertPermitCacheEntries } = await import("../lib/permitCache.js");
+        upsertPermitCacheEntries(cat.cacheEntries);
+      } catch {
+        /* offline */
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [api]);
 
   const runRenewNotice = async (
     mode = "email",

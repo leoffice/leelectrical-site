@@ -602,6 +602,34 @@ export function createNetlifyAdapter() {
       }
     },
 
+    /**
+     * BLZ Electric Inc / Permits / Completed — backend cash-file list
+     * (Print Permits from Drive Completed folder).
+     * GET permits-completed → { permits, cacheEntries, count, withPermitNo }
+     */
+    async listCompletedPermits(q) {
+      try {
+        const query = String(q || "").trim();
+        const qs = query
+          ? `q=${encodeURIComponent(query)}&${cb()}`
+          : cb();
+        const d = await http(`permits-completed?${qs}`);
+        if (!d || d.ok === false) {
+          return { permits: [], cacheEntries: [], count: 0, withPermitNo: 0 };
+        }
+        return {
+          permits: Array.isArray(d.permits) ? d.permits : [],
+          cacheEntries: Array.isArray(d.cacheEntries) ? d.cacheEntries : [],
+          count: d.count || 0,
+          withPermitNo: d.withPermitNo || 0,
+          updatedAt: d.updatedAt || null,
+          folder: d.folder || "",
+        };
+      } catch {
+        return { permits: [], cacheEntries: [], count: 0, withPermitNo: 0 };
+      }
+    },
+
     async listEventsMeta() {
       const d = await httpConditional("calendar");
       return { events: d.events || [], syncedAt: d.syncedAt || 0, request: d.request || 0 };
