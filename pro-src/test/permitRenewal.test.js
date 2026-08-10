@@ -1,0 +1,126 @@
+import { describe, expect, it } from "vitest";
+import {
+  PHASE_A_HAMPTON_SCENARIO,
+  LEVI_TESTER,
+  PERMIT_RENEW_FEE,
+  assertPhaseARecipient,
+  buildPermitRenewEmail,
+  buildPermitRenewInvoiceLines,
+  buildPermitRenewJobFields,
+  buildPermitRenewMailto,
+  buildPermitRenewMetaPatch,
+  findOpenMockRenewJob,
+  isBlockedRenewRecipient,
+  isLeviTesterEmail,
+  isPermitRenewJob,
+  preparePhaseAMock,
+} from "../src/lib/permitRenewal.js";
+
+describe("permitRenewal Phase A mock", () => {
+  it("defaults fee to $365 and Hampton scenario facts", () => {
+    expect(PERMIT_RENEW_FEE).toBe(365);
+    expect(PHASE_A_HAMPTON_SCENARIO.address).toMatch(/Hampton/i);
+    expect(PHASE_A_HAMPTON_SCENARIO.permitNo).toMatch(/B01126007/);
+    expect(LEVI_TESTER.email).toMatch(/levikumer@gmail\.com/i);
+  });
+
+  it("blocks real Yossi email and only allows Levi Tester", () => {
+    expect(isBlockedRenewRecipient("yossi6886@gmail.com")).toBe(true);
+    expect(isLeviTesterEmail("levikumer@gmail.com")).toBe(true);
+    expect(assertPhaseARecipient("yossi6886@gmail.com").ok).toBe(false);
+    expect(assertPhaseARecipient("random@example.com").ok).toBe(false);
+    expect(assertPhaseARecipient("levikumer@gmail.com").ok).toBe(true);
+    expect(assertPhaseARecipient("").email).toBe(LEVI_TESTER.email);
+  });
+
+  it("builds $365 renew invoice lines with address + permit", () => {
+    const lines = buildPermitRenewInvoiceLines();
+    expect(lines).toHaveLength(1);
+    expect(lines[0].unitPrice).toBe(365);
+    expect(lines[0].description).toMatch(/40 Hampton/i);
+    expect(lines[0].description).toMatch(/B01126007/);
+  });
+
+  it("createJob fields target Levi Tester with Hampton content", () => {
+    const fields = buildPermitRenewJobFields({ jobs: [] });
+    expect(fields.customer.toLowerCase()).toContain("tester");
+    expect(fields.email).toBe(LEVI_TESTER.email);
+    expect(fields.serviceAddress).toMatch(/Hampton/i);
+    expect(fields.amount).toBe(365);
+    expect(fields.invoiceNo).toMatch(/^LE-\d+/);
+    expect(fields.invoiceLines[0].unitPrice).toBe(365);
+    expect(fields.title).toMatch(/permit renewal/i);
+  });
+
+  it("meta patch marks mock Phase A and keeps autoEmail off", () => {
+    const meta = buildPermitRenewMetaPatch();
+    expect(meta.permitRenew.mock).toBe(true);
+    expect(meta.permitRenew.phase).toBe("A");
+    expect(meta.permitRenew.autoEmail).toBe(false);
+    expect(meta.paperwork.dob.renewSchedule.autoEmail).toBe(false);
+    expect(meta.email).toBe(LEVI_TESTER.email);
+    expect(meta.openBalance).toBe(365);
+  });
+
+  it("email has address, permit details, and Update or Renew Permit CTA", () => {
+    const { subject, body, to, ctaLabel } = buildPermitRenewEmail({
+      payUrl: "https://leelectrical.us/app/pro/#/pay/demo",
+      invoiceNo: "LE-2701",
+    });
+    expect(to).toBe(LEVI_TESTER.email);
+    expect(ctaLabel).toBe("Update or Renew Permit");
+    expect(subject).toMatch(/Update or renew|permit/i);
+    expect(body).toMatch(/40 Hampton/i);
+    expect(body).toMatch(/B01126007/);
+    expect(body).toMatch(/\$365\.00|365/);
+    expect(body).toContain("Update or Renew Permit:");
+    expect(body).toContain("https://leelectrical.us/app/pro/#/pay/demo");
+    expect(body).toMatch(/invoice page/i);
+    // Must not address-send to real customer in the draft headers
+    expect(body).not.toMatch(/yossi6886@gmail\.com/i);
+  });
+
+  it("mailto only builds for Levi Tester", () => {
+    const ok = buildPermitRenewMailto({
+      to: LEVI_TESTER.email,
+      subject: "hi",
+      body: "body",
+    });
+    expect(ok.ok).toBe(true);
+    expect(ok.href).toMatch(/^mailto:/);
+    expect(ok.href).toContain(encodeURIComponent(LEVI_TESTER.email));
+
+    const bad = buildPermitRenewMailto({
+      to: "yossi6886@gmail.com",
+      subject: "hi",
+      body: "body",
+    });
+    expect(bad.ok).toBe(false);
+    expect(bad.href).toBe("");
+  });
+
+  it("detects renew jobs and reuses open mock invoice", () => {
+    const open = {
+      id: "local-1",
+      customer: "levi tester",
+      email: LEVI_TESTER.email,
+      invoiceNo: "LE-2705",
+      amount: 365,
+      openBalance: 365,
+      permitRenew: { mock: true, phase: "A" },
+      title: "City electrical permit renewal — B01126007-S1-EL",
+    };
+    const paid = { ...open, id: "local-2", paid: true, openBalance: 0 };
+    expect(isPermitRenewJob(open)).toBe(true);
+    expect(findOpenMockRenewJob([paid, open])).toEqual(open);
+
+    const prep = preparePhaseAMock({ jobs: [open] });
+    expect(prep.reuse).toBe(true);
+    expect(prep.job.invoiceNo).toBe("LE-2705");
+
+    const fresh = preparePhaseAMock({ jobs: [] });
+    expect(fresh.reuse).toBe(false);
+    expect(fresh.fields.invoiceNo).toMatch(/^LE-/);
+    expect(fresh.meta.permitRenew.mock).toBe(true);
+  });
+});
