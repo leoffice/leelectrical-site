@@ -30,8 +30,20 @@ import {
   permitRenewStatusSentence,
   permitRenewStatusTone,
   preparePhaseAMock,
+  prepareRenewNotice,
   prepareRenewScenario,
+  buildRenewNoticeCtaUrl,
+  buildRenewNoticeSentPatch,
+  materializeRenewInvoicePatch,
+  listRenewSendHistory,
 } from "../src/lib/permitRenewal.js";
+import {
+  ensurePermitCacheSeeded,
+  loadPermitCache,
+  reservePlaceholderInvoiceNo,
+  listRenewSendHistory as listCacheHistory,
+  permitCacheKey,
+} from "../src/lib/permitCache.js";
 import {
   isBalanceExemptOffer,
   openBalance,
@@ -629,6 +641,10 @@ describe("permitRenewal Phase A mock", () => {
     const prep = prepareRenewScenario({ jobs: [], scenario: REAL_TEST_HACKNER_SCENARIO });
     expect(prep.reuse).toBe(false);
     expect(prep.fields.serviceAddress).toMatch(/364/);
+    // Notice-only by default — no real invoice until Renew tap
+    expect(prep.noticeOnly).toBe(true);
+    expect(prep.fields.invoiceNo).toBe("");
+    expect(prep.placeholderInvoiceNo).toMatch(/^LE-/);
 
     const rows = listRenewApplications([
       {
@@ -643,5 +659,137 @@ describe("permitRenewal Phase A mock", () => {
     expect(rows[0].permitNo).toMatch(/234 Schenectady/i);
     expect(rows[0].address).toMatch(/364/);
     expect(rows[0].realTest).toBe(true);
+  });
+
+  it("notice-only: reserves placeholder, no real invoice until materialize", () => {
+    const prep = prepareRenewNotice({
+      jobs: [],
+      scenario: RENEW_HAMPTON_SCENARIO,
+    });
+    expect(prep.noticeOnly).toBe(true);
+    expect(prep.fields.invoiceNo).toBe("");
+    expect(prep.fields._invoiceConfirmed).toBe(false);
+    expect(prep.placeholderInvoiceNo).toMatch(/^LE-\d+/);
+    expect(prep.meta.permitRenew.noticeOnly).toBe(true);
+    expect(prep.meta.permitRenew.invoiceMaterialized).toBe(false);
+    expect(prep.meta.permitRenew.placeholderInvoiceNo).toBe(prep.placeholderInvoiceNo);
+    expect(prep.meta.openBalance).toBe(0);
+
+    const draft = buildPermitRenewEmail({
+      scenario: RENEW_HAMPTON_SCENARIO,
+      invoiceNo: prep.placeholderInvoiceNo,
+      noticeOnly: true,
+      todayIso: "2026-08-10",
+    });
+    expect(draft.noticeOnly).toBe(true);
+    expect(draft.body).toMatch(/Reference:/i);
+    expect(draft.body).toMatch(/reserved/i);
+    expect(draft.ctaUrl).toMatch(/renewCta=phaseA/);
+    expect(draft.ctaUrl).toMatch(/scenario=hampton-yossi/);
+    expect(draft.ctaUrl).toMatch(/inv=LE-/);
+
+    const noticeJob = {
+      id: "notice-1",
+      ...prep.fields,
+      ...prep.meta,
+      permitRenew: {
+        ...prep.meta.permitRenew,
+        noticeSent: false,
+      },
+    };
+    // Not an open balance-due invoice
+    expect(parseFloat(String(noticeJob.openBalance || 0)) || 0).toBe(0);
+
+    const mat = materializeRenewInvoicePatch(noticeJob);
+    expect(mat.invoiceNo).toBe(prep.placeholderInvoiceNo);
+    expect(mat._invoiceConfirmed).toBe(true);
+    expect(mat.amount).toBe(365);
+    expect(mat.permitRenew.invoiceMaterialized).toBe(true);
+    expect(mat.permitRenew.noticeOnly).toBe(false);
+  });
+
+  it("CTA url + payload use scenario + reserved inv; separate invoices per address", () => {
+    const url = buildRenewNoticeCtaUrl({
+      scenarioId: "schenectady-hackner",
+      invoiceNo: "LE-2910",
+    });
+    expect(url).toMatch(/renewCta=phaseA/);
+    expect(url).toMatch(/scenario=schenectady-hackner/);
+    expect(url).toMatch(/inv=LE-2910/);
+
+    const ham = prepareRenewNotice({ jobs: [], scenario: RENEW_HAMPTON_SCENARIO });
+    const hack = prepareRenewNotice({
+      jobs: [{ invoiceNo: ham.placeholderInvoiceNo }],
+      scenario: RENEW_HACKNER_SCENARIO,
+    });
+    // Separate reserved numbers for each permit/address
+    expect(ham.placeholderInvoiceNo).not.toBe(hack.placeholderInvoiceNo);
+    expect(ham.meta.permitRenew.scenarioId).toBe("hampton-yossi");
+    expect(hack.meta.permitRenew.scenarioId).toBe("schenectady-hackner");
+  });
+
+  it("send history records every notice send", () => {
+    const job = {
+      id: "hist-1",
+      customer: "Yosef Beshari",
+      serviceAddress: "40 Hampton Pl",
+      permitRenew: {
+        realTest: true,
+        noticeOnly: true,
+        scenarioId: "hampton-yossi",
+        permitNo: "B01126007-L1-EL",
+        address: "40 Hampton Pl",
+        displayCustomer: "Yosef Beshari",
+        placeholderInvoiceNo: "LE-2990",
+        invoiceMaterialized: false,
+        sendHistory: [],
+      },
+    };
+    const p1 = buildRenewNoticeSentPatch(job, {
+      to: "yossi6886@gmail.com",
+      subject: "Time to renew",
+      placeholderInvoiceNo: "LE-2990",
+    });
+    expect(p1.permitRenew.noticeSent).toBe(true);
+    expect(p1.permitRenew.sendHistory).toHaveLength(1);
+    expect(p1.permitRenew.sendHistory[0].to).toMatch(/yossi6886/);
+    expect(p1.permitRenew.invoiceMaterialized).toBe(false);
+
+    const after = {
+      ...job,
+      permitRenew: p1.permitRenew,
+    };
+    const p2 = buildRenewNoticeSentPatch(after, {
+      to: "other@example.com",
+      subject: "Reminder",
+      placeholderInvoiceNo: "LE-2990",
+    });
+    expect(p2.permitRenew.sendHistory.length).toBeGreaterThanOrEqual(2);
+
+    const hist = listRenewSendHistory([
+      { ...after, permitRenew: p2.permitRenew },
+    ]);
+    expect(hist.length).toBeGreaterThanOrEqual(1);
+    expect(hist[0].permitNo).toMatch(/B01126007/);
+    expect(hist.some((h) => h.placeholderInvoiceNo === "LE-2990")).toBe(true);
+  });
+
+  it("permit cache seeds ready addresses with customer + email", () => {
+    ensurePermitCacheSeeded(READY_RENEW_SCENARIOS);
+    const cache = loadPermitCache();
+    expect(cache.length).toBeGreaterThanOrEqual(2);
+    const ham = cache.find((e) => e.scenarioId === "hampton-yossi" || /Hampton/i.test(e.address));
+    expect(ham?.permitNo).toMatch(/B01126007/);
+    expect(ham?.email).toMatch(/yossi6886/);
+    expect(ham?.customer).toMatch(/Beshari|Yosef/i);
+    expect(ham?.issuedDate).toBe("2024-10-11");
+    expect(permitCacheKey({ scenarioId: "hampton-yossi" })).toBe("sc:hampton-yossi");
+
+    const reserved = reservePlaceholderInvoiceNo([], {
+      scenarioId: "hampton-yossi",
+      permitNo: ham.permitNo,
+    });
+    expect(reserved).toMatch(/^LE-\d+/);
+    void listCacheHistory;
   });
 });

@@ -249,6 +249,8 @@ export function isPermitRenewJob(job) {
     job.permitRenew &&
     (job.permitRenew.mock ||
       job.permitRenew.realTest ||
+      job.permitRenew.noticeOnly ||
+      job.permitRenew.placeholderInvoiceNo ||
       job.permitRenew.phase === "A" ||
       job.permitRenew.phase === "real")
   ) {

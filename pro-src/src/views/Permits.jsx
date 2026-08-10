@@ -79,19 +79,20 @@ import {
   buildPermitRenewEmail,
   buildPermitRenewPayUrl,
   buildRenewNoticeCtaUrl,
+  buildRenewNoticeSentPatch,
   formatPermitDateMdY,
   isLeviTesterMockRenewJob,
   listPendingRenewCards,
   listPaidUpdatePermitCards,
+  materializeRenewInvoicePatch,
+  prepareRenewNotice,
   prepareRenewScenario,
   renewFeeFromScenario,
 } from "../lib/permitRenewal.js";
 import {
-  appendRenewSendHistory,
   ensurePermitCacheSeeded,
   formatSendHistoryWhen,
   listRenewSendHistory,
-  reservePlaceholderInvoiceNo,
 } from "../lib/permitCache.js";
 /** Health/bucket → pill tone, mirroring the JobDetail Con Ed chip. */
 function stageTone(row) {
@@ -1505,23 +1506,55 @@ export default function Permits() {
   };
 
   /**
-   * Create/reuse renew invoice for a ready address (Hampton / Schenectady).
-   * Also creates service address on the customer when missing.
+   * Create/reuse a renew job row.
+   * noticeOnly=true → placeholder # only (no real invoice).
+   * noticeOnly=false → real invoice for staff pay preview.
    */
-  const ensureRenewInvoice = async (scenario = RENEW_HAMPTON_SCENARIO) => {
+  const ensureRenewJob = async (
+    scenario = RENEW_HAMPTON_SCENARIO,
+    { noticeOnly = true } = {}
+  ) => {
     const sc = scenario || RENEW_HAMPTON_SCENARIO;
-    const prep = prepareRenewScenario({ jobs, scenario: sc });
+    const prep = noticeOnly
+      ? prepareRenewNotice({ jobs, scenario: sc })
+      : prepareRenewScenario({ jobs, scenario: sc, noticeOnly: false });
     let job = prep.job;
     if (job) {
       job = jobsById.get(job.id) || job;
-      return { job, fee: prep.fee, created: false, scenario: sc };
+      // Reuse notice-only; if staff needs a real invoice and it isn't materialized yet, materialize below
+      const pr = job.permitRenew || {};
+      if (
+        !noticeOnly &&
+        !pr.invoiceMaterialized &&
+        (pr.noticeOnly || pr.placeholderInvoiceNo)
+      ) {
+        const mat = materializeRenewInvoicePatch(job, { fee: prep.fee });
+        await patchAndSave(job.id, mat);
+        job = { ...job, ...mat, permitRenew: mat.permitRenew };
+        return {
+          job,
+          fee: prep.fee,
+          created: false,
+          scenario: sc,
+          noticeOnly: false,
+          placeholderInvoiceNo: mat.invoiceNo || pr.placeholderInvoiceNo || "",
+        };
+      }
+      return {
+        job,
+        fee: prep.fee,
+        created: false,
+        scenario: sc,
+        noticeOnly: !!(pr.noticeOnly || !pr.invoiceMaterialized),
+        placeholderInvoiceNo:
+          pr.placeholderInvoiceNo || prep.placeholderInvoiceNo || job.invoiceNo || "",
+      };
     }
     if (typeof createJob !== "function") {
-      throw new Error("Couldn't create renew invoice — try again");
+      throw new Error("Couldn't create renew notice — try again");
     }
     const id = await createJob(prep.fields);
-    if (!id) throw new Error("Couldn't create renew invoice");
-    // Wait for full shell save before thin meta patch (createJob is snappy/local-first).
+    if (!id) throw new Error("Couldn't create renew notice");
     if (typeof whenJobSaved === "function") await whenJobSaved(id);
     if (prep.meta) {
       await patchAndSave(id, {
@@ -1532,32 +1565,43 @@ export default function Permits() {
         serviceAddress: prep.fields.serviceAddress,
         address: prep.fields.address,
         billingAddress: prep.fields.billingAddress,
-        invoiceLines: prep.fields.invoiceLines,
-        invoiceNo: prep.fields.invoiceNo,
-        invoiceDate: prep.fields.invoiceDate,
+        invoiceLines: prep.fields.invoiceLines || [],
+        invoiceNo: prep.fields.invoiceNo || "",
+        invoiceDate: prep.fields.invoiceDate || "",
         phone: prep.fields.phone || "",
         qboCustomerId: prep.fields.qboCustomerId || "",
-        _invoiceConfirmed: true,
-        openBalance: prep.fee,
-        amount: prep.fee,
+        _invoiceConfirmed: !!prep.fields._invoiceConfirmed,
+        openBalance: noticeOnly ? 0 : prep.fee,
+        amount: noticeOnly ? 0 : prep.fee,
       });
     }
     job = {
       id,
       ...prep.fields,
       ...prep.meta,
-      amount: prep.fields.amount,
-      openBalance: prep.fee,
+      amount: noticeOnly ? 0 : prep.fee,
+      openBalance: noticeOnly ? 0 : prep.fee,
       email: prep.fields.email || sc.realEmail || "",
     };
-    return { job, fee: prep.fee, created: true, scenario: sc };
+    return {
+      job,
+      fee: prep.fee,
+      created: true,
+      scenario: sc,
+      noticeOnly: !!noticeOnly,
+      placeholderInvoiceNo: prep.placeholderInvoiceNo || "",
+    };
   };
+
+  /** @deprecated name — staff real-invoice path */
+  const ensureRenewInvoice = (scenario) =>
+    ensureRenewJob(scenario, { noticeOnly: false });
 
   /**
    * Renew notifications (Levi 2026-08-10):
-   * - email: reserve placeholder invoice # only — NO real invoice job.
-   *   CTA opens pay page and generates invoice when customer taps Renew.
-   * - pay: materialize real invoice (staff preview) via ensureRenewInvoice.
+   * - email: notice-only job + reserved placeholder — NO real invoice.
+   *   CTA generates invoice when customer taps Renew.
+   * - pay: materialize real invoice (staff preview).
    */
   const [historyTick, setHistoryTick] = useState(0);
 
@@ -1574,41 +1618,44 @@ export default function Permits() {
     setPhaseABusy(true);
     const sc = scenario || RENEW_HAMPTON_SCENARIO;
     try {
-      const fee = renewFeeFromScenario(sc);
-
-      // Notice email path: placeholder only — never createJob / real invoice
+      // Notice email path: notice-only job + placeholder (not a real invoice)
       if (mode === "email") {
-        const placeholderNo = reservePlaceholderInvoiceNo(jobs, {
-          scenarioId: sc.id,
-          permitNo: sc.permitNo,
-          address: sc.address,
-        });
+        const {
+          job,
+          fee,
+          created,
+          placeholderInvoiceNo,
+        } = await ensureRenewJob(sc, { noticeOnly: true });
         const origin =
           typeof window !== "undefined" && window.location?.origin
             ? window.location.origin
             : "https://leelectrical.us";
+        const refNo =
+          placeholderInvoiceNo ||
+          job?.permitRenew?.placeholderInvoiceNo ||
+          "";
         const payUrl = buildRenewNoticeCtaUrl({
           scenarioId: sc.id,
-          invoiceNo: placeholderNo,
+          invoiceNo: refNo,
           origin,
         });
         const draft = buildPermitRenewEmail({
           scenario: sc,
           fee,
           payUrl,
-          invoiceNo: placeholderNo,
+          invoiceNo: refNo,
           noticeOnly: true,
         });
-        draft.to = String(sc.realEmail || "").trim();
+        draft.to = String(sc.realEmail || job?.email || "").trim();
         setRenewCompose({
           draft,
           payUrl,
-          job: null,
-          created: false,
+          job,
+          created,
           scenario: sc,
           realTest: true,
           noticeOnly: true,
-          placeholderInvoiceNo: placeholderNo,
+          placeholderInvoiceNo: refNo,
         });
         return;
       }
@@ -1671,55 +1718,23 @@ export default function Permits() {
           to,
           subject: subject || draft.subject,
           message: message || draft.body,
-          // If staff rewrote the body, send plain/edited text; else keep branded HTML
           htmlBody: bodyChanged ? "" : draft.htmlBody || "",
           ctaLabel: draft.ctaLabel || "Renew Permit",
           ctaUrl: payUrl || draft.ctaUrl,
         }),
       }).then((r) => r.json().catch(() => ({})));
       if (res?.ok || res?.sent || res?.dryRun) {
-        const sentAt = new Date().toISOString();
         const refNo =
           placeholderInvoiceNo ||
-          (noticeOnly ? "" : job?.invoiceNo || "") ||
+          job?.permitRenew?.placeholderInvoiceNo ||
           "";
-        // Local + job history (every send)
-        appendRenewSendHistory({
-          at: sentAt,
-          to,
-          subject: subject || draft.subject || "",
-          scenarioId: sc?.id || "",
-          address: sc?.address || job?.serviceAddress || job?.address || "",
-          customer: sc?.displayCustomer || job?.customer || "",
-          permitNo: sc?.permitNo || "",
-          placeholderInvoiceNo: refNo,
-          jobId: job?.id || "",
-          invoiceMaterialized: !noticeOnly && !!job?.invoiceNo,
-        });
         if (job?.id) {
-          const pr = job.permitRenew || {};
-          const hist = Array.isArray(pr.sendHistory) ? pr.sendHistory : [];
-          await patchAndSave(job.id, {
-            permitRenew: {
-              ...pr,
-              noticeSent: true,
-              noticeSentAt: sentAt,
-              emailSentAt: sentAt,
-              noticeTo: to,
-              placeholderInvoiceNo: refNo || pr.placeholderInvoiceNo || "",
-              invoiceMaterialized: !noticeOnly,
-              sendHistory: [
-                {
-                  id: `send-${Date.now()}`,
-                  at: sentAt,
-                  to,
-                  subject: subject || draft.subject || "",
-                  placeholderInvoiceNo: refNo,
-                },
-                ...hist,
-              ].slice(0, 50),
-            },
+          const patch = buildRenewNoticeSentPatch(job, {
+            to,
+            subject: subject || draft.subject || "",
+            placeholderInvoiceNo: refNo,
           });
+          await patchAndSave(job.id, patch);
         }
         setHistoryTick((n) => n + 1);
         showToast(
@@ -1727,7 +1742,11 @@ export default function Permits() {
             ? `Queued — notice to ${to}` + (refNo ? ` · ref ${refNo}` : "")
             : `Email sent to ${to}` +
                 (refNo ? ` · ref ${refNo}` : "") +
-                (noticeOnly ? " (invoice opens when they tap Renew)" : created ? " (new inv)" : "")
+                (noticeOnly
+                  ? " (invoice opens when they tap Renew)"
+                  : created
+                    ? " (new inv)"
+                    : "")
         );
         setRenewCompose(null);
       } else {
