@@ -7,6 +7,7 @@ import { normalizeEmail } from "./customers.js";
 import { parseAmount } from "./format.js";
 import { activeTenantConfig } from "./tenantBranding.js";
 import { buildPayLandingUrl, buildShortPayLandingUrl } from "./payLanding.js";
+import { buildContactBillingAddress } from "./docBillTo.js";
 
 /** Default city electrical permit renew fee (editable before send later). */
 export const PERMIT_RENEW_FEE = 365;
@@ -181,10 +182,11 @@ export function buildPermitRenewInvoiceLines({
   const amt = parseAmount(fee) || PERMIT_RENEW_FEE;
   const addr = String(address || "").trim() || PHASE_A_HAMPTON_SCENARIO.address;
   const no = String(permitNo || "").trim() || PHASE_A_HAMPTON_SCENARIO.permitNo;
+  // Three short lines — readable on pay page + PDF (Levi 2026-08-10).
   const desc = [
     "City electrical permit renewal",
-    no ? `Permit ${no}` : "Permit renewal filing",
-    `Service site: ${addr}`,
+    no ? `Permit # ${no}` : "Permit renewal filing",
+    `Service location: ${addr}`,
   ].join("\n");
   return [
     {
@@ -199,17 +201,18 @@ export function buildPermitRenewInvoiceLines({
 /** Bill-to block under customer name (not the service street). */
 export function buildPermitRenewBillingAddress({
   billingAddress = "",
+  mailAddress = "",
   email = "",
   phone = "",
+  serviceAddress = "",
 } = {}) {
-  const lines = [];
-  const street = String(billingAddress || "").trim();
-  if (street) lines.push(street);
-  const em = String(email || "").trim();
-  if (em) lines.push(em);
-  const ph = String(phone || "").trim();
-  if (ph) lines.push(ph);
-  return lines.join("\n");
+  return buildContactBillingAddress({
+    billingAddress,
+    mailAddress,
+    email,
+    phone,
+    serviceAddress,
+  });
 }
 
 export function isPermitRenewJob(job) {
@@ -317,12 +320,14 @@ export function buildPermitRenewJobFields({
     ? String(sc.realEmail || "").trim() || LEVI_TESTER.email
     : LEVI_TESTER.email;
   const phone = String(sc.phone || "").trim();
-  // Full bill-to under the name (email/phone/mail) — never the service street
-  // (Levi 2026-08-10: show whole billing info + separate service address)
+  // Full bill-to under the name (mail/email/phone) — never the service street
+  // (Levi 2026-08-10: whole billing info + separate service address)
   const billingAddress = buildPermitRenewBillingAddress({
-    billingAddress: sc.billingAddress || sc.mailAddress || "",
+    billingAddress: sc.billingAddress || "",
+    mailAddress: sc.mailAddress || "",
     email,
     phone,
+    serviceAddress: serviceAddr,
   });
   return {
     customer: person,
@@ -335,8 +340,8 @@ export function buildPermitRenewJobFields({
       : `City electrical permit renewal — ${serviceAddr}`,
     description: [
       "City electrical permit renewal",
-      sc.permitNo ? `Permit ${sc.permitNo}` : null,
-      `Service site: ${serviceAddr}`,
+      sc.permitNo ? `Permit # ${sc.permitNo}` : null,
+      `Service location: ${serviceAddr}`,
     ]
       .filter(Boolean)
       .join("\n"),
@@ -536,9 +541,11 @@ export function buildPermitRenewMetaPatch(scenario = PHASE_A_HAMPTON_SCENARIO, f
     address: sc.address,
     // Bill-to contact block (email/phone) — not the service street
     billingAddress: buildPermitRenewBillingAddress({
-      billingAddress: sc.billingAddress || sc.mailAddress || "",
+      billingAddress: sc.billingAddress || "",
+      mailAddress: sc.mailAddress || "",
       email: isReal ? String(sc.realEmail || "").trim() : LEVI_TESTER.email,
       phone: String(sc.phone || "").trim(),
+      serviceAddress: sc.address,
     }),
     // Unpaid renew offers do not count as customer balance due (Levi 2026-08-10)
     excludeFromBalanceDue: true,
@@ -842,6 +849,23 @@ export function buildPhaseACtaPayPayload({
     `LE-RENEW-${String(sc.permitNo || "mock").replace(/[^A-Za-z0-9]/g, "").slice(0, 10)}`;
   const person = String(sc.displayCustomer || "").trim() || "Customer";
   const addr = String(sc.address || "").trim();
+  const isReal = !!(sc.realTest || sc.real);
+  const email = isReal
+    ? String(sc.realEmail || "").trim() || LEVI_TESTER.email
+    : LEVI_TESTER.email;
+  const phone = String(sc.phone || "").trim();
+  const billTo = buildPermitRenewBillingAddress({
+    billingAddress: sc.billingAddress || "",
+    mailAddress: sc.mailAddress || "",
+    email,
+    phone,
+    serviceAddress: addr,
+  });
+  const lines = buildPermitRenewInvoiceLines({
+    fee: amount,
+    address: addr,
+    permitNo: sc.permitNo,
+  });
   const feeStr = amount.toLocaleString("en-US", {
     style: "currency",
     currency: "USD",
@@ -853,32 +877,27 @@ export function buildPhaseACtaPayPayload({
     a: amount,
     fe: 1,
     c: person,
-    w:
-      `City electrical permit renewal for ${addr}` +
-      (sc.permitNo ? ` (permit ${sc.permitNo})` : "") +
-      `. Renew fee ${feeStr}.`,
+    // Three-line work block matches line description (Levi 2026-08-10)
+    w: String(lines[0]?.description || "").trim() || `City electrical permit renewal\nService location: ${addr}`,
     t: feeStr,
     d: feeStr,
     p: "",
     ps: [],
-    e: LEVI_TESTER.email,
-    ph: "",
+    e: email,
+    ph: phone,
     sa: addr,
-    // Service address only — never put the street in bill-to (Levi 2026-08-10)
-    ba: "",
+    // Full billing contact — never the service street alone (Levi 2026-08-10)
+    ba: billTo,
     z: "",
     sl: siteSlug,
     pay: "",
     as: new Date().toISOString().slice(0, 10),
     k: "i",
-    lines: buildPermitRenewInvoiceLines({
-      fee: amount,
-      address: addr,
-      permitNo: sc.permitNo,
-    }),
+    lines,
     // Marker so PayLanding / staff can recognize a renew-generated invoice
     renewCta: "phaseA",
     renewScenarioId: sc.id || "hampton-yossi",
+    permitRenew: { cta: true, fullPayOnly: true, phase: isReal ? "real" : "A" },
     // One amount only — pay page shows invoice total (Levi 2026-08-10)
     fo: 1,
     fullPayOnly: true,

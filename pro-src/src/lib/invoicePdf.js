@@ -9,6 +9,7 @@ import { mapJobToQbDocData } from "./jobToQbDoc.js";
 import { tenantCompany, tenantPaymentLines, tenantZelleInstructions } from "./tenantBranding.js";
 import { formatPrintDescription, wrapPrintDescription } from "./printDescription.js";
 import { changeOrderPrintDocNumber, isChangeOrderJob } from "./changeOrder.js";
+import { isPermitRenewDoc, resolveBillToAddress } from "./docBillTo.js";
 
 const PAGE_W = 612;
 const PAGE_H = 792;
@@ -200,23 +201,9 @@ export function mapJobToInvoicePdfData(job, overrides = {}) {
   const dueDateRaw = isEstimate ? "" : overrides.dueDate || j.dueDate || addDays(invoiceDateRaw, 1);
 
   const billName = (j.customer || j.businessName || j.personName || "").trim();
-  // Permit renew always shows Service Address; Bill To gets contact/mail block —
-  // never the service street alone (Levi 2026-08-10).
-  const forceService =
-    !!(j?.permitRenew || j?.permitRenewMock) ||
-    /permit\s+renew/i.test(String(j?.title || ""));
-  const rawBill = String(j.billingAddress || "").trim();
-  const svcProbe = String(j.serviceAddress || j.address || "").trim();
-  let billAddr = forceService
-    ? rawBill && rawBill.toLowerCase() !== svcProbe.toLowerCase()
-      ? rawBill
-      : ""
-    : (rawBill || j.address || "").trim();
-  // Renew with empty billing block: still show email/phone under Bill To
-  if (forceService && !billAddr) {
-    const contact = [j.email, j.phone].map((x) => String(x || "").trim()).filter(Boolean);
-    billAddr = contact.join("\n");
-  }
+  // Permit renew: Bill To = contact/mail; Service Address = site (Levi 2026-08-10).
+  const forceService = isPermitRenewDoc(j);
+  const billAddr = resolveBillToAddress(j);
   const apt = String(j.apartment || "").trim().replace(/^#/, "");
   let svcAddr = effectiveServiceAddress(j).trim();
   if (svcAddr && apt) {

@@ -5,6 +5,7 @@ import { functionsBase } from "./functionsBase.js";
 import { progressBillLines } from "./progressBilling.js";
 import { lineAmount, linesTotal } from "./qboDoc.js";
 import { buildEstimatePdfFromJob, buildInvoicePdfFromJob } from "./invoicePdf.js";
+import { resolveBillToAddress } from "./docBillTo.js";
 
 export function isEstimateLanding(data) {
   if (!data) return false;
@@ -105,21 +106,43 @@ export function buildInvoiceJobFromPayload(data) {
       : total > 0
         ? [{ itemName: "Electrical services", description: work, qty: 1, unitPrice: total }]
         : [];
+  const email = String(data?.e || "").trim();
+  const phone = String(data?.ph || "").trim();
+  const serviceAddress = String(data?.sa || "").trim();
+  const isRenew = !!(data?.renewCta || data?.renewScenarioId || data?.permitRenew);
+  // Never put service street under Bill To for renew (Levi 2026-08-10 — Forty Hampton).
+  const shell = {
+    title: work,
+    billingAddress: String(data?.ba || "").trim(),
+    serviceAddress,
+    address: serviceAddress || String(data?.ba || "").trim(),
+    email,
+    phone,
+    permitRenew: isRenew ? data.permitRenew || { cta: true } : undefined,
+    renewCta: data?.renewCta,
+    renewScenarioId: data?.renewScenarioId,
+  };
+  const billingAddress =
+    resolveBillToAddress(shell) ||
+    (isRenew ? "" : String(data?.ba || data?.sa || "").trim());
   return {
     id: String(data?.j || "").trim(),
     customer: String(data?.c || "").trim(),
-    email: String(data?.e || "").trim(),
-    phone: String(data?.ph || "").trim(),
+    email,
+    phone,
     title: work,
-    serviceAddress: String(data?.sa || "").trim(),
-    billingAddress: String(data?.ba || data?.sa || "").trim(),
-    address: String(data?.sa || data?.ba || "").trim(),
+    serviceAddress,
+    billingAddress,
+    address: serviceAddress || billingAddress,
     zip: String(data?.z || "").trim(),
     invoiceNo: invNo,
     invoiceLines,
     amount: total,
     openBalance: due,
     payments: pays,
+    permitRenew: shell.permitRenew,
+    renewCta: data?.renewCta,
+    renewScenarioId: data?.renewScenarioId,
   };
 }
 

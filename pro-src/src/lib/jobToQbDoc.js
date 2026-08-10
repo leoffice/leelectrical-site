@@ -7,6 +7,7 @@ import { fmtInvoiceDate } from "./invoicePdf.js";
 import { changeOrderPrintDocNumber, isChangeOrderJob } from "./changeOrder.js";
 import { tenantCompany, tenantPaymentLines, tenantZelleInstructions } from "./tenantBranding.js";
 import { formatPrintDescription } from "./printDescription.js";
+import { isPermitRenewDoc, resolveBillToAddress } from "./docBillTo.js";
 
 /**
  * Header company block for the QBO template. Functions rather than consts:
@@ -228,7 +229,8 @@ export function mapJobToQbDocData(job, kind = "invoice") {
   const dueDateRaw = job.dueDate || (isInvoice ? addDays(invoiceDateRaw, 1) : "");
 
   const billName = (job.customer || job.businessName || job.personName || "").trim();
-  const billAddr = (job.billingAddress || job.address || "").trim();
+  // Renew: contact under Bill To — never fall back to the service street (Levi 2026-08-10).
+  const billAddr = resolveBillToAddress(job);
   // Street only for the PDF — apartment prints as its own parallel field.
   const svcStreet = effectiveServiceAddress(job).trim();
   const apartment = String(job?.apartment || "")
@@ -239,9 +241,7 @@ export function mapJobToQbDocData(job, kind = "invoice") {
   // Permit renew invoices always print Service Address (Levi 2026-08-10).
   const billCmp = billAddr.toLowerCase();
   const hasApt = !!apartment;
-  const forceService =
-    !!(job?.permitRenew || job?.permitRenewMock) ||
-    /permit\s+renew/i.test(String(job?.title || ""));
+  const forceService = isPermitRenewDoc(job);
   if (svcStreet && (svcStreet.toLowerCase() !== billCmp || hasApt || forceService)) {
     customFields.push({ label: "Service Address", value: svcStreet });
   }

@@ -85,7 +85,8 @@ describe("permitRenewal Phase A mock", () => {
     expect(fields.invoiceLines[0].unitPrice).toBe(365);
     expect(fields.invoiceLines[0].description).toMatch(/City electrical permit renewal/);
     expect(fields.invoiceLines[0].description).toMatch(/B01126007/);
-    expect(fields.invoiceLines[0].description).toMatch(/Service site/);
+    expect(fields.invoiceLines[0].description).toMatch(/Service location/);
+    expect(fields.invoiceLines[0].description.split("\n")).toHaveLength(3);
     expect(fields.title).toMatch(/permit renewal/i);
     expect(fields._invoiceConfirmed).toBe(true);
   });
@@ -429,16 +430,20 @@ describe("permitRenewal Phase A mock", () => {
     expect(gone.stageLabel).toMatch(/re-apply/i);
   });
 
-  it("Phase A CTA pay payload opens renew invoice on tap (service address only)", () => {
+  it("Phase A CTA pay payload: full bill-to contact + service address", () => {
     const p = buildPhaseACtaPayPayload();
     expect(p.a).toBe(365);
     expect(p.c).toMatch(/Yosef|Beshari/i);
     expect(p.sa).toMatch(/Hampton/i);
-    expect(p.ba).toBe("");
+    // Bill-to is contact (email), not the service street alone
+    expect(p.ba).toMatch(/yossi6886@gmail\.com/i);
+    expect(p.ba).not.toMatch(/Hampton/i);
+    expect(String(p.w).split("\n")).toHaveLength(3);
     expect(p.k).toBe("i");
     expect(p.renewCta).toBe("phaseA");
     expect(p.i).toBeTruthy();
     expect(Array.isArray(p.lines) && p.lines.length).toBeTruthy();
+    expect(p.lines[0].description.split("\n")).toHaveLength(3);
   });
 
   it("mailto builds for any real To address", () => {

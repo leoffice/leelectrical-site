@@ -910,7 +910,7 @@ export default function PayLanding() {
                   <div className="text-[10px] font-extrabold uppercase tracking-wider text-slate-500 mb-1">
                     Billing address
                   </div>
-                  <div className="text-slate-900 leading-snug">{data.ba}</div>
+                  <div className="text-slate-900 leading-snug whitespace-pre-wrap">{data.ba}</div>
                 </div>
               ) : null}
               {addressesDiffer(data.ba, data.sa) && data.sa ? (
@@ -918,7 +918,7 @@ export default function PayLanding() {
                   <div className="text-[10px] font-extrabold uppercase tracking-wider text-slate-500 mb-1">
                     Service address
                   </div>
-                  <div className="text-slate-900 leading-snug">{data.sa}</div>
+                  <div className="text-slate-900 leading-snug whitespace-pre-wrap">{data.sa}</div>
                 </div>
               ) : null}
             </div>
@@ -1157,7 +1157,7 @@ export default function PayLanding() {
                 <div className="text-[10px] font-extrabold uppercase tracking-wider text-slate-500 mb-0.5">
                   Billing address
                 </div>
-                <div className="text-slate-900 leading-snug">{data.ba}</div>
+                <div className="text-slate-900 leading-snug whitespace-pre-wrap">{data.ba}</div>
               </div>
             ) : null}
             {showService && data.sa ? (
@@ -1165,7 +1165,7 @@ export default function PayLanding() {
                 <div className="text-[10px] font-extrabold uppercase tracking-wider text-slate-500 mb-0.5">
                   Service address
                 </div>
-                <div className="text-slate-900 leading-snug">{data.sa}</div>
+                <div className="text-slate-900 leading-snug whitespace-pre-wrap">{data.sa}</div>
               </div>
             ) : null}
           </div>

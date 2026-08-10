@@ -5,6 +5,7 @@ import { parseAmount } from "./format.js";
 import { parseUSAddress, extractZip } from "./solaPayUrl.js";
 import { functionsBase, siteOrigin } from "./functionsBase.js";
 import { primaryEmailForPayment } from "./primaryEmail.js";
+import { isPermitRenewDoc, resolveBillToAddress } from "./docBillTo.js";
 
 const SHORT_CODE_RE = /^[0-9]{5,8}-[a-z0-9]{4}$/i;
 
@@ -80,7 +81,11 @@ export function buildPayLandingPayload({
   const paid = amountPaid(job);
   const linkAmt = parseFloat(String(linkAmount).replace(/[$,]/g, "")) || due;
   const serviceAddr = (job?.serviceAddress || job?.address || "").trim();
-  const billAddr = (job?.billingAddress || job?.address || serviceAddr).trim();
+  // Renew: contact under billing only — never fall back to the service street (Levi 2026-08-10).
+  // Regular invoices may still fall back to service when billing is blank (same site).
+  const billAddr = isPermitRenewDoc(job)
+    ? resolveBillToAddress(job)
+    : String(job?.billingAddress || job?.address || serviceAddr || "").trim();
   const zip =
     String(job?.zip || "").trim() ||
     extractZip(billAddr) ||
