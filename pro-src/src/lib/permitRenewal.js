@@ -32,6 +32,23 @@ export const PHASE_A_HAMPTON_SCENARIO = {
   realEmail: "yossi6886@gmail.com",
 };
 
+/**
+ * First real-world renew customer (Levi 2026-08-10) — Yossi Hackner / 364 Schenectady Ave.
+ * Prep only until Levi unlocks; Phase A email still gates to Levi Tester.
+ * Ensure service address exists on the customer (create if missing).
+ */
+export const REAL_RENEW_SCHENECTADY_SCENARIO = {
+  id: "schenectady-hackner",
+  displayCustomer: "Yossi Hackner",
+  greetingName: "Yossi",
+  businessName: "234 Schenectady LLC",
+  address: "364 Schenectady Avenue",
+  permitNo: "", // fill from DOB when known
+  issuedDate: "",
+  fee: PERMIT_RENEW_FEE,
+  realEmail: "", // unlock with real email when Levi says go
+};
+
 /** Safe mock recipient — only this customer for Phase A sends. */
 export const LEVI_TESTER = {
   customer: "levi tester",

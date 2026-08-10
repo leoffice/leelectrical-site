@@ -147,8 +147,8 @@ function CollapsibleSection({
 }
 
 /**
- * Purple MAC Renew Phase 1 hub — all renew applications, wants-to-renew notices,
- * and paid renewals. Tap an address for graded + expiration dates.
+ * Purple Renewal Notifications hub (Levi 2026-08-10) — was "MAC Renew Phase 1".
+ * List: customer · permit # · address. Tap for more. Send email → compose sheet.
  */
 function MacRenewPhase1Card({
   jobs,
@@ -167,14 +167,15 @@ function MacRenewPhase1Card({
     >
       <div className="flex items-start justify-between gap-2 mb-2">
         <div className="min-w-0">
-          <div className="text-xs font-extrabold text-violet-900 tracking-wide">
-            MAC Renew Phase 1
+          <div
+            className="text-xs font-extrabold text-violet-900 tracking-wide"
+            data-testid="renewal-notifications-title"
+          >
+            Renewal Notifications
           </div>
           <p className="text-[11px] text-violet-800/90 mt-0.5 leading-snug">
-            All renewal applications, wants-to-renew notices, and paid renewals live here.
-            Tap a row for issued / expires. Mock: {PHASE_A_HAMPTON_SCENARIO.address} /{" "}
-            {PHASE_A_HAMPTON_SCENARIO.displayCustomer} ({PHASE_A_HAMPTON_SCENARIO.permitNo}) · $
-            {PERMIT_RENEW_FEE} · email only to {LEVI_TESTER.email}.
+            Customer · permit · address for every renew notice. Tap a row for more
+            detail. Mock still emails Levi Tester only until a real customer is unlocked.
           </p>
         </div>
       </div>
@@ -199,14 +200,13 @@ function MacRenewPhase1Card({
         </button>
       </div>
       <p className="text-[10px] text-violet-800/90 mb-2 leading-snug rounded-md bg-white/70 border border-violet-100 px-2 py-1.5">
-        <b>Send email</b> creates the renew invoice + real payment link in a standard branded email
-        (same layout as meter-app complete). Unpaid renews do not count as money owed.{" "}
-        <b>Open renew invoice</b> = staff preview pay page.
+        <b>Send email</b> opens a compose sheet (edit body + To address, then Send) — same idea as
+        one-time doc email. Creates invoice + payment link on send. Unpaid renews do not count as
+        money owed. <b>Open renew invoice</b> = staff preview pay page.
       </p>
       {!rows.length ? (
         <p className="text-[10px] text-violet-700/80 leading-snug">
-          No renew applications yet — use the buttons above for the Hampton mock (Levi Tester
-          only).
+          No renewal notifications yet — use the buttons above for the mock (Levi Tester only).
         </p>
       ) : (
         <ul className="space-y-1.5 mt-1" data-testid="permit-renew-app-list">
@@ -221,8 +221,8 @@ function MacRenewPhase1Card({
                   onClick={() => setExpandedId(open ? "" : r.id)}
                 >
                   <div className="flex items-center justify-between gap-2">
-                    <span className="text-[11px] font-bold text-slate-800 truncate">
-                      {r.address}
+                    <span className="text-[11px] font-bold text-slate-900 truncate">
+                      {r.customer || "—"}
                     </span>
                     <span
                       className={
@@ -238,10 +238,17 @@ function MacRenewPhase1Card({
                       {r.status}
                     </span>
                   </div>
-                  <div className="text-[10px] text-slate-500 mt-0.5">
-                    {r.customer}
+                  <div className="text-[11px] font-semibold text-slate-800 mt-0.5 truncate">
+                    {r.address || "—"}
+                  </div>
+                  <div className="text-[10px] text-slate-600 mt-0.5">
+                    {r.permitNo ? (
+                      <span className="font-bold text-slate-800">Permit {r.permitNo}</span>
+                    ) : (
+                      <span className="text-slate-400">Permit —</span>
+                    )}
                     {r.invoiceNo ? ` · Inv #${r.invoiceNo}` : ""}
-                    {r.permitNo ? ` · ${r.permitNo}` : ""} · ${r.fee}
+                    {r.fee != null ? ` · $${r.fee}` : ""}
                   </div>
                   {r.nextStepLabel ? (
                     <div
@@ -312,7 +319,7 @@ function MacRenewPhase1Card({
                     </div>
                   ) : (
                     <div className="text-[10px] text-violet-600/80 mt-0.5">
-                      Tap for graded + expiration dates
+                      Tap for more information
                     </div>
                   )}
                 </button>
@@ -322,9 +329,87 @@ function MacRenewPhase1Card({
         </ul>
       )}
       <p className="text-[10px] text-violet-700/80 mt-2 leading-snug">
-        Invoice shows the person’s name, LE-#### number, permit in description, and service
+        Invoice shows the person&apos;s name, LE-#### number, permit in description, and service
         address. Email goes through Resend with the standard banner — not plain text.
       </p>
+    </div>
+  );
+}
+
+/** Compose sheet for renew notice — edit To + body like one-time doc email (Levi 2026-08-10). */
+function RenewEmailComposeSheet({ draft, saving, onClose, onSend }) {
+  const [email, setEmail] = useState(draft?.to || LEVI_TESTER.email);
+  const [subject, setSubject] = useState(draft?.subject || "");
+  const [message, setMessage] = useState(draft?.body || "");
+
+  return (
+    <div
+      className="fixed inset-0 z-[80] flex items-end sm:items-center justify-center bg-black/40 p-3"
+      data-testid="renew-email-compose-sheet"
+      role="dialog"
+      aria-label="Renewal email compose"
+      style={{ paddingBottom: "var(--kb-inset, 0px)" }}
+    >
+      <div
+        className="bg-white rounded-2xl shadow-xl w-full max-w-md overflow-y-auto p-4"
+        style={{ maxHeight: "min(90vh, calc(var(--vv-height, 100dvh) - 1.5rem))" }}
+      >
+        <div className="flex items-center justify-between mb-3">
+          <h3 className="text-base font-extrabold text-slate-900">Send renewal email</h3>
+          <button
+            type="button"
+            className="text-slate-400 text-xl leading-none px-2"
+            onClick={onClose}
+            aria-label="Close"
+            disabled={saving}
+          >
+            ×
+          </button>
+        </div>
+        <label className="block text-[11px] font-bold text-slate-600 mb-1">To</label>
+        <input
+          className="input mb-3"
+          type="text"
+          inputMode="email"
+          autoComplete="email"
+          value={email}
+          onChange={(e) => setEmail(e.target.value)}
+          data-testid="renew-email-to"
+        />
+        <label className="block text-[11px] font-bold text-slate-600 mb-1">Subject</label>
+        <input
+          className="input mb-3"
+          type="text"
+          value={subject}
+          onChange={(e) => setSubject(e.target.value)}
+          data-testid="renew-email-subject"
+        />
+        <label className="block text-[11px] font-bold text-slate-600 mb-1">Message</label>
+        <textarea
+          className="input mb-3 min-h-[180px] text-sm"
+          value={message}
+          onChange={(e) => setMessage(e.target.value)}
+          data-testid="renew-email-body"
+        />
+        <p className="text-[10px] text-slate-500 mb-3 leading-snug">
+          Branded shell + <b>Renew Permit</b> payment button are added on send. Phase A still
+          only delivers to Levi Tester unless unlocked.
+        </p>
+        <div className="grid grid-cols-2 gap-2">
+          <button type="button" className="btn bg-slate-100 text-slate-800" onClick={onClose} disabled={saving}>
+            Cancel
+          </button>
+          <button
+            type="button"
+            className="btn bg-violet-700 text-white font-bold"
+            disabled={saving || !String(email || "").includes("@")}
+            data-testid="renew-email-send"
+            onClick={() => onSend?.({ email, subject, message })}
+          >
+            {saving ? "Sending…" : "Send"}
+          </button>
+        </div>
+      </div>
     </div>
   );
 }
@@ -1118,6 +1203,8 @@ export default function Permits() {
   const { jobs, emailInsights, events, patchAndSave, showToast, enqueue, createJob, api } =
     useStore();
   const [phaseABusy, setPhaseABusy] = useState(false);
+  /** { draft, payUrl, job, created } — open compose before send (Levi 2026-08-10). */
+  const [renewCompose, setRenewCompose] = useState(null);
   const config = useTenantConfig();
   const nav = useNavigate();
   const [busy, setBusy] = useState(false);
@@ -1397,6 +1484,7 @@ export default function Permits() {
       }
 
       if (mode === "email") {
+        // Open compose sheet — staff reviews/edits To + body, then sends (one-time style).
         const draft = buildPermitRenewEmail({
           scenario: PHASE_A_HAMPTON_SCENARIO,
           fee,
@@ -1404,33 +1492,7 @@ export default function Permits() {
           invoiceNo: job.invoiceNo || "",
           noticeOnly: false,
         });
-        const base =
-          typeof window !== "undefined" && window.location?.origin
-            ? window.location.origin
-            : "https://leelectrical.us";
-        const res = await fetch(`${base}/.netlify/functions/customer-email`, {
-          method: "POST",
-          headers: { "content-type": "application/json" },
-          body: JSON.stringify({
-            email: LEVI_TESTER.email,
-            to: LEVI_TESTER.email,
-            subject: draft.subject,
-            message: draft.body,
-            htmlBody: draft.htmlBody || "",
-            ctaLabel: draft.ctaLabel || "Renew Permit",
-            ctaUrl: payUrl || draft.ctaUrl,
-          }),
-        }).then((r) => r.json().catch(() => ({})));
-        if (res?.ok || res?.sent || res?.dryRun) {
-          showToast(
-            res?.dryRun
-              ? `Dry-run OK — invoice #${job.invoiceNo || "—"} + pay link to ${LEVI_TESTER.email}`
-              : `Email sent to ${LEVI_TESTER.email} · invoice #${job.invoiceNo || "—"} + pay link` +
-                  (created ? " (new)" : "")
-          );
-        } else {
-          showToast(String(res?.error || res?.reason || "Email send failed"));
-        }
+        setRenewCompose({ draft, payUrl, job, created });
         return;
       }
 
@@ -1444,6 +1506,54 @@ export default function Permits() {
       );
     } catch (e) {
       showToast(String(e?.message || e || "Mock renew failed"));
+    } finally {
+      setPhaseABusy(false);
+    }
+  };
+
+  /** Send from compose sheet (after staff edits To / body). Phase A → Levi Tester only. */
+  const sendRenewCompose = async ({ email, subject, message }) => {
+    if (!renewCompose?.draft) return;
+    const to = String(email || "").trim() || LEVI_TESTER.email;
+    // Gate: mock still only to tester
+    if (!/levikumer@gmail\.com/i.test(to) && !/levi\s*tester/i.test(to)) {
+      showToast("Phase A mock only sends to Levi Tester (" + LEVI_TESTER.email + ")");
+      return;
+    }
+    setPhaseABusy(true);
+    try {
+      const { draft, payUrl, job, created } = renewCompose;
+      // Rebuild htmlBody from edited plain message if body changed (keep CTA from draft)
+      const base =
+        typeof window !== "undefined" && window.location?.origin
+          ? window.location.origin
+          : "https://leelectrical.us";
+      const res = await fetch(`${base}/.netlify/functions/customer-email`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          email: to,
+          to,
+          subject: subject || draft.subject,
+          message: message || draft.body,
+          htmlBody: draft.htmlBody || "",
+          ctaLabel: draft.ctaLabel || "Renew Permit",
+          ctaUrl: payUrl || draft.ctaUrl,
+        }),
+      }).then((r) => r.json().catch(() => ({})));
+      if (res?.ok || res?.sent || res?.dryRun) {
+        showToast(
+          res?.dryRun
+            ? `Dry-run OK — invoice #${job?.invoiceNo || "—"} to ${to}`
+            : `Email sent to ${to} · invoice #${job?.invoiceNo || "—"}` +
+                (created ? " (new)" : "")
+        );
+        setRenewCompose(null);
+      } else {
+        showToast(String(res?.error || res?.reason || "Email send failed"));
+      }
+    } catch (e) {
+      showToast(String(e?.message || e || "Email send failed"));
     } finally {
       setPhaseABusy(false);
     }
@@ -2115,7 +2225,7 @@ export default function Permits() {
         ) : null}
       </div>
 
-      {/* MAC Renew Phase 1 — all renew applications, notices, paid live here */}
+      {/* Renewal Notifications — all renew applications, notices, paid live here */}
       <MacRenewPhase1Card
         jobs={jobs}
         phaseABusy={phaseABusy}
@@ -2123,6 +2233,14 @@ export default function Permits() {
         onEmail={() => runPhaseAMock("email")}
         onOpenJob={(id) => id && nav(`/job/${id}?doc=invoice&create=1`)}
       />
+      {renewCompose?.draft ? (
+        <RenewEmailComposeSheet
+          draft={renewCompose.draft}
+          saving={phaseABusy}
+          onClose={() => !phaseABusy && setRenewCompose(null)}
+          onSend={sendRenewCompose}
+        />
+      ) : null}
 
       {/* DEPLOY QUEUE — sticky Deploy/Fix · Ready only with Form A for meters */}
       <div
