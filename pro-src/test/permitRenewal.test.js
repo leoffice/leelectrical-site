@@ -253,7 +253,13 @@ describe("permitRenewal Phase A mock", () => {
         fee: 365,
       },
     };
-    const paid = { ...open, id: "r2", paid: true, openBalance: 0 };
+    const paid = {
+      ...open,
+      id: "r2",
+      paid: true,
+      openBalance: 0,
+      permitRenew: { ...open.permitRenew, paid: true, nextStep: "update_permit" },
+    };
     const notice = {
       id: "r3",
       customer: "Other",
@@ -263,10 +269,49 @@ describe("permitRenewal Phase A mock", () => {
     const rows = listRenewApplications([open, paid, notice]);
     expect(rows.length).toBe(3);
     expect(rows.find((r) => r.id === "r1").status).toBe("Invoice open");
-    expect(rows.find((r) => r.id === "r2").status).toBe("Paid");
+    expect(rows.find((r) => r.id === "r2").status).toBe("Paid — update permit");
+    expect(rows.find((r) => r.id === "r2").nextStep).toBe("update_permit");
+    expect(rows.find((r) => r.id === "r2").nextStepLabel).toMatch(/update/i);
     expect(rows.find((r) => r.id === "r3").status).toBe("Wants renew");
     expect(rows.find((r) => r.id === "r1").expiresDate).toBe("2025-10-11");
     expect(rows.find((r) => r.id === "r1").gradedDate).toBe("2024-10-11");
+  });
+
+  it("Phase A $1 card pay shows Paid + update-permit next step on renew list", () => {
+    const dollar = {
+      id: "r-dollar",
+      customer: "levi tester",
+      invoiceNo: "LE-2701",
+      amount: 365,
+      openBalance: 0,
+      paid: true,
+      serviceAddress: "40 Hampton Pl",
+      payments: [
+        {
+          id: "sola-11005049154",
+          amount: "$1",
+          method: "Credit card",
+          ref: "11005049154",
+          date: "2026-08-10",
+          source: "sola",
+        },
+      ],
+      permitRenew: {
+        mock: true,
+        phase: "A",
+        paid: true,
+        nextStep: "update_permit",
+        permitNo: "B01126007-L1-EL",
+        issuedDate: "2024-10-11",
+        expiresDate: "2025-10-11",
+        fee: 365,
+      },
+    };
+    const rows = listRenewApplications([dollar]);
+    expect(rows).toHaveLength(1);
+    expect(rows[0].paid).toBe(true);
+    expect(rows[0].status).toBe("Paid — update permit");
+    expect(rows[0].nextStepLabel).toMatch(/Payment received/i);
   });
 
   it("email matches Levi draft: Permit only, L1 facts, auto status, pay CTA", () => {

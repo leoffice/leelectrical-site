@@ -467,11 +467,25 @@ export function listRenewApplications(jobs = []) {
       j.openBalance != null && j.openBalance !== ""
         ? parseAmount(j.openBalance)
         : parseAmount(j.amount);
-    const paid = !!(j.paid || (j.invoiceNo && due <= 0.01));
+    // Paid = fully settled, or Phase A mock with any card pay ($1 test = full).
+    // sola + host stamp paid/nextStep; UI also treats phaseA+anyPay as paid-through.
+    const pays = Array.isArray(j.payments) ? j.payments : [];
+    const anyPay = pays.some((p) => parseAmount(p?.amount) > 0.009);
+    const phaseA = !!(pr.mock || pr.phase === "A" || pr.phase === 1);
+    const paid = !!(
+      j.paid ||
+      pr.paid ||
+      (j.invoiceNo && due <= 0.01) ||
+      pr.nextStep === "update_permit" ||
+      (phaseA && anyPay)
+    );
+    const nextStep = String(
+      pr.nextStep || (paid && phaseA ? "update_permit" : "")
+    ).trim();
     let status = "Wants renew";
-    if (paid) status = "Paid";
+    if (paid) status = nextStep === "update_permit" ? "Paid — update permit" : "Paid";
     else if (j.invoiceNo) status = "Invoice open";
-    else if (pr.mock || pr.phase === "A" || pr.phase === 1) status = "Mock draft";
+    else if (phaseA) status = "Mock draft";
     const stageTone = expires ? permitRenewStatusTone(expires) : "upcoming";
     rows.push({
       id: j.id,
@@ -490,10 +504,15 @@ export function listRenewApplications(jobs = []) {
       expiresDate: expires,
       paid,
       status,
+      nextStep,
+      nextStepLabel:
+        nextStep === "update_permit"
+          ? "Payment received — next: update / file the permit"
+          : "",
       /** Expiration-driven notification stage (upcoming / soon / expired / near_abandon / abandoned). */
       stageTone,
       stageLabel: permitRenewStageLabel(stageTone),
-      mock: !!(pr.mock || pr.phase === "A" || pr.phase === 1),
+      mock: phaseA,
     });
   };
 
@@ -519,10 +538,12 @@ export function listRenewApplications(jobs = []) {
   }
 
   const rank = (r) => {
-    if (r.status === "Invoice open") return 0;
-    if (r.status === "Wants renew" || r.status === "Mock draft") return 1;
-    if (r.status === "Paid") return 2;
-    return 3;
+    // Paid-with-next-step first so staff sees "update permit" immediately
+    if (r.paid && r.nextStep === "update_permit") return 0;
+    if (r.status === "Invoice open") return 1;
+    if (r.status === "Wants renew" || r.status === "Mock draft") return 2;
+    if (r.paid || String(r.status || "").startsWith("Paid")) return 3;
+    return 4;
   };
   rows.sort((a, b) => rank(a) - rank(b) || String(a.address).localeCompare(String(b.address)));
   return rows;

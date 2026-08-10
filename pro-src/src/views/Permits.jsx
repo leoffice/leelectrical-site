@@ -233,6 +233,7 @@ function MacRenewPhase1Card({
                             ? "text-amber-800"
                             : "text-violet-800")
                       }
+                      data-testid="permit-renew-status"
                     >
                       {r.status}
                     </span>
@@ -242,6 +243,14 @@ function MacRenewPhase1Card({
                     {r.invoiceNo ? ` · Inv #${r.invoiceNo}` : ""}
                     {r.permitNo ? ` · ${r.permitNo}` : ""} · ${r.fee}
                   </div>
+                  {r.nextStepLabel ? (
+                    <div
+                      className="text-[10px] font-extrabold text-emerald-800 mt-0.5 rounded bg-emerald-50 border border-emerald-200 px-1.5 py-0.5"
+                      data-testid="permit-renew-next-step"
+                    >
+                      {r.nextStepLabel}
+                    </div>
+                  ) : null}
                   {r.stageLabel ? (
                     <div
                       className={
@@ -282,6 +291,14 @@ function MacRenewPhase1Card({
                         <span className="font-semibold text-slate-700">Service address: </span>
                         {r.address}
                       </div>
+                      {r.paid ? (
+                        <div className="text-emerald-800 font-semibold">
+                          Payment received
+                          {r.nextStep === "update_permit"
+                            ? " — next step: update / file the permit at DOB"
+                            : ""}
+                        </div>
+                      ) : null}
                       <button
                         type="button"
                         className="mt-1 text-[11px] font-bold text-violet-800 underline underline-offset-2"
@@ -290,7 +307,7 @@ function MacRenewPhase1Card({
                           onOpenJob?.(r.jobId);
                         }}
                       >
-                        Open invoice
+                        {r.paid ? "Open paid invoice" : "Open invoice"}
                       </button>
                     </div>
                   ) : (
