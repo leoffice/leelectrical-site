@@ -367,7 +367,7 @@ describe("permitRenewal Phase A mock", () => {
     expect(body).toMatch(/October 11, 2025/);
     expect(body).toMatch(/expired on October 11, 2025/i);
     expect(body).toMatch(/12-month abandoned clock|abandoned/i);
-    expect(body).toMatch(/\$1,800|1800/);
+    expect(body).toMatch(/$2,300|2300|filing fees/);
     expect(body).toMatch(/Invoice: #LE-2701|Invoice #LE-2701|#LE-2701/);
     expect(body).toMatch(/click Renew Permit|Renew Permit/i);
     expect(body).not.toContain("Update or Renew Permit:");
@@ -378,7 +378,7 @@ describe("permitRenewal Phase A mock", () => {
     expect(htmlBody).not.toMatch(/Application \/ issue number/i);
     expect(htmlBody).toMatch(/B01126007-L1/);
     expect(htmlBody).toMatch(/Renewal fee/i);
-    expect(htmlBody).toMatch(/at least \$1,800/i);
+    expect(htmlBody).toMatch(/$2,300 plus filing fees/i);
   });
 
   it("email upcoming tone uses draft subject when not yet expired", () => {

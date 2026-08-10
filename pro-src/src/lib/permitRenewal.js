@@ -862,7 +862,7 @@ export function buildPhaseACtaPayPayload({
  * - Call it **Permit** only (not Application / issue number)
  * - Service address is site; never bill-to street
  * - Status sentence + subject auto-switch by today vs expiration
- * - Abandoned = expiration + 12 months; ~$1,800 savings
+ * - Abandoned = expiration + 12 months; ~$2,300 plus filing fees savings
  * - CTA: Renew Permit → payment link
  */
 export function buildPermitRenewEmail({
@@ -940,14 +940,14 @@ export function buildPermitRenewEmail({
   const abandonBlock = isAbandoned
     ? `The city has marked this permit "abandoned"` +
       (abandonedUs ? ` as of ${abandonedUs}` : " (12 months after expiration)") +
-      `. A straight renewal is no longer available — reinstating means filing a brand-new permit, which typically costs at least $1,800 more than renewing on time. Reply or tap below and we'll help you apply for a new permit.`
+      `. A straight renewal is no longer available — reinstating means filing a brand-new permit, which typically costs $2,300 plus filing fees. Reply or tap below and we'll help you apply for a new permit.`
     : isNearAbandon
       ? `The city marks a permit "abandoned" 12 months after it expires` +
         (abandonedUs ? ` (that date is ${abandonedUs})` : "") +
-        `. Once abandoned, reinstating means filing a brand-new permit — typically at least $1,800 more than a straight renewal. Act now so you do not have to re-apply from scratch.`
+        `. Once abandoned, reinstating means filing a brand-new permit — typically $2,300 plus filing fees. Act now so you do not have to re-apply from scratch.`
       : pastExpire
-        ? `Once a permit stays unrenewed for 12 months after it expires, the city marks it "abandoned." Reinstating an abandoned permit means filing a brand-new one — which typically costs at least $1,800 more than a straight renewal. Renewing now avoids that cost and keeps your work on record.`
-        : `If a permit lapses and stays unrenewed for 12 months, the city marks it "abandoned," and reinstating it means filing a brand-new permit — which typically costs at least $1,800 more than renewing on time. Renewing now avoids that entirely.`;
+        ? `Once a permit stays unrenewed for 12 months after it expires, the city marks it "abandoned." Reinstating an abandoned permit means filing a brand-new one — which typically costs $2,300 plus filing fees. Renewing now avoids that cost and keeps your work on record.`
+        : `If a permit lapses and stays unrenewed for 12 months, the city marks it "abandoned," and reinstating it means filing a brand-new permit — which typically costs $2,300 plus filing fees. Renewing now avoids that entirely.`;
 
   const payBlock = isAbandoned
     ? inv
@@ -995,14 +995,14 @@ export function buildPermitRenewEmail({
       (abandonedUs
         ? ` as of <strong>${escHtml(abandonedUs)}</strong>`
         : " (12 months after expiration)") +
-      `. A straight renewal is no longer available — reinstating means filing a brand-new permit, which typically costs <strong>at least $1,800</strong> more than renewing on time. Reply or tap below and we&rsquo;ll help you apply for a new permit.`
+      `. A straight renewal is no longer available — reinstating means filing a brand-new permit, which typically costs <strong>$2,300 plus filing fees</strong>. Reply or tap below and we&rsquo;ll help you apply for a new permit.`
     : isNearAbandon
       ? `The city marks a permit <strong>&quot;abandoned&quot;</strong> 12 months after it expires` +
         (abandonedUs ? ` (that date is <strong>${escHtml(abandonedUs)}</strong>)` : "") +
-        `. Once abandoned, reinstating means filing a brand-new permit — typically <strong>at least $1,800</strong> more than a straight renewal. Act now so you do not have to re-apply from scratch.`
+        `. Once abandoned, reinstating means filing a brand-new permit — typically <strong>$2,300 plus filing fees</strong>. Act now so you do not have to re-apply from scratch.`
       : pastExpire
-        ? `Once a permit stays unrenewed for <strong>12 months</strong> after it expires, the city marks it <strong>&quot;abandoned.&quot;</strong> Reinstating an abandoned permit means filing a brand-new one — which typically costs <strong>at least $1,800</strong> more than a straight renewal. Renewing now avoids that cost and keeps your work on record.`
-        : `If a permit lapses and stays unrenewed for <strong>12 months</strong>, the city marks it <strong>&quot;abandoned,&quot;</strong> and reinstating it means filing a brand-new permit — which typically costs <strong>at least $1,800</strong> more than renewing on time. Renewing now avoids that entirely.`;
+        ? `Once a permit stays unrenewed for <strong>12 months</strong> after it expires, the city marks it <strong>&quot;abandoned.&quot;</strong> Reinstating an abandoned permit means filing a brand-new one — which typically costs <strong>$2,300 plus filing fees</strong>. Renewing now avoids that cost and keeps your work on record.`
+        : `If a permit lapses and stays unrenewed for <strong>12 months</strong>, the city marks it <strong>&quot;abandoned,&quot;</strong> and reinstating it means filing a brand-new permit — which typically costs <strong>$2,300 plus filing fees</strong>. Renewing now avoids that entirely.`;
   const payBlockHtml = isAbandoned
     ? inv
       ? `Invoice <strong>${escHtml(invLabel)}</strong> is ready if you want us to start the new filing — click <strong>${escHtml(
