@@ -199,8 +199,9 @@ function MacRenewPhase1Card({
         </button>
       </div>
       <p className="text-[10px] text-violet-800/90 mb-2 leading-snug rounded-md bg-white/70 border border-violet-100 px-2 py-1.5">
-        <b>Send email</b> = notice only (no invoice yet). Customer taps <b>Renew Permit</b> → invoice
-        + pay page. <b>Open renew invoice</b> = staff only.
+        <b>Send email</b> creates the renew invoice + real payment link in a standard branded email
+        (same layout as meter-app complete). Unpaid renews do not count as money owed.{" "}
+        <b>Open renew invoice</b> = staff preview pay page.
       </p>
       {!rows.length ? (
         <p className="text-[10px] text-violet-700/80 leading-snug">
@@ -1336,19 +1337,32 @@ export default function Permits() {
   };
 
   /**
-   * Phase A (Levi notes 2026-08-10):
+   * Phase A (Levi 2026-08-10):
    * - preview: staff opens/creates renew invoice + pay page
-   * - email: branded notice only — invoice is created when customer taps Renew Permit
+   * - email: create invoice + real payment link, send standard branded email
+   *   (same shell as meter-app complete). CTA = pay link, not dashboard.
+   * Unpaid renew invoices stay on file but do not count as balance due.
    */
   const runPhaseAMock = async (mode = "preview") => {
     if (phaseABusy) return;
     setPhaseABusy(true);
     try {
+      const { job, fee, created } = await ensurePhaseAInvoice();
+      let payUrl = "";
+      try {
+        payUrl = await buildPermitRenewPayUrl(job, { fee });
+      } catch (e) {
+        showToast(String(e?.message || "Couldn't build pay link"));
+        return;
+      }
+
       if (mode === "email") {
         const draft = buildPermitRenewEmail({
           scenario: PHASE_A_HAMPTON_SCENARIO,
-          fee: PERMIT_RENEW_FEE,
-          noticeOnly: true,
+          fee,
+          payUrl,
+          invoiceNo: job.invoiceNo || "",
+          noticeOnly: false,
         });
         const base =
           typeof window !== "undefined" && window.location?.origin
@@ -1362,15 +1376,17 @@ export default function Permits() {
             to: LEVI_TESTER.email,
             subject: draft.subject,
             message: draft.body,
-            ctaLabel: "Renew Permit",
-            ctaUrl: draft.ctaUrl,
+            htmlBody: draft.htmlBody || "",
+            ctaLabel: draft.ctaLabel || "Renew Permit",
+            ctaUrl: payUrl || draft.ctaUrl,
           }),
         }).then((r) => r.json().catch(() => ({})));
         if (res?.ok || res?.sent || res?.dryRun) {
           showToast(
             res?.dryRun
-              ? `Dry-run OK — would email ${LEVI_TESTER.email} with Renew Permit CTA`
-              : `Email sent to ${LEVI_TESTER.email} — Renew Permit creates the invoice (not before)`
+              ? `Dry-run OK — invoice #${job.invoiceNo || "—"} + pay link to ${LEVI_TESTER.email}`
+              : `Email sent to ${LEVI_TESTER.email} · invoice #${job.invoiceNo || "—"} + pay link` +
+                  (created ? " (new)" : "")
           );
         } else {
           showToast(String(res?.error || res?.reason || "Email send failed"));
@@ -1378,14 +1394,6 @@ export default function Permits() {
         return;
       }
 
-      const { job, fee, created } = await ensurePhaseAInvoice();
-      let payUrl = "";
-      try {
-        payUrl = await buildPermitRenewPayUrl(job, { fee });
-      } catch (e) {
-        showToast(String(e?.message || "Couldn't build pay link"));
-        return;
-      }
       if (typeof window !== "undefined" && payUrl) {
         window.open(payUrl, "_blank", "noopener,noreferrer");
       }

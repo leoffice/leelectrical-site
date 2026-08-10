@@ -217,6 +217,42 @@ export function buildPermitRenewJobFields({
   };
 }
 
+/**
+ * Format YYYY-MM-DD → "Month D, YYYY" for customer email (Levi 2026-08-10).
+ * Empty / bad input → "".
+ */
+export function formatPermitDateUs(iso) {
+  const raw = String(iso || "").trim().slice(0, 10);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(raw)) return "";
+  const [y, m, d] = raw.split("-").map((n) => Number(n));
+  if (!y || !m || !d) return "";
+  const months = [
+    "January",
+    "February",
+    "March",
+    "April",
+    "May",
+    "June",
+    "July",
+    "August",
+    "September",
+    "October",
+    "November",
+    "December",
+  ];
+  const name = months[m - 1];
+  if (!name) return "";
+  return `${name} ${d}, ${y}`;
+}
+
+function escHtml(s) {
+  return String(s == null ? "" : s)
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
+}
+
 /** Patch applied after createJob so renew metadata survives. */
 export function buildPermitRenewMetaPatch(scenario = PHASE_A_HAMPTON_SCENARIO, fee) {
   const sc = scenario || PHASE_A_HAMPTON_SCENARIO;
@@ -231,9 +267,14 @@ export function buildPermitRenewMetaPatch(scenario = PHASE_A_HAMPTON_SCENARIO, f
     address: sc.address,
     // Keep bill-to name as the person; service street on serviceAddress
     billingAddress: String(sc.displayCustomer || "").trim() || LEVI_TESTER.customer,
+    // Unpaid renew offers do not count as customer balance due (Levi 2026-08-10)
+    excludeFromBalanceDue: true,
     permitRenew: {
       mock: true,
       phase: "A",
+      // Provisional until paid — left on file, not treated as money owed
+      provisional: true,
+      excludeFromBalanceDue: true,
       scenarioId: sc.id || "hampton-yossi",
       displayCustomer: sc.displayCustomer,
       address: sc.address,
@@ -422,19 +463,23 @@ export function buildPhaseACtaPayPayload({
 }
 
 /**
- * Customer-style notice email (Phase A).
- * - Does NOT assume an invoice exists yet.
- * - Single CTA label: "Renew Permit" (not View/Pay Invoice).
- * - No extra plain-text "Update or Renew Permit" link block in the body.
- * Greeting uses display name (Yossi); send-to is always Levi Tester.
+ * Customer renew notice (Phase A) — same branded layout family as Con Ed
+ * application-complete mail (header + body + signature + Powered by LE).
+ *
+ * Copy (Levi 2026-08-10):
+ * - Bold application / issue # / issue date / expiration date
+ * - Dates Month D, YYYY
+ * - Has already expired (not "year coming up")
+ * - Abandoned risk + ~$1,800 savings vs new filing
+ * - CTA: Renew Permit → real payment link (invoice created on Send email)
  */
 export function buildPermitRenewEmail({
   scenario = PHASE_A_HAMPTON_SCENARIO,
   fee,
   payUrl = "",
   invoiceNo = "",
-  /** When true (default for notice): invoice is created only after CTA click. */
-  noticeOnly = true,
+  /** @deprecated Prefer creating invoice on send; kept for callers. */
+  noticeOnly = false,
 } = {}) {
   const sc = scenario || PHASE_A_HAMPTON_SCENARIO;
   const amount = fee != null ? parseAmount(fee) || PERMIT_RENEW_FEE : renewFeeFromScenario(sc);
@@ -446,37 +491,90 @@ export function buildPermitRenewEmail({
   const inv = String(invoiceNo || "").trim();
   const company = brand();
   const subject = `Renew your city electrical permit — ${sc.address} — ${company}`;
+  const greeting = sc.greetingName || sc.displayCustomer || "there";
+  const issuedIso = String(sc.issuedDate || "").trim().slice(0, 10);
+  const expiresIso =
+    permitExpiresFromIssued(issuedIso) ||
+    String(sc.expiresDate || "").trim().slice(0, 10);
+  const issuedUs = formatPermitDateUs(issuedIso);
+  const expiresUs = formatPermitDateUs(expiresIso);
+  const website = activeTenantConfig().profile?.website || "";
 
   const lines = [
-    `Hi ${sc.greetingName || sc.displayCustomer || "there"},`,
+    `Hi ${greeting},`,
     "",
-    `This is a reminder about the city electrical permit for:`,
+    "This is about the city electrical permit application for:",
     "",
-    `  Address: ${sc.address}`,
-    `  Permit: ${sc.permitNo}`,
-    sc.issuedDate ? `  Issued: ${sc.issuedDate}` : null,
-    `  Renew fee: ${feeStr}`,
+    `Address: ${sc.address}`,
+    `Application / issue number: ${sc.permitNo}`,
+    issuedUs ? `Issue date: ${issuedUs}` : null,
+    expiresUs ? `Expiration date: ${expiresUs}` : null,
+    `Renew fee: ${feeStr}`,
     "",
-    "Your permit year is coming up. You can renew through us — we handle the city filing after payment.",
+    "This permit has expired. If it is not renewed, it can go into an abandoned status. Closing an abandoned application means filing a brand-new application.",
     "",
-    noticeOnly && !inv
-      ? "Press Renew Permit below to open your renew application. Your invoice is created when you press that button — not before."
-      : inv
-        ? `Invoice #${inv} is ready. Press Renew Permit below to open it and pay.`
-        : "Press Renew Permit below to continue.",
+    "Renewing now can save you at least $1,800 compared with creating a new permit to reinstate an abandoned one.",
+    "",
+    inv
+      ? `Invoice #${inv} is ready. Press Renew Permit below to open the payment page.`
+      : "Press Renew Permit below to open the payment page and start the renewal.",
+    "",
+    "We handle the city filing after payment.",
     "",
     "Questions? Reply to this email or call us anytime.",
     "",
     "Thank you,",
     company,
-    activeTenantConfig().profile?.website || "",
+    website,
   ].filter((ln) => ln != null);
 
+  // Inner HTML for standard branded shell (customer-email / buildBrandedEmailHtml).
+  // Bold the application facts Levi called out.
+  const row = (label, value, strong = true) => {
+    if (!value) return "";
+    const v = strong
+      ? `<strong style="font-weight:700;color:#0f172a">${escHtml(value)}</strong>`
+      : escHtml(value);
+    return (
+      `<tr>` +
+      `<td style="padding:4px 14px 4px 0;vertical-align:top;color:#64748b;font-size:14px;width:42%">${escHtml(
+        label
+      )}</td>` +
+      `<td style="padding:4px 0;vertical-align:top;font-size:14px;color:#0f172a">${v}</td>` +
+      `</tr>`
+    );
+  };
+  const htmlBody =
+    `<p style="margin:0 0 12px;font-family:Arial,Helvetica,sans-serif;font-size:15px;line-height:1.5;color:#0f172a">Hi ${escHtml(
+      greeting
+    )},</p>` +
+    `<p style="margin:0 0 12px;font-family:Arial,Helvetica,sans-serif;font-size:15px;line-height:1.5;color:#0f172a">This is about the city electrical <strong>permit application</strong> for:</p>` +
+    `<table style="border-collapse:collapse;width:100%;max-width:560px;margin:0 0 16px;font-family:Arial,Helvetica,sans-serif">` +
+    row("Address", sc.address) +
+    row("Application / issue number", sc.permitNo) +
+    (issuedUs ? row("Issue date", issuedUs) : "") +
+    (expiresUs ? row("Expiration date", expiresUs) : "") +
+    row("Renew fee", feeStr) +
+    (inv ? row("Invoice", `#${inv}`) : "") +
+    `</table>` +
+    `<p style="margin:0 0 12px;font-family:Arial,Helvetica,sans-serif;font-size:15px;line-height:1.55;color:#0f172a">This permit <strong>has expired</strong>. If it is not renewed, it can go into an <strong>abandoned</strong> status. Closing an abandoned application means filing a brand-new application.</p>` +
+    `<p style="margin:0 0 12px;font-family:Arial,Helvetica,sans-serif;font-size:15px;line-height:1.55;color:#0f172a">Renewing now can save you <strong>at least $1,800</strong> compared with creating a new permit to reinstate an abandoned one.</p>` +
+    `<p style="margin:0 0 12px;font-family:Arial,Helvetica,sans-serif;font-size:15px;line-height:1.55;color:#0f172a">${
+      inv
+        ? `Invoice <strong>#${escHtml(inv)}</strong> is ready. Press <strong>Renew Permit</strong> below to open the payment page.`
+        : `Press <strong>Renew Permit</strong> below to open the payment page and start the renewal.`
+    }</p>` +
+    `<p style="margin:0 0 12px;font-family:Arial,Helvetica,sans-serif;font-size:15px;line-height:1.55;color:#0f172a">We handle the city filing after payment.</p>` +
+    `<p style="margin:0 0 4px;font-family:Arial,Helvetica,sans-serif;font-size:15px;line-height:1.55;color:#0f172a">Questions? Reply to this email or call us anytime.</p>`;
+
+  void noticeOnly; // callers may still pass it; invoice is now created on Send email
   return {
     subject,
     body: lines.join("\n"),
+    /** Inner HTML for standard branded email shell (meter-app style layout). */
+    htmlBody,
     to: LEVI_TESTER.email,
-    /** Primary button label — never "View/Pay Invoice" for this flow. */
+    /** Primary button — payment link when invoice exists; fallback CTA otherwise. */
     ctaLabel: "Renew Permit",
     ctaUrl: String(payUrl || PHASE_A_RENEW_CTA_URL).trim() || PHASE_A_RENEW_CTA_URL,
     fee: amount,

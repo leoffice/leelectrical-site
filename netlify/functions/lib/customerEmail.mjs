@@ -73,6 +73,8 @@ export async function sendCustomerEmail({
   companyName,
   ctaLabel,
   ctaUrl,
+  /** Optional pre-built INNER html (table, bold facts). Still wrapped in branded shell. */
+  htmlBody,
 }) {
   const intended = String(customerEmail || to || "").trim();
   const recipient = resolveRecipient(intended || to);
@@ -82,6 +84,12 @@ export async function sendCustomerEmail({
   const company = String(companyName || COMPANY).trim() || COMPANY;
   const subj = String(subject || `Message from ${company}`).trim();
   const text = String(message || "").trim();
+  const innerHtml = String(htmlBody || "").trim();
+  // Reject full documents — only inner body fragments (same rule as application mail).
+  const safeInner =
+    innerHtml && !/<html[\s>]/i.test(innerHtml) && !/<!doctype/i.test(innerHtml)
+      ? innerHtml
+      : "";
 
   const meta = {
     testMode,
@@ -92,7 +100,7 @@ export async function sendCustomerEmail({
     subject: subj,
   };
 
-  if (!text) {
+  if (!text && !safeInner) {
     return { ok: false, skipped: true, reason: "empty_message", ...meta };
   }
   if (!recipient) {
@@ -103,12 +111,39 @@ export async function sendCustomerEmail({
     return { ok: true, dryRun: true, reason: "no_api_key", ...meta };
   }
 
-  const html = buildCustomerEmailHtml(
-    text,
-    { name: company },
-    {},
-    ctaLabel && ctaUrl ? { label: ctaLabel, url: ctaUrl } : null
-  );
+  const cta = ctaLabel && ctaUrl ? { label: ctaLabel, url: ctaUrl } : null;
+  let html;
+  if (safeInner) {
+    // Same branded shell as Con Ed application-complete / invoice mail.
+    let ctaHtml = "";
+    const label = String(cta?.label || "").trim();
+    const href = String(cta?.url || "").trim();
+    if (label && href) {
+      const safeHref = href
+        .replace(/&/g, "&amp;")
+        .replace(/"/g, "&quot;")
+        .replace(/</g, "&lt;");
+      const safeLabel = label
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;");
+      ctaHtml =
+        `<div style="margin:24px 0 8px;text-align:center;">` +
+        `<a href="${safeHref}" style="display:inline-block;background:#066a34;color:#ffffff;` +
+        `font-family:Arial,Helvetica,sans-serif;font-size:16px;font-weight:bold;` +
+        `text-decoration:none;padding:14px 28px;border-radius:8px;">${safeLabel}</a></div>`;
+    }
+    const brand = resolveEmailBrand({
+      name: company,
+    });
+    html = buildBrandedEmailHtml({
+      bodyHtml: safeInner + ctaHtml,
+      tenant: { name: brand.name, logoSrc: brand.logoSrc },
+      signer: {},
+    });
+  } else {
+    html = buildCustomerEmailHtml(text, { name: company }, {}, cta);
+  }
 
   // Levi 2026-08-03: always keep an office copy of outbound customer mail
   // so Gmail can file it under LE Pro labels (Messages / Case / etc.).

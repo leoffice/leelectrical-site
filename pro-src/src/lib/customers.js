@@ -116,11 +116,29 @@ export function rawBalance(job) {
   return job.paid ? 0 : parseAmount(job.amount);
 }
 
+/**
+ * Unpaid permit-renew offers are NOT money owed (Levi 2026-08-10).
+ * Keep the invoice on file for the pay link; do not inflate TOTAL DUE / open
+ * invoices until the customer actually pays (or we void it later).
+ */
+export function isBalanceExemptOffer(job) {
+  if (!job || job.paid) return false;
+  if (job.excludeFromBalanceDue || job._balanceExempt) return true;
+  const pr = job.permitRenew || job.permitRenewMock;
+  if (!pr || typeof pr !== "object") return false;
+  if (pr.excludeFromBalanceDue || pr.provisional) return true;
+  // Phase A mock renews default to exempt while unpaid
+  if (pr.mock || pr.phase === "A" || pr.phase === 1) return true;
+  return false;
+}
+
 /** Open balance for a job = amount still owed on an INVOICE only.
- *  HARD RULE (Levi): estimates/leads never count toward balance due. */
+ *  HARD RULE (Levi): estimates/leads never count toward balance due.
+ *  HARD RULE (Levi 2026-08-10): provisional unpaid renew offers = $0 due. */
 export function openBalance(job) {
   if (!job) return 0;
   if (!isInvoiceJob(job)) return 0;
+  if (isBalanceExemptOffer(job)) return 0;
   return rawBalance(job);
 }
 
@@ -300,7 +318,8 @@ export function customerAmountSummary(jobs) {
   // Estimates are never counted in any form: invoiced/paid/due sum over
   // actual invoices only. (Estimate rows still show their own amount on their
   // row, but they contribute $0 to a customer's money totals.)
-  const invoices = list.filter(isInvoiceJob);
+  // Provisional unpaid renew offers also skip invoiced/open (not money owed).
+  const invoices = list.filter((j) => isInvoiceJob(j) && !isBalanceExemptOffer(j));
   const invoiced = invoices.reduce((s, j) => s + invoiceTotal(j), 0);
   const paid = invoices.reduce((s, j) => s + amountPaid(j), 0);
   const due = totalBalanceDue(list);

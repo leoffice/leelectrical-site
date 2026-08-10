@@ -11,6 +11,7 @@ import {
   buildPermitRenewMetaPatch,
   buildPhaseACtaPayPayload,
   findOpenMockRenewJob,
+  formatPermitDateUs,
   isBlockedRenewRecipient,
   isLeviTesterEmail,
   isPermitRenewJob,
@@ -18,6 +19,11 @@ import {
   permitExpiresFromIssued,
   preparePhaseAMock,
 } from "../src/lib/permitRenewal.js";
+import {
+  isBalanceExemptOffer,
+  openBalance,
+  customerAmountSummary,
+} from "../src/lib/customers.js";
 
 describe("permitRenewal Phase A mock", () => {
   it("defaults fee to $365 and Hampton scenario facts", () => {
@@ -68,6 +74,9 @@ describe("permitRenewal Phase A mock", () => {
     expect(meta.permitRenew.mock).toBe(true);
     expect(meta.permitRenew.phase).toBe("A");
     expect(meta.permitRenew.autoEmail).toBe(false);
+    expect(meta.permitRenew.provisional).toBe(true);
+    expect(meta.permitRenew.excludeFromBalanceDue).toBe(true);
+    expect(meta.excludeFromBalanceDue).toBe(true);
     expect(meta.paperwork.dob.renewSchedule.autoEmail).toBe(false);
     expect(meta.email).toBe(LEVI_TESTER.email);
     expect(meta.openBalance).toBe(365);
@@ -81,6 +90,32 @@ describe("permitRenewal Phase A mock", () => {
   it("permitExpiresFromIssued adds one year", () => {
     expect(permitExpiresFromIssued("2026-02-06")).toBe("2027-02-06");
     expect(permitExpiresFromIssued("")).toBe("");
+  });
+
+  it("formatPermitDateUs is Month D, YYYY", () => {
+    expect(formatPermitDateUs("2026-02-06")).toBe("February 6, 2026");
+    expect(formatPermitDateUs("2027-02-06")).toBe("February 6, 2027");
+    expect(formatPermitDateUs("")).toBe("");
+  });
+
+  it("unpaid provisional renew does not count as customer balance due", () => {
+    const open = {
+      id: "r-exempt",
+      invoiceNo: "LE-2711",
+      amount: 365,
+      openBalance: 365,
+      paid: false,
+      excludeFromBalanceDue: true,
+      permitRenew: { mock: true, phase: "A", provisional: true, excludeFromBalanceDue: true },
+    };
+    expect(isBalanceExemptOffer(open)).toBe(true);
+    expect(openBalance(open)).toBe(0);
+    const sum = customerAmountSummary([open]);
+    expect(sum.due).toBe(0);
+    expect(sum.openInvoices).toBe(0);
+    // Paid renew starts counting again
+    const paid = { ...open, paid: true, openBalance: 0 };
+    expect(isBalanceExemptOffer(paid)).toBe(false);
   });
 
   it("listRenewApplications lists open / paid / wants-renew with dates", () => {
@@ -118,23 +153,39 @@ describe("permitRenewal Phase A mock", () => {
     expect(rows.find((r) => r.id === "r1").gradedDate).toBe("2026-02-06");
   });
 
-  it("email has address, permit details, and Renew Permit CTA (no invoice yet)", () => {
-    const { subject, body, to, ctaLabel, ctaUrl } = buildPermitRenewEmail({
-      noticeOnly: true,
+  it("email has expired copy, MDY dates, bold HTML facts, and pay-link CTA", () => {
+    const payUrl = "https://leelectrical.us/app/pro/#/pay/abcTOKEN";
+    const { subject, body, htmlBody, to, ctaLabel, ctaUrl } = buildPermitRenewEmail({
+      payUrl,
+      invoiceNo: "LE-2710",
     });
     expect(to).toBe(LEVI_TESTER.email);
     expect(ctaLabel).toBe("Renew Permit");
     expect(ctaLabel).not.toMatch(/View\/Pay|View and Pay/i);
-    expect(ctaUrl).toMatch(/renewCta=phaseA/);
+    // Real payment link — not the staff dashboard renewCta tab
+    expect(ctaUrl).toBe(payUrl);
+    expect(ctaUrl).not.toMatch(/renewCta=phaseA/);
     expect(subject).toMatch(/Renew|permit/i);
     expect(body).toMatch(/40 Hampton/i);
     expect(body).toMatch(/B01126007/);
     expect(body).toMatch(/\$365\.00|365/);
-    // No plain-text "Update or Renew Permit:" link block; invoice only after CTA
+    expect(body).toMatch(/has expired/i);
+    expect(body).not.toMatch(/year is coming up/i);
+    expect(body).toMatch(/abandoned/i);
+    expect(body).toMatch(/\$1,800|1800/);
+    expect(body).toMatch(/February 6, 2026/);
+    expect(body).toMatch(/February 6, 2027/);
     expect(body).not.toContain("Update or Renew Permit:");
     expect(body).not.toMatch(/View\/Pay Invoice/i);
     expect(body).toMatch(/Press Renew Permit/i);
     expect(body).not.toMatch(/yossi6886@gmail\.com/i);
+    // Branded inner HTML — bold application / issue # / dates
+    expect(htmlBody).toMatch(/<strong[^>]*>permit application<\/strong>/i);
+    expect(htmlBody).toMatch(/Application \/ issue number/i);
+    expect(htmlBody).toMatch(/<strong[^>]*>B01126007/);
+    expect(htmlBody).toMatch(/has expired/i);
+    expect(htmlBody).toMatch(/at least \$1,800/i);
+    expect(htmlBody).toMatch(/February 6, 2026/);
   });
 
   it("Phase A CTA pay payload opens renew invoice on tap (no pre-create)", () => {

@@ -25,6 +25,7 @@ export default async (req) => {
     customerEmail: email,
     ctaLabel: body.ctaLabel || body.cta_label || "",
     ctaUrl: body.ctaUrl || body.cta_url || body.ctaHref || "",
+    htmlBody: body.htmlBody || body.html_body || body.html || "",
   });
   return json(result, result.ok ? 200 : 502);
 };
