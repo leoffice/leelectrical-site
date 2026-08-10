@@ -546,7 +546,7 @@ export default function NewJobFlow() {
 }
 
 function NewCustomerForm({ prefill = {}, fromCalendar = false, onClose, onCreated }) {
-  const { createJob, jobs, events, api, enqueue, showToast, refreshJobs } = useStore();
+  const { createJob, whenJobSaved, jobs, events, api, enqueue, showToast, refreshJobs } = useStore();
   const [f, setF] = useState(() => ({
     businessName: prefill.businessName || prefill.customer || "",
     personName: prefill.personName || "",
@@ -638,6 +638,7 @@ function NewCustomerForm({ prefill = {}, fromCalendar = false, onClose, onCreate
 
     setSaving(true);
     try {
+      // createJob is local-first — returns immediately (no 30s state POST wait).
       const id = await createJob({
         businessName: biz,
         personName: f.personName || "",
@@ -659,55 +660,63 @@ function NewCustomerForm({ prefill = {}, fromCalendar = false, onClose, onCreate
       if (!id) return;
 
       const payload = customerSyncPayload({ ...f, businessName: biz, customer: biz });
-      // Instant close — QuickBooks queue runs in the background.
+      const meta = {
+        qboCustomerId: action === "create" ? "" : f.qboCustomerId || "",
+      };
+      // SNAPPY: close the sheet now. QuickBooks + import run after full shell save.
       if (action === "link" && f.qboCustomerId) {
-        const name = biz;
-        try {
-          sessionStorage.setItem(
-            PENDING_IMPORT_LS,
-            JSON.stringify({
-              key: customerKeyForImport({ id: f.qboCustomerId, name }),
-              name,
-              qboId: f.qboCustomerId,
-              started: Date.now(),
-            })
-          );
-        } catch {}
-        void enqueue(
-          "import_customer",
-          "import-" + f.qboCustomerId,
-          { name, qboId: f.qboCustomerId },
-          "deterministic",
-          "import_customer|" + f.qboCustomerId
-        ).then(() => refreshJobs?.(true));
         showToast("Linked to QuickBooks — importing jobs…");
       } else if (action === "update" && f.qboCustomerId) {
-        void enqueue(
-          "update_customer",
-          id,
-          { id: f.qboCustomerId, ...payload },
-          "deterministic",
-          "update_customer|" + id + "|" + Date.now()
-        );
         showToast("Saved & syncing update to QuickBooks…");
       } else if (action === "create") {
-        void enqueue(
-          "create_customer",
-          id,
-          payload,
-          "deterministic",
-          "create_customer|" + id + "|" + Date.now()
-        );
         showToast(fromCalendar ? "Customer created from calendar" : "Saved & creating in QuickBooks…");
       } else {
         showToast("Customer saved");
       }
-
       onClose();
-      const meta = {
-        qboCustomerId: action === "create" ? "" : f.qboCustomerId || "",
-      };
       onCreated?.(id, biz, meta);
+
+      void (async () => {
+        // Full createJob overlay first — thin create_customer must not race ahead.
+        if (typeof whenJobSaved === "function") await whenJobSaved(id);
+        if (action === "link" && f.qboCustomerId) {
+          const name = biz;
+          try {
+            sessionStorage.setItem(
+              PENDING_IMPORT_LS,
+              JSON.stringify({
+                key: customerKeyForImport({ id: f.qboCustomerId, name }),
+                name,
+                qboId: f.qboCustomerId,
+                started: Date.now(),
+              })
+            );
+          } catch {}
+          void enqueue(
+            "import_customer",
+            "import-" + f.qboCustomerId,
+            { name, qboId: f.qboCustomerId },
+            "deterministic",
+            "import_customer|" + f.qboCustomerId
+          ).then(() => refreshJobs?.(true));
+        } else if (action === "update" && f.qboCustomerId) {
+          void enqueue(
+            "update_customer",
+            id,
+            { id: f.qboCustomerId, ...payload },
+            "deterministic",
+            "update_customer|" + id + "|" + Date.now()
+          );
+        } else if (action === "create") {
+          void enqueue(
+            "create_customer",
+            id,
+            payload,
+            "deterministic",
+            "create_customer|" + id + "|" + Date.now()
+          );
+        }
+      })();
     } finally {
       setSaving(false);
     }
@@ -719,6 +728,7 @@ function NewCustomerForm({ prefill = {}, fromCalendar = false, onClose, onCreate
     syncAction,
     createDisabled,
     createJob,
+    whenJobSaved,
     fromCalendar,
     prefill,
     enqueue,
@@ -881,7 +891,7 @@ function NewCustomerForm({ prefill = {}, fromCalendar = false, onClose, onCreate
 }
 
 function NewJobForm({ prefill, onClose, onCreated, vendorMode = false, sasCallId = "", sasRecordingUrl = "" }) {
-  const { createJob, jobs, events, api, enqueue } = useStore();
+  const { createJob, whenJobSaved, jobs, events, api, enqueue } = useStore();
   const [f, setF] = useState(() => {
     const o = { date: prefill.date || "", title: prefill.title || "", description: prefill.description || "" };
     CONTACT_FIELDS.forEach(([k]) => (o[k] = prefill[k] || ""));
@@ -1078,16 +1088,20 @@ function NewJobForm({ prefill, onClose, onCreated, vendorMode = false, sasCallId
       sasCallId: sasCallId || "",
       sasRecordingUrl: sasRecordingUrl || "",
     };
+    // createJob is local-first — sheet closes immediately (SNAPPY).
     const id = await createJob(payload, prefill.calEventId || "");
     if (id) {
-      if (!cur.qboCustomerId && (cur.businessName || cur.customer)) {
-        enqueueCustomerQboSync(enqueue, id, payload, "");
-      }
       onClose();
       const custName = cur.businessName || cur.customer || "";
       const customerKey =
         (cur.qboCustomerId && "q:" + cur.qboCustomerId) || customerKeyForName(custName) || "";
       onCreated && onCreated(id, { customerKey, customerName: custName, qboCustomerId: cur.qboCustomerId || "" });
+      if (!cur.qboCustomerId && (cur.businessName || cur.customer)) {
+        void (async () => {
+          if (typeof whenJobSaved === "function") await whenJobSaved(id);
+          enqueueCustomerQboSync(enqueue, id, payload, "");
+        })();
+      }
     }
   };
 

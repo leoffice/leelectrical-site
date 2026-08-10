@@ -170,6 +170,8 @@ export function StoreProvider({ children }) {
 
   /* ---------- pulls ---------- */
   const lastSavedTs = useRef(0); // ts of our latest overlay save (see refreshJobs)
+  /** First full createJob overlay save per id — thin create_customer must wait on this. */
+  const jobFirstSaveRef = useRef(new Map());
   const refreshJobs = useCallback(async (quiet) => {
     if (!quiet) setLoading(true);
     try {
@@ -1177,42 +1179,60 @@ export function StoreProvider({ children }) {
       // Optimistic stamp so a concurrent refreshJobs does not treat the blob
       // as fresher and wipe this brand-new local job before save lands.
       lastSavedTs.current = Math.max(lastSavedTs.current, Date.now());
-      // Await first overlay write before create_customer / other thin patches can
-      // race (thin qboCustomerId-only write was wiping full local customer shells).
-      try {
-        const r = await api.saveJob(id, ov);
-        if (r && r.ts) lastSavedTs.current = Math.max(lastSavedTs.current, r.ts);
-      } catch {
-        showToast("Offline — job kept locally");
-      }
-      if (g.date) {
-        // P0 data-loss fix (2026-07-31): never replace Google event notes with
-        // "Created in LE Pro". Prefer job/event description; when updating an
-        // existing calEventId with no real notes, omit description so the host
-        // PATCH leaves the user's text alone (gcal_upsert only writes if set).
-        const calDesc = calendarUpsertDescription({
-          notes: g.description,
-          calEventId: calEventId || "",
-          createFallback: `Created in ${productName()}`,
-        });
-        const calPayload = {
-          calEventId: calEventId || "",
-          summary: (g.title || "Job") + " — " + (g.customer || ""),
-          start: g.date,
-          location: calendarServiceLocation({
-            serviceAddress: serviceAddr,
-            apartment: g.apartment,
-            billingAddress: g.billingAddress,
-          }),
-        };
-        if (calDesc != null) calPayload.description = calDesc;
-        enqueueRef.current("calendar_upsert", id, calPayload, "judgment", "njcal:" + id);
-      }
+      // SNAPPY (Levi 2026-08-10): never block Add customer / New job on the state
+      // POST (can sit ~30s on a slow blob). Local list updates now; network +
+      // calendar enqueue run in background. Thin create_customer must await
+      // whenJobSaved(id) so it cannot race ahead of this full shell.
+      const saveP = (async () => {
+        try {
+          const r = await api.saveJob(id, ov);
+          if (r && r.ts) lastSavedTs.current = Math.max(lastSavedTs.current, r.ts);
+        } catch {
+          showToast("Offline — job kept locally");
+        }
+        if (g.date) {
+          // P0 data-loss fix (2026-07-31): never replace Google event notes with
+          // "Created in LE Pro". Prefer job/event description; when updating an
+          // existing calEventId with no real notes, omit description so the host
+          // PATCH leaves the user's text alone (gcal_upsert only writes if set).
+          const calDesc = calendarUpsertDescription({
+            notes: g.description,
+            calEventId: calEventId || "",
+            createFallback: `Created in ${productName()}`,
+          });
+          const calPayload = {
+            calEventId: calEventId || "",
+            summary: (g.title || "Job") + " — " + (g.customer || ""),
+            start: g.date,
+            location: calendarServiceLocation({
+              serviceAddress: serviceAddr,
+              apartment: g.apartment,
+              billingAddress: g.billingAddress,
+            }),
+          };
+          if (calDesc != null) calPayload.description = calDesc;
+          enqueueRef.current("calendar_upsert", id, calPayload, "judgment", "njcal:" + id);
+        }
+      })();
+      jobFirstSaveRef.current.set(id, saveP);
+      void saveP.finally(() => {
+        // Keep resolved promise briefly for late waiters, then drop.
+        setTimeout(() => {
+          if (jobFirstSaveRef.current.get(id) === saveP) jobFirstSaveRef.current.delete(id);
+        }, 60_000);
+      });
       showToast("Job created");
       return id;
     },
     [showToast]
   );
+
+  /** Wait until createJob's first full overlay save finished (or no pending save). */
+  const whenJobSaved = useCallback((id) => {
+    const key = String(id || "");
+    if (!key) return Promise.resolve();
+    return jobFirstSaveRef.current.get(key) || Promise.resolve();
+  }, []);
 
   /* ---------- dev board ---------- */
   const addDevTask = useCallback(
@@ -1377,6 +1397,7 @@ export function StoreProvider({ children }) {
       resolveApproval,
       logSend,
       createJob,
+      whenJobSaved,
       addDevTask,
       patchDevTask,
       getSettings,
@@ -1436,6 +1457,7 @@ export function StoreProvider({ children }) {
       resolveApproval,
       logSend,
       createJob,
+      whenJobSaved,
       addDevTask,
       patchDevTask,
       getSettings,

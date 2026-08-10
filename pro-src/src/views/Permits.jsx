@@ -146,13 +146,8 @@ function CollapsibleSection({
 
 /**
  * Renewal Application — collapsible like Deploy queue (Levi 2026-08-10).
- * Header shows pending-approval count. Expand: cards with address · person · permit.
- * Tap card: exp, issued, customer · Send Email (compose once/keep).
- * After send: leaves pending. Paid → Paid — update permit box.
- */
-/**
- * Renewal Application — collapsible like Deploy queue (Levi 2026-08-10).
- * Collapsed: title + pending count. Open: one-line cards (address · person · permit · Send).
+ * Previous card design restored + tightened: address, name, permit #, exp always visible.
+ * Expand is pure state toggle (snappy — no network on open).
  */
 function RenewalNotificationsCard({ jobs, phaseABusy, onSendForRow, onOpenJob }) {
   const pending = useMemo(() => listPendingRenewCards(jobs), [jobs]);
@@ -167,7 +162,7 @@ function RenewalNotificationsCard({ jobs, phaseABusy, onSendForRow, onOpenJob })
     >
       <button
         type="button"
-        className="w-full px-4 py-3 border-b border-violet-100 bg-violet-50/90 text-left"
+        className="w-full px-3 py-2.5 border-b border-violet-100 bg-violet-50/90 text-left"
         onClick={() => setSectionOpen((o) => !o)}
         aria-expanded={sectionOpen}
         data-testid="renewal-application-toggle"
@@ -180,7 +175,7 @@ function RenewalNotificationsCard({ jobs, phaseABusy, onSendForRow, onOpenJob })
             >
               Renewal Application
             </h2>
-            <p className="text-xs text-violet-800/70 mt-0.5">
+            <p className="text-[11px] text-violet-800/70 mt-0.5">
               Pending approval to send
             </p>
           </div>
@@ -203,7 +198,7 @@ function RenewalNotificationsCard({ jobs, phaseABusy, onSendForRow, onOpenJob })
         <div className="bg-white">
           {paidDeploy.length > 0 ? (
             <div
-              className="mx-3 mt-3 rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2"
+              className="mx-2.5 mt-2.5 rounded-xl border border-emerald-200 bg-emerald-50 px-2.5 py-2"
               data-testid="permit-renew-paid-deploy-box"
             >
               <div className="text-[11px] font-extrabold text-emerald-900 mb-1">
@@ -229,7 +224,7 @@ function RenewalNotificationsCard({ jobs, phaseABusy, onSendForRow, onOpenJob })
             </div>
           ) : null}
 
-          <div className="p-2.5 space-y-1.5" data-testid="permit-renew-app-list">
+          <div className="p-2 space-y-1.5" data-testid="permit-renew-app-list">
             {!pending.length ? (
               <p className="text-[12px] text-slate-500 text-center py-3">0 pending</p>
             ) : (
@@ -246,56 +241,84 @@ function RenewalNotificationsCard({ jobs, phaseABusy, onSendForRow, onOpenJob })
                 return (
                   <div
                     key={r.id}
-                    className="rounded-xl border border-slate-200 bg-slate-50/40 overflow-hidden"
+                    className="rounded-xl border border-violet-100 bg-white shadow-sm overflow-hidden"
                     data-testid="permit-renew-app-row"
                   >
-                    <div className="flex items-center gap-2 px-2.5 py-2">
-                      <button
-                        type="button"
-                        className="min-w-0 flex-1 text-left"
-                        onClick={() => setExpandedId(open ? "" : r.id)}
-                      >
-                        <div className="text-[13px] font-extrabold text-slate-900 truncate leading-tight">
-                          {r.address || "—"}
-                          <span className="font-semibold text-slate-600">
+                    <button
+                      type="button"
+                      className="w-full text-left px-2.5 pt-2 pb-1"
+                      onClick={() => setExpandedId(open ? "" : r.id)}
+                    >
+                      <div className="text-[13px] font-extrabold text-slate-900 leading-snug truncate">
+                        {r.address || "—"}
+                      </div>
+                      <div className="text-[12px] font-semibold text-slate-700 truncate">
+                        {r.customer || "—"}
+                      </div>
+                      <div className="text-[11px] text-slate-600 mt-0.5 truncate">
+                        {r.permitNo ? (
+                          <span className="font-bold text-violet-800">{r.permitNo}</span>
+                        ) : (
+                          <span className="text-slate-400">No permit #</span>
+                        )}
+                        {expLabel ? (
+                          <span>
                             {" "}
-                            · {r.customer || "—"}
+                            · Exp {expLabel}
                           </span>
-                          {r.permitNo ? (
-                            <span className="font-bold text-violet-800">
-                              {" "}
-                              · {r.permitNo}
-                            </span>
-                          ) : null}
-                        </div>
-                      </button>
+                        ) : null}
+                        {r.fee != null ? (
+                          <span className="text-slate-500"> · ${r.fee}</span>
+                        ) : null}
+                        {r.stageLabel ? (
+                          <span className="text-amber-800 font-semibold"> · {r.stageLabel}</span>
+                        ) : null}
+                      </div>
+                    </button>
+                    <div className="px-2.5 pb-2 flex gap-1.5">
                       <button
                         type="button"
-                        className="btn shrink-0 bg-violet-700 text-white !py-1.5 !px-2.5 text-[11px] font-bold rounded-lg"
+                        className="btn flex-1 bg-violet-700 text-white !py-1.5 text-[11px] font-bold rounded-lg"
                         disabled={phaseABusy}
                         data-testid="permit-renew-row-send"
                         onClick={() => onSendForRow?.(r)}
                       >
-                        Send
+                        Send Email
+                      </button>
+                      <button
+                        type="button"
+                        className="btn bg-white border border-violet-200 text-violet-900 !py-1.5 !px-2.5 text-[11px] font-bold rounded-lg"
+                        onClick={() => setExpandedId(open ? "" : r.id)}
+                      >
+                        {open ? "Less" : "More"}
                       </button>
                     </div>
                     {open ? (
                       <div
-                        className="px-2.5 pb-2 border-t border-slate-100 bg-white text-[11px] text-slate-600 space-y-0.5 pt-1.5"
+                        className="px-2.5 pb-2 border-t border-violet-50 text-[11px] text-slate-600 space-y-0.5 pt-1.5"
                         data-testid="permit-renew-app-detail"
                       >
                         <div>
-                          <span className="font-semibold text-slate-700">Expires: </span>
-                          {expLabel || "—"}
-                          <span className="mx-1.5 text-slate-300">·</span>
                           <span className="font-semibold text-slate-700">Issued: </span>
                           {issuedLabel || "—"}
+                          <span className="mx-1.5 text-slate-300">·</span>
+                          <span className="font-semibold text-slate-700">Expires: </span>
+                          {expLabel || "—"}
                         </div>
                         {r.email ? (
                           <div>
                             <span className="font-semibold text-slate-700">Email: </span>
                             {r.email}
                           </div>
+                        ) : null}
+                        {r.jobId ? (
+                          <button
+                            type="button"
+                            className="mt-0.5 text-[11px] font-bold text-violet-800 underline underline-offset-2"
+                            onClick={() => onOpenJob?.(r.jobId)}
+                          >
+                            Open job
+                          </button>
                         ) : null}
                       </div>
                     ) : null}
