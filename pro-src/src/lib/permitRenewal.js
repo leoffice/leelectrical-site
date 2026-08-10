@@ -15,14 +15,18 @@ export const PERMIT_RENEW_FEE = 365;
 /**
  * First real walk-through customer (after Phase A pass). Content for mock email
  * pretends this job; send address stays Levi Tester only.
+ *
+ * Levi 2026-08-10: expired permit is **L1** (issued 10/11/2024), not S1.
+ * Service site = 40 Hampton Pl — never bill-to street.
  */
 export const PHASE_A_HAMPTON_SCENARIO = {
   id: "hampton-yossi",
   displayCustomer: "Yosef Beshari",
   greetingName: "Yossi",
   address: "40 Hampton Pl",
-  permitNo: "B01126007-S1-EL",
-  issuedDate: "2026-02-06",
+  /** Expired city permit (L1). S1 is a different open permit — do not use for renew mock. */
+  permitNo: "B01126007-L1-EL",
+  issuedDate: "2024-10-11",
   fee: PERMIT_RENEW_FEE,
   /** Real customer — never Phase A recipient. */
   realEmail: "yossi6886@gmail.com",
@@ -204,11 +208,11 @@ export function buildPermitRenewJobFields({
     title: `City electrical permit renewal — ${sc.permitNo}`,
     // Job notes (not printed as line item). Line description carries permit #.
     description: `City electrical permit renewal for ${serviceAddr} · permit ${sc.permitNo}`,
-    // Service site on the invoice Service Address field
+    // Service site only — never put the permit street under Bill To (Levi 2026-08-10)
     address: serviceAddr,
     serviceAddress: serviceAddr,
-    // Distinct from service so the PDF always prints a Service Address column
-    billingAddress: person,
+    // Empty billing street: bill-to is customer name; PDF must not fall back to service
+    billingAddress: "",
     amount,
     invoiceNo,
     invoiceLines: lines,
@@ -245,6 +249,86 @@ export function formatPermitDateUs(iso) {
   return `${name} ${d}, ${y}`;
 }
 
+/** YYYY-MM-DD → MM/DD/YYYY (Levi: month, day, year). */
+export function formatPermitDateMdY(iso) {
+  const raw = String(iso || "").trim().slice(0, 10);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(raw)) return "";
+  const [y, m, d] = raw.split("-");
+  return `${m}/${d}/${y}`;
+}
+
+function parseIsoDateLocal(iso) {
+  const raw = String(iso || "").trim().slice(0, 10);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(raw)) return null;
+  const d = new Date(raw + "T12:00:00");
+  return Number.isNaN(d.getTime()) ? null : d;
+}
+
+function addDaysIso(iso, days) {
+  const d = parseIsoDateLocal(iso);
+  if (!d) return "";
+  d.setDate(d.getDate() + Number(days || 0));
+  return d.toISOString().slice(0, 10);
+}
+
+/**
+ * Abandoned date = expiration + 12 months (city marks abandoned after 12 mo unrenewed).
+ */
+export function permitAbandonedFromExpires(expiresIso) {
+  return permitExpiresFromIssued(expiresIso); // +1 year helper is the same math
+}
+
+/**
+ * Renew-by date for copy:
+ * - expired: ~1 month before abandoned date
+ * - not expired: ~7 days before expiration (floor today+1)
+ */
+export function permitRenewByDate(expiresIso, { todayIso } = {}) {
+  const exp = String(expiresIso || "").trim().slice(0, 10);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(exp)) return "";
+  const today =
+    String(todayIso || "").trim().slice(0, 10) ||
+    new Date().toISOString().slice(0, 10);
+  const abandoned = permitAbandonedFromExpires(exp);
+  if (today >= exp) {
+    return addDaysIso(abandoned, -30) || "";
+  }
+  const weekBefore = addDaysIso(exp, -7);
+  return weekBefore && weekBefore > today ? weekBefore : addDaysIso(today, 7);
+}
+
+/**
+ * Auto status tone from today vs expiration (Levi 2026-08-10 yearly template).
+ * @returns {"upcoming"|"soon"|"expired"}
+ */
+export function permitRenewStatusTone(expiresIso, { todayIso } = {}) {
+  const exp = String(expiresIso || "").trim().slice(0, 10);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(exp)) return "upcoming";
+  const today =
+    String(todayIso || "").trim().slice(0, 10) ||
+    new Date().toISOString().slice(0, 10);
+  if (today >= exp) return "expired";
+  const soonCutoff = addDaysIso(exp, -60); // ~2 months before
+  if (soonCutoff && today >= soonCutoff) return "soon";
+  return "upcoming";
+}
+
+/**
+ * Single status sentence that auto-switches (never wrong for the date).
+ * Levi 2026-08-10: exact yearly-template wording.
+ */
+export function permitRenewStatusSentence(address, expiresUs, tone) {
+  const addr = String(address || "").trim() || "this address";
+  const exp = String(expiresUs || "").trim() || "the expiration date";
+  if (tone === "expired") {
+    return `Your electrical permit at ${addr} expired on ${exp}. It can still be renewed now, but the 12-month abandoned clock has started.`;
+  }
+  if (tone === "soon") {
+    return `Your electrical permit at ${addr} expires soon, on ${exp} — renewing now keeps it active.`;
+  }
+  return `Your electrical permit at ${addr} is coming up for renewal — it expires on ${exp}. Renewing on time keeps it active and continuous, with no re-inspection or refiling needed.`;
+}
+
 function escHtml(s) {
   return String(s == null ? "" : s)
     .replace(/&/g, "&amp;")
@@ -265,8 +349,8 @@ export function buildPermitRenewMetaPatch(scenario = PHASE_A_HAMPTON_SCENARIO, f
     email: LEVI_TESTER.email,
     serviceAddress: sc.address,
     address: sc.address,
-    // Keep bill-to name as the person; service street on serviceAddress
-    billingAddress: String(sc.displayCustomer || "").trim() || LEVI_TESTER.customer,
+    // Bill-to = customer name only (invoicePdf); never put service street here
+    billingAddress: "",
     // Unpaid renew offers do not count as customer balance due (Levi 2026-08-10)
     excludeFromBalanceDue: true,
     permitRenew: {
@@ -439,7 +523,8 @@ export function buildPhaseACtaPayPayload({
     e: LEVI_TESTER.email,
     ph: "",
     sa: addr,
-    ba: person,
+    // Service address only — never put the street in bill-to (Levi 2026-08-10)
+    ba: "",
     z: "",
     sl: siteSlug,
     pay: "",
@@ -463,15 +548,14 @@ export function buildPhaseACtaPayPayload({
 }
 
 /**
- * Customer renew notice (Phase A) — same branded layout family as Con Ed
- * application-complete mail (header + body + signature + Powered by LE).
+ * Customer renew notice (Phase A) — branded shell + Levi draft (2026-08-10).
  *
- * Copy (Levi 2026-08-10):
- * - Bold application / issue # / issue date / expiration date
- * - Dates Month D, YYYY
- * - Has already expired (not "year coming up")
- * - Twelve months after expire → abandoned status; ~$1,800 savings vs new filing
- * - CTA: Renew Permit → real payment link (invoice created on Send email)
+ * Rules:
+ * - Call it **Permit** only (not Application / issue number)
+ * - Service address is site; never bill-to street
+ * - Status sentence + subject auto-switch by today vs expiration
+ * - Abandoned = expiration + 12 months; ~$1,800 savings
+ * - CTA: Renew Permit → payment link
  */
 export function buildPermitRenewEmail({
   scenario = PHASE_A_HAMPTON_SCENARIO,
@@ -480,6 +564,8 @@ export function buildPermitRenewEmail({
   invoiceNo = "",
   /** @deprecated Prefer creating invoice on send; kept for callers. */
   noticeOnly = false,
+  /** Override "today" for tests (YYYY-MM-DD). */
+  todayIso = "",
 } = {}) {
   const sc = scenario || PHASE_A_HAMPTON_SCENARIO;
   const amount = fee != null ? parseAmount(fee) || PERMIT_RENEW_FEE : renewFeeFromScenario(sc);
@@ -489,47 +575,106 @@ export function buildPermitRenewEmail({
     minimumFractionDigits: 2,
   });
   const inv = String(invoiceNo || "").trim();
+  const invLabel = inv ? (inv.startsWith("#") ? inv : `#${inv}`) : "";
   const company = brand();
-  const subject = `Renew your city electrical permit — ${sc.address} — ${company}`;
+  const profile = activeTenantConfig().profile || {};
   const greeting = sc.greetingName || sc.displayCustomer || "there";
   const issuedIso = String(sc.issuedDate || "").trim().slice(0, 10);
   const expiresIso =
-    permitExpiresFromIssued(issuedIso) ||
-    String(sc.expiresDate || "").trim().slice(0, 10);
+    String(sc.expiresDate || "").trim().slice(0, 10) ||
+    permitExpiresFromIssued(issuedIso);
   const issuedUs = formatPermitDateUs(issuedIso);
   const expiresUs = formatPermitDateUs(expiresIso);
-  const website = activeTenantConfig().profile?.website || "";
+  const abandonedIso = permitAbandonedFromExpires(expiresIso);
+  const abandonedUs = formatPermitDateUs(abandonedIso);
+  const renewByIso = permitRenewByDate(expiresIso, { todayIso });
+  const renewByUs = formatPermitDateUs(renewByIso);
+  const tone = permitRenewStatusTone(expiresIso, { todayIso });
+  const statusLine = permitRenewStatusSentence(sc.address, expiresUs, tone);
+  const website = profile.website || "";
+  const phone = profile.phone || "(718) 594-1850";
+  const fromEmail = profile.email || "Office@LeElectrical.us";
+  const signer = profile.ownerName || profile.contactName || "Levi Kumer, President";
+  const lic = profile.licenseNo || profile.license || "11212";
+  const companyLong = profile.legalName || profile.name || company;
+
+  const subject =
+    tone === "expired"
+      ? `Your electrical permit has expired — ${sc.address} (renew before it's abandoned)`
+      : `Time to renew your electrical permit — ${sc.address}`;
+
+  const detailsHeader =
+    tone === "expired"
+      ? "Here are the details for your expired electrical permit:"
+      : "Here are the details for your upcoming permit renewal:";
+
+  const issuedLabel = "Issued";
+  const expLabel = tone === "expired" ? "Expired" : "Expires";
+
+  const abandonBlock =
+    tone === "expired"
+      ? `Once a permit stays unrenewed for 12 months after it expires, the city marks it "abandoned." Reinstating an abandoned permit means filing a brand-new one — which typically costs at least $1,800 more than a straight renewal. Renewing now avoids that cost and keeps your work on record.`
+      : `If a permit lapses and stays unrenewed for 12 months, the city marks it "abandoned," and reinstating it means filing a brand-new permit — which typically costs at least $1,800 more than renewing on time. Renewing now avoids that entirely.`;
+
+  const payBlock = inv
+    ? tone === "expired"
+      ? `Invoice ${invLabel} is ready — click Renew Permit below to pay, and we'll handle the city filing for you. To stay safely ahead of the abandoned deadline (${abandonedUs || "12 months after expire"}), please renew by ${renewByUs || "soon"}.`
+      : `Invoice ${invLabel} is ready — click Renew Permit below to pay, and we'll handle the city filing for you. Please renew by ${renewByUs || expiresUs} to keep everything current.`
+    : "Click Renew Permit below to open the payment page, and we'll handle the city filing for you.";
+
+  // Light HTML emphasis on key facts (addresses/dates/fees already bold in table rows)
+  const statusLineHtml = (() => {
+    const addr = escHtml(sc.address || "this address");
+    const exp = escHtml(expiresUs || "the expiration date");
+    if (tone === "expired") {
+      return `Your electrical permit at <strong>${addr}</strong> expired on <strong>${exp}</strong>. It can still be renewed now, but the 12-month abandoned clock has started.`;
+    }
+    if (tone === "soon") {
+      return `Your electrical permit at <strong>${addr}</strong> expires soon, on <strong>${exp}</strong> — renewing now keeps it active.`;
+    }
+    return `Your electrical permit at <strong>${addr}</strong> is coming up for renewal — it expires on <strong>${exp}</strong>. Renewing on time keeps it active and continuous, with no re-inspection or refiling needed.`;
+  })();
+  const abandonBlockHtml =
+    tone === "expired"
+      ? `Once a permit stays unrenewed for <strong>12 months</strong> after it expires, the city marks it <strong>&quot;abandoned.&quot;</strong> Reinstating an abandoned permit means filing a brand-new one — which typically costs <strong>at least $1,800</strong> more than a straight renewal. Renewing now avoids that cost and keeps your work on record.`
+      : `If a permit lapses and stays unrenewed for <strong>12 months</strong>, the city marks it <strong>&quot;abandoned,&quot;</strong> and reinstating it means filing a brand-new permit — which typically costs <strong>at least $1,800</strong> more than renewing on time. Renewing now avoids that entirely.`;
+  const payBlockHtml = inv
+    ? tone === "expired"
+      ? `Invoice <strong>${escHtml(invLabel)}</strong> is ready — click <strong>Renew Permit</strong> below to pay, and we&rsquo;ll handle the city filing for you. To stay safely ahead of the abandoned deadline (${escHtml(
+          abandonedUs || "12 months after expire"
+        )}), please renew by <strong>${escHtml(renewByUs || "soon")}</strong>.`
+      : `Invoice <strong>${escHtml(invLabel)}</strong> is ready — click <strong>Renew Permit</strong> below to pay, and we&rsquo;ll handle the city filing for you. Please renew by <strong>${escHtml(
+          renewByUs || expiresUs
+        )}</strong> to keep everything current.`
+    : `Click <strong>Renew Permit</strong> below to open the payment page, and we&rsquo;ll handle the city filing for you.`;
 
   const lines = [
     `Hi ${greeting},`,
     "",
-    "This is about the city electrical permit application for:",
+    detailsHeader,
     "",
     `Address: ${sc.address}`,
-    `Application / issue number: ${sc.permitNo}`,
-    issuedUs ? `Issue date: ${issuedUs}` : null,
-    expiresUs ? `Expiration date: ${expiresUs}` : null,
-    `Renew fee: ${feeStr}`,
+    `Permit number: ${sc.permitNo}`,
+    issuedUs ? `${issuedLabel}: ${issuedUs}` : null,
+    expiresUs ? `${expLabel}: ${expiresUs}` : null,
+    `Renewal fee: ${feeStr}`,
+    invLabel ? `Invoice: ${invLabel}` : null,
     "",
-    "This permit has expired. Twelve months after it has expired, it goes into an abandoned status. Closing an abandoned application means filing a brand-new application.",
+    statusLine,
     "",
-    "Renewing now can save you at least $1,800 compared with creating a new permit to reinstate an abandoned one.",
+    abandonBlock,
     "",
-    inv
-      ? `Invoice #${inv} is ready. Press Renew Permit below to open the payment page.`
-      : "Press Renew Permit below to open the payment page and start the renewal.",
+    payBlock,
     "",
-    "We handle the city filing after payment.",
-    "",
-    "Questions? Reply to this email or call us anytime.",
+    "Questions? Just reply to this email or call us anytime.",
     "",
     "Thank you,",
-    company,
-    website,
+    signer,
+    `${companyLong} · Lic #${lic}`,
+    `${phone} · ${fromEmail}`,
+    website || null,
   ].filter((ln) => ln != null);
 
-  // Inner HTML for standard branded shell (customer-email / buildBrandedEmailHtml).
-  // Bold the application facts Levi called out.
   const row = (label, value, strong = true) => {
     if (!value) return "";
     const v = strong
@@ -544,40 +689,46 @@ export function buildPermitRenewEmail({
       `</tr>`
     );
   };
+
   const htmlBody =
     `<p style="margin:0 0 12px;font-family:Arial,Helvetica,sans-serif;font-size:15px;line-height:1.5;color:#0f172a">Hi ${escHtml(
       greeting
     )},</p>` +
-    `<p style="margin:0 0 12px;font-family:Arial,Helvetica,sans-serif;font-size:15px;line-height:1.5;color:#0f172a">This is about the city electrical <strong>permit application</strong> for:</p>` +
+    `<p style="margin:0 0 12px;font-family:Arial,Helvetica,sans-serif;font-size:15px;line-height:1.5;color:#0f172a">${escHtml(
+      detailsHeader
+    )}</p>` +
     `<table style="border-collapse:collapse;width:100%;max-width:560px;margin:0 0 16px;font-family:Arial,Helvetica,sans-serif">` +
     row("Address", sc.address) +
-    row("Application / issue number", sc.permitNo) +
-    (issuedUs ? row("Issue date", issuedUs) : "") +
-    (expiresUs ? row("Expiration date", expiresUs) : "") +
-    row("Renew fee", feeStr) +
-    (inv ? row("Invoice", `#${inv}`) : "") +
+    row("Permit number", sc.permitNo) +
+    (issuedUs ? row(issuedLabel, issuedUs) : "") +
+    (expiresUs ? row(expLabel, expiresUs) : "") +
+    row("Renewal fee", feeStr) +
+    (invLabel ? row("Invoice", invLabel) : "") +
     `</table>` +
-    `<p style="margin:0 0 12px;font-family:Arial,Helvetica,sans-serif;font-size:15px;line-height:1.55;color:#0f172a">This permit <strong>has expired</strong>. <strong>Twelve months</strong> after it has expired, it goes into an <strong>abandoned</strong> status. Closing an abandoned application means filing a brand-new application.</p>` +
-    `<p style="margin:0 0 12px;font-family:Arial,Helvetica,sans-serif;font-size:15px;line-height:1.55;color:#0f172a">Renewing now can save you <strong>at least $1,800</strong> compared with creating a new permit to reinstate an abandoned one.</p>` +
-    `<p style="margin:0 0 12px;font-family:Arial,Helvetica,sans-serif;font-size:15px;line-height:1.55;color:#0f172a">${
-      inv
-        ? `Invoice <strong>#${escHtml(inv)}</strong> is ready. Press <strong>Renew Permit</strong> below to open the payment page.`
-        : `Press <strong>Renew Permit</strong> below to open the payment page and start the renewal.`
-    }</p>` +
-    `<p style="margin:0 0 12px;font-family:Arial,Helvetica,sans-serif;font-size:15px;line-height:1.55;color:#0f172a">We handle the city filing after payment.</p>` +
-    `<p style="margin:0 0 4px;font-family:Arial,Helvetica,sans-serif;font-size:15px;line-height:1.55;color:#0f172a">Questions? Reply to this email or call us anytime.</p>`;
+    `<p style="margin:0 0 12px;font-family:Arial,Helvetica,sans-serif;font-size:15px;line-height:1.55;color:#0f172a">${escHtml(
+      statusLine
+    )}</p>` +
+    `<p style="margin:0 0 12px;font-family:Arial,Helvetica,sans-serif;font-size:15px;line-height:1.55;color:#0f172a">${escHtml(
+      abandonBlock
+    )}</p>` +
+    `<p style="margin:0 0 12px;font-family:Arial,Helvetica,sans-serif;font-size:15px;line-height:1.55;color:#0f172a">${escHtml(
+      payBlock
+    )}</p>` +
+    `<p style="margin:0 0 4px;font-family:Arial,Helvetica,sans-serif;font-size:15px;line-height:1.55;color:#0f172a">Questions? Just reply to this email or call us anytime.</p>`;
 
-  void noticeOnly; // callers may still pass it; invoice is now created on Send email
+  void noticeOnly;
   return {
     subject,
     body: lines.join("\n"),
-    /** Inner HTML for standard branded email shell (meter-app style layout). */
     htmlBody,
     to: LEVI_TESTER.email,
-    /** Primary button — payment link when invoice exists; fallback CTA otherwise. */
     ctaLabel: "Renew Permit",
     ctaUrl: String(payUrl || PHASE_A_RENEW_CTA_URL).trim() || PHASE_A_RENEW_CTA_URL,
     fee: amount,
+    tone,
+    expiresDate: expiresIso,
+    abandonedDate: abandonedIso,
+    renewByDate: renewByIso,
   };
 }
 

@@ -200,7 +200,19 @@ export function mapJobToInvoicePdfData(job, overrides = {}) {
   const dueDateRaw = isEstimate ? "" : overrides.dueDate || j.dueDate || addDays(invoiceDateRaw, 1);
 
   const billName = (j.customer || j.businessName || j.personName || "").trim();
-  const billAddr = (j.billingAddress || j.address || "").trim();
+  // Permit renew always shows Service Address; never put the site under Bill To
+  // (Levi 2026-08-10 — 40 Hampton was wrongly billed as billing address).
+  const forceService =
+    !!(j?.permitRenew || j?.permitRenewMock) ||
+    /permit\s+renew/i.test(String(j?.title || ""));
+  const rawBill = String(j.billingAddress || "").trim();
+  const svcProbe = String(j.serviceAddress || j.address || "").trim();
+  // For renew: no fallback to j.address (that's the service site).
+  const billAddr = forceService
+    ? rawBill && rawBill.toLowerCase() !== svcProbe.toLowerCase()
+      ? rawBill
+      : ""
+    : (rawBill || j.address || "").trim();
   const apt = String(j.apartment || "").trim().replace(/^#/, "");
   let svcAddr = effectiveServiceAddress(j).trim();
   if (svcAddr && apt) {
@@ -210,10 +222,6 @@ export function mapJobToInvoicePdfData(job, overrides = {}) {
       new RegExp(`\\b#\\s*${aptEsc}\\b`, "i").test(svcAddr);
     if (!already) svcAddr = `${svcAddr}, Apt ${apt}`;
   }
-  // Permit renew always shows Service Address (Levi 2026-08-10).
-  const forceService =
-    !!(j?.permitRenew || j?.permitRenewMock) ||
-    /permit\s+renew/i.test(String(j?.title || ""));
   const showService =
     !!svcAddr &&
     (forceService ||

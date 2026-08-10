@@ -16,7 +16,11 @@ import {
   isLeviTesterEmail,
   isPermitRenewJob,
   listRenewApplications,
+  permitAbandonedFromExpires,
   permitExpiresFromIssued,
+  permitRenewByDate,
+  permitRenewStatusSentence,
+  permitRenewStatusTone,
   preparePhaseAMock,
 } from "../src/lib/permitRenewal.js";
 import {
@@ -26,10 +30,13 @@ import {
 } from "../src/lib/customers.js";
 
 describe("permitRenewal Phase A mock", () => {
-  it("defaults fee to $365 and Hampton scenario facts", () => {
+  it("defaults fee to $365 and Hampton L1 expired scenario facts", () => {
     expect(PERMIT_RENEW_FEE).toBe(365);
     expect(PHASE_A_HAMPTON_SCENARIO.address).toMatch(/Hampton/i);
-    expect(PHASE_A_HAMPTON_SCENARIO.permitNo).toMatch(/B01126007/);
+    // Levi: expired is L1 issued 10/11/2024 — not S1
+    expect(PHASE_A_HAMPTON_SCENARIO.permitNo).toMatch(/B01126007-L1/i);
+    expect(PHASE_A_HAMPTON_SCENARIO.permitNo).not.toMatch(/S1/i);
+    expect(PHASE_A_HAMPTON_SCENARIO.issuedDate).toBe("2024-10-11");
     expect(LEVI_TESTER.email).toMatch(/levikumer@gmail\.com/i);
   });
 
@@ -50,7 +57,7 @@ describe("permitRenewal Phase A mock", () => {
     expect(lines[0].description).toMatch(/B01126007/);
   });
 
-  it("createJob fields use person name + LE-#### + service address (email stays tester)", () => {
+  it("createJob fields use person name + LE-#### + service address (not billing)", () => {
     const fields = buildPermitRenewJobFields({ jobs: [] });
     // Bill-to is the real person's name on the invoice (not "levi tester")
     expect(fields.customer).toMatch(/Yosef|Beshari/i);
@@ -59,7 +66,8 @@ describe("permitRenewal Phase A mock", () => {
     expect(fields.email).toBe(LEVI_TESTER.email);
     expect(fields.serviceAddress).toMatch(/Hampton/i);
     expect(fields.address).toMatch(/Hampton/i);
-    // Billing distinct so Service Address prints on PDF
+    // Service street must NOT sit in billing (Levi 2026-08-10)
+    expect(fields.billingAddress).toBe("");
     expect(fields.billingAddress).not.toBe(fields.serviceAddress);
     expect(fields.amount).toBe(365);
     expect(fields.invoiceNo).toMatch(/^LE-\d+/);
@@ -85,17 +93,60 @@ describe("permitRenewal Phase A mock", () => {
       permitExpiresFromIssued(PHASE_A_HAMPTON_SCENARIO.issuedDate)
     );
     expect(meta.serviceAddress).toMatch(/Hampton/i);
+    expect(meta.billingAddress).toBe("");
   });
 
   it("permitExpiresFromIssued adds one year", () => {
     expect(permitExpiresFromIssued("2026-02-06")).toBe("2027-02-06");
+    expect(permitExpiresFromIssued("2024-10-11")).toBe("2025-10-11");
     expect(permitExpiresFromIssued("")).toBe("");
   });
 
   it("formatPermitDateUs is Month D, YYYY", () => {
     expect(formatPermitDateUs("2026-02-06")).toBe("February 6, 2026");
     expect(formatPermitDateUs("2027-02-06")).toBe("February 6, 2027");
+    expect(formatPermitDateUs("2024-10-11")).toBe("October 11, 2024");
     expect(formatPermitDateUs("")).toBe("");
+  });
+
+  it("status tone auto-switches by date vs expiry", () => {
+    expect(permitRenewStatusTone("2027-02-06", { todayIso: "2026-08-10" })).toBe(
+      "upcoming"
+    );
+    expect(permitRenewStatusTone("2027-02-06", { todayIso: "2026-12-20" })).toBe(
+      "soon"
+    );
+    expect(permitRenewStatusTone("2025-10-11", { todayIso: "2026-08-10" })).toBe(
+      "expired"
+    );
+    expect(permitRenewStatusTone("2025-10-11", { todayIso: "2025-10-11" })).toBe(
+      "expired"
+    );
+  });
+
+  it("status sentence uses Permit wording for each tone", () => {
+    expect(
+      permitRenewStatusSentence("40 Hampton Pl", "February 6, 2027", "upcoming")
+    ).toMatch(/coming up for renewal/);
+    expect(
+      permitRenewStatusSentence("40 Hampton Pl", "February 6, 2027", "soon")
+    ).toMatch(/expires soon/);
+    expect(
+      permitRenewStatusSentence("40 Hampton Pl", "October 11, 2025", "expired")
+    ).toMatch(/expired on October 11, 2025/);
+    expect(
+      permitRenewStatusSentence("40 Hampton Pl", "October 11, 2025", "expired")
+    ).toMatch(/12-month abandoned clock/);
+  });
+
+  it("abandoned date is expiration + 12 months", () => {
+    expect(permitAbandonedFromExpires("2025-10-11")).toBe("2026-10-11");
+  });
+
+  it("renew-by date is ~7 days before expire when still active", () => {
+    expect(permitRenewByDate("2027-02-06", { todayIso: "2026-08-10" })).toBe(
+      "2027-01-30"
+    );
   });
 
   it("unpaid provisional renew does not count as customer balance due", () => {
@@ -130,10 +181,10 @@ describe("permitRenewal Phase A mock", () => {
         mock: true,
         phase: "A",
         address: "40 Hampton Pl",
-        permitNo: "B01126007-S1-EL",
-        issuedDate: "2026-02-06",
-        gradedDate: "2026-02-06",
-        expiresDate: "2027-02-06",
+        permitNo: "B01126007-L1-EL",
+        issuedDate: "2024-10-11",
+        gradedDate: "2024-10-11",
+        expiresDate: "2025-10-11",
         fee: 365,
       },
     };
@@ -149,54 +200,80 @@ describe("permitRenewal Phase A mock", () => {
     expect(rows.find((r) => r.id === "r1").status).toBe("Invoice open");
     expect(rows.find((r) => r.id === "r2").status).toBe("Paid");
     expect(rows.find((r) => r.id === "r3").status).toBe("Wants renew");
-    expect(rows.find((r) => r.id === "r1").expiresDate).toBe("2027-02-06");
-    expect(rows.find((r) => r.id === "r1").gradedDate).toBe("2026-02-06");
+    expect(rows.find((r) => r.id === "r1").expiresDate).toBe("2025-10-11");
+    expect(rows.find((r) => r.id === "r1").gradedDate).toBe("2024-10-11");
   });
 
-  it("email has expired copy, MDY dates, bold HTML facts, and pay-link CTA", () => {
+  it("email matches Levi draft: Permit only, L1 facts, auto status, pay CTA", () => {
     const payUrl = "https://leelectrical.us/app/pro/#/pay/abcTOKEN";
-    const { subject, body, htmlBody, to, ctaLabel, ctaUrl } = buildPermitRenewEmail({
+    const { subject, body, htmlBody, to, ctaLabel, ctaUrl, tone } = buildPermitRenewEmail({
       payUrl,
-      invoiceNo: "LE-2710",
+      invoiceNo: "LE-2701",
+      todayIso: "2026-08-10",
     });
     expect(to).toBe(LEVI_TESTER.email);
     expect(ctaLabel).toBe("Renew Permit");
     expect(ctaLabel).not.toMatch(/View\/Pay|View and Pay/i);
-    // Real payment link — not the staff dashboard renewCta tab
     expect(ctaUrl).toBe(payUrl);
     expect(ctaUrl).not.toMatch(/renewCta=phaseA/);
-    expect(subject).toMatch(/Renew|permit/i);
+    // L1 expired today → expired tone + subject
+    expect(tone).toBe("expired");
+    expect(subject).toMatch(/permit has expired|Time to renew/i);
+    expect(subject).toMatch(/40 Hampton/i);
     expect(body).toMatch(/40 Hampton/i);
-    expect(body).toMatch(/B01126007/);
+    expect(body).toMatch(/B01126007-L1/i);
+    expect(body).not.toMatch(/S1/i);
     expect(body).toMatch(/\$365\.00|365/);
-    expect(body).toMatch(/has expired/i);
-    expect(body).not.toMatch(/year is coming up/i);
-    // Levi 2026-08-10: abandoned = twelve months after expire (not vague "can go")
-    expect(body).toMatch(/twelve months after it has expired/i);
-    expect(body).toMatch(/goes into an abandoned status/i);
+    // Call it Permit only — never Application / issue number
+    expect(body).toMatch(/Permit number:/i);
+    expect(body).not.toMatch(/Application \/ issue number/i);
+    expect(body).not.toMatch(/Permit Application/i);
+    expect(body).toMatch(/Issued:/i);
+    expect(body).toMatch(/October 11, 2024/);
+    expect(body).toMatch(/October 11, 2025/);
+    expect(body).toMatch(/expired on October 11, 2025/i);
+    expect(body).toMatch(/12-month abandoned clock|abandoned/i);
     expect(body).toMatch(/\$1,800|1800/);
-    expect(body).toMatch(/February 6, 2026/);
-    expect(body).toMatch(/February 6, 2027/);
+    expect(body).toMatch(/Invoice: #LE-2701|Invoice #LE-2701|#LE-2701/);
+    expect(body).toMatch(/click Renew Permit|Renew Permit/i);
     expect(body).not.toContain("Update or Renew Permit:");
     expect(body).not.toMatch(/View\/Pay Invoice/i);
-    expect(body).toMatch(/Press Renew Permit/i);
     expect(body).not.toMatch(/yossi6886@gmail\.com/i);
-    // Branded inner HTML — bold application / issue # / dates
-    expect(htmlBody).toMatch(/<strong[^>]*>permit application<\/strong>/i);
-    expect(htmlBody).toMatch(/Application \/ issue number/i);
-    expect(htmlBody).toMatch(/<strong[^>]*>B01126007/);
-    expect(htmlBody).toMatch(/has expired/i);
-    expect(htmlBody).toMatch(/Twelve months/i);
-    expect(htmlBody).toMatch(/abandoned/i);
+    // HTML table labels
+    expect(htmlBody).toMatch(/Permit number/i);
+    expect(htmlBody).not.toMatch(/Application \/ issue number/i);
+    expect(htmlBody).toMatch(/B01126007-L1/);
+    expect(htmlBody).toMatch(/Renewal fee/i);
     expect(htmlBody).toMatch(/at least \$1,800/i);
-    expect(htmlBody).toMatch(/February 6, 2026/);
   });
 
-  it("Phase A CTA pay payload opens renew invoice on tap (no pre-create)", () => {
+  it("email upcoming tone uses draft subject when not yet expired", () => {
+    const upcoming = {
+      ...PHASE_A_HAMPTON_SCENARIO,
+      permitNo: "B01126007-S1-EL",
+      issuedDate: "2026-02-06",
+      expiresDate: "2027-02-06",
+    };
+    const { subject, body, tone } = buildPermitRenewEmail({
+      scenario: upcoming,
+      invoiceNo: "LE-2701",
+      todayIso: "2026-08-10",
+    });
+    expect(tone).toBe("upcoming");
+    expect(subject).toBe("Time to renew your electrical permit — 40 Hampton Pl");
+    expect(body).toMatch(/coming up for renewal/i);
+    expect(body).toMatch(/Permit number: B01126007-S1-EL/);
+    expect(body).toMatch(/February 6, 2026/);
+    expect(body).toMatch(/February 6, 2027/);
+    expect(body).toMatch(/Please renew by January 30, 2027/i);
+  });
+
+  it("Phase A CTA pay payload opens renew invoice on tap (service address only)", () => {
     const p = buildPhaseACtaPayPayload();
     expect(p.a).toBe(365);
     expect(p.c).toMatch(/Yosef|Beshari/i);
     expect(p.sa).toMatch(/Hampton/i);
+    expect(p.ba).toBe("");
     expect(p.k).toBe("i");
     expect(p.renewCta).toBe("phaseA");
     expect(p.i).toBeTruthy();
@@ -231,7 +308,7 @@ describe("permitRenewal Phase A mock", () => {
       amount: 365,
       openBalance: 365,
       permitRenew: { mock: true, phase: "A" },
-      title: "City electrical permit renewal — B01126007-S1-EL",
+      title: "City electrical permit renewal — B01126007-L1-EL",
     };
     const paid = { ...open, id: "local-2", paid: true, openBalance: 0 };
     expect(isPermitRenewJob(open)).toBe(true);
