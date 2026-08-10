@@ -200,19 +200,23 @@ export function mapJobToInvoicePdfData(job, overrides = {}) {
   const dueDateRaw = isEstimate ? "" : overrides.dueDate || j.dueDate || addDays(invoiceDateRaw, 1);
 
   const billName = (j.customer || j.businessName || j.personName || "").trim();
-  // Permit renew always shows Service Address; never put the site under Bill To
-  // (Levi 2026-08-10 — 40 Hampton was wrongly billed as billing address).
+  // Permit renew always shows Service Address; Bill To gets contact/mail block —
+  // never the service street alone (Levi 2026-08-10).
   const forceService =
     !!(j?.permitRenew || j?.permitRenewMock) ||
     /permit\s+renew/i.test(String(j?.title || ""));
   const rawBill = String(j.billingAddress || "").trim();
   const svcProbe = String(j.serviceAddress || j.address || "").trim();
-  // For renew: no fallback to j.address (that's the service site).
-  const billAddr = forceService
+  let billAddr = forceService
     ? rawBill && rawBill.toLowerCase() !== svcProbe.toLowerCase()
       ? rawBill
       : ""
     : (rawBill || j.address || "").trim();
+  // Renew with empty billing block: still show email/phone under Bill To
+  if (forceService && !billAddr) {
+    const contact = [j.email, j.phone].map((x) => String(x || "").trim()).filter(Boolean);
+    billAddr = contact.join("\n");
+  }
   const apt = String(j.apartment || "").trim().replace(/^#/, "");
   let svcAddr = effectiveServiceAddress(j).trim();
   if (svcAddr && apt) {

@@ -76,13 +76,16 @@ describe("permitRenewal Phase A mock", () => {
     expect(fields.email).toMatch(/yossi6886@gmail\.com/i);
     expect(fields.serviceAddress).toMatch(/Hampton/i);
     expect(fields.address).toMatch(/Hampton/i);
-    // Service street must NOT sit in billing (Levi 2026-08-10)
-    expect(fields.billingAddress).toBe("");
+    // Bill-to is contact block (email/phone) — not the service street
+    expect(fields.billingAddress).toMatch(/yossi6886@gmail\.com/i);
+    expect(fields.billingAddress).not.toMatch(/Hampton/i);
     expect(fields.billingAddress).not.toBe(fields.serviceAddress);
     expect(fields.amount).toBe(365);
     expect(fields.invoiceNo).toMatch(/^LE-\d+/);
     expect(fields.invoiceLines[0].unitPrice).toBe(365);
+    expect(fields.invoiceLines[0].description).toMatch(/City electrical permit renewal/);
     expect(fields.invoiceLines[0].description).toMatch(/B01126007/);
+    expect(fields.invoiceLines[0].description).toMatch(/Service site/);
     expect(fields.title).toMatch(/permit renewal/i);
     expect(fields._invoiceConfirmed).toBe(true);
   });
@@ -104,7 +107,8 @@ describe("permitRenewal Phase A mock", () => {
       permitExpiresFromIssued(PHASE_A_HAMPTON_SCENARIO.issuedDate)
     );
     expect(meta.serviceAddress).toMatch(/Hampton/i);
-    expect(meta.billingAddress).toBe("");
+    expect(meta.billingAddress).toMatch(/yossi6886@gmail\.com/i);
+    expect(meta.billingAddress).not.toMatch(/Hampton/i);
   });
 
   it("permitExpiresFromIssued adds one year", () => {
@@ -568,7 +572,8 @@ describe("permitRenewal Phase A mock", () => {
     expect(fields.businessName).toMatch(/234 Schenectady LLC/i);
     expect(fields.serviceAddress).toMatch(/364 Schenectady/i);
     expect(fields.email).toBe("yhackner@gmail.com");
-    expect(fields.billingAddress).toBe("");
+    expect(fields.billingAddress).toMatch(/yhackner@gmail\.com/);
+    expect(fields.billingAddress).not.toMatch(/Schenectady/i);
 
     const meta = buildPermitRenewMetaPatch(REAL_TEST_HACKNER_SCENARIO);
     expect(meta.permitRenew.realTest).toBe(true);
