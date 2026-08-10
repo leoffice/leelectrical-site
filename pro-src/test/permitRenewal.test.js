@@ -86,6 +86,7 @@ describe("permitRenewal Phase A mock", () => {
     const meta = buildPermitRenewMetaPatch();
     expect(meta.permitRenew.realTest).toBe(true);
     expect(meta.permitRenew.mock).toBe(false);
+    expect(meta.permitRenew.fullPayOnly).toBe(true);
     expect(meta.permitRenew.autoEmail).toBe(false);
     expect(meta.permitRenew.provisional).toBe(true);
     expect(meta.permitRenew.excludeFromBalanceDue).toBe(true);
@@ -273,13 +274,25 @@ describe("permitRenewal Phase A mock", () => {
     };
     const rows = listRenewApplications([open, paid, notice]);
     expect(rows.length).toBe(3);
-    expect(rows.find((r) => r.id === "r1").status).toBe("Pending pay");
+    expect(rows.find((r) => r.id === "r1").status).toBe("Pending send");
+    expect(rows.find((r) => r.id === "r1").pendingSend).toBe(true);
     expect(rows.find((r) => r.id === "r2").status).toBe("Paid — update permit");
+    expect(rows.find((r) => r.id === "r2").deployUpdate).toBe(true);
     expect(rows.find((r) => r.id === "r2").nextStep).toBe("update_permit");
-    expect(rows.find((r) => r.id === "r2").nextStepLabel).toMatch(/update/i);
+    expect(rows.find((r) => r.id === "r2").nextStepLabel).toMatch(/update|Deploy/i);
     expect(rows.find((r) => r.id === "r3").status).toMatch(/Pending send|Wants renew/i);
     expect(rows.find((r) => r.id === "r1").expiresDate).toBe("2025-10-11");
     expect(rows.find((r) => r.id === "r1").gradedDate).toBe("2024-10-11");
+
+    // After notice email sent: leave pending list until full pay
+    const emailed = {
+      ...open,
+      id: "r1-sent",
+      permitRenew: { ...open.permitRenew, noticeSent: true, emailSentAt: "2026-08-10T12:00:00Z" },
+    };
+    const afterSend = listRenewApplications([emailed, paid]);
+    expect(afterSend.find((r) => r.id === "r1-sent")).toBeUndefined();
+    expect(afterSend.find((r) => r.id === "r2")?.deployUpdate).toBe(true);
   });
 
   it("real Bashari $1 card pay shows Paid + update-permit next step on renew list", () => {
