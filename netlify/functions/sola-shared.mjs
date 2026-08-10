@@ -206,8 +206,49 @@ export async function patchJobPayment(jobId, amount, ref, method) {
   if (invAmt > 0 && baseline > invAmt * 1.5 && paidSum <= invAmt + 0.01) {
     baseline = invAmt;
   }
-  const remaining = Math.max(0, baseline - paidSum);
-  const fullPay = remaining <= 0.01;
+  let remaining = Math.max(0, baseline - paidSum);
+  let fullPay = remaining <= 0.01;
+
+  // Phase A permit renew mock (Levi 2026-08-10): any real payment counts as
+  // paid-through so $1 test charges surface on LE Pro + Permit tab and unlock
+  // the next step (update/file). Provisional / balance-exempt flags clear.
+  const pr = merged.permitRenew || merged.permitRenewMock || prev.permitRenew || {};
+  const isPhaseARenew =
+    !!(pr.mock || pr.phase === "A" || pr.phase === 1) ||
+    /permit\s+renew/i.test(String(merged.title || prev.title || ""));
+  if (isPhaseARenew && paidSum > 0.009) {
+    fullPay = true;
+    remaining = 0;
+  }
+
+  const prPatch =
+    isPhaseARenew && fullPay
+      ? {
+          permitRenew: {
+            ...(typeof pr === "object" ? pr : {}),
+            provisional: false,
+            excludeFromBalanceDue: false,
+            paid: true,
+            paidAt: entry.date,
+            paidAmount: paidSum,
+            paidRef: ref || "",
+            nextStep: "update_permit",
+          },
+          excludeFromBalanceDue: false,
+          _balanceExempt: false,
+        }
+      : isPhaseARenew
+        ? {
+            // Partial path (shouldn't hit with $1-as-full above) — still un-hide
+            excludeFromBalanceDue: false,
+            _balanceExempt: false,
+            permitRenew: {
+              ...(typeof pr === "object" ? pr : {}),
+              provisional: false,
+              excludeFromBalanceDue: false,
+            },
+          }
+        : {};
 
   const patch = {
     ...prev,
@@ -219,6 +260,7 @@ export async function patchJobPayment(jobId, amount, ref, method) {
     status: fullPay
       ? { Paid: { s: "done", d: entry.date }, "Follow-up": { s: "done", d: entry.date } }
       : { Paid: { s: "" }, "Follow-up": { s: "" } },
+    ...prPatch,
   };
   ov[jobId] = patch;
   await stateStore.setJSON(STATE_KEY, { ov, ts: Date.now() });

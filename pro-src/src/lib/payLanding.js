@@ -66,7 +66,16 @@ export function buildPayLandingPayload({
 }) {
   const invoiceNo = inv || job?.invoiceNo || "";
   const total = invoiceTotal(job);
-  const due = openBalance(job);
+  // openBalance() zeros provisional renew offers (not "money owed" on customer totals).
+  // Pay links still need the real remaining amount on the public page (Levi 2026-08-10).
+  const exemptOffer =
+    !!(job?.excludeFromBalanceDue || job?.permitRenew?.provisional || job?.permitRenew?.excludeFromBalanceDue) &&
+    !(Array.isArray(job?.payments) && job.payments.some((p) => parseAmount(p?.amount) > 0.009));
+  const rawDue =
+    job?.openBalance != null && job.openBalance !== ""
+      ? parseAmount(job.openBalance)
+      : parseAmount(job?.amount);
+  const due = exemptOffer && rawDue > 0 ? rawDue : openBalance(job) || rawDue;
   const pays = normalizePayments(job);
   const paid = amountPaid(job);
   const linkAmt = parseFloat(String(linkAmount).replace(/[$,]/g, "")) || due;
