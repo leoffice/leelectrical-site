@@ -323,6 +323,56 @@ describe("buildDeployQueueItems", () => {
     expect(renew.subtitle).toMatch(/LE-2702/);
   });
 
+  it("LE-2701 test + LE-2702 full fee same permit → one Deploy row only", () => {
+    const jobs = [
+      {
+        id: "local-test-2",
+        customer: "Yosef Beshari",
+        serviceAddress: "40 Hampton Pl",
+        invoiceNo: "LE-2701",
+        amount: 2,
+        paid: true,
+        openBalance: 0,
+        permitRenew: {
+          mock: true,
+          phase: "A",
+          scenarioId: "hampton-yossi",
+          permitNo: "B01126007-L1-EL",
+          paid: true,
+          paidAt: "2026-08-10",
+          paidAmount: 2,
+          nextStep: "update_permit",
+          queueUpdatePermit: true,
+        },
+      },
+      {
+        id: "local-hampton-renew",
+        customer: "Yosef Beshari",
+        serviceAddress: "40 Hampton Pl",
+        invoiceNo: "LE-2702",
+        amount: 365,
+        paid: true,
+        openBalance: 0,
+        payments: [{ amount: 365, method: "ACH" }],
+        permitRenew: {
+          realTest: true,
+          scenarioId: "hampton-yossi",
+          permitNo: "B01126007-L1-EL",
+          paid: true,
+          paidAt: "2026-08-11",
+          paidAmount: 365,
+          nextStep: "update_permit",
+          queueUpdatePermit: true,
+        },
+      },
+    ];
+    const items = buildDeployQueueItems({ jobs, caseRuns: [] });
+    const renews = items.filter((i) => i.source === "permit_renew");
+    expect(renews).toHaveLength(1);
+    expect(renews[0].subtitle).toMatch(/LE-2702/);
+    expect(renews[0].subtitle).not.toMatch(/LE-2701/);
+  });
+
   it("Application for Service + Electric Certificate rows show case + not-done facts", () => {
     const jobs = [
       {

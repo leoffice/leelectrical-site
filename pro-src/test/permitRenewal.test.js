@@ -758,8 +758,7 @@ describe("permitRenewal Phase A mock", () => {
     expect(after.every((c) => c.scenarioId !== "schenectady-hackner")).toBe(true);
     expect(after.every((c) => !String(c.scenarioId || "").startsWith("drive:") || isDobRenewableForNotify(c.scenario || c))).toBe(true);
 
-    // Paid → Deploy list (update permit)
-    // Twin invoices same permit → one paid card (full fee wins)
+    // Paid → Deploy queue only (update permit); twin $2 test + full fee → one card
     const twinTest = {
       id: "local-test-2",
       customer: "Yosef Beshari",
@@ -781,7 +780,8 @@ describe("permitRenewal Phase A mock", () => {
     };
     const twinCards = listPaidUpdatePermitCards([twinTest, paid]);
     expect(twinCards).toHaveLength(1);
-    expect(twinCards[0].invoiceNo).toBe(paid.invoiceNo || "LE-2702");
+    expect(twinCards[0].invoiceNo).toBe("LE-2710");
+    expect(twinCards[0].jobId).toBe("r-paid");
 
     const paidBox = listPaidUpdatePermitCards([paid]);
     expect(paidBox.length).toBe(1);
