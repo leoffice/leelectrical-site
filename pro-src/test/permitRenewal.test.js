@@ -23,6 +23,9 @@ import {
   listPendingRenewCards,
   listPaidUpdatePermitCards,
   listRenewApplications,
+  isPermitRenewPaymentJob,
+  buildPermitRenewPaidPatch,
+  formatPermitRenewPaidNotify,
   permitAbandonedFromExpires,
   permitExpiresFromIssued,
   permitTrueExpiresDate,
@@ -354,6 +357,36 @@ describe("permitRenewal Phase A mock", () => {
     const afterSend = listRenewApplications([emailed, paid]);
     expect(afterSend.find((r) => r.id === "r1-sent")).toBeUndefined();
     expect(afterSend.find((r) => r.id === "r2")?.deployUpdate).toBe(true);
+  });
+
+  it("buildPermitRenewPaidPatch + notify message name who paid and queue update", () => {
+    const job = {
+      id: "r-paid",
+      customer: "Yosef Beshari",
+      invoiceNo: "LE-2701",
+      amount: 365,
+      serviceAddress: "40 Hampton Pl",
+      permitRenew: {
+        realTest: true,
+        scenarioId: "hampton-yossi",
+        permitNo: "B01126007-L1-EL",
+        address: "40 Hampton Pl",
+        displayCustomer: "Yosef Beshari",
+        fee: 365,
+      },
+    };
+    expect(isPermitRenewPaymentJob(job)).toBe(true);
+    const patch = buildPermitRenewPaidPatch(job, { amount: 365, date: "2026-08-11", ref: "1100" });
+    expect(patch.paid).toBe(true);
+    expect(patch.permitRenew.nextStep).toBe("update_permit");
+    expect(patch.permitRenew.queueUpdatePermit).toBe(true);
+    expect(patch.permitRenew.paid).toBe(true);
+    const msg = formatPermitRenewPaidNotify({ ...job, ...patch, permitRenew: patch.permitRenew });
+    expect(msg).toMatch(/Customer paid/i);
+    expect(msg).toMatch(/Yosef Beshari/);
+    expect(msg).toMatch(/40 Hampton/);
+    expect(msg).toMatch(/B01126007/);
+    expect(msg).toMatch(/Queued to update/i);
   });
 
   it("real Bashari $1 card pay shows Paid + update-permit next step on renew list", () => {

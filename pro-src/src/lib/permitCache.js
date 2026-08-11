@@ -25,6 +25,18 @@ const HISTORY_KEY = "le-pro-renew-send-history";
 
 const DEFAULT_FEE = 365;
 
+/** Session flags — full seed is expensive (Drive completed list); do it once. */
+let sessionSeeded = false;
+/** In-memory list after load/seed so taps don't re-parse localStorage every expand. */
+let cacheListMemo = null;
+/** Bumps on every cache write so drive-ready memo can invalidate (tests + live). */
+let cacheGeneration = 0;
+
+/** Generation counter for dependents (listDriveReadyRenewScenarios memo). */
+export function getPermitCacheGeneration() {
+  return cacheGeneration;
+}
+
 /** True only for BLZ Permits / Completed folder rows (not Jose / Sima / Full Detailed). */
 export function isDriveCompletedSource(source = "", sourceFolder = "") {
   const s = String(source || "").trim().toLowerCase();
@@ -233,6 +245,10 @@ function readJson(key, fallback) {
 
 function writeJson(key, value) {
   memoryStore.set(key, value);
+  if (key === CACHE_KEY) {
+    cacheListMemo = null;
+    cacheGeneration += 1;
+  }
   try {
     if (typeof localStorage === "undefined") return;
     localStorage.setItem(key, JSON.stringify(value));
@@ -243,6 +259,9 @@ function writeJson(key, value) {
 
 /** Test helper — clear memory + localStorage keys. */
 export function clearPermitCacheForTests() {
+  sessionSeeded = false;
+  cacheListMemo = null;
+  cacheGeneration += 1;
   memoryStore.clear();
   try {
     if (typeof localStorage !== "undefined") {
@@ -258,8 +277,10 @@ export function clearPermitCacheForTests() {
 /**
  * Full permit cache from localStorage.
  * Call ensurePermitCacheSeeded(scenarios) first from app code.
+ * Memoized in-session so expand/check taps stay snappy (Levi 2026-08-11).
  */
 export function loadPermitCache() {
+  if (cacheListMemo) return cacheListMemo;
   const stored = readJson(CACHE_KEY, null);
   const extras = Array.isArray(stored?.permits)
     ? stored.permits
@@ -279,47 +300,63 @@ export function loadPermitCache() {
     if (!id) continue;
     byId.set(id, { ...e, id });
   }
-  return Array.from(byId.values()).sort((a, b) =>
+  const list = Array.from(byId.values()).sort((a, b) =>
     String(a.address || "").localeCompare(String(b.address || ""))
   );
+  cacheListMemo = list;
+  return list;
 }
 
 /**
  * Merge scenario seeds + Drive completed seed + any extra entries into the cache.
- * Safe to call often — upserts by id.
+ * Safe to call often — full Drive seed runs once per session; later calls are cheap
+ * (return memo, or upsert only when extras/scenarios force a write).
  * Ready scenarios win over drive rows for the same address/permit when both set.
  */
 export function ensurePermitCacheSeeded(scenarios = [], extras = []) {
+  const hasExtras = Array.isArray(extras) && extras.length > 0;
+  const scList = Array.isArray(scenarios) ? scenarios : [];
+  // Fast path: already seeded this session and no new rows to merge.
+  if (sessionSeeded && !hasExtras) {
+    const cur = loadPermitCache();
+    if (cur.length) return cur;
+  }
   const fromDrive = loadCompletedPermitsSeedEntries()
     .map(toPermitCacheEntry)
     .filter(Boolean);
-  const fromSc = (Array.isArray(scenarios) ? scenarios : [])
-    .map(toPermitCacheEntry)
-    .filter(Boolean);
-  const fromEx = (Array.isArray(extras) ? extras : [])
-    .map(toPermitCacheEntry)
-    .filter(Boolean);
+  const fromSc = scList.map(toPermitCacheEntry).filter(Boolean);
+  const fromEx = (hasExtras ? extras : []).map(toPermitCacheEntry).filter(Boolean);
   // Drive first, then scenarios/extras overwrite so ready renew facts stay authoritative
-  return upsertPermitCacheEntries([...fromDrive, ...fromSc, ...fromEx]);
+  const out = upsertPermitCacheEntries([...fromDrive, ...fromSc, ...fromEx]);
+  sessionSeeded = true;
+  return out;
 }
 
 /** Upsert one or more cache rows (merge by id / permit+address). */
 export function upsertPermitCacheEntries(entries = []) {
   const list = Array.isArray(entries) ? entries : [entries];
+  if (!list.length) return loadPermitCache();
   const current = loadPermitCache();
   const byId = new Map(current.map((e) => [e.id, e]));
+  let changed = false;
   for (const raw of list) {
     const entry = toPermitCacheEntry(raw) || (raw?.id ? raw : null);
     if (!entry?.id) continue;
+    const prev = byId.get(entry.id) || {};
     byId.set(entry.id, {
-      ...(byId.get(entry.id) || {}),
+      ...prev,
       ...entry,
       updatedAt: new Date().toISOString(),
     });
+    changed = true;
   }
+  if (!changed) return current;
   const permits = Array.from(byId.values());
   writeJson(CACHE_KEY, { updatedAt: new Date().toISOString(), permits });
-  return permits;
+  cacheListMemo = permits.slice().sort((a, b) =>
+    String(a.address || "").localeCompare(String(b.address || ""))
+  );
+  return cacheListMemo;
 }
 
 export function getPermitCacheEntry(query = {}) {

@@ -9,7 +9,15 @@
 //
 // Module boundary: src/modules/permits (meter application + lock-in checklist).
 
-import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import React, {
+  memo,
+  startTransition,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import { useNavigate } from "react-router-dom";
 import { useStore } from "../state/store.jsx";
 import { useTenantConfig } from "../state/tenant.jsx";
@@ -568,7 +576,7 @@ function groupCasesByJob(sections) {
 }
 
 /** One job card with nested Con Ed / DOB (Permit) expanders. */
-function JobPermitGroupCard({
+const JobPermitGroupCard = memo(function JobPermitGroupCard({
   group,
   jobsById,
   onOpen,
@@ -659,7 +667,7 @@ function JobPermitGroupCard({
       ) : null}
     </div>
   );
-}
+});
 
 function CaseStepChips({ steps = [], onStepTap }) {
   if (!steps.length) return null;
@@ -781,7 +789,7 @@ function CustomerTodoList({ todos = [], onTap }) {
   );
 }
 
-function CaseRow({
+const CaseRow = memo(function CaseRow({
   row,
   job,
   onOpen,
@@ -955,7 +963,7 @@ function CaseRow({
       ) : null}
     </div>
   );
-}
+});
 
 /**
  * Levi 2026-08-05: green Deploy stays visible while working — battery fill + %
@@ -998,7 +1006,7 @@ function DeployProgressButton({ pct = 0, label = "Deploying…", testId, compact
 }
 
 /** One Deploy queue row — expand for Open / Job / Edit + green Deploy. */
-function DeployQueueRow({
+const DeployQueueRow = memo(function DeployQueueRow({
   item,
   expanded,
   deploying,
@@ -1308,7 +1316,7 @@ function DeployQueueRow({
       </div>
     </div>
   );
-}
+});
 
 export default function Permits() {
   const { jobs, emailInsights, events, patchAndSave, showToast, enqueue, createJob, whenJobSaved, api } =
@@ -1354,8 +1362,11 @@ export default function Permits() {
       if (!alive) return;
       if (r.ok) {
         const list = r.jobs || [];
-        setCaseRuns(list);
-        setLastSyncedAt(new Date().toISOString());
+        // Poll must not block expand/check taps (Levi snappy — 2026-08-11)
+        startTransition(() => {
+          setCaseRuns(list);
+          setLastSyncedAt(new Date().toISOString());
+        });
         const anyActive = list.some((j) => ACTIVE_PAPERWORK_JOB_STATUSES.has(j.status));
         if (anyActive) setQueueOpen(true);
         const liveJobs = jobsRef.current || [];
@@ -1514,24 +1525,127 @@ export default function Permits() {
     [caseRuns, jobs]
   );
 
-  if (!isModuleEnabled(config, "permits")) return null;
+  // Stable callbacks so memoized CaseRow / JobPermitGroupCard skip re-render on poll (snappy)
+  // Must stay above any early return (Rules of Hooks).
+  const [updatingTodoId, setUpdatingTodoId] = useState(null);
 
-  const open = (jobId) => jobId && nav(`/job/${jobId}`);
+  const open = useCallback((jobId) => {
+    if (jobId) nav(`/job/${jobId}`);
+  }, [nav]);
 
-  const handleRenewSchedule = async (jobId, on) => {
-    if (!jobId) return;
-    const job = jobsById.get(jobId);
-    if (!job) {
-      showToast("Job not found for this case");
-      return;
-    }
-    await patchAndSave(jobId, renewSchedulePatch(job, { on, agency: "dob" }));
-    showToast(
-      on
-        ? "Yearly renew on — same flag on the job Paperwork panel"
-        : "Yearly renew off"
-    );
-  };
+  const handleRenewSchedule = useCallback(
+    (jobId, on) => {
+      if (!jobId) return;
+      const job = jobsById.get(jobId);
+      if (!job) {
+        showToast("Job not found for this case");
+        return;
+      }
+      // Fire-and-forget save — toggle must feel instant (Levi 2026-08-11)
+      showToast(
+        on
+          ? "Yearly renew on — same flag on the job Paperwork panel"
+          : "Yearly renew off"
+      );
+      void patchAndSave(jobId, renewSchedulePatch(job, { on, agency: "dob" })).catch(() => {
+        showToast("Could not save renew schedule — try again");
+      });
+    },
+    [jobsById, patchAndSave, showToast]
+  );
+
+  const handleMeterApplication = useCallback(
+    (jobId, value) => {
+      if (!jobId || !value) return;
+      const job = jobsById.get(jobId);
+      if (!job) {
+        showToast("Job not found for this case");
+        return;
+      }
+      // Toast + fire-and-forget — never block the box tap (Levi snappy)
+      const patch = jobPatchMeterApplication(job, value);
+      const md = patch.paperwork?.coned?.meterDeploy;
+      let queued = "";
+      if (value === "new_meter" || value === "new_application") {
+        if (md?.status === "deploy_queued") {
+          queued =
+            " — added to Deploy queue" +
+            (md.attached ? " (attached to case " + md.caseNumber + ")" : "");
+        } else {
+          queued =
+            " — not in Deploy queue yet (need case / Form A / address first)";
+        }
+      }
+      showToast(
+        "Meter application saved — " +
+          (patch.paperwork?.coned?.meterApplication?.label ||
+            meterApplicationLabel(value) ||
+            value) +
+          queued
+      );
+      void patchAndSave(jobId, patch).catch(() => {
+        showToast("Couldn't save meter application");
+      });
+    },
+    [jobsById, patchAndSave, showToast]
+  );
+
+  const handleUpdateTodoList = useCallback(
+    async (job) => {
+      if (!job?.id) return;
+      setUpdatingTodoId(job.id);
+      try {
+        const patch = updateTodoListFromInsights(job, emailInsights || []);
+        const stamped = {
+          ...(patch || {}),
+          paperwork: {
+            ...(patch?.paperwork || {}),
+            coned: {
+              ...(patch?.paperwork?.coned || {}),
+              todoListUpdatedAt: new Date().toISOString(),
+            },
+          },
+        };
+        if (patch) {
+          await patchAndSave(job.id, stamped);
+          const n = patch.paperwork?.coned?.customerTodos?.length || 0;
+          showToast(`To-do list updated · ${n} item${n === 1 ? "" : "s"}`);
+        } else {
+          await patchAndSave(job.id, stamped);
+          showToast(
+            "No To-Do email body in app yet — open the Con Ed To-Do email or wait for daily sync"
+          );
+        }
+      } catch {
+        showToast("Couldn't update to-do list");
+      } finally {
+        setUpdatingTodoId(null);
+      }
+    },
+    [emailInsights, patchAndSave, showToast]
+  );
+
+  const handleCustomerTodo = useCallback(
+    (todo, job) => {
+      if (!job?.id || !todo) return;
+      const r = conedTodoTapResult(todo, job);
+      if (!r.ok) {
+        showToast(r.message);
+        if (r.action === "skill_not_built") return;
+        if (r.action === "gated") return;
+      }
+      if (r.action === "create_application") {
+        setConedStartJob(job);
+        return;
+      }
+      if (todo.status !== "done" && todo.kind === "application_for_service") {
+        setConedStartJob(job);
+        return;
+      }
+      showToast(r.message || "OK");
+    },
+    [showToast]
+  );
 
   /**
    * Create/reuse a renew job row.
@@ -1863,97 +1977,8 @@ export default function Permits() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [!!jobs?.length]);
 
-  const handleMeterApplication = async (jobId, value) => {
-    if (!jobId || !value) return;
-    const job = jobsById.get(jobId);
-    if (!job) {
-      showToast("Job not found for this case");
-      return;
-    }
-    try {
-      const patch = jobPatchMeterApplication(job, value);
-      await patchAndSave(jobId, patch);
-      const md = patch.paperwork?.coned?.meterDeploy;
-      let queued = "";
-      if (value === "new_meter" || value === "new_application") {
-        if (md?.status === "deploy_queued") {
-          queued =
-            " — added to Deploy queue" +
-            (md.attached ? " (attached to case " + md.caseNumber + ")" : "");
-        } else {
-          queued =
-            " — not in Deploy queue yet (need case / Form A / address first)";
-        }
-      }
-      showToast(
-        "Meter application saved — " +
-          (patch.paperwork?.coned?.meterApplication?.label || meterApplicationLabel(value) || value) +
-          queued
-      );
-    } catch {
-      showToast("Couldn't save meter application");
-    }
-  };
-
-  const [updatingTodoId, setUpdatingTodoId] = useState(null);
-
-  /** Pull latest Con Ed To-Do List from email insights → job customerTodos. */
-  const handleUpdateTodoList = async (job) => {
-    if (!job?.id) return;
-    setUpdatingTodoId(job.id);
-    try {
-      const patch = updateTodoListFromInsights(job, emailInsights || []);
-      const stamped = {
-        ...(patch || {}),
-        paperwork: {
-          ...(patch?.paperwork || {}),
-          coned: {
-            ...(patch?.paperwork?.coned || {}),
-            // Button flips to "Last Updated" after a successful pass (Levi 2026-08-05).
-            todoListUpdatedAt: new Date().toISOString(),
-          },
-        },
-      };
-      if (patch) {
-        await patchAndSave(job.id, stamped);
-        const n = patch.paperwork?.coned?.customerTodos?.length || 0;
-        showToast(`To-do list updated · ${n} item${n === 1 ? "" : "s"}`);
-      } else {
-        // Still stamp "Last Updated" so the button reflects the attempt finished.
-        await patchAndSave(job.id, stamped);
-        showToast(
-          "No To-Do email body in app yet — open the Con Ed To-Do email or wait for daily sync"
-        );
-      }
-    } catch {
-      showToast("Couldn't update to-do list");
-    } finally {
-      setUpdatingTodoId(null);
-    }
-  };
-
-  /** Con Ed customer to-do checkbox tap (application / certificate / checklist). */
-  const handleCustomerTodo = async (todo, job) => {
-    if (!job?.id || !todo) return;
-    const r = conedTodoTapResult(todo, job);
-    if (!r.ok) {
-      showToast(r.message);
-      if (r.action === "skill_not_built") return;
-      if (r.action === "gated") return;
-    }
-    if (r.action === "create_application") {
-      setConedStartJob(job);
-      return;
-    }
-    if (todo.status !== "done" && todo.kind === "application_for_service") {
-      setConedStartJob(job);
-      return;
-    }
-    showToast(r.message || "OK");
-  };
-
   /** Tap a due next-step → execute the action for that case type. */
-  const handleStepAction = async (step, row, job) => {
+  const handleStepAction = useCallback((step, row, job) => {
     if (!step || !job?.id) {
       if (row?.jobId) open(row.jobId);
       return;
@@ -1969,6 +1994,8 @@ export default function Permits() {
       showToast(r.message);
       return;
     }
+    // Async work after toast — never block the tap (Levi 2026-08-11 snappy boxes)
+    const run = async () => {
     try {
       if (action === "meter_application" || step.id === "add_plp_account" || step.id === "new_meter") {
         // Expand row path: set meter app for PLP when that's the step
@@ -1991,11 +2018,11 @@ export default function Permits() {
               },
             },
           };
-          await patchAndSave(job.id, withPlp);
           showToast("PLP meter application queued — open Deploy when ready");
+          await patchAndSave(job.id, withPlp);
           return;
         }
-        await handleMeterApplication(job.id, "new_meter");
+        void handleMeterApplication(job.id, "new_meter");
         return;
       }
       if (action === "email_inquiry_followup" || step.id === "inquiry_customer_followup") {
@@ -2104,7 +2131,9 @@ export default function Permits() {
     } catch {
       showToast("Couldn't run that step — try again");
     }
-  };
+    };
+    void run();
+  }, [open, handleMeterApplication, patchAndSave, showToast]);
 
   const runBackfill = async () => {
     setBusy(true);
@@ -2474,6 +2503,15 @@ export default function Permits() {
     return n;
   }, [jobs]);
 
+  // Precompute once per board change — expand/collapse must not regroup (snappy)
+  const jobGroups = useMemo(() => groupCasesByJob(sections), [sections]);
+
+  const toggleQueueRow = useCallback((id) => {
+    setExpandedIds((m) => ({ ...m, [id]: !m[id] }));
+  }, []);
+
+  if (!isModuleEnabled(config, "permits")) return null;
+
   return (
     <div className="pb-24" data-testid="permits-tab">
       <div className="flex items-center justify-between mb-3 px-1">
@@ -2612,9 +2650,7 @@ export default function Permits() {
                     item={item}
                     expanded={!!expandedIds[item.id]}
                     deploying={!!deployingIds[item.id]}
-                    onToggle={(id) =>
-                      setExpandedIds((m) => ({ ...m, [id]: !m[id] }))
-                    }
+                    onToggle={toggleQueueRow}
                     onRemove={removeQueueItem}
                     onOpen={onEditQueueItem}
                     onEdit={onEditQueueItem}
@@ -2712,10 +2748,7 @@ export default function Permits() {
       ) : null}
 
       {/* Jobs combined (Con Ed + DOB on one card when idle) — collapsible, start collapsed. */}
-      {(() => {
-        const jobGroups = groupCasesByJob(sections);
-        if (!jobGroups.length) return null;
-        return (
+      {jobGroups.length ? (
           <CollapsibleSection
             testId="permit-section-jobs"
             title={`Jobs (${jobGroups.length})`}
@@ -2739,8 +2772,7 @@ export default function Permits() {
               ))}
             </div>
           </CollapsibleSection>
-        );
-      })()}
+      ) : null}
 
       {/* Empty agency labels still listed for empty tenants */}
       {sections.every((s) => !(s.cases || []).length) && sections.length ? (

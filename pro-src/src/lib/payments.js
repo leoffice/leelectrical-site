@@ -234,13 +234,35 @@ export function applyPaymentsPatch(job, payments) {
   const list = payments.map((p) => ({ ...p }));
   const inv = invoiceTotal(job);
   const owed = amountOwedAtStart(job, list);
-  const remaining = Math.max(0, owed - totalPaid(list));
-  const fullPay = remaining <= 0.01;
+  const paidSum = totalPaid(list);
+  let remaining = Math.max(0, owed - paidSum);
+  let fullPay = remaining <= 0.01;
   const latest = list.slice().sort((a, b) => String(a.date || "").localeCompare(String(b.date || ""))).pop();
   const stamp =
     job?.amountWhenBaselined != null && job.amountWhenBaselined !== ""
       ? job.amountWhenBaselined
       : inv || owed;
+
+  // Permit renew: any real payment unlocks Paid + update-permit queue (Levi 2026-08-11).
+  // Matches host sola/record_payment so $1 tests and full renews both land on the tab.
+  const pr = job?.permitRenew || job?.permitRenewMock || null;
+  const isRenew =
+    !!pr &&
+    !!(
+      pr.mock ||
+      pr.realTest ||
+      pr.noticeOnly ||
+      pr.scenarioId ||
+      pr.placeholderInvoiceNo ||
+      pr.phase === "A" ||
+      pr.phase === "real" ||
+      pr.phase === 1
+    );
+  if (isRenew && paidSum > 0.009) {
+    fullPay = true;
+    remaining = 0;
+  }
+
   const patch = {
     payments: list,
     // Always lock to computed owed (heals double-count + progress raises).
@@ -257,6 +279,21 @@ export function applyPaymentsPatch(job, payments) {
     patch.status = { Paid: { s: "done", d: latest.date }, "Follow-up": { s: "done", d: latest.date } };
   } else {
     patch.status = { Paid: { s: "" }, "Follow-up": { s: "" } };
+  }
+  if (isRenew && paidSum > 0.009) {
+    const base = typeof pr === "object" && pr ? pr : {};
+    patch.excludeFromBalanceDue = false;
+    patch._balanceExempt = false;
+    patch.permitRenew = {
+      ...base,
+      provisional: false,
+      excludeFromBalanceDue: false,
+      paid: true,
+      paidAt: latest?.date || new Date().toISOString().slice(0, 10),
+      paidAmount: paidSum,
+      nextStep: base.nextStep || "update_permit",
+      queueUpdatePermit: true,
+    };
   }
   return patch;
 }

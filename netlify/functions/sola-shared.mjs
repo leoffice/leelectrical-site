@@ -209,20 +209,28 @@ export async function patchJobPayment(jobId, amount, ref, method) {
   let remaining = Math.max(0, baseline - paidSum);
   let fullPay = remaining <= 0.01;
 
-  // Phase A permit renew mock (Levi 2026-08-10): any real payment counts as
-  // paid-through so $1 test charges surface on LE Pro + Permit tab and unlock
-  // the next step (update/file). Provisional / balance-exempt flags clear.
+  // Any permit-renew job (mock or real): payment → paid + update_permit queue
+  // (Levi 2026-08-11: auto-notify staff + Deploy/update-permit box).
   const pr = merged.permitRenew || merged.permitRenewMock || prev.permitRenew || {};
-  const isPhaseARenew =
-    !!(pr.mock || pr.phase === "A" || pr.phase === 1) ||
-    /permit\s+renew/i.test(String(merged.title || prev.title || ""));
-  if (isPhaseARenew && paidSum > 0.009) {
+  const isPermitRenew =
+    !!(
+      pr.mock ||
+      pr.phase === "A" ||
+      pr.phase === 1 ||
+      pr.phase === "real" ||
+      pr.realTest ||
+      pr.scenarioId ||
+      pr.provisional ||
+      pr.noticeOnly ||
+      pr.invoiceMaterialized
+    ) || /permit\s+renew/i.test(String(merged.title || prev.title || ""));
+  if (isPermitRenew && paidSum > 0.009) {
     fullPay = true;
     remaining = 0;
   }
 
   const prPatch =
-    isPhaseARenew && fullPay
+    isPermitRenew && fullPay
       ? {
           permitRenew: {
             ...(typeof pr === "object" ? pr : {}),
@@ -233,13 +241,16 @@ export async function patchJobPayment(jobId, amount, ref, method) {
             paidAmount: paidSum,
             paidRef: ref || "",
             nextStep: "update_permit",
+            /** Staff-facing flag for Permits tab “Paid — update permit” box */
+            deployUpdate: true,
+            queueUpdatePermit: true,
+            // Host command_listener stamps paidNotifyAt after Telegram (once).
           },
           excludeFromBalanceDue: false,
           _balanceExempt: false,
         }
-      : isPhaseARenew
+      : isPermitRenew
         ? {
-            // Partial path (shouldn't hit with $1-as-full above) — still un-hide
             excludeFromBalanceDue: false,
             _balanceExempt: false,
             permitRenew: {

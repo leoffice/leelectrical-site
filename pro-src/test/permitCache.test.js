@@ -42,6 +42,20 @@ describe("permitCache + notice-only renew", () => {
     expect(ham?.email).toMatch(/yossi6886|beshari/i);
   });
 
+  it("second ensurePermitCacheSeeded is cheap (session memo — snappy expands)", () => {
+    const first = ensurePermitCacheSeeded(READY_RENEW_SCENARIOS);
+    expect(first.length).toBeGreaterThanOrEqual(20);
+    const t0 = performance.now();
+    for (let i = 0; i < 20; i++) {
+      ensurePermitCacheSeeded(READY_RENEW_SCENARIOS);
+      loadPermitCache();
+    }
+    const elapsed = performance.now() - t0;
+    // 20 loads should be near-instant once seeded (was rewriting localStorage each time)
+    expect(elapsed).toBeLessThan(80);
+    expect(loadPermitCache().length).toBe(first.length);
+  });
+
   it("reserves placeholder invoice without creating a job", () => {
     const inv = reservePlaceholderInvoiceNo([], {
       scenarioId: "hampton-yossi",

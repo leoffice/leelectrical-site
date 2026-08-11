@@ -17,6 +17,7 @@ import {
   listRenewSendHistory,
   formatSendHistoryWhen,
   getPermitCacheEntry,
+  getPermitCacheGeneration,
   loadPermitCache,
   scenarioFromCacheEntry,
   toPermitCacheEntry,
@@ -801,17 +802,20 @@ export function listRenewApplications(jobs = [], { includeMock = false } = {}) {
       pr.realTest ||
       pr.phase === "real" ||
       pr.scenarioId === "schenectady-hackner" ||
-      pr.scenarioId === "hampton-yossi"
+      pr.scenarioId === "hampton-yossi" ||
+      (pr.scenarioId && String(pr.scenarioId).startsWith("drive:"))
     );
+    // Any permit-renew row with money → Paid + update-permit queue (Levi 2026-08-11)
+    const renewJob = isPermitRenewPaymentJob(j) || phaseA || realTest || !!pr.scenarioId;
     const paid = !!(
       j.paid ||
       pr.paid ||
       (j.invoiceNo && due <= 0.01) ||
       pr.nextStep === "update_permit" ||
-      ((phaseA || realTest) && anyPay)
+      (renewJob && anyPay)
     );
     const nextStep = String(
-      pr.nextStep || (paid && (phaseA || realTest) ? "update_permit" : "")
+      pr.nextStep || (paid && renewJob ? "update_permit" : "")
     ).trim();
     const noticeSent = !!(pr.noticeSent || pr.emailSentAt || pr.noticeSentAt);
     const noticeOnly = !!(pr.noticeOnly || (pr.placeholderInvoiceNo && !pr.invoiceMaterialized));
@@ -987,8 +991,17 @@ export function scenarioNoticeAlreadySent(jobs = [], scenarioId = "", extra = {}
  *  - Matched + email + real city permit #
  *  - Excludes 364 Schenectady and multi-match "ask Levi" rows
  */
+/** In-session memo — rebuilding this list on every expand was laggy (Levi 2026-08-11). */
+let _driveReadyMemo = null;
+let _driveReadyMemoGen = -1;
+
 export function listDriveReadyRenewScenarios() {
   ensurePermitCacheSeeded(READY_RENEW_SCENARIOS);
+  // Invalidate when permit cache is written (tests + live upserts).
+  const gen = getPermitCacheGeneration();
+  if (_driveReadyMemo && _driveReadyMemoGen === gen) {
+    return _driveReadyMemo;
+  }
   const entries = loadPermitCache();
   const readyIds = new Set(READY_RENEW_SCENARIOS.map((s) => s.id));
   const readyPermitNos = new Set(
@@ -1059,6 +1072,8 @@ export function listDriveReadyRenewScenarios() {
       rank(a) - rank(b) ||
       String(a.address || "").localeCompare(String(b.address || ""))
   );
+  _driveReadyMemo = out;
+  _driveReadyMemoGen = gen;
   return out;
 }
 
@@ -1167,6 +1182,103 @@ export function listPaidUpdatePermitCards(jobs = []) {
   return listRenewApplications(jobs).filter(
     (r) => r.deployUpdate || (r.paid && r.nextStep === "update_permit")
   );
+}
+
+/**
+ * True when this job is a permit-renew invoice (notice, mock, or real).
+ * Used by payment paths to stamp Paid + queue update_permit.
+ */
+export function isPermitRenewPaymentJob(job = {}) {
+  if (!job || typeof job !== "object") return false;
+  const pr = job.permitRenew || job.permitRenewMock || {};
+  if (
+    pr.mock ||
+    pr.realTest ||
+    pr.noticeOnly ||
+    pr.scenarioId ||
+    pr.placeholderInvoiceNo ||
+    pr.cta ||
+    pr.phase === "A" ||
+    pr.phase === "real" ||
+    pr.phase === 1 ||
+    pr.nextStep === "update_permit"
+  ) {
+    return true;
+  }
+  const title = String(job.title || "").toLowerCase();
+  return title.includes("permit renew") || title.includes("permit renewal");
+}
+
+/**
+ * Patch after money lands on a renew invoice — Paid + queue to update the permit.
+ * Pure data; caller patchAndSave / host overlay.
+ */
+export function buildPermitRenewPaidPatch(job, { amount, date, ref } = {}) {
+  const pr = (job && (job.permitRenew || job.permitRenewMock)) || {};
+  const paidAt = String(date || new Date().toISOString().slice(0, 10)).slice(0, 10);
+  const paidAmount =
+    amount != null && amount !== ""
+      ? parseAmount(amount)
+      : pr.paidAmount != null
+        ? parseAmount(pr.paidAmount)
+        : parseAmount(job?.amount) || PERMIT_RENEW_FEE;
+  return {
+    paid: true,
+    openBalance: 0,
+    excludeFromBalanceDue: false,
+    _balanceExempt: false,
+    status: {
+      Paid: { s: "done", d: paidAt },
+      "Follow-up": { s: "done", d: paidAt },
+    },
+    permitRenew: {
+      ...pr,
+      provisional: false,
+      excludeFromBalanceDue: false,
+      paid: true,
+      paidAt,
+      paidAmount,
+      paidRef: ref != null ? String(ref) : pr.paidRef || "",
+      nextStep: pr.nextStep || "update_permit",
+      queueUpdatePermit: true,
+    },
+  };
+}
+
+/**
+ * Plain Telegram / bubble line when a customer pays for permit renew.
+ * Who + address + permit # so Levi knows who to renew with.
+ */
+export function formatPermitRenewPaidNotify(job = {}, { amount } = {}) {
+  const pr = job.permitRenew || job.permitRenewMock || {};
+  const customer = String(
+    pr.displayCustomer || job.customer || job.personName || job.businessName || "Customer"
+  ).trim();
+  const address = String(
+    pr.address || job.serviceAddress || job.address || "—"
+  ).trim();
+  const permitNo = String(pr.permitNo || "").trim();
+  const inv = String(job.invoiceNo || pr.placeholderInvoiceNo || "").trim();
+  const amt =
+    amount != null && amount !== ""
+      ? parseAmount(amount)
+      : pr.paidAmount != null
+        ? parseAmount(pr.paidAmount)
+        : parseAmount(job.amount) || PERMIT_RENEW_FEE;
+  const feeStr = amt.toLocaleString("en-US", {
+    style: "currency",
+    currency: "USD",
+    minimumFractionDigits: 2,
+  });
+  const lines = [
+    "💵 Customer paid — permit renew",
+    `${customer} · ${address}`,
+  ];
+  if (permitNo) lines.push(`Permit ${permitNo}`);
+  if (inv) lines.push(`Invoice ${inv} · ${feeStr}`);
+  else lines.push(feeStr);
+  lines.push("Queued to update the permit. Say go when you want me on DOB NOW.");
+  return lines.join("\n");
 }
 
 /**
