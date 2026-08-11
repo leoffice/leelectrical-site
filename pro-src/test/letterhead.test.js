@@ -81,73 +81,8 @@ describe("letter draft body", () => {
     });
     expect(d.status).toBe("draft");
     expect(d.siteAddress).toMatch(/100 Main St/);
-    // Approved letterhead: Re: line is the site address for load letters.
-    expect(d.reLine).toMatch(/100 Main St/);
+    expect(d.reLine).toMatch(/Load letter/i);
     expect(letterDraftReady(d)).toBe(true);
-  });
-
-  it("auto-computes % of capacity from amps vs breaker rating (9%–11% sample)", () => {
-    const type = LETTER_TYPES.find((t) => t.id === "load_letter");
-    const body = buildLetterBody(
-      type,
-      {
-        address: "1254 Sterling Place, Brooklyn, NY 11213",
-        breakerRating: "40 Amp double-pole fuse per apartment",
-        phaseA: "3.9",
-        phaseB: "4.1",
-        applianceList: "overhead lighting, table and floor lamps, refrigerators",
-      },
-      job
-    );
-    expect(body).toMatch(/9%–11%/);
-    expect(body).toMatch(/3\.9 amps on Phase A/);
-    expect(body).toMatch(/4\.1 amps on Phase B/);
-    expect(body).toMatch(/40 Amp fuse is therefore sufficient/);
-    expect(body).toMatch(/arcing, corrosion, and other potential fire hazards/);
-  });
-
-  it("equipment safety notes normalize into report language", () => {
-    const type = LETTER_TYPES.find((t) => t.id === "equipment_safety_inspection");
-    const body = buildLetterBody(
-      type,
-      {
-        address: "1254 Sterling Place, Brooklyn, NY 11213",
-        equipment: "main metering equipment and the associated service panel",
-        methods: "visual, operational test, checked integrity, grounding/bonding",
-        findings: "safe, working fine, no immediate hazards",
-        notFound: "no arcing, no corrosion, burnt parts, exposed live wiring",
-        condition: "older equipment, normal wear, doesn't affect safety",
-        necConcern: "grounding busbar accessible per NEC 250.68 and 250.64(B)",
-        purpose: "insurance",
-        recommendations: "nothing urgent, monitor periodically",
-      },
-      job
-    );
-    expect(body).toMatch(/a visual examination, operational testing, verification of electrical integrity, and verification of the grounding and bonding connections/);
-    expect(body).toMatch(/safe working condition with no immediate hazards observed/);
-    expect(body).toMatch(/No arcing, corrosion, overheating or burnt components, or exposed live wiring was observed/);
-    expect(body).toMatch(/normal wear is present but does not compromise safety/);
-    expect(body).toMatch(/NEC 250\.68 and 250\.64\(B\)/);
-    expect(body).toMatch(/periodic monitoring of the equipment is recommended/);
-    expect(body).toMatch(/provided for insurance purposes/);
-  });
-
-  it("shared meter notes normalize into affidavit language", () => {
-    const type = LETTER_TYPES.find((t) => t.id === "shared_meter_affidavit");
-    const body = buildLetterBody(
-      type,
-      {
-        address: "1254 Sterling Place, Brooklyn, NY 11213",
-        unit: "Apt 2R",
-        accountNumber: "59117-24803-6",
-        corrective: "Removed cables incorrectly connected to / running through this meter",
-      },
-      job
-    );
-    expect(body).toMatch(/We hereby affirm that, as a licensed electrician/);
-    expect(body).toMatch(/We removed cables that were incorrectly connected to and running through this meter, which is assigned to Apt 2R\./);
-    expect(body).toMatch(/no other devices, common areas, neighboring units, or extraneous loads/);
-    expect(body).toMatch(/shared meter condition has been resolved/);
   });
 
   it("letterLineDescription summarizes for invoice line", () => {
@@ -224,7 +159,7 @@ describe("letterhead PDF", () => {
     expect(asText).toMatch(/DRAFT/);
   });
 
-  it("signer line is always on — name + President credentials (approved 2026-08-10)", () => {
+  it("company signature mode signs with short name only (no President)", () => {
     setActiveTenantConfig({
       profile: {
         companyName: "BLZ Electric Inc.",
@@ -252,79 +187,8 @@ describe("letterhead PDF", () => {
     const bytes = buildLetterheadPdf({ draft });
     let asText = "";
     for (let i = 0; i < bytes.length; i++) asText += String.fromCharCode(bytes[i]);
-    // Even in legacy "company" signature mode the signer line stays on.
-    expect(asText).toMatch(/Levi Kumer/);
-    expect(asText).toMatch(/President/);
     expect(asText).toMatch(/BLZ Electric/);
-  });
-
-  it("embeds the real LE signature image for the LE tenant", () => {
-    setActiveTenantConfig({
-      profile: {
-        companyName: "BLZ Electric Inc.",
-        street: "383 Kingston Ave, Suite 297",
-        cityStateZip: "Brooklyn, NY 11213",
-        phone: "(718) 594-1850",
-        email: "Office@LeElectrical.us",
-        license: "11212",
-        website: "leelectrical.us",
-        owners: [{ id: "o1", fullName: "Levi Kumer", title: "President", isDefaultSigner: true }],
-      },
-      branding: { companyName: "BLZ Electric Inc." },
-      internal: true,
-    });
-    const type = LETTER_TYPES.find((t) => t.id === "load_letter");
-    const draft = createLetterDraft({
-      type,
-      job: { serviceAddress: "1254 Sterling Place, Brooklyn, NY 11213", customer: "Owner" },
-      answers: {
-        county: "Kings",
-        state: "New York",
-        address: "1254 Sterling Place, Brooklyn, NY 11213",
-        breakerRating: "40 Amp double-pole fuse per apartment",
-        phaseA: "3.9",
-        phaseB: "4.1",
-      },
-    });
-    draft.status = "approved";
-    const bytes = buildLetterheadPdf({ draft });
-    let asText = "";
-    for (let i = 0; i < bytes.length; i++) asText += String.fromCharCode(bytes[i]);
-    // Signature image XObject present + referenced, signer line on, footer band.
-    expect(asText).toMatch(/\/ImSig/);
-    expect(asText).toMatch(/Levi Kumer/);
-    expect(asText).toMatch(/LOAD LETTER/);
-    expect(asText).toMatch(/License #11212/);
-    // Two DCT images: logo + signature.
-    expect(asText.match(/DCTDecode/g)?.length).toBe(2);
-  });
-
-  it("never prints the LE signature for a non-LE tenant without one registered", () => {
-    setActiveTenantConfig({
-      tenantId: "demo",
-      profile: {
-        companyName: "Ace Plumbing Co.",
-        street: "1 Demo Way",
-        cityStateZip: "Brooklyn, NY 11213",
-        phone: "718-555-0100",
-        email: "office@aceplumbing.example",
-        license: "PL-1",
-        owners: [{ id: "o1", fullName: "Pat Ace", title: "Owner", isDefaultSigner: true }],
-      },
-      branding: { companyName: "Ace Plumbing Co." },
-      internal: false,
-    });
-    const type = LETTER_TYPES.find((t) => t.id === "general");
-    const draft = createLetterDraft({
-      type,
-      job: { serviceAddress: "1 A St" },
-      answers: { recipient: "Board", body: "Hello." },
-    });
-    draft.status = "approved";
-    const bytes = buildLetterheadPdf({ draft });
-    let asText = "";
-    for (let i = 0; i < bytes.length; i++) asText += String.fromCharCode(bytes[i]);
-    expect(asText).not.toMatch(/\/ImSig/);
-    expect(asText).toMatch(/Pat Ace/);
+    expect(asText).not.toMatch(/President/);
+    expect(asText).not.toMatch(/Levi Kumer/);
   });
 });

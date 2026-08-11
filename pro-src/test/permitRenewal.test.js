@@ -659,6 +659,22 @@ describe("permitRenewal Phase A mock", () => {
         sourceFolder: "completed",
         dobRenewable: true,
         dobRenewCheckStatus: "renewable",
+        leviApproveNotify: true,
+        expiresDate: "2025-01-01",
+        issuedDate: "2024-01-01",
+      },
+      // DOB renewable but Levi has not approved → must stay hidden
+      {
+        permitNo: "B08888888-I1-EL",
+        address: "777 NOT APPROVED AVE",
+        email: "not-approved@example.com",
+        customer: "Not Approved Co",
+        matchedCustomer: true,
+        source: "drive:completed",
+        sourceFolder: "completed",
+        dobRenewable: true,
+        dobRenewCheckStatus: "renewable",
+        leviApproveNotify: false,
         expiresDate: "2025-01-01",
         issuedDate: "2024-01-01",
       },
@@ -666,6 +682,7 @@ describe("permitRenewal Phase A mock", () => {
     const drive = listDriveReadyRenewScenarios();
     expect(drive.some((s) => /JOSE TEST/i.test(s.address || ""))).toBe(false);
     expect(drive.some((s) => /COMPLETED RENEW/i.test(s.address || ""))).toBe(true);
+    expect(drive.some((s) => /NOT APPROVED/i.test(s.address || ""))).toBe(false);
   });
 
   it("detects renew jobs and reuses open Bashari invoice", () => {

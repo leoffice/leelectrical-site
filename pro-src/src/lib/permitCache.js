@@ -43,6 +43,20 @@ export function isDobRenewableForNotify(entry = {}) {
   return st === "renewable" || st === "renew_application";
 }
 
+/**
+ * Levi approved this row for staff Send Email (workbook Approve=Yes or app).
+ * DOB renewable alone is not enough — he must say go on the YES list.
+ */
+export function isLeviApprovedForNotify(entry = {}) {
+  if (!entry || typeof entry !== "object") return false;
+  if (entry.leviApproveNotify === true) return true;
+  if (entry.notifyEligible === true && isDobRenewableForNotify(entry)) return true;
+  const st = String(entry.notifyStatus || "")
+    .trim()
+    .toLowerCase();
+  return st === "approved_awaiting_send" || st === "approved";
+}
+
 /** Drive completed-permits seed (permit #, issue/exp, customer, email when matched). */
 export function loadCompletedPermitsSeedEntries() {
   const raw = completedPermitsSeed?.permits;
@@ -78,6 +92,9 @@ export function loadCompletedPermitsSeedEntries() {
       sourceFolder: String(p.sourceFolder || "").trim(),
       dobRenewable: p.dobRenewable === true,
       dobRenewCheckStatus: String(p.dobRenewCheckStatus || "pending").trim() || "pending",
+      // Levi workbook Approve=Yes (or app approve) — required before pending Send Email
+      leviApproveNotify: p.leviApproveNotify === true,
+      notifyEligible: p.notifyEligible === true || p.leviApproveNotify === true,
       fee: DEFAULT_FEE,
     }));
 }
@@ -176,6 +193,11 @@ export function toPermitCacheEntry(sc) {
     sourceFolder: String(sc.sourceFolder || "").trim(),
     dobRenewable: sc.dobRenewable === true,
     dobRenewCheckStatus: String(sc.dobRenewCheckStatus || sc.dobRenewStatus || "").trim(),
+    leviApproveNotify: sc.leviApproveNotify === true,
+    notifyEligible:
+      sc.notifyEligible === true ||
+      sc.leviApproveNotify === true ||
+      false,
     updatedAt: new Date().toISOString(),
   };
 }

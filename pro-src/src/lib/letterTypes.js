@@ -19,18 +19,6 @@ export const LETTER_TYPES = [
       { key: "county", label: "County of", type: "text", placeholder: "Brooklyn / Kings", required: true },
       { key: "state", label: "State of", type: "text", placeholder: "New York", required: true },
       { key: "address", label: "Property address", type: "text", placeholder: "Street, city, ZIP", required: true },
-      {
-        key: "scope",
-        label: "What was inspected (notes)",
-        type: "text",
-        placeholder: "electrical sub-panel inspection of the apartment units",
-      },
-      {
-        key: "checkedFor",
-        label: "Checked for (notes)",
-        type: "text",
-        placeholder: "arcing, corrosion, other potential fire hazards",
-      },
       { key: "unitCount", label: "# apartments / units tested", type: "text", placeholder: "e.g. apartments" },
       {
         key: "breakerRating",
@@ -102,46 +90,16 @@ export const LETTER_TYPES = [
         required: true,
       },
       {
-        key: "methods",
-        label: "What you did (notes)",
-        type: "text",
-        placeholder: "visual, operational test, checked integrity, grounding/bonding",
-      },
-      {
         key: "findings",
-        label: "Findings (notes)",
+        label: "Findings",
         type: "textarea",
-        placeholder: "safe, working fine, no immediate hazards",
-      },
-      {
-        key: "notFound",
-        label: "Not found / no issues (notes)",
-        type: "text",
-        placeholder: "no arcing, no corrosion, no burnt parts, no exposed live wiring",
-      },
-      {
-        key: "condition",
-        label: "Condition / age (optional)",
-        type: "text",
-        placeholder: "older equipment, normal wear, doesn't affect safety",
+        placeholder: "Safe working condition, no immediate hazards",
       },
       {
         key: "necConcern",
-        label: "Code note + NEC refs (optional)",
+        label: "Optional concern + NEC refs",
         type: "textarea",
-        placeholder: "grounding busbar accessible per NEC 250.68 / 250.64(B)",
-      },
-      {
-        key: "purpose",
-        label: "Purpose (optional)",
-        type: "text",
-        placeholder: "insurance",
-      },
-      {
-        key: "recommendations",
-        label: "Recommendations (optional)",
-        type: "text",
-        placeholder: "nothing urgent, monitor periodically",
+        placeholder: "e.g. NEC 250.68 / 250.64(B) grounding busbar accessibility",
       },
     ],
   },
@@ -384,21 +342,9 @@ export function seedLetterAnswersFromJob(job = {}, type, profile = null) {
   if (type.id === "load_letter") {
     if (!answers.applianceList) {
       answers.applianceList =
-        "overhead lighting, table and floor lamps, refrigerators, televisions, AC units, small appliances";
+        "Lighting in the apartments, including use of Overhead Lighting, Table and Floor Lamps, Refrigerator, Televisions, AC Units and other small appliances.";
     }
     if (!answers.state) answers.state = "New York";
-    if (answers.scope !== undefined && !answers.scope) {
-      answers.scope = "electrical sub-panel inspection of the apartment units";
-    }
-    if (answers.checkedFor !== undefined && !answers.checkedFor) {
-      answers.checkedFor = "arcing, corrosion, other potential fire hazards";
-    }
-  }
-  if (type.id === "equipment_safety_inspection" && answers.methods !== undefined && !answers.methods) {
-    answers.methods = "visual, operational test, checked integrity, grounding/bonding";
-  }
-  if (type.id === "equipment_safety_inspection" && answers.notFound !== undefined && !answers.notFound) {
-    answers.notFound = "no arcing, no corrosion, no burnt parts, no exposed live wiring";
   }
   if (type.id === "equipment_safety_inspection" && !answers.equipment) {
     answers.equipment = "main metering equipment";

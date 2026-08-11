@@ -22,6 +22,7 @@ import {
   toPermitCacheEntry,
   isDriveCompletedSource,
   isDobRenewableForNotify,
+  isLeviApprovedForNotify,
 } from "./permitCache.js";
 
 export {
@@ -34,6 +35,7 @@ export {
   toPermitCacheEntry,
   isDriveCompletedSource,
   isDobRenewableForNotify,
+  isLeviApprovedForNotify,
 };
 
 /** Default city electrical permit renew fee (editable before send later). */
@@ -978,9 +980,10 @@ export function scenarioNoticeAlreadySent(jobs = [], scenarioId = "", extra = {}
 /**
  * Drive completed-permit rows ready for staff Send Email.
  *
- * Levi 2026-08-10 gates:
+ * Levi 2026-08-10/11 gates:
  *  - Only **Completed** folder (not Jose / Sima-CIMA / Full Detailed / Eli / Smith)
  *  - Only after DOB NOW shows **Renew application** (PAA → subsequent)
+ *  - Levi Approve=Yes on workbook (or app) — DOB alone is not enough
  *  - Matched + email + real city permit #
  *  - Excludes 364 Schenectady and multi-match "ask Levi" rows
  */
@@ -1012,6 +1015,8 @@ export function listDriveReadyRenewScenarios() {
     if (!isDriveCompletedSource(e.source, e.sourceFolder)) continue;
     // Do not charge or notify until DOB NOW confirms Renew application
     if (!isDobRenewableForNotify(e)) continue;
+    // Levi must Approve=Yes on Ready-to-notify before pending Send Email cards
+    if (!isLeviApprovedForNotify(e)) continue;
     // Hard-ready scenarios are added separately with authoritative facts
     if (sid && readyIds.has(sid)) continue;
     const pKey = permitNo.toUpperCase();
@@ -1032,6 +1037,8 @@ export function listDriveReadyRenewScenarios() {
         sourceFolder: e.sourceFolder || "completed",
         dobRenewable: true,
         dobRenewCheckStatus: e.dobRenewCheckStatus || "renewable",
+        leviApproveNotify: true,
+        notifyEligible: true,
         real: true,
         realTest: true,
         matchedCustomer: true,
