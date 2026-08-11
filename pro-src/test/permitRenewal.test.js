@@ -29,6 +29,7 @@ import {
   buildPermitRenewDeployStartPatch,
   buildPermitRenewDeployPayload,
   formatPermitRenewPaidNotify,
+  isPaidPermitRenewKeepVisible,
   permitAbandonedFromExpires,
   permitExpiresFromIssued,
   permitTrueExpiresDate,
@@ -417,6 +418,8 @@ describe("permitRenewal Phase A mock", () => {
       invoiceNo: "LE-2701",
       amount: 365,
       serviceAddress: "40 Hampton Pl",
+      _deleted: true,
+      _archived: true,
       permitRenew: {
         realTest: true,
         scenarioId: "hampton-yossi",
@@ -429,9 +432,15 @@ describe("permitRenewal Phase A mock", () => {
     expect(isPermitRenewPaymentJob(job)).toBe(true);
     const patch = buildPermitRenewPaidPatch(job, { amount: 365, date: "2026-08-11", ref: "1100" });
     expect(patch.paid).toBe(true);
+    expect(patch._deleted).toBe(false);
+    expect(patch._archived).toBe(false);
     expect(patch.permitRenew.nextStep).toBe("update_permit");
     expect(patch.permitRenew.queueUpdatePermit).toBe(true);
+    expect(patch.permitRenew.deployUpdate).toBe(true);
     expect(patch.permitRenew.paid).toBe(true);
+    expect(isPaidPermitRenewKeepVisible({ ...job, ...patch, permitRenew: patch.permitRenew })).toBe(
+      true
+    );
     const msg = formatPermitRenewPaidNotify({ ...job, ...patch, permitRenew: patch.permitRenew });
     expect(msg).toMatch(/Customer paid/i);
     expect(msg).toMatch(/Yosef Beshari/);
