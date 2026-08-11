@@ -30,6 +30,12 @@ const SLIM_KEYS = [
   "amount",
   "openBalance",
   "paid",
+  // Discount dollars/% stay on list so Job Info shows the credit without
+  // waiting on detail hydrate (Levi 2026-08-11 inv #231596 $5k credit).
+  "discount",
+  "discountType",
+  "discountPercent",
+  "discountValue",
   "invoiceNo",
   "estimateNo",
   // Dates stay on list — cheap strings; without them Job Info + PDF fall back

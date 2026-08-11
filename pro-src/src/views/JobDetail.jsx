@@ -232,6 +232,12 @@ export default function JobDetail() {
           "address",
           "invoiceEmailedAt",
           "invoiceEmailStatus",
+          // Discount is stripped from list projection on older clients; pull it
+          // in so Job Info shows −$5,000 after open (inv #231596).
+          "discount",
+          "discountType",
+          "discountPercent",
+          "discountValue",
         ]) {
           const fv = full[k];
           const cur = job?.[k];

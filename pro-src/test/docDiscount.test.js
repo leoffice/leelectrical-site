@@ -115,6 +115,40 @@ describe("doc save with discount", () => {
     expect(jobPatch.paid).toBe(false);
   });
 
+  it("re-edit keeps $ face when amount is already post-discount", () => {
+    // After first save: amount $36,500 + discount $5,000 must not treat 36500 as face.
+    const after = {
+      ...job,
+      invoiceNo: "231596",
+      amount: "$36,500",
+      discount: 5000,
+      discountType: "amount",
+      discountValue: 5000,
+      openBalance: "$4,000",
+      paymentBaseline: 36500,
+      payments: [
+        { amount: 2000 },
+        { amount: 10000 },
+        { amount: 3000 },
+        { amount: 7500 },
+        { amount: 10000 },
+      ],
+      invoiceLines: [],
+    };
+    const { jobPatch } = planDocSaveLocal(after, {
+      kind: "invoice",
+      mode: "edit",
+      lines: [],
+      serviceAddress: "501 Smith St",
+      apartment: "",
+      discountType: "amount",
+      discountValue: "5000",
+    });
+    expect(jobPatch.discount).toBe(5000);
+    expect(jobPatch.amount).toMatch(/36,?500/);
+    expect(jobPatch.openBalance).toBe(4000);
+  });
+
   it("planDocSaveSync puts discount on create_invoice payload", () => {
     const { commands, jobPatch } = planDocSaveSync(job, {
       kind: "invoice",

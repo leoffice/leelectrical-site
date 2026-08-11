@@ -1,4 +1,5 @@
 // Invoice / estimate discount on the document total ($ or %).
+// Keep free of qboDoc imports (qboDoc imports this module).
 import { parseAmount } from "./format.js";
 
 /** @typedef {'amount' | 'percent'} DiscountType */
@@ -19,6 +20,49 @@ export function discountInputFromJob(job) {
   }
   const dollars = parseAmount(job?.discount ?? job?.discountValue ?? 0);
   return { type: "amount", value: dollars > 0 ? dollars : 0 };
+}
+
+/** Sum line amounts without importing qboDoc (avoids circular deps). */
+function roughLinesSubtotal(lines) {
+  if (!Array.isArray(lines) || !lines.length) return 0;
+  let sum = 0;
+  for (const ln of lines) {
+    const hasQty = ln?.qty != null && ln.qty !== "";
+    const q = hasQty ? parseAmount(ln.qty) : 1;
+    const p = parseAmount(ln?.unitPrice) || parseAmount(ln?.rate) || 0;
+    if (p) sum += Math.round((q || 0) * p * 100) / 100;
+    else sum += parseAmount(ln?.amount) || 0;
+  }
+  return Math.round(sum * 100) / 100;
+}
+
+/**
+ * Pre-discount face total for $ discounts and builder preview.
+ * Prefer live line math; fall back to stored amount + any already-applied
+ * discount (so a re-edit of inv #231596 with amount $36,500 + discount $5,000
+ * still sees $41,500 face). Mobile list-projection jobs often have empty lines.
+ * @param {object} [job]
+ * @param {number|Array} [linesOrSubtotal] line rows or a precomputed subtotal
+ */
+export function docFaceTotal(job, linesOrSubtotal) {
+  let linesSub = 0;
+  if (typeof linesOrSubtotal === "number") {
+    linesSub = Math.max(0, Number(linesOrSubtotal) || 0);
+  } else if (Array.isArray(linesOrSubtotal)) {
+    linesSub = roughLinesSubtotal(linesOrSubtotal);
+  } else if (Array.isArray(job?.invoiceLines) && job.invoiceLines.length) {
+    linesSub = roughLinesSubtotal(job.invoiceLines);
+  } else if (Array.isArray(job?.estimateLines) && job.estimateLines.length) {
+    linesSub = roughLinesSubtotal(job.estimateLines);
+  }
+  const storedDisc = parseAmount(job?.discount) || 0;
+  const amountFace = (parseAmount(job?.amount) || 0) + (storedDisc > 0 ? storedDisc : 0);
+  return Math.max(
+    linesSub,
+    amountFace,
+    parseAmount(job?.paymentBaseline) || 0,
+    parseAmount(job?.amountWhenBaselined) || 0
+  );
 }
 
 /**

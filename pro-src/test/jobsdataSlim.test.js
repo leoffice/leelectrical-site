@@ -12,6 +12,9 @@ describe("jobsdata slim projection", () => {
       customer: "Test",
       amount: "$100",
       openBalance: "$50",
+      discount: 25,
+      discountType: "amount",
+      discountValue: 25,
       address: "1 Main",
       serviceAddress: "1 Main",
       billingAddress: "PO Box",
@@ -37,6 +40,9 @@ describe("jobsdata slim projection", () => {
     expect(s.invoiceDate).toBe("2023-11-27");
     expect(s.estimateDate).toBe("2023-11-01");
     expect(s.dueDate).toBe("2023-11-28");
+    // Discount stays so Job Info can show the credit without detail hydrate
+    expect(s.discount).toBe(25);
+    expect(s.discountType).toBe("amount");
     expect(s.invoiceLines).toBeUndefined();
     expect(s.estimateLines).toBeUndefined();
     expect(s.payments).toBeUndefined();

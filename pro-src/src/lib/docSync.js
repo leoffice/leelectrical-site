@@ -10,7 +10,7 @@ import { buildRecurringPayload, recurringIdempotencyKey } from "./recurringBilli
 import { isProgressBillingContext, progressBillingJobPatch } from "./progressBilling.js";
 import { briefTitlePatch, preferredChangeOrderDocNo } from "./changeOrder.js";
 import { reconcileBalanceOnAmountChange } from "./payments.js";
-import { discountJobPatch, docTotalAfterDiscount } from "./docDiscount.js";
+import { discountJobPatch, docFaceTotal, docTotalAfterDiscount } from "./docDiscount.js";
 
 export const DOC_SYNC_COMMAND_TYPES = [
   "create_estimate",
@@ -82,12 +82,8 @@ function buildDocJobPatch(job, { kind, mode, lines, serviceAddress, apartment, m
   // invoice amount / baseline (mobile list-projection jobs + QBO imports often
   // have sparse lines). Without this, a $5,000 discount on a $41,500 invoice
   // can resolve to $0 when lines are empty/stale (Levi 2026-08-11 inv #231596).
-  const faceTotal = Math.max(
-    linesSub,
-    parseAmount(job?.amount) || 0,
-    parseAmount(job?.paymentBaseline) || 0,
-    parseAmount(job?.amountWhenBaselined) || 0
-  );
+  // amount + existing discount restores pre-discount face on re-edit.
+  const faceTotal = docFaceTotal(job, linesSub);
   const discInput = {
     type: discountType === "percent" ? "percent" : "amount",
     value: discountValue,
