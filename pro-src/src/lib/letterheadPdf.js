@@ -7,6 +7,7 @@
 // the built-in LE signature only ever prints for the LE/BLZ flagship tenant.
 import { resolvePdfLogoImageSync, jpegImageFromDataUrl, isLeCompanyTenant } from "./companyLogoPdf.js";
 import { leSignatureImage } from "./leSignatureJpeg.js";
+import { containSize, loadLetterPhotoImages } from "./letterPhotos.js";
 import { tenantCompany, activeTenantConfig } from "./tenantBranding.js";
 import { applySignature, resolveSigner } from "./signatureService.js";
 
@@ -32,17 +33,26 @@ const FONTS = {
   F3: TIMES,
   F4: TIMESB,
 };
-// Widths for the few WinAnsi high-bytes esc() emits (·, ’, –, —).
-const HIGH_W = { 0xb7: 333, 0x92: 333, 0x96: 500, 0x97: 1000 };
+// Widths for the WinAnsi high-bytes esc() emits (·, ’, –, —), per font.
+// Keyed by the WinAnsi BYTE, so callers must normalize before lookup — passing
+// raw Unicode (— = U+2014) missed the table and mis-advanced the next word.
+const HIGH_W = {
+  F1: { 0xb7: 278, 0x92: 222, 0x96: 556, 0x97: 1000 },
+  F2: { 0xb7: 278, 0x92: 238, 0x96: 556, 0x97: 1000 },
+  F3: { 0xb7: 250, 0x92: 333, 0x96: 500, 0x97: 1000 },
+  F4: { 0xb7: 250, 0x92: 333, 0x96: 500, 0x97: 1000 },
+};
 
 function textWidth(str, size, font = "F1", tracking = 0) {
   const t = FONTS[font] || HELV;
+  const high = HIGH_W[font] || HIGH_W.F1;
   let w = 0;
-  const s = String(str);
+  // Measure exactly what esc() will write, not the raw input.
+  const s = toWinAnsi(str);
   for (let i = 0; i < s.length; i++) {
     let c = s.charCodeAt(i);
     if (c > 126) {
-      w += HIGH_W[c] || 500;
+      w += high[c] || 500;
       continue;
     }
     if (c < 32) c = 63;
@@ -390,7 +400,14 @@ function metaLine(pg, x, y, label, value, { valueBold = false } = {}) {
  * @param {string} [opts.signerTitle]
  * @returns {Uint8Array}
  */
-export function buildLetterheadPdf({ draft, company: companyOverride, signerName, signerTitle, profile: profileOverride } = {}) {
+export function buildLetterheadPdf({
+  draft,
+  company: companyOverride,
+  signerName,
+  signerTitle,
+  profile: profileOverride,
+  photoImages,
+} = {}) {
   const company = companyOverride || tenantCompany();
   const profile = profileOverride || activeTenantConfig()?.profile || null;
   const personal = (draft?.letterhead || "") === "personal";
@@ -688,9 +705,69 @@ export function buildLetterheadPdf({ draft, company: companyOverride, signerName
     if (pages.length > 20) break;
   }
 
+  // Photo pages — appended after the signed letter so the whole packet is one
+  // PDF (and rides with the invoice email). Each photo keeps its native
+  // proportions; the letter body already points the reader at them.
+  const photos = Array.isArray(photoImages) ? photoImages.filter((p) => p && p.bytes && p.bytes.length) : [];
+  for (let i = 0; i < photos.length; i++) {
+    const photo = photos[i];
+    const pg = Page();
+    let y;
+    if (personal) {
+      y = 64;
+    } else {
+      const afterBar = drawCompanyHeader(pg, company, profile, logo);
+      drawFooter(pg, company, profile);
+      y = afterBar + 26;
+    }
+    pg.text(PAGE_W / 2, y, "ATTACHED PHOTOS", {
+      size: 7.6,
+      font: "F1",
+      color: GREEN,
+      tracking: 2,
+      align: "center",
+    });
+    y += 10;
+    if (photos.length > 1) {
+      pg.text(PAGE_W / 2, y + 8, `Photo ${i + 1} of ${photos.length}`, {
+        size: 8.5,
+        font: "F3",
+        color: LIGHTGRAY,
+        align: "center",
+      });
+      y += 12;
+    }
+    y += 14;
+
+    const capLines = photo.caption
+      ? layoutParagraph(photo.caption, maxBodyW - 40, 9.5).lines
+      : [];
+    const capBlock = capLines.length ? capLines.length * 13 + 14 : 0;
+    const boxTop = y;
+    const boxH = Math.max(120, 726 - boxTop - capBlock);
+    const fit = containSize(photo.width, photo.height, maxBodyW, boxH);
+    const px = M + (maxBodyW - fit.width) / 2;
+    pg.image(photo.name, px, boxTop, fit.width, fit.height);
+
+    if (capLines.length) {
+      let cy = boxTop + fit.height + 16;
+      for (const ln of capLines) {
+        // Captions are centered under the photo, never justified.
+        let cx = PAGE_W / 2 - ln.width / 2;
+        for (const w of ln.words) {
+          pg.text(cx, cy, w.t, { size: 9.5, font: w.bold ? "F4" : "F3", color: GRAY });
+          cx += w.w + (250 / 1000) * 9.5;
+        }
+        cy += 13;
+      }
+    }
+    pages.push(pg);
+  }
+
   const images = [];
   if (logo && logo.bytes) images.push(logo);
   if (sigImage && sigImage.bytes) images.push(sigImage);
+  for (const p of photos) images.push(p);
   return assemblePdf(pages, images);
 }
 
@@ -735,6 +812,33 @@ function drawSignatureBlock(pg, startY, { sigImage, personal, resolvedSignerName
 /** @returns {Blob} */
 export function buildLetterheadPdfBlob(opts) {
   const bytes = buildLetterheadPdf(opts);
+  return new Blob([bytes], { type: "application/pdf" });
+}
+
+/**
+ * Letter PDF including its attached photo pages.
+ *
+ * Photos must be fetched + transcoded before they can be embedded, so this is
+ * the async entry point. Callers that only need the text pages (or already
+ * hold decoded images) can keep using buildLetterheadPdf directly.
+ *
+ * @returns {Promise<Uint8Array>}
+ */
+export async function buildLetterheadPdfWithPhotos(opts = {}) {
+  let photoImages = opts.photoImages;
+  if (!photoImages) {
+    try {
+      photoImages = await loadLetterPhotoImages(opts?.draft?.photos || []);
+    } catch {
+      photoImages = []; // a photo problem must never cost us the letter
+    }
+  }
+  return buildLetterheadPdf({ ...opts, photoImages });
+}
+
+/** @returns {Promise<Blob>} */
+export async function buildLetterheadPdfBlobWithPhotos(opts) {
+  const bytes = await buildLetterheadPdfWithPhotos(opts);
   return new Blob([bytes], { type: "application/pdf" });
 }
 

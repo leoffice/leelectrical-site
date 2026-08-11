@@ -53,8 +53,9 @@ async function fetchAsBase64(url) {
  */
 async function letterAsBase64(draft) {
   try {
-    const { buildLetterheadPdf } = await import("./letterheadPdf.js");
-    const bytes = buildLetterheadPdf({ draft });
+    const { buildLetterheadPdfWithPhotos } = await import("./letterheadPdf.js");
+    // Photo pages are part of the letter, so the emailed copy carries them too.
+    const bytes = await buildLetterheadPdfWithPhotos({ draft });
     if (!bytes || !bytes.length) return null;
     return { b64: bytesToBase64(bytes), bytes: bytes.length };
   } catch {

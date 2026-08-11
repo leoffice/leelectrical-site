@@ -189,7 +189,35 @@ const NEC_BUSBAR_PARA =
  * Build professional letter body from type + answers + job context.
  * Templates match real sample structure — refined from Drive BLZ letters.
  */
-export function buildLetterBody(type, answers = {}, job = {}) {
+/** The standing sentence that points the reader at the appended photo pages. */
+export const PHOTO_REFERENCE_LINE = "Review attached photos.";
+
+/**
+ * Append the photo reference when a letter carries photos (Levi 2026-08-10).
+ * Idempotent — re-running on an already-referenced body changes nothing, and a
+ * letter whose photos were all removed loses the line again.
+ */
+export function withPhotoReference(body, photos = []) {
+  const text = String(body || "").trim();
+  const has = Array.isArray(photos) && photos.length > 0;
+  const already = new RegExp(PHOTO_REFERENCE_LINE.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "i").test(text);
+  if (!has) {
+    if (!already) return text;
+    return text
+      .split(/\n\s*\n/)
+      .filter((p) => p.trim().toLowerCase() !== PHOTO_REFERENCE_LINE.toLowerCase())
+      .join("\n\n")
+      .trim();
+  }
+  if (already) return text;
+  return text ? `${text}\n\n${PHOTO_REFERENCE_LINE}` : PHOTO_REFERENCE_LINE;
+}
+
+export function buildLetterBody(type, answers = {}, job = {}, { photos = [] } = {}) {
+  return withPhotoReference(buildLetterBodyCore(type, answers, job), photos);
+}
+
+function buildLetterBodyCore(type, answers = {}, job = {}) {
   const site = siteFrom(job, answers);
   const company = tenantShortName() || tenantCompany().name || "our firm";
   const a = answers || {};
@@ -420,7 +448,8 @@ export function createLetterDraft({
   const t = type || LETTER_TYPES[0];
   const profile = activeTenantConfig()?.profile || null;
   const seeded = answers || seedLetterAnswersFromJob(job, t, profile);
-  const bodyText = buildLetterBody(t, seeded, job);
+  const photoList = Array.isArray(photos) ? photos : [];
+  const bodyText = buildLetterBody(t, seeded, job, { photos: photoList });
   const signer = resolveSigner(profile, ownerId);
   return {
     id: newLetterId(),
@@ -448,15 +477,25 @@ export function refreshLetterDraft(draft, { answers, bodyText, reLine, job, owne
   const type = LETTER_TYPES.find((t) => t.id === draft.typeId) || LETTER_TYPES[0];
   const nextAnswers = answers || draft.answers || {};
   const nextJob = job || {};
+  const nextPhotos = photos != null ? photos : draft.photos;
+  // Adding or removing photos re-syncs the "Review attached photos." line even
+  // when the body itself was hand-edited.
   const nextBody =
-    bodyText != null ? bodyText : buildLetterBody(type, nextAnswers, { ...nextJob, serviceAddress: draft.siteAddress });
+    bodyText != null
+      ? withPhotoReference(bodyText, nextPhotos)
+      : buildLetterBody(
+          type,
+          nextAnswers,
+          { ...nextJob, serviceAddress: draft.siteAddress },
+          { photos: nextPhotos }
+        );
   return {
     ...draft,
     answers: nextAnswers,
     bodyText: nextBody,
     reLine: reLine != null ? reLine : defaultReLine(type, nextJob, nextAnswers),
     siteAddress: siteFrom(nextJob, nextAnswers) || draft.siteAddress,
-    photos: photos != null ? photos : draft.photos,
+    photos: nextPhotos,
     ownerId: ownerId != null ? ownerId : draft.ownerId,
     status: status || draft.status,
     updatedAt: Date.now(),

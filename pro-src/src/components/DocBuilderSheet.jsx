@@ -45,7 +45,7 @@ import {
   matchLetterType,
   upsertJobLetterDraft,
 } from "../lib/letterDraft.js";
-import { buildLetterheadPdfBlob, letterPdfFileName } from "../lib/letterheadPdf.js";
+import { buildLetterheadPdfBlobWithPhotos, letterPdfFileName } from "../lib/letterheadPdf.js";
 
 import { enrichAndPatchCustomer } from "./NewJobFlow.jsx";
 import {
@@ -922,7 +922,7 @@ export default function DocBuilderSheet({
       }
       try {
         setAttUploading(true);
-        const blob = buildLetterheadPdfBlob({ draft });
+        const blob = await buildLetterheadPdfBlobWithPhotos({ draft });
         const fileName = letterPdfFileName(draft);
         const file = new File([blob], fileName, { type: "application/pdf" });
         const { uploadChatAttachment } = await import("../lib/chatAttach.js");

@@ -8,7 +8,7 @@ import {
   letterLineDescription,
   refreshLetterDraft,
 } from "../lib/letterDraft.js";
-import { buildLetterheadPdfBlob, letterPdfFileName } from "../lib/letterheadPdf.js";
+import { buildLetterheadPdfBlobWithPhotos, letterPdfFileName } from "../lib/letterheadPdf.js";
 import { downloadPdfBlob, openPdfBlob } from "../lib/pdfOpen.js";
 import { ownersFromProfile } from "../lib/signatureService.js";
 import { activeTenantConfig } from "../lib/tenantBranding.js";
@@ -101,6 +101,15 @@ export default function LetterQuestionnaireSheet({
     }
   };
 
+  const setPhotoCaption = (id, caption) => {
+    setDraft((d) =>
+      refreshLetterDraft(d, {
+        photos: (d.photos || []).map((p) => (p.id === id ? { ...p, caption } : p)),
+        job,
+      })
+    );
+  };
+
   const removePhoto = (id) => {
     setDraft((d) =>
       refreshLetterDraft(d, {
@@ -110,9 +119,11 @@ export default function LetterQuestionnaireSheet({
     );
   };
 
-  const preview = () => {
+  const preview = async () => {
     try {
-      const blob = buildLetterheadPdfBlob({ draft });
+      setBusy(true);
+      // Photo pages need fetching + transcoding, so the preview is async.
+      const blob = await buildLetterheadPdfBlobWithPhotos({ draft });
       try {
         openPdfBlob(blob);
       } catch {
@@ -120,6 +131,8 @@ export default function LetterQuestionnaireSheet({
       }
     } catch (ex) {
       setErr(ex?.message || "Preview failed");
+    } finally {
+      setBusy(false);
     }
   };
 
@@ -265,16 +278,26 @@ export default function LetterQuestionnaireSheet({
 
       <div className="mb-3">
         <p className="text-[11px] font-bold uppercase tracking-wide text-slate-400 mb-1">Photos</p>
-        {(draft.photos || []).map((p) => (
+        {(draft.photos || []).map((p, i) => (
           <div
             key={p.id}
-            className="flex items-center gap-2 text-sm py-1 border-b border-dashed border-slate-200"
+            className="py-1.5 border-b border-dashed border-slate-200"
             data-testid="letter-photo-row"
           >
-            <span className="truncate flex-1">{p.name}</span>
-            <button type="button" className="text-xs text-red-600 font-bold" onClick={() => removePhoto(p.id)}>
-              Remove
-            </button>
+            <div className="flex items-center gap-2 text-sm">
+              <span className="text-[11px] font-bold text-slate-400 shrink-0">{i + 1}</span>
+              <span className="truncate flex-1">{p.name}</span>
+              <button type="button" className="text-xs text-red-600 font-bold" onClick={() => removePhoto(p.id)}>
+                Remove
+              </button>
+            </div>
+            <input
+              className="input !py-1.5 mt-1 text-sm"
+              value={p.caption || ""}
+              onChange={(e) => setPhotoCaption(p.id, e.target.value)}
+              placeholder="Description (optional) — shown under this photo"
+              data-testid={"letter-photo-caption-" + (i + 1)}
+            />
           </div>
         ))}
         <label className="btn-ghost w-full !py-1.5 mt-1 text-sm inline-flex justify-center cursor-pointer">
