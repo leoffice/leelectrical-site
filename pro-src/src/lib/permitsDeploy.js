@@ -1218,17 +1218,29 @@ export function buildDeployQueueItems({ jobs = [], caseRuns = [] } = {}) {
     }
   }
 
-  // Paid permit renews → Deploy queue (Levi 2026-08-11). Deploy starts DOB renew walk.
-  // Prefer listPaidUpdatePermitCards (same source as Renewal Application paid box).
+  // Paid permit renews → Deploy queue only (Levi 2026-08-11). No separate Paid tab.
+  // listPaidUpdatePermitCards dedupes LE-2701/LE-2702 twins; also key by permit+addr.
   for (const card of listPaidUpdatePermitCards(jobs)) {
     const job = jobsById.get(card.jobId) || null;
     const pr = (job && (job.permitRenew || job.permitRenewMock)) || {};
     if (pr.renewComplete || pr.renewDeployedDone || pr.deployStatus === "done") continue;
-    const already = items.some(
-      (it) =>
-        it.jobId === card.jobId &&
-        (it.source === "permit_renew" || it.kind === "Renew Permit")
-    );
+    const permitKey =
+      `${s(card.permitNo || pr.permitNo).toUpperCase()}|` +
+      s(card.address || pr.address || job?.serviceAddress || job?.address)
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/g, " ")
+        .trim();
+    const already = items.some((it) => {
+      if (it.source !== "permit_renew" && it.kind !== "Renew Permit") return false;
+      if (it.jobId && it.jobId === card.jobId) return true;
+      const k =
+        `${s(it.permitNo).toUpperCase()}|` +
+        s(it.serviceAddress || "")
+          .toLowerCase()
+          .replace(/[^a-z0-9]+/g, " ")
+          .trim();
+      return permitKey !== "|" && k === permitKey;
+    });
     if (already) continue;
     const fleetActive = (caseRuns || []).some(
       (r) =>

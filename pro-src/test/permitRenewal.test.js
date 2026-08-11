@@ -411,6 +411,56 @@ describe("permitRenewal Phase A mock", () => {
     expect(listPaidUpdatePermitCards([leviTesterOnly])).toHaveLength(0);
   });
 
+  it("listPaidUpdatePermitCards dedupes same permit (LE-2701 + LE-2702 → one)", () => {
+    const base = {
+      serviceAddress: "40 Hampton Pl",
+      address: "40 Hampton Pl",
+      amount: 365,
+      paid: true,
+      openBalance: 0,
+      permitRenew: {
+        mock: true,
+        phase: "A",
+        scenarioId: "hampton-yossi",
+        displayCustomer: "Yosef Beshari",
+        permitNo: "B01126007-L1-EL",
+        address: "40 Hampton Pl",
+        paid: true,
+        paidAt: "2026-08-11",
+        paidAmount: 365,
+        nextStep: "update_permit",
+        queueUpdatePermit: true,
+        deployUpdate: true,
+      },
+    };
+    const j2701 = {
+      ...base,
+      id: "local-2701",
+      customer: "levi tester",
+      invoiceNo: "LE-2701",
+      permitRenew: {
+        ...base.permitRenew,
+        displayCustomer: "levi tester",
+        paidAmount: 2,
+      },
+    };
+    const j2702 = {
+      ...base,
+      id: "local-2702",
+      customer: "Yosef Beshari",
+      invoiceNo: "LE-2702",
+      permitRenew: {
+        ...base.permitRenew,
+        realTest: true,
+        mock: false,
+        paidAmount: 365,
+      },
+    };
+    const cards = listPaidUpdatePermitCards([j2701, j2702]);
+    expect(cards).toHaveLength(1);
+    expect(cards[0].invoiceNo).toBe("LE-2702");
+  });
+
   it("buildPermitRenewPaidPatch + notify message name who paid and queue update", () => {
     const job = {
       id: "r-paid",
@@ -709,6 +759,30 @@ describe("permitRenewal Phase A mock", () => {
     expect(after.every((c) => !String(c.scenarioId || "").startsWith("drive:") || isDobRenewableForNotify(c.scenario || c))).toBe(true);
 
     // Paid → Deploy list (update permit)
+    // Twin invoices same permit → one paid card (full fee wins)
+    const twinTest = {
+      id: "local-test-2",
+      customer: "Yosef Beshari",
+      serviceAddress: "40 Hampton Pl",
+      invoiceNo: "LE-2701",
+      amount: 2,
+      paid: true,
+      openBalance: 0,
+      permitRenew: {
+        mock: true,
+        phase: "A",
+        scenarioId: "hampton-yossi",
+        permitNo: "B01126007-L1-EL",
+        paid: true,
+        paidAt: "2026-08-10",
+        paidAmount: 2,
+        nextStep: "update_permit",
+      },
+    };
+    const twinCards = listPaidUpdatePermitCards([twinTest, paid]);
+    expect(twinCards).toHaveLength(1);
+    expect(twinCards[0].invoiceNo).toBe(paid.invoiceNo || "LE-2702");
+
     const paidBox = listPaidUpdatePermitCards([paid]);
     expect(paidBox.length).toBe(1);
     expect(paidBox[0].deployUpdate).toBe(true);

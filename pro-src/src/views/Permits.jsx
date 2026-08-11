@@ -61,7 +61,6 @@ import {
   jobHasConedFormA,
   fleetRunIsSupersededSuccess,
   healCaseProgressPatch,
-  permitRenewDeployDisplay,
 } from "../lib/permitsDeploy.js";
 import { caseStepCompletePatch } from "../lib/caseNextSteps.js";
 import {
@@ -95,7 +94,6 @@ import {
   isPermitRenewJob,
   isRealCityPermitNo,
   listPendingRenewCards,
-  listPaidUpdatePermitCards,
   materializeRenewInvoicePatch,
   prepareRenewNotice,
   prepareRenewScenario,
@@ -172,7 +170,7 @@ function CollapsibleSection({
 
 /**
  * Renewal Application — collapsible like Deploy queue (Levi 2026-08-10).
- * Previous card design restored + tightened: address, name, permit #, exp always visible.
+ * Pending send notices only. Paid renews live only on Deploy queue (Levi 2026-08-11).
  * Expand is pure state toggle (snappy — no network on open).
  */
 function RenewalNotificationsCard({
@@ -180,17 +178,15 @@ function RenewalNotificationsCard({
   phaseABusy,
   onSendForRow,
   onOpenJob,
-  onDeployPaid,
   onResendFromHistory,
   historyTick = 0,
 }) {
   const pending = useMemo(() => listPendingRenewCards(jobs), [jobs, historyTick]);
-  const paidDeploy = useMemo(() => listPaidUpdatePermitCards(jobs), [jobs]);
   const sendHistory = useMemo(
     () => listRenewSendHistory(jobs),
     [jobs, historyTick]
   );
-  // Collapsed by default (Levi 2026-08-11) — open when you need pending/paid lists.
+  // Collapsed by default (Levi 2026-08-11) — open for pending send list.
   const [sectionOpen, setSectionOpen] = useState(false);
   // History collapsed with the section
   const [historyOpen, setHistoryOpen] = useState(false);
@@ -217,7 +213,7 @@ function RenewalNotificationsCard({
               Renewal Application
             </h2>
             <p className="text-[13px] text-violet-800/80 mt-0.5 leading-relaxed">
-              Collapsed by default · open for pending send + paid Deploy list
+              Collapsed by default · open for pending send · paid renews are on Deploy queue only
             </p>
           </div>
           <span className="flex items-center gap-1.5 shrink-0">
@@ -237,61 +233,6 @@ function RenewalNotificationsCard({
 
       {sectionOpen ? (
         <div className="bg-white">
-          {paidDeploy.length > 0 ? (
-            <div
-              className="mx-2.5 mt-2.5 rounded-xl border border-emerald-200 bg-emerald-50 px-2.5 py-2"
-              data-testid="permit-renew-paid-deploy-box"
-            >
-              <div className="text-[11px] font-extrabold text-emerald-900 mb-1">
-                Paid — Deploy list ({paidDeploy.length})
-              </div>
-              <p className="text-[10px] text-emerald-800/80 mb-1.5">
-                Also on the Deploy queue below. Press Deploy to start the DOB renew.
-              </p>
-              <ul className="space-y-1.5">
-                {paidDeploy.map((r) => {
-                  const bits = [
-                    r.address,
-                    r.customer,
-                    r.permitNo,
-                    r.invoiceNo ? `Inv ${r.invoiceNo}` : "",
-                    r.fee
-                      ? `$${Number(r.fee) % 1 ? Number(r.fee).toFixed(2) : Number(r.fee)}`
-                      : "",
-                    r.paidAt ? `Paid ${r.paidAt}` : "",
-                  ].filter(Boolean);
-                  const deploying =
-                    String(r.deployStatus || "").toLowerCase() === "deploying";
-                  return (
-                    <li
-                      key={r.id}
-                      className="flex items-center justify-between gap-2 text-[12px]"
-                      data-testid="permit-renew-paid-row"
-                    >
-                      <button
-                        type="button"
-                        className="min-w-0 flex-1 text-left truncate font-semibold text-emerald-950"
-                        onClick={() => onOpenJob?.(r.jobId)}
-                        title={bits.join(" · ")}
-                      >
-                        {bits.join(" · ")}
-                      </button>
-                      <button
-                        type="button"
-                        className="shrink-0 btn bg-emerald-700 text-white !py-0.5 !px-2 text-[11px] font-extrabold"
-                        data-testid="permit-renew-paid-deploy-btn"
-                        disabled={deploying || phaseABusy}
-                        onClick={() => onDeployPaid?.(r)}
-                      >
-                        {deploying ? "Deploying now" : "Deploy"}
-                      </button>
-                    </li>
-                  );
-                })}
-              </ul>
-            </div>
-          ) : null}
-
           <div className="p-2 space-y-1.5" data-testid="permit-renew-app-list">
             {!pending.length ? (
               <p className="text-[12px] text-slate-500 text-center py-3">0 pending</p>
@@ -1654,21 +1595,23 @@ export default function Permits() {
     });
   }, [jobs, caseRuns, rowDeployErrors]);
 
-  // Paid city-permit renews — same source as Deploy queue renew rows
-  const paidRenewCards = useMemo(() => listPaidUpdatePermitCards(jobs), [jobs]);
+  // Paid renews live only on Deploy queue (no separate Paid list — Levi 2026-08-11)
   const paidRenewQueueCount = useMemo(
-    () => queueItems.filter((it) => it.source === "permit_renew" || it.kind === "Renew Permit").length,
+    () =>
+      queueItems.filter(
+        (it) => it.source === "permit_renew" || it.kind === "Renew Permit"
+      ).length,
     [queueItems]
   );
 
-  // Auto-open Deploy queue when a paid renew is ready (do not bury under collapsed Renewal)
+  // Auto-open Deploy queue when a paid renew is ready
   useEffect(() => {
     if (paidQueueOpenedRef.current) return;
-    if (paidRenewCards.length > 0 || paidRenewQueueCount > 0) {
+    if (paidRenewQueueCount > 0) {
       paidQueueOpenedRef.current = true;
       setQueueOpen(true);
     }
-  }, [paidRenewCards.length, paidRenewQueueCount]);
+  }, [paidRenewQueueCount]);
 
   // Deploy history — only successful completes ("OK, successfully sent …")
   const deployHistory = useMemo(
@@ -2948,18 +2891,12 @@ export default function Permits() {
         ) : null}
       </div>
 
-      {/* Renewal Notifications — ready addresses · Send Email · paid→Deploy list */}
+      {/* Renewal Application — pending send notices only; paid → Deploy queue */}
       <RenewalNotificationsCard
         jobs={jobs}
         phaseABusy={phaseABusy}
         historyTick={historyTick}
         onOpenJob={(id) => id && nav(`/job/${id}?doc=invoice&create=1`)}
-        onDeployPaid={(row) => {
-          if (!row?.jobId) return;
-          const job = jobsById.get(row.jobId) || null;
-          const item = permitRenewDeployDisplay(row, job);
-          void deployQueueItem(item);
-        }}
         onSendForRow={(row) => {
           if (!row) return;
           // Prefer card scenario (Drive cache / ready list); never re-bind 364 Schenectady
@@ -2995,67 +2932,7 @@ export default function Permits() {
         />
       ) : null}
 
-      {/* Paid renews — always visible (not only inside collapsed Renewal Application) */}
-      {paidRenewCards.length > 0 ? (
-        <div
-          className="card overflow-hidden mb-3 border border-emerald-300 bg-emerald-50/90"
-          data-testid="permit-renew-paid-deploy-strip"
-        >
-          <div className="px-3.5 py-2.5">
-            <div className="text-[13px] font-extrabold text-emerald-950 tracking-tight">
-              Paid renew — ready on Deploy ({paidRenewCards.length})
-            </div>
-            <p className="text-[12px] text-emerald-900/80 mt-0.5 leading-snug">
-              Customer paid · press Deploy to start the DOB renew (shows Deploying now).
-            </p>
-            <ul className="mt-2 space-y-1.5">
-              {paidRenewCards.map((r) => {
-                const bits = [
-                  r.address,
-                  r.customer,
-                  r.permitNo,
-                  r.invoiceNo ? `Inv ${r.invoiceNo}` : "",
-                  r.paidAt ? `Paid ${r.paidAt}` : "Paid",
-                ].filter(Boolean);
-                const deploying =
-                  String(r.deployStatus || "").toLowerCase() === "deploying";
-                return (
-                  <li
-                    key={r.id}
-                    className="flex items-center justify-between gap-2"
-                    data-testid="permit-renew-paid-strip-row"
-                  >
-                    <button
-                      type="button"
-                      className="min-w-0 flex-1 text-left text-[13px] font-semibold text-emerald-950 truncate"
-                      onClick={() => r.jobId && open(r.jobId)}
-                      title={bits.join(" · ")}
-                    >
-                      {bits.join(" · ")}
-                    </button>
-                    <button
-                      type="button"
-                      className="shrink-0 btn bg-emerald-700 text-white !py-1 !px-2.5 text-[11px] font-extrabold"
-                      data-testid="permit-renew-paid-strip-deploy"
-                      disabled={deploying || phaseABusy}
-                      onClick={() => {
-                        setQueueOpen(true);
-                        const job = jobsById.get(r.jobId) || null;
-                        const item = permitRenewDeployDisplay(r, job);
-                        void deployQueueItem(item);
-                      }}
-                    >
-                      {deploying ? "Deploying now" : "Deploy"}
-                    </button>
-                  </li>
-                );
-              })}
-            </ul>
-          </div>
-        </div>
-      ) : null}
-
-      {/* DEPLOY QUEUE — sticky Deploy/Fix · Ready only with Form A for meters */}
+      {/* DEPLOY QUEUE — sticky Deploy/Fix · paid renews only here (Levi 2026-08-11) */}
       <div
         className="card overflow-hidden mb-4 border border-slate-200"
         data-testid="permits-deploy-queue"
@@ -3075,12 +2952,17 @@ export default function Permits() {
               <p className="text-[13px] text-slate-600 mt-1 leading-relaxed">
                 {queueItems.length
                   ? `${queueItems.length} item${queueItems.length === 1 ? "" : "s"} in queue` +
+                    (paidRenewQueueCount > 0
+                      ? ` · ${paidRenewQueueCount} paid renew${paidRenewQueueCount === 1 ? "" : "s"} ready to Deploy`
+                      : "") +
                     (appsReadyTotal > 0
                       ? ` · ${appsReadyTotal} Form A application${appsReadyTotal === 1 ? "" : "s"} ready` +
                         (appsReadyTotal > 1
                           ? " · Deploy uploads the full batch (not done after one)"
                           : "")
-                      : " · expand a row for files / where / next / what Deploy does")
+                      : paidRenewQueueCount > 0
+                        ? " · press Deploy to start DOB renew"
+                        : " · expand a row for files / where / next / what Deploy does")
                   : appsReadyTotal > 0
                     ? `${appsReadyTotal} application${appsReadyTotal === 1 ? "" : "s"} ready to queue — open after sync`
                     : "Nothing to deploy"}

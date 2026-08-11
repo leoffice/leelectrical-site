@@ -897,7 +897,7 @@ export function listRenewApplications(jobs = [], { includeMock = false } = {}) {
       nextStep,
       nextStepLabel:
         nextStep === "update_permit"
-          ? "Payment received — on Deploy list; press Deploy to start DOB renew"
+          ? "Payment received — on Deploy queue; press Deploy to start DOB renew"
           : "",
       paidAt: String(pr.paidAt || "").trim().slice(0, 10),
       paidAmount:
@@ -1218,11 +1218,39 @@ export function listPendingRenewCards(jobs = []) {
   return cards;
 }
 
-/** Paid renews ready for Deploy → update permit. */
+/**
+ * Paid renews ready for Deploy → update permit.
+ * One row per permit/address (Levi 2026-08-11) — LE-2701 mock + LE-2702 real
+ * for the same Hampton permit must not double on Deploy / Renewal.
+ */
 export function listPaidUpdatePermitCards(jobs = []) {
-  return listRenewApplications(jobs).filter(
+  const paid = listRenewApplications(jobs).filter(
     (r) => r.deployUpdate || (r.paid && r.nextStep === "update_permit")
   );
+  const byKey = new Map();
+  const rank = (r) => {
+    let n = 0;
+    if (r.realTest) n += 40;
+    if (!r.mock) n += 20;
+    if (r.invoiceNo) n += 5;
+    if (r.paidAt) n += 2;
+    // Prefer full fee over $1/$2 test charges
+    const amt = Number(r.paidAmount || r.fee || 0);
+    if (amt >= 100) n += 10;
+    else if (amt > 0) n += 1;
+    // Prefer non-tester display name
+    const cust = String(r.customer || "").toLowerCase();
+    if (cust && !/levi\s*tester|tester/.test(cust)) n += 15;
+    return n;
+  };
+  for (const r of paid) {
+    const key =
+      `${String(r.permitNo || "").trim().toUpperCase()}|` +
+      normalizeRenewAddrKey(r.address);
+    const prev = byKey.get(key);
+    if (!prev || rank(r) > rank(prev)) byKey.set(key, r);
+  }
+  return [...byKey.values()];
 }
 
 /**
