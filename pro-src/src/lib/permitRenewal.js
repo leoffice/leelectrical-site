@@ -1336,6 +1336,7 @@ export function buildPermitRenewDeployStartPatch(job = {}, { note } = {}) {
       nextStep: pr.nextStep || "update_permit",
       queueUpdatePermit: true,
       deployStatus: "deploying",
+      deployError: "",
       deployStartedAt: now,
       deployNote: note != null ? String(note) : pr.deployNote || "",
     },

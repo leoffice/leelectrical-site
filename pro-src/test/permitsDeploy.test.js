@@ -7,6 +7,7 @@ import {
   requestTypeShortLabel,
   caseRunDisplay,
   buildDeployQueueItems,
+  buildDeployHistoryItems,
   processCompletedProgressPatch,
   withDeployDisplayFields,
   queueItemCanDeploy,
@@ -389,6 +390,113 @@ describe("buildDeployQueueItems", () => {
     expect(cert.status).toBe("need_info");
     expect(cert.detailLines?.join(" ")).toMatch(/Does NOT mean|not mean/i);
     expect(queueItemCanDeploy(cert)).toBe(false);
+    expect(cert.filesCount).toBe(0);
+    expect(cert.whatDeployDoes).toMatch(/Blocked|not live/i);
+  });
+
+  it("failed fleet stays in queue with deployError; success only in history", () => {
+    const jobs = [
+      {
+        id: "j-fail",
+        customer: "Test Co",
+        serviceAddress: "10 Main St",
+        // no live case — failed run is not superseded
+      },
+      {
+        id: "j-ok",
+        customer: "Ok Co",
+        serviceAddress: "20 Side St",
+        paperwork: { coned: { caseNumber: "MC-99" } },
+      },
+      {
+        id: "j-renew-done",
+        customer: "Yossi",
+        serviceAddress: "40 Hampton Pl",
+        permitRenew: {
+          paid: true,
+          renewComplete: true,
+          deployStatus: "done",
+          permitNo: "B01126007-L1-EL",
+          address: "40 Hampton Pl",
+        },
+      },
+    ];
+    const caseRuns = [
+      {
+        id: "run-fail",
+        jobId: "j-fail",
+        type: "create_case",
+        status: "failed",
+        error: "Energy Services not logged in",
+        payload: {
+          answers: {
+            requestType: "additional_load",
+            ownerFirst: "A",
+            ownerLast: "B",
+            serviceAddress: "10 Main St",
+          },
+        },
+      },
+      {
+        id: "run-ok",
+        jobId: "j-ok",
+        type: "create_case",
+        status: "done",
+        caseNumber: "MC-99",
+        completedAt: "2026-08-11T12:00:00Z",
+        payload: { answers: { requestType: "additional_load" } },
+      },
+    ];
+    const items = buildDeployQueueItems({ jobs, caseRuns });
+    const failed = items.find((i) => i.id === "run-fail");
+    expect(failed).toBeTruthy();
+    expect(failed.deployError).toMatch(/not logged in/i);
+    expect(failed.detailLines?.length).toBeGreaterThan(0);
+    // completed run must NOT stay in queue
+    expect(items.find((i) => i.id === "run-ok")).toBeFalsy();
+
+    const hist = buildDeployHistoryItems({ jobs, caseRuns, limit: 10 });
+    expect(hist.some((h) => /OK, successfully sent/i.test(h.okLine))).toBe(true);
+    expect(hist.some((h) => /Renew Permit/i.test(h.okLine))).toBe(true);
+    expect(hist.every((h) => /OK, successfully sent/i.test(h.okLine))).toBe(true);
+  });
+
+  it("permit renew with deployError stays failed in queue for Try again", () => {
+    const job = {
+      id: "j-r",
+      customer: "Yossi",
+      serviceAddress: "40 Hampton",
+      amount: 365,
+      paid: true,
+      openBalance: 0,
+      payments: [{ amount: 365 }],
+      permitRenew: {
+        paid: true,
+        paidAt: "2026-08-11",
+        paidAmount: 365,
+        nextStep: "update_permit",
+        queueUpdatePermit: true,
+        permitNo: "B01126007-L1-EL",
+        displayCustomer: "Yosef Beshari",
+        deployStatus: "failed",
+        deployError: "DOB portal session expired",
+      },
+    };
+    const row = permitRenewDeployDisplay(
+      {
+        jobId: "j-r",
+        customer: "Yosef Beshari",
+        address: "40 Hampton",
+        permitNo: "B01126007-L1-EL",
+        fee: 365,
+        paidAt: "2026-08-11",
+      },
+      job
+    );
+    expect(row.status).toBe("failed");
+    expect(row.deployError).toMatch(/session expired/i);
+    expect(row.nextHint).toMatch(/Try again|Report/i);
+    expect(queueItemCanDeploy(row)).toBe(true);
   });
 });
 
