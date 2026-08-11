@@ -17,7 +17,7 @@ import DocEmailComposeSheet from "./DocEmailComposeSheet.jsx";
 import { defaultQboItems, filterQboItems } from "../data/qboItems.js";
 import ServiceAddressField from "./ServiceAddressField.jsx";
 import AddressAutocompleteField from "./AddressAutocompleteField.jsx";
-import { emptyLine, initialLines, lineAmount, linesTotal } from "../lib/qboDoc.js";
+import { emptyLine, ensureLineRowId, initialLines, lineAmount, linesTotal } from "../lib/qboDoc.js";
 import { planDocSaveLocal, planDocSaveSync } from "../lib/docSync.js";
 import { resolveDocNumberOnSave } from "../lib/nextDocNumber.js";
 import { enqueueCustomerQboSync } from "../lib/customerQboEnqueue.js";
@@ -64,9 +64,12 @@ import {
 import { RECUR_INTERVALS, defaultRecurringState } from "../lib/recurringBilling.js";
 import { resumeFollowUpPrompts } from "../lib/calendarNavigate.js";
 
-/** Width that hugs the typed number — hard floor so money never clips. */
-function numInputStyle(value, { minCh = 8, maxCh = 18, pad = 2 } = {}) {
-  const s = String(value ?? "").trim();
+/** Fixed width for money fields — growing every digit shoves neighbors (Levi thrash #6). */
+function numInputStyle(_value, { minCh = 8, maxCh = 18, pad = 2, grow = false } = {}) {
+  if (!grow) {
+    return { width: minCh + "ch", minWidth: minCh + "ch" };
+  }
+  const s = String(_value ?? "").trim();
   const ch = Math.max(minCh, Math.min(maxCh, (s.length || 1) + pad));
   return { width: ch + "ch", minWidth: minCh + "ch" };
 }
@@ -130,6 +133,8 @@ const LineRow = React.memo(function LineRow({
     line.unitPrice != null && line.unitPrice !== "" ? String(line.unitPrice) : ""
   );
   const [qtyStr, setQtyStr] = useState(line.qty != null && line.qty !== "" ? String(line.qty) : "");
+  // Progress % / $ stays local until pause — every letter used to rewrite all lines (thrash #1).
+  const [progStr, setProgStr] = useState("");
   const [open, setOpen] = useState(false);
   // The item name is a textarea so a long name wraps into view instead of
   // scrolling sideways inside the box (Levi 2026-07-28). Grow it to fit.
@@ -138,23 +143,35 @@ const LineRow = React.memo(function LineRow({
   const rateRef = useRef(rateStr);
   const qtyRef = useRef(qtyStr);
   const itemRefVal = useRef(itemQ);
+  const progRef = useRef(progStr);
+  const lastItemH = useRef(0);
   descRef.current = desc;
   rateRef.current = rateStr;
   qtyRef.current = qtyStr;
   itemRefVal.current = itemQ;
-  const timers = useRef({ desc: null, rate: null, qty: null, item: null });
+  progRef.current = progStr;
+  const timers = useRef({ desc: null, rate: null, qty: null, item: null, prog: null });
   const onChangeRef = useRef(onChange);
   onChangeRef.current = onChange;
+  const onLineProgressRef = useRef(onLineProgress);
+  onLineProgressRef.current = onLineProgress;
   const indexRef = useRef(index);
   indexRef.current = index;
   const lineRef = useRef(line);
   lineRef.current = line;
 
+  // Grow product box only when pixel height actually changes (not every letter).
   useEffect(() => {
     const el = itemRef.current;
     if (!el) return;
     el.style.height = "auto";
-    el.style.height = el.scrollHeight + "px";
+    const h = el.scrollHeight;
+    if (h !== lastItemH.current) {
+      lastItemH.current = h;
+      el.style.height = h + "px";
+    } else {
+      el.style.height = (lastItemH.current || h) + "px";
+    }
   }, [itemQ, open]);
 
   // External commits (progress apply, letter, catalog pick) → refresh locals.
@@ -190,6 +207,10 @@ const LineRow = React.memo(function LineRow({
     if (String(q) !== String(ln.qty ?? "")) patch.qty = q;
     if (String(name) !== String(ln.itemName || "")) patch.itemName = name;
     if (Object.keys(patch).length) onChangeRef.current(i, patch);
+    // Flush mid-type progress so Save / leave does not drop the last digits.
+    if (progRef.current !== "" && onLineProgressRef.current) {
+      onLineProgressRef.current(i, progRef.current);
+    }
     for (const k of Object.keys(timers.current)) {
       clearTimeout(timers.current[k]);
       timers.current[k] = null;
@@ -221,9 +242,35 @@ const LineRow = React.memo(function LineRow({
   const due = lineAmount({ unitPrice: rateStr, qty: qtyStr });
   // Progress % from fractional qty (QBO style: full rate × progress qty).
   const linePct = rate > 0 && qty > 0 ? Math.round(qty * 10000) / 100 : qty * 100;
-  const progressDisplay = adjustMode === "pct" ? String(linePct || "") : String(due || "");
+  const committedProgress = adjustMode === "pct" ? String(linePct || "") : String(due || "");
+  // Prefer local progress draft while typing; fall back to committed.
+  const progressDisplay = progStr !== "" ? progStr : committedProgress;
+  // Resync local progress when parent commits a new value (and we're not mid-type).
+  useEffect(() => {
+    if (timers.current.prog) return;
+    setProgStr("");
+    progRef.current = "";
+  }, [committedProgress, adjustMode]);
   const showChip = itemPicked && !!(line.itemName || itemQ || "").trim() && !open;
   const productLabel = String(itemQ || line.itemName || "").trim();
+
+  const flushProgress = useCallback(() => {
+    clearTimeout(timers.current.prog);
+    timers.current.prog = null;
+    const raw = progRef.current;
+    if (raw === "") return;
+    onLineProgressRef.current && onLineProgressRef.current(indexRef.current, raw);
+  }, []);
+
+  const scheduleProgress = useCallback((raw) => {
+    setProgStr(raw);
+    progRef.current = raw;
+    clearTimeout(timers.current.prog);
+    timers.current.prog = setTimeout(() => {
+      timers.current.prog = null;
+      onLineProgressRef.current && onLineProgressRef.current(indexRef.current, raw);
+    }, LINE_PATCH_MS);
+  }, []);
 
   const pick = (it) => {
     const nextDesc = desc || line.description || it.description || "";
@@ -433,8 +480,11 @@ const LineRow = React.memo(function LineRow({
                 inputMode="decimal"
                 value={progressDisplay}
                 onChange={(e) => {
+                  scheduleProgress(e.target.value);
+                }}
+                onBlur={() => {
                   flush();
-                  onLineProgress && onLineProgress(index, e.target.value);
+                  flushProgress();
                 }}
                 aria-label={"Progress line " + (index + 1)}
                 data-testid={"progress-line-edit-" + (index + 1)}
@@ -469,6 +519,47 @@ const LineRow = React.memo(function LineRow({
   );
 });
 
+/** Local bill-to fields — only push to the doc sheet after a short pause (thrash #2). */
+function useLocalBillField(committed, onCommit, ms = LINE_PATCH_MS) {
+  const [local, setLocal] = useState(committed ?? "");
+  const localRef = useRef(local);
+  localRef.current = local;
+  const timer = useRef(null);
+  const committedRef = useRef(committed);
+  useEffect(() => {
+    if (committed !== committedRef.current && committed !== localRef.current) {
+      setLocal(committed ?? "");
+      localRef.current = committed ?? "";
+    }
+    committedRef.current = committed;
+  }, [committed]);
+  const flush = useCallback(() => {
+    clearTimeout(timer.current);
+    timer.current = null;
+    const v = localRef.current;
+    if (v !== (committedRef.current ?? "")) {
+      onCommit(v);
+      committedRef.current = v;
+    }
+  }, [onCommit]);
+  useEffect(() => () => clearTimeout(timer.current), []);
+  const onChange = useCallback(
+    (e) => {
+      const v = typeof e === "string" ? e : e?.target?.value ?? "";
+      setLocal(v);
+      localRef.current = v;
+      clearTimeout(timer.current);
+      timer.current = setTimeout(() => {
+        timer.current = null;
+        onCommit(v);
+        committedRef.current = v;
+      }, ms);
+    },
+    [onCommit, ms]
+  );
+  return { value: local, onChange, onBlur: flush };
+}
+
 function CustomerHeaderPanel({ job, allJobs, events, api, onPatch }) {
   const applyCustomer = async (c) => {
     if (!c) return;
@@ -494,7 +585,16 @@ function CustomerHeaderPanel({ job, allJobs, events, api, onPatch }) {
     });
   };
 
-  const set = (k) => (e) => onPatch({ [k]: e.target.value });
+  const personF = useLocalBillField(job.personName || "", (v) => onPatch({ personName: v }));
+  const phoneF = useLocalBillField(job.phone || "", (v) => onPatch({ phone: v }));
+  const emailF = useLocalBillField(job.email || "", (v) => onPatch({ email: v }));
+  const titleF = useLocalBillField(job.title || "", (v) => onPatch({ title: v }));
+  const [bizLocal, setBizLocal] = useState(job.businessName || job.customer || "");
+  const bizTimer = useRef(null);
+  useEffect(() => {
+    const c = job.businessName || job.customer || "";
+    setBizLocal((prev) => (prev === c ? prev : c));
+  }, [job.businessName, job.customer]);
 
   // Six stacked fields ate most of the first screen (Levi 2026-07-28). Collapsed
   // to a single summary line; tap to open the full editor.
@@ -550,20 +650,26 @@ function CustomerHeaderPanel({ job, allJobs, events, api, onPatch }) {
         <CustomerSearch
           label="Customer name"
           testId="doc-customer-search"
-          value={job.businessName || job.customer || ""}
-          onChangeText={(v) => onPatch({ businessName: v, customer: v, qboCustomerId: "" })}
+          value={bizLocal}
+          onChangeText={(v) => {
+            setBizLocal(v);
+            clearTimeout(bizTimer.current);
+            bizTimer.current = setTimeout(() => {
+              onPatch({ businessName: v, customer: v, qboCustomerId: "" });
+            }, LINE_PATCH_MS);
+          }}
           onPick={applyCustomer}
           jobs={allJobs}
         />
       </Fld>
       <Fld label="Person name">
-        <input className="input" value={job.personName || ""} onChange={set("personName")} aria-label="Person name" />
+        <input className="input" value={personF.value} onChange={personF.onChange} onBlur={personF.onBlur} aria-label="Person name" />
       </Fld>
       <Fld label="Phone">
-        <input className="input" value={job.phone || ""} onChange={set("phone")} aria-label="Phone" />
+        <input className="input" value={phoneF.value} onChange={phoneF.onChange} onBlur={phoneF.onBlur} aria-label="Phone" />
       </Fld>
       <Fld label="Email">
-        <input className="input" value={job.email || ""} onChange={set("email")} aria-label="Email" />
+        <input className="input" value={emailF.value} onChange={emailF.onChange} onBlur={emailF.onBlur} aria-label="Email" />
       </Fld>
       <Fld label="Billing address" hint="Your saved addresses first, then real-world matches as you type">
         <AddressAutocompleteField
@@ -578,7 +684,7 @@ function CustomerHeaderPanel({ job, allJobs, events, api, onPatch }) {
         />
       </Fld>
       <Fld label="Job title / scope" hint="What this invoice is for">
-        <input className="input" value={job.title || ""} onChange={set("title")} aria-label="Job title" />
+        <input className="input" value={titleF.value} onChange={titleF.onChange} onBlur={titleF.onBlur} aria-label="Job title" />
       </Fld>
     </div>
   );
@@ -641,7 +747,10 @@ function CustomerFactsPanel({
     });
   };
 
-  const set = (k) => (e) => onPatch({ [k]: e.target.value });
+  const personF = useLocalBillField(job.personName || "", (v) => onPatch({ personName: v }));
+  const phoneF = useLocalBillField(job.phone || "", (v) => onPatch({ phone: v }));
+  const emailF = useLocalBillField(job.email || "", (v) => onPatch({ email: v }));
+  const titleF = useLocalBillField(job.title || "", (v) => onPatch({ title: v }));
   const svcLine = [serviceAddress, apartment && "Apt " + apartment].filter(Boolean).join(", ");
 
   return (
@@ -683,14 +792,14 @@ function CustomerFactsPanel({
             </div>
           )}
           <Fld label="Person name">
-            <input className="input" value={job.personName || ""} onChange={set("personName")} aria-label="Person name" />
+            <input className="input" value={personF.value} onChange={personF.onChange} onBlur={personF.onBlur} aria-label="Person name" />
           </Fld>
           <div className="grid grid-cols-2 gap-2">
             <Fld label="Phone">
-              <input className="input" value={job.phone || ""} onChange={set("phone")} aria-label="Phone" inputMode="tel" />
+              <input className="input" value={phoneF.value} onChange={phoneF.onChange} onBlur={phoneF.onBlur} aria-label="Phone" inputMode="tel" />
             </Fld>
             <Fld label="Email">
-              <input className="input" value={job.email || ""} onChange={set("email")} aria-label="Email" inputMode="email" />
+              <input className="input" value={emailF.value} onChange={emailF.onChange} onBlur={emailF.onBlur} aria-label="Email" inputMode="email" />
             </Fld>
           </div>
           <Fld label="Billing address" hint="Saved addresses first, then real-world matches as you type">
@@ -731,7 +840,7 @@ function CustomerFactsPanel({
             </div>
           </Fld>
           <Fld label="Job title / scope" hint="What this invoice is for">
-            <input className="input" value={job.title || ""} onChange={set("title")} aria-label="Job title" />
+            <input className="input" value={titleF.value} onChange={titleF.onChange} onBlur={titleF.onBlur} aria-label="Job title" />
           </Fld>
           {coControls}
         </div>
@@ -2101,7 +2210,7 @@ export default function DocBuilderSheet({
       </p>
       {lines.map((ln, i) => (
         <LineRow
-          key={i}
+          key={ln._rowId || ln.id || "line-" + i}
           line={ln}
           index={i}
           items={items}

@@ -1769,9 +1769,15 @@ export default function Permits() {
       if (!job?.id || !todo) return;
       const r = conedTodoTapResult(todo, job);
       if (!r.ok) {
+        // Dead connector: electrical permit skill not built yet — open job so staff can file from Paperwork.
+        if (r.action === "skill_not_built") {
+          showToast(r.message + " — opening job");
+          if (job?.id) open(job.id);
+          return;
+        }
         showToast(r.message);
-        if (r.action === "skill_not_built") return;
         if (r.action === "gated") return;
+        return;
       }
       if (r.action === "create_application") {
         setConedStartJob(job);
@@ -1783,7 +1789,7 @@ export default function Permits() {
       }
       showToast(r.message || "OK");
     },
-    [showToast]
+    [showToast, open]
   );
 
   /**

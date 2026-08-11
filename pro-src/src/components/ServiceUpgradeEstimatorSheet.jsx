@@ -1,6 +1,6 @@
 // Estimate generator — Service upgrade questionnaire + live total + takeoff.
 // Levi 2026-08-03: itemized meters/amps/phases, toggles, save → job + estimate.
-import React, { useEffect, useMemo, useState, useCallback } from "react";
+import React, { useEffect, useMemo, useState, useCallback, useRef } from "react";
 import { useNavigate } from "react-router-dom";
 import Sheet, { Fld } from "./Sheet.jsx";
 import CustomerSearch from "./CustomerSearch.jsx";
@@ -122,7 +122,20 @@ export default function ServiceUpgradeEstimatorSheet({ onClose, prefill = {} }) 
   /** Which meter accordion is expanded; null = all collapsed. Only one open at a time. */
   const [openMeterIdx, setOpenMeterIdx] = useState(0);
 
-  const builtAll = useMemo(() => buildServiceUpgradeEstimate(answers), [answers]);
+  // Debounce full estimate rebuild so free-text (notes/name/email) does not thrash every letter (#3).
+  const [buildSnap, setBuildSnap] = useState(answers);
+  const buildTimer = useRef(null);
+  useEffect(() => {
+    clearTimeout(buildTimer.current);
+    const ms =
+      (typeof process !== "undefined" && process.env.VITEST) ||
+      (typeof import.meta !== "undefined" && import.meta.env && import.meta.env.MODE === "test")
+        ? 0
+        : 140;
+    buildTimer.current = setTimeout(() => setBuildSnap(answers), ms);
+    return () => clearTimeout(buildTimer.current);
+  }, [answers]);
+  const builtAll = useMemo(() => buildServiceUpgradeEstimate(buildSnap), [buildSnap]);
   useEffect(() => {
     setLineOn((prev) => {
       const n = builtAll.lines.length;
@@ -130,7 +143,7 @@ export default function ServiceUpgradeEstimatorSheet({ onClose, prefill = {} }) 
       if (next.length === prev.length && next.every((v, i) => v === (prev[i] !== false))) return prev;
       return next;
     });
-  }, [builtAll.lines.length, builtAll.total, answers]);
+  }, [builtAll.lines.length, builtAll.total, buildSnap]);
 
   const built = useMemo(
     () => filterEnabledEstimateLines(builtAll, lineOn),

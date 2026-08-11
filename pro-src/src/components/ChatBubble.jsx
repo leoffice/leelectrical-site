@@ -380,12 +380,21 @@ export default function ChatBubble() {
     rememberScroll(node);
   }, [msgs, chatOpen, msgsSignature, rememberScroll]);
 
+  // Only resize when the box actually needs a new height (new line wrap), not every character.
+  const lastComposerH = useRef(0);
   const resizeInput = useCallback(() => {
     const el = inputRef.current;
     if (!el) return;
+    const prev = el.style.height;
     el.style.height = "0px";
     const max = Math.min(160, Math.floor(window.innerHeight * 0.28));
-    el.style.height = `${Math.min(el.scrollHeight, max)}px`;
+    const next = Math.min(el.scrollHeight, max);
+    if (next === lastComposerH.current && prev) {
+      el.style.height = prev;
+      return;
+    }
+    lastComposerH.current = next;
+    el.style.height = `${next}px`;
   }, []);
 
   useEffect(() => {

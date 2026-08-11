@@ -1,5 +1,5 @@
 // Letter questionnaire — pick letter type, fill fields, photos, preview/approve draft.
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import Sheet, { Fld } from "./Sheet.jsx";
 import {
   LETTER_TYPES,
@@ -13,6 +13,12 @@ import { downloadPdfBlob, openPdfBlob } from "../lib/pdfOpen.js";
 import { imageAttachmentsAsPhotos, mergeLetterPhotos } from "../lib/letterPhotos.js";
 import { ownersFromProfile } from "../lib/signatureService.js";
 import { activeTenantConfig } from "../lib/tenantBranding.js";
+
+const ANSWER_BODY_MS =
+  (typeof process !== "undefined" && process.env.VITEST) ||
+  (typeof import.meta !== "undefined" && import.meta.env && import.meta.env.MODE === "test")
+    ? 0
+    : 180;
 
 export default function LetterQuestionnaireSheet({
   job,
@@ -77,21 +83,29 @@ export default function LetterQuestionnaireSheet({
     );
   };
 
+  // Answers stay local; rebuild letter body only after a short pause (thrash #4).
+  const answerTimer = useRef(null);
+  useEffect(() => () => clearTimeout(answerTimer.current), []);
   const setAnswer = (key, value) => {
-    setDraft((d) =>
-      refreshLetterDraft(d, {
-        answers: { ...d.answers, [key]: value },
-        job,
-      })
-    );
+    setDraft((d) => ({ ...d, answers: { ...d.answers, [key]: value } }));
+    clearTimeout(answerTimer.current);
+    answerTimer.current = setTimeout(() => {
+      setDraft((d) =>
+        refreshLetterDraft(d, {
+          answers: d.answers,
+          job,
+        })
+      );
+    }, ANSWER_BODY_MS);
   };
 
   const setBody = (value) => {
-    setDraft((d) => refreshLetterDraft(d, { bodyText: value, job }));
+    // Direct body edit — don't re-template mid-word.
+    setDraft((d) => ({ ...d, bodyText: value }));
   };
 
   const setRe = (value) => {
-    setDraft((d) => refreshLetterDraft(d, { reLine: value, job }));
+    setDraft((d) => ({ ...d, reLine: value }));
   };
 
   const onPhoto = async (e) => {

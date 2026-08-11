@@ -127,11 +127,19 @@ export default function DescriptionField({
   const minPx = compact ? COMPACT_MIN_TEXTAREA_PX : MIN_TEXTAREA_PX;
   const maxPx = compact ? COMPACT_MAX_TEXTAREA_PX : MAX_TEXTAREA_PX;
 
+  const lastH = useRef(0);
   const resize = useCallback(() => {
     const el = taRef.current;
     if (!el || !multiline) return;
+    // Measure without forcing a layout thrash every letter (Levi thrash #7).
+    const prev = el.style.height;
     el.style.height = "auto";
     const next = Math.min(maxPx, Math.max(minPx, el.scrollHeight));
+    if (next === lastH.current && prev) {
+      el.style.height = prev;
+      return;
+    }
+    lastH.current = next;
     el.style.height = next + "px";
   }, [multiline, minPx, maxPx]);
 

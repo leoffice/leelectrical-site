@@ -13,8 +13,21 @@ import {
 } from "./progressBilling.js";
 import { discountCommandFields, docTotalAfterDiscount, discountInputFromJob } from "./docDiscount.js";
 
+let _lineRowSeq = 0;
+/** Stable row id so deleting a middle line does not remount the rest (Levi thrash #16). */
+export function nextLineRowId() {
+  _lineRowSeq += 1;
+  return "ln-" + Date.now().toString(36) + "-" + _lineRowSeq.toString(36);
+}
+
 export function emptyLine() {
-  return { itemName: "", itemId: "", description: "", qty: 1, unitPrice: 0 };
+  return { itemName: "", itemId: "", description: "", qty: 1, unitPrice: 0, _rowId: nextLineRowId() };
+}
+
+/** Ensure imported lines keep a stable React key across reorders/deletes. */
+export function ensureLineRowId(ln) {
+  if (ln && ln._rowId) return ln;
+  return { ...(ln || {}), _rowId: nextLineRowId() };
 }
 
 export function lineAmount(line) {
@@ -49,9 +62,9 @@ export function initialLines(job, { kind, mode, progressPct } = {}) {
     if (kind === "invoice" && isFromEstimateMode(mode) && job.estimateLines?.length) {
       return progressBillLines(job.estimateLines, progressPct ?? 100);
     }
-    const mapped = saved.map((ln) => ({ ...emptyLine(), ...ln }));
+    const mapped = saved.map((ln) => ensureLineRowId({ ...emptyLine(), ...ln }));
     if (kind === "invoice" && isProgressBillingContext(job, { kind, mode })) {
-      return normalizeProgressInvoiceLines(mapped, contractTotalForJob(job), job.estimateLines);
+      return normalizeProgressInvoiceLines(mapped, contractTotalForJob(job), job.estimateLines).map(ensureLineRowId);
     }
     return mapped;
   }
