@@ -289,6 +289,57 @@ describe("buildDeployQueueItems", () => {
     );
     expect(disp.id).toBe("permit-renew:local-hampton-renew");
     expect(disp.subtitle).toMatch(/Paid 2026-08-11/);
+    expect(disp.hostAcked).toBe(false);
+  });
+
+  it("renew Deploy stuck without host ack fails after 90s (no endless Holding…)", () => {
+    const started = new Date(Date.now() - 120_000).toISOString();
+    const stuck = permitRenewDeployDisplay(
+      {
+        jobId: "local-stuck-renew",
+        address: "40 Hampton Pl",
+        customer: "Yosef Beshari",
+        permitNo: "B01126007-L1-EL",
+        invoiceNo: "LE-2702",
+        fee: 365,
+        paidAt: "2026-08-11",
+      },
+      {
+        id: "local-stuck-renew",
+        permitRenew: {
+          deployStatus: "deploying",
+          deployStartedAt: started,
+          queueUpdatePermit: true,
+          nextStep: "update_permit",
+          paid: true,
+        },
+      }
+    );
+    expect(stuck.status).toBe("failed");
+    expect(stuck.deployError).toMatch(/Host did not pick up/i);
+    expect(queueItemCanDeploy(stuck)).toBe(true);
+
+    const acked = permitRenewDeployDisplay(
+      {
+        jobId: "local-acked-renew",
+        address: "40 Hampton Pl",
+        customer: "Yosef Beshari",
+        permitNo: "B01126007-L1-EL",
+      },
+      {
+        id: "local-acked-renew",
+        permitRenew: {
+          deployStatus: "deploying",
+          deployStartedAt: started,
+          deployHostAckedAt: new Date().toISOString(),
+          queueUpdatePermit: true,
+          nextStep: "update_permit",
+          paid: true,
+        },
+      }
+    );
+    expect(acked.status).toBe("deploying");
+    expect(acked.hostAcked).toBe(true);
   });
 
   it("paid phase-A Yosef renew still lands on Deploy (not filtered as mock)", () => {

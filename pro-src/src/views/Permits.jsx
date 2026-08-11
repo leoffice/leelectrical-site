@@ -1025,11 +1025,12 @@ const DeployQueueRow = memo(function DeployQueueRow({
   const needsReview = item.source === "fleet" && status === "awaiting_approval";
   const needsInfo = hardMissing.length > 0 || status === "need_info";
 
-  // Battery charge while Deploying (fleet rarely streams real %).
-  // Keeps moving + holds at 94% until the row leaves the queue.
+  // Battery charge while Deploying. Renew uses honest desk labels (not fake
+  // Opening/Uploading) — real progress is host-acked (Levi 2026-08-11).
   const [deployPct, setDeployPct] = useState(0);
-  // Levi 2026-08-11: primary label is "Deploying now" while the battery fills.
   const [deployPhaseLabel, setDeployPhaseLabel] = useState("Deploying now");
+  const isRenewDeploy =
+    item.source === "permit_renew" || item.kind === "Renew Permit";
   useEffect(() => {
     if (!isDeploying) {
       setDeployPct(0);
@@ -1037,22 +1038,35 @@ const DeployQueueRow = memo(function DeployQueueRow({
       return undefined;
     }
     setDeployPct((p) => (p > 0 ? p : 6));
-    setDeployPhaseLabel("Deploying now");
-    const phases = [
-      [12, "Deploying now"],
-      [28, "Queuing…"],
-      [42, "Opening…"],
-      [58, "Uploading…"],
-      [74, "Working…"],
-      [88, "Holding…"],
-      [94, "Almost…"],
-    ];
+    setDeployPhaseLabel(isRenewDeploy ? "Sent to desk…" : "Deploying now");
+    // Renew: honest wait labels only. Con Ed/fleet: soft progress fill.
+    const phases = isRenewDeploy
+      ? [
+          [12, "Sent to desk…"],
+          [28, "Waiting for Israel…"],
+          [48, "Israel starting…"],
+          [68, "On DOB NOW…"],
+          [88, "Working…"],
+          [94, "Almost…"],
+        ]
+      : [
+          [12, "Deploying now"],
+          [28, "Queuing…"],
+          [42, "Opening…"],
+          [58, "Uploading…"],
+          [74, "Working…"],
+          [88, "Holding…"],
+          [94, "Almost…"],
+        ];
     let i = 0;
     const t = setInterval(() => {
       setDeployPct((prev) => {
         // Faster early, then crawl so the green fill is visible for a long run.
+        // Renew caps at 55% until host confirms (item.hostAcked) so we never look
+        // "almost done" when nothing actually started.
+        const cap = isRenewDeploy && !item.hostAcked ? 55 : 94;
         const step = prev < 30 ? 5 : prev < 55 ? 3 : prev < 80 ? 2 : 1;
-        const next = Math.min(94, prev + step);
+        const next = Math.min(cap, prev + step);
         while (i < phases.length && next >= phases[i][0]) {
           setDeployPhaseLabel(phases[i][1]);
           i += 1;
@@ -1061,7 +1075,7 @@ const DeployQueueRow = memo(function DeployQueueRow({
       });
     }, 700);
     return () => clearInterval(t);
-  }, [isDeploying, item.id]);
+  }, [isDeploying, item.id, isRenewDeploy, item.hostAcked]);
 
   let statusLabel = status || "pending";
   let statusTone = "bg-slate-100 text-slate-700";
@@ -2767,7 +2781,8 @@ export default function Permits() {
       }
 
       // Paid renew → queue host command; Israel starts DOB Renew Work Permit
-      // (improves with practice — Levi 2026-08-11).
+      // (improves with practice — Levi 2026-08-11). Honest feedback: wait host ack;
+      // never leave a cute battery running when the desk never picked up.
       if (item.source === "permit_renew" || item.kind === "Renew Permit") {
         const liveJob = jobsById.get(item.jobId) || job;
         if (!liveJob) {
@@ -2790,16 +2805,79 @@ export default function Permits() {
           "judgment",
           idk
         );
-        if (cmd) {
-          showToast("Deploying now — Israel opening DOB NOW");
-        } else {
+        if (!cmd) {
           markDeployRowFailed(
             item,
             "Could not reach the command bus — Try again or Report to developer"
           );
+          await patchAndSave(item.jobId, {
+            permitRenew: {
+              ...(liveJob.permitRenew || liveJob.permitRenewMock || {}),
+              deployStatus: "failed",
+              deployError: "Command bus unreachable",
+              queueUpdatePermit: true,
+              nextStep: "update_permit",
+            },
+          });
+          return;
         }
-        // Keep Deploying now while host/Israel work (job.deployStatus stamps the row)
+        showToast("Sent to desk — waiting for Israel");
         setDeployingIds((m) => ({ ...m, [item.id]: true }));
+        // Poll until host marks done (Israel pinged) or fail/timeout.
+        try {
+          const { waitForCommandDone } = await import("../lib/commandWait.js");
+          const wait = await waitForCommandDone(api, idk, {
+            maxMs: 45000,
+            intervalMs: 2000,
+          });
+          if (wait?.ok) {
+            showToast("Israel started — opening DOB NOW");
+            await patchAndSave(item.jobId, {
+              permitRenew: {
+                ...(liveJob.permitRenew || liveJob.permitRenewMock || {}),
+                deployStatus: "deploying",
+                deployHostAckedAt: new Date().toISOString(),
+                deployError: "",
+                queueUpdatePermit: true,
+                nextStep: "update_permit",
+              },
+            });
+          } else if (wait?.cmd?.status === "failed") {
+            const err =
+              wait.cmd.error ||
+              wait.cmd.result ||
+              "Host failed to start renew deploy";
+            markDeployRowFailed(item, err);
+            await patchAndSave(item.jobId, {
+              permitRenew: {
+                ...(liveJob.permitRenew || liveJob.permitRenewMock || {}),
+                deployStatus: "failed",
+                deployError: String(err).slice(0, 400),
+                queueUpdatePermit: true,
+                nextStep: "update_permit",
+              },
+            });
+          } else {
+            markDeployRowFailed(
+              item,
+              "Host did not pick up in time — Try again (or Report to developer)"
+            );
+            await patchAndSave(item.jobId, {
+              permitRenew: {
+                ...(liveJob.permitRenew || liveJob.permitRenewMock || {}),
+                deployStatus: "failed",
+                deployError: "Host did not pick up in time",
+                queueUpdatePermit: true,
+                nextStep: "update_permit",
+              },
+            });
+          }
+        } catch (e) {
+          markDeployRowFailed(
+            item,
+            e?.message || "Could not confirm host pickup — Try again"
+          );
+        }
         return;
       }
 

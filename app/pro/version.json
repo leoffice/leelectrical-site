@@ -1,9 +1,9 @@
 {
   "schema": "le-pro-version/v1",
-  "gitSha": "67dd16c2e0c5b6f53324b6a298d71fc92fb68f77",
-  "gitShaShort": "67dd16c",
+  "gitSha": "32becf7e96fc147a56c27752b7f2eaafa8242466",
+  "gitShaShort": "32becf7",
   "netlifyDeployId": null,
-  "builtAt": "2026-08-11T20:10:02.478Z",
-  "task": "paid renew only on Deploy (no double list)",
+  "builtAt": "2026-08-11T20:17:23.216Z",
+  "task": "",
   "rollbackAvailable": true
 }

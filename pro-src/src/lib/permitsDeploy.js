@@ -445,7 +445,9 @@ export function permitRenewDeployDisplay(card = {}, job = null) {
   const paidAt = s(card.paidAt || pr.paidAt).slice(0, 10);
   const exp = s(card.expiresDate || pr.expiresDate).slice(0, 10);
   const deploySt = s(pr.deployStatus || card.deployStatus).toLowerCase();
-  const deployError = s(pr.deployError || card.deployError || pr.lastDeployError);
+  let deployError = s(pr.deployError || card.deployError || pr.lastDeployError);
+  const hostAcked = !!(pr.deployHostAckedAt || card.deployHostAckedAt);
+  const deployStartedAt = s(pr.deployStartedAt || card.deployStartedAt);
   const missing = [];
   if (!addr) {
     missing.push({
@@ -473,6 +475,17 @@ export function permitRenewDeployDisplay(card = {}, job = null) {
     deploySt === "in_progress"
   ) {
     status = "deploying";
+    // Stuck fake Deploy: battery ran but host never acked (Levi 2026-08-11).
+    // After 90s without hostAck, surface fail so Try again works — no endless 88%.
+    if (!hostAcked && deployStartedAt) {
+      const startedMs = Date.parse(deployStartedAt);
+      if (Number.isFinite(startedMs) && Date.now() - startedMs > 90_000) {
+        status = "failed";
+        if (!deployError) {
+          deployError = "Host did not pick up in time — Try again";
+        }
+      }
+    }
   } else if (hardMissing.length) status = "need_info";
 
   const amountStr = moneyLabel(fee);
@@ -513,16 +526,20 @@ export function permitRenewDeployDisplay(card = {}, job = null) {
       status === "failed"
         ? "Fix the issue below — Try again or Report to developer"
         : status === "deploying"
-          ? "Deploying now — stay on this row until OK history"
-          : "Press Deploy → Deploying now → Israel opens DOB NOW renew",
+          ? hostAcked
+            ? "Israel is on DOB NOW — stay until OK history or an issue shows"
+            : "Sent to desk — waiting for Israel to pick up"
+          : "Press Deploy → sent to desk → Israel opens DOB NOW renew",
     whatDeployDoes:
-      "Shows Deploying now, opens DOB NOW for this address/permit, files the renew work permit step, then reports back. Only on success: moves to Deploy history as OK, successfully sent. Failures stay here with the issue text.",
+      "Sends the job to Israel’s desk, waits until the host picks it up, then Israel opens DOB NOW for this address/permit. Only on success: moves to Deploy history as OK, successfully sent. If the host never picks up, the row fails with Try again — no fake endless progress.",
     requestShort: "Renew",
     serviceAddress: addr,
     kind: "Renew Permit",
     agency: "DOB",
     status,
     deployError: deployError || "",
+    hostAcked,
+    deployStartedAt,
     readiness: {
       ready: status === "ready" || status === "deploying" || status === "failed",
       missing,
