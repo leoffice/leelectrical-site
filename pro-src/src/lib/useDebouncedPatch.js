@@ -7,7 +7,11 @@ const DEFAULT_MS =
   (typeof process !== "undefined" && process.env.VITEST) ||
   (typeof import.meta !== "undefined" && import.meta.env && import.meta.env.MODE === "test")
     ? 0
-    : 120;
+    : 350;
+// 350ms (was 120): 120 sits inside normal inter-keystroke gaps, so the staged
+// flush (effectiveJobs rebuild + every edit-context consumer re-render) fired
+// repeatedly MID-typing. 350 pushes it to the pause after typing; blur/Save
+// still flush instantly via flushAllDebouncedPatches (perf audit, 2026-08-11).
 
 /** Active field flushers — saveAll calls flushAllDebouncedPatches() first. */
 const FLUSHERS = new Set();

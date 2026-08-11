@@ -503,21 +503,65 @@ export function StoreProvider({ children }) {
 
   /** Merged job + staged edits. Reads pending via ref so the callback identity
    *  stays stable while typing (shell watchers won't re-render). */
-  const effectiveJob = useCallback((id) => {
-    const base = jobs.find((j) => String(j.id) === String(id));
-    if (!base) return null;
-    const ov = pendingRef.current[id];
-    return ov ? applyOverlay(base, ov) : base;
+  const jobsById = useMemo(() => {
+    const m = new Map();
+    for (const j of jobs) m.set(String(j.id), j);
+    return m;
   }, [jobs]);
+  // Identity-stable per (base, pending patch): repeated calls with unchanged
+  // inputs return the SAME object, so JobDetail's [job]-keyed memos stop
+  // recomputing 4k-job scans on every render (perf audit #1, 2026-08-11).
+  const effJobRowCache = useRef(new Map());
+  const effectiveJob = useCallback((id) => {
+    const key = String(id);
+    const base = jobsById.get(key);
+    if (!base) return null;
+    const ov = pendingRef.current[id] ?? pendingRef.current[key];
+    if (!ov) return base;
+    const hit = effJobRowCache.current.get(key);
+    if (hit && hit.base === base && hit.ov === ov) return hit.row;
+    const row = applyOverlay(base, ov);
+    effJobRowCache.current.set(key, { base, ov, row });
+    return row;
+  }, [jobsById]);
 
   // Overlay only jobs with staged edits. Reuse prior row objects when that
   // job's pending patch is unchanged so list memoization can skip work.
-  const effJobsRef = useRef({ jobs, pending, list: jobs, byId: null });
+  const effJobsRef = useRef({ jobs, pending, list: jobs, byId: null, idx: null });
   const effectiveJobs = useMemo(() => {
     const prev = effJobsRef.current;
     if (!Object.keys(pending).length) {
-      effJobsRef.current = { jobs, pending, list: jobs, byId: null };
+      effJobsRef.current = { jobs, pending, list: jobs, byId: null, idx: null };
       return jobs;
+    }
+    // Fast path (perf audit, 2026-08-11): base list unchanged, only pending
+    // moved (a debounce flush while typing) → swap ONLY the changed rows
+    // instead of walking all 4k jobs and rebuilding the Map per keystroke pause.
+    if (prev.jobs === jobs && prev.byId && prev.idx && prev.pending) {
+      const changed = [];
+      for (const k of Object.keys(pending)) {
+        if (prev.pending[k] !== pending[k]) changed.push(k);
+      }
+      for (const k of Object.keys(prev.pending)) {
+        if (!(k in pending)) changed.push(k);
+      }
+      if (!changed.length) {
+        effJobsRef.current = { ...prev, pending };
+        return prev.list;
+      }
+      const list = prev.list.slice();
+      const byId = new Map(prev.byId);
+      for (const k of changed) {
+        const i = prev.idx.get(String(k));
+        if (i == null) continue;
+        const base = jobs[i];
+        const ov = pending[k];
+        const row = ov ? applyOverlay(base, ov) : base;
+        list[i] = row;
+        byId.set(base.id, row);
+      }
+      effJobsRef.current = { jobs, pending, list, byId, idx: prev.idx };
+      return list;
     }
     const prevById =
       prev.byId && prev.jobs === jobs
@@ -527,6 +571,7 @@ export function StoreProvider({ children }) {
           : null;
     const list = new Array(jobs.length);
     const byId = new Map();
+    const idx = new Map();
     for (let i = 0; i < jobs.length; i++) {
       const j = jobs[i];
       const ov = pending[j.id];
@@ -540,8 +585,9 @@ export function StoreProvider({ children }) {
       }
       list[i] = row;
       byId.set(j.id, row);
+      idx.set(String(j.id), i);
     }
-    effJobsRef.current = { jobs, pending, list, byId };
+    effJobsRef.current = { jobs, pending, list, byId, idx };
     return list;
   }, [jobs, pending]);
 
@@ -1662,17 +1708,18 @@ export function useStoreToast() {
 export function useStore() {
   const data = useContext(DataCtx);
   const edit = useContext(EditCtx);
-  const toastBag = useContext(ToastCtx);
   if (!data || !edit) throw new Error("useStore outside StoreProvider");
+  // Toast intentionally NOT folded in: a flash message must never re-render
+  // the ~70 full-store consumers (perf audit #2, 2026-08-11). Read toast via
+  // useStoreToast (ToastHost is the only real consumer).
   // edit.jobs is the overlay-applied list (matches historical useStore().jobs).
   return useMemo(
     () => ({
       ...data,
       ...edit,
-      ...(toastBag || {}),
       jobs: edit.jobs,
       rawJobs: edit.rawJobs,
     }),
-    [data, edit, toastBag]
+    [data, edit]
   );
 }

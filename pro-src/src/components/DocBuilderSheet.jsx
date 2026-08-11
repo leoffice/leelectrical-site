@@ -4,7 +4,7 @@ import Sheet, { Fld } from "./Sheet.jsx";
 import DescriptionField, { PolishButton } from "./DescriptionField.jsx";
 import { DOC_SOURCE_LOCAL, DOC_SOURCE_QBO } from "../lib/docSource.js";
 import CustomerSearch from "./CustomerSearch.jsx";
-import { useStore } from "../state/store.jsx";
+import { useStoreData } from "../state/store.jsx";
 import { useTenantConfig } from "../state/tenant.jsx";
 import { isQuickbooksDocEnabled, resolveDocSource } from "../lib/qboEnabled.js";
 import { useAppSettings } from "../lib/appSettings.js";
@@ -880,7 +880,9 @@ export default function DocBuilderSheet({
   allJobs,
   onCustomerPatch,
 }) {
-  // Prefer split hooks: toast flashes must not re-render this sheet mid-type.
+  // Data-only subscription: staged-edit (pending) churn and toast flashes must
+  // not re-render this sheet mid-type (perf audit #4, 2026-08-11). Base jobs
+  // are fine here — boardJobs feeds CO / doc-number scans, not live edits.
   const {
     patchAndSave,
     enqueue,
@@ -890,7 +892,7 @@ export default function DocBuilderSheet({
     createJob,
     jobs: storeJobs,
     events,
-  } = useStore();
+  } = useStoreData();
   const tenantConfig = useTenantConfig();
   const appSettings = useAppSettings();
   void appSettings.quickbooks;
@@ -904,6 +906,10 @@ export default function DocBuilderSheet({
   const boardJobsRef = useRef(boardJobs);
   boardJobsRef.current = boardJobs;
   const [job, setJob] = useState(() => jobProp || {});
+  // Current job via ref so progress callbacks stay identity-stable — a dep on
+  // the job object re-rendered every LineRow on each bill-to commit.
+  const jobRef = useRef(job);
+  jobRef.current = job;
   // True after the user edits lines/rates — parent poll/hydrate must not yank
   // the sheet back to the pre-edit amount (Goodness $9,200→$4,600 revert).
   const sheetDirtyRef = useRef(false);
@@ -1117,24 +1123,20 @@ export default function DocBuilderSheet({
     }
   };
 
-  const coPreview =
-    asChangeOrder || alreadyCo
-      ? preferredChangeOrderDocNo(
-          alreadyCo
-            ? job
-            : {
-                ...job,
-                ...tagChangeOrderPatch(
-                  job,
-                  coSource,
-                  nextChangeOrderSeq(boardJobs, coSource, kind),
-                  kind
-                ),
-              },
-          kind
-        ) ||
-        changeOrderDocLabel(coSource, kind, nextChangeOrderSeq(boardJobs, coSource, kind))
-      : "";
+  // Memoized: this runs 2× nextChangeOrderSeq (O(4k) address scans) and used
+  // to execute on EVERY sheet render when editing a CO (perf audit #4).
+  const coPreview = useMemo(() => {
+    if (!(asChangeOrder || alreadyCo)) return "";
+    const board = boardJobsRef.current || [];
+    const seq = nextChangeOrderSeq(board, coSource, kind);
+    return (
+      preferredChangeOrderDocNo(
+        alreadyCo ? job : { ...job, ...tagChangeOrderPatch(job, coSource, seq, kind) },
+        kind
+      ) || changeOrderDocLabel(coSource, kind, seq)
+    );
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- boardJobs via ref: list identity thrash must not recompute CO scans
+  }, [asChangeOrder, alreadyCo, job, coSource, kind]);
 
   useEffect(() => {
     let cancelled = false;
@@ -1334,28 +1336,28 @@ export default function DocBuilderSheet({
     (pctVal) => {
       const pct = parseAmount(pctVal);
       setProgressPctEdit(String(pct));
-      setAmountDueEdit(String(dueFromContract(parseAmount(contractAmount) || contractTotalForJob(job), pct)));
+      setAmountDueEdit(String(dueFromContract(parseAmount(contractAmount) || contractTotalForJob(jobRef.current), pct)));
       setLinesTracked((rows) => applyProgressPctToLines(rows, contractLines, pct));
     },
-    [contractAmount, contractLines, job, setLinesTracked]
+    [contractAmount, contractLines, setLinesTracked]
   );
 
   const applyDueAmount = useCallback(
     (amtVal) => {
       const due = parseAmount(amtVal);
       setAmountDueEdit(String(amtVal));
-      const contract = parseAmount(contractAmount) || contractTotalForJob(job);
+      const contract = parseAmount(contractAmount) || contractTotalForJob(jobRef.current);
       if (contract > 0) setProgressPctEdit(String(progressPctFromLines([{ qty: 1, unitPrice: due }], contract)));
       setLinesTracked((rows) => applyDueAmountToLines(rows, contractLines, due, contract));
     },
-    [contractAmount, contractLines, job, setLinesTracked]
+    [contractAmount, contractLines, setLinesTracked]
   );
 
   /** Per-line progress: % sets fractional qty; $ sets qty = due / full rate. */
   const onLineProgress = useCallback(
     (index, raw) => {
       const val = parseAmount(raw);
-      const contract = parseAmount(contractAmount) || contractTotalForJob(job) || 0;
+      const contract = parseAmount(contractAmount) || contractTotalForJob(jobRef.current) || 0;
       if (adjustMode === "pct") {
         const pct = Math.min(100, Math.max(0, val));
         setProgressPctEdit(String(pct));
@@ -1398,7 +1400,7 @@ export default function DocBuilderSheet({
         setProgressPctEdit(String(Math.min(100, Math.max(0, Math.round((val / contract) * 10000) / 100))));
       }
     },
-    [adjustMode, contractAmount, job, setLinesTracked]
+    [adjustMode, contractAmount, setLinesTracked]
   );
 
   // Live progress summary — full job · % · this invoice (keeps progress billing clear).

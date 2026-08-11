@@ -493,7 +493,12 @@ export default function Jobs({
   /** False when keep-alive hidden off-route — freeze heavy work, paint nothing. */
   listActive = true,
 }) {
-  const { jobs, loading, showToast, api, enqueue, refreshJobs, setNewJob } = useStore();
+  const { jobs: overlayJobs, rawJobs, loading, showToast, api, enqueue, refreshJobs, setNewJob } = useStore();
+  // Embedded side panes (desktop split in JobDetail/CustomerView) render from
+  // the BASE list: the overlay list gets a new identity on every staged-edit
+  // flush (~120ms while typing), which regrouped 4k rows per pause (perf
+  // audit #3, 2026-08-11). Staged edits appear in the pane after Save.
+  const jobs = embedded ? rawJobs : overlayJobs;
   const nav = useNavigate();
   /** Input value stays instant; heavy list filter uses the deferred copy. */
   const [q, setQ] = useState("");

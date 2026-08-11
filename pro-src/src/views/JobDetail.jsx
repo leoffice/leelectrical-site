@@ -141,6 +141,90 @@ const CMD_TONES = {
   needs_approval: "bg-violet-100 text-violet-700",
 };
 
+/** Follow-up & notes card, isolated so typing re-renders ONLY this card —
+ *  local debounced fields; the parent view sees the text on flush (blur /
+ *  pause / Save). Props are primitives so React.memo actually holds. */
+const FollowUpNotesCard = React.memo(function FollowUpNotesCard({
+  id,
+  notes,
+  fuType,
+  fuDate,
+  fuRemind,
+  fuText,
+  showPayReminder,
+  patchJob,
+  showToast,
+  setSheet,
+}) {
+  const notesToPatch = useCallback((v) => ({ notes: v }), []);
+  const fuTextToPatch = useCallback((v) => ({ followUp: { text: v } }), []);
+  const notesField = useDebouncedPatchField(id, notes || "", patchJob, notesToPatch);
+  const fuTextField = useDebouncedPatchField(id, fuText || "", patchJob, fuTextToPatch);
+  const setFu = (patch) => patchJob(id, { followUp: patch });
+  return (
+    <>
+      <h2 className="text-[11px] font-extrabold text-slate-500 uppercase tracking-wider px-1 !mb-[-6px]">
+        Follow-up &amp; notes
+      </h2>
+      <div className="card px-4 py-4 space-y-2.5">
+        <div>
+          <label className="block text-xs font-bold text-slate-500 mb-1.5">Follow-up type</label>
+          <select className="input" value={fuType || ""} onChange={(e) => setFu({ type: e.target.value })} aria-label="Follow-up type">
+            <option value="">— none —</option>
+            {FOLLOWUP_TYPES.map((t) => (
+              <option key={t}>{t}</option>
+            ))}
+          </select>
+        </div>
+        <div className="flex gap-2">
+          <input
+            className="input flex-1"
+            placeholder="Custom message (optional)"
+            value={fuTextField.value}
+            onChange={fuTextField.onChange}
+            onBlur={fuTextField.onBlur}
+            aria-label="Follow-up text"
+          />
+          <input
+            className="input !w-[150px]"
+            type="date"
+            value={fuDate || ""}
+            onChange={(e) => setFu({ date: e.target.value })}
+            aria-label="Follow-up date"
+          />
+        </div>
+        <label className="flex items-center gap-2 text-sm text-slate-600 cursor-pointer">
+          <input
+            type="checkbox"
+            className="w-4 h-4"
+            checked={!!fuRemind}
+            onChange={(e) => {
+              setFu({ remind: e.target.checked });
+              showToast(e.target.checked ? "Office Manager will Telegram you on that date" : "Reminder off");
+            }}
+          />
+          🔔 Remind me on Telegram on this date (via Office Manager)
+        </label>
+        {showPayReminder && (
+          <button className="btn bg-red-100 text-red-600 w-full !py-2" onClick={() => setSheet({ kind: "reminder" })}>
+            🔔 Send customer a payment reminder…
+          </button>
+        )}
+        <div>
+          <label className="block text-xs font-bold text-slate-500 mb-1.5">Notes</label>
+          <textarea
+            className="input min-h-[74px]"
+            value={notesField.value}
+            onChange={notesField.onChange}
+            onBlur={notesField.onBlur}
+            aria-label="Notes"
+          />
+        </div>
+      </div>
+    </>
+  );
+});
+
 export default function JobDetail() {
   const { id } = useParams();
   const nav = useNavigate();
@@ -537,10 +621,14 @@ export default function JobDetail() {
     [job, showWorkCompleteNotify]
   );
   const custKey = job ? (fromCust || clientKey(job)) : "";
-  const customerJobs = useMemo(() => {
-    if (!job || !custKey) return job ? [job] : [];
+  // Keyed on custKey + jobs (NOT the job object): staged-edit flushes rebuild
+  // the job identity every ~120ms while typing, and this scan is O(4k)+sort
+  // (perf audit #1, 2026-08-11). Membership only depends on the customer key.
+  const custJobsList = useMemo(() => {
+    if (!custKey) return null;
     return sortJobs(jobsForCustomerKey(jobs, custKey));
-  }, [job, jobs, custKey]);
+  }, [jobs, custKey]);
+  const customerJobs = custJobsList || (job ? [job] : []);
   useEffect(() => {
     if (!job) return;
     // Defer recency write so back/open never stalls on localStorage.
@@ -549,10 +637,13 @@ export default function JobDetail() {
     }, 0);
     return () => clearTimeout(t);
   }, [id, custKey, job?.id, customerJobs]);
+  // Same O(4k) reasoning: carousel membership depends on id + address + CO
+  // fields, not on every staged keystroke of the job object.
   const addressJobs = useMemo(() => {
     if (!job) return [];
     return sortJobs(carouselVisibleJobs(jobs, job));
-  }, [job, jobs]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- intentional: keyed on the fields the scan reads
+  }, [jobs, job?.id, job?.address, job?.serviceAddress, job?.apartment, job?.changeOrder, job?.changeOrderSourceId]);
   const addJobAtAddress = () => {
     if (!job) return;
     setSheet({ kind: "addJobAtAddress" });
@@ -724,17 +815,6 @@ export default function JobDetail() {
         .filter((c) => String(c.jobId) === String(id))
         .sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0)),
     [commands, id]
-  );
-
-  // Hooks must run before the !job early return.
-  const notesToPatch = useCallback((v) => ({ notes: v }), []);
-  const fuTextToPatch = useCallback((v) => ({ followUp: { text: v } }), []);
-  const notesField = useDebouncedPatchField(id, job?.notes || "", patchJob, notesToPatch);
-  const fuTextField = useDebouncedPatchField(
-    id,
-    (job?.followUp && job.followUp.text) || "",
-    patchJob,
-    fuTextToPatch
   );
 
   if (!job) {
@@ -2221,65 +2301,20 @@ export default function JobDetail() {
         })}
       </div>
 
-      {/* Follow-up & notes */}
-      <h2 className="text-[11px] font-extrabold text-slate-500 uppercase tracking-wider px-1 !mb-[-6px]">
-        Follow-up &amp; notes
-      </h2>
-      <div className="card px-4 py-4 space-y-2.5">
-        <div>
-          <label className="block text-xs font-bold text-slate-500 mb-1.5">Follow-up type</label>
-          <select className="input" value={fu.type || ""} onChange={(e) => setFu({ type: e.target.value })} aria-label="Follow-up type">
-            <option value="">— none —</option>
-            {FOLLOWUP_TYPES.map((t) => (
-              <option key={t}>{t}</option>
-            ))}
-          </select>
-        </div>
-        <div className="flex gap-2">
-          <input
-            className="input flex-1"
-            placeholder="Custom message (optional)"
-            value={fuTextField.value}
-            onChange={fuTextField.onChange}
-            onBlur={fuTextField.onBlur}
-            aria-label="Follow-up text"
-          />
-          <input
-            className="input !w-[150px]"
-            type="date"
-            value={fu.date || ""}
-            onChange={(e) => setFu({ date: e.target.value })}
-            aria-label="Follow-up date"
-          />
-        </div>
-        <label className="flex items-center gap-2 text-sm text-slate-600 cursor-pointer">
-          <input
-            type="checkbox"
-            className="w-4 h-4"
-            checked={!!fu.remind}
-            onChange={(e) => {
-              setFu({ remind: e.target.checked });
-              showToast(e.target.checked ? "Office Manager will Telegram you on that date" : "Reminder off");
-            }}
-          />
-          🔔 Remind me on Telegram on this date (via Office Manager)
-        </label>
-        {!job.paid && job.invoiceNo && (
-          <button className="btn bg-red-100 text-red-600 w-full !py-2" onClick={() => setSheet({ kind: "reminder" })}>
-            🔔 Send customer a payment reminder…
-          </button>
-        )}
-        <div>
-          <label className="block text-xs font-bold text-slate-500 mb-1.5">Notes</label>
-          <textarea
-            className="input min-h-[74px]"
-            value={notesField.value}
-            onChange={notesField.onChange}
-            onBlur={notesField.onBlur}
-            aria-label="Notes"
-          />
-        </div>
-      </div>
+      {/* Follow-up & notes — isolated child: keystrokes must not re-render this
+          whole 2,700-line view (perf audit #1, 2026-08-11). */}
+      <FollowUpNotesCard
+        id={id}
+        notes={job.notes || ""}
+        fuType={fu.type || ""}
+        fuDate={fu.date || ""}
+        fuRemind={!!fu.remind}
+        fuText={(job.followUp && job.followUp.text) || ""}
+        showPayReminder={!job.paid && !!job.invoiceNo}
+        patchJob={patchJob}
+        showToast={showToast}
+        setSheet={setSheet}
+      />
 
       {/* Attachments list — add via 📋 Attach next to Job information */}
       {at.length ? (
