@@ -898,6 +898,28 @@ export default function DocBuilderSheet({
           )
         );
       }
+      // Load Letter → auto-invoice (Invoice_Attach_Load_Letter_SPEC): the doc
+      // this letter rides on becomes the load-test invoice. Default the line to
+      // the catalog "Load Letter" item + price ($500 in the LE catalog) when
+      // the line has no rate yet — Levi can still change it. Idempotent: the
+      // line is updated in place (keyed by lineIndex/letterId), never duplicated.
+      if (draft.typeId === "load_letter") {
+        const catalogItem =
+          items.find((it) => /load\s*letter/i.test(it?.name || "") && it.price != null) || null;
+        setLines((rows) =>
+          rows.map((ln, idx) => {
+            if (idx !== draft.lineIndex) return ln;
+            if (parseAmount(ln.unitPrice) > 0) return ln;
+            return {
+              ...ln,
+              itemName: (ln.itemName || "").trim() || (catalogItem?.name || "Load Letter"),
+              itemId: ln.itemId || catalogItem?.id || "",
+              unitPrice: catalogItem?.price != null ? catalogItem.price : 500,
+              qty: parseAmount(ln.qty) > 0 ? ln.qty : 1,
+            };
+          })
+        );
+      }
       try {
         setAttUploading(true);
         const blob = buildLetterheadPdfBlob({ draft });
@@ -937,7 +959,7 @@ export default function DocBuilderSheet({
         setAttUploading(false);
       }
     },
-    [showToast]
+    [showToast, items]
   );
 
 
