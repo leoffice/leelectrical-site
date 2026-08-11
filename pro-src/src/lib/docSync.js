@@ -4,10 +4,18 @@ import {
   buildDocCommandPayload,
   docIdempotencyKey,
   emptyLine,
+  lineAmount,
   linesTotal,
 } from "./qboDoc.js";
 import { buildRecurringPayload, recurringIdempotencyKey } from "./recurringBilling.js";
-import { isProgressBillingContext, progressBillingJobPatch } from "./progressBilling.js";
+import {
+  isFractionalProgressQty,
+  isProgressBillingContext,
+  progressBillLines,
+  progressBillingJobPatch,
+  progressPctFromLines,
+  contractTotalForJob,
+} from "./progressBilling.js";
 import { briefTitlePatch, preferredChangeOrderDocNo } from "./changeOrder.js";
 import { reconcileBalanceOnAmountChange } from "./payments.js";
 import { discountJobPatch, docFaceTotal, docTotalAfterDiscount } from "./docDiscount.js";
@@ -61,6 +69,25 @@ function cloneLines(lines) {
   return (lines || []).map((ln) => ({ ...emptyLine(), ...ln }));
 }
 
+/** Normalize rates/qty so a typed "$9,200" rate cannot save as a string and later re-seed wrong. */
+export function normalizeDocLines(lines) {
+  return (lines || []).map((ln) => {
+    const row = { ...emptyLine(), ...ln };
+    const qtyRaw = row.qty;
+    const hasQty = qtyRaw != null && qtyRaw !== "";
+    const qty = hasQty ? parseAmount(qtyRaw) : 1;
+    const unitPrice = parseAmount(row.unitPrice) || parseAmount(row.rate) || 0;
+    const amount = Math.round((hasQty ? qty : 1) * unitPrice * 100) / 100 || lineAmount(row);
+    return {
+      ...row,
+      qty: hasQty ? qty : row.qty == null ? 1 : row.qty,
+      unitPrice,
+      rate: unitPrice,
+      amount,
+    };
+  });
+}
+
 function statusPatch(kind) {
   return kind === "estimate"
     ? { Estimate: { s: "done", d: todayStr() } }
@@ -75,8 +102,137 @@ export function docSyncFailurePatch(commandType) {
     : { status: { Invoiced: { s: "", d: "" } } };
 }
 
+/**
+ * Jobs that carry an invoice linked to this estimate (same job or sibling by est #).
+ * Goodness case: est lives on qbo-est-201963, 50% inv on local-… with same estimateNo.
+ */
+export function findJobsLinkedToEstimate(jobs, estimateJob) {
+  if (!estimateJob) return [];
+  const estId = String(estimateJob.id || "");
+  const estNo = String(estimateJob.estimateNo || "").trim();
+  const out = [];
+  const seen = new Set();
+  for (const j of jobs || []) {
+    if (!j || !j.id) continue;
+    const id = String(j.id);
+    if (seen.has(id)) continue;
+    const hasInv =
+      !!(String(j.invoiceNo || "").trim() || j._invoiceConfirmed || (j.invoiceLines && j.invoiceLines.length));
+    if (!hasInv) continue;
+    const sameJob = id === estId;
+    const sameEstNo = estNo && String(j.estimateNo || "").trim() === estNo;
+    const linked =
+      String(j.linkedEstimateJobId || "") === estId ||
+      String(estimateJob.linkedInvoiceJobId || "") === id ||
+      String(estimateJob.linkedInvoiceNo || "") === String(j.invoiceNo || "").trim();
+    if (sameJob || sameEstNo || linked) {
+      seen.add(id);
+      out.push(j);
+    }
+  }
+  return out;
+}
+
+/**
+ * When the estimate contract changes, keep linked progress invoices on the same %.
+ * e.g. est $4,600→$9,200 at 50% → invoice due becomes $4,600 (still 50%).
+ * Paid dollars stay; open balance recomputes.
+ */
+export function planInvoicePatchFromEstimateUpdate(invoiceJob, estimateLines, opts = {}) {
+  const estLines = normalizeDocLines(estimateLines);
+  const contract = linesTotal(estLines);
+  if (!(contract > 0) || !invoiceJob) return null;
+
+  const priorContract =
+    contractTotalForJob(invoiceJob) ||
+    linesTotal(invoiceJob.estimateLines) ||
+    parseAmount(invoiceJob.contractAmount) ||
+    0;
+  const priorLines = invoiceJob.invoiceLines || [];
+  const explicitPct =
+    opts.progressPct != null && opts.progressPct !== ""
+      ? parseAmount(opts.progressPct)
+      : invoiceJob.invoiceProgressPct != null && invoiceJob.invoiceProgressPct !== ""
+        ? parseAmount(invoiceJob.invoiceProgressPct)
+        : null;
+  const derivedPct =
+    priorContract > 0
+      ? progressPctFromLines(priorLines, priorContract)
+      : progressPctFromLines(priorLines, contract);
+  const isProgress =
+    !!invoiceJob.invoiceProgressBilling ||
+    (explicitPct != null && explicitPct < 99.99) ||
+    (derivedPct > 0 && derivedPct < 99.99) ||
+    priorLines.some((ln) => ln?.progressBilling || isFractionalProgressQty(ln?.qty));
+
+  // Full non-progress invoice: replace lines with the new estimate (1:1).
+  if (!isProgress) {
+    const invLines = estLines.map((ln) => ({ ...ln, progressBilling: false }));
+    const total = linesTotal(invLines);
+    return {
+      estimateLines: cloneLines(estLines),
+      contractAmount: contract,
+      invoiceLines: invLines,
+      invoiceProgressBilling: false,
+      invoiceProgressPct: 100,
+      amount: fmt$(total),
+      ...reconcileBalanceOnAmountChange(invoiceJob, total),
+    };
+  }
+
+  const pct =
+    explicitPct != null && !Number.isNaN(explicitPct)
+      ? Math.min(100, Math.max(0, explicitPct))
+      : Math.min(100, Math.max(0, derivedPct || 100));
+  const invLines = progressBillLines(estLines, pct);
+  const total = linesTotal(invLines);
+  return {
+    estimateLines: cloneLines(estLines),
+    contractAmount: contract,
+    invoiceLines: invLines,
+    invoiceProgressBilling: pct < 99.99,
+    invoiceProgressPct: pct,
+    amount: fmt$(total),
+    ...reconcileBalanceOnAmountChange(
+      { ...invoiceJob, invoiceProgressBilling: true, invoiceProgressPct: pct },
+      total
+    ),
+  };
+}
+
+/**
+ * Estimate save → patches for every linked invoice job (including same-id).
+ * Returns [{ jobId, patch, progressPct, invoiceNo }].
+ */
+export function planLinkedInvoicePatchesFromEstimate(estimateJob, estimateLines, boardJobs = []) {
+  const estLines = normalizeDocLines(estimateLines);
+  const linked = findJobsLinkedToEstimate(boardJobs, estimateJob);
+  // Always include same-job invoice when present even if board list is stale/slim.
+  if (
+    estimateJob &&
+    (estimateJob.invoiceNo || estimateJob._invoiceConfirmed || estimateJob.invoiceLines?.length) &&
+    !linked.some((j) => String(j.id) === String(estimateJob.id))
+  ) {
+    linked.unshift(estimateJob);
+  }
+  const out = [];
+  for (const inv of linked) {
+    const patch = planInvoicePatchFromEstimateUpdate(inv, estLines);
+    if (!patch) continue;
+    out.push({
+      jobId: inv.id,
+      patch,
+      progressPct: patch.invoiceProgressPct,
+      invoiceNo: inv.invoiceNo || "",
+      prevAmount: inv.amount,
+      nextAmount: patch.amount,
+    });
+  }
+  return out;
+}
+
 function buildDocJobPatch(job, { kind, mode, lines, serviceAddress, apartment, markDone, progressPct, contractAmount, discountType, discountValue }) {
-  const valid = lines || [];
+  const valid = normalizeDocLines(lines || []);
   const linesSub = linesTotal(valid);
   // Face total for $ discounts: prefer line math, but never ignore the stored
   // invoice amount / baseline (mobile list-projection jobs + QBO imports often
@@ -130,6 +286,32 @@ function buildDocJobPatch(job, { kind, mode, lines, serviceAddress, apartment, m
     [kind === "estimate" ? "estimateLines" : "invoiceLines"]: valid,
     ...discPatch,
   };
+
+  // Estimate save: contract always lives on estimateLines + contractAmount.
+  // If this job (or a sibling) also has an invoice, re-apply the same progress %
+  // so inv due scales with the new estimate (Goodness $4,600→$9,200 @ 50% → $4,600).
+  // Never Object.assign the full inv patch over the estimate — that replaced the
+  // estimate face amount with the invoice due and looked like a "revert" after Save.
+  if (kind === "estimate") {
+    jobPatch.estimateLines = cloneLines(valid);
+    jobPatch.contractAmount = safeTotal;
+    jobPatch.amount = fmt$(safeTotal);
+    const hasInvoice =
+      !!(String(job.invoiceNo || "").trim() || job._invoiceConfirmed || (job.invoiceLines && job.invoiceLines.length));
+    if (hasInvoice) {
+      const invPatch = planInvoicePatchFromEstimateUpdate(job, valid, { progressPct });
+      if (invPatch) {
+        jobPatch.invoiceLines = invPatch.invoiceLines;
+        jobPatch.invoiceProgressBilling = invPatch.invoiceProgressBilling;
+        jobPatch.invoiceProgressPct = invPatch.invoiceProgressPct;
+        // Dual job A/R face = invoice due; estimate total stays on estimateLines/contractAmount.
+        jobPatch.amount = invPatch.amount;
+        if (invPatch.openBalance != null) jobPatch.openBalance = invPatch.openBalance;
+        if (invPatch.paid != null) jobPatch.paid = invPatch.paid;
+        if (invPatch.balanceDue != null) jobPatch.balanceDue = invPatch.balanceDue;
+      }
+    }
+  }
 
   if (kind === "invoice" && isProgressBillingContext(job, { kind, mode })) {
     Object.assign(jobPatch, progressBillingJobPatch(valid, job, { progressPct, contractAmount }));

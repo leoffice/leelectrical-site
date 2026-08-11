@@ -18,7 +18,11 @@ import { defaultQboItems, filterQboItems } from "../data/qboItems.js";
 import ServiceAddressField from "./ServiceAddressField.jsx";
 import AddressAutocompleteField from "./AddressAutocompleteField.jsx";
 import { emptyLine, ensureLineRowId, initialLines, lineAmount, linesTotal } from "../lib/qboDoc.js";
-import { planDocSaveLocal, planDocSaveSync } from "../lib/docSync.js";
+import {
+  planDocSaveLocal,
+  planDocSaveSync,
+  planLinkedInvoicePatchesFromEstimate,
+} from "../lib/docSync.js";
 import { resolveDocNumberOnSave } from "../lib/nextDocNumber.js";
 import { enqueueCustomerQboSync } from "../lib/customerQboEnqueue.js";
 import { stashPendingDocSync } from "../lib/docSyncChain.js";
@@ -900,6 +904,9 @@ export default function DocBuilderSheet({
   const boardJobsRef = useRef(boardJobs);
   boardJobsRef.current = boardJobs;
   const [job, setJob] = useState(() => jobProp || {});
+  // True after the user edits lines/rates — parent poll/hydrate must not yank
+  // the sheet back to the pre-edit amount (Goodness $9,200→$4,600 revert).
+  const sheetDirtyRef = useRef(false);
   // Parent job objects are re-created often (overlay merge, hydrate). Only
   // absorb external changes when the identity or key doc fields actually move —
   // never clobber in-sheet typing on every parent re-render.
@@ -933,6 +940,11 @@ export default function DocBuilderSheet({
   useEffect(() => {
     if (!jobProp) return;
     if (lastJobPropSig.current === jobPropSig && jobPropId === job?.id) return;
+    // Mid-edit: ignore parent thrash (same id). Still allow real job switches.
+    if (sheetDirtyRef.current && jobPropId === job?.id) {
+      lastJobPropSig.current = jobPropSig;
+      return;
+    }
     lastJobPropSig.current = jobPropSig;
     setJob(jobProp);
     // eslint-disable-next-line react-hooks/exhaustive-deps -- intentional: only on sig/id
@@ -996,6 +1008,7 @@ export default function DocBuilderSheet({
     setLines((rows) => {
       const next = typeof updater === "function" ? updater(rows) : updater;
       linesRef.current = next;
+      sheetDirtyRef.current = true;
       return next;
     });
   }, []);
@@ -1079,9 +1092,11 @@ export default function DocBuilderSheet({
   useEffect(() => {
     setAsChangeOrder(isChangeOrderJob(job));
   }, [job.changeOrder, job.changeOrderSeq, job.changeOrderLabel, job.title, job.invoiceNo, job.estimateNo]);
+  // boardJobs identity thrash (4k list) must not recompute CO on every poll.
   const coSource = useMemo(
-    () => bestChangeOrderSource(boardJobs, job) || job,
-    [boardJobs, job]
+    () => bestChangeOrderSource(boardJobsRef.current, job) || job,
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- board via ref
+    [job?.id, job?.invoiceNo, job?.estimateNo, job?.changeOrder, job?.changeOrderSeq, job?.title]
   );
   // Always allow flip on/off when we have a job context (create or edit).
   const canToggleCo = !!(job?.id || coSource?.invoiceNo || coSource?.estimateNo || coSource?.id || alreadyCo || asChangeOrder);
@@ -1570,16 +1585,44 @@ export default function DocBuilderSheet({
       "DRAFT",
   });
 
+  /** Apply estimate contract change onto sibling progress invoices (local, instant). */
+  const applyLinkedInvoicePatches = (activeJob, estLines, stampedEstNo) => {
+    if (kind !== "estimate") return [];
+    const estForLink = {
+      ...activeJob,
+      estimateNo: stampedEstNo || activeJob.estimateNo || "",
+    };
+    const linked = planLinkedInvoicePatchesFromEstimate(
+      estForLink,
+      estLines,
+      boardJobsRef.current || []
+    );
+    for (const row of linked) {
+      if (!row?.jobId || !row.patch) continue;
+      // Same job already merged into estimate jobPatch when it carries an invoice.
+      if (String(row.jobId) === String(activeJob.id)) continue;
+      rememberDocSave(row.jobId, row.patch);
+      void patchAndSave(row.jobId, row.patch)
+        .then(() => confirmDocSave(row.jobId))
+        .catch(() => {});
+    }
+    return linked.filter((row) => String(row.jobId) !== String(activeJob.id));
+  };
+
   /** @param {{ close?: boolean, printPdf?: boolean, toast?: string }} opts */
   const submitLocal = async (opts = {}) => {
     const close = opts.close !== false;
     const printPdf = !!opts.printPdf;
+    // Instant press feedback — never wait on cloud before the button reacts.
+    setSaving(true);
     // Pull still-local line keystrokes before validate/plan (snappy line fields).
     flushAllLineRowFields();
     const valid = validate(false);
-    if (!valid) return null;
+    if (!valid) {
+      setSaving(false);
+      return null;
+    }
 
-    setSaving(true);
     try {
       const jobId = await ensureJobId();
       if (!jobId) {
@@ -1610,7 +1653,7 @@ export default function DocBuilderSheet({
         kind,
         existing: activeJob[docNoKey] || jobPatch[docNoKey] || "",
         preferred: preferredNo,
-        jobs: boardJobs,
+        jobs: boardJobsRef.current || boardJobs,
       });
       if (stampedNo) jobPatch[docNoKey] = stampedNo;
       // Confirm flags so the invoice card never waits on a heal pass (Levi 2026-08-05).
@@ -1631,48 +1674,68 @@ export default function DocBuilderSheet({
       void patchAndSave(jobId, jobPatch)
         .then(() => confirmDocSave(jobId))
         .catch(() => {});
-      // Existing QBO invoice + a real $/% discount: push update_invoice in the
-      // background so Save (not only Save & Email) keeps the credit in QuickBooks
-      // and the next pull cannot wipe it (Levi 2026-08-11 inv #231596).
+      // Sibling progress invoices (separate job rows) jump with the new contract %.
+      const linkedRows = applyLinkedInvoicePatches(
+        { ...activeJob, ...jobPatch },
+        jobPatch.estimateLines || valid,
+        stampedNo
+      );
+      // Push QBO on Save so the next pull cannot wipe local amounts
+      // (estimate $4,600→$9,200 revert; invoice discount wipe).
       if (
         qboOn &&
-        kind === "invoice" &&
-        String(stampedNo || activeJob.invoiceNo || "").trim() &&
-        parseAmount(jobPatch.discount) > 0.01 &&
-        typeof enqueue === "function"
+        typeof enqueue === "function" &&
+        String(
+          stampedNo ||
+            activeJob[kind === "estimate" ? "estimateNo" : "invoiceNo"] ||
+            ""
+        ).trim()
       ) {
-        try {
-          const { commands } = planDocSaveSync(
-            { ...activeJob, ...jobPatch },
-            {
-              kind,
-              mode: "edit",
-              lines: valid,
-              serviceAddress,
-              apartment,
-              progressPct: progressPctEdit,
-              contractAmount,
-              send: false,
-              discountType: discountTypeRef.current,
-              discountValue: discountValueRef.current,
-            }
-          );
-          for (const cmd of commands || []) {
-            if (cmd?.type !== "update_invoice" || !cmd.payload) continue;
-            void enqueue(
-              cmd.type,
-              jobId,
-              cmd.payload,
-              "deterministic",
-              cmd.idk ||
-                ["update_invoice", jobId, stampedNo || activeJob.invoiceNo, jobPatch.discount].join(":")
+        const shouldPush =
+          kind === "estimate" ||
+          parseAmount(jobPatch.discount) > 0.01 ||
+          kind === "invoice";
+        if (shouldPush) {
+          try {
+            const { commands } = planDocSaveSync(
+              { ...activeJob, ...jobPatch },
+              {
+                kind,
+                mode: "edit",
+                lines: valid,
+                serviceAddress,
+                apartment,
+                progressPct: progressPctEdit,
+                contractAmount,
+                send: false,
+                discountType: discountTypeRef.current,
+                discountValue: discountValueRef.current,
+              }
             );
+            const want = kind === "estimate" ? "update_estimate" : "update_invoice";
+            for (const cmd of commands || []) {
+              if (cmd?.type !== want || !cmd.payload) continue;
+              void enqueue(
+                cmd.type,
+                jobId,
+                cmd.payload,
+                "deterministic",
+                cmd.idk ||
+                  [
+                    want,
+                    jobId,
+                    stampedNo || activeJob.estimateNo || activeJob.invoiceNo,
+                    jobPatch.amount,
+                  ].join(":")
+              );
+            }
+          } catch {
+            /* QBO push is best-effort; local save already stuck */
           }
-        } catch {
-          /* QBO push is best-effort; local save already stuck */
         }
       }
       // Keep builder fields in sync so a re-open does not look empty.
+      sheetDirtyRef.current = false;
       setJob((o) => ({ ...o, id: jobId, ...jobPatch }));
       const pdfJob = buildPdfJob(activeJob, jobPatch);
       if (printPdf) {
@@ -1686,12 +1749,25 @@ export default function DocBuilderSheet({
           : "invoice";
       // SNAPPY: toast + close builder immediately so we land on the job's
       // estimate/invoice card under the customer — never wait on cloud save.
-      showToast(
+      let toastMsg =
         opts.toast ||
-          (printPdf
-            ? "Saved + printed " + noLabel + " PDF"
-            : "Saved " + noLabel + " on this job")
-      );
+        (printPdf
+          ? "Saved + printed " + noLabel + " PDF"
+          : "Saved " + noLabel + " on this job");
+      if (!opts.toast && linkedRows.length) {
+        const first = linkedRows[0];
+        const pct =
+          first.progressPct != null ? Math.round(Number(first.progressPct) * 100) / 100 : null;
+        const invLabel = first.invoiceNo ? "Inv #" + first.invoiceNo : "linked invoice";
+        toastMsg =
+          "Saved " +
+          noLabel +
+          " · " +
+          invLabel +
+          (pct != null ? " kept at " + pct + "%" : " updated") +
+          (first.nextAmount ? " (" + first.nextAmount + ")" : "");
+      }
+      showToast(toastMsg);
       resumeFollowUpPrompts();
       onDone && onDone({ ...activeJob, ...jobPatch });
       if (close) onClose();
@@ -1811,6 +1887,14 @@ export default function DocBuilderSheet({
       void patchAndSave(jobId, jobPatch)
         .then(() => confirmDocSave(jobId))
         .catch(() => {});
+      if (kind === "estimate") {
+        applyLinkedInvoicePatches(
+          { ...activeJob, ...jobPatch },
+          jobPatch.estimateLines || valid,
+          jobPatch.estimateNo || stampedNo
+        );
+      }
+      sheetDirtyRef.current = false;
 
       const needsCustomer =
         mode !== "edit" && !String(activeJob.qboCustomerId || "").trim();
@@ -2436,7 +2520,7 @@ export default function DocBuilderSheet({
       <div className="grid grid-cols-4 gap-1.5 mb-1" data-testid="doc-action-bar">
         <button
           type="button"
-          className="btn !py-2 !px-1.5 text-xs sm:text-sm bg-slate-50 text-slate-800 border border-slate-200"
+          className="btn !py-2 !px-1.5 text-xs sm:text-sm bg-slate-50 text-slate-800 border border-slate-200 active:scale-[0.98] active:bg-slate-100 transition-transform"
           disabled={saving || attUploading}
           onClick={() => fileInputRef.current?.click()}
           data-testid="doc-attach-btn"
@@ -2445,16 +2529,16 @@ export default function DocBuilderSheet({
         </button>
         <button
           type="button"
-          className="btn !py-2 !px-1.5 text-xs sm:text-sm bg-slate-50 text-slate-800 border border-slate-200"
+          className="btn !py-2 !px-1.5 text-xs sm:text-sm bg-slate-50 text-slate-800 border border-slate-200 active:scale-[0.98] active:bg-emerald-50 transition-transform"
           disabled={saving}
           onClick={() => submitLocal({ close: false, toast: "Saved" })}
           data-testid="doc-save"
         >
-          Save
+          {saving ? "Saving…" : "Save"}
         </button>
         <button
           type="button"
-          className="btn !py-2 !px-1.5 text-xs sm:text-sm bg-slate-50 text-slate-800 border border-slate-200"
+          className="btn !py-2 !px-1.5 text-xs sm:text-sm bg-slate-50 text-slate-800 border border-slate-200 active:scale-[0.98] transition-transform"
           disabled={saving}
           onClick={printPdfOnly}
           data-testid="doc-print-pdf"
@@ -2463,9 +2547,10 @@ export default function DocBuilderSheet({
         </button>
         <button
           type="button"
-          className="btn-brand !py-2 !px-1.5 text-xs sm:text-sm"
+          className="btn-brand !py-2 !px-1.5 text-xs sm:text-sm active:scale-[0.98] transition-transform"
           disabled={saving}
           onClick={() => {
+            // Instant open — compose sheet owns typing so this never freezes.
             setSendEmailsSeed(job.email || sendEmailsSeed || "");
             if (!sendMessageSeed) {
               setSendMessageSeed(
