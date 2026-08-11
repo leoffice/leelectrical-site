@@ -1031,10 +1031,17 @@ const DeployQueueRow = memo(function DeployQueueRow({
   const [deployPhaseLabel, setDeployPhaseLabel] = useState("Deploying now");
   const isRenewDeploy =
     item.source === "permit_renew" || item.kind === "Renew Permit";
+  // Prefer real host step text when Israel/host stamps deployLiveStep (Levi 2026-08-11).
+  const liveStep = String(item.deployLiveStep || item.job?.permitRenew?.deployLiveStep || "").trim();
   useEffect(() => {
     if (!isDeploying) {
       setDeployPct(0);
       setDeployPhaseLabel("Deploying now");
+      return undefined;
+    }
+    if (liveStep) {
+      setDeployPhaseLabel(liveStep.slice(0, 48));
+      setDeployPct((p) => Math.max(p, item.hostAcked ? 70 : 40));
       return undefined;
     }
     setDeployPct((p) => (p > 0 ? p : 6));
@@ -1075,7 +1082,7 @@ const DeployQueueRow = memo(function DeployQueueRow({
       });
     }, 700);
     return () => clearInterval(t);
-  }, [isDeploying, item.id, isRenewDeploy, item.hostAcked]);
+  }, [isDeploying, item.id, isRenewDeploy, item.hostAcked, liveStep]);
 
   let statusLabel = status || "pending";
   let statusTone = "bg-slate-100 text-slate-700";

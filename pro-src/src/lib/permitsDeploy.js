@@ -540,6 +540,8 @@ export function permitRenewDeployDisplay(card = {}, job = null) {
     deployError: deployError || "",
     hostAcked,
     deployStartedAt,
+    // Live step from host/Israel (e.g. "Logging into DOB NOW…") for row label
+    deployLiveStep: s(pr.deployLiveStep || card.deployLiveStep),
     readiness: {
       ready: status === "ready" || status === "deploying" || status === "failed",
       missing,
