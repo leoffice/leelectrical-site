@@ -255,16 +255,42 @@ export function assertRenewComposeRecipient(email, { realTest = false } = {}) {
   };
 }
 
-/** True if this is a leftover Levi-Tester mock renew (safe to delete). */
+/** True if this is a leftover Levi-Tester mock renew (safe to delete).
+ *  Levi 2026-08-11: do NOT hide paid real-customer renews (or any money paid).
+ *  Old rule treated every phase-A mock as tester junk — that hid Yosef LE-2702
+ *  from Deploy after he paid $365. Only true Levi-tester leftovers go away.
+ */
 export function isLeviTesterMockRenewJob(job) {
   if (!job || !isPermitRenewJob(job)) return false;
   const pr = job.permitRenew || job.permitRenewMock || {};
   if (pr.realTest) return false;
+  // Paid / queued for DOB renew — always keep on Deploy + paid lists
+  if (
+    job.paid ||
+    pr.paid ||
+    pr.nextStep === "update_permit" ||
+    pr.queueUpdatePermit ||
+    pr.deployUpdate
+  ) {
+    return false;
+  }
+  const pays = Array.isArray(job.payments) ? job.payments : [];
+  if (pays.some((p) => parseAmount(p?.amount) > 0.009)) return false;
+  // Real customer on the bill (not tester) — keep, even if phase still "A"
+  const display =
+    pr.displayCustomer || job.customer || job.personName || job.businessName || "";
+  if (display && !isLeviTesterCustomer(display) && !isLeviTesterCustomer(job.customer)) {
+    return false;
+  }
   if (isLeviTesterEmail(job.email)) return true;
-  if (isLeviTesterCustomer(job.customer) || isLeviTesterCustomer(job.businessName)) {
+  if (
+    isLeviTesterCustomer(job.customer) ||
+    isLeviTesterCustomer(job.businessName) ||
+    isLeviTesterCustomer(pr.displayCustomer)
+  ) {
     return true;
   }
-  // Mock without realTest and no real customer email
+  // No real customer signal — only drop pure mock leftovers
   return !!(pr.mock || pr.phase === "A" || pr.phase === 1) && !pr.realTest;
 }
 

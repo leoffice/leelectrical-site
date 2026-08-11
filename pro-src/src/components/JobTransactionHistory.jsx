@@ -8,7 +8,7 @@ import {
   txnRowDisplay,
 } from "../lib/customerTransactions.js";
 import { suggestInvoiceForPayment } from "../lib/paymentApply.js";
-import { amountPaid, openBalance, paidPct } from "../lib/customers.js";
+import { amountPaid, faceOpenBalance, paidPct } from "../lib/customers.js";
 import { fmt$ } from "../lib/format.js";
 
 const FILTERS = [
@@ -226,7 +226,8 @@ export default function JobTransactionHistory({
     return allRows;
   }, [allRows, filter]);
   const paid = amountPaid(job);
-  const due = openBalance(job);
+  // Job face open — provisional renews still show fee, not "Paid"
+  const due = faceOpenBalance(job);
   const pct = paidPct(job);
 
   // onOpenFull kept for callers that open the full payment editor from a payment row;

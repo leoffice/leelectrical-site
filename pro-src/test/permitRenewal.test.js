@@ -24,6 +24,7 @@ import {
   listPaidUpdatePermitCards,
   listRenewApplications,
   isPermitRenewPaymentJob,
+  isLeviTesterMockRenewJob,
   buildPermitRenewPaidPatch,
   buildPermitRenewDeployStartPatch,
   buildPermitRenewDeployPayload,
@@ -359,6 +360,54 @@ describe("permitRenewal Phase A mock", () => {
     const afterSend = listRenewApplications([emailed, paid]);
     expect(afterSend.find((r) => r.id === "r1-sent")).toBeUndefined();
     expect(afterSend.find((r) => r.id === "r2")?.deployUpdate).toBe(true);
+  });
+
+  it("paid phase-A real-customer renew is NOT hidden as Levi-tester mock (LE-2702)", () => {
+    const paidPhaseA = {
+      id: "local-1786389117648",
+      customer: "Yosef Beshari",
+      invoiceNo: "LE-2702",
+      amount: 365,
+      paid: true,
+      openBalance: 0,
+      payments: [{ amount: 365, method: "ACH" }],
+      serviceAddress: "40 Hampton Pl",
+      permitRenew: {
+        mock: true,
+        phase: "A",
+        scenarioId: "hampton-yossi",
+        displayCustomer: "Yosef Beshari",
+        permitNo: "B01126007-L1-EL",
+        paid: true,
+        paidAt: "2026-08-11",
+        paidAmount: 365,
+        nextStep: "update_permit",
+        queueUpdatePermit: true,
+      },
+    };
+    expect(isLeviTesterMockRenewJob(paidPhaseA)).toBe(false);
+    const cards = listPaidUpdatePermitCards([paidPhaseA]);
+    expect(cards).toHaveLength(1);
+    expect(cards[0].invoiceNo).toBe("LE-2702");
+    expect(cards[0].deployUpdate).toBe(true);
+
+    const leviTesterOnly = {
+      id: "local-test",
+      customer: "levi tester",
+      email: "levikumer@gmail.com",
+      invoiceNo: "LE-2701",
+      amount: 365,
+      paid: false,
+      openBalance: 365,
+      permitRenew: {
+        mock: true,
+        phase: "A",
+        displayCustomer: "levi tester",
+        permitNo: "B01126007-L1-EL",
+      },
+    };
+    expect(isLeviTesterMockRenewJob(leviTesterOnly)).toBe(true);
+    expect(listPaidUpdatePermitCards([leviTesterOnly])).toHaveLength(0);
   });
 
   it("buildPermitRenewPaidPatch + notify message name who paid and queue update", () => {

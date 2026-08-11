@@ -762,21 +762,40 @@ export function buildDeployQueueItems({ jobs = [], caseRuns = [] } = {}) {
       if (!todo || todo.status === "done" || todo.status === "removed") continue;
       const isMeterTodo =
         todo.kind === "new_meter" || todo.source === "meter_application";
+      const isAppForService =
+        todo.kind === "upload_application" ||
+        todo.kind === "application_for_service" ||
+        todo.kind === "send_application";
+      const isElectricCert =
+        todo.kind === "file_electrical_permit" ||
+        todo.kind === "electric_certificate" ||
+        todo.kind === "electrical_permit";
       const todoKind = isMeterTodo
         ? "new_meter"
-        : todo.kind === "file_electrical_permit"
+        : isElectricCert
           ? "electrical_permit"
-          : s(todo.kind) || "new_meter";
-      const readiness = getDeployReadiness(job, { kind: todoKind });
+          : isAppForService
+            ? "upload_application"
+            : s(todo.kind) || "new_meter";
+      let readiness = getDeployReadiness(job, { kind: todoKind });
+      const addr = s(job.serviceAddress || job.address);
+      const cust = s(job.customer || job.customerName);
+      const caseNum =
+        s(job?.paperwork?.coned?.caseNumber) ||
+        s(todo.caseNumber) ||
+        s(job?.paperwork?.coned?.createCase?.execution?.caseNumber);
+      const batch = isAppForService ? getConedApplicationBatch(job) : null;
+      const batchLine = isAppForService ? formatConedApplicationBatchLine(job) : "";
+      // Real Form A files ready (not just open todos counted as "ready")
+      const readyFilesForTodo = isAppForService ? listReadyConedApplications(job) : [];
+      const appReq = job?.paperwork?.coned?.applicationRequest || {};
       // New-meter: if not Ready, still show Need info (don't silent-drop with false Ready)
       if (isMeterTodo && !readiness.ready) {
-        const title =
-          s(todo.title) ||
-          formatDeployTitle({
-            kind: "New Meter",
-            agency: "Con Edison",
-            serviceAddress: s(job.serviceAddress || job.address),
-          });
+        const title = formatDeployTitle({
+          kind: "New Meter",
+          agency: "Con Edison",
+          serviceAddress: addr,
+        });
         items.push({
           id: `todo:${job.id}:${todo.id}`,
           source: "todo",
@@ -788,7 +807,7 @@ export function buildDeployQueueItems({ jobs = [], caseRuns = [] } = {}) {
             "Missing: " +
             readiness.missing.map((m) => m.label).join(", "),
           requestShort: "",
-          serviceAddress: s(job.serviceAddress || job.address),
+          serviceAddress: addr,
           kind: "New Meter",
           agency: "Con Edison",
           status: "need_info",
@@ -802,13 +821,80 @@ export function buildDeployQueueItems({ jobs = [], caseRuns = [] } = {}) {
       if (isMeterTodo && !isReadyToEnqueueDeploy(job, { kind: "new_meter" })) {
         continue;
       }
-      const title =
-        s(todo.title) ||
-        formatDeployTitle({
-          kind: deployKindLabel(todo.kind),
-          agency: todo.agency === "dob" ? "DOB" : "Con Edison",
-          serviceAddress: s(job.serviceAddress || job.address),
-        });
+      // Levi 2026-08-11: full facts on Con Ed to-dos so Deploy queue answers
+      // "how many apps / did they fill / is the permit done?" without opening the job.
+      let kindLabel = deployKindLabel(todo.kind);
+      let agency = todo.agency === "dob" ? "DOB" : "Con Edison";
+      let subtitleBits = [s(todo.meterLabel), cust, s(todo.status)];
+      let status = todo.status || "pending";
+      if (isAppForService) {
+        kindLabel = "Application for Service";
+        agency = "Con Edison";
+        const filled =
+          batch && (batch.filled > 0 || batch.ready > 0)
+            ? `${batch.filled || batch.ready} of ${batch.expected || batch.filled || 1} filled`
+            : appReq?.sentAt || appReq?.emailed
+              ? "Link sent to customer — not filled yet"
+              : "Not filled yet";
+        subtitleBits = [
+          cust,
+          caseNum ? `Case ${caseNum}` : "",
+          batchLine || filled,
+          appReq?.to ? `to ${appReq.to}` : "",
+          "Con Ed still needs this — not done",
+        ];
+        // Ready only when a real Form A file is ready — open todos alone ≠ ready
+        const hasFileReady = readyFilesForTodo.length > 0;
+        status =
+          hasFileReady
+            ? "ready"
+            : batch && batch.uploaded > 0 && batch.remainingToFill === 0
+              ? "done"
+              : "need_info";
+        if (!hasFileReady) {
+          readiness = {
+            ready: false,
+            missing: [
+              {
+                id: "form_a",
+                label:
+                  batch && batch.remainingToFill > 0
+                    ? `Customer Form A (${batch.remainingToFill} still expected)`
+                    : appReq?.sentAt || appReq?.emailed
+                      ? "Customer has the link — form not filled yet"
+                      : "Customer Form A filled / ready to upload",
+                fix: "create_application",
+              },
+            ],
+          };
+        }
+      } else if (isElectricCert) {
+        kindLabel = "Electric Certificate";
+        agency = "DOB";
+        subtitleBits = [
+          cust,
+          caseNum ? `Case ${caseNum}` : "",
+          "NOT filed yet — Con Ed asks for this after DOB electrical permit",
+          "Permit is not done just because this row is here",
+        ];
+        // skill not built — surface Need info so Deploy is not a false green
+        status = "need_info";
+        readiness = {
+          ready: false,
+          missing: [
+            {
+              id: "electrical_permit",
+              label: "DOB electrical permit not filed yet (certificate skill coming)",
+              fix: "job",
+            },
+          ],
+        };
+      }
+      const title = formatDeployTitle({
+        kind: kindLabel,
+        agency,
+        serviceAddress: addr,
+      });
       items.push({
         id: `todo:${job.id}:${todo.id}`,
         source: "todo",
@@ -816,22 +902,19 @@ export function buildDeployQueueItems({ jobs = [], caseRuns = [] } = {}) {
         job,
         todo,
         title,
-        subtitle: [
-          s(todo.meterLabel),
-          s(job.customer || job.customerName),
-          s(todo.status),
-        ]
-          .filter(Boolean)
-          .join(" · "),
-        requestShort: "",
-        serviceAddress: s(job.serviceAddress || job.address),
-        kind: deployKindLabel(todo.kind),
-        agency: todo.agency === "dob" ? "DOB" : "Con Edison",
-        status: todo.status || "pending",
+        subtitle: subtitleBits.filter(Boolean).join(" · "),
+        requestShort: isAppForService ? "Form A" : isElectricCert ? "Cert" : "",
+        serviceAddress: addr,
+        kind: kindLabel,
+        agency,
+        status,
         readiness,
-        missing: readiness.missing,
+        missing: readiness.missing || [],
         removable: true,
         expandable: true,
+        appsReady: readyFilesForTodo.length || batch?.ready,
+        appsExpected: batch?.expected,
+        appsUploaded: batch?.uploaded,
       });
     }
 

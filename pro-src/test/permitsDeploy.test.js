@@ -289,6 +289,104 @@ describe("buildDeployQueueItems", () => {
     expect(disp.id).toBe("permit-renew:local-hampton-renew");
     expect(disp.subtitle).toMatch(/Paid 2026-08-11/);
   });
+
+  it("paid phase-A Yosef renew still lands on Deploy (not filtered as mock)", () => {
+    const jobs = [
+      {
+        id: "local-1786389117648",
+        customer: "Yosef Beshari",
+        serviceAddress: "40 Hampton Pl",
+        invoiceNo: "LE-2702",
+        amount: 365,
+        paid: true,
+        openBalance: 0,
+        payments: [{ amount: 365, method: "ACH" }],
+        permitRenew: {
+          mock: true,
+          phase: "A",
+          scenarioId: "hampton-yossi",
+          displayCustomer: "Yosef Beshari",
+          permitNo: "B01126007-L1-EL",
+          paid: true,
+          paidAt: "2026-08-11",
+          paidAmount: 365,
+          nextStep: "update_permit",
+          queueUpdatePermit: true,
+        },
+      },
+    ];
+    const items = buildDeployQueueItems({ jobs, caseRuns: [] });
+    const renew = items.find((i) => i.source === "permit_renew");
+    expect(renew).toBeTruthy();
+    expect(renew.title).toMatch(/Renew Permit · DOB · 40 Hampton/);
+    expect(renew.subtitle).toMatch(/LE-2702/);
+  });
+
+  it("Application for Service + Electric Certificate rows show case + not-done facts", () => {
+    const jobs = [
+      {
+        id: "qbo-19949",
+        customer: "izzy",
+        address: "1127 Lincoln Pl, Brooklyn, NY 11213",
+        paperwork: {
+          coned: {
+            caseNumber: "MC-941412",
+            applicationRequest: {
+              sentAt: "2026-08-05T17:09:20.996Z",
+              to: "izzybcorp@gmail.com",
+              emailed: true,
+            },
+            customerTodos: [
+              {
+                kind: "application_for_service",
+                title: "Application for Service",
+                status: "pending",
+              },
+              {
+                kind: "electric_certificate",
+                title: "Electric Certificate",
+                status: "pending",
+                skillReady: false,
+              },
+            ],
+          },
+          todos: [
+            {
+              id: "ctodo-mirror:upload_application",
+              kind: "upload_application",
+              title: "Application for Service",
+              status: "pending",
+              agency: "coned",
+              skillReady: true,
+            },
+            {
+              id: "ctodo-mirror:file_electrical_permit",
+              kind: "file_electrical_permit",
+              title: "Electric Certificate (DOB permit)",
+              status: "pending",
+              agency: "dob",
+              skillReady: false,
+            },
+          ],
+        },
+      },
+    ];
+    const items = buildDeployQueueItems({ jobs, caseRuns: [] });
+    const app = items.find((i) => /Application for Service/i.test(i.title || ""));
+    const cert = items.find((i) => /Electric Certificate/i.test(i.title || i.kind || ""));
+    expect(app).toBeTruthy();
+    expect(app.title).toMatch(/Application for Service · Con Edison · 1127 Lincoln/);
+    expect(app.subtitle).toMatch(/izzy/i);
+    expect(app.subtitle).toMatch(/MC-941412/);
+    expect(app.subtitle).toMatch(/not filled|not done|still/i);
+    expect(app.status).toBe("need_info");
+    expect(cert).toBeTruthy();
+    expect(cert.title).toMatch(/Electric Certificate · DOB · 1127 Lincoln/);
+    expect(cert.subtitle).toMatch(/NOT filed yet/i);
+    expect(cert.subtitle).toMatch(/not done/i);
+    expect(cert.status).toBe("need_info");
+    expect(queueItemCanDeploy(cert)).toBe(false);
+  });
 });
 
 describe("getDeployReadiness", () => {

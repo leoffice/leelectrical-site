@@ -1,7 +1,12 @@
 import React from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { isPaid, nextAction, progressPct, stageOf } from "../lib/stages.js";
-import { agingStripeColor, invoiceAgeDays, openBalance } from "../lib/customers.js";
+import {
+  agingStripeColor,
+  faceOpenBalance,
+  invoiceAgeDays,
+  openBalance,
+} from "../lib/customers.js";
 import { jobInvoiceDateDisplay } from "../lib/customerDocLists.js";
 import { fmt$ } from "../lib/format.js";
 import { isProgressInvoiceJob, totalPaid, normalizePayments } from "../lib/payments.js";
@@ -33,7 +38,8 @@ export function StagePill({ job }) {
  */
 export function paymentStatusKind(job) {
   if (!job) return "unpaid";
-  const due = openBalance(job);
+  // Face due — provisional unpaid renews still show the fee (not rollup $0)
+  const due = faceOpenBalance(job);
   const paidAmt = totalPaid(normalizePayments(job));
   const pct = Number(job.invoiceProgressPct);
   const partialQty = (job.invoiceLines || []).some((ln) => {
@@ -49,7 +55,9 @@ export function paymentStatusKind(job) {
     if (paidAmt > 0.01 || job.paid || due <= 0.01) return "partial";
     return "unpaid";
   }
-  if (isPaid(job) || due <= 0.01) return "paid";
+  if (isPaid(job) || (job.paid && due <= 0.01) || (due <= 0.01 && paidAmt > 0.01)) {
+    return "paid";
+  }
   if (paidAmt > 0.01 && due > 0.01) return "partial";
   return "unpaid";
 }

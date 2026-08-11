@@ -1263,15 +1263,42 @@ const DeployQueueRow = memo(function DeployQueueRow({
                 ))}
               </ul>
             </div>
-          ) : reviewBits.length ? (
-            <ul className="text-[12px] text-slate-700 space-y-0.5">
-              {reviewBits.map((b) => (
-                <li key={b}>· {b}</li>
-              ))}
+          ) : null}
+          {/* Always show full facts on expand (Levi 2026-08-11 — no more guessing) */}
+          {item.subtitle || reviewBits.length || item.customer || item.permitNo || item.invoiceNo ? (
+            <ul
+              className="text-[12px] text-slate-700 space-y-0.5"
+              data-testid="permits-queue-facts"
+            >
+              {item.subtitle
+                ? String(item.subtitle)
+                    .split(" · ")
+                    .filter(Boolean)
+                    .map((b) => (
+                      <li key={b}>· {b}</li>
+                    ))
+                : null}
+              {reviewBits
+                .filter((b) => !String(item.subtitle || "").includes(b))
+                .map((b) => (
+                  <li key={`r-${b}`}>· {b}</li>
+                ))}
+              {item.permitNo && !String(item.subtitle || "").includes(item.permitNo) ? (
+                <li>· Permit {item.permitNo}</li>
+              ) : null}
+              {item.invoiceNo && !String(item.subtitle || "").includes(item.invoiceNo) ? (
+                <li>· Inv {item.invoiceNo}</li>
+              ) : null}
+              {item.appsExpected != null && item.appsExpected > 0 ? (
+                <li>
+                  · Applications: {item.appsReady || 0} ready · {item.appsUploaded || 0} uploaded ·{" "}
+                  {item.appsExpected} expected
+                </li>
+              ) : null}
             </ul>
-          ) : (
+          ) : !missing.length ? (
             <p className="text-[12px] text-slate-500">No application details yet — Edit to fill.</p>
-          )}
+          ) : null}
           <div className="flex flex-wrap gap-2 pt-1 items-center">
             {item.jobId ? (
               <button

@@ -140,11 +140,34 @@ export function isBalanceExemptOffer(job) {
 
 /** Open balance for a job = amount still owed on an INVOICE only.
  *  HARD RULE (Levi): estimates/leads never count toward balance due.
- *  HARD RULE (Levi 2026-08-10): provisional unpaid renew offers = $0 due. */
+ *  HARD RULE (Levi 2026-08-10): provisional unpaid renew offers = $0 due
+ *  for TOTAL DUE / open-invoices rollups — not for the job face "Paid" label.
+ *  Use isBalanceExemptOffer + amountPaid for job-face truth. */
 export function openBalance(job) {
   if (!job) return 0;
   if (!isInvoiceJob(job)) return 0;
   if (isBalanceExemptOffer(job)) return 0;
+  return rawBalance(job);
+}
+
+/**
+ * True amount still owed on this invoice for the job face (Job Info, txn strip).
+ * Unlike openBalance, provisional unpaid renew offers still show the fee so
+ * the card never says "Paid $365 · Paid in full" before money lands
+ * (LE-2703 / Hampton, Levi 2026-08-11).
+ */
+export function faceOpenBalance(job) {
+  if (!job) return 0;
+  if (!isInvoiceJob(job)) return 0;
+  if (isBalanceExemptOffer(job)) {
+    // Exempt from customer TOTAL DUE, but job face still shows unpaid fee
+    // unless money is already on the ledger.
+    const pays = normalizePayments(job);
+    if (pays.some((p) => parseAmount(p?.amount) > 0.009)) {
+      return rawBalance(job);
+    }
+    return rawBalance(job) || invoiceTotal(job);
+  }
   return rawBalance(job);
 }
 
@@ -253,10 +276,15 @@ export function totalBalanceDue(jobs) {
  */
 export function isJobFullyPaid(job) {
   if (!job || !isInvoiceJob(job)) return false;
+  // Provisional unpaid renew offer is NOT paid (even if openBalance is $0 for rollup)
+  if (isBalanceExemptOffer(job)) {
+    const pays = normalizePayments(job);
+    if (!pays.some((p) => parseAmount(p?.amount) > 0.009) && !job.paid) return false;
+  }
   const due = openBalance(job);
   if (due > 0.01) return false;
   if (job.paid) return true;
-  // Explicit open balance zero / tiny
+  // Explicit open balance zero / tiny — but not for exempt offers with no pay
   if (job.openBalance != null && job.openBalance !== "" && parseAmount(job.openBalance) <= 0.01) {
     return true;
   }
@@ -265,6 +293,11 @@ export function isJobFullyPaid(job) {
 
 export function fmtAmountDue(job) {
   if (!job) return "";
+  // Job face: provisional renew shows the fee, not "Paid"
+  if (isBalanceExemptOffer(job) && !job.paid) {
+    const face = faceOpenBalance(job);
+    if (face > 0.01) return fmt$(face);
+  }
   // Balance is truth — never show "Paid" while money is still open.
   const n = openBalance(job);
   if (n > 0.01) return fmt$(n);
@@ -289,6 +322,11 @@ export function amountPaid(job) {
   const storedOpen = hasExplicitOpen ? parseAmount(job.openBalance) : null;
   const pays = normalizePayments(job);
   const sum = pays.length ? totalPaid(pays) : 0;
+  // Provisional unpaid renew: openBalance is $0 for TOTAL DUE rollup only.
+  // Never invent "paid $365" from total − $0 due (LE-2703, Levi 2026-08-11).
+  if (isBalanceExemptOffer(job) && !job.paid) {
+    return sum;
+  }
   // Live due (heals raised-after-pay stamps). Prefer ledger when still open.
   const due = openBalance(job);
   if (due > 0.01 && pays.length) return sum;

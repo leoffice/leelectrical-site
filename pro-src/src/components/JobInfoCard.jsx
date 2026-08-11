@@ -1,7 +1,13 @@
 // Per-job summary — awareness bubbles under title, then service address + doc tabs.
 import React, { useMemo } from "react";
 import AmountDisplay from "./AmountDisplay.jsx";
-import { amountPaid, invoiceTotal, isJobFullyPaid, openBalance, paidPct } from "../lib/customers.js";
+import {
+  amountPaid,
+  faceOpenBalance,
+  invoiceTotal,
+  isJobFullyPaid,
+  paidPct,
+} from "../lib/customers.js";
 import { serviceAddressDisplay } from "../lib/customerSync.js";
 import { jobInvoiceDateDisplay, jobServiceDateDisplay } from "../lib/customerDocLists.js";
 import { fmt$, parseAmount } from "../lib/format.js";
@@ -91,7 +97,8 @@ export default function JobInfoCard({
 }) {
   const total = invoiceTotal(job);
   const paid = amountPaid(job);
-  const balance = openBalance(job);
+  // Job face: provisional unpaid renews still show the fee (not "Paid")
+  const balance = faceOpenBalance(job);
   const pct = paidPct(job);
   const svc = serviceAddressDisplay(job);
   const serviceDate = jobServiceDateDisplay(job);

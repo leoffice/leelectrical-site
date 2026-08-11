@@ -1,10 +1,14 @@
 import { describe, expect, it } from "vitest";
 import {
   openBalance,
+  faceOpenBalance,
   amountPaid,
+  isJobFullyPaid,
+  fmtAmountDue,
   totalBalanceDue,
   customerAmountSummary,
   isInvoiceJob,
+  isBalanceExemptOffer,
 } from "../src/lib/customers.js";
 
 // HARD RULE: balance due = sum of OPEN INVOICE balances only. Estimates are
@@ -72,5 +76,32 @@ describe("balance rule — estimates never count toward due", () => {
     expect(s.invoiced).toBe(400);
     expect(s.openInvoices).toBe(1);
     expect(s.jobCount).toBe(1);
+  });
+
+  it("provisional unpaid renew does NOT look Paid on job face (LE-2703)", () => {
+    const renew = {
+      id: "local-1786391824857",
+      invoiceNo: "LE-2703",
+      amount: 365,
+      openBalance: 365,
+      paid: false,
+      excludeFromBalanceDue: true,
+      permitRenew: {
+        provisional: true,
+        excludeFromBalanceDue: true,
+        realTest: true,
+        fee: 365,
+        permitNo: "B01126007-L1-EL",
+      },
+    };
+    expect(isBalanceExemptOffer(renew)).toBe(true);
+    // Customer TOTAL DUE rollup still hides the offer
+    expect(openBalance(renew)).toBe(0);
+    // Job face still shows the fee and $0 paid
+    expect(faceOpenBalance(renew)).toBe(365);
+    expect(amountPaid(renew)).toBe(0);
+    expect(isJobFullyPaid(renew)).toBe(false);
+    expect(fmtAmountDue(renew)).toMatch(/365/);
+    expect(fmtAmountDue(renew)).not.toMatch(/Paid/i);
   });
 });
