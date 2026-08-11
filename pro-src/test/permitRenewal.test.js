@@ -25,6 +25,8 @@ import {
   listRenewApplications,
   isPermitRenewPaymentJob,
   buildPermitRenewPaidPatch,
+  buildPermitRenewDeployStartPatch,
+  buildPermitRenewDeployPayload,
   formatPermitRenewPaidNotify,
   permitAbandonedFromExpires,
   permitExpiresFromIssued,
@@ -386,7 +388,23 @@ describe("permitRenewal Phase A mock", () => {
     expect(msg).toMatch(/Yosef Beshari/);
     expect(msg).toMatch(/40 Hampton/);
     expect(msg).toMatch(/B01126007/);
-    expect(msg).toMatch(/Queued to update/i);
+    expect(msg).toMatch(/Deploy list/i);
+    const deployPatch = buildPermitRenewDeployStartPatch({
+      ...job,
+      ...patch,
+      permitRenew: patch.permitRenew,
+    });
+    expect(deployPatch.permitRenew.deployStatus).toBe("deploying");
+    expect(deployPatch.permitRenew.deployStartedAt).toBeTruthy();
+    const payload = buildPermitRenewDeployPayload(
+      { ...job, ...patch, permitRenew: patch.permitRenew },
+      { renewCard: { fee: 365, paidAt: "2026-08-11" } }
+    );
+    expect(payload.skill).toBe("dob_renew_work_permit");
+    expect(payload.permitNo).toMatch(/B01126007/);
+    expect(payload.customer).toMatch(/Yosef/);
+    expect(payload.address).toMatch(/Hampton/);
+    expect(payload.invoiceNo).toBe("LE-2701");
   });
 
   it("real Bashari $1 card pay shows Paid + update-permit next step on renew list", () => {
@@ -632,10 +650,11 @@ describe("permitRenewal Phase A mock", () => {
     expect(after.every((c) => c.scenarioId !== "schenectady-hackner")).toBe(true);
     expect(after.every((c) => !String(c.scenarioId || "").startsWith("drive:") || isDobRenewableForNotify(c.scenario || c))).toBe(true);
 
-    // Paid → update permit box
+    // Paid → Deploy list (update permit)
     const paidBox = listPaidUpdatePermitCards([paid]);
     expect(paidBox.length).toBe(1);
     expect(paidBox[0].deployUpdate).toBe(true);
+    expect(paidBox[0].nextStepLabel).toMatch(/Deploy/i);
 
     // Cache always carries permit # + expiration (never blank main card)
     const fromCache = listPendingRenewCards([]);

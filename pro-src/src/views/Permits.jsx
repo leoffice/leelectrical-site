@@ -60,6 +60,7 @@ import {
   jobHasConedFormA,
   fleetRunIsSupersededSuccess,
   healCaseProgressPatch,
+  permitRenewDeployDisplay,
 } from "../lib/permitsDeploy.js";
 import { caseStepCompletePatch } from "../lib/caseNextSteps.js";
 import {
@@ -99,6 +100,8 @@ import {
   prepareRenewScenario,
   renewFeeFromScenario,
   renewScenarioById,
+  buildPermitRenewDeployStartPatch,
+  buildPermitRenewDeployPayload,
 } from "../lib/permitRenewal.js";
 import {
   ensurePermitCacheSeeded,
@@ -176,6 +179,7 @@ function RenewalNotificationsCard({
   phaseABusy,
   onSendForRow,
   onOpenJob,
+  onDeployPaid,
   onResendFromHistory,
   historyTick = 0,
 }) {
@@ -238,24 +242,51 @@ function RenewalNotificationsCard({
               data-testid="permit-renew-paid-deploy-box"
             >
               <div className="text-[11px] font-extrabold text-emerald-900 mb-1">
-                Paid — update permit ({paidDeploy.length})
+                Paid — Deploy list ({paidDeploy.length})
               </div>
-              <ul className="space-y-1">
-                {paidDeploy.map((r) => (
-                  <li key={r.id} className="flex items-center justify-between gap-2 text-[12px]">
-                    <span className="truncate font-semibold text-emerald-950">
-                      {r.address} · {r.customer}
-                      {r.permitNo ? ` · ${r.permitNo}` : ""}
-                    </span>
-                    <button
-                      type="button"
-                      className="shrink-0 text-[11px] font-bold text-emerald-800 underline"
-                      onClick={() => onOpenJob?.(r.jobId)}
+              <p className="text-[10px] text-emerald-800/80 mb-1.5">
+                Also on the Deploy queue below. Press Deploy to start the DOB renew.
+              </p>
+              <ul className="space-y-1.5">
+                {paidDeploy.map((r) => {
+                  const bits = [
+                    r.address,
+                    r.customer,
+                    r.permitNo,
+                    r.invoiceNo ? `Inv ${r.invoiceNo}` : "",
+                    r.fee
+                      ? `$${Number(r.fee) % 1 ? Number(r.fee).toFixed(2) : Number(r.fee)}`
+                      : "",
+                    r.paidAt ? `Paid ${r.paidAt}` : "",
+                  ].filter(Boolean);
+                  const deploying =
+                    String(r.deployStatus || "").toLowerCase() === "deploying";
+                  return (
+                    <li
+                      key={r.id}
+                      className="flex items-center justify-between gap-2 text-[12px]"
+                      data-testid="permit-renew-paid-row"
                     >
-                      Update
-                    </button>
-                  </li>
-                ))}
+                      <button
+                        type="button"
+                        className="min-w-0 flex-1 text-left truncate font-semibold text-emerald-950"
+                        onClick={() => onOpenJob?.(r.jobId)}
+                        title={bits.join(" · ")}
+                      >
+                        {bits.join(" · ")}
+                      </button>
+                      <button
+                        type="button"
+                        className="shrink-0 btn bg-emerald-700 text-white !py-0.5 !px-2 text-[11px] font-extrabold"
+                        data-testid="permit-renew-paid-deploy-btn"
+                        disabled={deploying || phaseABusy}
+                        onClick={() => onDeployPaid?.(r)}
+                      >
+                        {deploying ? "Deploying…" : "Deploy"}
+                      </button>
+                    </li>
+                  );
+                })}
               </ul>
             </div>
           ) : null}
@@ -2281,6 +2312,75 @@ export default function Permits() {
         return;
       }
 
+      // Paid city permit renew → Deploy starts DOB renew process (Levi 2026-08-11)
+      if (item.source === "permit_renew" || item.kind === "Renew Permit") {
+        const pr = job?.permitRenew || item.permitRenew || {};
+        const who = [
+          item.customer || pr.displayCustomer || job?.customer || "Customer",
+          item.serviceAddress || job?.serviceAddress || job?.address || "",
+          item.permitNo || pr.permitNo || "",
+        ]
+          .filter(Boolean)
+          .join(" · ");
+        showToast(`Deploying renew — ${who}`);
+        const startedAt = new Date().toISOString();
+        await patchAndSave(item.jobId, {
+          permitRenew: {
+            ...pr,
+            paid: true,
+            nextStep: "renew_in_progress",
+            deployUpdate: true,
+            renewDeployStartedAt: startedAt,
+          },
+        });
+        // Fleet row so Deploy queue shows Deploying… / agent can claim
+        try {
+          const { createPaperworkJob } = await import("../lib/paperworkJobs.js");
+          await createPaperworkJob({
+            type: "permit_renew",
+            jobId: item.jobId,
+            payload: {
+              deployKind: "permit_renew",
+              permitNo: item.permitNo || pr.permitNo || "",
+              address: item.serviceAddress || job?.serviceAddress || job?.address || "",
+              customer: item.customer || pr.displayCustomer || job?.customer || "",
+              email: job?.email || pr.realEmail || "",
+              fee: pr.fee,
+              issuedDate: pr.issuedDate || "",
+              expiresDate: pr.expiresDate || "",
+              who,
+              instruction:
+                "DOB NOW → Job search → Select Action → Renew Work Permit. Check-only until Levi says submit. After renew: email customer confirmation + set new exp = issue+12m on job.",
+            },
+          });
+        } catch {
+          /* queue still shows local deploying */
+        }
+        if (enqueue) {
+          void enqueue(
+            "dob_permit_renew",
+            item.jobId,
+            {
+              permitNo: item.permitNo || pr.permitNo || "",
+              address: item.serviceAddress || job?.serviceAddress || job?.address || "",
+              customer: item.customer || pr.displayCustomer || job?.customer || "",
+              who,
+            },
+            "judgment",
+            `dob_renew|${item.jobId}|${Date.now()}`
+          ).catch(() => {});
+        }
+        await refreshRuns();
+        setTimeout(() => {
+          setDeployingIds((m) => {
+            const next = { ...m };
+            delete next[item.id];
+            return next;
+          });
+        }, 2000);
+        return;
+      }
+
       if (item.source === "draft" || (item.kind === "New Case" && item.draft)) {
         const answers =
           item.draft?.answers ||
@@ -2451,6 +2551,40 @@ export default function Permits() {
         return;
       }
 
+      // Paid renew → queue host command; Israel starts DOB Renew Work Permit
+      // (improves with practice — Levi 2026-08-11).
+      if (item.source === "permit_renew" || item.kind === "Renew Permit") {
+        const liveJob = jobsById.get(item.jobId) || job;
+        if (!liveJob) {
+          showToast("Job not found");
+          return;
+        }
+        const payload = buildPermitRenewDeployPayload(liveJob, item);
+        if (!payload.address && !payload.permitNo) {
+          showToast("Need address or permit # before Deploy");
+          setExpandedIds((m) => ({ ...m, [item.id]: true }));
+          return;
+        }
+        const startPatch = buildPermitRenewDeployStartPatch(liveJob);
+        await patchAndSave(item.jobId, startPatch);
+        const idk = `permit-renew:${item.jobId}:${payload.permitNo || "addr"}`;
+        const cmd = await enqueue(
+          "permit_renew_update",
+          item.jobId,
+          payload,
+          "judgment",
+          idk
+        );
+        showToast(
+          cmd
+            ? "Deploying renew… Israel opening DOB NOW"
+            : "Queued — if it stalls, say Deploy again"
+        );
+        // Keep Deploying… while host/Israel work (job.deployStatus stamps the row)
+        setDeployingIds((m) => ({ ...m, [item.id]: true }));
+        return;
+      }
+
       if (item.source === "fleet") {
         await refreshRuns();
         return;
@@ -2460,7 +2594,13 @@ export default function Permits() {
     } finally {
       // Levi 2026-08-05: keep the green Deploy battery filling (not a flash).
       // Fleet rows keep Deploying via queueItemIsDeploying; local flag holds ≥12s.
-      const holdMs = item.source === "fleet" ? 1200 : 12000;
+      // Renew keeps job.deployStatus=deploying so the row stays Deploying after flag clear.
+      const holdMs =
+        item.source === "fleet"
+          ? 1200
+          : item.source === "permit_renew"
+            ? 8000
+            : 12000;
       setTimeout(() => {
         setDeployingIds((m) => {
           const next = { ...m };
@@ -2530,11 +2670,18 @@ export default function Permits() {
         ) : null}
       </div>
 
-      {/* Renewal Notifications — ready addresses · Send Email · paid→update permit */}
+      {/* Renewal Notifications — ready addresses · Send Email · paid→Deploy list */}
       <RenewalNotificationsCard
         jobs={jobs}
         phaseABusy={phaseABusy}
         historyTick={historyTick}
+        onOpenJob={(jobId) => jobId && open(jobId)}
+        onDeployPaid={(row) => {
+          if (!row?.jobId) return;
+          const job = jobsById.get(row.jobId) || null;
+          const item = permitRenewDeployDisplay(row, job);
+          void deployQueueItem(item);
+        }}
         onSendForRow={(row) => {
           if (!row) return;
           // Prefer card scenario (Drive cache / ready list); never re-bind 364 Schenectady

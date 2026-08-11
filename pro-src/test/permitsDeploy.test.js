@@ -16,6 +16,7 @@ import {
   isReadyToEnqueueDeploy,
   fleetRunIsSupersededSuccess,
   jobConedCaseNumber,
+  permitRenewDeployDisplay,
 } from "../src/lib/permitsDeploy.js";
 import { jobPatchMeterApplication } from "../src/modules/permits/meterApplication.js";
 import { REQUEST_TYPES } from "../src/lib/agencyForms/createCaseQuestionnaire.js";
@@ -37,28 +38,36 @@ describe("Deploy titles + short load labels", () => {
     expect(requestTypeShortLabel("No Additional Load")).toBe("No Additional Load");
   });
 
-  it("kind labels still cover New Case, Load Letter, New Meter, Electrical Permit", () => {
+  it("kind labels cover New Case, Load Letter, New Meter, Electrical Permit, Renew Permit", () => {
     const ids = DEPLOY_KIND_OPTIONS.map((o) => o.id);
     expect(ids).toEqual([
       DEPLOY_KINDS.NEW_CASE,
       DEPLOY_KINDS.LOAD_LETTER,
       DEPLOY_KINDS.NEW_METER,
       DEPLOY_KINDS.ELECTRICAL_PERMIT,
+      DEPLOY_KINDS.PERMIT_RENEW,
     ]);
   });
 });
 
 describe("queue Deploy button state", () => {
-  it("draft/todo/meter can Deploy; fleet running shows Deploying", () => {
+  it("draft/todo/meter/renew can Deploy; fleet running shows Deploying", () => {
     expect(queueItemCanDeploy({ source: "draft", status: "draft", id: "d1" })).toBe(true);
     expect(queueItemCanDeploy({ source: "todo", status: "pending", id: "t1" })).toBe(true);
     expect(queueItemCanDeploy({ source: "meter", status: "deploy_queued", id: "m1" })).toBe(true);
+    expect(queueItemCanDeploy({ source: "permit_renew", status: "ready", id: "r1" })).toBe(true);
+    expect(queueItemCanDeploy({ source: "permit_renew", status: "deploying", id: "r2" })).toBe(
+      false
+    );
     expect(queueItemCanDeploy({ source: "fleet", status: "queued", id: "f1" })).toBe(false);
     expect(queueItemCanDeploy({ source: "fleet", status: "awaiting_approval", id: "f2" })).toBe(
       false
     );
     expect(queueItemIsDeploying({ source: "fleet", status: "in_progress", id: "f3" })).toBe(true);
     expect(queueItemIsDeploying({ source: "draft", status: "draft", id: "d2" }, { d2: true })).toBe(
+      true
+    );
+    expect(queueItemIsDeploying({ source: "permit_renew", status: "deploying", id: "r3" })).toBe(
       true
     );
   });
@@ -227,6 +236,58 @@ describe("buildDeployQueueItems", () => {
       ],
     });
     expect(items.map((i) => i.id)).toEqual(["real-fail"]);
+  });
+
+  it("puts paid permit renews on Deploy list with full facts", () => {
+    const jobs = [
+      {
+        id: "local-hampton-renew",
+        customer: "Yosef Beshari",
+        serviceAddress: "40 Hampton Pl",
+        invoiceNo: "LE-2702",
+        amount: 365,
+        paid: true,
+        openBalance: 0,
+        permitRenew: {
+          realTest: true,
+          scenarioId: "hampton-yossi",
+          permitNo: "B01126007-L1-EL",
+          paid: true,
+          paidAt: "2026-08-11",
+          paidAmount: 365,
+          nextStep: "update_permit",
+          queueUpdatePermit: true,
+          expiresDate: "2025-10-11",
+        },
+      },
+    ];
+    const items = buildDeployQueueItems({ jobs, caseRuns: [] });
+    const renew = items.find((i) => i.source === "permit_renew");
+    expect(renew).toBeTruthy();
+    expect(renew.kind).toBe("Renew Permit");
+    expect(renew.agency).toBe("DOB");
+    expect(renew.title).toMatch(/Renew Permit · DOB · 40 Hampton/);
+    expect(renew.subtitle).toMatch(/Yosef Beshari/);
+    expect(renew.subtitle).toMatch(/B01126007/);
+    expect(renew.subtitle).toMatch(/LE-2702/);
+    expect(renew.subtitle).toMatch(/\$365/);
+    expect(renew.status).toBe("ready");
+    expect(queueItemCanDeploy(renew)).toBe(true);
+
+    const disp = permitRenewDeployDisplay(
+      {
+        jobId: "local-hampton-renew",
+        address: "40 Hampton Pl",
+        customer: "Yosef Beshari",
+        permitNo: "B01126007-L1-EL",
+        invoiceNo: "LE-2702",
+        fee: 365,
+        paidAt: "2026-08-11",
+      },
+      jobs[0]
+    );
+    expect(disp.id).toBe("permit-renew:local-hampton-renew");
+    expect(disp.subtitle).toMatch(/Paid 2026-08-11/);
   });
 });
 

@@ -1,9 +1,9 @@
 {
   "schema": "le-pro-version/v1",
-  "gitSha": "5743ef378ed6b3e21ee10312f79945b877d65ac3",
-  "gitShaShort": "5743ef3",
+  "gitSha": "edb7b836ab6047f4e1b1c1ed9c41e8af823be2bb",
+  "gitShaShort": "edb7b83",
   "netlifyDeployId": null,
-  "builtAt": "2026-08-11T01:22:56.715Z",
-  "task": "",
+  "builtAt": "2026-08-11T17:16:40.000Z",
+  "task": "permit renew paid \u2192 Deploy list + Deploy starts DOB renew",
   "rollbackAvailable": true
 }

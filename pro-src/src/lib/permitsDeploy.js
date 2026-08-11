@@ -29,8 +29,20 @@ import {
   getConedApplicationBatch,
   formatConedApplicationBatchLine,
 } from "./agencyForms/completeDestinations.js";
+import { listPaidUpdatePermitCards } from "./permitRenewal.js";
 
 const s = (v) => (v == null ? "" : String(v).trim());
+
+function moneyLabel(n) {
+  const x = Number(n);
+  if (!Number.isFinite(x) || x <= 0) return "";
+  return x.toLocaleString("en-US", {
+    style: "currency",
+    currency: "USD",
+    minimumFractionDigits: x % 1 ? 2 : 0,
+    maximumFractionDigits: 2,
+  });
+}
 
 /**
  * Whether the job already has a completed Con Ed Form A (application) on the
@@ -144,6 +156,20 @@ export function getDeployReadiness(job = {}, { kind = "new_meter" } = {}) {
     if (!addr) {
       /* already pushed */
     }
+  } else if (k === "permit_renew" || k === "renew_permit") {
+    // Paid renew → Deploy needs address + permit # (DOB job search). Soft only.
+    const permitNo =
+      s(job?.permitRenew?.permitNo) ||
+      s(job?.permitRenewMock?.permitNo) ||
+      s(job?.paperwork?.dob?.filingNumber) ||
+      s(job?.paperwork?.dob?.permitNumber);
+    if (!permitNo) {
+      missing.push({
+        id: "permit_no",
+        label: "City permit number",
+        fix: "job",
+      });
+    }
   }
 
   // Hard gate shared by enqueue: address + kind-specific
@@ -231,6 +257,8 @@ export const DEPLOY_KINDS = Object.freeze({
   LOAD_LETTER: "load_letter",
   NEW_METER: "new_meter",
   ELECTRICAL_PERMIT: "electrical_permit",
+  /** Customer paid renew notice → Deploy starts DOB Renew Work Permit walk */
+  PERMIT_RENEW: "permit_renew",
 });
 
 /**
@@ -263,6 +291,13 @@ export const DEPLOY_KIND_OPTIONS = Object.freeze([
     id: DEPLOY_KINDS.ELECTRICAL_PERMIT,
     title: "Electrical Permit",
     subtitle: "DOB permit next step (queues when Application is ready)",
+    agency: "DOB",
+    ready: true,
+  },
+  {
+    id: DEPLOY_KINDS.PERMIT_RENEW,
+    title: "Renew Permit",
+    subtitle: "Paid renew — Deploy files DOB Renew Work Permit",
     agency: "DOB",
     ready: true,
   },
@@ -301,9 +336,12 @@ export function queueItemCanDeploy(item = {}) {
     item.source === "draft" ||
     item.source === "todo" ||
     item.source === "meter" ||
-    item.source === "upload_application"
+    item.source === "upload_application" ||
+    item.source === "permit_renew"
   ) {
-    if (status === "queued" || status === "deploying") return false;
+    if (status === "queued" || status === "deploying" || status === "in_progress") {
+      return false;
+    }
     return true;
   }
   return false;
@@ -339,6 +377,7 @@ export function deployKindLabel(typeOrKind) {
   const t = s(typeOrKind).toLowerCase();
   if (t === "create_case" || t === DEPLOY_KINDS.NEW_CASE) return "New Case";
   if (t === "load_letter" || t === DEPLOY_KINDS.LOAD_LETTER) return "Load Letter";
+  if (t === "permit_renew" || t === DEPLOY_KINDS.PERMIT_RENEW) return "Renew Permit";
   if (t === "new_meter" || t === "meter_application" || t === DEPLOY_KINDS.NEW_METER) {
     return "New Meter";
   }
@@ -355,10 +394,112 @@ export function deployKindLabel(typeOrKind) {
 
 export function agencyLabelForKind(typeOrKind) {
   const t = s(typeOrKind).toLowerCase();
-  if (t.includes("dob") || t.includes("electrical_permit") || t === "file_electrical_permit") {
+  if (
+    t.includes("dob") ||
+    t.includes("electrical_permit") ||
+    t === "file_electrical_permit" ||
+    t === "permit_renew" ||
+    t === DEPLOY_KINDS.PERMIT_RENEW
+  ) {
     return "DOB";
   }
   return "Con Edison";
+}
+
+/**
+ * Display row for a paid city-permit renew ready for Deploy.
+ * Levi 2026-08-11: after pay → Deploy list with full facts; Deploy starts DOB renew.
+ */
+export function permitRenewDeployDisplay(card = {}, job = null) {
+  const pr = (job && (job.permitRenew || job.permitRenewMock)) || {};
+  const addr = s(
+    card.address || pr.address || job?.serviceAddress || job?.address
+  );
+  const customer = s(
+    card.customer || pr.displayCustomer || job?.customer || job?.customerName
+  );
+  const permitNo = s(card.permitNo || pr.permitNo || pr.filing);
+  const inv = s(card.invoiceNo || job?.invoiceNo || pr.placeholderInvoiceNo);
+  const fee =
+    card.fee != null
+      ? Number(card.fee)
+      : pr.paidAmount != null
+        ? Number(pr.paidAmount)
+        : pr.fee != null
+          ? Number(pr.fee)
+          : job?.amount != null
+            ? Number(job.amount)
+            : 0;
+  const paidAt = s(card.paidAt || pr.paidAt).slice(0, 10);
+  const exp = s(card.expiresDate || pr.expiresDate).slice(0, 10);
+  const deploySt = s(pr.deployStatus || card.deployStatus).toLowerCase();
+  const missing = [];
+  if (!addr) {
+    missing.push({
+      id: "service_address",
+      label: "Service address",
+      fix: "job",
+    });
+  }
+  // Soft: still allow Deploy without permit # (Israel can look up by address)
+  if (!permitNo) {
+    missing.push({
+      id: "permit_no",
+      label: "City permit number",
+      fix: "job",
+    });
+  }
+  const hardMissing = missing.filter((m) => m.id === "service_address");
+  let status = "ready";
+  if (deploySt === "done" || deploySt === "completed") status = "done";
+  else if (
+    deploySt === "deploying" ||
+    deploySt === "queued" ||
+    deploySt === "in_progress"
+  ) {
+    status = "deploying";
+  } else if (hardMissing.length) status = "need_info";
+
+  const amountStr = moneyLabel(fee);
+  return {
+    id: `permit-renew:${s(card.jobId || job?.id || card.id)}`,
+    source: "permit_renew",
+    jobId: s(card.jobId || job?.id || card.id),
+    job,
+    card,
+    title: formatDeployTitle({
+      kind: "Renew Permit",
+      agency: "DOB",
+      serviceAddress: addr,
+    }),
+    subtitle: [
+      customer,
+      permitNo ? `Permit ${permitNo}` : "",
+      inv ? `Inv ${inv}` : "",
+      amountStr,
+      paidAt ? `Paid ${paidAt}` : "Paid",
+      exp ? `exp ${exp}` : "",
+    ]
+      .filter(Boolean)
+      .join(" · "),
+    requestShort: "Renew",
+    serviceAddress: addr,
+    kind: "Renew Permit",
+    agency: "DOB",
+    status,
+    readiness: { ready: status === "ready" || status === "deploying", missing },
+    missing,
+    removable: false,
+    expandable: true,
+    permitNo,
+    invoiceNo: inv,
+    customer,
+    fee,
+    paidAt,
+    expiresDate: exp,
+    renewCard: card,
+    permitRenew: pr,
+  };
 }
 
 /**
@@ -804,12 +945,37 @@ export function buildDeployQueueItems({ jobs = [], caseRuns = [] } = {}) {
     }
   }
 
+  // Paid permit renews → Deploy queue (Levi 2026-08-11). Deploy starts DOB renew walk.
+  // Prefer listPaidUpdatePermitCards (same source as Renewal Application paid box).
+  for (const card of listPaidUpdatePermitCards(jobs)) {
+    const job = jobsById.get(card.jobId) || null;
+    const pr = (job && (job.permitRenew || job.permitRenewMock)) || {};
+    if (pr.renewComplete || pr.renewDeployedDone || pr.deployStatus === "done") continue;
+    const already = items.some(
+      (it) =>
+        it.jobId === card.jobId &&
+        (it.source === "permit_renew" || it.kind === "Renew Permit")
+    );
+    if (already) continue;
+    const fleetActive = (caseRuns || []).some(
+      (r) =>
+        r?.jobId === card.jobId &&
+        !r.dismissed &&
+        String(r.type || "").toLowerCase() === "permit_renew" &&
+        !DEPLOY_QUEUE_COMPLETED_STATUSES.has(s(r.status).toLowerCase())
+    );
+    if (fleetActive) continue;
+    const row = permitRenewDeployDisplay(card, job);
+    if (row.status === "done") continue;
+    items.push(row);
+  }
+
   // Sort: Awaiting approval → Running → Ready → Need info → Failed (real)
   const rank = (it) => {
     const st = s(it.status).toLowerCase();
     if (st === "awaiting_approval") return 0;
     if (st === "in_progress" || st === "approved") return 1;
-    if (st === "queued" || st === "deploy_queued") return 2;
+    if (st === "queued" || st === "deploy_queued" || st === "ready") return 2;
     if (it.source === "fleet" && (st === "queued" || st === "in_progress")) return 1;
     if (st === "need_info") return 4;
     if (st === "failed" || st === "rejected") return 5;
@@ -817,6 +983,7 @@ export function buildDeployQueueItems({ jobs = [], caseRuns = [] } = {}) {
       return (it.missing || []).length ? 4 : 3;
     }
     if (it.source === "draft" || it.source === "todo" || it.source === "meter") return 3;
+    if (it.source === "permit_renew") return 2;
     return 6;
   };
   items.sort((a, b) => rank(a) - rank(b));

@@ -841,7 +841,13 @@ export function listRenewApplications(jobs = [], { includeMock = false } = {}) {
     // Levi 2026-08-10: after notice email is sent, drop from "pending send" list
     // until fully paid — then it reappears under update-permit / Deploy queue.
     const pendingSend = !paid && !noticeSent;
-    const deployUpdate = paid && nextStep === "update_permit";
+    // Paid renews stay on Deploy list until renew is marked done
+    const deployDone =
+      String(pr.deployStatus || "").toLowerCase() === "done" ||
+      !!pr.renewComplete ||
+      !!pr.renewDeployedDone;
+    const deployUpdate =
+      paid && nextStep === "update_permit" && !deployDone;
     // Hide emailed-but-unpaid from both boxes (only returns when paid)
     if (!pendingSend && !deployUpdate && !paid) return;
     const sendHistory = Array.isArray(pr.sendHistory) ? pr.sendHistory : [];
@@ -865,8 +871,16 @@ export function listRenewApplications(jobs = [], { includeMock = false } = {}) {
       nextStep,
       nextStepLabel:
         nextStep === "update_permit"
-          ? "Payment received — next: add to Deploy queue to update the permit"
+          ? "Payment received — on Deploy list; press Deploy to start DOB renew"
           : "",
+      paidAt: String(pr.paidAt || "").trim().slice(0, 10),
+      paidAmount:
+        pr.paidAmount != null
+          ? parseAmount(pr.paidAmount)
+          : paid
+            ? parseAmount(j.amount) || PERMIT_RENEW_FEE
+            : 0,
+      deployStatus: String(pr.deployStatus || "").trim(),
       /** Expiration-driven notification stage (upcoming / soon / expired / near_abandon / abandoned). */
       stageTone,
       stageLabel: permitRenewStageLabel(stageTone),
@@ -1277,8 +1291,72 @@ export function formatPermitRenewPaidNotify(job = {}, { amount } = {}) {
   if (permitNo) lines.push(`Permit ${permitNo}`);
   if (inv) lines.push(`Invoice ${inv} · ${feeStr}`);
   else lines.push(feeStr);
-  lines.push("Queued to update the permit. Say go when you want me on DOB NOW.");
+  lines.push(
+    "On Permits → Deploy list. Press Deploy to start the DOB renew (improves with practice)."
+  );
   return lines.join("\n");
+}
+
+/**
+ * Patch when staff presses Deploy on a paid renew row.
+ * Stamps deploying so the queue shows Deploying… and host/Israel start DOB.
+ */
+export function buildPermitRenewDeployStartPatch(job = {}, { note } = {}) {
+  const pr = (job && (job.permitRenew || job.permitRenewMock)) || {};
+  const now = new Date().toISOString();
+  return {
+    permitRenew: {
+      ...pr,
+      nextStep: pr.nextStep || "update_permit",
+      queueUpdatePermit: true,
+      deployStatus: "deploying",
+      deployStartedAt: now,
+      deployNote: note != null ? String(note) : pr.deployNote || "",
+    },
+  };
+}
+
+/**
+ * Payload for command bus permit_renew_update (host → Israel DOB renew).
+ */
+export function buildPermitRenewDeployPayload(job = {}, item = {}) {
+  const pr = (job && (job.permitRenew || job.permitRenewMock)) || {};
+  const card = item?.renewCard || item?.card || {};
+  return {
+    skill: "dob_renew_work_permit",
+    version: 1,
+    kind: "permit_renew",
+    jobId: String(job?.id || item?.jobId || "").trim(),
+    customer: String(
+      card.customer ||
+        pr.displayCustomer ||
+        job?.customer ||
+        job?.personName ||
+        job?.businessName ||
+        ""
+    ).trim(),
+    address: String(
+      card.address || pr.address || job?.serviceAddress || job?.address || ""
+    ).trim(),
+    permitNo: String(card.permitNo || pr.permitNo || pr.filing || "").trim(),
+    invoiceNo: String(
+      card.invoiceNo || job?.invoiceNo || pr.placeholderInvoiceNo || ""
+    ).trim(),
+    fee:
+      card.fee != null
+        ? Number(card.fee)
+        : pr.paidAmount != null
+          ? Number(pr.paidAmount)
+          : pr.fee != null
+            ? Number(pr.fee)
+            : Number(job?.amount) || PERMIT_RENEW_FEE,
+    paidAt: String(card.paidAt || pr.paidAt || "").slice(0, 10),
+    expiresDate: String(card.expiresDate || pr.expiresDate || "").slice(0, 10),
+    issuedDate: String(pr.issuedDate || pr.gradedDate || "").slice(0, 10),
+    stopAt: "review",
+    autoSubmit: false,
+    improveWithExperience: true,
+  };
 }
 
 /**
