@@ -53,6 +53,7 @@ import {
 } from "../lib/paperworkJobs.js";
 import {
   buildDeployQueueItems,
+  buildDeployHistoryItems,
   buildRecentCaseSuccesses,
   processCompletedProgressPatch,
   queueItemCanDeploy,
@@ -282,7 +283,7 @@ function RenewalNotificationsCard({
                         disabled={deploying || phaseABusy}
                         onClick={() => onDeployPaid?.(r)}
                       >
-                        {deploying ? "Deploying…" : "Deploy"}
+                        {deploying ? "Deploying now" : "Deploy"}
                       </button>
                     </li>
                   );
@@ -1285,9 +1286,11 @@ const DeployQueueRow = memo(function DeployQueueRow({
           item.invoiceNo ||
           item.detailLines?.length ||
           item.whatDeployDoes ||
-          item.nextHint ? (
+          item.nextHint ||
+          item.filesCount != null ||
+          item.filesWhere ? (
             <ul
-              className="text-[13px] text-slate-800 space-y-1 leading-snug"
+              className="text-[14px] text-slate-800 space-y-1.5 leading-relaxed"
               data-testid="permits-queue-facts"
             >
               {item.detailLines?.length
@@ -1314,47 +1317,56 @@ const DeployQueueRow = memo(function DeployQueueRow({
               {item.invoiceNo && !String(item.subtitle || "").includes(item.invoiceNo) ? (
                 <li>· Inv {item.invoiceNo}</li>
               ) : null}
-              {item.appsExpected != null && item.appsExpected > 0 ? (
-                <li>
-                  · Applications: {item.appsReady || 0} ready · {item.appsUploaded || 0} uploaded ·{" "}
-                  {item.appsExpected} expected
+              {item.filesCount != null || item.appsReady != null || item.appsExpected != null ? (
+                <li className="font-semibold text-slate-900">
+                  · Files:{" "}
+                  {item.filesCount != null
+                    ? `${item.filesCount} ready`
+                    : `${item.appsReady || 0} ready`}
+                  {item.appsExpected != null && item.appsExpected > 0
+                    ? ` · ${item.appsUploaded || 0} uploaded · ${item.appsExpected} expected`
+                    : ""}
                 </li>
               ) : null}
+              {item.filesWhere ? <li>· Where: {item.filesWhere}</li> : null}
               {item.nextHint ? (
                 <li className="font-semibold text-slate-900">· Next: {item.nextHint}</li>
               ) : null}
               {item.whatDeployDoes ? (
-                <li className="text-slate-700">· When you press Deploy: {item.whatDeployDoes}</li>
+                <li className="text-slate-800">
+                  · When you press Deploy: {item.whatDeployDoes}
+                </li>
               ) : null}
             </ul>
           ) : !missing.length ? (
-            <p className="text-[13px] text-slate-600">No application details yet — Edit to fill.</p>
+            <p className="text-[14px] text-slate-600 leading-relaxed">
+              No application details yet — Edit to fill.
+            </p>
           ) : null}
+          {/* Fail stays on this row — never history until OK (Levi 2026-08-11) */}
           {item.deployError ? (
             <div
-              className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 space-y-2"
+              className="rounded-xl border border-red-300 bg-red-50 px-3.5 py-3 space-y-2.5"
               data-testid="permits-queue-deploy-error"
             >
-              <div className="text-[11px] font-extrabold text-red-900 uppercase tracking-wide">
-                Deploy issue
+              <div className="text-[12px] font-extrabold text-red-900 uppercase tracking-wide">
+                Deploy issue — still in queue
               </div>
-              <p className="text-[13px] text-red-950 leading-snug whitespace-pre-wrap">
+              <p className="text-[14px] text-red-950 leading-relaxed whitespace-pre-wrap font-medium">
                 {item.deployError}
               </p>
               <div className="flex flex-wrap gap-2">
-                {canDeploy || item.deployError ? (
-                  <button
-                    type="button"
-                    className="btn bg-emerald-700 text-white !py-1.5 !px-3 text-xs font-extrabold"
-                    data-testid="permits-queue-try-again"
-                    onClick={() => onDeploy(item)}
-                  >
-                    Try again
-                  </button>
-                ) : null}
                 <button
                   type="button"
-                  className="btn bg-white border border-red-300 text-red-800 !py-1.5 !px-3 text-xs font-bold"
+                  className="btn bg-emerald-700 text-white !py-2 !px-3.5 text-[13px] font-extrabold"
+                  data-testid="permits-queue-try-again"
+                  onClick={() => onDeploy(item)}
+                >
+                  Try again
+                </button>
+                <button
+                  type="button"
+                  className="btn bg-white border border-red-300 text-red-900 !py-2 !px-3.5 text-[13px] font-bold"
                   data-testid="permits-queue-report-dev"
                   onClick={() => onReportDeploy?.(item)}
                 >
@@ -1454,9 +1466,12 @@ export default function Permits() {
   const [approvalJob, setApprovalJob] = useState(null);
   // Collapsed by default so the tab is scannable; expand what you need (Levi 2026-08-05).
   const [queueOpen, setQueueOpen] = useState(false);
+  const [historyOpen, setDeployHistoryOpen] = useState(true);
   const [clearing, setClearing] = useState(false);
   const [expandedIds, setExpandedIds] = useState({});
   const [deployingIds, setDeployingIds] = useState({});
+  /** Local deploy fail text per row id — stays on queue until success (Levi 2026-08-11). */
+  const [rowDeployErrors, setRowDeployErrors] = useState({});
   /** When Deploy is tapped without Form A — choose fill or email (Levi 2026-08-03). */
   const [needAppPrompt, setNeedAppPrompt] = useState(null); // { job, item }
   const [agencyAppJob, setAgencyAppJob] = useState(null);
@@ -1623,15 +1638,37 @@ export default function Permits() {
     return m;
   }, [jobs]);
 
-  const queueItems = useMemo(
-    () => buildDeployQueueItems({ jobs, caseRuns }),
-    [jobs, caseRuns]
-  );
+  const queueItems = useMemo(() => {
+    const base = buildDeployQueueItems({ jobs, caseRuns });
+    return base.map((it) => {
+      const localErr = rowDeployErrors[it.id];
+      if (!localErr) return it;
+      return {
+        ...it,
+        deployError: localErr,
+        status: it.status === "deploying" || it.status === "queued" ? it.status : "failed",
+      };
+    });
+  }, [jobs, caseRuns, rowDeployErrors]);
 
-  const recentSuccesses = useMemo(
-    () => buildRecentCaseSuccesses({ jobs, caseRuns, limit: 4 }),
+  // Deploy history — only successful completes ("OK, successfully sent …")
+  const deployHistory = useMemo(
+    () => buildDeployHistoryItems({ jobs, caseRuns, limit: 20 }),
     [jobs, caseRuns]
   );
+  const recentSuccesses = useMemo(
+    () => buildRecentCaseSuccesses({ jobs, caseRuns, limit: 8 }),
+    [jobs, caseRuns]
+  );
+  const historyRows = deployHistory.length
+    ? deployHistory
+    : recentSuccesses.map((r) => ({
+        id: r.id,
+        jobId: r.jobId,
+        okLine: r.successLabel || "OK, successfully sent",
+        subtitle: r.subtitle || r.title || "",
+        nextStage: r.nextHint || "",
+      }));
 
   const clearableCount = useMemo(
     () =>
@@ -2382,6 +2419,7 @@ export default function Permits() {
     if (!item) return;
     const err =
       item.deployError ||
+      rowDeployErrors[item.id] ||
       item.error ||
       `Deploy queue issue · ${item.kind || item.title || "row"} · ${item.serviceAddress || ""}`;
     if (!enqueue) {
@@ -2411,11 +2449,100 @@ export default function Permits() {
     }
   };
 
-  /** Green Deploy on a queue row — fire skill; button shows Deploying… */
+  /** Stamp fail on the same queue row (never history). Expand so Levi sees it. */
+  const markDeployRowFailed = (item, errMsg) => {
+    if (!item?.id) return;
+    const msg = String(errMsg || "Deploy failed").slice(0, 600);
+    setRowDeployErrors((m) => ({ ...m, [item.id]: msg }));
+    setExpandedIds((m) => ({ ...m, [item.id]: true }));
+    setQueueOpen(true);
+    showToast("Deploy issue — see the row for details");
+  };
+
+  const clearDeployRowError = (itemId) => {
+    if (!itemId) return;
+    setRowDeployErrors((m) => {
+      if (!m[itemId]) return m;
+      const next = { ...m };
+      delete next[itemId];
+      return next;
+    });
+  };
+
+  /** Green Deploy on a queue row — fire skill; button shows Deploying now */
   const deployQueueItem = async (item) => {
     if (!item?.id || deployingIds[item.id]) return;
     if (item.source === "fleet" && item.status === "awaiting_approval") {
       setApprovalJob(item.run);
+      return;
+    }
+    // Fleet failed → Try again re-queues from job payload when possible
+    if (
+      item.source === "fleet" &&
+      (String(item.status || "").toLowerCase() === "failed" ||
+        String(item.status || "").toLowerCase() === "rejected" ||
+        item.deployError)
+    ) {
+      const job = jobsById.get(item.jobId) || item.job;
+      clearDeployRowError(item.id);
+      setDeployingIds((m) => ({ ...m, [item.id]: true }));
+      setQueueOpen(true);
+      setExpandedIds((m) => ({ ...m, [item.id]: true }));
+      try {
+        const type = String(item.run?.type || item.kind || "").toLowerCase();
+        if (type.includes("permit_renew") || item.kind === "Renew Permit") {
+          // Fall through via synthetic renew item
+          const card = {
+            jobId: item.jobId,
+            address: item.serviceAddress,
+            customer: job?.customer,
+            permitNo: item.run?.payload?.permitNo || job?.permitRenew?.permitNo,
+          };
+          const renewItem = {
+            ...item,
+            id: `permit-renew:${item.jobId}`,
+            source: "permit_renew",
+            kind: "Renew Permit",
+            status: "ready",
+            deployError: "",
+          };
+          void deployQueueItem({ ...renewItem, ...card, jobId: item.jobId, job });
+          return;
+        }
+        if (job && (type.includes("create") || type === "new_case" || !type)) {
+          const answers =
+            item.run?.payload?.answers ||
+            job?.paperwork?.coned?.createCase?.answers ||
+            {};
+          const r = await createCasePaperworkJob({
+            answers,
+            job,
+            onSave: (p) => patchAndSave(item.jobId, p),
+          });
+          if (r.ok) {
+            showToast("Deploying now — stops at review for your confirm");
+            await refreshRuns();
+          } else {
+            markDeployRowFailed(item, r.error || "Could not re-queue deploy");
+          }
+        } else {
+          markDeployRowFailed(
+            item,
+            item.deployError ||
+              "This fleet row failed. Open the job and Deploy again from the matching draft, or Report to developer."
+          );
+        }
+      } catch (e) {
+        markDeployRowFailed(item, e?.message || "Try again failed");
+      } finally {
+        setTimeout(() => {
+          setDeployingIds((m) => {
+            const next = { ...m };
+            delete next[item.id];
+            return next;
+          });
+        }, 1500);
+      }
       return;
     }
     const hardMissing = (item.missing || item.readiness?.missing || []).filter((m) =>
@@ -2428,12 +2555,13 @@ export default function Permits() {
       setExpandedIds((m) => ({ ...m, [item.id]: true }));
       return;
     }
+    clearDeployRowError(item.id);
     setDeployingIds((m) => ({ ...m, [item.id]: true }));
     setQueueOpen(true);
     try {
       const job = jobsById.get(item.jobId) || item.job;
       if (!job && item.source !== "fleet") {
-        showToast("Job not found");
+        markDeployRowFailed(item, "Job not found for this deploy row");
         return;
       }
 
@@ -2950,27 +3078,32 @@ export default function Permits() {
         ) : null}
       </div>
 
-      {/* Success strip — collapsible */}
-      {recentSuccesses.length ? (
+      {/* Deploy history — only successful completes (Levi 2026-08-11) */}
+      {historyRows.length ? (
         <CollapsibleSection
           testId="permits-success-strip"
-          title={`Cases on record (${recentSuccesses.length})`}
+          title={`Deploy history (${historyRows.length})`}
           defaultOpen={false}
         >
           <div className="space-y-2">
-            {recentSuccesses.map((row) => (
+            {historyRows.map((row) => (
               <button
                 key={row.id}
                 type="button"
                 className="card w-full text-left px-3.5 py-2.5 border border-emerald-100 bg-emerald-50/40"
                 onClick={() => row.jobId && open(row.jobId)}
+                data-testid="permits-deploy-history-row"
               >
-                <div className="text-[13px] font-semibold text-slate-900">{row.title}</div>
-                <div className="text-[11px] text-emerald-900 font-semibold mt-0.5">
-                  Case {row.caseNumber} submitted
+                <div className="text-[13px] text-emerald-900 font-semibold leading-snug tracking-tight">
+                  {row.okLine || row.successLabel || "OK, successfully sent"}
                 </div>
-                {row.nextHint ? (
-                  <div className="text-[11px] text-slate-500 mt-0.5">{row.nextHint}</div>
+                {row.subtitle ? (
+                  <div className="text-[12px] text-slate-700 mt-0.5 leading-snug">{row.subtitle}</div>
+                ) : null}
+                {row.nextStage || row.nextHint ? (
+                  <div className="text-[12px] text-slate-600 mt-0.5 leading-snug">
+                    {row.nextStage || row.nextHint}
+                  </div>
                 ) : null}
               </button>
             ))}

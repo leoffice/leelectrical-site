@@ -314,8 +314,20 @@ export const DEPLOY_QUEUE_COMPLETED_STATUSES = new Set(["done", "submitted"]);
 export function queueItemCanDeploy(item = {}) {
   const status = s(item.status).toLowerCase();
   if (DEPLOY_QUEUE_COMPLETED_STATUSES.has(status)) return false;
-  if (status === "awaiting_approval" || status === "need_info" || status === "failed") {
+  if (status === "awaiting_approval" || status === "need_info") {
     return false;
+  }
+  // Failed stays on the queue with Try again (Levi 2026-08-11) — not history.
+  if (status === "failed" || status === "rejected") {
+    // Fleet failed: Try again is allowed via deployError UI (re-queue path).
+    if (item.source === "fleet") return false;
+    // Local rows: allow Deploy again after a fail
+    const hardMissingFailed = (item.missing || item.readiness?.missing || []).filter((m) =>
+      ["service_address", "form_a", "form_a_or_case", "case_number", "case_or_address"].includes(
+        m.id
+      )
+    );
+    return hardMissingFailed.length === 0;
   }
   // Hard blockers (address / Form A / case) — soft draft missing fields still allow Deploy
   // so createCaseReady can surface the full questionnaire list.
@@ -326,7 +338,7 @@ export function queueItemCanDeploy(item = {}) {
   );
   if (hardMissing.length) return false;
   if (item.source === "fleet") {
-    // Already handed to fleet — show Deploying…, not a second Deploy
+    // Already handed to fleet — show Deploying now, not a second Deploy
     if (status === "queued" || status === "in_progress" || status === "approved") {
       return false;
     }
@@ -433,6 +445,7 @@ export function permitRenewDeployDisplay(card = {}, job = null) {
   const paidAt = s(card.paidAt || pr.paidAt).slice(0, 10);
   const exp = s(card.expiresDate || pr.expiresDate).slice(0, 10);
   const deploySt = s(pr.deployStatus || card.deployStatus).toLowerCase();
+  const deployError = s(pr.deployError || card.deployError || pr.lastDeployError);
   const missing = [];
   if (!addr) {
     missing.push({
@@ -452,7 +465,9 @@ export function permitRenewDeployDisplay(card = {}, job = null) {
   const hardMissing = missing.filter((m) => m.id === "service_address");
   let status = "ready";
   if (deploySt === "done" || deploySt === "completed") status = "done";
-  else if (
+  else if (deploySt === "failed" || deploySt === "error" || deployError) {
+    status = "failed";
+  } else if (
     deploySt === "deploying" ||
     deploySt === "queued" ||
     deploySt === "in_progress"
@@ -467,8 +482,9 @@ export function permitRenewDeployDisplay(card = {}, job = null) {
     inv ? `Invoice: ${inv}` : "",
     amountStr ? `Paid: ${amountStr}${paidAt ? ` on ${paidAt}` : ""}` : "Paid",
     exp ? `Current exp (issue+12m): ${exp}` : "",
-    "Files: paid renew invoice on job · customer email on file when notice was sent",
-    "Where: LE Pro job + Drive renew folder when Israel finishes DOB",
+    "Files: 1 paid renew package on the job (invoice + notice when sent)",
+    "Where: DOB NOW → Job search → Renew Work Permit (host browser)",
+    "Next after success: new expire = issue+12 months · customer confirmation email",
   ].filter(Boolean);
   return {
     id: `permit-renew:${s(card.jobId || job?.id || card.id)}`,
@@ -488,22 +504,34 @@ export function permitRenewDeployDisplay(card = {}, job = null) {
       amountStr,
       paidAt ? `Paid ${paidAt}` : "Paid",
       exp ? `exp ${exp}` : "",
+      status === "failed" ? "Deploy failed — see issue below" : "",
     ]
       .filter(Boolean)
       .join(" · "),
     detailLines,
-    nextHint: "Press Deploy → Israel opens DOB NOW and starts the renew work permit",
+    nextHint:
+      status === "failed"
+        ? "Fix the issue below — Try again or Report to developer"
+        : status === "deploying"
+          ? "Deploying now — stay on this row until OK history"
+          : "Press Deploy → Deploying now → Israel opens DOB NOW renew",
     whatDeployDoes:
-      "Opens DOB NOW for this address/permit, files the renew work permit step, then reports back. Success moves to history as OK successfully sent.",
+      "Shows Deploying now, opens DOB NOW for this address/permit, files the renew work permit step, then reports back. Only on success: moves to Deploy history as OK, successfully sent. Failures stay here with the issue text.",
     requestShort: "Renew",
     serviceAddress: addr,
     kind: "Renew Permit",
     agency: "DOB",
     status,
-    readiness: { ready: status === "ready" || status === "deploying", missing },
+    deployError: deployError || "",
+    readiness: {
+      ready: status === "ready" || status === "deploying" || status === "failed",
+      missing,
+    },
     missing,
     removable: false,
     expandable: true,
+    filesCount: 1,
+    filesWhere: "Job payment + renew notice · DOB NOW browser",
     permitNo,
     invoiceNo: inv,
     customer,
@@ -546,30 +574,42 @@ export function caseRunDisplay(run = {}, job = null) {
     !!(answers.ownerFirst || answers.ownerLast) &&
     !!(answers.serviceAddress || serviceAddress) &&
     !!answers.requestType;
+  const runErr = s(run.error || run.lastError || payload.error);
+  const st = s(run.status).toLowerCase();
   const detailLines = [
     requestShort ? `Request: ${requestShort}` : "Request: Application for service",
     customer ? `Customer: ${customer}` : "",
     caseNum ? `Con Ed case: ${caseNum}` : "Con Ed case: not assigned yet",
-    filled ? "Application form: filled (owner + address + type)" : "Application form: incomplete — Edit to finish",
+    filled
+      ? "Application form: filled (owner + address + type)"
+      : "Application form: incomplete — Edit to finish",
     serviceAddress ? `Service address: ${serviceAddress}` : "",
+    "Files: questionnaire + any Form A attached on the job",
+    "Where: Energy Services / Con Edison portal (host browser)",
     "This is Con Edison paperwork — not the city electrical permit itself",
   ].filter(Boolean);
   return {
     title,
     subtitle: bits.join(" · "),
     detailLines,
-    nextHint: filled
-      ? caseNum
-        ? "Ready to upload / attach to the Con Ed case"
-        : "Ready to submit case to Con Edison"
-      : "Finish the application form (Edit)",
+    nextHint:
+      st === "failed" || st === "rejected"
+        ? "Deploy failed — Try again or Report to developer"
+        : filled
+          ? caseNum
+            ? "Ready to upload / attach to the Con Ed case"
+            : "Ready to submit case to Con Edison"
+          : "Finish the application form (Edit)",
     whatDeployDoes: filled
-      ? "Sends or uploads this Con Ed application for the agent to process in the browser. When done, history shows OK successfully sent."
+      ? "Shows Deploying now, then the agent processes this in the browser. Success only: history as OK, successfully sent. Failures stay on this row with the issue."
       : "Blocked until the application is complete — use Edit / Fix first.",
     requestShort,
     serviceAddress,
     kind,
     agency,
+    deployError: runErr,
+    filesCount: filled ? 1 : 0,
+    filesWhere: "Job paperwork · Energy Services portal",
   };
 }
 
@@ -584,6 +624,12 @@ export function createCaseDraftDisplay(job = {}) {
     s(answers.serviceAddress) || s(job.serviceAddress) || s(job.address);
   const requestShort = requestTypeShortLabel(answers.requestType || draft.payload?.requestType);
   const status = s(draft.status || "draft");
+  const customer = s(job.customer || job.customerName);
+  const filled =
+    !!(answers.ownerFirst || answers.ownerLast) &&
+    !!serviceAddress &&
+    !!answers.requestType;
+  const deployError = s(draft.error || draft.lastError || draft.execution?.error);
   // Hide if already driven by a live paperwork job id still active
   return {
     id: `draft:${job.id}`,
@@ -596,12 +642,32 @@ export function createCaseDraftDisplay(job = {}) {
       agency: "Con Edison",
       serviceAddress,
     }),
-    subtitle: [requestShort, s(job.customer || job.customerName), status]
+    subtitle: [requestShort, customer, status, deployError ? "Deploy failed" : ""]
       .filter(Boolean)
       .join(" · "),
+    detailLines: [
+      requestShort ? `Request: ${requestShort}` : "Request: pick Additional Load / No Additional Load",
+      customer ? `Customer: ${customer}` : "",
+      serviceAddress ? `Service address: ${serviceAddress}` : "Service address: missing",
+      filled
+        ? "Application form: filled enough to Deploy"
+        : "Application form: incomplete — Edit to finish",
+      "Files: create-case questionnaire on this job (Form A not required for new case)",
+      "Where: Energy Services create-case flow (host browser)",
+    ].filter(Boolean),
+    nextHint: deployError
+      ? "Deploy failed — Try again or Report to developer"
+      : filled
+        ? "Press Deploy → Deploying now → stops at review for your confirm"
+        : "Edit / Fix missing fields first",
+    whatDeployDoes:
+      "Shows Deploying now, fills and submits the Con Ed case to review. Success only moves to history as OK, successfully sent. Failures stay on this row.",
     requestShort,
     serviceAddress,
-    status,
+    status: deployError && status !== "done" ? "failed" : status,
+    deployError,
+    filesCount: filled ? 1 : 0,
+    filesWhere: "Job create-case draft · Energy Services",
     draft,
     removable: true,
     expandable: true,
@@ -752,6 +818,11 @@ export function buildDeployQueueItems({ jobs = [], caseRuns = [] } = {}) {
     const readiness = getDeployReadiness(job || {}, {
       kind: kindKey === "create_case" ? "new_case" : kindKey || "new_case",
     });
+    const stLower = s(run.status).toLowerCase();
+    const deployError =
+      stLower === "failed" || stLower === "rejected"
+        ? s(disp.deployError || run.error || run.lastError || "Deploy failed — see Try again")
+        : s(disp.deployError || "");
     items.push({
       id: run.id,
       source: "fleet",
@@ -760,11 +831,17 @@ export function buildDeployQueueItems({ jobs = [], caseRuns = [] } = {}) {
       job,
       title: disp.title,
       subtitle: disp.subtitle,
+      detailLines: disp.detailLines || [],
+      nextHint: disp.nextHint || "",
+      whatDeployDoes: disp.whatDeployDoes || "",
       requestShort: disp.requestShort,
       serviceAddress: disp.serviceAddress,
       kind: disp.kind,
       agency: disp.agency,
       status: run.status,
+      deployError,
+      filesCount: disp.filesCount,
+      filesWhere: disp.filesWhere || "",
       readiness,
       missing: readiness.missing,
       removable: true,
@@ -953,12 +1030,12 @@ export function buildDeployQueueItems({ jobs = [], caseRuns = [] } = {}) {
           "Con Ed still needs this — not finished until every app uploads",
         ].filter(Boolean);
         nextHint = readyFilesForTodo.length
-          ? "Ready — press Deploy to upload Form A to Con Ed"
+          ? `Ready — ${readyFilesForTodo.length} Form A file(s) · press Deploy (Deploying now)`
           : appReq?.sentAt || appReq?.emailed
             ? "Wait for customer to fill Form A, or open job to fill in-office"
             : "Send customer the Form A link or fill in-office (Fix)";
         whatDeployDoes =
-          "Opens Energy Services and uploads ready Form A file(s) to the case. History shows OK when every expected app is uploaded.";
+          "Shows Deploying now, opens Energy Services, uploads every ready Form A to the case. Only when all expected apps upload: history as OK, successfully sent. Failures stay on this row with the issue.";
       } else if (isElectricCert) {
         detailLines = [
           cust ? `Customer: ${cust}` : "",
@@ -966,12 +1043,15 @@ export function buildDeployQueueItems({ jobs = [], caseRuns = [] } = {}) {
           "What this is: Electric Certificate for Con Edison",
           "Does NOT mean the city electrical permit is done",
           "Con Ed only asks for this after the DOB electrical permit is filed",
+          "Files ready to upload: none yet (permit not filed)",
+          "Where: DOB NOW electrical permit first, then Con Ed certificate",
           "Status: not filed yet — certificate skill not built",
         ].filter(Boolean);
-        nextHint = "File the DOB electrical permit first (not this row)";
+        nextHint = "File the DOB electrical permit first — no cert package ready to upload";
         whatDeployDoes =
-          "Blocked for now — certificate skill is not live. Do not treat a green Deploy here as permit done.";
+          "Blocked for now — certificate skill is not live. No Deploy until the DOB permit package is ready.";
       }
+      const todoErr = s(todo.error || todo.lastError || todo.deployError);
       items.push({
         id: `todo:${job.id}:${todo.id}`,
         source: "todo",
@@ -987,7 +1067,18 @@ export function buildDeployQueueItems({ jobs = [], caseRuns = [] } = {}) {
         serviceAddress: addr,
         kind: kindLabel,
         agency,
-        status,
+        status: todoErr && status !== "done" ? "failed" : status,
+        deployError: todoErr,
+        filesCount: isAppForService
+          ? readyFilesForTodo.length || batch?.ready || 0
+          : isElectricCert
+            ? 0
+            : undefined,
+        filesWhere: isAppForService
+          ? "Job Form A / customer link · Energy Services upload"
+          : isElectricCert
+            ? "None — DOB permit skill not live"
+            : "",
         readiness,
         missing: readiness.missing || [],
         removable: true,
@@ -1019,6 +1110,9 @@ export function buildDeployQueueItems({ jobs = [], caseRuns = [] } = {}) {
           .map((f) => f.meterLabel || f.name || f.filename)
           .filter(Boolean)
           .slice(0, 6);
+        const caseNumUpload =
+          s(job?.paperwork?.coned?.caseNumber) ||
+          s(job?.paperwork?.coned?.createCase?.execution?.caseNumber);
         items.push({
           id: `upload:${job.id}:${f0.docKey || "form-a"}`,
           source: "upload_application",
@@ -1040,6 +1134,20 @@ export function buildDeployQueueItems({ jobs = [], caseRuns = [] } = {}) {
           ]
             .filter(Boolean)
             .join(" · "),
+          detailLines: [
+            cust ? `Customer: ${cust}` : "",
+            caseNumUpload ? `Con Ed case: ${caseNumUpload}` : "Con Ed case: not assigned yet",
+            `Files ready: ${readyFiles.length}${batch.expected ? ` of ${batch.expected} expected` : ""}`,
+            meterBits.length
+              ? `File names / meters: ${meterBits.join(", ")}`
+              : "File names: on job paperwork",
+            `Uploaded so far: ${batch.uploaded || 0}`,
+            "Where: Energy Services → case Documents → Application for Service",
+            "This is Con Edison Form A — not the city electrical permit",
+          ].filter(Boolean),
+          nextHint: `Press Deploy → Deploying now → uploads all ${readyFiles.length} ready Form A file(s)`,
+          whatDeployDoes:
+            "Shows Deploying now, opens Energy Services, uploads every ready Form A. Only when the full batch is up: history as OK, successfully sent. Partial fail stays here with the issue.",
           requestShort: "Upload",
           serviceAddress: addr,
           kind: "Upload Form A",
@@ -1049,6 +1157,8 @@ export function buildDeployQueueItems({ jobs = [], caseRuns = [] } = {}) {
           missing: [],
           removable: true,
           expandable: true,
+          filesCount: readyFiles.length,
+          filesWhere: "Job completed Form A files · Energy Services Documents",
           appsReady: readyFiles.length,
           appsExpected: batch.expected,
           appsUploaded: batch.uploaded,
@@ -1154,7 +1264,131 @@ export function buildDeployQueueItems({ jobs = [], caseRuns = [] } = {}) {
 }
 
 /**
- * Recent successful cases for the green success strip (not in Deploy queue).
+ * Deploy history — only successful completed deployments (Levi 2026-08-11).
+ * Failures stay on the Deploy queue with issue text + Try again / Report.
+ * Line format: "OK, successfully sent …"
+ */
+export function buildDeployHistoryItems({ jobs = [], caseRuns = [], limit = 25 } = {}) {
+  const jobsById = new Map((jobs || []).filter((j) => j?.id).map((j) => [j.id, j]));
+  const out = [];
+
+  for (const run of caseRuns || []) {
+    if (!run || run.dismissed) continue;
+    if (!DEPLOY_QUEUE_COMPLETED_STATUSES.has(s(run.status).toLowerCase())) continue;
+    const job = jobsById.get(run.jobId) || null;
+    const disp = caseRunDisplay(run, job);
+    const cn = s(run.caseNumber || run.payload?.caseNumber || jobConedCaseNumber(job));
+    const when = s(
+      run.completedAt || run.updatedAt || run.finishedAt || run.createdAt || ""
+    );
+    const what = [
+      disp.kind || "application",
+      disp.agency || "",
+      disp.serviceAddress || "",
+    ]
+      .filter(Boolean)
+      .join(" · ");
+    out.push({
+      id: `deploy-hist-run:${run.id}`,
+      jobId: run.jobId || "",
+      okLine: `OK, successfully sent ${what}${cn ? ` · Case ${cn}` : ""}`,
+      subtitle: [
+        s(job?.customer || job?.customerName || run.payload?.jobName),
+        when ? when.slice(0, 16).replace("T", " ") : "",
+      ]
+        .filter(Boolean)
+        .join(" · "),
+      nextStage:
+        disp.nextHint ||
+        (cn
+          ? "Next: Form A / New Meter / Electric Certificate when due"
+          : "Next: follow case progress on the job"),
+      kind: disp.kind || "",
+      at: when,
+      source: "fleet",
+    });
+  }
+
+  for (const job of jobs || []) {
+    if (!job?.id) continue;
+    const pr = job.permitRenew || job.permitRenewMock || {};
+    const done =
+      pr.renewComplete === true ||
+      pr.renewDeployedDone === true ||
+      s(pr.deployStatus).toLowerCase() === "done" ||
+      s(pr.deployStatus).toLowerCase() === "completed";
+    if (!done) continue;
+    const addr = s(pr.address || job.serviceAddress || job.address);
+    const customer = s(pr.displayCustomer || job.customer || job.customerName);
+    const permitNo = s(pr.permitNo || pr.filing);
+    const when = s(
+      pr.renewCompletedAt || pr.deployCompletedAt || pr.paidAt || ""
+    );
+    out.push({
+      id: `deploy-hist-renew:${job.id}`,
+      jobId: job.id,
+      okLine: `OK, successfully sent Renew Permit · DOB · ${addr || "address"}${
+        permitNo ? ` · ${permitNo}` : ""
+      }`,
+      subtitle: [
+        customer,
+        when ? String(when).slice(0, 16).replace("T", " ") : "Renew complete",
+      ]
+        .filter(Boolean)
+        .join(" · "),
+      nextStage:
+        "Next: new expire = issue+12 months · customer confirmation when sent",
+      kind: "Renew Permit",
+      at: when,
+      source: "permit_renew",
+    });
+  }
+
+  // Job-level Con Ed process completions (upload / case already reflected in paperwork)
+  for (const job of jobs || []) {
+    if (!job?.id) continue;
+    const last = job?.paperwork?.coned?.lastProcess;
+    if (!last || !last.completedAt) continue;
+    const kind = deployKindLabel(last.kind || "create_case");
+    const addr = s(job.serviceAddress || job.address);
+    const cn = jobConedCaseNumber(job);
+    const id = `deploy-hist-proc:${job.id}:${last.kind || "proc"}:${last.completedAt}`;
+    if (out.some((o) => o.jobId === job.id && o.kind === kind && o.source === "fleet")) {
+      continue;
+    }
+    if (out.some((o) => o.id === id)) continue;
+    out.push({
+      id,
+      jobId: job.id,
+      okLine: `OK, successfully sent ${kind} · Con Edison · ${addr || "job"}${
+        cn ? ` · Case ${cn}` : ""
+      }`,
+      subtitle: [
+        s(job.customer || job.customerName),
+        String(last.completedAt).slice(0, 16).replace("T", " "),
+      ]
+        .filter(Boolean)
+        .join(" · "),
+      nextStage: last.nextStep
+        ? `Next: ${String(last.nextStep).replace(/_/g, " ")}`
+        : "Next: follow job Paperwork / open cases",
+      kind,
+      at: last.completedAt,
+      source: "process",
+    });
+  }
+
+  out.sort((a, b) => {
+    const ta = Date.parse(a.at || "") || 0;
+    const tb = Date.parse(b.at || "") || 0;
+    return tb - ta;
+  });
+  return out.slice(0, limit);
+}
+
+/**
+ * Recent successful deploys for history (not in Deploy queue).
+ * Levi 2026-08-11: only completed success moves here — "OK, successfully sent …".
  */
 export function buildRecentCaseSuccesses({ jobs = [], caseRuns = [], limit = 5 } = {}) {
   const jobsById = new Map((jobs || []).filter((j) => j?.id).map((j) => [j.id, j]));
@@ -1163,6 +1397,9 @@ export function buildRecentCaseSuccesses({ jobs = [], caseRuns = [], limit = 5 }
     const cn = jobConedCaseNumber(j);
     if (!cn) continue;
     const st = s(j?.paperwork?.coned?.createCase?.execution?.status || j?.paperwork?.coned?.currentStage);
+    const addr = s(j.serviceAddress || j.address);
+    const cust = s(j.customer || j.customerName);
+    const what = cn ? `Con Ed case ${cn}` : "Con Ed application";
     out.push({
       id: `ok:${j.id}`,
       jobId: j.id,
@@ -1170,18 +1407,14 @@ export function buildRecentCaseSuccesses({ jobs = [], caseRuns = [], limit = 5 }
       title: formatDeployTitle({
         kind: "Case",
         agency: "Con Edison",
-        serviceAddress: s(j.serviceAddress || j.address),
+        serviceAddress: addr,
       }),
-      subtitle: [
-        s(j.customer || j.customerName),
-        `Case ${cn}`,
-        st || "submitted",
-      ]
-        .filter(Boolean)
-        .join(" · "),
+      subtitle: [cust, `Case ${cn}`, st || "submitted"].filter(Boolean).join(" · "),
+      // Exact success wording Levi asked for (Deploy history only on complete)
+      successLabel: `OK, successfully sent ${what}${addr ? ` · ${addr}` : ""}`,
       nextHint: jobHasConedFormA(j)
-        ? "Next: New Meter or Electrical Permit when due"
-        : "Next: complete Form A / electrical permit",
+        ? "Next stage: New Meter or Electrical Permit when due"
+        : "Next stage: complete Form A / electrical permit",
     });
   }
   for (const run of caseRuns || []) {
@@ -1191,13 +1424,44 @@ export function buildRecentCaseSuccesses({ jobs = [], caseRuns = [], limit = 5 }
     if (!cn) continue;
     if (out.some((o) => o.caseNumber === cn || o.jobId === run.jobId)) continue;
     const disp = caseRunDisplay(run, job);
+    const addr = disp.serviceAddress || s(job?.serviceAddress || job?.address);
+    const what = disp.kind || "Con Ed application";
     out.push({
       id: `ok-run:${run.id}`,
       jobId: run.jobId,
       caseNumber: cn,
       title: disp.title,
       subtitle: disp.subtitle || `Case ${cn}`,
-      nextHint: "Case submitted",
+      successLabel: `OK, successfully sent ${what}${cn ? ` · case ${cn}` : ""}${addr ? ` · ${addr}` : ""}`,
+      nextHint: "Next stage: Form A / meter / electrical as the case needs",
+    });
+  }
+  // Paid city permit renew completed on Deploy
+  for (const j of jobs || []) {
+    const pr = j?.permitRenew || j?.permitRenewMock;
+    if (!pr) continue;
+    const ds = s(pr.deployStatus).toLowerCase();
+    if (ds !== "done" && ds !== "completed" && !pr.renewComplete && !pr.renewDeployedDone) {
+      continue;
+    }
+    if (out.some((o) => o.jobId === j.id && String(o.id).startsWith("ok-renew:"))) continue;
+    const addr = s(pr.address || j.serviceAddress || j.address);
+    const permitNo = s(pr.permitNo || pr.filing);
+    const cust = s(pr.displayCustomer || j.customer || j.customerName);
+    out.unshift({
+      id: `ok-renew:${j.id}`,
+      jobId: j.id,
+      caseNumber: permitNo || "",
+      title: formatDeployTitle({
+        kind: "Renew Permit",
+        agency: "DOB",
+        serviceAddress: addr,
+      }),
+      subtitle: [cust, permitNo ? `Permit ${permitNo}` : "", "Renew done"]
+        .filter(Boolean)
+        .join(" · "),
+      successLabel: `OK, successfully sent city permit renew${permitNo ? ` · ${permitNo}` : ""}${addr ? ` · ${addr}` : ""}`,
+      nextHint: "Next stage: new expire = issue+12 months · customer confirmation",
     });
   }
   return out.slice(0, limit);
