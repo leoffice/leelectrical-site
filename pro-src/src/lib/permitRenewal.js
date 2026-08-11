@@ -910,8 +910,9 @@ export function listRenewApplications(jobs = [], { includeMock = false } = {}) {
       /** Expiration-driven notification stage (upcoming / soon / expired / near_abandon / abandoned). */
       stageTone,
       stageLabel: permitRenewStageLabel(stageTone),
-      mock: phaseA && !realTest,
-      realTest,
+      // Paid real-customer renews never look like tester mocks on Deploy (Levi 2026-08-11)
+      mock: phaseA && !realTest && !paid,
+      realTest: realTest || !!(paid && !isLeviTesterCustomer(customer)),
       email: String(j.email || pr.realEmail || "").trim(),
       noticeSent,
       noticeOnly,
@@ -1262,11 +1263,16 @@ export function buildPermitRenewPaidPatch(job, { amount, date, ref } = {}) {
       : pr.paidAmount != null
         ? parseAmount(pr.paidAmount)
         : parseAmount(job?.amount) || PERMIT_RENEW_FEE;
+  // Always resurrect if mock-cleanup soft-deleted before pay landed (LE-2702).
+  // Without this, paid + update_permit sits on a deleted overlay row → Deploy empty.
   return {
     paid: true,
     openBalance: 0,
     excludeFromBalanceDue: false,
     _balanceExempt: false,
+    _deleted: false,
+    _archived: false,
+    deletedAt: "",
     status: {
       Paid: { s: "done", d: paidAt },
       "Follow-up": { s: "done", d: paidAt },
@@ -1275,14 +1281,54 @@ export function buildPermitRenewPaidPatch(job, { amount, date, ref } = {}) {
       ...pr,
       provisional: false,
       excludeFromBalanceDue: false,
+      dismissed: false,
       paid: true,
       paidAt,
       paidAmount,
       paidRef: ref != null ? String(ref) : pr.paidRef || "",
       nextStep: pr.nextStep || "update_permit",
       queueUpdatePermit: true,
+      deployUpdate: true,
     },
   };
+}
+
+/**
+ * True when a soft-deleted overlay row is a paid city-permit renew that must
+ * stay on the board / Deploy list (payment landed after leftover cleanup).
+ * Pure data — used by mergeJobs so Deploy never goes empty for paid renews.
+ */
+export function isPaidPermitRenewKeepVisible(jobOrOverlay = {}) {
+  if (!jobOrOverlay || typeof jobOrOverlay !== "object") return false;
+  const pr = jobOrOverlay.permitRenew || jobOrOverlay.permitRenewMock || {};
+  const title = String(jobOrOverlay.title || "").toLowerCase();
+  const isRenew =
+    !!(
+      pr.mock ||
+      pr.realTest ||
+      pr.noticeOnly ||
+      pr.scenarioId ||
+      pr.placeholderInvoiceNo ||
+      pr.cta ||
+      pr.provisional ||
+      pr.invoiceMaterialized ||
+      pr.phase === "A" ||
+      pr.phase === "real" ||
+      pr.phase === 1 ||
+      pr.nextStep === "update_permit" ||
+      pr.queueUpdatePermit ||
+      pr.deployUpdate ||
+      pr.paid
+    ) ||
+    title.includes("permit renew") ||
+    title.includes("permit renewal");
+  if (!isRenew) return false;
+  if (jobOrOverlay.paid || pr.paid) return true;
+  if (pr.nextStep === "update_permit" || pr.queueUpdatePermit || pr.deployUpdate) {
+    return true;
+  }
+  const pays = Array.isArray(jobOrOverlay.payments) ? jobOrOverlay.payments : [];
+  return pays.some((p) => parseAmount(p?.amount) > 0.009);
 }
 
 /**

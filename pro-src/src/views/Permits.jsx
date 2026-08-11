@@ -1465,7 +1465,10 @@ export default function Permits() {
   const [caseRuns, setCaseRuns] = useState([]);
   const [approvalJob, setApprovalJob] = useState(null);
   // Collapsed by default so the tab is scannable; expand what you need (Levi 2026-08-05).
+  // Paid renews auto-open the queue once (see effect below) so they are not missed
+  // when Renewal Application stays collapsed (Levi 2026-08-11).
   const [queueOpen, setQueueOpen] = useState(false);
+  const paidQueueOpenedRef = React.useRef(false);
   const [historyOpen, setDeployHistoryOpen] = useState(true);
   const [clearing, setClearing] = useState(false);
   const [expandedIds, setExpandedIds] = useState({});
@@ -1650,6 +1653,22 @@ export default function Permits() {
       };
     });
   }, [jobs, caseRuns, rowDeployErrors]);
+
+  // Paid city-permit renews — same source as Deploy queue renew rows
+  const paidRenewCards = useMemo(() => listPaidUpdatePermitCards(jobs), [jobs]);
+  const paidRenewQueueCount = useMemo(
+    () => queueItems.filter((it) => it.source === "permit_renew" || it.kind === "Renew Permit").length,
+    [queueItems]
+  );
+
+  // Auto-open Deploy queue when a paid renew is ready (do not bury under collapsed Renewal)
+  useEffect(() => {
+    if (paidQueueOpenedRef.current) return;
+    if (paidRenewCards.length > 0 || paidRenewQueueCount > 0) {
+      paidQueueOpenedRef.current = true;
+      setQueueOpen(true);
+    }
+  }, [paidRenewCards.length, paidRenewQueueCount]);
 
   // Deploy history — only successful completes ("OK, successfully sent …")
   const deployHistory = useMemo(
@@ -2099,14 +2118,24 @@ export default function Permits() {
   /**
    * Quietly drop leftover Levi-Tester mocks + phantom $365 renew invoices
    * that had no real DOB permit # / resurrected after delete (Levi 2026-08-10).
+   * Never touch paid renews / any money on the invoice — that hid LE-2702 from
+   * Deploy after the customer paid (cleanup deleted before pay, pay kept _deleted).
    */
   useEffect(() => {
     if (!jobs?.length || typeof patchAndSave !== "function") return;
     const leftovers = (jobs || []).filter((j) => {
       if (!j || j._deleted || j.paid) return false;
+      const pr = j.permitRenew || j.permitRenewMock || {};
+      // Money / Deploy queue signals — never soft-delete
+      if (pr.paid || pr.nextStep === "update_permit" || pr.queueUpdatePermit || pr.deployUpdate) {
+        return false;
+      }
+      const pays = Array.isArray(j.payments) ? j.payments : [];
+      if (pays.some((p) => Number(String(p?.amount ?? "").replace(/[^0-9.-]/g, "")) > 0.009)) {
+        return false;
+      }
       if (isLeviTesterMockRenewJob(j)) return true;
       if (!isPermitRenewJob(j)) return false;
-      const pr = j.permitRenew || j.permitRenewMock || {};
       const permit = String(pr.permitNo || "").trim();
       // Fake permit (company name) — never a real books invoice
       if (permit && !isRealCityPermitNo(permit)) return true;
@@ -2137,6 +2166,60 @@ export default function Permits() {
       cancelled = true;
     };
     // once when jobs first load
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [!!jobs?.length]);
+
+  /**
+   * Heal overlay: if a paid renew is still flagged _deleted in state (pay after
+   * mock cleanup), clear delete so future devices/sync keep it on Deploy.
+   * mergeJobs already shows it live; this writes the fix back.
+   */
+  useEffect(() => {
+    if (!jobs?.length || typeof patchAndSave !== "function") return;
+    const needHeal = (jobs || []).filter((j) => {
+      if (!j?.id) return false;
+      const pr = j.permitRenew || j.permitRenewMock || {};
+      const paidRenew =
+        !!(j.paid || pr.paid || pr.nextStep === "update_permit" || pr.queueUpdatePermit);
+      // merge may have cleared _deleted on the in-memory row; heal when stamp missing
+      if (!paidRenew || !isPermitRenewJob(j)) return false;
+      // Only re-write when Deploy flags incomplete (queueUpdate/deployUpdate missing)
+      // or job still looks deleted from a stale merge path.
+      return (
+        !!j._deleted ||
+        (paidRenew && !pr.queueUpdatePermit && !pr.deployUpdate && (j.paid || pr.paid))
+      );
+    });
+    if (!needHeal.length) return;
+    let cancelled = false;
+    (async () => {
+      for (const j of needHeal) {
+        if (cancelled || !j?.id) continue;
+        try {
+          const pr = j.permitRenew || j.permitRenewMock || {};
+          await patchAndSave(j.id, {
+            _deleted: false,
+            _archived: false,
+            deletedAt: "",
+            paid: true,
+            openBalance: 0,
+            permitRenew: {
+              ...pr,
+              paid: true,
+              nextStep: pr.nextStep || "update_permit",
+              queueUpdatePermit: true,
+              deployUpdate: true,
+              dismissed: false,
+            },
+          });
+        } catch {
+          /* ignore */
+        }
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [!!jobs?.length]);
 
@@ -2910,6 +2993,66 @@ export default function Permits() {
           onClose={() => !phaseABusy && setRenewCompose(null)}
           onSend={sendRenewCompose}
         />
+      ) : null}
+
+      {/* Paid renews — always visible (not only inside collapsed Renewal Application) */}
+      {paidRenewCards.length > 0 ? (
+        <div
+          className="card overflow-hidden mb-3 border border-emerald-300 bg-emerald-50/90"
+          data-testid="permit-renew-paid-deploy-strip"
+        >
+          <div className="px-3.5 py-2.5">
+            <div className="text-[13px] font-extrabold text-emerald-950 tracking-tight">
+              Paid renew — ready on Deploy ({paidRenewCards.length})
+            </div>
+            <p className="text-[12px] text-emerald-900/80 mt-0.5 leading-snug">
+              Customer paid · press Deploy to start the DOB renew (shows Deploying now).
+            </p>
+            <ul className="mt-2 space-y-1.5">
+              {paidRenewCards.map((r) => {
+                const bits = [
+                  r.address,
+                  r.customer,
+                  r.permitNo,
+                  r.invoiceNo ? `Inv ${r.invoiceNo}` : "",
+                  r.paidAt ? `Paid ${r.paidAt}` : "Paid",
+                ].filter(Boolean);
+                const deploying =
+                  String(r.deployStatus || "").toLowerCase() === "deploying";
+                return (
+                  <li
+                    key={r.id}
+                    className="flex items-center justify-between gap-2"
+                    data-testid="permit-renew-paid-strip-row"
+                  >
+                    <button
+                      type="button"
+                      className="min-w-0 flex-1 text-left text-[13px] font-semibold text-emerald-950 truncate"
+                      onClick={() => r.jobId && open(r.jobId)}
+                      title={bits.join(" · ")}
+                    >
+                      {bits.join(" · ")}
+                    </button>
+                    <button
+                      type="button"
+                      className="shrink-0 btn bg-emerald-700 text-white !py-1 !px-2.5 text-[11px] font-extrabold"
+                      data-testid="permit-renew-paid-strip-deploy"
+                      disabled={deploying || phaseABusy}
+                      onClick={() => {
+                        setQueueOpen(true);
+                        const job = jobsById.get(r.jobId) || null;
+                        const item = permitRenewDeployDisplay(r, job);
+                        void deployQueueItem(item);
+                      }}
+                    >
+                      {deploying ? "Deploying now" : "Deploy"}
+                    </button>
+                  </li>
+                );
+              })}
+            </ul>
+          </div>
+        </div>
       ) : null}
 
       {/* DEPLOY QUEUE — sticky Deploy/Fix · Ready only with Form A for meters */}
