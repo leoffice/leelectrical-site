@@ -87,8 +87,31 @@ function MetricFld({ label, children, testId, minWidth = "8.5rem" }) {
   );
 }
 
-/** Compact line: product rectangle + polish on row 1; description + metrics below. */
-function LineRow({
+/**
+ * Line-field flushers — Save must pull still-local keystrokes into parent lines
+ * before planDocSaveLocal (same idea as useDebouncedPatchField).
+ */
+const LINE_FLUSHERS = new Set();
+function flushAllLineRowFields() {
+  for (const fn of [...LINE_FLUSHERS]) {
+    try {
+      fn();
+    } catch {
+      /* ignore */
+    }
+  }
+}
+
+const LINE_PATCH_MS =
+  (typeof process !== "undefined" && process.env.VITEST) ||
+  (typeof import.meta !== "undefined" && import.meta.env && import.meta.env.MODE === "test")
+    ? 0
+    : 140;
+
+/** Compact line: product rectangle + polish on row 1; description + metrics below.
+ *  Local field state keeps typing snappy — parent sheet (~4k jobs behind it)
+ *  only gets patches after a short debounce / blur / Save flush (Levi 2026-08-11). */
+const LineRow = React.memo(function LineRow({
   line,
   index,
   items,
@@ -102,43 +125,128 @@ function LineRow({
   onOpenLetter,
 }) {
   const [itemQ, setItemQ] = useState(line.itemName || "");
+  const [desc, setDesc] = useState(line.description || "");
+  const [rateStr, setRateStr] = useState(
+    line.unitPrice != null && line.unitPrice !== "" ? String(line.unitPrice) : ""
+  );
+  const [qtyStr, setQtyStr] = useState(line.qty != null && line.qty !== "" ? String(line.qty) : "");
   const [open, setOpen] = useState(false);
   // The item name is a textarea so a long name wraps into view instead of
   // scrolling sideways inside the box (Levi 2026-07-28). Grow it to fit.
   const itemRef = useRef(null);
+  const descRef = useRef(desc);
+  const rateRef = useRef(rateStr);
+  const qtyRef = useRef(qtyStr);
+  const itemRefVal = useRef(itemQ);
+  descRef.current = desc;
+  rateRef.current = rateStr;
+  qtyRef.current = qtyStr;
+  itemRefVal.current = itemQ;
+  const timers = useRef({ desc: null, rate: null, qty: null, item: null });
+  const onChangeRef = useRef(onChange);
+  onChangeRef.current = onChange;
+  const indexRef = useRef(index);
+  indexRef.current = index;
+  const lineRef = useRef(line);
+  lineRef.current = line;
+
   useEffect(() => {
     const el = itemRef.current;
     if (!el) return;
     el.style.height = "auto";
     el.style.height = el.scrollHeight + "px";
   }, [itemQ, open]);
+
+  // External commits (progress apply, letter, catalog pick) → refresh locals.
+  useEffect(() => {
+    setDesc(line.description || "");
+    descRef.current = line.description || "";
+  }, [line.description]);
+  useEffect(() => {
+    const v = line.unitPrice != null && line.unitPrice !== "" ? String(line.unitPrice) : "";
+    setRateStr(v);
+    rateRef.current = v;
+  }, [line.unitPrice]);
+  useEffect(() => {
+    const v = line.qty != null && line.qty !== "" ? String(line.qty) : "";
+    setQtyStr(v);
+    qtyRef.current = v;
+  }, [line.qty]);
+  useEffect(() => {
+    setItemQ(line.itemName || "");
+    itemRefVal.current = line.itemName || "";
+  }, [line.itemName]);
+
+  const flush = useCallback(() => {
+    const ln = lineRef.current || {};
+    const i = indexRef.current;
+    const patch = {};
+    const d = descRef.current;
+    const r = rateRef.current;
+    const q = qtyRef.current;
+    const name = itemRefVal.current;
+    if (d !== (ln.description || "")) patch.description = d;
+    if (String(r) !== String(ln.unitPrice ?? "")) patch.unitPrice = r;
+    if (String(q) !== String(ln.qty ?? "")) patch.qty = q;
+    if (String(name) !== String(ln.itemName || "")) patch.itemName = name;
+    if (Object.keys(patch).length) onChangeRef.current(i, patch);
+    for (const k of Object.keys(timers.current)) {
+      clearTimeout(timers.current[k]);
+      timers.current[k] = null;
+    }
+  }, []);
+
+  useEffect(() => {
+    LINE_FLUSHERS.add(flush);
+    return () => {
+      flush();
+      LINE_FLUSHERS.delete(flush);
+    };
+  }, [flush]);
+
+  const schedulePatch = useCallback((key, patch) => {
+    clearTimeout(timers.current[key]);
+    timers.current[key] = setTimeout(() => {
+      timers.current[key] = null;
+      onChangeRef.current(indexRef.current, patch);
+    }, LINE_PATCH_MS);
+  }, []);
+
   // After a catalog pick, collapse the name into a fitting rectangle until reopened.
   const [itemPicked, setItemPicked] = useState(() => !!(line.itemName || "").trim());
   const picks = useMemo(() => filterQboItems(items, itemQ), [items, itemQ]);
-  const rate = parseAmount(line.unitPrice) || 0;
-  const qty = parseAmount(line.qty) || 0;
-  const due = lineAmount(line);
+  // Totals use local rate/qty so Amount updates while parent is still debounced.
+  const rate = parseAmount(rateStr) || 0;
+  const qty = parseAmount(qtyStr) || 0;
+  const due = lineAmount({ unitPrice: rateStr, qty: qtyStr });
   // Progress % from fractional qty (QBO style: full rate × progress qty).
   const linePct = rate > 0 && qty > 0 ? Math.round(qty * 10000) / 100 : qty * 100;
   const progressDisplay = adjustMode === "pct" ? String(linePct || "") : String(due || "");
   const showChip = itemPicked && !!(line.itemName || itemQ || "").trim() && !open;
-  const productLabel = String(line.itemName || itemQ || "").trim();
+  const productLabel = String(itemQ || line.itemName || "").trim();
 
   const pick = (it) => {
+    const nextDesc = desc || line.description || it.description || "";
+    const nextRate = it.price != null ? it.price : rateStr;
+    setItemQ(it.name);
+    itemRefVal.current = it.name;
+    setDesc(nextDesc);
+    descRef.current = nextDesc;
+    setRateStr(nextRate != null && nextRate !== "" ? String(nextRate) : "");
+    rateRef.current = nextRate != null && nextRate !== "" ? String(nextRate) : "";
+    setItemPicked(true);
+    setOpen(false);
     onChange(index, {
       itemName: it.name,
       itemId: it.id || "",
       unitPrice: it.price != null ? it.price : line.unitPrice,
-      description: line.description || it.description || "",
+      description: nextDesc,
     });
-    setItemQ(it.name);
-    setItemPicked(true);
-    setOpen(false);
     if (isLetterProduct(it.name) && onOpenLetter) {
       onOpenLetter(index, it.name);
     }
   };
-  const letterHit = isLetterProduct(line.itemName || productLabel);
+  const letterHit = isLetterProduct(productLabel || line.itemName);
 
   const reOpenItem = () => {
     setOpen(true);
@@ -168,16 +276,19 @@ function LineRow({
               value={itemQ}
               ref={itemRef}
               onChange={(e) => {
-                setItemQ(e.target.value);
-                onChange(index, { itemName: e.target.value });
+                const v = e.target.value;
+                setItemQ(v);
+                itemRefVal.current = v;
                 setOpen(true);
                 setItemPicked(false);
+                schedulePatch("item", { itemName: v });
               }}
               onFocus={() => setOpen(true)}
               onBlur={() => {
+                flush();
                 // Collapse to chip if a name is set; delay so pick click still fires.
                 window.setTimeout(() => {
-                  if ((line.itemName || itemQ || "").trim()) {
+                  if ((itemRefVal.current || line.itemName || "").trim()) {
                     setItemPicked(true);
                     setOpen(false);
                   }
@@ -209,15 +320,22 @@ function LineRow({
         )}
         <PolishButton
           compact
-          value={line.description || ""}
-          onChange={(v) => onChange(index, { description: v })}
+          value={desc}
+          onChange={(v) => {
+            setDesc(v);
+            descRef.current = v;
+            onChange(index, { description: v });
+          }}
           testId={"doc-line-desc-" + (index + 1)}
         />
         {canRemove ? (
           <button
             type="button"
             className="shrink-0 text-xs font-semibold text-red-500 px-1 py-2"
-            onClick={() => onRemove(index)}
+            onClick={() => {
+              flush();
+              onRemove(index);
+            }}
             data-testid={"doc-line-remove-" + (index + 1)}
             aria-label={"Remove line " + (index + 1)}
           >
@@ -226,10 +344,15 @@ function LineRow({
         ) : null}
       </div>
 
-      {/* Row 2: description full width */}
+      {/* Row 2: description full width — local value so keystrokes skip the sheet re-render */}
       <DescriptionField
-        value={line.description || ""}
-        onChange={(v) => onChange(index, { description: v })}
+        value={desc}
+        onChange={(v) => {
+          setDesc(v);
+          descRef.current = v;
+          schedulePatch("desc", { description: v });
+        }}
+        onBlur={flush}
         testId={"doc-line-desc-" + (index + 1)}
         ariaLabel={"Description line " + (index + 1)}
         showPolish={false}
@@ -241,7 +364,10 @@ function LineRow({
         <button
           type="button"
           className="w-full text-left text-xs font-bold text-emerald-800 bg-emerald-50 border border-emerald-200 rounded-lg px-2 py-1.5"
-          onClick={() => onOpenLetter(index, line.itemName || productLabel)}
+          onClick={() => {
+            flush();
+            onOpenLetter(index, productLabel || line.itemName);
+          }}
           data-testid={"doc-line-letter-btn-" + (index + 1)}
         >
           ✏ Letter questionnaire — fill / approve letterhead
@@ -256,10 +382,16 @@ function LineRow({
         <MetricFld label={progressMode ? "Full rate" : "Rate"} testId={"doc-line-rate-fld-" + (index + 1)} minWidth="8.5rem">
           <input
             className="input !px-2 !py-1.5 text-sm text-right tabular-nums !w-auto max-w-full overflow-visible"
-            style={numInputStyle(line.unitPrice, { minCh: 9, maxCh: 16 })}
+            style={numInputStyle(rateStr, { minCh: 9, maxCh: 16 })}
             inputMode="decimal"
-            value={line.unitPrice}
-            onChange={(e) => onChange(index, { unitPrice: e.target.value })}
+            value={rateStr}
+            onChange={(e) => {
+              const v = e.target.value;
+              setRateStr(v);
+              rateRef.current = v;
+              schedulePatch("rate", { unitPrice: v });
+            }}
+            onBlur={flush}
             aria-label={"Rate line " + (index + 1)}
             title={progressMode ? "Full job rate for this line" : "Rate"}
             placeholder="0"
@@ -269,10 +401,16 @@ function LineRow({
         <MetricFld label="Qty" testId={"doc-line-qty-fld-" + (index + 1)} minWidth="4.5rem">
           <input
             className="input !px-2 !py-1.5 text-sm text-center tabular-nums !w-auto max-w-full overflow-visible"
-            style={numInputStyle(line.qty, { minCh: 3, maxCh: 12, pad: 2 })}
+            style={numInputStyle(qtyStr, { minCh: 3, maxCh: 12, pad: 2 })}
             inputMode="decimal"
-            value={line.qty}
-            onChange={(e) => onChange(index, { qty: e.target.value })}
+            value={qtyStr}
+            onChange={(e) => {
+              const v = e.target.value;
+              setQtyStr(v);
+              qtyRef.current = v;
+              schedulePatch("qty", { qty: v });
+            }}
+            onBlur={flush}
             aria-label={"Quantity line " + (index + 1)}
             title={progressMode ? "Quantity (progress fraction × contract qty)" : "Quantity"}
             placeholder="1"
@@ -294,7 +432,10 @@ function LineRow({
                 })}
                 inputMode="decimal"
                 value={progressDisplay}
-                onChange={(e) => onLineProgress && onLineProgress(index, e.target.value)}
+                onChange={(e) => {
+                  flush();
+                  onLineProgress && onLineProgress(index, e.target.value);
+                }}
                 aria-label={"Progress line " + (index + 1)}
                 data-testid={"progress-line-edit-" + (index + 1)}
                 title={adjustMode === "pct" ? "Percent of full rate" : "Dollar amount this invoice"}
@@ -326,7 +467,7 @@ function LineRow({
       </div>
     </div>
   );
-}
+});
 
 function CustomerHeaderPanel({ job, allJobs, events, api, onPatch }) {
   const applyCustomer = async (c) => {
@@ -626,7 +767,17 @@ export default function DocBuilderSheet({
   allJobs,
   onCustomerPatch,
 }) {
-  const { patchAndSave, enqueue, logSend, showToast, api, createJob, jobs: storeJobs, events } = useStore();
+  // Prefer split hooks: toast flashes must not re-render this sheet mid-type.
+  const {
+    patchAndSave,
+    enqueue,
+    logSend,
+    showToast,
+    api,
+    createJob,
+    jobs: storeJobs,
+    events,
+  } = useStore();
   const tenantConfig = useTenantConfig();
   const appSettings = useAppSettings();
   void appSettings.quickbooks;
@@ -634,11 +785,49 @@ export default function DocBuilderSheet({
   void appSettings.quickbooksEstimates;
   // Send/view through QB for THIS doc kind — sync can stay on for the backend.
   const qboOn = isQuickbooksDocEnabled(kind, tenantConfig);
+  // boardJobs only for CO / doc-number scans at save — keep a ref so identity
+  // thrash of the 4k list does not force CO recompute while typing.
   const boardJobs = allJobs || storeJobs;
+  const boardJobsRef = useRef(boardJobs);
+  boardJobsRef.current = boardJobs;
   const [job, setJob] = useState(() => jobProp || {});
-  useEffect(() => {
-    setJob(jobProp || {});
+  // Parent job objects are re-created often (overlay merge, hydrate). Only
+  // absorb external changes when the identity or key doc fields actually move —
+  // never clobber in-sheet typing on every parent re-render.
+  const jobPropId = jobProp?.id;
+  const jobPropSig = useMemo(() => {
+    const j = jobProp || {};
+    return [
+      j.id,
+      j.customer,
+      j.businessName,
+      j.email,
+      j.phone,
+      j.personName,
+      j.invoiceNo,
+      j.estimateNo,
+      j.amount,
+      j.discount,
+      j.discountType,
+      j.discountValue,
+      j.discountPercent,
+      j.changeOrder,
+      j.changeOrderSeq,
+      j.serviceAddress || j.address,
+      j.apartment,
+      j.title,
+      Array.isArray(j.estimateLines) ? j.estimateLines.length : 0,
+      Array.isArray(j.invoiceLines) ? j.invoiceLines.length : 0,
+    ].join("|");
   }, [jobProp]);
+  const lastJobPropSig = useRef("");
+  useEffect(() => {
+    if (!jobProp) return;
+    if (lastJobPropSig.current === jobPropSig && jobPropId === job?.id) return;
+    lastJobPropSig.current = jobPropSig;
+    setJob(jobProp);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- intentional: only on sig/id
+  }, [jobPropSig, jobPropId]);
 
   const patchJobState = useCallback(
     (patch) => {
@@ -690,6 +879,32 @@ export default function DocBuilderSheet({
       progressPct != null ||
       parseAmount(job.contractAmount) > 0);
   const [lines, setLines] = useState(() => initialLines(job, { kind, mode, progressPct }));
+  // Always-current lines for Save/validate — LineRow flushes into setLines async,
+  // so we mirror every commit here for synchronous reads after flushAllLineRowFields.
+  const linesRef = useRef(lines);
+  linesRef.current = lines;
+  const setLinesTracked = useCallback((updater) => {
+    setLines((rows) => {
+      const next = typeof updater === "function" ? updater(rows) : updater;
+      linesRef.current = next;
+      return next;
+    });
+  }, []);
+  // Slim list → hydrate later: reseed once when full lines arrive and the sheet
+  // still has only the empty/default row (do not clobber user typing).
+  useEffect(() => {
+    const incoming = kind === "estimate" ? job?.estimateLines : job?.invoiceLines;
+    if (!Array.isArray(incoming) || !incoming.length) return;
+    const cur = linesRef.current || [];
+    const hasReal = cur.some(
+      (ln) =>
+        String(ln?.itemName || "").trim() ||
+        String(ln?.description || "").trim() ||
+        parseAmount(ln?.unitPrice) > 0
+    );
+    if (hasReal) return;
+    setLinesTracked(initialLines(job, { kind, mode, progressPct }));
+  }, [job?.estimateLines, job?.invoiceLines, kind, mode, progressPct, job, setLinesTracked]);
   const [attachments, setAttachments] = useState([]);
   const [attUploading, setAttUploading] = useState(false);
   // Letterhead drafts linked to letter product lines (load letter, safety, etc.)
@@ -773,7 +988,7 @@ export default function DocBuilderSheet({
       if (contract > 0 && !parseAmount(contractAmount)) setContractAmount(String(contract));
       const pct = parseAmount(progressPctEdit) || 100;
       if (pct < 100) {
-        setLines((rows) => applyProgressPctToLines(rows, contractLines, pct));
+        setLinesTracked((rows) => applyProgressPctToLines(rows, contractLines, pct));
       }
     }
   };
@@ -890,8 +1105,15 @@ export default function DocBuilderSheet({
   }, [job.estimateLines, lines, contractAmount]);
 
   const changeLine = useCallback((i, patch) => {
-    setLines((rows) => rows.map((ln, idx) => (idx === i ? { ...ln, ...patch } : ln)));
-  }, []);
+    setLinesTracked((rows) => rows.map((ln, idx) => (idx === i ? { ...ln, ...patch } : ln)));
+  }, [setLinesTracked]);
+
+  const removeLine = useCallback(
+    (idx) => {
+      setLinesTracked((rows) => rows.filter((_, j) => j !== idx));
+    },
+    [setLinesTracked]
+  );
 
   const openLetterForLine = useCallback((lineIndex, itemName) => {
     setLetterQ({ lineIndex, itemName: itemName || "" });
@@ -913,7 +1135,7 @@ export default function DocBuilderSheet({
         return prev.concat([draft]);
       });
       if (description) {
-        setLines((rows) =>
+        setLinesTracked((rows) =>
           rows.map((ln, idx) =>
             idx === draft.lineIndex ? { ...ln, description, letterId: draft.id } : ln
           )
@@ -927,7 +1149,7 @@ export default function DocBuilderSheet({
       if (draft.typeId === "load_letter") {
         const catalogItem =
           items.find((it) => /load\s*letter/i.test(it?.name || "") && it.price != null) || null;
-        setLines((rows) =>
+        setLinesTracked((rows) =>
           rows.map((ln, idx) => {
             if (idx !== draft.lineIndex) return ln;
             if (parseAmount(ln.unitPrice) > 0) return ln;
@@ -989,9 +1211,9 @@ export default function DocBuilderSheet({
       const pct = parseAmount(pctVal);
       setProgressPctEdit(String(pct));
       setAmountDueEdit(String(dueFromContract(parseAmount(contractAmount) || contractTotalForJob(job), pct)));
-      setLines((rows) => applyProgressPctToLines(rows, contractLines, pct));
+      setLinesTracked((rows) => applyProgressPctToLines(rows, contractLines, pct));
     },
-    [contractAmount, contractLines, job]
+    [contractAmount, contractLines, job, setLinesTracked]
   );
 
   const applyDueAmount = useCallback(
@@ -1000,9 +1222,9 @@ export default function DocBuilderSheet({
       setAmountDueEdit(String(amtVal));
       const contract = parseAmount(contractAmount) || contractTotalForJob(job);
       if (contract > 0) setProgressPctEdit(String(progressPctFromLines([{ qty: 1, unitPrice: due }], contract)));
-      setLines((rows) => applyDueAmountToLines(rows, contractLines, due, contract));
+      setLinesTracked((rows) => applyDueAmountToLines(rows, contractLines, due, contract));
     },
-    [contractAmount, contractLines, job]
+    [contractAmount, contractLines, job, setLinesTracked]
   );
 
   /** Per-line progress: % sets fractional qty; $ sets qty = due / full rate. */
@@ -1014,7 +1236,7 @@ export default function DocBuilderSheet({
         const pct = Math.min(100, Math.max(0, val));
         setProgressPctEdit(String(pct));
         if (contract > 0) setAmountDueEdit(String(dueFromContract(contract, pct)));
-        setLines((rows) =>
+        setLinesTracked((rows) =>
           rows.map((ln, i) => {
             if (i !== index) return ln;
             // Scale from full line qty (not already-fractional qty) so 75→100 sticks.
@@ -1031,7 +1253,7 @@ export default function DocBuilderSheet({
         return;
       }
       setAmountDueEdit(String(raw));
-      setLines((rows) => {
+      setLinesTracked((rows) => {
         const next = rows.map((ln, i) => {
           if (i !== index) return ln;
           const rate = parseAmount(ln.unitPrice) || 0;
@@ -1052,7 +1274,7 @@ export default function DocBuilderSheet({
         setProgressPctEdit(String(Math.min(100, Math.max(0, Math.round((val / contract) * 10000) / 100))));
       }
     },
-    [adjustMode, contractAmount, job]
+    [adjustMode, contractAmount, job, setLinesTracked]
   );
 
   // Live progress summary — full job · % · this invoice (keeps progress billing clear).
@@ -1146,7 +1368,8 @@ export default function DocBuilderSheet({
       showToast("Pick a customer first");
       return null;
     }
-    const valid = lines.filter((ln) => (ln.itemName || "").trim());
+    // Prefer linesRef — flushAllLineRowFields may have just committed patches.
+    const valid = (linesRef.current || lines).filter((ln) => (ln.itemName || "").trim());
     if (!valid.length) {
       showToast("Add at least one product/service line");
       return null;
@@ -1242,6 +1465,8 @@ export default function DocBuilderSheet({
   const submitLocal = async (opts = {}) => {
     const close = opts.close !== false;
     const printPdf = !!opts.printPdf;
+    // Pull still-local line keystrokes before validate/plan (snappy line fields).
+    flushAllLineRowFields();
     const valid = validate(false);
     if (!valid) return null;
 
@@ -1372,6 +1597,7 @@ export default function DocBuilderSheet({
   };
 
   const printPdfOnly = async () => {
+    flushAllLineRowFields();
     const valid = validate(false);
     if (!valid) return;
     const activeJob = { ...job, id: job.id || "draft" };
@@ -1397,6 +1623,7 @@ export default function DocBuilderSheet({
    * @param {{ email?: string, message?: string, includePaymentLink?: boolean, docSource?: string, close?: boolean }} opts
    */
   const submitSync = async (send, opts = {}) => {
+    flushAllLineRowFields();
     const emailTo =
       allEmails(opts.email != null ? opts.email : sendEmailsSeed) ||
       primaryEmail(opts.email != null ? opts.email : sendEmailsSeed) ||
@@ -1879,7 +2106,7 @@ export default function DocBuilderSheet({
           index={i}
           items={items}
           onChange={changeLine}
-          onRemove={(idx) => setLines((rows) => rows.filter((_, j) => j !== idx))}
+          onRemove={removeLine}
           canRemove={lines.length > 1}
           progressMode={progressMode}
           adjustMode={adjustMode}
@@ -1891,7 +2118,7 @@ export default function DocBuilderSheet({
       <button
         type="button"
         className="btn-ghost w-full !py-1.5 mb-3 text-sm"
-        onClick={() => setLines((rows) => rows.concat([emptyLine()]))}
+        onClick={() => setLinesTracked((rows) => rows.concat([emptyLine()]))}
         data-testid="doc-add-line"
       >
         ＋ Add line
