@@ -52,7 +52,18 @@ export function loadCompletedPermitsSeedEntries() {
     .map((p) => ({
       permitNo: String(p.permitNo || "").trim(),
       issuedDate: String(p.issuedDate || "").trim().slice(0, 10),
-      expiresDate: String(p.expiresDate || "").trim().slice(0, 10),
+      // Levi: recompute expire from issue + 12 mo (seed printed exp is false)
+      expiresDate: (() => {
+        const issued = String(p.issuedDate || "").trim().slice(0, 10);
+        if (issued) {
+          const d = new Date(issued + "T12:00:00");
+          if (!Number.isNaN(d.getTime())) {
+            d.setFullYear(d.getFullYear() + 1);
+            return d.toISOString().slice(0, 10);
+          }
+        }
+        return String(p.expiresDate || "").trim().slice(0, 10);
+      })(),
       address: String(p.address || "").trim(),
       customer: String(p.customer || "").trim(),
       displayCustomer: String(p.customer || "").trim(),
@@ -92,6 +103,10 @@ export function permitCacheKey({ permitNo = "", address = "", scenarioId = "" } 
   return "";
 }
 
+/**
+ * Renew due date = issue date + 12 months.
+ * Levi 2026-08-11: PDF "expiration" is a false number — never prefer it over issue+12m.
+ */
 function expiresFromIssued(issuedDate) {
   const raw = String(issuedDate || "").trim().slice(0, 10);
   if (!/^\d{4}-\d{2}-\d{2}$/.test(raw)) return "";
@@ -99,6 +114,16 @@ function expiresFromIssued(issuedDate) {
   if (Number.isNaN(d.getTime())) return "";
   d.setFullYear(d.getFullYear() + 1);
   return d.toISOString().slice(0, 10);
+}
+
+/**
+ * True expire (Levi 2026-08-10): issue + 12 months. Printed expire is false —
+ * only used when no issue date is available.
+ */
+function trueExpiresDate({ issuedDate, gradedDate, expiresDate } = {}) {
+  const issued = String(issuedDate || gradedDate || "").trim().slice(0, 10);
+  if (issued) return expiresFromIssued(issued);
+  return String(expiresDate || "").trim().slice(0, 10);
 }
 
 /** Cache key shapes — never treat these as human scenario ids. */
@@ -109,10 +134,13 @@ function looksLikePermitCacheKey(id = "") {
 /** Normalize a scenario / raw object into a cache entry. */
 export function toPermitCacheEntry(sc) {
   if (!sc || typeof sc !== "object") return null;
-  const issued = String(sc.issuedDate || "").trim().slice(0, 10);
-  const expires =
-    String(sc.expiresDate || "").trim().slice(0, 10) ||
-    (issued ? expiresFromIssued(issued) : "");
+  const issued = String(sc.issuedDate || sc.gradedDate || "").trim().slice(0, 10);
+  // Levi: always issue + 12 mo when issued is known (printed exp is false)
+  const expires = trueExpiresDate({
+    issuedDate: issued,
+    gradedDate: sc.gradedDate,
+    expiresDate: sc.expiresDate,
+  });
   // Prefer explicit scenarioId. Only fall back to sc.id when it is a real
   // scenario slug (hampton-yossi), not a re-upserted cache key (p:… / sc:…).
   const rawId = String(sc.id || "").trim();

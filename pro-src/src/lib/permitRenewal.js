@@ -401,6 +401,23 @@ export function permitExpiresFromIssued(issuedDate) {
 }
 
 /**
+ * True expiration date (Levi 2026-08-10 correction).
+ *
+ * DO NOT trust the printed "expiration date" on the PDF / OCR field — it is often
+ * a false/clustered number. When we have an issue (or graded) date, expire is
+ * always issue + 12 months. Printed expiresDate is only a last-resort fallback
+ * when no issue date exists.
+ *
+ * Abandoned = true expire + 12 months (issue + 24 mo).
+ */
+export function permitTrueExpiresDate({ issuedDate, gradedDate, expiresDate } = {}) {
+  const issued =
+    String(issuedDate || gradedDate || "").trim().slice(0, 10) || "";
+  if (issued) return permitExpiresFromIssued(issued);
+  return String(expiresDate || "").trim().slice(0, 10);
+}
+
+/**
  * Fields for createJob — bill-to shows the real person's name,
  * service address is the permit site.
  *
@@ -665,9 +682,11 @@ export function buildPermitRenewMetaPatch(scenario = PHASE_A_HAMPTON_SCENARIO, f
   const sc = scenario || PHASE_A_HAMPTON_SCENARIO;
   const amount = fee != null ? parseAmount(fee) || PERMIT_RENEW_FEE : renewFeeFromScenario(sc);
   const issued = String(sc.issuedDate || "").trim().slice(0, 10);
-  const expires = issued
-    ? permitExpiresFromIssued(issued)
-    : String(sc.expiresDate || "").trim().slice(0, 10);
+  // Levi: issue + 12 months only — never printed expire when issue is known
+  const expires = permitTrueExpiresDate({
+    issuedDate: issued,
+    expiresDate: sc.expiresDate,
+  });
   const isReal = !!sc.realTest;
   const noticeOnly = !!opts.noticeOnly;
   const placeholder = String(opts.placeholderInvoiceNo || "").trim();
@@ -762,9 +781,12 @@ export function listRenewApplications(jobs = [], { includeMock = false } = {}) {
       .trim()
       .slice(0, 10);
     const graded = String(pr.gradedDate || issued || "").trim().slice(0, 10);
-    const expires =
-      String(pr.expiresDate || "").trim().slice(0, 10) ||
-      permitExpiresFromIssued(issued);
+    // Levi: true expire = issue + 12 mo (printed exp field is false)
+    const expires = permitTrueExpiresDate({
+      issuedDate: issued,
+      gradedDate: graded,
+      expiresDate: pr.expiresDate || extra.expiresDate,
+    });
     const due =
       j.openBalance != null && j.openBalance !== ""
         ? parseAmount(j.openBalance)
@@ -1019,9 +1041,7 @@ export function listDriveReadyRenewScenarios() {
   }
   // Urgency: near_abandon → expired → soon → abandoned → upcoming
   const rank = (sc) => {
-    const exp =
-      String(sc.expiresDate || "").trim().slice(0, 10) ||
-      permitExpiresFromIssued(sc.issuedDate);
+    const exp = permitTrueExpiresDate(sc);
     const tone = exp ? permitRenewStatusTone(exp) : "upcoming";
     return (
       { near_abandon: 0, expired: 1, soon: 2, abandoned: 3, upcoming: 4 }[tone] ?? 5
@@ -1040,18 +1060,21 @@ function cardFromReadyScenario(sc, jobs, apps) {
   if (isExcludedRenewAddress(sc.address)) return null;
 
   const scIssued = String(sc.issuedDate || "").trim().slice(0, 10);
-  const scExpires =
-    String(sc.expiresDate || "").trim().slice(0, 10) ||
-    permitExpiresFromIssued(scIssued);
+  const scExpires = permitTrueExpiresDate({
+    issuedDate: scIssued,
+    expiresDate: sc.expiresDate,
+  });
 
   const fillFromScenario = (row = {}) => {
     const issued =
       String(row.issuedDate || row.gradedDate || scIssued || "").trim().slice(0, 10) ||
       scIssued;
-    const expires =
-      String(row.expiresDate || "").trim().slice(0, 10) ||
-      scExpires ||
-      permitExpiresFromIssued(issued);
+    // Levi: issue + 12 mo wins over any stored/printed expire
+    const expires = permitTrueExpiresDate({
+      issuedDate: issued,
+      gradedDate: row.gradedDate,
+      expiresDate: row.expiresDate || scExpires,
+    });
     const stageTone = expires ? permitRenewStatusTone(expires) : "upcoming";
     return {
       ...row,
@@ -1066,8 +1089,8 @@ function cardFromReadyScenario(sc, jobs, apps) {
       expiresDate: expires,
       fee: row.fee != null ? row.fee : renewFeeFromScenario(sc),
       email: row.email || sc.realEmail || "",
-      stageTone: row.stageTone || stageTone,
-      stageLabel: row.stageLabel || permitRenewStageLabel(stageTone),
+      stageTone: stageTone,
+      stageLabel: permitRenewStageLabel(stageTone),
     };
   };
 
@@ -1327,9 +1350,11 @@ export function buildPermitRenewEmail({
   const profile = activeTenantConfig().profile || {};
   const greeting = sc.greetingName || sc.displayCustomer || "there";
   const issuedIso = String(sc.issuedDate || "").trim().slice(0, 10);
-  const expiresIso =
-    String(sc.expiresDate || "").trim().slice(0, 10) ||
-    permitExpiresFromIssued(issuedIso);
+  // Levi: true expire = issue + 12 months (printed expire is false)
+  const expiresIso = permitTrueExpiresDate({
+    issuedDate: issuedIso,
+    expiresDate: sc.expiresDate,
+  });
   const issuedUs = formatPermitDateUs(issuedIso);
   const expiresUs = formatPermitDateUs(expiresIso);
   const abandonedIso = permitAbandonedFromExpires(expiresIso);

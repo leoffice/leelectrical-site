@@ -25,6 +25,7 @@ import {
   listRenewApplications,
   permitAbandonedFromExpires,
   permitExpiresFromIssued,
+  permitTrueExpiresDate,
   permitRenewByDate,
   permitRenewStageLabel,
   permitRenewStatusSentence,
@@ -135,6 +136,37 @@ describe("permitRenewal Phase A mock", () => {
     expect(permitExpiresFromIssued("2026-02-06")).toBe("2027-02-06");
     expect(permitExpiresFromIssued("2024-10-11")).toBe("2025-10-11");
     expect(permitExpiresFromIssued("")).toBe("");
+  });
+
+  it("permitTrueExpiresDate ignores printed expire when issue is known (Levi)", () => {
+    // Printed exp was a false/OCR cluster date — issue + 12 mo always wins
+    expect(
+      permitTrueExpiresDate({
+        issuedDate: "2024-10-11",
+        expiresDate: "2025-01-07", // false printed
+      })
+    ).toBe("2025-10-11");
+    expect(
+      permitTrueExpiresDate({
+        issuedDate: "2025-05-13",
+        expiresDate: "2025-07-29",
+      })
+    ).toBe("2026-05-13");
+    // No issue date → printed is last resort only
+    expect(
+      permitTrueExpiresDate({
+        issuedDate: "",
+        expiresDate: "2026-08-01",
+      })
+    ).toBe("2026-08-01");
+    // Abandoned clock is true-expire + 12 mo
+    expect(permitAbandonedFromExpires("2025-10-11")).toBe("2026-10-11");
+    expect(permitRenewStatusTone("2025-10-11", { todayIso: "2026-08-10" })).toBe(
+      "expired"
+    );
+    expect(permitRenewStatusTone("2025-04-02", { todayIso: "2026-08-10" })).toBe(
+      "abandoned"
+    );
   });
 
   it("formatPermitDateUs is Month D, YYYY", () => {

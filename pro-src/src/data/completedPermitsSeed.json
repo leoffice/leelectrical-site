@@ -8,7 +8,8 @@
     "completed": "Only Completed-folder permits can become renew-notify candidates",
     "askLevi": "Only ask Levi for missing info on Completed-folder permits",
     "dobRenewGate": "Customer notify ONLY if DOB NOW shows Renew application (PAA \u2192 subsequent). Open Data is not enough.",
-    "doNotCharge": "Never charge / send pay notice until renewable confirmed in DOB NOW"
+    "doNotCharge": "Never charge / send pay notice until renewable confirmed in DOB NOW",
+    "expireDate": "true expire = issue + 12 months; ignore printed expire"
   },
   "counts": {
     "total": 119,
@@ -29,7 +30,7 @@
     {
       "permitNo": "B01029595-I1-EL",
       "issuedDate": "2024-04-02",
-      "expiresDate": "2024-05-02",
+      "expiresDate": "2025-04-02",
       "address": "82 ROCKAWAY PARKWAY",
       "customer": "Dira Realty",
       "businessName": "Dira Realty",
@@ -43,12 +44,15 @@
       "dobRenewable": false,
       "dobRenewCheckStatus": "pending",
       "notifyEligible": false,
-      "preDobNotifyPool": true
+      "preDobNotifyPool": true,
+      "expiresDate_pdf_ignore": "2024-05-02",
+      "renewDueDate": "2025-04-02",
+      "trueExpiresFromIssue": true
     },
     {
       "permitNo": "B01342285-I1-EL",
       "issuedDate": "2026-01-05",
-      "expiresDate": "2026-07-29",
+      "expiresDate": "2027-01-05",
       "address": "1024 MONTGOMERY STREET",
       "customer": "Dira Realty",
       "businessName": "Dira Realty",
@@ -62,12 +66,15 @@
       "dobRenewable": false,
       "dobRenewCheckStatus": "pending",
       "notifyEligible": false,
-      "preDobNotifyPool": true
+      "preDobNotifyPool": true,
+      "expiresDate_pdf_ignore": "2026-07-29",
+      "renewDueDate": "2027-01-05",
+      "trueExpiresFromIssue": true
     },
     {
       "permitNo": "M00095181-S1-EL",
       "issuedDate": "2025-05-13",
-      "expiresDate": "2025-07-29",
+      "expiresDate": "2026-05-13",
       "address": "106 AVENUE B",
       "customer": "Gabriel development.",
       "businessName": "Gabriel development.",
@@ -81,12 +88,15 @@
       "dobRenewable": false,
       "dobRenewCheckStatus": "pending",
       "notifyEligible": false,
-      "preDobNotifyPool": true
+      "preDobNotifyPool": true,
+      "expiresDate_pdf_ignore": "2025-07-29",
+      "renewDueDate": "2026-05-13",
+      "trueExpiresFromIssue": true
     },
     {
       "permitNo": "B01053988-I1-EL",
       "issuedDate": "2024-05-20",
-      "expiresDate": "2024-07-29",
+      "expiresDate": "2025-05-20",
       "address": "1082 BUSHWICK AVENUE",
       "customer": "Moses Tal",
       "businessName": "Moses Tal",
@@ -100,12 +110,15 @@
       "dobRenewable": false,
       "dobRenewCheckStatus": "pending",
       "notifyEligible": false,
-      "preDobNotifyPool": true
+      "preDobNotifyPool": true,
+      "expiresDate_pdf_ignore": "2024-07-29",
+      "renewDueDate": "2025-05-20",
+      "trueExpiresFromIssue": true
     },
     {
       "permitNo": "B01315722-I1-EL",
       "issuedDate": "2025-11-07",
-      "expiresDate": "2026-07-29",
+      "expiresDate": "2026-11-07",
       "address": "1135 38 STREET",
       "customer": "Z&JManagement Llc.",
       "businessName": "Z&JManagement Llc.",
@@ -119,12 +132,15 @@
       "dobRenewable": false,
       "dobRenewCheckStatus": "pending",
       "notifyEligible": false,
-      "preDobNotifyPool": true
+      "preDobNotifyPool": true,
+      "expiresDate_pdf_ignore": "2026-07-29",
+      "renewDueDate": "2026-11-07",
+      "trueExpiresFromIssue": true
     },
     {
       "permitNo": "B01397624-L1-EL",
       "issuedDate": "2026-05-05",
-      "expiresDate": "2026-07-29",
+      "expiresDate": "2027-05-05",
       "address": "1180 PARK PLACE",
       "customer": "Abraham kaminetsky",
       "businessName": "Abraham kaminetsky",
@@ -138,12 +154,15 @@
       "dobRenewable": false,
       "dobRenewCheckStatus": "pending",
       "notifyEligible": false,
-      "preDobNotifyPool": true
+      "preDobNotifyPool": true,
+      "expiresDate_pdf_ignore": "2026-07-29",
+      "renewDueDate": "2027-05-05",
+      "trueExpiresFromIssue": true
     },
     {
       "permitNo": "B08046754-S1-EL",
       "issuedDate": "2024-09-05",
-      "expiresDate": "2025-01-07",
+      "expiresDate": "2025-09-05",
       "address": "1215 PUTNAM AVENUE",
       "customer": "",
       "businessName": "",
@@ -157,12 +176,15 @@
       "dobRenewable": false,
       "dobRenewCheckStatus": "pending",
       "notifyEligible": false,
-      "preDobNotifyPool": false
+      "preDobNotifyPool": false,
+      "expiresDate_pdf_ignore": "2025-01-07",
+      "renewDueDate": "2025-09-05",
+      "trueExpiresFromIssue": true
     },
     {
       "permitNo": "B01334914-I1-EL",
       "issuedDate": "2026-04-22",
-      "expiresDate": "2026-07-29",
+      "expiresDate": "2027-04-22",
       "address": "1334 LINCOLN PLACE",
       "customer": "TOTO Builders",
       "businessName": "TOTO Builders",
@@ -176,12 +198,15 @@
       "dobRenewable": false,
       "dobRenewCheckStatus": "pending",
       "notifyEligible": false,
-      "preDobNotifyPool": true
+      "preDobNotifyPool": true,
+      "expiresDate_pdf_ignore": "2026-07-29",
+      "renewDueDate": "2027-04-22",
+      "trueExpiresFromIssue": true
     },
     {
       "permitNo": "B01347890-L1-EL",
       "issuedDate": "2026-01-16",
-      "expiresDate": "2026-07-29",
+      "expiresDate": "2027-01-16",
       "address": "1393 PARK PLACE",
       "customer": "1393 Park Llc.",
       "businessName": "1393 Park Llc.",
@@ -195,12 +220,15 @@
       "dobRenewable": false,
       "dobRenewCheckStatus": "pending",
       "notifyEligible": false,
-      "preDobNotifyPool": true
+      "preDobNotifyPool": true,
+      "expiresDate_pdf_ignore": "2026-07-29",
+      "renewDueDate": "2027-01-16",
+      "trueExpiresFromIssue": true
     },
     {
       "permitNo": "B01337723-L1-EL",
       "issuedDate": "2025-12-19",
-      "expiresDate": "2026-07-29",
+      "expiresDate": "2026-12-19",
       "address": "1411 BEDFORD AVENUE",
       "customer": "Oren",
       "businessName": "1411 Bedford owner LLC",
@@ -214,12 +242,15 @@
       "dobRenewable": false,
       "dobRenewCheckStatus": "pending",
       "notifyEligible": false,
-      "preDobNotifyPool": true
+      "preDobNotifyPool": true,
+      "expiresDate_pdf_ignore": "2026-07-29",
+      "renewDueDate": "2026-12-19",
+      "trueExpiresFromIssue": true
     },
     {
       "permitNo": "M01332404-L1-EL",
       "issuedDate": "2025-12-11",
-      "expiresDate": "2026-07-29",
+      "expiresDate": "2026-12-11",
       "address": "149 EAST 116 STREET",
       "customer": "Gabriel development.",
       "businessName": "Gabriel development.",
@@ -233,12 +264,15 @@
       "dobRenewable": false,
       "dobRenewCheckStatus": "pending",
       "notifyEligible": false,
-      "preDobNotifyPool": true
+      "preDobNotifyPool": true,
+      "expiresDate_pdf_ignore": "2026-07-29",
+      "renewDueDate": "2026-12-11",
+      "trueExpiresFromIssue": true
     },
     {
       "permitNo": "B00924141-S1-EL",
       "issuedDate": "2025-01-03",
-      "expiresDate": "2025-01-07",
+      "expiresDate": "2026-01-03",
       "address": "215 LINCOLN ROAD",
       "customer": "Okunov, Moshe",
       "businessName": "Okunov, Moshe",
@@ -252,12 +286,15 @@
       "dobRenewable": false,
       "dobRenewCheckStatus": "pending",
       "notifyEligible": false,
-      "preDobNotifyPool": true
+      "preDobNotifyPool": true,
+      "expiresDate_pdf_ignore": "2025-01-07",
+      "renewDueDate": "2026-01-03",
+      "trueExpiresFromIssue": true
     },
     {
       "permitNo": "B01029620-I1-EL",
       "issuedDate": "2024-04-02",
-      "expiresDate": "2024-05-02",
+      "expiresDate": "2025-04-02",
       "address": "216 GRAND STREET",
       "customer": "EMPIRE EQUITIES",
       "businessName": "EMPIRE EQUITIES",
@@ -271,12 +308,15 @@
       "dobRenewable": false,
       "dobRenewCheckStatus": "pending",
       "notifyEligible": false,
-      "preDobNotifyPool": true
+      "preDobNotifyPool": true,
+      "expiresDate_pdf_ignore": "2024-05-02",
+      "renewDueDate": "2025-04-02",
+      "trueExpiresFromIssue": true
     },
     {
       "permitNo": "B01073458-I1-EL",
       "issuedDate": "2024-06-27",
-      "expiresDate": "2024-07-29",
+      "expiresDate": "2025-06-27",
       "address": "220 ALBANY AVENUE",
       "customer": "Amos Cohen",
       "businessName": "Amos Cohen",
@@ -290,12 +330,15 @@
       "dobRenewable": false,
       "dobRenewCheckStatus": "pending",
       "notifyEligible": false,
-      "preDobNotifyPool": true
+      "preDobNotifyPool": true,
+      "expiresDate_pdf_ignore": "2024-07-29",
+      "renewDueDate": "2025-06-27",
+      "trueExpiresFromIssue": true
     },
     {
       "permitNo": "B01348457-L1-EL",
       "issuedDate": "2026-01-21",
-      "expiresDate": "2026-07-29",
+      "expiresDate": "2027-01-21",
       "address": "229 EMPIRE BOULEVARD",
       "customer": "AG Builders Pro LLC",
       "businessName": "AG Builders Pro LLC",
@@ -309,12 +352,15 @@
       "dobRenewable": false,
       "dobRenewCheckStatus": "pending",
       "notifyEligible": false,
-      "preDobNotifyPool": true
+      "preDobNotifyPool": true,
+      "expiresDate_pdf_ignore": "2026-07-29",
+      "renewDueDate": "2027-01-21",
+      "trueExpiresFromIssue": true
     },
     {
       "permitNo": "B00714961-S1-EL",
       "issuedDate": "2024-09-24",
-      "expiresDate": "2025-01-07",
+      "expiresDate": "2025-09-24",
       "address": "2317 NEWKIRK AVENUE",
       "customer": "P.H. Works Inc",
       "businessName": "P.H. Works Inc",
@@ -328,12 +374,15 @@
       "dobRenewable": false,
       "dobRenewCheckStatus": "pending",
       "notifyEligible": false,
-      "preDobNotifyPool": true
+      "preDobNotifyPool": true,
+      "expiresDate_pdf_ignore": "2025-01-07",
+      "renewDueDate": "2025-09-24",
+      "trueExpiresFromIssue": true
     },
     {
       "permitNo": "B01124884-L1-EL",
       "issuedDate": "2024-10-09",
-      "expiresDate": "2025-01-07",
+      "expiresDate": "2025-10-09",
       "address": "24 LEFFERTS AVENUE",
       "customer": "TOTO Builders",
       "businessName": "TOTO Builders",
@@ -347,12 +396,15 @@
       "dobRenewable": false,
       "dobRenewCheckStatus": "pending",
       "notifyEligible": false,
-      "preDobNotifyPool": true
+      "preDobNotifyPool": true,
+      "expiresDate_pdf_ignore": "2025-01-07",
+      "renewDueDate": "2025-10-09",
+      "trueExpiresFromIssue": true
     },
     {
       "permitNo": "B01081360-I1-EL",
       "issuedDate": "2024-07-16",
-      "expiresDate": "2024-07-29",
+      "expiresDate": "2025-07-16",
       "address": "242A ALBANY AVENUE",
       "customer": "",
       "businessName": "",
@@ -366,12 +418,15 @@
       "dobRenewable": false,
       "dobRenewCheckStatus": "pending",
       "notifyEligible": false,
-      "preDobNotifyPool": false
+      "preDobNotifyPool": false,
+      "expiresDate_pdf_ignore": "2024-07-29",
+      "renewDueDate": "2025-07-16",
+      "trueExpiresFromIssue": true
     },
     {
       "permitNo": "B01276886-I1-EL",
       "issuedDate": "2025-08-25",
-      "expiresDate": "2026-07-29",
+      "expiresDate": "2026-08-25",
       "address": "2542 EAST 27 STREET",
       "customer": "Tsilya and Helen Gromadsky",
       "businessName": "Tsilya and Helen Gromadsky",
@@ -385,12 +440,15 @@
       "dobRenewable": false,
       "dobRenewCheckStatus": "pending",
       "notifyEligible": false,
-      "preDobNotifyPool": true
+      "preDobNotifyPool": true,
+      "expiresDate_pdf_ignore": "2026-07-29",
+      "renewDueDate": "2026-08-25",
+      "trueExpiresFromIssue": true
     },
     {
       "permitNo": "B01332884-L1-EL",
       "issuedDate": "2025-12-11",
-      "expiresDate": "2026-07-29",
+      "expiresDate": "2026-12-11",
       "address": "279 KINGSTON AVENUE",
       "customer": "",
       "businessName": "",
@@ -404,12 +462,15 @@
       "dobRenewable": false,
       "dobRenewCheckStatus": "pending",
       "notifyEligible": false,
-      "preDobNotifyPool": false
+      "preDobNotifyPool": false,
+      "expiresDate_pdf_ignore": "2026-07-29",
+      "renewDueDate": "2026-12-11",
+      "trueExpiresFromIssue": true
     },
     {
       "permitNo": "B01409299-L1-EL",
       "issuedDate": "2026-05-29",
-      "expiresDate": "2026-07-29",
+      "expiresDate": "2027-05-29",
       "address": "281 KINGSTON AVENUE",
       "customer": "Lbim corp",
       "businessName": "Lbim corp",
@@ -423,12 +484,15 @@
       "dobRenewable": false,
       "dobRenewCheckStatus": "pending",
       "notifyEligible": false,
-      "preDobNotifyPool": true
+      "preDobNotifyPool": true,
+      "expiresDate_pdf_ignore": "2026-07-29",
+      "renewDueDate": "2027-05-29",
+      "trueExpiresFromIssue": true
     },
     {
       "permitNo": "B01401202-L1-EL",
       "issuedDate": "2026-05-12",
-      "expiresDate": "2026-07-29",
+      "expiresDate": "2027-05-12",
       "address": "287 OCEAN AVENUE",
       "customer": "287 realty Llc",
       "businessName": "287 realty Llc",
@@ -442,12 +506,15 @@
       "dobRenewable": false,
       "dobRenewCheckStatus": "pending",
       "notifyEligible": false,
-      "preDobNotifyPool": true
+      "preDobNotifyPool": true,
+      "expiresDate_pdf_ignore": "2026-07-29",
+      "renewDueDate": "2027-05-12",
+      "trueExpiresFromIssue": true
     },
     {
       "permitNo": "B01220665-L1-EL",
       "issuedDate": "2025-05-05",
-      "expiresDate": "2025-05-06",
+      "expiresDate": "2026-05-05",
       "address": "302 BEDFORD AVENUE",
       "customer": "Renco management",
       "businessName": "Renco management",
@@ -461,12 +528,15 @@
       "dobRenewable": false,
       "dobRenewCheckStatus": "pending",
       "notifyEligible": false,
-      "preDobNotifyPool": true
+      "preDobNotifyPool": true,
+      "expiresDate_pdf_ignore": "2025-05-06",
+      "renewDueDate": "2026-05-05",
+      "trueExpiresFromIssue": true
     },
     {
       "permitNo": "B01357679-L1-EL",
       "issuedDate": "2026-02-09",
-      "expiresDate": "2026-07-29",
+      "expiresDate": "2027-02-09",
       "address": "310 CROWN STREET",
       "customer": "Beth Rivkah Crown Street",
       "businessName": "Beth Rivkah Crown Street",
@@ -480,12 +550,15 @@
       "dobRenewable": false,
       "dobRenewCheckStatus": "pending",
       "notifyEligible": false,
-      "preDobNotifyPool": true
+      "preDobNotifyPool": true,
+      "expiresDate_pdf_ignore": "2026-07-29",
+      "renewDueDate": "2027-02-09",
+      "trueExpiresFromIssue": true
     },
     {
       "permitNo": "B01194287-L1-EL",
       "issuedDate": "2025-03-12",
-      "expiresDate": "2025-05-06",
+      "expiresDate": "2026-03-12",
       "address": "318 BROOKLYN AVENUE",
       "customer": "Yossi Lazel",
       "businessName": "Yossi Lazel",
@@ -499,12 +572,15 @@
       "dobRenewable": false,
       "dobRenewCheckStatus": "pending",
       "notifyEligible": false,
-      "preDobNotifyPool": true
+      "preDobNotifyPool": true,
+      "expiresDate_pdf_ignore": "2025-05-06",
+      "renewDueDate": "2026-03-12",
+      "trueExpiresFromIssue": true
     },
     {
       "permitNo": "B01180451-L1-EL",
       "issuedDate": "2025-02-12",
-      "expiresDate": "2025-05-06",
+      "expiresDate": "2026-02-12",
       "address": "3255 FULTON STREET",
       "customer": "Yossi Hackner",
       "businessName": "Yossi Hackner",
@@ -518,7 +594,10 @@
       "dobRenewable": false,
       "dobRenewCheckStatus": "pending",
       "notifyEligible": false,
-      "preDobNotifyPool": true
+      "preDobNotifyPool": true,
+      "expiresDate_pdf_ignore": "2025-05-06",
+      "renewDueDate": "2026-02-12",
+      "trueExpiresFromIssue": true
     },
     {
       "permitNo": "",
@@ -542,7 +621,7 @@
     {
       "permitNo": "X01072714-S1-EL",
       "issuedDate": "2024-12-11",
-      "expiresDate": "2025-01-07",
+      "expiresDate": "2025-12-11",
       "address": "334 EAST 176 STREET",
       "customer": "Joy Construction Corp.",
       "businessName": "Joy Construction Corp.",
@@ -556,12 +635,15 @@
       "dobRenewable": false,
       "dobRenewCheckStatus": "pending",
       "notifyEligible": false,
-      "preDobNotifyPool": true
+      "preDobNotifyPool": true,
+      "expiresDate_pdf_ignore": "2025-01-07",
+      "renewDueDate": "2025-12-11",
+      "trueExpiresFromIssue": true
     },
     {
       "permitNo": "B01287371-L1-EL",
       "issuedDate": "2025-09-15",
-      "expiresDate": "2026-07-29",
+      "expiresDate": "2026-09-15",
       "address": "349 TROY AVENUE",
       "customer": "",
       "businessName": "",
@@ -575,12 +657,15 @@
       "dobRenewable": false,
       "dobRenewCheckStatus": "pending",
       "notifyEligible": false,
-      "preDobNotifyPool": false
+      "preDobNotifyPool": false,
+      "expiresDate_pdf_ignore": "2026-07-29",
+      "renewDueDate": "2026-09-15",
+      "trueExpiresFromIssue": true
     },
     {
       "permitNo": "B01126007-L1-EL",
       "issuedDate": "2024-10-11",
-      "expiresDate": "2025-01-07",
+      "expiresDate": "2025-10-11",
       "address": "40 HAMPTON PLACE",
       "customer": "Yosef Beshari",
       "businessName": "AG Builders Pro LLC",
@@ -594,12 +679,15 @@
       "dobRenewable": false,
       "dobRenewCheckStatus": "pending",
       "notifyEligible": false,
-      "preDobNotifyPool": true
+      "preDobNotifyPool": true,
+      "expiresDate_pdf_ignore": "2025-01-07",
+      "renewDueDate": "2025-10-11",
+      "trueExpiresFromIssue": true
     },
     {
       "permitNo": "B01327474-L1-EL",
       "issuedDate": "2025-12-02",
-      "expiresDate": "2026-07-29",
+      "expiresDate": "2026-12-02",
       "address": "409 EAST 96 STREET",
       "customer": "Dovber Lipsker",
       "businessName": "Dovber Lipsker",
@@ -613,12 +701,15 @@
       "dobRenewable": false,
       "dobRenewCheckStatus": "pending",
       "notifyEligible": false,
-      "preDobNotifyPool": true
+      "preDobNotifyPool": true,
+      "expiresDate_pdf_ignore": "2026-07-29",
+      "renewDueDate": "2026-12-02",
+      "trueExpiresFromIssue": true
     },
     {
       "permitNo": "B01358780-L1-EL",
       "issuedDate": "2026-02-11",
-      "expiresDate": "2026-07-29",
+      "expiresDate": "2027-02-11",
       "address": "417 WINTHROP STREET",
       "customer": "Abraham kaminetsky",
       "businessName": "Abraham kaminetsky",
@@ -632,12 +723,15 @@
       "dobRenewable": false,
       "dobRenewCheckStatus": "pending",
       "notifyEligible": false,
-      "preDobNotifyPool": true
+      "preDobNotifyPool": true,
+      "expiresDate_pdf_ignore": "2026-07-29",
+      "renewDueDate": "2027-02-11",
+      "trueExpiresFromIssue": true
     },
     {
       "permitNo": "B01284418-L1-EL",
       "issuedDate": "2025-09-09",
-      "expiresDate": "2026-07-29",
+      "expiresDate": "2026-09-09",
       "address": "419 KINGSTON AVENUE",
       "customer": "LMR Properties",
       "businessName": "LMR Properties",
@@ -651,12 +745,15 @@
       "dobRenewable": false,
       "dobRenewCheckStatus": "pending",
       "notifyEligible": false,
-      "preDobNotifyPool": true
+      "preDobNotifyPool": true,
+      "expiresDate_pdf_ignore": "2026-07-29",
+      "renewDueDate": "2026-09-09",
+      "trueExpiresFromIssue": true
     },
     {
       "permitNo": "B01104943-S3-EL",
       "issuedDate": "2024-09-16",
-      "expiresDate": "2025-01-07",
+      "expiresDate": "2025-09-16",
       "address": "432 FENIMORE STREET",
       "customer": "Moses Tal",
       "businessName": "Moses Tal",
@@ -670,12 +767,15 @@
       "dobRenewable": false,
       "dobRenewCheckStatus": "pending",
       "notifyEligible": false,
-      "preDobNotifyPool": true
+      "preDobNotifyPool": true,
+      "expiresDate_pdf_ignore": "2025-01-07",
+      "renewDueDate": "2025-09-16",
+      "trueExpiresFromIssue": true
     },
     {
       "permitNo": "B01387897-I1-EL",
       "issuedDate": "2026-04-15",
-      "expiresDate": "2026-07-29",
+      "expiresDate": "2027-04-15",
       "address": "479A EAST NEW YORK AVENUE",
       "customer": "Beth Rivkah Crown Street",
       "businessName": "Beth Rivkah Crown Street",
@@ -689,12 +789,15 @@
       "dobRenewable": false,
       "dobRenewCheckStatus": "pending",
       "notifyEligible": false,
-      "preDobNotifyPool": true
+      "preDobNotifyPool": true,
+      "expiresDate_pdf_ignore": "2026-07-29",
+      "renewDueDate": "2027-04-15",
+      "trueExpiresFromIssue": true
     },
     {
       "permitNo": "B01417200-I1-EL",
       "issuedDate": "2026-06-15",
-      "expiresDate": "2026-07-29",
+      "expiresDate": "2027-06-15",
       "address": "493 RUTLAND ROAD",
       "customer": "Rphael Sebban",
       "businessName": "Rphael Sebban",
@@ -708,12 +811,15 @@
       "dobRenewable": false,
       "dobRenewCheckStatus": "pending",
       "notifyEligible": false,
-      "preDobNotifyPool": true
+      "preDobNotifyPool": true,
+      "expiresDate_pdf_ignore": "2026-07-29",
+      "renewDueDate": "2027-06-15",
+      "trueExpiresFromIssue": true
     },
     {
       "permitNo": "B01139304-S1-EL",
       "issuedDate": "2024-12-06",
-      "expiresDate": "2025-01-07",
+      "expiresDate": "2025-12-06",
       "address": "501 LEFFERTS AVENUE",
       "customer": "Dira Realty",
       "businessName": "Dira Realty",
@@ -727,12 +833,15 @@
       "dobRenewable": false,
       "dobRenewCheckStatus": "pending",
       "notifyEligible": false,
-      "preDobNotifyPool": true
+      "preDobNotifyPool": true,
+      "expiresDate_pdf_ignore": "2025-01-07",
+      "renewDueDate": "2025-12-06",
+      "trueExpiresFromIssue": true
     },
     {
       "permitNo": "B00952157-S1-EL",
       "issuedDate": "2024-09-26",
-      "expiresDate": "2025-01-07",
+      "expiresDate": "2025-09-26",
       "address": "501 LEFFERTS AVENUE",
       "customer": "Dira Realty",
       "businessName": "Dira Realty",
@@ -746,12 +855,15 @@
       "dobRenewable": false,
       "dobRenewCheckStatus": "pending",
       "notifyEligible": false,
-      "preDobNotifyPool": true
+      "preDobNotifyPool": true,
+      "expiresDate_pdf_ignore": "2025-01-07",
+      "renewDueDate": "2025-09-26",
+      "trueExpiresFromIssue": true
     },
     {
       "permitNo": "B01274998-L1-EL",
       "issuedDate": "2025-08-20",
-      "expiresDate": "2025-08-25",
+      "expiresDate": "2026-08-20",
       "address": "551 CROWN STREET",
       "customer": "Tzfatman",
       "businessName": "Chaim Tzfatman",
@@ -765,12 +877,15 @@
       "dobRenewable": false,
       "dobRenewCheckStatus": "pending",
       "notifyEligible": false,
-      "preDobNotifyPool": true
+      "preDobNotifyPool": true,
+      "expiresDate_pdf_ignore": "2025-08-25",
+      "renewDueDate": "2026-08-20",
+      "trueExpiresFromIssue": true
     },
     {
       "permitNo": "B01364954-L1-EL",
       "issuedDate": "2026-02-26",
-      "expiresDate": "2026-07-29",
+      "expiresDate": "2027-02-26",
       "address": "564 KINGSTON AVENUE",
       "customer": "Itzchak Dayan",
       "businessName": "Itzchak Dayan",
@@ -784,12 +899,15 @@
       "dobRenewable": false,
       "dobRenewCheckStatus": "pending",
       "notifyEligible": false,
-      "preDobNotifyPool": true
+      "preDobNotifyPool": true,
+      "expiresDate_pdf_ignore": "2026-07-29",
+      "renewDueDate": "2027-02-26",
+      "trueExpiresFromIssue": true
     },
     {
       "permitNo": "Q01275023-L1-EL",
       "issuedDate": "2025-08-20",
-      "expiresDate": "2025-08-25",
+      "expiresDate": "2026-08-20",
       "address": "5747 64 STREET",
       "customer": "",
       "businessName": "",
@@ -803,12 +921,15 @@
       "dobRenewable": false,
       "dobRenewCheckStatus": "pending",
       "notifyEligible": false,
-      "preDobNotifyPool": false
+      "preDobNotifyPool": false,
+      "expiresDate_pdf_ignore": "2025-08-25",
+      "renewDueDate": "2026-08-20",
+      "trueExpiresFromIssue": true
     },
     {
       "permitNo": "B01118596-I1-EL",
       "issuedDate": "2024-09-27",
-      "expiresDate": "",
+      "expiresDate": "2025-09-27",
       "address": "576 EASTERN PARKWAY",
       "customer": "Dira Realty",
       "businessName": "Dira Realty",
@@ -822,12 +943,15 @@
       "dobRenewable": false,
       "dobRenewCheckStatus": "pending",
       "notifyEligible": false,
-      "preDobNotifyPool": false
+      "preDobNotifyPool": false,
+      "expiresDate_pdf_ignore": "",
+      "renewDueDate": "2025-09-27",
+      "trueExpiresFromIssue": true
     },
     {
       "permitNo": "B01274300-L1-EL",
       "issuedDate": "2025-08-19",
-      "expiresDate": "2025-08-25",
+      "expiresDate": "2026-08-19",
       "address": "578 TROY AVENUE",
       "customer": "Yehuda Pevzner",
       "businessName": "Yehuda Pevzner",
@@ -841,12 +965,15 @@
       "dobRenewable": false,
       "dobRenewCheckStatus": "pending",
       "notifyEligible": false,
-      "preDobNotifyPool": true
+      "preDobNotifyPool": true,
+      "expiresDate_pdf_ignore": "2025-08-25",
+      "renewDueDate": "2026-08-19",
+      "trueExpiresFromIssue": true
     },
     {
       "permitNo": "Q01147773-L1-EL",
       "issuedDate": "2024-11-25",
-      "expiresDate": "2025-01-07",
+      "expiresDate": "2025-11-25",
       "address": "60-18 METROPOLITAN AVENUE",
       "customer": "Gabriel development.",
       "businessName": "Gabriel development.",
@@ -860,12 +987,15 @@
       "dobRenewable": false,
       "dobRenewCheckStatus": "pending",
       "notifyEligible": false,
-      "preDobNotifyPool": true
+      "preDobNotifyPool": true,
+      "expiresDate_pdf_ignore": "2025-01-07",
+      "renewDueDate": "2025-11-25",
+      "trueExpiresFromIssue": true
     },
     {
       "permitNo": "B01344578-L1-EL",
       "issuedDate": "2026-01-09",
-      "expiresDate": "2026-07-29",
+      "expiresDate": "2027-01-09",
       "address": "651 MAPLE STREET",
       "customer": "",
       "businessName": "",
@@ -879,12 +1009,15 @@
       "dobRenewable": false,
       "dobRenewCheckStatus": "pending",
       "notifyEligible": false,
-      "preDobNotifyPool": false
+      "preDobNotifyPool": false,
+      "expiresDate_pdf_ignore": "2026-07-29",
+      "renewDueDate": "2027-01-09",
+      "trueExpiresFromIssue": true
     },
     {
       "permitNo": "Q01054117-I1-EL",
       "issuedDate": "2024-05-20",
-      "expiresDate": "2024-07-29",
+      "expiresDate": "2025-05-20",
       "address": "6631 FRESH POND ROAD",
       "customer": "",
       "businessName": "",
@@ -898,12 +1031,15 @@
       "dobRenewable": false,
       "dobRenewCheckStatus": "pending",
       "notifyEligible": false,
-      "preDobNotifyPool": false
+      "preDobNotifyPool": false,
+      "expiresDate_pdf_ignore": "2024-07-29",
+      "renewDueDate": "2025-05-20",
+      "trueExpiresFromIssue": true
     },
     {
       "permitNo": "Q01111187-L1-EL",
       "issuedDate": "2024-09-13",
-      "expiresDate": "2025-01-07",
+      "expiresDate": "2025-09-13",
       "address": "6906 MYRTLE AVENUE",
       "customer": "",
       "businessName": "",
@@ -917,12 +1053,15 @@
       "dobRenewable": false,
       "dobRenewCheckStatus": "pending",
       "notifyEligible": false,
-      "preDobNotifyPool": false
+      "preDobNotifyPool": false,
+      "expiresDate_pdf_ignore": "2025-01-07",
+      "renewDueDate": "2025-09-13",
+      "trueExpiresFromIssue": true
     },
     {
       "permitNo": "B01194293-L1-EL",
       "issuedDate": "2025-03-12",
-      "expiresDate": "2025-05-06",
+      "expiresDate": "2026-03-12",
       "address": "692 MAPLE STREET",
       "customer": "Dira Realty",
       "businessName": "Dira Realty",
@@ -936,12 +1075,15 @@
       "dobRenewable": false,
       "dobRenewCheckStatus": "pending",
       "notifyEligible": false,
-      "preDobNotifyPool": true
+      "preDobNotifyPool": true,
+      "expiresDate_pdf_ignore": "2025-05-06",
+      "renewDueDate": "2026-03-12",
+      "trueExpiresFromIssue": true
     },
     {
       "permitNo": "B01394115-I1-EL",
       "issuedDate": "2026-04-28",
-      "expiresDate": "2026-07-29",
+      "expiresDate": "2027-04-28",
       "address": "720 EAST 91 STREET",
       "customer": "Dovber Lipsker",
       "businessName": "Dovber Lipsker",
@@ -955,12 +1097,15 @@
       "dobRenewable": false,
       "dobRenewCheckStatus": "pending",
       "notifyEligible": false,
-      "preDobNotifyPool": true
+      "preDobNotifyPool": true,
+      "expiresDate_pdf_ignore": "2026-07-29",
+      "renewDueDate": "2027-04-28",
+      "trueExpiresFromIssue": true
     },
     {
       "permitNo": "B01118660-I1-EL",
       "issuedDate": "2024-09-27",
-      "expiresDate": "2025-01-07",
+      "expiresDate": "2025-09-27",
       "address": "791 GREENE AVENUE",
       "customer": "Citywide Builders NY inc",
       "businessName": "Citywide Builders NY inc",
@@ -974,12 +1119,15 @@
       "dobRenewable": false,
       "dobRenewCheckStatus": "pending",
       "notifyEligible": false,
-      "preDobNotifyPool": true
+      "preDobNotifyPool": true,
+      "expiresDate_pdf_ignore": "2025-01-07",
+      "renewDueDate": "2025-09-27",
+      "trueExpiresFromIssue": true
     },
     {
       "permitNo": "B01342940-L1-EL",
       "issuedDate": "2026-01-09",
-      "expiresDate": "",
+      "expiresDate": "2027-01-09",
       "address": "803 EASTERN PARKWAY",
       "customer": "Sholom Rubashkin",
       "businessName": "803 EP LLC.",
@@ -993,12 +1141,15 @@
       "dobRenewable": false,
       "dobRenewCheckStatus": "pending",
       "notifyEligible": false,
-      "preDobNotifyPool": false
+      "preDobNotifyPool": false,
+      "expiresDate_pdf_ignore": "",
+      "renewDueDate": "2027-01-09",
+      "trueExpiresFromIssue": true
     },
     {
       "permitNo": "B01374584-I1-EL",
       "issuedDate": "2026-03-18",
-      "expiresDate": "2026-07-29",
+      "expiresDate": "2027-03-18",
       "address": "805 ROCKAWAY AVENUE",
       "customer": "Peretz Lokshin",
       "businessName": "Peretz Lokshin",
@@ -1012,12 +1163,15 @@
       "dobRenewable": false,
       "dobRenewCheckStatus": "pending",
       "notifyEligible": false,
-      "preDobNotifyPool": true
+      "preDobNotifyPool": true,
+      "expiresDate_pdf_ignore": "2026-07-29",
+      "renewDueDate": "2027-03-18",
+      "trueExpiresFromIssue": true
     },
     {
       "permitNo": "B01118649-L1-EL",
       "issuedDate": "2024-09-27",
-      "expiresDate": "2025-01-07",
+      "expiresDate": "2025-09-27",
       "address": "82 ROCKAWAY PARKWAY",
       "customer": "Dira Realty",
       "businessName": "Dira Realty",
@@ -1031,12 +1185,15 @@
       "dobRenewable": false,
       "dobRenewCheckStatus": "pending",
       "notifyEligible": false,
-      "preDobNotifyPool": true
+      "preDobNotifyPool": true,
+      "expiresDate_pdf_ignore": "2025-01-07",
+      "renewDueDate": "2025-09-27",
+      "trueExpiresFromIssue": true
     },
     {
       "permitNo": "B01188518-I1-EL",
       "issuedDate": "2025-02-28",
-      "expiresDate": "2025-05-06",
+      "expiresDate": "2026-02-28",
       "address": "9 ROOSEVELT COURT",
       "customer": "Moshe Betesh",
       "businessName": "MD General Contracting",
@@ -1050,12 +1207,15 @@
       "dobRenewable": false,
       "dobRenewCheckStatus": "pending",
       "notifyEligible": false,
-      "preDobNotifyPool": true
+      "preDobNotifyPool": true,
+      "expiresDate_pdf_ignore": "2025-05-06",
+      "renewDueDate": "2026-02-28",
+      "trueExpiresFromIssue": true
     },
     {
       "permitNo": "B01198733-S1-EL",
       "issuedDate": "2025-03-25",
-      "expiresDate": "2025-05-06",
+      "expiresDate": "2026-03-25",
       "address": "995 HANCOCK STREET",
       "customer": "Juan Cadaveira",
       "businessName": "Juan Cadaveira",
@@ -1069,12 +1229,15 @@
       "dobRenewable": false,
       "dobRenewCheckStatus": "pending",
       "notifyEligible": false,
-      "preDobNotifyPool": true
+      "preDobNotifyPool": true,
+      "expiresDate_pdf_ignore": "2025-05-06",
+      "renewDueDate": "2026-03-25",
+      "trueExpiresFromIssue": true
     },
     {
       "permitNo": "B01198733-L1-EL",
       "issuedDate": "2025-03-21",
-      "expiresDate": "2025-05-06",
+      "expiresDate": "2026-03-21",
       "address": "995 HANCOCK STREET",
       "customer": "Juan Cadaveira",
       "businessName": "Juan Cadaveira",
@@ -1088,12 +1251,15 @@
       "dobRenewable": false,
       "dobRenewCheckStatus": "pending",
       "notifyEligible": false,
-      "preDobNotifyPool": true
+      "preDobNotifyPool": true,
+      "expiresDate_pdf_ignore": "2025-05-06",
+      "renewDueDate": "2026-03-21",
+      "trueExpiresFromIssue": true
     },
     {
       "permitNo": "M01344612-L1-EL",
       "issuedDate": "2026-01-12",
-      "expiresDate": "2026-07-29",
+      "expiresDate": "2027-01-12",
       "address": "108 WEST 33 STREET",
       "customer": "",
       "businessName": "",
@@ -1107,12 +1273,15 @@
       "dobRenewable": false,
       "dobRenewCheckStatus": "pending",
       "notifyEligible": false,
-      "preDobNotifyPool": false
+      "preDobNotifyPool": false,
+      "expiresDate_pdf_ignore": "2026-07-29",
+      "renewDueDate": "2027-01-12",
+      "trueExpiresFromIssue": true
     },
     {
       "permitNo": "X01329053-L1-EL",
       "issuedDate": "2025-12-04",
-      "expiresDate": "2026-07-29",
+      "expiresDate": "2026-12-04",
       "address": "1123 COMMONWEALTH AVENUE",
       "customer": "",
       "businessName": "",
@@ -1126,12 +1295,15 @@
       "dobRenewable": false,
       "dobRenewCheckStatus": "pending",
       "notifyEligible": false,
-      "preDobNotifyPool": false
+      "preDobNotifyPool": false,
+      "expiresDate_pdf_ignore": "2026-07-29",
+      "renewDueDate": "2026-12-04",
+      "trueExpiresFromIssue": true
     },
     {
       "permitNo": "X01328855-I1-EL",
       "issuedDate": "2025-12-04",
-      "expiresDate": "2026-07-29",
+      "expiresDate": "2026-12-04",
       "address": "1223 COMMONWEALTH AVENUE",
       "customer": "",
       "businessName": "",
@@ -1145,12 +1317,15 @@
       "dobRenewable": false,
       "dobRenewCheckStatus": "pending",
       "notifyEligible": false,
-      "preDobNotifyPool": false
+      "preDobNotifyPool": false,
+      "expiresDate_pdf_ignore": "2026-07-29",
+      "renewDueDate": "2026-12-04",
+      "trueExpiresFromIssue": true
     },
     {
       "permitNo": "M01442411-I1-EL",
       "issuedDate": "2026-08-07",
-      "expiresDate": "2026-08-11",
+      "expiresDate": "2027-08-07",
       "address": "1231 3 AVENUE",
       "customer": "",
       "businessName": "",
@@ -1164,12 +1339,15 @@
       "dobRenewable": false,
       "dobRenewCheckStatus": "pending",
       "notifyEligible": false,
-      "preDobNotifyPool": false
+      "preDobNotifyPool": false,
+      "expiresDate_pdf_ignore": "2026-08-11",
+      "renewDueDate": "2027-08-07",
+      "trueExpiresFromIssue": true
     },
     {
       "permitNo": "M01402340-I1-EL",
       "issuedDate": "2026-05-14",
-      "expiresDate": "2026-07-29",
+      "expiresDate": "2027-05-14",
       "address": "137 WEST 19 STREET",
       "customer": "",
       "businessName": "",
@@ -1183,12 +1361,15 @@
       "dobRenewable": false,
       "dobRenewCheckStatus": "pending",
       "notifyEligible": false,
-      "preDobNotifyPool": false
+      "preDobNotifyPool": false,
+      "expiresDate_pdf_ignore": "2026-07-29",
+      "renewDueDate": "2027-05-14",
+      "trueExpiresFromIssue": true
     },
     {
       "permitNo": "M01282763-L1-EL",
       "issuedDate": "2025-09-05",
-      "expiresDate": "2026-07-29",
+      "expiresDate": "2026-09-05",
       "address": "18 DESBROSSES STREET",
       "customer": "",
       "businessName": "",
@@ -1202,12 +1383,15 @@
       "dobRenewable": false,
       "dobRenewCheckStatus": "pending",
       "notifyEligible": false,
-      "preDobNotifyPool": false
+      "preDobNotifyPool": false,
+      "expiresDate_pdf_ignore": "2026-07-29",
+      "renewDueDate": "2026-09-05",
+      "trueExpiresFromIssue": true
     },
     {
       "permitNo": "B01319568-I1-EL",
       "issuedDate": "2025-11-14",
-      "expiresDate": "2026-07-29",
+      "expiresDate": "2026-11-14",
       "address": "184 KENT AVENUE",
       "customer": "",
       "businessName": "",
@@ -1221,12 +1405,15 @@
       "dobRenewable": false,
       "dobRenewCheckStatus": "pending",
       "notifyEligible": false,
-      "preDobNotifyPool": false
+      "preDobNotifyPool": false,
+      "expiresDate_pdf_ignore": "2026-07-29",
+      "renewDueDate": "2026-11-14",
+      "trueExpiresFromIssue": true
     },
     {
       "permitNo": "M01261730-L1-EL",
       "issuedDate": "2025-07-25",
-      "expiresDate": "2025-07-29",
+      "expiresDate": "2026-07-25",
       "address": "219 EAST 89 STREET",
       "customer": "",
       "businessName": "",
@@ -1240,7 +1427,10 @@
       "dobRenewable": false,
       "dobRenewCheckStatus": "pending",
       "notifyEligible": false,
-      "preDobNotifyPool": false
+      "preDobNotifyPool": false,
+      "expiresDate_pdf_ignore": "2025-07-29",
+      "renewDueDate": "2026-07-25",
+      "trueExpiresFromIssue": true
     },
     {
       "permitNo": "",
@@ -1264,7 +1454,7 @@
     {
       "permitNo": "B01307248-L1-EL",
       "issuedDate": "2025-10-22",
-      "expiresDate": "2026-07-29",
+      "expiresDate": "2026-10-22",
       "address": "247 METROPOLITAN AVENUE",
       "customer": "",
       "businessName": "",
@@ -1278,12 +1468,15 @@
       "dobRenewable": false,
       "dobRenewCheckStatus": "pending",
       "notifyEligible": false,
-      "preDobNotifyPool": false
+      "preDobNotifyPool": false,
+      "expiresDate_pdf_ignore": "2026-07-29",
+      "renewDueDate": "2026-10-22",
+      "trueExpiresFromIssue": true
     },
     {
       "permitNo": "X01425559-I1-EL",
       "issuedDate": "2026-07-03",
-      "expiresDate": "2026-07-29",
+      "expiresDate": "2027-07-03",
       "address": "3322 WHITE PLAINS ROAD",
       "customer": "",
       "businessName": "",
@@ -1297,12 +1490,15 @@
       "dobRenewable": false,
       "dobRenewCheckStatus": "pending",
       "notifyEligible": false,
-      "preDobNotifyPool": false
+      "preDobNotifyPool": false,
+      "expiresDate_pdf_ignore": "2026-07-29",
+      "renewDueDate": "2027-07-03",
+      "trueExpiresFromIssue": true
     },
     {
       "permitNo": "M01261685-L1-EL",
       "issuedDate": "2025-07-25",
-      "expiresDate": "2025-07-29",
+      "expiresDate": "2026-07-25",
       "address": "343 EAST 51 STREET",
       "customer": "",
       "businessName": "",
@@ -1316,12 +1512,15 @@
       "dobRenewable": false,
       "dobRenewCheckStatus": "pending",
       "notifyEligible": false,
-      "preDobNotifyPool": false
+      "preDobNotifyPool": false,
+      "expiresDate_pdf_ignore": "2025-07-29",
+      "renewDueDate": "2026-07-25",
+      "trueExpiresFromIssue": true
     },
     {
       "permitNo": "M01388051-I1-EL",
       "issuedDate": "2026-04-15",
-      "expiresDate": "2026-07-29",
+      "expiresDate": "2027-04-15",
       "address": "36 BETHUNE STREET",
       "customer": "",
       "businessName": "",
@@ -1335,12 +1534,15 @@
       "dobRenewable": false,
       "dobRenewCheckStatus": "pending",
       "notifyEligible": false,
-      "preDobNotifyPool": false
+      "preDobNotifyPool": false,
+      "expiresDate_pdf_ignore": "2026-07-29",
+      "renewDueDate": "2027-04-15",
+      "trueExpiresFromIssue": true
     },
     {
       "permitNo": "Q01261428-I1-EL",
       "issuedDate": "2025-07-25",
-      "expiresDate": "2025-07-29",
+      "expiresDate": "2026-07-25",
       "address": "37-44 82 STREET",
       "customer": "",
       "businessName": "",
@@ -1354,12 +1556,15 @@
       "dobRenewable": false,
       "dobRenewCheckStatus": "pending",
       "notifyEligible": false,
-      "preDobNotifyPool": false
+      "preDobNotifyPool": false,
+      "expiresDate_pdf_ignore": "2025-07-29",
+      "renewDueDate": "2026-07-25",
+      "trueExpiresFromIssue": true
     },
     {
       "permitNo": "X01263508-L1-EL",
       "issuedDate": "2025-07-29",
-      "expiresDate": "2025-08-25",
+      "expiresDate": "2026-07-29",
       "address": "373 EAST 183 STREET",
       "customer": "Patrick Nash Design Inc.",
       "businessName": "Patrick Nash Design Inc.",
@@ -1373,12 +1578,15 @@
       "dobRenewable": false,
       "dobRenewCheckStatus": "pending",
       "notifyEligible": false,
-      "preDobNotifyPool": false
+      "preDobNotifyPool": false,
+      "expiresDate_pdf_ignore": "2025-08-25",
+      "renewDueDate": "2026-07-29",
+      "trueExpiresFromIssue": true
     },
     {
       "permitNo": "M01393062-I1-EL",
       "issuedDate": "2026-04-27",
-      "expiresDate": "2026-07-29",
+      "expiresDate": "2027-04-27",
       "address": "3881 9 AVENUE",
       "customer": "",
       "businessName": "",
@@ -1392,12 +1600,15 @@
       "dobRenewable": false,
       "dobRenewCheckStatus": "pending",
       "notifyEligible": false,
-      "preDobNotifyPool": false
+      "preDobNotifyPool": false,
+      "expiresDate_pdf_ignore": "2026-07-29",
+      "renewDueDate": "2027-04-27",
+      "trueExpiresFromIssue": true
     },
     {
       "permitNo": "M01417367-I1-EL",
       "issuedDate": "2026-06-15",
-      "expiresDate": "2026-07-29",
+      "expiresDate": "2027-06-15",
       "address": "463 GREENWICH STREET",
       "customer": "",
       "businessName": "",
@@ -1411,12 +1622,15 @@
       "dobRenewable": false,
       "dobRenewCheckStatus": "pending",
       "notifyEligible": false,
-      "preDobNotifyPool": false
+      "preDobNotifyPool": false,
+      "expiresDate_pdf_ignore": "2026-07-29",
+      "renewDueDate": "2027-06-15",
+      "trueExpiresFromIssue": true
     },
     {
       "permitNo": "M01370861-I1-EL",
       "issuedDate": "2026-03-11",
-      "expiresDate": "2026-07-29",
+      "expiresDate": "2027-03-11",
       "address": "55 BEACH STREET",
       "customer": "",
       "businessName": "",
@@ -1430,7 +1644,10 @@
       "dobRenewable": false,
       "dobRenewCheckStatus": "pending",
       "notifyEligible": false,
-      "preDobNotifyPool": false
+      "preDobNotifyPool": false,
+      "expiresDate_pdf_ignore": "2026-07-29",
+      "renewDueDate": "2027-03-11",
+      "trueExpiresFromIssue": true
     },
     {
       "permitNo": "",
@@ -2287,5 +2504,7 @@
       "notifyEligible": false,
       "preDobNotifyPool": false
     }
-  ]
+  ],
+  "renewRule": "issuedDate+12m; PDF expires ignored (Levi 2026-08-10)",
+  "updatedAt": "2026-08-11T00:11:32.744Z"
 }
