@@ -498,6 +498,8 @@ export default function Jobs({
   /** Input value stays instant; heavy list filter uses the deferred copy. */
   const [q, setQ] = useState("");
   const deferredQ = useDeferredValue(q);
+  // Off-route keep-alive: freeze jobs work so JobDetail typing does not filter 4k rows (Levi 2026-08-11).
+  const frozenJobsRef = useRef(jobs);
   const [filter, setFilter] = useState("Active");
   const [sort, setSort] = useState(loadSort);
   const [view, setView] = useState(loadCustomerView); // "balance" | "all"
@@ -588,10 +590,15 @@ export default function Jobs({
 
   // When keep-alive hides this list, freeze the last active-job set so background
   // store polls don't regroup thousands of rows under a screen you can't see.
-  const activeLive = useMemo(() => jobs.filter((j) => !j._archived && !j._deleted), [jobs]);
-  const frozenActiveRef = useRef(activeLive);
-  if (listActive) frozenActiveRef.current = activeLive;
-  const active = listActive ? activeLive : frozenActiveRef.current;
+  // When keep-alive is hidden, skip O(n) filter on every staged keystroke (JobDetail thrash).
+  const frozenActiveRef = useRef(null);
+  const activeLive = useMemo(() => {
+    if (!listActive) return frozenActiveRef.current || [];
+    const next = jobs.filter((j) => !j._archived && !j._deleted);
+    frozenActiveRef.current = next;
+    return next;
+  }, [jobs, listActive]);
+  const active = listActive ? activeLive : frozenActiveRef.current || [];
   // Invoice / estimate / payment # hits always surface (even fully paid).
   // Customer number/name search keeps normal chips (open-only expand) — Levi 2026-08-05.
   const matchesChip = useCallback(
