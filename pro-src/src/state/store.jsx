@@ -24,7 +24,13 @@ import { unhandledCount } from "../lib/sas.js";
 import { activeReminderCount } from "../lib/followUpReminders.js";
 import { customerSyncPayload, qboCustomerToJobPatch } from "../lib/customerSync.js";
 import { customerQboJobPatch } from "../lib/customerQboLink.js";
-import { flushPendingDocSync, hasPendingDocSync, takePendingDocSync } from "../lib/docSyncChain.js";
+import {
+  clearPendingDocSync,
+  flushPendingDocSync,
+  hasPendingDocSync,
+  markPendingDocSyncFailure,
+  peekPendingDocSync,
+} from "../lib/docSyncChain.js";
 import { runDailyDedupeScan } from "../lib/dedupeScan.js";
 import { touchCustomerJob } from "../lib/customerRecency.js";
 import { hydrateDismissed } from "../lib/customers.js";
@@ -1069,31 +1075,61 @@ export function StoreProvider({ children }) {
         appliedCustomerQbo.current.add(mark);
         continue;
       }
-      appliedCustomerQbo.current.add(mark);
       const pendingDoc = hasPendingDocSync(cmd.jobId);
       patchAndSave(cmd.jobId, patch)
         .then(async () => {
-          const pending = takePendingDocSync(cmd.jobId);
-          if (!pending) return;
+          // NEVER consume the stash before the flush succeeds. The old code
+          // called takePendingDocSync() here, so a flush that did not queue
+          // (or threw into the swallowed .catch below) destroyed the invoice
+          // the user had already been told was on its way — that is how
+          // Mordechai Nemni's invoice vanished on 2026-08-10.
+          const pending = peekPendingDocSync(cmd.jobId);
+          if (!pending) {
+            appliedCustomerQbo.current.add(mark);
+            return;
+          }
           const linkedJob = { ...(effectiveJob(cmd.jobId) || {}), ...patch };
-          const queued = await flushPendingDocSync({
-            enqueue: enqueueRef.current,
-            logSend,
-            jobId: cmd.jobId,
-            job: linkedJob,
-            bundle: pending,
-          });
+          const label = pending.kind === "estimate" ? "estimate" : "invoice";
+          let queued = false;
+          let failure = "";
+          try {
+            queued = await flushPendingDocSync({
+              enqueue: enqueueRef.current,
+              logSend,
+              jobId: cmd.jobId,
+              job: linkedJob,
+              bundle: pending,
+            });
+          } catch (err) {
+            failure = String(err?.message || err);
+          }
           if (queued) {
-            const label = pending.kind === "estimate" ? "estimate" : "invoice";
+            clearPendingDocSync(cmd.jobId);
+            appliedCustomerQbo.current.add(mark);
             showToast(
               pending.send
                 ? "Customer ready — sending your " + label + " to QuickBooks now"
                 : "Customer ready — syncing your " + label + " to QuickBooks now"
             );
+            return;
           }
+          // Keep the bundle AND leave this command unmarked so the next pass
+          // retries. flushPendingDocSync enqueues with idempotency keys, so a
+          // retry cannot double-send.
+          markPendingDocSyncFailure(cmd.jobId, failure);
+          showToast(
+            "Your " + label + " could not be sent to QuickBooks yet — it is saved and will retry"
+          );
         })
-        .catch(() => {});
-      if (!pendingDoc) showToast("Customer linked to QuickBooks");
+        .catch((err) => {
+          // Never silently swallow: a failed link used to leave the user
+          // believing the invoice had gone out.
+          markPendingDocSyncFailure(cmd.jobId, err?.message || err);
+        });
+      if (!pendingDoc) {
+        appliedCustomerQbo.current.add(mark);
+        showToast("Customer linked to QuickBooks");
+      }
     }
   }, [commands, effectiveJob, logSend, patchAndSave, showToast]);
 

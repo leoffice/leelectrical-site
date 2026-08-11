@@ -23,7 +23,16 @@ export function stashPendingDocSync(jobId, bundle) {
   writeAll(map);
 }
 
-/** Remove and return a stashed doc sync bundle for a job. */
+/**
+ * Remove and return a stashed doc sync bundle for a job.
+ *
+ * @deprecated DATA LOSS — this consumes the bundle before the caller knows
+ * whether the flush succeeded. If the flush then failed, the queued invoice /
+ * estimate was gone for good (Mordechai Nemni, 2026-08-10: an invoice was
+ * built and "sent", the bundle was taken, the flush did not queue, and no
+ * invoice ever existed anywhere). Use peekPendingDocSync + clearPendingDocSync
+ * so the bundle survives a failure and can be retried.
+ */
 export function takePendingDocSync(jobId) {
   if (!jobId) return null;
   const map = readAll();
@@ -34,6 +43,43 @@ export function takePendingDocSync(jobId) {
     writeAll(map);
   }
   return bundle;
+}
+
+/** Read a stashed bundle WITHOUT consuming it. */
+export function peekPendingDocSync(jobId) {
+  if (!jobId) return null;
+  return readAll()[String(jobId)] || null;
+}
+
+/** Drop a stashed bundle — only after its commands are safely queued. */
+export function clearPendingDocSync(jobId) {
+  if (!jobId) return;
+  const map = readAll();
+  const key = String(jobId);
+  if (!(key in map)) return;
+  delete map[key];
+  writeAll(map);
+}
+
+/** Record a failed flush so the bundle is retried instead of silently lost. */
+export function markPendingDocSyncFailure(jobId, error) {
+  if (!jobId) return;
+  const map = readAll();
+  const key = String(jobId);
+  const cur = map[key];
+  if (!cur) return;
+  map[key] = {
+    ...cur,
+    flushAttempts: Number(cur.flushAttempts || 0) + 1,
+    lastFlushError: String(error || "flush_did_not_queue").slice(0, 200),
+    lastFlushAt: Date.now(),
+  };
+  writeAll(map);
+}
+
+/** Every job id still holding an unflushed doc bundle. */
+export function pendingDocSyncJobIds() {
+  return Object.keys(readAll());
 }
 
 export function hasPendingDocSync(jobId) {
