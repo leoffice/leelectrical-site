@@ -189,10 +189,10 @@ function RenewalNotificationsCard({
     () => listRenewSendHistory(jobs),
     [jobs, historyTick]
   );
-  // Open by default — no extra tap / lag to see permit # + exp (Levi 2026-08-10).
-  const [sectionOpen, setSectionOpen] = useState(true);
-  // History open by default so staff sees every send without an extra tap
-  const [historyOpen, setHistoryOpen] = useState(true);
+  // Collapsed by default (Levi 2026-08-11) — open when you need pending/paid lists.
+  const [sectionOpen, setSectionOpen] = useState(false);
+  // History collapsed with the section
+  const [historyOpen, setHistoryOpen] = useState(false);
   const [expandedId, setExpandedId] = useState("");
 
   return (
@@ -1049,6 +1049,7 @@ const DeployQueueRow = memo(function DeployQueueRow({
   onOpenJob,
   onDeploy,
   onFixMissing,
+  onReportDeploy,
 }) {
   const status = item.status || "";
   const missing = item.missing || item.readiness?.missing || [];
@@ -1085,17 +1086,18 @@ const DeployQueueRow = memo(function DeployQueueRow({
   // Battery charge while Deploying (fleet rarely streams real %).
   // Keeps moving + holds at 94% until the row leaves the queue.
   const [deployPct, setDeployPct] = useState(0);
-  const [deployPhaseLabel, setDeployPhaseLabel] = useState("Deploying…");
+  // Levi 2026-08-11: primary label is "Deploying now" while the battery fills.
+  const [deployPhaseLabel, setDeployPhaseLabel] = useState("Deploying now");
   useEffect(() => {
     if (!isDeploying) {
       setDeployPct(0);
-      setDeployPhaseLabel("Deploying…");
+      setDeployPhaseLabel("Deploying now");
       return undefined;
     }
     setDeployPct((p) => (p > 0 ? p : 6));
-    setDeployPhaseLabel("Deploying…");
+    setDeployPhaseLabel("Deploying now");
     const phases = [
-      [12, "Deploying…"],
+      [12, "Deploying now"],
       [28, "Queuing…"],
       [42, "Opening…"],
       [58, "Uploading…"],
@@ -1120,10 +1122,13 @@ const DeployQueueRow = memo(function DeployQueueRow({
   }, [isDeploying, item.id]);
 
   let statusLabel = status || "pending";
-  let statusTone = "bg-slate-100 text-slate-600";
+  let statusTone = "bg-slate-100 text-slate-700";
   if (isDeploying && item.source !== "fleet") {
-    statusLabel = "Deploying…";
+    statusLabel = "Deploying now";
     statusTone = "bg-amber-100 text-amber-900";
+  } else if (item.deployError) {
+    statusLabel = "Failed";
+    statusTone = "bg-red-100 text-red-800 border border-red-200";
   } else if (needsInfo) {
     statusLabel = "Need info";
     statusTone = "bg-amber-100 text-amber-900 border border-amber-200";
@@ -1154,15 +1159,23 @@ const DeployQueueRow = memo(function DeployQueueRow({
           onClick={() => item.expandable !== false && onToggle(item.id)}
           data-testid="permits-queue-toggle"
         >
-          <div className="text-[13px] font-semibold text-slate-900 leading-snug">
+          <div className="text-[14px] font-semibold text-slate-900 leading-snug tracking-tight">
             {item.title}
           </div>
           {item.subtitle ? (
-            <div className="text-[11px] text-slate-500 mt-0.5">{item.subtitle}</div>
+            <div className="text-[12px] text-slate-700 mt-0.5 leading-snug">{item.subtitle}</div>
+          ) : null}
+          {item.nextHint && !expanded ? (
+            <div
+              className="text-[11px] text-slate-600 mt-1 font-medium"
+              data-testid="permits-queue-next-hint"
+            >
+              Next: {item.nextHint}
+            </div>
           ) : null}
           {needsInfo && !expanded ? (
             <div
-              className="text-[11px] text-amber-800 font-semibold mt-1"
+              className="text-[11px] text-amber-900 font-semibold mt-1"
               data-testid="permits-queue-missing-hint"
             >
               Missing: {hardMissing.map((m) => m.label).join(", ") || "details"}
@@ -1265,12 +1278,24 @@ const DeployQueueRow = memo(function DeployQueueRow({
             </div>
           ) : null}
           {/* Always show full facts on expand (Levi 2026-08-11 — no more guessing) */}
-          {item.subtitle || reviewBits.length || item.customer || item.permitNo || item.invoiceNo ? (
+          {item.subtitle ||
+          reviewBits.length ||
+          item.customer ||
+          item.permitNo ||
+          item.invoiceNo ||
+          item.detailLines?.length ||
+          item.whatDeployDoes ||
+          item.nextHint ? (
             <ul
-              className="text-[12px] text-slate-700 space-y-0.5"
+              className="text-[13px] text-slate-800 space-y-1 leading-snug"
               data-testid="permits-queue-facts"
             >
-              {item.subtitle
+              {item.detailLines?.length
+                ? item.detailLines.map((b) => (
+                    <li key={b}>· {b}</li>
+                  ))
+                : null}
+              {!item.detailLines?.length && item.subtitle
                 ? String(item.subtitle)
                     .split(" · ")
                     .filter(Boolean)
@@ -1295,9 +1320,48 @@ const DeployQueueRow = memo(function DeployQueueRow({
                   {item.appsExpected} expected
                 </li>
               ) : null}
+              {item.nextHint ? (
+                <li className="font-semibold text-slate-900">· Next: {item.nextHint}</li>
+              ) : null}
+              {item.whatDeployDoes ? (
+                <li className="text-slate-700">· When you press Deploy: {item.whatDeployDoes}</li>
+              ) : null}
             </ul>
           ) : !missing.length ? (
-            <p className="text-[12px] text-slate-500">No application details yet — Edit to fill.</p>
+            <p className="text-[13px] text-slate-600">No application details yet — Edit to fill.</p>
+          ) : null}
+          {item.deployError ? (
+            <div
+              className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 space-y-2"
+              data-testid="permits-queue-deploy-error"
+            >
+              <div className="text-[11px] font-extrabold text-red-900 uppercase tracking-wide">
+                Deploy issue
+              </div>
+              <p className="text-[13px] text-red-950 leading-snug whitespace-pre-wrap">
+                {item.deployError}
+              </p>
+              <div className="flex flex-wrap gap-2">
+                {canDeploy || item.deployError ? (
+                  <button
+                    type="button"
+                    className="btn bg-emerald-700 text-white !py-1.5 !px-3 text-xs font-extrabold"
+                    data-testid="permits-queue-try-again"
+                    onClick={() => onDeploy(item)}
+                  >
+                    Try again
+                  </button>
+                ) : null}
+                <button
+                  type="button"
+                  className="btn bg-white border border-red-300 text-red-800 !py-1.5 !px-3 text-xs font-bold"
+                  data-testid="permits-queue-report-dev"
+                  onClick={() => onReportDeploy?.(item)}
+                >
+                  Report to developer
+                </button>
+              </div>
+            </div>
           ) : null}
           <div className="flex flex-wrap gap-2 pt-1 items-center">
             {item.jobId ? (
@@ -2313,6 +2377,40 @@ export default function Permits() {
     }
   };
 
+  /** Deploy failed → report to Israel (same bus as paperwork fails). */
+  const reportDeployIssue = async (item) => {
+    if (!item) return;
+    const err =
+      item.deployError ||
+      item.error ||
+      `Deploy queue issue · ${item.kind || item.title || "row"} · ${item.serviceAddress || ""}`;
+    if (!enqueue) {
+      showToast("Could not reach developers — try again later");
+      return;
+    }
+    try {
+      const { reportPaperworkFailOnce } = await import("../lib/paperworkFailReport.js");
+      const rep = await reportPaperworkFailOnce(
+        {
+          kind: "deploy_queue",
+          error: String(err).slice(0, 500),
+          jobId: item.jobId || item.job?.id || "",
+          paperworkJobId: item.run?.id || item.id || "",
+          customer: item.job?.customer || item.card?.customer || "",
+          address: item.serviceAddress || item.job?.serviceAddress || "",
+          requestType: item.kind || item.title || "",
+          phase: "permits_deploy_report",
+          force: true,
+          extra: item.subtitle || "",
+        },
+        enqueue
+      );
+      showToast(rep?.queued || rep?.ok ? "Reported to developers" : "Report sent");
+    } catch {
+      showToast("Report failed — try again");
+    }
+  };
+
   /** Green Deploy on a queue row — fire skill; button shows Deploying… */
   const deployQueueItem = async (item) => {
     if (!item?.id || deployingIds[item.id]) return;
@@ -2832,6 +2930,7 @@ export default function Permits() {
                     onOpenJob={open}
                     onDeploy={deployQueueItem}
                     onFixMissing={fixMissingOnItem}
+                    onReportDeploy={reportDeployIssue}
                   />
                 ))}
               </div>

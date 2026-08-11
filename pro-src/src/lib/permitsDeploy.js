@@ -461,6 +461,15 @@ export function permitRenewDeployDisplay(card = {}, job = null) {
   } else if (hardMissing.length) status = "need_info";
 
   const amountStr = moneyLabel(fee);
+  const detailLines = [
+    customer ? `Customer: ${customer}` : "",
+    permitNo ? `City permit: ${permitNo}` : "City permit #: not on file (can look up by address)",
+    inv ? `Invoice: ${inv}` : "",
+    amountStr ? `Paid: ${amountStr}${paidAt ? ` on ${paidAt}` : ""}` : "Paid",
+    exp ? `Current exp (issue+12m): ${exp}` : "",
+    "Files: paid renew invoice on job · customer email on file when notice was sent",
+    "Where: LE Pro job + Drive renew folder when Israel finishes DOB",
+  ].filter(Boolean);
   return {
     id: `permit-renew:${s(card.jobId || job?.id || card.id)}`,
     source: "permit_renew",
@@ -482,6 +491,10 @@ export function permitRenewDeployDisplay(card = {}, job = null) {
     ]
       .filter(Boolean)
       .join(" · "),
+    detailLines,
+    nextHint: "Press Deploy → Israel opens DOB NOW and starts the renew work permit",
+    whatDeployDoes:
+      "Opens DOB NOW for this address/permit, files the renew work permit step, then reports back. Success moves to history as OK successfully sent.",
     requestShort: "Renew",
     serviceAddress: addr,
     kind: "Renew Permit",
@@ -527,9 +540,32 @@ export function caseRunDisplay(run = {}, job = null) {
   const customer = s(job?.customer || job?.customerName || payload.jobName);
   const caseNum = s(run.caseNumber || payload.caseNumber);
   const bits = [requestShort, customer, caseNum ? `Case ${caseNum}` : ""].filter(Boolean);
+  // Richer copy so Deploy queue answers "how many / where / next / what Deploy does"
+  // without redesign thrash (Levi 2026-08-11).
+  const filled =
+    !!(answers.ownerFirst || answers.ownerLast) &&
+    !!(answers.serviceAddress || serviceAddress) &&
+    !!answers.requestType;
+  const detailLines = [
+    requestShort ? `Request: ${requestShort}` : "Request: Application for service",
+    customer ? `Customer: ${customer}` : "",
+    caseNum ? `Con Ed case: ${caseNum}` : "Con Ed case: not assigned yet",
+    filled ? "Application form: filled (owner + address + type)" : "Application form: incomplete — Edit to finish",
+    serviceAddress ? `Service address: ${serviceAddress}` : "",
+    "This is Con Edison paperwork — not the city electrical permit itself",
+  ].filter(Boolean);
   return {
     title,
     subtitle: bits.join(" · "),
+    detailLines,
+    nextHint: filled
+      ? caseNum
+        ? "Ready to upload / attach to the Con Ed case"
+        : "Ready to submit case to Con Edison"
+      : "Finish the application form (Edit)",
+    whatDeployDoes: filled
+      ? "Sends or uploads this Con Ed application for the agent to process in the browser. When done, history shows OK successfully sent."
+      : "Blocked until the application is complete — use Edit / Fix first.",
     requestShort,
     serviceAddress,
     kind,
@@ -895,6 +931,47 @@ export function buildDeployQueueItems({ jobs = [], caseRuns = [] } = {}) {
         agency,
         serviceAddress: addr,
       });
+      // Expand facts so Levi does not have to open the job (2026-08-11)
+      let detailLines = [];
+      let nextHint = "";
+      let whatDeployDoes = "";
+      if (isAppForService) {
+        const filledN = batch?.filled || batch?.ready || 0;
+        const expN = batch?.expected || Math.max(filledN, 1);
+        const upN = batch?.uploaded || 0;
+        detailLines = [
+          cust ? `Customer: ${cust}` : "",
+          caseNum ? `Con Ed case: ${caseNum}` : "Con Ed case: not assigned yet",
+          batchLine ||
+            (filledN
+              ? `Applications: ${filledN} of ${expN} filled · ${upN} uploaded`
+              : appReq?.sentAt || appReq?.emailed
+                ? "Applications: link sent — customer has not filled yet"
+                : "Applications: none filled yet"),
+          appReq?.to ? `Customer link to: ${appReq.to}` : "",
+          "This is Con Edison Form A — not the city electrical permit",
+          "Con Ed still needs this — not finished until every app uploads",
+        ].filter(Boolean);
+        nextHint = readyFilesForTodo.length
+          ? "Ready — press Deploy to upload Form A to Con Ed"
+          : appReq?.sentAt || appReq?.emailed
+            ? "Wait for customer to fill Form A, or open job to fill in-office"
+            : "Send customer the Form A link or fill in-office (Fix)";
+        whatDeployDoes =
+          "Opens Energy Services and uploads ready Form A file(s) to the case. History shows OK when every expected app is uploaded.";
+      } else if (isElectricCert) {
+        detailLines = [
+          cust ? `Customer: ${cust}` : "",
+          addr ? `Address: ${addr}` : "",
+          "What this is: Electric Certificate for Con Edison",
+          "Does NOT mean the city electrical permit is done",
+          "Con Ed only asks for this after the DOB electrical permit is filed",
+          "Status: not filed yet — certificate skill not built",
+        ].filter(Boolean);
+        nextHint = "File the DOB electrical permit first (not this row)";
+        whatDeployDoes =
+          "Blocked for now — certificate skill is not live. Do not treat a green Deploy here as permit done.";
+      }
       items.push({
         id: `todo:${job.id}:${todo.id}`,
         source: "todo",
@@ -903,6 +980,9 @@ export function buildDeployQueueItems({ jobs = [], caseRuns = [] } = {}) {
         todo,
         title,
         subtitle: subtitleBits.filter(Boolean).join(" · "),
+        detailLines,
+        nextHint,
+        whatDeployDoes,
         requestShort: isAppForService ? "Form A" : isElectricCert ? "Cert" : "",
         serviceAddress: addr,
         kind: kindLabel,

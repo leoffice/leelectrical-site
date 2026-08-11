@@ -380,11 +380,14 @@ describe("buildDeployQueueItems", () => {
     expect(app.subtitle).toMatch(/MC-941412/);
     expect(app.subtitle).toMatch(/not filled|not done|still/i);
     expect(app.status).toBe("need_info");
+    expect(app.detailLines?.join(" ")).toMatch(/Con Edison Form A|not the city/i);
+    expect(app.nextHint).toMatch(/fill|Form A|link/i);
     expect(cert).toBeTruthy();
     expect(cert.title).toMatch(/Electric Certificate · DOB · 1127 Lincoln/);
     expect(cert.subtitle).toMatch(/NOT filed yet/i);
     expect(cert.subtitle).toMatch(/not done/i);
     expect(cert.status).toBe("need_info");
+    expect(cert.detailLines?.join(" ")).toMatch(/Does NOT mean|not mean/i);
     expect(queueItemCanDeploy(cert)).toBe(false);
   });
 });
