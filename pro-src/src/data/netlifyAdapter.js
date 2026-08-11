@@ -367,6 +367,20 @@ export function createNetlifyAdapter() {
      * Always returns pdfB64 when built so callers can queue a host retry without
      * rebuilding the PDF (big lag on retry).
      */
+    /**
+     * Self-heal invoices that were SENT (pay link + stored PDF exist) but whose
+     * app record never landed — Levi 2026-08-11, invoice LE-251859. Idempotent:
+     * an invoice already on the board is skipped. Fire-and-forget from the UI.
+     * @returns {Promise<{ ok: boolean, applied?: number, missing?: Array<object> }>}
+     */
+    async reconcileSentDocs({ apply = false } = {}) {
+      try {
+        return await httpAllowErrorBody("docs-reconcile", apply ? { op: "heal" } : undefined);
+      } catch (err) {
+        return { ok: false, error: String(err?.message || err) };
+      }
+    },
+
     async sendDocEmailNow(job, kind = "invoice", opts = {}) {
       const isApplication = kind === "application" || kind === "agency";
       const isStatement = kind === "statement";

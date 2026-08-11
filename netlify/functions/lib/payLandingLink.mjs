@@ -107,7 +107,28 @@ export function buildEmailPayLandingPayload({
 }) {
   const isEstimate = String(kind || "invoice").toLowerCase() === "estimate";
   const serviceAddr = String(job.serviceAddress || job.address || "").trim();
-  const billAddr = String(job.billingAddress || job.address || serviceAddr).trim();
+  // ba carries only a billing address the customer actually has — never the
+  // job site (Levi 2026-08-11, LE-2700). An empty or service-mirroring billing
+  // field ships as contact info so the landing page never shows the service
+  // street under BILLING.
+  const normA = (s) =>
+    String(s || "")
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, " ")
+      .trim();
+  // Probe against the EXPLICIT service address only — job.address is the
+  // generic single-address field (on QBO jobs it IS the billing address).
+  const svcProbe = String(job.serviceAddress || "").trim();
+  const notSvc = (v) => v && (!svcProbe || normA(v) !== normA(svcProbe));
+  const rawBillAddr = String(job.billingAddress || "").trim();
+  const genericAddr = String(job.address || "").trim();
+  let billAddr = notSvc(rawBillAddr) ? rawBillAddr : notSvc(genericAddr) ? genericAddr : "";
+  if (!billAddr) {
+    billAddr = [job.email, job.phone]
+      .map((x) => String(x || "").trim())
+      .filter(Boolean)
+      .join("\n");
+  }
   const due = amt(docData.amountDue);
   const paid = isEstimate
     ? 0

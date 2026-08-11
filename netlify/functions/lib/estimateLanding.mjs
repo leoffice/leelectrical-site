@@ -81,7 +81,9 @@ export function buildDepositJobFromPayload(payload, { depositPct = 50, invoiceNo
     phone: String(payload.ph || "").trim(),
     title: String(payload.w || "Electrical services").trim(),
     serviceAddress: String(payload.sa || "").trim(),
-    billingAddress: String(payload.ba || payload.sa || "").trim(),
+    // ba only — billing never falls back to the service address (Levi
+    // 2026-08-11, LE-2700).
+    billingAddress: String(payload.ba || "").trim(),
     address: String(payload.sa || payload.ba || "").trim(),
     apartment: String(payload.apartment || "").trim(),
     zip: String(payload.z || "").trim(),

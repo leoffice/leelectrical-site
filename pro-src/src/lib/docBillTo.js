@@ -1,6 +1,12 @@
+import { addressesDiffer } from "./prefillFromEvent.js";
+
 // Bill-to vs service address for customer-facing invoice / pay PDF.
-// Permit renew: full contact (mail + email + phone) under Bill To; site under Service Address.
-// Never put the service street alone under Bill To (Levi 2026-08-10 — Forty Hampton).
+// Never put the service street alone under Bill To — for ANY doc (Levi
+// 2026-08-10 Forty Hampton set the rule for permit renews; Levi 2026-08-11
+// LE-2700 Chaim Saimon generalized it: the BILLING block is the customer's own
+// billing address, the SERVICE block is the job site, kept independent. When
+// no billing address is on file, Bill To shows the customer's contact
+// (email / phone) — never a silent copy of the service street.
 
 /** True when this doc is a city permit renew invoice. */
 export function isPermitRenewDoc(job) {
@@ -12,23 +18,29 @@ export function isPermitRenewDoc(job) {
 
 /**
  * Bill-to block under the customer name (street / mail / email / phone).
- * Renew: never fall back to the service site street.
+ * Only a billing address the customer actually has prints here; a billing
+ * field that is empty or just mirrors the job site (the old service→billing
+ * auto-copy) falls back to contact instead of duplicating the service street.
  */
 export function resolveBillToAddress(job = {}) {
   const j = job || {};
-  const forceService = isPermitRenewDoc(j);
   const rawBill = String(j.billingAddress || "").trim();
-  const svcProbe = String(j.serviceAddress || j.address || "").trim();
-  let billAddr = forceService
-    ? rawBill && rawBill.toLowerCase() !== svcProbe.toLowerCase()
-      ? rawBill
-      : ""
-    : (rawBill || j.address || "").trim();
-  if (forceService && !billAddr) {
-    const contact = [j.email, j.phone]
+  // Probe against the EXPLICIT service address only. j.address is the generic
+  // single-address field — on QBO-imported jobs it IS the billing address — so
+  // it stays a legitimate billing fallback as long as it isn't the job site.
+  const svcProbe = String(j.serviceAddress || "").trim();
+  const notService = (v) => v && (!svcProbe || addressesDiffer(v, svcProbe));
+  let billAddr = "";
+  if (notService(rawBill)) billAddr = rawBill;
+  else {
+    const generic = String(j.address || "").trim();
+    if (notService(generic)) billAddr = generic;
+  }
+  if (!billAddr) {
+    billAddr = [j.email, j.phone]
       .map((x) => String(x || "").trim())
-      .filter(Boolean);
-    billAddr = contact.join("\n");
+      .filter(Boolean)
+      .join("\n");
   }
   return billAddr;
 }

@@ -213,7 +213,29 @@ export function mapJobToQbDocData(job, kind = "invoice") {
   const dueDateRaw = job.dueDate || (isInvoice ? addDays(invoiceDateRaw, 1) : "");
 
   const billName = (job.customer || job.businessName || job.personName || "").trim();
-  const billAddr = (job.billingAddress || job.address || "").trim();
+  // BILLING is the customer's own address — never the job site (Levi
+  // 2026-08-11, LE-2700). A billing field that is empty or just mirrors the
+  // service address (the old service→billing auto-copy) falls back to the
+  // customer's contact instead of duplicating the service street.
+  // Probe against the EXPLICIT service address only — job.address is the
+  // generic single-address field (on QBO jobs it IS the billing address), so
+  // it remains a billing fallback as long as it isn't the job site.
+  const normAddr = (s) =>
+    String(s || "")
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, " ")
+      .trim();
+  const svcProbe = String(job.serviceAddress || "").trim();
+  const notService = (v) => v && (!svcProbe || normAddr(v) !== normAddr(svcProbe));
+  const rawBill = String(job.billingAddress || "").trim();
+  const genericAddr = String(job.address || "").trim();
+  let billAddr = notService(rawBill) ? rawBill : notService(genericAddr) ? genericAddr : "";
+  if (!billAddr) {
+    billAddr = [job.email, job.phone]
+      .map((x) => String(x || "").trim())
+      .filter(Boolean)
+      .join("\n");
+  }
   const svcAddr = formatServiceAddressWithApt(job);
   const customFields = [];
   const billCmp = billAddr.toLowerCase();

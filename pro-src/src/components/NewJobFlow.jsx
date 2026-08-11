@@ -43,7 +43,6 @@ import {
 import { prefillFromEvent } from "../lib/prefillFromEvent.js";
 import { consumePendingDocAfterJob, resumeFollowUpPrompts } from "../lib/calendarNavigate.js";
 import AddressAutocompleteField from "./AddressAutocompleteField.jsx";
-import { syncBillingFromService } from "../lib/addressSync.js";
 import { draftJobFromFabContext, paymentFabStep } from "../lib/fabPrefill.js";
 import PageNoteSheet from "./PageNoteSheet.jsx";
 import { useLiveEdit } from "./LiveEditProvider.jsx";
@@ -834,12 +833,6 @@ function NewCustomerForm({ prefill = {}, fromCalendar = false, onClose, onCreate
           label="Service address"
           value={f.serviceAddress}
           onChange={(v) => setF((o) => ({ ...o, serviceAddress: v }))}
-          onBlurExtra={() =>
-            setF((o) => ({
-              ...o,
-              billingAddress: syncBillingFromService(o.serviceAddress, o),
-            }))
-          }
           jobs={jobs}
           events={events}
           suggestAddresses={api.suggestAddresses?.bind(api)}
@@ -1239,12 +1232,6 @@ function NewJobForm({ prefill, onClose, onCreated, vendorMode = false, sasCallId
         events={events}
         value={f.serviceAddress}
         onChange={(v) => setF((o) => ({ ...o, serviceAddress: v }))}
-        onServiceBlur={() =>
-          setF((o) => ({
-            ...o,
-            billingAddress: syncBillingFromService(o.serviceAddress, o),
-          }))
-        }
         onApartmentChange={(v) => setF((o) => ({ ...o, apartment: v }))}
         suggestAddresses={api.suggestAddresses?.bind(api)}
         testId="newjob-service"

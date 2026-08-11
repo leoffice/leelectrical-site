@@ -218,20 +218,25 @@ describe("qbInvoicePdf layout (Levi 2026-07-22)", () => {
     expect(text).toMatch(/Page 2 of [2-9]/);
   });
 
-  it("omits SERVICE ADDRESS when same as billing", async () => {
+  it("billing that mirrors the service address prints as contact + SERVICE ADDRESS (Levi 2026-08-11, LE-2700)", async () => {
     const data = mapJobToQbDocData(
       {
         ...baseJob,
+        email: "cust@example.com",
         billingAddress: "10 Same St, Brooklyn, NY",
         serviceAddress: "10 Same St, Brooklyn, NY",
       },
       "invoice"
     );
-    expect(data.customFields || []).toHaveLength(0);
+    // The street belongs to SERVICE; Bill To carries the customer's contact.
+    const svc = (data.customFields || []).find((f) => /service/i.test(f.label));
+    expect(svc?.value).toMatch(/10 Same St/);
+    expect(data.billTo.addressLines.join("\n")).not.toMatch(/10 Same St/);
+    expect(data.billTo.addressLines.join("\n")).toMatch(/cust@example\.com/);
     const blob = buildQbDocPdf(data);
     const text = await pdfText(blob);
     expect(text).toContain("BILLING ADDRESS");
-    expect(text).not.toContain("SERVICE ADDRESS");
+    expect(text).toContain("SERVICE ADDRESS");
   });
 
   it("keeps Thank you / Sincerely below long payment methods (no signature scramble)", async () => {

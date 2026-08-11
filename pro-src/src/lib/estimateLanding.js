@@ -39,7 +39,7 @@ export function buildEstimateJobFromPayload(data) {
     phone: String(data?.ph || "").trim(),
     title: String(data?.w || "Electrical services").trim(),
     serviceAddress: String(data?.sa || "").trim(),
-    billingAddress: String(data?.ba || data?.sa || "").trim(),
+    billingAddress: String(data?.ba || "").trim(),
     address: String(data?.sa || data?.ba || "").trim(),
     apartment: String(data?.apartment || "").trim(),
     zip: String(data?.z || "").trim(),
@@ -122,9 +122,7 @@ export function buildInvoiceJobFromPayload(data) {
     renewCta: data?.renewCta,
     renewScenarioId: data?.renewScenarioId,
   };
-  const billingAddress =
-    resolveBillToAddress(shell) ||
-    (isRenew ? "" : String(data?.ba || data?.sa || "").trim());
+  const billingAddress = resolveBillToAddress(shell);
   return {
     id: String(data?.j || "").trim(),
     customer: String(data?.c || "").trim(),
@@ -188,7 +186,7 @@ export function buildDepositInvoiceJob(data, { depositPct, invoiceNo } = {}) {
     phone: String(data?.ph || "").trim(),
     title: String(data?.w || "Electrical services").trim(),
     serviceAddress: String(data?.sa || "").trim(),
-    billingAddress: String(data?.ba || data?.sa || "").trim(),
+    billingAddress: String(data?.ba || "").trim(),
     address: String(data?.sa || data?.ba || "").trim(),
     apartment: String(data?.apartment || "").trim(),
     zip: String(data?.z || "").trim(),

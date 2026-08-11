@@ -1,16 +1,11 @@
-// Billing ↔ service address sync and display helpers.
+// Billing / service address display helpers.
+//
+// There used to be a syncBillingFromService() here that copied the service
+// address into an empty billing field. Removed (Levi 2026-08-11, LE-2700 —
+// Chaim Saimon's invoice printed the job site under BILLING ADDRESS): the
+// billing address is the customer's own and is never derived from the job
+// site. See docBillTo.resolveBillToAddress for the render-side rule.
 import { addressesDiffer } from "./prefillFromEvent.js";
-
-/** When billing is empty or still matched the prior service, copy service → billing. */
-export function syncBillingFromService(nextService, { billingAddress, serviceAddress: prevService } = {}) {
-  const svc = String(nextService || "").trim();
-  const bill = String(billingAddress || "").trim();
-  const prev = String(prevService || "").trim();
-  if (!svc) return bill;
-  if (!bill) return svc;
-  if (prev && !addressesDiffer(bill, prev)) return svc;
-  return bill;
-}
 
 /** Service addresses that differ from billing (for display). */
 export function serviceAddressesExcludingBilling(serviceAddresses, billingAddress) {

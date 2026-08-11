@@ -81,11 +81,10 @@ export function buildPayLandingPayload({
   const paid = amountPaid(job);
   const linkAmt = parseFloat(String(linkAmount).replace(/[$,]/g, "")) || due;
   const serviceAddr = (job?.serviceAddress || job?.address || "").trim();
-  // Renew: contact under billing only — never fall back to the service street (Levi 2026-08-10).
-  // Regular invoices may still fall back to service when billing is blank (same site).
-  const billAddr = isPermitRenewDoc(job)
-    ? resolveBillToAddress(job)
-    : String(job?.billingAddress || job?.address || serviceAddr || "").trim();
+  // Contact under billing when no real billing address exists — never fall
+  // back to the service street, for ANY doc (Levi 2026-08-10 renews;
+  // Levi 2026-08-11 LE-2700 generalized it).
+  const billAddr = resolveBillToAddress(job);
   const zip =
     String(job?.zip || "").trim() ||
     extractZip(billAddr) ||

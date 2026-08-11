@@ -21,7 +21,6 @@ import { stashCalendarPick } from "../lib/calendarNavigate.js";
 import CustomerSearch from "./CustomerSearch.jsx";
 import { enrichAndPatchCustomer } from "./NewJobFlow.jsx";
 import AddressAutocompleteField from "./AddressAutocompleteField.jsx";
-import { syncBillingFromService } from "../lib/addressSync.js";
 import { useStore } from "../state/store.jsx";
 import { productName } from "../lib/tenantBranding.js";
 import { useTenantConfig } from "../state/tenant.jsx";
@@ -4519,9 +4518,9 @@ export function CustEditSheet({ job, onClose }) {
           phone: patch.phone || o.phone || "",
           email: patch.email || o.email || "",
           serviceAddress,
-          billingAddress:
-            patch.billingAddress ||
-            syncBillingFromService(serviceAddress, { billingAddress: o.billingAddress, serviceAddress: o.serviceAddress }),
+          // Billing stays the customer's own address — never derived from the
+          // job site (Levi 2026-08-11, LE-2700).
+          billingAddress: patch.billingAddress || o.billingAddress || "",
           qboCustomerId: patch.qboCustomerId || o.qboCustomerId || "",
         };
       });
@@ -4636,12 +4635,6 @@ export function CustEditSheet({ job, onClose }) {
           label="Service address"
           value={f.serviceAddress}
           onChange={(v) => setF((o) => ({ ...o, serviceAddress: v }))}
-          onBlurExtra={() =>
-            setF((o) => ({
-              ...o,
-              billingAddress: syncBillingFromService(o.serviceAddress, o),
-            }))
-          }
           jobs={jobs}
           events={events}
           suggestAddresses={api.suggestAddresses?.bind(api)}

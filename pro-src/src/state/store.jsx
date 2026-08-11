@@ -816,6 +816,46 @@ export function StoreProvider({ children }) {
     []
   );
 
+  /* ---------- self-heal: invoices that were SENT but never saved ----------
+   * Levi 2026-08-11 (invoice LE-251859 reached the customer while LE Pro showed
+   * them $0). Sending mints a pay link and stores the PDF, so the pay store is
+   * a witness that an invoice really went out. This asks the server to compare
+   * those witnesses against our own board and re-materialize anything missing —
+   * keeping the ORIGINAL invoice number and pay code, so the link already in
+   * the customer's inbox still reconciles. Idempotent; once per session, at
+   * idle, never blocking the UI.
+   */
+  const sentDocHealRef = useRef(false);
+  useEffect(() => {
+    if (loading || sentDocHealRef.current) return;
+    if (!jobs || !jobs.length) return;
+    if (typeof api.reconcileSentDocs !== "function") return;
+    sentDocHealRef.current = true;
+    let cancelled = false;
+    const idle =
+      typeof window !== "undefined" && window.requestIdleCallback
+        ? window.requestIdleCallback
+        : (fn) => setTimeout(fn, 2000);
+    idle(() => {
+      if (cancelled) return;
+      api
+        .reconcileSentDocs({ apply: true })
+        .then((res) => {
+          if (cancelled || !res?.ok || !res.applied) return;
+          showToast(
+            res.applied === 1
+              ? "Recovered 1 sent invoice that was missing"
+              : `Recovered ${res.applied} sent invoices that were missing`
+          );
+          void refreshJobs(true);
+        })
+        .catch(() => {});
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [loading, jobs, showToast, refreshJobs]);
+
   /* ---------- doc outbox: replay any invoice whose save never confirmed ----------
    * Levi 2026-08-11 (invoice LE-251859 reached a customer and existed nowhere).
    * Creating an invoice writes it to the outbox synchronously and moves on; if

@@ -81,8 +81,11 @@ describe("PayLanding view", () => {
     await waitForPayLoaded();
     expect(screen.getByText("BLZ Electric")).toBeInTheDocument();
     expect(screen.getByRole("heading", { level: 1, name: /Invoice.*251839/ })).toBeInTheDocument();
+    // Billing that just mirrored the job site ships as contact info; the
+    // street shows under Service address instead (Levi 2026-08-11, LE-2700).
     expect(screen.getByText("Billing address")).toBeInTheDocument();
-    expect(screen.queryByText("Service address")).toBeNull();
+    expect(screen.getByText("Service address")).toBeInTheDocument();
+    expect(screen.getByText(/55 Elm St/)).toBeInTheDocument();
     expect(screen.getByText("Panel upgrade")).toBeInTheDocument();
     expect(screen.getByTestId("view-invoice")).toHaveTextContent("View invoice");
     expect(screen.getByText("Rae Klein")).toBeInTheDocument();
