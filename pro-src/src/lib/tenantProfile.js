@@ -69,6 +69,17 @@ export const DEFAULT_PROFILE = {
    */
   letterSignatureMode: "company",
 
+  /**
+   * Which system owns the books — Levi 2026-08-11, after invoice LE-251859 was
+   * emailed to a customer and then vanished from the app.
+   * - "lepro" (default): LE Pro's own store is authoritative. An invoice it
+   *   recorded must never be hidden or dropped just because QuickBooks has not
+   *   synced it; QBO sync is a secondary mirror.
+   * - "qbo": QuickBooks is authoritative (legacy behaviour).
+   * White-label tenants with no QuickBooks at all always want "lepro".
+   */
+  docSourceOfTruth: "lepro",
+
   // Short trading name used in email/SMS sign-offs ("— BLZ Electric").
   // Distinct from companyName, which carries the legal "Inc.".
   shortName: "BLZ Electric",
@@ -316,6 +327,9 @@ export function mergeProfile(raw) {
   if (!p.defaultSignerTitle) p.defaultSignerTitle = DEFAULT_PROFILE.defaultSignerTitle || "President";
   if (p.letterSignatureMode !== "signer" && p.letterSignatureMode !== "company") {
     p.letterSignatureMode = DEFAULT_PROFILE.letterSignatureMode || "company";
+  }
+  if (p.docSourceOfTruth !== "qbo" && p.docSourceOfTruth !== "lepro") {
+    p.docSourceOfTruth = DEFAULT_PROFILE.docSourceOfTruth || "lepro";
   }
   p.zelleHandle = String(p.zelleHandle || "").trim();
   p.venmoHandle = String(p.venmoHandle || "").trim();

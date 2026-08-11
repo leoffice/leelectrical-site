@@ -10,7 +10,28 @@ const COUNTER_KEY = "le-pro-doc-no-counter";
 
 /** New LE Pro invoice series — LE-2700, LE-2701, … (Levi 2026-08-04). */
 export const LE_INVOICE_PREFIX = "LE-";
-export const LE_INVOICE_START = 2700;
+/**
+ * Next number the LE series continues from. Levi 2026-08-11: resume at 2712
+ * after the runaway numbers below were issued.
+ */
+export const LE_INVOICE_START = 2712;
+
+/**
+ * The LE series is a small human counter — anything this size or larger is a
+ * legacy QuickBooks number (231xxx / 251xxx) that must never seed it.
+ *
+ * Levi 2026-08-11: invoices came out as LE-251858 / LE-251859. A legacy QBO
+ * number had reached the device's local counter, and the old floor guard only
+ * checked `floor >= LE_INVOICE_START`, so 251858 sailed through and every new
+ * invoice continued from there. A ceiling closes that: a poisoned counter, or
+ * an LE-prefixed legacy number already on the board, is now ignored.
+ */
+export const LE_INVOICE_MAX = 100000;
+
+/** True when n is a plausible LE-series counter value. */
+function inLeRange(n) {
+  return Number.isFinite(n) && n > 0 && n < LE_INVOICE_MAX;
+}
 
 /** Leading numeric core of a doc number.
  *  251841, 251100-CO-01 → 251100; LE-2700, LE-2701-CO-01 → 2700. */
@@ -32,6 +53,16 @@ function counterFloor(kind) {
   try {
     const stored = JSON.parse(localStorage.getItem(COUNTER_KEY) || "{}");
     const n = Number(stored[kind] || 0);
+    if (kind === "invoice" && Number.isFinite(n) && n >= LE_INVOICE_MAX) {
+      // Self-heal a poisoned counter so this device stops issuing LE-251xxx.
+      delete stored[kind];
+      try {
+        localStorage.setItem(COUNTER_KEY, JSON.stringify(stored));
+      } catch {
+        /* ignore quota */
+      }
+      return 0;
+    }
     return Number.isFinite(n) && n > 0 ? n : 0;
   } catch {
     return 0;
@@ -39,6 +70,7 @@ function counterFloor(kind) {
 }
 
 function bumpCounter(kind, value) {
+  if (kind === "invoice" && !inLeRange(value)) return;
   try {
     const stored = JSON.parse(localStorage.getItem(COUNTER_KEY) || "{}");
     const prev = Number(stored[kind] || 0);
@@ -66,6 +98,9 @@ export function maxDocNumberOnBoard(jobs, kind) {
       // New series: only LE-#### (ignore pure legacy QBO numbers for next-LE).
       if (!isLeInvoiceNo(raw)) continue;
       const n = numericDocCore(raw);
+      // LE-251859 and friends are legacy numbers wearing the LE- prefix; they
+      // must not drag the series up to 251860.
+      if (!inLeRange(n)) continue;
       if (n > max) max = n;
     } else {
       const n = numericDocCore(raw);
@@ -75,7 +110,7 @@ export function maxDocNumberOnBoard(jobs, kind) {
   const floor = counterFloor(kind);
   if (kind === "invoice") {
     // Counter only applies if already in LE series range (avoid 251902 floor).
-    const leFloor = floor >= LE_INVOICE_START ? floor : 0;
+    const leFloor = floor >= LE_INVOICE_START && inLeRange(floor) ? floor : 0;
     return Math.max(max, leFloor, LE_INVOICE_START - 1);
   }
   return Math.max(max, floor);

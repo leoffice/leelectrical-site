@@ -1246,6 +1246,21 @@ export default function Settings() {
             Applies to load letters and other letterhead PDFs. Company mode uses the short name above.
           </p>
         </Fld>
+        <Fld label="Source of truth for invoices">
+          <select
+            className={inputCls}
+            value={profile.docSourceOfTruth || "lepro"}
+            onChange={(e) => setP("docSourceOfTruth", e.target.value)}
+            data-testid="settings-doc-source-of-truth"
+          >
+            <option value="lepro">LE Pro (recommended) — this app owns the books</option>
+            <option value="qbo">QuickBooks — QBO owns the books</option>
+          </select>
+          <p className="text-[11px] text-slate-500 font-semibold mt-1">
+            LE Pro mode keeps every invoice this app recorded, even if QuickBooks has not synced
+            it — a sync gap can never hide or drop an invoice. QuickBooks sync stays on either way.
+          </p>
+        </Fld>
         <Fld label="Deposit-to banks (one per line)">
           <textarea
             className={inputCls + " min-h-[4.5rem]"}

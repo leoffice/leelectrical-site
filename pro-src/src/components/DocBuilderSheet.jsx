@@ -1401,8 +1401,14 @@ export default function DocBuilderSheet({
         jobPatch.letterDrafts = drafts;
       }
 
-      // Local first / network background — never block Save on cloud
-      void patchAndSave(jobId, jobPatch);
+      // Local first / network background — never block Save on cloud.
+      // BUT a SEND must never outrun its durable save: invoice LE-251859 was
+      // emailed to the customer (with the letter attached) while this promise
+      // was still in flight, and the record never landed — leaving a customer
+      // holding an invoice the business had no record of. When sending, we
+      // keep the promise and await confirmation before the email goes out.
+      const savePromise = patchAndSave(jobId, jobPatch);
+      if (!send) void savePromise;
 
       const needsCustomer =
         mode !== "edit" && !String(activeJob.qboCustomerId || "").trim();
@@ -1469,6 +1475,21 @@ export default function DocBuilderSheet({
         setSaving(false);
 
         const runLocalBg = async () => {
+          // send=save atomicity: confirm the invoice is durably stored BEFORE
+          // it reaches the customer. If the save fails we do not send — a
+          // missing record is recoverable, an unrecorded sent invoice is not.
+          try {
+            await savePromise;
+          } catch (err) {
+            showToast(
+              "Not sent — " +
+                label +
+                " could not be saved (" +
+                String(err?.message || err).slice(0, 60) +
+                "). Nothing went to the customer; try again."
+            );
+            return;
+          }
           let res = null;
           // Approved letter (+ any builder attachment) must land in the SAME
           // email as the invoice — build the parts from the builder's live
