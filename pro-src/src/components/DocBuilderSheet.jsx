@@ -47,6 +47,7 @@ import {
 } from "../lib/letterDraft.js";
 import { buildLetterheadPdfBlobWithPhotos, letterPdfFileName } from "../lib/letterheadPdf.js";
 import { isImageAttachment } from "../lib/letterPhotos.js";
+import { confirmDocSave, rememberDocSave } from "../lib/docOutbox.js";
 
 import { enrichAndPatchCustomer } from "./NewJobFlow.jsx";
 import {
@@ -1269,8 +1270,13 @@ export default function DocBuilderSheet({
         for (const d of letterDrafts) drafts = upsertJobLetterDraft({ letterDrafts: drafts }, d);
         jobPatch.letterDrafts = drafts;
       }
-      // Local apply is instant inside patchAndSave; network continues in background.
-      void patchAndSave(jobId, jobPatch);
+      // Local apply is instant inside patchAndSave; network continues in
+      // background. The outbox makes the record durable immediately so a
+      // failed/interrupted network save can never lose it.
+      rememberDocSave(jobId, jobPatch);
+      void patchAndSave(jobId, jobPatch)
+        .then(() => confirmDocSave(jobId))
+        .catch(() => {});
       // Keep builder fields in sync so a re-open does not look empty.
       setJob((o) => ({ ...o, id: jobId, ...jobPatch }));
       const pdfJob = buildPdfJob(activeJob, jobPatch);
@@ -1402,13 +1408,12 @@ export default function DocBuilderSheet({
       }
 
       // Local first / network background — never block Save on cloud.
-      // BUT a SEND must never outrun its durable save: invoice LE-251859 was
-      // emailed to the customer (with the letter attached) while this promise
-      // was still in flight, and the record never landed — leaving a customer
-      // holding an invoice the business had no record of. When sending, we
-      // keep the promise and await confirmation before the email goes out.
-      const savePromise = patchAndSave(jobId, jobPatch);
-      if (!send) void savePromise;
+      // Durability is guaranteed by the doc outbox (rememberDocSave below),
+      // NOT by making the user wait: sending stays exactly as fast as it was.
+      rememberDocSave(jobId, jobPatch);
+      void patchAndSave(jobId, jobPatch)
+        .then(() => confirmDocSave(jobId))
+        .catch(() => {});
 
       const needsCustomer =
         mode !== "edit" && !String(activeJob.qboCustomerId || "").trim();
@@ -1475,21 +1480,6 @@ export default function DocBuilderSheet({
         setSaving(false);
 
         const runLocalBg = async () => {
-          // send=save atomicity: confirm the invoice is durably stored BEFORE
-          // it reaches the customer. If the save fails we do not send — a
-          // missing record is recoverable, an unrecorded sent invoice is not.
-          try {
-            await savePromise;
-          } catch (err) {
-            showToast(
-              "Not sent — " +
-                label +
-                " could not be saved (" +
-                String(err?.message || err).slice(0, 60) +
-                "). Nothing went to the customer; try again."
-            );
-            return;
-          }
           let res = null;
           // Approved letter (+ any builder attachment) must land in the SAME
           // email as the invoice — build the parts from the builder's live

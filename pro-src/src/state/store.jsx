@@ -32,6 +32,7 @@ import {
   peekPendingDocSync,
 } from "../lib/docSyncChain.js";
 import { runDailyDedupeScan } from "../lib/dedupeScan.js";
+import { flushDocOutbox, pendingDocSaveCount } from "../lib/docOutbox.js";
 import { touchCustomerJob } from "../lib/customerRecency.js";
 import { hydrateDismissed } from "../lib/customers.js";
 import {
@@ -814,6 +815,42 @@ export function StoreProvider({ children }) {
     (evs, eventId, pl, match) => promotePendingCalEvent(evs, eventId, pl, match),
     []
   );
+
+  /* ---------- doc outbox: replay any invoice whose save never confirmed ----------
+   * Levi 2026-08-11 (invoice LE-251859 reached a customer and existed nowhere).
+   * Creating an invoice writes it to the outbox synchronously and moves on; if
+   * the network save never confirmed — failed request, closed tab, dead phone —
+   * this replays it once the app is back. Runs at idle: nothing on screen waits.
+   */
+  const outboxFlushedRef = useRef(false);
+  useEffect(() => {
+    if (loading || outboxFlushedRef.current) return;
+    if (!pendingDocSaveCount()) return;
+    outboxFlushedRef.current = true;
+    let cancelled = false;
+    const idle =
+      typeof window !== "undefined" && window.requestIdleCallback
+        ? window.requestIdleCallback
+        : (fn) => setTimeout(fn, 1200);
+    idle(() => {
+      if (cancelled) return;
+      flushDocOutbox(patchAndSave)
+        .then(({ replayed }) => {
+          if (!cancelled && replayed > 0) {
+            showToast(
+              replayed === 1
+                ? "Recovered 1 unsaved document"
+                : `Recovered ${replayed} unsaved documents`
+            );
+          }
+        })
+        .catch(() => {});
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [loading, patchAndSave, showToast]);
+
 
   // When calendar_upsert finishes on the Mac, store the real Google event id on the job.
   useEffect(() => {
