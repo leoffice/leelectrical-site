@@ -77,7 +77,17 @@ export function docSyncFailurePatch(commandType) {
 
 function buildDocJobPatch(job, { kind, mode, lines, serviceAddress, apartment, markDone, progressPct, contractAmount, discountType, discountValue }) {
   const valid = lines || [];
-  const subtotal = linesTotal(valid);
+  const linesSub = linesTotal(valid);
+  // Face total for $ discounts: prefer line math, but never ignore the stored
+  // invoice amount / baseline (mobile list-projection jobs + QBO imports often
+  // have sparse lines). Without this, a $5,000 discount on a $41,500 invoice
+  // can resolve to $0 when lines are empty/stale (Levi 2026-08-11 inv #231596).
+  const faceTotal = Math.max(
+    linesSub,
+    parseAmount(job?.amount) || 0,
+    parseAmount(job?.paymentBaseline) || 0,
+    parseAmount(job?.amountWhenBaselined) || 0
+  );
   const discInput = {
     type: discountType === "percent" ? "percent" : "amount",
     value: discountValue,
@@ -86,22 +96,41 @@ function buildDocJobPatch(job, { kind, mode, lines, serviceAddress, apartment, m
   const hasExplicit =
     discountType != null ||
     (discountValue != null && discountValue !== "");
+  // Percent is always of line subtotal; dollar amount uses face total so a
+  // typed $ discount sticks even when line rows are incomplete on mobile.
+  const discBase =
+    discInput.type === "percent"
+      ? linesSub > 0
+        ? linesSub
+        : faceTotal
+      : faceTotal > 0
+        ? faceTotal
+        : linesSub;
   const discPatch = hasExplicit
-    ? discountJobPatch(subtotal, discInput)
-    : discountJobPatch(subtotal, {
+    ? discountJobPatch(discBase, discInput)
+    : discountJobPatch(discBase, {
         type: job?.discountType === "percent" ? "percent" : "amount",
         value:
           job?.discountType === "percent"
             ? job?.discountPercent ?? job?.discountValue
             : job?.discount ?? job?.discountValue,
       });
-  const total = docTotalAfterDiscount(subtotal, {
+  // Total = (lines when present, else face) minus discount dollars.
+  const preDiscount = linesSub > 0 ? linesSub : faceTotal;
+  const total = docTotalAfterDiscount(preDiscount, {
     type: discPatch.discountType,
     value: discPatch.discountType === "percent" ? discPatch.discountPercent : discPatch.discount,
   });
+  // Hard guard: never collapse a real invoice to $0 just because lines were empty
+  // when a discount was typed (would mark paid + wipe balance).
+  const prevAmt = parseAmount(job?.amount) || 0;
+  const safeTotal =
+    prevAmt > 0.01 && total <= 0.01 && discPatch.discount > 0
+      ? Math.max(0, prevAmt - discPatch.discount)
+      : total;
   const jobPatch = {
     ...sharedAddressFields(serviceAddress, apartment),
-    amount: fmt$(total),
+    amount: fmt$(safeTotal),
     [kind === "estimate" ? "estimateLines" : "invoiceLines"]: valid,
     ...discPatch,
   };
@@ -113,8 +142,8 @@ function buildDocJobPatch(job, { kind, mode, lines, serviceAddress, apartment, m
   // Always recompute balance due on invoice save (progress % / line edits /
   // re-save after a corrupt stamp). Skip only when total is empty/zero and the
   // job already has no amount — otherwise heal openBalance = invoice − paid.
-  if (kind === "invoice" && total >= 0) {
-    Object.assign(jobPatch, reconcileBalanceOnAmountChange(job, total));
+  if (kind === "invoice" && safeTotal >= 0) {
+    Object.assign(jobPatch, reconcileBalanceOnAmountChange(job, safeTotal));
   }
 
   // Prefer original#-CO-N for local PDF / display on CO jobs (not confirmed until QBO).
@@ -139,7 +168,7 @@ function buildDocJobPatch(job, { kind, mode, lines, serviceAddress, apartment, m
     Object.assign(jobPatch, briefTitlePatch({ ...job, ...jobPatch }, kind));
   }
 
-  return { valid, total, jobPatch };
+  return { valid, total: safeTotal, jobPatch };
 }
 
 /** Plan local job patch only — Save & close (no QuickBooks commands). */

@@ -45,9 +45,7 @@ import {
   matchLetterType,
   upsertJobLetterDraft,
 } from "../lib/letterDraft.js";
-import { buildLetterheadPdfBlobWithPhotos, letterPdfFileName } from "../lib/letterheadPdf.js";
-import { isImageAttachment } from "../lib/letterPhotos.js";
-import { confirmDocSave, rememberDocSave } from "../lib/docOutbox.js";
+import { buildLetterheadPdfBlob, letterPdfFileName } from "../lib/letterheadPdf.js";
 
 import { enrichAndPatchCustomer } from "./NewJobFlow.jsx";
 import {
@@ -737,6 +735,17 @@ export default function DocBuilderSheet({
   const [discountValue, setDiscountValue] = useState(
     seedDisc.value > 0 ? String(seedDisc.value) : ""
   );
+  // Always-current discount for Save (mobile: Save can fire before blur re-render).
+  const discountTypeRef = useRef(seedDisc.type);
+  const discountValueRef = useRef(seedDisc.value > 0 ? String(seedDisc.value) : "");
+  discountTypeRef.current = discountType;
+  discountValueRef.current = discountValue;
+  // Re-seed when the job or its saved discount changes (re-open after save).
+  useEffect(() => {
+    const d = discountInputFromJob(job);
+    setDiscountType(d.type);
+    setDiscountValue(d.value > 0 ? String(d.value) : "");
+  }, [job?.id, job?.discount, job?.discountType, job?.discountPercent, job?.discountValue]);
   // Toggle to mark this invoice/estimate as a change order (CO) — enable or disable anytime.
   const alreadyCo = isChangeOrderJob(job);
   const [asChangeOrder, setAsChangeOrder] = useState(() => isChangeOrderJob(jobProp || job));
@@ -900,31 +909,9 @@ export default function DocBuilderSheet({
           )
         );
       }
-      // Load Letter → auto-invoice (Invoice_Attach_Load_Letter_SPEC): the doc
-      // this letter rides on becomes the load-test invoice. Default the line to
-      // the catalog "Load Letter" item + price ($500 in the LE catalog) when
-      // the line has no rate yet — Levi can still change it. Idempotent: the
-      // line is updated in place (keyed by lineIndex/letterId), never duplicated.
-      if (draft.typeId === "load_letter") {
-        const catalogItem =
-          items.find((it) => /load\s*letter/i.test(it?.name || "") && it.price != null) || null;
-        setLines((rows) =>
-          rows.map((ln, idx) => {
-            if (idx !== draft.lineIndex) return ln;
-            if (parseAmount(ln.unitPrice) > 0) return ln;
-            return {
-              ...ln,
-              itemName: (ln.itemName || "").trim() || (catalogItem?.name || "Load Letter"),
-              itemId: ln.itemId || catalogItem?.id || "",
-              unitPrice: catalogItem?.price != null ? catalogItem.price : 500,
-              qty: parseAmount(ln.qty) > 0 ? ln.qty : 1,
-            };
-          })
-        );
-      }
       try {
         setAttUploading(true);
-        const blob = await buildLetterheadPdfBlobWithPhotos({ draft });
+        const blob = buildLetterheadPdfBlob({ draft });
         const fileName = letterPdfFileName(draft);
         const file = new File([blob], fileName, { type: "application/pdf" });
         const { uploadChatAttachment } = await import("../lib/chatAttach.js");
@@ -961,7 +948,7 @@ export default function DocBuilderSheet({
         setAttUploading(false);
       }
     },
-    [showToast, items]
+    [showToast]
   );
 
 
@@ -1067,21 +1054,6 @@ export default function DocBuilderSheet({
       showToast("Couldn't attach file — " + (err?.message || "try again"));
     } finally {
       setAttUploading(false);
-    }
-  };
-
-  /** Open an attached file in a new tab (image preview or PDF viewer). */
-  const openAttachment = (att) => {
-    const url = String(att?.url || "").trim();
-    if (!url) {
-      showToast("That attachment has no file yet");
-      return;
-    }
-    try {
-      const w = window.open(url, "_blank", "noopener,noreferrer");
-      if (!w) showToast("Allow pop-ups to view attachments");
-    } catch {
-      showToast("Couldn't open that file");
     }
   };
 
@@ -1241,8 +1213,9 @@ export default function DocBuilderSheet({
         apartment,
         progressPct: progressPctEdit,
         contractAmount,
-        discountType,
-        discountValue,
+        // Refs beat React state on mobile Save (keyboard still open / last digit).
+        discountType: discountTypeRef.current,
+        discountValue: discountValueRef.current,
       });
       Object.assign(jobPatch, coTagsFromJob(activeJob));
       if (kind === "invoice") jobPatch.invoiceProgressBilling = !!progressOn;
@@ -1270,13 +1243,8 @@ export default function DocBuilderSheet({
         for (const d of letterDrafts) drafts = upsertJobLetterDraft({ letterDrafts: drafts }, d);
         jobPatch.letterDrafts = drafts;
       }
-      // Local apply is instant inside patchAndSave; network continues in
-      // background. The outbox makes the record durable immediately so a
-      // failed/interrupted network save can never lose it.
-      rememberDocSave(jobId, jobPatch);
-      void patchAndSave(jobId, jobPatch)
-        .then(() => confirmDocSave(jobId))
-        .catch(() => {});
+      // Local apply is instant inside patchAndSave; network continues in background.
+      void patchAndSave(jobId, jobPatch);
       // Keep builder fields in sync so a re-open does not look empty.
       setJob((o) => ({ ...o, id: jobId, ...jobPatch }));
       const pdfJob = buildPdfJob(activeJob, jobPatch);
@@ -1395,32 +1363,13 @@ export default function DocBuilderSheet({
       if (keepOnCustomer) jobPatch.email = emailTo;
       else delete jobPatch.email;
 
-      // Persist attachments + letter drafts on the job (submitLocal already
-      // did). Without this a Save & Email left no letter on the record, so a
-      // later resend from the job card had nothing to attach.
-      if (attachments.length) {
-        jobPatch.attachments = (job.attachments || []).concat(attachments);
-      }
-      if (letterDrafts.length) {
-        let drafts = job.letterDrafts || [];
-        for (const d of letterDrafts) drafts = upsertJobLetterDraft({ letterDrafts: drafts }, d);
-        jobPatch.letterDrafts = drafts;
-      }
-
-      // Local first / network background — never block Save on cloud.
-      // Durability is guaranteed by the doc outbox (rememberDocSave below),
-      // NOT by making the user wait: sending stays exactly as fast as it was.
-      rememberDocSave(jobId, jobPatch);
-      void patchAndSave(jobId, jobPatch)
-        .then(() => confirmDocSave(jobId))
-        .catch(() => {});
+      // Local first / network background — never block Save on cloud
+      void patchAndSave(jobId, jobPatch);
 
       const needsCustomer =
         mode !== "edit" && !String(activeJob.qboCustomerId || "").trim();
 
-      // Levi decides per send whether the letter / photos ride along.
-      const wantAttachments = opts.includeAttachments !== false;
-      const attsForEmail = send ? (wantAttachments ? emailAttachments() : []) : attachments;
+      const attsForEmail = send ? emailAttachments() : attachments;
       const attsForQbo = attachments;
       const docSource = resolveDocSource(
         opts.docSource === DOC_SOURCE_LOCAL ? DOC_SOURCE_LOCAL : DOC_SOURCE_QBO,
@@ -1481,19 +1430,6 @@ export default function DocBuilderSheet({
 
         const runLocalBg = async () => {
           let res = null;
-          // Approved letter (+ any builder attachment) must land in the SAME
-          // email as the invoice — build the parts from the builder's live
-          // state, which is authoritative before the job round-trips.
-          let extraAttachments = [];
-          try {
-            const { buildEmailAttachmentParts } = await import("../lib/emailAttachments.js");
-            extraAttachments = await buildEmailAttachmentParts({
-              attachments: attsForEmail,
-              letterDrafts,
-            });
-          } catch {
-            extraAttachments = [];
-          }
           try {
             if (typeof api.sendDocEmailNow === "function") {
               res = await api.sendDocEmailNow(pdfJob, kind, {
@@ -1501,7 +1437,6 @@ export default function DocBuilderSheet({
                 includePaymentLink: withPay,
                 message: customMsg,
                 subject: opts.subject || "",
-                extraAttachments,
               });
             }
           } catch (err) {
@@ -1866,7 +1801,15 @@ export default function DocBuilderSheet({
             })}
             inputMode="decimal"
             value={discountValue}
-            onChange={(e) => setDiscountValue(e.target.value)}
+            onChange={(e) => {
+              const v = e.target.value;
+              setDiscountValue(v);
+              discountValueRef.current = v;
+            }}
+            onBlur={() => {
+              // Commit typed value so Save never races a stale empty string (mobile).
+              discountValueRef.current = discountValue;
+            }}
             placeholder={discountType === "percent" ? "0" : "0"}
             aria-label="Discount value"
             data-testid="doc-discount-input"
@@ -1898,17 +1841,7 @@ export default function DocBuilderSheet({
               className="text-sm flex flex-wrap items-center gap-2 py-1.5 border-b border-dashed border-slate-200"
               data-testid="doc-attachment-row"
             >
-              {/* Tap the name to actually view the file — the row used to be
-                  dead text with no way to open what was attached. */}
-              <button
-                type="button"
-                className="flex-1 truncate min-w-[6rem] text-left underline decoration-dotted underline-offset-2 text-slate-700"
-                onClick={() => openAttachment(a)}
-                title={"View " + (a.name || "attachment")}
-                data-testid={"doc-attachment-view-" + (i + 1)}
-              >
-                {isImageAttachment(a) ? "🖼" : "📎"} {a.name}
-              </button>
+              <span className="flex-1 truncate min-w-[6rem]">📎 {a.name}</span>
               <label className="inline-flex items-center gap-1.5 text-[11px] font-semibold text-slate-600 shrink-0 cursor-pointer">
                 <input
                   type="checkbox"
@@ -2086,11 +2019,6 @@ export default function DocBuilderSheet({
             })
           }
           initialIncludePayLink={includePayLinkSeed}
-          attachmentCount={emailAttachments().length}
-          attachmentLabel={emailAttachments()
-            .map((a) => a.name)
-            .filter(Boolean)
-            .join(", ")}
           qboOn={qboOn}
           saving={saving}
           onClose={() => {
@@ -2117,7 +2045,6 @@ export default function DocBuilderSheet({
               (d) => d.lineIndex === letterQ.lineIndex || d.itemName === letterQ.itemName
             ) || null
           }
-          docAttachments={attachments}
           onClose={() => setLetterQ(null)}
           onSave={onLetterSaved}
         />

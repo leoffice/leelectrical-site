@@ -81,6 +81,40 @@ describe("doc save with discount", () => {
     expect(jobPatch.discountPercent).toBe(10);
   });
 
+  it("dollar discount sticks when invoice lines are empty (mobile edit)", () => {
+    // Inv #231596 style: face amount + payments, lines not hydrated yet.
+    const paidJob = {
+      ...job,
+      invoiceNo: "231596",
+      amount: "$41,500",
+      openBalance: "$9,000",
+      paymentBaseline: 41500,
+      payments: [
+        { amount: 2000 },
+        { amount: 10000 },
+        { amount: 3000 },
+        { amount: 7500 },
+        { amount: 10000 },
+      ],
+      invoiceLines: [],
+    };
+    const { jobPatch } = planDocSaveLocal(paidJob, {
+      kind: "invoice",
+      mode: "edit",
+      lines: [],
+      serviceAddress: "501 Smith St",
+      apartment: "",
+      discountType: "amount",
+      discountValue: "5000",
+    });
+    expect(jobPatch.discount).toBe(5000);
+    expect(jobPatch.discountType).toBe("amount");
+    // 41500 − 5000 = 36500 face; open balance 36500 − 32500 paid = 4000
+    expect(jobPatch.amount).toMatch(/36,?500/);
+    expect(jobPatch.openBalance).toBe(4000);
+    expect(jobPatch.paid).toBe(false);
+  });
+
   it("planDocSaveSync puts discount on create_invoice payload", () => {
     const { commands, jobPatch } = planDocSaveSync(job, {
       kind: "invoice",

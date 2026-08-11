@@ -4,7 +4,7 @@ import AmountDisplay from "./AmountDisplay.jsx";
 import { amountPaid, invoiceTotal, isJobFullyPaid, openBalance, paidPct } from "../lib/customers.js";
 import { serviceAddressDisplay } from "../lib/customerSync.js";
 import { jobInvoiceDateDisplay, jobServiceDateDisplay } from "../lib/customerDocLists.js";
-import { fmt$ } from "../lib/format.js";
+import { fmt$, parseAmount } from "../lib/format.js";
 import { bubbleStyle, jobAwarenessBubbles } from "../lib/jobAwareness.js";
 import JobDocTabs from "./JobDocTabs.jsx";
 import SasRecordingLink from "./SasRecordingLink.jsx";
@@ -113,6 +113,15 @@ export default function JobInfoCard({
     job.linkedPermitJobId ? ["Linked permit", "Connected"] : null,
     job.linkedInvoiceNo && !job.invoiceNo ? ["Linked invoice", "#" + job.linkedInvoiceNo] : null,
     total > 0 ? ["Invoice amount", fmt$(total)] : null,
+    // Surface invoice discount so mobile users see the credit stuck (Levi 2026-08-11).
+    parseAmount(job?.discount) > 0.01
+      ? [
+          "Discount",
+          job?.discountType === "percent" && parseAmount(job?.discountPercent) > 0
+            ? `−${fmt$(job.discount)} (${parseAmount(job.discountPercent)}%)`
+            : `−${fmt$(job.discount)}`,
+        ]
+      : null,
     paid > 0 ? ["Paid", fmt$(paid)] : null,
     balance > 0.01 ? ["Balance due", fmt$(balance)] : null,
   ].filter(Boolean);
