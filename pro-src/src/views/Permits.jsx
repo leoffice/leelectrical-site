@@ -2800,7 +2800,7 @@ export default function Permits() {
         jobs={jobs}
         phaseABusy={phaseABusy}
         historyTick={historyTick}
-        onOpenJob={(jobId) => jobId && open(jobId)}
+        onOpenJob={(id) => id && nav(`/job/${id}?doc=invoice&create=1`)}
         onDeployPaid={(row) => {
           if (!row?.jobId) return;
           const job = jobsById.get(row.jobId) || null;
@@ -2832,7 +2832,6 @@ export default function Permits() {
             resend: true,
           });
         }}
-        onOpenJob={(id) => id && nav(`/job/${id}?doc=invoice&create=1`)}
       />
       {renewCompose?.draft ? (
         <RenewEmailComposeSheet
