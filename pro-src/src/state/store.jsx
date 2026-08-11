@@ -1153,10 +1153,12 @@ export function StoreProvider({ children }) {
           // Keep the bundle AND leave this command unmarked so the next pass
           // retries. flushPendingDocSync enqueues with idempotency keys, so a
           // retry cannot double-send.
+          //
+          // Levi 2026-08-11: no toast here — sending must look and feel exactly
+          // as it did before. This is silent bookkeeping only: the sole change
+          // from the original flow is that a failed flush no longer DESTROYS
+          // the queued doc, which is invisible on the happy path.
           markPendingDocSyncFailure(cmd.jobId, failure);
-          showToast(
-            "Your " + label + " could not be sent to QuickBooks yet — it is saved and will retry"
-          );
         })
         .catch((err) => {
           // Never silently swallow: a failed link used to leave the user
