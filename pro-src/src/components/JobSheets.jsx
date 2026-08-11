@@ -3,6 +3,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import Sheet, { Fld, Opt } from "./Sheet.jsx";
+import { isImageAttachment } from "../lib/letterPhotos.js";
 import AddAppointmentSheet from "./AddAppointmentSheet.jsx";
 import PickAppointmentSheet from "./PickAppointmentSheet.jsx";
 import { customerSyncPayload } from "../lib/customerSync.js";
@@ -4863,8 +4864,26 @@ export function AttachSheet({ job, onClose }) {
             data-testid="attach-search"
           />
           {filtered.map((a, i) => (
-            <div key={a.id || i} className="text-sm flex gap-2 py-1.5 border-b border-dashed border-slate-200">
-              <span className="flex-1 truncate">📎 {a.name || "file"}</span>
+            <div key={a.id || i} className="text-sm flex items-center gap-2 py-1.5 border-b border-dashed border-slate-200">
+              {/* Levi 2026-08-10: the list showed names with no way to open
+                  them. Tap to view the photo / PDF. */}
+              <button
+                type="button"
+                className="flex-1 truncate text-left underline decoration-dotted underline-offset-2 text-slate-700 disabled:no-underline disabled:text-slate-400"
+                disabled={!a.url}
+                onClick={() => {
+                  try {
+                    const w = window.open(a.url, "_blank", "noopener,noreferrer");
+                    if (!w) showToast("Allow pop-ups to view attachments");
+                  } catch {
+                    showToast("Couldn't open that file");
+                  }
+                }}
+                title={a.url ? "View " + (a.name || "file") : "No file on this attachment"}
+                data-testid={"job-attachment-view-" + (i + 1)}
+              >
+                {isImageAttachment(a) ? "🖼" : "📎"} {a.name || "file"}
+              </button>
             </div>
           ))}
           {!filtered.length ? <p className="text-xs text-slate-400">No matches.</p> : null}

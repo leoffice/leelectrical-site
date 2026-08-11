@@ -333,6 +333,175 @@ export function letterLineDescription(type, answers, siteAddress = "") {
   return bits.filter(Boolean).join(" — ");
 }
 
+/* -------------------------------------------------------------------------
+ * Invoice line description — Levi 2026-08-10.
+ * The one-line summary above reads like an internal note. What the customer
+ * sees on the invoice should say, professionally, what the price covers, in a
+ * few lines built from the letter TYPE plus the questionnaire's own answers.
+ * ---------------------------------------------------------------------- */
+
+/** Lower-case a fragment for mid-sentence use, keeping acronyms intact. */
+function mid(s) {
+  const t = String(s || "").trim().replace(/[.\s]+$/, "");
+  if (!t) return "";
+  return /^[A-Z][a-z]/.test(t) ? t.charAt(0).toLowerCase() + t.slice(1) : t;
+}
+
+/** Give a noun phrase an article, so "performing an electrical inspection". */
+function anArticle(phrase) {
+  const p = String(phrase || "").trim().replace(/[.\s]+$/, "");
+  if (!p) return "";
+  if (/^(a|an|the)\s/i.test(p)) return p;
+  return (/^[aeiou]/i.test(p) ? "an " : "a ") + p;
+}
+
+/** Unit labels ("Apt 2R", "FL 2") keep their capitalization mid-sentence. */
+function unitLabel(s) {
+  return String(s || "").trim().replace(/[.\s]+$/, "");
+}
+
+/** Past-tense corrective note → gerund, so it reads inside a "includes …" list. */
+function asGerund(s) {
+  const t = mid(s);
+  if (!t) return "";
+  return t.replace(
+    /^(remov|reconfigur|rewir|correct|replac|reconnect|separat|reroute|isolat)ed\b/i,
+    (m, stem) => stem + "ing"
+  );
+}
+
+/**
+ * Inspection-method notes → the standard phrases (same normalization the
+ * letter body uses, so the invoice line and the letter agree word-for-word).
+ */
+export function methodPhrases(raw) {
+  const out = [];
+  const seen = new Set();
+  const add = (p) => {
+    if (p && !seen.has(p)) {
+      seen.add(p);
+      out.push(p);
+    }
+  };
+  for (const item of String(raw || "").split(/[,;\n]+|\/| and /i)) {
+    const t = item.trim();
+    if (!t) continue;
+    if (/visual/i.test(t)) add("a visual examination");
+    else if (/operational|op(?:\s|-)?test/i.test(t)) add("operational testing");
+    else if (/integrity/i.test(t)) add("verification of electrical integrity");
+    else if (/ground|bond/i.test(t)) add("verification of the grounding and bonding connections");
+    else add(mid(t));
+  }
+  return out;
+}
+
+/** Grammar-join already-normalized phrases. */
+function joinPhrases(items, conj = "and") {
+  const list = (items || []).filter(Boolean);
+  if (!list.length) return "";
+  if (list.length === 1) return list[0];
+  if (list.length === 2) return `${list[0]} ${conj} ${list[1]}`;
+  return `${list.slice(0, -1).join(", ")}, ${conj} ${list[list.length - 1]}`;
+}
+
+/** "a, b, and c" from a free-form comma/newline list. */
+function listOf(raw, conj = "and") {
+  const items = String(raw || "")
+    .split(/[,;\n]+/)
+    .map((s) => mid(s))
+    .filter(Boolean);
+  if (!items.length) return "";
+  if (items.length === 1) return items[0];
+  if (items.length === 2) return `${items[0]} ${conj} ${items[1]}`;
+  return `${items.slice(0, -1).join(", ")}, ${conj} ${items[items.length - 1]}`;
+}
+
+/**
+ * Multi-line "what the price includes" blurb for a letter product line.
+ *
+ * @param {LetterType} type
+ * @param {Record<string,string>} answers questionnaire answers
+ * @param {string} [siteAddress]
+ * @returns {string} newline-separated lines (3+ for the main letter types)
+ */
+export function letterInvoiceDescription(type, answers = {}, siteAddress = "") {
+  const a = answers || {};
+  const site = String(siteAddress || a.address || "").trim();
+  const at = site ? ` at ${site}` : "";
+  const lines = [];
+
+  if (type?.id === "load_letter") {
+    const device = a.breakerRating ? mid(a.breakerRating) : "the protective device";
+    lines.push(
+      `Electrical load test and signed Load Letter${at}.`,
+      `Price includes performing ${anArticle(mid(a.scope || "electrical sub-panel inspection of the apartment units"))}, ` +
+        `inspecting the panels for ${listOf(a.checkedFor || "arcing, corrosion, other potential fire hazards")}, ` +
+        `and completing a load test of the service buses.`,
+      `Amp-probe readings are taken at the ${device} and evaluated against its rated capacity.`,
+      "Includes preparation of the signed load letter on company letterhead for submission to the utility or agency."
+    );
+  } else if (type?.id === "equipment_safety_inspection") {
+    lines.push(
+      `Equipment safety inspection and signed report${at}.`,
+      `Price includes performing a safety inspection of ${anArticle(mid(a.equipment || "main metering equipment")).replace(/^an? /, "the ")}, ` +
+        `${joinPhrases(methodPhrases(a.methods || "visual, operational test, integrity")) || "a visual examination"}, ` +
+        `and testing for corrosion, overheating, and wear.`,
+      "Includes documenting the findings and submitting the required paperwork on company letterhead."
+    );
+    if (a.necConcern) {
+      lines.push("Includes code-compliance review and the applicable NEC references for the equipment as installed.");
+    }
+  } else if (type?.id === "shared_meter_affidavit") {
+    const unit = a.unit ? unitLabel(a.unit) : "the affected unit";
+    lines.push(
+      `Shared-meter correction and signed affidavit${at}${a.unit ? ` (${a.unit})` : ""}.`,
+      `Price includes inspecting the metering and wiring serving ${unit}, ` +
+        `${asGerund(a.corrective) || "correcting the shared meter condition"}, ` +
+        "and verifying that only the lines dedicated to that unit remain connected.",
+      "Includes preparation of the signed affidavit on company letterhead for submission to Con Edison."
+    );
+    if (a.accountNumber) lines.push(`Con Edison account ${a.accountNumber}.`);
+  } else if (type?.id === "violation_resolution") {
+    lines.push(
+      `Violation resolution and representation${at}.`,
+      `Price includes reviewing the violation${a.novNumber ? ` (NOV #${a.novNumber})` : ""}, ` +
+        "filing the electrical permit covering the work performed, and coordinating with the Department of Buildings.",
+      "Includes preparation of the required paperwork and representation through hearing and certificate of correction."
+    );
+  } else if (type?.id === "good_standing_request") {
+    lines.push(
+      `${a.variant || "Certificate of Status / Letter of Good Standing"} request.`,
+      "Price includes preparing and submitting the written request to the NYS Department of State with the required corporation details.",
+      "Includes processing, follow-up, and delivery of the returned certificate."
+    );
+  } else if (type?.id === "code_compliance_safety_report") {
+    lines.push(
+      `Code-compliance safety report${at}.`,
+      `Price includes reviewing the installation${a.issueTitle ? ` (${mid(a.issueTitle)})` : ""}, ` +
+        "verifying compliance with the applicable code sections, and assessing occupant safety.",
+      "Includes preparation of the signed report on company letterhead with the supporting code references."
+    );
+  } else if (type?.id === "owner_inspection_request") {
+    lines.push(
+      `Owner inspection request${a.permitNumber ? ` for permit ${a.permitNumber}` : ""}${at}.`,
+      "Price includes preparing the written request to the NYC Department of Buildings and coordinating the courtesy inspection appointment.",
+      "Includes attendance by a licensed electrician at the scheduled inspection."
+    );
+  } else {
+    lines.push(
+      `${type?.label || "Letter"}${at}.`,
+      "Price includes preparing the letter on company letterhead with the details supplied for this property.",
+      "Includes review, signature, and delivery of the finished document."
+    );
+  }
+
+  if (Array.isArray(a._photos) && a._photos.length) {
+    lines.push("Includes site photographs documenting the observed conditions.");
+  }
+
+  return lines.filter(Boolean).join("\n");
+}
+
 /** Empty answers map for a type. */
 export function emptyLetterAnswers(type) {
   const out = {};

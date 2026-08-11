@@ -46,6 +46,7 @@ import {
   upsertJobLetterDraft,
 } from "../lib/letterDraft.js";
 import { buildLetterheadPdfBlobWithPhotos, letterPdfFileName } from "../lib/letterheadPdf.js";
+import { isImageAttachment } from "../lib/letterPhotos.js";
 
 import { enrichAndPatchCustomer } from "./NewJobFlow.jsx";
 import {
@@ -1068,6 +1069,21 @@ export default function DocBuilderSheet({
     }
   };
 
+  /** Open an attached file in a new tab (image preview or PDF viewer). */
+  const openAttachment = (att) => {
+    const url = String(att?.url || "").trim();
+    if (!url) {
+      showToast("That attachment has no file yet");
+      return;
+    }
+    try {
+      const w = window.open(url, "_blank", "noopener,noreferrer");
+      if (!w) showToast("Allow pop-ups to view attachments");
+    } catch {
+      showToast("Couldn't open that file");
+    }
+  };
+
   const toggleAttEmail = (key) => {
     setAttachments((rows) =>
       rows.map((a) =>
@@ -1391,7 +1407,9 @@ export default function DocBuilderSheet({
       const needsCustomer =
         mode !== "edit" && !String(activeJob.qboCustomerId || "").trim();
 
-      const attsForEmail = send ? emailAttachments() : attachments;
+      // Levi decides per send whether the letter / photos ride along.
+      const wantAttachments = opts.includeAttachments !== false;
+      const attsForEmail = send ? (wantAttachments ? emailAttachments() : []) : attachments;
       const attsForQbo = attachments;
       const docSource = resolveDocSource(
         opts.docSource === DOC_SOURCE_LOCAL ? DOC_SOURCE_LOCAL : DOC_SOURCE_QBO,
@@ -1869,7 +1887,17 @@ export default function DocBuilderSheet({
               className="text-sm flex flex-wrap items-center gap-2 py-1.5 border-b border-dashed border-slate-200"
               data-testid="doc-attachment-row"
             >
-              <span className="flex-1 truncate min-w-[6rem]">📎 {a.name}</span>
+              {/* Tap the name to actually view the file — the row used to be
+                  dead text with no way to open what was attached. */}
+              <button
+                type="button"
+                className="flex-1 truncate min-w-[6rem] text-left underline decoration-dotted underline-offset-2 text-slate-700"
+                onClick={() => openAttachment(a)}
+                title={"View " + (a.name || "attachment")}
+                data-testid={"doc-attachment-view-" + (i + 1)}
+              >
+                {isImageAttachment(a) ? "🖼" : "📎"} {a.name}
+              </button>
               <label className="inline-flex items-center gap-1.5 text-[11px] font-semibold text-slate-600 shrink-0 cursor-pointer">
                 <input
                   type="checkbox"
@@ -2047,6 +2075,11 @@ export default function DocBuilderSheet({
             })
           }
           initialIncludePayLink={includePayLinkSeed}
+          attachmentCount={emailAttachments().length}
+          attachmentLabel={emailAttachments()
+            .map((a) => a.name)
+            .filter(Boolean)
+            .join(", ")}
           qboOn={qboOn}
           saving={saving}
           onClose={() => {
@@ -2073,6 +2106,7 @@ export default function DocBuilderSheet({
               (d) => d.lineIndex === letterQ.lineIndex || d.itemName === letterQ.itemName
             ) || null
           }
+          docAttachments={attachments}
           onClose={() => setLetterQ(null)}
           onSave={onLetterSaved}
         />

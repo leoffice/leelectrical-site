@@ -1,15 +1,16 @@
 // Letter questionnaire — pick letter type, fill fields, photos, preview/approve draft.
-import React, { useMemo, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import Sheet, { Fld } from "./Sheet.jsx";
 import {
   LETTER_TYPES,
   createLetterDraft,
   letterDraftReady,
-  letterLineDescription,
+  letterInvoiceDescription,
   refreshLetterDraft,
 } from "../lib/letterDraft.js";
 import { buildLetterheadPdfBlobWithPhotos, letterPdfFileName } from "../lib/letterheadPdf.js";
 import { downloadPdfBlob, openPdfBlob } from "../lib/pdfOpen.js";
+import { imageAttachmentsAsPhotos, mergeLetterPhotos } from "../lib/letterPhotos.js";
 import { ownersFromProfile } from "../lib/signatureService.js";
 import { activeTenantConfig } from "../lib/tenantBranding.js";
 
@@ -19,6 +20,7 @@ export default function LetterQuestionnaireSheet({
   itemName = "",
   initialTypeId = "",
   initialDraft = null,
+  docAttachments = [],
   onClose,
   onSave,
 }) {
@@ -38,6 +40,26 @@ export default function LetterQuestionnaireSheet({
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState("");
   const ready = letterDraftReady(draft);
+
+  // Photos Levi attached the ordinary way — the job's "Add attachment" button
+  // or the invoice builder's 📎 Attach — land in job.attachments / the doc's
+  // attachment list, NOT in the questionnaire's own photo list. Pull them in so
+  // they appear here (captionable, removable) and reach the photo pages.
+  const attachedPhotos = useMemo(
+    () => imageAttachmentsAsPhotos([...(job?.attachments || []), ...(docAttachments || [])]),
+    [job?.attachments, docAttachments]
+  );
+
+  useEffect(() => {
+    if (!attachedPhotos.length) return;
+    setDraft((d) => {
+      const merged = mergeLetterPhotos(d.photos || [], attachedPhotos);
+      if (merged.length === (d.photos || []).length) return d;
+      return refreshLetterDraft(d, { photos: merged, job });
+    });
+    // job is stable for the life of the sheet; re-run only when the files change.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [attachedPhotos]);
 
   const switchType = (id) => {
     const t = LETTER_TYPES.find((x) => x.id === id);
@@ -155,7 +177,13 @@ export default function LetterQuestionnaireSheet({
       lineIndex,
       status,
     };
-    const description = letterLineDescription(type, finalDraft.answers, finalDraft.siteAddress);
+    // Customer-facing invoice line: a few professional lines saying what the
+    // price covers, built from the letter type + this questionnaire's answers.
+    const description = letterInvoiceDescription(
+      type,
+      { ...finalDraft.answers, _photos: finalDraft.photos || [] },
+      finalDraft.siteAddress
+    );
     onSave?.({ draft: finalDraft, description, type });
   };
 

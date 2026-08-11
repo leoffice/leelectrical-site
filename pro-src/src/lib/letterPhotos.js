@@ -121,3 +121,58 @@ export async function loadLetterPhotoImages(photos = []) {
 export function draftHasPhotos(draft) {
   return Array.isArray(draft?.photos) && draft.photos.length > 0;
 }
+
+// Matches an image extension anywhere a filename can appear — including inside
+// an upload URL like /docs?key=chat-123-panel.jpg. The AttachSheet strips the
+// extension off the display name, so the URL is usually what identifies it.
+const IMAGE_EXT = /\.(jpe?g|png|heic|heif|webp|gif|bmp|tiff?)\b/i;
+
+/** True when an attachment row is an image we can put on a photo page. */
+export function isImageAttachment(att) {
+  if (!att || !att.url) return false;
+  if (att.letterId) return false; // the letter PDF itself, not evidence
+  const mime = String(att.mime || "").toLowerCase();
+  if (mime.startsWith("image/")) return true;
+  if (mime) return false; // a declared non-image mime is authoritative
+  return IMAGE_EXT.test(String(att.name || "")) || IMAGE_EXT.test(String(att.url || ""));
+}
+
+/**
+ * Photo rows for image files the user attached the ordinary way — the job's
+ * "Add attachment" button, or the invoice builder's 📎 Attach.
+ *
+ * Levi 2026-08-10: he attached a photo through that button and it never
+ * reached the letter, because letters only ever read `draft.photos` (filled by
+ * the questionnaire's own "Add photo"). Those are two different stores; this
+ * bridges them so a photo attached the normal way lands on a photo page.
+ *
+ * @param {Array<object>} attachments
+ * @returns {Array<{id:string,name:string,url:string,mime:string,caption:string,fromAttachment:boolean}>}
+ */
+export function imageAttachmentsAsPhotos(attachments = []) {
+  const rows = Array.isArray(attachments) ? attachments : [];
+  return rows.filter(isImageAttachment).map((a) => ({
+    id: a.id || "att-photo-" + String(a.url).slice(-24),
+    name: a.name || "Photo",
+    url: a.url,
+    mime: a.mime || "",
+    caption: a.caption || "",
+    fromAttachment: true,
+  }));
+}
+
+/**
+ * Merge attachment-sourced photos into a draft's own photo list without
+ * duplicating or clobbering captions the user already typed.
+ */
+export function mergeLetterPhotos(existing = [], incoming = []) {
+  const out = Array.isArray(existing) ? existing.slice() : [];
+  const seen = new Set(out.map((p) => p && (p.url || p.id)).filter(Boolean));
+  for (const p of Array.isArray(incoming) ? incoming : []) {
+    const key = p && (p.url || p.id);
+    if (!key || seen.has(key)) continue;
+    seen.add(key);
+    out.push(p);
+  }
+  return out;
+}

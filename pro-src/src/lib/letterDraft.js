@@ -5,14 +5,24 @@ import {
   LETTER_TYPES,
   emptyLetterAnswers,
   isLetterProduct,
+  letterInvoiceDescription,
   letterLineDescription,
   matchLetterType,
+  methodPhrases,
   seedLetterAnswersFromJob,
 } from "./letterTypes.js";
 import { tenantCompany, tenantShortName, activeTenantConfig } from "./tenantBranding.js";
 import { resolveSigner } from "./signatureService.js";
 
-export { LETTER_TYPES, isLetterProduct, matchLetterType, letterLineDescription, emptyLetterAnswers, seedLetterAnswersFromJob };
+export {
+  LETTER_TYPES,
+  isLetterProduct,
+  matchLetterType,
+  letterLineDescription,
+  letterInvoiceDescription,
+  emptyLetterAnswers,
+  seedLetterAnswersFromJob,
+};
 
 /**
  * @typedef {object} LetterDraft
@@ -135,28 +145,6 @@ function sentence(s) {
   if (!t) return "";
   const cap = t.charAt(0).toUpperCase() + t.slice(1);
   return /[.!?]$/.test(cap) ? cap : cap + ".";
-}
-
-/** Equipment-safety methods notes → standard inspection phrases. */
-function methodPhrases(raw) {
-  const out = [];
-  const seen = new Set();
-  const add = (p) => {
-    if (p && !seen.has(p)) {
-      seen.add(p);
-      out.push(p);
-    }
-  };
-  for (const item of String(raw || "").split(/[,;\n]+|\/| and /i)) {
-    const t = item.trim();
-    if (!t) continue;
-    if (/visual/i.test(t)) add("a visual examination");
-    else if (/operational|op(?:\s|-)?test/i.test(t)) add("operational testing");
-    else if (/integrity/i.test(t)) add("verification of electrical integrity");
-    else if (/ground|bond/i.test(t)) add("verification of the grounding and bonding connections");
-    else add(midSentence(t));
-  }
-  return out;
 }
 
 /** "Not found" notes → standard negative list (arcing, corrosion, …). */

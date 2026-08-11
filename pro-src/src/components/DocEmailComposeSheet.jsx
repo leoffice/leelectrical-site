@@ -15,6 +15,8 @@ export default function DocEmailComposeSheet({
   initialEmail = "",
   initialMessage = "",
   initialIncludePayLink = false,
+  attachmentCount = 0,
+  attachmentLabel = "",
   qboOn = false,
   saving = false,
   onClose,
@@ -24,6 +26,9 @@ export default function DocEmailComposeSheet({
   const [message, setMessage] = useState(initialMessage || "");
   const [emailPolicy, setEmailPolicy] = useState("");
   const [includePayLink, setIncludePayLink] = useState(!!initialIncludePayLink);
+  // Levi 2026-08-10: decide per send whether the letter / photos ride along.
+  // Defaults ON — an approved letter is normally meant to go with the invoice.
+  const [includeAttachments, setIncludeAttachments] = useState(true);
 
   const differs = sendEmailDiffersFromCustomer(email, jobEmail);
   const emailNeedsPolicy =
@@ -33,6 +38,7 @@ export default function DocEmailComposeSheet({
     email,
     message,
     includePaymentLink: includePayLink,
+    includeAttachments,
     emailPolicy: emailPolicy || (differs ? "" : EMAIL_POLICY_ONCE),
   });
 
@@ -132,6 +138,28 @@ export default function DocEmailComposeSheet({
               onChange={(e) => setIncludePayLink(e.target.checked)}
             />
             <span className="text-sm font-semibold text-slate-800">For credit card payment</span>
+          </label>
+        ) : null}
+        {attachmentCount > 0 ? (
+          <label
+            className="flex items-start gap-2 mb-3 cursor-pointer"
+            data-testid="doc-include-attachments-toggle"
+          >
+            <input
+              type="checkbox"
+              className="mt-0.5"
+              checked={includeAttachments}
+              onChange={(e) => setIncludeAttachments(e.target.checked)}
+              aria-label="Include attachments in this email"
+            />
+            <span className="text-sm font-semibold text-slate-800">
+              Attach {attachmentCount === 1 ? "1 file" : `${attachmentCount} files`}
+              {attachmentLabel ? (
+                <span className="block text-[11px] font-normal text-slate-500 truncate">
+                  {attachmentLabel}
+                </span>
+              ) : null}
+            </span>
           </label>
         ) : null}
         {!qboOn ? (
