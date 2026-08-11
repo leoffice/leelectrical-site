@@ -282,17 +282,23 @@ export function applyPaymentsPatch(job, payments) {
   }
   if (isRenew && paidSum > 0.009) {
     const base = typeof pr === "object" && pr ? pr : {};
+    // Resurrect if leftover mock cleanup soft-deleted the row before pay (LE-2702).
     patch.excludeFromBalanceDue = false;
     patch._balanceExempt = false;
+    patch._deleted = false;
+    patch._archived = false;
+    patch.deletedAt = "";
     patch.permitRenew = {
       ...base,
       provisional: false,
       excludeFromBalanceDue: false,
+      dismissed: false,
       paid: true,
       paidAt: latest?.date || new Date().toISOString().slice(0, 10),
       paidAmount: paidSum,
       nextStep: base.nextStep || "update_permit",
       queueUpdatePermit: true,
+      deployUpdate: true,
     };
   }
   return patch;

@@ -125,34 +125,113 @@ export function reconcileStaleDocOverlay(base, ov) {
   return pruned;
 }
 
+/**
+ * Jobs that must not vanish from soft-delete / mock cleanup (Levi 2026-08-11).
+ * Covers: any payment entered, confirmed invoice, and paid city-permit renews
+ * (LE-2702 · 40 Hampton — money landed after leftover cleanup).
+ * Keep merge.js free of permitRenewal imports — mirror money + renew signals.
+ */
+function isMoneyOrInvoiceKeepVisible(o) {
+  if (!o || typeof o !== "object") return false;
+  // Any real payment on the job
+  const pays = Array.isArray(o.payments) ? o.payments : [];
+  for (const p of pays) {
+    if (!p || p._deleted || p.deletedAt) continue;
+    const n = Number(String(p?.amount ?? "").replace(/[^0-9.-]/g, ""));
+    if (Number.isFinite(n) && n > 0.009) return true;
+  }
+  if (o.paid) return true;
+  // Confirmed / numbered invoice or estimate — do not vanish after entry
+  const inv = String(o.invoiceNo || "").trim();
+  const est = String(o.estimateNo || "").trim();
+  if (inv && (o._invoiceConfirmed || o._docEmailed || o.invoiceEmailedAt || o.paid)) {
+    return true;
+  }
+  if (est && (o._estimateConfirmed || o._docEmailed || o.estimateEmailedAt)) {
+    return true;
+  }
+  // Paid / queued city-permit renew
+  const pr = o.permitRenew || o.permitRenewMock || {};
+  const title = String(o.title || "").toLowerCase();
+  const isRenew =
+    !!(
+      pr.mock ||
+      pr.realTest ||
+      pr.noticeOnly ||
+      pr.scenarioId ||
+      pr.placeholderInvoiceNo ||
+      pr.cta ||
+      pr.provisional ||
+      pr.invoiceMaterialized ||
+      pr.phase === "A" ||
+      pr.phase === "real" ||
+      pr.phase === 1 ||
+      pr.nextStep === "update_permit" ||
+      pr.queueUpdatePermit ||
+      pr.deployUpdate ||
+      pr.paid
+    ) ||
+    title.includes("permit renew") ||
+    title.includes("permit renewal");
+  if (!isRenew) return false;
+  if (pr.paid) return true;
+  if (pr.nextStep === "update_permit" || pr.queueUpdatePermit || pr.deployUpdate) {
+    return true;
+  }
+  return false;
+}
+
+/** @deprecated name kept for call-site clarity — paid renew is a subset */
+function isPaidPermitRenewKeepVisible(o) {
+  return isMoneyOrInvoiceKeepVisible(o);
+}
+
 /** Merge the base jobs list with the ov overlay:
  *  - overlay patches win over base fields
  *  - overlay-only jobs included when _new:true
  *  - _deleted jobs are dropped; _archived jobs are KEPT (flag intact) so the
- *    UI can offer an Archive view with restore. */
+ *    UI can offer an Archive view with restore.
+ *  - Exception (Levi 2026-08-11): payment / confirmed invoice / paid renew
+ *    stay visible even if `_deleted` — money & invoices must not vanish. */
 export function mergeJobs(baseJobs, ov) {
   const overlay = ov || {};
-  const deleted = (id) => !!(overlay[id] && overlay[id]._deleted);
+  const hardDeleted = (id) => {
+    const o = overlay[id];
+    if (!o || !o._deleted) return false;
+    // Money / invoice always wins over soft-delete
+    if (isMoneyOrInvoiceKeepVisible(o)) return false;
+    return true;
+  };
   const out = [];
   const seen = new Set();
   for (const b of baseJobs || []) {
     if (!b || !b.id) continue;
     seen.add(b.id);
-    if (deleted(b.id)) continue;
-    out.push(applyOverlay(b, reconcileStaleDocOverlay(b, overlay[b.id])));
+    if (hardDeleted(b.id)) continue;
+    const merged = applyOverlay(b, reconcileStaleDocOverlay(b, overlay[b.id]));
+    const keep =
+      isMoneyOrInvoiceKeepVisible(overlay[b.id] || {}) || isMoneyOrInvoiceKeepVisible(merged);
+    if ((overlay[b.id]?._deleted || merged._deleted) && keep) {
+      merged._deleted = false;
+      merged._archived = false;
+      if (merged.deletedAt) merged.deletedAt = "";
+    }
+    out.push(merged);
   }
   for (const id of Object.keys(overlay)) {
     // Reserved namespace: "_"-prefixed ov keys (e.g. _sasTickets) are app
     // metadata, never jobs — skip them even if they carry _new-looking data.
     if (String(id).charAt(0) === "_") continue;
     const o = overlay[id];
-    if (!o || seen.has(id) || deleted(id)) continue;
+    if (!o || seen.has(id) || hardDeleted(id)) continue;
     // Overlay-only rows need _new. Exception: local-* jobs can lose _new when a
     // thin create_customer patch (qboCustomerId only) races ahead of the first
     // full save — still surface them so the customer doesn't vanish.
+    // Money / invoices also surface without _new (deleted-then-paid race).
     const isLocalId = String(id).startsWith("local-");
-    if (!o._new && !isLocalId) continue;
-    if (!o._new && isLocalId) {
+    const keepMoney = isMoneyOrInvoiceKeepVisible(o);
+    if (!o._new && !isLocalId && !keepMoney) continue;
+    if (!o._new && isLocalId && !keepMoney) {
       const hasSignal =
         o.customer ||
         o.businessName ||
@@ -166,6 +245,11 @@ export function mergeJobs(baseJobs, ov) {
     j.id = id;
     // Recover visibility flag so later thin patches don't drop the row again.
     if (isLocalId && !j._new) j._new = true;
+    if ((o._deleted || j._deleted) && keepMoney) {
+      j._deleted = false;
+      j._archived = false;
+      j.deletedAt = "";
+    }
     out.push(j);
   }
   return out;

@@ -236,6 +236,7 @@ export async function patchJobPayment(jobId, amount, ref, method) {
             ...(typeof pr === "object" ? pr : {}),
             provisional: false,
             excludeFromBalanceDue: false,
+            dismissed: false,
             paid: true,
             paidAt: entry.date,
             paidAmount: paidSum,
@@ -248,6 +249,11 @@ export async function patchJobPayment(jobId, amount, ref, method) {
           },
           excludeFromBalanceDue: false,
           _balanceExempt: false,
+          // Mock leftover cleanup may have soft-deleted before ACH landed (LE-2702).
+          // Payment must resurrect so Deploy / Renewal paid list can see the job.
+          _deleted: false,
+          _archived: false,
+          deletedAt: "",
         }
       : isPermitRenew
         ? {

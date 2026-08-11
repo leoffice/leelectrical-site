@@ -88,6 +88,67 @@ describe("mergeJobs", () => {
     expect(mergeJobs([], {})).toEqual([]);
   });
 
+  it("paid permit renew soft-deleted still surfaces for Deploy (LE-2702)", () => {
+    const ov = {
+      "local-1786389117648": {
+        _new: true,
+        _deleted: true,
+        _archived: true,
+        deletedAt: "2026-08-10T19:38:38.892Z",
+        customer: "Yosef Beshari",
+        invoiceNo: "LE-2702",
+        serviceAddress: "40 Hampton Pl",
+        amount: 365,
+        paid: true,
+        openBalance: 0,
+        payments: [{ amount: 365, method: "ACH" }],
+        title: "City electrical permit renewal — B01126007-L1-EL",
+        permitRenew: {
+          mock: true,
+          phase: "A",
+          scenarioId: "hampton-yossi",
+          permitNo: "B01126007-L1-EL",
+          paid: true,
+          paidAt: "2026-08-11",
+          paidAmount: 365,
+          nextStep: "update_permit",
+          queueUpdatePermit: true,
+          deployUpdate: true,
+        },
+      },
+    };
+    const out = mergeJobs([], ov);
+    expect(out).toHaveLength(1);
+    const j = out[0];
+    expect(j.id).toBe("local-1786389117648");
+    expect(j.invoiceNo).toBe("LE-2702");
+    expect(j._deleted).toBe(false);
+    expect(j.paid).toBe(true);
+    expect(j.permitRenew.nextStep).toBe("update_permit");
+  });
+
+  it("confirmed invoice + payment soft-deleted still surfaces (Levi: no vanish)", () => {
+    const ov = {
+      "qbo-999001": {
+        _deleted: true,
+        deletedAt: "2026-08-11T12:00:00.000Z",
+        customer: "Test Paid Co",
+        invoiceNo: "999001",
+        _invoiceConfirmed: true,
+        amount: 1200,
+        payments: [{ id: "p1", amount: 500, method: "Zelle", date: "2026-08-11" }],
+        title: "Panel upgrade",
+      },
+    };
+    const base = [{ id: "qbo-999001", customer: "Test Paid Co", invoiceNo: "999001" }];
+    const out = mergeJobs(base, ov);
+    expect(out.map((j) => j.id)).toContain("qbo-999001");
+    const j = out.find((j) => j.id === "qbo-999001");
+    expect(j._deleted).toBe(false);
+    expect(j.payments).toHaveLength(1);
+    expect(j.invoiceNo).toBe("999001");
+  });
+
   // Regression: change-order edit that "won't stick" (inv #231595). The device
   // held a stale pre-CO overlay (1 line, $32k) while QuickBooks already had the
   // emailed change order (2 lines, $42k + $2.7k). The stale overlay must yield.
