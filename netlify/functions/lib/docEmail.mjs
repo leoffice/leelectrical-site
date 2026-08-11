@@ -78,6 +78,44 @@ async function storePdfForView(kind, docNumber, pdfBuffer, filename) {
  *                     refuses to send anywhere else (test-phase guard).
  * Invoices with balance auto-include the View-and-Pay link unless suppressed.
  */
+
+/** Resend caps a message at 40MB — keep the extras well under it. */
+const MAX_EXTRA_BYTES = 12 * 1024 * 1024;
+
+/**
+ * Sanitize caller-supplied extra attachments (the letterhead letter that must
+ * ride with its invoice) into Resend attachment records. Anything malformed is
+ * dropped rather than failing the send — the invoice must always go out.
+ *
+ * @param {Array<{filename?:string,contentB64?:string,content?:string}>} list
+ * @param {string} docFilename filename already used by the document PDF
+ */
+export function normalizeExtraAttachments(list, docFilename = "") {
+  if (!Array.isArray(list) || !list.length) return [];
+  const out = [];
+  const used = new Set([String(docFilename || "").toLowerCase()]);
+  let total = 0;
+  for (const item of list) {
+    const content = String(item?.contentB64 || item?.content || "").trim();
+    if (!content) continue;
+    const bytes = Math.floor((content.length * 3) / 4);
+    if (total + bytes > MAX_EXTRA_BYTES) continue;
+    let filename = String(item?.filename || "").trim() || "Attachment.pdf";
+    if (!/\.[a-z0-9]{2,5}$/i.test(filename)) filename += ".pdf";
+    // Mail clients hide same-named parts — de-dupe against the invoice PDF.
+    let unique = filename;
+    let n = 2;
+    while (used.has(unique.toLowerCase())) {
+      unique = filename.replace(/(\.[^.]+)$/, ` (${n})$1`);
+      n += 1;
+    }
+    used.add(unique.toLowerCase());
+    total += bytes;
+    out.push({ filename: unique, content });
+  }
+  return out;
+}
+
 export async function sendDocEmail({
   job,
   kind = "invoice",
@@ -87,6 +125,7 @@ export async function sendDocEmail({
   filename: filenameIn,
   message = "",
   subject: subjectIn = "",
+  extraAttachments = [],
   probe = false,
   officeOnly = false,
 }) {
@@ -239,6 +278,8 @@ export async function sendDocEmail({
     subject,
     kind,
     docNumber: docData.docNumber,
+    // Names of everything riding along with the document PDF (the letter).
+    extraAttachments: normalizeExtraAttachments(extraAttachments, "").map((a) => a.filename),
   };
 
   if (!recipients.length) {
@@ -284,6 +325,7 @@ export async function sendDocEmail({
     text,
     attachments: [
       { filename, content: pdfAttachB64 },
+      ...normalizeExtraAttachments(extraAttachments, filename),
       leLogoAttachment(),
     ],
   };

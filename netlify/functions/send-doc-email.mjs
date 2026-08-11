@@ -88,6 +88,9 @@ export default async (req) => {
       filename: body.filename || "",
       message: body.message || body.topMessage || "",
       subject: body.subject || "",
+      // Letterhead letter (+ any builder attachment) that must land in the
+      // same email as the invoice — Levi 2026-08-10.
+      extraAttachments: Array.isArray(body.extraAttachments) ? body.extraAttachments : [],
       probe,
       officeOnly,
     });

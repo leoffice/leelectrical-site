@@ -1373,6 +1373,18 @@ export default function DocBuilderSheet({
       if (keepOnCustomer) jobPatch.email = emailTo;
       else delete jobPatch.email;
 
+      // Persist attachments + letter drafts on the job (submitLocal already
+      // did). Without this a Save & Email left no letter on the record, so a
+      // later resend from the job card had nothing to attach.
+      if (attachments.length) {
+        jobPatch.attachments = (job.attachments || []).concat(attachments);
+      }
+      if (letterDrafts.length) {
+        let drafts = job.letterDrafts || [];
+        for (const d of letterDrafts) drafts = upsertJobLetterDraft({ letterDrafts: drafts }, d);
+        jobPatch.letterDrafts = drafts;
+      }
+
       // Local first / network background — never block Save on cloud
       void patchAndSave(jobId, jobPatch);
 
@@ -1440,6 +1452,19 @@ export default function DocBuilderSheet({
 
         const runLocalBg = async () => {
           let res = null;
+          // Approved letter (+ any builder attachment) must land in the SAME
+          // email as the invoice — build the parts from the builder's live
+          // state, which is authoritative before the job round-trips.
+          let extraAttachments = [];
+          try {
+            const { buildEmailAttachmentParts } = await import("../lib/emailAttachments.js");
+            extraAttachments = await buildEmailAttachmentParts({
+              attachments: attsForEmail,
+              letterDrafts,
+            });
+          } catch {
+            extraAttachments = [];
+          }
           try {
             if (typeof api.sendDocEmailNow === "function") {
               res = await api.sendDocEmailNow(pdfJob, kind, {
@@ -1447,6 +1472,7 @@ export default function DocBuilderSheet({
                 includePaymentLink: withPay,
                 message: customMsg,
                 subject: opts.subject || "",
+                extraAttachments,
               });
             }
           } catch (err) {

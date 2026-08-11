@@ -394,9 +394,30 @@ export function createNetlifyAdapter() {
         // Slim job payload — full status/history objects bloat the request and
         // slow mobile sends. Server only needs fields for the email + PDF store.
         const slimJob = pickJobForDocEmail(job);
+        // Letter (and any other builder attachment) rides in the SAME email as
+        // the invoice — Levi 2026-08-10. Callers may pass ready-made parts;
+        // otherwise derive them from what is stored on the job.
+        let extraAttachments = [];
+        if (!opts.probe) {
+          try {
+            if (Array.isArray(opts.extraAttachments)) {
+              extraAttachments = opts.extraAttachments;
+            } else {
+              const { buildEmailAttachmentParts } = await import("../lib/emailAttachments.js");
+              extraAttachments = await buildEmailAttachmentParts({
+                attachments: job?.attachments,
+                letterDrafts: job?.letterDrafts,
+              });
+            }
+          } catch {
+            // An attachment problem must never block the invoice itself.
+            extraAttachments = [];
+          }
+        }
         const result = await httpAllowErrorBody("send-doc-email", {
           kind,
           job: slimJob,
+          extraAttachments: extraAttachments.length ? extraAttachments : undefined,
           email: String(opts.email || job?.email || "").trim(),
           includePaymentLink: isApplication || isStatement ? false : opts.includePaymentLink !== false,
           pdfB64,
