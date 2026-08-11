@@ -37,27 +37,153 @@ export function newLetterId() {
   return "letter-" + Date.now() + "-" + Math.random().toString(36).slice(2, 7);
 }
 
+const STATE_ABBREVS = new Set(["ny", "nj", "ct", "pa", "ma", "fl", "ca", "il", "tx", "va", "md", "dc"]);
+
+/**
+ * Title-case an all-lowercase address ("1254 sterling pl brooklyn ny" →
+ * "1254 Sterling Pl Brooklyn NY"). Leaves mixed-case input exactly as typed.
+ */
+export function titleCaseAddress(raw) {
+  const t = String(raw || "").trim();
+  if (!t || /[A-Z]/.test(t)) return t;
+  return t
+    .split(/\s+/)
+    .map((w) => {
+      if (/^\d/.test(w)) return w.replace(/[a-z]/g, (c) => c.toUpperCase()); // "2r" → "2R"
+      const bare = w.replace(/[^a-z]/g, "");
+      if (bare.length === 2 && STATE_ABBREVS.has(bare)) return w.toUpperCase();
+      return w.charAt(0).toUpperCase() + w.slice(1);
+    })
+    .join(" ");
+}
+
 function siteFrom(job, answers) {
-  if (answers?.address) return String(answers.address).trim();
+  if (answers?.address) return titleCaseAddress(String(answers.address).trim());
   return (
-    [job?.serviceAddress || job?.address, job?.apartment ? "Apt " + job.apartment : ""]
-      .filter(Boolean)
-      .join(", ") || "the premises"
+    titleCaseAddress(
+      [job?.serviceAddress || job?.address, job?.apartment ? "Apt " + job.apartment : ""]
+        .filter(Boolean)
+        .join(", ")
+    ) || "the premises"
   );
 }
 
+/**
+ * % of capacity auto-computed from the per-phase amp readings vs. the breaker /
+ * fuse rating (notes→report map): floor(min%)–ceil(max%), e.g. 3.9 & 4.1 A on a
+ * 40 A device → "9%–11%". Levi can override via the capacityPct field.
+ */
 function pctCapacity(answers) {
   if (answers.capacityPct) return String(answers.capacityPct).trim();
-  const a = parseFloat(answers.phaseA);
-  const b = parseFloat(answers.phaseB);
-  const rating = parseFloat(String(answers.breakerRating || "").replace(/[^\d.]/g, ""));
-  if (!rating || (!a && !b)) return "";
-  const avg = ((a || 0) + (b || 0)) / (a && b ? 2 : 1);
-  const pct = Math.round((avg / rating) * 100);
-  const lo = Math.max(0, pct - 1);
-  const hi = pct + 1;
+  const amps = [answers.phaseA, answers.phaseB, answers.phaseC]
+    .map((v) => parseFloat(v))
+    .filter((v) => Number.isFinite(v) && v > 0);
+  const rating = parseFloat(String(answers.breakerRating || "").match(/\d+(?:\.\d+)?/)?.[0] || "");
+  if (!rating || !amps.length) return "";
+  const pcts = amps.map((v) => (v / rating) * 100);
+  const lo = Math.max(0, Math.floor(Math.min(...pcts)));
+  let hi = Math.ceil(Math.max(...pcts));
+  if (hi <= lo) hi = lo + 1;
   return `${lo}%–${hi}%`;
 }
+
+/** "40 Amp double-pole fuse per apartment" → "40 Amp fuse" (closing shorthand). */
+function shortDevice(breakerRating) {
+  const s = String(breakerRating || "");
+  const num = s.match(/(\d+(?:\.\d+)?)\s*-?\s*amp/i)?.[1];
+  const dev = s.match(/fuse|breaker/i)?.[0]?.toLowerCase();
+  if (num) return `${num} Amp ${dev || "device"}`;
+  return s.trim() || "protective device";
+}
+
+/** Split a free-form notes list into clean items. */
+function cleanList(raw) {
+  return String(raw || "")
+    .split(/[,;\n]+/)
+    .map((s) => s.trim().replace(/[.\s]+$/, ""))
+    .filter(Boolean);
+}
+
+/** Join items with correct grammar: "a, b, and c" (or "or"). */
+function joinList(items, conj = "and") {
+  const list = items.filter(Boolean);
+  if (!list.length) return "";
+  if (list.length === 1) return list[0];
+  if (list.length === 2) return `${list[0]} ${conj} ${list[1]}`;
+  return `${list.slice(0, -1).join(", ")}, ${conj} ${list[list.length - 1]}`;
+}
+
+/** Give a scope phrase a proper article ("an electrical sub-panel inspection…"). */
+function withArticle(phrase) {
+  const p = String(phrase || "").trim().replace(/[.\s]+$/, "");
+  if (!p) return "";
+  if (/^(a|an|the)\s/i.test(p)) return p;
+  return (/^[aeiou]/i.test(p) ? "an " : "a ") + p;
+}
+
+/** Lower-case a note fragment into mid-sentence voice (keeps acronyms). */
+function midSentence(s) {
+  const t = String(s || "").trim().replace(/[.\s]+$/, "");
+  if (!t) return "";
+  if (/^[A-Z][a-z]/.test(t)) return t.charAt(0).toLowerCase() + t.slice(1);
+  return t;
+}
+
+/** Terminal sentence from a note fragment. */
+function sentence(s) {
+  const t = String(s || "").trim();
+  if (!t) return "";
+  const cap = t.charAt(0).toUpperCase() + t.slice(1);
+  return /[.!?]$/.test(cap) ? cap : cap + ".";
+}
+
+/** Equipment-safety methods notes → standard inspection phrases. */
+function methodPhrases(raw) {
+  const out = [];
+  const seen = new Set();
+  const add = (p) => {
+    if (p && !seen.has(p)) {
+      seen.add(p);
+      out.push(p);
+    }
+  };
+  for (const item of String(raw || "").split(/[,;\n]+|\/| and /i)) {
+    const t = item.trim();
+    if (!t) continue;
+    if (/visual/i.test(t)) add("a visual examination");
+    else if (/operational|op(?:\s|-)?test/i.test(t)) add("operational testing");
+    else if (/integrity/i.test(t)) add("verification of electrical integrity");
+    else if (/ground|bond/i.test(t)) add("verification of the grounding and bonding connections");
+    else add(midSentence(t));
+  }
+  return out;
+}
+
+/** "Not found" notes → standard negative list (arcing, corrosion, …). */
+function notFoundPhrases(raw) {
+  const out = [];
+  const seen = new Set();
+  const add = (p) => {
+    if (p && !seen.has(p)) {
+      seen.add(p);
+      out.push(p);
+    }
+  };
+  for (const item of String(raw || "").split(/[,;\n]+|\/| and /i)) {
+    const t = item.trim().replace(/^no\s+/i, "");
+    if (!t) continue;
+    if (/arc/i.test(t)) add("arcing");
+    else if (/corro/i.test(t)) add("corrosion");
+    else if (/burn|melt|overheat/i.test(t)) add("overheating or burnt components");
+    else if (/exposed|bare|live wir/i.test(t)) add("exposed live wiring");
+    else add(midSentence(t));
+  }
+  return out;
+}
+
+// The approved NEC grounding-busbar paragraph (equipment-safety code note).
+const NEC_BUSBAR_PARA =
+  "The grounding busbar is securely mounted within the service equipment and installed in an accessible location, consistent with NEC 250.68 and 250.64(B) (as adopted by the NYC Electrical Code), allowing verification of all bonding connections to the grounding electrode system. As it operates at ground potential, this accessibility ensures a code-compliant inspection without hazard.";
 
 /**
  * Build professional letter body from type + answers + job context.
@@ -69,69 +195,105 @@ export function buildLetterBody(type, answers = {}, job = {}) {
   const a = answers || {};
 
   if (type.id === "load_letter") {
+    // Notes → report per Load_Letter_NOTES_TO_REPORT.md (approved 2026-08-10):
+    // scope/checked-for/loads notes are normalized, phases become bold amp
+    // readings, and % of capacity auto-computes from amps vs. the rating.
     const pct = pctCapacity(a);
+    const scope = withArticle(a.scope || "electrical sub-panel inspection of the apartment units");
+    const checked = joinList(cleanList(a.checkedFor || "arcing, corrosion, other potential fire hazards"));
+    const loads = joinList(cleanList(a.applianceList).map(midSentence));
     const phaseBits = [
-      a.phaseA ? `${a.phaseA} amps on Phase A` : "",
-      a.phaseB ? `${a.phaseB} amps on Phase B` : "",
-      a.phaseC ? `${a.phaseC} amps on Phase C` : "",
+      a.phaseA ? `**${a.phaseA} amps on Phase A**` : "",
+      a.phaseB ? `**${a.phaseB} amps on Phase B**` : "",
+      a.phaseC ? `**${a.phaseC} amps on Phase C**` : "",
     ].filter(Boolean);
+    const closing = pct
+      ? `These readings represent approximately ${pct} of capacity on a regular basis, and the ${shortDevice(a.breakerRating)} is therefore sufficient for the load.`
+      : `These readings show spare capacity, and the ${shortDevice(a.breakerRating)} is therefore sufficient for the load.`;
     const parts = [
-      a.county || a.state
-        ? `County of: ${a.county || "—"}\nState of: ${a.state || "New York"}\nDate: ${new Date().toLocaleDateString("en-US", { year: "numeric", month: "short", day: "numeric" })}`
+      `We have performed ${scope} and completed a load test of the service buses. We inspected the panels for ${checked}.`,
+      `In addition, as per your request, we completed a load test for the ${a.unitCount || "apartments"} at the following address: **${site}**. The service was found to be operable, maintained, and in good working condition.`,
+      loads
+        ? `The load tests were taken with consideration of all of the following items: ${loads}.`
         : "",
-      "We have performed an electrical subpanel inspection and a load test of the services. We have inspected the panels for arcing, corrosion, or other potential fire hazards.",
-      `In addition, as per your request, we have completed a load test for ${a.unitCount || "apartments"} at the following address:\n${site}.`,
-      "And the service is operable, maintained, and in good working condition.",
-      a.applianceList
-        ? `The load tests were taken with the consideration of all the following items:\n${a.applianceList}`
-        : "",
-      a.breakerRating
-        ? `Based on the test with the amp probe reading at the\n${a.breakerRating}:`
-        : "Based on the test with the amp probe reading:",
-      phaseBits.length ? `The load averaged ${phaseBits.join(", and ")} in the apartments;` : "",
-      pct
-        ? `These represent approximately ${pct} of the capacity on a regular basis and the ${a.breakerRating || "protective device"} is sufficient for the load.`
-        : a.conclusion ||
-          `These readings show spare capacity and the ${a.breakerRating || "protective device"} is sufficient for the load.`,
-      a.conclusion && pct ? a.conclusion : "",
+      [
+        a.breakerRating
+          ? `Based on the test, with the amp-probe reading taken at the ${midSentence(a.breakerRating)},`
+          : "Based on the test, with the amp-probe readings taken,",
+        phaseBits.length ? `the load averaged ${joinList(phaseBits)}.` : "the load was measured.",
+        a.conclusion ? sentence(a.conclusion) : closing,
+      ].join(" "),
     ];
     return parts.filter(Boolean).join("\n\n");
   }
 
   if (type.id === "shared_meter_affidavit") {
-    const unit = a.unit || "the unit";
-    const other = a.otherMeter || "the other meter";
-    const acct = a.accountNumber ? `Acct: ${a.accountNumber}` : "";
-    const corrective =
-      a.corrective || "Reconfigured wiring so this unit's meter only measures this unit";
-    const status =
-      a.currentStatus ||
-      `There is no longer a shared meter condition between ${unit} and ${other}. Each meter now accurately records its intended usage.`;
+    // Notes → affidavit per Shared_Meter_Affidavit_NOTES_TO_REPORT.md:
+    // affirm the visit → corrective measures → verification → resolution.
+    const unit = a.unit || "the affected unit";
+    const corr = String(a.corrective || "");
+    let corrective;
+    if (/remove|cable/i.test(corr)) {
+      corrective = `We removed cables that were incorrectly connected to and running through this meter, which is assigned to ${unit}.`;
+    } else if (!corr || /reconfig|rewir|only measures|measures only/i.test(corr)) {
+      corrective = `We reconfigured the wiring so that the meter assigned to ${unit} measures only that unit.`;
+    } else {
+      corrective = sentence(corr);
+    }
     return [
-      acct ? `Re: ${site}\n${unit}\n${acct}` : `Re: ${site}\n${unit}`,
-      `We have inspected the electrical meter setup at ${site}, focusing on ${unit}${a.otherMeter ? " and the " + other : ""}.`,
-      `During this inspection, we found and corrected a shared meter condition involving ${unit}.`,
-      `Corrective Measures:\n${corrective}.\nVerification: The new setup was verified to ensure accuracy and compliance.`,
-      `Current Status: ${status}`,
-      "Please consider this statement as confirmation that the shared meter issue has been resolved.",
+      `We hereby affirm that, as a licensed electrician, we visited the property located at **${site}** to address the shared electric meter condition affecting ${unit}.`,
+      corrective,
+      `Following these corrections, we inspected the meter and wiring and confirmed that only electrical lines dedicated exclusively to ${unit} are connected to this meter, with no other devices, common areas, neighboring units, or extraneous loads connected to or measured by it.`,
+      a.currentStatus ? sentence(a.currentStatus) : "",
+      "Please consider this statement as confirmation that the shared meter condition has been resolved.",
     ]
       .filter(Boolean)
       .join("\n\n");
   }
 
   if (type.id === "equipment_safety_inspection") {
-    const equip = a.equipment || "main metering equipment";
-    const findings =
-      a.findings ||
+    // Notes → report per Equipment_Safety_Inspection_NOTES_TO_REPORT.md:
+    // P1 what+how, P2 findings anchor + negative list + condition, P3 code, P4 close.
+    const equip = midSentence(a.equipment || "main metering equipment");
+    const methods = joinList(methodPhrases(a.methods || "visual, operational test, checked integrity, grounding/bonding"));
+    const p1 = `We conducted a safety inspection of the ${equip} located at **${site}**, which included ${methods}.`;
+
+    const anchor =
       "The equipment was found to be in safe working condition with no immediate hazards observed.";
-    return [
-      `Re: ${site}`,
-      `We conducted a safety inspection of the ${equip} located at ${site}, which included a visual examination and verification of electrical integrity.`,
-      findings,
-      a.necConcern ? a.necConcern : "",
-    ]
-      .filter(Boolean)
-      .join("\n\n");
+    const p2Bits = [anchor];
+    if (a.findings && !/safe|fine|working|no (immediate )?hazard|ok\b|good/i.test(a.findings)) {
+      p2Bits.push(sentence(a.findings));
+    }
+    const neg = notFoundPhrases(a.notFound);
+    if (neg.length) p2Bits.push(`No ${joinList(neg, "or")} was observed at the equipment.`);
+    if (a.condition) {
+      p2Bits.push(
+        /wear|old|age/i.test(a.condition)
+          ? "Considering the age of the equipment, normal wear is present but does not compromise safety."
+          : sentence(a.condition)
+      );
+    }
+
+    const code = a.necConcern
+      ? /busbar|250\.68|250\.64/i.test(a.necConcern)
+        ? NEC_BUSBAR_PARA
+        : sentence(a.necConcern)
+      : "";
+
+    const closeBits = [];
+    if (!a.recommendations || /urgent|monitor|none|nothing|periodic/i.test(a.recommendations)) {
+      closeBits.push(
+        "Based on this inspection, no immediate corrective action is required; periodic monitoring of the equipment is recommended."
+      );
+    } else {
+      closeBits.push(`Based on this inspection, ${midSentence(a.recommendations)}.`);
+    }
+    if (a.purpose) {
+      const purpose = midSentence(a.purpose).replace(/\s*purposes?\.?$/i, "");
+      closeBits.push(`This statement is provided for ${purpose} purposes.`);
+    }
+
+    return [p1, p2Bits.join(" "), code, closeBits.join(" ")].filter(Boolean).join("\n\n");
   }
 
   if (type.id === "owner_inspection_request") {
@@ -229,10 +391,16 @@ export function defaultReLine(type, job = {}, answers = {}) {
   if (type?.id === "good_standing_request") {
     return answers.variant || "Request for Certificate of Status / Letter of Good Standing";
   }
-  if (type?.id === "shared_meter_affidavit") {
-    return "Statement Regarding Shared Meter Correction";
+  const site = titleCaseAddress(answers.address || job.serviceAddress || job.address || "");
+  // Approved 2026-08-10 letterhead: the Re: line is the site address for the
+  // redesigned affidavit types (the document title already names the letter).
+  if (
+    type?.id === "load_letter" ||
+    type?.id === "equipment_safety_inspection" ||
+    type?.id === "shared_meter_affidavit"
+  ) {
+    return site || (type?.id === "shared_meter_affidavit" ? "Statement Regarding Shared Meter Condition" : type?.label || "Letter");
   }
-  const site = answers.address || job.serviceAddress || job.address || "";
   const label = type?.label || "Letter";
   return site ? `${label} — ${site}` : label;
 }
