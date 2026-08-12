@@ -165,6 +165,17 @@ describe("refresh-on-open", () => {
     expect(JSON.stringify(body.payload)).not.toMatch(/we are going to/i);
   });
 
+  it("rf is sticky: a second open after the refresh persisted still avoids the stale PDF", async () => {
+    paylinks.set(
+      "pl-251854-upcx",
+      JSON.stringify({ payload: STALE_GOODNESS, createdAt: Date.now(), invoiceNo: "251854" })
+    );
+    await jsonGet("251854-upcx"); // first open: refresh + persist (money changed → rf)
+    const res = await jsonGet("251854-upcx"); // second open: stored is already fresh
+    const body = await res.json();
+    expect(body.payload.rf).toBe(1); // stored PDF is STILL from the mint — keep rebuilding
+  });
+
   it("flags rf and persists the refreshed payload back to the store", async () => {
     paylinks.set(
       "pl-251854-upcx",

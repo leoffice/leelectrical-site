@@ -145,10 +145,13 @@ export function refreshedInvoicePayload(stored, job) {
   if (lines.length) payload.lines = lines;
   else delete payload.lines;
   // Money changed vs the minted snapshot → the stored PDF is stale too; rf
-  // tells the pay page to build the PDF from this payload instead.
-  const moneyChanged = ["a", "t", "d", "p"].some(
-    (k) => String(stored[k] ?? "") !== String(payload[k] ?? "")
-  );
+  // tells the pay page to build the PDF from this payload instead. STICKY:
+  // once the amounts have drifted from the mint, the stored PDF stays stale
+  // until a fresh send mints a new record (a refresh persisting the new
+  // amounts must not make the next visitor trust the old PDF again).
+  const moneyChanged =
+    stored.rf === 1 ||
+    ["a", "t", "d", "p"].some((k) => String(stored[k] ?? "") !== String(payload[k] ?? ""));
   if (moneyChanged) payload.rf = 1;
   else delete payload.rf;
   return payload;
