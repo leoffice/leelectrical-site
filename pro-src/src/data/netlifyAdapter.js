@@ -519,7 +519,10 @@ export function createNetlifyAdapter() {
      *  mergeJobs() skips "_"-prefixed overlay keys, so this never renders
      *  as a phantom job. */
     async getSasTickets() {
-      const state = await http(`state?${cb()}`);
+      // Conditional GET (perf Batch C): shares the ETag cache with
+      // listJobsMeta — an unchanged blob is a 304, not a 4.5 MB download
+      // every 60s. The cb() cache-buster defeated exactly that.
+      const state = await httpConditional("state");
       const ov = (state && state.ov) || {};
       return isPlainObject(ov._sasTickets) ? ov._sasTickets : {};
     },
@@ -527,7 +530,7 @@ export function createNetlifyAdapter() {
     /** Customer pay-page checks + bank Zelle alerts waiting for Levi to approve.
      *  ov._pendingPayments = { items: [...], ts } — reserved key (not a job). */
     async getPendingPayments() {
-      const state = await http(`state?${cb()}`);
+      const state = await httpConditional("state");
       const ov = (state && state.ov) || {};
       const row = ov._pendingPayments;
       if (Array.isArray(row)) return row.filter(Boolean);
@@ -547,7 +550,7 @@ export function createNetlifyAdapter() {
 
     /** Big-project requisitions — ov._projects (reserved key). */
     async getProjects() {
-      const state = await http(`state?${cb()}`);
+      const state = await httpConditional("state");
       const ov = (state && state.ov) || {};
       return isPlainObject(ov._projects) ? ov._projects : { list: [] };
     },
@@ -558,7 +561,7 @@ export function createNetlifyAdapter() {
 
     /** "Separate customers" / parent-sub decisions — ov._nomerge (reserved key). */
     async getNomergePairs() {
-      const state = await http(`state?${cb()}`);
+      const state = await httpConditional("state");
       const ov = (state && state.ov) || {};
       const v = ov._nomerge;
       return Array.isArray(v) ? v.filter(Boolean) : [];

@@ -1145,19 +1145,27 @@ export default function FollowUpPrompts() {
     if (q.length && !sessionAlreadyPrompted()) markSessionPrompted();
   }, [loading, events, jobs, today, commands]);
 
+  // `current` + notifyDueItem via refs, and NO pauseTick dep: with them in the
+  // dep array this effect re-armed (and ran the O(events×jobs)
+  // buildPromptQueue) every 5 seconds forever — the "30s" interval below never
+  // actually fired (perf audit Batch C, 2026-08-11).
+  const currentTickRef = useRef(current);
+  currentTickRef.current = current;
+  const notifyDueItemRef = useRef(notifyDueItem);
+  notifyDueItemRef.current = notifyDueItem;
   useEffect(() => {
     if (IS_TEST) return;
     const tick = () => {
       if (shouldSuppressPrompts()) return;
-      if (hasBlockingActionSheet() && !current) return;
+      if (hasBlockingActionSheet() && !currentTickRef.current) return;
       const q = filterDismissed(
         buildPromptQueue(events, jobs, today, new Date(), commands),
         dismissedRef.current
       );
       const dueNow = q.filter((x) => x.kind === "must_today_nudge" || x.kind === "scheduled_reminder");
       if (!dueNow.length) return;
-      dueNow.forEach(notifyDueItem);
-      if (!current && !hasBlockingActionSheet()) {
+      dueNow.forEach((x) => notifyDueItemRef.current(x));
+      if (!currentTickRef.current && !hasBlockingActionSheet()) {
         setCurrent(dueNow[0]);
         setQueue((prev) => {
           const rest = prev.filter(
@@ -1173,7 +1181,7 @@ export default function FollowUpPrompts() {
     tick();
     const iv = setInterval(tick, 30_000);
     return () => clearInterval(iv);
-  }, [events, jobs, today, current, notifyDueItem, pauseTick, commands]);
+  }, [events, jobs, today, commands]);
 
   const openEmailFromReminder = useCallback((emailKind, job) => {
     if (!job?.id) return;

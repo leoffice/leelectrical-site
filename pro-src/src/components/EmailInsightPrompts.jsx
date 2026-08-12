@@ -885,11 +885,12 @@ export default function EmailInsightPrompts() {
     };
   }, [loading, jobs, emailInsights, patchAndSave, createJob, showToast]);
 
+  // One refresh on becoming ready; the store's own 60s email-insights poll
+  // (t7) is the recurring one — the interval here doubled every fetch
+  // (perf audit Batch C, 2026-08-11).
   useEffect(() => {
     if (IS_TEST || loading) return;
     refreshEmailInsights();
-    const iv = setInterval(refreshEmailInsights, 60_000);
-    return () => clearInterval(iv);
   }, [loading, refreshEmailInsights]);
 
   // Re-evaluate when any sheet opens/closes so we can open once it clears.

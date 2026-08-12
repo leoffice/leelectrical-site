@@ -26,13 +26,11 @@ function label(c) {
 }
 
 export default function SendInvoiceWatcher() {
-  const { commands, showToast, refreshCommands, logSend, patchAndSave } = useStoreData();
+  const { commands, showToast, logSend, patchAndSave } = useStoreData();
   const seen = useRef(loadSeen());
 
-  useEffect(() => {
-    const iv = setInterval(() => refreshCommands(), 3000);
-    return () => clearInterval(iv);
-  }, [refreshCommands]);
+  // No private poll — rides the store's 8s commands poll via the `commands`
+  // dep (perf audit Batch C, 2026-08-11; was a duplicate 3s interval).
 
   useEffect(() => {
     for (const c of commands || []) {

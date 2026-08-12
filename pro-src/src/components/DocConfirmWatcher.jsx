@@ -41,15 +41,15 @@ function docFailToastMessage(c) {
 }
 
 export default function DocConfirmWatcher() {
-  const { commands, jobs, showDocConfirm, showToast, refreshCommands, patchAndSave, effectiveJob } =
+  const { commands, jobs, showDocConfirm, showToast, patchAndSave, effectiveJob } =
     useStoreData();
   const seen = useRef(loadDocConfirmSeen());
   const failSeen = useRef(loadDocFailSeen());
 
-  useEffect(() => {
-    const iv = setInterval(() => refreshCommands(), 3000);
-    return () => clearInterval(iv);
-  }, [refreshCommands]);
+  // No private poll: the store already polls commands every 8s (plus the 1.5s
+  // fast poll while a QBO fetch is in flight) and this effect re-runs via the
+  // `commands` dep. The extra 3s interval here tripled the request rate
+  // (perf audit Batch C, 2026-08-11).
 
   useEffect(() => {
     for (const c of commands || []) {
