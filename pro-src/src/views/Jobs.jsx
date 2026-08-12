@@ -597,10 +597,20 @@ export default function Jobs({
   // store polls don't regroup thousands of rows under a screen you can't see.
   // When keep-alive is hidden, skip O(n) filter on every staged keystroke (JobDetail thrash).
   const frozenActiveRef = useRef(null);
+  const frozenForJobsRef = useRef(null);
   const activeLive = useMemo(() => {
     if (!listActive) return frozenActiveRef.current || [];
+    // Same base list as when we froze → identical rows: REUSE the frozen array
+    // so the module-scope grouping caches (keyed on `active` identity) hold.
+    // Recomputing on every listActive flip handed the caches a fresh array and
+    // re-grouped 4k jobs (~1.7s jsdom, seconds on phone) on EVERY return to
+    // the board — the "heavy movement" lag (perf hotfix 2026-08-12).
+    if (frozenForJobsRef.current === jobs && frozenActiveRef.current) {
+      return frozenActiveRef.current;
+    }
     const next = jobs.filter((j) => !j._archived && !j._deleted);
     frozenActiveRef.current = next;
+    frozenForJobsRef.current = jobs;
     return next;
   }, [jobs, listActive]);
   const active = listActive ? activeLive : frozenActiveRef.current || [];
