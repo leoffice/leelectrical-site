@@ -110,6 +110,19 @@ async function bootstrapRenewCtaQueryToPay() {
     const scenarioId = String(u.searchParams.get("scenario") || "").trim();
     const inv = String(u.searchParams.get("inv") || "").trim();
     const sc = renewScenarioById(scenarioId);
+    if (!sc) {
+      // Scenario aged out — never fall through to another permit's invoice.
+      const root = document.getElementById("root");
+      if (root) {
+        root.innerHTML =
+          '<div style="min-height:100dvh;display:flex;align-items:center;justify-content:center;font-family:system-ui,sans-serif;background:#f8fafc">' +
+          '<div style="text-align:center;padding:2rem;max-width:26rem">' +
+          '<div style="font-weight:800;font-size:1.1rem;color:#0f172a">This renewal link has expired</div>' +
+          '<div style="font-size:0.9rem;color:#475569;margin-top:0.5rem">Please call the office at (718) 594-1850 or reply to the email and we’ll send you a fresh link.</div>' +
+          "</div></div>";
+      }
+      return true; // handled — do not mount the app over the notice
+    }
     const payload = buildPhaseACtaPayPayload({
       scenario: sc,
       invoiceNo: inv,

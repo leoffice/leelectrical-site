@@ -30,6 +30,20 @@ const OPT_OUT = process.argv.includes("--opt-out");
 const CUSTOMER_EMAIL_OPT_IN = !OPT_OUT; // Test-2 default exercises opt-in path
 const FN_BASE =
   process.env.LE_FN_BASE || "https://leelectrical.us/.netlify/functions";
+// send endpoints are auth-gated — pass CUSTOMER_EMAIL_KEY (or the repo-root
+// .le-send-key file) so opt-in live sends still authenticate.
+const EMAIL_KEY = (() => {
+  const env = String(process.env.CUSTOMER_EMAIL_KEY || "").trim();
+  if (env) return env;
+  try {
+    const f = resolve(ROOT, "..", ".le-send-key");
+    if (existsSync(f)) return readFileSync(f, "utf8").trim();
+  } catch {
+    /* ignore */
+  }
+  return "";
+})();
+const EMAIL_KEY_HDR = EMAIL_KEY ? { "x-le-email-key": EMAIL_KEY } : {};
 
 // Load fill + naming from source via dynamic import
 const {
@@ -155,7 +169,7 @@ if (!CUSTOMER_EMAIL_OPT_IN) {
     if (LIVE_EMAIL) {
       const res = await fetch(`${FN_BASE}/send-doc-email`, {
         method: "POST",
-        headers: { "content-type": "application/json" },
+        headers: { "content-type": "application/json", ...EMAIL_KEY_HDR },
         body: JSON.stringify({ ...customerBody, probe: false }),
       });
       const data = await res.json().catch(() => ({}));
@@ -188,7 +202,7 @@ if (!CUSTOMER_EMAIL_OPT_IN) {
     } else {
       const res = await fetch(`${FN_BASE}/send-doc-email`, {
         method: "POST",
-        headers: { "content-type": "application/json" },
+        headers: { "content-type": "application/json", ...EMAIL_KEY_HDR },
         body: JSON.stringify(customerBody),
       });
       const data = await res.json().catch(() => ({}));
@@ -223,7 +237,7 @@ if (!CUSTOMER_EMAIL_OPT_IN) {
       if (process.env.CONED_TEST_FORCE_SEND === "1") {
         const res2 = await fetch(`${FN_BASE}/send-doc-email`, {
           method: "POST",
-          headers: { "content-type": "application/json" },
+          headers: { "content-type": "application/json", ...EMAIL_KEY_HDR },
           body: JSON.stringify({ ...customerBody, probe: false }),
         });
         const d2 = await res2.json().catch(() => ({}));
@@ -240,7 +254,7 @@ const officeSubject = `${CONED_FORM_A.formTitle} — Test 2 555 Kingston Avenue`
 try {
   const res = await fetch(`${FN_BASE}/send-doc-email`, {
     method: "POST",
-    headers: { "content-type": "application/json" },
+    headers: { "content-type": "application/json", ...EMAIL_KEY_HDR },
     body: JSON.stringify({
       kind: "application",
       job,
@@ -278,7 +292,7 @@ const fileRecord = {
 try {
   const res = await fetch(`${FN_BASE}/docs?cb=${Date.now()}`, {
     method: "POST",
-    headers: { "content-type": "application/json" },
+    headers: { "content-type": "application/json", ...EMAIL_KEY_HDR },
     body: JSON.stringify({
       op: "put",
       key: safeKey,

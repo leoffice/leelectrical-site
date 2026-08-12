@@ -10,6 +10,7 @@
 import { deepMerge, isPlainObject, mergeJobs } from "./merge.js";
 import { functionsBase } from "../lib/functionsBase.js";
 import { authHeader } from "../lib/session.js";
+import { emailKeyHeader } from "../lib/emailSendAuth.js";
 import { buildInvoicePdfFromJob, buildEstimatePdfFromJob } from "../lib/invoicePdf.js";
 import { downloadPdfBlob } from "../lib/pdfOpen.js";
 import { docPdfFilename } from "../lib/jobToQbDoc.js";
@@ -79,12 +80,17 @@ async function http(path, body, opts = {}) {
 
 /** Like http(), but keeps JSON bodies on 4xx/5xx (send-doc-email dry-run / no_api_key). */
 async function httpAllowErrorBody(path, body) {
+  // send-doc-email is auth-gated server-side — attach the app email key.
+  const keyHdr = path === "send-doc-email" ? emailKeyHeader() : {};
   const res = await fetchWithTimeout(
     `${base()}/${path}`,
     {
       method: body ? "POST" : "GET",
       cache: "no-store",
-      headers: await authedHeaders(body ? { "content-type": "application/json" } : undefined),
+      headers: {
+        ...(await authedHeaders(body ? { "content-type": "application/json" } : undefined)),
+        ...keyHdr,
+      },
       body: body ? JSON.stringify(body) : undefined,
     },
     timeoutForPath(path)

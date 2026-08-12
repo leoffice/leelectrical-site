@@ -1,6 +1,7 @@
 import { sendDocEmail } from "./lib/docEmail.mjs";
 import { sendStatementEmail } from "./lib/statementEmailServer.mjs";
 import { sendApplicationEmail } from "./lib/applicationEmail.mjs";
+import { authorizeSend } from "./lib/sendAuth.mjs";
 
 function json(o, status = 200) {
   return new Response(JSON.stringify(o), {
@@ -10,7 +11,7 @@ function json(o, status = 200) {
       "cache-control": "no-store",
       "access-control-allow-origin": "*",
       "access-control-allow-methods": "POST,OPTIONS",
-      "access-control-allow-headers": "content-type,authorization",
+      "access-control-allow-headers": "content-type,authorization,x-le-email-key",
     },
   });
 }
@@ -19,6 +20,10 @@ function json(o, status = 200) {
 export default async (req) => {
   if (req.method === "OPTIONS") return json({ ok: true });
   if (req.method !== "POST") return json({ ok: false, error: "POST only" }, 405);
+
+  // Outbound branded mail — never anonymous (same gate as customer-email).
+  const auth = await authorizeSend(req);
+  if (!auth.ok) return json({ ok: false, error: auth.error }, auth.status);
 
   let body = {};
   try {

@@ -1,15 +1,28 @@
 import { sendCustomerEmail } from "./lib/customerEmail.mjs";
+import { authorizeSend } from "./lib/sendAuth.mjs";
+
+const CORS = {
+  "access-control-allow-origin": "*",
+  "access-control-allow-methods": "POST,OPTIONS",
+  "access-control-allow-headers": "content-type,authorization,x-le-email-key",
+};
 
 function json(o, status = 200) {
   return new Response(JSON.stringify(o), {
     status,
-    headers: { "content-type": "application/json", "cache-control": "no-store" },
+    headers: { "content-type": "application/json", "cache-control": "no-store", ...CORS },
   });
 }
 
 /** POST { email, subject, message, customer? } — send composed customer email. */
 export default async (req) => {
+  if (req.method === "OPTIONS") return json({ ok: true });
   if (req.method !== "POST") return json({ ok: false, error: "POST only" }, 405);
+
+  // Outbound branded mail — never anonymous (spoofing/spam vector).
+  const auth = await authorizeSend(req);
+  if (!auth.ok) return json({ ok: false, error: auth.error }, auth.status);
+
   let body = {};
   try {
     body = await req.json();

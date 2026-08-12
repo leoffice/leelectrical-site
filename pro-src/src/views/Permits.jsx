@@ -42,6 +42,7 @@ import {
   queueAllReadyConedUploads,
 } from "../lib/agencyForms/index.js";
 import { createCasePaperworkJob } from "../lib/agencyForms/createCaseExecution.js";
+import { emailSendHeaders } from "../lib/emailSendAuth.js";
 import {
   listPaperworkJobsServer,
   paperworkJobStatusLabel,
@@ -2038,7 +2039,7 @@ export default function Permits() {
           : "https://leelectrical.us";
       const res = await fetch(`${base}/.netlify/functions/customer-email`, {
         method: "POST",
-        headers: { "content-type": "application/json" },
+        headers: await emailSendHeaders({ "content-type": "application/json" }),
         body: JSON.stringify({
           email: to,
           to,
@@ -2990,23 +2991,28 @@ export default function Permits() {
         onOpenJob={(id) => id && nav(`/job/${id}?doc=invoice&create=1`)}
         onSendForRow={(row) => {
           if (!row) return;
-          // Prefer card scenario (Drive cache / ready list); never re-bind 364 Schenectady
-          const sc =
-            row.scenario ||
-            renewScenarioById(row.scenarioId) ||
-            RENEW_HAMPTON_SCENARIO;
+          // Prefer card scenario (Drive cache / ready list); never re-bind 364 Schenectady.
+          // No Hampton fallback — a missing scenario must never send another
+          // customer's permit content.
+          const sc = row.scenario || renewScenarioById(row.scenarioId);
+          if (!sc) {
+            showToast(
+              "This permit isn't in the cache anymore — refresh Permits and try again"
+            );
+            return;
+          }
           void runRenewNotice("email", sc);
         }}
         onResendFromHistory={(h) => {
           if (!h) return;
-          const sc = renewScenarioById(h.scenarioId) || {
-            ...RENEW_HAMPTON_SCENARIO,
-            id: h.scenarioId || RENEW_HAMPTON_SCENARIO.id,
-            address: h.address || RENEW_HAMPTON_SCENARIO.address,
-            permitNo: h.permitNo || "",
-            displayCustomer: h.customer || RENEW_HAMPTON_SCENARIO.displayCustomer,
-            realEmail: h.to || RENEW_HAMPTON_SCENARIO.realEmail || "",
-          };
+          const sc = renewScenarioById(h.scenarioId);
+          if (!sc) {
+            // Scenario aged out of the cache — never prefill Hampton's content.
+            showToast(
+              `Can't resend — permit ${h.permitNo || h.address || h.scenarioId || ""} is no longer in the cache. Open its pending row to send fresh.`
+            );
+            return;
+          }
           void runRenewNotice("email", sc, {
             // On-file only — never pre-fill last custom To
             defaultTo: sc.realEmail || "",

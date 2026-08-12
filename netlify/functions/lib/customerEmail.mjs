@@ -1,7 +1,7 @@
 import {
   isEmailTestMode,
   resolveFromAddress,
-  resolveRecipient,
+  resolveRecipients,
 } from "./paymentConfirmEnv.mjs";
 import {
   POWERED_BY_LE_TEXT,
@@ -77,7 +77,10 @@ export async function sendCustomerEmail({
   htmlBody,
 }) {
   const intended = String(customerEmail || to || "").trim();
-  const recipient = resolveRecipient(intended || to);
+  // Customers often store "a@x.com, b@y.com" — every valid address gets the
+  // email (split/trim/dedupe), never just the first.
+  const recipients = resolveRecipients(intended || to);
+  const recipient = recipients[0] || "";
   const testMode = isEmailTestMode();
   const apiKey = String(process.env.RESEND_API_KEY || "").trim();
   const from = resolveFromAddress();
@@ -94,7 +97,8 @@ export async function sendCustomerEmail({
   const meta = {
     testMode,
     intendedTo: intended || "(unset)",
-    to: recipient || "(unset)",
+    to: recipients.join(", ") || "(unset)",
+    recipientCount: recipients.length,
     from,
     company,
     subject: subj,
@@ -150,21 +154,24 @@ export async function sendCustomerEmail({
   const officeCopy = String(from || "office@leelectrical.us").trim().toLowerCase();
   const payload = {
     from: `${company} <${from}>`,
-    to: [recipient],
+    to: recipients,
     subject: testMode ? `[TEST] ${subj}` : subj,
     html,
     text: `${text}\n\n${signatureText()}\n\n${POWERED_BY_LE_TEXT}`,
     // Inline CID logo so the header mark renders without "display images".
     attachments: [leLogoAttachment()],
   };
-  if (officeCopy && officeCopy !== String(recipient).toLowerCase()) {
+  if (
+    officeCopy &&
+    !recipients.some((r) => String(r).toLowerCase() === officeCopy)
+  ) {
     payload.bcc = [officeCopy];
   }
   if (testMode && intended && intended !== recipient) {
     payload.headers = { "X-Intended-Recipient": intended };
   }
   // Levi 2026-08-03: every LE Pro message leaves a silent office@ copy for Gmail tabs.
-  applyOfficeBcc(payload, { recipients: [recipient], testMode });
+  applyOfficeBcc(payload, { recipients, testMode });
 
   try {
     const res = await fetch(RESEND_URL, {

@@ -1,5 +1,6 @@
 import { functionsBase } from "./functionsBase.js";
 import { activeTenantConfig } from "./tenantBranding.js";
+import { emailSendHeaders } from "./emailSendAuth.js";
 
 const base = () => functionsBase();
 
@@ -57,7 +58,7 @@ export async function probeConnections() {
     const res = await fetch(`${base()}/send-doc-email?cb=${Date.now()}`, {
       method: "POST",
       cache: "no-store",
-      headers: { "content-type": "application/json" },
+      headers: await emailSendHeaders({ "content-type": "application/json" }),
       body: JSON.stringify({
         kind: "invoice",
         officeOnly: true,

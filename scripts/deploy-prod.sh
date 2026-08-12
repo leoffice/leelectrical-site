@@ -62,6 +62,14 @@ if git grep -lE '^(<<<<<<<|=======|>>>>>>>)' -- 'pro-src/src' 'pro-src/public' '
 fi
 
 # --- Build the PWA ---
+# Bake the outbound-email app key (matches the CUSTOMER_EMAIL_KEY Pages secret)
+# so tokenless clients can still authenticate to customer-email/send-doc-email.
+if [ -f "$REPO/.le-send-key" ]; then
+  export VITE_CUSTOMER_EMAIL_KEY="$(tr -d '[:space:]' < "$REPO/.le-send-key")"
+  echo "▸ email send key baked into build (VITE_CUSTOMER_EMAIL_KEY set)"
+else
+  echo "⚠️  no .le-send-key — build will ship WITHOUT the email app key (sends 401 unless signed in)"
+fi
 ( cd pro-src && npm run build )
 
 # --- GUARD 3: the built service worker must be valid JS (a broken SW breaks PWA updates) ---

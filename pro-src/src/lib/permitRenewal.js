@@ -242,16 +242,32 @@ export function assertPhaseARecipient(email) {
  */
 export function assertRenewComposeRecipient(email, { realTest = false } = {}) {
   const raw = String(email || "").trim();
-  if (!raw || !raw.includes("@")) {
+  // On-file fields often hold "a@x.com, b@y.com" — validate EVERY address;
+  // the server sends to all of them (split/trim/dedupe).
+  const parts = raw
+    .split(/[,;]+/)
+    .map((p) => p.trim())
+    .filter(Boolean);
+  const seen = new Set();
+  const list = [];
+  for (const p of parts) {
+    const key = p.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    list.push(p);
+  }
+  if (!list.length || list.some((p) => !p.includes("@"))) {
     return { ok: false, error: "Enter an email address" };
   }
-  if (isBlockedRenewRecipient(raw)) {
-    return { ok: false, error: "That address is blocked for renew send" };
+  const blocked = list.find((p) => isBlockedRenewRecipient(p));
+  if (blocked) {
+    return { ok: false, error: `${blocked} is blocked for renew send` };
   }
   return {
     ok: true,
-    email: raw,
-    realTest: !isLeviTesterEmail(raw) || !!realTest,
+    email: list.join(", "),
+    recipients: list,
+    realTest: !list.every((p) => isLeviTesterEmail(p)) || !!realTest,
   };
 }
 
@@ -1528,7 +1544,9 @@ export function renewScenarioById(scenarioId = "") {
   } catch {
     /* ignore */
   }
-  return RENEW_HAMPTON_SCENARIO;
+  // Unknown id (aged out of the cache) → null, NEVER the Hampton fallback —
+  // a resend/CTA must not silently prefill another customer's permit.
+  return null;
 }
 
 /**
@@ -2042,7 +2060,8 @@ export function prepareRenewScenario({ jobs, scenario, fee, noticeOnly = true } 
  */
 export function materializeRenewInvoicePatch(job, { fee } = {}) {
   const pr = (job && job.permitRenew) || {};
-  const sc = renewScenarioById(pr.scenarioId || "hampton-yossi");
+  // Scenario may have aged out of the cache — job/pr fields carry the facts.
+  const sc = renewScenarioById(pr.scenarioId || "hampton-yossi") || {};
   const amount =
     fee != null
       ? parseAmount(fee) || PERMIT_RENEW_FEE
