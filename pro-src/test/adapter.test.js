@@ -232,18 +232,42 @@ describe("NetlifyStoreAdapter (mocked fetch)", () => {
     expect(meta.jobs.find((j) => j.id === "JP-001").paid).toBe(true);
   });
 
-  it("saveJob fetches latest ov, deep-merges the patch, posts full ov back", async () => {
+  it("saveJob sends ONE incremental PATCH — no full-blob GET or POST (perf Batch B)", async () => {
+    const calls = stubFetch({
+      state: (call) =>
+        call.method === "PATCH"
+          ? { ok: true, ts: 99, patched: String(call.body.id) }
+          : { ov: {}, ts: 5 },
+    });
+    const api = createNetlifyAdapter();
+    const r = await api.saveJob("JP-001", { paid: true, status: { Invoiced: { s: "done" } } });
+
+    expect(r).toMatchObject({ ok: true, ts: 99 });
+    const stateCalls = calls.filter((c) => c.path.startsWith("state"));
+    expect(stateCalls).toHaveLength(1); // no freshState GET on the save path
+    expect(stateCalls[0].method).toBe("PATCH");
+    expect(stateCalls[0].body).toMatchObject({
+      id: "JP-001",
+      patch: { paid: true, status: { Invoiced: { s: "done" } } },
+    });
+    // The full ov never rides on the wire.
+    expect(stateCalls[0].body.ov).toBeUndefined();
+  });
+
+  it("saveJob falls back to legacy fetch-latest -> merge -> full-ov POST when the server does not ack the PATCH", async () => {
     const serverOv = {
       "JP-001": { notes: "existing note", status: { Lead: { s: "done" } } },
       "JP-777": { paid: true }, // other job's edits must survive the POST
     };
     const calls = stubFetch({
+      // Old server: PATCH falls through to the read branch (returns { ov, ts },
+      // writes nothing); POST returns { ok, ts } with no `patched` ack.
       state: (call) => (call.method === "POST" ? { ok: true, ts: 99 } : { ov: serverOv, ts: 5 }),
     });
     const api = createNetlifyAdapter();
     await api.saveJob("JP-001", { paid: true, status: { Invoiced: { s: "done" } } });
 
-    const post = calls.find((c) => c.method === "POST");
+    const post = calls.find((c) => c.method === "POST" && c.body.ov);
     expect(post).toBeTruthy();
     expect(post.body.ov["JP-777"]).toEqual({ paid: true }); // not clobbered
     expect(post.body.ov["JP-001"]).toMatchObject({
@@ -255,24 +279,14 @@ describe("NetlifyStoreAdapter (mocked fetch)", () => {
     expect(post.body.ov["JP-001"]._savedAt).toEqual(expect.any(Number));
   });
 
-  it("second saveJob uses session cache when GET is still lagging (no multi-second wait)", async () => {
-    const serverOv = {
-      "JP-001": { notes: "n1" },
-      "JP-777": { paid: true },
-    };
+  it("back-to-back saveJobs each send one PATCH; no GET on the save path", async () => {
     let postTs = 10;
-    // After first write, GETs keep returning the pre-write snapshot (blob lag).
-    let postCount = 0;
     const calls = stubFetch({
       state: (call) => {
-        if (call.method === "POST") {
-          postCount += 1;
+        if (call.method === "PATCH") {
           postTs += 1;
-          // Mirror a real server: accept the posted ov.
-          Object.assign(serverOv, call.body.ov);
-          return { ok: true, ts: postTs };
+          return { ok: true, ts: postTs, patched: String(call.body.id) };
         }
-        // Always lag: ts stays below last write so adapter falls back to cache.
         return { ov: { "JP-001": { notes: "n1" }, "JP-777": { paid: true } }, ts: 5 };
       },
     });
@@ -280,13 +294,10 @@ describe("NetlifyStoreAdapter (mocked fetch)", () => {
     await api.saveJob("JP-001", { paid: true });
     await api.saveJob("JP-001", { notes: "n2" });
 
-    const posts = calls.filter((c) => c.method === "POST" && c.path === "state");
-    expect(posts).toHaveLength(2);
-    // Second POST must keep JP-777 and merge notes/paid from cache + patch.
-    expect(posts[1].body.ov["JP-777"]).toEqual({ paid: true });
-    expect(posts[1].body.ov["JP-001"]).toMatchObject({ notes: "n2", paid: true });
-    expect(posts[1].body.ov["JP-001"]._savedAt).toEqual(expect.any(Number));
-    expect(postCount).toBe(2);
+    const patches = calls.filter((c) => c.method === "PATCH" && c.path === "state");
+    expect(patches).toHaveLength(2);
+    expect(patches.every((c) => !c.body.ov)).toBe(true);
+    expect(calls.filter((c) => c.method === "GET" && c.path.startsWith("state"))).toHaveLength(0);
   });
 
 

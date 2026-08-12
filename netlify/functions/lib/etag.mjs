@@ -9,7 +9,7 @@
 const BASE_HEADERS = {
   "content-type": "application/json",
   "access-control-allow-origin": "*",
-  "access-control-allow-methods": "GET,POST,OPTIONS",
+  "access-control-allow-methods": "GET,POST,PATCH,OPTIONS",
   // If-None-Match is added by clients (and by the browser during revalidation);
   // allow it so a cross-origin caller (localhost dev, the extension) isn't
   // blocked by CORS. Same-origin callers ignore these headers entirely.

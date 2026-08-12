@@ -62,11 +62,11 @@ async function authedHeaders(extra) {
   return { ...(extra || {}), ...(await authHeader()) };
 }
 
-async function http(path, body) {
+async function http(path, body, opts = {}) {
   const res = await fetchWithTimeout(
     `${base()}/${path}`,
     {
-      method: body ? "POST" : "GET",
+      method: opts.method || (body ? "POST" : "GET"),
       cache: "no-store",
       headers: await authedHeaders(body ? { "content-type": "application/json" } : undefined),
       body: body ? JSON.stringify(body) : undefined,
@@ -293,11 +293,29 @@ export function createNetlifyAdapter() {
       return last;
     },
 
-    /** Deep-merge `patch` into ov[id], then POST the full { ov } back.
-     *  Fetch-latest -> merge -> post keeps the clobber window minimal
-     *  (the store itself is last-write-wins). */
+    /** Incremental save (perf Batch B, 2026-08-11): HTTP PATCH { id, patch }
+     *  and the server deep-merges into ov[id]. No more full-blob GET + POST
+     *  per save (~4.5 MB each way, 65% of it audit log). Method PATCH on
+     *  purpose: an OLD server treats an unknown method as a plain read and
+     *  writes nothing (a POST op would have hit its `body.ov || {}` path and
+     *  wiped the overlay), so the fallback below is always safe. */
     async saveJob(id, patch) {
       const run = async () => {
+        try {
+          const res = await http("state", { id, patch: patch || {} }, { method: "PATCH" });
+          if (res && res.ok && res.patched != null) {
+            if (res.ts) lastWriteTs = Math.max(lastWriteTs, res.ts);
+            let entry;
+            if (cachedOv) {
+              entry = deepMerge(cachedOv[id] || {}, patch || {});
+              if (String(id).charAt(0) !== "_") entry._savedAt = res.ts || Date.now();
+              cachedOv = { ...cachedOv, [id]: entry };
+            }
+            return { ok: true, ts: res.ts, ov: entry };
+          }
+        } catch {
+          /* fall through to the legacy full-blob path */
+        }
         const state = await freshState();
         const baseOv = (state && state.ov) || {};
         const ov = { ...baseOv };

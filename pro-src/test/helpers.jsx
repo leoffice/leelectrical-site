@@ -7,6 +7,7 @@ import { vi } from "vitest";
 import App from "../src/App.jsx";
 import { StoreProvider } from "../src/state/store.jsx";
 import { TenantProvider } from "../src/state/tenant.jsx";
+import { deepMerge as ovDeepMerge } from "../src/data/merge.js";
 import { searchCustomerIndex } from "../../netlify/functions/lib/customerSearch.mjs";
 import { setQuickbooksDocsFeatureEnabled } from "../src/lib/appSettings.js";
 
@@ -243,7 +244,16 @@ export function mockServer(opts = {}) {
       else if (path === "state") {
         // Mirrors the live fn: POST stamps ts, GET returns { ov, ts } (the
         // adapter/store use ts to detect stale eventually-consistent reads).
-        if (method === "POST") {
+        // PATCH { id, patch } deep-merges server-side (perf Batch B).
+        if (method === "PATCH" && body && body.id != null) {
+          const ov = state.ov || {};
+          const id = String(body.id);
+          ov[id] = ovDeepMerge(ov[id] || {}, body.patch || {});
+          if (id.charAt(0) !== "_") ov[id]._savedAt = Date.now();
+          state.ov = ov;
+          state.stateTs = Date.now();
+          data = { ok: true, ts: state.stateTs, patched: id };
+        } else if (method === "POST") {
           state.ov = body.ov;
           state.stateTs = Date.now();
           data = { ok: true, ts: state.stateTs };
@@ -504,6 +514,18 @@ export function mockServer(opts = {}) {
     calls,
     posts: (path, pred) =>
       calls.filter((c) => c.path === path && c.method === "POST" && (!pred || pred(c.body))),
+    /** State writes of either shape — legacy full-ov POST or incremental
+     *  PATCH (perf Batch B). PATCH bodies are normalized to { ov: { [id]:
+     *  patch } } so existing ov-shaped predicates keep working. */
+    stateWrites: (pred) =>
+      calls
+        .filter((c) => c.path === "state" && (c.method === "POST" || c.method === "PATCH"))
+        .map((c) =>
+          c.method === "PATCH"
+            ? { ...c, body: { ov: { [String(c.body?.id)]: c.body?.patch || {} } } }
+            : c
+        )
+        .filter((c) => c.body && c.body.ov && (!pred || pred(c.body))),
     enqueued: (type) =>
       calls
         .filter((c) => c.path === "command" && c.method === "POST" && c.body.op === "enqueue")

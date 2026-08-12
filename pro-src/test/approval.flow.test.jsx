@@ -159,7 +159,7 @@ describe("customer_sync approval resolution", () => {
 
     await user.click(await screen.findByText(/QuickBooks is correct/));
     await waitFor(() => {
-      const saves = srv.posts("state", (b) => b.ov && b.ov["J-1"]);
+      const saves = srv.stateWrites((b) => b.ov && b.ov["J-1"]);
       expect(saves.length).toBeGreaterThan(0);
       expect(saves[saves.length - 1].body.ov["J-1"].email).toBe("qb@leelectrical.us");
       expect(saves[saves.length - 1].body.ov["J-1"].billingAddress).toBe("100 QB Street");

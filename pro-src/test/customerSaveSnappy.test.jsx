@@ -48,7 +48,7 @@ describe("customer Save & sync is snappy", () => {
     await waitFor(() => expect(srv.enqueued("create_customer")).toHaveLength(1));
     // Job save + companion audit write both POST full ov (universal archive).
     await waitFor(() =>
-      expect(srv.posts("state", (b) => !!b.ov && !!b.ov["J-SNAP"]).length).toBeGreaterThanOrEqual(1)
+      expect(srv.stateWrites((b) => !!b.ov["J-SNAP"]).length).toBeGreaterThanOrEqual(1)
     );
   });
 
