@@ -8,7 +8,7 @@
  * reload loop while the client chased a new SW. Hashed filenames are still
  * cacheable after a successful network hit.
  */
-const CACHE = "le-pro-v432";
+const CACHE = "le-pro-v433";
 // Do not pre-cache index.html — a stale shell + new CSS hash = unstyled raw links.
 const CORE = ["/app/pro/manifest.json"];
 
@@ -82,17 +82,12 @@ self.addEventListener("fetch", (e) => {
     return;
   }
 
-  // Stylesheets + main module: network-first (prevents unstyled shell after deploy).
-  const isCss = url.pathname.endsWith(".css");
-  const isEntryJs =
-    url.pathname.endsWith(".js") &&
-    (url.pathname.includes("/assets/index-") || url.pathname.includes("/assets/main-"));
-  if (isCss || isEntryJs) {
-    e.respondWith(networkFirst(e.request));
-    return;
-  }
-
-  // Other hashed assets: cache-first is safe.
+  // ALL hashed /assets/ files (entry JS + CSS included) are cache-first: a
+  // content-hashed filename can never be stale, and network-first cost an RTT
+  // per open — and on a dead radio waited for the fetch to FAIL before serving
+  // cache (perf Batch D, 2026-08-11). The unstyled-shell bug was a stale
+  // index.html, which stays network-first above and always carries the
+  // current hashes.
   e.respondWith(
     caches.match(e.request).then(
       (hit) =>
