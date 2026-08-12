@@ -1,6 +1,6 @@
 // Login notices for customer pay-page check photos (and bank Zelle alerts).
 // Levi: see picture → zoom → Autofill → correct → Approve → stages payment on the job.
-import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import React, { useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
 import { useStore, useStoreData } from "../state/store.jsx";
 import { appendPayment, normalizePayments, removePayment } from "../lib/payments.js";
 import { analyzePaymentImage, compressImageForVision, fileToBase64 } from "../lib/paymentVision.js";
@@ -528,13 +528,20 @@ export default function PendingPaymentPrompts() {
     }
   };
 
+  // Deferred: ranking scores ALL ~4k jobs (string-blob + token loops per job).
+  // Keyed on the live values, every keystroke in Amount/Memo/Search blocked the
+  // input for the whole scan (perf hotfix 2026-08-12 — "recording payments is
+  // laggy"). Deferred values keep typing instant; the list catches up on pause.
+  const dAmt = useDeferredValue(amt);
+  const dMemo = useDeferredValue(memo);
+  const dPickQuery = useDeferredValue(pickQuery);
   const matchCandidates = useMemo(() => {
     if (!current) return [];
     const ranked = rankJobsForPayment(jobs, {
-      amount: amt || current.amount,
-      memo: memo || current.memo,
+      amount: dAmt || current.amount,
+      memo: dMemo || current.memo,
       fromName: current.fromName || current.payer,
-      query: pickQuery,
+      query: dPickQuery,
     });
     // Keep the current suggestion visible even if score is weak / list is short.
     const pinnedId = String(pickJobId || current.jobId || "").trim();
@@ -543,7 +550,7 @@ export default function PendingPaymentPrompts() {
       if (pinned) ranked.unshift({ job: pinned, score: 0 });
     }
     return ranked;
-  }, [jobs, current, amt, memo, pickQuery, pickJobId]);
+  }, [jobs, current, dAmt, dMemo, dPickQuery, pickJobId]);
 
   const onApprove = async () => {
     if (!current) return;

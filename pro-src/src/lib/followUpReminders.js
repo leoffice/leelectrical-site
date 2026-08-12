@@ -749,6 +749,10 @@ export function cancelPastAppointmentReminders(events, today, now = new Date()) 
   const day = String(today || "").slice(0, 10);
   if (!/^\d{4}-\d{2}-\d{2}$/.test(day)) return 0;
   let cleared = 0;
+  // One parse for the whole pass — loadState() inside the loop re-parsed the
+  // reminder-state blob per past event, inside a badge memo that runs on every
+  // jobs/commands delta (perf hotfix 2026-08-12).
+  const state = loadState();
   for (const e of events || []) {
     if (!e?.id) continue;
     // Only inspections — "the appointment was yesterday" noise, not post-visit follow-ups.
@@ -756,7 +760,7 @@ export function cancelPastAppointmentReminders(events, today, now = new Date()) 
     const ymd = eventYmd(e);
     // Only past event days — today and future keep their reminders.
     if (!ymd || ymd >= day) continue;
-    const st = eventState(loadState(), e.id);
+    const st = eventState(state, e.id);
     if (!st || st.handledAt || st.noReminders || st.inspectionAcked) continue;
     // Keep intentional work loops Levi set after the visit.
     if (st.priority === "must_today" || st.nextStepAt) continue;

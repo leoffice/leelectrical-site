@@ -306,13 +306,10 @@ export function enrichMutationPatch(before, patch, opts = {}) {
 export function planMutation(before, patch, opts = {}) {
   const { patch: enriched, op, version } = enrichMutationPatch(before, patch, opts);
   const after = before ? { ...before, ...enriched } : { ...enriched };
-  // For deletes, snapshot enough of the prior state to reverse.
-  const beforeSnap =
-    op === AUDIT_OPS.DELETE || op === AUDIT_OPS.EDIT || op === AUDIT_OPS.ARCHIVE
-      ? snapshotForAudit(before)
-      : before
-        ? snapshotForAudit(before)
-        : null;
+  // Deletes/archives keep a FULL prior snapshot (enough to reverse); routine
+  // edits store slim summaries — the delta already carries the change.
+  const fullSnap = op === AUDIT_OPS.DELETE || op === AUDIT_OPS.ARCHIVE;
+  const beforeSnap = before ? snapshotForAudit(before, { slim: !fullSnap }) : null;
 
   const entry = makeAuditEntry({
     tenantId: opts.tenantId,
@@ -321,7 +318,10 @@ export function planMutation(before, patch, opts = {}) {
     op,
     actor: opts.actor,
     before: beforeSnap,
-    after: op === AUDIT_OPS.DELETE ? { id: after.id, _deleted: true, deletedAt: enriched.deletedAt } : snapshotForAudit(after),
+    after:
+      op === AUDIT_OPS.DELETE
+        ? { id: after.id, _deleted: true, deletedAt: enriched.deletedAt }
+        : snapshotForAudit(after, { slim: !fullSnap }),
     delta: opts.delta != null ? opts.delta : patch,
     version,
     reason: opts.reason,
@@ -336,8 +336,35 @@ export function planMutation(before, patch, opts = {}) {
  * Compact snapshot for audit storage — enough to reverse, not a full jobs dump.
  * Keeps identity, money, people, addresses, payments, doc numbers, flags.
  */
-export function snapshotForAudit(record) {
+/** Compact stand-ins for the heavy array fields when slimming (see below). */
+function summarizeArrayField(key, v) {
+  if (!Array.isArray(v)) return v;
+  const out = { _slim: true, n: v.length };
+  if (key === "invoiceLines" || key === "estimateLines") {
+    let total = 0;
+    for (const ln of v) total += (Number(ln?.unitPrice) || 0) * (Number(ln?.qty) || 1);
+    out.total = Math.round(total * 100) / 100;
+  }
+  if (key === "payments") {
+    let total = 0;
+    for (const p of v) total += Number(String(p?.amount || "").replace(/[$,]/g, "")) || 0;
+    out.total = Math.round(total * 100) / 100;
+  }
+  return out;
+}
+
+/**
+ * @param {object} record
+ * @param {{ slim?: boolean }} [opts] slim=true replaces the heavy array fields
+ *   (payments/lines/history) with { _slim, n, total } summaries and truncates
+ *   long notes. Routine EDIT entries were storing TWO full job snapshots each
+ *   (~5 KB/entry, ov._auditLog grew to 4.19 MB — 73% of the state blob, perf
+ *   hotfix 2026-08-12). DELETE/ARCHIVE entries stay full so a restore can
+ *   reverse them; the entry's `delta` always carries the actual change.
+ */
+export function snapshotForAudit(record, opts = {}) {
   if (!record || typeof record !== "object") return record == null ? null : record;
+  const slim = !!opts.slim;
   const keys = [
     "id",
     "customer",
@@ -389,9 +416,17 @@ export function snapshotForAudit(record) {
     "qboPaymentId",
     "amountWhenBaselined",
   ];
+  const HEAVY = new Set(["payments", "invoiceLines", "estimateLines", "invoiceHistory"]);
   const out = {};
   for (const k of keys) {
-    if (record[k] !== undefined) out[k] = cloneShallow(record[k]);
+    if (record[k] === undefined) continue;
+    if (slim && HEAVY.has(k)) {
+      out[k] = summarizeArrayField(k, record[k]);
+    } else if (slim && k === "notes" && typeof record[k] === "string" && record[k].length > 400) {
+      out[k] = record[k].slice(0, 400) + "…";
+    } else {
+      out[k] = cloneShallow(record[k]);
+    }
   }
   // Always keep id if present on the object under another shape.
   if (record.id != null) out.id = record.id;

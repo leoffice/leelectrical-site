@@ -53,10 +53,26 @@ export default async (req) => {
     try { body = await req.json(); } catch (e) {}
     const ts = Date.now();
     const ov = body.ov || {};
-    if (ov._auditLog) ov._auditLog = capAuditLog(ov._auditLog);
+    if (ov._auditLog) {
+      ov._auditLog = capAuditLog(ov._auditLog);
+    } else {
+      // Clients never receive _auditLog anymore (GET strips it) — a legacy
+      // full-ov POST echoing that view back must not erase the stored log.
+      const cur = (await store.get(KEY, { type: "json" })) || { ov: {} };
+      if (cur.ov && cur.ov._auditLog) ov._auditLog = cur.ov._auditLog;
+    }
     await rotateJsonBackup(store, KEY, { ov, ts });
     return json({ ok: true, ts });
   }
   const cur = (await store.get(KEY, { type: "json" })) || { ov: {}, ts: 0 };
+  // _auditLog is WRITE-ONLY from the app (grep-verified: no client reader) and
+  // is 73% of the blob (4.19 MB of 5.75 MB, 2026-08-12) — every device was
+  // re-downloading + re-parsing it on every changed poll. Serve it only when
+  // explicitly asked (?audit=1, for future forensics tooling).
+  const url = new URL(req.url);
+  if (url.searchParams.get("audit") !== "1" && cur.ov && cur.ov._auditLog) {
+    const { _auditLog, ...rest } = cur.ov;
+    return conditionalJson(req, { ...cur, ov: rest }, { prefix: "sa", ts: cur.ts || 0 });
+  }
   return conditionalJson(req, cur, { prefix: "s", ts: cur.ts || 0 });
 };
