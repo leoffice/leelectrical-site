@@ -345,7 +345,10 @@ export default function PayLanding() {
     setPdfErr("");
 
     (async () => {
-      const ok = await invoicePdfAvailable(storePdfSrc);
+      // rf = the link was refreshed with NEW amounts — the stored PDF still
+      // shows the old ones, so build from the live payload instead.
+      const preferBuilt = data.rf === 1 || data.rf === true;
+      const ok = preferBuilt ? false : await invoicePdfAvailable(storePdfSrc);
       if (!alive) return;
       if (ok) {
         revokeLocal();
@@ -490,6 +493,14 @@ export default function PayLanding() {
       }
       setPdfErr("Estimate PDF is not available yet. Please contact the office.");
       return;
+    }
+    // Refreshed amounts → stored PDF is stale; build from the live payload.
+    if (data.rf === 1 || data.rf === true) {
+      try {
+        if (openLocalBuiltPdf(await buildInvoicePdfBlobFromPayload(data))) return;
+      } catch {
+        /* fall through to the store path */
+      }
     }
     setPdfErr("");
     setPdfBusy(true);
@@ -1170,7 +1181,7 @@ export default function PayLanding() {
             ) : null}
           </div>
 
-          {data.w ? (
+          {data.w || (Array.isArray(data.lines) && data.lines.length) ? (
             <div className="mt-2 text-sm">
               <div className="text-[10px] font-extrabold uppercase tracking-wider text-slate-500 mb-0.5 flex items-center justify-between gap-2">
                 <span>Work</span>
@@ -1184,16 +1195,53 @@ export default function PayLanding() {
                   {showWorkDesc ? "Hide ▴" : "Details ▾"}
                 </button>
               </div>
-              {/* Conditional render — iOS-safe (max-height on pre-wrap was a no-op for some taps) */}
-              <div
-                className={
-                  "text-slate-900 leading-snug whitespace-pre-wrap " +
-                  (showWorkDesc ? "" : "line-clamp-2 overflow-hidden")
-                }
-                data-testid="work-desc-body"
-              >
-                {data.w}
-              </div>
+              {/* Whole body is the tap target — the tiny Details button alone was
+                  easy to miss on a phone, and a short description made a "dead"
+                  tap (Levi 2026-08-12). Conditional render — iOS-safe (max-height
+                  on pre-wrap was a no-op for some taps). */}
+              {data.w ? (
+                <button
+                  type="button"
+                  className={
+                    "w-full text-left text-slate-900 leading-snug whitespace-pre-wrap " +
+                    (showWorkDesc ? "" : "line-clamp-2 overflow-hidden")
+                  }
+                  data-testid="work-desc-body"
+                  aria-expanded={showWorkDesc}
+                  onClick={() => setShowWorkDesc((v) => !v)}
+                >
+                  {data.w}
+                </button>
+              ) : null}
+              {showWorkDesc && Array.isArray(data.lines) && data.lines.length ? (
+                <div
+                  className="mt-2 rounded-lg bg-slate-50 border border-slate-100 px-2.5 py-2 space-y-2"
+                  data-testid="work-line-items"
+                >
+                  {data.lines.map((ln, i) => {
+                    const qty = parseMoney(ln.qty) || 1;
+                    const unit = parseMoney(ln.unitPrice);
+                    const amt = qty * unit;
+                    return (
+                      <div key={i} className="flex items-start justify-between gap-3 text-xs">
+                        <span className="text-slate-700 leading-snug whitespace-pre-wrap min-w-0">
+                          {ln.description || ln.itemName || "Item"}
+                        </span>
+                        {unit > 0 ? (
+                          <span className="text-right shrink-0 text-slate-900 font-semibold tabular-nums">
+                            {qty !== 1 ? (
+                              <span className="block text-[10px] font-normal text-slate-500">
+                                {qty} × {fmtMoneyPrecise(unit)}
+                              </span>
+                            ) : null}
+                            {fmtMoneyPrecise(amt)}
+                          </span>
+                        ) : null}
+                      </div>
+                    );
+                  })}
+                </div>
+              ) : null}
             </div>
           ) : null}
 
@@ -1367,11 +1415,12 @@ export default function PayLanding() {
               ) : null}
             </div>
             <div className="mb-2">
+              {/* No `capture` — the customer chooses camera OR photo library
+                  (capture="environment" forced the camera on mobile, Levi 2026-08-12) */}
               <input
                 ref={cardPhotoRef}
                 type="file"
                 accept="image/*"
-                capture="environment"
                 className="sr-only"
                 data-testid="pay-card-photo-input"
                 onChange={(e) => void onCardPhoto(e)}
