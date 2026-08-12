@@ -32,7 +32,8 @@ import {
   peekPendingDocSync,
 } from "../lib/docSyncChain.js";
 import { runDailyDedupeScan } from "../lib/dedupeScan.js";
-import { flushDocOutbox, pendingDocSaveCount } from "../lib/docOutbox.js";
+import { flushDocOutbox, pendingDocSaveCount, rememberDocSave } from "../lib/docOutbox.js";
+import { buildLastSentDocPatch } from "../lib/lastSentDoc.js";
 import { touchCustomerJob } from "../lib/customerRecency.js";
 import { hydrateDismissed } from "../lib/customers.js";
 import {
@@ -1167,11 +1168,47 @@ export function StoreProvider({ children }) {
     [commands, effectiveJob, enqueue, patchAndSave, refreshCommands, showToast]
   );
 
-  /** Append to the job's send history immediately — never stages a phantom unsaved change. */
+  /**
+   * Append to the job's send history immediately — never stages a phantom unsaved change.
+   * When opts carries amount/lines (estimate/invoice email), also lock the job face to
+   * what the customer just received so the card cannot stay on a previous draft total
+   * (Izzy est #201971: emailed $7,750 while app still showed $8,860).
+   *
+   * @param {string} id
+   * @param {string} kind history label
+   * @param {string} [to]
+   * @param {{ kind?: "estimate"|"invoice", amount?: number|string, lines?: object[], docNo?: string, payCode?: string, source?: string }} [opts]
+   */
   const logSend = useCallback(
-    (id, kind, to) => {
+    (id, kind, to, opts) => {
       const j = effectiveJob(id) || {};
-      const hist = (j.invoiceHistory || []).concat([{ date: todayStr(), to: to || j.email || "", kind }]);
+      const isDoc =
+        opts &&
+        (opts.kind === "estimate" ||
+          opts.kind === "invoice" ||
+          opts.amount != null ||
+          (Array.isArray(opts.lines) && opts.lines.length));
+      if (isDoc) {
+        const patch = buildLastSentDocPatch(j, {
+          kind: opts.kind === "estimate" ? "estimate" : "invoice",
+          amount: opts.amount,
+          lines: opts.lines,
+          to: to || j.email || "",
+          docNo: opts.docNo,
+          payCode: opts.payCode,
+          kindLabel: kind,
+          source: opts.source || "send",
+        });
+        // Outbox first — same durability path as invoice create (Levi 2026-08-11).
+        // Do not confirmDocSave here: patchAndSave network is fire-and-forget;
+        // outbox flush on next idle/start confirms when the write lands.
+        rememberDocSave(id, patch);
+        void patchAndSave(id, patch).catch(() => {});
+        return;
+      }
+      const hist = (j.invoiceHistory || []).concat([
+        { date: todayStr(), to: to || j.email || "", kind },
+      ]);
       patchAndSave(id, { invoiceHistory: hist }).catch(() => {});
     },
     [effectiveJob, patchAndSave]

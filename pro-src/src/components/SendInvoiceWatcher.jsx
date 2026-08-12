@@ -26,7 +26,7 @@ function label(c) {
 }
 
 export default function SendInvoiceWatcher() {
-  const { commands, showToast, logSend, patchAndSave } = useStoreData();
+  const { commands, showToast, logSend } = useStoreData();
   const seen = useRef(loadSeen());
 
   // No private poll — rides the store's 8s commands poll via the `commands`
@@ -53,9 +53,25 @@ export default function SendInvoiceWatcher() {
         showToast(label(c) + " emailed to customer" + pay + via);
         if (c.jobId) {
           const no = c.payload?.invoiceNo || c.payload?.estimateNo || "";
-          const kind = c.type === "send_estimate" ? "Estimate" : "Invoice";
-          logSend(c.jobId, (no ? kind + " #" + no : kind) + " emailed", c.payload?.email);
-          patchAndSave(c.jobId, { _docEmailed: true }).catch(() => {});
+          const isEst = c.type === "send_estimate";
+          const kind = isEst ? "Estimate" : "Invoice";
+          const slim = c.payload?.job || {};
+          const lines = isEst
+            ? slim.estimateLines || c.payload?.estimateLines
+            : slim.invoiceLines || c.payload?.invoiceLines;
+          const amount = slim.amount || c.payload?.amount;
+          logSend(
+            c.jobId,
+            (no ? kind + " #" + no : kind) + " emailed",
+            c.payload?.email,
+            {
+              kind: isEst ? "estimate" : "invoice",
+              amount,
+              lines,
+              docNo: no,
+              source: "send_watcher",
+            }
+          );
         }
       } else {
         const err = String(c.error || "");
@@ -76,7 +92,7 @@ export default function SendInvoiceWatcher() {
         }
       }
     }
-  }, [commands, showToast, patchAndSave]);
+  }, [commands, showToast, logSend]);
 
   return null;
 }

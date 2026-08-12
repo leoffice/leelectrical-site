@@ -29,6 +29,7 @@ import { fmt$, fmtAmountField, parseAmount, todayStr } from "../lib/format.js";
 import { docStorePdfUrl, openPdfBlob, openPdfUrl, downloadPdfBlob } from "../lib/pdfOpen.js";
 import { canGenerateLocalDoc, docPdfFilename } from "../lib/jobToQbDoc.js";
 import { buildInvoicePdfFromJob, buildEstimatePdfFromJob } from "../lib/invoicePdf.js";
+import { linesTotal } from "../lib/qboDoc.js";
 import LocalDocViewer from "./LocalDocViewer.jsx";
 import {
   chargeAchInApp,
@@ -239,12 +240,27 @@ export function useDoSend() {
       }
 
       if (res?.ok && res.sent) {
+        // Lock job face to the emailed PDF (Izzy #201971: emailed $7,750, card $8,860).
+        const lines = kind === "estimate" ? job.estimateLines : job.invoiceLines;
+        const face = linesTotal(lines) || parseAmount(job.amount) || 0;
         logSend(
           job.id,
-          label + " #" + (no || "") + " emailed (local PDF)" + (withPay ? " + payment link" : ""),
-          email
+          label +
+            " #" +
+            (no || "") +
+            " emailed (local PDF)" +
+            (withPay ? " + payment link" : "") +
+            (face > 0 ? " — " + fmt$(face) : ""),
+          email,
+          {
+            kind,
+            amount: face,
+            lines,
+            docNo: no,
+            payCode: res?.payCode || res?.viewLink || "",
+            source: "job_sheets_local",
+          }
         );
-        await patchAndSave(job.id, { _docEmailed: true, _draftChangeOrder: false }).catch(() => {});
         showToast(label + " emailed to " + email);
         return { ok: true, res };
       }

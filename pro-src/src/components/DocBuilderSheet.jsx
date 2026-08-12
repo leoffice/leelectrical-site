@@ -2068,12 +2068,33 @@ export default function DocBuilderSheet({
                     : undefined,
                 };
           if (res?.ok && res.sent) {
+            // Lock job face to the PDF that just went out (Izzy #201971 class).
+            const sentLines =
+              kind === "estimate"
+                ? pdfJob.estimateLines || jobPatch.estimateLines
+                : pdfJob.invoiceLines || jobPatch.invoiceLines;
+            const sentAmt =
+              parseAmount(amountStr) ||
+              linesTotal(sentLines) ||
+              parseAmount(pdfJob.amount) ||
+              0;
             logSend(
               jobId,
               (kind === "estimate" ? "Estimate" : "Invoice") +
+                " #" +
+                (no || "") +
                 " emailed (local PDF)" +
-                (withPay ? " + payment link" : ""),
-              emailTo
+                (withPay ? " + payment link" : "") +
+                (sentAmt > 0 ? " — " + fmt$(sentAmt) : ""),
+              emailTo,
+              {
+                kind,
+                amount: sentAmt,
+                lines: sentLines,
+                docNo: no,
+                payCode: res?.payCode || res?.viewLink || "",
+                source: "doc_builder_local",
+              }
             );
             showToast("Emailed " + label + " to " + emailTo);
             return;
@@ -2091,12 +2112,33 @@ export default function DocBuilderSheet({
               "deterministic",
               "send_" + kind + ":local:" + (no || jobId) + ":" + Date.now()
             );
+            // Stamp face now even though host finishes the email — the PDF total
+            // is already decided; don't leave the card on a previous draft.
+            const sentLinesQ =
+              kind === "estimate"
+                ? pdfJob.estimateLines || jobPatch.estimateLines
+                : pdfJob.invoiceLines || jobPatch.invoiceLines;
+            const sentAmtQ =
+              parseAmount(amountStr) ||
+              linesTotal(sentLinesQ) ||
+              parseAmount(pdfJob.amount) ||
+              0;
             logSend(
               jobId,
               (kind === "estimate" ? "Estimate" : "Invoice") +
+                " #" +
+                (no || "") +
                 " local send queued" +
-                (withPay ? " + payment link" : ""),
-              emailTo
+                (withPay ? " + payment link" : "") +
+                (sentAmtQ > 0 ? " — " + fmt$(sentAmtQ) : ""),
+              emailTo,
+              {
+                kind,
+                amount: sentAmtQ,
+                lines: sentLinesQ,
+                docNo: no,
+                source: "doc_builder_local_queued",
+              }
             );
             showToast("Finishing send in the background — you'll get a toast when it lands");
           } else {
