@@ -1,9 +1,10 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   buildPayLandingPayload,
   buildPayLandingUrl,
   decodePayLanding,
   encodePayLanding,
+  resolvePayLandingToken,
 } from "../src/lib/payLanding.js";
 
 const job = {
@@ -78,5 +79,72 @@ describe("payLanding", () => {
     expect(decodePayLanding("")).toBeNull();
     expect(decodePayLanding("not-valid-base64!!!")).toBeNull();
     expect(decodePayLanding(encodePayLanding({ i: "1" }))).toBeNull();
+  });
+});
+
+describe("long-token live refresh (stale-amount fix, Levi 2026-08-12)", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  const stale = buildPayLandingPayload({
+    job,
+    cardknoxUrl: cardknox,
+    linkAmount: "10000",
+    inv: "231315",
+    siteSlug: "blzelectric",
+  });
+
+  it("embedded token adopts the server's live money fields", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url) => {
+        expect(String(url)).toContain("pay-link?code=231315");
+        return {
+          ok: true,
+          json: async () => ({
+            ok: true,
+            payload: { ...stale, a: 4000, d: "$4,000.00", p: "$6,000.00", rf: 1 },
+          }),
+        };
+      })
+    );
+    const resolved = await resolvePayLandingToken(encodePayLanding(stale));
+    expect(resolved.a).toBe(4000);
+    expect(resolved.d).toBe("$4,000.00");
+    expect(resolved.rf).toBe(1);
+    expect(resolved.pay).toBe(cardknox); // link intent survives
+  });
+
+  it("falls back to the embedded snapshot when the server has no live job", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => ({ ok: false, json: async () => ({ ok: false }) }))
+    );
+    const resolved = await resolvePayLandingToken(encodePayLanding(stale));
+    expect(resolved.a).toBe(10000);
+    expect(resolved.rf).toBeUndefined();
+  });
+
+  it("never adopts another job's payload on duplicate invoice numbers", async () => {
+    const staleWithJob = buildPayLandingPayload({
+      job: { ...job, id: "job-golan" },
+      cardknoxUrl: cardknox,
+      linkAmount: "10000",
+      inv: "231315",
+      siteSlug: "blzelectric",
+    });
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => ({
+        ok: true,
+        json: async () => ({
+          ok: true,
+          payload: { ...staleWithJob, j: "some-other-job", a: 99, d: "$99.00" },
+        }),
+      }))
+    );
+    const resolved = await resolvePayLandingToken(encodePayLanding(staleWithJob));
+    expect(resolved.a).toBe(10000); // kept the embedded snapshot
   });
 });

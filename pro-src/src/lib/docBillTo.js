@@ -17,6 +17,16 @@ export function isPermitRenewDoc(job) {
 }
 
 /**
+ * Customer-facing addresses are the FIRST paragraph only. A blank line inside
+ * an address field separates the address from trailing notes — dictation
+ * leftovers ("…11213\n\n\nWe are going to in", invoice 251854) printed at the
+ * top of the customer pay page under BILLING (Levi 2026-08-12).
+ */
+export function firstAddressParagraph(raw) {
+  return String(raw || "").trim().split(/\n\s*\n/)[0].trim();
+}
+
+/**
  * Bill-to block under the customer name (street / mail / email / phone).
  * Only a billing address the customer actually has prints here; a billing
  * field that is empty or just mirrors the job site (the old service→billing
@@ -24,7 +34,7 @@ export function isPermitRenewDoc(job) {
  */
 export function resolveBillToAddress(job = {}) {
   const j = job || {};
-  const rawBill = String(j.billingAddress || "").trim();
+  const rawBill = firstAddressParagraph(j.billingAddress);
   // Probe against the EXPLICIT service address only. j.address is the generic
   // single-address field — on QBO-imported jobs it IS the billing address — so
   // it stays a legitimate billing fallback as long as it isn't the job site.
@@ -33,7 +43,7 @@ export function resolveBillToAddress(job = {}) {
   let billAddr = "";
   if (notService(rawBill)) billAddr = rawBill;
   else {
-    const generic = String(j.address || "").trim();
+    const generic = firstAddressParagraph(j.address);
     if (notService(generic)) billAddr = generic;
   }
   if (!billAddr) {

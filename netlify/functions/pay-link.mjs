@@ -1,10 +1,9 @@
 import { getStore } from "./lib/storage/index.mjs";
-import { buildEmailPayLandingPayload } from "./lib/payLandingLink.mjs";
+import { loadLiveInvoiceJob, refreshedInvoicePayload } from "./lib/payLinkRefresh.mjs";
 
 const SITE = "https://leelectrical.us";
 const TTL_MS = 90 * 24 * 60 * 60 * 1000; // 90 days
 const CODE_RE = /^[0-9]{5,8}-[a-z0-9]{4}$/i;
-const JOBS_KEY = "jobsdata-v1";
 
 function corsHeaders() {
   return {
@@ -38,59 +37,27 @@ function invoiceDigitsFromCode(code) {
   return m ? m[1] : "";
 }
 
-function moneyNum(raw) {
-  const n = parseFloat(String(raw ?? "").replace(/[$,]/g, ""));
-  return Number.isFinite(n) ? n : 0;
-}
-
 /**
- * Rebuild a missing short-link payload from jobsdata (CF/Netlify store loss,
- * or a memo that kept a code after storage rotated). Writes under the same code
- * so already-emailed URLs keep working.
+ * Rebuild a missing short-link payload from the live job (CF/Netlify store
+ * loss, or a memo that kept a code after storage rotated). Writes under the
+ * same code so already-emailed URLs keep working. Same live-job source +
+ * balance math as refresh-on-open, so healed links are current too (Levi
+ * 2026-08-05: receipt emails still link here after pay-in-full — paid / $0
+ * invoices heal to "Paid in full", never a dead link).
  */
-export async function healMissingPayLink(store, code) {
+export async function healMissingPayLink(store, code, hints = {}) {
   const invNo = invoiceDigitsFromCode(code);
   if (!invNo) return null;
-  let doc;
-  try {
-    const jobsStore = getStore("jobsdata");
-    doc = await jobsStore.get(JOBS_KEY, { type: "json" });
-  } catch (err) {
-    console.error("[pay-link] heal: jobsdata read failed", err);
-    return null;
-  }
-  const jobs = Array.isArray(doc?.jobs) ? doc.jobs : [];
-  const job =
-    jobs.find((j) => String(j?.invoiceNo || "").trim() === invNo) ||
-    jobs.find((j) => String(j?.id || "").includes(invNo));
+  const job = await loadLiveInvoiceJob({ invoiceNo: invNo, jobId: hints.jobId || "" });
   if (!job) return null;
 
-  // Levi 2026-08-05: receipt emails still link here after pay-in-full.
-  // Heal paid / $0 invoices too so "View invoice / updated balance" works.
-  const due = moneyNum(job.openBalance);
-  const total = moneyNum(job.amount) || due;
-  const amountDue = due > 0 ? due : 0;
-
-  const payload = buildEmailPayLandingPayload({
-    job: { ...job, openBalance: amountDue },
-    docData: {
-      docNumber: invNo,
-      amountDue,
-      billTo: { name: job.customer || "" },
-    },
-    email: job.email || "",
-    kind: "invoice",
-  });
+  // Minimal invoice stub — refreshedInvoicePayload fills everything live.
+  // sl marks the payload as an invoice landing for the client decoder.
+  const payload = refreshedInvoicePayload(
+    { i: invNo, k: "i", e: job.email || "", sl: "blzelectric", fe: 1, pay: "" },
+    job
+  );
   if (!payload?.i) return null;
-  // Ensure paid history still shows a sensible total when balance is $0.
-  if (!payload.t && total > 0) {
-    payload.t =
-      "$" + total.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-  }
-  if (amountDue <= 0) {
-    payload.d = "Paid in full";
-    payload.a = 0;
-  }
 
   const record = {
     payload,
@@ -108,6 +75,43 @@ export async function healMissingPayLink(store, code) {
     return null;
   }
   return record;
+}
+
+/**
+ * Refresh-on-open: rebuild the stored payload from the live job before
+ * resolving, so an emailed link always shows the CURRENT balance (a snapshot
+ * showed the customer a stale $2,300 on invoice 251854, Levi 2026-08-12).
+ * Persists the fresh payload under the same code. Falls back to the stored
+ * snapshot when the job cannot be resolved (never blanks a working link).
+ */
+async function refreshRecord(store, code, record, jobIdHint = "") {
+  const payload = record?.payload;
+  if (!payload || typeof payload !== "object" || !payload.i) return record;
+  if (payload.k === "e" || payload.kind === "estimate") return record;
+  if (record.createdAt && Date.now() - record.createdAt > TTL_MS) return record;
+  let fresh = null;
+  try {
+    const job = await loadLiveInvoiceJob({
+      invoiceNo: String(payload.i).trim(),
+      jobId: String(jobIdHint || payload.j || "").trim(),
+      customer: String(payload.c || "").trim(),
+    });
+    fresh = refreshedInvoicePayload(payload, job);
+  } catch (err) {
+    console.error("[pay-link] refresh failed — serving stored snapshot", err);
+  }
+  if (!fresh) return record;
+  const next = { ...record, payload: fresh, refreshedAt: Date.now() };
+  if (JSON.stringify(fresh) !== JSON.stringify(payload)) {
+    try {
+      await store.set(`pl-${code}`, JSON.stringify(next), {
+        metadata: { invoiceNo: String(payload.i), ts: Date.now(), refreshed: "1" },
+      });
+    } catch (err) {
+      console.error("[pay-link] refresh: store write failed", err);
+    }
+  }
+  return next;
 }
 
 function respondResolved(req, code, record) {
@@ -203,6 +207,12 @@ export default async (req, env = {}) => {
   const url = new URL(req.url);
   let code = String(url.searchParams.get("code") || "").trim();
   if (!code) return json({ ok: false, error: "code required" }, 400);
+  // Legacy long-token links refresh through here with a job-id hint so
+  // duplicate invoice numbers never resolve to another customer's job.
+  const jobIdHint = String(url.searchParams.get("j") || "").trim();
+  // Browser hits redirect to the pay page, which immediately re-fetches this
+  // endpoint as JSON — only the JSON resolve pays for the live-job refresh.
+  const wantsHtml = !!req.headers.get("accept")?.includes("text/html");
 
   // Bare invoice digits (e.g. /pay/251854) — heal from jobsdata so View & Pay never blanks.
   // Stable code: <invoice>-view (matches CODE_RE).
@@ -219,7 +229,9 @@ export default async (req, env = {}) => {
       }
     }
     if (!bareRecord) {
-      bareRecord = await healMissingPayLink(store, fixedCode);
+      bareRecord = await healMissingPayLink(store, fixedCode, { jobId: jobIdHint });
+    } else if (!wantsHtml) {
+      bareRecord = await refreshRecord(store, fixedCode, bareRecord, jobIdHint);
     }
     if (!bareRecord) return json({ ok: false, error: "invoice not found" }, 404);
     return respondResolved(req, fixedCode, bareRecord);
@@ -235,9 +247,12 @@ export default async (req, env = {}) => {
     } catch {
       return json({ ok: false, error: "corrupt link data" }, 500);
     }
+    if (!wantsHtml) {
+      record = await refreshRecord(store, code, record, jobIdHint);
+    }
   } else {
     // Self-heal: short code was emailed but missing from KV (migration / wipe).
-    record = await healMissingPayLink(store, code);
+    record = await healMissingPayLink(store, code, { jobId: jobIdHint });
     if (!record) return json({ ok: false, error: "link not found" }, 404);
   }
 

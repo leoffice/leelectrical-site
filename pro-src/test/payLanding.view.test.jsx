@@ -139,6 +139,73 @@ describe("PayLanding view", () => {
     expect(toggle).toHaveAttribute("aria-expanded", "false");
   });
 
+  it("tapping the work text itself expands and shows the invoice line items", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => ({ ok: true })));
+    const user = userEvent.setup();
+    const token = encodePayLanding(
+      buildPayLandingPayload({
+        job: {
+          customer: "Line Items Co",
+          title: "Meter package",
+          amount: "$4,600",
+          openBalance: "$2,300",
+          invoiceNo: "251901",
+          billingAddress: "12 Oak St, Brooklyn, NY 11201",
+          serviceAddress: "14 Oak St, Brooklyn, NY 11201",
+          invoiceLines: [
+            {
+              itemName: "Service Upgrade:1 Meter",
+              description: "Electrical services — 200A 3-phase meter package (50% progress)",
+              qty: 0.5,
+              unitPrice: 9200,
+            },
+          ],
+        },
+        cardknoxUrl: "https://secure.cardknox.com/blzelectric?xAmount=2300&xinvoice=251901",
+        linkAmount: "2300",
+        inv: "251901",
+        siteSlug: "blzelectric",
+      })
+    );
+    renderPay(token);
+    await waitForPayLoaded();
+    // The body itself is the tap target — not just the tiny Details button
+    // (Levi 2026-08-12: tapping the details "did nothing").
+    expect(screen.queryByTestId("work-line-items")).not.toBeInTheDocument();
+    await user.click(screen.getByTestId("work-desc-body"));
+    const items = screen.getByTestId("work-line-items");
+    expect(items).toHaveTextContent(/200A 3-phase meter package/);
+    expect(items).toHaveTextContent(/0\.5 × \$9,200/);
+    expect(items).toHaveTextContent(/\$4,600/);
+    await user.click(screen.getByTestId("work-desc-body"));
+    expect(screen.queryByTestId("work-line-items")).not.toBeInTheDocument();
+  });
+
+  it("card photo input offers camera OR library (no capture attribute)", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => ({ ok: true, json: async () => ({}) })));
+    const token = encodePayLanding(
+      buildPayLandingPayload({
+        job: {
+          customer: "Photo Choice Co",
+          title: "Service call",
+          amount: "$500",
+          invoiceNo: "251902",
+          billingAddress: "1 Elm St, Brooklyn, NY 11201",
+          serviceAddress: "2 Elm St, Brooklyn, NY 11201",
+        },
+        cardknoxUrl: "https://secure.cardknox.com/blzelectric?xAmount=500&xinvoice=251902",
+        linkAmount: "500",
+        inv: "251902",
+        siteSlug: "blzelectric",
+      })
+    );
+    renderPay(token);
+    await waitForPayLoaded();
+    const input = screen.getByTestId("pay-card-photo-input");
+    expect(input).not.toHaveAttribute("capture");
+    expect(input).toHaveAttribute("accept", "image/*");
+  });
+
   it("expands paid-to-date to show payment history from the token", async () => {
     vi.stubGlobal("fetch", vi.fn(async () => ({ ok: true })));
     const user = userEvent.setup();

@@ -5,7 +5,7 @@ import { parseAmount } from "./format.js";
 import { parseUSAddress, extractZip } from "./solaPayUrl.js";
 import { functionsBase, siteOrigin } from "./functionsBase.js";
 import { primaryEmailForPayment } from "./primaryEmail.js";
-import { isPermitRenewDoc, resolveBillToAddress } from "./docBillTo.js";
+import { firstAddressParagraph, isPermitRenewDoc, resolveBillToAddress } from "./docBillTo.js";
 
 const SHORT_CODE_RE = /^[0-9]{5,8}-[a-z0-9]{4}$/i;
 
@@ -80,7 +80,9 @@ export function buildPayLandingPayload({
   const pays = normalizePayments(job);
   const paid = amountPaid(job);
   const linkAmt = parseFloat(String(linkAmount).replace(/[$,]/g, "")) || due;
-  const serviceAddr = (job?.serviceAddress || job?.address || "").trim();
+  // First paragraph only — a blank line separates the address from trailing
+  // dictation notes ("We are going to in", invoice 251854, Levi 2026-08-12).
+  const serviceAddr = firstAddressParagraph(job?.serviceAddress || job?.address || "");
   // Contact under billing when no real billing address exists — never fall
   // back to the service street, for ANY doc (Levi 2026-08-10 renews;
   // Levi 2026-08-11 LE-2700 generalized it).
@@ -203,11 +205,47 @@ export async function buildShortPayLandingUrl(opts) {
   }
 }
 
+/** Payload fields the server refreshes from the live invoice (money + content). */
+const LIVE_REFRESH_FIELDS = ["a", "t", "d", "p", "ps", "as", "w", "lines", "ba", "sa", "z", "c", "rf"];
+
+/**
+ * Legacy long-token links carry a frozen snapshot in the URL itself. Ask the
+ * server for the live invoice (bare-code resolve refreshes from jobsdata + ov)
+ * and adopt the current money/content fields, so even a years-old embedded
+ * token never shows a stale balance. Falls back to the decoded snapshot when
+ * offline or the job cannot be resolved.
+ */
+async function refreshDecodedInvoicePayload(decoded) {
+  if (!decoded || isEstimateLanding(decoded)) return decoded;
+  const inv = String(decoded.i || "").replace(/\D/g, "");
+  if (!/^[0-9]{5,8}$/.test(inv)) return decoded;
+  try {
+    const qs = new URLSearchParams({ code: inv });
+    if (decoded.j) qs.set("j", decoded.j);
+    const res = await fetch(`${functionsBase()}/pay-link?${qs.toString()}`, { cache: "no-store" });
+    const data = await res.json().catch(() => ({}));
+    const live = res.ok && data.ok ? data.payload : null;
+    if (!live || !live.i) return decoded;
+    // Same invoice AND (when both know it) the same job — duplicate invoice
+    // numbers must never pull another customer's balance onto this link.
+    if (String(live.i).replace(/\D/g, "") !== inv) return decoded;
+    if (decoded.j && live.j && String(live.j) !== String(decoded.j)) return decoded;
+    const fresh = { ...decoded };
+    delete fresh.rf;
+    for (const k of LIVE_REFRESH_FIELDS) {
+      if (live[k] !== undefined) fresh[k] = live[k];
+    }
+    return fresh;
+  } catch {
+    return decoded;
+  }
+}
+
 /** Resolve token from URL — decodes embedded token or fetches short code from server. */
 export async function resolvePayLandingToken(token) {
   const t = String(token || "").trim();
   const decoded = decodePayLanding(t);
-  if (decoded) return decoded;
+  if (decoded) return refreshDecodedInvoicePayload(decoded);
   if (!isShortPayCode(t)) return null;
   const res = await fetch(`${functionsBase()}/pay-link?code=${encodeURIComponent(t)}`, {
     cache: "no-store",

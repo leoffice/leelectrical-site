@@ -57,8 +57,45 @@ function paymentsFor(job) {
     .sort((a, b) => String(b.d).localeCompare(String(a.d)));
 }
 
+/**
+ * Customer-facing addresses are the FIRST paragraph only. A blank line inside
+ * an address field separates the address from trailing notes (dictation
+ * leftovers — invoice 251854's billing field ended in "We are going to in",
+ * which printed at the top of the customer pay page, Levi 2026-08-12).
+ */
+export function firstAddressParagraph(raw) {
+  return String(raw || "").trim().split(/\n\s*\n/)[0].trim();
+}
+
+/**
+ * Bill-to block for customer-facing pay pages / emails. Mirrors the client's
+ * docBillTo.resolveBillToAddress rule: only a real billing address prints
+ * under BILLING (never the job site); otherwise contact info (email / phone).
+ */
+export function billToAddressForJob(job = {}) {
+  const normA = (s) =>
+    String(s || "")
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, " ")
+      .trim();
+  // Probe against the EXPLICIT service address only — job.address is the
+  // generic single-address field (on QBO jobs it IS the billing address).
+  const svcProbe = String(job.serviceAddress || "").trim();
+  const notSvc = (v) => v && (!svcProbe || normA(v) !== normA(svcProbe));
+  const rawBillAddr = firstAddressParagraph(job.billingAddress);
+  const genericAddr = firstAddressParagraph(job.address);
+  let billAddr = notSvc(rawBillAddr) ? rawBillAddr : notSvc(genericAddr) ? genericAddr : "";
+  if (!billAddr) {
+    billAddr = [job.email, job.phone]
+      .map((x) => String(x || "").trim())
+      .filter(Boolean)
+      .join("\n");
+  }
+  return billAddr;
+}
+
 /** Compact line items for estimate→deposit invoice on the public landing page. */
-function compactLines(job, kind = "invoice") {
+export function compactLines(job, kind = "invoice") {
   const raw =
     (kind === "estimate"
       ? job?.estimateLines
@@ -78,7 +115,7 @@ function compactLines(job, kind = "invoice") {
 }
 
 /** Full work text for Details expand — lines first, not truncated title. */
-function workDescription(job) {
+export function workDescription(job) {
   const sets = [job?.changeOrderLines, job?.invoiceLines, job?.items, job?.estimateLines];
   const parts = [];
   for (const set of sets) {
@@ -106,29 +143,12 @@ export function buildEmailPayLandingPayload({
   kind = "invoice",
 }) {
   const isEstimate = String(kind || "invoice").toLowerCase() === "estimate";
-  const serviceAddr = String(job.serviceAddress || job.address || "").trim();
+  const serviceAddr = firstAddressParagraph(job.serviceAddress || job.address || "");
   // ba carries only a billing address the customer actually has — never the
   // job site (Levi 2026-08-11, LE-2700). An empty or service-mirroring billing
   // field ships as contact info so the landing page never shows the service
   // street under BILLING.
-  const normA = (s) =>
-    String(s || "")
-      .toLowerCase()
-      .replace(/[^a-z0-9]+/g, " ")
-      .trim();
-  // Probe against the EXPLICIT service address only — job.address is the
-  // generic single-address field (on QBO jobs it IS the billing address).
-  const svcProbe = String(job.serviceAddress || "").trim();
-  const notSvc = (v) => v && (!svcProbe || normA(v) !== normA(svcProbe));
-  const rawBillAddr = String(job.billingAddress || "").trim();
-  const genericAddr = String(job.address || "").trim();
-  let billAddr = notSvc(rawBillAddr) ? rawBillAddr : notSvc(genericAddr) ? genericAddr : "";
-  if (!billAddr) {
-    billAddr = [job.email, job.phone]
-      .map((x) => String(x || "").trim())
-      .filter(Boolean)
-      .join("\n");
-  }
+  const billAddr = billToAddressForJob(job);
   const due = amt(docData.amountDue);
   const paid = isEstimate
     ? 0
